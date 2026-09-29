@@ -213,9 +213,32 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
     face_vs = {fid: {v for r in [vw.rings[fid], *vw.holes[fid]] for v in r}
                for fid in {a for d in fac.values() for a in d}}
     touch = pad_frontage_leaders(planar, law) if fac else {}
+    # SPEC-AUTHOR RULINGS 2026-09-29s (C) (#96): A JUNIOR FACING ROW NEVER
+    # CROSSES A DECLARED PAD TERRACE.  A pad split off an upper pad by a
+    # 28b terrace (``planar/pad_terrace``, kind ``pad``) sits at the LOWER
+    # level, on the apron it touches (its senior); a junior facing row
+    # toward an apron standing at the UPPER level — nearer the terrace's
+    # front level than its other level — reaches across that terrace and
+    # is report-only noise (#96: HECA ``building131`` -5.8 m against
+    # ``pav37`` while ``building52|building131`` is declared at 97.7 vs
+    # 92.6).  No surface change beyond the junior row itself (the law's
+    # weight); a senior row is never dropped.  MEASURED before this form:
+    # "the upper pad's front / faced aprons" matched nothing at HECA
+    # (``building52`` faces ``dsf:objpav68#0``, ``building131`` faces
+    # ``pav37`` — the same east apron under two refs).
+    from ..planar.pad_terrace import TERRACES
+    ref_of = {f.id: str(f.ref) for f in planar.faces.values()}
+    lower: dict[str, list[tuple[float, float]]] = {}
+    for t in TERRACES:
+        if t.kind == "pad":
+            lower.setdefault(t.other_ref, []).append((t.front_level, t.other_level))
+    n_across = 0
     groups: dict[int, dict] = {}
     for gid, ref, group, fids in plane_groups(planar, law, airport):
         per: list[tuple[int, list[tuple[int, float]]]] = []
+        junior = any(touch.get(q) for q in fids)
+        levels = ([lv for q in fids for lv in lower.get(ref_of.get(q, ""), ())]
+                  if junior else [])
         for q in fids:
             for afid, contacts in (fac.get(q) or {}).items():
                 own = face_vs[afid]
@@ -225,7 +248,14 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
                     dist = {v: poly.distance(Point(*planar.vertices[v].xy)) for v in own}
                     cut = min(dist.values()) + _LEADER_NEAR_M
                     near = {v for v, dd in dist.items() if dd <= cut}
-                per.extend(frontage_leaders(planar, contacts, own, near=near))
+                lead = frontage_leaders(planar, contacts, own, near=near)
+                if levels:
+                    la = _level(planar, lead)
+                    if la is not None and any(abs(la - hi) < abs(la - lo)
+                                              for hi, lo in levels):
+                        n_across += 1          # across the terrace: upper side
+                        continue
+                per.extend(lead)
         if not per:
             continue
         t_per = [pr for q in fids for prs in (touch.get(q) or {}).values() for pr in prs]
@@ -235,6 +265,7 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
         groups[gid] = {"ref": ref, "group": group, "fids": fids, "per": per,
                        "facing_level": lf, "touching_level": lt,
                        "senior": senior}
+    STATS["pad_fronting_across_terrace"] = {"junior_dropped": n_across}
     out = {"_pm": planar, "groups": groups}
     _CACHE.clear()
     _CACHE[key] = out

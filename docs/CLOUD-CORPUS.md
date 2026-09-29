@@ -61,7 +61,9 @@ repository is not enabled for this session" even with a valid PAT, and
    echo "apt ok: gdal $(gdal-config --version)"
    # the image's default python3 is a PPA 3.11 whose -dev headers are now
    # unreachable; the venv uses Ubuntu's 3.12 (headers from python3.12-dev)
-   cd "$(git rev-parse --show-toplevel)/Ortho4XP"
+   # the setup script does not start inside the checkout (git rev-parse fails
+   # there, measured 2026-09-29); the clone lands at /home/user/<repo>
+   cd "${CLAUDE_PROJECT_DIR:-/home/user/XPTerrainBuilder}/Ortho4XP"
    /usr/bin/python3.12 -m venv venv
    venv/bin/python -m pip install -q --upgrade pip setuptools wheel
    grep -v '^gdal' requirements.txt > /tmp/req.txt

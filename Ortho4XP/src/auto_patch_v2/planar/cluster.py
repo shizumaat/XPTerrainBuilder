@@ -197,21 +197,22 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
         return ()
     # unit-platform spec §2: every NOT-solid connector is cut out of the
     # chain, by the ONE verdict the object stage reads too
-    from ..airport.footprint_connector import cut_pids
+    from ..airport.footprint_connector import cut_pids, linear_pids
     verdicts = connector_verdicts(airport, law)
     cut = cut_pids(verdicts)
+    linear = linear_pids(verdicts)          # RULINGS 2026-09-29v (1)
     WHY["connectors_cut"] = sum(1 for v in verdicts if not v.solid)
     WHY["connectors_solid"] = sum(1 for v in verdicts if v.solid)
     key = id(airport)
     for k, ap, m0, e0, got in _MEMO:
-        if (k == key and ap is airport and m0 == (split, tall, sheet, cut, olaw)
+        if (k == key and ap is airport and m0 == (split, tall, sheet, cut, linear, olaw)
                 and e0 == eps):
             return got
     counts: dict = {}
     got = tuple(plan_clusters(part, eps, floor_split_m=split,
                               chain_min_height_m=tall, counts=counts,
                               sheet_chain_min_fraction=sheet, cut=cut,
-                              outline_law=olaw))
+                              linear=linear, outline_law=olaw))
     WHY["connectors_cut_out"] = counts.get("cluster_connectors_cut_out", 0)
     WHY["clusters"] = len(got)
     WHY["with_rings"] = sum(1 for c in got if c.rings)
@@ -220,7 +221,7 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     WHY["walled_clusters"] = sum(1 for c in got if c.walled)
     if not got:
         WHY["gate"] = "plan_clusters: the partition's units hold no body"
-    _MEMO.append((key, airport, (split, tall, sheet, cut, olaw), eps, got))
+    _MEMO.append((key, airport, (split, tall, sheet, cut, linear, olaw), eps, got))
     del _MEMO[:-_MEMO_MAX]
     return got
 

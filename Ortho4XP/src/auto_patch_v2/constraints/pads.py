@@ -581,6 +581,8 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # carried most of the certificate's 151 -> 1,318 infeasible rows.
     led_ruling = (FLAT_AIRSIDE_LED_RULING + ruling[len(FLAT_RULING):]
                   if ruling.startswith(FLAT_RULING) else ruling)
+    from .platform import contact_led_refs
+    led_refs = contact_led_refs(planar, law) if cap <= 0.0 else frozenset()
     for fid, ref, group, fids in plane_groups(planar, law, airport):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
         src_led = Source(GEN, led_ruling, (f"face:{fid}", ref))
@@ -590,6 +592,19 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         # plate over it prices no §30 (6) per-vertex relief either, or the
         # two contest the plane (measured HECA T3: 0.56 m residual)
         platformed = any(is_collar_ref(planar.faces[q].ref) for q in fids)
+        # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): a platform's TILT is
+        # FREE within the 1 % ceiling — its plane is contact-led
+        # (``platform.platform_level_rows``) and held one plane by the hard
+        # ``platform plane`` rows, so the cap-0 zero-tilt target no longer
+        # prices it (measured: it pinned HECA ``building4`` flat over a
+        # frontage rising 7 m).  The hard 1 % CEILING (``cap`` > 0) stays.
+        # (E) the same for a REFUSED platform's plate that fronts airside
+        # (``platform.refused_plates``: contact-led, one hard plane over its
+        # own vertices) — only where the group is that plate alone.  A
+        # platform with no welded contact keeps its target (nothing leads it)
+        if cap <= 0.0 and led_refs and {
+                platform_ref_of(str(planar.faces[q].ref)) for q in fids} <= led_refs:
+            continue
         if len(plate_fids) > 1:
             prs, k = cluster_pairs(planar, [per_face[q] for q in plate_fids],
                                    own=(None if not air else

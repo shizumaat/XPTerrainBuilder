@@ -93,6 +93,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # COLLAR between a platform and its welded rim is a 1:3 bank
     ("platform_collar", platform.platform_collar_rows),
     ("platform_plane", platform.platform_plane_rows),
+    # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): the plane is CONTACT-LED —
+    # one one-way level row per welded collar contact, at the plane there
+    ("platform_level", platform.platform_level_rows),
     # §30 (4)'s apron reach / collar generators: DELETED (jetway-strip
     # spec §6 Q3) — the JETWAY STRIP projection is their successor.
     ("frontage_near_miss", pads.frontage_near_miss),

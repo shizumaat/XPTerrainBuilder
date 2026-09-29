@@ -2908,6 +2908,109 @@ def _check_adjacent_ground_steps(ways: List[Way],
     return out
 
 
+# ── #97 M1 THE GROUNDSIDE CUT-BACK STRIP ─────────────────────────────
+#: The family key of the stand-off strip between a groundside road and
+#: the adjacent-ground zone (or airside face) cut back from it (issue #97
+#: M1; ``zones.toml groundside_cutback_m``).  REPORT-ONLY: the law the
+#: strip should hold is the owner's intent question Q-97 (#58).
+GROUNDSIDE_CUTBACK_FAMILY = "groundside_cutback"
+#: The ``out_of_scope`` stamp every ``groundside_cutback`` row carries:
+#: the family is REPORT-ONLY — named and counted in its family, never
+#: adjudicated — until Q-97 (#58) rules what the strip should hold.
+GROUNDSIDE_CUTBACK_OUT_OF_SCOPE = "cutback_intent_q97"
+
+
+def groundside_cutback_frame() -> Tuple[float, float]:
+    """``(horizon_m, ramp_max)`` — the stand-off horizon is
+    the ONE derivation ``constraints/groundside.groundside_ramps`` uses
+    across the same stand-off (cut-back + weld spacing + snap margin), and
+    the provisional reading line is that generator's own
+    ``terrace.groundside_ramp_max`` — the only law any row prices a step
+    across a groundside stand-off at.  Never typed here."""
+    from auto_patch_v2.law import tables as _T
+    law = _T.load_default()
+    horizon = (law.tables.zones.adjacent_ground.groundside_cutback_m
+               + law.tables.emit.identity.weld_spacing_m
+               + _T.snap_margin_m(law))
+    return horizon, _T.groundside_ramp_max(law)
+
+
+def _check_groundside_cutback(ways: List[Way],
+                              nodes: Dict[str, Tuple[float, float]],
+                              ll_to_m, horizon_m: float,
+                              ramp_max: float) -> List[Violation]:
+    """THE CUT-BACK STRIP (issue #97 M1; scout road97, sw0929b_HECA).
+
+    ``planar/zones.zone_regions`` cuts every adjacent-ground band back
+    ``groundside_cutback_m`` (+ the snap margin) from groundside pavement,
+    so a road and the zone beside it never share a vertex and "the gap
+    terraces".  Nothing priced that terrace: ``groundside_ramps`` pairs
+    APRON vertices only, ``adjacent_ground_step`` is within ONE zone face,
+    and ``cross_shape`` reads a sub-metre strip as noise.  At HECA
+    route19 the strip carried +0.81 m over 0.96 m for 165 m, unseen.
+
+    The pair is a ROAD-family ring vertex and the NEAREST vertex of an
+    ``adjacent_ground:*`` zone face or an aircraft-pavement face other
+    than apron (apron is ``groundside_ramps``' own row) across the strip —
+    within the stand-off horizon and not the same node (identity, not
+    ``SHARED_VERTEX_TOL_M``: the strip is 0.48-0.95 m at HECA, so the
+    census weld tolerance of 0.5 m would drop its narrow half).  A row is a pair
+    whose terrace grade exceeds ``ramp_max``; ``de_m`` is the step,
+    ``distance_m`` the strip width.  REPORT-ONLY (``solver =
+    "diagnostic"``, ``cockpit = "grade"``): no solve row, because what the
+    strip should carry is Q-97's intent."""
+    import numpy as np
+    from scipy.spatial import cKDTree
+    far_xy: List[Tuple[float, float]] = []
+    far_rec: List[Tuple[Way, float, str]] = []
+    for w in ways:
+        is_zone = str(w.ref or "").startswith(V2_ADJACENT_GROUND_REF_PREFIX)
+        if not is_zone and (law_role(w) not in _ZONE_ON_PAVEMENT_ROLES
+                            or law_role(w) == "apron"):
+            continue
+        for i, nid in enumerate(w.nids[:-1] if len(w.nids) > 1 else w.nids):
+            e = w.elevs[i] if i < len(w.elevs) else None
+            if e is None or nid not in nodes:
+                continue
+            far_xy.append(ll_to_m(*nodes[nid]))
+            far_rec.append((w, float(e), nid))
+    if not far_xy:
+        return []
+    tree = cKDTree(np.asarray(far_xy))
+    out: List[Violation] = []
+    seen: set = set()
+    for w in ways:
+        if law_role(w) not in _ROAD_FAMILY_ROLES:
+            continue
+        for i, nid in enumerate(w.nids[:-1] if len(w.nids) > 1 else w.nids):
+            e = w.elevs[i] if i < len(w.elevs) else None
+            if e is None or nid not in nodes:
+                continue
+            xa, ya = ll_to_m(*nodes[nid])
+            d, j = tree.query((xa, ya))
+            if not (0.0 < d <= horizon_m):
+                continue
+            wb, eb, nb = far_rec[int(j)]
+            if nb == nid or (nid, nb) in seen:
+                continue
+            seen.add((nid, nb))
+            de = abs(float(e) - eb)
+            grade = de / d
+            if grade <= ramp_max:
+                continue
+            xb, yb = far_xy[int(j)]
+            v = Violation(
+                grade_pct=grade * 100, excess_pct=(grade - ramp_max) * 100,
+                distance_m=float(d), de_m=de, way_a=w, way_b=wb,
+                pt_a=(xa, ya), pt_b=(xb, yb),
+                elev_a=float(e), elev_b=eb)
+            v.lat, v.lon = nodes[nid]
+            v.out_of_scope = GROUNDSIDE_CUTBACK_OUT_OF_SCOPE
+            out.append(v)
+    out.sort(key=lambda v: -v.de_m)
+    return out
+
+
 # ── §41 (2) THE ZONE STANDING ON PAVEMENT ─────────────────────────
 #: The family key of the adjacent-ground zone strip standing on aircraft
 #: pavement (spec §41 (2); owner RULINGS 2026-09-13co item 2).
@@ -9598,6 +9701,12 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     # (``_check_zone_on_pavement``).
     (ZONE_ON_PAVEMENT_FAMILY,
      "ADJACENT-GROUND zone strip STANDING ON pavement", "within"),
+    # issue #97 M1: the stand-off strip a zone band is cut back from a
+    # groundside road by (``zones.toml groundside_cutback_m``) — the
+    # terrace across it, REPORT-ONLY until Q-97 rules its intent.
+    (GROUNDSIDE_CUTBACK_FAMILY,
+     "GROUNDSIDE CUT-BACK strip terrace (road <-> zone/airside across the "
+     "stand-off)", "within"),
     ("transverse", "TRANSVERSE (cross-corridor) grade", "within"),
     ("drainage_spine", "DRAINAGE SPINE at or above its LOWER pavement",
      "within"),
@@ -9809,6 +9918,11 @@ HAIRLINE_ABOVE_FLOOR_OUT_OF_SCOPE = "above_degenerate_floor"
 #: within the 11-dp identity quantum (:data:`HAIRLINE_ON_EDGE_M`).
 HAIRLINE_ON_EDGE_OUT_OF_SCOPE = "on_the_edge"
 OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
+    GROUNDSIDE_CUTBACK_OUT_OF_SCOPE:
+        "THE CUT-BACK STRIP'S INTENT IS OPEN (issue #97 M1; Q-97 on #58): "
+        "the terrace across the stand-off a zone band is cut back from a "
+        "groundside road by.  No law governs what that strip carries yet, "
+        "so the family names each step and never adjudicates it",
     SEA_WALL_OUT_OF_SCOPE:
         "THE WALL IS THE LAW (spec 37 (11) (2)/(3)/(5), owner RULINGS "
         "2026-09-15f item 2): the row NAMES a sea wall — an emitted edge "
@@ -12358,6 +12472,17 @@ def run_checks(
         f"adjacent_ground face; spec §34 (4))",
         ag_steps, top_n)
     within = within + ag_steps
+
+    # issue #97 M1: the cut-back strip between a groundside road and the
+    # zone / airside face beside it — REPORT-ONLY (Q-97 owns the intent)
+    _gc_h, _gc_r = groundside_cutback_frame()
+    gs_cut = _fam(GROUNDSIDE_CUTBACK_FAMILY,
+                  _check_groundside_cutback(ways, nodes, ll_to_m,
+                                            _gc_h, _gc_r))
+    _pv(f"GROUNDSIDE CUT-BACK strip terrace (road vertex <-> nearest zone/"
+        f"airside vertex within {_gc_h:.2f} m, grade > {_gc_r * 100:.0f} %; "
+        f"issue #97 M1, REPORT-ONLY pending Q-97)", gs_cut, top_n)
+    within = within + gs_cut
 
     # spec §41 (2): the zone strip standing on aircraft pavement — an AREA
     # row read in the SOLID frame (the face's sidecar holes applied)

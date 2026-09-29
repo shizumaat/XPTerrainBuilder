@@ -150,10 +150,21 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         #   floors (``step_exemption_pad_to_pad``); T2's ``building281``
         #   abuts ``building68`` 16.4 m higher, and a cap-0 row there is a
         #   contest the plane loses.
+        # NEITHER exemption covers a WELDED CONTACT (an airside vertex;
+        # issue #95): its value is stage 1's — not the DEM's, not another
+        # pad's floor — and its row is ONE-WAY (the platform follows), no
+        # cap-0 contest; every contact is the collar's leader (spec §1 (3),
+        # RULINGS 2026-09-29m (a) / 29o).  Measured: the apron's corner
+        # where its hole stops and the pad rim runs on over uncovered ground
+        # (the ``_mixed_rim_cells`` fixture, 2 of 7), and an apron | pad |
+        # pad triple point (HECA building170 | building167, 2).
         base = pref.split("#")[0]
         own_f = set(cfids) | set(pfids)
         keep: list[int] = []
         for o in outer:
+            if o in air:
+                keep.append(o)             # a welded contact always leads
+                continue
             if o in edge_v:
                 continue                   # the coverage edge: the DEM's
             inc = [q for q in planar.vertices[o].incident_faces if q not in own_f]

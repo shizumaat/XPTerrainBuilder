@@ -584,8 +584,8 @@ def test_16g_10_11_a_the_plate_is_one_way_toward_the_pad_at_an_airside_pair(law)
                                               "airside-led") for r in flats)
     assert {r.cap for r in flats} == {0.0}
     # (ii) every contact -> platform coupling row is airside-led (measured
-    # 2026-09-29: 17 bank rows, all contact -> platform, over 5 of the 7
-    # contacts; 2 contacts carry no bank row — reported on #94)
+    # 2026-09-29: 17 bank rows over 5 of the 7 contacts; after #95, 21 rows,
+    # 3 per contact, over all 7 — ``test_every_welded_contact_has_a_bank_row``)
     coupling = [r for r in platform_collar_rows(pm, law, airport)
                 if ({r.a, r.b} & contacts) and ({r.a, r.b} & plat)]
     assert coupling
@@ -594,3 +594,62 @@ def test_16g_10_11_a_the_plate_is_one_way_toward_the_pad_at_an_airside_pair(law)
         lead, fol = (r.a, r.b) if r.a in contacts else (r.b, r.a)
         assert lead in air and fol in plat and fol not in air
         assert r.follows == (fol,)
+
+
+def test_every_welded_contact_has_a_bank_row(law):
+    """Issue #95 (unit-platform spec §1 (3); RULINGS 2026-09-29m (a) / 29o):
+    EVERY welded contact of a unit — an airside vertex on the collar's
+    outer rim — is tied to the platform by a one-way ``platform_collar
+    bank`` row, the contact leading.  The two the generator dropped sat on
+    the COVERAGE EDGE: the apron's corners (x = 20) where its hole stops
+    and the pad rim runs on over uncovered ground; the coverage-edge
+    exemption (a DEM-governed vertex) never covers an airside one."""
+    from auto_patch_v2.constraints.pads import airside_vertices
+    from auto_patch_v2.constraints.platform import (COLLAR_RULING,
+                                                    platform_collar_rows)
+    airport = _airport(law, _Dem())
+    pm, _st = build(airport, Classification(tuple(_mixed_rim_cells()), (), {}, ()), law)
+    air = airside_vertices(pm, law)
+    plat = _verts(pm, "padA")
+    contacts = _unit_verts(pm, "padA") & air
+    assert len(contacts) == 7, sorted(contacts)
+    bank = [r for r in platform_collar_rows(pm, law, airport)
+            if r.source.ruling.startswith(COLLAR_RULING)]
+    led = {r.a for r in bank}
+    missing = sorted((v, pm.vertices[v].xy) for v in contacts - led)
+    assert not missing, missing
+    # the coverage-edge corners are among them, and led one-way
+    corners = {v for v in contacts if abs(pm.vertices[v].xy[0] - 20.0) < 1e-6}
+    assert len(corners) == 2, sorted(pm.vertices[v].xy for v in contacts)
+    for r in bank:
+        if r.a in corners:
+            assert r.b in plat and r.follows == (r.b,)
+
+
+def test_a_welded_contact_shared_with_another_pad_still_has_a_bank_row(law):
+    """Issue #95, the second exemption: a contact at an apron | pad | pad
+    TRIPLE POINT (HECA ``building170`` | ``building167`` against ``pav131``,
+    2 contacts) is still airside, still stage 1's, still one-way led; the
+    other-pad exemption (two floors, a cap-0 contest) covers only the pad's
+    OWN rim.  ``padB`` north-east of ``padA`` meets it and the apron's
+    corner at (20, 240)."""
+    from auto_patch_v2.constraints.pads import airside_vertices
+    from auto_patch_v2.constraints.platform import (COLLAR_RULING,
+                                                    platform_collar_rows)
+    cells = [*_mixed_rim_cells(),
+             Cell(3, "building", "padB", _rect(20.0, 240.0, 60.0, 260.0), (),
+                  None, None, "airside", "pad", {})]
+    airport = _airport(law, _Dem())
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    air = airside_vertices(pm, law)
+    contacts = _unit_verts(pm, "padA") & air
+    triple = [v for v in contacts
+              if any(pm.faces[q].ref.split("#")[0] == "padB"
+                     for q in pm.vertices[v].incident_faces)]
+    assert triple, sorted(pm.vertices[v].xy for v in contacts)
+    bank = [r for r in platform_collar_rows(pm, law, airport)
+            if r.source.ruling.startswith(COLLAR_RULING)
+            and r.source.inputs[1] == "padA#collar"]
+    led = {r.a for r in bank}
+    missing = sorted((v, pm.vertices[v].xy) for v in contacts - led)
+    assert not missing, missing

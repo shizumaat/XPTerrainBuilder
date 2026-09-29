@@ -11693,9 +11693,10 @@ def _pavcap_patch(tmp_path, *, name, rings):
         out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
-        "anchor": [_PVC_LAT, _PVC_LON], "ruleset": "icao"}))
+        "anchor": [_PVC_LAT, _PVC_LON], "ruleset": "icao"}),
+        encoding="utf-8", newline="")
     return osm
 
 

@@ -595,6 +595,7 @@ def carriers_for(pids: _t.AbstractSet[int],
                  index: "CandidateIndex | None" = None,
                  base_y: "float | None" = None,
                  reach_m: float = 0.0,
+                 not_carriers: _t.AbstractSet[int] = frozenset(),
                  ) -> list[tuple[Candidate, str]]:
     """§15 (1) + §16a (1): EVERY carrier this body stands over, ranked.
 
@@ -662,6 +663,17 @@ def carriers_for(pids: _t.AbstractSet[int],
     the WHOLE body, restored on the PIECE §16b (1) cuts; §16a (2)'s
     carrier-side test stays exactly as it is.
 
+    RULINGS 2026-09-30m (#112): A LINEAR ELEVATED STRUCTURE IS NO
+    CARRIER.  A candidate holding any of ``not_carriers`` (the 29q cut
+    connectors' part ids, ``footprint_connector.linear_pids``) is never
+    offered to this search — by the unit-seat yield or any other rule.
+    What rides a connector is decided by CONTACT alone (29v's
+    ``deck_riders``, which binds before this search is asked); a body
+    whose only candidate was the connector takes its OWN GROUND.  HECA's
+    ``Private_hall/floor__b18`` and ``metal_blue__b12`` rested on the
+    rail connector 9.3-9.6 m under their base and floated +19.58 /
+    +16.31 m over their own ground.
+
     ``refusals`` collects the counts by reason."""
     # PER SEARCH, not per candidate: what the report asks is how many
     # bodies had a candidate refused, not how many (body, candidate)
@@ -691,6 +703,10 @@ def carriers_for(pids: _t.AbstractSet[int],
                 _bump("line")
                 continue
             solid.append(c)
+    if not_carriers:
+        # 30m: the caller's unit list is filtered the same way (counted
+        # there once per unit); this is the per-search guarantee
+        solid = [c for c in solid if not (c.pids & not_carriers)]
     if not solid:
         return _out([])
 

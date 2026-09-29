@@ -143,7 +143,7 @@ def _step_interval(tmp_path, tile, step):
     end = tmp_path / ("stepend_%d_%d_%s" % (tile[0], tile[1], step))
     assert start.exists() and end.exists(), (
         "missing markers for %s %s" % (tile, step))
-    return float(start.read_text()), float(end.read_text())
+    return float(start.read_text(encoding="utf-8")), float(end.read_text(encoding="utf-8"))
 
 
 def _max_concurrency(intervals):
@@ -868,7 +868,7 @@ def _phase_interval(tmp_path, tile, kind_start, kind_end):
     end = tmp_path / ("%s_%d_%d" % (kind_end, tile[0], tile[1]))
     assert start.exists() and end.exists(), (
         "missing %s/%s markers for %s" % (kind_start, kind_end, tile))
-    return float(start.read_text()), float(end.read_text())
+    return float(start.read_text(encoding="utf-8")), float(end.read_text(encoding="utf-8"))
 
 
 def test_auto_patch_solves_run_at_full_width(
@@ -890,7 +890,7 @@ def test_auto_patch_solves_run_at_full_width(
     ]
     fetches = [
         (_step_interval(tmp_path, tile, "vector")[0],
-         float((tmp_path / ("fetchend_%d_%d" % tile)).read_text()))
+         float((tmp_path / ("fetchend_%d_%d" % tile)).read_text(encoding="utf-8")))
         for tile in tiles
     ]
     assert _max_concurrency(solves) == 4, (
@@ -956,7 +956,7 @@ def test_imagery_conversion_tails_run_at_full_width(
     ]
     downloads = [
         (_step_interval(tmp_path, tile, "imagery")[0],
-         float((tmp_path / ("downloadend_%d_%d" % tile)).read_text()))
+         float((tmp_path / ("downloadend_%d_%d" % tile)).read_text(encoding="utf-8")))
         for tile in tiles
     ]
     assert _max_concurrency(converts) == 6, (
@@ -1167,7 +1167,7 @@ def test_warmer_warms_queued_tiles_before_their_builds(
         last_warm = max(t for (w, _s, t) in warm_log if w == tile)
         marker = tmp_path / ("start_%d_%d" % tile)
         assert marker.exists()
-        build_start = float(marker.read_text())
+        build_start = float(marker.read_text(encoding="utf-8"))
         assert last_warm <= build_start + 1e-3
 
 

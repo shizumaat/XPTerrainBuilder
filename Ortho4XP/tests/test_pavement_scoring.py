@@ -1661,7 +1661,7 @@ def _write_global_apt_dat(root, layout, icao="ZZZZ"):
         "1202 1 2 twoway taxiway_C A",
         "99",
     ]
-    with open(path, "w", encoding="utf-8") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("\n".join(lines) + "\n")
     return path
 
@@ -1741,7 +1741,7 @@ def test_alt_sources_survive_an_unreadable_pack(tmp_path):
                              "Earth nav data")
     os.makedirs(directory)
     with open(os.path.join(directory, "apt.dat"), "w",
-              encoding="utf-8") as handle:
+              encoding="utf-8", newline="") as handle:
         handle.write("I\n1100 Broken\n\n1 100 0 0 ZZZZ Nothing Here\n99\n")
     layout = _layout(source_pavement_union=box(0.0, 0.0, 500.0, 200.0))
     PS.ensure_alt_sources(layout, "ZZZZ", root)
@@ -1973,7 +1973,7 @@ def test_H3_the_flag_is_RETIRED_KEPT_GATED_off_with_its_measurement():
     import auto_patch.config as CFG
     from pathlib import Path as _P
     assert CFG.ROAD_EVIDENCE_SEVER is False
-    src = _P(CFG.__file__).read_text()
+    src = _P(CFG.__file__).read_text(encoding="utf-8")
     i = src.index("ROAD_EVIDENCE_SEVER = (")
     note = src[max(0, i - 2200):i]
     assert "0.8221" in note, (

@@ -63,7 +63,7 @@ def _write(path, vt, tris):
     idx = [i for t in tris for i in t]
     lines += ["IDX " + " ".join(str(i) for i in idx[k:k + 10]) for k in range(0, len(idx), 10)]
     lines.append(f"TRIS 0 {len(idx)}")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return path
 
 
@@ -139,7 +139,7 @@ def objs(tmp_path_factory):
     d = tmp_path_factory.mktemp("pack") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     return {
         "dir": d,
         "wall": _wall_obj(d / "wall.obj", end_a=True),                        # U, 100 m
@@ -506,7 +506,7 @@ def test_generator_rows_solve_and_verify(corridor_map, law, tmp_path):
     assert rec["ramp_beyond_walls_m"] == 0.0 and rec["trench_outside_max_m"] == 0.0
     from auto_patch_v2.emit.osm_adapter import write_patch
     paths = write_patch(surf, law, tmp_path, pub, {"tag": "twin"})
-    assert json.loads(paths.sidecar.read_text())["tunnel_objects"][0]["ground_end"] == "open"
+    assert json.loads(paths.sidecar.read_text(encoding="utf-8"))["tunnel_objects"][0]["ground_end"] == "open"
     rows_v = census(surf, law, pub, {})
     for key in ("structure_rim_gap", "tunnel_mouth_canonical", "wall_in_runway_strip"):
         assert rows_v[key] == [], (key, rows_v[key][:3])

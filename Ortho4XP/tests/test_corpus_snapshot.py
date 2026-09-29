@@ -48,12 +48,12 @@ def _fake_snapshot(CS, tmp_path, icao="ZZZZ"):
             "xplane/Custom Data/CIFP/ZZZZ.dat": "cifp"}.items():
         p = snap / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(body)
+        p.write_text(body, encoding="utf-8", newline="")
         files[rel] = {"sha256": CS._sha256(p), "size": p.stat().st_size}
     man = {"schema": 1, "files": files, "hash": CS.manifest_hash(files),
            "source_corpus": {"install_root": "/nonexistent/X-Plane 12"},
            "airports": {icao: {"files": sorted(files)}}}
-    (snap / "snapshot.json").write_text(json.dumps(man))
+    (snap / "snapshot.json").write_text(json.dumps(man), encoding="utf-8", newline="")
     return snap, man
 
 
@@ -129,12 +129,12 @@ def test_apt_slice_carries_the_neighbour_tiles(CS, tmp_path):
                    "1 10 0 0 BBBB Near\n1302 datum_lat -11.2\n"
                    "1302 datum_lon -77.6\n\n"
                    "1 10 0 0 CCCC Far\n101 40 0 -30.0 20.0 x -30.1 20.1\n"
-                   "\n99\n")
+                   "\n99\n", encoding="utf-8", newline="")
     dst = tmp_path / "slice.dat"
     CS.write_apt_slice(str(src), ["AAAA"], dst,
                        [(-13 + a, -78 + b) for a in (-1, 0, 1)
                         for b in (-1, 0, 1)])
-    text = dst.read_text()
+    text = dst.read_text(encoding="utf-8")
     assert "AAAA" in text and "BBBB" in text and "CCCC" not in text
     assert text.rstrip().endswith("99")
 
@@ -147,11 +147,11 @@ def test_read_set_carries_anchor_bak_siblings_and_whole_inset_dirs(
     ins = repo / "Elevation_data" / "-20-080" / "S12W078_airport_insets"
     ins.mkdir(parents=True)
     for f in ("index.json", "SPJC_x.tif"):
-        (ins / f).write_text("x")
+        (ins / f).write_text("x", encoding="utf-8", newline="")
     obj = inst / "Custom Scenery" / "P" / "o"
     obj.mkdir(parents=True)
-    (obj / "a.obj").write_text("x")
-    (obj / "a.obj.anchor_bak").write_text("x")
+    (obj / "a.obj").write_text("x", encoding="utf-8", newline="")
+    (obj / "a.obj.anchor_bak").write_text("x", encoding="utf-8", newline="")
     trace = {"reads": [str(ins / "index.json"),
                        str(obj / "a.obj.anchor_bak")], "overlays": {},
              "tile": None}
@@ -167,7 +167,7 @@ def test_read_set_carries_anchor_bak_siblings_and_whole_inset_dirs(
 def test_classify_maps_overlays_back_to_the_corpus(CS, tmp_path):
     repo = tmp_path / "repo"
     (repo / "Airport_mod_cache" / "P").mkdir(parents=True)
-    (repo / "Airport_mod_cache" / "P" / "a.text").write_text("x")
+    (repo / "Airport_mod_cache" / "P" / "a.text").write_text("x", encoding="utf-8", newline="")
     ov = tmp_path / "ov"
     overlays = {"O4_AIRPORT_MOD_CACHE_DIR": str(ov)}
     hit = CS.classify(str(ov / "P" / "a.text"), repo, None, overlays)
@@ -186,7 +186,7 @@ def test_classify_maps_overlays_back_to_the_corpus(CS, tmp_path):
 def test_verify_refuses_a_mutated_snapshot(CS, tmp_path):
     snap, man = _fake_snapshot(CS, tmp_path)
     assert CS.verify(snap, quiet=True)["complete"] == ["ZZZZ"]
-    (snap / "data/Elevation_data/+10+010/N10E010.hgt").write_text("DEM")
+    (snap / "data/Elevation_data/+10+010/N10E010.hgt").write_text("DEM", encoding="utf-8", newline="")
     with pytest.raises(SystemExit, match="do not match"):
         CS.verify(snap, quiet=True)
 
@@ -194,7 +194,7 @@ def test_verify_refuses_a_mutated_snapshot(CS, tmp_path):
 def test_verify_refuses_an_edited_manifest(CS, tmp_path):
     snap, man = _fake_snapshot(CS, tmp_path)
     man["files"]["data/Ortho4XP.cfg.in"]["sha256"] = "0" * 64
-    (snap / "snapshot.json").write_text(json.dumps(man))
+    (snap / "snapshot.json").write_text(json.dumps(man), encoding="utf-8", newline="")
     with pytest.raises(SystemExit, match="re-derive"):
         CS.verify(snap, quiet=True)
 
@@ -207,12 +207,12 @@ def test_mount_and_unmount(CS, tmp_path, monkeypatch):
     shared = tmp_path / "shared" / "OSM_data"
     shared.mkdir(parents=True)
     (root / "OSM_data").symlink_to(shared)
-    (root / "Ortho4XP.cfg").write_text("custom_scenery_dir=/real/X/Custom Scenery\n")
+    (root / "Ortho4XP.cfg").write_text("custom_scenery_dir=/real/X/Custom Scenery\n", encoding="utf-8", newline="")
     rec = CS.mount(root, snap, icao="ZZZZ")
     assert rec["corpus"] == f"snapshot@{man['hash'][:12]}"
     for name in CS.DATA_DIRS:
         assert (root / name).resolve() == (snap / "data" / name).resolve()
-    cfg = (root / "Ortho4XP.cfg").read_text()
+    cfg = (root / "Ortho4XP.cfg").read_text(encoding="utf-8")
     assert f"custom_scenery_dir={snap}/xplane/Custom Scenery" in cfg
     assert CS.XPLANE_TOKEN not in cfg
     assert os.environ["XPLANE_ROOT"] == str(snap / "xplane")
@@ -226,7 +226,7 @@ def test_mount_and_unmount(CS, tmp_path, monkeypatch):
     CS.unmount(root, rec2)
     assert (root / "OSM_data").resolve() == shared.resolve()
     assert not (root / CS.MOUNTS_RECORD).exists()
-    assert "/real/X" in (root / "Ortho4XP.cfg").read_text()
+    assert "/real/X" in (root / "Ortho4XP.cfg").read_text(encoding="utf-8")
 
 
 def test_mount_refuses_a_real_directory(CS, tmp_path):
@@ -261,7 +261,7 @@ def test_lookup_refuses_across_snapshot_hashes(AL, tmp_path):
     theirs = {"icao": "ZZZZ", "tree": "t", "env": {}, "variant": {},
               "corpus": {"sha256": "x", "parts": {"snapshot": "a" * 64}}}
     (store / "entries" / "k.json").write_text(json.dumps(
-        {"key": "k", "key_parts": theirs, "stored_at": 1}))
+        {"key": "k", "key_parts": theirs, "stored_at": 1}), encoding="utf-8", newline="")
     ours = dict(theirs, corpus={"sha256": "y", "parts": {"snapshot": "b" * 64}})
     rec, why = AL.lookup("other", ours, store=store)
     assert rec is None and why.startswith("REFUSED") and "snapshot@bbbb" in why
@@ -272,11 +272,11 @@ def test_lookup_refuses_across_snapshot_hashes(AL, tmp_path):
 
 def test_read_trace_records_reads_not_writes(CS, tmp_path):
     r = tmp_path / "r.txt"
-    r.write_text("x")
+    r.write_text("x", encoding="utf-8", newline="")
     tr = CS.ReadTrace().start()
     try:
-        r.read_text()
-        (tmp_path / "w.txt").write_text("y")
+        r.read_text(encoding="utf-8")
+        (tmp_path / "w.txt").write_text("y", encoding="utf-8", newline="")
         os.listdir(tmp_path)
     finally:
         tr.stop()
@@ -287,7 +287,7 @@ def test_read_trace_records_reads_not_writes(CS, tmp_path):
 
 
 def test_build_airport_publishes_the_flags():
-    src = (HARNESS / "build_airport.py").read_text()
+    src = (HARNESS / "build_airport.py").read_text(encoding="utf-8")
     for needle in ('"--corpus"', '"--trace-reads"', "CS.mount(",
                    'frame["corpus"]', "SNAPSHOT LEAK", "arm_snapshot_env"):
         assert needle in src, needle
@@ -300,9 +300,9 @@ def test_snapshot_library_index_is_rekeyed_for_the_snapshot_install(
     snap = tmp_path / "snap"
     (snap / "data").mkdir(parents=True)
     (snap / "xplane" / "R").mkdir(parents=True)
-    (snap / "xplane" / "R" / "a.obj").write_text("x")
+    (snap / "xplane" / "R" / "a.obj").write_text("x", encoding="utf-8", newline="")
     (snap / "data" / "library_index.json").write_text(
-        json.dumps({"lib/a.obj": "xplane/R/a.obj"}))
+        json.dumps({"lib/a.obj": "xplane/R/a.obj"}), encoding="utf-8", newline="")
     mod = tmp_path / "mod"
     mod.mkdir()
     assert CS.seed_library_index(snap / "data", mod) == 1

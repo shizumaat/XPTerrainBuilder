@@ -309,7 +309,7 @@ def test_why_chain_kml_writes_one_line_per_binding_row(tmp_path):
     from auto_patch_v2.pipeline.why import chain_kml
     out = tmp_path / "chain.kml"
     tr = chain_kml(prep, fid, str(out))
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
     if tr is None:                    # RULINGS 2026-09-09b (3): see above
         assert text and "<LineString>" not in text
         return

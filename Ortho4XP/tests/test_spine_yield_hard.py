@@ -46,7 +46,7 @@ def test_the_gate_no_longer_exists():
     freeze arm."""
     import auto_patch.elevation_per_surface.route_profile.solve as SV
     assert not hasattr(SV, "spine_yield_hard_enabled")
-    src = open(SV.__file__).read()
+    src = open(SV.__file__, encoding="utf-8").read()
     assert 'environ.get("O4_SPINE_YIELD_HARD"' not in src
 
 
@@ -251,7 +251,7 @@ def test_movement_report_writes_the_forensics_csv(tmp_path, monkeypatch):
         latlon_of=lambda i: (30.0 + i, 31.0 + i))
     out = tmp_path / "forensics.spine_yield.csv"
     assert out.exists()
-    lines = out.read_text().strip().splitlines()
+    lines = out.read_text(encoding="utf-8").strip().splitlines()
     assert lines[0].startswith("node,lat,lon,z_phase_a,z_shipped,delta_m,")
     assert lines[1].startswith("2,32.0000000,33.0000000,74.8810,76.3000,")
 

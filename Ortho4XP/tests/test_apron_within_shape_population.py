@@ -722,11 +722,11 @@ def _pop_fixture(tmp_path):
                 _way("-11", "building", PAD1)]
     osm = tmp_path / "apronpop.osm"
     osm.write_text(_POP_OSM % {"nodes": "\n".join(nodes_xml),
-                               "ways": "\n".join(ways_xml)})
+                               "ways": "\n".join(ways_xml)}, encoding="utf-8", newline="")
     (tmp_path / "apronpop.osm.axes.json").write_text(__import__("json").dumps({
         "anchor": list(ANCHOR),
         "axes": [[[list(_m_to_ll(*p)) for p in SPINE], 0.015, 0.015, -1]],
-    }))
+    }), encoding="utf-8", newline="")
     return osm
 
 

@@ -234,7 +234,7 @@ def test_the_census_library_imports_no_v1_module():
     """Seam S4 from the other end: `tools/check_grade.py` is the harness
     library every defect count comes from, and it priced v2 patches with law
     that lived in eleven v1 modules until 2026-09-17."""
-    src = (ENGINE / "tools" / "check_grade.py").read_text()
+    src = (ENGINE / "tools" / "check_grade.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     allowed = ("auto_patch.config", "auto_patch.build_support",
                "auto_patch.apt_dat_reader", "auto_patch_v2")
@@ -262,9 +262,9 @@ def test_the_wire_protocol_names_are_untouched_by_the_retirement():
     swift = ENGINE.parent / "Sources" / "SceneryKit" / "OrthoEngineClient.swift"
     if not swift.exists():                                 # pragma: no cover
         return                     # engine checked out standalone
-    tree = ast.parse(events.read_text())
+    tree = ast.parse(events.read_text(encoding="utf-8"))
     classes = [n.name for n in tree.body if isinstance(n, ast.ClassDef)]
-    text = swift.read_text()
+    text = swift.read_text(encoding="utf-8")
     matched = [c for c in classes if f'"{c}"' in text]
     assert len(matched) >= 10, (
         f"the Swift client matches only {matched} of {len(classes)} event "

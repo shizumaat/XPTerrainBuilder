@@ -63,7 +63,7 @@ def _emit_and_parse(layout):
         path = f.name
     try:
         layout.to_osm(path)
-        text = Path(path).read_text()
+        text = Path(path).read_text(encoding="utf-8")
     finally:
         Path(path).unlink()
 
@@ -585,7 +585,7 @@ def test_to_osm_lat_lon_precision_is_11_decimals():
         path = f.name
     try:
         layout.to_osm(path)
-        text = Path(path).read_text()
+        text = Path(path).read_text(encoding="utf-8")
     finally:
         Path(path).unlink()
     # Find a <node> line and check the precision.
@@ -665,7 +665,7 @@ def test_to_osm_is_idempotent():
             path = f.name
         try:
             layout.to_osm(path)
-            return Path(path).read_text()
+            return Path(path).read_text(encoding="utf-8")
         finally:
             Path(path).unlink()
 
@@ -740,7 +740,7 @@ def test_to_osm_emits_interior_rings_as_constrained_ways(tmp_path):
                    altitude=100.0))
     out = tmp_path / "holed.osm"
     layout.to_osm(str(out))
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
     assert "shape_interior_ring" in text, (
         "the polygon's interior ring was dropped from the patch")
 
@@ -761,7 +761,7 @@ def test_interior_ring_shares_the_hole_occupant_s_vertices(tmp_path):
                    ref="occupant", altitude=97.0))
     out = tmp_path / "shared.osm"
     layout.to_osm(str(out))
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
     ways = re.findall(r"<way[^>]*>.*?</way>", text, re.S)
     ring_way = [w for w in ways if "shape_interior_ring" in w]
     others = [w for w in ways if "shape_interior_ring" not in w]
@@ -808,7 +808,7 @@ def test_the_axes_sidecar_is_written_at_default_verbosity(tmp_path,
     assert side.exists(), (
         "no sidecar at default verbosity — every standalone census of "
         "this patch would silently read the context-free law")
-    data = json.loads(side.read_text())
+    data = json.loads(side.read_text(encoding="utf-8"))
     for key in ("axes_exact", "anchor", "ruleset", "terrace_joints"):
         assert key in data, f"sidecar is missing the {key!r} contract key"
 

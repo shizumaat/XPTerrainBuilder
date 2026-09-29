@@ -147,8 +147,8 @@ class _PatchBuilder:
             out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
             out.append("  </way>")
         out.append("</osm>")
-        path.write_text("\n".join(out) + "\n")
-        Path(str(path) + ".axes.json").write_text(json.dumps(sidecar))
+        path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
+        Path(str(path) + ".axes.json").write_text(json.dumps(sidecar), encoding="utf-8", newline="")
         return path
 
 
@@ -749,7 +749,7 @@ def test_step_exempt_is_total_where_the_copies_were_partial(cg):
 def test_no_reader_redefines_the_exemption_locally(census):
     """The regression guard for the defect class itself."""
     import inspect
-    src = Path(inspect.getfile(census)).read_text()
+    src = Path(inspect.getfile(census)).read_text(encoding="utf-8")
     assert "_both_buildings" not in src, (
         "the census re-grew a private copy of a law exemption; call "
         "check_grade.step_exempt")

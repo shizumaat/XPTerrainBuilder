@@ -301,7 +301,7 @@ def test_site_read_faces_rows_and_bodies_at_one_coordinate(tmp_path):
                     "OBJECT_DEF objects/mast.obj\n"
                     "OBJECT 0 -2.9995 40.0005 90.000\n"
                     "OBJECT_MSL 1 -2.9994 40.0006 603.770 12.0\n"
-                    "OBJECT 0 -2.8000 40.0005 0.000\n")
+                    "OBJECT 0 -2.8000 40.0005 0.000\n", encoding="utf-8", newline="")
     rows = SR.dsf_rows_near(str(dump), 40.0005, -2.9995, 60.0)
     assert [(r["kind"], r["resource"], r["elevation"]) for r in rows] \
         == [("OBJECT", "objects/loader.obj", None),
@@ -317,18 +317,18 @@ def test_site_read_faces_rows_and_bodies_at_one_coordinate(tmp_path):
                    {"body_id": "b1", "class": "other",
                     "plan_box": [40.0500, -3.0000, 40.0501, -2.9999],
                     "unit_of": None, "surface_z": 588.0, "y_zero": 0.0,
-                    "anchor_reason": "surface at the body's zero"}]}]}))
-    b = SR.plan_bodies_near(json.load(open(plan)), 40.0005, -2.9995, 60.0)
+                    "anchor_reason": "surface at the body's zero"}]}]}), encoding="utf-8", newline="")
+    b = SR.plan_bodies_near(json.load(open(plan, encoding="utf-8")), 40.0005, -2.9995, 60.0)
     assert [(r["body_id"], round(r["distance_m"], 2)) for r in b] \
         == [("b0", 0.0)]
     assert b[0]["unit_of"] == "fu:0:0@cluster_pad"
     # --patch-dir resolves both products by glob and the CLI writes what
     # it printed
-    (tmp_path / "TEST.graded.json").write_text(json.dumps(graded))
+    (tmp_path / "TEST.graded.json").write_text(json.dumps(graded), encoding="utf-8", newline="")
     out = tmp_path / "site.json"
     assert SR.main(["40.0005", "-2.9995", "60", "--patch-dir", str(tmp_path),
                     "--dsf-dump", str(dump), "--json", str(out)]) == 0
-    doc = json.loads(out.read_text())
+    doc = json.loads(out.read_text(encoding="utf-8"))
     assert [f["id"] for f in doc["faces"]] == [4]
     assert len(doc["dsf_rows"]) == 2 and [r["body_id"] for r in doc["bodies"]] \
         == ["b0"]

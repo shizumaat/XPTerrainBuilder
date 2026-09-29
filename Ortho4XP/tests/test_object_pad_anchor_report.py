@@ -48,7 +48,7 @@ def _write_patch(path: Path, rings) -> Path:
                      f"<tag k='role' v='{role}'/></way>")
         wid -= 1
     lines.append("</osm>")
-    path.write_text("\n".join(lines))
+    path.write_text("\n".join(lines), encoding="utf-8", newline="")
     return path
 
 
@@ -138,9 +138,9 @@ class TestClassifyDatum:
 class TestBakedResources:
     def test_finds_anchor_bak_resources_pack_relative(self, tmp_path):
         (tmp_path / "objects").mkdir()
-        (tmp_path / "objects" / "hangar.obj").write_text("obj")
-        (tmp_path / "objects" / "hangar.obj.anchor_bak").write_text("obj")
-        (tmp_path / "objects" / "cone.obj").write_text("obj")
+        (tmp_path / "objects" / "hangar.obj").write_text("obj", encoding="utf-8", newline="")
+        (tmp_path / "objects" / "hangar.obj.anchor_bak").write_text("obj", encoding="utf-8", newline="")
+        (tmp_path / "objects" / "cone.obj").write_text("obj", encoding="utf-8", newline="")
         assert OPAR.baked_resources(tmp_path) == {"objects/hangar.obj"}
 
 
@@ -151,7 +151,7 @@ class TestSidecarRequests:
             '{"version": 5, "airports": ['
             '{"icao": "HEAZ", "requests": [{"resource_path": "a.obj"}]},'
             '{"icao": "HECA", "requests": ['
-            '{"resource_path": "b.obj"}, {"resource_path": "c.obj"}]}]}')
+            '{"resource_path": "b.obj"}, {"resource_path": "c.obj"}]}]}', encoding="utf-8", newline="")
         assert len(OPAR.sidecar_requests(side, "HECA")) == 2
         assert len(OPAR.sidecar_requests(side, "HEAZ")) == 1
         assert OPAR.sidecar_requests(side, "OTHH") == []

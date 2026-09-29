@@ -56,7 +56,7 @@ def _make_tile(build_directory) -> types.SimpleNamespace:
 
 def _seed_node_file(tile, nbr_pt: int = 4) -> None:
     corners = [(0.0, 0.0), (0.001, 0.0), (0.001, 0.001), (0.0, 0.001)]
-    with open(FNAMES.output_node_file(tile), "w") as handle:
+    with open(FNAMES.output_node_file(tile), "w", encoding="utf-8", newline="") as handle:
         handle.write("%d 2 4 0\n" % nbr_pt)
         for index in range(nbr_pt):
             (longitude_offset, latitude_offset) = corners[index % 4]
@@ -75,7 +75,7 @@ def _seed_node_file(tile, nbr_pt: int = 4) -> None:
 
 def _seed_ele_file(tile, attributes) -> None:
     """One triangle per attribute *text*, all on the same four vertices."""
-    with open(FNAMES.output_ele_file(tile), "w") as handle:
+    with open(FNAMES.output_ele_file(tile), "w", encoding="utf-8", newline="") as handle:
         handle.write("%d 3 1\n" % len(attributes))
         for index, attribute_text in enumerate(attributes):
             handle.write(
@@ -207,7 +207,7 @@ def test_vertex_columns_stay_strict_integers(tmp_path, monkeypatch):
     corrupt file and must not be silently rounded into a valid index."""
     tile = _make_tile(tmp_path)
     _seed_node_file(tile)
-    with open(FNAMES.output_ele_file(tile), "w") as handle:
+    with open(FNAMES.output_ele_file(tile), "w", encoding="utf-8", newline="") as handle:
         handle.write("1 3 1\n")
         handle.write("1 1.5 2 3 8\n")
 
@@ -233,7 +233,7 @@ def test_mesh_file_attribute_column_is_normalised(tmp_path, monkeypatch):
     O4_Mesh_Utils.write_mesh_file(tile, vertices)
 
     mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
-    with open(mesh_path, "r") as handle:
+    with open(mesh_path, "r", encoding="utf-8") as handle:
         lines = handle.read().splitlines()
     triangle_header_index = lines.index("Triangles")
     triangle_rows = lines[

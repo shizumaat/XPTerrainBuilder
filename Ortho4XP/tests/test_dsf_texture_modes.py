@@ -106,7 +106,7 @@ def _write_mesh(build_dir, vertices, triangles, elevations=None):
         nbr_tris=len(triangles), triangles=tlines)
     mesh_path = FNAMES.mesh_file(build_dir, 50, 10)
     os.makedirs(os.path.dirname(mesh_path), exist_ok=True)
-    with open(mesh_path, "w") as handle:
+    with open(mesh_path, "w", encoding="utf-8", newline="") as handle:
         handle.write(text)
     return mesh_path
 
@@ -308,7 +308,7 @@ def _load_base_module(tmp_path):
     except (subprocess.SubprocessError, OSError):
         return None
     base_path = str(tmp_path / "O4_DSF_Utils_base.py")
-    with open(base_path, "w") as handle:
+    with open(base_path, "w", encoding="utf-8", newline="") as handle:
         handle.write(base_src)
     spec = importlib.util.spec_from_file_location(
         "O4_DSF_Utils_base", base_path)

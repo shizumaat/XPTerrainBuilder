@@ -130,10 +130,10 @@ def test_cert_attrib_groups_and_dispositions(tmp_path):
     ]
     cert = tmp_path / "c.json"
     cert.write_text(json.dumps({"tag": "final1_exit", "n_over": 4,
-                                "rows": rows}))
+                                "rows": rows}), encoding="utf-8", newline="")
     base = tmp_path / "b.json"
     base.write_text(json.dumps({"tag": "solve_exit", "n_over": 1,
-                                "rows": [rows[1]]}))
+                                "rows": [rows[1]]}), encoding="utf-8", newline="")
     out = WW.attribute_certificate(cert, vd, base_paths=[f"solve={base}"])
     s = out["summary"]
     assert s["n_rows"] == 4 and s["endpoints_unjoined"] == 0
@@ -159,10 +159,10 @@ def test_cert_attrib_cli_is_no_build(tmp_path, capsys):
     vd = tmp_path / "v.jsonl"
     vd.write_text(json.dumps({"kind": "meta", "sites": _sites(),
                               "tol_m": 0.01,
-                              "solve_site": "solve_route_profile"}) + "\n")
+                              "solve_site": "solve_route_profile"}) + "\n", encoding="utf-8", newline="")
     cert = tmp_path / "c.json"
     cert.write_text(json.dumps({"tag": "final1_exit", "n_over": 0,
-                                "rows": []}))
+                                "rows": []}), encoding="utf-8", newline="")
     rc = WW.main(["--cert-attrib", str(cert), "--vertex-json", str(vd),
                   "--attrib-md", str(tmp_path / "t.md")])
     assert rc == 0

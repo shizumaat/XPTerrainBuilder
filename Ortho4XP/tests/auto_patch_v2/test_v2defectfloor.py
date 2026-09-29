@@ -196,8 +196,8 @@ def test_no_numeric_literal_for_the_floor_in_python():
     import auto_patch_v2
     src = pathlib.Path(auto_patch_v2.__file__).parent
     hits = [py for py in src.rglob("*.py")
-            if "defect_min_excess_m" in py.read_text()
-            and "0.10" in py.read_text().split("defect_min_excess_m")[1][:40]]
+            if "defect_min_excess_m" in py.read_text(encoding="utf-8")
+            and "0.10" in py.read_text(encoding="utf-8").split("defect_min_excess_m")[1][:40]]
     assert not hits, hits
-    toml = (src / "law" / "emit.toml").read_text()
+    toml = (src / "law" / "emit.toml").read_text(encoding="utf-8")
     assert "[verify]" in toml and "defect_min_excess_m" in toml

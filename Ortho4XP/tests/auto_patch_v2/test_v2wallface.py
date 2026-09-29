@@ -167,7 +167,7 @@ def pack(tmp_path_factory):
     d = tmp_path_factory.mktemp("wallface") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     out = {"dir": d}
     for t in (0.25, 0.55, 0.75, 1.00, 2.00):
         # the crest plate must clear ``plate_min_area_m2`` (100 m2) for the

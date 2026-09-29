@@ -144,9 +144,9 @@ def _stub_v2(monkeypatch, *, status="optimal", pieces_tiles=None, raise_exc=None
             patch = where / f"{icao}_auto.patch.osm"
             hdr = " ".join(f"{k}='{v}'" for k, v in calls["header_extra"].items())
             patch.write_text(f"<?xml version='1.0'?>\n<osm generator='auto_patch_v2' "
-                             f"o4_stub='{tag}' {hdr}>\n</osm>\n")
+                             f"o4_stub='{tag}' {hdr}>\n</osm>\n", encoding="utf-8", newline="")
             side = Path(str(patch) + ".axes.json")
-            side.write_text(json.dumps({"ruleset": "icao", "axes": [], "tag": tag}))
+            side.write_text(json.dumps({"ruleset": "icao", "axes": [], "tag": tag}), encoding="utf-8", newline="")
             return _Paths(patch, side, ways)
 
         r = _Res()
@@ -172,7 +172,7 @@ def _stub_v2(monkeypatch, *, status="optimal", pieces_tiles=None, raise_exc=None
         }
         r.wall = {"total": 0.4}
         r.lp_size = {"rows": 1}
-        (d / f"{icao}.report.json").write_text(json.dumps(r.report))
+        (d / f"{icao}.report.json").write_text(json.dumps(r.report), encoding="utf-8", newline="")
         return r
 
     mods = {
@@ -231,13 +231,13 @@ def test_a_tile_cfg_still_carrying_the_key_loads_clean_and_builds_v2(
     # unstamped cfg is a pre-1.0.352 file, MOVED aside rather than read.
     import O4_Settings_Model as SM
     cfg.write_text(SM.tile_cfg_stamp_line()
-                   + "auto_patch=ICAO\nauto_patch_engine=v1\n")
+                   + "auto_patch=ICAO\nauto_patch_engine=v1\n", encoding="utf-8", newline="")
     tile = CFG.Tile(30, 31, str(build_dir))
     assert tile.read_from_config() == 1
     assert tile.auto_patch == "ICAO"
     assert not hasattr(tile, "auto_patch_engine")
-    assert "auto_patch_engine" not in cfg.read_text()
-    assert "auto_patch=ICAO" in cfg.read_text()
+    assert "auto_patch_engine" not in cfg.read_text(encoding="utf-8")
+    assert "auto_patch=ICAO" in cfg.read_text(encoding="utf-8")
     assert not any("WARNING" in ln or "IGNORED" in ln for ln in said), said
     assert any("removed retired key auto_patch_engine" in ln
                for ln in said), said
@@ -275,7 +275,7 @@ def test_v2_dispatch_places_patch_sidecar_provenance_and_verify_log(
     assert built == ["OTHH"] and failed_events == []
     patch = Path(task["auto_patch_file"])
     assert patch.is_file() and Path(str(patch) + ".axes.json").is_file()
-    assert "o4_stub='whole'" in patch.read_text()
+    assert "o4_stub='whole'" in patch.read_text(encoding="utf-8")
     # THE HOST'S FRAME, REUSED: the worker's tile DEM is seeded into the
     # loader as the current tile, core-hosted (no CLI cwd assertions).
     assert calls["inputs"]["core_hosted"] is True
@@ -291,7 +291,7 @@ def test_v2_dispatch_places_patch_sidecar_provenance_and_verify_log(
     assert "engine=v2" in prov[0] and "law=feedfacecafe" in prov[0] \
         and "ruleset=icao" in prov[0] and "solve=optimal" in prov[0] \
         and "insets=OTHH:lidar" in prov[0], prov[0]
-    log = (tmp_path / "verify.log").read_text()
+    log = (tmp_path / "verify.log").read_text(encoding="utf-8")
     assert "OTHH v2 verify: 1 row(s)" in log and "[v2:strip_seam_tear]" in log
     assert not Path(task["verify_log_path"]).exists(), "part concatenated, removed"
     assert any("[v2] [OTHH] solve" in ln for ln in console), \
@@ -307,9 +307,9 @@ def test_a_straddler_places_the_current_tiles_piece(tmp_path, monkeypatch,
     task = _task(tmp_path, "OTHH")
     _run([task], tmp_path)
     assert failed_events == []
-    text = Path(task["auto_patch_file"]).read_text()
+    text = Path(task["auto_patch_file"]).read_text(encoding="utf-8")
     assert "o4_stub='piece+30+031'" in text, text
-    assert json.loads(Path(task["auto_patch_file"] + ".axes.json").read_text())[
+    assert json.loads(Path(task["auto_patch_file"] + ".axes.json").read_text(encoding="utf-8"))[
         "tag"] == "piece+30+031"
 
 
@@ -338,7 +338,7 @@ def test_an_infeasible_solve_is_a_named_failure_with_the_iis_logged(
     assert "infeasible" in f[0]["error"] and "report.json" in f[0]["error"]
     assert failed_events == [("OTHH", "solve", f[0]["error"])]
     assert not Path(task["auto_patch_file"]).exists(), "no patch on infeasible"
-    log = (tmp_path / "verify.log").read_text()
+    log = (tmp_path / "verify.log").read_text(encoding="utf-8")
     assert "IIS taxi_long [08-21b]" in log and "z[1]-z[2]" in log, log
     assert any("v2 solve FAILED for OTHH" in ln for ln in console)
 
@@ -355,7 +355,7 @@ def test_a_v2_refusal_is_a_named_build_failure(tmp_path, monkeypatch, console,
         _run([task], tmp_path)
     f = raised.value.failures[0]
     assert f["stage"] == "build" and "[v2]" in f["error"] and "COLD" in f["error"]
-    assert "COLD" in (tmp_path / "verify.log").read_text()
+    assert "COLD" in (tmp_path / "verify.log").read_text(encoding="utf-8")
 
 
 def test_missing_law_tables_refuse_loudly_never_fall_back(tmp_path, monkeypatch,
@@ -385,7 +385,7 @@ def test_engine_is_a_compared_freshness_stamp_readable_from_the_root(tmp_path):
     assert PROV.freshness_mismatch(live, dict(live)) is None
     p = tmp_path / "X_auto.patch.osm"
     hdr = " ".join(f"{k}='v'" for k in PROV.FRESHNESS_KEYS)
-    p.write_text(f"<?xml version='1.0'?>\n<osm o4_apt_dat='a' {hdr}>\n</osm>\n")
+    p.write_text(f"<?xml version='1.0'?>\n<osm o4_apt_dat='a' {hdr}>\n</osm>\n", encoding="utf-8", newline="")
     assert read_patch_source(str(p))["freshness"]["o4_ap_engine"] == "v"
 
 
@@ -407,7 +407,7 @@ def test_the_driver_stamps_the_engine_into_every_task_and_freshness_block():
 
 
 def test_the_freeze_spec_bundles_the_v2_law_tables_and_modules():
-    spec = (ENGINE_ROOT / "Ortho4XP.spec").read_text()
+    spec = (ENGINE_ROOT / "Ortho4XP.spec").read_text(encoding="utf-8")
     assert re.search(r'auto_patch_v2.*law.*\*\.toml', spec), \
         "the eight law tables must be PyInstaller datas"
     assert re.search(r'auto_patch_v2.*classify.*\*\.toml', spec)
@@ -430,9 +430,9 @@ def test_the_real_law_digest_names_every_table_and_is_none_when_absent(tmp_path)
     from auto_patch_v2.law.model import TABLE_FILES
     assert sorted(real["files"]) == sorted(TABLE_FILES) and len(real["sha256"]) == 64
     assert law_tables_digest(tmp_path)["sha256"] is None
-    (tmp_path / "a.toml").write_text("x = 1\n")
+    (tmp_path / "a.toml").write_text("x = 1\n", encoding="utf-8", newline="")
     one = law_tables_digest(tmp_path)["sha256"]
-    (tmp_path / "a.toml").write_text("x = 2\n")
+    (tmp_path / "a.toml").write_text("x = 2\n", encoding="utf-8", newline="")
     assert law_tables_digest(tmp_path)["sha256"] != one
 
 
@@ -474,4 +474,4 @@ def test_no_ui_offers_an_engine_setting():
 def test_the_qt_app_offers_no_engine_control():
     qt = ENGINE_ROOT / "Ortho4XP_Qt.py"
     if qt.is_file():
-        assert "auto_patch_engine" not in qt.read_text(errors="ignore")
+        assert "auto_patch_engine" not in qt.read_text(errors="ignore", encoding="utf-8")

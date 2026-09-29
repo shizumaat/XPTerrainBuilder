@@ -327,7 +327,7 @@ def _overlay_tile():
 def test_ensure_recycles_existing_overlay(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     plan = _overlay_plan(tmp_path)
-    with open(plan["path"], "w") as handle:
+    with open(plan["path"], "w", encoding="utf-8", newline="") as handle:
         handle.write("cached raster")
     monkeypatch.setattr(
         ELEVATION_LEVEL, "resolve_tile_overlay_plan", lambda _tile: plan
@@ -353,7 +353,7 @@ def test_ensure_successful_fetch_writes_provenance_and_index(
     )
 
     def fake_fetch(definition, bounding_box, resolution_m, destination):
-        with open(destination, "w") as handle:
+        with open(destination, "w", encoding="utf-8", newline="") as handle:
             handle.write("fetched raster")
         return {"provider": definition["code"], "source": "synthetic"}
 
@@ -367,13 +367,13 @@ def test_ensure_successful_fetch_writes_provenance_and_index(
         TILE_LAT, TILE_LON, "TESTWIDE", plan["target_resolution_m"]
     )
     assert os.path.isfile(provenance_path)
-    with open(provenance_path) as handle:
+    with open(provenance_path, encoding="utf-8") as handle:
         provenance = json.load(handle)
     assert provenance["provider"] == "TESTWIDE"
     assert "fetch_date" in provenance  # the fetch stamps the date
 
     index_path = FNAMES.tile_overlay_index(TILE_LAT, TILE_LON)
-    with open(index_path) as handle:
+    with open(index_path, encoding="utf-8") as handle:
         index = json.load(handle)
     stem = os.path.splitext(os.path.basename(plan["path"]))[0]
     assert index[stem] == "ok"
@@ -397,7 +397,7 @@ def test_ensure_no_coverage_negative_is_written_and_honoured(
 
     assert ELEVATION_LEVEL.ensure_tile_overlay(_overlay_tile()) is None
     index_path = FNAMES.tile_overlay_index(TILE_LAT, TILE_LON)
-    with open(index_path) as handle:
+    with open(index_path, encoding="utf-8") as handle:
         index = json.load(handle)
     stem = os.path.splitext(os.path.basename(plan["path"]))[0]
     assert index[stem] == INSETS.NO_COVERAGE
@@ -428,7 +428,7 @@ def test_ensure_fetch_exception_returns_none_without_poisoning_cache(
     # negative -- it may be a transient outage.
     index_path = FNAMES.tile_overlay_index(TILE_LAT, TILE_LON)
     if os.path.isfile(index_path):
-        with open(index_path) as handle:
+        with open(index_path, encoding="utf-8") as handle:
             index = json.load(handle)
         stem = os.path.splitext(os.path.basename(plan["path"]))[0]
         assert index.get(stem) != INSETS.NO_COVERAGE

@@ -103,7 +103,7 @@ def test_detection_rejects_a_tree_without_cifp(tmp_path, monkeypatch):
 @pytest.fixture
 def window(qapp, tmp_path, monkeypatch):
     prefs_path = str(tmp_path / "prefs.json")
-    with open(prefs_path, "w") as handle:
+    with open(prefs_path, "w", encoding="utf-8", newline="") as handle:
         # An EXISTING prefs file: an absent one arms the wizard, whose
         # modal exec would sit there forever headless.
         json.dump({"output_dir": str(tmp_path)}, handle)

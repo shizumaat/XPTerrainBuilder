@@ -111,10 +111,10 @@ def _make_pack(tmp_path, contents: dict[str, str]) -> tuple[str, str]:
     for resource_path, text in contents.items():
         target = pack_root / resource_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text)
+        target.write_text(text, encoding="utf-8", newline="")
     mesh_path = tmp_path / "Data+35-081.mesh"
     if not mesh_path.exists():
-        mesh_path.write_text("synthetic mesh for provenance stat only\n")
+        mesh_path.write_text("synthetic mesh for provenance stat only\n", encoding="utf-8", newline="")
     return str(pack_root), str(mesh_path)
 
 
@@ -522,7 +522,7 @@ def test_a2_branch_c_pack_changed_orphans_backup_loudly(tmp_path):
     tampered_text = _two_box_object_text(
         trailing_lines=["# pack update marker"]
     )
-    with open(_live_path(pack_root), "w") as handle:
+    with open(_live_path(pack_root), "w", encoding="utf-8", newline="") as handle:
         handle.write(tampered_text)
     tampered_bytes = _read_bytes(_live_path(pack_root))
 
@@ -560,7 +560,7 @@ def test_a2_branch_d_prototype_state_backup_adopted_never_orphaned(tmp_path):
         "VT 0.000000 1.190000 0.000000",
     )
     assert prototype_baked_text != pristine_text
-    with open(_live_path(pack_root), "w") as handle:
+    with open(_live_path(pack_root), "w", encoding="utf-8", newline="") as handle:
         handle.write(prototype_baked_text)
 
     # The prototype's provenance: flat keys, objects as a LIST, no
@@ -576,7 +576,7 @@ def test_a2_branch_d_prototype_state_backup_adopted_never_orphaned(tmp_path):
         "anchor_ground": 219.83,
         "objects": [BOX_RESOURCE],
     }
-    with open(os.path.join(pack_root, PROVENANCE_FILENAME), "w") as handle:
+    with open(os.path.join(pack_root, PROVENANCE_FILENAME), "w", encoding="utf-8", newline="") as handle:
         json.dump(prototype_sidecar, handle, indent=2)
 
     report = apply(_two_box_decision(), pack_root, mesh_path)
@@ -600,7 +600,7 @@ def test_a2_branch_d_prototype_state_backup_adopted_never_orphaned(tmp_path):
 
     # Provenance upgraded to version 1 with BOTH hashes and per-object
     # tile names (amendment A6); the prototype anchor survived.
-    with open(os.path.join(pack_root, PROVENANCE_FILENAME)) as handle:
+    with open(os.path.join(pack_root, PROVENANCE_FILENAME), encoding="utf-8") as handle:
         upgraded = json.load(handle)
     assert upgraded["version"] == 1
     assert "DO NOT REDISTRIBUTE" in upgraded["warning"]
@@ -652,12 +652,12 @@ def test_check_reads_the_prototype_format_sidecar(tmp_path):
         "objects": [BOX_RESOURCE],
     }
     sidecar_path = os.path.join(pack_root, PROVENANCE_FILENAME)
-    with open(sidecar_path, "w") as handle:
+    with open(sidecar_path, "w", encoding="utf-8", newline="") as handle:
         json.dump(prototype_sidecar, handle)
     assert check(pack_root, mesh_path) == "CURRENT"
 
     prototype_sidecar["mtime"] -= 5
-    with open(sidecar_path, "w") as handle:
+    with open(sidecar_path, "w", encoding="utf-8", newline="") as handle:
         json.dump(prototype_sidecar, handle)
     assert check(pack_root, mesh_path) == "STALE"
 
@@ -738,7 +738,7 @@ def test_report_fields_are_filled_honestly(tmp_path):
     assert report.provenance_path == os.path.join(
         pack_root, PROVENANCE_FILENAME
     )
-    with open(report.provenance_path) as handle:
+    with open(report.provenance_path, encoding="utf-8") as handle:
         provenance = json.load(handle)
     assert provenance["version"] == 1
     mesh_entry = provenance["meshes"]["+35-081"]
@@ -847,7 +847,7 @@ def test_excluded_object_with_live_bake_is_reverted(tmp_path):
     # The included object is untouched by the reversion pass.
     assert _read_bytes(_live_path(pack_root)) == included_baked_bytes
 
-    with open(os.path.join(pack_root, PROVENANCE_FILENAME)) as handle:
+    with open(os.path.join(pack_root, PROVENANCE_FILENAME), encoding="utf-8") as handle:
         provenance = json.load(handle)
     entry = provenance["objects"][EXCLUDED_RESOURCE]
     # Applied delta 0: written == backup.
@@ -1016,7 +1016,7 @@ def test_partially_skipped_resource_bakes_only_passing_structures(tmp_path):
     assert vertex_row == 8
 
     # The provenance entry carries per-structure detail for the skips.
-    with open(os.path.join(pack_root, PROVENANCE_FILENAME)) as handle:
+    with open(os.path.join(pack_root, PROVENANCE_FILENAME), encoding="utf-8") as handle:
         provenance = json.load(handle)
     entry = provenance["objects"][BOX_RESOURCE]
     assert entry["written_sha256"] != entry["backup_sha256"]
@@ -1084,7 +1084,7 @@ def test_full_bake_then_partial_rebake_unbakes_the_skipped_structure(
 
 def _write_sidecar(pack_root, objects):
     os.makedirs(pack_root, exist_ok=True)
-    with open(os.path.join(pack_root, PROVENANCE_FILENAME), "w") as handle:
+    with open(os.path.join(pack_root, PROVENANCE_FILENAME), "w", encoding="utf-8", newline="") as handle:
         json.dump({"version": 1, "meshes": {}, "objects": objects}, handle)
 
 
@@ -1215,7 +1215,7 @@ def test_pristine_entries_miss_on_an_external_edit_of_a_baked_object(
     apply(_two_box_decision(), pack_root, mesh_path)
     before = _pristine_entries(pack_root)
 
-    with open(_live_path(pack_root), "w") as handle:
+    with open(_live_path(pack_root), "w", encoding="utf-8", newline="") as handle:
         handle.write(_two_box_object_text(
             trailing_lines=["# new pack version"]))
     after = _pristine_entries(pack_root)
@@ -1236,7 +1236,7 @@ def test_pristine_entries_miss_when_the_authored_original_changes(tmp_path):
     apply(_two_box_decision(), pack_root, mesh_path)
     before = _pristine_entries(pack_root)
 
-    with open(_backup_path(pack_root), "a") as handle:
+    with open(_backup_path(pack_root), "a", encoding="utf-8", newline="") as handle:
         handle.write("# authored geometry edited\n")
     assert _pristine_entries(pack_root) != before
 
@@ -1253,7 +1253,7 @@ def test_pristine_entries_refingerprint_cleanly_across_an_orphaned_backup(
     apply(_two_box_decision(), pack_root, mesh_path)
     before_edit = _pristine_entries(pack_root)
 
-    with open(_live_path(pack_root), "w") as handle:
+    with open(_live_path(pack_root), "w", encoding="utf-8", newline="") as handle:
         handle.write(_two_box_object_text(
             trailing_lines=["# new pack version"]))
     at_edit = _pristine_entries(pack_root)
@@ -1296,7 +1296,7 @@ def test_pristine_entries_adopt_the_backup_without_recorded_hashes(
         tmp_path, {BOX_RESOURCE: pristine_text})
     shutil.copy2(_live_path(pack_root), _backup_path(pack_root))
     backup_stat = os.stat(_backup_path(pack_root))
-    with open(_live_path(pack_root), "w") as handle:
+    with open(_live_path(pack_root), "w", encoding="utf-8", newline="") as handle:
         handle.write(pristine_text.replace(
             "VT 0.000000 0.000000 0.000000",
             "VT 0.000000 1.190000 0.000000"))
@@ -1321,13 +1321,13 @@ def _pack_in_custom_scenery(tmp_path, pack_name="ZZZZ Pack", ini_lines=None):
     custom = tmp_path / "X-Plane 12" / "Custom Scenery"
     pack_root = custom / pack_name
     (pack_root / "Objects").mkdir(parents=True)
-    (pack_root / BOX_RESOURCE).write_text(_two_box_object_text())
+    (pack_root / BOX_RESOURCE).write_text(_two_box_object_text(), encoding="utf-8", newline="")
     mesh_path = tmp_path / "Data+35-081.mesh"
-    mesh_path.write_text("synthetic mesh for provenance stat only\n")
+    mesh_path.write_text("synthetic mesh for provenance stat only\n", encoding="utf-8", newline="")
     if ini_lines is not None:
         (custom / "scenery_packs.ini").write_text(
             "I\n1000 Version\nSCENERY\n\n"
-            + "".join(f"{line}\n" for line in ini_lines))
+            + "".join(f"{line}\n" for line in ini_lines), encoding="utf-8", newline="")
     return str(pack_root), str(mesh_path)
 
 

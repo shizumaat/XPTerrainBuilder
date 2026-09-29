@@ -314,13 +314,13 @@ class TestPatchValuedVertexIdentification:
             self._path = path
 
     def _write_input_node(self, path, rows):
-        with open(path, "w") as handle:
+        with open(path, "w", encoding="utf-8", newline="") as handle:
             handle.write(f"{len(rows)} 2 1 0\n")
             for index, (x, y) in enumerate(rows, start=1):
                 handle.write(f"{index} {x:.9f} {y:.9f} 0.0\n")
 
     def _write_input_poly(self, path, edges):
-        with open(path, "w") as handle:
+        with open(path, "w", encoding="utf-8", newline="") as handle:
             handle.write("0 2 1 0\n\n")
             handle.write(f"{len(edges)} 1\n")
             for index, (a, b, attribute) in enumerate(edges, start=1):

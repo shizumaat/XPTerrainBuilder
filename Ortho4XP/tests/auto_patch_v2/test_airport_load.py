@@ -323,7 +323,7 @@ def test_find_text_dump_prefers_the_keyed_fresh_dump_and_refuses_stale(tmp_path)
     d = root / "OTHH Pack"
     d.mkdir(parents=True)
     legacy = d / "+25+051.dsf.text"
-    legacy.write_text("OBJECT_DEF old\n")
+    legacy.write_text("OBJECT_DEF old\n", encoding="utf-8", newline="")
     t0 = time.time() - 3600
     os.utime(legacy, (t0, t0))                       # 07-30
     dsf.write_bytes(b"XPLNEDSF")
@@ -331,7 +331,7 @@ def test_find_text_dump_prefers_the_keyed_fresh_dump_and_refuses_stale(tmp_path)
     # every dump older than the DSF: refused, not the legacy one by name
     assert S.find_text_dump(str(root), "OTHH Pack", 25, 51, dsf_path=str(dsf)) is None
     keyed = d / f"+25+051.dsf.{S.text_dump_tag(str(dsf))}.text"
-    keyed.write_text("OBJECT_DEF Objects/tunnels/tunnel1.obj\n")
+    keyed.write_text("OBJECT_DEF Objects/tunnels/tunnel1.obj\n", encoding="utf-8", newline="")
     os.utime(keyed, (t0 + 1200, t0 + 1200))
     assert S.find_text_dump(str(root), "OTHH Pack", 25, 51, dsf_path=str(dsf)) == str(keyed)
     # a fixture dir with no DSF path: the newest by mtime, never by name
@@ -356,7 +356,7 @@ def test_uv_mapped_pol_columns_are_texture_coordinates(tmp_path):
         "POLYGON_POINT -3.8840 40.5213 -3.8840 40.5213",
         "END_WINDING", "END_POLYGON", ""])
     p = tmp_path / "t.dsf.text"
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8", newline="")
     d = S.read_dump(str(p))
     uv, bez = d.polygons[0], d.polygons[1]
     lons = [pt[0] for pt in uv.windings[0]]; lats = [pt[1] for pt in uv.windings[0]]
@@ -387,13 +387,13 @@ def test_find_text_dump_never_crosses_the_live_and_pristine_names(tmp_path):
     bak.write_bytes(b"XPLNEDSF pristine")
     os.utime(bak, (t0, t0))
     pristine_dump = d / f"+40-004.dsf.anchor_bak.{S.text_dump_tag(str(bak))}.text"
-    pristine_dump.write_text("OBJECT_DEF objects/a.obj\n")
+    pristine_dump.write_text("OBJECT_DEF objects/a.obj\n", encoding="utf-8", newline="")
     os.utime(pristine_dump, (t0 + 60, t0 + 60))
 
     dsf.write_bytes(b"XPLNEDSF written with 913 body placements")
     os.utime(dsf, (t0 + 600, t0 + 600))
     written_dump = d / f"+40-004.dsf.{S.text_dump_tag(str(dsf))}.text"
-    written_dump.write_text("OBJECT_DEF objects/a__b0.obj\n")   # the NEWEST
+    written_dump.write_text("OBJECT_DEF objects/a__b0.obj\n", encoding="utf-8", newline="")   # the NEWEST
     os.utime(written_dump, (t0 + 700, t0 + 700))
 
     # the pristine frame gets the pristine dump, never the newer one
@@ -450,7 +450,7 @@ def _apt_file(path: Path, body: str) -> None:
           f"27 {_LA + 0.01:.6f} {_LO + 0.01:.6f} 0 0 3 0 0 0\n")
     path.write_text("I\n1100 Generated\n"
                     f"1 100 0 0 {_BORROW_ICAO} Borrow Fixture\n"
-                    + rw + body + "99\n")
+                    + rw + body + "99\n", encoding="utf-8", newline="")
 
 
 def _borrow_root(tmp_path: Path, custom_body: str,
@@ -524,8 +524,8 @@ def test_borrow_sha_is_in_the_partition_key(tmp_path):
     root = _borrow_root(tmp_path, _CUSTOM_THIN, _GLOBAL_FOUR)
     a, _ = load_with_report(_BORROW_ICAO, _borrow_inputs(root), _borrow_law())
     dump = tmp_path / "dump.text"
-    dump.write_text("OBJECT_DEF objects/a.obj\n")
-    (Path(a.pack.apt_dat_path).parent.parent / "x.obj").write_text("A\n800\nOBJ\n")
+    dump.write_text("OBJECT_DEF objects/a.obj\n", encoding="utf-8", newline="")
+    (Path(a.pack.apt_dat_path).parent.parent / "x.obj").write_text("A\n800\nOBJ\n", encoding="utf-8", newline="")
     law = _borrow_law()
     fp = PC.fingerprint(a, law, dump_path=str(dump), radius_deg=0.05)
     other = _dcx.replace(a.pack, borrowed_block_sha256="0" * 64)
@@ -609,7 +609,7 @@ def test_pavement_less_custom_pack_is_still_the_pack(tmp_path):
 # ── a DISABLED pack is ignored (owner RULINGS 2026-09-17b) ───────────────
 def _ini(root, lines):
     (root / "Custom Scenery" / "scenery_packs.ini").write_text(
-        "I\n1000 Version\nSCENERY\n\n" + "\n".join(lines) + "\n")
+        "I\n1000 Version\nSCENERY\n\n" + "\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 def _two_pack_root(tmp_path):

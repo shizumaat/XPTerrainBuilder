@@ -217,10 +217,10 @@ def write_synthetic_patch(tmp_path, ways, *, sidecar=None,
     osm.write_text("<?xml version='1.0' encoding='UTF-8'?>\n"
                    "<osm version='0.6'>\n"
                    + "\n".join(node_lines) + "\n"
-                   + "\n".join(way_lines) + "\n</osm>\n")
+                   + "\n".join(way_lines) + "\n</osm>\n", encoding="utf-8", newline="")
     side = {"anchor": [lat0, lon0], "ruleset": "icao"}
     side.update(sidecar or {})
-    (tmp_path / (name + ".axes.json")).write_text(json.dumps(side))
+    (tmp_path / (name + ".axes.json")).write_text(json.dumps(side), encoding="utf-8", newline="")
     return osm
 
 
@@ -1148,7 +1148,7 @@ def _shared_repo_write_audit(request):
         return
     out = _suite_write_audit_out()
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    with open(out, "a", encoding="utf-8") as handle:
+    with open(out, "a", encoding="utf-8", newline="") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 

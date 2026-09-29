@@ -53,7 +53,7 @@ def qapp():
 @pytest.fixture
 def make_window(qapp, tmp_path, monkeypatch):
     prefs_path = str(tmp_path / "prefs.json")
-    with open(prefs_path, "w") as handle:
+    with open(prefs_path, "w", encoding="utf-8", newline="") as handle:
         # An EXISTING prefs file: an absent one arms the onboarding
         # wizard, whose modal exec would sit there forever headless.
         json.dump({"output_dir": str(tmp_path)}, handle)
@@ -84,7 +84,7 @@ def make_window(qapp, tmp_path, monkeypatch):
 
 
 def _prefs(make_window):
-    with open(make_window.prefs_path) as handle:
+    with open(make_window.prefs_path, encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -318,7 +318,7 @@ def test_legacy_offer_shows_for_a_built_tile_only(make_window, tmp_path):
     window = make_window()
     build = tmp_path / "zOrtho4XP_+48-006"
     build.mkdir()
-    (build / "Ortho4XP.cfg").write_text("default_zl=17\n")
+    (build / "Ortho4XP.cfg").write_text("default_zl=17\n", encoding="utf-8", newline="")
     # Unbuilt: nothing to say, even with a legacy file on disk.
     window._built = {}
     window._refresh_legacy_config(TILE)
@@ -417,7 +417,7 @@ def test_the_four_ini_edge_rules_match_the_mac_app(tmp_path):
         "SCENERY_PACK Custom Scenery/on/\n"
         "SCENERY_PACK_DISABLED Custom Scenery/off/\n"
         "SCENERY_PACK Custom Scenery/dangler/\n"
-        "SCENERY_PACK *GLOBAL_AIRPORTS*\n")
+        "SCENERY_PACK *GLOBAL_AIRPORTS*\n", encoding="utf-8", newline="")
 
     # 1. EXACT first token — never startswith("SCENERY_PACK"), which
     #    SCENERY_PACK_DISABLED also satisfies.

@@ -504,7 +504,7 @@ class TestSpellingsCannotDrift:
         (``tools/band_clamp_attrib.py``) must IMPORT the band's role set,
         never re-type it — the defect the census wrappers taught."""
         tools = Path(__file__).resolve().parents[1] / "tools"
-        src = (tools / "band_clamp_attrib.py").read_text()
+        src = (tools / "band_clamp_attrib.py").read_text(encoding="utf-8")
         assert "from auto_patch.elevation_per_surface.raster_reach_band" in src
         assert "band_domain_roles" in src
         assert "DOMAIN_ROLES = band_domain_roles()" in src

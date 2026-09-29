@@ -82,7 +82,7 @@ class _FakeBroker:
 def _write_username_sidecar(directory, session_name, username):
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, session_name + ".account.json")
-    with open(path, "w", encoding="utf-8") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"username": username}, handle)
 
 
@@ -200,7 +200,7 @@ def test_store_and_load_credentials_route_to_broker(
         ("set", "dgterritorio", "user@example.org", "pw")]
     # The username sidecar is still written locally (it is not a secret).
     with open(os.path.join(sessions_directory,
-                           "dgterritorio.account.json")) as handle:
+                           "dgterritorio.account.json"), encoding="utf-8") as handle:
         assert json.load(handle) == {"username": "user@example.org"}
 
     broker.responses = [(True, "pw", "")]

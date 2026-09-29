@@ -218,7 +218,7 @@ def test_the_census_reader_sees_the_feed_axes(cg, tmp_path):
         "routes_exact": routes,
         "anchor": [0.0, 0.0],
         "ruleset": "icao",
-    }))
+    }), encoding="utf-8", newline="")
     law = cg.law_context_from_sidecar(patch)
     assert len(law["taxi_axes_ll"]) == len(ctx.centerlines), (
         "the census must judge under the same centerline set the solve "
@@ -240,7 +240,7 @@ def test_a_legacy_sidecar_without_the_flag_still_reads(cg, tmp_path):
         "axes_exact": [[[[0.0, 0.0], [0.001, 0.0]], [0.015], 0]],
         "routes_exact": [[[0.0, 0.0], [0.001, 0.0]]],
         "anchor": [0.0, 0.0], "ruleset": "icao",
-    }))
+    }), encoding="utf-8", newline="")
     law = cg.law_context_from_sidecar(patch)
     assert [e[4] for e in law["taxi_axes_ll"]] == [False]
 

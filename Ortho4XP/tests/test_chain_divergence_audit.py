@@ -70,7 +70,7 @@ def _write_osm(path):
         lines.append(f"    <tag k='o4_feature' v='{role}'/>")
         lines.append("  </way>")
     lines.append("</osm>")
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("\n".join(lines))
 
 
@@ -108,7 +108,7 @@ def test_endpoint_touch_and_parallel_are_not_crossings(tmp_path):
         lines.append(f"    <tag k='o4_feature' v='{role}'/>")
         lines.append("  </way>")
     lines.append("</osm>")
-    with open(osm_path, "w") as handle:
+    with open(osm_path, "w", encoding="utf-8", newline="") as handle:
         handle.write("\n".join(lines))
 
     _tv, _np, crossings, _self_crossings = module.analyze(osm_path)
@@ -142,7 +142,7 @@ def _write_osm_rich(path, nodes, ways):
             lines.append(f"    <tag k='ref' v='{ref}'/>")
         lines.append("  </way>")
     lines.append("</osm>")
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("\n".join(lines))
 
 

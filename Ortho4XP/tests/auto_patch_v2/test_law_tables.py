@@ -518,9 +518,9 @@ def _mutated(tmp_path, fname, old, new):
         if f.endswith(".toml"):
             shutil.copy(DEFAULT_LAW_DIR / f, tmp_path / f)
     p = tmp_path / fname
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     assert old in text, old
-    p.write_text(text.replace(old, new, 1))
+    p.write_text(text.replace(old, new, 1), encoding="utf-8", newline="")
     return tmp_path
 
 
@@ -553,7 +553,7 @@ def test_no_numeric_literal_in_law_python():
     """The amendment's letter: no cap value lives in Python."""
     import re
     for name in ("model.py", "tables.py"):
-        src = (DEFAULT_LAW_DIR / name).read_text()
+        src = (DEFAULT_LAW_DIR / name).read_text(encoding="utf-8")
         body = "\n".join(l for l in src.splitlines()
                          if not l.strip().startswith("#"))
         floats = re.findall(r"(?<![\w.])\d+\.\d+(?![\w.])", body)

@@ -155,7 +155,7 @@ def _feed(root, lat, lon, feed, attr):
                      f"{lat:+03d}{lon:+04d}")
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, f"{lat:+03d}{lon:+04d}_{feed}.osm")
-    with open(p, "w", encoding="utf-8") as fh:
+    with open(p, "w", encoding="utf-8", newline="") as fh:
         fh.write(_OSM_HEAD.format(attr=attr))
     return p
 

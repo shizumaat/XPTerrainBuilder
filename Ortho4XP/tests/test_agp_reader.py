@@ -73,7 +73,7 @@ _MPP = 60.0 / 128.0
 
 def _write(tmp_path, name, text):
     p = tmp_path / name
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8", newline="")
     return str(p)
 
 
@@ -141,9 +141,9 @@ def test_library_resolve_and_memoization(tmp_path):
     root = _make_xplane_root(tmp_path)
     pack = root / "Custom Scenery" / "MyPack"
     pack.mkdir()
-    (pack / "h.agp").write_text(_AGP_60x60)
+    (pack / "h.agp").write_text(_AGP_60x60, encoding="utf-8", newline="")
     (pack / "library.txt").write_text(
-        "EXPORT lib/airport/Common_Elements/Hangars/Test.agp\th.agp\n")
+        "EXPORT lib/airport/Common_Elements/Hangars/Test.agp\th.agp\n", encoding="utf-8", newline="")
 
     virtual = "lib/airport/Common_Elements/Hangars/Test.agp"
     phys = A.resolve_library_path(virtual, str(root))
@@ -159,15 +159,15 @@ def test_custom_scenery_overrides_default(tmp_path):
     virtual = "lib/airport/Common_Elements/Hangars/Test.agp"
 
     default_dir = root / "Resources" / "default scenery" / "airport scenery"
-    (default_dir / "from_default.agp").write_text(_AGP_60x60)
+    (default_dir / "from_default.agp").write_text(_AGP_60x60, encoding="utf-8", newline="")
     (default_dir / "library.txt").write_text(
-        f"EXPORT {virtual}\tfrom_default.agp\n")
+        f"EXPORT {virtual}\tfrom_default.agp\n", encoding="utf-8", newline="")
 
     pack = root / "Custom Scenery" / "Override"
     pack.mkdir()
-    (pack / "from_custom.agp").write_text(_AGP_60x60)
+    (pack / "from_custom.agp").write_text(_AGP_60x60, encoding="utf-8", newline="")
     (pack / "library.txt").write_text(
-        f"EXPORT {virtual}\tfrom_custom.agp\n")
+        f"EXPORT {virtual}\tfrom_custom.agp\n", encoding="utf-8", newline="")
 
     phys = A.resolve_library_path(virtual, str(root))
     assert phys.endswith("Override/from_custom.agp")
@@ -197,16 +197,16 @@ def _install(tmp_path, packs, ini_order=None, default=None):
     default_dir = root / "Resources" / "default scenery" / "airport scenery"
     default_dir.mkdir(parents=True)
     if default:
-        (default_dir / "library.txt").write_text(default)
+        (default_dir / "library.txt").write_text(default, encoding="utf-8", newline="")
     for name, exports in packs.items():
         pack = custom / name
         pack.mkdir()
-        (pack / "library.txt").write_text(exports)
+        (pack / "library.txt").write_text(exports, encoding="utf-8", newline="")
     if ini_order is not None:
         (custom / "scenery_packs.ini").write_text(
             "I\n1000 Version\nSCENERY\n\n" + "".join(
                 f"SCENERY_PACK Custom Scenery/{name}/\n"
-                for name in ini_order))
+                for name in ini_order), encoding="utf-8", newline="")
     return root
 
 
@@ -334,7 +334,7 @@ def test_invalidates_when_a_library_txt_is_edited(tmp_path):
     root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
     assert "lib/new.agp" not in _cold_index(root)
     (root / "Custom Scenery" / "Alpha" / "library.txt").write_text(
-        _PACKS["Alpha"] + "EXPORT lib/new.agp\tnew.agp\n")
+        _PACKS["Alpha"] + "EXPORT lib/new.agp\tnew.agp\n", encoding="utf-8", newline="")
     assert "lib/new.agp" in _assert_rebuilds_to_truth(root)
 
 
@@ -343,7 +343,7 @@ def test_invalidates_when_a_pack_is_added(tmp_path):
     _cold_index(root)
     added = root / "Custom Scenery" / "Charlie"
     added.mkdir()
-    (added / "library.txt").write_text("EXPORT lib/c.agp\tc.agp\n")
+    (added / "library.txt").write_text("EXPORT lib/c.agp\tc.agp\n", encoding="utf-8", newline="")
     assert "lib/c.agp" in _assert_rebuilds_to_truth(root)
 
 
@@ -362,7 +362,7 @@ def test_invalidates_when_scenery_packs_ini_is_reordered(tmp_path):
     (root / "Custom Scenery" / "scenery_packs.ini").write_text(
         "I\n1000 Version\nSCENERY\n\n"
         "SCENERY_PACK Custom Scenery/Bravo/\n"
-        "SCENERY_PACK Custom Scenery/Alpha/\n")
+        "SCENERY_PACK Custom Scenery/Alpha/\n", encoding="utf-8", newline="")
     index = _assert_rebuilds_to_truth(root)
     assert index["lib/shared.agp"].endswith("Bravo/bravo.agp")
 
@@ -384,7 +384,7 @@ def test_invalidates_when_scenery_packs_ini_is_removed(tmp_path):
 # path and supply footprint geometry for objects that do not exist.
 def _ini(root, lines):
     (root / "Custom Scenery" / "scenery_packs.ini").write_text(
-        "I\n1000 Version\nSCENERY\n\n" + "".join(f"{ln}\n" for ln in lines))
+        "I\n1000 Version\nSCENERY\n\n" + "".join(f"{ln}\n" for ln in lines), encoding="utf-8", newline="")
 
 
 def test_disabled_pack_never_wins_a_virtual_path(tmp_path):
@@ -495,9 +495,9 @@ def test_footprint_lonlat_heading_rotation(tmp_path):
     root = _make_xplane_root(tmp_path)
     pack = root / "Custom Scenery" / "P"
     pack.mkdir()
-    (pack / "h.agp").write_text(_AGP_60x60)
+    (pack / "h.agp").write_text(_AGP_60x60, encoding="utf-8", newline="")
     virtual = "lib/airport/Common_Elements/Hangars/T.agp"
-    (pack / "library.txt").write_text(f"EXPORT {virtual}\th.agp\n")
+    (pack / "library.txt").write_text(f"EXPORT {virtual}\th.agp\n", encoding="utf-8", newline="")
 
     lon0, lat0 = -81.0, 28.0
     ring0 = A.agp_footprint_lonlat(virtual, lon0, lat0, 0.0, str(root))

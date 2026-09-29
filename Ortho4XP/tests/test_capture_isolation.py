@@ -165,7 +165,7 @@ def test_the_deadline_kills_the_python_child_of_time(tmp_path):
     assert out.returncode == 124, (out.returncode, out.stderr)
     assert "TIMED_OUT after 2 s" in out.stderr
     assert wall < 30, wall
-    pid = int(pidfile.read_text())
+    pid = int(pidfile.read_text(encoding="utf-8"))
     for _ in range(40):                       # reaped by init: poll briefly
         try:
             os.kill(pid, 0)

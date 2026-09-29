@@ -46,11 +46,11 @@ def _mutual_exclusion_worker(
 
     for _ in range(iterations):
         with WORKER_LOCK.hold_file_lock(lock_target, timeout_seconds=60.0):
-            with open(shared_file, "a") as handle:
+            with open(shared_file, "a", encoding="utf-8", newline="") as handle:
                 handle.write("%d-enter\n" % worker_id)
                 handle.flush()
             time.sleep(0.02)
-            with open(shared_file, "a") as handle:
+            with open(shared_file, "a", encoding="utf-8", newline="") as handle:
                 handle.write("%d-exit\n" % worker_id)
                 handle.flush()
 
@@ -73,7 +73,7 @@ def test_mutual_exclusion_across_real_processes(tmp_path):
         process.join(timeout=120)
         assert process.exitcode == 0
 
-    with open(shared_file) as handle:
+    with open(shared_file, encoding="utf-8") as handle:
         lines = [line.strip() for line in handle if line.strip()]
 
     # Two workers, ``iterations`` critical sections each, two markers per
@@ -123,7 +123,7 @@ def test_stale_lock_is_broken_and_reacquired(tmp_path, monkeypatch):
 
     # A leftover lock file from a crashed holder, aged well past the stale
     # threshold.
-    with open(lock_path, "w") as handle:
+    with open(lock_path, "w", encoding="utf-8", newline="") as handle:
         handle.write("99999 2000-01-01T00:00:00\n")
     old_time = time.time() - (LOCK.STALE_LOCK_AGE_SECONDS + 600.0)
     os.utime(lock_path, (old_time, old_time))
@@ -153,7 +153,7 @@ def test_timeout_proceeds_without_lock(tmp_path, monkeypatch):
 
     # A foreign holder's lock with a RECENT mtime: not stale, so we must
     # wait, time out, warn, and proceed anyway.
-    with open(lock_path, "w") as handle:
+    with open(lock_path, "w", encoding="utf-8", newline="") as handle:
         handle.write("12345 recent\n")
     now = time.time()
     os.utime(lock_path, (now, now))

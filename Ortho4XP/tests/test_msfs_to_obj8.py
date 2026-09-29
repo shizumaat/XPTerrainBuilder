@@ -248,7 +248,7 @@ def test_converter_emits_obj_and_png(tmp_path: Path) -> None:
     assert entry["triangles"] == 2
     assert entry["texture"] == png_files[0].name
 
-    obj_text = obj_files[0].read_text()
+    obj_text = obj_files[0].read_text(encoding="utf-8")
     assert "TEXTURE " in obj_text
     assert "POINT_COUNTS 4 0 0 6" in obj_text
 
@@ -261,7 +261,7 @@ def test_converter_rotates_axes_and_flips_v(tmp_path: Path) -> None:
     output_directory = tmp_path / "out"
     convert_module.convert(glb_path, output_directory, base_name="krdm")
 
-    obj_text = next(output_directory.glob("*.obj")).read_text()
+    obj_text = next(output_directory.glob("*.obj")).read_text(encoding="utf-8")
     vertices = _parse_obj_vt(obj_text)
     assert len(vertices) == 4
 
@@ -300,7 +300,7 @@ def test_index_order_is_preserved_for_spec_gltf_sources(tmp_path: Path) -> None:
         glb_path, output_directory, base_name="krdm", winding="gltf"
     )
 
-    obj_text = next(output_directory.glob("*.obj")).read_text()
+    obj_text = next(output_directory.glob("*.obj")).read_text(encoding="utf-8")
     indices = _parse_obj_indices(obj_text)
     # Identity axes preserve winding, so a (declared) spec-CCW source
     # must be reversed to reach OBJ8's CW-front convention.
@@ -317,7 +317,7 @@ def test_auto_winding_reverses_directx_wound_sources(tmp_path: Path) -> None:
     output_directory = tmp_path / "out"
     manifest = convert_module.convert(glb_path, output_directory, base_name="krdm")
 
-    obj_text = next(output_directory.glob("*.obj")).read_text()
+    obj_text = next(output_directory.glob("*.obj")).read_text(encoding="utf-8")
     indices = _parse_obj_indices(obj_text)
     # CW-front (DirectX) sources already match OBJ8 CW-front under the
     # identity axis map: index order is preserved.
@@ -426,7 +426,7 @@ def test_mirrored_nodes_get_per_primitive_winding(tmp_path: Path) -> None:
     manifest = convert_module.convert(glb_path, output_directory, base_name="krdm")
 
     assert any("winding auto-detected: directx" in w for w in manifest["warnings"])
-    obj_text = next(output_directory.glob("*.obj")).read_text()
+    obj_text = next(output_directory.glob("*.obj")).read_text(encoding="utf-8")
     indices = _parse_obj_indices(obj_text)
     # Instance 1 (identity): kept.  Instances 2-3 (mirrored): reversed.
     assert indices == [
@@ -668,7 +668,7 @@ def test_atlas_merges_unit_square_textures_and_keeps_tiling(tmp_path: Path) -> N
     with Image.open(atlas_png) as atlas_image:
         atlas_rgb = atlas_image.convert("RGB")
         width, height = atlas_rgb.size
-        atlas_obj_text = (output_directory / "krdm_atlas.obj").read_text()
+        atlas_obj_text = (output_directory / "krdm_atlas.obj").read_text(encoding="utf-8")
         vertices = _parse_obj_vt(atlas_obj_text)
         assert len(vertices) == 8  # two quads, four vertices each.
 
@@ -689,7 +689,7 @@ def test_atlas_merges_unit_square_textures_and_keeps_tiling(tmp_path: Path) -> N
 
     # The tiling object's UVs are untouched (still span the [0, 4] range).
     tiling_obj = output_directory / tiling_entries[0]["file"]
-    tiling_vertices = _parse_obj_vt(tiling_obj.read_text())
+    tiling_vertices = _parse_obj_vt(tiling_obj.read_text(encoding="utf-8"))
     expected_tiling_uvs = {
         (round(u, 4), round(1.0 - v, 4)) for u, v in
         [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]
@@ -947,7 +947,7 @@ def test_translucent_factor_lands_in_glass_palette(tmp_path: Path) -> None:
     glass = _find_object(manifest, lambda e: e["file"].endswith("_palette_glass.obj"))
     assert glass is not None
     assert glass.get("blend_glass") is True
-    glass_text = (output_directory / glass["file"]).read_text()
+    glass_text = (output_directory / glass["file"]).read_text(encoding="utf-8")
     assert "BLEND_GLASS" in glass_text
     # BLEND_GLASS sits in the texture block, before POINT_COUNTS.
     assert glass_text.index("BLEND_GLASS") < glass_text.index("POINT_COUNTS")
@@ -960,7 +960,7 @@ def test_translucent_factor_lands_in_glass_palette(tmp_path: Path) -> None:
     # The opaque palette object must NOT blend.
     opaque = _find_object(manifest, lambda e: e["file"].endswith("_palette.obj"))
     assert opaque is not None
-    assert "BLEND_GLASS" not in (output_directory / opaque["file"]).read_text()
+    assert "BLEND_GLASS" not in (output_directory / opaque["file"]).read_text(encoding="utf-8")
 
 
 def test_emissive_factor_group_emits_texture_lit(tmp_path: Path) -> None:
@@ -976,7 +976,7 @@ def test_emissive_factor_group_emits_texture_lit(tmp_path: Path) -> None:
     )
     assert emissive is not None
     assert emissive.get("texture_lit") == "krdm_palette_LIT.png"
-    obj_text = (output_directory / emissive["file"]).read_text()
+    obj_text = (output_directory / emissive["file"]).read_text(encoding="utf-8")
     assert "TEXTURE_LIT krdm_palette_LIT.png" in obj_text
     # TEXTURE_LIT follows TEXTURE in the header block.
     assert obj_text.index("TEXTURE ") < obj_text.index("TEXTURE_LIT")
@@ -1005,7 +1005,7 @@ def test_normal_map_flips_green_and_bakes_gloss_alpha(tmp_path: Path) -> None:
 
     textured = _find_object(manifest, lambda e: e.get("texture_normal"))
     assert textured is not None
-    obj_text = (output_directory / textured["file"]).read_text()
+    obj_text = (output_directory / textured["file"]).read_text(encoding="utf-8")
     normal_file = textured["texture_normal"]
     assert f"TEXTURE_NORMAL {normal_file}" in obj_text
     # TEXTURE_NORMAL follows TEXTURE.
@@ -1038,7 +1038,7 @@ def test_palette_uvs_sit_at_cell_centers(tmp_path: Path) -> None:
 
     opaque = _find_object(manifest, lambda e: e["file"].endswith("_palette.obj"))
     assert opaque is not None
-    vertices = _parse_obj_vt((output_directory / opaque["file"]).read_text())
+    vertices = _parse_obj_vt((output_directory / opaque["file"]).read_text(encoding="utf-8"))
     assert vertices
 
     half = material_fidelity.CELL_SIZE / 2.0  # 8 px centre offset in a 16 px cell

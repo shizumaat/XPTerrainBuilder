@@ -124,7 +124,7 @@ def _patch_file(patch_dir, rings):
         way_id -= 2
     lines += bodies
     lines.append("</osm>")
-    (patch_dir / "VMMC_auto.patch.osm").write_text("\n".join(lines))
+    (patch_dir / "VMMC_auto.patch.osm").write_text("\n".join(lines), encoding="utf-8", newline="")
 
 
 def _box(lon0, lat0, lon1, lat1):
@@ -197,7 +197,7 @@ class TestBoundaryRibbonNeverAdmitsAWall:
         spec = importlib.util.spec_from_file_location("_sa_twin", path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         assert "VMAP.GRADED_COVERAGE_ROLES" in source
         assert "VMAP.SEAWALL_PAVEMENT_ROLES" in source
         assert "VMAP.seawall_breaklines" in source

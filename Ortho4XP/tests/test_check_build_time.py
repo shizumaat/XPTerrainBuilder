@@ -178,7 +178,7 @@ def test_hollow_approvals_are_ignored_with_warning():
 
 def write_store(directory, name, records):
     os.makedirs(directory, exist_ok=True)
-    with open(os.path.join(directory, f"{name}.json"), "w") as store_file:
+    with open(os.path.join(directory, f"{name}.json"), "w", encoding="utf-8", newline="") as store_file:
         json.dump(records, store_file)
 
 
@@ -255,7 +255,7 @@ def test_run_airport_benchmark_with_injected_runner(tmp_path):
         records = []
         path = os.path.join(store, f"{icao}.json")
         if os.path.exists(path):
-            records = json.load(open(path))
+            records = json.load(open(path, encoding="utf-8"))
         records.append({"finished_at": finished_at[0] + 1e12,
                         "total_seconds": 40.0 + len(records),
                         "phase_seconds": {"solve": 30.0}})
@@ -285,8 +285,8 @@ def synthetic_setup(tmp_path, baseline_total=45.0, measured_total=45.0,
     baselines_path.write_text(json.dumps({
         "airports": {"CYXY": {"total_seconds": baseline_total,
                               "phase_seconds": {"solve": 30.0}}},
-        "tiles": {}}))
-    approvals_path.write_text(json.dumps({"approvals": approvals or []}))
+        "tiles": {}}), encoding="utf-8", newline="")
+    approvals_path.write_text(json.dumps({"approvals": approvals or []}), encoding="utf-8", newline="")
     write_store(str(airport_store), "CYXY", [
         {"finished_at": 1.0, "total_seconds": measured_total,
          "phase_seconds": {"solve": 30.0}}])
@@ -325,14 +325,14 @@ def test_main_errors_without_store_record(tmp_path):
 
 def test_main_errors_on_measured_subject_without_baseline(tmp_path):
     argv, baselines_path = synthetic_setup(tmp_path)
-    baselines_path.write_text(json.dumps({"airports": {}, "tiles": {}}))
+    baselines_path.write_text(json.dumps({"airports": {}, "tiles": {}}), encoding="utf-8", newline="")
     assert check_build_time.main(argv + ["CYXY"]) == 2
 
 
 def test_main_update_baselines_writes_measurement(tmp_path, capsys):
     argv, baselines_path = synthetic_setup(tmp_path, measured_total=47.0)
     assert check_build_time.main(argv + ["--update-baselines"]) == 0
-    updated = json.loads(baselines_path.read_text())
+    updated = json.loads(baselines_path.read_text(encoding="utf-8"))
     entry = updated["airports"]["CYXY"]
     assert entry["total_seconds"] == 47.0
     assert entry["recorded_at"]
@@ -348,7 +348,7 @@ def test_main_checks_tile_subject_from_store(tmp_path, capsys):
         "airports": {},
         "tiles": {"+30+031": {"total_seconds": 30.0,
                               "phase_seconds": {"vector": 10.0,
-                                                "mesh": 20.0}}}}))
+                                                "mesh": 20.0}}}}), encoding="utf-8", newline="")
     write_store(str(tmp_path / "tile_store"), "+30+031", [
         {"finished_at": 1.0, "features": {"textures_missing": 0},
          "step_seconds": {"vector": 10.0, "mesh": 25.0}}])

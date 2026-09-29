@@ -31,7 +31,7 @@ def test_reads_the_triple_from_an_artifact_root(tmp_path, monkeypatch):
     import O4_Build_Info
 
     (tmp_path / "VERSION.txt").write_text(
-        "app=1.0.347\nengine=1.50.1793\nsha=5883949fdeadbeef\n", encoding="utf-8"
+        "app=1.0.347\nengine=1.50.1793\nsha=5883949fdeadbeef\n", encoding="utf-8", newline=""
     )
     monkeypatch.setattr(O4_Build_Info, "_artifact_roots", lambda: [str(tmp_path)])
     info = O4_Build_Info.build_info()
@@ -53,7 +53,7 @@ def test_missing_file_reports_dev_not_a_guess(tmp_path, monkeypatch):
 def test_pre_b3_bare_engine_version_file_is_still_understood(tmp_path, monkeypatch):
     import O4_Build_Info
 
-    (tmp_path / "VERSION.txt").write_text("1.50.1700\n", encoding="utf-8")
+    (tmp_path / "VERSION.txt").write_text("1.50.1700\n", encoding="utf-8", newline="")
     monkeypatch.setattr(O4_Build_Info, "_artifact_roots", lambda: [str(tmp_path)])
     info = O4_Build_Info.build_info()
     assert info.engine == "1.50.1700"
@@ -64,7 +64,7 @@ def test_as_lines_labels_all_three(tmp_path, monkeypatch):
     import O4_Build_Info
 
     (tmp_path / "VERSION.txt").write_text(
-        "app=1.0.347\nengine=1.50.1793\nsha=abc1234\n", encoding="utf-8"
+        "app=1.0.347\nengine=1.50.1793\nsha=abc1234\n", encoding="utf-8", newline=""
     )
     monkeypatch.setattr(O4_Build_Info, "_artifact_roots", lambda: [str(tmp_path)])
     lines = O4_Build_Info.build_info().as_lines().splitlines()
@@ -93,7 +93,7 @@ def test_qt_about_body_shows_the_triple(qapp, tmp_path, monkeypatch, capsys):
     import O4_UI_Utils as UI
 
     (tmp_path / "VERSION.txt").write_text(
-        "app=1.0.347\nengine=1.50.1793\nsha=5883949f\n", encoding="utf-8"
+        "app=1.0.347\nengine=1.50.1793\nsha=5883949f\n", encoding="utf-8", newline=""
     )
     monkeypatch.setattr(O4_Build_Info, "_artifact_roots", lambda: [str(tmp_path)])
     monkeypatch.setattr(GUI, "PREFS_FILE", str(tmp_path / "prefs.json"))

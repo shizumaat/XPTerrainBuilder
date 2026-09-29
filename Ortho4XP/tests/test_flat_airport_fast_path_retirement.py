@@ -87,7 +87,7 @@ def _code_lines(path):
     module still documents itself as having them.
     """
     out = []
-    for i, line in enumerate(path.read_text().splitlines(), 1):
+    for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if line.lstrip().startswith("#"):
             continue
         out.append((i, line))
@@ -156,7 +156,7 @@ def test_the_solve_cannot_return_between_the_constraints_and_the_band():
     fast path did, and the only thing it could have done.
     """
     solve_py = _SRC / "elevation_per_surface" / "route_profile" / "solve.py"
-    tree = ast.parse(solve_py.read_text())
+    tree = ast.parse(solve_py.read_text(encoding="utf-8"))
     fn = next((n for n in ast.walk(tree)
                if isinstance(n, ast.FunctionDef)
                and n.name == "solve_route_profile"), None)
@@ -216,7 +216,7 @@ def test_the_lazy_certificate_marker_is_still_written():
     entry — the certificate the deleted path *reused*.  It stays."""
     prims = importlib.import_module(
         "auto_patch.elevation_per_surface.solver_primitives")
-    src = Path(prims.__file__).read_text()
+    src = Path(prims.__file__).read_text(encoding="utf-8")
     assert '"lazy_certified": True' in src, (
         "solver_primitives no longer marks lazily-certified constraint "
         "entries — that is Tier 0/1, not the deleted Tier-2 bypass")

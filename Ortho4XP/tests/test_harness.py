@@ -345,12 +345,12 @@ def _trench_patch(tmp_path: Path, *, pavement_elev: float,
         out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
         "anchor": list(_TWIN_ANCHOR),
         "ruleset": "icao",
         "basin_facilities": [facility],
-    }))
+    }), encoding="utf-8", newline="")
     return osm
 
 
@@ -644,7 +644,7 @@ PRIVATE_CHECKS = ("_check_within_shape", "_check_plane_gradient",
 def test_the_census_never_enumerates_families_itself(census_mod):
     """The harness census must get its families from the law reader, not
     from a list of its own."""
-    src = Path(inspect.getfile(census_mod)).read_text()
+    src = Path(inspect.getfile(census_mod)).read_text(encoding="utf-8")
     assert "LAW_FAMILIES" in src, "census must iterate the register"
     named = [n for n in PRIVATE_CHECKS if n in src]
     assert not named, (
@@ -659,7 +659,7 @@ def test_the_law_true_run_refuses_a_patch_with_no_sidecar(cg, tmp_path):
     ``check-grade-needs-law-true-frame``: 588 rows vs 0 actionable at
     KCLT).  It must never be reachable by accident."""
     bare = tmp_path / "no_sidecar.osm"
-    bare.write_text("<osm version='0.6'></osm>")
+    bare.write_text("<osm version='0.6'></osm>", encoding="utf-8", newline="")
     with pytest.raises(FileNotFoundError):
         cg.run_checks_law_true(bare)
 
@@ -1079,9 +1079,9 @@ def test_every_emitted_sidecar_key_is_classified(cg):
 
 def test_the_evidence_reader_reports_unknown_keys(cg, tmp_path):
     osm = tmp_path / "p.osm"
-    osm.write_text("<osm version='0.6'></osm>")
+    osm.write_text("<osm version='0.6'></osm>", encoding="utf-8", newline="")
     (tmp_path / "p.osm.axes.json").write_text(json.dumps(
-        {"anchor": [1.0, 2.0], "ruleset": "faa", "a_brand_new_field": 7}))
+        {"anchor": [1.0, 2.0], "ruleset": "faa", "a_brand_new_field": 7}), encoding="utf-8", newline="")
     ev = cg.sidecar_evidence(osm)
     assert ev["unknown_keys"] == ["a_brand_new_field"]
 
@@ -1092,8 +1092,8 @@ def test_the_declared_ruleset_is_never_confused_with_the_active_one(cg,
     the DEFAULT as if it were declared would present an assumption as a
     measurement."""
     osm = tmp_path / "p.osm"
-    osm.write_text("<osm version='0.6'></osm>")
-    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    osm.write_text("<osm version='0.6'></osm>", encoding="utf-8", newline="")
+    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"anchor": None}), encoding="utf-8", newline="")
     fo: dict = {}
     cg.run_checks_law_true(osm, family_out=fo)
     assert fo["_ruleset_declared"] is None
@@ -1144,7 +1144,7 @@ def test_the_build_entry_sets_the_sidecar_verbosity(build_mod):
     is gone (item 1) and the sidecar is now unconditional; the verbosity
     is still set here for the per-phase build chatter the harness reports,
     and belt-and-braces on a contract this expensive to lose is cheap."""
-    src = Path(inspect.getfile(build_mod)).read_text()
+    src = Path(inspect.getfile(build_mod)).read_text(encoding="utf-8")
     assert "O4_LOG_VERBOSITY" in src
 
 
@@ -1170,7 +1170,7 @@ def test_the_canonical_tile_cfg_is_the_RITUALS_OWN_source(build_mod):
         "the per-tile cfg is a build INPUT from the main tree, not corpus "
         "data — provisioning it out of the shared repo would make every "
         "lane's tile frame depend on a directory the ritual keeps LOCAL")
-    ritual = (ROOT / "tools" / "harness" / "lane_worktree.sh").read_text()
+    ritual = (ROOT / "tools" / "harness" / "lane_worktree.sh").read_text(encoding="utf-8")
     assert 'O4_MAIN_REPO' in ritual and 'O4_MAIN_REPO' in \
         inspect.getsource(build_mod)[:20000], (
         "one environment override moves both, or the ritual and the build "
@@ -1183,7 +1183,7 @@ def test_the_per_tile_cfg_is_PROVISIONED_when_absent(build_mod, tmp_path):
     canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
         "Ortho4XP_+30+031.cfg"
     canon.parent.mkdir(parents=True)
-    canon.write_text("default_website=Arc\ndefault_zl=16\n")
+    canon.write_text("default_website=Arc\ndefault_zl=16\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
 
     rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
@@ -1215,7 +1215,7 @@ def test_a_MISSING_canonical_tile_cfg_DERIVES_from_global_defaults(
     source_root = tmp_path / "main"
     source_root.mkdir()
     gcfg = source_root / "Ortho4XP.cfg"
-    gcfg.write_text("mesh_zl=19\nroad_level=1\n")
+    gcfg.write_text("mesh_zl=19\nroad_level=1\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
 
     said = []
@@ -1239,14 +1239,14 @@ def test_a_MISSING_canonical_tile_cfg_DERIVES_from_global_defaults(
         "afterwards is a hand-seed with extra steps")
     # NOTHING synthesized: every non-comment line would be an override,
     # and an override nobody chose is the made-up-provider trap.
-    body = [ln for ln in dest.read_text().splitlines()
+    body = [ln for ln in dest.read_text(encoding="utf-8").splitlines()
             if ln.strip() and not ln.lstrip().startswith("#")]
     assert body == [], (
         "a DERIVED cfg carries zero override lines: that IS the global "
         "defaults under the engine's reader, and writing the global values "
         "out would FREEZE a snapshot that stops tracking them")
-    assert str(gcfg) in dest.read_text() and rec["global_sha256"] in \
-        dest.read_text(), "the file itself says what it was derived from"
+    assert str(gcfg) in dest.read_text(encoding="utf-8") and rec["global_sha256"] in \
+        dest.read_text(encoding="utf-8"), "the file itself says what it was derived from"
     # LOUD, by ruling.
     said = "\n".join(said)
     assert "DERIVED-FROM-GLOBAL-DEFAULTS" in said and "2026-08-14" in said, (
@@ -1329,11 +1329,11 @@ def test_an_EXISTING_lane_tile_cfg_is_NEVER_overwritten(build_mod, tmp_path):
     canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
         "Ortho4XP_+30+031.cfg"
     canon.parent.mkdir(parents=True)
-    canon.write_text("default_website=Arc\ndefault_zl=16\n")
+    canon.write_text("default_website=Arc\ndefault_zl=16\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
     lane.mkdir(parents=True)
     mine = lane / "Ortho4XP_+30+031.cfg"
-    mine.write_text("default_website=BI\ndefault_zl=17\n")
+    mine.write_text("default_website=BI\ndefault_zl=17\n", encoding="utf-8", newline="")
 
     rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
 
@@ -1342,7 +1342,7 @@ def test_an_EXISTING_lane_tile_cfg_is_NEVER_overwritten(build_mod, tmp_path):
         "a cfg an earlier run DERIVED still reads as 'present' later — the "
         "frame must not downgrade 'this tile is on global defaults' to "
         "'the lane's own cfg' without saying so")
-    assert mine.read_text() == "default_website=BI\ndefault_zl=17\n"
+    assert mine.read_text(encoding="utf-8") == "default_website=BI\ndefault_zl=17\n"
     assert rec["sha256"] == hashlib.sha256(mine.read_bytes()).hexdigest(), (
         "the frame records the cfg the build ACTUALLY ran on, not the one "
         "it would have provisioned")
@@ -1356,7 +1356,7 @@ def test_provisioning_INTO_the_canonical_location_copies_nothing(build_mod,
     canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
         "Ortho4XP_+30+031.cfg"
     canon.parent.mkdir(parents=True)
-    canon.write_text("default_website=Arc\ndefault_zl=16\n")
+    canon.write_text("default_website=Arc\ndefault_zl=16\n", encoding="utf-8", newline="")
     rec = build_mod.provision_tile_cfg(30, 31, canon.parent,
                                        source_root=source_root)
     assert rec["action"] == "is_canonical_source"
@@ -1378,7 +1378,7 @@ def test_the_tile_path_PROVISIONS_before_it_READS_the_config(build_mod):
     assert "provision_tile_cfg(" not in tile_src, (
         "one resolver, not a second arrangement of the same two calls")
     assert "tile_cfg_provenance" in tile_src, "and hand it back for the frame"
-    whole = Path(inspect.getfile(build_mod)).read_text()
+    whole = Path(inspect.getfile(build_mod)).read_text(encoding="utf-8")
     assert 'frame["tile_cfg_provenance"] = result.get("tile_cfg_provenance")' \
         in whole, ("the provenance reaches frame.json — an unrecorded "
                    "provisioned input is a hand-seed with extra steps")
@@ -1474,7 +1474,7 @@ def test_the_ritual_mounts_the_whole_shared_data_repo():
     omission, which is the failure the ruling names.  A copied cache is
     worse still: it warms independently, and warm-vs-cold inset state has
     moved a measured elevation by 12 m here."""
-    src = RITUAL.read_text()
+    src = RITUAL.read_text(encoding="utf-8")
     assert re.search(r'^DATA_REPO="\$\{O4_DATA_REPO:-([^}]*)\}"', src, re.M), (
         "the ritual must resolve the shared data repo (O4_DATA_REPO with a "
         "default)")
@@ -1505,7 +1505,7 @@ def test_the_ritual_keeps_patches_lane_local_with_its_reason():
     file: every tile build writes {ICAO}_auto.patch.osm into Patches/<tile>/
     (auto_patch.driver), so it is a lane's OUTPUT.  Sharing it would let one
     lane's emitted geometry enter another lane's build."""
-    src = RITUAL.read_text()
+    src = RITUAL.read_text(encoding="utf-8")
     clone = re.search(r'^CLONE_DIRS="([^"]*)"', src, re.M)
     assert clone and set(clone.group(1).split()) == {"Patches"}
     assert "cp -R" in src, "CLONE_DIRS entries must be copied"
@@ -1523,7 +1523,7 @@ def test_the_ritual_refuses_a_real_directory_where_a_mount_belongs():
     """A REAL data directory in a lane tree is a private cache — the one
     thing the ruling forbids — so the ritual must refuse it rather than
     silently leave it in place."""
-    src = RITUAL.read_text()
+    src = RITUAL.read_text(encoding="utf-8")
     assert "PRIVATE CACHE" in src and "e9daef5" in src, (
         "the refusal must name the private cache and the ruling")
     assert "OFF-REPO" in src, (
@@ -1532,7 +1532,7 @@ def test_the_ritual_refuses_a_real_directory_where_a_mount_belongs():
 
 
 def test_the_ritual_refuses_teardown_while_the_tree_is_busy():
-    src = RITUAL.read_text()
+    src = RITUAL.read_text(encoding="utf-8")
     assert "lsof" in src or "pgrep" in src, (
         "teardown must check for live child processes holding the tree")
     assert "worktree remove" in src
@@ -1550,7 +1550,7 @@ def test_the_ritual_makes_the_tool_index_reachable():
     consults nothing and forks the near-fit — measured 2026-08-06: 30 of
     58 worktrees on this machine had no ``tools/INDEX.md`` at all (their
     refs predate it), and this file's own index twin fails in every one."""
-    src = RITUAL.read_text()
+    src = RITUAL.read_text(encoding="utf-8")
     assert re.search(r'^INDEX_REL="tools/INDEX\.md"', src, re.M), (
         "the ritual must name the index it makes reachable")
     assert "index_state up" in src and "index_state check" in src, (
@@ -1573,13 +1573,13 @@ def _tiny_repo(tmp_path):
     degrade gracefully into."""
     main = tmp_path / "main"
     (main / "Ortho4XP" / "venv").mkdir(parents=True)
-    (main / "Ortho4XP" / "keep").write_text("engine\n")
-    (main / "Ortho4XP" / "Ortho4XP.cfg").write_text("apt_smoothing_pix=8\n")
+    (main / "Ortho4XP" / "keep").write_text("engine\n", encoding="utf-8", newline="")
+    (main / "Ortho4XP" / "Ortho4XP.cfg").write_text("apt_smoothing_pix=8\n", encoding="utf-8", newline="")
     # The real repo ignores the cloned config and the lane's Patches
     # output; without that the ritual's own untracked audit would flag the
     # tree it just prepared, and this twin would be testing the fixture.
     (main / ".gitignore").write_text(
-        "Ortho4XP/Ortho4XP.cfg\nOrtho4XP/Patches/\nOrtho4XP/venv\n")
+        "Ortho4XP/Ortho4XP.cfg\nOrtho4XP/Patches/\nOrtho4XP/venv\n", encoding="utf-8", newline="")
     data = tmp_path / "data"
     for d in ("OSM_data", "Elevation_data", "Airport_mod_cache"):
         (data / d).mkdir(parents=True)
@@ -1598,7 +1598,7 @@ def _tiny_repo(tmp_path):
     # and ONE shipped patch inside it is force-added and TRACKED.
     (main / "Ortho4XP" / "Patches" / "+39-078").mkdir(parents=True)
     (main / "Ortho4XP" / "Patches" / "+39-078" / "2W2_runways.patch.osm"
-     ).write_text("<osm version='0.6'></osm>\n")
+     ).write_text("<osm version='0.6'></osm>\n", encoding="utf-8", newline="")
 
     git("init", "-q")
     git("add", "-A")
@@ -1606,7 +1606,7 @@ def _tiny_repo(tmp_path):
     git("commit", "-qm", "engine only, no tool index")
     old_ref = git("rev-parse", "HEAD")
     (main / "tools").mkdir()
-    (main / "tools" / "INDEX.md").write_text("# Tool index\n\ncensus.py\n")
+    (main / "tools" / "INDEX.md").write_text("# Tool index\n\ncensus.py\n", encoding="utf-8", newline="")
     git("add", "-A")
     git("commit", "-qm", "the tool index lands")
     return main, data, env, old_ref
@@ -1632,7 +1632,7 @@ def test_the_ritual_mirrors_the_index_into_a_worktree_that_predates_it(
     mirror = main / ".claude" / "worktrees" / "lane1" / "tools" / "INDEX.md"
     assert mirror.is_file(), (
         f"no index mirrored into the lane:\n{up.stdout}\n{up.stderr}")
-    assert mirror.read_text() == index.read_text()
+    assert mirror.read_text(encoding="utf-8") == index.read_text(encoding="utf-8")
     # The MODE BITS the ritual sets (chmod 444), not os.access: access()
     # asks about the caller, and uid 0 passes W_OK on any file (#53).
     assert stat.S_IMODE(mirror.stat().st_mode) & 0o222 == 0, (
@@ -1644,7 +1644,7 @@ def test_the_ritual_mirrors_the_index_into_a_worktree_that_predates_it(
     assert ok.returncode == 0, ok.stdout + ok.stderr
     assert "mirrored" in ok.stdout and "STALE" not in ok.stdout
 
-    index.write_text("# Tool index\n\ncensus.py\nA_NEWLY_PROMOTED_TOOL.py\n")
+    index.write_text("# Tool index\n\ncensus.py\nA_NEWLY_PROMOTED_TOOL.py\n", encoding="utf-8", newline="")
     stale = _ritual(env, "check", "lane1")
     assert "STALE" in stale.stdout, (
         "a mirror that no longer matches the main tree hides a promoted "
@@ -1689,10 +1689,10 @@ def test_the_ritual_never_overwrites_a_tracked_index(tmp_path):
     assert stat.S_IMODE(tracked.stat().st_mode) & 0o200, (
         "a tracked index must stay writable — the lane's own promotion "
         "edits it")
-    tracked.write_text("# Tool index\n\ncensus.py\nmy_new_tool.py\n")
+    tracked.write_text("# Tool index\n\ncensus.py\nmy_new_tool.py\n", encoding="utf-8", newline="")
     again = _ritual(env, "up", "lane2", "HEAD")
     assert again.returncode == 0, again.stdout + again.stderr
-    assert "my_new_tool.py" in tracked.read_text(), (
+    assert "my_new_tool.py" in tracked.read_text(encoding="utf-8"), (
         "the ritual overwrote a TRACKED index — that is a lane's promotion "
         "commit destroyed by its own setup script")
     assert "DIFFERS" in again.stdout
@@ -2163,7 +2163,7 @@ def _write_dump_for(dsf, root):
     d = Path(root) / "TestPack"
     d.mkdir(parents=True, exist_ok=True)
     out = d / f"{dsf.name}.{_dsf.text_dump_tag(str(dsf))}.text"
-    out.write_text("# dump\n")
+    out.write_text("# dump\n", encoding="utf-8", newline="")
     return out
 
 
@@ -2552,7 +2552,7 @@ def test_refresh_only_refreshes_and_NEVER_ENTERS_A_BUILD(
 
     # the flag exists, is documented as the neighbour-warming entry, and
     # the build stages are behind it in ``main``
-    src = (ROOT / "tools" / "harness" / "build_airport.py").read_text()
+    src = (ROOT / "tools" / "harness" / "build_airport.py").read_text(encoding="utf-8")
     assert '"--refresh-only"' in src
     assert "if args.refresh_only:" in src
     i = src.index("if args.refresh_only:\n            # THE WARM-ONLY RUN")
@@ -2703,7 +2703,7 @@ def test_the_ledger_reconciliation_stamps_only_what_nothing_explains(
         rel: "stale-line"}
 
     # and a malformed ledger line never blinds the reader
-    with open(ledger, "a") as fh:
+    with open(ledger, "a", encoding="utf-8", newline="") as fh:
         fh.write("{half written\n")
     assert len(guard_mod.ledger_lines(ledger)) == 2
 
@@ -2792,16 +2792,16 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     """
     src = ROOT / "src"
     callers = {p.relative_to(src).as_posix() for p in src.rglob("*.py")
-               if "apply_plan(" in p.read_text(errors="replace")
-               and "def apply_plan(" not in p.read_text(errors="replace")}
+               if "apply_plan(" in p.read_text(errors="replace", encoding="utf-8")
+               and "def apply_plan(" not in p.read_text(errors="replace", encoding="utf-8")}
     assert callers == {"auto_patch/engine_v2.py"}, callers
     rebake_callers = {
         p.relative_to(src).as_posix() for p in src.rglob("*.py")
         if "AUTO_PATCH_ENGINE_V2.rebake_after_mesh(" in p.read_text(
-            errors="replace")}
+            errors="replace", encoding="utf-8")}
     assert rebake_callers == {"O4_Mesh_Utils.py"}, rebake_callers
     for p in (src / "auto_patch_v2" / "pipeline").rglob("*.py"):
-        body = p.read_text(errors="replace")
+        body = p.read_text(errors="replace", encoding="utf-8")
         assert "placement_write" not in body and "apply_plan" not in body, (
             f"{p.name}: the v2 AIRPORT pipeline must write no pack file")
 
@@ -2845,9 +2845,9 @@ def test_the_engine_reads_the_same_stand_down_flag_the_harness_sets():
     it; the string appears in two files and nowhere else, so a rename on
     one side is silent.  This twin is the only thing that would say so.
     """
-    engine = (ROOT / "src" / "auto_patch" / "engine_v2.py").read_text()
+    engine = (ROOT / "src" / "auto_patch" / "engine_v2.py").read_text(encoding="utf-8")
     harness = (ROOT / "tools" / "harness"
-               / "build_airport.py").read_text()
+               / "build_airport.py").read_text(encoding="utf-8")
     assert 'os.environ.get("O4_PACK_WRITES") == "measure_only"' in engine, (
         "the engine must read the harness's stand-down flag")
     assert 'os.environ["O4_PACK_WRITES"] = "measure_only"' in harness
@@ -2906,7 +2906,7 @@ def test_the_guard_REFUSES_a_write_into_the_owners_xplane_install(
     # that names none behaves exactly as before).
     with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo,
                                         install_roots=install):
-        open(lane / "product.osm", "w").write("lane product")
+        open(lane / "product.osm", "w", encoding="utf-8", newline="").write("lane product")
     with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
         open(target, "wb").write(b"undefended")
     assert build_mod.xplane_install_roots(), (
@@ -2933,7 +2933,7 @@ def test_the_snapshot_NAMES_an_install_write_the_guard_could_not_see(
     nav.mkdir(parents=True)
     (nav / "+22+113.dsf").write_bytes(b"original")
     (pack / "Airport").mkdir()
-    (pack / "Airport" / "T1.obj").write_text("authored")
+    (pack / "Airport" / "T1.obj").write_text("authored", encoding="utf-8", newline="")
     other = install / "Custom Scenery" / "NotOnThisTile"
     (other / "Earth nav data" / "+30+030").mkdir(parents=True)
 
@@ -2947,8 +2947,8 @@ def test_the_snapshot_NAMES_an_install_write_the_guard_could_not_see(
     # what the object stage's write half did, in both incidents
     (nav / "+22+113.dsf").write_bytes(b"rewritten by a lane build")
     (nav / "+22+113.dsf.anchor_bak").write_bytes(b"original")
-    (nav / "o4_placement_provenance.json").write_text("{}")
-    (pack / "Airport" / "T1__b0_abc.obj").write_text("split body")
+    (nav / "o4_placement_provenance.json").write_text("{}", encoding="utf-8", newline="")
+    (pack / "Airport" / "T1__b0_abc.obj").write_text("split body", encoding="utf-8", newline="")
 
     changes = guard_mod.snapshot_diff(before,
                                       guard_mod.install_snapshot(roots))
@@ -3034,10 +3034,10 @@ def test_the_snapshot_sees_every_write(build_mod, guard_mod, tmp_path,
     monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
     deep = repo / "OSM_data" / "a" / "b" / "c" / "d"
     deep.mkdir(parents=True)
-    (deep / "keep.txt").write_text("x")
+    (deep / "keep.txt").write_text("x", encoding="utf-8", newline="")
     before = build_mod.shared_repo_snapshot(repo)
-    (deep / "written_by_the_build.cache").write_text("new")
-    (deep / "keep.txt").write_text("CHANGED")
+    (deep / "written_by_the_build.cache").write_text("new", encoding="utf-8", newline="")
+    (deep / "keep.txt").write_text("CHANGED", encoding="utf-8", newline="")
     changes = build_mod.snapshot_diff(before,
                                       build_mod.shared_repo_snapshot(repo))
     assert changes["added"] == ["OSM_data/a/b/c/d/written_by_the_build.cache"]
@@ -3108,7 +3108,7 @@ def test_a_stale_lock_is_reported_and_never_broken_automatically(
     (tmp_path / "locks").mkdir()
     (tmp_path / "locks" / "dem.lock").write_text(json.dumps(
         {"scope": "dem", "lane": "dead-lane", "pid": 2 ** 22,
-         "host": "h", "started": "2026-08-05T01:47:00"}))
+         "host": "h", "started": "2026-08-05T01:47:00"}), encoding="utf-8", newline="")
     with pytest.raises(SystemExit) as exc:
         build_mod.RefreshLock("dem", lane="me").acquire()
     msg = str(exc.value)
@@ -3127,7 +3127,7 @@ def test_a_refresh_is_hash_stamped_into_the_shared_ledger(build_mod,
     look."""
     repo = tmp_path / "shared"
     (repo / "Elevation_data").mkdir(parents=True)
-    (repo / "Elevation_data" / "N30E031.hgt").write_text("raster")
+    (repo / "Elevation_data" / "N30E031.hgt").write_text("raster", encoding="utf-8", newline="")
     ledger = repo / ".harness" / "refresh_ledger.jsonl"
     monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
     monkeypatch.setattr(guard_mod, "REFRESH_LEDGER", ledger)
@@ -3139,7 +3139,7 @@ def test_a_refresh_is_hash_stamped_into_the_shared_ledger(build_mod,
     stamp = rec["files"][0]
     assert stamp["sha256"] == hashlib.sha256(b"raster").hexdigest()
     assert stamp["size"] == 6
-    on_disk = json.loads(ledger.read_text().strip())
+    on_disk = json.loads(ledger.read_text(encoding="utf-8").strip())
     assert on_disk["lane"] == "L" and on_disk["files"][0]["sha256"] == \
         stamp["sha256"]
 
@@ -3147,7 +3147,7 @@ def test_a_refresh_is_hash_stamped_into_the_shared_ledger(build_mod,
 def test_the_data_mounts_are_recorded_on_every_build(build_mod):
     """Which corpus a build used must be readable from its artifacts —
     otherwise the question is unanswerable a day later."""
-    src = Path(inspect.getfile(build_mod)).read_text()
+    src = Path(inspect.getfile(build_mod)).read_text(encoding="utf-8")
     assert '"data_mounts": mounts' in src
     assert '"shared_repo_writes"' in src and '"contaminated"' in src
 
@@ -3176,7 +3176,7 @@ def test_every_harness_entry_is_in_the_tool_index():
     from the index is treated as absent, and every new tool lands WITH its
     index entry in the same commit."""
     assert INDEX.exists(), "tools/INDEX.md is missing"
-    text = INDEX.read_text()
+    text = INDEX.read_text(encoding="utf-8")
     for entry in sorted(p.name for p in HARNESS.iterdir()
                         if p.suffix in (".py", ".sh")):
         assert entry in text, (
@@ -3494,7 +3494,7 @@ class TestAuthorMoveDump:
         layout = types.SimpleNamespace(shapes=[s])
         out = tmp_path / "moves.jsonl"
         info = probe.write_move_dump(layout, out)
-        recs = [json.loads(l) for l in out.read_text().splitlines()]
+        recs = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
         moves = [r for r in recs if r["kind"] == "move"]
         assert info["moves"] == len(moves) == 1
         m = moves[0]
@@ -3667,7 +3667,7 @@ def test_who_wrote_builds_through_the_harness_entry_only():
     with the engine.  What the twin holds is the same property — no private
     build ever grows here — plus the refusal actually being wired, naming
     the v2 instruments, and the READING mode surviving."""
-    src = (HARNESS / "who_wrote.py").read_text()
+    src = (HARNESS / "who_wrote.py").read_text(encoding="utf-8")
     assert "build_airport_pavement(" not in src, (
         "who_wrote.py must build through tools/harness/build_airport.py, "
         "never by calling the pipeline directly")
@@ -3719,7 +3719,7 @@ GUARDED_LAW_READERS = ("test_pavement_grade.py", "test_constant_dem_oracle.py")
 
 
 def _grade_gate_src(name: str = "test_pavement_grade.py") -> str:
-    return (Path(__file__).parent / name).read_text()
+    return (Path(__file__).parent / name).read_text(encoding="utf-8")
 
 
 def _sidecar_law_kwargs() -> tuple:
@@ -3812,11 +3812,11 @@ def test_an_UNSET_install_path_is_not_a_frame_divergence(build_mod, tmp_path):
     that does not exist at run time."""
     owner = tmp_path / "owner.cfg"
     owner.write_text("cifp_data_path=/X/CIFP\ncustom_scenery_dir=/X/CS\n"
-                     "apt_smoothing_pix=8\n")
+                     "apt_smoothing_pix=8\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane"
     lane.mkdir()
     (lane / "Ortho4XP.cfg").write_text(
-        "cifp_data_path=\ncustom_scenery_dir=\napt_smoothing_pix=8\n")
+        "cifp_data_path=\ncustom_scenery_dir=\napt_smoothing_pix=8\n", encoding="utf-8", newline="")
     assert build_mod.cfg_frame_diff(lane, owner_cfg=owner) == {}
     eff = build_mod.frame_surface_keys(lane, owner_cfg=owner)
     assert eff["cifp_data_path"] == "/X/CIFP", (
@@ -3826,11 +3826,11 @@ def test_an_UNSET_install_path_is_not_a_frame_divergence(build_mod, tmp_path):
 
 def test_a_DIFFERENT_install_path_IS_a_frame_divergence(build_mod, tmp_path):
     owner = tmp_path / "owner.cfg"
-    owner.write_text("cifp_data_path=/X/CIFP\ncustom_scenery_dir=/X/CS\n")
+    owner.write_text("cifp_data_path=/X/CIFP\ncustom_scenery_dir=/X/CS\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane"
     lane.mkdir()
     (lane / "Ortho4XP.cfg").write_text(
-        "cifp_data_path=/OTHER/CIFP\ncustom_scenery_dir=/X/CS\n")
+        "cifp_data_path=/OTHER/CIFP\ncustom_scenery_dir=/X/CS\n", encoding="utf-8", newline="")
     diff = build_mod.cfg_frame_diff(lane, owner_cfg=owner)
     assert set(diff) == {"cifp_data_path"}
     assert diff["cifp_data_path"] == ("/OTHER/CIFP", "/X/CIFP")
@@ -3855,7 +3855,7 @@ def test_the_write_guard_BLOCKS_an_unauthorised_shared_repo_write(
 
     with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
         with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
-            open(target, "w").write("regenerated mid-build")
+            open(target, "w", encoding="utf-8", newline="").write("regenerated mid-build")
     assert "CYXY_road_feed.cache" in str(exc.value)
     assert "osm_roadfeed" in str(exc.value)
     assert "--refresh-data" in str(exc.value), (
@@ -3870,8 +3870,8 @@ def test_the_write_guard_ALLOWS_an_authorised_scope(build_mod, tmp_path):
     lane.mkdir()
     target = repo / "OSM_data" / "_airport_road_feed" / "CYXY_road_feed.cache"
     with build_mod.SharedRepoWriteGuard({"osm_roadfeed"}, lane, repo=repo):
-        open(target, "w").write("explicitly authorised")
-    assert target.read_text() == "explicitly authorised"
+        open(target, "w", encoding="utf-8", newline="").write("explicitly authorised")
+    assert target.read_text(encoding="utf-8") == "explicitly authorised"
 
 
 def test_the_write_guard_RECORD_ONLY_records_AND_lets_the_write_through(
@@ -3892,8 +3892,8 @@ def test_the_write_guard_RECORD_ONLY_records_AND_lets_the_write_through(
     guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo,
                                            record_only=True)
     with guard:                                   # no exception escapes
-        open(target, "w").write("observed, not prevented")
-    assert target.read_text() == "observed, not prevented", (
+        open(target, "w", encoding="utf-8", newline="").write("observed, not prevented")
+    assert target.read_text(encoding="utf-8") == "observed, not prevented", (
         "record-only must let the intercepted call PROCEED")
     assert guard.blocked == [{
         "path": "OSM_data/_airport_road_feed/CYXY_road_feed.cache",
@@ -3928,12 +3928,12 @@ def test_the_write_guard_leaves_reads_and_lane_products_alone(
     guarding them would break every build."""
     repo = tmp_path / "repo"
     (repo / "OSM_data").mkdir(parents=True)
-    (repo / "OSM_data" / "layer.osm").write_text("cached")
+    (repo / "OSM_data" / "layer.osm").write_text("cached", encoding="utf-8", newline="")
     lane = tmp_path / "lane"
     (lane / "Patches").mkdir(parents=True)
     with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
-        assert open(repo / "OSM_data" / "layer.osm").read() == "cached"
-        open(lane / "Patches" / "out.osm", "w").write("lane product")
+        assert open(repo / "OSM_data" / "layer.osm", encoding="utf-8").read() == "cached"
+        open(lane / "Patches" / "out.osm", "w", encoding="utf-8", newline="").write("lane product")
     assert (lane / "Patches" / "out.osm").exists()
 
 
@@ -4051,9 +4051,9 @@ def test_the_detector_SURVIVES_the_preventer(build_mod):
     implementation, two entries — §6c); the build entry still CALLS it and
     still contaminates its own frame on a hit, which is the half this twin
     has always been about."""
-    guard_src = (HARNESS / "shared_repo_guard.py").read_text()
+    guard_src = (HARNESS / "shared_repo_guard.py").read_text(encoding="utf-8")
     assert "def report_unauthorised_writes(" in guard_src
-    src = (HARNESS / "build_airport.py").read_text()
+    src = (HARNESS / "build_airport.py").read_text(encoding="utf-8")
     assert "def report_unauthorised_writes(" not in src, (
         "the detector must have ONE definition — see §6c")
     assert "report_unauthorised_writes(" in src, (
@@ -4204,10 +4204,10 @@ def test_the_lock_allowance_is_scoped_to_the_lock_PRIMITIVES_own_calls(
     repo, lane = _lock_repo(tmp_path)
     lock = repo / LOCK_REL
     other = tmp_path / "elsewhere.dat"
-    other.write_text("payload")
+    other.write_text("payload", encoding="utf-8", newline="")
     with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
         with pytest.raises(build_mod.SharedRepoWriteBlocked):
-            open(lock, "w").write("not the lock primitive")
+            open(lock, "w", encoding="utf-8", newline="").write("not the lock primitive")
         with pytest.raises(build_mod.SharedRepoWriteBlocked):
             os.rename(str(other), str(lock))
     assert not lock.exists()
@@ -4332,7 +4332,7 @@ def test_a_REAL_Airport_mod_cache_write_STILL_refuses(build_mod, tmp_path):
     nested = repo / "Airport_mod_cache/sub" / os.path.basename(LIB_INDEX_REL)
     with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo) as guard:
         with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
-            open(sidecar, "w").write("not the sidecar writer")
+            open(sidecar, "w", encoding="utf-8", newline="").write("not the sidecar writer")
         with pytest.raises(build_mod.SharedRepoWriteBlocked):
             os.open(str(apt_index), os.O_CREAT | os.O_WRONLY)
         with pytest.raises(build_mod.SharedRepoWriteBlocked):
@@ -4651,8 +4651,8 @@ def test_tile_input_scope_derives_its_packs_from_the_shared_repo(
             }.items():
         (root / pack).mkdir(parents=True)
         for n in names:
-            (root / pack / n).write_text("")
-    (root / "stray_file").write_text("")
+            (root / pack / n).write_text("", encoding="utf-8", newline="")
+    (root / "stray_file").write_text("", encoding="utf-8", newline="")
     packs = build_mod.mod_cache_packs_naming({(40, -4), (41, -5)},
                                              repo=tmp_path)
     assert packs == {_LEMD_PACK, "Global Airports"}
@@ -4675,7 +4675,7 @@ def test_the_mesh_only_entry_passes_the_SHARED_tile_scope_and_its_blocked_set():
     audit BOTH halves the label needs: the scope and its own blocked set
     (without ``blocked=guard.blocked`` a guard-blocked run would
     externalise)."""
-    src = MESH_ONLY.read_text()
+    src = MESH_ONLY.read_text(encoding="utf-8")
     assert "tile_input_scope(" in src
     assert "tile_icao_candidates(" in src
     assert "input_scope=input_scope" in src
@@ -4695,7 +4695,7 @@ def test_the_refusal_reads_the_label_through_the_ONE_helper(build_mod):
     mine = [dict(external[0], external_candidate=False)]
     with pytest.raises(SystemExit):
         build_mod.require_no_unauthorised_writes(mine, entry="mesh-only")
-    src = (HARNESS / "shared_repo_guard.py").read_text()
+    src = (HARNESS / "shared_repo_guard.py").read_text(encoding="utf-8")
     assert src.count("external_candidate\")") <= 2, (
         "the label must be interpreted in contaminating_writes and the "
         "report, nowhere else")
@@ -4703,7 +4703,7 @@ def test_the_refusal_reads_the_label_through_the_ONE_helper(build_mod):
 
 def test_the_build_entry_stamps_the_scope_and_the_split_into_the_frame():
     """A verdict a later reader cannot re-derive is not evidence."""
-    src = (HARNESS / "build_airport.py").read_text()
+    src = (HARNESS / "build_airport.py").read_text(encoding="utf-8")
     assert 'frame["build_input_scope"]' in src
     assert 'frame["external_candidate_writes"]' in src
     assert 'frame["contaminated"] = bool(contaminating_writes(offenders))' \
@@ -4762,8 +4762,8 @@ def _stub_layout(provenance):
 
         def to_osm(self, path):
             Path(path).write_text("<?xml version='1.0'?>\n<!--stamp-->\n"
-                                  "<osm></osm>\n")
-            Path(str(path) + ".axes.json").write_text("{}")
+                                  "<osm></osm>\n", encoding="utf-8", newline="")
+            Path(str(path) + ".axes.json").write_text("{}", encoding="utf-8", newline="")
     return _L()
 
 
@@ -4834,7 +4834,7 @@ def test_the_same_build_PROCEEDS_and_is_RECORDED_under_the_flag(
     assert result["write_guard_blocked"], (
         "the degradation is RECORDED in the artifact, as the cold-DEM one is")
     assert not result["dem_inset_provenance"]
-    assert "DEGRADED" in (out / "twin.progress").read_text()
+    assert "DEGRADED" in (out / "twin.progress").read_text(encoding="utf-8")
 
 
 def test_a_CLEAN_build_that_only_took_a_LOCK_is_reported_normally(
@@ -4928,7 +4928,7 @@ def test_exactly_ONE_file_under_tools_defines_the_write_guard():
     """The whole point of the module.  Anything that re-declares the guard
     is a second law, and two lanes then measure two corpora."""
     definers = sorted(p for p in (ROOT / "tools").rglob("*.py")
-                      if "class SharedRepoWriteGuard" in p.read_text())
+                      if "class SharedRepoWriteGuard" in p.read_text(encoding="utf-8"))
     assert definers == [GUARD], (
         f"the shared-repo write guard must have exactly ONE definition "
         f"({GUARD.relative_to(ROOT)}); found "
@@ -4936,7 +4936,7 @@ def test_exactly_ONE_file_under_tools_defines_the_write_guard():
 
 
 def test_the_build_entry_IMPORTS_the_guard_and_defines_none_of_it():
-    src = (HARNESS / "build_airport.py").read_text()
+    src = (HARNESS / "build_airport.py").read_text(encoding="utf-8")
     assert "from shared_repo_guard import" in src, (
         "the build entry must import THE guard, not carry one")
     assert "class SharedRepoWriteGuard" not in src
@@ -4966,7 +4966,7 @@ def test_the_loaded_build_module_IS_the_guard_module_not_a_copy(build_mod):
 
 
 def test_the_mesh_only_entry_ARMS_the_guard_in_the_right_ORDER():
-    src = MESH_ONLY.read_text()
+    src = MESH_ONLY.read_text(encoding="utf-8")
     positions = []
     for token in _MESH_ARMING_ORDER:
         assert token in src, (
@@ -4994,7 +4994,7 @@ def test_the_mesh_only_entry_ARMS_the_guard_in_the_right_ORDER():
 
 
 def test_the_mesh_only_entry_DEFINES_none_of_the_law():
-    src = MESH_ONLY.read_text()
+    src = MESH_ONLY.read_text(encoding="utf-8")
     for definition in ("class SharedRepoWriteGuard", "def shared_repo_snapshot",
                        "def snapshot_diff", "def report_unauthorised_writes",
                        "def require_no_swallowed_write_block",
@@ -5007,7 +5007,7 @@ def test_the_mesh_only_arming_is_inside_the_spawn_guard():
     """macOS spawn re-imports the main module: a worker that armed the
     guard, or audited the repo, would refuse and report on the parent's
     behalf.  Everything new therefore sits under ``__main__``."""
-    src = MESH_ONLY.read_text()
+    src = MESH_ONLY.read_text(encoding="utf-8")
     main_at = src.index('if __name__ == "__main__":')
     for token in _MESH_ARMING_ORDER[1:]:
         assert src.index(token) > main_at, (
@@ -5019,7 +5019,7 @@ def test_the_mesh_only_entry_has_no_refresh_mechanism_of_its_own():
     """Refreshes are ``build_airport.py --refresh-data``: locked,
     hash-stamped, recorded.  A second way to authorise a shared-repo write
     is a second law (ruling e9daef5)."""
-    src = MESH_ONLY.read_text()
+    src = MESH_ONLY.read_text(encoding="utf-8")
     assert "RefreshLock" not in src and "record_refresh" not in src
     assert "add_argument" not in src, "the CLI stays two positional args"
 
@@ -5090,7 +5090,7 @@ def _patch_engine_build(monkeypatch, fn):
 
 def test_the_classify_entry_ARMS_the_composition_and_defines_none_of_it():
     """SOURCE twin, §6c's own test applied to the third entry."""
-    src = CLASSIFY.read_text()
+    src = CLASSIFY.read_text(encoding="utf-8")
     assert "arm_shared_repo_protection" in src, (
         "the classify entry must arm the harness's OWN composition — it "
         "builds an airport, and an unguarded build wrote the corpus twice "
@@ -5109,7 +5109,7 @@ def test_the_classify_entry_ARMS_the_composition_and_defines_none_of_it():
         assert definition not in src, (
             f"{definition} is a SECOND copy of the write law / the redirect")
     assert "e9daef5" in src, "the guarded path must cite its ruling"
-    row = [ln for ln in INDEX.read_text().splitlines()
+    row = [ln for ln in INDEX.read_text(encoding="utf-8").splitlines()
            if "tools/classify_report.py`" in ln]
     assert row and "arm_shared_repo_protection" in row[0], (
         "the index row must state that this tool's build path is guarded — "
@@ -5196,7 +5196,7 @@ def test_the_classify_build_path_REFUSES_a_shared_corpus_write(
     target = repo / "Elevation_data" / "N30E031.hgt"
 
     def _writing_build(icao, xplane_root, **kw):        # pragma: no cover
-        open(target, "w").write("regenerated mid-build")
+        open(target, "w", encoding="utf-8", newline="").write("regenerated mid-build")
         return _StubLayout()
 
     _patch_engine_build(monkeypatch, _writing_build)
@@ -5226,7 +5226,7 @@ def test_the_classify_build_path_REFUSES_a_SWALLOWED_refusal(
 
     def _swallowing_build(icao, xplane_root, **kw):
         try:
-            open(target, "w").write("regenerated mid-build")
+            open(target, "w", encoding="utf-8", newline="").write("regenerated mid-build")
         except Exception:                     # the engine's own fallback
             pass
         return _StubLayout()
@@ -5260,7 +5260,7 @@ def test_the_classify_from_json_path_ARMS_NOTHING(
     dump = tmp_path / "dump.json"
     dump.write_text(json.dumps({"airports": [
         {"icao": "KCLT", "summary": _StubLayout.pavement_score_summary,
-         "decisions": list(_StubLayout.pavement_score_decisions)}]}))
+         "decisions": list(_StubLayout.pavement_score_decisions)}]}), encoding="utf-8", newline="")
 
     entry = _cache_env_entry_values()
     assert classify_mod.main(["--from-json", str(dump)]) == 0
@@ -5376,28 +5376,28 @@ def test_the_band_flag_runs_through_the_census_cli(census_mod, tmp_path):
     frame, the JSON report.  A flag that only works when called as a
     function is a flag no lane will use."""
     osm = tmp_path / "p.osm"
-    osm.write_text("<osm version='0.6'></osm>")
-    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    osm.write_text("<osm version='0.6'></osm>", encoding="utf-8", newline="")
+    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"anchor": None}), encoding="utf-8", newline="")
     out = tmp_path / "census.json"
     assert census_mod.main([str(osm), "--magnitude-bands",
                             "--json", str(out), "--quiet"]) == 0
-    rep = json.loads(out.read_text())
+    rep = json.loads(out.read_text(encoding="utf-8"))
     mb = rep["magnitude_bands"]
     assert mb["edges_m"] == [0.01, 0.1, 1.0, 10.0]
     assert len(mb["bands"]) == 5 and mb["total"] == rep["lawtrue"]["total"]
     # ...and custom edges arrive intact.
     assert census_mod.main([str(osm), "--magnitude-bands", "0.05,5",
                             "--json", str(out), "--quiet"]) == 0
-    assert json.loads(out.read_text())["magnitude_bands"]["edges_m"] == \
+    assert json.loads(out.read_text(encoding="utf-8"))["magnitude_bands"]["edges_m"] == \
         [0.05, 5.0]
     # ...and without the flag the section is absent, not empty.
     assert census_mod.main([str(osm), "--json", str(out), "--quiet"]) == 0
-    assert "magnitude_bands" not in json.loads(out.read_text())
+    assert "magnitude_bands" not in json.loads(out.read_text(encoding="utf-8"))
 
 
 def test_the_census_flag_is_in_the_tool_index():
     """Every promotion lands WITH its index row, in the same commit."""
-    text = INDEX.read_text()
+    text = INDEX.read_text(encoding="utf-8")
     assert "--magnitude-bands" in text, (
         "the promoted flag is not in tools/INDEX.md — a tool (or a flag "
         "that replaces a lane script) absent from the index is treated as "
@@ -6116,7 +6116,7 @@ def test_the_narrowed_cleanup_SURFACES_anything_but_a_missing_file(
 
 def test_the_engine_cache_redirect_is_in_the_tool_index():
     """Every promotion lands WITH its index row, in the same commit."""
-    text = INDEX.read_text()
+    text = INDEX.read_text(encoding="utf-8")
     for token in ("O4_DSF_CACHE_DIR", "engine_cache_redirects",
                   "O4_MASKS_DIR", "tile_cfg_provenance"):
         assert token in text, (
@@ -6186,7 +6186,7 @@ def _ledger_file(tmp_path, records):
     """Write a hand-made refresh ledger (one JSON record per line) into
     ``tmp_path`` — NEVER the shared repo's own."""
     p = tmp_path / "refresh_ledger.jsonl"
-    p.write_text("".join(json.dumps(r) + "\n" for r in records))
+    p.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8", newline="")
     return p
 
 
@@ -6281,7 +6281,7 @@ def test_lock_churn_is_still_churn_under_the_external_downgrade(build_mod):
 def test_the_detector_imports_the_ledger_predicate_never_copies_it():
     """(d) ONE mechanism: conftest reaches the predicate through the
     harness module and defines no second copy (the census-wrapper law)."""
-    conftest_src = (Path(__file__).parent / "conftest.py").read_text()
+    conftest_src = (Path(__file__).parent / "conftest.py").read_text(encoding="utf-8")
     assert "harness.ledgered_refresh_paths(" in conftest_src and \
         "harness.redirected_scopes()" in conftest_src, (
         "the external doors must be the harness module's own objects")
@@ -6305,7 +6305,7 @@ def test_the_ledger_predicate_tolerates_a_missing_or_broken_ledger(
         "\n"
         + json.dumps({"scope": "dem", "files": []}) + "\n"      # no ts
         + json.dumps({"ts": "2026-09-15T13:26:13", "scope": "dem",
-                      "files": [{"path": "Elevation_data/ok.hgt"}]}) + "\n")
+                      "files": [{"path": "Elevation_data/ok.hgt"}]}) + "\n", encoding="utf-8", newline="")
     assert build_mod.ledgered_refresh_paths(
         "2026-09-15T13:00:00", "2026-09-15T14:00:00",
         ledger=broken) == {"Elevation_data/ok.hgt":
@@ -6331,14 +6331,14 @@ def test_the_suite_has_no_standing_write_allowance(build_mod):
         "re-opens the concurrency trap this lane closed")
     for scope, _prefix, _why in build_mod.REFRESH_SCOPES:
         assert scope not in conftest._SUITE_MAY_WARM
-    conftest_src = (Path(__file__).parent / "conftest.py").read_text()
+    conftest_src = (Path(__file__).parent / "conftest.py").read_text(encoding="utf-8")
     assert "646 s" in conftest_src, (
         "the register records WHY it emptied — a bare empty dict invites "
         "the next lane to refill it")
 
 
 def test_the_detector_uses_the_harness_snapshot_not_a_copy(build_mod):
-    conftest_src = (Path(__file__).parent / "conftest.py").read_text()
+    conftest_src = (Path(__file__).parent / "conftest.py").read_text(encoding="utf-8")
     assert "shared_repo_snapshot" in conftest_src and \
         "snapshot_diff" in conftest_src and "scope_of" in conftest_src, (
         "the detector must use the harness's own snapshot and scope "
@@ -6406,9 +6406,9 @@ def test_the_xplane_install_guard_BLOCKS_the_incidents_own_call(tmp_path):
     pack = install / "Custom Scenery" / "pack"
     pack.mkdir(parents=True)
     live = pack / "thing.obj"
-    live.write_text("re-anchored")
+    live.write_text("re-anchored", encoding="utf-8", newline="")
     backup = pack / "thing.obj.anchor_bak"
-    backup.write_text("original")
+    backup.write_text("original", encoding="utf-8", newline="")
 
     guard_cls = conftest._xplane_guard_class()
     with pytest.raises(conftest.XPlaneInstallWriteBlocked) as exc:
@@ -6416,7 +6416,7 @@ def test_the_xplane_install_guard_BLOCKS_the_incidents_own_call(tmp_path):
             shutil.copy2(str(backup), str(live))
     assert "thing.obj" in str(exc.value)
     assert "tmp_path" in str(exc.value), "the refusal must name the fix"
-    assert live.read_text() == "re-anchored", (
+    assert live.read_text(encoding="utf-8") == "re-anchored", (
         "the guard must prevent, not just report")
 
 
@@ -6426,16 +6426,16 @@ def test_the_xplane_install_guard_leaves_reads_and_outside_writes_free(
     install = tmp_path / "X-Plane 12"
     (install / "Custom Data").mkdir(parents=True)
     inside = install / "Custom Data" / "cycle_info.txt"
-    inside.write_text("readable")
+    inside.write_text("readable", encoding="utf-8", newline="")
     guard_cls = conftest._xplane_guard_class()
     with guard_cls(str(install)):
-        assert inside.read_text() == "readable"       # reads untouched
+        assert inside.read_text(encoding="utf-8") == "readable"       # reads untouched
         os.makedirs(str(install / "Custom Data"),
                     exist_ok=True)                    # ensure-dir no-op
         outside = tmp_path / "products"
         os.makedirs(str(outside))                     # real write, outside
-        (outside / "patch.osm").write_text("lane product")
-    assert (outside / "patch.osm").read_text() == "lane product"
+        (outside / "patch.osm").write_text("lane product", encoding="utf-8", newline="")
+    assert (outside / "patch.osm").read_text(encoding="utf-8") == "lane product"
 
 
 def test_the_xplane_install_guard_covers_the_rename_family(tmp_path):
@@ -6446,9 +6446,9 @@ def test_the_xplane_install_guard_covers_the_rename_family(tmp_path):
     install = tmp_path / "X-Plane 12"
     install.mkdir()
     target = install / ".o4_reanchor_provenance.json"
-    target.write_text("{}")
+    target.write_text("{}", encoding="utf-8", newline="")
     staged = tmp_path / "staged.json"
-    staged.write_text('{"rewritten": true}')
+    staged.write_text('{"rewritten": true}', encoding="utf-8", newline="")
     guard_cls = conftest._xplane_guard_class()
     with guard_cls(str(install)):
         with pytest.raises(conftest.XPlaneInstallWriteBlocked):
@@ -6457,7 +6457,7 @@ def test_the_xplane_install_guard_covers_the_rename_family(tmp_path):
             os.remove(str(target))
         with pytest.raises(conftest.XPlaneInstallWriteBlocked):
             os.mkdir(str(install / "new_dir"))
-    assert target.read_text() == "{}"
+    assert target.read_text(encoding="utf-8") == "{}"
     assert staged.exists()
     assert not (install / "new_dir").exists()
 
@@ -6474,7 +6474,7 @@ def test_the_xplane_install_guard_is_LIVE(_no_test_writes_the_xplane_install):
     probe = os.path.join(conftest.xplane_root(), ".o4_install_guard_probe")
     try:
         with pytest.raises(conftest.XPlaneInstallWriteBlocked):
-            open(probe, "a")
+            open(probe, "a", encoding="utf-8", newline="")
     finally:
         if os.path.exists(probe):             # only if the guard is DOWN
             os.remove(probe)
@@ -6562,7 +6562,7 @@ class TestEmittedOnDem:
 
     def _patch(self, tmp_path):
         p = tmp_path / "patch.osm"
-        p.write_text(self.PATCH)
+        p.write_text(self.PATCH, encoding="utf-8", newline="")
         return p
 
     def _rep(self, tmp_path, **kw):
@@ -6800,10 +6800,10 @@ class TestWhoJsonAuthorshipLoader:
     def test_the_cli_names_the_source_and_the_row_count(self, tmp_path,
                                                         capsys):
         patch = tmp_path / "p.osm"
-        patch.write_text(TestEmittedOnDem.PATCH)
+        patch.write_text(TestEmittedOnDem.PATCH, encoding="utf-8", newline="")
         who = tmp_path / "who.json"
         who.write_text(json.dumps(
-            {"wrapper": {"dem_authorship": TestEmittedOnDem.AUTHORSHIP}}))
+            {"wrapper": {"dem_authorship": TestEmittedOnDem.AUTHORSHIP}}), encoding="utf-8", newline="")
         assert WHO.main(["--emitted-patch", str(patch), "--dem", "1",
                          "--who-json", str(who)]) == 0
         out = capsys.readouterr().out
@@ -6813,9 +6813,9 @@ class TestWhoJsonAuthorshipLoader:
     def test_the_cli_says_so_when_the_who_json_carries_no_rows(
             self, tmp_path, capsys):
         patch = tmp_path / "p.osm"
-        patch.write_text(TestEmittedOnDem.PATCH)
+        patch.write_text(TestEmittedOnDem.PATCH, encoding="utf-8", newline="")
         who = tmp_path / "who.json"
-        who.write_text(json.dumps({"icao": "X", "author_worst": []}))
+        who.write_text(json.dumps({"icao": "X", "author_worst": []}), encoding="utf-8", newline="")
         assert WHO.main(["--emitted-patch", str(patch), "--dem", "1",
                          "--who-json", str(who)]) == 0
         out = capsys.readouterr().out
@@ -6828,7 +6828,7 @@ class TestWhoJsonAuthorshipLoader:
 def _sidecar_patch(tmp_path):
     """A minimal patch + sidecar carrying two TAXI and one SERVICE axis."""
     osm = tmp_path / "frame.osm"
-    osm.write_text("<?xml version='1.0'?>\n<osm version='0.6'>\n</osm>\n")
+    osm.write_text("<?xml version='1.0'?>\n<osm version='0.6'>\n</osm>\n", encoding="utf-8", newline="")
     (tmp_path / "frame.osm.axes.json").write_text(json.dumps({
         "axes_exact": [
             [[[0.0, 0.0], [0.0, 0.001]], [0.015], 0, False],
@@ -6836,7 +6836,7 @@ def _sidecar_patch(tmp_path):
             [[[0.0, 0.0], [0.001, 0.001]], [0.08], 2, True],   # service
         ],
         "ruleset": "icao",
-    }))
+    }), encoding="utf-8", newline="")
     return osm
 
 
@@ -6871,7 +6871,7 @@ def test_the_frame_is_always_stamped_in_the_report(census_mod):
     """RULINGS 2026-08-06 binding point 3: every reported number carries
     its frame.  A base-frame census that read like an own-frame one is the
     two-instruments trap by construction."""
-    src = Path(inspect.getfile(census_mod)).read_text()
+    src = Path(inspect.getfile(census_mod)).read_text(encoding="utf-8")
     assert '"axis_frame": frame_stamp' in src
 
 
@@ -6887,10 +6887,10 @@ def _censused_with_rows(census_mod, cg, tmp_path):
     """The shipped fixture patch, censused once with the row dump on."""
     osm = tmp_path / "rows.osm"
     osm.write_bytes(FIXTURE_PATCH.read_bytes())
-    (tmp_path / "rows.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    (tmp_path / "rows.osm.axes.json").write_text(json.dumps({"anchor": None}), encoding="utf-8", newline="")
     out = tmp_path / "rows.json"
     rep = census_mod.census_one(osm, cg, top=5, rows_out=out)
-    return rep, json.loads(out.read_text())
+    return rep, json.loads(out.read_text(encoding="utf-8"))
 
 
 def test_the_row_dump_is_the_reports_own_population(census_mod, cg,
@@ -6945,7 +6945,7 @@ def test_no_row_dump_is_written_unless_asked(census_mod, cg, tmp_path):
     """Inertness: the default census must not grow a file."""
     osm = tmp_path / "plain.osm"
     osm.write_bytes(FIXTURE_PATCH.read_bytes())
-    (tmp_path / "plain.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    (tmp_path / "plain.osm.axes.json").write_text(json.dumps({"anchor": None}), encoding="utf-8", newline="")
     census_mod.census_one(osm, cg, top=1)
     assert sorted(p.name for p in tmp_path.iterdir()) == [
         "plain.osm", "plain.osm.axes.json"]
@@ -6958,7 +6958,7 @@ def test_several_patches_get_one_dump_each(census_mod, cg, tmp_path):
     for p in (a, b):
         p.write_bytes(FIXTURE_PATCH.read_bytes())
         p.with_suffix(".osm.axes.json").write_text(
-            json.dumps({"anchor": None}))
+            json.dumps({"anchor": None}), encoding="utf-8", newline="")
     out = tmp_path / "dump.json"
     assert census_mod.main([str(a), str(b), "--quiet",
                             "--rows-json", str(out)]) == 0
@@ -7168,7 +7168,7 @@ def test_the_sites_never_re_run_a_check(census_mod):
 def _sites_of_the_fixture(census_mod, cg, tmp_path, **kw):
     osm = tmp_path / "sites.osm"
     osm.write_bytes(FIXTURE_PATCH.read_bytes())
-    (tmp_path / "sites.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    (tmp_path / "sites.osm.axes.json").write_text(json.dumps({"anchor": None}), encoding="utf-8", newline="")
     rep = census_mod.census_one(osm, cg, top=5, want_sites=True, **kw)
     return rep, rep["sites"]
 
@@ -7182,7 +7182,7 @@ def test_the_site_rows_union_IS_the_censuss_own_population(census_mod, cg,
     total printed directly above it."""
     out = tmp_path / "sites.json"
     rep, sec = _sites_of_the_fixture(census_mod, cg, tmp_path, sites_out=out)
-    dump = json.loads(out.read_text())
+    dump = json.loads(out.read_text(encoding="utf-8"))
     total = rep["lawtrue"]["total"]
     assert total > 0, "the fixture stopped producing rows — twin vacuous"
     assert sec["total_rows"] == total
@@ -7246,27 +7246,27 @@ def test_the_site_flag_runs_through_the_census_cli(census_mod, cg, tmp_path):
     as a function is a flag no lane will use."""
     osm = tmp_path / "cli.osm"
     osm.write_bytes(FIXTURE_PATCH.read_bytes())
-    (tmp_path / "cli.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    (tmp_path / "cli.osm.axes.json").write_text(json.dumps({"anchor": None}), encoding="utf-8", newline="")
     out, dump = tmp_path / "c.json", tmp_path / "s.json"
     assert census_mod.main([str(osm), "--sites", "--sites-json", str(dump),
                             "--json", str(out), "--quiet"]) == 0
-    rep = json.loads(out.read_text())
+    rep = json.loads(out.read_text(encoding="utf-8"))
     sec = rep["sites"]
     assert sec["sites"] > 0 and sec["total_rows"] == rep["lawtrue"]["total"]
     assert sec["visibility_m"] == 0.05
-    assert json.loads(dump.read_text())["n_sites"] == sec["sites"]
+    assert json.loads(dump.read_text(encoding="utf-8"))["n_sites"] == sec["sites"]
     # ...the visibility knob arrives from the command line...
     assert census_mod.main([str(osm), "--sites", "--site-visibility", "5",
                             "--json", str(out), "--quiet"]) == 0
-    assert json.loads(out.read_text())["sites"]["visibility_m"] == 5.0
+    assert json.loads(out.read_text(encoding="utf-8"))["sites"]["visibility_m"] == 5.0
     # ...--sites-json alone implies the section (a dump with no counts
     # beside it is the two-instruments trap by omission)...
     assert census_mod.main([str(osm), "--sites-json", str(dump),
                             "--json", str(out), "--quiet"]) == 0
-    assert "sites" in json.loads(out.read_text())
+    assert "sites" in json.loads(out.read_text(encoding="utf-8"))
     # ...and without either flag the section is absent, not empty.
     assert census_mod.main([str(osm), "--json", str(out), "--quiet"]) == 0
-    assert "sites" not in json.loads(out.read_text())
+    assert "sites" not in json.loads(out.read_text(encoding="utf-8"))
 
 
 def test_no_site_dump_is_written_unless_asked(census_mod, cg, tmp_path):
@@ -7274,7 +7274,7 @@ def test_no_site_dump_is_written_unless_asked(census_mod, cg, tmp_path):
     osm = tmp_path / "plain.osm"
     osm.write_bytes(FIXTURE_PATCH.read_bytes())
     (tmp_path / "plain.osm.axes.json").write_text(
-        json.dumps({"anchor": None}))
+        json.dumps({"anchor": None}), encoding="utf-8", newline="")
     census_mod.census_one(osm, cg, top=1, want_sites=True)
     assert sorted(p.name for p in tmp_path.iterdir()) == [
         "plain.osm", "plain.osm.axes.json"]
@@ -7287,7 +7287,7 @@ def test_several_patches_get_one_site_dump_each(census_mod, cg, tmp_path):
     for p in (a, b):
         p.write_bytes(FIXTURE_PATCH.read_bytes())
         p.with_suffix(".osm.axes.json").write_text(
-            json.dumps({"anchor": None}))
+            json.dumps({"anchor": None}), encoding="utf-8", newline="")
     out = tmp_path / "sd.json"
     assert census_mod.main([str(a), str(b), "--quiet",
                             "--sites-json", str(out)]) == 0
@@ -7297,7 +7297,7 @@ def test_several_patches_get_one_site_dump_each(census_mod, cg, tmp_path):
 
 def test_the_site_flag_is_in_the_tool_index():
     """Every promotion lands WITH its index row, in the same commit."""
-    text = INDEX.read_text()
+    text = INDEX.read_text(encoding="utf-8")
     for token in ("--sites", "--site-visibility", "--sites-json"):
         assert token in text, (
             f"{token} is not in tools/INDEX.md — a flag absent from the "
@@ -7689,7 +7689,7 @@ def test_the_census_refuses_a_floor_that_drops_a_site(census_mod, cg,
     monkeypatch.setattr(census_mod, "cluster_sites", _lossy)
     osm = tmp_path / "lossy.osm"
     osm.write_bytes(FIXTURE_PATCH.read_bytes())
-    (tmp_path / "lossy.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    (tmp_path / "lossy.osm.axes.json").write_text(json.dumps({"anchor": None}), encoding="utf-8", newline="")
     with pytest.raises(SystemExit) as e:
         census_mod.census_one(osm, cg, top=1, want_sites=True)
     assert "does not partition the adjudicated sites" in str(e.value)
@@ -7712,7 +7712,7 @@ def test_the_floor_knobs_ride_in_every_site_report(census_mod, cg):
 
 def test_the_floor_flags_are_in_the_tool_index():
     """Every promotion lands WITH its index row, in the same commit."""
-    text = INDEX.read_text()
+    text = INDEX.read_text(encoding="utf-8")
     for token in ("actionable", "materiality floor", "sub_floor"):
         assert token in text, (
             f"{token!r} is not in tools/INDEX.md — the headline the site "
@@ -7756,8 +7756,8 @@ _HOST_SIDING_OSM = """<?xml version='1.0' encoding='UTF-8'?>
 
 def _host_fixture(tmp_path, role="apron", name="host", alt="11.20"):
     osm = tmp_path / f"{name}.osm"
-    osm.write_text(_HOST_SIDING_OSM % {"role": role, "alt": alt})
-    Path(str(osm) + ".axes.json").write_text(json.dumps({"anchor": None}))
+    osm.write_text(_HOST_SIDING_OSM % {"role": role, "alt": alt}, encoding="utf-8", newline="")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({"anchor": None}), encoding="utf-8", newline="")
     return osm
 
 
@@ -7917,8 +7917,8 @@ def test_a_partial_host_is_not_a_duplicate(cg, tmp_path):
         "<nd ref='-4' /><nd ref='-1' />\n    <tag k='o4_feature'",
         "<nd ref='-4' /><nd ref='-5' /><nd ref='-1' />\n    "
         "<tag k='o4_feature'")
-    osm.write_text(text)
-    Path(str(osm) + ".axes.json").write_text(json.dumps({"anchor": None}))
+    osm.write_text(text, encoding="utf-8", newline="")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({"anchor": None}), encoding="utf-8", newline="")
     fams: dict = {}
     cg.run_checks_law_true(osm, family_out=fams, quiet=True, top_n=0)
     h = fams["_feature_hosts"]["-11"]
@@ -7997,7 +7997,7 @@ def _ring_edge_fixture(tmp_path, insert_alt="13.00", baked=True):
     """An apron ring with one post-projection INSERT (-5) and a sidecar
     whose ``pair_caps`` bake covers only the four original corners."""
     osm = tmp_path / "ringedge.osm"
-    osm.write_text(_RING_EDGE_OSM % {"insert_alt": insert_alt})
+    osm.write_text(_RING_EDGE_OSM % {"insert_alt": insert_alt}, encoding="utf-8", newline="")
     caps = []
     if baked:
         ks = sorted(_RING_CORNERS)
@@ -8006,7 +8006,7 @@ def _ring_edge_fixture(tmp_path, insert_alt="13.00", baked=True):
                 caps.append([list(_RING_CORNERS[ka]),
                              list(_RING_CORNERS[kb]), 0.60])
     Path(str(osm) + ".axes.json").write_text(json.dumps({
-        "anchor": [30.50022500000, 31.50026000000], "pair_caps": caps}))
+        "anchor": [30.50022500000, 31.50026000000], "pair_caps": caps}), encoding="utf-8", newline="")
     return osm
 
 
@@ -8151,10 +8151,10 @@ def test_a_stem_with_any_leftover_artifact_is_never_reused(
     overwrite destroys.  ANY artifact at the stem disqualifies it."""
     monkeypatch.setattr(build_mod.time, "strftime",
                         lambda fmt, *a: "20260815T143800")
-    (tmp_path / "HECA_20260815T143800.osm").write_text("<osm/>")
+    (tmp_path / "HECA_20260815T143800.osm").write_text("<osm/>", encoding="utf-8", newline="")
     tag = build_mod.claim_tag(tmp_path, "HECA")
     assert tag == "HECA_20260815T143800_2"
-    assert (tmp_path / "HECA_20260815T143800.osm").read_text() == "<osm/>"
+    assert (tmp_path / "HECA_20260815T143800.osm").read_text(encoding="utf-8") == "<osm/>"
 
 
 def test_an_explicit_tag_refuses_rather_than_overwrites(
@@ -8169,7 +8169,7 @@ def test_an_explicit_tag_refuses_rather_than_overwrites(
     assert "mytag" in str(exc.value)
     assert ".progress" in str(exc.value)
     # ...and a leftover artifact with no live claim refuses just the same.
-    (tmp_path / "oldtag.osm").write_text("<osm/>")
+    (tmp_path / "oldtag.osm").write_text("<osm/>", encoding="utf-8", newline="")
     with pytest.raises(SystemExit) as exc:
         build_mod.claim_tag(tmp_path, "HECA", "oldtag")
     assert "oldtag.osm" in str(exc.value)
@@ -8191,7 +8191,7 @@ def test_the_declared_step_register_has_exactly_two_producers():
     """A third producer, or a second copy of one, is the census-wrapper
     defect in miniature."""
     import auto_patch.layout as LY
-    src = Path(inspect.getsourcefile(LY)).read_text()
+    src = Path(inspect.getsourcefile(LY)).read_text(encoding="utf-8")
     i = src.index('"terrace_joints":')
     window = src[i:i + 400]
     assert "_terrace_joints_sidecar(self)" in window
@@ -8445,7 +8445,7 @@ def test_BOTH_tile_entries_share_ONE_frame_resolver(build_mod):
     from pathlib import Path as _P
     assert callable(build_mod.resolve_tile_frame)
     entry = (_P(build_mod.__file__).resolve().parents[1]
-             / "run_tile_mesh_only.py").read_text()
+             / "run_tile_mesh_only.py").read_text(encoding="utf-8")
     assert "from build_airport import resolve_tile_frame" in entry
     assert "resolve_tile_frame(" in entry
     # the mesh-only entry runs steps 1-2, which need no provider at all
@@ -8717,7 +8717,7 @@ def test_texture_mode_overrides_the_resolved_tile_and_is_recorded(build_mod, mon
             self.texture_mode = "airport_ortho"          # what the cfg says
 
     cfg_path = tmp_path / "Ortho4XP_+40-004.cfg"
-    cfg_path.write_text("texture_mode=airport_ortho\n")
+    cfg_path.write_text("texture_mode=airport_ortho\n", encoding="utf-8", newline="")
     monkeypatch.setattr(_sys.modules["O4_Config_Utils"], "Tile", _Tile)
     monkeypatch.setattr(_sys.modules["O4_File_Names"], "normalize_custom_build_dir",
                         lambda lat, lon, bd: bd)
@@ -8936,11 +8936,11 @@ def _stub_v2_pipeline(monkeypatch, *, status="optimal", sidecar=True,
             side_effect()
         d = Path(out_dir); d.mkdir(parents=True, exist_ok=True)
         patch = d / f"{icao}_auto.patch.osm"
-        patch.write_text("<osm/>")
+        patch.write_text("<osm/>", encoding="utf-8", newline="")
         side = Path(str(patch) + ".axes.json")
         if sidecar:
-            side.write_text("{}")
-        (d / f"{icao}.report.json").write_text("{}")
+            side.write_text("{}", encoding="utf-8", newline="")
+        (d / f"{icao}.report.json").write_text("{}", encoding="utf-8", newline="")
         r = _Res()
         r.solution = _Sol(status)
         r.paths = _Paths(patch, side) if status == "optimal" else None
@@ -9046,7 +9046,7 @@ def test_main_dispatches_the_v2_engine_through_the_same_frame_and_ledger_path():
     path (v1 retired, RULINGS 2026-09-13au), keys the engine constant and
     the law digest into the artifact-ledger variant, and stamps both into
     ``frame.json`` — no second frame, no second store, and no selector."""
-    src = (HARNESS / "build_airport.py").read_text()
+    src = (HARNESS / "build_airport.py").read_text(encoding="utf-8")
     assert "result = build_patch_v2(" in src
     assert "args.engine" not in src, "the --engine selector is retired"
     assert 'frame["engine"] = ENGINE' in src
@@ -9124,9 +9124,9 @@ def _portion_patch(tmp_path: Path, *, far_grade: float, run_grade: float,
         out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
-        "anchor": list(_TWIN_ANCHOR), "ruleset": "icao"}))
+        "anchor": list(_TWIN_ANCHOR), "ruleset": "icao"}), encoding="utf-8", newline="")
     return osm
 
 
@@ -9158,7 +9158,7 @@ def test_the_marker_reads_long_runs_by_the_one_ratio(cg, tmp_path):
     # the same value in v2's law table (one law, two readers)
     from auto_patch.config import APRON_EDGE_PORTION_MIN_WIDTH_RATIO
     import tomllib
-    emit = tomllib.loads((ROOT / "src" / "auto_patch_v2" / "law" / "emit.toml").read_text())
+    emit = tomllib.loads((ROOT / "src" / "auto_patch_v2" / "law" / "emit.toml").read_text(encoding="utf-8"))
     assert emit["within_shape"]["apron_edge_portion_min_width_ratio"] == \
         APRON_EDGE_PORTION_MIN_WIDTH_RATIO == cg._APRON_EDGE_PORTION_RATIO
 
@@ -9201,7 +9201,7 @@ def _rect_stretch_patch(tmp_path: Path, *, step_grade: float, stretch_cap,
     out += ["    <tag k='role' v='cross_connector' />", "    <tag k='shapeID' v='1' />",
             "    <tag k='ref' v='pav1' />", "    <tag k='code_letter' v='F' />", "  </way>", "</osm>"]
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     side = {"anchor": list(_TWIN_ANCHOR), "ruleset": "icao"}
     if stretch_cap is not None:
         la0, lo0 = ll(0.0, 40.0)
@@ -9209,7 +9209,7 @@ def _rect_stretch_patch(tmp_path: Path, *, step_grade: float, stretch_cap,
         side["stretches"] = [[[[la0, lo0], [la1, lo1]], stretch_cap, "B", "taxi1"]]
     if relaxed_rows is not None:
         side["relaxed_rows"] = relaxed_rows
-    Path(str(osm) + ".axes.json").write_text(json.dumps(side))
+    Path(str(osm) + ".axes.json").write_text(json.dumps(side), encoding="utf-8", newline="")
     return osm
 
 
@@ -9328,7 +9328,7 @@ def test_the_withdrawn_taxi_chord_law_is_registered_and_stamped_from_the_sidecar
     taxi = census_mod.taxi_family_roles()
     assert "stub" in taxi and "apron" not in taxi and "building" not in taxi
     osm = tmp_path / "p.osm"
-    osm.write_text("<osm version='0.6'></osm>")
+    osm.write_text("<osm version='0.6'></osm>", encoding="utf-8", newline="")
     rows = [
         _FloorRow(de=1.0, grade=2.0, excess=0.5, dist=50.0, role="stub", wa="1"),
         _FloorRow(de=1.0, grade=2.0, excess=0.5, dist=50.0, role="junction", wa="2"),
@@ -9341,12 +9341,12 @@ def test_the_withdrawn_taxi_chord_law_is_registered_and_stamped_from_the_sidecar
     rows.append(mixed)
     fam = {"within_shape": rows}
     # a v1 patch: no key, nothing stamped
-    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"axes": []}))
+    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"axes": []}), encoding="utf-8", newline="")
     got = census_mod.stamp_withdrawn_taxi_chords(osm, cg, fam)
     assert got == {"stamped": 0, "by_roles": {}, "key_present": False}
     assert [r.out_of_scope for r in rows] == [None, None, None, cg.RELAXED_OUT_OF_SCOPE, None]
     # a v2 patch under the route law
-    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"axes": [], "taxi_route_pairs": []}))
+    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"axes": [], "taxi_route_pairs": []}), encoding="utf-8", newline="")
     got = census_mod.stamp_withdrawn_taxi_chords(osm, cg, fam)
     assert got["key_present"] and got["stamped"] == 2
     assert got["by_roles"] == {"stub|stub": 1, "junction|junction": 1}
@@ -9463,9 +9463,9 @@ def _ramp_patch(tmp_path: Path, *, grade: float, run_m: float = 25.0,
     out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
-        "anchor": list(_TWIN_ANCHOR), "ruleset": "icao"}))
+        "anchor": list(_TWIN_ANCHOR), "ruleset": "icao"}), encoding="utf-8", newline="")
     return osm
 
 
@@ -9552,11 +9552,11 @@ def _relief_pad_patch(tmp_path: Path, *, publish: bool, name: str) -> Path:
             "    <tag k='shapeID' v='P1' />",
             "  </way>", "</osm>"]
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     side = {"anchor": list(_TWIN_ANCHOR), "ruleset": "icao"}
     if publish:
         side["pad_relief"] = [[lat, lon, off] for lat, lon, _z, off in pts]
-    Path(str(osm) + ".axes.json").write_text(json.dumps(side))
+    Path(str(osm) + ".axes.json").write_text(json.dumps(side), encoding="utf-8", newline="")
     return osm
 
 
@@ -10014,12 +10014,12 @@ def test_the_census_and_the_cli_print_one_cockpit_block(cg, census_mod):
     ``check_grade.cockpit_block_lines``, and ``check_grade``'s own CLI
     calls the same two functions — no second formatting of the same
     numbers (the census-wrapper defect class)."""
-    src = (ROOT / "tools" / "harness" / "census.py").read_text()
+    src = (ROOT / "tools" / "harness" / "census.py").read_text(encoding="utf-8")
     assert "cockpit_block_lines(" in src and "cg.cockpit_block(" in src
     assert "COCKPIT (" not in src, (
         "the census formats the block itself instead of calling "
         "check_grade.cockpit_block_lines")
-    cli = (ROOT / "tools" / "check_grade.py").read_text()
+    cli = (ROOT / "tools" / "check_grade.py").read_text(encoding="utf-8")
     assert cli.count("def cockpit_block_lines") == 1
     assert "cockpit_block_lines(cockpit_block(families))" in cli, (
         "check_grade's CLI must print the block from the same run's "
@@ -10096,7 +10096,7 @@ def test_a_rate_rows_span_is_the_separation_its_de_is_taken_over(cg):
 
     Both the block's WELD test and its SLOPE/CLIFF rule read
     ``distance_m``; this pins the three readers that build it."""
-    src = (ROOT / "tools" / "check_grade.py").read_text()
+    src = (ROOT / "tools" / "check_grade.py").read_text(encoding="utf-8")
     assert "distance_m=0.5 * (dp + dn)" not in src
     assert "span = 0.5 * (dp + dn)" not in src
     # the ALLOWANCE keeps the half span — it is the rate law's own term
@@ -10266,7 +10266,7 @@ def _seam_patch(tmp_path, *, name, pin_dem, pin_z, bank_offset_m,
         out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
         "anchor": [_SEAM_LAT, _SEAM_LON],
         "ruleset": "icao",
@@ -10274,7 +10274,7 @@ def _seam_patch(tmp_path, *, name, pin_dem, pin_z, bank_offset_m,
                       [round(_SEAM_LAT + 0.0002, 11), round(edge_lon, 11),
                        pin_dem]],
         "seam_half_width_m": half_width_m,
-    }))
+    }), encoding="utf-8", newline="")
     return osm
 
 
@@ -10305,9 +10305,9 @@ def test_a_patch_with_no_seam_key_reads_exactly_as_before(cg, tmp_path):
     osm = _seam_patch(tmp_path, name="nokey", pin_dem=54.50, pin_z=51.07,
                       bank_offset_m=1.0)
     side = Path(str(osm) + ".axes.json")
-    data = json.loads(side.read_text())
+    data = json.loads(side.read_text(encoding="utf-8"))
     del data["seam_pins"], data["seam_half_width_m"]
-    side.write_text(json.dumps(data))
+    side.write_text(json.dumps(data), encoding="utf-8", newline="")
     fo = _families(cg, osm)
     assert fo["seam_residual"] == [] and fo["bank_across_seam"] == [], (
         "a patch predating §38 declares no seam and must price neither "
@@ -10345,7 +10345,7 @@ def test_both_seam_families_carry_a_cockpit_class(cg):
     import tomllib
     from pathlib import Path as _P
     table = tomllib.loads((_P(cg.__file__).resolve().parents[1]
-                           / "src/auto_patch_v2/law/families.toml").read_text())
+                           / "src/auto_patch_v2/law/families.toml").read_text(encoding="utf-8"))
     for key in ("seam_residual", "bank_across_seam"):
         assert key in table, f"{key} is a census family with no law entry"
         assert key in {k for k, _t, _b in cg.LAW_FAMILIES}
@@ -10394,11 +10394,11 @@ def _hairline_patch(tmp_path, *, name, ring, shore=True):
     out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     side = {"ruleset": "icao", "anchor": [_HAIR_A[0], _HAIR_A[1]]}
     if shore:
         side["shore_edges"] = [[_HAIR_A[0], _HAIR_A[1], _HAIR_B[0], _HAIR_B[1]]]
-    Path(str(osm) + ".axes.json").write_text(json.dumps(side))
+    Path(str(osm) + ".axes.json").write_text(json.dumps(side), encoding="utf-8", newline="")
     return osm
 
 
@@ -10443,7 +10443,7 @@ def test_hairline_pair_is_critical_unconditionally(cg):
     import tomllib
     from pathlib import Path as _P
     table = tomllib.loads((_P(cg.__file__).resolve().parents[1]
-                           / "src/auto_patch_v2/law/families.toml").read_text())
+                           / "src/auto_patch_v2/law/families.toml").read_text(encoding="utf-8"))
     assert table["hairline_pair"]["cockpit"] == "unmeshable"
     assert "hairline_pair" in {k for k, _t, _b in cg.LAW_FAMILIES}
     law = cg.cockpit_law(refresh=True)
@@ -10487,14 +10487,14 @@ def _road_join_patch(tmp_path, *, name, ribbon, emitted):
         out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
         "anchor": [_JOIN_LAT, _JOIN_LON],
         "ruleset": "faa",
         "road_coverage_join": [[round(_JOIN_LAT, 11), round(_JOIN_LON, 11), ribbon],
                                [round(_JOIN_LAT + 0.00007, 11),
                                 round(_JOIN_LON, 11), ribbon]],
-    }))
+    }), encoding="utf-8", newline="")
     return osm
 
 
@@ -10523,9 +10523,9 @@ def test_a_patch_with_no_join_key_reads_exactly_as_before(cg, tmp_path):
     """Every patch built before §37 (9) carries no key and prices no row."""
     osm = _road_join_patch(tmp_path, name="nokey", ribbon=203.48, emitted=205.84)
     side = Path(str(osm) + ".axes.json")
-    data = json.loads(side.read_text())
+    data = json.loads(side.read_text(encoding="utf-8"))
     data.pop("road_coverage_join")
-    side.write_text(json.dumps(data))
+    side.write_text(json.dumps(data), encoding="utf-8", newline="")
     assert _families(cg, osm)["road_coverage_join"] == []
 
 
@@ -10594,9 +10594,9 @@ def _ramp_road_patch(tmp_path, *, name, ramp_inset_m):
         out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
-        "anchor": [_RIR_LAT, _RIR_LON], "ruleset": "icao"}))
+        "anchor": [_RIR_LAT, _RIR_LON], "ruleset": "icao"}), encoding="utf-8", newline="")
     return osm
 
 
@@ -10701,9 +10701,9 @@ def _cutback_patch(tmp_path, *, name, zone_dz_m, gap_m=0.95):
         out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
-        "anchor": [_RIR_LAT, _RIR_LON], "ruleset": "icao"}))
+        "anchor": [_RIR_LAT, _RIR_LON], "ruleset": "icao"}), encoding="utf-8", newline="")
     return osm
 
 
@@ -10808,11 +10808,11 @@ def _ramp_strip_patch(tmp_path, *, name, ramp_gap_m, code_letter="E",
         out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     side = {"anchor": [_RIS_LAT, _RIS_LON], "ruleset": "icao"}
     if holes:
         side["face_holes"] = {"T1": [[[lat, lon] for lat, lon in holes[0]]]}
-    Path(str(osm) + ".axes.json").write_text(json.dumps(side))
+    Path(str(osm) + ".axes.json").write_text(json.dumps(side), encoding="utf-8", newline="")
     return osm
 
 
@@ -10954,7 +10954,7 @@ def _object_cut_patch(tmp_path, *, name, ramp_out_m, floor_z, authored_floor):
         out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
         "anchor": [_OC_LAT, _OC_LON], "ruleset": "icao",
         "object_cuts": [{
@@ -10963,7 +10963,7 @@ def _object_cut_patch(tmp_path, *, name, ramp_out_m, floor_z, authored_floor):
             "floor_m": authored_floor, "depth_m": 6.011,
             "outline_ll": [[la, lo] for la, lo in outline],
             "ramp_refs": ["tunnel_ramp:object-cut:t5@0"],
-            "wall_ref": "tunnel_wall:object-cut:t5@0"}]}))
+            "wall_ref": "tunnel_wall:object-cut:t5@0"}]}), encoding="utf-8", newline="")
     return osm
 
 
@@ -11032,9 +11032,9 @@ def test_a_patch_with_no_object_cuts_prices_neither_family(cg, tmp_path):
     osm = _object_cut_patch(tmp_path, name="nokey", ramp_out_m=9.0,
                             floor_z=9.99, authored_floor=1.31)
     side = Path(str(osm) + ".axes.json")
-    data = json.loads(side.read_text())
+    data = json.loads(side.read_text(encoding="utf-8"))
     data.pop("object_cuts")
-    side.write_text(json.dumps(data))
+    side.write_text(json.dumps(data), encoding="utf-8", newline="")
     fo = _families(cg, osm)
     assert fo["object_cut_offset"] == []
     assert fo["object_cut_depth"] == []
@@ -11118,9 +11118,9 @@ def _ramp_axis_patch(tmp_path, *, name, stations, fall_m, half_w=1.75):
     out.append("  </way>")
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
-    osm.write_text("\n".join(out) + "\n")
+    osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
-        "anchor": [_RRA_LAT, _RRA_LON], "ruleset": "icao"}))
+        "anchor": [_RRA_LAT, _RRA_LON], "ruleset": "icao"}), encoding="utf-8", newline="")
     return osm
 
 
@@ -11531,7 +11531,7 @@ def test_the_per_airport_check_scans_packs_with_the_owners_xplane_root(
     # An owner config the fatal form REFUSES (no CIFP resolvable) is an
     # airport pre-flight's stand-down, not its refusal.
     cfg = tmp_path / "Ortho4XP.cfg"
-    cfg.write_text("cifp_data_path=\ncustom_scenery_dir=\n")
+    cfg.write_text("cifp_data_path=\ncustom_scenery_dir=\n", encoding="utf-8", newline="")
     monkeypatch.setattr(build_mod, "apply_xplane_install_paths",
                         lambda owner_cfg: (_ for _ in ()).throw(SystemExit("REFUSING")))
     assert real_preflight(cfg) == {}
@@ -11550,14 +11550,14 @@ def _synthetic_xplane_root(tmp_path, packs):
     for name, enabled in packs.items():
         nav = cs / name / "Earth nav data" / "+10-070"
         nav.mkdir(parents=True)
-        (nav.parent / "apt.dat").write_text("I\n1100 Version\n99\n")
+        (nav.parent / "apt.dat").write_text("I\n1100 Version\n99\n", encoding="utf-8", newline="")
         (nav / "+18-064.dsf").write_bytes(b"XPLNEDSF")
         lines.append(("SCENERY_PACK " if enabled else "SCENERY_PACK_DISABLED ")
                      + f"Custom Scenery/{name}/")
-    (cs / "scenery_packs.ini").write_text("\n".join(lines) + "\n")
+    (cs / "scenery_packs.ini").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     cifp = xp / "Custom Data" / "CIFP"
     cifp.mkdir(parents=True)
-    (cifp / "TNCM.dat").write_text("APPCH:010,A,I10,1,TNCM,,\n")
+    (cifp / "TNCM.dat").write_text("APPCH:010,A,I10,1,TNCM,,\n", encoding="utf-8", newline="")
     return xp
 
 
@@ -11580,7 +11580,7 @@ def test_an_enabled_pack_is_never_read_PACK_SET_STALE(
     xp = _synthetic_xplane_root(tmp_path, {enabled: True, disabled: False})
     owner = tmp_path / "owner.cfg"
     owner.write_text(f"cifp_data_path={xp / 'Custom Data' / 'CIFP'}\n"
-                     f"custom_scenery_dir={xp / 'Custom Scenery'}\n")
+                     f"custom_scenery_dir={xp / 'Custom Scenery'}\n", encoding="utf-8", newline="")
     applied = build_mod.apply_xplane_install_paths_for_preflight(owner)
     assert applied.get("custom_scenery_dir") == str(xp / "Custom Scenery")
     assert INSETS._xplane_root_for_package_footprints() == str(xp)
@@ -11593,7 +11593,7 @@ def test_an_enabled_pack_is_never_read_PACK_SET_STALE(
 
     def _record(names):
         prov.write_text(_json.dumps({INSETS.SURFACE_MODEL_BUILDING_MASKING:
-                                     {INSETS.FOOTPRINT_PACKS: names}}))
+                                     {INSETS.FOOTPRINT_PACKS: names}}), encoding="utf-8", newline="")
 
     _record([enabled])
     assert not INSETS._sidecar_footprint_packs_mismatch(

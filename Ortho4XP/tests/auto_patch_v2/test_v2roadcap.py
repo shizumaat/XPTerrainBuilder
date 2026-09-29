@@ -94,7 +94,7 @@ def test_the_census_reads_the_transverse_tag_and_only_it():
     assert cg._role_grade_limit(_W(), 0.05) == pytest.approx(
         cg.ROLE_GRADE_LIMITS["service_road"])
     # ... and the tag is applied where the cross-section cap is resolved
-    src = pathlib.Path(root / "tools" / "check_grade.py").read_text()
+    src = pathlib.Path(root / "tools" / "check_grade.py").read_text(encoding="utf-8")
     body = src.split("def _xsec_allowance(", 1)[1].split("\n        if role0", 1)[0]
     assert "_lateral_cap_t_tag(w)" in body
 

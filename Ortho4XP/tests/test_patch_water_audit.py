@@ -48,7 +48,7 @@ def _osm(path, rings):
         lines.append(f"    <tag k='ref' v='bank:{k}' />")
         lines.append("  </way>")
     lines.append("</osm>")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 @pytest.fixture()

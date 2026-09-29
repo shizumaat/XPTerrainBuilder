@@ -40,10 +40,10 @@ class _Frame:
 def _pack(tmp: Path) -> Path:
     root = tmp / "c_NLD TNCM_1_Apt"
     (root / "Earth nav data").mkdir(parents=True)
-    (root / "Earth nav data" / "apt.dat").write_text("I\n1100\n")
+    (root / "Earth nav data" / "apt.dat").write_text("I\n1100\n", encoding="utf-8", newline="")
     (root / "Objects").mkdir()
-    (root / "Objects" / "HillBush.obj").write_text("A\n800\nOBJ\n# bushes\n")
-    (root / "Objects" / "Terminal.obj").write_text("A\n800\nOBJ\n# terminal\n")
+    (root / "Objects" / "HillBush.obj").write_text("A\n800\nOBJ\n# bushes\n", encoding="utf-8", newline="")
+    (root / "Objects" / "Terminal.obj").write_text("A\n800\nOBJ\n# terminal\n", encoding="utf-8", newline="")
     return root
 
 
@@ -67,7 +67,7 @@ def _airport(root: Path, icao: str):
 def world(tmp_path):
     root = _pack(tmp_path)
     dump = tmp_path / "+18-064.dsf.84ffe846.text"
-    dump.write_text("OBJECT_DEF Objects/HillBush.obj\n")
+    dump.write_text("OBJECT_DEF Objects/HillBush.obj\n", encoding="utf-8", newline="")
     return root, str(dump), str(tmp_path / "mod")
 
 
@@ -138,13 +138,13 @@ def test_t3_mtime_only_hits_same_size_edit_misses(world):
     assert fp2 == fp
     assert PC.read(path, fp2) == "payload"
     # one changed byte, same size -> MISS
-    txt = obj.read_text()
-    obj.write_text(txt.replace("bushes", "bushex"))
+    txt = obj.read_text(encoding="utf-8")
+    obj.write_text(txt.replace("bushes", "bushex"), encoding="utf-8", newline="")
     fp3 = PC.fingerprint(a, LAW, dump_path=dump, radius_deg=0.05)
     assert fp3 == fp                     # the size is the key...
     assert PC.read(path, fp3) is None    # ...and the content hash refuses
     # a size change moves the key itself
-    obj.write_text(txt + "# more\n")
+    obj.write_text(txt + "# more\n", encoding="utf-8", newline="")
     assert PC.fingerprint(a, LAW, dump_path=dump, radius_deg=0.05) != fp
 
 
@@ -246,7 +246,7 @@ def test_t88_unresolved_partition_never_served_to_a_resolved_run(world, tmp_path
     root, dump, mod = world
     lib_obj = tmp_path / "Library" / "lib_tree.obj"
     lib_obj.parent.mkdir()
-    lib_obj.write_text("A\n800\nOBJ\n")
+    lib_obj.write_text("A\n800\nOBJ\n", encoding="utf-8", newline="")
     pack_obj = str(root / "Objects" / "Terminal.obj")
     a = _airport(root, "TNCM")
     a.dsf_objects = (NS(path="Objects/Terminal.obj", resolved_path=pack_obj),

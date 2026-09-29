@@ -288,7 +288,7 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
     # the emitted patch carries the rim as a role-less feature way
     from auto_patch_v2.emit.osm_adapter import write_patch
     paths = write_patch(surf, law, tmp_path, pub, {"tag": "twin"})
-    txt = paths.patch.read_text()
+    txt = paths.patch.read_text(encoding="utf-8")
     assert txt.count("k='o4_feature' v='structure_rim'") == len(rims)
     assert "k='role' v='retaining_wall'" not in txt
     assert rows_v["within_shape"] == [] or all(

@@ -70,7 +70,7 @@ _APT_DAT_2 = """I
 
 
 def _write(path, text):
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
     return str(path)
 
@@ -499,7 +499,7 @@ def test_stale_size_change_with_restored_mtime_is_true(apt1, tmp_path):
     recorded = os.stat(apt1)
     # Append a byte (size grows), then restore the recorded mtime so only
     # the size differs -- size alone must still trigger a rebuild.
-    with open(apt1, "a", encoding="utf-8") as fh:
+    with open(apt1, "a", encoding="utf-8", newline="") as fh:
         fh.write("X")
     os.utime(apt1, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
     now = os.stat(apt1)

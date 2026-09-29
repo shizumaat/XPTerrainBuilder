@@ -44,7 +44,7 @@ requires_gdal = pytest.mark.skipif(
 # =====================================================================
 def _write_elv(directory, code, lines):
     path = os.path.join(directory, code + ".elv")
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("\n".join(lines) + "\n")
     return path
 
@@ -96,7 +96,7 @@ def test_parse_valid_and_invalid_elv(tmp_path):
         ["role=airport_inset", "priority=5"],
     )
     # A .txt file must be ignored by the extension filter.
-    (providers_directory / "NOTES.txt").write_text("access_strategy=tnm_cog\n")
+    (providers_directory / "NOTES.txt").write_text("access_strategy=tnm_cog\n", encoding="utf-8", newline="")
 
     parsed = INSETS.initialize_elevation_providers_dict(
         str(providers_directory)
@@ -992,7 +992,7 @@ def test_honest_inset_resolution_prefers_native_over_posting(
         upsampled, 51.55, 25.22, 51.55 + span, 25.22 + span, 10.0,
         columns=columns, rows=columns,
     )
-    with open(os.path.splitext(upsampled)[0] + ".json", "w") as handle:
+    with open(os.path.splitext(upsampled)[0] + ".json", "w", encoding="utf-8", newline="") as handle:
         json.dump({"native_resolution_m": 30.0, "resolution_m": 3.0}, handle)
     assert INSETS._honest_inset_resolution_m(upsampled) == 30.0
 
@@ -2152,7 +2152,7 @@ def test_supplement_refuses_surface_model_and_upsampled_rasters(
         tif_path, -87.001, 36.099, -86.999, 36.101, _basin_terrain())
 
     # Surface-model building masking declared: refused.
-    with open(sidecar_path, "w") as handle:
+    with open(sidecar_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({INSETS.SURFACE_MODEL_BUILDING_MASKING: {
             "masked_fraction": 0.29}}, handle)
     assert not INSETS._water_detection_trusts_inset_raster(tif_path)
@@ -2160,14 +2160,14 @@ def test_supplement_refuses_surface_model_and_upsampled_rasters(
     assert not os.path.isfile(FNAMES.inset_water(36, -87))
 
     # Upsampled fetch (30 m native at 3 m): refused.
-    with open(sidecar_path, "w") as handle:
+    with open(sidecar_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"native_resolution_m": 30.0, "resolution_m": 3.0},
                   handle)
     assert not INSETS._water_detection_trusts_inset_raster(tif_path)
     assert INSETS.ensure_inset_water_supplement(36, -87) is None
 
     # Downsampled lidar (1 m native at 3 m): trusted, basin detected.
-    with open(sidecar_path, "w") as handle:
+    with open(sidecar_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"native_resolution_m": 1.0, "resolution_m": 3.0},
                   handle)
     assert INSETS._water_detection_trusts_inset_raster(tif_path)
@@ -3346,7 +3346,7 @@ def test_xyz_archive_drop_converts_loose_file(tmp_path, monkeypatch):
     ]
     drop_directory = strategy.drop_directory(definition)
     os.makedirs(drop_directory)
-    with open(os.path.join(drop_directory, "dgm1_city.xyz"), "w") as f:
+    with open(os.path.join(drop_directory, "dgm1_city.xyz"), "w", encoding="utf-8", newline="") as f:
         f.write("\n".join(lines))
     destination = str(tmp_path / "EDDH_testhh.tif")
     provenance = INSETS.fetch_inset(definition, bbox, 10.0, destination)
@@ -4537,13 +4537,13 @@ def _write_fake_custom_scenery(root):
     ):
         nav_data = os.path.join(custom_scenery, pack_name, "Earth nav data")
         os.makedirs(os.path.dirname(os.path.join(nav_data, _PACK_TILE_DSF)))
-        with open(os.path.join(nav_data, _PACK_TILE_DSF), "w") as handle:
+        with open(os.path.join(nav_data, _PACK_TILE_DSF), "w", encoding="utf-8", newline="") as handle:
             handle.write("")
         if pack_name != "Ortho Tiles":
-            with open(os.path.join(nav_data, "apt.dat"), "w") as handle:
+            with open(os.path.join(nav_data, "apt.dat"), "w", encoding="utf-8", newline="") as handle:
                 handle.write("")
     with open(
-        os.path.join(custom_scenery, "scenery_packs.ini"), "w"
+        os.path.join(custom_scenery, "scenery_packs.ini"), "w", encoding="utf-8", newline=""
     ) as handle:
         handle.write(
             "I\n1000 Version\nSCENERY\n\n"
@@ -5379,11 +5379,11 @@ def test_write_index_skips_a_freshness_only_pass(tmp_path, monkeypatch):
     INS._write_index(60, -136, {"CYXY": dict(first["CYXY"],
                                              checked="2026-09-10")})
     assert target.stat().st_mtime_ns == stamp           # not rewritten
-    assert json.loads(target.read_text())["CYXY"]["checked"] == "2026-07-25"
+    assert json.loads(target.read_text(encoding="utf-8"))["CYXY"]["checked"] == "2026-07-25"
 
     INS._write_index(60, -136, {"CYXY": dict(first["CYXY"],
                                              HRDEM="no-coverage")})
-    assert json.loads(target.read_text())["CYXY"]["HRDEM"] == "no-coverage"
+    assert json.loads(target.read_text(encoding="utf-8"))["CYXY"]["HRDEM"] == "no-coverage"
 
 
 # =====================================================================
@@ -5493,7 +5493,7 @@ def test_a_legacy_lerc_negative_is_re_probed_exactly_once(
     monkeypatch.setattr(INSETS, "_engine_version", lambda: "1.50.1772")
     index_path = FNAMES.airport_inset_index(-45, 168)
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
-    with open(index_path, "w") as handle:
+    with open(index_path, "w", encoding="utf-8", newline="") as handle:
         # The record 1.0.324 left behind, verbatim in shape.
         json.dump({"NZQN": {"LERCPROVIDER": INSETS.NO_COVERAGE,
                             "checked": "2026-09-12",
@@ -5535,7 +5535,7 @@ def test_a_genuine_recorded_negative_is_never_re_probed(tmp_path, monkeypatch):
     monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: True)
     index_path = FNAMES.airport_inset_index(-45, 168)
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
-    with open(index_path, "w") as handle:
+    with open(index_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"NZQN": {
             "LERCPROVIDER": INSETS.NO_COVERAGE,
             "checked": "2026-09-13",
@@ -5612,17 +5612,17 @@ def test_a_tile_with_an_unverified_negative_is_not_settled(
     tile = _Tile()
     stamp_path = INSETS.inset_completion_stamp_path(-45, 168)
     os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
-    with open(stamp_path, "w") as handle:
+    with open(stamp_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"schema": "x", "airports_layer": [1, 2], "insets": []},
                   handle)
     index_path = FNAMES.airport_inset_index(-45, 168)
-    with open(index_path, "w") as handle:
+    with open(index_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"NZQN": {"COPERNICUSGLO30": "ok",
                             "bounding_box": [168.70, -45.05, 168.79,
                                              -44.99]}}, handle)
     assert INSETS.is_cached(tile) is True
 
-    with open(index_path, "w") as handle:
+    with open(index_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"NZQN": {"COPERNICUSGLO30": "ok",
                             "LERCPROVIDER": INSETS.NO_COVERAGE,
                             "bounding_box": [168.70, -45.05, 168.79,
@@ -5680,7 +5680,7 @@ def _write_phoenix_negative(engine=None):
             "PLAINPROVIDER": {"engine": engine, "capabilities": []}}
     index_path = FNAMES.airport_inset_index(33, -112)
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
-    with open(index_path, "w") as handle:
+    with open(index_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"KPHX": record}, handle)
 
 
@@ -5794,7 +5794,7 @@ def test_a_tile_with_a_version_stale_negative_is_not_settled(
         lambda tile: {"airports_layer": "x"})
     stamp_path = INSETS.inset_completion_stamp_path(33, -112)
     os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
-    with open(stamp_path, "w") as handle:
+    with open(stamp_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"airports_layer": "x", "insets": []}, handle)
     _write_phoenix_negative(engine="1.0.340")
 
@@ -6164,7 +6164,7 @@ def test_footprint_pack_names_are_the_enabled_airport_packs(
 def _write_masking_sidecar(lat, lon, icao, code, summary):
     path = FNAMES.airport_inset_provenance(lat, lon, icao, code)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         json.dump(
             {
                 "provider": code,
@@ -6200,7 +6200,7 @@ def test_footprint_pack_set_mismatch_is_by_set_and_unknown_is_reusable(
     assert INSETS._sidecar_footprint_packs_mismatch(*args, _PACK_BOX) is False
     # No masking block, and no sidecar at all: likewise reusable.
     path = FNAMES.airport_inset_provenance(*args)
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"provider": "COPERNICUSGLO30"}, handle)
     assert INSETS._sidecar_footprint_packs_mismatch(*args, _PACK_BOX) is False
     os.remove(path)
@@ -6232,7 +6232,7 @@ def test_our_own_pack_rewrite_and_side_files_do_not_move_the_signature(
     dsf = os.path.join(nav, _PACK_TILE_DSF)
     # ...the object stage rewrites the DSF, keeps the original beside it,
     # retires a superseded backup and drops its per-DSF record
-    with open(dsf, "w") as handle:
+    with open(dsf, "w", encoding="utf-8", newline="") as handle:
         handle.write("PROPERTY o4/placement_rewrite 1.0.352\n")
     for side in (dsf + ".anchor_bak",
                  dsf + ".anchor_bak.superseded-20260918T195300Z",
@@ -6241,7 +6241,7 @@ def test_our_own_pack_rewrite_and_side_files_do_not_move_the_signature(
                  os.path.join(custom_scenery, "Test Airport", "objects",
                               "a__b0.obj")):
         os.makedirs(os.path.dirname(side), exist_ok=True)
-        with open(side, "w") as handle:
+        with open(side, "w", encoding="utf-8", newline="") as handle:
             handle.write("x")
     assert INSETS.package_footprint_pack_names(_PACK_BOX) == before
 
@@ -6261,13 +6261,13 @@ def test_a_toggled_or_added_pack_DOES_move_the_signature(
     assert INSETS.package_footprint_pack_names(_PACK_BOX) == ["Test Airport"]
     ini = os.path.join(custom_scenery, "scenery_packs.ini")
     # ENABLED -> DISABLED: the name leaves the set
-    with open(ini, "w") as handle:
+    with open(ini, "w", encoding="utf-8", newline="") as handle:
         handle.write("I\n1000 Version\nSCENERY\n\n"
                      "SCENERY_PACK_DISABLED Custom Scenery/Test Airport/\n"
                      "SCENERY_PACK_DISABLED Custom Scenery/Disabled Airport/\n")
     assert INSETS.package_footprint_pack_names(_PACK_BOX) == []
     # DISABLED -> ENABLED, for a pack that was out: the name joins it
-    with open(ini, "w") as handle:
+    with open(ini, "w", encoding="utf-8", newline="") as handle:
         handle.write("I\n1000 Version\nSCENERY\n\n"
                      "SCENERY_PACK Custom Scenery/Test Airport/\n"
                      "SCENERY_PACK Custom Scenery/Disabled Airport/\n")
@@ -6354,7 +6354,7 @@ def test_fetch_inset_records_requested_and_delivered_boxes(
             60, -136, {"CYXY": _SMALL_BOX}, [definition], 3.0
         )
         with open(
-            FNAMES.airport_inset_provenance(60, -136, "CYXY", "BOTHBOX")
+            FNAMES.airport_inset_provenance(60, -136, "CYXY", "BOTHBOX"), encoding="utf-8"
         ) as handle:
             manifest = json.load(handle)
         # The ask is unchanged and still under its historic key.
@@ -6453,7 +6453,7 @@ def test_recut_rule_judges_the_requested_box_and_prefers_the_new_key(
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     def _write(payload):
-        with open(path, "w") as handle:
+        with open(path, "w", encoding="utf-8", newline="") as handle:
             json.dump(payload, handle)
 
     # Historic manifests carry only bounding_box_wgs84, and that IS the
@@ -6488,7 +6488,7 @@ def test_recut_rule_is_not_the_delivered_box(tmp_path, monkeypatch):
     args = (60, -136, "CYXY", "HRDEM")
     path = FNAMES.airport_inset_provenance(*args)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"bounding_box_wgs84": list(_LARGE_BOX),
                    # a tenth of a 30 m pixel inside the request
                    "delivered_bounding_box_wgs84": [
@@ -6617,7 +6617,7 @@ def _stamp_writer_fixture(tmp_path, monkeypatch, insets_on_disk):
         "airports_layer": [179210, 1.5],
         "insets": ["LEMD_copernicusglo30.tif", "LEMD_spain5m.tif"],
     }, indent=2, sort_keys=True)
-    with open(stamp_path, "w") as handle:
+    with open(stamp_path, "w", encoding="utf-8", newline="") as handle:
         handle.write(legacy)
 
     class _Tile:
@@ -6639,7 +6639,7 @@ def test_a_validating_pre_B2_stamp_is_NOT_rewritten(tmp_path, monkeypatch):
     assert INSETS.is_cached(tile) is True
     before = os.stat(stamp_path).st_mtime_ns
     INSETS._write_inset_completion_stamp(tile)
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         assert handle.read() == legacy
     assert os.stat(stamp_path).st_mtime_ns == before
     assert not os.path.exists(stamp_path + ".tmp")
@@ -6652,7 +6652,7 @@ def test_a_stamp_missing_an_inset_IS_rewritten(tmp_path, monkeypatch):
         tmp_path, monkeypatch,
         ["LEMD_copernicusglo30.tif", "LEMD_spain5m.tif", "LETO_spain5m.tif"])
     INSETS._write_inset_completion_stamp(tile)
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         stamp = json.load(handle)
     assert stamp["insets"] == ["LEMD_copernicusglo30.tif",
                                "LEMD_spain5m.tif", "LETO_spain5m.tif"]
@@ -6664,10 +6664,10 @@ def test_a_stamp_with_a_changed_key_field_IS_rewritten(tmp_path, monkeypatch):
     tile, stamp_path, legacy = _stamp_writer_fixture(
         tmp_path, monkeypatch,
         ["LEMD_copernicusglo30.tif", "LEMD_spain5m.tif"])
-    with open(stamp_path, "w") as handle:
+    with open(stamp_path, "w", encoding="utf-8", newline="") as handle:
         handle.write(legacy.replace("2000.0", "1500.0"))
     assert INSETS.is_cached(tile) is False
     INSETS._write_inset_completion_stamp(tile)
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         assert json.load(handle)["margin_m"] == 2000.0
     assert INSETS.is_cached(tile) is True

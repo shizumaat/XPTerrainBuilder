@@ -294,7 +294,7 @@ def test_the_declaration_reaches_the_sidecar_reader():
     import check_grade as CG
     assert "road_ownership" in CG.SIDECAR_EVIDENCE_KEYS
     assert "road_ownership" not in CG.SIDECAR_LAW_KEYS
-    src = (_ROOT / "src" / "auto_patch" / "layout.py").read_text()
+    src = (_ROOT / "src" / "auto_patch" / "layout.py").read_text(encoding="utf-8")
     assert '"road_ownership": getattr(self, "_road_ownership", None),' in src
 
 
@@ -310,7 +310,7 @@ def test_free_road_profile_is_gone():
     for name in ("FREE_ROAD_PROFILE_PASS", "FREE_ROAD_PROFILE_PRESOLVE",
                  "FREE_ROAD_PROFILE_RESOLVE", "FREE_ROAD_PROFILE_SELF_PINS"):
         assert not hasattr(CFG, name), name
-    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
     assert "solve_free_road_profiles" not in src
 
 
@@ -319,7 +319,7 @@ def test_the_profiler_is_installed_at_the_writeback_seam():
     writeback, downstream of the mouth reseat — the airside-final moment,
     and the point every road-altitude writer converges at."""
     src = (_ROOT / "src" / "auto_patch" / "elevation_per_surface"
-           / "route_profile" / "solve.py").read_text()
+           / "route_profile" / "solve.py").read_text(encoding="utf-8")
     i_reseat = src.index("_reseat_service_mouths(")
     i_wb = src.rindex("_writeback(layout, elev, b2i)")
     i_call = src.index("solve_road_transitions(layout")
@@ -384,7 +384,7 @@ def test_the_unscoped_carve_is_unchanged():
 def test_both_minters_read_ONE_derivation_of_the_scope():
     """One region, derived once and memoised on the layout: two
     derivations are two ownership boundaries."""
-    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
     # the def plus exactly THREE call sites: the mint, the carve, and
     # (Batch 4a, RULINGS 31e) the slice's own face classification — the
     # PRODUCER of the far road-family population.  All three read the one
@@ -428,7 +428,7 @@ def test_the_profiler_does_NOT_get_the_last_word_REFUTED():
     writeback-seam call stands ALONE, and the isolated post-profiler
     road moves are lateral reconciliation doing its lawful job.
     """
-    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
     assert "_rt2(layout, icao" not in src, "the second call is DELETED (29f)"
     assert "solve_road_transitions(layout" not in src, (
         "the pipeline does not CALL the profiler at all — its ONE call "
@@ -439,7 +439,7 @@ def test_the_profiler_does_NOT_get_the_last_word_REFUTED():
     assert "6,403 -> 7,496" in src and "+1,093" in src
     # …and the writeback-seam call (the spec's own home) still stands.
     solve = (_ROOT / "src" / "auto_patch" / "elevation_per_surface"
-             / "route_profile" / "solve.py").read_text()
+             / "route_profile" / "solve.py").read_text(encoding="utf-8")
     assert solve.count("solve_road_transitions(layout") == 1
 
 
@@ -592,7 +592,7 @@ def test_the_release_RE_ROLES_IN_PLACE_and_never_re_emits():
     graded_strip spines came within 3.15 m carrying a 1.58 m step — the
     three new airside `strip_seam_tear` rows.  Identity preservation is
     the fix, so it is pinned."""
-    src = (_ROOT / "src" / "auto_patch" / "groundside.py").read_text()
+    src = (_ROOT / "src" / "auto_patch" / "groundside.py").read_text(encoding="utf-8")
     body = src.split("def release_far_road_shapes(")[1].split(
         "\ndef ")[0]
     # the CODE, not the docstring that explains why the pool is avoided
@@ -606,7 +606,7 @@ def test_the_release_RE_ROLES_IN_PLACE_and_never_re_emits():
         "the slice's own conformant ring is never simplified: moving its "
         "boundary breaks the welds it shares with its neighbours")
     # and the pipeline calls it at the RULED seam
-    pipe = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    pipe = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
     head, _, tail = pipe.partition("enact_classify(layout, icao=icao")
     assert "release_far_road_shapes(" in tail, "after enact_classify"
     assert "release_far_road_shapes(" not in head
@@ -641,7 +641,7 @@ def test_both_minters_read_ONE_derivation_of_the_scope():
     derivations are two ownership boundaries.  (The FACE region is a
     different question with its own single derivation — RULINGS 31j,
     ``groundside.release_far_road_shapes`` — and does not read this one.)"""
-    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
     # the def plus exactly TWO call sites: the mint and the carve
     assert src.count("_road_contact_scope(layout, pav_union, to_m)") == 3
     assert src.count("def _road_contact_scope(") == 1
@@ -655,10 +655,10 @@ def test_the_declaration_reaches_the_sidecar_from_the_new_home():
     """Spec §3.4 / census #90's outbound twin: the released AREA joins the
     minters' released METRES in the ONE ``road_ownership`` dict, now
     written from the post-scorer seam."""
-    pipe = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    pipe = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
     assert "_own_all.update(_face_own)" in pipe
     assert "layout._road_ownership = _own_all" in pipe
-    src = (_ROOT / "src" / "auto_patch" / "groundside.py").read_text()
+    src = (_ROOT / "src" / "auto_patch" / "groundside.py").read_text(encoding="utf-8")
     assert '"faces_reclassified_m2"' in src
 
 
@@ -681,6 +681,6 @@ def test_a_split_piece_of_a_slice_born_face_still_releases(monkeypatch):
                                    tile_lon=31) == 1
     assert piece.role == ROLE_GROUNDSIDE_PAVEMENT
     # and the re-mint CARRIES the flag, so the piece above can exist
-    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    src = (_ROOT / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
     assert 'slice_face=getattr(_s, "slice_face", False)' in src, (
         "the neck-split re-mint must carry the producer marker")

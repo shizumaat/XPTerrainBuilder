@@ -20,7 +20,7 @@ def test_progressive_cover_reads_as_true(tmp_path):
         "default_zl=16\n"
         "cover_airports_with_highres=Progressive\n"
         "cover_zl=17\n"
-        "unknown_future_setting=whatever\n"   # unknown keys skip silently
+        "unknown_future_setting=whatever\n"   # unknown keys skip silently, encoding="utf-8"
     )
     tile = CFG.Tile(46, 6, str(tmp_path))
     assert tile.read_from_config(config_file=str(cfg)) == 1
@@ -56,7 +56,7 @@ def _layered_tile(tmp_path, monkeypatch, *, global_lines, tile_lines,
 
     global_cfg = tmp_path / "Ortho4XP.cfg"
     if global_lines is not None:
-        global_cfg.write_text(global_lines)
+        global_cfg.write_text(global_lines, encoding="utf-8", newline="")
     monkeypatch.setattr(CFG, "global_cfg_file", str(global_cfg))
     if session is not None:
         for key, value in session.items():
@@ -67,7 +67,7 @@ def _layered_tile(tmp_path, monkeypatch, *, global_lines, tile_lines,
     if tile_lines is not None:
         os.makedirs(tile.build_dir, exist_ok=True)
         import O4_Settings_Model as SM
-        with open(tile._tile_cfg_path(), "w") as handle:
+        with open(tile._tile_cfg_path(), "w", encoding="utf-8", newline="") as handle:
             # STAMPED through the one helper (RULINGS 2026-09-18c (2)).
             handle.write(SM.tile_cfg_stamp_line() + tile_lines)
     return tile
@@ -136,7 +136,7 @@ def test_explicit_config_file_is_layered_over_global(tmp_path, monkeypatch):
         global_lines="texture_mode=airport_ortho\n", tile_lines=None,
     )
     explicit = tmp_path / "elsewhere.cfg"
-    explicit.write_text("cover_zl=18\n")
+    explicit.write_text("cover_zl=18\n", encoding="utf-8", newline="")
     assert tile.read_from_config(config_file=str(explicit)) == 1
     assert tile.texture_mode == "airport_ortho"
     assert tile.cover_zl == 18
@@ -164,4 +164,4 @@ def test_retired_key_in_tile_cfg_still_skipped(tmp_path, monkeypatch):
     # ``auto_patch_engine`` was — no attribute, and the line is DELETED
     # from the cfg on read (RULINGS 2026-09-13a (2)), never warned about.
     assert not hasattr(tile, "solve_model")
-    assert "solve_model" not in open(tile._tile_cfg_path()).read()
+    assert "solve_model" not in open(tile._tile_cfg_path(), encoding="utf-8").read()

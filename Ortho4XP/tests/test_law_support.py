@@ -198,7 +198,7 @@ def test_the_package_imports_no_v1_module():
     allowed_plain = {"config", "build_support", "apt_dat_reader"}
     offenders = []
     for path in sorted(pkg.glob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         for n in ast.walk(tree):
             targets = []
             if isinstance(n, ast.Import):

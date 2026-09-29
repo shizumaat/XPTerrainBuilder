@@ -84,7 +84,7 @@ def objs(tmp_path_factory, law):
     d = tmp_path_factory.mktemp("v2basinfix_pack") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     dd = law.tables.structures.basin.admission_depth_m
     return {
         "dir": d,

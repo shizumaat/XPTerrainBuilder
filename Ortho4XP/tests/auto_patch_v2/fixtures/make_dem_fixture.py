@@ -87,7 +87,7 @@ def write(root: Path = ELEV) -> None:
     hgt.write_bytes(hgt_bytes())
     tifffile.imwrite(tif, inset_array(), extratags=inset_tags(),
                      photometric="minisblack")
-    (tif.parent / JSON.name).write_text(inset_json())
+    (tif.parent / JSON.name).write_text(inset_json(), encoding="utf-8", newline="")
 
 
 def check() -> list[str]:

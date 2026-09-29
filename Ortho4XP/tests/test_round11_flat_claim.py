@@ -405,7 +405,7 @@ def _write_inset(directory, name, valid_fraction, *, project="TEST_PROJECT"):
     band.FlushCache()
     dataset.FlushCache()
     dataset = None
-    with open(path[:-4] + ".json", "w") as handle:
+    with open(path[:-4] + ".json", "w", encoding="utf-8", newline="") as handle:
         json.dump({"provider": "TESTDEP", "project_titles": [project],
                    "source_ids": ["1"], "resolution_m": 1.0}, handle)
     return path

@@ -44,7 +44,7 @@ def _patch(tmp_path: Path) -> Path:
     way("-101", ["-5", "-6", "-7", "-8"], "runway", "09/27")
     out.append("</osm>")
     p = tmp_path / "P.osm"
-    p.write_text("\n".join(out))
+    p.write_text("\n".join(out), encoding="utf-8", newline="")
     return p
 
 
@@ -117,7 +117,7 @@ def test_two_arms_are_read_alike_and_the_index_row_exists(tmp_path, capsys):
     assert "ctrl" in out.splitlines()[0]
     index = ROOT.parent / "tools" / "INDEX.md"
     assert index.exists()
-    assert "patch_transect.py" in index.read_text()
+    assert "patch_transect.py" in index.read_text(encoding="utf-8")
 
 
 # ── the FREE-BEARING span (lane ``v2aprontrend``, RULINGS 2026-09-10ar) ──

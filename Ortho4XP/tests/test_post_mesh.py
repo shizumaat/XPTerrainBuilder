@@ -74,7 +74,7 @@ def _write_synthetic_mesh(mesh_path: str) -> None:
     lines += ["", "Normals", "0", "", "Triangles", "2",
               "1 2 3 0", "1 3 4 0"]
     os.makedirs(os.path.dirname(mesh_path), exist_ok=True)
-    with open(mesh_path, "w") as handle:
+    with open(mesh_path, "w", encoding="utf-8", newline="") as handle:
         handle.write("\n".join(lines) + "\n")
 
 
@@ -124,21 +124,21 @@ def _make_pack(base_directory, pack_name: str, dsf_body: str,
     dsf_directory = pack_root / "Earth nav data" / "+30-090"
     dsf_directory.mkdir(parents=True)
     dsf = dsf_directory / (TILE_NAME + ".dsf")
-    dsf.write_text("binary-placeholder")
+    dsf.write_text("binary-placeholder", encoding="utf-8", newline="")
     text = dsf_directory / (TILE_NAME + ".dsf.text")
-    text.write_text(dsf_body)
+    text.write_text(dsf_body, encoding="utf-8", newline="")
     now = os.path.getmtime(text)
     os.utime(dsf, (now - 10, now - 10))
     for resource_path, content in objects_by_resource.items():
         physical = pack_root.joinpath(*resource_path.split("/"))
         physical.parent.mkdir(parents=True, exist_ok=True)
-        physical.write_text(content)
+        physical.write_text(content, encoding="utf-8", newline="")
     return str(dsf), str(pack_root)
 
 
 def _vertex_y_values(object_path: str) -> list[float]:
     values = []
-    with open(object_path) as handle:
+    with open(object_path, encoding="utf-8") as handle:
         for line in handle:
             tokens = line.split()
             if tokens and tokens[0] == "VT":
@@ -245,7 +245,7 @@ def phase_two_harness(tmp_path, monkeypatch):
             "airports": airports,
         }
         harness.worklist_path.write_text(
-            json.dumps(payload, indent=2) + "\n")
+            json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="")
 
     harness.write_worklist = write_worklist
 
@@ -328,7 +328,7 @@ def test_end_to_end_bake_rewrites_live_file_with_backup_and_provenance(
     live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
     backup_path = live_path + ".anchor_bak"
     assert os.path.isfile(backup_path)
-    with open(backup_path) as handle:
+    with open(backup_path, encoding="utf-8") as handle:
         assert handle.read() == OFFSET_SLAB_OBJECT
 
     expected_offset = _expected_slab_offset()
@@ -339,7 +339,7 @@ def test_end_to_end_bake_rewrites_live_file_with_backup_and_provenance(
     provenance_path = os.path.join(
         pack_root, ".o4_reanchor_provenance.json")
     assert os.path.isfile(provenance_path)
-    with open(provenance_path) as handle:
+    with open(provenance_path, encoding="utf-8") as handle:
         provenance = json.load(handle)
     assert "objects/offset_bake.obj" in provenance["objects"]
     assert TILE_NAME in provenance["meshes"]
@@ -392,7 +392,7 @@ def _provenance_objects(pack_root: str) -> dict:
     path = os.path.join(pack_root, ".o4_reanchor_provenance.json")
     if not os.path.isfile(path):
         return {}
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         return json.load(handle).get("objects", {})
 
 
@@ -421,7 +421,7 @@ def test_a_below_threshold_pack_is_never_touched(phase_two_harness):
     assert counts["vertices_offset"] == 0
     assert counts["units_below_bake_threshold"] == 1
     assert counts["packs_corrected"] == 0
-    with open(live_path) as handle:
+    with open(live_path, encoding="utf-8") as handle:
         assert handle.read() == SOUTH_SLAB_OBJECT
     assert not os.path.exists(live_path + ".anchor_bak")
     # The pack's own content is untouched.  The sidecar may still hold
@@ -449,7 +449,7 @@ def test_a_previous_bake_is_reverted_when_the_threshold_excludes_it(
     monkeypatch.setattr(config, "DSF_OBJECT_BAKE_MIN_DELTA_M", 0.0)
     first = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert first["structures_baked"] == 1
-    with open(live_path) as handle:
+    with open(live_path, encoding="utf-8") as handle:
         assert handle.read() != SOUTH_SLAB_OBJECT
     assert os.path.isfile(live_path + ".anchor_bak")
 
@@ -461,7 +461,7 @@ def test_a_previous_bake_is_reverted_when_the_threshold_excludes_it(
     second = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert second["objects_reverted"] == 1
     assert second["structures_baked"] == 0
-    with open(live_path) as handle:
+    with open(live_path, encoding="utf-8") as handle:
         assert handle.read() == SOUTH_SLAB_OBJECT
 
 
@@ -481,7 +481,7 @@ def test_measure_only_runs_the_pass_and_writes_nothing(phase_two_harness):
     assert counts["structures_baked"] == 0
     assert counts["vertices_offset"] == 0
     assert counts["units_below_bake_threshold"] == 1
-    with open(live_path) as handle:
+    with open(live_path, encoding="utf-8") as handle:
         assert handle.read() == OFFSET_SLAB_OBJECT
     assert not os.path.exists(live_path + ".anchor_bak")
     assert _provenance_objects(pack_root) == {}
@@ -498,14 +498,14 @@ def test_measure_only_still_reverts_an_earlier_bake(phase_two_harness):
 
     baked = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert baked["structures_baked"] == 1
-    with open(live_path) as handle:
+    with open(live_path, encoding="utf-8") as handle:
         assert handle.read() != OFFSET_SLAB_OBJECT
 
     harness.tile.modify_custom_airports = False
     measured = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert measured["airports_up_to_date"] == 0  # no stale short-circuit
     assert measured["objects_reverted"] == 1
-    with open(live_path) as handle:
+    with open(live_path, encoding="utf-8") as handle:
         assert handle.read() == OFFSET_SLAB_OBJECT
 
 
@@ -524,12 +524,12 @@ def test_measure_only_still_records_the_pad_requests(phase_two_harness):
         str(harness.patches_directory),
         post_mesh.OBJECT_FOOT_PAD_SIDECAR_FILENAME)
     assert os.path.isfile(sidecar_path)
-    with open(sidecar_path) as handle:
+    with open(sidecar_path, encoding="utf-8") as handle:
         sidecar = json.load(handle)
     requests = sidecar["airports"][0]["requests"]
     assert requests, "the terrain side still learns what the pack kept"
     assert all(request["rings_lonlat"] for request in requests)
-    with open(live_path) as handle:
+    with open(live_path, encoding="utf-8") as handle:
         assert handle.read() == _two_foot_gantry_object(40.0)
 
 
@@ -631,9 +631,9 @@ def test_partition_cache_serves_second_run_and_content_invalidates(
     # ``.anchor_bak`` original (ruling R1) — rewriting it with different
     # bytes must recompute the partition, not serve the stale entry.
     backup_path = live_path + ".anchor_bak"
-    with open(backup_path) as handle:
+    with open(backup_path, encoding="utf-8") as handle:
         original = handle.read()
-    with open(backup_path, "w") as handle:
+    with open(backup_path, "w", encoding="utf-8", newline="") as handle:
         handle.write(original + "# trailing comment changes the bytes\n")
     post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(partition_calls) == 2
@@ -691,7 +691,7 @@ def test_foot_pad_sidecar_written_and_removed(
 
     sidecar_path = harness.patches_directory / (
         post_mesh.OBJECT_FOOT_PAD_SIDECAR_FILENAME)
-    payload = json.loads(sidecar_path.read_text())
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
     assert payload["version"] == post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION
     (airport,) = payload["airports"]
     assert airport["icao"] == "KTST"
@@ -814,7 +814,7 @@ def test_multi_placement_resource_excluded_single_sibling_baked(
 
     # The excluded file is untouched: no rewrite, no backup.
     double_path = os.path.join(pack_root, "objects", "double_bake.obj")
-    with open(double_path) as handle:
+    with open(double_path, encoding="utf-8") as handle:
         assert handle.read() == OFFSET_SLAB_OBJECT
     assert not os.path.isfile(double_path + ".anchor_bak")
 
@@ -902,7 +902,7 @@ def test_driver_worklist_write_is_atomic_and_versioned(tmp_path):
         "/xplane")
     worklist_path = os.path.join(
         patch_directory, post_mesh.OBJECT_ANCHOR_WORKLIST_FILENAME)
-    with open(worklist_path) as handle:
+    with open(worklist_path, encoding="utf-8") as handle:
         payload = json.load(handle)
     assert payload["version"] == post_mesh.OBJECT_ANCHOR_WORKLIST_VERSION
     assert payload["tile"] == TILE_NAME
@@ -937,7 +937,7 @@ def test_driver_worklist_refreshes_to_empty_but_never_creates_empty(
         "/xplane")
     driver._write_object_anchor_worklist(
         patch_directory, TILE_LATITUDE, TILE_LONGITUDE, [], None)
-    with open(worklist_path) as handle:
+    with open(worklist_path, encoding="utf-8") as handle:
         assert json.load(handle)["airports"] == []
 
 
@@ -970,7 +970,7 @@ def _make_airport_pack(custom_scenery, pack_name, dsf_body,
     dsf_path, pack_root = _make_pack(
         custom_scenery, pack_name, dsf_body, objects_by_resource)
     with open(os.path.join(pack_root, "Earth nav data", "apt.dat"),
-              "w") as handle:
+              "w", encoding="utf-8", newline="") as handle:
         handle.write(APT_DAT_STUB)
     return dsf_path, pack_root
 
@@ -980,7 +980,7 @@ def _write_scenery_packs_ini(custom_scenery, enabled=(), disabled=()):
     lines += [f"SCENERY_PACK_DISABLED Custom Scenery/{name}/"
               for name in disabled]
     (custom_scenery / "scenery_packs.ini").write_text(
-        "I\n1000 Version\nSCENERY\n\n" + "\n".join(lines) + "\n")
+        "I\n1000 Version\nSCENERY\n\n" + "\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 def _worklist_entries(icao, xp_root, seen=None, scan_cache=None):
@@ -1169,7 +1169,7 @@ def test_worklist_v1_payload_still_processed(phase_two_harness):
             "pack_root": pack_root,
             "xplane_root": None,
         }],
-    }, indent=2) + "\n")
+    }, indent=2) + "\n", encoding="utf-8", newline="")
 
     counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
 
@@ -1235,7 +1235,7 @@ def test_stale_in_pack_text_dump_is_removed_and_redumped_to_data_root(
     # A DSFTool stand-in that actually writes the requested dump.
     stub = tmp_path / "dsftool_stub.sh"
     stub.write_text("#!/bin/sh\nprintf 'OBJECT_DEF objects/x.obj\\n' "
-                    "> \"$3\"\n")
+                    "> \"$3\"\n", encoding="utf-8", newline="")
     stub.chmod(0o755)
     monkeypatch.setattr(D, "_dsftool_path", lambda: str(stub))
 
@@ -1244,7 +1244,7 @@ def test_stale_in_pack_text_dump_is_removed_and_redumped_to_data_root(
     assert not os.path.isfile(dsf_path + ".text")
     assert text_path == D._default_pack_text_cache_path(
         D.airport_mod_cache_dir(pack_root), dsf_path)
-    with open(text_path) as handle:
+    with open(text_path, encoding="utf-8") as handle:
         assert handle.read() == "OBJECT_DEF objects/x.obj\n"
 
 
@@ -1253,9 +1253,9 @@ def test_bare_dsf_outside_a_pack_keeps_legacy_alongside_cache(
     """No ``Earth nav data`` component → no pack to keep clean: the
     dump still lands next to the DSF (probe/fixture behaviour)."""
     dsf_path = tmp_path / "fake.dsf"
-    dsf_path.write_text("binary-placeholder")
+    dsf_path.write_text("binary-placeholder", encoding="utf-8", newline="")
     text = tmp_path / "fake.dsf.text"
-    text.write_text(SINGLE_PLACEMENT_DSF_BODY)
+    text.write_text(SINGLE_PLACEMENT_DSF_BODY, encoding="utf-8", newline="")
     now = os.path.getmtime(text)
     os.utime(dsf_path, (now - 10, now - 10))
     monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
@@ -1324,7 +1324,7 @@ def test_protected_scenery_root_is_never_rebaked(phase_two_harness):
     assert any("never rebaked" in reason for _, reason in result["skipped"])
     live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
     assert not os.path.isfile(live_path + ".anchor_bak")
-    with open(live_path) as handle:
+    with open(live_path, encoding="utf-8") as handle:
         assert handle.read() == OFFSET_SLAB_OBJECT
 
 
@@ -1344,7 +1344,7 @@ def test_library_resolved_resource_outside_the_pack_is_skipped(
     library_pack = harness.tmp_path / "Library Pack"
     library_object = library_pack / "shared_hangar.obj"
     library_object.parent.mkdir(parents=True)
-    library_object.write_text(OFFSET_SLAB_OBJECT)
+    library_object.write_text(OFFSET_SLAB_OBJECT, encoding="utf-8", newline="")
 
     real_resolve = post_mesh.obj8_reader.resolve_object_resource
 
@@ -1367,7 +1367,7 @@ def test_library_resolved_resource_outside_the_pack_is_skipped(
         for resource, reason in result["skipped"])
     # ...its file is untouched...
     assert not os.path.isfile(str(library_object) + ".anchor_bak")
-    with open(library_object) as handle:
+    with open(library_object, encoding="utf-8") as handle:
         assert handle.read() == OFFSET_SLAB_OBJECT
     # ...and the pack-local sibling still bakes.
     assert result["objects_written"] == ["objects/offset_bake.obj"]
@@ -1447,7 +1447,7 @@ def test_short_circuit_records_its_fingerprint_in_the_sidecar(
     post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     with open(os.path.join(
-            pack_root, ".o4_reanchor_provenance.json")) as handle:
+            pack_root, ".o4_reanchor_provenance.json"), encoding="utf-8") as handle:
         provenance = json.load(handle)
     (record,) = provenance[object_rebake.RUN_RECORDS_KEY].values()
     assert record["record_version"] == object_rebake.RUN_RECORD_VERSION
@@ -1619,13 +1619,13 @@ def test_short_circuit_keeps_the_foot_pad_sidecar(phase_two_harness):
     assert first_counts["foot_pad_requests"] == 1
     sidecar_path = harness.patches_directory / (
         post_mesh.OBJECT_FOOT_PAD_SIDECAR_FILENAME)
-    first_payload = json.loads(sidecar_path.read_text())
+    first_payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
 
     second_counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert second_counts["airports_up_to_date"] == 1
     assert second_counts["foot_pad_requests"] == 1
     assert sidecar_path.exists()
-    assert json.loads(sidecar_path.read_text()) == first_payload
+    assert json.loads(sidecar_path.read_text(encoding="utf-8")) == first_payload
 
 
 def test_short_circuit_survives_a_prototype_era_sidecar(
@@ -1636,7 +1636,7 @@ def test_short_circuit_survives_a_prototype_era_sidecar(
     _dsf_path, pack_root = _slab_pack(harness)
     provenance_path = os.path.join(
         pack_root, ".o4_reanchor_provenance.json")
-    with open(provenance_path, "w") as handle:
+    with open(provenance_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"mesh": harness.mesh_path, "size": 1, "mtime": 1,
                    "objects": ["objects/offset_bake.obj"],
                    "anchor": [0.0, 0.0, 0.0], "anchor_ground": 1.0},
@@ -1645,7 +1645,7 @@ def test_short_circuit_survives_a_prototype_era_sidecar(
     calls = _count_derivations(monkeypatch)
     post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(calls) == 1
-    with open(provenance_path) as handle:
+    with open(provenance_path, encoding="utf-8") as handle:
         assert json.load(handle)[object_rebake.RUN_RECORDS_KEY]
 
 
@@ -1656,9 +1656,9 @@ def test_matching_run_record_reports_each_miss_reason(tmp_path):
     pack_root = tmp_path / "pack"
     pack_root.mkdir()
     mesh_path = tmp_path / ("Data" + TILE_NAME + ".mesh")
-    mesh_path.write_text("mesh")
+    mesh_path.write_text("mesh", encoding="utf-8", newline="")
     dsf_path = tmp_path / (TILE_NAME + ".dsf")
-    dsf_path.write_text("dsf")
+    dsf_path.write_text("dsf", encoding="utf-8", newline="")
 
     def check():
         return object_rebake.matching_run_record(
@@ -1698,11 +1698,11 @@ def test_matching_run_record_reports_each_miss_reason(tmp_path):
     # a stale record version never serves new code
     provenance_path = os.path.join(
         str(pack_root), ".o4_reanchor_provenance.json")
-    with open(provenance_path) as handle:
+    with open(provenance_path, encoding="utf-8") as handle:
         provenance = json.load(handle)
     for stored in provenance[object_rebake.RUN_RECORDS_KEY].values():
         stored["record_version"] = object_rebake.RUN_RECORD_VERSION - 1
-    with open(provenance_path, "w") as handle:
+    with open(provenance_path, "w", encoding="utf-8", newline="") as handle:
         json.dump(provenance, handle)
     miss, reason = check()
     assert miss is None and "older code" in reason
@@ -1714,11 +1714,11 @@ def test_matching_run_record_misses_when_a_resource_moves(tmp_path):
     pack_root = tmp_path / "pack"
     (pack_root / "objects").mkdir(parents=True)
     live_path = pack_root / "objects" / "thing.obj"
-    live_path.write_text(OFFSET_SLAB_OBJECT)
+    live_path.write_text(OFFSET_SLAB_OBJECT, encoding="utf-8", newline="")
     mesh_path = tmp_path / ("Data" + TILE_NAME + ".mesh")
-    mesh_path.write_text("mesh")
+    mesh_path.write_text("mesh", encoding="utf-8", newline="")
     dsf_path = tmp_path / (TILE_NAME + ".dsf")
-    dsf_path.write_text("dsf")
+    dsf_path.write_text("dsf", encoding="utf-8", newline="")
 
     record = object_rebake.build_run_record(
         str(pack_root), str(dsf_path), str(mesh_path),

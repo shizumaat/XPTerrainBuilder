@@ -80,7 +80,7 @@ def _load_base_module(tmp_path):
     except (subprocess.SubprocessError, OSError):
         return None
     base_path = str(tmp_path / "O4_DSF_Utils_prevec.py")
-    with open(base_path, "w") as handle:
+    with open(base_path, "w", encoding="utf-8", newline="") as handle:
         handle.write(base_src)
     spec = importlib.util.spec_from_file_location(
         "O4_DSF_Utils_prevec", base_path)

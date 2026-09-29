@@ -73,7 +73,7 @@ def _write_obj(path, verts, tri_groups, anim=None):
         out.append(f"IDX\t{x}")
     out.append("")
     out.extend(cmds)
-    path.write_text("\n".join(out) + "\n")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     return path
 
 
@@ -128,7 +128,7 @@ def test_two_bodies_two_files_lod_and_anim_whole(tmp_path):
 
     for f in res.files:
         q = tmp_path / f.resource.replace("/", "_")
-        q.write_text(f.text)
+        q.write_text(f.text, encoding="utf-8", newline="")
         g = obj8.parse_obj8(str(q))
         assert g.solid.shape[0] == f.tris, f.resource
         assert g.vertices.shape[0] == f.vertices
@@ -197,7 +197,7 @@ def test_attribute_state_is_re_emitted_per_body(tmp_path):
         out.append(f"IDX\t{x}")
     out.extend(cmds)
     p = tmp_path / "state.obj"
-    p.write_text("\n".join(out) + "\n")
+    p.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     res = OS.split_obj8(str(p), _cuts(p), "objects/state.obj")
     assert res.kept_whole == ""
     for f in res.files:
@@ -445,7 +445,7 @@ def test_the_write_half_on_a_pack_copy(tmp_path, monkeypatch):
             "OBJECT_DEF objects/b.obj",
             "OBJECT_MSL 0 -3.5 40.5 601.0 12.5",
             "OBJECT 1 -3.6 40.6 90.0"]
-    dsf.write_text("\n".join(dump) + "\n")
+    dsf.write_text("\n".join(dump) + "\n", encoding="utf-8", newline="")
 
     # a DSFTool stand-in: --dsf2text copies the text, --text2dsf copies back
     tool = _stand_in_dsftool(tmp_path, PW._dw, monkeypatch)
@@ -493,7 +493,7 @@ def test_the_write_half_refuses_to_overwrite_an_authored_object(tmp_path):
 
     pack = tmp_path / "pack"
     (pack / "objects").mkdir(parents=True)
-    (pack / "objects" / "a.obj").write_text("I\n800\nOBJ\n")
+    (pack / "objects" / "a.obj").write_text("I\n800\nOBJ\n", encoding="utf-8", newline="")
 
     class _F:
         resource = "objects/a.obj"
@@ -514,14 +514,14 @@ def test_restore_puts_every_anchor_bak_back_and_counts_it(tmp_path):
     pack = tmp_path / "pack"
     (pack / "objects").mkdir(parents=True)
     baked = pack / "objects" / "a.obj"
-    baked.write_text("I\n800\nOBJ\nVT\t0 -7.5 0\t0 1 0\t0 0\n")      # v1's bake
+    baked.write_text("I\n800\nOBJ\nVT\t0 -7.5 0\t0 1 0\t0 0\n", encoding="utf-8", newline="")      # v1's bake
     (pack / "objects" / "a.obj.anchor_bak").write_text(
-        "I\n800\nOBJ\nVT\t0 0.0 0\t0 1 0\t0 0\n")                    # authored
-    (pack / "objects" / "b.obj").write_text("I\n800\nOBJ\n")         # never baked
+        "I\n800\nOBJ\nVT\t0 0.0 0\t0 1 0\t0 0\n", encoding="utf-8", newline="")                    # authored
+    (pack / "objects" / "b.obj").write_text("I\n800\nOBJ\n", encoding="utf-8", newline="")         # never baked
     # the DSF's own backup is §3's, not this pass's
     (pack / "Earth nav data").mkdir()
-    (pack / "Earth nav data" / "t.dsf").write_text("new")
-    (pack / "Earth nav data" / "t.dsf.anchor_bak").write_text("old")
+    (pack / "Earth nav data" / "t.dsf").write_text("new", encoding="utf-8", newline="")
+    (pack / "Earth nav data" / "t.dsf.anchor_bak").write_text("old", encoding="utf-8", newline="")
 
     r = PW.restore_pack_objects(str(pack))
     # §12a: the bake is OURS by the Y-ONLY WITNESS (v1's I-16) — a witness
@@ -529,9 +529,9 @@ def test_restore_puts_every_anchor_bak_back_and_counts_it(tmp_path):
     assert r.counts == {"restore_backups": 1, "restore_restored": 1,
                         "restore_bodies_removed": 0, "restore_adopted": 0,
                         "restore_unproven": 1}
-    assert baked.read_text() == "I\n800\nOBJ\nVT\t0 0.0 0\t0 1 0\t0 0\n"
+    assert baked.read_text(encoding="utf-8") == "I\n800\nOBJ\nVT\t0 0.0 0\t0 1 0\t0 0\n"
     assert (pack / "objects" / "a.obj.anchor_bak").is_file()
-    assert (pack / "Earth nav data" / "t.dsf").read_text() == "new"
+    assert (pack / "Earth nav data" / "t.dsf").read_text(encoding="utf-8") == "new"
 
     again = PW.restore_pack_objects(str(pack))          # idempotent
     assert again.counts == {"restore_backups": 1, "restore_restored": 0,
@@ -545,12 +545,12 @@ def test_restore_on_a_pack_with_no_backup_restores_nothing(tmp_path):
 
     pack = tmp_path / "pack"
     (pack / "objects").mkdir(parents=True)
-    (pack / "objects" / "a.obj").write_text("I\n800\nOBJ\n")
+    (pack / "objects" / "a.obj").write_text("I\n800\nOBJ\n", encoding="utf-8", newline="")
     r = PW.restore_pack_objects(str(pack))
     assert r.counts == {"restore_backups": 0, "restore_restored": 0,
                         "restore_bodies_removed": 0, "restore_adopted": 0,
                         "restore_unproven": 0}
-    assert (pack / "objects" / "a.obj").read_text() == "I\n800\nOBJ\n"
+    assert (pack / "objects" / "a.obj").read_text(encoding="utf-8") == "I\n800\nOBJ\n"
 
 
 # ── 11f (2): THE SEGMENT CUT of a one-component line object ──────────────
@@ -621,7 +621,7 @@ def test_a_one_component_fence_is_cut_into_segments_anchored_at_their_mid_feet(t
     # each cut file parses back with the triangles it claims
     for f in s.files:
         p = tmp_path / os.path.basename(f.resource)
-        p.write_text(f.text)
+        p.write_text(f.text, encoding="utf-8", newline="")
         g = obj8.parse_obj8(str(p))
         assert g.solid.shape[0] + g.draped.shape[0] == f.tris
 
@@ -703,7 +703,7 @@ def test_pads_and_rims_are_derived_once_for_the_engine_and_the_tool(tmp_path):
     import json as _json
 
     p = tmp_path / "TEST.graded.json"
-    p.write_text(_json.dumps(_graded_doc()))
+    p.write_text(_json.dumps(_graded_doc()), encoding="utf-8", newline="")
 
     pads, rims = PP.pads_rims_from_graded(str(p))
     assert [q.ref for q in pads] == ["building16"]
@@ -734,11 +734,11 @@ def _plan_with_a_building_and_a_basin(tmp_path, icao="TEST"):
         "PROPERTY sim/west -4", "OBJECT_DEF objects/bld.obj",
         "OBJECT_DEF objects/pit.obj",
         "OBJECT 0 -3.6005 40.0015 0.0",
-        "OBJECT 1 -3.6025 40.0045 0.0"]) + "\n")
+        "OBJECT 1 -3.6025 40.0045 0.0"]) + "\n", encoding="utf-8", newline="")
 
     def _member(idx, name, ll, base_y):
         path = pack / "objects" / name
-        path.write_text("I\n800\nOBJ\n")
+        path.write_text("I\n800\nOBJ\n", encoding="utf-8", newline="")
         part = Part(pid=idx, comp=0, lat=ll[0], lon=ll[1], base_y=base_y,
                     area_m2=40.0,
                     box=(ll[0] - 1e-5, ll[1] - 1e-5, ll[0] + 1e-5, ll[1] + 1e-5),
@@ -795,7 +795,7 @@ def test_the_shipped_path_classifies_building_and_basin(tmp_path, monkeypatch):
 
     # ARM B — the design surface placed beside the patch, as the build now
     # places it (``_place_graded_surface``)
-    (patch_dir / "TEST.graded.json").write_text(_json.dumps(_graded_doc()))
+    (patch_dir / "TEST.graded.json").write_text(_json.dumps(_graded_doc()), encoding="utf-8", newline="")
     b = _place(plan, patch_dir, monkeypatch, dsf)
     assert b.get("class_building") == 1, b
     assert b.get("class_basin") == 1, b
@@ -815,7 +815,7 @@ def test_the_build_places_the_graded_surface_beside_the_patch(tmp_path):
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     src = scratch / "TEST.graded.json"
-    src.write_text('{"vertices":[],"faces":[],"breaklines":[]}')
+    src.write_text('{"vertices":[],"faces":[],"breaklines":[]}', encoding="utf-8", newline="")
 
     class _Paths:
         graded = src
@@ -876,7 +876,7 @@ def _stand_in_dsftool(tmp_path, module, monkeypatch):
     """
     tool = tmp_path / "dsftool.py"
     tool.write_text("import shutil, sys\n"
-                    "shutil.copyfile(sys.argv[2], sys.argv[3])\n")
+                    "shutil.copyfile(sys.argv[2], sys.argv[3])\n", encoding="utf-8", newline="")
     real_run = module.subprocess.run
 
     def fake_run(args, **kw):
@@ -898,7 +898,7 @@ def _one_pack(tmp_path):
         ["PROPERTY sim/west -4", "OBJECT_DEF objects/a.obj",
          "OBJECT_DEF objects/b.obj",
          "OBJECT_MSL 0 -3.5 40.5 601.0 12.5",
-         "OBJECT 1 -3.6 40.6 90.0"]) + "\n")
+         "OBJECT 1 -3.6 40.6 90.0"]) + "\n", encoding="utf-8", newline="")
     split = PM.Split(
         placement=PM.PlacementRef(1, "objects/b.obj", -3.6, 40.6, 90.0),
         bodies=(PM.Body("b0", "other", (0,), PM.Anchor(-3.61, 40.61, 90.0),
@@ -921,10 +921,10 @@ def test_pristine_dsf_path_is_the_backup_when_there_is_one(tmp_path):
     from auto_patch_v2.airport import dsf_write as DW
 
     dsf = tmp_path / "+40-004.dsf"
-    dsf.write_text("written")
+    dsf.write_text("written", encoding="utf-8", newline="")
     assert DW.pristine_dsf_path(str(dsf)) == str(dsf)
     bak = tmp_path / "+40-004.dsf.anchor_bak"
-    bak.write_text("authored")
+    bak.write_text("authored", encoding="utf-8", newline="")
     assert DW.pristine_dsf_path(str(dsf)) == str(bak)
     assert DW.pristine_dsf_path(str(bak)) == str(bak)
     assert DW.pristine_dsf_path("") == ""
@@ -1003,7 +1003,7 @@ def test_apply_plan_twice_is_byte_identical(tmp_path, monkeypatch):
     sha1, objs1 = _sha(dsf), _objs()
     prov = pack / "Earth nav data" / "o4_placement_provenance.json"
     import json as _json
-    assert _json.loads(prov.read_text())["body_files"] == [
+    assert _json.loads(prov.read_text(encoding="utf-8"))["body_files"] == [
         "objects/b__b0.obj", "objects/b__b1.obj"]
     assert first.counts["restore_bodies_removed"] == 0
 
@@ -1017,11 +1017,11 @@ def test_apply_plan_twice_is_byte_identical(tmp_path, monkeypatch):
         dict(first.counts) | {"restore_bodies_removed": 0}
     # the previous write's bodies were removed before this one wrote them
     assert second.counts["restore_bodies_removed"] == 2
-    assert _json.loads(prov.read_text())["body_files"] == [
+    assert _json.loads(prov.read_text(encoding="utf-8"))["body_files"] == [
         "objects/b__b0.obj", "objects/b__b1.obj"]
     # the backup is still the PRISTINE pack, not the first write's output
     assert not second.dsf.backup_created
-    assert (pack / "Earth nav data" / "+40-004.dsf.anchor_bak").read_text(
+    assert (pack / "Earth nav data" / "+40-004.dsf.anchor_bak").read_text(encoding="utf-8"
         ).count("OBJECT") == 4          # 2 OBJECT_DEF + OBJECT_MSL + OBJECT
 
 
@@ -1036,15 +1036,15 @@ def test_a_stale_body_file_from_a_bigger_previous_plan_is_removed(tmp_path):
     (pack / "objects").mkdir(parents=True)
     nav.mkdir()
     dsf = nav / "+40-004.dsf"
-    dsf.write_text("PROPERTY sim/west -4\n")
+    dsf.write_text("PROPERTY sim/west -4\n", encoding="utf-8", newline="")
     (pack / "objects" / "b__b7.obj").write_text(
-        f"I\n800\nOBJ\n{PW.CUT_MARK}b body 7\n")
-    (pack / "objects" / "authored.obj").write_text("I\n800\nOBJ\n")
+        f"I\n800\nOBJ\n{PW.CUT_MARK}b body 7\n", encoding="utf-8", newline="")
+    (pack / "objects" / "authored.obj").write_text("I\n800\nOBJ\n", encoding="utf-8", newline="")
     (nav / "o4_placement_provenance.json").write_text(
         # §12a (2): the record is read PER DSF — a version-1 record is
         # this DSF's only when its ``dsf`` field names it.
         '{"dsf": "+40-004.dsf", "body_files": ["objects/b__b7.obj",'
-        ' "objects/authored.obj", "../escape.obj"]}')
+        ' "objects/authored.obj", "../escape.obj"]}', encoding="utf-8", newline="")
 
     r = PW.restore_pack_objects(str(pack), dsf_path=str(dsf))
     assert r.counts["restore_bodies_removed"] == 1
@@ -1078,7 +1078,7 @@ def test_the_plan_read_over_a_written_pack_sees_the_pristine_placements(
     # the ids a plan built on the pristine frame carries
     assert max(range(len(pristine.placements))) < len(pristine.placements)
     # and the write half accepts them (it dumps the same frame)
-    text = open(pristine_path).read()
+    text = open(pristine_path, encoding="utf-8").read()
     PW._dw.edit_dump(text, plan)                    # no ValueError
 
 
@@ -1098,7 +1098,7 @@ def _split_set_for_rows(tmp_path):
     import obj8_split_report as RPT
 
     g = tmp_path / "TEST.graded.json"
-    g.write_text(_json.dumps(_graded_doc()))
+    g.write_text(_json.dumps(_graded_doc()), encoding="utf-8", newline="")
     sampler, pads, rims = RPT.surface_from_graded(str(g))
     _pack, _dsf, plan = _plan_with_a_building_and_a_basin(tmp_path)
     ss = PP.build_splits(plan, sampler, pads, rims, write=False)
@@ -1682,7 +1682,7 @@ def test_a_carried_placement_is_actually_written_as_one_file(tmp_path):
     assert "one_body" not in [k.reason for k in ss.kept]
     # and the single cut file still parses through the engine's own reader
     p = tmp_path / "cut.obj"
-    p.write_text(bridge[0].files[0].text, encoding="latin-1")
+    p.write_text(bridge[0].files[0].text, encoding="latin-1", newline="")
     g = obj8.parse_obj8(str(p))
     assert g.solid.shape[0] + g.draped.shape[0] == bridge[0].files[0].tris
 
@@ -3220,9 +3220,9 @@ def test_the_torn_seam_census_reads_the_written_files(tmp_path):
     # two files sharing the authored vertex (10, 0, 0) once their own
     # offsets are added back
     (root / "objects" / "a__b0.obj").write_text(
-        "I\n800\nOBJ\n\nVT 0 0 0 0 1 0 0 0\nVT 5 0 0 0 1 0 0 0\n")
+        "I\n800\nOBJ\n\nVT 0 0 0 0 1 0 0 0\nVT 5 0 0 0 1 0 0 0\n", encoding="utf-8", newline="")
     (root / "objects" / "a__b1.obj").write_text(
-        "I\n800\nOBJ\n\nVT 0 0 0 0 1 0 0 0\nVT 9 0 0 0 1 0 0 0\n")
+        "I\n800\nOBJ\n\nVT 0 0 0 0 1 0 0 0\nVT 9 0 0 0 1 0 0 0\n", encoding="utf-8", newline="")
     splits = [{"placement": {"resource": "objects/a.obj"}, "bodies": [
         {"body_id": "b0", "class": "other", "new_resource": "objects/a__b0.obj",
          "authored_offset": [5.0, 0.0, 0.0], "surface_z": 100.0, "y_zero": 0.0,
@@ -3312,7 +3312,7 @@ def test_the_report_tool_arms_the_shared_repo_write_guard():
     import ast
     import pathlib
     root = pathlib.Path(__file__).resolve().parents[2]
-    src = (root / "tools" / "obj8_split_report.py").read_text()
+    src = (root / "tools" / "obj8_split_report.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     main = next(n for n in tree.body
                 if isinstance(n, ast.FunctionDef) and n.name == "main")
@@ -3782,7 +3782,7 @@ def test_the_replay_sampler_never_reads_across_a_graded_hole(tmp_path):
                   "holes": []})
     p = tmp_path / "TEST.graded.json"
     p.write_text(_json.dumps({"vertices": vs, "faces": faces,
-                              "breaklines": []}))
+                              "breaklines": []}), encoding="utf-8", newline="")
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "tools"))
     import obj8_split_report as RPT

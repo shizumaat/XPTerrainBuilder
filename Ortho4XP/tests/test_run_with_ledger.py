@@ -22,7 +22,7 @@ def ledger_repo(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "tools").mkdir()
-    (repo / "src" / "module.py").write_text("VALUE = 1\n")
+    (repo / "src" / "module.py").write_text("VALUE = 1\n", encoding="utf-8", newline="")
     env = dict(os.environ,
                GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
@@ -58,7 +58,7 @@ def test_miss_runs_and_records(ledger_repo):
     result = _run_tool(repo, [], [sys.executable, "-c", "print('ran')"])
     assert result.returncode == 0
     assert "MISS" in result.stdout and "ran" in result.stdout
-    records = [json.loads(line) for line in ledger.read_text().splitlines()]
+    records = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
     assert len(records) == 1 and records[0]["exit_code"] == 0
 
 
@@ -69,7 +69,7 @@ def test_identical_rerun_is_skipped(ledger_repo):
     second = _run_tool(repo, [], command)
     assert second.returncode == 0
     assert "HIT" in second.stdout
-    assert len(ledger.read_text().splitlines()) == 1   # nothing re-recorded
+    assert len(ledger.read_text(encoding="utf-8").splitlines()) == 1   # nothing re-recorded
 
 
 def test_force_reruns(ledger_repo):
@@ -78,17 +78,17 @@ def test_force_reruns(ledger_repo):
     _run_tool(repo, [], command)
     forced = _run_tool(repo, ["--force"], command)
     assert "MISS" in forced.stdout or "running" in forced.stdout
-    assert len(ledger.read_text().splitlines()) == 2
+    assert len(ledger.read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_code_change_invalidates(ledger_repo):
     repo, ledger = ledger_repo
     command = [sys.executable, "-c", "print('x')"]
     _run_tool(repo, [], command)
-    (repo / "src" / "module.py").write_text("VALUE = 2\n")   # uncommitted
+    (repo / "src" / "module.py").write_text("VALUE = 2\n", encoding="utf-8", newline="")   # uncommitted
     second = _run_tool(repo, [], command)
     assert "MISS" in second.stdout
-    assert len(ledger.read_text().splitlines()) == 2
+    assert len(ledger.read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_o4_env_keys_the_run(ledger_repo):
@@ -120,7 +120,7 @@ def test_round_tag_is_recorded(ledger_repo):
     repo, ledger = ledger_repo
     _run_tool(repo, [], [sys.executable, "-c", "print('x')"],
               env_extra={"O4_ROUND_TAG": "p2-r1"})
-    record = json.loads(ledger.read_text().splitlines()[-1])
+    record = json.loads(ledger.read_text(encoding="utf-8").splitlines()[-1])
     assert record["round_tag"] == "p2-r1"
     assert "O4_ROUND_TAG" not in record["env"], (
         "the tag must be a RECORDED FIELD, never part of the keyed env")
@@ -136,7 +136,7 @@ def test_round_tag_does_NOT_invalidate_the_ledger(ledger_repo):
     assert "HIT" in second.stdout, (
         "a new round tag re-ran an identical passing command — the tag is "
         "keying the run and the whole ledger invalidates every round")
-    assert len(ledger.read_text().splitlines()) == 1
+    assert len(ledger.read_text(encoding="utf-8").splitlines()) == 1
 
 
 def test_history_attributes_wall_to_a_round(ledger_repo):
@@ -146,7 +146,7 @@ def test_history_attributes_wall_to_a_round(ledger_repo):
                   env_extra={"O4_ROUND_TAG": "r1"})
     _run_tool(repo, [], [sys.executable, "-c", "print(3)"],
               env_extra={"O4_ROUND_TAG": "r2"})
-    records = [json.loads(line) for line in ledger.read_text().splitlines()]
+    records = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
     r1_wall = sum(r["duration_s"] for r in records
                   if r["round_tag"] == "r1")
 
@@ -194,12 +194,12 @@ def test_docs_churn_does_NOT_move_the_code_tree_hash(ledger_repo):
     repo, _ledger = ledger_repo
     rwl = _tool_module()
     (repo / "docs").mkdir()
-    (repo / "docs" / "RULINGS.md").write_text("ruling one\n")
-    (repo / "STATUS.md").write_text("status\n")
+    (repo / "docs" / "RULINGS.md").write_text("ruling one\n", encoding="utf-8", newline="")
+    (repo / "STATUS.md").write_text("status\n", encoding="utf-8", newline="")
     _commit(repo, "seed docs")
     before = rwl.code_tree_hash(str(repo))
 
-    (repo / "docs" / "RULINGS.md").write_text("ruling one\nruling two\n")
+    (repo / "docs" / "RULINGS.md").write_text("ruling one\nruling two\n", encoding="utf-8", newline="")
     assert rwl.code_tree_hash(str(repo)) == before, (
         "an UNCOMMITTED docs edit moved the code tree hash")
     _commit(repo, "docs: one more ruling")
@@ -208,7 +208,7 @@ def test_docs_churn_does_NOT_move_the_code_tree_hash(ledger_repo):
         "precedent: every ledger key invalidates and valid arms are "
         "refused with CONTAMINATED-KEY while no code changed")
 
-    (repo / "STATUS.md").write_text("status\nmore status\n")
+    (repo / "STATUS.md").write_text("status\nmore status\n", encoding="utf-8", newline="")
     _commit(repo, "status churn")
     assert rwl.code_tree_hash(str(repo)) == before
 
@@ -220,7 +220,7 @@ def test_a_code_change_DOES_move_the_code_tree_hash(ledger_repo):
     rwl = _tool_module()
     before = rwl.code_tree_hash(str(repo))
 
-    (repo / "src" / "module.py").write_text("VALUE = 2\n")
+    (repo / "src" / "module.py").write_text("VALUE = 2\n", encoding="utf-8", newline="")
     uncommitted = rwl.code_tree_hash(str(repo))
     assert uncommitted != before, "an uncommitted src edit did not move it"
     _commit(repo, "src change")
@@ -229,11 +229,11 @@ def test_a_code_change_DOES_move_the_code_tree_hash(ledger_repo):
         "the working tree, and commit is not a code change")
 
     (repo / "tests").mkdir()
-    (repo / "tests" / "test_x.py").write_text("def test_x(): pass\n")
+    (repo / "tests" / "test_x.py").write_text("def test_x(): pass\n", encoding="utf-8", newline="")
     assert rwl.code_tree_hash(str(repo)) != uncommitted, (
         "a new test file did not move it")
 
-    (repo / "tools" / "t.py").write_text("print(1)\n")
+    (repo / "tools" / "t.py").write_text("print(1)\n", encoding="utf-8", newline="")
     _commit(repo, "tools change")
     assert rwl.code_tree_hash(str(repo)) not in (before, uncommitted)
 
@@ -245,23 +245,23 @@ def test_a_docs_commit_does_NOT_invalidate_the_ledger(ledger_repo):
     command = [sys.executable, "-c", "print('expensive')"]
     assert "MISS" in _run_tool(repo, [], command).stdout
     (repo / "docs").mkdir()
-    (repo / "docs" / "RULINGS.md").write_text("a two-line ruling\nlanded\n")
+    (repo / "docs" / "RULINGS.md").write_text("a two-line ruling\nlanded\n", encoding="utf-8", newline="")
     _commit(repo, "RULINGS: a ruling")
     second = _run_tool(repo, [], command)
     assert "HIT" in second.stdout, (
         "a docs-only commit re-ran an identical passing command")
-    assert len(ledger.read_text().splitlines()) == 1
+    assert len(ledger.read_text(encoding="utf-8").splitlines()) == 1
 
 
 def test_artifact_body_hash_ignores_provenance(ledger_repo, tmp_path):
     repo, ledger = ledger_repo
     osm_a = tmp_path / "a.osm"
     osm_b = tmp_path / "b.osm"
-    osm_a.write_text("<?xml?>\n<osm o4_provenance_built='T1'>\n<node/>\n")
-    osm_b.write_text("<?xml?>\n<osm o4_provenance_built='T2'>\n<node/>\n")
+    osm_a.write_text("<?xml?>\n<osm o4_provenance_built='T1'>\n<node/>\n", encoding="utf-8", newline="")
+    osm_b.write_text("<?xml?>\n<osm o4_provenance_built='T2'>\n<node/>\n", encoding="utf-8", newline="")
     _run_tool(repo, ["--artifact", str(osm_a)],
               [sys.executable, "-c", "print('build a')"])
-    record = json.loads(ledger.read_text().splitlines()[-1])
+    record = json.loads(ledger.read_text(encoding="utf-8").splitlines()[-1])
     art = record["artifacts"][0]
     assert art["sha256"] != art["body_sha256"]
     # Same body, different provenance line ⇒ same body hash.

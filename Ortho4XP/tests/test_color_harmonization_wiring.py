@@ -242,7 +242,7 @@ def test_field_is_persisted_and_a_subset_rerun_reuses_it(harmonization_tile):
 
     path = tmp_path / "build" / IMG.COLOR_FIELD_FILE
     assert path.is_file()
-    record = json.loads(path.read_text())
+    record = json.loads(path.read_text(encoding="utf-8"))
     assert record["version"] == IMG.COLOR_FIELD_VERSION
     assert record["settings_hash"] == IMG.color_field_settings_hash()
     assert len(record["grids"]) == 1
@@ -283,7 +283,7 @@ def test_a_changed_source_jpeg_or_setting_refuses_the_persisted_field(
     _collect(tile, _row())
     IMG.solve_color_field(tile)
     record = json.loads(
-        (tmp_path / "build" / IMG.COLOR_FIELD_FILE).read_text())
+        (tmp_path / "build" / IMG.COLOR_FIELD_FILE).read_text(encoding="utf-8"))
 
     stats = dict(tile.color_harmonization_statistics)
     assert IMG._persisted_field_covers(record, stats) is True
@@ -317,7 +317,7 @@ def test_imagery_manifest_records_what_ran(harmonization_tile):
     TILE._write_imagery_manifest(tile, {"done": 3, "failed": 0}, {"done": 3})
     manifest = json.loads(
         (tmp_path / "build" / TILE.os.path.basename(
-            TILE.imagery_manifest_path(tile))).read_text())
+            TILE.imagery_manifest_path(tile))).read_text(encoding="utf-8"))
     assert manifest["color_harmonization"] is True
     assert manifest["color_field"] == IMG.COLOR_FIELD_FILE
     assert manifest["color_field_reused"] is False
@@ -329,7 +329,7 @@ def test_imagery_manifest_records_what_ran(harmonization_tile):
     TILE._write_imagery_manifest(off, {"done": 3, "failed": 0}, {"done": 3})
     manifest = json.loads(
         (tmp_path / "build" / TILE.os.path.basename(
-            TILE.imagery_manifest_path(tile))).read_text())
+            TILE.imagery_manifest_path(tile))).read_text(encoding="utf-8"))
     assert manifest["color_harmonization"] is False
     assert manifest["color_field"] is None
 
@@ -349,7 +349,7 @@ def test_manifest_records_a_reused_field(harmonization_tile):
     TILE._write_imagery_manifest(rerun, {"done": 1, "failed": 0}, {"done": 1})
     manifest = json.loads(
         (tmp_path / "build" / TILE.os.path.basename(
-            TILE.imagery_manifest_path(rerun))).read_text())
+            TILE.imagery_manifest_path(rerun))).read_text(encoding="utf-8"))
     assert manifest["color_harmonization"] is True
     assert manifest["color_field_reused"] is True
 

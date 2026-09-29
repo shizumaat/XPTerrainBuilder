@@ -138,7 +138,7 @@ def _offset_pit(path, x0=40.0, x1=100.0, hz=20.0, depth=6.0):
     idx = [i for t in tris for i in t]
     lines += ["IDX " + " ".join(str(i) for i in idx[k:k + 10]) for k in range(0, len(idx), 10)]
     lines.append(f"TRIS 0 {len(idx)}")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return path
 
 
@@ -147,7 +147,7 @@ def objs(tmp_path_factory):
     d = tmp_path_factory.mktemp("pack") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     return {"dir": d, "pit": _box_obj(d / "pit.obj", 30.0, 20.0, 6.0),
             "offpit": _offset_pit(d / "offpit.obj")}
 
@@ -220,7 +220,7 @@ def test_the_product_carries_the_rim_and_no_wall_band(law, tmp_path):
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     pub = publication(pm, law, airport, sol.z)
     paths = write_patch(surf, law, tmp_path, pub, {"tag": "twin"})
-    txt = paths.patch.read_text()
+    txt = paths.patch.read_text(encoding="utf-8")
     assert "k='role' v='retaining_wall'" not in txt
     assert txt.count("k='o4_feature' v='structure_rim'") >= 2
     rows = census(surf, law, pub, {})

@@ -43,7 +43,7 @@ def _dump(rows, patch="X.osm", knobs=None, frame="own"):
 
 def _write(tmp_path, name, dump):
     p = tmp_path / name
-    p.write_text(json.dumps(dump))
+    p.write_text(json.dumps(dump), encoding="utf-8", newline="")
     return p
 
 
@@ -162,7 +162,7 @@ def test_it_refuses_a_join_across_axis_frames(tmp_path):
 
 def test_it_refuses_a_class_level_census_json(tmp_path):
     p = tmp_path / "census.json"
-    p.write_text(json.dumps({"patch": "x", "lawtrue": {"total": 3}}))
+    p.write_text(json.dumps({"patch": "x", "lawtrue": {"total": 3}}), encoding="utf-8", newline="")
     q = _write(tmp_path, "b.json", _dump([_row()]))
     with pytest.raises(SystemExit) as e:
         CRD.main([str(p), str(q)])
@@ -207,7 +207,7 @@ def test_json_out_carries_every_new_and_gone_row(tmp_path):
                _dump([_row(p0=(0, 90), p1=(1, 90), way_a="-8")]))
     out = tmp_path / "d.json"
     CRD.main([str(a), str(b), "--json", str(out)])
-    d = json.loads(out.read_text())
+    d = json.loads(out.read_text(encoding="utf-8"))
     assert d["counts"] == {"exact": 0, "moved": 0, "gone": 1, "new": 1}
     assert d["new"][0]["way_a"] == "-8"
     assert d["gone"][0]["way_a"] == "-7"

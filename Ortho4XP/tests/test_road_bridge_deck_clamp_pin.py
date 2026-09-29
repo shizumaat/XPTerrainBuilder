@@ -178,7 +178,7 @@ class TestTheTransportFromAutoPatchToTheCore:
     def _write_sidecar(self, tmp_path, records):
         import json
         p = tmp_path / "LEMD_auto.patch.osm.axes.json"
-        p.write_text(json.dumps({"road_bridge_decks": records}))
+        p.write_text(json.dumps({"road_bridge_decks": records}), encoding="utf-8", newline="")
         return p
 
     def _tile(self):

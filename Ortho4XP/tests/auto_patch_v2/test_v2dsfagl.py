@@ -67,7 +67,7 @@ def test_placement_ordinals_are_read_dump_order(tmp_path):
     """The plan's ``index`` IS ``read_dump``'s placement ordinal — the
     two must count the same rows or every edit lands on the wrong one."""
     p = tmp_path / "d.text"
-    p.write_text(DUMP)
+    p.write_text(DUMP, encoding="utf-8", newline="")
     dump = D.read_dump(p.name and str(p))
     rows = W.placement_rows(DUMP.splitlines(keepends=True))
     assert len(rows) == len(dump.placements)
@@ -147,10 +147,10 @@ def test_conversions_for_dump_converts_stock_too(tmp_path):
     converts like a pack resource (a placement edit modifies no object);
     a plain ``OBJECT`` row is listed by neither."""
     p = tmp_path / "d.text"
-    p.write_text(DUMP)
+    p.write_text(DUMP, encoding="utf-8", newline="")
     (tmp_path / "objects").mkdir()
     for n in ("tower.obj", "hangar.obj"):
-        (tmp_path / "objects" / n).write_text("I\n800\nOBJ\n")
+        (tmp_path / "objects" / n).write_text("I\n800\nOBJ\n", encoding="utf-8", newline="")
     conv, kept = W.conversions_for_dump(D.read_dump(str(p)), str(tmp_path))
     assert [c.index for c in conv] == [1, 2, 3]
     assert [c.kind_before for c in conv] == ["OBJECT_MSL", "OBJECT_AGL", "OBJECT_MSL"]
@@ -228,7 +228,7 @@ def test_real_pack_roundtrip_and_idempotent_write(tmp_path):
                if pl.kind == "OBJECT")
     assert sum(1 for pl in after.placements if pl.kind != "OBJECT") == len(kept)
 
-    prov = json.loads(Path(res.provenance_path).read_text())
+    prov = json.loads(Path(res.provenance_path).read_text(encoding="utf-8"))
     assert prov["counts"]["conversions"] == len(conv)
     first = Path(dsf).read_bytes()
     backup_sha = prov["backup_sha256"]
@@ -237,7 +237,7 @@ def test_real_pack_roundtrip_and_idempotent_write(tmp_path):
     res2 = W.write_pack(str(pack), plan, tool, work_dir=str(tmp_path / "w2"))
     assert not res2.backup_created
     assert Path(dsf).read_bytes() == first
-    assert json.loads(Path(res2.provenance_path).read_text())["backup_sha256"] \
+    assert json.loads(Path(res2.provenance_path).read_text(encoding="utf-8"))["backup_sha256"] \
         == backup_sha
 
 
@@ -265,10 +265,10 @@ def test_dsf_placement_diff_tool_reports_the_same_edit(tmp_path, capsys):
     spec.loader.exec_module(mod)
 
     dump_path = tmp_path / "d.text"
-    dump_path.write_text(DUMP)
+    dump_path.write_text(DUMP, encoding="utf-8", newline="")
     (tmp_path / "objects").mkdir()
     for n in ("tower.obj", "hangar.obj"):
-        (tmp_path / "objects" / n).write_text("I\n800\nOBJ\n")
+        (tmp_path / "objects" / n).write_text("I\n800\nOBJ\n", encoding="utf-8", newline="")
     rc = mod.main(["--dump", str(dump_path), "--pack-root", str(tmp_path),
                    "--icao", "TEST", "--json"])
     assert rc == 0

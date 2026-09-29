@@ -74,9 +74,9 @@ def _task(tmp_path, icao, **overrides):
 def _write_patch_pair(task, body="<osm/>"):
     """What a healthy build leaves behind: the patch and its sidecar."""
     path = task["auto_patch_file"]
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write(body)
-    with open(path + ".axes.json", "w") as handle:
+    with open(path + ".axes.json", "w", encoding="utf-8", newline="") as handle:
         json.dump({"axes": []}, handle)
 
 
@@ -273,7 +273,7 @@ def test_missing_sidecar_alone_is_fatal(tmp_path, monkeypatch,
                                         captured_events):
     """A patch with no ``.axes.json`` degrades every census silently."""
     def _patch_without_sidecar(task):
-        with open(task["auto_patch_file"], "w") as handle:
+        with open(task["auto_patch_file"], "w", encoding="utf-8", newline="") as handle:
             handle.write("<osm/>")
         return {"icao": task["icao"], "ok": True, "summary": "1 shape",
                 "build_s": 1.0, "verify_s": 0.0, "verify_err": None,
@@ -318,7 +318,7 @@ def test_stale_patch_left_on_disk_is_fatal(tmp_path, monkeypatch,
     assert "stale" in failure["error"]
     # The stale file is still there — this pass refuses to CALL it the
     # build's output, which is the whole point.
-    assert "Aug 29" in open(task["auto_patch_file"]).read()
+    assert "Aug 29" in open(task["auto_patch_file"], encoding="utf-8").read()
 
 
 # ── 5. the protocol: the app hears about it ─────────────────────────────
@@ -369,7 +369,7 @@ def test_swift_client_matches_the_event_name():
         "Sources", "SceneryKit", "OrthoEngineClient.swift")
     if not os.path.isfile(swift):
         pytest.skip("Swift client not present in this checkout")
-    assert '"AutoPatchFailed"' in open(swift).read()
+    assert '"AutoPatchFailed"' in open(swift, encoding="utf-8").read()
 
 
 def test_parallel_forwards_the_failure_event():
@@ -406,7 +406,7 @@ def test_healthy_pass_raises_nothing_and_preserves_its_bytes(
     assert built == ["KAAA", "KBBB"]
     assert captured_events == []
     for task in tasks:
-        assert open(task["auto_patch_file"]).read() == bodies[task["icao"]]
+        assert open(task["auto_patch_file"], encoding="utf-8").read() == bodies[task["icao"]]
         assert os.path.isfile(task["auto_patch_file"] + ".axes.json")
 
 

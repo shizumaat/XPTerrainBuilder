@@ -16,7 +16,7 @@ SPECS = ("Ortho4XP.spec", "Ortho4XP_Qt.spec")
 
 
 def _source(name):
-    with open(os.path.join(ENGINE_ROOT, name)) as handle:
+    with open(os.path.join(ENGINE_ROOT, name), encoding="utf-8") as handle:
         return handle.read()
 
 

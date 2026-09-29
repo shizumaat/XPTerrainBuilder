@@ -443,7 +443,7 @@ def test_osm_writer_contract(synthetic, law, tmp_path):
     assert "crown_spine" in feats
     runway = [w for w in ways if w.role == "runway"]
     assert runway and all(w.tags.get("o4_single_poly") == "1" for w in runway)
-    side = json.loads(paths.sidecar.read_text())
+    side = json.loads(paths.sidecar.read_text(encoding="utf-8"))
     assert set(side) <= set(SIDECAR_KEYS)
     assert side["ruleset"] == law.ruleset_key and side["axes"] and side["crown_drops"]
     with pytest.raises(ValueError):

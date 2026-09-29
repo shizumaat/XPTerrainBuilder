@@ -55,7 +55,7 @@ def _make_cifp(root, subdirs, *icaos):
         d = d / part
     d.mkdir(parents=True, exist_ok=True)
     for icao in icaos:
-        (d / f"{icao}.dat").write_text("RWY:RW18L, , ,00746, ,IVKQ,1, ;\n")
+        (d / f"{icao}.dat").write_text("RWY:RW18L, , ,00746, ,IVKQ,1, ;\n", encoding="utf-8", newline="")
     return d
 
 

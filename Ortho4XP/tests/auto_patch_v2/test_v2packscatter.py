@@ -68,7 +68,7 @@ def _write_obj(path: Path, comps, hard: str | None = None) -> str:
         out.append(hard)
     out.append(f"TRIS 0 {len(verts)}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(out) + "\n")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     return str(path)
 
 
@@ -95,7 +95,7 @@ def test_law_table_carries_the_two_thresholds():
     assert SC.component_diag_max_m == 10.0
     # ...and the predicate itself states no threshold: every comparison
     # reads the table through ``_laws`` (one table, no literals)
-    src = Path(ROOT / "src/auto_patch_v2/airport/scatter.py").read_text()
+    src = Path(ROOT / "src/auto_patch_v2/airport/scatter.py").read_text(encoding="utf-8")
     body = src.split('"""', 2)[2]                    # past the module doc
     assert "64" not in body and "10.0" not in body
 
@@ -223,7 +223,7 @@ def pack(tmp_path):
         "1302 datum_lat 0.500000",
         "1302 datum_lon 0.500000",
         "100 30.00 1 0 0.00 0 0 0 09 0.500000 0.499000 0 0 0 0 0 0 "
-        "27 0.500000 0.501000 0 0 0 0 0 0", ""]))
+        "27 0.500000 0.501000 0 0 0 0 0 0", ""]), encoding="utf-8", newline="")
     dsf = nav / "+00+000" / "+00+000.dsf"
     dsf.parent.mkdir()
     dsf.write_bytes(b"XPLNEDSF")
@@ -250,7 +250,7 @@ def pack(tmp_path):
     mod.mkdir(parents=True)
     from auto_patch_v2.airport import dsf as D
     dump = mod / f"+00+000.dsf.{D.text_dump_tag(str(dsf))}.text"
-    dump.write_text("\n".join(rows) + "\n")
+    dump.write_text("\n".join(rows) + "\n", encoding="utf-8", newline="")
     t = time.time()
     os.utime(dsf, (t - 60, t - 60))
     os.utime(dump, (t, t))

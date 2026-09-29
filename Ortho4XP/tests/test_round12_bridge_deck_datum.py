@@ -159,7 +159,7 @@ def _write_two_level_mesh(mesh_path, *, water_half_span_m,
     lines += ["", "Normals", "0", "", "Triangles", str(len(triangles))]
     for first, second, third, attribute in triangles:
         lines.append(f"{first} {second} {third} {attribute}")
-    mesh_path.write_text("\n".join(lines) + "\n")
+    mesh_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 def _abutment_lines(*, centre_z_m=0.0, half_width_m=ABUTMENT_HALF_WIDTH_M):
@@ -276,7 +276,7 @@ class _Harness:
         for resource in resources:
             path = pack_root / resource
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(obj_text)
+            path.write_text(obj_text, encoding="utf-8", newline="")
         dsf_path = pack_root / "overlay.dsf"
         dsf_path.write_bytes(b"")
         agl_by_resource = agl_by_resource or {}
@@ -357,7 +357,7 @@ def _local_east_north(origin_latitude, origin_longitude):
 def _vertex_y_values(path) -> list:
     return [
         float(line.split()[2])
-        for line in path.read_text().splitlines()
+        for line in path.read_text(encoding="utf-8").splitlines()
         if line.startswith("VT ")
     ]
 
@@ -639,7 +639,7 @@ class TestWaterNeverAuthorsABridgeDatum:
         members = [DECK_RESOURCE, PIER_RESOURCE]
         dsf_path, pack_root = harness.pack(
             tmp_path, monkeypatch, members, obj_text=_PIER_OBJ_TEXT)
-        authored = (pack_root / DECK_RESOURCE).read_text()
+        authored = (pack_root / DECK_RESOURCE).read_text(encoding="utf-8")
         result = harness.rebake(
             dsf_path,
             # Water everywhere the 60 m walk can reach (lines at +-80, so
@@ -660,7 +660,7 @@ class TestWaterNeverAuthorsABridgeDatum:
         assert record["baked"] is False
         # Not routed: nothing claimed, so the generic y-bake still owns it.
         assert not (result.get("bridge_seat_claimed_resources") or set())
-        assert (pack_root / DECK_RESOURCE).read_text() == authored
+        assert (pack_root / DECK_RESOURCE).read_text(encoding="utf-8") == authored
         assert [f["finding"] for f in result["bridge_findings"]] == [
             assembly.BRIDGE_SEAT_FALLBACK_FINDING]
 
@@ -869,7 +869,7 @@ class TestOneSeatForAConnectedAssembly:
         resources, records = self._family((0.19, 1.19))
         dsf_path, pack_root = harness.pack(
             tmp_path, monkeypatch, resources)
-        authored = (pack_root / DECK_RESOURCE).read_text()
+        authored = (pack_root / DECK_RESOURCE).read_text(encoding="utf-8")
         result = harness.rebake(
             dsf_path, harness.mesh(tmp_path), pack_root,
             [_candidate(resources, 1.19,
@@ -890,7 +890,7 @@ class TestOneSeatForAConnectedAssembly:
             assembly.BRIDGE_SEAT_FALLBACK_FINDING]
         # Not routed, pack untouched: the generic y-bake still owns it.
         assert not (result.get("bridge_seat_claimed_resources") or set())
-        assert (pack_root / DECK_RESOURCE).read_text() == authored
+        assert (pack_root / DECK_RESOURCE).read_text(encoding="utf-8") == authored
 
     def test_the_seat_measures_member_ends_never_a_merged_chord(
         self, tmp_path, monkeypatch, harness

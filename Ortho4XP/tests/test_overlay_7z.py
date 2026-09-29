@@ -26,7 +26,7 @@ import O4_UI_Utils as UI  # noqa: E402
 # ---------------------------------------------------------------------------
 def test_a_vendored_absolute_path_is_used_as_is(tmp_path, monkeypatch):
     vendored = tmp_path / "7zz"
-    vendored.write_text("")
+    vendored.write_text("", encoding="utf-8", newline="")
     monkeypatch.setattr(OVL, "unzip_cmd", str(vendored))
     monkeypatch.setattr(OVL.shutil, "which", lambda name: "/never/used")
     assert OVL.resolve_unzip_cmd() == str(vendored)

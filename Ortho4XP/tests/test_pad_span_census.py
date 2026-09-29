@@ -85,11 +85,11 @@ def test_the_cli_json_is_the_library_result_and_the_index_names_it():
     with tempfile.TemporaryDirectory() as d:
         pp, gp, rp, op = (f"{d}/p.json", f"{d}/g.json", f"{d}/r.json",
                           f"{d}/o.json")
-        json.dump(pl, open(pp, "w"))
-        json.dump(graded, open(gp, "w"))
-        json.dump(rb, open(rp, "w"))
+        json.dump(pl, open(pp, "w", encoding="utf-8", newline=""))
+        json.dump(graded, open(gp, "w", encoding="utf-8", newline=""))
+        json.dump(rb, open(rp, "w", encoding="utf-8", newline=""))
         with contextlib.redirect_stdout(io.StringIO()):
             assert PSC.main([pp, gp, rp, "--json", op]) == 0
-        assert json.load(open(op)) == PSC.census(pl, graded, rb, 1.0)
-    idx = (ROOT.parent / "tools" / "INDEX.md").read_text()
+        assert json.load(open(op, encoding="utf-8")) == PSC.census(pl, graded, rb, 1.0)
+    idx = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "pad_span_census.py" in idx

@@ -240,7 +240,7 @@ class TestFileReader:
             "NETWORK_DEF lib/g10/roads_EU.net",
             "BEGIN_SEGMENT 0 20 1 -86.6 36.1 -0.0",
             "END_SEGMENT 2 -86.5 36.2 -0.0",
-        )) + "\n")
+        )) + "\n", encoding="utf-8", newline="")
         network = read_dsf_road_networks(str(path))
         assert network.network_definition == "lib/g10/roads_EU.net"
         assert len(network.segments) == 1

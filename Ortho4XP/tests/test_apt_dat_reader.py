@@ -280,7 +280,7 @@ class TestFindAirportAptDat:
             "A\n"
             "1    100 0 0 ZZZZ Per-Airport Test\n"
             "100 45.00 1 0 0.25 1 1 0 09 -12 -77 0 60 0 0 0 0 27 -12 -77.01 0 60 0 0 0 0\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="")
 
         # 2) Global Airports pack also containing ZZZZ
         global_pack = cs / "Global Airports" / "Earth nav data"
@@ -290,7 +290,7 @@ class TestFindAirportAptDat:
             "A\n"
             "1    100 0 0 ZZZZ Global Test\n"
             "100 45.00 1 0 0.25 1 1 0 09 -12 -77 0 60 0 0 0 0 27 -12 -77.01 0 60 0 0 0 0\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="")
 
         found = APR.find_airport_apt_dat(str(xp), "ZZZZ")
         assert found == str(per_apt_path)
@@ -308,7 +308,7 @@ class TestFindAirportAptDat:
         (other_pack / "apt.dat").write_text(
             "A\n"
             "1    100 0 0 AAAA Other Airport\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="")
 
         # Global has ZZZZ
         global_pack = cs / "Global Airports" / "Earth nav data"
@@ -317,7 +317,7 @@ class TestFindAirportAptDat:
         global_path.write_text(
             "A\n"
             "1    100 0 0 ZZZZ Global Test\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="")
 
         found = APR.find_airport_apt_dat(str(xp), "ZZZZ")
         assert found == str(global_path)
@@ -334,7 +334,7 @@ class TestFindAirportAptDat:
         default_path.write_text(
             "A\n"
             "1    100 0 0 ZZZZ Default Test\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="")
 
         # Custom Scenery dir doesn't even exist
         found = APR.find_airport_apt_dat(str(xp), "ZZZZ")
@@ -368,7 +368,7 @@ class TestFindAirportAptDat:
 def _write_ini(xp, lines):
     (xp / "Custom Scenery" / "scenery_packs.ini").write_text(
         "I\n1000 Version\nSCENERY\n\n" + "".join(f"{ln}\n" for ln in lines),
-        encoding="utf-8")
+        encoding="utf-8", newline="")
 
 
 def _pack_and_global(tmp_path):
@@ -380,12 +380,12 @@ def _pack_and_global(tmp_path):
     per.mkdir(parents=True)
     per_path = per / "apt.dat"
     per_path.write_text("A\n1    100 0 0 ZZZZ Per-Airport Test\n",
-                        encoding="utf-8")
+                        encoding="utf-8", newline="")
     glob = cs / "Global Airports" / "Earth nav data"
     glob.mkdir(parents=True)
     glob_path = glob / "apt.dat"
     glob_path.write_text("A\n1    100 0 0 ZZZZ Global Test\n",
-                         encoding="utf-8")
+                         encoding="utf-8", newline="")
     return xp, per_path, glob_path
 
 
@@ -440,7 +440,7 @@ _RAMP_TRUCK_BLOCK = (
 
 def _load_ramp_truck(tmp_path):
     p = tmp_path / "apt.dat"
-    p.write_text(_RAMP_TRUCK_BLOCK, encoding="utf-8")
+    p.write_text(_RAMP_TRUCK_BLOCK, encoding="utf-8", newline="")
     return APR.load_airport(str(p), "ZRMP")
 
 
@@ -484,7 +484,7 @@ class TestTruckEdgeParsing:
             "1    100 0 0 ZNOP No Trucks\n"
             "100 45.00 1 0 0.25 1 1 0 09 -12 -77 0 60 0 0 0 0"
             " 27 -12 -77.01 0 60 0 0 0 0\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="")
         apt = APR.load_airport(str(p), "ZNOP")
         assert apt.truck_edges == []
         assert APR.service_road_centerlines(apt, lambda lon, lat: (lon, lat)) == []
@@ -515,7 +515,7 @@ class TestPaintedLines:
             "111 -12.0060 -77.0060 1\n"
             "111 -12.0070 -77.0060 1\n"
             "113 -12.0070 -77.0050 1\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="")
         return APR.load_airport(str(p), "ZPNT")
 
     def test_parses_all_blocks(self, tmp_path):
@@ -563,7 +563,7 @@ class TestPaintedLines:
             "1    100 0 0 ZNOL No Lines\n"
             "100 45.00 1 0 0.25 1 1 0 09 -12 -77 0 60 0 0 0 0"
             " 27 -12 -77.01 0 60 0 0 0 0\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="")
         apt = APR.load_airport(str(p), "ZNOL")
         assert apt.painted_lines == []
         assert APR.painted_taxi_centerlines(

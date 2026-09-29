@@ -82,7 +82,7 @@ def pit_objs(tmp_path_factory):
     d = tmp_path_factory.mktemp("pack") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     # shell face area 3,400 m2 (walls 1,000 + floor 2,400): an 8 m tower
     # adds 144 m2 above the band (4.1 %), a 24 m tower 400 m2 (10.5 %)
     return {"dir": d,
@@ -154,7 +154,7 @@ def wall_objs(tmp_path_factory):
     d = tmp_path_factory.mktemp("pack") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     return {
         "dir": d,
         # Bridge4.obj as AUTHORED: standing on its seat, crest 2.016 up

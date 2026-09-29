@@ -134,8 +134,8 @@ def test_both_context_builders_fill_strip_keepout():
     re-derivation instead of from the law.  A regression that removes
     either assignment fails here."""
     root = Path(__file__).resolve().parents[1]
-    solver = (root / "src" / "auto_patch" / "grade_graph.py").read_text()
-    census = (root / "tools" / "check_grade.py").read_text()
+    solver = (root / "src" / "auto_patch" / "grade_graph.py").read_text(encoding="utf-8")
+    census = (root / "tools" / "check_grade.py").read_text(encoding="utf-8")
     assert "strip_keepout=strip_keepout," in solver, (
         "grade_graph.build_context must fill GradeContext.strip_keepout")
     assert "strip_keepout=strip_keepout," in census, (
@@ -149,9 +149,9 @@ def test_the_seniority_call_sites_pass_excluded_nodes():
     """Both call sites named in the ruling's wiring order."""
     root = Path(__file__).resolve().parents[1]
     one = (root / "src" / "auto_patch" / "elevation_per_surface"
-           / "route_profile" / "one_solve.py").read_text()
+           / "route_profile" / "one_solve.py").read_text(encoding="utf-8")
     slv = (root / "src" / "auto_patch" / "elevation_per_surface"
-           / "route_profile" / "solve.py").read_text()
+           / "route_profile" / "solve.py").read_text(encoding="utf-8")
     assert "excluded_nodes=_ex" in one
     assert "excluded_nodes=_excl" in slv
     assert "apron_excluded_nodes" in slv

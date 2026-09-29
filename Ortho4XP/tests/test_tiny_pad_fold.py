@@ -35,7 +35,7 @@ def test_pad_min_area_is_the_ruled_constant():
     (216 m²), and it replaces the pipeline's bare 100.0 floor."""
     assert PAD_MIN_AREA_M2 == pytest.approx(250.0)
     src = (Path(__file__).resolve().parents[1]
-           / "src" / "auto_patch" / "pipeline.py").read_text()
+           / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
     assert "simp.area >= PAD_MIN_AREA_M2" in src, (
         "the pipeline pad floor must read the ruled constant, not 100.0")
 
@@ -77,7 +77,7 @@ def test_the_fold_is_wired_at_the_apron_punch_out():
     removes pad ground from the apron — or the footprint would not
     "remain apron" as the ruling requires."""
     src = (Path(__file__).resolve().parents[1]
-           / "src" / "auto_patch" / "pipeline.py").read_text()
+           / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
     fold_at = src.index("tiny pad(s) under")
     union_at = src.index("terminal_union = (unary_union(terminal_polys)")
     assert fold_at < union_at, (

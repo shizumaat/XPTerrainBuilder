@@ -354,7 +354,7 @@ def test_step_exception_traceback_lands_in_the_log_file(monkeypatch,
     second = _tile_events(events, 11, 21)
     assert any(isinstance(e, EV.BuildDone) and e.ok is True for e in second)
 
-    log = (tmp_path / "Ortho4XP.log").read_text()
+    log = (tmp_path / "Ortho4XP.log").read_text(encoding="utf-8")
     assert "Traceback (most recent call last)" in log, log
     assert "deliberate step explosion for the log twin" in log, log
     assert "lat= 10" in log and "lon= 20" in log, log

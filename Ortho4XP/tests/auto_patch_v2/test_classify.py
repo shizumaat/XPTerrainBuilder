@@ -34,18 +34,18 @@ def test_rules_load_and_refuse(tmp_path):
     r = load_rules()
     assert r.corridor.max_width_m == 50.0 and r.apron.route_proximity_m == 50.0
     assert r.surfaces.graded_codes == (1, 2, 3, 4, 5, 12, 14)
-    text = RULES.read_text()
+    text = RULES.read_text(encoding="utf-8")
     bad = tmp_path / "r.toml"
-    bad.write_text(text.replace("max_width_m = 50.0", "max_width_m = 50.0\nbogus = 1"))
+    bad.write_text(text.replace("max_width_m = 50.0", "max_width_m = 50.0\nbogus = 1"), encoding="utf-8", newline="")
     with pytest.raises(RulesError, match="unknown"):
         load_rules(bad)
-    bad.write_text(text.replace("max_width_m = 50.0", "max_width_m = -1"))
+    bad.write_text(text.replace("max_width_m = 50.0", "max_width_m = -1"), encoding="utf-8", newline="")
     with pytest.raises(RulesError, match="negative"):
         load_rules(bad)
-    bad.write_text(text.replace("[corridor]\nmax_width_m = 50.0", "[corridor]"))
+    bad.write_text(text.replace("[corridor]\nmax_width_m = 50.0", "[corridor]"), encoding="utf-8", newline="")
     with pytest.raises(RulesError, match="missing"):
         load_rules(bad)
-    bad.write_text(text.replace("requires_terminal = true", "requires_terminal = 1"))
+    bad.write_text(text.replace("requires_terminal = true", "requires_terminal = 1"), encoding="utf-8", newline="")
     with pytest.raises(RulesError, match="bool"):
         load_rules(bad)
 

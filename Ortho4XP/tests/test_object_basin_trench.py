@@ -1400,7 +1400,7 @@ class TestRimSeatsAtTheSolvedNeighbour:
         out._basin_wall_joints = layout._basin_wall_joints
         out.to_osm(str(patch))
         sidecar = json.loads(
-            (tmp_path / "TEST_auto.patch.osm.axes.json").read_text())
+            (tmp_path / "TEST_auto.patch.osm.axes.json").read_text(encoding="utf-8"))
         published = sidecar["terrace_joints"]
         assert len(published) == len(rows)
         assert all(r["kind"] == assembly.BASIN_WALL_JOINT_KIND
@@ -1853,7 +1853,7 @@ class TestBasinInstrumentation:
         patch_layout.basin_facility_records = records
         patch_layout.to_osm(str(patch))
         sidecar = json.loads(
-            (tmp_path / "TEST_auto.patch.osm.axes.json").read_text())
+            (tmp_path / "TEST_auto.patch.osm.axes.json").read_text(encoding="utf-8"))
         assert sidecar["basin_facilities"] == records
 
     def test_a_patch_with_no_basins_still_declares_the_key(self, tmp_path):
@@ -1866,7 +1866,7 @@ class TestBasinInstrumentation:
         patch = tmp_path / "NONE_auto.patch.osm"
         PavementLayout(icao="NONE", anchor=ANCHOR).to_osm(str(patch))
         sidecar = json.loads(
-            (tmp_path / "NONE_auto.patch.osm.axes.json").read_text())
+            (tmp_path / "NONE_auto.patch.osm.axes.json").read_text(encoding="utf-8"))
         assert sidecar["basin_facilities"] == []
 
 
@@ -1992,9 +1992,9 @@ class TestBasinExclusionCoverage:
         for index, resource in enumerate(sorted(geometry)):
             path = pack_root / resource
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"# {resource}\n")
+            path.write_text(f"# {resource}\n", encoding="utf-8", newline="")
             (pack_root / (resource + ".anchor_bak")).write_text(
-                f"# {resource}\n")
+                f"# {resource}\n", encoding="utf-8", newline="")
             definition_lines.append(f"OBJECT_DEF {resource}")
             placement_lines.append(
                 f"OBJECT {index} {ANCHOR_LONGITUDE} {ANCHOR_LATITUDE} 0.0")
@@ -2174,7 +2174,7 @@ def _write_trench_mesh(
     lines += ["", "Normals", "0", "", "Triangles", str(len(triangles))]
     for first, second, third in triangles:
         lines.append(f"{first} {second} {third} 0")
-    mesh_path.write_text("\n".join(lines) + "\n")
+    mesh_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 def _obj8_text(geometry) -> str:
@@ -2198,7 +2198,7 @@ def _obj8_text(geometry) -> str:
 def _vertex_y_values(path) -> list[float]:
     return [
         float(line.split()[2])
-        for line in path.read_text().splitlines()
+        for line in path.read_text(encoding="utf-8").splitlines()
         if line.split() and line.split()[0] == "VT"
     ]
 
@@ -2254,7 +2254,7 @@ class TestBasinRimFlushSeat:
         for index, resource in enumerate(sorted(geometry)):
             path = pack_root / resource
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(_obj8_text(geometry[resource]))
+            path.write_text(_obj8_text(geometry[resource]), encoding="utf-8", newline="")
             longitude, latitude = placements[resource]
             definition_lines.append(f"OBJECT_DEF {resource}")
             placement_lines.append(
@@ -2388,7 +2388,7 @@ class TestBasinRimFlushSeat:
         assert sibling not in result["basin_rim_flush"][0].get(
             "objects_written", [])
         provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text())
+            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
         for resource in facility.object_resources:
             assert provenance["objects"][resource]["decision_kind"] == (
                 "basin_rim_flush")
@@ -2946,7 +2946,7 @@ class TestBasinPoolScoping:
         """A flip changes the CLASSIFICATION, so a flipped run must miss
         a pickle written by the other arm (the version-14 lesson)."""
         dsf_path = tmp_path / "+40-004.dsf"
-        dsf_path.write_text("x")
+        dsf_path.write_text("x", encoding="utf-8", newline="")
         pack_root = tmp_path / "pack"
         pack_root.mkdir()
         monkeypatch.setattr(
@@ -4843,7 +4843,7 @@ class TestBasinRegionFootprintGate:
         """A gate flip must MISS the cache — the classification it
         changes is the cut shape itself."""
         dsf_path = tmp_path / "+40-004.dsf"
-        dsf_path.write_text("x")
+        dsf_path.write_text("x", encoding="utf-8", newline="")
         pack_root = tmp_path / "pack"
         pack_root.mkdir()
         monkeypatch.setattr(
@@ -5221,7 +5221,7 @@ class TestBasinFoundingGate:
     def test_the_gate_salts_the_classification_sidecar(
             self, tmp_path, monkeypatch):
         dsf_path = tmp_path / "+40-004.dsf"
-        dsf_path.write_text("x")
+        dsf_path.write_text("x", encoding="utf-8", newline="")
         pack_root = tmp_path / "pack"
         pack_root.mkdir()
         monkeypatch.setattr(

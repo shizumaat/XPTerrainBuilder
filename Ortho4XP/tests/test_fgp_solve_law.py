@@ -67,7 +67,7 @@ def test_joined_entry_edge_list_is_mutated_in_place():
 
 def test_gate_name_present_in_solve_source():
     """The gate is read in ``solve.py`` under exactly that name."""
-    src = _SOLVE_PY.read_text()
+    src = _SOLVE_PY.read_text(encoding="utf-8")
     assert src.count("O4_FGP_SOLVE_LAW") >= 1
     assert '_os.environ.get("O4_FGP_SOLVE_LAW", "0") == "1"' in src
 
@@ -178,10 +178,10 @@ def test_s3_refresh_no_carriers_is_vacuous():
 def test_s2_s3_gate_names_present_in_source():
     """The sub-gates are read under exactly these names, ANDed with the
     parent gate (never independent of it)."""
-    src = _SOLVE_PY.read_text()
+    src = _SOLVE_PY.read_text(encoding="utf-8")
     assert '"O4_FGP_SOLVE_LAW_CARRIERS", "0") == "1"' in src
     assert "if _fgp_law and _os.environ.get(" in src
-    prim = (_SOLVE_PY.parents[1] / "solver_primitives.py").read_text()
+    prim = (_SOLVE_PY.parents[1] / "solver_primitives.py").read_text(encoding="utf-8")
     assert 'FGP_SOLVE_LAW_CLAMP_FLAG = "O4_FGP_SOLVE_LAW_CLAMP"' in prim
     assert 'if _os.environ.get("O4_FGP_SOLVE_LAW", "0") != "1"' in prim
 
@@ -195,7 +195,7 @@ def test_membrane_sub_gate_present_and_defaults_off():
     ``apron_lattice_membrane`` 108 -> 245, within_shape +207 apron
     rows).  It joins only when the S3 carrier refresh lands.
     """
-    src = _SOLVE_PY.read_text()
+    src = _SOLVE_PY.read_text(encoding="utf-8")
     assert src.count("O4_FGP_SOLVE_LAW_MEMBRANE") >= 1
     assert '"O4_FGP_SOLVE_LAW_MEMBRANE", "0") == "1"' in src
     # ... and it is an AND with the main gate, never independent of it.

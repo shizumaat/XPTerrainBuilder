@@ -35,7 +35,7 @@ _CHECK_GRADE = os.path.normpath(os.path.join(
 
 
 def _check_grade_source() -> str:
-    with open(_CHECK_GRADE) as fh:
+    with open(_CHECK_GRADE, encoding="utf-8") as fh:
         return fh.read()
 
 
@@ -697,7 +697,7 @@ def test_retired_law_gates_are_gone_from_the_source(env):
             if not name.endswith(".py"):
                 continue
             path = os.path.join(dirpath, name)
-            with open(path) as fh:
+            with open(path, encoding="utf-8") as fh:
                 text = fh.read()
             # a mention in a comment/docstring is the RECORD of the
             # retirement; an environ read is the gate still being alive
@@ -749,7 +749,7 @@ def test_standing_laws_ignore_their_old_env_values(monkeypatch):
     one_solve.feasibility_project(elev, [{"edges": [(0, 1, 1.0)]}], {0})
     assert abs(elev[1] - 1.0) < 1e-9
     assert not hasattr(BF, "band_seed_complete_enabled")
-    assert 'O4_BAND_SEED_COMPLETE"' not in open(BF.__file__).read()
+    assert 'O4_BAND_SEED_COMPLETE"' not in open(BF.__file__, encoding="utf-8").read()
 
 
 def test_no_ruleset_split_gate_was_introduced():
@@ -764,7 +764,7 @@ def test_no_ruleset_split_gate_was_introduced():
             if not name.endswith(".py"):
                 continue
             path = os.path.join(dirpath, name)
-            with open(path) as fh:
+            with open(path, encoding="utf-8") as fh:
                 for line in fh:
                     stripped = line.strip()
                     if stripped.startswith("#"):

@@ -96,10 +96,10 @@ def test_loader_refuses_malformed_flat_site(tmp_path, append, needle):
     d = _copy_law(tmp_path)
     p = d / "flat_site.toml"
     if append == "bogus":                     # an unknown [detector] key
-        p.write_text(p.read_text().replace("margin_m                 = 200.0",
-                                           "margin_m = 200.0\nbogus = 1"))
+        p.write_text(p.read_text(encoding="utf-8").replace("margin_m                 = 200.0",
+                                           "margin_m = 200.0\nbogus = 1"), encoding="utf-8", newline="")
     else:
-        p.write_text(p.read_text() + append)
+        p.write_text(p.read_text(encoding="utf-8") + append, encoding="utf-8", newline="")
     with pytest.raises(LawError, match=needle):
         load_tables(d)
 
@@ -107,11 +107,11 @@ def test_loader_refuses_malformed_flat_site(tmp_path, append, needle):
 def test_datum_source_and_negative_metres_are_validated(tmp_path):
     d = _copy_law(tmp_path)
     p = d / "flat_site.toml"
-    text = p.read_text()
-    p.write_text(text.replace('source     = "cifp"', 'source     = "metres"'))
+    text = p.read_text(encoding="utf-8")
+    p.write_text(text.replace('source     = "cifp"', 'source     = "metres"'), encoding="utf-8", newline="")
     with pytest.raises(LawError, match="datum.source"):
         load_tables(d)
-    p.write_text(text.replace("margin_m                 = 200.0", "margin_m = -1.0"))
+    p.write_text(text.replace("margin_m                 = 200.0", "margin_m = -1.0"), encoding="utf-8", newline="")
     with pytest.raises(LawError, match=">= 0"):
         load_tables(d)
     # the ONE signed metre key loads
@@ -124,7 +124,7 @@ def test_declaring_a_site_changes_the_law_digest(tmp_path):
     assert before == law_tables_digest()["sha256"]
     assert "flat_site.toml" in law_tables_digest(d)["files"]
     p = d / "flat_site.toml"
-    p.write_text(p.read_text() + '\nVHHH = { z0 = 5.5, source = "metres" }\n')
+    p.write_text(p.read_text(encoding="utf-8") + '\nVHHH = { z0 = 5.5, source = "metres" }\n', encoding="utf-8", newline="")
     law = Law.load(d)
     assert T.flat_declared(law, "vhhh").z0 == 5.5
     assert law_tables_digest(d)["sha256"] != before
@@ -132,7 +132,7 @@ def test_declaring_a_site_changes_the_law_digest(tmp_path):
 
 def test_no_numeric_literal_in_law_python_still_holds():
     for name in ("model.py", "tables.py"):
-        body = "\n".join(l for l in (DEFAULT_LAW_DIR / name).read_text().splitlines()
+        body = "\n".join(l for l in (DEFAULT_LAW_DIR / name).read_text(encoding="utf-8").splitlines()
                          if not l.strip().startswith("#"))
         floats = re.findall(r"(?<![\w.])\d+\.\d+(?![\w.])", body)
         # the register's grade-fraction sanity bound is 0.25 since RULINGS
@@ -298,7 +298,7 @@ def test_lidar_short_circuits(law):
 def test_declared_metres_overrides_and_records_auto_verdict(tmp_path):
     d = _copy_law(tmp_path)
     p = d / "flat_site.toml"
-    p.write_text(p.read_text() + '\nZZZZ = { z0 = 102.0, source = "metres" }\n')
+    p.write_text(p.read_text(encoding="utf-8") + '\nZZZZ = { z0 = 102.0, source = "metres" }\n', encoding="utf-8", newline="")
     law2 = Law.load(d)
     fv = F.detect(_airport(law2, _CoarseRipple(100.1, 5.0)), law2)
     assert fv.verdict == "flat_declared" and fv.auto_verdict == "not_flat"
@@ -306,7 +306,7 @@ def test_declared_metres_overrides_and_records_auto_verdict(tmp_path):
     assert fv.signals["declared"] is True
     assert "[DECLARED metres; detector said not_flat]" in F.log_line("ZZZZ", fv)
     # a cifp declaration keeps the CIFP datum
-    p.write_text(p.read_text().replace('z0 = 102.0, source = "metres"', 'source = "cifp"'))
+    p.write_text(p.read_text(encoding="utf-8").replace('z0 = 102.0, source = "metres"', 'source = "cifp"'), encoding="utf-8", newline="")
     fv2 = F.detect(_airport(Law.load(d), _CoarseRipple(100.1, 5.0)), Law.load(d))
     assert fv2.verdict == "flat_declared" and fv2.z0_m == pytest.approx(100.1) and fv2.source == "cifp"
 
@@ -362,7 +362,7 @@ def test_lp_yields_the_datum_where_a_hard_taxi_gradient_forbids(tmp_path, law):
     the datum by the law's margin, never at it."""
     d = _copy_law(tmp_path)
     p = d / "flat_site.toml"
-    p.write_text(p.read_text() + '\nZZZZ = { z0 = 110.0, source = "metres" }\n')
+    p.write_text(p.read_text(encoding="utf-8") + '\nZZZZ = { z0 = 110.0, source = "metres" }\n', encoding="utf-8", newline="")
     law2 = Law.load(d)
     airport = _airport(law2, _CoarseRipple(100.1, 0.5))
     fv = F.detect(airport, law2)
@@ -439,7 +439,7 @@ def test_weights_carry_the_group_from_the_table(law):
 def test_dependency_direction_of_the_new_modules():
     for rel, allowed in (("airport/flat_site.py", {"law", "model"}),
                          ("constraints/flat_site.py", {"law", "model"})):
-        text = (SRC / rel).read_text()
+        text = (SRC / rel).read_text(encoding="utf-8")
         assert set(re.findall(r"from \.\.(\w+)", text)) <= allowed, rel
         assert "os.environ" not in text and "auto_patch." not in text.replace("auto_patch_v2", "")
         assert len(text.splitlines()) <= 500, rel

@@ -67,9 +67,9 @@ class _Builder:
             out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
             out.append("  </way>")
         out.append("</osm>")
-        path.write_text("\n".join(out) + "\n")
+        path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
         Path(str(path) + ".axes.json").write_text(
-            json.dumps({"anchor": list(ANCHOR), "ruleset": "icao"}))
+            json.dumps({"anchor": list(ANCHOR), "ruleset": "icao"}), encoding="utf-8", newline="")
         return path
 
 
@@ -108,7 +108,7 @@ def test_the_role_sets_are_imported_never_respelled():
 
 
 def test_it_prices_no_law_and_counts_no_defects():
-    src = Path(APT.__file__).read_text()
+    src = Path(APT.__file__).read_text(encoding="utf-8")
     assert "_parse_osm" in src                 # the harness library's parser
     assert "run_checks" not in src             # never a private census
     assert "Violation" not in src
@@ -161,7 +161,7 @@ def test_the_CLI_json_IS_the_library_result(abutting, tmp_path):
                    "--radius", "100", "--dists", "30,75",
                    "--json", str(out)])
     assert rc == 0
-    got = json.loads(out.read_text())
+    got = json.loads(out.read_text(encoding="utf-8"))
     assert got == [APT.read(abutting, [("s", lat, lon)], radius=100.0,
                             dists=(30.0, 75.0))]
 
@@ -176,5 +176,5 @@ def test_the_CLI_refuses_a_malformed_site(abutting):
 def test_the_index_row_exists():
     """RULINGS 7e90032: a tool lands with its index entry in the SAME
     commit, or it is treated as absent."""
-    idx = (_ROOT.parent / "tools" / "INDEX.md").read_text()
+    idx = (_ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "Ortho4XP/tools/airside_pair_table.py" in idx

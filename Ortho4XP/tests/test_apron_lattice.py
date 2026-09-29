@@ -468,12 +468,12 @@ def _membrane_patch(tmp_path, name, alt_b, *, budget=0.50):
            "    <tag k='aeroway' v='apron'/>\n  </way>\n",
            "</osm>\n"]
     p = tmp_path / name
-    p.write_text("".join(txt))
+    p.write_text("".join(txt), encoding="utf-8", newline="")
     edges = [{"a": [lat0, lon0], "b": [lat0, lon0 + dlon],
               "budget_m": budget, "shapeID": 7}]
     (tmp_path / (name + ".axes.json")).write_text(json.dumps(
         {"anchor": list(ANCHOR), "ruleset": "icao",
-         "apron_lattice_edges": edges}))
+         "apron_lattice_edges": edges}), encoding="utf-8", newline="")
     return p, edges
 
 
@@ -549,7 +549,7 @@ def test_the_lattice_emits_as_o4_feature_polylines(tmp_path):
           (30.1202, 31.4002)], [100.0, 100.2, 100.4])]
     patch = tmp_path / "TEST_auto.patch.osm"
     layout.to_osm(str(patch))
-    body = patch.read_text()
+    body = patch.read_text(encoding="utf-8")
     assert "apron_lattice" in body
     nodes, ways, lat_ways = _parse_with_features(patch)
     assert lat_ways, "the lattice way must reach the OPEN-FEATURE route"
@@ -568,7 +568,7 @@ def test_the_sidecar_carries_the_lattice_edges(tmp_path):
          "budget_m": 0.5, "shapeID": 3}]
     patch = tmp_path / "T_auto.patch.osm"
     layout.to_osm(str(patch))
-    side = json.loads((tmp_path / "T_auto.patch.osm.axes.json").read_text())
+    side = json.loads((tmp_path / "T_auto.patch.osm.axes.json").read_text(encoding="utf-8"))
     assert side["apron_lattice_edges"][0]["budget_m"] == 0.5
 
 
@@ -577,7 +577,7 @@ def test_an_empty_reading_is_not_an_absent_key(tmp_path):
     import check_grade as CG
     patch = tmp_path / "E_auto.patch.osm"
     PavementLayout(icao="E", anchor=ANCHOR).to_osm(str(patch))
-    side = json.loads((tmp_path / "E_auto.patch.osm.axes.json").read_text())
+    side = json.loads((tmp_path / "E_auto.patch.osm.axes.json").read_text(encoding="utf-8"))
     assert side["apron_lattice_edges"] == []
     ev = CG.sidecar_evidence(str(patch))
     assert ev["unknown_keys"] == []

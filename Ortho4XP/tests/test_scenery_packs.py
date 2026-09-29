@@ -24,7 +24,7 @@ def _install(tmp_path, packs, ini_lines=None):
         (custom / name / "Earth nav data").mkdir(parents=True)
     if ini_lines is not None:
         (custom / "scenery_packs.ini").write_text(
-            "I\n1000 Version\nSCENERY\n\n" + "\n".join(ini_lines) + "\n")
+            "I\n1000 Version\nSCENERY\n\n" + "\n".join(ini_lines) + "\n", encoding="utf-8", newline="")
     return str(custom)
 
 
@@ -63,7 +63,11 @@ def test_absent_ini_enables_every_pack_on_disk(tmp_path):
     assert SP.pack_enabled("b", custom) is True
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root reads anything")
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="chmod 0o000 cannot revoke read on Windows "
+                           "(os.chmod toggles only the read-only flag)")
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root reads anything")
 def test_unreadable_ini_enables_every_pack_on_disk(tmp_path):
     custom = _install(tmp_path, ["a", "b"], [
         "SCENERY_PACK_DISABLED Custom Scenery/b/",
@@ -194,7 +198,7 @@ def test_toggling_the_ini_is_seen_immediately(tmp_path):
     ])
     assert SP.enabled_pack_names(custom) == {"a"}
     ini = os.path.join(custom, "scenery_packs.ini")
-    with open(ini, "w") as handle:
+    with open(ini, "w", encoding="utf-8", newline="") as handle:
         handle.write("I\n1000 Version\nSCENERY\n\n"
                      "SCENERY_PACK_DISABLED Custom Scenery/a/\n")
     os.utime(ini, (0, 0))          # force a different mtime, not a later one
@@ -213,7 +217,7 @@ def test_module_imports_no_o4_or_auto_patch_module():
     source_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "src", "O4_Scenery_Packs.py")
-    with open(source_path) as handle:
+    with open(source_path, encoding="utf-8") as handle:
         source = handle.read()
     import ast
     tree = ast.parse(source)

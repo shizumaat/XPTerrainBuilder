@@ -164,7 +164,7 @@ class TestTwoReadersOnePath:
         # …and the census ASKS for it, while the solve does not: the
         # metric is scoped to the two readers the ruling names.
         cg = (Path(__file__).resolve().parents[1] / "tools"
-              / "check_grade.py").read_text()
+              / "check_grade.py").read_text(encoding="utf-8")
         assert "shape_constraints(gs, _law_ctx, road_path_metric=True)" in cg
         assert "road_path_metric: bool = False" in src
 
@@ -247,7 +247,7 @@ class TestPerStationCapUnification:
         from pathlib import Path
         src = (Path(__file__).resolve().parents[1] / "src" / "auto_patch"
                / "elevation_per_surface" / "route_profile"
-               / "anchors.py").read_text()
+               / "anchors.py").read_text(encoding="utf-8")
         assert "station_cap_vector" in src
         assert "from auto_patch.lateral_contiguity import cap_at" in src
 
@@ -275,7 +275,7 @@ class TestPerStationCapUnification:
         assert "cap_at" in inspect.getsource(RT.solve_road_transitions)
         anchors = (Path(__file__).resolve().parents[1] / "src"
                    / "auto_patch" / "elevation_per_surface"
-                   / "route_profile" / "anchors.py").read_text()
+                   / "route_profile" / "anchors.py").read_text(encoding="utf-8")
         assert "cap_at(" in anchors
         # …and the accessor is one function, not three spellings.
         assert callable(LC.cap_at)

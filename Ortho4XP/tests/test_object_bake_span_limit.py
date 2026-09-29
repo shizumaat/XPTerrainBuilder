@@ -285,7 +285,7 @@ class TestStaleBakeRestoreOnSkip:
 
     def _write_mesh(self, tmp_path):
         mesh_path = tmp_path / "Data+00-000.mesh"
-        mesh_path.write_text("MeshVersionFormatted 2\nEnd\n")
+        mesh_path.write_text("MeshVersionFormatted 2\nEnd\n", encoding="utf-8", newline="")
         return str(mesh_path)
 
     def test_skip_restores_stale_bake_byte_identical_to_backup(

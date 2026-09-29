@@ -219,7 +219,7 @@ def test_model_imports_neither_numpy_nor_scipy():
     root = pathlib.Path(gf_mod.__file__).parent
     offenders = []
     for path in sorted(root.rglob("*.py")):
-        tree = ast.parse(path.read_text(), str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
         for node in ast.walk(tree):
             names = []
             if isinstance(node, ast.Import):
@@ -271,6 +271,6 @@ def test_complexity_guard_20000_points():
 
 def test_group_report_carries_mst_fallback():
     from auto_patch_v2.planar import group as group_mod
-    src = pathlib.Path(group_mod.__file__).read_text()
+    src = pathlib.Path(group_mod.__file__).read_text(encoding="utf-8")
     assert '"mst_fallback"' in src
     assert "pairs=_pairs_fast" in src

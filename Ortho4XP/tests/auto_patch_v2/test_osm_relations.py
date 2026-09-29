@@ -42,7 +42,7 @@ def _rel(rid: str, members: list[tuple[str, str]], tags: dict[str, str]) -> str:
 
 def _write(tmp_path, xml: str) -> str:
     p = tmp_path / "feed.osm"
-    p.write_text(_HEAD + xml + _TAIL)
+    p.write_text(_HEAD + xml + _TAIL, encoding="utf-8", newline="")
     return str(p)
 
 

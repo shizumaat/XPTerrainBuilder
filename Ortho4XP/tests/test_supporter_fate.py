@@ -477,7 +477,7 @@ class TestStaleInheritorBakeIsRestored:
         backup_path = live_path.with_name(live_path.name + ".anchor_bak")
         backup_path.write_bytes(authored)
         mesh_path = tmp_path / "Data+30+031.mesh"
-        mesh_path.write_text("MeshVersionFormatted 2\nEnd\n")
+        mesh_path.write_text("MeshVersionFormatted 2\nEnd\n", encoding="utf-8", newline="")
 
         report = object_rebake.apply(
             self._supporter_fate_decision(resource),
@@ -501,7 +501,7 @@ class TestStaleInheritorBakeIsRestored:
         backup_path = live_path.with_name(live_path.name + ".anchor_bak")
         backup_path.write_bytes(authored)
         mesh_path = tmp_path / "Data+30+031.mesh"
-        mesh_path.write_text("MeshVersionFormatted 2\nEnd\n")
+        mesh_path.write_text("MeshVersionFormatted 2\nEnd\n", encoding="utf-8", newline="")
 
         report = object_rebake.apply(
             self._supporter_fate_decision(resource),

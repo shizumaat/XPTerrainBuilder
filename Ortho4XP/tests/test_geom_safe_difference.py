@@ -30,7 +30,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "kdfw_overlay_clip_pair.wkt"
 
 
 def _kdfw_pair():
-    lines = [ln.strip() for ln in FIXTURE.read_text().splitlines()
+    lines = [ln.strip() for ln in FIXTURE.read_text(encoding="utf-8").splitlines()
              if ln.strip() and not ln.startswith("#")]
     assert len(lines) == 2, FIXTURE
     return wkt.loads(lines[0]), wkt.loads(lines[1])

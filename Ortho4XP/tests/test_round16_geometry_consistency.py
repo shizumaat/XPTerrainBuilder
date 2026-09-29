@@ -65,7 +65,7 @@ def _emit_and_parse(layout):
         path = handle.name
     try:
         layout.to_osm(path)
-        text = Path(path).read_text()
+        text = Path(path).read_text(encoding="utf-8")
     finally:
         Path(path).unlink()
     node_re = re.compile(

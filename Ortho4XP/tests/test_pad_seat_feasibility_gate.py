@@ -132,12 +132,12 @@ def test_the_export_reads_the_solves_own_band_never_a_replay():
     rather than re-deriving one.  Asserted on the source because that is
     the property a future edit would break."""
     src = (_ROOT / "src" / "auto_patch" / "elevation_per_surface"
-           / "route_profile" / "anchors.py").read_text()
+           / "route_profile" / "anchors.py").read_text(encoding="utf-8")
     assert 'getattr(band, "attachment_at", None)' in src
     assert "_frontage_band_records" in src
     # …and the accessor it depends on still exists on the band it reads.
     rb = (_ROOT / "src" / "auto_patch" / "elevation_per_surface"
-          / "raster_reach_band.py").read_text()
+          / "raster_reach_band.py").read_text(encoding="utf-8")
     assert "band.attachment_at = attachment_at" in rb
 
 

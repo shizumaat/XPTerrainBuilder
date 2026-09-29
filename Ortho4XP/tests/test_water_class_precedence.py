@@ -91,7 +91,7 @@ def _write_mesh(tile, triangle_attributes):
         lines.append("%d %d %d %d" % (*corners, attribute))
     mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
     os.makedirs(os.path.dirname(mesh_path), exist_ok=True)
-    with open(mesh_path, "w") as mesh:
+    with open(mesh_path, "w", encoding="utf-8", newline="") as mesh:
         mesh.write("\n".join(lines) + "\n")
 
 

@@ -192,13 +192,13 @@ def test_the_sidecar_keys_are_registered_as_evidence():
 def test_the_evidence_reader_counts_them(tmp_path):
     import check_grade as CG
     osm = tmp_path / "p.osm"
-    osm.write_text("<osm/>")
+    osm.write_text("<osm/>", encoding="utf-8", newline="")
     (tmp_path / "p.osm.axes.json").write_text(json.dumps({
         "anchor": list(ANCHOR), "ruleset": "icao",
         "nodeless_interiors": [{"shapeID": 3, "radius_m": 107.4},
                                {"shapeID": 9, "radius_m": 88.0}],
         "gap_spine_bridges": [{"node_a": 462, "node_b": 470}],
-        "gap_spine_stand_down": [{"icao": "HEAZ", "bridge_count": 13}]}))
+        "gap_spine_stand_down": [{"icao": "HEAZ", "bridge_count": 13}]}), encoding="utf-8", newline="")
     ev = CG.sidecar_evidence(str(osm))
     assert ev["nodeless_interior_count"] == 2
     assert ev["gap_spine_bridge_count"] == 1
@@ -215,7 +215,7 @@ def test_an_empty_reading_is_not_an_absent_key(tmp_path):
     patch = tmp_path / "NONE_auto.patch.osm"
     PavementLayout(icao="NONE", anchor=ANCHOR).to_osm(str(patch))
     side = json.loads((tmp_path / "NONE_auto.patch.osm.axes.json")
-                      .read_text())
+                      .read_text(encoding="utf-8"))
     assert side["nodeless_interiors"] == []
     assert side["gap_spine_bridges"] == []
     assert side["gap_spine_stand_down"] == []
@@ -233,7 +233,7 @@ def test_the_records_reach_the_sidecar(tmp_path):
     patch = tmp_path / "TEST_auto.patch.osm"
     layout.to_osm(str(patch))
     side = json.loads((tmp_path / "TEST_auto.patch.osm.axes.json")
-                      .read_text())
+                      .read_text(encoding="utf-8"))
     assert side["gap_spine_bridges"][0]["node_a"] == 462
     # the instrument ran over an empty layout and published its zero
     assert side["nodeless_interiors"] == []
@@ -254,7 +254,7 @@ def test_the_stand_down_record_reaches_the_sidecar(tmp_path):
     patch = tmp_path / "HEAZ_auto.patch.osm"
     layout.to_osm(str(patch))
     side = json.loads((tmp_path / "HEAZ_auto.patch.osm.axes.json")
-                      .read_text())
+                      .read_text(encoding="utf-8"))
     assert side["gap_spine_stand_down"][0]["bridge_count"] == 13
     # the bridges are recorded as NOT in this patch
     assert side["gap_spine_bridges"] == []

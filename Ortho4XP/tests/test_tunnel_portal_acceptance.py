@@ -83,9 +83,9 @@ def _patch_text(alt: float, ramp_alt: float = -2.0) -> str:
 def _write_patch(directory: Path, name: str, alt: float,
                  ramp_alt: float = -2.0) -> Path:
     osm = directory / name
-    osm.write_text(_patch_text(alt, ramp_alt))
+    osm.write_text(_patch_text(alt, ramp_alt), encoding="utf-8", newline="")
     (directory / (name + ".axes.json")).write_text(json.dumps(
-        {"anchor": [25.0, 51.0], "ruleset": "icao"}))
+        {"anchor": [25.0, 51.0], "ruleset": "icao"}), encoding="utf-8", newline="")
     return osm
 
 
@@ -110,7 +110,7 @@ def test_the_cli_is_a_formatter_over_the_library_entry(tpa, scene, tmp_path,
                    "--site", "M=25.0011,51.0001",
                    "--json", str(out)])
     capsys.readouterr()
-    cli = json.loads(out.read_text())["checks"]
+    cli = json.loads(out.read_text(encoding="utf-8"))["checks"]
 
     profile = tpa.Profile(name="(cli)",
                           sites={"M": (25.0011, 51.0001)})
@@ -138,7 +138,7 @@ def test_the_cli_entry_does_not_reimplement_a_single_check(tpa):
 # §2 NO PRIVATE RE-COUNT, NO PRIVATE PARSE
 # ──────────────────────────────────────────────────────────────────
 def test_every_row_count_comes_from_the_census(tpa):
-    src = TOOL_PATH.read_text()
+    src = TOOL_PATH.read_text(encoding="utf-8")
     assert "census_one(" in src, (
         "row counts must come from tools/harness/census.py's census_one")
     assert "load_check_grade()" in src
@@ -221,7 +221,7 @@ def test_thresholds_are_arguments_not_literals_in_the_checks(tpa, scene):
 def test_no_hardcoded_lane_paths_or_airport_literals_in_the_checks(tpa):
     """A promoted tool may ship an airport PROFILE; it may not bake one
     into a check or point at a lane scratch dir."""
-    src = TOOL_PATH.read_text()
+    src = TOOL_PATH.read_text(encoding="utf-8")
     body = src.split("SITE_PROFILES: Dict[str, Profile] = {", 1)[1]
     body = body.split("@dataclass\nclass Thresholds", 1)[1]
     assert "/tmp/" not in body, "a lane path is baked into the checks"
@@ -235,7 +235,7 @@ def test_no_hardcoded_lane_paths_or_airport_literals_in_the_checks(tpa):
 def test_the_tool_is_in_the_tool_index():
     index = (ROOT.parent / "tools" / "INDEX.md")
     assert index.exists(), "tools/INDEX.md not found"
-    text = index.read_text()
+    text = index.read_text(encoding="utf-8")
     assert "tunnel_portal_acceptance.py" in text, (
         "a tool absent from tools/INDEX.md is treated as absent "
         "(RULINGS 7e90032) — land the entry in the same commit")
@@ -322,9 +322,9 @@ def _mouth_scene(directory: Path, mouth_alt: float,
                  "<tag k='shapeID' v='4'/></way>")
     parts.append("</osm>")
     osm = directory / f"mouth{mouth_alt}_{ref}_{int(walled)}.osm"
-    osm.write_text("\n".join(parts))
+    osm.write_text("\n".join(parts), encoding="utf-8", newline="")
     (directory / (osm.name + ".axes.json")).write_text(json.dumps(
-        {"anchor": [25.0, 51.0], "ruleset": "icao"}))
+        {"anchor": [25.0, 51.0], "ruleset": "icao"}), encoding="utf-8", newline="")
     return osm
 
 
@@ -452,9 +452,9 @@ def _wall_band_patch(directory: Path, name: str, inner: float,
                      "<tag k='shapeID' v='10'/></way>")
     parts.append("</osm>")
     osm = directory / name
-    osm.write_text("\n".join(parts))
+    osm.write_text("\n".join(parts), encoding="utf-8", newline="")
     (directory / (name + ".axes.json")).write_text(json.dumps(
-        {"anchor": [25.0, 51.0], "ruleset": "icao"}))
+        {"anchor": [25.0, 51.0], "ruleset": "icao"}), encoding="utf-8", newline="")
     return osm
 
 

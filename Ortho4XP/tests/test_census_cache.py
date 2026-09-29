@@ -135,14 +135,14 @@ def test_the_json_report_and_both_dumps_are_the_fresh_bytes(
             "--rows-json", out / "rows.json",
             "--sites-json", out / "sites.json"]
     _run(census, capsys, argv)
-    fresh = {p.name: p.read_text() for p in sorted(out.glob("*.json"))}
+    fresh = {p.name: p.read_text(encoding="utf-8") for p in sorted(out.glob("*.json"))}
     assert set(fresh) == {"rep.json", "rows.json", "sites.json"}
     for p in out.glob("*.json"):
         p.unlink()
 
     served = _run(census, capsys, argv)
     assert served.startswith(MARKER)
-    assert {p.name: p.read_text()
+    assert {p.name: p.read_text(encoding="utf-8")
             for p in sorted(out.glob("*.json"))} == fresh
 
 
@@ -202,10 +202,10 @@ def test_a_patch_body_change_misses(census, capsys, patch, cache_dir,
     """One altitude moved in the BODY — the population the law reads."""
     argv = [patch, "--top", 5]
     first = _run(census, capsys, argv)
-    text = patch.read_text()
+    text = patch.read_text(encoding="utf-8")
     changed = text.replace("v='1.20'", "v='3.40'", 1)
     assert changed != text, "the fixture no longer carries the edited tag"
-    patch.write_text(changed)
+    patch.write_text(changed, encoding="utf-8", newline="")
 
     second = _run(census, capsys, argv)
     assert MARKER not in second, "a changed body served a stale census"
@@ -260,9 +260,9 @@ def test_a_sidecar_change_misses(census, capsys, patch, cache_dir,
     first = _run(census, capsys, argv)
     assert "ruleset: declared='icao'" in first
 
-    doc = json.loads(side.read_text())
+    doc = json.loads(side.read_text(encoding="utf-8"))
     doc["ruleset"] = "faa"
-    side.write_text(json.dumps(doc))
+    side.write_text(json.dumps(doc), encoding="utf-8", newline="")
 
     second = _run(census, capsys, argv)
     assert MARKER not in second, "a changed sidecar served a stale law"
@@ -332,7 +332,7 @@ def test_a_corrupt_entry_is_a_miss_and_never_a_crash(
         census, capsys, patch, cache_dir, pinned_law):
     fresh = _run(census, capsys, [patch, "--top", 5])
     entry = next(iter(cache_dir.glob("*.json")))
-    entry.write_text("{ this is not json")
+    entry.write_text("{ this is not json", encoding="utf-8", newline="")
     out = _run(census, capsys, [patch, "--top", 5])
     assert MARKER not in out
     assert out == fresh
@@ -344,9 +344,9 @@ def test_a_foreign_cache_format_is_a_miss(census, capsys, patch, cache_dir,
     shape from another version is never read with new eyes."""
     _run(census, capsys, [patch, "--top", 5])
     entry = next(iter(cache_dir.glob("*.json")))
-    doc = json.loads(entry.read_text())
+    doc = json.loads(entry.read_text(encoding="utf-8"))
     doc["census_cache_format"] = census.CENSUS_CACHE_FORMAT + 1
-    entry.write_text(json.dumps(doc))
+    entry.write_text(json.dumps(doc), encoding="utf-8", newline="")
     assert MARKER not in _run(census, capsys, [patch, "--top", 5])
 
 

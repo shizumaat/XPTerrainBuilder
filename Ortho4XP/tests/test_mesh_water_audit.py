@@ -38,7 +38,7 @@ def _write(path, tris):
     lines += ["Triangles", str(len(faces))]
     lines += [f"{a} {b} {c} {t}" for a, b, c, t in faces]
     lines += ["End", ""]
-    Path(path).write_text("\n".join(lines))
+    Path(path).write_text("\n".join(lines), encoding="utf-8", newline="")
 
 
 def _tri(lon, lat, zs):
@@ -60,7 +60,7 @@ def mesh(tmp_path):
 def test_the_water_census_is_hand_computable(mesh, tmp_path, capsys):
     out = tmp_path / "w.json"
     MRT.main(["--mesh", str(mesh), "--water-audit", "--json", str(out)])
-    d = json.loads(out.read_text())
+    d = json.loads(out.read_text(encoding="utf-8"))
     assert d["triangles_tile"] == 4
     assert d["water_triangles"] == 3          # the attr-8 land one is out
     assert d["water_attributes"] == {"2": 1, "10": 1, "9": 1}
@@ -77,7 +77,7 @@ def test_the_step_flag_is_a_reporting_threshold(mesh, tmp_path):
     out = tmp_path / "w2.json"
     MRT.main(["--mesh", str(mesh), "--water-audit", "--water-step-flag", "5",
               "--json", str(out)])
-    d = json.loads(out.read_text())
+    d = json.loads(out.read_text(encoding="utf-8"))
     assert d["step_flag_m"] == 5.0
     assert d["frame"]["triangles_stepped"] == 0
     assert d["frame"]["max_step_m"] == pytest.approx(3.962)
@@ -87,7 +87,7 @@ def test_near_restricts_to_the_site(mesh, tmp_path):
     out = tmp_path / "w3.json"
     MRT.main(["--mesh", str(mesh), "--water-audit",
               "--near", str(LAT), str(LON), "200", "--json", str(out)])
-    d = json.loads(out.read_text())
+    d = json.loads(out.read_text(encoding="utf-8"))
     assert d["near"]["triangles"] == 1        # only the flat SEA one is within
     assert d["near"]["vertices_at_zero"] == 3
     assert d["near"]["triangles_stepped"] == 0

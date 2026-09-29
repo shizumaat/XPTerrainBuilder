@@ -379,7 +379,7 @@ def test_clean_none_records_negative_honoured_on_rerun(monkeypatch, tmp_path):
     ELEVATION_LEVEL.ensure_coastline_band(_coastline_tile(), None)
 
     stamp_path = FNAMES.coastline_band_index(TILE_LAT, TILE_LON)
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         stamp = json.load(handle)
     target_stem = os.path.splitext(
         os.path.basename(
@@ -402,7 +402,7 @@ def test_clean_none_records_negative_honoured_on_rerun(monkeypatch, tmp_path):
     ELEVATION_LEVEL.ensure_coastline_band(_coastline_tile(), None)
     assert target_cell not in seen
     # And the negative is preserved in the rewritten stamp.
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         stamp = json.load(handle)
     assert stamp["cells"][target_stem] == INSETS.NO_COVERAGE
 
@@ -426,7 +426,7 @@ def test_fetch_exception_does_not_poison_or_raise(monkeypatch, tmp_path):
     assert result is not None
 
     stamp_path = FNAMES.coastline_band_index(TILE_LAT, TILE_LON)
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         stamp = json.load(handle)
     target_stem = os.path.splitext(
         os.path.basename(
@@ -456,7 +456,7 @@ def test_stamp_factor_three_when_a_near_cell_exists(monkeypatch, tmp_path):
         _coastline_tile(), {"KTEST": object()}
     )
     stamp_path = FNAMES.coastline_band_index(TILE_LAT, TILE_LON)
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         stamp = json.load(handle)
     assert stamp["factor"] == 3
     # finest_resolution_m is the finest (near) cell resolution present.
@@ -478,7 +478,7 @@ def test_stamp_factor_one_without_near_cells(monkeypatch, tmp_path):
     monkeypatch.setattr(INSETS, "fetch_inset", _writing_fetch(records))
     ELEVATION_LEVEL.ensure_coastline_band(_coastline_tile(), None)
     stamp_path = FNAMES.coastline_band_index(TILE_LAT, TILE_LON)
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         stamp = json.load(handle)
     assert stamp["factor"] == 1
     # Every cell is a far cell, so the finest resolution is the far posting.
@@ -531,7 +531,7 @@ def test_resolve_plan_none_when_vrt_absent(monkeypatch, tmp_path):
     # A stamp naming a VRT that does not exist on disk -> None.
     stamp_path = FNAMES.coastline_band_index(TILE_LAT, TILE_LON)
     os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
-    with open(stamp_path, "w") as handle:
+    with open(stamp_path, "w", encoding="utf-8", newline="") as handle:
         json.dump(
             {
                 "provider": "TESTLIDAR",
@@ -573,7 +573,7 @@ def _grid_tile(**overrides):
 def _write_factor_stamp(factor):
     stamp_path = FNAMES.coastline_band_index(TILE_LAT, TILE_LON)
     os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
-    with open(stamp_path, "w") as handle:
+    with open(stamp_path, "w", encoding="utf-8", newline="") as handle:
         json.dump(
             {"provider": "TESTLIDAR", "factor": factor, "cells": {}},
             handle,
@@ -645,7 +645,7 @@ def test_bake_blends_band_and_leaves_uncovered_at_base(monkeypatch, tmp_path):
     mosaic = None
 
     stamp_path = FNAMES.coastline_band_index(TILE_LAT, TILE_LON)
-    with open(stamp_path, "w") as handle:
+    with open(stamp_path, "w", encoding="utf-8", newline="") as handle:
         json.dump(
             {
                 "provider": "TESTLIDAR",
@@ -766,7 +766,7 @@ def test_constant_zero_fetch_recorded_no_coverage(monkeypatch, tmp_path):
 
     target_stem = _cell_stem(*target_cell)
     stamp_path = FNAMES.coastline_band_index(TILE_LAT, TILE_LON)
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         stamp = json.load(handle)
     assert stamp["cells"][target_stem] == INSETS.NO_COVERAGE
     # The implausible raster is deleted, never mosaicked.
@@ -810,7 +810,7 @@ def test_every_cell_constant_zero_yields_no_band(monkeypatch, tmp_path):
         is None
     )
     stamp_path = FNAMES.coastline_band_index(TILE_LAT, TILE_LON)
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         stamp = json.load(handle)
     assert stamp["cells"]
     assert all(
@@ -855,7 +855,7 @@ def test_cached_constant_cell_purged_not_recycled(monkeypatch, tmp_path):
     assert result is not None
     assert not os.path.isfile(poisoned_path)
     stamp_path = FNAMES.coastline_band_index(TILE_LAT, TILE_LON)
-    with open(stamp_path) as handle:
+    with open(stamp_path, encoding="utf-8") as handle:
         stamp = json.load(handle)
     assert stamp["cells"][_cell_stem(*poisoned_cell)] == INSETS.NO_COVERAGE
     # Healthy cached cells (none here) aside, the other cells fetched fine.

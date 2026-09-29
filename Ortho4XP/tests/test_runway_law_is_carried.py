@@ -133,7 +133,7 @@ def test_the_crown_rail_budget_reads_the_runways_own_cap():
     carrying one ICAO profile and one law-less (FAA) profile, including
     a crossing ref where the TIGHTER member must bind."""
     import auto_patch.crown as CR
-    src = open(CR.__file__).read()
+    src = open(CR.__file__, encoding="utf-8").read()
     assert "allow = _cap(ref) * d - d_prof" in src, (
         "the rail-continuity budget must price with the per-ref cap; a "
         "module-constant budget is the second copy this fix removed")
@@ -164,7 +164,7 @@ def test_the_carrier_is_published_by_runway_segments():
     inert.  Source-level because the publisher sits inside a 1,700-line
     emit loop with no seam to call."""
     import auto_patch.pavement.runway_segments as RS
-    src = open(RS.__file__).read()
+    src = open(RS.__file__, encoding="utf-8").read()
     for key in ("'max_grade': _rw_law[\"max_grade\"]",
                 "'max_grade_change_per_m': _rw_law[\"max_grade_change_per_m\"]",
                 "'law_end_grade': _rw_law[\"end_grade\"]"):

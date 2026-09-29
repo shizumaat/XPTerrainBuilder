@@ -54,7 +54,7 @@ def test_history_ages_to_cap(store):
     for index in range(model.RECORDS_KEPT_PER_TILE + 5):
         model.record_build(1, 2, features, {"mesh": float(index)})
     path = model._tile_record_path(1, 2)
-    with open(path) as record_file:
+    with open(path, encoding="utf-8") as record_file:
         records = json.load(record_file)
     assert len(records) == model.RECORDS_KEPT_PER_TILE
     # Newest-last: the final record is the last one written.
@@ -147,7 +147,7 @@ def test_corrupt_json_is_ignored(store):
     """A corrupt tile file falls back cleanly instead of raising."""
     os.makedirs(str(store), exist_ok=True)
     path = model._tile_record_path(9, 9)
-    with open(path, "w") as record_file:
+    with open(path, "w", encoding="utf-8", newline="") as record_file:
         record_file.write("{ this is not valid json ]")
     predictions = model.predict_step_seconds(9, 9, _features(), ["mesh"])
     assert predictions["mesh"] == model.DEFAULT_STEP_SECONDS["mesh"]
@@ -163,7 +163,7 @@ def test_forward_compatible_old_records(store):
         "features": {"zoomlevel": 16, "provider": "BI"},
         "step_seconds": {"mesh": 55.0, "imagery": 250.0},
     }]
-    with open(path, "w") as record_file:
+    with open(path, "w", encoding="utf-8", newline="") as record_file:
         json.dump(old_records, record_file)
     predictions = model.predict_step_seconds(3, 3, _features(
         zoomlevel=16, provider="BI"), ["mesh", "imagery", "vector"])

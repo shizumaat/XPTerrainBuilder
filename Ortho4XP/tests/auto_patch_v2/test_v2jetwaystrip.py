@@ -84,7 +84,7 @@ def agp(tmp_path_factory):
     p = d / "Jetway.agp"
     p.write_text("A\n1000\nAG_POINT\n\nTEXTURE_SCALE 10.0 10.0\n"
                  "TEXTURE_WIDTH 10.0\nOBJECT Jetway.obj\n"
-                 "TILE -5.0 -5.0 5.0 5.0\nANCHOR_PT 0.0 0.0\n")
+                 "TILE -5.0 -5.0 5.0 5.0\nANCHOR_PT 0.0 0.0\n", encoding="utf-8", newline="")
     return str(p)
 
 

@@ -164,7 +164,7 @@ def _write_sloped_trench_mesh(mesh_path, *, floor_slope=FLOOR_SLOPE_PER_METRE,
     lines += ["", "Normals", "0", "", "Triangles", str(len(triangles))]
     for first, second, third in triangles:
         lines.append(f"{first} {second} {third} 0")
-    mesh_path.write_text("\n".join(lines) + "\n")
+    mesh_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 #: THE FAMILY.  One flat authored datum, one at-grade shell over the pit,
@@ -251,7 +251,7 @@ class TestBasinGroupSeat:
         for index, resource in enumerate(sorted(geometry)):
             path = pack_root / resource
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(_obj8_text(geometry[resource]))
+            path.write_text(_obj8_text(geometry[resource]), encoding="utf-8", newline="")
             definition_lines.append(f"OBJECT_DEF {resource}")
             placement_lines.append(
                 f"OBJECT {index} {longitudes[resource]} "
@@ -388,7 +388,7 @@ class TestBasinGroupSeat:
             "the seat-group member was not withheld from the generic pass "
             "in the same step")
         provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text())
+            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
         assert provenance["objects"][TERMINAL]["decision_kind"] == (
             "basin_group_seat")
 
@@ -402,7 +402,7 @@ class TestBasinGroupSeat:
         record = result["basin_group_seat"][0]
         assert FAR_BUILDING not in record["delta_by_resource"]
         provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text())
+            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
         far_entry = provenance["objects"].get(FAR_BUILDING)
         if far_entry is not None:
             assert far_entry.get("decision_kind") is None
@@ -534,7 +534,7 @@ class TestBasinGroupSeat:
         assert "BASIN GROUP SEAT FINDING" in capsys.readouterr().out
         # ...and the pack is left on ONE datum plane.
         provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text())
+            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
         datums = {
             entry["seat_datum_m"]
             for entry in provenance["objects"].values()
@@ -628,7 +628,7 @@ class TestBasinGroupSeat:
         result, pack_root = self._run(tmp_path, monkeypatch)
         record = result["basin_group_seat"][0]
         provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text())
+            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
         for resource, delta in record["delta_by_resource"].items():
             entry = provenance["objects"][resource]
             assert entry["decision_kind"] == "basin_group_seat"
@@ -678,7 +678,7 @@ class TestBasinGroupSeat:
         assert record["baked"] is True
         assert record["objects_written"] == [PIT_SHELL]
         provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text())
+            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
         assert provenance["objects"][PIT_SHELL]["decision_kind"] == (
             "basin_rim_flush")
         # ...and the pre-amendment entry gains no group fields.
@@ -846,7 +846,7 @@ def _seed_founded_provenance(pack_root, resources, datum_m=FOUNDED_DATUM_M):
         },
     }
     path = os.path.join(str(pack_root), object_rebake.PROVENANCE_FILENAME)
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         json.dump(sidecar, handle)
     return path
 
@@ -882,9 +882,9 @@ class TestFoundedSeatDatumReader:
         emit-consensus precedent) — so it is a refusal, reported."""
         import json
         path = _seed_founded_provenance(tmp_path, [PIT_SHELL, TERMINAL])
-        payload = json.load(open(path))
+        payload = json.load(open(path, encoding="utf-8"))
         payload["objects"][TERMINAL]["seat_datum_m"] = FOUNDED_DATUM_M + 0.5
-        json.dump(payload, open(path, "w"))
+        json.dump(payload, open(path, "w", encoding="utf-8", newline=""))
         value, reason = object_rebake.founded_seat_datum(
             str(tmp_path), {PIT_SHELL, TERMINAL},
             assembly.BASIN_GROUP_SEAT_DECISION_KIND)
@@ -893,11 +893,11 @@ class TestFoundedSeatDatumReader:
 
     def test_the_reader_writes_nothing(self, tmp_path):
         path = _seed_founded_provenance(tmp_path, [PIT_SHELL])
-        before = (os.path.getsize(path), open(path).read())
+        before = (os.path.getsize(path), open(path, encoding="utf-8").read())
         object_rebake.founded_seat_datum(
             str(tmp_path), {PIT_SHELL},
             assembly.BASIN_GROUP_SEAT_DECISION_KIND)
-        assert (os.path.getsize(path), open(path).read()) == before
+        assert (os.path.getsize(path), open(path, encoding="utf-8").read()) == before
 
 
 class TestCarvedFacilityCarriesItsFoundedDatum:

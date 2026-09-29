@@ -25,7 +25,7 @@ ORTHO4XP_PATH = os.path.join(
 
 
 def test_engine_dispatch_condition_carries_the_name_guard():
-    with open(ORTHO4XP_PATH) as script:
+    with open(ORTHO4XP_PATH, encoding="utf-8") as script:
         source = script.read()
     tree = ast.parse(source)
     dispatch_conditions = [
@@ -52,7 +52,7 @@ def test_mp_main_reimport_completes_instead_of_serving(tmp_path):
         "import sys, runpy\n"
         "sys.argv = ['Ortho4XP.py', '--engine-jsonl']\n"
         "runpy.run_path(%r, run_name='__mp_main__')\n"
-        "print('IMPORT-COMPLETED')\n" % os.path.abspath(ORTHO4XP_PATH)
+        "print('IMPORT-COMPLETED')\n" % os.path.abspath(ORTHO4XP_PATH), encoding="utf-8", newline=""
     )
     completed = subprocess.run(
         [sys.executable, str(probe)],

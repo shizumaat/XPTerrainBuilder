@@ -45,7 +45,7 @@ def cyxy_map():
 def test_import_and_budget():
     assert importlib.import_module("auto_patch_v2.planar")
     for py in (SRC / "planar").glob("*.py"):
-        assert len(py.read_text().splitlines()) <= 1000, py
+        assert len(py.read_text(encoding="utf-8").splitlines()) <= 1000, py
 
 
 def test_invariants_and_counts(cyxy_map):
@@ -159,7 +159,7 @@ def test_cli_writes_products(tmp_path):
                "--cifp-dir", str(FIX / "CIFP"), "--data-root", str(FIX),
                "--dem-frame", "authored"])
     assert rc == 0
-    rep = json.loads((out / "report.json").read_text())
+    rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
     assert rep["planar"]["t_vertices"] == 0 and rep["planar"]["faces"] > 0
     assert (out / "faces.geojson").stat().st_size > 1000
     assert (out / "breaklines.geojson").stat().st_size > 100
@@ -253,7 +253,7 @@ def test_cli_wall(tmp_path, timing_runs):
                    "--dem-frame", "authored"])
         wall = time.perf_counter() - t0
         assert rc == 0
-        rep = json.loads((out / "report.json").read_text())
+        rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
         assert rep["wall_s"]["total"] <= wall + 1e-6
         return wall
     assert median_wall(one, timing_runs) < 5.0

@@ -144,7 +144,7 @@ def test_the_window_and_k_are_config_constants():
     assert CFG.AIRSIDE_NO_STEP_WINDOW_M == 150.0
     assert CFG.AIRSIDE_NO_STEP_K == 16
     assert CFG.AIRSIDE_NO_STEP is True
-    txt = (_ROOT / "docs" / "STANDARDS.md").read_text()
+    txt = (_ROOT / "docs" / "STANDARDS.md").read_text(encoding="utf-8")
     assert "AIRSIDE_NO_STEP_WINDOW_M" in txt
     assert "AIRSIDE_NO_STEP_K" in txt
 
@@ -152,7 +152,7 @@ def test_the_window_and_k_are_config_constants():
 def test_no_new_cap_value_is_minted():
     """Spec §1.1: "reuse, never a new cap value" — every budget comes out
     of ``grade_law.classify_pair``."""
-    src = Path(ANS.__file__).read_text()
+    src = Path(ANS.__file__).read_text(encoding="utf-8")
     assert "classify_pair" in src
     # No literal grade fraction anywhere in the module.
     for bad in ("0.01", "0.015", "0.05", "1.5 %", "0.008"):
@@ -225,7 +225,7 @@ def test_the_budget_is_the_DIRECT_euclidean_distance():
     distance)".  ``Allowance.at(d, 0.0)`` is the flat evaluation — no
     route-arc credit, which is exactly what would re-legalise the
     accumulation."""
-    src = Path(ANS.__file__).read_text()
+    src = Path(ANS.__file__).read_text(encoding="utf-8")
     assert "allow.at(d, 0.0)" in src
     assert "math.hypot(xb - xa, yb - ya)" in src
 
@@ -640,7 +640,7 @@ def test_a_sub_quantization_excess_mints_no_row():
 
 def test_the_sidecar_key_is_published_unconditionally():
     import check_grade as cg
-    src = Path(_ROOT / "src" / "auto_patch" / "layout.py").read_text()
+    src = Path(_ROOT / "src" / "auto_patch" / "layout.py").read_text(encoding="utf-8")
     assert '"airside_no_step_edges": list(' in src
     assert cg.SIDECAR_LAW_KEYS["airside_no_step_edges"] == (
         "airside_no_step_edges_ll")
@@ -852,7 +852,7 @@ def test_pass_2_moves_the_membrane_and_NOT_the_constants():
 def test_the_carried_pairs_travel_as_GEOMETRY_not_indices():
     """Pass 2 runs in a REBUILT node space (the rod-key lesson): the
     pairs are re-resolved through the canonical registry."""
-    src = Path(ANS.__file__).read_text()
+    src = Path(ANS.__file__).read_text(encoding="utf-8")
     assert "_airside_no_step_pairs_m" in src
     assert "cps.get_or_add(float(xa), float(ya))" in src
     import inspect
@@ -866,7 +866,7 @@ def test_the_pass_2_reseed_is_gated_OFF_with_its_measurement():
     finding is not hidden and a ruling has an arm to be made on."""
     import auto_patch.config as CFG
     assert CFG.AIRSIDE_NO_STEP_RESEED is False
-    src = Path(CFG.__file__).read_text()
+    src = Path(CFG.__file__).read_text(encoding="utf-8")
     i = src.index("AIRSIDE_NO_STEP_RESEED = (")
     note = src[max(0, i - 1800):i]
     assert "O4_AIRSIDE_NO_STEP_RESEED=1" in note
@@ -1214,7 +1214,7 @@ def test_H4_is_wired_into_the_final_projection():
     enumeration (one enumeration, three consumers)."""
     src = Path(
         _ROOT / "src/auto_patch/elevation_per_surface/route_profile/"
-        "solve.py").read_text()
+        "solve.py").read_text(encoding="utf-8")
     i = src.index("within_ring_no_step_entries")
     assert "joint.extend(_tr_entries)" in src[i:i + 2000]
     assert "transverse_no_step" in src

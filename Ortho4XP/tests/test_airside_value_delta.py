@@ -71,7 +71,7 @@ def _patch(path: Path, ways) -> Path:
                     f"<tag k='role' v='{role}'/></way>")
         nid -= 1
     path.write_text("<?xml version='1.0'?><osm version='0.6'>"
-                    + "".join(nodes) + "".join(body) + "</osm>")
+                    + "".join(nodes) + "".join(body) + "</osm>", encoding="utf-8", newline="")
     return path
 
 
@@ -196,7 +196,7 @@ def test_the_cli_json_IS_the_library_result(tmp_path, capsys):
     out = tmp_path / "res.json"
     assert avd.main([str(a), str(b), "--json", str(out)]) == 0
     capsys.readouterr()
-    assert json.loads(out.read_text()) == json.loads(
+    assert json.loads(out.read_text(encoding="utf-8")) == json.loads(
         json.dumps(avd.compare(a, b)))
 
 
@@ -207,6 +207,6 @@ def test_a_missing_input_is_REFUSED_not_guessed(tmp_path, capsys):
 
 
 def test_the_tool_is_in_the_index():
-    idx = (ROOT.parent / "tools" / "INDEX.md").read_text()
+    idx = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "Ortho4XP/tools/airside_value_delta.py" in idx, (
         "a tool absent from tools/INDEX.md is treated as absent")

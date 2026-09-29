@@ -522,7 +522,7 @@ def test_the_solve_ingests_the_family_at_BOTH_edge_set_sites():
     import re
     from pathlib import Path
     src = (Path(__file__).resolve().parents[1] / "src" / "auto_patch"
-           / "elevation_per_surface" / "route_profile" / "solve.py").read_text()
+           / "elevation_per_surface" / "route_profile" / "solve.py").read_text(encoding="utf-8")
     builds = [m.start() for m in re.finditer(r"^\s*u_edges = \[", src,
                                              re.M)]
     ingests = [m.start() for m in

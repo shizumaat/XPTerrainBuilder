@@ -192,7 +192,7 @@ def _write_patch_file(patch_dir, lat=30, lon=30):
     lines.append("    <tag k='cst_alt_abs' v='75' />")
     lines.append("  </way>")
     lines.append("</osm>")
-    (patch_dir / "TEST_runways.patch.osm").write_text("\n".join(lines))
+    (patch_dir / "TEST_runways.patch.osm").write_text("\n".join(lines), encoding="utf-8", newline="")
     return (ring, open_way)
 
 

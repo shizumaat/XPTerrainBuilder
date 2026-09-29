@@ -133,7 +133,7 @@ def _emit_two_strips_and_read():
         path = f.name
     try:
         layout.to_osm(path)
-        text = Path(path).read_text()
+        text = Path(path).read_text(encoding="utf-8")
     finally:
         Path(path).unlink()
 

@@ -176,7 +176,7 @@ def test_the_worklist_is_per_airport_per_pack(monkeypatch, tmp_path):
     """The dedup key is (airport, DSF), so a shared cell appears once
     for each airport instead of once for the tile."""
     dsf = tmp_path / "+25+051.dsf"
-    dsf.write_text("stub")
+    dsf.write_text("stub", encoding="utf-8", newline="")
     pack_root = str(tmp_path)
 
     monkeypatch.setattr(

@@ -92,7 +92,7 @@ def synthetic_map(tmp_path, monkeypatch):
     dsf.write_bytes(b"7z-fake-dsf")
     text = end / "+00+000.dsf.text"
     with open(SYNTHETIC_TERRAIN, "r", encoding="utf-8") as src:
-        text.write_text(src.read())
+        text.write_text(src.read(), encoding="utf-8", newline="")
     # Backdate the DSF so ensure_dsf_text_path treats the sidecar as fresh.
     now = os.path.getmtime(text)
     os.utime(str(dsf), (now - 100, now - 100))
@@ -181,7 +181,7 @@ def test_is_projected_reads_pack_relative_ter(tmp_path, monkeypatch):
     dsf.write_bytes(b"7z-fake-dsf")
     text = end / "+00+000.dsf.text"
     with open(SYNTHETIC_TERRAIN, "r", encoding="utf-8") as src:
-        text.write_text(src.read())
+        text.write_text(src.read(), encoding="utf-8", newline="")
     now = os.path.getmtime(text)
     os.utime(str(dsf), (now - 100, now - 100))
     monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
@@ -193,8 +193,8 @@ def test_is_projected_reads_pack_relative_ter(tmp_path, monkeypatch):
     # Lay down pack-relative .ter resources matching the terrain paths.
     ter_dir = pack / "lib" / "g10" / "terrain10"
     ter_dir.mkdir(parents=True)
-    (ter_dir / "asphalt.ter").write_text("A\n800\nTEXTURE foo.png\nPROJECTED\n")
-    (ter_dir / "rock.ter").write_text("A\n800\nTEXTURE bar.png\n")
+    (ter_dir / "asphalt.ter").write_text("A\n800\nTEXTURE foo.png\nPROJECTED\n", encoding="utf-8", newline="")
+    (ter_dir / "rock.ter").write_text("A\n800\nTEXTURE bar.png\n", encoding="utf-8", newline="")
 
     terrain_map = DefaultTerrainMap.from_dsf(str(dsf))
     assert terrain_map.is_projected(1) is True   # asphalt -> PROJECTED
@@ -236,7 +236,7 @@ def test_parse_work_package_0_excerpt(tmp_path, monkeypatch):
     dsf.write_bytes(b"7z-fake-dsf")
     text = end / "+00+000.dsf.text"
     with open(_WP0_FIXTURE, "r", encoding="utf-8") as src:
-        text.write_text(src.read())
+        text.write_text(src.read(), encoding="utf-8", newline="")
     now = os.path.getmtime(text)
     os.utime(str(dsf), (now - 100, now - 100))
     monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
@@ -293,7 +293,7 @@ def test_dsftool_launch_uses_external_tool_kwargs(tmp_path, monkeypatch):
     def fake_run(cmd, **kwargs):
         seen.append((cmd, kwargs))
         # Materialise the output file the caller expects.
-        open(cmd[3], "w").close()
+        open(cmd[3], "w", encoding="utf-8", newline="").close()
         return _sp.CompletedProcess(cmd, 0, b"", b"")
 
     monkeypatch.setattr(D.subprocess, "run", fake_run)
@@ -323,7 +323,7 @@ def test_dsftool_fallback_launch_also_uses_external_tool_kwargs(
         calls.append((cmd, kwargs))
         if len(calls) == 1:
             raise _sp.CalledProcessError(-11, cmd)
-        open(cmd[3], "w").close()
+        open(cmd[3], "w", encoding="utf-8", newline="").close()
         return _sp.CompletedProcess(cmd, 0, b"", b"")
 
     monkeypatch.setattr(D.subprocess, "run", fake_run)
@@ -349,7 +349,7 @@ def test_from_tile_accepts_parent_of_the_scenery_pack(tmp_path, monkeypatch):
     dsf.write_bytes(b"fake-dsf")
     text = end / "+00+000.dsf.text"
     with open(SYNTHETIC_TERRAIN, "r", encoding="utf-8") as src:
-        text.write_text(src.read())
+        text.write_text(src.read(), encoding="utf-8", newline="")
     now = os.path.getmtime(text)
     os.utime(str(dsf), (now - 100, now - 100))
 

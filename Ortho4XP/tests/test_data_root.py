@@ -134,7 +134,7 @@ def test_seed_shipped_patches_copies_into_empty_data_root(
 ):
     shipped = tmp_path / "bundle" / "Patches"
     (shipped / "+30+030").mkdir(parents=True)
-    (shipped / "+30+030" / "patch.txt").write_text("shipped")
+    (shipped / "+30+030" / "patch.txt").write_text("shipped", encoding="utf-8", newline="")
     monkeypatch.setattr(
         FNAMES, "resource_path", lambda rel: str(tmp_path / "bundle" / rel)
     )
@@ -142,7 +142,7 @@ def test_seed_shipped_patches_copies_into_empty_data_root(
     FNAMES.seed_shipped_patches()
     assert (
         tmp_path / "data" / "Patches" / "+30+030" / "patch.txt"
-    ).read_text() == "shipped"
+    ).read_text(encoding="utf-8") == "shipped"
 
 
 def test_seed_shipped_patches_never_touches_adopted_folder(
@@ -152,16 +152,16 @@ def test_seed_shipped_patches_never_touches_adopted_folder(
     Patches folder must survive byte-for-byte, gaining nothing."""
     shipped = tmp_path / "bundle" / "Patches"
     shipped.mkdir(parents=True)
-    (shipped / "shipped_only.txt").write_text("shipped")
+    (shipped / "shipped_only.txt").write_text("shipped", encoding="utf-8", newline="")
     existing = tmp_path / "data" / "Patches"
     existing.mkdir(parents=True)
-    (existing / "user_patch.txt").write_text("mine")
+    (existing / "user_patch.txt").write_text("mine", encoding="utf-8", newline="")
     monkeypatch.setattr(
         FNAMES, "resource_path", lambda rel: str(tmp_path / "bundle" / rel)
     )
     FNAMES.set_data_root(str(tmp_path / "data"))
     FNAMES.seed_shipped_patches()
-    assert (existing / "user_patch.txt").read_text() == "mine"
+    assert (existing / "user_patch.txt").read_text(encoding="utf-8") == "mine"
     assert sorted(os.listdir(existing)) == ["user_patch.txt"]
 
 

@@ -96,7 +96,7 @@ def _write_patch_osm(path, inner, outer):
             lines.append(f"    <tag k='{k}' v='{val}' />")
         lines.append("  </way>")
     lines.append("</osm>")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 def _write_poly(path, edges):
@@ -104,7 +104,7 @@ def _write_poly(path, edges):
     for k, (a, b) in enumerate(edges, start=1):
         out.append(f"{k} {a + 1} {b + 1} {MESH.PATCH_RING_MARKER}")
     out.append("0")
-    path.write_text("\n".join(out) + "\n")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
 
 
 @pytest.fixture()
@@ -321,7 +321,7 @@ class TestTheAnnulusIsARegionWithAMaximumArea:
         vector_map.seed_areas[("INTERP_ALT", 1)] = 4.0e-8
         path = tmp_path / "regions.poly"
         vector_map.write_poly_file(str(path))
-        records = [line.split() for line in path.read_text().splitlines()
+        records = [line.split() for line in path.read_text(encoding="utf-8").splitlines()
                    if line.strip()][-2:]
         assert len(records[0]) == 4, records[0]      # unsized: unchanged
         assert len(records[1]) == 5, records[1]
@@ -330,7 +330,7 @@ class TestTheAnnulusIsARegionWithAMaximumArea:
     def test_the_regional_area_flag_rides_with_the_attribute_flag(self):
         """``-a`` is read from the ``.poly`` only when NOT refining; with
         ``-r`` Triangle4XP demands an ``.area`` file and exits 1."""
-        source = (SRC / "O4_Mesh_Utils.py").read_text()
+        source = (SRC / "O4_Mesh_Utils.py").read_text(encoding="utf-8")
         assert 'regional_areas = "a" if do_refine == "A" else ""' in source
         assert '"-pq" + "{:.9g}".format(tile.min_angle) + do_refine + ' \
                'regional_areas +' in source
@@ -424,7 +424,7 @@ def test_triangle_puts_vertices_inside_a_region_that_asks_for_them(tmp_path):
     n_in, n_out = len(inner), len(outer)
 
     base = tmp_path / "annulus"
-    with open(str(base) + ".node", "w") as handle:
+    with open(str(base) + ".node", "w", encoding="utf-8", newline="") as handle:
         handle.write(f"{len(pts)} 2 1 0\n")
         for index, ((x, y), z) in enumerate(zip(pts, zs), start=1):
             handle.write(f"{index} {x:.9f} {y:.9f} {z:.9f}\n")
@@ -435,7 +435,7 @@ def test_triangle_puts_vertices_inside_a_region_that_asks_for_them(tmp_path):
     scalx = float(numpy.cos((LAT + 0.5) * numpy.pi / 180.0))
     max_area = ((bank_m / divisions) / DEG) ** 2 / scalx
     seed_x, seed_y = rel(inner_m + bank_m / 2.0, 0.0)
-    with open(str(base) + ".poly", "w") as handle:
+    with open(str(base) + ".poly", "w", encoding="utf-8", newline="") as handle:
         handle.write("0 2 1 0\n\n")
         handle.write(f"{len(edges)} 1\n")
         for k, (a, b) in enumerate(edges, start=1):
@@ -457,7 +457,7 @@ def test_triangle_puts_vertices_inside_a_region_that_asks_for_them(tmp_path):
         pytest.skip(f"no Triangle4XP at {cmd[0]}")
     subprocess.run(cmd, check=True, capture_output=True, cwd=str(tmp_path))
 
-    out_nodes = Path(str(base) + ".1.node").read_text().splitlines()
+    out_nodes = Path(str(base) + ".1.node").read_text(encoding="utf-8").splitlines()
     produced = int(out_nodes[0].split()[0])
     free = produced - len(pts)
     assert free >= BANK_REGION_MIN_FREE_VERTICES, (
@@ -529,7 +529,7 @@ def _write_rings_osm(path, rings):
             lines.append(f"    <tag k='{k}' v='{val}' />")
         lines.append("  </way>")
     lines.append("</osm>")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 @pytest.fixture()
@@ -850,8 +850,8 @@ def _augment_with_pre_valued(annulus, tmp_path, monkeypatch):
         for k, val in tags:
             extra.append(f"    <tag k='{k}' v='{val}' />")
         extra.append("  </way>")
-    text = path.read_text().replace("</osm>", "\n".join(extra) + "\n</osm>")
-    path.write_text(text)
+    text = path.read_text(encoding="utf-8").replace("</osm>", "\n".join(extra) + "\n</osm>")
+    path.write_text(text, encoding="utf-8", newline="")
     monkeypatch.setattr(MESH.FNAMES, "patch_dir",
                         lambda lat, lon: str(patch_dir))
 

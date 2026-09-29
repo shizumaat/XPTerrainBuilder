@@ -76,7 +76,7 @@ def _install_stub_modules(monkeypatch, models, placements, recorded):
         recorded["apt_block"] = block
         target = Path(pack_directory) / "Earth nav data"
         target.mkdir(parents=True, exist_ok=True)
-        (target / "apt.dat").write_text("I\n1100\n" + block + "99\n")
+        (target / "apt.dat").write_text("I\n1100\n" + block + "99\n", encoding="utf-8", newline="")
 
     def compute_exclusions(placed_objects, padding_meters=20.0):
         recorded["exclusion_input"] = list(placed_objects)
@@ -119,7 +119,7 @@ def _make_fixture(tmp_path):
     custom_scenery.mkdir()
     global_airports = tmp_path / "Global Airports"
     (global_airports / "Earth nav data").mkdir(parents=True)
-    (global_airports / "Earth nav data" / "apt.dat").write_text("I\n1100\n99\n")
+    (global_airports / "Earth nav data" / "apt.dat").write_text("I\n1100\n99\n", encoding="utf-8", newline="")
     return models, placements, msfs_directory, custom_scenery, global_airports
 
 
@@ -161,7 +161,7 @@ def test_full_orchestration_flow(tmp_path, monkeypatch):
     assert list((pack / "objects").glob("*.obj"))
     assert not (pack / "_msfs_staging").exists()
     # apt.dat written with the extracted block.
-    assert "KTST" in (pack / "Earth nav data" / "apt.dat").read_text()
+    assert "KTST" in (pack / "Earth nav data" / "apt.dat").read_text(encoding="utf-8")
     # Warnings propagate (package warning + skipped placement).
     assert any("pkg-warning" in w for w in report.warnings)
     assert any("skipped" in w for w in report.warnings)

@@ -180,7 +180,7 @@ def _frame_rectangle_to_pavement_polygon(
 
 def _write_obj8(path, *body_lines: str) -> None:
     header = ["A", "800", "OBJ", ""]
-    path.write_text("\n".join(header + list(body_lines)) + "\n")
+    path.write_text("\n".join(header + list(body_lines)) + "\n", encoding="utf-8", newline="")
 
 
 class TestHardnessStateMachine:
@@ -1516,7 +1516,7 @@ def _load_geometry(placements, pack_root):
 class TestEgllSmoke:
     def test_tunnels_grouped_and_tunnel_two_mouths(self):
         lines = open(
-            os.path.join(_SCRATCH, "egll.dsf.txt"), errors="replace"
+            os.path.join(_SCRATCH, "egll.dsf.txt"), errors="replace", encoding="utf-8"
         ).read().splitlines()
         placements = obj8_reader.read_dsf_object_placements(
             lines,
@@ -1565,7 +1565,7 @@ class TestEgllSmoke:
 
     def test_buried_buildings_are_not_tunnels(self):
         lines = open(
-            os.path.join(_SCRATCH, "egll.dsf.txt"), errors="replace"
+            os.path.join(_SCRATCH, "egll.dsf.txt"), errors="replace", encoding="utf-8"
         ).read().splitlines()
         targets = set(self.BURIED_BUILDING_RESOURCES)
         placements = obj8_reader.read_dsf_object_placements(
@@ -1598,7 +1598,7 @@ class TestEgllSmoke:
 class TestKbnaSmoke:
     def test_taxiway_l_deck_carried_bridge(self):
         lines = open(
-            os.path.join(_SCRATCH, "kbna_airport.txt"), errors="replace"
+            os.path.join(_SCRATCH, "kbna_airport.txt"), errors="replace", encoding="utf-8"
         ).read().splitlines()
         placements = obj8_reader.read_dsf_object_placements(
             lines,
@@ -1665,7 +1665,7 @@ class TestKbnaSmoke:
 class TestEddfSmoke:
     def test_hard_deck_bridges_are_terrain_carried(self):
         lines = open(
-            os.path.join(_SCRATCH, "eddf.txt"), errors="replace"
+            os.path.join(_SCRATCH, "eddf.txt"), errors="replace", encoding="utf-8"
         ).read().splitlines()
         placements = obj8_reader.read_dsf_object_placements(
             lines,
@@ -1693,7 +1693,7 @@ class TestEddfSmoke:
         a REAL bridge, recognized geometrically via the amendment-A4
         plain-hard deck path, not by name-hint luck."""
         lines = open(
-            os.path.join(_SCRATCH, "eddf.txt"), errors="replace"
+            os.path.join(_SCRATCH, "eddf.txt"), errors="replace", encoding="utf-8"
         ).read().splitlines()
         placements = obj8_reader.read_dsf_object_placements(
             lines,
@@ -1746,7 +1746,7 @@ _KMCO_PACK = os.path.join(
 class TestKmcoSmoke:
     def _classify(self):
         lines = open(
-            os.path.join(_SCRATCH, "kmco.txt"), errors="replace"
+            os.path.join(_SCRATCH, "kmco.txt"), errors="replace", encoding="utf-8"
         ).read().splitlines()
         placements = obj8_reader.read_dsf_object_placements(
             lines,
@@ -1973,7 +1973,7 @@ class TestEllxSmoke:
         A8-calibrated 95% threshold; flagged for a supervisor ruling in
         the workstream report rather than tuned."""
         lines = open(
-            os.path.join(_SCRATCH, "ellx.txt"), errors="replace"
+            os.path.join(_SCRATCH, "ellx.txt"), errors="replace", encoding="utf-8"
         ).read().splitlines()
         placements = obj8_reader.read_dsf_object_placements(
             lines,
@@ -2012,7 +2012,7 @@ class TestLfpgTerminalOneSmoke:
         with the true depth (-8 in the reference hand patch)
         under-specified - hence bound-not-target."""
         lines = open(
-            os.path.join(_SCRATCH, "lfpg1.txt"), errors="replace"
+            os.path.join(_SCRATCH, "lfpg1.txt"), errors="replace", encoding="utf-8"
         ).read().splitlines()
         placements = obj8_reader.read_dsf_object_placements(
             lines,
@@ -2049,7 +2049,7 @@ class TestLfpgTerminalTwoSmoke:
         exactly A7's measured values) actually ships in pack 2
         (TAIMODELS), KHU1 family - reported, not forced."""
         lines = open(
-            os.path.join(_SCRATCH, "lfpg2.txt"), errors="replace"
+            os.path.join(_SCRATCH, "lfpg2.txt"), errors="replace", encoding="utf-8"
         ).read().splitlines()
         placements = obj8_reader.read_dsf_object_placements(
             lines,
@@ -2292,7 +2292,7 @@ class TestKbnaStandaloneDrapeEvidence:
             except (ValueError, Exception):
                 continue
         lines = open(
-            os.path.join(_SCRATCH, "kbna_airport.txt"), errors="replace"
+            os.path.join(_SCRATCH, "kbna_airport.txt"), errors="replace", encoding="utf-8"
         ).read().splitlines()
         placements = obj8_reader.read_dsf_object_placements(
             lines,

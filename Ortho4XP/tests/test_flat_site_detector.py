@@ -727,9 +727,9 @@ def test_site_class_is_a_registered_sidecar_evidence_key(tmp_path):
 
     record = _classify(SyntheticDEM(lambda x, y: np.zeros_like(x)))
     patch = tmp_path / "TEST_auto.patch.osm"
-    patch.write_text("<osm></osm>")
+    patch.write_text("<osm></osm>", encoding="utf-8", newline="")
     (tmp_path / "TEST_auto.patch.osm.axes.json").write_text(
-        json.dumps({"site_class": record}))
+        json.dumps({"site_class": record}), encoding="utf-8", newline="")
 
     evidence = cg.sidecar_evidence(str(patch))
     assert evidence["unknown_keys"] == []

@@ -223,7 +223,7 @@ def test_t6b_a_stale_payload_is_refused_and_a_frame_entry_change_moves_it(tmp_pa
     monkeypatch.setattr(partition_cache, "_CODE_DIGEST", None)
     before = partition_cache.code_digest()
     other = tmp_path / "frame_entry.py"
-    other.write_text(pathlib.Path(fe.__file__).read_text() + "\n# moved\n")
+    other.write_text(pathlib.Path(fe.__file__).read_text(encoding="utf-8") + "\n# moved\n", encoding="utf-8", newline="")
     monkeypatch.setattr(fe, "__file__", str(other))
     monkeypatch.setattr(partition_cache, "_CODE_DIGEST", None)
     assert partition_cache.code_digest() != before
@@ -280,7 +280,7 @@ def test_g1_no_placement_affine_outside_frame_entry():
     for p in _py_files():
         if p.name == "frame_entry.py":
             continue
-        for node in ast.walk(ast.parse(p.read_text(), str(p))):
+        for node in ast.walk(ast.parse(p.read_text(encoding="utf-8"), str(p))):
             if not isinstance(node, ast.Call):
                 continue
             name = _attr_name(node.func) if isinstance(node.func, ast.Attribute) \
@@ -321,7 +321,7 @@ def test_g2_the_union_sites_hold_no_bare_union():
     seen = set()
     bad = []
     for p in _py_files():
-        tree = ast.parse(p.read_text(), str(p))
+        tree = ast.parse(p.read_text(encoding="utf-8"), str(p))
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.ClassDef)):
                 continue

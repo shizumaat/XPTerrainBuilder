@@ -56,7 +56,7 @@ def objs(tmp_path_factory):
     d = tmp_path_factory.mktemp("packc") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     return {
         "dir": d,
         # authored 2 m under its own zero, a deck at +2.6 over it
@@ -539,7 +539,7 @@ def test_the_law_digest_changes_when_the_affordance_table_changes(tmp_path):
     shutil.copytree(DEFAULT_LAW_DIR, d, ignore=shutil.ignore_patterns("__pycache__"))
     before = law_tables_digest(d)
     assert "airports.toml" in before["files"]
-    (d / "airports.toml").write_text("[LEMD]\nkerb_wall_corridors = true\n")
+    (d / "airports.toml").write_text("[LEMD]\nkerb_wall_corridors = true\n", encoding="utf-8", newline="")
     after = law_tables_digest(d)
     assert after["sha256"] != before["sha256"]
     assert Law.for_airport("LEMD", law_dir=d).affordances.kerb_wall_corridors is True

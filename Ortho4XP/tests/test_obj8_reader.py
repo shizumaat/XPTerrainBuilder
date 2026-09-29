@@ -74,7 +74,7 @@ def test_tab_separated_vertex_and_index_lines_parse():
 def test_vertex_line_indices_parallel_to_vertices():
     geometry = load_object_file(fixture_path("two_boxes_tab_separated.obj"))
     assert len(geometry.vertex_line_indices) == len(geometry.vertices)
-    with open(fixture_path("two_boxes_tab_separated.obj")) as handle:
+    with open(fixture_path("two_boxes_tab_separated.obj"), encoding="utf-8") as handle:
         lines = handle.read().splitlines()
     for vertex, line_index in zip(
         geometry.vertices, geometry.vertex_line_indices
@@ -148,7 +148,7 @@ def test_every_positional_command_keyword_round_trips_y():
     this is exactly the operation the rebake writer performs."""
     path = fixture_path("positional_commands_all.obj")
     geometry = load_object_file(path)
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         lines = handle.read().splitlines()
 
     keywords_seen = {command.keyword for command in geometry.positional_commands}
@@ -396,11 +396,11 @@ def test_resolve_object_resource_pack_relative_wins(tmp_path):
     resource_directory = pack_root / "Terminals"
     resource_directory.mkdir(parents=True)
     resource_file = resource_directory / "hangar.obj"
-    resource_file.write_text("A\n800\nOBJ\n")
+    resource_file.write_text("A\n800\nOBJ\n", encoding="utf-8", newline="")
     resolved = resolve_object_resource(
         "Terminals/hangar.obj", str(pack_root), None
     )
-    assert resolved == str(resource_file)
+    assert os.path.normpath(resolved) == str(resource_file)
 
 
 def test_resolve_object_resource_missing_everywhere(tmp_path):

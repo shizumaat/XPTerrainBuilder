@@ -46,7 +46,7 @@ def _write_feed(root: Path, lat: int, lon: int) -> Path:
     d = Path(_osm.tile_dir(str(root), lat, lon))
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"{lat:+03d}{lon:+04d}_{_osm.SHORE_FEED}.osm"
-    p.write_text(_FEED)
+    p.write_text(_FEED, encoding="utf-8", newline="")
     return p
 
 
@@ -66,7 +66,7 @@ def test_the_shore_feed_is_a_loader_feed_with_its_own_whitelist(tmp_path):
 def test_the_general_feeds_still_drop_the_shore_tags(tmp_path):
     d = Path(_osm.tile_dir(str(tmp_path), 22, 113))
     d.mkdir(parents=True)
-    (d / "+22+113_airports.osm").write_text(_FEED)
+    (d / "+22+113_airports.osm").write_text(_FEED, encoding="utf-8", newline="")
     doc = _osm.load_feed(str(tmp_path), "airports", 22.15, 113.57)
     assert doc.ways[0].tags == {"highway": "footway", "name": "Cais"}
 

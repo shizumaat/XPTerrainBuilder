@@ -45,7 +45,7 @@ def objs(tmp_path_factory):
     d = tmp_path_factory.mktemp("pack") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     return {"dir": d,
             "wall1": _wall_obj(d / "wall1.obj", thick=1.0, end_a=True)}   # U, 1 m walls
 

@@ -21,6 +21,11 @@ from auto_patch import agp_reader as A
 from auto_patch.dsf_reader import _read_dsf_object_placements
 
 
+def _fwd(p):
+    """A native path in '/' spelling, so suffix checks hold on Windows (#92)."""
+    return str(p).replace("\\", "/")
+
+
 @pytest.fixture(autouse=True)
 def sandbox_ortho4xp_data_root(tmp_path, monkeypatch):
     """The library-index sidecar lands under the Ortho4XP data root,
@@ -73,7 +78,7 @@ _MPP = 60.0 / 128.0
 
 def _write(tmp_path, name, text):
     p = tmp_path / name
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8", newline="")
     return str(p)
 
 
@@ -141,14 +146,14 @@ def test_library_resolve_and_memoization(tmp_path):
     root = _make_xplane_root(tmp_path)
     pack = root / "Custom Scenery" / "MyPack"
     pack.mkdir()
-    (pack / "h.agp").write_text(_AGP_60x60)
+    (pack / "h.agp").write_text(_AGP_60x60, encoding="utf-8", newline="")
     (pack / "library.txt").write_text(
-        "EXPORT lib/airport/Common_Elements/Hangars/Test.agp\th.agp\n")
+        "EXPORT lib/airport/Common_Elements/Hangars/Test.agp\th.agp\n", encoding="utf-8", newline="")
 
     virtual = "lib/airport/Common_Elements/Hangars/Test.agp"
     phys = A.resolve_library_path(virtual, str(root))
     assert phys is not None
-    assert phys.endswith("MyPack/h.agp")
+    assert _fwd(phys).endswith("MyPack/h.agp")
     # Built once and shared.
     assert (A.get_library_index(str(root))
             is A.get_library_index(str(root)))
@@ -159,18 +164,18 @@ def test_custom_scenery_overrides_default(tmp_path):
     virtual = "lib/airport/Common_Elements/Hangars/Test.agp"
 
     default_dir = root / "Resources" / "default scenery" / "airport scenery"
-    (default_dir / "from_default.agp").write_text(_AGP_60x60)
+    (default_dir / "from_default.agp").write_text(_AGP_60x60, encoding="utf-8", newline="")
     (default_dir / "library.txt").write_text(
-        f"EXPORT {virtual}\tfrom_default.agp\n")
+        f"EXPORT {virtual}\tfrom_default.agp\n", encoding="utf-8", newline="")
 
     pack = root / "Custom Scenery" / "Override"
     pack.mkdir()
-    (pack / "from_custom.agp").write_text(_AGP_60x60)
+    (pack / "from_custom.agp").write_text(_AGP_60x60, encoding="utf-8", newline="")
     (pack / "library.txt").write_text(
-        f"EXPORT {virtual}\tfrom_custom.agp\n")
+        f"EXPORT {virtual}\tfrom_custom.agp\n", encoding="utf-8", newline="")
 
     phys = A.resolve_library_path(virtual, str(root))
-    assert phys.endswith("Override/from_custom.agp")
+    assert _fwd(phys).endswith("Override/from_custom.agp")
 
 
 def test_resolve_missing_returns_none(tmp_path):
@@ -197,16 +202,16 @@ def _install(tmp_path, packs, ini_order=None, default=None):
     default_dir = root / "Resources" / "default scenery" / "airport scenery"
     default_dir.mkdir(parents=True)
     if default:
-        (default_dir / "library.txt").write_text(default)
+        (default_dir / "library.txt").write_text(default, encoding="utf-8", newline="")
     for name, exports in packs.items():
         pack = custom / name
         pack.mkdir()
-        (pack / "library.txt").write_text(exports)
+        (pack / "library.txt").write_text(exports, encoding="utf-8", newline="")
     if ini_order is not None:
         (custom / "scenery_packs.ini").write_text(
             "I\n1000 Version\nSCENERY\n\n" + "".join(
                 f"SCENERY_PACK Custom Scenery/{name}/\n"
-                for name in ini_order))
+                for name in ini_order), encoding="utf-8", newline="")
     return root
 
 
@@ -270,7 +275,7 @@ def test_sidecar_hit_equals_fresh_parse(tmp_path):
     assert second == expected              # ...and byte-for-byte the same
     # Priority survives the round trip: Bravo leads the ini, so it wins
     # the shared virtual path over Alpha and over default scenery.
-    assert second["lib/shared.agp"].endswith("Bravo/bravo.agp")
+    assert _fwd(second["lib/shared.agp"]).endswith("Bravo/bravo.agp")
 
 
 def test_sidecar_written_under_the_data_root_not_the_install(tmp_path):
@@ -334,7 +339,7 @@ def test_invalidates_when_a_library_txt_is_edited(tmp_path):
     root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
     assert "lib/new.agp" not in _cold_index(root)
     (root / "Custom Scenery" / "Alpha" / "library.txt").write_text(
-        _PACKS["Alpha"] + "EXPORT lib/new.agp\tnew.agp\n")
+        _PACKS["Alpha"] + "EXPORT lib/new.agp\tnew.agp\n", encoding="utf-8", newline="")
     assert "lib/new.agp" in _assert_rebuilds_to_truth(root)
 
 
@@ -343,7 +348,7 @@ def test_invalidates_when_a_pack_is_added(tmp_path):
     _cold_index(root)
     added = root / "Custom Scenery" / "Charlie"
     added.mkdir()
-    (added / "library.txt").write_text("EXPORT lib/c.agp\tc.agp\n")
+    (added / "library.txt").write_text("EXPORT lib/c.agp\tc.agp\n", encoding="utf-8", newline="")
     assert "lib/c.agp" in _assert_rebuilds_to_truth(root)
 
 
@@ -357,23 +362,23 @@ def test_invalidates_when_a_pack_is_removed(tmp_path):
 
 def test_invalidates_when_scenery_packs_ini_is_reordered(tmp_path):
     root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
-    assert _cold_index(root)["lib/shared.agp"].endswith("Alpha/alpha.agp")
+    assert _fwd(_cold_index(root)["lib/shared.agp"]).endswith("Alpha/alpha.agp")
     # Same packs, same library.txt files — only the priority order moves.
     (root / "Custom Scenery" / "scenery_packs.ini").write_text(
         "I\n1000 Version\nSCENERY\n\n"
         "SCENERY_PACK Custom Scenery/Bravo/\n"
-        "SCENERY_PACK Custom Scenery/Alpha/\n")
+        "SCENERY_PACK Custom Scenery/Alpha/\n", encoding="utf-8", newline="")
     index = _assert_rebuilds_to_truth(root)
-    assert index["lib/shared.agp"].endswith("Bravo/bravo.agp")
+    assert _fwd(index["lib/shared.agp"]).endswith("Bravo/bravo.agp")
 
 
 def test_invalidates_when_scenery_packs_ini_is_removed(tmp_path):
     root = _install(tmp_path, _PACKS, ini_order=["Bravo", "Alpha"])
-    assert _cold_index(root)["lib/shared.agp"].endswith("Bravo/bravo.agp")
+    assert _fwd(_cold_index(root)["lib/shared.agp"]).endswith("Bravo/bravo.agp")
     (root / "Custom Scenery" / "scenery_packs.ini").unlink()
     # No ini → packs fall back to sorted (highest priority first) order,
     # so the winner flips from ini-led Bravo to alphabetical Alpha.
-    assert _assert_rebuilds_to_truth(root)["lib/shared.agp"].endswith(
+    assert _fwd(_assert_rebuilds_to_truth(root)["lib/shared.agp"]).endswith(
         "Alpha/alpha.agp")
 
 
@@ -384,16 +389,16 @@ def test_invalidates_when_scenery_packs_ini_is_removed(tmp_path):
 # path and supply footprint geometry for objects that do not exist.
 def _ini(root, lines):
     (root / "Custom Scenery" / "scenery_packs.ini").write_text(
-        "I\n1000 Version\nSCENERY\n\n" + "".join(f"{ln}\n" for ln in lines))
+        "I\n1000 Version\nSCENERY\n\n" + "".join(f"{ln}\n" for ln in lines), encoding="utf-8", newline="")
 
 
 def test_disabled_pack_never_wins_a_virtual_path(tmp_path):
     root = _install(tmp_path, _PACKS, ini_order=["Bravo", "Alpha"])
-    assert _cold_index(root)["lib/shared.agp"].endswith("Bravo/bravo.agp")
+    assert _fwd(_cold_index(root)["lib/shared.agp"]).endswith("Bravo/bravo.agp")
     _ini(root, ["SCENERY_PACK_DISABLED Custom Scenery/Bravo/",
                 "SCENERY_PACK Custom Scenery/Alpha/"])
     index = _assert_rebuilds_to_truth(root)
-    assert index["lib/shared.agp"].endswith("Alpha/alpha.agp")
+    assert _fwd(index["lib/shared.agp"]).endswith("Alpha/alpha.agp")
 
 
 def test_disabled_pack_contributes_no_exports_at_all(tmp_path):
@@ -411,7 +416,7 @@ def test_unlisted_pack_keeps_its_lowest_priority_slot(tmp_path):
     root = _install(tmp_path, _PACKS, ini_order=["Alpha"])
     index = _cold_index(root)
     assert "lib/b.agp" in index
-    assert index["lib/shared.agp"].endswith("Alpha/alpha.agp")
+    assert _fwd(index["lib/shared.agp"]).endswith("Alpha/alpha.agp")
 
 
 def test_invalidates_on_a_cache_version_bump(tmp_path, monkeypatch):
@@ -495,9 +500,9 @@ def test_footprint_lonlat_heading_rotation(tmp_path):
     root = _make_xplane_root(tmp_path)
     pack = root / "Custom Scenery" / "P"
     pack.mkdir()
-    (pack / "h.agp").write_text(_AGP_60x60)
+    (pack / "h.agp").write_text(_AGP_60x60, encoding="utf-8", newline="")
     virtual = "lib/airport/Common_Elements/Hangars/T.agp"
-    (pack / "library.txt").write_text(f"EXPORT {virtual}\th.agp\n")
+    (pack / "library.txt").write_text(f"EXPORT {virtual}\th.agp\n", encoding="utf-8", newline="")
 
     lon0, lat0 = -81.0, 28.0
     ring0 = A.agp_footprint_lonlat(virtual, lon0, lat0, 0.0, str(root))

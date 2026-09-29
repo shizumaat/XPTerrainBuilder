@@ -86,9 +86,9 @@ def _patch(tmp_path, name, *, apron, membrane, other=None,
         wid -= 1
     out.append("</osm>\n")
     p = tmp_path / name
-    p.write_text("".join(out))
+    p.write_text("".join(out), encoding="utf-8", newline="")
     (tmp_path / (name + ".axes.json")).write_text(json.dumps(
-        {"anchor": list(ANCHOR), "ruleset": "icao"}))
+        {"anchor": list(ANCHOR), "ruleset": "icao"}), encoding="utf-8", newline="")
     return p
 
 
@@ -205,7 +205,7 @@ def test_the_cli_json_IS_the_library_result(tmp_path, capsys):
                membrane=[(100, -100), (100, 100)])
     out = tmp_path / "r.json"
     assert LOR.main([str(p), "--json", str(out)]) == 0
-    payload = json.loads(out.read_text())
+    payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload[str(p)] == LOR.read(p)
     assert "leaving the apron footprint" in capsys.readouterr().out
 
@@ -216,7 +216,7 @@ def test_the_tool_is_in_the_index():
     for cand in (_ROOT.parent / "tools" / "INDEX.md",
                  _ROOT / "tools" / "INDEX.md"):
         if cand.exists():
-            text = cand.read_text()
+            text = cand.read_text(encoding="utf-8")
             break
     else:                                                 # pragma: no cover
         pytest.skip("no tools/INDEX.md reachable from this checkout")
@@ -358,7 +358,7 @@ def test_the_CLI_on_edge_JSON_is_the_library_result(tmp_path, capsys):
                feature="apron_spine_station")
     out = tmp_path / "out.json"
     assert LOR.main([str(p), "--on-edge", "--json", str(out)]) == 0
-    payload = json.loads(out.read_text())
+    payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload[str(p)] == json.loads(json.dumps(LOR.read_on_edge(p)))
     assert "sit ON a ring edge" in capsys.readouterr().out
 
@@ -372,7 +372,7 @@ def test_the_on_edge_read_still_REFUSES_without_a_sidecar(tmp_path):
 
 
 def test_the_index_row_documents_the_on_edge_subcommand():
-    index = (_ROOT.parent / "tools" / "INDEX.md").read_text()
+    index = (_ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     row = [ln for ln in index.splitlines()
            if "lattice_overlap_read.py" in ln]
     assert row, "the tool has no INDEX.md row"

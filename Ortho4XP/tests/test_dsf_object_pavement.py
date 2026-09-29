@@ -172,7 +172,7 @@ def _write_obj8(path, vertices, *, draped_triangles=(), solid_triangles=(),
     if solid_index_count:
         lines.append("ATTR_no_draped")
         lines.append(f"TRIS {draped_index_count} {solid_index_count}")
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("\n".join(lines) + "\n")
 
 
@@ -406,9 +406,9 @@ def _write_fake_dsf(tmp_path, body):
     dsf_directory = pack_root / "Earth nav data" / "+30-090"
     dsf_directory.mkdir(parents=True)
     dsf = dsf_directory / "+35-081.dsf"
-    dsf.write_text("binary-placeholder")
+    dsf.write_text("binary-placeholder", encoding="utf-8", newline="")
     text = dsf_directory / "+35-081.dsf.text"
-    text.write_text(body)
+    text.write_text(body, encoding="utf-8", newline="")
     now = os.path.getmtime(text)
     os.utime(dsf, (now - 10, now - 10))
     return str(dsf), str(pack_root)

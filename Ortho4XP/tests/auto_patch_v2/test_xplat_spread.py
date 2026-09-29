@@ -423,9 +423,9 @@ def test_compare_projection_runs_without_any_third_party_package(tmp_path):
     a = tmp_path / "a.json"
     b = tmp_path / "b.json"
     rows = [(0.1 * k, 0.2 * k, 1000.0 + k, 2000.0 + k) for k in range(50)]
-    a.write_text(json.dumps(_dump(rows)))
+    a.write_text(json.dumps(_dump(rows)), encoding="utf-8", newline="")
     shifted = [(lon, lat, x + 4e-5, y) for lon, lat, x, y in rows]
-    b.write_text(json.dumps(_dump(shifted, "linux")))
+    b.write_text(json.dumps(_dump(shifted, "linux")), encoding="utf-8", newline="")
     script = os.path.join(_ROOT, "scripts", "check_frozen_tile.py")
     env = dict(os.environ)
     env["PYTHONNOUSERSITE"] = "1"

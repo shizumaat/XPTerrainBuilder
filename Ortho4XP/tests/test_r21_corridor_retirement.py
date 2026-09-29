@@ -69,7 +69,7 @@ class TestTheKeyIsGone:
         readers = []
         for path in SRC.rglob("*.py"):
             for number, line in enumerate(
-                    path.read_text(errors="ignore").splitlines(), 1):
+                    path.read_text(errors="ignore", encoding="utf-8").splitlines(), 1):
                 if KEY not in line:
                     continue
                 stripped = line.strip()
@@ -115,7 +115,7 @@ class TestAStaleCfgIsCLEANEDUP:
         build = tmp_path / "zOrtho4XP_+22+113"
         build.mkdir()
         path = build / ("Ortho4XP_" + FNAMES.short_latlon(22, 113) + ".cfg")
-        path.write_text(SM.tile_cfg_stamp_line() + text)
+        path.write_text(SM.tile_cfg_stamp_line() + text, encoding="utf-8", newline="")
         return path
 
     def _tile(self, tmp_path, text):
@@ -149,7 +149,7 @@ class TestAStaleCfgIsCLEANEDUP:
         assert tile.read_from_config() == 1
 
         # the file has neither retired key…
-        after = path.read_text()
+        after = path.read_text(encoding="utf-8")
         assert KEY not in after
         assert self.SECOND not in after
         # …the live keys around them survived…
@@ -163,8 +163,8 @@ class TestAStaleCfgIsCLEANEDUP:
         # …and the .bak the existing writer makes still carries both.
         backup = Path(str(path) + ".bak")
         assert backup.is_file()
-        assert KEY in backup.read_text()
-        assert self.SECOND in backup.read_text()
+        assert KEY in backup.read_text(encoding="utf-8")
+        assert self.SECOND in backup.read_text(encoding="utf-8")
 
         output = capsys.readouterr().out
         assert len(re.findall("removed retired key " + KEY, output)) == 1
@@ -184,7 +184,7 @@ class TestAStaleCfgIsCLEANEDUP:
         output = capsys.readouterr().out
         assert len(re.findall("removed retired key " + KEY, output)) == 1
         assert "WARNING" not in output
-        assert KEY not in path.read_text()
+        assert KEY not in path.read_text(encoding="utf-8")
 
     def test_ANOTHER_cfg_carrying_it_is_its_own_cleanup(self, tmp_path,
                                                         capsys):
@@ -196,13 +196,13 @@ class TestAStaleCfgIsCLEANEDUP:
             path = build / ("Ortho4XP_" + FNAMES.short_latlon(lat, lon)
                             + ".cfg")
             path.write_text(SM.tile_cfg_stamp_line()
-                            + KEY + "=" + OWNER_DECL + "\n")
+                            + KEY + "=" + OWNER_DECL + "\n", encoding="utf-8", newline="")
             paths.append(path)
             CFG.Tile(lat, lon, str(build)).read_from_config()
         output = capsys.readouterr().out
         assert len(re.findall("removed retired key " + KEY, output)) == 2
         for path in paths:
-            assert KEY not in path.read_text()
+            assert KEY not in path.read_text(encoding="utf-8")
 
     # ── a clean cfg is not touched ──────────────────────────────────
     def test_a_cfg_with_no_retired_key_is_untouched_BYTE_FOR_BYTE(
@@ -213,7 +213,7 @@ class TestAStaleCfgIsCLEANEDUP:
         text = "# a comment\nauto_patch=ICAO\n\nmesh_zl=19\n"
         tile, path = self._tile(tmp_path, text)
         assert tile.read_from_config() == 1
-        assert path.read_text() == SM.tile_cfg_stamp_line() + text
+        assert path.read_text(encoding="utf-8") == SM.tile_cfg_stamp_line() + text
         assert not Path(str(path) + ".bak").exists()
         assert "removed retired key" not in capsys.readouterr().out
 
@@ -235,7 +235,7 @@ class TestAStaleCfgIsCLEANEDUP:
             assert len(re.findall("IGNORED", output)) == 1
             assert "INFO" in output
             assert "WARNING" not in output
-            assert path.read_text() == (SM.tile_cfg_stamp_line()
+            assert path.read_text(encoding="utf-8") == (SM.tile_cfg_stamp_line()
                                         + text)   # untouched
             assert not Path(str(path) + ".bak").exists()
         finally:
@@ -249,9 +249,9 @@ class TestAStaleCfgIsCLEANEDUP:
         path = tmp_path / "Ortho4XP.cfg"
         path.write_text(KEY + "=" + OWNER_DECL + "\n"
                         + self.SECOND + "=123.0\nmesh_zl=19\n"
-                        "some_unknown_key=keep me\n")
+                        "some_unknown_key=keep me\n", encoding="utf-8", newline="")
         SM.write_global({"mesh_zl": "18"}, str(path))
-        after = path.read_text()
+        after = path.read_text(encoding="utf-8")
         assert KEY not in after
         assert self.SECOND not in after
         assert "mesh_zl=18" in after
@@ -265,12 +265,12 @@ class TestAStaleCfgIsCLEANEDUP:
         re-triggered headlessly)."""
         self._reset()
         path = tmp_path / "Ortho4XP.cfg"
-        path.write_text(KEY + "=" + OWNER_DECL + "\nmesh_zl=19\n")
+        path.write_text(KEY + "=" + OWNER_DECL + "\nmesh_zl=19\n", encoding="utf-8", newline="")
         lines = CV.cleanup_retired_cfg_keys(str(path))
         assert lines == ["removed retired key " + KEY + " from "
                          + os.path.abspath(str(path))]
-        assert path.read_text() == "mesh_zl=19\n"
-        assert KEY in Path(str(path) + ".bak").read_text()
+        assert path.read_text(encoding="utf-8") == "mesh_zl=19\n"
+        assert KEY in Path(str(path) + ".bak").read_text(encoding="utf-8")
 
     def test_the_cleanup_never_raises(self, tmp_path):
         """A cleanup that throws is a cleanup that breaks builds."""

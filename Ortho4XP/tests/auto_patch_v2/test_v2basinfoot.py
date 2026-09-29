@@ -104,7 +104,7 @@ def _pit_with_ramp(path, hx=30.0, hz=20.0, depth=DEPTH, ramp_len=RAMP_LEN,
     lines += ["IDX " + " ".join(str(i) for i in idx[k:k + 10])
               for k in range(0, len(idx), 10)]
     lines.append(f"TRIS 0 {len(idx)}")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return path
 
 

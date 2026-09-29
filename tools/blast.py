@@ -117,7 +117,9 @@ def scan_paths():
             dirs[:] = sorted(d for d in dirs
                              if not any(k.strip("/") == d for k in SKIP))
             for name in sorted(f for f in files if f.endswith(".py")):
-                rel = os.path.relpath(os.path.join(base, name), REPO)
+                # index keys are '/'-spelled on every OS (#92)
+                rel = os.path.relpath(os.path.join(base, name),
+                                      REPO).replace(os.sep, "/")
                 if not any(k in "/" + rel for k in SKIP):
                     out.append(rel)
     return out
@@ -641,9 +643,9 @@ def normalize(arg):
               os.path.join(os.getcwd(), arg)):
         if os.path.exists(c):
             real = os.path.realpath(c)
-            return ((os.path.relpath(real, REPO), True)
+            return ((os.path.relpath(real, REPO).replace(os.sep, "/"), True)
                     if real.startswith(REPO + os.sep) else (c, True))
-    return os.path.normpath(arg), False
+    return os.path.normpath(arg).replace(os.sep, "/"), False
 
 
 def _names(paths, n=10):

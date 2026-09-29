@@ -54,7 +54,7 @@ def trace():
 def _sidecar(layout, tmp_path):
     p = tmp_path / "p.osm"
     layout._write_axes_sidecar(str(p))
-    return json.loads((tmp_path / "p.osm.axes.json").read_text())
+    return json.loads((tmp_path / "p.osm.axes.json").read_text(encoding="utf-8"))
 
 
 def test_the_sidecar_publishes_pad_binding_routes_unconditionally(tmp_path):
@@ -169,10 +169,10 @@ _OTHER = {"pad": "building9", "seat_m": 8.0, "off_network": True}
 
 def _write_sidecar(tmp_path, box, name="HECA_auto.patch.osm"):
     patch = tmp_path / name
-    patch.write_text("<osm version='0.6'></osm>")
+    patch.write_text("<osm version='0.6'></osm>", encoding="utf-8", newline="")
     (tmp_path / (name + ".axes.json")).write_text(json.dumps(
         {"anchor": [30.0, 31.0], "ruleset": "icao",
-         **({} if box is None else {"pad_binding_routes": box})}))
+         **({} if box is None else {"pad_binding_routes": box})}), encoding="utf-8", newline="")
     return patch
 
 
@@ -190,7 +190,7 @@ def test_the_kml_render_carries_both_routes(trace, tmp_path, monkeypatch,
     out = tmp_path / "routes.kml"
     assert _run(trace, monkeypatch,
                 ["--from-sidecar", str(patch), "--out", str(out)]) == 0
-    kml = out.read_text()
+    kml = out.read_text(encoding="utf-8")
     # every hop of every chain, in KML's own lon,lat,0 spelling
     for (la, lo) in (_RECORD["sides"]["ceiling"]["route_ll"]
                      + _RECORD["sides"]["floor"]["route_ll"]):
@@ -211,7 +211,7 @@ def test_the_osm_render_carries_the_tags(trace, tmp_path, monkeypatch):
     out = tmp_path / "routes.osm"
     assert _run(trace, monkeypatch,
                 ["--from-sidecar", str(patch), "--out", str(out)]) == 0
-    osm = out.read_text()
+    osm = out.read_text(encoding="utf-8")
     for tag in ('k="pad_binding_route" v="ceiling"',
                 'k="pad_binding_route" v="floor"',
                 'k="pad" v="building25"',
@@ -250,7 +250,7 @@ def test_the_ref_filter_is_honoured(trace, tmp_path, monkeypatch, capsys):
     assert _run(trace, monkeypatch,
                 ["--from-sidecar", str(patch), "--ref", "building25",
                  "--out", str(out)]) == 0
-    kml = out.read_text()
+    kml = out.read_text(encoding="utf-8")
     assert "building25" in kml and "building9" not in kml
 
     with pytest.raises(SystemExit) as exc:
@@ -318,4 +318,4 @@ def test_the_axes_json_path_is_accepted_directly(trace, tmp_path,
     assert _run(trace, monkeypatch,
                 ["--from-sidecar", str(patch) + ".axes.json",
                  "--out", str(out)]) == 0
-    assert "building25" in out.read_text()
+    assert "building25" in out.read_text(encoding="utf-8")

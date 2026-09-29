@@ -196,7 +196,7 @@ def test_the_patch_frame_reader_names_its_failure(fa, tmp_path):
     bare None that reads as 'clean tree' — an unstamped patch gets a
     stated reason."""
     p = tmp_path / "unstamped.patch.osm"
-    p.write_text("<?xml version='1.0'?>\n<osm version='0.6'></osm>\n")
+    p.write_text("<?xml version='1.0'?>\n<osm version='0.6'></osm>\n", encoding="utf-8", newline="")
     sha, note = fa.patch_frame(str(p))
     assert sha is None and isinstance(note, str) and note
 
@@ -299,7 +299,7 @@ def test_the_budget_agreement_contract_is_a_named_constant(trr):
     route-budget quantity, so its contract has to be nameable and quotable."""
     assert isinstance(trr.ROUTE_BUDGET_AGREEMENT_M, float)
     assert trr.ROUTE_BUDGET_AGREEMENT_M > 0
-    src = (TOOLS / "trace_reach_route.py").read_text()
+    src = (TOOLS / "trace_reach_route.py").read_text(encoding="utf-8")
     assert "do not equate" not in src, (
         "the BUDGET DRIFT line must report the number and the measured "
         "frame comparison, not instruct the reader")
@@ -320,7 +320,7 @@ _STAMPED = (
 
 def _write(tmp_path, name, text):
     p = tmp_path / name
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8", newline="")
     return p
 
 
@@ -431,8 +431,8 @@ def test_a_directory_expands_to_its_patch_files(pp, tmp_path):
     d.mkdir()
     for name in ("a.patch.osm", "b.patch.osm"):
         (d / name).write_text(_STAMPED.format(
-            sha="abc", dirty="false", dem="base+inset(X)"))
-    (d / "notes.txt").write_text("ignore me")
+            sha="abc", dirty="false", dem="base+inset(X)"), encoding="utf-8", newline="")
+    (d / "notes.txt").write_text("ignore me", encoding="utf-8", newline="")
     assert len(pp._collect_patch_files([str(d)])) == 2
 
 
@@ -544,8 +544,8 @@ def test_by_role_breakdown_reads_each_node_role_once(fa, tmp_path):
            "<way id='-11'><nd ref='-2'/><tag k='role' v='building'/></way>\n"
            "</osm>\n")
     on, off = tmp_path / "on.osm", tmp_path / "off.osm"
-    on.write_text(osm.format(a=700.0, b=701.5))
-    off.write_text(osm.format(a=700.0, b=700.0))
+    on.write_text(osm.format(a=700.0, b=701.5), encoding="utf-8", newline="")
+    off.write_text(osm.format(a=700.0, b=700.0), encoding="utf-8", newline="")
     roles = {}
     vals, _nodes = fa.load(str(on), None, roles)
     assert len(vals) == 2 and set(roles.values()) == {"apron"}, "first way wins"

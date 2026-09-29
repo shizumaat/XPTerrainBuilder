@@ -24,7 +24,7 @@ import O4_Tile_Info as TI  # noqa: E402
 ##############################################################################
 def _write(path, text=""):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(text)
 
 
@@ -318,7 +318,7 @@ def test_iter_scan_matches_scan_and_reports_progress(tmp_path):
         bd = _tile_build_dir(wd, lat, lon)
         _make_dsf(bd, lat, lon)
         _make_cfg(bd, lat, lon)
-    (tmp_path / "not_a_tile.txt").write_text("junk")
+    (tmp_path / "not_a_tile.txt").write_text("junk", encoding="utf-8", newline="")
     (tmp_path / "SomeOtherFolder").mkdir()
 
     steps = list(TI.iter_scan_tiles(wd))

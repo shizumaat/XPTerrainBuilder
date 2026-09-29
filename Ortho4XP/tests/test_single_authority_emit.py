@@ -54,7 +54,7 @@ STRIP_Z = 63.91
 
 def _emit(layout, path):
     layout.to_osm(path)
-    return Path(path).read_text()
+    return Path(path).read_text(encoding="utf-8")
 
 
 def _node_alt_at_origin(text):
@@ -187,7 +187,7 @@ def test_divergence_census_is_write_only(tmp_path, monkeypatch):
 
     assert Path(reported).read_bytes() == Path(plain).read_bytes()
     assert census.exists()
-    payload = json.loads(census.read_text())
+    payload = json.loads(census.read_text(encoding="utf-8"))
     assert payload["mode"] == "emit"
     assert payload["n_unauthored"] == 0
     row = next(r for r in payload["rows"]
@@ -202,7 +202,7 @@ def test_emit_mode_census_records_applied_mode(tmp_path, monkeypatch):
     census = tmp_path / "div.json"
     monkeypatch.setenv("O4_EMIT_DIVERGENCE_CENSUS", str(census))
     _emit(_four_authority_layout(), str(tmp_path / "p.osm"))
-    assert json.loads(census.read_text())["mode"] == "emit"
+    assert json.loads(census.read_text(encoding="utf-8"))["mode"] == "emit"
 
 
 # ── the pure-soft sub-gate ──────────────────────────────────────────────

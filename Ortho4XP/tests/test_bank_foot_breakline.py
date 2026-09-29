@@ -198,12 +198,12 @@ def _write_poly(tmp_path, edges, nodes):
     node.write_text(
         f"{len(nodes)} 2 1 0\n" + "".join(
             f"{i + 1} {x:.9f} {y:.9f} 0.000000000\n"
-            for i, (x, y) in enumerate(nodes)))
+            for i, (x, y) in enumerate(nodes)), encoding="utf-8", newline="")
     poly.write_text(
         "0 2 1 0\n\n" + f"{len(edges)} 1\n"
         + "".join(f"{k + 1} {a} {b} {m}\n"
                   for k, (a, b, m) in enumerate(edges))
-        + "\n0\n\n0\n")
+        + "\n0\n\n0\n", encoding="utf-8", newline="")
     return poly
 
 

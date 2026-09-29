@@ -171,7 +171,7 @@ def test_two_tiles_overlap_and_complete(stub_worker, tmp_path):
 
     # Overlap proof: the LAST start precedes the FIRST end.
     def _mark(kind, lat, lon):
-        with open(os.path.join(tmp_path, "%s_%d_%d" % (kind, lat, lon))) as h:
+        with open(os.path.join(tmp_path, "%s_%d_%d" % (kind, lat, lon)), encoding="utf-8") as h:
             return float(h.read())
 
     starts = [_mark("start", *t) for t in tiles]
@@ -370,7 +370,7 @@ def test_enqueued_tiles_start_on_free_slots_beyond_initial_batch(
 
     def _mark(kind, lat, lon):
         with open(os.path.join(
-                tmp_path, "%s_%d_%d" % (kind, lat, lon))) as handle:
+                tmp_path, "%s_%d_%d" % (kind, lat, lon)), encoding="utf-8") as handle:
             return float(handle.read())
 
     added_starts = [_mark("start", *tile) for tile in added]

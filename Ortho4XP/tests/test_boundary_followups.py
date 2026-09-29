@@ -128,7 +128,7 @@ def frame_sandbox(monkeypatch, tmp_path):
         if not marker.exists():
             time.sleep(0.2)                  # a download takes a while
             fetched["osm"] += 1
-            marker.write_text("x")
+            marker.write_text("x", encoding="utf-8", newline="")
 
     def fake_insets(tile, dico, refresh=False, meter_key="airport-insets"):
         meter_keys.append(meter_key)
@@ -136,7 +136,7 @@ def frame_sandbox(monkeypatch, tmp_path):
         if not marker.exists():
             time.sleep(0.2)
             fetched["insets"] += 1
-            marker.write_text("{}")
+            marker.write_text("{}", encoding="utf-8", newline="")
 
     monkeypatch.setattr(VMAP.OSM, "OSM_queries_to_OSM_layer", fake_osm)
     monkeypatch.setattr(VMAP, "build_airports_dico", lambda tile, layer: {})
@@ -294,7 +294,7 @@ def _apron_candidate(tmp_path):
                       "111 %.7f %.7f" % (n, e), "113 %.7f %.7f" % (n, w)])
     path = tmp_path / "apron.dat"
     path.write_text("A\n1000 Version\n\n1 10 0 0 LPXX Test\n%s\n99\n" % body,
-                    encoding="utf-8")
+                    encoding="utf-8", newline="")
     return SEL.PatchCandidate("LPXX", "x.dat", {}, "patch", "", str(path))
 
 
@@ -382,7 +382,7 @@ def _auto_patch_file(patch_dir, icao, lat, lon):
     lines.append("  <way id='-100' action='modify' visible='true'>")
     lines += ["    <nd ref='%d' />" % r for r in refs + [refs[0]]]
     lines += ["    <tag k='cst_alt_abs' v='75' />", "  </way>", "</osm>"]
-    (patch_dir / ("%s_auto.patch.osm" % icao)).write_text("\n".join(lines))
+    (patch_dir / ("%s_auto.patch.osm" % icao)).write_text("\n".join(lines), encoding="utf-8", newline="")
 
 
 def test_skip_never_applies_a_stale_on_disk_auto_patch(monkeypatch,
@@ -461,7 +461,7 @@ def test_skip_is_absent_from_tasks_and_the_manifest(tmp_path, monkeypatch):
         boundary=lambda icao, rw, candidate=None:
         reason if icao == "KSKP" else None)
     stale = patch_dir / "KSKP_auto.patch.osm"
-    stale.write_text("<osm version='0.6'></osm>\n")
+    stale.write_text("<osm version='0.6'></osm>\n", encoding="utf-8", newline="")
     before = stale.read_bytes()
 
     auto_patched = driver.generate_auto_patches(

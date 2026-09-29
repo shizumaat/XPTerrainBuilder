@@ -434,6 +434,6 @@ def test_the_replay_can_drop_the_reach_alone(tmp_path):
     dropped by the row filter and is named here instead."""
     import pathlib
     src = pathlib.Path(__file__).resolve().parents[2] / "tools" / "v2_solve_replay.py"
-    text = src.read_text()
+    text = src.read_text(encoding="utf-8")
     assert "eat_ramp_reach" in text
     assert '("eat", "withdraw_trend_over_reach")' in text

@@ -381,8 +381,8 @@ def test_a_ring_edge_is_always_priced_across_a_route_boundary(law):
     import re
     from pathlib import Path as _P
     gen = (_P(__file__).resolve().parents[2] / "src" / "auto_patch_v2"
-           / "constraints" / "roads.py").read_text()
+           / "constraints" / "roads.py").read_text(encoding="utf-8")
     assert "A RING EDGE IS ALWAYS PRICED" in gen
     assert re.search(r"if j != i \+ 1 and not \(i == 0 and j == n - 1\)", gen)
-    cen = (_P(__file__).resolve().parents[2] / "tools" / "check_grade.py").read_text()
+    cen = (_P(__file__).resolve().parents[2] / "tools" / "check_grade.py").read_text(encoding="utf-8")
     assert "A RING EDGE IS ALWAYS PRICED" in cen

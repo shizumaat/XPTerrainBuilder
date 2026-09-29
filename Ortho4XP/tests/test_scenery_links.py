@@ -32,7 +32,7 @@ def dirs(tmp_path):
     build.mkdir(parents=True)
     # Put some content in the build dir to assert it is never touched.
     (build / "Earth nav data").mkdir()
-    (build / "Earth nav data" / "data.dsf").write_text("payload")
+    (build / "Earth nav data" / "data.dsf").write_text("payload", encoding="utf-8", newline="")
     return str(scenery), str(build)
 
 
@@ -84,7 +84,7 @@ def test_uninstall_removes_only_link(dirs):
     # Build dir and its contents untouched.
     assert os.path.isfile(os.path.join(build, "Earth nav data", "data.dsf"))
     assert (
-        open(os.path.join(build, "Earth nav data", "data.dsf")).read() == "payload"
+        open(os.path.join(build, "Earth nav data", "data.dsf"), encoding="utf-8").read() == "payload"
     )
     assert SL.link_status(LAT, LON, build, scenery) is LinkStatus.NOT_INSTALLED
 
@@ -153,7 +153,7 @@ def test_install_on_conflict_raises_and_dir_survives(dirs):
     scenery, build = dirs
     conflict = os.path.join(scenery, "zOrtho4XP_+48-006")
     os.mkdir(conflict)
-    with open(os.path.join(conflict, "marker.txt"), "w") as fh:
+    with open(os.path.join(conflict, "marker.txt"), "w", encoding="utf-8", newline="") as fh:
         fh.write("keep me")
     with pytest.raises(ValueError):
         SL.install(LAT, LON, build, scenery)
@@ -216,7 +216,7 @@ def test_grouped_install_status_uninstall(tmp_path):
     group = tmp_path / "Tiles" / "MyRegion"
     scenery.mkdir(parents=True)
     group.mkdir(parents=True)
-    (group / "content.txt").write_text("x")
+    (group / "content.txt").write_text("x", encoding="utf-8", newline="")
 
     assert (
         SL.link_status(LAT, LON, str(group), str(scenery), grouped=True)
@@ -292,7 +292,7 @@ def test_overlay_install_and_uninstall(tmp_path):
     overlays = tmp_path / "yOrtho4XP_Overlays"
     scenery.mkdir()
     overlays.mkdir()
-    (overlays / "o.txt").write_text("o")
+    (overlays / "o.txt").write_text("o", encoding="utf-8", newline="")
 
     SL.install_overlay_link(str(overlays), str(scenery))
     link = os.path.join(str(scenery), "yOrtho4XP_Overlays")
@@ -358,10 +358,10 @@ def test_uninstall_refuses_physical_and_data_survives(tmp_path):
     scenery.mkdir()
     build = scenery / "zOrtho4XP_+48-006"
     (build / "Earth nav data").mkdir(parents=True)
-    (build / "Earth nav data" / "data.dsf").write_text("payload")
+    (build / "Earth nav data" / "data.dsf").write_text("payload", encoding="utf-8", newline="")
     with pytest.raises(ValueError):
         SL.uninstall(LAT, LON, str(build), str(scenery))
-    assert (build / "Earth nav data" / "data.dsf").read_text() == "payload"
+    assert (build / "Earth nav data" / "data.dsf").read_text(encoding="utf-8") == "payload"
 
 
 def test_installed_tiles_includes_plain_tile_dirs(tmp_path):
@@ -375,7 +375,7 @@ def test_installed_tiles_includes_plain_tile_dirs(tmp_path):
     target.mkdir(parents=True)
     SL.install(48, -6, str(target), str(scenery))
     # A plain FILE squatting on a tile name must be skipped.
-    (scenery / "zOrtho4XP_+10+010").write_text("not a dir")
+    (scenery / "zOrtho4XP_+10+010").write_text("not a dir", encoding="utf-8", newline="")
 
     result = SL.installed_tiles(str(scenery))
     assert set(result) == {(36, -87), (48, -6)}

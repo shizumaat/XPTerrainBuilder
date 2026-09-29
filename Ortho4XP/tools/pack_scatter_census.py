@@ -229,7 +229,8 @@ def census(icao: str, xplane_root: str, mod_cache_root: str,
         deep = bool(min_y <= -bl.admission_depth_m)
         skirted = bool(_skirt.is_skirt(cache, res, law))
         deck = bool(_deck.elevated_deck(cache, res, law).deck)
-        row = {"resource": os.path.relpath(res, info["pack_root"])
+        # a pack-relative RESOURCE is a virtual path: '/' on every OS (#92)
+        row = {"resource": os.path.relpath(res, info["pack_root"]).replace(os.sep, "/")
                if info.get("pack_root") else res,
                "scatter": reading.scatter, "reason": reading.reason,
                "components": reading.components,

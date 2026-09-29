@@ -76,7 +76,7 @@ def test_eur_combined_provider_complete(imagery):
     assert "EUR" in imagery.combined_providers_dict
     comb = imagery.combined_providers_dict["EUR"]
     declared = 0
-    with open(os.path.join(REPO_ROOT, "Providers", "EUR.comb")) as f:
+    with open(os.path.join(REPO_ROOT, "Providers", "EUR.comb"), encoding="utf-8") as f:
         for line in f:
             line = line.split("#")[0].strip()
             if line:

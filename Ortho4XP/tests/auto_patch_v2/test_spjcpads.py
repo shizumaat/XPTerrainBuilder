@@ -145,7 +145,7 @@ def test_the_replay_pad_arm_refuses_a_resume_that_cannot_see_it(tmp_path):
 
 
 def test_from_classify_is_a_replay_resume():
-    src = _TOOL.read_text()
+    src = _TOOL.read_text(encoding="utf-8")
     assert '"classify"' in src and "--pad-read" in src
 
 

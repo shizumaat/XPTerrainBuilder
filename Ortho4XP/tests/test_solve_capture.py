@@ -73,7 +73,7 @@ def test_the_call_site_hands_the_capture_the_dict_it_then_calls_with():
     captured set and the called set cannot disagree.
     """
     from auto_patch import pipeline
-    src = Path(inspect.getsourcefile(pipeline)).read_text()
+    src = Path(inspect.getsourcefile(pipeline)).read_text(encoding="utf-8")
     fn = next(n for n in ast.parse(src).body
               if isinstance(n, ast.FunctionDef)
               and n.name == "build_airport_pavement")
@@ -146,7 +146,7 @@ def _fake_capture(tmp_path: Path) -> Path:
     sha = hashlib.sha256(blob.read_bytes()).hexdigest()
     (d / sc.MANIFEST_NAME).write_text(json.dumps({
         "capture_version": sc.CAPTURE_VERSION, "icao": "ZZZZ",
-        "state_file": sc.STATE_NAME, "state_sha256": sha, "env": {}}))
+        "state_file": sc.STATE_NAME, "state_sha256": sha, "env": {}}), encoding="utf-8", newline="")
     return d
 
 
@@ -159,9 +159,9 @@ def test_a_directory_that_is_not_a_capture_refuses(tmp_path):
 def test_a_stale_capture_version_refuses(tmp_path):
     from auto_patch import solve_capture as sc
     d = _fake_capture(tmp_path)
-    m = json.loads((d / sc.MANIFEST_NAME).read_text())
+    m = json.loads((d / sc.MANIFEST_NAME).read_text(encoding="utf-8"))
     m["capture_version"] = sc.CAPTURE_VERSION - 1
-    (d / sc.MANIFEST_NAME).write_text(json.dumps(m))
+    (d / sc.MANIFEST_NAME).write_text(json.dumps(m), encoding="utf-8", newline="")
     with pytest.raises(sc.CaptureError, match="capture version"):
         sc.load_capture(d)
 
@@ -334,7 +334,7 @@ def test_v1_dem_leak_class_refuses_missing_dem_cache(tmp_path):
     sha = hashlib.sha256(blob.read_bytes()).hexdigest()
     (d / sc.MANIFEST_NAME).write_text(json.dumps({
         "capture_version": sc.CAPTURE_VERSION, "icao": "ZZZZ",
-        "state_file": sc.STATE_NAME, "state_sha256": sha, "env": {}}))
+        "state_file": sc.STATE_NAME, "state_sha256": sha, "env": {}}), encoding="utf-8", newline="")
     with pytest.raises(sc.CaptureError, match="dem_cache"):
         sc.load_capture(d)
 
@@ -378,7 +378,7 @@ def test_load_capture_installs_the_captured_dem_and_the_build_root(tmp_path):
     sha = hashlib.sha256(blob.read_bytes()).hexdigest()
     (d / sc.MANIFEST_NAME).write_text(json.dumps({
         "capture_version": sc.CAPTURE_VERSION, "icao": "ZZZZ",
-        "state_file": sc.STATE_NAME, "state_sha256": sha, "env": {}}))
+        "state_file": sc.STATE_NAME, "state_sha256": sha, "env": {}}), encoding="utf-8", newline="")
 
     old_cache = dict(EL._DEM_CACHE)
     old_root = FSM.build_xplane_root()

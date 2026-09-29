@@ -7,7 +7,7 @@ runs = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 arms_f = ["highs_lp_phase1", "highs_lp_l1", "highs_raw_phase1", "admm_1e-4", "osqp_default", "osqp_polish",
           "osqp_1e-4_polish", "osqp_1e-6_polish"]
 arms_i = ["highs_lp_phase1", "highs_raw_phase1", "osqp_default", "osqp_1e-6_polish", "iis_deletion_seeded"]
-out = open(os.path.join(HERE, "results.jsonl"), "a")
+out = open(os.path.join(HERE, "results.jsonl"), "a", encoding="utf-8", newline="")
 for n in sizes:
     for kind, arms in (("f", arms_f), ("i", arms_i)):
         inst = os.path.join(HERE, f"inst/{kind}{n}.npz")

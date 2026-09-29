@@ -155,7 +155,7 @@ def test_the_gate_has_no_reader_left():
     root = pathlib.Path(__file__).resolve().parents[1] / "src"
     readers = []
     for path in root.rglob("*.py"):
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             if re.search(r"environ\.get\(\s*[\"']O4_BREAK_BLEND_CONTINUOUS",
                          line):
                 readers.append(f"{path}: {line.strip()}")

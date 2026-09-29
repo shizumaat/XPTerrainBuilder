@@ -148,10 +148,10 @@ def test_check_frozen_tile_compares_dumps_without_third_party(tmp_path):
     base = {"icao": "CYXY", "env": {"machine": "arm64"},
             "stages": {"load": {"counts": {"pavements": 75}},
                        "planar": {"counts": {"vertices": 4289}}}}
-    a.write_text(json.dumps(base))
+    a.write_text(json.dumps(base), encoding="utf-8", newline="")
     other = json.loads(json.dumps(base))
     other["stages"]["planar"]["counts"]["vertices"] = 4300
-    b.write_text(json.dumps(other))
+    b.write_text(json.dumps(other), encoding="utf-8", newline="")
     script = os.path.join(_ROOT, "scripts", "check_frozen_tile.py")
     env = dict(os.environ)
     env["PYTHONNOUSERSITE"] = "1"
@@ -168,7 +168,7 @@ def test_a_dump_of_one_platform_agrees_with_itself(tmp_path):
     a = tmp_path / "a.json"
     base = {"icao": "CYXY", "env": {"machine": "arm64"},
             "stages": {"load": {"counts": {"pavements": 75}}}}
-    a.write_text(json.dumps(base))
+    a.write_text(json.dumps(base), encoding="utf-8", newline="")
     script = os.path.join(_ROOT, "scripts", "check_frozen_tile.py")
     done = subprocess.run(
         [sys.executable, "-S", script, "--compare",

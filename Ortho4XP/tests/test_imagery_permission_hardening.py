@@ -111,7 +111,11 @@ def test_artifact_state_distinguishes_absent_from_unreadable(
     _deny_stat(monkeypatch, present)
     assert IMG.artifact_state(present) == "unreadable"
     # The pre-hardening probe collapses the two — this is the amplifier.
-    assert os.path.isfile(present) is False
+    # Posed through the os.stat patch, which only POSIX isfile routes
+    # through; Windows' os.path.isfile is the C builtin nt._path_isfile and
+    # never sees the patch (#92) — the law above holds on both.
+    if sys.platform != "win32":
+        assert os.path.isfile(present) is False
 
 
 # ---------------------------------------------------------------------------

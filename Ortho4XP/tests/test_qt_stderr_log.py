@@ -43,7 +43,7 @@ def test_the_line_lands_in_the_log_under_a_session_header(tmp_path):
     tee = GUI._StderrTee(io.StringIO(), path)
     tee.write("RuntimeWarning: invalid value encountered\n")
     tee.flush()
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         text = handle.read()
     assert text.startswith("=== engine session ")
     assert "RuntimeWarning: invalid value encountered" in text
@@ -53,7 +53,7 @@ def test_the_log_appends_across_sessions(tmp_path):
     path = str(tmp_path / "logs" / "engine-stderr.log")
     GUI._StderrTee(io.StringIO(), path).write("first\n")
     GUI._StderrTee(io.StringIO(), path).write("second\n")
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         text = handle.read()
     assert "first" in text and "second" in text
     assert text.count("=== engine session ") == 2
@@ -86,7 +86,7 @@ def test_an_unwritable_log_never_raises(tmp_path):
     """This object IS ``sys.stderr``: a logging failure must not take out
     the report of whatever was being logged."""
     blocked = tmp_path / "logs"
-    blocked.write_text("not a directory")
+    blocked.write_text("not a directory", encoding="utf-8", newline="")
     original = io.StringIO()
     tee = GUI._StderrTee(original, str(blocked / "engine-stderr.log"))
     tee.write("still reaches the terminal\n")
@@ -107,7 +107,7 @@ def qapp():
 
 def test_the_window_installs_the_tee(qapp, tmp_path, monkeypatch):
     prefs_path = str(tmp_path / "prefs.json")
-    with open(prefs_path, "w") as handle:
+    with open(prefs_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"output_dir": str(tmp_path)}, handle)
     monkeypatch.setattr(GUI, "PREFS_FILE", prefs_path)
     monkeypatch.setattr(
@@ -119,7 +119,7 @@ def test_the_window_installs_the_tee(qapp, tmp_path, monkeypatch):
     try:
         assert isinstance(sys.stderr, GUI._StderrTee)
         sys.stderr.write("RuntimeWarning: from the engine\n")
-        with open(str(tmp_path / "logs" / "engine-stderr.log")) as handle:
+        with open(str(tmp_path / "logs" / "engine-stderr.log"), encoding="utf-8") as handle:
             assert "RuntimeWarning: from the engine" in handle.read()
     finally:
         win._building = False

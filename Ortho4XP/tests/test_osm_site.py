@@ -72,7 +72,7 @@ def _feed_dialect() -> str:
 @pytest.fixture()
 def patch_file(tmp_path: Path) -> Path:
     path = tmp_path / "arm.osm"
-    path.write_text(_patch_dialect())
+    path.write_text(_patch_dialect(), encoding="utf-8", newline="")
     return path
 
 
@@ -101,7 +101,7 @@ class TestBothDialects:
 
     def test_reads_an_uncompressed_feed(self, tmp_path: Path) -> None:
         path = tmp_path / "feed.osm"
-        path.write_text(_feed_dialect())
+        path.write_text(_feed_dialect(), encoding="utf-8", newline="")
         nodes, _ways = osm_site.read_osm(str(path))
         assert len(nodes) == 2
 
@@ -187,7 +187,7 @@ class TestDump:
             "<osm version='0.6'>\n"
             "  <node id='-1' lat='35.2136411' lon='-80.9422253' />\n"
             "  <way id='-100'>\n    <nd ref='-1' />\n"
-            "    <nd ref='-999' />\n  </way>\n</osm>\n")
+            "    <nd ref='-999' />\n  </way>\n</osm>\n", encoding="utf-8", newline="")
         nodes, ways = osm_site.read_osm(str(path))
         rows = osm_site.dump_way(nodes, ways, "-100", PROBE)
         assert len(rows) == 2
@@ -205,7 +205,7 @@ class TestCli:
                             f"{PROBE[0]},{PROBE[1]}", "--radius", "60",
                             "--json", str(out)])
         assert rc == 0
-        report = json.loads(out.read_text())
+        report = json.loads(out.read_text(encoding="utf-8"))
         nodes, ways = osm_site.read_osm(str(patch_file))
         assert report["files"][0]["near"] == osm_site.ways_near(
             nodes, ways, PROBE, 60.0)
@@ -217,7 +217,7 @@ class TestCli:
         osm_site.main([str(patch_file), str(feed_file), "--at",
                        f"{PROBE[0]},{PROBE[1]}", "--radius", "200",
                        "--json", str(out)])
-        report = json.loads(out.read_text())
+        report = json.loads(out.read_text(encoding="utf-8"))
         assert [entry["path"] for entry in report["files"]] == [
             str(patch_file), str(feed_file)]
 
@@ -228,7 +228,7 @@ class TestCli:
         osm_site.main([str(patch_file), "--at",
                        f"{PROBE[0]},{PROBE[1]}", "--radius", "60",
                        "--tag-keys", "role", "--json", str(out)])
-        report = json.loads(out.read_text())
+        report = json.loads(out.read_text(encoding="utf-8"))
         assert report["files"][0]["near"][0]["tags"] == {
             "role": "tunnel_ramp"}
 
@@ -237,7 +237,7 @@ class TestCli:
         out = tmp_path / "dump.json"
         assert osm_site.main([str(feed_file), "--dump", "-9696",
                               "--json", str(out)]) == 0
-        rows = json.loads(out.read_text())["files"][0]["dump"]
+        rows = json.loads(out.read_text(encoding="utf-8"))["files"][0]["dump"]
         assert "distance_m" not in rows[0]
 
     def test_a_bare_read_without_at_or_dump_is_refused(
@@ -342,7 +342,7 @@ class TestDsfRoadNetworkSource:
                        "--json", str(out)])
         printed = capsys.readouterr().out
         assert "selected by polyline" in printed
-        entry = json.loads(out.read_text())["files"][0]
+        entry = json.loads(out.read_text(encoding="utf-8"))["files"][0]
         assert entry["selection_frame"] == "line"
         assert entry["near"][0]["way"] == "seg0"
 
@@ -370,7 +370,7 @@ def test_tool_is_in_the_index() -> None:
     absent, and every new tool lands WITH its index entry."""
     index = (Path(__file__).resolve().parents[2] / "tools" / "INDEX.md")
     assert index.exists(), index
-    text = index.read_text()
+    text = index.read_text(encoding="utf-8")
     assert "Ortho4XP/tools/osm_site.py" in text
     # The 2026-08-28 extensions land WITH their index prose: a capability
     # absent from the index is treated as absent.
@@ -438,7 +438,7 @@ def _big_ring_file(tmp_path) -> Path:
          _square(*_CENTRE, 60.0)),
         ("-11774", "tunnel_trench", "object_basin_trench",
          _square(_CENTRE[0], _CENTRE[1] - 0.002, 20.0)),
-    ]))
+    ]), encoding="utf-8", newline="")
     return path
 
 
@@ -476,7 +476,7 @@ class TestContainment:
         path.write_text(_ring_patch([
             ("-1", "building", "b", _square(*_CENTRE, 60.0)),
             ("-2", "building", "b", _square(*_CENTRE, 10.0)),
-        ]))
+        ]), encoding="utf-8", newline="")
         rings = osm_site._library_rings(str(path), _CENTRE)
         groups = osm_site.contains_at(rings, (0.0, 0.0))
         assert len(groups) == 1
@@ -509,7 +509,7 @@ class TestContainment:
         assert osm_site.main([
             str(path), "--at", f"{_CENTRE[0]},{_CENTRE[1]}",
             "--contains", "--json", str(out)]) == 0
-        report = json.loads(out.read_text())
+        report = json.loads(out.read_text(encoding="utf-8"))
         groups = report["files"][0]["contains"]
         rings = osm_site._library_rings(str(path), _CENTRE)
         assert groups == osm_site.contains_at(rings, (0.0, 0.0))
@@ -522,7 +522,7 @@ class TestContainment:
             "--line", f"{_CENTRE[0]},{_CENTRE[1]}:"
                       f"{_CENTRE[0] + 0.001},{_CENTRE[1]}",
             "--step", "2", "--json", str(out)]) == 0
-        rows = json.loads(out.read_text())["files"][0]["line"]
+        rows = json.loads(out.read_text(encoding="utf-8"))["files"][0]["line"]
         assert len(rows) > 10
         assert rows[0]["inside"], "the first station is inside the pad"
         assert not rows[-1]["inside"], "the last station left every ring"
@@ -535,7 +535,7 @@ class TestContainment:
         """Tool discipline (RULINGS ``7e90032``): a tool — and a
         question a tool newly answers — lands with its index entry."""
         index = (Path(__file__).resolve().parent.parent.parent
-                 / "tools" / "INDEX.md").read_text()
+                 / "tools" / "INDEX.md").read_text(encoding="utf-8")
         assert "tools/osm_site.py" in index
         assert "--contains" in index
 
@@ -571,7 +571,7 @@ def _tiling_pair_file(tmp_path) -> Path:
     path.write_text(_ring_patch([
         ("-10051", "service_road", "", left),
         ("-12306", "service_road", "tunnel_ramp", right),
-    ]))
+    ]), encoding="utf-8", newline="")
     return path
 
 
@@ -597,7 +597,7 @@ class TestRelate:
              _square(*_CENTRE, 30.0)),
             ("-2", "retaining_wall", "tunnel_wall",
              _square(*_CENTRE, 10.0)),
-        ]))
+        ]), encoding="utf-8", newline="")
         rings = osm_site._library_rings(str(path), _CENTRE)
         row = osm_site.relate_rings(rings, ["-1", "-2"])[0]
         assert row["overlap_m2"] > 350.0
@@ -608,13 +608,13 @@ class TestRelate:
         out = tmp_path / "relate.json"
         osm_site.main([str(path), "--at", f"{_CENTRE[0]},{_CENTRE[1]}",
                        "--radius", "200", "--relate", "--json", str(out)])
-        rows = json.loads(out.read_text())["files"][0]["relate"]
+        rows = json.loads(out.read_text(encoding="utf-8"))["files"][0]["relate"]
         rings = osm_site._library_rings(str(path), _CENTRE)
         assert rows == osm_site.relate_rings(rings, ["-10051", "-12306"])
 
     def test_the_index_row_names_relate(self):
         index = (Path(__file__).resolve().parent.parent.parent
-                 / "tools" / "INDEX.md").read_text()
+                 / "tools" / "INDEX.md").read_text(encoding="utf-8")
         assert "--relate" in index
 
 

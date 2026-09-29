@@ -105,9 +105,9 @@ class _PatchBuilder:
         osm = directory / name
         osm.write_text("\n".join(
             ["<?xml version='1.0' encoding='UTF-8'?>", "<osm version='0.6'>"]
-            + self.nodes + self.ways + ["</osm>"]))
+            + self.nodes + self.ways + ["</osm>"]), encoding="utf-8", newline="")
         (directory / (name + ".axes.json")).write_text(json.dumps(
-            {"anchor": [ANCHOR_LAT, ANCHOR_LON], "ruleset": "icao"}))
+            {"anchor": [ANCHOR_LAT, ANCHOR_LON], "ruleset": "icao"}), encoding="utf-8", newline="")
         return osm
 
 

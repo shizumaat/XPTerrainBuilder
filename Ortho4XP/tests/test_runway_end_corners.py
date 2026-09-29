@@ -95,7 +95,7 @@ def _patch(tmp_path, corner_z):
         wid -= 1
     out.append('</osm>')
     p = tmp_path / "fixture.patch.osm"
-    p.write_text("\n".join(out))
+    p.write_text("\n".join(out), encoding="utf-8", newline="")
     return p
 
 

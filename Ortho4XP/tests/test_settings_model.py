@@ -104,10 +104,10 @@ def test_write_global_drops_retired_keys(tmp_path):
         "airport_elevation_inset_resolution_m=3.0\n"
         "flat_site_declared_elevation_m=123.0\n"
         "mesh_zl=19\n"
-        "some_unknown_key=keep me\n"
+        "some_unknown_key=keep me\n", encoding="utf-8", newline=""
     )
     SM.write_global({"mesh_zl": "18"}, str(cfg))
-    after = cfg.read_text()
+    after = cfg.read_text(encoding="utf-8")
     assert "airport_elevation_inset_resolution_m" not in after
     assert "flat_site_declared_elevation_m" not in after
     assert "mesh_zl=18" in after
@@ -121,16 +121,16 @@ def test_the_cleanup_uses_THE_writer_and_keeps_the_backup(tmp_path):
     import O4_Cfg_Vars as CV
 
     cfg = tmp_path / "Ortho4XP.cfg"
-    cfg.write_text("airport_elevation_inset_resolution_m=3.0\nmesh_zl=19\n")
+    cfg.write_text("airport_elevation_inset_resolution_m=3.0\nmesh_zl=19\n", encoding="utf-8", newline="")
     CV._retired_cfg_reported.clear()
     lines = CV.cleanup_retired_cfg_keys(str(cfg))
     assert lines == [
         "removed retired key airport_elevation_inset_resolution_m from "
         + os.path.abspath(str(cfg))
     ]
-    assert cfg.read_text() == "mesh_zl=19\n"
+    assert cfg.read_text(encoding="utf-8") == "mesh_zl=19\n"
     assert "airport_elevation_inset_resolution_m" in (
-        tmp_path / "Ortho4XP.cfg.bak").read_text()
+        tmp_path / "Ortho4XP.cfg.bak").read_text(encoding="utf-8")
     # a second read of the same file has nothing left to say
     assert CV.cleanup_retired_cfg_keys(str(cfg)) == []
 
@@ -159,7 +159,7 @@ def test_read_global_raw_parses_and_strips_quotes(tmp_path):
         "\n"
         'overpass_server_choice="random"\n'
         "verbosity=2\n"
-        "unknown_future_key=hello\n"
+        "unknown_future_key=hello\n", encoding="utf-8", newline=""
     )
     raw = SM.read_global_raw(str(cfg))
     assert raw == {
@@ -174,7 +174,7 @@ def test_write_global_roundtrip_preserves_order_and_unknowns(tmp_path):
     cfg.write_text(
         "verbosity=1\n"
         "unknown_future_key=keepme\n"
-        "http_timeout=10.0\n"
+        "http_timeout=10.0\n", encoding="utf-8", newline=""
     )
     SM.write_global(
         {"verbosity": "3", "brand_new_key": "x"}, cfg_file=str(cfg))
@@ -182,10 +182,10 @@ def test_write_global_roundtrip_preserves_order_and_unknowns(tmp_path):
     # Backup holds the original content.
     bak = tmp_path / "Ortho4XP.cfg.bak"
     assert bak.is_file()
-    assert "verbosity=1" in bak.read_text()
+    assert "verbosity=1" in bak.read_text(encoding="utf-8")
 
     # New file: existing keys keep order + unknown preserved, new key appended.
-    lines = cfg.read_text().splitlines()
+    lines = cfg.read_text(encoding="utf-8").splitlines()
     assert lines == [
         "verbosity=3",
         "unknown_future_key=keepme",
@@ -226,7 +226,7 @@ def test_read_tile_raw_none_when_absent(tmp_path):
 def test_read_tile_raw_parses(tmp_path):
     build = _tile_dir(tmp_path)
     path = os.path.join(build, "Ortho4XP_+45+005.cfg")
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8", newline="") as f:
         # STAMPED (RULINGS 2026-09-18c (2)): an unstamped tile cfg is a
         # pre-1.0.352 file, MOVED aside on first touch rather than read.
         f.write(SM.tile_cfg_stamp_line() + "road_level=2\ndefault_zl=17\n")
@@ -242,12 +242,12 @@ def test_write_tile_sparse_overrides_and_preservation(tmp_path, monkeypatch):
     plus the preserved build-provenance trio."""
     # chdir so the default global cfg (FNAMES.resource_path) lives in tmp.
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Ortho4XP.cfg").write_text("road_level=4\n")
+    (tmp_path / "Ortho4XP.cfg").write_text("road_level=4\n", encoding="utf-8", newline="")
 
     build = _tile_dir(tmp_path)
     path = os.path.join(build, "Ortho4XP_+45+005.cfg")
     # Existing tile file: map-managed vars + one plain var to preserve.
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(
             SM.tile_cfg_stamp_line()          # RULINGS 2026-09-18c (2)
             + "zone_list=[['x']]\n"
@@ -286,7 +286,7 @@ def test_write_tile_sparse_overrides_and_preservation(tmp_path, monkeypatch):
 def test_write_tile_equal_value_removes_the_override(tmp_path, monkeypatch):
     """Setting a var to exactly its inherited value removes the override."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Ortho4XP.cfg").write_text("road_level=4\n")
+    (tmp_path / "Ortho4XP.cfg").write_text("road_level=4\n", encoding="utf-8", newline="")
     build = _tile_dir(tmp_path)
 
     SM.write_tile(45, 5, build, {"road_level": "5"})
@@ -307,7 +307,7 @@ def test_legacy_snapshot_is_MOVED_not_shrunk(tmp_path, monkeypatch):
     build = _tile_dir(tmp_path)
     path = os.path.join(build, "Ortho4XP_+45+005.cfg")
     # Legacy snapshot: every var written, only road_level truly differs.
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8", newline="") as f:
         for var in O4_Cfg_Vars.list_tile_vars:
             if var == "zone_list":
                 f.write("zone_list=[]\n")
@@ -466,7 +466,7 @@ def test_autodetect_cifp_empty_cases(tmp_path):
 # ---------------------------------------------------------------------------
 def test_legacy_tile_settings_none_for_a_current_config(tmp_path):
     build = _tile_dir(tmp_path)
-    with open(os.path.join(build, "Ortho4XP_+45+005.cfg"), "w") as f:
+    with open(os.path.join(build, "Ortho4XP_+45+005.cfg"), "w", encoding="utf-8", newline="") as f:
         f.write("default_website=BI\ndefault_zl=17\nroad_level=2\n")
     assert SM.legacy_tile_settings(45, 5, build) is None
 
@@ -478,7 +478,7 @@ def test_legacy_tile_settings_none_without_any_config(tmp_path):
 def test_legacy_tile_settings_reports_every_marker(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # no global cfg: replacements are defaults
     build = _tile_dir(tmp_path)
-    with open(os.path.join(build, "Ortho4XP.cfg"), "w") as f:
+    with open(os.path.join(build, "Ortho4XP.cfg"), "w", encoding="utf-8", newline="") as f:
         f.write(
             "default_website='Arc'\n"
             "default_zl=17\n"
@@ -498,10 +498,10 @@ def test_legacy_tile_settings_enum_replacement_comes_from_global(
     tmp_path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
-    with open(SM._default_global_cfg(), "w") as f:
+    with open(SM._default_global_cfg(), "w", encoding="utf-8", newline="") as f:
         f.write("texture_mode=airport_ortho\n")
     build = _tile_dir(tmp_path)
-    with open(os.path.join(build, "Ortho4XP_+45+005.cfg"), "w") as f:
+    with open(os.path.join(build, "Ortho4XP_+45+005.cfg"), "w", encoding="utf-8", newline="") as f:
         f.write("texture_mode=weird_mode\n")
     legacy = SM.legacy_tile_settings(45, 5, build)
     assert legacy["foreign_enums"] == [
@@ -517,7 +517,7 @@ def test_update_legacy_tile_settings_keeps_identity_only(
     monkeypatch.chdir(tmp_path)
     build = _tile_dir(tmp_path)
     generic = os.path.join(build, "Ortho4XP.cfg")
-    with open(generic, "w") as f:
+    with open(generic, "w", encoding="utf-8", newline="") as f:
         f.write(
             "default_website='Arc'\n"
             "default_zl=17\n"
@@ -542,7 +542,7 @@ def test_update_legacy_tile_settings_keeps_identity_only(
 def test_update_legacy_tile_settings_rewrites_canonical_in_place(tmp_path):
     build = _tile_dir(tmp_path)
     canonical = os.path.join(build, "Ortho4XP_+45+005.cfg")
-    with open(canonical, "w") as f:
+    with open(canonical, "w", encoding="utf-8", newline="") as f:
         f.write("default_zl=16\ntexture_mode=weird_mode\n")
     legacy = SM.legacy_tile_settings(45, 5, build)
     assert SM.update_legacy_tile_settings(legacy, build) == canonical
@@ -557,7 +557,7 @@ def test_the_backup_never_makes_the_cfg_VANISH(tmp_path, monkeypatch):
     reader that finds no global cfg RECREATES it from defaults, throwing
     the user's settings away.  The file must exist at every step."""
     cfg = tmp_path / "Ortho4XP.cfg"
-    cfg.write_text("mesh_zl=19\n")
+    cfg.write_text("mesh_zl=19\n", encoding="utf-8", newline="")
     seen = []
     real_replace = os.replace
 
@@ -569,5 +569,5 @@ def test_the_backup_never_makes_the_cfg_VANISH(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "replace", watched)
     SM.write_global({"mesh_zl": "18"}, str(cfg))
     assert seen and all(seen), "the cfg vanished during the backup"
-    assert cfg.read_text() == "mesh_zl=18\n"
-    assert (tmp_path / "Ortho4XP.cfg.bak").read_text() == "mesh_zl=19\n"
+    assert cfg.read_text(encoding="utf-8") == "mesh_zl=18\n"
+    assert (tmp_path / "Ortho4XP.cfg.bak").read_text(encoding="utf-8") == "mesh_zl=19\n"

@@ -217,10 +217,10 @@ def write_synthetic_patch(tmp_path, ways, *, sidecar=None,
     osm.write_text("<?xml version='1.0' encoding='UTF-8'?>\n"
                    "<osm version='0.6'>\n"
                    + "\n".join(node_lines) + "\n"
-                   + "\n".join(way_lines) + "\n</osm>\n")
+                   + "\n".join(way_lines) + "\n</osm>\n", encoding="utf-8", newline="")
     side = {"anchor": [lat0, lon0], "ruleset": "icao"}
     side.update(sidecar or {})
-    (tmp_path / (name + ".axes.json")).write_text(json.dumps(side))
+    (tmp_path / (name + ".axes.json")).write_text(json.dumps(side), encoding="utf-8", newline="")
     return osm
 
 
@@ -276,10 +276,19 @@ def _ui_verbosity_is_not_a_shared_mutable(request):
 #: precondition instead of asserting under one that is false — and it is
 #: a SKIP, so the same twins still measure everything on any unprivileged
 #: runner.
+#:
+#: WINDOWS POSES NONE OF THEM EITHER (#92): ``os.chmod`` there toggles only
+#: the read-only attribute — a file stays readable, a directory stays
+#: writable — so the same precondition is false for the same reason, and
+#: the same one predicate states it.
 needs_unprivileged_user = pytest.mark.skipif(
-    hasattr(os, "geteuid") and os.geteuid() == 0,
-    reason="running as root: chmod cannot make a path unreadable or "
-           "unwritable, so this twin's precondition cannot be posed")
+    sys.platform == "win32"
+    or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason=("Windows: os.chmod sets only the read-only flag, so it cannot "
+            "make a path unreadable or a directory unwritable"
+            if sys.platform == "win32" else
+            "running as root: chmod cannot make a path unreadable or "
+            "unwritable, so this twin's precondition cannot be posed"))
 
 
 def xplane_available() -> bool:
@@ -1148,7 +1157,7 @@ def _shared_repo_write_audit(request):
         return
     out = _suite_write_audit_out()
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    with open(out, "a", encoding="utf-8") as handle:
+    with open(out, "a", encoding="utf-8", newline="") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 

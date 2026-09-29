@@ -78,7 +78,7 @@ def _patch(tmp_path, name, rings):
         wid -= 1
     out.append("</osm>\n")
     p = tmp_path / name
-    p.write_text("".join(out))
+    p.write_text("".join(out), encoding="utf-8", newline="")
     return p
 
 
@@ -238,4 +238,4 @@ def test_the_tool_is_in_the_index():
     index = _ROOT.parent / "tools" / "INDEX.md"
     if not index.exists():                      # a lane worktree mirror
         pytest.skip("no repo-root tools/INDEX.md in this checkout")
-    assert "role_edge_census.py" in index.read_text()
+    assert "role_edge_census.py" in index.read_text(encoding="utf-8")

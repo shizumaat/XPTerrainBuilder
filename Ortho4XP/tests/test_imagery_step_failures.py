@@ -42,7 +42,7 @@ class _StubTile:
 
 def _make_mesh_file(build_dir):
     os.makedirs(build_dir, exist_ok=True)
-    with open(FNAMES.mesh_file(build_dir, 60, 5), "w") as handle:
+    with open(FNAMES.mesh_file(build_dir, 60, 5), "w", encoding="utf-8", newline="") as handle:
         handle.write("stub mesh\n")
 
 

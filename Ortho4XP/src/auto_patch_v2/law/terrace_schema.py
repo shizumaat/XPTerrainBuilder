@@ -41,6 +41,11 @@ class Terrace:
     #: already constrain it" — the AREA test that replaced the ring-EDGE
     #: superset one in ``emit/osm_adapter.render_patch``.
     hole_cover_eps: float
+    #: 28b THE PAD|APRON TERRACE FLOOR (owner RULINGS 2026-09-30i, issue
+    #: #11): a pad and a touching apron at another level split into a
+    #: declared terrace (``planar/pad_terrace``) only at a level gap of at
+    #: least this; under it they weld.
+    pad_terrace_floor_m: float
 
 
 def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -> None:
@@ -64,3 +69,5 @@ def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -
                   "not be negative (0 disarms §41 (4))")
     if not 0.0 <= tr.hole_cover_eps < 1.0:
         raise err("emit.terrace: hole_cover_eps must be a fraction in [0, 1)")
+    if tr.pad_terrace_floor_m <= 0.0:
+        raise err("emit.terrace: pad_terrace_floor_m must be positive")

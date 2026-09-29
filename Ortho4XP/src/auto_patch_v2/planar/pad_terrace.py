@@ -30,9 +30,10 @@ OTHER apron the pad TOUCHES (within ``[design] pad_frontage_m``, §20's
 own horizon) is TOUCH-AT-ANOTHER-LEVEL when the two aprons' levels differ
 by more than the pad could span welded to both: the pad's own hard
 ceiling ``emit.within_shape.pad_slope_max`` times the distance between
-the two contacts (the WELD BOUND), and never under §31 (1)'s
-``[cockpit] visual_m`` — a terrace the pilot cannot see is no terrace, and
-the DEM proxy is not trusted below it.  THE FRONT MUST NOT ITSELF TOUCH:
+the two contacts (the WELD BOUND), and never under ``[terrace]
+pad_terrace_floor_m`` (1.0 m, owner RULINGS 2026-09-30i; was §31 (1)'s
+``visual_m`` 0.5) — a gap under the floor WELDS, only a real terrace
+splits; the DEM proxy is not trusted below it.  THE FRONT MUST NOT ITSELF TOUCH:
 a pad touching the apron it fronts is §20's weld and is left exactly as
 it was (measured: requiring only "longest facing" split 60+ HECA pads
 touching two aprons on the hillside by DEM noise of 0.2-2 m — the #11
@@ -126,7 +127,7 @@ def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, 
     near = float(dl.pad_frontage_m)
     roles = set(dl.pad_fronting_roles)
     slope = float(law.tables.emit.within_shape.pad_slope_max)
-    visual = float(law.tables.emit.cockpit.visual_m)
+    floor = float(law.tables.emit.terrace.pad_terrace_floor_m)
     ident = law.tables.emit.identity
     gap = near + float(ident.min_distinct_spacing_m)
     pad_gap = float(ident.weld_spacing_m)
@@ -200,9 +201,10 @@ def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, 
             ct = np.mean(np.asarray(per[i]), axis=0)
             if len(per[i]) >= len(per[front]):
                 continue               # not the longest facing edge
-            bound = max(slope * float(np.hypot(*(cf - ct))), visual)
-            if abs(lt - lf) <= bound:
-                continue               # the pad spans both within its ceiling: weld
+            span = slope * float(np.hypot(*(cf - ct)))
+            bound = max(span, floor)
+            if abs(lt - lf) < floor or abs(lt - lf) <= span:
+                continue               # under the 30i floor, or the pad spans both within its ceiling: weld
             contact = P.exterior.intersection(base[i].polygon.buffer(near))
             line = tuple(tuple(c) for g in getattr(contact, "geoms", [contact])
                          for c in getattr(g, "coords", []))

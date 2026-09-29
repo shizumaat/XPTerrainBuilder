@@ -54,7 +54,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 rigid_reach_m: float = 0.0,
                 abutment_step_m: float = 0.0,
                 abutment_walk_max_m: float = 0.0,
-                cutter: "_LineCutter | None" = None
+                cutter: "_LineCutter | None" = None,
+                deck_own_ground_m: float = 0.0
                 ) -> list[_Raw]:
     """One member's bodies, classed and anchored — the per-placement half,
     unchanged by §14 except that the basin's rim anchor is now wired
@@ -205,7 +206,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
         # triangles — not the parts the partition happened to record.
         own_tris = (cutter.all_tris() if len(groups) == 1 else ())
         whole0 = _whole_body(parts, m, u, surface, pads, body_rims, split_tol_m,
-                             abutment_step_m, abutment_walk_max_m)
+                             abutment_step_m, abutment_walk_max_m,
+                             deck_own_ground_m)
         if is_elevated(base_min, whole0[1], elevated_base_m) or whole0[3]:
             # §16b (1): THE TERRAIN CUT IS PRIOR AND UNIVERSAL, and it is
             # read on the body's OWN WRITTEN TRIANGLES.  §16a (1) left a
@@ -318,7 +320,7 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 if whole is None:
                     whole = _whole_body(parts, m, u, surface, pads, body_rims,
                                         split_tol_m, abutment_step_m,
-                                        abutment_walk_max_m)
+                                        abutment_walk_max_m, deck_own_ground_m)
                 off = _pc.anchor_ground_off(whole[1], whole[2], surface)
             foot_pieces = (cutter.foot_groups(parts, surface, split_tol_m,
                                               line_stations_max)
@@ -387,6 +389,7 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                         u.anchor[0], u.anchor[1])
                     ta = _ar.anchor_for(tcls, tgeom, surface, pads, body_rims,
                                         tol_m=split_tol_m,
+                                        deck_own_ground_m=deck_own_ground_m,
                                         datum=_ar.datum_of(       # §16e
                                             m,
                                             abutment_step_m=abutment_step_m,
@@ -406,7 +409,7 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             if whole is None:
                 whole = _whole_body(parts, m, u, surface, pads, body_rims,
                                     split_tol_m, abutment_step_m,
-                                    abutment_walk_max_m)
+                                    abutment_walk_max_m, deck_own_ground_m)
             cls, a, feet, footless = whole
             gpts, _gs, gg = _geom_ground(
                 cutter, parts, own_tris if len(pieces_p) == 1 else (), surface)
@@ -486,7 +489,8 @@ def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
                 surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
                 rims: _t.Sequence[_ar.RimRing], split_tol_m: float,
                 abutment_step_m: float = 0.0,
-                abutment_walk_max_m: float = 0.0
+                abutment_walk_max_m: float = 0.0,
+                deck_own_ground_m: float = 0.0
                 ) -> tuple[str, _ar.Anchor, tuple, bool]:
     """One set of parts CLASSED and ANCHORED as a body: ``(class, anchor,
     feet, footless)`` — §6's rule, read once.
@@ -520,6 +524,7 @@ def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
                tuple((f[0], f[1], f[2]) for f in p.feet)) for p in parts),
         u.anchor[0], u.anchor[1])
     a = _ar.anchor_for(cls, geom, surface, pads, rims, tol_m=split_tol_m,
+                       deck_own_ground_m=deck_own_ground_m,       # 30g (3)
                        datum=_ar.datum_of(                       # §16e
                            m, abutment_step_m=abutment_step_m,
                            abutment_walk_max_m=abutment_walk_max_m,

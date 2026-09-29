@@ -307,6 +307,42 @@ def test_anchor_deck_is_merged_into_the_building_it_abuts():
     assert a.reason == "kerb (merged into objects/T4.obj)"
 
 
+def _visual_m() -> float:
+    from auto_patch_v2.law.model import Law
+    return float(Law.load().tables.emit.cockpit.visual_m)
+
+
+def test_kerb_deck_on_disagreeing_feet_seats_on_its_own_ground():
+    """RULINGS 2026-09-30g (3), #112: a kerb deck is NOT merged into the
+    abutting building when its own feet disagree with the building's
+    zero by more than ``[cockpit] visual_m`` — it seats on its own
+    ground.  HECA's ``T23/T3_road`` took the unit origin's 108.53 over
+    feet reading 93-98 and stood +12-14 m with its riders on it."""
+    vis = _visual_m()
+    # the building's zero at the origin 108.5; the deck's feet at y ~0
+    # over ground 94 (14.5 m below it)
+    surf = lambda la, lo: 108.5 if abs(lo + 3.0) < 1e-9 else 94.0
+    g = _geom([(40.0, -2.999, 0.0, ((40.0, -2.999, 0.0),
+                                    (40.0, -2.998, 0.0)))])
+    a = AR.anchor_for(AR.DECK, g, surf, tol_m=0.3, deck_own_ground_m=vis)
+    assert not a.reason.startswith("kerb (merged"), a.reason
+    assert abs((a.surface_z - a.y_zero) - 94.0) <= vis
+    # ...and 0 disarms it: the pre-30g merge
+    a0 = AR.anchor_for(AR.DECK, g, surf, tol_m=0.3, deck_own_ground_m=0.0)
+    assert a0.reason.startswith("kerb (merged")
+
+
+def test_kerb_deck_on_agreeing_feet_stays_merged():
+    """RULINGS 2026-09-30g (3): feet within ``visual_m`` of the building's
+    zero keep 11a's merge — the rule only lets go of a kerb that is
+    visibly off its own ground."""
+    vis = _visual_m()
+    surf = lambda la, lo: 100.0 if abs(lo + 3.0) < 1e-9 else 100.0 + 0.5 * vis
+    g = _geom([(40.0, -2.999, 0.0, ((40.0, -2.999, 0.0),))])
+    a = AR.anchor_for(AR.DECK, g, surf, tol_m=0.3, deck_own_ground_m=vis)
+    assert a.reason.startswith("kerb (merged"), a.reason
+
+
 # ── §9 / 11e (1): BODY COARSENING ────────────────────────────────────────
 
 def _body(i, z, y, n_feet=1, cls=AR.OTHER, lat=40.0, lon=-3.0):

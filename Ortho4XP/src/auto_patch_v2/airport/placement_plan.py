@@ -642,7 +642,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                               foot_band_m=foot_band_m,
                               coarsen_reach_m=coarsen_reach_m,
                               abutment_step_m=abutment_step_m,
-                              abutment_walk_max_m=abutment_walk_max_m)
+                              abutment_walk_max_m=abutment_walk_max_m,
+                              deck_own_ground_m=bind_ground_m)  # 30g (3)
             counts["bodies_uncoarsened"] = \
                 counts.get("bodies_uncoarsened", 0) + len(raw)
             elevated = frozenset(i for i, r in enumerate(raw) if r[4])

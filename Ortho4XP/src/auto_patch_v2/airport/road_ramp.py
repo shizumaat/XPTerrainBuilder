@@ -799,6 +799,13 @@ def between_levels(pm: PlanarMap, law: Law,
     fam = {r: "runway" for r in prec.runway_family.members}
     fam.update({r: "junction" for r in prec.taxi_family.members})
     cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+    # "BOTH ZONES OVERLAP ITS CORRIDOR" (29x) is a test on the road's WHOLE
+    # WIDTH: a band reaching the near kerb reaches every vertex of the
+    # section, so the reach from any road vertex adds one ribbon's width
+    # (``[road_contact] pair_lateral_m``).  Measured HECA round 1: per
+    # vertex alone, route19's far kerb stood 13-19 m from ``objpav99`` —
+    # past its class's half width — and the road was never published.
+    ribbon = float(law.tables.emit.road_contact.pair_lateral_m)
     edges: list[tuple[int, int, str, float]] = []
     seen: set[tuple[int, int]] = set()
     for fid, f in pm.faces.items():
@@ -817,7 +824,7 @@ def between_levels(pm: PlanarMap, law: Law,
                 if a == b or key in seen:
                     continue
                 seen.add(key)
-                edges.append((a, b, ref, float(half) + cut))
+                edges.append((a, b, ref, float(half) + cut + ribbon))
     out: dict[str, dict] = {"road": {}, "strip": {}}
     if not edges:
         return out

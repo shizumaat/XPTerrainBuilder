@@ -24,6 +24,45 @@ between a snapshot and the shared corpus.
 - When the snapshot changes (a new cut), its hash changes. Re-baseline the
   controls on the new hash. Numbers from the old one don't carry over.
 
+## Cloud environment prerequisites (owner, once per environment)
+
+Measured 2026-09-29 (routine `xptb-cloud-corpus-reproof-79`, session
+`cse_01UCZME8U9HMTYQ5Jk64srRU`): a cloud session's outbound HTTPS goes
+through a policy proxy that gates GitHub by the SESSION's GitHub credential
+(the Claude GitHub App), not by any token in the environment. With the app
+installed only on `XPTerrainBuilder`, `api.github.com/repos/shizumaat/
+XPTerrainBuilderData-cloud/...` answers HTTP 403 "GitHub access to this
+repository is not enabled for this session" even with a valid PAT, and
+`add_repo` answers "you don't have access". The image also ships no GDAL
+(`gdal-config: command not found`), so `pip install gdal` fails and every
+`from osgeo import gdal` in the engine would too.
+
+1. **GitHub App access:** GitHub → Settings → Applications → Installed
+   GitHub Apps → Claude → Configure → Repository access → add
+   `shizumaat/XPTerrainBuilderData-cloud` (read is enough). A cloud session
+   then attaches it with `add_repo(owner="shizumaat",
+   repo="XPTerrainBuilderData-cloud", access="read")` before any
+   `gh release download`. `XPTB_DATA_TOKEN` stays as the credential
+   `gh` uses for the release API once the proxy admits the host.
+2. **Setup script** (the environment's "Setup script" field; runs before
+   Claude starts, skipped when a cached environment exists):
+
+   ```sh
+   set -e
+   apt-get update -qq
+   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgdal-dev gdal-bin libspatialindex-dev
+   cd Ortho4XP
+   python3 -m venv venv
+   venv/bin/python -m pip install -q --upgrade pip
+   grep -v '^gdal' requirements.txt > /tmp/req.txt
+   venv/bin/python -m pip install -q -r /tmp/req.txt
+   venv/bin/python -m pip install -q "gdal==$(gdal-config --version)"
+   ```
+
+   The Linux pin in `requirements.txt` (`gdal==3.9.0`) is for the AppImage
+   build; in the cloud the wheel must match the distro's `libgdal`, hence
+   `gdal-config --version`.
+
 ## Fetching a snapshot (cloud lane)
 
 The cloud environment carries a read-only token as the secret

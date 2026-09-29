@@ -28,7 +28,7 @@ from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..classify.roles import Classification
+from ..classify.roles import Classification, is_osm_ribbon
 from ..geom.containment import sets_inside_one_ring
 from ..law import Law
 from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
@@ -78,6 +78,10 @@ class Region:
     shore_wedge: _t.Any = None
     #: §37 (11) THE SHORE DECISION (29a): ``ZoneRegion.shore``.
     shore: _t.Any = None
+    #: 30e (4): this ZONE part was re-cut by a mapped-road ribbon at pass B
+    #: (``_ribbons_pass_b``) — a sliver of it never dissolves into airside
+    #: pavement (the airside is frozen by then; ``dissolve_sliver_zones``).
+    ribbon_recut: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -171,7 +175,17 @@ def build_arrangement(airport: Airport, classification: Classification,
     """Regions + breakline sources -> ONE noded arrangement."""
     grid = grid_m if grid_m is not None else \
         law.tables.emit.identity.min_distinct_spacing_m
-    cells, weld = weld_cells(classification.cells, law)
+    # 30e (5) THE MAPPED-ROAD RIBBONS ARE NODED AFTER THE AIRSIDE IS FROZEN
+    # (spec-author RULINGS 2026-09-30e, issue #100; 30a (3) measured the
+    # corridor round re-noding CYXY's airside, 156 movers): they take no
+    # part in the weld, the zone derivation or pass A — the airside, and
+    # every ring pass A nodes, is the arrangement WITHOUT them, byte for
+    # byte — and join at pass B beside the pads, clipped by the airside
+    # union and quantised to its rim (the pad's own machinery).
+    ribbon_cells = tuple(c for c in classification.cells if is_osm_ribbon(c))
+    cells, weld = weld_cells(tuple(c for c in classification.cells
+                                   if not is_osm_ribbon(c)), law) \
+        if ribbon_cells else weld_cells(classification.cells, law)
     regions: list[Region] = []
     for c in cells:
         regions.append(Region(c.role, c.ref, Polygon(c.ring, c.holes),
@@ -296,7 +310,12 @@ def build_arrangement(airport: Airport, classification: Classification,
     if not keeps:
         pad_regions, _pad_clip = airside_clip(pad_regions, law, air=air,
                                               nodes=nodes_a, rim=rim)
-    regions = base_regions + pad_regions
+    rib_regions: list[Region] = []
+    zone_cut_lines: list[LineString] = []
+    if ribbon_cells:
+        base_regions, rib_regions, zone_cut_lines = _ribbons_pass_b(
+            ribbon_cells, base_regions, air, rim, law, _pad_clip)
+    regions = base_regions + rib_regions + pad_regions
     # THE DENSIFIER MAY NOT NODE THE RIM EITHER.  A clipped pad's boundary
     # RUNS ALONG the airside boundary between its two crossing points, and
     # ``ring_lines`` densifies every ring at its role's chord cap — so the
@@ -312,6 +331,18 @@ def build_arrangement(airport: Airport, classification: Classification,
                                                   rim, set(nodes_a),
                                                   own_pad_coords,
                                                   float(grid) if keeps else 0.0)
+    if rib_regions:
+        # the ribbons and the zone parts they re-cut, into pass B under the
+        # pad's own densifier filter: a coordinate the densifier put ON the
+        # airside rim is not one of pass A's nodes and is dropped
+        own_rib = {(float(x), float(y)) for r in rib_regions
+                   for ring in (r.polygon.exterior, *r.polygon.interiors)
+                   for x, y in ring.coords}
+        _rl, _rib_mid = _drop_rim_midpoints(
+            _ring_lines_of(rib_regions) + list(zone_cut_lines), rim,
+            set(nodes_a), own_rib, float(grid))
+        pad_lines = pad_lines + _rl
+        _pad_clip["ribbon_rim_midpoints_dropped"] = _rib_mid
     _pad_clip["rim_midpoints_dropped"] = _dropped_mid
     if pad_lines:
         noded = shapely.unary_union(
@@ -382,6 +413,123 @@ def build_arrangement(airport: Airport, classification: Classification,
                        tuple(edge_lines), erep, holes_gone,
                        absorbed, detached,
                        zs_dissolved, zs_dropped, zs_area, zs_rows)
+
+
+def _ribbons_pass_b(ribbon_cells, base_regions: "list[Region]", air, rim,
+                    law: Law, counts: dict):
+    """30e (4)-(5): the mapped-road ribbons against the frozen airside and
+    the zone bands.
+
+    * Each ribbon is clipped by the airside union ``air`` and its crossing
+      points quantised to the rim's nodes (``airside_vertex_snap``, the
+      pad's rim snap) — the ribbon yields, the airside never does.
+    * IN-BAND (30e (4), 29r): a zone region is cut by the ribbon with NO
+      stand-off — the band and the ribbon share the kerb, and the band's
+      rows lead there.  OUTSIDE a band the ribbon keeps the 0.6 m cutback
+      (``zones.adjacent_ground.groundside_cutback_m``, the CYXY tear
+      precedent): the part of a ribbon outside every zone band, buffered by
+      the stand-off, is also taken out of the band it runs beside.
+
+    Returns (base regions with the re-cut zones, the ribbon regions, the
+    regions whose rings join pass B = ribbons + re-cut zone parts)."""
+    from .zones import _MITRE
+    from ..law.tables import snap_margin_m
+    ribs: list[Region] = []
+    # THE HOT-PIXEL BAND (``pad_cut.airside_clip``, measured 1.5 grid
+    # cells): a ribbon standing within it of the rim — not only one
+    # crossing it — is quantised too.  MEASURED at CYXY: the weld moves the
+    # airside cells a few decimetres off the pavement edge the classify
+    # stage cut the ribbon at, and 5 ribbon corners 0.02-0.27 m off the
+    # rim were rounded onto it as new airside nodes.
+    band = 1.5 * float(law.tables.emit.identity.min_distinct_spacing_m)
+    # the ribbon STANDS OFF the frozen airside by that band: nothing of it
+    # can round onto an airside edge (the quantising snap alone left 4 of
+    # CYXY's ribbon corners minting); the strip it leaves inside a zone
+    # band is a zone sliver, which ``dissolve_sliver_zones`` gives to the
+    # ribbon — through pass A's own rim nodes
+    # The stand-off is TWO hot-pixel reaches (1.5 cells each side: the
+    # ribbon's rounded edge and the rim's): at one band a ribbon edge
+    # running near-parallel to the rim still rounded onto a rim node
+    # (CYXY ``small_roads:-1048``'s tip at node (-383.5, -375.0)).
+    air_band = air.buffer(2.0 * band, **_MITRE) if not air.is_empty else air
+    for c in ribbon_cells:
+        g = Polygon(c.ring, c.holes)
+        if not air.is_empty and g.distance(air) <= band:
+            g = g.difference(air_band)
+            counts["ribbons_clipped"] = int(counts.get("ribbons_clipped", 0)) + 1
+        # a part the stand-off left NEEDLE-THIN is no road (CYXY
+        # ``small_roads:-1048``: a 56 m needle along a cross-connector rim,
+        # whose one node the emitter welded into the airside ring)
+        keep = [q for q in _polygons_of(g)
+                if inscribed_width_m(q) >= float(law.tables.emit.identity.weld_spacing_m)]
+        for k, q in enumerate(sorted(keep, key=lambda q: -q.area)):
+            ribs.append(Region(c.role, c.ref if k == 0 else f"{c.ref}~{k}", q,
+                               c.code_number, c.code_letter, c.side, "cell"))
+    counts["ribbons"] = len(ribs)
+    if not ribs:
+        return base_regions, [], []
+    rib_u = unary_union([r.polygon for r in ribs])
+    zone_u = unary_union([r.polygon for r in base_regions if r.source == "zone"])
+    ag = law.tables.zones.adjacent_ground
+    # a ribbon is IN-BAND when it enters a zone band at all: its kerb is
+    # the band's (no stand-off anywhere along it — a stand-off where it
+    # leaves the band would slot the band beside it); a ribbon that
+    # enters none keeps the stand-off against the band it runs beside
+    free = [r.polygon for r in ribs
+            if zone_u.is_empty or r.polygon.intersection(zone_u).area <= 0.0]
+    knife = unary_union([rib_u] + [q.buffer(ag.groundside_cutback_m
+                                            + snap_margin_m(law), **_MITRE)
+                                   for q in free])
+    out: list[Region] = []
+    recut: list[Region] = []
+    for r in base_regions:
+        if r.source != "zone" or not r.polygon.intersects(knife):
+            out.append(r)
+            continue
+        parts = sorted(_polygons_of(r.polygon.difference(knife)), key=lambda q: -q.area)
+        counts["zones_recut"] = int(counts.get("zones_recut", 0)) + 1
+        for k, q in enumerate(parts):
+            if q.area < 1.0:
+                continue
+            # the shore verdict stays with the part(s) still in its wedge
+            # (the whole region when no wedge is stated: the largest part)
+            wedge = r.shore_wedge
+            shore_kept = (q.intersects(wedge) if wedge is not None else k == 0)
+            z = _dc.replace(r, polygon=q, ref=r.ref if k == 0 else f"{r.ref}~{k}",
+                            ribbon_recut=True,
+                            **({} if shore_kept else
+                               {"quay": False, "natural_shore": False,
+                                "shore_wedge": None, "shore": None}))
+            out.append(z)
+            recut.append(z)
+    # THE LINES pass B adds: the ribbon rings (the caller densifies them)
+    # and the NEW zone boundary the knife made — only its part inside the
+    # zones.  The re-cut zone's untouched ring is pass A's already (its
+    # snapped copy is in ``noded_a``): re-adding the raw ring re-rounds it
+    # past hot pixels pass A did not see and mints airside nodes along
+    # every rim the zone shares (measured NLWF: 7).
+    cut_lines: list[LineString] = []
+    if recut and not zone_u.is_empty:
+        g = knife.boundary.intersection(zone_u)
+        # never within the hot-pixel band of the airside rim: there the
+        # ribbon's own (rim-quantised) ring already separates the faces,
+        # and a knife segment running along the rim re-rounds it (CYXY:
+        # 8 airside nodes minted along cross_connector rims)
+        if not air.is_empty and not g.is_empty:
+            g = g.difference(air.boundary.buffer(band, cap_style="flat"))
+        for q in shapely.get_parts(shapely.line_merge(g) if not g.is_empty else g):
+            if q.geom_type == "LineString" and q.length > 0.0:
+                cut_lines.append(q)
+    return out, ribs, cut_lines
+
+
+def _polygons_of(g) -> list[Polygon]:
+    if g is None or g.is_empty:
+        return []
+    if isinstance(g, Polygon):
+        return [g] if g.area > 0.0 else []
+    return [q for q in getattr(g, "geoms", ())
+            if isinstance(q, Polygon) and q.area > 0.0]
 
 
 #: Two overlaps within this many m² of each other are ONE overlap (a tie).
@@ -666,6 +814,11 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
                 continue
             pj, rj = keep[j]
             if rj.role in refused:
+                continue
+            if region.ribbon_recut and rj.role in hosts:
+                # 30e (5): a sliver the RIBBON cut off never grows the
+                # frozen airside — it joins the ribbon, a lot or a zone,
+                # else the DEM owns it
                 continue
             try:
                 shared = poly.boundary.intersection(pj.boundary).length

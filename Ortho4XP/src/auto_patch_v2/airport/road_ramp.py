@@ -118,6 +118,9 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str
     decks = deck_refs(pm)
     out: dict[int, str] = {}
     on_deck: set[int] = set()
+    # 30e (4): the kerb a mapped-road ribbon shares with a zone band is
+    # the BAND's (29r: the band leads) — no ramp target, no ceiling on it
+    kerb = pm.band_kerb_vertices()
     for fid, f in pm.faces.items():
         if f.role not in roads:
             continue
@@ -126,7 +129,7 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str
             on_deck.update(vs)
             continue
         for v in vs:
-            if v in out:
+            if v in out or v in kerb:
                 continue
             sr = senior_role(law, pm.roles_at(v))
             if sr in roads:

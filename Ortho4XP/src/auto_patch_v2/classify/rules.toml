@@ -73,6 +73,13 @@ enabled   = true
 highways  = ["service"]        # the tag values admitted (v1 osm_load: highway=service is the airport road feed)
 dedup_m   = 8.0                # a way part within this of a 1206 route duplicates it and is dropped
 min_len_m = 10.0               # a surviving part shorter than this is noise
+# THE ROAD-FACE MINT, WIDENED (owner RULINGS 2026-09-30b Q-100b, spec-author 30e (1)-(2), issue #100):
+# every MAPPED at-grade road inside the patch gets its ribbon face (`classify/roles.py` "service roads
+# outside pavement", beside the 1206 corridors). The classes admitted: the at-grade road classes
+# motorway...unclassified (with their _link ramps) and service; NOT footway, path, cycleway, steps,
+# pedestrian — and NOT track (an owner question, default excluded).
+ribbon_highways   = ["motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link", "unclassified", "residential", "living_street", "road", "service"]
+road_gap_bridge_m = 250.0         # 30e (2): an out-of-patch GAP between two in-patch stretches of the SAME way is ribboned up to this length (NLWF's terminal stretch of way -3: 219 m); never the way's whole span. Owner may veto.
 
 [lot]                          # owner 2026-09-04j: roads and PARKING LOTS are classes of their own, cut at the road-to-lot mouths
 min_road_fraction      = 0.2   # a polygon CARRIES a road only when the road centreline inside it is at least this fraction of its half-perimeter (CYXY pav4: 41 m of road clipping a 464 m hangar-side strip is not a road strip)

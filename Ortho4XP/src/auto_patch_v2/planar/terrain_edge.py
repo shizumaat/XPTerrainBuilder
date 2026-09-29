@@ -40,11 +40,11 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..airport.deck_signature import is_bridge_way, is_tunnel_way
+from ..airport.road_ways import road_ways
 from ..law import Law
 from ..law.tables import snap_margin_m
 
-__all__ = ["EdgeClip", "EdgeReport", "road_lines", "road_half_width_m",
+__all__ = ["EdgeClip", "EdgeReport", "road_lines", "road_ways", "road_half_width_m",
            "clip_to_terrain_edge"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
@@ -101,17 +101,7 @@ def road_lines(osm_ways=()) -> tuple[LineString, ...]:
     ground nor takes a ribbon out of it, and a viaduct over it is the
     deck's own law (the structure passes carry both, ``planar/structures``).
     """
-    out: list[LineString] = []
-    for w in osm_ways or ():
-        tags = getattr(w, "tags", None) or {}
-        if not tags.get("highway"):
-            continue
-        if is_tunnel_way(tags) or is_bridge_way(tags):
-            continue
-        pts = [(float(p[0]), float(p[1])) for p in getattr(w, "points", ())]
-        if len(pts) >= 2:
-            out.append(LineString(pts))
-    return tuple(out)
+    return tuple(ln for _w, ln in road_ways(osm_ways))
 
 
 def road_half_width_m(law: Law) -> float:

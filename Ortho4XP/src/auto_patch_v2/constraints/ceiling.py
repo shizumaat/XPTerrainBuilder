@@ -105,6 +105,22 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         pav.update(vs)
         if f.role in road_roles:
             road_only.update(v for v in vs if v not in road_only)
+    # 30e (4): a ribbon's KERB shared with a zone band leads for the BAND
+    # (29r): a row from the kerb to anything but the ribbon (the strip's
+    # transverse pairs to the runway, the band's own pairs) is the band's
+    # law surface and is not twinned; a row from the kerb INTO the ribbon
+    # is the road's and keeps the road cap (29ab (1), 29ac)
+    kerb = planar.band_kerb_vertices()
+    rib_vs: set[int] = set()
+    if kerb:
+        from ..model.planar import is_osm_ribbon_ref
+        for f in planar.faces.values():
+            if f.role in road_roles and is_osm_ribbon_ref(f.ref):
+                for ring in (f.ring, *f.holes):
+                    rib_vs.update(planar.ring_vertices(ring))
+
+    def _band_row(vset) -> bool:
+        return bool(kerb) and bool(vset & kerb) and not vset <= rib_vs
     # a vertex any NON-road pavement also touches is that pavement's
     # (the free-road ruling: only a genuinely free road keeps the 8 %)
     for f in planar.faces.values():
@@ -145,7 +161,8 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
             continue
         if isinstance(row, Diff):
             vs: tuple[int, ...] = (row.a, row.b)
-            if not 0.0 < row.d <= max_span or not set(vs) <= pav:
+            if not 0.0 < row.d <= max_span or not set(vs) <= pav \
+                    or _band_row(set(vs)):
                 continue
             key = (min(vs), max(vs))
             if key in seen:
@@ -165,7 +182,7 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         if len(row.terms) not in (2, 3):
             continue
         vs2 = {v for v, _c in row.terms}
-        if not vs2 <= pav:
+        if not vs2 <= pav or _band_row(vs2):
             continue
         got = _span(row.terms, xy)
         if got is None:

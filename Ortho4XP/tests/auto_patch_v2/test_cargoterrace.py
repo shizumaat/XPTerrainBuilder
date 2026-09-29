@@ -16,6 +16,8 @@ lower pad Q west of P's north end, sharing P's rim and touching A.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
+
 import pytest
 
 from auto_patch_v2.classify.roles import Cell, Classification
@@ -181,3 +183,41 @@ def test_a_junior_facing_row_never_crosses_a_declared_pad_terrace(law):
     finally:
         pad_terrace.TERRACES[:] = kept
         pad_fronting._CACHE.clear()
+
+
+class _GapDem(_Dem):
+    """The cargo hill with the low apron ``gap`` metres under the high one."""
+
+    def __init__(self, gap: float):
+        super().__init__()
+        self.gap = gap
+
+    def z(self, x: float, y: float) -> float:
+        if x >= 35.0:
+            return 704.0
+        return 704.0 - self.gap if y >= 395.0 else 704.0 - self.gap / 2.0
+
+
+@pytest.mark.parametrize("gap,split", [(0.7, False), (0.99, False), (1.0, True), (1.4, True)])
+def test_the_30i_floor_welds_under_one_metre_and_terraces_at_it(law, gap, split):
+    """Owner RULINGS 2026-09-30i: the 28b pad|apron terrace floor is
+    ``[terrace] pad_terrace_floor_m`` = 1.0 m (was ``cockpit.visual_m``
+    0.5).  HECA's pads facing ``objpav1``: building157|objpav450 and
+    building159|objpav449 at 0.5-0.7 m WELD; building152|pav98 at ~1.4 m
+    TERRACES.  The pad's own weld span (``pad_slope_max`` x contact
+    distance) is narrowed so the floor alone decides."""
+    assert float(law.tables.emit.terrace.pad_terrace_floor_m) == 1.0
+    ws = _dc.replace(law.tables.emit.within_shape, pad_slope_max=0.001)
+    em = _dc.replace(law.tables.emit, within_shape=ws)
+    lw = _dc.replace(law, tables=_dc.replace(law.tables, emit=em))
+    airport = _airport(lw, _GapDem(gap))
+    pm, _st = build(airport, Classification(tuple(_cells(lower_pad=False)), (), {}, ()), lw)
+    kinds = [(t.kind, t.other_ref) for t in pad_terrace.TERRACES]
+    shared = _vs(pm, _fid(pm, "padP")) & _vs(pm, _fid(pm, "apronLow"))
+    if split:
+        assert kinds == [("apron", "apronLow")]
+        assert pad_terrace.TERRACES[0].bound_m == pytest.approx(1.0)
+        assert not shared
+    else:
+        assert kinds == []
+        assert shared

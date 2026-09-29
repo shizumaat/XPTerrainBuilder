@@ -53,9 +53,13 @@ repository is not enabled for this session" even with a valid PAT, and
    # 403 to; apt-get update exits 100 on them (measured 2026-09-29) — drop them
    rm -f /etc/apt/sources.list.d/*deadsnakes* /etc/apt/sources.list.d/*ondrej*
    apt-get update -qq
+   # libgdal-dev drags in postgresql-16, whose postinst runs invoke-rc.d and
+   # fails in a container (measured 2026-09-29, apt exit 1): make service
+   # starts a no-op and skip Recommends
+   printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod +x /usr/sbin/policy-rc.d
    # build-essential + python3-dev: the GDAL Python wheel is built from source
    # against the distro libgdal (no binary wheel matches 3.8.4)
-   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgdal-dev gdal-bin libspatialindex-dev build-essential python3-dev
+   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends libgdal-dev gdal-bin libspatialindex-dev build-essential python3-dev
    cd "$(git rev-parse --show-toplevel)/Ortho4XP"
    python3 -m venv venv
    venv/bin/python -m pip install -q --upgrade pip setuptools wheel

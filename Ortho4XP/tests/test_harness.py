@@ -11653,3 +11653,108 @@ def test_a_dem_refresh_rederives_the_build_airports_PACK_STALE_inset(
     with pytest.raises(SystemExit) as exc:
         build_mod.refresh_tile_dem(root, 17, -63, _Notes(), icao="TFFJ")
     assert "STILL PACKS" in str(exc.value)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE UNIVERSAL PAVEMENT CAP — ``pavement_over_road_cap`` (owner RULINGS
+# 2026-09-29ac, issue #105): the ROAD grade cap is the fallback ceiling of
+# every pavement class.  Both directions on one synthetic ring, or a zero
+# means nothing.
+# ══════════════════════════════════════════════════════════════════════
+
+_PVC_LAT = 30.1200000
+_PVC_LON = 31.4100000
+
+
+def _pavcap_patch(tmp_path, *, name, rings):
+    """``rings``: ``[(role, [(dx_m, dy_m, alt), ...]), ...]`` — closed
+    pavement rings on a local metre frame, one ``alt_abs`` per node."""
+    mlat = 111_320.0
+    mlon = 111_320.0 * math.cos(math.radians(_PVC_LAT))
+    nodes, ways = [], []
+    nid = -1
+    for i, (role, ring) in enumerate(rings):
+        ids = []
+        for dx, dy, alt in ring:
+            nodes.append((nid, _PVC_LAT + dy / mlat, _PVC_LON + dx / mlon, alt))
+            ids.append(nid)
+            nid -= 1
+        ways.append((nid, ids + [ids[0]], {"role": role, "shapeID": f"S{i}"}))
+        nid -= 1
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='pavcap-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [_PVC_LAT, _PVC_LON], "ruleset": "icao"}))
+    return osm
+
+
+def _sloped_rect(grade, z0=20.0, length=10.0, width=8.0, x0=0.0):
+    """A rectangle whose two long edges climb at ``grade``."""
+    return [(x0, 0.0, z0), (x0 + length, 0.0, z0 + grade * length),
+            (x0 + length, width, z0 + grade * length), (x0, width, z0)]
+
+
+def test_a_pavement_ring_edge_at_9_percent_is_over_the_road_cap(cg, tmp_path):
+    fo = _families(cg, _pavcap_patch(tmp_path, name="lot9", rings=[
+        ("groundside_pavement", _sloped_rect(0.09))]))
+    rows = fo["pavement_over_road_cap"]
+    assert len(rows) == 2, [(r.grade_pct, r.distance_m) for r in rows]
+    assert all(abs(r.grade_pct - 9.0) < 0.2 for r in rows)
+    assert all(r.cap_pct == pytest.approx(100.0 * cg.PAVEMENT_ROAD_CAP)
+               for r in rows)
+
+
+def test_a_pavement_ring_edge_at_7_percent_passes_the_road_cap(cg, tmp_path):
+    fo = _families(cg, _pavcap_patch(tmp_path, name="lot7", rings=[
+        ("groundside_pavement", _sloped_rect(0.07))]))
+    assert fo["pavement_over_road_cap"] == []
+
+
+def test_a_runway_pair_keeps_its_own_cap_under_the_fallback(cg, tmp_path):
+    """A class cap LOWER than the road cap still applies: a runway ring at
+    3 % is under the fallback (no row here) and over its own 1.5 %, which
+    its own family still prices."""
+    fo = _families(cg, _pavcap_patch(tmp_path, name="rwy3", rings=[
+        ("runway", _sloped_rect(0.03, length=60.0, width=45.0))]))
+    assert fo["pavement_over_road_cap"] == []
+    assert fo["within_shape"], "the runway's own 1.5 % cap still prices it"
+
+
+def test_welded_neighbours_of_two_pavements_are_priced_as_one_pair(cg, tmp_path):
+    """The unpriced pair the ruling names: two pavement rings 0.8 m apart
+    sharing no node, 0.6 m apart in height — a step no family prices is
+    judged as if welded, at the road cap."""
+    a = [(0.0, 0.0, 20.0), (10.0, 0.0, 20.0), (10.0, 8.0, 20.0), (0.0, 8.0, 20.0)]
+    b = [(10.8, 0.0, 20.6), (20.0, 0.0, 20.6), (20.0, 8.0, 20.6), (10.8, 8.0, 20.6)]
+    fo = _families(cg, _pavcap_patch(tmp_path, name="weld", rings=[
+        ("groundside_pavement", a), ("service_road", b)]))
+    rows = fo["pavement_over_road_cap"]
+    assert len(rows) == 2 and all(r.way_a is not r.way_b for r in rows)
+    b2 = [(x, y, 20.05) for x, y, _z in b]
+    fo2 = _families(cg, _pavcap_patch(tmp_path, name="weldok", rings=[
+        ("groundside_pavement", a), ("service_road", b2)]))
+    assert fo2["pavement_over_road_cap"] == []
+
+
+def test_pavement_over_road_cap_is_registered_and_reads_the_law(cg):
+    from auto_patch_v2.law import tables as _T
+    law = _T.load_default()
+    assert "pavement_over_road_cap" in {k for k, _t, _b in cg.LAW_FAMILIES}
+    fam = law.tables.families["pavement_over_road_cap"]
+    assert fam.cockpit == "grade"
+    # ONE cap and ONE pavement population with the engine
+    assert cg.PAVEMENT_ROAD_CAP == _T.pavement_fallback_cap(law)
+    assert cg.PAVEMENT_ROAD_CAP == law.tables.common.road_max_grade
+    assert set(cg._PAVCAP_ROLES) == set(_T.pavement_roles(law))
+    assert set(fam.roles) == set(_T.pavement_roles(law))

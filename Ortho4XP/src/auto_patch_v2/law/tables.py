@@ -18,7 +18,7 @@ from .model import (Affordances, Cockpit, Declared, Family, FlatSite, Law,
 __all__ = [
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
     "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
-    "pavement_roles", "authority_rank",
+    "pavement_roles", "pavement_fallback_cap", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
     "runway_end_zone_length_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
@@ -130,6 +130,20 @@ def pavement_roles(law: Law) -> tuple[str, ...]:
     the pad itself (a rigid role is a value role too)."""
     return tuple(r for r in law.tables.precedence.roles
                  if is_value_role(law, r) and not is_structure_role(law, r))
+
+
+
+def pavement_fallback_cap(law: Law) -> float:
+    """THE UNIVERSAL PAVEMENT CAP (owner RULINGS 2026-09-29ac, issue #105)
+    — ONE derivation site.  The ROAD grade cap, "the steepest cap in the
+    law", is the FALLBACK ceiling of every :func:`pavement_roles` class: a
+    class cap lower than it still applies, and where none is applied (a
+    step, a cliff judged as if welded, a corridor read as ground, an exit
+    mouth) this binds.  It is ``[common] road_max_grade`` itself — the
+    fallback is a reference to the road cap, never a second copy of it —
+    read by the engine's hard row family (``constraints/pavement_cap.py``)
+    and the census family ``pavement_over_road_cap`` alike."""
+    return float(law.tables.common.road_max_grade)
 
 
 def bend_class(law: Law, role: str) -> str:

@@ -301,3 +301,170 @@ def shore_wedge_m(law: Law, field_elevation_m: float) -> float:
     lip = float(law.tables.zones.adjacent_ground.lip_width_m)
     h = max(float(field_elevation_m), 0.0) + SHORE_WEDGE_HEADROOM_M
     return lip + h / bank
+
+
+#: RULINGS 2026-09-29r: the ref prefix of a ROAD EXIT CORRIDOR region
+#: (``road_exit_corridors``).  ``constraints/zones`` reads it so the band's
+#: own seam vertices stay banded (the band is never lifted for the road).
+ROAD_EXIT_PREFIX = "road_exit:"
+
+
+@_dc.dataclass(frozen=True)
+class RoadExit:
+    """One road exit corridor: where a mapped road LEAVES an adjacent-
+    ground band, the stretch of its own corridor the road cap needs to
+    climb (or fall) from the band's level to the terrain."""
+
+    ref: str
+    polygon: Polygon
+    exit_xy: tuple[float, float]
+    step_m: float           # DEM at the exit minus the band-level estimate
+    length_m: float         # the corridor's run along the road
+
+
+def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
+                        dem, roads=(), water=None) -> list[RoadExit]:
+    """RULINGS 2026-09-29r (#100 cause 2; resolves 2026-08-12b vs 13ar by
+    WHERE the road is): INSIDE an adjacent-ground band the road grades
+    WITH the zone (13ar — this function mints nothing there).  Where the
+    road LEAVES the band its own corridor — the road ribbon's half-width
+    (``terrain_edge.road_half_width_m``: lane width + the 0.6 m
+    ``groundside_cutback_m``) — is a ROAD, not zone-3 ground: it climbs
+    from the band edge at <= the road cap (``service_road.longitudinal``,
+    8 %) until the cap meets the DEM, and its sides terrace to the raw
+    DEM.  No ground outside the corridor is minted or moved.
+
+    Derived HERE, at the zone derivation site (owner 2026-08-30l): the
+    corridor is the road piece OUTSIDE every band and cell, starting at
+    the band boundary, as long as the cap needs (``step / cap``, the first
+    station where ``|DEM(s) - z_band| <= cap * s``), minus the bands,
+    the cells and the water.  The band level at the exit is ESTIMATED
+    pre-solve (the DEM at the nearest pavement point less the band's
+    mandatory minimum fall over the distance); the solve owns the real
+    level — the corridor's length only has to cover the cap's reach.
+    A step under ``emit.design.edge_min_drop_m`` (§19's materiality) needs
+    no corridor."""
+    if dem is None or not roads or not zones:
+        return []
+    from .terrain_edge import road_half_width_m
+    from ..law.tables import role_cap
+    ag = law.tables.zones.adjacent_ground
+    cap = float(role_cap(law, "service_road").longitudinal)
+    half = road_half_width_m(law)
+    grid = float(law.tables.emit.design.edge_grid_m)
+    snap = snap_margin_m(law)
+    # a step under the terrain edge's own materiality (§19 ``edge_min_drop_m``)
+    # is ground the band's seam already reads; only a material one ramps
+    min_step = float(law.tables.emit.design.edge_min_drop_m)
+    bands = unary_union([z.polygon for z in zones])
+    paved = unary_union([Polygon(c.ring, c.holes) for c in cells
+                         if c.side == "airside"]) if cells else Polygon()
+    inside = unary_union([bands, paved])
+    blocked = inside if water is None else unary_union([inside, water])
+    from shapely.geometry import Point
+    from shapely.ops import nearest_points, substring
+    out: list[RoadExit] = []
+    k = 0
+    for road in roads:
+        if road.distance(bands) > snap:
+            continue
+        rest = road.difference(inside)
+        for piece in getattr(rest, "geoms", [rest]):
+            if piece.geom_type != "LineString" or piece.length < grid:
+                continue
+            a, b = piece.coords[0], piece.coords[-1]
+            da = bands.distance(Point(a))
+            db = bands.distance(Point(b))
+            ends = [c for c, d in ((a, da), (b, db)) if d <= snap]
+            stretches = []
+            steps = []
+            for p0 in ends:
+                line = piece if p0 == a else LineString(piece.coords[::-1])
+                # the band level at the exit: the LOWEST pavement DEM
+                # within the band's reach of it (a pavement cut into a
+                # hill — NLWF's apron, 9.9 m off its DEM — is not the
+                # band's level), less the band's mandatory minimum fall
+                z_band = _band_level(paved, zones, p0, dem, law, grid)
+                step = float(dem.z(p0[0], p0[1])) - z_band
+                if abs(step) < min_step:
+                    continue
+                need = None
+                s = grid / 2.0
+                while s <= line.length:
+                    pt = line.interpolate(s)
+                    if abs(float(dem.z(pt.x, pt.y)) - z_band) <= cap * s:
+                        need = s
+                        break
+                    s += grid / 2.0
+                run = min(line.length, (need if need is not None else line.length) + grid)
+                stretches.append(substring(line, 0.0, run))
+                steps.append((p0, step, run))
+            if not stretches:
+                continue
+            # ONE corridor per road piece: two exits of one piece (a road
+            # leaving a band over a hill and coming back) ramp as one road
+            # SQUARE caps: the ribbon starts INSIDE the band and the
+            # difference hands back the band's own boundary as the seam
+            # (a flat cap across the band edge left a 0.5 m sliver and an
+            # unwelded 3.8 m step at NLWF)
+            poly = unary_union([st.buffer(half, cap_style="square", **_MITRE)
+                                for st in stretches]).difference(blocked)
+            parts = [g for g in shapely.get_parts(poly)
+                     if g.geom_type == "Polygon" and g.area >= 1.0
+                     and any(g.distance(Point(p0)) <= half for p0, _s, _r in steps)]
+            for g in parts:
+                p0, step, run = min(steps, key=lambda t: g.distance(Point(t[0])))
+                out.append(RoadExit(f"{ROAD_EXIT_PREFIX}{k}", g,
+                                    (float(p0[0]), float(p0[1])), step,
+                                    sum(r for _p, _s, r in steps)))
+                k += 1
+    # two exits of one road may overlap at a short gap: the first keeps it
+    kept: list[RoadExit] = []
+    taken = Polygon()
+    for r in out:
+        g = r.polygon.difference(taken)
+        if g.is_empty or g.area < 1.0:
+            continue
+        if g.geom_type != "Polygon":
+            g = max(shapely.get_parts(g), key=lambda x: x.area)
+        kept.append(_dc.replace(r, polygon=g))
+        taken = unary_union([taken, g])
+    return kept
+
+
+def _band_level(paved, zones: list, p0, dem, law: Law, grid: float) -> float:
+    """The pre-solve estimate of the band's level where a road leaves it
+    (``road_exit_corridors``): the lowest DEM on the airside pavement edge
+    within the nearest pavement distance plus the band's zone-2 half-width,
+    less the band's mandatory minimum fall over the nearest distance."""
+    from shapely.geometry import Point
+    pt = Point(p0)
+    dist = paved.distance(pt)
+    near = min(zones, key=lambda z: z.polygon.distance(pt))
+    hw = zone2_half_width_m(law, "runway" if near.family == "runway" else "junction",
+                            near.code_number, near.code_letter) or 0.0
+    edge = paved.boundary.intersection(pt.buffer(dist + hw + grid))
+    zs = []
+    for ln in getattr(edge, "geoms", [edge]):
+        if ln.is_empty or ln.length <= 0.0:
+            continue
+        n = max(2, int(ln.length / grid) + 1)
+        for i in range(n):
+            q = ln.interpolate(i / (n - 1), normalized=True)
+            zs.append(float(dem.z(q.x, q.y)))
+    if not zs:
+        from shapely.ops import nearest_points
+        q = nearest_points(paved, pt)[0]
+        zs = [float(dem.z(q.x, q.y))]
+    return min(zs) - ag_min_down(law, zones, p0) * dist
+
+
+def ag_min_down(law: Law, zones: list, p0) -> float:
+    """The mandatory minimum fall of the band the exit ``p0`` leaves (the
+    runway family's where a runway zone holds it, else the taxi's)."""
+    from shapely.geometry import Point
+    pt = Point(p0)
+    near = min(zones, key=lambda z: z.polygon.distance(pt))
+    t = law.tables.zones.adjacent_ground
+    fam = t.runway if near.family == "runway" else t.taxi
+    return float(fam.band_min_down)

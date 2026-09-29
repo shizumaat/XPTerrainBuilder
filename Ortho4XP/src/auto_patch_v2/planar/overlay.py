@@ -39,7 +39,12 @@ from .pad_cut import (_drop_rim_midpoints, _renode_counts, airside_clip,
                       airside_union, apron_cut_to_pads, build_rim)
 from .weld import WeldStats, weld_cells
 from .shore import pack_shore_walls
-from .zones import shore_declarations, shore_wedge_m, zone_regions
+from .zones import (road_exit_corridors, shore_declarations, shore_region,
+                    shore_wedge_m, zone_regions)
+
+#: RULINGS 2026-09-29r: the road exit corridors of the last arrangement
+#: (``zones.RoadExit``), for the build log and the replay read.
+ROAD_EXITS: list = []
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
            "airside_union",
@@ -181,17 +186,29 @@ def build_arrangement(airport: Airport, classification: Classification,
     # and the tile's OSM road centrelines
     erep = EdgeReport()
     edge_lines: list[LineString] = []
-    for z in zone_regions(cells, law, classification.keepouts,
+    _zones = zone_regions(cells, law, classification.keepouts,
                           getattr(airport, "dem", None),
                           road_lines(getattr(airport, "osm_ways", ())), erep,
                           shore_declarations(getattr(airport, "osm_ways", ())),
                           shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0),
-                          pack_shore_walls(airport)):
+                          pack_shore_walls(airport))
+    for z in _zones:
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
                               "zone", z.zone, z.edge_kind, z.quay,
                               z.natural_shore, z.shore_wedge, z.shore))
         edge_lines.extend(z.edge_lines)
+    # RULINGS 2026-09-29r: where a mapped road LEAVES a band its corridor
+    # is a ROAD (service_road), climbing from the band edge at the road
+    # cap; derived beside the zones, at the one zone derivation site
+    ROAD_EXITS.clear()
+    for rx in road_exit_corridors(
+            _zones, cells, law, getattr(airport, "dem", None),
+            road_lines(getattr(airport, "osm_ways", ())),
+            shore_region(cells, getattr(airport, "dem", None))):
+        ROAD_EXITS.append(rx)
+        regions.append(Region("service_road", rx.ref, rx.polygon, None, None,
+                              role_side(law, "service_road"), "cell"))
 
     # §16g (10) (12) (1) THE AIRSIDE CELLS ARE NODED BEFORE ANY PAD EXISTS
     # (Fable 2026-09-16; RULINGS 2026-09-16b), and this SPLIT of the line

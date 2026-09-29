@@ -326,6 +326,14 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
         if spec.value and not getattr(spec, "rigid", False)
         and (spec.side == "airside" or r in roads)))
         for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
+    # RULINGS 2026-09-29r: a ROAD EXIT corridor starts AT the band edge,
+    # and the band is never lifted for the road — its seam vertices stay
+    # BANDED (the corridor climbs away from them under the road cap)
+    from ..planar.zones import ROAD_EXIT_PREFIX
+    own_law -= {v for f in vw.faces_of_role(tuple(roads))
+                if (f.ref or "").startswith(ROAD_EXIT_PREFIX)
+                for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring
+                if v in member}
     # A RIGID PAD IS ONE LEVEL, SO IT CARRIES ONE BAND: its rim vertices
     # span different ``d`` and different feet, and the zone-1 band beside
     # the lip cannot meet the zone-2 mandatory-down at the far rim on one

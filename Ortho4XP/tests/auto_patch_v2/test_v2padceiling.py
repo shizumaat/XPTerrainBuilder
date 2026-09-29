@@ -195,8 +195,29 @@ def test_a_pad_vertex_shared_with_airside_pavement_takes_no_relief(law):
     (identity is the weld, 09-01g) — the pavement law owns them, and at
     LEMD the −2.20 m authored onto them is what no surface could hold."""
     pm, airport = _pm(law, _cells("apron"))
-    vs = _pad_vertices(pm)
-    assert _offsets(pm, law, airport, vs) == {}
+    # the SHARED rim is the unit's (RULINGS 2026-09-29d / 29m (a), issue
+    # #91): the pad is a platform ``padA`` inside its collar ``padA#collar``
+    # and the rim the apron shares is the collar's; ``_pad_vertices`` reads
+    # the platform, whose ring is the pad's OWN (it keeps its feet: the
+    # twin below)
+    face = next(f for f in pm.faces.values() if f.ref == "faceA")
+    apron = set(pm.ring_vertices(face.ring))
+    for h in (face.holes or ()):
+        apron |= set(pm.ring_vertices(h))
+    vs = sorted({v for f in pm.faces.values() if f.ref.split("#")[0] == "padA"
+                 for r in [f.ring, *(f.holes or ())]
+                 for v in pm.ring_vertices(r)} & apron)
+    assert vs, "the pad's rim is shared with the apron"
+    off = _offsets(pm, law, airport, vs)
+    # no SHARED vertex takes relief (the law) — before the platform every
+    # pad vertex was shared, so this read ``off == {}``; now the pad has
+    # OWN vertices (the platform ring, C inside the rim) and those within
+    # ``relief_radius_m`` of a foot keep it (measured: 2 of 6, -2.20 m),
+    # exactly as ``test_a_pad_only_vertex_still_takes_its_foot`` states
+    assert not (set(off) & set(vs)), sorted(set(off) & set(vs))
+    plat = {v for f in pm.faces.values() if f.ref == "padA"
+            for v in pm.ring_vertices(f.ring)}
+    assert set(off) <= plat, sorted(set(off) - plat)
 
 
 PAD_B = ((-60.0, 400.0), (60.0, 400.0), (60.0, 460.0), (-60.0, 460.0))

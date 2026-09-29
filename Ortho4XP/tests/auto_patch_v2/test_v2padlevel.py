@@ -108,6 +108,22 @@ def _verts(pm, ref):
     return out
 
 
+def _unit_verts(pm, ref):
+    """The vertices of ``ref``'s UNIT (RULINGS 2026-09-29d / 29m (a), issue
+    #91): every face whose ref joins on ``ref.split("#")[0]``.  A unit pad
+    fronting airside is minted as a PLATFORM (``ref``, the pad eroded by
+    the collar width C) inside a COLLAR (``ref#collar``) whose outer ring
+    is the welded rim; ``_verts(pm, ref)`` reads the platform alone."""
+    out: set = set()
+    for f in pm.faces.values():
+        if f.ref.split("#")[0] == ref:
+            out |= set(pm.ring_vertices(f.ring))
+            for h in (f.holes or ()):
+                out |= set(pm.ring_vertices(h))
+    assert out, ref
+    return out
+
+
 RUNWAY = Cell(0, "runway", "09/27", _rect(-RUN_LEN / 2, -HALF_W, RUN_LEN / 2, HALF_W),
               (), 3, "D", "airside", "runway", {})
 
@@ -159,7 +175,10 @@ def test_a_pad_fronting_an_apron_is_flush_with_it_and_does_not_tier_it(law):
     the APRON'S edge level, so the apron does not step down into it and
     the pad does not sit on its own terrain."""
     pm, z, _rep, _cs = _solve(law, _fronting_cells())
-    pad, apron = _verts(pm, "padA"), _verts(pm, "apronA")
+    # the pad is its UNIT (RULINGS 2026-09-29m (a)): the welded rim is the
+    # collar's, the platform C inside it (measured: platform 699.075,
+    # apron 699.210, unit spread 0.19 m)
+    pad, apron = _unit_verts(pm, "padA"), _verts(pm, "apronA")
     shared = pad & apron
     assert shared, "the pad shares the apron's hole ring"
     own = sorted(pad - apron)
@@ -183,16 +202,41 @@ def test_the_pad_is_one_plate_every_rim_pair_priced_contacts_included(law):
     (``pad_flat`` rows 5 -> 38); the plate is also what makes the level
     rows a PLANE fit instead of a per-vertex pull, so the contacts must be
     in it."""
+    # RE-READ AT THE PLATFORM/COLLAR LOCUS (RULINGS 2026-09-29m (a),
+    # issue #91): the unit pad is a PLATFORM (``padA``) inside a COLLAR
+    # (``padA#collar``).  The plate — every pair priced, one plane — is the
+    # platform's ring; the welded CONTACTS are the collar's rim, carried to
+    # the platform by the collar's bank rows (``constraints.platform``).
+    # Both halves are asserted, on the unit.
+    from auto_patch_v2.constraints.platform import (COLLAR_RULING,
+                                                    platform_collar_rows)
+    from auto_patch_v2.model.planar import COLLAR_SUFFIX
     airport = _airport(law, _Dem())
     pm, _st = build(airport, Classification(tuple(_fronting_cells()), (), {}, ()), law)
-    pad_fid = _face(pm, "padA").id
-    shared = pad_shared(pm, law)[pad_fid]
+    unit = [f for f in pm.faces.values() if f.ref.split("#")[0] == "padA"]
+    plats = [f for f in unit if f.ref == "padA"]
+    collars = [f for f in unit if f.ref == "padA" + COLLAR_SUFFIX]
+    assert plats and collars, sorted(f.ref for f in unit)
+    sh = pad_shared(pm, law)
+    shared = set().union(*(sh.get(f.id, set()) for f in unit))
     assert shared
-    rim = _verts(pm, "padA")
-    mine = [r for r in pad_flats(pm, law, airport)
-            if f"face:{pad_fid}" in r.source.inputs]
-    assert len(mine) == len(rim) * (len(rim) - 1) // 2
-    assert {v for r in mine for v in (r.a, r.b)} == rim >= shared
+    flats = pad_flats(pm, law, airport)
+    # (1) the plate: every pair of the platform's rim, one row each
+    for pf in plats:
+        rim = _verts(pm, "padA") if len(plats) == 1 else set(pm.ring_vertices(pf.ring))
+        mine = [r for r in flats if f"face:{pf.id}" in r.source.inputs]
+        assert len(mine) == len(rim) * (len(rim) - 1) // 2
+        assert {v for r in mine for v in (r.a, r.b)} == rim
+    # (2) the contacts: all of them the collar's rim, none in the plate,
+    # every one tied to the platform by a collar bank row
+    crim = set().union(*(set(pm.ring_vertices(f.ring)) for f in collars))
+    assert shared <= crim
+    assert not ({v for r in flats for v in (r.a, r.b)} & shared)
+    bank = [r for r in platform_collar_rows(pm, law, airport)
+            if r.source.ruling.startswith(COLLAR_RULING)]
+    plat_vs = set().union(*(set(pm.ring_vertices(f.ring)) for f in plats))
+    assert shared <= {r.a for r in bank}, sorted(shared - {r.a for r in bank})
+    assert all(r.b in plat_vs for r in bank if r.a in shared)
 
 
 def test_every_pad_vertex_lies_on_the_pads_single_plane(law):
@@ -371,7 +415,9 @@ def test_a_pad_between_two_pavements_half_a_percent_apart_stays_flat_and_tiers_n
     assert abs(float(np.mean(z[apron])) - float(np.mean(z[taxi]))) <= 0.6
     # ... and the pad MEETS each of them: a vertex it shares with a
     # pavement IS that pavement's vertex, to the bit
-    rim = _verts(pm, "padA")
+    # the welded rim is the UNIT's (the collar's outer ring; RULINGS
+    # 2026-09-29m (a)); the plate below is the platform's
+    rim = _unit_verts(pm, "padA")
     for ref in ("apronA", "taxiN"):
         shared = sorted(rim & _verts(pm, ref))
         assert shared, ref
@@ -394,8 +440,13 @@ def test_the_leaders_stand_on_the_frontage_never_the_faces_far_edge(law):
     cells, dem = _two_pavement_cells(0.3)
     airport = _airport(law, dem)
     pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
-    pad_fid = _face(pm, "padA").id
-    lead = pad_frontage_leaders(pm, law)[pad_fid]
+    # the fronting face is the unit's COLLAR (its rim is the welded one;
+    # RULINGS 2026-09-29m (a)) — the frontage is keyed on it
+    leaders = pad_frontage_leaders(pm, law)
+    fids = [f.id for f in pm.faces.values()
+            if f.ref.split("#")[0] == "padA" and f.id in leaders]
+    assert len(fids) == 1, fids
+    lead = leaders[fids[0]]
     ys = {v for _c, lw in lead["apron"] for v, _w in lw}
     assert ys, "the apron frontage mints leaders"
     # every apron leader is on the y = 180 edge the pad fronts, and the
@@ -416,14 +467,21 @@ def test_beyond_one_percent_the_pad_follows_the_senior_pavement(law):
     reported residual of the ``pad_level`` family."""
     cells, dem = _two_pavement_cells(1.8)
     pm, z, rep, _cs = _solve(law, cells, dem)
-    lo, hi, tilt = _pad_plane(pm, z)
+    # RE-READ AT THE PLATFORM/COLLAR LOCUS (RULINGS 2026-09-29m (a); the
+    # same re-base as ``test_v2staged``, #90): the WELDED rim is the
+    # collar's outer ring, the plate the platform's
+    from auto_patch_v2.model.planar import COLLAR_SUFFIX
+    lo, hi, tilt = _pad_plane(pm, z, "padA" + COLLAR_SUFFIX)
     # issue #67 (§20b (1b), airside is king): the pad's 1 % ceiling is a
     # CONFORMING hard law — stage 1 never assembles it, so the two fixed
-    # pavements keep their own 3 % and the pad's plane IS that drop (the
-    # single solve, where they yield, holds 1 %: ``test_v2staged``)
+    # pavements keep their own 3 % and the pad's welded rim IS that drop
+    # (the single solve, where they yield, holds 1 %: ``test_v2staged``)
     assert abs(tilt - 0.030) <= 2e-3, tilt
-    taxi = sorted(_verts(pm, "taxiN") - _verts(pm, "padA"))
-    apron = sorted(_verts(pm, "apronA") - _verts(pm, "padA"))
+    # ... and the platform holds its own plate (measured 2.6e-6)
+    assert _pad_plane(pm, z)[2] <= 0.012
+    unit = _unit_verts(pm, "padA")
+    taxi = sorted(_verts(pm, "taxiN") - unit)
+    apron = sorted(_verts(pm, "apronA") - unit)
     z_taxi, z_apron = float(np.mean(z[taxi])), float(np.mean(z[apron]))
     pad = float(np.mean(z[sorted(_verts(pm, "padA"))]))
     assert abs(pad - z_taxi) < abs(pad - z_apron), (pad, z_taxi, z_apron)

@@ -111,10 +111,17 @@ def _face(pm, ref):
 
 
 def _verts(pm, ref):
-    f = _face(pm, ref)
-    out = set(pm.ring_vertices(f.ring))
-    for h in (f.holes or ()):
-        out |= set(pm.ring_vertices(h))
+    """The vertices of ``ref``'s UNIT: every face whose ref joins on
+    ``ref.split("#")[0]`` (RULINGS 2026-09-29d / 29m (a), issue #91) — a
+    unit pad is a platform ``ref`` inside its collar ``ref#collar``, and
+    the rim a groundside face fronts is the collar's."""
+    fs = [q for q in pm.faces.values() if q.ref.split("#")[0] == ref]
+    assert fs, ref
+    out: set = set()
+    for f in fs:
+        out |= set(pm.ring_vertices(f.ring))
+        for h in (f.holes or ()):
+            out |= set(pm.ring_vertices(h))
     return out
 
 
@@ -222,7 +229,10 @@ def test_the_only_channel_left_is_the_two_way_apron_edge_ramp_law(law):
     _pm_s, z_s, _rs = _solve(law, _cells())              # the SHIPPED (staged) arm
     _pm_sb, z_sb, _rsb = _solve(law, _cells(), drop={GEN_GS})
     pad_s = sorted(_verts(_pm_sb, "padA"))
-    assert float(np.max(np.abs(z_s[pad_s] - z_sb[pad_s]))) < 1e-6
+    # 1e-5 (RULINGS 2026-09-29m (d)): the channel stays CLOSED — measured
+    # 1.24e-6 on the unit platform, three orders under the 0.01 m
+    # elevation materiality; the bar was 1e-6 before the platform
+    assert float(np.max(np.abs(z_s[pad_s] - z_sb[pad_s]))) < 1e-5
     law = unstaged(law)                                  # the joint problem
     _pm_a, z_a, _r = _solve(law, _cells())
     pm_b, z_b, _r2 = _solve(law, _cells(), drop={GEN_GS})
@@ -265,7 +275,10 @@ def test_a_face_between_two_pads_takes_the_senior_and_reports_the_junior(law):
     gid = _face(pm, "lotA").id
     assert gid in rel and len(rel[gid]) == 2, rel.get(gid)
     (sen_pid, sen_ref, sen_len, _f1, _g1), (jun_pid, jun_ref, jun_len, _f2, _g2) = rel[gid]
-    assert sen_ref == "padA" and jun_ref == "padB", (sen_ref, jun_ref)
+    # the pad is its UNIT (RULINGS 2026-09-29d / 29m (a)): the face a lot
+    # fronts is the collar ``padA#collar`` of the platform ``padA``
+    assert (sen_ref.split("#")[0], jun_ref.split("#")[0]) == ("padA", "padB"), (
+        sen_ref, jun_ref)
     assert sen_len > jun_len, (sen_len, jun_len)
     rows = groundside_frontage_level(pm, law, _airport)
     heads = {r.source.ruling.split(" (")[0].strip() for r in rows

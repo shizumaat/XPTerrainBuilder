@@ -139,10 +139,17 @@ def _strips(law, airport, pm, cs):
 
 
 def _verts(pm, ref):
-    f = next(q for q in pm.faces.values() if q.ref == ref)
-    out = set(pm.ring_vertices(f.ring))
-    for h in (f.holes or ()):
-        out |= set(pm.ring_vertices(h))
+    """The vertices of ``ref``'s UNIT: every face whose ref joins on
+    ``ref.split("#")[0]`` (RULINGS 2026-09-29d / 29m, issue #91) — a unit
+    pad is a platform ``ref`` inside its collar ``ref#collar``, and the
+    rim a rider edge / weld stands on is the collar's."""
+    fs = [q for q in pm.faces.values() if q.ref.split("#")[0] == ref]
+    assert fs, ref
+    out: set = set()
+    for f in fs:
+        out |= set(pm.ring_vertices(f.ring))
+        for h in (f.holes or ()):
+            out |= set(pm.ring_vertices(h))
     return out
 
 

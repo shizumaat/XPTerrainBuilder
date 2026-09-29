@@ -142,12 +142,23 @@ def test_a_pad_within_the_horizon_fronts_the_apron_it_shares_nothing_with(law):
     """``building4``'s class, synthetic: 1.5 m of gap, no shared vertex.
     Before 10ax this pad fronted NOTHING."""
     airport, pm = _map(law, _gap_cells(1.5))
-    fid = _face(pm, "padA").id
-    assert not (_verts(pm, "padA") & _verts(pm, "apronA")), "no shared vertex"
-    assert pad_shared(pm, law).get(fid) is None
-    assert "apron" in pad_frontage(pm, law).get(fid, {})
+    # the pad is its UNIT (RULINGS 2026-09-29d / 29m (a), issue #91): a
+    # platform ``padA`` inside its collar ``padA#collar``; the collar's rim
+    # is the one that fronts, the level rows govern the platform
+    unit = [f for f in pm.faces.values() if f.ref.split("#")[0] == "padA"]
+    fids = {f.id for f in unit}
+    uvs = set()
+    for f in unit:
+        uvs |= set(pm.ring_vertices(f.ring))
+        for h in (f.holes or ()):
+            uvs |= set(pm.ring_vertices(h))
+    assert not (uvs & _verts(pm, "apronA")), "no shared vertex"
+    sh = pad_shared(pm, law)
+    assert all(sh.get(f) is None for f in fids)
+    fr = pad_frontage(pm, law)
+    assert any("apron" in fr.get(f, {}) for f in fids)
     rows = [r for r in pad_frontage_level(pm, law, airport)
-            if f"face:{fid}" in r.source.inputs]
+            if any(f"face:{f}" in r.source.inputs for f in fids)]
     assert rows and all(r.source.generator == GEN_LEVEL for r in rows)
 
 

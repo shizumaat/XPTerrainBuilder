@@ -173,6 +173,11 @@ def rider_hosts(planar: PlanarMap, law: Law, airport: Airport | None,
         if best is None:
             continue
         _k, fid, ref, d = best
+        # THE HOST IS THE UNIT (RULINGS 2026-09-29m (b), the 29d P10 debt):
+        # a unit pad is a platform ``ref`` inside a collar ``ref#collar``
+        # (``model.planar.COLLAR_SUFFIX``) and the outline a rider stands
+        # on is the collar's — the pad it rides is ``ref.split("#")[0]``.
+        ref = str(ref).split("#")[0]
         riders.append(RiderAnchor(oid, o.path, (float(o.xy[0]), float(o.xy[1])),
                                   ref, fid, round(d, 3), float(reach)))
     return riders, face_cid
@@ -230,7 +235,8 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
         area = Polygon(pts).area
         cur = pad_ref_of.get(cid)
         if cur is None or area > cur[0]:
-            pad_ref_of[cid] = (area, planar.faces[fid].ref, fid)
+            pad_ref_of[cid] = (area, str(planar.faces[fid].ref).split("#")[0],
+                               fid)                     # the UNIT (29m (b))
         own = own_of.setdefault(cid, set())
         for rg in [ring, *vw.holes[fid]]:
             own.update(rg)

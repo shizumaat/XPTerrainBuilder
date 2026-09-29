@@ -553,7 +553,18 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             road = road.difference(ev.pad_union)
         if not ev.runway_union.is_empty:
             road = road.difference(ev.runway_union)
+        # issue #97 M3: the road ring is STATIONED at the road profile's
+        # own spacing (``emit.road_profile.station_m``) where it is the
+        # road's own free edge, so the edge (and the zone band cut back
+        # from it, ``planar/zones``) tracks the profile instead of chording
+        # 55 m between corridor bends.  An edge lying on the pavement /
+        # pad / runway union it was differenced against is NOT subdivided:
+        # a vertex there would node into the airside ring (the reference).
+        station = float(law.tables.emit.road_profile.station_m)
+        fixed = unary_union([g for g in (ev.pavement_union, ev.pad_union,
+                                         ev.runway_union) if not g.is_empty])
         for i, part in enumerate(polygon_parts(road)):
+            part = station_road_ring(part, station, fixed)
             if part.area >= rules.cells.min_area_m2:
                 # a corridor face joins the §27 pass with the rest: the
                 # free-road ruling does not care which side of the
@@ -730,6 +741,35 @@ def _road_evidence(scored, ev: Evidence, rules: Rules) -> set[int]:
 
 
 # ── mixed pads ───────────────────────────────────────────────────────────
+
+def station_road_ring(poly: Polygon, station_m: float, fixed=None,
+                      tol_m: float = 1e-6) -> Polygon:
+    """``poly`` with every ring segment longer than ``station_m`` split
+    into equal pieces no longer than it (issue #97 M3).  A segment whose
+    midpoint lies within ``tol_m`` of ``fixed`` (the geometry the road was
+    differenced against — pavement, pads, runways) keeps its two
+    endpoints only: subdividing an edge shared with airside would mint
+    vertices in the airside ring when the planar map nodes it."""
+    if station_m <= 0.0 or poly.is_empty:
+        return poly
+    bnd = None if fixed is None or fixed.is_empty else fixed.boundary
+
+    def ring(coords):
+        pts = list(coords)
+        out = [pts[0]]
+        for a, b in zip(pts, pts[1:]):
+            L = math.hypot(b[0] - a[0], b[1] - a[1])
+            n = int(math.ceil(L / station_m - 1e-9))
+            if n > 1 and not (bnd is not None and bnd.distance(
+                    Point((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)) <= tol_m):
+                out += [(a[0] + (b[0] - a[0]) * k / n,
+                         a[1] + (b[1] - a[1]) * k / n) for k in range(1, n)]
+            out.append(b)
+        return out
+
+    return Polygon(ring(poly.exterior.coords),
+                   [ring(h.coords) for h in poly.interiors])
+
 
 def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
                          ) -> tuple[list[Cell], int]:

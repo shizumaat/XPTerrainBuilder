@@ -132,10 +132,17 @@ def rim_relief_m(P: Polygon, air, near_m: float, dem, slope_max: float
 
 
 def platform_split(base_regions, pad_regions, law: Law,
-                   grid: float = 0.0, dem=None) -> tuple[list, dict]:
+                   grid: float = 0.0, dem=None, airport=None) -> tuple[list, dict]:
     """THE SPLIT (module docstring).  Returns ``(pad_regions, counts)``;
-    a no-op with ``[building_pad] platform_collar`` off."""
+    a no-op with ``[building_pad] platform_collar`` off.
+
+    Flat-pad spec §2 (RULINGS 2026-09-30f): with ``[building_pad]
+    frontage_hold`` on, every minted platform is TESTED and PARTITIONED
+    per rigid block here (``planar.pad_blocks``), the verdicts published
+    in ``pad_blocks.BLOCK_PLANS``."""
     PLATFORMS.clear()
+    from .pad_blocks import BLOCK_PLANS, plan_blocks
+    BLOCK_PLANS.clear()
     counts: dict[str, _t.Any] = {"platforms": 0, "platforms_refused": 0}
     bp = law.tables.structures.building_pad
     if not bool(getattr(bp, "platform_collar", False)) or not pad_regions:
@@ -215,6 +222,10 @@ def platform_split(base_regions, pad_regions, law: Law,
             continue
         PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1),
                                   round(tot, 1), nw, rel))
+        if bool(getattr(bp, "frontage_hold", False)):
+            bplan = plan_blocks(str(pr.ref), P, base_regions, law, dem, airport, near)
+            if bplan is not None:
+                BLOCK_PLANS.append(bplan)
         pieces = [_dc.replace(pr, polygon=q) for q in plats]
         plat_ids.update(id(q) for q in pieces)
         out.extend(pieces)

@@ -235,7 +235,8 @@ def build_arrangement(airport: Airport, classification: Classification,
         from .platform import platform_split
         pad_regions, _plat = platform_split(base_regions, pad_regions, law,
                                             float(grid),
-                                            getattr(airport, "dem", None))
+                                            getattr(airport, "dem", None),
+                                            airport=airport)
         _pad_clip.update(_plat)
 
     def _ring_lines_of(rs) -> list[LineString]:

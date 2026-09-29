@@ -57,7 +57,7 @@ def _patch(tmp_path: Path, elevs, *, lat0=30.0, lon=31.0, name="TEST") -> Path:
            + "    <tag k='ref' v='apron1'/>\n"
            + "  </way>\n</osm>\n")
     p = tmp_path / f"{name}_auto.patch.osm"
-    p.write_text(xml)
+    p.write_text(xml, encoding="utf-8", newline="")
     return p
 
 
@@ -135,7 +135,7 @@ def test_only_apron_rings_are_read(tmp_path, stub_dem):
     not enter the reading."""
     stub_dem(0.0)
     p = _patch(tmp_path, [5.0] * 8)
-    txt = p.read_text().replace(
+    txt = p.read_text(encoding="utf-8").replace(
         "</osm>",
         "  <node id='-900' lat='30.0000000' lon='31.0100000'>"
         "<tag k='alt_abs' v='999'/></node>\n"
@@ -149,7 +149,7 @@ def test_only_apron_rings_are_read(tmp_path, stub_dem):
         "    <tag k='role' v='primary_parallel'/>\n"
         "    <tag k='aeroway' v='taxiway'/>\n"
         "  </way>\n</osm>")
-    p.write_text(txt)
+    p.write_text(txt, encoding="utf-8", newline="")
     r = ADR.read_one(p, dem_source="base")
     assert r["apron_rings"] == 1
     assert r["apron_vertices"] == 8
@@ -160,5 +160,5 @@ def test_the_tool_is_in_the_index():
     """Tool discipline (RULINGS 7e90032): a tool absent from the index is
     treated as absent, and it lands with its index row in the same
     commit."""
-    idx = (_ROOT.parent / "tools" / "INDEX.md").read_text()
+    idx = (_ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "Ortho4XP/tools/apron_drape_read.py" in idx

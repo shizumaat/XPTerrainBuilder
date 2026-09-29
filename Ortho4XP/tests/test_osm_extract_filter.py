@@ -70,7 +70,7 @@ def _relation(rel_id, members, tags=None):
 
 def _write(tmp_path, name, body):
     path = tmp_path / name
-    path.write_text(_osm_doc(body))
+    path.write_text(_osm_doc(body), encoding="utf-8", newline="")
     return str(path)
 
 

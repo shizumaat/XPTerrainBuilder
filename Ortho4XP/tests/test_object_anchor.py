@@ -174,7 +174,7 @@ def write_mesh_file(path, vertices, one_based_triangles):
     for first, second, third in one_based_triangles:
         lines.append(f"{first} {second} {third} 0")
     lines.append("End")
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("\n".join(lines) + "\n")
 
 

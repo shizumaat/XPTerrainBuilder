@@ -239,7 +239,7 @@ def test_settled_legacy_band_makes_no_write_under_the_guard(
 ):
     vrt_path = _settle_legacy_band()
     stamp_path = FNAMES.bathymetry_band_index(0, 0)
-    stamp_before = open(stamp_path).read()
+    stamp_before = open(stamp_path, encoding="utf-8").read()
 
     assert BATHYBAND.is_cached(_tile()) is True, "masks gating"
     assert BATHYBAND.is_cached(_tile(), False, False) is True, "DSF gating"
@@ -257,7 +257,7 @@ def test_settled_legacy_band_makes_no_write_under_the_guard(
     assert guard.blocked == []
     assert guard.lock_churn == []
     assert after == before, "a settled warm pass wrote the shared repo"
-    assert open(stamp_path).read() == stamp_before
+    assert open(stamp_path, encoding="utf-8").read() == stamp_before
     assert not [n for n in os.listdir(os.path.dirname(stamp_path))
                 if ".part" in n or n == BATHYBAND.BAND_LOCK_FILE_NAME]
 
@@ -309,7 +309,7 @@ def test_fresh_fetch_then_warm_sequence_writes_nothing(
     assert dsf_vrt == FNAMES.bathymetry_band_vrt(0, 0, COARSE)
     assert len(fetch_calls) == 8, "4 FINE negatives + 4 COARSE cells"
 
-    stamp = json.load(open(FNAMES.bathymetry_band_index(0, 0)))
+    stamp = json.load(open(FNAMES.bathymetry_band_index(0, 0), encoding="utf-8"))
     assert stamp["provider"] == COARSE
     assert stamp["gating"] == [False, False, 0.1]
     # MERGE semantics: both providers' outcomes, all in one map.
@@ -341,7 +341,7 @@ def test_fresh_fetch_then_warm_sequence_writes_nothing(
 def test_checked_date_alone_never_triggers_a_write(tmp_path, monkeypatch):
     _settle_legacy_band()
     stamp_path = FNAMES.bathymetry_band_index(0, 0)
-    stamp = json.load(open(stamp_path))
+    stamp = json.load(open(stamp_path, encoding="utf-8"))
     stamp["checked"] = "2020-01-01"
     BATHYBAND._write_band_stamp(stamp_path, stamp)
     mtime = os.stat(stamp_path).st_mtime_ns
@@ -349,7 +349,7 @@ def test_checked_date_alone_never_triggers_a_write(tmp_path, monkeypatch):
     BATHYBAND.ensure_bathymetry_band(_tile(), True, False)
     BATHYBAND.ensure_bathymetry_band(_tile())
     assert os.stat(stamp_path).st_mtime_ns == mtime
-    assert json.load(open(stamp_path))["checked"] == "2020-01-01"
+    assert json.load(open(stamp_path, encoding="utf-8"))["checked"] == "2020-01-01"
 
 
 # =====================================================================

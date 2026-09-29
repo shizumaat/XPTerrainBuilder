@@ -92,7 +92,10 @@ def _copy_durable(path: str, lane: str, kind: str) -> tuple[str, list[str]]:
     ``.axes.json`` sidecar (without it every census degrades to the
     context-free frame that overcounts).  Never overwrites: an existing
     destination is reused only when byte-identical, otherwise REFUSED."""
-    if not lane or os.sep in lane or lane in (".", "..") or lane.startswith("."):
+    # both separators: on Windows '/' is one too, and os.sep alone let
+    # "claude/lane" nest a directory (#92)
+    if (not lane or "/" in lane or "\\" in lane or lane in (".", "..")
+            or lane.startswith(".")):
         raise SystemExit(f"frames: --lane must be a bare name to copy under: {lane!r}")
     dest_dir = os.path.join(durable_root(), lane)
     dest = os.path.join(dest_dir, os.path.basename(path.rstrip(os.sep)))

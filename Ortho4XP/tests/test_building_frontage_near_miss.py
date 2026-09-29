@@ -327,9 +327,9 @@ def _write_patch(tmp_path, ways):
         wid -= 1
     osm = tmp_path / "patch.osm"
     osm.write_text("<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"
-                   + "\n".join(nodes) + "\n" + "\n".join(lines) + "\n</osm>\n")
+                   + "\n".join(nodes) + "\n" + "\n".join(lines) + "\n</osm>\n", encoding="utf-8", newline="")
     (tmp_path / "patch.osm.axes.json").write_text(
-        '{"anchor": [%r, %r], "ruleset": "icao"}' % (_LAT0, _LON0))
+        '{"anchor": [%r, %r], "ruleset": "icao"}' % (_LAT0, _LON0), encoding="utf-8", newline="")
     return osm
 
 

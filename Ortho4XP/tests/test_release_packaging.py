@@ -109,8 +109,21 @@ def test_branding_is_generated_before_every_freeze(workflow):
 
 
 def test_appimage_script_is_executable():
-    mode = MAKE_APPIMAGE.stat().st_mode
-    assert mode & stat.S_IXUSR, "make_appimage.sh is not executable"
+    # The mode that SHIPS is the one git records (a Linux checkout applies
+    # it); Windows filesystems have no exec bit to stat (#92).
+    import subprocess
+    try:
+        staged = subprocess.run(
+            ["git", "ls-files", "-s", "--", MAKE_APPIMAGE.name],
+            cwd=MAKE_APPIMAGE.parent, capture_output=True, text=True,
+        ).stdout.split()
+    except OSError:
+        staged = []
+    if staged:
+        assert staged[0] == "100755", "make_appimage.sh is not executable in git"
+    else:
+        mode = MAKE_APPIMAGE.stat().st_mode
+        assert mode & stat.S_IXUSR, "make_appimage.sh is not executable"
 
 
 @pytest.fixture(scope="module")

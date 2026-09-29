@@ -126,7 +126,7 @@ def test_check_grade_reads_every_strip_constant_from_the_law_module():
 
 
 def test_check_grade_defines_no_strip_seam_constant_of_its_own():
-    src = Path(inspect.getsourcefile(check_grade)).read_text()
+    src = Path(inspect.getsourcefile(check_grade)).read_text(encoding="utf-8")
     tree = ast.parse(src)
     assigned = {
         t.id
@@ -159,7 +159,7 @@ def test_the_law_module_is_import_light():
     """``tools/check_grade.py`` runs standalone and the solve imports this
     module on a hot path: it must pull nothing but the stdlib (no shapely,
     no numpy, no auto_patch.config)."""
-    src = Path(inspect.getsourcefile(strip_seam_law)).read_text()
+    src = Path(inspect.getsourcefile(strip_seam_law)).read_text(encoding="utf-8")
     tree = ast.parse(src)
     imported = set()
     for node in ast.walk(tree):
@@ -261,7 +261,7 @@ def test_the_guard_allowance_is_grade_aware_past_the_step_floor():
 
 
 def test_adjacent_ground_defines_no_strip_seam_constant_of_its_own():
-    src = Path(inspect.getsourcefile(adjacent_ground)).read_text()
+    src = Path(inspect.getsourcefile(adjacent_ground)).read_text(encoding="utf-8")
     tree = ast.parse(src)
     assigned = {
         t.id
@@ -280,7 +280,7 @@ def test_no_bare_seam_step_spelling_survives_in_the_emitter():
     a comment or docstring, which is how a "temporary" second copy is
     normally reintroduced."""
     for mod in (adjacent_ground, strip_seam_law):
-        src = Path(inspect.getsourcefile(mod)).read_text()
+        src = Path(inspect.getsourcefile(mod)).read_text(encoding="utf-8")
         for banned in RETIRED_HEALER_SPELLINGS:
             assert not re.search(banned, src), (
                 f"{mod.__name__} still spells a strip-seam threshold with "
@@ -292,7 +292,7 @@ def test_no_bare_seam_spelling_survives_for_the_tile_corridor():
     """The v1 conflation was a NAMING failure.  A bare ``_SEAM_*`` for the
     tile corridor is banned at both sites."""
     for mod in (check_grade, grade_graph_validate):
-        src = Path(inspect.getsourcefile(mod)).read_text()
+        src = Path(inspect.getsourcefile(mod)).read_text(encoding="utf-8")
         for banned in (r"(?<![A-Z_])_SEAM_LL_TOL_DEG\b",
                        r"(?<![A-Z_])_SEAM_ZONE_M\b"):
             assert not re.search(banned, src), (

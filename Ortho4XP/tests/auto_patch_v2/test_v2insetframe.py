@@ -51,10 +51,10 @@ def _corpus(tmp_path, monkeypatch, *, requested_box=REQUIRED,
     if manifest and write_raster:
         (insets / f"{ICAO}_hrdem.json").write_text(json.dumps(
             {"provider": "HRDEM",
-             "bounding_box_wgs84": list(requested_box)}))
+             "bounding_box_wgs84": list(requested_box)}), encoding="utf-8", newline="")
     if index_record:
         (insets / "index.json").write_text(json.dumps(
-            {ICAO: {"HRDEM": "ok", "checked": "2026-09-17"}}))
+            {ICAO: {"HRDEM": "ok", "checked": "2026-09-17"}}), encoding="utf-8", newline="")
     return str(elevation), str(osm)
 
 

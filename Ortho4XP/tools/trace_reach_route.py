@@ -981,7 +981,7 @@ class _KmlDoc:
 
     def write(self, out_path):
         self.parts.append('</Document></kml>')
-        with open(out_path, "w") as f:
+        with open(out_path, "w", encoding="utf-8", newline="") as f:
             f.write("\n".join(self.parts) + "\n")
         print(f"wrote {out_path}")
 
@@ -1072,7 +1072,7 @@ def _sidecar_records(path, refs):
         sys.exit(f"no sidecar at {path} — every emit writes one, so a "
                  f"missing sidecar means this patch was not emitted by "
                  f"this tree.")
-    data = _json.loads(open(path).read())
+    data = _json.loads(open(path, encoding="utf-8").read())
     if "pad_binding_routes" not in data:
         sys.exit(_NO_KEY_MSG)
     box = data["pad_binding_routes"] or {}
@@ -1216,7 +1216,7 @@ def _osm_from_sidecar(recs, out_path):
                 parts.append(f'    <tag k="{k}" v="{_xq(v)}"/>')
             parts.append('  </way>')
     parts.append('</osm>')
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8", newline="") as f:
         f.write("\n".join(parts) + "\n")
     print(f"wrote {out_path}")
 

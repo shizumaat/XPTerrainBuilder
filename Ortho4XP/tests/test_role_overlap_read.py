@@ -74,10 +74,10 @@ def _patch(tmp_path, name, rings, *, sidecar=True):
         wid -= 1
     out.append("</osm>\n")
     p = tmp_path / name
-    p.write_text("".join(out))
+    p.write_text("".join(out), encoding="utf-8", newline="")
     if sidecar:
         (tmp_path / (name + ".axes.json")).write_text(json.dumps(
-            {"anchor": list(ANCHOR), "ruleset": "icao"}))
+            {"anchor": list(ANCHOR), "ruleset": "icao"}), encoding="utf-8", newline="")
     return p
 
 
@@ -177,8 +177,8 @@ def test_a_v2_sidecar_with_no_anchor_reads_in_the_node_mean_frame(tmp_path):
     side.write_text(json.dumps({          # the v2 register, no anchor
         "ruleset": "icao", "axes": [], "stretches": [], "crown_drops": [],
         "terrace_joints": [], "basin_facilities": [], "road_bridge_decks": [],
-        "design": {"rounds": 1}, "design_target": []}))
-    assert "anchor" not in json.loads(side.read_text())
+        "design": {"rounds": 1}, "design_target": []}), encoding="utf-8", newline="")
+    assert "anchor" not in json.loads(side.read_text(encoding="utf-8"))
     r = ROR.read(p, over="graded_strip:gap_fill_spine",
                  on="groundside_pavement")
     assert r["anchor"] is None
@@ -242,7 +242,7 @@ def test_the_tool_is_in_the_index():
     index = _ROOT.parent / "tools" / "INDEX.md"
     if not index.exists():                      # a lane worktree mirror
         pytest.skip("no repo-root tools/INDEX.md in this checkout")
-    assert "role_overlap_read.py" in index.read_text()
+    assert "role_overlap_read.py" in index.read_text(encoding="utf-8")
 
 
 # ── --slivers and --hole-rings (RULINGS 2026-09-14g items 4/5, lane

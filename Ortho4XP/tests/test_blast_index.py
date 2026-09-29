@@ -188,7 +188,7 @@ def test_meta_records_staleness_fingerprint_and_shards_exist(tmp_path):
     blast.build(idx)
     for name in blast.SHARDS:
         assert os.path.exists(os.path.join(idx, name + ".json"))
-    with open(os.path.join(idx, "meta.json")) as fh:
+    with open(os.path.join(idx, "meta.json"), encoding="utf-8") as fh:
         meta = json.load(fh)
     assert meta["head_sha"] and len(meta["dirty_hash"]) == 64
     assert meta["version"] == blast.VERSION
@@ -198,7 +198,7 @@ def test_meta_records_staleness_fingerprint_and_shards_exist(tmp_path):
         blast.ensure_fresh(idx)                       # fresh: must not rebuild
     assert out.getvalue() == ""
     meta["head_sha"] = "0" * 40
-    with open(os.path.join(idx, "meta.json"), "w") as fh:
+    with open(os.path.join(idx, "meta.json"), "w", encoding="utf-8", newline="") as fh:
         json.dump(meta, fh)
     with redirect_stdout(out):
         blast.ensure_fresh(idx)

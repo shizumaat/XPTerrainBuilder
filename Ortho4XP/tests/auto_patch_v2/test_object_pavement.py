@@ -49,7 +49,7 @@ def _obj(tmp: Path, name: str, *, header: str, quads: list[tuple[float, float, f
     lines.append("ATTR_draped")
     lines.append(f"TRIS\t0\t{n_draped}")
     p = tmp / name
-    p.write_text("\n".join(lines) + "\n")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return p
 
 
@@ -206,7 +206,7 @@ def _plane(tmp: Path, name: str, *, quad=(0.0, 0.0, 40.0, 50.0), y_far: float = 
         lines.append("ATTR_hard")
     lines.append("TRIS\t0\t6")
     p = tmp / name
-    p.write_text("\n".join(lines) + "\n")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return p
 
 
@@ -294,7 +294,7 @@ def _arc_plane(tmp: Path, name: str, r: float = 2.0, step_m: float = 0.55) -> Pa
         lines += ["IDX\t0", f"IDX\t{i + 1}", f"IDX\t{j + 1}"]
     lines += ["ATTR_hard", f"TRIS\t0\t{3 * len(pts)}"]
     p = tmp / name
-    p.write_text("\n".join(lines) + "\n")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return p
 
 

@@ -59,7 +59,7 @@ def prefs_file(tmp_path):
     stored selection", which is the state most of these tests want.
     """
     path = str(tmp_path / "prefs.json")
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         json.dump({}, handle)
     return path
 
@@ -115,7 +115,7 @@ def window(make_window):
 
 
 def _read_prefs(path):
-    with open(path, "r") as handle:
+    with open(path, "r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -176,7 +176,7 @@ def test_deselecting_everything_launches_empty(make_window, prefs_file):
 
 
 def test_malformed_stored_keys_are_dropped_silently(make_window, prefs_file):
-    with open(prefs_file, "w") as handle:
+    with open(prefs_file, "w", encoding="utf-8", newline="") as handle:
         json.dump({GUI.SELECTED_TILES_KEY: ["+48-006", "nonsense",
                                             "+91-000", "+49-006"],
                    GUI.ACTIVE_TILE_KEY: "+49-006"}, handle)
@@ -187,7 +187,7 @@ def test_malformed_stored_keys_are_dropped_silently(make_window, prefs_file):
 
 def test_active_outside_the_set_falls_back_to_the_first_tile(make_window,
                                                              prefs_file):
-    with open(prefs_file, "w") as handle:
+    with open(prefs_file, "w", encoding="utf-8", newline="") as handle:
         json.dump({GUI.SELECTED_TILES_KEY: ["+49-006", "+48-006"],
                    GUI.ACTIVE_TILE_KEY: "+10-010"}, handle)
     window = make_window()
@@ -200,7 +200,7 @@ def test_restored_selection_syncs_the_toolbar_like_a_click(make_window,
     """The restore must let the per-tile config adoption fire exactly as
     it does on a user click — the combos are synced to the restored set,
     not left at the raw prefs defaults."""
-    with open(prefs_file, "w") as handle:
+    with open(prefs_file, "w", encoding="utf-8", newline="") as handle:
         json.dump({GUI.SELECTED_TILES_KEY: ["+48-006"],
                    GUI.ACTIVE_TILE_KEY: "+48-006"}, handle)
     window = make_window()

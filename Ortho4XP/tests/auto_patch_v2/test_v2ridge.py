@@ -448,9 +448,9 @@ def test_a_short_diagonal_inside_the_box_is_lawful_and_a_step_is_a_defect(ridge,
     # patch reads the chord and the tally stays empty
     side = Path(str(patch) + ".axes.json")
     import json as _json
-    data = _json.loads(side.read_text())
+    data = _json.loads(side.read_text(encoding="utf-8"))
     data.pop("stretches")
-    side.write_text(_json.dumps(data))
+    side.write_text(_json.dumps(data), encoding="utf-8", newline="")
     rows_v1, stats_v1 = _taxi_box_rows(patch)
     assert rows_v1 == [] and stats_v1 == {}
 

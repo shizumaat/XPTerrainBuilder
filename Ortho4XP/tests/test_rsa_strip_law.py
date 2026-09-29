@@ -314,7 +314,7 @@ def _write_patch(tmp_path, band_alts, y0=20.0, step=25.0):
     out = tmp_path / "patch.osm"
     out.write_text(
         "<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"
-        + "\n".join(nodes) + "\n" + "\n".join(ways) + "\n</osm>\n")
+        + "\n".join(nodes) + "\n" + "\n".join(ways) + "\n</osm>\n", encoding="utf-8", newline="")
     return out
 
 

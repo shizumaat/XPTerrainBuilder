@@ -65,7 +65,7 @@ def xplane_dir(tmp_path):
     nav_data = tmp_path / "xplane" / "Global Scenery" / "Global Airports" \
         / "Earth nav data"
     os.makedirs(nav_data)
-    with open(nav_data / "apt.dat", "w", encoding="utf-8") as handle:
+    with open(nav_data / "apt.dat", "w", encoding="utf-8", newline="") as handle:
         handle.write(_APT_DAT)
     return str(tmp_path / "xplane")
 

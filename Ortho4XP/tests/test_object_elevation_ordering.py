@@ -191,7 +191,7 @@ def test_load_airport_dem_returns_override_by_identity():
 # O3 -- the mesh-newer-than-.alt ordering guard
 # =====================================================================
 def _touch(path, mtime):
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("x")
     os.utime(path, (mtime, mtime))
 
@@ -277,7 +277,7 @@ def test_rebake_skips_on_stale_mesh(tmp_path, monkeypatch):
     worklist_path = os.path.join(
         str(patches_directory), post_mesh.OBJECT_ANCHOR_WORKLIST_FILENAME
     )
-    with open(worklist_path, "w") as handle:
+    with open(worklist_path, "w", encoding="utf-8", newline="") as handle:
         json.dump(
             {
                 "version": post_mesh.OBJECT_ANCHOR_WORKLIST_VERSION,

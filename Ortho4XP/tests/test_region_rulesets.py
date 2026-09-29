@@ -137,13 +137,13 @@ def test_sidecar_carries_the_ruleset_key():
         "the sidecar's ruleset key must map to run_checks' ruleset kwarg")
     with tempfile.TemporaryDirectory() as td:
         osm = Path(td) / "p.osm"
-        osm.write_text("<osm version='0.6'></osm>")
+        osm.write_text("<osm version='0.6'></osm>", encoding="utf-8", newline="")
         Path(str(osm) + ".axes.json").write_text(json.dumps(
-            {"anchor": None, "ruleset": "faa"}))
+            {"anchor": None, "ruleset": "faa"}), encoding="utf-8", newline="")
         assert cg.law_context_from_sidecar(osm)["ruleset"] == "faa", (
             "the one sidecar reader must carry the BUILD's ruleset through "
             "to run_checks — never re-resolved from the ICAO identifier")
-    assert "_set_active_ruleset(ruleset)" in open(check).read()
+    assert "_set_active_ruleset(ruleset)" in open(check, encoding="utf-8").read()
 
 
 def test_ruleset_of_prefers_the_carried_key_over_re_resolution():

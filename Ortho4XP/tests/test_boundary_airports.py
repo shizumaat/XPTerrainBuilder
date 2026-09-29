@@ -37,7 +37,7 @@ def _apt(tmp_path, name, body):
     path = tmp_path / ("%s.dat" % name)
     path.write_text(
         "A\n1000 Version\n\n1 10 0 0 ZZZZ Test\n%s\n99\n" % body,
-        encoding="utf-8")
+        encoding="utf-8", newline="")
     return str(path)
 
 

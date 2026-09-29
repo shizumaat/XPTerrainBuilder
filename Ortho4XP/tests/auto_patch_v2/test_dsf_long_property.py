@@ -101,10 +101,10 @@ def _pristine_dump(tmp_path: Path, tool: str) -> str:
     WED-written DSF carries — made by one short-row round trip, then the
     placeholder swapped for the long value."""
     seed = tmp_path / "seed.text"
-    seed.write_text(DUMP.replace(LONG_NET, PLACEHOLDER))
+    seed.write_text(DUMP.replace(LONG_NET, PLACEHOLDER), encoding="utf-8", newline="")
     W._run([tool, "--text2dsf", str(seed), str(tmp_path / "seed.dsf")])
     text = Path(W.dump(str(tmp_path / "seed.dsf"),
-                       str(tmp_path / "seed2.text"), tool)).read_text()
+                       str(tmp_path / "seed2.text"), tool)).read_text(encoding="utf-8")
     assert PLACEHOLDER in text
     return text.replace(PLACEHOLDER, LONG_NET)
 
@@ -114,12 +114,12 @@ def test_long_exclusion_survives_the_round_trip(tmp_path):
     tool = _dsftool_path()
     pristine = _pristine_dump(tmp_path, tool)
     src = tmp_path / "in.text"
-    src.write_text(pristine)
+    src.write_text(pristine, encoding="utf-8", newline="")
     # the defect itself: DSFTool alone cuts the long row
     raw = tmp_path / "raw.dsf"
     W._run([tool, "--text2dsf", str(src), str(raw)])
     back = W.dump(str(raw), str(tmp_path / "raw.text"), tool)
-    rep = W.compare_dumps(pristine, Path(back).read_text())
+    rep = W.compare_dumps(pristine, Path(back).read_text(encoding="utf-8"))
     assert not rep.ok
     assert rep.findings[0].startswith("structural row")
     assert "PROPERTY sim/exclude_net" in rep.findings[0]
@@ -128,14 +128,14 @@ def test_long_exclusion_survives_the_round_trip(tmp_path):
     rep = W.verify_roundtrip(out, pristine, tool)
     assert rep.ok, rep.findings
     again = W.dump(out, str(tmp_path / "out.text"), tool)
-    assert W.text_properties(Path(again).read_text()) == PROPS
+    assert W.text_properties(Path(again).read_text(encoding="utf-8")) == PROPS
 
 
 @pytest.mark.skipif(_dsftool_path() is None, reason="no DSFTool on this machine")
 def test_a_long_non_property_row_is_refused(tmp_path):
     src = tmp_path / "in.text"
     src.write_text(DUMP.replace("objects/hangar.obj",
-                                "objects/" + "h" * 600 + ".obj"))
+                                "objects/" + "h" * 600 + ".obj"), encoding="utf-8", newline="")
     with pytest.raises(RuntimeError, match="text reader keeps 511"):
         W.encode(str(src), str(tmp_path / "out.dsf"), _dsftool_path())
 
@@ -173,8 +173,8 @@ def test_sweep_noop_counts_the_class_before_and_after(tmp_path):
     pack = tmp_path / "cache" / "PACK"
     pack.mkdir(parents=True)
     text = _pristine_dump(tmp_path, tool)
-    (pack / "+20-157.dsf.deadbeef.text").write_text(text)
-    (pack / "+20-157.dsf.anchor_bak.deadbeef.text").write_text(text)  # same tag
+    (pack / "+20-157.dsf.deadbeef.text").write_text(text, encoding="utf-8", newline="")
+    (pack / "+20-157.dsf.anchor_bak.deadbeef.text").write_text(text, encoding="utf-8", newline="")  # same tag
     raw = mod.sweep_noop(str(tmp_path / "cache"), tool, raw=True, jobs=1)
     assert (raw["dumps"], raw["failed"]) == (1, 1)
     fixed = mod.sweep_noop(str(tmp_path / "cache"), tool, jobs=1)

@@ -53,7 +53,7 @@ def _axis(s0_m, s1_m, *, service=True, n=2, offset_m=0.0):
 
 def _sidecar(tmp_path, axes, key="axes_exact"):
     p = tmp_path / "patch.osm.axes.json"
-    p.write_text(json.dumps({key: axes, "anchor": [LAT0, LON0]}))
+    p.write_text(json.dumps({key: axes, "anchor": [LAT0, LON0]}), encoding="utf-8", newline="")
     return p
 
 
@@ -133,7 +133,7 @@ class TestCorridorAxisCoverage:
         out = tmp_path / "out.json"
         assert CAC.main([str(side), "--corridor", CORRIDOR,
                          "--json", str(out)]) == 0
-        printed = json.loads(out.read_text())["corridors"]["A"]
+        printed = json.loads(out.read_text(encoding="utf-8"))["corridors"]["A"]
         assert printed == CAC.corridor_coverage(
             CAC.load_axes(side), (LAT0, LON0), (LAT0, _east(600.0)))
         assert "AXIS-FREE GAPS" in capsys.readouterr().out
@@ -150,7 +150,7 @@ class TestCorridorAxisCoverage:
 
 def _rows_dump(tmp_path, name, rows):
     p = tmp_path / name
-    p.write_text(json.dumps({"patch": "x", "n_rows": len(rows), "rows": rows}))
+    p.write_text(json.dumps({"patch": "x", "n_rows": len(rows), "rows": rows}), encoding="utf-8", newline="")
     return p
 
 
@@ -187,7 +187,7 @@ class TestArmSiteRead:
 
     def test_a_dump_that_is_not_a_census_dump_is_refused(self, tmp_path):
         p = tmp_path / "not.json"
-        p.write_text(json.dumps({"whatever": 1}))
+        p.write_text(json.dumps({"whatever": 1}), encoding="utf-8", newline="")
         with pytest.raises(ASR.SiteReadRefusal):
             ASR.load_rows(p)
 
@@ -210,7 +210,7 @@ class TestArmSiteRead:
                 "    <nd ref='-3'/>\n    <nd ref='-1'/>\n"
                 "    <tag k='aeroway' v='building'/>\n"
                 "    <tag k='role' v='building'/>\n"
-                "    <tag k='ref' v='building211'/>\n  </way>\n</osm>\n")
+                "    <tag k='ref' v='building211'/>\n  </way>\n</osm>\n", encoding="utf-8", newline="")
             return p
         ctl, arm = _patch("ctl.osm", 76.55), _patch("arm.osm", 77.43)
         res = ASR.seat_moves(cg, ctl, arm)
@@ -254,7 +254,7 @@ class TestArmSiteRead:
             way_id -= 1
         lines.append("</osm>")
         path = tmp_path / name
-        path.write_text("\n".join(lines) + "\n")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
         return path
 
     def test_a_renumbered_population_is_named_not_reported_as_motion(
@@ -310,12 +310,12 @@ class TestArmSiteRead:
                             [_row(LAT0, LON0, de=1.0), _row(LAT0, LON0, de=2.0)])
         patch = tmp_path / "p.osm"
         patch.write_text("<?xml version='1.0' encoding='UTF-8'?>\n"
-                         "<osm version='0.6'>\n</osm>\n")
+                         "<osm version='0.6'>\n</osm>\n", encoding="utf-8", newline="")
         out = tmp_path / "out.json"
         assert ASR.main([str(patch), str(patch), "--site", f"S={LAT0},{LON0}",
                          "--rows", str(rows_c), str(rows_a),
                          "--json", str(out)]) == 0
-        got = json.loads(out.read_text())["sites"]["S"]
+        got = json.loads(out.read_text(encoding="utf-8"))["sites"]["S"]
         assert got["control"] == ASR.rows_near(
             ASR.load_rows(rows_c), LAT0, LON0, 25.0)
         assert got["arm"] == ASR.rows_near(
@@ -348,7 +348,7 @@ class TestArmSiteRead:
             "    <nd ref='-3'/>\n    <nd ref='-4'/>\n    <nd ref='-1'/>\n"
             "    <tag k='aeroway' v='apron'/>\n"
             "    <tag k='role' v='apron'/>\n"
-            "    <tag k='shapeID' v='584'/>\n  </way>\n</osm>\n")
+            "    <tag k='shapeID' v='584'/>\n  </way>\n</osm>\n", encoding="utf-8", newline="")
         return p
 
     def test_behind_measures_the_airside_area_past_the_edge(self, tmp_path):
@@ -403,7 +403,7 @@ class TestArmSiteRead:
         assert ASR.main([str(patch), str(patch), "--behind",
                          f"WALL={LAT0},{LON0}:{LAT0},{_east(100.0)}",
                          "--json", str(out)]) == 0
-        got = json.loads(out.read_text())["behind"]["WALL"]["arm"]
+        got = json.loads(out.read_text(encoding="utf-8"))["behind"]["WALL"]["arm"]
         assert got == ASR.behind_the_edge(
             cg, patch, (LAT0, LON0), (LAT0, _east(100.0)))
 
@@ -419,7 +419,7 @@ class TestArmSiteRead:
     def test_absent_row_dumps_report_SKIPPED_not_zero(self, tmp_path, capsys):
         patch = tmp_path / "p.osm"
         patch.write_text("<?xml version='1.0' encoding='UTF-8'?>\n"
-                         "<osm version='0.6'>\n</osm>\n")
+                         "<osm version='0.6'>\n</osm>\n", encoding="utf-8", newline="")
         assert ASR.main([str(patch), str(patch),
                          "--site", f"S={LAT0},{LON0}"]) == 0
         assert "SKIPPED" in capsys.readouterr().out
@@ -487,7 +487,7 @@ def _seam_patch(tmp_path, name, *, shared: bool, road_alt=216.95,
                    "    <tag k='aeroway' v='taxiway'/>\n  </way>\n")
     txt.append("</osm>\n")
     p = tmp_path / name
-    p.write_text("".join(txt))
+    p.write_text("".join(txt), encoding="utf-8", newline="")
     return p
 
 
@@ -549,7 +549,7 @@ class TestSeamWelds:
         assert ASR.main([str(p), str(p), "--site", f"M={LAT0},{LON0}",
                          "--radius", "60", "--welds", "--json",
                          str(out)]) == 0
-        got = json.loads(out.read_text())["welds"]["M"]["arm"]
+        got = json.loads(out.read_text(encoding="utf-8"))["welds"]["M"]["arm"]
         assert got == ASR.seam_welds(ASR._check_grade(), p, LAT0, LON0, 60.0)
         assert "SEAM WELDS" in capsys.readouterr().out
 
@@ -582,7 +582,7 @@ def _free_end_sidecar(tmp_path, recs, *, key=True):
     body = {"axes_exact": [], "anchor": [LAT0, LON0]}
     if key:
         body["svc_free_ends"] = recs
-    p.write_text(json.dumps(body))
+    p.write_text(json.dumps(body), encoding="utf-8", newline="")
     return p
 
 
@@ -601,7 +601,7 @@ def _road_patch(tmp_path, alts):
                "    <tag k='role' v='service_road'/>\n"
                "    <tag k='aeroway' v='taxiway'/>\n  </way>\n</osm>\n")
     p = tmp_path / "road.osm"
-    p.write_text("".join(txt))
+    p.write_text("".join(txt), encoding="utf-8", newline="")
     return p
 
 
@@ -685,7 +685,7 @@ class TestFreeEndOffsets:
         out = tmp_path / "fe.json"
         assert CAC.main([str(sidecar), "--free-ends", str(patch),
                          "--json", str(out)]) == 0
-        got = json.loads(out.read_text())["free_ends"]
+        got = json.loads(out.read_text(encoding="utf-8"))["free_ends"]
         assert got == json.loads(json.dumps(
             CAC.free_end_offsets([rec], CAC._road_nodes(patch))))
         assert "FREE-END DEM offsets" in capsys.readouterr().out
@@ -696,7 +696,7 @@ class TestFreeEndOffsets:
 
 def test_both_tools_carry_an_index_row():
     """A tool absent from ``tools/INDEX.md`` is treated as absent."""
-    index = (ROOT.parent / "tools" / "INDEX.md").read_text()
+    index = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "Ortho4XP/tools/corridor_axis_coverage.py" in index
     assert "Ortho4XP/tools/arm_site_read.py" in index
 
@@ -710,7 +710,7 @@ def _profile_sidecar(tmp_path, n_pts=41, step_m=5.0, service=True):
     axis marching east from the site."""
     pts = [[LAT0, _east(k * step_m)] for k in range(n_pts)]
     p = tmp_path / "prof.osm.axes.json"
-    p.write_text(json.dumps({"axes_exact": [[pts, [], 0, service]]}))
+    p.write_text(json.dumps({"axes_exact": [[pts, [], 0, service]]}), encoding="utf-8", newline="")
     return p
 
 
@@ -789,7 +789,7 @@ class TestVerticalProfile:
         out = tmp_path / "prof.json"
         assert CAC.main([str(sidecar), "--profile", str(patch),
                          "--json", str(out)]) == 0
-        got = json.loads(out.read_text())
+        got = json.loads(out.read_text(encoding="utf-8"))
         assert got["cap"] == pytest.approx(CAC._road_cap())
         assert got["axes"] == json.loads(json.dumps(
             CAC.service_axis_profiles(
@@ -822,9 +822,9 @@ def _surface_patch(tmp_path, name, alts, *, role="graded_strip",
                "    <tag k='aeroway' v='taxiway'/>\n  </way>\n")
     txt.append("</osm>\n")
     p = tmp_path / name
-    p.write_text("".join(txt))
+    p.write_text("".join(txt), encoding="utf-8", newline="")
     (tmp_path / (name + ".axes.json")).write_text(
-        json.dumps({"anchor": [LAT0, LON0], "ruleset": "icao"}))
+        json.dumps({"anchor": [LAT0, LON0], "ruleset": "icao"}), encoding="utf-8", newline="")
     return p
 
 
@@ -928,7 +928,7 @@ class TestLineProfile:
             "--radius", "250", "--profile",
             "--line", f"L={LAT0},{LON0}:{LAT0},{_east(200.0)}",
             "--json", str(out)]) == 0
-        got = json.loads(out.read_text())
+        got = json.loads(out.read_text(encoding="utf-8"))
         cg = ASR._check_grade()
         assert got["profiles"]["S"]["arm"] == ASR.station_profiles(
             cg, p, LAT0, LON0, 250.0)
@@ -966,9 +966,9 @@ def test_open_feature_breaklines_are_visible_to_the_profile(tmp_path):
                "    <tag k='aeroway' v='apron'/>\n  </way>\n")
     txt.append("</osm>\n")
     p = tmp_path / "lattice.osm"
-    p.write_text("".join(txt))
+    p.write_text("".join(txt), encoding="utf-8", newline="")
     (tmp_path / "lattice.osm.axes.json").write_text(
-        json.dumps({"anchor": [LAT0, LON0], "ruleset": "icao"}))
+        json.dumps({"anchor": [LAT0, LON0], "ruleset": "icao"}), encoding="utf-8", newline="")
     cg = ASR._check_grade()
     # invisible under the ring roles ...
     assert ASR.line_profile(cg, p, (LAT0, LON0), (LAT0, _east(100.0)),
@@ -1002,7 +1002,7 @@ class TestAirsideNearCuts:
             + "".join(f"    <nd ref='-{k + 1}'/>\n" for k in range(len(alts)))
             + "    <tag k='aeroway' v='taxiway'/>\n"
               "    <tag k='role' v='junction'/>\n"
-              "    <tag k='ref' v='pav1'/>\n  </way>\n</osm>\n")
+              "    <tag k='ref' v='pav1'/>\n  </way>\n</osm>\n", encoding="utf-8", newline="")
         side = {"anchor": [LAT0, LON0]}
         if cuts:
             # a 20 m box AT the first node: only what stands within the
@@ -1013,7 +1013,7 @@ class TestAirsideNearCuts:
                                                    [LAT0 + 1.8e-4, _east(20.0)],
                                                    [LAT0 + 1.8e-4, LON0],
                                                    [LAT0, LON0]]}]
-        (tmp_path / (name + ".axes.json")).write_text(json.dumps(side))
+        (tmp_path / (name + ".axes.json")).write_text(json.dumps(side), encoding="utf-8", newline="")
         return p
 
     def test_the_movers_are_counted_named_and_split_by_role(self, tmp_path):
@@ -1057,12 +1057,12 @@ class TestAirsideNearCuts:
         rc = ASR.main([str(ctl), str(arm), "--airside-near-cuts", "200",
                        "--json", str(out_json)])
         assert rc == 0
-        got = json.loads(out_json.read_text())["airside_near_cuts"]
+        got = json.loads(out_json.read_text(encoding="utf-8"))["airside_near_cuts"]
         cg = ASR._check_grade()
         assert got == json.loads(json.dumps(
             ASR.airside_near_cuts(cg, ctl, arm, near_m=200.0)))
         assert "AIRSIDE NEAR THE OBJECT CUTS" in capsys.readouterr().out
 
     def test_the_index_row_names_the_option(self):
-        idx = (ROOT.parent / "tools" / "INDEX.md").read_text()
+        idx = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
         assert "--airside-near-cuts" in idx

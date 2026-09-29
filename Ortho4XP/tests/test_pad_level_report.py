@@ -40,7 +40,7 @@ def _patch(path: Path, ways: dict[str, list[tuple[float, float, float]]]) -> Pat
         out.append(f"    <tag k='o4_ref' v='{ref}'/>")
         out.append("  </way>")
     out.append("</osm>")
-    path.write_text("\n".join(out))
+    path.write_text("\n".join(out), encoding="utf-8", newline="")
     return path
 
 
@@ -96,7 +96,7 @@ def test_a_way_present_in_one_patch_only_is_never_a_move(tmp_path, capsys):
 def test_the_tool_carries_its_index_rows():
     """RULINGS `7e90032`: a tool absent from the index is treated as
     absent, and the row lands in the same commit as the tool."""
-    assert "pad_level_report.py" in (ROOT / "tools" / "README.md").read_text()
+    assert "pad_level_report.py" in (ROOT / "tools" / "README.md").read_text(encoding="utf-8")
     idx = ROOT.parent / "tools" / "INDEX.md"
     if idx.exists():                          # absent in a pre-index worktree
-        assert "pad_level_report.py" in idx.read_text()
+        assert "pad_level_report.py" in idx.read_text(encoding="utf-8")

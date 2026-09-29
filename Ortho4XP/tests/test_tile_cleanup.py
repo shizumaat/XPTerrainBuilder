@@ -24,7 +24,7 @@ def _make_tile(tmp_path, terrain_files, texture_files):
     (tmp_path / "terrain").mkdir()
     (tmp_path / "textures").mkdir()
     for name in terrain_files:
-        (tmp_path / "terrain" / name).write_text("A\n800\nTERRAIN\n")
+        (tmp_path / "terrain" / name).write_text("A\n800\nTERRAIN\n", encoding="utf-8", newline="")
     for name in texture_files:
         (tmp_path / "textures" / name).write_bytes(b"x")
     return _StubTile(str(tmp_path))
@@ -78,7 +78,7 @@ def test_dsftool_dump_leftovers_are_swept(tmp_path):
     nav.mkdir(parents=True)
     dsf = nav / "+60-136.dsf"
     dsf.write_bytes(b"XPLNEDSF")
-    (nav / "+60-136.dsf.text").write_text("dump")
+    (nav / "+60-136.dsf.text").write_text("dump", encoding="utf-8", newline="")
     (nav / "+60-136.dsf.text.elevation.raw").write_bytes(b"r")
     (nav / "+60-136.dsf.text.sea_level.raw").write_bytes(b"r")
     TILE.remove_dsftool_dump_leftovers(_StubTile(str(tmp_path)))

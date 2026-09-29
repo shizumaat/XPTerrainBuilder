@@ -18,7 +18,7 @@ def _write_pol(root, relative_path, surface=None):
              "TEXTURE_NOWRAP tex.png", "SCALE 25 25"]
     if surface is not None:
         lines.append(f"SURFACE {surface}")
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("\n".join(lines) + "\n")
     return path
 
@@ -118,5 +118,5 @@ class TestSurfaceClassification:
         dsf = os.path.join(str(tmp_path), "Earth nav data",
                            "+30-090", "+35-081.dsf")
         os.makedirs(os.path.dirname(dsf), exist_ok=True)
-        open(dsf, "w").close()
+        open(dsf, "w", encoding="utf-8", newline="").close()
         assert DSFR._pack_root_for_dsf(dsf) == str(tmp_path)

@@ -60,7 +60,7 @@ def _patch(tmp_path, rings):
                    "  </way>".format(wid, body, role))
     out.append("</osm>")
     path = tmp_path / "patch.osm"
-    path.write_text("\n".join(out))
+    path.write_text("\n".join(out), encoding="utf-8", newline="")
     return path
 
 
@@ -153,7 +153,7 @@ class TestTheCLI:
         printed = capsys.readouterr().out
         assert "TOTAL <=+0.00 m within 500 m of an end" in printed
         import json
-        assert json.loads(out_json.read_text())["total_at_or_below"] == RING_N
+        assert json.loads(out_json.read_text(encoding="utf-8"))["total_at_or_below"] == RING_N
 
 
 class TestItIsTheHARNESSPARSER:

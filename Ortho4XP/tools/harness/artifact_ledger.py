@@ -57,7 +57,6 @@ turn into a rebuild nobody could explain.
 """
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -68,6 +67,22 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_flock():
+    import importlib.util as _ilu
+    import sys as _sys
+    _m = _sys.modules.get("_o4_portable_flock")
+    if _m is None:
+        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portable_flock.py")
+        _s = _ilu.spec_from_file_location("_o4_portable_flock", _p)
+        _m = _ilu.module_from_spec(_s)
+        _sys.modules["_o4_portable_flock"] = _m
+        _s.loader.exec_module(_m)
+    return _m
+
+
+_flock = _load_flock()   # fcntl on POSIX, msvcrt on Windows (#92)
 
 #: The store.  OUTSIDE the shared data repo on purpose (owner ruling
 #: e9daef5): it is a lane-shared CACHE OF PRODUCTS, and products stay out of
@@ -288,11 +303,11 @@ class _StoreLock:
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.fh = open(self.path, "a")
-        fcntl.flock(self.fh, fcntl.LOCK_EX)
+        _flock.lock(self.fh)
         return self
 
     def __exit__(self, *exc):
-        fcntl.flock(self.fh, fcntl.LOCK_UN)
+        _flock.unlock(self.fh)
         self.fh.close()
         return False
 

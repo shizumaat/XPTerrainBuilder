@@ -144,7 +144,7 @@ def test_writer_output_round_trips(tmp_path):
     mesh = build_sample_building()
     output = tmp_path / "sample.obj"
     write_obj8(mesh, output, texture_file_name="sample.png", comments=["test"])
-    lines = output.read_text().splitlines()
+    lines = output.read_text(encoding="utf-8").splitlines()
     assert lines[0] == "I" and lines[1] == "800" and lines[2] == "OBJ"
     vertex_lines = [line for line in lines if line.startswith("VT ")]
     assert len(vertex_lines) == len(mesh.vertices)

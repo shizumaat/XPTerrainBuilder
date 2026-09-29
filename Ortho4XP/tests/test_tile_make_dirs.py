@@ -77,9 +77,13 @@ def test_a_missing_directory_is_still_created(tmp_path, said):
 def test_an_uncreatable_directory_reports_the_os_error(tmp_path, said):
     """The bare ``except`` swallowed the cause; the OSError is now quoted."""
     blocker = tmp_path / "blocker"
-    blocker.write_text("a file, not a directory")
+    blocker.write_text("a file, not a directory", encoding="utf-8", newline="")
     with pytest.raises(Exception):
         _Dir(str(blocker / "zOrtho4XP_+22+113")).make_dirs()
     assert len(said) == 1
     assert "Cannot create tile directory" in said[0]
-    assert "Not a directory" in said[0] or "NotADirectoryError" in said[0]
+    # The OS's own words for this failure, whatever the OS: POSIX says
+    # ENOTDIR "Not a directory", Windows ERROR_PATH_NOT_FOUND (#92).
+    with pytest.raises(OSError) as os_error:
+        os.makedirs(str(blocker / "probe"))
+    assert os_error.value.strerror in said[0]

@@ -29,6 +29,7 @@ patches still suppress auto-patching entirely.
 Everything is hermetic: tmp_path only, no network, no X-Plane install.
 """
 import os
+import sys
 import types
 from pathlib import Path
 
@@ -50,7 +51,7 @@ TILE_LAT, TILE_LON = 40, -100
 
 def _make_apt_dat(tmp_path: Path, name: str = "apt.dat") -> Path:
     p = tmp_path / name
-    p.write_text("I\n1000 Version\n1 100 0 0 KFAKE Fake Airport\n")
+    p.write_text("I\n1000 Version\n1 100 0 0 KFAKE Fake Airport\n", encoding="utf-8", newline="")
     return p
 
 
@@ -88,7 +89,7 @@ class FakeInstall:
         cifp_dir = root / "Custom Data" / "CIFP"
         cifp_dir.mkdir(parents=True)
         self.cifp = cifp_dir / "KFAKE.dat"
-        self.cifp.write_text("SUSAP KFAKEK2G RW09 ...\n")
+        self.cifp.write_text("SUSAP KFAKEK2G RW09 ...\n", encoding="utf-8", newline="")
 
         # DEM inputs: a base raster plus one cached airport-elevation
         # inset that "baked" into the tile DEM.
@@ -105,7 +106,7 @@ class FakeInstall:
         keyword = "SCENERY_PACK" if enabled else "SCENERY_PACK_DISABLED"
         self.ini.write_text(
             "I\n1000 Version\nSCENERY_PACK_INI\n\n"
-            f"{keyword} Custom Scenery/TestPack/\n")
+            f"{keyword} Custom Scenery/TestPack/\n", encoding="utf-8", newline="")
 
     # -- tile / DEM ---------------------------------------------------
     def make_tile(self, **overrides):
@@ -204,7 +205,7 @@ def test_to_osm_stamp_survives_spaces_and_quotes_in_path(tmp_path):
 
     # The attribute value must stay quote-free (percent-encoded) so
     # the single-quote-delimited OSM line parsers are unaffected.
-    header = patch.read_text().splitlines()[1]
+    header = patch.read_text(encoding="utf-8").splitlines()[1]
     assert "<osm " in header
     assert header.count("'") % 2 == 0
     meta = read_patch_source(str(patch))
@@ -219,7 +220,7 @@ def test_read_patch_source_none_without_stamp(tmp_path):
 
 def test_freshness_stamps_round_trip(install, tmp_path):
     patch = install.emit_patch(tmp_path / "KFAKE_auto.patch.osm")
-    header = patch.read_text().splitlines()[1]
+    header = patch.read_text(encoding="utf-8").splitlines()[1]
     # Every stamp is present, and none of them can break the
     # single-quote-delimited attribute syntax the OSM readers assume.
     assert header.count("'") % 2 == 0
@@ -699,7 +700,7 @@ def test_cifp_covers_both_readers(install):
     assert len(files) == 1
     elsewhere = install.root / "elsewhere" / "KFAKE.dat"
     elsewhere.parent.mkdir()
-    elsewhere.write_text("x\n")
+    elsewhere.write_text("x\n", encoding="utf-8", newline="")
     files = driver._cifp_files_for(str(elsewhere), str(install.root), "KFAKE")
     assert len(files) == 2
 
@@ -763,7 +764,7 @@ def test_ini_parse_reports_order_and_disabled(tmp_path):
         "SCENERY_PACK Custom Scenery/A/\n"
         "SCENERY_PACK_DISABLED Custom Scenery/B/\n"
         "SCENERY_PACK Custom Scenery/C/\n"
-        "SCENERY_PACK Custom Scenery/A/\n")
+        "SCENERY_PACK Custom Scenery/A/\n", encoding="utf-8", newline="")
     ordered, disabled = driver._parse_scenery_packs_ini(str(ini))
     assert ordered == ["A", "C"]          # order kept, duplicate collapsed
     assert disabled == {"B"}
@@ -807,10 +808,10 @@ def test_old_format_patch_rebuilds_once_then_is_stable(install, tmp_path):
 
 def test_unknown_schema_version_rebuilds(install, patch_file):
     """A stamp set this engine does not recognise is not comparable."""
-    text = patch_file.read_text().replace(
+    text = patch_file.read_text(encoding="utf-8").replace(
         f"o4_fresh_v='{provenance.FRESHNESS_SCHEMA_VERSION}'",
         "o4_fresh_v='99'")
-    patch_file.write_text(text)
+    patch_file.write_text(text, encoding="utf-8", newline="")
     assert not install.is_current(patch_file)
 
 
@@ -844,10 +845,13 @@ def test_atomic_write_leaves_no_temp_files(install, tmp_path):
     patch_dir = tmp_path / "Patches"
     patch_dir.mkdir()
     patch = install.emit_patch(patch_dir / "KFAKE_auto.patch.osm")
-    assert patch.read_text().rstrip().endswith("</osm>")
+    assert patch.read_text(encoding="utf-8").rstrip().endswith("</osm>")
     assert _stray_temp_files(patch) == []
 
 
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="Windows has no POSIX mode bits: os.chmod keeps only "
+                           "the read-only flag, st_mode is 0o666 or 0o444")
 def test_atomic_write_keeps_the_readable_file_mode(install, tmp_path):
     """The temp-file write must not silently make patches owner-only.
 
@@ -877,7 +881,7 @@ def test_interrupted_write_keeps_the_previous_patch(install, tmp_path,
     patch_dir = tmp_path / "Patches"
     patch_dir.mkdir()
     patch = install.emit_patch(patch_dir / "KFAKE_auto.patch.osm")
-    good = patch.read_text()
+    good = patch.read_text(encoding="utf-8")
 
     import auto_patch.layout as layout_module
 
@@ -888,7 +892,7 @@ def test_interrupted_write_keeps_the_previous_patch(install, tmp_path,
     with pytest.raises(OSError):
         install.emit_patch(patch)
 
-    assert patch.read_text() == good, "the previous patch must survive"
+    assert patch.read_text(encoding="utf-8") == good, "the previous patch must survive"
     assert _stray_temp_files(patch) == [], \
         "the partial temp file must be cleaned up"
     assert install.is_current(patch)
@@ -899,7 +903,7 @@ def test_interrupted_write_when_the_body_fails(install, tmp_path, monkeypatch):
     patch_dir = tmp_path / "Patches"
     patch_dir.mkdir()
     patch = install.emit_patch(patch_dir / "KFAKE_auto.patch.osm")
-    good = patch.read_text()
+    good = patch.read_text(encoding="utf-8")
 
     import auto_patch.layout as layout_module
 
@@ -925,7 +929,7 @@ def test_interrupted_write_when_the_body_fails(install, tmp_path, monkeypatch):
     with pytest.raises(OSError):
         install.emit_patch(patch)
 
-    assert patch.read_text() == good
+    assert patch.read_text(encoding="utf-8") == good
     assert _stray_temp_files(patch) == []
 
 
@@ -1073,7 +1077,7 @@ def test_lazy_inputs_skipped_when_manual_patch_covers(
     # A user-provided manual patch (no _auto suffix) covers KFAK: the
     # airport must be skipped before CIFP parsing and the tile-level
     # extraction must never resolve.
-    (patch_dir / "KFAK.patch.osm").write_text("<osm version='0.6'></osm>\n")
+    (patch_dir / "KFAK.patch.osm").write_text("<osm version='0.6'></osm>\n", encoding="utf-8", newline="")
 
     auto_patched, providers = _drive_generate(tmp_path, monkeypatch, apt)
 
@@ -1089,16 +1093,16 @@ def test_manual_patch_still_wins_over_a_stale_auto_patch(
     apt = _make_apt_dat(tmp_path)
     patch_dir = tmp_path / "Patches"
     patch_dir.mkdir()
-    (patch_dir / "KFAK.patch.osm").write_text("<osm version='0.6'></osm>\n")
+    (patch_dir / "KFAK.patch.osm").write_text("<osm version='0.6'></osm>\n", encoding="utf-8", newline="")
     stale = patch_dir / "KFAK_auto.patch.osm"
     PavementLayout(icao="KFAK", anchor=(40.0, -100.0),
                    apt_dat_path=str(apt)).to_osm(str(stale))
-    before = stale.read_text()
+    before = stale.read_text(encoding="utf-8")
 
     auto_patched, providers = _drive_generate(tmp_path, monkeypatch, apt)
 
     assert auto_patched == []
-    assert stale.read_text() == before
+    assert stale.read_text(encoding="utf-8") == before
     assert [p.calls for p in providers] == [0, 0, 0]
 
 
@@ -1211,7 +1215,7 @@ def _write_block(path: Path, *, pavement: bool, taxi: bool) -> Path:
     if taxi:
         text += _TAXI_NETWORK
     text += "99\n"
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8", newline="")
     return path
 
 
@@ -1341,7 +1345,7 @@ def _add_header_attrs(patch: Path, **attrs: str) -> Path:
             break
     else:                                                # pragma: no cover
         raise AssertionError("no <osm> root element")
-    patch.write_text("".join(lines), encoding="utf-8")
+    patch.write_text("".join(lines), encoding="utf-8", newline="")
     return patch
 
 
@@ -1382,7 +1386,7 @@ def test_borrowed_keys_round_trip_through_read_patch_source(
     odd.mkdir()
     borrowed = _make_apt_dat(odd, "apt.dat")
     patch = _borrowed_patch(install, tmp_path, borrowed)
-    header = patch.read_text().splitlines()[1]
+    header = patch.read_text(encoding="utf-8").splitlines()[1]
     assert "o4_apt_dat_borrowed='" in header and "&apos;" in header
     assert header.count("'") % 2 == 0
     meta = read_patch_source(str(patch))
@@ -1454,7 +1458,7 @@ def test_patch_without_either_borrow_key_stays_current(install, patch_file,
                                                        global_apt):
     """NO MASS INVALIDATION (2): a patch written before §44 carries
     neither key and reads exactly as before."""
-    header = patch_file.read_text().splitlines()[1]
+    header = patch_file.read_text(encoding="utf-8").splitlines()[1]
     assert "o4_apt_dat_borrowed" not in header
     meta = read_patch_source(str(patch_file))
     assert meta["apt_dat_borrowed"] == ""

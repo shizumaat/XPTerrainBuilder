@@ -293,7 +293,7 @@ def _write_obj(path, vt, tris):
     idx = [i for t in tris for i in t]
     lines += ["IDX " + " ".join(str(i) for i in idx[k:k + 10]) for k in range(0, len(idx), 10)]
     lines.append(f"TRIS 0 {len(idx)}")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return path
 
 

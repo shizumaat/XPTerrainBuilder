@@ -49,7 +49,7 @@ def _apron_apt(tmp_path):
                       "111 %.7f %.7f" % (n, e), "113 %.7f %.7f" % (n, w)])
     path = tmp_path / "apron.dat"
     path.write_text("A\n1000 Version\n\n1 10 0 0 ZZZZ Test\n%s\n99\n" % body,
-                    encoding="utf-8")
+                    encoding="utf-8", newline="")
     return str(path)
 
 

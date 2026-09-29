@@ -170,13 +170,13 @@ def test_extraction_closure_keeps_every_welded_chain_closed():
 
 def test_extraction_closure_emits_a_slice_the_census_can_read(tmp_path):
     doc = rc.read_patch(MINI)
-    sidecar = json.loads(Path(str(MINI) + ".axes.json").read_text())
+    sidecar = json.loads(Path(str(MINI) + ".axes.json").read_text(encoding="utf-8"))
     _seeds, kept = rc.select_ways(doc, MINI_CENTER, 20.0)
     out = tmp_path / "slice.patch.osm"
     counts = rc.write_patch_slice(doc, kept, out, {"o4_repro_test": "1"})
     window = rc.disc_window(*MINI_CENTER, 20.0, 200.0)
     Path(str(out) + ".axes.json").write_text(
-        json.dumps(rc.slice_sidecar(sidecar, window)))
+        json.dumps(rc.slice_sidecar(sidecar, window)), encoding="utf-8", newline="")
 
     assert counts["ways"] == len(kept)
     # the emitted slice re-parses to exactly what we kept
@@ -194,7 +194,7 @@ def test_extraction_closure_emits_a_slice_the_census_can_read(tmp_path):
 
 
 def test_sidecar_slice_keeps_the_frame_and_subsets_only_geometry():
-    sidecar = json.loads(Path(str(MINI) + ".axes.json").read_text())
+    sidecar = json.loads(Path(str(MINI) + ".axes.json").read_text(encoding="utf-8"))
     window = rc.disc_window(*MINI_CENTER, 20.0, 100.0)
     sliced = rc.slice_sidecar(sidecar, window)
     # the frame is carried UNCHANGED — a re-anchored fixture would be

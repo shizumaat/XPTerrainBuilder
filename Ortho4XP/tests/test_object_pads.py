@@ -803,7 +803,7 @@ def test_no_terrain_module_reads_the_pad_sidecar():
                          # removes it, and this exemption with it.
                          "post_mesh_v1.py"):
             continue                              # the writer and the reader
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         if "load_sidecar" in text or "OBJECT_FOOT_PAD_SIDECAR" in text:
             offenders.append(path.name)
     assert offenders == [], offenders
@@ -812,7 +812,7 @@ def test_no_terrain_module_reads_the_pad_sidecar():
 def test_the_driver_no_longer_persists_emitted_records():
     from auto_patch import driver
 
-    source = pathlib.Path(driver.__file__).read_text()
+    source = pathlib.Path(driver.__file__).read_text(encoding="utf-8")
     assert "merge_emitted_records" not in source
 
 

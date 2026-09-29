@@ -51,7 +51,7 @@ def test_binary_file_with_late_undecodable_byte_is_skipped(tmp_path):
 
 def test_four_value_anchor_parses(tmp_path):
     obj = tmp_path / "shape.obj"
-    obj.write_text("ANCHOR 31.403444 30.128508 74.5 180.0\nVT 0 0 0\n")
+    obj.write_text("ANCHOR 31.403444 30.128508 74.5 180.0\nVT 0 0 0\n", encoding="utf-8", newline="")
     assert VMAP._read_obj8_anchor(str(obj), _alt_lookup) == (
         31.403444,
         30.128508,
@@ -62,7 +62,7 @@ def test_four_value_anchor_parses(tmp_path):
 
 def test_three_value_anchor_takes_altitude_from_the_dem(tmp_path):
     obj = tmp_path / "shape.obj"
-    obj.write_text("ANCHOR 31.403444 30.128508 180.0\nVT 0 0 0\n")
+    obj.write_text("ANCHOR 31.403444 30.128508 180.0\nVT 0 0 0\n", encoding="utf-8", newline="")
     assert VMAP._read_obj8_anchor(str(obj), _alt_lookup) == (
         31.403444,
         30.128508,
@@ -76,7 +76,7 @@ def test_three_value_anchor_skips_when_the_dem_lookup_fails(tmp_path):
         raise ValueError("outside the tile")
 
     obj = tmp_path / "shape.obj"
-    obj.write_text("ANCHOR 31.403444 30.128508 180.0\n")
+    obj.write_text("ANCHOR 31.403444 30.128508 180.0\n", encoding="utf-8", newline="")
     assert VMAP._read_obj8_anchor(str(obj), boom) is None
 
 
@@ -85,13 +85,13 @@ def test_three_value_anchor_skips_when_the_dem_lookup_fails(tmp_path):
 
 def test_first_line_without_anchor_is_skipped(tmp_path):
     obj = tmp_path / "notes.txt"
-    obj.write_text("just some text\nANCHOR 1 2 3 4\n")
+    obj.write_text("just some text\nANCHOR 1 2 3 4\n", encoding="utf-8", newline="")
     assert VMAP._read_obj8_anchor(str(obj), _alt_lookup) is None
 
 
 def test_malformed_anchor_is_skipped(tmp_path):
     obj = tmp_path / "shape.obj"
-    obj.write_text("ANCHOR nope nope nope\n")
+    obj.write_text("ANCHOR nope nope nope\n", encoding="utf-8", newline="")
     assert VMAP._read_obj8_anchor(str(obj), _alt_lookup) is None
 
 

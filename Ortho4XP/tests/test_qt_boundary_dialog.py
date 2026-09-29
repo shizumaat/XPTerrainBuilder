@@ -177,7 +177,7 @@ def test_remember_my_choice_is_reported_with_the_answer(qapp):
 @pytest.fixture
 def make_window(qapp, tmp_path, monkeypatch):
     prefs_path = str(tmp_path / "prefs.json")
-    with open(prefs_path, "w") as handle:
+    with open(prefs_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"output_dir": str(tmp_path)}, handle)
     monkeypatch.setattr(GUI, "PREFS_FILE", prefs_path)
     import O4_UI_Utils as UI

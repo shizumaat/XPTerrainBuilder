@@ -30,7 +30,7 @@ def synthetic(tmp_path, monkeypatch):
     cifp.mkdir()
     codes = ["LPMT", "LPPT", "LPCS", "LIS", "LPXX"]
     for code in codes:
-        (cifp / ("%s.dat" % code)).write_text("stub\n")
+        (cifp / ("%s.dat" % code)).write_text("stub\n", encoding="utf-8", newline="")
 
     runways = {"01": _threshold(38.5, -9.5), "19": _threshold(38.6, -9.4)}
 

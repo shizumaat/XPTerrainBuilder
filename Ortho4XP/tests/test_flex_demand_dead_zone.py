@@ -127,7 +127,7 @@ class TestTheTolerance:
             assert runway_flex_demand_tol_m() == RUNWAY_FLEX_DEMAND_TOL_M
         import auto_patch.config as CFG
         assert 'environ.get("O4_FLEX_DEMAND_TOL_FINE"' not in open(
-            CFG.__file__).read()
+            CFG.__file__, encoding="utf-8").read()
 
     def test_the_coarse_arm_is_five_times_the_materiality(self):
         """NON-VACUITY for every ``fine=False`` twin below: the retired

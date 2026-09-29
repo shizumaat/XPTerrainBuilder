@@ -75,7 +75,7 @@ def test_the_codecs_are_imported_at_MODULE_level():
     """A function-level third-party import is invisible to PyInstaller
     AND to this suite (highspy, 2026-09-10): the codecs the frozen
     bundle must carry are imported where the freeze can see them."""
-    source = open(os.path.join(ENGINE_DIR, "src", "O4_LERC_Decode.py")).read()
+    source = open(os.path.join(ENGINE_DIR, "src", "O4_LERC_Decode.py"), encoding="utf-8").read()
     body = source[source.index("from __future__"):]
     top = [line for line in body.splitlines() if line.startswith("import ")]
     assert "import tifffile" in top
@@ -157,14 +157,14 @@ def test_no_frozen_skip_is_left_in_the_fetchers():
     """The two fetchers used to bail out under ``sys.frozen`` with a
     WARNING and no data.  Neither may again."""
     source = open(os.path.join(ENGINE_DIR, "src",
-                               "O4_Airport_Elevation_Insets.py")).read()
+                               "O4_Airport_Elevation_Insets.py"), encoding="utf-8").read()
     assert "not available in the packaged application" not in source
 
 
 def test_the_engine_entry_dispatches_the_argv():
     """The dispatch must stay AHEAD of the heavy imports: a decode child
     that loads the pipeline would load GDAL and abort."""
-    entry = open(ENTRY).read()
+    entry = open(ENTRY, encoding="utf-8").read()
     branch = entry.index("'--lerc-decode' in sys.argv")
     assert branch < entry.index("import O4_File_Names as FNAMES")
 
@@ -192,7 +192,7 @@ def test_the_QT_entry_dispatches_the_argv_AHEAD_of_Qt():
     """Same branch as the engine entry, same place: before the PROJ
     preflight, before ``o4_engine``, before any Qt import — a decode
     child that loads the pipeline would load GDAL and abort."""
-    entry = open(QT_ENTRY).read()
+    entry = open(QT_ENTRY, encoding="utf-8").read()
     branch = entry.index('"--lerc-decode" in sys.argv')
     assert branch < entry.index("import O4_LERC_Decode")
     assert branch < entry.index("from o4_engine import jsonl")
@@ -204,7 +204,7 @@ def test_the_QT_spec_carries_every_lazy_dependency():
     reached only through the --lerc-decode branch, highspy only inside
     the solve (1.0.298 shipped without it), auto_patch_v2 only per
     engine selection — and its law is TOML data, not modules."""
-    spec = open(QT_SPEC).read()
+    spec = open(QT_SPEC, encoding="utf-8").read()
     for needed in ("collect_all('tifffile')", "collect_all('imagecodecs')",
                    "imagecodecs._lerc", "imagecodecs._shared",
                    "'O4_LERC_Decode'", "collect_all('highspy')",
@@ -219,8 +219,8 @@ def test_the_QT_spec_carries_every_lazy_dependency():
 def test_BOTH_specs_pin_the_codecs():
     """One law, two specs: whatever the mac engine pins for LERC, the
     Windows/Linux app pins too."""
-    mac = open(MAC_SPEC).read()
-    qt = open(QT_SPEC).read()
+    mac = open(MAC_SPEC, encoding="utf-8").read()
+    qt = open(QT_SPEC, encoding="utf-8").read()
     for needed in ("collect_all('tifffile')", "collect_all('imagecodecs')",
                    "imagecodecs._lerc", "'O4_LERC_Decode'"):
         assert needed in mac and needed in qt
@@ -231,18 +231,18 @@ def test_ONE_fixture_check_serves_every_frozen_artifact():
     both release jobs run THAT, never a copy of it (the census-wrapper
     precedent: a slightly-different duplicate is a defect)."""
     assert os.path.isfile(LERC_CHECK)
-    check = open(LERC_CHECK).read()
+    check = open(LERC_CHECK, encoding="utf-8").read()
     assert "--lerc-decode" in check
     assert "compression=\"lerc\"" in check or "compression='lerc'" in check
 
-    engine = open(MAKE_ENGINE).read()
+    engine = open(MAKE_ENGINE, encoding="utf-8").read()
     assert "check_frozen_lerc.sh" in engine
     # the Qt freeze tests the Qt binary, not the engine's name
     assert "dist/Ortho4XP_Qt/Ortho4XP_Qt" in engine
     # and no second copy of the fixture was left behind in the script
     assert "tifffile.imwrite" not in engine
 
-    workflow = open(RELEASE_WORKFLOW).read()
+    workflow = open(RELEASE_WORKFLOW, encoding="utf-8").read()
     # Count INVOCATIONS, not mentions: the mac job's comment names the
     # script in prose (it runs inside scripts/make_engine.sh), which made
     # this assertion red on main at 74c9d813 for a comment.
@@ -265,14 +265,14 @@ def test_the_tags_also_land_BESIDE_the_array(tmp_path):
     assert completed.returncode == 0, completed.stderr[-400:]
     sidecar = str(npy) + ".tags.json"
     assert os.path.isfile(sidecar)
-    assert json.load(open(sidecar)) == json.loads(completed.stdout)
+    assert json.load(open(sidecar, encoding="utf-8")) == json.loads(completed.stdout)
 
 
 def test_the_fetcher_falls_back_to_the_sidecar():
     """The reader of that sidecar is the inset fetcher, and it deletes
     it with the array — a scratch file must not survive the fetch."""
     source = open(os.path.join(ENGINE_DIR, "src",
-                               "O4_Airport_Elevation_Insets.py")).read()
+                               "O4_Airport_Elevation_Insets.py"), encoding="utf-8").read()
     assert 'npy_path + ".tags.json"' in source
     assert source.count('npy_path + ".tags.json"') >= 2  # read AND cleanup
 # ── THE CAPABILITY PROBE (owner RULINGS 2026-09-13b) ──────────────────

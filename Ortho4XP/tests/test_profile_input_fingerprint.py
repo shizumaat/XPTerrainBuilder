@@ -429,14 +429,14 @@ def test_the_report_labels_both_duplicate_columns(prof):
 
 def test_both_profilers_share_one_census_implementation():
     """A second spelling of the census would be the census-wrapper defect."""
-    source = (ROOT / "tools" / "profile_tile_build.py").read_text()
+    source = (ROOT / "tools" / "profile_tile_build.py").read_text(encoding="utf-8")
     assert "install_census_counters" in source
     assert "census_report_lines" in source
     assert "from profile_airport_build import" in source
 
 
 def test_the_tool_index_documents_the_census():
-    index = (REPO_ROOT / "tools" / "INDEX.md").read_text()
+    index = (REPO_ROOT / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "--count-inputs" in index, (
         "a tool absent from tools/INDEX.md is treated as absent "
         "(RULINGS 7e90032) — the census mode must carry its index row")

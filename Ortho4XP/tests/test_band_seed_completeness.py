@@ -89,7 +89,7 @@ def test_band_seed_completeness_is_standing_law():
     import auto_patch.elevation_per_surface.building_feasibility as BF
 
     assert not hasattr(BF, "band_seed_complete_enabled")
-    assert 'O4_BAND_SEED_COMPLETE"' not in open(BF.__file__).read()
+    assert 'O4_BAND_SEED_COMPLETE"' not in open(BF.__file__, encoding="utf-8").read()
 
 
 # ── (a2) the PRE-SOLVE context ───────────────────────────────────────────

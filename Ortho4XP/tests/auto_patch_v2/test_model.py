@@ -238,7 +238,7 @@ def test_package_imports_and_stubs():
 
 def test_no_v1_import_no_env_gate_no_geometry_in_model():
     for py in SRC.rglob("*.py"):
-        text = py.read_text()
+        text = py.read_text(encoding="utf-8")
         assert "from auto_patch " not in text and "import auto_patch\n" \
             not in text and "auto_patch." not in text.replace(
                 "auto_patch_v2", ""), py
@@ -287,7 +287,7 @@ def test_dependency_direction():
                               "constraints", "solve", "emit", "verify"}}
     for py in SRC.rglob("*.py"):
         pkg = py.parent.name if py.parent != SRC else None
-        imports = re.findall(r"from \.\.(\w+)", py.read_text())
+        imports = re.findall(r"from \.\.(\w+)", py.read_text(encoding="utf-8"))
         if pkg in producers:
             # A package's ``__main__`` is a CLI ENTRY, not library code: it
             # runs ABOVE the layers, so it may call the orchestrator

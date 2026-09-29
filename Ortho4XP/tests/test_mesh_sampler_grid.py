@@ -45,7 +45,7 @@ from auto_patch.mesh_sampler import (
 # ----------------------------------------------------------------------
 
 def _write_mesh(path: str, vertices, triangles) -> None:
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("MeshVersionFormatted 2\nDimension 3\n\nVertices\n")
         handle.write("%d\n" % len(vertices))
         for longitude, latitude, elevation in vertices:

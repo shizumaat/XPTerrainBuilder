@@ -112,7 +112,7 @@ def test_cleaning_level_is_a_regular_setting(window):
 @pytest.fixture
 def tile_window(qapp, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Ortho4XP.cfg").write_text("road_level=3\n")
+    (tmp_path / "Ortho4XP.cfg").write_text("road_level=3\n", encoding="utf-8", newline="")
     win = SettingsWindow(
         prefs={}, tiles=[(48, -6)], custom_build_dir=str(tmp_path) + "/"
     )
@@ -246,7 +246,7 @@ def test_defaults_reset_keeps_tile_overrides(tile_window):
 @pytest.fixture
 def multi_window(qapp, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Ortho4XP.cfg").write_text("road_level=3\n")
+    (tmp_path / "Ortho4XP.cfg").write_text("road_level=3\n", encoding="utf-8", newline="")
     build_dir = str(tmp_path) + "/"
     SM.write_tile(48, -6, build_dir, {"road_level": "5"})  # one overrides
     win = SettingsWindow(

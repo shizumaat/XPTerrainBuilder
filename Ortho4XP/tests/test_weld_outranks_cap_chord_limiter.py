@@ -180,7 +180,7 @@ def test_the_post_projection_limiter_is_the_armed_call_site():
     is the one in the post-projection conformance block — after
     ``final_grade_projection``, which is what makes the pin a read-only
     source."""
-    src = (ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    src = (ROOT / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
     armed = [i for i, line in enumerate(src.splitlines())
              if "weld_outranks_cap=True" in line]
     assert len(armed) == 1, "the ruling must be armed at ONE call site"

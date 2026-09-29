@@ -517,7 +517,7 @@ def test_the_artifact_writes(tmp_path):
     write_band_width_artifact(band_width_field(lo, hi), out,
                               extra={"icao": "ORACLE"})
     import json
-    doc = json.loads(out.read_text())
+    doc = json.loads(out.read_text(encoding="utf-8"))
     assert doc["icao"] == "ORACLE"
     assert doc["summary"]["nodes"] >= 2
     assert any(n["band_width_m"] == pytest.approx(2.0)

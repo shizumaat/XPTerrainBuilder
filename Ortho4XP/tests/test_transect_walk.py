@@ -167,12 +167,12 @@ def _write_patch(tmp_path, ring_m, anchor=(30.0, 31.0)):
     refs.append("    <nd ref='-1' />")
     osm = tmp_path / "t.osm"
     osm.write_text(_PATCH % {"nodes": "\n".join(nodes),
-                             "refs": "\n".join(refs)})
+                             "refs": "\n".join(refs)}, encoding="utf-8", newline="")
     axis_ll = [list(to_ll(x, 0.0)) for x in (0.0, _LONG)]
     side = {"anchor": [lat0, lon0],
             "axes_exact": [[axis_ll, [0.01], 0]],
             "routes_exact": [axis_ll]}
-    Path(str(osm) + ".axes.json").write_text(json.dumps(side))
+    Path(str(osm) + ".axes.json").write_text(json.dumps(side), encoding="utf-8", newline="")
     return osm, cg
 
 

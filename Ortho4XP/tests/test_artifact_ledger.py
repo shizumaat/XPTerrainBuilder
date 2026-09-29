@@ -76,10 +76,10 @@ def _artifacts(tmp_path, body=b"<osm>base</osm>"):
     out = tmp_path / "out"
     out.mkdir(exist_ok=True)
     (out / "a.osm").write_bytes(b"head\nprov\n" + body)
-    (out / "a.osm.axes.json").write_text('{"axes": []}')
-    (out / "a.frame.json").write_text('{"frame": 1}')
-    (out / "a.env.json").write_text('{"env": 1}')
-    (out / "a.result.json").write_text('{"result": 1}')
+    (out / "a.osm.axes.json").write_text('{"axes": []}', encoding="utf-8", newline="")
+    (out / "a.frame.json").write_text('{"frame": 1}', encoding="utf-8", newline="")
+    (out / "a.env.json").write_text('{"env": 1}', encoding="utf-8", newline="")
+    (out / "a.result.json").write_text('{"result": 1}', encoding="utf-8", newline="")
     return {"patch": str(out / "a.osm"), "sidecar": str(out / "a.osm.axes.json"),
             "frame": str(out / "a.frame.json"), "env": str(out / "a.env.json"),
             "result": str(out / "a.result.json")}
@@ -389,7 +389,7 @@ def test_code_state_now_sees_edits_and_the_dirty_flag(AL, tmp_path):
     import subprocess
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
-    (repo / "src" / "x.py").write_text("A = 1\n")
+    (repo / "src" / "x.py").write_text("A = 1\n", encoding="utf-8", newline="")
 
     def _git(*args):
         subprocess.run(["git", "-C", str(repo), "-c", "user.name=t",
@@ -400,7 +400,7 @@ def test_code_state_now_sees_edits_and_the_dirty_flag(AL, tmp_path):
     _git("commit", "-m", "seed")
     before = AL.code_state_now(repo)
     assert before["git_dirty"] is False
-    (repo / "src" / "x.py").write_text("A = 2\n")
+    (repo / "src" / "x.py").write_text("A = 2\n", encoding="utf-8", newline="")
     after = AL.code_state_now(repo)
     assert after["git_dirty"] is True
     assert after["code_tree_hash"] != before["code_tree_hash"]
@@ -417,8 +417,8 @@ def test_a_docs_commit_mid_build_does_not_move_the_code_state(AL, tmp_path):
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "docs").mkdir(parents=True)
-    (repo / "src" / "x.py").write_text("A = 1\n")
-    (repo / "docs" / "RULINGS.md").write_text("ruling one\n")
+    (repo / "src" / "x.py").write_text("A = 1\n", encoding="utf-8", newline="")
+    (repo / "docs" / "RULINGS.md").write_text("ruling one\n", encoding="utf-8", newline="")
 
     def _git(*args):
         subprocess.run(["git", "-C", str(repo), "-c", "user.name=t",
@@ -428,7 +428,7 @@ def test_a_docs_commit_mid_build_does_not_move_the_code_state(AL, tmp_path):
     _git("add", "-A")
     _git("commit", "-m", "seed")
     at_start = AL.code_state_now(repo)          # the key is cut here
-    (repo / "docs" / "RULINGS.md").write_text("ruling one\nruling two\n")
+    (repo / "docs" / "RULINGS.md").write_text("ruling one\nruling two\n", encoding="utf-8", newline="")
     _git("add", "-A")
     _git("commit", "-m", "RULINGS: 30i")
     at_store = AL.code_state_now(repo)          # …and re-checked here
@@ -442,7 +442,7 @@ def test_the_build_entry_arms_the_recheck_and_stamps_the_frame(build_mod):
     ``build_airport.py`` passes the start snapshot into ``store_build`` and
     records a refusal as CONTAMINATED-KEY in the frame instead of letting
     the blanket exception handler read it as a shrug."""
-    src = Path(build_mod.__file__).read_text()
+    src = Path(build_mod.__file__).read_text(encoding="utf-8")
     store_site = src[src.index("AL.store_build"):]
     assert "code_state=" in store_site.split("prog.note")[0], \
         "the store site no longer arms the store-time re-check"
@@ -473,7 +473,7 @@ def test_eviction_is_lru_and_stamped(AL, tmp_path, store, monkeypatch):
     assert dropped and all(d["reason"] == "size-capped LRU" for d in dropped)
     assert dropped[0]["key"] == keys[1], "the least recently USED goes first"
     lines = [json.loads(x) for x in
-             (store / "evictions.jsonl").read_text().splitlines()]
+             (store / "evictions.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [d["key"] for d in lines] == [d["key"] for d in dropped]
 
 

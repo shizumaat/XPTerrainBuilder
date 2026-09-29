@@ -197,7 +197,7 @@ def test_unparseable_lines_are_skipped(monkeypatch, tmp_path):
     STRATEGY().discover(definition, (-80.30, 25.70, -80.20, 25.80))
     import json
 
-    with open(STRATEGY().index_path(definition)) as handle:
+    with open(STRATEGY().index_path(definition), encoding="utf-8") as handle:
         index = json.load(handle)
     # Only the four coordinate-named .tif lines survive; the shapefile,
     # the archive and the list file itself are skipped.

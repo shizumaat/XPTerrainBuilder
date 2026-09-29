@@ -333,7 +333,7 @@ def test_highspy_is_imported_at_module_top():
 
     src = pathlib.Path(__file__).resolve().parents[2] / (
         "src/auto_patch_v2/solve/design_qp.py")
-    tree = ast.parse(src.read_text())
+    tree = ast.parse(src.read_text(encoding="utf-8"))
     top = {a.name for n in tree.body if isinstance(n, ast.Import)
            for a in n.names}
     assert "highspy" in top

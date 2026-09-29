@@ -114,7 +114,7 @@ def _blob() -> Path | None:
         return None
     for p in entries.glob("*.json"):
         try:
-            d = json.loads(p.read_text())
+            d = json.loads(p.read_text(encoding="utf-8"))
         except ValueError:
             continue
         if d.get("tag") == TAG:

@@ -56,7 +56,7 @@ def _textured_quad_obj(texture_name: str = "skin.png") -> str:
 
 def test_parse_textured_quad(tmp_path: Path) -> None:
     obj_path = tmp_path / "quad.obj"
-    obj_path.write_text(_textured_quad_obj(), encoding="utf-8")
+    obj_path.write_text(_textured_quad_obj(), encoding="utf-8", newline="")
 
     parsed = obj8_to_html.parse_obj8(obj_path)
 
@@ -94,7 +94,7 @@ def test_parse_with_single_idx_lines(tmp_path: Path) -> None:
         ]
     )
     obj_path = tmp_path / "quad2.obj"
-    obj_path.write_text(obj_text, encoding="utf-8")
+    obj_path.write_text(obj_text, encoding="utf-8", newline="")
     parsed = obj8_to_html.parse_obj8(obj_path)
     assert parsed["indices"] == [0, 1, 2, 0, 2, 3]
     assert parsed["tris_ranges"] == [[0, 6]]
@@ -116,7 +116,7 @@ def test_point_counts_mismatch_is_warning_not_error(tmp_path: Path) -> None:
         ]
     )
     obj_path = tmp_path / "mismatch.obj"
-    obj_path.write_text(obj_text, encoding="utf-8")
+    obj_path.write_text(obj_text, encoding="utf-8", newline="")
 
     parsed = obj8_to_html.parse_obj8(obj_path)  # must NOT raise
     assert any("POINT_COUNTS" in warning for warning in parsed["warnings"])
@@ -137,7 +137,7 @@ def test_out_of_range_index_raises(tmp_path: Path) -> None:
         ]
     )
     obj_path = tmp_path / "bad.obj"
-    obj_path.write_text(obj_text, encoding="utf-8")
+    obj_path.write_text(obj_text, encoding="utf-8", newline="")
 
     with pytest.raises(ValueError):
         obj8_to_html.parse_obj8(obj_path)
@@ -163,7 +163,7 @@ def test_first_lod_block_only(tmp_path: Path) -> None:
         ]
     )
     obj_path = tmp_path / "lod.obj"
-    obj_path.write_text(obj_text, encoding="utf-8")
+    obj_path.write_text(obj_text, encoding="utf-8", newline="")
     parsed = obj8_to_html.parse_obj8(obj_path)
     assert parsed["tris_ranges"] == [[0, 3]]
     # ATTR_LOD is a handled directive, not a warning.
@@ -172,7 +172,7 @@ def test_first_lod_block_only(tmp_path: Path) -> None:
 
 def test_generate_html_embeds_geometry_and_texture(tmp_path: Path) -> None:
     obj_path = tmp_path / "quad.obj"
-    obj_path.write_text(_textured_quad_obj("skin.png"), encoding="utf-8")
+    obj_path.write_text(_textured_quad_obj("skin.png"), encoding="utf-8", newline="")
     (tmp_path / "skin.png").write_bytes(_MINIMAL_PNG_BYTES)
     output_path = tmp_path / "out.html"
 
@@ -200,7 +200,7 @@ def test_generate_html_reverses_triangle_winding(tmp_path: Path) -> None:
     """Parsed indices [0,1,2,0,2,3] must appear reversed per triangle in
     the embedded HTML index list: [0,2,1,0,3,2]."""
     obj_path = tmp_path / "quad.obj"
-    obj_path.write_text(_textured_quad_obj("skin.png"), encoding="utf-8")
+    obj_path.write_text(_textured_quad_obj("skin.png"), encoding="utf-8", newline="")
     output_path = tmp_path / "out.html"
     obj8_to_html.main([str(obj_path), "-o", str(output_path)])
     html = output_path.read_text(encoding="utf-8")
@@ -215,7 +215,7 @@ def test_generate_html_reverses_triangle_winding(tmp_path: Path) -> None:
 
 def test_missing_texture_still_produces_html_with_warning(tmp_path: Path) -> None:
     obj_path = tmp_path / "quad.obj"
-    obj_path.write_text(_textured_quad_obj("does_not_exist.png"), encoding="utf-8")
+    obj_path.write_text(_textured_quad_obj("does_not_exist.png"), encoding="utf-8", newline="")
     output_path = tmp_path / "out.html"
 
     exit_code = obj8_to_html.main([str(obj_path), "-o", str(output_path)])
@@ -230,7 +230,7 @@ def test_missing_texture_still_produces_html_with_warning(tmp_path: Path) -> Non
 def test_texture_override(tmp_path: Path) -> None:
     """--texture overrides the TEXTURE directive path."""
     obj_path = tmp_path / "quad.obj"
-    obj_path.write_text(_textured_quad_obj("skin.png"), encoding="utf-8")
+    obj_path.write_text(_textured_quad_obj("skin.png"), encoding="utf-8", newline="")
     override_path = tmp_path / "override.png"
     override_path.write_bytes(_MINIMAL_PNG_BYTES)
     output_path = tmp_path / "out.html"

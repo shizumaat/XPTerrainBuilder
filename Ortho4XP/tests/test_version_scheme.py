@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import plistlib
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -54,6 +55,15 @@ app_side = pytest.mark.skipif(
 #: version scheme.  The skip lives in the helper, not on 19 decorators, so a
 #: test added later inherits it.
 ZSH = Path("/bin/zsh")
+
+#: The release gates are bash scripts; on Windows that is Git bash on PATH
+#: (the CI job runs under it), never a literal /bin/bash (#92).
+BASH = "/bin/bash" if os.path.exists("/bin/bash") else shutil.which("bash")
+
+
+def _sh_path(p) -> str:
+    """A script/file argument bash can open on every OS (#92)."""
+    return Path(p).as_posix()
 
 
 def _zsh(script: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
@@ -200,7 +210,7 @@ def test_bump_increments_the_build_by_exactly_one(
     tmp_path: Path, body: str, before: str, after: str, rewritten: str
 ) -> None:
     target = tmp_path / "VERSION"
-    target.write_text(body, encoding="utf-8")
+    target.write_text(body, encoding="utf-8", newline="")
 
     read = _helper(f'xptb_version_read "{target}"')
     assert read.returncode == 0, read.stderr
@@ -216,7 +226,7 @@ def test_bump_increments_the_build_by_exactly_one(
 @app_side
 def test_repeated_bumps_are_monotonic(tmp_path: Path) -> None:
     target = tmp_path / "O4_Version.py"
-    target.write_text("# a comment\nversion='1.50.3'\n", encoding="utf-8")
+    target.write_text("# a comment\nversion='1.50.3'\n", encoding="utf-8", newline="")
     for expected in ("1.50.4", "1.50.5", "1.50.6"):
         result = _helper(f'xptb_version_bump "{target}"')
         assert result.returncode == 0, result.stderr
@@ -229,7 +239,7 @@ def test_bump_ignores_version_numbers_in_comments(tmp_path: Path) -> None:
     """The helper matches the assignment the way make_engine.sh's own grep
     does, so a triple mentioned in prose can never become the build number."""
     target = tmp_path / "O4_Version.py"
-    target.write_text("# see the 0.4.9 notes\nversion='1.50.3'\n", encoding="utf-8")
+    target.write_text("# see the 0.4.9 notes\nversion='1.50.3'\n", encoding="utf-8", newline="")
 
     assert _helper(f'xptb_version_read "{target}"').stdout.strip() == "1.50.3"
     assert _helper(f'xptb_version_bump "{target}"').stdout.strip() == "1.50.4"
@@ -241,7 +251,7 @@ def test_bump_replaces_the_file_atomically(tmp_path: Path) -> None:
     """Rewrite via a sibling temp file + rename: the destination is never
     a truncated half-write, and nothing is left behind."""
     target = tmp_path / "VERSION"
-    target.write_text("1.0.4\n", encoding="utf-8")
+    target.write_text("1.0.4\n", encoding="utf-8", newline="")
     target.chmod(0o644)
     before_inode = target.stat().st_ino
 
@@ -256,7 +266,7 @@ def test_bump_replaces_the_file_atomically(tmp_path: Path) -> None:
 @app_side
 def test_bump_refuses_a_file_without_a_version(tmp_path: Path) -> None:
     target = tmp_path / "VERSION"
-    target.write_text("not a version\n", encoding="utf-8")
+    target.write_text("not a version\n", encoding="utf-8", newline="")
     result = _helper(f'xptb_version_bump "{target}"')
     assert result.returncode != 0
     assert target.read_text(encoding="utf-8") == "not a version\n", "left the file intact"
@@ -340,7 +350,7 @@ def test_info_plist_template_carries_the_app_version() -> None:
 def test_app_version_ships_as_a_swiftpm_resource() -> None:
     """Without this the app can only read its version from Info.plist, which
     `swift run` and the test runner do not have."""
-    assert os.path.relpath(APP_VERSION_FILE, REPO_ROOT / "Sources" / "XPTerrainBuilder") == (
+    assert APP_VERSION_FILE.relative_to(REPO_ROOT / "Sources" / "XPTerrainBuilder").as_posix() == (
         "Resources/VERSION"
     )
     assert '.copy("Resources/VERSION")' in (REPO_ROOT / "Package.swift").read_text(encoding="utf-8")
@@ -364,7 +374,7 @@ tag_gate = pytest.mark.skipif(
 def _blocker_gate(tag: str) -> subprocess.CompletedProcess:
     """The beta-2 blocker gate on its own, over the repo's real list."""
     return subprocess.run(
-        ["/bin/bash", str(CHECK_BLOCKERS), tag],
+        [BASH, _sh_path(CHECK_BLOCKERS), tag],
         capture_output=True,
         text=True,
     )
@@ -372,9 +382,9 @@ def _blocker_gate(tag: str) -> subprocess.CompletedProcess:
 
 def _tag_gate(ref: str, version: str, tmp_path: Path) -> subprocess.CompletedProcess:
     version_file = tmp_path / "VERSION"
-    version_file.write_text(version + "\n", encoding="utf-8")
+    version_file.write_text(version + "\n", encoding="utf-8", newline="")
     return subprocess.run(
-        ["/bin/bash", str(CHECK_TAG), ref, str(version_file)],
+        [BASH, _sh_path(CHECK_TAG), ref, _sh_path(version_file)],
         capture_output=True,
         text=True,
     )
@@ -531,7 +541,7 @@ def test_ci_bump_writes_nothing_and_reports_the_current_version(
     tmp_path: Path, prefix: str
 ) -> None:
     target = tmp_path / "VERSION"
-    target.write_text("1.0.347\n", encoding="utf-8")
+    target.write_text("1.0.347\n", encoding="utf-8", newline="")
     before = target.read_bytes()
 
     result = _helper(f'{prefix} xptb_version_bump "{target}"')
@@ -545,7 +555,7 @@ def test_ci_bump_writes_nothing_and_reports_the_current_version(
 @app_side
 def test_ci_bump_works_for_the_engine_assignment_shape_too(tmp_path: Path) -> None:
     target = tmp_path / "O4_Version.py"
-    target.write_text("# a comment\nversion='1.50.1793'\n", encoding="utf-8")
+    target.write_text("# a comment\nversion='1.50.1793'\n", encoding="utf-8", newline="")
     before = target.read_bytes()
 
     result = _helper(f'GITHUB_ACTIONS=true xptb_version_bump "{target}"')
@@ -559,7 +569,7 @@ def test_bump_still_writes_by_default(tmp_path: Path) -> None:
     """The local path is the one that mints numbers; guard it beside the
     CI path so a future env-var change cannot silently disable both."""
     target = tmp_path / "VERSION"
-    target.write_text("1.0.347\n", encoding="utf-8")
+    target.write_text("1.0.347\n", encoding="utf-8", newline="")
     result = _helper(f'GITHUB_ACTIONS= XPTB_NO_BUMP= xptb_version_bump "{target}"')
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "1.0.348"
@@ -582,12 +592,12 @@ def _fake_repo(tmp_path: Path) -> Path:
     (root / "Sources" / "XPTerrainBuilder" / "Resources").mkdir(parents=True)
     (root / "Ortho4XP" / "src").mkdir(parents=True)
     (root / "Sources" / "XPTerrainBuilder" / "Resources" / "VERSION").write_text(
-        "1.0.347\n", encoding="utf-8"
+        "1.0.347\n", encoding="utf-8", newline=""
     )
     (root / "Ortho4XP" / "src" / "O4_Version.py").write_text(
-        "version='1.50.1793'\n", encoding="utf-8"
+        "version='1.50.1793'\n", encoding="utf-8", newline=""
     )
-    (root / "README.md").write_text("hello\n", encoding="utf-8")
+    (root / "README.md").write_text("hello\n", encoding="utf-8", newline="")
     env = {**os.environ, "GIT_CONFIG_GLOBAL": str(tmp_path / "gitconfig"), "HOME": str(tmp_path)}
     for argv in (
         ["git", "init", "-q", "-b", "main"],
@@ -603,7 +613,7 @@ def _fake_repo(tmp_path: Path) -> Path:
 def _is_dirty(root: Path) -> bool:
     """scripts/tree_dirty.sh exits 0 for dirty, 1 for clean."""
     result = subprocess.run(
-        ["/bin/bash", str(TREE_DIRTY), str(root)], capture_output=True, text=True
+        [BASH, _sh_path(TREE_DIRTY), _sh_path(root)], capture_output=True, text=True
     )
     assert result.returncode in (0, 1), result.stderr
     return result.returncode == 0
@@ -620,10 +630,10 @@ def test_a_builds_own_version_bump_is_not_dirt(tmp_path: Path) -> None:
     nothing: make_app.sh/make_engine.sh bump before anything stamps a sha."""
     root = _fake_repo(tmp_path)
     (root / "Sources" / "XPTerrainBuilder" / "Resources" / "VERSION").write_text(
-        "1.0.348\n", encoding="utf-8"
+        "1.0.348\n", encoding="utf-8", newline=""
     )
     (root / "Ortho4XP" / "src" / "O4_Version.py").write_text(
-        "version='1.50.1794'\n", encoding="utf-8"
+        "version='1.50.1794'\n", encoding="utf-8", newline=""
     )
     assert _is_dirty(root) is False
 
@@ -631,7 +641,7 @@ def test_a_builds_own_version_bump_is_not_dirt(tmp_path: Path) -> None:
 @dirty_gate
 def test_any_other_change_is_dirt(tmp_path: Path) -> None:
     root = _fake_repo(tmp_path)
-    (root / "README.md").write_text("edited\n", encoding="utf-8")
+    (root / "README.md").write_text("edited\n", encoding="utf-8", newline="")
     assert _is_dirty(root) is True
 
 
@@ -639,9 +649,9 @@ def test_any_other_change_is_dirt(tmp_path: Path) -> None:
 def test_another_change_alongside_the_bump_is_still_dirt(tmp_path: Path) -> None:
     root = _fake_repo(tmp_path)
     (root / "Sources" / "XPTerrainBuilder" / "Resources" / "VERSION").write_text(
-        "1.0.348\n", encoding="utf-8"
+        "1.0.348\n", encoding="utf-8", newline=""
     )
-    (root / "README.md").write_text("edited\n", encoding="utf-8")
+    (root / "README.md").write_text("edited\n", encoding="utf-8", newline="")
     assert _is_dirty(root) is True
 
 

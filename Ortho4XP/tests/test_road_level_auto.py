@@ -59,7 +59,7 @@ def test_missing_attribute_reads_as_auto():
 def _write_inset(dir_path: Path, stem: str, bbox_lonlat):
     (dir_path / f"{stem}.tif").write_bytes(b"")
     (dir_path / f"{stem}.json").write_text(json.dumps(
-        {"bounding_box_wgs84": bbox_lonlat}), encoding="utf-8")
+        {"bounding_box_wgs84": bbox_lonlat}), encoding="utf-8", newline="")
 
 
 def test_auto_layer_queries_each_inset_bbox_and_caches(
@@ -70,7 +70,7 @@ def test_auto_layer_queries_each_inset_bbox_and_caches(
     _write_inset(inset_dir, "B_usgs3dep", [-80.5, 35.4, -80.4, 35.5])
     # A sidecar without a bbox must be skipped, not crash.
     (inset_dir / "C_usgs3dep.tif").write_bytes(b"")
-    (inset_dir / "C_usgs3dep.json").write_text("{}", encoding="utf-8")
+    (inset_dir / "C_usgs3dep.json").write_text("{}", encoding="utf-8", newline="")
 
     import O4_Airport_Elevation_Insets as INSETS
     import O4_File_Names as FNAMES

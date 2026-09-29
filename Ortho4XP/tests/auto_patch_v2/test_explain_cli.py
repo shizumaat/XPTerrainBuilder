@@ -59,7 +59,7 @@ def _roots(tmp_path, monkeypatch, *, engine_has=False, default_has=False,
     for d, has in ((engine, engine_has), (default, default_has), (env, env_has)):
         if has:
             (d / REL).parent.mkdir(parents=True)
-            (d / REL).write_text("<osm/>")
+            (d / REL).write_text("<osm/>", encoding="utf-8", newline="")
     return engine, default, env
 
 

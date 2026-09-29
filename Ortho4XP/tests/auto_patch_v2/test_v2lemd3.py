@@ -46,7 +46,7 @@ def basin_objs(tmp_path_factory):
     d = tmp_path_factory.mktemp("pack") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     # a pit shell 60 × 40 (walls 0 → −5, floor) and, in the SAME object,
     # a roofed box over PART of it: 'half' covers ~half the region (a
     # covered pit), 'whole' covers all of it (a basement)
@@ -113,7 +113,7 @@ def wall_objs(tmp_path_factory):
     d = tmp_path_factory.mktemp("pack") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     return {
         "dir": d,
         # LEMD85's numbers: crest 1.18 m over a 4.03 m skirt, a 160 m U

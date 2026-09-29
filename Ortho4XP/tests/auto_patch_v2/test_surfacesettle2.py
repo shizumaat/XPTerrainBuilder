@@ -117,6 +117,61 @@ def test_stage_2_cannot_release_a_join_stage_1_read():
                            among=None) == [3]
 
 
+# ISSUE #89 (spec-author decision 2026-09-29): the keep test.  At HECA the
+# stage-2 worst hard row (3.9474 m, far from every join) moved under 1e-4 m
+# between the arms, and ``rep_y.worst < rep.worst`` kept 7-11 join releases
+# on that noise.  A release is kept only if the worst drops by at least the
+# elevation materiality, or the released pins' OWN rows are held.
+
+
+def _keep_arm(z_after, worst_before, worst_after):
+    """``design._yield_pins`` on the GEML shape plus a FAR violated hard
+    row (v5-v6, 3.9474 m over, reached by no join), with the re-solve
+    stubbed to return ``z_after`` / ``worst_after``."""
+    from types import SimpleNamespace as NS
+
+    from auto_patch_v2.solve.design import _yield_pins
+    law = Law.load()
+    assert CEIL.split(" (")[0] in law.tables.emit.design.hard_rulings
+    cs = _cs_geml_like()
+    cs = _dc.replace(cs, diffs=cs.diffs + (
+        Diff(5, 6, 0.05, 20.0, Source("pavement_ceiling", CEIL)),))
+    z0 = (50.84, 51.84, 52.84, 56.46, 0, 0.0, 4.9474, 0, 40.2, 40.0)
+    planar = NS(vertices=[NS(xy=(float(i), 0.0)) for i in range(10)])
+    rep0 = NS(hard_max_violation_m=worst_before, hard_settled=False)
+    rep1 = NS(hard_max_violation_m=worst_after, hard_settled=False)
+    return _yield_pins(planar, cs, law, NS(z=z0), rep0, {0: 50.84},
+                       lambda _cs: (NS(z=tuple(z_after)), rep1))
+
+
+def test_a_noise_level_global_improvement_keeps_no_release():
+    """The join's own row is still violated after the release and the far
+    worst row moved 5e-5 m: nothing is kept (it was, before #89)."""
+    z = (50.84, 51.84, 52.84, 56.40, 0, 0.0, 4.94735, 0, 40.2, 40.0)
+    sol, rep, recs, _cs = _keep_arm(z, 3.9474, 3.94735)
+    assert recs == []
+    assert rep.hard_max_violation_m == 3.9474           # the original kept
+    assert sol.z[3] == 56.46
+
+
+def test_a_real_local_improvement_keeps_the_release():
+    """The worst far row is unchanged, but the released join's own row
+    (2, 3) is now held: the release is kept and reported."""
+    z = (50.84, 51.84, 52.84, 53.84, 0, 0.0, 4.9474, 0, 40.2, 40.0)
+    sol, rep, recs, _cs = _keep_arm(z, 3.9474, 3.9474)
+    assert [r["v"] for r in recs] == [3]
+    assert recs[0]["excess_m"] == pytest.approx(-2.62)
+    assert sol.z[3] == 53.84
+
+
+def test_a_material_global_improvement_keeps_the_release():
+    """A worst row lower by more than the materiality (0.01 m) keeps the release even
+    where the join's own row is not yet held; 0.009 m does not."""
+    z = (50.84, 51.84, 52.84, 56.40, 0, 0.0, 4.9364, 0, 40.2, 40.0)
+    assert [r["v"] for r in _keep_arm(z, 3.9474, 3.9364)[2]] == [3]
+    assert _keep_arm(z, 3.9474, 3.9384)[2] == []
+
+
 def test_no_violation_releases_nothing():
     cs = _cs_geml_like()
     assert implicated_pins(cs, HARD, YIELD, [], fixed={}) == []

@@ -60,7 +60,6 @@ override with O4_RUN_LEDGER_PATH).  Concurrent appends are flock-guarded.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import json
 import os
@@ -70,6 +69,22 @@ import tempfile
 import time
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _load_flock():
+    import importlib.util as _ilu
+    import sys as _sys
+    _m = _sys.modules.get("_o4_portable_flock")
+    if _m is None:
+        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "harness", "portable_flock.py")
+        _s = _ilu.spec_from_file_location("_o4_portable_flock", _p)
+        _m = _ilu.module_from_spec(_s)
+        _sys.modules["_o4_portable_flock"] = _m
+        _s.loader.exec_module(_m)
+    return _m
+
+
+_flock = _load_flock()   # fcntl on POSIX, msvcrt on Windows (#92)
 
 #: Paths whose content can change test/build outcomes.  Docs, scratch and
 #: memory churn must NOT invalidate recorded results.
@@ -196,9 +211,9 @@ def load_records(ledger_path: str) -> list:
 def append_record(ledger_path: str, record: dict) -> None:
     os.makedirs(os.path.dirname(ledger_path), exist_ok=True)
     with open(ledger_path, "a") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        _flock.lock(f)
         f.write(json.dumps(record, sort_keys=True) + "\n")
-        fcntl.flock(f, fcntl.LOCK_UN)
+        _flock.unlock(f)
 
 
 def describe(record: dict) -> str:

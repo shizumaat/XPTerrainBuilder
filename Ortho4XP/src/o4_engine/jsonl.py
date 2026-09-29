@@ -62,6 +62,7 @@ import time
 from enum import Enum
 from typing import Any, Callable, Dict, TextIO
 
+import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
 
 from .events import EngineHello, Error, ScanBatch
@@ -315,13 +316,10 @@ def _parent_process_is_dead(declared_parent_id, initial_parent_id):
     or already-1 — ``os.getppid()`` means the parent is dead.
     """
     if declared_parent_id is not None:
-        try:
-            os.kill(declared_parent_id, 0)
-            return False
-        except ProcessLookupError:
-            return True
-        except Exception:
-            return False
+        # Never os.kill(pid, 0): on Windows it sends Ctrl-C to a process-
+        # group leader and raises for anything else, so the parent was
+        # never seen dead there (#83).  Undeterminable reads as alive.
+        return PROC.pid_is_alive(declared_parent_id) is False
     current_parent_id = os.getppid()
     return (current_parent_id != initial_parent_id
             or (os.name == "posix" and current_parent_id == 1))

@@ -47,7 +47,8 @@ from ..law import Law
 from ..law.tables import rolled_on_roles
 from ..model.planar import COLLAR_SUFFIX
 
-__all__ = ["platform_split", "Platform", "PLATFORMS", "collar_width_m"]
+__all__ = ["platform_split", "Platform", "PLATFORMS", "collar_width_m",
+           "merge_platform_faces"]
 
 #: The ring sampling step of the frontage read (m) — ``pad_terrace._STEP_M``'s
 #: geometric resolution, not a law value.
@@ -257,3 +258,120 @@ def platform_split(base_regions, pad_regions, law: Law,
         f"{p.ref} C {p.collar_m:g} m {p.platform_m2:,.0f}/{p.pad_m2:,.0f} m2"
         + (f" REFUSED {p.refused}" if p.refused else "") for p in PLATFORMS[:12])
     return out, counts
+
+
+def _signed_area(ring: list) -> float:
+    return 0.5 * sum(x0 * y1 - x1 * y0
+                     for (x0, y0), (x1, y1) in zip(ring, ring[1:] + ring[:1]))
+
+
+def _merge_group(polys: list[Polygon]) -> "list[Polygon] | None":
+    """The faces of ONE ref merged along the edges they share, EXACTLY:
+    every oriented ring edge is collected, an edge walked both ways (the
+    two faces' common boundary) cancels, and what is left is traced into
+    rings — so every vertex of the surviving boundary is kept coordinate
+    for coordinate (a GEOS union may drop a collinear node another face
+    still walks), and a vertex standing only on a cancelled edge leaves
+    the face (the platform is rim-only, spec §1 (4)).  ``None`` when the
+    residue is not a set of simple rings (a pinch vertex) — the caller
+    then keeps the faces as they were."""
+    from collections import Counter
+
+    from shapely.geometry.polygon import orient
+    edges: Counter = Counter()
+    for p in polys:
+        p = orient(p, sign=1.0)
+        for ring in (p.exterior, *p.interiors):
+            c = [(float(x), float(y)) for x, y in ring.coords][:-1]
+            for a, b in zip(c, c[1:] + c[:1]):
+                if a != b:
+                    edges[(a, b)] += 1
+    nxt: dict = {}
+    for (a, b), n in edges.items():
+        k = n - edges.get((b, a), 0)
+        if k <= 0:
+            continue
+        if k > 1 or a in nxt:
+            return None
+        nxt[a] = b
+    rings: list[list] = []
+    while nxt:
+        a0, b = nxt.popitem()
+        ring = [a0]
+        while b != a0:
+            if b not in nxt:
+                return None
+            ring.append(b)
+            b = nxt.pop(b)
+        if len(ring) >= 3:
+            rings.append(ring)
+    shells = [r for r in rings if _signed_area(r) > 0.0]
+    holes = [r for r in rings if _signed_area(r) < 0.0]
+    if not shells:
+        return None
+    sp = [Polygon(r) for r in shells]
+    own: list[list] = [[] for _ in shells]
+    for h in holes:
+        hp = Polygon(h)
+        pt = hp.representative_point()
+        hit = [i for i, s in enumerate(sp) if s.contains(pt) and s.area > hp.area]
+        if not hit:
+            return None
+        own[min(hit, key=lambda i: sp[i].area)].append(h)
+    out = [Polygon(s, own[i]) for i, s in enumerate(shells)]
+    if any(not q.is_valid for q in out):
+        return None
+    return out
+
+
+#: The last arrangement's merge read: ``{ref: (faces before, faces after)}``
+#: per platform / collar ref with more than one face (``None`` after =
+#: the merge refused a pinch and kept the faces).
+MERGE_READ: dict[str, tuple[int, "int | None"]] = {}
+
+
+def merge_platform_faces(faces: list) -> tuple[list, int]:
+    """ONE PLATFORM, ONE FACE (owner RULINGS 2026-09-29n (4), issue #94).
+
+    The platform is minted here as ONE region, but the arrangement nodes
+    every ring it is given, and a foreign ring edge that runs THROUGH the
+    pad (#94: the apron cell's east shell edge at x = 20, which its own
+    hole touches along the whole pad) splits the platform — and its collar
+    — into several faces of one ref, of which each consumer reading "the
+    face" saw one.  At this single derivation site (RULINGS 2026-08-30l)
+    the faces of every minted platform ref, and of its collar, are merged
+    back along the edges they share (:func:`_merge_group`); the dividing
+    edge becomes interior and is dropped with any vertex it alone carried.
+    Pieces that share no edge (a district pad's erosion islands) stay
+    separate faces.  Returns ``(faces, merged)``: faces removed."""
+    MERGE_READ.clear()
+    refs = {p.ref for p in PLATFORMS if not p.refused}
+    if not refs:
+        return faces, 0
+    keys = refs | {r + COLLAR_SUFFIX for r in refs}
+    groups: dict[tuple, list[int]] = {}
+    for i, (_poly, reg) in enumerate(faces):
+        if str(reg.ref) in keys:
+            groups.setdefault((str(reg.ref), reg.role), []).append(i)
+    drop: set[int] = set()
+    add: dict[int, list] = {}
+    for _k, ix in groups.items():
+        if len(ix) < 2:
+            continue
+        merged = _merge_group([faces[i][0] for i in ix])
+        MERGE_READ[_k[0]] = (len(ix), None if merged is None else len(merged))
+        if merged is None or len(merged) >= len(ix):
+            continue
+        reg = max((faces[i] for i in ix), key=lambda t: t[0].area)[1]
+        drop.update(ix)
+        add[min(ix)] = [(q, reg) for q in merged]
+    if not drop:
+        return faces, 0
+    # the merged face takes its group's first slot (face order stable)
+    out: list = []
+    for i, t in enumerate(faces):
+        if i in add:
+            out.extend(add[i])
+        elif i not in drop:
+            out.append(t)
+    return out, len(faces) - len(out)

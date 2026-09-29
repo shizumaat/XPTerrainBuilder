@@ -389,11 +389,21 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _g = getattr(_part, "geom", None)
         if _g is not None and hasattr(_g.members, "bind"):
             _g.members.bind(ocache)
+        _rd = _pcache.resolved_digest(airport)
         _say(f"  [partition] cache HIT {_cpath} ({_nd} resource reading(s) "
-             f"restored)", out)
+             f"restored; resolved {_rd[0]} sha {_rd[1][:12]})", out)
     else:
         if _cstate == "MISS":
-            _say(f"  [partition] cache MISS {_cpath}", out)
+            # issue #88: a miss whose stored resolved set differs from
+            # this run's names BOTH digests (the stale-key case)
+            _rd = _pcache.resolved_digest(airport)
+            _was = _pcache.peek(_cpath)
+            _why = ""
+            if _was is not None and _was != _rd:
+                _why = (f" (resolved set moved: cached {_was[0]} sha "
+                        f"{_was[1][:12]} -> now {_rd[0]} sha {_rd[1][:12]})")
+            _say(f"  [partition] cache MISS {_cpath} (resolved {_rd[0]} sha "
+                 f"{_rd[1][:12]}){_why}", out)
         _cached_clusters = None
         _t = time.perf_counter()
         pack_objects, pack_report = _read_objects(airport, law, ocache)
@@ -470,7 +480,9 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         if write_cache and _pcache.write(_cpath, _fp,
                          (pack_objects, pack_report, _part, _clusters,
                           ocache.derived_state())):
-            _say(f"  [partition] cache WROTE {_cpath}", out)
+            _rd = _pcache.resolved_digest(airport)
+            _say(f"  [partition] cache WROTE {_cpath} (resolved {_rd[0]} "
+                 f"sha {_rd[1][:12]})", out)
     airport = _dc.replace(airport, partition=_part, groups=_groups,
                           clusters=_clusters)
     # §16g (8)/(9) (owner RULINGS 2026-09-14w): the cluster count, SAID.

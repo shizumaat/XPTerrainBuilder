@@ -233,3 +233,47 @@ def test_t5_site_report_reads_the_largest_pad_at_the_site():
     r = T.site_report((c,), 25.0, 51.0, 0.0, pads, (0.0, 0.0))
     assert r["pads"] == 3 and r["pad_at_site"] == "big" and r["pad_at_site_m2"] == 10000.0
     assert r["pad_members"] == 3 and r["pad_bodies"] == 7
+
+
+# ── issue #88: the resolved-placement set is in the key ─────────────────
+
+def test_t88_unresolved_partition_never_served_to_a_resolved_run(world, tmp_path):
+    """Same pack, same dump: the library index UNRESOLVED (one pack
+    object resolves, the ``lib/`` placement does not) then RESOLVED (both
+    do) -> two keys; the resolved run does not read the unresolved
+    run's file, and ``peek`` names the digest it was written under."""
+    from types import SimpleNamespace as NS
+    root, dump, mod = world
+    lib_obj = tmp_path / "Library" / "lib_tree.obj"
+    lib_obj.parent.mkdir()
+    lib_obj.write_text("A\n800\nOBJ\n")
+    pack_obj = str(root / "Objects" / "Terminal.obj")
+    a = _airport(root, "TNCM")
+    a.dsf_objects = (NS(path="Objects/Terminal.obj", resolved_path=pack_obj),
+                     NS(path="lib/tree.obj", resolved_path=None))
+    rd_u = PC.resolved_digest(a)
+    fp_u = PC.fingerprint(a, LAW, dump_path=dump, radius_deg=0.05)
+    path = PC.cache_path(a, mod, dump)
+    assert PC.write(path, fp_u, "unresolved partition")
+    assert PC.read(path, fp_u) == "unresolved partition"
+    assert rd_u[0] == 1 and PC.peek(path) == rd_u
+    # the index resolves the lib/ placement
+    b = _airport(root, "TNCM")
+    b.dsf_objects = (NS(path="Objects/Terminal.obj", resolved_path=pack_obj),
+                     NS(path="lib/tree.obj", resolved_path=str(lib_obj)))
+    rd_r = PC.resolved_digest(b)
+    fp_r = PC.fingerprint(b, LAW, dump_path=dump, radius_deg=0.05)
+    assert rd_r[0] == 2 and rd_r != rd_u
+    assert fp_r != fp_u
+    assert PC.read(path, fp_r) is None           # never served
+    assert PC.peek(path) == rd_u                 # the stale digest, logged
+    # the engine's own y-bake (read through .anchor_bak) keeps the key
+    c = _airport(root, "TNCM")
+    c.dsf_objects = (NS(path="Objects/Terminal.obj",
+                        resolved_path=pack_obj + ".anchor_bak"),
+                     NS(path="lib/tree.obj", resolved_path=str(lib_obj)))
+    assert PC.resolved_digest(c) == rd_r
+    # order of placements does not move it
+    d = _airport(root, "TNCM")
+    d.dsf_objects = tuple(reversed(b.dsf_objects))
+    assert PC.resolved_digest(d) == rd_r

@@ -723,6 +723,18 @@ class DesignReport:
                     f"{rs.get('max_raise_m', 0.0):.3f} m"
                     + (f", {rs['unlevelled']} on an unlevelled edge"
                        if rs.get("unlevelled") else "") + "); ")
+        bl = rs.get("between_levels") or {}
+        if bl.get("road"):
+            out += (f"between-levels road (29x): {bl['road']} road vertices "
+                    f"between two pavements, {bl.get('applied', 0)} at the "
+                    f"lower level (max step {bl.get('max_step_m', 0.0):.2f} m"
+                    + (f", {bl['unlevelled']} unlevelled"
+                       if bl.get("unlevelled") else "")
+                    + f"), {bl.get('strip_high', 0)} strip vertices on one "
+                    f"bank (max slope {bl.get('max_bank_slope', 0.0):.3f}, "
+                    f"{bl.get('bank_over_slope', 0)} over the bank slope), "
+                    f"{bl.get('strip_low_dropped', 0)} high-side floors "
+                    f"dropped on the low side; ")
         if self.pin_yield:
             worst = max(self.pin_yield, key=lambda r: abs(r["excess_m"]))
             out += (f"PIN YIELD (27a (10)): {len(self.pin_yield)} coverage-edge "

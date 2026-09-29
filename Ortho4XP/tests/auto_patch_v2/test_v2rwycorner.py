@@ -282,3 +282,54 @@ def test_an_abeam_vertex_is_unchanged_by_the_clamp(synthetic, law):
             seen += 1
             assert rows[v].hi == pytest.approx(cap * beyond, abs=0.31)
     assert seen, "the fixture must carry abeam end-corridor vertices too"
+
+
+# --- issue #100 (lane nlwfroad100, 2026-09-29): THE ZONE CLASS JOIN -------
+# ``planar/zones.zone_regions`` keys a runway zone by code NUMBER only; the
+# runway's pavement edges carry the code LETTER too.  Keyed raw, the two
+# never met for a lettered runway, so the clamped reference in ``_found``
+# was dead and an outer-ring vertex a few centimetres past the half-width
+# (the mitred buffer of a skewed runway) was left BANDLESS on the DEM —
+# NLWF's zone-2 ring alternated 3.6 m / 12.7 m under the service road.
+
+def test_the_zone_face_class_joins_the_lettered_runway_edges(synthetic, law):
+    airport, pm = synthetic
+    ctx = zones._context(pm, law, airport)
+    rw_edges = {zones._face_class_of(e) for e in ctx.edges if e[2] == "runway"}
+    rw_faces = {c for cs in ctx.member.values() for c in cs if c[0] == "runway"}
+    assert rw_faces and rw_faces <= rw_edges
+
+
+def test_an_outer_ring_vertex_past_the_half_width_keeps_its_band(synthetic, law):
+    """A runway zone-2 vertex nudged 0.2 m past the half-width (the NLWF
+    drift was 0.02-0.23 m) is CLAMPED to the half-width, never dropped."""
+    from auto_patch_v2.law.tables import zone2_half_width_m
+    airport, pm = synthetic
+    ctx = zones._context(pm, law, airport)
+    vw = ctx.vw
+    (g,) = strips.runway_groups(vw, airport)
+    half = zone2_half_width_m(law, "runway", g.code_number, g.code_letter)
+    ux, uy = g.unit
+    probe = None
+    for v, classes in ctx.member.items():
+        if not any(c[0] == "runway" for c in classes):
+            continue
+        x, y = vw.xy[v]
+        s = (x - g.axis_a[0]) * ux + (y - g.axis_a[1]) * uy
+        off = -(x - g.axis_a[0]) * uy + (y - g.axis_a[1]) * ux
+        # the SOUTH side: taxiway A stands inside the north corridor
+        if 100.0 < s < g.length_m - 100.0 and abs(-off - (g.width_m / 2.0 + half)) < 0.5:
+            probe = (v, off)
+            break
+    assert probe is not None, "the fixture must carry an abeam zone-2 outer vertex"
+    v, off = probe
+    sign = 1.0 if off > 0 else -1.0
+    x, y = vw.xy[v]
+    vw.xy[v] = (x - sign * uy * 0.2, y + sign * ux * 0.2)
+    try:
+        found = ctx.found(v, ctx.member[v])
+    finally:
+        vw.xy[v] = (x, y)
+    assert found, "an outer-ring vertex 0.2 m past the half-width was left bandless"
+    assert found[0][0] == pytest.approx(half)
+    assert zones._face_class_of(ctx.edges[found[0][1]])[0] == "runway"

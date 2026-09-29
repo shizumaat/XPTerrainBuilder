@@ -342,7 +342,7 @@ def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
     pre-solve (the DEM at the nearest pavement point less the band's
     mandatory minimum fall over the distance); the solve owns the real
     level — the corridor's length only has to cover the cap's reach.
-    A step under ``emit.design.edge_min_drop_m`` (§19's materiality) needs
+    A step under ``emit.cockpit.visual_m`` (the step a pilot sees) needs
     no corridor."""
     if dem is None or not roads or not zones:
         return []
@@ -353,9 +353,10 @@ def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
     half = road_half_width_m(law)
     grid = float(law.tables.emit.design.edge_grid_m)
     snap = snap_margin_m(law)
-    # a step under the terrain edge's own materiality (§19 ``edge_min_drop_m``)
-    # is ground the band's seam already reads; only a material one ramps
-    min_step = float(law.tables.emit.design.edge_min_drop_m)
+    # THE GATE IS THE BAND-EXIT STEP A PILOT SEES (``cockpit.visual_m``),
+    # never a terrain drop: NLWF's road -3 west exit steps 2.4 m where the
+    # pre-solve estimate read 1.8 m, under §19's 2 m ``edge_min_drop_m``
+    min_step = float(law.tables.emit.cockpit.visual_m)
     bands = unary_union([z.polygon for z in zones])
     paved = unary_union([Polygon(c.ring, c.holes) for c in cells
                          if c.side == "airside"]) if cells else Polygon()
@@ -396,7 +397,10 @@ def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
                         need = s
                         break
                     s += grid / 2.0
-                run = min(line.length, (need if need is not None else line.length) + grid)
+                # the solve owns the band's real level: a quarter of slack
+                # on the cap's reach so the corridor still meets the DEM
+                run = min(line.length,
+                          (1.25 * need if need is not None else line.length) + grid)
                 stretches.append(substring(line, 0.0, run))
                 steps.append((p0, step, run))
             if not stretches:

@@ -15,6 +15,7 @@ row binding it.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 import typing as _t
 
 from ..law import Law
@@ -25,7 +26,7 @@ from ..model.planar import PlanarMap
 
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
-           "road_contact_rows", "reach_seed_rewrite"]
+           "road_contact_rows", "reach_seed_rewrite", "road_exit_rows"]
 
 GEN = "road_ramp"
 #: The ruling HEAD of the DESIGN TARGET (everything before the first
@@ -47,6 +48,11 @@ JOIN_RULING = ("roads.coverage_edge join "
 #: 2026-09-13cs item 5): a ONE-WAY hard ceiling against the airside
 #: edge's OWN columns — the road ramps away from the level the solve
 #: gives that face, and never pulls it (airside is king).
+#: RULINGS 2026-09-29r: a ROAD EXIT corridor follows the band edge it
+#: leaves, one-way outward at the road cap (registered in ``[design]
+#: one_way_rulings``: the band never moves for the road).
+EXIT_RULING = ("roads.road_exit band follower "
+               "(RULINGS 2026-09-29r)")
 CONTACT_RULING = ("roads.groundside_road airside contact "
                   "(owner 2026-09-13cs item 5; spec §37 (10))")
 
@@ -206,3 +212,35 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         bands.append(r)
     rep["max_raise_m"] = round(rep["max_raise_m"], 4)
     return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands)), rep
+
+
+def road_exit_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """RULINGS 2026-09-29r: every vertex of a ROAD EXIT corridor (``planar/
+    zones.road_exit_corridors``) off the band seam stands within the road's
+    longitudinal cap of its NEAREST seam vertex:
+
+        ``-cap · d  <=  z[v] - z[a]  <=  cap · d``
+
+    ONE-WAY (``follows=(v,)``): the seam is the band edge, whose level the
+    band law alone sets (13ar: inside the band the road grades WITH the
+    zone, mandatory-down) — the corridor climbs away from it and never
+    lifts it.  ``d`` is the straight distance, never longer than the route,
+    so the row is never looser than the cap along the road."""
+    from ..airport.road_ramp import road_exit_vertices
+    exit_v, seam = road_exit_vertices(planar)
+    if not exit_v or not seam:
+        return []
+    rc = role_cap(law, "service_road")
+    if rc is None:
+        return []
+    cap = float(rc.longitudinal)
+    sxy = [(a, planar.vertices[a].xy) for a in sorted(seam)]
+    rows: list[Row] = []
+    for v in sorted(exit_v - seam):
+        x, y = planar.vertices[v].xy
+        a, d = min(((a, math.hypot(x - ax, y - ay)) for a, (ax, ay) in sxy),
+                   key=lambda t: t[1])
+        rows.append(Linear(((v, 1.0), (a, -1.0)), -cap * d, cap * d,
+                           Source(GEN, EXIT_RULING, (f"vertex:{v}", f"seam:{a}")),
+                           follows=(v,)))
+    return rows

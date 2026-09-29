@@ -767,6 +767,19 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     return RampTargets(targets, rep, frame)
 
 
+def road_exit_vertices(pm: PlanarMap) -> tuple[set[int], set[int]]:
+    """RULINGS 2026-09-29r: every vertex of a ROAD EXIT corridor face, and
+    the SEAM among them (also on a ``graded_strip`` face — the band edge)."""
+    from ..planar.zones import ROAD_EXIT_PREFIX
+    exit_v: set[int] = set()
+    for f in pm.faces.values():
+        if (f.ref or "").startswith(ROAD_EXIT_PREFIX):
+            for cyc in (f.ring, *f.holes):
+                exit_v.update(pm.ring_vertices(cyc))
+    seam = {v for v in exit_v if "graded_strip" in pm.roles_at(v)}
+    return exit_v, seam
+
+
 def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                    report: dict[str, _t.Any] | None = None,
                    profiles=None) -> PlanarMap:
@@ -821,6 +834,26 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     if report is not None:
         report["reach_seeded"] = len(seed)
     keep = {v: z for v, z in pm.preferred_z.items() if v not in tg.targets}
+    # RULINGS 2026-09-29r: a ROAD EXIT corridor (``planar/zones.
+    # road_exit_corridors``) follows the BAND EDGE it leaves, one-way
+    # outward (``constraints/road_ramp.road_exit_rows``) — the §37 (6)
+    # ramp target and its hard ceiling would LIFT the band's seam (measured
+    # NLWF: v284 8.06 m against its band ceiling ~3.9 m; dropping
+    # ``road_ramp`` settles it at 4.22).  The corridor keeps the core's
+    # soft profile off the seam; the seam keeps the band's law alone.
+    exit_v, seam_v = road_exit_vertices(pm)
+    if exit_v:
+        targets = {v: z for v, z in targets.items() if v not in exit_v}
+        seed = {v: c for v, c in seed.items() if v not in exit_v}
+        # the corridor's fit target is the TERRAIN it climbs to (29r: the
+        # ramp ends where the cap meets the DEM); the one-way cap rows from
+        # the seam outprice it wherever the DEM is out of the cap's reach
+        keep.update({v: float(pm.vertices[v].dem_z)
+                     for v in exit_v - seam_v})
+        for v in seam_v:
+            keep.pop(v, None)
+        if report is not None:
+            report["road_exit_withdrawn"] = len(exit_v)
     if report is not None:
         report["preferred_withdrawn"] = len(pm.preferred_z) - len(keep)
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,

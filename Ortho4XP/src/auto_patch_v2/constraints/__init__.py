@@ -55,6 +55,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # target at the law weight, with a HARD ceiling a visual threshold above
     # it, superseding the core's soft road fit (``constraints/road_ramp.py``).
     ("road_ramp", road_ramp.road_ramp_rows),
+    # RULINGS 2026-09-29r: a road leaving a band follows the band edge
+    # one-way outward at the road cap
+    ("road_exit", road_ramp.road_exit_rows),
     # §37 (10) (1) THE AIRSIDE CONTACT SET INCLUDES TAXIWAYS (owner RULINGS
     # 2026-09-13cs item 5): a road that ENDS within ``[road_contact]
     # contact_reach_m`` of an airside face's edge without touching it takes

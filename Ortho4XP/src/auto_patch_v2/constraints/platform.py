@@ -37,7 +37,8 @@ from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of
 
-__all__ = ["platform_collar_rows", "platform_plane_rows", "COLLAR_RULING",
+__all__ = ["platform_collar_rows", "platform_plane_rows",
+           "platform_level_rows", "platform_contacts", "COLLAR_RULING",
            "PLANE_RULING", "GEN", "collar_faces", "platform_records"]
 
 GEN = "platform_collar"
@@ -243,14 +244,21 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
     level the spec asks for."""
     from .precedence import view
     pairs = collar_faces(planar, law)
-    if not pairs:
+    # (E) SPEC-AUTHOR RULINGS 2026-09-29s: a refused plate that fronts
+    # airside is one contact-led plane too, over its OWN vertices
+    plates = refused_plates(planar, law)
+    if not pairs and not plates:
         return []
     vw = view(planar, law)
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     rows: list[Row] = []
     n_planes = 0
-    for pref, _cfids, pfids in pairs:
-        vs = sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]] for v in r})
+    sets = [(pref, sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]]
+                           for v in r}), f"face:{pfids[0]}")
+            for pref, _cfids, pfids in pairs]
+    sets += [(ref, own, f"plate:{ref}") for ref, own, _w in plates]
+    from .pads import FLAT_RULING
+    for pref, vs, tag in sets:
         if len(vs) < 4:
             continue
         bs = _basis(xy, vs)
@@ -264,7 +272,16 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
         n_planes += 1
         src = Source(GEN, PLANE_RULING + " (unit-platform spec §1 (1); "
                      "RULINGS 2026-09-28a (1) one platform per unit)",
-                     (f"face:{pfids[0]}", pref))
+                     (tag, pref))
+        if tag.startswith("plate:"):
+            # (E) a WELDED plate's plane stays SOFT, at the plate's own
+            # price (``pad_flat_rulings``): 10y refuted hard coplanarity for
+            # a welded pad, and MEASURED here — as hard rows HECA
+            # ``building184`` / ``building266`` minted 14 violated hard rows
+            # (to 0.67 m) against the 1 % ceiling's contact pairs
+            src = Source(GEN, FLAT_RULING + " (plate plane; SPEC-AUTHOR "
+                         "RULINGS 2026-09-29s (E) the refused platform's "
+                         "contact-led fit)", (tag, pref))
         for v in vs:
             if v in (a, b, c):
                 continue
@@ -276,6 +293,146 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
             rows.append(Linear(terms, None, 0.0, src))
             rows.append(Linear(tuple((q, -k) for q, k in terms), None, 0.0, src))
     STATS["platform_plane_rows"] = {"planes": n_planes, "rows": len(rows)}
+    return rows
+
+
+def platform_contacts(planar: PlanarMap, law: Law
+                      ) -> list[tuple[str, list[int], list[int]]]:
+    """``(platform ref, its PLATFORM vertices, its WELDED contacts)`` per
+    minted platform — the welded contact being an OUTER collar vertex that
+    is airside (``pads.airside_vertices``), exactly the leaders
+    :func:`platform_collar_rows` keeps.  ONE derivation: the level rows
+    here and the sidecar's ``platform_rim_relief`` read the same set."""
+    from .pads import airside_vertices
+    from .precedence import view
+    pairs = collar_faces(planar, law)
+    if not pairs:
+        return []
+    vw = view(planar, law)
+    air = airside_vertices(planar, law)
+    out = []
+    for pref, cfids, pfids in pairs:
+        inner = sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]]
+                        for v in r})
+        cvs = {v for q in cfids for r in [vw.rings[q], *vw.holes[q]] for v in r}
+        weld = sorted(v for v in cvs - set(inner) if v in air)
+        out.append((pref, inner, weld))
+    return out
+
+
+def refused_plates(planar: PlanarMap, law: Law
+                   ) -> list[tuple[str, list[int], list[int]]]:
+    """(E) SPEC-AUTHOR RULINGS 2026-09-29s: a REFUSED platform
+    (``planar/platform.PLATFORMS``, ``under_min_area`` / ``eroded_away``)
+    that fronts airside is a plain welded plate and takes the SAME
+    contact-led fit.  ``(ref, its OWN plate vertices, its WELDED
+    contacts)``: the contacts are the plate's airside rim vertices (the 23a
+    weld — one vertex, one value, stage 1's), the plane is carried by the
+    plate's own vertices only — never an airside vertex (a hard plane
+    through a weld is 10y's refuted identity) and never a vertex shared
+    with another pad or a pavement face.  The min-area is unchanged."""
+    from ..planar.platform import PLATFORMS
+    from .pads import airside_vertices, rigid_roles
+    from .precedence import view
+    refused = {p.ref for p in PLATFORMS if p.refused}
+    if not refused:
+        return []
+    rigid = set(rigid_roles(law))
+    vw = view(planar, law)
+    air = airside_vertices(planar, law)
+    by_ref: dict[str, list[int]] = {}
+    for fid in sorted(planar.faces):
+        f = planar.faces[fid]
+        if f.role in rigid and str(f.ref) in refused:
+            by_ref.setdefault(str(f.ref), []).append(fid)
+    out = []
+    for ref, fids in sorted(by_ref.items()):
+        own_f = set(fids)
+        vs = {v for q in fids for r in [vw.rings[q], *vw.holes[q]] for v in r}
+        weld = sorted(v for v in vs if v in air)
+        own = []
+        for v in sorted(vs - set(weld)):
+            if any(q not in own_f and planar.faces[q].role in rigid
+                   for q in planar.vertices[v].incident_faces):
+                continue
+            own.append(v)
+        if len(weld) >= 3 and len(own) >= 4:
+            out.append((ref, own, weld))
+    return out
+
+
+def plane_sets(planar: PlanarMap, law: Law
+               ) -> list[tuple[str, list[int], list[int]]]:
+    """Every CONTACT-LED plane (29s (A) + (E)): the minted platforms and
+    the refused plates that front airside — ONE list both the hard plane
+    rows and the level rows read."""
+    return [*platform_contacts(planar, law), *refused_plates(planar, law)]
+
+
+def contact_led_refs(planar: PlanarMap, law: Law) -> frozenset[str]:
+    """The refs whose plane is CONTACT-LED (:func:`plane_sets` with at
+    least one welded contact) — the plate rows (``pads._pad_rows``)
+    release their cap-0 zero-tilt target on exactly these.  A platform
+    with NO welded contact keeps it: with nothing leading, a released
+    tilt is free and the solve parks it anywhere under the 1 % ceiling
+    (MEASURED on the HECA replay: ``building5`` / ``building123`` /
+    ``building283`` came out at exactly 1.000 %)."""
+    return frozenset(r for r, vs, w in plane_sets(planar, law)
+                     if w and len(vs) >= 4)
+
+
+def platform_level_rows(planar: PlanarMap, law: Law,
+                        airport: Airport | None = None) -> list[Row]:
+    """THE PLATFORM'S PLANE IS CONTACT-LED (SPEC-AUTHOR RULINGS 2026-09-29s
+    (A), implementing owner 29p (2)+(4); issue #96).  Every WELDED collar
+    contact contributes ONE one-way level row against the platform plane
+    EVALUATED AT THAT CONTACT: the plane through the three basis vertices
+    :func:`platform_plane_rows` uses (the hard plane rows make every
+    platform vertex lie on it), extrapolated to the contact by its
+    barycentric coordinates — ``l1 z_a + l2 z_b + l3 z_c - z_o = 0``.  The
+    contact LEADS (airside is king, 23a / 29p (1)); the platform's
+    vertices follow.  Priced as §20's frontage level row
+    (``pads.LEVEL_RULING``: one-way, the pad plate's weight, the plane
+    withdrawn from every DEM datum mean), so the rows together are the
+    least-squares fit of the plane to its contacts — LEVEL AND TILT, the
+    tilt bounded by the hard 1 % ceiling (the cap-0 zero-tilt target no
+    longer prices a platform, ``pads._pad_rows``).
+
+    MEASURED (scout ``pads96`` on #96): with the cap-0 flat target and no
+    per-contact row, HECA ``building4`` came out one flat plane at
+    100.638 m, tilt 0, over a frontage rising 7 m W->E — the pad 3.37 m
+    below the apron at the owner's site and 3.69 m above it at T3's west
+    end, which the collar's slack 1:3 bank rows could not see."""
+    from .pads import GEN_LEVEL, LEVEL_RULING, _two_sided
+    STATS.pop("platform_level_rows", None)
+    xy = {v: vx.xy for v, vx in planar.vertices.items()}
+    rows: list[Row] = []
+    n_pl = n_c = 0
+    for pref, vs, weld in plane_sets(planar, law):
+        if len(vs) < 4 or not weld:
+            continue
+        bs = _basis(xy, vs)
+        if bs is None:
+            continue
+        a, b, c = bs
+        (x1, y1), (x2, y2), (x3, y3) = xy[a], xy[b], xy[c]
+        det = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
+        if det == 0.0:
+            continue
+        n_pl += 1
+        src = Source(GEN_LEVEL, LEVEL_RULING + " (platform contact; SPEC-AUTHOR "
+                     "RULINGS 2026-09-29s (A): the plane is contact-led)",
+                     (pref, f"platform:{pref}", "pavement:welded"))
+        fol = tuple(vs)
+        for o in weld:
+            x, y = xy[o]
+            l1 = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / det
+            l2 = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) / det
+            l3 = 1.0 - l1 - l2
+            rows.extend(_two_sided(((a, l1), (b, l2), (c, l3), (o, -1.0)),
+                                   src, fol))
+            n_c += 1
+    STATS["platform_level_rows"] = {"platforms": n_pl, "contacts": n_c}
     return rows
 
 

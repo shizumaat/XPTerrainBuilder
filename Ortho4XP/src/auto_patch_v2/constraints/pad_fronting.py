@@ -213,11 +213,42 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
     face_vs = {fid: {v for r in [vw.rings[fid], *vw.holes[fid]] for v in r}
                for fid in {a for d in fac.values() for a in d}}
     touch = pad_frontage_leaders(planar, law) if fac else {}
+    # SPEC-AUTHOR RULINGS 2026-09-29s (C) (#96): A JUNIOR FACING ROW NEVER
+    # CROSSES A DECLARED PAD TERRACE.  A pad split off an upper pad by a
+    # 28b terrace (``planar/pad_terrace``, kind ``pad``) sits at its lower
+    # level on the apron it touches; the upper pad's FRONT apron is across
+    # that terrace, and a junior row toward it is report-only noise
+    # (measured on #96: HECA building131/134/137, -5.6..-5.8 m against
+    # pav37, three of the top four ``pad_level`` misses).  No surface
+    # change: the row was junior, priced at the law's weight.
+    # "Across the terrace" = the apron the UPPER pad fronts (its declared
+    # front) or faces (its own facing relation: HECA building52 faces the
+    # east apron as pav37 AND dsf:objpav68#0, the front the terrace names).
+    from ..planar.pad_terrace import TERRACES
+    ref_of = {f.id: str(f.ref) for f in planar.faces.values()}
+    faces_of: dict[str, list[int]] = {}
+    for fid_, r_ in ref_of.items():
+        faces_of.setdefault(r_, []).append(fid_)
+    across: dict[str, set[str]] = {}
+    for t in TERRACES:
+        if t.kind == "pad":
+            up = {t.front_ref} | {ref_of[a] for q in faces_of.get(t.pad_ref, ())
+                                  for a in (fac.get(q) or {})}
+            across.setdefault(t.other_ref, set()).update(up)
+    n_across = 0
     groups: dict[int, dict] = {}
     for gid, ref, group, fids in plane_groups(planar, law, airport):
         per: list[tuple[int, list[tuple[int, float]]]] = []
+        junior = any(touch.get(q) for q in fids)
+        cross = set()
+        if junior:
+            for q in fids:
+                cross |= across.get(ref_of.get(q, ""), set())
         for q in fids:
             for afid, contacts in (fac.get(q) or {}).items():
+                if ref_of.get(afid) in cross:
+                    n_across += 1
+                    continue
                 own = face_vs[afid]
                 poly = polys.get(q)
                 near = None
@@ -235,6 +266,7 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
         groups[gid] = {"ref": ref, "group": group, "fids": fids, "per": per,
                        "facing_level": lf, "touching_level": lt,
                        "senior": senior}
+    STATS["pad_fronting_across_terrace"] = {"junior_dropped": n_across}
     out = {"_pm": planar, "groups": groups}
     _CACHE.clear()
     _CACHE[key] = out

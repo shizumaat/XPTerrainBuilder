@@ -269,9 +269,15 @@ def test_the_level_row_is_the_pads_own_mean_one_way_read_in_the_band(law):
     # followers is exactly how the pad moved the pavement +1.30 m at LEMD's
     # T4S corner (10at).
     pm, _st = build(airport, Classification(tuple(_mixed_rim_cells()), (), {}, ()), law)
+    # RE-READ AT THE PLATFORM/COLLAR LOCUS (RULINGS 2026-09-29m (a); the
+    # platform is ONE face, 29n (4) / #94): the level row is the PLATFORM
+    # face's (its vertices the pad's own plane), the welded contacts are
+    # the UNIT's — the collar's rim, which is where the frontage is keyed
     pad_fid = _face(pm, "padA").id
     pad = _verts(pm, "padA")
-    shared = pad_shared(pm, law)[pad_fid]
+    unit_fids = [f.id for f in pm.faces.values() if f.ref.split("#")[0] == "padA"]
+    sh = pad_shared(pm, law)
+    shared = set().union(*(sh.get(q, set()) for q in unit_fids))
     assert shared and (pad - shared)
     rows = [r for r in pad_frontage_level(pm, law, airport)
             if f"face:{pad_fid}" in r.source.inputs]
@@ -285,7 +291,10 @@ def test_the_level_row_is_the_pads_own_mean_one_way_read_in_the_band(law):
         leaders = {v for v, _c in r.terms} - pad
         assert leaders and not (leaders & shared)
         assert abs(sum(c for _v, c in r.terms)) < 1e-9   # metres of surface
-    lead = pad_frontage_leaders(pm, law)[pad_fid]
+    leaders = pad_frontage_leaders(pm, law)
+    lead_fids = [q for q in unit_fids if q in leaders]
+    assert len(lead_fids) == 1, lead_fids
+    lead = leaders[lead_fids[0]]
     for _role, pairs in lead.items():
         for c, lw in pairs:
             assert abs(sum(w for _v, w in lw) - 1.0) < 1e-9

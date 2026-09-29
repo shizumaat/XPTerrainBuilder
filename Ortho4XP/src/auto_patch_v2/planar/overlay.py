@@ -344,6 +344,17 @@ def build_arrangement(airport: Airport, classification: Classification,
             dropped += 1
             continue
         faces.append((poly, best))
+    if keeps:
+        # RULINGS 2026-09-29n (4), #94: ONE platform, ONE face — a foreign
+        # ring edge noded through the pad is dropped at this derivation site
+        from .platform import merge_platform_faces
+        faces, _plat_merged = merge_platform_faces(faces)
+        PAD_AIRSIDE["platform_faces_merged"] = _plat_merged
+        from .platform import MERGE_READ
+        if MERGE_READ:
+            PAD_AIRSIDE["platform_merge_read"] = "; ".join(
+                f"{r} {a}->{'refused' if b is None else b}"
+                for r, (a, b) in sorted(MERGE_READ.items()))
     ident = law.tables.emit.identity.min_distinct_spacing_m
     faces, merged = merge_slivers(faces,
                                   (ident * law.tables.emit.terrace.sliver_area_factor) ** 2,

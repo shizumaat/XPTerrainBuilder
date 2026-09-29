@@ -260,13 +260,22 @@ def test_a_shared_contact_is_a_leader_never_a_follower(law):
     LEADER and is not withdrawn from the pavement body's DEM mean; the
     pad's OWN vertices are the followers, and they are withdrawn (§9b)."""
     airport, pm = _map(law, _hole_cells())
-    fid = _face(pm, "padA").id
-    pad, apron = _verts(pm, "padA"), _verts(pm, "apronA")
+    # RE-READ AT THE PLATFORM/COLLAR LOCUS (RULINGS 2026-09-29m (a); the
+    # platform is ONE face, 29n (4) / #94): the pad's OWN vertices are the
+    # PLATFORM face's, its shared contacts the UNIT's welded rim (the
+    # collar's, where ``pad_shared`` keys them); the level row is the
+    # platform face's
+    pfid = _face(pm, "padA").id
+    apron = _verts(pm, "apronA")
+    unit = [f for f in pm.faces.values() if f.ref.split("#")[0] == "padA"]
+    fid = next(f.id for f in unit if f.id in pad_shared(pm, law))
+    pad = _verts(pm, "padA") | (set().union(*(
+        set(pm.ring_vertices(f.ring)) for f in unit)) & apron)
     shared = pad & apron
     assert shared and (pad - apron), "the fixture's rim must be MIXED"
     assert pad_shared(pm, law)[fid] == shared
     rows = [r for r in pad_frontage_level(pm, law, airport)
-            if f"face:{fid}" in r.source.inputs]
+            if f"face:{pfid}" in r.source.inputs]
     assert rows
     for r in rows:
         assert set(int(v) for v in r.follows) == pad - shared

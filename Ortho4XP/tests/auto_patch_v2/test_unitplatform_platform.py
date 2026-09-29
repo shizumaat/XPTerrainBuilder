@@ -222,3 +222,50 @@ def test_the_census_reads_the_collar_as_a_bank(built, law):
     assert CG._is_platform_collar(w)
     assert is_collar_ref("padU#collar") and not is_collar_ref("padU")
     assert math.isfinite(rr[0].elev_b)
+
+
+def test_a_platform_is_one_face_when_a_foreign_ring_edge_crosses_the_pad(law):
+    """ONE PLATFORM, ONE FACE (owner RULINGS 2026-09-29n (4), issue #94).
+    The ``_mixed_rim_cells`` shape: an apron whose hole covers only the
+    pad's western half, touching its own shell along x = 20 — a ring edge
+    that runs THROUGH the pad.  Measured before the fix: the platform came
+    out as TWO faces of ref ``padU`` (6 + 8 vertices) and the collar as two
+    C-shapes with no hole.  After it: ONE platform face, ONE collar face
+    whose hole IS the platform's ring, and no vertex of the dividing edge
+    left inside the platform."""
+    pad = _rect(-60.0, 180.0, 60.0, 240.0)
+    cells = [_cells(pad)[0],
+             Cell(1, "apron", "apronA", _rect(-260.0, 140.0, 20.0, 260.0),
+                  (_rect(-60.0, 180.0, 20.0, 240.0),), None, None, "airside",
+                  "apron", {}),
+             Cell(2, "building", "padU", pad, (), None, None, "airside", "pad", {})]
+    pm, _st = build(_airport(law, _Dem()), Classification(tuple(cells), (), {}, ()), law)
+    assert [p.ref for p in pplat.PLATFORMS] == ["padU"] and not pplat.PLATFORMS[0].refused
+    plat, col = _faces(pm, "padU"), _faces(pm, "padU" + COLLAR_SUFFIX)
+    assert len(plat) == 1, [len(pm.faces[q].ring) for q in plat]
+    assert len(col) == 1
+    pf, cf = pm.faces[plat[0]], pm.faces[col[0]]
+    assert not pf.holes and len(cf.holes) == 1
+    assert set(pm.ring_vertices(cf.holes[0])) == set(pm.ring_vertices(pf.ring))
+    # the platform is the pad eroded by C: no vertex of it stands at x = 20
+    # strictly inside the ring (the dropped edge's own nodes are gone)
+    P = Polygon([pm.vertices[v].xy for v in pm.ring_vertices(pf.ring)])
+    assert abs(P.area - pplat.PLATFORMS[0].platform_m2) < 1.0
+    assert P.exterior.distance(Polygon(pad).exterior) >= 4.5
+
+
+def test_merge_platform_faces_keeps_every_boundary_vertex(law):
+    """The merge is exact: an edge walked by both faces cancels, every
+    other vertex is kept coordinate for coordinate (a collinear node the
+    collar still walks stays on the platform ring); pieces that share no
+    edge stay separate faces."""
+    a = Polygon([(0, 0), (10, 0), (10, 5), (10, 10), (0, 10)])
+    b = Polygon([(10, 0), (20, 0), (20, 10), (10, 10), (10, 5)])
+    far = Polygon([(40, 0), (50, 0), (50, 10), (40, 10)])
+    out = pplat._merge_group([a, b])
+    assert out is not None and len(out) == 1
+    assert set(out[0].exterior.coords) == {(0, 0), (10, 0), (20, 0), (20, 10),
+                                           (10, 10), (0, 10)}
+    assert abs(out[0].area - 200.0) < 1e-9
+    two = pplat._merge_group([a, far])
+    assert two is not None and len(two) == 2

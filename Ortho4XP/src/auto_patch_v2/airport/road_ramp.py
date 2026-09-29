@@ -805,6 +805,27 @@ def road_exit_profile(pm: PlanarMap, law: Law, airport: Airport,
     from .road_profile import _signed_offset
     from shapely.geometry import LineString, Point
     by_ref = {rx.ref: rx for rx in ROAD_EXITS}
+    # §1.3 (7) v2: the RUNWAY STRIP CEILING — a corridor vertex inside a
+    # runway's zone-2 half-width stands at most ``strip_transverse_bound``
+    # above the nearest runway vertex's (pre-solve: DEM) level; the profile
+    # target is clamped to it and the terrain is cut (29y)
+    from ..law.tables import strip_transverse_bound
+    rw_roles = set(law.tables.precedence.runway_family.members)
+    rw_pts = [(pm.vertices[v].xy, float(pm.vertices[v].dem_z), f.code_number)
+              for f in pm.faces.values() if f.role in rw_roles
+              for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)
+              if pm.vertices[v].dem_z is not None]
+
+    def strip_ceiling(p) -> float:
+        best = None
+        for (qx, qy), qz, cn in rw_pts:
+            d = math.hypot(p[0] - qx, p[1] - qy)
+            if best is None or d < best[0]:
+                best = (d, qz, cn)
+        if best is None:
+            return math.inf
+        b = strip_transverse_bound(law, best[0], best[2])
+        return math.inf if b is None else best[1] + b
     dem = getattr(airport, "dem", None)
     cap = float(role_cap(law, "service_road").longitudinal)
     prof: dict[int, float] = {}
@@ -848,8 +869,9 @@ def road_exit_profile(pm: PlanarMap, law: Law, airport: Airport,
                         best = (dd, ax.interpolate(si))
                 q = best[1]
                 z_dem = float(dem.z(q.x, q.y))
-                prof[v] = (min(max(z_dem, lo), hi) if lo <= hi
-                           else 0.5 * (lo + hi))
+                z_t = (min(max(z_dem, lo), hi) if lo <= hi
+                       else 0.5 * (lo + hi))
+                prof[v] = min(z_t, strip_ceiling(p))
     return prof, fr
 
 

@@ -495,8 +495,13 @@ def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
                     continue
                 # §5 (4): the corridor runs until the cap-limited profile
                 # meets the DEM (+25 % slack on the estimate, + one grid)
+                # §5 (4) v2: the END must stand within ``visual_m`` of the
+                # DEM after the SOLVE, whose band level may sit off the
+                # estimate — the run carries half the reach again plus two
+                # grids of slack (attempt 2 replay at 1.25 x + 1 grid: ends
+                # 0.64-1.13 m off the DEM)
                 run = min(line.length,
-                          (1.25 * need if need is not None else line.length) + grid)
+                          (1.5 * need if need is not None else line.length) + 2 * grid)
                 st = substring(line, 0.0, run)
                 # IN-BAND POCKET (29ab (1)): walk the road INWARD from the
                 # mouth; a crossing into the other family's band with a
@@ -579,8 +584,17 @@ def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
             parts = [g for g in shapely.get_parts(poly)
                      if g.geom_type == "Polygon" and g.area >= 1.0
                      and any(g.distance(Point(p0)) <= half for p0, _s, _r in steps)]
+            def zb_at(p, _zm=zm):
+                # the band-level estimate at the NEAREST band point (its
+                # family's pavement less the mandatory fall), §1.1 (4)
+                from shapely.ops import nearest_points
+                q = nearest_points(bands, p)[0]
+                f_ = fam_at(q)
+                z_ = level(f_, q) if f_ else None
+                return _zm[0] if z_ is None else z_
             strip = unary_union([
-                _bank_strip(ax, zb, dem, cap, half, cutback + snap, bank_slope, grid)
+                _bank_strip(ax, zb, dem, cap, half, cutback + snap, bank_slope,
+                            grid, zb_at)
                 for ax, zb in zip(axes, zm)])
             for g in parts:
                 p0, step, run = min(steps, key=lambda t_: g.distance(Point(t_[0])))
@@ -636,7 +650,7 @@ def _profile_rise(line, s: float, z0: float, dem, cap: float) -> float:
 
 
 def _bank_strip(axis, z0: float, dem, cap: float, half: float, cut: float,
-                bank_slope: float, grid: float):
+                bank_slope: float, grid: float, zb_at=None):
     """§1.1 (4) v2: the variable-width strip ``half + w(s)``, ``w(s) =
     max(cut, |z_prof(s) - z_band| / bank_slope)``, one polygon tapered
     station by station (no jogs: both sides are offset polylines)."""
@@ -652,13 +666,25 @@ def _bank_strip(axis, z0: float, dem, cap: float, half: float, cut: float,
         dx, dy = q1.x - q0.x, q1.y - q0.y
         L = math.hypot(dx, dy) or 1.0
         nx, ny = -dy / L, dx / L
-        w = half + max(cut, abs(_profile_rise(axis, s, z0, dem, cap)) / bank_slope)
+        zp = z0 + _profile_rise(axis, s, z0, dem, cap)
+        zb = z0 if zb_at is None else zb_at(p)
+        w = half + max(cut, abs(zp - zb) / bank_slope)
         left.append((p.x + nx * w, p.y + ny * w))
         right.append((p.x - nx * w, p.y - ny * w))
     poly = Polygon(left + right[::-1])
     if not poly.is_valid:
         poly = poly.buffer(0)
-    return poly
+    # the far END: the bank turns the corner too (attempt 2 replay: a
+    # 2.63 m / 1.0 m cliff beside road_exit:4's end, past the last station)
+    end = axis.interpolate(axis.length)
+    pre = axis.interpolate(max(0.0, axis.length - 0.5))
+    ex, ey = end.x - pre.x, end.y - pre.y
+    L = math.hypot(ex, ey) or 1.0
+    cap_ln = LineString([(end.x, end.y),
+                         (end.x + ex / L * (w - half), end.y + ey / L * (w - half))])
+    if cap_ln.length <= 0.0:
+        return poly
+    return unary_union([poly, cap_ln.buffer(w, cap_style="flat", **_MITRE)])
 
 
 def _mouth_box(back, width: float, chamfer: float):

@@ -379,10 +379,10 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     tie_pop: dict[int, int] = {}
     for f in vw.faces_of_role(tuple(r for r in law.tables.precedence.roles
                                     if r not in rw_roles and r != "retaining_wall")):
-        # spec road-exit §2 row 25: a road-exit corridor takes no strip
-        # tie — the band's cut-back edge carries it
-        if (f.ref or "").startswith(ROAD_EXIT_PREFIX):
-            continue
+        # spec road-exit §1.3 (7) v2: a road-exit corridor vertex inside a
+        # runway's zone-2 half-width KEEPS the strip tie (v1 row 25's
+        # exclusion REVERSED — a road may not stand above the strip
+        # envelope; attempt 1: 1.88 m over at -14.3113126, -178.0693735)
         strip = f.role == "graded_strip" and _face_class(f) is not None
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             for v in ring:

@@ -51,8 +51,8 @@ JOIN_RULING = ("roads.coverage_edge join "
 #: RULINGS 2026-09-29r: a ROAD EXIT corridor follows the band edge it
 #: leaves, one-way outward at the road cap (registered in ``[design]
 #: one_way_rulings``: the band never moves for the road).
-EXIT_RULING = ("roads.road_exit band follower "
-               "(RULINGS 2026-09-29r)")
+EXIT_RULING = ("roads.road_exit first station "
+               "(RULINGS 2026-09-29r / 29ae: two-way)")
 CONTACT_RULING = ("roads.groundside_road airside contact "
                   "(owner 2026-09-13cs item 5; spec §37 (10))")
 
@@ -214,17 +214,31 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands)), rep
 
 
+RING_RULING = ("roads.road_exit mouth on the band ring "
+               "(spec road-exit §1.3 (1) v2, RULINGS 2026-09-29ae)")
+#: the ring-continuity row's half-width (m): the mouth stands ON the chord
+#: of its band-ring neighbours within the cockpit motion threshold
+RING_TOL_M = 0.05
+
+
 def road_exit_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """Spec road-exit §1.3 (1) (RULINGS 2026-09-29r/29y): the corridor's
-    COURSE from its mouth.  The two-way course and cross-section rows AMONG
-    corridor vertices are ``roads.road_within_shape``'s (every pair of the
-    corridor ring, read on the corridor's own route frame, §1.4); this
-    generator adds the ONE-WAY hop from each mouth to the FIRST STATION —
-    every corridor vertex within one edge grid of chainage from a mouth
-    vertex stands within ``cap * |ds| + trans * |dt|`` of it, the corridor
-    vertex following (``follows=(v,)``): the mouth is a band vertex whose
-    level the band law alone sets (13ar; the 29u interventional read).
-    One hop to the leader, so the lag settles in the mouth's round."""
+    """Spec road-exit §1.3 (1) v2 (RULINGS 2026-09-29r/29y/29ae): the
+    corridor's COURSE from its mouth.  The course and cross-section rows
+    AMONG corridor vertices are ``roads.road_within_shape``'s (every pair,
+    read on the corridor's own route frame, §1.4).  This generator adds,
+    ALL TWO-WAY (no row touching the corridor is a follower — attempt 1's
+    one-way chain behind the band's own one-way rows left 370 of 950 rows
+    unsettled; 13ar is kept by the band's HARD range, which a two-way row
+    can move the mouth inside but never above):
+
+    1. the hop from each mouth to the FIRST STATION — every corridor vertex
+       within one edge grid of chainage from a mouth vertex stands within
+       ``cap * |ds| + trans * |dt|`` of it;
+    2. the RING-CONTINUITY row on each mouth vertex: it stands on the
+       chord of its two nearest non-mouth band-ring neighbours (``t`` by
+       ring chainage) within :data:`RING_TOL_M` — the corridor cannot
+       notch the band ring at the mouth (attempt 1: ``road_exit:0``'s
+       mouth 0.61 m above neighbours 1.12 m away)."""
     from ..airport.road_ramp import road_exit_vertices
     exit_v, seam = road_exit_vertices(planar)
     if not exit_v or not seam:
@@ -249,6 +263,40 @@ def road_exit_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 continue
             bound = cap * ds + trans * dt
             rows.append(Linear(((v, 1.0), (a, -1.0)), -bound, bound,
-                               Source(GEN, EXIT_RULING, (f"vertex:{v}", f"seam:{a}")),
-                               follows=(v,)))
+                               Source(GEN, EXIT_RULING, (f"vertex:{v}", f"seam:{a}"))))
+    done: set[int] = set()
+    for f in planar.faces.values():
+        if f.role != "graded_strip":
+            continue
+        for cyc in (f.ring, *f.holes):
+            ring = planar.ring_vertices(cyc)
+            n = len(ring)
+            if n < 4:
+                continue
+            for i, m in enumerate(ring):
+                if m not in seam or m in done:
+                    continue
+                xy = planar.vertices[m].xy
+
+                def walk(step: int):
+                    d, prev, j = 0.0, xy, i
+                    for _ in range(n - 1):
+                        j = (j + step) % n
+                        q = ring[j]
+                        qxy = planar.vertices[q].xy
+                        d += math.hypot(qxy[0] - prev[0], qxy[1] - prev[1])
+                        prev = qxy
+                        if q not in seam:
+                            return q, d
+                    return None, 0.0
+                n0, d0 = walk(-1)
+                n1, d1 = walk(+1)
+                if n0 is None or n1 is None or n0 == n1 or d0 + d1 <= 0.0:
+                    continue
+                t = d0 / (d0 + d1)
+                done.add(m)
+                rows.append(Linear(((m, 1.0), (n0, -(1.0 - t)), (n1, -t)),
+                                   -RING_TOL_M, RING_TOL_M,
+                                   Source(GEN, RING_RULING,
+                                          (f"vertex:{m}", f"ring:{n0},{n1}"))))
     return rows

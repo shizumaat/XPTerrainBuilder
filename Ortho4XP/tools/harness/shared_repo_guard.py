@@ -978,7 +978,9 @@ class SharedRepoWriteGuard:
             ap = real_s
         try:                                   # follow the lane's symlinks
             real = Path(ap).resolve()
-            rel = str(real.relative_to(self.repo.resolve()))
+            # '/'-spelled on every OS: every scope/lock/allowance table
+            # below is written with '/' (#92)
+            rel = real.relative_to(self.repo.resolve()).as_posix()
         except (OSError, ValueError):
             return None                        # not in the shared repo
         if rel.startswith(".harness"):

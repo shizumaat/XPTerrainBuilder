@@ -252,6 +252,11 @@ def round_totals(records) -> dict:
 
 
 def main(argv=None) -> int:
+    # UTF-8 on every OS: a piped stdout on Windows is cp1252 and the first
+    # non-ASCII character (→, −, §) raised UnicodeEncodeError (#92)
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
         usage="run_with_ledger.py [options] -- command [args...]")

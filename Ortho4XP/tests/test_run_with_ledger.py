@@ -50,7 +50,8 @@ def _run_tool(repo, extra, command, env_extra=None):
         f"sys.exit(rwl.main({extra!r} + ['--'] + {command!r}))\n"
     )
     return subprocess.run([sys.executable, "-c", code], env=env,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8")
 
 
 def test_miss_runs_and_records(ledger_repo):

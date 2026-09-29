@@ -27,7 +27,8 @@ import frames  # noqa: E402
 
 def _cli(*args):
     return subprocess.run([sys.executable, os.path.join(TOOLS, "docq.py"), *args],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8")
 
 
 def test_spec_section_returns_the_section_and_all_its_sub_blocks():
@@ -143,7 +144,9 @@ def test_frames_register_refuses_a_tmp_path_naming_the_durable_root(tmp_path, mo
     empty (a row pointing at a path the next reboot purges is the defect)."""
     reg, durable = _durable(tmp_path, monkeypatch)
     import tempfile
-    with tempfile.TemporaryDirectory(dir="/tmp") as td:   # deliberately /tmp
+    # deliberately /tmp; the OS temp dir where there is no /tmp (Windows, #92)
+    with tempfile.TemporaryDirectory(
+            dir="/tmp" if os.path.isdir("/tmp") else None) as td:
         p = os.path.join(td, "KCLT.pkl")
         open(p, "wb").write(b"x")
         with pytest.raises(SystemExit) as exc:
@@ -218,7 +221,8 @@ def test_brief_pack_assembles_from_the_tools(tmp_path):
                         "--lane", "v2test", "--base", "abcdef12", "--spec", "§37 (6)",
                         "--rulings", "13aj", "--index", "road_terrain_conformance",
                         "--notes", str(notes), "--bars", str(bars)],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True,
+                          encoding="utf-8")
     assert r.returncode == 0, r.stderr
     out = r.stdout
     assert out.startswith("# Brief pack — lane `v2test`")

@@ -111,6 +111,9 @@ r._capture_guarded("ZZZZ", Path({str(tmp_path)!r}) / "ZZZZ.pkl")
     assert "[guard] shared repo UNCHANGED" in out.stdout, out.stdout
 
 
+@pytest.mark.skipif(not hasattr(os, "killpg"),
+                    reason="Windows has no process groups: os.killpg does not "
+                           "exist, so bounded_run's group-kill path cannot be posed")
 def test_an_unsignalable_group_still_times_out_instead_of_raising():
     """EPERM from the liveness probe is ALIVE, not a crash (#76).
 

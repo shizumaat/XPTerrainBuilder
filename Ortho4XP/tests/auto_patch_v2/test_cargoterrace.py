@@ -145,3 +145,39 @@ def test_the_terrace_is_declared_as_a_joint_between_the_two_bodies(law):
                for r in recs)
     lat = [p[0] for r in recs for p in r["points"]]
     assert all(abs(la) > 1.0 for la in lat)       # (lat, lon), not frame metres
+
+
+def test_a_junior_facing_row_never_crosses_a_declared_pad_terrace(law):
+    """SPEC-AUTHOR RULINGS 2026-09-29s (C) (#96): a pad split off an upper
+    pad by a declared 28b terrace (kind ``pad``) sits at the level of the
+    apron it touches; a JUNIOR facing row toward the upper pad's FRONT
+    apron — an apron standing nearer the terrace's FRONT level than its
+    other level, i.e. across that terrace — is not minted (report-only
+    noise, HECA building131 against pav37).  Every senior row is
+    unchanged.  (``padQ`` touches ``apronLow`` at 698 — its senior — and
+    faces ``apronW`` at ~702 across 12 m of bare ground; the one variable
+    is the ``padP|padQ`` declaration, 704 vs 698.)"""
+    cells = _cells(lower_pad=True) + [
+        Cell(9, "apron", "apronW", _rect(-110.0, 330.0, -72.0, 392.0), (),
+             None, None, "airside", "apron", {})]
+    pm, airport = _built(law, cells)
+    q = _fid(pm, "padQ")
+
+    def junior_rows():
+        pad_fronting._CACHE.clear()
+        rows = pad_fronting.pad_fronting_level(pm, law, airport)
+        return [r for r in rows if r.source.ruling.startswith(pads.LEVEL_JUNIOR_RULING)
+                and set(r.follows or ()) & _vs(pm, q)]
+
+    kept = list(pad_terrace.TERRACES)
+    try:
+        pad_terrace.TERRACES[:] = [t for t in kept if t.other_ref != "padQ"]
+        assert junior_rows(), "the fixture must face apronW with a junior row"
+        t0 = next(t for t in kept if t.kind == "pad" and t.other_ref == "padQ")
+        assert (t0.front_level, t0.other_level) == (704.0, 698.0)
+        pad_terrace.TERRACES[:] = kept
+        assert not junior_rows()       # apronW (~702) is the UPPER side
+        assert pad_fronting.STATS["pad_fronting_across_terrace"]["junior_dropped"] >= 1
+    finally:
+        pad_terrace.TERRACES[:] = kept
+        pad_fronting._CACHE.clear()

@@ -269,3 +269,99 @@ def test_merge_platform_faces_keeps_every_boundary_vertex(law):
     assert abs(out[0].area - 200.0) < 1e-9
     two = pplat._merge_group([a, far])
     assert two is not None and len(two) == 2
+
+
+# ── SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): the plane is CONTACT-LED ──
+
+
+class _Dem1pct:
+    provenance = {"synthetic": "falling 1 % across x"}
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0 - 0.01 * x
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def _contact_read(pm, law, z):
+    """Per platform: the plane at every welded contact minus the contact."""
+    out = {}
+    for ref, inner, weld in platform.platform_contacts(pm, law):
+        X = np.array([pm.vertices[v].xy for v in inner])
+        c0 = X.mean(axis=0)
+        A = np.c_[X - c0, np.ones(len(X))]
+        co, *_ = np.linalg.lstsq(A, z[inner], rcond=None)
+        W = np.array([pm.vertices[v].xy for v in weld])
+        out[ref] = (np.c_[W - c0, np.ones(len(W))] @ co) - z[weld]
+    return out
+
+
+def test_a_platform_over_a_1pct_apron_follows_it(law):
+    """29s (A): one ONE-WAY level row per welded contact against the plane
+    AT that contact (the contact leads, the platform follows), and the
+    cap-0 zero-tilt target released — so a platform fronting an apron that
+    falls 1 % along the frontage tilts with it instead of sitting flat at
+    the contacts' mean (the flat plane missed the ends by 0.6 m on this
+    120 m frontage; HECA ``building4`` by 3.4 m)."""
+    from auto_patch_v2.constraints.pads import LEVEL_RULING, pad_flats
+    from auto_patch_v2.solve import solve_design
+    airport = _airport(law, _Dem1pct())
+    pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
+    rows = platform.platform_level_rows(pm, law, airport)
+    inner = _vs(pm, _faces(pm, "padU"))
+    air = _vs(pm, _faces(pm, "apronA"))
+    assert rows and all(r.source.ruling.startswith(LEVEL_RULING) for r in rows)
+    for r in rows:
+        feet = {v for v, _c in r.terms}
+        assert set(r.follows) <= inner and len(feet & air) == 1
+    # the cap-0 plate prices no pair of the platform (its tilt is free)
+    assert not [r for r in pad_flats(pm, law, airport)
+                if {r.a, r.b} <= inner]
+    cs, _c, _w = generate(pm, law, airport)
+    sol, _rep = solve_design(pm, cs, law)
+    z = np.asarray(sol.z, float)
+    rec = platform.platform_records(pm, law, z)[0]
+    assert rec["plane_residual_max_m"] <= 0.01
+    assert 0.5 <= rec["tilt_pct"] <= 100.0 * float(
+        law.tables.emit.within_shape.pad_slope_max) + 0.01
+    rel = _contact_read(pm, law, z)["padU"]
+    assert float(np.max(np.abs(rel))) <= 0.25
+
+
+def test_a_refused_platform_fronting_airside_takes_the_contact_led_fit(law):
+    """29s (E): a platform REFUSED ``under_min_area`` (120 x 50 m: 6,000 m2
+    of pad, 4,400 m2 after the 5 m erosion) stays a plain welded plate with
+    its min-area unchanged, and takes the same contact-led fit: one hard
+    plane over its OWN vertices (never an airside one — 10y), one one-way
+    level row per welded contact, the cap-0 target released — so it tilts
+    with the 1 % apron it fronts."""
+    from auto_patch_v2.constraints.pads import pad_flats
+    from auto_patch_v2.solve import solve_design
+    # vertexed along its sides, as a pack footprint ring is (a rim-only
+    # plate whose own vertices were all on one line would carry no plane)
+    narrow = ((-60.0, 200.0), (60.0, 200.0), (60.0, 225.0),
+              (60.0, 250.0), (-60.0, 250.0), (-60.0, 225.0))
+    airport = _airport(law, _Dem1pct())
+    pm, _st = build(airport, Classification(tuple(_cells(narrow)), (), {}, ()), law)
+    assert [(p.ref, p.refused) for p in pplat.PLATFORMS] == [("padU", "under_min_area")]
+    assert not any(is_collar_ref(f.ref) for f in pm.faces.values())
+    (ref, own, weld), = platform.refused_plates(pm, law)
+    air = _vs(pm, _faces(pm, "apronA"))
+    assert ref == "padU" and not (set(own) & air) and set(weld) <= air
+    assert platform.platform_plane_rows(pm, law, airport)
+    assert platform.platform_level_rows(pm, law, airport)
+    pad_v = _vs(pm, _faces(pm, "padU"))
+    assert not [r for r in pad_flats(pm, law, airport) if {r.a, r.b} <= pad_v]
+    cs, _c, _w = generate(pm, law, airport)
+    z = np.asarray(solve_design(pm, cs, law)[0].z, float)
+    X = np.array([pm.vertices[v].xy for v in own])
+    c0 = X.mean(axis=0)
+    A = np.c_[X - c0, np.ones(len(X))]
+    co, *_ = np.linalg.lstsq(A, z[own], rcond=None)
+    assert float(np.max(np.abs(A @ co - z[own]))) <= 0.01      # one plane
+    assert 0.5 <= 100.0 * math.hypot(co[0], co[1]) <= 100.0 * float(
+        law.tables.emit.within_shape.pad_slope_max) + 0.02
+    W = np.array([pm.vertices[v].xy for v in weld])
+    rel = (np.c_[W - c0, np.ones(len(W))] @ co) - z[weld]
+    assert float(np.max(np.abs(rel))) <= 0.25

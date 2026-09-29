@@ -344,6 +344,17 @@ def test_full_ortho_byte_identical_to_base(tmp_path, monkeypatch):
         monkeypatch.setattr(
             module, "extract_elevation_and_bathymetry_data",
             lambda lat, lon: (b"", b""))
+        # Stub the DISPATCHER too, not only the donor reader: build_dsf
+        # calls ``elevation_and_bathymetry_data``, whose "auto" no-donor
+        # branch reaches the coastal bathymetry band -> local OSM extracts
+        # or a LIVE Overpass download (#83: >600 s on the Windows runner,
+        # where pytest-timeout killed the xdist worker and the loadgroup
+        # scheduler INTERNALERRORed; 45 s parsing the corpus on macOS).
+        # Same hermetic stub as the ``stub_elevation`` fixture.
+        if hasattr(module, "elevation_and_bathymetry_data"):
+            monkeypatch.setattr(
+                module, "elevation_and_bathymetry_data",
+                lambda tile: (b"", b""))
         tile = _make_tile(build_dir, "full_ortho")
         rc = module.build_dsf(tile, queue.Queue())
         assert rc == 1

@@ -51,6 +51,7 @@ except ImportError:
 
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
 
 # One flat resolution tier: mask pixels at zoomlevel 16 are ~2.4 m but a
@@ -554,13 +555,8 @@ def _band_lock_owner_is_alive(lock_path: str):
         return None
     if owner_host != socket.gethostname():
         return None
-    try:
-        os.kill(owner_pid, 0)
-    except ProcessLookupError:
-        return False
-    except OSError:
-        return None
-    return True
+    # Never os.kill(pid, 0): on Windows it is a Ctrl-C, not a probe (#83).
+    return PROC.pid_is_alive(owner_pid)
 
 
 def _band_lock_is_stale(lock_path: str) -> bool:

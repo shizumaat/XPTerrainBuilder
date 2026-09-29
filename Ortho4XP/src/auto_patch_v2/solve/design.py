@@ -1008,10 +1008,13 @@ def _yield_pins(planar: PlanarMap, cs: ConstraintSet, law: Law,
     reads, stage 2 only the others); ``keep_row`` filters the violated rows
     to the stage's own (stage 1 drops every row with a foreign vertex).
     Returns the stage's solution and report — the re-solve's when its hard
-    set is better (settled, or a smaller worst violation), else the
+    set is better (settled, a worst violation smaller by at least the
+    elevation materiality, or the released pins' own rows held — issue
+    #89), else the
     original's — the release records (empty when nothing was kept) and the
     constraint set the kept solution solved."""
-    from .pin_yield import hard_violated, implicated_pins, release_pins
+    from .pin_yield import (_violation_m, hard_violated, implicated_pins,
+                            own_rows, release_pins)
     d = design_law(law)
     yield_heads = frozenset(getattr(d, "yielding_pin_rulings", ()) or ())
     if not yield_heads:
@@ -1026,16 +1029,32 @@ def _yield_pins(planar: PlanarMap, cs: ConstraintSet, law: Law,
     pinned = {p.v: float(p.z) for p in cs.pins if p.v in set(verts)}
     cs_y = release_pins(cs, verts, yield_heads)
     sol_y, rep_y = solve(cs_y)
-    better = bool(sol_y.z) and (
-        (rep_y.hard_settled and not rep.hard_settled)
-        or rep_y.hard_max_violation_m < rep.hard_max_violation_m)
+    # THE KEEP TEST (issue #89; spec-author decision 2026-09-29): a release
+    # is KEPT when the hard set settles, when the worst hard violation
+    # drops by at least the elevation MATERIALITY (a global change under it
+    # is solver noise on a row the release may never have reached — HECA:
+    # worst 3.9474 m unchanged to 4 dp decided 7-11 joins), or when the
+    # released pins' OWN rows (the violated rows whose flood reaches them,
+    # ``pin_yield.own_rows``) all fall within ``hard_tol_m``.
+    tol = float(d.hard_tol_m)
+    mat = float(law.tables.emit.materiality.elevation_m)
+    better = False
+    if sol_y.z:
+        if rep_y.hard_settled and not rep.hard_settled:
+            better = True
+        elif (rep.hard_max_violation_m - rep_y.hard_max_violation_m) >= mat:
+            better = True
+        else:
+            own = own_rows(cs, heads, bad, verts, stop)
+            if own:
+                zy = np.asarray(sol_y.z, dtype=float)
+                better = all(_violation_m(r, zy) <= tol for r in own)
     if not better:
         return sol, rep, [], cs
     # ONLY WHERE FORCED: a released pin the re-solve left within
     # ``hard_tol_m`` of its own value was reached by the flood but not
     # forced by it — it is PINNED AGAIN, and the narrower release is kept
     # when the hard set is no worse for it (GEML: 6 reached, 2 forced)
-    tol = float(d.hard_tol_m)
     loose = [v for v in verts if abs(float(sol_y.z[v]) - pinned[v]) > tol]
     if loose and len(loose) < len(verts):
         cs_n = release_pins(cs, loose, yield_heads)

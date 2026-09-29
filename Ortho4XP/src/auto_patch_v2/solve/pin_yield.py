@@ -16,7 +16,10 @@ hard rows reach — a flood over the hard rows (and rigid flats) through FREE
 columns, stopped at every constant, within :data:`HOPS` hops — are
 released: each becomes a design TARGET at its own value (the patch stays as
 near the ribbon as the hard law lets it), stage 2 is solved again, and the
-release is kept only if the hard set is better for it.  Every released pin
+release is kept only if the hard set is better for it — settled, a worst
+row lower by at least the elevation materiality, or the released pins' OWN
+rows (:func:`own_rows`) held (issue #89: a sub-materiality change of a far
+worst row is solver noise and keeps nothing).  Every released pin
 is REPORTED (``DesignReport.pin_yield``: the ribbon's level, the patch's,
 the excess), and the pipeline publishes the level the ribbon must take
 (``emit/road_join.with_pin_yield`` → sidecar ``road_join_yield`` → the
@@ -53,7 +56,7 @@ from .design_report import row_metre_scale
 from .design_roles import ruling_head
 
 __all__ = ["HOPS", "row_vertices", "hard_violated", "implicated_pins",
-           "release_pins", "stage1_read_pins"]
+           "own_rows", "release_pins", "stage1_read_pins"]
 
 #: The flood's reach, in hard-row hops from an unsettled row — the same
 #: horizon the infeasibility certificate floods (``design_report
@@ -162,6 +165,53 @@ def implicated_pins(cs: ConstraintSet, hard_heads: _t.AbstractSet[str],
             break
         frontier = nxt
     return sorted(out)
+
+
+def own_rows(cs: ConstraintSet, hard_heads: _t.AbstractSet[str],
+             violated: _t.Sequence[Row], pins: _t.Iterable[int],
+             fixed: _t.Mapping[int, float] | _t.AbstractSet[int],
+             hops: int = HOPS) -> list[Row]:
+    """The released pins' OWN rows (issue #89): the rows of ``violated``
+    whose flood (:func:`implicated_pins`) reaches one of ``pins`` — the
+    same flood run BACKWARD from the pins over the hard rows and rigid
+    flats, expanding only through free columns (a ``fixed`` vertex and
+    every other pin stop it), within ``hops`` hops.  These are the rows a
+    release answers; the keep test judges the release on them, not on a
+    global worst row the release never reached."""
+    pv = set(pins)
+    if not pv or not violated:
+        return []
+    by_v: dict[int, list[int]] = collections.defaultdict(list)
+    for i, r in enumerate(violated):
+        for v in row_vertices(r):
+            by_v[v].append(i)
+    stop = set(fixed) | {p.v for p in cs.pins if p.v not in pv}
+    touch: dict[int, list[Row]] = collections.defaultdict(list)
+    for r in (*cs.diffs, *cs.bands, *cs.offsets, *cs.linears):
+        if ruling_head(r) in hard_heads:
+            for v in row_vertices(r):
+                touch[v].append(r)
+    for f in cs.flats:
+        for v in f.group:
+            touch[v].append(f)
+    hit: set[int] = set()
+    seen = set(pv)
+    frontier = sorted(pv)
+    for _hop in range(hops + 1):
+        nxt: list[int] = []
+        for v in frontier:
+            hit.update(by_v.get(v, ()))
+            if v in stop:
+                continue
+            for r in touch.get(v, ()):
+                for w in row_vertices(r):
+                    if w not in seen:
+                        seen.add(w)
+                        nxt.append(w)
+        if not nxt:
+            break
+        frontier = nxt
+    return [violated[i] for i in sorted(hit)]
 
 
 def release_pins(cs: ConstraintSet, verts: _t.Iterable[int],

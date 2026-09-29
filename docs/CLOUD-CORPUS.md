@@ -48,25 +48,29 @@ repository is not enabled for this session" even with a valid PAT, and
    Claude starts, skipped when a cached environment exists):
 
    ```sh
-   set -ex
-   # the image ships PPAs (deadsnakes, ondrej/php) the egress proxy answers
-   # 403 to; apt-get update exits 100 on them (measured 2026-09-29) — drop them
+   set -e
+   # PPAs (deadsnakes, ondrej/php) answer 403 through the proxy: drop them
    rm -f /etc/apt/sources.list.d/*deadsnakes* /etc/apt/sources.list.d/*ondrej*
-   apt-get update -qq
-   # libgdal-dev drags in postgresql-16, whose postinst runs invoke-rc.d and
-   # fails in a container (measured 2026-09-29, apt exit 1): make service
-   # starts a no-op and skip Recommends
+   # service starts are a no-op in the container (postgresql-16 postinst)
    printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod +x /usr/sbin/policy-rc.d
-   # build-essential + python3-dev: the GDAL Python wheel is built from source
-   # against the distro libgdal (no binary wheel matches 3.8.4)
-   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends libgdal-dev gdal-bin libspatialindex-dev build-essential python3-dev
+   # apt output is thousands of lines and hides the failing step behind the
+   # runner's 2 KB tail: log it, print the tail only on failure
+   { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+       libgdal-dev gdal-bin libspatialindex-dev build-essential python3.12 python3.12-venv python3.12-dev; } \
+     > /tmp/xptb-apt.log 2>&1 || { echo "APT FAILED:"; tail -40 /tmp/xptb-apt.log; exit 1; }
+   echo "apt ok: gdal $(gdal-config --version)"
+   # the image's default python3 is a PPA 3.11 whose -dev headers are now
+   # unreachable; the venv uses Ubuntu's 3.12 (headers from python3.12-dev)
    cd "$(git rev-parse --show-toplevel)/Ortho4XP"
-   python3 -m venv venv
+   /usr/bin/python3.12 -m venv venv
    venv/bin/python -m pip install -q --upgrade pip setuptools wheel
    grep -v '^gdal' requirements.txt > /tmp/req.txt
    venv/bin/python -m pip install -q -r /tmp/req.txt
-   CPLUS_INCLUDE_PATH=/usr/include/gdal C_INCLUDE_PATH=/usr/include/gdal venv/bin/python -m pip install -q --no-build-isolation "gdal==$(gdal-config --version)"
-   venv/bin/python -c 'from osgeo import gdal; print("gdal", gdal.__version__)'
+   echo "requirements ok"
+   CPLUS_INCLUDE_PATH=/usr/include/gdal C_INCLUDE_PATH=/usr/include/gdal \
+     venv/bin/python -m pip install -q --no-build-isolation "gdal==$(gdal-config --version)" \
+     > /tmp/xptb-gdal.log 2>&1 || { echo "GDAL WHEEL FAILED:"; tail -40 /tmp/xptb-gdal.log; exit 1; }
+   venv/bin/python -c 'from osgeo import gdal; print("gdal python", gdal.__version__)'
    ```
 
    The Linux pin in `requirements.txt` (`gdal==3.9.0`) is for the AppImage

@@ -544,6 +544,28 @@ def _role_bodies_faced(pm: PlanarMap, roles: _t.AbstractSet[str],
     return out
 
 
+class OrphanShapeError(ValueError):
+    """A shape id labels vertices but owns no face (RULINGS 2026-09-29j)."""
+
+    def __init__(self, orphans: dict[int, int]):
+        self.orphans = dict(orphans)
+        super().__init__(
+            "orphan_shape: shape(s) owning no face would float outside every "
+            "body datum (RULINGS 2026-09-29j, issue #81): "
+            + ", ".join(f"shape {s} ({n} vertices)" for s, n in sorted(orphans.items())))
+
+
+def orphan_shapes(pm: PlanarMap) -> dict[int, int]:
+    """``{shape id: vertex count}`` for every shape that labels a vertex and
+    owns no face (``shape_of_face``) — empty on a lawful map."""
+    owned = set(pm.shape_of_face.values())
+    out: dict[int, int] = {}
+    for sh in pm.shape_of_vertex.values():
+        if sh != NO_SHAPE and sh not in owned:
+            out[sh] = out.get(sh, 0) + 1
+    return out
+
+
 def _shape_bodies(pm: PlanarMap, red: "_Reduction",
                   bodies: list[tuple[list[int], list[int]]]) -> list[list[int]]:
     """The PER-BODY DATUM's vertex sets (owner RULINGS 2026-09-09v): a
@@ -572,6 +594,15 @@ def _shape_bodies(pm: PlanarMap, red: "_Reduction",
     round 2's 275 (law-true 2,073 against 1,180).  The bodies therefore
     stay as the datum has always taken them and only the MEMBERSHIP is
     enforced — which at CYXY is byte-identical to the round-2 patch."""
+    # AN ORPHAN SHAPE IS REFUSED (owner RULINGS 2026-09-29j, issue #81): a
+    # shape that owns no face has no body, so the membership rule below
+    # would drop its vertices from EVERY datum and they would float on
+    # bending alone (KCLT dsf:pol54, 21 vertices 4.5 m under the DEM).  The
+    # derivation (``planar/shapes.build_shapes``) never mints one; a map
+    # that carries one is a defect upstream, named here, never absorbed.
+    orphans = orphan_shapes(pm)
+    if orphans:
+        raise OrphanShapeError(orphans)
     out: list[list[int]] = []
     for vs, fs in bodies:
         labs: dict[int, int] = {}

@@ -115,6 +115,7 @@ class ShapeStats:
     bodies: int = 0                 # bodies after the opening (components with one body count one)
     shapes: int = 0                 # distinct shape ids after the strip welds
     vertices_labelled: int = 0
+    orphans_relabelled: int = 0     # 29j: vertices of a face-less label given their ringing face's shape
     road_vertices_labelled: int = 0
     road_vertices_relabelled: int = 0   # 08r-2: a body's vertex on an along road taking the road's shape
     road_vertices_unlabelled: int = 0   # 08r-2: a crossing road's contact vertices freed
@@ -885,6 +886,29 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
             area[top] = area.get(top, 0.0) + (poly.area if poly is not None else 0.0)
             nfaces[top] = nfaces.get(top, 0) + 1
             roles_of.setdefault(top, set()).add(f.role)
+    # NO FACE-LESS SHAPE (owner RULINGS 2026-09-29j, issue #81): a face takes
+    # its vertices' MAJORITY label, so a contour joint cut inside one face
+    # can leave a label that is the majority of NO face — a shape with no
+    # body, whose vertices every per-body datum then drops (KCLT dsf:pol54,
+    # 21 vertices floating 4.5 m under the DEM).  Such a vertex keeps the
+    # shape of the face that rings it (the ringing face with the most of
+    # that label's vertices; lowest face id on a tie).
+    owned = set(of_face.values())
+    orphan = {l for l in set(label.values()) if l not in owned}
+    if orphan:
+        ring_of: dict[int, list[int]] = {}
+        for fid in of_face:
+            for v in _face_vertices(pm, fid):
+                if label.get(v) in orphan:
+                    ring_of.setdefault(v, []).append(fid)
+        hits: dict[tuple[int, int], int] = {}
+        for v, fids in ring_of.items():
+            for fid in fids:
+                hits[(label[v], fid)] = hits.get((label[v], fid), 0) + 1
+        for v, fids in ring_of.items():
+            fid = min(fids, key=lambda f: (-hits[(label[v], f)], f))
+            label[v] = of_face[fid]
+        stats.orphans_relabelled = len(ring_of)
     order = sorted(set(label.values()), key=lambda l: (-area.get(l, 0.0), l))
     dense = {l: k for k, l in enumerate(order)}
     label = {v: dense[l] for v, l in label.items()}

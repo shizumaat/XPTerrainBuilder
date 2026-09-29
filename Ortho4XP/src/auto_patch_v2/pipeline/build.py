@@ -1364,6 +1364,15 @@ def road_exit_lines(airport) -> list[str]:
         to_ll = airport.frame.transformers()[1]
     except Exception:                                   # pragma: no cover
         to_ll = None
+    from ..planar.zones import ROAD_EXIT_CANDIDATES
+    for (xy, step, e, minted, zb) in ROAD_EXIT_CANDIDATES:
+        ll = ""
+        if to_ll is not None:
+            la, lo = to_ll(*xy)
+            ll = f" at {la:.6f}, {lo:.6f}"
+        lines.append(f"  [planar] road_exit candidate{ll}: step {step:+.2f} m, "
+                     f"(band est {zb:.2f}) drape excess e {e:+.2f} m -> "
+                     f"{'MINTED' if minted else 'no corridor'}")
     for rx in ROAD_EXITS:
         ll = ""
         if to_ll is not None:

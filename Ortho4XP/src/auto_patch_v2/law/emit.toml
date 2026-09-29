@@ -911,6 +911,7 @@ hard_tol_m      = 0.02    # a hard row is HELD at this residual: under the censu
 # to the ground they were meant to shape (the owner's undulation read).
 one_way_rulings = [
   "zones.adjacent_ground",                                  # the zone-1 lip / zone-2 corridor bands
+  "zones.adjacent_ground between-levels bank",              # owner RULINGS 2026-09-29x (Q-97 (b)): the ONE bank from a between-levels road's far kerb to the higher pavement - the strip vertex follows, the road and the pavement foot lead
   "zones.adjacent_ground.runway.band_max_down strip tie",   # the strip tie (06b law 2 / 06p / 06q)
   "structures.building_pad flat airside-led",               # §16g (10) (11) (a) / RULINGS 2026-09-15z: the pad's own FLATNESS row over a pair with ONE end on airside - the AIRSIDE vertex leads and never moves for a pad.  ATTRIBUTED at HECA's worst airside mover (+3.61 m, roles apron+building): `--why-at` named this plate, two-sided at cap 0 with dual 3.61, as the ONE row binding it; a shared vertex is one unknown (09-01g) and the plate outweighs the apron's own target there
   "structures.building_pad frontage_level",                 # 09-10l: the pad FOLLOWS the pavement edge it fronts and never pulls it (the apron must not tier down into the terminal)

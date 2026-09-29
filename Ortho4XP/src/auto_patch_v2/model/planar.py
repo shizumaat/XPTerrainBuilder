@@ -327,6 +327,18 @@ class PlanarMap:
     #: stages by ``constraints/road_ramp.reach_seed_rewrite``).
     road_reach_seed: _t.Mapping[int, tuple[int, int, float, float]] = \
         _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-09-29x (Q-97 (b), issue #97): A GROUNDSIDE ROAD
+    #: BETWEEN TWO AIRSIDE PAVEMENTS AT DIFFERENT LEVELS takes the LOWER
+    #: pavement's level and ONE bank rises from its far kerb to the higher
+    #: one.  Published pre-solve from geometry alone by
+    #: ``airport/road_ramp.between_levels``; the levels are stage 1's, so it
+    #: is applied between §20b's stages
+    #: (``constraints/road_ramp.between_levels_rewrite``).  ``{"road": {r:
+    #: (footA, footB)}, "strip": {s: (r, foot, w, d)}}`` with a foot
+    #: ``(a, b, u, ref)`` on a pavement ring edge, ``w`` the strip vertex's
+    #: run to the road vertex and ``d`` its run to its own foot.
+    road_between_levels: _t.Mapping[str, _t.Mapping] = \
+        _dc.field(default_factory=dict)
     #: §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be;
     #: ``emit/road_join.py``): road vertex -> the CORE ribbon's altitude at
     #: the first station outside the patch coverage, as an EQUALITY — the

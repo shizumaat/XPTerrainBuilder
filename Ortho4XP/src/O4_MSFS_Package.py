@@ -277,15 +277,18 @@ def find_bgl_files(package_directory: Path) -> List[Path]:
     """Return every ``.bgl`` file under *package_directory* (recursive).
 
     The match is case-insensitive on the extension; the result is sorted
-    for deterministic ordering.
+    for deterministic ordering — by the package-relative '/' spelling, a
+    case-SENSITIVE key on every OS (sorting WindowsPath objects compares
+    case-insensitively, so Windows ordered the same package differently, #92).
     """
     package_directory = Path(package_directory)
     if not package_directory.is_dir():
         return []
     return sorted(
-        path
-        for path in package_directory.rglob("*")
-        if path.is_file() and path.suffix.lower() == ".bgl"
+        (path
+         for path in package_directory.rglob("*")
+         if path.is_file() and path.suffix.lower() == ".bgl"),
+        key=lambda path: path.relative_to(package_directory).as_posix(),
     )
 
 

@@ -333,3 +333,99 @@ def test_an_outer_ring_vertex_past_the_half_width_keeps_its_band(synthetic, law)
     assert found, "an outer-ring vertex 0.2 m past the half-width was left bandless"
     assert found[0][0] == pytest.approx(half)
     assert zones._face_class_of(ctx.edges[found[0][1]])[0] == "runway"
+
+
+# ---------------------------------------------------------------------------
+# #100 / RULINGS 2026-09-29u (i) + owner 29y: EVERY band vertex carries a row
+# ---------------------------------------------------------------------------
+
+def test_every_runway_zone_vertex_past_the_end_carries_a_band_row(synthetic, law):
+    """29u (i): a runway zone vertex beyond the runway's end (no abeam
+    edge, no taxi corridor) carries the END ROW — the zone band from the
+    nearest point of the pavement end — never nothing (NLWF 25 end: v333
+    12.3 m on its DEM beside a 4.0 m band vertex, the road -1 drape)."""
+    airport, pm = synthetic
+    ctx = zones._context(pm, law, airport)
+    rows = zones.zone_bands(pm, law, airport)
+    bound = {r.terms[0][0] for r in rows if isinstance(r, Linear)}
+    end_rows = {r.terms[0][0]: r for r in rows
+                if isinstance(r, Linear) and r.source.ruling == zones.END_RULING}
+    runway_edges = [k for k, e in enumerate(ctx.edges) if e[2] == "runway"]
+    past = [v for v, cls in ctx.member.items()
+            if any(c[0] == "runway" for c in cls) and v not in ctx.own_law
+            and v not in ctx.wall_vertices and v not in ctx.pad_rim
+            and not any(ctx.abeam(v, k) for k in runway_edges)
+            and not ctx.found(v, cls)]
+    assert past, "the fixture must carry runway zone vertices past an end"
+    missing = [v for v in past if v not in bound]
+    assert not missing, f"band vertices past the end with no row: {missing[:5]}"
+    for v in past:
+        r = end_rows[v]
+        assert r.hi is not None and r.hi < 0.0, "the end row keeps the mandatory-down"
+        assert r.follows in (v, (v,)), "one-way: the pavement end leads"
+
+
+# ---------------------------------------------------------------------------
+# #100 / RULINGS 2026-09-29u (ii) + owner 29y: the road exit corridor
+# ---------------------------------------------------------------------------
+
+class _HillDem:
+    """700 m over the runway and its band, a 5 m HIGHER shelf north of the
+    band edge (y = 80) — the NLWF back-of-terminal class."""
+
+    provenance = {"synthetic": "700 to y=75, +5 m over 5 m, 705 from the band edge"}
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0 + 5.0 * min(1.0, max(0.0, (y - 75.0) / 5.0))
+
+
+class _Band:
+    def __init__(self, poly):
+        self.polygon, self.family = poly, "runway"
+        self.code_number, self.code_letter = 3, None
+
+
+def _exit_fixture(law, road):
+    from shapely.geometry import box
+    from auto_patch_v2.planar.zones import road_exit_corridors
+    band = _Band(box(-600.0, -80.0, 600.0, 80.0))
+    cells = (Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3,
+                  "D", "airside", "runway", {}),)
+    return band, road_exit_corridors([band], cells, law, _HillDem(), (road,))
+
+
+def test_a_corridor_alongside_its_band_stands_off_except_at_the_mouth(law):
+    """29u (ii): the road leaves the band north at x = 0 and turns east
+    ALONGSIDE the band edge 3 m out.  The corridor is ONE ribbon and
+    stands off the band by the 0.6 m cutback everywhere but the mouth."""
+    from shapely.geometry import LineString, Point
+    from auto_patch_v2.planar.terrain_edge import road_half_width_m
+    road = LineString([(0.0, 40.0), (0.0, 83.0), (8.0, 83.0), (300.0, 83.0)])
+    band, exits = _exit_fixture(law, road)
+    assert len(exits) == 1, "one corridor per road piece"
+    rx = exits[0]
+    assert rx.polygon.geom_type == "Polygon", "ONE continuous ribbon"
+    half = road_half_width_m(law)
+    cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+    beyond_mouth = rx.polygon.difference(Point(rx.exit_xy).buffer(half + 1e-6))
+    assert beyond_mouth.distance(band.polygon) >= cut - 1e-3, \
+        "the corridor is welded to the band past its mouth"
+    assert rx.polygon.distance(band.polygon) < 1e-3, "it welds AT the mouth"
+
+
+def test_a_road_exiting_onto_a_five_metre_shelf_gets_the_cap_length(law):
+    """29r/29y: the corridor is long enough for the road cap to climb the
+    5 m step (``step / cap``) — the ramp's length follows from the cap,
+    and the ground outside the corridor is not minted."""
+    from shapely.geometry import LineString
+    from auto_patch_v2.law.tables import role_cap
+    cap = float(role_cap(law, "service_road").longitudinal)
+    road = LineString([(0.0, 40.0), (0.0, 300.0)])
+    _band, exits = _exit_fixture(law, road)
+    assert len(exits) == 1
+    rx = exits[0]
+    assert rx.step_m >= 5.0 - 1e-6
+    assert rx.length_m >= rx.step_m / cap - 1e-6, \
+        "the corridor stops before the cap meets the DEM"
+    ymax = rx.polygon.bounds[3]
+    assert ymax <= 80.0 + 1.25 * (rx.step_m / cap) + 20.0, "no ground past the ramp is minted"

@@ -270,42 +270,61 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
     # and the ruling's second bound is about CURVATURE, which no zone
     # declares away.
     assert _fam(report, "airside_no_step")["n"] == 15
+    # PAVEMENT_OVER_ROAD_CAP = 10 (the universal pavement cap, owner RULINGS
+    # 2026-09-29ac; census copy per RULINGS 2026-09-30l).  Allowance is the
+    # ROAD cap 8 % x d + 0.03, over CONSECUTIVE ring pairs (no diagonals)
+    # and over welded neighbours of two different pavement rings within
+    # 1.0 m:
+    #    G1 / A4 / A6 / A7: the two 20 m edges into the 2.0 m corner read
+    #       10 % > 1.63 m allowance                        -> 2 each = 8
+    #    A1 (1.2 < 1.63), A5 (0.5), A2 / A3 / B1 / B2 ring edges (flat) -> 0
+    #    A2|A3 facing corners, 0.6 m apart, 2.0 m step (apron|apron,
+    #       judged as if welded: 2.0 > 0.078)                   -> 2
+    #    B1|B2 facing corners: the ``building_to_building`` exemption
+    #       carries (30l (2): a pad|pad terrace is a step)       -> 0
+    #    A1|G1 stacked corners at 0.000 m: a weld the emitter owns, not a
+    #       grade (30l (1); ``stacked_nodes`` prices it)          -> 0
+    # 8 + 2 = 10; airside 8 (A4, A6, A7, A2|A3), groundside 2 (G1).
+    assert _fam(report, "pavement_over_road_cap")["n"] == 10
     assert [f["family"] for f in report["families"] if f["n"]] == [
-        "within_shape", "airside_no_step", "stacked_nodes",
+        "within_shape", "pavement_over_road_cap", "airside_no_step",
+        "stacked_nodes",
         "vertex_to_edge_step", "mid_edge_step"]
 
 
 def test_the_law_true_total_and_the_within_cross_steps_split(report):
-    """14 + 15 + 2 within-bucket rows = 31 (the middle term is the
-    AIRSIDE NO-STEP rate family, RULINGS 2026-08-27, derived station by
-    station above); no cross-bucket row (the two abutting shapes share no
+    """14 + 10 + 15 + 2 within-bucket rows = 41 (the second term is the
+    universal pavement cap, RULINGS 2026-09-29ac / 30l, and the third the
+    AIRSIDE NO-STEP rate family, RULINGS 2026-08-27, both derived pair by
+    pair above); no cross-bucket row (the two abutting shapes share no
     vertex inside the 0.5 m proximity window that the law does not already
     exempt as a wall-separated pair); 28 raw step rows of which 14 hold a
-    registered exemption, so 14 are counted.  TOTAL = 31 + 0 + 14 = 45."""
+    registered exemption, so 14 are counted.  TOTAL = 41 + 0 + 14 = 55."""
     lt = report["lawtrue"]
-    assert lt["within"] == 31
+    assert lt["within"] == 41
     assert lt["cross"] == 0
     assert lt["steps_raw"] == 28
     assert lt["steps"] == 14
-    assert lt["total"] == 45
+    assert lt["total"] == 55
 
 
 def test_the_side_split_and_the_airside_is_king_accounting(report):
-    """AIRSIDE 41 = 12 within-shape apron rows (A1 3, A4 3, A6 3, A7 3)
+    """AIRSIDE 49 = 12 within-shape apron rows (A1 3, A4 3, A6 3, A7 3)
+    + 8 pavement-over-road-cap apron rows (A4/A6/A7 2 each, A2|A3 2)
     + 15 airside no-step RATE rows (A1/A4/A5/A6/A7, 3 each)
     + 4 vertex-to-edge + 10 mid-edge apron steps.
-    GROUNDSIDE 2 = G1's 2 within-shape rows (its drainage-minimum row
-    left with the retired landside half of §B3).
+    GROUNDSIDE 4 = G1's 2 within-shape rows (its drainage-minimum row
+    left with the retired landside half of §B3) + G1's 2 road-cap rows.
     MIXED 2 = the two stacked-node rows, apron against groundside.
 
     ``airside_for_acceptance`` APPLIES the owner ruling the old report
-    line only stated: a mixed row counts against airside, so 41 + 2 = 43.
+    line only stated: a mixed row counts against airside, so 49 + 2 = 51.
     """
     lt = report["lawtrue"]
     assert (lt["airside"], lt["groundside"], lt["mixed"], lt["unknown"]) == (
-        41, 2, 2, 0)
+        49, 4, 2, 0)
     assert lt["airside"] + lt["groundside"] + lt["mixed"] == lt["total"]
-    assert lt["airside_for_acceptance"] == 43
+    assert lt["airside_for_acceptance"] == 51
 
 
 def test_the_registered_step_exemption_is_named_and_counted(report):
@@ -334,7 +353,7 @@ def test_the_adjudication_defers_exactly_the_registered_family(report, cg):
     version-deferred family is ``drainage_minimum``, still REGISTERED and
     still reported under its own heading — but it now carries no row on
     this fixture (its landside half retired 2026-08-14, and its apron half
-    is an ICAO no-op).  So ADJUDICATED = 45 - 0 = 45 and the verdict is
+    is an ICAO no-op).  So ADJUDICATED = 55 - 0 = 55 and the verdict is
     FAIL (a PASS requires zero adjudicated rows).
 
     The deferral heading is printed with n=0 rather than dropped: a
@@ -344,11 +363,11 @@ def test_the_adjudication_defers_exactly_the_registered_family(report, cg):
     assert adj["ruling"] == cg.DEFERRED_ADJUDICATION_RULING
     assert adj["deferred_total"] == 0
     assert adj["deferred_families"]["drainage_minimum"]["n"] == 0
-    assert adj["adjudicated_total"] == 45
+    assert adj["adjudicated_total"] == 55
     assert adj["adjudicated_by_side"] == {
-        "airside": 41, "groundside": 2, "mixed": 2, "unknown": 0}
+        "airside": 49, "groundside": 4, "mixed": 2, "unknown": 0}
     assert adj["pass"] is False
-    assert report["adjudicated_airside_for_acceptance"] == 43
+    assert report["adjudicated_airside_for_acceptance"] == 51
     # the deferred rows are REPORTED, never dropped
     assert (adj["adjudicated_total"] + adj["deferred_total"]
             == report["lawtrue"]["total"])
@@ -384,14 +403,17 @@ def test_the_bare_minus_law_true_difference_is_the_two_frame_effects(
            them at the apron's 1 % (0.5 m > 0.23 / 0.313).
       +14  the building-to-building step rows the exemption removes.
 
-    bare 62 - law-true 45 = +17.  (A4 keeps its relief in both frames: the
+    The universal pavement cap reads the same 10 rows in both frames (its
+    road cap and both exclusions are sidecar-free).
+
+    bare 72 - law-true 55 = +17.  (A4 keeps its relief in both frames: the
     ramp cap comes from the WAY's own ``o4_grade_law`` tag, which is on the
     patch, not in the sidecar.)
     """
-    assert report["bare"]["within"] == 34     # 31 + A5's 3
+    assert report["bare"]["within"] == 44     # 41 + A5's 3
     assert report["bare"]["cross"] == 0
     assert report["bare"]["steps"] == 28      # raw, no exemption
-    assert report["bare"]["total"] == 62
+    assert report["bare"]["total"] == 72
     assert report["bare"]["total"] - report["lawtrue"]["total"] == 17
 
 
@@ -435,7 +457,7 @@ def test_a_stamped_patch_carries_the_build_frame_into_the_report(
     assert prov["built"] == "2026-08-06T12:00:00"
     assert prov["icao"] == "TEST"
     # ...and the counts are untouched by the stamp
-    assert rep["lawtrue"]["total"] == 45
+    assert rep["lawtrue"]["total"] == 55
 
 
 def test_the_reported_knobs_are_the_knobs_the_law_true_run_binds(
@@ -1155,3 +1177,52 @@ def test_the_laws_the_clarification_KEPT_are_still_census_families(cg):
     # cited intersection exception is registered with it.
     assert callable(getattr(cg, "_check_runway_crown", None))
     assert cg._CROWN_OUT_OF_SCOPE in cg.OUT_OF_SCOPE_CLASSES
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE UNIVERSAL PAVEMENT CAP'S POPULATION (RULINGS 2026-09-29ac / 30l)
+# ══════════════════════════════════════════════════════════════════════
+
+def _pavcap_rows(cg, tmp_path, build) -> list:
+    b = _PatchBuilder(cg)
+    build(b)
+    osm = b.write(tmp_path / "pavcap.patch.osm",
+                  {"anchor": list(ANCHOR), "ruleset": "icao"})
+    fam: dict = {}
+    cg.run_checks_law_true(osm, family_out=fam, quiet=True, top_n=0)
+    return [(r.way_a.tags.get("shapeID"), r.way_b.tags.get("shapeID"),
+             round(r.distance_m, 3), round(r.de_m, 2))
+            for r in fam["pavement_over_road_cap"]]
+
+
+def test_pavcap_a_ring_edge_over_the_road_cap_is_a_row(cg, tmp_path):
+    """2.0 m over a 20 m ring edge = 10 % > 8 % x 20 + 0.03: the two edges
+    into the raised corner are rows; the diagonal is not a ring pair."""
+    rows = _pavcap_rows(cg, tmp_path, lambda b: b.square(
+        0, 0, 20, [0.0, 0.0, 2.0, 0.0], {"role": "apron", "shapeID": "P"}))
+    assert sorted(rows) == [("P", "P", 20.0, 2.0), ("P", "P", 20.0, 2.0)]
+
+
+def test_pavcap_a_zero_distance_pair_is_a_weld_not_a_row(cg, tmp_path):
+    """RULINGS 2026-09-30l (1): two stacked vertices of two aprons (1.2 m
+    apart in z, 0 m in plan) mint nothing here, as in the engine copy
+    ``constraints/pavement_cap._mint``; ``stacked_nodes`` prices them."""
+    def build(b):
+        b.square_flat(0, 0, 20, 0.0, {"role": "apron", "shapeID": "L"})
+        b.square_flat(20, 0, 20, 1.2, {"role": "apron", "shapeID": "R"})
+    assert _pavcap_rows(cg, tmp_path, build) == []
+
+
+def test_pavcap_a_building_pair_terrace_is_a_step_not_a_row(cg, tmp_path):
+    """RULINGS 2026-09-30l (2): two flat pads 0.6 m apart with a 2.0 m
+    terrace hold ``building_to_building``, so no row; the SAME geometry as
+    two aprons is two rows (judged as if welded), so the exemption — not
+    the geometry — is what removes them."""
+    def pads(role):
+        def build(b):
+            b.square_flat(0, 0, 20, 10.0, {"role": role, "shapeID": "W"})
+            b.square_flat(20.6, 0, 20, 12.0, {"role": role, "shapeID": "E"})
+        return build
+    assert _pavcap_rows(cg, tmp_path, pads("building")) == []
+    assert sorted(_pavcap_rows(cg, tmp_path, pads("apron"))) == [
+        ("W", "E", 0.6, 2.0), ("W", "E", 0.6, 2.0)]

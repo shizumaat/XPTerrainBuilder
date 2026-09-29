@@ -276,6 +276,9 @@ def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
     # (apron_within_shape.chords_outside_face, RULINGS 2026-09-05ae(1))
     assert {k.split(".", 1)[0] for k in counts} == {n for n, _f in GENERATORS} | {"seam_pin_pair_exempt", "water_pin_row_withdrawn",
                                        "structure_datum_withdrawn", "pavement_ceiling",
+                                       # RULINGS 2026-09-29ac (#105): the
+                                       # road-cap fallback post-pass
+                                       "pavement_road_cap",
                                        # §38 (1) (owner RULINGS 2026-09-13ah): the seam
                                        # is a ``Pin``, so it yields to a SENIOR pin
                                        # (a CIFP threshold) by a counted withdrawal

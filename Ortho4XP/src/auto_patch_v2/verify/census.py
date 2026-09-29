@@ -110,6 +110,11 @@ NOT_IMPLEMENTED: tuple[str, ...] = (
     # verify has no reader for it and the oracle is the only instrument
     # (with the mesh pre-flight, which reads the assembled ``.poly``).
     "hairline_pair",
+    # RULINGS 2026-09-29ac (#105): the universal pavement cap is HELD by the
+    # engine's hard row family (``constraints/pavement_cap.py``) and REPORTED
+    # by the census over the emitted rings; v2 verify has no reader of its
+    # own (a second reader would be a second population of one law).
+    "pavement_over_road_cap",
 )
 
 

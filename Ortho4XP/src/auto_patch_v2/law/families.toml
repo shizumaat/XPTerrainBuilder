@@ -347,6 +347,24 @@ solver    = "construction"
 # the ribbon is the whole defect whatever its elevation.
 cockpit   = "keepout"
 
+# THE UNIVERSAL PAVEMENT CAP (owner RULINGS 2026-09-29ac, issue #105): the
+# ROAD grade cap is the FALLBACK ceiling of every pavement class.  Every
+# pavement ring edge and every pair of welded neighbours (two different
+# pavement rings within 1 m, a shared node carrying two levels included)
+# steeper than the road cap is a row, whichever family priced the pair or
+# none.  Lower class caps stay with their own families.  The engine holds
+# it HARD (`constraints/pavement_cap.py`, `[design] hard_rulings`); the
+# census REPORTS it (a slope excess).  Platform collars (1:3 banks, 28a)
+# and structure ramps (their own ruled caps) are not pavement.
+[pavement_over_road_cap]
+measures  = "pavement vertex pair (ring edge or welded neighbours <= 1 m) steeper than the road cap"
+parameter = "common.road_max_grade"
+roles     = ["runway", "runway_crossing", "primary_parallel", "secondary_parallel", "stub", "cross_connector", "junction", "apron", "building", "service_road", "service_junction", "groundside_pavement", "parking_lot"]
+pairs     = "within"
+ruling    = "2026-09-29ac"
+solver    = "edge"
+cockpit   = "grade"
+
 # §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY (owner
 # RULINGS 2026-09-15e items 1/3/4/6 and 2026-09-15g; Fable 2026-09-15j).
 # Sidecar-declared: `object_cuts` carries, per signature-B corridor, the

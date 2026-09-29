@@ -791,6 +791,7 @@ hard_rulings = [
   "rulesets.runway.longitudinal",                        # the runway's max grade along the profile
   "rulesets.runway.end_zone",                            # the same, at its ceiling in the end zones
   "rulesets.common.pavement_max_grade ceiling",          # 09-09b (4): the 5 % pavement ceiling / 8 % free road
+  "rulesets.common.road_max_grade pavement fallback",    # 09-29ac (#105): the ROAD cap is the fallback ceiling of EVERY pavement pair — ring edges and welded neighbours <= 1 m no family caps lower (constraints/pavement_cap.py)
   "structures.building_pad pad_slope_max ceiling",       # 09-09c: a building pad is ONE PLANE tilting at most 1 %
   "structures.building_pad platform plane",               # unit-platform spec §1 (1) (RULINGS 2026-09-28a (1)): a PLATFORM is ONE plane over all its pieces (constraints/platform.py) — measured: as a target alone the collar's bank rows bent HECA T3's platform 8.3 m
   "road_cross_section",                                  # §37 (8) (owner 2026-09-13, RULINGS 13bb): the 2 % cross-section is LAW on every road-family face, groundside included — "a hillside road keeps its crossfall on a BENCH, not by tilting".  It was a target at 300 and it LOST: KCLT verify 781 violated pairs on the control, 462 with the ramp.  Compatible with the ramp ceiling by construction since §37 (8): the ramp target is one value per (route, station) and cap-Lipschitz along the route, so it can never tilt a section

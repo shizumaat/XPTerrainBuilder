@@ -17,7 +17,8 @@ from ..model.planar import PlanarMap
 from . import (apron, ceiling, cluster_pad, eat, flat_site, foot_rows,
                groundside, hard_plane,
                junction_mesh,
-               no_step, pad_frontage_gs, pad_fronting, pads, platform,
+               no_step, pad_frontage_gs, pad_fronting, pads, pavement_cap,
+               platform,
                proximity, road_ramp, roads, routes, runway_chord, runway_profile, seams, strips,
                channel,
                structures,
@@ -189,6 +190,17 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
         walls[ceiling.GEN] = time.perf_counter() - t0
         counts[ceiling.GEN] = len(caps)
         rows.extend(caps)
+    # THE UNIVERSAL PAVEMENT CAP (owner RULINGS 2026-09-29ac, #105): the
+    # road cap is the HARD fallback over every pavement pair no row above
+    # already caps at or under it — ring edges and welded neighbours alike
+    # (``constraints/pavement_cap.py``), after the ceiling so its twins
+    # count as "already capped".
+    if only is None or pavement_cap.GEN in only:
+        t0 = time.perf_counter()
+        fb = pavement_cap.pavement_road_cap(rows, planar, law)
+        walls[pavement_cap.GEN] = time.perf_counter() - t0
+        counts[pavement_cap.GEN] = len(fb)
+        rows.extend(fb)
     return stack(rows), counts, walls
 
 

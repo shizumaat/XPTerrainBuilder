@@ -7164,6 +7164,112 @@ def _check_ramp_in_road(ways, nodes, ll_to_m) -> List[Violation]:
     return out
 
 
+# ── THE UNIVERSAL PAVEMENT CAP (owner RULINGS 2026-09-29ac, issue #105) ──
+#: The ROAD grade cap — "the steepest cap in the law" — and the PAVEMENT
+#: roles it is the fallback ceiling of.  Read from the v2 LAW (one
+#: accessor, ``law.tables.pavement_fallback_cap`` / ``pavement_roles``) so
+#: the census and the engine's hard row family cannot drift; the literals
+#: are the no-engine fallback for the bare-patch CLI only.
+try:                                                    # pragma: no cover
+    from auto_patch_v2.law import tables as _V2_PAVCAP_T
+    _V2_PAVCAP_LAW = _V2_PAVCAP_T.load_default()
+    PAVEMENT_ROAD_CAP = float(_V2_PAVCAP_T.pavement_fallback_cap(_V2_PAVCAP_LAW))
+    _PAVCAP_ROLES = frozenset(_V2_PAVCAP_T.pavement_roles(_V2_PAVCAP_LAW))
+except Exception:                                       # pragma: no cover
+    PAVEMENT_ROAD_CAP = 0.08
+    _PAVCAP_ROLES = frozenset({
+        "runway", "runway_crossing", "primary_parallel", "secondary_parallel",
+        "stub", "cross_connector", "junction", "apron", "building",
+        "service_road", "service_junction", "groundside_pavement",
+        "parking_lot"})
+#: "welded neighbours": two DIFFERENT pavement rings' vertices this close in
+#: plan are one join — a step or cliff between them is a pavement pair the
+#: road cap prices whether or not any family's row does (29ac: "a cliff
+#: judged as if welded", an exit mouth, a corridor read as ground).
+PAVCAP_WELD_M = 1.0
+
+
+def _check_pavement_over_road_cap(ways, nodes, ll_to_m) -> List[Violation]:
+    """RULINGS 2026-09-29ac: NO PAVEMENT OF ANY CLASS IS STEEPER THAN THE
+    ROAD CAP.  Every pavement vertex pair — consecutive vertices of one
+    pavement ring, and vertices of two different pavement rings within
+    ``PAVCAP_WELD_M`` of each other (a shared node carrying two emitted
+    levels included) — whose ``|dz|`` exceeds ``road_cap x run`` plus the
+    pair's quantization envelope (``_pair_quant_noise_m``, the within-shape
+    allowance) is one row.  Class caps LOWER than the road cap are the
+    class families' business; this family prices only the fallback, so a
+    row here is a pavement pair steeper than anything a vehicle is built to
+    drive — whichever law priced it, or none.  REPORT (``cockpit =
+    "grade"``); the engine holds it HARD (``constraints/pavement_cap.py``).
+    Structure ramps are not pavement (their own ruled caps, ``_RAMP_ROLES``)
+    and neither is a platform COLLAR (a 1:3 bank by ruling 28a (1))."""
+    cap = PAVEMENT_ROAD_CAP
+    pts: List[Tuple[float, float, float, str, "Way"]] = []
+    out: List[Violation] = []
+    seen: set = set()
+
+    def _row(wa, na, za, pa, wb, nb, zb, pb, d):
+        noise = max(_pair_quant_noise_m(wa), _pair_quant_noise_m(wb))
+        de = abs(za - zb)
+        if de <= cap * d + noise:
+            return
+        key = (min((na, za), (nb, zb)), max((na, za), (nb, zb)))
+        if key in seen:
+            return
+        seen.add(key)
+        dd = max(d, 0.01)
+        g = 100.0 * de / dd
+        v = Violation(grade_pct=g, excess_pct=g - 100.0 * cap, distance_m=d,
+                      de_m=de, way_a=wa, way_b=wb, pt_a=pa, pt_b=pb,
+                      elev_a=za, elev_b=zb, cap_pct=100.0 * cap)
+        la, lo = nodes[na]
+        lb, lob = nodes[nb]
+        v.lat, v.lon = (la + lb) / 2.0, (lo + lob) / 2.0
+        out.append(v)
+
+    for w in ways:
+        # the platform COLLAR wears its pad's role but IS a 1:3 bank
+        # (unit-platform spec §1 (3), RULINGS 2026-09-28a (1)) — ground
+        if law_role(w) not in _PAVCAP_ROLES or _is_platform_collar(w):
+            continue
+        ring = []
+        for nid, z in zip(w.nids, w.elevs):
+            if nid not in nodes or z is None:
+                ring.append(None)
+                continue
+            p = ll_to_m(*nodes[nid])
+            ring.append((nid, float(z), p))
+        for a, b in zip(ring, ring[1:]):
+            if a is None or b is None or a[0] == b[0]:
+                continue
+            d = math.hypot(a[2][0] - b[2][0], a[2][1] - b[2][1])
+            _row(w, a[0], a[1], a[2], w, b[0], b[1], b[2], d)
+        own: set = set()
+        for r in ring:
+            if r is not None and r[0] not in own:
+                own.add(r[0])
+                pts.append((r[2][0], r[2][1], r[1], r[0], w))
+    # the welded neighbours: a coarse grid at the weld radius
+    cell = PAVCAP_WELD_M
+    grid: Dict[Tuple[int, int], list] = {}
+    for i, (x, y, _z, _n, _w) in enumerate(pts):
+        grid.setdefault((int(math.floor(x / cell)), int(math.floor(y / cell))), []).append(i)
+    for i, (x, y, z, n, w) in enumerate(pts):
+        cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        for gx in (cx - 1, cx, cx + 1):
+            for gy in (cy - 1, cy, cy + 1):
+                for j in grid.get((gx, gy), ()):
+                    if j <= i:
+                        continue
+                    x2, y2, z2, n2, w2 = pts[j]
+                    if w2 is w:
+                        continue
+                    d = math.hypot(x - x2, y - y2)
+                    if d > PAVCAP_WELD_M:
+                        continue
+                    _row(w, n, z, (x, y), w2, n2, z2, (x2, y2), d)
+    return out
+
 # ── §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY ────────────
 #: The worst distance an emitted ring vertex may stand OUTSIDE its
 #: object's wall line (spec §33 (6): "`object_cut_offset`: the worst
@@ -9640,6 +9746,11 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     # vertex INSIDE a road ribbon is a cut lane — CRITICAL, presence.
     ("ramp_in_road",
      "RAMP vertex INSIDE a road ribbon (the road margin is general)",
+     "within"),
+    # THE UNIVERSAL PAVEMENT CAP (owner RULINGS 2026-09-29ac, #105): the
+    # road cap is the fallback ceiling of every pavement class — REPORT.
+    ("pavement_over_road_cap",
+     "PAVEMENT pair steeper than the ROAD cap (the universal fallback)",
      "within"),
     # §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY (owner
     # RULINGS 2026-09-15e/15g; spec §33 (6)).  Sidecar-declared like
@@ -12412,6 +12523,16 @@ def run_checks(
         "edge — centreline + half width — and the ribbon is never cut)",
         ramp_road, top_n)
     within = within + ramp_road
+
+    # RULINGS 2026-09-29ac (#105): no pavement pair of any class steeper
+    # than the road cap — the fallback every unpriced pair answers to
+    pav_cap = _fam("pavement_over_road_cap",
+                   _check_pavement_over_road_cap(ways, nodes, ll_to_m))
+    _pv("PAVEMENT pair steeper than the ROAD cap (owner RULINGS "
+        "2026-09-29ac: the road grade cap is the fallback ceiling of every "
+        "pavement class; ring edges + welded neighbours <= 1 m)",
+        pav_cap, top_n)
+    within = within + pav_cap
 
     # §33 (6): the cut is the pack object's — plan and depth alike
     obj_off = _fam("object_cut_offset",

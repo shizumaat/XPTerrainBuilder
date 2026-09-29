@@ -356,7 +356,11 @@ def refused_plates(planar: PlanarMap, law: Law
                    for q in planar.vertices[v].incident_faces):
                 continue
             own.append(v)
-        if len(weld) >= 3 and len(own) >= 4:
+        # a plane needs three well-spread OWN points (``_basis``); a plate
+        # whose own vertices are collinear (its rim all weld but one edge)
+        # carries no contact-led plane and keeps today's plate
+        xy = {v: planar.vertices[v].xy for v in own}
+        if len(weld) >= 3 and len(own) >= 4 and _basis(xy, own) is not None:
             out.append((ref, own, weld))
     return out
 
@@ -377,8 +381,9 @@ def contact_led_refs(planar: PlanarMap, law: Law) -> frozenset[str]:
     tilt is free and the solve parks it anywhere under the 1 % ceiling
     (MEASURED on the HECA replay: ``building5`` / ``building123`` /
     ``building283`` came out at exactly 1.000 %)."""
+    xy = {v: vx.xy for v, vx in planar.vertices.items()}
     return frozenset(r for r, vs, w in plane_sets(planar, law)
-                     if w and len(vs) >= 4)
+                     if w and len(vs) >= 4 and _basis(xy, vs) is not None)
 
 
 def platform_level_rows(planar: PlanarMap, law: Law,

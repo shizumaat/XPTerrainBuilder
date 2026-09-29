@@ -220,7 +220,14 @@ def test_the_pad_is_one_plate_every_rim_pair_priced_contacts_included(law):
     sh = pad_shared(pm, law)
     shared = set().union(*(sh.get(f.id, set()) for f in unit))
     assert shared
-    flats = pad_flats(pm, law, airport)
+    # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): on a contact-led platform
+    # the cap-0 target is RELEASED and the plate that prices every pair is
+    # the hard 1 % CEILING (same pairs, ``pads._pad_rows``); the level is
+    # the per-contact rows (asserted at (3))
+    from auto_patch_v2.constraints.pads import pad_slope_ceiling
+    assert not [r for r in pad_flats(pm, law, airport)
+                if any(f"face:{pf.id}" in r.source.inputs for pf in plats)]
+    flats = pad_slope_ceiling(pm, law, airport)
     # (1) the plate: every pair of the platform's rim, one row each
     for pf in plats:
         rim = _verts(pm, "padA") if len(plats) == 1 else set(pm.ring_vertices(pf.ring))
@@ -237,6 +244,11 @@ def test_the_pad_is_one_plate_every_rim_pair_priced_contacts_included(law):
     plat_vs = set().union(*(set(pm.ring_vertices(f.ring)) for f in plats))
     assert shared <= {r.a for r in bank}, sorted(shared - {r.a for r in bank})
     assert all(r.b in plat_vs for r in bank if r.a in shared)
+    # (3) 29s (A): every contact leads one level row against the plane there
+    from auto_patch_v2.constraints.platform import platform_level_rows
+    led = {v for r in platform_level_rows(pm, law, airport)
+           for v, _c in r.terms if v in shared}
+    assert shared <= led, sorted(shared - led)
 
 
 def test_every_pad_vertex_lies_on_the_pads_single_plane(law):
@@ -577,12 +589,27 @@ def test_16g_10_11_a_the_plate_is_one_way_toward_the_pad_at_an_airside_pair(law)
     assert contacts                                  # the unit is welded
     # (i) the platform holds no airside vertex: its plate is two-sided
     assert not (plat & air)
-    flats = [r for r in pad_flats(pm, law, airport)
+    # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): the platform's cap-0
+    # zero-tilt target is RELEASED (its plane is contact-led); the plate is
+    # its hard 1 % ceiling, two-sided, over the same pairs, none airside-led
+    assert not [r for r in pad_flats(pm, law, airport)
+                if f"face:{plats[0].id}" in r.source.inputs]
+    from auto_patch_v2.constraints.pads import pad_slope_ceiling
+    flats = [r for r in pad_slope_ceiling(pm, law, airport)
              if f"face:{plats[0].id}" in r.source.inputs]
     assert flats and all(r.follows is None for r in flats)
     assert not any(r.source.ruling.startswith("structures.building_pad flat "
                                               "airside-led") for r in flats)
-    assert {r.cap for r in flats} == {0.0}
+    assert {r.cap for r in flats} == {
+        float(law.tables.emit.within_shape.pad_slope_max)}
+    # ... and the contact-led level rows: every one led by an airside
+    # contact, the platform following
+    from auto_patch_v2.constraints.platform import platform_level_rows
+    lv = platform_level_rows(pm, law, airport)
+    assert lv
+    for r in lv:
+        feet = {v for v, _c in r.terms}
+        assert len(feet & contacts) == 1 and set(r.follows) <= plat
     # (ii) every contact -> platform coupling row is airside-led (measured
     # 2026-09-29: 17 bank rows over 5 of the 7 contacts; after #95, 21 rows,
     # 3 per contact, over all 7 — ``test_every_welded_contact_has_a_bank_row``)

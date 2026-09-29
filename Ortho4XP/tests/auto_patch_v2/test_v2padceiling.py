@@ -154,9 +154,14 @@ def test_on_a_platform_neither_the_ceiling_nor_the_flat_target_carries_relief(
                         lambda _p, _l, _a: off)
     ceil = pad_slope_ceiling(pm, law, airport)
     flat = pad_flats(pm, law, airport)
-    assert ceil and flat
+    assert ceil
     assert {round(float(r.rel), 9) for r in ceil} == {0.0}
-    assert {round(float(r.rel), 9) for r in flat} == {0.0}
+    # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): a WELDED platform's cap-0
+    # target is released (its plane is contact-led) — the plate over it
+    # prices no pair at all, so certainly no relief
+    plat_vs = set(vs)
+    assert not [r for r in flat if {r.a, r.b} <= plat_vs]
+    assert {round(float(r.rel), 9) for r in flat} <= {0.0}
 
 
 def test_the_ceilings_ruling_head_still_names_the_hard_register(law):
@@ -177,8 +182,11 @@ def test_a_flat_footed_body_is_the_identity_for_both(law, monkeypatch):
     pm, airport = _pm(law, _cells())
     monkeypatch.setattr("auto_patch_v2.constraints.pads.pad_relief_offsets",
                         lambda _p, _l, _a: {})
-    for rows in (pad_slope_ceiling(pm, law, airport), pad_flats(pm, law, airport)):
-        assert rows and {round(float(r.rel), 9) for r in rows} == {0.0}
+    ceil = pad_slope_ceiling(pm, law, airport)
+    assert ceil and {round(float(r.rel), 9) for r in ceil} == {0.0}
+    # the cap-0 target: released on this fixture's welded platform (29s (A));
+    # every row it does mint is the identity
+    assert {round(float(r.rel), 9) for r in pad_flats(pm, law, airport)} <= {0.0}
 
 
 # ── (2) PAVEMENT SENIORITY IS BY VERTEX ─────────────────────────────────

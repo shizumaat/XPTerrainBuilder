@@ -399,10 +399,17 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
     # a wall vertex carries the crest (the DEM, 2026-09-03b L1) and no
     # chord from the runway end binds it — the zones stop at the wall
     walls = {v for f in vw.faces_of_role(("retaining_wall",)) for v in vw.rings[f.id]}
+    # THE BAND EDGE A ROAD LEAVES STAYS BAND (RULINGS 2026-09-29r / 29u (i)):
+    # a strip vertex shared only with a ROAD EXIT corridor is the band's
+    # seam, not pavement — it keeps the end row (measured NLWF 25 end: the
+    # corridor's seam v331/v332 dropped every end row and floated at 8.2 m
+    # over a 4.8 m runway end, the road -1 NE-corner drape of 14.1 %)
+    from ..airport.road_ramp import road_exit_vertices
+    _exit_v, exit_seam = road_exit_vertices(vw.pm)
     rows: list[Row] = []
     for fid, ids, xy in _strip_rings(vw):
         for k, v in enumerate(ids):
-            if v in vw.pavement_vertices or v in walls:
+            if (v in vw.pavement_vertices and v not in exit_seam) or v in walls:
                 continue
             x, y = xy[k]
             # THE NEAREST POINT of the nearest end edge (§35 (1)): ``t``

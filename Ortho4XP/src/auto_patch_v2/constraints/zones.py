@@ -81,6 +81,7 @@ from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import View, view
 from .roads import road_family_roles
+from .geometry import point_in_rect_ring
 from .strips import runway_groups
 
 __all__ = ["zone_bands", "strip_transverse"]
@@ -456,6 +457,53 @@ def _in_wedges(vw, ids: set[int], rings, law: Law) -> set[int]:
     return {v for v in ids if wedges.covers(Point(vw.xy[v]))}
 
 
+END_RULING = ("zones.adjacent_ground end row from the pavement end "
+              "(RULINGS 2026-09-29u (i) / 29y)")
+
+
+def _end_row(ctx: "_Context", v: int, classes: set, end_rects: list,
+             law: Law) -> Row | None:
+    """RULINGS 2026-09-29u (i) (owner 29y): EVERY adjacent-ground band
+    vertex carries a band row.  An abeam vertex carries the transverse
+    band (:func:`zone_bands`); a vertex inside a runway END corridor the
+    end skirt's foot row (``strips._end_foot_rows``); a vertex of a RUNWAY
+    zone face past the runway's end AND outside its end corridor (the
+    corner quadrant) was left with NO row and draped to the DEM beside
+    banded neighbours — measured NLWF 25 end, v333 12.3 m on its DEM
+    between a 4.0 m abeam band vertex and the runway end at 4.8 m, the
+    road -1 NE-corner drape (14.1 %).  It takes the END ROW: the zone
+    band of its own class from the NEAREST POINT of the runway's pavement
+    ring (the end corner — ``t`` clamped, the true plan distance), ``d``
+    clamped to the class's zone-2 half-width (the mitred buffer's corner;
+    membership is the map's, never dropped).  One-way, like every band
+    row: the pavement end leads."""
+    rw = [c for c in classes if c[0] == "runway"]
+    if not rw:
+        return None
+    grid = ctx.by_family.get("runway")
+    if not grid:
+        return None
+    near = _nearest_edge(ctx.vw, v, ctx.edges, grid, ctx.cell, lambda e: 1e9,
+                         ctx.reach * 2.0,
+                         lambda k: _face_class_of(ctx.edges[k]) in rw)
+    if near is None:
+        return None
+    k, t, d = near
+    a, b, _fam, cn, cl = ctx.edges[k]
+    half = ctx.half_of(ctx.edges[k]) or 0.0
+    lo, hi = zone_bounds(law, "runway", min(d, half), cn, cl)
+    if lo is None and hi is None:
+        return None
+    if t <= 0.0:
+        terms: tuple[tuple[int, float], ...] = ((v, 1.0), (a, -1.0))
+    elif t >= 1.0:
+        terms = ((v, 1.0), (b, -1.0))
+    else:
+        terms = ((v, 1.0), (a, -(1.0 - t)), (b, -t))
+    return Linear(terms, lo, hi, Source(GEN, END_RULING, (f"vertex:{v}",)),
+                  follows=v)
+
+
 def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """The corridor rows per graded-strip vertex.
 
@@ -480,6 +528,9 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     quay = ctx.quay
     wall_vertices, pad_rim, _found = ctx.wall_vertices, ctx.pad_rim, ctx.found
     rows: list[Row] = []
+    # 29u (i): the end corridors, whose vertices the end skirt's foot rows
+    # bind (``strips._end_foot_rows``) — the end row here covers the rest
+    end_rects = [g.rings[i] for g in runway_groups(vw, airport) for i in (1, 2)]
     pad_nearest: dict[int, int] = {}      # rigid face id -> its nearest rim vertex
     pad_d: dict[int, float] = {}
     for v, fid in pad_rim.items():
@@ -497,6 +548,10 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         src = Source(GEN, "zones.adjacent_ground (2026-08-01)", (f"vertex:{v}",))
         found = _found(v, classes)
         if not found:
+            end = (None if v in pad_rim and pad_nearest.get(pad_rim[v]) != v
+                   else _end_row(ctx, v, classes, end_rects, law))
+            if end is not None:
+                rows.append(end)
             continue
         # THE POCKET FLOOR STAYS BESIDE A RUNWAY (RULINGS 2026-09-06q (2)
         # second clause, measured and NOT applied — lane v2ridge2): voiding

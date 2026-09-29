@@ -351,6 +351,7 @@ def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
     ag = law.tables.zones.adjacent_ground
     cap = float(role_cap(law, "service_road").longitudinal)
     half = road_half_width_m(law)
+    cutback = float(ag.groundside_cutback_m)
     grid = float(law.tables.emit.design.edge_grid_m)
     snap = snap_margin_m(law)
     # THE GATE IS THE BAND-EXIT STEP A PILOT SEES (``cockpit.visual_m``),
@@ -411,8 +412,20 @@ def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
             # difference hands back the band's own boundary as the seam
             # (a flat cap across the band edge left a 0.5 m sliver and an
             # unwelded 3.8 m step at NLWF)
-            poly = unary_union([st.buffer(half, cap_style="square", **_MITRE)
-                                for st in stretches]).difference(blocked)
+            ribbon = unary_union([st.buffer(half, cap_style="square", **_MITRE)
+                                  for st in stretches]).difference(blocked)
+            # 29u (ii) THE STAND-OFF: the corridor stands off every band
+            # it does NOT exit by the 0.6 m cutback and WELDS only at the
+            # MOUTH of the band it exits — a corridor running ALONGSIDE the
+            # band it leaves shared the band's edge vertices over its whole
+            # length and the band-follower rows pinned it to the band
+            # (measured NLWF road -3 west exit: 4.3 m on a 6.1–7.6 m DEM,
+            # 24.8 % where it met the DEM).  The mouth is the ribbon's
+            # cross-section at the exit (a disc of the ribbon half-width).
+            mouths = unary_union([Point(p0).buffer(half) for p0, _s, _r in steps])
+            standoff = bands.buffer(cutback, **_MITRE).difference(mouths)
+            poly = ribbon.difference(standoff)
+            poly = _one_ribbon(poly, ribbon, mouths, stretches, half)
             parts = [g for g in shapely.get_parts(poly)
                      if g.geom_type == "Polygon" and g.area >= 1.0
                      and any(g.distance(Point(p0)) <= half for p0, _s, _r in steps)]
@@ -434,6 +447,21 @@ def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
         kept.append(_dc.replace(r, polygon=g))
         taken = unary_union([taken, g])
     return kept
+
+
+def _one_ribbon(poly, ribbon, mouths, stretches, half: float):
+    """29u (ii) ONE CONTINUOUS RIBBON: the stand-off may sever the corridor,
+    or notch it past its centreline, where the road passes a band
+    mid-course (NLWF road -3 behind the terminal: an earlier arm's
+    stand-off left pieces with a DEM gap between them, 62 %; this arm's
+    first cut notched the course at s 2124, 55 %).  The pieces are re-joined along the road's own
+    CENTRELINE — the ribbon narrowed to a thin core there, never the
+    band's edge — so the corridor is one face from its mouth to its end;
+    only a core that the stand-off still cuts (the road itself inside the
+    cutback of a band) welds there, the least contact the ribbon allows."""
+    core = unary_union([st.buffer(0.25 * half, cap_style="flat") for st in stretches])
+    joined = unary_union([poly, core.intersection(ribbon)])
+    return joined
 
 
 def _band_level(paved, zones: list, p0, dem, law: Law, grid: float) -> float:

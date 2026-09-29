@@ -624,7 +624,7 @@ def _compute_elevations(layout: "PavementLayout", icao: str,
     runway_profile_state: dict = {}
     if cifp_path is not None and dem is not None:
         try:
-            from . import driver as _AP
+            from .pavement import runway_segments as _RSEG
             from . import cifp_reader as _CIFP
             from .pavement import runway_geometry as _RWY
             cifp_runways = _CIFP.parse_cifp_file(cifp_path)
@@ -694,7 +694,7 @@ def _compute_elevations(layout: "PavementLayout", icao: str,
                         join_stations.setdefault((cifp_a, cifp_b), pts)
                         join_stations.setdefault((cifp_b, cifp_a), pts)
                 _xml, runway_segment_chain, runway_profile_state = (
-                    _AP.generate_patch_osm(
+                    _RSEG.generate_patch_osm(
                         icao, pairs, runway_widths=runway_widths,
                         tile=tile, apt_runways=apt_runway_geom,
                         pav_intersections=pav_intersections,

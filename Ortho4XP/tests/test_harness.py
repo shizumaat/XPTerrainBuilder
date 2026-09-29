@@ -10657,6 +10657,91 @@ def test_ramp_in_road_is_registered_and_keeps_out(cg):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# issue #97 M1 THE GROUNDSIDE CUT-BACK STRIP — ``groundside_cutback``
+# (REPORT-ONLY until Q-97 on #58 rules what the strip should carry)
+# ══════════════════════════════════════════════════════════════════════
+# A 6 x 40 m ``service_road`` and an adjacent-ground zone band cut back
+# 0.95 m from it (0.6 m + the snap margin, the HECA route19 strip).  The
+# family must prove itself both ways: a flat strip reads nothing, a strip
+# carrying HECA's +0.81 m step reads one row per paired road vertex.
+
+
+def _cutback_patch(tmp_path, *, name, zone_dz_m, gap_m=0.95):
+    mlat = 111_320.0
+    mlon = 111_320.0 * math.cos(math.radians(_RIR_LAT))
+
+    def at(dx_m, dy_m):
+        return (_RIR_LAT + dy_m / mlat, _RIR_LON + dx_m / mlon)
+    r = [at(0.0, 0.0), at(40.0, 0.0), at(40.0, 6.0), at(0.0, 6.0)]
+    z = [at(0.0, 6.0 + gap_m), at(40.0, 6.0 + gap_m),
+         at(40.0, 30.0), at(0.0, 30.0)]
+    nodes, ways = [], []
+    nid = -1
+    for ring, alt, tags in (
+            (r, 80.0, {"role": "service_road", "shapeID": "R1"}),
+            (z, 80.0 + zone_dz_m,
+             {"role": "graded_strip", "aeroway": "apron", "shapeID": "Z1",
+              "ref": "adjacent_ground:taxi:E:zone2#1"})):
+        ids = []
+        for lat, lon in ring:
+            nodes.append((nid, lat, lon, alt))
+            ids.append(nid)
+            nid -= 1
+        ways.append((nid, ids + [ids[0]], tags))
+        nid -= 1
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='groundside-cutback-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [_RIR_LAT, _RIR_LON], "ruleset": "icao"}))
+    return osm
+
+
+def test_a_flat_cutback_strip_prices_nothing(cg, tmp_path):
+    fo = _families(cg, _cutback_patch(tmp_path, name="flat", zone_dz_m=0.0))
+    assert fo["groundside_cutback"] == []
+
+
+def test_a_stepped_cutback_strip_is_reported_per_road_vertex(cg, tmp_path):
+    """HECA route19 (scout road97): +0.81 m across the 0.95 m strip."""
+    fo = _families(cg, _cutback_patch(tmp_path, name="step", zone_dz_m=0.81))
+    rows = fo["groundside_cutback"]
+    assert len(rows) == 2, [(r.de_m, r.distance_m) for r in rows]
+    assert all(abs(r.de_m - 0.81) < 0.02 and abs(r.distance_m - 0.95) < 0.02
+               for r in rows), [(r.de_m, r.distance_m) for r in rows]
+    # REPORT-ONLY: named, never adjudicated
+    assert all(r.out_of_scope == cg.GROUNDSIDE_CUTBACK_OUT_OF_SCOPE
+               for r in rows)
+    assert cg.GROUNDSIDE_CUTBACK_OUT_OF_SCOPE in cg.OUT_OF_SCOPE_CLASSES
+
+
+def test_a_zone_beyond_the_stand_off_horizon_is_not_the_strip(cg, tmp_path):
+    h, _r = cg.groundside_cutback_frame()
+    fo = _families(cg, _cutback_patch(tmp_path, name="far", zone_dz_m=0.81,
+                                      gap_m=h + 0.5))
+    assert fo["groundside_cutback"] == []
+
+
+def test_groundside_cutback_is_registered_and_report_only(cg):
+    """Q-97 owns the strip's intent: the family is a DIAGNOSTIC (no solve
+    row) of cockpit class ``grade`` (REPORT), never a step the gate reads."""
+    from auto_patch_v2.law import tables as _T
+    assert "groundside_cutback" in {k for k, _t, _b in cg.LAW_FAMILIES}
+    fam = _T.load_default().tables.families["groundside_cutback"]
+    assert fam.solver == "diagnostic" and fam.cockpit == "grade"
+
+
+# ══════════════════════════════════════════════════════════════════════
 # §34 (5) (b) THE COVERED EXTENT OF AN UNDERPASS INCLUDES THE TAXIWAY'S
 # STRIP — the ``ramp_in_strip`` guard (Fable 2026-09-15; RULINGS
 # 2026-09-15h; owner 15e item 7; spec design-surface-spec §34 (5) (b))

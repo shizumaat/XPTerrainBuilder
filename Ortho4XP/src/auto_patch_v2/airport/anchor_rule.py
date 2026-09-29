@@ -807,10 +807,29 @@ def _all_on_rolled(cands: _t.Sequence[tuple[float, float, float, float]],
     return all(r in rolled_on for r in got)
 
 
+def _deck_own_zero(geom: BodyGeometry, surface: Surface) -> "float | None":
+    """RULINGS 2026-09-30g (3): the zero a DECK body's OWN FEET say it
+    has — the median over its ground-contact feet of ``surface(foot) -
+    y_foot`` (the §17 (2) foot reading).  ``None`` with no foot on the
+    surface (no reading is no evidence: the kerb stays merged)."""
+    zs: list[float] = []
+    for _la, _lo, _by, feet in geom.parts:
+        for f in feet or ():
+            z = surface(f[0], f[1])
+            if z is not None:
+                zs.append(float(z) - float(f[2]))
+    if not zs:
+        return None
+    zs.sort()
+    n = len(zs)
+    return zs[n // 2] if n % 2 else 0.5 * (zs[n // 2 - 1] + zs[n // 2])
+
+
 def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
                pads: _t.Sequence[PadRing] = (), rims: _t.Sequence[RimRing] = (),
                *, merged_into: str = "", tol_m: float = 0.0,
-               roles=None, rolled_on=None, datum: "Datum | None" = None) -> Anchor:
+               roles=None, rolled_on=None, datum: "Datum | None" = None,
+               deck_own_ground_m: float = 0.0) -> Anchor:
     """THE GENERIC RULE (module doc; 11e (2)) for one body.
 
     ``geom.parts`` are its ground-contact components
@@ -857,8 +876,19 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
                       surface(geom.origin_lat, geom.origin_lon))
     if body_class == DECK:
         z = surface(geom.origin_lat, geom.origin_lon)
-        return Anchor(DECK, geom.origin_lat, geom.origin_lon, 0.0,
-                      f"kerb (merged into {merged_into or 'the abutting building'})", z)
+        # RULINGS 2026-09-30g (3): THE KERB IS MERGED ONLY WHERE ITS OWN
+        # FEET AGREE.  A deck whose own ground-contact feet read a zero
+        # (median of ``surface(foot) - y_foot``) more than
+        # ``deck_own_ground_m`` (``[cockpit] visual_m``) from the abutting
+        # building's is NOT merged: it seats on its own ground by the
+        # generic rule below.  HECA's ``T23/T3_road`` took the unit
+        # origin's 108.53 over feet reading 93-98 and stood +12-14 m,
+        # carrying its riders (``small_sign``, ``palm``) with it.
+        own = _deck_own_zero(geom, surface) if deck_own_ground_m > 0.0 \
+            else None
+        if z is None or own is None or abs(own - float(z)) <= deck_own_ground_m:
+            return Anchor(DECK, geom.origin_lat, geom.origin_lon, 0.0,
+                          f"kerb (merged into {merged_into or 'the abutting building'})", z)
     if body_class == BASIN and rims:
         a = _basin_rim_anchor(geom, surface, rims)
         if a is not None:

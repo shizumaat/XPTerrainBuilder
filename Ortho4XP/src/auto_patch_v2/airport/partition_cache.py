@@ -120,6 +120,8 @@ _CODE_MODULES: tuple[str, ...] = (
     # unit-platform spec §2: the cached clusters read the connector verdict
     "auto_patch_v2.airport.footprint_connector",
     "auto_patch_v2.airport.footprint_unit",
+    # issue #104: the seat machinery split out of ``footprint_unit``
+    "auto_patch_v2.airport.footprint_seats",
     "auto_patch_v2.airport.sheet_chain",
     "auto_patch_v2.model.rebake",
 )

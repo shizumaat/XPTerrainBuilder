@@ -331,7 +331,7 @@ def refused_plates(planar: PlanarMap, law: Law
     plate's own vertices only — never an airside vertex (a hard plane
     through a weld is 10y's refuted identity) and never a vertex shared
     with another pad or a pavement face.  The min-area is unchanged."""
-    from ..planar.platform import PLATFORMS
+    from ..model.platform import PLATFORMS
     from .pads import airside_vertices, rigid_roles
     from .precedence import view
     refused = {p.ref for p in PLATFORMS if p.refused}

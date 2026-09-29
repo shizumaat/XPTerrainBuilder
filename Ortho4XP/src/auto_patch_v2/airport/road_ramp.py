@@ -853,13 +853,18 @@ def between_levels(pm: PlanarMap, law: Law,
         fs = sorted(feet(xy(r)).items(), key=lambda kv: (kv[1][0], kv[0]))
         if len(fs) < 2:
             continue
-        refA, A = fs[0]
-        B = next(((ref, f) for ref, f in fs[1:]
-                  if A[4][0] * f[4][0] + A[4][1] * f[4][1] < _OPPOSITE_COS),
-                 None)
-        if B is None:
+        # THE PAIR ON OPPOSITE SIDES with the least total run — never "the
+        # nearest and whatever faces it": at a road's mouth the nearest
+        # foot is the pavement it ENTERS (HECA route19 at ``pav130``),
+        # which stands along the road, not beside it
+        pair = min(((fs[i][1][0] + fs[j][1][0], fs[i][0], fs[j][0], i, j)
+                    for i in range(len(fs)) for j in range(i + 1, len(fs))
+                    if fs[i][1][4][0] * fs[j][1][4][0]
+                    + fs[i][1][4][1] * fs[j][1][4][1] < _OPPOSITE_COS),
+                   default=None)
+        if pair is None:
             continue
-        refB, Bf = B
+        (refA, A), (refB, Bf) = fs[pair[3]], fs[pair[4]]
         road[r] = ((A[1], A[2], A[3], refA, A[0]),
                    (Bf[1], Bf[2], Bf[3], refB, Bf[0]))
     out["road"] = {r: (fa[:4], fb[:4]) for r, (fa, fb) in road.items()}

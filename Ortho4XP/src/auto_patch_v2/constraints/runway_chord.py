@@ -16,7 +16,7 @@ The chord is a TARGET of the design surface at ``emit.toml [design] chord``
 (RULINGS 2026-09-08t; the old per-metre ladder weight ``[common]
 runway_chord_fit`` is deleted with the ladder), applied to the runway family's roles by
 ``pipeline.build.weights_under_law``.  A runway with fewer than two pins
-keeps the DEM as its target (never an invented value, plan §2).
+takes the ground's long-wave trend itself (below, issue #117).
 
 THE NEAREST-THRESHOLD CROSSING PIN (owner RULINGS 2026-09-09z (1), spec
 §17, superseding 09r (2)'s "the primary governs").  At a runway x runway
@@ -67,8 +67,23 @@ THE CHORD IS THE FALLBACK (spec §21.2 (2), plan §2 — never an invented
 value): where the production DEM frame is DEGRADED (``airport.dem.
 provenance['degraded']``, the ``--allow-degraded-dem`` arm) or a runway's
 ridge yields too few DEM samples to fit, the target is the straight
-threshold chord exactly as before; a runway with fewer than two pins keeps
-the DEM as its target, unchanged.
+threshold chord exactly as before.
+
+A RUNWAY WITH FEWER THAN TWO PINS TAKES THE TREND ITSELF (issue #117).  The
+promise above ("keeps the DEM as its target") went stale when 08t (1)
+deleted the per-vertex DEM pull from pavement: such a runway was given NO
+target at all — no chord, no DEM row (the pavement has none), no taxi trend
+(its contact vertices are excluded), no ground datum (the strip's is
+one-way) — so its level and tilt were a near-null mode of the stage-1
+objective, held by bending alone.  MEASURED at KCLT (lane ``rwy117``):
+18R/36L (no CIFP threshold elevation at either end) carried a column weight
+of 0.175 against the apron's 30, the stage-1 QP stopped 2.69 m off its own
+minimum there, and 146 non-binding pavement-cap rows elsewhere moved it
+0.85 m.  Such a runway now takes the §21 long-wave DEM trend along its own
+ridge, unshifted (:func:`_pinless_trends`): the DEM as its target in the
+only form §21.2 (5) admits.  It joins no crossing (it can govern none and
+the crossing pin reads only pinned chords), and a degraded frame or an
+unfittable ridge still gives it no target — never an invented value.
 
 WHAT THE TARGET IS NOT (spec §21.2 (5)): a per-vertex DEM pull (08t (1)).
 The window is longer than any DEM artefact the owner has read as
@@ -111,7 +126,9 @@ class ChordReport(_t.TypedDict, total=False):
     """What the profile fit covered."""
 
     runways: int              # runways with two pins (a target profile)
-    runways_without: int      # runways with fewer than two pins (DEM fit kept)
+    runways_without: int      # runways with fewer than two pins
+    #: of those, the runways given their own UNSHIFTED trend (issue #117)
+    runways_pinless_trend: int
     vertices: int             # runway-family vertices given a profile target
     max_above_dem_m: float    # the largest target − DEM (the fill the target asks)
     max_below_dem_m: float    # the largest DEM − target (the cut)
@@ -290,6 +307,45 @@ def _chords(pm: PlanarMap, law: Law, airport: Airport
             c = _dc.replace(c, trend=_trend(vw, chains, rw.id, c, pm, window))
         chords[rw.id] = c
     return chords, n_without
+
+
+def _pinless_trends(pm: PlanarMap, law: Law, airport: Airport,
+                    pinned: _t.Collection[str]) -> dict[str, _Chord]:
+    """Runway id -> the UNSHIFTED §21 trend target of every runway with a
+    ridge that ``pinned`` (the two-pin chords) does not carry (module
+    docstring, issue #117).  The chord frame spans the ridge's own DEM
+    stations and its two end values ARE the trend's there, so
+    :meth:`_Chord.z` reduces to the trend exactly (the linear correction
+    is zero).  Empty on a degraded frame (§21.2 (2)); a ridge the trend
+    cannot fit gives no entry."""
+    if dem_degraded(airport):
+        return {}
+    vw = view(pm, law)
+    chains = ridge_chains(vw)
+    window = float(law.tables.emit.design.runway_profile_window_m)
+    out: dict[str, _Chord] = {}
+    for rw in airport.runways:
+        chs = chains.get(rw.id)
+        L = rw.length_m
+        if rw.id in pinned or not chs or L <= 0.0:
+            continue
+        a_xy, b_xy = rw.ends[0].xy, rw.ends[1].xy
+        ux, uy = (b_xy[0] - a_xy[0]) / L, (b_xy[1] - a_xy[1]) / L
+        frame = _Chord(a_xy, ux, uy, 0.0, 1.0, 0.0, 0.0)
+        st = [frame.station(*vw.xy[v]) for ch in chs for v in ch
+              if pm.vertices[v].dem_z is not None]
+        if len(st) < 2 or max(st) <= min(st):
+            continue
+        t = _trend(vw, chains, rw.id, frame, pm, window)
+        if t is None:
+            continue
+        s0, s1 = min(st), max(st)
+        z0, z1 = t.at(s0), t.at(s1)
+        if z0 is None or z1 is None:
+            continue
+        out[rw.id] = _Chord(a_xy, ux, uy, s0, s1, float(z0), float(z1),
+                            trend=t)
+    return out
 
 
 def _axis_intersection(airport: Airport, a: str, b: str
@@ -525,12 +581,17 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
     # runway's is RE-FIT piecewise through the node.
     crossings = runway_crossings(pm, law, airport, straight)
     # §38 (2): the crossing nodes AND the tile-seam pins are control points
-    chords = _with_seam_knots(_with_knots(straight, crossings), pm, law)
+    fitted = _with_seam_knots(_with_knots(straight, crossings), pm, law)
+    # #117: a runway with fewer than two pins takes its own unshifted trend
+    # (seam knots apply; crossings read the pinned chords only)
+    chords = {**_with_seam_knots(_pinless_trends(pm, law, airport, straight),
+                                 pm, law), **fitted}
     if report is not None:
         kinds = [c.kind for c in chords.values()]
         report["window_m"] = round(float(
             law.tables.emit.design.runway_profile_window_m), 1)
         report["runways_trend"] = sum(1 for k in kinds if k == "trend")
+        report["runways_pinless_trend"] = len(chords) - len(fitted)
         report["runways_chord"] = sum(1 for k in kinds if k == "chord")
         report["target_kind"] = ("trend" if report["runways_trend"] and not
                                  report["runways_chord"] else
@@ -617,7 +678,7 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
         report.update(runways=len(chords), runways_without=n_without, vertices=len(out),
                       max_above_dem_m=round(above, 3), max_below_dem_m=round(below, 3),
                       crossing_pins=len(_crossing_pin_map(
-                          pm, law, airport, vw, chains, chords, crossings)))
+                          pm, law, airport, vw, chains, fitted, crossings)))
     return out
 
 

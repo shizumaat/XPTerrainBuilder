@@ -185,8 +185,50 @@ def test_a_two_pin_ridge_over_a_valley_sits_on_its_target_profile(valley, law):
     assert abs(sol0.z[mid] - pm.vertices[mid].dem_z) < 2.0, sol0.z[mid]
 
 
-def test_a_runway_without_two_pins_keeps_the_dem(law):
+class _ValleyDegraded(_Valley):
+    provenance = {"synthetic": "valley", "degraded": "fixture: refused frame"}
+
+
+def test_a_runway_without_two_pins_takes_its_own_trend(law):
+    """ISSUE #117 (lane ``rwy117``).  "Keeps the DEM as its target" went
+    stale with 08t (1): a runway with fewer than two CIFP pins was handed
+    NO target, and under the staged solve (the named §20b deviation pinned
+    in the twin above: +4.08 m over this valley) its level and tilt were a
+    near-null mode — KCLT 18R/36L and 18C/36C sat up to 2.78 / 6.67 m under
+    their ground and moved 0.85 m when 146 NON-BINDING pavement-cap rows
+    were added 2 km away.  Such a runway now takes the §21 trend itself,
+    unshifted: every runway vertex a target, the ridge's equal to the
+    trend's value (no pin correction), and the solved ridge ON it."""
     airport, pm, _st = _airport(law, [RUNWAY], [], _Valley(), thresholds=(700.0, None))
+    rep: dict = {}
+    targets = runway_chord_targets(pm, law, airport, rep)
+    assert rep["runways_without"] == 1 and rep["runways"] == 1
+    assert rep["runways_pinless_trend"] == 1
+    runway_v = {v for f in pm.faces.values() if f.role == "runway"
+                for v in pm.ring_vertices(f.ring)}
+    assert runway_v <= set(targets)
+    ridge = [v for v in targets if abs(pm.vertices[v].xy[1]) < 0.01]
+    mid = min(ridge, key=lambda v: abs(pm.vertices[v].xy[0]))
+    # the trend of the valley at its floor: below the rim, above the floor
+    # (a 500 m window smooths a 6 m, 800 m wide dip) — and NOT the rim value
+    # a one-pin correction would drag it to
+    assert 694.0 < targets[mid] < 698.0, targets[mid]
+    pm_c = with_runway_chord(pm, law, airport)
+    cs, _c, _w = generate(pm_c, law, airport)
+    sol = solve_design(pm_c, cs, law)[0]                 # the SHIPPED (staged) solve
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE)
+    m = _vid(pm, (0.0, 0.0))
+    assert abs(sol.z[m] - targets[m]) < 0.25, (sol.z[m], targets[m])
+    # the control the twin above pins: the same runway with no target at all
+    # stands +4.08 m over the floor; with its trend it stands on the ground
+    assert sol.z[m] - pm.vertices[m].dem_z < 3.0, sol.z[m]
+
+
+def test_a_pinless_runway_on_a_degraded_frame_has_no_target(law):
+    """§21.2 (2): a trend fitted to a refused DEM frame is an invented value
+    — the pinless runway keeps no target there, exactly as before #117."""
+    airport, pm, _st = _airport(law, [RUNWAY], [], _ValleyDegraded(),
+                                thresholds=(None, None))
     rep: dict = {}
     assert runway_chord_targets(pm, law, airport, rep) == {}
     assert rep["runways_without"] == 1 and rep["runways"] == 0

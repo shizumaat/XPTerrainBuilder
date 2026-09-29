@@ -254,16 +254,36 @@ def test_the_noisy_targets_curvature_is_the_trends_not_the_noises(law):
     assert d2_t < d2_d / 100.0, (d2_t, d2_d)
 
 
-# ── 3. FEWER THAN TWO PINS: THE DEM IS STILL THE TARGET ──────────────────
+# ── 3. FEWER THAN TWO PINS: THE DEM, AS ITS TREND, IS THE TARGET ─────────
 
-def test_a_runway_with_fewer_than_two_pins_is_untouched(law):
-    """§21.2 (2), plan §2: no pins, no target — the vertex keeps its DEM,
-    exactly as before §21.  Nothing is invented from the trend alone."""
+def test_a_runway_with_fewer_than_two_pins_takes_the_unshifted_trend(law):
+    """RE-FOUNDED (issue #117, lane ``rwy117``).  This twin held "no pins,
+    no target — the vertex keeps its DEM".  The premise went stale with
+    08t (1): the pavement carries no per-vertex DEM row, so "no target"
+    meant NO LEVEL — the §20b staged-solve deviation ``test_v2chord`` pins
+    (+4.08 m over a 6 m valley), measured at KCLT as 18C/36C 6.67 m under
+    its ground and 18R/36L moved 0.85 m by rows that bind nothing.  The
+    DEM is still the target, in the one form §21.2 (5) admits: the SAME
+    §21 trend, UNSHIFTED (no pin to shift it through).  Its value at every
+    ridge station is the trend's own; nothing is invented beyond the
+    production DEM's long-wave fit."""
     airport, pm = _one_runway(law, _SagDem(), thresholds=(None, None))
     rep: ChordReport = {}
-    assert runway_chord_targets(pm, law, airport, rep) == {}
-    assert rep["runways"] == 0 and rep["runways_without"] == 1
-    assert rep["target_kind"] == "chord"      # nothing carries a trend
+    targets = runway_chord_targets(pm, law, airport, rep)
+    assert rep["runways"] == 1 and rep["runways_without"] == 1
+    assert rep["runways_pinless_trend"] == 1
+    assert rep["target_kind"] == "trend"
+    from auto_patch_v2.constraints.runway_chord import _pinless_trends
+    c = _pinless_trends(pm, law, airport, ())["09/27"]
+    vw = view(pm, law)
+    ridge = [v for ch in ridge_chains(vw).get("09/27") or [] for v in ch]
+    assert len(ridge) >= 10
+    for v in ridge:
+        s = c.station(*vw.xy[v])
+        assert targets[v] == pytest.approx(c.trend.at(s), abs=1e-9)
+    # the trend follows the sag: the floor's target is well under the rim
+    floor = min(ridge, key=lambda v: abs(vw.xy[v][0]))
+    assert targets[floor] < 700.0 - SAG_M / 2.0, targets[floor]
 
 
 # ── 4. THE CROSSING PIN HOLDS UNDER THE TREND ────────────────────────────

@@ -318,10 +318,10 @@ def test_the_completion_stamp_is_not_rewritten_when_nothing_changed(
 
     INSETS._write_inset_completion_stamp(tile)
     path = INSETS.inset_completion_stamp_path(30, 31)
-    os.utime(path, ns=(1, 1))
+    os.utime(path, ns=(10**9, 10**9))   # 1 s: representable on NTFS (100 ns ticks, #92)
 
     INSETS._write_inset_completion_stamp(tile)     # the settled warm pass
-    assert os.stat(path).st_mtime_ns == 1
+    assert os.stat(path).st_mtime_ns == 10**9
     assert INSETS.is_cached(tile) is True
 
     # A configuration change IS content, and still lands.

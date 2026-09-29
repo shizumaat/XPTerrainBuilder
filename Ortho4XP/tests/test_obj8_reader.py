@@ -400,7 +400,7 @@ def test_resolve_object_resource_pack_relative_wins(tmp_path):
     resolved = resolve_object_resource(
         "Terminals/hangar.obj", str(pack_root), None
     )
-    assert resolved == str(resource_file)
+    assert os.path.normpath(resolved) == str(resource_file)
 
 
 def test_resolve_object_resource_missing_everywhere(tmp_path):

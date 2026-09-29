@@ -521,11 +521,11 @@ def test_the_index_is_not_rewritten_when_its_content_is_unchanged(
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     INSETS._write_index(60, -136, {"CYXY": {"BOXLEGACY": "ok"}})
     path = FNAMES.airport_inset_index(60, -136)
-    os.utime(path, ns=(1, 1))
+    os.utime(path, ns=(10**9, 10**9))   # 1 s: representable on NTFS (100 ns ticks, #92)
 
     # Identical content: nothing is touched, not even the mtime.
     INSETS._write_index(60, -136, {"CYXY": {"BOXLEGACY": "ok"}})
-    assert os.stat(path).st_mtime_ns == 1
+    assert os.stat(path).st_mtime_ns == 10**9
 
     # Changed content IS a corpus change, and still lands.
     INSETS._write_index(

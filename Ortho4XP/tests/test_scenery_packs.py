@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 import O4_Scenery_Packs as SP  # noqa: E402
+from conftest import needs_unprivileged_user  # noqa: E402
 
 
 def _install(tmp_path, packs, ini_lines=None):
@@ -63,11 +64,7 @@ def test_absent_ini_enables_every_pack_on_disk(tmp_path):
     assert SP.pack_enabled("b", custom) is True
 
 
-@pytest.mark.skipif(sys.platform == "win32",
-                    reason="chmod 0o000 cannot revoke read on Windows "
-                           "(os.chmod toggles only the read-only flag)")
-@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
-                    reason="root reads anything")
+@needs_unprivileged_user
 def test_unreadable_ini_enables_every_pack_on_disk(tmp_path):
     custom = _install(tmp_path, ["a", "b"], [
         "SCENERY_PACK_DISABLED Custom Scenery/b/",

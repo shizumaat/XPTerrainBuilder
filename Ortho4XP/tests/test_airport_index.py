@@ -529,11 +529,15 @@ def test_stale_recorded_source_deleted_is_true(apt1, tmp_path):
     assert AI.index_is_stale([apt1], cache) is True
 
 
-def test_stale_abspath_vs_relative_equivalent_is_false(apt1, tmp_path):
+def test_stale_abspath_vs_relative_equivalent_is_false(apt1, tmp_path,
+                                                        monkeypatch):
     cache = str(tmp_path / "index.tsv")
     AI.build_index([apt1], cache)
     # Build recorded the absolute apt1 path; a relative path to the same
-    # file must normalize equal -> not stale.
+    # file must normalize equal -> not stale.  Relative to a cwd on the
+    # file's own drive: Windows has no relpath across drives (tmp on C:,
+    # checkout on D: — #92).
+    monkeypatch.chdir(tmp_path)
     rel = os.path.relpath(apt1)
     assert os.path.abspath(rel) == os.path.abspath(apt1)
     assert AI.index_is_stale([rel], cache) is False

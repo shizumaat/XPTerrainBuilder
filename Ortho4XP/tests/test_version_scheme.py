@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import plistlib
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -54,6 +55,15 @@ app_side = pytest.mark.skipif(
 #: version scheme.  The skip lives in the helper, not on 19 decorators, so a
 #: test added later inherits it.
 ZSH = Path("/bin/zsh")
+
+#: The release gates are bash scripts; on Windows that is Git bash on PATH
+#: (the CI job runs under it), never a literal /bin/bash (#92).
+BASH = "/bin/bash" if os.path.exists("/bin/bash") else shutil.which("bash")
+
+
+def _sh_path(p) -> str:
+    """A script/file argument bash can open on every OS (#92)."""
+    return Path(p).as_posix()
 
 
 def _zsh(script: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
@@ -340,7 +350,7 @@ def test_info_plist_template_carries_the_app_version() -> None:
 def test_app_version_ships_as_a_swiftpm_resource() -> None:
     """Without this the app can only read its version from Info.plist, which
     `swift run` and the test runner do not have."""
-    assert os.path.relpath(APP_VERSION_FILE, REPO_ROOT / "Sources" / "XPTerrainBuilder") == (
+    assert APP_VERSION_FILE.relative_to(REPO_ROOT / "Sources" / "XPTerrainBuilder").as_posix() == (
         "Resources/VERSION"
     )
     assert '.copy("Resources/VERSION")' in (REPO_ROOT / "Package.swift").read_text(encoding="utf-8")
@@ -364,7 +374,7 @@ tag_gate = pytest.mark.skipif(
 def _blocker_gate(tag: str) -> subprocess.CompletedProcess:
     """The beta-2 blocker gate on its own, over the repo's real list."""
     return subprocess.run(
-        ["/bin/bash", str(CHECK_BLOCKERS), tag],
+        [BASH, _sh_path(CHECK_BLOCKERS), tag],
         capture_output=True,
         text=True,
     )
@@ -374,7 +384,7 @@ def _tag_gate(ref: str, version: str, tmp_path: Path) -> subprocess.CompletedPro
     version_file = tmp_path / "VERSION"
     version_file.write_text(version + "\n", encoding="utf-8", newline="")
     return subprocess.run(
-        ["/bin/bash", str(CHECK_TAG), ref, str(version_file)],
+        [BASH, _sh_path(CHECK_TAG), ref, _sh_path(version_file)],
         capture_output=True,
         text=True,
     )
@@ -603,7 +613,7 @@ def _fake_repo(tmp_path: Path) -> Path:
 def _is_dirty(root: Path) -> bool:
     """scripts/tree_dirty.sh exits 0 for dirty, 1 for clean."""
     result = subprocess.run(
-        ["/bin/bash", str(TREE_DIRTY), str(root)], capture_output=True, text=True
+        [BASH, _sh_path(TREE_DIRTY), _sh_path(root)], capture_output=True, text=True
     )
     assert result.returncode in (0, 1), result.stderr
     return result.returncode == 0

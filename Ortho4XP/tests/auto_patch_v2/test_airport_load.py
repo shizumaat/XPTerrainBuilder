@@ -174,7 +174,7 @@ def test_osm_feeds(cyxy):
     assert any(w.tags.get("aeroway") == "taxiway" for w in a.osm_ways)
     assert any(w.tags.get("bridge") for w in a.osm_ways)
     assert set(O.TAGS_OF_INTEREST) >= {"highway", "bridge", "tunnel", "layer"}
-    assert O.feed_path(str(FIX / "OSM_data"), 60, -136, "airports").endswith(
+    assert _fwd(O.feed_path(str(FIX / "OSM_data"), 60, -136, "airports")).endswith(
         "+60-140/+60-136/+60-136_airports.osm.bz2")
     assert rep.buildings_by_source["osm"] == 4
 
@@ -311,7 +311,7 @@ def test_text_dump_tag_is_the_engine_cache_tag(tmp_path):
     v1_name = os.path.basename(v1._default_pack_text_cache_path(str(tmp_path), str(dsf)))
     assert v1_name == f"+25+051.dsf.{S.text_dump_tag(str(dsf))}.text"
     assert S.dsf_path_in_pack(str(tmp_path / "pack"), 25, 51) == str(dsf)
-    assert S.dsf_path_in_pack("/p", -13, -78).endswith("/Earth nav data/-20-080/-13-078.dsf")
+    assert _fwd(S.dsf_path_in_pack("/p", -13, -78)).endswith("/Earth nav data/-20-080/-13-078.dsf")
 
 
 def test_find_text_dump_prefers_the_keyed_fresh_dump_and_refuses_stale(tmp_path):
@@ -419,6 +419,12 @@ import dataclasses as _dcx
 
 from auto_patch_v2.airport import borrow as B
 
+
+def _fwd(p):
+    """A native path in '/' spelling, so suffix checks hold on Windows (#92)."""
+    return str(p).replace("\\", "/")
+
+
 _BORROW_ICAO = "ZZQQ"
 #: the fixture's frame origin, and the corner every square is placed from
 _LA, _LO = 37.90, 23.90
@@ -493,7 +499,7 @@ def test_borrow_fires_under_the_coverage_key(tmp_path):
     sel = P.select_pack(str(root), _BORROW_ICAO, law)
     assert sel is not None and sel.name == "AAA Pack" and sel.custom
     assert sel.borrow_reason == "coverage"
-    assert sel.borrowed_apt_dat_path.endswith("Global Airports/Earth nav data/apt.dat")
+    assert _fwd(sel.borrowed_apt_dat_path).endswith("Global Airports/Earth nav data/apt.dat")
     assert 0.0 <= sel.borrow.coverage < 0.25
 
     a, rep = load_with_report(_BORROW_ICAO, _borrow_inputs(root), law)

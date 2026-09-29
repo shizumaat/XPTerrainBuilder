@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 import types
 
 import pytest
@@ -1233,10 +1234,22 @@ def test_stale_in_pack_text_dump_is_removed_and_redumped_to_data_root(
     now = os.path.getmtime(dsf_path)
     os.utime(dsf_path + ".text", (now - 20, now - 20))
     # A DSFTool stand-in that actually writes the requested dump.
-    stub = tmp_path / "dsftool_stub.sh"
-    stub.write_text("#!/bin/sh\nprintf 'OBJECT_DEF objects/x.obj\\n' "
-                    "> \"$3\"\n", encoding="utf-8", newline="")
-    stub.chmod(0o755)
+    # A Python stub behind a shebang (POSIX) or a .cmd shim (Windows cannot
+    # exec a shell script, WinError 193 — #92).
+    stub_py = tmp_path / "dsftool_stub.py"
+    stub_py.write_text("import sys\n"
+                       "open(sys.argv[3], 'w', newline='').write("
+                       "'OBJECT_DEF objects/x.obj\\n')\n",
+                       encoding="utf-8", newline="")
+    if sys.platform == "win32":
+        stub = tmp_path / "dsftool_stub.cmd"
+        stub.write_text(f'@"{sys.executable}" "{stub_py}" %*\r\n',
+                        encoding="utf-8", newline="")
+    else:
+        stub = tmp_path / "dsftool_stub"
+        stub.write_text(f"#!{sys.executable}\n" + stub_py.read_text(encoding="utf-8"),
+                        encoding="utf-8", newline="")
+        stub.chmod(0o755)
     monkeypatch.setattr(D, "_dsftool_path", lambda: str(stub))
 
     text_path = D.ensure_dsf_text_path(dsf_path)

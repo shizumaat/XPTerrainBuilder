@@ -82,4 +82,8 @@ def test_an_uncreatable_directory_reports_the_os_error(tmp_path, said):
         _Dir(str(blocker / "zOrtho4XP_+22+113")).make_dirs()
     assert len(said) == 1
     assert "Cannot create tile directory" in said[0]
-    assert "Not a directory" in said[0] or "NotADirectoryError" in said[0]
+    # The OS's own words for this failure, whatever the OS: POSIX says
+    # ENOTDIR "Not a directory", Windows ERROR_PATH_NOT_FOUND (#92).
+    with pytest.raises(OSError) as os_error:
+        os.makedirs(str(blocker / "probe"))
+    assert os_error.value.strerror in said[0]

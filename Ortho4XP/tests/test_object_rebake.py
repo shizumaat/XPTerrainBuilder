@@ -54,6 +54,9 @@ from auto_patch.object_rebake import (
 )
 
 BOX_RESOURCE = "Objects/boxes.obj"
+#: The fingerprint entry's relpath is os.path.relpath of the live file —
+#: NATIVE spelling, the legacy key every warm sidecar on that OS carries (#92).
+BOX_ENTRY = BOX_RESOURCE.replace("/", os.sep)
 BOX_A_DELTA = 2.5
 BOX_B_DELTA = -1.25
 
@@ -1161,7 +1164,7 @@ def test_pristine_entries_of_an_unbaked_pack_keep_the_legacy_spelling(
     )
     file_stat = os.stat(_live_path(pack_root))
     assert _pristine_entries(pack_root) == [
-        f"{BOX_RESOURCE}:{file_stat.st_size}:{file_stat.st_mtime}"
+        f"{BOX_ENTRY}:{file_stat.st_size}:{file_stat.st_mtime}"
     ]
 
 
@@ -1222,7 +1225,7 @@ def test_pristine_entries_miss_on_an_external_edit_of_a_baked_object(
     assert after != before
     external_stat = os.stat(_live_path(pack_root))
     assert after == [
-        f"{BOX_RESOURCE}:{external_stat.st_size}"
+        f"{BOX_ENTRY}:{external_stat.st_size}"
         f":{external_stat.st_mtime}"
     ]
 
@@ -1302,7 +1305,7 @@ def test_pristine_entries_adopt_the_backup_without_recorded_hashes(
             "VT 0.000000 1.190000 0.000000"))
 
     assert _pristine_entries(pack_root) == [
-        f"{BOX_RESOURCE}:{backup_stat.st_size}:{backup_stat.st_mtime}"
+        f"{BOX_ENTRY}:{backup_stat.st_size}:{backup_stat.st_mtime}"
     ]
 
 

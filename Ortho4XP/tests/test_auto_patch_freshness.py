@@ -29,6 +29,7 @@ patches still suppress auto-patching entirely.
 Everything is hermetic: tmp_path only, no network, no X-Plane install.
 """
 import os
+import sys
 import types
 from pathlib import Path
 
@@ -848,6 +849,9 @@ def test_atomic_write_leaves_no_temp_files(install, tmp_path):
     assert _stray_temp_files(patch) == []
 
 
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="Windows has no POSIX mode bits: os.chmod keeps only "
+                           "the read-only flag, st_mode is 0o666 or 0o444")
 def test_atomic_write_keeps_the_readable_file_mode(install, tmp_path):
     """The temp-file write must not silently make patches owner-only.
 

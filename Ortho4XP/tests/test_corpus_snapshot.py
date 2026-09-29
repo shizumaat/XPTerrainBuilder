@@ -213,7 +213,9 @@ def test_mount_and_unmount(CS, tmp_path, monkeypatch):
     for name in CS.DATA_DIRS:
         assert (root / name).resolve() == (snap / "data" / name).resolve()
     cfg = (root / "Ortho4XP.cfg").read_text(encoding="utf-8")
-    assert f"custom_scenery_dir={snap}/xplane/Custom Scenery" in cfg
+    # the token is replaced by XPLANE_ROOT (native spelling, asserted just
+    # below) + the cfg's own '/Custom Scenery' tail (#92)
+    assert f"custom_scenery_dir={snap / 'xplane'}/Custom Scenery" in cfg
     assert CS.XPLANE_TOKEN not in cfg
     assert os.environ["XPLANE_ROOT"] == str(snap / "xplane")
     with pytest.raises(SystemExit, match="complete read set"):

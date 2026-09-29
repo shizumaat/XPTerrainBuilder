@@ -276,10 +276,19 @@ def _ui_verbosity_is_not_a_shared_mutable(request):
 #: precondition instead of asserting under one that is false — and it is
 #: a SKIP, so the same twins still measure everything on any unprivileged
 #: runner.
+#:
+#: WINDOWS POSES NONE OF THEM EITHER (#92): ``os.chmod`` there toggles only
+#: the read-only attribute — a file stays readable, a directory stays
+#: writable — so the same precondition is false for the same reason, and
+#: the same one predicate states it.
 needs_unprivileged_user = pytest.mark.skipif(
-    hasattr(os, "geteuid") and os.geteuid() == 0,
-    reason="running as root: chmod cannot make a path unreadable or "
-           "unwritable, so this twin's precondition cannot be posed")
+    sys.platform == "win32"
+    or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason=("Windows: os.chmod sets only the read-only flag, so it cannot "
+            "make a path unreadable or a directory unwritable"
+            if sys.platform == "win32" else
+            "running as root: chmod cannot make a path unreadable or "
+            "unwritable, so this twin's precondition cannot be posed"))
 
 
 def xplane_available() -> bool:

@@ -21,6 +21,11 @@ from auto_patch import agp_reader as A
 from auto_patch.dsf_reader import _read_dsf_object_placements
 
 
+def _fwd(p):
+    """A native path in '/' spelling, so suffix checks hold on Windows (#92)."""
+    return str(p).replace("\\", "/")
+
+
 @pytest.fixture(autouse=True)
 def sandbox_ortho4xp_data_root(tmp_path, monkeypatch):
     """The library-index sidecar lands under the Ortho4XP data root,
@@ -148,7 +153,7 @@ def test_library_resolve_and_memoization(tmp_path):
     virtual = "lib/airport/Common_Elements/Hangars/Test.agp"
     phys = A.resolve_library_path(virtual, str(root))
     assert phys is not None
-    assert phys.endswith("MyPack/h.agp")
+    assert _fwd(phys).endswith("MyPack/h.agp")
     # Built once and shared.
     assert (A.get_library_index(str(root))
             is A.get_library_index(str(root)))
@@ -170,7 +175,7 @@ def test_custom_scenery_overrides_default(tmp_path):
         f"EXPORT {virtual}\tfrom_custom.agp\n", encoding="utf-8", newline="")
 
     phys = A.resolve_library_path(virtual, str(root))
-    assert phys.endswith("Override/from_custom.agp")
+    assert _fwd(phys).endswith("Override/from_custom.agp")
 
 
 def test_resolve_missing_returns_none(tmp_path):
@@ -270,7 +275,7 @@ def test_sidecar_hit_equals_fresh_parse(tmp_path):
     assert second == expected              # ...and byte-for-byte the same
     # Priority survives the round trip: Bravo leads the ini, so it wins
     # the shared virtual path over Alpha and over default scenery.
-    assert second["lib/shared.agp"].endswith("Bravo/bravo.agp")
+    assert _fwd(second["lib/shared.agp"]).endswith("Bravo/bravo.agp")
 
 
 def test_sidecar_written_under_the_data_root_not_the_install(tmp_path):
@@ -357,23 +362,23 @@ def test_invalidates_when_a_pack_is_removed(tmp_path):
 
 def test_invalidates_when_scenery_packs_ini_is_reordered(tmp_path):
     root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
-    assert _cold_index(root)["lib/shared.agp"].endswith("Alpha/alpha.agp")
+    assert _fwd(_cold_index(root)["lib/shared.agp"]).endswith("Alpha/alpha.agp")
     # Same packs, same library.txt files — only the priority order moves.
     (root / "Custom Scenery" / "scenery_packs.ini").write_text(
         "I\n1000 Version\nSCENERY\n\n"
         "SCENERY_PACK Custom Scenery/Bravo/\n"
         "SCENERY_PACK Custom Scenery/Alpha/\n", encoding="utf-8", newline="")
     index = _assert_rebuilds_to_truth(root)
-    assert index["lib/shared.agp"].endswith("Bravo/bravo.agp")
+    assert _fwd(index["lib/shared.agp"]).endswith("Bravo/bravo.agp")
 
 
 def test_invalidates_when_scenery_packs_ini_is_removed(tmp_path):
     root = _install(tmp_path, _PACKS, ini_order=["Bravo", "Alpha"])
-    assert _cold_index(root)["lib/shared.agp"].endswith("Bravo/bravo.agp")
+    assert _fwd(_cold_index(root)["lib/shared.agp"]).endswith("Bravo/bravo.agp")
     (root / "Custom Scenery" / "scenery_packs.ini").unlink()
     # No ini → packs fall back to sorted (highest priority first) order,
     # so the winner flips from ini-led Bravo to alphabetical Alpha.
-    assert _assert_rebuilds_to_truth(root)["lib/shared.agp"].endswith(
+    assert _fwd(_assert_rebuilds_to_truth(root)["lib/shared.agp"]).endswith(
         "Alpha/alpha.agp")
 
 
@@ -389,11 +394,11 @@ def _ini(root, lines):
 
 def test_disabled_pack_never_wins_a_virtual_path(tmp_path):
     root = _install(tmp_path, _PACKS, ini_order=["Bravo", "Alpha"])
-    assert _cold_index(root)["lib/shared.agp"].endswith("Bravo/bravo.agp")
+    assert _fwd(_cold_index(root)["lib/shared.agp"]).endswith("Bravo/bravo.agp")
     _ini(root, ["SCENERY_PACK_DISABLED Custom Scenery/Bravo/",
                 "SCENERY_PACK Custom Scenery/Alpha/"])
     index = _assert_rebuilds_to_truth(root)
-    assert index["lib/shared.agp"].endswith("Alpha/alpha.agp")
+    assert _fwd(index["lib/shared.agp"]).endswith("Alpha/alpha.agp")
 
 
 def test_disabled_pack_contributes_no_exports_at_all(tmp_path):
@@ -411,7 +416,7 @@ def test_unlisted_pack_keeps_its_lowest_priority_slot(tmp_path):
     root = _install(tmp_path, _PACKS, ini_order=["Alpha"])
     index = _cold_index(root)
     assert "lib/b.agp" in index
-    assert index["lib/shared.agp"].endswith("Alpha/alpha.agp")
+    assert _fwd(index["lib/shared.agp"]).endswith("Alpha/alpha.agp")
 
 
 def test_invalidates_on_a_cache_version_bump(tmp_path, monkeypatch):

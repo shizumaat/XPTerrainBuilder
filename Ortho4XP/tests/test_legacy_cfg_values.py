@@ -20,7 +20,8 @@ def test_progressive_cover_reads_as_true(tmp_path):
         "default_zl=16\n"
         "cover_airports_with_highres=Progressive\n"
         "cover_zl=17\n"
-        "unknown_future_setting=whatever\n"   # unknown keys skip silently, encoding="utf-8"
+        "unknown_future_setting=whatever\n",  # unknown keys skip silently
+        encoding="utf-8", newline="",
     )
     tile = CFG.Tile(46, 6, str(tmp_path))
     assert tile.read_from_config(config_file=str(cfg)) == 1

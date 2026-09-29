@@ -5093,3 +5093,52 @@ def test_16d_1_written_components_reads_a_draped_page_beside_a_solid_body(
     _ml, mo = AR._m_per_deg(40.0)
     wide = max(draped, key=lambda c: c[1].shape[0])
     assert wide[2][3] - wide[2][1] == pytest.approx(8.0 / mo, rel=1e-6)
+
+
+# ── RULINGS 2026-09-30m (#112): a linear connector is no carrier ─────────
+
+def _conn_cand(member, box, top, pid, unit_seat=False, ground_off=0.0):
+    import dataclasses as _dcx
+    a = AR.Anchor(AR.OTHER, 0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3]),
+                  0.0, "r", 93.3)
+    a = _dcx.replace(a, unit_seat=unit_seat)
+    return _PC.Candidate(member, f"objects/c{member}.obj", a,
+                         frozenset({pid}), 4, box, part_boxes=(box,),
+                         group=0, body_class=AR.OTHER, ground_off=ground_off,
+                         top_y=top, part_tops=(top,))
+
+
+def test_body_above_a_linear_connector_with_no_contact_edge_takes_its_own_ground():
+    """30m: HECA's ``Private_hall/floor__b18`` stood over the rail
+    connector (a 29q LINEAR cut connector, seated once at its joint) and
+    the unit-seat yield handed it the deck 9.33 m under its base — +19.58 m
+    over its own ground.  A body with NO contact edge to the deck never
+    rides it: where the connector is its only candidate the search is
+    empty (the caller seats it on its own ground)."""
+    box = (40.0, -3.0, 40.0005, -2.9995)
+    deck = _conn_cand(7, box, top=5.4, pid=70, unit_seat=True,
+                      ground_off=9.0)
+    # without the rule the unit-seat yield hands it the deck
+    got = _PC.carriers_for({1}, box, [deck], {}, (box,), tol_m=0.3,
+                           base_y=14.7)
+    assert got and got[0][0] is deck
+    # with it: no carrier, own ground
+    assert _PC.carriers_for({1}, box, [deck], {}, (box,), tol_m=0.3,
+                            base_y=14.7, not_carriers=frozenset({70})) == []
+    # ...and another candidate it stands over still carries it
+    hall = _conn_cand(8, box, top=14.1, pid=80)
+    got = _PC.carriers_for({1}, box, [deck, hall], {}, (box,), tol_m=0.3,
+                           base_y=14.7, not_carriers=frozenset({70}))
+    assert [c for c, _w in got] == [hall]
+
+
+def test_body_with_a_contact_edge_still_rides_the_connector_deck():
+    """30m keeps 29v: what rides a linear connector is decided by CONTACT
+    (``footprint_connector.deck_riders``), which binds BEFORE the carrier
+    search; the plan filters the connector only out of the search."""
+    import inspect
+    from auto_patch_v2.airport import footprint_connector as FC
+    src = inspect.getsource(PP.build_splits)
+    assert "deck_riders(" in src
+    assert src.index("deck_riders(") < src.index("not_carriers=_cut29q")
+    assert "deck_riders" in FC.__all__

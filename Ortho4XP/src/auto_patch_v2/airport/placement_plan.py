@@ -831,6 +831,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         for c in cands:
             if c.body_class == _ar.LINE_SEGMENT:
                 refused["line"] = refused.get("line", 0) + 1
+            elif _cut29q and (c.pids & _cut29q):
+                # RULINGS 2026-09-30m: a LINEAR cut connector carries only
+                # what CONTACT binds to it (``deck_riders`` above), never
+                # a body the carrier search would hand it
+                refused["linear_connector"] = \
+                    refused.get("linear_connector", 0) + 1
             else:
                 _solid.append(c)
         _index = _pc.CandidateIndex(_solid, u.anchor[0]) if _solid else None
@@ -924,7 +930,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                    default=None),
                         # §16d (2): the NEAREST-footed fallback is capped
                         solid_cands=_solid, index=_index,
-                        reach_m=coarsen_reach_m)
+                        reach_m=coarsen_reach_m,
+                        not_carriers=_cut29q)            # 30m
                 if not over:
                     # §16 (3): no carrier the law will accept — the body
                     # anchors on the ground under its OWN footprint with

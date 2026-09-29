@@ -117,8 +117,14 @@ def test_the_road_reads_at_the_lower_level_with_one_bank_under_1_in_3(law, built
         assert tgt[r] == pytest.approx(LOW_Z)               # the LOWER pavement
         assert ceil[r] == pytest.approx(LOW_Z + vis)
     # ONE bank on the HIGH side only, one-way, never steeper than 1:3 here
-    banks = [r for r in out.linears if r.source.ruling == BANK_RULING]
+    rows = [r for r in out.linears if r.source.ruling == BANK_RULING]
+    banks = [r for r in rows if r.lo is not None]
+    lows = [r for r in rows if r.lo is None]
     assert banks and rep["strip_high"] == len(banks)
+    # the LOW side: a mandatory-down CEILING at the road-to-pavement plane
+    assert rep["strip_low"] == len(lows)
+    for b in lows:
+        assert b.hi == 0.0 and _y(pm, b.follows) <= ROAD_Y0 + 0.01
     for b in banks:
         s_ = b.follows
         assert _y(pm, s_) >= ROAD_Y1 - 0.01                  # the twyB side
@@ -144,3 +150,40 @@ def test_no_airside_vertex_is_governed(law, built):
     pm, _rep, levels = built
     bl = pm.road_between_levels
     assert not (set(bl["road"]) | set(bl["strip"])) & set(levels)
+
+
+def test_the_lower_pavement_may_be_an_apron(law):
+    """RULINGS 2026-09-29ad: the feet are every airside pavement carrying a
+    level (``contact_roles``) — at HECA the lower side is ``objpav115``'s
+    APRON piece; an apron has no zone class and reaches the taxi class's
+    default half width."""
+    airport, r = _airport(law, _Flat())
+    cells = (
+        Cell(0, "runway", "09/27", _rect(r, -RUN_LEN / 2, -HALF_WIDTH,
+                                         RUN_LEN / 2, HALF_WIDTH), (), 3, "D",
+             "airside", "runway", {}),
+        Cell(1, "apron", "apronA", _rect(r, -200.0, 140.0, 200.0, A_TOP), (),
+             None, "D", "airside", "apron", {}),
+        Cell(2, "junction", "twyB", _rect(r, -200.0, B_BOT, 200.0, 222.0), (),
+             None, "D", "airside", "junction", {}),
+        Cell(3, "service_road", "roadA",
+             _rect(r, -150.0, ROAD_Y0, 150.0, ROAD_Y1), (), None, "D",
+             "groundside", "service_road", {}),
+    )
+    pm, _rep = _map(law, airport, cells)
+    bl = pm.road_between_levels
+    assert bl["road"]
+    assert all({fa[3], fb[3]} == {"apronA", "twyB"} for fa, fb in bl["road"].values())
+    levels = {}
+    for f in pm.faces.values():
+        if f.role in ("apron", "junction"):
+            z = LOW_Z if f.ref.startswith("apronA") else HIGH_Z
+            for cyc in (f.ring, *f.holes):
+                for v in pm.ring_vertices(cyc):
+                    levels[v] = z
+    out, rep = between_levels_rewrite(pm, law, _cs(pm, law), levels)
+    assert rep["applied"] == len(bl["road"])
+    tgt = [row.hi for row in out.linears
+           if row.source.generator == GEN and row.source.ruling == RULING
+           and int(row.source.inputs[0][7:]) in bl["road"]]
+    assert tgt and all(t == pytest.approx(LOW_Z) for t in tgt)

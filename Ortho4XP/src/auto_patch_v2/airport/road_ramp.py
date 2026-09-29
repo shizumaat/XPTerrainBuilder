@@ -771,10 +771,10 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
 #: vertex when the unit vectors to their feet point this far apart (cos
 #: of 107 deg) — a geometric reading, not a law.
 _OPPOSITE_COS = -0.3
-#: A strip vertex stands BETWEEN its road vertex and its own foot when its
-#: two runs sum to at most this multiple of the road vertex's own run to
-#: that foot (a straight line is 1.0; the slack admits a mitred corner).
-_BETWEEN_SLACK = 1.25
+#: A strip vertex stands BETWEEN its road vertex and its own foot when it is
+#: nearer that pavement than the road vertex is and its run to the road
+#: vertex is at most this multiple of the road vertex's run to the pavement.
+_BETWEEN_SLACK = 1.5
 
 
 def between_levels(pm: PlanarMap, law: Law,
@@ -808,11 +808,19 @@ def between_levels(pm: PlanarMap, law: Law,
     ribbon = float(law.tables.emit.road_contact.pair_lateral_m)
     edges: list[tuple[int, int, str, float]] = []
     seen: set[tuple[int, int]] = set()
+    # THE FEET ARE EVERY AIRSIDE PAVEMENT THAT CARRIES A LEVEL (RULINGS
+    # 2026-09-29ad: ``contact_roles``, the apron included — at HECA the
+    # LOWER pavement beside route19 is ``objpav115``'s APRON piece).  A
+    # pavement with no zone class reaches the taxi class's DEFAULT half
+    # width (``zones.toml [adjacent_ground.taxi] half_width_m.default``).
+    feet_roles = contact_roles(law)
+    taxi_default = zone2_half_width_m(law, "junction", None, None)
     for fid, f in pm.faces.items():
-        role = fam.get(f.role)
-        if role is None:
+        if f.role not in feet_roles:
             continue
-        half = zone2_half_width_m(law, role, f.code_number, f.code_letter)
+        role = fam.get(f.role)
+        half = (zone2_half_width_m(law, role, f.code_number, f.code_letter)
+                if role is not None else taxi_default)
         if not half:
             continue
         ref = f.ref.split("+")[0]
@@ -888,6 +896,10 @@ def between_levels(pm: PlanarMap, law: Law,
             for s_ in pm.ring_vertices(cyc):
                 if s_ in strip or s_ in road:
                     continue
+                # GROUND only: a strip ring vertex a pavement ring shares is
+                # the PAVEMENT's (airside is king), never a bank vertex
+                if set(pm.roles_at(s_)) != {"graded_strip"}:
+                    continue
                 p = xy(s_)
                 w, j = rtree.query(p)
                 if w > reach or w < 1e-6:
@@ -900,7 +912,11 @@ def between_levels(pm: PlanarMap, law: Law,
                 ref, (d, a, b, u, _dir) = min(own.items(),
                                               key=lambda kv: (kv[1][0], kv[0]))
                 d_road = fa[4] if ref == fa[3] else fb[4]
-                if w + d > _BETWEEN_SLACK * d_road + 1e-9:
+                # BETWEEN: nearer the pavement than the road is, and within
+                # reach of the road beside it (a vertex offset ALONG the road
+                # between two 55 m stations still stands between — HECA's
+                # zone2#76 ridge, 3.2 m from the apron and 6.1 m from route19)
+                if d >= d_road or w > _BETWEEN_SLACK * d_road + 1e-9:
                     continue
                 strip[s_] = (r, (a, b, u, ref), float(w), float(d))
     out["strip"] = strip

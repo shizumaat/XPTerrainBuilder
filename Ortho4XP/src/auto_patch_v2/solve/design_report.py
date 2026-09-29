@@ -733,6 +733,8 @@ class DesignReport:
                     + f"), {bl.get('strip_high', 0)} strip vertices on one "
                     f"bank (max slope {bl.get('max_bank_slope', 0.0):.3f}, "
                     f"{bl.get('bank_over_slope', 0)} over the bank slope), "
+                    f"{bl.get('strip_low', 0)} low-side strip vertices under "
+                    f"the road-to-pavement plane, "
                     f"{bl.get('strip_low_dropped', 0)} high-side floors "
                     f"dropped on the low side; ")
         if self.pin_yield:

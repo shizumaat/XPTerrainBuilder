@@ -257,6 +257,7 @@ def between_levels_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     The taxiways are stage 1's constants here: nothing airside moves."""
     bl = getattr(planar, "road_between_levels", None) or {}
     rep: dict[str, _t.Any] = {"road": 0, "applied": 0, "strip_high": 0,
+                              "strip_low": 0,
                               "strip_low_dropped": 0, "unlevelled": 0,
                               "max_step_m": 0.0, "bank_over_slope": 0,
                               "max_bank_slope": 0.0}
@@ -297,6 +298,7 @@ def between_levels_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
                 v for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc))
     high_s: dict[int, tuple] = {}
     low_s: dict[int, str] = {}
+    low_plane: dict[int, tuple] = {}
     for s_, (r, foot, w, d) in strip.items():
         if r not in low:
             continue
@@ -304,6 +306,7 @@ def between_levels_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
             high_s[s_] = (r, foot, w, d)
         else:
             low_s[s_] = high_ref[r]
+            low_plane[s_] = (r, foot, w, d)
 
     def _vertex(src: Source) -> int | None:
         tag = src.inputs[0] if src.inputs else ""
@@ -341,6 +344,21 @@ def between_levels_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
             if sl > bank + 1e-9:
                 rep["bank_over_slope"] += 1
     rep["strip_high"] = len(high_s)
+    # THE LOW SIDE STAYS MANDATORY-DOWN FROM ITS PAVEMENT TO THE ROAD (29x):
+    # a CEILING at the plane from the road vertex to the lower foot — both
+    # at the lower level.  The zone band cannot state it where the lower
+    # pavement carries no zone class (29ad: HECA's ``objpav115`` apron
+    # piece), and without it the strip between the road and that apron
+    # stood on its DEM 2.14 m above both (measured, replay arm 1 of 29ad).
+    for s_, (r, (a, b, u, _ref), w, d) in sorted(low_plane.items()):
+        lam = w / (w + d)
+        linears.append(Linear(((s_, 1.0), (r, -(1.0 - lam)),
+                               (a, -(1.0 - u) * lam), (b, -u * lam)),
+                              None, 0.0,
+                              Source(_ZONE_GEN, BANK_RULING,
+                                     (f"vertex:{s_}", f"road:{r}")),
+                              follows=s_))
+    rep["strip_low"] = len(low_plane)
     bands = []
     for row in cs.bands:
         if row.source.generator == GEN and row.source.ruling == RULING_CEILING:

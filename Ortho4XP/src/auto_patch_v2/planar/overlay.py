@@ -472,9 +472,10 @@ def _ribbons_pass_b(ribbon_cells, base_regions: "list[Region]", air, rim,
     zone_u = unary_union([r.polygon for r in base_regions if r.source == "zone"])
     ag = law.tables.zones.adjacent_ground
     # a ribbon is IN-BAND when it enters a zone band at all: its kerb is
-    # the band's (no stand-off anywhere along it — a stand-off where it
-    # leaves the band would slot the band beside it); a ribbon that
-    # enters none keeps the stand-off against the band it runs beside
+    # the band's (no stand-off anywhere along it); a ribbon that enters
+    # none keeps the stand-off against the band it runs beside.  Read per
+    # PART (the stand-off on the stretch outside the band) it measured
+    # worse at NLWF (replay census: 59 hairlines, 7 cliffs, 4 runway).
     free = [r.polygon for r in ribs
             if zone_u.is_empty or r.polygon.intersection(zone_u).area <= 0.0]
     knife = unary_union([rib_u] + [q.buffer(ag.groundside_cutback_m
@@ -511,6 +512,13 @@ def _ribbons_pass_b(ribbon_cells, base_regions: "list[Region]", air, rim,
     cut_lines: list[LineString] = []
     if recut and not zone_u.is_empty:
         g = knife.boundary.intersection(zone_u)
+        # the part of the knife that IS a ribbon's ring is already added
+        # (the ribbon rings): a second, separately rounded copy of it left
+        # vertex pairs half a grid cell apart (NLWF attempt 1: 15 of the
+        # 27 hairlines, graded_strip|service_road)
+        if not g.is_empty:
+            g = g.difference(rib_u.boundary.buffer(snap_margin_m(law),
+                                                   cap_style="flat"))
         # never within the hot-pixel band of the airside rim: there the
         # ribbon's own (rim-quantised) ring already separates the faces,
         # and a knife segment running along the rim re-rounds it (CYXY:

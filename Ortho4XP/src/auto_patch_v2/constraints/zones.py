@@ -146,16 +146,33 @@ def _nearest_edge(vw: View, v: int, edges: list, grid: dict, cell: float,
     return best
 
 
+def _zone_class(fam: str, cn: int | None, cl: str | None
+                ) -> tuple[str, int | None, str | None]:
+    """THE ZONE CLASS KEY — the one spelling both sides of the membership
+    join read.  ``planar/zones.zone_regions`` keys a RUNWAY zone by code
+    NUMBER only (``("runway", cn, None)``) and a TAXI zone by code LETTER
+    only (``("taxi", None, cl)``), exactly as ``zones.toml`` sizes them; a
+    pavement edge carries both.  Keyed raw, a lettered runway's edges
+    (``("runway", 2, "C")``) never met its own zone face's class
+    (``("runway", 2, None)``), so the clamped reference below was dead
+    for every lettered runway and an outer-ring vertex a few centimetres
+    past the half-width (the mitred buffer) was left BANDLESS on the DEM
+    beside banded neighbours — measured NLWF 2026-09-29 (issue #100): the
+    zone-2 outer ring alternated 3.6 m (banded) / 12.7 m (DEM) along the
+    service road north of 07/25, which the road draped as a cliff."""
+    return (fam, cn, None) if fam == "runway" else (fam, None, cl)
+
+
 def _face_class_of(e: tuple) -> tuple[str, int | None, str | None]:
     """The zone class an edge record keys (``_pavement_edges`` layout)."""
-    return (e[2], e[3], e[4])
+    return _zone_class(e[2], e[3], e[4])
 
 
 def _face_class(f) -> tuple[str, int | None, str | None] | None:
     parts = f.ref.split(":")
     if len(parts) < 2 or parts[1] not in ("runway", "taxi"):
         return None
-    return parts[1], f.code_number, f.code_letter
+    return _zone_class(parts[1], f.code_number, f.code_letter)
 
 
 @_dc.dataclass
@@ -232,7 +249,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
         (ax, ay), (bx, by) = vw.xy[e[0]], vw.xy[e[1]]
         x0, x1 = sorted((ax, bx))
         y0, y1 = sorted((ay, by))
-        cls = (e[2], e[3], e[4])
+        cls = _face_class_of(e)
         for gx in range(int(x0 // cell), int(x1 // cell) + 1):
             for gy in range(int(y0 // cell), int(y1 // cell) + 1):
                 by_class.setdefault(cls, {}).setdefault((gx, gy), []).append(k)

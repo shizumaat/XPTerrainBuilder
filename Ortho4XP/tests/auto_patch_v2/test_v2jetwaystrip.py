@@ -486,3 +486,29 @@ def test_the_rider_reach_cap_is_12_m(law):
     assert cap == 12.0
     assert float(_PL(split_tol_m=0.02).rider_reach_max_m) == cap
     assert min(cap, max(0.5, 13.4)) >= 10.31
+
+
+def test_a_platform_strip_takes_the_solved_platform_plane(law, agp):
+    """P10 (unit-platform spec §3; issue #86): a strip carrying a SOLVED
+    PLATFORM plane (``JetwayStrip.plane``) takes that plane, tilt-bounded,
+    instead of the fit of its frontage contacts; the planarity gate reads
+    the frontage against it (so a platform off the frontage by more than
+    the tolerance is gated, unchanged)."""
+    from auto_patch_v2.solve.project_strip import _pad_plane, project_strips
+    airport, pm, cs = _prep(law, agp)
+    st = _strips(law, airport, pm, cs)
+    s = st.strips[0]
+    n = len(pm.vertices)
+    z1 = np.array([_Dem().z(*pm.vertices[v].xy) for v in range(n)])
+    levels = {v: float(z1[v]) for v in range(n)}
+    vs = [v for v in s.vertices if v in levels]
+    xy = {v: pm.vertices[v].xy for v in range(n)}
+    fit = _pad_plane(s, levels, xy, vs, 0.01)
+    own = _dc.replace(s, plane=(fit[0] + 0.1, fit[1], fit[2], fit[3], fit[4]))
+    assert _pad_plane(own, levels, xy, vs, 0.01)[0] == pytest.approx(fit[0] + 0.1)
+    steep = _dc.replace(s, plane=(fit[0], 0.05, 0.0, fit[3], fit[4]))
+    assert _pad_plane(steep, levels, xy, vs, 0.01)[1] == pytest.approx(0.01)
+    far = _dc.replace(st, strips=(_dc.replace(s, plane=(fit[0] + 5.0, fit[1], fit[2],
+                                                        fit[3], fit[4])),))
+    rep = project_strips(pm, law, far, dict(levels), z1)
+    assert rep.strips[0]["gated"] is True

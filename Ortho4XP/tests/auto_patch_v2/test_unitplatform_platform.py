@@ -222,3 +222,62 @@ def test_the_census_reads_the_collar_as_a_bank(built, law):
     assert CG._is_platform_collar(w)
     assert is_collar_ref("padU#collar") and not is_collar_ref("padU")
     assert math.isfinite(rr[0].elev_b)
+
+
+def test_the_second_pass_mints_c_from_the_solved_relief(law):
+    """Issue #86: ``SOLVED_C`` (the first pass's solved relief / bank) sets
+    C at the re-mint, clamped exactly as the DEM mint is, and the verdict
+    names its source and keeps the DEM's C."""
+    air = [Region("apron", "a", Polygon(APRON), None, None, "airside", "cell")]
+    big = Region("building", "big", Polygon(_rect(-100.0, 200.0, 100.0, 300.0)),
+                 None, None, "airside", "cell")
+    pplat.SOLVED_C.clear()
+    try:
+        pplat.platform_split(air, [big], law, 0.5)
+        dem_c = pplat.PLATFORMS[0].collar_m
+        assert pplat.PLATFORMS[0].c_source == "dem"
+        pplat.SOLVED_C["big"] = 11.2
+        got, _c = pplat.platform_split(air, [big], law, 0.5)
+        p = pplat.PLATFORMS[0]
+        assert (p.collar_m, p.c_source, p.dem_collar_m) == (11.2, "solved", dem_c)
+        inner = [r.polygon for r in got if r.ref == "big"]
+        rim = big.polygon.exterior
+        from shapely.geometry import Point
+        assert min(rim.distance(Point(c)) for q in inner
+                   for c in q.exterior.coords) >= 11.2 - 0.5
+        cmax = float(law.tables.structures.building_pad.platform_collar_max_m)
+        pplat.SOLVED_C["big"] = 99.0
+        pplat.platform_split(air, [big], law, 0.5)
+        assert pplat.PLATFORMS[0].collar_m == round(cmax, 2)
+    finally:
+        pplat.SOLVED_C.clear()
+
+
+def test_solved_widths_rederive_every_platform_only_past_the_grid(law):
+    """Issue #86: the second pass runs when ANY platform's solved C differs
+    from its minted C by more than the grid, and then re-derives EVERY
+    platform with a solved reading (one pass, attempt cap 1)."""
+    recs = [{"ref": "T3", "collar_needed_m": 11.2},
+            {"ref": "T2", "collar_needed_m": 5.0},
+            {"ref": "gone", "collar_needed_m": 9.0},      # not minted
+            {"ref": "dry"}]                                # no welded rim
+    assert platform.solved_collar_widths(recs, {"T3": 10.43, "T2": 5.0}, law) == {
+        "T3": 11.2, "T2": 5.0}
+    assert platform.solved_collar_widths(recs, {"T3": 11.0, "T2": 5.0}, law) == {}
+    cmax = float(law.tables.structures.building_pad.platform_collar_max_m)
+    got = platform.solved_collar_widths([{"ref": "S5", "collar_needed_m": 17.9}],
+                                        {"S5": 5.99}, law)
+    assert got == {"S5": round(cmax, 2)}
+
+
+def test_the_records_publish_the_plane_the_strip_takes(built, law):
+    """P10 (issue #86): ``platform_planes`` spells each solved platform
+    plane as ``project_strip`` does, from the same record."""
+    pm, _a = built
+    z = [700.0 - 0.001 * pm.vertices[v].xy[0] for v in range(len(pm.vertices))]
+    recs = platform.platform_records(pm, law, z)
+    assert recs and "centroid_xy" in recs[0]
+    pl = platform.platform_planes(recs, pm)["padU"]
+    z0, gx, gy, x0, y0 = pl
+    assert abs(gx + 0.001) < 1e-6 and abs(gy) < 1e-6
+    assert abs(z0 - (700.0 - 0.001 * x0)) < 1e-3

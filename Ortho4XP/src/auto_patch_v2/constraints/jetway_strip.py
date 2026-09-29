@@ -180,10 +180,19 @@ def rider_hosts(planar: PlanarMap, law: Law, airport: Airport | None,
 
 def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
                   cs: ConstraintSet | None,
-                  candidates: _t.Mapping[str, tuple[float, str]]) -> StripSet:
+                  candidates: _t.Mapping[str, tuple[float, str]],
+                  platform_planes: "_t.Mapping[str, tuple] | None" = None
+                  ) -> StripSet:
     """§1: the airport's strips, one per CLUSTER pad carrying a rider
     edge (Q1 default (a): one level per pad).  A pad with no rider mints
-    no strip; D = 0 disarms the whole law."""
+    no strip; D = 0 disarms the whole law.
+
+    ``platform_planes`` (P10, unit-platform spec §3; issue #86): ``{platform
+    ref: (z0, gx, gy, x0, y0)}``, the SOLVED platform planes of the
+    collar's first pass (``constraints.platform.platform_planes``).  A
+    strip whose cluster holds a platform face takes that plane
+    (``JetwayStrip.plane``) — the rider seats on the PLATFORM, so the
+    strip comes to the platform, not to a fit of its frontage contacts."""
     D = strip_m(law)
     counts: dict[str, _t.Any] = {"candidates": len(candidates)}
     if D <= 0.0 or not candidates:
@@ -294,6 +303,20 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
             got[cid].append(v)
         else:
             struck_of[cid].append((v, why))
+    # P10: the cluster's platform plane — the largest platform face's
+    from ..model.planar import platform_ref_of
+    plane_of: dict[str, tuple] = {}
+    if platform_planes:
+        best: dict[str, float] = {}
+        for f, cid in face_cid.items():
+            pr = platform_ref_of(planar.faces[f].ref)
+            if pr not in platform_planes:
+                continue
+            a = Polygon([vw.xy[v] for v in vw.rings[f]]).area \
+                if len(vw.rings[f]) >= 3 else 0.0
+            if a > best.get(cid, -1.0):
+                best[cid] = a
+                plane_of[cid] = tuple(platform_planes[pr])
     strips: list[JetwayStrip] = []
     for cid in sorted(regions):
         vs = got[cid]
@@ -309,7 +332,8 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
             riders=tuple(sorted(r.obj_id for r in riders_of.get(cid, ()))),
             rider_edges=tuple((a, b) for a, b, _n in edges_of[cid]),
             region=rings, vertices=tuple(vs), struck=tuple(struck_of[cid]),
-            pad_vertices=tuple(sorted(own_of.get(cid, ())))))
+            pad_vertices=tuple(sorted(own_of.get(cid, ()))),
+            plane=plane_of.get(cid)))
     fixed: dict[int, str] = {}
     for v in pad_of:
         if v not in all_own:
@@ -323,6 +347,7 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
                   rider_edges=sum(len(e) for e in edges_of.values()),
                   strip_vertices=sum(len(s.vertices) for s in strips),
                   struck=sum(len(s.struck) for s in strips),
-                  riders_in_a_strip=sum(len(s.riders) for s in strips))
+                  riders_in_a_strip=sum(len(s.riders) for s in strips),
+                  on_platform_plane=sum(1 for s in strips if s.plane is not None))
     return StripSet(strips=tuple(strips), riders=tuple(riders), movable=movable,
                     fixed=fixed, counts=counts)

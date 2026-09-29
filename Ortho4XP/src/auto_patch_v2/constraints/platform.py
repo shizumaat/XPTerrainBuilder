@@ -38,7 +38,8 @@ from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "COLLAR_RULING",
-           "PLANE_RULING", "GEN", "collar_faces", "platform_records"]
+           "PLANE_RULING", "GEN", "collar_faces", "platform_records",
+           "solved_collar_widths", "platform_planes"]
 
 GEN = "platform_collar"
 #: The ruling HEAD (``solve.design.ruling_head``) — named by ``[design]
@@ -311,7 +312,8 @@ def platform_records(planar: PlanarMap, law: Law,
                      "tilt_pct": round(100.0 * math.hypot(co[0], co[1]), 3),
                      "plane_residual_max_m": round(float(res.max()), 3),
                      "platform_vertices": len(inner), "welded": len(weld),
-                     "centroid_ll": _ll_of(planar, inner, c0)}
+                     "centroid_ll": _ll_of(planar, inner, c0),
+                     "centroid_xy": [round(float(c0[0]), 3), round(float(c0[1]), 3)]}
         if weld:
             W = np.array([planar.vertices[v].xy for v in weld], dtype=float)
             rel = np.array([float(z[v]) for v in weld]) - (np.c_[W - c0, np.ones(len(W))] @ co)
@@ -324,6 +326,53 @@ def platform_records(planar: PlanarMap, law: Law,
                         "collar_needed_m": round(max(cmin, mx / bs), 2),
                         "over_collar_max": bool(mx / bs > cmax)})
         out.append(rec)
+    return out
+
+
+def solved_collar_widths(records: _t.Sequence[dict], minted: _t.Mapping[str, float],
+                         law: Law) -> dict[str, float]:
+    """THE SECOND PASS'S WIDTHS (issue #86; spec-author decision 2026-09-29):
+    C per platform re-derived from the SOLVED rim relief — each record's
+    ``collar_needed_m`` (``platform_records``: ``max relief / bank_slope``,
+    floored at ``bank_min_width_m``), clamped at ``platform_collar_max_m``
+    exactly as the mint clamps.  ``minted`` is ``{ref: C}`` of the first
+    pass.  Returns ``{ref: C}`` for EVERY platform with a solved reading
+    when ANY of them differs from its minted C by more than the
+    arrangement's grid (``min_distinct_spacing_m``: a smaller change moves
+    no noded vertex), else ``{}`` — no second pass.  ONE derivation: the
+    census's ``platform_rim_relief`` row is these same records."""
+    cmax = float(law.tables.structures.building_pad.platform_collar_max_m)
+    tol = float(law.tables.emit.identity.min_distinct_spacing_m)
+    out: dict[str, float] = {}
+    diff = False
+    for r in records:
+        need = r.get("collar_needed_m")
+        ref = r.get("ref")
+        if need is None or ref not in minted:
+            continue
+        c = min(cmax, float(need))
+        out[ref] = round(c, 2)
+        if abs(c - float(minted[ref])) > tol:
+            diff = True
+    return out if diff else {}
+
+
+def platform_planes(records: _t.Sequence[dict], planar: PlanarMap,
+                    ) -> dict[str, tuple[float, float, float, float, float]]:
+    """P10 (unit-platform spec §3; issue #86): the SOLVED platform plane per
+    platform ref, as ``solve.project_strip`` spells a plane —
+    ``(z0, gx, gy, x0, y0)`` at the platform's centroid — read off
+    ``platform_records`` (``level`` is the plane at the centroid of the
+    platform vertices, ``grad`` its gradient).  The centroid is re-read
+    from the record's ``centroid_xy``."""
+    out: dict[str, tuple[float, float, float, float, float]] = {}
+    for r in records:
+        c = r.get("centroid_xy")
+        if c is None or "level" not in r:
+            continue
+        gx, gy = r["grad"]
+        out[str(r["ref"])] = (float(r["level"]), float(gx), float(gy),
+                              float(c[0]), float(c[1]))
     return out
 
 

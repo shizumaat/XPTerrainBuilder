@@ -580,405 +580,446 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     t = time.perf_counter()
     cl = classify(airport, law, load_rules(), cache=ocache)
     wall["classify"] = time.perf_counter() - t
-    t = time.perf_counter()
-    objects_out: list = []
-    pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
-                              objects=pack_objects, object_report=pack_report)
-    wall["planar"] = time.perf_counter() - t
-    # §37 (11) (7) (issue #72): the shore the zones were cut against —
-    # quay faces stand on a DECLARED shore (or a pavement edge that IS
-    # the coast), natural faces slope to the water.
-    _say(f"  [planar] shore (§37 (11) (7)): "
-         f"{len(getattr(pm, 'quay_refs', ()) or ())} quay face(s), "
-         f"{len(getattr(pm, 'natural_shore_refs', ()) or ())} natural", out)
-    for _ln in shore_decision_lines(pm, airport):
-        _say(_ln, out)
-    if _xp:
-        _xp["classification"] = cl
-        _xp["planar_pm"] = pm
-        _xp["partition_airport"] = airport
-    _say(f"[{icao}] planar {wall['planar']:.2f} s  faces {pstats.faces}  "
-         f"edges {pstats.edges}  vertices {pstats.vertices}  "
-         f"breaklines {pstats.breaklines}  T-vertices {pstats.t_vertices}"
-         f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
-         f"  seam-band faces dropped {pstats.dropped_seam_faces}"
-         f"  slivers merged {pstats.slivers_merged} (08d-4a)", out)
-    # §41 (4) (owner RULINGS 2026-09-14c item 4): the sliver ZONE strips
-    if pstats.zone_slivers_dissolved or pstats.zone_slivers_dropped:
-        _say(f"[{icao}] zone slivers (41-4): "
-             f"{pstats.zone_slivers_dissolved} dissolved into their host, "
-             f"{pstats.zone_slivers_dropped} host-less dropped, "
-             f"{pstats.zone_sliver_area_m2:,.1f} m2", out)
-    sh = pstats.shapes
-    if sh.faces:
-        # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19)
-        _say(f"[{icao}] " + pstats.terrain_edge.line(), out)
-        # THE SHAPES (owner RULINGS 2026-09-08k; ``planar/shapes.py``)
-        _say(f"[{icao}] network (08p): {sh.network_faces} of {sh.faces} pavement faces "
-             f"({', '.join(f'{k} {n}' for k, n in sorted(sh.network_by_role.items()))}), "
-             f"{sh.network_vertices} vertices, {sh.connected_stations} connected stations, "
-             f"{sh.unconnected_station_edges} unconnected centreline edges; bodies {sh.body_faces} faces "
-             f"({sh.faces_unlabelled} welded whole)", out)
-        _say(f"[{icao}] shapes (08k): {sh.body_faces} body faces -> {sh.components} components, "
-             f"{sh.bodies} bodies, {sh.shapes} shapes (strip welds {sh.welded_strip_pairs}, route welds {sh.welded_route_pairs}); "
-             f"vertices {sh.vertices_labelled} (roads {sh.road_vertices_labelled} labelled / "
-             f"{sh.road_vertices_relabelled} relabelled / {sh.road_vertices_unlabelled} freed; road faces "
-             f"{sh.roads_along} along, {sh.roads_crossing} crossing -> {sh.road_ramps} ramps, 08r-2; pads relabelled "
-             f"{sh.pads_relabelled}); joints {sh.contours} contours ({sh.contour_length_m:,.0f} m, "
-             f"dangling faces {sh.dangling_faces}) + {sh.gap_joints} gap ({sh.gap_length_m:,.0f} m); "
-             f"joint edges {sh.joint_edges}; {sh.wall_s:.2f} s", out)
-        for sid, nf, a, nv, roles in sh.by_shape[:8]:
-            _say(f"    shape {sid}: {nf} faces, {a:,} m2, {nv} vertices, {'/'.join(roles)}", out)
-    ss = pstats.structures
-    ts = pstats.tunnel_objects
-    ds, rs = pstats.door_wells, pstats.sunken_roads
-    ws = pstats.wall_corridors
-    if ws.corridors or ws.refused:
-        _say(f"[{icao}] wall corridors (09-08m/n Law C): {ws.corridors} corridors "
-             f"({', '.join(f'{k} {n}' for k, n in sorted(ws.by_class.items()))}) from {ws.pairs} "
-             f"pairs of {ws.bands} bands in {ws.families} families ({ws.read_s:.2f} s)  refused "
-             f"{len(ws.refused)}", out)
-        for r in ws.refused[:40]:
-            _say(f"    refused wall corridor {r}", out)
-    if ds.wells or ds.refused or rs.roads or rs.refused:
-        _say(f"[{icao}] door wells (09-08b/c Law A): {ds.wells} of {ds.regions} regions in "
-             f"{ds.families} families ({ds.sill_witnesses} sill witnesses over {ds.screened} "
-             f"screened placements, {ds.basin_gate_components} basin-gate components left to the "
-             f"basin pass; {ds.read_s:.2f} s)  sunken roads (Law B): {rs.roads} of {rs.plates} "
-             f"plates in {rs.families} families ({rs.read_s:.2f} s)  refused {len(ds.refused)} / "
-             f"{len(rs.refused)}", out)
-        for r in ds.refused[:40]:
-            _say(f"    refused door {r}", out)
-        for r in rs.refused[:40]:
-            _say(f"    refused sunken road {r}", out)
-    if ss.bores or ss.object_corridors or ss.door_ramps or ss.sunken_roads or ss.wall_corridors \
-            or ts.refused:
-        _say(f"[{icao}] structures: bores {ss.bores} (no on-field mouth {ss.bores_no_mouth}, "
-             f"mouth-only built {ss.bores_mouth_only}, replaced by "
-             f"objects {ss.bores_replaced_by_object})  mouths {ss.mouths} (off-field "
-             f"{ss.mouths_off_field}, on approach {ss.mouths_on_approach} of "
-             f"{ss.approach_corridors} corridors, "
-             f"{ss.runway_bands} runway bands)  duals merged "
-             f"{ss.duals_merged}  object corridors {ss.object_corridors} (signatures "
-             f"{ts.signatures} of {ts.resources} resources screened, {ts.not_screened} "
-             f"not screened, thin plates {ts.plates}, object cuts {ts.shells} B "
-             f"(basin placements claimed {len(ts.shell_claimed)}), merged {ts.merged}, "
-             f"{ts.signature_s:.2f} s)  plate mouths {len(ss.plate_mouths)}  "
-             f"crest from approach {len(ss.crest_from_approach)}  "
-             f"underpasses {len(ss.underpasses)}  "
-             f"object-decked trenches {ss.decked_outlines} (§33 (6) B (3) (c): "
-             f"{ss.decked_pavement_m2:,.0f} m2 pavement, {ss.decked_centreline_m:,.0f} m "
-             f"centreline, {ss.decked_road_m:,.0f} m road excluded)  "
-             f"door ramps {ss.door_ramps}  sunken roads "
-             f"{ss.sunken_roads}  wall corridors {ss.wall_corridors}  tunnels {ss.tunnels}  "
-             f"decks {ss.decks}  "
-             f"cells cut {ss.cells_cut}  mouth roads {len(ss.mouth_roads)}  "
-             f"refused {len(ss.refused) + len(ts.refused)}", out)
-    # §34 (13) (4): every MOUTH ROAD named — the class is meant to be a
-    # handful (LEMD 4, KCLT 3, OTHH 0), so a rising count is visible
-    for _mr in ss.mouth_roads:
-        _say(f"    [{icao}]     {_mr}", out)
-        for r in ts.refused:
-            _say(f"    refused object {r}", out)
-        for r in ss.refused:
-            _say(f"    refused {r}", out)
-        if ss.mouth_only_bores:
-            _say(f"    mouth-only bores BUILT (owner 2026-09-12ab, no cover): "
-                 f"{', '.join(ss.mouth_only_bores)}", out)
-        for r in ss.plate_mouths:
-            _say(f"    {r}", out)
-        for r in ss.underpasses:
-            _say(f"    {r}", out)
-        for r in ss.decked_excluded:
-            _say(f"    {r}", out)
-        for r in ss.decked_runway_family:
-            _say(f"    {r}", out)
-        for r in ss.crest_from_approach:
-            _say(f"    {r}", out)
-        for r in ss.mouths_on_approach_named:
-            _say(f"    {r}", out)
-        for r in ss.mouths_off_field_nearest:
-            _say(f"    {r}", out)
-        for r in ss.bore_precedence:
-            _say(f"    {r}", out)
-        for tn in pm.structures:
-            if tn.source == "object":
-                # round-2 spec §3.6: the per-corridor line
-                inside = min(tn.top_s, tn.wall_length_m)
-                _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
-                     f"depth {tn.depth_m:.2f} m ramp {tn.top_s:.1f} m (inside walls {inside:.1f} m, "
-                     f"beyond {max(0.0, tn.top_s - tn.wall_length_m):.1f} m) grade "
-                     f"{100.0 * tn.design_grade:.2f} % ends mouth={tn.mouth_kind} "
-                     f"ground={tn.ground_kind} walls {tn.ends} width {tn.hull_width_m:.1f} m "
-                     f"reseat expect {', '.join(f'{d:+.2f}' for d in tn.reseat_expect_m)} "
-                     f"trench-outside {tn.trench_outside_max_m:.3f} m replaced mouths of "
-                     f"[{', '.join(str(w) for w in tn.replaced_ways)}]  decks {len(tn.decks)}  "
-                     f"{'; '.join(tn.notes)}", out)
-                continue
-            if tn.source == "wall_corridor":
-                # RULINGS 2026-09-08m/n Law C: the per-site line the report quotes
-                inside = [z for s, z in tn.profile if s <= tn.wall_length_m + 1e-6]
-                _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
-                     f"floor {min(inside) if inside else tn.mouth_z:.2f}..{max(inside) if inside else tn.mouth_z:.2f} "
-                     f"depth {tn.depth_m:.2f} m width {tn.hull_width_m:.1f} m walls "
-                     f"{tn.wall_length_m:.1f} m ramp {max(0.0, tn.top_s - tn.climb_from_s):.1f} m at "
-                     f"{100.0 * tn.design_grade:.2f} % top s {tn.top_s:.1f} ends {tn.ends} "
-                     f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
-                     f"{'; '.join(tn.notes)}", out)
-                continue
-            if tn.source in ("door", "sunken_road"):
-                # RULINGS 2026-09-08b/c: the per-site line the report quotes
-                _say(f"    {tn.id}: {'sill' if tn.source == 'door' else 'cut'} {tn.mouth_z:.2f} "
-                     f"ground {tn.mouth_dem_z:.2f} depth {tn.depth_m:.2f} m width "
-                     f"{tn.hull_width_m:.1f} m well/plate {tn.wall_length_m:.1f} m ramp "
-                     f"{max(0.0, tn.top_s - tn.climb_from_s):.1f} m at {100.0 * tn.design_grade:.2f} % "
-                     f"top s {tn.top_s:.1f} ground {tn.top_ground_z if tn.top_ground_z is not None else float('nan'):.2f} "
-                     f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
-                     f"{'; '.join(tn.notes)}", out)
-                continue
-            _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
-                 f"  half {tn.half_width_m:.1f} m  decks {len(tn.decks)}  {'; '.join(tn.notes)}", out)
-    bs = pstats.basins
-    if bs.objects is not None:
-        o = bs.objects
-        _say(f"[{icao}] objects: {o.placements} placements, {o.resolved} resolved "
-             f"({o.unresolved} unresolved, {o.stock_placements} stock), "
-             f"{o.resources_parsed} resources parsed in {bs.object_read_s:.2f} s, "
-             f"{o.below_grade_objects} below grade, {o.hard_deck_objects} hard-deck, "
-             f"{lrep.objects_restored_for_read} restored-for-read (.anchor_bak)", out)
-        for up in o.unresolved_paths[:10]:
-            _say(f"    unresolved {up}", out)
-    # THE AT-GRADE READ, TIMED (owner RULINGS 2026-09-13bp (iii)): it was
-    # untimed beside object_read_s and burned VHHH's 2,626 s planar stage
-    _say(f"[{icao}] at-grade read: {bs.grade_geometry_s:.2f} s, {bs.grade_calls} placements, "
-         f"{bs.grade_unions} clip+union (one per distinct resource/plane), "
-         f"{bs.grade_vertices} vertices", out)
-    if bs.union_s:
-        _say("[%s] basin unions: " % icao + "  ".join(
-            f"{k} {v:.1f}s/{bs.union_n.get(k, 0)}"
-            for k, v in sorted(bs.union_s.items(), key=lambda kv: -kv[1])), out)
-    if bs.regions or bs.refused:
-        _say(f"[{icao}] basins: regions {bs.regions}  basins {bs.basins}  cells cut {bs.cells_cut}  "
-             f"refused {len(bs.refused)}  under min area {len(bs.small_regions)}", out)
-        for r in bs.refused:
-            _say(f"    refused {r}", out)
-        for b in pm.basins:
-            _say(f"    {b.id}: floor {b.floor_z:.2f}  R_est {b.rim_estimate_m:.2f}  deepest solid "
-                 f"{b.solid_min_y_m:+.2f} (rendered {b.solid_min_z:.2f})  floor area {b.area_m2:.0f} m2  "
-                 f"seat expect {b.seat_expect_m:+.2f} (anchor "
-                 f"{'inside' if b.anchor_inside_floor else 'outside'} the floor, plate y "
-                 f"{b.plate_y_m:+.2f})  at {b.anchor_ll[0]:.6f},{b.anchor_ll[1]:.6f}  "
-                 f"{'; '.join(b.notes)}", out)
-    # THE FLAT-SITE VERDICT (RULINGS 2026-09-05k-2; ``airport/flat_site.py``):
-    # measured here, after the planar stage read the pack's objects (S4),
-    # on the production raster already in memory; the datum is a
-    # preference the generator below prices, the runway keeps its pins
-    t = time.perf_counter()
-    # §37 (11) (4) (owner RULINGS 2026-09-15f item 2): the airport's OWN
-    # classified surfaces are LAND by declaration, so the datum region's
-    # water cut cannot call a reclaimed apron sea (``_cut_water``'s own
-    # docstring carries the VMMC measurement).
-    fv = _flat.detect(airport, law, objects=objects_out[0] if objects_out else (),
-                      land=_classified_land(cl))
-    airport = _dc.replace(airport, flat_site=fv)
-    wall["flat_site"] = time.perf_counter() - t
-    lrep.flat_site = _flat.record(fv)
-    _say(_flat.log_line(icao, fv) + f"  ({wall['flat_site']:.2f} s)", out)
-    for ln in _flat.notes(icao, fv):
-        _say(ln, out)
-    # THE CORE SMOOTHS FIRST (RULINGS 2026-09-04t-4): every road-family
-    # vertex's fit target is the core's clamped, laterally-levelled road
-    # profile on this DEM (``airport/road_profile.py``); the cap rows
-    # below stay and v2 moves a vertex off it only where one binds.
-    t = time.perf_counter()
-    road_pref, road_rep, road_profiles = preferred_road_z(
-        airport, pm, law, inputs.road_grade_limit, inputs.lane_width_m)
-    pm = _dc.replace(pm, preferred_z=road_pref)
-    wall["road_profile"] = time.perf_counter() - t
-    # THE RUNWAY PROFILE (RULINGS 2026-09-08d (1) / 09-10q/10r/10t (3), spec
-    # §21; ``constraints/runway_chord.py``): every runway-family vertex of a
-    # two-pin runway takes the TARGET PROFILE at weight ``[design] chord`` —
-    # the ground's long-wave trend through the threshold pins, or the
-    # straight chord where the DEM frame is degraded.  The DEM fit stays for
-    # every other role.
-    chord_rep: ChordReport = {}
-    pm = with_runway_chord(pm, law, airport, chord_rep)
-    lrep.runway_chord = dict(chord_rep)
-    _say(f"[{icao}] runway profile (08d-1/10t-3): target {chord_rep.get('target_kind', '-')} "
-         f"(window {chord_rep.get('window_m', 0.0):.0f} m, {chord_rep.get('runways_trend', 0)} trend / "
-         f"{chord_rep.get('runways_chord', 0)} chord"
-         + (f", FALLBACK {chord_rep['fallback']}" if chord_rep.get("fallback") else "")
-         + f"); {chord_rep.get('runways', 0)} runways with two pins "
-         f"({chord_rep.get('runways_without', 0)} without, DEM fit kept)  vertices "
-         f"{chord_rep.get('vertices', 0)}  target above DEM up to {chord_rep.get('max_above_dem_m', 0.0):.2f} m, "
-         f"below up to {chord_rep.get('max_below_dem_m', 0.0):.2f} m"
-         + ("; off the straight chord " + ", ".join(
-             f"{r['runway']} {r['trend_max_off_chord_m']:+.2f}" for r in chord_rep.get("by_runway", [])[:6])
-            if chord_rep.get("by_runway") else ""), out)
-    # §50.4 THE ONE LOUD LINE (owner RULINGS 2026-09-18d (3)): one line per
-    # OVER-GRADE runway, naming the grade its own pins demand, the two pins
-    # and the cap they exceeded.  A LINE, never a gate — no verify family
-    # is added and ``defect_gate`` is untouched.  Recorded in three places
-    # from ONE record: ``report.json["runway_cap_yield"]`` (here, through
-    # ``lrep``), the GradedSurface provenance key of the same name, and the
-    # sidecar law key ``runway_caps`` (EVERY runway, yielded or not).
-    _caps = dict(getattr(pm, "runway_caps", {}) or {})
-    _yield_records = [rc.as_dict(law.ruleset_key)
-                      for _r, rc in sorted(_caps.items()) if rc.yielded]
-    for _line in yielded_lines(icao, _caps, law.ruleset.authority):
-        _say(_line, out)
-    # THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1); spec
-    # §8.6): every taxi centreline chain takes the ground's LONG-WAVE TREND
-    # along itself — the same §21 fit at the same window — shifted linearly
-    # through the chain's runway contacts, at the WEAK ``[design]
-    # taxi_trend``.  Fitted AFTER the runway profile, because a chain's
-    # runway contact is pinned to the runway's own target.
-    tt_rep: TaxiTrendReport = {}
-    pm = with_taxi_trend(pm, law, airport, tt_rep)
-    lrep.taxi_trend = dict(tt_rep)
-    _say(f"[{icao}] taxi profile (10v-1): {tt_rep.get('chains', 0)} chains "
-         f"({tt_rep.get('chains_without', 0)} without a fit) "
-         f"window {tt_rep.get('window_m', 0.0):.0f} m  vertices "
-         f"{tt_rep.get('vertices', 0)}  shifted through "
-         f"{tt_rep.get('pins', 0)} runway contacts  target above DEM up to "
-         f"{tt_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
-         f"{tt_rep.get('max_below_dem_m', 0.0):.2f} m"
-         + (f"; FALLBACK {tt_rep['fallback']}" if tt_rep.get("fallback") else ""), out)
-    # THE APRON BODY'S TARGET SURFACE (owner RULINGS 2026-09-10ar; spec
-    # §8.7): an apron body LARGER THAN THE FIT WINDOW takes the ground's
-    # 2-D long-wave trend at every vertex — a moving quadratic SURFACE fit
-    # of the production DEM — instead of its three affine ``body_datum``
-    # rows, which a plane-sized body keeps.  Fitted AFTER the taxi trend,
-    # because a vertex the taxi chain already holds takes no second
-    # authority.
-    at_rep: ApronTrendReport = {}
-    pm = with_apron_trend(pm, law, airport, at_rep)
-    lrep.apron_trend = dict(at_rep)
-    _say(f"[{icao}] apron surface (10ar): {at_rep.get('bodies', 0)} bodies on the "
-         f"ground's 2-D TREND ({at_rep.get('vertices', 0)} vertices, "
-         f"{at_rep.get('samples', 0)} DEM cells, fit "
-         f"{at_rep.get('fit_wall_s', 0.0):.2f} s), "
-         f"{at_rep.get('bodies_plane', 0)} bodies keep their affine PLANE; "
-         f"window {at_rep.get('window_m', 0.0):.0f} m, widest body "
-         f"{at_rep.get('max_diameter_m', 0.0):.0f} m; target above DEM up to "
-         f"{at_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
-         f"{at_rep.get('max_below_dem_m', 0.0):.2f} m"
-         + (f"; FALLBACK {at_rep['fallback']}" if at_rep.get("fallback") else ""), out)
-    # THE EAT RAMP'S REACH — THE TREND YIELDS (owner RULINGS 2026-09-13aa;
-    # spec §36 (5)).  An end-around taxiway pinned a tail height below the
-    # departure surface must ramp back to the ground at the TAXI cap, and
-    # the ramp's free neighbours were buying ~1 % of grade with their
-    # ground-trend residual instead (measured 2.37-3.87 % at KCLT).  Over
-    # the DERIVED reach — drop / cap along the loop's own centreline — both
-    # trend channels are WITHDRAWN, not outweighed.  Runs AFTER both are
-    # published, so neither claim is re-opened by the other's absence.
-    er_rep: dict = {}
-    pm = withdraw_trend_over_reach(pm, law, airport, er_rep)
-    lrep.eat_reach = dict(er_rep)
-    if er_rep.get("pins"):
-        _say(f"[{icao}] EAT ramp reach (13aa/§36-5): {er_rep.get('pins', 0)} pinned feet on "
-             f"{len(er_rep.get('feet', []))} loop(s), reach "
-             + ", ".join(f"{r['reach_m']:.0f} m (drop {r['drop_m']:.2f} at cap {r['cap']:.3f})"
-                         for r in er_rep.get("feet", [])[:4])
-             + f"; trend rows withdrawn {er_rep.get('withdrawn', 0)} "
-             f"(taxi {er_rep.get('withdrawn_taxi', 0)}, apron {er_rep.get('withdrawn_apron', 0)})"
-             + (f"; LOOP TOO SHORT at {len(er_rep['short'])} foot(feet) — forced grade "
-                + ", ".join(f"{(s.get('forced_grade') or 0) * 100:.2f} %"
-                            for s in er_rep["short"][:4]) + " (taxi family)"
-                if er_rep.get("short") else ""), out)
-    # §37 (6) A GROUNDSIDE ROAD IS A RAMP FROM ITS AIRSIDE CONTACT TO THE
-    # DEM (owner RULINGS 2026-09-13j item 5, ruled 13aj; spec §37 (6)).
-    # LAST of the target channels, because a mouth's level is READ from the
-    # airside's own published target (§21 chord / §8.6 taxi trend / §8.7
-    # apron trend) where it carries one; the ramp target then SUPERSEDES
-    # the core's soft road fit for every vertex it governs — the ONE
-    # superseding site.  The rows are ``constraints/road_ramp.py``'s.
-    ramp_rep: dict = {}
-    pm = with_road_ramp(pm, law, airport, ramp_rep, road_profiles)
-    # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): the core
-    # levels the road OUTSIDE the coverage and not inside it, so where a
-    # way leaves, the patch takes the ribbon's own altitude there.
-    join_rep: dict = {}
-    pm = with_road_coverage_join(pm, law, road_profiles, join_rep)
-    ramp_rep.update({f"join_{k}": v for k, v in join_rep.items()})
-    lrep.road_ramp = dict(ramp_rep)
-    rs = road_rep["profiles"]
-    _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
-         f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "
-         f"axis {rs['ways_by_kind'].get('axis', 0)})"
-         f"  stations {rs['stations']}  clamped {rs['clamped_stations']} "
-         f"(max lift {rs['max_lift_m']:.2f} m, cut {rs['max_cut_m']:.2f} m)  cap {rs['cap']:.3f}"
-         f"  vertices {road_rep['vertices']}  preferred {road_rep['preferred']}"
-         f"  DEM fallback {road_rep['dem_fallback']}"
-         f"  off-DEM {road_rep['preferred_off_dem']} (max {road_rep['max_preferred_shift_m']:.2f} m)",
-         out)
-    _say(f"[{icao}] road ramps (§37 (6)): {ramp_rep.get('vertices', 0)} groundside-road "
-         f"vertices from {ramp_rep.get('mouths', 0)} airside contacts at cap "
-         f"{ramp_rep.get('cap') or 0.0:.3f} -> {ramp_rep.get('targets', 0)} targets "
-         f"({ramp_rep.get('on_dem', 0)} on the DEM, {ramp_rep.get('on_ramp', 0)} on the ramp "
-         f"up to {ramp_rep.get('max_above_dem_m', 0.0):.2f} m above it over "
-         f"{ramp_rep.get('max_reach_m', 0.0):.0f} m of route, "
-         f"{ramp_rep.get('no_contact', 0)} with no contact); core fit withdrawn on "
-         f"{ramp_rep.get('preferred_withdrawn', 0)}; clamp over the DEM up to "
-         f"{ramp_rep.get('max_clamp_over_dem_m', 0.0):.2f} m; coverage-edge joins "
-         f"(§37 (9)) {ramp_rep.get('join_exits', 0)} exit(s) on "
-         f"{ramp_rep.get('join_routes', 0)} route(s) -> {ramp_rep.get('join_vertices', 0)} "
-         f"pinned vertices", out)
-    # THE SHAPE STAGE (owner RULINGS 2026-09-08k; ``pipeline/shapes.py``):
-    # the route bands, the withdraw set, the joint filter, the yield transform
-    t = time.perf_counter()
-    stage = shape_stage(pm, law, airport, cl, out=lambda m: _say(m, out))
-    pm = stage.pm
-    wall["shapes"] = time.perf_counter() - t
-    t = time.perf_counter()
-    seam_yielded: list = []
-    cs, counts, gwalls = shape_constraints(pm, law, airport, stage,
-                                           yielded_out=seam_yielded)
-    wall["constraints"] = time.perf_counter() - t
-    if stage.dropped:
-        _say(f"[{icao}] joints (08k): {sum(stage.dropped.values())} rows dropped across shape "
-             f"boundaries — " + ", ".join(f"{g} {n}" for g, n in sorted(stage.dropped.items()))
-             + f"; reach bands withdrawn {stage.bands_withdrawn}; flats straddling "
-             f"{stage.flats_straddling}", out)
-    _say(f"[{icao}] constraints {wall['constraints']:.2f} s  {cs.counts()}", out)
-    for name, n in counts.items():
-        # a ``<generator>.<stat>`` key is a statistic, not a timed generator
-        _say(f"    {name:28s} {n:8d}  {gwalls[name]:.3f} s" if name in gwalls
-             else f"    {name:28s} {n:8d}", out)
-    # THE JETWAY STRIP'S REGION (owner RULINGS 2026-09-18t Q3; jetway-strip
-    # spec §1): derived HERE, where the airport, the map and the constraint
-    # set meet, and handed to the solve as data — ``solve`` may not import
-    # ``constraints`` (M0 §1).  The projection itself runs between §20b's
-    # two stages (``solve/project_strip.py``).
-    t = time.perf_counter()
-    from ..airport.riders import rider_candidates
-    from ..constraints.jetway_strip import jetway_strips
-    strips = jetway_strips(pm, law, airport, cs, rider_candidates(airport, law))
-    wall["jetway_strip"] = time.perf_counter() - t
-    _say(f"[{icao}] jetway strip region (18t Q3) {wall['jetway_strip']:.2f} s: "
-         + ", ".join(f"{k} {v}" for k, v in strips.counts.items()), out)
-    t = time.perf_counter()
-    size: dict[str, int] = {}
-    # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
-    # seeds the ramp from STAGE 1's solved level — applied between the two
-    # stages, bound here because ``solve`` may not import ``constraints``
-    from ..constraints.road_ramp import reach_seed_rewrite
-    sol, design_rep = solve_design(
-        pm, cs, law, cfg.options, size_out=size, strips=strips,
-        stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv))
-    wall["solve"] = time.perf_counter() - t
-    # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS where the solve
-    # released a §37 (9) join pin — the join takes the patch's level and
-    # the sidecar tells the core clamp to follow (``road_join_yield``)
-    from ..emit.road_join import with_pin_yield
-    pm = with_pin_yield(pm, design_rep.pin_yield,
-                        float(law.tables.emit.materiality.elevation_m))
-    _to_ll = airport.frame.transformers()[1] if pm.road_join_yield else None
-    for _v, (_rib, _zp) in sorted(pm.road_join_yield.items()):
-        _lat, _lon = _to_ll(*pm.vertices[_v].xy)
-        _say(f"[{icao}] JOIN YIELD (27a (10)): v{_v} at {_lat:.8f},{_lon:.8f} "
-             f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m; "
-             f"the core ribbon takes the patch level beyond its budget)", out)
+    # THE COLLAR'S SECOND PASS (issue #86; spec-author decision 2026-09-29,
+    # lane ``collar86``): the unit-platform collar width C is minted at the
+    # arrangement from the DEM along the welded rim, a PROXY for the solved
+    # rim (HECA T3 C 10.43 vs 11.2 m needed, SPJC building5 5.99 vs 14.0).
+    # After the first pass solves, C is re-derived per platform from the
+    # SOLVED relief (``platform_records`` — the census's
+    # ``platform_rim_relief`` row) and the collar is re-minted ONCE from the
+    # arrangement on (attempt cap 1, never iterated), the strips taking the
+    # first pass's solved PLATFORM plane (P10).  No platform off the solved
+    # reading, or every C within the grid: ONE pass, as before.
+    from ..planar import platform as _plat_mod
+    _plat_mod.SOLVED_C.clear()
+    _plat_planes: dict = {}
+    _collar_second: dict = {}
+    for _collar_pass in (1, 2):
+        t = time.perf_counter()
+        objects_out: list = []
+        pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
+                                  objects=pack_objects, object_report=pack_report)
+        wall["planar"] = time.perf_counter() - t
+        # §37 (11) (7) (issue #72): the shore the zones were cut against —
+        # quay faces stand on a DECLARED shore (or a pavement edge that IS
+        # the coast), natural faces slope to the water.
+        _say(f"  [planar] shore (§37 (11) (7)): "
+             f"{len(getattr(pm, 'quay_refs', ()) or ())} quay face(s), "
+             f"{len(getattr(pm, 'natural_shore_refs', ()) or ())} natural", out)
+        for _ln in shore_decision_lines(pm, airport):
+            _say(_ln, out)
+        if _xp:
+            _xp["classification"] = cl
+            _xp["planar_pm"] = pm
+            _xp["partition_airport"] = airport
+        _say(f"[{icao}] planar {wall['planar']:.2f} s  faces {pstats.faces}  "
+             f"edges {pstats.edges}  vertices {pstats.vertices}  "
+             f"breaklines {pstats.breaklines}  T-vertices {pstats.t_vertices}"
+             f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
+             f"  seam-band faces dropped {pstats.dropped_seam_faces}"
+             f"  slivers merged {pstats.slivers_merged} (08d-4a)", out)
+        # §41 (4) (owner RULINGS 2026-09-14c item 4): the sliver ZONE strips
+        if pstats.zone_slivers_dissolved or pstats.zone_slivers_dropped:
+            _say(f"[{icao}] zone slivers (41-4): "
+                 f"{pstats.zone_slivers_dissolved} dissolved into their host, "
+                 f"{pstats.zone_slivers_dropped} host-less dropped, "
+                 f"{pstats.zone_sliver_area_m2:,.1f} m2", out)
+        sh = pstats.shapes
+        if sh.faces:
+            # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19)
+            _say(f"[{icao}] " + pstats.terrain_edge.line(), out)
+            # THE SHAPES (owner RULINGS 2026-09-08k; ``planar/shapes.py``)
+            _say(f"[{icao}] network (08p): {sh.network_faces} of {sh.faces} pavement faces "
+                 f"({', '.join(f'{k} {n}' for k, n in sorted(sh.network_by_role.items()))}), "
+                 f"{sh.network_vertices} vertices, {sh.connected_stations} connected stations, "
+                 f"{sh.unconnected_station_edges} unconnected centreline edges; bodies {sh.body_faces} faces "
+                 f"({sh.faces_unlabelled} welded whole)", out)
+            _say(f"[{icao}] shapes (08k): {sh.body_faces} body faces -> {sh.components} components, "
+                 f"{sh.bodies} bodies, {sh.shapes} shapes (strip welds {sh.welded_strip_pairs}, route welds {sh.welded_route_pairs}); "
+                 f"vertices {sh.vertices_labelled} (roads {sh.road_vertices_labelled} labelled / "
+                 f"{sh.road_vertices_relabelled} relabelled / {sh.road_vertices_unlabelled} freed; road faces "
+                 f"{sh.roads_along} along, {sh.roads_crossing} crossing -> {sh.road_ramps} ramps, 08r-2; pads relabelled "
+                 f"{sh.pads_relabelled}); joints {sh.contours} contours ({sh.contour_length_m:,.0f} m, "
+                 f"dangling faces {sh.dangling_faces}) + {sh.gap_joints} gap ({sh.gap_length_m:,.0f} m); "
+                 f"joint edges {sh.joint_edges}; {sh.wall_s:.2f} s", out)
+            for sid, nf, a, nv, roles in sh.by_shape[:8]:
+                _say(f"    shape {sid}: {nf} faces, {a:,} m2, {nv} vertices, {'/'.join(roles)}", out)
+        ss = pstats.structures
+        ts = pstats.tunnel_objects
+        ds, rs = pstats.door_wells, pstats.sunken_roads
+        ws = pstats.wall_corridors
+        if ws.corridors or ws.refused:
+            _say(f"[{icao}] wall corridors (09-08m/n Law C): {ws.corridors} corridors "
+                 f"({', '.join(f'{k} {n}' for k, n in sorted(ws.by_class.items()))}) from {ws.pairs} "
+                 f"pairs of {ws.bands} bands in {ws.families} families ({ws.read_s:.2f} s)  refused "
+                 f"{len(ws.refused)}", out)
+            for r in ws.refused[:40]:
+                _say(f"    refused wall corridor {r}", out)
+        if ds.wells or ds.refused or rs.roads or rs.refused:
+            _say(f"[{icao}] door wells (09-08b/c Law A): {ds.wells} of {ds.regions} regions in "
+                 f"{ds.families} families ({ds.sill_witnesses} sill witnesses over {ds.screened} "
+                 f"screened placements, {ds.basin_gate_components} basin-gate components left to the "
+                 f"basin pass; {ds.read_s:.2f} s)  sunken roads (Law B): {rs.roads} of {rs.plates} "
+                 f"plates in {rs.families} families ({rs.read_s:.2f} s)  refused {len(ds.refused)} / "
+                 f"{len(rs.refused)}", out)
+            for r in ds.refused[:40]:
+                _say(f"    refused door {r}", out)
+            for r in rs.refused[:40]:
+                _say(f"    refused sunken road {r}", out)
+        if ss.bores or ss.object_corridors or ss.door_ramps or ss.sunken_roads or ss.wall_corridors \
+                or ts.refused:
+            _say(f"[{icao}] structures: bores {ss.bores} (no on-field mouth {ss.bores_no_mouth}, "
+                 f"mouth-only built {ss.bores_mouth_only}, replaced by "
+                 f"objects {ss.bores_replaced_by_object})  mouths {ss.mouths} (off-field "
+                 f"{ss.mouths_off_field}, on approach {ss.mouths_on_approach} of "
+                 f"{ss.approach_corridors} corridors, "
+                 f"{ss.runway_bands} runway bands)  duals merged "
+                 f"{ss.duals_merged}  object corridors {ss.object_corridors} (signatures "
+                 f"{ts.signatures} of {ts.resources} resources screened, {ts.not_screened} "
+                 f"not screened, thin plates {ts.plates}, object cuts {ts.shells} B "
+                 f"(basin placements claimed {len(ts.shell_claimed)}), merged {ts.merged}, "
+                 f"{ts.signature_s:.2f} s)  plate mouths {len(ss.plate_mouths)}  "
+                 f"crest from approach {len(ss.crest_from_approach)}  "
+                 f"underpasses {len(ss.underpasses)}  "
+                 f"object-decked trenches {ss.decked_outlines} (§33 (6) B (3) (c): "
+                 f"{ss.decked_pavement_m2:,.0f} m2 pavement, {ss.decked_centreline_m:,.0f} m "
+                 f"centreline, {ss.decked_road_m:,.0f} m road excluded)  "
+                 f"door ramps {ss.door_ramps}  sunken roads "
+                 f"{ss.sunken_roads}  wall corridors {ss.wall_corridors}  tunnels {ss.tunnels}  "
+                 f"decks {ss.decks}  "
+                 f"cells cut {ss.cells_cut}  mouth roads {len(ss.mouth_roads)}  "
+                 f"refused {len(ss.refused) + len(ts.refused)}", out)
+        # §34 (13) (4): every MOUTH ROAD named — the class is meant to be a
+        # handful (LEMD 4, KCLT 3, OTHH 0), so a rising count is visible
+        for _mr in ss.mouth_roads:
+            _say(f"    [{icao}]     {_mr}", out)
+            for r in ts.refused:
+                _say(f"    refused object {r}", out)
+            for r in ss.refused:
+                _say(f"    refused {r}", out)
+            if ss.mouth_only_bores:
+                _say(f"    mouth-only bores BUILT (owner 2026-09-12ab, no cover): "
+                     f"{', '.join(ss.mouth_only_bores)}", out)
+            for r in ss.plate_mouths:
+                _say(f"    {r}", out)
+            for r in ss.underpasses:
+                _say(f"    {r}", out)
+            for r in ss.decked_excluded:
+                _say(f"    {r}", out)
+            for r in ss.decked_runway_family:
+                _say(f"    {r}", out)
+            for r in ss.crest_from_approach:
+                _say(f"    {r}", out)
+            for r in ss.mouths_on_approach_named:
+                _say(f"    {r}", out)
+            for r in ss.mouths_off_field_nearest:
+                _say(f"    {r}", out)
+            for r in ss.bore_precedence:
+                _say(f"    {r}", out)
+            for tn in pm.structures:
+                if tn.source == "object":
+                    # round-2 spec §3.6: the per-corridor line
+                    inside = min(tn.top_s, tn.wall_length_m)
+                    _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
+                         f"depth {tn.depth_m:.2f} m ramp {tn.top_s:.1f} m (inside walls {inside:.1f} m, "
+                         f"beyond {max(0.0, tn.top_s - tn.wall_length_m):.1f} m) grade "
+                         f"{100.0 * tn.design_grade:.2f} % ends mouth={tn.mouth_kind} "
+                         f"ground={tn.ground_kind} walls {tn.ends} width {tn.hull_width_m:.1f} m "
+                         f"reseat expect {', '.join(f'{d:+.2f}' for d in tn.reseat_expect_m)} "
+                         f"trench-outside {tn.trench_outside_max_m:.3f} m replaced mouths of "
+                         f"[{', '.join(str(w) for w in tn.replaced_ways)}]  decks {len(tn.decks)}  "
+                         f"{'; '.join(tn.notes)}", out)
+                    continue
+                if tn.source == "wall_corridor":
+                    # RULINGS 2026-09-08m/n Law C: the per-site line the report quotes
+                    inside = [z for s, z in tn.profile if s <= tn.wall_length_m + 1e-6]
+                    _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
+                         f"floor {min(inside) if inside else tn.mouth_z:.2f}..{max(inside) if inside else tn.mouth_z:.2f} "
+                         f"depth {tn.depth_m:.2f} m width {tn.hull_width_m:.1f} m walls "
+                         f"{tn.wall_length_m:.1f} m ramp {max(0.0, tn.top_s - tn.climb_from_s):.1f} m at "
+                         f"{100.0 * tn.design_grade:.2f} % top s {tn.top_s:.1f} ends {tn.ends} "
+                         f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
+                         f"{'; '.join(tn.notes)}", out)
+                    continue
+                if tn.source in ("door", "sunken_road"):
+                    # RULINGS 2026-09-08b/c: the per-site line the report quotes
+                    _say(f"    {tn.id}: {'sill' if tn.source == 'door' else 'cut'} {tn.mouth_z:.2f} "
+                         f"ground {tn.mouth_dem_z:.2f} depth {tn.depth_m:.2f} m width "
+                         f"{tn.hull_width_m:.1f} m well/plate {tn.wall_length_m:.1f} m ramp "
+                         f"{max(0.0, tn.top_s - tn.climb_from_s):.1f} m at {100.0 * tn.design_grade:.2f} % "
+                         f"top s {tn.top_s:.1f} ground {tn.top_ground_z if tn.top_ground_z is not None else float('nan'):.2f} "
+                         f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
+                         f"{'; '.join(tn.notes)}", out)
+                    continue
+                _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
+                     f"  half {tn.half_width_m:.1f} m  decks {len(tn.decks)}  {'; '.join(tn.notes)}", out)
+        bs = pstats.basins
+        if bs.objects is not None:
+            o = bs.objects
+            _say(f"[{icao}] objects: {o.placements} placements, {o.resolved} resolved "
+                 f"({o.unresolved} unresolved, {o.stock_placements} stock), "
+                 f"{o.resources_parsed} resources parsed in {bs.object_read_s:.2f} s, "
+                 f"{o.below_grade_objects} below grade, {o.hard_deck_objects} hard-deck, "
+                 f"{lrep.objects_restored_for_read} restored-for-read (.anchor_bak)", out)
+            for up in o.unresolved_paths[:10]:
+                _say(f"    unresolved {up}", out)
+        # THE AT-GRADE READ, TIMED (owner RULINGS 2026-09-13bp (iii)): it was
+        # untimed beside object_read_s and burned VHHH's 2,626 s planar stage
+        _say(f"[{icao}] at-grade read: {bs.grade_geometry_s:.2f} s, {bs.grade_calls} placements, "
+             f"{bs.grade_unions} clip+union (one per distinct resource/plane), "
+             f"{bs.grade_vertices} vertices", out)
+        if bs.union_s:
+            _say("[%s] basin unions: " % icao + "  ".join(
+                f"{k} {v:.1f}s/{bs.union_n.get(k, 0)}"
+                for k, v in sorted(bs.union_s.items(), key=lambda kv: -kv[1])), out)
+        if bs.regions or bs.refused:
+            _say(f"[{icao}] basins: regions {bs.regions}  basins {bs.basins}  cells cut {bs.cells_cut}  "
+                 f"refused {len(bs.refused)}  under min area {len(bs.small_regions)}", out)
+            for r in bs.refused:
+                _say(f"    refused {r}", out)
+            for b in pm.basins:
+                _say(f"    {b.id}: floor {b.floor_z:.2f}  R_est {b.rim_estimate_m:.2f}  deepest solid "
+                     f"{b.solid_min_y_m:+.2f} (rendered {b.solid_min_z:.2f})  floor area {b.area_m2:.0f} m2  "
+                     f"seat expect {b.seat_expect_m:+.2f} (anchor "
+                     f"{'inside' if b.anchor_inside_floor else 'outside'} the floor, plate y "
+                     f"{b.plate_y_m:+.2f})  at {b.anchor_ll[0]:.6f},{b.anchor_ll[1]:.6f}  "
+                     f"{'; '.join(b.notes)}", out)
+        # THE FLAT-SITE VERDICT (RULINGS 2026-09-05k-2; ``airport/flat_site.py``):
+        # measured here, after the planar stage read the pack's objects (S4),
+        # on the production raster already in memory; the datum is a
+        # preference the generator below prices, the runway keeps its pins
+        t = time.perf_counter()
+        # §37 (11) (4) (owner RULINGS 2026-09-15f item 2): the airport's OWN
+        # classified surfaces are LAND by declaration, so the datum region's
+        # water cut cannot call a reclaimed apron sea (``_cut_water``'s own
+        # docstring carries the VMMC measurement).
+        fv = _flat.detect(airport, law, objects=objects_out[0] if objects_out else (),
+                          land=_classified_land(cl))
+        airport = _dc.replace(airport, flat_site=fv)
+        wall["flat_site"] = time.perf_counter() - t
+        lrep.flat_site = _flat.record(fv)
+        _say(_flat.log_line(icao, fv) + f"  ({wall['flat_site']:.2f} s)", out)
+        for ln in _flat.notes(icao, fv):
+            _say(ln, out)
+        # THE CORE SMOOTHS FIRST (RULINGS 2026-09-04t-4): every road-family
+        # vertex's fit target is the core's clamped, laterally-levelled road
+        # profile on this DEM (``airport/road_profile.py``); the cap rows
+        # below stay and v2 moves a vertex off it only where one binds.
+        t = time.perf_counter()
+        road_pref, road_rep, road_profiles = preferred_road_z(
+            airport, pm, law, inputs.road_grade_limit, inputs.lane_width_m)
+        pm = _dc.replace(pm, preferred_z=road_pref)
+        wall["road_profile"] = time.perf_counter() - t
+        # THE RUNWAY PROFILE (RULINGS 2026-09-08d (1) / 09-10q/10r/10t (3), spec
+        # §21; ``constraints/runway_chord.py``): every runway-family vertex of a
+        # two-pin runway takes the TARGET PROFILE at weight ``[design] chord`` —
+        # the ground's long-wave trend through the threshold pins, or the
+        # straight chord where the DEM frame is degraded.  The DEM fit stays for
+        # every other role.
+        chord_rep: ChordReport = {}
+        pm = with_runway_chord(pm, law, airport, chord_rep)
+        lrep.runway_chord = dict(chord_rep)
+        _say(f"[{icao}] runway profile (08d-1/10t-3): target {chord_rep.get('target_kind', '-')} "
+             f"(window {chord_rep.get('window_m', 0.0):.0f} m, {chord_rep.get('runways_trend', 0)} trend / "
+             f"{chord_rep.get('runways_chord', 0)} chord"
+             + (f", FALLBACK {chord_rep['fallback']}" if chord_rep.get("fallback") else "")
+             + f"); {chord_rep.get('runways', 0)} runways with two pins "
+             f"({chord_rep.get('runways_without', 0)} without, DEM fit kept)  vertices "
+             f"{chord_rep.get('vertices', 0)}  target above DEM up to {chord_rep.get('max_above_dem_m', 0.0):.2f} m, "
+             f"below up to {chord_rep.get('max_below_dem_m', 0.0):.2f} m"
+             + ("; off the straight chord " + ", ".join(
+                 f"{r['runway']} {r['trend_max_off_chord_m']:+.2f}" for r in chord_rep.get("by_runway", [])[:6])
+                if chord_rep.get("by_runway") else ""), out)
+        # §50.4 THE ONE LOUD LINE (owner RULINGS 2026-09-18d (3)): one line per
+        # OVER-GRADE runway, naming the grade its own pins demand, the two pins
+        # and the cap they exceeded.  A LINE, never a gate — no verify family
+        # is added and ``defect_gate`` is untouched.  Recorded in three places
+        # from ONE record: ``report.json["runway_cap_yield"]`` (here, through
+        # ``lrep``), the GradedSurface provenance key of the same name, and the
+        # sidecar law key ``runway_caps`` (EVERY runway, yielded or not).
+        _caps = dict(getattr(pm, "runway_caps", {}) or {})
+        _yield_records = [rc.as_dict(law.ruleset_key)
+                          for _r, rc in sorted(_caps.items()) if rc.yielded]
+        for _line in yielded_lines(icao, _caps, law.ruleset.authority):
+            _say(_line, out)
+        # THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1); spec
+        # §8.6): every taxi centreline chain takes the ground's LONG-WAVE TREND
+        # along itself — the same §21 fit at the same window — shifted linearly
+        # through the chain's runway contacts, at the WEAK ``[design]
+        # taxi_trend``.  Fitted AFTER the runway profile, because a chain's
+        # runway contact is pinned to the runway's own target.
+        tt_rep: TaxiTrendReport = {}
+        pm = with_taxi_trend(pm, law, airport, tt_rep)
+        lrep.taxi_trend = dict(tt_rep)
+        _say(f"[{icao}] taxi profile (10v-1): {tt_rep.get('chains', 0)} chains "
+             f"({tt_rep.get('chains_without', 0)} without a fit) "
+             f"window {tt_rep.get('window_m', 0.0):.0f} m  vertices "
+             f"{tt_rep.get('vertices', 0)}  shifted through "
+             f"{tt_rep.get('pins', 0)} runway contacts  target above DEM up to "
+             f"{tt_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
+             f"{tt_rep.get('max_below_dem_m', 0.0):.2f} m"
+             + (f"; FALLBACK {tt_rep['fallback']}" if tt_rep.get("fallback") else ""), out)
+        # THE APRON BODY'S TARGET SURFACE (owner RULINGS 2026-09-10ar; spec
+        # §8.7): an apron body LARGER THAN THE FIT WINDOW takes the ground's
+        # 2-D long-wave trend at every vertex — a moving quadratic SURFACE fit
+        # of the production DEM — instead of its three affine ``body_datum``
+        # rows, which a plane-sized body keeps.  Fitted AFTER the taxi trend,
+        # because a vertex the taxi chain already holds takes no second
+        # authority.
+        at_rep: ApronTrendReport = {}
+        pm = with_apron_trend(pm, law, airport, at_rep)
+        lrep.apron_trend = dict(at_rep)
+        _say(f"[{icao}] apron surface (10ar): {at_rep.get('bodies', 0)} bodies on the "
+             f"ground's 2-D TREND ({at_rep.get('vertices', 0)} vertices, "
+             f"{at_rep.get('samples', 0)} DEM cells, fit "
+             f"{at_rep.get('fit_wall_s', 0.0):.2f} s), "
+             f"{at_rep.get('bodies_plane', 0)} bodies keep their affine PLANE; "
+             f"window {at_rep.get('window_m', 0.0):.0f} m, widest body "
+             f"{at_rep.get('max_diameter_m', 0.0):.0f} m; target above DEM up to "
+             f"{at_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
+             f"{at_rep.get('max_below_dem_m', 0.0):.2f} m"
+             + (f"; FALLBACK {at_rep['fallback']}" if at_rep.get("fallback") else ""), out)
+        # THE EAT RAMP'S REACH — THE TREND YIELDS (owner RULINGS 2026-09-13aa;
+        # spec §36 (5)).  An end-around taxiway pinned a tail height below the
+        # departure surface must ramp back to the ground at the TAXI cap, and
+        # the ramp's free neighbours were buying ~1 % of grade with their
+        # ground-trend residual instead (measured 2.37-3.87 % at KCLT).  Over
+        # the DERIVED reach — drop / cap along the loop's own centreline — both
+        # trend channels are WITHDRAWN, not outweighed.  Runs AFTER both are
+        # published, so neither claim is re-opened by the other's absence.
+        er_rep: dict = {}
+        pm = withdraw_trend_over_reach(pm, law, airport, er_rep)
+        lrep.eat_reach = dict(er_rep)
+        if er_rep.get("pins"):
+            _say(f"[{icao}] EAT ramp reach (13aa/§36-5): {er_rep.get('pins', 0)} pinned feet on "
+                 f"{len(er_rep.get('feet', []))} loop(s), reach "
+                 + ", ".join(f"{r['reach_m']:.0f} m (drop {r['drop_m']:.2f} at cap {r['cap']:.3f})"
+                             for r in er_rep.get("feet", [])[:4])
+                 + f"; trend rows withdrawn {er_rep.get('withdrawn', 0)} "
+                 f"(taxi {er_rep.get('withdrawn_taxi', 0)}, apron {er_rep.get('withdrawn_apron', 0)})"
+                 + (f"; LOOP TOO SHORT at {len(er_rep['short'])} foot(feet) — forced grade "
+                    + ", ".join(f"{(s.get('forced_grade') or 0) * 100:.2f} %"
+                                for s in er_rep["short"][:4]) + " (taxi family)"
+                    if er_rep.get("short") else ""), out)
+        # §37 (6) A GROUNDSIDE ROAD IS A RAMP FROM ITS AIRSIDE CONTACT TO THE
+        # DEM (owner RULINGS 2026-09-13j item 5, ruled 13aj; spec §37 (6)).
+        # LAST of the target channels, because a mouth's level is READ from the
+        # airside's own published target (§21 chord / §8.6 taxi trend / §8.7
+        # apron trend) where it carries one; the ramp target then SUPERSEDES
+        # the core's soft road fit for every vertex it governs — the ONE
+        # superseding site.  The rows are ``constraints/road_ramp.py``'s.
+        ramp_rep: dict = {}
+        pm = with_road_ramp(pm, law, airport, ramp_rep, road_profiles)
+        # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): the core
+        # levels the road OUTSIDE the coverage and not inside it, so where a
+        # way leaves, the patch takes the ribbon's own altitude there.
+        join_rep: dict = {}
+        pm = with_road_coverage_join(pm, law, road_profiles, join_rep)
+        ramp_rep.update({f"join_{k}": v for k, v in join_rep.items()})
+        lrep.road_ramp = dict(ramp_rep)
+        rs = road_rep["profiles"]
+        _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
+             f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "
+             f"axis {rs['ways_by_kind'].get('axis', 0)})"
+             f"  stations {rs['stations']}  clamped {rs['clamped_stations']} "
+             f"(max lift {rs['max_lift_m']:.2f} m, cut {rs['max_cut_m']:.2f} m)  cap {rs['cap']:.3f}"
+             f"  vertices {road_rep['vertices']}  preferred {road_rep['preferred']}"
+             f"  DEM fallback {road_rep['dem_fallback']}"
+             f"  off-DEM {road_rep['preferred_off_dem']} (max {road_rep['max_preferred_shift_m']:.2f} m)",
+             out)
+        _say(f"[{icao}] road ramps (§37 (6)): {ramp_rep.get('vertices', 0)} groundside-road "
+             f"vertices from {ramp_rep.get('mouths', 0)} airside contacts at cap "
+             f"{ramp_rep.get('cap') or 0.0:.3f} -> {ramp_rep.get('targets', 0)} targets "
+             f"({ramp_rep.get('on_dem', 0)} on the DEM, {ramp_rep.get('on_ramp', 0)} on the ramp "
+             f"up to {ramp_rep.get('max_above_dem_m', 0.0):.2f} m above it over "
+             f"{ramp_rep.get('max_reach_m', 0.0):.0f} m of route, "
+             f"{ramp_rep.get('no_contact', 0)} with no contact); core fit withdrawn on "
+             f"{ramp_rep.get('preferred_withdrawn', 0)}; clamp over the DEM up to "
+             f"{ramp_rep.get('max_clamp_over_dem_m', 0.0):.2f} m; coverage-edge joins "
+             f"(§37 (9)) {ramp_rep.get('join_exits', 0)} exit(s) on "
+             f"{ramp_rep.get('join_routes', 0)} route(s) -> {ramp_rep.get('join_vertices', 0)} "
+             f"pinned vertices", out)
+        # THE SHAPE STAGE (owner RULINGS 2026-09-08k; ``pipeline/shapes.py``):
+        # the route bands, the withdraw set, the joint filter, the yield transform
+        t = time.perf_counter()
+        stage = shape_stage(pm, law, airport, cl, out=lambda m: _say(m, out))
+        pm = stage.pm
+        wall["shapes"] = time.perf_counter() - t
+        t = time.perf_counter()
+        seam_yielded: list = []
+        cs, counts, gwalls = shape_constraints(pm, law, airport, stage,
+                                               yielded_out=seam_yielded)
+        wall["constraints"] = time.perf_counter() - t
+        if stage.dropped:
+            _say(f"[{icao}] joints (08k): {sum(stage.dropped.values())} rows dropped across shape "
+                 f"boundaries — " + ", ".join(f"{g} {n}" for g, n in sorted(stage.dropped.items()))
+                 + f"; reach bands withdrawn {stage.bands_withdrawn}; flats straddling "
+                 f"{stage.flats_straddling}", out)
+        _say(f"[{icao}] constraints {wall['constraints']:.2f} s  {cs.counts()}", out)
+        for name, n in counts.items():
+            # a ``<generator>.<stat>`` key is a statistic, not a timed generator
+            _say(f"    {name:28s} {n:8d}  {gwalls[name]:.3f} s" if name in gwalls
+                 else f"    {name:28s} {n:8d}", out)
+        # THE JETWAY STRIP'S REGION (owner RULINGS 2026-09-18t Q3; jetway-strip
+        # spec §1): derived HERE, where the airport, the map and the constraint
+        # set meet, and handed to the solve as data — ``solve`` may not import
+        # ``constraints`` (M0 §1).  The projection itself runs between §20b's
+        # two stages (``solve/project_strip.py``).
+        t = time.perf_counter()
+        from ..airport.riders import rider_candidates
+        from ..constraints.jetway_strip import jetway_strips
+        strips = jetway_strips(pm, law, airport, cs, rider_candidates(airport, law),
+                               platform_planes=_plat_planes)
+        wall["jetway_strip"] = time.perf_counter() - t
+        _say(f"[{icao}] jetway strip region (18t Q3) {wall['jetway_strip']:.2f} s: "
+             + ", ".join(f"{k} {v}" for k, v in strips.counts.items()), out)
+        t = time.perf_counter()
+        size: dict[str, int] = {}
+        # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
+        # seeds the ramp from STAGE 1's solved level — applied between the two
+        # stages, bound here because ``solve`` may not import ``constraints``
+        from ..constraints.road_ramp import reach_seed_rewrite
+        sol, design_rep = solve_design(
+            pm, cs, law, cfg.options, size_out=size, strips=strips,
+            stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv))
+        wall["solve"] = time.perf_counter() - t
+        # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS where the solve
+        # released a §37 (9) join pin — the join takes the patch's level and
+        # the sidecar tells the core clamp to follow (``road_join_yield``)
+        from ..emit.road_join import with_pin_yield
+        pm = with_pin_yield(pm, design_rep.pin_yield,
+                            float(law.tables.emit.materiality.elevation_m))
+        _to_ll = airport.frame.transformers()[1] if pm.road_join_yield else None
+        for _v, (_rib, _zp) in sorted(pm.road_join_yield.items()):
+            _lat, _lon = _to_ll(*pm.vertices[_v].xy)
+            _say(f"[{icao}] JOIN YIELD (27a (10)): v{_v} at {_lat:.8f},{_lon:.8f} "
+                 f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m; "
+                 f"the core ribbon takes the patch level beyond its budget)", out)
+        if _collar_pass == 2 or not sol.z:
+            break
+        from ..constraints.platform import (platform_planes as _pplanes,
+                                            platform_records as _precs,
+                                            solved_collar_widths as _scw)
+        _recs1 = _precs(pm, law, sol.z)
+        _minted = {p.ref: p.collar_m for p in _plat_mod.PLATFORMS if not p.refused}
+        _wid = _scw(_recs1, _minted, law)
+        if not _wid:
+            break
+        _collar_second = {"pass1": [
+            {k: r.get(k) for k in ("ref", "collar_m", "rim_relief_max_m",
+                                   "collar_needed_m", "plane_residual_max_m")}
+            for r in _recs1], "minted": dict(_minted), "solved_c": dict(_wid)}
+        _say(f"[{icao}] collar second pass (#86): C from the SOLVED rim relief — "
+             + "; ".join(f"{r} {_minted[r]:g} -> {c:g} m" for r, c in sorted(_wid.items())),
+             out)
+        _plat_mod.SOLVED_C.update(_wid)
+        _plat_planes = _pplanes(_recs1, pm)
+        # the first pass's stage clocks, kept whole (the second overwrites)
+        wall["collar_pass1"] = sum(wall.pop(k, 0.0) for k in (
+            "planar", "flat_site", "road_profile", "shapes", "constraints",
+            "jetway_strip", "solve"))
+    _plat_mod.SOLVED_C.clear()
+    lrep.collar_second_pass = _collar_second
     # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
     # nothing is re-solved on a built step
     # THE SEAM PASSES ARE DELETED (§38 (1); owner RULINGS 2026-09-13ah,

@@ -337,7 +337,20 @@ def _pad_plane(st: _t.Any, levels: _t.Mapping[int, float],
     by the pad's hard ceiling ``emit.within_shape.pad_slope_max`` (1 %;
     a steeper fit keeps its direction at the ceiling and re-centres).  A
     pad with fewer than three non-collinear contacts reads the strip's own
-    stage-1 values instead.  ``(z0, gx, gy, x0, y0)``."""
+    stage-1 values instead.  ``(z0, gx, gy, x0, y0)``.
+
+    P10 (unit-platform spec §3; issue #86): a PLATFORM pad's strip takes the
+    SOLVED PLATFORM plane (``st.plane``, the collar's first pass) — the
+    rider seats on the platform, not on a fit of the frontage contacts; its
+    tilt is bounded the same way.  The planarity gate
+    (:func:`_frontage_residual`) is unchanged and reads the frontage
+    against whichever plane this returns."""
+    if getattr(st, "plane", None) is not None:
+        z0, gx, gy, x0, y0 = (float(q) for q in st.plane)
+        g = float(np.hypot(gx, gy))
+        if g > tilt_max > 0.0:
+            gx, gy = gx * tilt_max / g, gy * tilt_max / g
+        return (z0, gx, gy, x0, y0)
     pts = [v for v in st.pad_vertices if v in levels]
     if len(pts) < 3:
         pts = vs

@@ -66,6 +66,11 @@ class JetwayStrip:
     #: the strip takes is the PAD'S (owner / spec-author ruling Q-32a (d),
     #: 2026-09-25: "level with the terminal" = coplanar with the 23a pad)
     pad_vertices: tuple[int, ...] = ()
+    #: P10 (unit-platform spec §3; issue #86): the host's SOLVED PLATFORM
+    #: plane ``(z0, gx, gy, x0, y0)`` where the pad is a platform and a
+    #: solved plane exists (the collar's second pass) — the plane the strip
+    #: takes; ``None`` keeps §20's frontage fit (``project_strip._pad_plane``)
+    plane: "tuple[float, float, float, float, float] | None" = None
 
 
 @_dc.dataclass(frozen=True)

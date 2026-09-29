@@ -183,6 +183,9 @@ class LoadReport:
     #: trend rows withdrawn over it; and every loop TOO SHORT to ramp
     #: lawfully, with the grade it is forced to.
     eat_reach: dict | None = None
+    #: issue #86: the collar's second pass (the first pass's solved relief
+    #: per platform, the minted and the solved C) — empty when none ran
+    collar_second_pass: dict | None = None
 
 
 def normalise_surface(code: int) -> Surface:

@@ -1872,6 +1872,31 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0}
 
 
+def _collar_final_records(pm, law, z) -> list:
+    """The shipped surface's per-platform records (issue #86), ``[]`` on a
+    tree without the platform."""
+    try:
+        from auto_patch_v2.constraints.platform import platform_records
+        from auto_patch_v2.planar.platform import PLATFORMS
+    except ImportError:
+        return []
+    minted = {p.ref: p for p in PLATFORMS}
+    out = []
+    for r in platform_records(pm, law, z) if z else []:
+        p = minted.get(r["ref"])
+        out.append({k: r.get(k) for k in ("ref", "collar_m", "rim_relief_p50_m",
+                                           "rim_relief_max_m", "collar_needed_m",
+                                           "plane_residual_max_m", "tilt_pct", "level")}
+                   | {"minted_c": p.collar_m if p else None,
+                      "c_source": getattr(p, "c_source", None),
+                      "dem_c": getattr(p, "dem_collar_m", None)})
+    for r in out:
+        print(f"[collar] {r['ref']}: C minted {r['minted_c']} ({r['c_source']}, DEM {r['dem_c']}) "
+              f"built {r['collar_m']} | relief p50 {r['rim_relief_p50_m']} max {r['rim_relief_max_m']} "
+              f"needed {r['collar_needed_m']} | plane resid {r['plane_residual_max_m']} tilt {r['tilt_pct']} %")
+    return out
+
+
 def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            z_out: Path | None, method: str = "normal",
            design_weights: dict[str, float] | None = None, verbose: bool = False,
@@ -1886,57 +1911,89 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     from auto_patch_v2.pipeline.shapes import joint_steps
     from auto_patch_v2.solve import Options
     from auto_patch_v2.solve import solve_design
-    prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
-                          placement=placement, sites=sites)
-    icao, airport, pm, law, cs = (prob["icao"], prob["airport"], prob["pm"],
-                                  prob["law"], prob["cs"])
-    cl, stage, counts, t0 = prob["cl"], prob["stage"], prob["counts"], prob["t0"]
-    size: dict = {}
-    # THE JETWAY STRIP'S REGION (jetway-strip spec §1): the build's own
-    # derivation (``pipeline/build.py``), so the replay solves the problem
-    # the build solves
-    from auto_patch_v2.airport.riders import rider_candidates
-    from auto_patch_v2.constraints.jetway_strip import jetway_strips
-    t = time.perf_counter()
-    strips = jetway_strips(pm, law, airport, cs, rider_candidates(airport, law))
-    print(f"[{icao}] jetway strip region (18t Q3) {time.perf_counter() - t:.2f} s: "
-          + ", ".join(f"{k} {v}" for k, v in strips.counts.items()))
-    t = time.perf_counter()
-    # OWNER RULINGS 2026-09-27a (11): the build's own stage-2 rewrite (the
-    # reach seed), bound the way ``pipeline/build.py`` binds it; a tree
-    # that predates it solves without one
-    _kw = {}
-    _stage2: dict = {}
-    try:
-        from auto_patch_v2.constraints.road_ramp import reach_seed_rewrite
+    # THE COLLAR'S SECOND PASS (issue #86): the build's own two-pass loop
+    # (``pipeline/build.py``) — C re-derived from the SOLVED rim relief and
+    # the collar re-minted ONCE; only a resume that re-runs the arrangement
+    # (``classify`` / ``planar``) can re-mint
+    from auto_patch_v2.planar import platform as _plat_mod
+    _plat_mod.SOLVED_C.clear()
+    _plat_planes: dict = {}
+    collar_second: dict = {}
+    for _collar_pass in (1, 2):
+        prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
+                              placement=placement, sites=sites)
+        icao, airport, pm, law, cs = (prob["icao"], prob["airport"], prob["pm"],
+                                      prob["law"], prob["cs"])
+        cl, stage, counts, t0 = prob["cl"], prob["stage"], prob["counts"], prob["t0"]
+        size: dict = {}
+        # THE JETWAY STRIP'S REGION (jetway-strip spec §1): the build's own
+        # derivation (``pipeline/build.py``), so the replay solves the problem
+        # the build solves
+        from auto_patch_v2.airport.riders import rider_candidates
+        from auto_patch_v2.constraints.jetway_strip import jetway_strips
+        t = time.perf_counter()
+        strips = jetway_strips(pm, law, airport, cs, rider_candidates(airport, law),
+                               platform_planes=_plat_planes)
+        print(f"[{icao}] jetway strip region (18t Q3) {time.perf_counter() - t:.2f} s: "
+              + ", ".join(f"{k} {v}" for k, v in strips.counts.items()))
+        t = time.perf_counter()
+        # OWNER RULINGS 2026-09-27a (11): the build's own stage-2 rewrite (the
+        # reach seed), bound the way ``pipeline/build.py`` binds it; a tree
+        # that predates it solves without one
+        _kw = {}
+        _stage2: dict = {}
+        try:
+            from auto_patch_v2.constraints.road_ramp import reach_seed_rewrite
 
-        def _rewrite(lv):
-            out = reach_seed_rewrite(pm, law, cs, lv)
-            _stage2["cs"] = out[0]
-            return out
-        _kw["stage2_rewrite"] = _rewrite
-    except ImportError:
-        pass
-    sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
-                            method=method, strips=strips, **_kw)
-    wall = round(time.perf_counter() - t, 1)
-    # the rows stage 2 SOLVED are the ones --why-hard / --verify must read
-    # (a seeded ramp ceiling read at its pre-seed value is a false row)
-    cs = _stage2.get("cs", cs)
-    # 27a (10): the ribbon yields where the solve released a join pin — the
-    # build's own post-solve step, so an --emit arm publishes it too
-    try:
-        from auto_patch_v2.emit.road_join import with_pin_yield
-        pm = with_pin_yield(pm, rep.pin_yield,
-                            float(law.tables.emit.materiality.elevation_m))
-        if pm.road_join_yield:
-            _to_ll = airport.frame.transformers()[1]
-            for _v, (_rib, _zp) in sorted(pm.road_join_yield.items()):
-                _lat, _lon = _to_ll(*pm.vertices[_v].xy)
-                print(f"[{icao}] JOIN YIELD (27a (10)): v{_v} at {_lat:.8f},{_lon:.8f} "
-                      f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m)")
-    except (ImportError, AttributeError):
-        pass
+            def _rewrite(lv):
+                out = reach_seed_rewrite(pm, law, cs, lv)
+                _stage2["cs"] = out[0]
+                return out
+            _kw["stage2_rewrite"] = _rewrite
+        except ImportError:
+            pass
+        sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
+                                method=method, strips=strips, **_kw)
+        wall = round(time.perf_counter() - t, 1)
+        # the rows stage 2 SOLVED are the ones --why-hard / --verify must read
+        # (a seeded ramp ceiling read at its pre-seed value is a false row)
+        cs = _stage2.get("cs", cs)
+        # 27a (10): the ribbon yields where the solve released a join pin — the
+        # build's own post-solve step, so an --emit arm publishes it too
+        try:
+            from auto_patch_v2.emit.road_join import with_pin_yield
+            pm = with_pin_yield(pm, rep.pin_yield,
+                                float(law.tables.emit.materiality.elevation_m))
+            if pm.road_join_yield:
+                _to_ll = airport.frame.transformers()[1]
+                for _v, (_rib, _zp) in sorted(pm.road_join_yield.items()):
+                    _lat, _lon = _to_ll(*pm.vertices[_v].xy)
+                    print(f"[{icao}] JOIN YIELD (27a (10)): v{_v} at {_lat:.8f},{_lon:.8f} "
+                          f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m)")
+        except (ImportError, AttributeError):
+            pass
+        if _collar_pass == 2 or not sol.z or resume not in ("classify", "planar"):
+            break
+        from auto_patch_v2.constraints.platform import (platform_planes as _pplanes,
+                                                        platform_records as _precs,
+                                                        solved_collar_widths as _scw)
+        _recs1 = _precs(pm, law, sol.z)
+        _minted = {p.ref: p.collar_m for p in _plat_mod.PLATFORMS if not p.refused}
+        _wid = _scw(_recs1, _minted, law)
+        for _r in _recs1:
+            print(f"[{icao}] collar pass 1: {_r['ref']} C {_minted.get(_r['ref'])} "
+                  f"relief max {_r.get('rim_relief_max_m')} p50 {_r.get('rim_relief_p50_m')} "
+                  f"needed {_r.get('collar_needed_m')} plane resid {_r.get('plane_residual_max_m')}")
+        if not _wid:
+            print(f"[{icao}] collar second pass (#86): not needed (every C within the grid)")
+            break
+        collar_second = {"pass1": _recs1, "minted": dict(_minted), "solved_c": dict(_wid),
+                         "pass1_solve_wall_s": wall}
+        print(f"[{icao}] collar second pass (#86): C from the SOLVED rim relief — "
+              + "; ".join(f"{r} {_minted[r]:g} -> {c:g} m" for r, c in sorted(_wid.items())))
+        _plat_mod.SOLVED_C.update(_wid)
+        _plat_planes = _pplanes(_recs1, pm)
+    _plat_mod.SOLVED_C.clear()
     print(f"[{icao}] {rep.jetway_strip.line()}")
     for _s in rep.jetway_strip.strips:
         print(f"    strip {_s['id']} pad {_s['pad_ref']} frontage resid "
@@ -1957,7 +2014,13 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
           f"{len(pm.shape_joints)} ({sum(1 for j in pm.shape_joints if j.gap)} gap); largest by vertices "
           f"{sorted(by_shape.items(), key=lambda kv: -kv[1])[:6]}")
     result = {"icao": icao, "resume": resume, "drop": drop, "status": sol.status.value,
-              "solve_wall_s": wall, "passes": 1,
+              "solve_wall_s": wall, "passes": 1 + bool(collar_second),
+              "collar_second_pass": {k: v for k, v in collar_second.items() if k != "pass1"}
+              | {"pass1": [{k: r.get(k) for k in ("ref", "collar_m", "rim_relief_p50_m",
+                                                   "rim_relief_max_m", "collar_needed_m",
+                                                   "plane_residual_max_m")}
+                           for r in collar_second.get("pass1", [])]},
+              "platforms": _collar_final_records(pm, law, sol.z),
               "shapes": n_shapes, "shape_vertices": len(pm.shape_of_vertex),
               "shapes_by_vertices": sorted(by_shape.items(), key=lambda kv: -kv[1])[:12],
               "stage_wall_s": round(time.perf_counter() - t0 - wall, 1),

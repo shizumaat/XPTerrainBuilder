@@ -29,6 +29,16 @@ tilt-bounded frontage plane — and the SOLVED relief is re-read after the
 solve and published per platform (``platform_rim_relief``, with the collar
 it would need), so a mint that under-read shows there, never silently.
 
+THE SECOND PASS (issue #86; spec-author decision 2026-09-29, lane
+``collar86``): the DEM along the welded rim is a PROXY for the solved rim —
+measured, HECA T3 ``building4`` minted C 10.43 m where the solved relief
+needed 11.2 m, SPJC ``building5`` 5.99 m vs 14.0 m.  So after the stage-1
+arrangement solves, the caller re-derives C per platform from the SOLVED
+relief (``constraints.platform.solved_collar_widths``, reading the same
+``platform_records`` row the census publishes) and re-mints the collar
+ONCE through :data:`SOLVED_C` — attempt cap 1, no iteration.  Over-
+provisioning at the mint is NOT the fix.
+
 The erosion never touches the rim: no airside vertex is created or moved
 (the inner ring is at least C inside the pad, minted after the 23a cut).
 A pad whose erosion leaves no inner ring of ``cluster_pad_min_m2`` is
@@ -47,7 +57,8 @@ from ..law import Law
 from ..law.tables import rolled_on_roles
 from ..model.planar import COLLAR_SUFFIX
 
-__all__ = ["platform_split", "Platform", "PLATFORMS", "collar_width_m"]
+__all__ = ["platform_split", "Platform", "PLATFORMS", "collar_width_m",
+           "SOLVED_C"]
 
 #: The ring sampling step of the frontage read (m) — ``pad_terrace._STEP_M``'s
 #: geometric resolution, not a law value.
@@ -72,6 +83,11 @@ class Platform:
     #: ``""`` when minted, else why not (``"eroded_away"``,
     #: ``"under_min_area"``)
     refused: str = ""
+    #: where C was read: ``"dem"`` (the first mint's proxy) or ``"solved"``
+    #: (the second pass, :data:`SOLVED_C`, issue #86)
+    c_source: str = "dem"
+    #: the C the first (DEM) mint chose, kept on a solved re-mint
+    dem_collar_m: "float | None" = None
 
     def to_dict(self) -> dict[str, _t.Any]:
         return _dc.asdict(self)
@@ -80,6 +96,12 @@ class Platform:
 #: The last arrangement's platform verdicts (the ``pad_terrace.TERRACES``
 #: pattern: read back by the publication and the census).
 PLATFORMS: list[Platform] = []
+
+#: THE SECOND PASS'S WIDTHS (issue #86): ``{pad ref: C}`` read from the
+#: SOLVED rim relief of the first pass.  Set by the caller between its two
+#: passes and CLEARED by it after the second (the one re-mint); empty, the
+#: split reads the DEM proxy as it always has.
+SOLVED_C: dict[str, float] = {}
 
 
 def collar_width_m(law: Law) -> float:
@@ -197,11 +219,17 @@ def platform_split(base_regions, pad_regions, law: Law,
         # platform_collar_max_m]
         rel = rim_relief_m(P, air, near, dem, slope_max)
         C = C0 if rel is None else min(cmax, max(C0, rel / bank))
+        c_dem = round(C, 2)
+        src_c = "dem"
+        if str(pr.ref) in SOLVED_C:
+            # issue #86: the SOLVED relief's C, the same clamp
+            C = min(cmax, max(C0, float(SOLVED_C[str(pr.ref)])))
+            src_c = "solved"
         inner = P.buffer(-C, join_style=2, mitre_limit=2.0)
         parts = sorted(_parts(inner), key=lambda q: -q.area)
         if not parts:
             PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1), 0.0,
-                                      nw, rel, "eroded_away"))
+                                      nw, rel, "eroded_away", src_c, c_dem))
             out.append(pr)
             continue
         # EVERY piece the erosion leaves is platform (a district pad is
@@ -224,7 +252,8 @@ def platform_split(base_regions, pad_regions, law: Law,
         tot = sum(q.area for q in plats)
         if tot < min_m2:
             PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1),
-                                      round(tot, 1), nw, rel, "under_min_area"))
+                                      round(tot, 1), nw, rel, "under_min_area",
+                                      src_c, c_dem))
             out.append(pr)
             continue
         cparts = _parts(P.difference(unary_union(plats)))
@@ -232,7 +261,7 @@ def platform_split(base_regions, pad_regions, law: Law,
             out.append(pr)
             continue
         PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1),
-                                  round(tot, 1), nw, rel))
+                                  round(tot, 1), nw, rel, "", src_c, c_dem))
         pieces = [_dc.replace(pr, polygon=q) for q in plats]
         plat_ids.update(id(q) for q in pieces)
         out.extend(pieces)
@@ -254,6 +283,8 @@ def platform_split(base_regions, pad_regions, law: Law,
     counts["platforms"] = sum(1 for p in PLATFORMS if not p.refused)
     counts["platforms_refused"] = sum(1 for p in PLATFORMS if p.refused)
     counts["platform_list"] = "; ".join(
-        f"{p.ref} C {p.collar_m:g} m {p.platform_m2:,.0f}/{p.pad_m2:,.0f} m2"
+        f"{p.ref} C {p.collar_m:g} m"
+        + (f" (solved; DEM {p.dem_collar_m:g})" if p.c_source == "solved" else "")
+        + f" {p.platform_m2:,.0f}/{p.pad_m2:,.0f} m2"
         + (f" REFUSED {p.refused}" if p.refused else "") for p in PLATFORMS[:12])
     return out, counts

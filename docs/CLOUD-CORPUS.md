@@ -86,18 +86,33 @@ The cloud environment carries a read-only token as the secret
 `shizumaat/XPTerrainBuilderData-cloud`.
 
 ```sh
-export GH_TOKEN="$XPTB_DATA_TOKEN"
-SNAP=$HOME/xptb-corpus                       # any directory
-TAG=$(gh release list -R shizumaat/XPTerrainBuilderData-cloud -L 1 --json tagName -q '.[0].tagName')
-mkdir -p "$SNAP" && cd "$SNAP"
-gh release download "$TAG" -R shizumaat/XPTerrainBuilderData-cloud -p 'CYXY.tar.gz' -p 'snapshot.json'
+# the cloud image has NO `gh`; the release API is read with curl + the token
+# (measured 2026-09-29, runs cloudreproof79 / cloudcensus79)
+SNAP=$HOME/xptb-corpus; mkdir -p "$SNAP"; cd "$SNAP"
+API=https://api.github.com/repos/shizumaat/XPTerrainBuilderData-cloud
+TAG=snap-20260928-002e4dda            # or: curl -sS -H "Authorization: Bearer $XPTB_DATA_TOKEN" $API/releases/latest | python3 -c 'import json,sys;print(json.load(sys.stdin)["tag_name"])'
+curl -sS -H "Authorization: Bearer $XPTB_DATA_TOKEN" -H "Accept: application/vnd.github+json" "$API/releases/tags/$TAG" > /tmp/rel.json
+for n in snapshot.json CYXY.tar.gz NLWF.tar.gz HECA.tar.gz; do
+  id=$(python3 -c 'import json,sys;print(next(a["id"] for a in json.load(open("/tmp/rel.json"))["assets"] if a["name"]==sys.argv[1]))' "$n")
+  curl -sSL -H "Authorization: Bearer $XPTB_DATA_TOKEN" -H "Accept: application/octet-stream" "$API/releases/assets/$id" -o "$n"
+done
 for t in *.tar.gz; do tar -xzf "$t"; done   # every tarball unpacks into the same tree
 cd -  # back to the repo
 Ortho4XP/venv/bin/python Ortho4XP/tools/harness/corpus_snapshot.py verify "$SNAP"
 
+# issue #103 workaround until fixed: the cwd check runs before the mount
+mkdir -p "$SNAP/data/OSM_data" && ln -sfn "$SNAP/data/OSM_data" Ortho4XP/OSM_data
 export O4_CORPUS_SNAPSHOT="$SNAP"            # or pass --corpus snapshot:$SNAP
 cd Ortho4XP && venv/bin/python tools/harness/build_airport.py CYXY
 ```
+
+Proof (2026-09-29, main 2d75021b/bfb6bb33, Linux x86 vs macOS arm64): NLWF
+byte-identical (f08cf2d9bcce); CYXY and HECA bodies differ (the PROJ last-ulp
+class, RULINGS 17d) but the CENSUS is at parity — CYXY 328 / 1,324 / 0 / 25 on
+both, HECA adjudicated 17,827 and CRITICAL 11 / 1,418 on both (+5 report-only
+law-true rows in the cloud). Census parity is the cross-platform acceptance;
+body identity is expected only within one platform (the cloud is deterministic:
+three shas reproduced across runs).
 
 Each `<ICAO>.tar.gz` holds every file that airport needs, plus the whole
 `snapshot.json`. You can unpack several airports into one directory, since

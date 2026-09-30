@@ -134,7 +134,9 @@ a = Analysis(
                    + collect_submodules('auto_patch_v2')
                    + highspy_hidden + tifffile_hidden + imagecodecs_hidden
                    # See Ortho4XP.spec: top-level imported, named as a belt.
-                   + ['O4_LERC_Decode', 'O4_Scenery_Packs']) + [
+                   + ['O4_LERC_Decode', 'O4_Scenery_Packs',
+                      # imported inside a function (O4_Proj_Runtime, #121)
+                      'truststore']) + [
         # keyring picks its backend through entry points, which PyInstaller
         # does not follow — name every platform backend explicitly so the
         # frozen app can reach the secret store (O4_Authenticated_Sessions).

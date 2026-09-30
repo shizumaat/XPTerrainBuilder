@@ -272,3 +272,60 @@ def test_base_download_stop_is_not_a_refusal(monkeypatch):
                         lambda: _Session(_tls_then_stop))
     monkeypatch.setattr(DEM.time, "sleep", lambda seconds: None)
     assert DEM.http_request("https://example.test/K30.zip", "View") == 0
+
+
+# ---------------------------------------------------------------------------
+# 6. a NEIGHBOUR cell's refusal names the cell and says it is a neighbour
+# ---------------------------------------------------------------------------
+def test_neighbour_cell_refusal_names_the_cell(monkeypatch):
+    def _ensure(source, lat0, lon0, verbose=True, prefer_coarse=False):
+        if (lat0, lon0) == (40, -4):
+            return 0                       # home cell: not the one failing
+        raise DEM.ElevationDownloadRefused("the View elevation download of "
+                                           "https://x/J30.zip failed")
+
+    monkeypatch.setattr(DEM, "ensure_elevation", _ensure)
+    with pytest.raises(DEM.ElevationDownloadRefused) as caught:
+        DEM.build_combined_raster("View", 40, -4, False)
+    text = str(caught.value)
+    assert "+39-004" in text or "+41-004" in text or "-005" in text \
+        or "-003" in text
+    assert "NEIGHBOUR of tile +40-004" in text
+
+
+def test_home_cell_refusal_says_the_tile_itself(monkeypatch):
+    def _ensure(source, lat0, lon0, verbose=True, prefer_coarse=False):
+        raise DEM.ElevationDownloadRefused("failed")
+
+    monkeypatch.setattr(DEM, "ensure_elevation", _ensure)
+    with pytest.raises(DEM.ElevationDownloadRefused) as caught:
+        DEM.build_combined_raster("View", 40, -4, False)
+    assert "+40-004 (the tile itself)" in str(caught.value)
+
+
+# ---------------------------------------------------------------------------
+# 7. the system trust store: injected when the wheel is there, a logged
+#    line (never a crash) when it is not
+# ---------------------------------------------------------------------------
+def test_truststore_is_injected_when_available(monkeypatch):
+    import types
+
+    import O4_Proj_Runtime as PR
+
+    calls = []
+    fake = types.SimpleNamespace(inject_into_ssl=lambda: calls.append(1))
+    monkeypatch.setitem(sys.modules, "truststore", fake)
+    assert PR.trust_system_certificate_store() == "injected"
+    assert calls == [1]
+
+
+def test_missing_truststore_is_a_logged_line_not_a_crash(monkeypatch,
+                                                         capsys):
+    import O4_Proj_Runtime as PR
+
+    monkeypatch.setitem(sys.modules, "truststore", None)   # ImportError
+    state = PR.trust_system_certificate_store()
+    assert state.startswith("unavailable")
+    captured = capsys.readouterr()
+    assert captured.out == ""                 # stdout may be the protocol
+    assert "system trust store" in captured.err

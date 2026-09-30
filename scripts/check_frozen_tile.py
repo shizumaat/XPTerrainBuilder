@@ -1197,13 +1197,24 @@ def run_lemd_elevation_refusal(stream, data_root, stderr_log, jsonl_log):
         failures.append("Ortho4XP.log does not name the SPAIN5M failure")
     builds = stream.events("BuildDone")
     refused = [b for b in builds if not b.get("ok")]
-    if not refused:
-        failures.append("BuildDone ok=true: the tile finished on a broken "
-                        "transport (the #121 silent degrade)")
-    else:
+    hgt = os.path.join(elevation_dir,
+                       _hem_latlon(LEMD_LAT, LEMD_LON) + ".hgt")
+    if refused:
         text = str(refused[0].get("error") or "")
         print("   BuildDone ok=false: %s" % text.splitlines()[0][:300]
               if text else "   BuildDone ok=false (no text)")
+    elif not os.path.isfile(hgt) or _hgt_nonzero(hgt)[1] == 0:
+        # A build MAY finish when the base itself came down (a bundle
+        # whose Python HTTPS trusts the system store fetches Viewfinder
+        # past a CA bundle only GDAL obeys) — the insets it could not
+        # fetch are then loud and unstamped above.  What it may never do
+        # is finish without a base: that is the #121 0 m tile.
+        failures.append("BuildDone ok=true with NO usable base elevation "
+                        "(the #121 silent degrade)")
+    else:
+        print("   BuildDone ok=true on a real base %s (%d non-zero samples); "
+              "the failed inset tiers are loud and unstamped"
+              % (os.path.basename(hgt), _hgt_nonzero(hgt)[1]))
     altitudes = re.search(r"Min altitude: (\S+) , Max altitude: (\S+)",
                           _tail(stderr_log, 10 ** 7))
     if altitudes and float(altitudes.group(2)) <= 0.0:

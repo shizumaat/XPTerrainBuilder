@@ -135,6 +135,56 @@ jobs:
             --pass lemd-elevation --expect-refusal --deadline 900 \
             --logs "$RUNNER_TEMP/lemd-logs/hostile"
 
+      # THE SYSTEM TRUST STORE (issue #121 follow-up): a root that lives in
+      # the WINDOWS store ONLY — what a TLS-inspecting antivirus or proxy
+      # installs — and a local https server signed by it.  Before the
+      # truststore injection Python's requests (certifi) must FAIL on it;
+      # after, it must succeed.  GDAL's Schannel curl is the control the
+      # injection must not change.  REQUESTS_CA_BUNDLE / SSL_CERT_FILE /
+      # CURL_CA_BUNDLE stay unset: certifi is what the bundle would use.
+      - name: System trust store proof (--tls-selfcheck, before/after)
+        if: always()
+        run: |
+          set -u
+          T="$RUNNER_TEMP/tls"; mkdir -p "$T"; cd "$T"
+          unset CURL_CA_BUNDLE REQUESTS_CA_BUNDLE SSL_CERT_FILE || true
+          export MSYS_NO_PATHCONV=1
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+            -subj "/CN=win121 system-store-only root" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign" \
+            -keyout ca.key -out ca.pem
+          openssl req -newkey rsa:2048 -nodes -subj "/CN=localhost" \
+            -keyout srv.key -out srv.csr
+          printf 'subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n' > srv.ext
+          openssl x509 -req -in srv.csr -CA ca.pem -CAkey ca.key -CAcreateserial \
+            -days 2 -extfile srv.ext -out srv.pem
+          certutil -addstore -f Root "$(cygpath -w "$T/ca.pem")"
+          head -c 65536 /dev/urandom > blob.bin
+          cat > serve.py <<'PY'
+          import http.server, ssl, os
+          os.chdir(os.path.dirname(os.path.abspath(__file__)))
+          httpd = http.server.HTTPServer(("127.0.0.1", 8443), http.server.SimpleHTTPRequestHandler)
+          ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          ctx.load_cert_chain("srv.pem", "srv.key")
+          httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+          httpd.serve_forever()
+          PY
+          python serve.py > serve.log 2>&1 &
+          for i in $(seq 1 30); do curl.exe -s -o NUL --ssl-no-revoke https://localhost:8443/blob.bin && break; sleep 1; done
+          echo "curl.exe (Schannel, system store, no revocation):"
+          curl.exe -s -o NUL -w '%{http_code}\n' --ssl-no-revoke https://localhost:8443/blob.bin || echo "curl FAILED"
+          EXE="$GITHUB_WORKSPACE/Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe"
+          set +e
+          "$EXE" --tls-selfcheck https://localhost:8443/blob.bin --no-truststore --out "$T/before.json"; B=$?
+          "$EXE" --tls-selfcheck https://localhost:8443/blob.bin --out "$T/after.json"; A=$?
+          set -e
+          echo "== BEFORE (certifi only), exit $B"; cat "$T/before.json"
+          echo "== AFTER (truststore injected), exit $A"; cat "$T/after.json"
+          mkdir -p "$RUNNER_TEMP/lemd-logs/tls"; cp "$T"/*.json "$T/serve.log" "$RUNNER_TEMP/lemd-logs/tls/"
+          [ "$B" -ne 0 ] || { echo "::error::before-arm requests SUCCEEDED — the proof has no teeth"; exit 1; }
+          [ "$A" -eq 0 ] || { echo "::error::after-arm requests FAILED — truststore did not reach the system store"; exit 1; }
+
       - name: Logs
         if: always()
         uses: actions/upload-artifact@v4

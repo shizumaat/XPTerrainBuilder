@@ -749,6 +749,27 @@ class DEM:
         return tmp
 
 ################################################################################
+def _ensure_cell_elevation(source, lat, lon, lat0, lon0, verbose,
+                           prefer_coarse):
+    """:func:`ensure_elevation` for one cell of the 3x3 assembly, with a
+    transport refusal NAMED by cell.  A NEIGHBOUR's failure refuses the
+    tile too — its border band would otherwise be meshed at 0 m, a wall
+    at the tile edge (never degrade silently) — and the message says it
+    is a neighbour, so nobody hunts the home tile's own download."""
+    try:
+        return ensure_elevation(source, lat0, lon0, verbose,
+                                prefer_coarse=prefer_coarse)
+    except ElevationDownloadRefused as error:
+        cell = "%+03d%+04d" % (lat0, lon0)
+        if (lat0, lon0) == (lat, lon):
+            role = "the tile itself"
+        else:
+            role = ("a NEIGHBOUR of tile %+03d%+04d, whose elevation "
+                    "border band it supplies" % (lat, lon))
+        raise ElevationDownloadRefused(
+            "elevation cell %s (%s): %s" % (cell, role, error)) from error
+
+
 def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False):
     world_tiles = numpy.array(
         Image.open(os.path.join(FNAMES.Utils_dir, "world_tiles.png"))
@@ -792,12 +813,9 @@ def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False):
         y = 89 - lat0
         if not world_tiles[y, x]:
             tmparray = numpy.zeros((base, base), dtype=numpy.float32)
-        elif ensure_elevation(
-            source,
-            lat0,
-            (lon0 + 180) % 360 - 180,
-            verbose,
-            prefer_coarse=prefer_coarse,
+        elif _ensure_cell_elevation(
+            source, lat, lon, lat0, (lon0 + 180) % 360 - 180, verbose,
+            prefer_coarse,
         ):
             tmparray = read_elevation_from_file(
                 FNAMES.elevation_data(source, lat0, (lon0 + 180) % 360 - 180),

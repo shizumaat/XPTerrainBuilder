@@ -57,6 +57,17 @@ class Design:
     #: curvature the K law admits, so the runway bends with the ground's
     #: trend and never undulates with the ground itself (08t (1) / 09b).
     runway_profile_window_m: float
+    #: THE RUNWAY FLEXES 20 % OF THE PULL (flat-pad spec v2 §1, owner
+    #: RULINGS 2026-09-30as): a pulled runway's hard deviation budget is
+    #: this share of the largest lift its pulling route carries
+    #: (``constraints/no_step.hold_interval``, the ONE reader).
+    runway_flex_share: float
+    #: the ruling HEADS whose stage-1 ``Diff`` cap rows are the pair
+    #: graph's edges (flat-pad spec v2 §2; ``constraints/no_step.pair_graph``)
+    interval_pair_rulings: tuple[str, ...]
+    #: the ruling HEADS promoted to HARD on the fronting set (flat-pad spec
+    #: v2 §5; ``solve.design.assemble``'s one filter)
+    fronting_hard_rulings: tuple[str, ...]
     #: §50.1 (3) THE MARGIN ON A YIELDED RUNWAY CAP (owner RULINGS
     #: 2026-09-18d (3)): where a runway's own HARD PINS demand more grade
     #: than ``rulesets.runway.longitudinal`` allows, that runway's
@@ -374,6 +385,10 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.pad_fronting_reach_m {d.pad_fronting_reach_m}: a "
                   "plan distance in metres, never negative (owner RULINGS "
                   "2026-09-27a (9))")
+    if not 0.0 <= d.runway_flex_share <= 1.0:
+        raise err(f"emit.design.runway_flex_share {d.runway_flex_share}: a "
+                  "share of the pull in [0, 1] (flat-pad spec v2 §1, RULINGS "
+                  "2026-09-30as)")
     if d.jetway_strip_m < 0.0:
         raise err(f"emit.design.jetway_strip_m {d.jetway_strip_m}: a plan "
                   "distance in metres, never negative (jetway-strip spec §1 (2))")

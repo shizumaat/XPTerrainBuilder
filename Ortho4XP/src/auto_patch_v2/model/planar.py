@@ -309,6 +309,16 @@ class PlanarMap:
     #: through ``constraints.precedence.taxi_cap_for`` (``face_cap``,
     #: ``stretches``).  Empty where no runway yielded: reads as before.
     taxi_caps: _t.Mapping[int, _t.Any] = _dc.field(default_factory=dict)
+    #: THE FRONTING SET (flat-pad spec v2 §5, RULINGS 2026-09-30y (3) /
+    #: 30as): the vertices of every face that carries a held block's relief
+    #: — the apron bodies welded to it, the junction / taxi faces touching
+    #: them, and every face on the least-budget path from each held contact
+    #: to its nearest fixed vertex (``constraints/no_step.hold_interval``).
+    #: ``solve.design.assemble`` promotes the airside pair caps
+    #: (``[design] fronting_hard_rulings``) whose every foot is in it to
+    #: HARD — the one filter.  Empty: no promotion (every airport with no
+    #: held block, and pass 1a).
+    fronting_vertices: frozenset = frozenset()
     #: THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
     #: spec §8.6, ``constraints/taxi_trend.py``): vertex id -> the ground's
     #: LONG-WAVE TREND along that vertex's taxi centreline chain, shifted

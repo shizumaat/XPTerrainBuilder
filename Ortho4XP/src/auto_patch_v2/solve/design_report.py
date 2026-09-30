@@ -337,6 +337,13 @@ class DesignReport:
     #: §2): the apron under the jetways levelled between the stages
     #: (``solve/project_strip.project_strips``)
     jetway_strip: StripReport = _dc.field(default_factory=StripReport)
+    #: THE RUNWAY'S FLEX (flat-pad spec v2 §1 / §6 A11, RULINGS
+    #: 2026-09-30as): per PULLED runway its budget, lift, used share and
+    #: pulling pad (``constraints/no_step.HoldPass.finish``); empty where no
+    #: runway was pulled or no block is held
+    runway_flex: list = _dc.field(default_factory=list)
+    #: §5: one-sided pair-cap rows promoted to HARD on the fronting set
+    fronting_promoted: int = 0
     #: OWNER RULINGS 2026-09-27a (11): the reach contacts within one lane
     #: width that SEEDED the ramp from stage 1's solved level
     #: (``constraints/road_ramp.reach_seed_rewrite``'s report; empty when
@@ -632,6 +639,8 @@ class DesignReport:
                 "runway_projection": self.runway_projection.as_dict(),
                 "zone_projection": self.zone_projection.as_dict(),
                 "jetway_strip": self.jetway_strip.as_dict(),
+                "runway_flex": self.runway_flex,
+                "fronting_promoted": self.fronting_promoted,
                 "reach_seed": self.reach_seed,
                 "pin_yield": self.pin_yield,
                 "one_way_rows": self.one_way_rows,

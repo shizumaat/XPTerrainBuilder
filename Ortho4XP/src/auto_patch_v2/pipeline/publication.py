@@ -444,6 +444,11 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                 for _r, rc in sorted(
                     (planar.runway_caps or {}).items())
                 if isinstance(rc, _RunwayCap)],
+            # flat-pad spec v2 §6 A11 (owner RULINGS 2026-09-30as): per
+            # PULLED runway its flex budget, the lift that set it, what
+            # pass 1b used and the pad that pulled it — an empty list where
+            # no runway was pulled (``constraints/no_step.RUNWAY_FLEX``)
+            "runway_flex": _runway_flex(),
             # 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS
             # 2026-09-30ah (1), issue #135): per TIED taxi-family face the
             # cap it was priced at, its table cap and the runway that
@@ -595,6 +600,12 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     if _doc.get("pad_airside_renode") is None:
         _doc.pop("pad_airside_renode", None)
     return _doc
+
+
+def _runway_flex() -> list[dict[str, _t.Any]]:
+    """The ``runway_flex`` sidecar key (flat-pad spec v2 §6 A11)."""
+    from ..constraints.no_step import RUNWAY_FLEX
+    return [dict(r) for r in RUNWAY_FLEX]
 
 
 def _platforms(planar: PlanarMap, law: Law, z) -> list[dict[str, _t.Any]]:

@@ -990,9 +990,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # seeds the ramp from STAGE 1's solved level — applied between the two
     # stages, bound here because ``solve`` may not import ``constraints``
     from ..constraints.road_ramp import reach_seed_rewrite
+    # flat-pad spec v2 §1 / §2 (RULINGS 2026-09-30as): the hold's pass 1a /
+    # interval / pass 1b, bound here for the same reason
+    from ..constraints.no_step import hold_pass
     sol, design_rep = solve_design(
         pm, cs, law, cfg.options, size_out=size, strips=strips,
-        stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv))
+        stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
+        hold=hold_pass(pm, law))
     wall["solve"] = time.perf_counter() - t
     # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS where the solve
     # released a §37 (9) join pin — the join takes the patch's level and

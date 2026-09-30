@@ -961,15 +961,110 @@ def reach(g: RouteGraph, pins: _t.Mapping[int, float]
             if int(v) in g.nodes and int(v) < g.n_planar}
 
 
-def route_path(g: RouteGraph, a: int, b: int, max_len: float | None = None
+@_dc.dataclass(frozen=True)
+class AnchoredReach:
+    """:func:`reach_anchored`'s answer over the planar vertices: ``lo[v] =
+    max_p (z_p − w_p − B(p, v))`` and ``hi[v] = min_p (z_p + w_p + B(p,
+    v))`` (``±inf`` where no route reaches ``v``), with the predecessor
+    rows of both super-source walks so the BINDING anchor of any vertex
+    and the path to it can be named (:meth:`binding`)."""
+
+    g: RouteGraph
+    lo: np.ndarray
+    hi: np.ndarray
+    pred_lo: np.ndarray
+    pred_hi: np.ndarray
+
+    def binding(self, v: int, side: str) -> list[int]:
+        """The walk from the binding anchor to ``v`` on ``side`` (``"lo"``
+        / ``"hi"``) as planar vertices, anchor first; ``[]`` unreached."""
+        pred = self.pred_lo if side == "lo" else self.pred_hi
+        N = 2 * self.g.n
+        i = int(self.g.inbound(int(v)))
+        if pred[i] < 0:
+            return []
+        ids = [i]
+        while True:
+            p = int(pred[ids[-1]])
+            if p < 0 or p == N:
+                break
+            ids.append(p)
+        return [int(self.g.vertex(x)) for x in reversed(ids)]
+
+
+def reach_anchored(g: RouteGraph, anchors: _t.Mapping[int, tuple[float, float]],
+                   transit: bool = True) -> AnchoredReach:
+    """THE WIDENED REACH (flat-pad spec v2 §2, RULINGS 2026-09-30as): the
+    reach envelope of ANCHORS ``v -> (z, w)`` each standing anywhere in
+    ``[z − w, z + w]`` — a runway column free to flex by its budget, a
+    ``Pin`` at ``w = 0`` — read through :func:`_reach_super`'s super
+    source (one walk per side), predecessors kept.  ``w = 0`` everywhere
+    is :func:`reach` exactly.  ``transit=False``: a walk never passes
+    THROUGH an anchor (every arc into one is dropped) — each vertex is bound
+    by the anchors it reaches FIRST.  Where the anchors are consistent
+    (``|z_p − z_q| ≤ w_p + w_q + B(p, q)``) this is the same envelope (the
+    triangle inequality); where a pair is not, the envelope of a vertex
+    behind it is its own nearest anchors', not the contradiction's."""
+    m = g.csr("budget")
+    N = m.shape[0]
+    idx = sorted(v for v in anchors if v in g.nodes)
+    if not transit and idx:
+        coo = m.tocoo()
+        into = np.isin(coo.col, np.asarray(g.inbound(np.asarray(idx, np.int64)), np.int64))
+        m = csr_matrix((coo.data[~into], (coo.row[~into], coo.col[~into])), shape=m.shape)
+    lo = np.full(g.n, -np.inf)
+    hi = np.full(g.n, np.inf)
+    pl = np.full(N, -9999, np.int64)
+    ph = np.full(N, -9999, np.int64)
+    if not idx:
+        return AnchoredReach(g, lo, hi, pl, ph)
+    from scipy.sparse import vstack, hstack
+    zu = np.array([anchors[v][0] + anchors[v][1] for v in idx])
+    zl = np.array([anchors[v][0] - anchors[v][1] for v in idx])
+    base = hstack([m, csr_matrix((N, 1))])
+    out = {}
+    for side, w in (("hi", zu - zu.min()), ("lo", zl.max() - zl)):
+        w = np.maximum(w, 0.0) + 1e-12            # an explicit arc, never "no arc"
+        row = csr_matrix((w, (np.zeros(len(idx), np.int64),
+                              np.asarray(g.inbound(np.asarray(idx, np.int64)), np.int64))),
+                         shape=(1, N + 1))
+        mm = vstack([base, row]).tocsr()
+        d, pr = dijkstra(mm, directed=True, indices=[N], return_predecessors=True)
+        out[side] = (d[0, :N], pr[0, :N])
+    inb = g.inbound(np.arange(g.n))
+    hi = out["hi"][0][inb] + zu.min()
+    lo = zl.max() - out["lo"][0][inb]
+    return AnchoredReach(g, lo, hi, out["lo"][1], out["hi"][1])
+
+
+def route_path(g: RouteGraph, a: int, b: int, max_len: float | None = None,
+               weight: str = "length"
                ) -> tuple[float, float, list[int]] | None:
     """The shortest route from ``a`` to ``b``: ``(dist, budget,
     vertices)``, or ``None`` when no pavement path joins them (inside
     ``max_len`` when given).  One pair — an instrument, not the
     population's engine.  The path lists the VIRTUAL FEET it passes
-    (ids ``≥ g.n_planar``; ``g.foot`` resolves them)."""
+    (ids ``≥ g.n_planar``; ``g.foot`` resolves them).  ``weight="budget"``
+    walks the LEAST-BUDGET route instead (flat-pad spec v2 §1 (2): a held
+    contact's route to the runway on the pair graph); ``dist`` is then its
+    plan length, read back along the path."""
     if a not in g.nodes or b not in g.nodes:
         return None
+    if weight == "budget":
+        m = g.csr("budget")
+        D, P = dijkstra(m, directed=True, indices=[a], return_predecessors=True)
+        tgt = g.inbound(b)
+        if not np.isfinite(D[0][tgt]):
+            return None
+        ids = [tgt]
+        while ids[-1] != a:
+            ids.append(int(P[0][ids[-1]]))
+        ids.reverse()
+        path = [int(g.vertex(i)) for i in ids]
+        eb = g.edge_budget()
+        el = {(int(x), int(y)): float(w) for x, y, w in zip(g.a, g.b, g.length)}
+        key = [(u, v) if u < v else (v, u) for u, v in zip(path, path[1:])]
+        return (float(sum(el[k] for k in key)), float(sum(eb[k] for k in key)), path)
     m = g.csr("length", max_len=max_len)
     D, P = dijkstra(m, directed=True, indices=[a], return_predecessors=True,
                     limit=np.inf if max_len is None else max_len)

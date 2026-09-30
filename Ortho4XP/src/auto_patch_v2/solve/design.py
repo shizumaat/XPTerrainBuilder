@@ -497,6 +497,14 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #: them even where every column is airside (a welded pad's skirt and
     #: flatness rows sit between two vertices the apron owns)
     conform = conforming_rulings(law) if drop_f else frozenset()
+    # §5 THE FRONTING SET'S CAPS ARE HARD (flat-pad spec v2, RULINGS
+    # 2026-09-30y (3)): the ONE filter — an airside pair cap whose every
+    # foot is on the published fronting set joins the hard set; ``is_hard``
+    # and every generator are unchanged
+    front = frozenset(getattr(planar, "fronting_vertices", None) or ())
+    front_heads = (frozenset(design_law(law).fronting_hard_rulings)
+                   if front else frozenset())
+    rep.fronting_promoted = 0
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -535,7 +543,11 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # The test is the REDUCED row's, not the raw terms': two feet of one
         # rigid ``Flat`` group share a column and a ±1 pair cancels to
         # nothing, which is the same constant by another route.
-        if is_hard(heads, row) and _carries_a_column(red, terms):
+        promoted = bool(front_heads) and ruling_head(row) in front_heads \
+            and vs <= front
+        if (is_hard(heads, row) or promoted) and _carries_a_column(red, terms):
+            if promoted and not is_hard(heads, row):
+                rep.fronting_promoted += 1
             hi_hard = hi
             ceil = getattr(row, "ceiling", None)
             if getattr(row, "soft", None) is not None and ceil is not None:
@@ -822,7 +834,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  strips: _t.Any = None,
                  stage2_rewrite: _t.Callable[
                      [_t.Mapping[int, float]],
-                     tuple[ConstraintSet, dict]] | None = None
+                     tuple[ConstraintSet, dict]] | None = None,
+                 hold: _t.Any = None
                  ) -> tuple[Solution, DesignReport]:
     """THE DESIGN SURFACE, in ONE stage or TWO (§20b).
 
@@ -870,13 +883,52 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     t_all = time.perf_counter()
     rep1 = DesignReport(method=method)
     size1: dict = {}
-    drop, foreign = stage_split(planar, cs, law)
+    # PASS 1a (flat-pad spec v2 §1 (1), owner RULINGS 2026-09-30as): stage 1
+    # with every frontage-hold row DROPPED — the runway's UNPULLED profile.
+    # ``hold`` is the caller's binding (``constraints/no_step.HoldPass``:
+    # this layer may not import ``constraints``, M0 §1); no hold row = pass
+    # 1a IS stage 1 and nothing below runs (byte-identical).
+    cs1a = hold.strip(cs) if hold is not None else None
+    cs_s1 = cs1a if cs1a is not None else cs
+    drop, foreign = stage_split(planar, cs_s1, law)
     levels: dict[int, float] = {}
     t1 = time.perf_counter()
-    sol1, rep1 = _solve_stage(planar, cs, law, options, size_out=size1,
+    sol1, rep1 = _solve_stage(planar, cs_s1, law, options, size_out=size1,
                               method=method, low_rank=low_rank,
                               drop=drop, fixed=foreign, levelled_out=levels,
                               stage_roles=airside_stage_roles(law))
+    pass1a: dict | None = None
+    if cs1a is not None:
+        # THE FEASIBILITY INTERVAL AND THE RUNWAY'S FLEX BUDGET, off pass
+        # 1a's values (``no_step.hold_interval``), then PASS 1b = stage 1
+        # again with the holds, the datum pins and the runway Bands
+        w1a = time.perf_counter() - t1
+        z1a = dict(levels)
+        cs1b = hold.derive(cs1a, z1a, runway_columns(planar, cs1a, law))
+        pass1a = {"unknowns": rep1.unknowns, "rows": rep1.rows,
+                  "hard_rows": rep1.hard_rows,
+                  "hard_max_violation_m": round(rep1.hard_max_violation_m, 6),
+                  "hard_settled": rep1.hard_settled, "wall_s": round(w1a, 3),
+                  "interval_s": 0.0}
+        if cs1b is not None:
+            pass1a["interval_s"] = round(time.perf_counter() - t1 - w1a, 3)
+            pass1a["interval"] = dict(getattr(getattr(hold, "result", None),
+                                              "stats", None) or {})
+            cs = cs1b
+            # §5: the fronting set is published on the map pass 1b solves
+            fr = getattr(getattr(hold, "result", None), "fronting", None)
+            if fr:
+                planar = _dc.replace(planar, fronting_vertices=frozenset(fr))
+            drop, foreign = stage_split(planar, cs, law)
+            levels = {}
+            size1 = {}
+            sol1, rep1 = _solve_stage(planar, cs, law, options, size_out=size1,
+                                      method=method, low_rank=low_rank,
+                                      drop=drop, fixed=foreign,
+                                      levelled_out=levels,
+                                      stage_roles=airside_stage_roles(law))
+        else:
+            cs = cs1a
     # THE PINS STAGE 1 READS YIELD IN STAGE 1 (issue #87): decided from
     # stage 1's own hard set, so nothing stage 2 carries can change the
     # problem stage 1 solved.
@@ -908,6 +960,18 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             sol1, rep1, cs = sol1_y, rep1_y, cs1
             for r in yielded1:
                 r["stage"] = 1
+    if cs1a is not None:
+        # the DATUM PINS pass 1b added are constants of stage 2 as every
+        # levelled airside column is: the caller's stage-2 problem
+        # (``stage2_rewrite``) is re-derived from the hold's own rows and
+        # carries no such pin, so without this the datum column would be
+        # FREE in stage 2 and drift off the contacts stage 1 held on it
+        own = {p.v for p in cs1a.pins}
+        for p in cs.pins:
+            if p.v not in own and p.v not in levels:
+                levels[p.v] = float(p.z)
+        # (the datum columns are stage-1 columns under their Bands and are
+        # levelled with every other airside column)
     w1 = time.perf_counter() - t1
     # THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3; jetway-strip spec §2
     # (4)): a PROJECTION of stage 1's airside answer, applied before stage
@@ -947,6 +1011,9 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep2.stage1_fixed = len(levels)
     rep2.stage1_unlevelled = rep1.stage1_unlevelled
     rep2.stage_dropped_rows = rep1.stage_dropped_rows
+    if hold is not None:
+        rep2.runway_flex = hold.finish(levels, sol1.z,
+                                       caps_held=bool(rep1.hard_settled))
     rep2.stages = {"stage1": dict(rep1.as_dict(), wall_s=round(w1, 3),
                                   projection_line=rep1.runway_projection.line(),
                                   lag_line=(rep1.lag_failure_line()
@@ -959,6 +1026,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               "hard_max_violation_m": round(rep2.hard_max_violation_m, 6),
                               "hard_settled": rep2.hard_settled,
                               "rounds": rep2.rounds, "wall_s": round(w2, 3)}}
+    if pass1a is not None:
+        rep2.stages["stage1a"] = pass1a
     # THE HARD SET IS THE COMBINATION (§20b's census table): an airside hard
     # row carries no column in stage 2 — it was enforced and read in stage 1,
     # where it is scaled to metres — so the shipped surface's hard set is

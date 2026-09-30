@@ -41,6 +41,7 @@ from ..model.platform import HELD, datum_vertices
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
            "TERRACE_RULING", "HOLD_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
+           "HOLD_RESIDUAL_RULING", "hold_sets", "hold_row",
            "PLANE_RULING", "GEN", "collar_faces", "platform_records"]
 
 GEN = "platform_collar"
@@ -58,6 +59,10 @@ TERRACE_RULING = "structures.building_pad platform_collar terrace"
 #: The head of the FRONTAGE HOLD rows (flat-pad spec §1 (2); RULINGS
 #: 2026-09-30f / 30r): a held block's welded contact at the block's datum
 HOLD_RULING = "structures.building_pad frontage_hold"
+#: The head of a RESIDUAL contact's hold (flat-pad spec v2 §2 EMPTY (i)):
+#: PRICED at the law's weight — deliberately NOT in ``[design]
+#: hard_rulings``
+HOLD_RESIDUAL_RULING = "structures.building_pad frontage_hold residual"
 #: How many platform vertices each outer collar vertex is tied to: the
 #: triangulation joins a rim vertex to a fan of inner ones, and three is a
 #: fan (a solver-conditioning constant, not a law value).
@@ -489,115 +494,89 @@ def platform_level_rows(planar: PlanarMap, law: Law,
     return rows
 
 
-def frontage_hold_rows(planar: PlanarMap, law: Law,
-                       airport: Airport | None = None) -> list[Row]:
-    """THE FLAT PAD LEADS ITS FRONTAGE — HARD (flat-pad spec §1 (2); owner
-    RULINGS 2026-09-30f / 30r, restated 2026-09-30y, #128).  Every WELDED
-    contact of a HELD block (:func:`platform_contacts`) takes one HARD
-    two-sided row ``z_o − z_D = 0`` (head :data:`HOLD_RULING` in ``[design]
-    hard_rulings``) against the block's DATUM COLUMN (``model.platform.
-    datum_vertex_of`` — a platform vertex the stage split registers as a
-    stage-1 column, ``solve/design_roles.airside_stage_vertices``), so
-    STAGE 1 solves the airside WITH the flat frontage: the solver
-    redistributes the relief into the apron body and the taxiways within
-    their hard caps.  After stage 1 the datum is a constant and the hard
-    flat rows (:func:`platform_plane_rows`) put the whole block on it.
-
-    THE DATUM IS BOUNDED BY THE REACH BAND (30y (2)): the interval of pad
-    levels the airside can meet within its caps is the intersection, over
-    the block's held contacts, of each contact's ROUTE-METRIC band
-    (``no_step.runway_reach_band_values`` — every runway vertex at its
-    profile target propagated along every route at the path caps, the
-    airside's feasibility envelope for a level that must not move the
-    runway; the threshold-only ``reach_band_values`` read the SPJC
-    terminal's interval as ~105 m wide and the hard hold then spent the
-    taxi caps, MEASURED arm 1 of lane ``hardhold128``); ONE hard ``Band``
-    row on the datum column states it.  The mint's local band (``planar/pad_blocks``) chooses the CUTS
-    only, never the datum.  An EMPTY interval makes the block
-    ``pad_frontage_infeasible`` (30y (4)): the datum takes the bound
-    nearest the contacts' median band and every contact whose own band
-    excludes it is left free and REPORTED (``HELD[ref]["residual"]``),
-    never a silent steep collar.
-
-    WHAT IS LEFT FREE: a RAMP contact (spec §2 (2), accepted 30u (c): the
-    apron grades between two blocks' datums there, ``samples_ramp``) and
-    an infeasible block's residual contacts — nothing else.  REFUTED AND
-    DELETED (lane ``hardhold128``): the PRICED hold (``[design]
-    frontage_hold`` 30; 30u (a)) and the post-stage-1 DATUM PIN to the
-    mint band (``pin_datums``) — a pin moves the datum off the contacts the
-    hold put on it, and the collar carries the difference as a bank.  A
-    generator."""
-    from .pads import _two_sided
-    from ..model.constraints import Band
-    STATS.pop("frontage_hold_rows", None)
+def hold_sets(planar: PlanarMap, law: Law
+              ) -> list[tuple[str, int, list[int], int, int]]:
+    """``(held ref, its datum column, its HELD contacts, welded total,
+    ramp contacts)`` per held block with a welded frontage — the welded
+    contacts of :func:`platform_contacts` less the RAMP contacts (spec §2
+    (2), accepted 30u (c): the apron grades between two blocks' datums
+    there, ``samples_ramp``).  ONE derivation: the hold rows
+    (:func:`frontage_hold_rows`) and the feasibility interval
+    (``no_step.hold_interval``) read the same set."""
+    import numpy as np
     held = datum_vertices(planar, law)
     if not held:
         return []
-    import numpy as np
-    bands: dict[int, tuple[float, float]] = {}
-    if airport is not None:
-        from .no_step import runway_reach_band_values
-        bands = runway_reach_band_values(planar, law, airport)
-    rows: list[Row] = []
-    n_b = n_c = n_ramp = n_res = n_empty = 0
+    out: list[tuple[str, int, list[int], int, int]] = []
     for pref, _vs, weld in platform_contacts(planar, law):
         if pref not in held or not weld:
             continue
-        dv = held[pref]
         h = HELD[pref]
         hx = h.get("samples_xy")
         hr = h.get("samples_ramp")
         n_all = len(weld)
+        ramp: set[int] = set()
         if hx is not None and hr is not None and len(hx):
             from scipy.spatial import cKDTree
             _d, j = cKDTree(np.asarray(hx)).query([planar.vertices[o].xy for o in weld])
             j = np.atleast_1d(j)
             ramp = {o for o, jj in zip(weld, j) if bool(hr[int(jj)])}
-            weld = [o for o in weld if o not in ramp]
-            n_ramp += len(ramp)
-        # THE REACH-BAND INTERVAL of the block (30y (2))
-        bb = [(o, bands[o]) for o in weld if o in bands and bands[o][0] <= bands[o][1]]
-        lo = max((b[0] for _o, b in bb), default=-math.inf)
-        hi = min((b[1] for _o, b in bb), default=math.inf)
-        residual: list[int] = []
-        empty = lo > hi
-        if empty:
-            n_empty += 1
-            mids = sorted(0.5 * (b[0] + b[1]) for _o, b in bb)
-            med = mids[len(mids) // 2]
-            # the gap [hi, lo]: the datum at the bound nearest the median
-            D0 = min(max(med, hi), lo)
-            lo = hi = D0
-            residual = [o for o, b in bb if not (b[0] <= D0 <= b[1])]
-            weld = [o for o in weld if o not in set(residual)]
-            n_res += len(residual)
+        out.append((pref, held[pref], [o for o in weld if o not in ramp],
+                    n_all, len(ramp)))
+    return out
+
+
+def hold_row(o: int, dv: int, pref: str, residual: bool = False) -> list[Row]:
+    """The hold row of contact ``o`` against datum column ``dv``: HARD
+    (head :data:`HOLD_RULING`) for a held contact; a RESIDUAL contact of an
+    empty interval keeps its hold PRICED at the law's weight (flat-pad spec
+    v2 §2 EMPTY (i): head :data:`HOLD_RESIDUAL_RULING`, not in ``[design]
+    hard_rulings``) — the apron comes as close as the caps allow."""
+    from .pads import _two_sided
+    head = HOLD_RESIDUAL_RULING if residual else HOLD_RULING
+    src = Source(GEN, head + " (flat-pad spec §1 (2); RULINGS "
+                 "2026-09-30f/r/y the pad's flat datum leads its frontage)",
+                 (pref, f"platform:{pref}", "pavement:welded"))
+    return list(_two_sided(((o, 1.0), (dv, -1.0)), src, None))
+
+
+def frontage_hold_rows(planar: PlanarMap, law: Law,
+                       airport: Airport | None = None) -> list[Row]:
+    """THE FLAT PAD LEADS ITS FRONTAGE — HARD (flat-pad spec §1 (2); owner
+    RULINGS 2026-09-30f / 30r, restated 2026-09-30y, #128).  Every HELD
+    contact of a held block (:func:`hold_sets`) takes one HARD two-sided
+    row ``z_o − z_D = 0`` (head :data:`HOLD_RULING` in ``[design]
+    hard_rulings``) against the block's DATUM COLUMN (``model.platform.
+    datum_vertex_of`` — a platform vertex the stage split registers as a
+    stage-1 column), so STAGE 1 solves the airside WITH the flat frontage.
+    After stage 1 the datum is a constant and the hard flat rows
+    (:func:`platform_plane_rows`) put the whole block on it.
+
+    THE DATUM AND ITS INTERVAL ARE NOT DERIVED HERE (flat-pad spec v2 §2,
+    RULINGS 2026-09-30as): ``no_step.hold_interval`` computes the
+    pair-graph feasibility interval between PASS 1a (stage 1 with these
+    rows dropped) and PASS 1b, chooses the datum in it, re-prices a
+    residual contact of an empty interval and adds the datum ``Pin`` and
+    the runway's flex ``Band`` rows (``solve.design.solve_design``).  The
+    route-metric reach band (``runway_reach_band_values``) that bounded the
+    datum here is DELETED — it pinned ``preferred_z``, not solved values,
+    on a metric that reached 5 of SPJC's 8 blocks.  A generator."""
+    STATS.pop("frontage_hold_rows", None)
+    rows: list[Row] = []
+    n_b = n_c = n_ramp = 0
+    for pref, dv, weld, n_all, n_r in hold_sets(planar, law):
+        h = HELD[pref]
+        n_ramp += n_r
         h["hold_contacts"] = [(o, None) for o in weld]
         h["welded_total"] = n_all
-        h["reach_band"] = (None if not bb else
-                           [round(lo, 3) if math.isfinite(lo) else None,
-                            round(hi, 3) if math.isfinite(hi) else None])
-        h["reach_empty"] = bool(empty)
-        h["residual"] = residual
         if not weld:
             continue
         n_b += 1
-        src = Source(GEN, HOLD_RULING + " (flat-pad spec §1 (2); RULINGS "
-                     "2026-09-30f/r/y the pad's flat datum leads its frontage)",
-                     (pref, f"platform:{pref}", "pavement:welded"))
         for o in weld:
-            rows.extend(_two_sided(((o, 1.0), (dv, -1.0)), src, None))
+            rows.extend(hold_row(o, dv, pref))
             n_c += 1
-        if bb:
-            rows.append(Band(dv, lo if math.isfinite(lo) else None,
-                             hi if math.isfinite(hi) else None,
-                             Source(GEN, HOLD_RULING + " (reach band: the "
-                                    "block datum within the airside's route-"
-                                    "metric interval, RULINGS 2026-09-30y (2))",
-                                    (pref, f"platform:{pref}"))))
     STATS["frontage_hold_rows"] = {"blocks": n_b, "contacts": n_c,
-                                   "contacts_ramp": n_ramp,
-                                   "contacts_residual": n_res,
-                                   "blocks_band_empty": n_empty}
+                                   "contacts_ramp": n_ramp}
     return rows
 
 
@@ -700,6 +679,14 @@ def platform_records(planar: PlanarMap, law: Law,
             if "reach_band" in h:
                 rec["reach_band"] = h["reach_band"]
                 rec["reach_empty"] = bool(h.get("reach_empty"))
+                # flat-pad spec v2 §2 / P20: the pair-graph interval, I⁰ and
+                # I, which evaluation held the block, the chosen datum and
+                # the binding anchors (``no_step.hold_interval``)
+                for k in ("reach_band0", "reach_width_m", "reach_gap_m",
+                          "reach_gap0_m", "reach_eval", "reach_unreached",
+                          "datum_chosen", "reach_lo_binding", "reach_hi_binding"):
+                    if k in h:
+                        rec[k] = h[k]
         if weld:
             W = np.array([planar.vertices[v].xy for v in weld], dtype=float)
             rel = np.array([float(z[v]) for v in weld]) - (np.c_[W - c0, np.ones(len(W))] @ co)

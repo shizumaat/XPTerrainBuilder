@@ -1939,6 +1939,12 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         _kw["stage2_rewrite"] = _rewrite
     except ImportError:
         pass
+    try:
+        # flat-pad spec v2 §1 / §2: the build's own hold binding
+        from auto_patch_v2.constraints.no_step import hold_pass
+        _kw["hold"] = hold_pass(pm, law)
+    except ImportError:
+        pass
     sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
                             method=method, strips=strips, **_kw)
     wall = round(time.perf_counter() - t, 1)
@@ -1971,6 +1977,14 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     print(f"[{icao}] resume {resume}; rows {cs.counts()}; dropped generators {drop or '-'}; "
           f"solve {wall:.1f} s status {sol.status.value}; {rep.line()}")
     print(f"[{icao}] LP size: {size}")
+    # flat-pad spec v2 §1 / §2: pass 1a, the interval and the runway's flex
+    _s1a = (getattr(rep, "stages", None) or {}).get("stage1a")
+    if _s1a:
+        print(f"[{icao}] PASS 1a (hold rows dropped): {_s1a}")
+        print(f"[{icao}] stage 1 (pass 1b) wall {rep.stages['stage1'].get('wall_s')} s "
+              f"= pass 1a {_s1a.get('wall_s')} s + interval {_s1a.get('interval_s')} s + pass 1b")
+    for _f in getattr(rep, "runway_flex", None) or ():
+        print(f"[{icao}] RUNWAY FLEX {_f}")
     n_shapes = len({v for v in pm.shape_of_vertex.values() if v >= 0})
     by_shape: dict[int, int] = {}
     for v in pm.shape_of_vertex.values():

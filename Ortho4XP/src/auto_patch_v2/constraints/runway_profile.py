@@ -157,8 +157,9 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
 
     "If there's no CIFP data, runway elevations must be in the apt.dat":
     the LEVEL is the apt.dat airport elevation record (the header row;
-    runway rows carry none — ``Airport.elevation_m``), anchored at the
-    runway's MIDPOINT; the TILT is the §21 long-wave DEM trend's mean
+    runway rows carry none — ``Airport.elevation_m``), which is the
+    HIGHEST point of the landing area, so the runway's HIGHER threshold
+    sits at it; the TILT is the §21 long-wave DEM trend's mean
     slope along the runway's own ridge, bounded by the runway's own
     longitudinal (and end-zone) cap; on a DEGRADED frame, or a ridge the
     trend cannot fit, the runway is LEVEL at the datum (never an invented
@@ -211,14 +212,21 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
                 z0, z1 = t.at(s0), t.at(s1)
                 if z0 is not None and z1 is not None and s1 > s0:
                     slope = max(-lim, min(lim, (float(z1) - float(z0)) / (s1 - s0)))
-        mid = 0.5 * L
-        pinned = [(_end_vertex(vw, all_ids, rw, e, ux, uy),
-                   float(e.threshold_elev_m)) for e in cifp]
+        # THE HIGHEST POINT (arm 2): the apt.dat airport elevation is the
+        # elevation of the highest point of the landing area (ICAO Annex 14
+        # "aerodrome elevation"; FAA "airport elevation", highest point of
+        # the usable runways) — so the line's HIGHER threshold sits at it
+        # and the runway falls away from there by its tilt.  Arm 1 anchored
+        # the MIDPOINT: KCLT-without-CIFP 18C/36C (0.5 % over 3 km) stood
+        # 9.5 m above its real CIFP thresholds.
+        end_v = {e.name: _end_vertex(vw, all_ids, rw, e, ux, uy) for e in rw.ends}
+        s_top = max((along(v) for v in end_v.values()), key=lambda q: slope * q)
+        pinned = [(end_v[e.name], float(e.threshold_elev_m)) for e in cifp]
         for end in rw.ends:
             if end.threshold_elev_m is not None:
                 continue
-            v = _end_vertex(vw, all_ids, rw, end, ux, uy)
-            z = float(elev) + slope * (along(v) - mid)
+            v = end_v[end.name]
+            z = float(elev) + slope * (along(v) - s_top)
             for vp, zp in pinned:
                 if lim is None or vp == v:
                     continue

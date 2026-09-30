@@ -262,7 +262,8 @@ def test_the_noisy_targets_curvature_is_the_trends_not_the_noises(law):
 # NO LEVEL: KCLT 18R/36L and 18C/36C floated, moved by rows that bind
 # nothing, 30q).  The owner ruled: "If there's no CIFP data, runway
 # elevations must be in the apt.dat" — the unpinned ends take HARD pins at
-# the apt.dat airport elevation, anchored at the runway midpoint, tilted by
+# the apt.dat airport elevation — the HIGHEST point of the landing area,
+# so the higher threshold sits at it — tilted by
 # the §21 trend's mean slope bounded by the runway cap.
 
 class _SteepPlaneDem(_PlaneDem):
@@ -301,8 +302,9 @@ def _end_pins(pm, law, airport):
 
 
 def test_a_pinless_runway_takes_the_apt_dat_elevation_as_its_datum(law):
-    """THE DATUM SOURCE: the level is the apt.dat airport elevation at the
-    runway MIDPOINT, the tilt the §21 trend's mean slope (a 0.4 % plane,
+    """THE DATUM SOURCE: the level is the apt.dat airport elevation — the
+    HIGHEST point of the landing area (Annex 14), so the HIGHER threshold
+    sits at it — the tilt the §21 trend's mean slope (a 0.4 % plane,
     inside every cap) — both ends pinned, the runway now a TWO-PIN runway
     whose §21 target runs through them."""
     airport, pm = _datum_airport(law, _PlaneDem(), 712.5)
@@ -312,8 +314,9 @@ def test_a_pinless_runway_takes_the_apt_dat_elevation_as_its_datum(law):
     slope = (z1 - z0) / (s1 - s0)
     dem_slope = ((pm.vertices[v1].dem_z - pm.vertices[v0].dem_z) / (s1 - s0))
     assert slope == pytest.approx(dem_slope, abs=2e-4), (slope, dem_slope)
-    # anchored at the midpoint: the line's value at L/2 IS the apt.dat value
-    assert z0 + slope * (0.5 * L - s0) == pytest.approx(712.5, abs=1e-6)
+    # the higher threshold IS the apt.dat value; the other falls from it
+    assert max(z0, z1) == pytest.approx(712.5, abs=1e-9)
+    assert min(z0, z1) < 712.5
     rep: ChordReport = {}
     targets = runway_chord_targets(pm, law, airport, rep)
     assert rep["runways"] == 1 and rep["runways_without"] == 0
@@ -333,7 +336,7 @@ def test_the_datum_tilt_is_bounded_by_the_runway_cap(law):
     lim = _datum_slope_cap(law, airport.runways[0])
     assert lim is not None and lim < 0.06
     assert abs((z1 - z0) / (s1 - s0)) == pytest.approx(lim, abs=1e-9)
-    assert z0 + (z1 - z0) / (s1 - s0) * (0.5 * L - s0) == pytest.approx(700.0, abs=1e-6)
+    assert max(z0, z1) == pytest.approx(700.0, abs=1e-9)
 
 
 def test_a_degraded_frame_gives_a_level_datum(law):

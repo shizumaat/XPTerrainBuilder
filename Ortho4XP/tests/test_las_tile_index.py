@@ -138,7 +138,7 @@ def test_ground_grids_to_the_analytic_plane_in_metres(tmp_path):
     assert record["cells_filled"] == 0
     assert record["ground_density_per_m2"] == pytest.approx(4.0, rel=1e-3)
     assert record["grid_rule_version"] == INSETS.LAS_GRID_RULE_VERSION
-    with open(str(dtm)[:-4] + ".json") as handle:
+    with open(str(dtm)[:-4] + ".json", encoding="utf-8") as handle:
         assert json.load(handle) == record
 
 

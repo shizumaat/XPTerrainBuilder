@@ -6477,7 +6477,7 @@ def validate_las_tile(path, definition):
             % (code, os.path.basename(path), size, points_end))
     import laspy
 
-    with laspy.open(path) as reader:
+    with laspy.open(path, mode="r") as reader:
         epsg = _las_crs_epsg(reader.header)
     wanted = int(float(definition.get("source_crs", 0) or 0))
     if epsg != wanted:
@@ -6572,7 +6572,7 @@ def grid_las_tile(las_path, dtm_path, definition):
     min_points = int(float(definition.get("min_points_per_cell", 1)))
     fill_radius = int(float(definition.get("fill_radius_cells", 0)))
 
-    with laspy.open(las_path) as reader:
+    with laspy.open(las_path, mode="r") as reader:
         header = reader.header
         (min_x, min_y) = (float(header.mins[0]), float(header.mins[1]))
         (max_x, max_y) = (float(header.maxs[0]), float(header.maxs[1]))
@@ -6847,9 +6847,12 @@ class LasTileIndexStrategy:
                     raise ProviderUnavailable(
                         "%s: tile %s answered HTTP %d"
                         % (code, source["source_id"], status))
-                mode = "ab" if status == 206 and resume_from else "wb"
                 os.makedirs(os.path.dirname(scratch_path), exist_ok=True)
-                with open(scratch_path, mode) as handle:
+                if status == 206 and resume_from:
+                    handle = open(scratch_path, "ab")
+                else:
+                    handle = open(scratch_path, "wb")
+                with handle:
                     for block in response.iter_content(1 << 20):
                         if UI.red_flag:
                             raise TransientFetchError(

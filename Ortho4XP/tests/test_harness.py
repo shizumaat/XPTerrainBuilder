@@ -2998,7 +2998,7 @@ def test_ladder_recheck_new_listing_is_a_refreshable_refusal(build_mod,
     read), refuses a new listing naming ``dem,las_tiles`` when a LAS-tile
     rung is among the finer ones, and lets ``unchanged`` stand."""
     sidecar = tmp_path / "KASE_usgs3dep.json"
-    sidecar.write_text("{}")
+    sidecar.write_text("{}", encoding="utf-8", newline="\n")
     calls = []
 
     class _Insets:

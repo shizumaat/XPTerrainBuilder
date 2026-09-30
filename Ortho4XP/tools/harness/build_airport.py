@@ -3045,11 +3045,12 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     v2_dir = out_dir / f"{tag}.v2"
     lines: list = []
     t0 = time.time()
-    with guard, V2Progress(icao) as v2p:
-        def _out(ln: str) -> None:
-            lines.append(ln)
-            v2p.line(ln)
-        res = build(icao, inputs, v2_dir, Config(), law, out=_out)
+    with guard:
+        with V2Progress(icao) as v2p:
+            def _out(ln: str) -> None:
+                lines.append(ln)
+                v2p.line(ln)
+            res = build(icao, inputs, v2_dir, Config(), law, out=_out)
     dt = time.time() - t0
     for ln in lines:
         prog.note(f"  [v2] {ln}")

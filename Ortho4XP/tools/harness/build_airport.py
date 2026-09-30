@@ -853,7 +853,8 @@ def _ladder_recheck_problem(INSETS, lat, lon, icao, required):
             f"LADDER-STALE airport elevation inset {paths[0]} — it was "
             f"delivered by a coarser resolution-ladder rung and a FINER "
             f"rung now lists new coverage "
-            f"({', '.join(recheck.get('new_source_ids') or [])}), so the "
+            f"({INSETS.ladder_recheck_ids_text(recheck.get('new_source_ids'))}"
+            f"), so the "
             f"build would RE-FETCH the ladder (--refresh-data "
             f"{','.join(scopes)}; --warm-insets {icao})")
 
@@ -3443,6 +3444,17 @@ def resolve_tile_for(icao: str, root: Path):
 
 
 def main(argv=None) -> int:
+    # THE HARNESS IS NOT THE SUITE (lane las130, 2026-09-30).  The CLI
+    # imports ``tests/conftest.py`` for ``xplane_root``
+    # (:func:`resolve_tile_for`), and since #122 (7d5f73a1) that import
+    # installs the SUITE's socket-level network refusal in the importing
+    # process -- so every discovery / download a harness run makes after
+    # it (``--refresh-data dem`` warms, the per-airport ladder re-check)
+    # died "the test suite may not reach the network", read as a
+    # transient, and warmed nothing.  The harness's own law is the
+    # shared-repo WRITE guard, not a network ban; the suite's override is
+    # set for this process before anything imports conftest.
+    os.environ.setdefault("O4_SUITE_ALLOW_NETWORK", "1")
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)

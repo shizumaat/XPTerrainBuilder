@@ -3015,6 +3015,9 @@ def test_ladder_recheck_new_listing_is_a_refreshable_refusal(build_mod,
             calls.append(record)
             return dict(self.answer)
 
+        def ladder_recheck_ids_text(self, ids):
+            return ", ".join(ids)
+
         def initialize_elevation_providers_dict(self):
             return {"USGS3DEP": {"code": "USGS3DEP"}}
 

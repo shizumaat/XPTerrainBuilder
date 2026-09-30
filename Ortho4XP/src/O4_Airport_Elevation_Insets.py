@@ -8310,6 +8310,16 @@ def _stored_rung_listing(attempt):
     return None
 
 
+def ladder_recheck_ids_text(ids, shown=5):
+    """``a, b, c, d, e (+58 more)`` -- a re-check's new ids for one log /
+    refusal line (a LAS index lists 63 tiles at KASE)."""
+    ids = list(ids or ())
+    text = ", ".join(ids[:shown])
+    if len(ids) > shown:
+        text += " (+%d more)" % (len(ids) - shown)
+    return text
+
+
 def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
                    record=False):
     """THE BUILD-TIME LADDER RE-CHECK (owner RULINGS 2026-09-30aw (2)) --
@@ -8380,9 +8390,9 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
             or (_definition_resolution_m(rung_definition) or 0.0)
             < delivered_native
         ]
-    result = "unchanged"
     new_ids = []
     checked = []
+    transient = False
     for (label, rung_definition) in finer:
         if not _coverage_bbox_intersects(rung_definition, bounding_box):
             continue
@@ -8393,23 +8403,24 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
         try:
             sources = factory().discover(rung_definition, bounding_box)
         except Exception as error:
+            # An outage is no answer (30t): THIS rung stands as recorded,
+            # and the other finer rungs are still asked -- one rung's
+            # outage must not hide another rung's new listing.
             UI.vprint(
-                1,
+                0,
                 "    [inset] %s: ladder re-check of rung '%s' (%s) did not "
-                "answer (%s) - the cached inset stands."
+                "answer (%s) - that rung stands as recorded."
                 % (icao, label, rung_definition.get("code"), error),
             )
-            result = "transient"
-            break
+            transient = True
+            continue
         listed = _listing_ids(sources)
         known = _stored_rung_listing(stored.get(str(label)))
         fresh = [value for value in listed
                  if known is None or value not in set(known)]
-        if fresh:
-            result = "new-listing"
-            new_ids.extend(fresh)
-    if result == "transient" and new_ids:
-        result = "new-listing"
+        new_ids.extend(fresh)
+    result = ("new-listing" if new_ids
+              else "transient" if transient else "unchanged")
     recheck = {
         "rung": checked[0] if checked else None,
         "rungs_checked": checked,
@@ -8869,7 +8880,8 @@ def ensure_airport_insets(
                         cached_inset_is_stale = True
                         stale_reason = (
                             "a finer ladder rung now lists new coverage "
-                            "(%s)" % ", ".join(recheck["new_source_ids"])
+                            "(%s)" % ladder_recheck_ids_text(
+                                recheck["new_source_ids"])
                         )
                 if not cached_inset_is_stale:
                     airport_record[code] = airport_record.get(code) or "ok"

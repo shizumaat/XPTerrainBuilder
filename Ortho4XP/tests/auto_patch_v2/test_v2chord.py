@@ -214,6 +214,11 @@ def test_a_runway_without_two_pins_takes_its_own_trend(law):
     # a one-pin correction would drag it to
     assert 694.0 < targets[mid] < 698.0, targets[mid]
     pm_c = with_runway_chord(pm, law, airport)
+    # priced as a DATUM (``[design] ground_datum``), never the pinned
+    # profile's ``chord``: the map names exactly the runway's own vertices
+    assert pm_c.runway_trend_datum == frozenset(targets)
+    ap2, pm2, _st2 = _airport(law, [RUNWAY], [], _Valley())   # two pins
+    assert with_runway_chord(pm2, law, ap2).runway_trend_datum == frozenset()
     cs, _c, _w = generate(pm_c, law, airport)
     sol = solve_design(pm_c, cs, law)[0]                 # the SHIPPED (staged) solve
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE)

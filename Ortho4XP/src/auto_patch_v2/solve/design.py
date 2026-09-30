@@ -386,10 +386,17 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # 6. the runway chord (and the core's road profile) — ``preferred_z``
     #    (a runway-family vertex fits the CHORD; every other published
     #    target is the core's clamped road profile — the road's own term)
+    #    A PINLESS runway's target is its DEM trend, a DATUM (issue #117):
+    #    priced at ``ground_datum`` — a level where no law speaks, below
+    #    every law row — never at the pinned profile's ``chord``.
     pref = planar.preferred_z
+    datum_v = planar.runway_trend_datum
     for vid, target in pref.items():
         if vid in rwy_v:
-            if rows.add(((vid, 1.0),), float(target), d.chord, ("chord", vid)):
+            if vid in datum_v:
+                rows.add(((vid, 1.0),), float(target), d.ground_datum,
+                         ("runway_datum", vid))
+            elif rows.add(((vid, 1.0),), float(target), d.chord, ("chord", vid)):
                 chord_v += 1
         elif rows.add(((vid, 1.0),), float(target), d.road, ("road_fit", vid)):
             road_v += 1

@@ -268,6 +268,14 @@ class PlanarMap:
     #: ``Any`` because ``model`` may not import ``constraints``; empty on
     #: a map nothing derived over, which reads exactly as before.
     runway_caps: _t.Mapping[str, _t.Any] = _dc.field(default_factory=dict)
+    #: THE PINLESS RUNWAY'S DATUM (issue #117, ``constraints/runway_chord
+    #: ._pinless_trends``): the runway-family vertices whose ``preferred_z``
+    #: is the UNSHIFTED DEM trend of a runway with fewer than two CIFP pins
+    #: — a DATUM, priced at ``[design] ground_datum`` so it gives the runway
+    #: a level where no law speaks and never outprices one, where a pinned
+    #: runway's profile is priced at ``[design] chord``.  An immutable class
+    #: default, so a map unpickled from an older capture reads it empty.
+    runway_trend_datum: frozenset = frozenset()
     #: THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
     #: spec §8.6, ``constraints/taxi_trend.py``): vertex id -> the ground's
     #: LONG-WAVE TREND along that vertex's taxi centreline chain, shifted

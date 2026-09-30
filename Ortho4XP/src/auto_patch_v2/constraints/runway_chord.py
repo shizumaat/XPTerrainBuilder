@@ -81,7 +81,14 @@ of 0.175 against the apron's 30, the stage-1 QP stopped 2.69 m off its own
 minimum there, and 146 non-binding pavement-cap rows elsewhere moved it
 0.85 m.  Such a runway now takes the §21 long-wave DEM trend along its own
 ridge, unshifted (:func:`_pinless_trends`): the DEM as its target in the
-only form §21.2 (5) admits.  It joins no crossing (it can govern none and
+only form §21.2 (5) admits — and priced as a DATUM (``[design]
+ground_datum``, ``PlanarMap.runway_trend_datum``), not at the pinned
+profile's ``chord``: it gives the runway a level where no law speaks and
+yields to every law row.  MEASURED (KCLT de25a131 replay, adjudicated
+census vs the unfixed replay 6,532 / airside 4,772): at ``chord`` (300)
+7,201 / 5,446; as a datum 6,796 / 5,041 — the remainder is taxi-family
+chord pairs at 1.5-1.8 % the design does not price (05aa route law) that
+the floating runway happened to satisfy.  OPEN (lane report, #117).  It joins no crossing (it can govern none and
 the crossing pin reads only pinned chords), and a degraded frame or an
 unfittable ridge still gives it no target — never an invented value.
 
@@ -559,7 +566,8 @@ def _crossing_pin_map(pm: PlanarMap, law: Law, airport: Airport, vw,
 def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
                          report: ChordReport | None = None, *,
                          fill_roles: tuple[str, ...] = (),
-                         fill_within: str = "graded_strip") -> dict[int, float]:
+                         fill_within: str = "graded_strip",
+                         datum_out: set[int] | None = None) -> dict[int, float]:
     """Vertex -> TARGET PROFILE value for every runway-family vertex of a
     runway with two CIFP pins (module docstring): the ground's long-wave
     trend through the pins (spec §21), or the straight threshold chord
@@ -570,7 +578,12 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
     of these roles ALSO take the crown-plane chord target, restricted to
     vertices incident to a ``fill_within`` face (the strip), so a
     connector beyond the strip keeps its own target.  A runway-family
-    target always wins on a shared vertex."""
+    target always wins on a shared vertex.
+
+    ``datum_out`` (issue #117): filled with the vertices whose target is a
+    PINLESS runway's unshifted trend — a datum the design prices at
+    ``[design] ground_datum``, not ``chord`` (``PlanarMap
+    .runway_trend_datum``)."""
     vw = view(pm, law)
     chains = ridge_chains(vw)
     crown = law.tables.common.runway_crown_transverse
@@ -634,8 +647,8 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
             if is_fill and f.role != fill_within and not any(
                     pm.faces[g].role == fill_within for g in pm.vertices[v].incident_faces):
                 continue
-            best: tuple[float, float, float] | None = None
-            # (lateral d, chord z at the foot, that runway's half-width)
+            best: tuple[float, float, float, str] | None = None
+            # (lateral d, chord z at the foot, that runway's half-width, id)
             p = vw.xy[v]
             for r in refs:
                 c = chords[r]
@@ -649,10 +662,10 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
                         continue                 # a fill target never extrapolates past a pin
                     zc = c.z(sc)
                     if best is None or d < best[0]:
-                        best = (d, zc, half_of.get(r, 0.0))
+                        best = (d, zc, half_of.get(r, 0.0), r)
             if best is None:
                 continue
-            d, zc, half = best
+            d, zc, half, r_best = best
             # §40 (1) THE CROWN STOPS AT THE RUNWAY EDGE (owner RULINGS
             # 2026-09-13co item 1).  The designed cross-fall is the
             # RUNWAY's, between its own edges; past them — a SHOULDER
@@ -668,6 +681,8 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
             # the `fill_roles` experiment arm keeps its own unclamped
             # crown plane.
             out[v] = zc - crown * (d if is_fill or half <= 0.0 else min(d, half))
+            if datum_out is not None and r_best not in fitted:
+                datum_out.add(v)
             dem = pm.vertices[v].dem_z
             if is_fill and dem is not None and out[v] < dem:
                 continue                     # a fill target FILLS; where the DEM is higher it stays the target
@@ -697,9 +712,12 @@ def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
     a runway whose chord target is absent still carries a cap."""
     from .runway_yield import derive as _derive_caps
     caps = _derive_caps(pm, law, airport)
-    targets = runway_chord_targets(pm, law, airport, report, fill_roles=fill_roles)
+    datum: set[int] = set()
+    targets = runway_chord_targets(pm, law, airport, report, fill_roles=fill_roles,
+                                   datum_out=datum)
     if not targets:
         return _dc.replace(pm, runway_caps=caps) if caps else pm
     merged = dict(pm.preferred_z)
     merged.update(targets)
-    return _dc.replace(pm, preferred_z=merged, runway_caps=caps)
+    extra = {"runway_trend_datum": frozenset(datum)} if datum else {}
+    return _dc.replace(pm, preferred_z=merged, runway_caps=caps, **extra)

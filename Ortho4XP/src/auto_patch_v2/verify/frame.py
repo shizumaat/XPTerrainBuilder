@@ -17,6 +17,7 @@ import typing as _t
 
 from ..emit.surface import GradedSurface
 from ..law import Law
+from ..constraints.precedence import taxi_cap_for
 from ..law.tables import is_rigid_role, role_cap, role_family, role_side
 from ..model.planar import face_vertex_ids
 
@@ -121,7 +122,27 @@ class Patch:
         if rc is None:
             return None
         got = self._runway_cap(sh)
-        return rc.longitudinal if got is None else max(rc.longitudinal, got)
+        if got is None:
+            # 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY: a tied taxi-family
+            # shape reads its published yielded cap through THE reader
+            return taxi_cap_for(rc.longitudinal, self.taxi_yield(sh))
+        return max(rc.longitudinal, got)
+
+    def taxi_yield(self, sh: Shape) -> float | None:
+        """30ah (1) (owner RULINGS 2026-09-30ah (1), issue #135): the
+        published YIELDED cap of a taxi-family shape tied to a yielded
+        runway (sidecar ``taxi_yield_caps``, keyed by shapeID), or
+        ``None`` — no key, no record, or a shape of another family."""
+        by = self.__dict__.get("_taxi_yield_by_shape")
+        if by is None:
+            by = {int(r["shape"]): float(r["cap"])
+                  for r in (self.publication.get("taxi_yield_caps") or ())
+                  if isinstance(r, dict) and r.get("shape") is not None
+                  and r.get("cap") is not None}
+            object.__setattr__(self, "_taxi_yield_by_shape", by)
+        if not by or role_family(self.law, sh.role) != "taxi":
+            return None
+        return by.get(sh.key)
 
     def _runway_cap(self, sh: Shape) -> float | None:
         """§50.1 (4): the published EFFECTIVE cap of a runway-family

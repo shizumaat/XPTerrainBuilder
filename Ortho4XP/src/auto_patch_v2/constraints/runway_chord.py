@@ -627,11 +627,18 @@ def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
     ``tools/v2_solve_replay.py``), so ``PlanarMap.runway_caps`` is set
     here and NO new call site exists to forget.  It is set on BOTH exits:
     a runway whose chord target is absent still carries a cap."""
-    from .runway_yield import derive as _derive_caps
+    from .runway_yield import derive as _derive_caps, derive_taxi as _derive_taxi
     caps = _derive_caps(pm, law, airport)
+    # 30ah (1): the taxi family tied to a YIELDED runway yields with it —
+    # derived HERE, beside the runway caps, from the same record (empty,
+    # and nothing built, where no runway yielded)
+    extra: dict[str, _t.Any] = {}
+    taxi = _derive_taxi(pm, law, airport, caps)
+    if taxi:
+        extra["taxi_caps"] = taxi
     targets = runway_chord_targets(pm, law, airport, report, fill_roles=fill_roles)
     if not targets:
-        return _dc.replace(pm, runway_caps=caps) if caps else pm
+        return _dc.replace(pm, runway_caps=caps, **extra) if caps else pm
     merged = dict(pm.preferred_z)
     merged.update(targets)
-    return _dc.replace(pm, preferred_z=merged, runway_caps=caps)
+    return _dc.replace(pm, preferred_z=merged, runway_caps=caps, **extra)

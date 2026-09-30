@@ -68,7 +68,7 @@ import typing as _t
 import dataclasses as _dc
 
 from ..law import Law
-from ..law.tables import is_rigid_role, role_cap, role_family
+from ..law.tables import is_rigid_role, role_family
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -175,14 +175,17 @@ def taxi_pair_routes(planar: PlanarMap, law: Law, airport: Airport | None
     chord: list[tuple[int, int, int, float, float, bool]] = []
     groups: list[list[int]] = []
     for f in vw.faces_of_role(members):
-        cap = role_cap(law, f.role, f.code_number, f.code_letter)
+        # the face's governed cap through the view (``precedence.
+        # face_cap``): the letter table, yielded where the face is tied to
+        # a yielded runway (30ah (1)) — the table itself elsewhere
+        cap = vw.caps[f.id]
         if cap is None:
             continue
         common_only = f.role in mesh_roles
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             groups.append(list(ring))
             for a, b, c, d in pair_caps(planar, law, st, f.id, ring,
-                                        cap.longitudinal, min_d, common_only):
+                                        cap[0], min_d, common_only):
                 pad = a in pads or b in pads
                 chord.append((f.id, a, b, min(c, pad_cap) if pad else c, d, pad))
     table = route_pairs(routes(planar, law, airport), groups)

@@ -1926,6 +1926,14 @@ def print_report(rep: dict, top: int, cg=None) -> None:
               f"(looser={_rc.get('looser', 0)} stricter={_rc.get('stricter', 0)}"
               f"; sidecar 'runway_caps' names each runway's cap_law, cap, "
               f"pin_grade and pins)")
+    # 30ah (1) (issue #135): the taxi faces tied to a yielded runway and
+    # the within-shape pairs their yielded cap repriced — counted, never
+    # hidden.
+    _ty = dict(getattr(cg, "_TAXI_YIELD_STATS", {}) or {})
+    if _ty.get("ways"):
+        print(f"  30ah taxi yield (tied to a yielded runway): ways={_ty['ways']} "
+              f"within-shape pairs repriced={_ty.get('pairs', 0)} "
+              f"(sidecar 'taxi_yield_caps' names each face's cap and runway)")
     # ── THE BUILD'S OWN AIRSIDE-SCOPED CERTIFICATE (air7; RULINGS
     # 2026-09-01l/r) — the solve's law-graph verdict on the zero-airside
     # beta bar, printed beside the census's emitted-surface counts so

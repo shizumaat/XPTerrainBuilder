@@ -301,6 +301,14 @@ class PlanarMap:
     #: ``Any`` because ``model`` may not import ``constraints``; empty on
     #: a map nothing derived over, which reads exactly as before.
     runway_caps: _t.Mapping[str, _t.Any] = _dc.field(default_factory=dict)
+    #: §50 TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
+    #: (1), issue #135, additive): TAXI-FAMILY face id -> its
+    #: ``constraints.runway_yield.TaxiYield`` — the yielded longitudinal
+    #: cap the face is priced at and the runway that yielded it.  Derived
+    #: ONCE beside ``runway_caps`` (``with_runway_chord``) and read back
+    #: through ``constraints.precedence.taxi_cap_for`` (``face_cap``,
+    #: ``stretches``).  Empty where no runway yielded: reads as before.
+    taxi_caps: _t.Mapping[int, _t.Any] = _dc.field(default_factory=dict)
     #: THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
     #: spec §8.6, ``constraints/taxi_trend.py``): vertex id -> the ground's
     #: LONG-WAVE TREND along that vertex's taxi centreline chain, shifted

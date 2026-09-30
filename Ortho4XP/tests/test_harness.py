@@ -11759,3 +11759,57 @@ def test_pavement_over_road_cap_is_registered_and_reads_the_law(cg):
     assert cg.PAVEMENT_ROAD_CAP == law.tables.common.road_max_grade
     assert set(cg._PAVCAP_ROLES) == set(_T.pavement_roles(law))
     assert set(fam.roles) == set(_T.pavement_roles(law))
+
+
+def test_taxi_yield_census_and_generator_share_one_reader(cg, monkeypatch):
+    """30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
+    (1), issue #135): the solve's generators (``precedence.face_cap``,
+    ``stretches``), v2 verify (``verify/frame.Patch.cap``,
+    ``verify/contiguity``) and the census (``check_grade.
+    _taxi_yield_pair_cap``) price a tied taxi face through ONE reader,
+    ``precedence.taxi_cap_for`` — two copies of the law is the 30l (1)
+    defect.  The census reads the SAME way tag the publication stamps and
+    the sidecar key is registered, never silently ignored."""
+    import types
+    from auto_patch_v2.constraints import precedence as _P
+    from auto_patch_v2.constraints import runway_yield as _RY
+    from auto_patch_v2.constraints import stretches as _ST
+    from auto_patch_v2.emit import osm_adapter as _OA
+    from auto_patch_v2.pipeline import publication as _PUB
+    from auto_patch_v2.verify import contiguity as _VC
+    from auto_patch_v2.verify import frame as _VF
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import role_cap
+
+    # every engine reader holds THE function, not a copy of the rule
+    for mod in (_RY, _ST, _VF, _VC):
+        assert mod.taxi_cap_for is _P.taxi_cap_for, mod.__name__
+    # the census reads the tag the publication stamps, and the key is known
+    assert cg.TAXI_YIELD_CAP_TAG == _PUB.TAXI_YIELD_CAP_TAG
+    assert "taxi_yield_caps" in _OA.SIDECAR_KEYS
+    assert "taxi_yield_caps" in cg.SIDECAR_EVIDENCE_KEYS
+
+    calls = []
+    real = _P.taxi_cap_for
+
+    def spy(table, yielded):
+        calls.append((table, yielded))
+        return real(table, yielded)
+
+    monkeypatch.setattr(_P, "taxi_cap_for", spy)
+    # the census resolves the reader at call time from the engine module
+    pair = types.SimpleNamespace(
+        cap=0.015, transverse_road=False,
+        way=types.SimpleNamespace(tags={cg.TAXI_YIELD_CAP_TAG: "0.0202"}))
+    assert cg._taxi_yield_pair_cap(pair, 0.015) == 0.0202
+    assert calls == [(0.015, 0.0202)]
+    # and the generators' face_cap reads the published record through it
+    law = Law.for_airport("ZZZZ")
+    face = types.SimpleNamespace(id=7, role="primary_parallel", ref="taxiA",
+                                 code_number=None, code_letter="D")
+    pm = types.SimpleNamespace(
+        runway_caps={}, taxi_caps={7: types.SimpleNamespace(cap=0.0202)})
+    calls.clear()
+    lon, tr = _P.face_cap(law, face, pm)
+    assert lon == 0.0202 and calls == [(0.015, 0.0202)]
+    assert tr == role_cap(law, "primary_parallel", None, "D").transverse

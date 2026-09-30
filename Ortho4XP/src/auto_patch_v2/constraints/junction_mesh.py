@@ -61,7 +61,7 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import role_cap, snap_margin_m
+from ..law.tables import snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
@@ -260,13 +260,13 @@ def junction_mesh(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     stats["box_pairs"] = 0
     rows: list[Row] = []
     for f in vw.faces_of_role(roles):
-        cap = role_cap(law, f.role, f.code_number, f.code_letter)
+        cap = vw.caps[f.id]          # ``face_cap``: yielded under 30ah (1)
         if cap is None:
             continue
         lines = crossing_lines(vw, st, f.id)
         tris = face_triangles(vw, f.id)
         edges = face_mesh_edges(vw, f.id, tris)
-        caps = mesh_edge_caps(vw, lines, edges, cap.longitudinal)
+        caps = mesh_edge_caps(vw, lines, edges, cap[0])
         # THE SHORT-PAIR BOX over the mesh population (RULINGS 2026-09-06s;
         # ``taxi`` module docstring): every mesh edge and every common-
         # stretch pair (04y) under ``withdrawn_chord_min_m``, a taxi row
@@ -303,7 +303,7 @@ def junction_mesh(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             fallback = all_axes
         else:
             fallback = ()
-        boxes = triangle_boxes(vw, axes, tris, fallback, (cap.longitudinal, cap.transverse))
+        boxes = triangle_boxes(vw, axes, tris, fallback, (cap[0], cap[1]))
         for tri, (axis, cl, ct) in boxes.items():
             rows.extend(box_rows(list(tri), vw.xy, axis, cl, ct, src_t))
     return rows

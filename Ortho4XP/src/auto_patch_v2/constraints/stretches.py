@@ -62,6 +62,7 @@ from ..law import Law
 from ..law.tables import role_cap, role_family
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
+from .precedence import taxi_cap_for
 
 __all__ = ["Stretch", "Stretches", "stretches", "edge_cap", "pair_caps",
            "compose_pairs", "nearest_line_cap", "AxisIndex", "APRON_ROLE"]
@@ -154,6 +155,22 @@ def build_stretches(pm: PlanarMap, law: Law) -> Stretches:
                         lst = faces.setdefault(f, [])
                         if sid not in lst:
                             lst.append(sid)
+    # 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY: a stretch splitting or
+    # bounding a taxi-family face tied to a yielded runway carries that
+    # face's yielded cap (``PlanarMap.taxi_caps``, the one record) through
+    # THE reader — so the route edges, the taxi box, the transverse axes
+    # and the published ``stretches`` / ``axes`` all price it.  Empty
+    # where no runway yielded: every stretch reads its letter as before.
+    tied = getattr(pm, "taxi_caps", None) or {}
+    if tied:
+        lift: dict[int, float] = {}
+        for f, sids in faces.items():
+            if f in tied:
+                for sid in sids:
+                    lift[sid] = max(lift.get(sid, 0.0), float(tied[f].cap))
+        for sid, c in lift.items():
+            items[sid] = _dc.replace(items[sid],
+                                     cap_l=taxi_cap_for(items[sid].cap_l, c))
     return Stretches(tuple(items), {v: tuple(s) for v, s in on.items()}, by_edge,
                      {f: tuple(s) for f, s in faces.items()}, inter)
 

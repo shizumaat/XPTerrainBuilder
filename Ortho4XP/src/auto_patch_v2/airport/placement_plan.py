@@ -534,6 +534,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     ``abutments`` are the plan's own 10ay pairs when the caller lifted
     them out of a later-versioned plan (``read_plan``); by default the
     plan's own are used."""
+    # flat-pad spec §3 C16 (RULINGS 2026-09-30r, Q-111b option (1)): a
+    # unit platform CUT into flat blocks is cut in the OBJECT too — every
+    # contact pair straddling two blocks of one unit is dropped here, once,
+    # so every reader below sees two bodies where the neck was
+    from . import pad_block_seat as _pbs
+    plan, abutments, _blk_counts = _pbs.sever(plan, pads, abutments)
     intra: dict[int, list[tuple[int, int]]] = {}
     member_of_pid: dict[int, tuple[int, int]] = {}
     for ui, u in enumerate(plan.units):
@@ -566,6 +572,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                               "basin_bodies_bound": 0, "bodies_plan_bound": 0,
                               "groups_re_cut": 0, "elevated_ride_other_file": 0,
                               "footless_own_ground": 0}
+    counts.update(_blk_counts)
     refused: dict[str, int] = {}
     #: §16c (7): the plan extent of every rigid cluster of more than one
     #: body, for the report (a cluster is ONE body no cut may divide)

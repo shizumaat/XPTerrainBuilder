@@ -87,6 +87,11 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                                              contents_min_fraction,
                                              sheet_chain_min_fraction,
                                              cut=cut)
+    # flat-pad spec §3 C16 (RULINGS 2026-09-30r): a unit standing on two
+    # or more flat BLOCKS of one platform is one unit PER BLOCK, each
+    # seated on its own block's floor
+    from .pad_block_seat import split_units as _split_blocks
+    units, _foot_shift = _split_blocks(units, plan, pads, counts)
     counts["connector_verdict_stamped"] = int(stamped is not None)
     if stamped is not None:
         counts["connectors_solid"] = sum(1 for v in stamped if v.solid)
@@ -109,6 +114,10 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                 out.extend(p.feet)
         return out
     dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2)
+    for _uid, _sh in _foot_shift.items():
+        if _uid in dat and dat[_uid][0] is not None:
+            _d = dat[_uid]
+            dat[_uid] = (_d[0] - _sh, _d[1], _d[2])
     out: dict[int, tuple] = {}
     seats: list[tuple[float, float, float, float, float, str]] = []
     for un in units:

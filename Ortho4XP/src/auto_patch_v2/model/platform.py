@@ -14,7 +14,7 @@ import dataclasses as _dc
 import typing as _t
 
 __all__ = ["Platform", "PLATFORMS", "HELD", "held_platform_vertices",
-           "datum_vertex_of", "datum_vertices"]
+           "datum_vertex_of", "datum_vertices", "stage_air_vertices"]
 
 
 @_dc.dataclass(frozen=True)
@@ -75,10 +75,48 @@ def datum_vertex_of(planar: _t.Any, ref: str) -> "int | None":
     return vs[0] if vs else None
 
 
-def datum_vertices(planar: _t.Any) -> dict[str, int]:
-    """``{held ref: its datum vertex}`` over :data:`HELD`."""
+def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
+    """Every vertex of a §20b stage-1 face (``law.tables.
+    airside_stage_roles``, rings and holes; a courtyard island excluded,
+    ``model.islands``) — the body of ``solve/design_roles.
+    airside_stage_vertices`` before the datum columns join it (one
+    derivation, read here so the constraints may ask it too)."""
+    from ..law.tables import airside_stage_roles
+    from .islands import courtyard_faces
+    roles = airside_stage_roles(law)
+    court = courtyard_faces(planar, law)
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if f.role not in roles or f.id in court:
+            continue
+        for ring in (f.ring, *f.holes):
+            out.update(planar.ring_vertices(ring))
+    return out
+
+
+def datum_vertices(planar: _t.Any, law: _t.Any,
+                   air: "_t.AbstractSet[int] | None" = None) -> dict[str, int]:
+    """``{held ref: its datum vertex}`` over :data:`HELD` — only the blocks
+    whose COLLAR shares a vertex with a stage-1 face (a block with no
+    welded frontage has nothing to hold: it keeps the plate's own rows,
+    MEASURED on the HECA replay — ``building121`` / ``281`` / ``5`` read
+    frontage at the mint through a sliver the arrangement did not weld,
+    and a datum column with no hold row sat on one vertex's DEM)."""
+    if not HELD:
+        return {}
+    if air is None:
+        air = stage_air_vertices(planar, law)
+    col: dict[str, set[int]] = {}
+    for f in planar.faces.values():
+        r = str(f.ref)
+        if r.endswith("#collar") and r[:-len("#collar")] in HELD:
+            vs = col.setdefault(r[:-len("#collar")], set())
+            for ring in (f.ring, *f.holes):
+                vs.update(planar.ring_vertices(ring))
     out: dict[str, int] = {}
     for ref in sorted(HELD):
+        if not (col.get(ref, set()) & air):
+            continue
         v = datum_vertex_of(planar, ref)
         if v is not None:
             out[ref] = v

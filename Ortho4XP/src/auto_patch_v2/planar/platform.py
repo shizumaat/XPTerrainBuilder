@@ -247,7 +247,9 @@ def platform_split(base_regions, pad_regions, law: Law,
         if bplan is not None:
             HELD[str(pr.ref)] = {"unit": str(pr.ref), "k": 0, "blocks": 1,
                                  "datum_pred": bplan.blocks[0].datum,
-                                 "verdict": bplan.verdict}
+                                 "verdict": bplan.verdict,
+                                 "samples_xy": bplan.blocks[0].samples_xy,
+                                 "samples_held": bplan.blocks[0].samples_held}
         pieces = [_dc.replace(pr, polygon=q) for q in plats]
         plat_ids.update(id(q) for q in pieces)
         out.extend(pieces)
@@ -327,7 +329,8 @@ def _mint_blocks(pr, P: Polygon, plats: list, bplan, law: Law, grid: float,
         PLATFORMS.append(Platform(ref, round(C, 2), round(b.polygon.area, 1),
                                   round(a, 1), nw, rel))
         HELD[ref] = {"unit": str(pr.ref), "k": b.k, "blocks": len(bplan.blocks),
-                     "datum_pred": b.datum, "verdict": bplan.verdict}
+                     "datum_pred": b.datum, "verdict": bplan.verdict,
+                     "samples_xy": b.samples_xy, "samples_held": b.samples_held}
     return plat_regs, col_regs
 
 

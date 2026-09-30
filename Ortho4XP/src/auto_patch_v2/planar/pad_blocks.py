@@ -20,21 +20,21 @@ its own level; the walls step at the block boundary (a declared pad|pad
 terrace, exempt from the cap, 30l).
 
 THE TEST, PER FRONTAGE CONTACT.  A welded contact ``c`` (a pad ring sample
-within ``near`` of a fronted apron body) can carry the level ``D`` iff the
-apron between it and every taxi edge vertex ``q`` of the fronted bodies
-grades within its hard cap ``a`` (``common.roles.apron``) and the taxiway at
-``q`` moves within its budget ``τ_q``:
-``J_c = ∩_q [T(q) − a·d(q,c) − τ_q, T(q) + a·d(q,c) + τ_q]`` — ``T`` the DEM
-(stage 1 has not run at the arrangement), ``d`` straight (a lower bound of
-the geodesic, never looser), ``τ_q = max(0, t·s_q − u_q) − margin`` with
-``t`` the taxi letter cap (``law.ruleset.taxi.longitudinal``), ``s_q`` the
-distance to the nearest PINNED point (a runway-family face widened by its
-zone-2 half width), ``u_q`` the grade the route already spends and
-``margin`` = ``[building_pad] frontage_hold_margin_m``.  A block's interval
-is the intersection over its contacts (spec §2 (1): ``min_c d`` is the
-tightest ``q`` row, so ``I_b = ∩_{c∈b} J_c``).  The frontage itself is an
-apron edge graded within ``a`` between contacts, so ``J`` is closed under
-that Lipschitz reach (:func:`band`) before any block reads it.
+within ``near`` of a fronted apron body) can carry a level ``D`` iff the
+apron in front of it grades from ``D`` to the taxiway it faces within the
+apron's hard cap ``a`` (``common.roles.apron``), the taxiway moving by at
+most its budget ``τ_q``: ``J_c = [z_c − r_c, z_c + r_c]`` with ``z_c`` the
+contact's ground (the DEM — stage 1 has not run at the arrangement) and the
+REACH ``r_c = max(0, a·d_c + τ_q)`` (:func:`reach`), ``d_c`` the straight
+distance to the nearest taxi edge vertex ``q``, ``τ_q = max(0, t·s_q −
+u_q) − margin`` (``t`` the taxi letter cap ``law.ruleset.taxi.longitudinal``,
+``s_q`` the distance to the nearest PINNED point — a runway-family face
+widened by its zone-2 half width — ``u_q`` the grade the route already
+spends, ``margin`` = ``[building_pad] frontage_hold_margin_m``).  The
+frontage is itself an apron edge graded within ``a``, so the ``J`` are
+closed under that reach along the ring (:func:`band`); a block's interval
+is the intersection over its contacts.  :func:`band` records why the spec's
+far-field ``∩_q`` reading was replaced (a DEM artefact, measured).
 
 THE PARTITION.  A block whose band misses a contact by more than ``margin``
 is BISECTED by the chord that (1) leaves each side at least a jetway BAY of
@@ -47,9 +47,13 @@ frontage_blocks_max`` is reached — a unit needing more is a STOP (30k Q4),
 reported with its best partition.
 
 THE CHAIN (spec §2 (2), 30k Q2: no apron joint).  Two neighbouring blocks'
-held frontages must be ``|ΔD| / a`` apart along the apron: a contact
-nearer than ``|ΔD| / (2a)`` to the other block's frontage is NOT held — the
-apron ramps there, and the collar carries at most ``|ΔD| / 2``, reported."""
+frontages are one continuous apron edge, so the apron ramps between their
+datums over ``|ΔD| / a``: a contact nearer than ``|ΔD| / (2a)`` (along the
+ring) to the other block's frontage is reported as RAMP — the collar there
+carries at most ``|ΔD| / 2``.  The hold itself is a stage-1 row
+(``constraints/platform.frontage_hold_rows``) and the solve, not this
+reading, decides where each contact lands; this plan is the partition and
+its prediction."""
 from __future__ import annotations
 
 import dataclasses as _dc
@@ -60,8 +64,8 @@ import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import split as _split, unary_union
 
-__all__ = ["Block", "BlockPlan", "plan_blocks", "hold_interval", "band",
-           "bisect_blocks", "hold_mask", "BLOCK_PLANS"]
+__all__ = ["Block", "BlockPlan", "plan_blocks", "reach", "band", "arc_distance",
+           "bisect_blocks", "hold_mask", "bay_m", "BLOCK_PLANS"]
 
 #: The frontage sampling step (m): ``platform._STEP_M``'s resolution.
 _STEP_M = 2.0
@@ -94,17 +98,23 @@ class Block:
     area_m2: float = 0.0
     frontage_m: float = 0.0
     polygon: _t.Any = None
+    #: the block's frontage samples (plan xy) and whether each is HELD —
+    #: the hold rows bind only these (``constraints/platform.
+    #: frontage_hold_rows``: a RAMP or residual contact is left free)
+    samples_xy: _t.Any = None
+    samples_held: _t.Any = None
 
     def to_dict(self) -> dict:
         d = _dc.asdict(self)
-        d.pop("polygon", None)
+        for k in ("polygon", "samples_xy", "samples_held"):
+            d.pop(k, None)
         return d
 
 
 @_dc.dataclass
 class BlockPlan:
     ref: str
-    #: one_block | split | infeasible_one_body | stop_cap
+    #: one_block | split | residual | stop_cap
     verdict: str
     contacts: int
     q: int
@@ -143,16 +153,6 @@ class BlockPlan:
 
 #: The last arrangement's block plans (the ``PLATFORMS`` pattern).
 BLOCK_PLANS: list[BlockPlan] = []
-
-
-def hold_interval(Tq: np.ndarray, dq: np.ndarray, tau: np.ndarray, a: float
-                  ) -> tuple[float, float]:
-    """§2 (1): ``∩_q [T − a·d − τ, T + a·d + τ]``.  An empty ``q`` set is the
-    whole line (nothing binds)."""
-    if Tq.size == 0:
-        return (-np.inf, np.inf)
-    r = a * dq + tau
-    return (float(np.max(Tq - r)), float(np.min(Tq + r)))
 
 
 def arc_distance(S: np.ndarray, S2: np.ndarray, perim: float) -> np.ndarray:
@@ -252,7 +252,15 @@ def hold_mask(D: np.ndarray, own: np.ndarray, S: np.ndarray, perim: float,
 
 def _chords(Q: Polygon, seeds: int, dirs: int) -> list[LineString]:
     """Straight chords of ``Q`` (each a segment of a line through a seed
-    point, both ends on the exterior) — the candidate cut lines."""
+    point, both ends on the exterior) — the candidate cut lines.  Each end
+    is SNAPPED to the nearest EXISTING ring vertex: a cut that ended mid-
+    edge would add a vertex to the pad rim, which the 23a weld shares with
+    the apron — the pad stage minting an AIRSIDE vertex (``pad_airside_
+    renode``, MEASURED arm 1 at HECA: +5), which spec §7 makes a STOP."""
+    from scipy.spatial import cKDTree
+    V = np.asarray(Q.exterior.coords[:-1], dtype=float)
+    vt = cKDTree(V)
+    cover = Q.buffer(1e-6)
     x0, y0, x1, y1 = Q.bounds
     step = max(1.0, math.sqrt(Q.area / max(1, seeds)))
     diam = math.hypot(x1 - x0, y1 - y0) + 1.0
@@ -278,6 +286,12 @@ def _chords(Q: Polygon, seeds: int, dirs: int) -> list[LineString]:
                         continue
                     a_, b_ = Point(s.coords[0]), Point(s.coords[-1])
                     if ext.distance(a_) > 1e-6 or ext.distance(b_) > 1e-6:
+                        continue
+                    _d, (ia, ib) = vt.query([s.coords[0], s.coords[-1]])
+                    if ia == ib:
+                        continue
+                    s = LineString([tuple(V[ia]), tuple(V[ib])])
+                    if not cover.covers(s):
                         continue
                     key = tuple(sorted((tuple(round(v / step) for v in s.coords[0]),
                                         tuple(round(v / step) for v in s.coords[-1]))))
@@ -540,18 +554,24 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
             contact_min=float(z.min()) if z.size else 0.0,
             contact_max=float(z.max()) if z.size else 0.0,
             contact_median=float(np.median(z)) if z.size else 0.0,
-            area_m2=float(g.area), frontage_m=float(m.sum() * _STEP_M), polygon=g))
+            area_m2=float(g.area), frontage_m=float(m.sum() * _STEP_M), polygon=g,
+            samples_xy=C[m], samples_held=held[m]))
     plan.cuts = list(cuts)
     plan.neck_m = list(necks)
     for s in cuts:
         near_k = sorted(range(len(pieces)), key=lambda k: pieces[k].distance(s.centroid))[:2]
         i, j = sorted(near_k)
         plan.steps.append((i, j, float(D[i] - D[j])))
-    if len(pieces) == 1:
-        plan.verdict = "one_block" if complete else "infeasible_one_body"
+    # the verdicts: one_block / split hold everywhere; a unit that still
+    # misses is ``stop_cap`` when the block cap was reached (30k Q4: the
+    # owner reads it) and ``residual`` when no admissible neck is left (a
+    # further cut would leave a block under a jetway bay) — §2 (6)'s
+    # residual, carried by the collar and reported
+    if complete:
+        plan.verdict = "one_block" if len(pieces) == 1 else "split"
     else:
-        plan.verdict = "split" if complete else "stop_cap"
-    if not complete:
-        plan.note = (f"STOP: {len(pieces)} block(s) still miss by "
+        plan.verdict = "stop_cap" if len(pieces) >= cap_blocks else "residual"
+        plan.note = (f"{'STOP' if plan.verdict == 'stop_cap' else 'RESIDUAL'}: "
+                     f"{len(pieces)} block(s) still miss by "
                      f"{max(b.residual_max_m for b in plan.blocks):.2f} m")
     return plan

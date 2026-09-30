@@ -38,7 +38,7 @@ from ..geom import cluster_outlines, deck_shades
 from ..law import Law
 from ..law.tables import rolled_on_roles
 from ..model.airport import Airport
-from ..model.planar import PlanarMap, block_of, is_collar_ref, platform_ref_of
+from ..model.planar import PlanarMap, block_of, is_collar_ref, platform_ref_of, unit_ref_of
 from .pads import _pad_groups, _pad_polys
 from .precedence import view
 
@@ -212,7 +212,10 @@ def _base_ref(ref: object) -> str:
     reading — counted as two and made their own cluster a
     ``cluster_spans_pads`` row (LEMD ``unit:25#1581``, measured).  One
     spelling, one join."""
-    return str(ref).split("#")[0]
+    # flat-pad spec §3 C3/C14 (RULINGS 2026-09-30r): the flat BLOCKS of a
+    # cut unit are one PAD to the cluster (the cluster stands on the unit);
+    # their PLANES are split per block by ``_split_blocks``
+    return unit_ref_of(str(ref).split("#")[0])
 
 
 def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,

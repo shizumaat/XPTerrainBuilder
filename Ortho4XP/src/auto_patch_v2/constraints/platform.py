@@ -36,7 +36,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of, unit_ref_of
-from ..model.platform import HELD, datum_vertex_of
+from ..model.platform import HELD, datum_vertices
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
            "TERRACE_RULING", "HOLD_RULING",
@@ -286,16 +286,15 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
     sets += [(ref, own, f"plate:{ref}") for ref, own, _w in plates]
     from .pads import FLAT_RULING
     n_flat = 0
+    held = datum_vertices(planar, law)
     for pref, vs, tag in sets:
         if len(vs) < 4:
             continue
-        if pref in HELD and not tag.startswith("plate:"):
+        if pref in held and not tag.startswith("plate:"):
             # flat-pad spec §1 (1) (RULINGS 2026-09-30f/r): a HELD block is
             # FLAT at its datum — every platform vertex equal to the datum
             # column (``model.platform.datum_vertex_of``), hard
-            dv = datum_vertex_of(planar, pref)
-            if dv is None:
-                continue
+            dv = held[pref]
             src = Source(GEN, PLANE_RULING + " (flat-pad spec §1 (1); RULINGS "
                          "2026-09-30f/r a held block is flat at its datum)",
                          (tag, pref))
@@ -428,9 +427,10 @@ def contact_led_refs(planar: PlanarMap, law: Law) -> frozenset[str]:
     (MEASURED on the HECA replay: ``building5`` / ``building123`` /
     ``building283`` came out at exactly 1.000 %)."""
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
+    held = datum_vertices(planar, law)
     return frozenset(r for r, vs, w in plane_sets(planar, law)
                      if w and len(vs) >= 4 and _basis(xy, vs) is not None
-                     and r not in HELD)
+                     and r not in held)
 
 
 def platform_level_rows(planar: PlanarMap, law: Law,
@@ -460,8 +460,9 @@ def platform_level_rows(planar: PlanarMap, law: Law,
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     rows: list[Row] = []
     n_pl = n_c = 0
+    held = datum_vertices(planar, law)
     for pref, vs, weld in plane_sets(planar, law):
-        if len(vs) < 4 or not weld or pref in HELD:
+        if len(vs) < 4 or not weld or pref in held:
             continue
         bs = _basis(xy, vs)
         if bs is None:
@@ -512,15 +513,30 @@ def frontage_hold_rows(planar: PlanarMap, law: Law,
     change.  A generator."""
     from .pads import _two_sided
     STATS.pop("frontage_hold_rows", None)
-    if not HELD:
+    held = datum_vertices(planar, law)
+    if not held:
         return []
+    import numpy as np
     rows: list[Row] = []
-    n_b = n_c = 0
+    n_b = n_c = n_free = 0
     for pref, _vs, weld in platform_contacts(planar, law):
-        if pref not in HELD or not weld:
+        if pref not in held or not weld:
             continue
-        dv = datum_vertex_of(planar, pref)
-        if dv is None:
+        dv = held[pref]
+        # spec §2 (2) / (6): only the contacts the mint judged HELD — a RAMP
+        # contact (within |ΔD| / (2a) of the next block's frontage) and a
+        # residual one (its band misses the datum) are left to the apron
+        # and the collar: held, they only trade against the taxi laws
+        # (MEASURED arm 1, lane ``flatpad111b``: every contact held put
+        # HECA taxi_box +46 cross_connector rows beside T3)
+        hx = HELD[pref].get("samples_xy")
+        hh = HELD[pref].get("samples_held")
+        if hx is not None and hh is not None and len(hx):
+            from scipy.spatial import cKDTree
+            _d, j = cKDTree(np.asarray(hx)).query([planar.vertices[o].xy for o in weld])
+            weld = [o for o, jj in zip(weld, np.atleast_1d(j)) if bool(hh[int(jj)])]
+            n_free += len(_d) - len(weld)
+        if not weld:
             continue
         n_b += 1
         src = Source(GEN, HOLD_RULING + " (flat-pad spec §1 (2); RULINGS "
@@ -529,7 +545,8 @@ def frontage_hold_rows(planar: PlanarMap, law: Law,
         for o in weld:
             rows.extend(_two_sided(((o, 1.0), (dv, -1.0)), src, None))
             n_c += 1
-    STATS["frontage_hold_rows"] = {"blocks": n_b, "contacts": n_c}
+    STATS["frontage_hold_rows"] = {"blocks": n_b, "contacts": n_c,
+                                   "contacts_left_free": n_free}
     return rows
 
 
@@ -582,7 +599,7 @@ def platform_records(planar: PlanarMap, law: Law,
             # unit, the solved datum and how far its welded frontage stands
             # off it (the hold's miss, carried by the collar)
             h = HELD[pref]
-            dv = datum_vertex_of(planar, pref)
+            dv = datum_vertices(planar, law).get(pref)
             rec.update({"unit": h["unit"], "block": h["k"], "blocks": h["blocks"],
                         "block_verdict": h["verdict"],
                         "datum_pred": (None if h["datum_pred"] is None

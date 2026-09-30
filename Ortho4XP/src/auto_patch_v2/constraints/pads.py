@@ -854,7 +854,13 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
     # untouched (the consumer census): a cluster fronts what its faces
     # front.
     from .cluster_pad import plane_groups
+    from ..model.platform import datum_vertices
+    held = datum_vertices(planar, law)
     for fid, ref, group, fids in plane_groups(planar, law, airport):
+        if held and platform_ref_of(str(ref)) in held:
+            # flat-pad spec §3 C6 (RULINGS 2026-09-30f/r): a HELD block's
+            # level IS its frontage hold (``platform.frontage_hold_rows``)
+            continue
         by_role: dict[str, list[tuple[int, list[tuple[int, float]]]]] = {}
         for q in fids:
             for role, pairs in (lead.get(q) or {}).items():

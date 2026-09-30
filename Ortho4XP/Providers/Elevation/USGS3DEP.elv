@@ -20,6 +20,20 @@ discovery_url_template=https://tnmaccess.nationalmap.gov/api/v1/products?dataset
 # Native ground resolution of the source rasters, in metres.
 native_resolution_m=1
 
+# THE RESOLUTION LADDER (#130).  When the 1 m mosaic over an airport holds
+# less than the bake's minimum valid fraction (INSET_MIN_VALID_FRAC, the
+# rule that refuses an inset), the fetch climbs down to the next rung
+# before the airport falls back to the base DEM.  Measured 2026-09-30,
+# KASE (Aspen): the only 1 m project there (CO_SanLuisJuanMiguel_2020_D20)
+# never flew the cell over the airport (x33y435 does not exist on the
+# bucket), the 1 m mosaic held 0.22 % valid, 1/9 arc-second lists nothing,
+# and 1/3 arc-second (~10 m, seamless) covers the box whole.
+# One line per rung: <native metres>|<label>|<TNM discovery URL template>.
+# Rung 0 is this file's own discovery_url_template (label below).
+ladder_label=1 meter
+resolution_ladder=3|1/9 arc-second|https://tnmaccess.nationalmap.gov/api/v1/products?datasets=National Elevation Dataset (NED) 1/9 arc-second&bbox={west},{south},{east},{north}&outputFormat=JSON
+resolution_ladder=10|1/3 arc-second|https://tnmaccess.nationalmap.gov/api/v1/products?datasets=National Elevation Dataset (NED) 1/3 arc-second&bbox={west},{south},{east},{north}&outputFormat=JSON
+
 # Cheap pre-filter before the discovery request is issued; discovery is
 # authoritative.  3DEP IS US-ONLY (owner RULINGS 2026-09-16c): the single
 # box this file used to declare (-180,15,-64,72) reached all of Canada,

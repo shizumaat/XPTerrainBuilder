@@ -154,7 +154,7 @@ def _record_invalidation_arm(tmp_path, monkeypatch, icao, raster_values):
     fetched = []
 
     def _fetch(definition, bounding_box, target_resolution_m, path,
-               footprint_prefetch=None):
+               footprint_prefetch=None, resolution_ladder=False):
         fetched.append(target_resolution_m)
         _write_geotiff(path, numpy.full((40, 40), 300.0))
         return {"provider": definition["code"], "valid_fraction": 1.0}

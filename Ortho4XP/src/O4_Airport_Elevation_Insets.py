@@ -641,7 +641,48 @@ def elevation_providers_directory():
 #: list parsers already use -- so the accumulated value parses exactly like
 #: a single ``;``-separated line.  Only ``coverage_bbox`` is in the set
 #: (owner RULINGS 2026-09-16c: a provider declares DISJOINT regions).
-MULTI_VALUE_KEYS = frozenset(("coverage_bbox",))
+#: ``resolution_ladder`` repeats the same way, one coarser rung per line
+#: (#130, see :func:`_parse_resolution_ladder`).
+MULTI_VALUE_KEYS = frozenset(("coverage_bbox", "resolution_ladder"))
+
+
+def _parse_resolution_ladder(value, provider_code="?"):
+    """The coarser rungs a provider declares, finest first (#130).
+
+    A ``.elv`` line reads ``resolution_ladder=<native_m>|<label>|<url>``:
+    the rung's native posting in metres, a human label for the log and
+    the record, and the discovery URL template that lists the rung's
+    products (same placeholders as ``discovery_url_template``).  Repeated
+    lines join with ``;`` (:data:`MULTI_VALUE_KEYS`).  The provider's own
+    definition is rung 0 and is not repeated here.  A malformed rung is
+    dropped with one warning -- a ladder with a hole still climbs.
+    Rungs are returned sorted finest first whatever the file order, so
+    the ladder can only ever step DOWN in resolution.
+    """
+    rungs = []
+    for token in str(value or "").split(";"):
+        token = token.strip()
+        if not token:
+            continue
+        parts = [part.strip() for part in token.split("|", 2)]
+        native = _parse_float(parts[0], default=None) if parts else None
+        if len(parts) != 3 or native is None or native <= 0 or not parts[2]:
+            UI.vprint(
+                0,
+                "   WARNING: elevation provider %s: malformed "
+                "resolution_ladder rung %r - skipping it."
+                % (provider_code, token),
+            )
+            continue
+        rungs.append(
+            {
+                "native_resolution_m": native,
+                "label": parts[1] or ("%g m" % native),
+                "discovery_url_template": parts[2],
+            }
+        )
+    rungs.sort(key=lambda rung: rung["native_resolution_m"])
+    return rungs
 
 
 def initialize_elevation_providers_dict(providers_directory=None):
@@ -722,6 +763,10 @@ def initialize_elevation_providers_dict(providers_directory=None):
         if "native_resolution_m" in definition:
             definition["native_resolution_m"] = _parse_float(
                 definition.get("native_resolution_m"), default=None
+            )
+        if "resolution_ladder" in definition:
+            definition["resolution_ladder_rungs"] = _parse_resolution_ladder(
+                definition["resolution_ladder"], provider_code
             )
         if "coverage_bbox" in definition:
             boxes = _parse_bounding_boxes(definition["coverage_bbox"])
@@ -1284,6 +1329,7 @@ def fetch_inset(
     target_resolution_m,
     destination_path,
     footprint_prefetch=None,
+    resolution_ladder=False,
 ):
     """Dispatch a fetch to the strategy named by the provider definition.
 
@@ -1295,6 +1341,14 @@ def fetch_inset(
     ``footprint_prefetch`` (optional :class:`TileBuildingFootprintPrefetch`)
     is handed to the surface-model masking pass so a multi-airport tile
     shares one building-footprint extract pass instead of one per airport.
+
+    ``resolution_ladder`` (the airport-inset fetch passes ``True``): when
+    the provider declares coarser rungs (``resolution_ladder=`` in its
+    ``.elv``), a finest-rung result below ``INSET_MIN_VALID_FRAC`` valid
+    climbs down to the next rung instead of ending in the base DEM
+    (#130, KASE); see :func:`_fetch_through_resolution_ladder`.  The
+    whole-tile overlay callers leave it off: there a sparse 1 m tile must
+    not be traded for a coarser one.
 
     Returns the provenance metadata dictionary produced by the strategy, or
     ``None`` when the strategy reports no usable coverage.
@@ -1313,12 +1367,21 @@ def fetch_inset(
         )
         return None
     strategy = strategy_factory()
-    provenance = strategy.fetch(
-        definition,
-        bounding_box_wgs84,
-        target_resolution_m,
-        destination_path,
-    )
+    if resolution_ladder and definition.get("resolution_ladder_rungs"):
+        provenance = _fetch_through_resolution_ladder(
+            strategy,
+            definition,
+            bounding_box_wgs84,
+            target_resolution_m,
+            destination_path,
+        )
+    else:
+        provenance = strategy.fetch(
+            definition,
+            bounding_box_wgs84,
+            target_resolution_m,
+            destination_path,
+        )
     # BOTH BOXES, from here on: what was ASKED for and what the raster
     # actually CARRIES.  ``bounding_box_wgs84`` has always been the
     # request, and a warp snaps its target extent to the pixel grid (and
@@ -1348,6 +1411,156 @@ def fetch_inset(
             )
         )
     return provenance
+
+
+def _ladder_rung_definitions(definition):
+    """``[(label, definition)]`` for every rung, finest (the provider's
+    own definition) first.  A coarser rung is the provider's definition
+    with the rung's ``native_resolution_m`` and
+    ``discovery_url_template`` -- everything else (licence, datum,
+    coverage, value floor) is the provider's, by construction."""
+    native = _definition_resolution_m(definition)
+    rungs = [
+        (definition.get("ladder_label")
+         or ("%g m" % native if native else definition.get("code")),
+         definition)
+    ]
+    for rung in definition.get("resolution_ladder_rungs") or ():
+        rung_definition = dict(definition)
+        rung_definition["native_resolution_m"] = rung["native_resolution_m"]
+        rung_definition["discovery_url_template"] = (
+            rung["discovery_url_template"])
+        rung_definition.pop("resolution_ladder_rungs", None)
+        rungs.append((rung["label"], rung_definition))
+    return rungs
+
+
+def _fetch_through_resolution_ladder(
+    strategy,
+    definition,
+    bounding_box_wgs84,
+    target_resolution_m,
+    destination_path,
+):
+    """THE RESOLUTION LADDER (#130): finest product first, coarser only
+    when the finer one carries no coverage.
+
+    KASE (Aspen) sits in the one 10 km cell of the only 1 m 3DEP project
+    around it that was never flown: its 1 m mosaic -- every overlapping
+    source, R13-2 -- held 0.22 % valid pixels, the bake refused it, and
+    the airport was graded on the 30 m base DEM while 3DEP publishes a
+    seamless 1/3 arc-second (~10 m) layer over the same box.  A rung is
+    judged by the bake's own rule, :func:`inset_is_effectively_empty`
+    (``INSET_MIN_VALID_FRAC``): below it the next rung is fetched; the
+    first rung at or above it is delivered.  The rungs and their
+    discovery live in the provider's ``.elv`` (``resolution_ladder=``);
+    the threshold is the bake's.  No literal here.
+
+    Every rung tried prints one ``[inset]`` line (none when the finest
+    rung answers, the ordinary case), and the record carries a
+    ``ladder`` block naming each rung, its outcome and valid fraction,
+    and the rung delivered.  When every rung is below the threshold the
+    FINEST sub-threshold raster is kept (the pre-ladder behaviour: the
+    bake refuses it loudly and the next run asks again); ``None`` --
+    no-coverage -- only when no rung listed any product at all.  A rung
+    that raises (a transient outage) raises out of the ladder: an
+    unfinished ladder is no durable answer.
+    """
+    threshold = INSET_MIN_VALID_FRAC
+    base_name = os.path.basename(destination_path)
+    rungs = _ladder_rung_definitions(definition)
+    attempts = []
+    delivered = None          # (index, path, provenance)
+    fallback = None           # finest sub-threshold (index, path, provenance)
+    scratch_paths = []
+    try:
+        for index, (label, rung_definition) in enumerate(rungs):
+            if index == 0:
+                rung_path = destination_path
+                rung_target = target_resolution_m
+            else:
+                rung_path = "%s.rung%d" % (destination_path, index)
+                scratch_paths.append(rung_path)
+                if os.path.isfile(rung_path):
+                    os.remove(rung_path)
+                rung_target = max(
+                    float(target_resolution_m),
+                    float(rung_definition["native_resolution_m"]),
+                )
+            provenance = strategy.fetch(
+                rung_definition, bounding_box_wgs84, rung_target, rung_path
+            )
+            attempt = {
+                "rung": index,
+                "label": label,
+                "native_resolution_m": rung_definition.get(
+                    "native_resolution_m"),
+                "resolution_m": rung_target,
+            }
+            if provenance is None:
+                attempt["outcome"] = "no-coverage"
+                attempt["valid_fraction"] = 0.0
+                if os.path.isfile(rung_path):
+                    os.remove(rung_path)       # a failed warp's partial file
+            else:
+                valid_fraction = inset_valid_fraction(rung_path)
+                attempt["valid_fraction"] = round(valid_fraction, 6)
+                attempt["sources_used"] = len(
+                    provenance.get("sources_used")
+                    or provenance.get("source_urls") or ())
+                attempt["outcome"] = (
+                    "delivered" if valid_fraction >= threshold
+                    else "below-threshold")
+            attempts.append(attempt)
+            if index > 0 or attempt["outcome"] != "delivered":
+                UI.vprint(
+                    0,
+                    "   [inset] %s: resolution ladder rung %d/%d '%s' "
+                    "(%g m): %s"
+                    % (base_name, index + 1, len(rungs), label,
+                       rung_target,
+                       "no product listed over the box"
+                       if attempt["outcome"] == "no-coverage"
+                       else "valid %.2f %% (%s %.2f %%)%s"
+                       % (100.0 * attempt["valid_fraction"],
+                          ">=" if attempt["outcome"] == "delivered"
+                          else "<",
+                          100.0 * threshold,
+                          " - DELIVERED" if attempt["outcome"] == "delivered"
+                          else (" - trying the next rung"
+                                if index + 1 < len(rungs)
+                                else " - no rung left"))),
+                )
+            if attempt["outcome"] == "delivered":
+                delivered = (index, rung_path, provenance)
+                break
+            if attempt["outcome"] == "below-threshold":
+                if fallback is None:
+                    fallback = (index, rung_path, provenance)
+                elif rung_path != destination_path:
+                    os.remove(rung_path)
+        chosen = delivered or fallback
+        if chosen is None:
+            return None
+        (index, rung_path, provenance) = chosen
+        if rung_path != destination_path:
+            os.replace(rung_path, destination_path)
+        provenance = dict(provenance)
+        provenance["ladder"] = {
+            "threshold_valid_fraction": threshold,
+            "rungs_tried": attempts,
+            "delivered_rung": index if delivered is not None else None,
+            "delivered_label": (
+                attempts[index]["label"] if delivered is not None else None),
+        }
+        return provenance
+    finally:
+        for path in scratch_paths:
+            if os.path.isfile(path):
+                try:
+                    os.remove(path)
+                except OSError:                          # pragma: no cover
+                    pass
 
 
 def discover_inset(definition, bounding_box_wgs84):
@@ -7815,6 +8028,7 @@ def ensure_airport_insets(
                         ),
                         fetch_destination,
                         footprint_prefetch=footprint_prefetch,
+                        resolution_ladder=True,
                     )
             except ProviderUnavailable as error:
                 # A MISSING CAPABILITY (owner RULINGS 2026-09-13b (1)):

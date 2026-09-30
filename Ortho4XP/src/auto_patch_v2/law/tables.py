@@ -288,13 +288,13 @@ def runway_transverse_bound(law: Law, lateral_m: float, half_width_m: float,
 
     — the runway's cross-fall (``transverse_max``, §3.1.18) over its own
     half-width, the SHOULDER's (:func:`runway_shoulder_cap`, Annex 14
-    §3.2.4 / AC 150/5300-13B §3.13) only for the distance BEYOND it: the
+    §3.2.4, FAA AC 150/5300-13B) only for the distance BEYOND it: the
     shoulder is flush with the runway edge and takes its own slope FROM
     the edge.  CONTINUOUS in ``d`` — the cap it replaces
     (``lateral_m <= half_width_m`` picking one of two slopes for the
     whole ``d``) was a step function, and the generator's planar frame
-    and the verify's emitted crown spine, 1.4 cm apart, priced one KASE
-    vertex 0.20 m apart.  The generator
+    and the verify's emitted crown spine, a centimetre apart, priced one
+    KASE vertex a fifth of a metre apart (issue #134).  The generator
     (``constraints.runway_profile.runway_transverse``) and the v2 verify
     (``verify.runway.runway_transverse``) both call it; no side predicate.
 

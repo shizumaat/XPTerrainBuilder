@@ -491,72 +491,113 @@ def platform_level_rows(planar: PlanarMap, law: Law,
 
 def frontage_hold_rows(planar: PlanarMap, law: Law,
                        airport: Airport | None = None) -> list[Row]:
-    """THE FLAT PAD LEADS ITS FRONTAGE (flat-pad spec §1 (2); owner RULINGS
-    2026-09-30f, 30r).  Every WELDED contact of a HELD block
-    (:func:`platform_contacts`) takes one two-sided row ``z_o − z_D = 0``
-    against the block's DATUM COLUMN (``model.platform.datum_vertex_of`` —
-    a platform vertex the stage split registers as a stage-1 column,
-    ``solve/design_roles.airside_stage_vertices``), so STAGE 1 solves the
-    airside WITH the flat frontage: the solver redistributes the relief into
-    the apron body and the taxiways within their hard caps, and the datum
-    settles where the block's frontage can best be held.  After stage 1 the
-    datum is a constant and the hard flat rows (:func:`platform_plane_rows`)
-    put the whole block on it.
+    """THE FLAT PAD LEADS ITS FRONTAGE — HARD (flat-pad spec §1 (2); owner
+    RULINGS 2026-09-30f / 30r, restated 2026-09-30y, #128).  Every WELDED
+    contact of a HELD block (:func:`platform_contacts`) takes one HARD
+    two-sided row ``z_o − z_D = 0`` (head :data:`HOLD_RULING` in ``[design]
+    hard_rulings``) against the block's DATUM COLUMN (``model.platform.
+    datum_vertex_of`` — a platform vertex the stage split registers as a
+    stage-1 column, ``solve/design_roles.airside_stage_vertices``), so
+    STAGE 1 solves the airside WITH the flat frontage: the solver
+    redistributes the relief into the apron body and the taxiways within
+    their hard caps.  After stage 1 the datum is a constant and the hard
+    flat rows (:func:`platform_plane_rows`) put the whole block on it.
 
-    PRICED, NOT HARD (lane ``flatpad111b`` deviation from spec §1 (2),
-    reported for the spec author): the mint-time test reads the DEM, and on
-    HECA the DEM at the taxi edges is itself 1.5 %-inconsistent (6,416 of
-    138,075 pairs at T3), so a hard hold would be a demand the proxy cannot
-    certify; as a law-weight row the hold is met wherever the caps admit it
-    and the miss is reported per block (``platforms[].hold_residual_max_m``)
-    — ``[design] hard_rulings`` naming the head makes it hard with no code
-    change.  A generator."""
+    THE DATUM IS BOUNDED BY THE REACH BAND (30y (2)): the interval of pad
+    levels the airside can meet within its caps is the intersection, over
+    the block's held contacts, of each contact's ROUTE-METRIC band
+    (``no_step.runway_reach_band_values`` — every runway vertex at its
+    profile target propagated along every route at the path caps, the
+    airside's feasibility envelope for a level that must not move the
+    runway; the threshold-only ``reach_band_values`` read the SPJC
+    terminal's interval as ~105 m wide and the hard hold then spent the
+    taxi caps, MEASURED arm 1 of lane ``hardhold128``); ONE hard ``Band``
+    row on the datum column states it.  The mint's local band (``planar/pad_blocks``) chooses the CUTS
+    only, never the datum.  An EMPTY interval makes the block
+    ``pad_frontage_infeasible`` (30y (4)): the datum takes the bound
+    nearest the contacts' median band and every contact whose own band
+    excludes it is left free and REPORTED (``HELD[ref]["residual"]``),
+    never a silent steep collar.
+
+    WHAT IS LEFT FREE: a RAMP contact (spec §2 (2), accepted 30u (c): the
+    apron grades between two blocks' datums there, ``samples_ramp``) and
+    an infeasible block's residual contacts — nothing else.  REFUTED AND
+    DELETED (lane ``hardhold128``): the PRICED hold (``[design]
+    frontage_hold`` 30; 30u (a)) and the post-stage-1 DATUM PIN to the
+    mint band (``pin_datums``) — a pin moves the datum off the contacts the
+    hold put on it, and the collar carries the difference as a bank.  A
+    generator."""
     from .pads import _two_sided
+    from ..model.constraints import Band
     STATS.pop("frontage_hold_rows", None)
     held = datum_vertices(planar, law)
     if not held:
         return []
     import numpy as np
+    bands: dict[int, tuple[float, float]] = {}
+    if airport is not None:
+        from .no_step import runway_reach_band_values
+        bands = runway_reach_band_values(planar, law, airport)
     rows: list[Row] = []
-    n_b = n_c = n_free = 0
+    n_b = n_c = n_ramp = n_res = n_empty = 0
     for pref, _vs, weld in platform_contacts(planar, law):
         if pref not in held or not weld:
             continue
         dv = held[pref]
-        # spec §2 (2) / (6): only the contacts the mint judged HELD — a RAMP
-        # contact (within |ΔD| / (2a) of the next block's frontage) and a
-        # residual one (its band misses the datum) are left to the apron
-        # and the collar: held, they only trade against the taxi laws
-        # (MEASURED arm 1, lane ``flatpad111b``: every contact held put
-        # HECA taxi_box +46 cross_connector rows beside T3)
-        hx = HELD[pref].get("samples_xy")
-        hh = HELD[pref].get("samples_held")
-        hr = HELD[pref].get("samples_reach")
-        reach_of: dict[int, float] = {}
+        h = HELD[pref]
+        hx = h.get("samples_xy")
+        hr = h.get("samples_ramp")
         n_all = len(weld)
-        if hx is not None and hh is not None and len(hx):
+        if hx is not None and hr is not None and len(hx):
             from scipy.spatial import cKDTree
             _d, j = cKDTree(np.asarray(hx)).query([planar.vertices[o].xy for o in weld])
             j = np.atleast_1d(j)
-            if hr is not None:
-                reach_of = {o: float(hr[int(jj)]) for o, jj in zip(weld, j)}
-            weld = [o for o, jj in zip(weld, j) if bool(hh[int(jj)])]
-            n_free += n_all - len(weld)
-        # the DATUM PIN reads these (``model.platform.pin_datums``): the
-        # held contacts and each one's reach
-        HELD[pref]["hold_contacts"] = [(o, reach_of.get(o)) for o in weld]
-        HELD[pref]["welded_total"] = n_all
+            ramp = {o for o, jj in zip(weld, j) if bool(hr[int(jj)])}
+            weld = [o for o in weld if o not in ramp]
+            n_ramp += len(ramp)
+        # THE REACH-BAND INTERVAL of the block (30y (2))
+        bb = [(o, bands[o]) for o in weld if o in bands and bands[o][0] <= bands[o][1]]
+        lo = max((b[0] for _o, b in bb), default=-math.inf)
+        hi = min((b[1] for _o, b in bb), default=math.inf)
+        residual: list[int] = []
+        empty = lo > hi
+        if empty:
+            n_empty += 1
+            mids = sorted(0.5 * (b[0] + b[1]) for _o, b in bb)
+            med = mids[len(mids) // 2]
+            # the gap [hi, lo]: the datum at the bound nearest the median
+            D0 = min(max(med, hi), lo)
+            lo = hi = D0
+            residual = [o for o, b in bb if not (b[0] <= D0 <= b[1])]
+            weld = [o for o in weld if o not in set(residual)]
+            n_res += len(residual)
+        h["hold_contacts"] = [(o, None) for o in weld]
+        h["welded_total"] = n_all
+        h["reach_band"] = (None if not bb else
+                           [round(lo, 3) if math.isfinite(lo) else None,
+                            round(hi, 3) if math.isfinite(hi) else None])
+        h["reach_empty"] = bool(empty)
+        h["residual"] = residual
         if not weld:
             continue
         n_b += 1
         src = Source(GEN, HOLD_RULING + " (flat-pad spec §1 (2); RULINGS "
-                     "2026-09-30f/r the pad's flat datum leads its frontage)",
+                     "2026-09-30f/r/y the pad's flat datum leads its frontage)",
                      (pref, f"platform:{pref}", "pavement:welded"))
         for o in weld:
             rows.extend(_two_sided(((o, 1.0), (dv, -1.0)), src, None))
             n_c += 1
+        if bb:
+            rows.append(Band(dv, lo if math.isfinite(lo) else None,
+                             hi if math.isfinite(hi) else None,
+                             Source(GEN, HOLD_RULING + " (reach band: the "
+                                    "block datum within the airside's route-"
+                                    "metric interval, RULINGS 2026-09-30y (2))",
+                                    (pref, f"platform:{pref}"))))
     STATS["frontage_hold_rows"] = {"blocks": n_b, "contacts": n_c,
-                                   "contacts_left_free": n_free}
+                                   "contacts_ramp": n_ramp,
+                                   "contacts_residual": n_res,
+                                   "blocks_band_empty": n_empty}
     return rows
 
 
@@ -631,9 +672,19 @@ def platform_records(planar: PlanarMap, law: Law,
                 # silent class
                 mg = float(law.tables.structures.building_pad.frontage_hold_margin_m)
                 held_v = {v for v, _r in (h.get("hold_contacts") or ())}
+                res_v = set(h.get("residual") or ())
                 hm = np.array([abs(float(z[v]) - D) for v in weld if v in held_v])
-                um = [(abs(float(z[v]) - D), v) for v in weld if v not in held_v]
-                mg = float(law.tables.structures.building_pad.frontage_hold_margin_m)
+                # 30y (4): the UNHELD contacts the census names are the
+                # RESIDUAL ones (the reach band excludes the datum); a RAMP
+                # contact (spec §2 (2)) is reported apart
+                um = [(abs(float(z[v]) - D), v) for v in weld if v in res_v]
+                rm = [abs(float(z[v]) - D) for v in weld
+                      if v not in held_v and v not in res_v]
+                from ..law.tables import design as design_law
+                htol = float(design_law(law).hard_tol_m)
+                rec.update({"held_within_tol": int((hm <= htol + 1e-6).sum()) if hm.size else 0,
+                            "ramp_contacts": len(rm),
+                            "ramp_miss_max_m": round(max(rm), 3) if rm else None})
                 # 30u (b): the mint's band is a proxy, never a certificate —
                 # the SOLVED verdict: every held contact on the datum, or
                 # the block is a RESIDUAL (reported, the owner reads it)
@@ -646,8 +697,9 @@ def platform_records(planar: PlanarMap, law: Law,
                             "unheld_miss_max_m": (round(max(um)[0], 3) if um else None),
                             "unheld_worst_ll": (list(planar.vertices[max(um)[1]].key)
                                                 if um else None)})
-            if h.get("datum_pin"):
-                rec["datum_pin"] = dict(h["datum_pin"])
+            if "reach_band" in h:
+                rec["reach_band"] = h["reach_band"]
+                rec["reach_empty"] = bool(h.get("reach_empty"))
         if weld:
             W = np.array([planar.vertices[v].xy for v in weld], dtype=float)
             rel = np.array([float(z[v]) for v in weld]) - (np.c_[W - c0, np.ones(len(W))] @ co)

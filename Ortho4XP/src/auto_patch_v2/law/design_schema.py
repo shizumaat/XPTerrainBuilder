@@ -21,7 +21,6 @@ DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "bend_strip", "bend_road", "chord", "law",
                                  "taxi_profile", "taxi_trend", "road",
                                  "detached_mean", "body_datum", "apron_trend",
-                                 "frontage_hold",
                                  "ground_datum", "set_stall_tol")
 
 #: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
@@ -121,14 +120,6 @@ class Design:
     #: at ``taxi_trend``'s price: it says WHERE the apron sits, never how
     #: smoothly, and every law row outranks it.
     apron_trend: float
-    #: THE FRONTAGE HOLD (flat-pad spec §1 (2), RULINGS 2026-09-30f/r): the
-    #: price of one metre between a held block's welded contact and its
-    #: flat datum — a stage-1 target (``constraints/platform.
-    #: frontage_hold_rows``, head ``frontage_hold_rulings``).  Priced BELOW
-    #: the runway's profile (``chord``) so the hold never reaches a runway
-    #: through its taxi chain (spec §1 (4): the runway never moves).
-    frontage_hold: float
-    frontage_hold_rulings: tuple[str, ...]
     #: THE GROUND'S OWN DATUM (owner RULINGS 2026-09-10av; spec §23): every
     #: ADJACENT-GROUND vertex — the ``graded_strip`` family, never a pavement
     #: vertex and never an interior pocket enclosed by pavement (09g (1)) —

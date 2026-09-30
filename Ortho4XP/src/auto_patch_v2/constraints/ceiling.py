@@ -105,6 +105,22 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         pav.update(vs)
         if f.role in road_roles:
             road_only.update(v for v in vs if v not in road_only)
+    # 30e (4): a ribbon's KERB shared with a zone band leads for the BAND
+    # (29r): a row from the kerb to anything but the ribbon (the strip's
+    # transverse pairs to the runway, the band's own pairs) is the band's
+    # law surface and is not twinned; a row from the kerb INTO the ribbon
+    # is the road's and keeps the road cap (29ab (1), 29ac)
+    kerb = planar.band_kerb_vertices()
+    rib_vs: set[int] = set()
+    if kerb:
+        from ..model.planar import is_osm_ribbon_ref
+        for f in planar.faces.values():
+            if f.role in road_roles and is_osm_ribbon_ref(f.ref):
+                for ring in (f.ring, *f.holes):
+                    rib_vs.update(planar.ring_vertices(ring))
+
+    def _band_row(vset) -> bool:
+        return bool(kerb) and bool(vset & kerb) and not vset <= rib_vs
     # a vertex any NON-road pavement also touches is that pavement's
     # (the free-road ruling: only a genuinely free road keeps the 8 %)
     for f in planar.faces.values():
@@ -140,12 +156,25 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     from .platform import RIM_RULING as _RIM
     _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J, _GS_LVL, _GS_LVL_J, _COLLAR, _PLANE,
              _RIM}
-    for row in rows:
+    # RULINGS 2026-09-30aa rule 1 (#100): a twin CARRIES its row's minting
+    # face (``face:N``), so a twin of a WELDED road's row is stage 2's with
+    # its row; and the airside's own rows are twinned FIRST, so a pair both
+    # price keeps the twin the airside alone would give it (measured HECA:
+    # 460 twins reached stage 1 off ribbon rows)
+    from .roads import welded_road
+    welded = {f"face:{f.id}" for f in planar.faces.values() if welded_road(f)}
+
+    def _welded_src(row) -> bool:
+        return bool(welded) and any(t in welded for t in row.source.inputs)
+    for row in sorted(rows, key=_welded_src) if welded else rows:
         if row.source.ruling.split(" (")[0].strip() in _skip:
             continue
+        src = Source(GEN, RULING, tuple(t for t in row.source.inputs
+                                        if str(t).startswith("face:")))
         if isinstance(row, Diff):
             vs: tuple[int, ...] = (row.a, row.b)
-            if not 0.0 < row.d <= max_span or not set(vs) <= pav:
+            if not 0.0 < row.d <= max_span or not set(vs) <= pav \
+                    or _band_row(set(vs)):
                 continue
             key = (min(vs), max(vs))
             if key in seen:
@@ -165,7 +194,7 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         if len(row.terms) not in (2, 3):
             continue
         vs2 = {v for v, _c in row.terms}
-        if not vs2 <= pav:
+        if not vs2 <= pav or _band_row(vs2):
             continue
         got = _span(row.terms, xy)
         if got is None:

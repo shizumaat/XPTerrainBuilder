@@ -6696,6 +6696,32 @@ def _check_pad_frontage(platforms_ll, held: bool) -> List[Violation]:
     return out
 
 
+def _check_road_contact_step(steps_ll) -> List[Violation]:
+    """THE ROAD CONTACT STEP (spec-author RULINGS 2026-09-30aa rule 7; #100)
+    — REPORT, one row per released contact pair.
+
+    SIDECAR-DECLARED: the build publishes ``road_contact_steps`` — a road
+    run too short to climb from its LOWER airside contact to a higher one
+    at the road cap arrives BELOW it (the solve released that floor,
+    ``constraints/road_ramp.road_contact_rewrite``), never moving the
+    airside.  Each record ``[road_lat, road_lon, lead_lat, lead_lon,
+    step_m, excess_m]``: ``de`` = the step (lead minus road)."""
+    out: List[Violation] = []
+    for rec in steps_ll or ():
+        try:
+            rla, rlo, lla, llo, step = (float(x) for x in rec[:5])
+        except (TypeError, ValueError):
+            continue
+        way = "road_contact_step"
+        v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+                      de_m=step, way_a=way, way_b=way,
+                      pt_a=(rla, rlo), pt_b=(lla, llo),
+                      elev_a=0.0, elev_b=step)
+        v.lat, v.lon = rla, rlo
+        out.append(v)
+    return out
+
+
 def _check_platform_refused(platforms_ll) -> List[Violation]:
     """A UNIT PAD THE PLATFORM REFUSED (unit-platform spec §1 (2)) — REPORT,
     one row per refusal (its erosion by the collar left no inner ring of
@@ -9779,6 +9805,12 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("pad_frontage_hold",
      "FLAT-PAD block whose HELD frontage contact stands off its datum",
      "within"),
+    # THE ROAD CONTACT STEP (spec-author RULINGS 2026-09-30aa rule 7, #100).
+    # Sidecar-declared: REPORT, one row per released contact pair — a road
+    # arriving BELOW a higher airside contact it cannot climb to at its cap.
+    ("road_contact_step",
+     "ROAD arriving BELOW a higher airside contact (run too short at the cap)",
+     "within"),
     ("pad_frontage_infeasible",
      "FLAT-PAD block with UNHELD frontage contacts (ramp / unreachable)",
      "within"),
@@ -10544,6 +10576,8 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "jetway_strips": "jetway_strips_ll",
     # unit-platform spec §4 (5): the platforms, their planes and relief
     "platforms": "platforms_ll",
+    # RULINGS 2026-09-30aa rule 7: the road contact steps the solve reported
+    "road_contact_steps": "road_contact_steps_ll",
     # §38 (3)/(5): the band's own half width, so ``bank_across_seam``
     # reads "inside the band" from the law the BUILD ran under
     "seam_half_width_m": "seam_half_width_m",
@@ -10975,6 +11009,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["jetway_strips_ll"] = data.get("jetway_strips") or None
     # unit-platform spec §4 (5) (absent before the platform: nothing)
     ctx["platforms_ll"] = data.get("platforms") or None
+    # RULINGS 2026-09-30aa rule 7 (absent before the weld law: nothing)
+    ctx["road_contact_steps_ll"] = data.get("road_contact_steps") or None
     ctx["seam_half_width_m"] = data.get("seam_half_width_m")
     # §39 (1)/(2): the emitter's own foreign-water population
     ctx["shore_edges_ll"] = data.get("shore_edges") or None
@@ -12048,6 +12084,7 @@ def run_checks(
     pad_airside_renode_ll: Optional[list] = None,
     jetway_strips_ll: Optional[list] = None,
     platforms_ll: Optional[list] = None,
+    road_contact_steps_ll: Optional[list] = None,
     seam_half_width_m: Optional[float] = None,
     # §40 (2) as amended (owner RULINGS 2026-09-13dd): each runway's own
     # axis and half width, and the shoulder's transverse maximum — the
@@ -12566,6 +12603,11 @@ def run_checks(
         "blocks or a contact the mint band could not reach (RULINGS "
         "2026-09-30u (c)) — REPORT, one row per block, de = the worst", pinf, top_n)
     within = within + pinf
+    rcs = _fam("road_contact_step", _check_road_contact_step(road_contact_steps_ll))
+    _pv("ROAD CONTACT STEP — a road run too short to climb from its lower "
+        "airside contact at the road cap arrives BELOW the higher one "
+        "(RULINGS 2026-09-30aa rule 7) — REPORT, de = the step", rcs, top_n)
+    within = within + rcs
     prefused = _fam("platform_refused", _check_platform_refused(platforms_ll))
     _pv("UNIT PAD with NO platform (unit-platform spec §1 (2): the collar's "
         "erosion left no inner ring; the pad keeps its welded plate) — REPORT",

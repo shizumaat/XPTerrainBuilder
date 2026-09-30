@@ -104,6 +104,9 @@ NOT_IMPLEMENTED: tuple[str, ...] = (
     # flat-pad spec §1 (2) / RULINGS 2026-09-30u (c): the held blocks'
     # frontage, from the same ``platforms`` key
     "pad_frontage_hold", "pad_frontage_infeasible",
+    # spec-author RULINGS 2026-09-30aa rule 7: the build's own released
+    # contact floors, from the sidecar's ``road_contact_steps``
+    "road_contact_step",
     "terrace_joint_route", "terrace_joint_strip", "terrace_actual_step",
     "drainage_spine", "apron_lattice_membrane", "drainage_minimum",
     # §39 (2) (owner RULINGS 2026-09-13bk/13bt/13bu): the hairline needs the

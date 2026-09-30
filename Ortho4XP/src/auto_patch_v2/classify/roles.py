@@ -606,11 +606,15 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # the airside-edge flip (a ribbon is never airside) and every face
     # already standing — pavement, runway, shoulder, pad — keeps its
     # ground: the ribbon is what is left of the road's corridor.
+    # AFTER the pad set-back (lane roadweld100, measured HECA): a ribbon
+    # beside a pad armed that pad's knife, whose mitred corner then cut two
+    # EXISTING groundside cells (pav57, dsf:objpav405) — a ribbon changing
+    # the cells pass A nodes.  The ribbon takes the same set-back itself.
+    cells, n_cut = _cut_back_groundside(cells, law, rules)
+    stats["mixed_pad_cutbacks"] = n_cut
     n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add)
     stats["osm_ribbons"] = n_rib
     stats["osm_ribbon_m2"] = m_rib
-    cells, n_cut = _cut_back_groundside(cells, law, rules)
-    stats["mixed_pad_cutbacks"] = n_cut
     stats["taxi_chains"] = len(ev.taxi_chains)
     stats["truck_chains"] = len(ev.truck_chains)
     stats["terminal_present"] = float(ev.terminal_present)
@@ -732,7 +736,15 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     cover = unary_union([c.line for c in ev.truck_chains]).buffer(orr.dedup_m) \
         if ev.truck_chains else Polygon()
     hw = float(law.tables.emit.road_profile.lane_width_m)
-    occupied = unary_union([Polygon(c.ring, c.holes) for c in cells])
+    # every cell standing, and every pad's set-back (``_cut_back_groundside``'s
+    # own knife: ``groundside_cutback_m`` + the snap margin, mitred)
+    knife_m = float(law.tables.structures.building_pad.groundside_cutback_m) \
+        + snap_margin_m(law)
+    occupied = unary_union([Polygon(c.ring, c.holes) for c in cells]
+                           + ([Polygon(c.ring, c.holes).buffer(
+                               knife_m, join_style="mitre", mitre_limit=2.0)
+                               for c in cells if c.role == "building"]
+                              if knife_m > 0.0 else []))
     grid = rules.cells.snap_grid_m
     from shapely.ops import substring
     n, area = 0, 0.0

@@ -223,6 +223,15 @@ ruling    = "2026-09-30u (c)"
 solver    = "diagnostic"
 cockpit   = "grade"
 
+[road_contact_step]
+measures  = "a mapped road run too short to climb from its LOWER airside contact to a higher one at the road cap arrives BELOW the higher contact (the solve releases that floor between the stages, constraints/road_ramp.road_contact_rewrite); one row per released contact pair, de = the step (lead minus road). The airside never moves for it"
+parameter = "common.road_max_grade"
+roles     = ["service_road"]
+pairs     = "within"
+ruling    = "2026-09-30aa (7)"
+solver    = "diagnostic"
+cockpit   = "grade"
+
 [pad_frontage_infeasible]
 measures  = "a held flat-pad block's UNHELD welded frontage contacts (a ramp between two blocks, or beyond the mint band's reach) — the residual the collar carries; one row per block (de = the worst, distance = the count)"
 parameter = "structures.building_pad.frontage_hold_margin_m"

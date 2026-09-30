@@ -21,13 +21,14 @@ from ..law import Law
 from ..law.tables import family, role_cap, role_side
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, is_osm_ribbon_ref
 from .geometry import long_axis, pair_is_transverse
 from .precedence import view
 
 __all__ = ["road_within_shape", "road_family_roles", "road_law_caps",
            "road_pair_reading", "one_ribbon_m", "RIBBON_RULING",
-           "NOT_A_PAIR", "NO_FRAME"]
+           "NOT_A_PAIR", "NO_FRAME", "road_pair_side", "BOTH_LEAD",
+           "ONE_LEAD", "NO_LEAD", "road_lead", "welded_road"]
 
 #: §37 (10) (2) THE RIBBON PAIR THAT TOUCHES A MOUTH (owner RULINGS
 #: 2026-09-13cs item 4, coordinator 2026-09-13 round 2).  A road RING's
@@ -146,6 +147,66 @@ def _airside(planar: PlanarMap, law: Law, v: int) -> bool:
     return any(role_side(law, r) == "airside" for r in planar.roles_at(v))
 
 
+def road_lead(planar: PlanarMap, law: Law, v: int,
+              memo: dict | None = None) -> bool:
+    """RULINGS 2026-09-30aa rule 2: a road's CONTACT is a WELD — ``v`` is a
+    LEAD (the airside's, never moved by a road row or pin) when it is
+    AIRSIDE-OWNED (:func:`_airside`).  The one lead test of
+    :func:`road_pair_side` and of every road pin (§37 (9)'s join)."""
+    if memo is None:
+        return _airside(planar, law, v)
+    if v not in memo:
+        memo[v] = _airside(planar, law, v)
+    return memo[v]
+
+
+def welded_road(face) -> bool:
+    """A road face the 30aa weld law governs on every path: the mapped-road
+    RIBBON (``model.planar.is_osm_ribbon_ref``)."""
+    return getattr(face, "role", "") == "service_road" and \
+        is_osm_ribbon_ref(getattr(face, "ref", ""))
+
+
+#: :func:`road_pair_side` verdicts (RULINGS 2026-09-30aa rules 3-4).
+BOTH_LEAD = "both_lead"       # both feet airside: the pair is NOT a road pair
+ONE_LEAD = "one_lead"         # one foot airside: the road foot FOLLOWS
+NO_LEAD = "no_lead"           # a road pair proper: two-way
+
+
+def road_pair_side(planar: PlanarMap, law: Law, a: int, b: int,
+                   memo: dict | None = None) -> tuple[str, int | None]:
+    """THE PAIR LAW OF A ROW A GROUNDSIDE FACE MINTS (spec-author RULINGS
+    2026-09-30aa rules 3-4, owner 30z (1): a road NEVER moves the airside).
+    The ONE reading every ``roads`` path and every ``pavement_cap`` path
+    asks — two copies of it were the 30l (1) defect class.
+
+    A foot is a LEAD when it is AIRSIDE-OWNED (:func:`_airside`, the mouth
+    test §37 (6)/(10) always used): an aircraft-pavement or pad vertex, and
+    a zone band's KERB (30e (4) / 29r: the band leads there).
+
+    * ``(BOTH_LEAD, None)`` — both feet lead: the pair is the airside's,
+      and the groundside face mints NO row over it (rule 3).
+    * ``(ONE_LEAD, follower)`` — the road foot FOLLOWS the lead
+      (``follows=(follower,)``, rule 4); stage 1 never carries it and in
+      stage 2 the lead is a constant.
+    * ``(NO_LEAD, None)`` — a road pair proper, two-way.
+
+    ``memo`` (a dict the caller keeps per map) caches the lead test.
+
+    SCOPE (lane ``roadweld100``, measured): the verdict binds on EVERY path
+    of a WELDED road face — the mapped-road RIBBON (:func:`welded_road`) —
+    and on the route path's §37 (10) cross/fused pairs of every road face,
+    as before.  Applied to the apt.dat 1206 routes' own faces it moves the
+    reference airside (HECA replay: 3,537 airside nodes, worst 1.00 m) —
+    an owner question, not this law's silent consequence."""
+    la, lb = road_lead(planar, law, a, memo), road_lead(planar, law, b, memo)
+    if la and lb:
+        return BOTH_LEAD, None
+    if la or lb:
+        return ONE_LEAD, (b if la else a)
+    return NO_LEAD, None
+
+
 def road_law_caps(planar: PlanarMap, law: Law, airport: Airport | None = None
                   ) -> dict[int, float]:
     """Road-family face -> the STRICTEST longitudinal cap of any governed
@@ -219,6 +280,7 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     ribbon = one_ribbon_m(law)          # §37 (10) (2): one ribbon's width
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     rows: list[Row] = []
+    lead_memo: dict[int, bool] = {}
     # groundside classes without a cross-section axis: all pairs at the
     # role's longitudinal cap (parking_lot: owner 2026-09-04j, 5 %)
     roles = tuple(roads) + ("groundside_pavement", "parking_lot")
@@ -241,6 +303,7 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
         src_t = Source(GEN, "road_cross_section (2026-08-25g)",
                        (f"face:{f.id}", f.ref))
         src_ribbon = Source(GEN, RIBBON_RULING, (f"face:{f.id}", f.ref))
+        welded = welded_road(f)
         for cyc in [ring, *vw.holes[f.id]]:
             n = len(cyc)
             for i in range(n):
@@ -249,6 +312,14 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     b = cyc[j]
                     d = vw.dist(a, b)
                     if d < min_d:
+                        continue
+                    # RULINGS 2026-09-30aa rules 3-4: the ONE pair law — on
+                    # every path of a WELDED face
+                    side, fol = road_pair_side(planar, law, a, b, lead_memo) \
+                        if welded else (NO_LEAD, None)
+                    if side == BOTH_LEAD:
+                        # rule 3: two AIRSIDE feet are not a road pair
+                        stats["ribbon_airside_pair"] += 1
                         continue
                     # §37 (7): the ROUTE reading where the map carries the
                     # road's own frame; the chord law where it does not
@@ -287,30 +358,36 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     if read != NO_FRAME:
                         bound, transverse = read
                         stats["routed"] += 1
-                        if cross or fused:
-                            air_a, air_b = _airside(planar, law, a), \
-                                _airside(planar, law, b)
-                            if cross and air_a and air_b:
+                        if (cross or fused) and not welded:
+                            side, fol = road_pair_side(planar, law, a, b,
+                                                       lead_memo)
+                            if cross and side == BOTH_LEAD:
                                 # two AIRSIDE vertices are not a road pair
                                 # at all — before §37 (10) this was
                                 # NOT_A_PAIR and the road family never
                                 # priced it.  It stays theirs.
                                 stats["ribbon_airside_pair"] += 1
                                 continue
-                            if air_a or air_b:
+                            if side == BOTH_LEAD:
+                                side, fol = NO_LEAD, None
+                        if cross or fused:
+                            if side == ONE_LEAD:
                                 stats["ribbon_follower"] += 1
                                 rows.append(Diff(a, b, bound / d, d,
                                                  src_ribbon,
-                                                 follows=(b if air_a else a,)))
+                                                 follows=(fol,)))
                                 continue
                         rows.append(Diff(a, b, bound / d, d,
-                                         src_t if transverse else src_l))
+                                         src_t if transverse else src_l,
+                                         follows=(fol,) if fol is not None
+                                         else None))
                         continue
                     stats["chord"] += 1
                     (ax_, ay_), (bx_, by_) = vw.xy[a], vw.xy[b]
+                    fw = (fol,) if fol is not None else None
                     if axis is not None and pair_is_transverse(
                             axis, bx_ - ax_, by_ - ay_, min_deg):
-                        rows.append(Diff(a, b, cap_t, d, src_t))
+                        rows.append(Diff(a, b, cap_t, d, src_t, follows=fw))
                     else:
-                        rows.append(Diff(a, b, cap_l, d, src_l))
+                        rows.append(Diff(a, b, cap_l, d, src_l, follows=fw))
     return rows

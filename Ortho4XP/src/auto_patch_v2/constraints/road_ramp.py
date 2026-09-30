@@ -15,6 +15,8 @@ row binding it.
 from __future__ import annotations
 
 import dataclasses as _dc
+import heapq
+import math
 import typing as _t
 
 from ..law import Law
@@ -26,7 +28,7 @@ from ..model.planar import PlanarMap
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
            "road_contact_rows", "reach_seed_rewrite", "BANK_RULING",
-           "between_levels_rewrite"]
+           "between_levels_rewrite", "road_contact_rewrite"]
 
 GEN = "road_ramp"
 #: The ruling HEAD of the DESIGN TARGET (everything before the first
@@ -133,7 +135,21 @@ def road_join_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     nothing — the derivation has one site."""
     joins = getattr(planar, "road_coverage_join", None) or {}
     rows: list[Row] = []
+    # RULINGS 2026-09-30aa rule 2 (owner 30z (1)): the join is the ROAD's
+    # level — a vertex a WELDED road (the mapped-road ribbon) SHARES with
+    # the airside (a mouth on the exit station) is the airside's and takes
+    # no road pin.  Measured (lane roadweld100, HECA roadmint100 replay):
+    # this pin on apron vertex 30.1291193,31.4129393 (ribbon
+    # service_road#1482) was the worst mover's binding row (+4.04 m).
+    # (The 1206 routes' own join pins on apron — HECA pav37 / pav132, 5
+    # vertices — are the reference's; an owner question.)
+    from .roads import road_lead, welded_road
+    memo: dict[int, bool] = {}
     for v in sorted(joins):
+        if road_lead(planar, law, v, memo) and any(
+                welded_road(planar.faces[f])
+                for f in planar.vertices[v].incident_faces):
+            continue
         ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
                     if planar.faces[f].ref), "")
         rows.append(Pin(v, float(joins[v]),
@@ -152,7 +168,140 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     ``between_levels``."""
     cs, rep = _reach_seed(planar, law, cs, levels)
     cs, rep["between_levels"] = between_levels_rewrite(planar, law, cs, levels)
+    cs, rep["contact"] = road_contact_rewrite(planar, law, cs, levels)
     return cs, rep
+
+
+def road_contact_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
+                         levels: _t.Mapping[int, float]
+                         ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
+    """THE ROAD WELDED TO THE AIRSIDE, BETWEEN §20b's STAGES (spec-author
+    RULINGS 2026-09-30aa rules 5-7; owner 29y, 30z (1)).
+
+    Stage 1's levelled AIRSIDE contacts of a road (its LEADS,
+    ``constraints/roads.road_lead``) are constants here.  From them the
+    road's own graph (the planar edges among road-face vertices) gives
+    every road vertex its CEILING ``U(r) = min over contacts (L + cap·s)``
+    — the highest a road climbing from its LOWER contact at exactly the
+    road cap can stand (rule 6, 29y: the terrain is cut, the road never
+    climbs faster).
+
+    * the §37 (6) design target and its hard ceiling are clamped to ``U``
+      (rule 5: the ramp profile runs from the contact);
+    * a two-foot row from a contact ``h`` to a road vertex ``r`` whose
+      LOWER bound on ``z_r`` stands above ``U(r)`` is a run too short to
+      reach ``h``: that bound is RELEASED (the row keeps its upper side)
+      and the pair is reported — ``road_contact_step`` (rule 7), never an
+      airside move, never a rerouted way.
+
+    Returns the rewritten set and ``{"ceilinged", "clamped", "released":
+    [(h, r, need_z), ...]}`` (``need_z`` = the released floor of ``z_r``) —
+    the caller reads the step off the solved surface."""
+    from .roads import road_family_roles, road_lead
+    rep: dict[str, _t.Any] = {"ceilinged": 0, "clamped": 0, "released": []}
+    roads = set(road_family_roles(law))
+    caps = [role_cap(law, r).longitudinal for r in roads if role_cap(law, r)]
+    if not caps or not levels:
+        return cs, rep
+    cap = min(caps)
+    nodes: set[int] = set()
+    for f in (getattr(planar, "faces", None) or {}).values():
+        if f.role in roads:
+            for cyc in (f.ring, *f.holes):
+                nodes.update(planar.ring_vertices(cyc))
+    memo: dict[int, bool] = {}
+    leads = {v: float(levels[v]) for v in nodes
+             if v in levels and road_lead(planar, law, v, memo)}
+    if not leads:
+        return cs, rep
+    adj: dict[int, list[tuple[int, float]]] = {}
+    for e in planar.edges.values():
+        if e.a in nodes and e.b in nodes:
+            d = math.dist(planar.vertices[e.a].xy, planar.vertices[e.b].xy)
+            adj.setdefault(e.a, []).append((e.b, d))
+            adj.setdefault(e.b, []).append((e.a, d))
+    ceil: dict[int, float] = {}
+    heap = [(z, v) for v, z in leads.items()]
+    heapq.heapify(heap)
+    while heap:
+        z, v = heapq.heappop(heap)
+        if v in ceil:
+            continue
+        ceil[v] = z
+        for w, d in adj.get(v, ()):
+            if w not in ceil:
+                heapq.heappush(heap, (z + cap * d, w))
+    road_v = {v for v in ceil if v not in leads}
+    if not road_v:
+        return cs, rep
+    vis = float(law.tables.emit.cockpit.visual_m)
+    tol = float(law.tables.emit.materiality.elevation_m)
+
+    def _vertex(src: Source) -> int | None:
+        tag = src.inputs[0] if src.inputs else ""
+        return int(tag[7:]) if tag.startswith("vertex:") else None
+
+    def _release(a: int, ca: float, b: int, cb: float, lo, hi):
+        """``lo <= ca·z_a + cb·z_b <= hi`` with one foot a lead ``h`` and
+        the other a road vertex ``r``: ``(lo', hi', (h, r, bound))`` with
+        the side that holds ``z_r`` UP released where it cannot be met."""
+        if a in leads and b in road_v:
+            h, ch, r, cr = a, ca, b, cb
+        elif b in leads and a in road_v:
+            h, ch, r, cr = b, cb, a, ca
+        else:
+            return None
+        if abs(abs(cr) - 1.0) > 1e-9 or abs(abs(ch) - 1.0) > 1e-9:
+            return None
+        rest = ch * leads[h]
+        # the bound on z_r: cr·z_r in [lo - rest, hi - rest]
+        if cr > 0:
+            if lo is None or (lo - rest) <= ceil[r] + tol:
+                return None
+            return (None, hi, (h, r, lo - rest))
+        if hi is None or -(hi - rest) <= ceil[r] + tol:
+            return None
+        return (lo, None, (h, r, -(hi - rest)))
+
+    released: list[tuple[int, int, float]] = []
+    diffs: list = []
+    linears = list()
+    for row in cs.diffs:
+        got = None if row.soft is not None else _release(row.a, 1.0, row.b, -1.0, -row.cap * row.d, row.cap * row.d)
+        if got is None:
+            diffs.append(row)
+            continue
+        lo, hi, rec = got
+        released.append(rec)
+        linears.append(Linear(((row.a, 1.0), (row.b, -1.0)), lo, hi, row.source,
+                              follows=getattr(row, "follows", None)))
+    for row in cs.linears:
+        src = row.source
+        if src.generator == GEN and src.ruling == RULING and len(row.terms) == 1:
+            v = _vertex(src)
+            if v in road_v and row.lo is not None and row.lo > ceil[v]:
+                row = _dc.replace(row, lo=ceil[v], hi=ceil[v])
+                rep["clamped"] += 1
+        elif len(row.terms) == 2:
+            (a, ca), (b, cb) = row.terms
+            got = _release(a, ca, b, cb, row.lo, row.hi)
+            if got is not None:
+                lo, hi, rec = got
+                released.append(rec)
+                row = _dc.replace(row, lo=lo, hi=hi)
+        linears.append(row)
+    bands = []
+    for b_ in cs.bands:
+        src = b_.source
+        if (src.generator == GEN and src.ruling == RULING_CEILING
+                and b_.v in road_v and b_.hi is not None
+                and b_.hi > ceil[b_.v] + vis):
+            b_ = _dc.replace(b_, hi=ceil[b_.v] + vis)
+            rep["ceilinged"] += 1
+        bands.append(b_)
+    rep["released"] = sorted(set(released))
+    return _dc.replace(cs, diffs=tuple(diffs), linears=tuple(linears),
+                       bands=tuple(bands)), rep
 
 
 def _reach_seed(planar: PlanarMap, law: Law, cs: ConstraintSet,

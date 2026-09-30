@@ -1123,6 +1123,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # counts law-true in their families and reports under one heading
         pub["design"] = design_rep.as_dict()
         pub["design_target"] = design_rep.targets
+        # RULINGS 2026-09-30aa rule 7: the road contact steps, sited
+        # (``road_contact_step``, REPORT)
+        pub["road_contact_steps"] = [
+            [*pm.vertices[s_["road"]].key, *pm.vertices[s_["lead"]].key,
+             s_["step_m"], s_["excess_m"]]
+            for s_ in design_rep.road_contact_steps]
         js = report["joint_steps"]
         if js and js["contours"]:
             worst = max(js["contours"], key=lambda c: c["step_m"])

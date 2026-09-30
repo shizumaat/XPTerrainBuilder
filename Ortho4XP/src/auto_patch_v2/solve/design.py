@@ -175,6 +175,39 @@ def _carries_a_column(red: _t.Any, terms: _t.Sequence[tuple[int, float]]) -> boo
     return any(c != 0.0 for c in acc.values())
 
 
+def _welded_faces(planar: PlanarMap) -> set[int]:
+    """The WELDED road faces (RULINGS 2026-09-30aa): the mapped-road
+    RIBBONS (``model.planar.is_osm_ribbon_ref``) — the same predicate as
+    ``constraints/roads.welded_road`` (``solve`` may not import
+    ``constraints``).  Measured (lane ``roadweld100``, HECA replay): the
+    rule over the apt.dat 1206 routes' own faces moves the reference
+    airside (3,537 nodes, worst 1.00 m) — an owner question."""
+    from ..model.planar import is_osm_ribbon_ref
+    return {f.id for f in planar.faces.values()
+            if f.role == "service_road" and is_osm_ribbon_ref(f.ref)}
+
+
+def _groundside_minter(planar: PlanarMap, law: Law
+                       ) -> _t.Callable[[_t.Any], bool]:
+    """RULINGS 2026-09-30aa rule 1: ``row -> True`` when the row names a
+    ``face:N`` input whose face is a WELDED road face — the row that face
+    MINTED, stage 2's whatever its columns."""
+    gs = _welded_faces(planar)
+
+    def _is(row) -> bool:
+        if not gs:
+            return False
+        for t in getattr(getattr(row, "source", None), "inputs", ()) or ():
+            if isinstance(t, str) and t.startswith("face:"):
+                try:
+                    if int(t[5:]) in gs:
+                        return True
+                except ValueError:
+                    continue
+        return False
+    return _is
+
+
 def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
                 ) -> tuple[frozenset[int], dict[int, float]]:
     """§20b STAGE 1's SPLIT: the vertices whose columns are FOREIGN to the
@@ -194,13 +227,27 @@ def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
     air_v = airside_stage_vertices(planar, law)
     air_cols = {int(red0.col[v]) for v in air_v if red0.col[v] >= 0}
     foreign: dict[int, float] = {}
+    # RULINGS 2026-09-30aa rule 1 (#100): a vertex of the WELDED road alone
+    # (a mapped-road ribbon's own vertex) is stage 2's EVEN WHEN FIXED — a
+    # §37 (9) join PIN on it made it a constant of stage 1, and every road
+    # row and ceiling twin footed on it then pulled the apron rim it is
+    # welded to (measured HECA v14531, dsf:objpav1: -4.84 m through a
+    # road_cross_section / pavement_ceiling pair to pinned v15881)
+    welded = _welded_faces(planar)
     for vid in range(len(planar.vertices)):
         col = int(red0.col[vid])
-        if col < 0 or col in air_cols:
+        if col in air_cols and col >= 0:
+            continue
+        if col < 0 and not (welded and _welded_only(planar, vid, welded)):
             continue
         dz = planar.vertices[vid].dem_z
         foreign[vid] = float(dz) if dz is not None else 0.0
     return frozenset(foreign), foreign
+
+
+def _welded_only(planar: PlanarMap, vid: int, welded: _t.AbstractSet[int]) -> bool:
+    fs = [f for f in planar.vertices[vid].incident_faces if f is not None]
+    return bool(fs) and all(f in welded for f in fs)
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -465,6 +512,12 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #: them even where every column is airside (a welded pad's skirt and
     #: flatness rows sit between two vertices the apron owns)
     conform = conforming_rulings(law) if drop_f else frozenset()
+    # RULINGS 2026-09-30aa rule 1 (#100; owner 30z (1): a road never moves
+    # the airside): a row MINTED by a WELDED road face (the mapped-road
+    # ribbon) is stage 2's WHATEVER ITS COLUMNS — a ribbon ring pair footed
+    # on two rim vertices has only airside columns, and stage 1 took it by
+    # column (30aa (b)).  The minting face is the row's own ``face:N``.
+    gs_minted = _groundside_minter(planar, law) if drop_f else None
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -474,6 +527,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if conform and (getattr(row, "follows", None) is not None
                         or ruling_head(row) in conform):
             stage_dropped += 1        # §20b (1b): a conforming row is stage 2's
+            continue
+        if gs_minted is not None and gs_minted(row):
+            stage_dropped += 1        # 30aa rule 1: a groundside face's row
             continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
@@ -552,6 +608,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                         or ruling_head(side[2]) in conform):
             stage_dropped += 1        # §20b (1b)
             continue
+        if gs_minted is not None and gs_minted(side[2]):
+            stage_dropped += 1        # 30aa rule 1
+            continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
             continue
@@ -611,8 +670,14 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #    no route and pinned by nothing — its datum is ITS OWN TERRAIN PLANE
     #    too, even where a shared vertex ties it to the airside sheet.  The
     #    airside design surface is never given one.
+    #    RULINGS 2026-09-30aa rule 1: a WELDED road face's datum is a row
+    #    that face MINTS — stage 2's, never stage 1's (in stage 1 its only
+    #    columns are the rim vertices it shares: its plane would pull the
+    #    apron toward the road's terrain), so stage 1 reads the bodies
+    #    without the ribbons
     gs_roles = {r for r in pav_roles if role_side(law, r) == "groundside"}
-    for vs in _role_bodies(planar, gs_roles, red):
+    welded = _welded_faces(planar) if drop_f else set()
+    for vs in _role_bodies(planar, gs_roles, red, welded):
         by_comp.setdefault(("groundside", vs[0]), vs)
     #    A RIGID GROUP (a pad, a plate, a wall band) is ONE column, so its
     #    own bending rows collapse to nothing: bending gives it no level at
@@ -911,6 +976,14 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         for r in yielded:
             r["stage"] = 2
     rep2.reach_seed = seed_rep
+    # 30aa rule 7: the released contact floors, read off the solved surface
+    tol_c = float(law.tables.emit.materiality.elevation_m)
+    for h, r, need in ((seed_rep or {}).get("contact") or {}).get("released") or ():
+        if sol2.z and need - float(sol2.z[r]) > tol_c:
+            rep2.road_contact_steps.append(
+                {"lead": int(h), "road": int(r),
+                 "step_m": round(float(levels[h]) - float(sol2.z[r]), 4),
+                 "excess_m": round(need - float(sol2.z[r]), 4)})
     rep2.pin_yield = yielded1 + yielded
     if strip_rep is not None:
         rep2.jetway_strip = strip_rep

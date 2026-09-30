@@ -380,6 +380,14 @@ class DesignReport:
     #: (4)) and therefore did NOT fix.
     staged: bool = False
     stages: dict[str, _t.Any] = _dc.field(default_factory=dict)
+    #: RULINGS 2026-09-30aa rule 7 (#100): THE ROAD CONTACT STEPS — a road
+    #: run too short to climb from its lower contact to a higher one at the
+    #: road cap arrives BELOW it; one record per released contact pair
+    #: (``constraints/road_ramp.road_contact_rewrite``) whose solved road
+    #: vertex stands under the released floor: ``{"lead", "road",
+    #: "step_m"`` (lead minus road), ``"excess_m"`` (beyond the road cap)``}``.
+    #: A REPORT — the airside never moved for it.
+    road_contact_steps: list = _dc.field(default_factory=list)
     stage_dropped_rows: int = 0
     stage1_fixed: int = 0
     stage1_unlevelled: int = 0

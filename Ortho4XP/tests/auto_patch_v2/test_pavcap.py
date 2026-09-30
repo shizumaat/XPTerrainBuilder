@@ -48,6 +48,11 @@ class _Planar:
     def ring_vertices(cycle):
         return tuple(cycle)
 
+    def roles_at(self, v):
+        """RULINGS 2026-09-30aa: the pair law reads the vertex's roles."""
+        return tuple(f.role for f in self.faces.values()
+                     if v in (*f.ring, *(q for h in f.holes for q in h)))
+
 
 def _rect(v0, x0, length=10.0, width=8.0):
     ids = (v0, v0 + 1, v0 + 2, v0 + 3)
@@ -141,3 +146,26 @@ def test_pad_pad_weld_is_a_step_not_a_grade(law):
     assert {frozenset((r.a, r.b)) for r in rows2
             if (r.a < 10) != (r.b < 10)} == {
         frozenset((1, 10)), frozenset((2, 13))}
+
+
+def test_a_groundside_pair_on_the_airside_mints_no_row_and_one_foot_follows(law):
+    """RULINGS 2026-09-30aa rules 3-4 (#100): a road ring's pair with BOTH
+    feet on the apron rim is the apron's, never the road's; a pair with
+    ONE foot there is one-way, the road foot following — and every row
+    names its minting face (rule 1's filter reads it)."""
+    apron = (0, 1, 2, 3)
+    road = (1, 4, 5, 2)                   # shares the apron edge 1-2
+    xy = {0: (0.0, 0.0), 1: (10.0, 0.0), 2: (10.0, 8.0), 3: (0.0, 8.0),
+          4: (30.0, 0.0), 5: (30.0, 8.0)}
+    pm = _Planar(xy, [_F(1, "apron", "pav1", apron),
+                      _F(2, "service_road", "small_roads:-3", road)])
+    rows = pavement_cap.pavement_road_cap([], pm, law)
+    by = {frozenset((r.a, r.b)): r for r in rows}
+    # the shared edge 1-2 is minted ONCE, by the apron (no follower)
+    assert by[frozenset((1, 2))].follows is None
+    assert by[frozenset((1, 2))].source.inputs == ("face:1",)
+    # the road's own contact edges follow the ROAD vertex
+    assert by[frozenset((1, 4))].follows == (4,)
+    assert by[frozenset((2, 5))].follows == (5,)
+    assert by[frozenset((4, 5))].follows is None
+    assert by[frozenset((4, 5))].source.inputs == ("face:2",)

@@ -111,6 +111,13 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     # law surface and is not twinned; a row from the kerb INTO the ribbon
     # is the road's and keeps the road cap (29ab (1), 29ac)
     kerb = planar.band_kerb_vertices()
+    if kerb:
+        # an AIRSIDE rim vertex the ribbon welds to is never a kerb here:
+        # the airside's own pairs keep their twins (lane roadweld100,
+        # measured HECA: 228 stage-1 twins lost at junction|zone|ribbon
+        # rim vertices)
+        from ..model.platform import stage_air_vertices
+        kerb = kerb - stage_air_vertices(planar, law)
     rib_vs: set[int] = set()
     if kerb:
         from ..model.planar import is_osm_ribbon_ref

@@ -745,6 +745,15 @@ class DesignReport:
                     f"the road-to-pavement plane, "
                     f"{bl.get('strip_low_dropped', 0)} high-side floors "
                     f"dropped on the low side; ")
+        ct = rs.get("contact") or {}
+        if ct.get("released") or ct.get("clamped") or ct.get("ceilinged"):
+            st = self.road_contact_steps
+            out += (f"road contact (30aa 5-7): {ct.get('clamped', 0)} ramp targets "
+                    f"and {ct.get('ceilinged', 0)} ceilings held to the lower "
+                    f"contact's climb, {len(ct.get('released') or ())} contact "
+                    f"floor(s) released, {len(st)} ROAD CONTACT STEP(s)"
+                    + (f" (worst {max(s_['step_m'] for s_ in st):.2f} m)" if st else "")
+                    + "; ")
         if self.pin_yield:
             worst = max(self.pin_yield, key=lambda r: abs(r["excess_m"]))
             out += (f"PIN YIELD (27a (10)): {len(self.pin_yield)} coverage-edge "

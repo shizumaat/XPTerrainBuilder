@@ -952,6 +952,7 @@ def test_ensure_airport_insets_clamps_a_finer_pin_to_native(
     def _record_fetch(
         definition, bounding_box, target_resolution_m, destination,
         footprint_prefetch=None,
+        resolution_ladder=False,
     ):
         recorded.append(target_resolution_m)
         os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -1156,6 +1157,7 @@ def test_oversampled_cache_is_regenerated_at_native_posting(
     def _record_fetch(
         definition, bounding_box, target_resolution_m, destination,
         footprint_prefetch=None,
+        resolution_ladder=False,
     ):
         recorded.append(target_resolution_m)
         with open(destination, "wb") as handle:
@@ -1261,6 +1263,7 @@ def test_ensure_airport_insets_auto_target_uses_native_resolution(
         target_resolution_m,
         destination,
         footprint_prefetch=None,
+        resolution_ladder=False,
     ):
         recorded.append((definition["code"], target_resolution_m))
         os.makedirs(os.path.dirname(destination), exist_ok=True)

@@ -5142,3 +5142,33 @@ def test_body_with_a_contact_edge_still_rides_the_connector_deck():
     assert "deck_riders(" in src
     assert src.index("deck_riders(") < src.index("not_carriers=_cut29q")
     assert "deck_riders" in FC.__all__
+
+
+def test_feet_in_unit_is_a_projection_of_the_census(tmp_path):
+    """``--feet-in UNIT[@LAT,LON[,R]]`` (flat-pad spec v2 §6 A5, lane
+    ``flatpad128v2``; the ``hardhold128`` scratchpad ``feet_site.py`` /
+    ``feet_agg.py`` promoted on their third use, RULINGS 2026-09-30ae):
+    the feet inside a unit's emitted ``building`` faces are a SELECTION of
+    §7's own signed floats — the census bins do not change, the pad count
+    is bounded by the census count, and a foot outside every face of the
+    unit is never counted."""
+    RPT, ss, sampler = _split_set_for_rows(tmp_path)
+    cen = RPT.census(ss, sampler, 1.0)
+    ff = cen["foot_floats"]
+    assert len(ff) == sum(v for k, v in cen["bins"].items()
+                          if k in ("<0.3", "0.3-1", "1-3", ">3"))
+    lats = [r[2] for r in ff]
+    lons = [r[3] for r in ff]
+    lo_lat, hi_lat, lo_lon, hi_lon = min(lats), max(lats), min(lons), max(lons)
+    e = 1e-4
+    doc = {"vertices": [[1, lo_lat - e, lo_lon - e, 0.0], [2, lo_lat - e, hi_lon + e, 0.0],
+                        [3, hi_lat + e, hi_lon + e, 0.0], [4, hi_lat + e, lo_lon - e, 0.0],
+                        [5, 10.0, 10.0, 0.0], [6, 10.0, 10.001, 0.0], [7, 10.001, 10.0, 0.0]],
+           "faces": [{"role": "building", "ref": "building9/b0", "ring": [1, 2, 3, 4]},
+                     {"role": "building", "ref": "building8", "ring": [5, 6, 7]}]}
+    rep = RPT.feet_in_unit(ff, doc, "building9", (ff[0][2], ff[0][3], 1e6))
+    assert rep["pad"]["feet"] == len(ff) == rep["site"]["feet"]
+    assert rep["pad"]["within_0_3"] + rep["pad"]["floating"] + rep["pad"]["buried"] == len(ff)
+    other = RPT.feet_in_unit(ff, doc, "building8")
+    assert other["pad"]["feet"] == 0
+    assert RPT.census(ss, sampler, 1.0)["bins"] == cen["bins"]

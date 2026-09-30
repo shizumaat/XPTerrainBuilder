@@ -11,19 +11,10 @@ name: Windows LEMD elevation (issue #121)
 # private data root, NO custom_dem, insets ON, auto_patch OFF, imagery OFF,
 # LEMD's aerodrome polygon as the only airport, CPL_DEBUG + CPL_CURL_VERBOSE.
 #
-# A workflow_dispatch workflow is only dispatchable once it is on the default
-# branch; until then a push to the lane branch touching these files runs it
-# the FRESH arm only (normal + must-refuse passes; A and H were measured).
+# Arm B also proves the SYSTEM TRUST STORE (--tls-selfcheck before/after on a
+# root that lives in the Windows store only).  Dispatch from main:
+#   gh workflow run win-lemd-elevation.yml -f arms=shipped,fresh,hostile
 on:
-  push:
-    branches: ["claude/win121"]
-    paths:
-      - ".github/workflows/win-lemd-elevation.yml"
-      - "scripts/check_frozen_tile.py"
-      - "scripts/win_lemd_preflight.sh"
-      - "scripts/fixtures/lemd_elevation/**"
-      - "Ortho4XP/src/O4_Airport_Elevation_Insets.py"
-      - "Ortho4XP/src/O4_DEM_Utils.py"
   workflow_dispatch:
     inputs:
       release_tag:
@@ -40,7 +31,7 @@ env:
 jobs:
   shipped:
     name: "arm A: shipped release"
-    if: contains(format(',{0},', inputs.arms || 'fresh'), ',shipped,') || inputs.arms == 'both'
+    if: contains(format(',{0},', inputs.arms || 'shipped,fresh'), ',shipped,') || inputs.arms == 'both'
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -76,7 +67,7 @@ jobs:
 
   fresh:
     name: "arm B: fresh freeze of ${{ github.ref_name }}"
-    if: contains(format(',{0},', inputs.arms || 'fresh'), ',fresh,') || inputs.arms == 'both'
+    if: contains(format(',{0},', inputs.arms || 'shipped,fresh'), ',fresh,') || inputs.arms == 'both'
     runs-on: windows-latest
     timeout-minutes: 60
     defaults:
@@ -203,7 +194,7 @@ jobs:
   # the base DEM?  The pass is EXPECTED to fail; its log is the evidence.
   hostile:
     name: "arm H: shipped release, TLS verification broken"
-    if: contains(format(',{0},', inputs.arms || 'fresh'), ',hostile,')
+    if: contains(format(',{0},', inputs.arms || 'shipped,fresh'), ',hostile,')
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:

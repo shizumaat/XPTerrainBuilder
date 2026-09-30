@@ -899,6 +899,42 @@ def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
     return out
 
 
+#: Above this many pins :func:`reach` reads the envelope through ONE
+#: super-source walk per side instead of a pin x vertex matrix (the same
+#: max/min, O(E log V) instead of O(P·V) memory — a pin set of every runway
+#: vertex, ``no_step.runway_reach_band_values``).  A resolution constant.
+_SUPER_SOURCE_PINS = 64
+
+
+def _reach_super(g: RouteGraph, m: csr_matrix, idx: list[int],
+                 pins: _t.Mapping[int, float]) -> dict[int, tuple[float, float]]:
+    """:func:`reach` through a SUPER SOURCE ``s``: ``min_p (z_p + B(p, v))``
+    is the shortest walk from ``s`` with an arc ``s → p`` of weight ``z_p −
+    z_min`` (non-negative), plus ``z_min``; ``max_p (z_p − B(p, v))`` the
+    same with arcs ``z_max − z_p``, read back as ``z_max − dist``."""
+    from scipy.sparse import vstack, hstack
+    N = m.shape[0]
+    z = np.array([float(pins[v]) for v in idx])
+    out_hi = out_lo = None
+    for side in ("hi", "lo"):
+        w = (z - z.min()) if side == "hi" else (z.max() - z)
+        w = np.maximum(w, 0.0) + 1e-12            # an explicit arc, never "no arc"
+        row = csr_matrix((w, (np.zeros(len(idx), np.int64), np.asarray(idx, np.int64))),
+                         shape=(1, N + 1))
+        mm = vstack([hstack([m, csr_matrix((N, 1))]), row]).tocsr()
+        d = dijkstra(mm, directed=True, indices=[N])[0, :N]
+        if side == "hi":
+            out_hi = d + z.min()
+        else:
+            out_lo = z.max() - d
+    verts = np.arange(g.n)
+    inb = g.inbound(verts)
+    hi, lo = out_hi[inb], out_lo[inb]
+    ok = np.isfinite(hi)
+    return {int(v): (float(lo[v]), float(hi[v])) for v in np.flatnonzero(ok)
+            if int(v) in g.nodes and int(v) < g.n_planar}
+
+
 def reach(g: RouteGraph, pins: _t.Mapping[int, float]
           ) -> dict[int, tuple[float, float]]:
     """THE REACH BAND: for every graph vertex a route joins to a pin,
@@ -912,6 +948,8 @@ def reach(g: RouteGraph, pins: _t.Mapping[int, float]
     if not idx:
         return {}
     m = g.csr("budget")
+    if len(idx) > _SUPER_SOURCE_PINS:
+        return _reach_super(g, m, idx, pins)
     D = dijkstra(m, directed=True, indices=idx)
     z = np.array([pins[v] for v in idx], dtype=float)[:, None]
     verts = np.arange(g.n)

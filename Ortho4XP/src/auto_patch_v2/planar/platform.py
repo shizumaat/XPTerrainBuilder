@@ -254,7 +254,8 @@ def platform_split(base_regions, pad_regions, law: Law,
                                  "verdict": bplan.verdict if one else "unminted_split",
                                  "samples_xy": bplan.blocks[0].samples_xy if one else None,
                                  "samples_held": bplan.blocks[0].samples_held if one else None,
-                                 "samples_reach": bplan.blocks[0].samples_reach if one else None}
+                                 "samples_reach": bplan.blocks[0].samples_reach if one else None,
+                                 "samples_ramp": bplan.blocks[0].samples_ramp if one else None}
         pieces = [_dc.replace(pr, polygon=q) for q in plats]
         plat_ids.update(id(q) for q in pieces)
         out.extend(pieces)
@@ -336,7 +337,8 @@ def _mint_blocks(pr, P: Polygon, plats: list, bplan, law: Law, grid: float,
         HELD[ref] = {"unit": str(pr.ref), "k": b.k, "blocks": len(bplan.blocks),
                      "datum_pred": b.datum, "verdict": bplan.verdict,
                      "samples_xy": b.samples_xy, "samples_held": b.samples_held,
-                     "samples_reach": b.samples_reach}
+                     "samples_reach": b.samples_reach,
+                     "samples_ramp": b.samples_ramp}
     return plat_regs, col_regs
 
 

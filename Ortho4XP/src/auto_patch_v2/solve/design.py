@@ -203,6 +203,44 @@ def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
     return frozenset(foreign), foreign
 
 
+def runway_stage_roles(law: Law) -> frozenset[str]:
+    """STAGE 0's ROLES (flat-pad spec v2 §1, RULINGS 2026-09-30af): the
+    runway family — ``precedence.toml``'s ``family = "runway"`` roles, one
+    derivation from the law tables."""
+    from ..law.tables import role_family
+    return frozenset(r for r in law.tables.precedence.roles
+                     if role_family(law, r) == "runway")
+
+
+def runway_stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
+                       ) -> tuple[frozenset[int], dict[int, float]]:
+    """STAGE 0's SPLIT (flat-pad spec v2 §1): the free vertices whose
+    COLUMN is not a runway-family column, and the dummy values they are
+    fixed at — :func:`stage_split`'s test with the runway family for the
+    airside, so stage 0 keeps exactly the rows whose every column is a
+    runway column (pins, chord, profile, crown, transverse, K, ring chords,
+    crossing knots, seam / EAT pins on runway vertices)."""
+    red0 = _reduce(planar, cs, {})
+    rw_roles = runway_stage_roles(law)
+    rw_cols: set[int] = set()
+    for f in planar.faces.values():
+        if f.role not in rw_roles:
+            continue
+        for ring in (f.ring, *f.holes):
+            for v in planar.ring_vertices(ring):
+                c = int(red0.col[v])
+                if c >= 0:
+                    rw_cols.add(c)
+    foreign: dict[int, float] = {}
+    for vid in range(len(planar.vertices)):
+        col = int(red0.col[vid])
+        if col < 0 or col in rw_cols:
+            continue
+        dz = planar.vertices[vid].dem_z
+        foreign[vid] = float(dz) if dz is not None else 0.0
+    return frozenset(foreign), foreign
+
+
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
              rep: DesignReport, *,
              drop: _t.AbstractSet[int] | None = None,
@@ -836,9 +874,26 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         return _solve_stage(planar, cs, law, options, size_out=size_out,
                             method=method, low_rank=low_rank)
     t_all = time.perf_counter()
+    # STAGE 0 — THE RUNWAY IS FIXED (flat-pad spec v2 §1, RULINGS
+    # 2026-09-30af): the runway family solved ALONE, from every row whose
+    # every column is a runway column; its solved values are then CONSTANTS
+    # of stage 1 exactly as a ``Pin`` is.  No row minted by anything but the
+    # runway ever moves a runway column (30aa rule 1 generalised) — the HECA
+    # 1.20 m mover of 30ae came through the taxi chain spending the priced
+    # chord between the CIFP pins.
+    t0s = time.perf_counter()
+    size0: dict = {}
+    levels0: dict[int, float] = {}
+    drop0, foreign0 = runway_stage_split(planar, cs, law)
+    sol0, rep0 = _solve_stage(planar, cs, law, options, size_out=size0,
+                              method=method, low_rank=low_rank,
+                              drop=drop0, fixed=foreign0, levelled_out=levels0,
+                              stage_roles=runway_stage_roles(law))
+    w0 = time.perf_counter() - t0s
     rep1 = DesignReport(method=method)
     size1: dict = {}
     drop, foreign = stage_split(planar, cs, law)
+    foreign = {**foreign, **levels0}
     levels: dict[int, float] = {}
     t1 = time.perf_counter()
     sol1, rep1 = _solve_stage(planar, cs, law, options, size_out=size1,
@@ -859,6 +914,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
 
         def _stage1(cs_x: ConstraintSet):
             d_x, f_x = stage_split(planar, cs_x, law)
+            f_x = {**f_x, **levels0}
             lv: dict[int, float] = {}
             sz: dict = {}
             so, rp = _solve_stage(planar, cs_x, law, options, size_out=sz,
@@ -892,6 +948,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     seed_rep: dict = {}
     if stage2_rewrite is not None:
         cs, seed_rep = stage2_rewrite(levels)
+    # the runway's stage-0 values are constants of stage 2 as of stage 1
+    levels = {**levels0, **levels}
     t2 = time.perf_counter()
     sol2, rep2 = _solve_stage(planar, cs, law, options, size_out=size_out,
                               method=method, low_rank=low_rank, fixed=levels)
@@ -931,13 +989,23 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # row carries no column in stage 2 — it was enforced and read in stage 1,
     # where it is scaled to metres — so the shipped surface's hard set is
     # stage 1's plus stage 2's, and SETTLED is the conjunction.
-    rep2.hard_rows += rep1.hard_rows
-    rep2.hard_active += rep1.hard_active
-    rep2.hard_rounds += rep1.hard_rounds
-    if rep1.hard_max_violation_m > rep2.hard_max_violation_m:
-        rep2.hard_max_violation_m = rep1.hard_max_violation_m
-        rep2.hard_worst = rep1.hard_worst
-    rep2.hard_settled = bool(rep1.hard_settled and rep2.hard_settled)
+    rep2.stages["stage0"] = {"unknowns": rep0.unknowns, "rows": rep0.rows,
+                             "hard_rows": rep0.hard_rows,
+                             "hard_active": rep0.hard_active,
+                             "hard_max_violation_m": round(rep0.hard_max_violation_m, 6),
+                             "hard_settled": rep0.hard_settled,
+                             "fixed_into_stage1": len(levels0),
+                             "unlevelled": rep0.stage1_unlevelled,
+                             "rounds": rep0.rounds, "wall_s": round(w0, 3)}
+    for r_ in (rep1, rep0):
+        rep2.hard_rows += r_.hard_rows
+        rep2.hard_active += r_.hard_active
+        rep2.hard_rounds += r_.hard_rounds
+        if r_.hard_max_violation_m > rep2.hard_max_violation_m:
+            rep2.hard_max_violation_m = r_.hard_max_violation_m
+            rep2.hard_worst = r_.hard_worst
+    rep2.hard_settled = bool(rep0.hard_settled and rep1.hard_settled
+                             and rep2.hard_settled)
     # THE ASSEMBLY COUNTERS ARE THE TWO STAGES' (§20b's census table, the
     # report row).  A counter that says how many rows of a kind the problem
     # carried describes ONE assembly, and under §20b there are two: the
@@ -971,7 +1039,9 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # so the report carries stage 1's certificate — the one that describes
     # the shipped runway.
     if not rep2.runway_projection.ran:
-        rep2.runway_projection = rep1.runway_projection
+        rep2.runway_projection = (rep0.runway_projection
+                                  if rep0.runway_projection.ran
+                                  else rep1.runway_projection)
     if not rep2.zone_projection.ran and rep1.zone_projection.ran:
         rep2.zone_projection = rep1.zone_projection
     if rep1.one_way_rows and not rep1.one_way_settled and rep2.one_way_settled:
@@ -979,16 +1049,21 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         rep2.one_way_failure = rep1.one_way_failure
         rep2.one_way_move_m = max(rep2.one_way_move_m, rep1.one_way_move_m)
     if size_out is not None:
-        size_out.update({"stage1_columns": size1.get("columns", 0),
+        size_out.update({"stage0_columns": size0.get("columns", 0),
+                         "stage0_rows": size0.get("rows", 0),
+                         "stage0_fixed_into_stage1": len(levels0),
+                         "stage1_columns": size1.get("columns", 0),
                          "stage1_rows": size1.get("rows", 0),
                          "stage1_fixed_into_stage2": len(levels)})
-    status = (Status.ERROR if Status.ERROR in (sol1.status, sol2.status)
-              else Status.FEASIBLE if Status.FEASIBLE in (sol1.status, sol2.status)
+    sts = (sol0.status, sol1.status, sol2.status)
+    status = (Status.ERROR if Status.ERROR in sts
+              else Status.FEASIBLE if Status.FEASIBLE in sts
               else sol2.status)
     sol = _dc.replace(sol2, status=status,
-                      iterations=sol1.iterations + sol2.iterations,
+                      iterations=sol0.iterations + sol1.iterations + sol2.iterations,
                       wall_s=time.perf_counter() - t_all,
-                      message=f"staged design surface (20b): stage 1 {sol1.message}; "
+                      message=f"staged design surface (20b): stage 0 {sol0.message}; "
+                              f"stage 1 {sol1.message}; "
                               f"stage 2 {sol2.message}")
     return sol, rep2
 
@@ -1086,7 +1161,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         A1 = sp.csr_matrix((coo.data[keep], (coo.row[keep], coo.col[keep])),
                            shape=A1.shape)
     hard_i = np.asarray(base_p.hard, dtype=np.int64)
-    if fixed and drop is None and hard_i.size:
+    if fixed and hard_i.size:
         # §20b STAGE 2's HARD SET (the census table): an AIRSIDE hard row
         # now carries no column — stage 1 enforced it and read it there, in
         # its own metre scaling — and its reduced row sum is 0, which the

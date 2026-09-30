@@ -216,3 +216,128 @@ def test_the_clearest_neck_wins_over_the_smaller_miss():
         P, C, L, U, z, margin=MARGIN, bay_m=BAY, max_blocks=5,
         neck=lambda s: s.intersection(hall).length, seeds=400, dirs=8)
     assert ok and len(cuts) == 1 and necks[0] == 0.0
+
+
+# issue #126: a written group standing on two BLOCKS of one cut unit is
+# seated where its WELDED parts stand, never by a lexical part-count tie
+def _two_block_rows():
+    # pid 25: the long sheet on b1; pid 26: a trinket on b0 (one rigid
+    # group); 1-3 stand on b1, 4-5 on b0
+    rows = {25: ("fu:0/b1",), 26: ("fu:0/b0",), 1: ("fu:0/b1",),
+            2: ("fu:0/b1",), 3: ("fu:0/b1",), 4: ("fu:0/b0",),
+            5: ("fu:0/b0",)}
+    pads = [_pad("t/b0", 0.0, 0.5, 10.0), _pad("t/b1", 0.5, 1.0, 12.0)]
+    return rows, pads
+
+
+def test_a_group_on_two_blocks_joins_the_majority_of_its_welded_parts():
+    from auto_patch_v2.airport import pad_block_seat as pbs
+    rows, pads = _two_block_rows()
+    welded = {25: {1, 2, 3, 26}, 26: {25}}
+    # the part count ties 1:1 and the first id (b0) used to win
+    counts: dict = {}
+    assert pbs.seat_unit((25, 26), rows, None) == "fu:0/b0"
+    assert pbs.seat_unit((25, 26), rows, welded, counts=counts) == "fu:0/b1"
+    assert counts == {"block_groups_welded": 1}
+    # a minority weld does not move it: 3 on b1 vs 1 on b0
+    welded[26] = {25, 4}
+    assert pbs.seat_unit((25, 26), rows, welded) == "fu:0/b1"
+
+
+def test_a_welded_tie_is_a_reported_straddler_seated_by_its_feet():
+    from auto_patch_v2.airport import pad_block_seat as pbs
+    rows, pads = _two_block_rows()
+    welded = {25: {1, 2}, 26: {4, 5}}
+    feet_b0 = ((0.5, 0.2, 0.0), (0.5, 0.3, 0.0), (0.5, 0.7, 0.0))
+    counts: dict = {}
+    got = pbs.seat_unit((25, 26), rows, welded, feet_b0, pads, counts,
+                        "sheet.obj")
+    assert got == "fu:0/b0"
+    assert counts[f"{pbs.STRADDLE_KEY}sheet.obj@fu:0"] == 1
+    assert counts["block_groups_straddle"] == 1
+    feet_b1 = ((0.5, 0.7, 0.0), (0.5, 0.8, 0.0))
+    assert pbs.seat_unit((25, 26), rows, welded, feet_b1, pads) == "fu:0/b1"
+
+
+def test_no_weld_means_the_feet_decide_and_nothing_is_reported():
+    from auto_patch_v2.airport import pad_block_seat as pbs
+    rows, pads = _two_block_rows()
+    counts: dict = {}
+    got = pbs.seat_unit((25, 26), rows, {7: {8}},
+                        ((0.5, 0.8, 0.0),), pads, counts)
+    assert got == "fu:0/b1" and counts == {}
+
+
+def test_units_that_are_not_blocks_keep_the_part_count():
+    from auto_patch_v2.airport import pad_block_seat as pbs
+    rows = {1: ("fu:a",), 2: ("fu:b",), 3: ("fu:b",)}
+    assert pbs.seat_unit((1, 2), rows, {1: {3}, 2: {3}}) == "fu:a"
+    assert pbs.seat_unit((1, 2, 3), rows, {1: {9}}) == "fu:b"
+    assert pbs.seat_unit((9,), rows, {}) is None
+
+
+def test_the_file_split_follows_the_welded_block():
+    from auto_patch_v2.airport import pad_block_seat as pbs  # noqa: F401
+    from auto_patch_v2.airport.placement_plan import _split_by_unit
+    rows, pads = _two_block_rows()
+    P = type("P", (), {})
+
+    def raw(*pids):
+        ps = []
+        for q in pids:
+            p = P()
+            p.pid = q
+            ps.append(p)
+        return (ps, "building", None, ())
+    welded = {25: {1, 2, 3}}
+    # raw 0 is the rigid {sheet, trinket} group, raw 1 stands on b0
+    groups, n = _split_by_unit([[0, 1, 2]], [raw(25, 26), raw(4, 5), raw(1)],
+                               rows, welded, pads)
+    assert n == 1 and groups == [[0, 2], [1]]
+    groups0, _ = _split_by_unit([[0, 1, 2]], [raw(25, 26), raw(4, 5), raw(1)],
+                                rows)
+    assert groups0 == [[0, 1], [2]]
+
+
+def test_a_ringless_body_joins_the_block_its_welded_parts_stand_on():
+    """``split_units``: a body standing on no block (C, north of both
+    rings, its foot nearest b0) joins the block its WELDED parts stand on
+    (B's, on b1); with no weld its feet decide, as 30u (iii) ruled."""
+    import dataclasses
+
+    from auto_patch_v2.airport import pad_block_seat as pbs
+    from auto_patch_v2.airport.footprint_unit import PlanUnit
+
+    @dataclasses.dataclass(frozen=True)
+    class _Plan:
+        units: tuple
+        contacts: tuple
+        abutments: tuple = ()
+
+    def member(res, *parts):
+        return types.SimpleNamespace(resource=res, parts=parts)
+    a = member("a.obj", _part(0, 0.5, 0.1), _part(1, 0.5, 0.3))
+    b = member("b.obj", _part(2, 0.5, 0.7), _part(3, 0.5, 0.9))
+    c = member("c.obj", _part(4, 1.5, 0.45))
+    pads = [_pad("t/b0", 0.0, 0.5, 10.0), _pad("t/b1", 0.5, 1.0, 12.0)]
+    un = PlanUnit(id="fu:0", bodies=((0, 0, 0), (0, 1, 0), (0, 2, 0)),
+                  pids=frozenset(range(5)), members=("a.obj", "b.obj", "c.obj"),
+                  boxes=(), area_m2=0.0)
+
+    def seat(contacts):
+        plan = _Plan(units=(types.SimpleNamespace(members=(a, b, c)),),
+                     contacts=((0, 1), (2, 3)) + contacts)
+        counts: dict = {}
+        out = pbs.split_units([un], plan, pads, counts)
+        return {u.id: u.bodies for u in out}, counts
+
+    got, counts = seat(((4, 2), (4, 3)))
+    assert got == {"fu:0/b0": ((0, 0, 0),),
+                   "fu:0/b1": ((0, 1, 0), (0, 2, 0))}
+    assert counts["block_bodies_welded"] == 1
+    got, counts = seat(())
+    assert got["fu:0/b0"] == ((0, 0, 0), (0, 2, 0))
+    assert counts["block_bodies_nearest"] == 1
+    got, counts = seat(((4, 1), (4, 2)))
+    assert counts["block_bodies_straddle"] == 1
+    assert counts[f"{pbs.STRADDLE_KEY}c.obj@fu:0"] == 1

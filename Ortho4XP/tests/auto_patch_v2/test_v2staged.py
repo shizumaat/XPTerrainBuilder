@@ -214,8 +214,16 @@ def test_the_shipped_airside_value_is_stage_ones(law, built, arms):
     """The bar: stage-2 airside values equal stage-1's to 1e-9."""
     pm, cs = built
     lw = _law_arm(law, staged_solve=True)
+    # STAGE 0 (flat-pad spec v2 §1): the runway family solved alone first,
+    # its values constants of stage 1 — the reference solves it the same way
+    from auto_patch_v2.solve.design import runway_stage_roles, runway_stage_split
+    drop0, foreign0 = runway_stage_split(pm, cs, lw)
+    levels0: dict[int, float] = {}
+    _solve_stage(pm, cs, lw, drop=drop0, fixed=foreign0, levelled_out=levels0,
+                 stage_roles=runway_stage_roles(lw))
     drop, foreign = stage_split(pm, cs, lw)
-    levels: dict[int, float] = {}
+    foreign = {**foreign, **levels0}
+    levels: dict[int, float] = dict(levels0)
     # the stage's OWN sheet, as ``solve_design`` solves it (§20b (3)): a
     # reference without it differs once stage 1 carries a pad datum column
     # (the flat-pad hold, RULINGS 2026-09-30f/r)
@@ -286,7 +294,8 @@ def test_the_report_names_both_stages(arms):
     assert rep_s.stage1_wall_s > 0.0 and rep_s.stage2_wall_s > 0.0
     # the HARD SET IS THE COMBINATION (the census table)
     assert rep_s.hard_rows >= s1["hard_rows"]
-    assert rep_s.hard_rows == s1["hard_rows"] + rep_s.stages["stage2"]["hard_rows"]
+    assert rep_s.hard_rows == (s1["hard_rows"] + rep_s.stages["stage2"]["hard_rows"]
+                               + rep_s.stages["stage0"]["hard_rows"])
 
 
 def test_stage_two_is_smaller_than_the_single_solve(arms):
@@ -432,3 +441,26 @@ def test_stage_ones_sheet_carries_no_groundside_face(law):
               if f.role in airside_stage_roles(law)
               and not (set(pm.ring_vertices(f.ring)) & set(drop)))
     assert rep_s.triangles == own, (rep_s.triangles, own)
+
+
+def test_stage0_no_taxi_row_moves_the_runway(law, built, arms):
+    """flat-pad spec v2 §1 (RULINGS 2026-09-30af): the runway family is
+    solved ALONE — stage 0 — from the rows whose every column is a runway
+    column, and every later stage holds it as a constant.  The shipped
+    runway equals stage 0's own answer to 1e-9, and stage 0's problem
+    contains no row with a non-runway column: a taxi / apron / pad row
+    cannot move it by construction."""
+    from auto_patch_v2.solve.design import runway_stage_roles, runway_stage_split
+    pm, cs = built
+    lw = _law_arm(law, staged_solve=True)
+    drop0, foreign0 = runway_stage_split(pm, cs, lw)
+    levels0: dict[int, float] = {}
+    _solve_stage(pm, cs, lw, drop=drop0, fixed=foreign0, levelled_out=levels0,
+                 stage_roles=runway_stage_roles(lw))
+    assert levels0
+    rw_roles = runway_stage_roles(lw)
+    rw = {v for f in pm.faces.values() if f.role in rw_roles
+          for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)}
+    assert rw and not (rw & set(drop0))
+    z_staged = arms[0]
+    assert max(abs(z_staged[v] - levels0[v]) for v in rw if v in levels0) <= 1e-9

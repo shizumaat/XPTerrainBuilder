@@ -2973,6 +2973,75 @@ def test_the_snapshot_NAMES_an_install_write_the_guard_could_not_see(
     assert offenders == []
 
 
+def test_las_tiles_is_its_own_scope_before_dem(build_mod, guard_mod):
+    """#130 (spec las-tile-lidar-provider-spec.md §2): a 7 GB point-cloud
+    download is its own authorised act.  Its prefix must be matched
+    BEFORE ``dem``'s, or every LAS write is attributed to ``dem``; the
+    airport inset gridded from the tiles stays ``dem``."""
+    order = [sc for sc, _p, _w in guard_mod.REFRESH_SCOPES]
+    assert order.index("las_tiles") < order.index("dem")
+    assert guard_mod.scope_of(
+        "Elevation_data/_las_tiles/PITKIN1M/LD26101509.las") == "las_tiles"
+    assert guard_mod.scope_of(
+        "Elevation_data/_las_tiles/PITKIN1M/LD26101509_dtm.tif") \
+        == "las_tiles"
+    assert guard_mod.scope_of(
+        "Elevation_data/+30-110/N39W107_airport_insets/KASE_usgs3dep.tif") \
+        == "dem"
+    assert "point-cloud" in guard_mod.scope_description("las_tiles")
+
+
+def test_ladder_recheck_new_listing_is_a_refreshable_refusal(build_mod,
+                                                             tmp_path):
+    """The build-time ladder re-check (RULINGS 2026-09-30aw (2)): the
+    harness asks the ENGINE's one predicate with ``record=False`` (a
+    read), refuses a new listing naming ``dem,las_tiles`` when a LAS-tile
+    rung is among the finer ones, and lets ``unchanged`` stand."""
+    sidecar = tmp_path / "KASE_usgs3dep.json"
+    sidecar.write_text("{}")
+    calls = []
+
+    class _Insets:
+        answer = {"result": "new-listing", "new_source_ids": ["LD1"],
+                  "rungs_checked": [0, 1]}
+
+        def cached_inset_paths_for_icao(self, lat, lon, icao):
+            return [str(tmp_path / "KASE_usgs3dep.tif")]
+
+        def _inset_provider_code_from_path(self, path):
+            return "usgs3dep"
+
+        def ladder_recheck(self, lat, lon, icao, code, box, record=True):
+            calls.append(record)
+            return dict(self.answer)
+
+        def initialize_elevation_providers_dict(self):
+            return {"USGS3DEP": {"code": "USGS3DEP"}}
+
+        def _ladder_rung_definitions(self, definition):
+            return [("1 m", {"access_strategy": "tnm_cog"}),
+                    ("county", {"access_strategy": "las_tile_index"})]
+
+    fake = _Insets()
+    build_mod.LADDER_RECHECKS.clear()
+    problem = build_mod._ladder_recheck_problem(fake, 39, -107, "KASE",
+                                                (0, 0, 1, 1))
+    assert calls == [False]
+    assert problem[0] == "ladder"
+    assert "--refresh-data dem,las_tiles" in problem[1]
+    assert "LD1" in problem[1]
+    # memoised on the sidecar state: one discovery per run, not per call
+    build_mod._ladder_recheck_problem(fake, 39, -107, "KASE", (0, 0, 1, 1))
+    assert calls == [False]
+    assert "ladder" in build_mod.REFRESHABLE_INSET_PROBLEMS
+    fake.answer = {"result": "unchanged", "new_source_ids": [],
+                   "rungs_checked": [0]}
+    build_mod.LADDER_RECHECKS.clear()
+    assert build_mod._ladder_recheck_problem(
+        fake, 39, -107, "KASE", (0, 0, 1, 1)) is None
+    build_mod.LADDER_RECHECKS.clear()
+
+
 def test_pack_rebake_is_a_named_refresh_scope(build_mod, guard_mod):
     """``--refresh-data pack_rebake`` must be spellable, and it must say
     whose act it is."""

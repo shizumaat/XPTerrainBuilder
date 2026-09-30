@@ -646,6 +646,11 @@ def elevation_providers_directory():
 MULTI_VALUE_KEYS = frozenset(("coverage_bbox", "resolution_ladder"))
 
 
+#: The third field of a ``resolution_ladder`` line that names ANOTHER
+#: provider as the rung (RULINGS 2026-09-30aw (2)).
+LADDER_PROVIDER_PREFIX = "provider:"
+
+
 def _parse_resolution_ladder(value, provider_code="?"):
     """The coarser rungs a provider declares, finest first (#130).
 
@@ -657,7 +662,14 @@ def _parse_resolution_ladder(value, provider_code="?"):
     definition is rung 0 and is not repeated here.  A malformed rung is
     dropped with one warning -- a ladder with a hole still climbs.
     Rungs are returned sorted finest first whatever the file order, so
-    the ladder can only ever step DOWN in resolution.
+    the ladder can only ever step DOWN in resolution; the sort is STABLE,
+    so rungs of equal resolution keep their file order.
+
+    CROSS-PROVIDER RUNGS (owner RULINGS 2026-09-30aw (2)): a third field
+    ``provider:<CODE>`` names ANOTHER provider definition instead of a
+    discovery URL -- the rung is that provider's own definition, strategy
+    and coverage (:func:`_ladder_rung_definitions`).  Such a rung carries
+    ``provider`` and no ``discovery_url_template``.
     """
     rungs = []
     for token in str(value or "").split(";"):
@@ -674,13 +686,24 @@ def _parse_resolution_ladder(value, provider_code="?"):
                 % (provider_code, token),
             )
             continue
-        rungs.append(
-            {
-                "native_resolution_m": native,
-                "label": parts[1] or ("%g m" % native),
-                "discovery_url_template": parts[2],
-            }
-        )
+        rung = {
+            "native_resolution_m": native,
+            "label": parts[1] or ("%g m" % native),
+        }
+        if parts[2].startswith(LADDER_PROVIDER_PREFIX):
+            other = parts[2][len(LADDER_PROVIDER_PREFIX):].strip()
+            if not other:
+                UI.vprint(
+                    0,
+                    "   WARNING: elevation provider %s: resolution_ladder "
+                    "rung %r names no provider - skipping it."
+                    % (provider_code, token),
+                )
+                continue
+            rung["provider"] = other
+        else:
+            rung["discovery_url_template"] = parts[2]
+        rungs.append(rung)
     rungs.sort(key=lambda rung: rung["native_resolution_m"])
     return rungs
 
@@ -870,8 +893,27 @@ def lerc_selftest_argv():
 # with no such record is UNVERIFIED -- re-probed exactly once.
 CAPABILITY_LERC = "lerc"
 
+#: Reading LAS point-cloud tiles (``laspy``) -- the ``las_tile_index``
+#: strategy (#130, spec ``las-tile-lidar-provider-spec.md`` §1).  An engine
+#: without it records ``unavailable:`` and re-probes once it has it (the
+#: 13b door), never a durable no-coverage.
+CAPABILITY_LAS = "las"
+
 #: Memo for the LERC capability probe: ``[None]`` until probed.
 _LERC_CAPABILITY = [None]
+
+
+def las_reader_available():
+    """Can THIS process read LAS tiles?  True when ``laspy`` imports.
+
+    In-process (unlike LERC, no library conflict): the import IS the
+    capability answer, for the frozen engine too.
+    """
+    try:
+        import laspy  # noqa: F401
+    except Exception:
+        return False
+    return True
 
 
 def lerc_decode_available():
@@ -903,7 +945,8 @@ def provider_required_capabilities(definition):
 
     Today that is LERC decoding, declared either by
     ``asset_compression=lerc`` (New Zealand's STAC COGs) or by the
-    ``arcgis_lerc_tiles`` access strategy (the LERC blob pyramids).  A
+    ``arcgis_lerc_tiles`` access strategy (the LERC blob pyramids), and
+    LAS reading (``laspy``) for the ``las_tile_index`` strategy.  A
     provider needing nothing special returns ``[]`` -- its negatives
     were never in doubt and are never re-probed.
     """
@@ -914,6 +957,8 @@ def provider_required_capabilities(definition):
         needs.add(CAPABILITY_LERC)
     if str(definition.get("access_strategy", "")) == "arcgis_lerc_tiles":
         needs.add(CAPABILITY_LERC)
+    if str(definition.get("access_strategy", "")) == "las_tile_index":
+        needs.add(CAPABILITY_LAS)
     return sorted(needs)
 
 
@@ -934,6 +979,8 @@ def run_capability_record(definition):
     have = []
     for capability in required:
         if capability == CAPABILITY_LERC and lerc_decode_available():
+            have.append(capability)
+        elif capability == CAPABILITY_LAS and las_reader_available():
             have.append(capability)
     return {"engine": _engine_version(), "capabilities": have}
 
@@ -1418,7 +1465,13 @@ def _ladder_rung_definitions(definition):
     own definition) first.  A coarser rung is the provider's definition
     with the rung's ``native_resolution_m`` and
     ``discovery_url_template`` -- everything else (licence, datum,
-    coverage, value floor) is the provider's, by construction."""
+    coverage, value floor) is the provider's, by construction.
+
+    A CROSS-PROVIDER rung (``provider:<CODE>``, RULINGS 2026-09-30aw (2))
+    is the named provider's OWN definition -- its keys, its strategy, its
+    coverage -- so :func:`_fetch_through_resolution_ladder` resolves the
+    strategy per rung.  A rung naming an unknown or disabled provider is
+    dropped with one line (a ladder with a hole still climbs)."""
     native = _definition_resolution_m(definition)
     rungs = [
         (definition.get("ladder_label")
@@ -1426,6 +1479,24 @@ def _ladder_rung_definitions(definition):
          definition)
     ]
     for rung in definition.get("resolution_ladder_rungs") or ():
+        other_code = rung.get("provider")
+        if other_code:
+            if not elevation_providers_dict:
+                initialize_elevation_providers_dict()
+            other = elevation_providers_dict.get(other_code)
+            if other is None or not other.get("enabled", True):
+                UI.vprint(
+                    1,
+                    "   [inset] %s: resolution ladder rung '%s' names "
+                    "provider %s, which is %s - skipping the rung."
+                    % (definition.get("code"), rung["label"], other_code,
+                       "unknown" if other is None else "disabled"),
+                )
+                continue
+            rung_definition = dict(other)
+            rung_definition.pop("resolution_ladder_rungs", None)
+            rungs.append((rung["label"], rung_definition))
+            continue
         rung_definition = dict(definition)
         rung_definition["native_resolution_m"] = rung["native_resolution_m"]
         rung_definition["discovery_url_template"] = (
@@ -1433,6 +1504,34 @@ def _ladder_rung_definitions(definition):
         rung_definition.pop("resolution_ladder_rungs", None)
         rungs.append((rung["label"], rung_definition))
     return rungs
+
+
+def _listing_ids(sources):
+    """The sorted ids of a DISCOVERY listing (tnm: ``sourceId``; a LAS
+    tile index: the tile name) -- what the ladder records per rung and
+    what :func:`ladder_recheck` compares against."""
+    ids = set()
+    for source in sources or ():
+        if isinstance(source, dict) and source.get("source_id") is not None:
+            ids.add(str(source["source_id"]))
+    return sorted(ids)
+
+
+def _provenance_listing_ids(provenance):
+    """The discovery listing a fetch saw, read back out of its record:
+    every source it names -- contributing, empty over the box, or listed
+    and missing on the server -- so a rung's ``listing_ids`` is the whole
+    listing, not only what held data."""
+    ids = set()
+    for key in ("source_ids", "tiles_missing"):
+        for value in provenance.get(key) or ():
+            if value is not None:
+                ids.add(str(value))
+    for key in ("sources_used", "sources_empty_over_bbox"):
+        for entry in provenance.get(key) or ():
+            if isinstance(entry, dict) and entry.get("source_id") is not None:
+                ids.add(str(entry["source_id"]))
+    return sorted(ids)
 
 
 def _fetch_through_resolution_ladder(
@@ -1465,6 +1564,17 @@ def _fetch_through_resolution_ladder(
     no-coverage -- only when no rung listed any product at all.  A rung
     that raises (a transient outage) raises out of the ladder: an
     unfinished ladder is no durable answer.
+
+    CROSS-PROVIDER (RULINGS 2026-09-30aw (2)): a rung may be ANOTHER
+    provider (``provider:<CODE>``); its strategy is resolved PER RUNG, a
+    rung whose own ``coverage_bbox`` misses the box is
+    ``out-of-coverage`` with no network call, and a rung that cannot be
+    ASKED on this engine (:class:`ProviderUnavailable` -- a missing
+    capability, a size cap) is ``unavailable`` and the ladder climbs on
+    (the chain's own rungs keep serving; the build-time re-check asks the
+    rung again).  Each rung records its provider and ``listing_ids`` --
+    the discovery listing at fetch time, which :func:`ladder_recheck`
+    compares against on every later build.
     """
     threshold = INSET_MIN_VALID_FRAC
     base_name = os.path.basename(destination_path)
@@ -1478,6 +1588,7 @@ def _fetch_through_resolution_ladder(
             if index == 0:
                 rung_path = destination_path
                 rung_target = target_resolution_m
+                rung_strategy = strategy
             else:
                 rung_path = "%s.rung%d" % (destination_path, index)
                 scratch_paths.append(rung_path)
@@ -1485,51 +1596,92 @@ def _fetch_through_resolution_ladder(
                     os.remove(rung_path)
                 rung_target = max(
                     float(target_resolution_m),
-                    float(rung_definition["native_resolution_m"]),
+                    float(_definition_resolution_m(rung_definition)
+                          or target_resolution_m),
                 )
-            provenance = strategy.fetch(
-                rung_definition, bounding_box_wgs84, rung_target, rung_path
-            )
+                rung_strategy = None
             attempt = {
                 "rung": index,
                 "label": label,
+                "provider": rung_definition.get("code"),
                 "native_resolution_m": rung_definition.get(
                     "native_resolution_m"),
                 "resolution_m": rung_target,
             }
-            if provenance is None:
-                attempt["outcome"] = "no-coverage"
+            provenance = None
+            unavailable = None
+            if index > 0 and not _coverage_bbox_intersects(
+                    rung_definition, bounding_box_wgs84):
+                attempt["outcome"] = "out-of-coverage"
                 attempt["valid_fraction"] = 0.0
-                if os.path.isfile(rung_path):
-                    os.remove(rung_path)       # a failed warp's partial file
             else:
-                valid_fraction = inset_valid_fraction(rung_path)
-                attempt["valid_fraction"] = round(valid_fraction, 6)
-                attempt["sources_used"] = len(
-                    provenance.get("sources_used")
-                    or provenance.get("source_urls") or ())
-                attempt["outcome"] = (
-                    "delivered" if valid_fraction >= threshold
-                    else "below-threshold")
+                if rung_strategy is None:
+                    factory = ACCESS_STRATEGIES.get(
+                        rung_definition.get("access_strategy"))
+                    rung_strategy = factory() if factory else None
+                if rung_strategy is None:
+                    unavailable = "no access strategy named %r" % (
+                        rung_definition.get("access_strategy"),)
+                else:
+                    try:
+                        provenance = rung_strategy.fetch(
+                            rung_definition, bounding_box_wgs84,
+                            rung_target, rung_path
+                        )
+                    except ProviderUnavailable as error:
+                        if index == 0:
+                            raise
+                        unavailable = error.reason
+                if unavailable is not None:
+                    attempt["outcome"] = "unavailable"
+                    attempt["unavailable_reason"] = unavailable
+                    attempt["valid_fraction"] = 0.0
+                    if os.path.isfile(rung_path):
+                        os.remove(rung_path)
+                elif provenance is None:
+                    attempt["outcome"] = "no-coverage"
+                    attempt["valid_fraction"] = 0.0
+                    attempt["listing_ids"] = []
+                    if os.path.isfile(rung_path):
+                        os.remove(rung_path)   # a failed warp's partial file
+                else:
+                    valid_fraction = inset_valid_fraction(rung_path)
+                    attempt["valid_fraction"] = round(valid_fraction, 6)
+                    attempt["sources_used"] = len(
+                        provenance.get("sources_used")
+                        or provenance.get("source_urls") or ())
+                    attempt["listing_ids"] = _provenance_listing_ids(
+                        provenance)
+                    attempt["outcome"] = (
+                        "delivered" if valid_fraction >= threshold
+                        else "below-threshold")
             attempts.append(attempt)
             if index > 0 or attempt["outcome"] != "delivered":
+                if attempt["outcome"] == "no-coverage":
+                    what = "no product listed over the box"
+                elif attempt["outcome"] == "out-of-coverage":
+                    what = ("%s's coverage does not reach the box (not "
+                            "asked)" % attempt["provider"])
+                elif attempt["outcome"] == "unavailable":
+                    what = ("%s could not be asked: %s"
+                            % (attempt["provider"],
+                               attempt["unavailable_reason"]))
+                else:
+                    what = ("valid %.2f %% (%s %.2f %%)"
+                            % (100.0 * attempt["valid_fraction"],
+                               ">=" if attempt["outcome"] == "delivered"
+                               else "<",
+                               100.0 * threshold))
                 UI.vprint(
                     0,
                     "   [inset] %s: resolution ladder rung %d/%d '%s' "
-                    "(%g m): %s"
+                    "(%g m): %s%s"
                     % (base_name, index + 1, len(rungs), label,
-                       rung_target,
-                       "no product listed over the box"
-                       if attempt["outcome"] == "no-coverage"
-                       else "valid %.2f %% (%s %.2f %%)%s"
-                       % (100.0 * attempt["valid_fraction"],
-                          ">=" if attempt["outcome"] == "delivered"
-                          else "<",
-                          100.0 * threshold,
-                          " - DELIVERED" if attempt["outcome"] == "delivered"
-                          else (" - trying the next rung"
-                                if index + 1 < len(rungs)
-                                else " - no rung left"))),
+                       rung_target, what,
+                       " - DELIVERED" if attempt["outcome"] == "delivered"
+                       else (" - trying the next rung"
+                             if index + 1 < len(rungs)
+                             else " - no rung left")),
                 )
             if attempt["outcome"] == "delivered":
                 delivered = (index, rung_path, provenance)
@@ -1552,6 +1704,9 @@ def _fetch_through_resolution_ladder(
             "delivered_rung": index if delivered is not None else None,
             "delivered_label": (
                 attempts[index]["label"] if delivered is not None else None),
+            "delivered_provider": (
+                (provenance.get("provider") or attempts[index]["provider"])
+                if delivered is not None else None),
         }
         return provenance
     finally:
@@ -6204,6 +6359,668 @@ class DegreeNamedCogStrategy:
 
 
 # =====================================================================
+# Strategy: las_tile_index (a LAS point-cloud tile index, gridded here)
+# =====================================================================
+# Spec ``docs/specs/las-tile-lidar-provider-spec.md`` (#130; owner RULINGS
+# 2026-09-30av/aw).  Some lidar is published ONLY as classified point
+# clouds: Pitkin County's 2016 flight is the one 1 m source over KASE's
+# airfield (the tiles were withheld from the state and never reached
+# USGS).  This strategy discovers the tiles through an ArcGIS feature
+# index, downloads them whole into ``Elevation_data/_las_tiles/<CODE>/``
+# (the ``las_tiles`` refresh scope), grids each tile ONCE to a per-tile
+# DTM (a binning mean of the ground-class points, bounded nearest fill)
+# and hands those DTMs to the shared warp -- the same EPSG:4326 float32
+# inset every raster provider delivers.
+
+#: Metres per unit, for the ``vertical_unit`` key (and the horizontal
+#: unit when GDAL cannot tell).  ``ftUS`` is the US survey foot,
+#: 1200/3937 m by definition.
+LAS_UNIT_TO_M = {"ftUS": 1200.0 / 3937.0, "ft": 0.3048, "m": 1.0}
+
+#: The value a per-tile DTM cell holds when it has no ground estimate.
+LAS_DTM_NODATA = -32768.0
+
+#: Bumped whenever the gridding rule changes: a cached ``<name>_dtm.tif``
+#: stamped with another version is re-gridded from the kept raw tile.
+LAS_GRID_RULE_VERSION = 1
+
+#: Points read per chunk (pf6 = 30 bytes a point, so ~60 MB a chunk).
+LAS_CHUNK_POINTS = 2_000_000
+
+#: ASPRS LAS point-format flag bits that mean "compressed" (LAZ).
+_LAS_COMPRESSED_FORMAT_BITS = 0xC0
+
+
+def las_tile_cache_directory(provider_code):
+    """``Elevation_data/_las_tiles/<CODE>`` -- raw tiles + per-tile DTMs,
+    shared across airports and re-cuts (the ``las_tiles`` scope)."""
+    return os.path.join(FNAMES.Elevation_dir, "_las_tiles", provider_code)
+
+
+def _las_crs_epsg(header):
+    """The horizontal EPSG code a LAS header declares, or ``None``.
+
+    LAS 1.4 point formats 6+ carry an OGC WKT VLR (record 2112); older
+    files a GeoKey directory (record 34735, ProjectedCSTypeGeoKey 3072).
+    A compound CRS answers its PROJCS code."""
+    for vlr in getattr(header, "vlrs", ()) or ():
+        record_id = getattr(vlr, "record_id", None)
+        if record_id == 2112 and has_gdal:
+            wkt = getattr(vlr, "string", None)
+            if not wkt:
+                continue
+            srs = osr.SpatialReference()
+            try:
+                srs.ImportFromWkt(str(wkt).rstrip("\x00"))
+            except Exception:
+                continue
+            for node in ("PROJCS", "GEOGCS", None):
+                try:
+                    code = srs.GetAuthorityCode(node)
+                except Exception:
+                    code = None
+                if code:
+                    return int(code)
+        if record_id == 34735:
+            for key in getattr(vlr, "geo_keys", ()) or ():
+                if getattr(key, "id", None) == 3072:
+                    return int(key.value_offset)
+    return None
+
+
+def validate_las_tile(path, definition):
+    """Refuse a tile that is not what the provider declares, BEFORE it is
+    cached.  Returns the header summary; raises
+    :class:`ProviderUnavailable` (never a durable no-coverage):
+
+    * not ``LASF``, a compressed (LAZ) point format, or a ``.laz`` name
+      -- "LAZ needs a backend" (the engine ships no lazrs/laszip);
+    * a point format other than 6;
+    * a size that disagrees with ``offset + count x record_length`` (a
+      short or padded file; trailing EVLRs are allowed);
+    * a header CRS other than ``source_crs``.
+    """
+    import struct
+
+    code = definition.get("code")
+    if str(path).lower().endswith(".laz"):
+        raise ProviderUnavailable("%s: LAZ needs a backend" % code)
+    size = os.path.getsize(path)
+    with open(path, "rb") as handle:
+        head = handle.read(375)
+    if len(head) < 227 or head[:4] != b"LASF":
+        raise ProviderUnavailable(
+            "%s: %s is not a LAS file (no LASF signature)"
+            % (code, os.path.basename(path)))
+    (offset,) = struct.unpack_from("<I", head, 96)
+    point_format = head[104]
+    (record_length,) = struct.unpack_from("<H", head, 105)
+    (legacy_count,) = struct.unpack_from("<I", head, 107)
+    count = legacy_count
+    evlr_start = evlr_count = 0
+    if head[25] >= 4 and len(head) >= 375:
+        (evlr_start,) = struct.unpack_from("<Q", head, 235)
+        (evlr_count,) = struct.unpack_from("<I", head, 243)
+        (count,) = struct.unpack_from("<Q", head, 247)
+    if point_format & _LAS_COMPRESSED_FORMAT_BITS:
+        raise ProviderUnavailable("%s: LAZ needs a backend" % code)
+    if point_format != 6:
+        raise ProviderUnavailable(
+            "%s: %s holds point format %d, not 6"
+            % (code, os.path.basename(path), point_format))
+    points_end = offset + count * record_length
+    if points_end != size and not (
+            evlr_count > 0 and points_end <= evlr_start < size):
+        raise ProviderUnavailable(
+            "%s: %s is %d bytes but its header describes %d (short or "
+            "damaged download)"
+            % (code, os.path.basename(path), size, points_end))
+    import laspy
+
+    with laspy.open(path) as reader:
+        epsg = _las_crs_epsg(reader.header)
+    wanted = int(float(definition.get("source_crs", 0) or 0))
+    if epsg != wanted:
+        raise ProviderUnavailable(
+            "%s: %s declares CRS EPSG:%s, the provider declares EPSG:%d"
+            % (code, os.path.basename(path), epsg, wanted))
+    return {"points": count, "epsg": epsg, "bytes": size}
+
+
+def _las_horizontal_unit_m(source_crs, vertical_unit):
+    """Metres per horizontal unit of ``source_crs`` (GDAL), falling back
+    to the declared vertical unit when GDAL cannot answer."""
+    if has_gdal:
+        try:
+            srs = osr.SpatialReference()
+            srs.ImportFromEPSG(int(source_crs))
+            units = float(srs.GetLinearUnits())
+            if units > 0:
+                return units
+        except Exception:
+            pass
+    return LAS_UNIT_TO_M[vertical_unit]
+
+
+def _fill_empty_cells(values, valid, radius_cells):
+    """Up to ``radius_cells`` rounds of 3 x 3 mean-of-valid dilation.
+
+    Each round gives every EMPTY cell with at least one valid 8-neighbour
+    the mean of those neighbours, then counts it valid for the next
+    round -- so a hole closes from its rim inward, at most
+    ``radius_cells`` cells deep; what is left stays empty (NoData).
+    Pure numpy, sequential sums: bit-identical on every platform."""
+    values = values.copy()
+    valid = valid.copy()
+    filled = numpy.zeros(valid.shape, dtype=bool)
+    rows, cols = valid.shape
+    for _round in range(int(radius_cells)):
+        if valid.all():
+            break
+        padded_values = numpy.zeros((rows + 2, cols + 2), dtype=numpy.float64)
+        padded_valid = numpy.zeros((rows + 2, cols + 2), dtype=numpy.float64)
+        padded_values[1:-1, 1:-1] = numpy.where(valid, values, 0.0)
+        padded_valid[1:-1, 1:-1] = valid
+        total = numpy.zeros((rows, cols), dtype=numpy.float64)
+        count = numpy.zeros((rows, cols), dtype=numpy.float64)
+        for d_row in (0, 1, 2):
+            for d_col in (0, 1, 2):
+                if d_row == 1 and d_col == 1:
+                    continue
+                total += padded_values[d_row:d_row + rows, d_col:d_col + cols]
+                count += padded_valid[d_row:d_row + rows, d_col:d_col + cols]
+        grow = (~valid) & (count > 0)
+        if not grow.any():
+            break
+        values[grow] = total[grow] / count[grow]
+        valid = valid | grow
+        filled |= grow
+    return values, valid, filled
+
+
+def grid_las_tile(las_path, dtm_path, definition):
+    """Grid one LAS tile to a DTM GeoTIFF in the SOURCE CRS (spec §3).
+
+    Ground points (``ground_classes``, never ``withheld``) are binned on a
+    ``grid_resolution_m`` lattice ANCHORED ON THE CRS ORIGIN (whole cells
+    from x = 0 / y = 0), so adjacent tiles share cell edges; each cell is
+    the MEAN of its points (``numpy.bincount``: O(n), sequential, so
+    bit-identical across platforms); a cell with fewer than
+    ``min_points_per_cell`` points is empty, then up to
+    ``fill_radius_cells`` rounds of 3 x 3 mean-of-valid dilation close
+    small holes; beyond that the cell is NoData.  Heights convert from
+    ``vertical_unit`` to metres in the source vertical datum (never
+    shifted).  Writes ``dtm_path`` (deflate GeoTIFF, EPSG ``source_crs``)
+    and ``<dtm stem>.json``; returns that record.
+    """
+    import laspy
+
+    source_crs = int(float(definition.get("source_crs")))
+    vertical_unit = str(definition.get("vertical_unit", "m"))
+    if vertical_unit not in LAS_UNIT_TO_M:
+        raise ProviderUnavailable(
+            "%s: unknown vertical_unit %r" % (definition.get("code"),
+                                              vertical_unit))
+    z_to_m = LAS_UNIT_TO_M[vertical_unit]
+    xy_to_m = _las_horizontal_unit_m(source_crs, vertical_unit)
+    resolution_m = float(definition.get("grid_resolution_m", 1))
+    cell = resolution_m / xy_to_m
+    ground_classes = sorted(
+        {int(token) for token in
+         str(definition.get("ground_classes", "2")).split(",")
+         if token.strip()})
+    min_points = int(float(definition.get("min_points_per_cell", 1)))
+    fill_radius = int(float(definition.get("fill_radius_cells", 0)))
+
+    with laspy.open(las_path) as reader:
+        header = reader.header
+        (min_x, min_y) = (float(header.mins[0]), float(header.mins[1]))
+        (max_x, max_y) = (float(header.maxs[0]), float(header.maxs[1]))
+        origin_x = math.floor(min_x / cell) * cell
+        top_y = math.ceil(max_y / cell) * cell
+        if top_y <= max_y:
+            top_y += cell
+        cols = max(1, int(math.floor((max_x - origin_x) / cell)) + 1)
+        rows = max(1, int(math.floor((top_y - min_y) / cell)) + 1)
+        cells = rows * cols
+        sums = numpy.zeros(cells, dtype=numpy.float64)
+        counts = numpy.zeros(cells, dtype=numpy.int64)
+        points_total = int(header.point_count)
+        points_ground = 0
+        for points in reader.chunk_iterator(LAS_CHUNK_POINTS):
+            classification = numpy.asarray(points.classification)
+            keep = numpy.isin(classification, ground_classes)
+            withheld = numpy.asarray(points.withheld).astype(bool)
+            keep &= ~withheld
+            if not keep.any():
+                continue
+            x = numpy.asarray(points.x)[keep]
+            y = numpy.asarray(points.y)[keep]
+            z = numpy.asarray(points.z, dtype=numpy.float64)[keep]
+            col = numpy.floor((x - origin_x) / cell).astype(numpy.int64)
+            row = numpy.floor((top_y - y) / cell).astype(numpy.int64)
+            inside = (col >= 0) & (col < cols) & (row >= 0) & (row < rows)
+            index = row[inside] * cols + col[inside]
+            sums += numpy.bincount(index, weights=z[inside], minlength=cells)
+            counts += numpy.bincount(index, minlength=cells)
+            points_ground += int(inside.sum())
+    measured = counts >= max(1, min_points)
+    means = numpy.zeros(cells, dtype=numpy.float64)
+    means[measured] = sums[measured] / counts[measured]
+    points_in_measured = int(counts[measured].sum())
+    values, valid, filled = _fill_empty_cells(
+        means.reshape(rows, cols), measured.reshape(rows, cols), fill_radius)
+    grid = numpy.full((rows, cols), LAS_DTM_NODATA, dtype=numpy.float32)
+    grid[valid] = (values[valid] * z_to_m).astype(numpy.float32)
+
+    os.makedirs(os.path.dirname(dtm_path) or ".", exist_ok=True)
+    scratch = dtm_path + ".part"
+    driver = gdal.GetDriverByName("GTiff")
+    dataset = driver.Create(
+        scratch, cols, rows, 1, gdal.GDT_Float32,
+        options=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES"])
+    dataset.SetGeoTransform((origin_x, cell, 0.0, top_y, 0.0, -cell))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(source_crs)
+    dataset.SetProjection(srs.ExportToWkt())
+    band = dataset.GetRasterBand(1)
+    band.SetNoDataValue(LAS_DTM_NODATA)
+    band.WriteArray(grid)
+    dataset = None
+    cells_valid = int(measured.sum())
+    cells_filled = int(filled.sum())
+    record = {
+        "points_total": points_total,
+        "points_ground": points_ground,
+        "points_in_valid_cells": points_in_measured,
+        "ground_density_per_m2": (
+            round(points_in_measured / (cells_valid * resolution_m ** 2), 4)
+            if cells_valid else 0.0),
+        "cells_total": int(cells),
+        "cells_valid": cells_valid,
+        "cells_filled": cells_filled,
+        "fill_radius_cells": fill_radius,
+        "min_points_per_cell": min_points,
+        "ground_classes": ground_classes,
+        "grid_resolution_m": resolution_m,
+        "vertical_unit": vertical_unit,
+        "source_crs": source_crs,
+        "laspy_version": str(getattr(laspy, "__version__", "?")),
+        "grid_rule_version": LAS_GRID_RULE_VERSION,
+    }
+    os.replace(scratch, dtm_path)
+    with open(_las_dtm_record_path(dtm_path), "w", newline="\n") as handle:
+        json.dump(record, handle, indent=2, sort_keys=True)
+    return record
+
+
+def _las_dtm_record_path(dtm_path):
+    return dtm_path[:-4] + ".json" if dtm_path.endswith(".tif") \
+        else dtm_path + ".json"
+
+
+def _las_dtm_record_if_current(dtm_path, definition):
+    """The cached per-tile DTM record when it was gridded under THIS rule
+    and these keys, else ``None`` (the tile is re-gridded)."""
+    try:
+        with open(_las_dtm_record_path(dtm_path), "r") as handle:
+            record = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not os.path.isfile(dtm_path):
+        return None
+    wanted = {
+        "grid_rule_version": LAS_GRID_RULE_VERSION,
+        "grid_resolution_m": float(definition.get("grid_resolution_m", 1)),
+        "fill_radius_cells": int(float(definition.get("fill_radius_cells",
+                                                      0))),
+        "min_points_per_cell": int(float(definition.get(
+            "min_points_per_cell", 1))),
+        "vertical_unit": str(definition.get("vertical_unit", "m")),
+        "source_crs": int(float(definition.get("source_crs"))),
+        "ground_classes": sorted(
+            {int(token) for token in
+             str(definition.get("ground_classes", "2")).split(",")
+             if token.strip()}),
+    }
+    for key, value in wanted.items():
+        if record.get(key) != value:
+            return None
+    return record
+
+
+def _las_size_text(byte_count):
+    return "%.1f GB" % (byte_count / 1e9)
+
+
+@register_access_strategy("las_tile_index")
+class LasTileIndexStrategy:
+    """Classified LAS point-cloud tiles behind an ArcGIS feature index.
+
+    Discovery is ONE GET on ``index_url_template`` (the airport box in
+    EPSG:4326, the ``tnm_cog`` idiom), classified by the module's one
+    discovery law: 5xx/429/non-JSON/an ArcGIS ``{"error": ...}`` inside a
+    200/a truncated listing are TRANSIENT; a well-formed empty
+    ``features`` list is the durable no-coverage.  Fetch downloads every
+    listed tile whole (resumable), validates it, caches it, grids it
+    once (:func:`grid_las_tile`) and warps the per-tile DTMs to the inset
+    window.  Never a whole-tile overlay: a 7 GB point cloud is not a
+    tile-wide source.
+    """
+
+    supports_wide_area = False
+
+    def _index_url(self, definition, bounding_box_wgs84):
+        (west, south, east, north) = bounding_box_wgs84
+        return (
+            str(definition.get("index_url_template", ""))
+            .replace("{west}", repr(west))
+            .replace("{south}", repr(south))
+            .replace("{east}", repr(east))
+            .replace("{north}", repr(north))
+        )
+
+    def _tile_url(self, definition, name):
+        return str(definition.get("tile_url_template", "")).replace(
+            "{name}", name)
+
+    def discover(self, definition, bounding_box_wgs84):
+        import requests
+
+        if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
+            return None
+        description = "%s tile index" % definition.get("code")
+        try:
+            response = requests.get(
+                self._index_url(definition, bounding_box_wgs84), timeout=60)
+        except Exception as error:
+            raise_transient_discovery_failure(description + " request",
+                                              error)
+        payload = discovery_json_payload(response, description)
+        if payload is None:
+            return None
+        features = discovery_listing_items(
+            payload, description, items_key="features", total_key=None)
+        if isinstance(payload, dict) and payload.get(
+                "exceededTransferLimit"):
+            # A PAGE, not the listing: the tiles beyond it would be
+            # silently missing from the inset.
+            raise_transient_discovery_failure(
+                description, "a truncated listing (exceededTransferLimit)")
+        name_field = definition.get("index_name_field", "name")
+        names = set()
+        for feature in features:
+            attributes = (feature or {}).get("attributes") or {}
+            name = attributes.get(name_field)
+            if name:
+                names.add(str(name).strip())
+        if not names and features:
+            raise_transient_discovery_failure(
+                description,
+                "a listing of %d feature(s) with no '%s' attribute"
+                % (len(features), name_field))
+        if not names:
+            return None
+        return [
+            {
+                "source_id": name,
+                "title": name,
+                "download_url": self._tile_url(definition, name),
+                "publication_date": definition.get("publication_date") or "",
+            }
+            for name in sorted(names)
+        ]
+
+    def _check_caps(self, definition, sources, cache_directory,
+                    destination_path):
+        """Refuse an over-cap fetch BEFORE any byte moves (spec §2)."""
+        import requests
+
+        code = definition.get("code")
+        max_tiles = int(float(definition.get("max_tiles_per_airport", 0)
+                              or 0))
+        max_bytes = int(float(definition.get("max_bytes_per_airport", 0)
+                              or 0))
+        total_bytes = 0
+        for source in sources:
+            cached = os.path.join(cache_directory, source["source_id"]
+                                  + ".las")
+            if os.path.isfile(cached):
+                total_bytes += os.path.getsize(cached)
+                continue
+            if not max_bytes:
+                continue
+            try:
+                head = requests.head(source["download_url"], timeout=30,
+                                     allow_redirects=True)
+                total_bytes += int(head.headers.get("Content-Length") or 0)
+            except Exception as error:
+                raise TransientFetchError(
+                    "%s: size query for %s failed: %s"
+                    % (code, source["source_id"], error)) from error
+        over_tiles = max_tiles and len(sources) > max_tiles
+        over_bytes = max_bytes and total_bytes > max_bytes
+        if over_tiles or over_bytes:
+            raise ProviderUnavailable(
+                "%s: %s needs %d tiles / %s, cap %d / %s "
+                "(max_tiles_per_airport / max_bytes_per_airport in %s.elv)"
+                " — SKIPPED, recorded unavailable, not no-coverage"
+                % (code, _las_airport_label(destination_path), len(sources),
+                   _las_size_text(total_bytes), max_tiles,
+                   _las_size_text(max_bytes), code))
+        return total_bytes
+
+    def _download_tile(self, definition, source, scratch_path, final_path):
+        """One tile, resumable, validated, then ``os.replace``d into the
+        cache.  Returns ``True``, or ``False`` for a 404 (the server
+        answered: this listed tile does not exist)."""
+        import requests
+
+        code = definition.get("code")
+        url = source["download_url"]
+        for _attempt in range(2):
+            headers = {}
+            resume_from = 0
+            if os.path.isfile(scratch_path):
+                resume_from = os.path.getsize(scratch_path)
+                if resume_from:
+                    headers["Range"] = "bytes=%d-" % resume_from
+            try:
+                response = requests.get(url, stream=True, timeout=(30, 120),
+                                        headers=headers)
+            except Exception as error:
+                raise TransientFetchError(
+                    "%s: tile %s download failed: %s"
+                    % (code, source["source_id"], error)) from error
+            try:
+                status = int(response.status_code)
+                if status == 404:
+                    return False
+                if status == 416 and resume_from:
+                    os.remove(scratch_path)          # stale scratch; retry
+                    continue
+                if discovery_status_is_transient(status):
+                    raise TransientFetchError(
+                        "%s: tile %s answered HTTP %d"
+                        % (code, source["source_id"], status))
+                if status not in (200, 206):
+                    raise ProviderUnavailable(
+                        "%s: tile %s answered HTTP %d"
+                        % (code, source["source_id"], status))
+                mode = "ab" if status == 206 and resume_from else "wb"
+                os.makedirs(os.path.dirname(scratch_path), exist_ok=True)
+                with open(scratch_path, mode) as handle:
+                    for block in response.iter_content(1 << 20):
+                        if UI.red_flag:
+                            raise TransientFetchError(
+                                "%s tile download stopped with the build"
+                                % code)
+                        if block:
+                            handle.write(block)
+            except (TransientFetchError, ProviderUnavailable):
+                raise
+            except Exception as error:
+                raise TransientFetchError(
+                    "%s: tile %s download died: %s"
+                    % (code, source["source_id"], error)) from error
+            finally:
+                response.close()
+            validate_las_tile(scratch_path, definition)
+            os.makedirs(os.path.dirname(final_path), exist_ok=True)
+            os.replace(scratch_path, final_path)
+            return True
+        raise TransientFetchError(
+            "%s: tile %s could not be resumed" % (code, source["source_id"]))
+
+    def fetch(
+        self,
+        definition,
+        bounding_box_wgs84,
+        target_resolution_m,
+        destination_path,
+    ):
+        code = definition.get("code")
+        if not has_gdal:
+            return None
+        if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
+            return None
+        if not las_reader_available():
+            # A missing reader is never a coverage answer (13b): the
+            # engine could not ASK, so the record says unavailable and
+            # the next run with laspy asks again.
+            raise ProviderUnavailable("laspy missing")
+        sources = self.discover(definition, bounding_box_wgs84)
+        if not sources:
+            return None
+        cache_directory = las_tile_cache_directory(code)
+        self._check_caps(definition, sources, cache_directory,
+                         destination_path)
+        keep_raw = _parse_boolean(definition.get("keep_raw_las", "True"))
+        # DOWNLOAD the tiles that have neither a current DTM nor a cached
+        # raw file -- each GET under one of the provider's politeness
+        # slots (``_PROVIDER_CONCURRENT_FETCHES``), so at most that many
+        # transfers run against the county's server at once.
+        wanted = []
+        for (number, source) in enumerate(sources):
+            name = source["source_id"]
+            las_path = os.path.join(cache_directory, name + ".las")
+            dtm_path = os.path.join(cache_directory, name + "_dtm.tif")
+            if _las_dtm_record_if_current(dtm_path, definition) is None \
+                    and not os.path.isfile(las_path):
+                wanted.append((number, source, las_path))
+        missing = []
+        if wanted:
+            UI.vprint(
+                1,
+                "    [inset] %s: downloading %d of %d LAS tile(s) into %s"
+                % (code, len(wanted), len(sources), cache_directory),
+            )
+
+            def _download(item):
+                (number, source, las_path) = item
+                with _held_provider_fetch_slot(code):
+                    return self._download_tile(
+                        definition, source,
+                        destination_path + ".las%d.part" % number, las_path)
+
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(
+                    max_workers=_PROVIDER_CONCURRENT_FETCHES) as pool:
+                results = list(pool.map(_download, wanted))
+            missing = sorted(
+                item[1]["source_id"]
+                for (item, ok) in zip(wanted, results) if not ok)
+        # GRID each present tile once (a current DTM is re-used as is).
+        dtm_paths = []
+        records = []
+        for source in sources:
+            name = source["source_id"]
+            if name in missing:
+                continue
+            las_path = os.path.join(cache_directory, name + ".las")
+            dtm_path = os.path.join(cache_directory, name + "_dtm.tif")
+            record = _las_dtm_record_if_current(dtm_path, definition)
+            if record is None:
+                record = grid_las_tile(las_path, dtm_path, definition)
+                if not keep_raw and os.path.isfile(las_path):
+                    os.remove(las_path)
+            dtm_paths.append(dtm_path)
+            records.append(record)
+        if not dtm_paths:
+            raise ProviderUnavailable(
+                "index lists %d tiles, server has none" % len(sources))
+        if not warp_vsicurl_sources_to_geotiff(
+            dtm_paths,
+            bounding_box_wgs84,
+            target_resolution_m,
+            destination_path,
+            source_srs="EPSG:%d" % int(float(definition.get("source_crs"))),
+            source_nodata=LAS_DTM_NODATA,
+            value_floor_m=float(definition.get("value_floor_m", -600.0)),
+        ):
+            return None
+        present = [source for source in sources
+                   if source["source_id"] not in missing]
+        used = []
+        empty = []
+        for source, dtm_path in zip(present, dtm_paths):
+            if _source_holds_data_over_bbox(dtm_path, bounding_box_wgs84,
+                                            source_nodata=LAS_DTM_NODATA):
+                used.append(source)
+            else:
+                empty.append(source)
+        cells_valid = sum(record["cells_valid"] for record in records)
+        cells_filled = sum(record["cells_filled"] for record in records)
+        points_valid = sum(record.get("points_in_valid_cells", 0)
+                           for record in records)
+        resolution = float(definition.get("grid_resolution_m", 1))
+        valid_fraction = inset_valid_fraction(destination_path)
+        return {
+            "provider": code,
+            "access_strategy": definition.get("access_strategy"),
+            "source_urls": [source["download_url"] for source in sources],
+            "source_ids": [source["source_id"] for source in sources],
+            "sources_used": [
+                _source_contribution_entry(source) for source in used],
+            "sources_empty_over_bbox": [
+                _source_contribution_entry(source) for source in empty],
+            "tiles_missing": sorted(missing),
+            "publication_date": definition.get("publication_date"),
+            "valid_fraction": round(valid_fraction, 6),
+            "filled_fraction": round(
+                cells_filled / float(cells_valid + cells_filled), 6)
+            if cells_valid + cells_filled else 0.0,
+            "point_density_per_m2": round(
+                points_valid / (cells_valid * resolution ** 2), 4)
+            if cells_valid else 0.0,
+            "rmse_z_m": _parse_float(definition.get("rmse_z_m")),
+            "license": definition.get("license"),
+            "license_note": definition.get("license_note"),
+            "attribution": definition.get("attribution"),
+            "vertical_datum": definition.get("vertical_datum"),
+            "vertical_unit_source": definition.get("vertical_unit"),
+            "source_crs": "EPSG:%d" % int(float(
+                definition.get("source_crs"))),
+            "datum_note": (
+                "Elevations are in the source vertical datum; lidar is "
+                "treated as truth and is NOT shifted toward the base DEM."
+            ),
+            "fetch_date": datetime.date.today().isoformat(),
+            "bounding_box_wgs84": list(bounding_box_wgs84),
+            "native_resolution_m": definition.get("native_resolution_m"),
+            "resolution_m": target_resolution_m,
+        }
+
+
+def _las_airport_label(destination_path):
+    """The airport an inset destination is for: the cache names every
+    inset ``<ICAO>_<provider>.tif`` (:func:`FNAMES.airport_inset_dem`),
+    ladder/refetch scratch suffixes included."""
+    return os.path.basename(str(destination_path)).split("_", 1)[0]
+
+
+# =====================================================================
 # Surface-model building masking (strategy-agnostic post-fetch pass)
 # =====================================================================
 # Definition flag naming the pass; parsed to bool at registry load.
@@ -7479,6 +8296,145 @@ def inset_recut_is_needed(lat, lon, icao, provider_code, required_box):
     return _bounding_box_extends_beyond(required_box, requested_box)
 
 
+def _stored_rung_listing(attempt):
+    """What a recorded ladder attempt says its discovery listed: the ids,
+    ``[]`` for a rung that listed nothing (or was never in coverage), and
+    ``None`` when the record cannot say (a rung recorded before listings
+    were -- every id it lists now is then NEW)."""
+    if not isinstance(attempt, dict):
+        return None
+    if isinstance(attempt.get("listing_ids"), list):
+        return [str(value) for value in attempt["listing_ids"]]
+    if attempt.get("outcome") in ("no-coverage", "out-of-coverage"):
+        return []
+    return None
+
+
+def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
+                   record=False):
+    """THE BUILD-TIME LADDER RE-CHECK (owner RULINGS 2026-09-30aw (2)) --
+    the ONE stale-reason predicate for "a finer rung may exist now".
+
+    Runs only when ``icao``'s cached inset from ``provider_code`` was
+    delivered by a COARSER ladder rung (``ladder.delivered_rung > 0``).
+    For every finer rung of the provider's CURRENT ladder it asks that
+    rung's ``discover()`` ONLY -- one index query each, no download -- and
+    compares the listing with the rung's recorded ``listing_ids``:
+
+    * a NEW id           -> ``result: "new-listing"`` (the caller re-runs
+      the whole ladder; a product that lists but grids below the bake's
+      threshold leaves the delivered rung where it was);
+    * nothing new        -> ``"unchanged"`` (no download);
+    * discovery transient -> ``"transient"``: the cached inset stands
+      (RULINGS 2026-09-30t: an outage is no answer).
+
+    A rung whose own coverage box misses ``bounding_box`` is not asked.
+    Returns ``None`` when nothing applies (no sidecar, no ladder, rung 0
+    or no rung delivered), else ``{"rung", "rungs_checked", "checked",
+    "result", "new_source_ids"}``.  ``record=True`` (the fetch loop)
+    stamps it into the sidecar's ``ladder.recheck`` -- only when
+    ``result`` / ``new_source_ids`` differ from the stored block (a
+    date-only change is no change; a byte-identical sidecar is never
+    rewritten).  The harness frame check calls it with ``record=False``:
+    a read.
+    """
+    sidecar = FNAMES.airport_inset_provenance(lat, lon, icao, provider_code)
+    try:
+        with open(sidecar, "r") as handle:
+            meta = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    ladder = meta.get("ladder") if isinstance(meta, dict) else None
+    if not isinstance(ladder, dict):
+        return None
+    delivered_rung = ladder.get("delivered_rung")
+    if not isinstance(delivered_rung, int) or delivered_rung <= 0:
+        return None
+    if not elevation_providers_dict:
+        initialize_elevation_providers_dict()
+    definition = elevation_providers_dict.get(provider_code)
+    if definition is None:
+        wanted = str(provider_code).upper()
+        definition = next(
+            (value for (key, value) in elevation_providers_dict.items()
+             if str(key).upper() == wanted), None)
+    if definition is None:
+        return None
+    rungs = _ladder_rung_definitions(definition)
+    stored = {}
+    for attempt in ladder.get("rungs_tried") or ():
+        if isinstance(attempt, dict) and attempt.get("label") is not None:
+            stored[str(attempt["label"])] = attempt
+    labels = [label for (label, _definition) in rungs]
+    delivered_label = ladder.get("delivered_label")
+    if delivered_label in labels:
+        finer = rungs[:labels.index(delivered_label)]
+    else:
+        delivered_native = _parse_float(
+            (stored.get(str(delivered_label)) or {}).get(
+                "native_resolution_m"))
+        finer = [
+            (label, rung_definition)
+            for (label, rung_definition) in rungs
+            if delivered_native is None
+            or (_definition_resolution_m(rung_definition) or 0.0)
+            < delivered_native
+        ]
+    result = "unchanged"
+    new_ids = []
+    checked = []
+    for (label, rung_definition) in finer:
+        if not _coverage_bbox_intersects(rung_definition, bounding_box):
+            continue
+        factory = ACCESS_STRATEGIES.get(rung_definition.get("access_strategy"))
+        if factory is None:
+            continue
+        checked.append(labels.index(label))
+        try:
+            sources = factory().discover(rung_definition, bounding_box)
+        except Exception as error:
+            UI.vprint(
+                1,
+                "    [inset] %s: ladder re-check of rung '%s' (%s) did not "
+                "answer (%s) - the cached inset stands."
+                % (icao, label, rung_definition.get("code"), error),
+            )
+            result = "transient"
+            break
+        listed = _listing_ids(sources)
+        known = _stored_rung_listing(stored.get(str(label)))
+        fresh = [value for value in listed
+                 if known is None or value not in set(known)]
+        if fresh:
+            result = "new-listing"
+            new_ids.extend(fresh)
+    if result == "transient" and new_ids:
+        result = "new-listing"
+    recheck = {
+        "rung": checked[0] if checked else None,
+        "rungs_checked": checked,
+        "checked": datetime.date.today().isoformat(),
+        "result": result,
+        "new_source_ids": sorted(set(new_ids)),
+    }
+    if record:
+        before = ladder.get("recheck") if isinstance(
+            ladder.get("recheck"), dict) else {}
+        if (before.get("result"), before.get("new_source_ids")) != (
+                recheck["result"], recheck["new_source_ids"]):
+            ladder["recheck"] = recheck
+            try:
+                with open(sidecar, "w", newline="\n") as handle:
+                    json.dump(meta, handle, indent=2, sort_keys=True)
+            except Exception as error:
+                UI.vprint(
+                    1,
+                    "    [inset] %s: could not stamp the ladder re-check "
+                    "into %s (%s)." % (icao, sidecar, error),
+                )
+    return recheck
+
+
 #: THE FUNCTIONAL MARGIN of the WARN rule, in metres: how far beyond the
 #: aerodrome boundary an inset must actually REACH before the shortfall is
 #: worth a word.  It is far smaller than
@@ -7900,6 +8856,21 @@ def ensure_airport_insets(
                         "was stored finer than this source publishes"
                         " (interpolated detail)"
                     )
+                if not cached_inset_is_stale:
+                    # THE BUILD-TIME LADDER RE-CHECK (owner RULINGS
+                    # 2026-09-30aw (2)): an inset a coarser rung delivered
+                    # re-asks the finer rungs' discovery on every build
+                    # (one index query each, no download).  A new listing
+                    # re-runs the whole ladder beside the cached raster.
+                    recheck = ladder_recheck(lat, lon, icao, code,
+                                             bounding_box, record=True)
+                    if recheck is not None and (
+                            recheck.get("result") == "new-listing"):
+                        cached_inset_is_stale = True
+                        stale_reason = (
+                            "a finer ladder rung now lists new coverage "
+                            "(%s)" % ", ".join(recheck["new_source_ids"])
+                        )
                 if not cached_inset_is_stale:
                     airport_record[code] = airport_record.get(code) or "ok"
                     _store_acceptance_probes_in_record(

@@ -84,6 +84,13 @@ REFRESH_SCOPES = (
      "wall=seawall/retaining_wall) that §37 (11) (7)'s quay declaration "
      "reads — an overpass download, filled only by --refresh-data shore "
      "(issue #72), never by a build"),
+    # BEFORE ``dem``: ``scope_of`` takes the first matching prefix, and
+    # a 7 GB point-cloud download is its own act (spec
+    # las-tile-lidar-provider-spec.md §2, #130).  The airport inset
+    # gridded from these tiles stays under ``dem``.
+    ("las_tiles", "Elevation_data/_las_tiles",
+     "raw lidar point-cloud tiles and their per-tile gridded DTMs "
+     "(LAS-tile providers)"),
     ("dem", "Elevation_data",
      "base DEM rasters and airport elevation insets (provider downloads)"),
     ("airport_mod_cache", "Airport_mod_cache",

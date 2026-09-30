@@ -81,3 +81,10 @@ def test_every_lazily_imported_third_party_module_is_pinned():
         "lazily imported third-party modules absent from requirements.txt — "
         "the frozen engine will not carry them (the highspy precedent): "
         f"{missing}")
+
+
+def test_laspy_is_seen_lazily_and_pinned():
+    """#130: the LAS-tile strategy imports laspy inside a function; the
+    scan must see it and requirements.txt must pin it."""
+    assert "laspy" in _lazy_third_party_imports()
+    assert "laspy" in _requirement_names()

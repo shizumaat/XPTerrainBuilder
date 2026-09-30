@@ -203,3 +203,17 @@ def test_build_tile_gate_is_open_when_proj_is_healthy(
 
     monkeypatch.setattr(PROJRT, "PREFLIGHT_ERROR", None, raising=False)
     assert TILE._refuse_on_broken_proj() is False
+
+
+def test_import_selfcheck_names_every_module(capsys):
+    """``--import-selfcheck`` (#130): exit 0 only when every lazily
+    imported package is in the interpreter -- the frozen smoke test."""
+    import O4_Proj_Runtime as runtime
+
+    assert runtime.import_selfcheck_main(
+        ["Ortho4XP", "--import-selfcheck", "json,laspy"]) == 0
+    assert runtime.import_selfcheck_main(
+        ["Ortho4XP", "--import-selfcheck", "json,no_such_module_130"]) == 1
+    out = capsys.readouterr().out
+    assert "laspy: ok" in out and "no_such_module_130: ModuleNotFoundError" \
+        in out

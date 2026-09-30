@@ -57,6 +57,12 @@ if __name__ == '__main__' and '--tls-selfcheck' in sys.argv:
     import O4_Proj_Runtime
     sys.exit(O4_Proj_Runtime.tls_selfcheck_main(sys.argv))
 
+# Lazy-import smoke test as a CLI (#130): the frozen bundle must carry
+# every package the engine imports inside a function (laspy).
+if __name__ == '__main__' and '--import-selfcheck' in sys.argv:
+    import O4_Proj_Runtime
+    sys.exit(O4_Proj_Runtime.import_selfcheck_main(sys.argv))
+
 # PROJ self-check as a CLI: exits 0 healthy / 1 broken, ahead of every heavy
 # import so a broken bundle is diagnosable without loading the pipeline.
 if __name__ == '__main__' and '--proj-selfcheck' in sys.argv:

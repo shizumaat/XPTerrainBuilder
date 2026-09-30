@@ -792,10 +792,70 @@ def this_airports_inset_problem(state, lat, lon, icao):
                          if str(key).upper() == str(icao).upper()), None)
         if required is None:
             return None     # no boundary for it: nothing is required
-        return INSETS.airport_inset_frame_problem(lat, lon, icao, required)
+        problem = INSETS.airport_inset_frame_problem(lat, lon, icao, required)
+        if problem is not None:
+            return problem
+        return _ladder_recheck_problem(INSETS, lat, lon, icao, required)
     except Exception as exc:
         print(f"  [harness] per-airport inset check skipped ({exc!r})")
         return None
+
+
+#: ``{(lat, lon, ICAO): {"sidecar_stamp": ..., "recheck": {...}}}`` -- the
+#: build-time ladder re-check answers of THIS run, so the pre-flight, the
+#: refresh re-judge and ``frame.json`` share one discovery query per
+#: sidecar state instead of one per call.
+LADDER_RECHECKS: dict = {}
+
+
+def _ladder_recheck_problem(INSETS, lat, lon, icao, required):
+    """THE BUILD-TIME LADDER RE-CHECK, harness side (owner RULINGS
+    2026-09-30aw (2); spec las-tile-lidar-provider-spec.md §4).
+
+    The engine's ONE predicate (``INSETS.ladder_recheck``, imported, never
+    copied) runs its finer rungs' DISCOVERY -- a read -- with
+    ``record=False`` (a harness build writes no sidecar).  A NEW listing
+    means the production fetch loop would re-fetch the ladder: a
+    shared-repo write, so it is a ``("ladder", ...)`` problem naming
+    ``--refresh-data dem`` (``,las_tiles`` when a LAS-tile rung is among
+    the finer ones); ``unchanged`` / ``transient`` stand.  The answer
+    rides ``frame.json`` as ``ladder_recheck``."""
+    paths = INSETS.cached_inset_paths_for_icao(lat, lon, icao)
+    if not paths:
+        return None
+    code = INSETS._inset_provider_code_from_path(paths[0])
+    sidecar = paths[0][:-4] + ".json"
+    try:
+        stamp = os.stat(sidecar).st_mtime_ns
+    except OSError:
+        stamp = None
+    key = (int(lat), int(lon), str(icao).upper())
+    memo = LADDER_RECHECKS.get(key)
+    if memo is not None and memo.get("sidecar_stamp") == stamp:
+        recheck = memo["recheck"]
+    else:
+        recheck = INSETS.ladder_recheck(lat, lon, icao, code, required,
+                                        record=False)
+        LADDER_RECHECKS[key] = {"sidecar_stamp": stamp, "recheck": recheck}
+    if recheck is None or recheck.get("result") != "new-listing":
+        return None
+    definition = next(
+        (d for c, d in INSETS.initialize_elevation_providers_dict().items()
+         if c.lower() == code.lower()), None)
+    scopes = ["dem"]
+    if definition is not None:
+        rungs = INSETS._ladder_rung_definitions(definition)
+        if any(rungs[i][1].get("access_strategy") == "las_tile_index"
+               for i in recheck.get("rungs_checked") or ()
+               if 0 <= i < len(rungs)):
+            scopes.append("las_tiles")
+    return ("ladder",
+            f"LADDER-STALE airport elevation inset {paths[0]} — it was "
+            f"delivered by a coarser resolution-ladder rung and a FINER "
+            f"rung now lists new coverage "
+            f"({', '.join(recheck.get('new_source_ids') or [])}), so the "
+            f"build would RE-FETCH the ladder (--refresh-data "
+            f"{','.join(scopes)}; --warm-insets {icao})")
 
 
 def missing_pack_dsf_dumps(root, lat, lon, icao) -> list:
@@ -1723,7 +1783,7 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
 #: The per-airport inset verdicts a ``dem`` refresh re-derives (#61):
 #: the inset EXISTS but the build would re-fetch it.  ``empty`` is a
 #: declared state (nothing is fetched), so it is not among them.
-REFRESHABLE_INSET_PROBLEMS = ("packs", "stale")
+REFRESHABLE_INSET_PROBLEMS = ("packs", "stale", "ladder")
 
 
 def _refresh_airport_inset(root, state, lat, lon, icao, prog) -> list:
@@ -3725,6 +3785,11 @@ def main(argv=None) -> int:
         frame["airport_inset_problem"] = (
             {"kind": inset_problem[0], "why": inset_problem[1]}
             if inset_problem else None)
+        # The build-time ladder re-check's answer (RULINGS 2026-09-30aw
+        # (2)): None when the airport's inset was not ladder-delivered.
+        frame["ladder_recheck"] = (LADDER_RECHECKS.get(
+            (int(lat), int(lon), str(args.icao).upper())) or {}).get(
+                "recheck") if not args.tile else None
         if inset_problem:
             prog.note(f"per-airport inset {inset_problem[0].upper()}: "
                       f"{inset_problem[1]}")

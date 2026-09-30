@@ -54,13 +54,14 @@ import dataclasses as _dc
 import typing as _t
 
 from ..law import Law
-from ..law.tables import role_cap
+from ..law.tables import pavement_fallback_cap, role_cap, role_family
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
-from .precedence import view
+from .precedence import taxi_cap_for, view
 from .runway_profile import curve_stations, datum_pins, ridge_chains, threshold_pins
 
 __all__ = ["RunwayCap", "Pin", "derive", "report_line", "yielded_lines",
+           "TaxiYield", "derive_taxi",
            "KIND_THRESHOLD", "KIND_CROSSING", "KIND_SEAM"]
 
 #: The pin KINDS, in SENIORITY order on a shared ridge vertex (§50.1 (3)).
@@ -303,3 +304,107 @@ def yielded_lines(icao: str, caps: _t.Mapping[str, RunwayCap],
     print, from the one record."""
     return [report_line(icao, rc, authority)
             for _r, rc in sorted(caps.items()) if rc.yielded]
+
+
+# --------------------------------------------------------------------------
+# 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah (1),
+# answering Q-133 of 30ad; issue #135)
+# --------------------------------------------------------------------------
+
+@_dc.dataclass(frozen=True)
+class TaxiYield:
+    """One TAXI-FAMILY face's yielded longitudinal cap (30ah (1)).
+
+    ``cap`` is what the face is priced at —
+    ``taxi_cap_for(table, min(runway cap, pavement fallback))`` — and
+    ``ref`` the runway that yielded it (the steepest yielded runway the
+    face's routes touch); ``table`` the face's own letter cap, kept so the
+    record names what moved."""
+
+    face: int
+    ref: str
+    cap: float
+    table: float
+    runway_cap: float
+
+    def as_dict(self) -> dict[str, _t.Any]:
+        """The PUBLISHED record (sidecar ``taxi_yield_caps``)."""
+        return {"shape": int(self.face), "cap": round(self.cap, 8),
+                "table": self.table, "ref": self.ref,
+                "runway_cap": round(self.runway_cap, 8)}
+
+
+def derive_taxi(pm: PlanarMap, law: Law, airport: Airport | None,
+                caps: _t.Mapping[str, RunwayCap]) -> dict[int, TaxiYield]:
+    """Taxi-family face id -> its :class:`TaxiYield`, for every face TIED
+    to a runway whose cap YIELDED (owner RULINGS 2026-09-30ah (1)).
+
+    TIED = on a route that touches that runway, read on the route graph
+    the reach already carries (``constraints.routes``): the NETWORK — the
+    taxi centreline stretches, the runway ridges and the crossings (edge
+    kinds CENTRELINE / CROSSING; never a lateral hop or a pad contact) —
+    split into connected components; a runway touches every component
+    holding one of its ridge stations, and a taxi-family face is tied to
+    it when one of its own stations (a ring vertex on the network, or a
+    vertex of a stretch splitting / bounding it) lies in such a
+    component.  The face's cap is ``max(table, runway's effective cap)``
+    (:func:`precedence.taxi_cap_for`, THE reader), the runway's cap
+    clipped at the 29ac pavement fallback — nothing exceeds it.  Several
+    tied yielded runways: the steepest.  A face whose table cap already
+    meets the yield gets no record (nothing moved).
+
+    Empty — and NOTHING is built — when no runway yielded, so an airport
+    with no yielded runway is untouched byte for byte."""
+    yielded = {r: rc for r, rc in caps.items() if rc.yielded}
+    if not yielded:
+        return {}
+    import numpy as np
+    from scipy.sparse import csr_matrix
+    from scipy.sparse.csgraph import connected_components
+    from .routes import CENTRELINE, CROSSING, RIDGE_KIND, routes
+    from .stretches import stretches
+
+    g = routes(pm, law, airport)
+    keep = (g.kind == CENTRELINE) | (g.kind == CROSSING)
+    a, b = g.a[keep], g.b[keep]
+    m = csr_matrix((np.ones(len(a)), (a, b)), shape=(g.n, g.n))
+    _nc, label = connected_components(m, directed=False)
+
+    def comps(vs: _t.Iterable[int]) -> set[int]:
+        return {int(label[v]) for v in vs if 0 <= v < g.n_planar}
+
+    ceiling = pavement_fallback_cap(law)
+    touch: dict[int, list[tuple[float, str]]] = {}   # component -> runways
+    for bl in pm.breaklines.values():
+        rc = yielded.get(bl.ref) if bl.kind == RIDGE_KIND else None
+        if rc is None:
+            continue
+        for c in comps(bl.vertices(pm)):
+            touch.setdefault(c, []).append((min(float(rc.cap), ceiling), bl.ref))
+    if not touch:
+        return {}
+    st = stretches(pm, law)
+    station = g.station
+    out: dict[int, TaxiYield] = {}
+    for fid, f in pm.faces.items():
+        if role_family(law, f.role) != "taxi":
+            continue
+        rc = role_cap(law, f.role, f.code_number, f.code_letter)
+        if rc is None:
+            continue
+        own = {v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)
+               if v < len(station) and station[v]}
+        for sid in st.face_stretches.get(fid, ()):
+            own.update(st.items[sid].vertices)
+        best: tuple[float, str] | None = None
+        for c in comps(own):
+            for cap, ref in touch.get(c, ()):
+                if best is None or cap > best[0] or (cap == best[0] and ref < best[1]):
+                    best = (cap, ref)
+        if best is None:
+            continue
+        got = taxi_cap_for(rc.longitudinal, best[0])
+        if got <= rc.longitudinal:
+            continue
+        out[fid] = TaxiYield(fid, best[1], got, rc.longitudinal, best[0])
+    return out

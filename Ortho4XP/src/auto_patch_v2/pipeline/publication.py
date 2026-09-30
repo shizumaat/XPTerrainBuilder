@@ -125,6 +125,7 @@ from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
 from ..constraints.runway_profile import crown_drops, runway_half_widths
 from ..constraints.runway_yield import RunwayCap as _RunwayCap
+from ..constraints.runway_yield import TaxiYield as _TaxiYield
 from ..constraints.seams import seam_pins, seam_vertices_pinned
 from ..constraints.stretches import stretches
 from ..constraints.taxi import taxi_pair_routes
@@ -137,7 +138,15 @@ from ..model.planar import PlanarMap
 from ..planar.cluster import deck_shades as _deck_shades
 
 __all__ = ["publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
-           "RAMP_ROLES"]
+           "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
+
+#: 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
+#: (1), issue #135): the way tag carrying a taxi-family face's YIELDED
+#: longitudinal cap (``PlanarMap.taxi_caps``) — the v1 census prices the
+#: way's within-shape pairs at ``precedence.taxi_cap_for(its cap, this)``
+#: — and the runway that yielded it.  Stamped only on a tied face.
+TAXI_YIELD_CAP_TAG = "o4_grade_law_cap_taxi_yield"
+TAXI_YIELD_REF_TAG = "o4_grade_law_cap_taxi_yield_ref"
 
 #: §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak; the census read
 #: RULED in 2026-09-14am): the way tag whose PRESENCE lifts the shape's
@@ -243,6 +252,14 @@ def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
     # ``Patch.of(lifted_caps=…)`` — one derivation, two readers.
     for fid, g in lifted_caps(planar).items():
         out.setdefault(fid, {})[LIFTED_CAP_TAG] = f"{g:g}"
+    # 30ah (1): the taxi face's yielded cap and its runway — the SAME
+    # record the solve priced (``PlanarMap.taxi_caps``); v2 verify reads
+    # it through the sidecar ``taxi_yield_caps``
+    for fid, ty in sorted((getattr(planar, "taxi_caps", None) or {}).items()):
+        if isinstance(ty, _TaxiYield):
+            tags = out.setdefault(fid, {})
+            tags[TAXI_YIELD_CAP_TAG] = repr(round(float(ty.cap), 8))
+            tags[TAXI_YIELD_REF_TAG] = str(ty.ref)
     kinds = getattr(planar, "edge_kind_of_ref", None) or {}
     for fid, f in planar.faces.items():
         kind = kinds.get(f.ref)
@@ -427,6 +444,16 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                 for _r, rc in sorted(
                     (planar.runway_caps or {}).items())
                 if isinstance(rc, _RunwayCap)],
+            # 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS
+            # 2026-09-30ah (1), issue #135): per TIED taxi-family face the
+            # cap it was priced at, its table cap and the runway that
+            # yielded it.  LAW INPUT for v2 verify (``verify/frame.
+            # Patch.cap``); the v1 census reads the same value off the way
+            # tag (``TAXI_YIELD_CAP_TAG``).  Empty where no runway yielded.
+            "taxi_yield_caps": [
+                ty.as_dict() for _f, ty in sorted(
+                    (getattr(planar, "taxi_caps", None) or {}).items())
+                if isinstance(ty, _TaxiYield)],
             # §30 (4) THE CLUSTER PADS (owner RULINGS 2026-09-13bj item 1):
             # what the object stage's §16g seats a big terminal on, and
             # what the report reads to name the apron faces that stayed

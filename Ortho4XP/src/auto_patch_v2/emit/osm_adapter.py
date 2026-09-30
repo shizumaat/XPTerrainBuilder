@@ -105,6 +105,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # SIDECAR_LAW_KEYS``), never evidence: without it a census judges a
     # runway under a law the build did not run.
     "runway_caps",
+    # 30ah (1) (issue #135): per tied taxi-family face its yielded cap and
+    # the runway that yielded it — LAW INPUT for v2 verify
+    "taxi_yield_caps",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
     # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNEL records —
     # the floor datum each channel declares per station and the crest

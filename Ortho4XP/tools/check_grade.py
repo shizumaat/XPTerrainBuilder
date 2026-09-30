@@ -1164,6 +1164,18 @@ _LIFTED_CAP_STATS: Dict[str, int] = {"pairs": 0, "ways": 0}
 _RUNWAY_CAP_STATS: Dict[str, int] = {"pairs": 0, "ways": 0,
                                      "looser": 0, "stricter": 0}
 
+#: 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
+#: (1), issue #135): the way tag the build stamps on a taxi-family face
+#: TIED to a yielded runway — the yielded longitudinal cap it priced the
+#: face at (``auto_patch_v2.pipeline.publication.TAXI_YIELD_CAP_TAG``;
+#: sidecar ``taxi_yield_caps`` is the per-face record, evidence here).
+#: Scoped to the way by construction: only a tied face carries it.
+TAXI_YIELD_CAP_TAG = "o4_grade_law_cap_taxi_yield"
+
+#: 30ah (1): how many within-shape pairs the taxi yield repriced, on how
+#: many ways — counted, never hidden.
+_TAXI_YIELD_STATS: Dict[str, int] = {"pairs": 0, "ways": 0}
+
 
 def _lifted_cap_tag(way: "Way") -> Optional[float]:
     """The §34 (9) LIFT on this way (:data:`LIFTED_CAP_TAG`), as the
@@ -1180,6 +1192,41 @@ def _lifted_cap_tag(way: "Way") -> Optional[float]:
         return float(raw)
     except ValueError:
         return None
+
+
+def _taxi_yield_tag(way: "Way") -> Optional[float]:
+    """30ah (1): the YIELDED taxi cap the build stamped on this way
+    (:data:`TAXI_YIELD_CAP_TAG`), or ``None``."""
+    raw = way.tags.get(TAXI_YIELD_CAP_TAG)
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _taxi_yield_pair_cap(c: "ShapePairConstraint", body: Optional[float]
+                         ) -> Optional[float]:
+    """30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY: the cap a within-shape
+    pair on a TIED taxi-family way is priced at — THE engine reader,
+    ``auto_patch_v2.constraints.precedence.taxi_cap_for(cap, tag)`` (one
+    law, both readers; ``tests/test_harness.py`` twins the identity).
+
+    Only a pair at the way's BODY cap (or already at a looser stretch
+    reading) yields: a pair the law TIGHTENED — a pad endpoint at the
+    pad's cap, a frontage / portion pair, a cross-section — keeps its
+    stricter law, exactly as the generator's ``min(face cap, pad cap)``.
+    ``None`` where nothing changes (no tag, a road cross-section, a cap
+    already at or above the yield)."""
+    tag = _taxi_yield_tag(c.way)
+    if tag is None or c.transverse_road or body is None:
+        return None
+    if c.cap < body - 1e-12:
+        return None
+    from auto_patch_v2.constraints.precedence import taxi_cap_for
+    got = taxi_cap_for(c.cap, tag)
+    return got if got > c.cap + 1e-12 else None
 
 
 def _lateral_cap_t_tag(way: "Way") -> Optional[float]:
@@ -8767,6 +8814,8 @@ def _check_within_shape(ways: List[Way],
     out: List[Violation] = []
     _LIFTED_CAP_STATS["ways"] = sum(
         1 for w in ways if _lifted_cap_tag(w) is not None)     # §34 (9)
+    _TAXI_YIELD_STATS["ways"] = sum(                           # 30ah (1)
+        1 for w in ways if _taxi_yield_tag(w) is not None)
     _RUNWAY_CAP_STATS["ways"] = sum(                           # §50.2 Y20
         1 for w in ways if law_role(w) in _CROWN_RUNWAY_ROLES
         and any(r in (runway_caps_by_ref or {})
@@ -8822,6 +8871,14 @@ def _check_within_shape(ways: List[Way],
         if _sc is not None and _sc != c.cap:
             allowance += (_sc - c.cap) * c.dist
             c.cap = _sc
+        # 30ah (1) (owner RULINGS 2026-09-30ah (1)): a body pair on a taxi
+        # way TIED to a yielded runway is priced at the yielded cap the
+        # build stamped — through the engine's one reader.
+        _ty = _taxi_yield_pair_cap(c, _role_grade_limit(c.way, max_grade))
+        if _ty is not None:
+            _TAXI_YIELD_STATS["pairs"] += 1
+            allowance += (_ty - c.cap) * c.dist
+            c.cap = _ty
         _box = False
         if taxi_box is not None and taxi_box.applies(c):
             # THE SHORT-CHORD BOX (RULINGS 2026-09-06q (1)): the chord's
@@ -10704,6 +10761,12 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # so this list prices nothing and a reader that lost it would still
     # adjudicate identically.
     "lifted_caps",
+    # 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
+    # (1), issue #135): per tied taxi-family face ``{shape, cap, table,
+    # ref, runway_cap}``.  EVIDENCE here: the yield rides on the way as
+    # ``o4_grade_law_cap_taxi_yield`` (:data:`TAXI_YIELD_CAP_TAG`, read per
+    # pair in ``_check_within_shape``); v2 verify reads this list.
+    "taxi_yield_caps",
     # THE DESIGN SURFACE's residual per family (RULINGS 2026-09-08t, sidecar
     # ``design``, replacing ``law_tiers``): rounds, unknowns, rows, the hard
     # runway rows and per family how many targets were missed and by how
@@ -12117,6 +12180,7 @@ def run_checks(
     _TAXI_BOX_STATS.clear()
     _LIFTED_CAP_STATS.update(pairs=0, ways=0)          # §34 (9)
     _RUNWAY_CAP_STATS.update(pairs=0, ways=0, looser=0, stricter=0)   # §50 Y20
+    _TAXI_YIELD_STATS.update(pairs=0, ways=0)                         # 30ah (1)
     _APRON_PREF_STATS.clear()
     # REGION RULESET (phase B).  ``ruleset`` is the SIDECAR's key — the
     # authority the build actually ran under.  The census NEVER re-derives

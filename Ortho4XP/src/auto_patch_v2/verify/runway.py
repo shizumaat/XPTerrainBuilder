@@ -46,7 +46,8 @@ import math
 
 from ..constraints.geometry import principal_axis
 from ..constraints.runway_profile import curve_stations
-from ..law.tables import (cliff_grade, runway_transverse_cap,
+from ..law.tables import (cliff_grade, runway_shoulder_cap,
+                          runway_transverse_bound,
                           runway_vertical_curve_bound)
 from .frame import Patch, Row, noise_m, row
 from .steps import _edges, _step_rows
@@ -174,9 +175,11 @@ def runway_transverse(p: Patch) -> list[Row]:
     seen: set[int] = set()
     # §40 (2) as amended (owner RULINGS 2026-09-13dd): each runway's own
     # half width, published by the solve (``pipeline.publication``'s
-    # ``runway_axes``) — beyond it the vertex is a SHOULDER vertex and the
-    # cap is the shoulder's, through the ONE accessor the generator prices
-    # at.  A patch predating §40 carries no key: every vertex then reads
+    # ``runway_axes``) — the distance beyond it is priced at the SHOULDER's
+    # cap, through the ONE continuous bound the generator prices at
+    # (``law.tables.runway_transverse_bound``, RULINGS 2026-09-30ak; the
+    # row's reported cap is that bound over d).  A patch predating §40
+    # carries no key: every vertex then reads
     # the runway cap, exactly as before.
     half_of = {str(r[0]): float(r[5])
                for r in (p.publication.get("runway_axes") or []) if len(r) >= 6}
@@ -195,12 +198,13 @@ def runway_transverse(p: Patch) -> list[Row]:
             dist, ridge_z, foot = _nearest_ridge(x, y, ridge)
             if ridge_z is None or dist <= 0.0:
                 continue
-            cap = runway_transverse_cap(law, dist, half, sh.code_letter,
-                                        sh.code_number)
-            if cap is None:
+            bound = runway_transverse_bound(law, dist, half, sh.code_letter,
+                                            sh.code_number)
+            if bound is None:
                 continue
+            cap = bound / dist
             fall = ridge_z - p.z[v]
-            over = abs(fall) - cap * dist - noise
+            over = abs(fall) - bound - noise
             if over <= 0.0:
                 continue
             r = row(FAMILY_TRANSVERSE, (sh.role, sh.role), p.side(sh.role),
@@ -295,8 +299,8 @@ def runway_step(p: Patch) -> list[Row]:
     ring vertex and each edge midpoint of a runway-family face against
     the nearest edge of ANOTHER runway-family face inside the contact
     tolerance.  THE ALLOWANCE is the runway's own law over the geometry
-    between them — ``runway_transverse_cap(d, half_width) x d``, the ONE
-    reading the generator and ``tools/check_grade`` price through —
+    between them — ``runway_shoulder_cap x d`` (the table cap, RULINGS
+    2026-09-30ak: this allowance is NOT the transverse bound) —
     floored at ``materiality.runway_step_m`` (0.10 m), because a WELDED
     pair has d ~ 0 and a cap over zero metres forgives everything.  The
     cap beyond the runway's own half width is the SHOULDER's (§40 (2)),
@@ -349,8 +353,7 @@ def runway_step(p: Patch) -> list[Row]:
     number = {sh.ref: sh.code_number for sh in p.shapes if sh.role in RUNWAY_FAMILY}
     half = max(half_of.values(), default=0.0)
     ref = max(half_of, key=lambda r: half_of[r], default=None) if half_of else None
-    cap = runway_transverse_cap(law, half + 1.0, half,
-                                letter.get(ref), number.get(ref)) if ref else None
+    cap = runway_shoulder_cap(law, letter.get(ref), number.get(ref)) if ref else None
 
     def allow_of(d: float) -> float:
         return max(floor, (cap or 0.0) * d)

@@ -65,10 +65,10 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import (role_cap, runway_end_zone_length_m,
-                          runway_transverse_cap,
+                          runway_transverse_bound,
                           runway_transverse_max, runway_vertical_curve_bound)
 from ..model.airport import Airport
-from ..model.constraints import Diff, Linear, Pin, Row, Source
+from ..model.constraints import Band, Diff, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 from .precedence import View, cap_of, view
@@ -333,6 +333,8 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     rows.append(Diff(a, b, end_cap, d, src_end, soft_g, soft_hi))
                 else:
                     rows.append(Diff(a, b, lon, d, src))
+        # §50 THE YIELDED RUNWAY IS BUILT UNIFORMLY (issue #133)
+        rows.extend(yield_envelope(planar, law, vw, rw.id, chs, along))
         # pins: the station nearest each threshold with a CIFP elevation
         all_ids = [v for ch in chs for v in ch]
         for end in rw.ends:
@@ -353,6 +355,74 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         rows.append(Pin(v, z, Source(GEN, "RULINGS 2026-09-30z (2) apt.dat datum",
                                      (f"rwy:{rid}", f"end:{ename}", "apt.dat"))))
     return rows
+
+
+def yield_envelope(planar: PlanarMap, law: Law, vw: View, ref: str,
+                   chs: _t.Sequence[_t.Sequence[int]],
+                   along: _t.Callable[[int], float]) -> list[Row]:
+    """§50 THE YIELDED RUNWAY IS BUILT UNIFORMLY (issue #133; RULINGS
+    2026-09-18d (3) "the cap yields, uniformly", 2026-09-30ad): one
+    ``Band`` per ridge station strictly between the GOVERNING pins of a
+    YIELDED runway, around the pin-to-pin line at the pin grade ``g_pin``
+    and no wider than the yield margin reaches from the NEARER pin,
+
+        |z − (z_a + g_pin·d_a)| ≤ runway_yield_margin · min(d_a, d_b)
+
+    with ``d`` the ridge-chord distance (``curve_stations``' own sequence,
+    the span §50.1 (3) measured).  The upper side toward either pin is the
+    effective cap's own reach (``cap = g_pin + margin``), implied by the
+    profile ``Diff`` chain at its bound; the lower side toward the NEARER
+    pin is what "uniformly" adds — the ruling's runway takes ONE grade pin
+    to pin, the margin being the numerical room around it (§50.1 (3)), not
+    a budget the surface may spend on one end.
+
+    WHY IT IS STATED AS A BAND: every profile row is held at ``[design]
+    hard_tol_m`` (0.02 m, 0.17 pp over a 12 m chord) — eight times the
+    0.02 pp margin — so the rows alone let the ridge spend that tolerance
+    on every chord and drift metres off the line the thresholds demand
+    (KASE 15/33: 94 rows over the bar, the north end 3.30 m under the
+    chord, 2.03–2.39 % built; with the cap's reach alone the design's DEM
+    pull still spent the whole 0.43 m of margin at the RWY 15 end, 1.2 %
+    off the pin).  A band has no per-chord tolerance to accumulate.  An
+    un-yielded runway carries none: its surface does not move."""
+    caps = getattr(planar, "runway_caps", None) or {}
+    rc = caps.get(ref)
+    if rc is None or not rc.yielded or rc.pin_a is None or rc.pin_b is None:
+        return []
+    min_d = float(law.tables.emit.identity.min_distinct_spacing_m)
+    st = curve_stations(vw.xy, chs, along, min_d)
+    if len(st) < 3:
+        return []
+
+    def station(v: int) -> int:
+        try:
+            return st.index(v)
+        except ValueError:                # merged by the identity floor
+            return min(range(len(st)),
+                       key=lambda k: (vw.xy[st[k]][0] - vw.xy[v][0]) ** 2
+                       + (vw.xy[st[k]][1] - vw.xy[v][1]) ** 2)
+
+    i, j = station(rc.pin_a.vertex), station(rc.pin_b.vertex)
+    za, zb = float(rc.pin_a.z), float(rc.pin_b.z)
+    if i > j:
+        i, j, za, zb = j, i, zb, za
+    cum = [0.0]
+    for k in range(len(st) - 1):
+        cum.append(cum[-1] + vw.dist(st[k], st[k + 1]))
+    span = cum[j] - cum[i]
+    if span <= 0.0:
+        return []
+    g = (zb - za) / span
+    m = float(law.tables.emit.design.runway_yield_margin)
+    src = Source(GEN, "rulesets.runway.longitudinal (§50 yield envelope, "
+                 "issue #133)", (f"rwy:{ref}",))
+    out: list[Row] = []
+    for k in range(i + 1, j):
+        da = cum[k] - cum[i]
+        line = za + g * da
+        w = m * min(da, span - da)
+        out.append(Band(st[k], line - w, line + w, src))
+    return out
 
 
 def _foot(vw: View, v: int, chains: list[list[int]]
@@ -503,15 +573,15 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                 continue
             done.add(v)
             d, a, b, t = ft
-            # §40 (2) as amended: the runway's 1.5 % inside its own
-            # half-width, the SHOULDER's 2.5 % beyond it — the one reading
-            # (``law.tables.runway_transverse_cap``) the verify and the v1
-            # census price through as well
-            cap = runway_transverse_cap(law, d, half, f.code_letter,
-                                        f.code_number)
-            if cap is None:
+            # §40 (2) as amended (13dd) and RULINGS 2026-09-30ak: the
+            # runway's cross-fall over its own half-width, the SHOULDER's
+            # only for the distance beyond it — ONE continuous bound in
+            # metres (``law.tables.runway_transverse_bound``), the reading
+            # the verify prices through as well
+            bound = runway_transverse_bound(law, d, half, f.code_letter,
+                                            f.code_number)
+            if bound is None:
                 continue
-            bound = cap * d
             if t <= 0.0:
                 terms = ((a, 1.0), (v, -1.0))
             elif t >= 1.0:

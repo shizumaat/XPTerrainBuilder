@@ -264,3 +264,78 @@ def test_pulled_beyond_the_profile_the_iis_names_the_pin(shared_edge, law):
     assert sol.residual is not None and sol.residual.max_diff_m > 0.1
     fam = rep.families.get("runway_profile")
     assert fam and fam["missed"] > 0 and fam["max_m"] > 0.1, rep.line()
+
+
+# ── #134 / RULINGS 2026-09-30ak: ONE continuous transverse bound ─────────
+
+KASE_CAPTURE = "/Users/noah/XPTerrainBuilderData/.harness/frames/project133/KASE.pkl"
+
+
+def test_the_bound_is_continuous_across_the_half_width(law):
+    """(a) CONTINUITY: the bound that replaced the step-function cap moves
+    by at most the shoulder cap times the distance moved — across the
+    half-width line too (the old cap jumped cap_rw·half → cap_sh·half,
+    KASE 0.300 → 0.500 m, on 1.4 cm of frame difference)."""
+    half, eps = 20.0, 0.014
+    for key in ("icao", "faa"):
+        lw = Law(tables=law.tables, ruleset_key=key)
+        for letter in "ABCDEF":
+            sh = T.runway_shoulder_cap(lw, letter, 4)
+            lo = T.runway_transverse_bound(lw, half - eps, half, letter, 4)
+            hi = T.runway_transverse_bound(lw, half + eps, half, letter, 4)
+            assert 0.0 <= hi - lo <= sh * 2 * eps + 1e-12, (key, letter, lo, hi)
+            assert lo - hi <= 0.025 * 2 * eps
+            # ON the line the bound is the runway's own cross-fall to the edge
+            assert T.runway_transverse_bound(lw, half, half, letter, 4) == \
+                pytest.approx(T.runway_transverse_max(lw, letter, 4) * half)
+
+
+def test_the_13dd_heca_shoulder_rows_pass_under_the_bound(law):
+    """(c) the 13dd HECA rows: 1.5287 % at 108.7 m and 1.5233 % at
+    204.9 m from the ridge of a 60 m runway (half 30) — 1.66 m of fall
+    under a bound of 0.45 + 0.025·78.7 = 2.42 m."""
+    lw = Law.for_airport("HECA")
+    for grade, d in ((0.015287, 108.665), (0.015233, 204.872)):
+        bound = T.runway_transverse_bound(lw, d, 30.0, "E", 4)
+        assert grade * d <= bound
+    assert T.runway_transverse_bound(lw, 108.665, 30.0, "E", 4) == \
+        pytest.approx(0.015 * 30.0 + 0.025 * 78.665)
+
+
+@pytest.mark.skipif(not __import__("os").path.exists(KASE_CAPTURE),
+                    reason="KASE capture (frames/project133) not mounted")
+def test_the_ring_walk_generator_and_verify_price_one_bound():
+    """(b) THE RING WALK on the KASE capture: every off-ridge runway ring
+    vertex priced by BOTH instruments (the generator's planar foot and
+    ``runway_half_widths``; the verify's emitted crown spine in the census
+    frame and the published half width) through
+    ``runway_transverse_bound``.
+
+    Where the step lived — every vertex within 1 m of the half-width line
+    (206 at KASE, 91 of the body's 209 beyond it) — the two bounds agree
+    under 1 mm.  Everywhere the difference is exactly the bound's
+    Lipschitz term cap_sh·|d_gen − d_verify|: no discontinuity is left.
+    MEASURED: the two frames differ in SCALE by ~0.08 % (tmerc planar vs
+    the census's equirectangular metres), so a shoulder vertex 56 m beyond
+    the half width reads d 77 mm apart and its bound 1.9 mm apart — the
+    frame term, below ``rounding_noise_m`` (0.03 m) at every vertex.
+
+    The 0.084 % planar-vs-census frame SCALE is a KNOWN difference of the
+    RULINGS 2026-09-17b / 17d family (two projections of one geometry),
+    accepted as this twin's form by RULINGS 2026-09-30am (3): the bar is
+    < 1 mm where the step lived plus the Lipschitz identity everywhere,
+    not < 1 mm at every vertex."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import runway_edge_census as R
+    bw = R.bound_walk(R._load(Path(KASE_CAPTURE)))
+    rows = bw["rows"]
+    assert len(rows) > 400 and not bw["verify_only"]
+    near = [r for r in rows if abs(r["d_minus_half"]) <= 1.0]
+    assert len(near) > 100
+    assert max(r["diff_m"] for r in near) < 0.001
+    sh = T.runway_shoulder_cap(Law.for_airport("KASE"), "D", 4)
+    for r in rows:
+        assert r["diff_m"] <= sh * abs(r["d_gen"] - r["d_verify"]) + 1e-9, r
+        assert r["diff_m"] < 0.03, r

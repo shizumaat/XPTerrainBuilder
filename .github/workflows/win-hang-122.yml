@@ -1,0 +1,147 @@
+name: Windows hang probe (issue #122)
+
+# PROBE ONLY — never a gate.  Issue #122: on windows-latest the engine suite
+# intermittently hangs in tests/test_airport_elevation_insets.py::
+# test_pack_set_change_refetches_a_cached_inset (and once also in
+# tests/test_solve_capture.py::test_a_synthetic_airport_replays_byte_identically)
+# until the 600 s pytest-timeout kills the xdist worker ("node down: Not
+# properly terminated") — and the worker's own timeout dump NEVER reaches the
+# job log (an xdist worker's stderr is lost on the Windows runner), so three
+# occurrences left no stack.
+#
+# This probe writes the stack to a FILE instead: the plugin
+# .github/win-hang-122/hangdump122.py arms faulthandler.dump_traceback_later
+# (240 s, repeat) per test into hangdump/hangdump-<worker>-<pid>.log, and at
+# 245 s a watchdog thread adds the thread names and the process's child
+# processes (psutil).  The files are uploaded if: always().  pytest's own
+# faulthandler_timeout stays 0: there is ONE dump_traceback_later slot per
+# process and the two would race.
+#
+# Arms (one job each, same setup as ci.yml's python-tests Windows job):
+#   xdist   the two files, -n 4, looped up to 8 times (stop on first red)
+#   serial  the two files, -n0, looped up to 8 times — does the hang need
+#           xdist neighbours?
+#   full    the whole non-Qt half exactly as CI runs it, once — the frame the
+#           three recorded hangs happened in
+# A workflow_dispatch workflow must exist on the default branch before it can
+# be dispatched, so on the lane branch it runs on a push touching it.
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "loop iterations for the xdist / serial arms"
+        default: "8"
+      arms:
+        description: "JSON list of arms"
+        default: '["xdist","serial","full"]'
+  push:
+    branches: ["claude/winhang122*"]
+    paths: [".github/workflows/win-hang-122.yml", ".github/win-hang-122/**"]
+
+env:
+  PYTHON_VERSION: "3.13"   # matches the vendored cp313 wheels in Utils/
+  ITERATIONS: ${{ inputs.iterations || '8' }}
+
+jobs:
+  probe:
+    name: "probe ${{ matrix.arm }} (windows-latest)"
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: ${{ fromJSON(inputs.arms || '["xdist","serial","full"]') }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      QT_QPA_PLATFORM: offscreen
+      MPLBACKEND: Agg
+      PYTHONFAULTHANDLER: "1"
+      PYTHONUNBUFFERED: "1"
+      # ci.yml's flags with --timeout 300 (the file dump fires at 240 s first).
+      PYTEST_FLAGS: >-
+        -q --no-header -p no:cacheprovider -rfE
+        --continue-on-collection-errors
+        --timeout=300 --timeout-method=thread
+      HANGDUMP_AFTER: "240"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: Ortho4XP/requirements.txt
+
+      - name: Install engine packages
+        working-directory: Ortho4XP
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install Utils/win/*.whl
+          grep -v '^gdal==' requirements.txt \
+            | grep -v '^scikit-fmm==' > reqs-ci.txt
+          python -m pip install -r reqs-ci.txt
+          python -m pip install pytest-timeout
+          python -m pip list > ../hangdump-pip-before-psutil.txt
+          python -m pip install psutil    # probe only: child-process listing
+          python -m pip list
+
+      - name: Probe
+        working-directory: Ortho4XP
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/hangdump"
+          export PYTHONPATH="$GITHUB_WORKSPACE/.github/win-hang-122"
+          export HANGDUMP_DIR="$GITHUB_WORKSPACE/hangdump"
+          FILES="tests/test_airport_elevation_insets.py tests/test_solve_capture.py"
+          PLUG="-p hangdump122 -p faulthandler -o faulthandler_timeout=0"
+          set -o pipefail
+          case "${{ matrix.arm }}" in
+            xdist|serial)
+              if [ "${{ matrix.arm }}" = xdist ]; then N="-n 4"; else N="-n0"; fi
+              greens=0; rc=0
+              for i in $(seq 1 "$ITERATIONS"); do
+                echo "=== iteration $i ($(date -u +%H:%M:%S))"
+                rc=0
+                timeout -s ABRT -k 30 900 python -m pytest $PYTEST_FLAGS $PLUG $N -v -v \
+                  $FILES > "$HANGDUMP_DIR/iter-$i.log" 2>&1 || rc=$?
+                tail -15 "$HANGDUMP_DIR/iter-$i.log"
+                echo "=== iteration $i rc=$rc ($(date -u +%H:%M:%S))"
+                if [ $rc -ne 0 ]; then break; fi
+                greens=$((greens + 1))
+              done
+              echo "RESULT arm=${{ matrix.arm }} green_iterations=$greens rc=$rc"
+              exit $rc
+              ;;
+            full)
+              rc=0
+              timeout -s ABRT -k 30 3000 python -m pytest $PYTEST_FLAGS $PLUG -n auto -v -v \
+                --ignore-glob='tests/test_qt_*.py' tests > "$HANGDUMP_DIR/full.log" 2>&1 || rc=$?
+              grep -v ' PASSED \| SKIPPED \|^tests/' "$HANGDUMP_DIR/full.log" | tail -150
+              echo "RESULT arm=full rc=$rc"
+              exit $rc
+              ;;
+          esac
+
+      - name: Hang dumps (any file with a watchdog or traceback)
+        if: always()
+        run: |
+          cd "$GITHUB_WORKSPACE/hangdump" || exit 0
+          for f in hangdump-*.log; do
+            if grep -q -e 'WATCHDOG' -e 'most recent call first' "$f"; then
+              echo "##### $f"; grep -v '^START\|^END' "$f"
+            fi
+          done
+
+      - name: Upload dumps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hangdump-${{ matrix.arm }}
+          path: |
+            hangdump/
+            hangdump-pip-before-psutil.txt
+          if-no-files-found: warn
+          retention-days: 30

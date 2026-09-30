@@ -1882,7 +1882,14 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         print(f"[{icao}] design weight ARM: {design_weights} -> {law.tables.emit.design}")
     cs, counts, _w = shape_constraints(pm, law, airport, stage)
     if drop:
-        cs = ConstraintSet.from_rows([r for r in cs.rows() if r.source.generator not in drop])
+        # a name is a GENERATOR or a RULING HEAD (``design_roles.ruling_head``,
+        # the key ``[design] hard_rulings`` names a law by): the frontage
+        # hold's rows are minted by ``platform_collar`` beside the collar's
+        # own, so the hold-OFF arm (flat-pad v2 §1 pass 1a) names its head
+        from auto_patch_v2.solve.design_roles import ruling_head
+        cs = ConstraintSet.from_rows([r for r in cs.rows()
+                                      if r.source.generator not in drop
+                                      and ruling_head(r) not in drop])
     return {"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
             "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0}
 

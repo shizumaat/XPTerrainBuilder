@@ -318,7 +318,13 @@ def test_the_ring_walk_generator_and_verify_price_one_bound():
     MEASURED: the two frames differ in SCALE by ~0.08 % (tmerc planar vs
     the census's equirectangular metres), so a shoulder vertex 56 m beyond
     the half width reads d 77 mm apart and its bound 1.9 mm apart — the
-    frame term, below ``rounding_noise_m`` (0.03 m) at every vertex."""
+    frame term, below ``rounding_noise_m`` (0.03 m) at every vertex.
+
+    The 0.084 % planar-vs-census frame SCALE is a KNOWN difference of the
+    RULINGS 2026-09-17b / 17d family (two projections of one geometry),
+    accepted as this twin's form by RULINGS 2026-09-30am (3): the bar is
+    < 1 mm where the step lived plus the Lipschitz identity everywhere,
+    not < 1 mm at every vertex."""
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))

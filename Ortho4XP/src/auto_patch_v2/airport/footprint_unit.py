@@ -70,7 +70,8 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
                          connector_span_m: float = 0.0,
                          plan_wide: "_t.Mapping[int, tuple[str, float, str, str]] | None" = None,
                          cluster_of: "_t.Mapping[int, int] | None" = None,
-                         airside_floor: bool = False
+                         airside_floor: bool = False,
+                         welded: "_t.Mapping[int, _t.Iterable[int]] | None" = None
                          ) -> list[Family]:
     """§16g THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo, interviewed;
     spec §16g) — the ONE rule that replaces every family derivation of
@@ -114,7 +115,8 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
                                visual_m=visual_m,
                                connector_span_m=connector_span_m,
                                cluster_of=cluster_of,
-                               airside_floor=airside_floor)
+                               airside_floor=airside_floor,
+                               pads=pads, welded=welded)
     clusters, _adj = _clusters(cands, touch_m, min_members=1)
     units: list[Family] = []
     bound_ci: set[int] = set()
@@ -814,7 +816,9 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
                     plan_wide: _t.Mapping[int, tuple],
                     *, visual_m: float, connector_span_m: float,
                     cluster_of: "_t.Mapping[int, int] | None" = None,
-                    airside_floor: bool = False
+                    airside_floor: bool = False,
+                    pads: _t.Sequence[_ar.PadRing] = (),
+                    welded: "_t.Mapping[int, _t.Iterable[int]] | None" = None
                     ) -> list[Family]:
     """§16g (1)/(2) PLAN-WIDE (owner RULINGS 2026-09-13bw): seat every
     candidate of this pass at the datum ITS PLAN-WIDE UNIT was given.
@@ -843,6 +847,7 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     the same height is an ordinary MEMBER of its whole unit and keeps the
     unit's datum — moving it onto one end's component would be the same
     expulsion under a new name."""
+    from .pad_block_seat import seat_unit as _seat_unit
     counts.setdefault("unit_connectors_cut", 0)
     counts.setdefault("unit_connectors_seated", 0)
     counts.setdefault("unit_leaf_seated_by_elevated", 0)
@@ -878,7 +883,14 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
                     counts.get("unit_leaf_seated_by_elevated", 0) + 1
         if not hit:
             continue
-        uid = max(sorted(hit), key=lambda k: hit[k])
+        # issue #126: a candidate on two BLOCKS of one cut unit is seated
+        # where its WELDED parts stand (``pad_block_seat.seat_unit``, the
+        # same call ``placement_plan._split_by_unit`` made for its group)
+        _gs = getattr(st, "groups", None) or ()
+        _feet = (tuple(f for i in _gs[c.group] for f in st.raw[i][3])
+                 if 0 <= c.group < len(_gs) else ())
+        uid = _seat_unit(pids, plan_wide, welded, _feet, pads, None,
+                         c.resource) or max(sorted(hit), key=lambda k: hit[k])
         row = plan_wide[next(q for q in sorted(pids)
                              if plan_wide.get(q, ("",))[0] == uid)]
         z, where, src = row[1], row[2], row[3]

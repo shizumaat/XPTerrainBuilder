@@ -1288,6 +1288,14 @@ def _main() -> int:
         for r in cp["rows"][:10]:
             print(f"    {r['step_m']:7.3f} m  {r['a']} <-> {r['b']}"
                   f"  site {r['site_m']:.1f} m  {r['kind']} {r['blocks']}")
+        # issue #126: a body or file welded across a block boundary with
+        # no strict majority on one block — flat-pad §7's STOP class, named
+        from auto_patch_v2.airport.pad_block_seat import STRADDLE_KEY
+        _st = sorted((k[len(STRADDLE_KEY):], v) for k, v in ss.counts.items()
+                     if str(k).startswith(STRADDLE_KEY))
+        print(f"  block straddlers (welded across a block boundary, no strict "
+              f"majority; plan-wide): {sum(v for _, v in _st)}"
+              + "".join(f"\n    {n} x{v}" for n, v in _st[:10]))
 
     if a.json:
         out = ss.to_dict()

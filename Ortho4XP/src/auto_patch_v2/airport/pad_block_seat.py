@@ -20,8 +20,10 @@ differently (``pack_partition`` module docstring):
   two or more blocks of one unit into one unit per block (``<id>/b<k>``),
   so ``plan_unit_datums`` seats each on its own block's flat floor and
   ``placement_plan._split_by_unit`` never lets one FILE straddle two
-  blocks.  A body standing on no block of the unit joins the block it
-  stands nearest.
+  blocks.  A body standing on no block of the unit joins the block that
+  holds the MAJORITY of the parts it is welded to (the ε-contact graph),
+  its feet's nearest platform ring breaking a tie; a body with no strict
+  majority straddles the boundary and is REPORTED (issue #126).
 
 The cut FILES come from the pristine backup exactly as every other split
 does (``obj8_split.split_obj8`` reads ``.anchor_bak`` — restore-before-
@@ -36,7 +38,13 @@ import typing as _t
 from ..model.planar import block_of
 from . import anchor_rule as _ar
 
-__all__ = ["block_rings", "part_blocks", "sever", "split_units"]
+__all__ = ["STRADDLE_KEY", "block_rings", "neighbours", "part_blocks",
+           "seat_unit", "sever", "split_units"]
+
+# counts key prefix naming a ringless body whose welded parts hold no strict
+# majority in one block (``<prefix><resource>@<unit id>``), the way
+# ``basin_ring`` names its arcs — a report, never a law value
+STRADDLE_KEY = "block_body_straddle:"
 
 
 def block_rings(pads: _t.Sequence[_ar.PadRing]
@@ -125,6 +133,147 @@ def sever(plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     return _dc.replace(plan, contacts=con, abutments=abu), ext, counts
 
 
+def _neighbours(plan: _t.Any) -> dict[int, set[int]]:
+    """``part id -> the part ids it is in ε-contact with`` over
+    ``plan.contacts`` (the severed plan: no pair crosses a neck)."""
+    out: dict[int, set[int]] = {}
+    for a, b in getattr(plan, "contacts", ()):
+        out.setdefault(a, set()).add(b)
+        out.setdefault(b, set()).add(a)
+    return out
+
+
+def _welded_votes(pids, nbr, of, body_of, direct, blocks) -> dict:
+    """``block -> how many DISTINCT parts outside the body ``pids`` it is
+    welded to stand in it`` — a welded part's block is where it stands
+    (``part_blocks``), else the block its own body stands on directly;
+    parts on no block of this unit do not vote."""
+    own = set(pids)
+    seen: set[int] = set()
+    votes: dict = {}
+    for q in pids:
+        for r in nbr.get(q, ()):
+            if r in own or r in seen:
+                continue
+            seen.add(r)
+            b = of.get(r)
+            if b is None:
+                b = direct.get(body_of.get(r))
+            if b is not None and b in blocks:
+                votes[b] = votes.get(b, 0) + 1
+    return votes
+
+
+def _majority(votes: _t.Mapping) -> "tuple[_t.Any, set]":
+    """``(the key holding a STRICT majority of ``votes`` or None, the keys
+    tied at the top)``."""
+    top = max(votes.values())
+    lead = {k for k, n in votes.items() if n == top}
+    if len(lead) == 1 and 2 * top > sum(votes.values()):
+        return next(iter(lead)), lead
+    return None, lead
+
+
+def _block_id(uid: str) -> "tuple[str, int] | None":
+    """``(footprint unit, block k)`` of a unit id :func:`split_units`
+    wrote (``<id>/b<k>``); None for any other id."""
+    head, sep, tail = str(uid).rpartition("/b")
+    if not sep or not head or not tail.isdigit():
+        return None
+    return head, int(tail)
+
+
+def seat_unit(pids: _t.Iterable[int], plan_wide: _t.Mapping[int, tuple],
+              welded: "_t.Mapping[int, _t.Iterable[int]] | None" = None,
+              feet: _t.Sequence[tuple] = (),
+              pads: _t.Sequence[_ar.PadRing] = (),
+              counts: "dict | None" = None, name: str = ""
+              ) -> "str | None":
+    """THE ONE UNIT a written group of parts (a staged ground group, a
+    placement candidate) is seated in, from the plan-wide part -> unit
+    join (``footprint_seats.plan_wide_seats``): the unit most of its
+    parts belong to, the first id breaking a tie — UNLESS its parts stand
+    on two or more BLOCKS of one cut unit (issue #126).  Then the group
+    joins the block holding the MAJORITY of the parts it is WELDED to
+    (``welded``: the plan's ε-contact graph BEFORE the neck sever,
+    :func:`neighbours`), its FEET breaking a tie; a group whose welded
+    parts hold no strict majority in one block STRADDLES the boundary
+    (flat-pad spec §7's STOP class): it is seated in the block holding the
+    most of them (feet, then part count, breaking a tie) and counted by
+    name (``STRADDLE_KEY``), never silently.
+
+    Measured at SPJC building5 (``fu:0:1``): ``xp11_010``'s 830 m sheet
+    (pid 25, centroid on b1, 136 welded parts all on b1 once the neck is
+    severed) and a 2-foot trinket 275 m off (pid 26, on b0) are ONE rigid
+    group; the part count tied 1:1 and the lexical tie-break seated the
+    sheet on b0, 2.87 m off its b1 neighbours 65 m from the neck.  The
+    sheet itself is welded 136 / 126 / 48 across b1 / b2 / b0 — a
+    straddler, seated on b1 and reported."""
+    hit: dict = {}
+    pids = tuple(pids)
+    for q in pids:
+        row = plan_wide.get(q)
+        if row is not None:
+            hit[row[0]] = hit.get(row[0], 0) + 1
+    if not hit:
+        return None
+    lead = max(sorted(hit), key=lambda k: hit[k])
+    blk = _block_id(lead)
+    if blk is None or not welded:
+        return lead
+    sib = {u for u in hit if (_block_id(u) or ("",))[0] == blk[0]}
+    if len(sib) < 2:
+        return lead
+    own = set(pids)
+    seen: set = set()
+    votes: dict = {}
+    for q in pids:
+        for r in welded.get(q, ()):
+            if r in own or r in seen:
+                continue
+            seen.add(r)
+            row = plan_wide.get(r)
+            if row is not None and (_block_id(row[0]) or ("",))[0] == blk[0]:
+                votes[row[0]] = votes.get(row[0], 0) + 1
+    # the seat is always a block the group has a part on (its datum row is
+    # read from the group's own pids); the majority is judged over EVERY
+    # block of the unit, so a weld into a third block still counts
+    cand = sib
+    if votes:
+        win = _majority(votes)[0]
+        if win is not None and win in sib:
+            if counts is not None and win != lead:
+                counts["block_groups_welded"] = \
+                    counts.get("block_groups_welded", 0) + 1
+            return win
+        if counts is not None:
+            tag = f"{STRADDLE_KEY}{name}@{blk[0]}"
+            counts[tag] = counts.get(tag, 0) + 1
+            counts["block_groups_straddle"] = \
+                counts.get("block_groups_straddle", 0) + 1
+        own_votes = {u: n for u, n in votes.items() if u in sib}
+        if own_votes:
+            cand = _majority(own_votes)[1]
+    # the tie-break: the block holding most of the group's FEET, then the
+    # part count, then the first id
+    rings = block_rings(pads) if feet and pads else []
+    fv: dict = {}
+    for f in feet:
+        b = _block_at(rings, float(f[0]), float(f[1])) if rings else None
+        if b is None:
+            continue
+        uid = f"{blk[0]}/b{b[1]}"
+        if uid in cand:
+            fv[uid] = fv.get(uid, 0) + 1
+    return max(sorted(cand), key=lambda k: (fv.get(k, 0), hit.get(k, 0)))
+
+
+def neighbours(plan: _t.Any) -> dict[int, set[int]]:
+    """``part id -> the part ids it is in ε-contact with`` over
+    ``plan.contacts``."""
+    return _neighbours(plan)
+
+
 def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
                 counts: "dict | None" = None) -> list:
     """Every §16g unit whose bodies stand on two or more blocks of ONE
@@ -146,7 +295,8 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     ky = 111_320.0
     kx = ky * _math.cos(_math.radians(rings[0][2][0][0])) if rings else ky
     out: list = []
-    n_split = n_near = 0
+    n_split = n_near = n_weld = n_strad = 0
+    nbr = _neighbours(plan)
     for un in units:
         per_body: dict = {}
         votes_all: dict = {}
@@ -164,15 +314,47 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
         if len(blocks) < 2 or len(units_of) != 1:
             out.append(un)
             continue
-        # a body on no block of the unit joins the block whose PLATFORM
-        # RING stands nearest ITS OWN FEET (spec-author RULINGS 2026-09-30u
-        # (iii): by the centroid, a long body 198 m from any neck was handed
-        # to the far block and stepped 3.85 m against its welded neighbour
-        # 1.3 m from the owner's T3 point)
-        for key, b in list(per_body.items()):
-            if b is not None:
+        # a body on no block of the unit joins the block holding the
+        # MAJORITY of its WELDED parts — the parts of OTHER bodies it is in
+        # ε-contact with (``plan.contacts``, already severed at the necks) —
+        # and only then the block whose PLATFORM RING stands nearest its own
+        # FEET (issue #126: SPJC ``xp11_010`` had its feet nearest b0 while
+        # every part it is welded to stands in b1, and was seated 2.87 m off
+        # them 65 m from the declared neck; spec-author RULINGS 2026-09-30u
+        # (iii) had replaced the centroid by the feet).  A body whose welded
+        # parts hold NO strict majority in one block STRADDLES the boundary
+        # (flat-pad spec §7's STOP class): it is seated by its feet among
+        # the tied blocks and REPORTED by name, never silently assigned.
+        direct = {k: b for k, b in per_body.items() if b is not None}
+        # a body resolved by its welds votes for the ringless bodies welded
+        # to IT (a chain of ringless facade bodies off one footed wall)
+        pending = [k for k, b in per_body.items() if b is None]
+        grew = True
+        while grew:
+            grew = False
+            for key in pending:
+                if key in direct:
+                    continue
+                welded = _welded_votes(bodies.get(key, ()), nbr, of, _of_pid,
+                                       direct, blocks)
+                win = _majority(welded)[0] if welded else None
+                if win is not None:
+                    per_body[key] = direct[key] = win
+                    n_weld += 1
+                    grew = True
+        for key in pending:
+            if key in direct:
                 continue
             pids = bodies.get(key, ())
+            welded = _welded_votes(pids, nbr, of, _of_pid, direct, blocks)
+            cand = blocks
+            if welded:
+                cand = _majority(welded)[1]
+                n_strad += 1
+                if counts is not None:
+                    res = plan.units[key[0]].members[key[1]].resource
+                    tag = f"{STRADDLE_KEY}{res}@{un.id}"
+                    counts[tag] = counts.get(tag, 0) + 1
             pts = [(f[0], f[1]) for q in pids if q in parts
                    for f in (getattr(parts[q], "feet", ()) or ())]
             if not pts:
@@ -181,7 +363,7 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
                 continue
             best = None
             for (unit, k), polys in plat.items():
-                if (unit, k) not in blocks:
+                if (unit, k) not in cand:
                     continue
                 d = min(g.distance(_Pt(lo * kx, la * ky)) for g in polys
                         for la, lo in pts)
@@ -208,4 +390,6 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     if counts is not None:
         counts["block_units_split"] = n_split
         counts["block_bodies_nearest"] = n_near
+        counts["block_bodies_welded"] = n_weld
+        counts["block_bodies_straddle"] = n_strad
     return out

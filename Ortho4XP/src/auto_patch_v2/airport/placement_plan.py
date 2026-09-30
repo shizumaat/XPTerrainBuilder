@@ -411,7 +411,10 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
 
 def _split_by_unit(groups: _t.Sequence[_t.Sequence[int]],
                    raw: _t.Sequence[_t.Any],
-                   plan_wide: _t.Mapping[int, tuple]
+                   plan_wide: _t.Mapping[int, tuple],
+                   welded: "_t.Mapping[int, _t.Iterable[int]] | None" = None,
+                   pads: _t.Sequence[_ar.PadRing] = (),
+                   counts: "dict | None" = None, name: str = ""
                    ) -> "tuple[list[list[int]], int]":
     """S6 (#30 / #10): cut every ground group along its bodies' §16g
     UNITS.  A body's unit is the unit most of its parts belong to
@@ -420,7 +423,10 @@ def _split_by_unit(groups: _t.Sequence[_t.Sequence[int]],
     group's largest unit piece (it has no unit to disagree with).  A group
     whose bodies name one unit, or none, is returned unchanged — so a
     plan with no unit is byte-identical.  Returns the groups and how many
-    extra groups the cut made."""
+    extra groups the cut made.  A body standing on two or more flat
+    BLOCKS of one cut unit takes ``pad_block_seat.seat_unit``'s block
+    (the majority of its WELDED parts, issue #126)."""
+    from .pad_block_seat import seat_unit as _seat_unit
     out: list[list[int]] = []
     n = 0
     for g in groups:
@@ -431,13 +437,10 @@ def _split_by_unit(groups: _t.Sequence[_t.Sequence[int]],
         by: dict[str, list[int]] = {}
         free: list[int] = []
         for i in g:
-            hit: dict[str, int] = {}
-            for p in raw[i][0]:
-                row = plan_wide.get(p.pid)
-                if row is not None:
-                    hit[row[0]] = hit.get(row[0], 0) + 1
-            if hit:
-                u = max(sorted(hit), key=lambda k: hit[k])
+            u = _seat_unit([p.pid for p in raw[i][0]], plan_wide, welded,
+                           raw[i][3] if welded and len(raw[i]) > 3 else (),
+                           pads, counts, name)
+            if u is not None:
                 by.setdefault(u, []).append(i)
             else:
                 free.append(i)
@@ -539,7 +542,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # contact pair straddling two blocks of one unit is dropped here, once,
     # so every reader below sees two bodies where the neck was
     from . import pad_block_seat as _pbs
+    # issue #126: the contact graph BEFORE the neck sever — a group welded
+    # across the neck is a straddler, and only the uncut graph can say so
+    _welded = _pbs.neighbours(plan)
     plan, abutments, _blk_counts = _pbs.sever(plan, pads, abutments)
+    if not _blk_counts.get("block_parts"):
+        _welded = None
     intra: dict[int, list[tuple[int, int]]] = {}
     member_of_pid: dict[int, tuple[int, int]] = {}
     for ui, u in enumerate(plan.units):
@@ -723,7 +731,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # file and §16g seated the whole file by its MAJORITY unit —
             # the minority's windows and doors went with the neighbour.
             if _pw:
-                bound, n_split = _split_by_unit(bound, raw, _pw)
+                bound, n_split = _split_by_unit(bound, raw, _pw, _welded,
+                                                pads, counts, st.m.resource)
                 if n_split:
                     counts["groups_split_by_unit"] = \
                         counts.get("groups_split_by_unit", 0) + n_split
@@ -817,7 +826,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             touch_m=touch_m, visual_m=bind_ground_m,
             cluster_min_m2=cluster_min_m2, connector_span_m=connector_span_m,
             plan_wide=_pw, cluster_of=(_clus if airside_floor else None),
-            airside_floor=airside_floor))
+            airside_floor=airside_floor, welded=_welded))
         # RULINGS 2026-09-29q (#98): a CUT connector's rail top and floor
         # ride the DECK — the authored unit's own body — never the station
         # unit the §16c (7) contact bind above handed them to

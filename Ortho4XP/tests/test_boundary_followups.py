@@ -425,6 +425,11 @@ def test_skip_is_absent_from_tasks_and_the_manifest(tmp_path, monkeypatch):
     from auto_patch import cifp_reader as _cifp
     from test_auto_patch_freshness import _make_apt_dat, _stub_the_engine
 
+    # The driver's airports-OSM prefetch is a live Overpass POST for a tile
+    # no fixture caches (issue #122, refused by the suite's network guard);
+    # the engine is stubbed, nothing reads that cache.
+    monkeypatch.setattr(build_support, "ensure_airports_osm_tile_cached",
+                        lambda tile_latitude, tile_longitude: False)
     failed = []
     monkeypatch.setattr(UI, "auto_patch_failed",
                         lambda icao, stage, error: failed.append(icao))

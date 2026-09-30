@@ -270,7 +270,7 @@ def _build_synthetic(dest: Path, capture_dir: Path | None):
     return layout, patch
 
 
-def test_a_synthetic_airport_replays_byte_identically(tmp_path):
+def test_a_synthetic_airport_replays_byte_identically(tmp_path, monkeypatch):
     """THE acceptance, in miniature: replay(capture(build)) == build.
 
     Byte-identity of the patch BODY is the perf phase's gate (RULINGS
@@ -281,6 +281,16 @@ def test_a_synthetic_airport_replays_byte_identically(tmp_path):
     from build_airport import body_sha256
     from auto_patch import solve_capture as sc
 
+    # The build's airports-OSM fallback is a LIVE Overpass download when the
+    # tile's cache is absent (every CI runner): it hung Windows CI to the
+    # 600 s timeout (issue #122).  Cache-only: the corpus's file when it is
+    # there, nothing when it is not — build and replay see the same input.
+    import O4_File_Names as FNAMES_FOR_CACHE
+    from auto_patch import osm_load
+    monkeypatch.setattr(
+        osm_load, "ensure_airports_osm_tile_cached",
+        lambda lat, lon: os.path.isfile(
+            FNAMES_FOR_CACHE.osm_cached(lat, lon, "airports")))
     cap = tmp_path / "capture"
     _layout, built = _build_synthetic(tmp_path / "build", cap)
     capture_dir = cap / SYNTHETIC_ICAO

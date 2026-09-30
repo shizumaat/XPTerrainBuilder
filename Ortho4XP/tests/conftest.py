@@ -993,6 +993,13 @@ def _osm_regional_extract_store_is_a_lane_local_overlay(tmp_path_factory):
         mirror_tree_as_overlay(shared, overlay)
     previous = EXTRACTS.STORE_DIRECTORY
     EXTRACTS.STORE_DIRECTORY = overlay
+    # The APPLICATION's extract-maintenance thread (Geofabrik index refresh
+    # + region downloads) is started by the Qt window under test; in the
+    # suite it is a live download on a daemon thread that outlives its test
+    # (issue #122: the network guard booked it against test_qt_about).  The
+    # started-flag is what start_background_maintenance checks: set, the
+    # suite never starts it.  No test exercises the thread itself.
+    EXTRACTS._maintenance_started.set()
     _LANE_OSM_EXTRACT_STORE_DIR = overlay
     try:
         yield

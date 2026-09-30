@@ -701,6 +701,10 @@ def test_full_sea_square_written_when_depth_ramp_nonzero(
     monkeypatch.setattr(
         BATHYBAND, "ensure_bathymetry_band", lambda tile, **keyword_arguments: raster_path
     )
+    # The shallow-water fallback (reef / tidal flat) is a live Geofabrik +
+    # Overpass download (issue #122, refused by the suite's network guard);
+    # None is its "download failed, category skipped" outcome.
+    monkeypatch.setattr(MASK, "load_shallow_water_polygons", lambda tile: None)
 
     MASK.build_masks(tile)
 

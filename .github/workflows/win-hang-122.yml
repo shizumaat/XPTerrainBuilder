@@ -30,7 +30,11 @@ name: Windows hang probe (issue #122)
 # frame, every time, a LIVE Overpass POST (O4_OSM_Utils.send_request in
 # ssl.read) reached from the inset footprint mask and the airports-tile
 # prefetch.  The fix is tests/conftest.py's network guard; this probe is kept
-# as the Windows loop that shows it green.
+# as the Windows loop that shows it green.  Run 36746924420 (guard, first
+# stubs): no hang anywhere — the full Windows suite finished in 10m30s — and
+# the guard named the remaining reaches in seconds (solve_capture's synthetic
+# build, boundary_followups, bathymetry's shallow-water fallback, the Qt
+# app's extract-maintenance thread), each then stubbed.
 on:
   workflow_dispatch:
     inputs:

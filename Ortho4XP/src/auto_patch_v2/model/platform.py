@@ -148,10 +148,19 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
             vs = own.get(ref, set())
             if not (vs & air):
                 continue
-            # its datum column is one of its OWN vertices, never a weld
+            # its datum column is one of its OWN vertices, never a weld —
+            # the one FARTHEST from its welded rim (ties: lowest id), so no
+            # pad row reaching an airside vertex (a 5 % ceiling pair over a
+            # rim edge) is pulled into stage 1 through it (measured HECA: a
+            # rim datum made two §20 pads' ceilings an infeasible stage-1 set)
             inner = sorted(vs - set(air))
             if inner:
-                out[ref] = inner[0]
+                wx = [planar.vertices[v].xy for v in vs & set(air)]
+
+                def _far(v: int) -> tuple[float, int]:
+                    x, y = planar.vertices[v].xy
+                    return (-min((x - a) ** 2 + (y - b) ** 2 for a, b in wx), v)
+                out[ref] = min(inner, key=_far)
             continue
         if not (col.get(ref, set()) & air):
             continue

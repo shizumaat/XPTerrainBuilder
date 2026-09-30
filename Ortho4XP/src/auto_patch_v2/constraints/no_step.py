@@ -453,19 +453,25 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                                 "its pair-graph interval: flat-pad spec v2 §2, "
                                 "RULINGS 2026-09-30y (2) / 30as)",
                                 (pref, f"platform:{pref}"))))
+    # EVERY runway of a hold-bearing airport carries its Bands (§1 (3)-(4):
+    # "beta_R ... 0 for a runway no route reaches", "at most 2 x 2,610" =
+    # every HECA runway column; A1 (c): a runway with beta_R = 0 moves 0) —
+    # an UNPULLED runway is held at its pass-1a value, a pulled one within
+    # its budget
     columns: dict[str, dict[int, float]] = {}
     seen: dict[str, set[int]] = {}
     for v in sorted(rw_v):
         for r in member[v]:
-            if beta.get(r, 0.0) > 0.0 and rw_cols[v] not in seen.setdefault(r, set()):
+            if rw_cols[v] not in seen.setdefault(r, set()):
                 seen[r].add(rw_cols[v])
                 columns.setdefault(r, {})[v] = float(z1a[v])
     for r, cmap in columns.items():
+        br = beta.get(r, 0.0)
         src = Source(FLEX_GEN, FLEX_RULING + f" (flat-pad spec v2 §1 (4), RULINGS "
                      f"2026-09-30as: runway {r} flexes at most beta_R = "
                      f"runway_flex_share x its pulling route's lift)", (r,))
         for v, z in cmap.items():
-            rows.append(Band(v, z - beta[r], z + beta[r], src))
+            rows.append(Band(v, z - br, z + br, src))
     runways: dict[str, dict] = {}
     for r, (lam, pref, c) in sorted(lift.items()):
         path = near.binding(c, "hi")
@@ -553,7 +559,9 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                  held=sum(1 for b in blocks.values() if b["held"]),
                  held_eval_ii=sum(1 for b in blocks.values() if b["eval"] == "ii"),
                  residual=sum(1 for b in blocks.values() if not b["held"]),
-                 runway_bands=sum(len(c) for c in columns.values()))
+                 runway_bands=sum(len(c) for c in columns.values()),
+                 runway_bands_unpulled=sum(len(c) for r, c in columns.items()
+                                           if beta.get(r, 0.0) <= 0.0))
     return HoldInterval(rows, blocks, runways, columns, stats, fronting)
 
 

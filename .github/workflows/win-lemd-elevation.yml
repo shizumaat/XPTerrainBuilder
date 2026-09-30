@@ -13,7 +13,7 @@ name: Windows LEMD elevation (issue #121)
 #
 # A workflow_dispatch workflow is only dispatchable once it is on the default
 # branch; until then a push to the lane branch touching these files runs it
-# with the defaults below.
+# the HOSTILE arm only (arms A and B were measured on the first push).
 on:
   push:
     branches: ["claude/win121"]
@@ -30,8 +30,8 @@ on:
         description: "Release whose -win.zip is arm A"
         default: "v1.0.350-beta.1"
       arms:
-        description: "shipped, fresh or both"
-        default: "both"
+        description: "comma list of shipped, fresh, hostile (or both = shipped,fresh)"
+        default: "shipped,fresh"
 
 env:
   PYTHON_VERSION: "3.13"   # matches the vendored cp313 wheels in Utils/
@@ -40,7 +40,7 @@ env:
 jobs:
   shipped:
     name: "arm A: shipped release"
-    if: (inputs.arms || 'both') == 'shipped' || (inputs.arms || 'both') == 'both'
+    if: contains(format(',{0},', inputs.arms || 'hostile'), ',shipped,') || inputs.arms == 'both'
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -76,7 +76,7 @@ jobs:
 
   fresh:
     name: "arm B: fresh freeze of ${{ github.ref_name }}"
-    if: (inputs.arms || 'both') == 'fresh' || (inputs.arms || 'both') == 'both'
+    if: contains(format(',{0},', inputs.arms || 'hostile'), ',fresh,') || inputs.arms == 'both'
     runs-on: windows-latest
     timeout-minutes: 60
     defaults:
@@ -124,5 +124,57 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lemd-elevation-fresh
+          path: ${{ runner.temp }}/lemd-logs
+          if-no-files-found: ignore
+
+  # INTERVENTIONAL arm (not a reproduction): the SHIPPED exe with TLS
+  # verification broken the way a TLS-intercepting antivirus / proxy or a
+  # damaged root store breaks it — CURL_CA_BUNDLE names a CA file holding
+  # only a freshly minted self-signed root, which both GDAL's libcurl
+  # (Schannel honours CURLOPT_CAINFO) and `requests` obey.  The question
+  # it answers is the scout's: does a transport/certificate failure on the
+  # inset fetch become a DURABLE no-coverage record and an exit-0 build on
+  # the base DEM?  The pass is EXPECTED to fail; its log is the evidence.
+  hostile:
+    name: "arm H: shipped release, TLS verification broken"
+    if: contains(format(',{0},', inputs.arms || 'hostile'), ',hostile,')
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the shipped Windows zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" -p '*-win.zip' -D "$RUNNER_TEMP/rel"
+          cd "$RUNNER_TEMP/rel" && 7z x -y *-win.zip > /dev/null && ls
+
+      - name: Mint an unrelated self-signed root
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+            -subj "/CN=win121 hostile root" \
+            -keyout "$RUNNER_TEMP/hostile.key" -out "$RUNNER_TEMP/hostile-ca.pem"
+          echo "CURL_CA_BUNDLE=$(cygpath -w "$RUNNER_TEMP/hostile-ca.pem")" >> "$GITHUB_ENV"
+
+      - name: Pre-flight probes (under the hostile CA bundle)
+        run: bash scripts/win_lemd_preflight.sh "$RUNNER_TEMP/rel/XPTerrainBuilder" "$RUNNER_TEMP/lemd-logs"
+
+      - name: LEMD elevation through the shipped exe, TLS broken (expected red)
+        continue-on-error: true
+        run: |
+          python scripts/check_frozen_tile.py \
+            "$RUNNER_TEMP/rel/XPTerrainBuilder/XPTerrainBuilder.exe" \
+            --pass lemd-elevation --deadline 900 \
+            --logs "$RUNNER_TEMP/lemd-logs"
+
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lemd-elevation-hostile
           path: ${{ runner.temp }}/lemd-logs
           if-no-files-found: ignore

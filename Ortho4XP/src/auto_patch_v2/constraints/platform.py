@@ -629,10 +629,16 @@ def platform_records(planar: PlanarMap, law: Law,
                 # spec-author RULINGS 2026-09-30u (c): the HELD contacts and
                 # the UNHELD (ramp / residual) ones reported apart — never a
                 # silent class
+                mg = float(law.tables.structures.building_pad.frontage_hold_margin_m)
                 held_v = {v for v, _r in (h.get("hold_contacts") or ())}
                 hm = np.array([abs(float(z[v]) - D) for v in weld if v in held_v])
                 um = [(abs(float(z[v]) - D), v) for v in weld if v not in held_v]
                 mg = float(law.tables.structures.building_pad.frontage_hold_margin_m)
+                # 30u (b): the mint's band is a proxy, never a certificate —
+                # the SOLVED verdict: every held contact on the datum, or
+                # the block is a RESIDUAL (reported, the owner reads it)
+                rec["hold_verdict"] = ("held" if hm.size and not int((hm > mg).sum())
+                                       and not um else "residual")
                 rec.update({"held_contacts": int(hm.size),
                             "held_miss_max_m": round(float(hm.max()), 3) if hm.size else None,
                             "held_over_margin": int((hm > mg).sum()) if hm.size else 0,

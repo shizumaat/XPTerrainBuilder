@@ -11247,7 +11247,7 @@ def test_the_foot_row_head_is_in_both_registers():
 def test_the_runway_step_floor_is_one_number_in_both_instruments(cg):
     """§40 (5) (4) (Fable 2026-09-15; owner RULINGS 2026-09-15az).  The v2
     verify reader states the ruled allowance ``max(runway_step_m,
-    runway_transverse_cap x d)``; the harness runs the SAME two step
+    runway_shoulder_cap x d)``; the harness runs the SAME two step
     readers at a flat ``runway_step_m``.  They are the same number because
     a step row exists only within the contact tolerance, where the cap term
     is always under the floor — asserted here so a later change to either

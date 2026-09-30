@@ -262,29 +262,31 @@ def test_apron_cover_below_the_floor_leaves_the_corridor(law, rules):
 
 # ── 5. the shoulder keeps the datum and takes its own cross-slope ────────
 
-def test_the_shoulder_cap_is_one_reading(law):
-    """§40 (2) as amended (owner RULINGS 2026-09-13dd): inside the
-    runway's own half width the law is the RUNWAY's transverse maximum;
-    beyond it, the SHOULDER's.  One accessor
-    (``law.tables.runway_transverse_cap``) — the generator, the v2 verify
-    reader and the v1 census all price through it, so the three cannot
-    disagree about where the runway ends."""
-    from auto_patch_v2.law.tables import (runway_transverse_cap,
+def test_the_shoulder_bound_is_one_reading(law):
+    """§40 (2) as amended (owner RULINGS 2026-09-13dd) and RULINGS
+    2026-09-30ak: over the runway's own half width the law is the
+    RUNWAY's transverse maximum; the distance BEYOND it takes the
+    SHOULDER's.  One continuous accessor
+    (``law.tables.runway_transverse_bound``, metres) — the generator and
+    the v2 verify reader both price through it."""
+    from auto_patch_v2.law.tables import (runway_shoulder_cap,
+                                          runway_transverse_bound,
                                           runway_transverse_max)
     rwy = runway_transverse_max(law, "F", 4)
     shoulder = law.ruleset.runway.shoulder_transverse_max
     assert shoulder == 0.025 and rwy == 0.015
-    assert runway_transverse_cap(law, 0.0, 30.0, "F", 4) == rwy
-    assert runway_transverse_cap(law, 30.0, 30.0, "F", 4) == rwy   # ON the edge
-    assert runway_transverse_cap(law, 30.01, 30.0, "F", 4) == shoulder
-    assert runway_transverse_cap(law, 204.9, 30.0, "F", 4) == shoulder
-    # HECA's two round-1 rows pass at the shoulder cap and failed at the
-    # runway's: 1.5287 % at 108.665 m and 1.5233 % at 204.872 m
+    assert runway_shoulder_cap(law, "F", 4) == shoulder
+    assert runway_transverse_bound(law, 0.0, 30.0, "F", 4) == 0.0
+    assert runway_transverse_bound(law, 30.0, 30.0, "F", 4) == pytest.approx(rwy * 30.0)
+    assert runway_transverse_bound(law, 30.01, 30.0, "F", 4) == \
+        pytest.approx(rwy * 30.0 + shoulder * 0.01)
+    # HECA's two round-1 rows pass under the bound and failed at the
+    # runway's flat cap: 1.5287 % at 108.665 m and 1.5233 % at 204.872 m
     for grade, d in ((0.015287, 108.665), (0.015233, 204.872)):
-        assert grade > runway_transverse_cap(law, d, 30.0, "F", 4) * 0 + rwy
-        assert grade <= runway_transverse_cap(law, d, 30.0, "F", 4)
+        assert grade * d > rwy * d
+        assert grade * d <= runway_transverse_bound(law, d, 30.0, "F", 4)
     # no geometry (a patch that published no half width) keeps the runway
-    assert runway_transverse_cap(law, 500.0, 0.0, "F", 4) == rwy
+    assert runway_transverse_bound(law, 500.0, 0.0, "F", 4) == pytest.approx(rwy * 500.0)
 
 
 def test_the_census_reads_the_shoulder_line_from_the_sidecar(tmp_path):

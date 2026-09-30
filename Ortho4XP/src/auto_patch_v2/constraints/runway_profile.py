@@ -65,7 +65,7 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import (role_cap, runway_end_zone_length_m,
-                          runway_transverse_cap,
+                          runway_transverse_bound,
                           runway_transverse_max, runway_vertical_curve_bound)
 from ..model.airport import Airport
 from ..model.constraints import Band, Diff, Linear, Pin, Row, Source
@@ -573,15 +573,15 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                 continue
             done.add(v)
             d, a, b, t = ft
-            # §40 (2) as amended: the runway's 1.5 % inside its own
-            # half-width, the SHOULDER's 2.5 % beyond it — the one reading
-            # (``law.tables.runway_transverse_cap``) the verify and the v1
-            # census price through as well
-            cap = runway_transverse_cap(law, d, half, f.code_letter,
-                                        f.code_number)
-            if cap is None:
+            # §40 (2) as amended (13dd) and RULINGS 2026-09-30ak: the
+            # runway's cross-fall over its own half-width, the SHOULDER's
+            # only for the distance beyond it — ONE continuous bound in
+            # metres (``law.tables.runway_transverse_bound``), the reading
+            # the verify prices through as well
+            bound = runway_transverse_bound(law, d, half, f.code_letter,
+                                            f.code_number)
+            if bound is None:
                 continue
-            bound = cap * d
             if t <= 0.0:
                 terms = ((a, 1.0), (v, -1.0))
             elif t >= 1.0:

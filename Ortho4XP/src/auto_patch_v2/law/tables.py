@@ -25,7 +25,8 @@ __all__ = [
     "Cockpit", "cockpit", "cliff_grade", "rolled_on_roles",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "tier_of_roles", "role_preferred_cap",
-    "runway_transverse_max", "runway_vertical_curve_bound", "strip_transverse_bound",
+    "runway_transverse_max", "runway_transverse_bound", "runway_shoulder_cap",
+    "runway_vertical_curve_bound", "strip_transverse_bound",
     "taxi_half_width_m",
     "flat_site", "flat_datum_group", "flat_declared",
     "flat_source_class", "flat_relief_floor_m", "design",
@@ -259,29 +260,54 @@ def runway_transverse_max(law: Law, code_letter: str | None,
     return law.ruleset.runway.transverse_max.value(code_number, code_letter)
 
 
-def runway_transverse_cap(law: Law, lateral_m: float, half_width_m: float,
-                          code_letter: str | None,
-                          code_number: int | None = None) -> float | None:
-    """THE ONE READING of a runway-family vertex's transverse cap (§40 (2)
-    as amended, owner RULINGS 2026-09-13dd).
-
-    Inside the runway's own half-width the law is the RUNWAY's
-    (``transverse_max``, §3.1.18).  Beyond it the vertex is a SHOULDER
-    vertex — pavement that joined the runway body under §40 (1) — and the
-    law is the SHOULDER's (``shoulder_transverse_max``, Annex 14 §3.2.4):
-    the shoulder keeps the runway's DATUM, not its cross-fall.  The
-    generator (``constraints.runway_profile.runway_transverse``), the v2
-    verify reader and the v1 census all price through this one function,
-    so the three instruments cannot disagree about where the runway ends.
-
-    ``half_width_m <= 0`` (no runway geometry) keeps the runway cap."""
+def runway_shoulder_cap(law: Law, code_letter: str | None,
+                        code_number: int | None = None) -> float | None:
+    """The SHOULDER's transverse maximum as the table states it
+    (``rulesets.<authority>.runway.shoulder_transverse_max``, Annex 14
+    §3.2.4; §40 (2) as amended, owner RULINGS 2026-09-13dd), never below
+    the runway's own ``transverse_max`` for the code.  Read by
+    :func:`runway_transverse_bound` beyond the half-width and by the
+    ``runway_step`` allowance (``verify.runway.runway_step``), which keeps
+    the table cap (RULINGS 2026-09-30ak)."""
     cap = law.ruleset.runway.transverse_max.value(code_number, code_letter)
-    if half_width_m <= 0.0 or lateral_m <= half_width_m:
-        return cap
     shoulder = law.ruleset.runway.shoulder_transverse_max
     if cap is None:
         return shoulder
     return max(cap, shoulder)
+
+
+def runway_transverse_bound(law: Law, lateral_m: float, half_width_m: float,
+                            code_letter: str | None,
+                            code_number: int | None = None) -> float | None:
+    """THE ONE READING of the lawful transverse fall (or rise, 05o) of a
+    runway-family vertex at lateral distance ``d = lateral_m`` from its
+    own ridge, in METRES (§40 (2) as amended by 2026-09-13dd; RULINGS
+    2026-09-30ak, issue #134):
+
+        bound(d) = cap_rw · min(d, half) + cap_sh · max(0, d − half)
+
+    — the runway's cross-fall (``transverse_max``, §3.1.18) over its own
+    half-width, the SHOULDER's (:func:`runway_shoulder_cap`, Annex 14
+    §3.2.4 / AC 150/5300-13B §3.13) only for the distance BEYOND it: the
+    shoulder is flush with the runway edge and takes its own slope FROM
+    the edge.  CONTINUOUS in ``d`` — the cap it replaces
+    (``lateral_m <= half_width_m`` picking one of two slopes for the
+    whole ``d``) was a step function, and the generator's planar frame
+    and the verify's emitted crown spine, 1.4 cm apart, priced one KASE
+    vertex 0.20 m apart.  The generator
+    (``constraints.runway_profile.runway_transverse``) and the v2 verify
+    (``verify.runway.runway_transverse``) both call it; no side predicate.
+
+    ``half_width_m <= 0`` (no runway geometry) prices the whole ``d`` at
+    the runway cap; ``None`` where the authority states no runway cap."""
+    cap = law.ruleset.runway.transverse_max.value(code_number, code_letter)
+    if cap is None:
+        return None
+    d = max(0.0, float(lateral_m))
+    if half_width_m <= 0.0 or d <= half_width_m:
+        return cap * d
+    sh = runway_shoulder_cap(law, code_letter, code_number)
+    return cap * half_width_m + sh * (d - half_width_m)
 
 
 def authority_rank(law: Law, role: str) -> int:

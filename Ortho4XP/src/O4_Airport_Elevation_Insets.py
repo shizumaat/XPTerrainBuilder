@@ -389,6 +389,30 @@ _TRANSIENT_NETWORK_ERROR_FRAGMENTS = (
     "http error code : 429",
     "http error code: 429",
     "too many requests",
+    # TRANSPORT SECURITY (issue #121, lane win121).  A TLS handshake or a
+    # certificate verification that fails says the CLIENT could not talk
+    # to the server -- a TLS-intercepting antivirus or proxy, a damaged or
+    # stale root store, a clock off by a year -- and NOTHING about
+    # coverage.  Measured on the shipped beta.1 exe on windows-latest
+    # with an unrelated CA bundle (run 36661272964): GDAL's libcurl
+    # (Schannel) said "schannel: the certificate or certificate chain is
+    # based on an untrusted root", ``requests`` said "SSLError(...
+    # CERTIFICATE_VERIFY_FAILED ...)", and BOTH became a DURABLE
+    # SPAIN5M / COPERNICUSGLO30 "no-coverage" that no later run re-asked.
+    "schannel",
+    "ssl",
+    "certificate",
+    "sec_e_",
+    "crypt_e_",
+    # ``requests``/urllib3 connection-establishment failures (DNS, refused,
+    # proxy): no HTTP answer was ever received.
+    "max retries exceeded",
+    "failed to establish a new connection",
+    "name or service not known",
+    "getaddrinfo failed",
+    "nameresolutionerror",
+    "proxyerror",
+    "unable to connect to proxy",
 )
 
 
@@ -5867,6 +5891,16 @@ class DegreeNamedCogStrategy:
         try:
             response = requests.head(url, timeout=30)
         except Exception as error:
+            # A probe that got NO HTTP answer says nothing about whether
+            # the cell exists: the module-wide classifier decides, and a
+            # transport failure RAISES (never a durable no-coverage
+            # negative -- issue #121, the Copernicus probe under a broken
+            # TLS stack recorded COPERNICUSGLO30 "no-coverage").
+            if error_message_indicates_transient_network_failure(error):
+                raise TransientFetchError(
+                    "existence probe for %s died on the transport: %s"
+                    % (url, error)
+                ) from error
             UI.vprint(
                 1,
                 "   WARNING: existence probe failed for",
@@ -7483,6 +7517,7 @@ def ensure_airport_insets(
     refresh=False,
     fetch_counter=None,
     meter_key="airport-insets",
+    fetch_failures=None,
 ):
     """Ensure a cached inset exists for each airport, per provider ranking.
 
@@ -7514,7 +7549,10 @@ def ensure_airport_insets(
     ``fetch_counter`` (optional one-element list) is incremented once per
     network fetch ATTEMPTED — successful, no-coverage or raised alike, since
     each spends download wall time the build-time budgets exclude
-    (``tools/check_build_time.py``).  A fully warm-cache pass leaves it at
+    (``tools/check_build_time.py``).  ``fetch_failures`` (optional list)
+    receives one ``(airport, provider code, error text)`` per fetch that
+    RAISED -- the failures that left no durable answer -- so the caller
+    can SURFACE them (issue #121) instead of settling a warm-looking pass.  A fully warm-cache pass leaves it at
     zero.
 
     Returns the updated index dictionary.  Strategy-agnostic: it only calls
@@ -7813,6 +7851,8 @@ def ensure_airport_insets(
                     str(error),
                     "- it will be retried on the next run.",
                 )
+                if fetch_failures is not None:
+                    fetch_failures.append((icao, code, str(error)))
             finally:
                 slow_note.cancel()
             if provenance is None:
@@ -8748,6 +8788,7 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
         getattr(tile, "airport_elevation_level", "auto")
     )
     fetch_counter = [0]
+    fetch_failures = []
     # Only a NEIGHBOUR pass names its own meter key; the home pass keeps
     # the historic call shape.
     extra = {} if meter_key == "airport-insets" else {"meter_key": meter_key}
@@ -8760,17 +8801,37 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
             resolution_m,
             refresh=refresh,
             fetch_counter=fetch_counter,
+            fetch_failures=fetch_failures,
             **extra,
         )
     except Exception as error:
-        # Never let inset fetching abort a build (G4 safety).
-        UI.vprint(
-            1,
-            "   WARNING: airport elevation inset fetch raised",
-            str(error),
-            "- continuing without insets.",
-        )
+        # Never let inset fetching abort a build (G4 safety) -- but never
+        # let it pass QUIETLY either (issue #121): the loud channel
+        # reaches the app's log pane (a Log warning event) and
+        # Ortho4XP.log, not only the console drawer.
+        UI.loud_warning(
+            "   WARNING: airport elevation inset fetch for tile %+03d%+04d "
+            "raised %s: %s - continuing without insets; the frame is NOT "
+            "warm and the next build retries it."
+            % (tile.lat, tile.lon, type(error).__name__, error))
     else:
+        if fetch_failures:
+            # THE FETCH FAILED ON TRANSPORT (or crashed) for these
+            # providers: nothing durable was recorded for them, so the
+            # pass is NOT settled -- no completion stamp, and the frame
+            # check (:func:`airport_inset_frame_problem`) reads the
+            # unanswered provider as a MISSING inset, never as a warm
+            # "no provider covers it".  Named, provider by provider, on
+            # the loud channel (issue #121: every such line used to reach
+            # the console drawer only, and the build exited 0 on the base
+            # DEM).
+            for (icao, code, text) in fetch_failures:
+                UI.loud_warning(
+                    "   WARNING: airport elevation inset for %s from %s "
+                    "FAILED (%s) - this build uses NO inset from %s; check "
+                    "the network / TLS (antivirus or proxy HTTPS "
+                    "inspection) and rebuild." % (icao, code, text, code))
+            return
         # The pass settled every airport against every provider without
         # raising: nothing is left to fetch for THIS configuration, so
         # stamp it for the scheduler's fetch-admission predicate
@@ -10659,6 +10720,40 @@ def airport_has_inset_index_record(lat, lon, icao):
                for key in _read_index(lat, lon))
 
 
+def unanswered_inset_providers(lat, lon, icao, required_box,
+                               providers_config="auto"):
+    """The provider codes whose declared coverage reaches ``required_box``
+    but whose answer for ``icao`` is ABSENT from the tile's index record.
+
+    A raised fetch -- a transport or TLS failure, a strategy crash --
+    deliberately records nothing (:class:`TransientFetchError`), so an
+    absent status is exactly "this provider was asked and never
+    answered".  A record holding ``no-coverage`` from every covering
+    provider is a lawful absence; one with a covering provider MISSING is
+    a cold frame dressed as a warm one (issue #121).
+    """
+    wanted = str(icao).upper()
+    record = None
+    for (key, value) in _read_index(lat, lon).items():
+        if str(key).upper() == wanted:
+            record = value
+            break
+    if not isinstance(record, dict):
+        return []
+    statuses = provider_statuses(record)
+    unanswered = []
+    # Walk in the FETCH LOOP's ranking: it stops at the first ``ok``, so a
+    # provider ranked below one is never asked and its absence is lawful.
+    for definition in select_provider_definitions(providers_config):
+        status = statuses.get(definition["code"])
+        if status == "ok":
+            break
+        if status is None and _coverage_bbox_intersects(definition,
+                                                        required_box):
+            unanswered.append(definition["code"])
+    return unanswered
+
+
 def airport_inset_frame_problem(lat, lon, icao, required_box,
                                 providers_config="auto"):
     """Why THIS airport's elevation inset cannot serve a build over
@@ -10671,7 +10766,10 @@ def airport_inset_frame_problem(lat, lon, icao, required_box,
     drift apart.
 
     ``("missing", ...)``  no raster for this airport AND no index record
-                          -- nothing has ever asked this provider chain.
+                          -- nothing has ever asked this provider chain;
+                          OR a record in which a provider covering the
+                          airport has NO answer (its fetch raised and
+                          recorded nothing -- issue #121).
     ``("stale", ...)``    the highest-ranked cached raster was cut for a
                           box that no longer contains what is required
                           (:func:`inset_recut_is_needed`, THE RE-CUT
@@ -10691,7 +10789,22 @@ def airport_inset_frame_problem(lat, lon, icao, required_box,
     paths = cached_inset_paths_for_icao(lat, lon, icao, providers_config)
     if not paths:
         if airport_has_inset_index_record(lat, lon, icao):
-            return None            # every provider answered no-coverage
+            # A record and no raster is lawful ONLY when every provider
+            # that covers the airport gave a DURABLE answer.  One that
+            # never answered (its fetch raised: transport, TLS, a crash)
+            # leaves no status, and reading that as "no provider covers
+            # it" is the silent degrade of issue #121.
+            unanswered = unanswered_inset_providers(
+                lat, lon, icao, required_box, providers_config)
+            if not unanswered:
+                return None        # every provider answered no-coverage
+            return ("missing",
+                    "NO airport elevation inset for %s in %s: provider(s) "
+                    "%s cover it but NEVER ANSWERED (the last fetch failed "
+                    "on the network/TLS or crashed, and recorded nothing) "
+                    "-- the build would re-fetch it (--refresh-data dem)"
+                    % (icao, FNAMES.airport_inset_directory(lat, lon),
+                       ", ".join(unanswered)))
         return ("missing",
                 "NO airport elevation inset for %s in %s, and no index "
                 "record either — this airport's provider chain has never "

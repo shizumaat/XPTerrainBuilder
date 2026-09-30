@@ -1310,7 +1310,8 @@ def test_ensure_insets_for_tile_reads_airport_elevation_level(monkeypatch):
     recorded = []
 
     def _fake_ensure_airport_insets(lat, lon, boxes, defs, resolution_m,
-                                    refresh=False, fetch_counter=None):
+                                    refresh=False, fetch_counter=None,
+                                    fetch_failures=None):
         recorded.append(resolution_m)
         if fetch_counter is not None:
             fetch_counter[0] += 2

@@ -31,10 +31,20 @@ if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
     import O4_Proj_Runtime
 
     O4_Proj_Runtime.pin_frozen_proj(sys._MEIPASS)
+    # HTTPS through Python trusts the OS root store, as GDAL's Schannel
+    # curl already does (issue #121).  ``--no-truststore`` exists only as
+    # the before-arm of ``--tls-selfcheck``.
+    if not ("--tls-selfcheck" in sys.argv and "--no-truststore" in sys.argv):
+        O4_Proj_Runtime.trust_system_certificate_store()
     _lib_path = os.path.join(sys._MEIPASS, "_internal")
     os.environ["DYLD_LIBRARY_PATH"] = (
         _lib_path + ":" + os.environ.get("DYLD_LIBRARY_PATH", "")
     )
+
+# TLS self-check as a CLI (issue #121): both HTTPS stacks against one URL.
+if __name__ == "__main__" and "--tls-selfcheck" in sys.argv:
+    import O4_Proj_Runtime
+    sys.exit(O4_Proj_Runtime.tls_selfcheck_main(sys.argv))
 
 # PROJ self-check as a CLI: exits 0 healthy / 1 broken, ahead of every heavy
 # import (Qt included) so a broken bundle is diagnosable without loading the

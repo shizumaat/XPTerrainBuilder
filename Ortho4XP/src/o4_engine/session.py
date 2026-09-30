@@ -1147,7 +1147,7 @@ class EngineSession:
                          "insets_fetched": int(getattr(
                              tile, "insets_fetched_last_build", 0) or 0)},
                         step_seconds)
-            except Exception:
+            except Exception as step_error:
                 import traceback
                 # The traceback goes to the LOG FILE as well as the
                 # console: a worker child's stderr reaches only the front
@@ -1162,9 +1162,16 @@ class EngineSession:
                     self._eta.tile_terminal((lat, lon))
                 self._emit(TileState(lat=lat, lon=lon, state="error",
                                      label="failed"))
+                # The exception's own sentence rides on BuildDone: a
+                # REFUSAL (issue #121: a base elevation download that
+                # failed on the transport) names the source, the URL and
+                # the error, and that is what the app must show — not
+                # "see the console log", which the Qt app never persists.
                 self._emit(BuildDone(
                     lat=lat, lon=lon, ok=False,
-                    error="crashed with an exception (see the console log)"))
+                    error="crashed with an exception (see the console "
+                          "log): %s: %s" % (type(step_error).__name__,
+                                            step_error)))
         cancelled = bool(UI.red_flag)
         if not run_completed:
             with self._work_queue_lock:

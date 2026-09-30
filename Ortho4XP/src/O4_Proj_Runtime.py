@@ -172,3 +172,108 @@ def preflight() -> str | None:
 def refuse_reason() -> str | None:
     """Return the diagnostic pipeline steps must refuse with, else ``None``."""
     return PREFLIGHT_ERROR
+
+
+# ---------------------------------------------------------------------------
+# THE SYSTEM TRUST STORE (issue #121, lane win121)
+# ---------------------------------------------------------------------------
+# The frozen bundle speaks HTTPS through TWO stacks.  GDAL's libcurl is built
+# on Schannel (Windows) and reads the OPERATING SYSTEM's root store; Python's
+# ``ssl`` — i.e. ``requests``, which fetches the Viewfinderpanoramas base DEM
+# and probes the Copernicus cells — reads certifi's bundled file.  A machine
+# whose antivirus or corporate proxy re-signs HTTPS with a root installed in
+# the SYSTEM store only then gets a good inset (GDAL) over a failed base
+# (requests): the #121 shape.  ``truststore`` points Python's ``ssl`` at the
+# system store too, so both stacks trust exactly what the OS trusts.
+#
+# ONE site: the frozen entries call this right after :func:`pin_frozen_proj`,
+# in every process of the bundle (the engine, its workers, the LERC child),
+# before any HTTPS is made.  Never a global environment variable.
+TRUST_STORE_STATE: str = "not attempted"
+
+
+def trust_system_certificate_store() -> str:
+    """Make Python's ``ssl`` verify against the OS trust store.
+
+    Returns (and records in :data:`TRUST_STORE_STATE`) ``"injected"``,
+    ``"unavailable: ..."`` or ``"failed: ..."``.  Never raises: a bundle
+    without the wheel says so on stderr — stdout may be the JSONL protocol
+    — and keeps certifi, which is exactly the pre-fix behaviour.
+    """
+    global TRUST_STORE_STATE
+    try:
+        import truststore
+    except Exception as error:                        # pragma: no cover
+        TRUST_STORE_STATE = "unavailable: %s" % (error,)
+    else:
+        try:
+            truststore.inject_into_ssl()
+            TRUST_STORE_STATE = "injected"
+        except Exception as error:
+            TRUST_STORE_STATE = "failed: %s: %s" % (type(error).__name__,
+                                                    error)
+    if TRUST_STORE_STATE != "injected":
+        try:
+            sys.stderr.write(
+                "WARNING: HTTPS verification uses the bundled certifi roots, "
+                "not the system trust store (truststore %s); a proxy or "
+                "antivirus that re-signs HTTPS will fail Python downloads.\n"
+                % TRUST_STORE_STATE)
+        except Exception:
+            pass
+    return TRUST_STORE_STATE
+
+
+def tls_selfcheck(url: str) -> dict:
+    """Fetch ``url`` through BOTH HTTPS stacks of this process.
+
+    The frozen ``--tls-selfcheck URL`` CLI (``--no-truststore`` skips the
+    injection, the before-arm).  ``requests`` is the stack
+    :func:`trust_system_certificate_store` changes; GDAL's ``/vsicurl/``
+    is the control it must leave alone.
+    """
+    result = {"url": url, "truststore": TRUST_STORE_STATE}
+    try:
+        import requests
+
+        response = requests.get(url, timeout=30)
+        result["requests"] = "ok %d (%d bytes)" % (response.status_code,
+                                                   len(response.content))
+        result["requests_ok"] = response.status_code == 200
+    except Exception as error:
+        result["requests"] = "%s: %s" % (type(error).__name__, error)
+        result["requests_ok"] = False
+    try:
+        from osgeo import gdal
+
+        gdal.UseExceptions()
+        handle = gdal.VSIFOpenL("/vsicurl/" + url, "rb")
+        data = gdal.VSIFReadL(1, 1 << 20, handle)
+        gdal.VSIFCloseL(handle)
+        result["gdal"] = "ok (%d bytes)" % len(data or b"")
+        result["gdal_ok"] = bool(data)
+    except Exception as error:
+        result["gdal"] = "%s: %s" % (type(error).__name__, error)
+        result["gdal_ok"] = False
+    return result
+
+
+def tls_selfcheck_main(argv: list[str]) -> int:
+    """``--tls-selfcheck URL [--out FILE]``: exit 0 when ``requests``
+    fetched the URL.  The verdict is written to FILE as JSON as well,
+    because the Windows app is a windowed bundle whose stdout may go
+    nowhere."""
+    import json
+
+    url = argv[argv.index("--tls-selfcheck") + 1]
+    result = tls_selfcheck(url)
+    text = json.dumps(result, indent=2, sort_keys=True)
+    if "--out" in argv:
+        with open(argv[argv.index("--out") + 1], "w", encoding="utf-8",
+                  newline="\n") as handle:
+            handle.write(text + "\n")
+    try:
+        print(text)
+    except Exception:
+        pass
+    return 0 if result.get("requests_ok") else 1

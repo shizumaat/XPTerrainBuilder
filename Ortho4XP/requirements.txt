@@ -3,6 +3,7 @@ PySide6==6.11.1  # new Qt UI (Ortho4XP_Qt.py); legacy Tk UI does not need it
 pillow==12.2.0
 pyproj==3.7.2
 requests==2.33.1
+truststore==0.10.4   # Python HTTPS trusts the OS root store in the frozen bundle (O4_Proj_Runtime.trust_system_certificate_store, #121)
 Rtree==1.4.1
 shapely==2.1.2
 scikit-fmm==2025.6.23

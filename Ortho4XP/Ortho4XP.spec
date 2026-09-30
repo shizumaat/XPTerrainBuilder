@@ -111,7 +111,9 @@ a = Analysis(
                    # here as a belt because the whole build's honouring of
                    # scenery_packs.ini (RULINGS 2026-09-17b) rides on it
                    # and a missing module is a silent frozen-only break.
-                   + ['O4_LERC_Decode', 'O4_Scenery_Packs']),
+                   + ['O4_LERC_Decode', 'O4_Scenery_Packs',
+                      # imported inside a function (O4_Proj_Runtime, #121)
+                      'truststore']),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -64,6 +64,12 @@ def _touch_newer(path: Path, delta: float = 10.0) -> None:
 @pytest.fixture
 def fresh_env(monkeypatch):
     monkeypatch.delenv("O4_AUTO_PATCH_REBUILD", raising=False)
+    # The tile driver's airports-OSM prefetch is a live Overpass POST for
+    # a tile no fixture caches (+40-100): it hung Windows CI to the 600 s
+    # timeout in test_generate_then_regenerate_reuses (issue #122).  Every
+    # generate test here stubs the engine, so nothing reads that cache.
+    monkeypatch.setattr(build_support, "ensure_airports_osm_tile_cached",
+                        lambda tile_latitude, tile_longitude: False)
 
 
 class FakeInstall:

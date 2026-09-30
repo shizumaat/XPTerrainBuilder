@@ -25,6 +25,12 @@ name: Windows hang probe (issue #122)
 #           three recorded hangs happened in
 # A workflow_dispatch workflow must exist on the default branch before it can
 # be dispatched, so on the lane branch it runs on a push touching it.
+#
+# RESULT (run 36740749690, before the fix): all three arms reproduced — the
+# frame, every time, a LIVE Overpass POST (O4_OSM_Utils.send_request in
+# ssl.read) reached from the inset footprint mask and the airports-tile
+# prefetch.  The fix is tests/conftest.py's network guard; this probe is kept
+# as the Windows loop that shows it green.
 on:
   workflow_dispatch:
     inputs:

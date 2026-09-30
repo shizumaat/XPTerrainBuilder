@@ -43,6 +43,7 @@ from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
+from ..model import pulse as _pulse
 from ..planar.build import build as build_planar
 from ..solve import DesignReport, Options, Solution, solve_design
 from .publication import face_tags, publication
@@ -406,9 +407,11 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
                  f"{_rd[1][:12]}){_why}", out)
         _cached_clusters = None
         _t = time.perf_counter()
+        _pulse.tick("reading the pack's objects")
         pack_objects, pack_report = _read_objects(airport, law, ocache)
         _sub["read"] = time.perf_counter() - _t
         _t = time.perf_counter()
+        _pulse.tick("partitioning the pack")
         _part = _partition_pack(airport, pack_objects, ocache, law)
         _sub["partition"] = time.perf_counter() - _t
     # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
@@ -443,6 +446,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
 
     _bank = float(law.tables.emit.design.bank_slope)
     _t = time.perf_counter()
+    _pulse.tick("deriving the pack's groups")
     _groups = _derive_groups(_part, _span_max(law), _bank,
                              dem_at=_dem_at, bank_slope=_bank)
     _sub["groups"] = time.perf_counter() - _t
@@ -461,6 +465,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # cluster set derived under a different verdict is re-derived.
     from ..planar.cluster import connector_verdicts as _cverdicts
     _t = time.perf_counter()
+    _pulse.tick("reading the connectors")
     _stamped = getattr(_part, "connectors", None)
     _verdicts = _cverdicts(_dc.replace(airport, partition=_dc.replace(
         _part, connectors=None)), law)
@@ -475,6 +480,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _clusters = _cached_clusters
     else:
         _t = time.perf_counter()
+        _pulse.tick("deriving the terminal clusters")
         _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
         _sub["clusters"] = time.perf_counter() - _t
         if write_cache and _pcache.write(_cpath, _fp,
@@ -592,6 +598,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _part, _groups = _ps["partition"], _ps["groups"]
     wall["partition"] = _ps["wall"]["total"]
     t = time.perf_counter()
+    _pulse.tick("classifying the airport")
     cl = classify(airport, law, load_rules(), cache=ocache)
     wall["classify"] = time.perf_counter() - t
     t = time.perf_counter()
@@ -788,6 +795,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # on the production raster already in memory; the datum is a
     # preference the generator below prices, the runway keeps its pins
     t = time.perf_counter()
+    _pulse.tick("flat site")
     # §37 (11) (4) (owner RULINGS 2026-09-15f item 2): the airport's OWN
     # classified surfaces are LAND by declaration, so the datum region's
     # water cut cannot call a reclaimed apron sea (``_cut_water``'s own
@@ -805,6 +813,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # profile on this DEM (``airport/road_profile.py``); the cap rows
     # below stay and v2 moves a vertex off it only where one binds.
     t = time.perf_counter()
+    _pulse.tick("the preferred road profile")
     road_pref, road_rep, road_profiles = preferred_road_z(
         airport, pm, law, inputs.road_grade_limit, inputs.lane_width_m)
     pm = _dc.replace(pm, preferred_z=road_pref)
@@ -941,10 +950,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # THE SHAPE STAGE (owner RULINGS 2026-09-08k; ``pipeline/shapes.py``):
     # the route bands, the withdraw set, the joint filter, the yield transform
     t = time.perf_counter()
+    _pulse.tick("the shapes")
     stage = shape_stage(pm, law, airport, cl, out=lambda m: _say(m, out))
     pm = stage.pm
     wall["shapes"] = time.perf_counter() - t
     t = time.perf_counter()
+    _pulse.tick("generating the law constraints")
     seam_yielded: list = []
     cs, counts, gwalls = shape_constraints(pm, law, airport, stage,
                                            yielded_out=seam_yielded)
@@ -965,6 +976,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # ``constraints`` (M0 §1).  The projection itself runs between §20b's
     # two stages (``solve/project_strip.py``).
     t = time.perf_counter()
+    _pulse.tick("the jetway strips")
     from ..airport.riders import rider_candidates
     from ..constraints.jetway_strip import jetway_strips
     strips = jetway_strips(pm, law, airport, cs, rider_candidates(airport, law))
@@ -972,6 +984,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(f"[{icao}] jetway strip region (18t Q3) {wall['jetway_strip']:.2f} s: "
          + ", ".join(f"{k} {v}" for k, v in strips.counts.items()), out)
     t = time.perf_counter()
+    _pulse.tick("solving the surface")
     size: dict[str, int] = {}
     # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
     # seeds the ramp from STAGE 1's solved level — applied between the two
@@ -1103,6 +1116,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pieces = None
     if sol.status.value in ("optimal", "feasible"):
         t = time.perf_counter()
+        _pulse.tick("emitting the patch")
         from .publication import jetway_strips_ll
         _strip_records = jetway_strips_ll(pm, airport, strips,
                                           design_rep.jetway_strip)
@@ -1195,6 +1209,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # post-mesh seat reads, from the pack as AUTHORED, with the solved
         # surface's value at every hard deck — ``emit/rebake.py``
         t = time.perf_counter()
+        _pulse.tick("the object re-bake plan")
         rplan = None
         if objects_out:
             _to_xy = airport.frame.transformers()[0]
@@ -1253,6 +1268,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                     for (tl, tn), pp in (pieces or {}).items()}}
         if cfg.verify:
             t = time.perf_counter()
+            _pulse.tick("verifying the patch")
             from ..constraints.roads import road_law_caps
             from ..verify import census_frame
             # ONE FRAME FOR THE WHOLE VERIFY STAGE (lane ``v2cost2``,

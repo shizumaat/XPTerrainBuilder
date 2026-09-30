@@ -28,6 +28,7 @@ from ..classify.roles import Classification
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY, Key
+from ..model import pulse as _pulse
 from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarMap,
                             Vertex, validate)
 from .edges import EdgeTable
@@ -201,6 +202,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     read_s = _time.perf_counter() - t0
     # THE TUNNEL WALL OBJECTS (RULINGS 2026-09-05k-1): read over the
     # geometry the cache already holds, they replace the OSM bores they cover
+    _pulse.tick("tunnel and plate objects")
     corridors, tstats = read_corridors(airport, objects, cache, law)
     # THE THIN-PLATE WALL OBJECTS (spec §33 (2)): the pack's bridge / tunnel
     # PLATES, which the wall reader's skirt pre-screen refuses — they govern
@@ -243,6 +245,10 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                   claimed=frozenset(tstats.shell_claimed))
     bstats.objects = orep
     bstats.object_read_s = read_s
+    # the structure reads are DONE (issue #136: the progress window's
+    # structures step ends here and the arrangement's begins)
+    _pulse.mark("structures")
+    _pulse.tick("building the planar arrangement")
     arr = build_arrangement(airport, classification, law, grid_m)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,

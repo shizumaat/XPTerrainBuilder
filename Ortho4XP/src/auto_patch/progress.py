@@ -24,6 +24,7 @@ enabled.  ``config.BUILD_PROGRESS`` (env ``O4_BUILD_PROGRESS``, default
 on) silences it without removing the call sites.
 """
 
+import threading as _threading
 import time as _time
 
 import O4_UI_Utils as UI
@@ -95,6 +96,9 @@ class BuildProgress:
         self._predicted_total_s = None      # from build_time_model
         self._predicted_phase_s = None      # {label: seconds} or None
         self._estimate_total_s = None       # current best, sent with events
+        # the step thread and the heartbeat thread (``Heartbeat``) both
+        # report; one lock keeps the percent monotonic across them
+        self._report_lock = _threading.Lock()
 
     def set_time_model(self, predicted_total_s, predicted_phase_s=None):
         """Attach the complexity-based prediction (both may be ``None``).
@@ -202,6 +206,10 @@ class BuildProgress:
     def _report(self, pct, label, *, console=None):
         """Send ``pct`` (0-100) + ``label`` to the GUI bar (and optionally a
         console banner) through whichever channel this process uses."""
+        with self._report_lock:
+            self._report_locked(pct, label, console=console)
+
+    def _report_locked(self, pct, label, *, console=None):
         pct = max(self._pct, min(100, int(round(pct))))
         self._pct = pct
         q = _worker_queue
@@ -265,6 +273,23 @@ class BuildProgress:
         base = sum(self.weights[: self._done - 1])
         pct = 100.0 * (base + frac * self.weights[self._done - 1])
         self._report(pct, detail or self.labels[self._done - 1])
+
+    def running_step(self):
+        """``(index, label)`` of the step running now (``(0, None)`` before
+        the first :meth:`step`) — the heartbeat's notion of "a new step"."""
+        d = self._done
+        return (d, self.labels[d - 1] if d else None)
+
+    def heartbeat(self, text):
+        """A SIGN OF LIFE inside the running step (issue #136): ``text`` goes
+        out through the SAME channel as a step banner — the console/
+        ``Ortho4XP.log`` line and the GUI's ``(percent, label)`` event — at the
+        current percent.  Called by :class:`Heartbeat` only, at its cadence."""
+        if not self.enabled or self._done == 0:
+            return
+        self._report(self._pct, text,
+                     console="   Auto-patch: {} [{}/{}] {}".format(
+                         self.icao, self._done, self.total, text))
 
 
 # Ordered phase labels for a full build (``compute_elevations=True``).
@@ -331,3 +356,101 @@ def substep(frac, detail=None):
         bp.substep(frac, detail)
     except Exception:
         pass
+
+
+#: THE HEARTBEAT CADENCE (issue #136, RULINGS 2026-09-30ai): a step running
+#: longer than this prints a progress line at least this often.
+HEARTBEAT_S = 60.0
+
+
+def _clock_text(s):
+    s = int(max(0.0, s))
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}h{m:02d}m{sec:02d}s" if h else f"{m}m{sec:02d}s"
+
+
+class Heartbeat:
+    """THE ONE TIME-GATED EMITTER for a long build step (issue #136).
+
+    OTHH's ``[40/100]`` step ran ~26 min with no line at all and read as a
+    hang.  A heartbeat line — the step, how long it has run, the build's
+    total, and what it is doing with a count where one exists (``door
+    wells: sill witnesses 412/1,318 objects``, read from ``activity()``) —
+    goes to ``emit`` whenever the SAME step has been silent for
+    ``period_s``.  It never fires faster: every emit (and every new step,
+    whose banner is itself a sign of life) restarts the silence clock.
+
+    The build's stages only RECORD their activity (``auto_patch_v2.model.
+    pulse``, a tuple per loop item); this class is the only reader, on its
+    own clock, so a per-object loop can never become a print storm.
+    :meth:`poll` is the whole policy (and what the twin drives with a fake
+    clock); :meth:`start` runs it on a daemon thread every ``poll_s``, so a
+    step that ticks nothing — one long union, one solve — still beats.
+
+    ``step_of()`` returns ``(key, label)`` of the running step (a new key =
+    a new step); ``activity()`` a short text or ``""``.  Never raises.
+    """
+
+    def __init__(self, emit, step_of, activity=None, *, period_s=HEARTBEAT_S,
+                 clock=_time.monotonic):
+        self.emit = emit
+        self.step_of = step_of
+        self.activity = activity
+        self.period_s = float(period_s)
+        self.clock = clock
+        self._t0 = None
+        self._key = object()
+        self._step_t0 = None
+        self._last = None
+        self._stop = _threading.Event()
+        self._thread = None
+
+    def poll(self, now=None):
+        """Emit if the running step has been silent for ``period_s``;
+        return the emitted text or ``None``."""
+        try:
+            now = self.clock() if now is None else now
+            if self._t0 is None:
+                self._t0 = now
+            key, label = self.step_of()
+            if key != self._key:
+                self._key, self._step_t0, self._last = key, now, now
+                return None
+            if label is None or now - self._last < self.period_s:
+                return None
+            self._last = now
+            doing = self.activity() if self.activity else ""
+            text = "{} — still working: {} in this step, {} total{}".format(
+                label, _clock_text(now - self._step_t0),
+                _clock_text(now - self._t0), f" — {doing}" if doing else "")
+            self.emit(text)
+            return text
+        except Exception:
+            return None
+
+    def _run(self, poll_s):
+        while not self._stop.wait(poll_s):
+            self.poll()
+
+    def start(self, poll_s=1.0):
+        """Beat on a daemon thread, polling every ``poll_s`` seconds."""
+        self.poll()                     # arm the clocks on the caller's step
+        self._stop.clear()
+        self._thread = _threading.Thread(target=self._run, args=(poll_s,),
+                                         name="o4-heartbeat", daemon=True)
+        self._thread.start()
+        return self
+
+    def stop(self):
+        self._stop.set()
+        th, self._thread = self._thread, None
+        if th is not None:
+            th.join(timeout=5.0)
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, *exc):
+        self.stop()
+        return False

@@ -1103,9 +1103,13 @@ LEMD_DEGRADE_MARKERS = (
     "existence probe failed",
     "failed without a durable answer",
     "continuing without insets",
-    "server may be down or busy",
     "PROJ runtime",
 )
+#: A RETRY line, not a verdict: Viewfinderpanoramas reset the runner's
+#: connection five times and served the sixth (run 36666292962).  It is
+#: printed, and fails the pass only when the base never came down — which
+#: the ``.hgt`` witness below catches on its own.
+LEMD_RETRY_MARKERS = ("server may be down or busy",)
 
 
 def _write_lemd_fixture(root, repo_root):
@@ -1345,6 +1349,12 @@ def run_lemd_elevation(binary, repo_root, log_dir, deadline, keep,
                     failures.append("degrade marker %r: %s"
                                     % (marker, " | ".join(hits[:3])[:600]))
                     break
+        for marker in LEMD_RETRY_MARKERS:
+            hits = [l.strip() for l in texts[0].splitlines() if marker in l]
+            if hits:
+                print("   NOTE: %d retry line(s) %r — not a failure unless "
+                      "the base is missing (it is checked above)"
+                      % (len(hits), marker))
         for text in texts:
             hits = [l.strip() for l in text.splitlines()
                     if "no-coverage" in l and LEMD_INSET_PROVIDER in l]

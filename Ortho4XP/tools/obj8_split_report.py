@@ -383,6 +383,7 @@ def census(ss: PP.SplitSet, sampler, band_m: float,
     by_class: dict[str, collections.Counter] = collections.defaultdict(
         collections.Counter)
     rows: list[dict] = []
+    foot_floats: list[tuple] = []
     for s in ss.all:
         by_name = any(n in s.resource for n in rows_of)
         for b in s.bodies:
@@ -422,6 +423,7 @@ def census(ss: PP.SplitSet, sampler, band_m: float,
                     row["off_sheet"] += 1
                     continue
                 signed = zf - (za + y - b.anchor.y_zero)
+                foot_floats.append((s.resource, b.body_id, lat, lon, signed))
                 d = abs(signed)
                 key = ("<0.3" if d < 0.3 else "0.3-1" if d < 1.0
                        else "1-3" if d < 3.0 else ">3")
@@ -453,11 +455,80 @@ def census(ss: PP.SplitSet, sampler, band_m: float,
     else:
         rows.sort(key=lambda r: (r["resource"], r["body"]))
     return {"bins": dict(bins), "worst": worst[:20], "rows": rows,
+            "foot_floats": foot_floats,
             "feet": sum(v for k, v in bins.items()
                         if k not in ("buried", "floating")),
             "placements_over_0_3": len(per_placement),
             "by_class": {k: dict(v) for k, v in by_class.items()}}
 
+
+def feet_in_unit(foot_floats, graded_doc: dict, unit: str,
+                 site: "tuple[float, float, float] | None" = None) -> dict:
+    """THE FEET AT A PAD (flat-pad spec v2 §6 A5, RULINGS 2026-09-30ae —
+    lane ``hardhold128``'s scratchpad ``feet_site.py`` / ``feet_agg.py``
+    promoted on their THIRD use, 7e90032): a PROJECTION of §7's own census
+    pass (``census(...)["foot_floats"]``, the signed float of every judged
+    ground-contact foot), never a second instrument.  Selects the feet
+    standing inside the union of the emitted ``building`` faces of UNIT
+    (``model.planar.unit_ref_of`` of the face ref — every block / piece of
+    one footprint) and, with ``site = (lat, lon, radius_m)``, the feet
+    within the radius of the coordinate.  Each selection: feet, within
+    0.3 m, floating (≤ −0.3), buried (≥ +0.3), bodies within / sunk /
+    floating (a body is within when every judged foot is), the worst
+    foot signed with its coordinate and resource."""
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import unary_union
+    from auto_patch_v2.model.planar import unit_ref_of
+    V = {v[0]: (v[2], v[1]) for v in graded_doc["vertices"]}
+    polys = [Polygon([V[i] for i in f["ring"]]).buffer(0)
+             for f in graded_doc["faces"]
+             if f.get("role") == "building" and len(f["ring"]) >= 3
+             and unit_ref_of(str(f.get("ref", ""))) == unit]
+    P = unary_union(polys) if polys else None
+
+    def stat(sel):
+        bodies: dict = collections.defaultdict(list)
+        for r in sel:
+            bodies[(r[0], r[1])].append(r[4])
+        bw = sum(1 for v in bodies.values() if max(abs(x) for x in v) < 0.3)
+        bs = sum(1 for v in bodies.values()
+                 if min(v) >= 0.3 or (max(abs(x) for x in v) >= 0.3
+                                      and sorted(v)[len(v) // 2] > 0))
+        w = max(sel, key=lambda r: abs(r[4])) if sel else None
+        return {"feet": len(sel),
+                "within_0_3": sum(1 for r in sel if abs(r[4]) < 0.3),
+                "floating": sum(1 for r in sel if r[4] <= -0.3),
+                "buried": sum(1 for r in sel if r[4] >= 0.3),
+                "bodies": len(bodies), "bodies_within": bw,
+                "bodies_sunk": bs, "bodies_floating": len(bodies) - bw - bs,
+                "worst": (None if w is None else
+                          {"float": round(w[4], 3), "lat": w[2], "lon": w[3],
+                           "resource": w[0]})}
+    out = {"unit": unit, "pad_faces": len(polys),
+           "pad": stat([r for r in foot_floats
+                        if P is not None and P.contains(Point(r[3], r[2]))])}
+    if site is not None:
+        out["site"] = {"lat": site[0], "lon": site[1], "radius_m": site[2],
+                       **stat([r for r in foot_floats
+                               if _near_m(site[0], site[1], r[2], r[3]) <= site[2]])}
+    return out
+
+
+def feet_in_unit_lines(rep: dict) -> list[str]:
+    def fmt(d):
+        w = d["worst"]
+        return (f"feet {d['feet']}: within0.3 {d['within_0_3']} floating "
+                f"{d['floating']} buried {d['buried']} | bodies {d['bodies']}: "
+                f"within {d['bodies_within']} sunk {d['bodies_sunk']} floating "
+                f"{d['bodies_floating']}"
+                + ("" if w is None else
+                   f" | worst {w['float']:+.2f} @{w['lat']:.7f},{w['lon']:.7f} "
+                   f"{os.path.basename(w['resource'])}"))
+    out = [f"  {rep['unit']} pad ({rep['pad_faces']} face(s)) {fmt(rep['pad'])}"]
+    if "site" in rep:
+        s = rep["site"]
+        out.append(f"    site {s['radius_m']:.0f} m of {s['lat']:.7f},{s['lon']:.7f} {fmt(s)}")
+    return out
 
 
 def admit_skipped(plan, pack_root: str, dsftool: str | None,
@@ -907,6 +978,13 @@ def _main() -> int:
                     "makes — where each row's base came from and how far its "
                     "elevation stands off the design surface at its own feet. "
                     "READ-ONLY: nothing is written and no DSF is decoded")
+    ap.add_argument("--feet-in", action="append", default=[],
+                    metavar="UNIT[@LAT,LON[,R]]",
+                    help="flat-pad spec v2 §6 A5: the §7 feet standing inside "
+                    "the emitted building faces of UNIT (every block of one "
+                    "footprint), and with @LAT,LON[,R] (R default 60 m) the "
+                    "feet within R of the site — a projection of the SAME "
+                    "census pass (repeatable)")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
@@ -1244,6 +1322,22 @@ def _main() -> int:
             raise SystemExit("--rows-near takes LAT,LON or LAT,LON,RADIUS_M")
         near = (q[0], q[1], q[2] if len(q) == 3 else 40.0)
     cen = census(ss, sampler, band_m, rows_of=rows_of, near=near)
+    if a.feet_in:
+        with open(a.graded, encoding="utf-8") as _fh:
+            _gdoc = json.loads(_fh.read())
+        print("\nFEET AT PADS (flat-pad spec v2 §6 A5, a projection of §7):")
+        _fr = []
+        for spec_ in a.feet_in:
+            unit, _, st = spec_.partition("@")
+            site = None
+            if st:
+                q = [float(v) for v in st.split(",")]
+                site = (q[0], q[1], q[2] if len(q) == 3 else 60.0)
+            rep = feet_in_unit(cen["foot_floats"], _gdoc, unit, site)
+            _fr.append(rep)
+            for line in feet_in_unit_lines(rep):
+                print(line)
+        cen["feet_in"] = _fr
     if rows_of or near:
         what = (f"within {near[2]:.0f} m of {near[0]:.7f},{near[1]:.7f}"
                 if near else ", ".join(rows_of))
@@ -1304,6 +1398,8 @@ def _main() -> int:
         out["census"] = {"bins": cen["bins"], "feet": cen["feet"],
                          "placements_over_0_3": cen["placements_over_0_3"],
                          "rows": cen["rows"]}
+        if cen.get("feet_in"):
+            out["feet_in"] = cen["feet_in"]
         if cp is not None:
             out["contact_pairs"] = cp
         json.dump(out, open(a.json, "w", encoding="utf-8"))

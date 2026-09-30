@@ -24,6 +24,13 @@ roles).  Two exclusions, each a ruling: a platform COLLAR face
 (``model.planar.is_collar_ref``) is a 1:3 bank (RULINGS 2026-09-28a (1))
 — ground, not pavement — and a pair touching a collar vertex crosses that
 bank; structure ramps carry their own ruled caps and are not pavement.
+A welded pair of two different BUILDING pads is a STEP, not a grade: the
+step families' ``building_to_building`` exemption (owner 2026-06-20)
+carries into this family (RULINGS 2026-09-30l (2)) — the census copy
+(``check_grade._check_pavement_over_road_cap``) skips the same pair, and
+two copies of one law agree.  Pricing it dragged the HECA cargo pads
+``building51``/``building56`` 6.4 m under the apron they front, onto the
+lower pad ``building129`` across their declared 28b terrace (issue #123).
 
 A pair ALREADY capped at or under the fallback by a hard ``Diff`` over the
 same two vertices (the ceiling's twins, the road cross-section, …) mints
@@ -48,7 +55,7 @@ from ..law.tables import pavement_fallback_cap, pavement_roles
 from ..model.constraints import Diff, Pin, Row, Source
 from ..model.planar import PlanarMap, is_collar_ref
 
-__all__ = ["pavement_road_cap", "GEN", "RULING", "WELD_M"]
+__all__ = ["pavement_road_cap", "GEN", "RULING", "WELD_M", "PAD_ROLE"]
 
 GEN = "pavement_road_cap"
 #: The ruling HEAD ``[design] hard_rulings`` names (everything before the
@@ -59,6 +66,9 @@ RULING = ("rulesets.common.road_max_grade pavement fallback "
 #: neighbours (the census family ``pavement_over_road_cap`` reads the same
 #: radius, ``check_grade.PAVCAP_WELD_M``).
 WELD_M = 1.0
+#: The pad role whose welded pad|pad pairs hold the ``building_to_building``
+#: step exemption (the census predicate ``check_grade._step_exemption_for``).
+PAD_ROLE = "building"
 
 
 def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
@@ -68,6 +78,7 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     cap = pavement_fallback_cap(law)
     pav = set(pavement_roles(law))
     face_vs: dict[int, tuple[int, ...]] = {}
+    pad_faces: set[int] = set()
     rings: list[tuple[int, ...]] = []
     collar_v: set[int] = set()
     for f in planar.faces.values():
@@ -79,6 +90,8 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
             continue
         rings.extend(c for c in cyc if len(c) >= 2)
         face_vs[f.id] = tuple(dict.fromkeys(v for c in cyc for v in c))
+        if f.role == PAD_ROLE:
+            pad_faces.add(f.id)
     if not face_vs:
         return []
     # already capped at or under the fallback (a hard Diff over the pair)
@@ -127,5 +140,7 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                 continue            # same single face: its ring pairs above
             if not (owner[a] - owner[b] or owner[b] - owner[a]):
                 continue
+            if owner[a] <= pad_faces and owner[b] <= pad_faces:
+                continue            # pad|pad: a step (30l (2)), not a grade
             _mint(a, b)
     return out

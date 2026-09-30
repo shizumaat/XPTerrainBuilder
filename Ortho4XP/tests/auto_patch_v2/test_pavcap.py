@@ -120,3 +120,24 @@ def test_structure_ramps_are_not_pavement(law):
     for role in ("door_ramp", "wall_corridor_ramp", "garage_ramp"):
         pm = _Planar(xy, [_F(1, role, "r", ids)])
         assert pavement_cap.pavement_road_cap([], pm, law) == []
+
+
+def test_pad_pad_weld_is_a_step_not_a_grade(law):
+    """RULINGS 2026-09-30l (2), issue #123: two different BUILDING pads
+    within the weld radius hold the ``building_to_building`` step
+    exemption — no fallback row between them (the HECA cargo pads were
+    dragged 6.4 m onto the lower pad across their declared terrace).  Each
+    pad's own ring edges stay capped, and a pad|apron weld stays priced."""
+    a, xya = _rect(0, 0.0)
+    b, xyb = _rect(10, 10.8)                         # 0.8 m gap
+    pm = _Planar({**xya, **xyb}, [_F(1, "building", "building51", a),
+                                  _F(2, "building", "building129", b)])
+    rows = pavement_cap.pavement_road_cap([], pm, law)
+    assert not [r for r in rows if (r.a < 10) != (r.b < 10)]
+    assert len(rows) == 8                            # both rings' edges
+    pm2 = _Planar({**xya, **xyb}, [_F(1, "building", "building51", a),
+                                   _F(2, "apron", "pav37", b)])
+    rows2 = pavement_cap.pavement_road_cap([], pm2, law)
+    assert {frozenset((r.a, r.b)) for r in rows2
+            if (r.a < 10) != (r.b < 10)} == {
+        frozenset((1, 10)), frozenset((2, 13))}

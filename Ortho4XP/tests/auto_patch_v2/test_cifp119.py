@@ -45,7 +45,7 @@ def _renumbered_cifp(tmp_path: Path, rename: dict[str, str]) -> str:
     d = tmp_path / "CIFP"
     d.mkdir()
     lines = []
-    for raw in (FIX / "CIFP" / "CYXY.dat").read_text(errors="replace").splitlines():
+    for raw in (FIX / "CIFP" / "CYXY.dat").read_text(encoding="utf-8", errors="replace").splitlines():
         for old, new in rename.items():
             raw = raw.replace(f"RWY:RW{old:<3s}", f"RWY:RW{new:<3s}")
         lines.append(raw)
@@ -81,7 +81,7 @@ def test_an_end_with_no_record_near_it_stays_pinless(tmp_path):
     thresholds are >= 375 m away), so it stays unpinned — never borrowed."""
     d = tmp_path / "CIFP"
     d.mkdir()
-    keep = [ln for ln in (FIX / "CIFP" / "CYXY.dat").read_text(errors="replace").splitlines()
+    keep = [ln for ln in (FIX / "CIFP" / "CYXY.dat").read_text(encoding="utf-8", errors="replace").splitlines()
             if not ln.startswith("RWY:RW14R")]
     (d / "CYXY.dat").write_text("\n".join(keep) + "\n", encoding="utf-8", newline="\n")
     a, rep = load_with_report("CYXY", _inputs(str(d)), Law.for_airport("CYXY"))

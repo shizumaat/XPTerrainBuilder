@@ -13,7 +13,8 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Platform", "PLATFORMS", "HELD", "held_platform_vertices",
+__all__ = ["Platform", "PLATFORMS", "HELD", "PLATEAUS", "plateau_vertices",
+           "held_platform_vertices",
            "datum_vertex_of", "datum_vertices", "stage_air_vertices"]
 
 
@@ -50,6 +51,28 @@ PLATFORMS: list[Platform] = []
 #: ``planar/platform.platform_split``; ``[building_pad] frontage_hold``
 #: off leaves it empty.
 HELD: dict[str, dict[str, _t.Any]] = {}
+
+
+#: flat-pad spec v2 §3: the last arrangement's PLATEAUS — held block ref ->
+#: ``{"source", "area_m2", "apron_refs", "riders", "startups"}`` (minted by
+#: ``planar/pad_cut.plateau_cut``; empty without a held block or a stand).
+PLATEAUS: dict[str, dict[str, _t.Any]] = {}
+
+
+def plateau_vertices(planar: _t.Any, law: _t.Any = None) -> dict[str, set[int]]:
+    """``{held block ref: every vertex of its PLATEAU apron pieces}`` (spec
+    v2 §3: the plateau joins the block's hold set) — read off the face
+    refs (``model.planar.PLATEAU_MARK``), ONE accessor."""
+    from .planar import plateau_block_of
+    out: dict[str, set[int]] = {}
+    for f in planar.faces.values():
+        b = plateau_block_of(f.ref)
+        if b is None:
+            continue
+        vs = out.setdefault(b, set())
+        for ring in (f.ring, *f.holes):
+            vs.update(planar.ring_vertices(ring))
+    return out
 
 
 def held_platform_vertices(planar: _t.Any, ref: str) -> list[int]:

@@ -1,0 +1,317 @@
+"""Twins for flat-pad spec v2 §1 / §2 / §5 (owner RULINGS 2026-09-30y,
+30as; lane ``flatpad128v3``, issue #128): THE RUNWAY FLEXES 20 % OF THE
+PULL INSIDE A HARD BUDGET, THE DATUM IS CERTIFIED BY A PAIR-GRAPH
+INTERVAL, THE FRONTING SET'S CAPS ARE HARD.
+
+1. ``reach_anchored`` IS ``reach`` at zero width, widens by exactly the
+   anchor's width, and without transit equals the transit read whenever
+   the anchors are consistent (the triangle inequality) — and is NOT
+   collapsed by an inconsistent anchor pair behind it.
+2. THE INTERVAL on a synthetic pair graph: a frontage whose two ends are
+   anchored 5.99 m apart over 344 m (1.74 % > 1.5 %) is EMPTY at share 0
+   and non-empty once the runway term is widened enough.
+3. THE FLEX BUDGET on a synthetic airport (a runway, an apron touching it,
+   a held pad): with the hold the runway moves by at most ``beta_R`` (+
+   ``hard_tol_m``); at ``runway_flex_share = 0`` by at most
+   ``hard_tol_m``; with no held block pass 1b never runs and the solve is
+   the hold-less solve exactly.
+4. THE FRONTING PROMOTION is the one filter: an airside pair cap whose
+   every foot is on ``PlanarMap.fronting_vertices`` joins the hard set.
+"""
+from __future__ import annotations
+
+import dataclasses as _dc
+
+import numpy as np
+import pytest
+
+from auto_patch_v2.classify.roles import Cell, Classification
+from auto_patch_v2.constraints import generate, routes as R
+from auto_patch_v2.constraints.no_step import (FLEX_RULING, hold_pass,
+                                               pair_graph)
+from auto_patch_v2.law import Law
+from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
+from auto_patch_v2.model.constraints import ConstraintSet, Diff, Source
+from auto_patch_v2.model.frame import Frame
+from auto_patch_v2.planar.build import build
+from auto_patch_v2.solve import Status, solve_design
+
+RUN_LEN = 1600.0
+HALF_W = 22.5
+
+
+# ── 1. the anchored reach ────────────────────────────────────────────────
+
+def _graph(n: int, seed: int) -> R.RouteGraph:
+    rng = np.random.default_rng(seed)
+    a, b = [], []
+    for v in range(1, n):
+        a.append(int(rng.integers(0, v)))
+        b.append(v)
+    for _ in range(n):
+        x, y = sorted(int(t) for t in rng.integers(0, n, 2))
+        if x != y:
+            a.append(x)
+            b.append(y)
+    a, b = np.array(a), np.array(b)
+    return R.RouteGraph(n=n, nodes=frozenset(range(n)), a=a, b=b,
+                        length=rng.uniform(5, 80, len(a)),
+                        cap=rng.choice([0.015, 0.03, 0.05], len(a)),
+                        kind=np.full(len(a), R.CENTRELINE),
+                        station=np.ones(n, bool))
+
+
+def test_anchored_reach_at_zero_width_is_the_reach():
+    g = _graph(200, 11)
+    rng = np.random.default_rng(5)
+    pins = {int(v): float(rng.uniform(10, 40)) for v in rng.choice(200, 90, replace=False)}
+    ref = R.reach(g, pins)
+    ar = R.reach_anchored(g, {v: (z, 0.0) for v, z in pins.items()})
+    for v, (lo, hi) in ref.items():
+        assert abs(ar.lo[v] - lo) < 1e-9 and abs(ar.hi[v] - hi) < 1e-9
+
+
+def test_anchored_reach_widens_by_the_width():
+    g = _graph(120, 3)
+    anchors = {0: (20.0, 0.0)}
+    a0 = R.reach_anchored(g, anchors)
+    a1 = R.reach_anchored(g, {0: (20.0, 0.7)})
+    fin = np.isfinite(a0.hi[:g.n])
+    assert np.allclose(a1.hi[fin] - a0.hi[fin], 0.7)
+    assert np.allclose(a0.lo[fin] - a1.lo[fin], 0.7)
+
+
+def test_no_transit_equals_transit_on_consistent_anchors():
+    g = _graph(150, 9)
+    # anchors from ONE Lipschitz surface: consistent by construction
+    base = R.reach_anchored(g, {0: (50.0, 0.0)})
+    picks = [5, 17, 33, 80, 101]
+    anchors = {0: (50.0, 0.0), **{v: (float(base.lo[v]) + 0.5 * (float(base.hi[v])
+                                                                  - float(base.lo[v])), 0.0)
+                                  for v in picks}}
+    t = R.reach_anchored(g, anchors)
+    nt = R.reach_anchored(g, anchors, transit=False)
+    others = [v for v in range(g.n) if v not in anchors and np.isfinite(t.hi[v])]
+    assert np.allclose(t.lo[others], nt.lo[others]) and np.allclose(t.hi[others], nt.hi[others])
+
+
+def test_no_transit_is_not_collapsed_behind_an_inconsistent_pair():
+    # a chain 0 - 1 - 2 - 3, 100 m at 1 %: anchors 1 and 2 stand 10 m apart
+    # over a 1 m budget (inconsistent); vertex 0 hangs off anchor 1 alone
+    g = R.RouteGraph(n=4, nodes=frozenset(range(4)), a=np.array([0, 1, 2]),
+                     b=np.array([1, 2, 3]), length=np.full(3, 100.0),
+                     cap=np.full(3, 0.01), kind=np.full(3, R.CENTRELINE),
+                     station=np.ones(4, bool))
+    anchors = {1: (0.0, 0.0), 2: (10.0, 0.0)}
+    t = R.reach_anchored(g, anchors)
+    nt = R.reach_anchored(g, anchors, transit=False)
+    assert t.lo[0] > t.hi[0]                          # the contradiction reaches 0
+    assert nt.lo[0] <= nt.hi[0]                       # first-hit: it does not
+    assert abs(nt.lo[0] + 1.0) < 1e-9 and abs(nt.hi[0] - 1.0) < 1e-9
+
+
+# ── 2. the interval on a pair graph ──────────────────────────────────────
+
+class _PM:
+    """The pair graph reads ``planar.vertices`` for its size only."""
+
+    def __init__(self, n: int):
+        self.vertices = {i: None for i in range(n)}
+
+
+def _frontage(beta: float) -> tuple[float, float]:
+    """Two runway anchors 0 and 5 (5.99 m apart) each 10 m of 1.5 % taxi
+    from a frontage 344 m long (contacts 2 and 3, one datum): the interval
+    of the frontage's datum."""
+    src = Source("taxi", "rulesets.taxi.longitudinal centreline", ())
+    cs = ConstraintSet(diffs=(
+        Diff(0, 1, 0.015, 10.0, src), Diff(1, 2, 0.015, 1e-3, src),
+        Diff(2, 3, 0.015, 344.0, src),               # the frontage itself
+        Diff(3, 4, 0.015, 1e-3, src), Diff(4, 5, 0.015, 10.0, src)))
+    g = pair_graph(_PM(6), cs, frozenset(range(6)),
+                   frozenset({"rulesets.taxi.longitudinal centreline"}))
+    anchors = {0: (0.0, beta), 5: (5.99 + 344.0 * 0.0, beta)}
+    ar = R.reach_anchored(g, anchors, transit=False)
+    # one datum for both contacts: they are HELD equal, so the frontage
+    # row is not in the hold set's metric (the hold overrides it)
+    lo = max(float(ar.lo[2]), float(ar.lo[3]))
+    hi = min(float(ar.hi[2]), float(ar.hi[3]))
+    return lo, hi
+
+
+def test_a_174_percent_frontage_is_empty_until_the_runway_term_widens():
+    # without the frontage row: contact 2 bound by anchor 0 only (the
+    # no-transit read), contact 3 by anchor 5 — B = 0.15 m each side
+    lo, hi = _frontage(0.0)
+    assert lo > hi, (lo, hi)                          # EMPTY at share 0
+    gap = lo - hi
+    lo2, hi2 = _frontage(0.5 * gap + 1e-6)
+    assert lo2 <= hi2                                 # widened enough: NOT empty
+
+
+# ── 3. the flex budget on a synthetic airport ────────────────────────────
+
+class _Dem:
+    """The ground rises 1 % west to east under the apron and the pad, so
+    the pad's frontage is not level in pass 1a and the hold must lift."""
+
+    provenance = {"synthetic": "flatpad128v3"}
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0 + (0.01 * x if y > HALF_W else 0.0)
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def _rect(x0, y0, x1, y1):
+    return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+
+
+def _airport(law):
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-RUN_LEN / 2, 0.0), (60.5, -135.5), 0.0, 0.0,
+                      700.0, "fixture"),
+            RunwayEnd("27", (RUN_LEN / 2, 0.0), (60.5, -135.5), 0.0, 0.0,
+                      700.0, "fixture"))
+    rw = Runway("09/27", 2 * HALF_W, 1, ends, 3, "D")
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    return Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
+                   (), (), (), (), (), (), pack, _Dem(), law.ruleset_key)
+
+
+def _cells():
+    return [
+        Cell(0, "runway", "09/27", _rect(-RUN_LEN / 2, -HALF_W, RUN_LEN / 2, HALF_W),
+             (), 3, "D", "airside", "runway", {}),
+        Cell(1, "apron", "apronA", _rect(-300.0, HALF_W, 300.0, 180.0), (),
+             None, None, "airside", "apron", {}),
+        Cell(2, "building", "padA", _rect(-150.0, 180.0, 150.0, 260.0), (),
+             None, None, "airside", "pad", {}),
+    ]
+
+
+def _arm(law, **design):
+    d0 = law.tables.emit.design
+    return _dc.replace(law, tables=_dc.replace(
+        law.tables, emit=_dc.replace(law.tables.emit,
+                                     design=_dc.replace(d0, **design))))
+
+
+@pytest.fixture(scope="module")
+def law():
+    return Law.for_airport("ZZZZ")
+
+
+@pytest.fixture(scope="module")
+def built(law):
+    airport = _airport(law)
+    pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
+    cs, _c, _w = generate(pm, law, airport)
+    return pm, cs
+
+
+def _runway_v(pm):
+    return sorted({v for f in pm.faces.values() if f.role in ("runway", "runway_crossing")
+                   for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)})
+
+
+def _strip(cs):
+    from auto_patch_v2.constraints.platform import HOLD_RULING
+    return ConstraintSet.from_rows([r for r in cs.rows()
+                                    if r.source.ruling.split(" (")[0].strip() != HOLD_RULING])
+
+
+def _solve(pm, cs, lw, hold: bool):
+    kw = {"hold": hold_pass(pm, lw)} if hold else {}
+    sol, rep = solve_design(pm, cs, lw, **kw)
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.status
+    return np.asarray(sol.z, float), rep
+
+
+def test_the_fixture_holds_a_block(law, built):
+    from auto_patch_v2.model.platform import datum_vertices
+    pm, _cs = built
+    assert datum_vertices(pm, law), "the fixture's pad is a held block"
+
+
+def test_the_runway_moves_within_its_budget(law, built):
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    z0, _r0 = _solve(pm, _strip(cs), lw, hold=False)      # pass 1a's runway
+    hp = hold_pass(pm, lw)
+    sol, rep = solve_design(pm, cs, lw, hold=hp)
+    z1 = np.asarray(sol.z, float)
+    assert "stage1a" in rep.stages                     # pass 1a ran
+    rw = _runway_v(pm)
+    moved = max(abs(z1[v] - z0[v]) for v in rw)
+    beta = max((float(r["budget_m"]) for r in rep.runway_flex), default=0.0)
+    assert rep.runway_flex and beta > tol, "the fixture's pad pulls the runway"
+    assert moved <= beta + tol, (moved, beta)
+    # the Bands are on the runway's columns, head in the hard register
+    assert FLEX_RULING in lw.tables.emit.design.hard_rulings
+    for r in rep.runway_flex:
+        assert r["share_used"] <= float(lw.tables.emit.design.runway_flex_share) + 1e-6
+
+
+def test_share_zero_holds_the_runway(law, built):
+    pm, cs = built
+    lw = _arm(law, staged_solve=True, runway_flex_share=0.0)
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    z0, _ = _solve(pm, _strip(cs), lw, hold=False)
+    z1, rep = _solve(pm, cs, lw, hold=True)
+    rw = _runway_v(pm)
+    assert max(abs(z1[v] - z0[v]) for v in rw) <= tol
+    assert all(r["budget_m"] == 0.0 for r in rep.runway_flex)
+
+
+def test_no_held_block_is_the_holdless_solve(law, built, monkeypatch):
+    """No hold row -> ``HoldPass.strip`` is None -> pass 1a IS stage 1 and
+    nothing else runs: the SAME surface as ``hold=None``, bit for bit."""
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    cs0 = _strip(cs)
+    za, ra = _solve(pm, cs0, lw, hold=False)
+    zb, rb = _solve(pm, cs0, lw, hold=True)
+    assert "stage1a" not in rb.stages and not rb.runway_flex
+    assert np.array_equal(za, zb)
+
+
+def test_evaluation_ii_runs_at_most_once(law, built, monkeypatch):
+    from auto_patch_v2.constraints import no_step, routes
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    calls: list[int] = []
+    real = routes.reach_anchored
+
+    def spy(g, anchors, transit=True):
+        calls.append(1)
+        return real(g, anchors, transit)
+    monkeypatch.setattr(routes, "reach_anchored", spy)
+    _solve(pm, cs, lw, hold=True)
+    # I0, R(c), the precondition read, the fronting read, and at most ONE
+    # widened evaluation (ii)
+    assert len(calls) <= 5, len(calls)
+
+
+# ── 4. the fronting promotion ────────────────────────────────────────────
+
+def test_the_fronting_set_promotes_its_caps(law, built):
+    from auto_patch_v2.solve.design import assemble, stage_split
+    from auto_patch_v2.solve.design_report import DesignReport
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    drop, fixed = stage_split(pm, cs, lw)
+    r0 = DesignReport()
+    assemble(pm, cs, lw, r0, drop=drop, fixed=fixed)
+    assert r0.fronting_promoted == 0                   # nothing published
+    apron = {v for f in pm.faces.values() if f.role == "apron"
+             for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)}
+    pm1 = _dc.replace(pm, fronting_vertices=frozenset(apron))
+    r1 = DesignReport()
+    b1 = assemble(pm1, cs, lw, r1, drop=drop, fixed=fixed)
+    assert r1.fronting_promoted > 0
+    r0b = DesignReport()
+    b0 = assemble(pm, cs, lw, r0b, drop=drop, fixed=fixed)
+    assert len(b1.hard) - len(b0.hard) >= r1.fronting_promoted

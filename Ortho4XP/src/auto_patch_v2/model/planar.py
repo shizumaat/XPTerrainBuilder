@@ -56,6 +56,20 @@ def is_collar_ref(ref: object) -> bool:
     return str(ref).endswith(COLLAR_SUFFIX)
 
 
+#: flat-pad spec v2 §3 (owner RULINGS 2026-09-30y addendum): an apron piece
+#: the STAND ZONE of a held block cut out of its apron keeps role ``apron``
+#: under ref ``<apron ref>#plateau:<block ref>`` (``planar/pad_cut.
+#: plateau_cut``) — every role reader is untouched, the hold reads the mark.
+PLATEAU_MARK = "#plateau:"
+
+
+def plateau_block_of(ref: object) -> "str | None":
+    """The held block a PLATEAU apron piece belongs to, else ``None``."""
+    r = str(ref)
+    i = r.find(PLATEAU_MARK)
+    return r[i + len(PLATEAU_MARK):] if i >= 0 else None
+
+
 def platform_ref_of(ref: object) -> str:
     """The PLATFORM face's ref of a collar ref (the ref itself otherwise)."""
     r = str(ref)

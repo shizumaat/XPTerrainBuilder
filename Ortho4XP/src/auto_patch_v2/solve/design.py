@@ -70,6 +70,7 @@ from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
 from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds, hard_metres,
                             residual, settled_flip)
 from .design_qp import DEFAULT_SOLVER, SOLVERS, solve_one_sided
+from .flex import runway_columns, runway_stage_roles, stage_one  # noqa: F401
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
 from .pin_yield import yield_pins as _yield_pins  # (re-export: test_surfacesettle2)
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _level_free_columns,
@@ -201,38 +202,6 @@ def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
         dz = planar.vertices[vid].dem_z
         foreign[vid] = float(dz) if dz is not None else 0.0
     return frozenset(foreign), foreign
-
-
-def runway_stage_roles(law: Law) -> frozenset[str]:
-    """The RUNWAY FAMILY's roles — ``precedence.toml``'s ``family =
-    "runway"`` roles, one derivation from the law tables (flat-pad spec
-    v2 §1 (4), kept from lane ``flatpad128v2``)."""
-    from ..law.tables import role_family
-    return frozenset(r for r in law.tables.precedence.roles
-                     if role_family(law, r) == "runway")
-
-
-def runway_columns(planar: PlanarMap, cs: ConstraintSet, law: Law
-                   ) -> dict[int, int]:
-    """THE RUNWAY'S COLUMNS (flat-pad spec v2 §1 (4), RULINGS 2026-09-30as):
-    every FREE vertex of a runway-family face, mapped to its reduced
-    column — the set the flex budget's ``Band`` rows and the sidecar's
-    ``runway_flex`` are keyed on.  A vertex the reduction already fixed (a
-    ``Pin``: threshold, seam, EAT) carries no column and is not listed —
-    its Band would be moot.  Vertices of one rigid ``Flat`` group share a
-    column; each is listed (a Band on any of them bounds the column)."""
-    red0 = _reduce(planar, cs, {})
-    rw_roles = runway_stage_roles(law)
-    out: dict[int, int] = {}
-    for f in planar.faces.values():
-        if f.role not in rw_roles:
-            continue
-        for ring in (f.ring, *f.holes):
-            for v in planar.ring_vertices(ring):
-                c = int(red0.col[v])
-                if c >= 0:
-                    out[v] = c
-    return out
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -881,54 +850,23 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         return _solve_stage(planar, cs, law, options, size_out=size_out,
                             method=method, low_rank=low_rank)
     t_all = time.perf_counter()
-    rep1 = DesignReport(method=method)
-    size1: dict = {}
-    # PASS 1a (flat-pad spec v2 §1 (1), owner RULINGS 2026-09-30as): stage 1
-    # with every frontage-hold row DROPPED — the runway's UNPULLED profile.
-    # ``hold`` is the caller's binding (``constraints/no_step.HoldPass``:
-    # this layer may not import ``constraints``, M0 §1); no hold row = pass
-    # 1a IS stage 1 and nothing below runs (byte-identical).
-    cs1a = hold.strip(cs) if hold is not None else None
-    cs_s1 = cs1a if cs1a is not None else cs
-    drop, foreign = stage_split(planar, cs_s1, law)
-    levels: dict[int, float] = {}
-    t1 = time.perf_counter()
-    sol1, rep1 = _solve_stage(planar, cs_s1, law, options, size_out=size1,
-                              method=method, low_rank=low_rank,
-                              drop=drop, fixed=foreign, levelled_out=levels,
+    # PASS 1a / THE INTERVAL / PASS 1b (flat-pad spec v2 §1-§2, owner
+    # RULINGS 2026-09-30as; ``solve/flex.stage_one``): ``hold`` is the
+    # caller's binding (``constraints/no_step.HoldPass`` — this layer may not
+    # import ``constraints``, M0 §1); no hold row = pass 1a IS stage 1.
+
+    def _s1(pm_x: PlanarMap, cs_x: ConstraintSet):
+        d_x, f_x = stage_split(pm_x, cs_x, law)
+        lv: dict[int, float] = {}
+        sz: dict = {}
+        so, rp = _solve_stage(pm_x, cs_x, law, options, size_out=sz,
+                              method=method, low_rank=low_rank, drop=d_x,
+                              fixed=f_x, levelled_out=lv,
                               stage_roles=airside_stage_roles(law))
-    pass1a: dict | None = None
-    if cs1a is not None:
-        # THE FEASIBILITY INTERVAL AND THE RUNWAY'S FLEX BUDGET, off pass
-        # 1a's values (``no_step.hold_interval``), then PASS 1b = stage 1
-        # again with the holds, the datum pins and the runway Bands
-        w1a = time.perf_counter() - t1
-        z1a = dict(levels)
-        cs1b = hold.derive(cs1a, z1a, runway_columns(planar, cs1a, law))
-        pass1a = {"unknowns": rep1.unknowns, "rows": rep1.rows,
-                  "hard_rows": rep1.hard_rows,
-                  "hard_max_violation_m": round(rep1.hard_max_violation_m, 6),
-                  "hard_settled": rep1.hard_settled, "wall_s": round(w1a, 3),
-                  "interval_s": 0.0}
-        if cs1b is not None:
-            pass1a["interval_s"] = round(time.perf_counter() - t1 - w1a, 3)
-            pass1a["interval"] = dict(getattr(getattr(hold, "result", None),
-                                              "stats", None) or {})
-            cs = cs1b
-            # §5: the fronting set is published on the map pass 1b solves
-            fr = getattr(getattr(hold, "result", None), "fronting", None)
-            if fr:
-                planar = _dc.replace(planar, fronting_vertices=frozenset(fr))
-            drop, foreign = stage_split(planar, cs, law)
-            levels = {}
-            size1 = {}
-            sol1, rep1 = _solve_stage(planar, cs, law, options, size_out=size1,
-                                      method=method, low_rank=low_rank,
-                                      drop=drop, fixed=foreign,
-                                      levelled_out=levels,
-                                      stage_roles=airside_stage_roles(law))
-        else:
-            cs = cs1a
+        return so, rp, d_x, f_x, lv, sz
+    t1 = time.perf_counter()
+    planar, cs, (sol1, rep1, drop, foreign, levels, size1), pass1a = \
+        stage_one(planar, cs, law, hold, _s1)
     # THE PINS STAGE 1 READS YIELD IN STAGE 1 (issue #87): decided from
     # stage 1's own hard set, so nothing stage 2 carries can change the
     # problem stage 1 solved.
@@ -960,18 +898,6 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             sol1, rep1, cs = sol1_y, rep1_y, cs1
             for r in yielded1:
                 r["stage"] = 1
-    if cs1a is not None:
-        # the DATUM PINS pass 1b added are constants of stage 2 as every
-        # levelled airside column is: the caller's stage-2 problem
-        # (``stage2_rewrite``) is re-derived from the hold's own rows and
-        # carries no such pin, so without this the datum column would be
-        # FREE in stage 2 and drift off the contacts stage 1 held on it
-        own = {p.v for p in cs1a.pins}
-        for p in cs.pins:
-            if p.v not in own and p.v not in levels:
-                levels[p.v] = float(p.z)
-        # (the datum columns are stage-1 columns under their Bands and are
-        # levelled with every other airside column)
     w1 = time.perf_counter() - t1
     # THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3; jetway-strip spec §2
     # (4)): a PROJECTION of stage 1's airside answer, applied before stage

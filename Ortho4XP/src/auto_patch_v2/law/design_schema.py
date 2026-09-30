@@ -194,6 +194,11 @@ class Design:
     #: is ONE level (``constraints.jetway_strip.strip_m`` is the one
     #: derivation site; 0 disarms the strip).
     jetway_strip_m: float
+    #: flat-pad spec v2 §3: the STAND ZONE's startup buffer, the reach
+    #: a startup still belongs to a block at, and the stand kinds
+    stand_zone_radius_m: float
+    stand_zone_startup_reach_m: float
+    stand_zone_startup_kinds: tuple[str, ...]
     #: spec-author ruling Q-32d (i): a strip forms only on a pad whose
     #: stage-1 airside frontage fits its plane within this (max residual,
     #: metres); elsewhere the 23a weld alone governs.
@@ -389,6 +394,9 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.runway_flex_share {d.runway_flex_share}: a "
                   "share of the pull in [0, 1] (flat-pad spec v2 §1, RULINGS "
                   "2026-09-30as)")
+    if d.stand_zone_radius_m < 0.0 or d.stand_zone_startup_reach_m < 0.0:
+        raise err("emit.design.stand_zone_radius_m / stand_zone_startup_reach_m: "
+                  "plan distances in metres, never negative (flat-pad spec v2 §3)")
     if d.jetway_strip_m < 0.0:
         raise err(f"emit.design.jetway_strip_m {d.jetway_strip_m}: a plan "
                   "distance in metres, never negative (jetway-strip spec §1 (2))")

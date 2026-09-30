@@ -195,16 +195,20 @@ def seat_unit(pids: _t.Iterable[int], plan_wide: _t.Mapping[int, tuple],
     parts belong to, the first id breaking a tie — UNLESS its parts stand
     on two or more BLOCKS of one cut unit (issue #126).  Then the group
     joins the block holding the MAJORITY of the parts it is WELDED to
-    (``welded``: the severed plan's ε-contact graph, :func:`neighbours`),
-    its FEET breaking a tie; a group whose welded parts hold no strict
-    majority in one block STRADDLES the boundary (flat-pad spec §7's STOP
-    class) and is counted by name (``STRADDLE_KEY``), never silently.
+    (``welded``: the plan's ε-contact graph BEFORE the neck sever,
+    :func:`neighbours`), its FEET breaking a tie; a group whose welded
+    parts hold no strict majority in one block STRADDLES the boundary
+    (flat-pad spec §7's STOP class): it is seated in the block holding the
+    most of them (feet, then part count, breaking a tie) and counted by
+    name (``STRADDLE_KEY``), never silently.
 
     Measured at SPJC building5 (``fu:0:1``): ``xp11_010``'s 830 m sheet
     (pid 25, centroid on b1, 136 welded parts all on b1 once the neck is
     severed) and a 2-foot trinket 275 m off (pid 26, on b0) are ONE rigid
     group; the part count tied 1:1 and the lexical tie-break seated the
-    sheet on b0, 2.87 m off its b1 neighbours 65 m from the neck."""
+    sheet on b0, 2.87 m off its b1 neighbours 65 m from the neck.  The
+    sheet itself is welded 136 / 126 / 48 across b1 / b2 / b0 — a
+    straddler, seated on b1 and reported."""
     hit: dict = {}
     pids = tuple(pids)
     for q in pids:
@@ -229,12 +233,15 @@ def seat_unit(pids: _t.Iterable[int], plan_wide: _t.Mapping[int, tuple],
                 continue
             seen.add(r)
             row = plan_wide.get(r)
-            if row is not None and row[0] in sib:
+            if row is not None and (_block_id(row[0]) or ("",))[0] == blk[0]:
                 votes[row[0]] = votes.get(row[0], 0) + 1
+    # the seat is always a block the group has a part on (its datum row is
+    # read from the group's own pids); the majority is judged over EVERY
+    # block of the unit, so a weld into a third block still counts
     cand = sib
     if votes:
-        win, cand = _majority(votes)
-        if win is not None:
+        win = _majority(votes)[0]
+        if win is not None and win in sib:
             if counts is not None and win != lead:
                 counts["block_groups_welded"] = \
                     counts.get("block_groups_welded", 0) + 1
@@ -244,6 +251,9 @@ def seat_unit(pids: _t.Iterable[int], plan_wide: _t.Mapping[int, tuple],
             counts[tag] = counts.get(tag, 0) + 1
             counts["block_groups_straddle"] = \
                 counts.get("block_groups_straddle", 0) + 1
+        own_votes = {u: n for u, n in votes.items() if u in sib}
+        if own_votes:
+            cand = _majority(own_votes)[1]
     # the tie-break: the block holding most of the group's FEET, then the
     # part count, then the first id
     rings = block_rings(pads) if feet and pads else []
@@ -260,7 +270,7 @@ def seat_unit(pids: _t.Iterable[int], plan_wide: _t.Mapping[int, tuple],
 
 def neighbours(plan: _t.Any) -> dict[int, set[int]]:
     """``part id -> the part ids it is in ε-contact with`` over
-    ``plan.contacts`` (pass the SEVERED plan: no pair crosses a neck)."""
+    ``plan.contacts``."""
     return _neighbours(plan)
 
 

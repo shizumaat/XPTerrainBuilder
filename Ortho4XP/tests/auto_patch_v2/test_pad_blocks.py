@@ -341,3 +341,23 @@ def test_a_ringless_body_joins_the_block_its_welded_parts_stand_on():
     got, counts = seat(((4, 1), (4, 2)))
     assert counts["block_bodies_straddle"] == 1
     assert counts[f"{pbs.STRADDLE_KEY}c.obj@fu:0"] == 1
+
+
+def test_a_weld_into_a_third_block_counts_but_the_seat_stays_on_the_groups_own():
+    """The majority is judged over EVERY block of the unit (SPJC's sheet:
+    136 / 126 / 48 across b1 / b2 / b0 is a straddler), but the seat is a
+    block the group stands on — its datum row is read from its own pids."""
+    from auto_patch_v2.airport import pad_block_seat as pbs
+    rows, pads = _two_block_rows()
+    rows = {**rows, 7: ("fu:0/b2",), 8: ("fu:0/b2",), 9: ("fu:0/b2",)}
+    counts: dict = {}
+    welded = {25: {1, 2, 7, 8}, 26: {4}}
+    assert pbs.seat_unit((25, 26), rows, welded, counts=counts,
+                         name="sheet.obj") == "fu:0/b1"
+    assert counts["block_groups_straddle"] == 1
+    # a strict majority in a block the group has no part on is a straddler
+    counts = {}
+    welded = {25: {7, 8, 9}}
+    assert pbs.seat_unit((25, 26), rows, welded, counts=counts,
+                         name="sheet.obj") in ("fu:0/b0", "fu:0/b1")
+    assert counts["block_groups_straddle"] == 1

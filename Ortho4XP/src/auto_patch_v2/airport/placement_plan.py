@@ -542,7 +542,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # contact pair straddling two blocks of one unit is dropped here, once,
     # so every reader below sees two bodies where the neck was
     from . import pad_block_seat as _pbs
+    # issue #126: the contact graph BEFORE the neck sever — a group welded
+    # across the neck is a straddler, and only the uncut graph can say so
+    _welded = _pbs.neighbours(plan)
     plan, abutments, _blk_counts = _pbs.sever(plan, pads, abutments)
+    if not _blk_counts.get("block_parts"):
+        _welded = None
     intra: dict[int, list[tuple[int, int]]] = {}
     member_of_pid: dict[int, tuple[int, int]] = {}
     for ui, u in enumerate(plan.units):
@@ -616,9 +621,6 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     prints = _bf.deck_prints(plan, _cutter_for)
     counts["bridge_deck_footprints"] = len(prints)
 
-    # issue #126: the SEVERED contact graph, read once — a group standing
-    # on two blocks of one cut unit is seated where its welded parts stand
-    _welded = _pbs.neighbours(plan) if _blk_counts.get("block_parts") else None
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,
                                       connector_span_m,  # §16g (6)

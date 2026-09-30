@@ -38,7 +38,7 @@ from ..geom import cluster_outlines, deck_shades
 from ..law import Law
 from ..law.tables import rolled_on_roles
 from ..model.airport import Airport
-from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of
+from ..model.planar import PlanarMap, block_of, is_collar_ref, platform_ref_of, unit_ref_of
 from .pads import _pad_groups, _pad_polys
 from .precedence import view
 
@@ -212,7 +212,10 @@ def _base_ref(ref: object) -> str:
     reading — counted as two and made their own cluster a
     ``cluster_spans_pads`` row (LEMD ``unit:25#1581``, measured).  One
     spelling, one join."""
-    return str(ref).split("#")[0]
+    # flat-pad spec §3 C3/C14 (RULINGS 2026-09-30r): the flat BLOCKS of a
+    # cut unit are one PAD to the cluster (the cluster stands on the unit);
+    # their PLANES are split per block by ``_split_blocks``
+    return unit_ref_of(str(ref).split("#")[0])
 
 
 def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
@@ -411,7 +414,7 @@ def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
     # none of its vertices joins the plate.
     collars = [(fid, ref) for fid, ref, _g in groups if is_collar_ref(ref)]
     groups = [g for g in groups if not is_collar_ref(g[1])]
-    out = _plane_groups(planar, law, airport, groups)
+    out = _split_blocks(planar, _plane_groups(planar, law, airport, groups), groups)
     if not collars:
         return out
     by_ref: dict[str, int] = {}
@@ -425,6 +428,37 @@ def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
         a, r, g, fids = out[i]
         out[i] = (a, r, g, tuple(sorted((*fids, fid))))
     return out
+
+
+def _split_blocks(planar: PlanarMap,
+                  out: list[tuple[int, str, list[int], tuple[int, ...]]],
+                  groups: list[tuple[int, str, list[int]]]
+                  ) -> list[tuple[int, str, list[int], tuple[int, ...]]]:
+    """flat-pad spec §3 C14 (RULINGS 2026-09-30r): the flat BLOCKS of a cut
+    unit are ONE plane each, never one plane together — the terminal
+    cluster covers all of them, so its entry is split per block ref
+    (``model.planar.block_of``); every other entry is unchanged."""
+    by_fid = {fid: g for fid, _r, g in groups}
+    res: list[tuple[int, str, list[int], tuple[int, ...]]] = []
+    for ent in out:
+        fids = ent[3]
+        keys = {block_of(planar.faces[q].ref) for q in fids}
+        if len(keys) <= 1 or all(k is None for k in keys):
+            res.append(ent)
+            continue
+        per: dict = {}
+        for q in fids:
+            per.setdefault(block_of(planar.faces[q].ref), []).append(q)
+        for _k, qs in sorted(per.items(), key=lambda t: min(t[1])):
+            vs: list[int] = []
+            seen: set[int] = set()
+            for q in qs:
+                for v in by_fid.get(q, ()):
+                    if v not in seen:
+                        seen.add(v)
+                        vs.append(v)
+            res.append((qs[0], str(planar.faces[qs[0]].ref), vs, tuple(qs)))
+    return res
 
 
 def _plane_groups(planar: PlanarMap, law: Law, airport: Airport | None,

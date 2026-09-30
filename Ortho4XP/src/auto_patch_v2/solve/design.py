@@ -889,6 +889,11 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         from .project_strip import project_strips
         strip_rep = project_strips(planar, law, strips, levels, sol1.z,
                                    cs.flats)
+    # THE DATUM PIN (flat-pad spec §1 (2), RULINGS 2026-09-30u): each held
+    # block's datum column, stage 1's value clipped from the mint datum
+    # into its held contacts' solved band, before stage 2 reads it
+    from ..model.platform import pin_datums
+    pin_datums(planar, law, levels)
     seed_rep: dict = {}
     if stage2_rewrite is not None:
         cs, seed_rep = stage2_rewrite(levels)
@@ -1143,6 +1148,13 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     fr_i = np.asarray(base_p.foot_row_i, dtype=np.int64)
     if fr_i.size:
         w_row[fr_i] = float(d.pad_flat)
+    # THE FRONTAGE HOLD (flat-pad spec §1 (2), RULINGS 2026-09-30f/r): its
+    # own price (``[design] frontage_hold``)
+    fh_heads = frozenset(getattr(d, "frontage_hold_rulings", ()) or ())
+    if fh_heads:
+        fh_i = [i for i, side in enumerate(one) if ruling_head(side[2]) in fh_heads]
+        if fh_i:
+            w_row[np.asarray(fh_i, dtype=np.int64)] = float(d.frontage_hold)
     w_row[hard_i] = rho
     sw = np.sqrt(w_row)
     #: ``μ/ρ`` per one-sided row — zero everywhere but the hard rows, where it

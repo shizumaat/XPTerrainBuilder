@@ -6655,6 +6655,47 @@ def _check_platform_rim_relief(platforms_ll) -> List[Violation]:
     return out
 
 
+def _check_pad_frontage(platforms_ll, held: bool) -> List[Violation]:
+    """THE FLAT-PAD FRONTAGE HOLD (flat-pad spec §1 (2) / §5 A1; spec-author
+    RULINGS 2026-09-30u (c)) — REPORT, one row per held BLOCK.
+
+    SIDECAR-DECLARED like ``platform_rim_relief``: the build publishes per
+    held block its solved (pinned) datum and its welded contacts split into
+    the HELD ones (a stage-1 hold row) and the UNHELD ones (a ramp between
+    two blocks, or a contact the mint's band could not reach).
+    ``held=True`` is ``pad_frontage_hold``: a block one of whose HELD
+    contacts stands off the datum by more than ``frontage_hold_margin_m``
+    (``held_over_margin`` > 0), ``de`` = the worst.  ``held=False`` is
+    ``pad_frontage_infeasible``: a block with UNHELD contacts, ``de`` =
+    the worst of them — the residual the collar carries, never a silent
+    class."""
+    out: List[Violation] = []
+    kind = "pad_frontage_hold" if held else "pad_frontage_infeasible"
+    for rec in platforms_ll or ():
+        if not isinstance(rec, dict) or rec.get("refused") or "datum" not in rec:
+            continue
+        if held:
+            if not int(rec.get("held_over_margin", 0) or 0):
+                continue
+            de = float(rec.get("held_miss_max_m") or 0.0)
+            ll = rec.get("hold_worst_ll") or rec.get("centroid_ll") or (0.0, 0.0)
+            n = int(rec.get("held_contacts", 0) or 0)
+        else:
+            n = int(rec.get("unheld_contacts", 0) or 0)
+            if not n:
+                continue
+            de = float(rec.get("unheld_miss_max_m") or 0.0)
+            ll = rec.get("unheld_worst_ll") or rec.get("centroid_ll") or (0.0, 0.0)
+        way = _platform_way(str(rec.get("ref", "")), kind)
+        dat = float(rec.get("datum", 0.0) or 0.0)
+        v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=float(n),
+                      de_m=de, way_a=way, way_b=way,
+                      pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=dat, elev_b=dat)
+        v.lat, v.lon = float(ll[0]), float(ll[1])
+        out.append(v)
+    return out
+
+
 def _check_platform_refused(platforms_ll) -> List[Violation]:
     """A UNIT PAD THE PLATFORM REFUSED (unit-platform spec §1 (2)) — REPORT,
     one row per refusal (its erosion by the collar left no inner ring of
@@ -9731,6 +9772,16 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("platform_refused",
      "UNIT PAD that got NO platform (erosion left no inner ring)",
      "within"),
+    # THE FLAT-PAD FRONTAGE HOLD (flat-pad spec §1 (2); spec-author RULINGS
+    # 2026-09-30u (c)).  SIDECAR-DECLARED like the two above: REPORT, one
+    # row per held block — a HELD contact off its datum, and the UNHELD
+    # (ramp / unreachable) contacts the collar carries.
+    ("pad_frontage_hold",
+     "FLAT-PAD block whose HELD frontage contact stands off its datum",
+     "within"),
+    ("pad_frontage_infeasible",
+     "FLAT-PAD block with UNHELD frontage contacts (ramp / unreachable)",
+     "within"),
     # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
     # ruled 13q item 2; spec §36).  Sidecar-declared like the two families
     # above it: the accepted rects arrive as ``eat_rects`` and this prices
@@ -12505,6 +12556,16 @@ def run_checks(
         "per platform, de = the max relief against the solved plane)",
         prelief, top_n)
     within = within + prelief
+    phold = _fam("pad_frontage_hold", _check_pad_frontage(platforms_ll, True))
+    _pv("FLAT-PAD block whose HELD frontage contact stands off its datum by "
+        "more than frontage_hold_margin_m (flat-pad spec §1 (2); RULINGS "
+        "2026-09-30u) — REPORT, one row per block, de = the worst", phold, top_n)
+    within = within + phold
+    pinf = _fam("pad_frontage_infeasible", _check_pad_frontage(platforms_ll, False))
+    _pv("FLAT-PAD block with UNHELD frontage contacts — a ramp between two "
+        "blocks or a contact the mint band could not reach (RULINGS "
+        "2026-09-30u (c)) — REPORT, one row per block, de = the worst", pinf, top_n)
+    within = within + pinf
     prefused = _fam("platform_refused", _check_platform_refused(platforms_ll))
     _pv("UNIT PAD with NO platform (unit-platform spec §1 (2): the collar's "
         "erosion left no inner ring; the pad keeps its welded plate) — REPORT",

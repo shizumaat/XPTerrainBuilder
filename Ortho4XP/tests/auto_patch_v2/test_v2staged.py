@@ -173,7 +173,12 @@ def test_a_pad_vertex_welded_to_the_apron_is_stage_ones(law, built):
     unit = [f for f in pm.faces.values() if f.ref.split("#")[0] == "padA"]
     assert {f.ref for f in unit} == {"padA", "padA" + COLLAR_SUFFIX}, (
         sorted(f.ref for f in unit))
-    shared = {v for f in unit for v in pm.ring_vertices(f.ring) if v in air}
+    # the flat-pad hold's DATUM COLUMN (RULINGS 2026-09-30f/r) is a stage-1
+    # unknown by construction and is not a weld
+    from auto_patch_v2.model.platform import datum_vertices
+    dcol = set(datum_vertices(pm, law).values())
+    shared = {v for f in unit for v in pm.ring_vertices(f.ring)
+              if v in air and v not in dcol}
     assert shared, "the fixture's pad fronts the apron"
     # the weld is the RIM's, i.e. the collar's; the apron owns the same
     # vertex (one unknown), so stage 1 decides it
@@ -211,10 +216,19 @@ def test_the_shipped_airside_value_is_stage_ones(law, built, arms):
     lw = _law_arm(law, staged_solve=True)
     drop, foreign = stage_split(pm, cs, lw)
     levels: dict[int, float] = {}
+    # the stage's OWN sheet, as ``solve_design`` solves it (§20b (3)): a
+    # reference without it differs once stage 1 carries a pad datum column
+    # (the flat-pad hold, RULINGS 2026-09-30f/r)
     _sol1, _rep1 = _solve_stage(pm, cs, lw, drop=drop, fixed=foreign,
-                                levelled_out=levels)
+                                levelled_out=levels,
+                                stage_roles=airside_stage_roles(lw))
     z_staged = arms[0]
-    air = sorted(airside_stage_vertices(pm, lw))
+    # the flat-pad DATUM PIN (RULINGS 2026-09-30u) sets each held block's
+    # datum column between the stages by construction; it is no airside
+    # value
+    from auto_patch_v2.model.platform import datum_vertices
+    dcol = set(datum_vertices(pm, lw).values())
+    air = sorted(set(airside_stage_vertices(pm, lw)) - dcol)
     d = max(abs(z_staged[v] - levels[v]) for v in air if v in levels)
     assert d <= 1e-9, d
 
@@ -319,10 +333,13 @@ def test_a_pad_welded_to_two_pavements_takes_the_airsides_own_drop(law):
                                                      _pad_plane, _verts)
     from auto_patch_v2.constraints import generate as _generate
     from auto_patch_v2.model.planar import COLLAR_SUFFIX
+    # the CONTACT-LED platform (29s) is this twin's subject; under the
+    # flat-pad hold (RULINGS 2026-09-30f/r) the platform is flat by law
+    from tests.auto_patch_v2._plate import contact_led_law
     cells, dem = _two_pavement_cells(1.8)
     tilts, plates = {}, {}
     for staged in (False, True):
-        lw = _law_arm(law, staged_solve=staged)
+        lw = _law_arm(contact_led_law(law), staged_solve=staged)
         ap = _pad_airport(lw, dem)
         pm, _st = build(ap, Classification(tuple(cells), (), {}, ()), lw)
         cs, _c, _w = _generate(pm, lw, ap)

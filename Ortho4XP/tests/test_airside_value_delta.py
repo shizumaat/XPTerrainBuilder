@@ -210,3 +210,18 @@ def test_the_tool_is_in_the_index():
     idx = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "Ortho4XP/tools/airside_value_delta.py" in idx, (
         "a tool absent from tools/INDEX.md is treated as absent")
+
+
+def test_family_split_is_the_laws_and_the_runway_is_senior():
+    """Flat-pad spec §4 / C21 (RULINGS 2026-09-30f): every moved node is
+    read into ONE family — runway > strip > taxi > apron > other — from the
+    law's own role sets (never re-spelled), so the runway bar (0) is read
+    off the same pass."""
+    avd = _load()
+    fams = avd.airside_families()
+    assert "runway" in fams["runway"] and "junction" in fams["taxi"]
+    assert "apron" in fams["apron"] and "building" not in fams["apron"]
+    assert avd.family_of(("junction", "runway"), fams) == "runway"
+    assert avd.family_of(("apron", "stub"), fams) == "taxi"
+    assert avd.family_of(("apron", "building"), fams) == "apron"
+    assert avd.family_of(("building",), fams) == "other"

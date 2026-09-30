@@ -94,6 +94,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): the plane is CONTACT-LED —
     # one one-way level row per welded collar contact, at the plane there
     ("platform_level", platform.platform_level_rows),
+    # flat-pad spec §1 (2) (RULINGS 2026-09-30f/r, #111): a HELD block's
+    # welded frontage at its flat datum, a stage-1 row
+    ("frontage_hold", platform.frontage_hold_rows),
     # §30 (4)'s apron reach / collar generators: DELETED (jetway-strip
     # spec §6 Q3) — the JETWAY STRIP projection is their successor.
     ("frontage_near_miss", pads.frontage_near_miss),

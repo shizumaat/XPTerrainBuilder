@@ -214,6 +214,24 @@ ruling    = "2026-09-28a (1)"
 solver    = "diagnostic"
 cockpit   = "grade"
 
+[pad_frontage_hold]
+measures  = "a held flat-pad block (flat-pad spec §1 (2)) whose HELD welded frontage contact stands off the block's solved datum by more than frontage_hold_margin_m; one row per block (de = the worst, distance = the held contacts)"
+parameter = "structures.building_pad.frontage_hold_margin_m"
+roles     = ["building"]
+pairs     = "within"
+ruling    = "2026-09-30u (c)"
+solver    = "diagnostic"
+cockpit   = "grade"
+
+[pad_frontage_infeasible]
+measures  = "a held flat-pad block's UNHELD welded frontage contacts (a ramp between two blocks, or beyond the mint band's reach) — the residual the collar carries; one row per block (de = the worst, distance = the count)"
+parameter = "structures.building_pad.frontage_hold_margin_m"
+roles     = ["building"]
+pairs     = "within"
+ruling    = "2026-09-30u (c)"
+solver    = "diagnostic"
+cockpit   = "grade"
+
 [platform_refused]
 measures  = "a unit pad fronting airside that got NO platform — its erosion by the collar left no inner ring of cluster_pad_min_m2 (it keeps the welded plate)"
 parameter = "structures.building_pad.platform_collar_max_m"

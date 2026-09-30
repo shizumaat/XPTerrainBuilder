@@ -388,6 +388,13 @@ class BuildingPad:
     #: unit-platform spec §1: mint the platform + collar (``planar/
     #: platform.py``); false keeps today's welded plate
     platform_collar: bool
+    #: flat-pad spec §1 / §6 Q5 (owner RULINGS 2026-09-30f): the platform's
+    #: welded frontage is HELD at its block datum in stage 1 (false = 29s)
+    frontage_hold: bool
+    #: flat-pad spec §2 (1): the DEM proxy's allowance in the mint-time test
+    frontage_hold_margin_m: float
+    #: flat-pad spec §2 (4) (e) / §6 Q4: a unit needing more blocks STOPS
+    frontage_blocks_max: int
 
 
 @_dc.dataclass(frozen=True)

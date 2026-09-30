@@ -1567,6 +1567,13 @@ def pad_read(icao: str, pm, law, airport, sites: list[tuple[float, float]]) -> d
            "nested_same_ref_m2": round(sum(r["inner_m2"] for r in same), 1),
            "sites": []}
     print(f"[{icao}] PAD READ arrangement {pa}")
+    # flat-pad spec §2 as ruled 2026-09-30r: the BLOCK PARTITION — per
+    # platform unit the verdict, the blocks (area, frontage, predicted
+    # datum, held / ramp / residual contacts), the cut necks and the steps
+    from auto_patch_v2.planar.pad_blocks import BLOCK_PLANS
+    out["pad_blocks"] = [b.to_dict() for b in BLOCK_PLANS]
+    for b in BLOCK_PLANS:
+        print(f"[{icao}] PAD BLOCKS {b.line()}")
     print(f"[{icao}] PAD READ building faces {out['building_faces']} in "
           f"{len(bref)} refs, {b_area:,.0f} m2; airside (rolled-on) faces "
           f"{air_area:,.0f} m2; weld: {weld_refs} pad refs share {weld_v} "

@@ -13,7 +13,9 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Platform", "PLATFORMS"]
+__all__ = ["Platform", "PLATFORMS", "HELD", "held_platform_vertices",
+           "datum_vertex_of", "datum_vertices", "stage_air_vertices",
+           "pin_datums"]
 
 
 @_dc.dataclass(frozen=True)
@@ -39,3 +41,123 @@ class Platform:
 #: The last arrangement's platform verdicts (the ``pad_terrace.TERRACES``
 #: pattern: read back by the publication and the census).
 PLATFORMS: list[Platform] = []
+
+
+#: flat-pad spec §1 (2) / §2 (owner RULINGS 2026-09-30f, 30r): the last
+#: arrangement's HELD platform refs (one per flat block; a one-block unit
+#: keeps its own ref) -> ``{"unit", "k", "blocks", "datum_pred", "verdict"}``
+#: — their welded frontage is held at the block's flat datum in stage 1
+#: (``constraints/platform.frontage_hold_rows``).  Minted by
+#: ``planar/platform.platform_split``; ``[building_pad] frontage_hold``
+#: off leaves it empty.
+HELD: dict[str, dict[str, _t.Any]] = {}
+
+
+def held_platform_vertices(planar: _t.Any, ref: str) -> list[int]:
+    """Every vertex of the PLATFORM faces of ``ref`` (rings and holes; the
+    collar excluded) — sorted."""
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if str(f.ref) != ref:
+            continue
+        for ring in (f.ring, *f.holes):
+            out.update(planar.ring_vertices(ring))
+    return sorted(out)
+
+
+def datum_vertex_of(planar: _t.Any, ref: str) -> "int | None":
+    """THE FRONTAGE DATUM COLUMN of a held block (spec §1 (2)): ONE vertex
+    of its platform — the lowest id, a deterministic choice — carries the
+    block's flat level as a stage-1 unknown; every other platform vertex is
+    held to it in stage 2.  ONE derivation: the stage split
+    (``solve/design_roles.airside_stage_vertices``) and the hold rows read
+    the same vertex."""
+    vs = held_platform_vertices(planar, ref)
+    return vs[0] if vs else None
+
+
+def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
+    """Every vertex of a §20b stage-1 face (``law.tables.
+    airside_stage_roles``, rings and holes; a courtyard island excluded,
+    ``model.islands``) — the body of ``solve/design_roles.
+    airside_stage_vertices`` before the datum columns join it (one
+    derivation, read here so the constraints may ask it too)."""
+    from ..law.tables import airside_stage_roles
+    from .islands import courtyard_faces
+    roles = airside_stage_roles(law)
+    court = courtyard_faces(planar, law)
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if f.role not in roles or f.id in court:
+            continue
+        for ring in (f.ring, *f.holes):
+            out.update(planar.ring_vertices(ring))
+    return out
+
+
+def datum_vertices(planar: _t.Any, law: _t.Any,
+                   air: "_t.AbstractSet[int] | None" = None) -> dict[str, int]:
+    """``{held ref: its datum vertex}`` over :data:`HELD` — only the blocks
+    whose COLLAR shares a vertex with a stage-1 face (a block with no
+    welded frontage has nothing to hold: it keeps the plate's own rows,
+    MEASURED on the HECA replay — ``building121`` / ``281`` / ``5`` read
+    frontage at the mint through a sliver the arrangement did not weld,
+    and a datum column with no hold row sat on one vertex's DEM)."""
+    if not HELD:
+        return {}
+    if air is None:
+        air = stage_air_vertices(planar, law)
+    col: dict[str, set[int]] = {}
+    for f in planar.faces.values():
+        r = str(f.ref)
+        if r.endswith("#collar") and r[:-len("#collar")] in HELD:
+            vs = col.setdefault(r[:-len("#collar")], set())
+            for ring in (f.ring, *f.holes):
+                vs.update(planar.ring_vertices(ring))
+    out: dict[str, int] = {}
+    for ref in sorted(HELD):
+        if not (col.get(ref, set()) & air):
+            continue
+        v = datum_vertex_of(planar, ref)
+        if v is not None:
+            out[ref] = v
+    return out
+
+
+def pin_datums(planar: _t.Any, law: _t.Any, levels: dict) -> list[dict]:
+    """THE DATUM PIN (flat-pad spec §1 (2) as amended by spec-author RULINGS
+    2026-09-30u (a)/(ii)): the hold is a PRICED row, so its datum column
+    is never left where stage 1 parked it — after stage 1, and before stage
+    2 substitutes the levels, each held block's datum is set to the MINT
+    datum clipped into the band its HELD contacts' SOLVED apron can reach:
+    ``[max(z_c − r_c), min(z_c + r_c)]`` over the held contacts (``r_c``
+    the mint's reach, ``planar/pad_blocks.reach``); an empty band collapses
+    to the contacts' median.  MEASURED (lane ``flatpad111b``): unpinned, HECA
+    T2's datums drifted 72.47 -> 73.81 and 69.01 -> 70.26.  Mutates
+    ``levels`` (vertex -> value) and returns one record per pinned block
+    (also stored as ``HELD[ref]["datum_pin"]``)."""
+    out: list[dict] = []
+    for ref, dv in datum_vertices(planar, law).items():
+        h = HELD[ref]
+        hc = [(v, r) for v, r in (h.get("hold_contacts") or ())
+              if v in levels]
+        if dv not in levels or not hc:
+            continue
+        zs = [float(levels[v]) for v, _r in hc]
+        rs = [float(r) if r is not None and r == r else 0.0 for _v, r in hc]
+        lo = max(z - r for z, r in zip(zs, rs))
+        hi = min(z + r for z, r in zip(zs, rs))
+        if lo > hi:
+            zs_s = sorted(zs)
+            lo = hi = zs_s[len(zs_s) // 2]
+        mint = h.get("datum_pred")
+        solved = float(levels[dv])
+        target = solved if mint is None else float(mint)
+        pinned = min(max(target, lo), hi)
+        levels[dv] = pinned
+        rec = {"ref": ref, "mint": None if mint is None else round(float(mint), 3),
+               "solved": round(solved, 3), "pinned": round(pinned, 3),
+               "band": [round(lo, 3), round(hi, 3)], "held": len(hc)}
+        h["datum_pin"] = rec
+        out.append(rec)
+    return out

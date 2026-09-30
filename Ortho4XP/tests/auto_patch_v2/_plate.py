@@ -13,3 +13,13 @@ def plate_law(law):
     bp = _dc.replace(law.tables.structures.building_pad, platform_collar=False)
     st = _dc.replace(law.tables.structures, building_pad=bp)
     return _dc.replace(law, tables=_dc.replace(law.tables, structures=st))
+
+
+def contact_led_law(law):
+    """``law`` with ``[building_pad] frontage_hold = false`` — the 29s
+    contact-led platform (the fallback every pad the flat-pad hold does not
+    reach still takes) for twins whose subject is THAT path; the hold's own
+    twins are ``test_pad_blocks.py`` (flat-pad spec, RULINGS 2026-09-30f/r)."""
+    bp = _dc.replace(law.tables.structures.building_pad, frontage_hold=False)
+    st = _dc.replace(law.tables.structures, building_pad=bp)
+    return _dc.replace(law, tables=_dc.replace(law.tables, structures=st))

@@ -125,7 +125,10 @@ def _gap_cells(gap_m: float):
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    # the subject is the pre-hold platform / plate path: the flat-pad hold
+    # (RULINGS 2026-09-30f/r) is disarmed for it, never for its own twins
+    from tests.auto_patch_v2._plate import contact_led_law
+    return contact_led_law(Law.for_airport("ZZZZ"))
 
 
 # ── the horizon is a LAW VALUE, and it has one derivation site ───────────

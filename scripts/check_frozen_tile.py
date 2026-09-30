@@ -1154,8 +1154,71 @@ def _curl_tls_lines(text):
     return seen
 
 
-def run_lemd_elevation(binary, repo_root, log_dir, deadline, keep):
-    """PASS 3 — LEMD's inset + base elevation fetched for real (#121)."""
+#: What the engine must NEVER do when the transport is broken (issue
+#: #121, --expect-refusal): record a durable negative for a provider it
+#: could not reach, or settle the pass as warm.
+LEMD_TRANSPORT_PROVIDERS = ("SPAIN5M", "COPERNICUSGLO30")
+
+
+def run_lemd_elevation_refusal(stream, data_root, stderr_log, jsonl_log):
+    """The ``--expect-refusal`` verdict: the transport is broken on
+    purpose (the workflow's hostile arm), so NOTHING can be fetched — and
+    the bundle must say so and fail, never finish warm at 0 m."""
+    failures = []
+    elevation_dir = os.path.join(
+        data_root, "Elevation_data", _round_latlon(LEMD_LAT, LEMD_LON))
+    inset_dir = os.path.join(
+        elevation_dir, _hem_latlon(LEMD_LAT, LEMD_LON) + "_airport_insets")
+    record = {}
+    try:
+        with open(os.path.join(inset_dir, "index.json"), "r",
+                  encoding="utf-8") as handle:
+            record = json.load(handle).get(LEMD_ICAO) or {}
+    except (OSError, ValueError):
+        pass
+    for code in LEMD_TRANSPORT_PROVIDERS:
+        status = record.get(code)
+        print("   index.json %s.%s = %r" % (LEMD_ICAO, code, status))
+        if status == "no-coverage":
+            failures.append(
+                "a transport failure became a DURABLE %s no-coverage" % code)
+    if os.path.isfile(os.path.join(inset_dir, "complete.json")):
+        failures.append("the inset pass was STAMPED complete (warm-looking "
+                        "frame) although every fetch failed")
+    loud = [e.get("text", "") for e in stream.events("Log")
+            if e.get("level") == "warning"]
+    for code in ("SPAIN5M",):
+        if not any(code in text for text in loud):
+            failures.append("no Log(level=warning) event names %s — the "
+                            "failure reached the console drawer only" % code)
+    log_file = os.path.join(data_root, "Ortho4XP.log")
+    log_text = _tail(log_file, 10 ** 6)
+    if "SPAIN5M" not in log_text:
+        failures.append("Ortho4XP.log does not name the SPAIN5M failure")
+    builds = stream.events("BuildDone")
+    refused = [b for b in builds if not b.get("ok")]
+    if not refused:
+        failures.append("BuildDone ok=true: the tile finished on a broken "
+                        "transport (the #121 silent degrade)")
+    else:
+        text = str(refused[0].get("error") or "")
+        print("   BuildDone ok=false: %s" % text.splitlines()[0][:300]
+              if text else "   BuildDone ok=false (no text)")
+    altitudes = re.search(r"Min altitude: (\S+) , Max altitude: (\S+)",
+                          _tail(stderr_log, 10 ** 7))
+    if altitudes and float(altitudes.group(2)) <= 0.0:
+        failures.append("the tile was meshed on an ALL-ZERO elevation")
+    for text in loud[:10]:
+        print("   loud: %s" % text.strip()[:300])
+    return failures
+
+
+def run_lemd_elevation(binary, repo_root, log_dir, deadline, keep,
+                       expect_refusal=False):
+    """PASS 3 — LEMD's inset + base elevation fetched for real (#121).
+
+    ``expect_refusal`` is the hostile arm's verdict instead: the transport
+    was broken on purpose, and the bundle must REFUSE, not degrade."""
     os.makedirs(log_dir, exist_ok=True)
     jsonl_log = os.path.join(log_dir, "engine-lemd-jsonl.log")
     stderr_log = os.path.join(log_dir, "engine-lemd-stderr.log")
@@ -1200,12 +1263,29 @@ def run_lemd_elevation(binary, repo_root, log_dir, deadline, keep):
                                              os.path.relpath(path, data_root)))
                 if name.endswith((".json", ".txt", ".log")):
                     shutil.copy2(path, os.path.join(evidence, name))
+        if os.path.isfile(os.path.join(data_root, "Ortho4XP.log")):
+            shutil.copy2(os.path.join(data_root, "Ortho4XP.log"),
+                         os.path.join(evidence, "Ortho4XP.log"))
         with open(os.path.join(evidence, "elevation-listing.txt"), "w",
                   encoding="utf-8", newline="\n") as handle:
             handle.write("\n".join(listing) + "\n")
         print("   Elevation_data after the build:")
         for line in listing:
             print("     " + line)
+
+        if expect_refusal:
+            # The driver's own protocol-level "BuildDone ok=false" and
+            # "error_count" failures ARE the expected outcome here.
+            failures = [f for f in failures
+                        if not f.startswith(("BuildDone ok=false",
+                                             "RunDone error_count"))]
+            failures += run_lemd_elevation_refusal(
+                stream, data_root, stderr_log, jsonl_log)
+            print("   frozen LEMD refusal pass finished in %.0f s" % elapsed)
+            return _report(
+                failures,
+                "the frozen bundle DEGRADED on a broken transport (#121).",
+                log_dir, stderr_log, jsonl_log)
 
         # ---- the inset --------------------------------------------------
         index_path = os.path.join(inset_dir, "index.json")
@@ -1501,6 +1581,14 @@ def main(argv):
                         help="which pass(es) to run (default both); "
                              "lemd-elevation is the NETWORK pass of issue "
                              "#121 (dispatch only, never a release gate)")
+    parser.add_argument("--expect-refusal", dest="expect_refusal",
+                        action="store_true",
+                        help="with --pass lemd-elevation: the transport is "
+                             "broken ON PURPOSE (a hostile CA bundle); pass "
+                             "only if the bundle REFUSES — no durable "
+                             "no-coverage, no completion stamp, a loud "
+                             "warning in the Log events and Ortho4XP.log, "
+                             "BuildDone ok=false — never a 0 m tile")
     parser.add_argument("--deadline", type=int, default=300,
                         help="seconds for the TILE pass (default 300)")
     parser.add_argument("--airport-deadline", type=int, default=300,
@@ -1573,7 +1661,8 @@ def main(argv):
         print("== LEMD ELEVATION (network, #121): the frozen bundle fetches "
               "SPAIN5M + the base DEM ==")
         return run_lemd_elevation(binary, repo_root, log_dir,
-                                  arguments.deadline, arguments.keep)
+                                  arguments.deadline, arguments.keep,
+                                  expect_refusal=arguments.expect_refusal)
     if arguments.which in ("tile", "both"):
         print("== PASS 1/2: the frozen bundle builds a TILE ==")
         status |= run(binary, repo_root, log_dir, arguments.lat,

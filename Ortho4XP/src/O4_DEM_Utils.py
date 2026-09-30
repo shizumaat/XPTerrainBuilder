@@ -1036,6 +1036,25 @@ def ensure_elevation(source, lat, lon, verbose=True, prefer_coarse=False):
     )
 
 ################################################################################
+class ElevationDownloadRefused(RuntimeError):
+    """A base elevation download that failed on the TRANSPORT.
+
+    Every attempt of :func:`http_request` died without an HTTP answer (a
+    connection, DNS or TLS/certificate failure) or on a 5xx.  That says
+    nothing about whether the source has the tile, and the historic
+    ``return 0`` made the DEM loader substitute an ALL-ZERO raster and
+    finish the build at 0 m with exit 0 (issue #121: the shipped beta.1
+    exe on windows-latest under a broken TLS stack, run 36661272964 --
+    "Min altitude: 0.0 , Max altitude: 0.0", BuildDone ok).  The alpha.2
+    law -- broken = refuse, never degrade
+    (docs/specs/proj-runtime-robustness-spec.md) -- applies: the tile
+    build fails, naming the source, the URL and the last error.
+
+    A 30x/40x answer is NOT this: the server DID answer, the file is not
+    there, and the historic 0 convention stands.
+    """
+
+
 def http_request(url, source, verbose=False):
     # Guarded import of the process-wide throughput meter (sanctioned
     # pattern copied from O4_OSM_Extracts): telemetry must never break a
@@ -1047,6 +1066,7 @@ def http_request(url, source, verbose=False):
         METER = None
     s = requests.Session()
     tentative = 0
+    last_failure = None
     while True:
         # Cancellation: the user pressed Stop.  Abort before spending
         # another request on this source and match http_request's
@@ -1074,6 +1094,7 @@ def http_request(url, source, verbose=False):
                     UI.vprint(2, "    Server said 'Not Found'")
                 return 0
             elif "[5" in status_code:
+                last_failure = "server error " + status_code
                 if verbose:
                     UI.vprint(
                         2, "    Server said 'Internal Error'.", status_code
@@ -1082,10 +1103,19 @@ def http_request(url, source, verbose=False):
                 if verbose:
                     UI.vprint(2, status_code)
         except Exception as e:
-            if verbose:
-                UI.vprint(2, e)
+            last_failure = "%s: %s" % (type(e).__name__, e)
+            # ALWAYS printed (it used to need verbose): the transport
+            # error is the one line that says WHY the elevation is missing.
+            UI.vprint(1, "    ", source, "download failed:", last_failure)
         tentative += 1
         if tentative == 6:
+            if last_failure is not None and not UI.red_flag:
+                raise ElevationDownloadRefused(
+                    "the %s elevation download of %s failed %d times on "
+                    "the transport (last: %s) -- REFUSING to build this "
+                    "tile on an all-zero elevation raster; check the "
+                    "network / TLS (antivirus or proxy HTTPS inspection) "
+                    "and rebuild" % (source, url, tentative, last_failure))
             return 0
         # Cancellation before the exponential back-off sleep: Stop must
         # not be blocked for up to 2**tentative seconds waiting to retry

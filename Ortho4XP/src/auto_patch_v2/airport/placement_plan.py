@@ -75,7 +75,7 @@ from . import bridge_family as _bf
 # (moved whole by lane ``v2bridgecontact``, no line changed), re-exported
 # because every caller and every twin reads them as this module's.
 from .placement_targets import (_carrier_pieces,          # noqa: F401
-                                _footless_targets)
+                                _footless_targets, welded_carriers)
 # THE PLAN AND GRADED-DOC READERS live next door (the 1,000-line law,
 # moved by lane ``v2bridgecontact``) and are re-exported: every caller
 # and every twin — ``engine_v2``, ``obj8_split_report``, the replay —
@@ -856,6 +856,54 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             else:
                 _solid.append(c)
         _index = _pc.CandidateIndex(_solid, u.anchor[0]) if _solid else None
+        # issue #127: every part id already written on a carrier (a
+        # footed body's own pids on itself, a carried body's on its
+        # carrier) and the bodies the search left with none — resolved
+        # by WELD after every member has asked (``welded_carriers``)
+        _placed = {p: c for c in _solid for p in c.pids}
+        _no_carrier: list = []
+        _rides_of: dict = {}
+        _memo_of: dict = {}
+
+        def _ride(st, grp, over):
+            rides = _rides_of.setdefault(st.mi, {})
+            _gz_memo = _memo_of.setdefault(st.mi, {})
+            # the same cap the terrain cut takes (``[rebake]
+            # line_object_stations_max``); 0 means uncapped
+            for bi, c, why in _carrier_pieces(
+                    st, grp,
+                    over[:line_stations_max] if line_stations_max > 0 else over,
+                    counts, split_tol_m):
+                for i in bi:
+                    for q in st.raw[i][0]:
+                        _placed.setdefault(q.pid, c)
+                if c.member == st.mi:
+                    st.groups[c.group].extend(bi)   # its own file carries it
+                    continue
+                # §9 STILL RULES THE FILE: a carrier in another member
+                # decides the body's ZERO, and where one of this
+                # member's own groups already stands at that zero
+                # (within ``split_tol_m``) the body joins it — same
+                # height, one file fewer.  A split exists only where
+                # the terrain differs under the object; §15 (1) says
+                # WHICH terrain reading is the body's, not that it
+                # must be written alone.
+                cz = (None if c.anchor.surface_z is None
+                      else float(c.anchor.surface_z) - float(c.anchor.y_zero))
+                same = _pc.group_at_zero(
+                    st.groups, st.raw, cz, split_tol_m, _pc.senior_of,
+                    next((st.raw[i][7] for i in bi
+                          if st.raw[i][7] is not None), None),
+                    memo=_gz_memo)
+                if same >= 0:
+                    counts["elevated_ride_own_file_same_zero"] = \
+                        counts.get("elevated_ride_own_file_same_zero", 0) + 1
+                    st.groups[same].extend(bi)
+                    continue
+                if not st.footless:
+                    counts["elevated_ride_other_file"] += 1
+                rides.setdefault((c.member, c.group), ([], why))[0].extend(bi)
+
         for st in staged:
             # §14 (1): a FOOTLESS placement is ONE body — a footbridge is
             # a rigid span and a terminal roof a rigid plate.  §16a (1):
@@ -888,8 +936,6 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                      for grp, _bx in targets) if g]
                 st.own_ground.extend([i] for i in sorted(floor)
                                      if st.footless or i in st.elevated)
-            rides: dict[tuple[int, int], tuple[list[int], str]] = {}
-            _gz_memo: dict = {}
             # §16d (4) (13m) / §16g (4) (13bu): a carried body's ATOMS
             # each ask their own carrier question BEFORE the search.
             _atoms = []
@@ -959,42 +1005,24 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     # asked one at a time, and a piece nothing carries
                     # must still be written (pass 4's whole-placement
                     # branch remains for the placement NOTHING carries).
-                    st.own_ground.append(list(grp))
+                    # issue #127: ...unless it is WELDED to a body that
+                    # has one — asked after every member has searched
+                    _no_carrier.append((st, list(grp), _pids))
                     continue
-                # the same cap the terrain cut takes (``[rebake]
-                # line_object_stations_max``); 0 means uncapped
-                for bi, c, why in _carrier_pieces(
-                        st, grp,
-                        over[:line_stations_max] if line_stations_max > 0 else over,
-                        counts, split_tol_m):
-                    if c.member == st.mi:
-                        st.groups[c.group].extend(bi)   # its own file carries it
-                        continue
-                    # §9 STILL RULES THE FILE: a carrier in another member
-                    # decides the body's ZERO, and where one of this
-                    # member's own groups already stands at that zero
-                    # (within ``split_tol_m``) the body joins it — same
-                    # height, one file fewer.  A split exists only where
-                    # the terrain differs under the object; §15 (1) says
-                    # WHICH terrain reading is the body's, not that it
-                    # must be written alone.
-                    cz = (None if c.anchor.surface_z is None
-                          else float(c.anchor.surface_z) - float(c.anchor.y_zero))
-                    same = _pc.group_at_zero(
-                        st.groups, st.raw, cz, split_tol_m, _pc.senior_of,
-                        next((st.raw[i][7] for i in bi
-                              if st.raw[i][7] is not None), None),
-                        memo=_gz_memo)
-                    if same >= 0:
-                        counts["elevated_ride_own_file_same_zero"] = \
-                            counts.get("elevated_ride_own_file_same_zero", 0) + 1
-                        st.groups[same].extend(bi)
-                        continue
-                    if not st.footless:
-                        counts["elevated_ride_other_file"] += 1
-                    rides.setdefault((c.member, c.group), ([], why))[0].extend(bi)
-            st.carried = _pc.merge_rides(rides, by_key, split_tol_m,
-                                         st.boxes, coarsen_reach_m,
+                _ride(st, grp, over)
+        _wc = welded_carriers([t[2] for t in _no_carrier], _placed,
+                              unit_pairs.get(ui, ()))
+        for ti, (st, grp, _pids) in enumerate(_no_carrier):
+            if ti in _wc:
+                counts["footless_rides_weld"] = \
+                    counts.get("footless_rides_weld", 0) + 1
+                _ride(st, grp, [_wc[ti]])
+            else:
+                st.own_ground.append(grp)
+        for st in staged:
+            st.carried = _pc.merge_rides(_rides_of.get(st.mi, {}), by_key,
+                                         split_tol_m, st.boxes,
+                                         coarsen_reach_m,
                                          [r[7] for r in st.raw])
 
         # ── PASS 4: the cut, carriers first ──────────────────────────

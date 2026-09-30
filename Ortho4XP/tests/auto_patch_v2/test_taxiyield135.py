@@ -44,18 +44,18 @@ def law():
     return Law.for_airport("ZZZZ")
 
 
-def _loop(law, drop_m: float):
+def _loop(law, drop_m: float, *, base: bool = False, code: int = 3):
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
     ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0,
                       "fixture"),
             RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0,
                       700.0 + drop_m, "fixture"))
-    rw = Runway("09/27", 45.0, 1, ends, 3, "D")
+    rw = Runway("09/27", 45.0, 1, ends, code, "D")
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     airport = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
                       (), (), (), (), (), (), pack, _RampDem(), law.ruleset_key)
     cells = (
-        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
+        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), code, "D",
              "airside", "runway", {}),
         Cell(1, "stub", "stubE", _rect(488.5, 22.5, 511.5, 190), (), None, "D",
              "airside", "taxi", {}),
@@ -74,7 +74,7 @@ def _loop(law, drop_m: float):
             CutLine("taxi_centerline", "stubW", ((-100.0, 100.0), (-100.0, 201.5))),
             CutLine("taxi_centerline", "stubX", ((-400.0, 400.0), (-400.0, 520.0))))
     pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
-    return airport, with_runway_chord(pm, law, airport)
+    return airport, (pm if base else with_runway_chord(pm, law, airport))
 
 
 def _faces(pm, ref):
@@ -167,3 +167,55 @@ def test_published_record_tags_and_census_price_through_the_reader(yielded, law)
     assert cg._taxi_yield_pair_cap(_C(0.005, tag), 0.015) is None
     assert cg._taxi_yield_pair_cap(_C(0.015, tag, True), 0.015) is None
     assert cg._taxi_yield_pair_cap(_C(0.015, {}), 0.015) is None
+
+
+# --------------------------------------------------------------------------
+# issue #144 (SPLP 02/20): the taxi yield reads the runway's YIELDED CAP,
+# never the KIND of the pins that forced it — and it is max(table, yield),
+# so a yield below the taxi table moves nothing
+# --------------------------------------------------------------------------
+
+def _seam_pinned(law, rise_m: float, code: int = 3):
+    """The loop with LEVEL thresholds and ONE mid-runway ridge vertex made a
+    §38 tile-seam DEM pin ``rise_m`` above them — SPLP's shape: the yield
+    is forced by a SEAM pin against a CIFP threshold."""
+    import dataclasses as _dc
+    airport, pm = _loop(law, 0.0, base=True, code=code)
+    ridge = sorted({v for bl in pm.breaklines.values() if bl.ref == "09/27"
+                    for v in bl.vertices(pm)},
+                   key=lambda v: abs(pm.vertices[v].xy[0]))
+    assert ridge, "the fixture has no runway ridge"
+    v = ridge[0]
+    assert abs(pm.vertices[v].xy[0]) < 100.0
+    verts = dict(pm.vertices)
+    verts[v] = _dc.replace(verts[v], dem_z=700.0 + rise_m)
+    pm = _dc.replace(pm, vertices=verts, seam_vertices=frozenset({v}))
+    return airport, with_runway_chord(pm, law, airport)
+
+
+def test_a_seam_pinned_yielded_runway_yields_its_tied_stub(law):
+    airport, pm = _seam_pinned(law, 15.0)       # ~2.5 % seam -> threshold
+    rc = pm.runway_caps["09/27"]
+    assert rc.yielded and rc.cap > 0.015
+    assert "seam" in {p.kind for p in (rc.pin_a, rc.pin_b) if p is not None}
+    assert pm.taxi_caps, "a seam-pinned yielded runway yielded no taxi face"
+    for ref in ("stubE", "taxiA", "stubW"):
+        for f in _faces(pm, ref):
+            assert pm.taxi_caps[f.id].cap == pytest.approx(rc.cap), ref
+            assert face_cap(law, f, pm)[0] == pytest.approx(rc.cap)
+    for f in _faces(pm, "stubX"):
+        assert f.id not in pm.taxi_caps
+
+
+def test_a_yield_below_the_taxi_table_moves_no_taxiway(law):
+    """SPLP 02/20 (issue #144): the runway yielded 1.25 % -> 1.42 % beside
+    a 1.5 % taxi table — the law is max(table, yield), so the tied faces
+    keep 1.5 % and ``taxi_yield_caps`` is rightly EMPTY (nothing moved)."""
+    airport, pm = _seam_pinned(law, 8.2, code=4)  # ~1.37 % vs code 4's 1.25 %
+    rc = pm.runway_caps["09/27"]
+    table = role_cap(law, "stub", None, "D").longitudinal
+    assert rc.yielded and rc.cap_law < rc.cap < table
+    assert dict(pm.taxi_caps) == {}
+    for ref in ("stubE", "taxiA", "stubW"):
+        for f in _faces(pm, ref):
+            assert face_cap(law, f, pm)[0] == table

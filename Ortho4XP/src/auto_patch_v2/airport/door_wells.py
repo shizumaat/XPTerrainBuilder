@@ -45,6 +45,7 @@ Nothing numeric lives here; every value is a law-table argument.
 from __future__ import annotations
 
 from ..model.frame import rotated_rectangle
+from ..model import pulse as _pulse
 
 import dataclasses as _dc
 import math
@@ -132,7 +133,7 @@ def _sill_witnesses(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resou
     bl = law.tables.structures.basin
     dl = law.tables.structures.cutout.door
     out: list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]] = []
-    for o in objects:
+    for o in _pulse.each(objects, "door wells: sill witnesses", "objects"):
         if o.resolved is None or _obj8.is_stock_library_resource(o.path):
             continue
         stats.placements += 1
@@ -276,7 +277,8 @@ def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     to_ll = airport.frame.transformers()[1]
     out: list[DoorWell] = []
     k_by_res: dict[str, int] = {}
-    for fk, fam in sorted(by_fam.items(), key=lambda kv: kv[0]):
+    for fk, fam in _pulse.each(sorted(by_fam.items(), key=lambda kv: kv[0]),
+                               "door wells: families", "families"):
         members = members_of.get(fk, [])
         tree = STRtree([o.plan_bbox for o in members]) if members else None
         # §51 (4) row 5 — the per-consumer repair is REMOVED: every

@@ -59,6 +59,7 @@ import numpy as np
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
+from ..model import pulse as _pulse
 from ..model.rebake import Member, Part, Unit
 from . import contact as _contact
 from . import deck_signature as _deck
@@ -620,7 +621,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     scatter_members: set[int] = set()
     recipes: list[MemberRecipe] = []
     member_ref: list[tuple[tuple[float, float, float], str, str]] = []
-    for key, o in keyed:
+    for key, o in _pulse.each(keyed, "pack partition: members", "placements"):
         if o.path in drop_now:
             continue
         members = units_by_key.setdefault(key, {})

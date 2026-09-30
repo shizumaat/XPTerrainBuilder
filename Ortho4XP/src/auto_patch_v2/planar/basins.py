@@ -166,6 +166,7 @@ from ..law.tables import role_side
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.structures import Basin, Tunnel
+from ..model import pulse as _pulse
 from .basin_geometry import (_floors, _floors_inside, _outer, _ramp_axis, _region_floor,
                              _renode, _rim, _snap_ring, rim_wall_report,
                              shell_thickness_m)
@@ -531,7 +532,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     basins: list[Basin] = []
     new_cells: list[tuple[str, str, Polygon, tuple[tuple[XY, ...], ...]]] = []
     knives: list[Polygon] = []
-    for k, ring in enumerate(rings):
+    for k, ring in enumerate(_pulse.each(rings, "basin rings (at-grade read)", "rings")):
         bid = f"basin:{k}"
         site = _ll(airport, ring)
         members = [o for o in witnessed if any(_outer(w).intersects(ring) for w in o.witnesses)]

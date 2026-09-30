@@ -64,20 +64,80 @@ _DEFECT_LAW = {
 }
 
 #: The v2 pipeline's stages as the progress window's phases (the driver's
-#: ``BuildProgress`` banner + bar), with rough time shares (OTHH 2026-09-04:
-#: load ~40 %, planar ~20 %, constraints ~5 %, solve ~30 %, emit+verify ~5 %).
+#: ``BuildProgress`` banner + bar).  Issue #136 (RULINGS 2026-09-30ai): the
+#: old five-step table put pack partition + structures + planar under ONE
+#: ``[40/100]`` banner that ran ~26 min silent at OTHH (75 % of its build)
+#: on weights from 2026-09-04 ("planar ~20 %").  RE-MEASURED 2026-09-30 from
+#: the recorded v2 stage clocks (``<ICAO>.report.json`` ``wall_s`` + the
+#: planar reads' own ``read_s`` / ``grade_geometry_s``; the build-time
+#: ledger ``~/.ortho4xp/auto_patch_build_times`` holds v1 labels only, last
+#: written 2026-09-16): per airport the median seconds of its last five
+#: harness builds, then the MEDIAN SHARE across OTHH / HECA / KCLT / SPJC /
+#: CYXY — load 6.4, partition 13.5, classify+structures 17.0, planar 9.9,
+#: constraints 19.6, solve 13.0, emit+verify 17.1 (%, sum 96.6), scaled
+#: to 100.  A per-airport time model would do better (OTHH is 54 %
+#: structures, CYXY 28 % solve); the heartbeat covers what a static split
+#: cannot.
 V2_PHASE_LABELS = [
     "Loading airport, pack & production DEM",
-    "Classifying & building the planar map",
+    "Partitioning the pack",
+    "Classifying & reading structures (door wells, wall corridors, at-grade)",
+    "Building the planar map",
     "Generating the law constraints",
     "Solving the surface (HiGHS LP)",
     "Emitting the patch & verifying",
 ]
-V2_PHASE_WEIGHTS = [8, 4, 1, 6, 1]
+V2_PHASE_WEIGHTS = [7, 14, 18, 10, 20, 13, 18]
 
-#: The ``[ICAO] <stage> …`` line that marks a stage FINISHED → the next
-#: phase begins.  ``load`` ends phase 1, ``planar`` phase 2, and so on.
-_STAGE_DONE_TO_NEXT_PHASE = ("load", "planar", "constraints", "solve")
+#: The ``[ICAO] <stage> …`` line that marks a stage FINISHED -> the 1-based
+#: phase that begins (``pack`` is ``[ICAO] pack partition``); ``structures``
+#: is the ``auto_patch_v2.model.pulse.mark`` inside ``planar.build`` where
+#: the structure reads end and the arrangement begins.  ADVANCE-TO, never
+#: step-once: a missed boundary skips a phase, it cannot shift every label.
+_STAGE_DONE_TO_PHASE = {"load": 2, "pack": 3, "structures": 4, "planar": 5,
+                        "constraints": 6, "solve": 7}
+
+
+class V2Progress:
+    """The v2 build's progress wiring (issue #136) — ONE implementation for
+    the app's driver (:func:`build_write_verify_one_v2`) and the harness
+    (``tools/harness/build_airport.py``): the step banners from the stage
+    lines and the pulse marks, and the :class:`progress.Heartbeat` reading
+    the pulse.  Use as a context manager; :meth:`line` is the ``out`` hook."""
+
+    def __init__(self, icao: str, *, period_s: float | None = None):
+        from auto_patch_v2.model import pulse as _pulse
+        from . import progress as _progress
+        self._pulse = _pulse
+        self.bp = _progress.BuildProgress(icao, V2_PHASE_LABELS, V2_PHASE_WEIGHTS)
+        _progress._current = self.bp
+        self.hb = _progress.Heartbeat(
+            self.bp.heartbeat, self.bp.running_step, _pulse.describe,
+            period_s=_progress.HEARTBEAT_S if period_s is None else period_s)
+        self._unlisten = None
+
+    def advance(self, stage: str) -> None:
+        k = _STAGE_DONE_TO_PHASE.get(stage)
+        while k is not None and self.bp._done < min(k, self.bp.total):
+            self.bp.step()
+
+    def line(self, line: str) -> None:
+        head = line.split("] ", 1)[1] if line.startswith("[") else ""
+        self.advance(head.split(" ", 1)[0])
+
+    def __enter__(self):
+        self._pulse.clear()
+        self.bp.step()
+        self._unlisten = self._pulse.listen(self.advance)
+        self.hb.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.hb.stop()
+        if self._unlisten:
+            self._unlisten()
+        self._pulse.clear()
+        return False
 
 
 def resolved_auto_patch_engine(tile) -> str:
@@ -287,12 +347,12 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
     icao = task["icao"]
     t0 = time.time()
     log_lines: list[str] = []
+    prog = None
     try:
         import O4_File_Names as FNAMES
         from auto_patch_v2.airport.load import Inputs
         from auto_patch_v2.law import Law, law_tables_digest
         from auto_patch_v2.pipeline.build import Config, build
-        from . import progress as _progress
         from . import provenance as _prov
 
         lat, lon = int(task["tile_lat"]), int(task["tile_lon"])
@@ -302,15 +362,11 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                 f"v2 law tables are MISSING under {digest['dir']} — this "
                 f"engine build carries no *.toml law files (a frozen engine "
                 f"whose datas omitted them); v2 never falls back to v1.")
-        bp = _progress.BuildProgress(icao, V2_PHASE_LABELS, V2_PHASE_WEIGHTS)
-        _progress._current = bp
-        bp.step()
+        prog = V2Progress(icao).__enter__()     # closed in ``finally``
 
         def _out(line: str) -> None:
             log_lines.append(line)
-            head = line.split("] ", 1)[1] if line.startswith("[") else ""
-            if head.split(" ", 1)[0] in _STAGE_DONE_TO_NEXT_PHASE:
-                bp.step()
+            prog.line(line)
 
         seeds = {(lat, lon): tile_dem} if tile_dem is not None else None
         inputs = Inputs(
@@ -354,6 +410,9 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                 "error": f"[v2] {exc}",
                 "traceback": traceback.format_exc() + "\n--- v2 build log ---\n"
                 + "\n".join(log_lines)}
+    finally:
+        if prog is not None:        # the heartbeat thread never outlives the build
+            prog.__exit__(None, None, None)
 
     status = res.solution.status.value
     if status not in ("optimal", "feasible") or res.paths is None:

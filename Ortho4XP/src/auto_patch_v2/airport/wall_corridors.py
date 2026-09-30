@@ -103,6 +103,7 @@ table argument.
 from __future__ import annotations
 
 from ..model.frame import rotated_rectangle
+from ..model import pulse as _pulse
 
 import dataclasses as _dc
 import math
@@ -614,7 +615,8 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
         fams.setdefault(family_key(o), []).append(o)
     out: list[WallCorridorRecord] = []
     k_by_res: dict[str, int] = {}
-    for fk, members in sorted(fams.items(), key=lambda kv: kv[0]):
+    for fk, members in _pulse.each(sorted(fams.items(), key=lambda kv: kv[0]),
+                                   "wall corridors", "families"):
         bands: list[WallBand] = []
         faces: list[LineString] = []
         faces_low: list[LineString] = []

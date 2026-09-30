@@ -52,6 +52,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
+from ..model import pulse as _pulse
 from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .deck_signature import family_key
@@ -314,7 +315,8 @@ def read_sunken_roads(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject]
         fams.setdefault(family_key(o), []).append(o)
     out: list[SunkenRoadRecord] = []
     k_by_res: dict[str, int] = {}
-    for fk, members in sorted(fams.items(), key=lambda kv: kv[0]):
+    for fk, members in _pulse.each(sorted(fams.items(), key=lambda kv: kv[0]),
+                                   "sunken roads", "families"):
         faces: list[tuple[Polygon, float, float]] = []
         belows = []
         owner_of: list[_obj8.PlacedObject] = []

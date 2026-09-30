@@ -3007,6 +3007,10 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     # ONE implementation, called from both entries (RULINGS ``7e90032``);
     # the dump lands in the LANE-LOCAL mod-cache overlay armed above.
     from auto_patch.engine_v2 import fresh_pack_dump            # noqa: E402
+    # THE APP'S PROGRESS WIRING, the same object (issue #136): the step
+    # banners and the >=60 s heartbeat print LIVE here through
+    # ``UI.lvprint``, exactly as the app's driver prints them.
+    from auto_patch.engine_v2 import V2Progress                 # noqa: E402
     law_tables = v2_law_tables_digest(root)
     prog.note(f"engine v2: law tables {law_tables['sha256'][:12] if law_tables['sha256'] else None} "
               f"({len(law_tables['files'])} files under {law_tables['dir']})")
@@ -3041,8 +3045,11 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     v2_dir = out_dir / f"{tag}.v2"
     lines: list = []
     t0 = time.time()
-    with guard:
-        res = build(icao, inputs, v2_dir, Config(), law, out=lines.append)
+    with guard, V2Progress(icao) as v2p:
+        def _out(ln: str) -> None:
+            lines.append(ln)
+            v2p.line(ln)
+        res = build(icao, inputs, v2_dir, Config(), law, out=_out)
     dt = time.time() - t0
     for ln in lines:
         prog.note(f"  [v2] {ln}")

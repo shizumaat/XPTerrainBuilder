@@ -216,9 +216,12 @@ def _pavement_faces(planar: PlanarMap, law: Law) -> list[tuple[str, set[int]]]:
     rigid = set(rigid_roles(law))
     court = courtyard_faces(planar, law)
     out: list[tuple[str, set[int]]] = []
+    from .roads import welded_road
     for f in vw.faces_of_role(tuple(r for r in pavement_roles(law) if r not in rigid)):
         if f.id in court:
             continue                    # a pad never fronts its courtyard
+        if welded_road(f):
+            continue                    # 30aa (#100): a mapped-road ribbon never levels a pad
         vs = {v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
         if vs:
             out.append((f.role, vs))
@@ -265,9 +268,16 @@ def _pavement_geoms(planar: PlanarMap, law: Law
     rigid = set(rigid_roles(law))
     court = courtyard_faces(planar, law)
     out: list[tuple[str, set[int], Polygon]] = []
+    from .roads import welded_road
     for f in vw.faces_of_role(tuple(r for r in pavement_roles(law) if r not in rigid)):
         if f.id in court:
             continue                    # a pad never fronts its courtyard
+        if welded_road(f):
+            # RULINGS 2026-09-30aa (#100; owner 30z (1)): a mapped-road
+            # RIBBON is not a frontage a pad follows — measured HECA
+            # building10 (no neighbour in the base) pulled 3.09 m down to
+            # the ribbon beside it; the road follows the pad (09-12r)
+            continue
         vs = {v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
         ring = vw.rings[f.id]
         if not vs or len(ring) < 3:

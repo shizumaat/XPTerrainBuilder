@@ -369,7 +369,9 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                                 stats["ribbon_airside_pair"] += 1
                                 continue
                             if side == BOTH_LEAD:
-                                side, fol = NO_LEAD, None
+                                # a FUSED pair on two airside feet keeps its
+                                # §37 (10) (2) one-way follower (the b foot)
+                                side, fol = ONE_LEAD, b
                         if cross or fused:
                             if side == ONE_LEAD:
                                 stats["ribbon_follower"] += 1

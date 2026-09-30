@@ -178,7 +178,7 @@ def road_contact_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     """THE ROAD WELDED TO THE AIRSIDE, BETWEEN §20b's STAGES (spec-author
     RULINGS 2026-09-30aa rules 5-7; owner 29y, 30z (1)).
 
-    Stage 1's levelled AIRSIDE contacts of a road (its LEADS,
+    Stage 1's levelled AIRSIDE contacts of a WELDED road (its LEADS,
     ``constraints/roads.road_lead``) are constants here.  From them the
     road's own graph (the planar edges among road-face vertices) gives
     every road vertex its CEILING ``U(r) = min over contacts (L + cap·s)``
@@ -197,7 +197,7 @@ def road_contact_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     Returns the rewritten set and ``{"ceilinged", "clamped", "released":
     [(h, r, need_z), ...]}`` (``need_z`` = the released floor of ``z_r``) —
     the caller reads the step off the solved surface."""
-    from .roads import road_family_roles, road_lead
+    from .roads import road_family_roles, road_lead, welded_road
     rep: dict[str, _t.Any] = {"ceilinged": 0, "clamped": 0, "released": []}
     roads = set(road_family_roles(law))
     caps = [role_cap(law, r).longitudinal for r in roads if role_cap(law, r)]
@@ -205,8 +205,10 @@ def road_contact_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         return cs, rep
     cap = min(caps)
     nodes: set[int] = set()
+    # rules 5-7 bind on the WELDED road's own vertices (the mapped-road
+    # ribbon); the 1206 routes keep §37 (6)'s envelope as they were
     for f in (getattr(planar, "faces", None) or {}).values():
-        if f.role in roads:
+        if f.role in roads and welded_road(f):
             for cyc in (f.ring, *f.holes):
                 nodes.update(planar.ring_vertices(cyc))
     memo: dict[int, bool] = {}

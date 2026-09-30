@@ -337,7 +337,7 @@ def build_arrangement(airport: Airport, classification: Classification,
     _pad_clip.update(_renode_counts(nodes_a, _node_coords(noded), air))
     frozen = None
     if ribbon_cells:
-        rib_lines, regions, frozen, air_f = _ribbons_pass_c(
+        rib_lines, regions, frozen, air_f, base_order = _ribbons_pass_c(
             ribbon_cells, noded, regions, bands, law, keeps, float(grid),
             _ring_lines_of, _pad_clip)
         if rib_lines:
@@ -356,9 +356,11 @@ def build_arrangement(airport: Airport, classification: Classification,
     PAD_AIRSIDE.clear()
     PAD_AIRSIDE.update(_pad_clip)
     (faces, dropped, dropped_seam, merged, absorbed, detached, zs_dissolved,
-     zs_dropped, zs_area, zs_rows, holes_gone) = _faces_of(
+     zs_dropped, zs_area, zs_rows, holes_gone, _polys) = _faces_of(
         noded, regions, bands, law, keeps, frozen,
-        air_f if frozen is not None else None)
+        air_f if frozen is not None else None,
+        base_order[0] if frozen is not None else None,
+        base_order[1] if frozen is not None else None)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
                        bands, dropped_seam, weld, merged,
                        tuple(edge_lines), erep, holes_gone,
@@ -381,7 +383,11 @@ def _ribbons_pass_c(ribbon_cells, noded, regions, bands, law: Law, keeps: bool,
     ribbon ring lines, the regions with the ribbons, the finished node set
     (a later sliver dissolve treats it as frozen) and that airside union."""
     from ..law.tables import rolled_on_roles
-    base_faces = _faces_of(noded, regions, bands, law, keeps, None)[0]
+    hosts_seen: dict = {}
+    got = _faces_of(noded, regions, bands, law, keeps, None, hosts_seen=hosts_seen)
+    base_faces = got[0]
+    base_order = ({shapely.normalize(g).wkb: k for k, g in enumerate(got[-1])},
+                  hosts_seen)
     rolled = rolled_on_roles(law)
     air_raw = unary_union([p for p, r in base_faces if r.role in rolled])
     air_f = shapely.set_precision(air_raw, grid)
@@ -401,7 +407,7 @@ def _ribbons_pass_c(ribbon_cells, noded, regions, bands, law: Law, keeps: bool,
     ribs = [_dc.replace(r, polygon=q) for r in ribs
             for q in _grid_parts(r.polygon, grid)]
     if not ribs:
-        return [], regions, None, air_raw
+        return [], regions, None, air_raw, None
     own = {(float(x), float(y)) for r in ribs
            for ring in (r.polygon.exterior, *r.polygon.interiors)
            for x, y in ring.coords}
@@ -410,11 +416,11 @@ def _ribbons_pass_c(ribbon_cells, noded, regions, bands, law: Law, keeps: bool,
     counts["ribbon_rim_midpoints_dropped"] = mid
     # the claim guard reads the RAW union: the grid would erase a sub-cell
     # airside needle (HECA dsf:objpav402, 0.4 m) and its face with it
-    return lines, regions + ribs, set(nodes_b), air_raw
+    return lines, regions + ribs, set(nodes_b), air_raw, base_order
 
 
 def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
-              air_f=None):
+              air_f=None, order=None, hosts_seen=None):
     """Polygonise ``noded`` and give every face its region, then the
     derivation-site merges (§41 (1)/(4), 08d (4a), 10h (1)).  ``air_f``
     (30aa, the ribbons' pass): the FINISHED airside — a face outside it is
@@ -427,6 +433,9 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
         air_p = prep(air_f.buffer(0.0))
     polys = [g for g in shapely.get_parts(shapely.polygonize([noded]))
              if g.geom_type == "Polygon" and not g.is_empty]
+    if order is not None:
+        big = len(order)
+        polys.sort(key=lambda g: order.get(shapely.normalize(g).wkb, big))
     tree = STRtree([r.polygon for r in regions])
     faces: list[tuple[Polygon, Region]] = []
     dropped = 0
@@ -474,11 +483,11 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
         tuple(law.tables.emit.terrace.shape_roles),
         tuple(r for r, spec in law.tables.precedence.roles.items()
               if spec.rigid),
-        frozen=frozen)
+        frozen=frozen, hosts_seen=hosts_seen)
     faces, holes_gone = dissolve_degenerate_holes(
         faces, law.tables.emit.terrace.separation_m, ident ** 2)
     return (faces, dropped, dropped_seam, merged, absorbed, detached,
-            zs_dissolved, zs_dropped, zs_area, zs_rows, holes_gone)
+            zs_dissolved, zs_dropped, zs_area, zs_rows, holes_gone, polys)
 
 
 def _grid_parts(g, grid: float) -> list[Polygon]:
@@ -724,7 +733,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
                           area_min_m2: float, width_min_m: float,
                           host_roles: tuple[str, ...] = (),
                           refuse_roles: tuple[str, ...] = (),
-                          frozen: "set | None" = None
+                          frozen: "set | None" = None,
+                          hosts_seen: "dict | None" = None
                           ) -> tuple[list[tuple[Polygon, Region]], int, int,
                                      float, tuple]:
     """§41 (4) — A SLIVER ZONE STRIP IS DISSOLVED (owner RULINGS
@@ -760,7 +770,9 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
     ribbon cut it) never grows an aircraft-pavement host — that would give
     the airside a vertex it does not have without the ribbon; it takes
     the next host, else the DEM owns it.  A sliver pass A made alone
-    dissolves exactly as it always did."""
+    dissolves exactly as it always did — into the host it took there
+    (``hosts_seen``: sliver geometry -> host ref, recorded by that run and
+    read back by this one, so an order-broken tie resolves the same)."""
     if (area_min_m2 <= 0.0 and width_min_m <= 0.0) or not faces:
         return faces, 0, 0, 0.0, ()
     tree = STRtree([p for p, _r in faces])
@@ -787,6 +799,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
         best = None
         best_rank = None
         thawed = _thawed(poly)
+        key = shapely.normalize(poly).wkb if hosts_seen is not None else None
+        want = hosts_seen.get(key) if (hosts_seen is not None and frozen is not None) else None
         for j in tree.query(poly, predicate="intersects"):
             j = int(j)
             if j == i or keep[j] is None:
@@ -803,6 +817,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
             tier = (0 if rj.role in hosts else
                     (1 if rj.source != "zone" else 2))
             rank = (tier, -shared)
+            if want is not None and rj.ref == want:
+                rank = (-1, -shared)
             if best_rank is None or rank < best_rank:
                 best, best_rank = j, rank
         area += poly.area
@@ -812,6 +828,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
             rows.append((region.ref, round(poly.area, 1), round(width, 2), None))
             continue
         pj, rj = keep[best]
+        if hosts_seen is not None and frozen is None:
+            hosts_seen[key] = rj.ref
         u = pj.union(poly)
         if u.geom_type != "Polygon":
             u = max(shapely.get_parts(u), key=lambda g: g.area)

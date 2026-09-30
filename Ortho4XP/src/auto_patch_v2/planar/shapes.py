@@ -559,7 +559,6 @@ def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[i
     if not label:
         return []
     ramps = _label_roads(pm, law, label, N, stats)
-    _label_ribbons(pm, label, N)
     for fid, f in pm.faces.items():
         if not is_rigid_role(law, f.role):
             continue
@@ -572,6 +571,9 @@ def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[i
             if v in label:
                 label[v] = top
         stats.pads_relabelled += 1
+    # LAST: a ribbon takes a shape and never votes one (the pads' majority
+    # above is the one the arrangement without it gives)
+    _label_ribbons(pm, label, N)
     return ramps
 
 

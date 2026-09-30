@@ -308,7 +308,15 @@ def test_the_fronting_set_promotes_its_caps(law, built):
     assert r0.fronting_promoted == 0                   # nothing published
     apron = {v for f in pm.faces.values() if f.role == "apron"
              for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)}
-    pm1 = _dc.replace(pm, fronting_vertices=frozenset(apron))
+    # the promotion reads pass 1a's values (RULINGS 2026-09-30bb F2): a
+    # cap is promoted only where the reference already holds it
+    z1a, _ = _solve(pm, _strip(cs), lw, hold=False)
+    pm1 = _dc.replace(pm, fronting_vertices=frozenset(apron),
+                      fronting_ref={v: float(z1a[v]) for v in apron})
+    pm_none = _dc.replace(pm, fronting_vertices=frozenset(apron))
+    rn = DesignReport()
+    assemble(pm_none, cs, lw, rn, drop=drop, fixed=fixed)
+    assert rn.fronting_promoted == 0          # no reference: nothing promoted
     r1 = DesignReport()
     b1 = assemble(pm1, cs, lw, r1, drop=drop, fixed=fixed)
     assert r1.fronting_promoted > 0

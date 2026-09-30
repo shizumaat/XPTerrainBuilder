@@ -25,6 +25,19 @@ from .rows import _reduce
 __all__ = ["runway_stage_roles", "runway_columns", "stage_one"]
 
 
+def _held_at_ref(terms, hi: float, ref: _t.Mapping[int, float],
+                 tol: float) -> bool:
+    """Does the one-sided row ``Σ c z ≤ hi`` hold at ``ref`` within ``tol``
+    metres (``2 / Σ|c|`` scaling)?  A foot ``ref`` lacks: no (RULINGS
+    2026-09-30bb F2: a fronting cap is promoted only where pass 1a holds it)."""
+    try:
+        v = sum(c * float(ref[t]) for t, c in terms) - hi
+    except KeyError:
+        return False
+    s = sum(abs(c) for _t, c in terms)
+    return s <= 0.0 or v * 2.0 / s <= tol
+
+
 def runway_stage_roles(law: Law) -> frozenset[str]:
     """The RUNWAY FAMILY's roles — ``precedence.toml``'s ``family =
     "runway"`` roles, one derivation from the law tables (flat-pad spec
@@ -85,5 +98,6 @@ def stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, hold: _t.Any,
     # §5: the fronting set is published on the map pass 1b solves
     fr = getattr(res, "fronting", None)
     if fr:
-        planar = _dc.replace(planar, fronting_vertices=frozenset(fr))
+        planar = _dc.replace(planar, fronting_vertices=frozenset(fr),
+                             fronting_ref=getattr(res, "fronting_ref", {}) or {})
     return planar, cs1b, solve1(planar, cs1b), rec

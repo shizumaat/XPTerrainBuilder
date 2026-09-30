@@ -70,7 +70,7 @@ from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
 from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds, hard_metres,
                             residual, settled_flip)
 from .design_qp import DEFAULT_SOLVER, SOLVERS, solve_one_sided
-from .flex import runway_columns, runway_stage_roles, stage_one  # noqa: F401
+from .flex import _held_at_ref, runway_columns, runway_stage_roles, stage_one  # noqa: F401
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
 from .pin_yield import yield_pins as _yield_pins  # (re-export: test_surfacesettle2)
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _level_free_columns,
@@ -473,6 +473,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     front = frozenset(getattr(planar, "fronting_vertices", None) or ())
     front_heads = (frozenset(design_law(law).fronting_hard_rulings)
                    if front else frozenset())
+    front_ref = getattr(planar, "fronting_ref", None) or {}
+    tol_ref = float(design_law(law).hard_tol_m)
     rep.fronting_promoted = 0
     for side in one_t:
         terms, hi, row = side
@@ -513,7 +515,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # rigid ``Flat`` group share a column and a ±1 pair cancels to
         # nothing, which is the same constant by another route.
         promoted = bool(front_heads) and ruling_head(row) in front_heads \
-            and vs <= front
+            and vs <= front and _held_at_ref(terms, hi, front_ref, tol_ref)
         if (is_hard(heads, row) or promoted) and _carries_a_column(red, terms):
             if promoted and not is_hard(heads, row):
                 rep.fronting_promoted += 1

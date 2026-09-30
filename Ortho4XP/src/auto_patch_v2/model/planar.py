@@ -333,6 +333,9 @@ class PlanarMap:
     #: HARD — the one filter.  Empty: no promotion (every airport with no
     #: held block, and pass 1a).
     fronting_vertices: frozenset = frozenset()
+    #: RULINGS 2026-09-30bb F2: pass 1a's values over the fronting set —
+    #: a fronting cap is promoted only where pass 1a already holds it
+    fronting_ref: _t.Mapping[int, float] = _dc.field(default_factory=dict)
     #: THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
     #: spec §8.6, ``constraints/taxi_trend.py``): vertex id -> the ground's
     #: LONG-WAVE TREND along that vertex's taxi centreline chain, shifted

@@ -208,7 +208,9 @@ def _median(vals: list[float]) -> float:
 
 def pair_graph(planar: PlanarMap, cs: ConstraintSet,
                cols: _t.AbstractSet[int],
-               heads: _t.AbstractSet[str] | None = None) -> "RouteGraph":
+               heads: _t.AbstractSet[str] | None = None,
+               ref: "_t.Mapping[int, float] | None" = None, tol: float = 0.0,
+               honoured: "list | None" = None) -> "RouteGraph":
     """THE PAIR GRAPH (flat-pad spec v2 §2): one edge per ``Diff`` cap row
     of ``cs`` between two vertices of ``cols`` (stage 1's columns and its
     pins), budget ``cap · d`` — the rows themselves, so a datum inside the
@@ -229,6 +231,15 @@ def pair_graph(planar: PlanarMap, cs: ConstraintSet,
             continue
         k = (a, b) if a < b else (b, a)
         bud = float(d.cap) * float(d.d)
+        # THE METRIC HONOURS THE REFERENCE (RULINGS 2026-09-30bb F1): an edge
+        # pass 1a already spans by more than its cap stays as pass 1a has it
+        # (+ hard_tol_m) — the anchors are consistent by construction
+        if ref is not None and a in ref and b in ref:
+            dz = abs(float(ref[a]) - float(ref[b])) + tol
+            if dz > bud:
+                if honoured is not None:
+                    honoured.append((dz - bud, a, b))
+                bud = dz
         cur = best.get(k)
         if cur is None or bud < cur[0]:
             best[k] = (bud, float(d.d))
@@ -285,6 +296,8 @@ class HoldInterval:
     stats: dict = _dc.field(default_factory=dict)
     #: §5 the fronting set's vertices (``PlanarMap.fronting_vertices``)
     fronting: frozenset = frozenset()
+    #: pass 1a's values the promotion is tested at (``fronting_ref``)
+    fronting_ref: dict = _dc.field(default_factory=dict)
 
 
 def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
@@ -332,8 +345,12 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     pins = {int(p.v): float(p.z) for p in cs.pins
             if p.source.ruling.split(" (")[0].strip() not in yh}
     cols = set(int(v) for v in z1a) | set(pins)
+    tol_h = float(design_law(law).hard_tol_m)
+    honoured: list = []
     g = pair_graph(planar, cs, cols,
-                   frozenset(design_law(law).interval_pair_rulings))
+                   frozenset(design_law(law).interval_pair_rulings),
+                   ref={**{int(v): float(z) for v, z in z1a.items()}, **pins},
+                   tol=tol_h, honoured=honoured)
     rw_v = {int(v) for v in rw_cols if int(v) in z1a}
     member = runway_membership(planar, law, rw_v)
     rw_v = {v for v in rw_v if v in member}
@@ -370,7 +387,13 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
             ex = max(float(diag.lo[v]) - z, z - float(diag.hi[v]))
             if ex > tol:
                 bad.append((ex, v))
-    stats = {"edges": int(len(g.a)), "nodes": len(g.nodes), "anchors_runway": len(rw_v),
+    hw = max(honoured) if honoured else None
+    stats_h = {"fronting_cap_infeasible_pairs": len({(min(a, b), max(a, b))
+                                                     for _e, a, b in honoured}),
+               "fronting_cap_infeasible_worst_m": round(hw[0], 3) if hw else 0.0,
+               "fronting_cap_infeasible_worst": (list(planar.vertices[hw[1]].key)
+                                                 if hw else None)}
+    stats = {**stats_h, "edges": int(len(g.a)), "nodes": len(g.nodes), "anchors_runway": len(rw_v),
              "anchors_pin": len(pins), "anchors_inconsistent": len(bad),
              "anchors_inconsistent_worst_m": round(max(bad)[0], 3) if bad else 0.0,
              "anchors_inconsistent_worst": (list(planar.vertices[max(bad)[1]].key)
@@ -541,14 +564,13 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                     "anchor": list(planar.vertices[path[0]].key),
                     "anchor_runway": list(member.get(path[0], ())),
                     "hops": len(path) - 1}
-    # §5 THE FRONTING SET: per block the apron bodies welded to it, the
-    # junction / taxi faces sharing a vertex with them, and every face on
-    # the least-budget path from each held contact to its nearest fixed
-    # vertex; the faces on a path that joins two INCONSISTENT anchors
-    # (the precondition's failures, ``fronting_cap_infeasible``) are left
-    # priced — the rows there cannot all hold
-    from ..law.tables import airside_stage_roles
-    front_roles = airside_stage_roles(law) - runway_stage_family(law)
+    # §5 THE FRONTING SET (RULINGS 2026-09-30bb F2/F3): the TAXI-family
+    # faces on the least-budget route from each held contact to its nearest
+    # fixed vertex — no apron body row is ever promoted (a steep shape's
+    # grade is lawful inside it, 08k (3)), and a taxi face beside the
+    # fronting apron but off the route stays priced.  The faces on a path
+    # joining two anchors the metric still calls inconsistent are left out.
+    from ..law.tables import role_family as _rf
     infeasible: set[int] = set()
     for _ex, v in bad:
         for side in ("lo", "hi"):
@@ -558,21 +580,14 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     faces = planar.faces
     front_f: set[int] = set()
     for b in blocks.values():
-        seed = set(b["weld"])
-        apron_f = {fid for c in seed for fid in planar.vertices[c].incident_faces
-                   if faces[fid].role in front_roles}
-        body_v = {v for fid in apron_f for ring in (faces[fid].ring, *faces[fid].holes)
-                  for v in planar.ring_vertices(ring)}
-        touch = {fid for v in body_v for fid in planar.vertices[v].incident_faces
-                 if faces[fid].role in front_roles}
         path_v: set[int] = set()
         for c in b["weld"]:
             if c in g.nodes:
-                path_v.update(nearest_fixed.binding(c, "hi"))
-        path_f = {fid for v in path_v - infeasible
-                  for fid in planar.vertices[v].incident_faces
-                  if faces[fid].role in front_roles}
-        front_f |= apron_f | touch | path_f
+                path = nearest_fixed.binding(c, "hi")
+                path_v.update(path)
+        front_f |= {fid for v in path_v - infeasible
+                    for fid in planar.vertices[v].incident_faces
+                    if _rf(law, faces[fid].role) == "taxi"}
     fronting = frozenset(v for fid in front_f
                          for ring in (faces[fid].ring, *faces[fid].holes)
                          for v in planar.ring_vertices(ring)) - frozenset(infeasible)
@@ -588,7 +603,9 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                  runway_bands=sum(len(c) for c in columns.values()),
                  runway_bands_unpulled=sum(len(c) for r, c in columns.items()
                                            if beta.get(r, 0.0) <= 0.0))
-    return HoldInterval(rows, blocks, runways, columns, stats, fronting)
+    fref = {v: (float(z1a[v]) if v in z1a else float(pins[v]))
+            for v in fronting if v in z1a or v in pins}
+    return HoldInterval(rows, blocks, runways, columns, stats, fronting, fref)
 
 
 @_dc.dataclass
@@ -632,7 +649,9 @@ class HoldPass:
     def planar_of(self, planar: PlanarMap) -> PlanarMap:
         """``planar`` with the fronting set published (§5), as pass 1b."""
         fr = getattr(self.result, "fronting", None)
-        return _dc.replace(planar, fronting_vertices=frozenset(fr)) if fr else planar
+        return (_dc.replace(planar, fronting_vertices=frozenset(fr),
+                            fronting_ref=dict(self.result.fronting_ref))
+                if fr else planar)
 
     def finish(self, z1b: _t.Mapping[int, float], z1b_all: _t.Any = None,
                caps_held: bool = True) -> list[dict]:

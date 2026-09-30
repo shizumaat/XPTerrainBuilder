@@ -368,27 +368,18 @@ interval_pair_rulings = [
 # 2026-09-30y (3)): the heads `solve.design.assemble` promotes to HARD where
 # every foot of the row is on the published fronting set
 # (`PlanarMap.fronting_vertices`, `constraints/no_step.hold_interval`) —
-# the pair caps of `interval_pair_rulings` plus the taxi family's own
-# three- and four-column caps (transverse, the box / junction planes).
-# Priced (at `law`) everywhere else.  The 1 % apron preference tier stays
-# priced (the design's price lives there).
+# the TAXI family's caps and the no-step pairs ONLY (RULINGS 2026-09-30bb
+# F2): never an apron body row — inside a steep shape a steep grade is
+# lawful (08k (3)); the transition faces keep the apron's PRICED rows and
+# the 1 % tier prices their smoothness (`apron_over_preference`).  A row is
+# promoted only where pass 1a already holds it within `hard_tol_m`.
 fronting_hard_rulings = [
   "airside_no_step §1.1 route pairs",
-  "airside_no_step §1.1 pad contact↔pavement route pairs",
-  "common.roles.apron frontage chord",
-  "common.roles.apron ring edge",
-  "common.roles.apron lateral hop, chain",
-  "common.roles.apron on the shared edge portion",
-  "apron body chord, stationed across the face",
-  "apron body chord, strict",
   "short-pair box |dz| <= cL*|ds| + cT*|dt| vs the nearest stretch axis",
   "rulesets.taxi.longitudinal centreline",
   "rulesets.taxi.transverse lateral hop, chain",
   "rulesets.taxi.transverse raw pair",
   "rulesets.taxi.transverse",
-  "plane_gradient",
-  "junction mesh edge at the nearest stretch cap",
-  "junction triangle plane box along the serving stretch",
 ]
 # THE RUNWAY PROFILE FOLLOWS THE AIRPORT (owner RULINGS 2026-09-10q/10r,
 # ruled 10t (3); spec §21).  SPJC: the built ridge reproduced the straight

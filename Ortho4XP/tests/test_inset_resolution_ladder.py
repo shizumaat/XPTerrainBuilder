@@ -227,7 +227,7 @@ def test_airport_fetch_records_the_ladder_in_the_sidecar(
         39, -107, {"KASE": BOX}, [_definition()], None)
     assert record["KASE"]["FAKE3DEP"] == "ok"
     sidecar = FNAMES.airport_inset_provenance(39, -107, "KASE", "FAKE3DEP")
-    with open(sidecar) as handle:
+    with open(sidecar, encoding="utf-8") as handle:
         meta = json.load(handle)
     assert meta["ladder"]["delivered_label"] == "1/3 arc-second"
     assert meta["resolution_m"] == 10.0

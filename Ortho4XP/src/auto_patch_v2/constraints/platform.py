@@ -507,6 +507,21 @@ def hold_sets(planar: PlanarMap, law: Law
     held = datum_vertices(planar, law)
     if not held:
         return []
+    # flat-pad spec v2 §3: the block's PLATEAU joins its hold set — every
+    # vertex of its plateau apron pieces (``model.platform.
+    # plateau_vertices``) but one a taxi / runway face or another pad also
+    # carries (that vertex is the taxiway's, or the other pad's weld)
+    from ..law.tables import is_rigid_role, role_family
+    from ..model.platform import plateau_vertices
+    plat = plateau_vertices(planar, law)
+    foreign: set[int] = set()
+    if plat:
+        for f in planar.faces.values():
+            if not (is_rigid_role(law, f.role)
+                    or role_family(law, f.role) in ("taxi", "runway")):
+                continue
+            for ring in (f.ring, *f.holes):
+                foreign.update(planar.ring_vertices(ring))
     out: list[tuple[str, int, list[int], int, int]] = []
     for pref, _vs, weld in platform_contacts(planar, law):
         if pref not in held or not weld:
@@ -521,8 +536,12 @@ def hold_sets(planar: PlanarMap, law: Law
             _d, j = cKDTree(np.asarray(hx)).query([planar.vertices[o].xy for o in weld])
             j = np.atleast_1d(j)
             ramp = {o for o, jj in zip(weld, j) if bool(hr[int(jj)])}
-        out.append((pref, held[pref], [o for o in weld if o not in ramp],
-                    n_all, len(ramp)))
+        hold = [o for o in weld if o not in ramp]
+        own = set(weld)
+        extra = sorted(v for v in plat.get(pref, ()) if v not in own and v not in foreign)
+        if extra:
+            h["plateau_vertices"] = extra
+        out.append((pref, held[pref], hold + extra, n_all, len(ramp)))
     return out
 
 
@@ -676,6 +695,24 @@ def platform_records(planar: PlanarMap, law: Law,
                             "unheld_miss_max_m": (round(max(um)[0], 3) if um else None),
                             "unheld_worst_ll": (list(planar.vertices[max(um)[1]].key)
                                                 if um else None)})
+            # flat-pad spec v2 §3 / A3: the PLATEAU — its vertices, how many
+            # sit on the datum, its tilt (a plane fitted over them) and area
+            pv = [v for v in (h.get("plateau_vertices") or ())]
+            if pv:
+                from ..model.platform import PLATEAUS
+                from ..law.tables import design as _dl
+                tol_p = float(_dl(law).hard_tol_m)
+                P = np.array([planar.vertices[v].xy for v in pv], dtype=float)
+                Zp = np.array([float(z[v]) for v in pv])
+                Ap = np.c_[P - P.mean(axis=0), np.ones(len(P))]
+                cp, *_ = np.linalg.lstsq(Ap, Zp, rcond=None)
+                pr = PLATEAUS.get(pref, {})
+                rec.update({"plateau_vertices": len(pv),
+                            "plateau_within_tol": (int((np.abs(Zp - float(z[dv])) <= tol_p + 1e-6).sum())
+                                                   if dv is not None else None),
+                            "plateau_tilt_pct": round(100.0 * math.hypot(cp[0], cp[1]), 3),
+                            "plateau_area_m2": pr.get("area_m2"),
+                            "stand_zone_source": pr.get("source")})
             if "reach_band" in h:
                 rec["reach_band"] = h["reach_band"]
                 rec["reach_empty"] = bool(h.get("reach_empty"))

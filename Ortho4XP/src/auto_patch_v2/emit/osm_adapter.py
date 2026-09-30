@@ -111,6 +111,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # flat-pad spec v2 §6 A11 (RULINGS 2026-09-30as): per PULLED runway its
     # flex budget, lift, used share and pulling pad — EVIDENCE, not law
     "runway_flex",
+    # flat-pad spec v2 §3: the plateau ring vertices per held block
+    "plateau_rings",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
     # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNEL records —
     # the floor datum each channel declares per station and the crest

@@ -238,6 +238,12 @@ def build_arrangement(airport: Airport, classification: Classification,
                                             getattr(airport, "dem", None),
                                             airport=airport)
         _pad_clip.update(_plat)
+        # flat-pad spec v2 §3: THE STAND LINE — the held blocks' plateaus
+        # cut out of the apron they front, off the blocks just minted
+        from .pad_cut import plateau_cut
+        base_regions, _plateau = plateau_cut(base_regions, pad_regions, law,
+                                             airport, float(grid))
+        _pad_clip.update(_plateau)
 
     def _ring_lines_of(rs) -> list[LineString]:
         out: list[LineString] = []

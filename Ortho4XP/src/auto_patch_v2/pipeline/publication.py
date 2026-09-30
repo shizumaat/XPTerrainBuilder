@@ -449,6 +449,10 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # pass 1b used and the pad that pulled it — an empty list where
             # no runway was pulled (``constraints/no_step.RUNWAY_FLEX``)
             "runway_flex": _runway_flex(),
+            # flat-pad spec v2 §3 P2 / P19: the PLATEAU RING vertices per
+            # held block — minted by law (``planar/pad_cut.plateau_cut``),
+            # EXPECTED added airside nodes, excluded from the renode bar
+            "plateau_rings": _plateau_rings(planar, law),
             # 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS
             # 2026-09-30ah (1), issue #135): per TIED taxi-family face the
             # cap it was priced at, its table cap and the runway that
@@ -600,6 +604,14 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     if _doc.get("pad_airside_renode") is None:
         _doc.pop("pad_airside_renode", None)
     return _doc
+
+
+def _plateau_rings(planar: PlanarMap, law: Law) -> dict[str, list]:
+    """The ``plateau_rings`` sidecar key: held block -> the lat/lon keys of
+    every vertex of its plateau pieces (flat-pad spec v2 §3)."""
+    from ..model.platform import plateau_vertices
+    return {b: sorted(list(planar.vertices[v].key) for v in vs)
+            for b, vs in sorted(plateau_vertices(planar, law).items())}
 
 
 def _runway_flex() -> list[dict[str, _t.Any]]:

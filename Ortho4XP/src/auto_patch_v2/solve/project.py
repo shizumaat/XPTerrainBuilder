@@ -119,6 +119,11 @@ class ProjectionReport:
     #: infeasible): how many rows were given slack, and the worst slack taken
     elastic_rows: int = 0
     elastic_slack_m: float = 0.0
+    #: THE WITHDRAWN ROWS BY NAME (issue #133): one record per row the
+    #: elastic arm withdrew — its generator and ruling, the slack the LP
+    #: gave it, the violation it is left with, and its feet (vertex, roles,
+    #: fixed, inside the runway family)
+    withdrawn: list = _dc.field(default_factory=list)
     #: the largest |z − z_design| the projection paid for it
     max_move_m: float = 0.0
     wall_s: float = 0.0
@@ -138,7 +143,9 @@ class ProjectionReport:
                 "elastic_rows": self.elastic_rows,
                 "elastic_slack_m": round(self.elastic_slack_m, 6),
                 "max_move_m": round(self.max_move_m, 6),
-                "wall_s": round(self.wall_s, 3), "status": self.status}
+                "wall_s": round(self.wall_s, 3), "status": self.status,
+                **({"withdrawn": list(self.withdrawn)} if self.withdrawn
+                   else {})}
 
     def line(self) -> str:
         if not self.ran:
@@ -189,6 +196,29 @@ def free_columns(red: _Reduction, vertices: _t.AbstractSet[int]) -> np.ndarray:
         else:
             free[c] = False
     return free
+
+
+def _row_record(planar: PlanarMap, red: _Reduction, S: _t.AbstractSet[int],
+                side: _Side, slack: float, x: np.ndarray) -> dict[str, _t.Any]:
+    """One WITHDRAWN row by name (issue #133): who minted it, the slack the
+    relaxation LP gave it, and each foot — vertex id, the roles of the faces
+    around it, whether the reduction FIXED it (a pin) and whether it lies in
+    the runway family."""
+    terms, _hi, row = side
+    feet = []
+    for v, c in terms:
+        v = int(v)
+        pv = planar.vertices.get(v)
+        roles = sorted({planar.faces[f].role for f in pv.incident_faces
+                        if f in planar.faces}) if pv is not None else []
+        col = int(red.col[v])
+        feet.append({"v": v, "c": round(float(c), 4), "roles": roles,
+                     "fixed": col < 0, "family": v in S,
+                     "z": round(float(x[col]), 3) if col >= 0 else None})
+    src = getattr(row, "source", None)
+    return {"generator": getattr(src, "generator", "?"),
+            "ruling": getattr(src, "ruling", "?"),
+            "slack_m": round(slack, 4), "feet": feet}
 
 
 def _scaled(A: sp.csr_matrix, b: np.ndarray, sel: np.ndarray
@@ -483,6 +513,12 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
             r2 = rhs.copy()
             r2[drop] = _DROPPED_BOUND
             xf, st = _qp(Ar, r2, x0, w, verbose)
+            rep.withdrawn = [_row_record(planar, red, S, one[int(hard_sel[i])],
+                                         float(slack[i]), x)
+                              for i in np.flatnonzero(drop)]
+            if st == "optimal":
+                for rec, i in zip(rep.withdrawn, np.flatnonzero(drop)):
+                    rec["after_m"] = round(float((Ar[i] @ xf)[0] - rhs[i] + held), 4)
             if st == "optimal":
                 st = "optimal (elastic on the coupled rows)"
     rep.wall_s = time.perf_counter() - t0
@@ -504,7 +540,16 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
     # at TFFJ this trade bought a 0.085 m residual a 1.718 m move and a
     # -21.8 % break at a threshold.  Both numbers are already read against
     # the LAW's own bound over ALL rows, withdrawn ones included, so the
-    # guard needs no reader and no new law.  Under §50.1 it does not fire.
+    # guard needs no reader and no new law.  Under §50.1 it does not fire
+    # — ONCE the yielded runway is held to its pin line: at KASE (#133,
+    # RULINGS 2026-09-30ad) the profile rows alone, each held at
+    # ``hard_tol_m``, let the design drift 0.94 m of total shortfall off
+    # the pins; with the neighbouring pavement fixed here the QP was
+    # infeasible, the LP took its slack on the RWY 33 pin's own rows
+    # (end zone 1.76 m, ceiling 1.06 m, two K rows, and 9 ceiling rows to
+    # the cross connector) and this guard refused.  The envelope
+    # (``runway_profile.yield_envelope``) removes that at its root; every
+    # withdrawn row is named in ``rep.withdrawn``.
     if rep.after_m > rep.before_m + held:
         rep.status = (f"refused: worst hard row {rep.before_m:.4f} -> "
                       f"{rep.after_m:.4f} m ({rep.elastic_rows} rows "

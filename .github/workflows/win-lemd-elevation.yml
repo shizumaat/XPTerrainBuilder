@@ -1,0 +1,128 @@
+name: Windows LEMD elevation (issue #121)
+
+# DISPATCH ONLY — never a release gate (release.yml's tag path is untouched).
+# Issue #121: a Windows user's LEMD build on v1.0.350-beta.1 came out with
+# no elevation data.  Green Windows CI never made an HTTPS request from the
+# frozen exe; this does, through the shipped JSONL protocol:
+#   arm A  the SHIPPED binary (the release's -win.zip)
+#   arm B  a fresh freeze of this ref (release.yml's Windows freeze steps,
+#          copied faithfully: same reqs-frozen filter, same spec)
+# Each arm runs scripts/check_frozen_tile.py --pass lemd-elevation: a
+# private data root, NO custom_dem, insets ON, auto_patch OFF, imagery OFF,
+# LEMD's aerodrome polygon as the only airport, CPL_DEBUG + CPL_CURL_VERBOSE.
+#
+# A workflow_dispatch workflow is only dispatchable once it is on the default
+# branch; until then a push to the lane branch touching these files runs it
+# with the defaults below.
+on:
+  push:
+    branches: ["claude/win121"]
+    paths:
+      - ".github/workflows/win-lemd-elevation.yml"
+      - "scripts/check_frozen_tile.py"
+      - "scripts/win_lemd_preflight.sh"
+      - "scripts/fixtures/lemd_elevation/**"
+      - "Ortho4XP/src/O4_Airport_Elevation_Insets.py"
+      - "Ortho4XP/src/O4_DEM_Utils.py"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release whose -win.zip is arm A"
+        default: "v1.0.350-beta.1"
+      arms:
+        description: "shipped, fresh or both"
+        default: "both"
+
+env:
+  PYTHON_VERSION: "3.13"   # matches the vendored cp313 wheels in Utils/
+  RELEASE_TAG: ${{ inputs.release_tag || 'v1.0.350-beta.1' }}
+
+jobs:
+  shipped:
+    name: "arm A: shipped release"
+    if: (inputs.arms || 'both') == 'shipped' || (inputs.arms || 'both') == 'both'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the shipped Windows zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" -p '*-win.zip' -D "$RUNNER_TEMP/rel"
+          cd "$RUNNER_TEMP/rel" && 7z x -y *-win.zip > /dev/null && ls
+
+      - name: Pre-flight probes
+        run: bash scripts/win_lemd_preflight.sh "$RUNNER_TEMP/rel/XPTerrainBuilder" "$RUNNER_TEMP/lemd-logs"
+
+      - name: LEMD elevation through the shipped exe
+        run: |
+          python scripts/check_frozen_tile.py \
+            "$RUNNER_TEMP/rel/XPTerrainBuilder/XPTerrainBuilder.exe" \
+            --pass lemd-elevation --deadline 900 \
+            --logs "$RUNNER_TEMP/lemd-logs"
+
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lemd-elevation-shipped
+          path: ${{ runner.temp }}/lemd-logs
+          if-no-files-found: ignore
+
+  fresh:
+    name: "arm B: fresh freeze of ${{ github.ref_name }}"
+    if: (inputs.arms || 'both') == 'fresh' || (inputs.arms || 'both') == 'both'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # --- copied from release.yml (windows job), unchanged ---------------
+      - name: Install engine packages
+        working-directory: Ortho4XP
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install Utils/win/*.whl
+          sed '/^# Dev \/ test/,$d' requirements.txt | grep -v '^gdal==' \
+            | grep -v '^scikit-fmm==' > reqs-frozen.txt
+          python -m pip install -r reqs-frozen.txt pyinstaller
+
+      - name: Generate icon and version resource
+        run: |
+          python scripts/make_icon.py --out Ortho4XP/Utils/icons/generated
+          python scripts/make_version_resource.py Ortho4XP/version_info.txt
+
+      - name: Freeze Qt app
+        working-directory: Ortho4XP
+        run: python -m PyInstaller Ortho4XP_Qt.spec --noconfirm
+      # ---------------------------------------------------------------------
+
+      - name: Pre-flight probes
+        run: bash scripts/win_lemd_preflight.sh Ortho4XP/dist/Ortho4XP_Qt "$RUNNER_TEMP/lemd-logs"
+
+      - name: LEMD elevation through the fresh exe
+        run: |
+          python scripts/check_frozen_tile.py \
+            Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe \
+            --pass lemd-elevation --deadline 900 \
+            --logs "$RUNNER_TEMP/lemd-logs"
+
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lemd-elevation-fresh
+          path: ${{ runner.temp }}/lemd-logs
+          if-no-files-found: ignore

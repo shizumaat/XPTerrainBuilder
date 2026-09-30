@@ -576,6 +576,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             "(build_airport.py --refresh-data shore)"), out)
     # §44 (4) THE PAVEMENT BORROW (owner RULINGS 2026-09-15f): ONE line,
     # only when the pack's own pavement did not stand.
+    for _line in lrep.cifp_coordinate_joins:     # #119: named, every one
+        _say(f"  [load] {_line}", out)
     if lrep.pavement_borrow_line:
         _say(f"[load] {lrep.pavement_borrow_line}", out)
     # §42 (3) THE CENSUS (RULINGS 2026-09-13cv): the pack's draped OBJ8

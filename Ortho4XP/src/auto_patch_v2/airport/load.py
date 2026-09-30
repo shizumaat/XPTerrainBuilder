@@ -9,6 +9,7 @@ datum_lat/lon``, else the runway-end mean) and the identity precision is
 from __future__ import annotations
 
 import dataclasses as _dc
+import logging
 import math
 import os
 import sys as _sys
@@ -33,7 +34,9 @@ from . import object_pavement as _objpav
 from . import osm as _osm
 from . import pack as _pack
 
-__all__ = ["Inputs", "LoadReport", "load", "load_with_report",
+_log = logging.getLogger(__name__)
+
+__all__ = ["Inputs", "LoadReport", "load", "load_with_report", "join_cifp",
            "normalise_surface", "runway_code_number", "runway_code_letter"]
 
 #: ICAO Annex 14 Vol I Table 1-1: aerodrome reference code NUMBER by
@@ -121,6 +124,9 @@ class LoadReport:
     helipads: tuple[str, ...] = ()
     cifp_path: str | None = None
     cifp_missing_ends: tuple[str, ...] = ()
+    #: #119: one line per end joined (or REFUSED as ambiguous) by its
+    #: threshold coordinate after its designator matched nothing
+    cifp_coordinate_joins: tuple[str, ...] = ()
     buildings_by_source: dict[str, int] = _dc.field(default_factory=dict)
     dsf_dump_path: str | None = None
     #: the pack's tile DSF is newer than every cached text dump (refused)
@@ -266,14 +272,15 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     cifp_path = os.path.join(inputs.cifp_dir, f"{icao}.dat") if inputs.cifp_dir else ""
     cifp = _cifp.read_cifp_runways(cifp_path) if os.path.isfile(cifp_path) else {}
     rep.cifp_path = cifp_path if cifp else None
-    missing: list[str] = []
     runways: list[Runway] = []
-    for rw in apt.runways:
+    tol = float(law.tables.emit.identity.cifp_threshold_join_m)
+    recs, missing, joins = join_cifp(icao, apt.runways, cifp, to_xy, tol)
+    for _log_line in joins:
+        _log.info(_log_line)
+    for i, rw in enumerate(apt.runways):
         ends = []
-        for desig, lat, lon, disp, over in rw.ends:
-            rec = _cifp.match_designator(desig, cifp)
-            if rec is None:
-                missing.append(desig)
+        for k, (desig, lat, lon, disp, over) in enumerate(rw.ends):
+            rec = recs[(i, k)]
             ends.append(RunwayEnd(desig, to_xy(lon, lat), (lat, lon), disp,
                                   over, rec.elevation_m if rec else None,
                                   rec.source if rec else ""))
@@ -282,6 +289,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                    runway_code_letter(rw.width_m))
         runways.append(_dc.replace(r, code_number=runway_code_number(r.length_m)))
     rep.cifp_missing_ends = tuple(missing)
+    rep.cifp_coordinate_joins = tuple(joins)
 
     # ── pavements / lines / boundaries / network / startups ────────
     pavements = tuple(
@@ -580,6 +588,54 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
+
+
+def join_cifp(icao: str, runways: _t.Sequence[_t.Any],
+              cifp: dict[str, "_cifp.CifpRunway"],
+              to_xy: _t.Callable[[float, float], XY], tol_m: float,
+              ) -> tuple[dict[tuple[int, int], "_cifp.CifpRunway | None"],
+                         list[str], list[str]]:
+    """THE CIFP JOIN (issue #119), in two passes at this ONE site.
+
+    Every apt.dat end ``(runway index, end index)`` by its DESIGNATOR
+    first (:func:`cifp.match_designator`); then an end that matched nothing
+    by its landing THRESHOLD — the apt.dat end advanced along the runway by
+    its displaced distance, the point a CIFP ``RWY:`` record locates —
+    against the records no designator claimed (:func:`cifp
+    .match_threshold`, within ``tol_m`` = ``[identity]
+    cifp_threshold_join_m``; one record or a refusal).  A CIFP cycle that
+    RENUMBERED a runway keeps its coordinates: KCLT's Custom Data spells
+    18R/36L and 18C/36C as 01L/19R and 01R/19L, and before this both
+    runways were built with no pins at all (#117).
+
+    Returns the record per end (``None`` = no pin), the designators left
+    without one, and one line per coordinate join or ambiguity refusal."""
+    out: dict[tuple[int, int], _cifp.CifpRunway | None] = {
+        (i, k): _cifp.match_designator(e[0], cifp)
+        for i, rw in enumerate(runways) for k, e in enumerate(rw.ends)}
+    claimed = {r.designator for r in out.values() if r is not None}
+    free_xy = {d: to_xy(r.lon, r.lat) for d, r in cifp.items() if d not in claimed}
+    missing: list[str] = []
+    joins: list[str] = []
+    for i, rw in enumerate(runways):
+        for k, (desig, lat, lon, disp, _over) in enumerate(rw.ends):
+            if out[(i, k)] is None and free_xy:
+                other = rw.ends[1 - k]
+                (x0, y0), (x1, y1) = to_xy(lon, lat), to_xy(other[2], other[1])
+                L = math.hypot(x1 - x0, y1 - y0)
+                f = disp / L if L > 0.0 else 0.0
+                got, verdict, dist = _cifp.match_threshold(
+                    (x0 + (x1 - x0) * f, y0 + (y1 - y0) * f), free_xy, tol_m)
+                if verdict != "none":
+                    joins.append(f"CIFP coordinate join (#119): {icao} {desig} -> "
+                                 f"{got if got else '-'} {verdict} at {dist:.1f} m "
+                                 f"(radius {tol_m:g} m)")
+                if got is not None:
+                    out[(i, k)] = cifp[got]
+                    del free_xy[got]
+            if out[(i, k)] is None:
+                missing.append(desig)
+    return out, missing, joins
 
 def _entry_quantum(law: Law) -> float:
     """§46 (4): the law's ``input_quantum_m``, or the MEASUREMENT ARM's

@@ -494,6 +494,10 @@ class Identity:
     min_distinct_spacing_m: float
     weld_spacing_m: float
     dsf_pavement_admission_m: float
+    #: #119: the CIFP COORDINATE JOIN's radius — an apt.dat end whose
+    #: designator matches no CIFP record takes the one record whose landing
+    #: threshold lies within this of its own (``airport/cifp.match_threshold``)
+    cifp_threshold_join_m: float
 
 @_dc.dataclass(frozen=True)
 class Materiality:

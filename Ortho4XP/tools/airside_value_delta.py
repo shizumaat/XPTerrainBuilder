@@ -206,6 +206,13 @@ def compare(a_path, b_path, tol_m: float = DEFAULT_TOL_M) -> dict:
             "no_road_contact": sum(1 for r in moved
                                    if not r["welded_to_road"]),
             "moved": moved,
+            # the ADDED / REMOVED vertices BY IDENTITY (lane roadmint100,
+            # #100: "the airside re-noded" needs the vertices named, not
+            # only counted), with the roles each carries in its own arm
+            "a_only_nodes": [{"lat": k[0], "lon": k[1], "roles": sorted(A[k][0])}
+                             for k in sorted(sa - sb)],
+            "b_only_nodes": [{"lat": k[0], "lon": k[1], "roles": sorted(B[k][0])}
+                             for k in sorted(sb - sa)],
         }
     return out
 

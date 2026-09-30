@@ -600,6 +600,15 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # owner RULINGS 2026-09-10ag: the pads a SKIRT made unnecessary
     stats["pads_skirted"] = len(ev.skirted_pads)
     notes.extend(ev.skirted_pads)
+    # ── THE ROAD-FACE MINT, WIDENED: every mapped road in the patch ──
+    # (owner RULINGS 2026-09-30b Q-100b, spec-author 30e (1)-(3), (6);
+    # issue #100).  Minted AFTER §27 and the pads, so no ribbon is read by
+    # the airside-edge flip (a ribbon is never airside) and every face
+    # already standing — pavement, runway, shoulder, pad — keeps its
+    # ground: the ribbon is what is left of the road's corridor.
+    n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add)
+    stats["osm_ribbons"] = n_rib
+    stats["osm_ribbon_m2"] = m_rib
     cells, n_cut = _cut_back_groundside(cells, law, rules)
     stats["mixed_pad_cutbacks"] = n_cut
     stats["taxi_chains"] = len(ev.taxi_chains)
@@ -624,6 +633,139 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
     return Classification(tuple(cells), tuple(cut), stats, tuple(notes),
                           sources=tuple(sources))
+
+
+#: 30e (6): a ribbon's REF carries its feed (``small_roads:-3``) — an
+#: ``_osm_id`` alone collides across feeds (NLWF's -3 is also its terminal).
+from ..model.planar import OSM_RIBBON_FEEDS, is_osm_ribbon_ref  # noqa: E402
+
+
+def is_osm_ribbon(cell_or_region) -> bool:
+    """A face the widened road-face mint made from a MAPPED road (30e) —
+    read off its ref, the one mark every stage carries (``Cell`` and
+    ``planar.overlay.Region`` alike)."""
+    return getattr(cell_or_region, "role", "") == "service_road" and \
+        is_osm_ribbon_ref(getattr(cell_or_region, "ref", ""))
+
+
+def ribbon_extent(cells, law: Law, pavement_union):
+    """THE PATCH a mapped road is ribboned inside (30e (2)): the pavement
+    and every airside band's zone-2 envelope — the regions
+    ``planar/zones.zone_regions`` draws, read at their un-trimmed extent
+    (the half-widths ARE the zone table's)."""
+    RUNWAY_FAMILY_ROLES = ("runway", "runway_crossing")   # planar/zones.RUNWAY_FAMILY
+    parts = [pavement_union] if not pavement_union.is_empty else []
+    for c in cells:
+        if c.role in RUNWAY_FAMILY_ROLES and not is_runway_shoulder(c):
+            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter)
+        elif c.role in TAXI_FAMILY:
+            hw = zone2_half_width_m(law, "junction", c.code_number, c.code_letter)
+        else:
+            continue
+        if hw:
+            parts.append(Polygon(c.ring, c.holes).buffer(hw, join_style="mitre",
+                                                         mitre_limit=2.0))
+    return unary_union(parts) if parts else Polygon()
+
+
+def _way_intervals(line: LineString, inside) -> list[tuple[float, float]]:
+    """The arclength intervals of ``line`` inside ``inside``."""
+    out = []
+    for part in _line_parts_of(line.intersection(inside)):
+        a = line.project(Point(part.coords[0]))
+        b = line.project(Point(part.coords[-1]))
+        if b < a:
+            a, b = b, a
+        if b - a > 0.0:
+            out.append((a, b))
+    out.sort()
+    return out
+
+
+def _line_parts_of(g) -> list[LineString]:
+    if g is None or g.is_empty:
+        return []
+    if g.geom_type == "LineString":
+        return [g]
+    return [q for q in getattr(g, "geoms", ()) if q.geom_type == "LineString"
+            and q.length > 0]
+
+
+def bridge_gaps(intervals: list[tuple[float, float]], gap_m: float
+                ) -> list[tuple[float, float]]:
+    """30e (2): consecutive in-patch stretches of ONE way joined across an
+    out-of-patch gap of at most ``gap_m`` — never the way's whole span."""
+    out: list[list[float]] = []
+    for a, b in intervals:
+        if out and a - out[-1][1] <= gap_m:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return [(a, b) for a, b in out]
+
+
+def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
+                     rules: Rules, add) -> tuple[int, float]:
+    """30e (1)-(3), (6): the RIBBON FACE of every mapped at-grade road
+    (``planar/terrain_edge.road_ways`` — the one at-grade road source) of
+    an ``osm_roads.ribbon_highways`` class, over its parts inside the patch
+    plus the same-way gaps up to ``osm_roads.road_gap_bridge_m``; parts
+    within ``osm_roads.dedup_m`` of a 1206 route dropped (the network is
+    senior); half-width = ``road_profile.lane_width_m`` (the ribbon
+    half-width ``terrain_edge.road_half_width_m`` reads).  Nothing already
+    standing is overlapped — pavement, runway, shoulder, pad, a 1206
+    corridor, an earlier ribbon — so no ribbon lies inside a pad face;
+    structure faces (tunnel / bridge) cut the ribbons at the structure
+    pass like every other cell.  Returns (faces minted, m2)."""
+    from ..airport.road_ways import road_ways
+    orr = rules.osm_roads
+    if not orr.enabled or not orr.ribbon_highways:
+        return 0, 0.0
+    ways = [(w, ln) for w, ln in road_ways(getattr(airport, "osm_ways", ()))
+            if (w.tags or {}).get("highway") in orr.ribbon_highways
+            and getattr(w, "kind", "") in OSM_RIBBON_FEEDS]
+    if not ways:
+        return 0, 0.0
+    extent = ribbon_extent(cells, law, ev.pavement_union)
+    if extent.is_empty:
+        return 0, 0.0
+    cover = unary_union([c.line for c in ev.truck_chains]).buffer(orr.dedup_m) \
+        if ev.truck_chains else Polygon()
+    hw = float(law.tables.emit.road_profile.lane_width_m)
+    occupied = unary_union([Polygon(c.ring, c.holes) for c in cells])
+    grid = rules.cells.snap_grid_m
+    from shapely.ops import substring
+    n, area = 0, 0.0
+    for w, line in sorted(ways, key=lambda wl: (wl[0].kind, wl[0].id)):
+        spans = bridge_gaps(_way_intervals(line, extent), orr.road_gap_bridge_m)
+        axes = []
+        for a, b in spans:
+            seg = substring(line, a, b)
+            if not cover.is_empty:
+                axes.extend(_line_parts_of(seg.difference(cover)))
+            else:
+                axes.append(seg)
+        axes = [ax for ax in axes if ax.length >= orr.min_len_m]
+        if not axes:
+            continue
+        rib = unary_union([ax.buffer(hw, cap_style="flat", join_style="mitre",
+                                     mitre_limit=2.0) for ax in axes])
+        rib = shapely.set_precision(rib.difference(occupied), grid)
+        ref = f"{OSM_RIBBON_FEEDS[w.kind]}:{w.id}"
+        k = 0
+        for part in polygon_parts(rib):
+            if part.area < rules.cells.min_area_m2:
+                continue
+            add("service_road", ref if k == 0 else f"{ref}#{k}", part,
+                "service_road", None, None,
+                {"osm_ribbon": 1.0, "highway": str(w.tags.get("highway")),
+                 "road_len_m": float(sum(ax.length for ax in axes))})
+            k += 1
+            n += 1
+            area += part.area
+        if k:
+            occupied = unary_union([occupied, rib])
+    return n, area
 
 
 def _mouth_ll(mouth, to_ll) -> str:

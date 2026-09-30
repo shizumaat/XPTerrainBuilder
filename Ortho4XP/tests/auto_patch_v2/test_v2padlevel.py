@@ -130,7 +130,10 @@ RUNWAY = Cell(0, "runway", "09/27", _rect(-RUN_LEN / 2, -HALF_W, RUN_LEN / 2, HA
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    # the subject is the pre-hold platform / plate path: the flat-pad hold
+    # (RULINGS 2026-09-30f/r) is disarmed for it, never for its own twins
+    from tests.auto_patch_v2._plate import contact_led_law
+    return contact_led_law(Law.for_airport("ZZZZ"))
 
 
 # ── the law register ─────────────────────────────────────────────────────

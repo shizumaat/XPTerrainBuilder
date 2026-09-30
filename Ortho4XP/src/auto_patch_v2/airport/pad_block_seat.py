@@ -103,30 +103,19 @@ def sever(plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     return _dc.replace(plan, contacts=con, abutments=abu), ext, counts
 
 
-def _median(v: list[float]) -> float:
-    v = sorted(v)
-    n = len(v)
-    return v[n // 2] if n % 2 else 0.5 * (v[n // 2 - 1] + v[n // 2])
-
-
 def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
-                counts: "dict | None" = None) -> tuple[list, dict[str, float]]:
-    """``(units, foot shift per split unit id)``: every §16g unit whose
-    bodies stand on two or more blocks of ONE platform unit, split into one
-    unit per block (module docstring).
-
-    THE FOOT SHIFT.  One unit was one zero, and a pack authors a terminal's
-    relief INTO it — SPJC's east pier stands on feet authored 2.9 m above
-    the hall's (measured on the ``flatpad111b`` dry run: 29 bodies "own
-    ground +2.92").  A block seated at its floor's datum must land ITS feet
-    there, so the block's zero is lowered by the median authored foot ``y``
-    of its own footed parts less the whole unit's (0 where the unit's feet
-    are authored level, the common case)."""
+                counts: "dict | None" = None) -> list:
+    """Every §16g unit whose bodies stand on two or more blocks of ONE
+    platform unit, split into one unit per block (module docstring); each
+    is seated by ``plan_unit_datums``'s one pad rule, the median of its
+    block's (flat) floor.  A per-block FOOT SHIFT (the block's median
+    authored foot ``y`` less the unit's) was tried and REFUTED on the HECA
+    dry run (lane ``flatpad111b``): T3 feet within 0.3 m 3,683 -> 2,405 and
+    the owner's site floor -0.25 -> -0.50 m."""
     from .placement_family import bodies_of_plan, union_area_m2
     of = part_blocks(plan, pads)
-    shifts: dict[str, float] = {}
     if not of or not units:
-        return units, shifts
+        return units
     bodies, _of_pid = bodies_of_plan(plan)
     parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
     rings = block_rings(pads)
@@ -149,8 +138,6 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
         if len(blocks) < 2 or len(units_of) != 1:
             out.append(un)
             continue
-        foot_y = [float(f[2]) for key in un.bodies for q in bodies.get(key, ())
-                  if q in parts for f in getattr(parts[q], "feet", ())]
         # a body on no block of the unit joins the block it stands nearest
         for key, b in list(per_body.items()):
             if b is not None:
@@ -179,10 +166,6 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
             pids = frozenset(q for k in keys for q in bodies.get(k, ()))
             boxes = tuple(parts[q].box for q in sorted(pids)
                           if q in parts and not getattr(parts[q], "line", False))
-            fy = [float(f[2]) for q in pids if q in parts
-                  for f in getattr(parts[q], "feet", ())]
-            if fy and foot_y:
-                shifts[f"{un.id}/b{b[1]}"] = _median(fy) - _median(foot_y)
             out.append(_dc.replace(
                 un, id=f"{un.id}/b{b[1]}", bodies=keys, pids=pids,
                 members=tuple(sorted({plan.units[k[0]].members[k[1]].resource
@@ -193,4 +176,4 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     if counts is not None:
         counts["block_units_split"] = n_split
         counts["block_bodies_nearest"] = n_near
-    return out, shifts
+    return out

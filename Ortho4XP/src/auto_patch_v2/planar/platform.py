@@ -245,11 +245,15 @@ def platform_split(base_regions, pad_regions, law: Law,
         PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1),
                                   round(tot, 1), nw, rel))
         if bplan is not None:
+            one = len(bplan.blocks) == 1
+            # a partition the mint could not cut (a block left no platform
+            # piece over ``min_area_m2``) keeps the unit whole: every
+            # welded contact is held and the solve finds the one datum
             HELD[str(pr.ref)] = {"unit": str(pr.ref), "k": 0, "blocks": 1,
-                                 "datum_pred": bplan.blocks[0].datum,
-                                 "verdict": bplan.verdict,
-                                 "samples_xy": bplan.blocks[0].samples_xy,
-                                 "samples_held": bplan.blocks[0].samples_held}
+                                 "datum_pred": bplan.blocks[0].datum if one else None,
+                                 "verdict": bplan.verdict if one else "unminted_split",
+                                 "samples_xy": bplan.blocks[0].samples_xy if one else None,
+                                 "samples_held": bplan.blocks[0].samples_held if one else None}
         pieces = [_dc.replace(pr, polygon=q) for q in plats]
         plat_ids.update(id(q) for q in pieces)
         out.extend(pieces)

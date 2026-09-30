@@ -152,7 +152,8 @@ def require_capture_isolation() -> None:
 
 def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
                      placement: dict[str, object] | None = None,
-                     rule: dict[str, object] | None = None) -> None:
+                     rule: dict[str, object] | None = None,
+                     cifp_dir: str | None = None) -> None:
     """:func:`capture` with the shared-repo guard and the lane-local cache
     redirects armed around it (``harness/build_airport.
     arm_shared_repo_protection``, the ONE arming composition).  The
@@ -167,7 +168,7 @@ def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
     _guard, _redirects = _arm(ROOT, out.parent, f"cap_{icao}")
     _guard.__enter__()
     try:
-        capture(icao, out, mod_cache_root, placement, rule)
+        capture(icao, out, mod_cache_root, placement, rule, cifp_dir)
     finally:
         _guard.__exit__(None, None, None)
         _churn(_guard)
@@ -218,7 +219,8 @@ def _rules_override(rules, over: dict[str, object]):
 
 def capture(icao: str, out: Path, mod_cache_root: str | None = None,
             placement: dict[str, object] | None = None,
-            rule: dict[str, object] | None = None) -> None:
+            rule: dict[str, object] | None = None,
+            cifp_dir: str | None = None) -> None:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
     load → classify → planar and SKIPPED the pack partition and the group
@@ -274,6 +276,12 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
         # ``O4_AIRPORT_MOD_CACHE_DIR``; this flag names a root the
         # environment does not.
         inputs = _dc.replace(inputs, mod_cache_root=mod_cache_root)
+    if cifp_dir is not None:
+        # CAPTURE ARM (issue #129): read CIFP from this directory instead of
+        # the cfg's — an EMPTY directory is the "no CIFP" airport, without
+        # touching the real X-Plane install.
+        inputs = _dc.replace(inputs, cifp_dir=cifp_dir)
+        print(f"[{icao}] CAPTURE ARM cifp_dir={cifp_dir!r}")
     # THE PRISTINE-DUMP HALF, THE BUILD ENTRY'S OWN IMPLEMENTATION
     # (``auto_patch.engine_v2.fresh_pack_dump``, public since lane
     # ``v2zerocrater``).  v2's read frame is the ``.dsf.anchor_bak`` and
@@ -2089,6 +2097,10 @@ def main() -> int:
                          "override cannot arm them; e.g. "
                          "--placement pad_from_cluster=true "
                          "--placement pad_airside_clip=true")
+    ap.add_argument("--cifp-dir", default=None, metavar="DIR",
+                    help="CAPTURE ARM: read CIFP from DIR instead of the cfg's "
+                         "cifp_data_path (an EMPTY dir = the no-CIFP airport, "
+                         "issue #129); never write the real install")
     ap.add_argument("--rule", action="append", default=[], metavar="SECTION.KEY=V",
                     help="CAPTURE ARM: override one classify/rules.toml key for "
                          "this capture (repeat).  A CLASSIFY key is read upstream "
@@ -2230,7 +2242,8 @@ def main() -> int:
             ap.error("--capture needs --out")
         pl = dict(it.split("=", 1) for it in a.placement)
         rl = dict(it.split("=", 1) for it in a.rule)
-        _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl, rl)
+        _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl, rl,
+                         a.cifp_dir)
         return 0
     if a.reclassify:
         rl = dict(it.split("=", 1) for it in a.rule)

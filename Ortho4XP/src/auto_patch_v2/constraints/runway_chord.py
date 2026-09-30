@@ -15,8 +15,10 @@ so a crossing-ring vertex reads the chord of the ridge it is nearest to.
 The chord is a TARGET of the design surface at ``emit.toml [design] chord``
 (RULINGS 2026-09-08t; the old per-metre ladder weight ``[common]
 runway_chord_fit`` is deleted with the ladder), applied to the runway family's roles by
-``pipeline.build.weights_under_law``.  A runway with fewer than two pins
-keeps the DEM as its target (never an invented value, plan §2).
+``pipeline.build.weights_under_law``.  A runway with fewer than two CIFP
+pins is pinned at its unpinned ends by the APT.DAT DATUM (owner RULINGS
+2026-09-30z (2), issue #129; ``runway_profile.datum_pins``, merged into
+``threshold_pins``) and is then a two-pin runway like any other.
 
 THE NEAREST-THRESHOLD CROSSING PIN (owner RULINGS 2026-09-09z (1), spec
 §17, superseding 09r (2)'s "the primary governs").  At a runway x runway
@@ -67,8 +69,7 @@ THE CHORD IS THE FALLBACK (spec §21.2 (2), plan §2 — never an invented
 value): where the production DEM frame is DEGRADED (``airport.dem.
 provenance['degraded']``, the ``--allow-degraded-dem`` arm) or a runway's
 ridge yields too few DEM samples to fit, the target is the straight
-threshold chord exactly as before; a runway with fewer than two pins keeps
-the DEM as its target, unchanged.
+threshold chord exactly as before.
 
 WHAT THE TARGET IS NOT (spec §21.2 (5)): a per-vertex DEM pull (08t (1)).
 The window is longer than any DEM artefact the owner has read as
@@ -89,7 +90,8 @@ import typing as _t
 from .geometry import project_to_chain
 from .precedence import view
 from .trend import Trend as _Trend, trend_of as _trend_of
-from .runway_profile import RUNWAY_FAMILY, ridge_chains, threshold_pins
+from .runway_profile import (RUNWAY_FAMILY, dem_degraded,  # noqa: F401 (re-export)
+                             ridge_chains, threshold_pins)
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Pin, Row, Source
@@ -111,7 +113,10 @@ class ChordReport(_t.TypedDict, total=False):
     """What the profile fit covered."""
 
     runways: int              # runways with two pins (a target profile)
-    runways_without: int      # runways with fewer than two pins (DEM fit kept)
+    runways_without: int      # runways with fewer than two pins (no target)
+    #: runways pinned (wholly or at one end) by the APT.DAT DATUM
+    #: (``runway_profile.datum_pins``, RULINGS 2026-09-30z (2), issue #129)
+    runways_datum: int
     vertices: int             # runway-family vertices given a profile target
     max_above_dem_m: float    # the largest target − DEM (the fill the target asks)
     max_below_dem_m: float    # the largest DEM − target (the cut)
@@ -230,22 +235,6 @@ class Crossing:
     d_other: float                 # the other runway's threshold distance
 
 
-def dem_degraded(airport: Airport) -> str:
-    """Why the production DEM frame is DEGRADED, or ``""`` (spec §21.2 (2)).
-
-    The ``--allow-degraded-dem`` FLAG is not the test — the flag only
-    ACCEPTS a degradation; ``ProductionDem`` records one under
-    ``provenance['degraded']`` only when a frame actually degraded.  A
-    degraded frame keeps the STRAIGHT CHORD as the runway's target: a
-    trend fitted to a surface the harness has refused is an invented
-    value (plan §2)."""
-    prov = getattr(getattr(airport, "dem", None), "provenance", None) or {}
-    try:
-        return str(prov.get("degraded") or "")
-    except Exception:                     # a sampler with no mapping provenance
-        return ""
-
-
 def _trend(vw, chains: dict[str, list[list[int]]], rw_id: str, c: _Chord,
            pm: PlanarMap, window_m: float) -> _Trend | None:
     """The production DEM under this runway's own ridge, in ``c``'s station
@@ -261,7 +250,8 @@ def _chords(pm: PlanarMap, law: Law, airport: Airport
             ) -> tuple[dict[str, _Chord], int]:
     """Runway id -> its TARGET PROFILE (the trend through its two threshold
     pins, else the straight chord — spec §21.2), and how many runways have
-    fewer than two CIFP pins (those keep the DEM as their target)."""
+    fewer than two pins even after the apt.dat datum (``datum_pins``) —
+    only a degenerate ridge)."""
     vw = view(pm, law)
     chains = ridge_chains(vw)
     pins = threshold_pins(pm, law, airport)
@@ -614,7 +604,10 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
                 above = max(above, out[v] - dem)
                 below = max(below, dem - out[v])
     if report is not None:
+        from .runway_profile import datum_pins
         report.update(runways=len(chords), runways_without=n_without, vertices=len(out),
+                      runways_datum=len({r for _z, r, _e in
+                                         datum_pins(pm, law, airport).values()}),
                       max_above_dem_m=round(above, 3), max_below_dem_m=round(below, 3),
                       crossing_pins=len(_crossing_pin_map(
                           pm, law, airport, vw, chains, chords, crossings)))

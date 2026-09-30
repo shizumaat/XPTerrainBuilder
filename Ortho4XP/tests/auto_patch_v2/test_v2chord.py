@@ -185,11 +185,18 @@ def test_a_two_pin_ridge_over_a_valley_sits_on_its_target_profile(valley, law):
     assert abs(sol0.z[mid] - pm.vertices[mid].dem_z) < 2.0, sol0.z[mid]
 
 
-def test_a_runway_without_two_pins_keeps_the_dem(law):
+def test_a_runway_without_two_pins_takes_the_apt_dat_datum(law):
+    """RE-FOUNDED (issue #129, RULINGS 2026-09-30z (2)): a runway with one
+    CIFP pin used to keep "the DEM" — i.e. no target at all (08t (1)), the
+    #117 floating runway.  Its missing end now takes the apt.dat datum
+    (``Airport.elevation_m`` = 700 here, the valley's rim, level by
+    symmetry), so the runway is a two-pin runway with a §21 target."""
     airport, pm, _st = _airport(law, [RUNWAY], [], _Valley(), thresholds=(700.0, None))
     rep: dict = {}
-    assert runway_chord_targets(pm, law, airport, rep) == {}
-    assert rep["runways_without"] == 1 and rep["runways"] == 0
+    targets = runway_chord_targets(pm, law, airport, rep)
+    assert rep["runways_without"] == 0 and rep["runways"] == 1
+    assert rep["runways_datum"] == 1
+    assert targets
 
 
 # ── change 4: the owner's site ───────────────────────────────────────

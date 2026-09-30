@@ -6,8 +6,9 @@ Rows (all from ``rulesets.<authority>.runway`` and
 ``common.runway_crown_transverse``):
 
 * ``Pin`` at the profile station nearest each threshold with a CIFP
-  elevation (``RunwayEnd.threshold_elev_m``; an end without one has one
-  pin fewer, never an invented one — plan §2);
+  elevation (``RunwayEnd.threshold_elev_m``), and — for a runway with
+  FEWER THAN TWO CIFP pins — at each unpinned end, the APT.DAT DATUM
+  (:func:`datum_pins`, owner RULINGS 2026-09-30z (2), issue #129);
 * ``Diff`` along every ``runway_profile`` breakline chord at
   ``runway.longitudinal`` by code number; inside each END ZONE
   (``runway_end_zone_length_m``) at ``runway.end_zone`` where the
@@ -71,8 +72,9 @@ from ..model.constraints import Diff, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 from .precedence import View, cap_of, view
+from .trend import trend_of as _trend_of
 
-__all__ = ["threshold_pins", "runway_profile", "runway_crown", "runway_transverse",
+__all__ = ["threshold_pins", "datum_pins", "dem_degraded", "runway_profile", "runway_crown", "runway_transverse",
            "runway_vertical_curve", "curve_stations", "runway_within_shape",
            "crown_drops", "ridge_chains"]
 
@@ -97,11 +99,150 @@ def _runway_code(airport: Airport, ref: str) -> tuple[int | None, str | None]:
     return None, None
 
 
+def dem_degraded(airport: Airport) -> str:
+    """Why the production DEM frame is DEGRADED, or ``""`` (spec §21.2 (2)).
+
+    The ``--allow-degraded-dem`` FLAG is not the test — the flag only
+    ACCEPTS a degradation; ``ProductionDem`` records one under
+    ``provenance['degraded']`` only when a frame actually degraded.  A
+    degraded frame keeps the STRAIGHT CHORD as the runway's target: a
+    trend fitted to a surface the harness has refused is an invented
+    value (plan §2).  (Lives here, not in ``runway_chord``, because
+    :func:`datum_pins` reads it; ``runway_chord`` re-exports it.)"""
+    prov = getattr(getattr(airport, "dem", None), "provenance", None) or {}
+    try:
+        return str(prov.get("degraded") or "")
+    except Exception:                     # a sampler with no mapping provenance
+        return ""
+
+
+def _axis(rw) -> tuple[tuple[float, float], float, float]:
+    a_xy, b_xy = rw.ends[0].xy, rw.ends[1].xy
+    L = rw.length_m
+    ux = (b_xy[0] - a_xy[0]) / L if L > 0 else 0.0
+    uy = (b_xy[1] - a_xy[1]) / L if L > 0 else 0.0
+    return a_xy, ux, uy
+
+
+def _end_vertex(vw: View, all_ids: list[int], rw, end, ux: float, uy: float) -> int:
+    """The profile station nearest ``end``'s threshold (displacement
+    applied) — where that end's pin sits, CIFP or datum."""
+    sign = 1.0 if end is rw.ends[0] else -1.0
+    tx = end.xy[0] + sign * ux * end.displaced_m
+    ty = end.xy[1] + sign * uy * end.displaced_m
+    return min(all_ids, key=lambda v: (vw.xy[v][0] - tx) ** 2
+               + (vw.xy[v][1] - ty) ** 2)
+
+
+def _datum_slope_cap(law: Law, rw) -> float | None:
+    """The steepest straight line the runway's own caps admit end to end:
+    the longitudinal cap, and the end-zone cap where the authority states
+    one for this code (``runway_profile``'s own reading of both)."""
+    cap = role_cap(law, "runway", rw.code_number, rw.code_letter)
+    if cap is None:
+        return None
+    lim = float(cap.longitudinal)
+    rs = law.ruleset.runway
+    end_cap = rs.end_zone.value(rw.code_number, rw.code_letter)
+    if end_cap is not None and rw.code_number not in rs.end_zone_precision_only_codes:
+        lim = min(lim, float(end_cap))
+    return lim
+
+
+def datum_pins(planar: PlanarMap, law: Law, airport: Airport
+               ) -> dict[int, tuple[float, str, str]]:
+    """THE APT.DAT DATUM (owner RULINGS 2026-09-30z (2), issue #129):
+    vertex -> ``(z, runway id, end name)`` at every UNPINNED end of a
+    runway with fewer than two CIFP threshold pins.
+
+    "If there's no CIFP data, runway elevations must be in the apt.dat":
+    the LEVEL is the apt.dat airport elevation record (the header row;
+    runway rows carry none — ``Airport.elevation_m``), which is the
+    HIGHEST point of the landing area, so the runway's HIGHER threshold
+    sits at it; the TILT is the §21 long-wave DEM trend's mean
+    slope along the runway's own ridge, bounded by the runway's own
+    longitudinal (and end-zone) cap; on a DEGRADED frame, or a ridge the
+    trend cannot fit, the runway is LEVEL at the datum (never an invented
+    tilt, §21.2 (2)).  With ONE CIFP pin the CIFP end keeps its pin and the
+    missing end takes the datum line's value, pulled toward the pin until
+    the chord between them sits within that cap (the datum yields to the
+    specific witness, never the reverse).  These are HARD pins, exactly a
+    CIFP threshold's (``threshold_pins`` merges them): no stage-1
+    perturbation moves the runway (the #117 floating-runway lesson, 30q),
+    and every pin consumer — the pin rows, the chord/trend target, the
+    route reach, the §50 cap yield — reads them as terminals.
+
+    An airport whose apt.dat carries no finite elevation record REFUSES
+    (``ValueError`` naming the airport) — never a silently free runway."""
+    vw = view(planar, law)
+    chains = ridge_chains(vw)
+    out: dict[int, tuple[float, str, str]] = {}
+    degraded = dem_degraded(airport)
+    window = float(law.tables.emit.design.runway_profile_window_m)
+    for rw in airport.runways:
+        chs = chains.get(rw.id)
+        L = rw.length_m
+        if not chs or L <= 0.0:
+            continue
+        cifp = [e for e in rw.ends if e.threshold_elev_m is not None]
+        if len(cifp) >= 2:
+            continue
+        elev = getattr(airport, "elevation_m", None)
+        if elev is None or not math.isfinite(float(elev)):
+            raise ValueError(
+                f"{airport.icao}: runway {rw.id} has fewer than two CIFP "
+                f"threshold pins and the apt.dat airport header carries no "
+                f"elevation record ({elev!r}) — RULINGS 2026-09-30z (2) "
+                f"refuses a free runway (issue #129)")
+        a_xy, ux, uy = _axis(rw)
+
+        def along(v: int) -> float:
+            x, y = vw.xy[v]
+            return (x - a_xy[0]) * ux + (y - a_xy[1]) * uy
+
+        all_ids = [v for ch in chs for v in ch]
+        lim = _datum_slope_cap(law, rw)
+        slope = 0.0
+        if not degraded and lim is not None:
+            t = _trend_of(((along(v), float(planar.vertices[v].dem_z))
+                           for v in all_ids
+                           if planar.vertices[v].dem_z is not None), window)
+            if t is not None:
+                s0, s1 = t.s[0], t.s[-1]
+                z0, z1 = t.at(s0), t.at(s1)
+                if z0 is not None and z1 is not None and s1 > s0:
+                    slope = max(-lim, min(lim, (float(z1) - float(z0)) / (s1 - s0)))
+        # THE HIGHEST POINT (arm 2): the apt.dat airport elevation is the
+        # elevation of the highest point of the landing area (ICAO Annex 14
+        # "aerodrome elevation"; FAA "airport elevation", highest point of
+        # the usable runways) — so the line's HIGHER threshold sits at it
+        # and the runway falls away from there by its tilt.  Arm 1 anchored
+        # the MIDPOINT: KCLT-without-CIFP 18C/36C (0.5 % over 3 km) stood
+        # 9.5 m above its real CIFP thresholds.
+        end_v = {e.name: _end_vertex(vw, all_ids, rw, e, ux, uy) for e in rw.ends}
+        s_top = max((along(v) for v in end_v.values()), key=lambda q: slope * q)
+        pinned = [(end_v[e.name], float(e.threshold_elev_m)) for e in cifp]
+        for end in rw.ends:
+            if end.threshold_elev_m is not None:
+                continue
+            v = end_v[end.name]
+            z = float(elev) + slope * (along(v) - s_top)
+            for vp, zp in pinned:
+                if lim is None or vp == v:
+                    continue
+                reach = lim * abs(along(v) - along(vp))
+                z = max(zp - reach, min(zp + reach, z))
+            out[v] = (z, rw.id, end.name)
+    return out
+
+
 def threshold_pins(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, float]:
-    """Vertex -> CIFP threshold elevation: the profile station nearest
-    each threshold (displacement applied) that carries one — THE hard
-    terminals of the airport (RULINGS :511-516), read here by the pin
-    rows and by the route reach (``no_step.reach_bands``)."""
+    """Vertex -> threshold elevation: the profile station nearest each
+    threshold (displacement applied) that carries a CIFP elevation — THE
+    hard terminals of the airport (RULINGS :511-516), read here by the pin
+    rows and by the route reach (``no_step.reach_bands``) — and, at every
+    unpinned end of a runway with fewer than two CIFP pins, the APT.DAT
+    DATUM (:func:`datum_pins`, RULINGS 2026-09-30z (2))."""
     vw = view(planar, law)
     chains = ridge_chains(vw)
     out: dict[int, float] = {}
@@ -109,20 +250,14 @@ def threshold_pins(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, f
         chs = chains.get(rw.id)
         if not chs:
             continue
-        a_xy, b_xy = rw.ends[0].xy, rw.ends[1].xy
-        L = rw.length_m
-        ux = (b_xy[0] - a_xy[0]) / L if L > 0 else 0.0
-        uy = (b_xy[1] - a_xy[1]) / L if L > 0 else 0.0
+        _a, ux, uy = _axis(rw)
         all_ids = [v for ch in chs for v in ch]
         for end in rw.ends:
             if end.threshold_elev_m is None:
                 continue
-            sign = 1.0 if end is rw.ends[0] else -1.0
-            tx = end.xy[0] + sign * ux * end.displaced_m
-            ty = end.xy[1] + sign * uy * end.displaced_m
-            best = min(all_ids, key=lambda v: (vw.xy[v][0] - tx) ** 2
-                       + (vw.xy[v][1] - ty) ** 2)
-            out[best] = float(end.threshold_elev_m)
+            out[_end_vertex(vw, all_ids, rw, end, ux, uy)] = float(end.threshold_elev_m)
+    for v, (z, _r, _e) in datum_pins(planar, law, airport).items():
+        out.setdefault(v, z)
     return out
 
 
@@ -203,15 +338,20 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         for end in rw.ends:
             if end.threshold_elev_m is None:
                 continue
-            sign = 1.0 if end is rw.ends[0] else -1.0
-            tx = end.xy[0] + sign * ux * end.displaced_m
-            ty = end.xy[1] + sign * uy * end.displaced_m
-            best = min(all_ids, key=lambda v: (vw.xy[v][0] - tx) ** 2
-                       + (vw.xy[v][1] - ty) ** 2)
+            best = _end_vertex(vw, all_ids, rw, end, ux, uy)
             rows.append(Pin(best, float(end.threshold_elev_m),
                             Source(GEN, "RULINGS :511-516 CIFP threshold",
                                    (f"rwy:{rw.id}", f"end:{end.name}",
                                     end.cifp_source))))
+    # the apt.dat datum at every unpinned end of a runway with fewer than
+    # two CIFP pins (RULINGS 2026-09-30z (2), issue #129) — HARD, as a
+    # CIFP threshold is
+    cifp_v = {r.v for r in rows if isinstance(r, Pin)}
+    for v, (z, rid, ename) in sorted(datum_pins(planar, law, airport).items()):
+        if v in cifp_v:
+            continue
+        rows.append(Pin(v, z, Source(GEN, "RULINGS 2026-09-30z (2) apt.dat datum",
+                                     (f"rwy:{rid}", f"end:{ename}", "apt.dat"))))
     return rows
 
 

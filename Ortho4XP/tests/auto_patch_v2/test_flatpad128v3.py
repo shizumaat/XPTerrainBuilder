@@ -168,7 +168,7 @@ def _rect(x0, y0, x1, y1):
     return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
 
 
-def _airport(law):
+def _airport(law, startups=()):
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
     ends = (RunwayEnd("09", (-RUN_LEN / 2, 0.0), (60.5, -135.5), 0.0, 0.0,
                       700.0, "fixture"),
@@ -177,7 +177,7 @@ def _airport(law):
     rw = Runway("09/27", 2 * HALF_W, 1, ends, 3, "D")
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     return Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
-                   (), (), (), (), (), (), pack, _Dem(), law.ruleset_key)
+                   (), (), tuple(startups), (), (), (), pack, _Dem(), law.ruleset_key)
 
 
 def _cells():
@@ -315,3 +315,72 @@ def test_the_fronting_set_promotes_its_caps(law, built):
     r0b = DesignReport()
     b0 = assemble(pm, cs, lw, r0b, drop=drop, fixed=fixed)
     assert len(b1.hard) - len(b0.hard) >= r1.fronting_promoted
+
+
+# ── 5. the stand-line plateau (§3) and the §20 pad (§4) ─────────────────
+
+def _cells_full():
+    """The base fixture plus a §20 CONFORMING pad (800 m², under
+    ``cluster_pad_min_m2``) fronting the same apron."""
+    return _cells() + [
+        Cell(3, "building", "padB", _rect(200.0, 180.0, 240.0, 200.0), (),
+             None, None, "airside", "pad", {}),
+    ]
+
+
+@pytest.fixture(scope="module")
+def built_full(law):
+    from auto_patch_v2.model.airport import Startup
+    gate = Startup("G1", (0.0, 140.0), 180.0, "gate")
+    airport = _airport(law, startups=(gate,))
+    pm, _st = build(airport, Classification(tuple(_cells_full()), (), {}, ()), law)
+    from auto_patch_v2.model.platform import HELD, PLATEAUS
+    held, plateaus = {k: dict(v) for k, v in HELD.items()}, dict(PLATEAUS)
+    cs, _c, _w = generate(pm, law, airport)
+    pm0, _st0 = build(_airport(law), Classification(tuple(_cells_full()), (), {}, ()), law)
+    # the registries are the LAST arrangement's: restore the stand arm's
+    HELD.clear()
+    HELD.update(held)
+    PLATEAUS.clear()
+    PLATEAUS.update(plateaus)
+    return pm, cs, pm0, plateaus
+
+
+def test_the_stand_cuts_a_plateau_and_renodes_nothing_else(law, built_full):
+    from auto_patch_v2.model.planar import PLATEAU_MARK
+    pm, _cs, pm0, plateaus = built_full
+    assert "padA" in plateaus and plateaus["padA"]["source"] == "startups"
+    faces = [f for f in pm.faces.values() if PLATEAU_MARK in str(f.ref)]
+    assert faces and all(f.role == "apron" for f in faces)
+    key = lambda pmx: {vx.key for vx in pmx.vertices.values()}
+    k1, k0 = key(pm), key(pm0)
+    ring = {pm.vertices[v].key for f in faces for r in (f.ring, *f.holes)
+            for v in pm.ring_vertices(r)}
+    assert not (k0 - k1), "the cut deleted a vertex"
+    assert (k1 - k0) <= ring, "the cut minted a vertex off the plateau ring"
+
+
+def test_the_plateau_is_flat_on_the_datum(law, built_full):
+    from auto_patch_v2.model.platform import datum_vertices, plateau_vertices
+    pm, cs, _pm0, _p = built_full
+    lw = _arm(law, staged_solve=True)
+    z, _rep = _solve(pm, cs, lw, hold=True)
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    D = z[datum_vertices(pm, lw)["padA"]]
+    pv = plateau_vertices(pm, lw)["padA"]
+    taxi_rw = {v for f in pm.faces.values() if f.role in ("runway",)
+               for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
+    assert max(abs(z[v] - D) for v in pv - taxi_rw) <= tol + 1e-6
+
+
+def test_a_conforming_pad_is_held_flat(law, built_full):
+    from auto_patch_v2.model.platform import HELD, datum_vertices
+    pm, cs, _pm0, _p = built_full
+    assert HELD.get("padB", {}).get("conforming")
+    lw = _arm(law, staged_solve=True)
+    z, _rep = _solve(pm, cs, lw, hold=True)
+    vs = {v for f in pm.faces.values() if f.ref == "padB"
+          for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
+    D = z[datum_vertices(pm, lw)["padB"]]
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    assert max(abs(z[v] - D) for v in vs) <= tol + 1e-6    # flat, on its datum

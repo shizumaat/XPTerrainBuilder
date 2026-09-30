@@ -777,8 +777,15 @@ def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
         return i
 
     absorbed = detached = 0
+    from ..model.planar import PLATEAU_MARK
     for i in sorted(range(len(faces)), key=lambda k: polys[k].area):
         if keep[i] is None or faces[i][1].role not in role_set:
+            continue
+        # flat-pad spec v2 §3 (consumer row P22, lane flatpad128v3 — NOT in
+        # the spec's table, reported for the author's ruling): a PLATEAU
+        # piece is enclosed in its apron's ring BY CONSTRUCTION and is its
+        # own face — absorbing it would erase the stand line it states
+        if PLATEAU_MARK in str(faces[i][1].ref):
             continue
         poly = keep[i][0]
         if poly.area <= 0.0:

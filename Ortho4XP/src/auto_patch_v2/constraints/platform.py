@@ -531,11 +531,21 @@ def frontage_hold_rows(planar: PlanarMap, law: Law,
         # HECA taxi_box +46 cross_connector rows beside T3)
         hx = HELD[pref].get("samples_xy")
         hh = HELD[pref].get("samples_held")
+        hr = HELD[pref].get("samples_reach")
+        reach_of: dict[int, float] = {}
+        n_all = len(weld)
         if hx is not None and hh is not None and len(hx):
             from scipy.spatial import cKDTree
             _d, j = cKDTree(np.asarray(hx)).query([planar.vertices[o].xy for o in weld])
-            weld = [o for o, jj in zip(weld, np.atleast_1d(j)) if bool(hh[int(jj)])]
-            n_free += len(_d) - len(weld)
+            j = np.atleast_1d(j)
+            if hr is not None:
+                reach_of = {o: float(hr[int(jj)]) for o, jj in zip(weld, j)}
+            weld = [o for o, jj in zip(weld, j) if bool(hh[int(jj)])]
+            n_free += n_all - len(weld)
+        # the DATUM PIN reads these (``model.platform.pin_datums``): the
+        # held contacts and each one's reach
+        HELD[pref]["hold_contacts"] = [(o, reach_of.get(o)) for o in weld]
+        HELD[pref]["welded_total"] = n_all
         if not weld:
             continue
         n_b += 1
@@ -616,6 +626,22 @@ def platform_records(planar: PlanarMap, law: Law,
                                                                    .building_pad
                                                                    .frontage_hold_margin_m)).sum()),
                                 "hold_worst_ll": list(planar.vertices[weld[k]].key)})
+                # spec-author RULINGS 2026-09-30u (c): the HELD contacts and
+                # the UNHELD (ramp / residual) ones reported apart — never a
+                # silent class
+                held_v = {v for v, _r in (h.get("hold_contacts") or ())}
+                hm = np.array([abs(float(z[v]) - D) for v in weld if v in held_v])
+                um = [(abs(float(z[v]) - D), v) for v in weld if v not in held_v]
+                mg = float(law.tables.structures.building_pad.frontage_hold_margin_m)
+                rec.update({"held_contacts": int(hm.size),
+                            "held_miss_max_m": round(float(hm.max()), 3) if hm.size else None,
+                            "held_over_margin": int((hm > mg).sum()) if hm.size else 0,
+                            "unheld_contacts": len(um),
+                            "unheld_miss_max_m": (round(max(um)[0], 3) if um else None),
+                            "unheld_worst_ll": (list(planar.vertices[max(um)[1]].key)
+                                                if um else None)})
+            if h.get("datum_pin"):
+                rec["datum_pin"] = dict(h["datum_pin"])
         if weld:
             W = np.array([planar.vertices[v].xy for v in weld], dtype=float)
             rel = np.array([float(z[v]) for v in weld]) - (np.c_[W - c0, np.ones(len(W))] @ co)

@@ -889,6 +889,11 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         from .project_strip import project_strips
         strip_rep = project_strips(planar, law, strips, levels, sol1.z,
                                    cs.flats)
+    # THE DATUM PIN (flat-pad spec §1 (2), RULINGS 2026-09-30u): each held
+    # block's datum column, stage 1's value clipped from the mint datum
+    # into its held contacts' solved band, before stage 2 reads it
+    from ..model.platform import pin_datums
+    pin_datums(planar, law, levels)
     seed_rep: dict = {}
     if stage2_rewrite is not None:
         cs, seed_rep = stage2_rewrite(levels)

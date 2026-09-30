@@ -223,7 +223,12 @@ def test_the_shipped_airside_value_is_stage_ones(law, built, arms):
                                 levelled_out=levels,
                                 stage_roles=airside_stage_roles(lw))
     z_staged = arms[0]
-    air = sorted(airside_stage_vertices(pm, lw))
+    # the flat-pad DATUM PIN (RULINGS 2026-09-30u) sets each held block's
+    # datum column between the stages by construction; it is no airside
+    # value
+    from auto_patch_v2.model.platform import datum_vertices
+    dcol = set(datum_vertices(pm, lw).values())
+    air = sorted(set(airside_stage_vertices(pm, lw)) - dcol)
     d = max(abs(z_staged[v] - levels[v]) for v in air if v in levels)
     assert d <= 1e-9, d
 

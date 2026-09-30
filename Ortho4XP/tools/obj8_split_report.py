@@ -234,7 +234,8 @@ def _near_m(lat0: float, lon0: float, lat: float, lon: float) -> float:
 
 def contact_pairs_near(plan, ss: PP.SplitSet,
                        near: "tuple[float, float, float]",
-                       step_m: float = 0.5) -> dict:
+                       step_m: float = 0.5, pads=(),
+                       margin_m: float = 0.0) -> dict:
     """§16g's CROSS-BODY CONTACT CENSUS, BY PLACE — the instrument the
     scout ``hecat3split`` used to name HECA Terminal 3's defect (RULINGS
     2026-09-17s) and the bar owner RULINGS 2026-09-17x (1) states the
@@ -251,9 +252,15 @@ def contact_pairs_near(plan, ss: PP.SplitSet,
     ``near[2]`` metres of ``near[:2]``, because an owner names a defect
     by coordinate.
 
-    ``{"pairs", "over", "worst", "rows"}``: the pairs inside the radius,
-    how many are written more than ``step_m`` apart, the worst step and
-    the named rows.  Bodies whose zero is OFF-SHEET are excluded — this
+    ``{"pairs", "over", "worst", "rows", "declared", "stop"}``: the pairs
+    inside the radius, how many are written more than ``step_m`` apart,
+    the worst step and the named rows.  FLAT-PAD §7 (spec-author RULINGS
+    2026-09-30u): with ``pads`` a stepped pair whose two parts stand on
+    DIFFERENT blocks of one cut unit and whose step equals that block
+    difference ``|D_i - D_j|`` within ``margin_m``
+    (``[building_pad] frontage_hold_margin_m``) is a DECLARED neck step
+    (reported); every other stepped pair is a STOP — a body on the wrong
+    block (``kind`` per row).  Bodies whose zero is OFF-SHEET are excluded — this
     tool never guesses a surface (§15 (5))."""
     import math as _m
     lat0, lon0, rad = near
@@ -280,7 +287,17 @@ def contact_pairs_near(plan, ss: PP.SplitSet,
             for q in (b.pids or ()):
                 zero_of[q] = z
                 name_of[q] = nm
+    from auto_patch_v2.airport.pad_block_seat import part_blocks
+    from auto_patch_v2.model.planar import block_of
+    blk = part_blocks(plan, pads) if pads else {}
+    dat: dict = {}
+    for p in pads or ():
+        bb = block_of(p.ref)
+        if bb is not None and p.z:
+            dat.setdefault(bb, []).extend(float(v) for v in p.z)
+    dat = {k: sorted(v)[len(v) // 2] for k, v in dat.items()}
     rows, n, worst = [], 0, 0.0
+    n_decl = n_stop = 0
     for a, b in getattr(plan, "contacts", ()):
         if a not in zero_of or b not in zero_of:
             continue
@@ -293,16 +310,25 @@ def contact_pairs_near(plan, ss: PP.SplitSet,
         worst = max(worst, step)
         if step > step_m:
             n += 1
+            ba, bb_ = blk.get(a), blk.get(b)
+            kind = "STOP"
+            if (ba is not None and bb_ is not None and ba[0] == bb_[0]
+                    and ba[1] != bb_[1] and ba in dat and bb_ in dat
+                    and abs(step - abs(dat[ba] - dat[bb_])) <= margin_m):
+                kind = "declared"
+            n_decl += kind == "declared"
+            n_stop += kind == "STOP"
             rows.append({"a": name_of[a], "b": name_of[b],
                          "step_m": round(step, 3),
-                         "site_m": round(min(da, db), 1)})
+                         "site_m": round(min(da, db), 1), "kind": kind,
+                         "blocks": [ba, bb_]})
         else:
             rows.append(None)
     pairs = sum(1 for r in rows if r is not None) + rows.count(None)
     rows = sorted((r for r in rows if r is not None),
                   key=lambda r: -r["step_m"])
     return {"pairs": pairs, "over": n, "worst": round(worst, 3),
-            "rows": rows}
+            "rows": rows, "declared": n_decl, "stop": n_stop}
 
 
 def census(ss: PP.SplitSet, sampler, band_m: float,
@@ -1249,16 +1275,19 @@ def _main() -> int:
         q = [float(v) for v in a.contact_pairs.split(",")]
         if len(q) not in (2, 3):
             raise SystemExit("--contact-pairs takes LAT,LON or LAT,LON,RADIUS_M")
-        cp = contact_pairs_near(plan, ss,
-                                (q[0], q[1], q[2] if len(q) == 3 else 60.0))
+        cp = contact_pairs_near(
+            plan, ss, (q[0], q[1], q[2] if len(q) == 3 else 60.0), pads=pads,
+            margin_m=float(_law.tables.structures.building_pad
+                           .frontage_hold_margin_m))
         print(f"\nCROSS-BODY CONTACT PAIRS within "
               f"{q[2] if len(q) == 3 else 60.0:.0f} m of {q[0]:.7f},{q[1]:.7f}: "
               f"{cp['pairs']} pack contacts across two bodies, "
               f"{cp['over']} written more than 0.5 m apart, worst "
-              f"{cp['worst']:.3f} m")
+              f"{cp['worst']:.3f} m; flat-pad §7: {cp['declared']} DECLARED "
+              f"neck step(s) (= |D_i - D_j|), {cp['stop']} STOP")
         for r in cp["rows"][:10]:
             print(f"    {r['step_m']:7.3f} m  {r['a']} <-> {r['b']}"
-                  f"  site {r['site_m']:.1f} m")
+                  f"  site {r['site_m']:.1f} m  {r['kind']} {r['blocks']}")
 
     if a.json:
         out = ss.to_dict()

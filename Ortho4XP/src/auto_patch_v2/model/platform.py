@@ -14,7 +14,8 @@ import dataclasses as _dc
 import typing as _t
 
 __all__ = ["Platform", "PLATFORMS", "HELD", "held_platform_vertices",
-           "datum_vertex_of", "datum_vertices", "stage_air_vertices"]
+           "datum_vertex_of", "datum_vertices", "stage_air_vertices",
+           "pin_datums"]
 
 
 @_dc.dataclass(frozen=True)
@@ -120,4 +121,43 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
         v = datum_vertex_of(planar, ref)
         if v is not None:
             out[ref] = v
+    return out
+
+
+def pin_datums(planar: _t.Any, law: _t.Any, levels: dict) -> list[dict]:
+    """THE DATUM PIN (flat-pad spec §1 (2) as amended by spec-author RULINGS
+    2026-09-30u (a)/(ii)): the hold is a PRICED row, so its datum column
+    is never left where stage 1 parked it — after stage 1, and before stage
+    2 substitutes the levels, each held block's datum is set to the MINT
+    datum clipped into the band its HELD contacts' SOLVED apron can reach:
+    ``[max(z_c − r_c), min(z_c + r_c)]`` over the held contacts (``r_c``
+    the mint's reach, ``planar/pad_blocks.reach``); an empty band collapses
+    to the contacts' median.  MEASURED (lane ``flatpad111b``): unpinned, HECA
+    T2's datums drifted 72.47 -> 73.81 and 69.01 -> 70.26.  Mutates
+    ``levels`` (vertex -> value) and returns one record per pinned block
+    (also stored as ``HELD[ref]["datum_pin"]``)."""
+    out: list[dict] = []
+    for ref, dv in datum_vertices(planar, law).items():
+        h = HELD[ref]
+        hc = [(v, r) for v, r in (h.get("hold_contacts") or ())
+              if v in levels]
+        if dv not in levels or not hc:
+            continue
+        zs = [float(levels[v]) for v, _r in hc]
+        rs = [float(r) if r is not None and r == r else 0.0 for _v, r in hc]
+        lo = max(z - r for z, r in zip(zs, rs))
+        hi = min(z + r for z, r in zip(zs, rs))
+        if lo > hi:
+            zs_s = sorted(zs)
+            lo = hi = zs_s[len(zs_s) // 2]
+        mint = h.get("datum_pred")
+        solved = float(levels[dv])
+        target = solved if mint is None else float(mint)
+        pinned = min(max(target, lo), hi)
+        levels[dv] = pinned
+        rec = {"ref": ref, "mint": None if mint is None else round(float(mint), 3),
+               "solved": round(solved, 3), "pinned": round(pinned, 3),
+               "band": [round(lo, 3), round(hi, 3)], "held": len(hc)}
+        h["datum_pin"] = rec
+        out.append(rec)
     return out

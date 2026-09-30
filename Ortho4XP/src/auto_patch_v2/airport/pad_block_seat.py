@@ -30,6 +30,7 @@ constant lives here."""
 from __future__ import annotations
 
 import dataclasses as _dc
+import math as _math
 import typing as _t
 
 from ..model.planar import block_of
@@ -50,6 +51,27 @@ def block_rings(pads: _t.Sequence[_ar.PadRing]
         la = [v[0] for v in p.ring]
         lo = [v[1] for v in p.ring]
         out.append((b[0], b[1], tuple(p.ring), (min(la), min(lo), max(la), max(lo))))
+    return out
+
+
+def _platform_polys(pads: _t.Sequence[_ar.PadRing]) -> dict:
+    """``{(unit, k): [platform polygons in local metres]}`` — every block
+    ring but the COLLAR's outer ring (``placement_read._collars_as_platform``
+    publishes it under the block ref; it is the block's largest ring)."""
+    import math
+    from shapely.geometry import Polygon
+    by: dict = {}
+    for unit, k, ring, _bx in block_rings(pads):
+        by.setdefault((unit, k), []).append(ring)
+    out: dict = {}
+    for key, rs in by.items():
+        ky = 111_320.0
+        kx = ky * math.cos(math.radians(rs[0][0][0]))
+        polys = [Polygon([(lo * kx, la * ky) for la, lo in r]).buffer(0) for r in rs]
+        if len(polys) > 1:
+            big = max(range(len(polys)), key=lambda i: polys[i].area)
+            polys = [g for i, g in enumerate(polys) if i != big]
+        out[key] = [g for g in polys if not g.is_empty]
     return out
 
 
@@ -119,6 +141,10 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     bodies, _of_pid = bodies_of_plan(plan)
     parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
     rings = block_rings(pads)
+    plat = _platform_polys(pads)
+    from shapely.geometry import Point as _Pt
+    ky = 111_320.0
+    kx = ky * _math.cos(_math.radians(rings[0][2][0][0])) if rings else ky
     out: list = []
     n_split = n_near = 0
     for un in units:
@@ -138,21 +164,27 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
         if len(blocks) < 2 or len(units_of) != 1:
             out.append(un)
             continue
-        # a body on no block of the unit joins the block it stands nearest
+        # a body on no block of the unit joins the block whose PLATFORM
+        # RING stands nearest ITS OWN FEET (spec-author RULINGS 2026-09-30u
+        # (iii): by the centroid, a long body 198 m from any neck was handed
+        # to the far block and stepped 3.85 m against its welded neighbour
+        # 1.3 m from the owner's T3 point)
         for key, b in list(per_body.items()):
             if b is not None:
                 continue
             pids = bodies.get(key, ())
-            pts = [(parts[q].lat, parts[q].lon) for q in pids if q in parts]
+            pts = [(f[0], f[1]) for q in pids if q in parts
+                   for f in (getattr(parts[q], "feet", ()) or ())]
+            if not pts:
+                pts = [(parts[q].lat, parts[q].lon) for q in pids if q in parts]
             if not pts:
                 continue
-            la = sum(p[0] for p in pts) / len(pts)
-            lo = sum(p[1] for p in pts) / len(pts)
             best = None
-            for unit, k, ring, _bx in rings:
+            for (unit, k), polys in plat.items():
                 if (unit, k) not in blocks:
                     continue
-                d = min((v[0] - la) ** 2 + (v[1] - lo) ** 2 for v in ring)
+                d = min(g.distance(_Pt(lo * kx, la * ky)) for g in polys
+                        for la, lo in pts)
                 if best is None or d < best[0]:
                     best = (d, (unit, k))
             if best is not None:

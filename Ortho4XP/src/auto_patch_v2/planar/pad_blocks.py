@@ -103,10 +103,13 @@ class Block:
     #: frontage_hold_rows``: a RAMP or residual contact is left free)
     samples_xy: _t.Any = None
     samples_held: _t.Any = None
+    #: each sample's REACH (:func:`reach`) — the band the datum pin clips
+    #: the solved datum into (spec §1 (2) as amended by RULINGS 2026-09-30u)
+    samples_reach: _t.Any = None
 
     def to_dict(self) -> dict:
         d = _dc.asdict(self)
-        for k in ("polygon", "samples_xy", "samples_held"):
+        for k in ("polygon", "samples_xy", "samples_held", "samples_reach"):
             d.pop(k, None)
         return d
 
@@ -352,9 +355,28 @@ def bisect_blocks(P: Polygon, C: np.ndarray, L: np.ndarray, U: np.ndarray,
             best.append((max(miss(m0), miss(m1)), len(best), s, m0, m1))
         if not best:
             break
-        w0 = min(b[0] for b in best)
-        cand = [b for b in best if b[0] <= w0 + margin]
-        cand.sort(key=lambda b: (neck(b[2]), b[0]))
+        # NECK FIRST, THE MISS SECOND (30r "narrowest necks"; spec-author
+        # RULINGS 2026-09-30u (i) — the inverse was measured at T2: a chord
+        # crossing 42.9 m of footed parts 0.4 m from the owner's point).  A
+        # chord must lower the piece's miss to be a cut at all; among
+        # those, one crossing more than a BAY of footed parts beyond the
+        # clearest is not admitted (spec §7); the clearest wins (to the
+        # frontage sampling resolution), the smaller miss breaks the tie.
+        best = [b for b in best if b[0] < res[i]]
+        if not best:
+            break
+        nk = {b[1]: neck(b[2]) for b in best}
+        # A CUT THROUGH MORE THAN A BAY OF BUILDING IS NO NECK (lane
+        # ``flatpad111b``, applying 30u's T2 fall-back as a rule, not a
+        # site): HECA T2's clearest chord crossed 40.6 m of footed parts and
+        # landed 9 m from the owner's point — the walls would step inside
+        # the hall.  Such a unit stays ONE block and its miss is reported.
+        best = [b for b in best if nk[b[1]] <= bay_m]
+        if not best:
+            break
+        n0 = min(nk[b[1]] for b in best)
+        cand = [b for b in best if nk[b[1]] <= n0 + bay_m]
+        cand.sort(key=lambda b: (round(nk[b[1]] / _STEP_M), b[0]))
         done = False
         for worst, _n, s, m0, m1 in cand:
             try:
@@ -373,7 +395,7 @@ def bisect_blocks(P: Polygon, C: np.ndarray, L: np.ndarray, U: np.ndarray,
             break
         if not done:
             break
-        necks.append(neck(s))
+        necks.append(nk[_n])
         cuts.append(s)
     return pieces, cuts, necks, max(res) <= margin
 
@@ -515,7 +537,8 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
             tau[i] = max(0.0, t * s - u) - margin
     else:
         tau[:] = np.inf                       # no runway: nothing pins
-    L, U = band(Cz, reach(C, Q, tau, a), S, perim, a)
+    R = reach(C, Q, tau, a)
+    L, U = band(Cz, R, S, perim, a)
     bay = bay_m(law)
     idx = _part_index(airport)
 
@@ -555,7 +578,7 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
             contact_max=float(z.max()) if z.size else 0.0,
             contact_median=float(np.median(z)) if z.size else 0.0,
             area_m2=float(g.area), frontage_m=float(m.sum() * _STEP_M), polygon=g,
-            samples_xy=C[m], samples_held=held[m]))
+            samples_xy=C[m], samples_held=held[m], samples_reach=R[m]))
     plan.cuts = list(cuts)
     plan.neck_m = list(necks)
     for s in cuts:

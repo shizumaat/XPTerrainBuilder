@@ -198,7 +198,13 @@ class TestPbfContentValidation:
         assert EXTRACTS.local_extracts_cover(self.BBOX) is False
         assert not os.path.isfile(path), "the poisoned file is removed"
 
-    def test_poisoned_file_requeues_and_falls_back(self, store):
+    def test_poisoned_file_requeues_and_falls_back(self, store, monkeypatch):
+        # The poisoned file triggers a foreground re-download; the fixture's
+        # example.invalid URL was meant to fail it, which is a live DNS
+        # lookup — refused by the suite's network guard (issue #122).  The
+        # download fails here without the network.
+        monkeypatch.setattr(EXTRACTS, "_download_extract",
+                            lambda *_args, **_kwargs: False)
         with open(EXTRACTS._region_file("portugal"), "wb") as fake_pbf:
             fake_pbf.write(self.HTML)
         result = EXTRACTS.osm_xml_from_local_extracts(

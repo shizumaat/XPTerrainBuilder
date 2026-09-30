@@ -36,6 +36,119 @@ from typing import List, Optional
 # the warmer itself delete this variable and stub the download modules.
 os.environ.setdefault("O4_DISABLE_OSM_WARMER", "1")
 
+# ...and the law is ENFORCED at the socket, not trusted to every caller
+# (issue #122).  Windows CI hung three times to the 600 s pytest-timeout,
+# and the per-test stack dump (.github/workflows/win-hang-122.yml) named
+# the frame every time: a LIVE Overpass POST in O4_OSM_Utils.send_request,
+# blocked in ssl.read — test_pack_set_change_refetches_a_cached_inset via
+# the inset building-footprint mask, test_generate_then_regenerate_reuses
+# via the airports-tile prefetch, after a live Geofabrik extract download
+# had already failed.  Overpass's read timeout is its query timeout + 30 s
+# and get_overpass_data retries eight times with back-off, so a slow server
+# is a hang the size of the test timeout; with the corpus mounted (a dev
+# machine) the same tests read local files and never showed it.
+#
+# THE GUARD.  Installed here, at conftest import — before any test module
+# imports requests — in the controller and in every xdist worker: a DNS
+# lookup of, or a connect to, any non-loopback host raises
+# SuiteNetworkRefused at once.  It is a RuntimeError, deliberately NOT an
+# OSError: requests would wrap an OSError into ConnectionError, a
+# requests.RequestException, which get_overpass_data answers with eight
+# backed-off retries — the refusal must be the one failure no network
+# retry loop swallows.  Loopback (a test's own local server) is allowed.
+# The test that reached for the network FAILS (``_no_test_reaches_the_
+# network`` below) even when production code swallowed the refusal with a
+# broad ``except``.  ``O4_SUITE_ALLOW_NETWORK=1`` is the explicit override
+# for measuring a live path; C-level HTTP (GDAL /vsicurl's libcurl) and
+# subprocess curl are below this guard and not covered.
+import ipaddress as _ipaddress
+import socket as _socket
+import threading as _threading
+
+
+class SuiteNetworkRefused(RuntimeError):
+    """A test reached for a non-loopback network host (issue #122)."""
+
+
+_NETWORK_REFUSALS: list = []          # (how, host, port, thread name)
+_NETWORK_REFUSALS_LOCK = _threading.Lock()
+
+
+def is_loopback_host(host) -> bool:
+    """True for a host a test may reach: loopback, unspecified, or none."""
+    if host is None:
+        return True
+    if isinstance(host, (bytes, bytearray)):
+        host = bytes(host).decode("ascii", "replace")
+    name = str(host).strip().strip("[]").lower()
+    if name in ("", "localhost", "localhost.localdomain") or \
+            name.endswith(".localhost"):
+        return True
+    try:
+        address = _ipaddress.ip_address(name.split("%", 1)[0])
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_unspecified
+
+
+def _refuse_network(how, host, port):
+    thread = _threading.current_thread().name
+    with _NETWORK_REFUSALS_LOCK:
+        _NETWORK_REFUSALS.append((how, host, port, thread))
+    raise SuiteNetworkRefused(
+        f"the test suite may not reach the network: {how} {host!r}:{port!r} "
+        f"on thread {thread!r} (issue #122 — a live Overpass POST hung "
+        "Windows CI to the 600 s timeout).  Stub the caller; "
+        "O4_SUITE_ALLOW_NETWORK=1 is the explicit override.")
+
+
+def _install_suite_network_guard():
+    if getattr(_socket, "_o4_suite_network_guard", False):
+        return
+    original_getaddrinfo = _socket.getaddrinfo
+    original_connect = _socket.socket.connect
+    original_connect_ex = _socket.socket.connect_ex
+    inet_families = (_socket.AF_INET, getattr(_socket, "AF_INET6", None))
+
+    def getaddrinfo(host, port, *args, **kwargs):
+        if not is_loopback_host(host):
+            _refuse_network("DNS lookup of", host, port)
+        return original_getaddrinfo(host, port, *args, **kwargs)
+
+    def _check(sock, address):
+        if (sock.family in inet_families and isinstance(address, tuple)
+                and not is_loopback_host(address[0])):
+            _refuse_network("connect to", address[0], address[1])
+
+    def connect(self, address):
+        _check(self, address)
+        return original_connect(self, address)
+
+    def connect_ex(self, address):
+        _check(self, address)
+        return original_connect_ex(self, address)
+
+    _socket.getaddrinfo = getaddrinfo
+    _socket.socket.connect = connect
+    _socket.socket.connect_ex = connect_ex
+    _socket._o4_suite_network_guard = True
+
+
+#: A proxy on LOOPBACK is a network door the socket check cannot see —
+#: requests honours these variables and connects to 127.0.0.1, which the
+#: guard allows (measured 2026-09-30: a sandboxed dev shell exports
+#: HTTPS_PROXY=localhost:…, and a live Overpass POST went through).  The
+#: suite reaches no network, so it needs no proxy: they are dropped for
+#: the test process when the guard is armed.
+_PROXY_ENVIRONMENT_VARIABLES = (
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+    "http_proxy", "https_proxy", "all_proxy")
+
+if os.environ.get("O4_SUITE_ALLOW_NETWORK", "0") != "1":
+    for _proxy_variable in _PROXY_ENVIRONMENT_VARIABLES:
+        os.environ.pop(_proxy_variable, None)
+    _install_suite_network_guard()
+
 # An ambient ORTHO4XP_DATA_ROOT (commonly exported when probing production
 # data from the shell) outranks the cwd in O4_File_Names.resolve_data_root,
 # silently defeating every test that sandboxes via monkeypatch.chdir(tmp_path).
@@ -880,6 +993,13 @@ def _osm_regional_extract_store_is_a_lane_local_overlay(tmp_path_factory):
         mirror_tree_as_overlay(shared, overlay)
     previous = EXTRACTS.STORE_DIRECTORY
     EXTRACTS.STORE_DIRECTORY = overlay
+    # The APPLICATION's extract-maintenance thread (Geofabrik index refresh
+    # + region downloads) is started by the Qt window under test; in the
+    # suite it is a live download on a daemon thread that outlives its test
+    # (issue #122: the network guard booked it against test_qt_about).  The
+    # started-flag is what start_background_maintenance checks: set, the
+    # suite never starts it.  No test exercises the thread itself.
+    EXTRACTS._maintenance_started.set()
     _LANE_OSM_EXTRACT_STORE_DIR = overlay
     try:
         yield
@@ -1072,6 +1192,32 @@ def pytest_configure(config):
             "O4_SUITE_WRITE_AUDIT=1 needs O4_SUITE_WRITE_AUDIT_OUT set to "
             f"an ABSOLUTE path for the per-test JSONL rows (got {out!r}); "
             "each worker appends to <path>.<worker>.")
+
+
+@pytest.fixture(autouse=True)
+def _no_test_reaches_the_network():
+    """A refused network reach fails ITS OWN test (issue #122).
+
+    Production paths often catch broadly (the inset mask's ``except
+    Exception`` turned the refusal into a WARNING), so the raise alone
+    would let a test that reached for the network pass silently — and
+    pass differently on a runner with a slow server.  The refusals this
+    test recorded are named at teardown.  A refusal raised by a
+    background thread an EARLIER test left running is booked here too;
+    the thread name in the message says whose it is."""
+    with _NETWORK_REFUSALS_LOCK:
+        start = len(_NETWORK_REFUSALS)
+    yield
+    with _NETWORK_REFUSALS_LOCK:
+        mine = _NETWORK_REFUSALS[start:]
+    if mine:
+        lines = "\n".join(
+            f"  {how} {host!r}:{port!r} (thread {thread!r})"
+            for (how, host, port, thread) in mine)
+        pytest.fail(
+            "this test reached for the network (issue #122; refused by "
+            f"tests/conftest.py, stub the caller):\n{lines}",
+            pytrace=False)
 
 
 def _per_test_guard_mode():

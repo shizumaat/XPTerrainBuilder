@@ -6289,6 +6289,14 @@ def test_pack_set_change_refetches_a_cached_inset(tmp_path, monkeypatch):
     monkeypatch.setattr(
         INSETS, "package_footprint_pack_names", lambda _box: list(packs)
     )
+    # Masking is ON, so every fetch reaches the footprint sources; the
+    # OpenStreetMap one is a live extract download + Overpass POST, which
+    # hung Windows CI to the 600 s timeout (issue #122).  This test judges
+    # the pack-set stamp, not the footprints: no footprints.
+    monkeypatch.setattr(
+        INSETS, "openstreetmap_building_footprints",
+        lambda *_args, **_kwargs: [],
+    )
     fetch_calls = []
     _register_box_recording_strategy("pack_set_strategy", fetch_calls)
     try:

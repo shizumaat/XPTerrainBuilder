@@ -254,16 +254,147 @@ def test_the_noisy_targets_curvature_is_the_trends_not_the_noises(law):
     assert d2_t < d2_d / 100.0, (d2_t, d2_d)
 
 
-# ── 3. FEWER THAN TWO PINS: THE DEM IS STILL THE TARGET ──────────────────
+# ── 3. FEWER THAN TWO PINS: THE APT.DAT DATUM (RULINGS 2026-09-30z (2)) ──
+#
+# RE-FOUNDED (issue #129, lane ``aptdatum129``).  This section held "no
+# pins, no target — the vertex keeps its DEM".  That premise went stale with
+# 08t (1) (the pavement carries no per-vertex DEM row, so "no target" meant
+# NO LEVEL: KCLT 18R/36L and 18C/36C floated, moved by rows that bind
+# nothing, 30q).  The owner ruled: "If there's no CIFP data, runway
+# elevations must be in the apt.dat" — the unpinned ends take HARD pins at
+# the apt.dat airport elevation, anchored at the runway midpoint, tilted by
+# the §21 trend's mean slope bounded by the runway cap.
 
-def test_a_runway_with_fewer_than_two_pins_is_untouched(law):
-    """§21.2 (2), plan §2: no pins, no target — the vertex keeps its DEM,
-    exactly as before §21.  Nothing is invented from the trend alone."""
-    airport, pm = _one_runway(law, _SagDem(), thresholds=(None, None))
+class _SteepPlaneDem(_PlaneDem):
+    """A 6 % plane — steeper than any runway cap in the tables."""
+
+    provenance = {"synthetic": "6 % plane"}
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0 + 0.06 * x
+
+
+class _DegradedPlaneDem(_PlaneDem):
+    provenance = {"synthetic": "plane", "degraded": "fixture: refused frame"}
+
+
+def _datum_airport(law, dem, elev, thresholds=(None, None)):
+    import dataclasses as _dc
+    airport, pm = _one_runway(law, dem, thresholds=thresholds)
+    return _dc.replace(airport, elevation_m=elev), pm
+
+
+def _end_pins(pm, law, airport):
+    """``{end name: (vertex, z, station)}`` of the datum pins, and the axis."""
+    from auto_patch_v2.constraints.runway_profile import datum_pins
+    rw = airport.runways[0]
+    a, b = rw.ends[0].xy, rw.ends[1].xy
+    L = rw.length_m
+    ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+    vw = view(pm, law)
+    out = {}
+    for v, (z, rid, ename) in datum_pins(pm, law, airport).items():
+        assert rid == "09/27"
+        s = (vw.xy[v][0] - a[0]) * ux + (vw.xy[v][1] - a[1]) * uy
+        out[ename] = (v, z, s)
+    return out, L
+
+
+def test_a_pinless_runway_takes_the_apt_dat_elevation_as_its_datum(law):
+    """THE DATUM SOURCE: the level is the apt.dat airport elevation at the
+    runway MIDPOINT, the tilt the §21 trend's mean slope (a 0.4 % plane,
+    inside every cap) — both ends pinned, the runway now a TWO-PIN runway
+    whose §21 target runs through them."""
+    airport, pm = _datum_airport(law, _PlaneDem(), 712.5)
+    pins, L = _end_pins(pm, law, airport)
+    assert set(pins) == {"09", "27"}
+    (v0, z0, s0), (v1, z1, s1) = pins["09"], pins["27"]
+    slope = (z1 - z0) / (s1 - s0)
+    dem_slope = ((pm.vertices[v1].dem_z - pm.vertices[v0].dem_z) / (s1 - s0))
+    assert slope == pytest.approx(dem_slope, abs=2e-4), (slope, dem_slope)
+    # anchored at the midpoint: the line's value at L/2 IS the apt.dat value
+    assert z0 + slope * (0.5 * L - s0) == pytest.approx(712.5, abs=1e-6)
     rep: ChordReport = {}
-    assert runway_chord_targets(pm, law, airport, rep) == {}
-    assert rep["runways"] == 0 and rep["runways_without"] == 1
-    assert rep["target_kind"] == "chord"      # nothing carries a trend
+    targets = runway_chord_targets(pm, law, airport, rep)
+    assert rep["runways"] == 1 and rep["runways_without"] == 0
+    assert rep["runways_datum"] == 1
+    assert targets[v0] == pytest.approx(z0, abs=1e-6)
+    assert targets[v1] == pytest.approx(z1, abs=1e-6)
+
+
+def test_the_datum_tilt_is_bounded_by_the_runway_cap(law):
+    """A 6 % ground: the tilt follows it only up to the runway's own
+    straight-line cap — the datum pins never ask the runway for grade its
+    law refuses (so the §50 cap yield never fires on them)."""
+    from auto_patch_v2.constraints.runway_profile import _datum_slope_cap
+    airport, pm = _datum_airport(law, _SteepPlaneDem(), 700.0)
+    pins, L = _end_pins(pm, law, airport)
+    (_v0, z0, s0), (_v1, z1, s1) = pins["09"], pins["27"]
+    lim = _datum_slope_cap(law, airport.runways[0])
+    assert lim is not None and lim < 0.06
+    assert abs((z1 - z0) / (s1 - s0)) == pytest.approx(lim, abs=1e-9)
+    assert z0 + (z1 - z0) / (s1 - s0) * (0.5 * L - s0) == pytest.approx(700.0, abs=1e-6)
+
+
+def test_a_degraded_frame_gives_a_level_datum(law):
+    """§21.2 (2): no trend is fitted to a refused frame — the runway is
+    LEVEL at the apt.dat elevation, never an invented tilt."""
+    airport, pm = _datum_airport(law, _DegradedPlaneDem(), 705.0)
+    assert dem_degraded(airport)
+    pins, _L = _end_pins(pm, law, airport)
+    assert {e: round(z, 9) for e, (_v, z, _s) in pins.items()} == {"09": 705.0, "27": 705.0}
+
+
+def test_the_datum_is_a_hard_pin_and_the_solve_holds_it(law):
+    """THE HARD ROW (30q's lesson): the datum is a ``Pin`` in the runway
+    generator's rows, sourced to the ruling — not a priced target a stage-1
+    perturbation can trade — and the shipped staged solve lands on it."""
+    from auto_patch_v2.constraints.runway_profile import runway_profile
+    from auto_patch_v2.model.constraints import Pin
+    airport, pm = _datum_airport(law, _SagDem(), 701.0)
+    pins, _L = _end_pins(pm, law, airport)
+    rows = [r for r in runway_profile(pm, law, airport)
+            if isinstance(r, Pin) and "apt.dat datum" in r.source.ruling]
+    assert {r.v: r.z for r in rows} == {v: z for v, z, _s in pins.values()}
+    pm_c = with_runway_chord(pm, law, airport)
+    cs, _c, _w = generate(pm_c, law, airport)
+    sol = solve_design(pm_c, cs, law)[0]
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE)
+    for v, z, _s in pins.values():
+        assert sol.z[v] == pytest.approx(z, abs=1e-3), (v, sol.z[v], z)
+
+
+def test_one_cifp_pin_keeps_its_value_and_the_other_end_takes_the_datum(law):
+    """ONE CIFP pin: that end keeps the CIFP value; the missing end takes
+    the datum line's value, pulled toward the pin until their chord sits
+    within the cap (the datum yields to the specific witness)."""
+    from auto_patch_v2.constraints.runway_profile import (_datum_slope_cap,
+                                                          threshold_pins)
+    airport, pm = _datum_airport(law, _PlaneDem(), 740.0, thresholds=(700.0, None))
+    pins, _L = _end_pins(pm, law, airport)
+    assert set(pins) == {"27"}
+    thr = threshold_pins(pm, law, airport)
+    v27, z27, s27 = pins["27"]
+    (v09,) = [v for v in thr if v != v27]
+    assert thr[v09] == 700.0 and thr[v27] == z27
+    vw = view(pm, law)
+    lim = _datum_slope_cap(law, airport.runways[0])
+    import math as _m
+    d = _m.dist(vw.xy[v09], vw.xy[v27])
+    assert abs(z27 - 700.0) == pytest.approx(lim * d, rel=1e-6)   # clamped
+
+
+def test_a_missing_apt_dat_elevation_refuses_by_name(law):
+    """An airport whose apt.dat carries no elevation record REFUSES, naming
+    the airport — never a silently free runway."""
+    from auto_patch_v2.constraints.runway_profile import threshold_pins
+    airport, pm = _datum_airport(law, _SagDem(), float("nan"))
+    with pytest.raises(ValueError, match=r"ZZZZ: runway 09/27 .*2026-09-30z"):
+        threshold_pins(pm, law, airport)
+    # a fully CIFP-pinned runway never reads the record
+    airport2, pm2 = _datum_airport(law, _SagDem(), float("nan"),
+                                   thresholds=(700.0, 700.0))
+    assert len(threshold_pins(pm2, law, airport2)) == 2
 
 
 # ── 4. THE CROSSING PIN HOLDS UNDER THE TREND ────────────────────────────

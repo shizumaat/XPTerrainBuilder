@@ -58,7 +58,7 @@ from ..law.tables import role_cap
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from .precedence import view
-from .runway_profile import curve_stations, ridge_chains, threshold_pins
+from .runway_profile import curve_stations, datum_pins, ridge_chains, threshold_pins
 
 __all__ = ["RunwayCap", "Pin", "derive", "report_line", "yielded_lines",
            "KIND_THRESHOLD", "KIND_CROSSING", "KIND_SEAM"]
@@ -169,6 +169,9 @@ def _pin_sources(pm: PlanarMap, law: Law, airport: Airport, vw, chains
             v = min(own, key=lambda q: (vw.xy[q][0] - end.xy[0]) ** 2
                     + (vw.xy[q][1] - end.xy[1]) ** 2)
             name_of.setdefault(v, f"RWY {end.name}")
+    # an apt.dat datum end (RULINGS 2026-09-30z (2), issue #129)
+    for v, (_z, _rid, ename) in datum_pins(pm, law, airport).items():
+        name_of.setdefault(v, f"RWY {ename} (apt.dat datum)")
     for v, z in thresholds.items():
         put(v, Pin(KIND_THRESHOLD, name_of.get(v, "threshold"), float(z), v))
 

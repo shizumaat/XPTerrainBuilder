@@ -44,9 +44,6 @@ on:
       arms:
         description: "JSON list of arms"
         default: '["xdist","serial","full"]'
-  push:
-    branches: ["claude/winhang122*"]
-    paths: [".github/workflows/win-hang-122.yml", ".github/win-hang-122/**"]
 
 env:
   PYTHON_VERSION: "3.13"   # matches the vendored cp313 wheels in Utils/

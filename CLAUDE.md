@@ -222,6 +222,13 @@ is what that costs.
   `--ignore-glob='tests/test_qt_*.py' tests`). `O4_ALLOW_QT_XDIST=1` is
   the explicit override for measuring the hang itself.
 
+- A test reaching the NETWORK wherever no corpus is mounted (every CI
+  runner): a live Overpass request waits timeout + 30 s and retries 8×,
+  which is the Windows 600 s hang of 2026-09-30 (#122). `tests/conftest.py`
+  refuses any non-loopback DNS/connect at the socket with a RuntimeError the
+  retry loops cannot wait on, and fails the test at teardown;
+  `O4_SUITE_ALLOW_NETWORK=1` is the explicit override. Stub the call.
+
 - An unbounded waiter (`until [ -s FILE ]; do sleep 60; done`) that
   outlives its producer: two ran 21 h and 24 h on 2026-09-13. The bash
   guard refuses a sleeping `while`/`until` loop with no `timeout N`,

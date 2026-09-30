@@ -82,7 +82,7 @@ from .runway_profile import threshold_pins
 __all__ = ["no_step_roles", "rigid_airside_roles", "no_step_pairs",
            "no_step_rate", "no_step_edges", "pad_only_vertices", "pad_contacts",
            "pad_pavement_edges", "rate_rows_for_chain", "reach_bands",
-           "reach_band_values"]
+           "reach_band_values", "runway_reach_band_values"]
 
 GEN = "no_step"
 #: The §1.1 pair rows' ruling prefix (both the pavement and the pad-contact
@@ -173,6 +173,38 @@ def reach_band_values(planar: PlanarMap, law: Law, airport: Airport
     if not pins:
         return {}
     return reach(routes(planar, law, airport), pins)
+
+
+def runway_reach_band_values(planar: PlanarMap, law: Law, airport: Airport
+                             ) -> dict[int, tuple[float, float]]:
+    """Vertex -> ``(floor, ceiling)`` from EVERY RUNWAY VERTEX along the
+    routes (``routes.reach``): the runway never moves (flat-pad spec §1
+    (4)) and stands on its profile target (``PlanarMap.preferred_z``,
+    ``runway_chord.with_runway_chord`` — MEASURED at the SPJC capture:
+    stage 1's runway vs its target p50 1e-5 m, max 0.67 m over 1,034
+    vertices), so the interval a vertex can take while every route from
+    the runway stays within its path caps is this envelope.  The
+    threshold-pinned :func:`reach_band_values` leaves the runway itself
+    free to flex between its thresholds and read the SPJC terminal
+    frontages' interval as 105 m wide (lane ``hardhold128``); this one is
+    the airside's feasibility graph for a level that must not move the
+    runway (RULINGS 2026-09-30y (2), #128).  Empty without a runway
+    target."""
+    from ..law.tables import role_family
+    pref = planar.preferred_z
+    if not pref:
+        return {}
+    rw: dict[int, float] = {}
+    for f in planar.faces.values():
+        if role_family(law, f.role) != "runway":
+            continue
+        for ring in (f.ring, *f.holes):
+            for v in planar.ring_vertices(ring):
+                if v in pref:
+                    rw[v] = float(pref[v])
+    if not rw:
+        return {}
+    return reach(routes(planar, law, airport), rw)
 
 
 def reach_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

@@ -436,8 +436,10 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     rows: list = []
     for pref, b in blocks.items():
         res = set(b.get("residual") or ())
+        plat = set(HELD[pref].get("plateau_vertices") or ())
         for o in b["weld"]:
-            rows.extend(hold_row(o, b["dv"], pref, residual=o in res))
+            rows.extend(hold_row(o, b["dv"], pref, residual=o in res,
+                                 plateau=o in plat))
         # THE DATUM BAND (§2 "Derivation site" / §5 "datum Band"): the
         # block's datum column within its pair-graph interval — HARD, head
         # ``HOLD_RULING``; a residual block's collapses to its chosen D.
@@ -458,6 +460,26 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # every HECA runway column; A1 (c): a runway with beta_R = 0 moves 0) —
     # an UNPULLED runway is held at its pass-1a value, a pulled one within
     # its budget
+    # §4 THE §20 PAD'S PLATE IS HARD TWO-WAY WHEN ITS INTERVAL IS NON-EMPTY:
+    # every OWN vertex of a held conforming pad on its datum (a stage-2 row
+    # — its vertices are not stage 1's; the contacts are held above).  A
+    # residual one keeps today's §20 plate (its priced flatness rows).
+    conf = [p for p, b in blocks.items()
+            if b["held"] and HELD[p].get("conforming")]
+    if conf:
+        own_v: dict[str, set[int]] = {}
+        for f in planar.faces.values():
+            if str(f.ref) in conf:
+                vs = own_v.setdefault(str(f.ref), set())
+                for ring in (f.ring, *f.holes):
+                    vs.update(planar.ring_vertices(ring))
+        for pref in conf:
+            b = blocks[pref]
+            for v in sorted(own_v.get(pref, set()) - set(b["weld"]) - {b["dv"]}):
+                rows.extend(hold_row(v, b["dv"], pref))
+        stats_conf = len(conf)
+    else:
+        stats_conf = 0
     columns: dict[str, dict[int, float]] = {}
     seen: dict[str, set[int]] = {}
     for v in sorted(rw_v):
@@ -467,9 +489,10 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                 columns.setdefault(r, {})[v] = float(z1a[v])
     for r, cmap in columns.items():
         br = beta.get(r, 0.0)
+        pull = (f"pulled by {lift[r][1]} (lift {lift[r][0]:.3f} m)" if r in lift
+                else "no pulling pad: held at its pass-1a value")
         src = Source(FLEX_GEN, FLEX_RULING + f" (flat-pad spec v2 §1 (4), RULINGS "
-                     f"2026-09-30as: runway {r} flexes at most beta_R = "
-                     f"runway_flex_share x its pulling route's lift)", (r,))
+                     f"2026-09-30as: runway {r} beta_R {br:.3f} m, {pull})", (r,))
         for v, z in cmap.items():
             rows.append(Band(v, z - br, z + br, src))
     runways: dict[str, dict] = {}
@@ -559,6 +582,9 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                  held=sum(1 for b in blocks.values() if b["held"]),
                  held_eval_ii=sum(1 for b in blocks.values() if b["eval"] == "ii"),
                  residual=sum(1 for b in blocks.values() if not b["held"]),
+                 conforming_held=stats_conf,
+                 conforming_residual=sum(1 for p, b in blocks.items()
+                                         if not b["held"] and HELD[p].get("conforming")),
                  runway_bands=sum(len(c) for c in columns.values()),
                  runway_bands_unpulled=sum(len(c) for r, c in columns.items()
                                            if beta.get(r, 0.0) <= 0.0))
@@ -591,6 +617,22 @@ class HoldPass:
         if self.result is None:
             return None
         return ConstraintSet.from_rows([*cs1a.rows(), *self.result.rows])
+
+    def apply(self, cs: ConstraintSet) -> ConstraintSet:
+        """``cs`` as pass 1b states it — the hold rows re-derived (a
+        residual contact priced), the datum and runway Bands added — for an
+        instrument that re-assembles the solved problem (``--why-at``,
+        ``--why-hard``, ``--solved-out``; P21).  ``cs`` itself without a
+        derived interval."""
+        if self.result is None:
+            return cs
+        base = self.strip(cs) or cs
+        return ConstraintSet.from_rows([*base.rows(), *self.result.rows])
+
+    def planar_of(self, planar: PlanarMap) -> PlanarMap:
+        """``planar`` with the fronting set published (§5), as pass 1b."""
+        fr = getattr(self.result, "fronting", None)
+        return _dc.replace(planar, fronting_vertices=frozenset(fr)) if fr else planar
 
     def finish(self, z1b: _t.Mapping[int, float], z1b_all: _t.Any = None,
                caps_held: bool = True) -> list[dict]:

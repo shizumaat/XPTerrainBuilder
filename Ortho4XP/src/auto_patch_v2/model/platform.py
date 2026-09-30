@@ -130,14 +130,29 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
     if air is None:
         air = stage_air_vertices(planar, law)
     col: dict[str, set[int]] = {}
+    own: dict[str, set[int]] = {}
     for f in planar.faces.values():
         r = str(f.ref)
         if r.endswith("#collar") and r[:-len("#collar")] in HELD:
             vs = col.setdefault(r[:-len("#collar")], set())
             for ring in (f.ring, *f.holes):
                 vs.update(planar.ring_vertices(ring))
+        elif r in HELD and HELD[r].get("conforming"):
+            # flat-pad spec v2 §4: a §20 CONFORMING pad fronts by its own rim
+            vs = own.setdefault(r, set())
+            for ring in (f.ring, *f.holes):
+                vs.update(planar.ring_vertices(ring))
     out: dict[str, int] = {}
     for ref in sorted(HELD):
+        if HELD[ref].get("conforming"):
+            vs = own.get(ref, set())
+            if not (vs & air):
+                continue
+            # its datum column is one of its OWN vertices, never a weld
+            inner = sorted(vs - set(air))
+            if inner:
+                out[ref] = inner[0]
+            continue
         if not (col.get(ref, set()) & air):
             continue
         v = datum_vertex_of(planar, ref)

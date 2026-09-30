@@ -284,6 +284,31 @@ def platform_split(base_regions, pad_regions, law: Law,
             k = min(range(len(polys)), key=lambda i: polys[i].distance(r.polygon))
             return _dc.replace(r, ref=block_ref(str(r.ref), k) + COLLAR_SUFFIX)
         out = [_to_block(r) for r in out]
+    # flat-pad spec v2 §4 (owner RULINGS 2026-09-30y (1) "EVERY building"):
+    # a §20 CONFORMING pad — a welded pad of at least ``[building_pad]
+    # min_area_m2`` fronting airside that mints no platform (the
+    # ``cluster_pad_min_m2`` gate stands) — is a HELD block too, of ONE
+    # register move: its contacts are its own airside rim vertices, its
+    # datum column one of its own vertices (``model.platform.datum_vertices``)
+    if bool(getattr(bp, "frontage_hold", False)):
+        pmin4 = float(bp.min_area_m2)
+        minted_refs = {p.ref for p in PLATFORMS if not p.refused}
+        for r in out:
+            ref = str(r.ref)
+            P = r.polygon
+            if (ref in HELD or ref in minted_refs or ref.endswith(COLLAR_SUFFIX)
+                    or ref in split_units or P is None or P.is_empty
+                    or not isinstance(P, Polygon) or P.area < pmin4):
+                continue
+            cand = [air_polys[int(j)] for j in
+                    tree.query(P, predicate="dwithin", distance=near)]
+            if not cand or _welded_samples(P, unary_union(cand), near) < _MIN_WELDED:
+                continue
+            HELD[ref] = {"unit": ref, "k": 0, "blocks": 1, "datum_pred": None,
+                         "verdict": "conforming", "conforming": True,
+                         "samples_xy": None, "samples_held": None,
+                         "samples_reach": None, "samples_ramp": None}
+        counts["conforming_held"] = sum(1 for h in HELD.values() if h.get("conforming"))
     counts["platforms"] = sum(1 for p in PLATFORMS if not p.refused)
     counts["platforms_refused"] = sum(1 for p in PLATFORMS if p.refused)
     counts["platform_list"] = "; ".join(

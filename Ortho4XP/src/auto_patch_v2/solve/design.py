@@ -914,6 +914,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     seed_rep: dict = {}
     if stage2_rewrite is not None:
         cs, seed_rep = stage2_rewrite(levels)
+    if pass1a is not None and hasattr(hold, "apply"):
+        cs = hold.apply(cs)        # stage 2 states pass 1b's hold law (§4)
     t2 = time.perf_counter()
     sol2, rep2 = _solve_stage(planar, cs, law, options, size_out=size_out,
                               method=method, low_rank=low_rank, fixed=levels)

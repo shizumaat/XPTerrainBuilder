@@ -523,6 +523,22 @@ def hold_sets(planar: PlanarMap, law: Law
             for ring in (f.ring, *f.holes):
                 foreign.update(planar.ring_vertices(ring))
     out: list[tuple[str, int, list[int], int, int]] = []
+    # flat-pad spec v2 §4: a §20 CONFORMING pad's contacts are its own
+    # airside rim vertices (the plate IS its ring: 09-01g), no ramp mask
+    conf = [r for r in held if HELD[r].get("conforming")]
+    if conf:
+        from .pads import airside_vertices as _air
+        air_v = _air(planar, law)
+        rim: dict[str, set[int]] = {}
+        for f in planar.faces.values():
+            if str(f.ref) in conf:
+                vs = rim.setdefault(str(f.ref), set())
+                for ring in (f.ring, *f.holes):
+                    vs.update(v for v in planar.ring_vertices(ring) if v in air_v)
+        for r in conf:
+            weld = sorted(rim.get(r, ()))
+            if weld:
+                out.append((r, held[r], weld, len(weld), 0))
     for pref, _vs, weld in platform_contacts(planar, law):
         if pref not in held or not weld:
             continue
@@ -545,7 +561,8 @@ def hold_sets(planar: PlanarMap, law: Law
     return out
 
 
-def hold_row(o: int, dv: int, pref: str, residual: bool = False) -> list[Row]:
+def hold_row(o: int, dv: int, pref: str, residual: bool = False,
+             plateau: bool = False) -> list[Row]:
     """The hold row of contact ``o`` against datum column ``dv``: HARD
     (head :data:`HOLD_RULING`) for a held contact; a RESIDUAL contact of an
     empty interval keeps its hold PRICED at the law's weight (flat-pad spec
@@ -553,9 +570,12 @@ def hold_row(o: int, dv: int, pref: str, residual: bool = False) -> list[Row]:
     hard_rulings``) — the apron comes as close as the caps allow."""
     from .pads import _two_sided
     head = HOLD_RESIDUAL_RULING if residual else HOLD_RULING
-    src = Source(GEN, head + " (flat-pad spec §1 (2); RULINGS "
-                 "2026-09-30f/r/y the pad's flat datum leads its frontage)",
-                 (pref, f"platform:{pref}", "pavement:welded"))
+    what = (f"the PLATEAU of {pref} at its datum (flat-pad spec v2 §3, RULINGS "
+            "2026-09-30y addendum)" if plateau else
+            "flat-pad spec §1 (2); RULINGS 2026-09-30f/r/y the pad's flat datum "
+            "leads its frontage")
+    src = Source(GEN, head + f" ({what})",
+                 (pref, f"platform:{pref}", "plateau" if plateau else "pavement:welded"))
     return list(_two_sided(((o, 1.0), (dv, -1.0)), src, None))
 
 
@@ -616,8 +636,11 @@ def platform_records(planar: PlanarMap, law: Law,
     from .pads import airside_vertices
     from .precedence import view
     pairs = collar_faces(planar, law)
-    if not pairs or z is None:
+    if z is None:
         return []
+    conf = _conforming_records(planar, law, z)
+    if not pairs:
+        return conf
     vw = view(planar, law)
     air = airside_vertices(planar, law)
     bs = float(law.tables.emit.design.bank_slope)
@@ -735,6 +758,52 @@ def platform_records(planar: PlanarMap, law: Law,
                         "worst_z": round(float(z[weld[k]]), 3),
                         "collar_needed_m": round(max(cmin, mx / bs), 2),
                         "over_collar_max": bool(mx / bs > cmax)})
+        out.append(rec)
+    return out + conf
+
+
+def _conforming_records(planar: PlanarMap, law: Law, z) -> list[dict]:
+    """flat-pad spec v2 §4 / A8: the sidecar record of every HELD §20
+    CONFORMING pad — its datum, its contacts held within ``hard_tol_m``,
+    the tilt of the plane fitted over ALL its vertices, the interval."""
+    import numpy as np
+    from ..law.tables import design as design_law
+    refs = [r for r, h in HELD.items() if h.get("conforming")]
+    if not refs:
+        return []
+    dvs = datum_vertices(planar, law)
+    tol = float(design_law(law).hard_tol_m)
+    verts: dict[str, set[int]] = {}
+    for f in planar.faces.values():
+        if str(f.ref) in refs:
+            vs = verts.setdefault(str(f.ref), set())
+            for ring in (f.ring, *f.holes):
+                vs.update(planar.ring_vertices(ring))
+    out: list[dict] = []
+    for r in sorted(refs):
+        h, vs, dv = HELD[r], sorted(verts.get(r, ())), dvs.get(r)
+        if dv is None or len(vs) < 3:
+            continue
+        X = np.array([planar.vertices[v].xy for v in vs], dtype=float)
+        Z = np.array([float(z[v]) for v in vs])
+        A = np.c_[X - X.mean(axis=0), np.ones(len(X))]
+        co, *_ = np.linalg.lstsq(A, Z, rcond=None)
+        D = float(z[dv])
+        held_v = [v for v, _x in (h.get("hold_contacts") or ())]
+        hm = np.array([abs(float(z[v]) - D) for v in held_v]) if held_v else np.zeros(0)
+        rec = {"ref": r, "conforming": True, "datum": round(D, 3),
+               "vertices": len(vs), "tilt_pct": round(100.0 * math.hypot(co[0], co[1]), 3),
+               "held_contacts": int(hm.size),
+               "held_within_tol": int((hm <= tol + 1e-6).sum()) if hm.size else 0,
+               "held_miss_max_m": round(float(hm.max()), 3) if hm.size else None,
+               "unheld_contacts": len(h.get("residual") or ()),
+               "hold_verdict": ("held" if hm.size and not h.get("residual")
+                                and not int((hm > tol + 1e-6).sum()) else "residual"),
+               "centroid_ll": _ll_of(planar, vs, X.mean(axis=0))}
+        for k in ("reach_band", "reach_band0", "reach_width_m", "reach_gap_m",
+                  "reach_gap0_m", "reach_eval", "reach_empty", "datum_chosen"):
+            if k in h:
+                rec[k] = h[k]
         out.append(rec)
     return out
 

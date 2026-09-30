@@ -2071,17 +2071,23 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             # EVERY family's rows (capped), so a --json arm can be read by
             # site without a second census (lane ``nlwf``)
             result["verify"]["rows"] = {k: v[:200] for k, v in vrows.items() if v}
+        # flat-pad spec v2 P21: the instruments re-assemble the problem pass
+        # 1b SOLVED — the hold's rows as derived (datum / runway Bands, the
+        # residual holds priced) on the map the fronting set is published on
+        _hp = _kw.get("hold")
+        cs_w = _hp.apply(cs) if _hp is not None else cs
+        pm_w = _hp.planar_of(pm) if _hp is not None else pm
         if solved_out is not None:
             # the solved set (pm, stage, rows, z) for a later ``--why-from``
             # (the duals solve is a second full LP; kept out of the timed arm)
             with solved_out.open("wb") as fh:
-                pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm, "cs": cs,
-                             "z": z}, fh)
+                pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm_w,
+                             "cs": cs_w, "z": z}, fh)
         if why_hard_limit is not None:
-            result["why_hard"] = why_hard(icao, pm, law, cs, z, why_hard_limit,
+            result["why_hard"] = why_hard(icao, pm_w, law, cs_w, z, why_hard_limit,
                                           stage=why_hard_stage)
         if why_hump is not None:
-            result["why_hump"] = _why_hump(icao, pm, law, airport, cs, z, *why_hump)
+            result["why_hump"] = _why_hump(icao, pm_w, law, airport, cs_w, z, *why_hump)
         if z_out is not None:
             np.save(z_out, z)
         if emit_dir is not None:

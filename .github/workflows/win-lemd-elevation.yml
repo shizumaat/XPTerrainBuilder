@@ -155,7 +155,7 @@ jobs:
 
       - name: Mint an unrelated self-signed root
         run: |
-          openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+          MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
             -subj "/CN=win121 hostile root" \
             -keyout "$RUNNER_TEMP/hostile.key" -out "$RUNNER_TEMP/hostile-ca.pem"
           echo "CURL_CA_BUNDLE=$(cygpath -w "$RUNNER_TEMP/hostile-ca.pem")" >> "$GITHUB_ENV"

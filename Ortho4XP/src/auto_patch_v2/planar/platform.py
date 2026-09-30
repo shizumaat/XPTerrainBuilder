@@ -45,8 +45,8 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..law.tables import rolled_on_roles
-from ..model.planar import COLLAR_SUFFIX
-from ..model.platform import PLATFORMS, Platform
+from ..model.planar import COLLAR_SUFFIX, block_ref
+from ..model.platform import HELD, PLATFORMS, Platform
 
 __all__ = ["platform_split", "Platform", "PLATFORMS", "collar_width_m",
            "merge_platform_faces"]
@@ -141,8 +141,10 @@ def platform_split(base_regions, pad_regions, law: Law,
     per rigid block here (``planar.pad_blocks``), the verdicts published
     in ``pad_blocks.BLOCK_PLANS``."""
     PLATFORMS.clear()
+    HELD.clear()
     from .pad_blocks import BLOCK_PLANS, plan_blocks
     BLOCK_PLANS.clear()
+    split_units: dict[str, list] = {}
     counts: dict[str, _t.Any] = {"platforms": 0, "platforms_refused": 0}
     bp = law.tables.structures.building_pad
     if not bool(getattr(bp, "platform_collar", False)) or not pad_regions:
@@ -220,12 +222,32 @@ def platform_split(base_regions, pad_regions, law: Law,
         if not cparts:
             out.append(pr)
             continue
-        PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1),
-                                  round(tot, 1), nw, rel))
+        bplan = None
         if bool(getattr(bp, "frontage_hold", False)):
             bplan = plan_blocks(str(pr.ref), P, base_regions, law, dem, airport, near)
             if bplan is not None:
                 BLOCK_PLANS.append(bplan)
+        if bplan is not None and len(bplan.blocks) > 1:
+            # flat-pad spec §2 as ruled 2026-09-30r (Q-111b option (1)): the
+            # unit is CUT into flat blocks at its necks — one platform +
+            # collar per block, ``<ref>/b<k>``; between two blocks' platforms
+            # a STRIP of collar wide enough for the 1:3 bank the predicted
+            # step needs (§2 (5): the declared pad|pad terrace, never a
+            # shared platform vertex at two floors)
+            blk = _mint_blocks(pr, P, plats, bplan, law, grid, pmin, C, nw, rel)
+            if blk is not None:
+                split_units[str(pr.ref)] = [b.polygon for b in bplan.blocks]
+                for q in blk[0]:
+                    plat_ids.add(id(q))
+                out.extend(blk[0])
+                out.extend(blk[1])
+                continue
+        PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1),
+                                  round(tot, 1), nw, rel))
+        if bplan is not None:
+            HELD[str(pr.ref)] = {"unit": str(pr.ref), "k": 0, "blocks": 1,
+                                 "datum_pred": bplan.blocks[0].datum,
+                                 "verdict": bplan.verdict}
         pieces = [_dc.replace(pr, polygon=q) for q in plats]
         plat_ids.update(id(q) for q in pieces)
         out.extend(pieces)
@@ -244,12 +266,69 @@ def platform_split(base_regions, pad_regions, law: Law,
     if minted:
         out = [r if (str(r.ref) not in minted or id(r) in plat_ids)
                else _dc.replace(r, ref=str(r.ref) + COLLAR_SUFFIX) for r in out]
+    if split_units:
+        # a region still carrying a CUT unit's own ref (a 23a rim sliver)
+        # is the collar of the block it stands nearest
+        def _to_block(r):
+            polys = split_units.get(str(r.ref))
+            if polys is None or id(r) in plat_ids or r.polygon is None:
+                return r
+            k = min(range(len(polys)), key=lambda i: polys[i].distance(r.polygon))
+            return _dc.replace(r, ref=block_ref(str(r.ref), k) + COLLAR_SUFFIX)
+        out = [_to_block(r) for r in out]
     counts["platforms"] = sum(1 for p in PLATFORMS if not p.refused)
     counts["platforms_refused"] = sum(1 for p in PLATFORMS if p.refused)
     counts["platform_list"] = "; ".join(
         f"{p.ref} C {p.collar_m:g} m {p.platform_m2:,.0f}/{p.pad_m2:,.0f} m2"
         + (f" REFUSED {p.refused}" if p.refused else "") for p in PLATFORMS[:12])
     return out, counts
+
+
+def _mint_blocks(pr, P: Polygon, plats: list, bplan, law: Law, grid: float,
+                 pmin: float, C: float, nw: int, rel) -> "tuple[list, list] | None":
+    """The block faces of one CUT unit (``platform_split``): per block ``k``
+    the platform pieces inside its polygon, less a STRIP along every cut
+    chord it touches (half the bank the predicted step needs, at least half
+    ``bank_min_width_m`` — the terrace between two flat floors is a 1:3 bank
+    in the heightfield, §2 (5)), and the collar = the rest of the block.
+    Registers each block in ``PLATFORMS`` and ``HELD``.  ``None`` when a
+    block would carry no platform piece (the caller keeps the unit whole)."""
+    bank = float(law.tables.emit.design.bank_slope)
+    bmin = float(law.tables.emit.design.bank_min_width_m)
+    strips = []
+    for (i, j, step), chord in zip(bplan.steps, bplan.cuts):
+        w = max(0.5 * bmin, 0.5 * abs(step) / bank) if bank > 0.0 else 0.5 * bmin
+        strips.append((i, j, chord.buffer(w, cap_style=2)))
+    plat_regs: list = []
+    col_regs: list = []
+    recs: list = []
+    inner = unary_union(plats)
+    for b in bplan.blocks:
+        Q = b.polygon
+        cut = [g for i, j, g in strips if b.k in (i, j)]
+        body = Q.intersection(inner)
+        if cut:
+            body = body.difference(unary_union(cut))
+        keep = []
+        for q in _parts(body):
+            if grid > 0.0:
+                s_ = q.simplify(0.5 * grid, preserve_topology=True)
+                q = s_ if isinstance(s_, Polygon) and not s_.is_empty else q
+            if q.area >= pmin:
+                keep.append(q)
+        if not keep:
+            return None
+        ref = block_ref(str(pr.ref), b.k)
+        plat_regs.extend(_dc.replace(pr, ref=ref, polygon=q) for q in keep)
+        col = _parts(Q.difference(unary_union(keep)))
+        col_regs.extend(_dc.replace(pr, ref=ref + COLLAR_SUFFIX, polygon=q) for q in col)
+        recs.append((ref, b, sum(q.area for q in keep)))
+    for ref, b, a in recs:
+        PLATFORMS.append(Platform(ref, round(C, 2), round(b.polygon.area, 1),
+                                  round(a, 1), nw, rel))
+        HELD[ref] = {"unit": str(pr.ref), "k": b.k, "blocks": len(bplan.blocks),
+                     "datum_pred": b.datum, "verdict": bplan.verdict}
+    return plat_regs, col_regs
 
 
 def _signed_area(ring: list) -> float:

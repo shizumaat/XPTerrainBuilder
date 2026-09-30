@@ -35,9 +35,11 @@ import typing as _t
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
-from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of
+from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of, unit_ref_of
+from ..model.platform import HELD, datum_vertex_of
 
-__all__ = ["platform_collar_rows", "platform_plane_rows",
+__all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
+           "TERRACE_RULING", "HOLD_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
            "PLANE_RULING", "GEN", "collar_faces", "platform_records"]
 
@@ -49,6 +51,13 @@ COLLAR_RULING = "structures.building_pad platform_collar bank"
 #: ``pad_flat_rulings``: the pad's own rim stays on its plate at the
 #: plate's price, as it did before the collar
 RIM_RULING = "structures.building_pad platform_collar rim"
+#: The head of the BLOCK TERRACE rows (flat-pad spec §2 (5), RULINGS
+#: 2026-09-30r): the strip between two flat blocks of one unit, a two-sided
+#: 1:3 bank from each floor — priced at the law's weight like the collar
+TERRACE_RULING = "structures.building_pad platform_collar terrace"
+#: The head of the FRONTAGE HOLD rows (flat-pad spec §1 (2); RULINGS
+#: 2026-09-30f / 30r): a held block's welded contact at the block's datum
+HOLD_RULING = "structures.building_pad frontage_hold"
 #: How many platform vertices each outer collar vertex is tied to: the
 #: triangulation joins a rim vertex to a fan of inner ones, and three is a
 #: fan (a solver-conditioning constant, not a law value).
@@ -98,7 +107,7 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
     air = airside_vertices(planar, law)
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     rows: list[Row] = []
-    n_air = n_own = 0
+    n_air = n_own = n_terr = 0
     # the COVERAGE EDGE: a vertex of an edge with no face on one side
     edge_v = {v for e in planar.edges.values()
               if e.left_face is None or e.right_face is None for v in (e.a, e.b)}
@@ -115,11 +124,16 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         src_rim = Source(GEN, RIM_RULING + " (unit-platform spec §1 (3); "
                          "the pad's own rim on its plate)",
                          (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
+        src_terr = Source(GEN, TERRACE_RULING + " (flat-pad spec §2 (5); RULINGS "
+                          "2026-09-30r: the pad|pad terrace between two flat "
+                          "blocks is a 1:3 bank)",
+                          (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
+        terrace: set[int] = set()
         tree = cKDTree([xy[v] for v in inner])
         seen: set[tuple[int, int]] = set()
 
         def _row(o: int, i: int) -> None:
-            nonlocal n_air, n_own
+            nonlocal n_air, n_own, n_terr
             key = (o, i)
             if key in seen or o == i:
                 return
@@ -130,6 +144,9 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
             if o in air:
                 n_air += 1
                 rows.append(Diff(o, i, cap, d, src, follows=(i,)))
+            elif o in terrace:
+                n_terr += 1
+                rows.append(Diff(o, i, cap, d, src_terr))
             else:
                 # the pad's OWN rim carries no relief to absorb: it stays
                 # on the platform (cap 0, the rim follows), exactly where
@@ -160,6 +177,7 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         # (the ``_mixed_rim_cells`` fixture, 2 of 7), and an apron | pad |
         # pad triple point (HECA building170 | building167, 2).
         base = pref.split("#")[0]
+        unit = unit_ref_of(pref)
         own_f = set(cfids) | set(pfids)
         keep: list[int] = []
         for o in outer:
@@ -169,8 +187,16 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
             if o in edge_v:
                 continue                   # the coverage edge: the DEM's
             inc = [q for q in planar.vertices[o].incident_faces if q not in own_f]
-            if any(planar.faces[q].role == planar.faces[cfids[0]].role
-                   and planar.faces[q].ref.split("#")[0] != base for q in inc):
+            other = [q for q in inc if planar.faces[q].role == planar.faces[cfids[0]].role
+                     and planar.faces[q].ref.split("#")[0] != base]
+            if other and all(unit_ref_of(planar.faces[q].ref) == unit for q in other):
+                # flat-pad spec §2 (5) (RULINGS 2026-09-30r): a vertex on the
+                # TERRACE between two blocks of one unit — the 1:3 bank from
+                # each block's floor, two-sided, never the rim's cap 0
+                terrace.add(o)
+                keep.append(o)
+                continue
+            if other:
                 continue
             keep.append(o)
         outer = keep
@@ -187,7 +213,8 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
             _row(outer[int(j)], i)
     STATS["platform_collar_rows"] = {"collars": len(pairs),
                                      "rows_rim_airside_leads": n_air,
-                                     "rows_own_rim_follows": n_own}
+                                     "rows_own_rim_follows": n_own,
+                                     "rows_block_terrace": n_terr}
     return rows
 
 
@@ -258,8 +285,26 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
             for pref, _cfids, pfids in pairs]
     sets += [(ref, own, f"plate:{ref}") for ref, own, _w in plates]
     from .pads import FLAT_RULING
+    n_flat = 0
     for pref, vs, tag in sets:
         if len(vs) < 4:
+            continue
+        if pref in HELD and not tag.startswith("plate:"):
+            # flat-pad spec §1 (1) (RULINGS 2026-09-30f/r): a HELD block is
+            # FLAT at its datum — every platform vertex equal to the datum
+            # column (``model.platform.datum_vertex_of``), hard
+            dv = datum_vertex_of(planar, pref)
+            if dv is None:
+                continue
+            src = Source(GEN, PLANE_RULING + " (flat-pad spec §1 (1); RULINGS "
+                         "2026-09-30f/r a held block is flat at its datum)",
+                         (tag, pref))
+            n_flat += 1
+            for v in vs:
+                if v == dv:
+                    continue
+                rows.append(Linear(((v, 1.0), (dv, -1.0)), None, 0.0, src))
+                rows.append(Linear(((v, -1.0), (dv, 1.0)), None, 0.0, src))
             continue
         bs = _basis(xy, vs)
         if bs is None:
@@ -292,7 +337,8 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
             terms = ((v, 1.0), (a, -l1), (b, -l2), (c, -l3))
             rows.append(Linear(terms, None, 0.0, src))
             rows.append(Linear(tuple((q, -k) for q, k in terms), None, 0.0, src))
-    STATS["platform_plane_rows"] = {"planes": n_planes, "rows": len(rows)}
+    STATS["platform_plane_rows"] = {"planes": n_planes, "flat_blocks": n_flat,
+                                    "rows": len(rows)}
     return rows
 
 
@@ -383,7 +429,8 @@ def contact_led_refs(planar: PlanarMap, law: Law) -> frozenset[str]:
     ``building283`` came out at exactly 1.000 %)."""
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     return frozenset(r for r, vs, w in plane_sets(planar, law)
-                     if w and len(vs) >= 4 and _basis(xy, vs) is not None)
+                     if w and len(vs) >= 4 and _basis(xy, vs) is not None
+                     and r not in HELD)
 
 
 def platform_level_rows(planar: PlanarMap, law: Law,
@@ -414,7 +461,7 @@ def platform_level_rows(planar: PlanarMap, law: Law,
     rows: list[Row] = []
     n_pl = n_c = 0
     for pref, vs, weld in plane_sets(planar, law):
-        if len(vs) < 4 or not weld:
+        if len(vs) < 4 or not weld or pref in HELD:
             continue
         bs = _basis(xy, vs)
         if bs is None:
@@ -438,6 +485,51 @@ def platform_level_rows(planar: PlanarMap, law: Law,
                                    src, fol))
             n_c += 1
     STATS["platform_level_rows"] = {"platforms": n_pl, "contacts": n_c}
+    return rows
+
+
+def frontage_hold_rows(planar: PlanarMap, law: Law,
+                       airport: Airport | None = None) -> list[Row]:
+    """THE FLAT PAD LEADS ITS FRONTAGE (flat-pad spec §1 (2); owner RULINGS
+    2026-09-30f, 30r).  Every WELDED contact of a HELD block
+    (:func:`platform_contacts`) takes one two-sided row ``z_o − z_D = 0``
+    against the block's DATUM COLUMN (``model.platform.datum_vertex_of`` —
+    a platform vertex the stage split registers as a stage-1 column,
+    ``solve/design_roles.airside_stage_vertices``), so STAGE 1 solves the
+    airside WITH the flat frontage: the solver redistributes the relief into
+    the apron body and the taxiways within their hard caps, and the datum
+    settles where the block's frontage can best be held.  After stage 1 the
+    datum is a constant and the hard flat rows (:func:`platform_plane_rows`)
+    put the whole block on it.
+
+    PRICED, NOT HARD (lane ``flatpad111b`` deviation from spec §1 (2),
+    reported for the spec author): the mint-time test reads the DEM, and on
+    HECA the DEM at the taxi edges is itself 1.5 %-inconsistent (6,416 of
+    138,075 pairs at T3), so a hard hold would be a demand the proxy cannot
+    certify; as a law-weight row the hold is met wherever the caps admit it
+    and the miss is reported per block (``platforms[].hold_residual_max_m``)
+    — ``[design] hard_rulings`` naming the head makes it hard with no code
+    change.  A generator."""
+    from .pads import _two_sided
+    STATS.pop("frontage_hold_rows", None)
+    if not HELD:
+        return []
+    rows: list[Row] = []
+    n_b = n_c = 0
+    for pref, _vs, weld in platform_contacts(planar, law):
+        if pref not in HELD or not weld:
+            continue
+        dv = datum_vertex_of(planar, pref)
+        if dv is None:
+            continue
+        n_b += 1
+        src = Source(GEN, HOLD_RULING + " (flat-pad spec §1 (2); RULINGS "
+                     "2026-09-30f/r the pad's flat datum leads its frontage)",
+                     (pref, f"platform:{pref}", "pavement:welded"))
+        for o in weld:
+            rows.extend(_two_sided(((o, 1.0), (dv, -1.0)), src, None))
+            n_c += 1
+    STATS["frontage_hold_rows"] = {"blocks": n_b, "contacts": n_c}
     return rows
 
 
@@ -485,6 +577,28 @@ def platform_records(planar: PlanarMap, law: Law,
                      "plane_residual_max_m": round(float(res.max()), 3),
                      "platform_vertices": len(inner), "welded": len(weld),
                      "centroid_ll": _ll_of(planar, inner, c0)}
+        if pref in HELD:
+            # flat-pad spec §1 / §2 (RULINGS 2026-09-30f/r): the block, its
+            # unit, the solved datum and how far its welded frontage stands
+            # off it (the hold's miss, carried by the collar)
+            h = HELD[pref]
+            dv = datum_vertex_of(planar, pref)
+            rec.update({"unit": h["unit"], "block": h["k"], "blocks": h["blocks"],
+                        "block_verdict": h["verdict"],
+                        "datum_pred": (None if h["datum_pred"] is None
+                                       else round(float(h["datum_pred"]), 3))})
+            if dv is not None:
+                D = float(z[dv])
+                rec["datum"] = round(D, 3)
+                if weld:
+                    miss = np.array([abs(float(z[v]) - D) for v in weld])
+                    k = int(np.argmax(miss))
+                    rec.update({"hold_residual_p50_m": round(float(np.median(miss)), 3),
+                                "hold_residual_max_m": round(float(miss[k]), 3),
+                                "hold_within_m": int((miss <= float(law.tables.structures
+                                                                   .building_pad
+                                                                   .frontage_hold_margin_m)).sum()),
+                                "hold_worst_ll": list(planar.vertices[weld[k]].key)})
         if weld:
             W = np.array([planar.vertices[v].xy for v in weld], dtype=float)
             rel = np.array([float(z[v]) for v in weld]) - (np.c_[W - c0, np.ones(len(W))] @ co)

@@ -104,6 +104,36 @@ def role_sets():
             frozenset(cg._ROAD_FAMILY_ROLES))
 
 
+def airside_families():
+    """``{family: roles}`` for the flat-pad spec §4 bar (C21; RULINGS
+    2026-09-30f): RUNWAY (the law's ``precedence.runway_family`` + every
+    shoulder role — the bar is 0), STRIP (``graded_strip``, the runway's
+    soft receiver), TAXI (``precedence.taxi_family`` — bounded movers on
+    fronting routes), APRON (the law's apron roles bar ``building`` —
+    frontage movers expected).  IMPORTED from the law, never re-spelled."""
+    if str(ROOT / "src") not in sys.path:
+        sys.path.insert(0, str(ROOT / "src"))
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import apron_roles
+    law = Law.for_airport("XXXX")
+    p = law.tables.precedence
+    rw = set(p.runway_family.members) | {r for r in p.roles if "shoulder" in r}
+    return {"runway": frozenset(rw), "strip": frozenset({"graded_strip"}),
+            "taxi": frozenset(p.taxi_family.members),
+            "apron": frozenset(r for r in apron_roles(law) if r != "building")}
+
+
+def family_of(roles, fams) -> str:
+    """The SENIOR family a moved node belongs to (runway > strip > taxi >
+    apron > other): a node shared by a runway and a taxiway is a runway
+    mover."""
+    rs = set(roles)
+    for f in ("runway", "strip", "taxi", "apron"):
+        if rs & fams[f]:
+            return f
+    return "other"
+
+
 def read_patch(path):
     """``{key: (roles, alt_or_None)}`` keyed by the canonical 11-decimal
     lat/lon spelling.  ``alt`` is the way-carried value at that node; when
@@ -136,6 +166,7 @@ def compare(a_path, b_path, tol_m: float = DEFAULT_TOL_M) -> dict:
     """The result the CLI prints — one function, so the tool and any
     caller read one number (the CLI's JSON IS this dict)."""
     gs, solve_air, road = role_sets()
+    fams = airside_families()
     A, B = read_patch(a_path), read_patch(b_path)
     out = {"a": str(a_path), "b": str(b_path), "tol_m": float(tol_m),
            "frames": {}}
@@ -156,7 +187,16 @@ def compare(a_path, b_path, tol_m: float = DEFAULT_TOL_M) -> dict:
                               "roles": rs,
                               "welded_to_road": bool(set(rs) & road)})
         moved.sort(key=lambda r: -r["dz_m"])
+        by_fam: dict = {}
+        for r in moved:
+            r["family"] = family_of(r["roles"], fams)
+            f = by_fam.setdefault(r["family"], {"n": 0, "worst_dz_m": 0.0,
+                                                "worst": None})
+            f["n"] += 1
+            if r["dz_m"] > f["worst_dz_m"]:
+                f["worst_dz_m"], f["worst"] = r["dz_m"], [r["lat"], r["lon"]]
         out["frames"][frame] = {
+            "families": by_fam,
             "n_a": len(sa), "n_b": len(sb), "n_both": len(both),
             "a_only": len(sa - sb), "b_only": len(sb - sa),
             "n_moved": len(moved),
@@ -191,6 +231,11 @@ def _print(res, top: int) -> None:
         print(f"    of those: {f['welded_to_road']} welded to the road "
               f"family, {f['no_road_contact']} with no road contact "
               f"(soft-receiver adoption)")
+        fam = f.get("families") or {}
+        print("    by family (flat-pad spec §4: runway bar 0): " + ", ".join(
+            f"{k} {fam[k]['n']} (worst {fam[k]['worst_dz_m']:.3f} m @"
+            f"{fam[k]['worst'][0]},{fam[k]['worst'][1]})"
+            for k in ("runway", "strip", "taxi", "apron", "other") if k in fam))
         if f["n_no_value"]:
             print(f"    nodes with NO emitted altitude on one side: "
                   f"{f['n_no_value']} (reported, never counted as 0.0)")

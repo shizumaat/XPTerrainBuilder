@@ -40,7 +40,8 @@ from .structures import Basin, Channel, Tunnel
 
 __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
-           "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of"]
+           "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "BLOCK_SEP",
+           "block_ref", "unit_ref_of", "block_of"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
 #: (``planar/platform.py`` mints it).  ``#`` is the tree's split spelling,
@@ -59,6 +60,38 @@ def platform_ref_of(ref: object) -> str:
     """The PLATFORM face's ref of a collar ref (the ref itself otherwise)."""
     r = str(ref)
     return r[:-len(COLLAR_SUFFIX)] if r.endswith(COLLAR_SUFFIX) else r
+
+
+#: flat-pad spec §2 as ruled 2026-09-30r (Q-111b option (1)): a unit
+#: platform CUT into flat blocks carries one ref per block,
+#: ``<unit ref>/b<k>`` (its collar ``<unit ref>/b<k>#collar``).  THE
+#: GRAMMAR'S ONE SITE: nothing splits on ``/b`` by hand.
+BLOCK_SEP = "/b"
+
+
+def block_ref(unit: str, k: int) -> str:
+    """The ref of block ``k`` of the platform unit ``unit``."""
+    return f"{unit}{BLOCK_SEP}{int(k)}"
+
+
+def block_of(ref: object) -> "tuple[str, int] | None":
+    """``(unit ref, block index)`` of a block ref (platform or collar),
+    ``None`` for any other ref."""
+    r = platform_ref_of(ref)
+    i = r.rfind(BLOCK_SEP)
+    if i <= 0:
+        return None
+    tail = r[i + len(BLOCK_SEP):]
+    if not tail.isdigit():
+        return None
+    return r[:i], int(tail)
+
+
+def unit_ref_of(ref: object) -> str:
+    """The UNIT ref of a pad face ref: a block's unit, a collar's platform,
+    the ref itself otherwise (spec §3 C3)."""
+    b = block_of(ref)
+    return b[0] if b is not None else platform_ref_of(ref)
 
 #: Label of a vertex no shape owns (``shape_of_vertex``).  It lives with
 #: the RECORD, not with the pass that fills it (``planar/shapes.py`` — which

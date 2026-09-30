@@ -82,6 +82,11 @@ def airside_stage_vertices(planar: _t.Any, law: Law) -> frozenset[int]:
             continue
         for ring in (f.ring, *f.holes):
             out.update(planar.ring_vertices(ring))
+    # flat-pad spec §1 (2) (RULINGS 2026-09-30f/r): each HELD block's
+    # FRONTAGE DATUM COLUMN — one platform vertex, no groundside sheet of
+    # its own — is an unknown of the airside problem
+    from ..model.platform import datum_vertices
+    out.update(datum_vertices(planar).values())
     return frozenset(out)
 
 

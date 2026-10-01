@@ -561,3 +561,391 @@ def test_every_neighbour_without_a_cached_layer_is_recorded_unknown(
         tile, _dico(KASE=_boundary(0.5, 0.5))
     )
     assert len(plan["neighbours_unknown"]) == 8
+
+
+# =====================================================================
+# THE SYNTHETIC 3-RING FIXTURE (spec §8 (1)(3), §10 step 2)
+#
+# A 300 x 300 working grid at the ring-1 posting, placed ON the ring-1
+# edge 10 km from a synthetic boundary, with a fake base / 30 m / 10 m
+# ladder: the ring-1 layer stands 9.32 m above the ring-2 layer (fact 2's
+# measured max 10 m-vs-30 m step at KASE), so the transition grade across
+# the 300 m feather is the number the spec's §1 table predicts.
+# =====================================================================
+#: The measured worst 10 m-vs-30 m step at KASE (spec §0 fact 2): the
+#: height the ring-1 → ring-2 feather has to absorb.
+RING1_STEP_M = 9.32
+#: The measured worst 10 m-vs-90 m step over the same box (fact 2): what
+#: the ring-2 → base feather absorbs.
+RING2_STEP_M = 33.2
+#: The measured p95 steps of the same two comparisons (spec §0 fact 2):
+#: the figures the §1 table's p95 grades are derived from.
+RING1_P95_STEP_M = 1.68
+RING2_P95_STEP_M = 7.46
+#: Half-width of the probe grid (its 300 cells at the ring-1 posting).
+PROBE_CELLS = 600
+#: Cells trimmed off every side of a probe before measuring.  The bake's
+#: validity blur is zero-padded, so a SUB-WINDOW of the tile grid (which
+#: a probe is, and the production grid is not) sees its layer ramp down at
+#: the window's own border.  That border is not a ring transition, and the
+#: trim has to exceed the widest feather in cells
+#: (900 m / 10.31 m = 88 at the ring-2 posting).
+PROBE_TRIM_CELLS = 95
+
+
+def _interior(array):
+    """``array`` without its probe-window border (see PROBE_TRIM_CELLS)."""
+    trim = PROBE_TRIM_CELLS
+    return array[trim:-trim, trim:-trim]
+
+
+def _probe_dem(centre_x, centre_y, base_value=0.0):
+    """A ``PROBE_CELLS`` square working grid at the ring-1 posting.
+
+    Tile-relative degrees, as ``tile.dem`` carries them; the probe sits far
+    from every tile edge so the bake's tile-edge ramp is weight 1 over it
+    and the only weight in play is the region feather under test.
+    """
+    metres_per_degree_longitude = GEO.lon_to_m(TILE_LAT + centre_y)
+    x_step = RING1_CLASS_M / metres_per_degree_longitude
+    y_step = RING1_CLASS_M / GEO.lat_to_m
+    half_x = 0.5 * (PROBE_CELLS - 1) * x_step
+    half_y = 0.5 * (PROBE_CELLS - 1) * y_step
+    return SimpleNamespace(
+        nxdem=PROBE_CELLS,
+        nydem=PROBE_CELLS,
+        x0=centre_x - half_x,
+        x1=centre_x + half_x,
+        y0=centre_y - half_y,
+        y1=centre_y + half_y,
+        nodata=NODATA,
+        alt_dem=numpy.full(
+            (PROBE_CELLS, PROBE_CELLS), float(base_value), dtype=numpy.float32
+        ),
+    )
+
+
+def _write_plan_cells(plan, values, pixels=24):
+    """Write a flat GeoTIFF for every planned cell, valued by ring."""
+    for cell in plan["cells"]:
+        if not cell.get("provider"):
+            continue
+        _write_geotiff(
+            cell["path"],
+            RINGS.approach_ring_cell_box(
+                TILE_LAT, TILE_LON, cell["column"], cell["row"]
+            ),
+            values[cell["ring"]],
+            pixels=pixels,
+            ramp=0.0,
+        )
+
+
+def _grade_fraction(array, posting_m):
+    """Per-cell surface grade (rise/run) of a baked working grid."""
+    d_rows, d_columns = numpy.gradient(array.astype(numpy.float64))
+    return numpy.hypot(d_rows, d_columns) / posting_m
+
+
+def _ring_one_edge_x(boundary_centre_y):
+    """Tile-relative longitude of the ring-1 region's eastern edge."""
+    return 0.5 + RINGS.APPROACH_RING_1_REACH_M / GEO.lon_to_m(
+        TILE_LAT + boundary_centre_y
+    )
+
+
+def _three_ring_plan(tmp_path, monkeypatch, **tile_overrides):
+    """The fixture: one aerodrome, both rings, every planned cell written."""
+    _install_registry(monkeypatch, _definition("FINE", 1.0))
+    tile = _tile(tmp_path, monkeypatch, **tile_overrides)
+    dico = _dico(KASE=_boundary(0.5, 0.5))
+    plan = RINGS.resolve_approach_ring_plan(tile, dico)
+    assert plan is not None
+    _write_plan_cells(
+        plan, {"ring1": RING1_STEP_M, "ring2": 0.0}
+    )
+    return tile, dico, plan
+
+
+def test_every_fixture_cell_is_valid_and_answered(tmp_path, monkeypatch):
+    """The fixture itself: no nodata, no unanswered cell -- otherwise the
+    grade numbers below would be measuring a hole, not a transition."""
+    tile, _dico_airports, plan = _three_ring_plan(tmp_path, monkeypatch)
+    planned = [c for c in plan["cells"] if c.get("provider")]
+    assert planned
+    for cell in planned:
+        path = RINGS.approach_ring_cell_source(cell)
+        assert path is not None, cell["stem"]
+        dataset = gdal.Open(path)
+        array = dataset.GetRasterBand(1).ReadAsArray()
+        dataset = None
+        assert numpy.all(array != NODATA)
+    assert RINGS.approach_ring_frame_problem(TILE_LAT, TILE_LON, plan) is None
+
+
+def _feather_grade(tmp_path, monkeypatch, step_m, feather_m):
+    """Bake ONE layer standing ``step_m`` above the surface underneath, with
+    a disc region and a ``feather_m`` hand-back, and return
+    ``(worst, p95, inside_value, outside_value)`` of the baked grade field.
+
+    The spec section 10 step 2 twin, exactly: the feather's job is to absorb a
+    known step over a known width, and that is measured here against the
+    LAYER function itself -- the one implementation every ring class, the
+    coastline band and the numeric level bake through.
+    """
+    monkeypatch.setattr(FNAMES, "Tmp_dir", str(tmp_path / "tmp"))
+    centre_x = centre_y = 0.5
+    tile = SimpleNamespace(
+        lat=TILE_LAT, lon=TILE_LON,
+        dem=_probe_dem(centre_x, centre_y, base_value=0.0),
+    )
+    # The layer covers the whole probe window and stands step_m above it.
+    span_x = tile.dem.x1 - tile.dem.x0
+    span_y = tile.dem.y1 - tile.dem.y0
+    layer_path = str(tmp_path / "layer.tif")
+    _write_geotiff(
+        layer_path,
+        (
+            TILE_LON + tile.dem.x0 - span_x,
+            TILE_LAT + tile.dem.y0 - span_y,
+            TILE_LON + tile.dem.x1 + span_x,
+            TILE_LAT + tile.dem.y1 + span_y,
+        ),
+        step_m,
+        pixels=32,
+        ramp=0.0,
+    )
+    # A DISC whose edge runs north-south through the probe centre: its
+    # radius is 10 km, so over the 3 km window the edge is near-straight
+    # and the measured grade is the feather's, not the curvature's.
+    metres_per_degree_longitude = GEO.lon_to_m(TILE_LAT + centre_y)
+    radius_deg = RINGS.APPROACH_RING_1_REACH_M / metres_per_degree_longitude
+    region = geometry.Point(
+        TILE_LON + centre_x - radius_deg, TILE_LAT + centre_y
+    ).buffer(radius_deg, quad_segs=256)
+    outcome = RINGS.bake_overlay_layer_into_alt_dem(
+        tile, layer_path, feather_m=feather_m, region=region, label="probe"
+    )
+    assert outcome["blended"] is True
+    posting_m = span_y / (PROBE_CELLS - 1) * GEO.lat_to_m
+    baked = tile.dem.alt_dem
+    grade = _interior(_grade_fraction(baked, posting_m))
+    # Columns 1.5-2.1 km INSIDE the region edge (beyond even the 900 m
+    # feather plus the 10 km disc's ~0.5 km bow across the window)
+    # and the matching band outside it.
+    inside = _interior(baked)[:, :50]
+    outside = _interior(baked)[:, -50:]
+    return (
+        float(grade.max()),
+        float(numpy.percentile(grade, 95)),
+        inside,
+        outside,
+    )
+
+
+def test_ring_one_feather_absorbs_the_ten_to_thirty_metre_step(
+    tmp_path, monkeypatch
+):
+    """Spec section 1 table / section 8 (3): the ring 1 -> ring 2 seam.
+
+    KASE's measured worst 10 m-vs-30 m step (9.32 m, section 0 fact 2) over the
+    300 m feather is 3.1 % worst and well under the taxiway transverse cap
+    at p95 -- an order of magnitude under ``emit.design.bank_slope``.
+    """
+    feather_m = RINGS.approach_ring_feathers_m()["ring1_m"]
+    worst, p95, inside, outside = _feather_grade(
+        tmp_path, monkeypatch, RING1_STEP_M, feather_m
+    )
+    predicted = RING1_STEP_M / feather_m
+    assert abs(worst - predicted) < 0.005, (worst, predicted)
+    assert worst < BANK_SLOPE / 5.0
+    # The ramp is linear, so the p95 of the grade over a window centred ON
+    # the seam is the seam's own slope -- which is what makes the section 1
+    # table's p95 ROW a statement about the terrain's p95 STEP, measured
+    # next.
+    assert abs(p95 - worst) < 0.005, (p95, worst)
+    p95_worst, _p, _i, _o = _feather_grade(
+        tmp_path, monkeypatch, RING1_P95_STEP_M, feather_m
+    )
+    assert p95_worst < TAXI_TRANSVERSE, p95_worst
+    # Spec section 10 step 2: beyond the feather the baked value IS the layer's.
+    assert numpy.allclose(inside, RING1_STEP_M, atol=1e-4)
+    # Outside the region the surface underneath is untouched.
+    assert numpy.allclose(outside, 0.0, atol=1e-6)
+
+
+def test_ring_two_feather_absorbs_the_ten_to_ninety_metre_step(
+    tmp_path, monkeypatch
+):
+    """The outer seam: the bounded worst 10 m-vs-90 m step (33.2 m) over the
+    900 m feather -- the spec's 3.7 % worst / 0.83 % p95."""
+    feather_m = RINGS.approach_ring_feathers_m()["ring2_m"]
+    worst, p95, inside, outside = _feather_grade(
+        tmp_path, monkeypatch, RING2_STEP_M, feather_m
+    )
+    predicted = RING2_STEP_M / feather_m
+    assert abs(worst - predicted) < 0.005, (worst, predicted)
+    assert worst < BANK_SLOPE / 5.0
+    assert abs(p95 - worst) < 0.005, (p95, worst)
+    p95_worst, _p, _i, _o = _feather_grade(
+        tmp_path, monkeypatch, RING2_P95_STEP_M, feather_m
+    )
+    assert p95_worst < TAXI_TRANSVERSE, p95_worst
+    assert numpy.allclose(inside, RING2_STEP_M, atol=1e-4)
+    assert numpy.allclose(outside, 0.0, atol=1e-6)
+
+
+def test_the_old_sixty_metre_feather_is_what_reads_as_a_built_edge(
+    tmp_path, monkeypatch
+):
+    """The defect, measured: the SAME step over the inset box's 60 m
+    feather is the bank itself (spec section 0 fact 1 -- 33.1 % at KASE, which
+    is why a 60 m band of it drawn around the airport reads as a built
+    edge).  This is the number the ring feathers replace; it is here so
+    the twin fails if the feather law is ever quietly reverted."""
+    old_feather_m = 60.0
+    worst, _p95, _inside, _outside = _feather_grade(
+        tmp_path, monkeypatch, RING2_STEP_M, old_feather_m
+    )
+    assert worst > BANK_SLOPE
+    # And the ring-2 feather is an order of magnitude better on the same step.
+    ring_worst, _p, _i, _o = _feather_grade(
+        tmp_path, monkeypatch, RING2_STEP_M,
+        RINGS.approach_ring_feathers_m()["ring2_m"],
+    )
+    assert ring_worst < worst / 10.0
+
+
+#: A whole-tile probe grid: 300 cells across 1 degree is a ~370 m posting,
+#: so both ring feathers are at most one cell wide and the per-cell
+#: precedence shows CRISPLY -- the question this probe asks is which layer
+#: won where, not how wide its ramp is (that is _feather_grade's).
+TILE_PROBE_CELLS = 300
+
+
+def _tile_probe_dem(base_value=0.0):
+    return SimpleNamespace(
+        nxdem=TILE_PROBE_CELLS, nydem=TILE_PROBE_CELLS,
+        x0=0.0, x1=1.0, y0=0.0, y1=1.0, nodata=NODATA,
+        alt_dem=numpy.full(
+            (TILE_PROBE_CELLS, TILE_PROBE_CELLS), float(base_value),
+            dtype=numpy.float32,
+        ),
+    )
+
+
+def _probe_at(dem, x_offset, y_offset):
+    """The baked value of the whole-tile probe at a tile-relative point."""
+    column = int(round(x_offset * (TILE_PROBE_CELLS - 1)))
+    row = int(round((1.0 - y_offset) * (TILE_PROBE_CELLS - 1)))
+    return float(dem.alt_dem[row, column])
+
+
+def test_coarsest_first_order_and_per_cell_precedence(
+    tmp_path, monkeypatch
+):
+    """The precedence the bake order rests on (spec section 3.2 / section 7).
+
+    Cells are valued by the ring REACH they serve, so the baked surface
+    names which layer won where: inside R1 the FINE layer stands, out in
+    the R2 annulus (beyond every ring-1 cell) the COARSE one does, and
+    beyond R2 the base DEM is untouched.  Baking fine-first would instead
+    leave the coarse layer's 900 m feather painted across the fine region.
+    """
+    centre_y = 0.5
+    _install_registry(monkeypatch, _definition("FINE", 1.0))
+    tile = _tile(tmp_path, monkeypatch)
+    dico = _dico(KASE=_boundary(0.5, centre_y))
+    plan = RINGS.resolve_approach_ring_plan(tile, dico)
+    assert [layer["ring"] for layer in plan["ring_layers"]] == [
+        "ring2", "ring1"
+    ]
+    for cell in plan["cells"]:
+        if not cell.get("provider"):
+            continue
+        _write_geotiff(
+            cell["path"],
+            RINGS.approach_ring_cell_box(
+                TILE_LAT, TILE_LON, cell["column"], cell["row"]
+            ),
+            500.0 if cell["reach_index"] == 1 else 100.0,
+            pixels=24,
+            ramp=0.0,
+        )
+    tile.dem = _tile_probe_dem(base_value=0.0)
+    assert RINGS.bake_approach_rings_into_alt_dem(tile, dico) is True
+
+    # On the aerodrome, deep inside R1: the FINE layer.
+    assert _probe_at(tile.dem, 0.5, centre_y) == pytest.approx(500.0, abs=1e-2)
+    # Out in the R2 annulus, in a cell no ring-1 reach touches (R1's edge
+    # is ~0.617, R2's ~0.733, so 0.71 is 8 km outside R1 and 2 km inside
+    # R2): the COARSE layer.
+    assert _probe_at(tile.dem, 0.71, centre_y) == pytest.approx(
+        100.0, abs=1e-2
+    )
+    # Beyond R2 the base DEM stands, untouched.
+    assert _probe_at(tile.dem, 0.85, centre_y) == pytest.approx(0.0, abs=1e-6)
+    provenance = tile.dem.approach_ring_provenance
+    assert [layer["ring"] for layer in provenance["layers"]] == [
+        "ring2", "ring1"
+    ]
+    assert provenance["plan_stamp"] == RINGS.approach_ring_plan_stamp(plan)
+
+
+def test_rings_off_leaves_the_grid_untouched(tmp_path, monkeypatch):
+    """The gate is byte-identical (spec §7): nothing is baked at all."""
+    centre_y = 0.5
+    tile, dico, plan = _three_ring_plan(tmp_path, monkeypatch)
+    tile.approach_rings = "off"
+    tile.dem = _probe_dem(_ring_one_edge_x(centre_y), centre_y, base_value=7.0)
+    before = tile.dem.alt_dem.copy()
+    assert RINGS.bake_approach_rings_into_alt_dem(tile, dico) is False
+    assert numpy.array_equal(tile.dem.alt_dem, before)
+
+
+def test_a_missing_cell_is_a_hole_the_surface_underneath_keeps(
+    tmp_path, monkeypatch
+):
+    """``--allow-degraded-dem`` semantics at the engine level (spec §5):
+    the bake uses the cells ON DISK, and a missing one is simply a hole
+    the surface underneath keeps.  It never refuses, never raises, and
+    never invents a value -- which is what makes proceeding without rings
+    a lawful (recorded) degradation rather than a different surface."""
+    centre_y = 0.5
+    tile, dico, plan = _three_ring_plan(tmp_path, monkeypatch)
+    removed = 0
+    for cell in plan["cells"]:
+        if cell.get("provider") and cell["ring"] == "ring1":
+            os.remove(cell["path"])
+            removed += 1
+    assert removed
+    tile.dem = _probe_dem(_ring_one_edge_x(centre_y), centre_y, base_value=3.0)
+    before = tile.dem.alt_dem.copy()
+    # No ring-1 cell on disk, and no ring-2 cell covers this window (its
+    # cells are the ring-1 ones): nothing to bake, nothing changed.
+    assert RINGS.bake_approach_rings_into_alt_dem(tile, dico) is False
+    assert numpy.array_equal(tile.dem.alt_dem, before)
+    # And the frame predicate SEES it, so the harness can refuse: the
+    # degradation is recorded, never silent.
+    problem = RINGS.approach_ring_frame_problem(TILE_LAT, TILE_LON, plan)
+    assert problem is not None and problem[0] == "cold"
+    assert "--refresh-data rings" in problem[1]
+
+
+def test_no_vrt_or_stamp_is_written_outside_the_tmp_dir(
+    tmp_path, monkeypatch
+):
+    """Spec STOP 4: a VRT is a DERIVED file and lives in the tile's tmp
+    directory; the bake writes nothing into the elevation cache."""
+    centre_y = 0.5
+    tile, dico, plan = _three_ring_plan(tmp_path, monkeypatch)
+    tile.dem = _probe_dem(_ring_one_edge_x(centre_y), centre_y)
+    before = {
+        str(p) for p in (tmp_path / "Elevation").rglob("*") if p.is_file()
+    }
+    assert RINGS.bake_approach_rings_into_alt_dem(tile, dico) is True
+    after = {
+        str(p) for p in (tmp_path / "Elevation").rglob("*") if p.is_file()
+    }
+    assert after == before
+    assert list((tmp_path / "tmp").rglob("*.vrt"))

@@ -1717,18 +1717,20 @@ def resolve_approach_ring_plan(tile, dico_airports):
         for row in range(cell_count):
             box = approach_ring_cell_box(lat, lon, column, row)
             reach_ring = None
+            reach_index = None
             for index, rung in enumerate(ladder, start=1):
                 if regions["R%d" % index].intersects(_box_geometry(box)):
                     reach_ring = rung
+                    reach_index = index
                     break
             if reach_ring is None:
                 continue
-            cells.append(
-                _approach_ring_cell(
-                    lat, lon, column, row, box, reach_ring, ladder,
-                    providers_config, level_m, feathers,
-                )
+            cell = _approach_ring_cell(
+                lat, lon, column, row, box, reach_ring, ladder,
+                providers_config, level_m, feathers,
             )
+            cell["reach_index"] = reach_index
+            cells.append(cell)
     for cell in cells:
         if cell["provider"] is None or cell.get("state") == \
                 APPROACH_RING_SUPERSEDED:
@@ -1738,14 +1740,41 @@ def resolve_approach_ring_plan(tile, dico_airports):
     ring_layers = []
     for index, rung in enumerate(ladder, start=1):
         key = "ring%d" % index
+        # A layer's VRT carries every planned cell whose raster COVERS any
+        # part of that ring's region -- which is every cell at or inside
+        # the ring's own reach, because the regions nest (R1 subset R2).
+        #
+        # DEVIATION from spec §3.2's letter (reported to the spec author,
+        # never decided here): §3.2 names the ring-2 layer "the VRT of the
+        # plan's 30.87 m cells".  But a cell STRADDLING the R1 edge is
+        # fetched at the ring-1 class (§3.1: "a cell is fetched at the
+        # FINEST class any part of it needs"), so under the letter its
+        # ring-2 part would be served by NEITHER layer -- an unfeathered
+        # hole in the ring-2 annulus that the 90 m base fills, which is
+        # the defect the rings exist to remove.  Including the finer cell
+        # in the coarser layer costs no fetch and no memory (§3.1's
+        # "over-delivery") and the finer layer still bakes over it.
         members = [
             cell
             for cell in cells
-            if cell["ring"] == key
+            if cell.get("reach_index") is not None
+            and cell["reach_index"] <= index
             and cell["provider"] is not None
             and cell.get("state") != APPROACH_RING_SUPERSEDED
         ]
         if not members:
+            continue
+        if not any(cell["ring"] == rung.label for cell in members):
+            # Nothing was fetched AT this class -- the collapse rule sent
+            # every cell of this reach to a coarser rung, and that coarser
+            # layer already covers this region with the same data.  A
+            # layer with no data of its own class would re-bake the
+            # coarser raster behind a narrower feather.
+            continue
+        if level_m is not None and level_m <= rung.resolution_m:
+            # The tile-wide level already delivers this class: the layer
+            # is SUPERSEDED even though finer cells exist for the ring
+            # inside it (spec §7 -- a ring never coarsens a level).
             continue
         ring_layers.append(
             {

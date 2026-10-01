@@ -73,7 +73,7 @@ def _raster(path, box, value):
 def test_witness_record_from_apt_dat_and_sidecar(tmp_path):
     mod = _tool()
     apt = tmp_path / "apt.dat"
-    apt.write_text(APT)
+    apt.write_text(APT, encoding="utf-8", newline="\n")
     (polygon, ends) = mod.apt_dat_airport(str(apt), "ktst",
                                           str(tmp_path / "scratch"))
     assert [name for (name, _la, _lo) in ends] == ["05", "23"]
@@ -81,7 +81,8 @@ def test_witness_record_from_apt_dat_and_sidecar(tmp_path):
     assert (round(west, 6), round(north, 6)) == (-79.0, 35.01)
     inset = str(tmp_path / "KTST_fake.tif")
     _raster(inset, (-79.02, 34.99, -78.97, 35.02), 100.5)
-    with open(str(tmp_path / "KTST_fake.json"), "w") as handle:
+    with open(str(tmp_path / "KTST_fake.json"), "w", encoding="utf-8",
+              newline="\n") as handle:
         json.dump({"provider": "FAKE", "native_resolution_m": 0.95,
                    "resolution_m": 0.95, "vertical_unit_source": "ftUS",
                    "vertical_unit_applied": "m", "bytes_fetched": 12,
@@ -126,7 +127,7 @@ def test_witness_refuses_without_a_lane_local_dir(monkeypatch, capsys):
 def test_runway_only_block_still_has_a_footprint(tmp_path):
     mod = _tool()
     apt = tmp_path / "apt.dat"
-    apt.write_text(APT)
+    apt.write_text(APT, encoding="utf-8", newline="\n")
     (polygon, ends) = mod.apt_dat_airport(str(apt), "KOTH",
                                           str(tmp_path / "scratch"))
     assert not polygon.is_empty and polygon.area > 0

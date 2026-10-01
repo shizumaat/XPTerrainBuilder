@@ -242,7 +242,7 @@ def test_frames_inset_kind_brings_its_provenance_sidecar(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         frames.register("KRDU", "inset", str(tif), "33122938", "ladder154", copy=True)
     assert "sidecar" in str(exc.value)
-    (src / "KRDU_ncphase3.json").write_text('{"provider": "NCPHASE3"}', encoding="utf-8")
+    (src / "KRDU_ncphase3.json").write_text('{"provider": "NCPHASE3"}', encoding="utf-8", newline="\n")
     rec = frames.register("krdu", "inset", str(tif), "33122938", "ladder154", copy=True)
     assert rec["kind"] == "inset"
     assert rec["path"] == str(durable / "ladder154" / "KRDU_ncphase3.tif")
@@ -251,7 +251,7 @@ def test_frames_inset_kind_brings_its_provenance_sidecar(tmp_path, monkeypatch):
         encoding="utf-8")) == {"provider": "NCPHASE3"}
     assert frames.latest("KRDU", "inset")["sidecar"] == rec["sidecar"]
     # a differing sidecar under an identical raster is refused, never overwritten
-    (src / "KRDU_ncphase3.json").write_text('{"provider": "OTHER"}', encoding="utf-8")
+    (src / "KRDU_ncphase3.json").write_text('{"provider": "OTHER"}', encoding="utf-8", newline="\n")
     with pytest.raises(SystemExit) as exc:
         frames.register("KRDU", "inset", str(tif), "33122938", "ladder154", copy=True)
     assert "refusing to overwrite" in str(exc.value)

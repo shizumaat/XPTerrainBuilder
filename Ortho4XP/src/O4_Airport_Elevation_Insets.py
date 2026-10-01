@@ -376,6 +376,193 @@ class ProviderUnavailable(Exception):
         self.reason = str(reason)
 
 
+# ---------------------------------------------------------------------
+# THE VERTICAL-UNIT KEY (spec us-holder-providers §2, RULINGS 2026-09-30bm)
+# ---------------------------------------------------------------------
+#: Metres per unit of a provider's ``vertical_unit`` key -- the ONE table
+#: the raster warp (:func:`warp_vsicurl_sources_to_geotiff`) and the LAS
+#: gridder (:func:`grid_las_tile`) share.  ``ftUS`` is the US survey foot,
+#: 1200/3937 m by definition (exact, not the rounded 0.3048006).
+VERTICAL_UNIT_TO_M = {"ftUS": 1200.0 / 3937.0, "ft": 0.3048, "m": 1.0}
+
+#: What the LAS site hands the shared warp: its per-tile DTMs are already
+#: metres (the gridder converted the points by ``vertical_unit``).
+VERTICAL_UNIT_GRIDDED_IN_METRES = "m"
+
+#: A source CRS's vertical unit matches a table unit when the metres-per-
+#: unit factors agree to this relative tolerance (GDAL reports the US
+#: survey foot as 0.304800609601219, the table holds 1200/3937).
+VERTICAL_UNIT_FACTOR_RELATIVE_TOLERANCE = 1e-9
+
+#: GDAL metadata items the shared warp stamps on a raster whose provider
+#: declared ``vertical_unit``: the unit the .elv declared, where the unit
+#: was read from (``elv`` | ``elv=crs``) and the unit the cells now hold.
+#: A raster from a provider WITHOUT the key carries none of them (the warp
+#: is a strict no-op there, byte for byte).
+VERTICAL_UNIT_STAMP_DECLARED = "O4_VERTICAL_UNIT_DECLARED"
+VERTICAL_UNIT_STAMP_SOURCE = "O4_VERTICAL_UNIT_SOURCE"
+VERTICAL_UNIT_STAMP_APPLIED = "O4_VERTICAL_UNIT_APPLIED"
+
+#: Strategies whose ``vertical_unit`` key names the unit of POINTS that the
+#: strategy itself converts while gridding (``grid_las_tile``) -- their
+#: rasters are metres before the warp, so the key is never a raster unit.
+_POINT_UNIT_STRATEGIES = frozenset({"las_tile_index"})
+
+
+def _raster_vertical_unit(definition):
+    """The ``vertical_unit`` a RASTER strategy hands the shared warp.
+
+    ``None`` when the .elv carries no key -- the warp is then a strict
+    no-op (no source CRS read, no scale, no stamp), which is what keeps
+    every provider written before the key byte-identical.  An unknown
+    unit is a provider that cannot be asked this run:
+    :class:`ProviderUnavailable`, never a guess."""
+    value = definition.get("vertical_unit")
+    if value is None or not str(value).strip():
+        return None
+    value = str(value).strip()
+    if value not in VERTICAL_UNIT_TO_M:
+        raise ProviderUnavailable(
+            "%s: .elv vertical_unit=%s is not one of %s"
+            % (definition.get("code"), value,
+               "|".join(sorted(VERTICAL_UNIT_TO_M))))
+    return value
+
+
+def _vertical_unit_name_for_factor(factor):
+    """The table unit whose metres-per-unit is ``factor``, or ``None``."""
+    for (name, metres) in VERTICAL_UNIT_TO_M.items():
+        if abs(factor - metres) <= (
+                VERTICAL_UNIT_FACTOR_RELATIVE_TOLERANCE * metres):
+            return name
+    return None
+
+
+def _declared_vertical_unit_factor(srs_text):
+    """Metres per unit of the VERTICAL axis a CRS declares, or ``None``
+    when it declares none (a horizontal-only CRS, or nothing readable).
+    Only a compound (or purely vertical) CRS declares one."""
+    if not srs_text:
+        return None
+    try:
+        srs = osr.SpatialReference()
+        if srs.SetFromUserInput(str(srs_text)) != 0:
+            return None
+        if not (srs.IsCompound() or srs.IsVertical()):
+            return None
+        factor = float(srs.GetTargetLinearUnits("VERT_CS"))
+    except Exception:
+        return None
+    return factor if factor > 0 else None
+
+
+def _warp_input_srs_text(source):
+    """The CRS a warp input carries (WKT), or ``None`` when unreadable.
+    An open :class:`gdal.Dataset` is asked directly; a path is opened
+    (header only) under the caller's configuration options."""
+    try:
+        dataset = source if not isinstance(source, str) else gdal.Open(source)
+    except Exception:
+        return None
+    if dataset is None:
+        return None
+    try:
+        return dataset.GetProjection() or None
+    except Exception:
+        return None
+
+
+def resolve_warp_vertical_unit(warp_inputs, vertical_unit, source_srs=None,
+                               provider_code=None):
+    """``(factor, vertical_unit_source)`` for one warp, or raise.
+
+    The ``.elv`` key is checked against every input's own CRS BEFORE any
+    cell is scaled (spec §2 refusal): a compound CRS whose vertical unit
+    contradicts the key raises :class:`ProviderUnavailable` (``unavailable``
+    record, the ladder climbs -- never a silent scale, never a durable
+    no-coverage); inputs declaring DIFFERENT vertical units refuse exactly
+    as :func:`_refuse_mixed_vertical_datums` does for datums.  Inputs with
+    no vertical CRS trust the ``.elv``.  An explicit ``source_srs``
+    overrides every input's CRS for the warp, so it is the one checked."""
+    expected = VERTICAL_UNIT_TO_M[vertical_unit]
+    label = provider_code or "elevation provider"
+    if source_srs:
+        declared = [("source_srs " + str(source_srs),
+                     _declared_vertical_unit_factor(source_srs))]
+    else:
+        declared = [(source if isinstance(source, str) else "an open dataset",
+                     _declared_vertical_unit_factor(
+                         _warp_input_srs_text(source)))
+                    for source in warp_inputs]
+    declared = [(name, factor) for (name, factor) in declared
+                if factor is not None]
+    units = sorted({_vertical_unit_name_for_factor(factor) or repr(factor)
+                    for (_name, factor) in declared})
+    if len(units) > 1:
+        raise ProviderUnavailable(
+            "%s: the mosaic's sources declare different vertical units "
+            "(%s) - refused, never mixed" % (label, ", ".join(units)))
+    for (name, factor) in declared:
+        if abs(factor - expected) > (
+                VERTICAL_UNIT_FACTOR_RELATIVE_TOLERANCE * expected):
+            declared_name = _vertical_unit_name_for_factor(factor)
+            raise ProviderUnavailable(
+                "%s: .elv vertical_unit=%s but %s declares %s"
+                % (label, vertical_unit, name,
+                   {"m": "metre", "ft": "foot", "ftUS": "US survey foot"}
+                   .get(declared_name, "%r m per unit" % factor)))
+    return (expected, "elv=crs" if declared else "elv")
+
+
+def raster_vertical_unit_stamp(path):
+    """The vertical-unit stamp the shared warp left on ``path``:
+    ``{"declared", "source", "applied"}`` (absent items ``None``), or
+    ``None`` when the raster carries no stamp (its provider declared no
+    key, or it predates the key)."""
+    if not has_gdal or not path or not os.path.isfile(path):
+        return None
+    try:
+        dataset = gdal.Open(path)
+        metadata = (dataset.GetMetadata() or {}) if dataset is not None else {}
+        dataset = None
+    except Exception:
+        return None
+    stamp = {
+        "declared": metadata.get(VERTICAL_UNIT_STAMP_DECLARED),
+        "source": metadata.get(VERTICAL_UNIT_STAMP_SOURCE),
+        "applied": metadata.get(VERTICAL_UNIT_STAMP_APPLIED),
+    }
+    return stamp if any(stamp.values()) else None
+
+
+def raster_vertical_unit_held(path):
+    """The unit the CELLS of ``path`` are in: the stamp's ``applied`` unit;
+    a stamp that declares a non-metre unit and was never applied holds that
+    unit; an unstamped raster is metres (no key = ``m``)."""
+    stamp = raster_vertical_unit_stamp(path)
+    if stamp is None:
+        return "m"
+    if stamp.get("applied"):
+        return stamp["applied"]
+    return stamp.get("declared") or "m"
+
+
+def cap_exceeded_unavailable(definition, needs_text, cap_text, cap_key,
+                             destination_path=None):
+    """THE CAP CLASS (spec us-holder-providers §1/§3, RULINGS 2026-09-30bm):
+    a per-airport cap exceeded is ``unavailable`` -- the engine declined
+    to ask -- never a durable no-coverage (``None``) and never a silent
+    truncation of the listing.  One wording for every strategy, the LAS
+    strategy's (``max_tiles_per_airport`` / ``max_bytes_per_airport``)."""
+    code = definition.get("code") or "elevation provider"
+    airport = (" " + os.path.basename(str(destination_path)).split("_", 1)[0]
+               if destination_path else "")
+    return ProviderUnavailable(
+        "%s:%s needs %s, cap %s (%s in %s.elv) — SKIPPED, recorded "
+        "unavailable, not no-coverage"
+        % (code, airport, needs_text, cap_text, cap_key, code))
+
+
 # Substrings (lower-cased) of libcurl / GDAL HTTP error messages that mean
 # "the network or the server had a bad moment", not "there is no data
 # here".  Matched against the stringified GDAL exception; anything else is
@@ -1455,6 +1642,17 @@ def fetch_inset(
     # ``bounding_box_wgs84``; these are ADDITIVE, and a manifest that
     # carries neither new key is simply older.
     if provenance is not None:
+        # THE VERTICAL-UNIT PROVENANCE (spec §2): what the shared warp
+        # stamped on the delivered raster.  A raster from a provider with
+        # no ``vertical_unit`` key carries no stamp and its record gains
+        # no key (byte-identical sidecars for every pre-key provider).
+        stamp = raster_vertical_unit_stamp(destination_path)
+        # ``setdefault`` on the source: the LAS strategy already records
+        # ``vertical_unit_source`` as its POINT unit (``ftUS`` at KASE,
+        # converted while gridding) and that record is kept as written.
+        if stamp is not None:
+            provenance.setdefault("vertical_unit_source", stamp.get("source"))
+            provenance["vertical_unit_applied"] = stamp.get("applied")
         provenance["requested_bounding_box_wgs84"] = list(bounding_box_wgs84)
         delivered = delivered_inset_bounding_box(destination_path)
         if delivered is not None:
@@ -1912,7 +2110,24 @@ def assemble_two_layer_inset(core_path, surround_path, destination_path,
     the core stay NoData and fall to the base DEM under the bake); within
     the band the surround carries it.  The seam's datum sanity -- median
     ``core - surround`` over the band -- is recorded (the bake's own
-    feather-ring rule, :func:`_bake_one_inset`)."""
+    feather-ring rule, :func:`_bake_one_inset`).
+
+    UNITS (spec us-holder-providers §2, the one new assertion): both
+    layers must hold METRES -- a raster stamped with a declared unit that
+    was never applied, beside a metre one, is the KASE class (a feet core
+    feathered into a metre surround) and REFUSES as
+    :class:`ProviderUnavailable` before a cell is read.  An unstamped
+    raster is metres (no key = ``m``).  The core's stamp rides onto the
+    assembled raster, so :func:`fetch_inset` still reads it."""
+    core_unit = raster_vertical_unit_held(core_path)
+    surround_unit = raster_vertical_unit_held(surround_path)
+    if core_unit != "m" or surround_unit != "m":
+        raise ProviderUnavailable(
+            "two-layer inset: the core holds %s and the surround holds %s "
+            "- refused, a vertical-unit mismatch is never feathered "
+            "(vertical_unit_applied must be m on both)"
+            % (core_unit, surround_unit))
+    core_stamp = raster_vertical_unit_stamp(core_path)
     core_ds = gdal.Open(core_path)
     transform = core_ds.GetGeoTransform()
     projection = core_ds.GetProjection()
@@ -2008,6 +2223,12 @@ def assemble_two_layer_inset(core_path, surround_path, destination_path,
     target_band = target.GetRasterBand(1)
     target_band.SetNoDataValue(-32768.0)
     target_band.WriteArray(out)
+    if core_stamp is not None:
+        for (item, key) in ((VERTICAL_UNIT_STAMP_DECLARED, "declared"),
+                            (VERTICAL_UNIT_STAMP_SOURCE, "source"),
+                            (VERTICAL_UNIT_STAMP_APPLIED, "applied")):
+            if core_stamp.get(key):
+                target.SetMetadataItem(item, core_stamp[key])
     target = None
     os.replace(scratch, destination_path)
     return {
@@ -2082,6 +2303,8 @@ def warp_vsicurl_sources_to_geotiff(
     source_nodata=None,
     value_floor_m=-600.0,
     gdal_configuration_options=None,
+    vertical_unit=None,
+    provider_code=None,
 ):
     """Mosaic + warp remote rasters to an EPSG:4326 float32 GeoTIFF window.
 
@@ -2106,6 +2329,21 @@ def warp_vsicurl_sources_to_geotiff(
     ``gdal_configuration_options`` are applied around the warp only (via
     ``gdal.config_options``): credential-gated sources use it to pass
     e.g. ``GDAL_HTTP_USERPWD`` without leaking it into global state.
+
+    ``vertical_unit`` (the provider's ``.elv`` key, ``m|ft|ftUS``; spec
+    us-holder-providers §2 -- THE ONE SITE the key is applied): ``None``
+    (no key) leaves this function a strict no-op on the cells and the
+    file.  With a key, every input's CRS is checked first
+    (:func:`resolve_warp_vertical_unit` -- a contradiction raises
+    :class:`ProviderUnavailable` before any byte is warped), then the
+    post-warp array pass multiplies the VALID cells by the unit's metres
+    factor BEFORE the garbage test, so the ``value_floor_m`` / ceiling
+    is judged in metres and the -32768 nodata is untouched (bilinear
+    resampling is linear, so scaling after the warp equals scaling
+    before).  The raster is stamped (``O4_VERTICAL_UNIT_*`` metadata,
+    :func:`raster_vertical_unit_stamp`) and :func:`fetch_inset` lifts the
+    stamp into the provenance as ``vertical_unit_source`` /
+    ``vertical_unit_applied``.
     """
     if not has_gdal:
         return False
@@ -2161,6 +2399,27 @@ def warp_vsicurl_sources_to_geotiff(
         configuration_options["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = (
             allowed_extensions
         )
+    vertical_factor = None
+    vertical_unit_source = None
+    if vertical_unit is not None:
+        if vertical_unit not in VERTICAL_UNIT_TO_M:
+            raise ProviderUnavailable(
+                "%s: .elv vertical_unit=%s is not one of %s"
+                % (provider_code or "elevation provider", vertical_unit,
+                   "|".join(sorted(VERTICAL_UNIT_TO_M))))
+        # The refusal is judged BEFORE the warp: a contradicted unit must
+        # never reach a raster, not even a scratch one.
+        if configuration_options:
+            with gdal.config_options(configuration_options):
+                (vertical_factor, vertical_unit_source) = (
+                    resolve_warp_vertical_unit(
+                        vsicurl_inputs, vertical_unit, source_srs,
+                        provider_code))
+        else:
+            (vertical_factor, vertical_unit_source) = (
+                resolve_warp_vertical_unit(
+                    vsicurl_inputs, vertical_unit, source_srs,
+                    provider_code))
     try:
         if configuration_options:
             with gdal.config_options(configuration_options):
@@ -2215,6 +2474,17 @@ def warp_vsicurl_sources_to_geotiff(
         band = dataset.GetRasterBand(1)
         values = band.ReadAsArray()
         if values is not None:
+            rewrite = False
+            if vertical_factor is not None and vertical_factor != 1.0:
+                # THE VERTICAL-UNIT SITE (spec §2): valid cells to metres
+                # BEFORE the garbage test, so the ceiling below is judged
+                # in metres (a feet raster used to lose every cell above
+                # 12,000 ft-as-m) and the nodata cells stay -32768.
+                valid = numpy.isfinite(values) & (values != -32768.0)
+                values[valid] = (
+                    values[valid].astype(numpy.float64) * vertical_factor
+                ).astype(values.dtype)
+                rewrite = True
             garbage = (
                 ~numpy.isfinite(values)
                 | (values > 12000.0)
@@ -2222,10 +2492,32 @@ def warp_vsicurl_sources_to_geotiff(
             )
             if garbage.any():
                 values[garbage] = -32768.0
+                rewrite = True
+            if rewrite:
                 band.WriteArray(values)
                 band.FlushCache()
+        if vertical_factor is not None:
+            dataset.SetMetadataItem(VERTICAL_UNIT_STAMP_DECLARED,
+                                    vertical_unit)
+            dataset.SetMetadataItem(VERTICAL_UNIT_STAMP_SOURCE,
+                                    vertical_unit_source)
+            dataset.SetMetadataItem(VERTICAL_UNIT_STAMP_APPLIED, "m")
         dataset = None
     except Exception as error:
+        if vertical_factor is not None:
+            # A raster whose unit was NOT applied must never survive as a
+            # metres inset (spec §7 STOP): it goes, and the provider is
+            # unavailable this run -- the ladder climbs.
+            dataset = None
+            try:
+                os.remove(destination_path)
+            except OSError:
+                pass
+            raise ProviderUnavailable(
+                "%s: the vertical_unit=%s pass failed (%s) - the raster "
+                "was removed, never baked in source units"
+                % (provider_code or "elevation provider", vertical_unit,
+                   error)) from error
         UI.vprint(
             1, "   WARNING: sentinel sanitization skipped:", str(error)
         )
@@ -2455,6 +2747,8 @@ class TnmCloudOptimizedGeoTiffStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         ):
             return None
 
@@ -2930,6 +3224,8 @@ class StacCloudOptimizedGeoTiffStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
             gdal_configuration_options=gdal_configuration_options,
         ):
             return None
@@ -3152,6 +3448,8 @@ class AuthenticatedTokenSearchStrategy:
                 float(source_nodata) if source_nodata is not None else None
             ),
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         ):
             return None
         if not _geotiff_has_valid_data(destination_path):
@@ -3486,6 +3784,8 @@ class WcsStrategy:
                     target_resolution_m,
                     destination_path,
                     value_floor_m=value_floor_m,
+                    vertical_unit=_raster_vertical_unit(definition),
+                    provider_code=definition.get("code"),
                 )
             finally:
                 try:
@@ -3501,6 +3801,8 @@ class WcsStrategy:
                 target_resolution_m,
                 destination_path,
                 value_floor_m=value_floor_m,
+                vertical_unit=_raster_vertical_unit(definition),
+                provider_code=definition.get("code"),
             )
         if not warped:
             return None
@@ -3918,6 +4220,8 @@ class StaticStacCatalogStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         )
         for temporary_path in temporary_paths:
             try:
@@ -4245,6 +4549,8 @@ class CoordinateNamedUrlListStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         ):
             return None
         tile_stems = [
@@ -4471,6 +4777,8 @@ class XyzTextTileStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         )
         for path in (primary_path, fallback_path):
             if path:
@@ -4591,14 +4899,18 @@ class ArcgisLercTileStrategy:
         y_max = int((origin_y - grid_y_min) // tile_span)
         columns = x_max - x_min + 1
         rows = y_max - y_min + 1
-        if columns * rows > self.MAXIMUM_TILES_PER_MOSAIC:
-            UI.vprint(
-                1,
-                "   WARNING: LERC tile mosaic of",
-                columns * rows,
-                "tiles exceeds the cap - skipping this source.",
-            )
-            return None
+        maximum_tiles = int(float(definition.get(
+            "max_tiles_per_airport", self.MAXIMUM_TILES_PER_MOSAIC)))
+        if columns * rows > maximum_tiles:
+            # A cap is no coverage answer (spec us-holder-providers fact
+            # 5): KTPA sits at ~924 of 1,024 tiles at level 17, and a
+            # longer box past the cap used to record a DURABLE
+            # no-coverage that no later run re-asked.
+            raise cap_exceeded_unavailable(
+                definition, "%d LERC tiles at level %d" % (columns * rows,
+                                                          level),
+                "%d tiles" % maximum_tiles, "max_tiles_per_airport",
+                destination_path)
         template = definition["tile_url_template"]
         os.makedirs(os.path.dirname(destination_path), exist_ok=True)
         blob_directory = destination_path + ".lercblobs"
@@ -4703,6 +5015,8 @@ class ArcgisLercTileStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         )
         try:
             os.remove(mosaic_path)
@@ -4785,6 +5099,8 @@ class DirectCogStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         ):
             return None
         if not _geotiff_has_valid_data(destination_path):
@@ -4905,6 +5221,8 @@ class WcsKvpStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         )
         try:
             os.remove(scratch_path)
@@ -5057,14 +5375,12 @@ class TileGridHttpStrategy:
             for easting in eastings
             for northing in northings
         ]
-        if len(candidates) > self.MAXIMUM_TILES_PER_FETCH:
-            UI.vprint(
-                1,
-                "   WARNING: tile-grid fetch of",
-                len(candidates),
-                "tiles exceeds the cap - skipping this source.",
-            )
-            return None
+        maximum_tiles = int(float(definition.get(
+            "max_tiles_per_airport", self.MAXIMUM_TILES_PER_FETCH)))
+        if len(candidates) > maximum_tiles:
+            raise cap_exceeded_unavailable(
+                definition, "%d grid tiles" % len(candidates),
+                "%d tiles" % maximum_tiles, "max_tiles_per_airport")
         index_names = self._tile_names_from_index(definition)
         template = definition["tile_url_template"]
         headers = self._http_headers(definition)
@@ -5298,6 +5614,8 @@ class TileGridHttpStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
             source_srs=(
                 "EPSG:" + str(int(float(source_srs))) if source_srs else None
             ),
@@ -5455,6 +5773,8 @@ class GeojsonTileIndexStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         ):
             return None
         if not _geotiff_has_valid_data(destination_path):
@@ -5612,7 +5932,10 @@ class ArcgisFeatureTileStrategy:
                 if archive_url and archive_url not in seen:
                     seen.add(archive_url)
                     archives.append({"url": archive_url})
-        return archives[: self.MAXIMUM_ARCHIVES_PER_FETCH] or None
+        # The WHOLE listing (spec §3.2): the cap is judged in fetch, where
+        # exceeding it is ``unavailable`` -- the old ``[:8]`` slice
+        # delivered a truncated listing as if it were the whole.
+        return archives or None
 
     def fetch(
         self,
@@ -5628,6 +5951,13 @@ class ArcgisFeatureTileStrategy:
         sources = self.discover(definition, bounding_box_wgs84)
         if not sources:
             return None
+        maximum_archives = int(float(definition.get(
+            "max_archives_per_airport", self.MAXIMUM_ARCHIVES_PER_FETCH)))
+        if len(sources) > maximum_archives:
+            raise cap_exceeded_unavailable(
+                definition, "%d archives" % len(sources),
+                "%d" % maximum_archives, "max_archives_per_airport",
+                destination_path)
         os.makedirs(os.path.dirname(destination_path), exist_ok=True)
         scratch_paths = []
         warp_inputs = []
@@ -5723,6 +6053,8 @@ class ArcgisFeatureTileStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         )
         for scratch_path in scratch_paths:
             try:
@@ -6024,6 +6356,16 @@ class WfsTileIndexStrategy:
         if payload is None:
             return None
         features = payload.get("features") or []
+        # ``count=`` caps the server's answer: a listing it TRUNCATED
+        # (WFS 2.0 ``numberMatched`` above what came back) is not the
+        # whole coverage and is never delivered as if it were.
+        matched = payload.get("numberMatched")
+        if isinstance(matched, int) and matched > len(features):
+            raise cap_exceeded_unavailable(
+                definition, "%d tiles (the WFS returned %d)"
+                % (matched, len(features)),
+                "%d tiles" % self.MAXIMUM_TILES_PER_FETCH,
+                "MAXIMUM_TILES_PER_FETCH")
         sources = []
         for feature in features:
             properties = feature.get("properties") or {}
@@ -6079,6 +6421,8 @@ class WfsTileIndexStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         )
         for temporary_path in temporary_paths:
             try:
@@ -6444,6 +6788,8 @@ class XyzArchiveDropStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         ):
             return None
         if not _geotiff_has_valid_data(destination_path):
@@ -6629,6 +6975,8 @@ class DegreeNamedCogStrategy:
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=_raster_vertical_unit(definition),
+            provider_code=definition.get("code"),
         ):
             return None
         if not _geotiff_has_valid_data(destination_path):
@@ -6673,10 +7021,11 @@ class DegreeNamedCogStrategy:
 # and hands those DTMs to the shared warp -- the same EPSG:4326 float32
 # inset every raster provider delivers.
 
-#: Metres per unit, for the ``vertical_unit`` key (and the horizontal
-#: unit when GDAL cannot tell).  ``ftUS`` is the US survey foot,
-#: 1200/3937 m by definition.
-LAS_UNIT_TO_M = {"ftUS": 1200.0 / 3937.0, "ft": 0.3048, "m": 1.0}
+#: The point-cloud gridder reads the SHARED unit table
+#: (:data:`VERTICAL_UNIT_TO_M`, spec us-holder-providers §2): one table for
+#: the LAS ``vertical_unit`` key and the raster warp's.  The old name is
+#: kept as an alias for the readers that predate the share.
+LAS_UNIT_TO_M = VERTICAL_UNIT_TO_M
 
 #: The value a per-tile DTM cell holds when it has no ground estimate.
 LAS_DTM_NODATA = -32768.0
@@ -6922,7 +7271,7 @@ def _las_horizontal_unit_m(source_crs, vertical_unit):
                 return units
         except Exception:
             pass
-    return LAS_UNIT_TO_M[vertical_unit]
+    return VERTICAL_UNIT_TO_M[vertical_unit]
 
 
 def _fill_empty_cells(values, valid, radius_cells):
@@ -6980,11 +7329,11 @@ def grid_las_tile(las_path, dtm_path, definition):
 
     source_crs = int(float(definition.get("source_crs")))
     vertical_unit = str(definition.get("vertical_unit", "m"))
-    if vertical_unit not in LAS_UNIT_TO_M:
+    if vertical_unit not in VERTICAL_UNIT_TO_M:
         raise ProviderUnavailable(
             "%s: unknown vertical_unit %r" % (definition.get("code"),
                                               vertical_unit))
-    z_to_m = LAS_UNIT_TO_M[vertical_unit]
+    z_to_m = VERTICAL_UNIT_TO_M[vertical_unit]
     xy_to_m = _las_horizontal_unit_m(source_crs, vertical_unit)
     resolution_m = float(definition.get("grid_resolution_m", 1))
     cell = resolution_m / xy_to_m
@@ -7443,6 +7792,8 @@ class LasTileIndexStrategy:
             source_srs="EPSG:%d" % int(float(definition.get("source_crs"))),
             source_nodata=LAS_DTM_NODATA,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            vertical_unit=VERTICAL_UNIT_GRIDDED_IN_METRES,
+            provider_code=definition.get("code"),
         ):
             return None
         present = [source for source in sources
@@ -9176,7 +9527,7 @@ def cached_inset_declined_reason(inset_path):
             % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC))
 
 
-def _void_inset_record_reason(inset_path):
+def _void_inset_record_reason(inset_path, definition=None):
     """Why a cached fetch record describes NO usable inset, or ``None``.
 
     R13-1 -- A FETCH RECORD WITHOUT A VALID RASTER IS NO RECORD.  Two
@@ -9188,12 +9539,23 @@ def _void_inset_record_reason(inset_path):
     indistinguishable from a good cache until somebody deleted the json
     by hand).  ``None`` when there is no record at all: an absent sidecar
     is the ordinary uncached case the fetch path already handles.
+
+    A third shape (spec us-holder-providers §2): the provider
+    ``definition`` declares a non-metre RASTER ``vertical_unit`` and the
+    record carries no ``vertical_unit_applied`` -- a pre-key engine wrote
+    it, its cells are in the source unit, and it must never reach a bake
+    as metres.  Point-cloud strategies (their key is the POINT unit,
+    converted while gridding since #130) are not raster units and are
+    never voided by it.
     """
     sidecar = os.path.splitext(inset_path)[0] + ".json"
     if not os.path.isfile(sidecar):
         return None
     if not os.path.isfile(inset_path):
         return "the raster it recorded is gone"
+    pre_key = _pre_vertical_unit_key_reason(sidecar, definition)
+    if pre_key is not None:
+        return pre_key
     (is_empty, valid_fraction) = inset_is_effectively_empty(inset_path)
     if is_empty:
         return (
@@ -9201,6 +9563,29 @@ def _void_inset_record_reason(inset_path):
             % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC)
         )
     return None
+
+
+def _pre_vertical_unit_key_reason(sidecar, definition):
+    """Why ``sidecar`` is a pre-``vertical_unit`` record of a unit-bearing
+    raster provider (see :func:`_void_inset_record_reason`), or ``None``."""
+    if not definition:
+        return None
+    unit = str(definition.get("vertical_unit") or "").strip()
+    if unit in ("", "m"):
+        return None
+    if definition.get("access_strategy") in _POINT_UNIT_STRATEGIES:
+        return None
+    try:
+        with open(sidecar, "r") as handle:
+            record = json.load(handle)
+    except (OSError, ValueError):
+        record = None
+    if isinstance(record, dict) and record.get("vertical_unit_applied"):
+        return None
+    return ("%s declares vertical_unit=%s and the record carries no "
+            "vertical_unit_applied - a pre-key engine wrote it in source "
+            "units, which must never be baked as metres"
+            % (definition.get("code"), unit))
 
 
 def _archive_void_inset_record(inset_path, icao, code, reason):
@@ -9330,7 +9715,8 @@ def ensure_airport_insets(
             # this the empty-cut inset is a permanent cache -- the reuse
             # branch below breaks on it every run -- and the only cure
             # was deleting the sidecar by hand.
-            void_reason = _void_inset_record_reason(destination)
+            void_reason = _void_inset_record_reason(destination,
+                                                    definition)
             if void_reason is not None:
                 _archive_void_inset_record(destination, icao, code,
                                            void_reason)

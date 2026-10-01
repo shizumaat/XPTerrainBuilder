@@ -311,6 +311,7 @@ def _to_frame(xy: XY, heading_deg: float, x: float, z: float) -> XY:
 from .obj8_clip import (_clip, _union_rings, _split_at_plane,  # noqa: E402
                         _bulk_polys, _clip_component)
 from .obj8_grade import GradeStats, above_clip, both_clip  # noqa: E402
+from .obj8_grade import BaseProfile, base_profile as _base_profile  # noqa: E402
 from .obj8_grade import memo_union as _memo_union          # noqa: E402
 from .obj8_grade import planes as _planes                  # noqa: E402
 
@@ -344,6 +345,25 @@ class ResourceCache:
         #: skirt is read by classify, the planar pass and the re-seat
         #: plan, and the pack is parsed ONCE for all three.
         self.skirt: dict[str, object] = {}
+        #: base-profile spec §1 (4): the BASE PROFILE per RESOURCE, read
+        #: ONCE here (:meth:`base_profile`).  The planar stage and the
+        #: object stage both read the answer off the PLAN
+        #: (``members[].base_profile``) and the sidecar; neither
+        #: re-derives it (RULINGS 2026-08-30l).
+        #:
+        #: DELIBERATELY NOT IN :meth:`derived_state` — the pinning twin
+        #: ``test_v2cost2.test_resource_cache_derived_state_round_trip``
+        #: is what forces this choice to be MADE rather than drifted
+        #: into.  Two reasons: a plane carries its POLYGON, so this is
+        #: not the "kilobytes" class that method's note describes — it is
+        #: face unions over a pack's terminals, against a payload with a
+        #: size bar (RULINGS 2026-09-14v) — and the profile's transport
+        #: to the consumers is the PLAN, not this cache, so carrying it
+        #: here would be a second copy of a reading that already travels
+        #: (30l).  A cached partition re-derives it on the pass that
+        #: parses the geometry, which is the same pass that would have
+        #: filled it.
+        self.base: dict[str, object] = {}
         #: ``airport/basin_witness.py``'s ONE reading of the pack's placed
         #: objects (owner RULINGS 2026-09-10ax (2): the basin admission
         #: runs FIRST, at classify time, and the planar pass reuses it —
@@ -400,6 +420,52 @@ class ResourceCache:
     def genuine(self, path: str) -> list[Component]:
         """The thickness-gated components (§2.1: a decal never witnesses)."""
         return [c for c in self.components(path) if c.max_y - c.min_y >= self.thickness_m]
+
+    def base_profile(self, path: str, law) -> "BaseProfile":
+        """base-profile spec §1 (4) THE ONE DERIVATION SITE, read once per
+        RESOURCE: the member's BASE PROFILE in its authored frame
+        (``obj8_grade.base_profile``).
+
+        Every threshold is resolved HERE, each from its OWN existing law
+        key — the base read introduces four numbers (``[base_profile]``)
+        and re-reads the other seven rather than carrying a second copy
+        of any of them (the census-wrapper defect class, RULINGS
+        2026-08-30l):
+
+        ======================================  ==========================
+        the plane's area floor                  ``[building_pad] min_area_m2``
+        the bin merge / the sloped rms          ``[placement] split_tol_m``
+        the roof band / the feet band           ``[basin] contact_band_m``
+        the riser weld floor                    ``[terrace] pad_terrace_floor_m``
+        the trim and riser reach                ``[seam] pad_frontage_m``
+        the erosion and the riser strip         ``emit.identity.min_distinct_spacing_m``
+        the FLAT ceiling                        ``emit.within_shape.pad_slope_max``
+        ======================================  ==========================
+        """
+        got = self.base.get(path)
+        if got is not None:
+            return got                                     # type: ignore[return-value]
+        g = self.geometry(path)
+        st = law.tables.structures
+        bp = st.base_profile
+        if g is None:
+            prof = BaseProfile("feet", why="resource did not parse")
+        else:
+            prof = _base_profile(
+                g, self.components(path),
+                horizontal_ny=float(bp.horizontal_ny),
+                roof_support_fraction=float(bp.roof_support_fraction),
+                sloped_min_extent_m=float(bp.sloped_min_extent_m),
+                sloped_max=float(bp.sloped_max),
+                min_area_m2=float(st.building_pad.min_area_m2),
+                split_tol_m=float(st.placement.split_tol_m),
+                contact_band_m=float(st.basin.contact_band_m),
+                pad_terrace_floor_m=float(law.tables.emit.terrace.pad_terrace_floor_m),
+                pad_frontage_m=float(law.tables.emit.design.pad_frontage_m),
+                min_distinct_spacing_m=float(law.tables.emit.identity.min_distinct_spacing_m),
+                pad_slope_max=float(law.tables.emit.within_shape.pad_slope_max))
+        self.base[path] = prof
+        return prof
 
     def component_bounds(self, path: str) -> np.ndarray:
         """``(n, 4)`` authored plan bounds ``(x0, x1, z0, z1)`` per component

@@ -41,7 +41,8 @@ from .structures import Basin, Channel, Tunnel
 __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
            "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "BLOCK_SEP",
-           "block_ref", "unit_ref_of", "block_of"]
+           "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
+           "plane_of"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
 #: (``planar/platform.py`` mints it).  ``#`` is the tree's split spelling,
@@ -101,9 +102,52 @@ def block_of(ref: object) -> "tuple[str, int] | None":
     return r[:i], int(tail)
 
 
+#: base-profile spec §2 (1) (owner RULINGS 2026-10-01f): a unit whose base
+#: reads STEPPED mints ONE PAD PER BASE PLANE, each carrying the ref
+#: ``<unit ref>/p<k>`` (its collar ``<unit ref>/p<k>#collar``, its flat
+#: blocks ``<unit ref>/p<k>/b<j>`` — the block grammar runs INSIDE one
+#: plane pad and never across a riser, §2 (1) last sentence).  THE
+#: GRAMMAR'S ONE SITE, exactly as :data:`BLOCK_SEP` is: nothing splits on
+#: ``/p`` by hand.
+PLANE_SEP = "/p"
+
+
+def plane_ref(unit: str, k: int) -> str:
+    """The ref of plane pad ``k`` of the unit ``unit`` (``k`` 0 is the
+    ORIGIN PLANE ``p0``, §1 (3))."""
+    return f"{unit}{PLANE_SEP}{int(k)}"
+
+
+def plane_of(ref: object) -> "tuple[str, int] | None":
+    """``(unit ref, plane index)`` of a plane-pad ref (the pad, its
+    collar, or a block inside it), ``None`` for any other ref.
+
+    Read THROUGH the block grammar: a block of a plane pad
+    (``<unit>/p1/b2``) is plane 1 of its unit, so the two separators
+    compose and neither reader has to know about the other."""
+    r = platform_ref_of(ref)
+    b = block_of(r)
+    if b is not None:
+        r = b[0]
+    i = r.rfind(PLANE_SEP)
+    if i <= 0:
+        return None
+    tail = r[i + len(PLANE_SEP):]
+    if not tail.isdigit():
+        return None
+    return r[:i], int(tail)
+
+
 def unit_ref_of(ref: object) -> str:
-    """The UNIT ref of a pad face ref: a block's unit, a collar's platform,
-    the ref itself otherwise (spec §3 C3)."""
+    """The UNIT ref of a pad face ref: a plane pad's unit, a block's unit,
+    a collar's platform, the ref itself otherwise (spec §3 C3, extended
+    by base-profile spec §3 C7 — ``/p<k>`` folds exactly as ``/b<k>``
+    does, so every reader keyed on the unit ref sees ONE unit and
+    ``pad_cluster_mismatch`` cannot report a cluster spanning its own
+    plane pads, C25)."""
+    pl = plane_of(ref)
+    if pl is not None:
+        return pl[0]
     b = block_of(ref)
     return b[0] if b is not None else platform_ref_of(ref)
 

@@ -10053,6 +10053,20 @@ STEP_EXEMPTIONS: Dict[str, str] = {
         "floor levels with a facade/wall between them (SPJC building16 "
         "@30.9 abuts building30 @29.5 = a 1.4 m terminal-to-terminal step, "
         "correct in X-Plane).  A pad-vs-pavement step is still gated.",
+    "base_plane_step":
+        "owner RULINGS 2026-10-01f (base-profile spec §2 (3), issues "
+        "#162/#163): ONE BUILDING whose base reads STEPPED mints one pad "
+        "per BASE PLANE (`<unit>/p<k>`), with the object's OWN riser "
+        "declared between them as a `base_step` terrace.  The owner's "
+        "order: \"a building that has steps where part of it is at one "
+        "level and another part is at a higher level ... create two pads "
+        "with a cliff to match them\".  The pair is `building|building` "
+        "and would already hold `building_to_building`, but it is a "
+        "DIFFERENT lawful geometry — two planes of ONE unit at the "
+        "object's own authored offset, not two independent floors — and "
+        "is named separately so a report says which law applied and "
+        "`terrace_actual_step` can price the EMITTED step against the "
+        "DECLARED riser (30l (2)).",
 }
 
 #: The families ``step_exempt`` is defined over (the ``steps`` bucket).
@@ -10088,8 +10102,46 @@ def _step_exemption_for(way_a, way_b) -> Optional[str]:
     tags_b = getattr(way_b, "tags", None) or {}
     if (tags_a.get("role") == "building"
             and tags_b.get("role") == "building"):
+        # base-profile spec §2 (3) / §3 C17: two PLANE PADS OF ONE UNIT
+        # (`<unit>/p<k>`) hold the NAMED base-plane exemption; any other
+        # building|building pair holds the 06-20 one.  Both are lawful —
+        # the name is what lets a report say which, and nothing about the
+        # VERDICT changes for a patch with no plane pads in it.
+        a, b = _plane_pad_ref(tags_a.get("ref")), _plane_pad_ref(tags_b.get("ref"))
+        if a is not None and b is not None and a[0] == b[0] and a[1] != b[1]:
+            return "base_plane_step"
         return "building_to_building"
     return None
+
+
+#: base-profile spec §2 (1): the plane-pad ref separator, quoted here
+#: because a validator must not import solver state (the emitter's own
+#: ONE site is ``model.planar.PLANE_SEP``, and
+#: ``tests/test_harness.py`` twins the two spellings).
+PLANE_PAD_SEP = "/p"
+
+#: base-profile spec §2 (3): the ``terrace_joints`` ``kind`` of a riser
+#: DECLARED between two plane pads of one unit — read by
+#: ``terrace_actual_step`` exactly as ``pad_terrace`` is (the declared
+#: step is the object's own authored riser).
+BASE_STEP_JOINT_KIND = "base_step"
+
+
+def _plane_pad_ref(ref) -> Optional[Tuple[str, int]]:
+    """``(unit ref, plane index)`` of a plane-pad way ref, else None.
+    Reads a block inside a plane pad (``<unit>/p1/b2``) as plane 1, the
+    way ``model.planar.plane_of`` does."""
+    if not ref:
+        return None
+    r = str(ref).split("#", 1)[0]
+    i = r.rfind("/b")
+    if i > 0 and r[i + 2:].isdigit():
+        r = r[:i]
+    i = r.rfind(PLANE_PAD_SEP)
+    if i <= 0:
+        return None
+    tail = r[i + len(PLANE_PAD_SEP):]
+    return (r[:i], int(tail)) if tail.isdigit() else None
 
 
 # ══════════════════════════════════════════════════════════════════════

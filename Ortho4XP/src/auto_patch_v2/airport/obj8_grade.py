@@ -30,7 +30,9 @@ from .obj8_clip import _clip_both, _clip_component
 if _t.TYPE_CHECKING:  # annotations only — obj8 imports this module
     from .obj8 import Component, ObjGeometry, PlacedObject, ResourceCache
 
-__all__ = ["GradeStats", "planes", "memo_union", "both_clip", "above_clip"]
+__all__ = ["GradeStats", "planes", "memo_union", "both_clip", "above_clip",
+           "BasePlane", "Riser", "BaseProfile", "base_profile", "compose_profiles",
+           "FLAT", "STEPPED", "SLOPED", "FEET"]
 
 
 @_dc.dataclass
@@ -169,3 +171,590 @@ def memo_union(cache: "ResourceCache", memo: dict, o: "PlacedObject", g: "ObjGeo
     memo[key] = val
     st.charge(o.resolved, nv, time.perf_counter() - t0)
     return val
+
+
+# ── §1 THE BASE PROFILE ──────────────────────────────────────────────────
+# base-profile spec §1 (owner RULINGS 2026-10-01f, answers 10-01k).  ONE
+# DERIVATION SITE (§1 (4)): this function, called from the pack read
+# inside ``obj8.ResourceCache`` once per RESOURCE — the triangles and the
+# solid components are already in memory there, so the base read is one
+# more O(triangles) pass over geometry nothing else has to re-parse.  The
+# planar stage and the object stage both read the ANSWER; neither
+# re-derives it from the DSF or the OBJ (the census-wrapper defect class,
+# RULINGS 2026-08-30l).
+#
+# It lives beside ``planes`` for the reason this module exists: the laws
+# and the readers stay in ``obj8.py``, the O(triangles) passes live here
+# under the 1,000-line file law.
+
+#: §1 (2) THE FOUR VERDICTS.  Literals, because they cross the wire (the
+#: rebake plan, the sidecar and ``obj8_split_report``) — named here so no
+#: reader spells one by hand.
+FLAT, STEPPED, SLOPED, FEET = "flat", "stepped", "sloped", "feet"
+
+#: §1 (1): the height BIN a horizontal face is dropped into before the
+#: merge, in metres.  The spec's own number.  Clusters are RUNS of
+#: adjacent non-empty bins merged while the gap is within ``split_tol_m``
+#: (0.3) — which, the bin being narrower than the tolerance, is every
+#: adjacent pair: the bin is the quantum, ``split_tol_m`` is the law.
+_PLANE_BIN_M = 0.25
+
+
+@_dc.dataclass(frozen=True)
+class BasePlane:
+    """§1 (1) ONE BASE PLANE of a member or a composed unit: its authored
+    height, the area of the horizontal faces that made it, and its plan
+    POLYGON — the UNION of those faces (never the bbox, never the hull:
+    an L-shaped lot around a building would otherwise "contain" the
+    building, §4, and the KASE parts' convex hull overlaps 57 % of the
+    lot it must not claim)."""
+
+    y: float
+    area_m2: float
+    polygon: _t.Any
+    #: the roof test's own reading, kept so a report can say WHY a plane
+    #: was taken as a base: the support hull's share of the polygon
+    #: (§1 (1); < ``roof_support_fraction`` is a base)
+    support_fraction: float = 0.0
+    #: the area §1 (1) TRIMMED off this plane towards a lower plane (the
+    #: cells within ``pad_frontage_m`` of the few lower vertices inside
+    #: it — KASE's garage threshold, 31 m² of 6,394)
+    trimmed_m2: float = 0.0
+
+
+@_dc.dataclass(frozen=True)
+class Riser:
+    """§1 (1) THE RISER between two adjacent base planes — the pair's
+    indices into :attr:`BaseProfile.planes` and the height difference.
+    Only planes whose polygons are within ``[seam] pad_frontage_m`` of
+    each other are adjacent; a riser under ``[terrace]
+    pad_terrace_floor_m`` has already WELDED (a kerb is not a terrace)
+    and never reaches this record."""
+
+    a: int
+    b: int
+    dy: float
+
+
+@_dc.dataclass(frozen=True)
+class BaseProfile:
+    """§1 (2) THE BASE PROFILE of one member, or of a composed §16g unit
+    (:func:`compose_profiles`).
+
+    ``planes`` is ordered with the ORIGIN PLANE ``p0`` first (§1 (3)) and
+    every other plane carries its offset ``Δy_k = y_k − y_0``; ``risers``
+    names the adjacent pairs; ``slope`` is the SLOPED verdict's own base
+    gradient ``(g_x, g_z)`` in the AUTHORED frame (the pad rotates it by
+    the placement heading — §1 (2): orientation is carried by the
+    polygons, so a pad's edges follow the base polygon)."""
+
+    verdict: str
+    planes: tuple[BasePlane, ...] = ()
+    risers: tuple[Riser, ...] = ()
+    slope: tuple[float, float] = (0.0, 0.0)
+    #: the plane fit's rms residual over the set the verdict was read on
+    #: (the contact set for FLAT / SLOPED / FEET, 0 for STEPPED)
+    residual_rms_m: float = 0.0
+    #: §1 (1) THE FEET: how many ground-contact vertices the read saw and
+    #: the height they sit at (the member's lowest vertex + the band).
+    #: The FEET verdict publishes nothing else — 10-01k Q1 seats such a
+    #: body by TILTING it, and the tilt is fitted on the feet.
+    feet: int = 0
+    feet_y: float = 0.0
+    #: §1 (2) narrowed (see :func:`base_profile`): the share of the FEET
+    #: set's plan hull covered by horizontal faces at the contact band —
+    #: the FLOOR test that separates a small floor plate (FLAT) from a
+    #: column-only shelter (FEET, KASE site 1).  Published so the spec
+    #: author's ruling on the narrowing can be read off a report.
+    floor_fraction: float = 0.0
+    #: why the verdict came out as it did, for the report line (never a
+    #: silent ``feet``)
+    why: str = ""
+
+    @property
+    def offsets(self) -> tuple[float, ...]:
+        """§1 (3) ``Δy_k = y_k − y_0`` per plane (``p0`` reads 0.0)."""
+        if not self.planes:
+            return ()
+        y0 = self.planes[0].y
+        return tuple(float(p.y - y0) for p in self.planes)
+
+    def line(self) -> str:
+        if self.verdict == SLOPED:
+            return (f"{self.verdict} {100.0 * math.hypot(*self.slope):.2f} % "
+                    f"rms {self.residual_rms_m:.3f} m")
+        if not self.planes:
+            return f"{self.verdict} ({self.feet} feet at {self.feet_y:+.2f})"
+        return (f"{self.verdict} {len(self.planes)} plane(s) "
+                + " / ".join(f"{p.y:+.2f} {p.area_m2:,.0f} m2" for p in self.planes)
+                + (" risers " + ", ".join(f"{r.dy:+.2f}" for r in self.risers)
+                   if self.risers else ""))
+
+
+def _horizontal(v: np.ndarray, tris: np.ndarray, ny_min: float):
+    """``(|n_y| per triangle, twice the PLAN area per triangle, the mean
+    y per triangle)`` — one vectorised pass.  The plan area is the right
+    one for a face's own area in a HEIGHTFIELD reading: a horizontal face
+    at ``|ny| >= 0.95`` differs from its plan projection by at most 5 %,
+    and the pad it becomes is a plan polygon."""
+    p0, p1, p2 = v[tris[:, 0]], v[tris[:, 1]], v[tris[:, 2]]
+    n = np.cross(p1 - p0, p2 - p0)
+    ln = np.linalg.norm(n, axis=1)
+    ok = ln > 1e-12
+    ny = np.zeros(tris.shape[0])
+    ny[ok] = np.abs(n[ok, 1] / ln[ok])
+    # twice the signed plan area of the triangle (x, z)
+    a2 = np.abs((p1[:, 0] - p0[:, 0]) * (p2[:, 2] - p0[:, 2])
+                - (p2[:, 0] - p0[:, 0]) * (p1[:, 2] - p0[:, 2]))
+    ymean = (p0[:, 1] + p1[:, 1] + p2[:, 1]) / 3.0
+    return ny >= ny_min, 0.5 * a2, ymean
+
+
+def _clusters(ys: np.ndarray, areas: np.ndarray, merge_m: float
+              ) -> list[tuple[float, float, np.ndarray]]:
+    """§1 (1): the height CLUSTERS of horizontal faces — ``(area-weighted
+    y, area, the face selector)`` per cluster.  Faces are binned at
+    :data:`_PLANE_BIN_M` and adjacent bins MERGE while their gap is
+    within ``merge_m`` (``[placement] split_tol_m``)."""
+    if ys.size == 0:
+        return []
+    bins = np.floor(ys / _PLANE_BIN_M).astype(np.int64)
+    uniq = np.unique(bins)
+    out: list[tuple[float, float, np.ndarray]] = []
+    run = [uniq[0]]
+    for b in uniq[1:]:
+        # the GAP between the two bins' near edges, in metres
+        if (b - run[-1]) * _PLANE_BIN_M <= merge_m:
+            run.append(b)
+        else:
+            out.append(_cluster(ys, areas, bins, run))
+            run = [b]
+    out.append(_cluster(ys, areas, bins, run))
+    return out
+
+
+def _cluster(ys, areas, bins, run) -> tuple[float, float, np.ndarray]:
+    sel = np.isin(bins, np.asarray(run))
+    a = float(areas[sel].sum())
+    # §09-17t's own rule shape: the AREA-WEIGHTED height (the median over
+    # a cluster of equal faces is the same number; the weighting is what
+    # keeps a 6,399 m² lot from being moved by a 47 m² sliver beside it)
+    y = float((ys[sel] * areas[sel]).sum() / a) if a > 0.0 else float(ys[sel].mean())
+    return (y, a, sel)
+
+
+def _plan_union(v: np.ndarray, tris: np.ndarray):
+    """The plan UNION of the faces ``tris`` in authored ``(x, z)`` — §1
+    (1)'s POLYGON, by the same construction ``obj8._plan_footprint``
+    uses for a component's footprint (the rings unioned, never a hull)."""
+    from .obj8_clip import _union_rings
+    if tris.shape[0] == 0:
+        return None
+    return _union_rings([[(float(v[i][0]), float(v[i][2])) for i in tri]
+                         for tri in tris.tolist()])
+
+
+def _fit_plane(pts: np.ndarray) -> tuple[float, float, float, float]:
+    """Least-squares plane through ``(x, y, z)`` points: ``(g_x, g_z,
+    y0, rms residual)`` with ``y ≈ y0 + g_x·(x−x̄) + g_z·(z−z̄)``.  A
+    degenerate set (collinear in plan, or fewer than 3 points) reads a
+    LEVEL fit at the mean, with the spread as the residual — the same
+    fallback ``planar/platform._plane_residual`` takes."""
+    if pts.shape[0] < 3:
+        y = float(pts[:, 1].mean()) if pts.shape[0] else 0.0
+        r = float(np.max(np.abs(pts[:, 1] - y))) if pts.shape[0] else 0.0
+        return (0.0, 0.0, y, r)
+    x0, z0 = float(pts[:, 0].mean()), float(pts[:, 2].mean())
+    M = np.c_[np.ones(pts.shape[0]), pts[:, 0] - x0, pts[:, 2] - z0]
+    if np.linalg.matrix_rank(M) < 3:
+        y = float(pts[:, 1].mean())
+        return (0.0, 0.0, y, float(np.sqrt(np.mean((pts[:, 1] - y) ** 2))))
+    c, *_ = np.linalg.lstsq(M, pts[:, 1], rcond=None)
+    res = pts[:, 1] - M @ c
+    return (float(c[1]), float(c[2]), float(c[0]),
+            float(np.sqrt(np.mean(res ** 2))))
+
+
+def base_profile(geom: "ObjGeometry", comps: list["Component"], *,
+                 horizontal_ny: float, roof_support_fraction: float,
+                 sloped_min_extent_m: float, sloped_max: float,
+                 min_area_m2: float, split_tol_m: float, contact_band_m: float,
+                 pad_terrace_floor_m: float, pad_frontage_m: float,
+                 min_distinct_spacing_m: float, pad_slope_max: float,
+                 ) -> BaseProfile:
+    """§1 (1)/(2) THE BASE PROFILE OF ONE MEMBER, in its AUTHORED frame —
+    the ONE derivation site (§1 (4)).
+
+    Every threshold is passed IN, from its own existing law key at the
+    caller (``obj8.ResourceCache.base_profile``): this module holds no
+    law number but the plane bin the spec names (:data:`_PLANE_BIN_M`).
+
+    The read, in the spec's own order:
+
+    1. HORIZONTAL FACES — the solid triangles with ``|n_y| >=
+       horizontal_ny``.  Draped triangles never count (they carry no
+       hardness and are not the object's body).
+    2. PLANES — height clusters of those faces (:func:`_clusters`) with
+       face area at or over ``min_area_m2``; below that the cluster is
+       FURNITURE and is dropped.  Each plane's POLYGON is the plan union
+       of its own faces.
+    3. THE ROOF TEST — a plane with the unit's own solid vertices
+       DISTRIBUTED under it (``contact_band_m`` or more below, strictly
+       inside the polygon eroded by ``min_distinct_spacing_m``, convex
+       hull covering ``roof_support_fraction`` of it) is a ROOF / DECK /
+       MEZZANINE and is dropped.  Otherwise it is a BASE PLANE, and the
+       cells within ``pad_frontage_m`` of those FEW lower vertices are
+       TRIMMED off it to the lower plane.
+    4. THE WELD — adjacent base planes (polygons within
+       ``pad_frontage_m``) whose riser is under ``pad_terrace_floor_m``
+       are ONE plane at the area-weighted height: a kerb is not a
+       terrace.
+    5. THE VERDICT — :data:`STEPPED` with two or more planes left,
+       :data:`FLAT` with one (or with none but a contact set flat to
+       ``pad_slope_max``), :data:`SLOPED` with none but a contact set
+       spanning ``sloped_min_extent_m`` whose fit grades in
+       ``(pad_slope_max, sloped_max]`` with rms at most ``split_tol_m``,
+       :data:`FEET` otherwise.
+    """
+    v = geom.vertices
+    tris = geom.solid
+    if horizontal_ny <= 0.0 or tris.shape[0] == 0 or v.shape[0] == 0:
+        return BaseProfile(FEET, why="no solid geometry" if tris.shape[0] == 0
+                           else "base read disarmed (horizontal_ny 0)")
+    # ── the FEET (§17 (B), unchanged): the member's ground-contact
+    #    vertices — those within ``contact_band_m`` of its lowest.
+    used = np.unique(tris.reshape(-1))
+    vy = v[used][:, 1]
+    low = float(vy.min())
+    foot_sel = used[vy <= low + contact_band_m]
+    feet = int(foot_sel.shape[0])
+    foot_pts = v[foot_sel]
+
+    horiz, areas, ymean = _horizontal(v, tris, horizontal_ny)
+    planes_out: list[BasePlane] = []
+    if horiz.any():
+        hidx = np.flatnonzero(horiz)
+        for y, area, sel in _clusters(ymean[hidx], areas[hidx], split_tol_m):
+            if area < min_area_m2:
+                continue                      # furniture, §1 (1)
+            # §1 (1) NARROWED — REPORTED, NOT DECIDED.  A PLANE is LEVEL:
+            # its own faces must fit one level height within
+            # ``split_tol_m``.  §1 (1) defines a horizontal face by
+            # ``|n_y| >= 0.95``, which admits a face tilted up to 18°, and
+            # a 2 % slab 40 m long is such a face — so without this test
+            # §1 (2)'s SLOPED branch ("no base plane >= 250 m2 but a
+            # contact set ... whose plane fit has grade in
+            # (pad_slope_max, sloped_max]") could never be reached by the
+            # very geometry it describes: the slab would mint a level
+            # plane at its mean and read FLAT.  ``split_tol_m`` is the
+            # spec's own "is this one plane" tolerance (it bounds SLOPED's
+            # rms in the same sentence), so no new number is introduced.
+            # The spec author rules whether this is the intended reading.
+            ctris = tris[hidx[sel]]
+            cy = v[ctris.reshape(-1)][:, 1]
+            if float(np.max(np.abs(cy - y))) > split_tol_m:
+                continue                      # not LEVEL: sloped or riser
+            poly = _plan_union(v, tris[hidx[sel]])
+            if poly is None or poly.is_empty:
+                continue
+            planes_out.append(BasePlane(y, area, poly))
+    # ── 3. the ROOF TEST, then the TRIM (§1 (1)) ────────────────────
+    kept: list[BasePlane] = []
+    for p in planes_out:
+        p2 = _roof_test(v, used, p, contact_band_m, min_distinct_spacing_m,
+                        pad_frontage_m, roof_support_fraction)
+        if p2 is not None:
+            kept.append(p2)
+    kept.sort(key=lambda q: -q.area_m2)
+    # ── 4. the WELD (§1 (1)) ────────────────────────────────────────
+    kept = _weld_risers(kept, pad_terrace_floor_m, pad_frontage_m)
+    risers = _risers(kept, pad_frontage_m)
+    # ── 5. the VERDICT (§1 (2)) ─────────────────────────────────────
+    if len(kept) >= 2:
+        return BaseProfile(STEPPED, tuple(kept), tuple(risers), feet=feet,
+                           feet_y=low,
+                           why=f"{len(kept)} base planes after the weld")
+    gx, gz, _y0, rms = _fit_plane(foot_pts)
+    grade = math.hypot(gx, gz)
+    if len(kept) == 1:
+        return BaseProfile(FLAT, tuple(kept), (), feet=feet, feet_y=low,
+                           residual_rms_m=rms, why="one base plane")
+    # no base plane over the area floor: the contact set decides
+    extent = 0.0
+    if feet:
+        extent = max(float(np.ptp(foot_pts[:, 0])), float(np.ptp(foot_pts[:, 2])))
+    # §1 (2) THE FLAT-WITHOUT-A-PLANE BRANCH, NARROWED — REPORTED, NOT
+    # DECIDED (base-profile spec §1 (2) against §5 A3 / §8a Q1).
+    #
+    # §1 (2) reads FLAT for "exactly one base plane, OR NONE but feet
+    # whose plane fit over the contact set has grade <= pad_slope_max".
+    # Taken literally that makes KASE site 1 FLAT: ``Shelters.OBJ``'s
+    # 1,752 column feet are all at y -0.10 and fit at 0.000 % (§0 fact
+    # 1).  But the SAME §1 (2) ends "FEET otherwise (a column-only
+    # shelter: site 1)", §5 A3 requires "verdict FEET, one height", and
+    # the owner's 10-01k Q1 calls it "a FEET-verdict (post-only) base"
+    # and seats it by TILTING THE BODY.  Three statements say FEET
+    # against one branch that would say FLAT, so the branch is narrower
+    # than its wording: it needs a FLOOR, not merely level feet.
+    #
+    # THE DISCRIMINATOR USES NO NEW NUMBER.  The horizontal faces AT THE
+    # CONTACT BAND must cover ``roof_support_fraction`` of the feet set's
+    # own plan hull — the one fraction the law already states for "is
+    # this geometry DISTRIBUTED over this polygon".  Measured on the
+    # spec's two sites: site 1's column feet carry ~0 m2 of horizontal
+    # face over an 11,362 m2 hull (0 %) -> FEET; a floor plate under the
+    # 250 m2 area floor covers its own hull (~100 %) -> FLAT.
+    #
+    # THE SPEC AUTHOR RULES THIS (CLAUDE.md: a deviation is reported, not
+    # decided).  Until then the narrowing is what makes site 1 read as
+    # the owner ruled; ``floor_fraction`` is published on the profile so
+    # the ruling can be read off a report instead of guessed.
+    floor_frac = _floor_fraction(v, tris, horiz, areas, ymean, foot_pts,
+                                 low, contact_band_m)
+    if grade <= pad_slope_max and floor_frac >= roof_support_fraction > 0.0:
+        return BaseProfile(FLAT, (), (), (gx, gz), rms, feet, low,
+                           why=f"no base plane; contact fit {100.0 * grade:.2f} % "
+                               f"within pad_slope_max over a floor "
+                               f"({100.0 * floor_frac:.0f} % of the feet hull)",
+                           floor_fraction=floor_frac)
+    if (extent >= sloped_min_extent_m > 0.0 and pad_slope_max < grade <= sloped_max
+            and rms <= split_tol_m):
+        return BaseProfile(SLOPED, (), (), (gx, gz), rms, feet, low,
+                           why=f"no base plane; contact fit {100.0 * grade:.2f} % "
+                               f"over {extent:.1f} m, rms {rms:.3f} m",
+                           floor_fraction=floor_frac)
+    return BaseProfile(FEET, (), (), (gx, gz), rms, feet, low,
+                       why=f"no base plane; contact fit {100.0 * grade:.2f} % "
+                           f"over {extent:.1f} m, rms {rms:.3f} m, floor "
+                           f"{100.0 * floor_frac:.0f} % of the feet hull",
+                       floor_fraction=floor_frac)
+
+
+def _roof_test(v: np.ndarray, used: np.ndarray, p: BasePlane,
+               contact_band_m: float, erode_m: float, frontage_m: float,
+               roof_fraction: float) -> "BasePlane | None":
+    """§1 (1) THE ROOF TEST and, where the plane survives it, THE TRIM.
+
+    ``None`` for a ROOF / DECK / MEZZANINE: the unit's own solid vertices
+    lying ``contact_band_m`` or more below the plane, strictly inside its
+    polygon eroded by ``erode_m``, whose CONVEX HULL covers at least
+    ``roof_fraction`` of the polygon — the shelter roof's 1,752 column
+    feet (hull 156 %), a mezzanine over its floor, a deck over its piers.
+
+    Otherwise the plane is a BASE and the cells within ``frontage_m`` of
+    those FEW lower vertices are trimmed off it (KASE's garage threshold:
+    157 vertices, hull 0.2 %, 31 m² of a 6,394 m² lot).  A trim that
+    would consume the whole plane leaves it untrimmed and says so through
+    :attr:`BasePlane.trimmed_m2` staying 0 — a plane that is ALL
+    threshold is not a plane with a threshold."""
+    from shapely.geometry import MultiPoint
+    poly = p.polygon
+    area = float(poly.area)
+    if area <= 0.0:
+        return None
+    inner = poly.buffer(-erode_m, join_style=2, mitre_limit=2.0) if erode_m > 0.0 else poly
+    if inner.is_empty:
+        inner = poly
+    below = v[used][v[used][:, 1] <= p.y - contact_band_m]
+    if below.shape[0] == 0:
+        return p
+    pts = MultiPoint([(float(a), float(b)) for a, b in zip(below[:, 0], below[:, 2])])
+    inside = pts.intersection(inner)
+    if inside.is_empty:
+        return p
+    hull = inside.convex_hull
+    frac = float(hull.area) / area
+    if frac >= roof_fraction > 0.0:
+        return None                            # a ROOF, never a base
+    if frontage_m <= 0.0:
+        return _dc.replace(p, support_fraction=frac)
+    trim = inside.buffer(frontage_m, join_style=2, mitre_limit=2.0)
+    left = poly.difference(trim)
+    if left.is_empty or float(left.area) <= 0.0:
+        return _dc.replace(p, support_fraction=frac)
+    return _dc.replace(p, polygon=left, support_fraction=frac,
+                       trimmed_m2=round(area - float(left.area), 3),
+                       area_m2=p.area_m2 * float(left.area) / area)
+
+
+def _adjacent(a: BasePlane, b: BasePlane, frontage_m: float) -> bool:
+    """§1 (1): two planes are ADJACENT when their polygons are within
+    ``[seam] pad_frontage_m`` of each other — the horizon §20 already
+    reads a frontage over."""
+    try:
+        return bool(a.polygon.distance(b.polygon) <= frontage_m)
+    except Exception:
+        return False
+
+
+def _weld_risers(planes: list[BasePlane], floor_m: float, frontage_m: float
+                 ) -> list[BasePlane]:
+    """§1 (1): a riser under ``[terrace] pad_terrace_floor_m`` WELDS — the
+    two adjacent planes become ONE plane at the AREA-WEIGHTED height,
+    with the union of their polygons.  A kerb is not a terrace.  Welding
+    is transitive and is run to a fixed point, largest plane first, so a
+    staircase of sub-floor steps collapses to one plane and not to a
+    chain of pairs."""
+    if floor_m <= 0.0 or len(planes) < 2:
+        return list(planes)
+    from shapely.ops import unary_union
+    cur = list(planes)
+    changed = True
+    while changed and len(cur) > 1:
+        changed = False
+        for i in range(len(cur)):
+            for j in range(i + 1, len(cur)):
+                a, b = cur[i], cur[j]
+                if abs(a.y - b.y) >= floor_m or not _adjacent(a, b, frontage_m):
+                    continue
+                tot = a.area_m2 + b.area_m2
+                y = ((a.y * a.area_m2 + b.y * b.area_m2) / tot if tot > 0.0
+                     else 0.5 * (a.y + b.y))
+                merged = BasePlane(
+                    y, tot, unary_union([a.polygon, b.polygon]),
+                    max(a.support_fraction, b.support_fraction),
+                    a.trimmed_m2 + b.trimmed_m2)
+                cur = [q for k, q in enumerate(cur) if k not in (i, j)] + [merged]
+                cur.sort(key=lambda q: -q.area_m2)
+                changed = True
+                break
+            if changed:
+                break
+    return cur
+
+
+def _risers(planes: list[BasePlane], frontage_m: float) -> list[Riser]:
+    """§1 (1): the RISERS of the surviving planes — one per ADJACENT pair,
+    the height difference signed from the lower index to the higher."""
+    out: list[Riser] = []
+    for i in range(len(planes)):
+        for j in range(i + 1, len(planes)):
+            if _adjacent(planes[i], planes[j], frontage_m):
+                out.append(Riser(i, j, round(float(planes[j].y - planes[i].y), 4)))
+    return out
+
+
+def compose_profiles(parts: "_t.Sequence[tuple[BaseProfile, tuple[float, float, float]]]",
+                     *, seat_xz: "tuple[float, float] | None" = None,
+                     pad_terrace_floor_m: float, pad_frontage_m: float,
+                     roof_support_fraction: float = 0.0,
+                     lower_pts: "_t.Any" = None,
+                     contact_band_m: float = 0.0,
+                     min_distinct_spacing_m: float = 0.0) -> BaseProfile:
+    """§1 (3) THE UNIT PROFILE — the members of ONE §16g unit composed into
+    one frame.
+
+    ``parts`` is ``(the member's profile, its offset (dx, dy, dz) into the
+    unit frame)``: the §16c contact graph the rebake plan already carries
+    gives welded part pairs' relative offset EXACTLY
+    (``cluster_pads[].pad_offset_spread`` publishes it — 13.3 m at KASE's
+    ``unit:108``), so nothing is fitted here.
+
+    THE ORIGIN PLANE ``p0`` is the base plane whose polygon contains the
+    unit's seat point ``seat_xz`` (the §16g datum sample centre), else the
+    LARGEST base plane; it is returned FIRST and
+    :attr:`BaseProfile.offsets` is read against it.
+
+    WHY THE COMPOSITION MATTERS AND IS NOT COSMETIC (§0 fact 10, the
+    HECA T3 risk the spec pre-registers): a member's own read cannot see
+    supports that live in a SIBLING member, so a hall's upper floor reads
+    STEPPED per member and must read ROOF once composed.  Pass the
+    unit's composed lower solid vertices as ``lower_pts`` ``(n, 3)`` and
+    the roof test is RE-RUN here against them; omit it and the members'
+    own verdicts stand (the per-member UPPER BOUND, which is what a
+    dry report reads).
+
+    A unit with no base plane keeps today's law exactly: the composed
+    verdict is the single member's where there is one, else FEET.
+    """
+    from shapely import affinity
+    moved: list[BasePlane] = []
+    feet = 0
+    low = None
+    sloped: list[tuple[BaseProfile, tuple[float, float, float]]] = []
+    for prof, (dx, dy, dz) in parts:
+        feet += int(prof.feet)
+        fy = float(prof.feet_y) + float(dy)
+        low = fy if low is None else min(low, fy)
+        if prof.verdict == SLOPED:
+            sloped.append((prof, (dx, dy, dz)))
+        for p in prof.planes:
+            moved.append(BasePlane(
+                float(p.y) + float(dy), p.area_m2,
+                affinity.translate(p.polygon, xoff=float(dx), yoff=float(dz)),
+                p.support_fraction, p.trimmed_m2))
+    if not moved:
+        # no member carried a base plane: the unit keeps today's law.  A
+        # single SLOPED member's gradient is the unit's (its frame is the
+        # unit's, the offsets being translations only).
+        if len(sloped) == 1 and len(parts) >= 1:
+            prof = sloped[0][0]
+            return _dc.replace(prof, feet=feet, feet_y=float(low or 0.0),
+                               why=prof.why + " (composed: one sloped member)")
+        if len(parts) == 1:
+            prof = parts[0][0]
+            return _dc.replace(prof, feet=feet, feet_y=float(low or 0.0))
+        return BaseProfile(FEET, feet=feet, feet_y=float(low or 0.0),
+                           why=f"{len(parts)} member(s), no base plane")
+    # §1 (3): the roof test RE-RUN on the composed unit, where the caller
+    # gave us the unit's own lower geometry (the HECA T3 case)
+    if lower_pts is not None and roof_support_fraction > 0.0:
+        used = np.arange(int(np.asarray(lower_pts).shape[0]))
+        pts = np.asarray(lower_pts, dtype=float)
+        moved = [q for q in
+                 (_roof_test(pts, used, p, contact_band_m,
+                             min_distinct_spacing_m, pad_frontage_m,
+                             roof_support_fraction) for p in moved)
+                 if q is not None]
+    moved.sort(key=lambda q: -q.area_m2)
+    moved = _weld_risers(moved, pad_terrace_floor_m, pad_frontage_m)
+    if not moved:
+        return BaseProfile(FEET, feet=feet, feet_y=float(low or 0.0),
+                           why="every composed plane read as a roof")
+    moved = _origin_first(moved, seat_xz)
+    verdict = STEPPED if len(moved) >= 2 else FLAT
+    return BaseProfile(verdict, tuple(moved), tuple(_risers(moved, pad_frontage_m)),
+                       feet=feet, feet_y=float(low or 0.0),
+                       why=f"composed from {len(parts)} member(s): "
+                           f"{len(moved)} base plane(s)")
+
+
+def _origin_first(planes: list[BasePlane],
+                  seat_xz: "tuple[float, float] | None") -> list[BasePlane]:
+    """§1 (3): the ORIGIN PLANE ``p0`` first — the plane whose polygon
+    CONTAINS the unit's seat point, else the largest (``planes`` arrives
+    sorted by area, so the fallback is already in place)."""
+    if seat_xz is None or not planes:
+        return planes
+    from shapely.geometry import Point
+    pt = Point(float(seat_xz[0]), float(seat_xz[1]))
+    for i, p in enumerate(planes):
+        try:
+            hit = bool(p.polygon.covers(pt))
+        except Exception:
+            hit = False
+        if hit:
+            return [planes[i]] + [q for k, q in enumerate(planes) if k != i]
+    return planes
+
+
+def _floor_fraction(v: np.ndarray, tris: np.ndarray, horiz: np.ndarray,
+                    areas: np.ndarray, ymean: np.ndarray, foot_pts: np.ndarray,
+                    low: float, contact_band_m: float) -> float:
+    """§1 (2) narrowed (see :func:`base_profile`): the share of the FEET
+    set's plan convex hull covered by HORIZONTAL FACE AREA at the contact
+    band — "does this contact set have a FLOOR, or only feet?".
+
+    0.0 where there are fewer than three feet (no hull to cover)."""
+    if foot_pts.shape[0] < 3:
+        return 0.0
+    from shapely.geometry import MultiPoint
+    hull = MultiPoint([(float(a), float(b))
+                       for a, b in zip(foot_pts[:, 0], foot_pts[:, 2])]).convex_hull
+    ha = float(getattr(hull, "area", 0.0))
+    if ha <= 0.0:
+        return 0.0
+    at_feet = horiz & (ymean <= low + contact_band_m)
+    if not at_feet.any():
+        return 0.0
+    return float(areas[at_feet].sum()) / ha

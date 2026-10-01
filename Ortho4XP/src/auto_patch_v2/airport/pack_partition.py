@@ -65,6 +65,7 @@ from . import contact as _contact
 from . import deck_signature as _deck
 from . import line_object as _line
 from . import obj8 as _obj8
+from . import obj8_grade as _obj8_grade
 from . import scatter as _scatter
 from . import skirt as _skirt
 from .pack import live_path_of
@@ -435,6 +436,16 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
     # Naming the tail is not a style choice: it is the only spelling a
     # future insertion cannot break.  ``tests/auto_patch_v2/test_v2settle
     # .py`` twins it.
+    # THE BASE PROFILE (base-profile spec §1 (4); owner RULINGS 2026-10-01f)
+    # — read HERE because this is the one place a member is built with the
+    # ``ResourceCache`` and the ``Law`` both in hand.  ``cache.base_profile``
+    # MEMOISES per resource (``self.base``), so this is one O(triangles)
+    # pass per RESOURCE and not per placement: the 13bp lesson (VHHH paid
+    # 2,626 s re-clipping 785 resources once per each of 5,078 placements)
+    # is why the memo, not the call site, carries the cost.  Published as
+    # the codec's dict so the planar stage and
+    # ``obj8_split_report --base-profile`` read ONE record (§6's STOP).
+    base_prof = _obj8_grade.profile_to_json(cache.base_profile(o.resolved, law))
     member = Member(id=o.id, resource=rel, authored_path=o.resolved,
                     live_path=live_path_of(o.resolved),
                     heading_deg=o.heading_deg, parts=(),
@@ -443,7 +454,7 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                     deck_end_stations=(), deck_profile=(), deck_evidence=(),
                     deck_stations=(), plate_y=None, plate_stations=(),
                     skirted=skirted, elevated_deck=deck_body,
-                    scatter=is_scatter)
+                    scatter=is_scatter, base_profile=base_prof)
     return member, (o, geom, list(comps)), bool(is_line)
 
 

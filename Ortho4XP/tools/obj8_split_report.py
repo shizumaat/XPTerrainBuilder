@@ -531,6 +531,132 @@ def feet_in_unit_lines(rep: dict) -> list[str]:
     return out
 
 
+def base_profile_report(plan, *, pad_terrace_floor_m: float,
+                        pad_frontage_m: float,
+                        filter_sub: str = "") -> dict:
+    """§1 (4) / §7 step 3 THE BASE-PROFILE READ, off the PLAN — the
+    ``--base-profile`` report (spec §3 C21).
+
+    IT RE-DERIVES NOTHING.  Every profile printed here is the record the
+    pack read already published on ``Member.base_profile``
+    (``obj8.ResourceCache.base_profile`` -> ``obj8_grade.profile_to_json``),
+    decoded through the SAME codec the planar stage decodes with.  §6's
+    STOP list names the alternative outright — *"any ``--base-profile``
+    read that disagrees with the planar stage's published planes (two
+    readers of one law)"* — and a second derivation here is the
+    census-wrapper defect (RULINGS 2026-08-30l) in a reporting tool.  A
+    plan written before the read (version < 11) therefore reports FEET
+    with no plane and SAYS SO, rather than quietly reading the OBJ again.
+
+    The two thresholds the roll-up needs are PASSED IN from their own
+    existing law keys by the caller (``[terrace] pad_terrace_floor_m``
+    the riser weld floor, ``[seam] pad_frontage_m`` the adjacency
+    reach) — this tool holds no copy of a law number, as
+    ``obj8_grade.base_profile`` holds none.
+
+    THE UNIT ROLL-UP IS THE VERTICAL-ONLY DRY READ, and is labelled as
+    such in every line and in the JSON (``composition: "vertical_only"``).
+    §1 (3)'s composition folds the members of one §16g unit through the
+    §16c contact graph's offsets AND re-runs the roof test on the composed
+    unit; this tool has the plan's authored floors (an exact ``Δy`` per
+    member) but applies neither each member's heading nor its plan
+    translation, and passes no ``lower_pts``.  So the roll-up is the
+    PER-MEMBER UPPER BOUND that §1 (3) and §0 fact 10 name as "what a dry
+    report reads": a unit of ONE member is EXACT, and a multi-member unit
+    may read a plane here that the composed unit will call a ROOF (the
+    HECA T3 risk §5 A5 pre-registers).  The §16g composition belongs to
+    the planar stage, which has the affines; it is NOT reproduced here.
+    """
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "src"))
+    from auto_patch_v2.airport import obj8_grade as _bg
+
+    units: list[dict] = []
+    tally: dict[str, int] = {}
+    for u in plan.units:
+        mems = []
+        for m in u.members:
+            if filter_sub and filter_sub not in str(m.resource):
+                continue
+            prof = _bg.profile_from_json(m.base_profile)
+            tally[prof.verdict] = tally.get(prof.verdict, 0) + 1
+            mems.append({
+                "id": m.id, "resource": m.resource,
+                "heading_deg": float(m.heading_deg),
+                "verdict": prof.verdict, "line": prof.line(),
+                "planes": [{"y": float(pl.y), "area_m2": float(pl.area_m2),
+                            "support_fraction": float(pl.support_fraction),
+                            "trimmed_m2": float(pl.trimmed_m2)}
+                           for pl in prof.planes],
+                "offsets": [float(o) for o in prof.offsets],
+                "risers": [[r.a, r.b, float(r.dy)] for r in prof.risers],
+                "slope": [float(prof.slope[0]), float(prof.slope[1])],
+                "residual_rms_m": float(prof.residual_rms_m),
+                "feet": int(prof.feet), "feet_y": float(prof.feet_y),
+                "floor_fraction": float(prof.floor_fraction),
+                "published": bool(m.base_profile),
+                "why": prof.why})
+        if not mems:
+            continue
+        # the VERTICAL-ONLY roll-up: each member's authored floor is its
+        # exact Delta-y into the unit (the same reading PlanCluster.floors
+        # takes, §16g (10) (1)), and nothing else is applied.
+        floors = [min((pt.base_y for pt in mm.parts), default=0.0)
+                  for mm in u.members
+                  if not filter_sub or filter_sub in str(mm.resource)]
+        y0 = min(floors) if floors else 0.0
+        parts = [(_bg.profile_from_json(mm.base_profile),
+                  (0.0, float(min((pt.base_y for pt in mm.parts), default=0.0) - y0), 0.0))
+                 for mm in u.members
+                 if not filter_sub or filter_sub in str(mm.resource)]
+        comp = _bg.compose_profiles(
+            parts, pad_terrace_floor_m=float(pad_terrace_floor_m),
+            pad_frontage_m=float(pad_frontage_m))
+        units.append({
+            "unit": u.id, "members": mems,
+            "composition": "vertical_only",
+            "exact": len(mems) == 1,
+            "verdict": comp.verdict, "line": comp.line(),
+            "planes": [{"y": float(pl.y), "area_m2": float(pl.area_m2)}
+                       for pl in comp.planes],
+            "offsets": [float(o) for o in comp.offsets],
+            "risers": [[r.a, r.b, float(r.dy)] for r in comp.risers]})
+    return {"units": units, "verdicts": tally,
+            "plane_pads_expected": sum(max(0, len(x["planes"])) for x in units),
+            "composition": "vertical_only",
+            "note": ("the unit roll-up is the PER-MEMBER UPPER BOUND (spec "
+                     "SS1 (3)): no heading, no plan translation, no "
+                     "lower_pts, so the roof test is NOT re-run on the "
+                     "composed unit -- a one-member unit is exact")}
+
+
+def base_profile_lines(rep: dict, top: int = 15) -> list[str]:
+    """The printed form.  A unit is shown with its roll-up line and every
+    member under it; ``~`` marks a roll-up that is NOT exact (more than
+    one member, so the composition is owed to the planar stage)."""
+    tally = ", ".join(f"{k} {v}" for k, v in sorted(rep["verdicts"].items()))
+    out = [f"  base profile: {tally or '(no member read)'}",
+           f"  roll-up: {rep['composition']} ({rep['note']})"]
+    stepped = [u for u in rep["units"] if u["verdict"] == "stepped"]
+    sloped = [u for u in rep["units"] if u["verdict"] == "sloped"]
+    out.append(f"  units {len(rep['units'])}  stepped {len(stepped)}  "
+               f"sloped {len(sloped)}  planes total {rep['plane_pads_expected']}")
+    order = sorted(rep["units"],
+                   key=lambda u: (-len(u["planes"]), -max(
+                       (p["area_m2"] for p in u["planes"]), default=0.0)))
+    for u in order[:top]:
+        mark = " " if u["exact"] else "~"
+        out.append(f"  {mark}{u['unit']}: {u['line']}"
+                   + (f"  offsets {['%+.2f' % o for o in u['offsets']]}"
+                      if len(u["offsets"]) > 1 else ""))
+        for m in u["members"]:
+            flag = "" if m["published"] else "  (plan predates the base read)"
+            out.append(f"      {os.path.basename(m['resource'])}: "
+                       f"{m['line']}{flag}")
+    return out
+
+
 def admit_skipped(plan, pack_root: str, dsftool: str | None,
                   elevated_base_m: float, foot_band_m: float,
                   thickness_m: float):
@@ -985,6 +1111,18 @@ def _main() -> int:
                     "footprint), and with @LAT,LON[,R] (R default 60 m) the "
                     "feet within R of the site — a projection of the SAME "
                     "census pass (repeatable)")
+    ap.add_argument("--base-profile", action="store_true",
+                    help="building-base-profile spec §1 (4) / §7 step 3 (C21): "
+                    "per unit and per member the BASE PROFILE the pack read "
+                    "published — the verdict (flat/stepped/sloped/feet), the "
+                    "base planes with their areas and offsets, the risers, and "
+                    "a sloped base's own gradient. Re-derives NOTHING: it "
+                    "decodes Member.base_profile through the same codec the "
+                    "planar stage decodes with (§6's STOP: two readers of one "
+                    "law). The unit roll-up is the VERTICAL-ONLY dry read — "
+                    "the per-member upper bound §1 (3) names — so a unit of "
+                    "one member is exact and a multi-member unit may lose a "
+                    "plane to the roof test once the planar stage composes it")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
@@ -1019,6 +1157,20 @@ def _main() -> int:
     if not a.graded:
         ap.error("--graded is required")
     plan, abut = PP.read_plan(a.plan)
+    bp_rep = None
+    if a.base_profile:
+        # §1 (4) / §7 step 3: the PLAN's own published read.  Nothing is
+        # cut, no surface is sampled, no OBJ is re-read — so this runs
+        # before the census and works on a plan alone.
+        bp_rep = base_profile_report(
+            plan,
+            pad_terrace_floor_m=_law.tables.emit.terrace.pad_terrace_floor_m,
+            pad_frontage_m=_law.tables.emit.design.pad_frontage_m,
+            filter_sub=a.filter)
+        print("\nBASE PROFILE (base-profile spec §1 (4), the plan's own "
+              "published read — §7 step 3's control):")
+        for line in base_profile_lines(bp_rep, top=a.top):
+            print(line)
     sampler, pads, rims = surface_from_graded(a.graded, tol_m)
     if a.admit_skipped:
         plan, n_rows, n_res = admit_skipped(
@@ -1402,6 +1554,8 @@ def _main() -> int:
             out["feet_in"] = cen["feet_in"]
         if cp is not None:
             out["contact_pairs"] = cp
+        if bp_rep is not None:
+            out["base_profile"] = bp_rep
         json.dump(out, open(a.json, "w", encoding="utf-8"))
         print(f"report -> {a.json}")
     return 0

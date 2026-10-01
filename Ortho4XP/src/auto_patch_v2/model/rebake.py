@@ -399,6 +399,16 @@ class RebakePlan:
         # with no plane — §1 (3)'s "a unit with no base plane keeps
         # today's law exactly", so an owner's older plan still replays
         # with the pre-base-read seat.
+        #
+        # WHAT THE BUMP COSTS, STATED: the accepted window is a rolling
+        # four (``PLAN_VERSION - 3``), so 11 RETIRES version 7 — a v7
+        # plan (``Part.line``, 2026-09-10bb) no longer replays offline.
+        # The base profile is purely ADDITIVE and changes no field the
+        # seat reads, so widening the window to ``- 4`` would keep v7
+        # alive and lose nothing; the rolling four is kept here because
+        # every previous bump retired its oldest the same way.  REPORTED
+        # for the owner's ruling (lane ``basepads1``), not decided: if a
+        # v7 owner plan is still wanted for replay this is the one line.
         # Version 10 is version 9 plus ``Member.deck_shade_ring`` /
         # ``deck_pier_ratio`` (issue #14): a v9 plan reads with both None
         # and mints as it did.  Version 9 is version 8 plus

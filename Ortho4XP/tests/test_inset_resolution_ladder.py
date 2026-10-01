@@ -900,3 +900,162 @@ def test_partial_rung_zero_stands_when_no_same_resolution_rung_covers(
     assert INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP",
                                  BOX)["result"] == "unchanged"
     assert calls["discover"] == ["FAKE3DEP:1"]
+
+
+# ---------------------------------------------------------------------
+# GLOBAL ASSEMBLY (spec us-holder-providers §1, RULINGS 2026-09-30bm):
+# every ``ladder_member=True`` provider whose coverage box reaches the
+# airport box joins the ladder; no hand ``provider:`` line.
+# ---------------------------------------------------------------------
+#: Airport boxes (ARP +- ~2 km) of the five controls and three holders.
+CONTROL_BOXES = {
+    "HECA": (31.38, 30.10, 31.43, 30.14),
+    "KCLT": (-80.97, 35.19, -80.92, 35.24),
+    "SPJC": (-77.13, -12.04, -77.09, -12.00),
+    "CYXY": (-135.09, 60.69, -135.05, 60.73),
+    "KASE": BOX,
+}
+KRDU_BOX = (-78.81, 35.85, -78.76, 35.90)
+KGRK_BOX = (-97.84, 31.04, -97.80, 31.09)
+
+
+def _codes(rungs):
+    return [(label, definition["code"]) for (label, definition) in rungs]
+
+
+def test_global_members_join_only_inside_their_box():
+    providers = INSETS.initialize_elevation_providers_dict()
+    usgs = providers["USGS3DEP"]
+    chain = _codes(INSETS._ladder_rung_definitions(usgs))
+    # KRDU: NCPHASE3 (0.9525 m, boxed to NC) sorts after the pinned
+    # USGS 1 m and before every 1 m / 3 m rung; no other holder joins.
+    krdu = _codes(INSETS._ladder_rung_definitions(usgs, KRDU_BOX))
+    assert krdu == [chain[0], ("NCPHASE3", "NCPHASE3")] + chain[1:]
+    # KGRK: TEXAS1M (1 m, priority 90) ties the chain's 1 m rungs and
+    # sorts AFTER them ("USGS when USGS has it": the chain sorts as
+    # USGS3DEP 100), before the 3 m rung.
+    kgrk = _codes(INSETS._ladder_rung_definitions(usgs, KGRK_BOX))
+    assert kgrk == chain[:4] + [("TEXAS1M", "TEXAS1M")] + chain[4:]
+    assert [code for (_l, code) in kgrk[1:4]] == [
+        "PITKIN1M", "USGSOPR", "USGSLPC"]
+    # The controls: no member's box reaches them -- the rung list is the
+    # chain's, unchanged (KASE: PITKIN1M stays rung 1).
+    for icao, box in CONTROL_BOXES.items():
+        assert _codes(INSETS._ladder_rung_definitions(usgs, box)) == chain, \
+            icao
+    assert chain[1] == ("Pitkin County 2016 lidar", "PITKIN1M")
+
+
+def test_member_needs_the_key_a_box_and_enabled(monkeypatch):
+    chain = {"code": "ROOT", "priority": 100.0, "native_resolution_m": 1.0,
+             "resolution_ladder_rungs": INSETS._parse_resolution_ladder(
+                 "3|three|u3;10|ten|u10")}
+    def member(code, **keys):
+        definition = {"code": code, "role": INSETS.ROLE_AIRPORT_INSET,
+                      "enabled": True, "priority": 90.0,
+                      "native_resolution_m": 2.0, "ladder_member": True,
+                      "coverage_bboxes": [(0.0, 0.0, 1.0, 1.0)]}
+        definition.update(keys)
+        return definition
+    registry = {
+        "ROOT": chain,
+        "INBOX": member("INBOX"),
+        "FAR": member("FAR", coverage_bboxes=[(50.0, 50.0, 51.0, 51.0)]),
+        "NOBOX": member("NOBOX", coverage_bboxes=[]),
+        "OFF": member("OFF", enabled=False),
+        "NOTMEMBER": member("NOTMEMBER", ladder_member=False),
+        "BASE": member("BASE", role="base"),
+        "FINEHIGH": member("FINEHIGH", native_resolution_m=1.0,
+                           priority=200.0),
+    }
+    monkeypatch.setattr(INSETS, "elevation_providers_dict", registry)
+    rungs = INSETS._ladder_rung_definitions(chain, (0.2, 0.2, 0.3, 0.3))
+    assert [d["code"] for (_l, d) in rungs] == [
+        "ROOT", "FINEHIGH", "INBOX", "ROOT", "ROOT"]
+    assert [d.get("native_resolution_m") for (_l, d) in rungs] == [
+        1.0, 1.0, 2.0, 3.0, 10.0]
+    # Outside every member box: the chain alone, in file order.
+    rungs = INSETS._ladder_rung_definitions(chain, (5.0, 5.0, 6.0, 6.0))
+    assert [label for (label, _d) in rungs] == [
+        "1 m", "three", "ten"]
+
+
+@requires_gdal
+def test_member_rung_delivers_and_out_of_box_member_is_no_row(
+        tmp_path, two_providers):
+    plan, calls, chain, _other, _raise = two_providers
+    holder = {"code": "FAKEHOLD", "access_strategy": OTHER_STRATEGY,
+              "role": INSETS.ROLE_AIRPORT_INSET, "enabled": True,
+              "priority": 0.25, "native_resolution_m": 2.0,
+              "ladder_member": True,
+              "coverage_bboxes": [(-107.0, 39.0, -106.5, 39.5)]}
+    INSETS.elevation_providers_dict["FAKEHOLD"] = holder
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKEPIT": {"unavailable": "laspy missing"},
+                 "FAKE3DEP:2": {"valid": 1.0, "listing": ["H1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0,
+                                    str(tmp_path / "KASE_fake3dep.tif"),
+                                    resolution_ladder=True)
+    ladder = provenance["ladder"]
+    assert ladder["delivered_provider"] == "FAKEHOLD"
+    assert ladder["delivered_rung"] == 2
+    assert [(r["provider"], r["outcome"]) for r in ladder["rungs_tried"]] \
+        == [("FAKE3DEP", "below-threshold"), ("FAKEPIT", "unavailable"),
+            ("FAKEHOLD", "delivered")]
+    # Outside the member's box: no row and no call -- unlike the
+    # explicit FAKEPIT line, which keeps its out-of-coverage row.
+    calls["fetch"].clear()
+    madrid = (-3.6, 40.4, -3.5, 40.5)
+    provenance = INSETS.fetch_inset(chain, madrid, 1.0,
+                                    str(tmp_path / "LEMD_fake3dep.tif"),
+                                    resolution_ladder=True)
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKE3DEP:10"]
+    assert [r["provider"] for r in provenance["ladder"]["rungs_tried"]] == [
+        "FAKE3DEP", "FAKEPIT", "FAKE3DEP"]
+
+
+@requires_gdal
+def test_recheck_asks_a_global_member(two_providers):
+    """An inset the 10 m rung delivered re-asks the finer global member's
+    discovery too: a holder product listed later is a new listing."""
+    plan, calls, chain, _other, _raise = two_providers
+    INSETS.elevation_providers_dict["FAKEHOLD"] = {
+        "code": "FAKEHOLD", "access_strategy": OTHER_STRATEGY,
+        "role": INSETS.ROLE_AIRPORT_INSET, "enabled": True,
+        "priority": 0.25, "native_resolution_m": 2.0, "ladder_member": True,
+        "coverage_bboxes": [(-107.0, 39.0, -106.5, 39.5)]}
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"valid": None, "listing": []},
+                 "FAKE3DEP:2": {"valid": None, "listing": []},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert _sidecar()["ladder"]["delivered_rung"] == 3
+    plan["FAKE3DEP:2"] = {"valid": 1.0, "listing": ["H2025"]}
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert recheck["result"] == "new-listing"
+    assert recheck["new_source_ids"] == ["H2025"]
+    assert 2 in recheck["rungs_checked"]
+
+
+def test_surround_never_takes_a_polygon_post_portal():
+    assert not INSETS._rung_can_be_surround(
+        {"access_strategy": "aoi_zip_download"})
+    assert INSETS._rung_can_be_surround({"access_strategy": "direct_cog"})
+
+
+def test_rung_row_records_units_and_bytes(tmp_path):
+    """Spec §1/§2: a rung row names the source unit, the unit the cells
+    were converted to, and the bytes fetched; a pre-key rung gains no
+    key."""
+    attempt = {}
+    INSETS._record_rung_units_and_bytes(
+        attempt, {"vertical_unit_source": "ftUS",
+                  "vertical_unit_applied": "m", "bytes_fetched": 41},
+        str(tmp_path / "absent.tif"))
+    assert attempt == {"vertical_unit_source": "ftUS",
+                       "vertical_unit_applied": "m", "bytes_fetched": 41}
+    attempt = {}
+    INSETS._record_rung_units_and_bytes(
+        attempt, {"vertical_unit_source": []}, str(tmp_path / "absent.tif"))
+    assert attempt == {}

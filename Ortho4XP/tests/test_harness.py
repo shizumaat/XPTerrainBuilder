@@ -3021,7 +3021,7 @@ def test_ladder_recheck_new_listing_is_a_refreshable_refusal(build_mod,
         def initialize_elevation_providers_dict(self):
             return {"USGS3DEP": {"code": "USGS3DEP"}}
 
-        def _ladder_rung_definitions(self, definition):
+        def _ladder_rung_definitions(self, definition, bounding_box=None):
             return [("1 m", {"access_strategy": "tnm_cog"}),
                     ("county", {"access_strategy": "las_tile_index"})]
 

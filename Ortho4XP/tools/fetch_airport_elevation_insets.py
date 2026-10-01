@@ -48,6 +48,28 @@ Options:
                               over it and surgical LAS fetches cut to it
                               (#153; without it they see the whole box).
 
+WITNESS MODE (``--witness ICAO``, promoted 2026-09-30 from the aoi154 /
+opr153 / tx154 scratch ``witness.py`` scripts on their second use, RULINGS
+``7e90032``): the airport box comes from apt.dat instead of ``--bbox`` --
+THE apt.dat serving the ICAO (``engine_v2.select_apt_dat``, the one
+selector; ``--apt-dat`` overrides), its aerodrome footprint (runway ends +
+pavement nodes + 130 boundary rings, the gap census's ``footprint``) as the
+production ``footprint_polygon``, and the inset box = the footprint's box
+plus ``airport_elevation_inset_margin_m``.  The fetch is the production
+chain above (``--provider`` as usual: ``auto`` runs the USGS3DEP ladder
+with its global members, a code pins one provider), run under an ARMED
+shared-repo write guard into ``--elevation-data-dir`` (required: a witness
+never writes the shared corpus).  It prints ONE record: delivered provider
+/ rung, native and stored resolution, box-wide valid fraction,
+``airport_valid_fraction`` over the footprint box, bytes fetched, wall
+time, the vertical-unit keys, the ARP-disc median vs the apt.dat field
+elevation (``build_airport.inset_arp_sanity_record``, the harness's own
+check), the inset read at every runway end, and every ladder rung row;
+``--witness-json PATH`` also writes it.
+
+    venv/bin/python tools/fetch_airport_elevation_insets.py --witness KRDU \\
+        --elevation-data-dir tmp/LANE/Elevation_data --refresh
+
 Examples:
     # Nashville (KBNA), tile +36-087, a box around the water-treatment shelf:
     venv/bin/python tools/fetch_airport_elevation_insets.py \\
@@ -100,18 +122,270 @@ def _parse_bounding_box(text):
     return tuple(float(part) for part in parts)
 
 
+#: The disc read at each runway end in witness mode: about one runway
+#: half-width, so the read is the threshold's own pavement, not the strip.
+RUNWAY_END_DISC_RADIUS_M = 15.0
+
+
+def _harness_module():
+    """``tools/harness/build_airport.py`` -- the ARP sanity check, the
+    apt.dat selector's install root and the guard arming live there."""
+    harness = os.path.join(_TOOLS_DIRECTORY, "harness")
+    if harness not in sys.path:
+        sys.path.insert(0, harness)
+    import build_airport
+
+    return build_airport
+
+
+def _census_module():
+    """``tools/elevation_gap_census.py`` -- the apt.dat airport reader and
+    the aerodrome footprint (one parser for the census and the witness)."""
+    if _TOOLS_DIRECTORY not in sys.path:
+        sys.path.insert(0, _TOOLS_DIRECTORY)
+    import elevation_gap_census
+
+    return elevation_gap_census
+
+
+def apt_dat_airport(apt_dat_path, icao, scratch_dir):
+    """``(footprint_polygon, runway_ends)`` for ``icao`` from the ONE apt.dat
+    block that serves it, or ``None``.  The block is read with the
+    engine's reader and parsed by the gap census's ``iter_airports`` (one
+    parser); the footprint is the census's ``footprint`` at zero buffer;
+    ``runway_ends`` is ``[(name, lat, lon)]`` from every row 100."""
+    from auto_patch.apt_dat_reader import _read_airport_block
+
+    block = _read_airport_block(apt_dat_path, icao)
+    if not block:
+        return None
+    census = _census_module()
+    os.makedirs(scratch_dir, exist_ok=True)
+    block_path = os.path.join(scratch_dir, "%s.apt.dat" % icao.upper())
+    with open(block_path, "w", newline="\n") as handle:
+        handle.write("\n".join(line.rstrip("\n") for line in block) + "\n")
+    airport = next(iter(census.iter_airports(block_path)), None)
+    if airport is None or not (airport.pts or airport.boundary):
+        return None
+    ends = []
+    for line in block:
+        columns = line.split()
+        if columns[:1] == ["100"] and len(columns) >= 20:
+            ends.append((columns[8], float(columns[9]), float(columns[10])))
+            ends.append((columns[17], float(columns[18]),
+                         float(columns[19])))
+    polygon = census.footprint(airport, 0.0)
+    if polygon.is_empty:
+        # A runway-only block: its hull is a line.  The narrowest real
+        # footprint is the runway itself.
+        polygon = census.footprint(airport, RUNWAY_END_DISC_RADIUS_M)
+    return (polygon, ends)
+
+
+def witness_record(inset_path, apt_dat_path, icao, footprint_polygon,
+                   runway_ends, wall_s):
+    """THE WITNESS RECORD (pure: an inset, its sidecar and the apt.dat in;
+    one dict out) -- what every holder-provider lane quoted per airport."""
+    harness = _harness_module()
+    sidecar = os.path.splitext(inset_path)[0] + ".json"
+    try:
+        with open(sidecar) as handle:
+            provenance = json.load(handle)
+    except (OSError, ValueError):
+        provenance = {}
+    ladder = provenance.get("ladder") or {}
+    footprint_box = tuple(footprint_polygon.bounds)
+    record = {
+        "icao": icao,
+        "inset": inset_path,
+        "provider": provenance.get("provider"),
+        "delivered_provider": ladder.get("delivered_provider"),
+        "delivered_rung": ladder.get("delivered_rung"),
+        "delivered_label": ladder.get("delivered_label"),
+        "native_resolution_m": provenance.get("native_resolution_m"),
+        "resolution_m": provenance.get("resolution_m"),
+        "valid_fraction": round(INSETS.inset_valid_fraction(inset_path), 6),
+        "airport_valid_fraction": round(
+            INSETS.raster_valid_fraction_in_box(inset_path, footprint_box),
+            6),
+        "footprint_box": [round(value, 6) for value in footprint_box],
+        "bytes_fetched": provenance.get("bytes_fetched"),
+        "wall_s": None if wall_s is None else round(wall_s, 1),
+        "vertical_unit_source": provenance.get("vertical_unit_source"),
+        "vertical_unit_applied": provenance.get("vertical_unit_applied"),
+        "surround": provenance.get("surround"),
+        "arp_sanity": harness.inset_arp_sanity_record(
+            [inset_path], apt_dat_path, icao),
+        "runway_ends": [],
+        "rungs": [
+            {key: row.get(key) for key in (
+                "rung", "label", "provider", "role", "native_resolution_m",
+                "outcome", "valid_fraction", "airport_valid_fraction",
+                "vertical_unit_source", "vertical_unit_applied",
+                "bytes_fetched", "unavailable_reason", "transient_reason")
+             if row.get(key) is not None}
+            for row in ladder.get("rungs_tried") or ()],
+    }
+    for (name, latitude, longitude) in runway_ends:
+        (median, cells) = harness._inset_disc_median_m(
+            inset_path, latitude, longitude, RUNWAY_END_DISC_RADIUS_M)
+        record["runway_ends"].append({
+            "end": name, "lat": latitude, "lon": longitude, "cells": cells,
+            "inset_m": None if median is None else round(median, 3)})
+    return record
+
+
+def _print_witness(record):
+    arp = record["arp_sanity"]
+    worst = [entry.get("delta_m") for entry in arp.get("insets") or ()
+             if entry.get("delta_m") is not None]
+    print("\nWITNESS %s" % record["icao"])
+    print("  delivered      %s (rung %s '%s'), provider record %s"
+          % (record["delivered_provider"], record["delivered_rung"],
+             record["delivered_label"], record["provider"]))
+    print("  resolution     native %s m, stored %s m"
+          % (record["native_resolution_m"], record["resolution_m"]))
+    print("  cover          box valid %.4f, airport valid %.4f"
+          % (record["valid_fraction"], record["airport_valid_fraction"]))
+    print("  vertical unit  source %s, applied %s"
+          % (record["vertical_unit_source"],
+             record["vertical_unit_applied"]))
+    print("  bytes / wall   %s / %s s"
+          % (record["bytes_fetched"], record["wall_s"]))
+    print("  ARP sanity     %s: field %s m, inset disc delta %s m"
+          % (arp.get("status"), arp.get("field_elevation_m"),
+             worst[0] if worst else arp.get("why")))
+    for end in record["runway_ends"]:
+        print("  runway end %-4s %s m (%d cells)"
+              % (end["end"], end["inset_m"], end["cells"]))
+    for row in record["rungs"]:
+        print("  rung %s %-34s %-10s %-16s valid %s airport %s unit %s/%s"
+              % (row.get("rung"), "%s [%s]" % (row.get("label"),
+                                               row.get("provider")),
+                 row.get("role") or "", row.get("outcome"),
+                 row.get("valid_fraction"),
+                 row.get("airport_valid_fraction"),
+                 row.get("vertical_unit_source"),
+                 row.get("vertical_unit_applied")))
+
+
+def run_witness(arguments) -> int:
+    """``--witness ICAO``: the production fetch over the apt.dat airport,
+    lane-local and guarded; prints and optionally writes the record."""
+    import time
+
+    import O4_Cfg_Vars
+
+    icao = arguments.witness.upper()
+    if not arguments.elevation_data_dir:
+        print("ERROR: --witness needs --elevation-data-dir (a witness never "
+              "writes the shared corpus).")
+        return 2
+    harness = _harness_module()
+    apt_dat = arguments.apt_dat
+    if not apt_dat:
+        from auto_patch.engine_v2 import select_apt_dat
+
+        apt_dat = select_apt_dat(harness._owner_xplane_root(), icao)
+    if not apt_dat:
+        print("ERROR: no apt.dat serves", icao)
+        return 2
+    scratch = os.path.join(FNAMES.Elevation_dir, "_witness")
+    airport = apt_dat_airport(apt_dat, icao, scratch)
+    if airport is None:
+        print("ERROR: %s has no airport block / footprint in %s"
+              % (icao, apt_dat))
+        return 2
+    (polygon, runway_ends) = airport
+    (west, south, east, north) = polygon.bounds
+    margin = (arguments.margin_m if arguments.margin_m is not None
+              else O4_Cfg_Vars.cfg_tile_vars[
+                  "airport_elevation_inset_margin_m"]["default"])
+    latitude = (south + north) / 2.0
+    margin_lon = margin / INSETS.GEO.lon_to_m(latitude)
+    margin_lat = margin / INSETS.GEO.lat_to_m
+    bounding_box = (west - margin_lon, south - margin_lat,
+                    east + margin_lon, north + margin_lat)
+    tile_latitude = int(math.floor(latitude))
+    tile_longitude = int(math.floor((west + east) / 2.0))
+    definitions = INSETS.select_provider_definitions(arguments.provider)
+    if not definitions:
+        print("ERROR: no airport-inset providers matched",
+              repr(arguments.provider))
+        return 2
+    print("Witness %s: apt.dat %s\n  footprint box %s\n  inset box %s\n"
+          "  providers %s" % (icao, apt_dat, polygon.bounds, bounding_box,
+                              ", ".join(d["code"] for d in definitions)))
+    guard, _redirects = harness.arm_shared_repo_protection(
+        os.path.dirname(_TOOLS_DIRECTORY), scratch, "witness_" + icao)
+    # The harness import re-applies the data root (O4_Config_Utils ->
+    # O4_File_Names.set_data_root), which points Elevation_dir back at the
+    # worktree's mounted -- SHARED -- Elevation_data.  Re-assert the
+    # lane-local root, and refuse if it still resolves into the shared
+    # repo: the warp writes through GDAL (C level), where the Python guard
+    # cannot see it (measured 2026-09-30, KRDU, two rasters).
+    FNAMES.Elevation_dir = os.path.abspath(arguments.elevation_data_dir)
+    import shared_repo_guard                   # tools/harness, on the path
+
+    shared = os.path.realpath(str(shared_repo_guard.DATA_REPO))
+    real = os.path.realpath(FNAMES.Elevation_dir)
+    if real == shared or real.startswith(shared + os.sep):
+        print("ERROR: --elevation-data-dir resolves into the shared data "
+              "repo (%s); a witness writes lane-local only." % real)
+        return 2
+    started = time.time()
+    with guard:
+        INSETS.ensure_airport_insets(
+            tile_latitude, tile_longitude, {icao: bounding_box},
+            definitions, arguments.resolution_m,
+            refresh=arguments.refresh, airport_polygons={icao: polygon})
+    wall_s = time.time() - started
+    print("[guard]", "shared repo UNCHANGED" if not guard.blocked
+          else "BLOCKED %s" % (guard.blocked,))
+    inset = next(
+        (path for path in (
+            FNAMES.airport_inset_dem(tile_latitude, tile_longitude, icao,
+                                     definition["code"])
+            for definition in definitions) if os.path.isfile(path)), None)
+    if inset is None:
+        print("\nNo inset was fetched (no provider reported coverage).")
+        return 1
+    record = witness_record(inset, apt_dat, icao, polygon, runway_ends,
+                            wall_s)
+    _print_witness(record)
+    if arguments.witness_json:
+        with open(arguments.witness_json, "w", newline="\n") as handle:
+            json.dump(record, handle, indent=1, sort_keys=True, default=str)
+    return 0 if not guard.blocked else 3
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Fetch one airport elevation inset into the cache.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--airport", required=True, help="cache-key identifier")
+    parser.add_argument("--airport", default=None,
+                        help="cache-key identifier (required without "
+                             "--witness)")
     parser.add_argument(
         "--bbox",
-        required=True,
+        default=None,
         type=_parse_bounding_box,
-        help="WEST,SOUTH,EAST,NORTH in EPSG:4326 degrees",
+        help="WEST,SOUTH,EAST,NORTH in EPSG:4326 degrees (required without "
+             "--witness)",
     )
+    parser.add_argument(
+        "--witness", default=None, metavar="ICAO",
+        help="witness mode: box + footprint from apt.dat, guarded "
+             "lane-local fetch, one summary record (see the module doc)")
+    parser.add_argument("--apt-dat", default=None,
+                        help="--witness: the apt.dat to read (default: "
+                             "the one selector's answer)")
+    parser.add_argument("--margin-m", type=float, default=None,
+                        help="--witness: inset margin beyond the footprint "
+                             "(default: airport_elevation_inset_margin_m)")
+    parser.add_argument("--witness-json", default=None,
+                        help="--witness: also write the record here")
     parser.add_argument(
         "--tile",
         default=None,
@@ -144,6 +418,11 @@ def main() -> int:
             "install them to fetch elevation insets."
         )
         return 2
+
+    if arguments.witness:
+        return run_witness(arguments)
+    if not arguments.airport or not arguments.bbox:
+        parser.error("--airport and --bbox are required without --witness")
 
     (west, south, east, north) = arguments.bbox
     if arguments.tile:

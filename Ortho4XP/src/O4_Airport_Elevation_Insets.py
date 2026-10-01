@@ -2582,10 +2582,13 @@ def _vsicurl_allowed_extensions(warp_inputs):
 
 def archive_raster_members(root, extensions, depth=0):
     """Every member of the archive (or directory) at the GDAL path
-    ``root`` whose name ends in one of ``extensions``, as full GDAL
-    paths; folders are walked two levels down (the Baden-Wuerttemberg and
-    some Texas zips nest their tiles).  The one member walk of the
-    module's archive readers (``arcgis_feature_tiles``, ``tnm_cog``)."""
+    ``root`` whose name ends in one of ``extensions`` (the suffix
+    argument: raster suffixes for the raster readers, ``.las`` for a
+    zipped point cloud), as full GDAL paths; folders are walked two levels
+    down (the Baden-Wuerttemberg and some Texas zips nest their tiles).
+    The one member walk of the module's archive readers
+    (``arcgis_feature_tiles``, ``tnm_cog``, ``las_tile_index``
+    ``archive_member=las``)."""
     for member in gdal.ReadDir(root) or []:
         entry_path = root + "/" + member
         if member.lower().endswith(tuple(extensions)):
@@ -8957,6 +8960,34 @@ LAS_FOOTPRINT_KEY = "footprint_polygon_wgs84"
 #: this many seconds apart (never silent longer).
 LAS_PROGRESS_INTERVAL_S = 30.0
 
+#: ``index_format`` of a ``las_tile_index`` provider -- where its tile
+#: listing comes from (spec us-holder-providers §3.3):
+#: an ArcGIS feature-service query (the default; PITKIN1M), the TNM Access
+#: API product listing (#153, USGSLPC), any OGR-readable index (a NOAA
+#: ``tileindex_*.gpkg``) opened over ``/vsicurl/`` with range reads, or the
+#: Colorado CWCB lidar API (the same discovery ``cwcb_lidar_api`` uses).
+LAS_INDEX_FORMAT_ARCGIS = "arcgis"
+LAS_INDEX_FORMAT_TNM = "tnm"
+LAS_INDEX_FORMAT_OGR = "ogr"
+LAS_INDEX_FORMAT_CWCB = "cwcb"
+
+#: ``index_format=ogr``: the attribute holding a tile's download URL and
+#: the one naming its file (the NOAA Digital Coast tile-index schema:
+#: ``filename``, ``srs``, ``url``).
+LAS_OGR_DEFAULT_URL_FIELD = "url"
+LAS_OGR_DEFAULT_NAME_FIELD = "filename"
+
+#: The query box is densified to this many segments a side before it is
+#: transformed into a projected index's CRS (its image there is curved).
+LAS_OGR_QUERY_DENSIFY_SEGMENTS = 16
+
+#: ``archive_member=las``: each listed tile is a ZIP holding ONE ``.las``
+#: point cloud (CWCB's 2015 Western Colorado point cloud).  The zip comes
+#: whole into the ``las_tiles`` cache, the member is extracted beside it
+#: and the zip is deleted -- the raw LAS stays, as for a plain tile.
+LAS_ARCHIVE_MEMBER_LAS = "las"
+LAS_ARCHIVE_MEMBER_SUFFIX = ".las"
+
 
 def _polygon_mapping(geometry):
     """A shapely geometry as a JSON-safe GeoJSON-like mapping."""
@@ -9522,9 +9553,20 @@ class LasTileIndexStrategy:
         core = las_core_geometry(definition)
         query_box = core.bounds if core is not None else bounding_box_wgs84
         description = "%s tile index" % definition.get("code")
-        if str(definition.get("index_format", "")).strip().lower() == "tnm":
+        index_format = _las_index_format(definition)
+        if index_format == LAS_INDEX_FORMAT_TNM:
             return self._discover_tnm(definition, query_box, core,
                                       description)
+        if index_format == LAS_INDEX_FORMAT_OGR:
+            return self._discover_ogr(definition, query_box, core,
+                                      description)
+        if index_format == LAS_INDEX_FORMAT_CWCB:
+            return self._discover_cwcb(definition, bounding_box_wgs84)
+        if index_format != LAS_INDEX_FORMAT_ARCGIS:
+            raise ProviderUnavailable(
+                "%s: index_format=%s is not one of %s"
+                % (definition.get("code"), index_format, ", ".join(
+                    _LAS_INDEX_FORMATS)))
         try:
             response = requests.get(
                 self._index_url(definition, query_box), timeout=60)
@@ -9644,6 +9686,179 @@ class LasTileIndexStrategy:
                                              source["source_id"]))
         self.last_listing = listing
         return listing or None
+
+    def _discover_ogr(self, definition, query_box, core, description):
+        """``index_format=ogr`` (spec us-holder-providers §3.3): the index
+        is any OGR-readable vector file -- a NOAA ``tileindex_*.gpkg`` --
+        opened over ``/vsicurl/`` (GDAL fetches only the byte RANGES the
+        spatial filter touches, never the whole file).  The layer is
+        filtered by the query box in the layer's own CRS, then each tile's
+        FOOTPRINT is tested against the buffered boundary polygon exactly
+        as the ArcGIS branch does.  ``index_url_field`` names a tile's
+        download URL, ``index_name_field`` its file name (the source id is
+        the name without its last extension).
+
+        An index that cannot be opened or read is no coverage answer
+        (TRANSIENT); a readable index listing no tile over the footprint
+        is the durable no-coverage."""
+        from shapely import wkb as shapely_wkb
+
+        index_url = str(definition.get("index_url", "")).strip()
+        if not index_url:
+            raise ProviderUnavailable(
+                "%s: index_format=ogr needs index_url"
+                % definition.get("code"))
+        url_field = str(definition.get(
+            "index_url_field", LAS_OGR_DEFAULT_URL_FIELD)).strip()
+        name_field = str(definition.get(
+            "index_name_field", LAS_OGR_DEFAULT_NAME_FIELD)).strip()
+        path = (index_url if index_url.startswith("/vsi")
+                or "://" not in index_url else "/vsicurl/" + index_url)
+        wgs84 = osr.SpatialReference()
+        wgs84.ImportFromEPSG(4326)
+        wgs84.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        by_name = {}
+        unusable = 0
+        try:
+            # No directory listing on open and no ``.aux.xml`` probe on
+            # close: the index's own byte ranges are the only reads.
+            with gdal.config_options({
+                    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+                    "GDAL_PAM_ENABLED": "NO"}):
+                dataset = ogr.Open(path)
+                if dataset is None or not dataset.GetLayerCount():
+                    raise RuntimeError("no vector layer at %s" % index_url)
+                layer = dataset.GetLayer(int(float(
+                    definition.get("index_layer", 0) or 0)))
+                layer_srs = layer.GetSpatialRef()
+                to_wgs84 = None
+                query = ogr.CreateGeometryFromWkt(
+                    "POLYGON ((%r %r, %r %r, %r %r, %r %r, %r %r))" % (
+                        query_box[0], query_box[1], query_box[2],
+                        query_box[1], query_box[2], query_box[3],
+                        query_box[0], query_box[3], query_box[0],
+                        query_box[1]))
+                # Densified, so a projected layer's curved image of the
+                # box still holds it: the envelope filter is what the
+                # range reads follow; the polygon test below is exact.
+                query.Segmentize(max(query_box[2] - query_box[0],
+                                     query_box[3] - query_box[1])
+                                 / LAS_OGR_QUERY_DENSIFY_SEGMENTS or 1.0)
+                if layer_srs is not None:
+                    layer_srs = layer_srs.Clone()
+                    layer_srs.SetAxisMappingStrategy(
+                        osr.OAMS_TRADITIONAL_GIS_ORDER)
+                    if not layer_srs.IsSame(wgs84):
+                        query.Transform(osr.CoordinateTransformation(
+                            wgs84, layer_srs))
+                        to_wgs84 = osr.CoordinateTransformation(
+                            layer_srs, wgs84)
+                layer.SetSpatialFilter(query)
+                layer.ResetReading()
+                for feature in layer:
+                    url = feature.GetField(url_field) if feature.GetFieldIndex(
+                        url_field) >= 0 else None
+                    name = (feature.GetField(name_field)
+                            if feature.GetFieldIndex(name_field) >= 0
+                            else None)
+                    if not url or not name:
+                        unusable += 1
+                        continue
+                    name = str(name).strip().rsplit("/", 1)[-1]
+                    stem = name.rsplit(".", 1)[0] if "." in name else name
+                    if core is not None:
+                        geometry = feature.GetGeometryRef()
+                        if geometry is None:
+                            raise RuntimeError(
+                                "feature %s carries no footprint geometry"
+                                % name)
+                        geometry = geometry.Clone()
+                        if to_wgs84 is not None:
+                            geometry.Transform(to_wgs84)
+                        footprint = shapely_wkb.loads(
+                            bytes(geometry.ExportToWkb()))
+                        if not footprint.intersects(core):
+                            continue
+                    by_name[stem] = {
+                        "source_id": stem,
+                        "title": name,
+                        "download_url": str(url).strip(),
+                        "publication_date": definition.get(
+                            "publication_date") or "",
+                    }
+                layer = None
+                dataset = None
+        except (TransientFetchError, ProviderUnavailable):
+            raise
+        except Exception as error:
+            raise_transient_discovery_failure(description, error)
+        if not by_name and unusable:
+            raise_transient_discovery_failure(
+                description,
+                "an index of %d feature(s) with no '%s'/'%s' attribute"
+                % (unusable, url_field, name_field))
+        listing = [by_name[name] for name in sorted(by_name)]
+        self.last_listing = listing
+        return listing or None
+
+    def _discover_cwcb(self, definition, bounding_box_wgs84):
+        """``index_format=cwcb``: the tile listing of the Colorado CWCB
+        lidar API -- the ONE CWCB discovery
+        (:meth:`CwcbLidarApiStrategy.discover_tiles`, the surgical polygon
+        included); each listed tile is a zip (``archive_member=las``)."""
+        sources = CwcbLidarApiStrategy().discover_tiles(
+            definition, bounding_box_wgs84)
+        listing = []
+        for source in sources or ():
+            entry = dict(source)
+            # The listing's size is the point cloud's (the zip is smaller):
+            # the byte cap is judged on it, before any byte moves.
+            entry["size_bytes"] = int(source.get("bytes") or 0)
+            listing.append(entry)
+        self.last_listing = listing
+        return listing or None
+
+    def _download_zip_member(self, definition, source, final_path,
+                             progress_label=None):
+        """``archive_member=las``: the tile's zip comes WHOLE into the
+        ``las_tiles`` cache (:func:`download_zip_whole`), its one ``.las``
+        member is extracted beside it, validated and ``os.replace``d into
+        place; the zip is deleted whatever happens.  ``True``, or
+        ``False`` for a 404 (the listed tile is not on the server)."""
+        import shutil
+        import zipfile
+
+        code = definition.get("code")
+        # ``.zip`` LAST: GDAL's /vsizip/ recognises an archive inside a
+        # longer path (a member folder) only by that suffix.
+        zip_path = final_path + ".part.zip"
+        member_path = final_path + ".part"
+        label = progress_label or "%s %s" % (code, source["source_id"])
+        try:
+            if not download_zip_whole(definition, source, zip_path, None,
+                                      label):
+                return False
+            root = "/vsizip/" + zip_path
+            members = [member[len(root) + 1:] for member in
+                       archive_raster_members(
+                           root, (LAS_ARCHIVE_MEMBER_SUFFIX,))]
+            if len(members) != 1:
+                raise ProviderUnavailable(
+                    "%s: tile %s zip holds %d %s member(s), the provider "
+                    "declares one (archive_member=%s)"
+                    % (code, source["source_id"], len(members),
+                       LAS_ARCHIVE_MEMBER_SUFFIX, LAS_ARCHIVE_MEMBER_LAS))
+            with zipfile.ZipFile(zip_path) as archive:
+                with archive.open(members[0]) as reader, open(
+                        member_path, "wb") as writer:
+                    shutil.copyfileobj(reader, writer, 1 << 20)
+            validate_las_tile(member_path, definition)
+            os.replace(member_path, final_path)
+            return True
+        finally:
+            for leftover in (zip_path, member_path):
+                if os.path.isfile(leftover):
+                    os.remove(leftover)
 
     def _check_caps(self, definition, sources, cache_directory,
                     destination_path):
@@ -9811,6 +10026,11 @@ class LasTileIndexStrategy:
             # Same door for the LAZ decompressor (#153): the ladder
             # records ``unavailable`` and climbs on to the next rung.
             raise ProviderUnavailable("LAZ backend (lazrs) missing")
+        archive_member = _las_archive_member(definition)
+        if archive_member not in ("", LAS_ARCHIVE_MEMBER_LAS):
+            raise ProviderUnavailable(
+                "%s: archive_member=%s is not supported (only %s)"
+                % (code, archive_member, LAS_ARCHIVE_MEMBER_LAS))
         sources = self.discover(definition, bounding_box_wgs84)
         if not sources:
             return None
@@ -9818,6 +10038,7 @@ class LasTileIndexStrategy:
         self._check_caps(definition, sources, cache_directory,
                          destination_path)
         keep_raw = _parse_boolean(definition.get("keep_raw_las", "True"))
+        zipped = archive_member == LAS_ARCHIVE_MEMBER_LAS
         slots = provider_fetch_slots(definition)
         airport = _las_airport_label(destination_path)
         # DOWNLOAD the tiles that have neither a current DTM nor a cached
@@ -9845,13 +10066,18 @@ class LasTileIndexStrategy:
             def _download(item):
                 (number, source, las_path) = item
                 order = wanted.index(item) + 1
+                label = "%s %s tile %d/%d %s" % (
+                    airport, code, order, len(wanted),
+                    os.path.basename(source["download_url"]))
                 with _held_provider_fetch_slot(code, slots):
+                    if zipped:
+                        return self._download_zip_member(
+                            definition, source, las_path,
+                            progress_label=label)
                     return self._download_tile(
                         definition, source,
                         destination_path + ".las%d.part" % number, las_path,
-                        progress_label="%s %s tile %d/%d %s" % (
-                            airport, code, order, len(wanted),
-                            os.path.basename(source["download_url"])))
+                        progress_label=label)
 
             from concurrent.futures import ThreadPoolExecutor
 
@@ -9989,6 +10215,23 @@ class LasTileIndexStrategy:
         return provenance
 
 
+_LAS_INDEX_FORMATS = (LAS_INDEX_FORMAT_ARCGIS, LAS_INDEX_FORMAT_TNM,
+                      LAS_INDEX_FORMAT_OGR, LAS_INDEX_FORMAT_CWCB)
+
+
+def _las_index_format(definition):
+    """The definition's ``index_format`` (absent = ``arcgis``)."""
+    return str((definition or {}).get("index_format")
+               or LAS_INDEX_FORMAT_ARCGIS).strip().lower()
+
+
+def _las_archive_member(definition):
+    """The definition's ``archive_member`` (``las``), or ``""`` when its
+    tiles are plain LAS/LAZ files."""
+    return str((definition or {}).get("archive_member") or "").strip() \
+        .lower()
+
+
 def las_raw_tile_path(cache_directory, source):
     """Where a listed tile's raw point cloud is cached: ``<name>.las``,
     or ``<name>.laz`` when the tile URL is a LAZ file (#153)."""
@@ -10008,10 +10251,10 @@ def _las_airport_label(destination_path):
 # Strategy: cwcb_lidar_api (Colorado CWCB lidar API: tile zips of a
 # ready-gridded DEM; spec us-holder-providers §3.5, RULINGS 2026-09-30bm)
 # =====================================================================
-#: The member suffix the zip-unwrapped LAS path would carry -- NOT this
-#: strategy's (CWCB's LAS-only 7V2 dataset is §3.3 ``archive_member=las``,
-#: lane lasidx154).
-_CWCB_LAS_MEMBER_SUFFIX = ".las"
+#: The member suffix of a zipped point cloud -- NOT this strategy's
+#: (CWCB's LAS-only 7V2 dataset is ``las_tile_index index_format=cwcb
+#: archive_member=las``, spec §3.3).
+_CWCB_LAS_MEMBER_SUFFIX = LAS_ARCHIVE_MEMBER_SUFFIX
 
 #: Days a cached per-dataset ``tileSummaries`` listing is trusted before
 #: it is re-listed (``summaries_max_age_days`` in the .elv overrides).  A
@@ -10097,7 +10340,8 @@ class CwcbLidarApiStrategy:
             raise ProviderUnavailable(
                 "%s: member_suffix=.las is a LAS point cloud inside the zip "
                 "-- the zip-unwrapped LAS path (las_tile_index "
-                "archive_member=las, lane lasidx154), not cwcb_lidar_api, "
+                "index_format=cwcb archive_member=las, CWCB7V2LAS.elv), "
+                "not cwcb_lidar_api, "
                 "which reads a ready-gridded raster member"
                 % definition.get("code"))
         return suffix
@@ -10201,11 +10445,19 @@ class CwcbLidarApiStrategy:
         polygon, ``[{source_id, tile_key, title, download_url, bytes,
         dataset}]`` sorted by tile id; ``None`` for a durable no-coverage
         (a well-formed answer naming none of the datasets)."""
+        if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
+            return None
+        self._refuse_unsupported_member(definition)
+        return self.discover_tiles(definition, bounding_box_wgs84)
+
+    def discover_tiles(self, definition, bounding_box_wgs84):
+        """THE CWCB discovery, whatever the tile's member: also the tile
+        index of ``las_tile_index index_format=cwcb`` (the zipped point
+        clouds, spec us-holder-providers §3.3)."""
         from shapely import from_wkt
 
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
-        self._refuse_unsupported_member(definition)
         datasets = _cwcb_dataset_ids(definition)
         format_key = str(definition.get("format_key", "")).strip()
         if not datasets or not format_key:

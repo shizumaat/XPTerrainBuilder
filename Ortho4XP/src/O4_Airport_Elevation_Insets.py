@@ -1936,8 +1936,25 @@ def _fetch_through_resolution_ladder(
     (``airport_valid_fraction`` >= :data:`INSET_MIN_AIRPORT_COVER_FRAC`
     over the boundary box) and, when delivered, the ladder fetches the
     next covering rung over the whole box as the SURROUND and
-    :func:`assemble_two_layer_inset` writes ONE raster: surround, then
-    the core, blended over ``core_feather_m`` inside the core edge.
+    :class:`LadderInsetAssembly` writes ONE raster: surround, then the
+    core, blended over ``core_feather_m`` inside the core edge.
+
+    HOLES FILL DOWN THE LADDER (spec §12, owner RULINGS 2026-10-01d).  A
+    delivered core -- a surgical core, an airport-cover rung, or a
+    PARTIAL rung (30bu) -- is assembled over the ladder's own coarser
+    covering rungs (never an airport-cover, point-cloud or AOI rung,
+    :func:`_rung_can_be_surround`): fetched FINEST FIRST, one more while a
+    cell the fills must answer (outside a surgical core's region, or in
+    an EDGE NoData island -- one touching the core's coverage or box
+    edge) is still unanswered -- 3 m, then 10 m.  An INTERIOR island
+    (ringed by valid core) is interpolated from the core's own ring
+    instead (spec-author refinement 2026-10-01).  The base DEM is the
+    floor of last resort.  An airport-cover or partial rung without an
+    edge island fetches nothing more.  The sidecar records ``holes`` (one row per
+    interior hole), ``fills`` (the layers, the box-wide
+    ``filled_fraction``, the rung the ladder ran out at) and
+    ``airport_filled_fraction`` beside the core's own
+    ``airport_valid_fraction``.
     """
     threshold = INSET_MIN_VALID_FRAC
     base_name = os.path.basename(destination_path)
@@ -2097,9 +2114,10 @@ def _fetch_through_resolution_ladder(
                     % (100.0 * attempt["valid_fraction"],
                        ">=" if attempt["outcome"] == "delivered" else "<",
                        100.0 * threshold))
-        if attempt.get("role") == "surround":
-            tail = (" - SURROUND" if attempt["outcome"] == "delivered"
-                    else " - next surround rung")
+        if attempt.get("role") in ("surround", "fill"):
+            tail = ((" - %s" % attempt["role"].upper())
+                    if attempt["outcome"] == "delivered"
+                    else " - next %s rung" % attempt["role"])
         elif attempt["outcome"] == "partial":
             tail = (" - kept; asking the same-resolution rungs for the "
                     "whole airport")
@@ -2175,10 +2193,12 @@ def _fetch_through_resolution_ladder(
                     fallback = (index, rung_path, provenance)
                 elif rung_path != destination_path:
                     os.remove(rung_path)
+        partial_delivered = False
         if delivered is None and partial is not None:
             (index, rung_path, provenance, _native) = partial
             attempts[index]["outcome"] = "delivered"
             delivered = (index, rung_path, provenance)
+            partial_delivered = True
         if delivered is None and transient_errors:
             # Nothing delivered and a rung never answered: no durable
             # answer (30t) -- the caller records nothing, the next run
@@ -2193,67 +2213,22 @@ def _fetch_through_resolution_ladder(
             return None
         (index, rung_path, provenance) = chosen
         provenance = dict(provenance)
-        if delivered is not None and isinstance(provenance.get("core"),
-                                                dict):
-            # THE SURROUND: the next rung that covers the whole box.
-            surround = None
-            for (other, (label, rung_definition)) in enumerate(rungs):
-                if other <= index:
-                    continue
-                if not _rung_can_be_surround(rung_definition):
-                    continue
-                surround_path = "%s.surround%d" % (destination_path, other)
-                scratch_paths.append(surround_path)
-                if os.path.isfile(surround_path):
-                    os.remove(surround_path)
-                (attempt, surround_provenance) = _try_rung(
-                    other, label, rung_definition, surround_path,
-                    _rung_target(other, rung_definition), None)
-                attempt["role"] = "surround"
-                if (surround_provenance is not None
-                        and attempt["valid_fraction"] >= threshold):
-                    attempt["outcome"] = "delivered"
-                elif attempt["outcome"] == "delivered":
-                    attempt["outcome"] = "below-threshold"
-                attempts.append(attempt)
-                _say(attempt, len(rungs))
-                if attempt["outcome"] == "delivered":
-                    surround = (other, surround_path, surround_provenance)
-                    break
-            core = dict(provenance["core"])
-            core["rung"] = index
-            feather_m = core.get("feather_m")
-            if feather_m is None:
-                feather_m = LAS_DEFAULT_CORE_FEATHER_M
-            core["feather_m"] = float(feather_m)
-            if surround is not None:
-                (other, surround_path, surround_provenance) = surround
-                from shapely.geometry import shape
-
-                seam = assemble_two_layer_inset(
-                    rung_path, surround_path, rung_path,
-                    shape(core["boundary_polygon_wgs84"]) if core.get(
-                        "boundary_polygon_wgs84") else None,
-                    float(core.get("footprint_buffer_m") or 0.0),
-                    core["feather_m"])
-                core.update(seam)
-                provenance["surround"] = {
-                    "provider": surround_provenance.get("provider"),
-                    "rung": other,
-                    "label": rungs[other][0],
-                    "native_resolution_m": surround_provenance.get(
-                        "native_resolution_m"),
-                    "source_ids": list(
-                        surround_provenance.get("source_ids") or ()),
-                    "valid_fraction": attempts[-1]["valid_fraction"],
-                }
-            else:
-                provenance["surround"] = None
-            provenance["core"] = core
-            provenance["airport_valid_fraction"] = attempts[index].get(
-                "airport_valid_fraction")
-            provenance["valid_fraction"] = round(
-                inset_valid_fraction(rung_path), 6)
+        delivered_attempt = attempts[index]
+        is_core = (delivered is not None
+                   and isinstance(provenance.get("core"), dict))
+        if delivered is not None and (
+                is_core or partial_delivered
+                or delivered_attempt.get("judge") == "airport_cover"):
+            # HOLES FILL DOWN THE LADDER (spec §12): the surround of a
+            # surgical core, and every interior hole of a delivered core.
+            _assemble_down_the_ladder(
+                provenance, index, rung_path, rungs, is_core,
+                attempts, delivered_attempt, boundary_box, destination_path,
+                scratch_paths,
+                lambda other, label, definition, path: _try_rung(
+                    other, label, definition, path,
+                    _rung_target(other, definition), None),
+                lambda attempt: _say(attempt, len(rungs)))
         if rung_path != destination_path:
             os.replace(rung_path, destination_path)
         provenance["ladder"] = {
@@ -2277,6 +2252,122 @@ def _fetch_through_resolution_ladder(
                     os.remove(path)
                 except OSError:                          # pragma: no cover
                     pass
+
+
+def _assemble_down_the_ladder(provenance, index, rung_path, rungs, is_core,
+                              attempts, delivered_attempt, boundary_box,
+                              destination_path, scratch_paths, try_rung,
+                              say):
+    """The fill climb of :func:`_fetch_through_resolution_ladder` (spec
+    §12): assemble the delivered raster at ``rung_path`` over the ladder's
+    coarser covering rungs, finest first, until the box is valid; stamp
+    ``provenance`` in place.  ``try_rung(other, label, definition, path)``
+    is the ladder's own rung fetch."""
+    rung_definition = rungs[index][1]
+    if is_core:
+        from shapely.geometry import shape
+
+        core = dict(provenance["core"])
+        core["rung"] = index
+        feather_m = core.get("feather_m")
+        if feather_m is None:
+            feather_m = LAS_DEFAULT_CORE_FEATHER_M
+        core["feather_m"] = float(feather_m)
+        assembly = LadderInsetAssembly(
+            rung_path,
+            shape(core["boundary_polygon_wgs84"]) if core.get(
+                "boundary_polygon_wgs84") else None,
+            float(core.get("footprint_buffer_m") or 0.0),
+            core["feather_m"])
+    else:
+        core = None
+        assembly = LadderInsetAssembly(
+            rung_path,
+            feather_m=_parse_float(rung_definition.get("core_feather_m"),
+                                   default=LAS_DEFAULT_CORE_FEATHER_M),
+            core_region_is_box=True)
+    tried = {attempt["rung"] for attempt in attempts}
+    used = []                 # [(rung, provenance, attempt)]
+    last_tried = None
+    if assembly.needs_fill():
+        for (other, (label, fill_definition)) in enumerate(rungs):
+            if other <= index or other in tried:
+                continue
+            if not _rung_can_be_surround(fill_definition):
+                continue
+            if used and not assembly.needs_fill():
+                break
+            fill_path = "%s.surround%d" % (destination_path, other)
+            scratch_paths.append(fill_path)
+            if os.path.isfile(fill_path):
+                os.remove(fill_path)
+            (attempt, fill_provenance) = try_rung(other, label,
+                                                  fill_definition, fill_path)
+            attempt["role"] = "surround" if is_core else "fill"
+            last_tried = label
+            answered = 0
+            if (fill_provenance is not None
+                    and attempt["valid_fraction"] > 0.0):
+                answered = assembly.add_fill(fill_path, {
+                    "provider": fill_provenance.get("provider"),
+                    "rung": other, "label": label})
+                if answered == 0:
+                    assembly.fills.pop()     # holds nothing a fill must
+            if answered > 0:
+                attempt["outcome"] = "delivered"
+            elif attempt["outcome"] == "delivered":
+                attempt["outcome"] = "below-threshold"
+            attempts.append(attempt)
+            say(attempt)
+            if answered > 0:
+                used.append((other, fill_provenance, attempt))
+    if used or assembly.interpolated():
+        record = assembly.write(rung_path)
+    else:
+        # Nothing to assemble over: the raster stands as fetched.
+        record = assembly.unwritten_record()
+    ran_out = None
+    if assembly.needs_fill():
+        ran_out = last_tried or "no coarser covering rung"
+    layers = [{
+        "provider": fill_provenance.get("provider"),
+        "rung": other,
+        "label": rungs[other][0],
+        "native_resolution_m": fill_provenance.get("native_resolution_m"),
+        "source_ids": list(fill_provenance.get("source_ids") or ()),
+        "valid_fraction": attempt["valid_fraction"],
+    } for (other, fill_provenance, attempt) in used]
+    if is_core:
+        core.update({key: record[key] for key in (
+            "region_pixels", "seam_median_offset_m",
+            "core_holes_left_nodata")})
+        provenance["surround"] = layers[0] if layers else None
+        provenance["core"] = core
+    provenance["holes"] = record["holes"]
+    provenance["fills"] = {
+        "layers": layers,
+        "hole_min_cells": record["hole_min_cells"],
+        "feather_m": assembly.feather_m,
+        "filled_fraction": record["filled_fraction"],
+        "fill_share": record["fill_share"],
+        "islands": record["islands"],
+        "interior_islands": record["interior_islands"],
+        "interior_cells": record["interior_cells"],
+        "edge_islands": record["edge_islands"],
+        "edge_cells": record["edge_cells"],
+        "interpolation_left_cells": record["interpolation_left_cells"],
+        "sub_threshold_voids": record["sub_threshold_voids"],
+        "sub_threshold_cells": record["sub_threshold_cells"],
+        "unanswered_cells": record["unanswered_cells"],
+        "box_edge_sliver_cells": record["box_edge_sliver_cells"],
+        "ran_out": ran_out,
+    }
+    provenance["airport_valid_fraction"] = delivered_attempt.get(
+        "airport_valid_fraction")
+    provenance["airport_filled_fraction"] = (
+        round(raster_valid_fraction_in_box(rung_path, boundary_box), 6)
+        if boundary_box else None)
+    provenance["valid_fraction"] = round(inset_valid_fraction(rung_path), 6)
 
 
 def _record_rung_units_and_bytes(attempt, provenance, rung_path):
@@ -2332,8 +2423,8 @@ LAS_DEFAULT_CORE_FEATHER_M = 60.0
 def feather_weight(distance_to_edge_m, feather_m):
     """THE ONE FEATHER (spec §4): ``clip(d / feather, 0, 1)`` -- the
     weight an inside value takes at ``d`` metres inside its edge.  The
-    bake (:func:`_bake_one_inset`) and the two-layer assembler
-    (:func:`assemble_two_layer_inset`) both call this; a zero feather is
+    bake (:func:`_bake_one_inset`) and the ladder assembler
+    (:class:`LadderInsetAssembly`) both call this; a zero feather is
     a hard edge (weight 1 from the edge in)."""
     distance_to_edge_m = numpy.asarray(distance_to_edge_m)
     if feather_m and feather_m > 0:
@@ -2371,74 +2462,256 @@ def raster_valid_fraction_in_box(raster_path, box_wgs84):
     return float(valid.mean()) if valid.size else 0.0
 
 
-def assemble_two_layer_inset(core_path, surround_path, destination_path,
-                             boundary_polygon, buffer_m, feather_m):
-    """ONE 1 m raster from a surgical CORE and a coarser SURROUND
-    (spec §4, owner 30ay).  Returns the seam record for the sidecar.
+#: THE HOLE REPORT THRESHOLD (spec las-tile-lidar-provider §12, owner
+#: RULINGS 2026-10-01d; spec-author refinement 2026-10-01): a NoData island
+#: of at least this many cells gets its own sidecar ``holes`` row; smaller
+#: ones are counted (``sub_threshold_voids``).  It never chooses the fill:
+#: an INTERIOR island (ringed by valid core cells) interpolates from the
+#: core's own ring, an EDGE island fills down the ladder, whatever the size.
+INSET_HOLE_MIN_CELLS = 4
 
-    The surround is resampled (bilinear) onto the core's own grid; the
-    CORE REGION is the buffered aerodrome boundary (``boundary_polygon``
-    + ``buffer_m``) rasterised on that grid.  Outside the region the
-    surround is written; inside it the core, blended over ``feather_m``
-    INSIDE the region's edge by :func:`feather_weight` of the distance to
-    the nearest outside pixel.  A core NoData cell inside the region is
-    NOT filled from the surround beyond the feather band (§9: holes in
-    the core stay NoData and fall to the base DEM under the bake); within
-    the band the surround carries it.  The seam's datum sanity -- median
-    ``core - surround`` over the band -- is recorded (the bake's own
-    feather-ring rule, :func:`_bake_one_inset`).
+#: The assembled raster's NoData (every inset layer the ladder writes).
+LADDER_INSET_NODATA = -32768.0
 
-    UNITS (spec us-holder-providers §2, the one new assertion): both
-    layers must hold METRES -- a raster stamped with a declared unit that
-    was never applied, beside a metre one, is the KASE class (a feet core
-    feathered into a metre surround) and REFUSES as
-    :class:`ProviderUnavailable` before a cell is read.  An unstamped
-    raster is metres (no key = ``m``).  The core's stamp rides onto the
-    assembled raster, so :func:`fetch_inset` still reads it."""
-    core_unit = raster_vertical_unit_held(core_path)
-    surround_unit = raster_vertical_unit_held(surround_path)
-    if core_unit != "m" or surround_unit != "m":
-        raise ProviderUnavailable(
-            "two-layer inset: the core holds %s and the surround holds %s "
-            "- refused, a vertical-unit mismatch is never feathered "
-            "(vertical_unit_applied must be m on both)"
-            % (core_unit, surround_unit))
-    core_stamp = raster_vertical_unit_stamp(core_path)
-    core_ds = gdal.Open(core_path)
-    transform = core_ds.GetGeoTransform()
-    projection = core_ds.GetProjection()
-    width, height = core_ds.RasterXSize, core_ds.RasterYSize
-    core_band = core_ds.GetRasterBand(1)
-    core_nodata = core_band.GetNoDataValue()
-    core_values = core_band.ReadAsArray().astype(numpy.float32)
-    core_ds = None
-    core_valid = numpy.isfinite(core_values)
-    if core_nodata is not None:
-        core_valid &= core_values != core_nodata
-    west = transform[0]
-    north = transform[3]
-    east = west + transform[1] * width
-    south = north + transform[5] * height
-    surround_ds = gdal.Warp(
-        "", surround_path,
-        options=gdal.WarpOptions(
-            format="MEM", outputType=gdal.GDT_Float32,
-            dstSRS=projection or "EPSG:4326", options=["-novshift"],
-            outputBounds=(west, south, east, north), width=width,
-            height=height, resampleAlg="bilinear", dstNodata=-32768.0))
-    surround_values = surround_ds.GetRasterBand(1).ReadAsArray().astype(
-        numpy.float32)
-    surround_ds = None
-    surround_valid = numpy.isfinite(surround_values) & (
-        surround_values != -32768.0)
+#: ``filled_by`` of an interior island: interpolated from the core's ring.
+HOLE_FILLED_BY_CORE_INTERPOLATION = "core_interpolation"
 
-    # The core REGION on the grid, and the distance (metres) from each
-    # region pixel to the nearest pixel outside it.
+
+def _distance_to_mask_m(mask, transform, feather_m):
+    """Metres from every pixel to the nearest ``mask`` pixel, saturated a
+    little beyond ``feather_m`` (the only distances the feather reads):
+    the two-layer assembler's proximity, verbatim (pixel distance times
+    the cell's north-south metres)."""
+    height, width = mask.shape
     driver = gdal.GetDriverByName("MEM")
-    mask_ds = driver.Create("", width, height, 1, gdal.GDT_Byte)
-    mask_ds.SetGeoTransform(transform)
-    mask_ds.SetProjection(projection)
-    if boundary_polygon is not None and not boundary_polygon.is_empty:
+    source = driver.Create("", width, height, 1, gdal.GDT_Byte)
+    source.SetGeoTransform(transform)
+    source.GetRasterBand(1).WriteArray(mask.astype(numpy.uint8))
+    proximity = driver.Create("", width, height, 1, gdal.GDT_Float32)
+    proximity.SetGeoTransform(transform)
+    pixel_m = abs(transform[5]) * GEO.lat_to_m
+    gdal.ComputeProximity(
+        source.GetRasterBand(1), proximity.GetRasterBand(1),
+        ["VALUES=1", "DISTUNITS=PIXEL",
+         "MAXDIST=%d" % (int(math.ceil(feather_m / pixel_m)) + 2),
+         "NODATA=%d" % (int(math.ceil(feather_m / pixel_m)) + 3)])
+    distance_m = proximity.GetRasterBand(1).ReadAsArray() * pixel_m
+    source = proximity = None
+    return distance_m
+
+
+def _dilate_8(mask):
+    """``mask`` grown by one cell in all 8 directions."""
+    grown = mask.copy()
+    padded = numpy.pad(mask, 1)
+    (height, width) = mask.shape
+    for (dr, dc) in ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1),
+                     (1, -1), (1, 0), (1, 1)):
+        grown |= padded[1 + dr:1 + dr + height, 1 + dc:1 + dc + width]
+    return grown
+
+
+def inset_void_islands(void, outside):
+    """The 8-connected NoData islands of ``void`` (a boolean grid),
+    classified: ``(labels, islands)``.  ``labels`` is an int32 grid, ``k``
+    (1-based) on the cells of the k-th island, 0 elsewhere; ``islands``
+    lists ``{"label", "cells", "box_px": (col0, row0, col1, row1),
+    "interior": bool}`` largest first (ties by position).  An island is
+    INTERIOR when its 8-neighbour ring holds only valid core cells: it
+    touches neither ``outside`` (the cells beyond the core region) nor the
+    raster's own edge (the inset box edge).  GDAL's polygoniser labels in
+    pixel space (an identity transform: a polygon's area IS its cell
+    count); no new dependency."""
+    height, width = void.shape
+    labels = numpy.zeros((height, width), dtype=numpy.int32)
+    if not void.any():
+        return (labels, [])
+    driver = gdal.GetDriverByName("MEM")
+    identity = (0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    raster = driver.Create("", width, height, 1, gdal.GDT_Byte)
+    raster.SetGeoTransform(identity)
+    band = raster.GetRasterBand(1)
+    band.WriteArray(void.astype(numpy.uint8))
+    vector_driver = (ogr.GetDriverByName("MEM")
+                     or ogr.GetDriverByName("Memory"))
+    vector = vector_driver.CreateDataSource("voids")
+    layer = vector.CreateLayer("voids", None, ogr.wkbPolygon)
+    layer.CreateField(ogr.FieldDefn("v", ogr.OFTInteger))
+    gdal.Polygonize(band, band, layer, 0, ["8CONNECTED=8"])
+    found = []
+    for feature in layer:
+        geometry = feature.GetGeometryRef()
+        (x0, x1, y0, y1) = geometry.GetEnvelope()
+        found.append((int(round(geometry.GetArea())),
+                      (int(round(x0)), int(round(y0)),
+                       int(round(x1)), int(round(y1))),
+                      geometry.Clone()))
+    found.sort(key=lambda item: (-item[0], item[1][1], item[1][0]))
+    keep = vector.CreateLayer("islands", None, ogr.wkbPolygon)
+    keep.CreateField(ogr.FieldDefn("label", ogr.OFTInteger))
+    islands = []
+    for (number, (cells, box_px, geometry)) in enumerate(found, start=1):
+        feature = ogr.Feature(keep.GetLayerDefn())
+        feature.SetField("label", number)
+        feature.SetGeometry(geometry)
+        keep.CreateFeature(feature)
+        islands.append({"label": number, "cells": cells, "box_px": box_px})
+    label_raster = driver.Create("", width, height, 1, gdal.GDT_Int32)
+    label_raster.SetGeoTransform(identity)
+    gdal.RasterizeLayer(label_raster, [1], keep,
+                        options=["ATTRIBUTE=label"])
+    labels = label_raster.GetRasterBand(1).ReadAsArray().astype(numpy.int32)
+    labels[~void] = 0
+    vector = raster = label_raster = None
+    # EDGE: an island cell 8-adjacent to ``outside`` or on the raster edge.
+    touching = _dilate_8(outside) & void
+    touching[0, :] |= void[0, :]
+    touching[-1, :] |= void[-1, :]
+    touching[:, 0] |= void[:, 0]
+    touching[:, -1] |= void[:, -1]
+    edge_labels = set(numpy.unique(labels[touching]).tolist()) - {0}
+    for island in islands:
+        island["interior"] = island["label"] not in edge_labels
+    return (labels, islands)
+
+
+def _interpolate_interior_islands(values, valid, labels, islands):
+    """Fill every INTERIOR island of ``values`` from its own valid ring
+    (``gdal.FillNodata``, the bake's footprint-fill interpolation:
+    ``DEFAULT_FILL_SMOOTHING_ITERATIONS`` smoothing passes), one window
+    per island, the search reaching across it.  Writes ``values`` /
+    ``valid`` in place on the island cells only; returns the island cells
+    left unfilled (none, unless the ring itself is missing)."""
+    (height, width) = values.shape
+    driver = gdal.GetDriverByName("MEM")
+    left = 0
+    for island in islands:
+        if not island["interior"]:
+            continue
+        (c0, r0, c1, r1) = island["box_px"]
+        search = max(c1 - c0, r1 - r0) + 2
+        (wc0, wr0) = (max(c0 - search, 0), max(r0 - search, 0))
+        (wc1, wr1) = (min(c1 + search, width), min(r1 + search, height))
+        window = values[wr0:wr1, wc0:wc1].copy()
+        window_valid = valid[wr0:wr1, wc0:wc1]
+        dataset = driver.Create("", wc1 - wc0, wr1 - wr0, 1,
+                                gdal.GDT_Float32)
+        band = dataset.GetRasterBand(1)
+        band.SetNoDataValue(LADDER_INSET_NODATA)
+        band.WriteArray(numpy.where(window_valid, window,
+                                    LADDER_INSET_NODATA).astype(
+                                        numpy.float32))
+        mask = driver.Create("", wc1 - wc0, wr1 - wr0, 1, gdal.GDT_Byte)
+        mask.GetRasterBand(1).WriteArray(
+            window_valid.astype(numpy.uint8) * 255)
+        gdal.FillNodata(targetBand=band, maskBand=mask.GetRasterBand(1),
+                        maxSearchDist=float(search),
+                        smoothingIterations=DEFAULT_FILL_SMOOTHING_ITERATIONS)
+        filled = band.ReadAsArray()
+        dataset = mask = None
+        cells = labels[wr0:wr1, wc0:wc1] == island["label"]
+        good = cells & (filled != LADDER_INSET_NODATA) & numpy.isfinite(
+            filled)
+        values[wr0:wr1, wc0:wc1][good] = filled[good]
+        valid[wr0:wr1, wc0:wc1] |= good
+        left += int((cells & ~good).sum())
+    return left
+
+
+class LadderInsetAssembly:
+    """THE LADDER ASSEMBLER (spec las-tile-lidar-provider §12, owner
+    RULINGS 2026-10-01d, spec-author refinement 2026-10-01) -- the one
+    derivation site of every delivered inset assembled over its ladder.
+
+    The CORE is the delivered raster (a surgical LAS core, an
+    airport-cover rung, or a partial 1 m mosaic).  Its NoData islands
+    inside the core region are classified (:func:`inset_void_islands`):
+
+    * an INTERIOR island -- ringed by valid core cells only (a building
+      footprint void in class-2 lidar ground, a pond) -- is a void in a
+      measured surface, and the 1 m ring around it is a better estimate
+      of its pad than any coarser rung: it is INTERPOLATED from that ring
+      (``gdal.FillNodata``), whatever its size, ``filled_by`` =
+      :data:`HOLE_FILLED_BY_CORE_INTERPOLATION`;
+    * an EDGE island -- touching the core region's edge or the inset box
+      edge (missing tiles, a partial mosaic) -- FILLS DOWN THE LADDER.
+
+    The FILLS are the coarser covering rungs the ladder fetched over the
+    whole box, added FINEST FIRST (:meth:`add_fill`) while
+    :meth:`needs_fill` says a cell they must answer (beyond the core
+    region, or in an edge island) is unanswered.  :meth:`write` composes
+    ONE raster on the core's grid: fills first, coarsest at the bottom,
+    the core last (later input wins), and every edge -- the core region's
+    edge and the boundary of each edge island -- feathered over
+    ``feather_m`` INSIDE the finer layer by :func:`feather_weight` of the
+    distance to the nearest filled pixel; a fill's own NoData edge is
+    feathered into the fill below by the same rule.
+    ``hole_min_cells`` decides only which islands get a ``holes`` row.
+
+    ``core_region_is_box``: the core's region is its whole raster (a
+    partial mosaic, an airport-cover rung); otherwise the buffered
+    ``boundary_polygon`` (a surgical core), or, with no polygon, the
+    core's own valid cells (the pre-§12 two-layer fallback).
+
+    UNITS (spec us-holder-providers §2): every layer must hold METRES; a
+    raster stamped with a declared unit that was never applied REFUSES
+    as :class:`ProviderUnavailable` before a cell is read."""
+
+    def __init__(self, core_path, boundary_polygon=None, buffer_m=0.0,
+                 feather_m=None, hole_min_cells=INSET_HOLE_MIN_CELLS,
+                 core_region_is_box=False):
+        self.core_unit = raster_vertical_unit_held(core_path)
+        if self.core_unit != "m":
+            raise ProviderUnavailable(
+                "ladder inset: the core holds %s - refused, a "
+                "vertical-unit mismatch is never feathered "
+                "(vertical_unit_applied must be m on every layer)"
+                % (self.core_unit,))
+        self.core_stamp = raster_vertical_unit_stamp(core_path)
+        self.feather_m = float(LAS_DEFAULT_CORE_FEATHER_M
+                               if feather_m is None else feather_m)
+        self.hole_min_cells = int(hole_min_cells)
+        dataset = gdal.Open(core_path)
+        self.transform = dataset.GetGeoTransform()
+        self.projection = dataset.GetProjection()
+        self.width = dataset.RasterXSize
+        self.height = dataset.RasterYSize
+        band = dataset.GetRasterBand(1)
+        nodata = band.GetNoDataValue()
+        self.core_values = band.ReadAsArray().astype(numpy.float32)
+        dataset = None
+        self.core_valid = numpy.isfinite(self.core_values)
+        if nodata is not None:
+            self.core_valid &= self.core_values != nodata
+        if core_region_is_box:
+            self.region = numpy.ones((self.height, self.width), dtype=bool)
+        elif boundary_polygon is not None and not boundary_polygon.is_empty:
+            self.region = self._rasterise_region(boundary_polygon, buffer_m)
+        else:
+            self.region = self.core_valid.copy()
+        self.measured = self.core_valid.copy()
+        (self.labels, self.islands) = inset_void_islands(
+            self.region & ~self.core_valid, ~self.region)
+        # INTERIOR islands: interpolated from the core's own ring now --
+        # they are core cells from here on.
+        self.interpolation_left = _interpolate_interior_islands(
+            self.core_values, self.core_valid, self.labels, self.islands)
+        edge_labels = numpy.zeros(len(self.islands) + 1, dtype=bool)
+        for island in self.islands:
+            edge_labels[island["label"]] = not island["interior"]
+        self.edge = edge_labels[self.labels]
+        # Every cell a fill must answer: beyond the core region, and the
+        # edge islands.
+        self.need = ~self.region | self.edge
+        self.fills = []        # [(values, valid, filled_by)], finest first
+        self.fill_extent = numpy.zeros((self.height, self.width), dtype=bool)
+
+    def _rasterise_region(self, boundary_polygon, buffer_m):
+        driver = gdal.GetDriverByName("MEM")
+        mask_ds = driver.Create("", self.width, self.height, 1,
+                                gdal.GDT_Byte)
+        mask_ds.SetGeoTransform(self.transform)
+        mask_ds.SetProjection(self.projection)
         region_geometry = _buffer_geometry_m(boundary_polygon, buffer_m)
         # GDAL >= 3.11 names the in-memory vector driver MEM (Memory is
         # deprecated there); older builds (Linux 3.9) only know Memory.
@@ -2454,66 +2727,352 @@ def assemble_two_layer_inset(core_path, surround_path, destination_path,
         layer.CreateFeature(feature)
         gdal.RasterizeLayer(mask_ds, [1], layer, burn_values=[1])
         region = mask_ds.GetRasterBand(1).ReadAsArray().astype(bool)
-        layer_ds = None
-    else:
-        region = core_valid.copy()
-    # Proximity to the OUTSIDE (value 0) in pixels.
-    outside_ds = driver.Create("", width, height, 1, gdal.GDT_Byte)
-    outside_ds.SetGeoTransform(transform)
-    outside_ds.GetRasterBand(1).WriteArray((~region).astype(numpy.uint8))
-    proximity_ds = driver.Create("", width, height, 1, gdal.GDT_Float32)
-    proximity_ds.SetGeoTransform(transform)
-    pixel_m = abs(transform[5]) * GEO.lat_to_m
-    gdal.ComputeProximity(
-        outside_ds.GetRasterBand(1), proximity_ds.GetRasterBand(1),
-        ["VALUES=1", "DISTUNITS=PIXEL",
-         "MAXDIST=%d" % (int(math.ceil(feather_m / pixel_m)) + 2),
-         "NODATA=%d" % (int(math.ceil(feather_m / pixel_m)) + 3)])
-    distance_m = proximity_ds.GetRasterBand(1).ReadAsArray() * pixel_m
-    outside_ds = proximity_ds = mask_ds = None
-    weight = numpy.where(region, feather_weight(distance_m, feather_m),
-                         0.0).astype(numpy.float32)
-    band_zone = region & (weight < 1.0)
+        layer_ds = mask_ds = None
+        return region
 
-    out = numpy.full((height, width), -32768.0, dtype=numpy.float32)
-    outside = ~region
-    out[outside & surround_valid] = surround_values[outside & surround_valid]
-    both = region & core_valid & surround_valid
-    out[both] = (weight[both] * core_values[both]
-                 + (1.0 - weight[both]) * surround_values[both])
-    core_only = region & core_valid & ~surround_valid
-    out[core_only] = core_values[core_only]
-    seam_fill = band_zone & ~core_valid & surround_valid
-    out[seam_fill] = surround_values[seam_fill]
+    def interpolated(self):
+        """Whether an interior island was interpolated (the raster
+        changes even with no fill)."""
+        return bool((self.core_valid & ~self.measured).any())
 
-    ring = band_zone & core_valid & surround_valid
-    offset = (float(numpy.median(core_values[ring] - surround_values[ring]))
-              if ring.any() else None)
+    def add_fill(self, fill_path, filled_by):
+        """Warp one coarser rung (bilinear) onto the core's grid; the
+        next-coarser one is added AFTER it (finest first).  Returns the
+        cells it answers that the fills must answer."""
+        unit = raster_vertical_unit_held(fill_path)
+        if unit != "m":
+            raise ProviderUnavailable(
+                "ladder inset: the core holds %s and the fill '%s' holds "
+                "%s - refused, a vertical-unit mismatch is never feathered "
+                "(vertical_unit_applied must be m on every layer)"
+                % (self.core_unit, (filled_by or {}).get("label"), unit))
+        (values, valid) = self._warp(fill_path, "bilinear")
+        if self.need.any() and (self.need & ~valid).any():
+            # The bilinear kernel leaves the box's outermost cells NoData
+            # where the source ends at the box edge (KASE witness: the last
+            # row and column, 22,784 cells); the rung HOLDS data there --
+            # its own nearest cell answers them.  Elsewhere bilinear stands.
+            (nearest, nearest_valid) = self._warp(fill_path, "near")
+            edge = nearest_valid & ~valid
+            values[edge] = nearest[edge]
+            valid |= edge
+        self.fill_extent |= self._warp_extent(fill_path)
+        self.fills.append((values, valid, dict(filled_by or {})))
+        return int((valid & self.need).sum())
 
-    scratch = destination_path + ".assemble"
-    target = gdal.GetDriverByName("GTiff").Create(
-        scratch, width, height, 1, gdal.GDT_Float32,
-        options=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES"])
-    target.SetGeoTransform(transform)
-    target.SetProjection(projection)
-    target_band = target.GetRasterBand(1)
-    target_band.SetNoDataValue(-32768.0)
-    target_band.WriteArray(out)
-    if core_stamp is not None:
-        for (item, key) in ((VERTICAL_UNIT_STAMP_DECLARED, "declared"),
-                            (VERTICAL_UNIT_STAMP_SOURCE, "source"),
-                            (VERTICAL_UNIT_STAMP_APPLIED, "applied")):
-            if core_stamp.get(key):
-                target.SetMetadataItem(item, core_stamp[key])
-    target = None
-    os.replace(scratch, destination_path)
-    return {
-        "region_pixels": int(region.sum()),
-        "seam_median_offset_m": (round(offset, 4)
-                                 if offset is not None else None),
-        "core_holes_left_nodata": int((region & ~core_valid
-                                       & ~band_zone).sum()),
-    }
+    def _warp_extent(self, fill_path):
+        """The core cells inside the fill raster's own EXTENT (whatever its
+        values).  A rung warped to its native grid can stop a cell short of
+        the box (KASE witness: 497 ten-metre columns for a 4,972 m box --
+        the last metre or two of the box lies beyond every rung); such a
+        BOX-EDGE SLIVER is no rung's to answer and the bake's own outer
+        feather gives it zero weight -- it never makes the ladder climb
+        or 'run out'."""
+        source = gdal.Open(fill_path)
+        driver = gdal.GetDriverByName("MEM")
+        ones = driver.Create("", source.RasterXSize, source.RasterYSize, 1,
+                             gdal.GDT_Byte)
+        ones.SetGeoTransform(source.GetGeoTransform())
+        ones.SetProjection(source.GetProjection())
+        ones.GetRasterBand(1).Fill(1)
+        source = None
+        west = self.transform[0]
+        north = self.transform[3]
+        east = west + self.transform[1] * self.width
+        south = north + self.transform[5] * self.height
+        warped = gdal.Warp(
+            "", ones,
+            options=gdal.WarpOptions(
+                format="MEM", dstSRS=self.projection or "EPSG:4326",
+                outputBounds=(west, south, east, north), width=self.width,
+                height=self.height, resampleAlg="near", dstNodata=0))
+        extent = warped.GetRasterBand(1).ReadAsArray() > 0
+        warped = ones = None
+        return extent
+
+    def _left(self):
+        """The cells a fill must answer and none does -- less the box-edge
+        sliver beyond every fill's extent (:meth:`_warp_extent`)."""
+        left = self.need.copy()
+        for (_values, valid, _by) in self.fills:
+            left &= ~valid
+        if self.fills:
+            left &= self.fill_extent
+        return left
+
+    def _warp(self, fill_path, resample):
+        west = self.transform[0]
+        north = self.transform[3]
+        east = west + self.transform[1] * self.width
+        south = north + self.transform[5] * self.height
+        warped = gdal.Warp(
+            "", fill_path,
+            options=gdal.WarpOptions(
+                format="MEM", outputType=gdal.GDT_Float32,
+                dstSRS=self.projection or "EPSG:4326",
+                options=["-novshift"],
+                outputBounds=(west, south, east, north), width=self.width,
+                height=self.height, resampleAlg=resample,
+                dstNodata=LADDER_INSET_NODATA))
+        values = warped.GetRasterBand(1).ReadAsArray().astype(
+            numpy.float32)
+        warped = None
+        return (values,
+                numpy.isfinite(values) & (values != LADDER_INSET_NODATA))
+
+    def needs_fill(self):
+        """Whether a cell the fills must answer is still unanswered -- the
+        ladder climbs to the next coarser rung while this holds."""
+        return bool(self._left().any())
+
+    def _compose_fills(self):
+        """``(values, valid, source)`` of the fill stack: the coarsest at
+        the bottom, each finer fill over it, its own NoData edge feathered
+        inside it; ``source`` = index (finest 0) of the fill that holds
+        each cell, -1 where none does."""
+        stack = numpy.full((self.height, self.width), LADDER_INSET_NODATA,
+                           dtype=numpy.float32)
+        stack_valid = numpy.zeros((self.height, self.width), dtype=bool)
+        source = numpy.full((self.height, self.width), -1, dtype=numpy.int8)
+        for index in range(len(self.fills) - 1, -1, -1):
+            (values, valid, _by) = self.fills[index]
+            under = valid & stack_valid
+            if under.any() and (~valid).any():
+                weight = feather_weight(
+                    _distance_to_mask_m(~valid, self.transform,
+                                        self.feather_m),
+                    self.feather_m).astype(numpy.float32)
+                stack[under] = (weight[under] * values[under]
+                                + (1.0 - weight[under]) * stack[under])
+                alone = valid & ~stack_valid
+                stack[alone] = values[alone]
+            else:
+                stack[valid] = values[valid]
+            stack_valid |= valid
+            source[valid] = index
+        return (stack, stack_valid, source)
+
+    def write(self, destination_path):
+        """Compose and write the raster; returns the SEAM RECORD."""
+        (stack, stack_valid, source) = self._compose_fills()
+        region = self.region
+        core_values = self.core_values
+        core_valid = self.core_valid
+        core_region = region & ~self.edge
+        out = numpy.full((self.height, self.width), LADDER_INSET_NODATA,
+                         dtype=numpy.float32)
+        offset = None
+        if not self.fills:
+            # Interpolation only: the raster as fetched, its interior
+            # islands answered (no region masking -- nothing composes).
+            out[core_valid] = core_values[core_valid]
+            band_zone = numpy.zeros_like(core_valid)
+        else:
+            distance_m = _distance_to_mask_m(self.need, self.transform,
+                                             self.feather_m)
+            weight = numpy.where(core_region,
+                                 feather_weight(distance_m, self.feather_m),
+                                 0.0).astype(numpy.float32)
+            band_zone = core_region & (weight < 1.0)
+            answered = self.need & stack_valid
+            out[answered] = stack[answered]
+            both = core_region & core_valid & stack_valid
+            out[both] = (weight[both] * core_values[both]
+                         + (1.0 - weight[both]) * stack[both])
+            core_only = core_region & core_valid & ~stack_valid
+            out[core_only] = core_values[core_only]
+            seam_fill = band_zone & ~core_valid & stack_valid
+            out[seam_fill] = stack[seam_fill]
+            ring = band_zone & core_valid & stack_valid
+            offset = (float(numpy.median(core_values[ring] - stack[ring]))
+                      if ring.any() else None)
+
+        scratch = destination_path + ".assemble"
+        target = gdal.GetDriverByName("GTiff").Create(
+            scratch, self.width, self.height, 1, gdal.GDT_Float32,
+            options=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES"])
+        target.SetGeoTransform(self.transform)
+        target.SetProjection(self.projection)
+        target_band = target.GetRasterBand(1)
+        target_band.SetNoDataValue(LADDER_INSET_NODATA)
+        target_band.WriteArray(out)
+        if self.core_stamp is not None:
+            for (item, key) in ((VERTICAL_UNIT_STAMP_DECLARED, "declared"),
+                                (VERTICAL_UNIT_STAMP_SOURCE, "source"),
+                                (VERTICAL_UNIT_STAMP_APPLIED, "applied")):
+                if self.core_stamp.get(key):
+                    target.SetMetadataItem(item, self.core_stamp[key])
+        target = None
+        os.replace(scratch, destination_path)
+        out_valid = out != LADDER_INSET_NODATA
+        record = self._record(stack, stack_valid, source, out, out_valid)
+        record.update({
+            "seam_median_offset_m": (round(offset, 4)
+                                     if offset is not None else None),
+            "core_holes_left_nodata": int((core_region & ~core_valid
+                                           & ~band_zone).sum()),
+            "filled_fraction": round(float(out_valid.mean()), 6),
+            "fill_share": round(float(
+                (out_valid & ~(core_region & self.measured)).mean()), 6),
+        })
+        return record
+
+    def unwritten_record(self):
+        """The seam record when nothing was written (no fill used and no
+        interior island interpolated): the raster stands as fetched."""
+        empty = numpy.zeros((self.height, self.width), dtype=bool)
+        stack = numpy.full((self.height, self.width), LADDER_INSET_NODATA,
+                           dtype=numpy.float32)
+        source = numpy.full((self.height, self.width), -1, dtype=numpy.int8)
+        out = numpy.where(self.core_valid, self.core_values,
+                          LADDER_INSET_NODATA).astype(numpy.float32)
+        record = self._record(stack, empty, source, out, self.core_valid)
+        record.update({
+            "seam_median_offset_m": None,
+            "core_holes_left_nodata": int((self.region & ~self.edge
+                                           & ~self.core_valid).sum()),
+            "filled_fraction": round(float(self.core_valid.mean()), 6),
+            "fill_share": 0.0,
+        })
+        return record
+
+    def _record(self, stack, stack_valid, source, out, out_valid):
+        interior = [island for island in self.islands if island["interior"]]
+        edge = [island for island in self.islands
+                if not island["interior"]]
+        small = [island for island in self.islands
+                 if island["cells"] < self.hole_min_cells]
+        return {
+            "region_pixels": int(self.region.sum()),
+            "holes": self._hole_rows(stack, stack_valid, source, out,
+                                     out_valid),
+            "hole_min_cells": self.hole_min_cells,
+            "islands": len(self.islands),
+            "interior_islands": len(interior),
+            "interior_cells": int(sum(i["cells"] for i in interior)),
+            "edge_islands": len(edge),
+            "edge_cells": int(sum(i["cells"] for i in edge)),
+            "interpolation_left_cells": int(self.interpolation_left),
+            "sub_threshold_voids": len(small),
+            "sub_threshold_cells": int(sum(i["cells"] for i in small)),
+            "unanswered_cells": int(self._left().sum()),
+            "box_edge_sliver_cells": int((self.need & ~stack_valid
+                                          & ~self.fill_extent).sum())
+            if self.fills else 0,
+        }
+
+    def _hole_rows(self, stack, stack_valid, source, out, out_valid):
+        """One row per island of at least ``hole_min_cells``: ``kind``
+        (interior / edge), ``cells``, ``area_m2``, its
+        ``bounding_box_wgs84``, ``filled_by`` (``core_interpolation``, or
+        the fill rung holding most of an edge island), ``fill_cells`` per
+        rung, ``unfilled_cells``, ``fill_median_m`` (what now stands in
+        it), ``ring_median_m`` (the valid MEASURED core cells touching it)
+        and, for an edge island, ``seam_median_m`` (median ``core -
+        fill`` over that ring: its datum sanity)."""
+        rows_wanted = [island for island in self.islands
+                       if island["cells"] >= self.hole_min_cells]
+        if not rows_wanted:
+            return []
+        labels = self.labels
+        count = len(self.islands) + 1
+        flat_labels = labels.ravel()
+        in_island = flat_labels > 0
+        per_source = [numpy.bincount(
+            flat_labels[in_island & (source.ravel() == index)],
+            minlength=count) for index in range(len(self.fills))]
+        unfilled = numpy.bincount(flat_labels[in_island & ~out_valid.ravel()],
+                                  minlength=count)
+        # The 1-cell ring: measured core cells 8-adjacent to an island.
+        neighbour = numpy.zeros_like(labels)
+        padded = numpy.pad(labels, 1)
+        for (dr, dc) in ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1),
+                         (1, -1), (1, 0), (1, 1)):
+            shifted = padded[1 + dr:1 + dr + self.height,
+                             1 + dc:1 + dc + self.width]
+            neighbour = numpy.where(neighbour > 0, neighbour, shifted)
+        ring = (neighbour > 0) & self.measured & (labels == 0) & self.region
+
+        def _group(keys, data):
+            order = numpy.argsort(keys, kind="stable")
+            keys = keys[order]
+            return (data[order].astype(numpy.float64),
+                    numpy.searchsorted(keys, numpy.arange(count)),
+                    numpy.searchsorted(keys, numpy.arange(count),
+                                       side="right"))
+
+        ring_core = _group(neighbour[ring], self.core_values[ring])
+        ring_delta = None
+        if self.fills:
+            seam = ring & stack_valid
+            ring_delta = _group(neighbour[seam],
+                                (self.core_values - stack)[seam])
+        filled = (labels > 0) & out_valid
+        inside = _group(labels[filled], out[filled])
+
+        def _median(block, label):
+            (data, starts, ends) = block
+            chunk = data[starts[label]:ends[label]]
+            return round(float(numpy.median(chunk)), 4) if chunk.size \
+                else None
+
+        (x0, dx, _rx, y0, _ry, dy) = self.transform
+        centre_lat = y0 + dy * self.height / 2.0
+        cell_m2 = (abs(dx) * GEO.lon_to_m(centre_lat)) * (
+            abs(dy) * GEO.lat_to_m)
+        rows = []
+        for island in rows_wanted:
+            label = island["label"]
+            (c0, r0, c1, r1) = island["box_px"]
+            row = {
+                "kind": "interior" if island["interior"] else "edge",
+                "cells": int(island["cells"]),
+                "area_m2": round(island["cells"] * cell_m2, 1),
+                "bounding_box_wgs84": [round(x0 + c0 * dx, 8),
+                                       round(y0 + r1 * dy, 8),
+                                       round(x0 + c1 * dx, 8),
+                                       round(y0 + r0 * dy, 8)],
+                "unfilled_cells": int(unfilled[label]),
+                "fill_median_m": _median(inside, label),
+                "ring_median_m": _median(ring_core, label),
+            }
+            if island["interior"]:
+                row["filled_by"] = HOLE_FILLED_BY_CORE_INTERPOLATION
+            else:
+                fill_cells = [int(per_source[i][label])
+                              for i in range(len(self.fills))]
+                best = (max(range(len(fill_cells)),
+                            key=lambda i: (fill_cells[i], -i))
+                        if fill_cells and max(fill_cells) > 0 else None)
+                row["filled_by"] = (None if best is None
+                                    else dict(self.fills[best][2]))
+                row["fill_cells"] = [
+                    {"label": self.fills[i][2].get("label"),
+                     "rung": self.fills[i][2].get("rung"),
+                     "cells": fill_cells[i]}
+                    for i in range(len(self.fills)) if fill_cells[i]]
+                row["seam_median_m"] = (_median(ring_delta, label)
+                                        if ring_delta is not None else None)
+            rows.append(row)
+        return rows
+
+
+def assemble_ladder_inset(core_path, fills, destination_path,
+                          boundary_polygon=None, buffer_m=0.0,
+                          feather_m=None,
+                          hole_min_cells=INSET_HOLE_MIN_CELLS,
+                          core_region_is_box=False):
+    """ONE raster from a delivered CORE and the coarser rungs of its
+    ladder (spec §12; :class:`LadderInsetAssembly` is the mechanism).
+    ``fills`` = ``[(path, filled_by)]`` FINEST FIRST, ``filled_by`` =
+    ``{"provider", "rung", "label"}``.  Returns the seam record."""
+    assembly = LadderInsetAssembly(
+        core_path, boundary_polygon=boundary_polygon, buffer_m=buffer_m,
+        feather_m=feather_m, hole_min_cells=hole_min_cells,
+        core_region_is_box=core_region_is_box)
+    for (fill_path, filled_by) in fills:
+        assembly.add_fill(fill_path, filled_by)
+    return assembly.write(destination_path)
 
 
 def discover_inset(definition, bounding_box_wgs84):
@@ -13943,24 +14502,40 @@ def _facility_restrict_mask(polygons, values_shape, geotransform):
 
 
 def _restrict_to_inset_core_box(inset_path, valid, geotransform):
-    """``valid`` limited to the sidecar's ``core.bounding_box_wgs84`` when
-    the inset is a two-layer one; unchanged otherwise."""
+    """``valid`` limited to the MEASURED part of a ladder-assembled inset:
+    the sidecar's ``core.bounding_box_wgs84`` when the inset is a
+    two-layer one, and never inside the box of an interior hole the
+    ladder FILLED from a coarser rung (spec las-tile §12 -- a 3 m / 10 m
+    fill upsampled to 1 m is the upsampled class this detector skips,
+    the §5 ruling for the surround applied to every fill).  Unchanged for
+    an inset with neither."""
     provenance_path = os.path.splitext(inset_path)[0] + ".json"
     try:
         with open(provenance_path, "r") as handle:
-            core = (json.load(handle) or {}).get("core")
+            provenance = json.load(handle) or {}
     except (OSError, ValueError):
         return valid
-    box = core.get("bounding_box_wgs84") if isinstance(core, dict) else None
-    if not box or len(box) != 4:
+    if not isinstance(provenance, dict):
         return valid
-    (west, south, east, north) = box
     rows, cols = valid.shape
     xs = geotransform[0] + (numpy.arange(cols) + 0.5) * geotransform[1]
     ys = geotransform[3] + (numpy.arange(rows) + 0.5) * geotransform[5]
-    inside = ((ys >= south) & (ys <= north))[:, None] & (
-        (xs >= west) & (xs <= east))[None, :]
-    return valid & inside
+
+    def _inside(box):
+        (west, south, east, north) = box
+        return ((ys >= south) & (ys <= north))[:, None] & (
+            (xs >= west) & (xs <= east))[None, :]
+
+    core = provenance.get("core")
+    box = core.get("bounding_box_wgs84") if isinstance(core, dict) else None
+    if box and len(box) == 4:
+        valid = valid & _inside(box)
+    for hole in provenance.get("holes") or ():
+        hole_box = (hole.get("bounding_box_wgs84")
+                    if isinstance(hole, dict) else None)
+        if hole_box and len(hole_box) == 4 and hole.get("filled_by"):
+            valid = valid & ~_inside(hole_box)
+    return valid
 
 
 def _water_detection_trusts_inset_raster(inset_path):
@@ -16293,6 +16868,102 @@ def cached_inset_paths_for_icao(lat, lon, icao, providers_config="auto"):
     # A raster from a provider this config does not select is still ON
     # DISK and still bakes; it ranks last rather than vanishing.
     return ordered + [cached[code] for code in sorted(cached)]
+
+
+def inset_fill_summary(provenance):
+    """THE FILL RECORD of one inset sidecar (spec las-tile §12) -- the one
+    reader the harness frame check, the census header and the witness
+    share.  A sidecar written before §12 carries no ``holes`` key and
+    reads ``holes == 0`` with ``recorded`` False: no hole was ever filled
+    there (none was asked).  ``airport_valid_fraction`` is the core's own
+    cover (the rung-selection number); ``airport_filled_fraction`` the
+    cover after the fills -- < 1.0, or a ``ran_out`` rung, is REPORTED by
+    the harness, never refused."""
+    provenance = provenance if isinstance(provenance, dict) else {}
+    holes = [row for row in provenance.get("holes") or ()
+             if isinstance(row, dict)]
+    fills = provenance.get("fills")
+    fills = fills if isinstance(fills, dict) else {}
+    return {
+        "recorded": "holes" in provenance,
+        "holes": len(holes),
+        "hole_cells": int(sum(int(row.get("cells") or 0) for row in holes)),
+        "unfilled_hole_cells": int(sum(int(row.get("unfilled_cells") or 0)
+                                       for row in holes)),
+        "filled_by": sorted({
+            str(row["filled_by"].get("label")
+                if isinstance(row.get("filled_by"), dict)
+                else row.get("filled_by"))
+            for row in holes if row.get("filled_by")}),
+        "interior_islands": fills.get("interior_islands"),
+        "edge_islands": fills.get("edge_islands"),
+        "fill_layers": [layer.get("label")
+                        for layer in fills.get("layers") or ()
+                        if isinstance(layer, dict)],
+        "sub_threshold_voids": fills.get("sub_threshold_voids"),
+        "filled_fraction": fills.get("filled_fraction"),
+        "ran_out": fills.get("ran_out"),
+        "airport_valid_fraction": provenance.get("airport_valid_fraction"),
+        "airport_filled_fraction": provenance.get("airport_filled_fraction"),
+    }
+
+
+def inset_fill_shortfall(summary):
+    """The reportable condition of :func:`inset_fill_summary`: the cover
+    after fills is below 1.0 over the airport, or the ladder ran out of
+    rungs with a hole unanswered.  ``None`` when nothing to report."""
+    if not summary:
+        return None
+    reasons = []
+    filled = summary.get("airport_filled_fraction")
+    if filled is not None and filled < 1.0:
+        reasons.append("airport filled %.4f < 1.0" % filled)
+    if summary.get("ran_out"):
+        reasons.append("the ladder ran out at %s" % summary["ran_out"])
+    return "; ".join(reasons) or None
+
+
+def inset_fill_summary_text(summary):
+    """One line: ``holes N (C cells) filled by [...], airport valid V ->
+    filled F``."""
+    if not summary:
+        return "no cached inset"
+    if not summary.get("recorded"):
+        return "holes 0 (sidecar predates the ladder fill, spec §12)"
+
+    def _fraction(value):
+        return "None" if value is None else "%.4f" % value
+
+    text = ("holes %d (%d cells; islands interior %s / edge %s) filled "
+            "by %s, airport valid %s -> filled %s, box filled %s, "
+            "sub-threshold voids %s"
+            % (summary["holes"], summary["hole_cells"],
+               summary.get("interior_islands"), summary.get("edge_islands"),
+               summary["filled_by"] or "[]",
+               _fraction(summary.get("airport_valid_fraction")),
+               _fraction(summary.get("airport_filled_fraction")),
+               _fraction(summary.get("filled_fraction")),
+               summary.get("sub_threshold_voids")))
+    shortfall = inset_fill_shortfall(summary)
+    return text + (" -- REPORT: " + shortfall if shortfall else "")
+
+
+def cached_inset_fill_summary(lat, lon, icao):
+    """:func:`inset_fill_summary` of the airport's FIRST-ranked cached
+    inset (the one the bake reads first), plus its ``inset`` file name;
+    ``None`` when no inset is cached.  A read: nothing is written."""
+    paths = cached_inset_paths_for_icao(lat, lon, icao)
+    if not paths:
+        return None
+    sidecar = os.path.splitext(paths[0])[0] + ".json"
+    try:
+        with open(sidecar, "r", encoding="utf-8") as handle:
+            provenance = json.load(handle)
+    except (OSError, ValueError):
+        provenance = {}
+    summary = inset_fill_summary(provenance)
+    summary["inset"] = os.path.basename(paths[0])
+    return summary
 
 
 def cached_inset_paths_for_airport(tile, icao):

@@ -117,7 +117,6 @@ def test_witness_record_from_apt_dat_and_sidecar(tmp_path):
 
 
 def test_witness_refuses_without_a_lane_local_dir(monkeypatch, capsys):
-    pytest.importorskip("osgeo.gdal")  # #165: the CI venv has no GDAL
     mod = _tool()
     monkeypatch.setattr(sys, "argv", [
         "fetch_airport_elevation_insets.py", "--witness", "KTST"])
@@ -126,7 +125,7 @@ def test_witness_refuses_without_a_lane_local_dir(monkeypatch, capsys):
 
 
 def test_runway_only_block_still_has_a_footprint(tmp_path):
-    pytest.importorskip("osgeo.gdal")  # #165: the CI venv has no GDAL
+    pytest.importorskip("osgeo")   # the gap census's footprint reads GDAL
     mod = _tool()
     apt = tmp_path / "apt.dat"
     apt.write_text(APT, encoding="utf-8", newline="\n")

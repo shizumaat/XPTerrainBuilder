@@ -771,10 +771,21 @@ def test_airport_cover_rung_is_judged_over_the_airport(tmp_path,
                                     str(tmp_path / "KASE_fake3dep.tif"),
                                     resolution_ladder=True,
                                     footprint_polygon=_airport())
-    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT"]
+    # The rung covers the aerodrome but not the whole box: its holes fill
+    # DOWN THE LADDER from 10 m (spec §12) -- not from the base DEM.
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT", "FAKE3DEP:10"]
     assert provenance["ladder"]["delivered_provider"] == "FAKEPIT"
+    assert provenance["ladder"]["delivered_rung"] == 1
     assert provenance["ladder"]["rungs_tried"][1][
         "airport_valid_fraction"] >= INSETS.INSET_MIN_AIRPORT_COVER_FRAC
+    assert provenance["ladder"]["rungs_tried"][2]["role"] == "fill"
+    assert [layer["label"] for layer in provenance["fills"]["layers"]] == [
+        "1/3 arc-second"]
+    assert provenance["valid_fraction"] == 1.0
+    assert provenance["airport_filled_fraction"] == 1.0
+    assert provenance["holes"] and all(
+        row["filled_by"]["label"] == "1/3 arc-second"
+        for row in provenance["holes"])
     assert "core" not in provenance and "surround" not in provenance
 
 
@@ -881,11 +892,17 @@ def test_partial_rung_zero_stands_when_no_same_resolution_rung_covers(
     polygons = {"KASE": _airport()}
     INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None,
                                  airport_polygons=polygons)
-    ladder = _sidecar()["ladder"]
+    meta = _sidecar()
+    ladder = meta["ladder"]
     assert [r["outcome"] for r in ladder["rungs_tried"]] == [
-        "delivered", "transient"]
+        "delivered", "transient", "delivered"]
     assert ladder["delivered_rung"] == 0
-    assert "FAKE3DEP:10" not in calls["fetch"]
+    # The 10 m rung is never DELIVERED in its place (30bu) -- it FILLS
+    # the partial rung's holes (spec §12, owner RULINGS 2026-10-01d).
+    assert ladder["rungs_tried"][2]["role"] == "fill"
+    assert meta["airport_filled_fraction"] == 1.0
+    assert meta["airport_valid_fraction"] < \
+        INSETS.INSET_MIN_AIRPORT_COVER_FRAC
     recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
     assert recheck["result"] == "new-listing"
     assert recheck["new_source_ids"] == ["T1"]

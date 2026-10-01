@@ -539,8 +539,11 @@ def _write_flat(path, box, value, size, hole=None):
 def test_two_layer_assembly_feathers_the_core_edge(tmp_path):
     """A flat probe: core 101 m, surround 100 m.  Inside the region the
     core, outside the surround, a 60 m ramp inside the region's edge
-    with no step over 0.05 m per cell, a core hole deep inside left
-    NoData (§9), and the seam's median offset recorded."""
+    with no step over 0.05 m per cell, and the seam's median offset
+    recorded.  A core hole deep inside (100 cells, ringed by valid core:
+    an INTERIOR island, the building-footprint class) and a 2-cell roof
+    void are interpolated from the core's own ring (spec §12 refinement;
+    the §9 STOP is withdrawn) -- never the surround, never NoData."""
     from shapely.geometry import box as _box
 
     box = (-106.90, 39.20, -106.88, 39.22)     # ~1.7 x 2.2 km
@@ -549,18 +552,31 @@ def test_two_layer_assembly_feathers_the_core_edge(tmp_path):
     surround = tmp_path / "surround.tif"
     hole = (slice(395, 405), slice(395, 405))
     _write_flat(core, box, 101.0, size, hole=hole)
+    dataset = gdal.Open(str(core), gdal.GA_Update)
+    values = dataset.GetRasterBand(1).ReadAsArray()
+    values[300, 450:452] = -32768.0                # a 2-cell roof void
+    dataset.GetRasterBand(1).WriteArray(values)
+    dataset = None
     _write_flat(surround, box, 100.0, size)
     boundary = _box(-106.895, 39.205, -106.885, 39.215)
-    seam = INSETS.assemble_two_layer_inset(
-        str(core), str(surround), str(tmp_path / "out.tif"), boundary,
-        0.0, 60.0)
+    seam = INSETS.assemble_ladder_inset(
+        str(core), [(str(surround), {"provider": "S", "rung": 3,
+                                     "label": "1/3"})],
+        str(tmp_path / "out.tif"), boundary, 0.0, 60.0)
     values, transform = _read(tmp_path / "out.tif")
     assert seam["seam_median_offset_m"] == pytest.approx(1.0, abs=1e-3)
-    assert seam["core_holes_left_nodata"] == 100
-    assert values[400, 400] == INSETS.LAS_DTM_NODATA     # hole stays NoData
+    assert seam["core_holes_left_nodata"] == 0
+    assert seam["sub_threshold_voids"] == 1
+    assert seam["sub_threshold_cells"] == 2
+    assert (seam["interior_islands"], seam["edge_islands"]) == (2, 0)
+    (row,) = seam["holes"]
+    assert row["cells"] == 100 and row["kind"] == "interior"
+    assert row["filled_by"] == "core_interpolation"
+    assert row["unfilled_cells"] == 0
+    assert values[400, 400] == pytest.approx(101.0)      # interpolated
+    assert values[300, 450] == pytest.approx(101.0)      # roof void too
     assert values[5, 5] == pytest.approx(100.0)          # surround outside
-    row = 300                                            # a transect W -> E
-    transect = values[row, :]
+    transect = values[330, :]                            # W -> E
     assert numpy.nanmax(numpy.abs(numpy.diff(transect))) <= 0.05
     assert transect.max() == pytest.approx(101.0, abs=1e-4)
     assert INSETS.feather_weight(numpy.array([-1.0, 0.0, 30.0, 60.0, 90.0]),

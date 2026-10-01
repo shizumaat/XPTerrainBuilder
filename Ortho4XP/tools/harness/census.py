@@ -655,6 +655,43 @@ def load_provenance_reader():
     return parse_patch_provenance
 
 
+def inset_fill_record(osm: Path, prov: dict | None) -> dict:
+    """THE INSET LADDER-FILL HEADER (spec las-tile-lidar-provider §12):
+    the interior holes of the airport's cached elevation inset and the
+    cover after the ladder's fills, read through the engine's ONE reader
+    (``O4_Airport_Elevation_Insets.cached_inset_fill_summary``, imported,
+    never copied).  The tile is the patch's own directory
+    (``Patches/<block>/<tile>/``), the airport the patch's provenance
+    ICAO (else its file-name prefix).  A header fact, read fresh beside a
+    cached report (it is NOT part of the census key); ``text`` says why
+    when nothing could be read.  A read: nothing is written."""
+    name = osm.parent.name
+    icao = ((prov or {}).get("icao") or osm.name.split("_")[0]).upper()
+    try:
+        if len(name) != 7 or name[0] not in "+-" or name[3] not in "+-":
+            raise ValueError(name)
+        lat, lon = int(name[:3]), int(name[3:])
+    except ValueError:
+        return {"icao": icao, "tile": None, "summary": None,
+                "text": f"not read (the patch is not under a tile "
+                        f"directory: {name!r})"}
+    src = str(ROOT / "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    try:
+        import O4_Airport_Elevation_Insets as INSETS
+
+        summary = INSETS.cached_inset_fill_summary(lat, lon, icao)
+        text = INSETS.inset_fill_summary_text(summary)
+    except Exception as exc:                               # pragma: no cover
+        return {"icao": icao, "tile": [lat, lon], "summary": None,
+                "text": f"not read ({exc!r})"}
+    if summary is not None:
+        text = f"{summary.get('inset')}: {text}"
+    return {"icao": icao, "tile": [lat, lon], "summary": summary,
+            "text": text}
+
+
 def patch_provenance(osm: Path) -> dict:
     """THE PATCH'S FRAME STAMP — ``{"provenance": …, "reason": …}``.
 
@@ -1793,6 +1830,8 @@ def print_report(rep: dict, top: int, cg=None) -> None:
     else:
         print(f"  frame: provenance=None "
               f"({rep.get('provenance_reason') or 'not read'})")
+    if rep.get("inset_fill") is not None:
+        print(f"  inset fill: {rep['inset_fill']['text']}")
     knobs = rep.get("law_true_knobs") or {}
     if knobs:
         print("  law-true knobs: " + " ".join(f"{k}={v:g}"
@@ -2588,6 +2627,9 @@ def main(argv=None) -> int:
                             dumps[name] = None
                 cache_store(key, payload, rep, dumps,
                             notes=_notes_buf.getvalue())
+        # The inset ladder-fill header (spec las-tile §12): read fresh on
+        # a hit and a miss alike -- never part of the cached report.
+        rep["inset_fill"] = inset_fill_record(osm, rep.get("provenance"))
         reports.append(rep)
         if not args.quiet:
             print_report(rep, args.top, cg)

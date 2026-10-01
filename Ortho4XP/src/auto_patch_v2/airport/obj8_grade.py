@@ -32,7 +32,8 @@ if _t.TYPE_CHECKING:  # annotations only — obj8 imports this module
 
 __all__ = ["GradeStats", "planes", "memo_union", "both_clip", "above_clip",
            "BasePlane", "Riser", "BaseProfile", "base_profile", "compose_profiles",
-           "FLAT", "STEPPED", "SLOPED", "FEET"]
+           "FLAT", "STEPPED", "SLOPED", "FEET",
+           "profile_to_json", "profile_from_json"]
 
 
 @_dc.dataclass
@@ -758,3 +759,79 @@ def _floor_fraction(v: np.ndarray, tris: np.ndarray, horiz: np.ndarray,
     if not at_feet.any():
         return 0.0
     return float(areas[at_feet].sum()) / ha
+
+
+# --------------------------------------------------------------------------
+# §1 (4) THE PUBLICATION CODEC — ONE SPELLING FOR THREE READERS
+# --------------------------------------------------------------------------
+#: §1 (4): the profile is published on the plan (``Member.base_profile``),
+#: composed per unit onto ``PlanCluster.base_profile``, and read back by
+#: ``tools/obj8_split_report --base-profile``.  THREE readers of one law,
+#: so there is ONE codec here rather than a dict literal at each site: the
+#: census-wrapper defect (RULINGS 2026-08-30l) is exactly two hand-rolled
+#: spellings of one record drifting apart, and §6's STOP list names "any
+#: ``--base-profile`` read that disagrees with the planar stage's
+#: published planes (two readers of one law)".
+#:
+#: The polygon travels through shapely's own ``mapping`` / ``shape`` — a
+#: hand-walked ring list would lose a MultiPolygon, and §1 (1)'s polygon
+#: is the face UNION, which at KASE's ``FireStation_7`` lot is TWO pieces
+#: (§4: "the lot's face union is 6,394 m² in two pieces").
+
+
+def profile_to_json(prof: "BaseProfile") -> dict:
+    """``BaseProfile`` -> a JSON-safe dict (§1 (4)).
+
+    Geometry is in the member's AUTHORED frame ``(x, z)``, as §1 (1)
+    derives it; the placement affine and the DSF heading are applied by
+    the reader that needs ground coordinates (§1 (2): "orientation is
+    carried by the polygons").
+    """
+    from shapely.geometry import mapping
+    return {
+        "verdict": str(prof.verdict),
+        "planes": [{"y": float(p.y), "area_m2": float(p.area_m2),
+                    "polygon": (mapping(p.polygon)
+                                if p.polygon is not None and not p.polygon.is_empty
+                                else None),
+                    "support_fraction": float(p.support_fraction),
+                    "trimmed_m2": float(p.trimmed_m2)}
+                   for p in prof.planes],
+        "risers": [[int(r.a), int(r.b), float(r.dy)] for r in prof.risers],
+        "slope": [float(prof.slope[0]), float(prof.slope[1])],
+        "residual_rms_m": float(prof.residual_rms_m),
+        "feet": int(prof.feet),
+        "feet_y": float(prof.feet_y),
+        "floor_fraction": float(prof.floor_fraction),
+        "why": str(prof.why),
+    }
+
+
+def profile_from_json(d: "dict | None") -> "BaseProfile":
+    """The inverse (§1 (4)).  ``None`` / ``{}`` — a plan written before the
+    base read — is the pre-law profile exactly: ``FEET`` with no plane, so
+    "a unit with no base plane keeps today's law exactly" (§1 (3)).
+    """
+    from shapely.geometry import shape
+    if not d:
+        return BaseProfile(FEET, why="plan predates the base read")
+    planes = []
+    for p in d.get("planes", ()) or ():
+        geo = p.get("polygon")
+        planes.append(BasePlane(
+            y=float(p.get("y", 0.0)), area_m2=float(p.get("area_m2", 0.0)),
+            polygon=(shape(geo) if geo else None),
+            support_fraction=float(p.get("support_fraction", 0.0) or 0.0),
+            trimmed_m2=float(p.get("trimmed_m2", 0.0) or 0.0)))
+    sl = d.get("slope", (0.0, 0.0)) or (0.0, 0.0)
+    return BaseProfile(
+        verdict=str(d.get("verdict", FEET)),
+        planes=tuple(planes),
+        risers=tuple(Riser(int(a), int(b), float(dy))
+                     for a, b, dy in (d.get("risers", ()) or ())),
+        slope=(float(sl[0]), float(sl[1])),
+        residual_rms_m=float(d.get("residual_rms_m", 0.0) or 0.0),
+        feet=int(d.get("feet", 0) or 0),
+        feet_y=float(d.get("feet_y", 0.0) or 0.0),
+        floor_fraction=float(d.get("floor_fraction", 0.0) or 0.0),
+        why=str(d.get("why", "")))

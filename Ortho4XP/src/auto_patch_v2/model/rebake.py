@@ -38,7 +38,7 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
 #: anchor plane); 9: ``Member.elevated_deck`` (11a); 10: THE WELDED DECK's
 #: ``Member.deck_shade_ring`` / ``deck_pier_ratio`` (issue #14,
 #: ``welded-deck-spec.md`` §1 (4)).
-PLAN_VERSION = 10
+PLAN_VERSION = 11
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -224,6 +224,24 @@ class Member:
     #: ...and the section's filled share of the deck ring that verdict was
     #: taken on (``None`` where no reading was made).
     deck_pier_ratio: float | None = None
+    #: THE BASE PROFILE (``docs/specs/building-base-profile-spec.md`` §1 (4);
+    #: owner RULINGS 2026-10-01f / 10-01k): this member's base read, as the
+    #: JSON record ``airport/obj8_grade.profile_to_json`` mints — the
+    #: verdict (``flat`` / ``stepped`` / ``sloped`` / ``feet``), the base
+    #: PLANES with their authored-frame polygons, the RISERS between them
+    #: and a SLOPED base's own gradient.  Derived ONCE per resource at the
+    #: pack read (``obj8.ResourceCache.base_profile``) and carried here so
+    #: the planar stage and ``tools/obj8_split_report --base-profile`` read
+    #: the SAME record instead of re-deriving it (§6's STOP: "any
+    #: ``--base-profile`` read that disagrees with the planar stage's
+    #: published planes (two readers of one law)").
+    #:
+    #: Kept as the plain dict, not a ``BaseProfile``: this model module
+    #: stays free of shapely, and ``obj8_grade`` keeps the ONE codec.
+    #: Empty in every plan written before version 11 — which
+    #: ``profile_from_json`` reads as FEET with no plane, i.e. §1 (3)'s
+    #: "a unit with no base plane keeps today's law exactly".
+    base_profile: dict = _dc.field(default_factory=dict)
 
 
 @_dc.dataclass(frozen=True)
@@ -365,6 +383,7 @@ class RebakePlan:
                     else [[[list(p) for p in r] for r in poly]
                           for poly in m.deck_shade_ring],
                     "deck_pier_ratio": m.deck_pier_ratio,
+                    "base_profile": dict(m.base_profile or {}),
                 } for m in u.members],
             } for u in self.units],
         }
@@ -374,6 +393,22 @@ class RebakePlan:
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "RebakePlan":
+        # Version 11 is version 10 plus ``Member.base_profile`` (the
+        # base-profile spec §1 (4)): a v10 plan reads with an EMPTY base
+        # profile, which ``obj8_grade.profile_from_json`` takes as FEET
+        # with no plane — §1 (3)'s "a unit with no base plane keeps
+        # today's law exactly", so an owner's older plan still replays
+        # with the pre-base-read seat.
+        #
+        # WHAT THE BUMP COSTS, STATED: the accepted window is a rolling
+        # four (``PLAN_VERSION - 3``), so 11 RETIRES version 7 — a v7
+        # plan (``Part.line``, 2026-09-10bb) no longer replays offline.
+        # The base profile is purely ADDITIVE and changes no field the
+        # seat reads, so widening the window to ``- 4`` would keep v7
+        # alive and lose nothing; the rolling four is kept here because
+        # every previous bump retired its oldest the same way.  REPORTED
+        # for the owner's ruling (lane ``basepads1``), not decided: if a
+        # v7 owner plan is still wanted for replay this is the one line.
         # Version 10 is version 9 plus ``Member.deck_shade_ring`` /
         # ``deck_pier_ratio`` (issue #14): a v9 plan reads with both None
         # and mints as it did.  Version 9 is version 8 plus
@@ -430,6 +465,7 @@ class RebakePlan:
                            for poly in m["deck_shade_ring"]),
                 deck_pier_ratio=None if m.get("deck_pier_ratio") is None
                 else float(m["deck_pier_ratio"]),
+                base_profile=dict(m.get("base_profile") or {}),
             ) for m in u["members"])) for u in d["units"])
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,

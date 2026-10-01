@@ -7880,6 +7880,530 @@ def _las_airport_label(destination_path):
 
 
 # =====================================================================
+# Strategy: cwcb_lidar_api (Colorado CWCB lidar API: tile zips of a
+# ready-gridded DEM; spec us-holder-providers §3.5, RULINGS 2026-09-30bm)
+# =====================================================================
+#: The member suffix the zip-unwrapped LAS path would carry -- NOT this
+#: strategy's (CWCB's LAS-only 7V2 dataset is §3.3 ``archive_member=las``,
+#: lane lasidx154).
+_CWCB_LAS_MEMBER_SUFFIX = ".las"
+
+#: Days a cached per-dataset ``tileSummaries`` listing is trusted before
+#: it is re-listed (``summaries_max_age_days`` in the .elv overrides).  A
+#: listing that CONTRADICTS a fresh ``tiles`` answer (the dataset is named
+#: over the box and none of its keys is in the cache) is re-listed at once.
+CWCB_SUMMARIES_DEFAULT_MAX_AGE_DAYS = 30.0
+
+
+def cwcb_summaries_cache_path(provider_code, dataset_id):
+    """``Elevation_data/<code>_<dataset>_summaries.json`` -- the per-
+    dataset tile listing (tile id, footprint WKT, per-format bytes), the
+    spec §3.5 memo.  Under the ``dem`` scope with every other inset
+    artefact."""
+    return os.path.join(
+        FNAMES.Elevation_dir,
+        "%s_%s_summaries.json" % (str(provider_code).lower(), dataset_id))
+
+
+def _cwcb_dataset_ids(definition):
+    return [token.strip()
+            for token in str(definition.get("dataset_ids", "")).split(",")
+            if token.strip()]
+
+
+def _cwcb_request_polygon(definition, bounding_box_wgs84):
+    """The polygon the API is asked over: the SURGICAL core (the aerodrome
+    boundary buffered by ``footprint_buffer_m``, :func:`las_core_geometry`
+    -- the §2 LAS rule) when the definition carries one, else the request
+    box.  Exterior rings counter-clockwise: the server's geography type
+    reads a clockwise ring as its complement."""
+    from shapely.geometry import MultiPolygon, Polygon, box
+    from shapely.geometry.polygon import orient
+
+    core = las_core_geometry(definition)
+    geometry = core if core is not None else box(*bounding_box_wgs84)
+    if isinstance(geometry, Polygon):
+        return orient(geometry, 1.0), core
+    if isinstance(geometry, MultiPolygon):
+        return MultiPolygon([orient(part, 1.0)
+                             for part in geometry.geoms]), core
+    return orient(box(*geometry.bounds), 1.0), core
+
+
+@register_access_strategy("cwcb_lidar_api")
+class CwcbLidarApiStrategy:
+    """The Colorado Water Conservation Board lidar API
+    (``coloradohazardmapping.com/api/lidar``): per-tile zips of a
+    ready-gridded DEM (Routt 2016: a 1000 x 1000 Float32 ERDAS IMAGINE
+    ``.img`` at 3 ft, NAD83(2011) Colorado North ftUS, heights in US
+    survey feet NAVD88).  No LAS gridding.
+
+    Discovery (spec §3.5): ``POST tiles_url`` with the request polygon's
+    WKT as a JSON string -> ``{"datasets": [...], "tiles": [keys]}`` over
+    every dataset; the keys are filtered to ``dataset_ids`` through the
+    per-dataset ``POST summaries_url ["<dataset>"]`` listing (tile id,
+    footprint WKT, per-format bytes), memoised in
+    :func:`cwcb_summaries_cache_path` and re-listed when stale; a tile is
+    kept only when its footprint meets the polygon.  Classified by the
+    module's one discovery law: 5xx/429/non-JSON/an ``{"error": ...}``
+    inside a 200/a listing that is not a listing are TRANSIENT; a
+    well-formed answer naming none of the datasets is the durable
+    no-coverage.
+
+    Fetch: caps checked BEFORE any byte moves (``max_tiles_per_airport``,
+    ``max_bytes_per_airport`` against the listing's own per-format bytes
+    -- the uncompressed member size, an upper bound on the zip), each
+    ``GET file_url_template`` ({tileKey}, {formatKey}) streamed whole to
+    scratch beside the destination (the server ignores ``Range``; a died
+    transfer is re-GET whole once), the ``member_suffix`` member read
+    through ``/vsizip/``, a VRT of the members into the shared warp with
+    ``source_srs`` and ``vertical_unit``; scratch removed in ``finally``.
+    A SURGICAL fetch (a footprint on the definition) returns a ``core``
+    block, so the ladder judges it over the airport and assembles the
+    next covering rung around it (the two-layer inset, spec §4).
+    """
+
+    supports_wide_area = False
+
+    # ------------------------------------------------------------ checks
+    def _refuse_unsupported_member(self, definition):
+        suffix = str(definition.get("member_suffix", ".img")).strip().lower()
+        if suffix == _CWCB_LAS_MEMBER_SUFFIX:
+            raise ProviderUnavailable(
+                "%s: member_suffix=.las is a LAS point cloud inside the zip "
+                "-- the zip-unwrapped LAS path (las_tile_index "
+                "archive_member=las, lane lasidx154), not cwcb_lidar_api, "
+                "which reads a ready-gridded raster member"
+                % definition.get("code"))
+        return suffix
+
+    # --------------------------------------------------------- summaries
+    def _post_json(self, url, body, description):
+        import requests
+
+        try:
+            response = requests.post(
+                url, data=json.dumps(body),
+                headers={"Content-Type": "application/json"}, timeout=120)
+        except Exception as error:
+            raise_transient_discovery_failure(description + " request",
+                                              error)
+        payload = discovery_json_payload(response, description)
+        if isinstance(payload, dict):
+            for key in _DISCOVERY_ERROR_KEYS + ("exceptionMessage",):
+                if payload.get(key):
+                    raise_transient_discovery_failure(
+                        description,
+                        "a 200 body reporting '%s': %s"
+                        % (key, str(payload[key])[:200]))
+        return payload
+
+    def _list_dataset(self, definition, dataset_id):
+        """The dataset's tile listing from the server, reduced to
+        ``{tileKey: {"tile_id", "wkt", "bytes": {format: n}}}``."""
+        description = "%s tileSummaries (%s)" % (definition.get("code"),
+                                                 dataset_id)
+        payload = self._post_json(definition.get("summaries_url"),
+                                  [dataset_id], description)
+        if payload is None:
+            return None
+        if not isinstance(payload, dict) or not isinstance(
+                payload.get(dataset_id), dict):
+            raise_transient_discovery_failure(
+                description, "a 200 body carrying no listing for the "
+                "dataset")
+        listing = {}
+        for (key, entry) in payload[dataset_id].items():
+            try:
+                wkt = entry["geography"]["geography"]["wellKnownText"]
+                model = entry["model"]
+            except (KeyError, TypeError):
+                raise_transient_discovery_failure(
+                    description, "tile %s carries no footprint" % key)
+            listing[str(key)] = {
+                "tile_id": str(model.get("tileId") or key),
+                "wkt": str(wkt),
+                "bytes": {
+                    str(item.get("format")): int(item.get("fileSizeTotal")
+                                                 or 0)
+                    for item in (model.get("fileSummaries") or ())
+                    if isinstance(item, dict)},
+            }
+        return listing
+
+    def _dataset_listing(self, definition, dataset_id, force=False):
+        """The cached listing when fresh, else a re-list (written back
+        only when it changed, and never under an armed shared-repo
+        guard -- the listing is then used from memory)."""
+        import time as _time
+
+        path = cwcb_summaries_cache_path(definition.get("code"), dataset_id)
+        max_age_days = _parse_float(
+            definition.get("summaries_max_age_days"),
+            default=CWCB_SUMMARIES_DEFAULT_MAX_AGE_DAYS)
+        cached = None
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    cached = json.load(handle)
+            except (OSError, ValueError):
+                cached = None
+        if isinstance(cached, dict) and not force:
+            age_days = (_time.time() - os.path.getmtime(path)) / 86400.0
+            if age_days <= max_age_days:
+                return cached, "cached"
+        listing = self._list_dataset(definition, dataset_id)
+        if listing is None:
+            return None, "listed"
+        text = json.dumps(listing, sort_keys=True, separators=(",", ":"))
+        if (cached != listing and not _write_refused_by_armed_guard(path)):
+            try:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                scratch = path + ".part"
+                with open(scratch, "w", encoding="utf-8",
+                          newline="\n") as handle:
+                    handle.write(text)
+                os.replace(scratch, path)
+            except OSError as error:
+                UI.vprint(1, "   [inset] %s: tile listing not cached (%s) "
+                          "- used from memory" % (definition.get("code"),
+                                                  error))
+        return listing, "listed"
+
+    # --------------------------------------------------------- discovery
+    def discover(self, definition, bounding_box_wgs84):
+        """The tiles of ``dataset_ids`` whose footprint meets the request
+        polygon, ``[{source_id, tile_key, title, download_url, bytes,
+        dataset}]`` sorted by tile id; ``None`` for a durable no-coverage
+        (a well-formed answer naming none of the datasets)."""
+        from shapely import from_wkt
+
+        if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
+            return None
+        self._refuse_unsupported_member(definition)
+        datasets = _cwcb_dataset_ids(definition)
+        format_key = str(definition.get("format_key", "")).strip()
+        if not datasets or not format_key:
+            raise ProviderUnavailable(
+                "%s: .elv carries no dataset_ids / format_key"
+                % definition.get("code"))
+        (polygon, _core) = _cwcb_request_polygon(definition,
+                                                 bounding_box_wgs84)
+        description = "%s tiles" % definition.get("code")
+        payload = self._post_json(definition.get("tiles_url"), polygon.wkt,
+                                  description)
+        if payload is None:
+            return None
+        keys = discovery_listing_items(payload, description,
+                                       items_key="tiles", total_key=None)
+        named = payload.get("datasets")
+        if not isinstance(named, list):
+            raise_transient_discovery_failure(
+                description, "a 200 body carrying no 'datasets' list")
+        keys = {str(key) for key in keys}
+        sources = []
+        for dataset_id in datasets:
+            if dataset_id not in named:
+                continue
+            (listing, how) = self._dataset_listing(definition, dataset_id)
+            if listing is None:
+                continue
+            if how == "cached" and not keys.intersection(listing):
+                # The server names the dataset here and the cache holds
+                # none of its keys: the cache is stale, not the server.
+                (listing, how) = self._dataset_listing(
+                    definition, dataset_id, force=True)
+                if listing is None:
+                    continue
+            for key in sorted(keys.intersection(listing)):
+                entry = listing[key]
+                size = entry.get("bytes", {}).get(format_key)
+                if size is None:
+                    continue           # no such product for this tile
+                try:
+                    footprint = from_wkt(entry["wkt"])
+                except Exception:
+                    raise_transient_discovery_failure(
+                        description, "tile %s footprint unreadable" % key)
+                if not footprint.intersects(polygon):
+                    continue
+                sources.append({
+                    "source_id": entry["tile_id"],
+                    "tile_key": key,
+                    "title": entry["tile_id"],
+                    "dataset": dataset_id,
+                    "bytes": int(size),
+                    "download_url": str(definition.get(
+                        "file_url_template", ""))
+                    .replace("{tileKey}", key)
+                    .replace("{formatKey}", format_key),
+                    "publication_date": definition.get(
+                        "publication_date") or "",
+                })
+        if not sources:
+            return None
+        return sorted(sources, key=lambda source: source["source_id"])
+
+    # ------------------------------------------------------------- fetch
+    def _check_caps(self, definition, sources, destination_path):
+        """Refuse an over-cap fetch BEFORE any byte moves (spec §3)."""
+        max_tiles = int(float(definition.get("max_tiles_per_airport", 0)
+                              or 0))
+        max_bytes = int(float(definition.get("max_bytes_per_airport", 0)
+                              or 0))
+        total_bytes = sum(source["bytes"] for source in sources)
+        if (max_tiles and len(sources) > max_tiles) or (
+                max_bytes and total_bytes > max_bytes):
+            raise cap_exceeded_unavailable(
+                definition,
+                "%d tiles / %.0f MB" % (len(sources), total_bytes / 1e6),
+                "%d / %.0f MB" % (max_tiles, max_bytes / 1e6),
+                "max_tiles_per_airport / max_bytes_per_airport",
+                destination_path)
+        return total_bytes
+
+    def _download_zip(self, definition, source, scratch_path, member,
+                      progress_label):
+        """One tile zip, WHOLE (the server ignores ``Range``), into
+        ``scratch_path``; re-GET whole once when the transfer dies or the
+        zip does not hold ``member``.  ``True``, or ``False`` for a 404
+        (the listed tile is not on the server)."""
+        import requests
+        import time as _time
+        import zipfile
+
+        code = definition.get("code")
+        url = source["download_url"]
+        last_problem = None
+        for _attempt in range(2):
+            if os.path.isfile(scratch_path):
+                os.remove(scratch_path)
+            try:
+                response = requests.get(url, stream=True, timeout=(30, 120))
+            except Exception as error:
+                last_problem = error
+                continue
+            try:
+                status = int(response.status_code)
+                if status == 404:
+                    return False
+                if discovery_status_is_transient(status):
+                    raise TransientFetchError(
+                        "%s: tile %s answered HTTP %d"
+                        % (code, source["source_id"], status))
+                if status != 200:
+                    raise ProviderUnavailable(
+                        "%s: tile %s answered HTTP %d"
+                        % (code, source["source_id"], status))
+                content_type = str((getattr(response, "headers", None)
+                                    or {}).get("Content-Type", "")).lower()
+                if "json" in content_type or "html" in content_type:
+                    # An API error envelope inside a 200, never a tile.
+                    raise TransientFetchError(
+                        "%s: tile %s answered a %s body, not a zip"
+                        % (code, source["source_id"], content_type))
+                try:
+                    total = int((getattr(response, "headers", None)
+                                 or {}).get("Content-Length") or 0)
+                except (TypeError, ValueError):
+                    total = 0
+                os.makedirs(os.path.dirname(scratch_path), exist_ok=True)
+                started = _time.monotonic()
+                last_line = started
+                have = 0
+                with open(scratch_path, "wb") as handle:
+                    for block in response.iter_content(1 << 20):
+                        if UI.red_flag:
+                            raise TransientFetchError(
+                                "%s tile download stopped with the build"
+                                % code)
+                        if block:
+                            handle.write(block)
+                            have += len(block)
+                        now = _time.monotonic()
+                        if now - last_line >= LAS_PROGRESS_INTERVAL_S:
+                            last_line = now
+                            UI.vprint(1, _las_progress_line(
+                                progress_label, have, total, have,
+                                now - started))
+                UI.vprint(1, _las_progress_line(
+                    progress_label, have, total or have, have,
+                    _time.monotonic() - started, done=True))
+            except (TransientFetchError, ProviderUnavailable):
+                raise
+            except Exception as error:
+                last_problem = error
+                continue
+            finally:
+                response.close()
+            if total and have != total:
+                last_problem = "%d of %d bytes" % (have, total)
+                continue
+            try:
+                with zipfile.ZipFile(scratch_path) as archive:
+                    names = archive.namelist()
+            except zipfile.BadZipFile as error:
+                last_problem = error
+                continue
+            if member not in names:
+                last_problem = "no member %s in %s" % (member, names[:4])
+                continue
+            return True
+        raise TransientFetchError(
+            "%s: tile %s download died twice: %s"
+            % (code, source["source_id"], last_problem))
+
+    def fetch(
+        self,
+        definition,
+        bounding_box_wgs84,
+        target_resolution_m,
+        destination_path,
+    ):
+        code = definition.get("code")
+        if not has_gdal:
+            return None
+        if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
+            return None
+        suffix = self._refuse_unsupported_member(definition)
+        sources = self.discover(definition, bounding_box_wgs84)
+        if not sources:
+            return None
+        total_bytes = self._check_caps(definition, sources,
+                                       destination_path)
+        airport = _las_airport_label(destination_path)
+        slots = provider_fetch_slots(definition)
+        UI.vprint(
+            1,
+            "    [inset] %s %s: downloading %d tile zip(s) (<= %.0f MB) "
+            "over %d connection(s)"
+            % (airport, code, len(sources), total_bytes / 1e6, slots),
+        )
+        scratch_paths = []
+        try:
+            jobs = []
+            for (number, source) in enumerate(sources):
+                scratch_path = "%s.cwcb%d.zip" % (destination_path, number)
+                scratch_paths.append(scratch_path)
+                jobs.append((number, source, scratch_path,
+                             source["source_id"] + suffix))
+
+            def _download(job):
+                (number, source, scratch_path, member) = job
+                # Its OWN semaphore: the per-airport loop already holds
+                # one of ``code``'s slots around this whole fetch, and two
+                # airports of one tile on the same key would deadlock.
+                with _held_provider_fetch_slot(code + ":tiles", slots):
+                    return self._download_zip(
+                        definition, source, scratch_path, member,
+                        "%s %s tile %d/%d %s" % (
+                            airport, code, number + 1, len(sources),
+                            source["source_id"]))
+
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=slots) as pool:
+                results = list(pool.map(_download, jobs))
+            missing = sorted(job[1]["source_id"]
+                             for (job, ok) in zip(jobs, results) if not ok)
+            present = [(job[1], "/vsizip/%s/%s" % (job[2], job[3]))
+                       for (job, ok) in zip(jobs, results) if ok]
+            if not present:
+                raise ProviderUnavailable(
+                    "%s: listing names %d tiles, server has none"
+                    % (code, len(sources)))
+            bytes_fetched = sum(os.path.getsize(job[2])
+                                for (job, ok) in zip(jobs, results) if ok)
+            source_nodata = _parse_float(definition.get("source_nodata"))
+            vrt_path = destination_path + ".cwcb.vrt"
+            scratch_paths.append(vrt_path)
+            gdal.BuildVRT(
+                vrt_path, [path for (_source, path) in present],
+                options=gdal.BuildVRTOptions(
+                    srcNodata=source_nodata, VRTNodata=source_nodata)
+                if source_nodata is not None else None)
+            if not warp_vsicurl_sources_to_geotiff(
+                [vrt_path],
+                bounding_box_wgs84,
+                target_resolution_m,
+                destination_path,
+                source_srs=definition.get("source_srs") or None,
+                source_nodata=source_nodata,
+                value_floor_m=float(definition.get("value_floor_m",
+                                                   -600.0)),
+                vertical_unit=_raster_vertical_unit(definition),
+                provider_code=code,
+            ):
+                return None
+            used = []
+            empty = []
+            for (source, path) in present:
+                if _source_holds_data_over_bbox(
+                        path, bounding_box_wgs84,
+                        source_nodata=source_nodata):
+                    used.append(source)
+                else:
+                    empty.append(source)
+        finally:
+            for path in scratch_paths:
+                if os.path.isfile(path):
+                    try:
+                        os.remove(path)
+                    except OSError:                      # pragma: no cover
+                        pass
+        provenance = {
+            "provider": code,
+            "access_strategy": definition.get("access_strategy"),
+            "dataset_ids": _cwcb_dataset_ids(definition),
+            "format_key": definition.get("format_key"),
+            "source_urls": [source["download_url"] for source in sources],
+            "source_ids": [source["source_id"] for source in sources],
+            "sources_used": [
+                _source_contribution_entry(source) for source in used],
+            "sources_empty_over_bbox": [
+                _source_contribution_entry(source) for source in empty],
+            "tiles_missing": missing,
+            "bytes_fetched": bytes_fetched,
+            "bytes_listed": total_bytes,
+            "publication_date": definition.get("publication_date"),
+            "valid_fraction": round(inset_valid_fraction(destination_path),
+                                    6),
+            "rmse_z_m": _parse_float(definition.get("rmse_z_m")),
+            "license": definition.get("license"),
+            "license_note": definition.get("license_note"),
+            "attribution": definition.get("attribution"),
+            "vertical_datum": definition.get("vertical_datum"),
+            "source_crs": definition.get("source_srs"),
+            "datum_note": (
+                "Elevations are in the source vertical datum; lidar is "
+                "treated as truth and is NOT shifted toward the base DEM."
+            ),
+            "fetch_date": datetime.date.today().isoformat(),
+            "bounding_box_wgs84": list(bounding_box_wgs84),
+            "native_resolution_m": definition.get("native_resolution_m"),
+            "resolution_m": target_resolution_m,
+        }
+        core = las_core_geometry(definition)
+        if core is not None:
+            # THE SURGICAL CORE (spec §4): the tiles meeting the buffered
+            # aerodrome boundary; outside them the raster is NoData and
+            # the ladder assembles the next covering rung around it.
+            provenance["core"] = {
+                "provider": code,
+                "bounding_box_wgs84": [round(v, 9) for v in core.bounds],
+                "boundary_polygon_wgs84": definition.get(
+                    LAS_FOOTPRINT_KEY),
+                "footprint_buffer_m": _parse_float(
+                    definition.get("footprint_buffer_m"), default=0.0),
+                "tile_names": [source["source_id"]
+                               for (source, _path) in present],
+                "feather_m": _parse_float(
+                    definition.get("core_feather_m"), default=None),
+            }
+        return provenance
+
+
+# =====================================================================
 # Surface-model building masking (strategy-agnostic post-fetch pass)
 # =====================================================================
 # Definition flag naming the pass; parsed to bool at registry load.

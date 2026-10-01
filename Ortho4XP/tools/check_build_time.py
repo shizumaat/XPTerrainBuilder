@@ -35,6 +35,7 @@ Measurement sources
   ``~/.ortho4xp/tile_build_times/<short_latlon>.json`` written by
   ``o4_engine.session``.  Only records with
   ``features.textures_missing == 0`` AND ``features.insets_fetched == 0``
+  AND ``features.rings_fetched == 0``
   qualify: a record with missing textures spent wall time downloading
   imagery, and a record that fetched airport elevation insets spent
   download wall time (native-resolution gdal.Warp + full-raster
@@ -318,18 +319,21 @@ def newest_tile_measurement(tile_name: str, store_directory: str):
     """Newest download-free tile record, or None.
 
     Download-free means ``features.textures_missing == 0`` AND
-    ``features.insets_fetched == 0``.  Tile compute total = sum of
-    recorded step seconds; a record that downloaded textures — or
-    fetched airport elevation insets, whose download wall time is booked
-    inside step 1's seconds — spent unbudgeted wall time and is skipped.
-    (Records written before ``insets_fetched`` existed carry no such key
-    and qualify as before.)
+    ``features.insets_fetched == 0`` AND ``features.rings_fetched == 0``.
+    Tile compute total = sum of recorded step seconds; a record that
+    downloaded textures — or fetched airport elevation insets or
+    APPROACH RING CELLS, whose download wall time is booked inside
+    step 1's seconds — spent unbudgeted wall time and is skipped.
+    (Records written before ``insets_fetched`` / ``rings_fetched``
+    existed carry no such key and qualify as before.)
     """
     for record in reversed(load_store_records(store_directory, tile_name)):
         features = record.get("features") or {}
         if float(features.get("textures_missing") or 0.0) != 0.0:
             continue
         if float(features.get("insets_fetched") or 0.0) != 0.0:
+            continue
+        if float(features.get("rings_fetched") or 0.0) != 0.0:
             continue
         step_seconds = {
             str(step): float(seconds)

@@ -91,6 +91,21 @@ REFRESH_SCOPES = (
     ("las_tiles", "Elevation_data/_las_tiles",
      "raw lidar point-cloud tiles and their per-tile gridded DTMs "
      "(LAS-tile providers)"),
+    # BEFORE ``dem``, and named by DIRECTORY SUFFIX (``DIR_SUFFIX_SCOPES``
+    # below), because the ring cells live UNDER ``Elevation_data`` beside
+    # the insets: authorising a DEM refresh must not silently warm a new
+    # artefact class nobody asked for.  A session that warms ``dem``
+    # today stays byte-identical in effect
+    # (docs/specs/approach-graded-elevation-rings-spec.md §5).
+    # The PREFIX here is a sentinel that no real path matches (the cells
+    # live at ``Elevation_data/<block>/<tile>_approach_rings/``, named by
+    # ``DIR_SUFFIX_SCOPES``), exactly as ``pack_rebake``'s is: the entry
+    # exists so the scope is a KNOWN name with a description.
+    ("rings", "Elevation_data/_approach_rings",
+     "the APPROACH-GRADED ELEVATION RING cells (the distance-graded "
+     "10 m / 30 m cells out to 20 km from an aerodrome boundary, "
+     "<tile>_approach_rings/) — a per-cell provider download, warmed "
+     "only by --refresh-data rings, never by a build"),
     ("dem", "Elevation_data",
      "base DEM rasters and airport elevation insets (provider downloads)"),
     ("airport_mod_cache", "Airport_mod_cache",
@@ -140,6 +155,15 @@ SUFFIX_SCOPES = (
                             "_shore_structures.osm.bz2.lock")),
 )
 
+#: Scopes named by the suffix of a path's SECOND component (the per-tile
+#: artefact DIRECTORY), consulted before the prefixes: the approach ring
+#: cells sit at ``Elevation_data/<block>/<tile>_approach_rings/...``,
+#: whose prefix is ``dem``'s, and authorising a DEM refresh does not
+#: authorise fetching a ring (ring spec §5).
+DIR_SUFFIX_SCOPES = (
+    ("rings", "Elevation_data/", "_approach_rings"),
+)
+
 
 def scope_of(relpath: str):
     """The ``--refresh-data`` scope a shared-repo path belongs to, most
@@ -147,6 +171,16 @@ def scope_of(relpath: str):
     rel = str(relpath)
     for name, under, suffixes in SUFFIX_SCOPES:
         if rel.startswith(under) and rel.endswith(suffixes):
+            return name
+    for name, under, dir_suffix in DIR_SUFFIX_SCOPES:
+        if not rel.startswith(under):
+            continue
+        parts = rel.split("/")
+        # The artefact DIRECTORY is a component of the path, never its
+        # last one (that is the file), so a match anywhere above the leaf
+        # names the scope -- the block directory sits between the root and
+        # the per-tile artefact directory.
+        if any(part.endswith(dir_suffix) for part in parts[:-1]):
             return name
     for name, prefix, _why in REFRESH_SCOPES:
         if rel == prefix or rel.startswith(prefix + "/"):

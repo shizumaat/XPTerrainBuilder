@@ -799,9 +799,14 @@ def ensure_coastline_band(tile, dico_airports):
     else:
         airport_boxes = []
 
-    near_resolution_m = round(grid_posting_metres(3), 2)
-    mid_resolution_m = float(COASTLINE_MID_RESOLUTION_M)
-    far_resolution_m = round(grid_posting_metres(1), 2)
+    # THE SHARED GRADING FUNCTION (consumer census row 5): the band's
+    # own ladder table, VALUES UNCHANGED, read through the one
+    # :func:`approach_class` the approach rings also use -- the
+    # generalisation the owner asked for ("the coastline level's
+    # approach-visibility grading is THE RULE TO GENERALISE, not a
+    # parallel one"), with the band's radii left alone pending a
+    # coastline-mode sim read (ring spec question Q2).
+    COASTLINE_BAND_TIERS = ("near", "mid", "far")
 
     def _nearest_airport_distance_m(cell_centre_lon, cell_centre_lat):
         """Metre distance to the nearest airport box (0 inside), inf if none.
@@ -851,15 +856,10 @@ def ensure_coastline_band(tile, dico_airports):
             airport_distance_m = _nearest_airport_distance_m(
                 centre_longitude, centre_latitude
             )
-            if airport_distance_m <= COASTLINE_NEAR_AIRPORT_KM * 1000.0:
-                tier = "near"
-                resolution_m = near_resolution_m
-            elif airport_distance_m <= COASTLINE_MID_AIRPORT_KM * 1000.0:
-                tier = "mid"
-                resolution_m = mid_resolution_m
-            else:
-                tier = "far"
-                resolution_m = far_resolution_m
+            resolution_m, tier_index = approach_class(
+                airport_distance_m, COASTLINE_APPROACH_LADDER
+            )
+            tier = COASTLINE_BAND_TIERS[tier_index - 1]
             cell_path = FNAMES.coastline_band_cell_dem(
                 lat, lon, cell_column, cell_row, code, resolution_m
             )

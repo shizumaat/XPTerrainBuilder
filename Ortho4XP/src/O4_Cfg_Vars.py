@@ -326,6 +326,16 @@ cfg_tile_vars = {
         },
         "hint": 'Tile-wide elevation detail level — the elevation analogue of the imagery zoom level. "auto" (default) uses a 90 m class base source (3 arc-second, small downloads) plus meter-class lidar insets at airports, where detail is actually visible on approach. "90" pins that 90 m base class explicitly. "coastline" keeps the automatic behaviour and additionally drapes a lidar band along the tile\'s coastlines (width set by elevation_coastline_band_km), graded by approach visibility: about 10 m detail within 20 km of an airport, 20 m out to 50 km, and 30 m beyond — lidar\'s vertical accuracy everywhere on the shore without paying for detail invisible from cruise altitudes. "30" and finer restore the 1 arc-second base class and additionally fetch the finest wide-area elevation source covering the tile (for example national lidar services) warped to that ground resolution over the whole tile, densifying the working elevation grid to match: 30 m = 1 arc-second, 10 m = 1/3, 5 m = 1/6, 1 m = 1/9 arc-second (about 3.4 m posting, the practical whole-tile grid ceiling; airports keep their finer insets on top). Levels never coarsen what the automatic behaviour would have chosen, and are capped to the finest source actually covering the tile, so an over-ambitious level gracefully has no effect. Higher levels mean substantially larger downloads, working files and memory: the working raster alone is roughly 0.5 GB at 10 m, 2 GB at 5 m and 4 GB at 1 m, with peak memory several times that, and more mesh triangles unless curvature_tol is raised. Useful for islands and mountainous tiles where 30 m relief is visibly too coarse. An explicit (non-auto) base_elevation_source always wins over the level\'s base-class preference.',
     },
+    "approach_rings": {
+        "type": str,
+        "default": "auto",
+        "values": ("auto", "off"),
+        "value_labels": {
+            "auto": "Auto — graded rings around airports",
+            "off": "Off — base DEM beyond the airport inset",
+        },
+        "hint": 'Approach-graded elevation rings around airports. "auto" (the default) widens the transition from the airport\'s meter-class lidar out to the tile\'s base elevation source: about 10 m detail out to 10 km from the aerodrome boundary, 30 m (1 arc-second) out to 20 km, and the base source beyond, each step feathered over ten postings of the coarser side so no transition reads as a built edge from the air. Without it the 10 m airport surround meets a 90 m base over a 60 m feather about 2 km from the boundary, which is a visible ring around the airport. Rings are drawn only around airports that actually hold an elevation inset (including airports just over a neighbouring tile\'s border), are never coarser than what the elevation_level already delivers, and cost roughly 16 MB of cached cells per airport plus some extra mesh triangles in the ringed area. "off" keeps the base elevation source right up to the inset box, byte for byte as before.',
+    },
     "elevation_coastline_band_km": {
         "type": float,
         "default": 5.0,
@@ -817,6 +827,7 @@ list_vector_vars = [
     "auto_patch",
     "modify_custom_airports",
     "elevation_level",
+    "approach_rings",
     "elevation_coastline_band_km",
     "apt_smoothing_pix",
     "apt_smoothing_auto",

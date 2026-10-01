@@ -1145,7 +1145,13 @@ class EngineSession:
                          # step, so a non-zero count disqualifies the
                          # record as a build-time measurement.
                          "insets_fetched": int(getattr(
-                             tile, "insets_fetched_last_build", 0) or 0)},
+                             tile, "insets_fetched_last_build", 0) or 0),
+                         # Approach ring cells fetched by step 1 (zero on
+                         # a warm ring cache): the same treatment, for the
+                         # same reason -- their download wall time lands
+                         # inside the vector step.
+                         "rings_fetched": int(
+                             bool(getattr(tile, "rings_fetched", False)))},
                         step_seconds)
             except Exception as step_error:
                 import traceback

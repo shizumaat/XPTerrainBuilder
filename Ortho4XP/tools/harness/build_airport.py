@@ -317,7 +317,8 @@ XPLANE_FRAME_PATH_KEYS = ("cifp_data_path", "custom_scenery_dir")
 #: A divergence between the dev tree's config and the owner's app config
 #: means the lane is measuring a surface production never renders.
 DEM_FRAME_KEYS = (
-    "elevation_level", "elevation_coastline_band_km", "base_elevation_source",
+    "elevation_level", "approach_rings",
+    "elevation_coastline_band_km", "base_elevation_source",
     "custom_dem", "fill_nodata", "working_grid_arc_seconds",
     "apt_smoothing_pix", "apt_smoothing_auto",
     "airport_elevation_insets", "airport_elevation_level",
@@ -540,7 +541,8 @@ def _short_latlon(lat: int, lon: int) -> str:
 
 
 def require_dem_frame(state: dict, *, allow_degraded: bool = False,
-                     requested=(), inset_problem=None) -> None:
+                     requested=(), inset_problem=None,
+                     ring_problem=None) -> None:
     """The zero-DEM and cold-cache refusals.
 
     * NO base raster ⇒ the loader either downloads mid-measurement or hands
@@ -609,6 +611,12 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False,
         # refuses — so it is named here too, and ``--allow-degraded-dem``
         # accepts it KNOWINGLY, authorising no write.
         _name("dem", inset_problem[1])
+    if ring_problem:
+        # THE RING FRAME (ring spec §5): unanswered ring cells mean the
+        # build would FETCH them, so the refusal names ``rings`` — its
+        # own scope, and ``--allow-degraded-dem`` accepts baking without
+        # them KNOWINGLY, authorising no write.
+        _name("rings", ring_problem["text"])
     for scope, text in deferred:
         print(f"  [harness] COLD, and this run's --refresh-data {scope} "
               f"DERIVES it before the build (re-judged afterwards): {text}")
@@ -1056,6 +1064,133 @@ def _ladder_recheck_problem(INSETS, lat, lon, icao, required):
             f"), so the "
             f"build would RE-FETCH the ladder (--refresh-data "
             f"{','.join(scopes)}; --warm-insets {icao})")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE APPROACH RING FRAME (ring spec §5; owner RULINGS 2026-10-01g/h)
+# ══════════════════════════════════════════════════════════════════════
+
+def approach_ring_frame(lat, lon, state=None):
+    """``(plan, problem, record)`` for the rings, derived OFFLINE.
+
+    The harness never fetches a ring cell: it derives the plan through
+    THE ENGINE'S OWN one derivation site
+    (``O4_Elevation_Level.resolve_approach_ring_plan``, imported and
+    never copied -- the same function step 1 and the bake call) and asks
+    the engine's one cold predicate
+    (``approach_ring_frame_problem``).  An UNANSWERED cell -- no raster,
+    no negative -- means the build would FETCH it mid-measurement, so it
+    is refused up front naming ``--refresh-data rings``;
+    ``--allow-degraded-dem`` proceeds WITHOUT rings (the engine bakes
+    only the cells on disk, and a missing cell is a hole the base DEM
+    fills) and authorises NO write.
+
+    ``record`` is the ``approach_rings`` row of ``frame.json`` -- the
+    SAME numbers the refusal counts, so a reader of the artifact never
+    has to re-derive them.
+
+    All ``None`` when the tile has no ring plan at all: no airport holds
+    an inset, the key is ``off``, or no wide-area provider covers the
+    rings -- all of which are byte-identical to the pre-ring engine.
+    """
+    if state is not None and not state["airports_layer"]:
+        # The plan's boundaries come from the cached airports layer; with
+        # no layer the build is already refused for it, and deriving here
+        # would run an overpass QUERY.
+        return None, None, None
+    try:
+        import O4_Config_Utils as CFG
+        import O4_Elevation_Level as ELEVATION_LEVEL
+        import O4_OSM_Utils as OSM
+        import O4_Vector_Map as VMAP
+
+        apply_xplane_install_paths_for_preflight()
+        tile = CFG.Tile(int(lat), int(lon), "")
+        tile.read_from_config()
+        layer = OSM.OSM_layer()
+        OSM.OSM_queries_to_OSM_layer(
+            VMAP.AIRPORTS_QUERIES, layer, int(lat), int(lon), ["all"],
+            cached_suffix="airports")
+        dico = VMAP.build_airports_dico(tile, layer)
+        plan = ELEVATION_LEVEL.resolve_approach_ring_plan(tile, dico)
+        if plan is None:
+            return None, None, None
+        problem = ELEVATION_LEVEL.approach_ring_frame_problem(
+            int(lat), int(lon), plan)
+        record = ELEVATION_LEVEL.approach_ring_state(int(lat), int(lon), plan)
+        record["cold"] = bool(problem)
+        return plan, problem, record
+    except Exception as exc:
+        print(f"  [harness] approach ring frame check skipped ({exc!r})")
+        return None, None, None
+
+
+def refresh_approach_rings(root, lat, lon, prog) -> dict:
+    """THE AUTHORISED RING WARM (``--refresh-data rings``).
+
+    Derives the plan from the CACHED AIRPORTS LAYER and fetches every
+    unanswered cell through the engine's own step-1 hook
+    (``ensure_approach_rings``) -- an EXPLICIT, locked, hash-stamped
+    event, never a build side effect (owner ruling e9daef5).  A cold
+    airports layer REFUSES naming ``osm_layers`` (the KDFW precedent:
+    the boundaries would otherwise come from an overpass query, a
+    second unauthorised fetch), and a refresh that warmed nothing
+    refuses rather than exiting 0.
+    """
+    import O4_Config_Utils as CFG                           # noqa: E402
+    import O4_Elevation_Level as ELEVATION_LEVEL            # noqa: E402
+    import O4_File_Names as FNAMES                          # noqa: E402
+    import O4_OSM_Utils as OSM                              # noqa: E402
+    import O4_Vector_Map as VMAP                            # noqa: E402
+
+    lat, lon = int(lat), int(lon)
+    if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):
+        raise SystemExit(
+            f"REFUSING --refresh-data rings: tile {lat:+d}{lon:+d} has no "
+            f"cached airports OSM layer, so the ring regions would come "
+            f"from an overpass QUERY — a second, unauthorised fetch.  "
+            f"Authorise osm_layers in the SAME run (--refresh-data "
+            f"osm_layers,rings): that pass derives the airports layer "
+            f"first, which is why it runs first.")
+    tile = CFG.Tile(lat, lon, "")
+    try:
+        tile.read_from_config()
+    except Exception:
+        pass
+    layer = OSM.OSM_layer()
+    OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
+                                 ["all"], cached_suffix="airports")
+    dico = VMAP.build_airports_dico(tile, layer)
+    plan = ELEVATION_LEVEL.resolve_approach_ring_plan(tile, dico)
+    if plan is None:
+        prog.note(f"refresh rings: tile {lat:+d}{lon:+d} has no ring plan "
+                  f"(no airport on or near it holds an inset, approach_rings "
+                  f"is off, or no wide-area provider covers the rings) — "
+                  f"nothing to derive")
+        return {"tile": [lat, lon], "plan": None, "derived": []}
+    before = ELEVATION_LEVEL.approach_ring_state(lat, lon, plan)
+    prog.note(f"REFRESH rings (authorised, locked, ledgered): deriving "
+              f"{len(before['missing'])} of {before['planned']} approach "
+              f"ring cell(s) for {_tile_stem(lat, lon)} through the "
+              f"engine's own step-1 hook (ensure_approach_rings) — a fetch "
+              f"here is the POINT of this run, not a side effect")
+    ELEVATION_LEVEL.ensure_approach_rings(tile, dico)
+    after = ELEVATION_LEVEL.approach_ring_state(lat, lon, plan)
+    if after["missing"] and after["missing"] == before["missing"]:
+        raise SystemExit(
+            f"REFUSING: --refresh-data rings derived NOTHING for "
+            f"{len(after['missing'])} ring cell(s) on tile "
+            f"{lat:+d}{lon:+d} — the frame is still COLD, so the build "
+            f"would fetch mid-measurement.  A refresh that exits 0 having "
+            f"achieved nothing is the defect this refuses.  Check provider "
+            f"reachability (and that a wide-area provider covers these "
+            f"cells at all) and re-run.  Still missing: "
+            f"{', '.join(after['missing'][:6])}")
+    derived = sorted(set(before["missing"]) - set(after["missing"]))
+    prog.note(f"refresh rings done: {len(derived)} cell(s) answered, "
+              f"{after['on_disk']} on disk, {after['negatives']} negative")
+    return {"tile": [lat, lon], "plan": plan["stamp"],
+            "derived": derived, "state": after}
 
 
 def missing_pack_dsf_dumps(root, lat, lon, icao) -> list:
@@ -4135,6 +4270,10 @@ def main(argv=None) -> int:
     else:
         tile = resolve_tile_for(args.icao, root)
         lat, lon = tile if tile else (None, None)
+    # The ring frame is derived below, only when a tile resolved; the
+    # frame record always carries the key, so a reader can tell "no plan"
+    # from "not asked".
+    ring_plan = ring_problem = approach_rings_record = None
 
     frame = {"dem_cache_before": None, "requested_constant_dem": args.dem,
              "data_repo": str(DATA_REPO), "data_mounts": mounts,
@@ -4189,10 +4328,21 @@ def main(argv=None) -> int:
         if inset_problem:
             prog.note(f"per-airport inset {inset_problem[0].upper()}: "
                       f"{inset_problem[1]}")
+        # THE RING FRAME, derived ONCE here beside the inset verdict and
+        # travelling in its OWN frame key: ``dem_cache_state``'s key set
+        # is FROZEN (the artifact ledger hashes it whole), so the ring
+        # state never enters it — it rides ``approach_rings`` and the
+        # corpus stamp's own ``rings_dir`` part (ring spec §5).
+        ring_plan, ring_problem, approach_rings_record = (
+            approach_ring_frame(lat, lon, state))
+        rings_note = ("none" if not approach_rings_record else
+                      "%d/%d cell(s) on disk"
+                      % (approach_rings_record["on_disk"],
+                         approach_rings_record["planned"]))
         prog.note(f"DEM cache {state['tile_stem']}: base_raster="
                   f"{state['base_raster']} insets={state['airport_insets']} "
                   f"airports_layer={state['airports_layer']} "
-                  f"overlay={state['tile_overlay']}")
+                  f"overlay={state['tile_overlay']} rings={rings_note}")
         if args.refresh_only:
             # A WARM RUN IS NOT A MEASUREMENT (2026-09-15, round 6).  The
             # pre-flight exists to stop a BUILD reading a cold or stale
@@ -4211,7 +4361,8 @@ def main(argv=None) -> int:
         elif args.dem is None:
             require_dem_frame(state, allow_degraded=args.allow_degraded_dem,
                               requested=requested,
-                              inset_problem=inset_problem)
+                              inset_problem=inset_problem,
+                              ring_problem=ring_problem)
         else:
             prog.note("constant-DEM oracle build: the real DEM frame is "
                       "SUBSTITUTED, so its cache warmth cannot confound "
@@ -4366,7 +4517,7 @@ def main(argv=None) -> int:
     warm_summary = None
     seed_summary = None
     osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
-    shore_refresh_summary = None
+    shore_refresh_summary = rings_refresh_summary = None
     t0 = time.time()
     # EVERYTHING FROM HERE IS INSIDE THE AUDIT'S ``finally`` (2026-09-15,
     # round 6).  It used not to be, and two things leaked, both measured
@@ -4430,6 +4581,15 @@ def main(argv=None) -> int:
                 dem_refresh_summary = refresh_tile_dem(
                     root, lat, lon, prog,
                     icao=None if args.tile else args.icao)
+        # THE RING REFRESH runs THIRD, after both: the ring plan is drawn
+        # around the airports that HOLD AN INSET, so it reads the layer
+        # the osm pass derives and the insets the dem pass cuts.  Its own
+        # scope, because authorising a DEM refresh must not silently warm
+        # a new artefact class (ring spec §5).
+        if "rings" in requested and lat is not None:
+            with guard:
+                rings_refresh_summary = refresh_approach_rings(
+                    root, lat, lon, prog)
         # THE LEDGER RECONCILIATION (--reconcile-ledger), before the
         # re-judge for the same reason the audit moved: it is a RECORD of
         # what is on disk, and a later refusal must not lose it.
@@ -4561,6 +4721,8 @@ def main(argv=None) -> int:
     frame["seed_las_tiles"] = seed_summary
     frame["refresh_osm_layers"] = osm_refresh_summary
     frame["refresh_dem"] = dem_refresh_summary
+    frame["refresh_rings"] = rings_refresh_summary
+    frame["approach_rings"] = approach_rings_record
     frame["refresh_shore"] = shore_refresh_summary
     frame["reconcile_ledger"] = reconcile_summary
     frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)

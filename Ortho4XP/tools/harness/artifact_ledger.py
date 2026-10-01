@@ -232,8 +232,41 @@ def corpus_stamp(frame: dict, root=None) -> dict:
         "dem_cache": _sha_of(cache),
         "dem_files": _sha_of(files),
         "dem_frame_cfg": _sha_of(frame.get("dem_frame_effective")),
+        # THE APPROACH RING CELLS (ring spec §5).  ``dem_cache_state``'s
+        # key set is FROZEN, so the ring state cannot ride ``dem_cache``;
+        # it gets its OWN part here, by directory listing, the same
+        # idiom the inset directories use above.  This re-keys every
+        # stored arm ONCE -- deliberately: leaving rings out of the
+        # stamp would serve a PRE-RINGS control for a POST-RINGS build,
+        # which is the silent cross-corpus comparison the stamp exists
+        # to prevent.
+        "rings_dir": _sha_of(_rings_dir_listing(root, cache)),
     }
     return {"sha256": _sha_of(parts), "parts": parts}
+
+
+def _rings_dir_listing(root, cache) -> list:
+    """``[[relpath, [[name, size, mtime_ns], ...]], ...]`` for this
+    tile's approach-ring directory, or ``[]`` when there is none.
+
+    Derived from the tile stem ``dem_cache_state`` already records, so
+    no new key enters that frozen dict.
+    """
+    stem = (cache or {}).get("tile_stem")
+    if not stem:
+        return []
+    out = []
+    for directory in sorted(
+            Path(root).glob(f"Elevation_data/*/{stem}_approach_rings")):
+        listing = []
+        for name in sorted(os.listdir(directory)):
+            try:
+                st = (directory / name).stat()
+                listing.append([name, st.st_size, st.st_mtime_ns])
+            except OSError:
+                listing.append([name, None, None])
+        out.append([str(directory.relative_to(Path(root))), listing])
+    return out
 
 
 def artifact_key(tree: str, icao: str, env: dict, corpus: dict,

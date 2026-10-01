@@ -362,7 +362,7 @@ def test_fetch_downloads_resumes_grids_and_records(fake_http, tmp_path,
     provenance = INSETS.LasTileIndexStrategy().fetch(
         _definition(), _box_of_tile(), 1.0, destination)
     gets = [c for c in fake_http["calls"]
-            if c[0] == "GET" and "tiles.test" in c[1]]
+            if c[0] == "GET" and c[1].endswith("2016-T1.las")]
     assert gets[0][2].get("Range") == "bytes=1000-"
     cached = os.path.join(INSETS.las_tile_cache_directory("PITKINTEST"),
                           "T1.las")
@@ -423,3 +423,145 @@ def test_shipped_pitkin1m_definition():
         pitkin, (-106.8994, 39.1893, -106.8378, 39.2532))
     assert not INSETS._coverage_bbox_intersects(
         pitkin, (-3.6, 40.4, -3.5, 40.5))
+
+
+# ---------------------------------------------------------------------
+# ROUND 2 (spec §2/§3/§4/§11, owner 30ay): surgical discovery, progress,
+# fill bound, two-layer assembly
+# ---------------------------------------------------------------------
+def _square(west, south, size):
+    return {"rings": [[[west, south], [west + size, south],
+                       [west + size, south + size], [west, south + size],
+                       [west, south]]]}
+
+
+def test_surgical_discovery_keeps_footprint_tiles_only(fake_http):
+    """A 4 x 4 grid of tile footprints; a diagonal (runway-like) boundary
+    polygon: only the tiles its BUFFERED polygon touches are listed, not
+    every tile its envelope touches, and the query box is the buffered
+    footprint's envelope."""
+    from shapely.geometry import LineString
+
+    size = 0.01
+    fake_http["index"] = {"features": [
+        {"attributes": {"name": "T%d%d" % (i, j)},
+         "geometry": _square(-106.90 + i * size, 39.20 + j * size, size)}
+        for i in range(4) for j in range(4)]}
+    boundary = LineString([(-106.895, 39.205), (-106.865, 39.235)]).buffer(
+        0.0005)
+    definition = _definition(footprint_buffer_m="100")
+    definition[INSETS.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(boundary)
+    names = [s["source_id"] for s in INSETS.LasTileIndexStrategy().discover(
+        definition, (-106.95, 39.15, -106.80, 39.30))]
+    # the diagonal and its corner-touching neighbours; never the far
+    # corners the envelope (all 16) would buy
+    assert names == ["T00", "T01", "T10", "T11", "T12", "T21", "T22",
+                     "T23", "T32", "T33"]
+    url = fake_http["calls"][0][1]
+    west = float(url.split("bbox=")[1].split(",")[0])
+    assert west > -106.95                     # the core's envelope, not the box
+    # a surgical listing that lost its geometry is no answer
+    fake_http["index"] = {"features": [{"attributes": {"name": "T00"}}]}
+    with pytest.raises(INSETS.TransientFetchError):
+        INSETS.LasTileIndexStrategy().discover(
+            definition, (-106.95, 39.15, -106.80, 39.30))
+
+
+def test_surgical_cap_wording_names_the_core(fake_http, tmp_path,
+                                            monkeypatch):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    from shapely.geometry import box as _box
+
+    names = ["T%02d" % n for n in range(14)]
+    fake_http["index"] = {"features": [
+        {"attributes": {"name": n}, "geometry": _square(-106.9, 39.2, 0.1)}
+        for n in names]}
+    fake_http["head_sizes"] = {n: int(1.3e9 / 14) for n in names}
+    definition = _definition(code="PITKIN1M", max_tiles_per_airport="12",
+                             max_bytes_per_airport="1200000000")
+    definition[INSETS.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(
+        _box(-106.88, 39.21, -106.86, 39.23))
+    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+        INSETS.LasTileIndexStrategy().fetch(
+            definition, _box_of_tile(), 1.0,
+            str(tmp_path / "KASE_usgs3dep.tif.rung1"))
+    assert str(caught.value) == (
+        "PITKIN1M: KASE core needs 14 tiles / 1.3 GB, cap 12 / 1.2 GB "
+        "(max_tiles_per_airport / max_bytes_per_airport in PITKIN1M.elv) "
+        "— SKIPPED, recorded unavailable, not no-coverage")
+
+
+def test_fill_within_the_density_bound_and_progress_is_heard(
+        fake_http, tmp_path, monkeypatch):
+    """§3 re-registered: ``filled_fraction <= 2 e^-lambda + 0.05`` with
+    ``poisson_empty_rate`` and the density in the record; §2: a streaming
+    tile prints progress and a completion line (the #136 heartbeat)."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "E"))
+    monkeypatch.setattr(INSETS, "LAS_PROGRESS_INTERVAL_S", 0.0)
+    lines = []
+    monkeypatch.setattr(INSETS.UI, "vprint",
+                        lambda level, *parts: lines.append(" ".join(
+                            str(p) for p in parts)))
+    source = _write_las(tmp_path / "src.las")
+    with open(source, "rb") as handle:
+        fake_http["tiles"]["T1"] = handle.read()
+    provenance = INSETS.LasTileIndexStrategy().fetch(
+        _definition(), _box_of_tile(), 1.0,
+        str(tmp_path / "out" / "KASE_x.tif"))
+    lam = provenance["ground_density_per_m2"]
+    assert provenance["poisson_empty_rate"] == pytest.approx(
+        math.exp(-lam), abs=1e-6)
+    assert provenance["filled_fraction"] <= 2 * math.exp(-lam) + 0.05
+    assert any("[inset] KASE PITKINTEST tile 1/1 2016-T1.las" in line
+               and " done (" in line for line in lines)
+
+
+def _write_flat(path, box, value, size, hole=None):
+    from osgeo import osr as _osr
+
+    driver = gdal.GetDriverByName("GTiff")
+    dataset = driver.Create(str(path), size, size, 1, gdal.GDT_Float32)
+    (west, south, east, north) = box
+    dataset.SetGeoTransform((west, (east - west) / size, 0.0, north, 0.0,
+                             -(north - south) / size))
+    srs = _osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    dataset.SetProjection(srs.ExportToWkt())
+    values = numpy.full((size, size), value, dtype=numpy.float32)
+    if hole is not None:
+        values[hole] = -32768.0
+    band = dataset.GetRasterBand(1)
+    band.SetNoDataValue(-32768.0)
+    band.WriteArray(values)
+    dataset = None
+
+
+def test_two_layer_assembly_feathers_the_core_edge(tmp_path):
+    """A flat probe: core 101 m, surround 100 m.  Inside the region the
+    core, outside the surround, a 60 m ramp inside the region's edge
+    with no step over 0.05 m per cell, a core hole deep inside left
+    NoData (§9), and the seam's median offset recorded."""
+    from shapely.geometry import box as _box
+
+    box = (-106.90, 39.20, -106.88, 39.22)     # ~1.7 x 2.2 km
+    size = 800
+    core = tmp_path / "core.tif"
+    surround = tmp_path / "surround.tif"
+    hole = (slice(395, 405), slice(395, 405))
+    _write_flat(core, box, 101.0, size, hole=hole)
+    _write_flat(surround, box, 100.0, size)
+    boundary = _box(-106.895, 39.205, -106.885, 39.215)
+    seam = INSETS.assemble_two_layer_inset(
+        str(core), str(surround), str(tmp_path / "out.tif"), boundary,
+        0.0, 60.0)
+    values, transform = _read(tmp_path / "out.tif")
+    assert seam["seam_median_offset_m"] == pytest.approx(1.0, abs=1e-3)
+    assert seam["core_holes_left_nodata"] == 100
+    assert values[400, 400] == INSETS.LAS_DTM_NODATA     # hole stays NoData
+    assert values[5, 5] == pytest.approx(100.0)          # surround outside
+    row = 300                                            # a transect W -> E
+    transect = values[row, :]
+    assert numpy.nanmax(numpy.abs(numpy.diff(transect))) <= 0.05
+    assert transect.max() == pytest.approx(101.0, abs=1e-4)
+    assert INSETS.feather_weight(numpy.array([-1.0, 0.0, 30.0, 60.0, 90.0]),
+                                 60.0).tolist() == [0.0, 0.0, 0.5, 1.0, 1.0]

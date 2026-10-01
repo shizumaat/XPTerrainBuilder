@@ -244,17 +244,32 @@ _provider_fetch_slots: dict = {}
 _provider_fetch_slots_lock = threading.Lock()
 
 
-def _provider_fetch_slot(code):
+def _provider_fetch_slot(code, slots=None):
+    """The provider's politeness semaphore.  ``slots`` (a definition's
+    ``fetch_slots`` key, #130) sizes it the first time the provider is
+    seen; every provider without the key keeps
+    :data:`_PROVIDER_CONCURRENT_FETCHES`."""
     with _provider_fetch_slots_lock:
         slot = _provider_fetch_slots.get(code)
         if slot is None:
-            slot = threading.BoundedSemaphore(_PROVIDER_CONCURRENT_FETCHES)
+            slot = threading.BoundedSemaphore(
+                int(slots) if slots else _PROVIDER_CONCURRENT_FETCHES)
             _provider_fetch_slots[code] = slot
         return slot
 
 
+def provider_fetch_slots(definition):
+    """``fetch_slots`` of a definition (parallel connections to its
+    server), else the module default."""
+    value = _parse_float((definition or {}).get("fetch_slots"),
+                         default=None)
+    if value is None or value < 1:
+        return _PROVIDER_CONCURRENT_FETCHES
+    return int(value)
+
+
 @_contextlib.contextmanager
-def _held_provider_fetch_slot(code):
+def _held_provider_fetch_slot(code, slots=None):
     """Hold one of the provider's fetch slots, honoring Stop while queued.
 
     A bare ``with semaphore:`` blocks uninterruptibly — with several
@@ -265,7 +280,7 @@ def _held_provider_fetch_slot(code):
     red flag and raises TRANSIENT on Stop, so a cancelled airport is
     retried next run, never recorded as a durable answer.
     """
-    slot = _provider_fetch_slot(code)
+    slot = _provider_fetch_slot(code, slots)
     while not slot.acquire(timeout=0.5):
         if UI.red_flag:
             raise TransientFetchError(
@@ -1377,6 +1392,7 @@ def fetch_inset(
     destination_path,
     footprint_prefetch=None,
     resolution_ladder=False,
+    footprint_polygon=None,
 ):
     """Dispatch a fetch to the strategy named by the provider definition.
 
@@ -1421,6 +1437,7 @@ def fetch_inset(
             bounding_box_wgs84,
             target_resolution_m,
             destination_path,
+            footprint_polygon=footprint_polygon,
         )
     else:
         provenance = strategy.fetch(
@@ -1540,6 +1557,7 @@ def _fetch_through_resolution_ladder(
     bounding_box_wgs84,
     target_resolution_m,
     destination_path,
+    footprint_polygon=None,
 ):
     """THE RESOLUTION LADDER (#130): finest product first, coarser only
     when the finer one carries no coverage.
@@ -1575,114 +1593,166 @@ def _fetch_through_resolution_ladder(
     rung again).  Each rung records its provider and ``listing_ids`` --
     the discovery listing at fetch time, which :func:`ladder_recheck`
     compares against on every later build.
+
+    TWO-LAYER (spec §4, owner 30ay).  ``footprint_polygon`` (the
+    aerodrome boundary, EPSG:4326) rides every provider rung as
+    :data:`LAS_FOOTPRINT_KEY`; a rung that answers with a ``core`` block
+    (a surgical LAS fetch) is judged over the AIRPORT
+    (``airport_valid_fraction`` >= :data:`INSET_MIN_AIRPORT_COVER_FRAC`
+    over the boundary box) and, when delivered, the ladder fetches the
+    next covering rung over the whole box as the SURROUND and
+    :func:`assemble_two_layer_inset` writes ONE raster: surround, then
+    the core, blended over ``core_feather_m`` inside the core edge.
     """
     threshold = INSET_MIN_VALID_FRAC
     base_name = os.path.basename(destination_path)
+    footprint_mapping = None
+    boundary_box = None
+    if footprint_polygon is not None and not footprint_polygon.is_empty:
+        footprint_mapping = _polygon_mapping(footprint_polygon)
+        boundary_box = tuple(footprint_polygon.bounds)
     rungs = _ladder_rung_definitions(definition)
+    if footprint_mapping is not None:
+        rungs = [
+            (label, dict(rung_definition, **{LAS_FOOTPRINT_KEY:
+                                             footprint_mapping})
+             if rung_definition.get("code") != definition.get("code")
+             else rung_definition)
+            for (label, rung_definition) in rungs
+        ]
     attempts = []
     delivered = None          # (index, path, provenance)
     fallback = None           # finest sub-threshold (index, path, provenance)
     scratch_paths = []
+
+    def _try_rung(index, label, rung_definition, rung_path, rung_target,
+                  rung_strategy):
+        """Fetch ONE rung; ``(attempt, provenance)``.  Transient raises."""
+        attempt = {
+            "rung": index,
+            "label": label,
+            "provider": rung_definition.get("code"),
+            "native_resolution_m": rung_definition.get(
+                "native_resolution_m"),
+            "resolution_m": rung_target,
+        }
+        provenance = None
+        unavailable = None
+        if index > 0 and not _coverage_bbox_intersects(
+                rung_definition, bounding_box_wgs84):
+            attempt["outcome"] = "out-of-coverage"
+            attempt["valid_fraction"] = 0.0
+            return (attempt, None)
+        if rung_strategy is None:
+            factory = ACCESS_STRATEGIES.get(
+                rung_definition.get("access_strategy"))
+            rung_strategy = factory() if factory else None
+        if rung_strategy is None:
+            unavailable = "no access strategy named %r" % (
+                rung_definition.get("access_strategy"),)
+        else:
+            try:
+                provenance = rung_strategy.fetch(
+                    rung_definition, bounding_box_wgs84, rung_target,
+                    rung_path)
+            except ProviderUnavailable as error:
+                if index == 0:
+                    raise
+                unavailable = error.reason
+        if unavailable is not None:
+            attempt["outcome"] = "unavailable"
+            attempt["unavailable_reason"] = unavailable
+            attempt["valid_fraction"] = 0.0
+            if os.path.isfile(rung_path):
+                os.remove(rung_path)
+            return (attempt, None)
+        if provenance is None:
+            attempt["outcome"] = "no-coverage"
+            attempt["valid_fraction"] = 0.0
+            attempt["listing_ids"] = []
+            if os.path.isfile(rung_path):
+                os.remove(rung_path)       # a failed warp's partial file
+            return (attempt, None)
+        valid_fraction = inset_valid_fraction(rung_path)
+        attempt["valid_fraction"] = round(valid_fraction, 6)
+        attempt["sources_used"] = len(
+            provenance.get("sources_used")
+            or provenance.get("source_urls") or ())
+        attempt["listing_ids"] = _provenance_listing_ids(provenance)
+        if isinstance(provenance.get("core"), dict) and boundary_box:
+            # A SURGICAL CORE is judged over the AIRPORT, not the box.
+            airport_fraction = raster_valid_fraction_in_box(
+                rung_path, boundary_box)
+            attempt["airport_valid_fraction"] = round(airport_fraction, 6)
+            attempt["outcome"] = (
+                "delivered"
+                if airport_fraction >= INSET_MIN_AIRPORT_COVER_FRAC
+                else "below-threshold")
+        else:
+            attempt["outcome"] = (
+                "delivered" if valid_fraction >= threshold
+                else "below-threshold")
+        return (attempt, provenance)
+
+    def _say(attempt, total):
+        index = attempt["rung"]
+        if attempt["outcome"] == "no-coverage":
+            what = "no product listed over the box"
+        elif attempt["outcome"] == "out-of-coverage":
+            what = ("%s's coverage does not reach the box (not "
+                    "asked)" % attempt["provider"])
+        elif attempt["outcome"] == "unavailable":
+            what = ("%s could not be asked: %s"
+                    % (attempt["provider"], attempt["unavailable_reason"]))
+        elif "airport_valid_fraction" in attempt:
+            what = ("airport cover %.2f %% (%s %.2f %%)"
+                    % (100.0 * attempt["airport_valid_fraction"],
+                       ">=" if attempt["outcome"] == "delivered" else "<",
+                       100.0 * INSET_MIN_AIRPORT_COVER_FRAC))
+        else:
+            what = ("valid %.2f %% (%s %.2f %%)"
+                    % (100.0 * attempt["valid_fraction"],
+                       ">=" if attempt["outcome"] == "delivered" else "<",
+                       100.0 * threshold))
+        if attempt.get("role") == "surround":
+            tail = (" - SURROUND" if attempt["outcome"] == "delivered"
+                    else " - next surround rung")
+        else:
+            tail = (" - DELIVERED" if attempt["outcome"] == "delivered"
+                    else (" - trying the next rung" if index + 1 < total
+                          else " - no rung left"))
+        UI.vprint(
+            0,
+            "   [inset] %s: resolution ladder rung %d/%d '%s' (%g m): %s%s"
+            % (base_name, index + 1, total, attempt["label"],
+               attempt["resolution_m"], what, tail),
+        )
+
+    def _rung_target(index, rung_definition):
+        if index == 0:
+            return target_resolution_m
+        return max(
+            float(target_resolution_m),
+            float(_definition_resolution_m(rung_definition)
+                  or target_resolution_m))
+
     try:
         for index, (label, rung_definition) in enumerate(rungs):
             if index == 0:
                 rung_path = destination_path
-                rung_target = target_resolution_m
                 rung_strategy = strategy
             else:
                 rung_path = "%s.rung%d" % (destination_path, index)
                 scratch_paths.append(rung_path)
                 if os.path.isfile(rung_path):
                     os.remove(rung_path)
-                rung_target = max(
-                    float(target_resolution_m),
-                    float(_definition_resolution_m(rung_definition)
-                          or target_resolution_m),
-                )
                 rung_strategy = None
-            attempt = {
-                "rung": index,
-                "label": label,
-                "provider": rung_definition.get("code"),
-                "native_resolution_m": rung_definition.get(
-                    "native_resolution_m"),
-                "resolution_m": rung_target,
-            }
-            provenance = None
-            unavailable = None
-            if index > 0 and not _coverage_bbox_intersects(
-                    rung_definition, bounding_box_wgs84):
-                attempt["outcome"] = "out-of-coverage"
-                attempt["valid_fraction"] = 0.0
-            else:
-                if rung_strategy is None:
-                    factory = ACCESS_STRATEGIES.get(
-                        rung_definition.get("access_strategy"))
-                    rung_strategy = factory() if factory else None
-                if rung_strategy is None:
-                    unavailable = "no access strategy named %r" % (
-                        rung_definition.get("access_strategy"),)
-                else:
-                    try:
-                        provenance = rung_strategy.fetch(
-                            rung_definition, bounding_box_wgs84,
-                            rung_target, rung_path
-                        )
-                    except ProviderUnavailable as error:
-                        if index == 0:
-                            raise
-                        unavailable = error.reason
-                if unavailable is not None:
-                    attempt["outcome"] = "unavailable"
-                    attempt["unavailable_reason"] = unavailable
-                    attempt["valid_fraction"] = 0.0
-                    if os.path.isfile(rung_path):
-                        os.remove(rung_path)
-                elif provenance is None:
-                    attempt["outcome"] = "no-coverage"
-                    attempt["valid_fraction"] = 0.0
-                    attempt["listing_ids"] = []
-                    if os.path.isfile(rung_path):
-                        os.remove(rung_path)   # a failed warp's partial file
-                else:
-                    valid_fraction = inset_valid_fraction(rung_path)
-                    attempt["valid_fraction"] = round(valid_fraction, 6)
-                    attempt["sources_used"] = len(
-                        provenance.get("sources_used")
-                        or provenance.get("source_urls") or ())
-                    attempt["listing_ids"] = _provenance_listing_ids(
-                        provenance)
-                    attempt["outcome"] = (
-                        "delivered" if valid_fraction >= threshold
-                        else "below-threshold")
+            (attempt, provenance) = _try_rung(
+                index, label, rung_definition, rung_path,
+                _rung_target(index, rung_definition), rung_strategy)
             attempts.append(attempt)
             if index > 0 or attempt["outcome"] != "delivered":
-                if attempt["outcome"] == "no-coverage":
-                    what = "no product listed over the box"
-                elif attempt["outcome"] == "out-of-coverage":
-                    what = ("%s's coverage does not reach the box (not "
-                            "asked)" % attempt["provider"])
-                elif attempt["outcome"] == "unavailable":
-                    what = ("%s could not be asked: %s"
-                            % (attempt["provider"],
-                               attempt["unavailable_reason"]))
-                else:
-                    what = ("valid %.2f %% (%s %.2f %%)"
-                            % (100.0 * attempt["valid_fraction"],
-                               ">=" if attempt["outcome"] == "delivered"
-                               else "<",
-                               100.0 * threshold))
-                UI.vprint(
-                    0,
-                    "   [inset] %s: resolution ladder rung %d/%d '%s' "
-                    "(%g m): %s%s"
-                    % (base_name, index + 1, len(rungs), label,
-                       rung_target, what,
-                       " - DELIVERED" if attempt["outcome"] == "delivered"
-                       else (" - trying the next rung"
-                             if index + 1 < len(rungs)
-                             else " - no rung left")),
-                )
+                _say(attempt, len(rungs))
             if attempt["outcome"] == "delivered":
                 delivered = (index, rung_path, provenance)
                 break
@@ -1695,11 +1765,71 @@ def _fetch_through_resolution_ladder(
         if chosen is None:
             return None
         (index, rung_path, provenance) = chosen
+        provenance = dict(provenance)
+        if delivered is not None and isinstance(provenance.get("core"),
+                                                dict):
+            # THE SURROUND: the next rung that covers the whole box.
+            surround = None
+            for (other, (label, rung_definition)) in enumerate(rungs):
+                if other <= index:
+                    continue
+                surround_path = "%s.surround%d" % (destination_path, other)
+                scratch_paths.append(surround_path)
+                if os.path.isfile(surround_path):
+                    os.remove(surround_path)
+                (attempt, surround_provenance) = _try_rung(
+                    other, label, rung_definition, surround_path,
+                    _rung_target(other, rung_definition), None)
+                attempt["role"] = "surround"
+                if (surround_provenance is not None
+                        and attempt["valid_fraction"] >= threshold):
+                    attempt["outcome"] = "delivered"
+                elif attempt["outcome"] == "delivered":
+                    attempt["outcome"] = "below-threshold"
+                attempts.append(attempt)
+                _say(attempt, len(rungs))
+                if attempt["outcome"] == "delivered":
+                    surround = (other, surround_path, surround_provenance)
+                    break
+            core = dict(provenance["core"])
+            core["rung"] = index
+            feather_m = core.get("feather_m")
+            if feather_m is None:
+                feather_m = LAS_DEFAULT_CORE_FEATHER_M
+            core["feather_m"] = float(feather_m)
+            if surround is not None:
+                (other, surround_path, surround_provenance) = surround
+                from shapely.geometry import shape
+
+                seam = assemble_two_layer_inset(
+                    rung_path, surround_path, rung_path,
+                    shape(core["boundary_polygon_wgs84"]) if core.get(
+                        "boundary_polygon_wgs84") else None,
+                    float(core.get("footprint_buffer_m") or 0.0),
+                    core["feather_m"])
+                core.update(seam)
+                provenance["surround"] = {
+                    "provider": surround_provenance.get("provider"),
+                    "rung": other,
+                    "label": rungs[other][0],
+                    "native_resolution_m": surround_provenance.get(
+                        "native_resolution_m"),
+                    "source_ids": list(
+                        surround_provenance.get("source_ids") or ()),
+                    "valid_fraction": attempts[-1]["valid_fraction"],
+                }
+            else:
+                provenance["surround"] = None
+            provenance["core"] = core
+            provenance["airport_valid_fraction"] = attempts[index].get(
+                "airport_valid_fraction")
+            provenance["valid_fraction"] = round(
+                inset_valid_fraction(rung_path), 6)
         if rung_path != destination_path:
             os.replace(rung_path, destination_path)
-        provenance = dict(provenance)
         provenance["ladder"] = {
             "threshold_valid_fraction": threshold,
+            "airport_cover_threshold": INSET_MIN_AIRPORT_COVER_FRAC,
             "rungs_tried": attempts,
             "delivered_rung": index if delivered is not None else None,
             "delivered_label": (
@@ -1708,6 +1838,8 @@ def _fetch_through_resolution_ladder(
                 (provenance.get("provider") or attempts[index]["provider"])
                 if delivered is not None else None),
         }
+        if footprint_mapping is not None:
+            provenance["ladder"][LAS_FOOTPRINT_KEY] = footprint_mapping
         return provenance
     finally:
         for path in scratch_paths:
@@ -1716,6 +1848,175 @@ def _fetch_through_resolution_ladder(
                     os.remove(path)
                 except OSError:                          # pragma: no cover
                     pass
+
+
+#: The core's seam blend when a provider declares no ``core_feather_m``:
+#: the bake's own ``airport_elevation_inset_feather_m`` default.
+LAS_DEFAULT_CORE_FEATHER_M = 60.0
+
+
+def feather_weight(distance_to_edge_m, feather_m):
+    """THE ONE FEATHER (spec §4): ``clip(d / feather, 0, 1)`` -- the
+    weight an inside value takes at ``d`` metres inside its edge.  The
+    bake (:func:`_bake_one_inset`) and the two-layer assembler
+    (:func:`assemble_two_layer_inset`) both call this; a zero feather is
+    a hard edge (weight 1 from the edge in)."""
+    distance_to_edge_m = numpy.asarray(distance_to_edge_m)
+    if feather_m and feather_m > 0:
+        return numpy.clip(distance_to_edge_m / float(feather_m), 0.0, 1.0)
+    return (distance_to_edge_m >= 0).astype(numpy.float32)
+
+
+def raster_valid_fraction_in_box(raster_path, box_wgs84):
+    """Share of ``raster_path``'s pixels inside ``box_wgs84`` that hold
+    data (not nodata, finite).  ``0.0`` when unreadable or outside."""
+    if not has_gdal:
+        return 0.0
+    try:
+        dataset = gdal.Open(raster_path)
+        transform = dataset.GetGeoTransform()
+        band = dataset.GetRasterBand(1)
+        nodata = band.GetNoDataValue()
+        (west, south, east, north) = box_wgs84
+        col0 = int(math.floor((west - transform[0]) / transform[1]))
+        col1 = int(math.ceil((east - transform[0]) / transform[1]))
+        row0 = int(math.floor((north - transform[3]) / transform[5]))
+        row1 = int(math.ceil((south - transform[3]) / transform[5]))
+        col0, row0 = max(col0, 0), max(row0, 0)
+        col1 = min(col1, dataset.RasterXSize)
+        row1 = min(row1, dataset.RasterYSize)
+        if col1 <= col0 or row1 <= row0:
+            return 0.0
+        values = band.ReadAsArray(col0, row0, col1 - col0, row1 - row0)
+        dataset = None
+    except Exception:
+        return 0.0
+    valid = numpy.isfinite(values)
+    if nodata is not None:
+        valid &= values != nodata
+    return float(valid.mean()) if valid.size else 0.0
+
+
+def assemble_two_layer_inset(core_path, surround_path, destination_path,
+                             boundary_polygon, buffer_m, feather_m):
+    """ONE 1 m raster from a surgical CORE and a coarser SURROUND
+    (spec §4, owner 30ay).  Returns the seam record for the sidecar.
+
+    The surround is resampled (bilinear) onto the core's own grid; the
+    CORE REGION is the buffered aerodrome boundary (``boundary_polygon``
+    + ``buffer_m``) rasterised on that grid.  Outside the region the
+    surround is written; inside it the core, blended over ``feather_m``
+    INSIDE the region's edge by :func:`feather_weight` of the distance to
+    the nearest outside pixel.  A core NoData cell inside the region is
+    NOT filled from the surround beyond the feather band (§9: holes in
+    the core stay NoData and fall to the base DEM under the bake); within
+    the band the surround carries it.  The seam's datum sanity -- median
+    ``core - surround`` over the band -- is recorded (the bake's own
+    feather-ring rule, :func:`_bake_one_inset`)."""
+    core_ds = gdal.Open(core_path)
+    transform = core_ds.GetGeoTransform()
+    projection = core_ds.GetProjection()
+    width, height = core_ds.RasterXSize, core_ds.RasterYSize
+    core_band = core_ds.GetRasterBand(1)
+    core_nodata = core_band.GetNoDataValue()
+    core_values = core_band.ReadAsArray().astype(numpy.float32)
+    core_ds = None
+    core_valid = numpy.isfinite(core_values)
+    if core_nodata is not None:
+        core_valid &= core_values != core_nodata
+    west = transform[0]
+    north = transform[3]
+    east = west + transform[1] * width
+    south = north + transform[5] * height
+    surround_ds = gdal.Warp(
+        "", surround_path,
+        options=gdal.WarpOptions(
+            format="MEM", outputType=gdal.GDT_Float32,
+            dstSRS=projection or "EPSG:4326", options=["-novshift"],
+            outputBounds=(west, south, east, north), width=width,
+            height=height, resampleAlg="bilinear", dstNodata=-32768.0))
+    surround_values = surround_ds.GetRasterBand(1).ReadAsArray().astype(
+        numpy.float32)
+    surround_ds = None
+    surround_valid = numpy.isfinite(surround_values) & (
+        surround_values != -32768.0)
+
+    # The core REGION on the grid, and the distance (metres) from each
+    # region pixel to the nearest pixel outside it.
+    driver = gdal.GetDriverByName("MEM")
+    mask_ds = driver.Create("", width, height, 1, gdal.GDT_Byte)
+    mask_ds.SetGeoTransform(transform)
+    mask_ds.SetProjection(projection)
+    if boundary_polygon is not None and not boundary_polygon.is_empty:
+        region_geometry = _buffer_geometry_m(boundary_polygon, buffer_m)
+        # GDAL >= 3.11 names the in-memory vector driver MEM (Memory is
+        # deprecated there); older builds (Linux 3.9) only know Memory.
+        vector_driver = (ogr.GetDriverByName("MEM")
+                         or ogr.GetDriverByName("Memory"))
+        layer_ds = vector_driver.CreateDataSource("core")
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        layer = layer_ds.CreateLayer("core", srs, ogr.wkbUnknown)
+        feature = ogr.Feature(layer.GetLayerDefn())
+        feature.SetGeometry(ogr.CreateGeometryFromWkt(region_geometry.wkt))
+        layer.CreateFeature(feature)
+        gdal.RasterizeLayer(mask_ds, [1], layer, burn_values=[1])
+        region = mask_ds.GetRasterBand(1).ReadAsArray().astype(bool)
+        layer_ds = None
+    else:
+        region = core_valid.copy()
+    # Proximity to the OUTSIDE (value 0) in pixels.
+    outside_ds = driver.Create("", width, height, 1, gdal.GDT_Byte)
+    outside_ds.SetGeoTransform(transform)
+    outside_ds.GetRasterBand(1).WriteArray((~region).astype(numpy.uint8))
+    proximity_ds = driver.Create("", width, height, 1, gdal.GDT_Float32)
+    proximity_ds.SetGeoTransform(transform)
+    pixel_m = abs(transform[5]) * GEO.lat_to_m
+    gdal.ComputeProximity(
+        outside_ds.GetRasterBand(1), proximity_ds.GetRasterBand(1),
+        ["VALUES=1", "DISTUNITS=PIXEL",
+         "MAXDIST=%d" % (int(math.ceil(feather_m / pixel_m)) + 2),
+         "NODATA=%d" % (int(math.ceil(feather_m / pixel_m)) + 3)])
+    distance_m = proximity_ds.GetRasterBand(1).ReadAsArray() * pixel_m
+    outside_ds = proximity_ds = mask_ds = None
+    weight = numpy.where(region, feather_weight(distance_m, feather_m),
+                         0.0).astype(numpy.float32)
+    band_zone = region & (weight < 1.0)
+
+    out = numpy.full((height, width), -32768.0, dtype=numpy.float32)
+    outside = ~region
+    out[outside & surround_valid] = surround_values[outside & surround_valid]
+    both = region & core_valid & surround_valid
+    out[both] = (weight[both] * core_values[both]
+                 + (1.0 - weight[both]) * surround_values[both])
+    core_only = region & core_valid & ~surround_valid
+    out[core_only] = core_values[core_only]
+    seam_fill = band_zone & ~core_valid & surround_valid
+    out[seam_fill] = surround_values[seam_fill]
+
+    ring = band_zone & core_valid & surround_valid
+    offset = (float(numpy.median(core_values[ring] - surround_values[ring]))
+              if ring.any() else None)
+
+    scratch = destination_path + ".assemble"
+    target = gdal.GetDriverByName("GTiff").Create(
+        scratch, width, height, 1, gdal.GDT_Float32,
+        options=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES"])
+    target.SetGeoTransform(transform)
+    target.SetProjection(projection)
+    target_band = target.GetRasterBand(1)
+    target_band.SetNoDataValue(-32768.0)
+    target_band.WriteArray(out)
+    target = None
+    os.replace(scratch, destination_path)
+    return {
+        "region_pixels": int(region.sum()),
+        "seam_median_offset_m": (round(offset, 4)
+                                 if offset is not None else None),
+        "core_holes_left_nodata": int((region & ~core_valid
+                                       & ~band_zone).sum()),
+    }
 
 
 def discover_inset(definition, bounding_box_wgs84):
@@ -6391,6 +6692,96 @@ LAS_CHUNK_POINTS = 2_000_000
 _LAS_COMPRESSED_FORMAT_BITS = 0xC0
 
 
+#: The definition key a ladder rung carries the AIRPORT'S boundary polygon
+#: under (GeoJSON-like mapping, EPSG:4326 degrees) -- the extent a
+#: surgical LAS fetch is cut to after ``footprint_buffer_m`` (spec §2).
+LAS_FOOTPRINT_KEY = "footprint_polygon_wgs84"
+
+#: The #136 heartbeat: a streaming tile prints a progress line at most
+#: this many seconds apart (never silent longer).
+LAS_PROGRESS_INTERVAL_S = 30.0
+
+
+def _polygon_mapping(geometry):
+    """A shapely geometry as a JSON-safe GeoJSON-like mapping."""
+    from shapely.geometry import mapping
+
+    return json.loads(json.dumps(mapping(geometry)))
+
+
+def _buffer_geometry_m(geometry, metres):
+    """``geometry`` (EPSG:4326 degrees) buffered by ``metres`` on a local
+    equirectangular frame at its centroid latitude."""
+    if not metres:
+        return geometry
+    from shapely import affinity
+
+    latitude = geometry.centroid.y
+    x_scale = GEO.lon_to_m(latitude)
+    y_scale = GEO.lat_to_m
+    local = affinity.scale(geometry, xfact=x_scale, yfact=y_scale,
+                           origin=(0.0, 0.0))
+    grown = local.buffer(float(metres))
+    return affinity.scale(grown, xfact=1.0 / x_scale, yfact=1.0 / y_scale,
+                          origin=(0.0, 0.0))
+
+
+def las_core_geometry(definition):
+    """The SURGICAL core a LAS rung is cut to: the aerodrome boundary
+    polygon the definition carries (:data:`LAS_FOOTPRINT_KEY`) buffered
+    by ``footprint_buffer_m``; ``None`` when the definition carries no
+    footprint (the whole request box is then listed)."""
+    footprint = (definition or {}).get(LAS_FOOTPRINT_KEY)
+    if not footprint:
+        return None
+    from shapely.geometry import shape
+
+    try:
+        geometry = shape(footprint)
+    except Exception:
+        return None
+    if geometry.is_empty:
+        return None
+    return _buffer_geometry_m(
+        geometry,
+        _parse_float(definition.get("footprint_buffer_m"), default=0.0))
+
+
+def _esri_polygon_geometry(geometry):
+    """An ArcGIS JSON polygon (``{"rings": [...]}``) as shapely, or None.
+    Each ring is taken as its own polygon and the union returned (tile
+    footprints are single squares; this also reads multipart)."""
+    if not isinstance(geometry, dict) or not geometry.get("rings"):
+        return None
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    parts = []
+    for ring in geometry["rings"]:
+        try:
+            polygon = Polygon([(float(x), float(y)) for x, y in ring[:]])
+        except Exception:
+            continue
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+        if not polygon.is_empty:
+            parts.append(polygon)
+    return unary_union(parts) if parts else None
+
+
+def _las_progress_line(label, have, total, moved, seconds, done=False):
+    """``   [inset] KASE PITKIN1M tile 3/8 2016-LD26101509.las 41 %
+    (38/93 MB, 0.4 MB/s)`` -- or ``done`` at completion."""
+    rate = (moved / 1e6) / seconds if seconds > 0 else 0.0
+    if done:
+        return ("   [inset] %s done (%.0f MB in %.0f s, %.2f MB/s)"
+                % (label, have / 1e6, seconds, rate))
+    percent = (" %d %%" % int(100.0 * have / total)) if total else ""
+    return ("   [inset] %s%s (%.0f/%s MB, %.2f MB/s)"
+            % (label, percent, have / 1e6,
+               "%.0f" % (total / 1e6) if total else "?", rate))
+
+
 def las_tile_cache_directory(provider_code):
     """``Elevation_data/_las_tiles/<CODE>`` -- raw tiles + per-tile DTMs,
     shared across airports and re-cuts (the ``las_tiles`` scope)."""
@@ -6725,14 +7116,22 @@ class LasTileIndexStrategy:
             "{name}", name)
 
     def discover(self, definition, bounding_box_wgs84):
+        """The tile listing, SURGICAL when the definition carries the
+        airport's footprint (spec §2, owner 30ay): the index is queried
+        over the buffered footprint's envelope and a tile is kept only
+        when its FOOTPRINT meets the buffered boundary POLYGON -- a
+        diagonal runway's bbox must not buy corner tiles.  Without a
+        footprint the whole ``bounding_box_wgs84`` is listed."""
         import requests
 
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
+        core = las_core_geometry(definition)
+        query_box = core.bounds if core is not None else bounding_box_wgs84
         description = "%s tile index" % definition.get("code")
         try:
             response = requests.get(
-                self._index_url(definition, bounding_box_wgs84), timeout=60)
+                self._index_url(definition, query_box), timeout=60)
         except Exception as error:
             raise_transient_discovery_failure(description + " request",
                                               error)
@@ -6749,12 +7148,25 @@ class LasTileIndexStrategy:
                 description, "a truncated listing (exceededTransferLimit)")
         name_field = definition.get("index_name_field", "name")
         names = set()
+        unnamed = 0
         for feature in features:
             attributes = (feature or {}).get("attributes") or {}
             name = attributes.get(name_field)
-            if name:
-                names.add(str(name).strip())
-        if not names and features:
+            if not name:
+                unnamed += 1
+                continue
+            if core is not None:
+                footprint = _esri_polygon_geometry(
+                    (feature or {}).get("geometry"))
+                if footprint is None:
+                    raise_transient_discovery_failure(
+                        description,
+                        "feature %s carries no footprint geometry (the "
+                        "surgical fetch needs returnGeometry=true)" % name)
+                if not footprint.intersects(core):
+                    continue
+            names.add(str(name).strip())
+        if not names and unnamed:
             raise_transient_discovery_failure(
                 description,
                 "a listing of %d feature(s) with no '%s' attribute"
@@ -6802,22 +7214,32 @@ class LasTileIndexStrategy:
         over_bytes = max_bytes and total_bytes > max_bytes
         if over_tiles or over_bytes:
             raise ProviderUnavailable(
-                "%s: %s needs %d tiles / %s, cap %d / %s "
+                "%s: %s%s needs %d tiles / %s, cap %d / %s "
                 "(max_tiles_per_airport / max_bytes_per_airport in %s.elv)"
                 " — SKIPPED, recorded unavailable, not no-coverage"
-                % (code, _las_airport_label(destination_path), len(sources),
+                % (code, _las_airport_label(destination_path),
+                   " core" if las_core_geometry(definition) is not None
+                   else "", len(sources),
                    _las_size_text(total_bytes), max_tiles,
                    _las_size_text(max_bytes), code))
         return total_bytes
 
-    def _download_tile(self, definition, source, scratch_path, final_path):
+    def _download_tile(self, definition, source, scratch_path, final_path,
+                       progress_label=None):
         """One tile, resumable, validated, then ``os.replace``d into the
         cache.  Returns ``True``, or ``False`` for a 404 (the server
-        answered: this listed tile does not exist)."""
+        answered: this listed tile does not exist).
+
+        PROGRESS (the #136 heartbeat law: nothing silent > 60 s): while
+        the tile streams, one ``[inset]`` line at most every
+        :data:`LAS_PROGRESS_INTERVAL_S` and one at completion, through
+        the ordinary ``UI.vprint`` channel (stdout / Qt / Ortho4XP.log)."""
         import requests
+        import time as _time
 
         code = definition.get("code")
         url = source["download_url"]
+        label = progress_label or "%s %s" % (code, source["source_id"])
         for _attempt in range(2):
             headers = {}
             resume_from = 0
@@ -6848,10 +7270,21 @@ class LasTileIndexStrategy:
                         "%s: tile %s answered HTTP %d"
                         % (code, source["source_id"], status))
                 os.makedirs(os.path.dirname(scratch_path), exist_ok=True)
-                if status == 206 and resume_from:
+                appending = status == 206 and resume_from
+                if appending:
                     handle = open(scratch_path, "ab")
                 else:
                     handle = open(scratch_path, "wb")
+                have = resume_from if appending else 0
+                try:
+                    total = have + int(
+                        (getattr(response, "headers", None) or {}).get(
+                            "Content-Length") or 0)
+                except (TypeError, ValueError):
+                    total = 0
+                started = _time.monotonic()
+                last_line = started
+                moved = 0
                 with handle:
                     for block in response.iter_content(1 << 20):
                         if UI.red_flag:
@@ -6860,6 +7293,16 @@ class LasTileIndexStrategy:
                                 % code)
                         if block:
                             handle.write(block)
+                            have += len(block)
+                            moved += len(block)
+                        now = _time.monotonic()
+                        if now - last_line >= LAS_PROGRESS_INTERVAL_S:
+                            last_line = now
+                            UI.vprint(1, _las_progress_line(
+                                label, have, total, moved, now - started))
+                UI.vprint(1, _las_progress_line(
+                    label, have, total or have, moved,
+                    _time.monotonic() - started, done=True))
             except (TransientFetchError, ProviderUnavailable):
                 raise
             except Exception as error:
@@ -6899,10 +7342,12 @@ class LasTileIndexStrategy:
         self._check_caps(definition, sources, cache_directory,
                          destination_path)
         keep_raw = _parse_boolean(definition.get("keep_raw_las", "True"))
+        slots = provider_fetch_slots(definition)
+        airport = _las_airport_label(destination_path)
         # DOWNLOAD the tiles that have neither a current DTM nor a cached
         # raw file -- each GET under one of the provider's politeness
-        # slots (``_PROVIDER_CONCURRENT_FETCHES``), so at most that many
-        # transfers run against the county's server at once.
+        # slots (``fetch_slots``), so at most that many transfers run
+        # against the county's server at once.
         wanted = []
         for (number, source) in enumerate(sources):
             name = source["source_id"]
@@ -6915,21 +7360,26 @@ class LasTileIndexStrategy:
         if wanted:
             UI.vprint(
                 1,
-                "    [inset] %s: downloading %d of %d LAS tile(s) into %s"
-                % (code, len(wanted), len(sources), cache_directory),
+                "    [inset] %s %s: downloading %d of %d LAS tile(s) over "
+                "%d connection(s) into %s"
+                % (airport, code, len(wanted), len(sources), slots,
+                   cache_directory),
             )
 
             def _download(item):
                 (number, source, las_path) = item
-                with _held_provider_fetch_slot(code):
+                order = wanted.index(item) + 1
+                with _held_provider_fetch_slot(code, slots):
                     return self._download_tile(
                         definition, source,
-                        destination_path + ".las%d.part" % number, las_path)
+                        destination_path + ".las%d.part" % number, las_path,
+                        progress_label="%s %s tile %d/%d %s" % (
+                            airport, code, order, len(wanted),
+                            os.path.basename(source["download_url"])))
 
             from concurrent.futures import ThreadPoolExecutor
 
-            with ThreadPoolExecutor(
-                    max_workers=_PROVIDER_CONCURRENT_FETCHES) as pool:
+            with ThreadPoolExecutor(max_workers=slots) as pool:
                 results = list(pool.map(_download, wanted))
             missing = sorted(
                 item[1]["source_id"]
@@ -6979,7 +7429,9 @@ class LasTileIndexStrategy:
                            for record in records)
         resolution = float(definition.get("grid_resolution_m", 1))
         valid_fraction = inset_valid_fraction(destination_path)
-        return {
+        density = (round(points_valid / (cells_valid * resolution ** 2), 4)
+                   if cells_valid else 0.0)
+        provenance = {
             "provider": code,
             "access_strategy": definition.get("access_strategy"),
             "source_urls": [source["download_url"] for source in sources],
@@ -6994,9 +7446,13 @@ class LasTileIndexStrategy:
             "filled_fraction": round(
                 cells_filled / float(cells_valid + cells_filled), 6)
             if cells_valid + cells_filled else 0.0,
-            "point_density_per_m2": round(
-                points_valid / (cells_valid * resolution ** 2), 4)
-            if cells_valid else 0.0,
+            "point_density_per_m2": density,
+            "ground_density_per_m2": density,
+            # The empty-cell rate a 1 m bin reads at this density by
+            # chance alone (e^-lambda, spec §3): the fill target is
+            # ``2 * poisson_empty_rate + 0.05``.
+            "poisson_empty_rate": round(math.exp(-density), 6)
+            if density else 1.0,
             "rmse_z_m": _parse_float(definition.get("rmse_z_m")),
             "license": definition.get("license"),
             "license_note": definition.get("license_note"),
@@ -7014,6 +7470,23 @@ class LasTileIndexStrategy:
             "native_resolution_m": definition.get("native_resolution_m"),
             "resolution_m": target_resolution_m,
         }
+        core = las_core_geometry(definition)
+        if core is not None:
+            # THE SURGICAL CORE (spec §4): what the ladder assembles the
+            # two-layer inset around.  The raster above covers the whole
+            # request box; outside the core's tiles it is NoData.
+            provenance["core"] = {
+                "provider": code,
+                "bounding_box_wgs84": [round(v, 9) for v in core.bounds],
+                "boundary_polygon_wgs84": definition.get(
+                    LAS_FOOTPRINT_KEY),
+                "footprint_buffer_m": _parse_float(
+                    definition.get("footprint_buffer_m"), default=0.0),
+                "tile_names": [source["source_id"] for source in present],
+                "feather_m": _parse_float(
+                    definition.get("core_feather_m"), default=None),
+            }
+        return provenance
 
 
 def _las_airport_label(destination_path):
@@ -8374,6 +8847,16 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
     if definition is None:
         return None
     rungs = _ladder_rung_definitions(definition)
+    footprint = ladder.get(LAS_FOOTPRINT_KEY)
+    if footprint:
+        # The SAME surgical footprint the fetch listed over -- or every
+        # re-check would read the box-wide listing as "new" (spec §2).
+        rungs = [
+            (label, dict(rung_definition, **{LAS_FOOTPRINT_KEY: footprint})
+             if rung_definition.get("code") != definition.get("code")
+             else rung_definition)
+            for (label, rung_definition) in rungs
+        ]
     stored = {}
     for attempt in ladder.get("rungs_tried") or ():
         if isinstance(attempt, dict) and attempt.get("label") is not None:
@@ -8436,17 +8919,41 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
             ladder.get("recheck"), dict) else {}
         if (before.get("result"), before.get("new_source_ids")) != (
                 recheck["result"], recheck["new_source_ids"]):
-            ladder["recheck"] = recheck
-            try:
+            if _write_refused_by_armed_guard(sidecar):
+                # §11 (4e): under an ARMED shared-repo guard the stamp is
+                # NOT ATTEMPTED (an attempted-and-caught refusal fails the
+                # run as a swallowed block); the harness carries the
+                # result in frame.json instead.
+                recheck["stamp"] = "not attempted (shared-repo guard armed)"
+            else:
+                ladder["recheck"] = recheck
                 with open(sidecar, "w", newline="\n") as handle:
                     json.dump(meta, handle, indent=2, sort_keys=True)
-            except Exception as error:
-                UI.vprint(
-                    1,
-                    "    [inset] %s: could not stamp the ladder re-check "
-                    "into %s (%s)." % (icao, sidecar, error),
-                )
     return recheck
+
+
+def _write_refused_by_armed_guard(path):
+    """Would an ARMED shared-repo write guard in this process refuse a
+    write to ``path``?  The engine cannot import the harness, so it asks
+    whichever loaded module exposes ``active_guard_refuses`` (the harness
+    ``shared_repo_guard``); with none loaded the answer is ``False``."""
+    import sys
+    import types
+
+    for module in list(sys.modules.values()):
+        if not isinstance(module, types.ModuleType):
+            continue                 # a mock parked in sys.modules
+        namespace = getattr(module, "__dict__", {})
+        ask = namespace.get("active_guard_refuses")
+        if not callable(ask) or not isinstance(
+                namespace.get("_ACTIVE_GUARDS"), list):
+            continue
+        try:
+            if ask(path) is True:
+                return True
+        except Exception:
+            return True
+    return False
 
 
 #: THE FUNCTIONAL MARGIN of the WARN rule, in metres: how far beyond the
@@ -8701,8 +9208,15 @@ def ensure_airport_insets(
     fetch_counter=None,
     meter_key="airport-insets",
     fetch_failures=None,
+    airport_polygons=None,
 ):
     """Ensure a cached inset exists for each airport, per provider ranking.
+
+    ``airport_polygons`` (optional ``{airport: shapely geometry}``, the
+    aerodrome boundaries :func:`_airport_bounding_boxes` fills) rides the
+    resolution ladder as each airport's FOOTPRINT: a LAS-tile rung is cut
+    to it (spec las-tile-lidar-provider §2).  Without it a LAS rung lists
+    the whole request box.
 
     ``airport_bounding_boxes`` maps airport identifier -> ``(west, south,
     east, north)`` in EPSG:4326 degrees.  For each airport the providers are
@@ -9015,6 +9529,9 @@ def ensure_airport_insets(
                         fetch_destination,
                         footprint_prefetch=footprint_prefetch,
                         resolution_ladder=True,
+                        **_footprint_kwargs(
+                            (airport_polygons or {}).get(icao),
+                            "footprint_polygon"),
                     )
             except ProviderUnavailable as error:
                 # A MISSING CAPABILITY (owner RULINGS 2026-09-13b (1)):
@@ -9620,6 +10137,27 @@ def _facility_restrict_mask(polygons, values_shape, geotransform):
     return mask if mask.any() else None
 
 
+def _restrict_to_inset_core_box(inset_path, valid, geotransform):
+    """``valid`` limited to the sidecar's ``core.bounding_box_wgs84`` when
+    the inset is a two-layer one; unchanged otherwise."""
+    provenance_path = os.path.splitext(inset_path)[0] + ".json"
+    try:
+        with open(provenance_path, "r") as handle:
+            core = (json.load(handle) or {}).get("core")
+    except (OSError, ValueError):
+        return valid
+    box = core.get("bounding_box_wgs84") if isinstance(core, dict) else None
+    if not box or len(box) != 4:
+        return valid
+    (west, south, east, north) = box
+    rows, cols = valid.shape
+    xs = geotransform[0] + (numpy.arange(cols) + 0.5) * geotransform[1]
+    ys = geotransform[3] + (numpy.arange(rows) + 0.5) * geotransform[5]
+    inside = ((ys >= south) & (ys <= north))[:, None] & (
+        (xs >= west) & (xs <= east))[None, :]
+    return valid & inside
+
+
 def _water_detection_trusts_inset_raster(inset_path):
     """Whether hydro-flat water detection may read this inset raster.
 
@@ -9721,6 +10259,11 @@ def ensure_inset_water_supplement(lat, lon):
         if loaded is None:
             continue
         values, valid, geotransform = loaded
+        # A TWO-LAYER inset (spec las-tile-lidar-provider §4): only the
+        # 1 m CORE is a measured surface; the surround is a coarser rung
+        # upsampled to 1 m (the upsampled class above), so detection is
+        # restricted to the core's box.
+        valid = _restrict_to_inset_core_box(inset_path, valid, geotransform)
         # Strict tier: exact hydro-flat plateaus, whole raster.
         for ring, water_elevation in _detect_water_components(
                 values, valid, geotransform,
@@ -9813,8 +10356,16 @@ def insets_enabled_for_tile(tile):
     return True
 
 
-def _airport_bounding_boxes(tile, dico_airports, only=None):
+def _airport_bounding_boxes(tile, dico_airports, only=None, margin_m=None,
+                            boundary_polygons=None):
     """Build ``{airport: (west, south, east, north)}`` in EPSG:4326.
+
+    ``margin_m`` overrides ``airport_elevation_inset_margin_m`` (``0`` =
+    the aerodrome boundary's own box).  ``boundary_polygons``, when a
+    dict, is FILLED with ``{airport: shapely geometry}`` -- the aerodrome
+    boundary in EPSG:4326 degrees, the extent a surgical LAS fetch is cut
+    to (spec las-tile-lidar-provider §2, #130).  The return value is
+    unchanged for every existing caller.
 
     Ortho4XP geometry is in tile-relative degrees; this adds the tile origin
     back and expands by ``airport_elevation_inset_margin_m`` converted to
@@ -9828,7 +10379,8 @@ def _airport_bounding_boxes(tile, dico_airports, only=None):
     applied at the ONE fetch entry, :func:`ensure_insets_for_tile`.
     """
     admitted = None if only is None else set(only)
-    margin_m = getattr(tile, "airport_elevation_inset_margin_m", 2000.0)
+    if margin_m is None:
+        margin_m = getattr(tile, "airport_elevation_inset_margin_m", 2000.0)
     metres_per_degree_latitude = GEO.lat_to_m
     metres_per_degree_longitude = GEO.lon_to_m(tile.lat + 0.5)
     margin_lon = margin_m / metres_per_degree_longitude
@@ -9866,7 +10418,41 @@ def _airport_bounding_boxes(tile, dico_airports, only=None):
             skipped_without_code,
             "unnamed airport(s) (no code to cache under).",
         )
+    if isinstance(boundary_polygons, dict):
+        boundary_polygons.update(airport_boundary_polygons(
+            tile, {key: dico_airports[key] for key in boxes}))
     return boxes
+
+
+def _footprint_kwargs(value, name):
+    """``{name: value}`` only when there IS a footprint, so every caller
+    and test double that predates footprints keeps its call shape."""
+    return {name: value} if value else {}
+
+
+def airport_boundary_polygons(tile, dico_airports, only=None):
+    """``{airport: shapely geometry}`` -- each named aerodrome's BOUNDARY
+    in EPSG:4326 degrees (the tile-relative boundary moved by the tile
+    origin): the extent a surgical LAS fetch is cut to (spec
+    las-tile-lidar-provider §2).  Same admission as
+    :func:`_airport_bounding_boxes` (string keys, the ``only`` set, a
+    non-empty boundary)."""
+    from shapely import affinity as _affinity
+
+    admitted = None if only is None else set(only)
+    polygons = {}
+    for airport, record in dico_airports.items():
+        if not isinstance(airport, str):
+            continue
+        if admitted is not None and airport not in admitted:
+            continue
+        boundary = (record or {}).get("boundary") if isinstance(
+            record, dict) else None
+        if boundary is None or getattr(boundary, "is_empty", True):
+            continue
+        polygons[airport] = _affinity.translate(
+            boundary, xoff=tile.lon, yoff=tile.lat)
+    return polygons
 
 
 # "Auto" airport elevation detail never warps finer than this: sub-half-
@@ -10003,6 +10589,8 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
             fetch_counter=fetch_counter,
             fetch_failures=fetch_failures,
             **extra,
+            **_footprint_kwargs(airport_boundary_polygons(
+                tile, dico_airports, only=selected), "airport_polygons"),
         )
     except Exception as error:
         # Never let inset fetching abort a build (G4 safety) -- but never
@@ -10596,6 +11184,13 @@ INSET_MIN_VALID_FRAC = _parse_float(
     os.environ.get("O4_INSET_MIN_VALID_FRAC"), 0.05
 )
 
+#: THE AIRPORT-COVERAGE RULE (spec las-tile-lidar-provider §4, owner
+#: 30ay): a SURGICAL core (a LAS rung cut to the aerodrome footprint) is
+#: delivered only when it holds data over at least this share of the
+#: aerodrome BOUNDARY box -- the box-wide fraction above cannot judge a
+#: raster that is NoData outside the airport by design.
+INSET_MIN_AIRPORT_COVER_FRAC = 0.80
+
 # The fraction is estimated from a DECIMATED read (GDAL nearest sampling
 # on to at most this many samples per axis, ~262 k samples): reading
 # KMCI's raster whole is 336 MB for a single ratio, and the sampling
@@ -10911,10 +11506,7 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
         numpy.minimum(distance_west, distance_east),
         numpy.minimum(distance_south, distance_north),
     )
-    if feather_m > 0:
-        weight = numpy.clip(distance_to_edge / feather_m, 0.0, 1.0)
-    else:
-        weight = (distance_to_edge >= 0).astype(numpy.float32)
+    weight = feather_weight(distance_to_edge, feather_m)
     weight = numpy.where(valid, weight, 0.0)
 
     window = base_dem.alt_dem[

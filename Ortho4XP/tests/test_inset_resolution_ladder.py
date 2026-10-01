@@ -487,3 +487,154 @@ def test_recheck_never_runs_for_a_rung_zero_inset(two_providers):
     INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
     assert calls["discover"] == []
     assert "recheck" not in _sidecar()["ladder"]
+
+
+# ---------------------------------------------------------------------
+# ROUND 2: the airport-coverage gate, the two-layer inset, the guard
+# ---------------------------------------------------------------------
+CORE_STRATEGY = "ladder_fake_core_strategy"
+
+
+def _write_partial(path, box, value, keep):
+    """A raster over ``box`` with data only inside ``keep`` (a W,S,E,N)."""
+    size = 60
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    dataset = gdal.GetDriverByName("GTiff").Create(
+        path, size, size, 1, gdal.GDT_Float32)
+    (west, south, east, north) = box
+    dx = (east - west) / size
+    dy = (north - south) / size
+    dataset.SetGeoTransform((west, dx, 0.0, north, 0.0, -dy))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    dataset.SetProjection(srs.ExportToWkt())
+    values = numpy.full((size, size), -32768.0, dtype=numpy.float32)
+    xs = west + (numpy.arange(size) + 0.5) * dx
+    ys = north - (numpy.arange(size) + 0.5) * dy
+    inside = ((ys >= keep[1]) & (ys <= keep[3]))[:, None] & (
+        (xs >= keep[0]) & (xs <= keep[2]))[None, :]
+    values[inside] = value
+    band = dataset.GetRasterBand(1)
+    band.SetNoDataValue(-32768.0)
+    band.WriteArray(values)
+    dataset = None
+
+
+@pytest.fixture
+def core_chain(monkeypatch, tmp_path, two_providers):
+    """``two_providers``'s chain, its FAKEPIT rung answering like a
+    SURGICAL LAS fetch: data only over ``plan["core_keep"]``, a ``core``
+    block, and the footprint it was handed recorded."""
+    plan, calls, chain, other, discover_raise = two_providers
+    seen = {}
+
+    class _Core:
+        def discover(self, definition, bounding_box_wgs84):
+            return [{"source_id": "T1"}]
+
+        def fetch(self, definition, bounding_box_wgs84,
+                  target_resolution_m, destination_path):
+            calls["fetch"].append("FAKEPIT")
+            seen["footprint"] = definition.get(INSETS.LAS_FOOTPRINT_KEY)
+            _write_partial(destination_path, bounding_box_wgs84, 2400.0,
+                           plan["core_keep"])
+            return {"provider": "FAKEPIT", "native_resolution_m": 1.0,
+                    "resolution_m": target_resolution_m,
+                    "source_ids": ["T1"],
+                    "core": {"provider": "FAKEPIT",
+                             "boundary_polygon_wgs84": definition.get(
+                                 INSETS.LAS_FOOTPRINT_KEY),
+                             "footprint_buffer_m": 0.0,
+                             "tile_names": ["T1"], "feather_m": 60.0}}
+
+    INSETS.register_access_strategy(CORE_STRATEGY)(_Core)
+    other["access_strategy"] = CORE_STRATEGY
+    try:
+        yield plan, calls, chain, seen
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop(CORE_STRATEGY, None)
+
+
+def _airport():
+    from shapely.geometry import box as _box
+
+    # the aerodrome: the middle of BOX
+    return _box(-106.880, 39.210, -106.857, 39.232)
+
+
+@requires_gdal
+def test_core_delivered_over_the_airport_with_a_surround(tmp_path,
+                                                        core_chain):
+    plan, calls, chain, seen = core_chain
+    airport = _airport()
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]},
+                 "core_keep": (-106.885, 39.205, -106.852, 39.237)})
+    destination = str(tmp_path / "KASE_fake3dep.tif")
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0, destination,
+                                    resolution_ladder=True,
+                                    footprint_polygon=airport)
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT", "FAKE3DEP:10"]
+    assert seen["footprint"]["type"] == "Polygon"   # handed the footprint
+    ladder = provenance["ladder"]
+    assert ladder["delivered_rung"] == 1
+    assert ladder["delivered_provider"] == "FAKEPIT"
+    assert ladder[INSETS.LAS_FOOTPRINT_KEY]["type"] == "Polygon"
+    assert provenance["airport_valid_fraction"] >= \
+        INSETS.INSET_MIN_AIRPORT_COVER_FRAC
+    assert provenance["core"]["rung"] == 1
+    assert provenance["surround"]["provider"] == "FAKE3DEP"
+    assert provenance["surround"]["rung"] == 2
+    assert provenance["valid_fraction"] == 1.0      # box-wide, assembled
+    assert provenance["native_resolution_m"] == 1.0
+    assert [r.get("role") for r in ladder["rungs_tried"]] == [
+        None, None, "surround"]
+    assert sorted(os.listdir(tmp_path)) == ["KASE_fake3dep.tif"]
+
+
+@requires_gdal
+def test_core_below_the_airport_cover_rule_moves_on(tmp_path, core_chain):
+    """The 80 % rule: a core covering only a corner of the aerodrome is
+    NOT delivered, whatever its box-wide share; the ladder climbs."""
+    plan, calls, chain, seen = core_chain
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]},
+                 "core_keep": (-106.880, 39.210, -106.870, 39.220)})
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0,
+                                    str(tmp_path / "KASE_fake3dep.tif"),
+                                    resolution_ladder=True,
+                                    footprint_polygon=_airport())
+    tried = provenance["ladder"]["rungs_tried"]
+    assert tried[1]["outcome"] == "below-threshold"
+    assert tried[1]["airport_valid_fraction"] < \
+        INSETS.INSET_MIN_AIRPORT_COVER_FRAC
+    assert provenance["ladder"]["delivered_rung"] == 2
+    assert "core" not in provenance
+
+
+@requires_gdal
+def test_recheck_stamp_not_attempted_under_an_armed_guard(
+        two_providers, monkeypatch):
+    """§11 (4e): the stamp write is NEVER attempted when an armed guard
+    would refuse it; the result still returns (the harness puts it in
+    frame.json)."""
+    import sys
+    import types
+
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    path = FNAMES.airport_inset_provenance(39, -107, "KASE", "FAKE3DEP")
+    with open(path, "rb") as handle:
+        body = handle.read()
+    armed = types.ModuleType("fake_armed_guard_130")
+    armed._ACTIVE_GUARDS = [object()]
+    armed.active_guard_refuses = lambda p: True
+    monkeypatch.setitem(sys.modules, "fake_armed_guard_130", armed)
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX,
+                                    record=True)
+    assert recheck["result"] == "unchanged"
+    assert "not attempted" in recheck["stamp"]
+    with open(path, "rb") as handle:
+        assert handle.read() == body

@@ -3045,6 +3045,89 @@ def test_ladder_recheck_new_listing_is_a_refreshable_refusal(build_mod,
     build_mod.LADDER_RECHECKS.clear()
 
 
+def test_seed_from_copies_only_verified_named_tiles(build_mod, tmp_path,
+                                                   monkeypatch):
+    """``--seed-from DIR`` (spec las-tile-lidar-provider §11 (5)): a tile
+    the surgical discovery NAMES and the provider contract VERIFIES is
+    copied and sha256-stamped; a named tile that does not verify, and a
+    file nobody named, are refused by name; a named tile already cached
+    is left alone."""
+    laspy = pytest.importorskip("laspy")
+    pyproj = pytest.importorskip("pyproj")
+    import hashlib
+    import numpy
+
+    seed = tmp_path / "seed" / "Elevation_data" / "_las_tiles" / "PITKIN1M"
+    seed.mkdir(parents=True)
+
+    def _las(path):
+        header = laspy.LasHeader(point_format=6, version="1.4")
+        header.offsets = numpy.array([2611000.0, 1510000.0, 7800.0])
+        header.scales = numpy.array([0.001, 0.001, 0.001])
+        header.add_crs(pyproj.CRS.from_epsg(6428))
+        data = laspy.LasData(header)
+        data.x = numpy.array([2611000.5, 2611001.5])
+        data.y = numpy.array([1510000.5, 1510000.5])
+        data.z = numpy.array([7800.0, 7801.0])
+        data.classification = numpy.array([2, 2], dtype=numpy.uint8)
+        data.write(str(path))
+
+    _las(seed / "GOOD.las")
+    _las(seed / "EXTRA.las")
+    _las(seed / "BAD.las")
+    with open(seed / "BAD.las", "r+b") as handle:
+        handle.truncate(300)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "HAVE.las").write_bytes(b"cached")
+    definition = {"code": "PITKIN1M", "source_crs": "6428"}
+    monkeypatch.setattr(build_mod, "las_seed_candidates",
+                        lambda icaos, root, lat, lon: [
+                            (definition, name, str(cache / (name + ".las")))
+                            for name in ("GOOD", "BAD", "HAVE", "GONE")])
+
+    class _Prog:
+        lines = []
+
+        def note(self, text):
+            self.lines.append(text)
+
+    summary = build_mod.seed_las_tiles(str(tmp_path / "seed"), ["KASE"],
+                                       tmp_path, 39, -107, _Prog())
+    good = (seed / "GOOD.las").read_bytes()
+    assert (cache / "GOOD.las").read_bytes() == good
+    assert summary["copied"]["GOOD"]["sha256"] == \
+        hashlib.sha256(good).hexdigest()
+    assert summary["seeded"] is True
+    assert summary["seed_from"] == str((tmp_path / "seed").resolve())
+    assert not (cache / "BAD.las").exists()
+    assert "does not verify" in summary["refused"]["BAD"]
+    assert summary["refused"]["EXTRA"] == \
+        "not named by the surgical discovery"
+    assert summary["already_present"] == ["HAVE"]
+    assert (cache / "HAVE.las").read_bytes() == b"cached"
+    assert summary["absent"] == ["GONE"]
+
+
+def test_seed_from_needs_the_las_tiles_scope(build_mod):
+    with pytest.raises(SystemExit) as caught:
+        build_mod.main(["KASE", "--refresh-only", "--refresh-data", "dem",
+                        "--seed-from", "/nonexistent"])
+    assert "--refresh-data las_tiles" in str(caught.value)
+
+
+def test_active_guard_refuses_asks_armed_guards_only(guard_mod, tmp_path):
+    """§11 (4e): the engine ASKS before a best-effort write; an armed
+    guard answers for its own scope, a disarmed one is not asked."""
+    assert guard_mod.active_guard_refuses(tmp_path / "x.json") is False
+    outside = guard_mod.DATA_REPO / "Elevation_data" / "_las130_probe.json"
+    guard = guard_mod.SharedRepoWriteGuard([], tmp_path)
+    with guard:
+        assert guard_mod.active_guard_refuses(outside) is True
+        assert guard_mod.active_guard_refuses(tmp_path / "x.json") is False
+    assert guard not in guard_mod._ACTIVE_GUARDS
+
+
 def test_pack_rebake_is_a_named_refresh_scope(build_mod, guard_mod):
     """``--refresh-data pack_rebake`` must be spellable, and it must say
     whose act it is."""

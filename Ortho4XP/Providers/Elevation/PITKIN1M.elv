@@ -21,7 +21,7 @@ access_strategy=las_tile_index
 
 # The tile index (FeatureServer layer 6 of the county's Contour and LiDAR
 # Index): {west},{south},{east},{north} = the airport box in EPSG:4326.
-index_url_template=https://maps.pitkincounty.com/arcgis/rest/services/Hosted/Contour_and_LiDAR_Index_(HFV)/FeatureServer/6/query?geometry={west},{south},{east},{north}&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=name&returnGeometry=false&f=json
+index_url_template=https://maps.pitkincounty.com/arcgis/rest/services/Hosted/Contour_and_LiDAR_Index_(HFV)/FeatureServer/6/query?geometry={west},{south},{east},{north}&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=name&returnGeometry=true&outSR=4326&f=json
 # The attribute that names a tile.
 index_name_field=name
 # One 3,000 x 3,000 ft tile, LAS 1.4 point format 6, uncompressed.
@@ -46,10 +46,24 @@ native_resolution_m=1
 min_points_per_cell=1
 fill_radius_cells=3
 
-# Per-airport caps (KASE: 63 tiles, 7.06 GB).  Over either, the provider
-# is SKIPPED and recorded unavailable -- never no-coverage.
-max_tiles_per_airport=64
-max_bytes_per_airport=8000000000
+# THE SURGICAL CORE (owner RULINGS 2026-09-30ay, spec §2): the tiles are
+# cut to the AERODROME BOUNDARY buffered by this many metres (tile
+# footprint intersecting the polygon, not the box) -- pavement, zone-1/2
+# bands, pads, frontage roads and the feather lie inside it.  The rest of
+# the inset box is the next ladder rung (USGS 3 m / 10 m), assembled
+# around the core as ONE raster (the two-layer inset, spec §4).
+footprint_buffer_m=300
+# The seam blend at the core edge, metres inside it (the bake's feather).
+core_feather_m=60
+# Parallel connections to the county server.  Measured 2026-09-30:
+# ~0.3 MB/s per connection.
+fetch_slots=4
+
+# Per-airport caps on the SURGICAL set (KASE: 6-10 tiles, 0.5-0.8 GB).
+# Over either, the provider is SKIPPED and recorded unavailable -- never
+# no-coverage.
+max_tiles_per_airport=12
+max_bytes_per_airport=1200000000
 # Keep the raw tiles so a grid-rule change re-grids without a re-download.
 keep_raw_las=true
 

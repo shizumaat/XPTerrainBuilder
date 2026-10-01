@@ -344,6 +344,7 @@ class DesignReport:
     runway_flex: list = _dc.field(default_factory=list)
     #: §5: one-sided pair-cap rows promoted to HARD on the fronting set
     fronting_promoted: int = 0
+    fronting_promoted_by: dict = _dc.field(default_factory=dict)
     #: OWNER RULINGS 2026-09-27a (11): the reach contacts within one lane
     #: width that SEEDED the ramp from stage 1's solved level
     #: (``constraints/road_ramp.reach_seed_rewrite``'s report; empty when
@@ -641,6 +642,7 @@ class DesignReport:
                 "jetway_strip": self.jetway_strip.as_dict(),
                 "runway_flex": self.runway_flex,
                 "fronting_promoted": self.fronting_promoted,
+                "fronting_promoted_by": self.fronting_promoted_by,
                 "reach_seed": self.reach_seed,
                 "pin_yield": self.pin_yield,
                 "one_way_rows": self.one_way_rows,

@@ -475,7 +475,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                    if front else frozenset())
     front_ref = getattr(planar, "fronting_ref", None) or {}
     tol_ref = float(design_law(law).hard_tol_m)
-    rep.fronting_promoted = 0
+    rep.fronting_promoted, rep.fronting_promoted_by = 0, {}
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -519,6 +519,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if (is_hard(heads, row) or promoted) and _carries_a_column(red, terms):
             if promoted and not is_hard(heads, row):
                 rep.fronting_promoted += 1
+                rep.fronting_promoted_by[ruling_head(row)] = rep.fronting_promoted_by.get(ruling_head(row), 0) + 1  # noqa: E501
             hi_hard = hi
             ceil = getattr(row, "ceiling", None)
             if getattr(row, "soft", None) is not None and ceil is not None:

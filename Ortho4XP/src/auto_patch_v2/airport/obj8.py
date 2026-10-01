@@ -347,8 +347,22 @@ class ResourceCache:
         self.skirt: dict[str, object] = {}
         #: base-profile spec §1 (4): the BASE PROFILE per RESOURCE, read
         #: ONCE here (:meth:`base_profile`).  The planar stage and the
-        #: object stage both read the answer off the plan; neither
+        #: object stage both read the answer off the PLAN
+        #: (``members[].base_profile``) and the sidecar; neither
         #: re-derives it (RULINGS 2026-08-30l).
+        #:
+        #: DELIBERATELY NOT IN :meth:`derived_state` — the pinning twin
+        #: ``test_v2cost2.test_resource_cache_derived_state_round_trip``
+        #: is what forces this choice to be MADE rather than drifted
+        #: into.  Two reasons: a plane carries its POLYGON, so this is
+        #: not the "kilobytes" class that method's note describes — it is
+        #: face unions over a pack's terminals, against a payload with a
+        #: size bar (RULINGS 2026-09-14v) — and the profile's transport
+        #: to the consumers is the PLAN, not this cache, so carrying it
+        #: here would be a second copy of a reading that already travels
+        #: (30l).  A cached partition re-derives it on the pass that
+        #: parses the geometry, which is the same pass that would have
+        #: filled it.
         self.base: dict[str, object] = {}
         #: ``airport/basin_witness.py``'s ONE reading of the pack's placed
         #: objects (owner RULINGS 2026-09-10ax (2): the basin admission
@@ -370,7 +384,7 @@ class ResourceCache:
         ``_geom`` / ``_comps`` (the parse) and never ``placed`` (the
         caller holds those objects itself)."""
         return {"skirt": dict(self.skirt), "range": dict(self._range),
-                "bounds": dict(self._bounds), "base": dict(self.base)}
+                "bounds": dict(self._bounds)}
 
     def restore_derived(self, state: dict | None) -> int:
         """Put :meth:`derived_state` back on a fresh cache; returns how
@@ -380,7 +394,7 @@ class ResourceCache:
             return 0
         n = 0
         for key, memo in (("skirt", self.skirt), ("range", self._range),
-                          ("bounds", self._bounds), ("base", self.base)):
+                          ("bounds", self._bounds)):
             got = state.get(key)
             if got:
                 memo.update(got)

@@ -2744,6 +2744,20 @@ class LadderInsetAssembly:
                 "%s - refused, a vertical-unit mismatch is never feathered "
                 "(vertical_unit_applied must be m on every layer)"
                 % (self.core_unit, (filled_by or {}).get("label"), unit))
+        (values, valid) = self._warp(fill_path, "bilinear")
+        if self.need.any() and (self.need & ~valid).any():
+            # The bilinear kernel leaves the box's outermost cells NoData
+            # where the source ends at the box edge (KASE witness: the last
+            # row and column, 22,784 cells); the rung HOLDS data there --
+            # its own nearest cell answers them.  Elsewhere bilinear stands.
+            (nearest, nearest_valid) = self._warp(fill_path, "near")
+            edge = nearest_valid & ~valid
+            values[edge] = nearest[edge]
+            valid |= edge
+        self.fills.append((values, valid, dict(filled_by or {})))
+        return int((valid & self.need).sum())
+
+    def _warp(self, fill_path, resample):
         west = self.transform[0]
         north = self.transform[3]
         east = west + self.transform[1] * self.width
@@ -2755,14 +2769,13 @@ class LadderInsetAssembly:
                 dstSRS=self.projection or "EPSG:4326",
                 options=["-novshift"],
                 outputBounds=(west, south, east, north), width=self.width,
-                height=self.height, resampleAlg="bilinear",
+                height=self.height, resampleAlg=resample,
                 dstNodata=LADDER_INSET_NODATA))
         values = warped.GetRasterBand(1).ReadAsArray().astype(
             numpy.float32)
         warped = None
-        valid = numpy.isfinite(values) & (values != LADDER_INSET_NODATA)
-        self.fills.append((values, valid, dict(filled_by or {})))
-        return int((valid & self.need).sum())
+        return (values,
+                numpy.isfinite(values) & (values != LADDER_INSET_NODATA))
 
     def needs_fill(self):
         """Whether a cell the fills must answer is still unanswered -- the

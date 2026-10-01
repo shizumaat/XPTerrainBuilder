@@ -162,12 +162,29 @@ def _frame_members(patch, frame, gs, solve_air):
     return {k for k, (rs, _a) in patch.items() if rs & solve_air}
 
 
+def plateau_nodes(path) -> frozenset:
+    """flat-pad spec v2 §3 P19: the PLATEAU RING vertices a patch's sidecar
+    declares (``plateau_rings``) — minted by law, EXPECTED added airside
+    nodes, reported apart from the 0-added-airside-nodes bar.  Empty when
+    the sidecar or the key is absent."""
+    side = Path(str(path) + ".axes.json")
+    if not side.is_file():
+        return frozenset()
+    try:
+        rings = json.loads(side.read_text()).get("plateau_rings") or {}
+    except (ValueError, OSError):
+        return frozenset()
+    return frozenset((f"{float(ll[0]):.11f}", f"{float(ll[1]):.11f}")
+                     for vs in rings.values() for ll in vs)
+
+
 def compare(a_path, b_path, tol_m: float = DEFAULT_TOL_M) -> dict:
     """The result the CLI prints — one function, so the tool and any
     caller read one number (the CLI's JSON IS this dict)."""
     gs, solve_air, road = role_sets()
     fams = airside_families()
     A, B = read_patch(a_path), read_patch(b_path)
+    plateau = plateau_nodes(a_path) | plateau_nodes(b_path)
     out = {"a": str(a_path), "b": str(b_path), "tol_m": float(tol_m),
            "frames": {}}
     for frame in ("row-side", "solve-owned"):
@@ -199,6 +216,12 @@ def compare(a_path, b_path, tol_m: float = DEFAULT_TOL_M) -> dict:
             "families": by_fam,
             "n_a": len(sa), "n_b": len(sb), "n_both": len(both),
             "a_only": len(sa - sb), "b_only": len(sb - sa),
+            # P19: the plateau rings apart, the rest listed (30aa: a/b-only
+            # nodes by identity)
+            "a_only_plateau": len((sa - sb) & plateau),
+            "b_only_plateau": len((sb - sa) & plateau),
+            "a_only_nodes": sorted(list(k) for k in (sa - sb) - plateau),
+            "b_only_nodes": sorted(list(k) for k in (sb - sa) - plateau),
             "n_moved": len(moved),
             "worst_dz_m": (moved[0]["dz_m"] if moved else 0.0),
             "n_no_value": no_value,
@@ -225,6 +248,7 @@ def _print(res, top: int) -> None:
         print(f"\n  FRAME {frame} — {label}")
         print(f"    nodes: A={f['n_a']} B={f['n_b']} in BOTH={f['n_both']}"
               f"   A-only={f['a_only']} B-only={f['b_only']}"
+              f" (plateau rings: A {f.get('a_only_plateau', 0)} B {f.get('b_only_plateau', 0)})"
               f"  (added/removed vertices, NOT moved values)")
         print(f"    MOVED by > {res['tol_m']} m: {f['n_moved']}"
               f"   WORST |dz| = {f['worst_dz_m']:.4f} m")

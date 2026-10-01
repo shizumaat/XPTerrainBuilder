@@ -21,7 +21,6 @@ DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "bend_strip", "bend_road", "chord", "law",
                                  "taxi_profile", "taxi_trend", "road",
                                  "detached_mean", "body_datum", "apron_trend",
-                                 "frontage_hold",
                                  "ground_datum", "set_stall_tol")
 
 #: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
@@ -58,6 +57,17 @@ class Design:
     #: curvature the K law admits, so the runway bends with the ground's
     #: trend and never undulates with the ground itself (08t (1) / 09b).
     runway_profile_window_m: float
+    #: THE RUNWAY FLEXES 20 % OF THE PULL (flat-pad spec v2 §1, owner
+    #: RULINGS 2026-09-30as): a pulled runway's hard deviation budget is
+    #: this share of the largest lift its pulling route carries
+    #: (``constraints/no_step.hold_interval``, the ONE reader).
+    runway_flex_share: float
+    #: the ruling HEADS whose stage-1 ``Diff`` cap rows are the pair
+    #: graph's edges (flat-pad spec v2 §2; ``constraints/no_step.pair_graph``)
+    interval_pair_rulings: tuple[str, ...]
+    #: the ruling HEADS promoted to HARD on the fronting set (flat-pad spec
+    #: v2 §5; ``solve.design.assemble``'s one filter)
+    fronting_hard_rulings: tuple[str, ...]
     #: §50.1 (3) THE MARGIN ON A YIELDED RUNWAY CAP (owner RULINGS
     #: 2026-09-18d (3)): where a runway's own HARD PINS demand more grade
     #: than ``rulesets.runway.longitudinal`` allows, that runway's
@@ -121,14 +131,6 @@ class Design:
     #: at ``taxi_trend``'s price: it says WHERE the apron sits, never how
     #: smoothly, and every law row outranks it.
     apron_trend: float
-    #: THE FRONTAGE HOLD (flat-pad spec §1 (2), RULINGS 2026-09-30f/r): the
-    #: price of one metre between a held block's welded contact and its
-    #: flat datum — a stage-1 target (``constraints/platform.
-    #: frontage_hold_rows``, head ``frontage_hold_rulings``).  Priced BELOW
-    #: the runway's profile (``chord``) so the hold never reaches a runway
-    #: through its taxi chain (spec §1 (4): the runway never moves).
-    frontage_hold: float
-    frontage_hold_rulings: tuple[str, ...]
     #: THE GROUND'S OWN DATUM (owner RULINGS 2026-09-10av; spec §23): every
     #: ADJACENT-GROUND vertex — the ``graded_strip`` family, never a pavement
     #: vertex and never an interior pocket enclosed by pavement (09g (1)) —
@@ -192,6 +194,11 @@ class Design:
     #: is ONE level (``constraints.jetway_strip.strip_m`` is the one
     #: derivation site; 0 disarms the strip).
     jetway_strip_m: float
+    #: flat-pad spec v2 §3: the STAND ZONE's startup buffer, the reach
+    #: a startup still belongs to a block at, and the stand kinds
+    stand_zone_radius_m: float
+    stand_zone_startup_reach_m: float
+    stand_zone_startup_kinds: tuple[str, ...]
     #: spec-author ruling Q-32d (i): a strip forms only on a pad whose
     #: stage-1 airside frontage fits its plane within this (max residual,
     #: metres); elsewhere the 23a weld alone governs.
@@ -383,6 +390,13 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.pad_fronting_reach_m {d.pad_fronting_reach_m}: a "
                   "plan distance in metres, never negative (owner RULINGS "
                   "2026-09-27a (9))")
+    if not 0.0 <= d.runway_flex_share <= 1.0:
+        raise err(f"emit.design.runway_flex_share {d.runway_flex_share}: a "
+                  "share of the pull in [0, 1] (flat-pad spec v2 §1, RULINGS "
+                  "2026-09-30as)")
+    if d.stand_zone_radius_m < 0.0 or d.stand_zone_startup_reach_m < 0.0:
+        raise err("emit.design.stand_zone_radius_m / stand_zone_startup_reach_m: "
+                  "plan distances in metres, never negative (flat-pad spec v2 §3)")
     if d.jetway_strip_m < 0.0:
         raise err(f"emit.design.jetway_strip_m {d.jetway_strip_m}: a plan "
                   "distance in metres, never negative (jetway-strip spec §1 (2))")

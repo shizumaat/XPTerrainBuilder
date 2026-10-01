@@ -13,9 +13,9 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Platform", "PLATFORMS", "HELD", "held_platform_vertices",
-           "datum_vertex_of", "datum_vertices", "stage_air_vertices",
-           "pin_datums"]
+__all__ = ["Platform", "PLATFORMS", "HELD", "PLATEAUS", "plateau_vertices",
+           "held_platform_vertices",
+           "datum_vertex_of", "datum_vertices", "stage_air_vertices"]
 
 
 @_dc.dataclass(frozen=True)
@@ -51,6 +51,28 @@ PLATFORMS: list[Platform] = []
 #: ``planar/platform.platform_split``; ``[building_pad] frontage_hold``
 #: off leaves it empty.
 HELD: dict[str, dict[str, _t.Any]] = {}
+
+
+#: flat-pad spec v2 §3: the last arrangement's PLATEAUS — held block ref ->
+#: ``{"source", "area_m2", "apron_refs", "riders", "startups"}`` (minted by
+#: ``planar/pad_cut.plateau_cut``; empty without a held block or a stand).
+PLATEAUS: dict[str, dict[str, _t.Any]] = {}
+
+
+def plateau_vertices(planar: _t.Any, law: _t.Any = None) -> dict[str, set[int]]:
+    """``{held block ref: every vertex of its PLATEAU apron pieces}`` (spec
+    v2 §3: the plateau joins the block's hold set) — read off the face
+    refs (``model.planar.PLATEAU_MARK``), ONE accessor."""
+    from .planar import plateau_block_of
+    out: dict[str, set[int]] = {}
+    for f in planar.faces.values():
+        b = plateau_block_of(f.ref)
+        if b is None:
+            continue
+        vs = out.setdefault(b, set())
+        for ring in (f.ring, *f.holes):
+            vs.update(planar.ring_vertices(ring))
+    return out
 
 
 def held_platform_vertices(planar: _t.Any, ref: str) -> list[int]:
@@ -108,56 +130,41 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
     if air is None:
         air = stage_air_vertices(planar, law)
     col: dict[str, set[int]] = {}
+    own: dict[str, set[int]] = {}
     for f in planar.faces.values():
         r = str(f.ref)
         if r.endswith("#collar") and r[:-len("#collar")] in HELD:
             vs = col.setdefault(r[:-len("#collar")], set())
             for ring in (f.ring, *f.holes):
                 vs.update(planar.ring_vertices(ring))
+        elif r in HELD and HELD[r].get("conforming"):
+            # flat-pad spec v2 §4: a §20 CONFORMING pad fronts by its own rim
+            vs = own.setdefault(r, set())
+            for ring in (f.ring, *f.holes):
+                vs.update(planar.ring_vertices(ring))
     out: dict[str, int] = {}
     for ref in sorted(HELD):
+        if HELD[ref].get("conforming"):
+            vs = own.get(ref, set())
+            if not (vs & air):
+                continue
+            # its datum column is one of its OWN vertices, never a weld —
+            # the one FARTHEST from its welded rim (ties: lowest id), so no
+            # pad row reaching an airside vertex (a 5 % ceiling pair over a
+            # rim edge) is pulled into stage 1 through it (measured HECA: a
+            # rim datum made two §20 pads' ceilings an infeasible stage-1 set)
+            inner = sorted(vs - set(air))
+            if inner:
+                wx = [planar.vertices[v].xy for v in vs & set(air)]
+
+                def _far(v: int) -> tuple[float, int]:
+                    x, y = planar.vertices[v].xy
+                    return (-min((x - a) ** 2 + (y - b) ** 2 for a, b in wx), v)
+                out[ref] = min(inner, key=_far)
+            continue
         if not (col.get(ref, set()) & air):
             continue
         v = datum_vertex_of(planar, ref)
         if v is not None:
             out[ref] = v
-    return out
-
-
-def pin_datums(planar: _t.Any, law: _t.Any, levels: dict) -> list[dict]:
-    """THE DATUM PIN (flat-pad spec §1 (2) as amended by spec-author RULINGS
-    2026-09-30u (a)/(ii)): the hold is a PRICED row, so its datum column
-    is never left where stage 1 parked it — after stage 1, and before stage
-    2 substitutes the levels, each held block's datum is set to the MINT
-    datum clipped into the band its HELD contacts' SOLVED apron can reach:
-    ``[max(z_c − r_c), min(z_c + r_c)]`` over the held contacts (``r_c``
-    the mint's reach, ``planar/pad_blocks.reach``); an empty band collapses
-    to the contacts' median.  MEASURED (lane ``flatpad111b``): unpinned, HECA
-    T2's datums drifted 72.47 -> 73.81 and 69.01 -> 70.26.  Mutates
-    ``levels`` (vertex -> value) and returns one record per pinned block
-    (also stored as ``HELD[ref]["datum_pin"]``)."""
-    out: list[dict] = []
-    for ref, dv in datum_vertices(planar, law).items():
-        h = HELD[ref]
-        hc = [(v, r) for v, r in (h.get("hold_contacts") or ())
-              if v in levels]
-        if dv not in levels or not hc:
-            continue
-        zs = [float(levels[v]) for v, _r in hc]
-        rs = [float(r) if r is not None and r == r else 0.0 for _v, r in hc]
-        lo = max(z - r for z, r in zip(zs, rs))
-        hi = min(z + r for z, r in zip(zs, rs))
-        if lo > hi:
-            zs_s = sorted(zs)
-            lo = hi = zs_s[len(zs_s) // 2]
-        mint = h.get("datum_pred")
-        solved = float(levels[dv])
-        target = solved if mint is None else float(mint)
-        pinned = min(max(target, lo), hi)
-        levels[dv] = pinned
-        rec = {"ref": ref, "mint": None if mint is None else round(float(mint), 3),
-               "solved": round(solved, 3), "pinned": round(pinned, 3),
-               "band": [round(lo, 3), round(hi, 3)], "held": len(hc)}
-        h["datum_pin"] = rec
-        out.append(rec)
     return out

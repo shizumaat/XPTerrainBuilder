@@ -301,11 +301,21 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
         else:
             struck_of[cid].append((v, why))
     strips: list[JetwayStrip] = []
+    # flat-pad spec v2 §3 / P12: the strip is DISARMED on a HELD block — its
+    # plateau is the stand's law in stage 1 (``planar/pad_cut.plateau_cut``),
+    # never a post-stage-1 projection over it
+    from ..model.planar import unit_ref_of
+    from ..model.platform import HELD
+    held_units = {str(h.get("unit")) for h in HELD.values()} | set(HELD)
+    disarmed = 0
     for cid in sorted(regions):
         vs = got[cid]
         if not vs:
             continue
         _a, ref, fid = pad_ref_of[cid]
+        if ref in held_units or unit_ref_of(ref) in held_units:
+            disarmed += 1
+            continue
         reg = regions[cid]
         geoms = list(getattr(reg, "geoms", [reg]))
         rings = tuple(tuple((round(x, 3), round(y, 3)) for x, y in g.exterior.coords)
@@ -325,7 +335,7 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
     for v in taxi:
         fixed[v] = "taxi"
     movable = frozenset(v for v in apron_vs if v not in fixed)
-    counts.update(status="ok", strips=len(strips),
+    counts.update(status="ok", strips=len(strips), strips_disarmed_held=disarmed,
                   rider_edges=sum(len(e) for e in edges_of.values()),
                   strip_vertices=sum(len(s.vertices) for s in strips),
                   struck=sum(len(s.struck) for s in strips),

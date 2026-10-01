@@ -56,6 +56,20 @@ def is_collar_ref(ref: object) -> bool:
     return str(ref).endswith(COLLAR_SUFFIX)
 
 
+#: flat-pad spec v2 §3 (owner RULINGS 2026-09-30y addendum): an apron piece
+#: the STAND ZONE of a held block cut out of its apron keeps role ``apron``
+#: under ref ``<apron ref>#plateau:<block ref>`` (``planar/pad_cut.
+#: plateau_cut``) — every role reader is untouched, the hold reads the mark.
+PLATEAU_MARK = "#plateau:"
+
+
+def plateau_block_of(ref: object) -> "str | None":
+    """The held block a PLATEAU apron piece belongs to, else ``None``."""
+    r = str(ref)
+    i = r.find(PLATEAU_MARK)
+    return r[i + len(PLATEAU_MARK):] if i >= 0 else None
+
+
 def platform_ref_of(ref: object) -> str:
     """The PLATFORM face's ref of a collar ref (the ref itself otherwise)."""
     r = str(ref)
@@ -309,6 +323,19 @@ class PlanarMap:
     #: through ``constraints.precedence.taxi_cap_for`` (``face_cap``,
     #: ``stretches``).  Empty where no runway yielded: reads as before.
     taxi_caps: _t.Mapping[int, _t.Any] = _dc.field(default_factory=dict)
+    #: THE FRONTING SET (flat-pad spec v2 §5, RULINGS 2026-09-30y (3) /
+    #: 30as): the vertices of every face that carries a held block's relief
+    #: — the apron bodies welded to it, the junction / taxi faces touching
+    #: them, and every face on the least-budget path from each held contact
+    #: to its nearest fixed vertex (``constraints/no_step.hold_interval``).
+    #: ``solve.design.assemble`` promotes the airside pair caps
+    #: (``[design] fronting_hard_rulings``) whose every foot is in it to
+    #: HARD — the one filter.  Empty: no promotion (every airport with no
+    #: held block, and pass 1a).
+    fronting_vertices: frozenset = frozenset()
+    #: RULINGS 2026-09-30bb F2: pass 1a's values over the fronting set —
+    #: a fronting cap is promoted only where pass 1a already holds it
+    fronting_ref: _t.Mapping[int, float] = _dc.field(default_factory=dict)
     #: THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
     #: spec §8.6, ``constraints/taxi_trend.py``): vertex id -> the ground's
     #: LONG-WAVE TREND along that vertex's taxi centreline chain, shifted

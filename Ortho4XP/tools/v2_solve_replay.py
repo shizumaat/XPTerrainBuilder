@@ -1882,7 +1882,14 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         print(f"[{icao}] design weight ARM: {design_weights} -> {law.tables.emit.design}")
     cs, counts, _w = shape_constraints(pm, law, airport, stage)
     if drop:
-        cs = ConstraintSet.from_rows([r for r in cs.rows() if r.source.generator not in drop])
+        # a name is a GENERATOR or a RULING HEAD (``design_roles.ruling_head``,
+        # the key ``[design] hard_rulings`` names a law by): the frontage
+        # hold's rows are minted by ``platform_collar`` beside the collar's
+        # own, so the hold-OFF arm (flat-pad v2 §1 pass 1a) names its head
+        from auto_patch_v2.solve.design_roles import ruling_head
+        cs = ConstraintSet.from_rows([r for r in cs.rows()
+                                      if r.source.generator not in drop
+                                      and ruling_head(r) not in drop])
     return {"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
             "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0}
 
@@ -1932,6 +1939,12 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         _kw["stage2_rewrite"] = _rewrite
     except ImportError:
         pass
+    try:
+        # flat-pad spec v2 §1 / §2: the build's own hold binding
+        from auto_patch_v2.constraints.no_step import hold_pass
+        _kw["hold"] = hold_pass(pm, law)
+    except ImportError:
+        pass
     sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
                             method=method, strips=strips, **_kw)
     wall = round(time.perf_counter() - t, 1)
@@ -1964,6 +1977,14 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     print(f"[{icao}] resume {resume}; rows {cs.counts()}; dropped generators {drop or '-'}; "
           f"solve {wall:.1f} s status {sol.status.value}; {rep.line()}")
     print(f"[{icao}] LP size: {size}")
+    # flat-pad spec v2 §1 / §2: pass 1a, the interval and the runway's flex
+    _s1a = (getattr(rep, "stages", None) or {}).get("stage1a")
+    if _s1a:
+        print(f"[{icao}] PASS 1a (hold rows dropped): {_s1a}")
+        print(f"[{icao}] stage 1 (pass 1b) wall {rep.stages['stage1'].get('wall_s')} s "
+              f"= pass 1a {_s1a.get('wall_s')} s + interval {_s1a.get('interval_s')} s + pass 1b")
+    for _f in getattr(rep, "runway_flex", None) or ():
+        print(f"[{icao}] RUNWAY FLEX {_f}")
     n_shapes = len({v for v in pm.shape_of_vertex.values() if v >= 0})
     by_shape: dict[int, int] = {}
     for v in pm.shape_of_vertex.values():
@@ -2050,17 +2071,23 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             # EVERY family's rows (capped), so a --json arm can be read by
             # site without a second census (lane ``nlwf``)
             result["verify"]["rows"] = {k: v[:200] for k, v in vrows.items() if v}
+        # flat-pad spec v2 P21: the instruments re-assemble the problem pass
+        # 1b SOLVED — the hold's rows as derived (datum / runway Bands, the
+        # residual holds priced) on the map the fronting set is published on
+        _hp = _kw.get("hold")
+        cs_w = _hp.apply(cs) if _hp is not None else cs
+        pm_w = _hp.planar_of(pm) if _hp is not None else pm
         if solved_out is not None:
             # the solved set (pm, stage, rows, z) for a later ``--why-from``
             # (the duals solve is a second full LP; kept out of the timed arm)
             with solved_out.open("wb") as fh:
-                pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm, "cs": cs,
-                             "z": z}, fh)
+                pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm_w,
+                             "cs": cs_w, "z": z}, fh)
         if why_hard_limit is not None:
-            result["why_hard"] = why_hard(icao, pm, law, cs, z, why_hard_limit,
+            result["why_hard"] = why_hard(icao, pm_w, law, cs_w, z, why_hard_limit,
                                           stage=why_hard_stage)
         if why_hump is not None:
-            result["why_hump"] = _why_hump(icao, pm, law, airport, cs, z, *why_hump)
+            result["why_hump"] = _why_hump(icao, pm_w, law, airport, cs_w, z, *why_hump)
         if z_out is not None:
             np.save(z_out, z)
         if emit_dir is not None:

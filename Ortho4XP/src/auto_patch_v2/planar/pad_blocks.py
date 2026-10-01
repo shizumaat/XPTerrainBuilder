@@ -106,10 +106,15 @@ class Block:
     #: each sample's REACH (:func:`reach`) — the band the datum pin clips
     #: the solved datum into (spec §1 (2) as amended by RULINGS 2026-09-30u)
     samples_reach: _t.Any = None
+    #: whether each sample is a RAMP contact (spec §2 (2): the apron ramps
+    #: between two blocks' frontages there) — the ONLY welded contacts the
+    #: hard hold leaves free (RULINGS 2026-09-30y, #128)
+    samples_ramp: _t.Any = None
 
     def to_dict(self) -> dict:
         d = _dc.asdict(self)
-        for k in ("polygon", "samples_xy", "samples_held", "samples_reach"):
+        for k in ("polygon", "samples_xy", "samples_held", "samples_reach",
+                  "samples_ramp"):
             d.pop(k, None)
         return d
 
@@ -578,7 +583,8 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
             contact_max=float(z.max()) if z.size else 0.0,
             contact_median=float(np.median(z)) if z.size else 0.0,
             area_m2=float(g.area), frontage_m=float(m.sum() * _STEP_M), polygon=g,
-            samples_xy=C[m], samples_held=held[m], samples_reach=R[m]))
+            samples_xy=C[m], samples_held=held[m], samples_reach=R[m],
+            samples_ramp=ramp[m]))
     plan.cuts = list(cuts)
     plan.neck_m = list(necks)
     for s in cuts:

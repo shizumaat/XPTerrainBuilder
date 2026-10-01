@@ -337,6 +337,50 @@ bend_apron    = 1.0
 bend_strip    = 30.0
 bend_road     = 1.0
 chord         = 300.0  # the runway's PROFILE target per ridge station (``constraints/runway_chord.py``, published through ``PlanarMap.preferred_z``): the runway sits on its target profile and FILLS or CUTS to it, it never fits the DEM per vertex.  The row is the same row under 09-10q/10r/10t — only its TARGET changed from the straight threshold chord to the ground's long-wave trend through the pins (spec §21)
+runway_flex_share = 0.20  # flat-pad spec v2 §1 (owner RULINGS 2026-09-30as, Q-128: "the runway gives 20 % of the flex, 80 % in the taxi routes"): a PULLED runway (a held pad's route lands on it) may translate between its pins by at most beta_R = this x the largest lift Lambda_c = |D_b - z1a_c| a hold demands of a contact whose least-budget route lands on it — ONE hard Band(z1a +/- beta_R) per runway column (head `rulesets.runway.flex_budget` in hard_rulings).  A VALUE, never a switch: 0.0 holds today's runway (pass 1a) as the origin.  Read ONLY in `constraints/no_step.hold_interval`
+# THE PAIR GRAPH's ROWS (flat-pad spec v2 §2): the ruling HEADS of the
+# stage-1 `Diff` CAP rows between airside columns that are the edges of the
+# feasibility interval's pair graph (`constraints/no_step.pair_graph`) —
+# the airside's pair MAXIMA: taxi longitudinal / transverse / box pairs,
+# the apron's 1.5 % ring edge / frontage chord / body chords, no-step
+# pairs, the 5 % / 8 % ceilings.  NOT a preference tier (the apron's 1 %,
+# priced), never a pad row (a pad's cap-0 flatness is its own plate, not
+# the airside's metric).  A head absent here is simply not an edge.
+interval_pair_rulings = [
+  "airside_no_step §1.1 route pairs",
+  "airside_no_step §1.1 pad contact↔pavement route pairs",
+  "common.roles.apron frontage chord",
+  "common.roles.apron ring edge",
+  "common.roles.apron lateral hop, chain",
+  "common.roles.apron on the shared edge portion",
+  "apron body chord, stationed across the face",
+  "apron body chord, strict",
+  "rulesets.common.pavement_max_grade ceiling",
+  "rulesets.common.road_max_grade pavement fallback",
+  "short-pair box |dz| <= cL*|ds| + cT*|dt| vs the nearest stretch axis",
+  "rulesets.taxi.longitudinal centreline",
+  "rulesets.taxi.transverse lateral hop, chain",
+  "rulesets.taxi.transverse raw pair",
+  "junction mesh edge at the nearest stretch cap",
+  "rulesets.runway.longitudinal crossing, chain",
+]
+# THE FRONTING SET'S CAPS ARE HARD (flat-pad spec v2 §5, owner RULINGS
+# 2026-09-30y (3)): the heads `solve.design.assemble` promotes to HARD where
+# every foot of the row is on the published fronting set
+# (`PlanarMap.fronting_vertices`, `constraints/no_step.hold_interval`) —
+# the TAXI family's caps and the no-step pairs ONLY (RULINGS 2026-09-30bb
+# F2): never an apron body row — inside a steep shape a steep grade is
+# lawful (08k (3)); the transition faces keep the apron's PRICED rows and
+# the 1 % tier prices their smoothness (`apron_over_preference`).  A row is
+# promoted only where pass 1a already holds it within `hard_tol_m`.
+fronting_hard_rulings = [
+  "airside_no_step §1.1 route pairs",
+  "short-pair box |dz| <= cL*|ds| + cT*|dt| vs the nearest stretch axis",
+  "rulesets.taxi.longitudinal centreline",
+  "rulesets.taxi.transverse lateral hop, chain",
+  "rulesets.taxi.transverse raw pair",
+  "rulesets.taxi.transverse",
+]
 # THE RUNWAY PROFILE FOLLOWS THE AIRPORT (owner RULINGS 2026-09-10q/10r,
 # ruled 10t (3); spec §21).  SPJC: the built ridge reproduced the straight
 # threshold chord to <= 0.01 m at every station — zero vertical curves —
@@ -443,8 +487,6 @@ taxi_trend_face_reach_m = 250.0
 # pavement only through LONG-WAVE trends (08t (1)) — the window is the
 # guard, and the fit's degree is bounded by what its samples resolve.
 apron_trend   = 30.0
-frontage_hold = 30.0   # flat-pad spec §1 (2) (owner RULINGS 2026-09-30f / 30r, #111): MEASURED lane flatpad111b on replays: at the law weight 300 the hold moved 12 KCLT runway vertices (worst 0.04 m) through the taxi chain and put SPJC +45 / HECA +76 adjudicated rows (taxi caps); at 100 KCLT runway 13 (0.03 m); at 30 KCLT runway 2 at 0.010 m (the materiality), SPJC +4 — the apron_trend tier.  The price of one metre between a HELD block's welded frontage contact and the block's flat datum (constraints/platform.frontage_hold_rows, a stage-1 row).  Arm per replay with --design-weight frontage_hold=V
-frontage_hold_rulings = ["structures.building_pad frontage_hold"]   # the ruling HEADS priced at `frontage_hold`
 road          = 3.0    # a road chain's own bending (the second difference along its breakline), welded at its pavement contacts, ramping between levels at its own caps
 # §20a THE OPTIMUM IS UNSTABLE, AND A TIE-BREAK IS NOT THE CURE — MEASURED
 # AND REFUTED (lane `v2settle` round 2; owner RULINGS 2026-09-14br asked for
@@ -602,6 +644,9 @@ pad_frontage_m = 3.0
 # stand at KCLT runs ~55 m from the gate line to the taxilane.  0 disables
 # the reach.
 jetway_strip_m = 40.0         # jetway-strip spec §1 (2) / §2 (owner RULINGS 2026-09-18t Q3, issues #31/#32): UNDER THE JETWAYS THE APRON STRIP IS LEVEL WITH THE TERMINAL.  The apron within this plan distance of a 23a pad's RIDER EDGES (measured along the edge's outward normal, capped at the edge ends + D) takes ONE level, the stage-1 airside median over its vertices, applied as a POST-STAGE-1 PROJECTION (solve/project_strip.py) — never a stage-1 row set (§30 (4)'s collar, 14bk).  Beyond it the apron returns to its stage-1 value at the apron `max` longitudinal grade.  40 m covers every HECA gate and 119/130 LEMD gates (SAM cabinPos + maxExtent 26-42.2 m).  0 disarms.
+stand_zone_radius_m = 30.0    # flat-pad spec v2 §3 (owner RULINGS 2026-09-30y addendum: "the apron across the STAND / JETWAY zone fronting a held block is FLAT at the block datum"): an apt.dat 1300 startup of a `stand_zone_startup_kinds` kind within `stand_zone_startup_reach_m` of a held block's HELD contacts is buffered by this into the block's STAND ZONE (code-D half wingspan + clearance; the owner may set).  The plateau is cut at `planar/pad_cut.plateau_cut`
+stand_zone_startup_reach_m = 60.0  # flat-pad spec v2 §3 (b): how far from a held contact a startup still stands at that block
+stand_zone_startup_kinds = ["gate", "tie_down"]  # flat-pad spec v2 §3 (b): the apt.dat 1300 kinds that are STANDS
 jetway_strip_plane_tol_m = 0.5    # spec-author ruling Q-32d (i), 2026-09-25: a jetway strip forms only on a pad whose STAGE-1 airside frontage fits its (<= 1 % tilt) plane within this max residual; elsewhere no strip and the 23a weld alone governs.  MEASURED on the replay arms (max |stage-1 z - pad plane| over the frontage contacts): HECA building4 (owner T3 site) 0.446, building5 0.347, building14 0.481, building26 0.420, building29 0.004 — every HECA rider pad passes; SPJC terminal building5 0.948 (its 1 km apron frontage is not a plane: the strip bent the pad, 243 -> 604 rows) and building32 0.547 are refused.  0.5 sits between the largest passing (0.481) and the smallest refused terminal (0.547)
 # §28 (6) A HILLSIDE TERRACE IS NOT A FRONTAGE (owner RULINGS 2026-09-13o,
 # refined 13p; Fable 2026-09-13).  A pad-face PAIR whose median DEM step —
@@ -798,6 +843,8 @@ hard_rulings = [
   "rulesets.common.road_max_grade pavement fallback",    # 09-29ac (#105): the ROAD cap is the fallback ceiling of EVERY pavement pair — ring edges and welded neighbours <= 1 m no family caps lower (constraints/pavement_cap.py)
   "structures.building_pad pad_slope_max ceiling",       # 09-09c: a building pad is ONE PLANE tilting at most 1 %
   "structures.building_pad platform plane",               # unit-platform spec §1 (1) (RULINGS 2026-09-28a (1)): a PLATFORM is ONE plane over all its pieces (constraints/platform.py) — measured: as a target alone the collar's bank rows bent HECA T3's platform 8.3 m
+  "structures.building_pad frontage_hold",               # flat-pad spec §1 (2) (owner RULINGS 2026-09-30y, #128): a held block's welded contact AT its flat datum, and the datum within its reach-band interval — HARD in stage 1 (the priced hold at weight 30, 30u (a), carried a ~5 m 1:2 collar the owner read as a drop/ramp; its reason, KCLT runway movers at weight 300, was the pinless-runway class #119 closed)
+  "rulesets.runway.flex_budget",                         # flat-pad spec v2 §1 (4) (owner RULINGS 2026-09-30as): a PULLED runway's column within +/- beta_R (= runway_flex_share x the pulling route's lift) of its pass-1a value — the runway flexes 20 %, never more; the runway's own pins / K / longitudinal / transverse / yield stay hard beside it
   "road_cross_section",                                  # §37 (8) (owner 2026-09-13, RULINGS 13bb): the 2 % cross-section is LAW on every road-family face, groundside included — "a hillside road keeps its crossfall on a BENCH, not by tilting".  It was a target at 300 and it LOST: KCLT verify 781 violated pairs on the control, 462 with the ramp.  Compatible with the ramp ceiling by construction since §37 (8): the ramp target is one value per (route, station) and cap-Lipschitz along the route, so it can never tilt a section
   "roads.groundside_road ramp ceiling",                  # §37 (6) (owner 13j item 5): a groundside road stands at most [cockpit] visual_m above its ramp target from the airside contact to the DEM — the objective held KCLT's east access road +9.71 m above its own target with NO row binding (13aj), and a weight contest is not a law
   "tunnel.bore_datum_m",                                 # §33 (5) (Fable 2026-09-15; RULINGS 2026-09-15h): the mouth's floor is `rim - bore_datum_m` HOWEVER its station was taken.  MEASURED soft at LEMD tunnel:-15327@0 (owner 15e item 5, "doesn't seem to be providing the right depth"): the datum equality LOST 2.17 m - floor 599.25 against its own 597.08, under a rim solving 602.16 = the DEM it is pinned at - and the census named it 32 times (`tunnel_mouth_canonical`).  A weight contest is not a law

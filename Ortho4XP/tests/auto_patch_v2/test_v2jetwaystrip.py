@@ -75,7 +75,11 @@ class _Cluster:
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    # flat-pad spec v2 §3 P12 (lane flatpad128v3): the strip is DISARMED on
+    # a HELD block — the plateau is the stand's law there — so the strip's
+    # own twins measure it on an UNHELD pad (the frontage hold off)
+    from _plate import contact_led_law
+    return contact_led_law(Law.for_airport("ZZZZ"))
 
 
 @pytest.fixture(scope="module")

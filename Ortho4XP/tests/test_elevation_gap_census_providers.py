@@ -30,7 +30,8 @@ FIELDS = ["icao", "name", "state", "longest_rwy_m", "lat", "lon",
 
 def _gaps(tmp_path):
     rows = [
-        # NC: no 1 m, 1/9" whole -> the 3 m rung.
+        # NC: no 1 m, 1/9" whole -> the global member NCPHASE3 (0.95 m,
+        # boxed to the state) sorts before every 1 m and 3 m rung.
         ["KRDU", "Raleigh", "North Carolina", 3051, 35.87804, -78.7868,
          0.0, 100.0, "HOLDER"],
         # Aspen: no USGS 1 m, no 1/9" -> PITKIN1M (boxed to the county).
@@ -69,8 +70,17 @@ def test_providers_mode_reads_the_engine_ladder_offline(tmp_path, monkeypatch,
     with open(out, encoding="utf-8", newline="") as fh:
         rows = {r["icao"]: r for r in csv.DictReader(fh)}
     assert set(rows) == {"KRDU", "KASE"}
-    assert rows["KRDU"]["would_deliver"] == "1/9 arc-second"
-    assert rows["KRDU"]["would_deliver_provider"] == "USGS3DEP"
+    # GLOBAL ASSEMBLY (spec us-holder-providers §1): the holder joins
+    # by its coverage box -- no hand line in USGS3DEP.elv -- and sorts by
+    # native resolution after the pinned USGS 1 m.
+    assert rows["KRDU"]["would_deliver"] == "NCPHASE3"
+    assert rows["KRDU"]["would_deliver_provider"] == "NCPHASE3"
+    assert rows["KRDU"]["rungs"].startswith(
+        "1 meter [USGS3DEP] no-coverage 0% > NCPHASE3 [NCPHASE3] delivered")
+    # Boxed to North Carolina: no other holder is a rung at KRDU or KASE.
+    for code in ("TEXAS1M", "OREGONDOGAMI", "CWCB1M", "WADNR"):
+        assert code not in rows["KRDU"]["rungs"]
+        assert code not in rows["KASE"]["rungs"]
     assert rows["KASE"]["would_deliver_provider"] == "PITKIN1M"
     # Coverage-boxed: PITKIN is no rung at KRDU at all.
     assert "PITKIN1M" not in rows["KRDU"]["rungs"]

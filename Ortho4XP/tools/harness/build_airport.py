@@ -1025,7 +1025,7 @@ def _ladder_recheck_problem(INSETS, lat, lon, icao, required):
          if c.lower() == code.lower()), None)
     scopes = ["dem"]
     if definition is not None:
-        rungs = INSETS._ladder_rung_definitions(definition)
+        rungs = INSETS._ladder_rung_definitions(definition, required)
         if any(rungs[i][1].get("access_strategy") == "las_tile_index"
                for i in recheck.get("rungs_checked") or ()
                if 0 <= i < len(rungs)):
@@ -1557,18 +1557,22 @@ def las_seed_candidates(icaos, root, lat, lon) -> list:
     dico = VMAP.build_airports_dico(tile, layer)
     boxes = INSETS._airport_bounding_boxes(tile, dico)
     polygons = INSETS.airport_boundary_polygons(tile, dico)
-    las_definitions = {}
-    for definition in INSETS.select_provider_definitions(
-            getattr(tile, "airport_elevation_providers", "auto")):
-        for _label, rung in INSETS._ladder_rung_definitions(definition):
-            if rung.get("access_strategy") == "las_tile_index":
-                las_definitions.setdefault(rung["code"], rung)
+    chain = INSETS.select_provider_definitions(
+        getattr(tile, "airport_elevation_providers", "auto"))
     out = []
     for icao in icaos:
         box = boxes.get(icao)
         polygon = polygons.get(icao)
         if box is None or polygon is None:
             continue
+        # Per airport: the ladder's GLOBAL members join by the airport's
+        # box (spec us-holder-providers §1), so the rung set is per box.
+        las_definitions = {}
+        for definition in chain:
+            for _label, rung in INSETS._ladder_rung_definitions(
+                    definition, box):
+                if rung.get("access_strategy") == "las_tile_index":
+                    las_definitions.setdefault(rung["code"], rung)
         for code, definition in sorted(las_definitions.items()):
             if not INSETS._coverage_bbox_intersects(definition, box):
                 continue

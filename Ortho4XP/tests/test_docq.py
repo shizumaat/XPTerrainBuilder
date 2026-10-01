@@ -230,3 +230,28 @@ def test_brief_pack_assembles_from_the_tools(tmp_path):
     assert "### §37 (6) " in out and "## 2026-09-13aj " in out
     assert "road_terrain_conformance.py" in out
     assert "Standing discipline" in out
+
+
+def test_frames_inset_kind_brings_its_provenance_sidecar(tmp_path, monkeypatch):
+    """#154: lane-local witness insets register as kind ``inset``; the
+    raster without its provenance sidecar is refused, ``--copy`` brings the
+    sidecar along and the row names it."""
+    reg, durable = _durable(tmp_path, monkeypatch)
+    src = tmp_path / "scratch"; src.mkdir()
+    tif = src / "KRDU_ncphase3.tif"; tif.write_bytes(b"II*\x00")
+    with pytest.raises(SystemExit) as exc:
+        frames.register("KRDU", "inset", str(tif), "33122938", "ladder154", copy=True)
+    assert "sidecar" in str(exc.value)
+    (src / "KRDU_ncphase3.json").write_text('{"provider": "NCPHASE3"}', encoding="utf-8")
+    rec = frames.register("krdu", "inset", str(tif), "33122938", "ladder154", copy=True)
+    assert rec["kind"] == "inset"
+    assert rec["path"] == str(durable / "ladder154" / "KRDU_ncphase3.tif")
+    assert rec["sidecar"] == str(durable / "ladder154" / "KRDU_ncphase3.json")
+    assert json.loads((durable / "ladder154" / "KRDU_ncphase3.json").read_text(
+        encoding="utf-8")) == {"provider": "NCPHASE3"}
+    assert frames.latest("KRDU", "inset")["sidecar"] == rec["sidecar"]
+    # a differing sidecar under an identical raster is refused, never overwritten
+    (src / "KRDU_ncphase3.json").write_text('{"provider": "OTHER"}', encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        frames.register("KRDU", "inset", str(tif), "33122938", "ladder154", copy=True)
+    assert "refusing to overwrite" in str(exc.value)

@@ -11,12 +11,17 @@ reported as MISSING, never silently served.
 
     tools/harness/frames.py register --icao KCLT --kind capture \\
         --path /…/KCLT.pkl --base 864e7577 --lane v2roadramp [--note '…'] [--copy]
-    tools/harness/frames.py list [ICAO] [--kind capture|rebake|patch|graded|mesh]
+    tools/harness/frames.py list [ICAO] [--kind capture|rebake|patch|graded|mesh|inset]
     tools/harness/frames.py latest ICAO --kind capture   # newest EXISTING entry
 
 Kinds: `capture` (v2_solve_replay --capture pickle), `rebake` (the
 o4_v2_rebake_ICAO.json plan), `patch` (an emitted *.patch.osm with its
-sidecar), `graded` (ICAO.graded.json), `mesh` (a built Data*.mesh).
+sidecar), `graded` (ICAO.graded.json), `mesh` (a built Data*.mesh), `inset`
+(an airport elevation inset raster `<ICAO>_<provider>.tif` with its
+provenance sidecar `<ICAO>_<provider>.json` -- the lane-local witness
+insets of the holder-provider lanes, #154; registering one REFUSES a raster
+whose sidecar is absent, `--copy` brings the sidecar along, and the row
+names it as `sidecar`).
 
 DURABLE PATHS ONLY (issue #37, 2026-09-21): 279 of 282 registered frames
 were MISSING after one reboot, because lanes registered products under
@@ -45,8 +50,14 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 REGISTRY = os.path.join(ROOT, "docs", "frames.jsonl")
-KINDS = ("capture", "rebake", "patch", "graded", "mesh")
+KINDS = ("capture", "rebake", "patch", "graded", "mesh", "inset")
 SIDECAR_SUFFIX = ".axes.json"     # census.py: Path(str(osm) + ".axes.json")
+
+
+def inset_sidecar(path: str) -> str:
+    """An inset raster's provenance sidecar: ``<stem>.json`` beside it (the
+    engine's ``airport_inset_provenance`` naming)."""
+    return os.path.splitext(path)[0] + ".json"
 
 
 def _harness_state() -> str:
@@ -123,6 +134,17 @@ def _copy_durable(path: str, lane: str, kind: str) -> tuple[str, list[str]]:
                 if not os.path.exists(side_dest):
                     shutil.copy2(side, side_dest)
                 extras.append(side_dest)
+        if kind == "inset":
+            side = inset_sidecar(path)
+            side_dest = inset_sidecar(dest)
+            if os.path.exists(side_dest):
+                if _sha256(side_dest) != _sha256(side):
+                    raise SystemExit(
+                        f"frames: refusing to overwrite an existing durable inset "
+                        f"sidecar that differs: {side_dest}")
+            else:
+                shutil.copy2(side, side_dest)
+            extras.append(side_dest)
     return dest, extras
 
 
@@ -145,6 +167,10 @@ def register(icao: str, kind: str, path: str, base: str, lane: str, note: str = 
     path = os.path.abspath(path)
     if not os.path.exists(path):
         raise SystemExit(f"frames: refusing to register a path that does not exist: {path}")
+    if kind == "inset" and not os.path.isfile(inset_sidecar(path)):
+        raise SystemExit(
+            f"frames: refusing to register an inset without its provenance sidecar "
+            f"{inset_sidecar(path)} (its provider, ladder and vertical unit live there)")
     copied_from = None
     if not is_durable(path):
         if not copy:
@@ -163,6 +189,8 @@ def register(icao: str, kind: str, path: str, base: str, lane: str, note: str = 
            "note": note, "at": _dt.datetime.now().isoformat(timespec="seconds")}
     if copied_from:
         rec["copied_from"] = copied_from
+    if kind == "inset":
+        rec["sidecar"] = inset_sidecar(path)
     os.makedirs(os.path.dirname(REGISTRY), exist_ok=True)
     with open(REGISTRY, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")

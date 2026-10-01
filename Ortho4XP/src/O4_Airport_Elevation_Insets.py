@@ -1730,7 +1730,39 @@ def fetch_inset(
     return provenance
 
 
-def _ladder_rung_definitions(definition):
+def _is_global_ladder_member(definition):
+    """``ladder_member=True`` on an enabled ``role=airport_inset``
+    definition that declares a coverage box: a rung of EVERY ladder whose
+    airport box its coverage reaches (spec us-holder-providers §1, RULINGS
+    2026-09-30bm).  A member with no ``coverage_bbox`` would cover the
+    whole world and join every ladder; it is not a global member."""
+    return (
+        (definition or {}).get("ladder_member") is True
+        and definition.get("enabled", True)
+        and definition.get("role", ROLE_AIRPORT_INSET) == ROLE_AIRPORT_INSET
+        and bool(coverage_boxes(definition))
+    )
+
+
+def _ladder_rung_sort_key(rung_definition, owner):
+    """THE LADDER ORDER (spec us-holder-providers §1): native resolution
+    ascending, then priority descending, then code.  ``owner`` is the
+    definition whose priority and code the rung sorts by: the chain's own
+    rungs -- its coarser discovery rungs and its explicit ``provider:``
+    lines (PITKIN1M, the #153 OPR/LPC rungs) -- sort as the CHAIN (the
+    root's priority and code), so among themselves they keep the file
+    order and a holder tying them at one resolution sorts after them
+    ("USGS when USGS has it", spec §1: holders 90 < USGS3DEP 100); a
+    global member sorts as itself."""
+    native = _definition_resolution_m(rung_definition)
+    return (
+        native if native is not None else float("inf"),
+        -float(owner.get("priority", 0.0) or 0.0),
+        str(owner.get("code") or ""),
+    )
+
+
+def _ladder_rung_definitions(definition, bounding_box_wgs84=None):
     """``[(label, definition)]`` for every rung, finest (the provider's
     own definition) first.  A coarser rung is the provider's definition
     with the rung's ``native_resolution_m`` and
@@ -1741,7 +1773,19 @@ def _ladder_rung_definitions(definition):
     is the named provider's OWN definition -- its keys, its strategy, its
     coverage -- so :func:`_fetch_through_resolution_ladder` resolves the
     strategy per rung.  A rung naming an unknown or disabled provider is
-    dropped with one line (a ladder with a hole still climbs)."""
+    dropped with one line (a ladder with a hole still climbs).
+
+    GLOBAL ASSEMBLY (spec us-holder-providers §1, RULINGS 2026-09-30bm):
+    given the AIRPORT box (``bounding_box_wgs84``, the inset request box),
+    every global member (:func:`_is_global_ladder_member`) whose coverage
+    reaches the box and which no rung already names joins the ladder, and
+    rungs 1.. are STABLE-sorted by :func:`_ladder_rung_sort_key`; rung 0
+    stays pinned first.  A member outside its box is not a rung (no row,
+    no call).  Without a box (or with no covering member) the list is the
+    chain alone, exactly as before -- the chain's rungs are already
+    finest-first and sort as one owner, so the sort cannot reorder them.
+    THE one assembly site: the ladder, :func:`ladder_recheck`, the harness
+    and the gap census all read rungs here."""
     native = _definition_resolution_m(definition)
     rungs = [
         (definition.get("ladder_label")
@@ -1773,7 +1817,36 @@ def _ladder_rung_definitions(definition):
             rung["discovery_url_template"])
         rung_definition.pop("resolution_ladder_rungs", None)
         rungs.append((rung["label"], rung_definition))
-    return rungs
+    if bounding_box_wgs84 is None:
+        return rungs
+    if not elevation_providers_dict:
+        initialize_elevation_providers_dict()
+    named = {str(rung_definition.get("code"))
+             for (_label, rung_definition) in rungs}
+    labels = {label for (label, _rung_definition) in rungs}
+    ordered = [(_ladder_rung_sort_key(rung_definition, definition), label,
+                rung_definition)
+               for (label, rung_definition) in rungs[1:]]
+    for code in sorted(elevation_providers_dict):
+        member = elevation_providers_dict[code]
+        if (str(member.get("code")) in named
+                or not _is_global_ladder_member(member)
+                or not _coverage_bbox_intersects(member,
+                                                 bounding_box_wgs84)):
+            continue
+        label = member.get("ladder_label") or member.get("code")
+        if label in labels:
+            label = member.get("code")
+        member_definition = dict(member)
+        member_definition.pop("resolution_ladder_rungs", None)
+        ordered.append((_ladder_rung_sort_key(member_definition,
+                                              member_definition),
+                        label, member_definition))
+        named.add(str(member.get("code")))
+        labels.add(label)
+    ordered.sort(key=lambda entry: entry[0])
+    return [rungs[0]] + [(label, rung_definition)
+                         for (_key, label, rung_definition) in ordered]
 
 
 def _listing_ids(sources):
@@ -1873,7 +1946,7 @@ def _fetch_through_resolution_ladder(
     if footprint_polygon is not None and not footprint_polygon.is_empty:
         footprint_mapping = _polygon_mapping(footprint_polygon)
         boundary_box = tuple(footprint_polygon.bounds)
-    rungs = _ladder_rung_definitions(definition)
+    rungs = _ladder_rung_definitions(definition, bounding_box_wgs84)
     if footprint_mapping is not None:
         rungs = [
             (label, dict(rung_definition, **{LAS_FOOTPRINT_KEY:
@@ -1887,6 +1960,7 @@ def _fetch_through_resolution_ladder(
     fallback = None           # finest sub-threshold (index, path, provenance)
     scratch_paths = []
     transient_errors = []
+    unavailable_errors = []   # rung 0's ProviderUnavailable, raised last
 
     def _try_rung(index, label, rung_definition, rung_path, rung_target,
                   rung_strategy):
@@ -1919,8 +1993,15 @@ def _fetch_through_resolution_ladder(
                     rung_definition, bounding_box_wgs84, rung_target,
                     rung_path)
             except ProviderUnavailable as error:
+                # RUNG 0 CLIMBS TOO (spec us-holder-providers §1 outcome
+                # table: ``unavailable`` -> next rung, "only transient
+                # raises"; RULINGS 2026-09-30bu (1)): an undecodable USGS
+                # 1 m product must not skip the 1/9" and 1/3" rungs.  When
+                # NOTHING is delivered or kept the rung-0 refusal is raised
+                # after the ladder (below), so the provider still records
+                # ``unavailable:<reason>`` -- never a durable no-coverage.
                 if index == 0:
-                    raise
+                    unavailable_errors.append(error)
                 unavailable = error.reason
             except TransientFetchError as error:
                 # EVERY FAILURE CLASS FALLS THROUGH (owner RULINGS
@@ -1960,6 +2041,7 @@ def _fetch_through_resolution_ladder(
             provenance.get("sources_used")
             or provenance.get("source_urls") or ())
         attempt["listing_ids"] = _provenance_listing_ids(provenance)
+        _record_rung_units_and_bytes(attempt, provenance, rung_path)
         if boundary_box and (
                 isinstance(provenance.get("core"), dict)
                 or _rung_judged_by_airport_cover(rung_definition)):
@@ -2103,6 +2185,10 @@ def _fetch_through_resolution_ladder(
             # asks again.
             raise transient_errors[0]
         chosen = delivered or fallback
+        if chosen is None and unavailable_errors:
+            # Rung 0 could not be asked and no other rung listed anything:
+            # the provider's answer is ``unavailable`` (13b), as before.
+            raise unavailable_errors[0]
         if chosen is None:
             return None
         (index, rung_path, provenance) = chosen
@@ -2193,6 +2279,24 @@ def _fetch_through_resolution_ladder(
                     pass
 
 
+def _record_rung_units_and_bytes(attempt, provenance, rung_path):
+    """Per-rung record (spec us-holder-providers §1/§2): the vertical unit
+    the rung's raster was read in and whether the shared warp converted it
+    (``vertical_unit_source`` / ``vertical_unit_applied`` -- from the
+    strategy's own record, else the warp's stamp on the rung raster), and
+    ``bytes_fetched`` where the strategy counts it.  A rung with none of
+    them gains no key (pre-key providers keep byte-identical rows)."""
+    stamp = raster_vertical_unit_stamp(rung_path) or {}
+    source = provenance.get("vertical_unit_source") or stamp.get("source")
+    applied = provenance.get("vertical_unit_applied") or stamp.get("applied")
+    if source:
+        attempt["vertical_unit_source"] = source
+    if applied:
+        attempt["vertical_unit_applied"] = applied
+    if provenance.get("bytes_fetched") is not None:
+        attempt["bytes_fetched"] = provenance["bytes_fetched"]
+
+
 def _rung_judged_by_airport_cover(rung_definition):
     """``ladder_judge=airport_cover``: the rung is delivered only when it
     covers the AIRPORT (``INSET_MIN_AIRPORT_COVER_FRAC`` of the aerodrome
@@ -2207,10 +2311,17 @@ def _rung_can_be_surround(rung_definition):
     never a rung judged by airport cover (its box may be partial -- the
     surround's holes would fall to the base DEM where the next seamless
     rung covers them)."""
-    if str((rung_definition or {}).get("access_strategy")) == \
-            "las_tile_index":
+    if str((rung_definition or {}).get("access_strategy")) in \
+            SURGICAL_ONLY_STRATEGIES:
         return False
     return not _rung_judged_by_airport_cover(rung_definition)
+
+
+#: Strategies that list or POST only the airport's own footprint (a
+#: surgical core), never the whole box: a point-cloud tile index and the
+#: polygon-POST portals (aoi154).  None of them is ever a two-layer
+#: SURROUND (RULINGS 2026-09-30bu (5); spec us-holder-providers §1).
+SURGICAL_ONLY_STRATEGIES = ("las_tile_index", "aoi_zip_download")
 
 
 #: The core's seam blend when a provider declares no ``core_feather_m``:
@@ -12247,7 +12358,7 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
              if str(key).upper() == wanted), None)
     if definition is None:
         return None
-    rungs = _ladder_rung_definitions(definition)
+    rungs = _ladder_rung_definitions(definition, bounding_box)
     footprint = ladder.get(LAS_FOOTPRINT_KEY)
     if footprint:
         # The SAME surgical footprint the fetch listed over -- or every

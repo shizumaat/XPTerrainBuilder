@@ -369,10 +369,11 @@ interval_pair_rulings = [
 # every foot of the row is on the published fronting set
 # (`PlanarMap.fronting_vertices`, `constraints/no_step.hold_interval`) —
 # the TAXI family's caps and the no-step pairs ONLY (RULINGS 2026-09-30bb
-# F2): never an apron body row — inside a steep shape a steep grade is
-# lawful (08k (3)); the transition faces keep the apron's PRICED rows and
-# the 1 % tier prices their smoothness (`apron_over_preference`).  A row is
-# promoted only where pass 1a already holds it within `hard_tol_m`.
+# F2).  The APRON's caps are not here: since RULINGS 2026-09-30be/30bf they
+# are HARD EVERYWHERE (`hard_rulings` / `apron_hard_rulings`), the terrain
+# conforming at the apron's edge; the 1 % tier still prices smoothness
+# (`apron_over_preference`).  A row is promoted only where pass 1a already
+# holds it within `hard_tol_m`.
 fronting_hard_rulings = [
   "airside_no_step §1.1 route pairs",
   "short-pair box |dz| <= cL*|ds| + cT*|dt| vs the nearest stretch axis",
@@ -847,8 +848,59 @@ hard_rulings = [
   "rulesets.runway.flex_budget",                         # flat-pad spec v2 §1 (4) (owner RULINGS 2026-09-30as): a PULLED runway's column within +/- beta_R (= runway_flex_share x the pulling route's lift) of its pass-1a value — the runway flexes 20 %, never more; the runway's own pins / K / longitudinal / transverse / yield stay hard beside it
   "road_cross_section",                                  # §37 (8) (owner 2026-09-13, RULINGS 13bb): the 2 % cross-section is LAW on every road-family face, groundside included — "a hillside road keeps its crossfall on a BENCH, not by tilting".  It was a target at 300 and it LOST: KCLT verify 781 violated pairs on the control, 462 with the ramp.  Compatible with the ramp ceiling by construction since §37 (8): the ramp target is one value per (route, station) and cap-Lipschitz along the route, so it can never tilt a section
   "roads.groundside_road ramp ceiling",                  # §37 (6) (owner 13j item 5): a groundside road stands at most [cockpit] visual_m above its ramp target from the airside contact to the DEM — the objective held KCLT's east access road +9.71 m above its own target with NO row binding (13aj), and a weight contest is not a law
+  "common.roles.apron ring edge",                        # flat-pad spec v2 §5 (owner RULINGS 2026-09-30be/30bf): the APRON 1.5 % cap is HARD EVERYWHERE and the TERRAIN conforms (zone bands, collars, groundside ramps cut/fill at the apron's edge); withdraws 30bc's priced steady state.  A conflict with other LAW is named BEFORE the solve (§5a, `solve/feasibility.py`) and only those rows are priced (`hard_conflict`)
+  "common.roles.apron frontage chord",                   # the same (§5, `constraints/apron.py:214-220`)
+  "apron body chord, strict",                            # the same
+  "apron body chord, stationed across the face",         # the same
   "tunnel.bore_datum_m",                                 # §33 (5) (Fable 2026-09-15; RULINGS 2026-09-15h): the mouth's floor is `rim - bore_datum_m` HOWEVER its station was taken.  MEASURED soft at LEMD tunnel:-15327@0 (owner 15e item 5, "doesn't seem to be providing the right depth"): the datum equality LOST 2.17 m - floor 599.25 against its own 597.08, under a rim solving 602.16 = the DEM it is pinned at - and the census named it 32 times (`tunnel_mouth_canonical`).  A weight contest is not a law
 ]
+# THE APRON'S PLANE ROW IS HARD ON THE APRON ONLY (flat-pad spec v2 §5, owner
+# RULINGS 2026-09-30be/30bf): ``plane_gradient`` is minted on EVERY governed
+# triangle face (``constraints/taxi.triangle_planes``) — taxi, road and apron —
+# and §5 makes only the APRON's cap hard everywhere (the taxi caps are hard on
+# the fronting set alone).  A row whose head is listed here is HARD when its
+# source face (``face:<id>``) has a role in ``apron_hard_roles``
+# (``solve.design.assemble``); elsewhere it keeps its own price.
+apron_hard_rulings = ["plane_gradient"]
+apron_hard_roles   = ["apron"]
+# §5a THE LAW HIERARCHY (owner RULINGS 2026-09-30be, ratified 30bf): before
+# the design QP the HARD rows alone go through the elastic LP
+# (``solve/feasibility.py`` over ``project._relax_lp``); a row left more than
+# ``hard_tol_m`` short is a LAW CONFLICT, and the LOWEST-ranked laws of it are
+# the rows relaxed: runway (pins, K, caps, flex Bands) > taxi caps > apron cap
+# > pad hold / plateau.  Each tier is a list of ruling HEADS; every head of
+# ``hard_rulings`` / ``fronting_hard_rulings`` / ``apron_hard_rulings`` must
+# stand in exactly one tier (schema-checked).  The FIRST tier is the RUNWAY:
+# a runway row the LP must relax is a STOP (raised, never priced).  The
+# common pavement / road ceilings, the road cross-section, the groundside
+# ramp ceiling and the tunnel datum are LAW CAPS ranked with the taxi caps
+# (lane apronhard's reading; they are never looser than the apron cap they
+# can meet, so they decide no apron conflict).  The DEM trend is never hard,
+# so never in a conflict.
+hard_conflict_tiers = ["runway", "taxi", "apron", "pad"]
+hard_conflict_ranks = [
+  ["rulesets.runway.transverse_max", "rulesets.runway.vertical_curve_k_m / max_grade_change",
+   "rulesets.runway.longitudinal", "rulesets.runway.end_zone", "rulesets.runway.flex_budget"],
+  ["airside_no_step §1.1 route pairs",
+   "short-pair box |dz| <= cL*|ds| + cT*|dt| vs the nearest stretch axis",
+   "rulesets.taxi.longitudinal centreline", "rulesets.taxi.transverse lateral hop, chain",
+   "rulesets.taxi.transverse raw pair", "rulesets.taxi.transverse",
+   "rulesets.common.pavement_max_grade ceiling", "rulesets.common.road_max_grade pavement fallback",
+   "road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.bore_datum_m"],
+  ["common.roles.apron ring edge", "common.roles.apron frontage chord",
+   "apron body chord, strict", "apron body chord, stationed across the face", "plane_gradient"],
+  ["structures.building_pad pad_slope_max ceiling", "structures.building_pad platform plane",
+   "structures.building_pad frontage_hold"],
+]
+# the price ratio between two adjacent tiers in the elastic LP's objective
+# (min SUM w_tier * s): the relaxation lands on the lowest tier a conflict
+# contains; the runway tier is NOT elastic (a conflict that needs it is a
+# STOP).  A ratio, not a switch.
+hard_conflict_tier_ratio = 1000.0
+# §5a's budget (owner RULINGS 2026-09-30bf: <= 10 s at HECA, else STOP for
+# the optimisation review): the LP's wall above this is REPORTED loudly in
+# the stage report (``hard_conflict_lp_over_budget``), never silently paid.
+hard_conflict_lp_budget_s = 10.0
 yielding_pin_rulings = [
   "roads.coverage_edge join",                            # 27a (10) (Q-21, GEML): the §37 (9) join pin is the core RIBBON's level; where the 5 % pavement ceiling from stage 1's apron cannot reach it, the RIBBON yields (its 1.0 m budget is exceeded) — the pin is released to a design target and the core takes the patch's level there (sidecar `road_join_yield`)
 ]

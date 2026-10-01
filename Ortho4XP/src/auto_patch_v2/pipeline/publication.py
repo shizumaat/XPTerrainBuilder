@@ -449,6 +449,11 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # pass 1b used and the pad that pulled it — an empty list where
             # no runway was pulled (``constraints/no_step.RUNWAY_FLEX``)
             "runway_flex": _runway_flex(),
+            # flat-pad spec v2 §5a (owner RULINGS 2026-09-30be/30bf): the
+            # HARD rows the pre-solve feasibility LP relaxed (a conflict
+            # between laws, named per row) — an empty list where the hard
+            # set was feasible (``solve/feasibility.HARD_CONFLICT``)
+            "hard_conflict": _hard_conflict(),
             # flat-pad spec v2 §3 P2 / P19: the PLATEAU RING vertices per
             # held block — minted by law (``planar/pad_cut.plateau_cut``),
             # EXPECTED added airside nodes, excluded from the renode bar
@@ -618,6 +623,12 @@ def _runway_flex() -> list[dict[str, _t.Any]]:
     """The ``runway_flex`` sidecar key (flat-pad spec v2 §6 A11)."""
     from ..constraints.no_step import RUNWAY_FLEX
     return [dict(r) for r in RUNWAY_FLEX]
+
+
+def _hard_conflict() -> list[dict[str, _t.Any]]:
+    """The ``hard_conflict`` sidecar key (flat-pad spec v2 §5a)."""
+    from ..solve.feasibility import HARD_CONFLICT
+    return [dict(r) for r in HARD_CONFLICT]
 
 
 def _platforms(planar: PlanarMap, law: Law, z) -> list[dict[str, _t.Any]]:

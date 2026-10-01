@@ -90,7 +90,11 @@ def stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, hold: _t.Any,
     rec = {"unknowns": rep.unknowns, "rows": rep.rows, "hard_rows": rep.hard_rows,
            "hard_max_violation_m": round(rep.hard_max_violation_m, 6),
            "hard_settled": rep.hard_settled, "wall_s": round(w1a, 3),
-           "interval_s": round(time.perf_counter() - t1 - w1a, 3)}
+           "interval_s": round(time.perf_counter() - t1 - w1a, 3),
+           # §5a (RULINGS 2026-09-30be/30bf): pass 1a's own feasibility read
+           "hard_feasibility": (rep.hard_feasibility.as_dict()
+                                if getattr(rep, "hard_feasibility", None)
+                                is not None else None)}
     if cs1b is None:
         return planar, cs1a, got, rec
     res = getattr(hold, "result", None)

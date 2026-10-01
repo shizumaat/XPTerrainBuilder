@@ -70,6 +70,8 @@ from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
 from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds, hard_metres,
                             residual, settled_flip)
 from .design_qp import DEFAULT_SOLVER, SOLVERS, solve_one_sided
+from .feasibility import (_carries_a_column, apron_hard_rows, demote_conflicts,  # noqa: F401
+                          published, publish_stages)
 from .flex import _held_at_ref, runway_columns, runway_stage_roles, stage_one  # noqa: F401
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
 from .pin_yield import yield_pins as _yield_pins  # (re-export: test_surfacesettle2)
@@ -155,25 +157,6 @@ class Base:
     #: ``one`` indices of the FOOT ROWS (``[design] foot_row_rulings``,
     #: 11ab): priced at ``pad_flat``, the pad law's own target
     foot_row_i: list[int] = _dc.field(default_factory=list)
-
-
-def _carries_a_column(red: _t.Any, terms: _t.Sequence[tuple[int, float]]) -> bool:
-    """Does this law row have anything the solve can MOVE? (lane
-    ``v2settle``, spec §20a.)
-
-    The reduced row, not the raw terms: a foot on a fixed vertex (a ``Pin``,
-    a threshold, a DEM fix, a §20b stage substitution) folds into the
-    right-hand side, and two feet of one rigid ``Flat`` group share a
-    column — so a ±1 pair over that group cancels to nothing.  Either way
-    the row's residual is a CONSTANT of the surface: it can be reported,
-    never enforced.  Same accumulation as :meth:`_Rows.add`, which is what
-    decides whether the row reaches the matrix at all."""
-    acc: dict[int, float] = {}
-    for vid, coef in terms:
-        col = int(red.col[vid])
-        if col >= 0:
-            acc[col] = acc.get(col, 0.0) + coef
-    return any(c != 0.0 for c in acc.values())
 
 
 def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
@@ -476,6 +459,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     front_ref = getattr(planar, "fronting_ref", None) or {}
     tol_ref = float(design_law(law).hard_tol_m)
     rep.fronting_promoted, rep.fronting_promoted_by = 0, {}
+    ap_hard = apron_hard_rows(planar, law)   # §5: the apron cap HARD (30be/30bf)
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -516,7 +500,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # nothing, which is the same constant by another route.
         promoted = bool(front_heads) and ruling_head(row) in front_heads \
             and vs <= front and _held_at_ref(terms, hi, front_ref, tol_ref)
-        if (is_hard(heads, row) or promoted) and _carries_a_column(red, terms):
+        if (is_hard(heads, row) or promoted or ap_hard(row)) and _carries_a_column(red, terms):
             if promoted and not is_hard(heads, row):
                 rep.fronting_promoted += 1
                 rep.fronting_promoted_by[ruling_head(row)] = rep.fronting_promoted_by.get(ruling_head(row), 0) + 1  # noqa: E501
@@ -850,8 +834,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     counters in ``stages`` and the hard set COMBINED (§20b's census table).
     """
     if not bool(design_law(law).staged_solve):
-        return _solve_stage(planar, cs, law, options, size_out=size_out,
-                            method=method, low_rank=low_rank)
+        return published(*_solve_stage(planar, cs, law, options, size_out=size_out,
+                                       method=method, low_rank=low_rank))
     t_all = time.perf_counter()
     # PASS 1a / THE INTERVAL / PASS 1b (flat-pad spec v2 §1-§2, owner
     # RULINGS 2026-09-30as; ``solve/flex.stage_one``): ``hold`` is the
@@ -959,6 +943,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               "rounds": rep2.rounds, "wall_s": round(w2, 3)}}
     if pass1a is not None:
         rep2.stages["stage1a"] = pass1a
+    rep2.stages["stage1"]["hard_feasibility"] = publish_stages(rep1, rep2)
     # THE HARD SET IS THE COMBINATION (§20b's census table): an airside hard
     # row carries no column in stage 2 — it was enforced and read in stage 1,
     # where it is scaled to metres — so the shipped surface's hard set is
@@ -1088,6 +1073,9 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     Ub, cb = ((base_p.body.matrix(red.n_cols)) if base_p.body is not None
               and base_p.body.n else (None, None))
     A1, b1 = _one_matrix(one, red)
+    # §5a FEASIBILITY BEFORE THE SOLVE (RULINGS 2026-09-30be/30bf), conflicts named
+    demote_conflicts(planar, law, base_p, A1, b1, rep, verbose=opt.verbose,
+                     stage="2" if fixed and drop is None else "1" if drop else "")
     # THE ONE-WAY SPLIT (RULINGS 2026-09-09b (2)/(3)).  A corridor row
     # ``z_ground − z_foot ≤ bound`` priced two-way pulls the PAVEMENT down
     # toward the ground it is meant to shape.  For a one-way row only the

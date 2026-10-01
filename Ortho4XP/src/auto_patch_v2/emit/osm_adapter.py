@@ -168,6 +168,12 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # census's ``pad_airside_renode`` family emits one row per entry; the
     # bar is an empty list.
     "pad_airside_renode",
+    # flat-pad spec v2 §5a (owner RULINGS 2026-09-30be/30bf): one record per
+    # HARD row the pre-solve feasibility LP relaxed — its law, the laws it
+    # conflicts with, site, s_i (``solve/feasibility.HARD_CONFLICT``); the
+    # census's ``hard_conflict`` family emits one row per entry; the bar is
+    # an empty list
+    "hard_conflict",
     # jetway-strip spec §2 (6): per strip its level, vertices, clamps
     "jetway_strips",
     # unit-platform spec §3 P21 / §4 (5): per platform its collar width,

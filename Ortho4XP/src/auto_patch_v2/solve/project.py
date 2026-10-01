@@ -288,7 +288,9 @@ def _qp(A: sp.csr_matrix, rhs: np.ndarray, x0: np.ndarray, w: np.ndarray,
 
 
 def _relax_lp(A: sp.csr_matrix, rhs: np.ndarray, elastic: np.ndarray,
-              verbose: bool = False) -> tuple[np.ndarray, str]:
+              verbose: bool = False, *, cost: np.ndarray | None = None,
+              duals: list | None = None, dual_form: bool = False
+              ) -> tuple[np.ndarray, str]:
     """The LEAST TOTAL RELAXATION of the ``elastic`` rows' bounds that makes
     ``A x ≤ rhs`` solvable: an LP in ``(x, s)`` minimising ``Σ s`` with
     ``A x − s ≤ rhs`` and ``s ≥ 0`` on those rows only.  Returns the
@@ -299,13 +301,49 @@ def _relax_lp(A: sp.csr_matrix, rhs: np.ndarray, elastic: np.ndarray,
     semi-definite Hessian, "Unbounded" with a tiny one, an internal error
     with a unit one), while its LP solves the same feasibility question
     without complaint.  The QP then runs on the shape it does handle: the
-    original rows with the relaxed right-hand side and no extra columns."""
+    original rows with the relaxed right-hand side and no extra columns.
+
+    ``cost`` (per row, read at the elastic rows; default 1) PRICES each
+    row's relaxation — §5a's law hierarchy (``solve/feasibility.py``, owner
+    RULINGS 2026-09-30be/30bf) puts the relaxation on the lowest tier a
+    conflict contains.  ``duals``, when a list, receives the LP's row duals
+    (the conflict's SUPPORT: a non-zero dual is a row the optimum leans on).
+
+    ``dual_form`` (every row elastic) solves the SAME LP through its dual —
+    ``min bᵀy  s.t.  Aᵀy = 0,  0 ≤ y ≤ cost`` — whose equality rows are the
+    COLUMNS (tens of thousands) instead of the rows (hundreds of
+    thousands): measured on HECA's §5a pass-1b hard set (623,702 rows x
+    19,906 columns) 9.4 s against the primal's 32.1 s, the same optimum
+    (weighted relaxation 3.7736486e7 both).  ``x`` is the dual's row duals,
+    each row's relaxation ``max(0, A x − b)``; ``duals`` receives ``y``."""
     import highspy
     inf = highspy.kHighsInf
     m, n = A.shape
     ns = int(elastic.sum())
     if not ns:
         return np.zeros(m), "optimal"
+    if dual_form:
+        if ns != m:
+            raise ValueError("_relax_lp dual_form: every row must be elastic")
+        c_y = np.ones(m) if cost is None else np.asarray(cost, float)
+        AT = A.T.tocsr()
+        h = highspy.Highs()
+        h.setOptionValue("output_flag", bool(verbose))
+        h.addVars(m, np.zeros(m), c_y)
+        h.changeColsCost(m, np.arange(m, dtype=np.int32),
+                         np.asarray(rhs, float))
+        h.addRows(n, np.zeros(n), np.zeros(n), int(AT.nnz),
+                  AT.indptr[:-1].astype(np.int32),
+                  AT.indices.astype(np.int32), AT.data)
+        h.run()
+        st = h.getModelStatus()
+        if st != highspy.HighsModelStatus.kOptimal:
+            return np.zeros(m), str(h.modelStatusToString(st))
+        sol = h.getSolution()
+        x = np.asarray(sol.row_dual, float)[:n]
+        if duals is not None:
+            duals.append(np.asarray(sol.col_value, float)[:m])
+        return np.maximum(np.asarray(A @ x).ravel() - rhs, 0.0), "optimal"
     S = sp.csr_matrix((-np.ones(ns), (np.flatnonzero(elastic), np.arange(ns))),
                       shape=(m, ns))
     M = sp.hstack([A, S], format="csr")
@@ -313,15 +351,20 @@ def _relax_lp(A: sp.csr_matrix, rhs: np.ndarray, elastic: np.ndarray,
     h.setOptionValue("output_flag", bool(verbose))
     h.addVars(n + ns, np.concatenate([np.full(n, -inf), np.zeros(ns)]),
               np.full(n + ns, inf))
+    c_s = (np.ones(ns) if cost is None
+           else np.asarray(cost, float)[np.flatnonzero(elastic)])
     h.changeColsCost(n + ns, np.arange(n + ns, dtype=np.int32),
-                     np.concatenate([np.zeros(n), np.ones(ns)]))
+                     np.concatenate([np.zeros(n), c_s]))
     h.addRows(m, np.full(m, -inf), rhs, int(M.nnz),
               M.indptr[:-1].astype(np.int32), M.indices.astype(np.int32), M.data)
     h.run()
     st = h.getModelStatus()
     if st != highspy.HighsModelStatus.kOptimal:
         return np.zeros(m), str(h.modelStatusToString(st))
-    sv = np.asarray(h.getSolution().col_value, float)[n:]
+    sol = h.getSolution()
+    if duals is not None:
+        duals.append(np.asarray(sol.row_dual, float)[:m])
+    sv = np.asarray(sol.col_value, float)[n:]
     out = np.zeros(m)
     out[elastic] = np.maximum(sv, 0.0)
     return out, "optimal"

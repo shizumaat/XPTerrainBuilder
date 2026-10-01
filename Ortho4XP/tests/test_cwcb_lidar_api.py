@@ -290,7 +290,7 @@ def test_stale_or_contradicted_listing_is_relisted(server):
     assert os.path.getmtime(cache) == pytest.approx(old, abs=1)
     # CONTRADICTED: the server names the dataset over the box, the memo
     # holds none of its keys -> re-listed at once, whatever its age.
-    with open(cache, "w") as handle:
+    with open(cache, "w", encoding="utf-8", newline="\n") as handle:
         json.dump({"k-gone": {"tile_id": "X", "wkt": _tile_wkt(0),
                               "bytes": {FORMAT: 1}}}, handle)
     sources = strategy.discover(_definition(), _box_inside([0]))

@@ -7,12 +7,15 @@ CSV reclassifying a false holder.  No network."""
 import csv
 import importlib.util
 import sys
+
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _census():
+    pytest.importorskip("osgeo.gdal")
     spec = importlib.util.spec_from_file_location(
         "gap_census_twin", ROOT / "tools" / "elevation_gap_census.py")
     mod = importlib.util.module_from_spec(spec)
@@ -40,12 +43,12 @@ def _gaps(tmp_path):
          "USGS-LPC/OPR"],
     ]
     path = tmp_path / "gaps.csv"
-    with open(path, "w", newline="") as fh:
+    with open(path, "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(FIELDS)
         w.writerows(rows)
     override = tmp_path / "override.csv"
-    override.write_text("icao,verdict,reason\nE78,NOBODY,pima hole\n")
+    override.write_text("icao,verdict,reason\nE78,NOBODY,pima hole\n", encoding="utf-8", newline="\n")
     return path, override
 
 
@@ -63,7 +66,7 @@ def test_providers_mode_reads_the_engine_ladder_offline(tmp_path, monkeypatch,
     printed = capsys.readouterr().out
     assert "E78: HOLDER -> NOBODY (pima hole)" in printed
     assert "HOLDER rows 2" in printed
-    with open(out, newline="") as fh:
+    with open(out, encoding="utf-8", newline="") as fh:
         rows = {r["icao"]: r for r in csv.DictReader(fh)}
     assert set(rows) == {"KRDU", "KASE"}
     assert rows["KRDU"]["would_deliver"] == "1/9 arc-second"
@@ -79,7 +82,7 @@ def test_providers_mode_reads_the_engine_ladder_offline(tmp_path, monkeypatch,
 def test_override_rejects_an_unknown_verdict(tmp_path):
     mod = _census()
     bad = tmp_path / "o.csv"
-    bad.write_text("icao,verdict,reason\nE78,MAYBE,x\n")
+    bad.write_text("icao,verdict,reason\nE78,MAYBE,x\n", encoding="utf-8", newline="\n")
     try:
         mod.read_overrides(str(bad))
     except SystemExit as exit_:

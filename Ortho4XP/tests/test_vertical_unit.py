@@ -250,7 +250,8 @@ def test_two_layer_assembler_carries_the_core_stamp(tmp_path):
 def _cached_inset(tmp_path, record):
     inset = _write_source(tmp_path / "KRDU_NCTEST.tif", _plane(),
                           nodata=-32768.0)
-    with open(tmp_path / "KRDU_NCTEST.json", "w") as handle:
+    with open(tmp_path / "KRDU_NCTEST.json", "w", encoding="utf-8",
+              newline="\n") as handle:
         json.dump(record, handle)
     return inset
 

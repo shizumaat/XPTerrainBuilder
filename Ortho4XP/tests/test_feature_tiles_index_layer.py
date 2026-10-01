@@ -203,8 +203,9 @@ def test_index_layer_pages_resolves_and_reads_one_member_per_tile(
     assert [q["resultOffset"] for q in queries] == ["0", "2"]
     assert all(q["where"] == "bestavail='Yes'" for q in queries)
     # The resources listing was followed through ``next`` and memoised.
-    memo = json.load(open(_strategy().resources_path(
-        _definition(tmp_path))))
+    with open(_strategy().resources_path(_definition(tmp_path)),
+              encoding="utf-8") as handle:
+        memo = json.load(handle)
     assert set(memo[COLLECTION]) == {"3197581", "9999999"}
     assert memo[COLLECTION]["3197581"] == (
         str(tmp_path) + "/proj20-50cm-test_3197581_dem.zip")

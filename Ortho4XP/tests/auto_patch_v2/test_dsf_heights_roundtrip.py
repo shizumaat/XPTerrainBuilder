@@ -15,6 +15,7 @@ elevated row remains, and by keyword only when none does.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
 import pytest
@@ -63,6 +64,28 @@ def _heights(text: str) -> str:
                 if ln.startswith(W.HEIGHTS_KEYWORD + " "))
 
 
+#: Measured on CI windows-latest (run 36877241692, 2026-10-01): the
+#: bundled ``Utils/win/DSFTool.exe`` re-dumps an UNEDITED ``HEIGHTS
+#: 0.06250`` text with elevated rows as ``0.12500`` — it does not honour
+#: the text's quantum where the macOS / Linux builds do.  Strict: the day
+#: it does, this flips red and the note goes.
+WIN_REQUANTISES = pytest.mark.xfail(
+    sys.platform == "win32", strict=True,
+    reason="Windows DSFTool re-pools HEIGHTS 0.06250 -> 0.12500 (#131 note)")
+
+
+def _platform(text: str, tool: str, tmp_path: Path) -> str:
+    """``text`` with the platform DSFTool's own header line (``A`` on
+    macOS / Linux, ``I`` on Windows) — a pack's pristine dump always comes
+    from the same binary that re-dumps it, so the fixture must too."""
+    seed = tmp_path / "seed.text"
+    seed.write_text(text, encoding="utf-8", newline="\n")
+    W._run([tool, "--text2dsf", str(seed), str(tmp_path / "seed.dsf")])
+    head = Path(W.dump(str(tmp_path / "seed.dsf"), str(tmp_path / "seed2.text"),
+                       tool)).read_text(encoding="utf-8").splitlines()[0]
+    return head + "\n" + text.split("\n", 1)[1]
+
+
 def _encode(tmp_path: Path, name: str, text: str, tool: str) -> tuple[Path, str]:
     src = tmp_path / f"{name}.text"
     src.write_text(text, encoding="utf-8", newline="\n")
@@ -96,20 +119,24 @@ def test_heights_quantum_not_compared_once_no_elevated_row_remains():
 
 # ── DSFTool: the measurement the exemption stands on ─────────────────
 
+@WIN_REQUANTISES
 @pytest.mark.skipif(_dsftool_path() is None, reason="no DSFTool on this machine")
 def test_pack_heights_survive_an_unedited_round_trip(tmp_path):
     tool = _dsftool_path()
-    out, back = _encode(tmp_path, "pristine", DUMP, tool)
+    dump = _platform(DUMP, tool, tmp_path)
+    out, back = _encode(tmp_path, "pristine", dump, tool)
     assert _heights(back) == PACK_QUANTUM
-    rep = W.verify_roundtrip(str(out), DUMP, tool)
+    rep = W.verify_roundtrip(str(out), dump, tool)
     assert rep.ok, rep.findings
     assert rep.max_elev_m <= W.TOL_ELEV_M
 
 
+@WIN_REQUANTISES
 @pytest.mark.skipif(_dsftool_path() is None, reason="no DSFTool on this machine")
 def test_one_remaining_elevated_row_keeps_the_pack_quantum(tmp_path):
     tool = _dsftool_path()
-    edited = W.edit_dump(DUMP, _plan(DUMP, keep_last=True))
+    dump = _platform(DUMP, tool, tmp_path)
+    edited = W.edit_dump(dump, _plan(dump, keep_last=True))
     assert edited.count("OBJECT_MSL ") == 1
     out, back = _encode(tmp_path, "one", edited, tool)
     assert _heights(back) == PACK_QUANTUM
@@ -119,7 +146,8 @@ def test_one_remaining_elevated_row_keeps_the_pack_quantum(tmp_path):
 @pytest.mark.skipif(_dsftool_path() is None, reason="no DSFTool on this machine")
 def test_full_conversion_passes_and_the_heights_text_is_not_stored(tmp_path):
     tool = _dsftool_path()
-    edited = W.edit_dump(DUMP, _plan(DUMP))
+    dump = _platform(DUMP, tool, tmp_path)
+    edited = W.edit_dump(dump, _plan(dump))
     out, back = _encode(tmp_path, "conv", edited, tool)
     assert _heights(back) == DEFAULT_QUANTUM            # the KASE symptom
     rep = W.verify_roundtrip(str(out), edited, tool)

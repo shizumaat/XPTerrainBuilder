@@ -9,8 +9,13 @@
 role=airport_inset
 access_strategy=wcs_kvp
 
-wcs_getcoverage_template=https://utility.arcgis.com/usrsvcs/servers/fef66dec83c14b0295180ecafa662aa0/rest/services/DTM_LT2020/ImageServer/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=3346&imageSR=3346&format=tiff&pixelType=F32&noData=&size={width},{height}&f=image
+wcs_getcoverage_template=https://utility.arcgis.com/usrsvcs/servers/fef66dec83c14b0295180ecafa662aa0/rest/services/DTM_LT2020/ImageServer/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=3346&imageSR=3346&format=tiff&pixelType=F32&noData={nodata}&size={width},{height}&f=image
 source_epsg=3346
+
+# #155: exportImage's noData= is filled from this key; an EMPTY noData=
+# answers 0.0 with no nodata tag (a false sea level) where the service has
+# no data.  The answer's nodata tag is verified against it.
+nodata=-9999
 
 native_resolution_m=1
 # Lithuania.

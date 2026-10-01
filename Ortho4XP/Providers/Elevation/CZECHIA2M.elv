@@ -9,8 +9,13 @@
 role=airport_inset
 access_strategy=wcs_kvp
 
-wcs_getcoverage_template=https://ags.cuzk.gov.cz/arcgis/rest/services/3D/dmr5g_wm/ImageServer/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=3857&imageSR=3857&format=tiff&pixelType=F32&noData=&size={width},{height}&f=image
+wcs_getcoverage_template=https://ags.cuzk.gov.cz/arcgis/rest/services/3D/dmr5g_wm/ImageServer/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=3857&imageSR=3857&format=tiff&pixelType=F32&noData={nodata}&size={width},{height}&f=image
 source_epsg=3857
+
+# #155: exportImage's noData= is filled from this key; an EMPTY noData=
+# answers 0.0 with no nodata tag (a false sea level) where the service has
+# no data.  The answer's nodata tag is verified against it.
+nodata=-9999
 
 native_resolution_m=2
 # Czechia.

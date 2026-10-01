@@ -118,6 +118,8 @@ def test_shipped_definitions_parse(shipped_registry):
         "PORTUGAL50CM",
         "PITKIN1M",
         "CWCB1M",
+        "OREGONDOGAMI",
+        "HILLSBOROUGHNATIVE",
         "DENMARK40CM",
         "SWEDEN1M",
         "CUDEMHAWAII",

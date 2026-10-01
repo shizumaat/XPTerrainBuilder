@@ -1,2 +1,3 @@
 
 - 2026-09-30x (#127, facade127): the welded-carrier rule skips the carrier own-ground test, the too-far-from-own-ground test and the reach cap; spec-author confirmation or bound owed before the beta 2 tag (RULINGS 2026-09-30x).
+- 2026-09-30 (#154, export154): the OREGONDOGAMI / HILLSBOROUGHNATIVE witnesses (KEUG, KSLE, KTPA) were measured on lane-local provider fetches only; the replay census vs a shared-corpus control is owed — the shared corpus holds no DEM for +44-124 / +27-083 and only a superseded-schema road feed near KEUG, so no capture/control exists until the session warms them (`build_airport.py KEUG --refresh-data osm_layers`, `--refresh-data dem --warm-insets KEUG`; same for KSLE, KTPA) after the global ladder assembly lands.

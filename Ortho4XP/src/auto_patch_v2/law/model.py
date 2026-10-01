@@ -25,6 +25,9 @@ from .rebake_schema import Deck, Placement, Rebake, Scatter  # noqa: F401
 from .cutout_schema import Cutout, check_cutout as _check_cutout  # noqa: F401
 # the [basin] schema (the below-grade facility law; 11t §24) likewise
 from .basin_schema import Basin  # noqa: F401
+# the [base_profile] schema (the building base profile; base-profile spec
+# §1) likewise lives beside the other per-table schemas
+from .base_profile_schema import BaseProfileLaw  # noqa: F401
 # the [tunnel.object] schema (05k-1/05n/06c/06f/09w; the THIN-PLATE wall
 # class of spec §33 (2)) likewise — the 1,000-line file law
 from .tunnel_object_schema import TunnelObject  # noqa: F401
@@ -475,6 +478,12 @@ class Structures:
     #: S5a landed the predicate and the dry census only.  Defaulted like
     #: ``deck``.
     scatter: Scatter = _dc.field(default_factory=Scatter)
+    #: THE BUILDING BASE PROFILE (``[base_profile]``, base-profile spec
+    #: §1; owner RULINGS 2026-10-01f/k): the four numbers the base read
+    #: needs.  Defaulted like ``deck`` / ``scatter``, so a law dir
+    #: without the table still loads and the read falls back to its
+    #: measured defaults.
+    base_profile: BaseProfileLaw = _dc.field(default_factory=BaseProfileLaw)
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────

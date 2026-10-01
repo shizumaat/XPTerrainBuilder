@@ -1097,3 +1097,22 @@ object_pavement_hard_planes = true
 # — graded with ZERO taxiways and ZERO aprons before §44.  At 0 the borrow is
 # OFF; at 1 it always fires where a Global block exists.
 pavement_borrow_coverage_max = 0.25
+
+# ── THE BUILDING BASE PROFILE ────────────────────────────────────────────
+# base-profile spec §1 (owner RULINGS 2026-10-01f, answers 10-01k).  The
+# owner's order: "detect building's base shape and orientation (e.g. a
+# building that has steps where part of it is at one level and another
+# part is at a higher level, and create two pads with a cliff to match
+# them)".  ONLY the four numbers the READ itself needs — the area floor,
+# the bin merge, the roof band, the riser weld floor, the flat ceiling
+# and the trim reach are read at their OWN existing keys
+# ([building_pad] min_area_m2, [placement] split_tol_m, [basin]
+# contact_band_m, [terrace] pad_terrace_floor_m,
+# emit.within_shape.pad_slope_max, [seam] pad_frontage_m /
+# emit.identity.min_distinct_spacing_m).  Schema + the measured
+# justification per key: law/base_profile_schema.py.
+[base_profile]
+horizontal_ny         = 0.95   # §1 (1): |n_y| >= this is a HORIZONTAL FACE (an 18 deg cone; separates FireStation_7's lot sheets from its 17 % bank sheets on the KASE pack).  0 disarms the read
+roof_support_fraction = 0.25   # §1 (1) THE ROOF TEST: a plane whose unit vertices >= [basin] contact_band_m below it have a convex hull covering this fraction of its polygon is a ROOF/DECK/MEZZANINE, never a base (KASE: the shelter roof reads 156 %, FireStation_7's +3.9 lot 0.2 %)
+sloped_min_extent_m   = 20.0   # §1 (2): a member with no base plane over the area floor reads SLOPED only where its contact set spans this far; below it the verdict is FEET (a column-only shelter is not a ramp)
+sloped_max            = 0.08   # §1 (2) + 10-01k Q5: the HARD CEILING on a sloped base's own gradient (m/m).  Steeper geometry is RISER geometry, not a plane (KASE's cut-slope staircase reads 17 %)

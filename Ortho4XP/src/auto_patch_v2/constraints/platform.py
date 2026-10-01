@@ -558,6 +558,68 @@ def hold_sets(planar: PlanarMap, law: Law
         if extra:
             h["plateau_vertices"] = extra
         out.append((pref, held[pref], hold + extra, n_all, len(ramp)))
+    return _with_near_miss(planar, law, out)
+
+
+def _with_near_miss(planar: PlanarMap, law: Law,
+                    sets: list[tuple[str, int, list[int], int, int]]
+                    ) -> list[tuple[str, int, list[int], int, int]]:
+    """THE NEAR-MISS FRONTAGE OF A HELD BLOCK JOINS ITS HOLD SET (#148,
+    RULINGS 2026-09-30bd residual; 30bb F4 deleted ``pad_frontage_level``
+    for held pads, so the block's ONE level is its datum, 30l (1)).  A
+    held block's shared rim was held, but the soft vertices it fronts
+    across a sliver (``pads.frontage_contacts``, the ``frontage_near_miss``
+    population) were not: the gap could step (HECA 4 -> 10 CRITICAL rows).
+
+    Only the endpoints INSIDE the gap (``d <= frontage_near_miss_m``) join:
+    a fired edge's far endpoint (measured up to 40 m from the pad) is not
+    a frontage contact but the far end of a sloping edge — it keeps its
+    priced ``apron cap · d`` row, never an equality to the datum.
+
+    A near-miss soft endpoint ``e`` joins the block's hold set when the pad
+    vertex it binds to (``j``, the nearest pad vertex) is itself ON the
+    datum — a held contact or plateau vertex of the block, or any vertex of
+    a held §20 conforming plate (its whole plate is the datum, §4).  A ``j``
+    on a graded collar rim or in a ramp is not on the datum, and ``e``
+    keeps its priced near-miss row against ``z_j``.  ``e`` is then read by
+    the §2 interval exactly as a welded contact (one set, one derivation):
+    a near-miss contact the datum cannot reach makes the block RESIDUAL
+    there (priced, ``pad_frontage_infeasible``), never a step.  A vertex
+    another block already holds, or a runway-family vertex, is skipped."""
+    if not sets:
+        return sets
+    from ..law.tables import role_family
+    from .pads import frontage_contacts
+    idx = {pref: k for k, (pref, *_r) in enumerate(sets)}
+    on: dict[str, set[int]] = {pref: set(w) for pref, _dv, w, _n, _r in sets}
+    conf = {pref for pref in idx if HELD[pref].get("conforming")}
+    if conf:
+        for f in planar.faces.values():
+            if str(f.ref) in conf:
+                for ring in (f.ring, *f.holes):
+                    on[str(f.ref)].update(planar.ring_vertices(ring))
+    taken: set[int] = {v for _p, _dv, w, _n, _r in sets for v in w}
+    runway: set[int] = set()
+    for f in planar.faces.values():
+        if role_family(law, f.role) == "runway":
+            for ring in (f.ring, *f.holes):
+                runway.update(planar.ring_vertices(ring))
+    near_m = float(law.tables.structures.building_pad.frontage_near_miss_m)
+    add: dict[str, list[int]] = {}
+    for e, j, pid, d, _cap, _sf in frontage_contacts(planar, law):
+        pref = platform_ref_of(planar.faces[pid].ref)
+        if (pref not in idx or d > near_m or e in taken or e in runway
+                or j not in on[pref]):
+            continue
+        taken.add(e)
+        add.setdefault(pref, []).append(e)
+    out = list(sets)
+    for pref, k in idx.items():
+        es = sorted(add.get(pref, ()))
+        HELD[pref]["near_miss_contacts"] = es
+        if es:
+            p, dv, w, n_all, n_r = out[k]
+            out[k] = (p, dv, list(w) + es, n_all, n_r)
     return out
 
 
@@ -694,12 +756,16 @@ def platform_records(planar: PlanarMap, law: Law,
                 mg = float(law.tables.structures.building_pad.frontage_hold_margin_m)
                 held_v = {v for v, _r in (h.get("hold_contacts") or ())}
                 res_v = set(h.get("residual") or ())
-                hm = np.array([abs(float(z[v]) - D) for v in weld if v in held_v])
+                # #148: the near-miss contacts the hold set carries are read
+                # beside the welded ones (held / residual alike)
+                hw = weld + [v for v in (h.get("near_miss_contacts") or ())
+                             if v not in set(weld)]
+                hm = np.array([abs(float(z[v]) - D) for v in hw if v in held_v])
                 # 30y (4): the UNHELD contacts the census names are the
                 # RESIDUAL ones (the reach band excludes the datum); a RAMP
                 # contact (spec §2 (2)) is reported apart
-                um = [(abs(float(z[v]) - D), v) for v in weld if v in res_v]
-                rm = [abs(float(z[v]) - D) for v in weld
+                um = [(abs(float(z[v]) - D), v) for v in hw if v in res_v]
+                rm = [abs(float(z[v]) - D) for v in hw
                       if v not in held_v and v not in res_v]
                 from ..law.tables import design as design_law
                 htol = float(design_law(law).hard_tol_m)

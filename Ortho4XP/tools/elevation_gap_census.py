@@ -7,6 +7,21 @@ The gap instrument is the TNM 1 m listing -- the discovery the engine's
 USGS3DEP.elv runs -- as footprint share inside listed tile boxes; WESM work
 units (published 1 m share, pending units = IN-WORK) are the second
 instrument and their disagreements are printed.  Downloads cache in --out.
+
+``--override CSV`` (icao, verdict, reason) replaces a verdict the
+instruments cannot see (E78: the Pima County lidar has a hole over the
+Tohono O'odham Nation, so its USIEI row is a false holder -> NOBODY).
+
+``--providers`` (spec us-holder-providers §6.1): no census -- reads a gap
+CSV and, per HOLDER row, prints the rung LIST the engine's resolution
+ladder would assemble (the engine's own registry and
+``_ladder_rung_definitions``, coverage-boxed with its own
+``_coverage_bbox_intersects``) and the rung it WOULD deliver judged from
+the recorded discovery only: the gap CSV's TNM shares for the 1 m and
+1/9" datasets, the TNM listing cache for any other TNM rung (a listing
+GET is made and cached only when the cache lacks it; ``--offline``
+forbids it), and the coverage box for a non-TNM provider rung.  Nothing
+is downloaded.
 """
 import argparse
 import concurrent.futures as cf
@@ -38,7 +53,11 @@ TNM_URL = ("https://tnmaccess.nationalmap.gov/api/v1/products?datasets={ds}"
 TNM_DS = {"1m": "Digital%20Elevation%20Model%20(DEM)%201%20meter",
           "lpc": "Lidar%20Point%20Cloud%20(LPC)",
           "opr": "Original%20Product%20Resolution%20(OPR)%20Digital%20Elevation%20Model%20(DEM)",
-          "ned19": "National%20Elevation%20Dataset%20(NED)%201/9%20arc-second"}
+          "ned19": "National%20Elevation%20Dataset%20(NED)%201/9%20arc-second",
+          "ned13": "National%20Elevation%20Dataset%20(NED)%201/3%20arc-second"}
+#: The gap CSV column that already records a TNM dataset's footprint share.
+CSV_SHARE_COLUMN = {"1m": "tnm_1m_pct", "ned19": "ned19_3m_pct"}
+ENGINE_ROOT = Path(__file__).resolve().parents[1]
 WESM_FIELDS = ("workunit", "project", "ql", "collect_start", "collect_end", "lpc_pub_date",
                "lpc_category", "onemeter_category", "onemeter_reason")
 PAVED = {1, 2} | set(range(20, 39)) | set(range(50, 58))
@@ -304,6 +323,9 @@ def classify(a: Airport, args: argparse.Namespace, cov1m: float, proj1m: dict[st
              and "nationalmap.gov" not in h["link"]]  # TNM-linked = USGS-delivered
     verdict = ("USGS-LPC/OPR" if usgs_has else "HOLDER" if other else "IN-WORK" if inwork or pipeline
                else "USGS-LPC/OPR" if lpc_good else "USIEI-ONLY" if holders else "NOBODY")
+    override = (getattr(args, "overrides", None) or {}).get(a.icao)
+    if override:
+        verdict = override["verdict"]
     best = max(other or holders, key=lambda h: (h["share"], h["year"] or 0)) if holders else {}
     if verdict != "HOLDER" and not other:
         best = {}
@@ -322,13 +344,151 @@ def classify(a: Airport, args: argparse.Namespace, cov1m: float, proj1m: dict[st
             "holder_share_pct": round(100 * best["share"]) if best else "",
             "holder_link": best.get("link", ""), "holder_usgs_projects": best.get("projects", ""),
             "holders_all": " | ".join(fmt(h) + (" [USGS LPC]" if h["usgs_lpc"] else "") for h in holders),
-            "verdict": verdict}
+            "verdict": verdict, "verdict_override": override["reason"] if override else ""}
+
+
+VERDICTS = ("HOLDER", "USGS-LPC/OPR", "IN-WORK", "USIEI-ONLY", "NOBODY")
+
+
+def read_overrides(path: str | None) -> dict[str, dict[str, str]]:
+    """``--override`` CSV: ``icao,verdict,reason`` -> {ICAO: {verdict, reason}}."""
+    if not path:
+        return {}
+    out = {}
+    with open(path, newline="") as fh:
+        for row in csv.DictReader(fh):
+            icao = (row.get("icao") or "").strip().upper()
+            verdict = (row.get("verdict") or "").strip()
+            if not icao:
+                continue
+            if verdict not in VERDICTS:
+                raise SystemExit(f"--override {path}: {icao} verdict {verdict!r} is not one of {VERDICTS}")
+            out[icao] = {"verdict": verdict, "reason": (row.get("reason") or "").strip()}
+    return out
+
+
+def apply_overrides(rows: list[dict[str, Any]], overrides: dict[str, dict[str, str]]) -> list[str]:
+    """Reclassify already-written gap rows; returns one line per change."""
+    said = []
+    for r in rows:
+        o = overrides.get(str(r.get("icao", "")).strip().upper())
+        if o and r.get("verdict") != o["verdict"]:
+            said.append(f"{r['icao']}: {r['verdict']} -> {o['verdict']} ({o['reason']})")
+            r["verdict"], r["verdict_override"] = o["verdict"], o["reason"]
+    return said
+
+
+def _engine():
+    """The engine's provider registry -- imported, never re-implemented."""
+    src = str(ENGINE_ROOT / "src")
+    if src not in __import__("sys").path:
+        __import__("sys").path.insert(0, src)
+    import O4_Airport_Elevation_Insets as INSETS
+    if not INSETS.elevation_providers_dict:
+        INSETS.initialize_elevation_providers_dict(str(ENGINE_ROOT / "Providers" / "Elevation"))
+    return INSETS
+
+
+def _tnm_dataset_key(rung: dict[str, Any]) -> str | None:
+    """The ``TNM_DS`` key a TNM rung's discovery URL asks for, or None."""
+    from urllib.parse import unquote
+    m = re.search(r"datasets=([^&]+)", str(rung.get("discovery_url_template") or ""))
+    if rung.get("access_strategy") != "tnm_cog" or not m:
+        return None
+    asked = unquote(m.group(1))
+    return next((k for k, v in TNM_DS.items() if unquote(v) == asked), None)
+
+
+def airport_box(row: dict[str, Any], buffer_m: float) -> tuple[float, float, float, float]:
+    """The aerodrome box from a gap row: ARP +- (longest runway / 2 + buffer)."""
+    lat, lon = float(row["lat"]), float(row["lon"])
+    half = float(row.get("longest_rwy_m") or 0.0) / 2.0 + buffer_m
+    dlat = half / M_PER_DEG
+    dlon = half / (M_PER_DEG * math.cos(math.radians(lat)))
+    return (lon - dlon, lat - dlat, lon + dlon, lat + dlat)
+
+
+def ladder_would_deliver(row: dict[str, Any], args: argparse.Namespace, INSETS: Any) -> dict[str, Any]:
+    """One HOLDER row: the covering rungs in the engine's ladder order, each
+    judged from recorded discovery, and the first that would deliver."""
+    box_ = airport_box(row, args.buffer_m)
+    root = INSETS.elevation_providers_dict[args.ladder_root]
+    rungs, chosen = [], None
+    for index, (label, rung) in enumerate(INSETS._ladder_rung_definitions(root)):
+        if not INSETS._coverage_bbox_intersects(rung, box_):
+            continue  # not a rung for this airport (spec §1: coverage-boxed)
+        ds = _tnm_dataset_key(rung)
+        share, evidence = None, ""
+        if ds in CSV_SHARE_COLUMN and str(row.get(CSV_SHARE_COLUMN[ds], "")).strip() != "":
+            share, evidence = float(row[CSV_SHARE_COLUMN[ds]]) / 100.0, "gap csv"
+        elif ds is not None:
+            cache = os.path.join(args.tnm_cache, f"{row['icao']}.{ds}.json")
+            if args.offline and not os.path.exists(cache):
+                evidence = "unrecorded (offline)"
+            else:
+                a = Airport(icao=row["icao"], name=row.get("name", ""), lat=float(row["lat"]),
+                            lon=float(row["lon"]), poly=box(*box_))
+                share, _ = tnm_coverage(a, args.tnm_cache, ds)
+                evidence = "tnm listing" if share is not None else "listing failed"
+        else:
+            share, evidence = 1.0, "coverage box"  # a boxed holder: discovery authoritative inside it
+        outcome = ("unrecorded" if share is None else "delivered" if share >= args.cover_frac
+                   else "no-coverage" if share == 0.0 else "below-threshold")
+        rungs.append({"rung": index, "label": label, "provider": rung.get("code"),
+                      "native_resolution_m": rung.get("native_resolution_m"),
+                      "share": share, "outcome": outcome, "evidence": evidence})
+        if chosen is None and outcome == "delivered":
+            chosen = rungs[-1]
+    return {"rungs": rungs, "delivered": chosen}
+
+
+def providers_mode(args: argparse.Namespace) -> None:
+    INSETS = _engine()
+    with open(args.gaps, newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    for line in apply_overrides(rows, args.overrides):
+        print("override:", line)
+    holders = [r for r in rows if r.get("verdict") == "HOLDER"]
+    if not args.offline:
+        os.makedirs(args.tnm_cache, exist_ok=True)
+    out_rows, tally = [], {}
+    for r in holders:
+        res = ladder_would_deliver(r, args, INSETS)
+        d = res["delivered"]
+        name = f"{d['label']} [{d['provider']}]" if d else "NOBODY"
+        tally[name] = tally.get(name, 0) + 1
+        chain = " > ".join(f"{x['label']} [{x['provider']}] {x['outcome']}"
+                           + (f" {100 * x['share']:.0f}%" if x["share"] is not None else "")
+                           for x in res["rungs"])
+        print(f"{r['icao']:5} {r.get('state', '')[:14]:14} -> {name:40} | {chain}")
+        out_rows.append({"icao": r["icao"], "state": r.get("state", ""), "verdict": r["verdict"],
+                         "would_deliver": d["label"] if d else "NOBODY",
+                         "would_deliver_provider": d["provider"] if d else "",
+                         "would_deliver_resolution_m": d["native_resolution_m"] if d else "",
+                         "rungs": chain})
+    out = args.providers_out or str(Path(args.gaps).with_name(Path(args.gaps).stem + "_providers.csv"))
+    with open(out, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(out_rows[0]) if out_rows else ["icao"])
+        w.writeheader()
+        w.writerows(out_rows)
+    print(f"HOLDER rows {len(holders)} | would deliver: "
+          + " | ".join(f"{k} {v}" for k, v in sorted(tally.items(), key=lambda kv: -kv[1]))
+          + f" | written {out}")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    ap.add_argument("--apt-dat", required=True)
-    ap.add_argument("--wesm", required=True, help="local WESM.gpkg (download once from " + WESM_URL + ")")
+    ap.add_argument("--apt-dat", help="apt.dat to census (census mode)")
+    ap.add_argument("--wesm", help="local WESM.gpkg (download once from " + WESM_URL + ")")
+    ap.add_argument("--override", default=None, metavar="CSV",
+                    help="icao,verdict,reason rows that replace the instruments' verdict")
+    ap.add_argument("--providers", action="store_true",
+                    help="no census: per HOLDER row of --gaps, the rung the engine's ladder would deliver")
+    ap.add_argument("--gaps", default=None, help="--providers: the gap CSV to read")
+    ap.add_argument("--providers-out", default=None, help="--providers: output CSV (default <gaps>_providers.csv)")
+    ap.add_argument("--tnm-cache", default=None, help="--providers: TNM listing cache dir (the census's tnm_cache)")
+    ap.add_argument("--offline", action="store_true", help="--providers: never issue a listing GET")
+    ap.add_argument("--ladder-root", default="USGS3DEP", help="--providers: the ladder's root provider code")
     ap.add_argument("--usiei-url", default=USIEI_URL)
     for flag, typ, default, hlp in (
             ("--min-runway-m", float, 1200.0, "longest paved runway at least this"),
@@ -339,8 +499,20 @@ def main() -> None:
             ("--usiei-offset-deg", float, 0.0001, "USIEI geometry generalisation"),
             ("--workers", int, 6, "parallel TNM requests")):
         ap.add_argument(flag, type=typ, default=default, help=hlp)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    args.overrides = read_overrides(args.override)
+    if args.providers:
+        if not args.gaps:
+            ap.error("--providers needs --gaps CSV")
+        if not args.tnm_cache:
+            if not args.out and not args.offline:
+                ap.error("--providers needs --tnm-cache DIR (or --out DIR, or --offline)")
+            args.tnm_cache = os.path.join(args.out or ".", "tnm_cache")
+        providers_mode(args)
+        return
+    if not (args.apt_dat and args.wesm and args.out):
+        ap.error("census mode needs --apt-dat, --wesm and --out")
     cache = os.path.join(args.out, "tnm_cache")
     os.makedirs(cache, exist_ok=True)
     airports = load_airports(args)
@@ -379,8 +551,7 @@ def main() -> None:
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
         w.writerows(rows)
-    tally = {v: sum(r["verdict"] == v for r in rows)
-             for v in ("HOLDER", "USGS-LPC/OPR", "IN-WORK", "USIEI-ONLY", "NOBODY")}
+    tally = {v: sum(r["verdict"] == v for r in rows) for v in VERDICTS}
     summary = (f"checked {len(airports)} | gaps (TNM 1 m < {args.cover_frac:.0%}) {len(rows)} | "
                + " | ".join(f"{k} {v}" for k, v in tally.items())
                + " | " + " | ".join(disagree))

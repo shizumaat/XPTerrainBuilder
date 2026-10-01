@@ -801,6 +801,187 @@ def this_airports_inset_problem(state, lat, lon, icao):
         return None
 
 
+#: THE INSET ARP SANITY (spec us-holder-providers §6.3, RULINGS
+#: 2026-09-30bm) -- the feet trap's twin: a raster baked in source feet
+#: reads +630 m at KRDU (ARP 132 m).  The median of each cached inset over
+#: a disc at the aerodrome reference point is compared with the apt.dat
+#: field elevation.  A WARN in ``frame.json`` (``inset_arp_sanity``); a
+#: refusal ONLY under ``--strict-inset-datum`` -- a geoid difference at a
+#: coastal Alaskan field is lawful and must not block the owner's build,
+#: and the ENGINE never refuses on it.  Table values, overridable on the CLI.
+INSET_ARP_SANITY = {"disc_radius_m": 60.0, "warn_abs_delta_m": 3.0}
+
+
+def _apt_dat_arp_and_field_elevation(apt_dat_path, icao):
+    """``(lat, lon, arp_source, field_elevation_m)`` from the ONE apt.dat
+    block that serves ``icao``, or ``None``.  The ARP policy is the pack
+    writer's (``_AirportPositionAccumulator``: 1302 datum rows, else the
+    first runway's midpoint, else the first helipad) -- read, never
+    copied; the elevation is row 1's, in feet."""
+    import O4_Airport_Elevation_Insets as INSETS
+    from O4_MSFS_XPlane_Pack import _AirportPositionAccumulator
+    from auto_patch.apt_dat_reader import _read_airport_block
+
+    block = _read_airport_block(apt_dat_path, icao)
+    if not block:
+        return None
+    try:
+        elevation_ft = float(block[0].split()[1])
+    except (IndexError, ValueError):
+        return None
+    accumulator = _AirportPositionAccumulator(icao)
+    has_datum = False
+    for line in block[1:]:
+        columns = line.split()
+        if columns[:2] in (["1302", "datum_lat"], ["1302", "datum_lon"]):
+            has_datum = True
+        accumulator.consider_row(columns)
+    position = accumulator.resolve_position()
+    if position is None:
+        return None
+    return (position[0], position[1],
+            "1302 datum" if has_datum else "runway/helipad midpoint",
+            elevation_ft * INSETS.VERTICAL_UNIT_TO_M["ft"])
+
+
+def _inset_disc_median_m(inset_path, arp_lat, arp_lon, radius_m):
+    """``(median_m, cells)`` of the valid cells of an EPSG:4326 inset
+    whose centres lie within ``radius_m`` of the ARP; ``(None, 0)`` when
+    none does (the ARP is off the raster, or the disc is all nodata)."""
+    import math
+
+    import numpy
+    from osgeo import gdal
+
+    dataset = gdal.Open(str(inset_path))
+    if dataset is None:
+        return (None, 0)
+    (x0, dx, _rx, y0, _ry, dy) = dataset.GetGeoTransform()
+    band = dataset.GetRasterBand(1)
+    nodata = band.GetNoDataValue()
+    metres_per_deg_lat = 111_320.0
+    metres_per_deg_lon = metres_per_deg_lat * math.cos(math.radians(arp_lat))
+    half_cols = int(math.ceil(radius_m / (abs(dx) * metres_per_deg_lon))) + 1
+    half_rows = int(math.ceil(radius_m / (abs(dy) * metres_per_deg_lat))) + 1
+    col = int((arp_lon - x0) / dx)
+    row = int((arp_lat - y0) / dy)
+    c0, c1 = max(col - half_cols, 0), min(col + half_cols + 1,
+                                          dataset.RasterXSize)
+    r0, r1 = max(row - half_rows, 0), min(row + half_rows + 1,
+                                          dataset.RasterYSize)
+    if c0 >= c1 or r0 >= r1:
+        return (None, 0)
+    values = band.ReadAsArray(c0, r0, c1 - c0, r1 - r0).astype(numpy.float64)
+    dataset = None
+    rows, cols = numpy.mgrid[r0:r1, c0:c1]
+    cell_lat = y0 + (rows + 0.5) * dy
+    cell_lon = x0 + (cols + 0.5) * dx
+    distance = numpy.hypot((cell_lat - arp_lat) * metres_per_deg_lat,
+                           (cell_lon - arp_lon) * metres_per_deg_lon)
+    valid = (distance <= radius_m) & numpy.isfinite(values)
+    if nodata is not None:
+        valid &= values != nodata
+    valid &= values != -32768.0
+    if not valid.any():
+        return (None, 0)
+    return (float(numpy.median(values[valid])), int(valid.sum()))
+
+
+def inset_arp_sanity_record(inset_paths, apt_dat_path, icao,
+                            warn_abs_delta_m=None, disc_radius_m=None):
+    """The ``frame.json`` ``inset_arp_sanity`` record (pure: paths in,
+    record out).  ``status`` is ``warn`` when ANY cached inset's disc
+    median is more than ``warn_abs_delta_m`` from the field elevation,
+    ``ok`` when every judged inset is within it, ``skipped`` (with
+    ``why``) when nothing could be judged.  Each inset also carries the
+    vertical-unit provenance its sidecar records (spec §2)."""
+    warn = float(INSET_ARP_SANITY["warn_abs_delta_m"]
+                 if warn_abs_delta_m is None else warn_abs_delta_m)
+    radius = float(INSET_ARP_SANITY["disc_radius_m"]
+                   if disc_radius_m is None else disc_radius_m)
+    record = {"status": "skipped", "warn_abs_delta_m": warn,
+              "disc_radius_m": radius, "apt_dat": apt_dat_path,
+              "insets": []}
+    if not inset_paths:
+        record["why"] = "no cached inset for this airport"
+        return record
+    if not apt_dat_path:
+        record["why"] = "no apt.dat serves this airport"
+        return record
+    arp = _apt_dat_arp_and_field_elevation(apt_dat_path, icao)
+    if arp is None:
+        record["why"] = "the apt.dat block carries no ARP or elevation"
+        return record
+    (arp_lat, arp_lon, arp_source, field_m) = arp
+    record.update({"arp": [round(arp_lat, 7), round(arp_lon, 7)],
+                   "arp_source": arp_source,
+                   "field_elevation_m": round(field_m, 3)})
+    judged = []
+    for path in inset_paths:
+        (median, cells) = _inset_disc_median_m(path, arp_lat, arp_lon,
+                                               radius)
+        entry = {"inset": os.path.basename(str(path)), "cells": cells,
+                 "inset_median_m": (None if median is None
+                                    else round(median, 3))}
+        sidecar = os.path.splitext(str(path))[0] + ".json"
+        try:
+            with open(sidecar) as handle:
+                provenance = json.load(handle)
+        except (OSError, ValueError):
+            provenance = {}
+        if isinstance(provenance, dict):
+            entry["vertical_unit_source"] = provenance.get(
+                "vertical_unit_source")
+            entry["vertical_unit_applied"] = provenance.get(
+                "vertical_unit_applied")
+        if median is not None:
+            delta = median - field_m
+            entry["delta_m"] = round(delta, 3)
+            entry["status"] = "warn" if abs(delta) > warn else "ok"
+            judged.append(entry["status"])
+        record["insets"].append(entry)
+    if judged:
+        record["status"] = "warn" if "warn" in judged else "ok"
+    else:
+        record["why"] = "the ARP disc holds no valid inset cell"
+    return record
+
+
+def inset_arp_sanity(lat, lon, icao, warn_abs_delta_m=None,
+                     disc_radius_m=None):
+    """:func:`inset_arp_sanity_record` for a real build: the cached
+    insets in production ranking order and THE apt.dat v2 reads
+    (``engine_v2.select_apt_dat`` -- the one selector)."""
+    try:
+        import O4_Airport_Elevation_Insets as INSETS
+        from auto_patch.engine_v2 import select_apt_dat
+
+        paths = INSETS.cached_inset_paths_for_icao(lat, lon, icao)
+        xplane_root = os.environ.get("XPLANE_ROOT") or _owner_xplane_root()
+        apt_dat = select_apt_dat(xplane_root, icao) if xplane_root else None
+        return inset_arp_sanity_record(paths, apt_dat, icao,
+                                       warn_abs_delta_m, disc_radius_m)
+    except Exception as exc:
+        return {"status": "skipped", "why": f"check failed ({exc!r})"}
+
+
+def require_inset_arp_sanity(record, strict):
+    """``--strict-inset-datum``: refuse a build whose inset fails the ARP
+    sanity.  Without the flag a ``warn`` is recorded and printed only."""
+    if not strict or (record or {}).get("status") != "warn":
+        return
+    bad = [entry for entry in record["insets"]
+           if entry.get("status") == "warn"]
+    raise SystemExit(
+        "REFUSING (--strict-inset-datum): the inset median at the ARP "
+        "disagrees with the apt.dat field elevation "
+        f"({record.get('field_elevation_m')} m) by more than "
+        f"{record['warn_abs_delta_m']} m: "
+        + "; ".join(f"{e['inset']} median {e['inset_median_m']} m "
+                    f"(delta {e['delta_m']:+.2f} m, vertical_unit_applied="
+                    f"{e.get('vertical_unit_applied')})" for e in bad))
+
+
 #: ``{(lat, lon, ICAO): {"sidecar_stamp": ..., "recheck": {...}}}`` -- the
 #: build-time ladder re-check answers of THIS run, so the pre-flight, the
 #: refresh re-judge and ``frame.json`` share one discovery query per
@@ -3753,6 +3934,18 @@ def main(argv=None) -> int:
                          "product at the solve boundary, replayable with "
                          "tools/solve_cut.py --replay without rebuilding "
                          "phases 1-4.  The build itself is unchanged")
+    ap.add_argument("--inset-arp-sanity-m", type=float,
+                    default=INSET_ARP_SANITY["warn_abs_delta_m"],
+                    metavar="M",
+                    help="WARN threshold of the inset ARP sanity "
+                         "(|inset median over a %g m disc at the ARP - "
+                         "apt.dat field elevation|), recorded in "
+                         "<tag>.frame.json as inset_arp_sanity"
+                         % INSET_ARP_SANITY["disc_radius_m"])
+    ap.add_argument("--strict-inset-datum", action="store_true",
+                    help="REFUSE the build when the inset ARP sanity "
+                         "warns (default: WARN only -- a geoid difference "
+                         "at a coastal field is lawful)")
     args = ap.parse_args(argv)
     # THE ENGINE IS V2, THE ONLY ONE (owner RULINGS 2026-09-13au: v1
     # retired, the setting and the selector gone with it).  These three
@@ -3947,6 +4140,21 @@ def main(argv=None) -> int:
         frame["ladder_recheck"] = (LADDER_RECHECKS.get(
             (int(lat), int(lon), str(args.icao).upper())) or {}).get(
                 "recheck") if not args.tile else None
+        # THE INSET ARP SANITY (spec us-holder-providers §6.3): a WARN
+        # key, a refusal only under --strict-inset-datum.
+        frame["inset_arp_sanity"] = (inset_arp_sanity(
+            lat, lon, args.icao, args.inset_arp_sanity_m,
+            INSET_ARP_SANITY["disc_radius_m"]) if not args.tile else None)
+        sanity = frame["inset_arp_sanity"] or {}
+        if sanity.get("status") == "warn":
+            prog.note("WARNING inset ARP sanity: "
+                      + "; ".join(f"{e['inset']} median "
+                                  f"{e['inset_median_m']} m vs field "
+                                  f"{sanity['field_elevation_m']} m "
+                                  f"({e['delta_m']:+.2f} m)"
+                                  for e in sanity["insets"]
+                                  if e.get("status") == "warn"))
+        require_inset_arp_sanity(sanity, args.strict_inset_datum)
         if inset_problem:
             prog.note(f"per-airport inset {inset_problem[0].upper()}: "
                       f"{inset_problem[1]}")

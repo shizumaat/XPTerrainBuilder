@@ -11969,3 +11969,82 @@ def test_taxi_yield_census_and_generator_share_one_reader(cg, monkeypatch):
     lon, tr = _P.face_cap(law, face, pm)
     assert lon == 0.0202 and calls == [(0.015, 0.0202)]
     assert tr == role_cap(law, "primary_parallel", None, "D").transverse
+
+
+# ---------------------------------------------------------------------------
+# THE INSET ARP SANITY (spec us-holder-providers §6.3, RULINGS 2026-09-30bm)
+# ---------------------------------------------------------------------------
+def _arp_fixture(tmp_path, inset_value_m, sidecar=None):
+    """A KRDU-shaped apt.dat (field 435 ft = 132.588 m, 1302 datum ARP) and
+    a flat EPSG:4326 inset of ``inset_value_m`` around the ARP."""
+    import numpy
+    from osgeo import gdal, osr
+
+    apt = tmp_path / "apt.dat"
+    apt.write_text(
+        "I\n1200 Generated\n\n"
+        "1    435 0 0 KRDU Raleigh Durham Intl\n"
+        "1302 datum_lat 35.877639\n1302 datum_lon -78.787472\n"
+        "100 45.72 1 1 0.25 1 3 0 05L 35.86 -78.80 0 0 3 0 0 0 "
+        "23R 35.89 -78.77 0 0 3 0 0 0\n\n99\n")
+    inset = tmp_path / "KRDU_NCTEST.tif"
+    size, (west, north) = 60, (-78.795, 35.885)
+    step = 0.00025
+    ds = gdal.GetDriverByName("GTiff").Create(str(inset), size, size, 1,
+                                              gdal.GDT_Float32)
+    ds.SetGeoTransform((west, step, 0.0, north, 0.0, -step))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    ds.SetProjection(srs.ExportToWkt())
+    band = ds.GetRasterBand(1)
+    band.SetNoDataValue(-32768.0)
+    band.WriteArray(numpy.full((size, size), inset_value_m, numpy.float32))
+    ds = None
+    if sidecar is not None:
+        (tmp_path / "KRDU_NCTEST.json").write_text(json.dumps(sidecar))
+    return str(inset), str(apt)
+
+
+def test_inset_arp_sanity_ok_within_threshold(build_mod, tmp_path):
+    inset, apt = _arp_fixture(tmp_path, 133.9, sidecar={
+        "vertical_unit_source": "elv", "vertical_unit_applied": "m"})
+    rec = build_mod.inset_arp_sanity_record([inset], apt, "KRDU")
+    assert rec["status"] == "ok"
+    assert rec["arp"] == [35.877639, -78.787472]
+    assert rec["arp_source"] == "1302 datum"
+    assert rec["field_elevation_m"] == pytest.approx(132.588)
+    (entry,) = rec["insets"]
+    assert entry["delta_m"] == pytest.approx(1.312, abs=1e-3)
+    assert entry["cells"] > 0
+    assert entry["vertical_unit_applied"] == "m"
+    # the threshold is the table value, overridable
+    assert rec["warn_abs_delta_m"] == build_mod.INSET_ARP_SANITY[
+        "warn_abs_delta_m"]
+    build_mod.require_inset_arp_sanity(rec, strict=True)   # no refusal
+
+
+def test_inset_arp_sanity_catches_a_feet_inset(build_mod, tmp_path):
+    # The feet trap: 435 ft field read as metres-in-feet = +630 m at KRDU
+    # class (here the raster carries the field elevation in ftUS).
+    inset, apt = _arp_fixture(tmp_path, 435.0)
+    rec = build_mod.inset_arp_sanity_record([inset], apt, "KRDU")
+    assert rec["status"] == "warn"
+    assert rec["insets"][0]["delta_m"] == pytest.approx(302.412, abs=1e-3)
+    assert rec["insets"][0]["vertical_unit_applied"] is None
+    # WARN only by default; a refusal only under --strict-inset-datum
+    build_mod.require_inset_arp_sanity(rec, strict=False)
+    with pytest.raises(SystemExit, match="--strict-inset-datum"):
+        build_mod.require_inset_arp_sanity(rec, strict=True)
+    # a looser CLI threshold judges the same inset ok
+    assert build_mod.inset_arp_sanity_record(
+        [inset], apt, "KRDU", warn_abs_delta_m=400.0)["status"] == "ok"
+
+
+def test_inset_arp_sanity_skips_without_inputs(build_mod, tmp_path):
+    inset, apt = _arp_fixture(tmp_path, 133.0)
+    assert build_mod.inset_arp_sanity_record([], apt, "KRDU")[
+        "status"] == "skipped"
+    assert build_mod.inset_arp_sanity_record([inset], None, "KRDU")[
+        "status"] == "skipped"
+    rec = build_mod.inset_arp_sanity_record([inset], apt, "KXXX")
+    assert rec["status"] == "skipped" and "ARP" in rec["why"]

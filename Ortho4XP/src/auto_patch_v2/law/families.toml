@@ -232,6 +232,25 @@ ruling    = "2026-09-30u (c)"
 solver    = "diagnostic"
 cockpit   = "grade"
 
+# §5a THE LAW CONFLICT (flat-pad spec v2 §5a; owner RULINGS 2026-09-30be,
+# ratified 30bf).  The hard set is checked FEASIBLE before the design QP
+# (`solve/feasibility.py`, the elastic LP over the hard rows); a row the LP
+# must relax is a conflict between LAWS, the LOWEST-ranked member relaxes
+# (runway > taxi caps > apron cap > pad hold) and only those rows are
+# priced for the solve.  SIDECAR-DECLARED (`hard_conflict`): one row per
+# relaxed hard row — its law, the laws it conflicts with, its site and the
+# relaxation s_i.  The bar is an empty list; a patch with no key reports
+# nothing.  REPORT: a relaxed row's own height is read by the motion and
+# grade families at its site.
+[hard_conflict]
+measures  = "a HARD law row the pre-solve feasibility LP had to relax — a conflict between laws (runway > taxi caps > apron cap > pad hold); one row per relaxed row (de = its relaxation s_i, metres)"
+parameter = "emit.design.hard_tol_m"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "2026-09-30be / 2026-09-30bf"
+solver    = "diagnostic"
+cockpit   = "grade"
+
 [platform_refused]
 measures  = "a unit pad fronting airside that got NO platform — its erosion by the collar left no inner ring of cluster_pad_min_m2 (it keeps the welded plate)"
 parameter = "structures.building_pad.platform_collar_max_m"

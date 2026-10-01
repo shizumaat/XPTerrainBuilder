@@ -22,7 +22,7 @@ from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from .rows import _reduce
 
-__all__ = ["runway_stage_roles", "runway_columns", "stage_one"]
+__all__ = ["runway_stage_roles", "runway_columns", "stage_one", "yield_stage_one"]
 
 
 def _held_at_ref(terms, hi: float, ref: _t.Mapping[int, float],
@@ -70,29 +70,74 @@ def runway_columns(planar: PlanarMap, cs: ConstraintSet, law: Law
     return out
 
 
+def yield_stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, got: tuple,
+                    solve1: _t.Callable[[PlanarMap, ConstraintSet], tuple]
+                    ) -> tuple[ConstraintSet, tuple, list[dict]]:
+    """THE PINS STAGE 1 READS YIELD IN STAGE 1 (issue #87): ``got`` (one
+    ``solve1`` answer) re-solved with the yielding pins its unsettled hard
+    rows reach released — ``(cs, got, release records)``, the input itself
+    when nothing is released.  Decided from stage 1's own hard set, so
+    nothing stage 2 carries can change the problem stage 1 solved."""
+    from ..law.tables import design as design_law
+    from .pin_yield import row_vertices, stage1_read_pins, yield_pins
+    heads = frozenset(getattr(design_law(law), "yielding_pin_rulings", ()) or ())
+    sol, rep, drop, foreign, _lv, _sz = got
+    among = stage1_read_pins(cs, heads, drop) if heads else frozenset()
+    if not (among and not rep.hard_settled and sol.z):
+        return cs, got, []
+    last: dict[int, tuple] = {}
+
+    def _again(cs_x: ConstraintSet):
+        out = solve1(planar, cs_x)
+        last[id(out[1])] = out
+        return out[0], out[1]
+    _s, rep_y, recs, cs_y = yield_pins(
+        planar, cs, law, sol, rep, foreign, _again, among=among,
+        keep_row=lambda r: not any(v in drop for v in row_vertices(r)))
+    if not recs:
+        return cs, got, []
+    for r in recs:
+        r["stage"] = 1
+    return cs_y, last[id(rep_y)], recs
+
+
 def stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, hold: _t.Any,
               solve1: _t.Callable[[PlanarMap, ConstraintSet], tuple]
-              ) -> tuple[PlanarMap, ConstraintSet, tuple, "dict | None"]:
+              ) -> tuple[PlanarMap, ConstraintSet, tuple, "dict | None", list[dict]]:
     """§20b STAGE 1 under the hold: ``(planar, cs, solve1's answer, pass-1a
-    record)`` — the map and the problem stage 1 SOLVED (pass 1b's when a
-    block is held) and ``solve1(planar, cs) -> (sol, rep, drop, foreign,
-    levels, size)``'s answer for them.  The record (``stages["stage1a"]``)
-    carries pass 1a's size, hard set and wall, the interval's wall and its
-    statistics; ``None`` when no hold row exists."""
+    record, pin releases)`` — the map and the problem stage 1 SOLVED (pass
+    1b's when a block is held), ``solve1(planar, cs) -> (sol, rep, drop,
+    foreign, levels, size)``'s answer for them and the issue #87 releases
+    (:func:`yield_stage_one`) both passes kept.  The record
+    (``stages["stage1a"]``) carries pass 1a's size, hard set and wall, the
+    interval's wall and its statistics; ``None`` when no hold row exists.
+
+    PASS 1a IS TODAY'S STAGE 1 — ITS PIN YIELD INCLUDED (lane
+    ``rwyband128``, issue #128): the runway Bands are centred on pass 1a's
+    levelled values, so a pass 1a read BEFORE the yield centred them on a
+    profile the shipped stage 1 never carries (HECA 05L/23R: a released
+    pin dropped the runway 3.2 m at 30.13103, 31.39586 — pass 1b then held
+    it within β of the UN-yielded 64.55 m, 3.47 m off sw1002's 61.17)."""
     cs1a = hold.strip(cs) if hold is not None else None
     t1 = time.perf_counter()
-    got = solve1(planar, cs1a if cs1a is not None else cs)
     if cs1a is None:
-        return planar, cs, got, None
+        cs, got, y1 = yield_stage_one(planar, cs, law, solve1(planar, cs), solve1)
+        return planar, cs, got, None, y1
+    cs1a, got, y1 = yield_stage_one(planar, cs1a, law, solve1(planar, cs1a), solve1)
     _sol, rep, _d, _f, levels, _sz = got
     w1a = time.perf_counter() - t1
     cs1b = hold.derive(cs1a, dict(levels), runway_columns(planar, cs1a, law))
     rec = {"unknowns": rep.unknowns, "rows": rep.rows, "hard_rows": rep.hard_rows,
            "hard_max_violation_m": round(rep.hard_max_violation_m, 6),
            "hard_settled": rep.hard_settled, "wall_s": round(w1a, 3),
-           "interval_s": round(time.perf_counter() - t1 - w1a, 3)}
+           "pins_yielded": len(y1),
+           "interval_s": round(time.perf_counter() - t1 - w1a, 3),
+           # §5a (RULINGS 2026-09-30be/30bf): pass 1a's own feasibility read
+           "hard_feasibility": (rep.hard_feasibility.as_dict()
+                                if getattr(rep, "hard_feasibility", None)
+                                is not None else None)}
     if cs1b is None:
-        return planar, cs1a, got, rec
+        return planar, cs1a, got, rec, y1
     res = getattr(hold, "result", None)
     rec["interval"] = dict(getattr(res, "stats", None) or {})
     # §5: the fronting set is published on the map pass 1b solves
@@ -100,4 +145,5 @@ def stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, hold: _t.Any,
     if fr:
         planar = _dc.replace(planar, fronting_vertices=frozenset(fr),
                              fronting_ref=getattr(res, "fronting_ref", {}) or {})
-    return planar, cs1b, solve1(planar, cs1b), rec
+    cs1b, got, y1b = yield_stage_one(planar, cs1b, law, solve1(planar, cs1b), solve1)
+    return planar, cs1b, got, rec, y1 + y1b

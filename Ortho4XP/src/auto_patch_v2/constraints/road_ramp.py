@@ -26,7 +26,7 @@ from ..model.planar import PlanarMap
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
            "road_contact_rows", "reach_seed_rewrite", "BANK_RULING",
-           "between_levels_rewrite"]
+           "between_levels_rewrite", "airside_joins"]
 
 GEN = "road_ramp"
 #: The ruling HEAD of the DESIGN TARGET (everything before the first
@@ -126,14 +126,50 @@ def road_contact_rows(planar: PlanarMap, law: Law, airport: Airport
     return rows
 
 
+def airside_joins(planar: PlanarMap, law: Law) -> frozenset[int]:
+    """THE JOINS ON AIRSIDE (lane ``joinyield128``, issue #128 / #143; owner
+    RULINGS 2026-09-30be — the apron cap is HARD everywhere — under the free-
+    road ruling and airside-is-king: "Why would a road EVER move airside?
+    It should be welded to airside"): the §37 (9) join vertices that lie
+    on a §20b STAGE-1 (airside pavement) face — on its ring or inside it.
+
+    Such a vertex is AIRSIDE, not road: it takes the airside's solved value
+    and the road conforms to it, so it is NOT pinned at the core ribbon's
+    level (:func:`road_join_rows` mints no ``Pin`` for it — never in the
+    solve, so never in a stage-1 or stage-2 pin yield either).  After the
+    solve the pipeline publishes it as a yielded join
+    (``emit/road_join.with_pin_yield``'s ``withheld``): the core ribbon
+    takes the airside's level there, beyond its budget, like every join
+    the ribbon yields (RULINGS 2026-09-27a (10)).
+
+    MEASURED (HECA, capture ``hardhold128``, branch ``rwyband128``): the
+    ribbon pinned ``pav37|route3`` v7903 at 99.83 m, 5.62 m over the hard-
+    capped apron stage 1 solves there; the stage-1 yield released it to
+    94.21 m and stage 2's rewrite (which re-reads the UN-yielded set)
+    re-pinned it — a 6.97 m apron|apron cliff at 30.11658, 31.41098."""
+    joins = getattr(planar, "road_coverage_join", None) or {}
+    if not joins:
+        return frozenset()
+    from ..law.tables import airside_stage_roles
+    air = airside_stage_roles(law)
+    return frozenset(
+        v for v in joins
+        if any(planar.faces[f].role in air
+               for f in planar.vertices[v].incident_faces))
+
+
 def road_join_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """§37 (9): one ``Pin`` per road vertex at a coverage exit, at the core
     ribbon's own altitude just outside (``PlanarMap.road_coverage_join``,
     derived in ``emit/road_join.py``).  A map without the channel mints
-    nothing — the derivation has one site."""
+    nothing — the derivation has one site.  A join on AIRSIDE
+    (:func:`airside_joins`) mints nothing: the airside's value is its."""
     joins = getattr(planar, "road_coverage_join", None) or {}
     rows: list[Row] = []
+    held = airside_joins(planar, law)
     for v in sorted(joins):
+        if v in held:
+            continue
         ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
                     if planar.faces[f].ref), "")
         rows.append(Pin(v, float(joins[v]),

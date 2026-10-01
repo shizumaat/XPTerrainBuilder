@@ -85,6 +85,7 @@ from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint
+from .shape_mouths import weld_same_role_mouths
 
 __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes", "network_faces", "network_vertices", "strip_keepout",
            "straddles", "straddles_pairs", "row_vertices", "row_test_pairs",
@@ -126,6 +127,9 @@ class ShapeStats:
     pads_relabelled: int = 0
     welded_strip_pairs: int = 0     # body pairs welded by a boundary edge inside the runway strip
     welded_route_pairs: int = 0     # body pairs welded by a boundary edge on a taxi centreline (a mouth a route passes through)
+    welded_same_role_mouths: int = 0   # 30bk: body pairs welded across a mouth with the same apron role on both sides
+    mouths_kept: int = 0            # 30bk: body pairs whose mouth is flanked by another role (a road / taxiway leaving an apron)
+    mouths_mixed: int = 0           # 30bk: body pairs joined by a same-role mouth AND a class-change edge (welded: one apron)
     joint_edges: int = 0            # planar edges whose endpoints carry two shapes
     joint_edges_by_roles: dict[str, int] = _dc.field(default_factory=dict)
     contours: int = 0               # declared label-boundary polylines
@@ -871,6 +875,7 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     ramps = _label_others(pm, law, label, N, stats)
     keep = strip_keepout(classification, law) if classification is not None else None
     uf = _weld_strip(pm, label, keep, stats)
+    weld_same_role_mouths(pm, law, label, N, uf, stats)   # 30bk: one apron, one shape
     # the record: dense shape ids in order of first appearance by area rank
     of_face: dict[int, int] = {}
     area: dict[int, float] = {}
@@ -966,3 +971,6 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     stats.road_ramps = len(ramps)
     stats.wall_s = time.perf_counter() - t0
     return pm, stats
+
+
+_weld_same_role_mouths = weld_same_role_mouths   # the twins' spelling

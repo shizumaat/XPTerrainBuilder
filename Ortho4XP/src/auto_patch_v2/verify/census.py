@@ -104,6 +104,11 @@ NOT_IMPLEMENTED: tuple[str, ...] = (
     # flat-pad spec §1 (2) / RULINGS 2026-09-30u (c): the held blocks'
     # frontage, from the same ``platforms`` key
     "pad_frontage_hold", "pad_frontage_infeasible",
+    # flat-pad spec v2 §5a (RULINGS 2026-09-30be/30bf): the solve's own
+    # pre-solve LP names the relaxed hard rows (``hard_conflict``) — the
+    # census's; verify reads the solved surface, which cannot see a row
+    # the solve demoted
+    "hard_conflict",
     "terrace_joint_route", "terrace_joint_strip", "terrace_actual_step",
     "drainage_spine", "apron_lattice_membrane", "drainage_minimum",
     # §39 (2) (owner RULINGS 2026-09-13bk/13bt/13bu): the hairline needs the

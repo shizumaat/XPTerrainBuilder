@@ -68,6 +68,25 @@ class Design:
     #: the ruling HEADS promoted to HARD on the fronting set (flat-pad spec
     #: v2 §5; ``solve.design.assemble``'s one filter)
     fronting_hard_rulings: tuple[str, ...]
+    #: flat-pad spec v2 §5 (owner RULINGS 2026-09-30be/30bf): ruling HEADS
+    #: that are HARD on a face whose role is in ``apron_hard_roles`` (the
+    #: role-agnostic ``plane_gradient``: the apron's cap is hard everywhere,
+    #: the taxi's only on the fronting set) — ``solve.design.assemble``
+    apron_hard_rulings: tuple[str, ...]
+    apron_hard_roles: tuple[str, ...]
+    #: §5a THE LAW HIERARCHY (owner RULINGS 2026-09-30be/30bf): the tier
+    #: names, highest first, and per tier the ruling HEADS it ranks; the
+    #: first tier (the runway) is never relaxed (``solve/feasibility.py``)
+    hard_conflict_tiers: tuple[str, ...]
+    hard_conflict_ranks: tuple[tuple[str, ...], ...]
+    #: the elastic LP's price ratio between adjacent tiers
+    hard_conflict_tier_ratio: float
+    #: §5a's LP budget in seconds (RULINGS 2026-09-30bf: <= 10 s at HECA)
+    hard_conflict_lp_budget_s: float
+    hard_conflict_lp_budget_share: float
+    #: RULINGS 2026-09-30bj: PRICED heads promoted to hard pair by pair
+    #: where the solve misses them (``solve/feasibility.promote_missed``)
+    apron_promote_on_miss_rulings: tuple[str, ...]
     #: §50.1 (3) THE MARGIN ON A YIELDED RUNWAY CAP (owner RULINGS
     #: 2026-09-18d (3)): where a runway's own HARD PINS demand more grade
     #: than ``rulesets.runway.longitudinal`` allows, that runway's
@@ -467,6 +486,33 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.conforming_hard_rulings {stray}: not in "
                   "hard_rulings — the register names which HARD law conforms "
                   "(issue #67), it makes nothing hard")
+    if len(d.hard_conflict_ranks) != len(d.hard_conflict_tiers) \
+            or len(d.hard_conflict_tiers) < 2:
+        raise err(f"emit.design.hard_conflict_ranks: one list per tier of "
+                  f"hard_conflict_tiers {list(d.hard_conflict_tiers)} — the "
+                  "§5a hierarchy (RULINGS 2026-09-30be/30bf)")
+    ranked = [h for tier in d.hard_conflict_ranks for h in tier]
+    dup = sorted({h for h in ranked if ranked.count(h) > 1})
+    if dup:
+        raise err(f"emit.design.hard_conflict_ranks {dup}: a head in two "
+                  "tiers — every hard law has ONE rank (§5a)")
+    unranked = sorted({*d.hard_rulings, *d.fronting_hard_rulings,
+                       *d.apron_hard_rulings, *d.apron_promote_on_miss_rulings}
+                      - set(ranked))
+    if unranked:
+        raise err(f"emit.design.hard_conflict_ranks {unranked}: a HARD head "
+                  "with no rank — the hierarchy is a decision, never a "
+                  "default (§5a, RULINGS 2026-09-30bf)")
+    if not d.hard_conflict_tier_ratio > 1.0:
+        raise err(f"emit.design.hard_conflict_tier_ratio "
+                  f"{d.hard_conflict_tier_ratio}: above 1 — a lower tier "
+                  "must be the cheaper one to relax (§5a)")
+    if not 0.0 < d.hard_conflict_lp_budget_share <= 1.0:
+        raise err(f"emit.design.hard_conflict_lp_budget_share "
+                  f"{d.hard_conflict_lp_budget_share}: a share of pass 1a in (0, 1]")
+    if not d.hard_conflict_lp_budget_s > 0.0:
+        raise err(f"emit.design.hard_conflict_lp_budget_s "
+                  f"{d.hard_conflict_lp_budget_s}: positive seconds")
     if not d.hard_rulings:
         raise err("emit.design.hard_rulings: at least one ruling "
                   "(RULINGS 2026-09-08v: the runway family's laws are hard)")

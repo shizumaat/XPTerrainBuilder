@@ -6743,6 +6743,33 @@ def _check_pad_frontage(platforms_ll, held: bool) -> List[Violation]:
     return out
 
 
+def _check_hard_conflict(hard_conflict_ll) -> List[Violation]:
+    """§5a THE LAW CONFLICT (flat-pad spec v2 §5a; owner RULINGS 2026-09-30be,
+    ratified 30bf) — REPORT, one row per HARD row the pre-solve feasibility
+    LP relaxed.
+
+    SIDECAR-DECLARED like ``platform_rim_relief``: the solve publishes per
+    relaxed row its law (``row``), the laws it conflicts with
+    (``against``), its site and its relaxation ``s_m``; this reports
+    exactly that.  The bar is an EMPTY list; a patch with no key reports
+    nothing."""
+    out: List[Violation] = []
+    for rec in hard_conflict_ll or ():
+        if not isinstance(rec, dict):
+            continue
+        site = rec.get("site") or (0.0, 0.0)
+        against = ",".join(sorted((rec.get("against") or {}).keys()))[:80]
+        way = Way("hard_conflict", "apron",
+                  f"hard_conflict:{rec.get('tier', '')}:{rec.get('row', '')}",
+                  "", [], [], {"against": against})
+        v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+                      de_m=float(rec.get("s_m", 0.0) or 0.0), way_a=way, way_b=way,
+                      pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=0.0, elev_b=0.0)
+        v.lat, v.lon = float(site[0]), float(site[1])
+        out.append(v)
+    return out
+
+
 def _check_platform_refused(platforms_ll) -> List[Violation]:
     """A UNIT PAD THE PLATFORM REFUSED (unit-platform spec §1 (2)) — REPORT,
     one row per refusal (its erosion by the collar left no inner ring of
@@ -9839,6 +9866,12 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("pad_frontage_infeasible",
      "FLAT-PAD block with UNHELD frontage contacts (ramp / unreachable)",
      "within"),
+    # §5a THE LAW CONFLICT (flat-pad spec v2 §5a; RULINGS 2026-09-30be /
+    # 30bf).  SIDECAR-DECLARED: the hard rows the pre-solve feasibility LP
+    # relaxed, each with the laws it conflicts with — REPORT; bar empty.
+    ("hard_conflict",
+     "HARD law row the pre-solve feasibility LP relaxed (a conflict between laws)",
+     "within"),
     # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
     # ruled 13q item 2; spec §36).  Sidecar-declared like the two families
     # above it: the accepted rects arrive as ``eat_rects`` and this prices
@@ -10601,6 +10634,8 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "jetway_strips": "jetway_strips_ll",
     # unit-platform spec §4 (5): the platforms, their planes and relief
     "platforms": "platforms_ll",
+    # flat-pad spec v2 §5a: the hard rows the feasibility LP relaxed
+    "hard_conflict": "hard_conflict_ll",
     # §38 (3)/(5): the band's own half width, so ``bank_across_seam``
     # reads "inside the band" from the law the BUILD ran under
     "seam_half_width_m": "seam_half_width_m",
@@ -11038,6 +11073,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["jetway_strips_ll"] = data.get("jetway_strips") or None
     # unit-platform spec §4 (5) (absent before the platform: nothing)
     ctx["platforms_ll"] = data.get("platforms") or None
+    # flat-pad spec v2 §5a (absent before the feasibility check: nothing)
+    ctx["hard_conflict_ll"] = data.get("hard_conflict") or None
     ctx["seam_half_width_m"] = data.get("seam_half_width_m")
     # §39 (1)/(2): the emitter's own foreign-water population
     ctx["shore_edges_ll"] = data.get("shore_edges") or None
@@ -12111,6 +12148,7 @@ def run_checks(
     pad_airside_renode_ll: Optional[list] = None,
     jetway_strips_ll: Optional[list] = None,
     platforms_ll: Optional[list] = None,
+    hard_conflict_ll: Optional[list] = None,
     seam_half_width_m: Optional[float] = None,
     # §40 (2) as amended (owner RULINGS 2026-09-13dd): each runway's own
     # axis and half width, and the shoulder's transverse maximum — the
@@ -12630,6 +12668,12 @@ def run_checks(
         "blocks or a contact the mint band could not reach (RULINGS "
         "2026-09-30u (c)) — REPORT, one row per block, de = the worst", pinf, top_n)
     within = within + pinf
+    hconf = _fam("hard_conflict", _check_hard_conflict(hard_conflict_ll))
+    _pv("HARD law row the pre-solve feasibility LP RELAXED — a conflict "
+        "between laws, the lowest-ranked member relaxed (flat-pad spec v2 "
+        "§5a; RULINGS 2026-09-30be/30bf: runway > taxi caps > apron cap > "
+        "pad hold) — REPORT, one row per relaxed row, de = s_i", hconf, top_n)
+    within = within + hconf
     prefused = _fam("platform_refused", _check_platform_refused(platforms_ll))
     _pv("UNIT PAD with NO platform (unit-platform spec §1 (2): the collar's "
         "erosion left no inner ring; the pad keeps its welded plate) — REPORT",

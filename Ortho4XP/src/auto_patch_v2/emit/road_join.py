@@ -153,7 +153,9 @@ def with_road_coverage_join(pm: PlanarMap, law: Law, profiles,
 
 
 def with_pin_yield(pm: PlanarMap, pin_yield: _t.Sequence[dict],
-                   tol_m: float = 0.0) -> PlanarMap:
+                   tol_m: float = 0.0,
+                   withheld: _t.Iterable[int] = (),
+                   z: _t.Sequence[float] | None = None) -> PlanarMap:
     """OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS.  ``pin_yield`` is
     the solve's ``DesignReport.pin_yield`` — the §37 (9) joins it released
     to settle the hard set.  Each join whose patch level stands more than
@@ -163,11 +165,31 @@ def with_pin_yield(pm: PlanarMap, pin_yield: _t.Sequence[dict],
     the join the mesh will carry, and the core clamp reads the sidecar's
     ``road_join_yield`` and pins its ribbon there
     (``O4_Vector_Map.road_join_yield_pins``).  A join the release left
-    within ``tol_m`` keeps the ribbon's value."""
-    moved = {int(r["v"]): (float(r["pinned_m"]), float(r["z_m"]))
-             for r in pin_yield or ()
-             if abs(float(r["excess_m"])) > tol_m
-             and int(r["v"]) in pm.road_coverage_join}
+    within ``tol_m`` keeps the ribbon's value.
+
+    ``z`` (lane ``joinyield128``): the FINAL solved surface.  Given, the
+    patch level published is the one the patch CARRIES — ``z[v]``, not
+    the release record's stage-local value (HECA v28332: the record said
+    101.075 m, stage 2 emitted 100.755 m).  ``withheld``: the joins on
+    AIRSIDE that were never pinned (``constraints/road_ramp
+    .airside_joins``) — the airside's value is theirs, so the ribbon
+    yields to ``z[v]`` exactly as to a released pin."""
+    def _at(v: int, rec: float) -> float:
+        return float(z[v]) if z is not None and len(z) > v else rec
+    moved: dict[int, tuple[float, float]] = {}
+    for r in pin_yield or ():
+        v = int(r["v"])
+        if v not in pm.road_coverage_join:
+            continue
+        zp = _at(v, float(r["z_m"]))
+        if abs(zp - float(r["pinned_m"])) > tol_m:
+            moved[v] = (float(r["pinned_m"]), zp)
+    if z is not None:
+        for v in withheld:
+            v = int(v)
+            rib = pm.road_coverage_join.get(v)
+            if rib is not None and len(z) > v and abs(float(z[v]) - float(rib)) > tol_m:
+                moved[v] = (float(rib), float(z[v]))
     if not moved:
         return pm
     joins = dict(pm.road_coverage_join)

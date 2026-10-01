@@ -360,7 +360,7 @@ def test_las_member_is_refused_with_the_reason(server, tmp_path):
             _definition(member_suffix=".las"), _box_inside([0]), 1.0,
             str(tmp_path / "KHDN_x.tif"))
     assert "member_suffix=.las" in caught.value.reason
-    assert "lasidx154" in caught.value.reason
+    assert "archive_member=las" in caught.value.reason
     assert server["calls"] == []
 
 

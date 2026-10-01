@@ -133,6 +133,9 @@ def test_shipped_definitions_parse(shipped_registry):
         "AKHOMER",
         "AKHAINES",
         "WADNR",
+        # US holder point clouds (#154, lane lasidx154).
+        "NOAAVALDEZLAZ",
+        "CWCB7V2LAS",
         "DENMARK40CM",
         "SWEDEN1M",
         "CUDEMHAWAII",

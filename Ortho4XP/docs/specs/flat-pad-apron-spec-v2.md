@@ -73,6 +73,9 @@ over every ANCHOR `p`: each runway-family column at its pass-1a value `z¹ᵃ_p`
 | P21 | `solve/why` `--why-at` | EDITED — names the plateau hold on a plateau vertex and the promoted hard cap on a fronting pair |
 | P22 | `planar/overlay.absorb_enclosed_pavement` (§41) | EDITED — plateau pieces are EXEMPT from absorption into their apron host (lane flatpad128v3 found it swallowing them; census miss of the first draft). The plateau piece carries the apron's cap rows, HARD like every apron row (30be); its flatness is the hold's |
 
+| P23 | 08k shape-stage joint filter: `planar/shapes._contour_joints` (DEM-earned contour joints at narrow mouths, 29j/29k) + `pipeline/shapes.py:111` THE FILTER (drops every row straddling two shapes) | **OWNER Q-152 (#152), NOT ruled here** — lane apronhard (30bi): objpav402 is cut into pieces 2|8 7.60 m, 8|66 6.85 m, 8|67 4.79 m, 3|8 4.35 m; with the cap hard per piece the relief lands on the joint edges (+7.41 / −7.60 m, sw1002 +3.06) where no cap row exists, so the §5a LP sees no conflict. Branch (a): contour joints WITHHELD inside one connected apron (one shape; graded through at ≤ 1.5 %, terrain cut/filled; objpav402 a plane tied at its one junction, ~6 m cut at the far end). Branch (b): a narrow mouth keeps 08k's step; the step is then a declared joint the census reads, and §5a's pre-registration for objpav402 is void |
+| P24 | road coverage-join pin yield (`roads.coverage_edge join`, `emit.toml` `yielding_pin_rulings`; #143) | UNCHANGED, REPORTED — pav37 vs route3 at 30.11658, 31.41098 steps 5.33 m (30bi): the road's own rule, outside this spec; named with Q-152's answer |
+
 An apron-ring reader not in this table is a STOP (add the row, rule it, then edit).
 
 ## §4 §20 CONFORMING PADS (CYXY's class) COME UNDER THE SAME LAW

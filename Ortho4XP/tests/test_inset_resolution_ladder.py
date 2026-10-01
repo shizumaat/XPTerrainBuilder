@@ -1059,3 +1059,40 @@ def test_rung_row_records_units_and_bytes(tmp_path):
     INSETS._record_rung_units_and_bytes(
         attempt, {"vertical_unit_source": []}, str(tmp_path / "absent.tif"))
     assert attempt == {}
+
+
+@requires_gdal
+def test_unavailable_rung_zero_climbs(tmp_path, two_providers):
+    """Spec §1 outcome table + RULINGS 2026-09-30bu (1): an undecodable
+    USGS 1 m product (rung 0 ``unavailable``, #157) no longer skips the
+    coarser rungs -- the ladder climbs and delivers the 10 m rung; the
+    rung-0 row records the reason."""
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"unavailable": "undecodable zip member"},
+                 "FAKEPIT": {"valid": None, "listing": []},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    destination = str(tmp_path / "KASE_fake3dep.tif")
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0, destination,
+                                    resolution_ladder=True)
+    tried = provenance["ladder"]["rungs_tried"]
+    assert [r["outcome"] for r in tried] == [
+        "unavailable", "no-coverage", "delivered"]
+    assert tried[0]["unavailable_reason"] == "undecodable zip member"
+    assert provenance["ladder"]["delivered_rung"] == 2
+    assert os.path.isfile(destination)
+
+
+@requires_gdal
+def test_unavailable_rung_zero_with_nothing_else_stays_unavailable(
+        tmp_path, two_providers):
+    """...and when no other rung lists anything the provider's answer is
+    still ``unavailable`` (13b) -- never a durable no-coverage."""
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"unavailable": "undecodable zip member"},
+                 "FAKEPIT": {"valid": None, "listing": []},
+                 "FAKE3DEP:10": {"valid": None, "listing": []}})
+    with pytest.raises(INSETS.ProviderUnavailable):
+        INSETS.fetch_inset(chain, BOX, 1.0,
+                           str(tmp_path / "KASE_fake3dep.tif"),
+                           resolution_ladder=True)
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT", "FAKE3DEP:10"]

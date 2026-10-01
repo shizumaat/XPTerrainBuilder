@@ -1960,6 +1960,7 @@ def _fetch_through_resolution_ladder(
     fallback = None           # finest sub-threshold (index, path, provenance)
     scratch_paths = []
     transient_errors = []
+    unavailable_errors = []   # rung 0's ProviderUnavailable, raised last
 
     def _try_rung(index, label, rung_definition, rung_path, rung_target,
                   rung_strategy):
@@ -1992,8 +1993,15 @@ def _fetch_through_resolution_ladder(
                     rung_definition, bounding_box_wgs84, rung_target,
                     rung_path)
             except ProviderUnavailable as error:
+                # RUNG 0 CLIMBS TOO (spec us-holder-providers §1 outcome
+                # table: ``unavailable`` -> next rung, "only transient
+                # raises"; RULINGS 2026-09-30bu (1)): an undecodable USGS
+                # 1 m product must not skip the 1/9" and 1/3" rungs.  When
+                # NOTHING is delivered or kept the rung-0 refusal is raised
+                # after the ladder (below), so the provider still records
+                # ``unavailable:<reason>`` -- never a durable no-coverage.
                 if index == 0:
-                    raise
+                    unavailable_errors.append(error)
                 unavailable = error.reason
             except TransientFetchError as error:
                 # EVERY FAILURE CLASS FALLS THROUGH (owner RULINGS
@@ -2177,6 +2185,10 @@ def _fetch_through_resolution_ladder(
             # asks again.
             raise transient_errors[0]
         chosen = delivered or fallback
+        if chosen is None and unavailable_errors:
+            # Rung 0 could not be asked and no other rung listed anything:
+            # the provider's answer is ``unavailable`` (13b), as before.
+            raise unavailable_errors[0]
         if chosen is None:
             return None
         (index, rung_path, provenance) = chosen

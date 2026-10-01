@@ -659,11 +659,13 @@ def _split_rows(text: str) -> tuple[list[list[str]], dict, list[tuple], dict]:
             continue
         toks = s.split()
         kw = toks[0]
-        if kw == "HEIGHTS":
+        if kw == HEIGHTS_KEYWORD:
             # the encoder's DERIVED height pool (quantum, base, comment):
             # its base follows the elevations that remain, so converting
             # every MSL row moves it (measured: "-9.0" -> "0.0" on KMCI
-            # under RULINGS 2026-09-11d).  The quantum is the invariant.
+            # under RULINGS 2026-09-11d).  The quantum is the invariant
+            # WHILE an elevated row remains — :func:`compare_dumps` drops
+            # it when none does (#131).
             struct.append(toks[:2])
             continue
         if kw == "FILTER" and len(toks) >= 2:
@@ -715,6 +717,34 @@ def _split_rows(text: str) -> tuple[list[list[str]], dict, list[tuple], dict]:
             continue
         struct.append(toks)
     return struct, places, polys, segs
+
+
+#: The dump keyword of the elevation scale row (``HEIGHTS quantum base``).
+HEIGHTS_KEYWORD = "HEIGHTS"
+
+
+def _heights_unstored(struct: list[list[str]], places: dict) -> list[list[str]]:
+    """``struct`` with the ``HEIGHTS`` QUANTUM dropped when the text holds
+    no elevated placement (#131).
+
+    The quantum is the scale of the ELEVATION plane of the object pools,
+    and DSFTool stores it only beside an ``OBJECT_MSL`` / ``OBJECT_AGL``
+    row; with none left there is nothing in the DSF to carry it, and the
+    re-dump prints DSFTool's own default.  Measured 2026-10-01 (lane
+    roundtrip131, DSFTool 2.4.0-b1) on the Aerosoft KASE ``+39-107.dsf``
+    (14 ``OBJECT_MSL`` at 2337-2444 m, ``HEIGHTS 0.06250``): with every
+    elevated row converted on-ground, texts carrying ``HEIGHTS 0.06250``,
+    ``0.12500``, ``0.03125`` or NO ``HEIGHTS`` row encode to ONE byte-
+    identical DSF, re-dumped as ``0.03125``; with one elevated row left
+    the text's quantum is honoured (0.06250 -> 0.06250, 0.12500 ->
+    0.12500).  A polygon/road-only DSF (no object pools) re-dumps
+    ``0.50000`` whatever its text says — byte-identical again.  So the
+    row is compared IN FULL while an elevated row remains (the scale its
+    elevations are stored in) and by keyword only when none does; the
+    elevations themselves stay under ``TOL_ELEV_M`` per placement."""
+    if any(k[0] in CONVERTIBLE_KINDS for k in places):
+        return struct
+    return [r[:1] if r and r[0] == HEIGHTS_KEYWORD else r for r in struct]
 
 
 def _match(a: list, b: list, tol: float, tiebreak: bool,
@@ -776,6 +806,7 @@ def compare_dumps(expected: str, actual: str) -> RoundTripReport:
     findings: list[str] = []
     sa, pa, ga, na = _split_rows(expected)
     sb, pb, gb, nb = _split_rows(actual)
+    sa, sb = _heights_unstored(sa, pa), _heights_unstored(sb, pa)
     # #60: the tolerances follow the pools of BOTH texts (the encoder
     # re-pools), floored at the pinned values
     tol_deg, tol_heading = pool_tolerances(expected, actual)

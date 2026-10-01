@@ -27,10 +27,16 @@ ownership mark added), ``encode``, ``verify_roundtrip`` — in a TEMP dir,
 and the failures are listed.  ``--raw`` runs the pre-#23 arm (plain
 ``DSFTool --text2dsf``, no property repair) for a before/after count.
 Read-only on DIR; ``--max-mb`` skips dumps above a size (the long-row scan
-it also prints covers every dump regardless).
+it also prints covers every dump regardless).  ``--convert`` (#131) swaps
+the empty plan for the §5 one — every ``OBJECT_MSL`` / ``OBJECT_AGL`` row
+on-ground, exactly what the object stage writes — and sweeps only the
+dumps that carry such a row: the class instrument for a round-trip
+finding that only an EDIT reaches (KASE's ``HEIGHTS`` row: 158 dumps
+with elevated rows <= 20 MB on the shared cache 2026-10-01, 2 failed —
+KASE +39-107 and Orbx TrueEarth +51-001 — before the fix, 0 after).
 
     venv/bin/python tools/dsf_placement_diff.py --sweep-noop Airport_mod_cache \\
-        [--raw] [--max-mb 20] [--jobs 6]
+        [--raw | --convert] [--max-mb 20] [--jobs 6]
 
 ``--verify`` additionally encodes the edited text with DSFTool into a
 TEMP directory and runs ``verify_roundtrip`` on it — still writing
@@ -68,10 +74,11 @@ def build_plan(dump_obj, dump_text_path: str, dsf_path: str, pack_root: str,
         conversions=tuple(conversions), kept=tuple(kept))
 
 
-def _noop_one(args: tuple[str, str, bool]) -> dict:
-    """One dump through the writer's no-op write (``--sweep-noop``)."""
+def _noop_one(args: tuple) -> dict:
+    """One dump through the writer's no-op write (``--sweep-noop``), or
+    through the §5 conversion write with ``convert`` (#131)."""
     import shutil
-    path, tool, raw = args
+    path, tool, raw, convert = (tuple(args) + (False,))[:4]
     tmp = tempfile.mkdtemp(prefix="o4_dsf_noop_")
     try:
         with open(path, "r", encoding="utf-8", errors="surrogateescape") as fh:
@@ -79,11 +86,14 @@ def _noop_one(args: tuple[str, str, bool]) -> dict:
         long_rows = sum(1 for ln in text.splitlines()
                         if len(ln) > _w.DSFTOOL_LINE_MAX
                         and not ln.startswith("#"))
+        conversions: tuple = ()
+        if convert:
+            conversions = tuple(_w.conversions_for_dump(_dsf.read_dump(path))[0])
         plan = PlacementPlan(
             icao="", pack_name="", pack_root="", dsf_path="",
             dsf_backup_path="",
             provenance=Provenance(dump_sha="", engine_version="", law_digest=""),
-            conversions=(), kept=())
+            conversions=conversions, kept=())
         edited = _w.edit_dump(text, plan, "noop-sweep")
         etext = os.path.join(tmp, "e.text")
         out = os.path.join(tmp, "e.dsf")
@@ -96,6 +106,7 @@ def _noop_one(args: tuple[str, str, bool]) -> dict:
             _w.encode(etext, out, tool)
         rep = _w.verify_roundtrip(out, edited, tool)
         return {"dump": path, "ok": rep.ok, "long_rows": long_rows,
+                "conversions": len(conversions),
                 "findings": list(rep.findings[:3])}
     except Exception as exc:                          # noqa: BLE001
         return {"dump": path, "ok": False, "long_rows": -1,
@@ -104,8 +115,15 @@ def _noop_one(args: tuple[str, str, bool]) -> dict:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _has_elevated_row(path: str) -> bool:
+    heads = tuple(k.encode() + b" " for k in _w.CONVERTIBLE_KINDS)
+    with open(path, "rb") as fh:
+        return any(ln.startswith(heads) for ln in fh)
+
+
 def sweep_noop(root: str, tool: str, *, raw: bool = False,
-               max_mb: float = 0.0, jobs: int = 4) -> dict:
+               max_mb: float = 0.0, jobs: int = 4,
+               convert: bool = False) -> dict:
     """``--sweep-noop``: the no-op round trip over every dump under
     ``root``, deduplicated by (folder, content tag)."""
     import re
@@ -133,15 +151,18 @@ def sweep_noop(root: str, tool: str, *, raw: bool = False,
             if max_mb and os.path.getsize(p) > max_mb * 1e6:
                 skipped.append(p)
                 continue
+            if convert and not _has_elevated_row(p):
+                continue                # nothing for §5 to convert
             seen[key] = p
-    work = [(p, tool, raw) for p in sorted(seen.values())]
+    work = [(p, tool, raw, convert) for p in sorted(seen.values())]
     if jobs <= 1:
         results = [_noop_one(w) for w in work]
     else:
         with ProcessPoolExecutor(max_workers=jobs) as ex:
             results = list(ex.map(_noop_one, work))
     fails = [r for r in results if not r["ok"]]
-    return {"root": root, "arm": "raw" if raw else "encode",
+    return {"root": root,
+            "arm": "raw" if raw else ("convert" if convert else "encode"),
             "dumps": len(results), "failed": len(fails),
             "skipped_over_max_mb": len(skipped),
             "empty_dumps_refused": sorted(empty), "failures": fails}
@@ -157,6 +178,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="no-op round trip of every dump under DIR (#23)")
     ap.add_argument("--raw", action="store_true",
                     help="--sweep-noop: plain DSFTool encode (the pre-#23 arm)")
+    ap.add_argument("--convert", action="store_true",
+                    help="--sweep-noop: apply the §5 conversion plan, over "
+                         "the dumps with an OBJECT_MSL/OBJECT_AGL row (#131)")
     ap.add_argument("--max-mb", type=float, default=0.0,
                     help="--sweep-noop: skip dumps larger than this")
     ap.add_argument("--jobs", type=int, default=4)
@@ -172,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if a.sweep_noop:
         rep = sweep_noop(a.sweep_noop, a.dsftool or _dsftool_path(), raw=a.raw,
-                         max_mb=a.max_mb, jobs=a.jobs)
+                         max_mb=a.max_mb, jobs=a.jobs, convert=a.convert)
         if a.json:
             print(json.dumps(rep, indent=1, sort_keys=True))
         else:

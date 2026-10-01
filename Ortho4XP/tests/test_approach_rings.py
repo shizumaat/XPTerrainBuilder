@@ -993,8 +993,7 @@ def test_the_scope_suffix_is_read_from_the_engine():
     unmap the scope and let a ring warm pass as a ``dem`` write."""
     guard = _guard()
     assert (
-        guard.FNAMES_APPROACH_RING_DIR_SUFFIX
-        == FNAMES.APPROACH_RING_DIR_SUFFIX
+        guard.APPROACH_RING_DIR_SUFFIX == FNAMES.APPROACH_RING_DIR_SUFFIX
     )
 
 

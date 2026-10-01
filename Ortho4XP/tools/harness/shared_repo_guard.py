@@ -157,18 +157,15 @@ SUFFIX_SCOPES = (
                             "_shore_structures.osm.bz2.lock")),
 )
 
-#: The ring cache directory suffix, READ FROM THE ENGINE
-#: (``O4_File_Names.APPROACH_RING_DIR_SUFFIX``) so a rename there cannot
-#: silently unmap this scope and let a ring warm pass as a ``dem`` write.
-#: Falls back to the literal when the engine is not importable (the guard
-#: is used from tools that never load Ortho4XP).
-try:  # pragma: no cover - import shape, not behaviour
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-    import O4_File_Names as _FNAMES
-
-    FNAMES_APPROACH_RING_DIR_SUFFIX = _FNAMES.APPROACH_RING_DIR_SUFFIX
-except Exception:  # pragma: no cover
-    FNAMES_APPROACH_RING_DIR_SUFFIX = "_approach_rings"
+#: The ring cache directory suffix, QUOTED from the engine's own
+#: ``O4_File_Names.APPROACH_RING_DIR_SUFFIX``.  Quoted and not imported:
+#: this guard is armed by ``tests/conftest.py`` for EVERY test and is
+#: loaded by tools that never load Ortho4XP, so it must not put the
+#: engine's ``src/`` on ``sys.path`` as a side effect of being imported.
+#: ``tests/test_approach_rings.py`` twin-asserts the two spellings agree,
+#: so a rename there cannot silently unmap this scope and let a ring warm
+#: pass as a ``dem`` write.
+APPROACH_RING_DIR_SUFFIX = "_approach_rings"
 
 #: Scopes named by a DIRECTORY-NAME suffix, consulted with the file
 #: suffixes: a whole artefact DIRECTORY that sits under another scope's
@@ -176,7 +173,7 @@ except Exception:  # pragma: no cover
 #: ``Elevation_data/<block>/<stem>_approach_rings/...`` — inside
 #: ``dem``'s prefix, and emphatically not ``dem``'s act (#164).
 DIR_SUFFIX_SCOPES = (
-    ("rings", "Elevation_data/", FNAMES_APPROACH_RING_DIR_SUFFIX),
+    ("rings", "Elevation_data/", APPROACH_RING_DIR_SUFFIX),
 )
 
 

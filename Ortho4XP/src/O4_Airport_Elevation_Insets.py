@@ -2359,6 +2359,7 @@ def _assemble_down_the_ladder(provenance, index, rung_path, rungs, is_core,
         "sub_threshold_voids": record["sub_threshold_voids"],
         "sub_threshold_cells": record["sub_threshold_cells"],
         "unanswered_cells": record["unanswered_cells"],
+        "box_edge_sliver_cells": record["box_edge_sliver_cells"],
         "ran_out": ran_out,
     }
     provenance["airport_valid_fraction"] = delivered_attempt.get(
@@ -2703,6 +2704,7 @@ class LadderInsetAssembly:
         # edge islands.
         self.need = ~self.region | self.edge
         self.fills = []        # [(values, valid, filled_by)], finest first
+        self.fill_extent = numpy.zeros((self.height, self.width), dtype=bool)
 
     def _rasterise_region(self, boundary_polygon, buffer_m):
         driver = gdal.GetDriverByName("MEM")
@@ -2754,8 +2756,49 @@ class LadderInsetAssembly:
             edge = nearest_valid & ~valid
             values[edge] = nearest[edge]
             valid |= edge
+        self.fill_extent |= self._warp_extent(fill_path)
         self.fills.append((values, valid, dict(filled_by or {})))
         return int((valid & self.need).sum())
+
+    def _warp_extent(self, fill_path):
+        """The core cells inside the fill raster's own EXTENT (whatever its
+        values).  A rung warped to its native grid can stop a cell short of
+        the box (KASE witness: 497 ten-metre columns for a 4,972 m box --
+        the last metre or two of the box lies beyond every rung); such a
+        BOX-EDGE SLIVER is no rung's to answer and the bake's own outer
+        feather gives it zero weight -- it never makes the ladder climb
+        or 'run out'."""
+        source = gdal.Open(fill_path)
+        driver = gdal.GetDriverByName("MEM")
+        ones = driver.Create("", source.RasterXSize, source.RasterYSize, 1,
+                             gdal.GDT_Byte)
+        ones.SetGeoTransform(source.GetGeoTransform())
+        ones.SetProjection(source.GetProjection())
+        ones.GetRasterBand(1).Fill(1)
+        source = None
+        west = self.transform[0]
+        north = self.transform[3]
+        east = west + self.transform[1] * self.width
+        south = north + self.transform[5] * self.height
+        warped = gdal.Warp(
+            "", ones,
+            options=gdal.WarpOptions(
+                format="MEM", dstSRS=self.projection or "EPSG:4326",
+                outputBounds=(west, south, east, north), width=self.width,
+                height=self.height, resampleAlg="near", dstNodata=0))
+        extent = warped.GetRasterBand(1).ReadAsArray() > 0
+        warped = ones = None
+        return extent
+
+    def _left(self):
+        """The cells a fill must answer and none does -- less the box-edge
+        sliver beyond every fill's extent (:meth:`_warp_extent`)."""
+        left = self.need.copy()
+        for (_values, valid, _by) in self.fills:
+            left &= ~valid
+        if self.fills:
+            left &= self.fill_extent
+        return left
 
     def _warp(self, fill_path, resample):
         west = self.transform[0]
@@ -2780,10 +2823,7 @@ class LadderInsetAssembly:
     def needs_fill(self):
         """Whether a cell the fills must answer is still unanswered -- the
         ladder climbs to the next coarser rung while this holds."""
-        left = self.need.copy()
-        for (_values, valid, _by) in self.fills:
-            left &= ~valid
-        return bool(left.any())
+        return bool(self._left().any())
 
     def _compose_fills(self):
         """``(values, valid, source)`` of the fill stack: the coarsest at
@@ -2915,7 +2955,10 @@ class LadderInsetAssembly:
             "interpolation_left_cells": int(self.interpolation_left),
             "sub_threshold_voids": len(small),
             "sub_threshold_cells": int(sum(i["cells"] for i in small)),
-            "unanswered_cells": int((self.need & ~stack_valid).sum()),
+            "unanswered_cells": int(self._left().sum()),
+            "box_edge_sliver_cells": int((self.need & ~stack_valid
+                                          & ~self.fill_extent).sum())
+            if self.fills else 0,
         }
 
     def _hole_rows(self, stack, stack_valid, source, out, out_valid):

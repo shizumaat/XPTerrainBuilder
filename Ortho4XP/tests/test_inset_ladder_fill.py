@@ -389,3 +389,35 @@ def test_water_detection_skips_filled_holes(tmp_path):
     assert inside.any()
     assert not kept[inside].any()
     assert kept[~inside].all()
+
+
+def test_a_box_edge_sliver_beyond_every_rung_never_runs_the_ladder_out(
+        tmp_path):
+    """KASE witness: the 1/3" rung warped to its own 10 m grid stops a
+    metre or two short of the box's east and south edges.  That sliver
+    is no rung's to answer (the bake's outer feather gives it zero
+    weight): it is counted, never a climb or a ``ran_out``."""
+    core = _plane(600, 600)
+    core[:, 400:] = NODATA                    # an edge hole to the east
+    core_path = _write(tmp_path / "core.tif", 600, core)
+    size = 59                                 # 59 x 10 m: 10 m short
+    dataset = gdal.GetDriverByName("GTiff").Create(
+        str(tmp_path / "short.tif"), size, size, 1, gdal.GDT_Float32)
+    step_x = (EAST - WEST) / 60
+    step_y = (NORTH - SOUTH) / 60
+    dataset.SetGeoTransform((WEST, step_x, 0.0, NORTH, 0.0, -step_y))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    dataset.SetProjection(srs.ExportToWkt())
+    dataset.GetRasterBand(1).SetNoDataValue(NODATA)
+    dataset.GetRasterBand(1).WriteArray(
+        numpy.full((size, size), 99.0, dtype=numpy.float32))
+    dataset = None
+    assembly = INSETS.LadderInsetAssembly(core_path, core_region_is_box=True)
+    assert assembly.needs_fill()
+    assembly.add_fill(str(tmp_path / "short.tif"), TEN)
+    assert not assembly.needs_fill()
+    record = assembly.write(str(tmp_path / "out.tif"))
+    assert record["unanswered_cells"] == 0
+    assert record["box_edge_sliver_cells"] > 0
+    assert record["filled_fraction"] < 1.0

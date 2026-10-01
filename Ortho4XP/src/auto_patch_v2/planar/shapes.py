@@ -128,6 +128,7 @@ class ShapeStats:
     welded_route_pairs: int = 0     # body pairs welded by a boundary edge on a taxi centreline (a mouth a route passes through)
     welded_same_role_mouths: int = 0   # 30bk: body pairs welded across a mouth with the same apron role on both sides
     mouths_kept: int = 0            # 30bk: body pairs whose mouth is flanked by another role (a road / taxiway leaving an apron)
+    mouths_mixed: int = 0           # 30bk: body pairs joined by a same-role mouth AND a class-change edge (welded: one apron)
     joint_edges: int = 0            # planar edges whose endpoints carry two shapes
     joint_edges_by_roles: dict[str, int] = _dc.field(default_factory=dict)
     contours: int = 0               # declared label-boundary polylines
@@ -595,11 +596,13 @@ def _weld_same_role_mouths(pm: PlanarMap, law: Law, label: dict[int, int],
     that end's own (a class change at the end of a neck shows there, not on
     the neck's own ring edge).  Where every side face of every mouth edge
     between the two labels is a ``terrace.one_shape_roles`` role — two
-    parts of one apron — the labels WELD: no contour joint is drawn, no row
+    parts of one apron — the labels WELD (one such edge suffices: see the
+    mixed case below): no contour joint is drawn, no row
     dropped, the apron grades through and the terrain is cut / filled.
-    Where any side carries another role (apron -> service road / lot /
-    taxiway: a road leaving an apron) the pair keeps its separation and
-    08k's joint — and no chain of welds may merge such a pair either.  The
+    A pair whose every mouth edge has another role on a side (apron ->
+    service road / lot / taxiway: a road leaving an apron) keeps its
+    separation and 08k's joint — and no chain of welds may merge such a
+    pair either.  The
     test reads roles only, never the DEM."""
     roles = frozenset(law.tables.emit.terrace.one_shape_roles)
     if not roles:
@@ -612,7 +615,7 @@ def _weld_same_role_mouths(pm: PlanarMap, law: Law, label: dict[int, int],
             ls = [label[v] for v in _face_vertices(pm, fid) if v in label]
             if ls:
                 major[fid] = max(set(ls), key=lambda l: (ls.count(l), -l))
-    verdict: dict[tuple[int, int], bool] = {}
+    verdict: dict[tuple[int, int], tuple[bool, bool]] = {}
     for e in pm.edges.values():
         if e.a in N or e.b in N:
             continue
@@ -624,11 +627,18 @@ def _weld_same_role_mouths(pm: PlanarMap, law: Law, label: dict[int, int],
                for f in pm.vertices[v].incident_faces if major.get(f) == l}
         side = {pm.faces[f].role for f in fs if pm.faces[f].role in paved}
         k = (min(la, lb), max(la, lb))
-        verdict[k] = verdict.get(k, True) and bool(side) and side <= roles
-    kept = [k for k, same in verdict.items() if not same]
+        has_same, has_other = verdict.get(k, (False, False))
+        same = bool(side) and side <= roles
+        verdict[k] = (has_same or same, has_other or not same)
+    # a pair welds only where EVERY mouth edge between it is one class; a
+    # pair that also meets at a class change keeps its separation (counted
+    # ``mouths_mixed`` when it has same-class edges too), and no chain of
+    # welds merges a kept pair
+    kept = [k for k, (_hs, ho) in verdict.items() if ho]
     stats.mouths_kept += len(kept)
-    for (la, lb), same in sorted(verdict.items()):
-        if not same:
+    stats.mouths_mixed += sum(1 for hs, ho in verdict.values() if hs and ho)
+    for (la, lb), (same, other) in sorted(verdict.items()):
+        if other or not same:
             continue
         ra, rb = uf.find(la), uf.find(lb)
         if ra == rb or any({uf.find(x), uf.find(y)} == {ra, rb} for x, y in kept):

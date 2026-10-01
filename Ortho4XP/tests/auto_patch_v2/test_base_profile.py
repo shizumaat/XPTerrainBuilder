@@ -438,3 +438,82 @@ def test_a_level_cluster_is_required_for_a_plane(tmp_path):
     prof = _profile(tmp_path, "dish.obj", [(v, t)])
     assert prof.verdict == BP.FLAT, prof.line()
     assert len(prof.planes) == 1, prof.line()
+
+
+# ── §2 (1) THE PLANE-PAD REF GRAMMAR (§3 C7) ─────────────────────────────
+
+def test_plane_pad_ref_grammar_folds_to_its_unit():
+    """§2 (1) / §3 C7: a plane pad carries ``<unit>/p<k>`` at the ONE
+    grammar site, and ``unit_ref_of`` folds it exactly as it folds a
+    block's ``/b<k>`` — so every reader keyed on the unit ref still sees
+    ONE unit (C25: ``pad_cluster_mismatch`` cannot report a cluster
+    spanning its own plane pads)."""
+    from auto_patch_v2.model.planar import (COLLAR_SUFFIX, block_ref,
+                                            plane_of, plane_ref, unit_ref_of)
+    r = plane_ref("building2", 1)
+    assert r == "building2/p1"
+    assert plane_of(r) == ("building2", 1)
+    assert unit_ref_of(r) == "building2"
+    # the collar of a plane pad, and a BLOCK inside one (§2 (1): blocks run
+    # INSIDE a plane pad, never across a riser)
+    assert plane_of(r + COLLAR_SUFFIX) == ("building2", 1)
+    assert unit_ref_of(r + COLLAR_SUFFIX) == "building2"
+    inner = block_ref(r, 2)
+    assert inner == "building2/p1/b2"
+    assert plane_of(inner) == ("building2", 1)
+    assert unit_ref_of(inner) == "building2"
+    # p0 is the ORIGIN PLANE and is a plane pad like any other
+    assert plane_of(plane_ref("building2", 0)) == ("building2", 0)
+    # and nothing else parses as one
+    for other in ("building2", "building2#collar", "building2/b3", "pav7",
+                  "building2/pX", "/p1"):
+        assert plane_of(other) is None, other
+
+
+# ── §2 (3) / §3 C17 THE DECLARED RISER AND ITS CENSUS EXEMPTION ──────────
+
+def test_base_plane_step_is_a_registered_step_exemption():
+    """§2 (3) / §3 C17 (owner RULINGS 2026-10-01f): the riser between two
+    plane pads of ONE unit is LAWFUL geometry, registered under its own
+    name so a report says which law applied — and so
+    ``terrace_actual_step`` prices the EMITTED step against the DECLARED
+    riser rather than forgiving it blind."""
+    import tools.check_grade as cg
+
+    class _W:
+        def __init__(self, ref, role="building"):
+            self.tags = {"role": role, "ref": ref}
+
+    # two planes of ONE unit -> the NAMED base-plane exemption
+    assert cg._step_exemption_for(_W("building2/p0"), _W("building2/p1")) \
+        == "base_plane_step"
+    # a block inside one plane against a block inside the other, likewise
+    assert cg._step_exemption_for(_W("building2/p0/b1"), _W("building2/p1/b0")) \
+        == "base_plane_step"
+    # TWO INDEPENDENT pads keep the 06-20 exemption — the base-profile
+    # ruling adds a name, it does not widen what is forgiven
+    assert cg._step_exemption_for(_W("building16"), _W("building30")) \
+        == "building_to_building"
+    # ... and so do two BLOCKS of one unit (that is 30r's law, not this one)
+    assert cg._step_exemption_for(_W("building2/b0"), _W("building2/b1")) \
+        == "building_to_building"
+    # two faces of the SAME plane are not a step pair at all
+    assert cg._step_exemption_for(_W("building2/p1"), _W("building2/p1")) \
+        == "building_to_building"
+    # a pad against PAVEMENT is still gated (the 06-20 sentence's own tail)
+    assert cg._step_exemption_for(_W("building2/p0"), _W("pav7", "apron")) is None
+    # the exemption is REGISTERED with its ruling (one authority, read by
+    # both the harness census and the acceptance gate)
+    assert "base_plane_step" in cg.STEP_EXEMPTIONS
+    assert "2026-10-01f" in cg.STEP_EXEMPTIONS["base_plane_step"]
+
+
+def test_the_plane_pad_separator_is_one_spelling():
+    """§2 (1): the validator may not import solver state, so it quotes the
+    separator — and the two spellings must agree or the census would read
+    a plane pad the emitter wrote as an ordinary pad (the cross-language
+    wire-protocol hazard, in one language)."""
+    import tools.check_grade as cg
+    from auto_patch_v2.model import planar
+    assert cg.PLANE_PAD_SEP == planar.PLANE_SEP
+    assert cg.BASE_STEP_JOINT_KIND == "base_step"

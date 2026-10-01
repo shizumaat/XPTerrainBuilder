@@ -490,7 +490,11 @@ def test_every_v1_family_has_a_v2_family(tables):
 
 
 def test_step_exemption_is_pad_to_pad_only(tables):
-    assert set(v1_cg.STEP_EXEMPTIONS) == {"building_to_building"}
+    # base-profile spec §3 C17 (owner RULINGS 2026-10-01f): `base_plane_step`
+    # registered beside it — two PLANE PADS OF ONE UNIT at the object's own
+    # authored riser are a DIFFERENT lawful geometry from two independent
+    # floors, and are named so a report says which law applied.
+    assert set(v1_cg.STEP_EXEMPTIONS) == {"building_to_building", "base_plane_step"}
     assert tables.structures.building_pad.step_exemption_pad_to_pad is True
 
 

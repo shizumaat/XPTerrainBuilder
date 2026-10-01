@@ -2791,6 +2791,8 @@ def build_mesh(tile):
                 # Mirror the step-1 bake order: tile-wide elevation-level
                 # overlay first (base terrain), airport insets last.
                 ELEVATION_LEVEL.bake_tile_overlay_into_alt_dem(tile)
+                ELEVATION_LEVEL.bake_approach_rings_into_alt_dem(
+                    tile, getattr(tile, "dico_airports", None) or {})
                 INSETS.bake_airport_insets_into_alt_dem(tile)
                 tile.dem.write_to_file(FNAMES.alt_file(tile))
         except Exception as e:

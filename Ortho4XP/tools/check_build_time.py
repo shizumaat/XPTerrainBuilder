@@ -318,7 +318,7 @@ def newest_tile_measurement(tile_name: str, store_directory: str):
     """Newest download-free tile record, or None.
 
     Download-free means ``features.textures_missing == 0`` AND
-    ``features.insets_fetched == 0``.  Tile compute total = sum of
+    ``features.insets_fetched == 0`` AND ``features.rings_fetched == 0``.  Tile compute total = sum of
     recorded step seconds; a record that downloaded textures — or
     fetched airport elevation insets, whose download wall time is booked
     inside step 1's seconds — spent unbudgeted wall time and is skipped.
@@ -330,6 +330,10 @@ def newest_tile_measurement(tile_name: str, store_directory: str):
         if float(features.get("textures_missing") or 0.0) != 0.0:
             continue
         if float(features.get("insets_fetched") or 0.0) != 0.0:
+            continue
+        # Approach-ring cell downloads land inside step 1's seconds
+        # exactly as inset fetches do (spec §5).
+        if float(features.get("rings_fetched") or 0.0) != 0.0:
             continue
         step_seconds = {
             str(step): float(seconds)

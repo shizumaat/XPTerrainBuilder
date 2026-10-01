@@ -1145,7 +1145,13 @@ class EngineSession:
                          # step, so a non-zero count disqualifies the
                          # record as a build-time measurement.
                          "insets_fetched": int(getattr(
-                             tile, "insets_fetched_last_build", 0) or 0)},
+                             tile, "insets_fetched_last_build", 0) or 0),
+                         # Approach-ring cell fetches performed by step 1
+                         # (zero on a warm ring cache): the same
+                         # download-pollution qualifier as insets_fetched
+                         # (spec §5; tools/check_build_time.py).
+                         "rings_fetched": int(getattr(
+                             tile, "rings_fetched_last_build", 0) or 0)},
                         step_seconds)
             except Exception as step_error:
                 import traceback

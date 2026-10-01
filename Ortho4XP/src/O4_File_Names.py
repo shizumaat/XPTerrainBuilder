@@ -630,6 +630,12 @@ def airport_inset_provenance(lat, lon, icao, provider_code):
     )
 
 
+#: Directory-name suffix of the per-tile approach-ring cell cache.  The
+#: harness write guard maps a relpath whose second component ends in this
+#: to the ``rings`` refresh scope, so the spelling lives in ONE place.
+APPROACH_RING_DIR_SUFFIX = "_approach_rings"
+
+
 def tile_overlay_directory(lat, lon):
     """Directory holding the tile-wide elevation-level overlays for a tile.
 
@@ -708,6 +714,53 @@ def coastline_band_vrt(lat, lon, provider_code):
         coastline_band_directory(lat, lon),
         "band_" + provider_code.lower() + ".vrt",
     )
+
+
+def approach_ring_directory(lat, lon):
+    """Directory holding the approach-graded elevation ring cells of a tile,
+    e.g. ``Elevation_data/+30-110/N39W107_approach_rings/``.
+
+    Its own directory, NOT the airport inset cache: rings are base terrain
+    (approach-graded-elevation-rings-spec §5), and a ring raster inside
+    ``_airport_insets/`` would be judged as an inset by the re-cut rule,
+    the ARP sanity read, the witness and the census.
+    """
+    return os.path.join(
+        Elevation_dir,
+        round_latlon(lat, lon),
+        hem_latlon(lat, lon) + APPROACH_RING_DIR_SUFFIX,
+    )
+
+
+def approach_ring_index(lat, lon):
+    """The ring stamp: the plan + per-cell fetch outcomes and negatives."""
+    return os.path.join(approach_ring_directory(lat, lon), "index.json")
+
+
+def approach_ring_cell_dem(
+    lat, lon, cell_column, cell_row, provider_code, target_resolution_m
+):
+    """One warped ring cell, keyed like the coastline band's cells, e.g.
+    ``cell_03_07_usgs3dep_10.29m.tif`` -- deliberately the SAME stem, so a
+    cell already fetched for the band is reused by stem (spec §5)."""
+    return os.path.join(
+        approach_ring_directory(lat, lon),
+        "cell_%02d_%02d_" % (cell_column, cell_row)
+        + _tile_overlay_stem(provider_code, target_resolution_m)
+        + ".tif",
+    )
+
+
+def approach_ring_cell_provenance(
+    lat, lon, cell_column, cell_row, provider_code, target_resolution_m
+):
+    """The per-cell fetch provenance sidecar beside the ring cell raster."""
+    return os.path.splitext(
+        approach_ring_cell_dem(
+            lat, lon, cell_column, cell_row, provider_code,
+            target_resolution_m,
+        )
+    )[0] + ".json"
 
 
 def bathymetry_band_directory(lat, lon):

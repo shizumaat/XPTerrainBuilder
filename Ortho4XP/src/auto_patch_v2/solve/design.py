@@ -852,39 +852,14 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               stage_roles=airside_stage_roles(law))
         return so, rp, d_x, f_x, lv, sz
     t1 = time.perf_counter()
-    planar, cs, (sol1, rep1, drop, foreign, levels, size1), pass1a = \
+    # issue #87's stage-1 pin yield runs INSIDE each pass (``flex.stage_one``)
+    planar, cs, (sol1, rep1, drop, foreign, levels, size1), pass1a, yielded1 = \
         stage_one(planar, cs, law, hold, _s1)
-    # THE PINS STAGE 1 READS YIELD IN STAGE 1 (issue #87): decided from
-    # stage 1's own hard set, so nothing stage 2 carries can change the
-    # problem stage 1 solved.
-    from .pin_yield import row_vertices, stage1_read_pins
+    from .pin_yield import stage1_read_pins
     yield_heads = frozenset(
         getattr(design_law(law), "yielding_pin_rulings", ()) or ())
-    s1_read = stage1_read_pins(cs, yield_heads, drop) if yield_heads \
-        else frozenset()
-    yielded1: list[dict] = []
-    if s1_read and not rep1.hard_settled and sol1.z:
-        drop_s = drop
-
-        def _stage1(cs_x: ConstraintSet):
-            d_x, f_x = stage_split(planar, cs_x, law)
-            lv: dict[int, float] = {}
-            sz: dict = {}
-            so, rp = _solve_stage(planar, cs_x, law, options, size_out=sz,
-                                  method=method, low_rank=low_rank,
-                                  drop=d_x, fixed=f_x, levelled_out=lv,
-                                  stage_roles=airside_stage_roles(law))
-            _stage1.last[id(rp)] = (d_x, f_x, lv, sz)
-            return so, rp
-        _stage1.last = {}
-        sol1_y, rep1_y, yielded1, cs1 = _yield_pins(
-            planar, cs, law, sol1, rep1, foreign, _stage1, among=s1_read,
-            keep_row=lambda r: not any(v in drop_s for v in row_vertices(r)))
-        if yielded1:
-            drop, foreign, levels, size1 = _stage1.last[id(rep1_y)]
-            sol1, rep1, cs = sol1_y, rep1_y, cs1
-            for r in yielded1:
-                r["stage"] = 1
+    s1_read = (stage1_read_pins(cs, yield_heads, drop) | {int(r["v"]) for r in yielded1}
+               if yield_heads else frozenset())
     w1 = time.perf_counter() - t1
     # THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3; jetway-strip spec §2
     # (4)): a PROJECTION of stage 1's airside answer, applied before stage

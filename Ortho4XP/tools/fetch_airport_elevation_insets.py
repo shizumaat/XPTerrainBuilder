@@ -205,9 +205,20 @@ def witness_record(inset_path, apt_dat_path, icao, footprint_polygon,
         "native_resolution_m": provenance.get("native_resolution_m"),
         "resolution_m": provenance.get("resolution_m"),
         "valid_fraction": round(INSETS.inset_valid_fraction(inset_path), 6),
-        "airport_valid_fraction": round(
+        # THE CORE'S OWN COVER beside the cover AFTER the ladder fills
+        # (spec las-tile §12): the sidecar's rung-selection number, else
+        # (a pre-§12 sidecar) the raster's own cover -- one and the same
+        # there, nothing was filled.
+        "airport_valid_fraction": (
+            provenance["airport_valid_fraction"]
+            if provenance.get("airport_valid_fraction") is not None
+            else round(INSETS.raster_valid_fraction_in_box(
+                inset_path, footprint_box), 6)),
+        "airport_filled_fraction": round(
             INSETS.raster_valid_fraction_in_box(inset_path, footprint_box),
             6),
+        "fill": INSETS.inset_fill_summary(provenance),
+        "holes": provenance.get("holes") or [],
         "footprint_box": [round(value, 6) for value in footprint_box],
         "bytes_fetched": provenance.get("bytes_fetched"),
         "wall_s": None if wall_s is None else round(wall_s, 1),
@@ -245,8 +256,22 @@ def _print_witness(record):
              record["delivered_label"], record["provider"]))
     print("  resolution     native %s m, stored %s m"
           % (record["native_resolution_m"], record["resolution_m"]))
-    print("  cover          box valid %.4f, airport valid %.4f"
-          % (record["valid_fraction"], record["airport_valid_fraction"]))
+    print("  cover          box valid %.4f, airport valid %.4f, airport "
+          "filled %.4f"
+          % (record["valid_fraction"], record["airport_valid_fraction"],
+             record["airport_filled_fraction"]))
+    print("  ladder fill    %s"
+          % INSETS.inset_fill_summary_text(record["fill"]))
+    for hole in record["holes"]:
+        filled_by = hole.get("filled_by")
+        print("  hole %-8s %8d cells %10.1f m2 filled by %-18s unfilled %d "
+              "now %s m ring %s m seam %s m box %s"
+              % (hole.get("kind"), hole.get("cells"), hole.get("area_m2"),
+                 filled_by.get("label") if isinstance(filled_by, dict)
+                 else filled_by,
+                 hole.get("unfilled_cells"), hole.get("fill_median_m"),
+                 hole.get("ring_median_m"), hole.get("seam_median_m"),
+                 hole.get("bounding_box_wgs84")))
     print("  vertical unit  source %s, applied %s"
           % (record["vertical_unit_source"],
              record["vertical_unit_applied"]))
@@ -267,6 +292,29 @@ def _print_witness(record):
                  row.get("airport_valid_fraction"),
                  row.get("vertical_unit_source"),
                  row.get("vertical_unit_applied")))
+
+
+def disable_providers_in_process(codes_text):
+    """``--disable-provider CODE[,CODE]`` (witness mode): mark those
+    provider definitions disabled IN THIS PROCESS ONLY -- the ladder then
+    drops a ``provider:`` rung naming one (one line, the rung's own
+    "disabled" path) and global assembly skips it, exactly as a shipped
+    ``enabled=False`` would, without editing the shipped ``.elv``.  The
+    spec §12 KGEG replay ("OPR removed from the ladder") is this.
+    Returns the codes disabled (unknown codes refuse)."""
+    if not codes_text:
+        return []
+    providers = INSETS.initialize_elevation_providers_dict()
+    disabled = []
+    for code in [c.strip() for c in codes_text.split(",") if c.strip()]:
+        key = next((k for k in providers if k.upper() == code.upper()),
+                   None)
+        if key is None:
+            raise SystemExit("ERROR: --disable-provider names no provider "
+                             "%r" % code)
+        providers[key] = dict(providers[key], enabled=False)
+        disabled.append(key)
+    return disabled
 
 
 def run_witness(arguments) -> int:
@@ -308,11 +356,16 @@ def run_witness(arguments) -> int:
                     east + margin_lon, north + margin_lat)
     tile_latitude = int(math.floor(latitude))
     tile_longitude = int(math.floor((west + east) / 2.0))
+    disabled = disable_providers_in_process(arguments.disable_provider)
     definitions = INSETS.select_provider_definitions(arguments.provider)
     if not definitions:
         print("ERROR: no airport-inset providers matched",
               repr(arguments.provider))
         return 2
+    if disabled:
+        print("  lane-local override: providers DISABLED in this process "
+              "only (the shipped .elv files are untouched): %s"
+              % ", ".join(disabled))
     print("Witness %s: apt.dat %s\n  footprint box %s\n  inset box %s\n"
           "  providers %s" % (icao, apt_dat, polygon.bounds, bounding_box,
                               ", ".join(d["code"] for d in definitions)))
@@ -352,6 +405,7 @@ def run_witness(arguments) -> int:
         return 1
     record = witness_record(inset, apt_dat, icao, polygon, runway_ends,
                             wall_s)
+    record["disabled_providers"] = disabled
     _print_witness(record)
     if arguments.witness_json:
         with open(arguments.witness_json, "w", newline="\n") as handle:
@@ -384,6 +438,10 @@ def main() -> int:
     parser.add_argument("--margin-m", type=float, default=None,
                         help="--witness: inset margin beyond the footprint "
                              "(default: airport_elevation_inset_margin_m)")
+    parser.add_argument(
+        "--disable-provider", default=None, metavar="CODES",
+        help="--witness: disable these provider codes in this process only "
+             "(a lane-local ladder override; the .elv files are untouched)")
     parser.add_argument("--witness-json", default=None,
                         help="--witness: also write the record here")
     parser.add_argument(

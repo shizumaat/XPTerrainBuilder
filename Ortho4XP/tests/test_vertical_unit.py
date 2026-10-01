@@ -226,10 +226,23 @@ def test_two_layer_assembler_refuses_a_unit_mismatch(tmp_path):
     # A core that DECLARES feet and was never applied: the KASE class.
     _stamp(core, **{INSETS.VERTICAL_UNIT_STAMP_DECLARED: "ftUS"})
     with pytest.raises(INSETS.ProviderUnavailable,
-                       match="core holds ftUS and the surround holds m"):
-        INSETS.assemble_two_layer_inset(core, surround,
-                                        str(tmp_path / "out.tif"), None,
-                                        0.0, 30.0)
+                       match="core holds ftUS"):
+        INSETS.assemble_ladder_inset(core, [(surround, {"label": "s"})],
+                                     str(tmp_path / "out.tif"), None,
+                                     0.0, 30.0)
+    assert not os.path.exists(tmp_path / "out.tif")
+
+
+def test_ladder_assembler_refuses_a_feet_fill(tmp_path):
+    core = _write_source(tmp_path / "core.tif", _plane(), nodata=-32768.0)
+    surround = _write_source(tmp_path / "surround.tif", _plane(),
+                             nodata=-32768.0)
+    _stamp(surround, **{INSETS.VERTICAL_UNIT_STAMP_DECLARED: "ftUS"})
+    with pytest.raises(INSETS.ProviderUnavailable,
+                       match="fill 's' holds ftUS"):
+        INSETS.assemble_ladder_inset(core, [(surround, {"label": "s"})],
+                                     str(tmp_path / "out.tif"), None,
+                                     0.0, 30.0)
     assert not os.path.exists(tmp_path / "out.tif")
 
 
@@ -241,7 +254,8 @@ def test_two_layer_assembler_carries_the_core_stamp(tmp_path):
                     INSETS.VERTICAL_UNIT_STAMP_SOURCE: "elv",
                     INSETS.VERTICAL_UNIT_STAMP_APPLIED: "m"})
     out = str(tmp_path / "out.tif")
-    INSETS.assemble_two_layer_inset(core, surround, out, None, 0.0, 30.0)
+    INSETS.assemble_ladder_inset(core, [(surround, {"label": "s"})], out,
+                                 None, 0.0, 30.0)
     assert INSETS.raster_vertical_unit_stamp(out) == {
         "declared": "ftUS", "source": "elv", "applied": "m"}
 

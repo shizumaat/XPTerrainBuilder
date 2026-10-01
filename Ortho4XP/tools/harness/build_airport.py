@@ -965,6 +965,24 @@ def inset_arp_sanity(lat, lon, icao, warn_abs_delta_m=None,
         return {"status": "skipped", "why": f"check failed ({exc!r})"}
 
 
+def inset_holes_record(lat, lon, icao):
+    """The ``frame.json`` ``inset_holes`` record (spec las-tile §12): the
+    engine's ONE reader (``INSETS.cached_inset_fill_summary``, imported,
+    never copied) over the airport's first-ranked cached inset, plus the
+    ``shortfall`` the frame check REPORTS (never refuses).  ``None`` when
+    no inset is cached; a read, nothing written."""
+    try:
+        import O4_Airport_Elevation_Insets as INSETS
+
+        summary = INSETS.cached_inset_fill_summary(lat, lon, icao)
+    except Exception as exc:                       # pragma: no cover
+        return {"error": repr(exc)}
+    if summary is None:
+        return None
+    summary["shortfall"] = INSETS.inset_fill_shortfall(summary)
+    return summary
+
+
 def require_inset_arp_sanity(record, strict):
     """``--strict-inset-datum``: refuse a build whose inset fails the ARP
     sanity.  Without the flag a ``warn`` is recorded and printed only."""
@@ -4149,6 +4167,15 @@ def main(argv=None) -> int:
         frame["inset_arp_sanity"] = (inset_arp_sanity(
             lat, lon, args.icao, args.inset_arp_sanity_m,
             INSET_ARP_SANITY["disc_radius_m"]) if not args.tile else None)
+        # THE LADDER FILL (spec las-tile §12): the inset's interior holes
+        # and the cover after the fills -- REPORTED, never refused.
+        frame["inset_holes"] = (inset_holes_record(lat, lon, args.icao)
+                                if not args.tile else None)
+        _fill_short = (frame["inset_holes"] or {}).get("shortfall")
+        if _fill_short:
+            prog.note(f"REPORT inset ladder fill "
+                      f"{frame['inset_holes'].get('inset')}: {_fill_short} "
+                      f"(the base DEM answers the rest; not a refusal)")
         sanity = frame["inset_arp_sanity"] or {}
         if sanity.get("status") == "warn":
             prog.note("WARNING inset ARP sanity: "

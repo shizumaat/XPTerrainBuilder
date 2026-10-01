@@ -710,6 +710,41 @@ def coastline_band_vrt(lat, lon, provider_code):
     )
 
 
+def approach_ring_directory(lat, lon):
+    """Directory holding the approach-graded elevation ring cells for a
+    tile, e.g. ``Elevation_data/+30-110/N39W107_approach_rings/``.
+
+    Sibling of the coastline band cache (the ring cells share its
+    ``cell_<ii>_<jj>_<code>_<res>m.tif`` naming, so a cell already
+    fetched for the band is reused BY REFERENCE -- one cell cache, two
+    plans; see ``docs/specs/approach-graded-elevation-rings-spec.md``
+    section 5)."""
+    return os.path.join(
+        Elevation_dir,
+        round_latlon(lat, lon),
+        hem_latlon(lat, lon) + "_approach_rings",
+    )
+
+
+def approach_ring_index(lat, lon):
+    """The ring stamp: the plan + per-cell fetch outcomes and negatives."""
+    return os.path.join(approach_ring_directory(lat, lon), "index.json")
+
+
+def approach_ring_cell_dem(
+    lat, lon, cell_column, cell_row, provider_code, target_resolution_m
+):
+    """One warped ring cell, keyed exactly as a coastline band cell is
+    (cell indices, provider, warp resolution) so the two caches share
+    stems, e.g. ``cell_03_07_usgs3dep_10.29m.tif``."""
+    return os.path.join(
+        approach_ring_directory(lat, lon),
+        "cell_%02d_%02d_" % (cell_column, cell_row)
+        + _tile_overlay_stem(provider_code, target_resolution_m)
+        + ".tif",
+    )
+
+
 def bathymetry_band_directory(lat, lon):
     """Directory holding the coastal bathymetry band cells for a tile, e.g.
     ``Elevation_data/+20-160/N21W160_bathymetry_band/``."""

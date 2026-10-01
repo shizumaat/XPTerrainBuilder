@@ -127,6 +127,10 @@ def test_shipped_definitions_parse(shipped_registry):
         "NOAAKETCHIKAN",
         "NOAAAKCOASTAL",
         "NOAACOLUMBIARIVER",
+        # US holder providers on the AOI portals (#154, lane aoi154).
+        "AKHOMER",
+        "AKHAINES",
+        "WADNR",
         "DENMARK40CM",
         "SWEDEN1M",
         "CUDEMHAWAII",

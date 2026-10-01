@@ -295,3 +295,30 @@ def test_usgs3dep_rung_zero_is_untouched_by_source_units(
     assert seen == [([paths["M"]], None)]
     assert "native_resolution_from" not in provenance
     assert provenance["native_resolution_m"] == 1.0
+
+
+def test_opr_is_never_a_whole_tile_overlay():
+    """``supports_wide_area=false`` in USGSOPR.elv: the elevation_level
+    overlay never reads thousands of OPR tiles for a 1 x 1 degree tile,
+    even pinned; USGS3DEP still serves the US tile."""
+    import O4_Elevation_Level as LEVEL
+
+    INSETS.initialize_elevation_providers_dict()
+    codes = [d["code"] for d in LEVEL._wide_area_candidate_definitions(
+        47, -118, "auto")]
+    assert "USGS3DEP" in codes
+    assert "USGSOPR" not in codes and "USGSLPC" not in codes
+    assert LEVEL._wide_area_candidate_definitions(
+        47, -118, "USGSOPR") == []
+
+
+def test_opr_and_lpc_are_ladder_only():
+    """#153: the OPR / LPC providers are RUNGS of USGS3DEP's ladder -- never
+    ranked on their own in ``auto`` (so an airport USGS3DEP answered never
+    lists them as unanswered covering providers), still pinnable."""
+    INSETS.initialize_elevation_providers_dict()
+    auto = [d["code"] for d in INSETS.select_provider_definitions("auto")]
+    assert "USGS3DEP" in auto
+    assert "USGSOPR" not in auto and "USGSLPC" not in auto
+    assert [d["code"] for d in INSETS.select_provider_definitions(
+        "USGSOPR")] == ["USGSOPR"]

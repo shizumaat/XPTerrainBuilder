@@ -42,6 +42,10 @@ max_source_resolution_m=2
 # else the ladder moves on (to the point clouds, then 3 m / 10 m).
 ladder_judge=airport_cover
 
+# Never a whole-tile elevation_level overlay: a 1 x 1 degree tile is
+# thousands of ~1 km OPR tiles, many stripped (read whole).
+supports_wide_area=false
+
 # Same regions as USGS3DEP.elv (3DEP is US-only, RULINGS 2026-09-16c).
 coverage_bbox=-125.0,24.0,-95.15,49.05
 coverage_bbox=-95.25,48.9,-94.9,49.45
@@ -58,8 +62,10 @@ vertical_datum=NAVD88
 license=Public Domain (U.S. Geological Survey)
 attribution=U.S. Geological Survey 3D Elevation Program (3DEP), Original Product Resolution DEMs
 
-# Below USGS3DEP (100) and PITKIN1M (90): reached as USGS3DEP's ladder
-# rung, standalone only when USGS3DEP gave no answer or when pinned.
+# A RUNG of USGS3DEP's ladder, never ranked on its own in 'auto'
+# (pinning airport_elevation_providers=USGSOPR still works).  Priority
+# only orders it among pinned providers.
+ladder_only=true
 priority=85
 
 enabled=True

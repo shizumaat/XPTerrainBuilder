@@ -249,6 +249,13 @@ def _wide_area_candidate_definitions(lat, lon, providers_config="auto"):
             continue
         if not getattr(strategy_factory, "supports_wide_area", False):
             continue
+        if str(definition.get("supports_wide_area", "")).strip().lower() \
+                in ("false", "0", "no"):
+            # A DEFINITION may opt out where its class reads windows: the
+            # USGS Original Product Resolution tiles (#153) are ~1 km
+            # GeoTIFFs, often stripped -- a whole-tile overlay would read
+            # thousands of them in full.
+            continue
         role = definition.get("role", INSETS.ROLE_AIRPORT_INSET)
         if role == INSETS.ROLE_BATHYMETRY:
             # Bathymetry providers deliver tidal-datum seabed depth and are

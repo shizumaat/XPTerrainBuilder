@@ -62,6 +62,10 @@ coverage_bbox=-171.2,-14.5,-169.4,-13.8
 license=Public Domain (U.S. Geological Survey)
 attribution=U.S. Geological Survey 3D Elevation Program (3DEP), Lidar Point Clouds
 
+# A RUNG of USGS3DEP's ladder, never ranked on its own in 'auto'
+# (pinning airport_elevation_providers=USGSLPC still works).  Priority
+# only orders it among pinned providers.
+ladder_only=true
 priority=84
 
 enabled=True

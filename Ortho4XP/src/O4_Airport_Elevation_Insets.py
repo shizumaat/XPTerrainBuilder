@@ -1262,6 +1262,17 @@ def _parse_tile_list(value):
     return tuple(tiles)
 
 
+def definition_is_ladder_only(definition):
+    """``ladder_only=true``: the provider is a RUNG of another provider's
+    resolution ladder (the USGS OPR / LPC rungs of USGS3DEP, #153) and is
+    never ranked on its own in ``auto`` -- so it is asked exactly where
+    its ladder reaches it, never recorded as an "unanswered" covering
+    provider of an airport its parent already answered.  An explicit
+    ``airport_elevation_providers`` list may still pin it."""
+    return str((definition or {}).get("ladder_only", "")).strip().lower() \
+        in ("true", "1", "yes")
+
+
 def select_provider_definitions(providers_config, role=ROLE_AIRPORT_INSET):
     """Rank the provider definitions to try, honouring the config value.
 
@@ -1286,6 +1297,7 @@ def select_provider_definitions(providers_config, role=ROLE_AIRPORT_INSET):
             for definition in elevation_providers_dict.values()
             if definition.get("enabled", True)
             and definition.get("role", ROLE_AIRPORT_INSET) == role
+            and not definition_is_ladder_only(definition)
         ]
         candidates.sort(
             key=lambda definition: (
@@ -2460,14 +2472,22 @@ def _source_contribution_entry(source):
     }
 
 
-def _tnm_project_of(title):
+def _tnm_project_of(title, download_url=None):
     """The 3DEP project name inside a TNM product title.
 
     Titles read ``USGS 1 Meter 15 x34y435 KS_Statewide_2018_A18`` -- the
     project is the last token, and the project is what a reader needs
     when a border airport mosaics two states.  ``"?"`` for a title-less
-    item.
+    item.  An Original Product Resolution title ends in the TILE id
+    (``USGS Original Product Resolution Anchorage_Lidar 63376784``), so
+    when the download URL names its project (``.../Projects/<name>/``)
+    that wins (#153).
     """
+    url = str(download_url or "")
+    if "/Projects/" in url:
+        name = url.split("/Projects/", 1)[1].split("/", 1)[0]
+        if name:
+            return name
     tokens = str(title or "").split()
     return tokens[-1] if tokens else "?"
 
@@ -2911,7 +2931,8 @@ class TnmCloudOptimizedGeoTiffStrategy:
         recorded = used or sources
         valid_fraction = inset_valid_fraction(destination_path)
         projects = sorted(
-            {_tnm_project_of(source["title"]) for source in used}
+            {_tnm_project_of(source["title"], source.get("download_url"))
+             for source in used}
         )
         if len(projects) > 1:
             UI.vprint(

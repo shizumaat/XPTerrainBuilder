@@ -5958,6 +5958,10 @@ def test_every_shipped_provider_normalises_to_a_box_list():
             multi.append(code)
     # The providers the ruling split, and no others by accident.
     assert sorted(multi) == [
+        # #154 lasidx154: one box per 0.25-degree row of the 2015 Western
+        # Colorado tiles (the hull would reach KASE, which it does not
+        # cover).
+        "CWCB7V2LAS",
         "HRDEM",
         "HRDEMTIDAL",
         "NEWZEALAND1M",

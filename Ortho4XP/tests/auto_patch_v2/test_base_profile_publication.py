@@ -290,3 +290,24 @@ def test_the_flag_exists_and_is_documented():
     src = os.path.join(root, "tools", "obj8_split_report.py")
     with open(src, encoding="utf-8") as fh:
         assert '"--base-profile"' in fh.read()
+
+
+def test_the_flag_reaches_the_command_line():
+    """The library twins above exercise ``base_profile_report`` directly; a
+    flag can be written and still never reach ``argparse`` (added to the
+    wrong parser, or shadowed).  ``--help`` is the cheapest honest check
+    that the CLI actually carries it, and it touches no corpus: argparse
+    exits before the tool reads anything."""
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+    out = subprocess.run([sys.executable,
+                          os.path.join(root, "tools", "obj8_split_report.py"),
+                          "--help"],
+                         capture_output=True, text=True, timeout=180)
+    assert out.returncode == 0, out.stderr[-2000:]
+    # argparse REFLOWS help text, so the phrase is matched on whitespace-
+    # normalised output — a literal match would break on the wrap column.
+    flat = " ".join(out.stdout.lower().split())
+    assert "--base-profile" in flat
+    assert "re-derives nothing" in flat

@@ -50,7 +50,7 @@ publication_date=2024
 coverage_bbox=-122.79,47.89,-122.11,48.64
 
 license=Washington DNR / USGS 3DEP lidar (public; no use restriction published)
-license_note=No restriction published; not charged for, not redistributed as data (owner RULINGS 2026-09-30aw). The portal's download gate is honoured exactly as a browser meets it -- front-page dlgate cookie + browser user agent, recorded in provenance -- per owner RULINGS 2026-09-30bn ("Go with (a), honor the gate like a browser"); a login or forbidding terms disable it (unavailable), never a workaround.
+license_note=No restriction published; not charged for, not redistributed as data (owner RULINGS 2026-09-30aw). The portal's download gate is honoured exactly as a browser meets it -- front-page dlgate cookie + browser user agent, recorded in provenance -- per owner RULINGS 2026-09-30bn ("Go with (a), honor the gate like a browser"); a login or forbidding terms disable it (unavailable), never a workaround. robots.txt disallows /query and /download for crawlers; owner RULINGS 2026-10-01c: XPTerrainBuilder is one user's interactive client fetching one airport for that user -- a browser, not a crawler or indexer -- so robots.txt does not apply; acceptable use.
 attribution=Washington State Department of Natural Resources / USGS — 2023-2024 Whidbey Refresh lidar (Washington Lidar Portal)
 
 ladder_member=True

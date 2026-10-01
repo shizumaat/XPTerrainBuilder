@@ -1647,8 +1647,11 @@ def fetch_inset(
         # no ``vertical_unit`` key carries no stamp and its record gains
         # no key (byte-identical sidecars for every pre-key provider).
         stamp = raster_vertical_unit_stamp(destination_path)
+        # ``setdefault`` on the source: the LAS strategy already records
+        # ``vertical_unit_source`` as its POINT unit (``ftUS`` at KASE,
+        # converted while gridding) and that record is kept as written.
         if stamp is not None:
-            provenance["vertical_unit_source"] = stamp.get("source")
+            provenance.setdefault("vertical_unit_source", stamp.get("source"))
             provenance["vertical_unit_applied"] = stamp.get("applied")
         provenance["requested_bounding_box_wgs84"] = list(bounding_box_wgs84)
         delivered = delivered_inset_bounding_box(destination_path)

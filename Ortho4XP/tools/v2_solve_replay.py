@@ -1955,8 +1955,16 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     # build's own post-solve step, so an --emit arm publishes it too
     try:
         from auto_patch_v2.emit.road_join import with_pin_yield
+        _kw_y = {}
+        try:
+            # joinyield128: the airside joins (never pinned) and the final z
+            from auto_patch_v2.constraints.road_ramp import airside_joins
+            _kw_y = {"withheld": airside_joins(pm, law), "z": sol.z or None}
+        except ImportError:
+            pass
         pm = with_pin_yield(pm, rep.pin_yield,
-                            float(law.tables.emit.materiality.elevation_m))
+                            float(law.tables.emit.materiality.elevation_m),
+                            **_kw_y)
         if pm.road_join_yield:
             _to_ll = airport.frame.transformers()[1]
             for _v, (_rib, _zp) in sorted(pm.road_join_yield.items()):

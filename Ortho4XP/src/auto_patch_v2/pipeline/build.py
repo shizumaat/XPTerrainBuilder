@@ -1002,8 +1002,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # released a §37 (9) join pin — the join takes the patch's level and
     # the sidecar tells the core clamp to follow (``road_join_yield``)
     from ..emit.road_join import with_pin_yield
+    # joinyield128: a join on AIRSIDE was never pinned — the ribbon takes
+    # the airside's solved level there (``road_ramp.airside_joins``)
+    from ..constraints.road_ramp import airside_joins
     pm = with_pin_yield(pm, design_rep.pin_yield,
-                        float(law.tables.emit.materiality.elevation_m))
+                        float(law.tables.emit.materiality.elevation_m),
+                        withheld=airside_joins(pm, law),
+                        z=sol.z or None)
     _to_ll = airport.frame.transformers()[1] if pm.road_join_yield else None
     for _v, (_rib, _zp) in sorted(pm.road_join_yield.items()):
         _lat, _lon = _to_ll(*pm.vertices[_v].xy)

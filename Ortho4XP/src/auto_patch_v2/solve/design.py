@@ -876,6 +876,13 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     seed_rep: dict = {}
     if stage2_rewrite is not None:
         cs, seed_rep = stage2_rewrite(levels)
+        # the caller's rewrite re-reads the set it was BOUND to (the un-
+        # yielded one): a pin stage 1 RELEASED stays released in stage 2
+        # (lane ``joinyield128``: HECA v28332 was re-pinned 0.32 m off the
+        # level the sidecar told the core ribbon to take)
+        if yielded1:
+            from .pin_yield import release_pins
+            cs = release_pins(cs, {int(r["v"]) for r in yielded1}, yield_heads)
     if pass1a is not None and hasattr(hold, "apply"):
         cs = hold.apply(cs)        # stage 2 states pass 1b's hold law (§4)
     t2 = time.perf_counter()

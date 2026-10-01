@@ -57,6 +57,8 @@ def _strategy_for(definition):
 def test_shipped_definitions_parse(shipped_registry):
     assert set(shipped_registry) == {
         "USGS3DEP",
+        "USGSLPC",
+        "USGSOPR",
         "HRDEM",
         "COPERNICUSGLO30",
         "VIEWFINDER1",

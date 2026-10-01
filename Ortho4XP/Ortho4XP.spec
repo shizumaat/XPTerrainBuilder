@@ -114,6 +114,9 @@ a = Analysis(
                    # LAS tiles (las_tile_index, #130): imported inside
                    # the strategy, so the static scan never sees it.
                    + collect_submodules('laspy')
+                   # LAZ point clouds (USGS LPC rung, #153): laspy finds
+                   # its Rust backend at run time, never by import.
+                   + collect_submodules('lazrs')
                    + ['O4_LERC_Decode', 'O4_Scenery_Packs',
                       # imported inside a function (O4_Proj_Runtime, #121)
                       'truststore']),

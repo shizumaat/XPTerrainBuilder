@@ -577,3 +577,217 @@ def test_wkt_epsg_is_read_without_gdal():
     compound = pyproj.CRS.from_user_input("EPSG:6428+6360").to_wkt(
         version="WKT1_GDAL")
     assert INSETS._wkt_horizontal_epsg(compound) == 6428
+
+
+# ---------------------------------------------------------------------
+# #153: the USGS Lidar Point Cloud rung -- LAZ tiles behind a TNM
+# listing, each tile's CRS and height unit read from its own header.
+# ---------------------------------------------------------------------
+def _lpc_definition(**overrides):
+    definition = _definition(
+        code="USGSLPCTEST",
+        index_format="tnm",
+        index_url_template="https://tnm.test/p?bbox={west},{south},"
+                           "{east},{north}",
+        source_crs="from_header",
+        vertical_unit="from_header",
+        point_compression="laz",
+        point_formats="0,1,2,3,6,7,8",
+        publication_date="",
+    )
+    definition.pop("tile_url_template", None)
+    definition.update(overrides)
+    return definition
+
+
+requires_laz = pytest.mark.skipif(not INSETS.laz_reader_available(),
+                                  reason="no LAZ backend (lazrs)")
+
+
+@requires_laz
+def test_laz_tile_feet_without_vertical_crs_grids_in_metres(tmp_path):
+    """A State Plane foot CRS and no vertical CRS: heights are in that
+    foot (the raster rule) and come out in metres."""
+    laz = _write_las(tmp_path / "t.laz", hole=False)
+    with open(laz, "rb") as handle:
+        assert handle.read(4) == b"LASF"
+    dtm = tmp_path / "t_dtm.tif"
+    record = INSETS.grid_las_tile(laz, str(dtm), _lpc_definition())
+    values, transform = _read(dtm)
+    assert values.shape == (N_CELLS, N_CELLS)
+    cx = (I0 + 10 + 0.5) * CELL_FT
+    cy = (J0 + N_CELLS - 10 - 0.5) * CELL_FT
+    assert abs(values[10, 10] - _plane_ft(cx, cy) * FTUS) < 0.01
+    assert record["tile_crs"] == "EPSG:6428"
+    assert record["tile_vertical_unit_rule"] == "horizontal-crs"
+    assert record["source_crs"] == "from_header"
+    assert INSETS._las_dtm_record_if_current(
+        str(dtm), _lpc_definition()) is not None
+    dataset = gdal.Open(str(dtm))
+    assert osr.SpatialReference(dataset.GetProjection()).GetAuthorityCode(
+        None) == "6428"
+    dataset = None
+
+
+@requires_laz
+def test_laz_tile_compound_crs_takes_the_vertical_unit(tmp_path):
+    """NAD83(2011) CO Central ftUS + NAVD88 height (ftUS): the vertical
+    CRS decides the height unit."""
+    las = tmp_path / "c.laz"
+    _write_las(las, hole=False)
+    # rewrite with a compound CRS
+    data = laspy.read(str(las))
+    header = laspy.LasHeader(point_format=6, version="1.4")
+    header.scales = data.header.scales
+    header.offsets = data.header.offsets
+    header.add_crs(pyproj.CRS("EPSG:6428+6360"))
+    out = laspy.LasData(header)
+    out.points = data.points
+    out.write(str(tmp_path / "compound.laz"))
+    record = INSETS.grid_las_tile(str(tmp_path / "compound.laz"),
+                                  str(tmp_path / "c_dtm.tif"),
+                                  _lpc_definition())
+    assert record["tile_vertical_unit_rule"] == "vertical-crs"
+    values, _transform = _read(tmp_path / "c_dtm.tif")
+    cx = (I0 + 10 + 0.5) * CELL_FT
+    cy = (J0 + N_CELLS - 10 - 0.5) * CELL_FT
+    assert abs(values[10, 10] - _plane_ft(cx, cy) * FTUS) < 0.01
+
+
+@requires_laz
+def test_laz_validation_and_the_backend_door(tmp_path, monkeypatch):
+    laz = _write_las(tmp_path / "t.laz")
+    summary = INSETS.validate_las_tile(laz, _lpc_definition())
+    assert summary["crs"] == "EPSG:6428"
+    # PITKIN1M's contract still refuses LAZ outright
+    with pytest.raises(INSETS.ProviderUnavailable,
+                       match="LAZ needs a backend"):
+        INSETS.validate_las_tile(laz, _definition())
+    monkeypatch.setattr(INSETS, "laz_reader_available", lambda: False)
+    with pytest.raises(INSETS.ProviderUnavailable, match="lazrs missing"):
+        INSETS.validate_las_tile(laz, _lpc_definition())
+
+
+def test_missing_laz_backend_is_unavailable_never_no_coverage(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(INSETS, "laz_reader_available", lambda: False)
+    with pytest.raises(INSETS.ProviderUnavailable,
+                       match=r"LAZ backend \(lazrs\) missing"):
+        INSETS.LasTileIndexStrategy().fetch(
+            _lpc_definition(), _box_of_tile(), 1.0, str(tmp_path / "a.tif"))
+    definition = _lpc_definition()
+    assert INSETS.provider_required_capabilities(definition) == [
+        INSETS.CAPABILITY_LAS, INSETS.CAPABILITY_LAZ]
+    assert INSETS.run_capability_record(definition)["capabilities"] == [
+        INSETS.CAPABILITY_LAS]
+
+
+def _tnm_item(name, box, date, size=1000):
+    return {"downloadURL": "https://rockyweb.test/LPC/%s.laz" % name,
+            "title": "USGS Lidar Point Cloud %s" % name,
+            "sourceId": "sid-" + name, "publicationDate": date,
+            "sizeInBytes": size,
+            "boundingBox": {"minX": box[0], "minY": box[1],
+                            "maxX": box[2], "maxY": box[3]}}
+
+
+@pytest.fixture
+def fake_tnm_lpc(monkeypatch):
+    import requests
+
+    state = {"items": [], "tiles": {}, "calls": [], "short": set()}
+
+    def _get(url, **kwargs):
+        state["calls"].append(("GET", url))
+        if url.startswith("https://tnm.test/"):
+            offset = int(url.rsplit("&offset=", 1)[1]) if "&offset=" in \
+                url else 0
+            return _Response(200, {"total": len(state["items"]),
+                                   "items": state["items"][offset:
+                                                           offset + 50]})
+        name = url.rsplit("/", 1)[-1][:-4]
+        body = state["tiles"].get(name)
+        if body is None:
+            return _Response(404)
+        length = len(body) + (100 if name in state["short"] else 0)
+        return _Response(200, body=body,
+                         headers={"Content-Length": str(length)})
+
+    def _head(url, **kwargs):
+        state["calls"].append(("HEAD", url))
+        return _Response(200, headers={"Content-Length": "1"})
+
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(requests, "head", _head)
+    return state
+
+
+def test_tnm_index_cuts_to_the_core_and_orders_oldest_first(fake_tnm_lpc):
+    from shapely.geometry import box as shapely_box
+
+    tile = _box_of_tile()
+    far = (tile[0] + 0.5, tile[1], tile[2] + 0.5, tile[3])
+    fake_tnm_lpc["items"] = (
+        [_tnm_item("NEW_%02d" % n, tile, "2022-05-01") for n in range(30)]
+        + [_tnm_item("OLD_%02d" % n, tile, "2015-05-01") for n in range(30)]
+        + [_tnm_item("FAR", far, "2023-01-01")])
+    footprint = INSETS._polygon_mapping(shapely_box(*tile))
+    definition = _lpc_definition(**{INSETS.LAS_FOOTPRINT_KEY: footprint})
+    strategy = INSETS.LasTileIndexStrategy()
+    listing = strategy.discover(definition, tile)
+    names = [source["source_id"] for source in listing]
+    assert "FAR" not in names                         # outside the core
+    assert names[:30] == ["OLD_%02d" % n for n in range(30)]
+    assert names[30:] == ["NEW_%02d" % n for n in range(30)]
+    assert listing[0]["size_bytes"] == 1000
+    assert listing[0]["download_url"].endswith("OLD_00.laz")
+    assert strategy.last_listing == listing
+    # two pages were read (61 items)
+    assert sum(1 for c in fake_tnm_lpc["calls"] if "tnm.test" in c[1]) == 2
+
+
+@requires_laz
+def test_lpc_fetch_end_to_end(fake_tnm_lpc, tmp_path, monkeypatch):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "E"))
+    laz = _write_las(tmp_path / "src.laz")
+    with open(laz, "rb") as handle:
+        body = handle.read()
+    tile = _box_of_tile()
+    fake_tnm_lpc["items"] = [_tnm_item("USGS_LPC_T1", tile, "2022-05-01",
+                                       size=len(body))]
+    fake_tnm_lpc["tiles"]["USGS_LPC_T1"] = body
+    destination = str(tmp_path / "out" / "KGEG_usgs3dep.tif.rung3")
+    os.makedirs(os.path.dirname(destination))
+    provenance = INSETS.LasTileIndexStrategy().fetch(
+        _lpc_definition(), tile, 1.0, destination)
+    cached = os.path.join(INSETS.las_tile_cache_directory("USGSLPCTEST"),
+                          "USGS_LPC_T1.laz")
+    assert os.path.isfile(cached)
+    assert os.path.isfile(cached[:-4] + "_dtm.tif")
+    assert not any(call[0] == "HEAD" for call in fake_tnm_lpc["calls"])
+    assert provenance["source_crs"] == ["EPSG:6428"]
+    assert provenance["vertical_unit_source"] == [
+        "US survey foot (horizontal-crs)"]
+    assert provenance["point_density_per_m2"] == pytest.approx(4.0,
+                                                               rel=1e-3)
+    values, _transform = _read(destination)
+    good = values[values != -32768.0]
+    assert 7800 * FTUS - 1 < good.min() < good.max() < 7803 * FTUS + 1
+
+
+@requires_laz
+def test_short_laz_download_is_transient(fake_tnm_lpc, tmp_path,
+                                         monkeypatch):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "E"))
+    laz = _write_las(tmp_path / "src.laz")
+    with open(laz, "rb") as handle:
+        body = handle.read()
+    tile = _box_of_tile()
+    fake_tnm_lpc["items"] = [_tnm_item("T1", tile, "2022-05-01")]
+    fake_tnm_lpc["tiles"]["T1"] = body
+    fake_tnm_lpc["short"].add("T1")
+    with pytest.raises(INSETS.TransientFetchError, match="stopped at"):
+        INSETS.LasTileIndexStrategy().fetch(
+            _lpc_definition(), tile, 1.0, str(tmp_path / "a.tif"))
+    assert not os.path.isfile(os.path.join(
+        INSETS.las_tile_cache_directory("USGSLPCTEST"), "T1.laz"))

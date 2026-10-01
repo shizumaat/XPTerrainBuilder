@@ -39,6 +39,15 @@ ladder_label=1 meter
 # every build (ladder_recheck), so the 2024 USGS Aspen unit is picked up
 # the first build after it lists.
 resolution_ladder=1|Pitkin County 2016 lidar|provider:PITKIN1M
+# USGS ORIGINAL PRODUCT RESOLUTION + POINT CLOUDS (#153, owner RULINGS
+# 2026-09-30bl): where USGS flew lidar but publishes no 1 m product
+# (Alaska, KGEG, KGTF, KPUB, KGPT ...), the same flight's OPR DEM tiles
+# (0.5-1.5 m, units read from each file), then its LAZ point clouds
+# gridded in-engine -- each judged by the airport-cover rule.  Both sit
+# before the seamless 3 m / 10 m layers; a failure of either (transient,
+# unavailable, no coverage, below threshold) falls through to them.
+resolution_ladder=1|USGS original product resolution|provider:USGSOPR
+resolution_ladder=1|USGS lidar point cloud|provider:USGSLPC
 resolution_ladder=3|1/9 arc-second|https://tnmaccess.nationalmap.gov/api/v1/products?datasets=National Elevation Dataset (NED) 1/9 arc-second&bbox={west},{south},{east},{north}&outputFormat=JSON
 resolution_ladder=10|1/3 arc-second|https://tnmaccess.nationalmap.gov/api/v1/products?datasets=National Elevation Dataset (NED) 1/3 arc-second&bbox={west},{south},{east},{north}&outputFormat=JSON
 

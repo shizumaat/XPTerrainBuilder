@@ -125,7 +125,7 @@ PyInstaller embeds these, so releases redistribute them.
   and the freeze recipe. The macOS app does not link Qt.
 - Permissive, notice-only: `numpy`, `scipy`, `networkx`, `shapely`,
   `scikit-fmm`, `tifffile`, `imagecodecs` (BSD-3); `pillow` (MIT-CMU);
-  `pyproj`, `Rtree`, `keyring`, `gdal` (MIT); `requests` (Apache-2.0);
+  `pyproj`, `Rtree`, `keyring`, `gdal`, `lazrs` (MIT); `requests` (Apache-2.0);
   `osmium`, `laspy` (BSD-2).
 
 ## 5. Generated scenery is not covered

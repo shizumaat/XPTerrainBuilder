@@ -196,7 +196,7 @@ def test_the_chunker_covers_once_within_every_limit(width, height, max_px,
 # 2. nodata mandatory (#155) and the .elv parse
 # ---------------------------------------------------------------------
 def _write_elv(directory, name, text):
-    (directory / (name + ".elv")).write_text(text, encoding="utf-8")
+    (directory / (name + ".elv")).write_text(text, encoding="utf-8", newline="\n")
 
 
 def test_a_definition_without_nodata_is_refused_at_parse(tmp_path):

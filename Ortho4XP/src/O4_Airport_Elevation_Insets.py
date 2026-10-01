@@ -2519,6 +2519,11 @@ def discover_inset(definition, bounding_box_wgs84):
 # =====================================================================
 # Shared fetch helpers (strategy-agnostic; reused by tnm_cog and stac)
 # =====================================================================
+#: GDAL archive handlers whose member paths read a LOCAL archive unless a
+#: curl handler is chained inside them.
+_LOCAL_ARCHIVE_HANDLERS = ("/vsizip/", "/vsi7z/")
+
+
 def _vsicurl_allowed_extensions(warp_inputs):
     """Extension allowlist for the warp's remote reads, or ``None``.
 
@@ -2546,6 +2551,11 @@ def _vsicurl_allowed_extensions(warp_inputs):
             # Local scratch files and already-open datasets (the wcs
             # strategy hands the warp a Dataset) never go through curl.
             continue
+        if source.startswith(_LOCAL_ARCHIVE_HANDLERS) and not any(
+                remote in source for remote in ("/vsicurl/", "/vsis3/")):
+            # A member of a LOCAL scratch archive (tnm_cog's downloaded
+            # 1/9 arc-second zips, #157) never goes through curl either.
+            continue
         if not source.startswith(("/vsicurl/", "/vsis3/")):
             return None
         saw_curl_input = True
@@ -2556,6 +2566,122 @@ def _vsicurl_allowed_extensions(warp_inputs):
     if not saw_curl_input:
         return None
     return ",".join(sorted(extensions))
+
+
+def archive_raster_members(root, extensions, depth=0):
+    """Every member of the archive (or directory) at the GDAL path
+    ``root`` whose name ends in one of ``extensions``, as full GDAL
+    paths; folders are walked two levels down (the Baden-Wuerttemberg and
+    some Texas zips nest their tiles).  The one member walk of the
+    module's archive readers (``arcgis_feature_tiles``, ``tnm_cog``)."""
+    for member in gdal.ReadDir(root) or []:
+        entry_path = root + "/" + member
+        if member.lower().endswith(tuple(extensions)):
+            yield entry_path
+        elif depth < 2 and "." not in member:
+            yield from archive_raster_members(entry_path, extensions,
+                                              depth + 1)
+
+
+def download_zip_whole(definition, source, scratch_path, member,
+                       progress_label):
+    """One zip archive, WHOLE, into ``scratch_path``; re-GET whole once
+    when the transfer dies, the bytes are not a zip, or the zip does not
+    hold ``member`` (``member=None``: any well-formed zip).  ``True``, or
+    ``False`` for a 404 (the listed archive is not on the server).  A
+    5xx/429, a JSON/HTML body inside a 200 and a transfer that died twice
+    are TRANSIENT; any other status is ``unavailable``.
+
+    The one whole-archive download of the module's zip readers: the
+    CWCB lidar tiles (the server ignores ``Range``) and the zipped
+    ERDAS IMAGINE products TNM lists for USGS 1/9 arc-second (#157 --
+    a deflated member cannot be range-read, so the archive comes whole
+    to scratch beside the destination and the caller removes it).
+    """
+    import requests
+    import time as _time
+    import zipfile
+
+    code = definition.get("code")
+    url = source["download_url"]
+    last_problem = None
+    for _attempt in range(2):
+        if os.path.isfile(scratch_path):
+            os.remove(scratch_path)
+        try:
+            response = requests.get(url, stream=True, timeout=(30, 120))
+        except Exception as error:
+            last_problem = error
+            continue
+        try:
+            status = int(response.status_code)
+            if status == 404:
+                return False
+            if discovery_status_is_transient(status):
+                raise TransientFetchError(
+                    "%s: tile %s answered HTTP %d"
+                    % (code, source["source_id"], status))
+            if status != 200:
+                raise ProviderUnavailable(
+                    "%s: tile %s answered HTTP %d"
+                    % (code, source["source_id"], status))
+            content_type = str((getattr(response, "headers", None)
+                                or {}).get("Content-Type", "")).lower()
+            if "json" in content_type or "html" in content_type:
+                # An API error envelope inside a 200, never a tile.
+                raise TransientFetchError(
+                    "%s: tile %s answered a %s body, not a zip"
+                    % (code, source["source_id"], content_type))
+            try:
+                total = int((getattr(response, "headers", None)
+                             or {}).get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                total = 0
+            os.makedirs(os.path.dirname(scratch_path), exist_ok=True)
+            started = _time.monotonic()
+            last_line = started
+            have = 0
+            with open(scratch_path, "wb") as handle:
+                for block in response.iter_content(1 << 20):
+                    if UI.red_flag:
+                        raise TransientFetchError(
+                            "%s tile download stopped with the build"
+                            % code)
+                    if block:
+                        handle.write(block)
+                        have += len(block)
+                    now = _time.monotonic()
+                    if now - last_line >= LAS_PROGRESS_INTERVAL_S:
+                        last_line = now
+                        UI.vprint(1, _las_progress_line(
+                            progress_label, have, total, have,
+                            now - started))
+            UI.vprint(1, _las_progress_line(
+                progress_label, have, total or have, have,
+                _time.monotonic() - started, done=True))
+        except (TransientFetchError, ProviderUnavailable):
+            raise
+        except Exception as error:
+            last_problem = error
+            continue
+        finally:
+            response.close()
+        if total and have != total:
+            last_problem = "%d of %d bytes" % (have, total)
+            continue
+        try:
+            with zipfile.ZipFile(scratch_path) as archive:
+                names = archive.namelist()
+        except zipfile.BadZipFile as error:
+            last_problem = error
+            continue
+        if member is not None and member not in names:
+            last_problem = "no member %s in %s" % (member, names[:4])
+            continue
+        return True
+    raise TransientFetchError(
+        "%s: tile %s download died twice: %s"
+        % (code, source["source_id"], last_problem))
 
 
 def warp_vsicurl_sources_to_geotiff(
@@ -2569,6 +2695,7 @@ def warp_vsicurl_sources_to_geotiff(
     gdal_configuration_options=None,
     vertical_unit=None,
     provider_code=None,
+    failure_reasons=None,
 ):
     """Mosaic + warp remote rasters to an EPSG:4326 float32 GeoTIFF window.
 
@@ -2608,6 +2735,11 @@ def warp_vsicurl_sources_to_geotiff(
     :func:`raster_vertical_unit_stamp`) and :func:`fetch_inset` lifts the
     stamp into the provenance as ``vertical_unit_source`` /
     ``vertical_unit_applied``.
+
+    ``failure_reasons`` (a list, optional): on a ``False`` return the
+    reason is appended to it, so a caller that knows its inputs were
+    LISTED products can record the warp failure as ``unavailable`` with
+    its reason instead of a no-coverage answer (#157).
     """
     if not has_gdal:
         return False
@@ -2715,10 +2847,14 @@ def warp_vsicurl_sources_to_geotiff(
                 + str(error)
             ) from error
         UI.vprint(1, "   WARNING: elevation warp failed:", str(error))
+        if failure_reasons is not None:
+            failure_reasons.append(str(error))
         return False
     if dataset is None:
         if UI.red_flag:
             raise TransientFetchError("elevation warp stopped with the build")
+        if failure_reasons is not None:
+            failure_reasons.append("the warp returned no dataset")
         return False
     dataset = None  # flush to disk before reopening
     # Sentinel sanitization: sources with UNDECLARED nodata leak their
@@ -3229,9 +3365,81 @@ class TnmCloudOptimizedGeoTiffStrategy:
         )
         return sources
 
+    #: A listed product whose URL ends in this suffix is an ARCHIVE, not a
+    #: raster (#157: TNM serves the NED 1/9 arc-second products as ERDAS
+    #: IMAGINE inside a zip).
+    ARCHIVE_SUFFIX = ".zip"
+
+    #: The raster member read out of a zipped product, in preference
+    #: order: the ``.img`` the NED zips carry, else a GeoTIFF.
+    ARCHIVE_MEMBER_PREFERENCE = (".img", ".tif", ".tiff")
+
     def _warp_input_for(self, source):
         """The GDAL path a discovered source is read through."""
         return "/vsicurl/" + source["download_url"]
+
+    def _is_archive(self, source):
+        return str(source.get("download_url") or "").split("?", 1)[
+            0].lower().endswith(self.ARCHIVE_SUFFIX)
+
+    def _stage_archives(self, definition, sources, destination_path,
+                        scratch_paths):
+        """Every ZIPPED listed product (#157), downloaded whole to scratch
+        beside the destination; ``{download_url: /vsizip/ member path}``.
+
+        A deflated member cannot be range-read (measured 2026-09-30,
+        KGRK's 1/9 arc-second zip: the central directory lists in one
+        range read, 0.8 s, but merely OPENING the 200 MB ``.img`` through
+        ``/vsizip//vsicurl/`` streamed for 57 s), so the archive comes
+        whole through :func:`download_zip_whole` -- the module's one
+        whole-archive download -- and its raster member is chosen by
+        :func:`archive_raster_members` in :attr:`ARCHIVE_MEMBER_PREFERENCE`
+        order.  A listed archive that is not on the server (404) or holds
+        no raster member is ``unavailable`` -- never a no-coverage answer;
+        the scratch paths are appended to ``scratch_paths`` BEFORE the
+        download so the caller's ``finally`` removes a partial one.
+        """
+        staged = {}
+        archives = [source for source in sources if self._is_archive(source)]
+        if not archives:
+            return staged
+        code = definition.get("code")
+        airport = _las_airport_label(destination_path)
+        os.makedirs(os.path.dirname(destination_path) or ".", exist_ok=True)
+        for (number, source) in enumerate(archives):
+            scratch_path = "%s.tnm%d%s" % (destination_path, number,
+                                            self.ARCHIVE_SUFFIX)
+            scratch_paths.append(scratch_path)
+            UI.vprint(1, "    [inset] %s %s: zipped product %d/%d %s - "
+                      "downloading whole (a zipped raster cannot be "
+                      "window-read)" % (airport, code, number + 1,
+                                        len(archives), source.get(
+                                            "source_id")))
+            if not download_zip_whole(
+                    definition, source, scratch_path, None,
+                    "%s %s archive %d/%d %s" % (
+                        airport, code, number + 1, len(archives),
+                        source.get("source_id"))):
+                raise ProviderUnavailable(
+                    "%s: listed product %s is not on the server (HTTP 404) "
+                    "- %s" % (code, source.get("source_id"),
+                              source["download_url"]))
+            members = list(archive_raster_members(
+                "/vsizip/" + scratch_path, self.ARCHIVE_MEMBER_PREFERENCE))
+            chosen = None
+            for suffix in self.ARCHIVE_MEMBER_PREFERENCE:
+                chosen = next((member for member in members
+                               if member.lower().endswith(suffix)), None)
+                if chosen is not None:
+                    break
+            if chosen is None:
+                raise ProviderUnavailable(
+                    "%s: listed product %s is a zip with no raster member "
+                    "(%s) - %s" % (code, source.get("source_id"),
+                                   "/".join(self.ARCHIVE_MEMBER_PREFERENCE),
+                                   source["download_url"]))
+            staged[source["download_url"]] = chosen
+        return staged
 
     def fetch(
         self,
@@ -3245,7 +3453,32 @@ class TnmCloudOptimizedGeoTiffStrategy:
         sources = self.discover(definition, bounding_box_wgs84)
         if not sources:
             return None
+        scratch_paths = []
+        try:
+            staged = self._stage_archives(definition, sources,
+                                          destination_path, scratch_paths)
 
+            def warp_input_for(source):
+                return (staged.get(source.get("download_url"))
+                        or self._warp_input_for(source))
+
+            return self._fetch_listed(
+                definition, sources, warp_input_for, bounding_box_wgs84,
+                target_resolution_m, destination_path)
+        finally:
+            for path in scratch_paths:
+                if os.path.isfile(path):
+                    try:
+                        os.remove(path)
+                    except OSError:                      # pragma: no cover
+                        pass
+
+    def _fetch_listed(self, definition, sources, warp_input_for,
+                      bounding_box_wgs84, target_resolution_m,
+                      destination_path):
+        """The warp + record of the listed ``sources``; each is read
+        through ``warp_input_for`` (a staged archive member, else
+        :meth:`_warp_input_for`)."""
         # R13-2 -- EVERY PIXEL TAKES THE NEWEST SOURCE WITH VALID DATA
         # THERE.  Keeping only the newest publication date is what lost
         # KMCI: a Missouri airport whose box straddles the state line took
@@ -3277,13 +3510,13 @@ class TnmCloudOptimizedGeoTiffStrategy:
             # DTMs TNM lists in the same dataset) is not lidar-class
             # and stays out of the mosaic.
             sources, excluded = _inspect_and_screen_raster_sources(
-                definition, sources, self._warp_input_for)
+                definition, sources, warp_input_for)
             if not sources:
                 return None
         oldest_first = list(reversed(sources))   # discover sorts newest first
         warp_inputs = []
         for source in oldest_first:
-            warp_input = self._warp_input_for(source)
+            warp_input = warp_input_for(source)
             z_to_m = source.get("z_to_m")
             if from_source and z_to_m not in (None, 1.0):
                 warp_input = _metre_scaled_vrt(
@@ -3297,6 +3530,7 @@ class TnmCloudOptimizedGeoTiffStrategy:
             warp_configuration = {
                 "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff,.vrt"}
 
+        failure_reasons = []
         try:
             warped = warp_vsicurl_sources_to_geotiff(
                 warp_inputs,
@@ -3307,13 +3541,21 @@ class TnmCloudOptimizedGeoTiffStrategy:
                 vertical_unit=_raster_vertical_unit(definition),
                 provider_code=definition.get("code"),
                 gdal_configuration_options=warp_configuration,
+                failure_reasons=failure_reasons,
             )
         finally:
             for path in scratch_inputs:
                 if os.path.isfile(path):
                     os.remove(path)
         if not warped:
-            return None
+            # A LISTED product the engine could not decode is no answer
+            # about coverage (#157, RULINGS 2026-09-13b): ``unavailable``
+            # with the reason -- the ladder climbs and the re-check asks
+            # again -- never the durable no-coverage a ``None`` records.
+            raise ProviderUnavailable(
+                "%s: %d listed product(s) could not be read (%s)"
+                % (definition.get("code"), len(warp_inputs),
+                   "; ".join(failure_reasons) or "the warp failed"))
 
         # R13-3 -- THE RECORD NAMES ITS SOURCES, PER CONTRIBUTION.  Which
         # project answered here, and which one was merely overhead, is the
@@ -3323,7 +3565,7 @@ class TnmCloudOptimizedGeoTiffStrategy:
         empty = []
         for source in sources:                  # newest first, as recorded
             if _source_holds_data_over_bbox(
-                self._warp_input_for(source),
+                warp_input_for(source),
                 _source_probe_box(source, bounding_box_wgs84)
                 if from_source else bounding_box_wgs84,
                 samples=(_SOURCE_FOOTPRINT_PROBE_SAMPLES if from_source
@@ -7398,12 +7640,8 @@ class ArcgisFeatureTileStrategy:
     # Members
     # -----------------------------------------------------------------
     def _raster_members(self, root, depth=0):
-        for member in gdal.ReadDir(root) or []:
-            entry_path = root + "/" + member
-            if member.lower().endswith(self.RASTER_MEMBER_EXTENSIONS):
-                yield entry_path
-            elif depth < 2 and "." not in member:
-                yield from self._raster_members(entry_path, depth + 1)
+        return archive_raster_members(root, self.RASTER_MEMBER_EXTENSIONS,
+                                      depth)
 
     @staticmethod
     def _members_named(members, needle):
@@ -10039,94 +10277,10 @@ class CwcbLidarApiStrategy:
 
     def _download_zip(self, definition, source, scratch_path, member,
                       progress_label):
-        """One tile zip, WHOLE (the server ignores ``Range``), into
-        ``scratch_path``; re-GET whole once when the transfer dies or the
-        zip does not hold ``member``.  ``True``, or ``False`` for a 404
-        (the listed tile is not on the server)."""
-        import requests
-        import time as _time
-        import zipfile
-
-        code = definition.get("code")
-        url = source["download_url"]
-        last_problem = None
-        for _attempt in range(2):
-            if os.path.isfile(scratch_path):
-                os.remove(scratch_path)
-            try:
-                response = requests.get(url, stream=True, timeout=(30, 120))
-            except Exception as error:
-                last_problem = error
-                continue
-            try:
-                status = int(response.status_code)
-                if status == 404:
-                    return False
-                if discovery_status_is_transient(status):
-                    raise TransientFetchError(
-                        "%s: tile %s answered HTTP %d"
-                        % (code, source["source_id"], status))
-                if status != 200:
-                    raise ProviderUnavailable(
-                        "%s: tile %s answered HTTP %d"
-                        % (code, source["source_id"], status))
-                content_type = str((getattr(response, "headers", None)
-                                    or {}).get("Content-Type", "")).lower()
-                if "json" in content_type or "html" in content_type:
-                    # An API error envelope inside a 200, never a tile.
-                    raise TransientFetchError(
-                        "%s: tile %s answered a %s body, not a zip"
-                        % (code, source["source_id"], content_type))
-                try:
-                    total = int((getattr(response, "headers", None)
-                                 or {}).get("Content-Length") or 0)
-                except (TypeError, ValueError):
-                    total = 0
-                os.makedirs(os.path.dirname(scratch_path), exist_ok=True)
-                started = _time.monotonic()
-                last_line = started
-                have = 0
-                with open(scratch_path, "wb") as handle:
-                    for block in response.iter_content(1 << 20):
-                        if UI.red_flag:
-                            raise TransientFetchError(
-                                "%s tile download stopped with the build"
-                                % code)
-                        if block:
-                            handle.write(block)
-                            have += len(block)
-                        now = _time.monotonic()
-                        if now - last_line >= LAS_PROGRESS_INTERVAL_S:
-                            last_line = now
-                            UI.vprint(1, _las_progress_line(
-                                progress_label, have, total, have,
-                                now - started))
-                UI.vprint(1, _las_progress_line(
-                    progress_label, have, total or have, have,
-                    _time.monotonic() - started, done=True))
-            except (TransientFetchError, ProviderUnavailable):
-                raise
-            except Exception as error:
-                last_problem = error
-                continue
-            finally:
-                response.close()
-            if total and have != total:
-                last_problem = "%d of %d bytes" % (have, total)
-                continue
-            try:
-                with zipfile.ZipFile(scratch_path) as archive:
-                    names = archive.namelist()
-            except zipfile.BadZipFile as error:
-                last_problem = error
-                continue
-            if member not in names:
-                last_problem = "no member %s in %s" % (member, names[:4])
-                continue
-            return True
-        raise TransientFetchError(
-            "%s: tile %s download died twice: %s"
-            % (code, source["source_id"], last_problem))
+        """One tile zip, WHOLE (the server ignores ``Range``): the module's
+        one whole-archive download, :func:`download_zip_whole`."""
+        return download_zip_whole(definition, source, scratch_path, member,
+                                  progress_label)
 
     def fetch(
         self,

@@ -949,3 +949,172 @@ def test_no_vrt_or_stamp_is_written_outside_the_tmp_dir(
     }
     assert after == before
     assert list((tmp_path / "tmp").rglob("*.vrt"))
+
+
+# =====================================================================
+# THE HARNESS (spec §6 rows 14-16, §5): the ``rings`` refresh scope, the
+# frame key and the corpus-stamp part
+# =====================================================================
+def _guard():
+    sys.path.insert(0, str(ENGINE_DIR / "tools" / "harness"))
+    import shared_repo_guard
+
+    return shared_repo_guard
+
+
+def test_scope_of_names_a_ring_cell_rings_not_dem():
+    """Spec §6 row 16: authorising a DEM refresh must NOT authorise a ring
+    warm.  The ring cells live INSIDE ``dem``'s prefix, so the mapping is
+    by DIRECTORY SUFFIX (the ``shore``-inside-``osm_layers`` precedent)."""
+    guard = _guard()
+    assert guard.scope_of(
+        "Elevation_data/+30-110/N39W107_approach_rings/"
+        "cell_04_05_usgs3dep_10.31m.tif"
+    ) == "rings"
+    assert guard.scope_of(
+        "Elevation_data/+30-110/N39W107_approach_rings/index.json"
+    ) == "rings"
+    # And nothing else under Elevation_data moved scope.
+    assert guard.scope_of(
+        "Elevation_data/+30-110/N39W107_airport_insets/KASE_usgs3dep.tif"
+    ) == "dem"
+    assert guard.scope_of("Elevation_data/+30-110/N39W107.hgt") == "dem"
+    assert guard.scope_of("Elevation_data/_las_tiles/x.laz") == "las_tiles"
+
+
+def test_rings_is_an_authorisable_scope_with_a_description():
+    guard = _guard()
+    assert "rings" in {s for s, _p, _w in guard.REFRESH_SCOPES}
+    assert "approach" in guard.scope_description("rings")
+
+
+def test_the_scope_suffix_is_read_from_the_engine():
+    """A rename of ``FNAMES.APPROACH_RING_DIR_SUFFIX`` must not silently
+    unmap the scope and let a ring warm pass as a ``dem`` write."""
+    guard = _guard()
+    assert (
+        guard.FNAMES_APPROACH_RING_DIR_SUFFIX
+        == FNAMES.APPROACH_RING_DIR_SUFFIX
+    )
+
+
+def test_approach_rings_is_a_dem_frame_key_and_cache_state_is_frozen():
+    """Spec §7 (the gate shapes the surface) and STOP 3 (``dem_cache_state``
+    keys are FROZEN -- adding one re-keys every stored arm)."""
+    sys.path.insert(0, str(ENGINE_DIR / "tools" / "harness"))
+    import build_airport
+
+    assert "approach_rings" in build_airport.DEM_FRAME_KEYS
+    state = build_airport.dem_cache_state(ENGINE_DIR, TILE_LAT, TILE_LON)
+    assert set(state) == {
+        "tile", "tile_stem", "base_raster", "base_raster_files",
+        "airport_insets", "airport_inset_dirs", "tile_overlay",
+        "airports_layer", "airports_layer_files",
+    }
+
+
+def test_the_cold_refusal_names_the_rings_scope(tmp_path, monkeypatch):
+    """Spec §5: a planned cell with no raster and no negative REFUSES, in
+    its own scope, and ``--allow-degraded-dem`` accepts it knowingly."""
+    sys.path.insert(0, str(ENGINE_DIR / "tools" / "harness"))
+    import build_airport
+
+    _install_registry(monkeypatch, _definition("FINE", 1.0))
+    tile = _tile(tmp_path, monkeypatch)
+    plan = RINGS.resolve_approach_ring_plan(
+        tile, _dico(KASE=_boundary(0.5, 0.5))
+    )
+    problem = RINGS.approach_ring_frame_problem(TILE_LAT, TILE_LON, plan)
+    assert problem is not None and problem[0] == "cold"
+    assert "--refresh-data rings" in problem[1]
+
+    warm_state = {
+        "tile": [TILE_LAT, TILE_LON], "tile_stem": "+39-107",
+        "base_raster": True, "base_raster_files": [],
+        "airport_insets": True, "airport_inset_dirs": [],
+        "tile_overlay": False, "airports_layer": True,
+        "airports_layer_files": [],
+    }
+    with pytest.raises(SystemExit) as refusal:
+        build_airport.require_dem_frame(warm_state, ring_problem=problem)
+    assert "--refresh-data rings" in str(refusal.value)
+    # The flag accepts it KNOWINGLY (and authorises no write).
+    build_airport.require_dem_frame(
+        warm_state, allow_degraded=True, ring_problem=problem
+    )
+    # An AUTHORISED ring refresh in the same run is not a refusal: the run
+    # derives it and the frame is re-judged afterwards.
+    build_airport.require_dem_frame(
+        warm_state, requested={"rings"}, ring_problem=problem
+    )
+
+
+def test_a_recorded_negative_answers_a_planned_cell(tmp_path, monkeypatch):
+    """A per-cell no-coverage negative is a durable ANSWER, not a hole:
+    the frame is warm and no refusal follows (spec §2/§5)."""
+    _install_registry(monkeypatch, _definition("FINE", 1.0))
+    tile = _tile(tmp_path, monkeypatch)
+    plan = RINGS.resolve_approach_ring_plan(
+        tile, _dico(KASE=_boundary(0.5, 0.5))
+    )
+    RINGS.write_approach_ring_stamp(
+        TILE_LAT, TILE_LON,
+        {"cells": {
+            cell["stem"]: RINGS.NO_RING_COVERAGE
+            for cell in plan["cells"] if cell.get("provider")
+        }},
+    )
+    assert RINGS.approach_ring_frame_problem(
+        TILE_LAT, TILE_LON, plan
+    ) is None
+
+
+def test_the_corpus_stamp_moves_when_the_ring_cache_changes(tmp_path):
+    """Spec §5: the ring state rides the ledger's ``corpus_stamp`` as its
+    own ``parts`` component -- so a pre-rings control is never served to a
+    post-rings build (the silent cross-corpus comparison the stamp exists
+    to prevent)."""
+    sys.path.insert(0, str(ENGINE_DIR / "tools" / "harness"))
+    import artifact_ledger
+
+    root = tmp_path / "repo"
+    ring_dir = root / "Elevation_data" / "+30-110" / "N39W107_approach_rings"
+    ring_dir.mkdir(parents=True)
+    frame = {
+        "data_repo": str(root),
+        "mounts": {},
+        "dem_frame_effective": {"approach_rings": "auto"},
+        "dem_cache_before": {
+            "tile_stem": "N39W107",
+            "base_raster_files": [],
+            "airports_layer_files": [],
+            "airport_inset_dirs": [],
+        },
+    }
+    empty = artifact_ledger.corpus_stamp(frame, root=root)
+    with open(ring_dir / "index.json", "w", encoding="utf-8",
+              newline="\n") as handle:
+        handle.write('{"cells": {}}\n')
+    warmed = artifact_ledger.corpus_stamp(frame, root=root)
+    assert warmed["sha256"] != empty["sha256"]
+    # It rides its OWN parts component, named, so a reader can see it.
+    assert "rings_dir" in warmed["parts"]
+    assert warmed["parts"]["rings_dir"][0]["path"].endswith(
+        FNAMES.APPROACH_RING_DIR_SUFFIX
+    )
+    assert warmed["parts"]["rings_dir"][0]["entries"] == 1
+    # ``dem_cache`` -- the FROZEN key set -- is untouched by the ring state.
+    assert warmed["parts"]["dem_cache"] == empty["parts"]["dem_cache"]
+
+
+def test_rings_fetched_is_a_build_time_download_qualifier():
+    """Spec §5: a run that fetched ring cells is no build-time baseline --
+    exactly as ``insets_fetched`` is not."""
+    sys.path.insert(0, str(ENGINE_DIR / "tools"))
+    import check_build_time
+
+    source = (ENGINE_DIR / "tools" / "check_build_time.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'features.get("rings_fetched")' in source
+    assert hasattr(check_build_time, "newest_tile_measurement")

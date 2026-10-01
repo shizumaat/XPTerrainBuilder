@@ -323,6 +323,10 @@ DEM_FRAME_KEYS = (
     "airport_elevation_insets", "airport_elevation_level",
     "airport_elevation_providers", "airport_elevation_inset_margin_m",
     "airport_elevation_inset_feather_m", "airport_inset_water",
+    # The ring gate (approach-graded-elevation-rings-spec §7): with it on
+    # in one frame and off in the other, the two builds grade against
+    # different surfaces from the inset box edge outwards.
+    "approach_rings",
 ) + XPLANE_FRAME_PATH_KEYS
 
 
@@ -539,8 +543,79 @@ def _short_latlon(lat: int, lon: int) -> str:
     return f"{int(lat):+03d}{int(lon):+04d}"
 
 
+def approach_ring_problem(lat, lon, icao=None):
+    """THE cold-ring verdict, through the ENGINE's own one predicate.
+
+    ``O4_Elevation_Level.approach_ring_frame_problem`` is the single
+    derivation site the harness, production (``dem_production.
+    frame_state``) and the app's fetch pass all ask (spec §5 / §6 rows
+    7+14): a second spelling here would be the census-wrapper defect
+    again.  Returns ``(kind, text)`` or ``None``; any failure to derive
+    the plan at all is ``None`` — a harness that cannot read the plan
+    must not invent a verdict.
+
+    Derives the plan from the CACHED airports layer only.  No fetch: the
+    harness never warms rings (spec §6 row 1).
+    """
+    if lat is None:
+        return None
+    try:
+        import O4_Config_Utils as CFG
+        import O4_Elevation_Level as ELEVATION_LEVEL
+        import O4_OSM_Utils as OSM
+        import O4_Vector_Map as VMAP
+        import O4_File_Names as FNAMES
+
+        cached = FNAMES.osm_cached(int(lat), int(lon), "airports")
+        if not os.path.isfile(cached):
+            # No cached airports layer: ``require_dem_frame`` already
+            # refuses that, naming ``--refresh-data osm_layers``.  The
+            # ring plan is simply not derivable yet.
+            return None
+        tile = CFG.Tile(int(lat), int(lon), "")
+        tile.read_from_config()
+        layer = OSM.OSM_layer()
+        layer.update_dicosm(cached)
+        dico = VMAP.build_airports_dico(tile, layer)
+        plan = ELEVATION_LEVEL.resolve_approach_ring_plan(tile, dico)
+        if plan is None:
+            return None
+        return ELEVATION_LEVEL.approach_ring_frame_problem(
+            int(lat), int(lon), plan)
+    except Exception:
+        return None
+
+
+def approach_ring_summary(lat, lon):
+    """``frame.json``'s ``approach_rings`` row, through the engine's own
+    ``summarize_approach_rings`` (one derivation site, spec §5)."""
+    if lat is None:
+        return None
+    try:
+        import O4_Config_Utils as CFG
+        import O4_Elevation_Level as ELEVATION_LEVEL
+        import O4_File_Names as FNAMES
+        import O4_OSM_Utils as OSM
+        import O4_Vector_Map as VMAP
+
+        cached = FNAMES.osm_cached(int(lat), int(lon), "airports")
+        if not os.path.isfile(cached):
+            return None
+        tile = CFG.Tile(int(lat), int(lon), "")
+        tile.read_from_config()
+        layer = OSM.OSM_layer()
+        layer.update_dicosm(cached)
+        plan = ELEVATION_LEVEL.resolve_approach_ring_plan(
+            tile, VMAP.build_airports_dico(tile, layer))
+        return ELEVATION_LEVEL.summarize_approach_rings(
+            int(lat), int(lon), plan)
+    except Exception:
+        return None
+
+
 def require_dem_frame(state: dict, *, allow_degraded: bool = False,
-                     requested=(), inset_problem=None) -> None:
+                     requested=(), inset_problem=None,
+                     ring_problem=None) -> None:
     """The zero-DEM and cold-cache refusals.
 
     * NO base raster ⇒ the loader either downloads mid-measurement or hands
@@ -609,6 +684,16 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False,
         # refuses — so it is named here too, and ``--allow-degraded-dem``
         # accepts it KNOWINGLY, authorising no write.
         _name("dem", inset_problem[1])
+    if ring_problem:
+        # THE COLD RING FRAME (#164, spec §5): a planned ring cell with no
+        # raster and no recorded negative.  Building anyway bakes a ring
+        # with holes the 90 m base fills — which IS the grade ring the
+        # rings exist to remove — so it is refused here, in its OWN scope
+        # (authorising ``dem`` never authorises a ring warm).
+        # ``--allow-degraded-dem`` accepts it KNOWINGLY and authorises NO
+        # write: the build then proceeds WITHOUT rings, as the engine's
+        # bake does with the cells it finds on disk.
+        _name("rings", ring_problem[1])
     for scope, text in deferred:
         print(f"  [harness] COLD, and this run's --refresh-data {scope} "
               f"DERIVES it before the build (re-judged afterwards): {text}")
@@ -1982,6 +2067,76 @@ def refresh_shore_feed(root, lat, lon, prog) -> dict:
 # THE AUTHORISED DEM REFRESH (--refresh-data dem)
 # ══════════════════════════════════════════════════════════════════════
 
+def refresh_approach_rings(root, lat, lon, prog) -> dict:
+    """THE AUTHORISED RING WARM (``--refresh-data rings``, #164).
+
+    An EXPLICIT, locked, ledgered event, never a build side effect (owner
+    ruling e9daef5; the KCLT road-feed precedent).  Derives the ring plan
+    from the CACHED airports layer through the engine's own single
+    derivation site and fetches every missing cell through
+    ``O4_Elevation_Level.ensure_approach_rings`` -- the band's own loop,
+    one ``fetch_inset`` per missing cell, per-cell negatives recorded.
+
+    A COLD airports layer REFUSES naming ``osm_layers`` (the KDFW
+    precedent): the plan's airports come from that layer, and warming
+    rings without it would warm nothing and report success.  Runs AFTER
+    the dem refresh for the same reason that one runs after the layers:
+    the ring admission is "this aerodrome HOLDS an inset on disk".
+    """
+    cached = None
+    try:
+        sys.path.insert(0, str(Path(root) / "src"))
+        import O4_Config_Utils as CFG
+        import O4_Elevation_Level as ELEVATION_LEVEL
+        import O4_File_Names as FNAMES
+        import O4_OSM_Utils as OSM
+        import O4_Vector_Map as VMAP
+
+        cached = FNAMES.osm_cached(int(lat), int(lon), "airports")
+        if not os.path.isfile(cached):
+            raise SystemExit(
+                f"REFUSING --refresh-data rings: tile {lat:+d}{lon:+d} has "
+                f"no cached airports layer, and the ring plan's aerodromes "
+                f"come from it -- this pass would fetch NOTHING and report "
+                f"success.  Warm it in the same run: --refresh-data "
+                f"osm_layers,dem,rings")
+        tile = CFG.Tile(int(lat), int(lon), "")
+        tile.read_from_config()
+        layer = OSM.OSM_layer()
+        layer.update_dicosm(cached)
+        dico = VMAP.build_airports_dico(tile, layer)
+        plan = ELEVATION_LEVEL.resolve_approach_ring_plan(tile, dico)
+        if plan is None:
+            prog.note(f"--refresh-data rings: tile {lat:+d}{lon:+d} has no "
+                      f"ring plan (no inset-holding aerodrome, custom_dem "
+                      f"set, or approach_rings=off) -- nothing to warm")
+            return {"tile": [lat, lon], "planned": 0, "fetched": 0,
+                    "plan": None}
+        before = ELEVATION_LEVEL.summarize_approach_rings(
+            int(lat), int(lon), plan)
+        prog.note(f"--refresh-data rings: {before['planned']} planned cell(s) "
+                  f"for {lat:+d}{lon:+d} ({before['missing']} missing) from "
+                  f"{','.join(before['providers']) or '-'}")
+        fetched = ELEVATION_LEVEL.ensure_approach_rings(tile, dico)
+        after = ELEVATION_LEVEL.summarize_approach_rings(
+            int(lat), int(lon), plan)
+    except SystemExit:
+        raise
+    except Exception as error:
+        raise SystemExit(
+            f"REFUSING --refresh-data rings: the ring warm for "
+            f"{lat:+d}{lon:+d} raised {type(error).__name__}: {error}.  "
+            f"Nothing may be measured on a half-warmed ring cache.")
+    problem = ELEVATION_LEVEL.approach_ring_frame_problem(
+        int(lat), int(lon), plan)
+    prog.note(f"--refresh-data rings: {fetched} cell(s) fetched; "
+              f"{after['on_disk']}/{after['planned']} on disk, "
+              f"{len(after['negatives'])} recorded negative(s)")
+    return {"tile": [lat, lon], "fetched": int(fetched),
+            "before": before, "after": after,
+            "still_cold": problem[1] if problem else None}
+
+
 def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     """Warm a COLD tile's DEM frame — base raster and airport insets —
     under the ``dem`` authorisation the caller already holds.
@@ -2150,7 +2305,8 @@ def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
     missing = missing_shared_artifacts(root, lat, lon, icao)
     if not refresh_only:
         require_dem_frame(dem_cache_state(root, lat, lon),
-                          allow_degraded=allow_degraded)
+                          allow_degraded=allow_degraded,
+                          ring_problem=approach_ring_problem(lat, lon, icao))
         require_no_implicit_refresh(missing, requested)
         return
     requested = set(requested or ())
@@ -4139,6 +4295,14 @@ def main(argv=None) -> int:
         frame["airport_inset_problem"] = (
             {"kind": inset_problem[0], "why": inset_problem[1]}
             if inset_problem else None)
+        # THE APPROACH-RING FRAME (#164, spec §5): its OWN key, like
+        # ``ladder_recheck`` — ``dem_cache_state``'s keys are FROZEN.
+        # Recorded whether or not anything is cold: "which ring cells did
+        # this build bake" is a question later readers ask of numbers
+        # already in a report.
+        frame["approach_rings"] = approach_ring_summary(lat, lon)
+        ring_problem = approach_ring_problem(
+            lat, lon, None if args.tile else args.icao)
         # The build-time ladder re-check's answer (RULINGS 2026-09-30aw
         # (2)): None when the airport's inset was not ladder-delivered.
         frame["ladder_recheck"] = (LADDER_RECHECKS.get(
@@ -4184,7 +4348,8 @@ def main(argv=None) -> int:
         elif args.dem is None:
             require_dem_frame(state, allow_degraded=args.allow_degraded_dem,
                               requested=requested,
-                              inset_problem=inset_problem)
+                              inset_problem=inset_problem,
+                              ring_problem=ring_problem)
         else:
             prog.note("constant-DEM oracle build: the real DEM frame is "
                       "SUBSTITUTED, so its cache warmth cannot confound "
@@ -4339,7 +4504,7 @@ def main(argv=None) -> int:
     warm_summary = None
     seed_summary = None
     osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
-    shore_refresh_summary = None
+    shore_refresh_summary = rings_refresh_summary = None
     t0 = time.time()
     # EVERYTHING FROM HERE IS INSIDE THE AUDIT'S ``finally`` (2026-09-15,
     # round 6).  It used not to be, and two things leaked, both measured
@@ -4403,6 +4568,13 @@ def main(argv=None) -> int:
                 dem_refresh_summary = refresh_tile_dem(
                     root, lat, lon, prog,
                     icao=None if args.tile else args.icao)
+        # THE RING WARM runs LAST of the three, deliberately: a ring is
+        # planned only around an aerodrome that HOLDS AN INSET on disk, so
+        # the dem pass above has to have run first (#164, spec §5).
+        if "rings" in requested and lat is not None:
+            with guard:
+                rings_refresh_summary = refresh_approach_rings(
+                    root, lat, lon, prog)
         # THE LEDGER RECONCILIATION (--reconcile-ledger), before the
         # re-judge for the same reason the audit moved: it is a RECORD of
         # what is on disk, and a later refusal must not lose it.
@@ -4439,6 +4611,7 @@ def main(argv=None) -> int:
                       "refresh_osm_layers": osm_refresh_summary,
                       "refresh_dem": dem_refresh_summary,
                       "refresh_shore": shore_refresh_summary,
+                      "refresh_rings": rings_refresh_summary,
                       "wall_seconds": round(time.time() - t0, 1)}
             prog.note(f"REFRESH-ONLY: the authorised refresh(es) "
                       f"{sorted(requested)} are done and the frame is "
@@ -4535,6 +4708,7 @@ def main(argv=None) -> int:
     frame["refresh_osm_layers"] = osm_refresh_summary
     frame["refresh_dem"] = dem_refresh_summary
     frame["refresh_shore"] = shore_refresh_summary
+    frame["refresh_rings"] = rings_refresh_summary
     frame["reconcile_ledger"] = reconcile_summary
     frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)
     frame["dem_frame_effective"] = frame_surface_keys(root)

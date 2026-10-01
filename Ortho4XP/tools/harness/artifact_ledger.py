@@ -179,6 +179,39 @@ def key_env(environ=None) -> dict:
     return {k: v for k, v in env.items() if k not in VOLATILE_ENV}
 
 
+def _approach_ring_listing(root, cache):
+    """The tile's approach-ring cache, stamped by DIRECTORY LISTING.
+
+    ``[{path, dir_listing_sha, entries}]`` per
+    ``Elevation_data/<block>/<stem>_approach_rings`` directory, or ``None``
+    when the tile stem is unknown (nothing to stamp).  Derived from the
+    tile STEM rather than read out of ``dem_cache_state`` — whose key set
+    is frozen — so the stamp sees a ring cache that appeared since the
+    last arm.  Hashing the rasters themselves would cost more than it
+    protects, exactly as for the inset directories.
+    """
+    stem = cache.get("tile_stem")
+    if not stem:
+        return None
+    out = []
+    suffix = "_approach_rings"
+    for directory in sorted(
+            (Path(root) / "Elevation_data").glob(f"*/{stem}{suffix}")):
+        if not directory.is_dir():
+            continue
+        listing = []
+        for name in sorted(os.listdir(directory)):
+            try:
+                st = (directory / name).stat()
+                listing.append([name, st.st_size, st.st_mtime_ns])
+            except OSError:
+                listing.append([name, None, None])
+        out.append({"path": str(directory.relative_to(Path(root))),
+                    "dir_listing_sha": _sha_of(listing),
+                    "entries": len(listing)})
+    return out
+
+
 def corpus_stamp(frame: dict, root=None) -> dict:
     """The corpus this build reads, stamped — the component that makes a
     changed corpus a MISS instead of a silent cross-corpus comparison.
@@ -232,6 +265,16 @@ def corpus_stamp(frame: dict, root=None) -> dict:
         "dem_cache": _sha_of(cache),
         "dem_files": _sha_of(files),
         "dem_frame_cfg": _sha_of(frame.get("dem_frame_effective")),
+        # THE RING DIRECTORY (approach-graded-elevation-rings-spec §5, #164):
+        # ONE new component, stamped by LISTING (name, size, mtime_ns) —
+        # the inset-dir idiom.  ``dem_cache_state``'s key set is FROZEN
+        # (adding a key there re-keys every stored arm through
+        # ``_sha_of(cache)``), so the ring state rides its own part.  This
+        # still re-keys every stored arm ONCE, deliberately: the
+        # alternative is serving a PRE-rings control for a POST-rings
+        # build, the silent cross-corpus comparison this stamp exists to
+        # prevent.
+        "rings_dir": _approach_ring_listing(root, cache),
     }
     return {"sha256": _sha_of(parts), "parts": parts}
 

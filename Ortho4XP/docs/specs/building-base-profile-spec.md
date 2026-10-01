@@ -113,3 +113,11 @@ Build-time statement for the brief: +1 O(triangles) pass per resource at pack re
 ## §9 WHAT THIS SPEC DOES NOT DO
 
 It does not fix #161 (holefill154 owns the voids; §0 facts 3 and 8 bound their share at both sites to ≈ 0 and ≤ 1 m); it does not change the unit seat (17t) or the cluster pad's scope (13bj); it does not cut an object at a riser (the terrain meets the object, the object is not re-authored); it does not touch v2 §1 (runway flex), §3 (plateau) or §5a's ranks above the pad.
+
+## §8a OWNER RULINGS 2026-10-01k (supersede the §8 defaults)
+
+- **Q1 (FEET verdict, posts only, no floor plane — the #162 shelters):** the terrain stays at the APRON GRADE; no block cut. The object stage seats the structure by baking a pitch/roll into the authored BODY mesh so all feet meet the graded surface: fit a plane through the surface reads at the feet (least squares), rotate the body about its origin by that plane's tilt (the DSF OBJECT row keeps heading only), re-check foot residuals against the existing foot tolerance, and record `seat.tilt_deg`, `seat.residual_max_m` in the object record. A body whose feet residual still exceeds tolerance after the tilt is reported (never a block cut by default).
+- **Q2:** riser = steepest cell (0.5 m identity strip), never a 1:3 bank — confirmed.
+- **Q3:** a non-origin plane that touches an apron gets its OWN frontage hold at its level (28b terrace is NOT the default for it).
+- **Q4:** no cap on pads per unit — every plane ≥ 250 m² with riser ≥ 1.0 m.
+- **Q5:** a SLOPED pad carries the object's own base gradient (no 1.5 % clamp); where it has airside frontage, the frontage WELDS to the apron — the frontage hold wins at the weld line and the pad's slope runs from the welded edge.

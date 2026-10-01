@@ -565,3 +565,15 @@ def test_two_layer_assembly_feathers_the_core_edge(tmp_path):
     assert transect.max() == pytest.approx(101.0, abs=1e-4)
     assert INSETS.feather_weight(numpy.array([-1.0, 0.0, 30.0, 60.0, 90.0]),
                                  60.0).tolist() == [0.0, 0.0, 0.5, 1.0, 1.0]
+
+
+def test_wkt_epsg_is_read_without_gdal():
+    """The header CRS is judged even when osr cannot reach a PROJ
+    database: the code is read out of the WKT text (WKT1 and WKT2)."""
+    wkt1 = pyproj.CRS.from_epsg(6428).to_wkt(version="WKT1_GDAL")
+    wkt2 = pyproj.CRS.from_epsg(6428).to_wkt()
+    assert INSETS._wkt_horizontal_epsg(wkt1) == 6428
+    assert INSETS._wkt_horizontal_epsg(wkt2) == 6428
+    compound = pyproj.CRS.from_user_input("EPSG:6428+6360").to_wkt(
+        version="WKT1_GDAL")
+    assert INSETS._wkt_horizontal_epsg(compound) == 6428

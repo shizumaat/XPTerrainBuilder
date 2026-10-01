@@ -6796,26 +6796,58 @@ def _las_crs_epsg(header):
     A compound CRS answers its PROJCS code."""
     for vlr in getattr(header, "vlrs", ()) or ():
         record_id = getattr(vlr, "record_id", None)
-        if record_id == 2112 and has_gdal:
+        if record_id == 2112:
             wkt = getattr(vlr, "string", None)
             if not wkt:
                 continue
-            srs = osr.SpatialReference()
-            try:
-                srs.ImportFromWkt(str(wkt).rstrip("\x00"))
-            except Exception:
-                continue
-            for node in ("PROJCS", "GEOGCS", None):
+            wkt = str(wkt).rstrip("\x00")
+            if has_gdal:
+                srs = osr.SpatialReference()
                 try:
-                    code = srs.GetAuthorityCode(node)
+                    srs.ImportFromWkt(wkt)
+                    for node in ("PROJCS", "GEOGCS", None):
+                        code = srs.GetAuthorityCode(node)
+                        if code:
+                            return int(code)
                 except Exception:
-                    code = None
-                if code:
-                    return int(code)
+                    pass
+            # No GDAL, or a PROJ database it cannot reach: the code is in
+            # the WKT text itself (WKT1 AUTHORITY / WKT2 ID).
+            code = _wkt_horizontal_epsg(wkt)
+            if code is not None:
+                return code
         if record_id == 34735:
             for key in getattr(vlr, "geo_keys", ()) or ():
                 if getattr(key, "id", None) == 3072:
                     return int(key.value_offset)
+    return None
+
+
+def _wkt_horizontal_epsg(wkt):
+    """The EPSG code of a WKT's PROJECTED (else geographic) CRS, read from
+    the text: the authority that CLOSES that block (WKT1 ``AUTHORITY``,
+    WKT2 ``ID``).  ``None`` when the text names none."""
+    import re
+
+    for keyword in ("PROJCS[", "PROJCRS[", "GEOGCS[", "GEOGCRS["):
+        start = wkt.find(keyword)
+        if start < 0:
+            continue
+        depth = 0
+        end = None
+        for position in range(start + len(keyword) - 1, len(wkt)):
+            if wkt[position] == "[":
+                depth += 1
+            elif wkt[position] == "]":
+                depth -= 1
+                if depth == 0:
+                    end = position
+                    break
+        block = wkt[start:end] if end is not None else wkt[start:]
+        found = re.findall(
+            r'(?:AUTHORITY|ID)\["EPSG",\s*"?(\d+)"?\]', block)
+        if found:
+            return int(found[-1])
     return None
 
 

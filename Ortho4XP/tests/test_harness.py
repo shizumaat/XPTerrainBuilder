@@ -3095,7 +3095,7 @@ def test_seed_from_copies_only_verified_named_tiles(build_mod, tmp_path,
     summary = build_mod.seed_las_tiles(str(tmp_path / "seed"), ["KASE"],
                                        tmp_path, 39, -107, _Prog())
     good = (seed / "GOOD.las").read_bytes()
-    assert (cache / "GOOD.las").is_file(), summary
+    assert (cache / "GOOD.las").is_file(), summary["refused"]
     assert (cache / "GOOD.las").read_bytes() == good
     assert summary["copied"]["GOOD"]["sha256"] == \
         hashlib.sha256(good).hexdigest()

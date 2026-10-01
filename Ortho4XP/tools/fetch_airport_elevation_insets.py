@@ -470,6 +470,13 @@ def main() -> int:
     if arguments.elevation_data_dir:
         FNAMES.Elevation_dir = os.path.abspath(arguments.elevation_data_dir)
 
+    if arguments.witness and not arguments.elevation_data_dir:
+        # The lane-local refusal is answered before anything else (it
+        # needs no GDAL; CI runners without osgeo read it too).
+        print("ERROR: --witness needs --elevation-data-dir (a witness never "
+              "writes the shared corpus).")
+        return 2
+
     if not INSETS.has_gdal:
         print(
             "ERROR: the GDAL python bindings (osgeo) are unavailable; "

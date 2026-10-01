@@ -20,7 +20,8 @@ from auto_patch_v2.airport import deck_signature as ds
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.geom import cluster_outlines, deck_shades
 from auto_patch_v2.law import Law
-from auto_patch_v2.model.rebake import Member, RebakePlan, Unit
+from auto_patch_v2.model.rebake import (PLAN_VERSION, Member, RebakePlan,
+                                        Unit)
 
 LAW = Law.for_airport("ZZZZ")
 BR = LAW.tables.structures.bridge
@@ -288,8 +289,17 @@ def test_e_a_fallback_footprint_over_the_shade_is_trimmed():
 
 def test_f_a_v9_plan_loads_with_no_shade_and_v10_round_trips():
     """(f) a plan written at version 9 loads with ``deck_shade_ring`` /
-    ``deck_pier_ratio`` None (and so mints as before); version 10 round-
-    trips them exactly."""
+    ``deck_pier_ratio`` None (and so mints as before); the CURRENT version
+    round-trips them exactly.
+
+    The version is read from ``PLAN_VERSION`` rather than pinned to a
+    literal: this twin's subject is the SHADE's round trip and the v9
+    fallback, not which number the plan is on, and a literal here made
+    every later plan field's bump land as a failure in the welded deck's
+    file.  The deliberate pin that forces a bump to be acknowledged lives
+    in ``test_v2fence.py`` — one tripwire, not one per field.  (Raised by
+    the base-profile bump to 11, lane ``basepads1``.)
+    """
     ring = (((25.0, 51.0), (25.0, 51.001), (25.001, 51.001), (25.001, 51.0)),
             ((25.0004, 51.0004), (25.0004, 51.0005), (25.0005, 51.0005)))
     m = Member("dsf:obj1", "d.obj", "/a/d.obj", "/a/d.obj", 0.0, deck_kind="flag",
@@ -297,7 +307,7 @@ def test_f_a_v9_plan_loads_with_no_shade_and_v10_round_trips():
     plan = RebakePlan("ZZZZ", "pack", "/a", (Unit("unit:0", (25.0, 51.0), 0.0, (m,)),),
                       (), {})
     d = plan.to_dict()
-    assert d["version"] == 10
+    assert d["version"] == PLAN_VERSION
     back = RebakePlan.from_dict(d).units[0].members[0]
     assert back.deck_shade_ring == (ring,) and back.deck_pier_ratio == pytest.approx(0.033)
     d9 = dict(d, version=9)

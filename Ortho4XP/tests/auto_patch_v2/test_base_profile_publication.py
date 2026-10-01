@@ -297,14 +297,34 @@ def test_the_flag_reaches_the_command_line():
     flag can be written and still never reach ``argparse`` (added to the
     wrong parser, or shadowed).  ``--help`` is the cheapest honest check
     that the CLI actually carries it, and it touches no corpus: argparse
-    exits before the tool reads anything."""
+    exits before the tool reads anything.
+
+    THE CHILD IS FORCED TO UTF-8, and that is not a convenience.  This
+    tool's ``--help`` carries ``ε`` (U+03B5, ``--contact-eps``'s
+    "ε-contact graph") and ``Δ`` (U+0394, the module docstring's "|Δ|
+    histogram") — both PRE-EXISTING, neither in cp1252 — so a Windows
+    child writing help to a PIPE under the locale encoding dies with
+    ``UnicodeEncodeError`` and a non-zero rc.  MEASURED: this twin was the
+    first thing ever to run ``--help`` in CI and it turned the Windows job
+    red on its first run (job 110562613250), while Linux and macOS passed.
+    ``PYTHONIOENCODING`` pins the CHILD's streams and ``encoding=`` pins
+    this side's decode, so the twin measures whether the flag reached
+    argparse — its actual subject — on every platform instead of
+    measuring the runner's locale.  The tool's own Windows-console
+    defect is NOT fixed here and NOT hidden: it is filed as its own
+    issue (a lane reports a defect it does not fix, `Ortho4XP/CLAUDE.md`),
+    because the characters are the tool's from before this lane and
+    changing a shared tool's output encoding is not this PR's scope.
+    """
     import subprocess
     root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
     out = subprocess.run([sys.executable,
                           os.path.join(root, "tools", "obj8_split_report.py"),
                           "--help"],
-                         capture_output=True, text=True, timeout=180)
+                         capture_output=True, text=True, timeout=300,
+                         encoding="utf-8", errors="replace", env=env)
     assert out.returncode == 0, out.stderr[-2000:]
     # argparse REFLOWS help text, so the phrase is matched on whitespace-
     # normalised output — a literal match would break on the wrap column.

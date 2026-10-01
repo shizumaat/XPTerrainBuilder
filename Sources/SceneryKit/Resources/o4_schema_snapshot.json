@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.1802",
+ "engineVersion": "1.50.1814",
  "groups": {
   "app": [
    "verbosity",
@@ -84,6 +84,7 @@
    "auto_patch",
    "modify_custom_airports",
    "elevation_level",
+   "approach_rings",
    "elevation_coastline_band_km",
    "apt_smoothing_pix",
    "apt_smoothing_auto",
@@ -174,6 +175,20 @@
    "hint": "Airport Ortho mode: width in meters of the band beyond the airport boundary over which orthophoto fades into default terrain.",
    "name": "airport_ortho_fade_width",
    "type": "float"
+  },
+  "approach_rings": {
+   "default": "auto",
+   "hint": "Approach-graded elevation rings around airports. \"auto\" (the default) widens the transition from the airport's meter-class lidar out to the tile's base elevation source: about 10 m detail out to 10 km from the aerodrome boundary, 30 m (1 arc-second) out to 20 km, and the base source beyond, each step feathered over ten postings of the coarser side so no transition reads as a built edge from the air. Without it the 10 m airport surround meets a 90 m base over a 60 m feather about 2 km from the boundary, which is a visible ring around the airport. Rings are drawn only around airports that actually hold an elevation inset (including airports just over a neighbouring tile's border), are never coarser than what the elevation_level already delivers, and cost roughly 16 MB of cached cells per airport plus some extra mesh triangles in the ringed area. \"off\" keeps the base elevation source right up to the inset box, byte for byte as before.",
+   "name": "approach_rings",
+   "type": "str",
+   "valueLabels": {
+    "auto": "Auto — graded rings around airports",
+    "off": "Off — base DEM beyond the airport inset"
+   },
+   "values": [
+    "auto",
+    "off"
+   ]
   },
   "apt_curv_ext": {
    "default": 0.5,
@@ -536,6 +551,20 @@
    "hint": "Airport Ortho mode: width in meters of the band beyond the airport boundary over which orthophoto fades into default terrain.",
    "name": "global_airport_ortho_fade_width",
    "type": "float"
+  },
+  "global_approach_rings": {
+   "default": "auto",
+   "hint": "Approach-graded elevation rings around airports. \"auto\" (the default) widens the transition from the airport's meter-class lidar out to the tile's base elevation source: about 10 m detail out to 10 km from the aerodrome boundary, 30 m (1 arc-second) out to 20 km, and the base source beyond, each step feathered over ten postings of the coarser side so no transition reads as a built edge from the air. Without it the 10 m airport surround meets a 90 m base over a 60 m feather about 2 km from the boundary, which is a visible ring around the airport. Rings are drawn only around airports that actually hold an elevation inset (including airports just over a neighbouring tile's border), are never coarser than what the elevation_level already delivers, and cost roughly 16 MB of cached cells per airport plus some extra mesh triangles in the ringed area. \"off\" keeps the base elevation source right up to the inset box, byte for byte as before.",
+   "name": "global_approach_rings",
+   "type": "str",
+   "valueLabels": {
+    "auto": "Auto — graded rings around airports",
+    "off": "Off — base DEM beyond the airport inset"
+   },
+   "values": [
+    "auto",
+    "off"
+   ]
   },
   "global_apt_curv_ext": {
    "default": 0.5,

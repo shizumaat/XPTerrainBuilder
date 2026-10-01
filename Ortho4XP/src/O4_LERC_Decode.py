@@ -67,8 +67,10 @@ def decode_tiff(tiff_path: str, npy_path: str) -> dict:
         }
 
 
-def decode_blob(blob: bytes) -> numpy.ndarray:
-    """One raw LERC blob as a ``(256, 256)`` float32 array."""
+def decode_blob(blob: bytes, tile: bool = True) -> numpy.ndarray:
+    """One raw LERC blob as a ``(256, 256)`` float32 array -- or, with
+    ``tile=False`` (an ArcGIS ``exportImage`` chunk, ``*.lercimg``), the
+    whole decoded array, uncropped."""
     mask = None
     try:
         decoded = imagecodecs.lerc_decode(blob, masks=True)
@@ -83,6 +85,8 @@ def decode_blob(blob: bytes) -> numpy.ndarray:
     if mask is not None:
         mask = numpy.asarray(mask, dtype=bool).reshape(values.shape)
         values[~mask] = _TILE_NODATA
+    if not tile:
+        return values
     # ArcGIS elevation tiles carry a one-sample shared edge (257x257 for
     # a 256 grid): crop to the tile proper.
     return values[:_TILE, :_TILE]
@@ -95,12 +99,17 @@ def decode_blobs(blob_directory: str, npy_directory: str) -> int:
     """
     decoded = 0
     for name in sorted(os.listdir(blob_directory)):
-        if not name.endswith(".lerc"):
+        if name.endswith(".lerc"):
+            (stem, tile) = (name[:-5], True)
+        elif name.endswith(".lercimg"):
+            # An exportImage chunk: any size, never cropped to a tile.
+            (stem, tile) = (name[:-8], False)
+        else:
             continue
         with open(os.path.join(blob_directory, name), "rb") as handle:
             blob = handle.read()
-        numpy.save(os.path.join(npy_directory, name[:-5] + ".npy"),
-                   decode_blob(blob))
+        numpy.save(os.path.join(npy_directory, stem + ".npy"),
+                   decode_blob(blob, tile=tile))
         decoded += 1
     return decoded
 

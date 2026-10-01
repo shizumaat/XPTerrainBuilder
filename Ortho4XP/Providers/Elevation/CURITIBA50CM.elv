@@ -11,8 +11,13 @@
 role=airport_inset
 access_strategy=wcs_kvp
 
-wcs_getcoverage_template=https://geocuritiba.ippuc.org.br/server/rest/services/GeoCuritiba/MDT_2019/ImageServer/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=31982&imageSR=31982&format=tiff&pixelType=F32&noData=&size={width},{height}&f=image
+wcs_getcoverage_template=https://geocuritiba.ippuc.org.br/server/rest/services/GeoCuritiba/MDT_2019/ImageServer/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=31982&imageSR=31982&format=tiff&pixelType=F32&noData={nodata}&size={width},{height}&f=image
 source_epsg=31982
+
+# #155: exportImage's noData= is filled from this key; an EMPTY noData=
+# answers 0.0 with no nodata tag (a false sea level) where the service has
+# no data.  The answer's nodata tag is verified against it.
+nodata=-9999
 
 native_resolution_m=0.5
 # Curitiba municipality.

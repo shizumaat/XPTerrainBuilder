@@ -51,7 +51,8 @@ from .design_roles import ruling_head
 
 __all__ = ["ConflictReport", "tier_of", "check_hard_set",
            "HARD_CONFLICT", "publish", "publish_stages", "demote_conflicts",
-           "apron_hard_rows", "source_face", "published"]
+           "apron_hard_rows", "source_face", "published",
+           "promote_missed", "runway_after"]
 
 #: the SHIPPED surface's conflicts (the ``hard_conflict`` sidecar key):
 #: set once per ``solve_design`` from its final stages, read by
@@ -77,6 +78,14 @@ class ConflictReport:
     #: arm own a runway's infeasibility), named here and in the line
     runway_conflict: int = 0
     runway_rows: list = _dc.field(default_factory=list)
+    runway_idx: list = _dc.field(default_factory=list)     # their ``one`` indices
+    #: RULINGS 2026-09-30bj (1): the runway-conflict rows' worst residual
+    #: AFTER the projection — > ``hard_tol_m`` is the §7 STOP, else a report
+    runway_after_m: float = 0.0
+    runway_stop: bool = False
+    #: RULINGS 2026-09-30bj: priced strict body chords the solve missed,
+    #: promoted to hard pair by pair before the multiplier rounds
+    promoted_on_miss: int = 0
 
     def as_dict(self) -> dict[str, _t.Any]:
         return {"rows": self.rows, "relaxed": self.relaxed,
@@ -85,7 +94,10 @@ class ConflictReport:
                 "by_tier": dict(self.by_tier),
                 "support_by_head": dict(self.support_by_head),
                 "runway_conflict": self.runway_conflict,
-                "runway_rows": list(self.runway_rows)}
+                "runway_rows": list(self.runway_rows),
+                "runway_after_m": round(self.runway_after_m, 4),
+                "runway_stop": self.runway_stop,
+                "promoted_on_miss": self.promoted_on_miss}
 
     def line(self) -> str:
         return (f"hard set feasibility (§5a): {self.rows} hard rows, LP "
@@ -93,9 +105,10 @@ class ConflictReport:
                 + (" OVER BUDGET" if self.over_budget else "")
                 + f", {self.relaxed} relaxed"
                 + (f" {dict(sorted(self.by_tier.items()))}" if self.relaxed else "")
-                + (f"; §7 STOP: {self.runway_conflict} RUNWAY row(s) in a law "
-                   f"conflict, kept hard: {self.runway_rows[:3]}"
-                   if self.runway_conflict else ""))
+                + (f"; {self.runway_conflict} RUNWAY row(s) in a law conflict, "
+                   f"kept hard: {self.runway_rows[:3]}" if self.runway_conflict else "")
+                + (f"; {self.promoted_on_miss} missed body chord(s) promoted"
+                   if self.promoted_on_miss else ""))
 
 
 def tier_of(law: Law) -> dict[str, int]:
@@ -166,6 +179,7 @@ def check_hard_set(planar: PlanarMap, law: Law, one: list, hard_i: np.ndarray,
     rep.runway_conflict = int(bad.size)
     rep.runway_rows = [f"{heads[i]} at {_site(planar, one[int(rows[i])][0])} "
                        f"s={s[i]:.3f} m" for i in bad[:8]]
+    rep.runway_idx = [int(rows[i]) for i in bad]
     rel = np.flatnonzero((s > tol) & (t_row > 0))
     rep.relaxed = int(rel.size)
     if not rel.size:
@@ -216,11 +230,25 @@ def publish(records: _t.Iterable[dict[str, _t.Any]]) -> None:
     HARD_CONFLICT[:] = [dict(r) for r in records]
 
 
-def publish_stages(*reps: _t.Any) -> "dict | None":
+def publish_stages(*reps: _t.Any, pass1a: "dict | None" = None,
+                   law: Law | None = None) -> "dict | None":
     """Publish the SHIPPED surface's conflicts — the final stage 1's and
     stage 2's reports (pass 1a's stay in its own stage record) — and return
-    the first report's ``as_dict`` (the stage-1 record)."""
+    the first report's ``as_dict`` (the stage-1 record).  With ``pass1a``
+    (its record) and ``law``, every stage-1 LP is judged against §5a's
+    budget, min(``hard_conflict_lp_budget_s``, ``_share`` x pass 1a's wall)
+    (RULINGS 2026-09-30bj)."""
     feas = [getattr(r, "hard_feasibility", None) for r in reps]
+    if pass1a is not None and law is not None:
+        d = design_law(law)
+        budget = min(float(d.hard_conflict_lp_budget_s),
+                     float(d.hard_conflict_lp_budget_share) * float(pass1a.get("wall_s", 0.0)))
+        pass1a["lp_budget_s"] = round(budget, 3)
+        hf = pass1a.get("hard_feasibility") or {}
+        if hf:
+            hf["over_budget"] = float(hf.get("lp_wall_s", 0.0)) > budget
+        if feas and feas[0] is not None:
+            feas[0].over_budget = feas[0].lp_wall_s > budget
     publish([c for f in feas if f is not None for c in f.conflicts])
     return feas[0].as_dict() if feas and feas[0] is not None else None
 
@@ -296,3 +324,57 @@ def _carries_a_column(red: _t.Any, terms: _t.Sequence[tuple[int, float]]) -> boo
         if col >= 0:
             acc[col] = acc.get(col, 0.0) + coef
     return any(c != 0.0 for c in acc.values())
+
+
+def promote_missed(one: list, hard_i: np.ndarray, A: sp.csr_matrix, b: np.ndarray,
+                   lead: "sp.csr_matrix | None", x: "np.ndarray | None", law: Law,
+                   rep: _t.Any) -> tuple[np.ndarray, np.ndarray]:
+    """RULINGS 2026-09-30bj (#149 disposition): the STRICT body chords are
+    PRICED; a row of ``apron_promote_on_miss_rulings`` the solve's iterate
+    ``x`` leaves violated beyond ``hard_tol_m`` (in its own metres) is
+    promoted to HARD — exactly those pairs, never the family.  Returns
+    their ``one`` indices and the per-row metre scale the caller applies
+    (1 elsewhere); records the count in ``rep.hard_feasibility``."""
+    d = design_law(law)
+    heads = frozenset(d.apron_promote_on_miss_rulings)
+    none = (np.zeros(0, dtype=np.int64), np.ones(A.shape[0]))
+    if not heads or x is None:
+        return none
+    hard = set(int(k) for k in hard_i)
+    cand = np.fromiter((k for k, (_t_, _h, row) in enumerate(one)
+                        if k not in hard and ruling_head(row) in heads), dtype=np.int64)
+    if not cand.size:
+        return none
+    raw = np.asarray(A[cand] @ x).ravel() - b[cand]
+    if lead is not None:
+        raw = raw + np.asarray(lead[cand] @ x).ravel()
+    sc = np.fromiter((row_metre_scale(one[int(k)][0]) for k in cand), float, cand.size)
+    rowsum = np.asarray(abs(A[cand]).sum(axis=1)).ravel()
+    miss = cand[(raw * sc > float(d.hard_tol_m)) & (rowsum > 0.0)]
+    f = getattr(rep, "hard_feasibility", None)
+    if f is not None:
+        f.promoted_on_miss = int(miss.size)
+    out = np.ones(A.shape[0])
+    if miss.size:
+        out[miss] = 2.0 / np.asarray(abs(A[miss]).sum(axis=1)).ravel()
+    return miss, out
+
+
+def runway_after(rep: _t.Any, one: list, z: np.ndarray, law: Law) -> None:
+    """RULINGS 2026-09-30bj (1): read the runway-conflict rows AFTER the
+    projection — their worst residual in metres; over ``hard_tol_m`` it is
+    the §7 STOP (flagged and printed, the runway machinery's own exit
+    stands), at or under it a report."""
+    f = getattr(rep, "hard_feasibility", None)
+    if f is None or not f.runway_idx:
+        return
+    worst = 0.0
+    for k in f.runway_idx:
+        terms, hi, _row = one[int(k)]
+        v = (sum(c * float(z[int(vid)]) for vid, c in terms) - float(hi)) * row_metre_scale(terms)
+        worst = max(worst, v)
+    f.runway_after_m = worst
+    f.runway_stop = worst > float(design_law(law).hard_tol_m)
+    if f.runway_stop:
+        print(f"    [design] §7 STOP (RULINGS 2026-09-30bj (1)): {len(f.runway_idx)} "
+              f"runway-conflict row(s) still {worst:.3f} m over after the projection")

@@ -46,13 +46,20 @@ class Terrace:
     #: declared terrace (``planar/pad_terrace``) only at a level gap of at
     #: least this; under it they weld.
     pad_terrace_floor_m: float
+    #: OWNER RULINGS 2026-09-30bk (Q-152 (a)): ONE CONNECTED APRON IS ONE
+    #: SHAPE — a narrow mouth whose two sides are the SAME role of this list
+    #: (two parts of one apron body) mints no contour joint: its two bodies
+    #: weld (``planar/shapes._weld_same_role_mouths``).  A mouth whose sides
+    #: differ in role (apron -> service road / lot / taxiway: where a road
+    #: leaves an apron) keeps its separation.  Role-based, never DEM-based.
+    one_shape_roles: tuple[str, ...]
 
 
 def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -> None:
     """Every role registered; a shape role stated; the separation and the
     mouth width positive, the mouth wider than the separation (a gap the
     separation closes cannot also be a mouth)."""
-    for r in (*tr.shape_roles, *tr.band_roles):
+    for r in (*tr.shape_roles, *tr.band_roles, *tr.one_shape_roles):
         if r not in roles:
             raise err(f"emit.terrace: unknown role {r!r}")
     if not tr.shape_roles:

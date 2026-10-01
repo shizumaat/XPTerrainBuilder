@@ -35,17 +35,17 @@ class _Red:
 
 def _bodies(pm):
     from auto_patch_v2.solve.rows import _role_bodies_faced
-    return _shape_bodies(pm, _Red, _role_bodies_faced(pm, {"apron"}, _Red))
+    return _shape_bodies(pm, _Red, _role_bodies_faced(pm, {"stub"}, _Red))
 
 
 def test_an_unearned_in_face_joint_mints_no_orphan_shape(law):
-    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0), [])
+    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0, "stub"), [])
     assert st.shapes.orphans_relabelled > 0 and st.shapes.orphans_earned == 0
     assert orphan_shapes(pm) == {}
 
 
 def test_an_earned_in_face_joint_keeps_its_shape_and_gets_its_own_body(law):
-    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0), [], dem=MOUTH_BENCH)
+    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0, "stub"), [], dem=MOUTH_BENCH)
     assert st.shapes.orphans_earned == 1
     (sh, n), = orphan_shapes(pm).items()
     bodies = _bodies(pm)
@@ -55,7 +55,7 @@ def test_an_earned_in_face_joint_keeps_its_shape_and_gets_its_own_body(law):
 
 
 def test_the_body_datum_refuses_a_face_less_shape_that_lands_in_no_body(law):
-    _ap, pm, _st, _cl = _airport(law, _dumbbell(10.0), [])
+    _ap, pm, _st, _cl = _airport(law, _dumbbell(10.0, "stub"), [])
     bad = dict(pm.shape_of_vertex)
     bad[-7] = bad[-8] = 999                                   # ringing no face at all
     orphan = _dc.replace(pm, shape_of_vertex=bad)

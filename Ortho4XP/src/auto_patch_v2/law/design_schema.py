@@ -83,6 +83,10 @@ class Design:
     hard_conflict_tier_ratio: float
     #: §5a's LP budget in seconds (RULINGS 2026-09-30bf: <= 10 s at HECA)
     hard_conflict_lp_budget_s: float
+    hard_conflict_lp_budget_share: float
+    #: RULINGS 2026-09-30bj: PRICED heads promoted to hard pair by pair
+    #: where the solve misses them (``solve/feasibility.promote_missed``)
+    apron_promote_on_miss_rulings: tuple[str, ...]
     #: §50.1 (3) THE MARGIN ON A YIELDED RUNWAY CAP (owner RULINGS
     #: 2026-09-18d (3)): where a runway's own HARD PINS demand more grade
     #: than ``rulesets.runway.longitudinal`` allows, that runway's
@@ -493,7 +497,8 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.hard_conflict_ranks {dup}: a head in two "
                   "tiers — every hard law has ONE rank (§5a)")
     unranked = sorted({*d.hard_rulings, *d.fronting_hard_rulings,
-                       *d.apron_hard_rulings} - set(ranked))
+                       *d.apron_hard_rulings, *d.apron_promote_on_miss_rulings}
+                      - set(ranked))
     if unranked:
         raise err(f"emit.design.hard_conflict_ranks {unranked}: a HARD head "
                   "with no rank — the hierarchy is a decision, never a "
@@ -502,6 +507,9 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.hard_conflict_tier_ratio "
                   f"{d.hard_conflict_tier_ratio}: above 1 — a lower tier "
                   "must be the cheaper one to relax (§5a)")
+    if not 0.0 < d.hard_conflict_lp_budget_share <= 1.0:
+        raise err(f"emit.design.hard_conflict_lp_budget_share "
+                  f"{d.hard_conflict_lp_budget_share}: a share of pass 1a in (0, 1]")
     if not d.hard_conflict_lp_budget_s > 0.0:
         raise err(f"emit.design.hard_conflict_lp_budget_s "
                   f"{d.hard_conflict_lp_budget_s}: positive seconds")

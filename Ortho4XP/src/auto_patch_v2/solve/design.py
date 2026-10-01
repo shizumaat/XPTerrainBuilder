@@ -71,7 +71,7 @@ from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds, har
                             residual, settled_flip)
 from .design_qp import DEFAULT_SOLVER, SOLVERS, solve_one_sided
 from .feasibility import (_carries_a_column, apron_hard_rows, demote_conflicts,  # noqa: F401
-                          published, publish_stages)
+                          promote_missed, published, publish_stages, runway_after)
 from .flex import _held_at_ref, runway_columns, runway_stage_roles, stage_one  # noqa: F401
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
 from .pin_yield import yield_pins as _yield_pins  # (re-export: test_surfacesettle2)
@@ -943,7 +943,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               "rounds": rep2.rounds, "wall_s": round(w2, 3)}}
     if pass1a is not None:
         rep2.stages["stage1a"] = pass1a
-    rep2.stages["stage1"]["hard_feasibility"] = publish_stages(rep1, rep2)
+    rep2.stages["stage1"]["hard_feasibility"] = publish_stages(rep1, rep2, pass1a=pass1a, law=law)
     # THE HARD SET IS THE COMBINATION (§20b's census table): an airside hard
     # row carries no column in stage 2 — it was enforced and read in stage 1,
     # where it is scaled to metres — so the shipped surface's hard set is
@@ -1323,6 +1323,13 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                              int(d.one_way_max_rounds), one, base_p.one_way,
                              planar)
 
+    miss, sc_m = promote_missed(one, hard_i, A1, b1, A1_lead, x, law, rep)
+    if miss.size:          # RULINGS 2026-09-30bj: a missed body chord joins the hard set
+        A1, b1 = (sp.diags(sc_m) @ A1).tocsr(), sc_m * b1
+        sc_red = (sc_red if hard_i.size else np.ones(len(one))) * sc_m
+        hard_i, base_p.hard = np.concatenate([hard_i, miss]), [*base_p.hard, *miss.tolist()]
+        w_row[miss] = rho
+        sw = np.sqrt(w_row)
     # PHASE C — THE HARD ROWS' MULTIPLIERS, the lag now FROZEN (spec §6
     # deviation 7; owner RULINGS 2026-09-09r (3)).  Runs to ``hard_tol_m``
     # or ``polish_rounds_max``; the sequence is NOT monotone (it oscillates
@@ -1393,6 +1400,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                                       float(d.hard_tol_m), z_now)
     if x is not None:
         z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
+        runway_after(rep, one, z, law)     # RULINGS 2026-09-30bj (1)
     if levelled_out is not None and x is not None:
         for vid in range(n):
             col = int(red.col[vid])

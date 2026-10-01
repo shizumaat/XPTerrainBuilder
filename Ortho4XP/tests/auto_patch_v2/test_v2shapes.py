@@ -174,11 +174,12 @@ def test_a_gap_inside_the_readers_horizon_declares_a_midline_joint(law):
 
 # ── 3. narrow mouth: two bodies; a wide neck: one ────────────────────────
 
-def _dumbbell(neck_w: float):
+def _dumbbell(neck_w: float, role: str = "apron"):
     h = neck_w / 2.0
     ring = ((-150, Y0), (-15, Y0), (-15, 170 - h), (15, 170 - h), (15, Y0), (150, Y0),
             (150, Y1), (15, Y1), (15, 170 + h), (-15, 170 + h), (-15, Y1), (-150, Y1))
-    return [RUNWAY, Cell(1, "apron", "dumbbell", ring, (), None, None, "airside", "apron", {})]
+    fam = "apron" if role == "apron" else "taxi"
+    return [RUNWAY, Cell(1, role, "dumbbell", ring, (), None, None, "airside", fam, {})]
 
 
 #: 29k: an in-face joint is lawful only where the terrain EARNS it — the
@@ -187,11 +188,13 @@ MOUTH_BENCH = _Bench(0.0)
 
 
 def test_a_narrow_mouth_separates_two_bodies_with_a_joint_across_it(law):
-    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0), [], dem=MOUTH_BENCH)
+    """08k's joint where a mouth is NOT one apron (30bk): a taxi body (a
+    ``stub`` no route reaches) cut at its neck over an earned drop."""
+    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0, "stub"), [], dem=MOUTH_BENCH)
     assert _shape_of(pm, (-150.0, Y0)) != _shape_of(pm, (150.0, Y0))
     assert st.shapes.bodies == 2 and st.shapes.contours == 1   # the runway is no body (08p)
     (j,) = pm.shape_joints
-    assert not j.gap and "apron" in j.roles
+    assert not j.gap and "stub" in j.roles and st.shapes.welded_same_role_mouths == 0
     xs = [x for x, _y in j.points]
     ys = [y for _x, y in j.points]
     assert max(abs(x) for x in xs) <= 15.0 + 1.0, xs         # across the neck
@@ -200,12 +203,58 @@ def test_a_narrow_mouth_separates_two_bodies_with_a_joint_across_it(law):
 
 
 def test_a_flat_narrow_mouth_earns_no_joint_and_is_one_shape(law):
-    """29k: the same mouth over FLAT ground is an unearned in-face joint —
-    the minority side re-joins the face's shape (29j's relabel)."""
-    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0), [])
+    """29k: a mouth over FLAT ground inside one (taxi-body) face is an
+    unearned in-face joint — the minority side re-joins the face's shape
+    (29j's relabel)."""
+    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0, "stub"), [])
     assert _shape_of(pm, (-150.0, Y0)) == _shape_of(pm, (150.0, Y0))
     assert st.shapes.orphans_relabelled > 0 and st.shapes.orphans_earned == 0
     assert not pm.shape_joints
+
+
+def test_one_connected_apron_is_one_shape_whatever_the_dem_drop(law):
+    """OWNER RULINGS 2026-09-30bk (Q-152 (a)): the SAME-ROLE mouth (apron on
+    both sides) mints no joint even over a 5 m DEM drop — the apron is ONE
+    shape, graded through, the terrain cut/filled; role-based, never DEM."""
+    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0), [], dem=_Bench(0.0, rise=5.0))
+    assert _shape_of(pm, (-150.0, Y0)) == _shape_of(pm, (150.0, Y0))
+    assert st.shapes.welded_same_role_mouths >= 1 and st.shapes.orphans_earned == 0
+    assert not pm.shape_joints and st.shapes.shapes == 1
+
+
+class _MouthPM:
+    """The four things ``_weld_same_role_mouths`` reads off a map: faces
+    (role, ring), edges (ends, flanking faces), vertices (incident faces)
+    and ``ring_vertices``.  Two bodies A (0, 1) and B (2, 3) meet at the
+    mouth edge 1-2 inside an apron face 10; ``east`` is the role of the
+    face 11 that B's end vertex 2 also touches (B's own face)."""
+
+    def __init__(self, east: str):
+        V = _dc.make_dataclass("V", ["incident_faces"])
+        E = _dc.make_dataclass("E", ["a", "b", "left_face", "right_face"])
+        F = _dc.make_dataclass("F", ["role", "ring", "holes"])
+        self.faces = {10: F("apron", "r10", ()), 11: F(east, "r11", ())}
+        self.edges = {0: E(1, 2, 10, None)}
+        self.vertices = {0: V((10,)), 1: V((10,)), 2: V((10, 11)), 3: V((11,))}
+        self._rings = {"r10": (0, 1, 2), "r11": (2, 3)}
+
+    def ring_vertices(self, cyc):
+        return self._rings[cyc]
+
+
+def test_a_class_change_mouth_keeps_its_separation_and_a_same_role_one_welds(law):
+    """OWNER RULINGS 2026-09-30bk: the SIDES of the mouth decide — B's end
+    of the mouth on an apron face welds A and B (one apron); on a taxiway /
+    service road / lot face it keeps the pair apart (a road leaving an
+    apron) — and no chain of welds merges a kept pair."""
+    for east, welded in (("apron", True), ("stub", False), ("service_road", False),
+                         ("parking_lot", False)):
+        pm = _MouthPM(east)
+        label = {0: 0, 1: 0, 2: 1, 3: 1}
+        st, uf = S.ShapeStats(), S._Union()
+        S._weld_same_role_mouths(pm, law, label, frozenset(), uf, st)
+        assert (label[0] == label[3]) is welded, east
+        assert (st.welded_same_role_mouths, st.mouths_kept) == ((1, 0) if welded else (0, 1))
 
 
 def test_a_wide_neck_joins_the_bodies(law):
@@ -423,6 +472,13 @@ def test_two_route_contacts_in_one_shape_make_no_joint_and_the_apron_grades_thro
 # ── 6. the joint's step reads lawful in both censuses ────────────────────
 
 def test_the_step_across_a_shape_joint_is_lawful_in_both_censuses(law, tmp_path):
+    # the DECLARED joint's lawfulness in both censuses: since 30bk an apron
+    # mouth welds, so the apron dumbbell is read under a law with no
+    # one-shape role — the joint machinery 30bk keeps for class-change
+    # mouths, on the fixture whose numbers it was measured on
+    emit = _dc.replace(law.tables.emit, terrace=_dc.replace(law.tables.emit.terrace,
+                                                           one_shape_roles=()))
+    law = Law(tables=_dc.replace(law.tables, emit=emit), ruleset_key=law.ruleset_key)
     airport, pm, st, cl = _airport(law, _dumbbell(10.0), [], dem=MOUTH_BENCH)
     stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
     cs, _c, _w = shape_constraints(pm, law, airport, stage)
@@ -504,7 +560,8 @@ def test_the_law_table_carries_the_shape_keys(law):
     assert 0.0 <= tt.hole_cover_eps < 1.0
     # RULINGS 2026-09-30i (#11): the pad|apron terrace floor joined the table
     assert tt.pad_terrace_floor_m > 0.0
-    good = Terrace(0.5, 12.0, ("apron",), ("apron",), 8.0, 0.05, 50.0, 3.0, 0.02, 1.0)
+    assert tt.one_shape_roles == ("apron",)                   # RULINGS 2026-09-30bk
+    good = Terrace(0.5, 12.0, ("apron",), ("apron",), 8.0, 0.05, 50.0, 3.0, 0.02, 1.0, ("apron",))
     check_terrace(good, {"apron"}, LawError)
     with pytest.raises(LawError):
         check_terrace(_dc.replace(good, strip_min_width_m=-1.0), {"apron"}, LawError)

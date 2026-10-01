@@ -25,6 +25,8 @@ APRON = "common.roles.apron ring edge"
 PAD = "structures.building_pad frontage_hold"
 TAXI = "rulesets.taxi.longitudinal centreline"
 RUNWAY = "rulesets.runway.longitudinal"
+GROUND = "road_cross_section"
+STRICT = "apron body chord, strict"
 
 
 @pytest.fixture(scope="module")
@@ -112,16 +114,60 @@ def test_a_runway_only_conflict_is_named_never_relaxed(law):
     demote, rep = F.check_hard_set(pl, law, one, np.arange(3), A, b)
     assert demote.size == 0 and rep.relaxed == 0
     assert rep.runway_conflict == 1 and "runway" in rep.runway_rows[0]
-    assert "STOP" in rep.line()
+    assert "RUNWAY" in rep.line()
+
+
+def test_a_pad_vs_apron_conflict_relaxes_the_pads_even_when_many(law):
+    """RULINGS 2026-09-30bj (3): where the pad hold alone suffices the apron
+    row is never relaxed — fifty pad rows give way before one apron cap."""
+    rows = [(APRON, {1: 1.0, 0: -1.0}, 1.5)]
+    rows += [(PAD, {1: -1.0, 2 + k: 1.0}, -5.0) for k in range(50)]   # x1 >= x_k + 5
+    rows += [(RUNWAY, {2 + k: 1.0}, 0.0) for k in range(50)]          # x_k <= 0 ...
+    rows += [(RUNWAY, {2 + k: -1.0}, 0.0) for k in range(50)]         # ... = 0
+    rows += [(RUNWAY, {0: 1.0}, 0.0), (RUNWAY, {0: -1.0}, 0.0)]      # x0 = 0
+    one, A, b, pl = _problem(rows)
+    demote, rep = F.check_hard_set(pl, law, one, np.arange(len(rows)), A, b)
+    assert rep.by_tier == {"pad": 50} and 0 not in set(int(k) for k in demote)
+
+
+def test_groundside_is_the_fifth_tier_below_the_pads(law):
+    one, A, b, pl = _problem([(GROUND, {0: 1.0}, 0.0), (PAD, {0: -1.0}, -2.0)])
+    demote, rep = F.check_hard_set(pl, law, one, np.arange(2), A, b, stage="2")
+    assert [int(k) for k in demote] == [0] and rep.by_tier == {"groundside": 1}
+    assert F.tier_of(law)[GROUND] == len(design_law(law).hard_conflict_tiers) - 1
+
+
+def test_a_missed_strict_body_chord_is_promoted_alone(law):
+    """RULINGS 2026-09-30bj (#149): the strict chords are PRICED; the ones
+    the iterate misses — exactly those pairs — are promoted to hard."""
+    one, A, b, _pl = _problem([(STRICT, {1: 1.0, 0: -1.0}, 1.5),
+                               (STRICT, {2: 1.0, 0: -1.0}, 1.5),
+                               (APRON, {1: 1.0, 2: -1.0}, 1.5)])
+    rep = type("R", (), {"hard_feasibility": F.ConflictReport()})()
+    miss, sc = F.promote_missed(one, np.array([2]), A, b, None,
+                                np.array([0.0, 3.0, 1.0]), law, rep)
+    assert [int(k) for k in miss] == [0] and rep.hard_feasibility.promoted_on_miss == 1
+    assert sc[0] == pytest.approx(1.0) and sc[1] == 1.0
+
+
+def test_a_runway_conflict_left_over_tolerance_after_the_projection_is_the_stop(law):
+    one, _A, _b, _pl = _problem([(RUNWAY, {0: 1.0}, 0.0)])
+    f = F.ConflictReport(runway_conflict=1, runway_idx=[0])
+    rep = type("R", (), {"hard_feasibility": f})()
+    F.runway_after(rep, one, np.array([0.005]), law)       # a one-term row reads x2
+    assert not f.runway_stop and f.runway_after_m == pytest.approx(0.01)
+    F.runway_after(rep, one, np.array([0.5]), law)
+    assert f.runway_stop
 
 
 def test_apron_heads_are_hard_and_every_hard_head_is_ranked(law):
     d = design_law(law)
     for h in ("common.roles.apron ring edge", "common.roles.apron frontage chord",
-              "apron body chord, strict",
+              "common.roles.apron on the shared edge portion",
               "apron body chord, stationed across the face"):
         assert h in d.hard_rulings
         assert h not in d.fronting_hard_rulings
+    assert STRICT not in d.hard_rulings and STRICT in d.apron_promote_on_miss_rulings
     assert "plane_gradient" in d.apron_hard_rulings
     assert "plane_gradient" not in d.hard_rulings      # taxi / road planes stay priced
     tiers = F.tier_of(law)

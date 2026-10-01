@@ -390,10 +390,21 @@ def _engine():
 
 
 def _tnm_dataset_key(rung: dict[str, Any]) -> str | None:
-    """The ``TNM_DS`` key a TNM rung's discovery URL asks for, or None."""
+    """The ``TNM_DS`` key a TNM rung's discovery URL asks for, or None.  A
+    rung judged here is judged from its LISTING (gap CSV share, cached or
+    live TNM answer); a rung without one is a boxed holder whose coverage
+    box is authoritative.  OPR (``tnm_cog``) and LPC (``las_tile_index``
+    with ``index_format=tnm``) are both TNM listings (#153)."""
     from urllib.parse import unquote
-    m = re.search(r"datasets=([^&]+)", str(rung.get("discovery_url_template") or ""))
-    if rung.get("access_strategy") != "tnm_cog" or not m:
+    strategy = rung.get("access_strategy")
+    if strategy == "tnm_cog":
+        url = rung.get("discovery_url_template")
+    elif strategy == "las_tile_index" and rung.get("index_format") == "tnm":
+        url = rung.get("index_url_template")  # the LPC rung (#153): a TNM listing too
+    else:
+        return None
+    m = re.search(r"datasets=([^&]+)", str(url or ""))
+    if not m:
         return None
     asked = unquote(m.group(1))
     return next((k for k, v in TNM_DS.items() if unquote(v) == asked), None)

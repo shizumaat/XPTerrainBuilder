@@ -46,3 +46,17 @@ def test_every_spec_collects_laspy():
     frozen engines must collect it explicitly."""
     for name in SPECS:
         assert "collect_submodules('laspy')" in _source(name), name
+
+
+def test_every_spec_collects_lazrs():
+    """#153: the USGS Lidar Point Cloud rung reads LAZ through laspy's
+    Rust backend, which laspy looks up at run time -- invisible to the
+    static scan; both frozen engines must collect it explicitly, and the
+    release workflow's frozen self-check imports it."""
+    for name in SPECS:
+        assert "collect_submodules('lazrs')" in _source(name), name
+    workflow = os.path.join(ENGINE_ROOT, "..", ".github", "workflows",
+                            "release.yml")
+    with open(workflow, encoding="utf-8") as handle:
+        text = handle.read()
+    assert text.count("--import-selfcheck laspy,lazrs") == 3

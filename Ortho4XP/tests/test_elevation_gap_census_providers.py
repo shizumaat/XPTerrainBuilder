@@ -86,3 +86,20 @@ def test_override_rejects_an_unknown_verdict(tmp_path):
         assert "MAYBE" in str(exit_)
     else:
         raise AssertionError("an unknown verdict was accepted")
+
+
+def test_tnm_dataset_key_recognises_the_opr_and_lpc_rungs():
+    """#153: OPR (tnm_cog) and LPC (las_tile_index, index_format=tnm) are
+    TNM listings and are judged from them, never as an authoritative
+    coverage box (which would 'deliver' every US airport)."""
+    mod = _census()
+    opr = {"access_strategy": "tnm_cog",
+           "discovery_url_template": "https://x/products?datasets=Original Product"
+                                     " Resolution (OPR) Digital Elevation Model (DEM)&bbox={west}"}
+    lpc = {"access_strategy": "las_tile_index", "index_format": "tnm",
+           "index_url_template": "https://x/products?datasets=Lidar Point Cloud (LPC)&bbox={west}"}
+    boxed = {"access_strategy": "las_tile_index", "index_format": "gpkg",
+             "index_url_template": "https://x/index.gpkg"}
+    assert mod._tnm_dataset_key(opr) == "opr"
+    assert mod._tnm_dataset_key(lpc) == "lpc"
+    assert mod._tnm_dataset_key(boxed) is None

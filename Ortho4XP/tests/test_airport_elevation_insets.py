@@ -5963,6 +5963,9 @@ def test_every_shipped_provider_normalises_to_a_box_list():
         "NEWZEALAND1M",
         "NEWZEALANDTIDAL",
         "USGS3DEP",
+        # #153: the OPR / LPC rungs carry USGS3DEP's own US-only boxes.
+        "USGSLPC",
+        "USGSOPR",
     ]
 
 

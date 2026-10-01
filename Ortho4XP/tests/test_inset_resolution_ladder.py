@@ -211,17 +211,46 @@ def test_shipped_usgs3dep_declares_the_ladder():
     providers = INSETS.initialize_elevation_providers_dict()
     usgs = providers["USGS3DEP"]
     rungs = usgs["resolution_ladder_rungs"]
-    # 30aw (2): USGS 1 m -> PITKIN1M 1 m -> USGS 3 m -> USGS 10 m.
-    assert [r["native_resolution_m"] for r in rungs] == [1.0, 3.0, 10.0]
-    assert rungs[0]["provider"] == "PITKIN1M"
-    assert "discovery_url_template" not in rungs[0]
-    assert all("{west}" in r["discovery_url_template"] for r in rungs[1:])
+    # 30aw (2) + 30bl (#153): USGS 1 m -> PITKIN1M 1 m -> USGS OPR ->
+    # USGS LPC -> USGS 3 m -> USGS 10 m.
+    assert [r["native_resolution_m"] for r in rungs] == [
+        1.0, 1.0, 1.0, 3.0, 10.0]
+    assert [r.get("provider") for r in rungs[:3]] == [
+        "PITKIN1M", "USGSOPR", "USGSLPC"]
+    assert all("discovery_url_template" not in r for r in rungs[:3])
+    assert all("{west}" in r["discovery_url_template"] for r in rungs[3:])
     assert "1/3 arc-second" in rungs[-1]["discovery_url_template"]
     assert usgs["native_resolution_m"] == 1.0          # rung 0 untouched
     resolved = INSETS._ladder_rung_definitions(usgs)
     assert [(d["code"], d["access_strategy"]) for _l, d in resolved] == [
         ("USGS3DEP", "tnm_cog"), ("PITKIN1M", "las_tile_index"),
+        ("USGSOPR", "tnm_cog"), ("USGSLPC", "las_tile_index"),
         ("USGS3DEP", "tnm_cog"), ("USGS3DEP", "tnm_cog")]
+
+
+def test_shipped_opr_and_lpc_rungs():
+    """#153: the OPR rung reads units from its files and is judged by
+    airport cover; the LPC rung is a TNM-indexed LAZ point cloud gated on
+    the LAZ backend; both are US-only and sit below USGS3DEP."""
+    providers = INSETS.initialize_elevation_providers_dict()
+    opr = providers["USGSOPR"]
+    lpc = providers["USGSLPC"]
+    usgs = providers["USGS3DEP"]
+    assert opr["access_strategy"] == "tnm_cog"
+    assert "Original Product Resolution" in opr["discovery_url_template"]
+    assert INSETS._definition_reads_source_units(opr)
+    assert INSETS._rung_judged_by_airport_cover(opr)
+    assert float(opr["max_source_resolution_m"]) > 1.5   # MS Coastal 4 ftUS
+    assert lpc["access_strategy"] == "las_tile_index"
+    assert lpc["index_format"] == "tnm"
+    assert "Lidar Point Cloud" in lpc["index_url_template"]
+    assert INSETS.provider_required_capabilities(lpc) == [
+        INSETS.CAPABILITY_LAS, INSETS.CAPABILITY_LAZ]
+    assert INSETS._las_crs_from_header(lpc)
+    for definition in (opr, lpc):
+        assert definition["coverage_bbox"] == usgs["coverage_bbox"]
+        assert definition["priority"] < providers["PITKIN1M"]["priority"]
+        assert not INSETS._rung_can_be_surround(definition)
 
 
 @requires_gdal
@@ -280,9 +309,18 @@ def two_providers(monkeypatch, tmp_path):
             entry = plan.get(key) or {}
             if entry.get("unavailable"):
                 raise INSETS.ProviderUnavailable(entry["unavailable"])
+            if entry.get("transient"):
+                _write_raster(destination_path, 0.5)     # partial file
+                raise INSETS.TransientFetchError(entry["transient"])
             if entry.get("valid") is None:
+                self.last_listing = [{"source_id": i} for i in
+                                     entry.get("listing") or []]
                 return None
-            _write_raster(destination_path, entry["valid"])
+            if entry.get("keep"):
+                _write_partial(destination_path, bounding_box_wgs84,
+                               2400.0, entry["keep"])
+            else:
+                _write_raster(destination_path, entry["valid"])
             return {
                 "provider": definition["code"],
                 "native_resolution_m": definition["native_resolution_m"],
@@ -638,3 +676,227 @@ def test_recheck_stamp_not_attempted_under_an_armed_guard(
     assert "not attempted" in recheck["stamp"]
     with open(path, "rb") as handle:
         assert handle.read() == body
+
+
+# ---------------------------------------------------------------------
+# #153 (owner RULINGS 2026-09-30bl): every rung failure class falls
+# through; airport-cover rungs; the surround is never a lidar rung.
+# ---------------------------------------------------------------------
+@requires_gdal
+def test_transient_provider_rung_climbs_on_and_is_rechecked(two_providers):
+    """A rung that does not answer is recorded ``transient`` (no listing)
+    and the ladder delivers the next rung; the next build's re-check asks
+    it again, and when it answers with coverage it wins."""
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"transient": "index outage",
+                             "listing": ["T1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    meta = _sidecar()
+    tried = meta["ladder"]["rungs_tried"]
+    assert [r["outcome"] for r in tried] == [
+        "no-coverage", "transient", "delivered"]
+    assert tried[1]["transient_reason"] == "index outage"
+    assert "listing_ids" not in tried[1]
+    assert meta["ladder"]["delivered_rung"] == 2
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert recheck["result"] == "new-listing"
+    assert recheck["new_source_ids"] == ["T1"]
+    plan["FAKEPIT"] = {"valid": 1.0, "listing": ["T1"]}
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert _sidecar()["ladder"]["delivered_provider"] == "FAKEPIT"
+
+
+@requires_gdal
+def test_every_rung_transient_is_no_answer(tmp_path, two_providers):
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"transient": "a"},
+                 "FAKEPIT": {"transient": "b"},
+                 "FAKE3DEP:10": {"transient": "c"}})
+    with pytest.raises(INSETS.TransientFetchError, match="a"):
+        INSETS.fetch_inset(chain, BOX, 1.0, str(tmp_path / "K_f.tif"),
+                           resolution_ladder=True)
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT", "FAKE3DEP:10"]
+    assert os.listdir(tmp_path) == []
+
+
+@requires_gdal
+def test_no_coverage_rung_records_what_it_listed(tmp_path, two_providers):
+    """A rung whose listing yields nothing usable (OPR listing only 5 m
+    IFSAR) records that listing, so the re-check does not read it as new
+    on every build."""
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKEPIT": {"valid": None, "listing": ["IFSAR"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    tried = _sidecar()["ladder"]["rungs_tried"]
+    assert tried[1]["outcome"] == "no-coverage"
+    assert tried[1]["listing_ids"] == ["IFSAR"]
+    plan["FAKEPIT"]["listing"] = ["IFSAR"]
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert recheck["result"] == "unchanged"
+
+
+@requires_gdal
+def test_airport_cover_rung_is_judged_over_the_airport(tmp_path,
+                                                       two_providers):
+    """``ladder_judge=airport_cover`` (the OPR rung): a raster holding
+    far more than the box rule's 5 % but missing the aerodrome is NOT
+    delivered; one covering the aerodrome is -- with no core, no
+    surround."""
+    plan, calls, chain, other, _raise = two_providers
+    other["ladder_judge"] = "airport_cover"
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1"],
+                             # the west third of the box: 33 % box-wide,
+                             # beside the aerodrome
+                             "keep": (BOX[0], BOX[1], -106.8789, BOX[3])},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0,
+                                    str(tmp_path / "KASE_fake3dep.tif"),
+                                    resolution_ladder=True,
+                                    footprint_polygon=_airport())
+    tried = provenance["ladder"]["rungs_tried"]
+    assert tried[1]["valid_fraction"] > INSET_BOX_RULE_MARGIN
+    assert tried[1]["airport_valid_fraction"] < \
+        INSETS.INSET_MIN_AIRPORT_COVER_FRAC
+    assert tried[1]["outcome"] == "below-threshold"
+    assert provenance["ladder"]["delivered_rung"] == 2
+    # covering the aerodrome: delivered at the rung, whole-box raster
+    plan["FAKEPIT"]["keep"] = (-106.885, 39.205, -106.852, 39.237)
+    calls["fetch"].clear()
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0,
+                                    str(tmp_path / "KASE_fake3dep.tif"),
+                                    resolution_ladder=True,
+                                    footprint_polygon=_airport())
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT"]
+    assert provenance["ladder"]["delivered_provider"] == "FAKEPIT"
+    assert provenance["ladder"]["rungs_tried"][1][
+        "airport_valid_fraction"] >= INSETS.INSET_MIN_AIRPORT_COVER_FRAC
+    assert "core" not in provenance and "surround" not in provenance
+
+
+#: The box rule's threshold, with margin: the test raster is far above it.
+INSET_BOX_RULE_MARGIN = 0.2
+
+
+@requires_gdal
+def test_surround_never_takes_a_lidar_rung(tmp_path, core_chain,
+                                           monkeypatch):
+    """KASE's chain after #153: PITKIN1M core, then the OPR and LPC rungs,
+    then 10 m.  The surround skips the airport-cover and point-cloud
+    rungs (never asked) and is the seamless 10 m layer, as before."""
+    plan, calls, chain, seen = core_chain
+    lidar = {"code": "FAKEOPR", "access_strategy": STRATEGY,
+             "role": INSETS.ROLE_AIRPORT_INSET, "enabled": True,
+             "priority": 0.4, "native_resolution_m": 1.0,
+             "ladder_judge": "airport_cover"}
+    cloud = {"code": "FAKELPC", "access_strategy": "las_tile_index",
+             "role": INSETS.ROLE_AIRPORT_INSET, "enabled": True,
+             "priority": 0.3, "native_resolution_m": 1.0}
+    INSETS.elevation_providers_dict.update(
+        {"FAKEOPR": lidar, "FAKELPC": cloud})
+    chain["resolution_ladder_rungs"] = INSETS._parse_resolution_ladder(
+        "1|county lidar|provider:FAKEPIT;1|opr|provider:FAKEOPR;"
+        "1|lpc|provider:FAKELPC;10|1/3 arc-second|rung2")
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]},
+                 "core_keep": (-106.885, 39.205, -106.852, 39.237)})
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0,
+                                    str(tmp_path / "KASE_fake3dep.tif"),
+                                    resolution_ladder=True,
+                                    footprint_polygon=_airport())
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT", "FAKE3DEP:10"]
+    assert provenance["surround"]["rung"] == 4
+    assert provenance["ladder"]["delivered_provider"] == "FAKEPIT"
+
+
+@requires_gdal
+def test_recheck_of_a_lidar_rung_inset_finds_a_later_1m_product(
+        two_providers):
+    """``ladder_recheck`` covers the new rungs: an inset the OPR-class
+    rung delivered re-asks rung 0, and a USGS 1 m product appearing later
+    still wins."""
+    plan, calls, chain, other, _raise = two_providers
+    other["ladder_judge"] = "airport_cover"
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert _sidecar()["ladder"]["delivered_provider"] == "FAKEPIT"
+    calls["discover"].clear()
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert recheck["result"] == "unchanged"
+    assert calls["discover"] == ["FAKE3DEP:1"]
+    plan["FAKE3DEP:1"] = {"valid": 1.0, "listing": ["usgs1m"]}
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    meta = _sidecar()
+    assert meta["ladder"]["delivered_rung"] == 0
+    assert meta["provider"] == "FAKE3DEP"
+
+
+@requires_gdal
+def test_partial_rung_zero_yields_to_a_same_resolution_rung(tmp_path,
+                                                            two_providers):
+    """KGEG: USGS 1 m covers ~half the airport (box rule passes, its holes
+    would fall to the 30 m base DEM); the OPR rung of the same flight
+    covers all of it and is delivered.  The 10 m rung is never asked."""
+    plan, calls, chain, other, _raise = two_providers
+    other["ladder_judge"] = "airport_cover"
+    plan.update({"FAKE3DEP:1": {"valid": 1.0, "listing": ["u1"],
+                                "keep": (BOX[0], BOX[1], -106.8685,
+                                         BOX[3])},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0,
+                                    str(tmp_path / "KGEG_fake3dep.tif"),
+                                    resolution_ladder=True,
+                                    footprint_polygon=_airport())
+    tried = provenance["ladder"]["rungs_tried"]
+    assert [r["outcome"] for r in tried] == ["partial", "delivered"]
+    assert tried[0]["airport_valid_fraction"] < \
+        INSETS.INSET_MIN_AIRPORT_COVER_FRAC
+    assert provenance["ladder"]["delivered_provider"] == "FAKEPIT"
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT"]
+    assert INSETS.inset_valid_fraction(
+        str(tmp_path / "KGEG_fake3dep.tif")) == 1.0
+    assert sorted(os.listdir(tmp_path)) == ["KGEG_fake3dep.tif"]
+
+
+@requires_gdal
+def test_partial_rung_zero_stands_when_no_same_resolution_rung_covers(
+        two_providers):
+    """No 1 m-class alternative answers (an outage): rung 0 is delivered
+    exactly as before -- never traded for the coarser 10 m rung -- and
+    the next build's re-check asks the rung that did not answer; when it
+    covers the airport, it wins."""
+    plan, calls, chain, other, _raise = two_providers
+    other["ladder_judge"] = "airport_cover"
+    half = (BOX[0], BOX[1], -106.8685, BOX[3])
+    plan.update({"FAKE3DEP:1": {"valid": 1.0, "listing": ["u1"],
+                                "keep": half},
+                 "FAKEPIT": {"transient": "outage", "listing": ["T1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    polygons = {"KASE": _airport()}
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None,
+                                 airport_polygons=polygons)
+    ladder = _sidecar()["ladder"]
+    assert [r["outcome"] for r in ladder["rungs_tried"]] == [
+        "delivered", "transient"]
+    assert ladder["delivered_rung"] == 0
+    assert "FAKE3DEP:10" not in calls["fetch"]
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert recheck["result"] == "new-listing"
+    assert recheck["new_source_ids"] == ["T1"]
+    plan["FAKEPIT"] = {"valid": 1.0, "listing": ["T1"]}
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None,
+                                 airport_polygons=polygons)
+    ladder = _sidecar()["ladder"]
+    assert ladder["delivered_provider"] == "FAKEPIT"
+    # and from then on: rung 1 delivered over a partial rung 0, the
+    # re-check asks rung 0 only and finds nothing new
+    calls["discover"].clear()
+    assert INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP",
+                                 BOX)["result"] == "unchanged"
+    assert calls["discover"] == ["FAKE3DEP:1"]

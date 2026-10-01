@@ -42,6 +42,11 @@ Options:
     --refresh                 Ignore cached results and re-query/re-fetch.
     --probe LAT,LON           Sample the fetched raster at this point and print it.
     --elevation-data-dir DIR  Write the cache under DIR instead of ./Elevation_data.
+    --footprint-bbox W,S,E,N  The aerodrome boundary (as a rectangle) the
+                              production fetch passes from OSM: airport-cover
+                              rungs (USGS OPR, PITKIN1M, USGS LPC) are judged
+                              over it and surgical LAS fetches cut to it
+                              (#153; without it they see the whole box).
 
 Examples:
     # Nashville (KBNA), tile +36-087, a box around the water-treatment shelf:
@@ -121,6 +126,13 @@ def main() -> int:
         help="LAT,LON to sample from the fetched raster",
     )
     parser.add_argument("--elevation-data-dir", default=None)
+    parser.add_argument(
+        "--footprint-bbox",
+        default=None,
+        type=_parse_bounding_box,
+        help="the aerodrome boundary as WEST,SOUTH,EAST,NORTH (production "
+             "passes the OSM boundary polygon)",
+    )
     arguments = parser.parse_args()
 
     if arguments.elevation_data_dir:
@@ -165,6 +177,12 @@ def main() -> int:
         )
     )
 
+    footprint = {}
+    if arguments.footprint_bbox:
+        from shapely.geometry import box as _box
+
+        footprint = {"airport_polygons": {
+            arguments.airport: _box(*arguments.footprint_bbox)}}
     index = INSETS.ensure_airport_insets(
         tile_latitude,
         tile_longitude,
@@ -172,6 +190,7 @@ def main() -> int:
         provider_definitions,
         arguments.resolution_m,
         refresh=arguments.refresh,
+        **footprint,
     )
 
     print("\nindex.json entry:")

@@ -1116,6 +1116,12 @@ CAPABILITY_LERC = "lerc"
 #: 13b door), never a durable no-coverage.
 CAPABILITY_LAS = "las"
 
+#: Decompressing LAZ point clouds (``lazrs``, laspy's Rust backend) -- a
+#: ``las_tile_index`` provider declaring ``point_compression=laz`` (the
+#: USGS Lidar Point Cloud rung, #153).  Missing -> ``unavailable:`` and
+#: the ladder climbs on; re-probed once the engine has it (13b).
+CAPABILITY_LAZ = "laz"
+
 #: Memo for the LERC capability probe: ``[None]`` until probed.
 _LERC_CAPABILITY = [None]
 
@@ -1131,6 +1137,24 @@ def las_reader_available():
     except Exception:
         return False
     return True
+
+
+def laz_reader_available():
+    """Can THIS process DECOMPRESS LAZ tiles?  True when laspy finds a
+    LAZ backend (``lazrs``) -- in-process, so the import is the answer
+    for the frozen engine too."""
+    try:
+        import laspy
+
+        return any(backend.is_available() for backend in laspy.LazBackend)
+    except Exception:
+        return False
+
+
+def _definition_needs_laz(definition):
+    """``point_compression=laz``: the provider's tiles are LAZ."""
+    return str((definition or {}).get("point_compression", "")).strip() \
+        .lower() == "laz"
 
 
 def lerc_decode_available():
@@ -1176,6 +1200,8 @@ def provider_required_capabilities(definition):
         needs.add(CAPABILITY_LERC)
     if str(definition.get("access_strategy", "")) == "las_tile_index":
         needs.add(CAPABILITY_LAS)
+        if _definition_needs_laz(definition):
+            needs.add(CAPABILITY_LAZ)
     return sorted(needs)
 
 
@@ -1198,6 +1224,8 @@ def run_capability_record(definition):
         if capability == CAPABILITY_LERC and lerc_decode_available():
             have.append(capability)
         elif capability == CAPABILITY_LAS and las_reader_available():
+            have.append(capability)
+        elif capability == CAPABILITY_LAZ and laz_reader_available():
             have.append(capability)
     return {"engine": _engine_version(), "capabilities": have}
 
@@ -1436,6 +1464,17 @@ def _parse_tile_list(value):
     return tuple(tiles)
 
 
+def definition_is_ladder_only(definition):
+    """``ladder_only=true``: the provider is a RUNG of another provider's
+    resolution ladder (the USGS OPR / LPC rungs of USGS3DEP, #153) and is
+    never ranked on its own in ``auto`` -- so it is asked exactly where
+    its ladder reaches it, never recorded as an "unanswered" covering
+    provider of an airport its parent already answered.  An explicit
+    ``airport_elevation_providers`` list may still pin it."""
+    return str((definition or {}).get("ladder_only", "")).strip().lower() \
+        in ("true", "1", "yes")
+
+
 def select_provider_definitions(providers_config, role=ROLE_AIRPORT_INSET):
     """Rank the provider definitions to try, honouring the config value.
 
@@ -1460,6 +1499,7 @@ def select_provider_definitions(providers_config, role=ROLE_AIRPORT_INSET):
             for definition in elevation_providers_dict.values()
             if definition.get("enabled", True)
             and definition.get("role", ROLE_AIRPORT_INSET) == role
+            and not definition_is_ladder_only(definition)
         ]
         candidates.sort(
             key=lambda definition: (
@@ -1757,7 +1797,8 @@ def _provenance_listing_ids(provenance):
         for value in provenance.get(key) or ():
             if value is not None:
                 ids.add(str(value))
-    for key in ("sources_used", "sources_empty_over_bbox"):
+    for key in ("sources_used", "sources_empty_over_bbox",
+                "sources_excluded_too_coarse"):
         for entry in provenance.get(key) or ():
             if isinstance(entry, dict) and entry.get("source_id") is not None:
                 ids.add(str(entry["source_id"]))
@@ -1793,8 +1834,16 @@ def _fetch_through_resolution_ladder(
     FINEST sub-threshold raster is kept (the pre-ladder behaviour: the
     bake refuses it loudly and the next run asks again); ``None`` --
     no-coverage -- only when no rung listed any product at all.  A rung
-    that raises (a transient outage) raises out of the ladder: an
-    unfinished ladder is no durable answer.
+    that raises a transient outage is recorded ``transient`` (no listing,
+    so the build-time re-check asks it again) and the ladder climbs on
+    (owner RULINGS 2026-09-30bl: every failure class falls through); only
+    a ladder that delivers NOTHING re-raises it -- an unfinished ladder
+    with no delivery is no durable answer.
+
+    AIRPORT-COVER RUNGS (#153): a rung whose definition declares
+    ``ladder_judge=airport_cover`` (the USGS Original Product Resolution
+    rung) is judged like a surgical core -- delivered only when it holds
+    ``INSET_MIN_AIRPORT_COVER_FRAC`` of the aerodrome boundary box.
 
     CROSS-PROVIDER (RULINGS 2026-09-30aw (2)): a rung may be ANOTHER
     provider (``provider:<CODE>``); its strategy is resolved PER RUNG, a
@@ -1837,6 +1886,7 @@ def _fetch_through_resolution_ladder(
     delivered = None          # (index, path, provenance)
     fallback = None           # finest sub-threshold (index, path, provenance)
     scratch_paths = []
+    transient_errors = []
 
     def _try_rung(index, label, rung_definition, rung_path, rung_target,
                   rung_strategy):
@@ -1872,6 +1922,19 @@ def _fetch_through_resolution_ladder(
                 if index == 0:
                     raise
                 unavailable = error.reason
+            except TransientFetchError as error:
+                # EVERY FAILURE CLASS FALLS THROUGH (owner RULINGS
+                # 2026-09-30bl): an outage on one rung is no answer FOR
+                # THAT RUNG -- it records no listing, so the build-time
+                # re-check asks it again -- and the ladder climbs on.
+                # Only a ladder that delivers NOTHING re-raises it.
+                attempt["outcome"] = "transient"
+                attempt["transient_reason"] = str(error)
+                attempt["valid_fraction"] = 0.0
+                transient_errors.append(error)
+                if os.path.isfile(rung_path):
+                    os.remove(rung_path)
+                return (attempt, None)
         if unavailable is not None:
             attempt["outcome"] = "unavailable"
             attempt["unavailable_reason"] = unavailable
@@ -1882,7 +1945,12 @@ def _fetch_through_resolution_ladder(
         if provenance is None:
             attempt["outcome"] = "no-coverage"
             attempt["valid_fraction"] = 0.0
-            attempt["listing_ids"] = []
+            # What discovery listed although nothing usable came of it
+            # (a listing of products all too coarse, a warp that held
+            # nothing): recorded, so the re-check does not read the same
+            # listing as new on every build.
+            attempt["listing_ids"] = _listing_ids(
+                getattr(rung_strategy, "last_listing", None))
             if os.path.isfile(rung_path):
                 os.remove(rung_path)       # a failed warp's partial file
             return (attempt, None)
@@ -1892,11 +1960,16 @@ def _fetch_through_resolution_ladder(
             provenance.get("sources_used")
             or provenance.get("source_urls") or ())
         attempt["listing_ids"] = _provenance_listing_ids(provenance)
-        if isinstance(provenance.get("core"), dict) and boundary_box:
-            # A SURGICAL CORE is judged over the AIRPORT, not the box.
+        if boundary_box and (
+                isinstance(provenance.get("core"), dict)
+                or _rung_judged_by_airport_cover(rung_definition)):
+            # A SURGICAL CORE -- or a rung that declares
+            # ``ladder_judge=airport_cover`` (the USGS OPR rung, #153) --
+            # is judged over the AIRPORT, not the box.
             airport_fraction = raster_valid_fraction_in_box(
                 rung_path, boundary_box)
             attempt["airport_valid_fraction"] = round(airport_fraction, 6)
+            attempt["judge"] = "airport_cover"
             attempt["outcome"] = (
                 "delivered"
                 if airport_fraction >= INSET_MIN_AIRPORT_COVER_FRAC
@@ -1905,19 +1978,34 @@ def _fetch_through_resolution_ladder(
             attempt["outcome"] = (
                 "delivered" if valid_fraction >= threshold
                 else "below-threshold")
+            if boundary_box and attempt["outcome"] == "delivered":
+                # Recorded so the loop can tell a box-rule rung that
+                # misses part of the AIRPORT (KGEG's 1 m: 54 %) from one
+                # that covers it (#153).
+                attempt["airport_valid_fraction"] = round(
+                    raster_valid_fraction_in_box(rung_path, boundary_box),
+                    6)
         return (attempt, provenance)
 
     def _say(attempt, total):
         index = attempt["rung"]
         if attempt["outcome"] == "no-coverage":
             what = "no product listed over the box"
+        elif attempt["outcome"] == "transient":
+            what = ("%s did not answer (%s)"
+                    % (attempt["provider"], attempt["transient_reason"]))
         elif attempt["outcome"] == "out-of-coverage":
             what = ("%s's coverage does not reach the box (not "
                     "asked)" % attempt["provider"])
         elif attempt["outcome"] == "unavailable":
             what = ("%s could not be asked: %s"
                     % (attempt["provider"], attempt["unavailable_reason"]))
-        elif "airport_valid_fraction" in attempt:
+        elif attempt["outcome"] == "partial":
+            what = ("valid %.2f %% but airport cover %.2f %% (< %.2f %%)"
+                    % (100.0 * attempt["valid_fraction"],
+                       100.0 * attempt["airport_valid_fraction"],
+                       100.0 * INSET_MIN_AIRPORT_COVER_FRAC))
+        elif attempt.get("judge") == "airport_cover":
             what = ("airport cover %.2f %% (%s %.2f %%)"
                     % (100.0 * attempt["airport_valid_fraction"],
                        ">=" if attempt["outcome"] == "delivered" else "<",
@@ -1930,6 +2018,9 @@ def _fetch_through_resolution_ladder(
         if attempt.get("role") == "surround":
             tail = (" - SURROUND" if attempt["outcome"] == "delivered"
                     else " - next surround rung")
+        elif attempt["outcome"] == "partial":
+            tail = (" - kept; asking the same-resolution rungs for the "
+                    "whole airport")
         else:
             tail = (" - DELIVERED" if attempt["outcome"] == "delivered"
                     else (" - trying the next rung" if index + 1 < total
@@ -1949,8 +2040,15 @@ def _fetch_through_resolution_ladder(
             float(_definition_resolution_m(rung_definition)
                   or target_resolution_m))
 
+    partial = None            # (index, path, provenance, native metres)
     try:
         for index, (label, rung_definition) in enumerate(rungs):
+            if partial is not None and (
+                    _definition_resolution_m(rung_definition)
+                    or float("inf")) > partial[3]:
+                # Past the partial rung's resolution class: the partial
+                # rung is the best this ladder has (below).
+                break
             if index == 0:
                 rung_path = destination_path
                 rung_strategy = strategy
@@ -1964,6 +2062,27 @@ def _fetch_through_resolution_ladder(
                 index, label, rung_definition, rung_path,
                 _rung_target(index, rung_definition), rung_strategy)
             attempts.append(attempt)
+            native = _definition_resolution_m(rung_definition) or 0.0
+            if (attempt["outcome"] == "delivered" and partial is None
+                    and attempt.get("judge") != "airport_cover"
+                    and attempt.get("airport_valid_fraction") is not None
+                    and attempt["airport_valid_fraction"]
+                    < INSET_MIN_AIRPORT_COVER_FRAC
+                    and any((_definition_resolution_m(other) or 0.0)
+                            <= native for (_l, other) in rungs[index + 1:])):
+                # BEST AVAILABLE AT THIS RESOLUTION (#153, owner RULINGS
+                # 2026-09-30bl): the box rule delivers a mosaic that
+                # misses part of the AIRPORT (KGEG: USGS 1 m covers
+                # 54 %, its holes fall to the 30 m base DEM).  The rungs
+                # of the SAME resolution class are asked whether they
+                # cover the whole airport (the OPR tiles of the same
+                # flight do); the first that does wins, else this rung
+                # is delivered exactly as before.  Coarser rungs are
+                # never traded for it.
+                attempt["outcome"] = "partial"
+                partial = (index, rung_path, provenance, native)
+                _say(attempt, len(rungs))
+                continue
             if index > 0 or attempt["outcome"] != "delivered":
                 _say(attempt, len(rungs))
             if attempt["outcome"] == "delivered":
@@ -1974,6 +2093,15 @@ def _fetch_through_resolution_ladder(
                     fallback = (index, rung_path, provenance)
                 elif rung_path != destination_path:
                     os.remove(rung_path)
+        if delivered is None and partial is not None:
+            (index, rung_path, provenance, _native) = partial
+            attempts[index]["outcome"] = "delivered"
+            delivered = (index, rung_path, provenance)
+        if delivered is None and transient_errors:
+            # Nothing delivered and a rung never answered: no durable
+            # answer (30t) -- the caller records nothing, the next run
+            # asks again.
+            raise transient_errors[0]
         chosen = delivered or fallback
         if chosen is None:
             return None
@@ -1985,6 +2113,8 @@ def _fetch_through_resolution_ladder(
             surround = None
             for (other, (label, rung_definition)) in enumerate(rungs):
                 if other <= index:
+                    continue
+                if not _rung_can_be_surround(rung_definition):
                     continue
                 surround_path = "%s.surround%d" % (destination_path, other)
                 scratch_paths.append(surround_path)
@@ -2061,6 +2191,26 @@ def _fetch_through_resolution_ladder(
                     os.remove(path)
                 except OSError:                          # pragma: no cover
                     pass
+
+
+def _rung_judged_by_airport_cover(rung_definition):
+    """``ladder_judge=airport_cover``: the rung is delivered only when it
+    covers the AIRPORT (``INSET_MIN_AIRPORT_COVER_FRAC`` of the aerodrome
+    boundary box), the rule a surgical LAS core is judged by (#153)."""
+    return str((rung_definition or {}).get("ladder_judge", "")).strip() \
+        .lower() == "airport_cover"
+
+
+def _rung_can_be_surround(rung_definition):
+    """A two-layer SURROUND is the coarse WHOLE-BOX layer: never a
+    surgical point-cloud rung (it lists only the airport's tiles) and
+    never a rung judged by airport cover (its box may be partial -- the
+    surround's holes would fall to the base DEM where the next seamless
+    rung covers them)."""
+    if str((rung_definition or {}).get("access_strategy")) == \
+            "las_tile_index":
+        return False
+    return not _rung_judged_by_airport_cover(rung_definition)
 
 
 #: The core's seam blend when a provider declares no ``core_feather_m``:
@@ -2574,7 +2724,8 @@ def _refuse_mixed_vertical_datums(definition, sources):
 
 
 def _source_holds_data_over_bbox(
-    warp_input, bounding_box_wgs84, source_nodata=None
+    warp_input, bounding_box_wgs84, source_nodata=None,
+    samples=_SOURCE_CONTRIBUTION_PROBE_SAMPLES,
 ):
     """True when one source holds ANY valid pixel over the bounding box.
 
@@ -2600,8 +2751,8 @@ def _source_holds_data_over_bbox(
                 options=["-novshift"],
                 srcNodata=source_nodata,
                 outputBounds=(west, south, east, north),
-                width=_SOURCE_CONTRIBUTION_PROBE_SAMPLES,
-                height=_SOURCE_CONTRIBUTION_PROBE_SAMPLES,
+                width=samples,
+                height=samples,
                 resampleAlg="near",
                 dstNodata=-32768.0,
             ),
@@ -2628,16 +2779,280 @@ def _source_contribution_entry(source):
     }
 
 
-def _tnm_project_of(title):
+def _tnm_project_of(title, download_url=None):
     """The 3DEP project name inside a TNM product title.
 
     Titles read ``USGS 1 Meter 15 x34y435 KS_Statewide_2018_A18`` -- the
     project is the last token, and the project is what a reader needs
     when a border airport mosaics two states.  ``"?"`` for a title-less
-    item.
+    item.  An Original Product Resolution title ends in the TILE id
+    (``USGS Original Product Resolution Anchorage_Lidar 63376784``), so
+    when the download URL names its project (``.../Projects/<name>/``)
+    that wins (#153).
     """
+    url = str(download_url or "")
+    if "/Projects/" in url:
+        name = url.split("/Projects/", 1)[1].split("/", 1)[0]
+        if name:
+            return name
     tokens = str(title or "").split()
     return tokens[-1] if tokens else "?"
+
+
+#: At most this many TNM listing pages per discovery (50 items each by
+#: default): an OPR listing over an inset box reads ~100 tiles (KGEG 97,
+#: measured 2026-10-01); a listing past the cap is refused as transient
+#: rather than silently truncated.
+TNM_LISTING_MAX_PAGES = 40
+
+
+def tnm_listing_items(url, description, timeout=30):
+    """Every item of a TNM Access API product listing, PAGED (#153).
+
+    The API answers ``max`` items per page (50 by default) beside the
+    listing's ``total``.  A 1 m listing over an airport box is a handful
+    of 10 km tiles and always fits one page -- that request is exactly
+    the one discovery always made -- but an Original Product Resolution
+    listing is per ~1 km tile (KGEG: 97), and reading only the first page
+    would cut half the airport out of the mosaic with no word said.
+    Further pages are asked with ``offset=`` only while ``total`` says
+    more exist; a page that adds nothing while more are claimed, or a
+    listing beyond :data:`TNM_LISTING_MAX_PAGES`, is TRANSIENT (a
+    truncated listing is never a coverage answer -- the SQ3 law).
+    Returns ``None`` for a durable 4xx answer (``discovery_json_payload``).
+    """
+    import requests
+
+    items = []
+    offset = 0
+    for page in range(TNM_LISTING_MAX_PAGES):
+        page_url = url if page == 0 else "%s&offset=%d" % (url, offset)
+        try:
+            response = requests.get(page_url, timeout=timeout)
+        except Exception as error:
+            raise_transient_discovery_failure(description + " request",
+                                              error)
+        payload = discovery_json_payload(response, description)
+        if payload is None:
+            if page == 0:
+                return None
+            raise_transient_discovery_failure(
+                description, "page %d of a listing answered no catalog"
+                % (page + 1))
+        # A 200 is not by itself an answer about coverage: only a
+        # COMPLETE listing is (2026-09-15, KPHX).
+        page_items = discovery_listing_items(payload, description)
+        items.extend(page_items)
+        offset += len(page_items)
+        try:
+            total = int(payload.get("total", 0) or 0)
+        except (TypeError, ValueError):
+            total = 0
+        if total <= len(items):
+            return items
+        if not page_items:
+            raise_transient_discovery_failure(
+                description,
+                "a listing claiming %d product(s) stopped at %d"
+                % (total, len(items)))
+    raise_transient_discovery_failure(
+        description,
+        "a listing of more than %d pages (%d of %d items read)"
+        % (TNM_LISTING_MAX_PAGES, len(items), total))
+
+
+# ---------------------------------------------------------------------
+# Products read at their ORIGINAL resolution (#153, the USGS OPR rung):
+# the grid, the CRS and the HEIGHT UNIT come from each file, not from
+# the definition.
+# ---------------------------------------------------------------------
+#: Height units a raster may name (band unit type / CRS unit name), in
+#: metres per unit.
+RASTER_HEIGHT_UNITS_TO_M = {
+    "m": 1.0, "metre": 1.0, "meter": 1.0, "metres": 1.0, "meters": 1.0,
+    "ft": 0.3048, "foot": 0.3048, "feet": 0.3048,
+    "international foot": 0.3048,
+    "us survey foot": 1200.0 / 3937.0, "ftus": 1200.0 / 3937.0,
+    "us-ft": 1200.0 / 3937.0, "foot_us": 1200.0 / 3937.0,
+    "us survey feet": 1200.0 / 3937.0,
+}
+
+#: A source's own contribution probe samples its FOOTPRINT (one ~1 km
+#: OPR tile) rather than the whole box, so a coarse grid answers it.
+_SOURCE_FOOTPRINT_PROBE_SAMPLES = 32
+
+#: Parallel header reads when a listing's sources are inspected.
+_SOURCE_INSPECTION_WORKERS = 8
+
+
+def _definition_reads_source_units(definition):
+    """``source_units=from_source``: the provider's products each carry
+    their own grid and height unit, read from the file (#153)."""
+    return str((definition or {}).get("source_units", "")).strip().lower() \
+        == "from_source"
+
+
+def raster_height_unit(dataset):
+    """``(metres_per_unit, unit_name, rule)`` for a GDAL raster's HEIGHTS.
+
+    The order of evidence: a compound CRS's VERTICAL unit (Montana DNRC:
+    NAVD88 height in feet); else the band's declared unit type; else the
+    HORIZONTAL unit of a projected CRS (USGS OPR products posted in a
+    State Plane foot CRS with no vertical CRS carry heights in that same
+    foot -- measured 2026-10-01: Fairbanks FB17 reads 434.9 where the
+    seamless 1/3 arc-second reads 132.7 m; 434.9 ftUS = 132.6 m); else
+    metres."""
+    srs = dataset.GetSpatialRef()
+    if srs is not None and srs.IsCompound():
+        try:
+            factor = float(srs.GetTargetLinearUnits("VERT_CS"))
+            name = srs.GetAttrValue("VERT_CS|UNIT") or "vertical CRS unit"
+            if factor > 0:
+                return (factor, str(name), "vertical-crs")
+        except Exception:
+            pass
+    unit_type = str(dataset.GetRasterBand(1).GetUnitType() or "").strip()
+    if unit_type.lower() in RASTER_HEIGHT_UNITS_TO_M:
+        return (RASTER_HEIGHT_UNITS_TO_M[unit_type.lower()], unit_type,
+                "band-unit")
+    if srs is not None and srs.IsProjected():
+        factor = float(srs.GetLinearUnits() or 1.0)
+        return (factor, str(srs.GetLinearUnitsName() or ""),
+                "horizontal-crs")
+    return (1.0, "metre", "default")
+
+
+def raster_native_resolution_m(dataset):
+    """The raster's posting in metres (its pixel width in its own CRS)."""
+    transform = dataset.GetGeoTransform()
+    pixel = abs(float(transform[1]))
+    srs = dataset.GetSpatialRef()
+    if srs is not None and srs.IsProjected():
+        return pixel * float(srs.GetLinearUnits() or 1.0)
+    if srs is not None and srs.IsGeographic():
+        return pixel * GEO.lat_to_m
+    return pixel
+
+
+def _inspect_raster_source(warp_input):
+    """One source's header facts, or ``None`` when it cannot be opened."""
+    dataset = gdal.Open(warp_input)
+    if dataset is None:
+        return None
+    (factor, unit, rule) = raster_height_unit(dataset)
+    srs = dataset.GetSpatialRef()
+    record = {
+        "native_resolution_m": round(raster_native_resolution_m(dataset), 4),
+        "z_to_m": factor,
+        "height_unit": unit,
+        "height_unit_rule": rule,
+        "crs": (srs.GetName() if srs is not None else None),
+    }
+    dataset = None
+    return record
+
+
+def _inspect_and_screen_raster_sources(definition, sources, warp_input_for):
+    """Read every source's header (grid, CRS, height unit) and keep the
+    lidar-class ones: ``(kept, excluded)``.  A header that cannot be read
+    is network-shaped (the listing named it) -> TRANSIENT."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    limit = _parse_float(definition.get("max_source_resolution_m"),
+                         default=None)
+
+    def _read(source):
+        try:
+            with gdal.config_options({
+                    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff"}):
+                return _inspect_raster_source(warp_input_for(source))
+        except Exception as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=_SOURCE_INSPECTION_WORKERS) as pool:
+        answers = list(pool.map(_read, sources))
+    kept = []
+    excluded = []
+    for (source, answer) in zip(sources, answers):
+        if answer is None or isinstance(answer, Exception):
+            raise TransientFetchError(
+                "%s: header of %s could not be read: %s"
+                % (definition.get("code"), source.get("source_id"), answer))
+        source = dict(source, **answer)
+        if limit is not None and answer["native_resolution_m"] > limit:
+            excluded.append(source)
+        else:
+            kept.append(source)
+    return kept, excluded
+
+
+def _metre_scaled_vrt(warp_input, z_to_m, vrt_path):
+    """A local VRT over ``warp_input`` whose heights read in METRES
+    (``ScaleRatio`` = metres per unit; NoData passes unscaled)."""
+    os.makedirs(os.path.dirname(vrt_path) or ".", exist_ok=True)
+    dataset = gdal.Translate(
+        vrt_path, warp_input,
+        options=gdal.TranslateOptions(
+            format="VRT", outputType=gdal.GDT_Float32,
+            scaleParams=[[0.0, 1.0, 0.0, float(z_to_m)]]))
+    if dataset is None:
+        raise TransientFetchError("could not open %s to scale its heights"
+                                  % warp_input)
+    dataset = None
+    return vrt_path
+
+
+def _source_probe_box(source, bounding_box_wgs84):
+    """The part of the request box a source's listed footprint covers
+    (the whole box when the listing gave no footprint)."""
+    box = source.get("bounding_box")
+    if not isinstance(box, dict):
+        return bounding_box_wgs84
+    try:
+        (west, south, east, north) = bounding_box_wgs84
+        west = max(west, float(box["minX"]))
+        south = max(south, float(box["minY"]))
+        east = min(east, float(box["maxX"]))
+        north = min(north, float(box["maxY"]))
+    except (KeyError, TypeError, ValueError):
+        return bounding_box_wgs84
+    if east <= west or north <= south:
+        return bounding_box_wgs84
+    return (west, south, east, north)
+
+
+def _source_units_provenance(used, excluded, definition):
+    """The record keys of a ``source_units=from_source`` fetch: the
+    native resolution READ FROM THE FILES (the coarsest contributing
+    product -- the inset is at least that fine everywhere it has data),
+    the height units met and how each was decided, and the products
+    screened out as coarser than ``max_source_resolution_m``."""
+    resolutions = [source["native_resolution_m"] for source in used
+                   if source.get("native_resolution_m")]
+    units = sorted({"%s (%s)" % (source.get("height_unit"),
+                                 source.get("height_unit_rule"))
+                    for source in used if source.get("height_unit")})
+    record = {
+        "native_resolution_m": (max(resolutions) if resolutions
+                                else definition.get("native_resolution_m")),
+        "native_resolution_range_m": (
+            [min(resolutions), max(resolutions)] if resolutions else None),
+        "native_resolution_from": "source files",
+        "vertical_unit_source": units,
+        "heights_converted_to_m": sorted(
+            {source.get("height_unit") for source in used
+             if source.get("z_to_m") not in (None, 1.0)}),
+        "source_crs": sorted({str(source.get("crs")) for source in used}),
+    }
+    if excluded:
+        record["sources_excluded_too_coarse"] = [
+            dict(_source_contribution_entry(source),
+                 native_resolution_m=source.get("native_resolution_m"))
+            for source in excluded
+        ]
+        record["max_source_resolution_m"] = _parse_float(
+            definition.get("max_source_resolution_m"))
+    return record
 
 
 # =====================================================================
@@ -2675,16 +3090,9 @@ class TnmCloudOptimizedGeoTiffStrategy:
         # transient through the one classifier; only a real answer (a 4xx
         # about this request, or a catalog with no usable items) returns
         # None and is recorded durably.
-        try:
-            response = requests.get(url, timeout=30)
-        except Exception as error:
-            raise_transient_discovery_failure("TNM discovery request", error)
-        payload = discovery_json_payload(response, "TNM discovery")
-        if payload is None:
+        items = tnm_listing_items(url, "TNM discovery")
+        if items is None:
             return None
-        # A 200 is not by itself an answer about coverage: only a
-        # COMPLETE listing is (2026-09-15, KPHX).
-        items = discovery_listing_items(payload, "TNM discovery")
         sources = []
         for item in items:
             download_url = item.get("downloadURL") or (
@@ -2701,6 +3109,10 @@ class TnmCloudOptimizedGeoTiffStrategy:
                     "bounding_box": item.get("boundingBox"),
                 }
             )
+        # What this discovery LISTED, kept for the ladder: a rung whose
+        # listing yields no usable raster still records it, so the
+        # build-time re-check compares like with like (#153).
+        self.last_listing = list(sources)
         if not sources:
             if items:
                 # The listing named products and none of them carried a
@@ -2751,20 +3163,57 @@ class TnmCloudOptimizedGeoTiffStrategy:
         # contributes nothing instead of erasing everything.  The source
         # count stays whatever discovery returned: no new network reach.
         _refuse_mixed_vertical_datums(definition, sources)
+        from_source = _definition_reads_source_units(definition)
+        excluded = []
+        scratch_inputs = []
+        warp_configuration = None
+        if from_source:
+            # ORIGINAL PRODUCT RESOLUTION (#153): each product carries
+            # its own grid, CRS and HEIGHT UNIT (Fairbanks 2017 is
+            # posted in US survey feet with no vertical CRS; Montana
+            # DNRC declares a NAVD88-in-feet compound CRS), so the
+            # header of every source is read and a source in feet is
+            # warped through a metre-scaling VRT.  A product coarser
+            # than ``max_source_resolution_m`` (the 5 m Alaska IFSAR
+            # DTMs TNM lists in the same dataset) is not lidar-class
+            # and stays out of the mosaic.
+            sources, excluded = _inspect_and_screen_raster_sources(
+                definition, sources, self._warp_input_for)
+            if not sources:
+                return None
         oldest_first = list(reversed(sources))   # discover sorts newest first
-        warp_inputs = [
-            self._warp_input_for(source) for source in oldest_first
-        ]
+        warp_inputs = []
+        for source in oldest_first:
+            warp_input = self._warp_input_for(source)
+            z_to_m = source.get("z_to_m")
+            if from_source and z_to_m not in (None, 1.0):
+                warp_input = _metre_scaled_vrt(
+                    warp_input, z_to_m,
+                    "%s.src%d.vrt" % (destination_path, len(scratch_inputs)))
+                scratch_inputs.append(warp_input)
+            warp_inputs.append(warp_input)
+        if scratch_inputs:
+            # The local VRTs hide the remote extensions from the warp's
+            # derived fence: name it here.
+            warp_configuration = {
+                "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff,.vrt"}
 
-        if not warp_vsicurl_sources_to_geotiff(
-            warp_inputs,
-            bounding_box_wgs84,
-            target_resolution_m,
-            destination_path,
-            value_floor_m=float(definition.get("value_floor_m", -600.0)),
-            vertical_unit=_raster_vertical_unit(definition),
-            provider_code=definition.get("code"),
-        ):
+        try:
+            warped = warp_vsicurl_sources_to_geotiff(
+                warp_inputs,
+                bounding_box_wgs84,
+                target_resolution_m,
+                destination_path,
+                value_floor_m=float(definition.get("value_floor_m", -600.0)),
+                vertical_unit=_raster_vertical_unit(definition),
+                provider_code=definition.get("code"),
+                gdal_configuration_options=warp_configuration,
+            )
+        finally:
+            for path in scratch_inputs:
+                if os.path.isfile(path):
+                    os.remove(path)
+        if not warped:
             return None
 
         # R13-3 -- THE RECORD NAMES ITS SOURCES, PER CONTRIBUTION.  Which
@@ -2775,7 +3224,11 @@ class TnmCloudOptimizedGeoTiffStrategy:
         empty = []
         for source in sources:                  # newest first, as recorded
             if _source_holds_data_over_bbox(
-                self._warp_input_for(source), bounding_box_wgs84
+                self._warp_input_for(source),
+                _source_probe_box(source, bounding_box_wgs84)
+                if from_source else bounding_box_wgs84,
+                samples=(_SOURCE_FOOTPRINT_PROBE_SAMPLES if from_source
+                         else _SOURCE_CONTRIBUTION_PROBE_SAMPLES),
             ):
                 used.append(source)
             else:
@@ -2787,7 +3240,8 @@ class TnmCloudOptimizedGeoTiffStrategy:
         recorded = used or sources
         valid_fraction = inset_valid_fraction(destination_path)
         projects = sorted(
-            {_tnm_project_of(source["title"]) for source in used}
+            {_tnm_project_of(source["title"], source.get("download_url"))
+             for source in used}
         )
         if len(projects) > 1:
             UI.vprint(
@@ -2798,7 +3252,7 @@ class TnmCloudOptimizedGeoTiffStrategy:
                    len(projects), 100.0 * valid_fraction),
             )
 
-        return {
+        provenance = {
             "provider": definition.get("code"),
             "access_strategy": definition.get("access_strategy"),
             "source_urls": [source["download_url"] for source in recorded],
@@ -2831,6 +3285,11 @@ class TnmCloudOptimizedGeoTiffStrategy:
                 "native_resolution_m"),
             "resolution_m": target_resolution_m,
         }
+        if from_source:
+            provenance.update(
+                _source_units_provenance(used or sources, excluded,
+                                         definition))
+        return provenance
 
 
 # =====================================================================
@@ -8314,7 +8773,8 @@ def validate_las_tile(path, definition):
     import struct
 
     code = definition.get("code")
-    if str(path).lower().endswith(".laz"):
+    laz_declared = _definition_needs_laz(definition)
+    if str(path).lower().endswith(".laz") and not laz_declared:
         raise ProviderUnavailable("%s: LAZ needs a backend" % code)
     size = os.path.getsize(path)
     with open(path, "rb") as handle:
@@ -8333,22 +8793,37 @@ def validate_las_tile(path, definition):
         (evlr_start,) = struct.unpack_from("<Q", head, 235)
         (evlr_count,) = struct.unpack_from("<I", head, 243)
         (count,) = struct.unpack_from("<Q", head, 247)
-    if point_format & _LAS_COMPRESSED_FORMAT_BITS:
+    compressed = bool(point_format & _LAS_COMPRESSED_FORMAT_BITS) or str(
+        path).lower().endswith(".laz")
+    if compressed and not laz_declared:
         raise ProviderUnavailable("%s: LAZ needs a backend" % code)
-    if point_format != 6:
+    if compressed and not laz_reader_available():
         raise ProviderUnavailable(
-            "%s: %s holds point format %d, not 6"
-            % (code, os.path.basename(path), point_format))
-    points_end = offset + count * record_length
-    if points_end != size and not (
-            evlr_count > 0 and points_end <= evlr_start < size):
+            "%s: LAZ needs a backend (lazrs missing)" % code)
+    base_format = point_format & ~_LAS_COMPRESSED_FORMAT_BITS & 0xFF
+    allowed = _las_point_formats(definition)
+    if base_format not in allowed:
         raise ProviderUnavailable(
-            "%s: %s is %d bytes but its header describes %d (short or "
-            "damaged download)"
-            % (code, os.path.basename(path), size, points_end))
+            "%s: %s holds point format %d, not %s"
+            % (code, os.path.basename(path), base_format,
+               "/".join(str(value) for value in allowed)))
+    if not compressed:
+        points_end = offset + count * record_length
+        if points_end != size and not (
+                evlr_count > 0 and points_end <= evlr_start < size):
+            raise ProviderUnavailable(
+                "%s: %s is %d bytes but its header describes %d (short "
+                "or damaged download)"
+                % (code, os.path.basename(path), size, points_end))
     import laspy
 
     with laspy.open(path, mode="r") as reader:
+        if _las_crs_from_header(definition):
+            # Per-tile CRS (#153, USGS LPC): every project carries its
+            # own; a tile must declare one the engine can read.
+            units = las_header_units(reader.header, definition)
+            return {"points": count, "epsg": units["epsg"], "bytes": size,
+                    "crs": units["label"]}
         epsg = _las_crs_epsg(reader.header)
     wanted = int(float(definition.get("source_crs", 0) or 0))
     if epsg != wanted:
@@ -8356,6 +8831,74 @@ def validate_las_tile(path, definition):
             "%s: %s declares CRS EPSG:%s, the provider declares EPSG:%d"
             % (code, os.path.basename(path), epsg, wanted))
     return {"points": count, "epsg": epsg, "bytes": size}
+
+
+def _las_point_formats(definition):
+    """The LAS point formats a provider accepts (``point_formats``,
+    comma list; ``6`` -- Pitkin County's -- when undeclared)."""
+    formats = set()
+    for token in str((definition or {}).get("point_formats", "6")).split(
+            ","):
+        token = token.strip()
+        if token:
+            try:
+                formats.add(int(token))
+            except ValueError:
+                continue
+    return sorted(formats) or [6]
+
+
+def _las_crs_from_header(definition):
+    """``source_crs=from_header``: each tile's CRS (and, with it, its
+    horizontal and height units) is read from its own header (#153)."""
+    return str((definition or {}).get("source_crs", "")).strip().lower() \
+        == "from_header"
+
+
+def las_header_units(header, definition=None):
+    """A LAS header's CRS facts for gridding, read through laspy's
+    ``parse_crs`` (OGC WKT VLR or GeoKeys): ``{"wkt", "epsg", "label",
+    "xy_to_m", "z_to_m", "z_unit", "z_rule"}``.  Heights take the
+    VERTICAL CRS's unit when the CRS is compound, else the horizontal
+    unit (the raster rule, :func:`raster_height_unit`).  A tile with no
+    readable or no PROJECTED CRS is refused (:class:`ProviderUnavailable`)
+    -- a 1 m lattice cannot be laid in degrees."""
+    code = (definition or {}).get("code")
+    try:
+        crs = header.parse_crs()
+    except Exception as error:
+        raise ProviderUnavailable("%s: tile CRS unreadable: %s"
+                                  % (code, error))
+    if crs is None:
+        raise ProviderUnavailable("%s: tile declares no CRS" % code)
+    horizontal = crs
+    vertical = None
+    if crs.is_compound and crs.sub_crs_list:
+        horizontal = crs.sub_crs_list[0]
+        if len(crs.sub_crs_list) > 1:
+            vertical = crs.sub_crs_list[1]
+    if not horizontal.is_projected:
+        raise ProviderUnavailable(
+            "%s: tile CRS %s is not projected" % (code, horizontal.name))
+    xy_to_m = float(horizontal.axis_info[0].unit_conversion_factor)
+    if vertical is not None and vertical.axis_info:
+        z_to_m = float(vertical.axis_info[0].unit_conversion_factor)
+        z_unit = vertical.axis_info[0].unit_name
+        z_rule = "vertical-crs"
+    else:
+        z_to_m = xy_to_m
+        z_unit = horizontal.axis_info[0].unit_name
+        z_rule = "horizontal-crs"
+    epsg = horizontal.to_epsg()
+    return {
+        "wkt": horizontal.to_wkt(),
+        "epsg": epsg,
+        "label": ("EPSG:%d" % epsg) if epsg else str(horizontal.name),
+        "xy_to_m": xy_to_m,
+        "z_to_m": z_to_m,
+        "z_unit": str(z_unit),
+        "z_rule": z_rule,
+    }
 
 
 def _las_horizontal_unit_m(source_crs, vertical_unit):
@@ -8426,14 +8969,24 @@ def grid_las_tile(las_path, dtm_path, definition):
     """
     import laspy
 
-    source_crs = int(float(definition.get("source_crs")))
-    vertical_unit = str(definition.get("vertical_unit", "m"))
-    if vertical_unit not in VERTICAL_UNIT_TO_M:
-        raise ProviderUnavailable(
-            "%s: unknown vertical_unit %r" % (definition.get("code"),
-                                              vertical_unit))
-    z_to_m = VERTICAL_UNIT_TO_M[vertical_unit]
-    xy_to_m = _las_horizontal_unit_m(source_crs, vertical_unit)
+    from_header = _las_crs_from_header(definition)
+    tile_units = None
+    if from_header:
+        source_crs = "from_header"
+        vertical_unit = "from_header"
+        with laspy.open(las_path, mode="r") as reader:
+            tile_units = las_header_units(reader.header, definition)
+        z_to_m = tile_units["z_to_m"]
+        xy_to_m = tile_units["xy_to_m"]
+    else:
+        source_crs = int(float(definition.get("source_crs")))
+        vertical_unit = str(definition.get("vertical_unit", "m"))
+        if vertical_unit not in LAS_UNIT_TO_M:
+            raise ProviderUnavailable(
+                "%s: unknown vertical_unit %r" % (definition.get("code"),
+                                                  vertical_unit))
+        z_to_m = LAS_UNIT_TO_M[vertical_unit]
+        xy_to_m = _las_horizontal_unit_m(source_crs, vertical_unit)
     resolution_m = float(definition.get("grid_resolution_m", 1))
     cell = resolution_m / xy_to_m
     ground_classes = sorted(
@@ -8492,7 +9045,10 @@ def grid_las_tile(las_path, dtm_path, definition):
         options=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES"])
     dataset.SetGeoTransform((origin_x, cell, 0.0, top_y, 0.0, -cell))
     srs = osr.SpatialReference()
-    srs.ImportFromEPSG(source_crs)
+    if tile_units is not None:
+        srs.ImportFromWkt(tile_units["wkt"])
+    else:
+        srs.ImportFromEPSG(source_crs)
     dataset.SetProjection(srs.ExportToWkt())
     band = dataset.GetRasterBand(1)
     band.SetNoDataValue(LAS_DTM_NODATA)
@@ -8519,6 +9075,10 @@ def grid_las_tile(las_path, dtm_path, definition):
         "laspy_version": str(getattr(laspy, "__version__", "?")),
         "grid_rule_version": LAS_GRID_RULE_VERSION,
     }
+    if tile_units is not None:
+        record["tile_crs"] = tile_units["label"]
+        record["tile_vertical_unit"] = tile_units["z_unit"]
+        record["tile_vertical_unit_rule"] = tile_units["z_rule"]
     os.replace(scratch, dtm_path)
     with open(_las_dtm_record_path(dtm_path), "w", newline="\n") as handle:
         json.dump(record, handle, indent=2, sort_keys=True)
@@ -8547,8 +9107,11 @@ def _las_dtm_record_if_current(dtm_path, definition):
                                                       0))),
         "min_points_per_cell": int(float(definition.get(
             "min_points_per_cell", 1))),
-        "vertical_unit": str(definition.get("vertical_unit", "m")),
-        "source_crs": int(float(definition.get("source_crs"))),
+        "vertical_unit": ("from_header"
+                          if _las_crs_from_header(definition)
+                          else str(definition.get("vertical_unit", "m"))),
+        "source_crs": ("from_header" if _las_crs_from_header(definition)
+                       else int(float(definition.get("source_crs")))),
         "ground_classes": sorted(
             {int(token) for token in
              str(definition.get("ground_classes", "2")).split(",")
@@ -8604,11 +9167,15 @@ class LasTileIndexStrategy:
         footprint the whole ``bounding_box_wgs84`` is listed."""
         import requests
 
+        self.last_listing = []
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
         core = las_core_geometry(definition)
         query_box = core.bounds if core is not None else bounding_box_wgs84
         description = "%s tile index" % definition.get("code")
+        if str(definition.get("index_format", "")).strip().lower() == "tnm":
+            return self._discover_tnm(definition, query_box, core,
+                                      description)
         try:
             response = requests.get(
                 self._index_url(definition, query_box), timeout=60)
@@ -8653,7 +9220,7 @@ class LasTileIndexStrategy:
                 % (len(features), name_field))
         if not names:
             return None
-        return [
+        listing = [
             {
                 "source_id": name,
                 "title": name,
@@ -8662,6 +9229,72 @@ class LasTileIndexStrategy:
             }
             for name in sorted(names)
         ]
+        self.last_listing = listing
+        return listing
+
+    def _discover_tnm(self, definition, query_box, core, description):
+        """``index_format=tnm`` (#153, the USGS Lidar Point Cloud rung):
+        the index is a TNM Access API product listing (paged,
+        :func:`tnm_listing_items`); a tile is an item's ``downloadURL``,
+        its name the file stem, its footprint the item's ``boundingBox``
+        (kept only when it meets the buffered boundary polygon), its
+        size the listing's ``sizeInBytes``.  OLDEST PROJECT FIRST, so in
+        the warp the newest flight wins where two overlap (the R13-2
+        rule)."""
+        from shapely.geometry import box as shapely_box
+
+        items = tnm_listing_items(self._index_url(definition, query_box),
+                                  description)
+        if items is None:
+            return None
+        extensions = tuple(
+            "." + token.strip().lower().lstrip(".")
+            for token in str(definition.get("tile_extensions",
+                                            "laz,las")).split(",")
+            if token.strip())
+        by_name = {}
+        unusable = 0
+        for item in items:
+            url = str((item or {}).get("downloadURL") or "")
+            stem = url.split("?", 1)[0].rsplit("/", 1)[-1]
+            if not stem.lower().endswith(extensions):
+                unusable += 1
+                continue
+            name = stem.rsplit(".", 1)[0]
+            if core is not None:
+                extent = (item or {}).get("boundingBox") or {}
+                try:
+                    footprint = shapely_box(
+                        float(extent["minX"]), float(extent["minY"]),
+                        float(extent["maxX"]), float(extent["maxY"]))
+                except (KeyError, TypeError, ValueError):
+                    raise_transient_discovery_failure(
+                        description,
+                        "item %s carries no boundingBox (the surgical "
+                        "fetch needs one)" % name)
+                if not footprint.intersects(core):
+                    continue
+            try:
+                size_bytes = int(item.get("sizeInBytes") or 0)
+            except (TypeError, ValueError):
+                size_bytes = 0
+            by_name[name] = {
+                "source_id": name,
+                "title": item.get("title") or name,
+                "download_url": url,
+                "publication_date": str(item.get("publicationDate") or ""),
+                "size_bytes": size_bytes,
+            }
+        if not by_name and unusable:
+            raise_transient_discovery_failure(
+                description,
+                "a listing of %d item(s) with no %s download URL"
+                % (len(items), "/".join(extensions)))
+        listing = sorted(by_name.values(),
+                         key=lambda source: (source["publication_date"],
+                                             source["source_id"]))
+        self.last_listing = listing
+        return listing or None
 
     def _check_caps(self, definition, sources, cache_directory,
                     destination_path):
@@ -8675,12 +9308,15 @@ class LasTileIndexStrategy:
                               or 0))
         total_bytes = 0
         for source in sources:
-            cached = os.path.join(cache_directory, source["source_id"]
-                                  + ".las")
+            cached = las_raw_tile_path(cache_directory, source)
             if os.path.isfile(cached):
                 total_bytes += os.path.getsize(cached)
                 continue
             if not max_bytes:
+                continue
+            if source.get("size_bytes"):
+                # The listing already says (TNM ``sizeInBytes``).
+                total_bytes += int(source["size_bytes"])
                 continue
             try:
                 head = requests.head(source["download_url"], timeout=30,
@@ -8783,6 +9419,13 @@ class LasTileIndexStrategy:
                 UI.vprint(1, _las_progress_line(
                     label, have, total or have, moved,
                     _time.monotonic() - started, done=True))
+                if total and have != total and url.lower().split(
+                        "?", 1)[0].endswith(".laz"):
+                    # A LAZ file has no size its header can vouch for:
+                    # the transfer's own length is the integrity check.
+                    raise TransientFetchError(
+                        "%s: tile %s stopped at %d of %d bytes"
+                        % (code, source["source_id"], have, total))
             except (TransientFetchError, ProviderUnavailable):
                 raise
             except Exception as error:
@@ -8815,6 +9458,10 @@ class LasTileIndexStrategy:
             # engine could not ASK, so the record says unavailable and
             # the next run with laspy asks again.
             raise ProviderUnavailable("laspy missing")
+        if _definition_needs_laz(definition) and not laz_reader_available():
+            # Same door for the LAZ decompressor (#153): the ladder
+            # records ``unavailable`` and climbs on to the next rung.
+            raise ProviderUnavailable("LAZ backend (lazrs) missing")
         sources = self.discover(definition, bounding_box_wgs84)
         if not sources:
             return None
@@ -8831,7 +9478,7 @@ class LasTileIndexStrategy:
         wanted = []
         for (number, source) in enumerate(sources):
             name = source["source_id"]
-            las_path = os.path.join(cache_directory, name + ".las")
+            las_path = las_raw_tile_path(cache_directory, source)
             dtm_path = os.path.join(cache_directory, name + "_dtm.tif")
             if _las_dtm_record_if_current(dtm_path, definition) is None \
                     and not os.path.isfile(las_path):
@@ -8871,11 +9518,24 @@ class LasTileIndexStrategy:
             name = source["source_id"]
             if name in missing:
                 continue
-            las_path = os.path.join(cache_directory, name + ".las")
+            las_path = las_raw_tile_path(cache_directory, source)
             dtm_path = os.path.join(cache_directory, name + "_dtm.tif")
             record = _las_dtm_record_if_current(dtm_path, definition)
             if record is None:
-                record = grid_las_tile(las_path, dtm_path, definition)
+                try:
+                    record = grid_las_tile(las_path, dtm_path, definition)
+                except ProviderUnavailable:
+                    raise
+                except Exception as error:
+                    # A cached raw tile that will not decode (a LAZ cut
+                    # short before the length check existed, a damaged
+                    # disk copy): drop it so the next run downloads it
+                    # again -- an unreadable file is no coverage answer.
+                    if os.path.isfile(las_path):
+                        os.remove(las_path)
+                    raise TransientFetchError(
+                        "%s: tile %s could not be gridded: %s"
+                        % (code, name, error)) from error
                 if not keep_raw and os.path.isfile(las_path):
                     os.remove(las_path)
             dtm_paths.append(dtm_path)
@@ -8883,12 +9543,15 @@ class LasTileIndexStrategy:
         if not dtm_paths:
             raise ProviderUnavailable(
                 "index lists %d tiles, server has none" % len(sources))
+        from_header = _las_crs_from_header(definition)
         if not warp_vsicurl_sources_to_geotiff(
             dtm_paths,
             bounding_box_wgs84,
             target_resolution_m,
             destination_path,
-            source_srs="EPSG:%d" % int(float(definition.get("source_crs"))),
+            # Per-tile CRS (#153): each DTM carries its own.
+            source_srs=(None if from_header else "EPSG:%d" % int(float(
+                definition.get("source_crs")))),
             source_nodata=LAS_DTM_NODATA,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
             vertical_unit=VERTICAL_UNIT_GRIDDED_IN_METRES,
@@ -8940,9 +9603,15 @@ class LasTileIndexStrategy:
             "license_note": definition.get("license_note"),
             "attribution": definition.get("attribution"),
             "vertical_datum": definition.get("vertical_datum"),
-            "vertical_unit_source": definition.get("vertical_unit"),
-            "source_crs": "EPSG:%d" % int(float(
-                definition.get("source_crs"))),
+            "vertical_unit_source": (
+                sorted({"%s (%s)" % (record.get("tile_vertical_unit"),
+                                     record.get("tile_vertical_unit_rule"))
+                        for record in records})
+                if from_header else definition.get("vertical_unit")),
+            "source_crs": (
+                sorted({str(record.get("tile_crs")) for record in records})
+                if from_header else "EPSG:%d" % int(float(
+                    definition.get("source_crs")))),
             "datum_note": (
                 "Elevations are in the source vertical datum; lidar is "
                 "treated as truth and is NOT shifted toward the base DEM."
@@ -8969,6 +9638,14 @@ class LasTileIndexStrategy:
                     definition.get("core_feather_m"), default=None),
             }
         return provenance
+
+
+def las_raw_tile_path(cache_directory, source):
+    """Where a listed tile's raw point cloud is cached: ``<name>.las``,
+    or ``<name>.laz`` when the tile URL is a LAZ file (#153)."""
+    url = str(source.get("download_url") or "").split("?", 1)[0].lower()
+    extension = ".laz" if url.endswith(".laz") else ".las"
+    return os.path.join(cache_directory, source["source_id"] + extension)
 
 
 def _las_airport_label(destination_path):
@@ -11347,8 +12024,11 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
     the ONE stale-reason predicate for "a finer rung may exist now".
 
     Runs only when ``icao``'s cached inset from ``provider_code`` was
-    delivered by a COARSER ladder rung (``ladder.delivered_rung > 0``).
-    For every finer rung of the provider's CURRENT ladder it asks that
+    delivered by a COARSER ladder rung (``ladder.delivered_rung > 0``),
+    or when the ladder recorded a rung that never answered (``transient``,
+    RULINGS 2026-09-30bl) or delivered a rung that only PARTLY covers the
+    airport (its same-resolution alternatives, #153).  For every finer
+    rung of the provider's CURRENT ladder -- plus those -- it asks that
     rung's ``discover()`` ONLY -- one index query each, no download -- and
     compares the listing with the rung's recorded ``listing_ids``:
 
@@ -11379,7 +12059,29 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
     if not isinstance(ladder, dict):
         return None
     delivered_rung = ladder.get("delivered_rung")
-    if not isinstance(delivered_rung, int) or delivered_rung <= 0:
+    # Rungs that never ANSWERED (a transient outage the ladder climbed
+    # past, owner RULINGS 2026-09-30bl) and, when the delivered rung only
+    # PARTLY covers the airport, the same-resolution rungs asked after it
+    # (#153) are re-asked too: either may cover the airport now.
+    tried = [attempt for attempt in ladder.get("rungs_tried") or ()
+             if isinstance(attempt, dict) and attempt.get("role") is None]
+    reask_labels = [str(attempt.get("label")) for attempt in tried
+                    if attempt.get("outcome") == "transient"]
+    delivered_attempt = next(
+        (attempt for attempt in tried
+         if attempt.get("rung") == delivered_rung
+         and attempt.get("outcome") == "delivered"), None)
+    if (isinstance(delivered_rung, int) and delivered_attempt is not None
+            and delivered_attempt.get("judge") != "airport_cover"
+            and delivered_attempt.get("airport_valid_fraction") is not None
+            and delivered_attempt["airport_valid_fraction"]
+            < INSET_MIN_AIRPORT_COVER_FRAC):
+        reask_labels.extend(
+            str(attempt.get("label")) for attempt in tried
+            if isinstance(attempt.get("rung"), int)
+            and attempt["rung"] > delivered_rung)
+    if (not isinstance(delivered_rung, int) or delivered_rung <= 0) \
+            and not reask_labels:
         return None
     if not elevation_providers_dict:
         initialize_elevation_providers_dict()
@@ -11408,7 +12110,9 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
             stored[str(attempt["label"])] = attempt
     labels = [label for (label, _definition) in rungs]
     delivered_label = ladder.get("delivered_label")
-    if delivered_label in labels:
+    if not isinstance(delivered_rung, int) or delivered_rung <= 0:
+        finer = []
+    elif delivered_label in labels:
         finer = rungs[:labels.index(delivered_label)]
     else:
         delivered_native = _parse_float(
@@ -11421,6 +12125,10 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
             or (_definition_resolution_m(rung_definition) or 0.0)
             < delivered_native
         ]
+    finer = list(finer) + [
+        (label, rung_definition) for (label, rung_definition) in rungs
+        if label in reask_labels
+        and label not in [other for (other, _d) in finer]]
     new_ids = []
     checked = []
     transient = False

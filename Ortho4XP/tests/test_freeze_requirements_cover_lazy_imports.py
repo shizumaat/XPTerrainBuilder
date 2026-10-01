@@ -88,3 +88,10 @@ def test_laspy_is_seen_lazily_and_pinned():
     scan must see it and requirements.txt must pin it."""
     assert "laspy" in _lazy_third_party_imports()
     assert "laspy" in _requirement_names()
+
+
+def test_lazrs_backend_is_pinned():
+    """#153: laspy reaches its LAZ backend at RUN time (``LazBackend``),
+    never by an import this scan can see -- so the pin is asserted
+    directly, and both specs collect it (test_frozen_spec_parity)."""
+    assert "lazrs" in _requirement_names()

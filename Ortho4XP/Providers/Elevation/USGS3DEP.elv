@@ -31,6 +31,14 @@ native_resolution_m=1
 # One line per rung: <native metres>|<label>|<TNM discovery URL template>.
 # Rung 0 is this file's own discovery_url_template (label below).
 ladder_label=1 meter
+# CROSS-PROVIDER RUNG (owner RULINGS 2026-09-30aw (2)): after USGS 1 m,
+# Pitkin County's 2016 lidar (1 m, gridded from its LAS tiles) -- boxed to
+# the county by PITKIN1M.elv's own coverage_bbox, so it costs every other
+# airport nothing.  Same 1 m resolution as rung 0; the file order breaks
+# the tie.  A ladder-delivered inset re-asks its finer rungs' discovery on
+# every build (ladder_recheck), so the 2024 USGS Aspen unit is picked up
+# the first build after it lists.
+resolution_ladder=1|Pitkin County 2016 lidar|provider:PITKIN1M
 resolution_ladder=3|1/9 arc-second|https://tnmaccess.nationalmap.gov/api/v1/products?datasets=National Elevation Dataset (NED) 1/9 arc-second&bbox={west},{south},{east},{north}&outputFormat=JSON
 resolution_ladder=10|1/3 arc-second|https://tnmaccess.nationalmap.gov/api/v1/products?datasets=National Elevation Dataset (NED) 1/3 arc-second&bbox={west},{south},{east},{north}&outputFormat=JSON
 

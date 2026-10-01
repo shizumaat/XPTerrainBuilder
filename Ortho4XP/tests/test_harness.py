@@ -2973,6 +2973,162 @@ def test_the_snapshot_NAMES_an_install_write_the_guard_could_not_see(
     assert offenders == []
 
 
+def test_las_tiles_is_its_own_scope_before_dem(build_mod, guard_mod):
+    """#130 (spec las-tile-lidar-provider-spec.md §2): a 7 GB point-cloud
+    download is its own authorised act.  Its prefix must be matched
+    BEFORE ``dem``'s, or every LAS write is attributed to ``dem``; the
+    airport inset gridded from the tiles stays ``dem``."""
+    order = [sc for sc, _p, _w in guard_mod.REFRESH_SCOPES]
+    assert order.index("las_tiles") < order.index("dem")
+    assert guard_mod.scope_of(
+        "Elevation_data/_las_tiles/PITKIN1M/LD26101509.las") == "las_tiles"
+    assert guard_mod.scope_of(
+        "Elevation_data/_las_tiles/PITKIN1M/LD26101509_dtm.tif") \
+        == "las_tiles"
+    assert guard_mod.scope_of(
+        "Elevation_data/+30-110/N39W107_airport_insets/KASE_usgs3dep.tif") \
+        == "dem"
+    assert "point-cloud" in guard_mod.scope_description("las_tiles")
+
+
+def test_ladder_recheck_new_listing_is_a_refreshable_refusal(build_mod,
+                                                             tmp_path):
+    """The build-time ladder re-check (RULINGS 2026-09-30aw (2)): the
+    harness asks the ENGINE's one predicate with ``record=False`` (a
+    read), refuses a new listing naming ``dem,las_tiles`` when a LAS-tile
+    rung is among the finer ones, and lets ``unchanged`` stand."""
+    sidecar = tmp_path / "KASE_usgs3dep.json"
+    sidecar.write_text("{}", encoding="utf-8", newline="\n")
+    calls = []
+
+    class _Insets:
+        answer = {"result": "new-listing", "new_source_ids": ["LD1"],
+                  "rungs_checked": [0, 1]}
+
+        def cached_inset_paths_for_icao(self, lat, lon, icao):
+            return [str(tmp_path / "KASE_usgs3dep.tif")]
+
+        def _inset_provider_code_from_path(self, path):
+            return "usgs3dep"
+
+        def ladder_recheck(self, lat, lon, icao, code, box, record=True):
+            calls.append(record)
+            return dict(self.answer)
+
+        def ladder_recheck_ids_text(self, ids):
+            return ", ".join(ids)
+
+        def initialize_elevation_providers_dict(self):
+            return {"USGS3DEP": {"code": "USGS3DEP"}}
+
+        def _ladder_rung_definitions(self, definition):
+            return [("1 m", {"access_strategy": "tnm_cog"}),
+                    ("county", {"access_strategy": "las_tile_index"})]
+
+    fake = _Insets()
+    build_mod.LADDER_RECHECKS.clear()
+    problem = build_mod._ladder_recheck_problem(fake, 39, -107, "KASE",
+                                                (0, 0, 1, 1))
+    assert calls == [False]
+    assert problem[0] == "ladder"
+    assert "--refresh-data dem,las_tiles" in problem[1]
+    assert "LD1" in problem[1]
+    # memoised on the sidecar state: one discovery per run, not per call
+    build_mod._ladder_recheck_problem(fake, 39, -107, "KASE", (0, 0, 1, 1))
+    assert calls == [False]
+    assert "ladder" in build_mod.REFRESHABLE_INSET_PROBLEMS
+    fake.answer = {"result": "unchanged", "new_source_ids": [],
+                   "rungs_checked": [0]}
+    build_mod.LADDER_RECHECKS.clear()
+    assert build_mod._ladder_recheck_problem(
+        fake, 39, -107, "KASE", (0, 0, 1, 1)) is None
+    build_mod.LADDER_RECHECKS.clear()
+
+
+def test_seed_from_copies_only_verified_named_tiles(build_mod, tmp_path,
+                                                   monkeypatch):
+    """``--seed-from DIR`` (spec las-tile-lidar-provider §11 (5)): a tile
+    the surgical discovery NAMES and the provider contract VERIFIES is
+    copied and sha256-stamped; a named tile that does not verify, and a
+    file nobody named, are refused by name; a named tile already cached
+    is left alone."""
+    laspy = pytest.importorskip("laspy")
+    pyproj = pytest.importorskip("pyproj")
+    import hashlib
+    import numpy
+
+    seed = tmp_path / "seed" / "Elevation_data" / "_las_tiles" / "PITKIN1M"
+    seed.mkdir(parents=True)
+
+    def _las(path):
+        header = laspy.LasHeader(point_format=6, version="1.4")
+        header.offsets = numpy.array([2611000.0, 1510000.0, 7800.0])
+        header.scales = numpy.array([0.001, 0.001, 0.001])
+        header.add_crs(pyproj.CRS.from_epsg(6428))
+        data = laspy.LasData(header)
+        data.x = numpy.array([2611000.5, 2611001.5])
+        data.y = numpy.array([1510000.5, 1510000.5])
+        data.z = numpy.array([7800.0, 7801.0])
+        data.classification = numpy.array([2, 2], dtype=numpy.uint8)
+        data.write(str(path))
+
+    _las(seed / "GOOD.las")
+    _las(seed / "EXTRA.las")
+    _las(seed / "BAD.las")
+    with open(seed / "BAD.las", "r+b") as handle:
+        handle.truncate(300)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "HAVE.las").write_bytes(b"cached")
+    definition = {"code": "PITKIN1M", "source_crs": "6428"}
+    monkeypatch.setattr(build_mod, "las_seed_candidates",
+                        lambda icaos, root, lat, lon: [
+                            (definition, name, str(cache / (name + ".las")))
+                            for name in ("GOOD", "BAD", "HAVE", "GONE")])
+
+    class _Prog:
+        lines = []
+
+        def note(self, text):
+            self.lines.append(text)
+
+    summary = build_mod.seed_las_tiles(str(tmp_path / "seed"), ["KASE"],
+                                       tmp_path, 39, -107, _Prog())
+    good = (seed / "GOOD.las").read_bytes()
+    assert (cache / "GOOD.las").is_file(), summary["refused"]
+    assert (cache / "GOOD.las").read_bytes() == good
+    assert summary["copied"]["GOOD"]["sha256"] == \
+        hashlib.sha256(good).hexdigest()
+    assert summary["seeded"] is True
+    assert summary["seed_from"] == str((tmp_path / "seed").resolve())
+    assert not (cache / "BAD.las").exists()
+    assert "does not verify" in summary["refused"]["BAD"]
+    assert summary["refused"]["EXTRA"] == \
+        "not named by the surgical discovery"
+    assert summary["already_present"] == ["HAVE"]
+    assert (cache / "HAVE.las").read_bytes() == b"cached"
+    assert summary["absent"] == ["GONE"]
+
+
+def test_seed_from_needs_the_las_tiles_scope(build_mod):
+    with pytest.raises(SystemExit) as caught:
+        build_mod.main(["KASE", "--refresh-only", "--refresh-data", "dem",
+                        "--seed-from", "/nonexistent"])
+    assert "--refresh-data las_tiles" in str(caught.value)
+
+
+def test_active_guard_refuses_asks_armed_guards_only(guard_mod, tmp_path):
+    """§11 (4e): the engine ASKS before a best-effort write; an armed
+    guard answers for its own scope, a disarmed one is not asked."""
+    assert guard_mod.active_guard_refuses(tmp_path / "x.json") is False
+    outside = guard_mod.DATA_REPO / "Elevation_data" / "_las130_probe.json"
+    guard = guard_mod.SharedRepoWriteGuard([], tmp_path)
+    with guard:
+        assert guard_mod.active_guard_refuses(outside) is True
+        assert guard_mod.active_guard_refuses(tmp_path / "x.json") is False
+    assert guard not in guard_mod._ACTIVE_GUARDS
+
+
 def test_pack_rebake_is_a_named_refresh_scope(build_mod, guard_mod):
     """``--refresh-data pack_rebake`` must be spellable, and it must say
     whose act it is."""

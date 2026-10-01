@@ -274,7 +274,7 @@ from shared_repo_guard import (                          # noqa: E402,F401
     require_no_swallowed_write_block, mirror_tree_as_overlay,
     BuildInputScope, contaminating_writes, tiles_named_in, airports_named_in,
     tile_input_scope, mod_cache_pack_of, mod_cache_packs_naming,
-    require_no_unauthorised_writes,
+    require_no_unauthorised_writes, _clonefile,
 )
 
 #: The owner's production app config — the one the shipped app runs with.
@@ -792,10 +792,71 @@ def this_airports_inset_problem(state, lat, lon, icao):
                          if str(key).upper() == str(icao).upper()), None)
         if required is None:
             return None     # no boundary for it: nothing is required
-        return INSETS.airport_inset_frame_problem(lat, lon, icao, required)
+        problem = INSETS.airport_inset_frame_problem(lat, lon, icao, required)
+        if problem is not None:
+            return problem
+        return _ladder_recheck_problem(INSETS, lat, lon, icao, required)
     except Exception as exc:
         print(f"  [harness] per-airport inset check skipped ({exc!r})")
         return None
+
+
+#: ``{(lat, lon, ICAO): {"sidecar_stamp": ..., "recheck": {...}}}`` -- the
+#: build-time ladder re-check answers of THIS run, so the pre-flight, the
+#: refresh re-judge and ``frame.json`` share one discovery query per
+#: sidecar state instead of one per call.
+LADDER_RECHECKS: dict = {}
+
+
+def _ladder_recheck_problem(INSETS, lat, lon, icao, required):
+    """THE BUILD-TIME LADDER RE-CHECK, harness side (owner RULINGS
+    2026-09-30aw (2); spec las-tile-lidar-provider-spec.md §4).
+
+    The engine's ONE predicate (``INSETS.ladder_recheck``, imported, never
+    copied) runs its finer rungs' DISCOVERY -- a read -- with
+    ``record=False`` (a harness build writes no sidecar).  A NEW listing
+    means the production fetch loop would re-fetch the ladder: a
+    shared-repo write, so it is a ``("ladder", ...)`` problem naming
+    ``--refresh-data dem`` (``,las_tiles`` when a LAS-tile rung is among
+    the finer ones); ``unchanged`` / ``transient`` stand.  The answer
+    rides ``frame.json`` as ``ladder_recheck``."""
+    paths = INSETS.cached_inset_paths_for_icao(lat, lon, icao)
+    if not paths:
+        return None
+    code = INSETS._inset_provider_code_from_path(paths[0])
+    sidecar = paths[0][:-4] + ".json"
+    try:
+        stamp = os.stat(sidecar).st_mtime_ns
+    except OSError:
+        stamp = None
+    key = (int(lat), int(lon), str(icao).upper())
+    memo = LADDER_RECHECKS.get(key)
+    if memo is not None and memo.get("sidecar_stamp") == stamp:
+        recheck = memo["recheck"]
+    else:
+        recheck = INSETS.ladder_recheck(lat, lon, icao, code, required,
+                                        record=False)
+        LADDER_RECHECKS[key] = {"sidecar_stamp": stamp, "recheck": recheck}
+    if recheck is None or recheck.get("result") != "new-listing":
+        return None
+    definition = next(
+        (d for c, d in INSETS.initialize_elevation_providers_dict().items()
+         if c.lower() == code.lower()), None)
+    scopes = ["dem"]
+    if definition is not None:
+        rungs = INSETS._ladder_rung_definitions(definition)
+        if any(rungs[i][1].get("access_strategy") == "las_tile_index"
+               for i in recheck.get("rungs_checked") or ()
+               if 0 <= i < len(rungs)):
+            scopes.append("las_tiles")
+    return ("ladder",
+            f"LADDER-STALE airport elevation inset {paths[0]} — it was "
+            f"delivered by a coarser resolution-ladder rung and a FINER "
+            f"rung now lists new coverage "
+            f"({INSETS.ladder_recheck_ids_text(recheck.get('new_source_ids'))}"
+            f"), so the "
+            f"build would RE-FETCH the ladder (--refresh-data "
+            f"{','.join(scopes)}; --warm-insets {icao})")
 
 
 def missing_pack_dsf_dumps(root, lat, lon, icao) -> list:
@@ -1289,6 +1350,134 @@ def require_no_implicit_refresh(missing: list, requested: set) -> None:
 # fetch); it is the explicit override for airports a human names, and the
 # gate is a recorded ledger item.
 
+def las_seed_candidates(icaos, root, lat, lon) -> list:
+    """``[(definition, name, cache_path)]`` -- every LAS tile the SURGICAL
+    discovery names for ``icaos`` (spec las-tile-lidar-provider §2): the
+    LAS-tile providers the tile's provider chain reaches (directly or as
+    a ladder rung) whose coverage meets the airport, each asked for its
+    listing over the airport's buffered boundary.  A discovery READ; the
+    names are exactly what the warm itself would fetch."""
+    for p in (root / "src", root, root / "tests", root / "tools"):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    import O4_Config_Utils as CFG                          # noqa: E402
+    import O4_OSM_Utils as OSM                             # noqa: E402
+    import O4_Vector_Map as VMAP                           # noqa: E402
+    import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
+
+    tile = CFG.Tile(lat, lon, "")
+    try:
+        tile.read_from_config()
+    except Exception:
+        pass
+    layer = OSM.OSM_layer()
+    OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
+                                 ["all"], cached_suffix="airports")
+    dico = VMAP.build_airports_dico(tile, layer)
+    boxes = INSETS._airport_bounding_boxes(tile, dico)
+    polygons = INSETS.airport_boundary_polygons(tile, dico)
+    las_definitions = {}
+    for definition in INSETS.select_provider_definitions(
+            getattr(tile, "airport_elevation_providers", "auto")):
+        for _label, rung in INSETS._ladder_rung_definitions(definition):
+            if rung.get("access_strategy") == "las_tile_index":
+                las_definitions.setdefault(rung["code"], rung)
+    out = []
+    for icao in icaos:
+        box = boxes.get(icao)
+        polygon = polygons.get(icao)
+        if box is None or polygon is None:
+            continue
+        for code, definition in sorted(las_definitions.items()):
+            if not INSETS._coverage_bbox_intersects(definition, box):
+                continue
+            surgical = dict(definition)
+            surgical[INSETS.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(
+                polygon)
+            strategy = INSETS.ACCESS_STRATEGIES["las_tile_index"]()
+            for source in strategy.discover(surgical, box) or ():
+                name = source["source_id"]
+                out.append((surgical, name, os.path.join(
+                    INSETS.las_tile_cache_directory(code), name + ".las")))
+    return out
+
+
+def seed_las_tiles(seed_dir, icaos, root, lat, lon, prog) -> dict:
+    """``--seed-from DIR`` (spec §11 (5)): copy the LAS tiles the surgical
+    discovery names for ``icaos`` from ``seed_dir`` into the shared
+    ``las_tiles`` cache -- INSIDE the locked, snapshotted, guarded refresh
+    event the caller holds, so the ledger stamps them like a download.
+
+    Each named tile found under ``seed_dir`` (any depth, ``<name>.las``)
+    is checked by the PROVIDER'S OWN CONTRACT
+    (``INSETS.validate_las_tile``: LASF, point format 6, size, the
+    declared CRS) and copied (APFS ``clonefile``, else a byte copy); a
+    tile that does not verify, and every ``.las`` in ``seed_dir`` the
+    discovery does NOT name, is refused by name.  A named tile already in
+    the cache is left alone; one absent from ``seed_dir`` is left to the
+    warm's own download.  Returns the record the ledger line carries:
+    ``seed_from``, ``seeded`` and every copied file's sha256."""
+    import hashlib
+    import shutil
+    import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
+
+    seed_root = Path(seed_dir).resolve()
+    if not seed_root.is_dir():
+        raise SystemExit(f"REFUSING --seed-from: {seed_root} is not a "
+                         f"directory")
+    candidates = las_seed_candidates(icaos, root, lat, lon)
+    named = {name for (_d, name, _p) in candidates}
+    available = {}
+    for path in sorted(seed_root.rglob("*.las")):
+        available.setdefault(path.stem, path)
+    copied, present, absent, refused = {}, [], [], {}
+    for (definition, name, target) in candidates:
+        if os.path.isfile(target):
+            present.append(name)
+            continue
+        source = available.get(name)
+        if source is None:
+            absent.append(name)
+            continue
+        try:
+            INSETS.validate_las_tile(str(source), definition)
+        except Exception as exc:
+            refused[name] = f"does not verify: {exc}"
+            continue
+        digest = hashlib.sha256()
+        with open(source, "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 22), b""):
+                digest.update(block)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        scratch = target + ".seed"
+        if os.path.exists(scratch):
+            os.remove(scratch)
+        if not _clonefile(str(source), scratch):
+            shutil.copyfile(str(source), scratch)
+        os.replace(scratch, target)
+        copied[name] = {"sha256": digest.hexdigest(),
+                        "bytes": os.path.getsize(target),
+                        "from": str(source)}
+        prog.note(f"SEEDED [las_tiles] {name}.las from {source} "
+                  f"(verified by the provider contract, sha256 "
+                  f"{digest.hexdigest()[:12]})")
+    for stem in sorted(set(available) - named):
+        refused[stem] = "not named by the surgical discovery"
+    if refused:
+        prog.note(f"--seed-from REFUSED {len(refused)} file(s) by name: "
+                  + "; ".join(f"{k} ({v})" for k, v in
+                              sorted(refused.items())[:12])
+                  + (" …" if len(refused) > 12 else ""))
+    prog.note(f"--seed-from {seed_root}: {len(copied)} copied, "
+              f"{len(present)} already in the cache, {len(absent)} left to "
+              f"the download, of {len(named)} named by the surgical "
+              f"discovery for {sorted(icaos)}")
+    return {"seed_from": str(seed_root), "seeded": bool(copied),
+            "named": sorted(named), "copied": copied,
+            "already_present": sorted(present), "absent": sorted(absent),
+            "refused": refused}
+
+
 def warm_airport_insets(icaos, root, lat, lon, prog) -> dict:
     """Fetch/refresh the elevation insets of exactly the named airports.
 
@@ -1360,9 +1549,13 @@ def warm_airport_insets(icaos, root, lat, lon, prog) -> dict:
               f"{sorted(wanted)} on tile {lat:+d}{lon:+d} via "
               f"{[d['code'] for d in definitions]} — a fetch here is the "
               f"POINT of this run, not a side effect")
+    polygons = INSETS.airport_boundary_polygons(tile, dico_airports,
+                                                only=list(wanted))
     INSETS.ensure_airport_insets(lat, lon, wanted, definitions,
                                  resolution_m, refresh=True,
-                                 fetch_counter=fetch_counter)
+                                 fetch_counter=fetch_counter,
+                                 **({"airport_polygons": polygons}
+                                    if polygons else {}))
     summary = {"airports": sorted(wanted), "fetch_attempts": fetch_counter[0],
                "insets": {}}
     for icao in sorted(wanted):
@@ -1723,7 +1916,7 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
 #: The per-airport inset verdicts a ``dem`` refresh re-derives (#61):
 #: the inset EXISTS but the build would re-fetch it.  ``empty`` is a
 #: declared state (nothing is fetched), so it is not among them.
-REFRESHABLE_INSET_PROBLEMS = ("packs", "stale")
+REFRESHABLE_INSET_PROBLEMS = ("packs", "stale", "ladder")
 
 
 def _refresh_airport_inset(root, state, lat, lon, icao, prog) -> list:
@@ -3383,6 +3576,17 @@ def resolve_tile_for(icao: str, root: Path):
 
 
 def main(argv=None) -> int:
+    # THE HARNESS IS NOT THE SUITE (lane las130, 2026-09-30).  The CLI
+    # imports ``tests/conftest.py`` for ``xplane_root``
+    # (:func:`resolve_tile_for`), and since #122 (7d5f73a1) that import
+    # installs the SUITE's socket-level network refusal in the importing
+    # process -- so every discovery / download a harness run makes after
+    # it (``--refresh-data dem`` warms, the per-airport ladder re-check)
+    # died "the test suite may not reach the network", read as a
+    # transient, and warmed nothing.  The harness's own law is the
+    # shared-repo WRITE guard, not a network ban; the suite's override is
+    # set for this process before anything imports conftest.
+    os.environ.setdefault("O4_SUITE_ALLOW_NETWORK", "1")
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -3477,6 +3681,14 @@ def main(argv=None) -> int:
                          "ONLY with --refresh-data dem, and it warms exactly "
                          "the airports named — the rest of the tile's cache "
                          "is not touched")
+    ap.add_argument("--seed-from", default=None, metavar="DIR",
+                    help="with --refresh-data las_tiles: copy the LAS tiles "
+                         "the SURGICAL discovery names for the warmed "
+                         "airport(s) from DIR into the shared cache, each "
+                         "verified by the provider's own contract and "
+                         "ledgered with its sha256 (spec las-tile-lidar-"
+                         "provider §11 (5)); anything else in DIR is "
+                         "refused by name")
     ap.add_argument("--break-stale-lock", action="store_true",
                     help="break a refresh lock whose holder process is gone "
                          "— a dead pid does NOT mean the write completed, "
@@ -3618,6 +3830,11 @@ def main(argv=None) -> int:
 
     warm_insets = [icao.strip() for icao in args.warm_insets.split(",")
                    if icao.strip()]
+    if args.seed_from and "las_tiles" not in requested:
+        raise SystemExit(
+            "REFUSING: --seed-from copies into the shared LAS-tile cache, "
+            "which only --refresh-data las_tiles authorises (spec las-tile-"
+            "lidar-provider §11 (5)).")
     if warm_insets and "dem" not in requested:
         raise SystemExit(
             f"REFUSING: --warm-insets {warm_insets} FETCHES into the shared "
@@ -3725,6 +3942,11 @@ def main(argv=None) -> int:
         frame["airport_inset_problem"] = (
             {"kind": inset_problem[0], "why": inset_problem[1]}
             if inset_problem else None)
+        # The build-time ladder re-check's answer (RULINGS 2026-09-30aw
+        # (2)): None when the airport's inset was not ladder-delivered.
+        frame["ladder_recheck"] = (LADDER_RECHECKS.get(
+            (int(lat), int(lon), str(args.icao).upper())) or {}).get(
+                "recheck") if not args.tile else None
         if inset_problem:
             prog.note(f"per-airport inset {inset_problem[0].upper()}: "
                       f"{inset_problem[1]}")
@@ -3903,6 +4125,7 @@ def main(argv=None) -> int:
                   "detected after the fact only (the pre-fix behaviour)")
 
     warm_summary = None
+    seed_summary = None
     osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
     shore_refresh_summary = None
     t0 = time.time()
@@ -3927,6 +4150,15 @@ def main(argv=None) -> int:
         # THE WARM, inside everything that makes a shared-repo write
         # lawful: the scope lock is held, ``before`` is snapshotted, and
         # the guard is armed with ``dem`` authorised.
+        if args.seed_from:
+            if lat is None:
+                raise SystemExit(
+                    f"REFUSING --seed-from: the anchor tile for {args.icao} "
+                    f"did not resolve.")
+            with guard:
+                seed_summary = seed_las_tiles(
+                    args.seed_from, list(warm_insets or [args.icao]), root,
+                    lat, lon, prog)
         if warm_insets:
             if lat is None:
                 raise SystemExit(
@@ -4052,7 +4284,16 @@ def main(argv=None) -> int:
                                       # WHAT was warmed, named: a reader
                                       # asking why an inset changed gets
                                       # the airports, not just a flag.
-                                      "warm_insets": warm_insets})
+                                      "warm_insets": warm_insets,
+                                      **({"seed_from": seed_summary[
+                                          "seed_from"],
+                                          "seeded": True,
+                                          "seeded_files": {
+                                              k: v["sha256"] for k, v in
+                                              seed_summary["copied"].items()}}
+                                         if seed_summary and sc == "las_tiles"
+                                         and seed_summary["copied"]
+                                         else {})})
                 prog.note(f"REFRESH RECORDED [{sc}]: +{rec['added']} "
                           f"~{rec['modified']} file(s), hash-stamped into "
                           f"{REFRESH_LEDGER}")
@@ -4078,6 +4319,7 @@ def main(argv=None) -> int:
     frame["write_guard_lock_churn"] = guard.lock_churn
     frame["write_guard_library_index_churn"] = guard.library_index_churn
     frame["warm_insets"] = warm_summary
+    frame["seed_las_tiles"] = seed_summary
     frame["refresh_osm_layers"] = osm_refresh_summary
     frame["refresh_dem"] = dem_refresh_summary
     frame["refresh_shore"] = shore_refresh_summary

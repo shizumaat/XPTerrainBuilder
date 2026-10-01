@@ -14,6 +14,7 @@ tifffile==2026.3.3   # LERC-compressed elevation tiles (New Zealand lidar)
 imagecodecs==2026.3.6  # LERC codec backing tifffile (GDAL builds lack it)
 keyring==25.7.0      # platform secret store for provider sign-ins (O4_Authenticated_Sessions)
 osmium==4.3.1        # local filtering of Geofabrik regional extracts (O4_OSM_Extract_Filter)
+laspy>=2.5,<3         # LAS point-cloud tiles (las_tile_index, PITKIN1M, #130); pure python, imported lazily, so the freeze must pin it
 gdal==3.12.3; platform_system == 'Darwin'
 gdal==3.12.2; platform_system == 'Windows'
 gdal==3.9.0; platform_system == 'Linux'

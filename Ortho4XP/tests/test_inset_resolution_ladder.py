@@ -211,10 +211,17 @@ def test_shipped_usgs3dep_declares_the_ladder():
     providers = INSETS.initialize_elevation_providers_dict()
     usgs = providers["USGS3DEP"]
     rungs = usgs["resolution_ladder_rungs"]
-    assert [r["native_resolution_m"] for r in rungs] == [3.0, 10.0]
-    assert all("{west}" in r["discovery_url_template"] for r in rungs)
+    # 30aw (2): USGS 1 m -> PITKIN1M 1 m -> USGS 3 m -> USGS 10 m.
+    assert [r["native_resolution_m"] for r in rungs] == [1.0, 3.0, 10.0]
+    assert rungs[0]["provider"] == "PITKIN1M"
+    assert "discovery_url_template" not in rungs[0]
+    assert all("{west}" in r["discovery_url_template"] for r in rungs[1:])
     assert "1/3 arc-second" in rungs[-1]["discovery_url_template"]
     assert usgs["native_resolution_m"] == 1.0          # rung 0 untouched
+    resolved = INSETS._ladder_rung_definitions(usgs)
+    assert [(d["code"], d["access_strategy"]) for _l, d in resolved] == [
+        ("USGS3DEP", "tnm_cog"), ("PITKIN1M", "las_tile_index"),
+        ("USGS3DEP", "tnm_cog"), ("USGS3DEP", "tnm_cog")]
 
 
 @requires_gdal
@@ -232,3 +239,402 @@ def test_airport_fetch_records_the_ladder_in_the_sidecar(
     assert meta["ladder"]["delivered_label"] == "1/3 arc-second"
     assert meta["resolution_m"] == 10.0
     assert meta["native_resolution_m"] == 10.0
+
+
+
+# ---------------------------------------------------------------------
+# CROSS-PROVIDER RUNGS + THE BUILD-TIME RE-CHECK (RULINGS 2026-09-30aw)
+# ---------------------------------------------------------------------
+OTHER_STRATEGY = "ladder_fake_other_strategy"
+
+
+@pytest.fixture
+def two_providers(monkeypatch, tmp_path):
+    """A chain FAKE3DEP (1 m, 10 m) with a cross-provider rung FAKEPIT
+    (1 m, its own strategy and coverage) between them.  ``plan`` maps a
+    rung key (``"FAKE3DEP:1"``, ``"FAKEPIT"``, ``"FAKE3DEP:10"``) to
+    ``{"valid": fraction | None, "listing": [ids]}``; ``discover_raise``
+    names keys whose discovery raises transient."""
+    plan = {}
+    calls = {"fetch": [], "discover": []}
+    discover_raise = set()
+
+    def _key(definition):
+        if definition["code"] == "FAKEPIT":
+            return "FAKEPIT"
+        return "FAKE3DEP:%g" % definition["native_resolution_m"]
+
+    class _Base:
+        def discover(self, definition, bounding_box_wgs84):
+            key = _key(definition)
+            calls["discover"].append(key)
+            if key in discover_raise:
+                raise INSETS.TransientFetchError("index outage")
+            listing = plan.get(key, {}).get("listing") or []
+            return [{"source_id": i} for i in listing] or None
+
+        def fetch(self, definition, bounding_box_wgs84,
+                  target_resolution_m, destination_path):
+            key = _key(definition)
+            calls["fetch"].append(key)
+            entry = plan.get(key) or {}
+            if entry.get("unavailable"):
+                raise INSETS.ProviderUnavailable(entry["unavailable"])
+            if entry.get("valid") is None:
+                return None
+            _write_raster(destination_path, entry["valid"])
+            return {
+                "provider": definition["code"],
+                "native_resolution_m": definition["native_resolution_m"],
+                "resolution_m": target_resolution_m,
+                "source_ids": list(entry.get("listing") or []),
+                "sources_used": [{"source_id": i}
+                                 for i in entry.get("listing") or []],
+            }
+
+    INSETS.register_access_strategy(STRATEGY)(type("_A", (_Base,), {}))
+    INSETS.register_access_strategy(OTHER_STRATEGY)(type("_B", (_Base,), {}))
+    chain = {
+        "code": "FAKE3DEP",
+        "access_strategy": STRATEGY,
+        "role": INSETS.ROLE_AIRPORT_INSET,
+        "enabled": True,
+        "priority": 1.0,
+        "native_resolution_m": 1.0,
+        "ladder_label": "1 meter",
+        "discovery_url_template": "rung0",
+        "resolution_ladder_rungs": INSETS._parse_resolution_ladder(
+            "1|county lidar|provider:FAKEPIT;10|1/3 arc-second|rung2"),
+    }
+    other = {
+        "code": "FAKEPIT",
+        "access_strategy": OTHER_STRATEGY,
+        "role": INSETS.ROLE_AIRPORT_INSET,
+        "enabled": True,
+        "priority": 0.5,
+        "native_resolution_m": 1.0,
+        "coverage_bbox": "-107.4,38.95,-106.3,39.55",
+    }
+    other["coverage_bboxes"] = INSETS._parse_bounding_boxes(
+        other["coverage_bbox"])
+    monkeypatch.setattr(INSETS, "elevation_providers_dict",
+                        {"FAKE3DEP": chain, "FAKEPIT": other})
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    try:
+        yield plan, calls, chain, other, discover_raise
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop(STRATEGY, None)
+        INSETS.ACCESS_STRATEGIES.pop(OTHER_STRATEGY, None)
+
+
+def _sidecar(icao="KASE"):
+    path = FNAMES.airport_inset_provenance(39, -107, icao, "FAKE3DEP")
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def test_parse_accepts_a_provider_rung_and_keeps_file_order_on_ties():
+    rungs = INSETS._parse_resolution_ladder(
+        "10|coarse|u10;1|county|provider:PIT;3|fine|u3;1|bad|provider:")
+    assert [(r["native_resolution_m"], r["label"], r.get("provider"))
+            for r in rungs] == [(1.0, "county", "PIT"), (3.0, "fine", None),
+                                (10.0, "coarse", None)]
+
+
+@requires_gdal
+def test_provider_rung_resolves_its_own_strategy(tmp_path, two_providers):
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": 0.0022, "listing": ["u1"]},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1", "T2"]}})
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0,
+                                    str(tmp_path / "KASE_fake3dep.tif"),
+                                    resolution_ladder=True)
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT"]
+    ladder = provenance["ladder"]
+    assert ladder["delivered_rung"] == 1
+    assert ladder["delivered_provider"] == "FAKEPIT"
+    assert provenance["provider"] == "FAKEPIT"
+    assert [r["provider"] for r in ladder["rungs_tried"]] == [
+        "FAKE3DEP", "FAKEPIT"]
+    assert ladder["rungs_tried"][0]["listing_ids"] == ["u1"]
+    assert ladder["rungs_tried"][1]["listing_ids"] == ["T1", "T2"]
+
+
+@requires_gdal
+def test_out_of_coverage_provider_rung_makes_no_call(tmp_path,
+                                                     two_providers):
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    madrid = (-3.6, 40.4, -3.5, 40.5)
+    provenance = INSETS.fetch_inset(chain, madrid, 1.0,
+                                    str(tmp_path / "LEMD_fake3dep.tif"),
+                                    resolution_ladder=True)
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKE3DEP:10"]
+    assert "FAKEPIT" not in calls["discover"]
+    outcomes = [r["outcome"] for r in provenance["ladder"]["rungs_tried"]]
+    assert outcomes == ["below-threshold", "out-of-coverage", "delivered"]
+
+
+@requires_gdal
+def test_unavailable_provider_rung_climbs_on(tmp_path, two_providers):
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKEPIT": {"unavailable": "laspy missing"},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0,
+                                    str(tmp_path / "KASE_fake3dep.tif"),
+                                    resolution_ladder=True)
+    tried = provenance["ladder"]["rungs_tried"]
+    assert [r["outcome"] for r in tried] == [
+        "below-threshold", "unavailable", "delivered"]
+    assert tried[1]["unavailable_reason"] == "laspy missing"
+    assert "listing_ids" not in tried[1]
+
+
+@requires_gdal
+def test_recheck_new_listing_between_two_builds_refetches(two_providers):
+    """The 2024 USGS Aspen unit, in miniature: build 1 finds the finer
+    rung empty and delivers rung 1; before build 2 the finer rung LISTS a
+    product with coverage -- build 2's re-check sees the new id, re-runs
+    the ladder and delivers rung 0."""
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert _sidecar()["ladder"]["delivered_rung"] == 1
+    plan["FAKE3DEP:1"] = {"valid": 1.0, "listing": ["new2024"]}
+    calls["fetch"].clear()
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert calls["fetch"] == ["FAKE3DEP:1"]
+    meta = _sidecar()
+    assert meta["ladder"]["delivered_rung"] == 0
+    assert meta["provider"] == "FAKE3DEP"
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert recheck is None                           # rung 0: nothing finer
+
+
+@requires_gdal
+def test_recheck_stamps_new_listing_even_when_it_grids_empty(two_providers):
+    """A finer product that LISTS but grids below the threshold (KASE's
+    0.22 %) re-runs the ladder and leaves the delivered rung where it
+    was; the next build is then unchanged -- no loop."""
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    plan["FAKE3DEP:1"] = {"valid": 0.0022, "listing": ["sparse"]}
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert recheck["result"] == "new-listing"
+    assert recheck["new_source_ids"] == ["sparse"]
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    meta = _sidecar()
+    assert meta["ladder"]["delivered_rung"] == 1
+    assert meta["ladder"]["rungs_tried"][0]["listing_ids"] == ["sparse"]
+    calls["fetch"].clear()
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert calls["fetch"] == []
+    assert _sidecar()["ladder"]["recheck"]["result"] == "unchanged"
+
+
+@requires_gdal
+def test_recheck_unchanged_never_fetches_and_never_rewrites(two_providers):
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    calls["fetch"].clear()
+    calls["discover"].clear()
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert calls["fetch"] == []
+    assert calls["discover"] == ["FAKE3DEP:1"]       # finer rungs only
+    path = FNAMES.airport_inset_provenance(39, -107, "KASE", "FAKE3DEP")
+    first = os.stat(path).st_mtime_ns
+    with open(path, "rb") as handle:
+        body = handle.read()
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    with open(path, "rb") as handle:
+        assert handle.read() == body                 # byte-identical
+    assert os.stat(path).st_mtime_ns == first
+    assert json.loads(body)["ladder"]["recheck"]["result"] == "unchanged"
+
+
+@requires_gdal
+def test_recheck_transient_discovery_leaves_the_inset_standing(
+        two_providers):
+    plan, calls, chain, _other, discover_raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    discover_raise.add("FAKE3DEP:1")
+    calls["fetch"].clear()
+    record = INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain],
+                                          None)
+    assert calls["fetch"] == []
+    assert record["KASE"]["FAKE3DEP"] == "ok"
+    meta = _sidecar()
+    assert meta["provider"] == "FAKEPIT"
+    assert meta["ladder"]["recheck"]["result"] == "transient"
+
+
+@requires_gdal
+def test_recheck_never_runs_for_a_rung_zero_inset(two_providers):
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": 1.0, "listing": ["u1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    calls["discover"].clear()
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert calls["discover"] == []
+    assert "recheck" not in _sidecar()["ladder"]
+
+
+# ---------------------------------------------------------------------
+# ROUND 2: the airport-coverage gate, the two-layer inset, the guard
+# ---------------------------------------------------------------------
+CORE_STRATEGY = "ladder_fake_core_strategy"
+
+
+def _write_partial(path, box, value, keep):
+    """A raster over ``box`` with data only inside ``keep`` (a W,S,E,N)."""
+    size = 60
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    dataset = gdal.GetDriverByName("GTiff").Create(
+        path, size, size, 1, gdal.GDT_Float32)
+    (west, south, east, north) = box
+    dx = (east - west) / size
+    dy = (north - south) / size
+    dataset.SetGeoTransform((west, dx, 0.0, north, 0.0, -dy))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    dataset.SetProjection(srs.ExportToWkt())
+    values = numpy.full((size, size), -32768.0, dtype=numpy.float32)
+    xs = west + (numpy.arange(size) + 0.5) * dx
+    ys = north - (numpy.arange(size) + 0.5) * dy
+    inside = ((ys >= keep[1]) & (ys <= keep[3]))[:, None] & (
+        (xs >= keep[0]) & (xs <= keep[2]))[None, :]
+    values[inside] = value
+    band = dataset.GetRasterBand(1)
+    band.SetNoDataValue(-32768.0)
+    band.WriteArray(values)
+    dataset = None
+
+
+@pytest.fixture
+def core_chain(monkeypatch, tmp_path, two_providers):
+    """``two_providers``'s chain, its FAKEPIT rung answering like a
+    SURGICAL LAS fetch: data only over ``plan["core_keep"]``, a ``core``
+    block, and the footprint it was handed recorded."""
+    plan, calls, chain, other, discover_raise = two_providers
+    seen = {}
+
+    class _Core:
+        def discover(self, definition, bounding_box_wgs84):
+            return [{"source_id": "T1"}]
+
+        def fetch(self, definition, bounding_box_wgs84,
+                  target_resolution_m, destination_path):
+            calls["fetch"].append("FAKEPIT")
+            seen["footprint"] = definition.get(INSETS.LAS_FOOTPRINT_KEY)
+            _write_partial(destination_path, bounding_box_wgs84, 2400.0,
+                           plan["core_keep"])
+            return {"provider": "FAKEPIT", "native_resolution_m": 1.0,
+                    "resolution_m": target_resolution_m,
+                    "source_ids": ["T1"],
+                    "core": {"provider": "FAKEPIT",
+                             "boundary_polygon_wgs84": definition.get(
+                                 INSETS.LAS_FOOTPRINT_KEY),
+                             "footprint_buffer_m": 0.0,
+                             "tile_names": ["T1"], "feather_m": 60.0}}
+
+    INSETS.register_access_strategy(CORE_STRATEGY)(_Core)
+    other["access_strategy"] = CORE_STRATEGY
+    try:
+        yield plan, calls, chain, seen
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop(CORE_STRATEGY, None)
+
+
+def _airport():
+    from shapely.geometry import box as _box
+
+    # the aerodrome: the middle of BOX
+    return _box(-106.880, 39.210, -106.857, 39.232)
+
+
+@requires_gdal
+def test_core_delivered_over_the_airport_with_a_surround(tmp_path,
+                                                        core_chain):
+    plan, calls, chain, seen = core_chain
+    airport = _airport()
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]},
+                 "core_keep": (-106.885, 39.205, -106.852, 39.237)})
+    destination = str(tmp_path / "KASE_fake3dep.tif")
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0, destination,
+                                    resolution_ladder=True,
+                                    footprint_polygon=airport)
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT", "FAKE3DEP:10"]
+    assert seen["footprint"]["type"] == "Polygon"   # handed the footprint
+    ladder = provenance["ladder"]
+    assert ladder["delivered_rung"] == 1
+    assert ladder["delivered_provider"] == "FAKEPIT"
+    assert ladder[INSETS.LAS_FOOTPRINT_KEY]["type"] == "Polygon"
+    assert provenance["airport_valid_fraction"] >= \
+        INSETS.INSET_MIN_AIRPORT_COVER_FRAC
+    assert provenance["core"]["rung"] == 1
+    assert provenance["surround"]["provider"] == "FAKE3DEP"
+    assert provenance["surround"]["rung"] == 2
+    assert provenance["valid_fraction"] == 1.0      # box-wide, assembled
+    assert provenance["native_resolution_m"] == 1.0
+    assert [r.get("role") for r in ladder["rungs_tried"]] == [
+        None, None, "surround"]
+    assert sorted(os.listdir(tmp_path)) == ["KASE_fake3dep.tif"]
+
+
+@requires_gdal
+def test_core_below_the_airport_cover_rule_moves_on(tmp_path, core_chain):
+    """The 80 % rule: a core covering only a corner of the aerodrome is
+    NOT delivered, whatever its box-wide share; the ladder climbs."""
+    plan, calls, chain, seen = core_chain
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]},
+                 "core_keep": (-106.880, 39.210, -106.870, 39.220)})
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0,
+                                    str(tmp_path / "KASE_fake3dep.tif"),
+                                    resolution_ladder=True,
+                                    footprint_polygon=_airport())
+    tried = provenance["ladder"]["rungs_tried"]
+    assert tried[1]["outcome"] == "below-threshold"
+    assert tried[1]["airport_valid_fraction"] < \
+        INSETS.INSET_MIN_AIRPORT_COVER_FRAC
+    assert provenance["ladder"]["delivered_rung"] == 2
+    assert "core" not in provenance
+
+
+@requires_gdal
+def test_recheck_stamp_not_attempted_under_an_armed_guard(
+        two_providers, monkeypatch):
+    """§11 (4e): the stamp write is NEVER attempted when an armed guard
+    would refuse it; the result still returns (the harness puts it in
+    frame.json)."""
+    import sys
+    import types
+
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": 0.0, "listing": ["u1"]},
+                 "FAKEPIT": {"valid": 1.0, "listing": ["T1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    path = FNAMES.airport_inset_provenance(39, -107, "KASE", "FAKE3DEP")
+    with open(path, "rb") as handle:
+        body = handle.read()
+    armed = types.ModuleType("fake_armed_guard_130")
+    armed._ACTIVE_GUARDS = [object()]
+    armed.active_guard_refuses = lambda p: True
+    monkeypatch.setitem(sys.modules, "fake_armed_guard_130", armed)
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX,
+                                    record=True)
+    assert recheck["result"] == "unchanged"
+    assert "not attempted" in recheck["stamp"]
+    with open(path, "rb") as handle:
+        assert handle.read() == body

@@ -134,6 +134,9 @@ a = Analysis(
                    + collect_submodules('auto_patch_v2')
                    + highspy_hidden + tifffile_hidden + imagecodecs_hidden
                    # See Ortho4XP.spec: top-level imported, named as a belt.
+                   # LAS tiles (las_tile_index, #130): imported inside
+                   # the strategy, so the static scan never sees it.
+                   + collect_submodules('laspy')
                    + ['O4_LERC_Decode', 'O4_Scenery_Packs',
                       # imported inside a function (O4_Proj_Runtime, #121)
                       'truststore']) + [

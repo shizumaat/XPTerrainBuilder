@@ -38,3 +38,11 @@ def test_every_spec_names_the_scenery_pack_module():
     a broken frozen engine on 2026-09-10."""
     for name in SPECS:
         assert "'O4_Scenery_Packs'" in _source(name), name
+
+
+def test_every_spec_collects_laspy():
+    """#130: ``laspy`` is imported INSIDE the las_tile_index strategy, so
+    PyInstaller's static scan never sees it (the highspy precedent); both
+    frozen engines must collect it explicitly."""
+    for name in SPECS:
+        assert "collect_submodules('laspy')" in _source(name), name

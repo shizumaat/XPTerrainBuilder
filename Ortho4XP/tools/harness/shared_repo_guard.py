@@ -84,6 +84,13 @@ REFRESH_SCOPES = (
      "wall=seawall/retaining_wall) that §37 (11) (7)'s quay declaration "
      "reads — an overpass download, filled only by --refresh-data shore "
      "(issue #72), never by a build"),
+    # BEFORE ``dem``: ``scope_of`` takes the first matching prefix, and
+    # a 7 GB point-cloud download is its own act (spec
+    # las-tile-lidar-provider-spec.md §2, #130).  The airport inset
+    # gridded from these tiles stays under ``dem``.
+    ("las_tiles", "Elevation_data/_las_tiles",
+     "raw lidar point-cloud tiles and their per-tile gridded DTMs "
+     "(LAS-tile providers)"),
     ("dem", "Elevation_data",
      "base DEM rasters and airport elevation insets (provider downloads)"),
     ("airport_mod_cache", "Airport_mod_cache",
@@ -783,6 +790,33 @@ class SharedRepoWriteBlocked(RuntimeError):
     ``--refresh-data`` scope, and the guard stopped it."""
 
 
+#: The guards currently ARMED in this process (entered, enabled), newest
+#: last.  Read through :func:`active_guard_refuses` only.
+_ACTIVE_GUARDS: list = []
+
+
+def active_guard_refuses(path) -> bool:
+    """Would an ARMED guard in this process refuse a write to ``path``?
+
+    THE QUESTION A WRITER ASKS FIRST (spec las-tile-lidar-provider §11
+    (4e), #130).  A best-effort engine write (the ladder re-check's
+    sidecar stamp) must NOT be attempted-and-caught under a guard: the
+    refusal would be recorded as blocked and a swallowed one fails the
+    run (:func:`require_no_swallowed_write_block`).  The engine cannot
+    import the harness, so it looks this module up in ``sys.modules``
+    and calls this; with no guard armed the answer is ``False``.
+    """
+    for guard in list(_ACTIVE_GUARDS):
+        if getattr(guard, "record_only", False):
+            continue
+        try:
+            if guard._violation(path, op="open"):
+                return True
+        except Exception:
+            return True
+    return False
+
+
 class SharedRepoWriteGuard:
     """THE PREVENTER (fix cycle 2 item 4).
 
@@ -1102,11 +1136,14 @@ class SharedRepoWriteGuard:
         # above.  Nothing further to patch; recorded so the next reader does
         # not re-derive it.
         del shutil
+        _ACTIVE_GUARDS.append(self)
         return self
 
     def __exit__(self, *exc):
         if not self.enabled:
             return False
+        if self in _ACTIVE_GUARDS:
+            _ACTIVE_GUARDS.remove(self)
         import builtins
         if self._saved_bz2 is not None:
             import bz2

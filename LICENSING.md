@@ -126,7 +126,7 @@ PyInstaller embeds these, so releases redistribute them.
 - Permissive, notice-only: `numpy`, `scipy`, `networkx`, `shapely`,
   `scikit-fmm`, `tifffile`, `imagecodecs` (BSD-3); `pillow` (MIT-CMU);
   `pyproj`, `Rtree`, `keyring`, `gdal` (MIT); `requests` (Apache-2.0);
-  `osmium` (BSD-2).
+  `osmium`, `laspy` (BSD-2).
 
 ## 5. Generated scenery is not covered
 

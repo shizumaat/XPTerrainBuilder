@@ -258,6 +258,32 @@ def tls_selfcheck(url: str) -> dict:
     return result
 
 
+def import_selfcheck_main(argv: list[str]) -> int:
+    """``--import-selfcheck MODULE[,MODULE...]``: exit 0 when every named
+    module imports in THIS interpreter -- the frozen bundle's smoke test
+    for packages the engine imports LAZILY (laspy, #130: the static scan
+    never sees a function-level import, the highspy precedent of
+    2026-09-10).  One line per module on stdout."""
+    import importlib
+
+    names = [name.strip() for name in
+             argv[argv.index("--import-selfcheck") + 1].split(",")
+             if name.strip()]
+    failed = 0
+    for name in names:
+        try:
+            module = importlib.import_module(name)
+            line = "%s: ok %s" % (name, getattr(module, "__version__", ""))
+        except Exception as error:
+            failed += 1
+            line = "%s: %s: %s" % (name, type(error).__name__, error)
+        try:
+            print(line.rstrip())
+        except Exception:
+            pass
+    return 0 if names and not failed else 1
+
+
 def tls_selfcheck_main(argv: list[str]) -> int:
     """``--tls-selfcheck URL [--out FILE]``: exit 0 when ``requests``
     fetched the URL.  The verdict is written to FILE as JSON as well,

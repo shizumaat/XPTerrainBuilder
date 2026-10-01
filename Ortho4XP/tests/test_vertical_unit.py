@@ -310,17 +310,20 @@ def test_feature_archive_cap_is_unavailable_never_a_silent_slice(
     assert ("TXTEST: KGRK needs 9 archives, cap 8 "
             "(max_archives_per_airport in TXTEST.elv)") in str(caught.value)
     # The key raises the cap: 9 archives under max_archives_per_airport=16
-    # pass the gate (and then fail to download from the invalid host, an
-    # ordinary skipped archive -> no raster -> None).
+    # pass the gate.  A listed archive that then fails to download is a
+    # TRANSIENT raise (lane tx154, spec §7): skipping it would deliver a
+    # partial mosaic as the whole, and returning None would record a
+    # durable no-coverage for a network failure.
     import requests
 
     def _refused(*_args, **_kwargs):
         raise requests.ConnectionError("no network in the suite")
 
     monkeypatch.setattr(requests, "get", _refused)
-    assert strategy_class().fetch(
-        dict(definition, max_archives_per_airport="16"), BOX, 1.0,
-        str(tmp_path / "KGRK_TXTEST.tif")) is None
+    with pytest.raises(INSETS.TransientFetchError):
+        strategy_class().fetch(
+            dict(definition, max_archives_per_airport="16"), BOX, 1.0,
+            str(tmp_path / "KGRK_TXTEST.tif"))
 
 
 def test_tile_grid_cap_is_unavailable(tmp_path):

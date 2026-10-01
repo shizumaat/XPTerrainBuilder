@@ -117,6 +117,13 @@ def test_shipped_definitions_parse(shipped_registry):
         "PORTUGAL2M",
         "PORTUGAL50CM",
         "PITKIN1M",
+        # US HOLDER providers (#154, lane tx154).
+        "TEXAS1M",
+        "NCPHASE3",
+        "NOAATXJLC1M",
+        "NOAAKETCHIKAN",
+        "NOAAAKCOASTAL",
+        "NOAACOLUMBIARIVER",
         "DENMARK40CM",
         "SWEDEN1M",
         "CUDEMHAWAII",

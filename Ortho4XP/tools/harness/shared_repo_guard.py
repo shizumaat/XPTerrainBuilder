@@ -22,18 +22,6 @@ UNCHANGED.
 """
 from __future__ import annotations
 
-# The console is UTF-8 before anything prints (#171, #125; issue #200): ONE
-# derivation site, ``src/O4_Console_Encoding.py``.  Self-contained and ahead
-# of every other import because this tool's own ``--help`` carries the house
-# spelling and a Windows console RAISES on it rather than mangling it.  The
-# ``winenc`` sweep over 80 argparse tools missed this one; the twin
-# ``tests/test_console_encoding.py`` counts it and was RED ON MAIN.
-import os as _o4os, sys as _o4sys                                    # noqa: E402
-_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(_o4os.path.dirname(
-    _o4os.path.abspath(__file__)))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
-_o4console.configure_console_streams()
-
 import hashlib
 import json
 import os

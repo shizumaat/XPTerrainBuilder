@@ -260,6 +260,45 @@ def _enclosing_function(tree: ast.AST, node: ast.AST):
     return None
 
 
+def _pinning_helpers(tree: ast.AST):
+    """Module-level function names whose body pins the console.
+
+    A library with a CLI may route the pin through ONE dedicated helper
+    rather than calling the derivation site inline — ``shared_repo_guard``
+    does, because the helper is where the reason lives (its ``src`` insert
+    must not happen at import; see ``b6cba070``).  A call to such a helper
+    IS a pin, so the rule follows exactly one level of indirection, by name,
+    within the same module.  It does not chase further: a helper that only
+    calls another helper does not count, which keeps the question decidable
+    and the answer readable.
+    """
+    names = set()
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(isinstance(inner, ast.Call)
+               and isinstance(inner.func, ast.Attribute)
+               and inner.func.attr == "configure_console_streams"
+               for inner in ast.walk(node)):
+            names.add(node.name)
+    return names
+
+
+def _pin_lines(scope: ast.AST, helpers) -> list:
+    """Lines in ``scope`` that pin the console, directly or via a helper."""
+    lines = []
+    for node in ast.walk(scope):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute) and \
+                func.attr == "configure_console_streams":
+            lines.append(node.lineno)
+        elif isinstance(func, ast.Name) and func.id in helpers:
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
 @pytest.mark.parametrize("tool", ARGPARSE_TOOLS, ids=lambda p: p.name)
 def test_every_argparse_tool_pins_the_console_before_its_parser(tool: Path):
     """The structural half, and the one that holds for a tool written
@@ -276,17 +315,23 @@ def test_every_argparse_tool_pins_the_console_before_its_parser(tool: Path):
       guard, imported by the harness and by every tool that arms it).  A
       library pinning the console at import would reconfigure the streams of
       a process that merely imported it, which is the opposite of what this
-      lane is for.
+      lane is for, and for that file it is forbidden outright (``b6cba070``:
+      importing the guard must not put the engine's ``src/`` on
+      ``sys.path``).  The pin may go through ONE dedicated module-level
+      helper, which is where that reason is documented.
 
     Anything else fails: a call in a function that does NOT reach the parser,
     or one after ``parse_args`` has already printed.  The allowlist is EMPTY.
     """
     tree = ast.parse(_source(tool), filename=str(tool))
 
+    helpers = _pinning_helpers(tree)
     module_level = [n.value.lineno for n in tree.body
                     if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
-                    and isinstance(n.value.func, ast.Attribute)
-                    and n.value.func.attr == "configure_console_streams"]
+                    and ((isinstance(n.value.func, ast.Attribute)
+                          and n.value.func.attr == "configure_console_streams")
+                         or (isinstance(n.value.func, ast.Name)
+                             and n.value.func.id in helpers))]
     parsers = [n.lineno for n in ast.walk(tree)
                if isinstance(n, ast.Attribute) and n.attr == "ArgumentParser"]
     assert parsers, tool.name
@@ -311,9 +356,7 @@ def test_every_argparse_tool_pins_the_console_before_its_parser(tool: Path):
         assert entry is not None, (
             f"{tool.name} parses at module level (line {parse.lineno}) with no "
             "module-level console pin")
-        pins = [n.lineno for n in ast.walk(entry)
-                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                and n.func.attr == "configure_console_streams"]
+        pins = _pin_lines(entry, helpers)
         assert pins and min(pins) < parse.lineno, (
             f"{tool.name}: {entry.name}() parses at line {parse.lineno} "
             f"without pinning the console first (pins in it: {pins or 'none'})"
@@ -380,6 +423,64 @@ def test_the_rule_is_not_satisfied_by_line_order_alone():
         "def main():\n"
         "    return argparse.ArgumentParser().parse_args()\n")
     assert _judge(module_level), "the script shape must stay lawful"
+
+
+def test_the_rule_follows_one_dedicated_helper_and_no_further():
+    """``shared_repo_guard`` routes its pin through ``_pin_console_streams``,
+    because that helper is where the reason lives: its ``src`` insert must
+    not happen at import (``b6cba070`` — importing the guard must not put
+    the engine's ``src/`` on ``sys.path``, since ``tests/conftest.py`` arms
+    it for every test).  So a call to a module-level helper that pins IS a
+    pin.  The limits matter as much as the permission: the helper must
+    actually pin, it must be called BEFORE the parse, and the rule does not
+    chase a second hop.
+    """
+    via_helper = (
+        '"""A tool."""\n'
+        "import argparse\n\n\n"
+        "def _pin():\n"
+        "    CE.configure_console_streams()\n\n\n"
+        "def main():\n"
+        "    _pin()\n"
+        "    return argparse.ArgumentParser().parse_args()\n")
+    assert _judge(via_helper), "one dedicated pinning helper must be lawful"
+
+    helper_too_late = (
+        '"""A tool."""\n'
+        "import argparse\n\n\n"
+        "def _pin():\n"
+        "    CE.configure_console_streams()\n\n\n"
+        "def main():\n"
+        "    args = argparse.ArgumentParser().parse_args()\n"
+        "    _pin()\n"
+        "    return args\n")
+    assert not _judge(helper_too_late), (
+        "a helper called after parse_args() has printed is not a pin")
+
+    helper_that_does_not_pin = (
+        '"""A tool."""\n'
+        "import argparse\n\n\n"
+        "def _setup():\n"
+        "    pass\n\n\n"
+        "def main():\n"
+        "    _setup()\n"
+        "    return argparse.ArgumentParser().parse_args()\n")
+    assert not _judge(helper_that_does_not_pin), (
+        "a helper that does not pin must not count as one")
+
+    second_hop = (
+        '"""A tool."""\n'
+        "import argparse\n\n\n"
+        "def _inner():\n"
+        "    CE.configure_console_streams()\n\n\n"
+        "def _outer():\n"
+        "    _inner()\n\n\n"
+        "def main():\n"
+        "    _outer()\n"
+        "    return argparse.ArgumentParser().parse_args()\n")
+    assert not _judge(second_hop), (
+        "the rule follows ONE hop; a chain is not decidable by this reading "
+        "and must fail loudly rather than pass by luck")
 
 
 # ---------------------------------------------------------------------------

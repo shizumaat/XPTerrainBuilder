@@ -7,7 +7,11 @@ declared the joints, ``planar/shapes.py``) and the constraint generators.
    vertex of a ``terrace.band_roles`` face is withdrawn (labelled or not:
    owner RULINGS 2026-09-08p leaves the network's vertices unlabelled) (RULINGS
    2026-09-07g (2): the in-shape band measured INFEASIBLE under pairwise
-   agreement — the kept rows carry the reach).
+   agreement — the kept rows carry the reach).  A RUNWAY-FAMILY vertex
+   reaches this stage with the band its OWN family's routes imply, never
+   the raw metric's: owner RULINGS 2026-10-02v (6) (issue #139) keeps a
+   TAXI-family band off the runway edge at the derivation site
+   (``reach_band_values``), so this stage needs no veto of its own.
 2. THE FILTER, ONCE, at assembly: every row of every generator whose
    endpoints carry two shapes is dropped here — never per generator —
    counted per generator.  A ``Flat`` row (a pad, a plate: one rigid

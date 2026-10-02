@@ -11490,6 +11490,25 @@ def row_side(row) -> str:
     return "airside"
 
 
+def row_points(row):
+    """THE ROW'S TWO ENDPOINTS in the census's own metre frame, as
+    ``(a, b)`` — ONE spelling for the two row shapes ``run_checks``
+    emits: ``pt_a``/``pt_b`` for a grade violation, ``vert_pt``/
+    ``proj_pt`` for an edge step.
+
+    This is the ``site_m`` of the row dump (``harness/census.row_record``)
+    and the point pair every site printer projects back to lat/lon
+    (``_stamp_row_sites``).  ``tools/harness/census.py`` still carries its
+    own copy for its ``--sites`` clustering; that copy should delegate
+    here (follow-up, named in the lane report) — a THIRD copy is the
+    census-wrapper defect.
+    """
+    a, b = getattr(row, "pt_a", None), getattr(row, "pt_b", None)
+    if a is None:
+        a, b = getattr(row, "vert_pt", None), getattr(row, "proj_pt", None)
+    return a, b
+
+
 def row_roles(row) -> Tuple[str, str]:
     """The (role_a, role_b) pair of a row, '?' where a way is absent.
 
@@ -13200,25 +13219,56 @@ def run_checks(
     _ps(f"RUNWAY STEP (two faces of the runway family, floor "
         f"{_rw_step_m:g} m — §40 (5) (4))", rw_steps, top_n, _rw_step_m)
 
+    # ── THE ONE ROW SITE WRITER (issues #106 / #107) ─────────────────
     # Attach a geographic location (lat, lon) to each finding so callers
-    # can point a user at the spot in their apt.dat / DSF.  nodes maps
-    # nid -> (lat, lon); use the centroid of the offending way's ring.
+    # can point a user at the spot in their apt.dat / DSF.
+    #
+    # THE DEFECT THIS CLOSES.  Every reader works in the census's METRE
+    # frame and already carries the row's endpoints there (``row_points``
+    # — the ``site_m`` of the row dump).  Most readers project them back
+    # themselves (``_rate_row_site``, ``_check_within_shape``); the ones
+    # that do not used to fall through to the CENTROID OF THE RING the row
+    # was found on.  Measured on ``nlwfroad100c_NLWF``: a 2.72 m
+    # ``adjacent_ground_step`` row whose ``site_m`` is
+    # ``[[645.34, 12.36], [645.33, 13.94]]`` printed
+    # ``-14.3115574, -178.0666656`` — the layout origin's neighbourhood,
+    # no patch vertex within 6 m, 645 m west of the real pair (nodes -346
+    # / -347).  That is the same class of wrong answer RULINGS 2026-09-12aj
+    # (a) ruled on for the rate readers, reached by the other door.
+    #
+    # So the fallback is no longer the ring: it is the row's OWN site_m,
+    # carried through the SAME inverse projection every other family uses
+    # (``_rate_row_site`` — the pair MIDPOINT, the convention R19-5 and
+    # 12aj (a) both set).  A per-family transform would be a second copy
+    # of that projection, which is the census-wrapper defect.  The ring
+    # centroid survives only for a row that carries no endpoints at all.
     def _way_latlon(way):
-        lls = [nodes[n] for n in way.nids if n in nodes]
+        lls = [nodes[n] for n in (getattr(way, "nids", None) or [])
+               if n in nodes]
         if not lls:
             return (None, None)
         return (sum(p[0] for p in lls) / len(lls),
                 sum(p[1] for p in lls) / len(lls))
 
-    for v in within + cross:
-        # A row that already KNOWS where it is keeps its own site: the
-        # within-shape check reports its pair MIDPOINT (R19-5), and since
-        # 12aj (a) every RATE row does too.  The ring centroid stays the
-        # fallback for a row whose location genuinely is a whole shape.
-        if v.lat is None:
-            v.lat, v.lon = _way_latlon(v.way_a)
-    for s in steps + mid_steps + rw_steps:
-        s.lat, s.lon = _way_latlon(s.way_v)
+    def _stamp_row_sites(rows) -> None:
+        for r in rows:
+            # A row that already KNOWS where it is keeps its own site.
+            if getattr(r, "lat", None) is not None:
+                continue
+            lat = lon = None
+            a, b = row_points(r)
+            if a is not None and b is not None:
+                lat, lon = _rate_row_site(ll_to_m, a, b)
+            if lat is None:
+                lat, lon = _way_latlon(getattr(r, "way_a", None)
+                                       or getattr(r, "way_v", None))
+            r.lat, r.lon = lat, lon
+
+    _stamp_row_sites(within + cross)
+    # The step rows used to be stamped UNCONDITIONALLY from their ring, so
+    # a step family that knew its site had it overwritten.  None does
+    # today; the guard makes that a contract rather than a coincidence.
+    _stamp_row_sites(steps + mid_steps + rw_steps)
 
     # ── THE FACES ON EACH SIDE OF EVERY PAIR (owner RULINGS 2026-09-12aj
     # (c)) ────────────────────────────────────────────────────────────

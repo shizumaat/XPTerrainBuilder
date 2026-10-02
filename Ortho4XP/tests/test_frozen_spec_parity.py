@@ -60,3 +60,79 @@ def test_every_spec_collects_lazrs():
     with open(workflow, encoding="utf-8") as handle:
         text = handle.read()
     assert text.count("--import-selfcheck laspy,lazrs") == 3
+
+
+# ---------------------------------------------------------------------------
+# The console's text layer is part of the same interpreter belt (#171, #125)
+# ---------------------------------------------------------------------------
+ENTRIES = ("Ortho4XP.py", "Ortho4XP_Qt.py")
+
+
+def _entry_tree(name):
+    import ast as _ast
+    return _ast.parse(_source(name), filename=name)
+
+
+def _module_level_call_line(tree, attr):
+    """Line of the first MODULE-LEVEL ``<x>.<attr>()`` call, or None.
+
+    Module level matters: a call nested in an ``if`` runs only on some
+    argv, and the whole point is that it runs on every one.
+    """
+    import ast as _ast
+    for node in tree.body:
+        if isinstance(node, _ast.Expr) and isinstance(node.value, _ast.Call) \
+                and isinstance(node.value.func, _ast.Attribute) \
+                and node.value.func.attr == attr:
+            return node.lineno
+    return None
+
+
+def test_every_entry_pins_the_console_before_anything_can_print():
+    """#125: the FROZEN Windows engine wrote stderr in the ANSI code page,
+    so ``Adolfo Suárez`` reached ``logs/engine-stderr.log`` as undecodable
+    cp1252.  #171: a printed non-cp1252 character is an exception, not
+    mojibake.  Both frozen engines must pin their streams at the top of
+    the entry, ahead of the PROJ self-check — which PRINTS its failure to
+    stderr — and ahead of every heavy import.  Freezing is not run in the
+    suite, so the entry source is what is checked; the spec files add no
+    stream setup of their own (``runtime_hooks=[]`` in both)."""
+    import ast as _ast
+    for name in ENTRIES:
+        source = _source(name)
+        assert "import O4_Console_Encoding" in source, name
+        tree = _entry_tree(name)
+        pinned = _module_level_call_line(tree, "configure_console_streams")
+        assert pinned is not None, (
+            f"{name} does not call "
+            "O4_Console_Encoding.configure_console_streams() at module level")
+
+        prints = [n.lineno for n in _ast.walk(tree)
+                  if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Name)
+                  and n.func.id == "print"]
+        assert prints, name
+        assert pinned < min(prints), (
+            f"{name} prints at line {min(prints)} before pinning the console "
+            f"at line {pinned}")
+
+        proj = [n.lineno for n in _ast.walk(tree)
+                if isinstance(n, _ast.Name) and n.id == "O4_Proj_Runtime"]
+        assert proj and pinned < min(proj), (
+            f"{name} loads the PROJ runtime at line {min(proj)} — whose "
+            f"self-check prints to stderr — before pinning the console at "
+            f"line {pinned}")
+
+
+def test_the_jsonl_transport_pins_its_streams_before_it_repoints_stdout():
+    """``serve`` is the transport's own door (the tests' harness and any
+    other host enter there, not through the entry), and it is the stream
+    setup #125 names: ``sys.stdout`` is repointed at ``sys.stderr``, which
+    makes stderr the engine's whole console."""
+    path = os.path.join(ENGINE_ROOT, "src", "o4_engine", "jsonl.py")
+    with open(path, encoding="utf-8") as handle:
+        source = handle.read()
+    pinned = source.index("O4_Console_Encoding.configure_console_streams()")
+    repointed = source.index("sys.stdout = sys.stderr")
+    assert pinned < repointed, (
+        "jsonl.serve repoints sys.stdout at sys.stderr before pinning the "
+        "streams")

@@ -62,6 +62,7 @@ import time
 from enum import Enum
 from typing import Any, Callable, Dict, TextIO
 
+import O4_Console_Encoding
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
 
@@ -373,6 +374,17 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
     In-process callers (the tests' transport harness) keep the historic
     return-to-caller behavior.
     """
+    # THE STREAMS ARE UTF-8 FIRST (issue #125).  The entry points already
+    # called this, and it is idempotent -- but ``serve`` is the transport's
+    # own door (the tests' harness and any other host enter here), and it
+    # is the stream setup #125 names: the frozen Windows engine's stderr
+    # defaulted to the ANSI code page, so ``Adolfo Suárez`` reached the
+    # app's console drawer and ``logs/engine-stderr.log`` as undecodable
+    # cp1252 bytes.  ``stdout`` below is the PROTOCOL and is ASCII by
+    # construction (``json.dumps`` escapes non-ASCII), but the lines the
+    # pipeline prints are not: ``sys.stdout`` is repointed at ``sys.stderr``
+    # a few lines down, which makes stderr the engine's whole console.
+    O4_Console_Encoding.configure_console_streams()
     protocol_stdout = stdout
     write_lock = threading.Lock()
 

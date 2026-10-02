@@ -30,10 +30,21 @@ native_resolution_m=30
 # Global coverage; per-cell existence is probed against the bucket.
 coverage_bbox=-180.0,-90.0,180.0,90.0
 
+# APPROACH RING 2 ONLY (owner RULINGS 2026-10-02c, approach-graded
+# elevation rings spec section 9 Q1): this surface model MAY serve the
+# 1 arc-second approach ring (out to 20 km from the aerodrome boundary)
+# where no wide-area source covers the cell -- HECA, OTHH, VHHH.  It
+# never serves the 10 m ring or the 1 m core, and it stays OUT of every
+# other wide-area use (the tile overlay, the coastline band): the
+# strategy's supports_wide_area=False is unchanged.  Ring cells pass the
+# same building-footprint masking as an inset.
+approach_ring_class=ring2
+
 surface_model_building_masking=True
 footprint_mask_buffer_m=35
 
 vertical_datum=EGM2008
+license_note=Approach ring 2 use (1 arc-second, 2-20 km from the aerodrome boundary, where no wide-area source covers) ruled by the owner 2026-10-02c
 license=ESA Copernicus DEM GLO-30 licence (free use, modification and distribution with attribution)
 attribution=Produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA
 

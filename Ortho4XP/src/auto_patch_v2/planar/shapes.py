@@ -91,7 +91,9 @@ from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint
-from .shape_airside import weld_airside_faces
+from .shape_airside import (airside_face_sets, declarable_pairs,
+                            inside_apron_body, separated_label_pairs,
+                            weld_airside_faces)
 from .shape_mouths import weld_same_role_mouths
 
 __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes", "network_faces", "network_vertices", "strip_keepout",
@@ -137,7 +139,9 @@ class ShapeStats:
     welded_same_role_mouths: int = 0   # 30bk: body pairs welded across a mouth with the same apron role on both sides
     mouths_kept: int = 0            # 30bk: body pairs whose mouth is flanked by another role (a road / taxiway leaving an apron)
     mouths_mixed: int = 0           # 30bk: body pairs joined by a same-role mouth AND a class-change edge (welded: one apron)
-    welded_airside_faces: int = 0   # 10-02v (2): label pairs welded because ONE APRON face carried them, the 08r-2 road weld apart (an apron face never carries a terrace)
+    welded_airside_faces: int = 0   # 10-02v (2): label pairs merged because ONE APRON face carried them and NO surviving joint edge separates them (identity only: the law is per-edge)
+    airside_faces_kept: int = 0     # #253: label pairs an apron face carried that a SURVIVING joint edge separates — never merged (the groundside joint stands)
+    apron_contours_undeclared: int = 0  # 10-02v (2): faces whose whole label-boundary contour lies INSIDE THE APRON BODY, so no terrace is declared and no row withdrawn
     joint_edges: int = 0            # planar edges whose endpoints carry two shapes
     joint_edges_by_roles: dict[str, int] = _dc.field(default_factory=dict)
     contours: int = 0               # declared label-boundary polylines
@@ -595,17 +599,18 @@ def _weld_strip(pm: PlanarMap, label: dict[int, int], keep, stats: ShapeStats) -
 
 
 def straddles(pm: PlanarMap, ids: _t.Iterable[int]) -> bool:
-    """Whether the vertices ``ids`` carry two different shapes."""
-    seen = NO_SHAPE
-    for v in ids:
-        lv = pm.shape_of_vertex.get(v, NO_SHAPE)
-        if lv == NO_SHAPE:
-            continue
-        if seen == NO_SHAPE:
-            seen = lv
-        elif lv != seen:
-            return True
-    return False
+    """Whether the vertices ``ids`` carry two different shapes — AND the
+    step between them is a terrace.  AN APRON FACE NEVER CARRIES A TERRACE
+    (owner RULINGS 2026-10-02v (2), issues #189 / #253): a pair INSIDE THE
+    APRON BODY (:func:`planar.shape_airside.inside_apron_body`, which
+    documents the rule) reads as ONE shape here — no row of it withdrawn,
+    its pair cap published, no joint edge — while a pair with a groundside
+    or pad side, or one touching a road, reads as two exactly as 08k
+    declared it.  The ONE label reader the joint law turns on."""
+    lab = [v for v in ids if pm.shape_of_vertex.get(v, NO_SHAPE) != NO_SHAPE]
+    if len({pm.shape_of_vertex[v] for v in lab}) < 2:
+        return False
+    return not inside_apron_body(pm, lab)
 
 
 def straddles_pairs(pm: PlanarMap, pairs: _t.Iterable[tuple[int, int]]) -> bool:
@@ -763,8 +768,12 @@ def _contour_joints(pm: PlanarMap, label: _t.Mapping[int, int], to_ll, extend_m:
         if len(labs) < 2:
             continue
         s, p, dangling = _face_contour(pm, fid, label)
+        kept = declarable_pairs(pm, p)          # 10-02v (2) / #253
+        if p and not kept:
+            stats.apron_contours_undeclared += 1
+            continue
         segs.extend(s)
-        pairs.extend(p)
+        pairs.extend(kept)
         if dangling:
             stats.dangling_faces += 1
     out = _joints_from(pm, segs, pairs, to_ll, extend_m, 0, False)
@@ -884,10 +893,13 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     keep = strip_keepout(classification, law) if classification is not None else None
     uf = _weld_strip(pm, label, keep, stats)
     weld_same_role_mouths(pm, law, label, N, uf, stats)   # 30bk: one apron, one shape
-    # 10-02v (2) (issue #189): AN APRON FACE NEVER CARRIES A TERRACE —
-    # after the mouth weld, so a class change elsewhere on a pair (30bk's
-    # kept verdict) cannot leave a step inside an apron; airside is king
-    weld_airside_faces(pm, law, label, uf, stats)
+    # 10-02v (2) (issues #189 / #253): AN APRON FACE NEVER CARRIES A
+    # TERRACE.  The law is the face sets, read per EDGE by :func:`straddles`
+    # and the contour derivation; the weld only consolidates IDENTITY, never
+    # across a pair a surviving joint edge separates (#253).
+    sets = airside_face_sets(pm, law)
+    pm = _dc.replace(pm, **sets)
+    weld_airside_faces(pm, law, label, uf, stats, separated_label_pairs(pm, label))
     # the record: dense shape ids in order of first appearance by area rank
     of_face: dict[int, int] = {}
     area: dict[int, float] = {}
@@ -968,7 +980,7 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
         nverts[l] = nverts.get(l, 0) + 1
     stats.by_shape = [[dense[l], nfaces.get(l, 0), round(area.get(l, 0.0)), nverts.get(dense[l], 0),
                        sorted(roles_of.get(l, ()))] for l in order]
-    pm = _dc.replace(pm, shape_of_vertex=label, shape_of_face=of_face)
+    pm = _dc.replace(pm, shape_of_vertex=label, shape_of_face=of_face, **sets)
     edges = joint_planar_edges(pm)
     stats.joint_edges = len(edges)
     for _a, _b, ra, rb in edges:

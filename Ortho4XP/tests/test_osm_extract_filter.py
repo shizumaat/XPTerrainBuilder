@@ -1017,16 +1017,17 @@ def test_two_cutters_racing_one_destination_both_succeed_when_held(
     """
     destination = str(tmp_path / "clip.osm.pbf")
     windows_replace["targets"].add(destination)
-    started = _threading.Barrier(2, timeout=10)
     errors = []
 
+    # No barrier: each thread's failures are injected per thread, so the
+    # race is deterministic without one -- and a barrier with a wall clock
+    # is itself a flake on a loaded runner.
     def cut(tag, winerror):
         windows_replace["per_thread"][_threading.get_ident()] = [
             OSError(errno.EXDEV, "cross-device link"),
             _held_destination_error(destination, winerror=winerror),
         ]
         try:
-            started.wait()
             FILTER._move_into_place(
                 _cut(tmp_path, name=tag, body=tag.encode()), destination)
         except Exception as error:     # noqa: BLE001 - the assertion target

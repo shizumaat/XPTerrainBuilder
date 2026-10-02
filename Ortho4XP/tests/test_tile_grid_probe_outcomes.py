@@ -237,31 +237,57 @@ def test_probe_mode_none_is_the_escape_for_a_host_that_cannot_be_probed(
     assert fake_host.probed_methods == []
 
 
+#: A GDAL virtual path, the shape BREMEN1M's template has -- its tiles are
+#: members inside one big remote zip, so its probe is ``gdal.Open``, not HTTP.
+VSI_TILE_URL = "/vsizip//vsicurl/http://h/x.zip/a.tif"
+
+
+def _gdal_probe(monkeypatch, module):
+    """``_tile_exists`` on a vsi path with ``INSETS.gdal`` replaced.
+
+    ``raising=False``: the module binds ``gdal`` only when ``from osgeo
+    import gdal`` SUCCEEDED (``has_gdal`` is the flag), so on a machine
+    without GDAL -- every macOS CI runner -- the attribute is absent.
+    """
+    monkeypatch.setattr(INSETS, "gdal", module, raising=False)
+    strategy = INSETS.TileGridHttpStrategy()
+    return strategy._tile_exists({"code": "X"}, None, None, VSI_TILE_URL)
+
+
 def test_a_gdal_probe_that_raises_is_transient_not_absent(monkeypatch):
     """``gdal.Open`` has ONE answer for absent and refused alike, so
     ``None`` still skips the tile -- but an EXCEPTION is no answer."""
-    strategy = INSETS.TileGridHttpStrategy()
 
     class _Boom:
         @staticmethod
         def Open(url):                                     # noqa: N802
             raise RuntimeError("CURL error: Peer certificate")
 
-    monkeypatch.setattr(INSETS, "gdal", _Boom)
     with pytest.raises(INSETS.TransientFetchError):
-        strategy._tile_exists(
-            {"code": "X"}, None, None, "/vsizip//vsicurl/http://h/x.zip/a.tif"
-        )
+        _gdal_probe(monkeypatch, _Boom)
 
+
+def test_a_gdal_probe_that_finds_nothing_still_skips_the_tile(monkeypatch):
     class _Absent:
         @staticmethod
         def Open(url):                                     # noqa: N802
             return None
 
-    monkeypatch.setattr(INSETS, "gdal", _Absent)
-    assert strategy._tile_exists(
-        {"code": "X"}, None, None, "/vsizip//vsicurl/http://h/x.zip/a.tif"
-    ) is False
+    assert _gdal_probe(monkeypatch, _Absent) is False
+
+
+def test_no_gdal_at_all_is_transient_not_a_missing_tile(monkeypatch):
+    """A machine without GDAL knows NOTHING about the tile.
+
+    The module binds ``gdal`` only on a successful import, so the probe's
+    own name is missing here.  The old ``except Exception: return False``
+    swallowed that ``NameError`` into a durable absent -- a provider
+    recorded as no-coverage because the LOCAL machine lacked a library.
+    """
+    monkeypatch.delattr(INSETS, "gdal", raising=False)
+    strategy = INSETS.TileGridHttpStrategy()
+    with pytest.raises(INSETS.TransientFetchError):
+        strategy._tile_exists({"code": "X"}, None, None, VSI_TILE_URL)
 
 
 # ---------------------------------------------------------------------------

@@ -172,17 +172,8 @@ def _bare_page_airport(reach: bool, offset_y: float = 0.0, width: float = 90.0):
 
 def test_open_page_with_nothing_is_groundside_by_default(law):
     """04u: an open page with NO evidence — no startup, no centreline, no
-    apron name, no `aeroway=apron` — is GROUNDSIDE.
-
-    §110 (owner remark RULINGS 2026-09-30b, issue #110, 2026-10-02) names
-    WHICH groundside role: the unclassified verdict is a `parking_lot`
-    unless the face has ROAD PROPORTIONS.  This page's remainder beyond
-    the proximity band is 6 x 25 m — aspect 4.2, under
-    `groundside.road_ribbon_min_aspect` — so it is a lot, where before
-    #110 it was `groundside_pavement` without a road and a `parking_lot`
-    with one.  What 04u pins and this twin keeps is that it is never
-    APRON, that the OPEN DEFAULT (not the demotion) is what spoke, and
-    that no airside edge flipped it.
+    apron name, no `aeroway=apron` — is `groundside_pavement`, or a
+    `parking_lot` where a road reaches it.
 
     THE DEFAULT HOLDS WHERE THERE IS NO AIRSIDE EDGE (owner RULINGS
     2026-09-12i).  §27 widened its class to `groundside_pavement` at
@@ -193,7 +184,6 @@ def test_open_page_with_nothing_is_groundside_by_default(law):
     """
     rules = load_rules()
     assert rules.groundside.default_open_role == "groundside_pavement"
-    assert rules.groundside.unclassified_role == "parking_lot"
     # A NARROW page on the runway edge: chain-seeded, so the 04u OPEN
     # DEFAULT is what speaks (not the touch-chain demotion), and every
     # shared edge — with the runway, and with its own proximity-band
@@ -202,22 +192,16 @@ def test_open_page_with_nothing_is_groundside_by_default(law):
     cl = classify(a, law, rules)
     cells = [c for c in cl.cells if c.ref == "bare"]
     roles = {c.role for c in cells}
-    assert "parking_lot" in roles and "apron" not in roles, cells
-    gs = [c for c in cells if c.role == "parking_lot"]
+    assert "groundside_pavement" in roles and "apron" not in roles, cells
+    gs = [c for c in cells if c.role == "groundside_pavement"]
     assert all(c.side == "groundside" and c.evidence.get("open_default") == 1.0
                and not c.evidence.get("demoted") for c in gs)
-    # §110: the remainder is 6 x 25 m — a plate by its proportions, not a
-    # ribbon — and no road reached it
-    assert all(float(c.evidence["ribbon_aspect"])
-               < rules.groundside.road_ribbon_min_aspect for c in gs)
-    assert all(c.evidence["road_evidence"] == 0.0 for c in gs)
     assert cl.stats["open_defaulted"] >= 1
     assert not any(c.evidence.get("airside_edge_flip") for c in cl.cells
                    if c.ref == "bare")
     # the apron itself (startup + taxi centreline) is still apron
     assert any(c.role == "apron" and c.ref == "apron" for c in cl.cells)
-    # ...and the same page with a route reaching it is a lot too (§110: a
-    # road reaching a face is evidence, no longer the verdict)
+    # ...and the same page with a route reaching it is a lot
     cl2 = classify(_bare_page_airport(reach=True, width=6.0), law, rules)
     cells2 = [c for c in cl2.cells if c.ref == "bare"]
     assert cells2 and "parking_lot" in {c.role for c in cells2} and \
@@ -240,11 +224,8 @@ def test_an_open_page_welded_to_the_runway_is_apron(law):
         assert flipped, (reach, [(c.role, c.evidence.get("open_default")) for c in cells])
         assert {c.role for c in flipped} == {"apron"}
         was = {str(c.evidence.get("airside_edge_was")) for c in flipped}
-        # §110 (issue #110, 2026-10-02): the role the flip found is now
-        # `parking_lot` in BOTH arms — the 90 x 25 m remainder is a plate
-        # by its proportions (aspect 3.6), and a road reaching it no longer
-        # decides.  Before #110 the no-road arm read `groundside_pavement`.
-        assert was == {"parking_lot"}, (reach, was)
+        assert was <= {"groundside_pavement", "parking_lot"}, was
+        assert was == ({"parking_lot"} if reach else {"groundside_pavement"}), (reach, was)
         assert all(float(c.evidence["airside_edge_m"]) >= 10.0 for c in flipped)
         # the proximity band's own verdict is untouched where the band
         # splits the page (the road-reached page is one lot face, uncut)

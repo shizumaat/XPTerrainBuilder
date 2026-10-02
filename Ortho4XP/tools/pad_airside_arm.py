@@ -188,6 +188,7 @@ def _run(icao, out, arm_a=None, arm_b=None):
     # verbatim in kind — v2_solve_replay.capture does the same for the
     # same reason; without them airport.clusters is EMPTY and
     # pad_from_cluster is silently inert)
+    from auto_patch_v2.airport import frame_entry as _fe
     from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
     from auto_patch_v2.airport.pack_partition import partition_pack
     from auto_patch_v2.law.tables import group_span_max_m as span_max
@@ -195,7 +196,10 @@ def _run(icao, out, arm_a=None, arm_b=None):
     from auto_patch_v2.planar.group import derive as derive_groups
     from auto_patch_v2.planar.cluster import clusters as derive_clusters
     t = time.perf_counter()
-    ocache = _RCache(law0.tables.structures.basin.min_solid_thickness_m)
+    # §51 (6) / RULINGS 2026-10-02v (4) (issue #222): the quantum, through
+    # the package's ONE accessor — mirrors ``pipeline/build.pack_stage``.
+    ocache = _RCache(law0.tables.structures.basin.min_solid_thickness_m,
+                     _fe.quantum(law0))
     pack_objects, pack_report = read_objects(airport, law0, ocache)
     part = partition_pack(airport, pack_objects, ocache, law0)
     to_xy, _ = airport.frame.transformers()

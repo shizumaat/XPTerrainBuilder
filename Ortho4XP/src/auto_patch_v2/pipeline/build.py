@@ -342,8 +342,24 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # ONE ``ResourceCache`` for the whole build (spec §22): the skirt
     # reader runs inside classify, the structure passes and the re-seat
     # plan read the same parsed geometry, so the pack is parsed once
+    #
+    # IT CARRIES THE §51 (6) INPUT QUANTUM (owner RULINGS 2026-10-02v (4),
+    # issue #222: "the snapped read is the law").  Read through the package's
+    # ONE accessor (``frame_entry.quantum``) — the same call
+    # ``planar/build.build_planar`` makes for the cache it builds when this
+    # stage does not hand it one, so the pack reaches the planar map snapped
+    # on the input grid whichever of the two minted the cache.  Without it
+    # ``frame_entry.enter`` ran the affine and the repair and skipped the
+    # snap (§51 (2) (b)), which is the SYNTHETIC-TWIN frame the class
+    # documents, and the production build read unsnapped pack geometry:
+    # measured on KCLT, an unsnapped ``tunnel_ramp`` face and its
+    # ``structure_rim`` / ``tunnel_wall`` ring at 35.2217, -80.9417 (14
+    # planar vertices) that the snapped read does not have, and 2,381
+    # row-side values apart, worst 1.12 m.
+    from ..airport import frame_entry as _fe
     from ..airport.obj8 import ResourceCache as _RCache
-    ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m)
+    ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
+                     _fe.quantum(law))
     # THE PACK PARTITION IS A LOAD-STAGE INPUT (owner RULINGS 2026-09-11j;
     # spec §11a (3)).  The pad law needs the pack's BODIES, FEET and
     # ABUTMENTS, and the pads are minted inside ``classify`` — so the pack

@@ -65,7 +65,16 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 8   # issue #73 (lane courtyards): ``PlanCluster.bridges``
+CACHE_VERSION = 9   # issue #222 (lane snap222, owner RULINGS 2026-10-02v
+                    # (4)): every cached partition on disk was read through
+                    # a cache WITHOUT the §51 (6) input quantum, because
+                    # ``pipeline/build.pack_stage`` built it without one.
+                    # ``pipeline.build`` is NOT in :data:`_CODE_MODULES`
+                    # (the reading's own modules are), so the code digest
+                    # cannot see that fix — the bump is what stops an
+                    # unsnapped payload being served to a snapped build.
+                    # A stale payload is refused, never repaired on read.
+# was 8:            # issue #73 (lane courtyards): ``PlanCluster.bridges``
                     # (the posts' and flat lines' rings, which close a
                     # split outline); the frozen engine's digest is this.
 # was 7:            # issue #73 (lane lacepad): ``PlanCluster.rings``

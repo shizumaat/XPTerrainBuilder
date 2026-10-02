@@ -196,6 +196,16 @@ class SplitSet:
     #: because the WRITER is where a dropped multi-anchor placement is
     #: first seen beside the plan (``placement_write.build_plan``).
     unit_seats: tuple[tuple[float, float, float, float, float], ...] = ()
+    #: #232, REPORTED NOT DECIDED: the KEPT-WHOLE placements whose
+    #: AUTHORED file carries a seat directive (``TILTED`` /
+    #: ``SLOPE_LIMIT``), as ``(index, resource, directives)``.  The stage
+    #: does not write these files, so it does not strip them — X-Plane
+    #: still seats them to the terrain normal under their anchor, which on
+    #: a GRADED pad is the design surface the stage just solved.  Whether
+    #: a kept-whole TILTED object on a graded pad should keep its tilt is
+    #: the OWNER'S call (issue #232, "needs a rule"); this names them so
+    #: the ruling is read off a census and not a guess.
+    tilted_kept_whole: tuple[tuple[int, str, tuple[str, ...]], ...] = ()
 
     @property
     def all(self) -> tuple[Split, ...]:
@@ -204,7 +214,11 @@ class SplitSet:
     def to_dict(self) -> dict[str, _t.Any]:
         return {"splits": [s.to_dict() for s in self.splits],
                 "kept": [k.to_dict() for k in self.kept],
-                "counts": dict(self.counts)}
+                "counts": dict(self.counts),
+                # #232: the refs behind ``counts["tilted_kept_whole"]``
+                "tilted_kept_whole": [{"index": i, "resource": r,
+                                       "directives": list(d)}
+                                      for i, r, d in self.tilted_kept_whole]}
 
 
 

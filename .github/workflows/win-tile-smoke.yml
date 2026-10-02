@@ -48,7 +48,19 @@ name: Windows full tile smoke (issue #250)
 # Dispatch:
 #   gh workflow run win-tile-smoke.yml --ref claude/wintile \
 #     -f arm=source -f lat=60 -f lon=-136 -f zl=15
+# THE BOOTSTRAP TRIGGER, and why it is not a gate.  `workflow_dispatch`
+# registers ONLY from the default branch: until this file is on `main`,
+# `gh workflow run win-tile-smoke.yml --ref claude/wintile` answers 404 and
+# the workflow cannot be run at all — which would mean shipping a smoke test
+# nobody had ever seen run.  So a `push` trigger is scoped to a branch
+# namespace that exists for nothing else: `claude/wintile-run/**`.  It
+# matches no lane branch, no release branch and `main` least of all, and it
+# fires on no pull_request, so it gates nothing and costs nothing until
+# someone deliberately pushes a run branch.  Once this file is on `main`,
+# `workflow_dispatch` is the interface and the `push:` block below can go.
 on:
+  push:
+    branches: ["claude/wintile-run/**"]
   workflow_dispatch:
     inputs:
       lat:
@@ -73,12 +85,29 @@ on:
         description: "Seconds the engine gets to reach RunDone"
         default: "5400"
 
+# ONE resolution site for every knob.  A `push` event carries no
+# `inputs` at all, so each value falls back to the same default the
+# dispatch form shows — and a run branch that wants another value edits
+# the literal here, which is why the fallbacks are written out rather
+# than hidden in a step.
 env:
   PYTHON_VERSION: "3.13"   # matches the vendored cp313 wheels in Utils/
+  LAT: ${{ inputs.lat || '60' }}
+  LON: ${{ inputs.lon || '-136' }}
+  ICAO: ${{ inputs.icao || 'CYXY' }}
+  ZL: ${{ inputs.zl || '15' }}
+  PROVIDER: ${{ inputs.provider || 'Arc' }}
+  DEADLINE: ${{ inputs.deadline || '5400' }}
+
+# A run branch pushed twice must not leave two 2-hour Windows jobs racing
+# for the same answer.
+concurrency:
+  group: win-tile-smoke-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   smoke:
-    name: "full tile ${{ inputs.icao }} +${{ inputs.lat }}${{ inputs.lon }} zl${{ inputs.zl }} (${{ matrix.arm }})"
+    name: "full tile ${{ env.ICAO }} ${{ env.LAT }} ${{ env.LON }} zl${{ env.ZL }} (${{ matrix.arm }})"
     runs-on: windows-latest
     # Two hours: the budget is the IMAGERY, and it scales 4x per zoom level.
     # At the default zl15 over a 1-degree tile the build downloads thousands
@@ -89,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false        # the frozen arm's red must not hide source's
       matrix:
-        arm: ${{ (inputs.arm == 'both' && fromJSON('["source","frozen"]')) || fromJSON(format('["{0}"]', inputs.arm)) }}
+        arm: ${{ ((inputs.arm || 'source') == 'both' && fromJSON('["source","frozen"]')) || fromJSON(format('["{0}"]', inputs.arm || 'source')) }}
     defaults:
       run:
         shell: bash           # one recipe; Git bash on the Windows runner
@@ -157,7 +186,7 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p "$LOGS"
-          python scripts/fetch_gateway_apt.py "${{ inputs.icao }}" \
+          python scripts/fetch_gateway_apt.py "$ICAO" \
             --out "$LOGS/apt.dat" --record "$LOGS/gateway.json"
 
       - name: Full tile build with every download real
@@ -177,11 +206,11 @@ jobs:
           fi
           python scripts/check_frozen_tile.py "$entry" \
             --pass full-tile \
-            --lat "${{ inputs.lat }}" --lon "${{ inputs.lon }}" \
-            --icao "${{ inputs.icao }}" \
-            --provider "${{ inputs.provider }}" \
-            --zl "${{ inputs.zl }}" \
-            --deadline "${{ inputs.deadline }}" \
+            --lat "$LAT" --lon "$LON" \
+            --icao "$ICAO" \
+            --provider "$PROVIDER" \
+            --zl "$ZL" \
+            --deadline "$DEADLINE" \
             --engine-python "$(python -c 'import sys;print(sys.executable)')" \
             $apt \
             --logs "$LOGS"
@@ -193,7 +222,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "## ${{ matrix.arm }} arm — ${{ inputs.icao }} +${{ inputs.lat }}${{ inputs.lon }} zl${{ inputs.zl }} (${{ inputs.provider }})"
+            echo "## ${{ matrix.arm }} arm — $ICAO $LAT $LON zl$ZL ($PROVIDER)"
             echo
             if [ -f "$LOGS/download-table.md" ]; then
               cat "$LOGS/download-table.md"

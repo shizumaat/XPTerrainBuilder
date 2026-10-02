@@ -40,7 +40,17 @@ path caps give each airside vertex a floor and a ceiling
 ``model.constraints.REACH_GENERATOR`` — the solver cannot place a vertex
 outside what any route from the thresholds allows.  They are the
 envelope the hard path rows already imply; the law-ordered solve
-withdraws them once a tier yields (``solve/tiers.py``).
+withdraws them once a tier yields (``solve/tiers.py``).  A TAXI-FAMILY
+REACH BAND NEVER CAPS A RUNWAY-FAMILY VERTEX (owner RULINGS 2026-10-02v
+(6), issue #139): a runway-family vertex's band is derived over the
+runway family's OWN routes, so a taxi route's budget can never cap the
+runway edge it shares, while the runway's own thresholds along its own
+ridge still deliver the envelope its own hard path rows imply
+(:func:`reach_band_values`).  Note this is narrower than ``emit.toml
+[terrace] band_roles``, whose trailing comment still reads "the taxi /
+runway faces keep theirs": that key withdraws the apron/junction/
+service faces' bands at assembly (``pipeline/shapes``), while the
+runway family's are re-derived at the site below.
 
 THE POPULATION is derived from the tables (03i): the airside VALUE roles
 that are governed and not rigid — a pad is a flat group levelled by its
@@ -80,14 +90,14 @@ from ..model.airport import Airport
 from ..model.constraints import (REACH_GENERATOR, Band, ConstraintSet, Diff,
                                  Linear, Row, Source)
 from ..model.planar import PlanarMap
-from .routes import reach, route_neighbours, routes
+from .routes import reach, reach_anchored, route_neighbours, routes
 from .precedence import View, view
 from .runway_profile import threshold_pins
 
 __all__ = ["no_step_roles", "rigid_airside_roles", "no_step_pairs",
            "no_step_rate", "no_step_edges", "pad_only_vertices", "pad_contacts",
            "pad_pavement_edges", "rate_rows_for_chain", "reach_bands",
-           "reach_band_values", "hold_interval", "hold_pass", "HoldPass",
+           "reach_band_values", "runway_family_routes", "adjacent_taxi_vertices", "hold_interval", "hold_pass", "HoldPass",
            "HoldInterval", "pair_graph", "runway_membership", "RUNWAY_FLEX",
            "FLEX_RULING"]
 
@@ -175,11 +185,148 @@ def reach_band_values(planar: PlanarMap, law: Law, airport: Airport
                       ) -> dict[int, tuple[float, float]]:
     """Vertex -> ``(floor, ceiling)`` from the threshold pins along the
     routes (``planar.routes.reach``); empty when no runway carries a
-    CIFP threshold."""
+    CIFP threshold.
+
+    A TAXI-FAMILY BAND NEVER CAPS A RUNWAY-FAMILY VERTEX (owner RULINGS
+    2026-10-02v (6), issue #139): a vertex whose role set carries a
+    RUNWAY-FAMILY role (``precedence.runway_family``, read through
+    :func:`runway_membership`) takes the band its OWN family's routes
+    imply (:func:`runway_family_routes`), never the raw metric's — the
+    band's values come FROM the runway's thresholds, and letting a TAXI
+    route turn around and cap the runway's own vertices is the taxi
+    family's longitudinal law reaching the runway edge through a shared
+    vertex, exactly the 05o class (HECA v1703: a ``runway|stub`` edge
+    vertex whose cheapest route to a threshold runs up the stub at the
+    TAXI cap, so its ceiling sits under the crowned ridge and the ridge
+    comes down with it).  What governs that edge is then the runway's
+    own TRANSVERSE row (``runway_profile.runway_transverse``), the
+    profile, and its own threshold reach; the taxi-side vertices BEYOND
+    the edge keep the full metric's band, and the routes still TRANSIT
+    the runway unchanged.
+
+    WHY THE RUNWAY'S OWN BAND IS KEPT, not withdrawn with the taxi
+    one: the ruling's subject is a TAXI-FAMILY band.  The band a runway
+    derives from its own thresholds along its own ridge at its own
+    longitudinal cap is the envelope its own hard path rows already
+    imply (module docstring) — withdrawing it loosens the runway's own
+    law, which the ruling does not name.  Measured on
+    ``test_v2smooth.valley`` / ``test_v2ground.taxi_map``, fixtures with
+    no taxi centreline at all: all 163 bands there are the runway's own
+    (every route edge runway-only), and withdrawing them moved the
+    graded strip's smallest fill 0.70 m -> 0.4276 m and the
+    ``runway_profile`` family's worst miss 0.5706 m -> 0.6556 m.  Since
+    dropping routes can only RAISE the least budget, the runway-only
+    band is never tighter than the raw metric's: this narrowing only
+    ever loosens, and only on runway-family vertices.
+
+    THE ADJACENT TAXI FACES CONFORM TO THE RUNWAY (owner RULINGS
+    2026-10-02ab (1), issue #139, lane rwyband139c): every non-runway
+    vertex of a taxi-family face that SHARES a vertex with the runway
+    family (:func:`adjacent_taxi_vertices` — the stubs and fillets off the
+    runway edge) takes the band the runway edge's OWN band implies,
+    carried over those faces at the path caps (``routes.reach_anchored``
+    over the runway-family vertices as interval anchors, on the graph
+    restricted to the runway family and the adjacent faces) — never the
+    full metric's.  Measured at HECA (main, sweep sw1010): the ceiling a
+    FAR runway's threshold (05L/23R, 60.66 m) delivers over 3.2 km of
+    taxi network at the taxi cap stands 0.3-2.2 m UNDER the 05C/23C
+    runway on 93 of its vertices and under 219 taxi vertices beside it;
+    withdrawing it from the runway alone (PR #237) left the stubs pinned
+    under it while the runway rose, and opened a CRITICAL grade break at
+    the runway|stub corner (1.06 m over 65.6 m at 30.11202711,
+    31.41392002).  With the stubs sourced from the edge the break does
+    not open (CRITICAL motion 2 = main); the cost — the 05C runway up to
+    1.58 m higher, ~6,400 airside movers — is the owner's accepted
+    consequence (10-02ab (1)).  A taxi vertex NOT on such a face keeps
+    the full metric's band.
+
+    The narrowing is at this ONE derivation site, so every reader (the
+    ``reach_bands`` generator, the shape stage's withdraw set, the
+    replay cross-check) inherits it without a veto of its own."""
     pins = threshold_pins(planar, law, airport)
     if not pins:
         return {}
-    return reach(routes(planar, law, airport), pins)
+    g = routes(planar, law, airport)
+    vals = reach(g, pins)
+    subjects = runway_membership(planar, law, vals.keys())
+    if not subjects:
+        return vals
+    member = runway_membership(planar, law, set(planar.vertices))
+    own = reach(_restrict(g, member), pins)
+    out = {v: (own[v] if v in subjects else b) for v, b in vals.items()
+           if v not in subjects or v in own}
+    # THE ADJACENT TAXI FACES CONFORM TO THE RUNWAY (owner RULINGS
+    # 2026-10-02ab (1)): every vertex of a taxi-family face that shares a
+    # vertex with the runway family takes the runway edge's OWN band carried
+    # over that face at the path caps — the edge is the band's source
+    adj = adjacent_taxi_vertices(planar, law, member)
+    if not adj:
+        return out
+    g_adj = _restrict(g, set(member) | adj)
+    anchors = {r: (0.5 * (lo + hi), 0.5 * (hi - lo)) for r, (lo, hi) in own.items()
+               if r in g_adj.nodes and lo <= hi}
+    if not anchors:
+        return {v: b for v, b in out.items() if v not in adj}
+    ar = reach_anchored(g_adj, anchors)
+    for v in adj:
+        lo, hi = float(ar.lo[v]), float(ar.hi[v])
+        if math.isfinite(lo) and math.isfinite(hi):
+            out[v] = (lo, hi)
+        else:
+            out.pop(v, None)
+    return out
+
+
+def adjacent_taxi_vertices(planar: PlanarMap, law: Law,
+                           member: _t.Mapping[int, _t.Any] | None = None) -> frozenset[int]:
+    """The NON-runway-family vertices of every taxi-family face that shares
+    a vertex with the runway family (``precedence.taxi_family`` /
+    ``runway_family``) — the faces the runway edge is the band's source for
+    (owner RULINGS 2026-10-02ab (1), issue #139)."""
+    from ..law.tables import role_family
+    if member is None:
+        member = runway_membership(planar, law, set(planar.vertices))
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if role_family(law, f.role) != "taxi":
+            continue
+        vs = {v for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
+        if any(v in member for v in vs):
+            out.update(v for v in vs if v not in member)
+    return frozenset(out)
+
+
+def runway_family_routes(g: "RouteGraph", planar: PlanarMap, law: Law) -> "RouteGraph":
+    """``g`` with every edge a NON-runway-family vertex touches removed —
+    the runway family's OWN routes (owner RULINGS 2026-10-02v (6)).
+
+    An edge survives only where both its ends are runway-family vertices
+    (``runway_membership``; a VIRTUAL FOOT, 06p (2), through the two
+    planar ends of the segment it lies on, ``RouteGraph.foot``), so no
+    walk over it can leave the runway family and no taxi cap can price
+    one.  Nothing else of the graph is touched: ``nodes``, ``station``
+    and the foot tables stay as built, so the surviving walk ids and
+    lengths are the ones the full metric uses."""
+    return _restrict(g, runway_membership(planar, law, set(planar.vertices)))
+
+
+def _restrict(g: "RouteGraph", keep: _t.AbstractSet[int]) -> "RouteGraph":
+    """``g`` with only the edges whose BOTH ends are in ``keep`` (a virtual
+    foot through its segment's two planar ends)."""
+    import numpy as np
+
+    def inside(ident: int) -> bool:
+        i = int(ident)
+        if i >= g.n_planar:
+            a, b, _t = g.foot[i]
+            return int(a) in keep and int(b) in keep
+        return i in keep
+
+    sel = np.fromiter((inside(a) and inside(b) for a, b in zip(g.a, g.b)),
+                      bool, len(g.a))
+    return _dc.replace(g, a=g.a[sel], b=g.b[sel], length=g.length[sel],
+                       cap=g.cap[sel], kind=g.kind[sel],
+                       face=(g.face[sel] if len(g.face) == len(sel) else g.face))
 
 
 #: THE RUNWAY FLEX RECORDS of the last solve (flat-pad spec v2 §6 A11):

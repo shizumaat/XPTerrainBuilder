@@ -51,6 +51,7 @@ except ImportError:
 
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Held_File as HELD
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
 
@@ -657,10 +658,38 @@ def _refresh_band_lock(band_directory: str) -> None:
 
 
 def _release_band_lock(band_directory: str) -> None:
+    """Drop the lock this process holds, tolerating Windows' refusal.
+
+    POSIX unlinks a file another process has open; Win32 refuses with
+    ERROR_SHARING_VIOLATION (32) while any handle is open -- and a waiter
+    inside :func:`_acquire_band_lock`'s poll loop OPENS this very file for
+    its staleness read (:func:`_band_lock_owner_is_alive`).  A bare
+    ``os.remove`` therefore fails intermittently on Windows, and because
+    the release swallowed the error the lock SURVIVED: its owner pid is
+    still alive, so no waiter judges it stale, and every other process
+    polls on until :data:`BAND_LOCK_STALE_SECONDS` or this process exits
+    (#230, #249 -- measured as an intermittent windows-latest red).
+
+    The holder is the waiter's own momentary read, so the clip-replace
+    remedy of #205 applies unchanged: retry the held-file refusal within
+    :mod:`O4_Held_File`'s bound.  A release that still cannot land is
+    REPORTED, never raised -- this runs in a ``finally`` and must not
+    replace the build's own failure with a cleanup's.
+    """
+    lock_path = _band_lock_path(band_directory)
     try:
-        os.remove(_band_lock_path(band_directory))
-    except OSError:
+        HELD.retrying_a_held_file(lambda: os.remove(lock_path))
+    except FileNotFoundError:
+        # Already gone: a waiter stole it as stale, or a double release.
         pass
+    except OSError as error:
+        UI.vprint(
+            1,
+            "   WARNING: could not release the bathymetry band fetch lock",
+            lock_path,
+            "-", str(error),
+            "- another build may wait on it until it goes stale.",
+        )
 
 
 # =====================================================================

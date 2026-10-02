@@ -17,6 +17,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import O4_Held_File as HELD  # noqa: E402
 import O4_OSM_Extract_Filter as FILTER  # noqa: E402
 
 
@@ -907,8 +908,8 @@ def windows_replace(monkeypatch):
         return real_replace(source, destination, **kwargs)
 
     monkeypatch.setattr(FILTER.os, "replace", _replace)
-    monkeypatch.setattr(FILTER.time, "sleep", state["sleeps"].append)
-    monkeypatch.setattr(FILTER, "_RETRY_HELD_DESTINATION", True)
+    monkeypatch.setattr(HELD.time, "sleep", state["sleeps"].append)
+    monkeypatch.setattr(HELD, "RETRY_HELD_FILE", True)
     return state
 
 
@@ -934,7 +935,8 @@ def test_a_held_destination_is_retried_until_the_holder_lets_go(
     assert len(windows_replace["attempts"]) == 3
     # the bounded, doubling backoff, nothing more
     assert windows_replace["sleeps"] == [
-        FILTER._REPLACE_FIRST_BACKOFF_S, FILTER._REPLACE_FIRST_BACKOFF_S * 2]
+        HELD.HELD_FILE_FIRST_BACKOFF_S,
+        HELD.HELD_FILE_FIRST_BACKOFF_S * 2]
 
 
 def test_a_destination_held_forever_raises_after_the_bounded_attempts(
@@ -943,12 +945,12 @@ def test_a_destination_held_forever_raises_after_the_bounded_attempts(
     windows_replace["targets"].add(destination)
     windows_replace["fail_with"][destination] = [
         _held_destination_error(destination)
-        for _ in range(FILTER._REPLACE_ATTEMPTS + 5)]
+        for _ in range(HELD.HELD_FILE_ATTEMPTS + 5)]
     with pytest.raises(PermissionError):
         FILTER._move_into_place(_cut(tmp_path), destination)
-    assert len(windows_replace["attempts"]) == FILTER._REPLACE_ATTEMPTS
-    assert len(windows_replace["sleeps"]) == FILTER._REPLACE_ATTEMPTS - 1
-    assert max(windows_replace["sleeps"]) <= FILTER._REPLACE_MAX_BACKOFF_S
+    assert len(windows_replace["attempts"]) == HELD.HELD_FILE_ATTEMPTS
+    assert len(windows_replace["sleeps"]) == HELD.HELD_FILE_ATTEMPTS - 1
+    assert max(windows_replace["sleeps"]) <= HELD.HELD_FILE_MAX_BACKOFF_S
     assert sum(windows_replace["sleeps"]) < 2.0
 
 
@@ -969,7 +971,7 @@ def test_a_failure_that_is_not_a_held_destination_raises_at_once(
 
 def test_the_retry_is_windows_only(tmp_path, windows_replace, monkeypatch):
     """Off Windows the same error is a real failure, not a wait."""
-    monkeypatch.setattr(FILTER, "_RETRY_HELD_DESTINATION", False)
+    monkeypatch.setattr(HELD, "RETRY_HELD_FILE", False)
     destination = str(tmp_path / "clip.osm.pbf")
     windows_replace["targets"].add(destination)
     windows_replace["fail_with"][destination] = [
@@ -980,7 +982,7 @@ def test_the_retry_is_windows_only(tmp_path, windows_replace, monkeypatch):
 
 
 def test_the_flag_follows_the_platform():
-    assert FILTER._RETRY_HELD_DESTINATION == (sys.platform == "win32")
+    assert HELD.RETRY_HELD_FILE == (sys.platform == "win32")
 
 
 def test_the_cross_volume_staging_replace_retries_too(

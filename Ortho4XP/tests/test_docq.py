@@ -186,19 +186,95 @@ def test_frames_register_copy_lands_under_the_lane_and_keeps_the_original(tmp_pa
     # a durable path registers as-is, --copy or not, and gets no copied_from
     rec2 = frames.register("KCLT", "capture", rec["path"], "864e7577", "v2test", copy=True)
     assert rec2["path"] == rec["path"] and "copied_from" not in rec2
-    # never overwrite: a byte-identical file is reused, a differing one refuses
+    # never overwrite: a byte-identical file is reused (the row names the
+    # same bytes either way), a DIFFERING one lands beside it under the
+    # base sha and the row names the NEW copy — issue #102 below
     frames.register("KCLT", "patch", str(patch), "x", "v2test", copy=True)
     patch.write_bytes(b"<osm>changed</osm>")
-    with pytest.raises(SystemExit) as exc:
-        frames.register("KCLT", "patch", str(patch), "x", "v2test", copy=True)
-    assert "refusing to overwrite" in str(exc.value)
-    with pytest.raises(SystemExit):                       # the dir already exists
-        frames.register("KCLT", "capture", str(cap), "x", "v2test", copy=True)
+    rec3 = frames.register("KCLT", "patch", str(patch), "26f7fea6", "v2test",
+                           copy=True)
+    assert rec3["path"] != str(durable / "v2test" / "KCLT.patch.osm")
+    assert (durable / "v2test" / "KCLT.patch.osm").read_bytes() == b"<osm/>"
     # the original is left where it was — --copy copies, never moves
     assert patch.exists() and cap.exists()
     # a lane name that is not a bare name cannot become a path component
     with pytest.raises(SystemExit):
         frames.register("KCLT", "patch", str(patch), "x", "claude/lane", copy=True)
+
+
+def test_frames_register_copy_of_a_SECOND_frame_never_points_at_the_first(
+        tmp_path, monkeypatch):
+    """Issue #102 (found by lane train98): a second `HECA.rebake.json` on a
+    new base copied into the same lane folder did not overwrite round 1
+    (correct) but the registry ROW still pointed at ROUND 1's file — the
+    registry silently attributed round 2's frame to round 1's bytes.
+
+    THE INVARIANT: a row's path always names the bytes THIS invocation
+    registered.  Taken as the issue's option (b) — the differing copy
+    lands under a BASE-SUFFIXED name (`frames.BASE_SUFFIX_FMT`) and the
+    row points at it — because `register` has the base sha right there,
+    and (a) would make the second round of any lane unregisterable."""
+    reg, durable = _durable(tmp_path, monkeypatch)
+    src = tmp_path / "scratch"; src.mkdir()
+    plan = src / "HECA.rebake.json"
+    plan.write_text('{"round": 1}', encoding="utf-8", newline="\n")
+    r1 = frames.register("HECA", "rebake", str(plan), "deadbeef", "train98",
+                         copy=True)
+    assert r1["path"] == str(durable / "train98" / "HECA.rebake.json")
+
+    # round 2: same basename, DIFFERENT bytes, different base
+    plan.write_text('{"round": 2}', encoding="utf-8", newline="\n")
+    r2 = frames.register("HECA", "rebake", str(plan), "26f7fea6", "train98",
+                         copy=True)
+    assert r2["path"] != r1["path"]
+    assert os.path.basename(r2["path"]) == frames.BASE_SUFFIX_FMT.format(
+        stem="HECA.rebake", base="26f7fea6", ext=".json")
+    # the row names the bytes just registered...
+    assert json.loads(open(r2["path"], encoding="utf-8").read()) == {"round": 2}
+    assert r2["copied_from"] == str(plan)
+    # ...and round 1's row and file are untouched
+    assert json.loads(open(r1["path"], encoding="utf-8").read()) == {"round": 1}
+    rows = frames.list_frames("HECA", "rebake")
+    assert [r["path"] for r in rows] == [r1["path"], r2["path"]]
+    assert rows[0]["base"] == "deadbeef" and rows[1]["base"] == "26f7fea6"
+    assert frames.latest("HECA", "rebake")["path"] == r2["path"]
+
+    # re-registering the SAME bytes on the SAME base reuses that copy
+    # (the row still names the bytes it registered)
+    r2b = frames.register("HECA", "rebake", str(plan), "26f7fea6", "train98",
+                          copy=True)
+    assert r2b["path"] == r2["path"]
+
+    # a THIRD set of bytes on the SAME base cannot be told apart: refused,
+    # naming both paths, rather than a row pointing at bytes it did not write
+    plan.write_text('{"round": 3}', encoding="utf-8", newline="\n")
+    with pytest.raises(SystemExit) as exc:
+        frames.register("HECA", "rebake", str(plan), "26f7fea6", "train98",
+                        copy=True)
+    msg = str(exc.value)
+    assert r1["path"] in msg and r2["path"] in msg
+    assert len(frames.list_frames("HECA", "rebake")) == 3   # nothing appended
+
+    # a directory product is the same law
+    cap = src / "cap"; cap.mkdir(); (cap / "stage.pkl").write_bytes(b"1")
+    d1 = frames.register("HECA", "capture", str(cap), "deadbeef", "train98",
+                         copy=True)
+    (cap / "stage.pkl").write_bytes(b"2")
+    d2 = frames.register("HECA", "capture", str(cap), "26f7fea6", "train98",
+                         copy=True)
+    assert d2["path"] != d1["path"]
+    assert open(os.path.join(d1["path"], "stage.pkl"), "rb").read() == b"1"
+    assert open(os.path.join(d2["path"], "stage.pkl"), "rb").read() == b"2"
+
+    # without a usable base sha there is no second name: the issue's
+    # option (a), refusing with the existing path named
+    plan2 = src / "SPJC.rebake.json"
+    plan2.write_text("1", encoding="utf-8", newline="\n")
+    frames.register("SPJC", "rebake", str(plan2), "", "train98", copy=True)
+    plan2.write_text("2", encoding="utf-8", newline="\n")
+    with pytest.raises(SystemExit) as exc:
+        frames.register("SPJC", "rebake", str(plan2), "", "train98", copy=True)
+    assert str(durable / "train98" / "SPJC.rebake.json") in str(exc.value)
 
 
 def test_frames_list_marks_a_vanished_path_missing(tmp_path, monkeypatch, capsys):

@@ -51,7 +51,7 @@ def _ll(x, y):
 
 
 def _patch(tmp_path, name, *, apron, membrane, other=None,
-           feature="apron_lattice"):
+           feature="apron_lattice", anchor_in_sidecar=True):
     """One emitted patch: an ``apron`` ring, an optional other-role ring,
     and one membrane feature way.  Coordinates are in metres."""
     out = ["<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"]
@@ -87,8 +87,12 @@ def _patch(tmp_path, name, *, apron, membrane, other=None,
     out.append("</osm>\n")
     p = tmp_path / name
     p.write_text("".join(out), encoding="utf-8", newline="")
-    (tmp_path / (name + ".axes.json")).write_text(json.dumps(
-        {"anchor": list(ANCHOR), "ruleset": "icao"}), encoding="utf-8", newline="")
+    side = {"ruleset": "icao"}
+    if anchor_in_sidecar:
+        # a LEGACY (v1) sidecar; v2's register publishes no anchor at all
+        side["anchor"] = list(ANCHOR)
+    (tmp_path / (name + ".axes.json")).write_text(
+        json.dumps(side), encoding="utf-8", newline="")
     return p
 
 
@@ -184,11 +188,87 @@ def test_it_prices_no_law_and_registers_no_family():
 
 
 def test_the_footprint_and_frame_come_from_the_harness_library():
-    """Imported, never re-spelled."""
+    """Imported, never re-spelled: the parse and the metre frame are the
+    library's ONE sidecar frame reader (``check_grade.
+    sidecar_metre_frame``, which is where ``_parse_osm`` is called and the
+    anchor key is read), and the forward/inverse map is its factory."""
     import inspect
     src = inspect.getsource(LOR.read)
     assert "check_grade" in src
-    assert "_parse_osm" in src and "_ll_to_m_factory" in src
+    assert "sidecar_metre_frame" in src and "_ll_to_m_factory" in src
+    import check_grade as CG
+    assert "_parse_osm" in inspect.getsource(CG.sidecar_metre_frame)
+
+
+# ═════════════════════════════════════════════════════════════════════
+# THE METRE-FRAME ANCHOR (issue #147).  The read used to do
+# ``side["anchor"]`` and died ``KeyError: 'anchor'`` on EVERY current
+# patch — v2's sidecar register publishes no anchor, deliberately, and
+# the harness library falls back to the MEAN OF NODES, which is the
+# frame the census reads the same patch in.  Same repair as
+# ``role_overlap_read`` took (RULINGS 2026-09-13cs), through ONE shared
+# accessor instead of a second copy of it.
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_a_current_sidecar_with_no_anchor_is_read_in_the_node_mean_frame(
+        tmp_path):
+    """The #147 twin: no ``anchor`` key is not a crash — the frame is the
+    library's own mean-of-nodes, and the read still prices the excursion
+    and still says WHERE it is in lat/lon."""
+    import check_grade as CG
+    p = _patch(tmp_path, "v2.osm", apron=_L,
+               membrane=[(100, -100), (100, 100)], anchor_in_sidecar=False)
+    nodes, _ways, anchor, frame, side = CG.sidecar_metre_frame(p)
+    assert "anchor" not in side          # the current shape, by design
+    assert anchor is None                # ...so no builder anchor exists
+    assert frame == CG.FRAME_MEAN_OF_NODES
+    # the metre-frame origin in force IS the mean of the patch's nodes
+    mean = (sum(v[0] for v in nodes.values()) / len(nodes),
+            sum(v[1] for v in nodes.values()) / len(nodes))
+    assert CG._ll_to_m_factory(nodes, anchor)(*mean) == pytest.approx(
+        (0.0, 0.0), abs=1e-6)
+    res = LOR.read(p)                    # no KeyError
+    bad = res["apron_lattice"]["outside"]
+    assert len(bad) == 1 and bad[0]["outside_m"] == pytest.approx(160, abs=1)
+    # ...and the reported position is the segment's real place on earth:
+    # ``mid_m`` is relative to whichever origin is in force (here the node
+    # mean, hence (90, 15) rather than (100, 0)), ``mid_ll`` is absolute
+    # — which is the whole point of inverting the frame that measured it.
+    lat, lon = _ll(100, 0)
+    assert bad[0]["mid_ll"][0] == pytest.approx(lat, abs=1e-4)
+    assert bad[0]["mid_ll"][1] == pytest.approx(lon, abs=1e-4)
+    LOR.read_on_edge(p)                  # the second question, same frame
+
+
+def test_a_LEGACY_sidecar_anchor_is_still_the_frame_it_declares(tmp_path):
+    """Back-compat: a v1 patch carries the BUILDER's anchor and is read
+    about it (the two frames differ in x-scale by ``cos(lat0)``)."""
+    import check_grade as CG
+    p = _patch(tmp_path, "v1.osm", apron=_L,
+               membrane=[(100, -100), (100, 100)])
+    _nodes, _ways, anchor, frame, side = CG.sidecar_metre_frame(p)
+    assert side["anchor"] == list(ANCHOR)
+    assert anchor == pytest.approx(ANCHOR)
+    assert frame == CG.FRAME_BUILDER_ANCHOR
+    assert len(LOR.read(p)["apron_lattice"]["outside"]) == 1
+
+
+def test_a_sidecar_with_NO_anchor_AND_a_patch_with_no_nodes_refuses(
+        tmp_path):
+    """Neither frame is derivable — the refusal NAMES the sidecar instead
+    of raising ``KeyError`` or measuring in a frame about (0, 0)."""
+    p = tmp_path / "empty.osm"
+    p.write_text("<?xml version='1.0' encoding='UTF-8'?>\n"
+                 "<osm version='0.6'>\n</osm>\n",
+                 encoding="utf-8", newline="")
+    (tmp_path / "empty.osm.axes.json").write_text(
+        json.dumps({"ruleset": "icao"}), encoding="utf-8", newline="")
+    with pytest.raises(SystemExit) as e:
+        LOR.read(p)
+    msg = str(e.value)
+    assert str(tmp_path / "empty.osm.axes.json") in msg
+    assert "anchor" in msg and "no nodes" in msg
 
 
 def test_a_patch_with_no_sidecar_is_refused(tmp_path):

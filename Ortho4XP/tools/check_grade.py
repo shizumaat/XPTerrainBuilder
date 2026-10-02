@@ -521,6 +521,75 @@ def _ll_to_m_factory(nodes: Dict[str, Tuple[float, float]],
     return _f
 
 
+#: The sidecar key that carries the BUILDER's projection anchor WHEN THE
+#: PATCH HAS ONE.  v1 wrote it; v2's register
+#: (``auto_patch_v2.emit.osm_adapter.SIDECAR_KEYS``) deliberately does
+#: NOT — so a reader that SUBSCRIPTS it dies with ``KeyError: 'anchor'``
+#: on every current patch, which is what both read tools did (issue #147
+#: for ``lattice_overlap_read``, RULINGS 2026-09-13cs for
+#: ``role_overlap_read``).  Read through :func:`sidecar_anchor`, never
+#: spelled again.
+SIDECAR_ANCHOR_KEY = "anchor"
+
+#: The two metre frames a patch can be read in, NAMED — so a reader can
+#: print the frame in force and two reads are never quoted across frames
+#: (the x-scale differs by ``cos(lat0)``: millimetres over a chord, which
+#: is enough to flip an epsilon contact predicate).
+FRAME_BUILDER_ANCHOR = "builder anchor"
+FRAME_MEAN_OF_NODES = "mean-of-nodes"
+
+
+def sidecar_anchor(sidecar: "Optional[Dict[str, Any]]"
+                   ) -> "Optional[Tuple[float, float]]":
+    """The builder's projection anchor a ``.axes.json`` DECLARES, or
+    ``None`` when it carries none — THE one read of
+    :data:`SIDECAR_ANCHOR_KEY`, and the same ``.get``-with-fallback
+    :func:`law_context_from_sidecar` does, so a tool and the census never
+    disagree about which frame a patch is read in."""
+    a = (sidecar or {}).get(SIDECAR_ANCHOR_KEY)
+    return (float(a[0]), float(a[1])) if a else None
+
+
+def sidecar_metre_frame(path, feature_out=None):
+    """``(nodes, ways, anchor, frame_name, sidecar)`` for one emitted
+    patch — THE single sidecar FRAME reader the measurement tools share
+    (``tools/role_overlap_read.py``, ``tools/lattice_overlap_read.py``).
+
+    ``feature_out``: the dict :func:`_parse_osm` collects the ROLE-LESS
+    feature ways into, so a reader that needs them stays ONE parse.
+
+    The sidecar is REQUIRED (no sidecar, no census context — a
+    context-free read is a different measurement, memory
+    ``check-grade-needs-law-true-frame``); the anchor is used WHEN THE
+    PATCH CARRIES ONE and otherwise the frame is this module's own
+    fallback, the MEAN OF NODES — the frame the census and every pytest
+    fixture read the same patch in.  ``frame_name`` is
+    :data:`FRAME_BUILDER_ANCHOR` or :data:`FRAME_MEAN_OF_NODES`, for the
+    report.  A patch that declares no anchor AND has no nodes to derive
+    one from is REFUSED naming its sidecar: the factory would hand back a
+    frame about (0, 0), in which every metre reads 0.0 and looks lawful.
+    """
+    import json as _json
+    p = Path(path)
+    side_path = Path(str(p) + ".axes.json")
+    if not side_path.exists():
+        raise SystemExit(
+            f"REFUSING: {p} has no .axes.json sidecar — without the census "
+            f"context there is no metre frame to measure in, and a guessed "
+            f"one is a different projection.")
+    nodes, ways = _parse_osm(p, feature_out)
+    sidecar = _json.loads(side_path.read_text())
+    anchor = sidecar_anchor(sidecar)
+    if anchor is None and not nodes:
+        raise SystemExit(
+            f"REFUSING: {side_path} declares no "
+            f"{SIDECAR_ANCHOR_KEY!r} and {p} has no nodes to take the "
+            f"mean of — there is no metre frame to measure in.")
+    return (nodes, ways, anchor,
+            FRAME_BUILDER_ANCHOR if anchor else FRAME_MEAN_OF_NODES,
+            sidecar)
+
+
 # ── Vertex / edge tables ────────────────────────────────────────
 
 @dataclass
@@ -3410,6 +3479,98 @@ def _point_in_rect_ring(px: float, py: float,
     return (margin <= t1 <= l1 - margin) and (margin <= t2 <= l2 - margin)
 
 
+#: STRIP STATION MEMBERSHIP EPSILON (issue #116).  How far OUTSIDE a
+#: runway-strip footprint ring an emitted vertex may sit and still be read
+#: as a station of that strip.  Set to the census's one identity tolerance
+#: (``SHARED_VERTEX_TOL_M``, the solver's weld tolerance): a vertex within
+#: the identity tolerance of the boundary IS on the boundary as far as this
+#: instrument can tell, so it is ADMITTED rather than coin-flipped.
+STRIP_STATION_BOUNDARY_EPS_M = SHARED_VERTEX_TOL_M
+
+
+def _strip_station_inside(px: float, py: float,
+                          ring: List[Tuple[float, float]]) -> bool:
+    """IS ``(px, py)`` A STATION OF THE STRIP whose footprint is ``ring``?
+
+    THE DEFECT THIS CLOSES (issue #116, lane terrace11c / #11).  The strip
+    band's own rim vertices lie EXACTLY on this ring's boundary by
+    construction — emitter and validator build the footprint from the same
+    ``runway_strip_wall_keepout_rings`` call on the same numbers, which is
+    the documented lockstep — so a margin-0 membership test decides every
+    one of them on the last bit of the arithmetic.  And the footprint
+    MOVES with the runway's vertex MULTISET: ``grade_law.
+    runway_axis_and_width`` is a vertex-count-weighted PCA, so inserting a
+    vertex anywhere on the runway ring shifts the centroid and tilts the
+    axis.  Measured between two replay arms whose way -10100 and every
+    vertex within 30 m of 30.0996269, 31.3974530 were BYTE-IDENTICAL: the
+    reader visited 602 vs 603 strip stations and the census read a NEW
+    ``strip_arc`` CRITICAL motion row (0.36 m over 37.27 m,
+    ``runway|junction``) in ONE arm — 2.9 km from the only nodes that
+    differed (A-only 9, B-only 13).  Synthetic twin
+    (``tests/test_strip_station_invariance.py``): ONE extra runway vertex
+    2.4 km away moved 318 stations to 217 and dropped the row.
+
+    So the boundary is EPSILON-INCLUSIVE: the decision line is moved off
+    the place where emitted vertices actually sit to a place where, by the
+    same construction, none of them is.  It is the honest half-fix — a
+    vertex at exactly ``boundary + eps`` is a new (far smaller) knife edge
+    — because the invariant belongs at the footprint's own derivation,
+    which is SHARED WITH THE EMITTER and therefore not the census's to
+    change (see the lane report / DEFERRED_VERIFICATION).  Inclusive, not
+    exclusive: an instrument may read a station twice, never go blind.
+
+    THE one predicate every strip-footprint station set is built from, so
+    the ``strip_arc``, ``strip_abeam``, ``resa_transverse`` and ``raoa``
+    readers can never disagree about where a strip is.
+    """
+    return _point_in_rect_ring(px, py, ring, -STRIP_STATION_BOUNDARY_EPS_M)
+
+
+def _strip_chain_start(pts, inside) -> int:
+    """THE CANONICAL FIRST VERTEX of a closed strip ring's station chain —
+    a function of the ring's own GEOMETRY, never of the emitted vertex
+    order (issue #116, the "flips with the patch's start vertex" half).
+
+    ``runway_strip_longitudinal_runs`` walks an OPEN chain, so on a closed
+    ring the array boundary is an extra break: rotating the emitted start
+    vertex moves that break and changes the station count (measured on the
+    synthetic twin: 318 stations at rotation 0, 316 at rotation 37, local
+    surface byte-identical).  Anchoring the start to the ring's own
+    geometry makes the station set start-invariant by construction.
+
+    Preferred start: the vertex FOLLOWING an outside-the-footprint vertex —
+    that pair is already a break, so the array boundary costs no station —
+    and among those the geometrically smallest, which is order-free.  With
+    every vertex inside, the geometrically smallest vertex.  (A ring
+    carrying STACKED nodes could still tie; stacked nodes are their own law
+    family and outlawed.)"""
+    n = len(pts)
+    outs = [(i + 1) % n for i, f in enumerate(inside) if not f]
+    cands = outs or range(n)
+    return min(cands, key=lambda i: pts[i])
+
+
+def _strip_station_runs(pts, axis, inside, closed: bool):
+    """``runway_strip_longitudinal_runs`` on an ORDER-INVARIANT chain.
+
+    Same runs, same law (the shared emitter/validator split), but a closed
+    ring is rotated to its canonical start (``_strip_chain_start``) first
+    and the returned index lists are mapped back to the caller's own
+    indices.  THE one place a strip station chain is built."""
+    if _runway_strip_longitudinal_runs is None:        # pragma: no cover
+        return []
+    n = len(pts)
+    if not closed or n < 2 or not any(inside):
+        return _runway_strip_longitudinal_runs(pts, axis, inside)
+    k = _strip_chain_start(pts, inside)
+    if k == 0:
+        return _runway_strip_longitudinal_runs(pts, axis, inside)
+    order = [(i + k) % n for i in range(n)]
+    runs = _runway_strip_longitudinal_runs(
+        [pts[i] for i in order], axis, [inside[i] for i in order])
+    return [[order[i] for i in run] for run in runs]
+
+
 # ── THE ACTIVE RULESET (phase B) ─────────────────────────────────────
 # The census judges in the ruleset the BUILD ran under — carried by the
 # ``.axes.json`` sidecar's ``ruleset`` key and never re-resolved from the
@@ -3598,8 +3759,8 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
     for w in ways:
         if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
-        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
-              else w.nids)
+        closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+        nn = w.nids[:-1] if closed else w.nids
         pts: List[Tuple[float, float]] = []
         zs: List[Optional[float]] = []
         for k, nid in enumerate(nn):
@@ -3618,13 +3779,14 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
             # BETWEEN THE ENDS only: ``rings[0]`` is the lateral graded
             # strip; the end corridors carry the runway-END regime's own
             # longitudinal law (FAA §3.16.5 items 2-4), read elsewhere.
-            inside = [_point_in_rect_ring(px, py, rings[0], 0.0)
+            inside = [_strip_station_inside(px, py, rings[0])
                       for px, py in pts]
             if not any(inside):
                 continue
             cap, arc_rate = _strip_longitudinal_law(
                 code, letter, _ACTIVE_RULESET)
-            for run in _runway_strip_longitudinal_runs(pts, axis, inside):
+            for run in _strip_station_runs(pts, axis, inside,
+                                           closed):
                 for a, b in zip(run, run[1:]):
                     if zs[a] is None or zs[b] is None:
                         continue
@@ -3770,8 +3932,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
     for w in ways:
         if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
-        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
-              else w.nids)
+        closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+        nn = w.nids[:-1] if closed else w.nids
         pts, zs = [], []
         ok = True
         for k, nid in enumerate(nn):
@@ -3783,7 +3945,7 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
         if not ok or len(pts) < 3:
             continue
         for rings, axis, code, _length, letter in groups:
-            inside = [_point_in_rect_ring(px, py, rings[0], 0.0)
+            inside = [_strip_station_inside(px, py, rings[0])
                       for px, py in pts]
             if not any(inside):
                 continue
@@ -3791,7 +3953,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
                 code, letter, _ACTIVE_RULESET)
             if not arc_rate:
                 continue
-            for run in _runway_strip_longitudinal_runs(pts, axis, inside):
+            for run in _strip_station_runs(pts, axis, inside,
+                                           closed):
                 s = [pts[i][0] * axis[0] + pts[i][1] * axis[1] for i in run]
                 z = [zs[i] for i in run]
                 n_stations += max(0, len(run) - 2)
@@ -3883,7 +4046,7 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m
                 if ring_idx >= len(rings):
                     continue
                 ring = rings[ring_idx]
-                inside = [_point_in_rect_ring(qx, qy, ring, 0.0)
+                inside = [_strip_station_inside(qx, qy, ring)
                           for qx, qy in pts]
                 if not any(inside):
                     continue
@@ -3977,7 +4140,7 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
         if not ok or len(pts) < 3:
             continue
         for ring, inward in rects:
-            inside = [_point_in_rect_ring(qx, qy, ring, 0.0)
+            inside = [_strip_station_inside(qx, qy, ring)
                       for qx, qy in pts]
             if sum(1 for f in inside if f) < 3:
                 continue
@@ -11126,8 +11289,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     else:
         ctx["taxi_axes_ll"] = data.get("axes") or None
         ctx["routes_ll"] = data.get("routes") or None
-    anchor = data.get("anchor") or None
-    ctx["anchor"] = tuple(anchor) if anchor else None
+    ctx["anchor"] = sidecar_anchor(data)
     ctx["seam_pins_ll"] = data.get("seam_pins")
     # §16g (10) (12) (2): the re-node witness list (absent on any patch
     # written before 2026-09-16, which then reports nothing)
@@ -11499,6 +11661,25 @@ def row_side(row) -> str:
     if ga or gb:
         return "mixed"
     return "airside"
+
+
+def row_points(row):
+    """THE ROW'S TWO ENDPOINTS in the census's own metre frame, as
+    ``(a, b)`` — ONE spelling for the two row shapes ``run_checks``
+    emits: ``pt_a``/``pt_b`` for a grade violation, ``vert_pt``/
+    ``proj_pt`` for an edge step.
+
+    This is the ``site_m`` of the row dump (``harness/census.row_record``)
+    and the point pair every site printer projects back to lat/lon
+    (``_stamp_row_sites``).  ``tools/harness/census.py`` still carries its
+    own copy for its ``--sites`` clustering; that copy should delegate
+    here (follow-up, named in the lane report) — a THIRD copy is the
+    census-wrapper defect.
+    """
+    a, b = getattr(row, "pt_a", None), getattr(row, "pt_b", None)
+    if a is None:
+        a, b = getattr(row, "vert_pt", None), getattr(row, "proj_pt", None)
+    return a, b
 
 
 def row_roles(row) -> Tuple[str, str]:
@@ -13211,25 +13392,56 @@ def run_checks(
     _ps(f"RUNWAY STEP (two faces of the runway family, floor "
         f"{_rw_step_m:g} m — §40 (5) (4))", rw_steps, top_n, _rw_step_m)
 
+    # ── THE ONE ROW SITE WRITER (issues #106 / #107) ─────────────────
     # Attach a geographic location (lat, lon) to each finding so callers
-    # can point a user at the spot in their apt.dat / DSF.  nodes maps
-    # nid -> (lat, lon); use the centroid of the offending way's ring.
+    # can point a user at the spot in their apt.dat / DSF.
+    #
+    # THE DEFECT THIS CLOSES.  Every reader works in the census's METRE
+    # frame and already carries the row's endpoints there (``row_points``
+    # — the ``site_m`` of the row dump).  Most readers project them back
+    # themselves (``_rate_row_site``, ``_check_within_shape``); the ones
+    # that do not used to fall through to the CENTROID OF THE RING the row
+    # was found on.  Measured on ``nlwfroad100c_NLWF``: a 2.72 m
+    # ``adjacent_ground_step`` row whose ``site_m`` is
+    # ``[[645.34, 12.36], [645.33, 13.94]]`` printed
+    # ``-14.3115574, -178.0666656`` — the layout origin's neighbourhood,
+    # no patch vertex within 6 m, 645 m west of the real pair (nodes -346
+    # / -347).  That is the same class of wrong answer RULINGS 2026-09-12aj
+    # (a) ruled on for the rate readers, reached by the other door.
+    #
+    # So the fallback is no longer the ring: it is the row's OWN site_m,
+    # carried through the SAME inverse projection every other family uses
+    # (``_rate_row_site`` — the pair MIDPOINT, the convention R19-5 and
+    # 12aj (a) both set).  A per-family transform would be a second copy
+    # of that projection, which is the census-wrapper defect.  The ring
+    # centroid survives only for a row that carries no endpoints at all.
     def _way_latlon(way):
-        lls = [nodes[n] for n in way.nids if n in nodes]
+        lls = [nodes[n] for n in (getattr(way, "nids", None) or [])
+               if n in nodes]
         if not lls:
             return (None, None)
         return (sum(p[0] for p in lls) / len(lls),
                 sum(p[1] for p in lls) / len(lls))
 
-    for v in within + cross:
-        # A row that already KNOWS where it is keeps its own site: the
-        # within-shape check reports its pair MIDPOINT (R19-5), and since
-        # 12aj (a) every RATE row does too.  The ring centroid stays the
-        # fallback for a row whose location genuinely is a whole shape.
-        if v.lat is None:
-            v.lat, v.lon = _way_latlon(v.way_a)
-    for s in steps + mid_steps + rw_steps:
-        s.lat, s.lon = _way_latlon(s.way_v)
+    def _stamp_row_sites(rows) -> None:
+        for r in rows:
+            # A row that already KNOWS where it is keeps its own site.
+            if getattr(r, "lat", None) is not None:
+                continue
+            lat = lon = None
+            a, b = row_points(r)
+            if a is not None and b is not None:
+                lat, lon = _rate_row_site(ll_to_m, a, b)
+            if lat is None:
+                lat, lon = _way_latlon(getattr(r, "way_a", None)
+                                       or getattr(r, "way_v", None))
+            r.lat, r.lon = lat, lon
+
+    _stamp_row_sites(within + cross)
+    # The step rows used to be stamped UNCONDITIONALLY from their ring, so
+    # a step family that knew its site had it overwritten.  None does
+    # today; the guard makes that a contract rather than a coincidence.
+    _stamp_row_sites(steps + mid_steps + rw_steps)
 
     # ── THE FACES ON EACH SIDE OF EVERY PAIR (owner RULINGS 2026-09-12aj
     # (c)) ────────────────────────────────────────────────────────────

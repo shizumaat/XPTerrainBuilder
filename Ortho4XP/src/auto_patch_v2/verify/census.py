@@ -28,6 +28,7 @@ from .strips import (FAMILY_STRIP_TRANSVERSE, adjacent_ground_step,
                      strip_transverse)
 from .channel import channel_crest_at_edge, channel_floor_at_declaration
 from .contiguity import lateral_contiguity
+from .cutback import groundside_cutback
 from .eat import eat_ceiling
 from .jetway import jetway_strip
 from .frontage import frontage_near_miss
@@ -80,50 +81,76 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "eat_ceiling": eat_ceiling,
     # jetway-strip spec §2 (6) (owner RULINGS 2026-09-18t Q3)
     "jetway_strip": jetway_strip,
+    # issue #97 M1 / #108: the stand-off strip a zone band is cut back from
+    # a groundside road by — REPORT-ONLY (its intent is Q-97 on #58), but a
+    # reading of the emitted rings and so verify's to make
+    "groundside_cutback": groundside_cutback,
 }
 
-#: Families in the tables with no v2 reader (vacuous on v2's product or
-#: an M3+ family) — listed, never dropped.
-NOT_IMPLEMENTED: tuple[str, ...] = (
-    # §16g (10) (3)/(6) (owner RULINGS 2026-09-14x / 14ai): both families
-    # are the CENSUS's, not the design surface's — one is declared in the
-    # sidecar from the pack's clusters (which no emitted patch carries)
-    # and the other is a plane residual read off the patch's own rings.
-    # ``verify`` reads the DESIGN SURFACE and has no reader for either,
-    # so the lockstep twin must not expect one.
-    "pad_cluster_mismatch", "pad_airside_weld",
-    # §16g (10) (12) (2) (Fable 2026-09-16; RULINGS 2026-09-16b): the
-    # re-node family is the CENSUS's too — it prices the sidecar witness
-    # the ARRANGEMENT published (its own pass A against its pass B), and
-    # ``verify`` reads the solved design surface, which by then carries
-    # one vertex set and cannot see which of them a pad minted.
-    "pad_airside_renode",
-    # unit-platform spec §4 (5): both platform families price the sidecar's
-    # ``platforms`` (the build's own solved-plane reading) — the census's
-    "platform_rim_relief", "platform_refused",
-    # flat-pad spec §1 (2) / RULINGS 2026-09-30u (c): the held blocks'
-    # frontage, from the same ``platforms`` key
-    "pad_frontage_hold", "pad_frontage_infeasible",
-    # flat-pad spec v2 §5a (RULINGS 2026-09-30be/30bf): the solve's own
-    # pre-solve LP names the relaxed hard rows (``hard_conflict``) — the
-    # census's; verify reads the solved surface, which cannot see a row
-    # the solve demoted
-    "hard_conflict",
-    "terrace_joint_route", "terrace_joint_strip", "terrace_actual_step",
-    "drainage_spine", "apron_lattice_membrane", "drainage_minimum",
-    # §39 (2) (owner RULINGS 2026-09-13bk/13bt/13bu): the hairline needs the
-    # TILE's foreign constrained edges — the OSM water the mesh constrains,
-    # published by the emitter as the ``shore_edges`` sidecar key.  A
-    # ``Patch`` carries the emitted surface and nothing outside it, so v2
-    # verify has no reader for it and the oracle is the only instrument
-    # (with the mesh pre-flight, which reads the assembled ``.poly``).
-    "hairline_pair",
-    # RULINGS 2026-09-29ac (#105): the universal pavement cap is HELD by the
-    # engine's hard row family (``constraints/pavement_cap.py``) and REPORTED
-    # by the census over the emitted rings; v2 verify has no reader of its
-    # own (a second reader would be a second population of one law).
-    "pavement_over_road_cap",
-)
+#: Families in the tables with no v2 reader, each with THE REASON verify
+#: structurally cannot read it (vacuous on v2's product, or a sidecar
+#: witness only the census holds) — listed, never dropped, and never with
+#: an empty reason: ``tests/auto_patch_v2/test_v2cutback.py`` asserts that
+#: every family of ``check_grade.LAW_FAMILIES`` is either read here or
+#: named here with a reason, so a family added to the census WITHOUT its
+#: counterpart fails at the register and not nine rounds later on a built
+#: surface (issue #108).
+NOT_IMPLEMENTED: dict[str, str] = {
+    # §16g (10) (3)/(6) (owner RULINGS 2026-09-14x / 14ai)
+    "pad_cluster_mismatch":
+        "the CENSUS's own: declared in the sidecar from the pack's clusters, "
+        "which no emitted patch carries; ``verify`` reads the design surface",
+    "pad_airside_weld":
+        "the CENSUS's own: a plane residual read off the patch's own rings, "
+        "not the design surface ``verify`` reads",
+    # §16g (10) (12) (2) (Fable 2026-09-16; RULINGS 2026-09-16b)
+    "pad_airside_renode":
+        "prices the sidecar witness the ARRANGEMENT published (its own pass A "
+        "against its pass B); the solved design surface carries ONE vertex "
+        "set and cannot see which of them a pad minted",
+    # unit-platform spec §4 (5)
+    "platform_rim_relief":
+        "prices the sidecar's ``platforms`` key — the build's own solved-plane "
+        "reading, which the emitted surface does not carry",
+    "platform_refused":
+        "prices the sidecar's ``platforms`` key (the refusal record); not on "
+        "the emitted surface",
+    # flat-pad spec §1 (2) / RULINGS 2026-09-30u (c)
+    "pad_frontage_hold":
+        "the held blocks' frontage, from the same sidecar ``platforms`` key",
+    "pad_frontage_infeasible":
+        "the held blocks' frontage, from the same sidecar ``platforms`` key",
+    # flat-pad spec v2 §5a (RULINGS 2026-09-30be/30bf)
+    "hard_conflict":
+        "the solve's own pre-solve LP names the relaxed hard rows; verify "
+        "reads the solved surface, which cannot see a row the solve demoted",
+    "terrace_joint_route":
+        "v2 emits no terrace joints — the geometry the family reads does not "
+        "exist on its product (RULINGS 2026-08-13 WELD OR GAP)",
+    "terrace_joint_strip":
+        "v2 emits no terrace joints (RULINGS 2026-08-13 WELD OR GAP)",
+    "terrace_actual_step":
+        "v2 emits no terrace walls (RULINGS 2026-08-13 WELD OR GAP)",
+    "drainage_spine":
+        "v2 emits no drainage spines — vacuous on its product",
+    "apron_lattice_membrane":
+        "v2 emits no apron lattice membrane — vacuous on its product",
+    "drainage_minimum":
+        "the version-deferred groundside drainage minimum (RULINGS "
+        "2026-08-13b/08-14): no curvature law on v2's surfaces to read",
+    # §39 (2) (owner RULINGS 2026-09-13bk/13bt/13bu)
+    "hairline_pair":
+        "needs the TILE's foreign constrained edges (the ``shore_edges`` "
+        "sidecar key the emitter publishes); a ``Patch`` carries the emitted "
+        "surface and nothing outside it, so the oracle and the mesh "
+        "pre-flight are the only instruments",
+    # RULINGS 2026-09-29ac (#105)
+    "pavement_over_road_cap":
+        "the universal pavement cap is HELD by the engine's hard row family "
+        "(``constraints/pavement_cap.py``) and REPORTED by the census over "
+        "the emitted rings; a second reader would be a second population of "
+        "one law",
+}
 
 
 def FAMILIES(law: Law) -> tuple[str, ...]:

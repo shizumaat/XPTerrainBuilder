@@ -100,8 +100,8 @@ for t in *.tar.gz; do tar -xzf "$t"; done   # every tarball unpacks into the sam
 cd -  # back to the repo
 Ortho4XP/venv/bin/python Ortho4XP/tools/harness/corpus_snapshot.py verify "$SNAP"
 
-# issue #103 workaround until fixed: the cwd check runs before the mount
-mkdir -p "$SNAP/data/OSM_data" && ln -sfn "$SNAP/data/OSM_data" Ortho4XP/OSM_data
+# the build root needs no corpus directory of its own: the mount creates
+# each one (#103 — the cwd check now reads the snapshot request first)
 export O4_CORPUS_SNAPSHOT="$SNAP"            # or pass --corpus snapshot:$SNAP
 cd Ortho4XP && venv/bin/python tools/harness/build_airport.py CYXY
 ```
@@ -129,7 +129,13 @@ airport the snapshot doesn't fully carry.
    refused. That covers downloads and cache regeneration too.
 2. Verifies the snapshot and symlinks each corpus directory of the lane
    (`Elevation_data`, `OSM_data`, `Airport_mod_cache`, ...) into
-   `$SNAP/data`. A real directory there is refused.
+   `$SNAP/data`, creating the target if the snapshot has none. A real
+   directory in the build root is refused. Because the mount is what
+   creates them, the build-cwd law excuses exactly these directories
+   when a snapshot is requested AND verifies as mountable (#103); with
+   no snapshot requested, or one that is absent, edited or incomplete,
+   a build root lacking `OSM_data` is refused as before, and `venv/` is
+   never excused.
 3. Renders `Ortho4XP.cfg` with the X-Plane paths on `$SNAP/xplane`.
 4. Watches for leaks. A read of the real shared repo or the real install
    while the snapshot is mounted means the snapshot was incomplete. It is

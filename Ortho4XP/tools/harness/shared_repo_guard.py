@@ -93,6 +93,23 @@ REFRESH_SCOPES = (
      "(LAS-tile providers)"),
     ("dem", "Elevation_data",
      "base DEM rasters and airport elevation insets (provider downloads)"),
+    # THE RING CELLS (approach-graded-elevation-rings-spec §5, #164) are
+    # their own act: authorising a DEM refresh does NOT authorise a ring
+    # warm — a session that warms ``dem`` today must stay byte-identical
+    # in effect, and ~16 MB per airport of new cells is not a side effect
+    # of re-fetching an inset.  They live INSIDE ``dem``'s prefix
+    # (``Elevation_data/<block>/<stem>_approach_rings/``), so — exactly as
+    # ``shore`` sits inside ``osm_layers``' prefix — this row is listed
+    # AFTER the prefix that contains it and :func:`scope_of` names it
+    # FIRST, by DIRECTORY SUFFIX (``DIR_SUFFIX_SCOPES``).  The spec's
+    # "listed BEFORE dem" would make this prefix shadow every base raster
+    # and inset in the tree; the suffix table is the mechanism the same
+    # sentence names, and the `shore` precedent is how it composes.
+    ("rings", "Elevation_data",
+     "the approach-graded elevation ring cells around inset-holding "
+     "aerodromes (10 m to 10 km and 1 arc-second to 20 km from the "
+     "aerodrome boundary, ~16 MB on disk per airport) — warmed only by "
+     "--refresh-data rings, never by a build"),
     ("airport_mod_cache", "Airport_mod_cache",
      "third-party apt.dat pack indexes and sidecars"),
     ("dsf_cache", "Default_DSF_cache",
@@ -140,6 +157,25 @@ SUFFIX_SCOPES = (
                             "_shore_structures.osm.bz2.lock")),
 )
 
+#: The ring cache directory suffix, QUOTED from the engine's own
+#: ``O4_File_Names.APPROACH_RING_DIR_SUFFIX``.  Quoted and not imported:
+#: this guard is armed by ``tests/conftest.py`` for EVERY test and is
+#: loaded by tools that never load Ortho4XP, so it must not put the
+#: engine's ``src/`` on ``sys.path`` as a side effect of being imported.
+#: ``tests/test_approach_rings.py`` twin-asserts the two spellings agree,
+#: so a rename there cannot silently unmap this scope and let a ring warm
+#: pass as a ``dem`` write.
+APPROACH_RING_DIR_SUFFIX = "_approach_rings"
+
+#: Scopes named by a DIRECTORY-NAME suffix, consulted with the file
+#: suffixes: a whole artefact DIRECTORY that sits under another scope's
+#: prefix but is filled by its own refresh.  The ring cells live at
+#: ``Elevation_data/<block>/<stem>_approach_rings/...`` — inside
+#: ``dem``'s prefix, and emphatically not ``dem``'s act (#164).
+DIR_SUFFIX_SCOPES = (
+    ("rings", "Elevation_data/", APPROACH_RING_DIR_SUFFIX),
+)
+
 
 def scope_of(relpath: str):
     """The ``--refresh-data`` scope a shared-repo path belongs to, most
@@ -147,6 +183,14 @@ def scope_of(relpath: str):
     rel = str(relpath)
     for name, under, suffixes in SUFFIX_SCOPES:
         if rel.startswith(under) and rel.endswith(suffixes):
+            return name
+    for name, under, dir_suffix in DIR_SUFFIX_SCOPES:
+        if not rel.startswith(under):
+            continue
+        # Any DIRECTORY component (never the file itself) ending in the
+        # suffix names the scope: ``Elevation_data/<block>/
+        # <stem>_approach_rings/<cell>.tif``.
+        if any(part.endswith(dir_suffix) for part in rel.split("/")[:-1]):
             return name
     for name, prefix, _why in REFRESH_SCOPES:
         if rel == prefix or rel.startswith(prefix + "/"):

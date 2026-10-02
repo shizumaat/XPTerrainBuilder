@@ -13,6 +13,7 @@ inside functions (it lazily imports this module from
 import-order trap).  No GUI toolkit imports, per the core-module rule.
 """
 
+import collections
 import datetime
 import json
 import os
@@ -134,6 +135,106 @@ def base_prefers_coarse(value):
 def grid_posting_metres(factor):
     """North-south posting of the working grid at a densification factor."""
     return GEO.lat_to_m / (3600.0 * factor)
+
+
+# --- The approach-visibility grading ladder (one function, two tables)
+# (approach-graded-elevation-rings-spec §1/§3.1; owner RULINGS 2026-10-01g:
+# the coastline level's grading is THE RULE TO GENERALISE, not a parallel
+# one).  A rung is (reach in metres from the reference geometry, warp
+# resolution in metres, label).  Rungs are listed FINEST FIRST and the
+# first rung whose reach covers the distance wins.
+ApproachRung = collections.namedtuple(
+    "ApproachRung", ("reach_m", "resolution_m", "label")
+)
+
+#: Reach of each approach ring, measured from the AERODROME BOUNDARY
+#: polygon (owner ruling 2026-10-01g, radii CONFIRMED).
+APPROACH_RING_1_REACH_M = 10_000.0
+APPROACH_RING_2_REACH_M = 20_000.0
+
+#: A feather is a number of POSTINGS OF THE COARSER SIDE, never a fixed
+#: metre count (spec §1: the 60 m feather was sized for the 1 m -> 10 m
+#: seam and then reused at a 10 m -> 90 m seam where it is 0.65 of one
+#: posting -- that is the defect this mechanism fixes).
+APPROACH_RING_FEATHER_POSTINGS = 10
+
+#: Feather widths are rounded to this multiple so the law reads as a
+#: round number of metres (10 x 30.92 m -> 300 m, 10 x 92.77 m -> 900 m).
+APPROACH_RING_FEATHER_ROUNDING_M = 100.0
+
+#: The BASE elevation class a ring 2 hands back to: 3 arc-second posting.
+BASE_CLASS_ARC_SECONDS = 3.0
+
+
+def approach_rung_ladder():
+    """The ring ladder: 10 m to 10 km, 1 arc-second to 20 km, base beyond."""
+    return (
+        ApproachRung(
+            APPROACH_RING_1_REACH_M, round(grid_posting_metres(3), 2), "ring1"
+        ),
+        ApproachRung(
+            APPROACH_RING_2_REACH_M, round(grid_posting_metres(1), 2), "ring2"
+        ),
+    )
+
+
+def coastline_rung_ladder():
+    """The coastline band's own ladder, VALUES UNCHANGED (spec §9 Q2: keep
+    both tables, one function, until a coastline-mode sim read)."""
+    return (
+        ApproachRung(
+            COASTLINE_NEAR_AIRPORT_KM * 1000.0,
+            round(grid_posting_metres(3), 2),
+            "near",
+        ),
+        ApproachRung(
+            COASTLINE_MID_AIRPORT_KM * 1000.0,
+            float(COASTLINE_MID_RESOLUTION_M),
+            "mid",
+        ),
+        ApproachRung(
+            float("inf"), round(grid_posting_metres(1), 2), "far"
+        ),
+    )
+
+
+def approach_class(distance_m, ladder):
+    """The ladder rung serving a point ``distance_m`` from the reference.
+
+    THE one grading function behind both the coastline band's
+    approach-visibility tiers and the approach rings (spec §6 row 5).
+    Returns the finest rung whose reach covers the distance, or ``None``
+    when every rung is out of reach (the ring ladder's "beyond" case --
+    the tile's base DEM stands there).
+    """
+    for rung in ladder:
+        if distance_m <= rung.reach_m:
+            return rung
+    return None
+
+
+def approach_ring_feather_m(coarser_posting_m):
+    """Feather width for a seam whose COARSER side has this posting.
+
+    :data:`APPROACH_RING_FEATHER_POSTINGS` postings of the coarser class,
+    rounded to :data:`APPROACH_RING_FEATHER_ROUNDING_M`.
+    """
+    raw_m = APPROACH_RING_FEATHER_POSTINGS * float(coarser_posting_m)
+    return APPROACH_RING_FEATHER_ROUNDING_M * round(
+        raw_m / APPROACH_RING_FEATHER_ROUNDING_M
+    )
+
+
+def approach_ring_feathers_m():
+    """``{"ring1_m": 300.0, "ring2_m": 900.0}`` -- each ring's OUTER feather,
+    sized on the class it hands back to (ring 1 -> ring 2, ring 2 -> base)."""
+    ladder = approach_rung_ladder()
+    return {
+        "ring1_m": approach_ring_feather_m(ladder[1].resolution_m),
+        "ring2_m": approach_ring_feather_m(
+            BASE_CLASS_ARC_SECONDS * grid_posting_metres(1)
+        ),
+    }
 
 
 def grid_factor_for_level(level_m, finest_source_resolution_m):
@@ -603,9 +704,10 @@ def ensure_coastline_band(tile, dico_airports):
     else:
         airport_boxes = []
 
-    near_resolution_m = round(grid_posting_metres(3), 2)
-    mid_resolution_m = float(COASTLINE_MID_RESOLUTION_M)
-    far_resolution_m = round(grid_posting_metres(1), 2)
+    # THE shared grading function (spec section 6 row 5): the band's own
+    # ladder table, graded by :func:`approach_class` -- the same function
+    # the approach rings use, values unchanged (section 9 Q2).
+    band_ladder = coastline_rung_ladder()
 
     def _nearest_airport_distance_m(cell_centre_lon, cell_centre_lat):
         """Metre distance to the nearest airport box (0 inside), inf if none.
@@ -655,15 +757,9 @@ def ensure_coastline_band(tile, dico_airports):
             airport_distance_m = _nearest_airport_distance_m(
                 centre_longitude, centre_latitude
             )
-            if airport_distance_m <= COASTLINE_NEAR_AIRPORT_KM * 1000.0:
-                tier = "near"
-                resolution_m = near_resolution_m
-            elif airport_distance_m <= COASTLINE_MID_AIRPORT_KM * 1000.0:
-                tier = "mid"
-                resolution_m = mid_resolution_m
-            else:
-                tier = "far"
-                resolution_m = far_resolution_m
+            rung = approach_class(airport_distance_m, band_ladder)
+            tier = rung.label
+            resolution_m = rung.resolution_m
             cell_path = FNAMES.coastline_band_cell_dem(
                 lat, lon, cell_column, cell_row, code, resolution_m
             )
@@ -938,13 +1034,113 @@ def _write_overlay_index(index_path, index):
 
 
 def bake_tile_overlay_into_alt_dem(tile):
-    """Blend the cached tile-wide overlay into ``tile.dem.alt_dem``.
+    """Blend the cached tile-wide numeric-level overlay into ``alt_dem``.
 
-    Runs after :func:`O4_Airport_Elevation_Insets.
-    densify_tile_dem_for_insets` and BEFORE the airport smoothing pass
-    (the overlay is base terrain and is smoothed like base terrain;
-    airport insets keep baking last, after smoothing).  Strip-wise
-    windowed GDAL reads keep memory bounded at any grid factor.
+    The numeric-``elevation_level`` caller of
+    :func:`bake_overlay_layer_into_alt_dem`: ONE layer, the whole tile as
+    its region (none), feathered over
+    ``airport_elevation_inset_feather_m``.  Byte-identical to the
+    pre-refactor behaviour (spec section 6 row 4; twin
+    ``test_elevation_level.py``).
+
+    Returns ``True`` when at least one strip blended overlay data.
+    """
+    plan = resolve_tile_overlay_plan(tile)
+    if plan is None:
+        return False
+    if tile.dem is None or tile.dem.alt_dem is None:
+        return False
+    overlay_path = plan["path"]
+    if not os.path.isfile(overlay_path):
+        return False
+    outcome = bake_overlay_layer_into_alt_dem(
+        tile,
+        overlay_path,
+        feather_m=float(
+            getattr(tile, "airport_elevation_inset_feather_m", 60.0)
+        ),
+        region=None,
+        label="tile elevation overlay",
+    )
+    if outcome["blended"]:
+        tile.dem.tile_overlay_provenance = {
+            "provider": plan["definition"]["code"],
+            "path": overlay_path,
+            "target_resolution_m": plan["target_resolution_m"],
+        }
+        UI.vprint(
+            1,
+            "   Tile elevation overlay baked:",
+            plan["definition"]["code"],
+            "at",
+            plan["target_resolution_m"],
+            "m.",
+        )
+    return outcome["blended"]
+
+
+def _region_strip_mask(
+    region_wkt, grid_x, grid_y, row_start, row_stop, x_step, y_step
+):
+    """Boolean mask of the working-grid rows ``[row_start, row_stop)`` that
+    lie INSIDE ``region_wkt`` (EPSG:4326 degrees).
+
+    The exact ring-union mask of spec section 3.2: the region polygon is
+    rasterised onto a MEM raster of exactly this strip's cells, so a ring
+    edge is the polygon's edge rather than a cell-grid staircase.  No new
+    geometry code -- GDAL's own rasteriser.
+    """
+    from osgeo import ogr, osr
+
+    columns = len(grid_x)
+    rows = int(row_stop) - int(row_start)
+    raster = gdal.GetDriverByName("MEM").Create(
+        "", columns, rows, 1, gdal.GDT_Byte
+    )
+    # Pixel-AREA geotransform around the grid's cell CENTRES.
+    raster.SetGeoTransform(
+        (
+            float(grid_x[0]) - 0.5 * x_step,
+            x_step,
+            0.0,
+            float(grid_y[row_start]) + 0.5 * y_step,
+            0.0,
+            -y_step,
+        )
+    )
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    raster.SetProjection(srs.ExportToWkt())
+    source = ogr.GetDriverByName("Memory").CreateDataSource("region")
+    try:
+        layer = source.CreateLayer("region", srs, ogr.wkbPolygon)
+        feature = ogr.Feature(layer.GetLayerDefn())
+        feature.SetGeometry(ogr.CreateGeometryFromWkt(region_wkt))
+        layer.CreateFeature(feature)
+        feature = None
+        gdal.RasterizeLayer(raster, [1], layer, burn_values=[1])
+        mask = raster.GetRasterBand(1).ReadAsArray()
+    finally:
+        source = None
+        raster = None
+    if mask is None:
+        return numpy.zeros((rows, columns), dtype=bool)
+    return mask.astype(bool)
+
+
+def bake_overlay_layer_into_alt_dem(
+    tile, overlay_path, *, feather_m, region=None, label="overlay"
+):
+    """Blend ONE cached elevation layer into ``tile.dem.alt_dem``.
+
+    The tile-overlay bake's body, parameterised (spec section 3.2 / section 6
+    row 4) so the numeric level, the coastline band and each approach
+    ring class bake through ONE implementation.  Runs after
+    :func:`O4_Airport_Elevation_Insets.densify_tile_dem_for_insets` and
+    BEFORE the airport smoothing pass (every layer here is base terrain
+    and is smoothed like base terrain; airport insets keep baking last,
+    after smoothing).  Strip-wise windowed GDAL reads keep memory bounded
+    at any grid factor.
 
     Blend weight per cell = (distance-to-tile-edge ramp over the feather
     width) x (box-blurred valid-data mask), so the outer feather band
@@ -954,18 +1150,29 @@ def bake_tile_overlay_into_alt_dem(tile):
     keep the base value outright; base-nodata cells take the overlay
     outright (mirroring the airport-inset bake's sentinel guard).
 
-    Returns ``True`` when at least one strip blended overlay data.
+    ``feather_m`` is the hand-back width, a number of POSTINGS OF THE
+    COARSER SIDE for a ring layer (:func:`approach_ring_feather_m`).
+    ``region`` is an optional EPSG:4326 polygon WKT (or any shapely
+    geometry) ANDed into the strip's validity: the layer is blended only
+    inside it, and the blurred-mask hand-back then ramps the layer to
+    whatever is already in ``alt_dem`` over ``feather_m`` INSIDE the
+    region edge.  ``label`` names the layer in log lines.
+
+    Returns ``{"blended": bool, "offset_m": float | None}`` -- the median
+    layer-minus-current difference over the feather band, the datum
+    comparator (``None`` when no feather cell carried data).
     """
     import O4_Airport_Elevation_Insets as INSETS
 
-    plan = resolve_tile_overlay_plan(tile)
-    if plan is None:
-        return False
     if tile.dem is None or tile.dem.alt_dem is None:
-        return False
-    overlay_path = plan["path"]
+        return {"blended": False, "offset_m": None}
     if not os.path.isfile(overlay_path):
-        return False
+        return {"blended": False, "offset_m": None}
+    region_wkt = None
+    if region is not None:
+        region_wkt = (
+            region if isinstance(region, str) else region.wkt
+        )
 
     base_dem = tile.dem
     dataset = gdal.Open(overlay_path)
@@ -1008,9 +1215,7 @@ def bake_tile_overlay_into_alt_dem(tile):
         centre_latitude = tile.lat + (base_dem.y0 + base_dem.y1) / 2.0
         metres_per_degree_longitude = GEO.lon_to_m(centre_latitude)
         metres_per_degree_latitude = GEO.lat_to_m
-        feather_m = float(
-            getattr(tile, "airport_elevation_inset_feather_m", 60.0)
-        )
+        feather_m = float(feather_m)
 
         # Fractional overlay pixel coordinates of every grid column (the
         # grid and the overlay are both axis-aligned in EPSG:4326, so the
@@ -1165,6 +1370,20 @@ def bake_tile_overlay_into_alt_dem(tile):
             halo_stop = min(strip_stop + feather_cells, grid_rows)
             extended_rows = numpy.arange(halo_start, halo_stop)
             values_ext, valid_ext = _strip_values_and_valid(extended_rows)
+            if region_wkt is not None and valid_ext.any():
+                # The exact ring-union mask: a layer is blended only
+                # inside its own region, and the blurred hand-back below
+                # feathers it to whatever already sits in ``alt_dem``
+                # over ``feather_m`` INSIDE the region edge.
+                valid_ext = valid_ext & _region_strip_mask(
+                    region_wkt,
+                    grid_x,
+                    grid_y,
+                    halo_start,
+                    halo_stop,
+                    x_step,
+                    y_step,
+                )
             if not valid_ext.any():
                 continue
             # Soft hand-back near no-coverage regions: blur the validity
@@ -1219,33 +1438,882 @@ def bake_tile_overlay_into_alt_dem(tile):
     finally:
         dataset = None
 
+    offset = None
     if ring_samples:
         offset = float(numpy.median(numpy.concatenate(ring_samples)))
         # A few metres is the normal surface-vs-bare-earth gap along the
-        # tile-edge feather band; only datum-class magnitudes are
-        # actionable (see INSETS.INSET_DATUM_WARNING_THRESHOLD_M).
+        # feather band; only datum-class magnitudes are actionable (see
+        # INSETS.INSET_DATUM_WARNING_THRESHOLD_M).
         if abs(offset) > INSETS.INSET_DATUM_WARNING_THRESHOLD_M:
             UI.vprint(
                 1,
-                "   WARNING: tile elevation overlay",
+                "   WARNING:",
+                label,
                 os.path.basename(overlay_path),
-                "differs from the base DEM by a median",
+                "differs from the surface underneath by a median",
                 round(offset, 2),
                 "m over the feather band (>%d m; check vertical datum)."
                 % int(INSETS.INSET_DATUM_WARNING_THRESHOLD_M),
             )
-    if blended_any:
-        base_dem.tile_overlay_provenance = {
-            "provider": plan["definition"]["code"],
-            "path": overlay_path,
-            "target_resolution_m": plan["target_resolution_m"],
-        }
+    return {"blended": blended_any, "offset_m": offset}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# APPROACH-GRADED ELEVATION RINGS
+# docs/specs/approach-graded-elevation-rings-spec.md (#164);
+# owner RULINGS 2026-10-01g (the ruling, radii CONFIRMED, measured from
+# the AERODROME BOUNDARY) / 10-01h (the spec's mechanism).
+#
+# The coastline band mechanism GENERALISED, as the owner ruled: per-tile
+# 0.1 degree cells graded by distance to the nearest aerodrome boundary
+# (this tile's and a cached neighbour's), cached per cell, assembled per
+# CLASS and baked coarsest-first through the strip bake as base terrain
+# -- NOT a per-airport N-layer raster.  The inset box, the core buffer
+# and the inset bake are UNCHANGED (spec section 4).
+# ══════════════════════════════════════════════════════════════════════
+
+#: ``approach_rings`` configuration values.  ``off`` is byte-identical to
+#: the pre-rings behaviour (the gate the owner's sim read adjudicates;
+#: BUILD ECONOMY says it is removed once adjudicated).
+APPROACH_RINGS_AUTO = "auto"
+APPROACH_RINGS_OFF = "off"
+
+#: A NEIGHBOUR tile's aerodrome contributes rings to this tile when its
+#: boundary lies within the outermost ring's reach of the tile square.
+APPROACH_RING_NEIGHBOUR_REACH_M = APPROACH_RING_2_REACH_M
+
+#: The eight neighbouring tile cells, in a deterministic order.
+APPROACH_RING_NEIGHBOUR_OFFSETS = (
+    (-1, -1), (-1, 0), (-1, 1),
+    (0, -1), (0, 1),
+    (1, -1), (1, 0), (1, 1),
+)
+
+#: Recorded per cell in the stamp when a FINER tile-wide product already
+#: delivers that class (spec section 7 precedence: the finest class wins per
+#: cell, and a ring never coarsens a level).
+APPROACH_RING_SUPERSEDED = "superseded"
+
+
+def approach_rings_enabled(tile):
+    """True when ``approach_rings`` admits the ring overlay on this tile.
+
+    ``auto`` (the default) bakes the rings; ``off`` is the gate that keeps
+    the pre-rings behaviour byte-identical.  An unrecognised value
+    degrades to ``auto`` with one warning, like every other level value.
+    """
+    value = getattr(tile, "approach_rings", APPROACH_RINGS_AUTO)
+    if value is None:
+        return True
+    text = str(value).strip().lower()
+    if text in ("", APPROACH_RINGS_AUTO):
+        return True
+    if text == APPROACH_RINGS_OFF:
+        return False
+    UI.vprint(
+        1,
+        "   WARNING: unrecognised approach_rings",
+        repr(value),
+        "- using auto.",
+    )
+    return True
+
+
+def _approach_ring_candidates(lat, lon, providers_config, max_native_m):
+    """Wide-area definitions covering the tile whose NATIVE resolution is at
+    most ``max_native_m``, in :func:`select_tile_overlay_definition`'s own
+    ranking (finest first, then priority, then code).
+
+    Spec section 2: ring sources come through the EXISTING registry -- the
+    wide-area candidate set with ONE added native-resolution filter -- never
+    a second registry.  A definition that does not declare its resolution
+    is not a candidate: a ring's class is the whole point of the ring.
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+
+    ranked = []
+    for definition in _wide_area_candidate_definitions(
+        lat, lon, providers_config
+    ):
+        native_m = INSETS._definition_resolution_m(definition)
+        if native_m is None or native_m > max_native_m:
+            continue
+        ranked.append(
+            (
+                native_m,
+                -float(definition.get("priority", 0.0)),
+                definition["code"],
+                definition,
+            )
+        )
+    ranked.sort(key=lambda row: row[:3])
+    return [row[3] for row in ranked]
+
+
+def approach_ring_cell_box(lat, lon, column, row):
+    """The ``(west, south, east, north)`` degree box of one 0.1 degree cell."""
+    return (
+        lon + column * COASTLINE_CELL_DEGREES,
+        lat + row * COASTLINE_CELL_DEGREES,
+        lon + (column + 1) * COASTLINE_CELL_DEGREES,
+        lat + (row + 1) * COASTLINE_CELL_DEGREES,
+    )
+
+
+def _definition_covers_box(definition, box):
+    """Cheap per-cell coverage test, the candidate filter's own convention."""
+    import O4_Airport_Elevation_Insets as INSETS
+
+    role = definition.get("role", INSETS.ROLE_AIRPORT_INSET)
+    if role == INSETS.ROLE_BASE:
+        # A base definition's coverage was already resolved for the whole
+        # tile by the candidate filter; every cell of the tile is covered.
+        return True
+    return bool(INSETS._coverage_bbox_intersects(definition, box))
+
+
+def _neighbour_boundary_polygons(lat, lon, reach_m):
+    """Aerodrome boundaries of the eight neighbour tiles that reach into this
+    tile, read ONLY from the cached airports layers.
+
+    Returns ``(polygons, unknown)``: ``polygons`` is
+    ``{"<ICAO>@<stem>": geometry}`` for each admitted aerodrome of a
+    neighbour whose cached layer exists and whose boundary lies within
+    ``reach_m`` of this tile square; ``unknown`` lists the stems of
+    neighbours with NO cached airports layer.  A neighbour with no cached
+    layer contributes nothing and is RECORDED -- never a refusal (the
+    coastline spec's recorded limit, closed where the data is there).
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_Airport_Modes as MODES
+    import O4_Config_Utils as CFG
+    import O4_OSM_Utils as OSM
+    import O4_Vector_Map as VMAP
+    from shapely.geometry import box as _box
+
+    polygons = {}
+    unknown = []
+    tile_square = _box(lon, lat, lon + 1.0, lat + 1.0)
+    for d_lat, d_lon in APPROACH_RING_NEIGHBOUR_OFFSETS:
+        n_lat, n_lon = lat + d_lat, lon + d_lon
+        stem = "%+03d%+04d" % (n_lat, n_lon)
+        cached = FNAMES.osm_cached(n_lat, n_lon, "airports")
+        if not os.path.isfile(cached):
+            unknown.append(stem)
+            continue
+        try:
+            neighbour = CFG.Tile(n_lat, n_lon, "")
+            neighbour.read_from_config()
+            layer = OSM.OSM_layer()
+            layer.update_dicosm(cached)
+            dico = VMAP.build_airports_dico(neighbour, layer)
+            selected = MODES.inset_keys(
+                dico, MODES.resolved_inset_mode(neighbour)
+            )
+            boundaries = INSETS.airport_boundary_polygons(
+                neighbour, dico, only=selected
+            )
+        except Exception as error:
+            # A neighbour whose cached layer cannot be parsed is UNKNOWN,
+            # not absent: the difference is recorded, never guessed.
+            UI.vprint(
+                2,
+                "   Approach rings: neighbour tile",
+                stem,
+                "airports layer unreadable (",
+                type(error).__name__,
+                "); recorded as unknown.",
+            )
+            unknown.append(stem)
+            continue
+        for airport, geometry in boundaries.items():
+            grown = INSETS._buffer_geometry_m(geometry, reach_m)
+            if grown.is_empty or not grown.intersects(tile_square):
+                continue
+            polygons["%s@%s" % (airport, stem)] = geometry
+    return polygons, sorted(unknown)
+
+
+def resolve_approach_ring_plan(tile, dico_airports):
+    """THE one derivation of the tile's ring cells, classes and regions.
+
+    Pure and offline (spec section 3.1 / section 6 row 2): both build steps, the
+    harness frame check and the app's fetch pass re-derive it from the
+    same disk state, so they can never disagree.  Returns ``None`` when
+    the feature is off, GDAL is missing, ``custom_dem`` pins the raster,
+    or no admitted aerodrome on (or next to) the tile holds an inset.
+
+    The plan:
+
+    * **airports** -- every string-keyed aerodrome of ``dico_airports``
+      admitted by the tile's inset MODE whose inset exists on disk, PLUS
+      the admitted aerodromes of each neighbour tile whose cached
+      airports layer exists and whose boundary reaches into this tile
+      (:func:`_neighbour_boundary_polygons`; the rest are recorded in
+      ``neighbours_unknown``);
+    * **regions** -- ``R1`` / ``R2``, the unions of the boundary polygons
+      buffered by each rung's reach.  Measured from the BOUNDARY, as
+      ruled -- not the ARP, not the inset box;
+    * **cells** -- the tile's 10 x 10 grid of 0.1 degree cells; a cell is
+      fetched at the FINEST class any part of it needs (the exact ring
+      edge is the bake's business, not the fetch's), from the finest
+      wide-area provider covering it.  Ring 1 collapses into ring 2
+      where no provider native <= 10 m covers the cell; a cell no ring-2
+      provider covers either is ``no-coverage`` and the base DEM stands;
+    * **layers** -- the cells grouped by class, plus ``ring_layers``
+      coarsest-first with each layer's region and feather, the order the
+      bake must use.
+    """
+    if not approach_rings_enabled(tile):
+        return None
+    if not has_gdal:
+        return None
+    if getattr(tile, "custom_dem", ""):
+        # The user's raster is authoritative (as for the band, spec section 7).
+        return None
+
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_Airport_Modes as MODES
+    from shapely.ops import unary_union
+
+    lat, lon = int(tile.lat), int(tile.lon)
+    providers_config = getattr(tile, "airport_elevation_providers", "auto")
+    level_m = parse_elevation_level(getattr(tile, "elevation_level", "auto"))
+
+    mode = MODES.resolved_inset_mode(tile)
+    selected = MODES.inset_keys(dico_airports or {}, mode)
+    holders = [
+        airport
+        for airport in selected
+        if INSETS.cached_inset_paths_for_icao(
+            lat, lon, airport, providers_config
+        )
+    ]
+    boundaries = INSETS.airport_boundary_polygons(
+        tile, dico_airports or {}, only=holders
+    )
+    neighbours, neighbours_unknown = _neighbour_boundary_polygons(
+        lat, lon, APPROACH_RING_NEIGHBOUR_REACH_M
+    )
+    boundaries = dict(boundaries)
+    boundaries.update(neighbours)
+    if not boundaries:
+        return None
+
+    ladder = approach_rung_ladder()
+    feathers = approach_ring_feathers_m()
+    regions = {}
+    for index, rung in enumerate(ladder, start=1):
+        grown = [
+            INSETS._buffer_geometry_m(geometry, rung.reach_m)
+            for geometry in boundaries.values()
+        ]
+        regions["R%d" % index] = unary_union(grown)
+
+    cells = []
+    layers = {}
+    cell_count = int(round(1.0 / COASTLINE_CELL_DEGREES))
+    for column in range(cell_count):
+        for row in range(cell_count):
+            box = approach_ring_cell_box(lat, lon, column, row)
+            reach_ring = None
+            reach_index = None
+            for index, rung in enumerate(ladder, start=1):
+                if regions["R%d" % index].intersects(_box_geometry(box)):
+                    reach_ring = rung
+                    reach_index = index
+                    break
+            if reach_ring is None:
+                continue
+            cell = _approach_ring_cell(
+                lat, lon, column, row, box, reach_ring, ladder,
+                providers_config, level_m, feathers,
+            )
+            cell["reach_index"] = reach_index
+            cells.append(cell)
+    for cell in cells:
+        if cell["provider"] is None or cell.get("state") == \
+                APPROACH_RING_SUPERSEDED:
+            continue
+        layers.setdefault(_class_key(cell["class_m"]), []).append(cell["stem"])
+
+    ring_layers = []
+    for index, rung in enumerate(ladder, start=1):
+        key = "ring%d" % index
+        # A layer's VRT carries every planned cell whose raster COVERS any
+        # part of that ring's region -- which is every cell at or inside
+        # the ring's own reach, because the regions nest (R1 subset R2).
+        #
+        # DEVIATION from spec §3.2's letter (reported to the spec author,
+        # never decided here): §3.2 names the ring-2 layer "the VRT of the
+        # plan's 30.87 m cells".  But a cell STRADDLING the R1 edge is
+        # fetched at the ring-1 class (§3.1: "a cell is fetched at the
+        # FINEST class any part of it needs"), so under the letter its
+        # ring-2 part would be served by NEITHER layer -- an unfeathered
+        # hole in the ring-2 annulus that the 90 m base fills, which is
+        # the defect the rings exist to remove.  Including the finer cell
+        # in the coarser layer costs no fetch and no memory (§3.1's
+        # "over-delivery") and the finer layer still bakes over it.
+        members = [
+            cell
+            for cell in cells
+            if cell.get("reach_index") is not None
+            and cell["reach_index"] <= index
+            and cell["provider"] is not None
+            and cell.get("state") != APPROACH_RING_SUPERSEDED
+        ]
+        if not members:
+            continue
+        if not any(cell["ring"] == rung.label for cell in members):
+            # Nothing was fetched AT this class -- the collapse rule sent
+            # every cell of this reach to a coarser rung, and that coarser
+            # layer already covers this region with the same data.  A
+            # layer with no data of its own class would re-bake the
+            # coarser raster behind a narrower feather.
+            continue
+        if level_m is not None and level_m <= rung.resolution_m:
+            # The tile-wide level already delivers this class: the layer
+            # is SUPERSEDED even though finer cells exist for the ring
+            # inside it (spec §7 -- a ring never coarsens a level).
+            continue
+        ring_layers.append(
+            {
+                "ring": key,
+                "class_m": rung.resolution_m,
+                "feather_m": feathers["%s_m" % key],
+                "region": regions["R%d" % index].wkt,
+                "cells": [cell["stem"] for cell in members],
+            }
+        )
+    # COARSEST FIRST (spec section 3.2): a finer layer baked after a coarser
+    # one is what makes "the finest class wins per cell" true of the
+    # baked surface, feather bands included.
+    ring_layers.sort(key=lambda layer: -layer["class_m"])
+
+    return {
+        "cells": cells,
+        "layers": layers,
+        "ring_layers": ring_layers,
+        "regions": {name: geometry.wkt for name, geometry in regions.items()},
+        "airports": sorted(boundaries),
+        "neighbours_unknown": neighbours_unknown,
+        "feathers": feathers,
+        "elevation_level": level_m,
+        "coastline_mode": is_coastline_mode(
+            getattr(tile, "elevation_level", "auto")
+        ),
+    }
+
+
+def _box_geometry(box):
+    from shapely.geometry import box as _box
+
+    return _box(*box)
+
+
+def _class_key(class_m):
+    """Stable string key for a ring class resolution (the stamp is JSON)."""
+    return "%.2f" % float(class_m)
+
+
+def _approach_ring_cell(
+    lat, lon, column, row, box, reach_ring, ladder, providers_config,
+    level_m, feathers,
+):
+    """One plan cell: its class, its provider and its cache path.
+
+    Collapse rule (spec section 2): the cell is fetched at ``reach_ring``'s
+    class from the finest wide-area provider native-fine enough for it;
+    when none covers the cell, ring 1 COLLAPSES into ring 2 (the cell is
+    fetched at the coarser class instead), and when no provider covers it
+    at all the cell carries ``provider: None`` -- a no-coverage cell where
+    the tile's base DEM stands.
+    """
+    rungs = list(ladder)
+    start = rungs.index(reach_ring)
+    for rung in rungs[start:]:
+        if level_m is not None and level_m <= rung.resolution_m:
+            # A tile-wide level already delivers this class or finer:
+            # SUPERSEDED (spec section 7 -- a ring never coarsens a level).
+            return {
+                "column": column,
+                "row": row,
+                "ring": rung.label,
+                "class_m": rung.resolution_m,
+                "reach_ring": reach_ring.label,
+                "provider": None,
+                "state": APPROACH_RING_SUPERSEDED,
+                "path": None,
+                "band_path": None,
+                "stem": None,
+            }
+        for definition in _approach_ring_candidates(
+            lat, lon, providers_config, rung.resolution_m
+        ):
+            if not _definition_covers_box(definition, box):
+                continue
+            code = definition["code"]
+            path = FNAMES.approach_ring_cell_dem(
+                lat, lon, column, row, code, rung.resolution_m
+            )
+            return {
+                "column": column,
+                "row": row,
+                "ring": rung.label,
+                "class_m": rung.resolution_m,
+                "reach_ring": reach_ring.label,
+                "provider": code,
+                "state": None,
+                "path": path,
+                # ONE cell cache, two plans (spec section 5): a cell already
+                # fetched for the coastline band at the same stem is
+                # reused BY REFERENCE, never copied.
+                "band_path": FNAMES.coastline_band_cell_dem(
+                    lat, lon, column, row, code, rung.resolution_m
+                ),
+                "stem": os.path.splitext(os.path.basename(path))[0],
+            }
+    return {
+        "column": column,
+        "row": row,
+        "ring": reach_ring.label,
+        "class_m": reach_ring.resolution_m,
+        "reach_ring": reach_ring.label,
+        "provider": None,
+        "state": "no-provider",
+        "path": None,
+        "band_path": None,
+        "stem": None,
+    }
+
+
+def approach_ring_cell_source(cell):
+    """The on-disk raster answering a plan cell, or ``None``.
+
+    The ring cache first, then the coastline band's cell of the SAME stem
+    (reused by reference, spec section 5).
+    """
+    for key in ("path", "band_path"):
+        path = cell.get(key)
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+def read_approach_ring_stamp(lat, lon):
+    """The ring ``index.json`` stamp (plan digest, per-cell outcomes)."""
+    return _read_coastline_band_stamp(FNAMES.approach_ring_index(lat, lon))
+
+
+def write_approach_ring_stamp(lat, lon, stamp):
+    """Write the ring stamp -- ONLY when it changed.
+
+    A byte-identical stamp is never rewritten (owner ruling e9daef5: a
+    build must not touch the shared repo as a side effect).
+    """
+    path = FNAMES.approach_ring_index(lat, lon)
+    payload = json.dumps(stamp, indent=2, sort_keys=True)
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                if handle.read() == payload:
+                    return False
+        except OSError:
+            pass
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(payload)
+    return True
+
+
+def approach_ring_plan_stamp(plan):
+    """Digest of a plan -- the stamp key a changed provider set moves."""
+    import hashlib
+
+    payload = json.dumps(
+        {
+            "airports": plan["airports"],
+            "cells": [
+                [c["column"], c["row"], c["stem"], c["provider"], c["ring"]]
+                for c in plan["cells"]
+            ],
+            "feathers": plan["feathers"],
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def approach_ring_frame_problem(lat, lon, plan):
+    """THE one cold-ring predicate, shared by the harness and production.
+
+    An UNANSWERED planned cell -- no raster on disk and no recorded
+    negative -- means a build would either fetch into the shared repo as a
+    side effect or silently bake a hole the base DEM fills.  Returns
+    ``None`` when every planned cell is answered, else
+    ``("cold", text)`` naming the count and ``--refresh-data rings``.
+
+    Rings NEVER re-check (spec section 5): a changed provider set changes the
+    planned stem, so the old cell is simply not the planned file.
+    """
+    if not plan:
+        return None
+    outcomes = (read_approach_ring_stamp(lat, lon) or {}).get("cells", {})
+    unanswered = [
+        cell
+        for cell in plan["cells"]
+        if cell.get("provider")
+        and approach_ring_cell_source(cell) is None
+        and outcomes.get(cell["stem"]) != NO_RING_COVERAGE
+    ]
+    if not unanswered:
+        return None
+    sample = ", ".join(cell["stem"] for cell in unanswered[:3])
+    return (
+        "cold",
+        "%d of %d planned approach-ring cell(s) for %+03d%+04d are "
+        "UNANSWERED (no raster, no recorded negative; e.g. %s) -- the "
+        "build would either FETCH them into the shared data repo as a "
+        "side effect (owner ruling e9daef5 forbids it) or bake a ring "
+        "with holes the 90 m base fills, which is the grade ring the "
+        "rings exist to remove.  Deliberate fetch: --refresh-data rings"
+        % (len(unanswered), len(plan["cells"]), lat, lon, sample),
+    )
+
+
+#: A cell no provider covers.  The band's own spelling, so one decoder
+#: reads both stamps.
+NO_RING_COVERAGE = "no-coverage"
+
+
+def summarize_approach_rings(lat, lon, plan):
+    """``frame.json``'s ``approach_rings`` row (spec section 5).
+
+    Pure disk state plus the plan -- recorded whether or not anything is
+    cold, because "which ring cells did this build bake" is a question
+    later readers ask of numbers already in a report.
+    """
+    if not plan:
+        return None
+    outcomes = (read_approach_ring_stamp(lat, lon) or {}).get("cells", {})
+    planned = [cell for cell in plan["cells"] if cell.get("provider")]
+    on_disk = [c for c in planned if approach_ring_cell_source(c) is not None]
+    negatives = [
+        c["stem"]
+        for c in plan["cells"]
+        if outcomes.get(c["stem"]) == NO_RING_COVERAGE
+    ]
+    return {
+        "planned": len(planned),
+        "on_disk": len(on_disk),
+        "missing": len(planned) - len(on_disk),
+        "negatives": sorted(negatives),
+        "providers": sorted(
+            {c["provider"] for c in planned if c.get("provider")}
+        ),
+        "layers": {
+            layer["ring"]: {
+                "class_m": layer["class_m"],
+                "feather_m": layer["feather_m"],
+                "cells": len(layer["cells"]),
+            }
+            for layer in plan["ring_layers"]
+        },
+        "superseded": sum(
+            1
+            for c in plan["cells"]
+            if c.get("state") == APPROACH_RING_SUPERSEDED
+        ),
+        "neighbours_unknown": plan["neighbours_unknown"],
+        "airports": plan["airports"],
+        "stamp": approach_ring_plan_stamp(plan),
+    }
+
+
+def ensure_approach_rings(tile, dico_airports, refresh=False):
+    """Fetch (or recycle) every planned approach-ring cell -- the step-1
+    download hook, beside :func:`ensure_tile_overlay` (spec section 6 row 1).
+
+    The coastline band's loop over the plan's cells: one
+    :func:`O4_Airport_Elevation_Insets.fetch_inset` per MISSING cell, a
+    cached cell recycled, a clean "no usable coverage" answer recorded as
+    a durable negative, a raised failure skipped WITHOUT a negative (it
+    may be a transient outage), and a constant-value raster discarded as
+    a fill served beyond the provider's true extent.  A cell already in
+    the tile's coastline-band directory under the same stem is reused by
+    reference and never re-fetched.
+
+    Sets ``tile.rings_fetched_last_build`` -- mirrored into the tile build
+    record as ``features.rings_fetched``, which disqualifies the run as a
+    build-time measurement exactly as ``insets_fetched`` does.  Returns
+    the number of cells fetched.
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+
+    tile.rings_fetched_last_build = 0
+    plan = resolve_approach_ring_plan(tile, dico_airports)
+    if plan is None:
+        return 0
+    lat, lon = int(tile.lat), int(tile.lon)
+    stamp = read_approach_ring_stamp(lat, lon) or {}
+    outcomes = {
+        stem: outcome
+        for stem, outcome in (stamp.get("cells") or {}).items()
+        if outcome == NO_RING_COVERAGE
+    }
+    fetched = 0
+    for cell in plan["cells"]:
+        if not cell.get("provider"):
+            continue
+        stem = cell["stem"]
+        existing = approach_ring_cell_source(cell)
+        if existing is not None and not refresh:
+            if INSETS.geotiff_is_constant_value(existing):
+                _discard_implausible_ring_cell(existing, stem, outcomes)
+            else:
+                outcomes[stem] = "ok"
+            continue
+        if outcomes.get(stem) == NO_RING_COVERAGE and not refresh:
+            continue
+        definition = INSETS.elevation_providers_dict.get(cell["provider"])
+        if definition is None:
+            continue
+        os.makedirs(FNAMES.approach_ring_directory(lat, lon), exist_ok=True)
+        try:
+            provenance = INSETS.fetch_inset(
+                definition,
+                approach_ring_cell_box(lat, lon, cell["column"], cell["row"]),
+                cell["class_m"],
+                cell["path"],
+            )
+        except Exception as error:
+            UI.vprint(
+                2,
+                "   Approach ring cell fetch error at",
+                stem,
+                ":",
+                str(error),
+            )
+            continue
+        if provenance is None:
+            outcomes[stem] = NO_RING_COVERAGE
+        elif INSETS.geotiff_is_constant_value(cell["path"]):
+            _discard_implausible_ring_cell(cell["path"], stem, outcomes)
+        else:
+            outcomes[stem] = "ok"
+            fetched += 1
+            record = dict(provenance)
+            record["fetch_date"] = datetime.date.today().isoformat()
+            sidecar = FNAMES.approach_ring_cell_provenance(
+                lat, lon, cell["column"], cell["row"], cell["provider"],
+                cell["class_m"],
+            )
+            with open(
+                sidecar, "w", encoding="utf-8", newline="\n"
+            ) as handle:
+                json.dump(record, handle, indent=2, sort_keys=True)
+    write_approach_ring_stamp(
+        lat,
+        lon,
+        {
+            "plan_stamp": approach_ring_plan_stamp(plan),
+            "cells": outcomes,
+            "feathers": plan["feathers"],
+            "layers": {
+                layer["ring"]: layer["class_m"]
+                for layer in plan["ring_layers"]
+            },
+            "neighbours_unknown": plan["neighbours_unknown"],
+            "checked": datetime.date.today().isoformat(),
+        },
+    )
+    tile.rings_fetched_last_build = fetched
+    if fetched:
         UI.vprint(
             1,
-            "   Tile elevation overlay baked:",
-            plan["definition"]["code"],
+            "   Approach elevation rings:",
+            fetched,
+            "cell(s) fetched for",
+            "%+03d%+04d" % (lat, lon),
+        )
+    return fetched
+
+
+def _discard_implausible_ring_cell(cell_path, stem, outcomes):
+    """Delete a constant-value ring cell and record a durable negative."""
+    try:
+        os.remove(cell_path)
+    except OSError:
+        pass
+    outcomes[stem] = NO_RING_COVERAGE
+    UI.vprint(
+        1,
+        "   INFO: approach ring cell",
+        stem,
+        "is one constant value everywhere (a fill served beyond the"
+        " provider's true extent); recording no coverage so the base"
+        " elevation source is kept there.",
+    )
+
+
+def _coastline_band_finer_footprint(tile, class_m):
+    """Union of the 0.1 degree cell boxes where the COASTLINE BAND already
+    delivers a class FINER than ``class_m``.
+
+    Spec section 7: in coastline mode a coastal cell takes the finer of the
+    band class and the ring class.  The band bakes before the rings, so a
+    coarser ring must not paint over it -- its region is trimmed here, at
+    the ring's single derivation site, rather than by a per-consumer veto.
+    """
+    from shapely.ops import unary_union
+
+    stamp = _read_coastline_band_stamp(
+        FNAMES.coastline_band_index(tile.lat, tile.lon)
+    )
+    boxes = []
+    for stem, outcome in (stamp.get("cells") or {}).items():
+        if outcome != "ok":
+            continue
+        parts = stem.split("_")
+        if len(parts) < 4 or parts[0] != "cell":
+            continue
+        try:
+            column, row = int(parts[1]), int(parts[2])
+            resolution_m = float(parts[-1].rstrip("m"))
+        except ValueError:
+            continue
+        if resolution_m >= class_m:
+            continue
+        boxes.append(
+            _box_geometry(
+                approach_ring_cell_box(tile.lat, tile.lon, column, row)
+            )
+        )
+    return unary_union(boxes) if boxes else None
+
+
+def bake_approach_rings_into_alt_dem(tile, dico_airports):
+    """Bake the tile's approach rings into ``tile.dem.alt_dem``, coarsest
+    first (spec section 3.2).
+
+    Placed in :func:`O4_Vector_Map.compose_tile_dem_from_disk` immediately
+    AFTER the tile-wide overlay bake and BEFORE the airport smoothing
+    pass: rings are BASE TERRAIN -- smoothed like base terrain, with the
+    airport insets still baking last, over them.
+
+    Each class layer is a ``gdal.BuildVRT`` mosaic of its on-disk cells
+    (written to the tile's tmp directory -- a DERIVED file, never the
+    shared data repo), blended through
+    :func:`bake_overlay_layer_into_alt_dem` with its ring region as the
+    validity mask and its own feather.  A missing cell is simply a hole
+    the layer underneath fills, exactly as the band behaves.
+
+    Returns ``True`` when at least one ring layer blended.
+    """
+    plan = resolve_approach_ring_plan(tile, dico_airports)
+    if plan is None:
+        return False
+    if tile.dem is None or tile.dem.alt_dem is None:
+        return False
+    sources = {}
+    for cell in plan["cells"]:
+        path = approach_ring_cell_source(cell)
+        if path is not None:
+            sources[cell["stem"]] = path
+    baked = []
+    for layer in plan["ring_layers"]:
+        paths = [
+            sources[stem] for stem in layer["cells"] if stem in sources
+        ]
+        if not paths:
+            continue
+        vrt_path = _approach_ring_layer_vrt(tile, layer, paths)
+        if vrt_path is None:
+            continue
+        region = layer["region"]
+        if plan.get("coastline_mode"):
+            trim = _coastline_band_finer_footprint(tile, layer["class_m"])
+            if trim is not None:
+                from shapely import wkt as _wkt
+
+                region = _wkt.loads(region).difference(trim)
+                if region.is_empty:
+                    continue
+                region = region.wkt
+        outcome = bake_overlay_layer_into_alt_dem(
+            tile,
+            vrt_path,
+            feather_m=layer["feather_m"],
+            region=region,
+            label="approach ring %s" % layer["ring"],
+        )
+        if not outcome["blended"]:
+            continue
+        baked.append(
+            {
+                "ring": layer["ring"],
+                "class_m": layer["class_m"],
+                "feather_m": layer["feather_m"],
+                "cells": len(paths),
+                "provider": sorted(
+                    {
+                        cell["provider"]
+                        for cell in plan["cells"]
+                        if cell["ring"] == layer["ring"] and cell["provider"]
+                    }
+                ),
+            }
+        )
+        UI.vprint(
+            1,
+            "   Approach ring baked:",
+            layer["ring"],
             "at",
-            plan["target_resolution_m"],
+            layer["class_m"],
+            "m from",
+            len(paths),
+            "cell(s), feather",
+            layer["feather_m"],
             "m.",
         )
-    return blended_any
+    if not baked:
+        return False
+    tile.dem.approach_ring_provenance = {
+        "layers": baked,
+        "plan_stamp": approach_ring_plan_stamp(plan),
+        "neighbours_unknown": plan["neighbours_unknown"],
+    }
+    return True
+
+
+def _approach_ring_layer_vrt(tile, layer, paths):
+    """The per-class VRT mosaic of a ring layer's cells.
+
+    Written to the tile's TMP directory, never the shared data repo (spec
+    STOP 4): it is derived from the cells, and a build must not write the
+    corpus as a side effect.
+    """
+    directory = os.path.join(
+        FNAMES.Tmp_dir or ".", "%+03d%+04d" % (tile.lat, tile.lon)
+    )
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError:
+        directory = FNAMES.Tmp_dir or "."
+    vrt_path = os.path.join(
+        directory,
+        "approach_ring_%s_%s.vrt" % (layer["ring"], _class_key(
+            layer["class_m"]).replace(".", "_")),
+    )
+    mosaic = gdal.BuildVRT(
+        vrt_path,
+        list(paths),
+        options=gdal.BuildVRTOptions(
+            resolution="highest",
+            resampleAlg="bilinear",
+            srcNodata=-32768,
+            VRTNodata=-32768,
+        ),
+    )
+    mosaic = None
+    return vrt_path if os.path.isfile(vrt_path) else None

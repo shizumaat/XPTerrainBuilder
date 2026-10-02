@@ -1593,6 +1593,12 @@ def load_airports_and_prepare_dem(tile):
     # approach-visibility ladder). No-op -- and a byte-identical build --
     # on the default "auto".
     ELEVATION_LEVEL.ensure_tile_overlay(tile, dico_airports)
+    # Approach-graded elevation rings (docs/specs/approach-graded-
+    # elevation-rings-spec.md §6 row 1): the ring cells around every
+    # inset-holding aerodrome of this tile (and of a cached neighbour).
+    # No-op -- and a byte-identical build -- when approach_rings is off,
+    # no aerodrome on the tile holds an inset, or custom_dem is set.
+    ELEVATION_LEVEL.ensure_approach_rings(tile, dico_airports)
     compose_tile_dem_from_disk(tile, dico_airports)
     return (airport_layer, dico_airports)
 
@@ -2098,6 +2104,11 @@ def compose_tile_dem_from_disk(tile, dico_airports, write_alt_file=True):
     # The tile-wide overlay is base terrain: bake it BEFORE the airport
     # smoothing pass (airport insets keep baking last, after smoothing).
     ELEVATION_LEVEL.bake_tile_overlay_into_alt_dem(tile)
+    # Approach rings are BASE TERRAIN too: baked immediately after the
+    # tile-wide overlay and BEFORE the airport smoothing pass, coarsest
+    # class first, so the finest class wins per cell (spec §3.2/§6 row 3).
+    # The airport insets still bake LAST, over the rings.
+    ELEVATION_LEVEL.bake_approach_rings_into_alt_dem(tile, dico_airports)
     APT.smooth_raster_over_airports(
         tile, dico_airports, write_alt_file=write_alt_file
     )

@@ -35,8 +35,9 @@ from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
 from ..model.airport import Airport
 from .chords import densify, ring_lines, stations
 from .terrain_edge import EdgeReport, road_lines
-from .pad_cut import (_drop_rim_midpoints, _renode_counts, airside_clip,
-                      airside_union, apron_cut_to_pads, build_rim)
+from .pad_cut import (_drop_rim_midpoints, _renode_counts, _SHARED_TIE_DP,
+                      airside_clip, airside_union, apron_cut_to_pads,
+                      build_rim)
 from .weld import WeldStats, weld_cells
 from .shore import pack_shore_walls
 from .zones import shore_declarations, shore_wedge_m, zone_regions
@@ -614,10 +615,6 @@ def inscribed_width_m(poly: Polygon, tol: float = 0.01) -> float:
         return 0.0
 
 
-#: shared-boundary lengths equal to this many decimals (metres) are a TIE
-#: in :func:`dissolve_sliver_zones` (1 µm: the float noise of two
-#: computations of one shared run, never a real difference)
-_SHARED_TIE_DP = 6
 
 
 def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],

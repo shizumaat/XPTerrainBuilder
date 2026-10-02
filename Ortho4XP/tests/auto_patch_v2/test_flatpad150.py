@@ -100,6 +100,32 @@ def test_the_cut_apron_ring_keeps_every_station(arms):
             "a vertex minted on the apron's own ring", k)
 
 
+
+def test_no_apron_face_under_the_identity_spacing_area_is_emitted(arms, law):
+    """The REST of a cut apron is never a scrap face (issue #150's §7
+    criterion, ``pad_cut._dissolve_rest_slivers``): ``region - piece``
+    pinches off scallops where the quantised piece chords a ring station
+    the ring stands past, and each one emitted is 4-5 airside vertices
+    minted outside every plateau ring.  Read on the whole arrangement: no
+    arm may carry a rolled-on face under the law's identity-spacing area
+    that the arm WITHOUT the plateau does not carry too."""
+    from auto_patch_v2.planar.pad_cut import _identity_sliver_m2
+    pm1, pm0, _p = arms
+    bar = _identity_sliver_m2(law)
+
+    def _small(pm) -> set:
+        out = set()
+        for f in pm.faces.values():
+            if f.role != "apron":
+                continue
+            poly = Polygon([pm.vertices[v].xy for v in pm.ring_vertices(f.ring)])
+            if poly.area < bar:
+                out.add((str(f.ref), round(poly.area, 3)))
+        return out
+
+    assert not (_small(pm1) - _small(pm0)), (
+        "the plateau cut emitted a sub-identity-spacing apron face")
+
 # ── 2. the sliver-dissolve tie ───────────────────────────────────────────
 
 def _region(role, ref, poly, source="cell"):

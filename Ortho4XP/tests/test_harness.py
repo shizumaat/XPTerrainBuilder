@@ -45,6 +45,7 @@ import importlib.util
 import hashlib
 import inspect
 import math
+import ast
 import json
 import os
 import re
@@ -12458,3 +12459,52 @@ def test_the_sweep_CLI_refuses_a_corpus_that_is_not_there(
     assert guard_mod.main(["--stray-temporaries",
                            "--repo", str(tmp_path / "nope")]) == 2
     assert "no such corpus" in capsys.readouterr().out
+
+
+def test_importing_the_guard_never_puts_the_engines_src_on_sys_path(
+        tmp_path):
+    """THE HEADER LAW, now that the module has a CLI (#159 + #171).
+
+    ``conftest.py`` arms this guard for EVERY test and tools that never
+    load Ortho4XP import it, so importing it must not put the engine's
+    ``src/`` on ``sys.path`` as a side effect — which is why
+    ``APPROACH_RING_DIR_SUFFIX`` QUOTES the engine's spelling instead of
+    importing it.  The console pin the argparse law requires
+    (``tests/test_console_encoding.py``) therefore lives inside
+    ``_pin_console_streams``, called as the first statement of ``main``,
+    and NOT in the module body like every other tool's.  Replacing it with
+    the standard module-level block would pass that twin and silently break
+    this one, so the two are asserted together.
+
+    Measured: PR #176 (the argparse console law) and PR #184 (this CLI)
+    were written in parallel, both merged clean, and main went RED on
+    exactly this interaction at 2026-10-02 05:43.
+    """
+    source = (HARNESS / "shared_repo_guard.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    pins = [n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "configure_console_streams"]
+    assert pins, "the argparse console law needs the pin to be here at all"
+    at_module_level = [n for n in tree.body
+                       if isinstance(n, ast.Expr) and n.value in pins]
+    assert at_module_level == [], (
+        "the console pin must NOT run at import time: it puts src/ on "
+        "sys.path, and conftest imports this module for every test")
+
+    # And the law itself, not merely its shape: a FRESH interpreter that
+    # imports the guard and nothing else must leave sys.path alone.
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import sys\n"
+        f"sys.path.insert(0, {str(HARNESS)!r})\n"
+        "before = [p for p in sys.path if p.endswith('src')]\n"
+        "import shared_repo_guard\n"
+        "after = [p for p in sys.path if p.endswith('src')]\n"
+        "assert before == after, (before, after)\n"
+        "print('clean')\n",
+        encoding="utf-8", newline="\n")
+    done = subprocess.run([sys.executable, str(probe)],
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "clean"

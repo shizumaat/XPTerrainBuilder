@@ -1401,3 +1401,435 @@ def test_the_real_copernicus_definition_is_ring_two_only_and_not_wide_area(
         d["code"] for d in RINGS._approach_ring_candidates(
             lat, lon, "auto", ring1_class, rung_label=RING1_LABEL)
     }
+
+
+# =====================================================================
+# THE LADDER RUNG a graded cell is fetched from
+# (owner RULINGS 2026-10-02f -- the ruling this section exists for)
+#
+# A ring cell is a SURROUND: one seamless whole-cell raster of the ring's
+# class.  Fetched through the provider's own definition it was RUNG 0 --
+# for USGS3DEP the 1 m lidar PROJECTS resampled to the class, which carry
+# the #130 Aspen hole, so KASE's ring-1 cells read 0.0003-0.99 valid and
+# the bake handed the holes back to the 90 m base.  THE RULE: the coarsest
+# surround-capable rung whose native resolution is at most the class.
+# =====================================================================
+#: Labels of the shipped USGS3DEP ladder (``Providers/Elevation/USGS3DEP.elv``).
+ONE_METRE_LABEL = "1 meter"
+NINTH_ARC_SECOND_LABEL = "1/9 arc-second"
+THIRD_ARC_SECOND_LABEL = "1/3 arc-second"
+#: Native resolutions those rungs declare, in metres.
+ONE_METRE_NATIVE_M = 1.0
+NINTH_ARC_SECOND_NATIVE_M = 3.0
+THIRD_ARC_SECOND_NATIVE_M = 10.0
+#: The strategies and the judge that can never be a SURROUND
+#: (``INSETS._rung_can_be_surround``): each lists or POSTs the AIRPORT's
+#: own footprint, never the whole cell.
+POINT_CLOUD_STRATEGY = "las_tile_index"
+AOI_POST_STRATEGY = "aoi_zip_download"
+AIRPORT_COVER_JUDGE = {"ladder_judge": "airport_cover"}
+
+
+def _laddered(code, native_m, rungs, **extra):
+    """A definition carrying a resolution ladder, keyed as the ``.elv``
+    parser writes it (``native_resolution_m`` + ``resolution_ladder_rungs``).
+    """
+    definition = {
+        "code": code,
+        "enabled": True,
+        "native_resolution_m": native_m,
+        "priority": 100.0,
+        "role": INSETS.ROLE_AIRPORT_INSET,
+        "access_strategy": "tnm_cog",
+        "ladder_label": ONE_METRE_LABEL,
+        "discovery_url_template": "file://%s/one-metre/{west}" % code,
+        "resolution_ladder_rungs": list(rungs),
+    }
+    definition.update(extra)
+    return definition
+
+
+def _usgs_shaped(code="USGSSHAPED"):
+    """A USGS3DEP-SHAPED ladder: the 1 m project discovery (rung 0), a
+    cross-provider point-cloud rung at 1 m, then the seamless 1/9 and
+    1/3 arc-second products."""
+    return _laddered(
+        code,
+        ONE_METRE_NATIVE_M,
+        [
+            {
+                "label": "USGS lidar point cloud",
+                "native_resolution_m": ONE_METRE_NATIVE_M,
+                "provider": "LPCSHAPED",
+            },
+            {
+                "label": NINTH_ARC_SECOND_LABEL,
+                "native_resolution_m": NINTH_ARC_SECOND_NATIVE_M,
+                "discovery_url_template": "file://%s/ninth/{west}" % code,
+            },
+            {
+                "label": THIRD_ARC_SECOND_LABEL,
+                "native_resolution_m": THIRD_ARC_SECOND_NATIVE_M,
+                "discovery_url_template": "file://%s/third/{west}" % code,
+            },
+        ],
+    )
+
+
+def _point_cloud_definition(code="LPCSHAPED", native_m=ONE_METRE_NATIVE_M):
+    """The cross-provider point-cloud rung's own definition."""
+    return {
+        "code": code,
+        "enabled": True,
+        "native_resolution_m": native_m,
+        "priority": 90.0,
+        "role": INSETS.ROLE_AIRPORT_INSET,
+        "access_strategy": POINT_CLOUD_STRATEGY,
+    }
+
+
+def _install_laddered(monkeypatch, *definitions):
+    """Install laddered definitions WITHOUT the fixture resolution shim
+    overriding their rungs: ``_ladder_rung_definitions`` writes each rung's
+    ``native_resolution_m`` into the rung definition, and that is the key
+    :func:`INSETS._definition_resolution_m` reads in production."""
+    by_code = {d["code"]: d for d in definitions}
+    monkeypatch.setattr(
+        RINGS,
+        "_wide_area_candidate_definitions",
+        lambda lat, lon, providers_config="auto": [
+            d for d in definitions
+            if d.get("access_strategy") != POINT_CLOUD_STRATEGY
+        ],
+    )
+    monkeypatch.setattr(
+        INSETS, "elevation_providers_dict", by_code, raising=False
+    )
+    monkeypatch.setattr(
+        INSETS, "_coverage_bbox_intersects",
+        lambda definition, box: definition.get("covers", True),
+    )
+    return by_code
+
+
+def test_ring_one_is_fetched_from_the_third_arc_second_rung(monkeypatch):
+    """THE RULING: ring 1 (10.29 m) comes from the ``1/3 arc-second`` rung
+    -- the coarsest rung at or under the class, full CONUS and no holes --
+    never from the 1 m project discovery that is rung 0."""
+    _install_laddered(monkeypatch, _usgs_shaped(), _point_cloud_definition())
+    rung = RINGS.surround_rung_for_class(_usgs_shaped(), RING1_CLASS_M)
+    assert rung is not None
+    assert rung.label == THIRD_ARC_SECOND_LABEL
+    assert rung.native_resolution_m == THIRD_ARC_SECOND_NATIVE_M
+    assert rung.native_resolution_m <= RING1_CLASS_M
+    assert rung.label != ONE_METRE_LABEL
+
+
+def test_ring_two_takes_the_same_product_at_the_coarser_class(monkeypatch):
+    """Ring 2 (30.87 m) is THE SAME PRODUCT: one product, one datum, one
+    vintage across the 10 m -> 30 m seam (spec section 2).  The rung is
+    the coarsest the provider HAS, and the fetch asks it for 30.87 m."""
+    _install_laddered(monkeypatch, _usgs_shaped(), _point_cloud_definition())
+    ring1 = RINGS.surround_rung_for_class(_usgs_shaped(), RING1_CLASS_M)
+    ring2 = RINGS.surround_rung_for_class(_usgs_shaped(), RING2_CLASS_M)
+    assert ring2.label == ring1.label == THIRD_ARC_SECOND_LABEL
+    assert ring2.definition["discovery_url_template"] == \
+        ring1.definition["discovery_url_template"]
+    assert ring2.definition["code"] == ring1.definition["code"]
+
+
+def test_the_ladder_is_read_without_a_box_so_ring_two_stays_one_product(
+    monkeypatch,
+):
+    """The rung pick reads the provider's OWN chain: a bounding box would
+    turn on GLOBAL ASSEMBLY (RULINGS 2026-09-30bm) and a global 30 m
+    member would become the coarsest rung under the ring-2 class --
+    handing ring 2 a different product, datum and vintage than ring 1."""
+    seen = []
+    real = INSETS._ladder_rung_definitions
+
+    def recording(definition, bounding_box_wgs84=None):
+        seen.append(bounding_box_wgs84)
+        return real(definition, bounding_box_wgs84)
+
+    _install_laddered(monkeypatch, _usgs_shaped(), _point_cloud_definition())
+    monkeypatch.setattr(INSETS, "_ladder_rung_definitions", recording)
+    RINGS.surround_rung_for_class(_usgs_shaped(), RING2_CLASS_M)
+    assert seen == [None]
+
+
+@pytest.mark.parametrize(
+    "surgical",
+    [
+        {"access_strategy": POINT_CLOUD_STRATEGY},
+        {"access_strategy": AOI_POST_STRATEGY},
+        AIRPORT_COVER_JUDGE,
+    ],
+    ids=["point-cloud", "aoi-post", "airport-cover"],
+)
+def test_a_surgical_rung_is_never_the_chosen_rung(monkeypatch, surgical):
+    """A point-cloud / AOI-POST / airport-cover-judged rung lists or serves
+    the AIRPORT, never the whole cell: it is never a surround however
+    well its native resolution fits the class.  Here it is the COARSEST
+    rung under the class, so only the filter can keep it out -- the pick
+    falls back to the provider's own 1 m definition."""
+    definition = _laddered(
+        "SURGICALCOARSE",
+        ONE_METRE_NATIVE_M,
+        [
+            dict(
+                {
+                    "label": "surgical coarse",
+                    "native_resolution_m": THIRD_ARC_SECOND_NATIVE_M,
+                    "provider": "SURGICALRUNG",
+                }
+            ),
+        ],
+    )
+    rung_provider = {
+        "code": "SURGICALRUNG",
+        "enabled": True,
+        "native_resolution_m": THIRD_ARC_SECOND_NATIVE_M,
+        "role": INSETS.ROLE_AIRPORT_INSET,
+    }
+    rung_provider.update(surgical)
+    _install_laddered(monkeypatch, definition, rung_provider)
+    rung = RINGS.surround_rung_for_class(definition, RING1_CLASS_M)
+    assert rung is not None
+    assert rung.label == ONE_METRE_LABEL
+    assert rung.definition["code"] == definition["code"]
+
+
+def test_a_one_metre_only_holder_is_no_ring_source(monkeypatch):
+    """A holder ``.elv`` with ONLY a 1 m definition on a surgical strategy
+    (a point-cloud tile index) has no surround-capable rung at any class:
+    it is not a ring source, and the caller walks on (the collapse rule,
+    unchanged)."""
+    holder = _point_cloud_definition(code="HOLDER1M")
+    _install_laddered(monkeypatch, holder)
+    assert RINGS.surround_rung_for_class(holder, RING1_CLASS_M) is None
+    assert RINGS.surround_rung_for_class(holder, RING2_CLASS_M) is None
+
+
+def test_a_definition_declaring_no_resolution_is_no_ring_source(monkeypatch):
+    """A ring's class is the whole point of the ring: a definition that
+    declares no native resolution cannot be read as one (the candidate
+    filter's own rule, now true of the RUNG too)."""
+    definition = {"code": "NORESOLUTION", "enabled": True}
+    _install_laddered(monkeypatch, definition)
+    assert RINGS.surround_rung_for_class(definition, RING1_CLASS_M) is None
+
+
+def test_a_seamless_one_metre_service_still_serves_the_ring_class(
+    monkeypatch,
+):
+    """THE BOUNDARY OF THE RULE (spec section 2: "a sub-metre lidar service
+    is read at 10.29 m, never at native").  What the ruling bars is the
+    1 m PROJECT DISCOVERY of a laddered provider, which is barred because
+    a coarser seamless rung exists on the same ladder.  A seamless
+    national 1 m service (ENGLAND1M, NORWAY1M ...) has no coarser rung
+    and stays a ring-1 source, read at the ring's class -- the existing
+    collapse-rule twins above rest on exactly that."""
+    service = {
+        "code": "ENGLANDSHAPED",
+        "enabled": True,
+        "native_resolution_m": ONE_METRE_NATIVE_M,
+        "role": INSETS.ROLE_AIRPORT_INSET,
+        "access_strategy": "wcs_coverage",
+    }
+    _install_laddered(monkeypatch, service)
+    rung = RINGS.surround_rung_for_class(service, RING1_CLASS_M)
+    assert rung is not None
+    assert rung.native_resolution_m == ONE_METRE_NATIVE_M
+    assert rung.definition["code"] == service["code"]
+
+
+def test_the_shipped_usgs3dep_ladder_picks_the_third_arc_second_rung(
+    monkeypatch,
+):
+    """The REAL registry, read off disk: USGS3DEP's ring-1 and ring-2 rung
+    is ``1/3 arc-second``, and none of its 1 m rungs (the project
+    discovery, Pitkin County, USGS OPR, the point clouds) is ever it."""
+    monkeypatch.setattr(INSETS, "elevation_providers_dict", {})
+    INSETS.initialize_elevation_providers_dict()
+    definition = INSETS.elevation_providers_dict["USGS3DEP"]
+    for class_m in (RING1_CLASS_M, RING2_CLASS_M):
+        rung = RINGS.surround_rung_for_class(definition, class_m)
+        assert rung is not None, class_m
+        assert rung.label == THIRD_ARC_SECOND_LABEL
+        assert rung.native_resolution_m <= class_m
+        assert rung.definition["code"] == "USGS3DEP"
+        assert "1/3 arc-second" in rung.definition["discovery_url_template"]
+    assert RINGS.surround_rung_for_class(
+        definition, NINTH_ARC_SECOND_NATIVE_M
+    ).label == NINTH_ARC_SECOND_LABEL
+
+
+def test_the_plan_cell_carries_the_rung_and_folds_it_into_the_stem(
+    tmp_path, monkeypatch
+):
+    """The plan records the chosen rung per cell and the cell's cache stem
+    carries it, so a cell fetched under the old rule is simply not the
+    planned file."""
+    _install_laddered(monkeypatch, _usgs_shaped(), _point_cloud_definition())
+    tile = _tile(tmp_path, monkeypatch)
+    plan = RINGS.resolve_approach_ring_plan(tile, _dico(KASE=_boundary(0.5, 0.5)))
+    served = [c for c in plan["cells"] if c["provider"]]
+    assert served
+    token = FNAMES.rung_path_token(THIRD_ARC_SECOND_LABEL)
+    for cell in served:
+        assert cell["source_rung"] == THIRD_ARC_SECOND_LABEL
+        assert cell["source_rung_native_m"] == THIRD_ARC_SECOND_NATIVE_M
+        assert token in cell["stem"]
+        # ONE cell cache, two plans: the band path carries the same rung.
+        assert token in os.path.basename(cell["band_path"])
+
+
+def test_an_old_rule_cell_reads_stale_and_the_plan_stamp_moves(
+    tmp_path, monkeypatch
+):
+    """A cell fetched under the OLD no-ladder rule (rung 0, the 1 m
+    discovery) is NOT served: the stamp moves with the rung and the frame
+    reads COLD naming ``--refresh-data rings``."""
+    _install_laddered(monkeypatch, _usgs_shaped(), _point_cloud_definition())
+    tile = _tile(tmp_path, monkeypatch)
+    dico = _dico(KASE=_boundary(0.5, 0.5))
+    ruled = RINGS.resolve_approach_ring_plan(tile, dico)
+
+    # The old rule: every cell fetched from the provider's own definition.
+    old_rule = RINGS.SurroundRung(
+        ONE_METRE_LABEL, _usgs_shaped(), ONE_METRE_NATIVE_M, None
+    )
+    monkeypatch.setattr(
+        RINGS, "surround_rung_for_class",
+        lambda definition, class_m: old_rule,
+    )
+    before = RINGS.resolve_approach_ring_plan(tile, dico)
+    assert RINGS.approach_ring_plan_stamp(before) != \
+        RINGS.approach_ring_plan_stamp(ruled)
+    # Warm every old-rule cell on disk, then answer the RULED plan with it.
+    for cell in before["cells"]:
+        if cell["provider"]:
+            _write_geotiff(
+                cell["path"],
+                RINGS.approach_ring_cell_box(
+                    TILE_LAT, TILE_LON, cell["column"], cell["row"]
+                ),
+                1000.0,
+            )
+    assert RINGS.approach_ring_frame_problem(
+        TILE_LAT, TILE_LON, before
+    ) is None
+    problem = RINGS.approach_ring_frame_problem(TILE_LAT, TILE_LON, ruled)
+    assert problem is not None and problem[0] == "cold"
+    assert "--refresh-data rings" in problem[1]
+
+
+def _fetching_registry(monkeypatch, definitions, records):
+    """Install ``definitions`` and a ``fetch_inset`` that writes a valid
+    cell and records WHICH definition it was handed."""
+    _install_laddered(monkeypatch, *definitions)
+
+    def fetch(definition, box, target_resolution_m, destination_path):
+        records.append(
+            {
+                "code": definition.get("code"),
+                "native_resolution_m": definition.get("native_resolution_m"),
+                "discovery": definition.get("discovery_url_template"),
+                "target_resolution_m": target_resolution_m,
+                "path": destination_path,
+            }
+        )
+        _write_geotiff(destination_path, box, 1500.0)
+        return {
+            "provider": definition.get("code"),
+            "native_resolution_m": definition.get("native_resolution_m"),
+        }
+
+    monkeypatch.setattr(INSETS, "fetch_inset", fetch)
+    return records
+
+
+def test_the_fetch_goes_through_the_rung_and_the_sidecar_records_it(
+    tmp_path, monkeypatch
+):
+    """``ensure_approach_rings`` hands ``fetch_inset`` the RUNG's
+    definition -- the 1/3 arc-second discovery at the ring's class, never
+    the provider's 1 m discovery -- and the per-cell sidecar records the
+    rung (label, native resolution, provider)."""
+    records = []
+    _fetching_registry(
+        monkeypatch, [_usgs_shaped(), _point_cloud_definition()], records
+    )
+    tile = _tile(tmp_path, monkeypatch)
+    dico = _dico(KASE=_boundary(0.5, 0.5))
+    plan = RINGS.resolve_approach_ring_plan(tile, dico)
+    fetched = RINGS.ensure_approach_rings(tile, dico)
+    assert fetched == len([c for c in plan["cells"] if c["provider"]])
+    assert records
+    for record in records:
+        assert record["native_resolution_m"] == THIRD_ARC_SECOND_NATIVE_M
+        assert "third" in record["discovery"]
+        assert record["target_resolution_m"] in (RING1_CLASS_M, RING2_CLASS_M)
+
+    cell = next(c for c in plan["cells"] if c["provider"])
+    sidecar = FNAMES.approach_ring_cell_provenance(
+        TILE_LAT, TILE_LON, cell["column"], cell["row"], cell["provider"],
+        cell["class_m"], cell["source_rung_token"],
+    )
+    with open(sidecar, "r", encoding="utf-8") as handle:
+        recorded = json.load(handle)[RINGS.SURROUND_RUNG_PROVENANCE_KEY]
+    assert recorded["label"] == THIRD_ARC_SECOND_LABEL
+    assert recorded["native_resolution_m"] == THIRD_ARC_SECOND_NATIVE_M
+    assert recorded["provider"] == cell["provider"]
+    # Every planned cell is answered, so the frame is no longer cold.
+    assert RINGS.approach_ring_frame_problem(
+        TILE_LAT, TILE_LON, plan
+    ) is None
+
+
+def test_the_band_and_the_rings_share_one_rung_derivation(monkeypatch):
+    """The coastline band takes the SAME path (RULINGS 2026-10-02f: one
+    derivation site).  Its near tier is the ring-1 class, so the band
+    reads the same rung off the same function -- there is no second
+    rule to drift from."""
+    _install_laddered(monkeypatch, _usgs_shaped(), _point_cloud_definition())
+    near = RINGS.coastline_rung_ladder()[0]
+    assert near.resolution_m == RING1_CLASS_M
+    band_rung = RINGS.surround_rung_for_class(
+        _usgs_shaped(), near.resolution_m
+    )
+    ring_rung = RINGS.surround_rung_for_class(_usgs_shaped(), RING1_CLASS_M)
+    assert band_rung.label == ring_rung.label == THIRD_ARC_SECOND_LABEL
+    assert band_rung.token == ring_rung.token
+
+
+@pytest.mark.parametrize(
+    "label,token",
+    [
+        ("1/3 arc-second", "1-3-arc-second"),
+        ("1 meter", "1-meter"),
+        ("1/9 arc-second", "1-9-arc-second"),
+        ("Pitkin County 2016 lidar", "pitkin-county-2016-lidar"),
+        ("", ""),
+        (None, ""),
+    ],
+)
+def test_the_rung_filename_token_is_stable_and_safe(label, token):
+    """The rung is part of a FILENAME, so its token is lower case, has no
+    path separator and never ends in one."""
+    assert FNAMES.rung_path_token(label) == token
+
+
+def test_the_frame_row_reports_which_rung_answered(tmp_path, monkeypatch):
+    """``frame.json``'s ``approach_rings`` row names the chosen RUNG beside
+    the provider: the provider alone does not say which product answered
+    (USGS3DEP's 1 m discovery and its 1/3 arc-second rung are one provider
+    and two products, and only one is a lawful ring source)."""
+    _install_laddered(monkeypatch, _usgs_shaped(), _point_cloud_definition())
+    tile = _tile(tmp_path, monkeypatch)
+    dico = _dico(KASE=_boundary(0.5, 0.5))
+    plan = RINGS.resolve_approach_ring_plan(tile, dico)
+    summary = RINGS.summarize_approach_rings(TILE_LAT, TILE_LON, plan)
+    assert summary["rungs"] == [THIRD_ARC_SECOND_LABEL]
+    assert summary["providers"] == ["USGSSHAPED"]

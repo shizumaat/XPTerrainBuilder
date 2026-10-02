@@ -333,6 +333,9 @@ def format_report(report):
 
 
 def main(argv=None):
+    import O4_Console_Encoding as console
+
+    console.configure_console_streams()
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--mesh", required=True)
     parser.add_argument("--inset", required=True)

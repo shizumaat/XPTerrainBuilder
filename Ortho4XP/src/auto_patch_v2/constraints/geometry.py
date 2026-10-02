@@ -129,41 +129,98 @@ def polyline_length(pts: _t.Sequence[XY]) -> float:
 
 # ── axes ─────────────────────────────────────────────────────────────────
 
+def _convex_hull_xy(points: _t.Sequence[XY]) -> list[XY]:
+    """The CONVEX HULL of a planar cloud, counter-clockwise, with DUPLICATE
+    and COLLINEAR vertices dropped (Andrew's monotone chain).
+
+    THE INSERTION-INVARIANCE PRIMITIVE (issue #190, owner ruling
+    2026-10-02v (7)); v1 ``grade_law._convex_hull_xy``, verbatim math.
+    """
+    uniq = sorted({(float(x), float(y)) for (x, y) in points})
+    if len(uniq) < 3:
+        return uniq
+
+    def _turn(o, a, b) -> float:
+        return ((a[0] - o[0]) * (b[1] - o[1])
+                - (a[1] - o[1]) * (b[0] - o[0]))
+
+    def _chain(seq) -> list:
+        out: list = []
+        for p in seq:
+            while len(out) >= 2 and _turn(out[-2], out[-1], p) <= 0.0:
+                out.pop()
+            out.append(p)
+        return out
+
+    hull = _chain(uniq)[:-1] + _chain(uniq[::-1])[:-1]
+    return hull if len(hull) >= 2 else uniq[:2]
+
+
+def _min_area_rect_of_points(
+        points: _t.Sequence[XY]) -> tuple[XY, XY, float, float] | None:
+    """``((ux, uy), (mx, my), long_m, short_m)`` of the MINIMUM-AREA
+    rotated rectangle enclosing the cloud's CONVEX HULL (v1
+    ``grade_law._min_area_rect_of_points``, verbatim math)."""
+    hull = _convex_hull_xy(points)
+    if len(hull) < 2:
+        return None
+    edges = ([(hull[0], hull[1])] if len(hull) == 2
+             else list(zip(hull, hull[1:] + hull[:1])))
+    best = None
+    for (ax, ay), (bx, by) in edges:
+        dx, dy = bx - ax, by - ay
+        L = math.hypot(dx, dy)
+        if L < 1e-9:
+            continue
+        ux, uy = dx / L, dy / L
+        us = [p[0] * ux + p[1] * uy for p in hull]
+        vs = [-p[0] * uy + p[1] * ux for p in hull]
+        w = max(us) - min(us)
+        h = max(vs) - min(vs)
+        if best is not None and w * h >= best[0]:
+            continue
+        umid = 0.5 * (max(us) + min(us))
+        vmid = 0.5 * (max(vs) + min(vs))
+        mid = (umid * ux - vmid * uy, umid * uy + vmid * ux)
+        best = ((w * h), (ux, uy), w, h, mid) if w >= h else \
+               ((w * h), (-uy, ux), h, w, mid)
+    if best is None:
+        return None
+    ux, uy = best[1]
+    # CANONICAL ORIENTATION, and the old fit's own: the PCA eigenvector it
+    # replaces was ``(lam - syy, sxy)``, whose first component is never
+    # negative, so the axis always pointed into the +x half-plane.  A hull
+    # edge points whichever way the hull walk met it, so without this the
+    # two ENDS of a runway would swap for some bearings — a renumbering,
+    # not a geometry change, but not this change's to make.
+    if ux < 0.0 or (ux == 0.0 and uy < 0.0):
+        ux, uy = -ux, -uy
+    return (ux, uy), best[4], best[2], best[3]
+
+
 def principal_axis(points: _t.Sequence[XY]) -> tuple[XY, XY, float] | None:
-    """``(axis_a, axis_b, width_m)`` — the largest-variance axis of a
-    vertex cloud, its extreme along-axis stations and the transverse
-    extent (v1 ``grade_law.runway_axis_and_width``, verbatim math)."""
-    pts = [(float(x), float(y)) for (x, y) in points]
-    n = len(pts)
-    if n < 2:
+    """``(axis_a, axis_b, width_m)`` — the LONG AXIS of the minimum-area
+    rotated rectangle of a vertex cloud's CONVEX HULL, its two extreme
+    along-axis stations and the transverse extent (v1
+    ``grade_law.runway_axis_and_width``, verbatim math).
+
+    INSERTION-INVARIANT (issue #190, owner ruling 2026-10-02v (7)): it
+    was a vertex-count-weighted PCA about the centroid until 2026-10-02,
+    so one vertex inserted on a ring edge tilted the axis and moved every
+    footprint built from it.  The generator and the verifier both bind
+    here, so they move together — that is the point of the shared
+    helper.
+    """
+    rect = _min_area_rect_of_points(points)
+    if rect is None:
         return None
-    cx = sum(p[0] for p in pts) / n
-    cy = sum(p[1] for p in pts) / n
-    sxx = syy = sxy = 0.0
-    for x, y in pts:
-        ddx, ddy = x - cx, y - cy
-        sxx += ddx * ddx
-        syy += ddy * ddy
-        sxy += ddx * ddy
-    tr = sxx + syy
-    det = sxx * syy - sxy * sxy
-    disc = max(0.0, (0.5 * tr) ** 2 - det)
-    lam = 0.5 * tr + math.sqrt(disc)
-    if abs(sxy) > 1e-9:
-        ux, uy = lam - syy, sxy
-    else:
-        ux, uy = (1.0, 0.0) if sxx >= syy else (0.0, 1.0)
-    norm = math.hypot(ux, uy)
-    if norm < 1e-12:
+    (ux, uy), (mx, my), long_m, short_m = rect
+    if long_m <= 0.0:
         return None
-    ux, uy = ux / norm, uy / norm
-    along = [(x - cx) * ux + (y - cy) * uy for x, y in pts]
-    across = [(x - cx) * -uy + (y - cy) * ux for x, y in pts]
-    s0, s1 = min(along), max(along)
-    if s1 - s0 <= 0.0:
-        return None
-    return ((cx + s0 * ux, cy + s0 * uy), (cx + s1 * ux, cy + s1 * uy),
-            max(across) - min(across))
+    half = 0.5 * long_m
+    return ((mx - half * ux, my - half * uy),
+            (mx + half * ux, my + half * uy),
+            short_m)
 
 
 def long_axis(pts: _t.Sequence[XY]) -> tuple[XY, float, XY] | None:

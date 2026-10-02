@@ -738,58 +738,141 @@ def runway_end_corridor_half_width_m(runway_width_m: float,
                float(ruleset_strip_half_width_m(code, code_letter, ruleset)))
 
 
+def _convex_hull_xy(points) -> list:
+    """The CONVEX HULL of a planar ``(x, y)`` cloud, counter-clockwise, with
+    DUPLICATE and COLLINEAR vertices dropped (Andrew's monotone chain).
+
+    THE INSERTION-INVARIANCE PRIMITIVE (issue #190, owner ruling
+    2026-10-02v (7)).  A vertex the emitter inserts on a ring EDGE — a
+    densification step, a tile cut, a crossing split, a closed ring's
+    repeated first vertex — lies ON or INSIDE this hull, so it changes
+    neither the corner list returned nor any min/max taken over it.  That
+    is what lets a footprint derived from it be a function of the
+    runway's SHAPE instead of of its vertex multiset.
+
+    Fewer than three DISTINCT points come back as the one or two they
+    are; an all-collinear cloud comes back as its two extremes.  Pure
+    math, no geometry deps.
+    """
+    uniq = sorted({(float(x), float(y)) for (x, y) in points})
+    if len(uniq) < 3:
+        return uniq
+
+    def _turn(o, a, b) -> float:
+        return ((a[0] - o[0]) * (b[1] - o[1])
+                - (a[1] - o[1]) * (b[0] - o[0]))
+
+    def _chain(seq) -> list:
+        out: list = []
+        for p in seq:
+            while len(out) >= 2 and _turn(out[-2], out[-1], p) <= 0.0:
+                out.pop()
+            out.append(p)
+        return out
+
+    hull = _chain(uniq)[:-1] + _chain(uniq[::-1])[:-1]
+    return hull if len(hull) >= 2 else uniq[:2]
+
+
+def _min_area_rect_of_points(points) -> "Optional[tuple]":
+    """``((ux, uy), (mx, my), long_m, short_m)`` of the MINIMUM-AREA
+    rotated rectangle enclosing a planar cloud: its unit LONG axis, its
+    centre, and its two side lengths.  ``None`` when the cloud has no two
+    distinct points.
+
+    The same rotating-calipers closed form :func:`long_axis_of_points`
+    already uses for a road's own direction — ONE spelling in this
+    module of "the rectangle a cloud lives in", not two — with one
+    difference: the candidate directions come from the CONVEX HULL's
+    edges, not from consecutive ring vertices.  The hull is what makes it
+    insertion-invariant, and it is also what makes it correct for a cloud
+    that is not one walkable ring (a tile cut leaves a runway as several
+    ways, and a consecutive pair spanning the concatenation is an edge of
+    nothing).
+    """
+    hull = _convex_hull_xy(points)
+    if len(hull) < 2:
+        return None
+    edges = ([(hull[0], hull[1])] if len(hull) == 2
+             else list(zip(hull, hull[1:] + hull[:1])))
+    best = None
+    for (ax, ay), (bx, by) in edges:
+        dx, dy = bx - ax, by - ay
+        L = _math.hypot(dx, dy)
+        if L < 1e-9:
+            continue
+        ux, uy = dx / L, dy / L
+        us = [p[0] * ux + p[1] * uy for p in hull]
+        vs = [-p[0] * uy + p[1] * ux for p in hull]
+        w = max(us) - min(us)
+        h = max(vs) - min(vs)
+        if best is not None and w * h >= best[0]:
+            continue
+        umid = 0.5 * (max(us) + min(us))
+        vmid = 0.5 * (max(vs) + min(vs))
+        mid = (umid * ux - vmid * uy, umid * uy + vmid * ux)
+        best = ((w * h), (ux, uy), w, h, mid) if w >= h else \
+               ((w * h), (-uy, ux), h, w, mid)
+    if best is None:
+        return None
+    ux, uy = best[1]
+    # CANONICAL ORIENTATION, and the old fit's own: the PCA eigenvector it
+    # replaces was ``(lam - syy, sxy)``, whose first component is never
+    # negative, so the axis always pointed into the +x half-plane.  A hull
+    # edge points whichever way the hull walk met it, so without this the
+    # two ENDS of a runway would swap for some bearings — a renumbering,
+    # not a geometry change, but not this change's to make.
+    if ux < 0.0 or (ux == 0.0 and uy < 0.0):
+        ux, uy = -ux, -uy
+    return (ux, uy), best[4], best[2], best[3]
+
+
 def runway_axis_and_width(points) -> "Optional[tuple]":
     """``(axis_a, axis_b, width_m)`` for a runway from its EMITTED ring
-    vertices — the centreline axis endpoints (at the two extreme along-axis
-    stations) and the ring's full transverse extent.
+    vertices — the centreline axis endpoints (at the two ends of the
+    runway's own extent) and the ring's full transverse extent.
 
-    The direction is the PRINCIPAL (largest-variance) axis of the vertex
-    cloud, which is parallel to the runway centreline by construction for a
-    long thin rectangle; the longest-vertex-PAIR alternative picks the
-    corner-to-corner DIAGONAL and skews 1–2° (the same reasoning, and the
-    same closed form, as ``verification._runway_principal_axis`` — that
-    function is NOT reused here on purpose: ``tools/check_grade.py`` is the
-    other consumer and must not import the shapely-heavy ``verification``
-    module to build a footprint out of four numbers).
+    INSERTION-INVARIANT BY CONSTRUCTION (issue #190, owner ruling
+    2026-10-02v (7)): the axis is the LONG SIDE of the minimum-area
+    rotated rectangle of the cloud's CONVEX HULL
+    (:func:`_min_area_rect_of_points`), so the answer is a function of
+    the runway's CORNERS.  Inserting a vertex on an edge moves neither
+    the axis nor the width by ANY amount, and the CLOSED spelling of a
+    ring equals the open one exactly.
 
-    ``points`` should be EVERY ring vertex of every emitted shape carrying
-    the runway (a tile cut / crossing split leaves one runway as several
-    ways — pass them all so the axis is the runway's, not a fragment's).
-    ``None`` when the cloud is degenerate.  Pure math, no geometry deps.
+    It was a vertex-count-weighted PCA about the CENTROID until
+    2026-10-02, and vertex mass is not geometry: ONE extra ring vertex
+    2.6 km from a census row tilted the axis and shifted the centroid,
+    and with them the whole strip rectangle — 318 strip stations read
+    257 (#190, the root cause under #116).  This is a change of
+    INVARIANT, not of law: on a clean 4-corner runway the two agree
+    EXACTLY (a rectangle's dominant-variance direction IS its long side
+    and its centroid IS its centre), which is what
+    ``tests/test_runway_axis_insertion_invariance.py`` pins.
+
+    The longest-vertex-PAIR alternative — rejected before, still
+    rejected — picks the corner-to-corner DIAGONAL and skews 1-2
+    degrees.  ``verification._runway_principal_axis`` is deliberately NOT
+    reused here: ``tools/check_grade.py`` is the other consumer and must
+    not import the shapely-heavy ``verification`` module to build a
+    footprint out of four numbers.
+
+    ``points`` should be EVERY ring vertex of every emitted shape
+    carrying the runway (a tile cut / crossing split leaves one runway as
+    several ways — pass them all so the axis is the runway's, not a
+    fragment's).  ``None`` when the cloud is degenerate.  Pure math, no
+    geometry deps.
     """
-    import math as _math
-    pts = [(float(x), float(y)) for (x, y) in points]
-    n = len(pts)
-    if n < 2:
+    rect = _min_area_rect_of_points(points)
+    if rect is None:
         return None
-    cx = sum(p[0] for p in pts) / n
-    cy = sum(p[1] for p in pts) / n
-    sxx = syy = sxy = 0.0
-    for x, y in pts:
-        ddx, ddy = x - cx, y - cy
-        sxx += ddx * ddx
-        syy += ddy * ddy
-        sxy += ddx * ddy
-    tr = sxx + syy
-    det = sxx * syy - sxy * sxy
-    disc = max(0.0, (0.5 * tr) ** 2 - det)
-    lam = 0.5 * tr + _math.sqrt(disc)                 # largest eigenvalue
-    if abs(sxy) > 1e-9:
-        ux, uy = lam - syy, sxy
-    else:
-        ux, uy = (1.0, 0.0) if sxx >= syy else (0.0, 1.0)
-    norm = _math.hypot(ux, uy)
-    if norm < 1e-12:
+    (ux, uy), (mx, my), long_m, short_m = rect
+    if long_m <= 0.0:
         return None
-    ux, uy = ux / norm, uy / norm
-    along = [(x - cx) * ux + (y - cy) * uy for x, y in pts]
-    across = [(x - cx) * -uy + (y - cy) * ux for x, y in pts]
-    s0, s1 = min(along), max(along)
-    if s1 - s0 <= 0.0:
-        return None
-    return ((cx + s0 * ux, cy + s0 * uy),
-            (cx + s1 * ux, cy + s1 * uy),
-            max(across) - min(across))
+    half = 0.5 * long_m
+    return ((mx - half * ux, my - half * uy),
+            (mx + half * ux, my + half * uy),
+            short_m)
 
 
 def runway_strip_wall_keepout_rings(

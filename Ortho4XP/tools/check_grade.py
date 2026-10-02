@@ -3635,10 +3635,10 @@ def _strip_station_inside(px: float, py: float,
     ``runway_strip_wall_keepout_rings`` call on the same numbers, which is
     the documented lockstep — so a margin-0 membership test decides every
     one of them on the last bit of the arithmetic.  And the footprint
-    MOVES with the runway's vertex MULTISET: ``grade_law.
-    runway_axis_and_width`` is a vertex-count-weighted PCA, so inserting a
-    vertex anywhere on the runway ring shifts the centroid and tilts the
-    axis.  Measured between two replay arms whose way -10100 and every
+    USED TO MOVE with the runway's vertex MULTISET: ``grade_law.
+    runway_axis_and_width`` was a vertex-count-weighted PCA, so inserting
+    a vertex anywhere on the runway ring shifted the centroid and tilted
+    the axis.  Measured between two replay arms whose way -10100 and every
     vertex within 30 m of 30.0996269, 31.3974530 were BYTE-IDENTICAL: the
     reader visited 602 vs 603 strip stations and the census read a NEW
     ``strip_arc`` CRITICAL motion row (0.36 m over 37.27 m,
@@ -3649,12 +3649,18 @@ def _strip_station_inside(px: float, py: float,
 
     So the boundary is EPSILON-INCLUSIVE: the decision line is moved off
     the place where emitted vertices actually sit to a place where, by the
-    same construction, none of them is.  It is the honest half-fix — a
-    vertex at exactly ``boundary + eps`` is a new (far smaller) knife edge
-    — because the invariant belongs at the footprint's own derivation,
-    which is SHARED WITH THE EMITTER and therefore not the census's to
-    change (see the lane report / DEFERRED_VERIFICATION).  Inclusive, not
-    exclusive: an instrument may read a station twice, never go blind.
+    same construction, none of them is.  Inclusive, not exclusive: an
+    instrument may read a station twice, never go blind.
+
+    THE OTHER HALF HAS SINCE LANDED (issue #190, owner ruling
+    ``RULINGS 2026-10-02v`` (7)): the footprint's own derivation is now
+    INSERTION-INVARIANT — ``runway_axis_and_width`` is the long side of
+    the minimum-area rotated rectangle of the ring cloud's CONVEX HULL, so
+    a vertex inserted on an edge moves the rectangle by nothing.  The
+    epsilon STAYS, because the thing it answers is the other coupling: a
+    rim vertex the emitter put exactly ON the boundary still has to read
+    as inside, and that is a property of the emitter's own construction,
+    not of the axis fit.  It is no longer load-bearing.
 
     THE one predicate every strip-footprint station set is built from, so
     the ``strip_arc``, ``strip_abeam``, ``resa_transverse`` and ``raoa``

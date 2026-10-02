@@ -1813,7 +1813,10 @@ def warm_airport_insets(icaos, root, lat, lon, prog) -> dict:
             f"REFUSING --warm-insets: no cached airports OSM layer for "
             f"{lat:+d}{lon:+d}, so the inset bounding boxes would come "
             f"from an overpass QUERY — a second unauthorised fetch.  "
-            f"Warm it with --refresh-data osm_layers first.")
+            f"Warm it with --refresh-data osm_layers first — in this same "
+            f"run, --refresh-data osm_layers,dem --warm-insets "
+            f"{','.join(icaos)} derives the layer before the inset warm "
+            f"reads it (#172).")
     airport_layer = OSM.OSM_layer()
     OSM.OSM_queries_to_OSM_layer(
         VMAP.AIRPORTS_QUERIES, airport_layer, lat, lon, ["all"],
@@ -1875,6 +1878,82 @@ def _tile_of_osm_path(path):
         return None
 
 
+#: The tile-level layer set :func:`refresh_stale_osm_layers` must leave
+#: PRESENT after deriving a never-built tile — the engine's own list
+#: (``O4_Vector_Map.osm_layer_warm_specifications``), read at call time.
+#: Named here only for the verdict's wording.
+WARM_LAYER_SOURCE = "O4_Vector_Map.osm_layer_warm_specifications"
+
+
+def absent_osm_layers(lat, lon, specifications) -> list:
+    """The ``cached_suffix`` of every layer in ``specifications`` (the
+    engine's warm list for this tile) whose cache file is NOT on disk.
+    Presence only — staleness is :func:`schema_stale_osm_layers`'s."""
+    import O4_File_Names as FNAMES                         # noqa: E402
+
+    return [spec[0] for spec in specifications
+            if not os.path.isfile(FNAMES.osm_cached(int(lat), int(lon),
+                                                    spec[0]))]
+
+
+def regional_extract_plan(lat, lon) -> dict:
+    """Where the engine's layer derivation for tile ``(lat, lon)`` will
+    read from — READ-ONLY, asked through ``O4_OSM_Extracts``' own
+    region predicates (#172).
+
+    ``source`` is one of:
+
+    * ``regional_extract`` — every covering Geofabrik region is stored
+      under ``OSM_data/_regional_extracts``; the layers are filtered (and
+      clipped) locally.
+    * ``regional_extract_download`` — a covering region is ABSENT and the
+      engine's ``osm_extract_foreground_download`` is on: the engine
+      downloads it IN THE FOREGROUND (owner ruling 2026-07-18) before
+      filtering.  That download is the engine's own and lands under
+      ``OSM_data/_regional_extracts``, i.e. inside the ``osm_layers``
+      scope (``shared_repo_guard.scope_of``), so the authorised run is
+      what fetches it, and the audit hash-stamps it with the layers.
+    * ``overpass`` — extracts disabled, no stored region index, no
+      covering region set, or foreground download off: the engine queries
+      Overpass (the same scope; nothing lands but the layer caches).
+
+    Never deletes: ``_stored_regions_missing`` removes a non-pbf file on
+    sight, so presence is judged here with the store's own read-only
+    pieces instead.
+    """
+    try:
+        import O4_OSM_Extracts as EXTRACTS                 # noqa: E402
+    except Exception as exc:                               # pragma: no cover
+        return {"source": "overpass", "why": f"no extract backend ({exc!r})",
+                "regions": [], "absent": []}
+    if not EXTRACTS.extracts_enabled():
+        return {"source": "overpass", "why": "regional extracts disabled",
+                "regions": [], "absent": []}
+    try:
+        regions = EXTRACTS.covering_regions(
+            (int(lat), int(lon), int(lat) + 1, int(lon) + 1))
+    except Exception as exc:
+        regions, why = None, f"region lookup failed ({exc!r})"
+    else:
+        why = "no stored region index or no covering region set"
+    if regions is None:
+        return {"source": "overpass", "why": why, "regions": [], "absent": []}
+    ids = [region_id for region_id, _url in regions]
+    absent = [region_id for region_id in ids
+              if not (os.path.isfile(EXTRACTS._region_file(region_id))
+                      and EXTRACTS._file_looks_like_pbf(
+                          EXTRACTS._region_file(region_id)))]
+    if not absent:
+        return {"source": "regional_extract", "regions": ids, "absent": []}
+    if EXTRACTS.foreground_download_enabled():
+        return {"source": "regional_extract_download", "regions": ids,
+                "absent": absent,
+                "store": str(EXTRACTS.STORE_DIRECTORY)}
+    return {"source": "overpass", "regions": ids, "absent": absent,
+            "why": "covering region(s) absent and foreground extract "
+                   "download is off"}
+
+
 def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
     """Re-derive the SCHEMA-STALE layers :func:`schema_stale_osm_layers`
     names, under the authorisation the caller already holds.
@@ -1933,11 +2012,43 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
     # to run it, so an absent airports layer is one.
     state = dem_cache_state(root, lat, lon)
     cold_airports = not state["airports_layer"]
+    # THE NEVER-BUILT TILE (#172): its whole warm list is absent, not just
+    # the airports layer.  Named up front so the verdict below can demand
+    # every one of them back, not merely the airports layer.
+    own_tile = CFG.Tile(int(lat), int(lon), "")
+    try:
+        own_tile.read_from_config()
+    except Exception:
+        pass
+    absent = (absent_osm_layers(lat, lon,
+                                VMAP.osm_layer_warm_specifications(own_tile))
+              if cold_airports else [])
     if not stale and not cold_airports:
         prog.note("refresh osm_layers: no schema-stale and no absent "
                   f"cached layer on tile {lat:+d}{lon:+d} or its 3x3 "
                   f"neighbourhood — nothing to re-derive")
-        return {"tile": [int(lat), int(lon)], "layers": [], "refetched": []}
+        return {"tile": [int(lat), int(lon)], "layers": [], "refetched": [],
+                "absent": [], "derived": []}
+
+    extract_plan = regional_extract_plan(lat, lon)
+    if absent:
+        prog.note(f"REFRESH osm_layers (authorised, locked, ledgered): tile "
+                  f"{lat:+d}{lon:+d} has never been built — ABSENT layers "
+                  f"{absent} (the engine's {WARM_LAYER_SOURCE}) are "
+                  f"derived now through the engine's own fetch entries")
+    if extract_plan["source"] == "regional_extract_download":
+        prog.note(f"refresh osm_layers: covering regional extract(s) "
+                  f"{extract_plan['absent']} are ABSENT from "
+                  f"{extract_plan['store']}; the engine FOREGROUND-"
+                  f"downloads them (osm_extract_foreground_download, owner "
+                  f"ruling 2026-07-18) — inside the authorised osm_layers "
+                  f"scope, hash-stamped by this run's audit")
+    else:
+        prog.note(f"refresh osm_layers: layer source "
+                  f"{extract_plan['source']} "
+                  f"(regions {extract_plan['regions'] or '-'}"
+                  + (f"; {extract_plan['why']}" if extract_plan.get("why")
+                     else "") + ")")
 
     aside = []
     for _scope, artifact, _why in stale:
@@ -2035,12 +2146,29 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
             f"airports layer of tile {lat:+d}{lon:+d} — the frame is "
             f"still COLD, so the build would run an overpass query "
             f"mid-measurement.  Check Overpass reachability and re-run.")
+    still_absent = [suffix for suffix in absent
+                    if suffix in absent_osm_layers(
+                        lat, lon,
+                        VMAP.osm_layer_warm_specifications(own_tile))]
+    if still_absent:
+        raise SystemExit(
+            f"REFUSING: --refresh-data osm_layers did not derive the "
+            f"ABSENT layer(s) {still_absent} of never-built tile "
+            f"{lat:+d}{lon:+d} (layer source {extract_plan['source']}).  "
+            f"What it did derive stays and is hash-stamped; re-run the "
+            f"same command — present layers are recycled, not re-fetched.")
+    derived = [s for s in absent if s not in still_absent]
     refetched = [a for a, _p, _t in aside]
     prog.note(f"refresh osm_layers done: {len(refetched)} layer(s) "
               f"re-derived schema-current "
               f"({VMAP.ROAD_CACHE_TAG_SCHEMA}) — {refetched}")
+    if derived:
+        prog.note(f"refresh osm_layers: derived the absent layer(s) "
+                  f"{derived} of tile {lat:+d}{lon:+d}")
     return {"tile": [int(lat), int(lon)],
-            "layers": [a for _s, a, _w in stale], "refetched": refetched}
+            "layers": [a for _s, a, _w in stale], "refetched": refetched,
+            "absent": absent, "derived": derived,
+            "layer_source": extract_plan}
 
 
 # THE AUTHORISED SHORE-FEED FILL (--refresh-data shore, issue #72)
@@ -4563,6 +4691,23 @@ def main(argv=None) -> int:
                 seed_summary = seed_las_tiles(
                     args.seed_from, list(warm_insets or [args.icao]), root,
                     lat, lon, prog)
+        # THE OSM-LAYER REFRESH, FIRST of the derivations (#172).  Before
+        # the build, so a schema-stale layer is re-derived as an EXPLICIT
+        # event instead of being rewritten mid-build (the contamination of
+        # RULINGS 2026-09-15u) — and so this run's re-derivation lands in
+        # the before/after diff the ledger stamps.  And before the inset
+        # warm, because ``warm_airport_insets`` reads its bounding boxes
+        # off the tile's cached AIRPORTS layer, which this pass derives on
+        # a never-built tile: in the old order (warm first) ``KGEG --tile
+        # 47 -118 --refresh-only --refresh-data osm_layers,dem
+        # --warm-insets KGEG`` refused "Warm it with --refresh-data
+        # osm_layers first" with osm_layers AUTHORISED in the same run,
+        # before the pass that would have derived it was ever reached
+        # (measured 2026-10-01 21:06).
+        if "osm_layers" in requested and lat is not None:
+            with guard:
+                osm_refresh_summary = refresh_stale_osm_layers(
+                    root, lat, lon, prog)
         if warm_insets:
             if lat is None:
                 raise SystemExit(
@@ -4572,17 +4717,6 @@ def main(argv=None) -> int:
             with guard:
                 warm_summary = warm_airport_insets(warm_insets, root, lat,
                                                    lon, prog)
-
-        # THE OSM-LAYER REFRESH, in the same place and for the same
-        # reason.  Before the build, so a schema-stale layer is
-        # re-derived as an EXPLICIT event instead of being rewritten
-        # mid-build (the contamination of RULINGS 2026-09-15u) — and so
-        # this run's re-derivation lands in the before/after diff the
-        # ledger stamps.
-        if "osm_layers" in requested and lat is not None:
-            with guard:
-                osm_refresh_summary = refresh_stale_osm_layers(
-                    root, lat, lon, prog)
         if "shore" in requested and lat is not None:
             with guard:
                 shore_refresh_summary = refresh_shore_feed(

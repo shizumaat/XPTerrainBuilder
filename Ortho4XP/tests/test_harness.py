@@ -2316,8 +2316,17 @@ def test_an_authorised_osm_refresh_DERIVES_AN_ABSENT_layer(
     calls = []
     _mock_engine_fetch(monkeypatch, calls)
     prefetched = []
-    monkeypatch.setattr(VMAP, "start_background_osm_prefetch",
-                        lambda tile: prefetched.append((tile.lat, tile.lon)))
+
+    def _prefetch(tile):
+        # the stand-in still lands the layers the real prefetch would
+        # (#172: a never-built tile's WHOLE warm list must come back)
+        prefetched.append((tile.lat, tile.lon))
+        for spec in VMAP._osm_layer_prefetch_specifications(tile):
+            _write_schema_stamped_layer(
+                Path(FNAMES.osm_cached(tile.lat, tile.lon, spec[0])),
+                spec[4])
+
+    monkeypatch.setattr(VMAP, "start_background_osm_prefetch", _prefetch)
     monkeypatch.setattr(VMAP, "wait_for_background_osm_prefetch",
                         lambda: None)
 
@@ -2338,6 +2347,191 @@ def test_an_authorised_osm_refresh_DERIVES_AN_ABSENT_layer(
     with pytest.raises(SystemExit) as exc:
         build_mod.refresh_stale_osm_layers(root, 32, -97, _Notes())
     assert "did not derive the airports layer" in str(exc.value)
+
+
+def _mock_engine_fetch_recycling(monkeypatch, calls):
+    """The engine's one OSM cache writer, with the engine's RECYCLE rule:
+    a cache already on disk under the asked schema is READ (no write, no
+    call recorded); otherwise it is "fetched" and written stamped.  The
+    inset warm reads the airports layer through this same entry, so a
+    second run must touch nothing."""
+    import O4_File_Names as FNAMES
+    import O4_OSM_Utils as OSM
+
+    real_matches = OSM._cached_osm_schema_matches
+
+    def _fetch(queries, layer, lat, lon, tags_of_interest,
+               cached_suffix=None, node_tags_of_interest=None,
+               cache_schema="", **kw):
+        path = Path(FNAMES.osm_cached(lat, lon, cached_suffix))
+        if path.is_file() and real_matches(str(path), cache_schema):
+            return 1
+        calls.append((cached_suffix, cache_schema))
+        _write_schema_stamped_layer(path, cache_schema)
+        return 1
+
+    monkeypatch.setattr(OSM, "OSM_queries_to_OSM_layer", _fetch)
+
+
+def _stub_inset_warm(monkeypatch, icao, written):
+    """The inset half of ``warm_airport_insets``, stubbed at the ENGINE's
+    own functions (no provider, no network): the airport list comes back
+    with ``icao`` in it, and ``ensure_airport_insets`` records the call."""
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_Vector_Map as VMAP
+
+    monkeypatch.setattr(VMAP, "build_airports_dico",
+                        lambda tile, layer: {icao: {}})
+    monkeypatch.setattr(INSETS, "_airport_bounding_boxes",
+                        lambda tile, dico: {i: (0, 0, 1, 1) for i in dico})
+    monkeypatch.setattr(INSETS, "select_provider_definitions",
+                        lambda providers: [{"code": "STUB"}])
+    monkeypatch.setattr(INSETS, "parse_airport_elevation_level",
+                        lambda level: 1.0)
+    monkeypatch.setattr(INSETS, "airport_boundary_polygons",
+                        lambda tile, dico, only=None: None)
+    monkeypatch.setattr(INSETS, "ensure_airport_insets",
+                        lambda *a, **kw: written.append(sorted(a[2])))
+
+
+def test_a_NEVER_BUILT_tile_warms_end_to_end_osm_then_insets_ledgered(
+        build_mod, guard_mod, tmp_path, monkeypatch):
+    """#172 (measured 2026-10-01 21:06, KGEG +47-118): ``--refresh-only
+    --refresh-data osm_layers,dem --warm-insets KGEG`` on a tile nobody
+    had built refused "Warm it with --refresh-data osm_layers first" with
+    osm_layers AUTHORISED — the inset warm ran before the layer pass.
+
+    End to end, offline, on a tmp corpus: the authorised layer pass
+    derives the WHOLE absent warm list through the engine's own entries
+    (the airports call + the REAL background prefetch thread), the inset
+    warm then finds its airports layer, the run's before/after diff is
+    hash-stamped into the ledger naming every layer, and a SECOND run
+    derives and writes nothing.
+    """
+    import O4_File_Names as FNAMES
+    import O4_OSM_Extracts as EXTRACTS
+    import O4_Vector_Map as VMAP
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod, 47, -118)
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (1, False))
+    monkeypatch.setattr(EXTRACTS, "extracts_enabled", lambda: False)
+    ledger = tmp_path / "state" / "refresh_ledger.jsonl"
+    monkeypatch.setattr(guard_mod, "REFRESH_LEDGER", ledger)
+    calls, insets = [], []
+    _mock_engine_fetch_recycling(monkeypatch, calls)
+    _stub_inset_warm(monkeypatch, "KGEG", insets)
+    tile_layers = ["airports", "big_roads", "coastline", "water"]
+
+    def _one_run():
+        before = guard_mod.shared_repo_snapshot(root)
+        prog = _Notes()
+        summary = build_mod.refresh_stale_osm_layers(root, 47, -118, prog)
+        build_mod.warm_airport_insets(["KGEG"], root, 47, -118, prog)
+        changes = guard_mod.snapshot_diff(
+            before, guard_mod.shared_repo_snapshot(root))
+        if any(changes.values()):
+            guard_mod.record_refresh("osm_layers", changes,
+                                     {"tag": "twin172"}, repo=root)
+        return summary, changes, prog
+
+    # the warm-insets refusal is the one the issue quotes — before
+    with pytest.raises(SystemExit) as exc:
+        build_mod.warm_airport_insets(["KGEG"], root, 47, -118, _Notes())
+    assert "Warm it with --refresh-data osm_layers first" in str(exc.value)
+
+    summary, changes, prog = _one_run()
+    assert summary["absent"] == tile_layers
+    assert summary["derived"] == tile_layers
+    assert summary["layer_source"]["source"] == "overpass"
+    assert sorted(c[0] for c in calls) == sorted(tile_layers), calls
+    for suffix in tile_layers:
+        assert os.path.isfile(FNAMES.osm_cached(47, -118, suffix)), suffix
+    assert insets == [["KGEG"]], "the inset warm must run on the warmed layer"
+    assert any("never been built" in line for line in prog.lines)
+    records = [json.loads(line) for line in
+               ledger.read_text(encoding="utf-8").splitlines()]
+    assert len(records) == 1 and records[0]["scope"] == "osm_layers"
+    stamped = {f["path"] for f in records[0]["files"]}
+    assert stamped == {
+        f"OSM_data/+40-120/+47-118/+47-118_{s}.osm.bz2" for s in tile_layers}
+    assert all(f.get("sha256") for f in records[0]["files"])
+
+    # SECOND RUN: nothing absent, nothing stale -> nothing derived, written
+    calls.clear()
+    summary2, changes2, _ = _one_run()
+    assert calls == [] and summary2["derived"] == []
+    assert not any(changes2.values()), changes2
+    assert len(ledger.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_a_never_built_tile_whose_layer_stays_ABSENT_refuses(
+        build_mod, tmp_path, monkeypatch):
+    """A layer pass that leaves a warm-list layer absent must not exit 0
+    (the VMMC class, #172 shape): the airports layer came back, the
+    prefetch did not — refused, naming the layer."""
+    import O4_OSM_Extracts as EXTRACTS
+    import O4_Vector_Map as VMAP
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod, 47, -118)
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (0, False))
+    monkeypatch.setattr(EXTRACTS, "extracts_enabled", lambda: False)
+    _mock_engine_fetch_recycling(monkeypatch, [])
+    monkeypatch.setattr(VMAP, "start_background_osm_prefetch",
+                        lambda tile: None)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.refresh_stale_osm_layers(root, 47, -118, _Notes())
+    msg = str(exc.value)
+    assert "ABSENT layer(s) ['coastline', 'water']" in msg
+    assert "+47-118" in msg
+
+
+def test_the_layer_source_names_an_ABSENT_regional_extract(
+        build_mod, tmp_path, monkeypatch):
+    """#172 (c): the tile's covering regions, asked through the extract
+    backend's own predicates, READ-ONLY.  KGEG +47-118 on the 2026-10-01
+    corpus: us/washington stored, us/idaho absent -> the engine's
+    foreground download fetches it inside the osm_layers scope; with that
+    download off, Overpass.  A non-pbf file is reported absent and NOT
+    deleted (the store's own predicate deletes on sight)."""
+    import O4_OSM_Extracts as EXTRACTS
+
+    store = tmp_path / "_regional_extracts"
+    store.mkdir()
+    (store / "us__washington.osm.pbf").write_bytes(b"\0\0OSMHeader....")
+    (store / "us__idaho.osm.pbf").write_bytes(b"<html>poison</html>")
+    monkeypatch.setattr(EXTRACTS, "STORE_DIRECTORY", str(store))
+    monkeypatch.setattr(EXTRACTS, "extracts_enabled", lambda: True)
+    monkeypatch.setattr(EXTRACTS, "covering_regions", lambda box: [
+        ("us/idaho", "u1"), ("us/washington", "u2")])
+    monkeypatch.setattr(EXTRACTS, "foreground_download_enabled", lambda: True)
+    plan = build_mod.regional_extract_plan(47, -118)
+    assert plan["source"] == "regional_extract_download"
+    assert plan["absent"] == ["us/idaho"]
+    assert (store / "us__idaho.osm.pbf").is_file(), "never deletes"
+    import shared_repo_guard as G
+    assert G.scope_of("OSM_data/_regional_extracts/us__idaho.osm.pbf") \
+        == "osm_layers"
+    monkeypatch.setattr(EXTRACTS, "foreground_download_enabled",
+                        lambda: False)
+    assert build_mod.regional_extract_plan(47, -118)["source"] == "overpass"
+    (store / "us__idaho.osm.pbf").write_bytes(b"\0\0OSMHeader....")
+    assert build_mod.regional_extract_plan(47, -118) == {
+        "source": "regional_extract",
+        "regions": ["us/idaho", "us/washington"], "absent": []}
+    monkeypatch.setattr(EXTRACTS, "covering_regions", lambda box: None)
+    assert build_mod.regional_extract_plan(47, -118)["source"] == "overpass"
+
+
+def test_main_runs_the_layer_pass_BEFORE_the_inset_warm(build_mod):
+    """#172: the inset warm reads its bounding boxes off the airports
+    layer the osm_layers pass derives, so in ``main`` the pass comes
+    first; the dem pass (which also reads that layer) after both."""
+    src = Path(build_mod.__file__).read_text(encoding="utf-8")
+    body = src[src.index("\ndef main("):]
+    osm = body.index("osm_refresh_summary = refresh_stale_osm_layers(")
+    warm = body.index("warm_summary = warm_airport_insets(")
+    dem = body.index("dem_refresh_summary = refresh_tile_dem(")
+    assert osm < warm < dem
 
 
 def test_a_NEIGHBOUR_tiles_superseded_feed_is_named_and_derived(

@@ -2115,6 +2115,10 @@ def read_approach_ring_stamp(lat, lon):
     return _read_coastline_band_stamp(FNAMES.approach_ring_index(lat, lon))
 
 
+#: The stamp's date-of-derivation key; a change in it alone never rewrites.
+APPROACH_RING_STAMP_DATE_KEY = "checked"
+
+
 def write_approach_ring_stamp(lat, lon, stamp):
     """Write the ring stamp -- ONLY when it changed.
 
@@ -2126,7 +2130,21 @@ def write_approach_ring_stamp(lat, lon, stamp):
     if os.path.isfile(path):
         try:
             with open(path, "r", encoding="utf-8") as handle:
-                if handle.read() == payload:
+                previous = handle.read()
+            if previous == payload:
+                return False
+            # A DATE-ONLY change is not a change (the ladder re-check's own
+            # rule): a stamp warmed yesterday and re-derived today must not
+            # be rewritten, or every build after a warm is a shared-repo
+            # write the guard refuses (measured 2026-10-02, KASE tile).
+            try:
+                before = json.loads(previous)
+            except ValueError:
+                before = None
+            if isinstance(before, dict):
+                strip = lambda d: {k: v for k, v in d.items()
+                                   if k != APPROACH_RING_STAMP_DATE_KEY}
+                if strip(before) == strip(stamp):
                     return False
         except OSError:
             pass

@@ -1833,3 +1833,23 @@ def test_the_frame_row_reports_which_rung_answered(tmp_path, monkeypatch):
     summary = RINGS.summarize_approach_rings(TILE_LAT, TILE_LON, plan)
     assert summary["rungs"] == [THIRD_ARC_SECOND_LABEL]
     assert summary["providers"] == ["USGSSHAPED"]
+
+
+def test_a_date_only_stamp_change_is_not_rewritten(tmp_path, monkeypatch):
+    """A ring stamp warmed yesterday and re-derived today differs only in
+    ``checked``; a build must not rewrite it (shared-repo write refused,
+    measured 2026-10-02 on the KASE tile)."""
+    import json
+    import O4_Elevation_Level as EL
+    import O4_File_Names as FNAMES
+    path = tmp_path / "N39W107_approach_rings" / "index.json"
+    monkeypatch.setattr(FNAMES, "approach_ring_index", lambda lat, lon: str(path))
+    base = {"plan_stamp": "abc", "cells": {"c": "ok"}, "feathers": {"ring1_m": 300.0},
+            "layers": {"ring1": 10.31}, "neighbours_unknown": [], "checked": "2026-10-01"}
+    assert EL.write_approach_ring_stamp(39, -107, base) is True
+    later = dict(base, checked="2026-10-02")
+    assert EL.write_approach_ring_stamp(39, -107, later) is False
+    assert json.loads(path.read_text(encoding="utf-8"))["checked"] == "2026-10-01"
+    changed = dict(later, plan_stamp="def")
+    assert EL.write_approach_ring_stamp(39, -107, changed) is True
+

@@ -435,9 +435,25 @@ def _unit_carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int],
                 geom_pts=_geom_pts(raw, grp))
 
 
+def _note_tilted_kept_whole(m: Member, counts: dict[str, int],
+                            refs: list[tuple[int, str, tuple[str, ...]]],
+                            index: int) -> None:
+    """#232, REPORTED NOT DECIDED: a placement kept WHOLE keeps its
+    authored file, seat directives and all, because the stage does not
+    write it.  Census it here — the one place a placement goes either
+    SPLIT (written, and the writer strips them) or KEPT — so the owner's
+    rule for a TILTED kept-whole object on a graded pad is read off
+    numbers.  Nothing is changed."""
+    found = _split.seat_owned_in_file(pristine_path(m))
+    if found:
+        counts["tilted_kept_whole"] = counts.get("tilted_kept_whole", 0) + 1
+        refs.append((index, m.resource, found))
+
+
 def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
                   splits: list[Split], kept: list[Kept], whole: list[Split],
-                  *, always_write: bool) -> None:
+                  *, always_write: bool,
+                  tilted_whole: list[tuple[int, str, tuple[str, ...]]]) -> None:
     """The OBJ8 cut for one member's bodies, and where the record lands.
 
     ``always_write`` is §14 (1)'s change: a CARRIED footless placement is
@@ -451,6 +467,7 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
         counts["kept"] += 1
         counts["one_body"] += 1
         kept.append(Kept(index, m.id, m.resource, "one_body"))
+        _note_tilted_kept_whole(m, counts, tilted_whole, index)
         whole.append(record)
         return
     files: tuple[_split.SplitFile, ...] = ()
@@ -473,12 +490,14 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
                 counts["kept"] += 1
                 counts[res.kept_whole] = counts.get(res.kept_whole, 0) + 1
                 kept.append(Kept(index, m.id, m.resource, res.kept_whole))
+                _note_tilted_kept_whole(m, counts, tilted_whole, index)
                 whole.append(record)
                 return
             files = res.files
     if err:
         kept.append(Kept(index, m.id, m.resource, err))
         counts["kept"] += 1
+        _note_tilted_kept_whole(m, counts, tilted_whole, index)
         whole.append(record)
         return
     counts["split"] += 1
@@ -677,6 +696,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
     splits: list[Split] = []
     kept: list[Kept] = []
+    #: #232: the kept-whole placements whose authored file carries a seat
+    #: directive — reported for the owner's rule, never changed
+    tilted_whole: list[tuple[int, str, tuple[str, ...]]] = []
     whole: list[Split] = []
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
@@ -1204,7 +1226,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                m.heading_deg, (body,))
                 before = len(splits)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              always_write=True)
+                              always_write=True, tilted_whole=tilted_whole)
                 written_of[mi] = len(splits) > before
                 continue
             bodies = ([] if st.footless
@@ -1270,7 +1292,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     counts["footless_carrier_kept_whole"] = \
                         counts.get("footless_carrier_kept_whole", 0) + 1
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              always_write=True)
+                              always_write=True, tilted_whole=tilted_whole)
             else:
                 # §14 (1)'s own sentence, read on the case §14 (3) creates.
                 # A ONE-BODY placement is KEPT — its row untouched — and on a
@@ -1289,7 +1311,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 if off_row and len(bodies) < 2:
                     counts["one_body_off_row"] = counts.get("one_body_off_row", 0) + 1
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              always_write=off_row)
+                              always_write=off_row, tilted_whole=tilted_whole)
             written_of[mi] = len(splits) > before
     for k, v in sorted(by_class.items()):
         counts[f"class_{k}"] = v
@@ -1299,7 +1321,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     for k, v in sorted(refused.items()):
         counts[f"carrier_refused_{k}"] = v
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
-                    tuple(fams), tuple(_seats))
+                    tuple(fams), tuple(_seats), tuple(tilted_whole))
 
 
 

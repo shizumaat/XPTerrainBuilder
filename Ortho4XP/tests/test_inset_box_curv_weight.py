@@ -133,7 +133,7 @@ def test_box_is_clipped_to_the_tile():
 # ── the instrument ────────────────────────────────────────────────────
 
 def _write_mesh(path, vertices, triangles):
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write("MeshVersionFormatted 1\nDimension 3\n\nVertices\n")
         handle.write("%d\n" % len(vertices))
         for (lon, lat, z) in vertices:
@@ -165,7 +165,7 @@ def test_mesh_inset_error_reads_the_facet_offset(tmp_path):
     corners = [(10.004, 50.004), (10.016, 50.004), (10.016, 50.016),
                (10.004, 50.016)]
     graded = str(tmp_path / "KXXX.graded.json")
-    with open(graded, "w") as handle:
+    with open(graded, "w", encoding="utf-8", newline="\n") as handle:
         json.dump({"vertices": [[0, 50.009, 10.009], [1, 50.009, 10.011],
                                 [2, 50.011, 10.011], [3, 50.011, 10.009]],
                    "faces": [{"ring": [0, 1, 2, 3]}]}, handle)

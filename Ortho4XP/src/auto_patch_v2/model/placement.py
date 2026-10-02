@@ -39,7 +39,13 @@ __all__ = [
 ]
 
 #: 1: the first plan (11b — conversions, splits, kept).
-PLAN_VERSION = 1
+#: 2 (#232): every body file this stage writes lost ``TILTED`` /
+#: ``SLOPE_LIMIT`` (``obj8_split.SEAT_OWNED_DIRECTIVES``), so a plan
+#: written by a v1 tree describes body files that are STILL TILTED in the
+#: pack.  The bump refuses that plan, which is what makes the next build
+#: re-cut and rewrite every body instead of re-applying a stale edit set
+#: over files it did not write.
+PLAN_VERSION = 2
 #: ``<patch dir>/o4_v2_placement_<ICAO>.json``.
 PLAN_FILENAME = "o4_v2_placement_{icao}.json"
 #: The pristine DSF kept beside the written one (the OBJ discipline of

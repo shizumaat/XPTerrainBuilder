@@ -19,15 +19,38 @@ bar) is split into TWO regions of its own role:
   ``building`` face with a HOLE, graded as a §31 (7) bank from the welded
   rim to the platform (``constraints.platform``).
 
-C IS MEASURED PER PLATFORM (spec §1 (2); spec-author correction on #66,
-2026-09-28): ``C = clamp(relief / bank_slope, bank_min_width_m,
-platform_collar_max_m)`` where ``relief`` is the WELDED rim's largest
-distance from the platform plane (:func:`rim_relief_m`).  The spec reads it
-off stage 1; stage 1 runs after this arrangement, so the mint reads the
-one level there is here, the DEM along the welded rim, against the same
-tilt-bounded frontage plane — and the SOLVED relief is re-read after the
-solve and published per platform (``platform_rim_relief``, with the collar
-it would need), so a mint that under-read shows there, never silently.
+C IS THE WIDEST WIDTH THE PAD CAN CARRY (owner RULINGS 2026-10-02v (5)
+as amended by 2026-10-02z, issue #86): the collar is minted at
+``platform_collar_max_m``, the widest the law allows, and the SOLVE places
+the toe inside it (``constraints.platform``: the collar's rows are one-way
+INEQUALITIES at the 1:3 bank, never a fixed-toe equality).  Where the cap
+would erode the pad past the platform's own gates it is NARROWED to the
+widest width that still leaves a platform — never below the width the
+pre-collar86 engine already minted, and so never below
+``bank_min_width_m`` (:func:`_collar_for_pad` — ONE pass, bisection on
+§46 (4)'s coordinate lattice, no re-mint and no second solve).  THE
+PLATFORM SET IS UNCHANGED BY CONSTRUCTION: the refusal is judged at that
+status-quo width, so round 2 alters a collar's WIDTH and nothing else.  Round 1 minted the cap
+UNCONDITIONALLY and 10-02z MEASURED what that costs: live platforms KCLT
+10 -> 3, SPJC 8 -> 5, HECA 14 -> 8, the plateaus lost with them and KCLT
+18L/36R runway flex at 98 % of budget.  Where the platform survived the
+bank goal WAS met (HECA ``building4`` 1:3.27 -> 1:4.61, SPJC ``building5``
+1:1.89 -> 1:4.41) — so round 2 keeps the one-way rows and widens the
+collar only as far as the pad allows.  The DEM proxy both replace — ``C = clamp(relief / bank_slope,
+bank_min_width_m, platform_collar_max_m)`` read off the DEM along the
+welded rim (:func:`rim_relief_m`) — under-read the SOLVED relief at HECA
+T3 ``building4`` (C 10.43 m, 11.2 m needed) and SPJC ``building5`` (C
+5.99 m, 14.0 m needed), and the two-pass re-mint that would close it is
+REFUSED (RULINGS 2026-09-29l: it does not converge — widening the collar
+moves the platform's plane, so the needed C grows again, 5.99 -> 13.99 ->
+17.88 m — and it doubles the solve, 08k (4) ONE pass).  The mint still
+READS the DEM relief and records it per platform (``Platform.rim_relief``),
+and the SOLVED relief is re-read after the solve and published
+(``platform_rim_relief``, with the collar it would need), so a collar too
+narrow for the relief shows there, never silently.  Each platform also
+records WHY its C is what it is (``Platform.collar_why``: ``"cap"`` /
+``"area"`` / ``"floor"``), so an area-limited collar is read off the
+report, never inferred.
 
 The erosion never touches the rim: no airside vertex is created or moved
 (the inner ring is at least C inside the pad, minted after the 23a cut).
@@ -65,9 +88,123 @@ _MIN_WELDED = 3
 
 
 def collar_width_m(law: Law) -> float:
-    """C (module docstring): the §31 (7) bank floor
-    ``emit.design.bank_min_width_m`` — ONE derivation."""
-    return float(law.tables.emit.design.bank_min_width_m)
+    """C's CEILING (module docstring): the CAP, ``structures.building_pad
+    platform_collar_max_m`` (owner RULINGS 2026-10-02v (5)) — the width
+    every platform takes where its pad can carry it, and the top of
+    :func:`_collar_for_pad`'s search.  ONE derivation, read by the mint
+    and by its twins."""
+    return float(law.tables.structures.building_pad.platform_collar_max_m)
+
+
+def _eroded(P: Polygon, C: float, grid: float, pmin: float
+            ) -> "tuple[list[Polygon], list[Polygon], float]":
+    """``(parts, platform pieces, their total area)`` of ``P`` eroded by
+    ``C`` — the erosion and the two gates ``platform_split`` has always
+    run, at ONE width, lifted out so the width search and the mint read
+    the SAME predicate (no second implementation to drift).
+
+    EVERY piece the erosion leaves is platform (a district pad is several
+    halls joined by narrow links, and the links are what the collar eats —
+    HECA T3 ``building4``: its largest piece alone is a third of the pad).
+    The pieces keep the pad's ref, so the plate prices them as ONE plane
+    (``cluster_pad.plane_groups``).  A piece under ``[building_pad]
+    min_area_m2`` (the smallest pad the mint keeps) stays in the collar,
+    which is where its ground is."""
+    inner = P.buffer(-C, join_style=2, mitre_limit=2.0)
+    parts = sorted(_parts(inner), key=lambda q: -q.area)
+    plats = []
+    for q in parts:
+        if grid > 0.0:
+            # the ring is noded on the arrangement's grid anyway; a
+            # mitred erosion carries no vertex worth half a cell
+            s_ = q.simplify(0.5 * grid, preserve_topology=True)
+            q = s_ if isinstance(s_, Polygon) and not s_.is_empty else q
+        if q.area >= pmin:
+            plats.append(q)
+    return parts, plats, sum(q.area for q in plats)
+
+
+def _collar_for_pad(P: Polygon, grid: float, cap: float, cmin: float,
+                    bank: float, rel: "float | None", step: float,
+                    pmin: float, min_m2: float
+                    ) -> "tuple[float, str, list[Polygon], list[Polygon], float]":
+    """THE ONE DERIVATION OF C (module docstring; owner RULINGS 2026-10-02z
+    re-land of #86): the WIDEST width at or under ``cap`` whose erosion
+    still leaves this pad a platform — ``_eroded`` leaves a part AND the
+    platform pieces total at least ``min_m2``.  ONE pass: no re-mint, no
+    second solve, and the toe stays solve-placed by
+    ``constraints.platform``'s one-way rows.
+
+    THE SEARCH FLOOR IS THE STATUS QUO, not ``cmin``.  ``origin/main``
+    (pre-collar86) minted ``C_main = clamp(relief / bank_slope,
+    bank_min_width_m, platform_collar_max_m)`` and REFUSED the pad when
+    that erosion left no platform; round 2 starts there and only widens.
+    So the set of pads that get a platform is main's set EXACTLY — round 2
+    changes a collar's WIDTH and nothing else, which is the whole of what
+    10-02z asks for and the only delta a sweep then has to attribute.  A
+    floor at ``cmin`` instead would also MINT platforms main refuses (a
+    pad whose relief-width erosion crossed the min-area bar while a 5 m one
+    does not): MEASURED on
+    ``test_round_2_never_refuses_a_platform_main_grants``'s 50-pad sweep,
+    2 of 50.  That is a strict gain in 10-02z's own direction, but it is a
+    CHANGE TO THE PLATFORM SET and so the owner's to rule, not this lane's
+    — REPORTED, not taken.  ``cmin`` remains the absolute floor: the
+    status-quo width is never under it.
+
+    MONOTONE, so the search is a bisection and not a scan: eroding further
+    can only shrink every piece (``inner(C') ⊆ inner(C)`` and each part of
+    the narrower erosion lies inside one part of the wider), and a piece
+    dropped under ``pmin`` can never come back — so the passing widths are
+    a prefix of the lattice.  The lattice is the law's OWN coordinate
+    resolution, ``emit.identity.input_quantum_m`` (§46 (4), 1 mm: the grid
+    every coordinate entering the metric frame is snapped to) — C carries
+    no resolution constant of its own, and the granularity is a thousandth
+    of the ``hard_tol_m`` a held row is allowed, so the search can move no
+    vertex a census reads.  WHY IT MUST BE THAT FINE: the status-quo width
+    is an arbitrary real, and C must never come out NARROWER than it.  A
+    coarser lattice shortfalls by up to one station — MEASURED on the same
+    sweep at a 48 m-deep pad: 9.0909 m against a 2 m lattice's 9.0 m.
+    Integer bisection on the station index keeps the answer exact and
+    reproducible (no float accumulation); the CAP is probed first — the
+    common case, one erosion, exactly round 1's cost — then the floor,
+    then at most ``log2(K)`` ≈ 14 more.
+
+    Returns ``(C, why, parts, platform pieces, their area)``.  ``why`` is
+    ``"cap"`` (the pad carries the full collar), ``"area"`` (an
+    intermediate width — the min-area gate is what bounded it) or
+    ``"floor"`` (the status-quo width itself, the one width round 2 could
+    not improve on).  Empty platform pieces is the REFUSAL, judged at the
+    floor: the caller names it from ``parts``."""
+    import math
+    cap = max(cap, cmin)
+    floor = cmin if (rel is None or bank <= 0.0) else min(cap, max(cmin, rel / bank))
+    step = step if step > 0.0 else cap - floor
+    K = 0 if cap <= floor else max(1, int(math.ceil((cap - floor) / step)))
+
+    def _w(k: int) -> float:
+        return min(cap, floor + k * step)
+
+    def _probe(k: int):
+        pa, pl, tot = _eroded(P, _w(k), grid, pmin)
+        return (bool(pa) and tot >= min_m2), (pa, pl, tot)
+
+    ok, got = _probe(K)
+    if ok:
+        return _w(K), ("cap" if K else "floor"), got[0], got[1], got[2]
+    if K == 0:
+        return floor, "floor", got[0], [], got[2]
+    ok, got = _probe(0)
+    if not ok:
+        return floor, "floor", got[0], [], got[2]
+    lo, hi, best = 0, K, got             # lo PASSES, hi does not
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        ok, g = _probe(mid)
+        if ok:
+            lo, best = mid, g
+        else:
+            hi = mid
+    return _w(lo), ("floor" if lo == 0 else "area"), best[0], best[1], best[2]
 
 
 def _parts(g) -> list[Polygon]:
@@ -152,11 +289,18 @@ def platform_split(base_regions, pad_regions, law: Law,
     from ..law.tables import design as design_law
     min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)
     near = float(design_law(law).pad_frontage_m)
-    C0 = collar_width_m(law)
+    cap = collar_width_m(law)
     bank = float(law.tables.emit.design.bank_slope)
-    cmax = float(bp.platform_collar_max_m)
+    # C's absolute floor is the BANK law's narrowest bank (owner RULINGS
+    # 2026-10-02z names it); the lattice the width is searched on is the
+    # law's own coordinate resolution, §46 (4)'s input quantum.  The
+    # SEARCH's floor is the status-quo width ``_collar_for_pad`` derives
+    # from ``rel`` — that is what keeps the platform SET main's exactly
+    cmin = float(law.tables.emit.design.bank_min_width_m)
+    step = float(law.tables.emit.identity.input_quantum_m)
+    pmin = float(bp.min_area_m2)
     slope_max = float(law.tables.emit.within_shape.pad_slope_max)
-    if min_m2 <= 0.0 or C0 <= 0.0 or bank <= 0.0:
+    if min_m2 <= 0.0 or cap <= 0.0 or bank <= 0.0:
         return list(pad_regions), counts
     air_roles = rolled_on_roles(law)
     air_polys = [r.polygon for r in base_regions
@@ -183,39 +327,26 @@ def platform_split(base_regions, pad_regions, law: Law,
         if nw < _MIN_WELDED:
             out.append(pr)
             continue
-        # C PER PLATFORM (spec-author correction on #66): the §31 (7) bank
-        # the welded rim's relief needs, clamped to [bank_min_width_m,
-        # platform_collar_max_m]
+        # C IS THE WIDEST WIDTH THIS PAD CAN CARRY (owner RULINGS 2026-10-02z
+        # re-land of #86): the cap wherever the pad carries it — so the
+        # solve has the whole bank to place the toe in — narrowed station by
+        # station only where the cap's erosion would take the platform
+        # away, never below ``bank_min_width_m``.  ONE derivation, ONE pass.
+        # The DEM relief is still READ — it is what round 1's mint
+        # under-read (#86), and the record is how C is judged against the
+        # solved relief the census re-reads.
         rel = rim_relief_m(P, air, near, dem, slope_max)
-        C = C0 if rel is None else min(cmax, max(C0, rel / bank))
-        inner = P.buffer(-C, join_style=2, mitre_limit=2.0)
-        parts = sorted(_parts(inner), key=lambda q: -q.area)
-        if not parts:
-            PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1), 0.0,
-                                      nw, rel, "eroded_away"))
-            out.append(pr)
-            continue
-        # EVERY piece the erosion leaves is platform (a district pad is
-        # several halls joined by narrow links, and the links are what the
-        # collar eats — HECA T3 ``building4``: its largest piece alone is a
-        # third of the pad).  The pieces keep the pad's ref, so the plate
-        # prices them as ONE plane (``cluster_pad.plane_groups``).  A piece
-        # under ``[building_pad] min_area_m2`` (the smallest pad the mint
-        # keeps) stays in the collar, which is where its ground is.
-        pmin = float(bp.min_area_m2)
-        plats = []
-        for q in parts:
-            if grid > 0.0:
-                # the ring is noded on the arrangement's grid anyway; a
-                # mitred erosion carries no vertex worth half a cell
-                s_ = q.simplify(0.5 * grid, preserve_topology=True)
-                q = s_ if isinstance(s_, Polygon) and not s_.is_empty else q
-            if q.area >= pmin:
-                plats.append(q)
-        tot = sum(q.area for q in plats)
-        if tot < min_m2:
+        C, why, parts, plats, tot = _collar_for_pad(
+            P, grid, cap, cmin, bank, rel, step, pmin, min_m2)
+        if not plats:
+            # REFUSED at the SEARCH FLOOR — the status-quo (DEM-relief)
+            # width left no platform, which is exactly the pad
+            # ``origin/main`` refuses; no wider width could mint it
+            # (``_collar_for_pad`` is monotone)
             PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1),
-                                      round(tot, 1), nw, rel, "under_min_area"))
+                                      round(tot, 1), nw, rel,
+                                      "eroded_away" if not parts else "under_min_area",
+                                      why))
             out.append(pr)
             continue
         cparts = _parts(P.difference(unary_union(plats)))
@@ -234,7 +365,7 @@ def platform_split(base_regions, pad_regions, law: Law,
             # a STRIP of collar wide enough for the 1:3 bank the predicted
             # step needs (§2 (5): the declared pad|pad terrace, never a
             # shared platform vertex at two floors)
-            blk = _mint_blocks(pr, P, plats, bplan, law, grid, pmin, C, nw, rel)
+            blk = _mint_blocks(pr, P, plats, bplan, law, grid, pmin, C, nw, rel, why)
             if blk is not None:
                 split_units[str(pr.ref)] = [b.polygon for b in bplan.blocks]
                 for q in blk[0]:
@@ -243,7 +374,7 @@ def platform_split(base_regions, pad_regions, law: Law,
                 out.extend(blk[1])
                 continue
         PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1),
-                                  round(tot, 1), nw, rel))
+                                  round(tot, 1), nw, rel, "", why))
         if bplan is not None:
             one = len(bplan.blocks) == 1
             # a partition the mint could not cut (a block left no platform
@@ -311,14 +442,23 @@ def platform_split(base_regions, pad_regions, law: Law,
         counts["conforming_held"] = sum(1 for h in HELD.values() if h.get("conforming"))
     counts["platforms"] = sum(1 for p in PLATFORMS if not p.refused)
     counts["platforms_refused"] = sum(1 for p in PLATFORMS if p.refused)
+    # THE REPORT ROW (#86 round 2): C and WHY per platform — ``cap`` where
+    # the pad carries the full collar, ``area`` where the min-area gate
+    # bounded it, ``floor`` where the status-quo (pre-collar86) width is
+    # the widest the pad carries
     counts["platform_list"] = "; ".join(
-        f"{p.ref} C {p.collar_m:g} m {p.platform_m2:,.0f}/{p.pad_m2:,.0f} m2"
+        f"{p.ref} C {p.collar_m:g} m ({p.collar_why}) "
+        f"{p.platform_m2:,.0f}/{p.pad_m2:,.0f} m2"
         + (f" REFUSED {p.refused}" if p.refused else "") for p in PLATFORMS[:12])
+    counts["platform_collar_why"] = {
+        w: sum(1 for p in PLATFORMS if not p.refused and p.collar_why == w)
+        for w in ("cap", "area", "floor")}
     return out, counts
 
 
 def _mint_blocks(pr, P: Polygon, plats: list, bplan, law: Law, grid: float,
-                 pmin: float, C: float, nw: int, rel) -> "tuple[list, list] | None":
+                 pmin: float, C: float, nw: int, rel,
+                 why: str = "cap") -> "tuple[list, list] | None":
     """The block faces of one CUT unit (``platform_split``): per block ``k``
     the platform pieces inside its polygon, less a STRIP along every cut
     chord it touches (half the bank the predicted step needs, at least half
@@ -358,7 +498,7 @@ def _mint_blocks(pr, P: Polygon, plats: list, bplan, law: Law, grid: float,
         recs.append((ref, b, sum(q.area for q in keep)))
     for ref, b, a in recs:
         PLATFORMS.append(Platform(ref, round(C, 2), round(b.polygon.area, 1),
-                                  round(a, 1), nw, rel))
+                                  round(a, 1), nw, rel, "", why))
         HELD[ref] = {"unit": str(pr.ref), "k": b.k, "blocks": len(bplan.blocks),
                      "datum_pred": b.datum, "verdict": bplan.verdict,
                      "samples_xy": b.samples_xy, "samples_held": b.samples_held,

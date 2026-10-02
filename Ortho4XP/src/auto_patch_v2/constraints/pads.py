@@ -958,8 +958,9 @@ def frontage_contacts(planar: PlanarMap, law: Law
             verts.extend(h)
         if is_collar_ref(f.ref):
             # unit-platform spec §3 P8: the frontage reads the OUTER rim —
-            # a collar's platform ring (its hole) is 5 m inside the pad and
-            # no frontage's nearest pad vertex (MEASURED at HECA
+            # a collar's platform ring (its hole) is C inside the pad
+            # (``platform_collar_max_m`` since 10-02v (5)) and no
+            # frontage's nearest pad vertex (MEASURED at HECA
             # ``building200``: the near-miss row re-footed on the platform
             # ring left stage 1 and moved the junction corner 0.149 m)
             inner = {v for q, g in planar.faces.items()

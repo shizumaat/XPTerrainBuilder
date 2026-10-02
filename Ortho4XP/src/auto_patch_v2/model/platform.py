@@ -33,6 +33,13 @@ class Platform:
     #: ``""`` when minted, else why not (``"eroded_away"``,
     #: ``"under_min_area"``)
     refused: str = ""
+    #: WHY C is what it is (#86 round 2, owner RULINGS 2026-10-02z):
+    #: ``"cap"`` (the pad carries ``platform_collar_max_m``), ``"area"``
+    #: (an intermediate bank station — the min-area gate bounded it) or
+    #: ``"floor"`` (``emit.design.bank_min_width_m``).  Minted by
+    #: ``planar.platform._collar_for_pad``; published per platform so an
+    #: area-limited collar is READ, never inferred.
+    collar_why: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:
         return _dc.asdict(self)

@@ -569,3 +569,56 @@ def test_is_agp_building_def_prefix_and_ext():
     # right ext, wrong prefix (not the hangars scope)
     assert not A.is_agp_building_def(
         "lib/airport/Common_Elements/Parking_Items/Row_of_Cars_2.agp")
+
+
+# ── #141: the fingerprint must not rest on another cache's freshness ──
+def test_invalidates_on_reorder_even_when_the_ini_stat_does_not_move(tmp_path):
+    """The #141 failure, posed exactly instead of waited for.
+
+    The reorder keeps the ini's LENGTH, and ubuntu stamps mtimes from a
+    coarse clock, so in CI the rewrite landed in the same tick and moved
+    neither field.  Both of the fingerprint's order signals then went
+    stale at once — the ini's own (size, mtime), and the merge ORDER,
+    which is derived from the ini through ``O4_Scenery_Packs.parse_ini``,
+    whose memo was keyed on the same collapsing stat.  The sidecar hit,
+    and the superseded pack kept the virtual path.
+    """
+    root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
+    ini = root / "Custom Scenery" / "scenery_packs.ini"
+    assert _fwd(_cold_index(root)["lib/shared.agp"]).endswith("Alpha/alpha.agp")
+    was = ini.stat()
+
+    ini.write_text(
+        "I\n1000 Version\nSCENERY\n\n"
+        "SCENERY_PACK Custom Scenery/Bravo/\n"
+        "SCENERY_PACK Custom Scenery/Alpha/\n", encoding="utf-8", newline="")
+    assert ini.stat().st_size == was.st_size, "the reorder keeps the length"
+    os.utime(ini, ns=(was.st_atime_ns, was.st_mtime_ns))
+    assert ini.stat().st_mtime_ns == was.st_mtime_ns
+
+    index = _assert_rebuilds_to_truth(root)
+    assert _fwd(index["lib/shared.agp"]).endswith("Bravo/bravo.agp")
+
+
+def test_an_untouched_install_still_serves_the_sidecar(tmp_path):
+    """The fingerprint now digests the ini's CONTENT; a cold read of an
+    unchanged install must still be a HIT (the cache has to still cache)."""
+    root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
+    _cold_index(root)
+    reparses: list[str] = []
+    _cold_index(root, reparses)
+    assert reparses == [], "an unchanged install must serve from the sidecar"
+
+
+def test_a_touched_ini_alone_does_not_invalidate_the_sidecar(tmp_path):
+    """A stat-keyed fingerprint missed on a mere touch; a content-keyed
+    one does not.  The index cannot have changed, so a rebuild would be
+    pure cost."""
+    root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
+    _cold_index(root)
+    ini = root / "Custom Scenery" / "scenery_packs.ini"
+    stat = ini.stat()
+    os.utime(ini, (stat.st_atime + 120, stat.st_mtime + 120))
+    reparses: list[str] = []
+    _cold_index(root, reparses)
+    assert reparses == []

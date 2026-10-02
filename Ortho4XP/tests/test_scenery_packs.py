@@ -227,3 +227,75 @@ def test_module_imports_no_o4_or_auto_patch_module():
     for name in names:
         assert not name.startswith("O4_"), name
         assert not name.startswith("auto_patch"), name
+
+
+# ── #141: a same-length rewrite inside one mtime tick ────────────────
+# ``parse_ini`` memoises, and the key used to be ``(path, st_mtime,
+# st_size)``.  A pure REORDER of the ini keeps its length and renames
+# nothing, and ubuntu stamps inode mtimes from a coarse clock, so a
+# rewrite landing in the same tick as the original advanced neither field
+# — the cache then answered from the superseded file.  Pack priority
+# decides which pack wins a virtual library path, so that served the
+# wrong pack's geometry (#141, and #104 before it).  Here the collapse is
+# forced with ``os.utime`` rather than waited for under load.
+_SAME_LENGTH_ORDERS = [
+    (["SCENERY_PACK Custom Scenery/a/", "SCENERY_PACK Custom Scenery/b/"],
+     ["SCENERY_PACK Custom Scenery/b/", "SCENERY_PACK Custom Scenery/a/"]),
+]
+
+
+@pytest.mark.parametrize("before_lines, after_lines", _SAME_LENGTH_ORDERS)
+def test_reorder_is_seen_even_when_size_and_mtime_do_not_move(
+        tmp_path, before_lines, after_lines):
+    custom = _install(tmp_path, ["a", "b"], before_lines)
+    ini = os.path.join(custom, "scenery_packs.ini")
+    assert SP.parse_ini(ini)[0] == ["a", "b"]
+    was = os.stat(ini)
+
+    with open(ini, "w", encoding="utf-8", newline="") as handle:
+        handle.write("I\n1000 Version\nSCENERY\n\n"
+                     + "\n".join(after_lines) + "\n")
+    now = os.stat(ini)
+    assert now.st_size == was.st_size, "the reorder must keep the length"
+    # The coarse-tick collapse, made exact.
+    os.utime(ini, ns=(was.st_atime_ns, was.st_mtime_ns))
+    assert os.stat(ini).st_mtime_ns == was.st_mtime_ns
+    assert os.stat(ini).st_size == was.st_size
+
+    assert SP.parse_ini(ini)[0] == ["b", "a"], (
+        "a reordered ini was served from the memo: no stat tuple can tell "
+        "a same-length rewrite inside one mtime tick from no rewrite")
+
+
+def test_an_unchanged_ini_is_still_served_from_the_memo(tmp_path):
+    """The memo must still memoise — the fix is a different KEY, not the
+    removal of the cache."""
+    custom = _install(tmp_path, ["a", "b"], [
+        "SCENERY_PACK Custom Scenery/a/",
+        "SCENERY_PACK Custom Scenery/b/",
+    ])
+    ini = os.path.join(custom, "scenery_packs.ini")
+    assert SP.parse_ini(ini)[0] == ["a", "b"]
+    assert len(SP._INI_CACHE) == 1
+    key = next(iter(SP._INI_CACHE))
+    # A second read of the same bytes hits the same entry (no new key, and
+    # the single-entry cache was not cleared and refilled).
+    assert SP.parse_ini(ini)[0] == ["a", "b"]
+    assert list(SP._INI_CACHE) == [key]
+
+
+def test_the_memo_key_is_the_content_not_the_stat(tmp_path):
+    """Touching the ini without editing it must NOT invalidate the memo
+    (the old stat key did), and editing it must."""
+    custom = _install(tmp_path, ["a"], ["SCENERY_PACK Custom Scenery/a/"])
+    ini = os.path.join(custom, "scenery_packs.ini")
+    SP.parse_ini(ini)
+    key = next(iter(SP._INI_CACHE))
+    stat = os.stat(ini)
+    os.utime(ini, (stat.st_atime + 120, stat.st_mtime + 120))
+    SP.parse_ini(ini)
+    assert list(SP._INI_CACHE) == [key], "a touch is not an edit"
+    with open(ini, "a", encoding="utf-8", newline="") as handle:
+        handle.write("SCENERY_PACK Custom Scenery/b/\n")
+    SP.parse_ini(ini)
+    assert list(SP._INI_CACHE) != [key], "an edit is an edit"

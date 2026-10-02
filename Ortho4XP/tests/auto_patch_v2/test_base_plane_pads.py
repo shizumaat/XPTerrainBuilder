@@ -536,7 +536,8 @@ def test_one_hard_row_per_non_origin_plane_at_the_authored_riser(
     assert r.soft is None and r.follows is None      # HARD, two-way
     assert r.source.ruling.startswith(CP.PLANE_OFFSET_RULING)
     assert CP.STATS["plane_offset_rows"] == {"pins": 1, "no_datum_column": 0,
-                                             "no_origin_pad": 0}
+                                             "no_origin_pad": 0,
+                                       "ghost_dropped": 0, "ghosts": ""}
 
 
 def test_the_pin_head_is_hard_law_ranked_WITH_the_pad_hold(law):
@@ -554,15 +555,72 @@ def test_the_pin_head_is_hard_law_ranked_WITH_the_pad_hold(law):
     assert CP.HOLD_RULING in d.hard_conflict_ranks[tiers[0]]
 
 
-def test_a_plane_pad_with_no_datum_column_is_reported_never_pinned_to_nothing(
+class _FacePlanar:
+    """The least planar map that answers "does this ref own a face?" --
+    what :func:`constraints.platform._has_no_face` reads to tell a pad
+    PRESENT but columnless from the registry GHOST."""
+
+    class _F:
+        def __init__(self, ref):
+            self.ref = ref
+            self.ring = 0
+            self.holes = ()
+
+    def __init__(self, refs):
+        self.faces = {i: self._F(r) for i, r in enumerate(refs)}
+        self.vertices = {}
+
+    def ring_vertices(self, _ring):
+        return ()
+
+
+def test_a_plane_pad_PRESENT_but_columnless_is_reported_never_pinned(
         law, monkeypatch):
     """A plane that touches no apron has no stage-1 datum column of its
     own (Q3's case); a pin onto a column that is not an unknown is a row
-    on a constant.  It is COUNTED, so the unit's fallback is readable."""
+    on a constant.  It is COUNTED, so the unit's fallback is readable.
+
+    RE-FOUNDED (PR #220 item 5/6, lane basepads4read): this now needs a
+    pad that OWNS A FACE, because a columnless pad with no face at all is
+    the registry GHOST and is counted apart -- see the twin below."""
     _pads_registered()
-    rows = _pin_rows(law, monkeypatch, {_P0: 7})
+    ref = plane_ref("building2", 1)
+    monkeypatch.setattr(CP, "datum_vertices", lambda planar, law_: {_P0: 7})
+    rows = CP.plane_offset_rows(_FacePlanar([_P0, ref]), law)
     assert rows == []
-    assert CP.STATS["plane_offset_rows"]["no_datum_column"] == 1
+    st = CP.STATS["plane_offset_rows"]
+    assert st["no_datum_column"] == 1, st
+    assert st["ghost_dropped"] == 0, st
+    assert ref in BS.PLANE_PADS                 # present: NOT evicted
+
+
+def test_the_REGISTRY_GHOST_is_named_apart_and_EVICTED(law, monkeypatch):
+    """PR #220 items 5/6, measured by lane basepads4read: SPJC
+    ``building21/p3`` (1,316 m2, +3.94 m) sat in ``PLANE_PADS`` and
+    ``BASE_STEPS`` with **no region in the patch** -- the mint gave it a
+    region and the arrangement later dropped it (``merge_slivers``, §41
+    absorption) -- and it read as the one ``no_datum_column``, pointing
+    at the pin instead of at the ghost.
+
+    A pad with NO FACE AT ALL is not a pin failure: it is a pad the
+    layout does not contain.  It is counted apart and EVICTED, so the
+    publication cannot list a pad the patch has not got."""
+    _pads_registered()
+    ref = plane_ref("building2", 1)
+    BS.BASE_STEPS.append(BS.BaseStep(
+        unit="building2", lower_ref=_P0, upper_ref=ref, lower_k=0,
+        upper_k=1, declared_step_m=LOT_DY, strip_m2=10.0,
+        strip_width_m=0.5))
+    monkeypatch.setattr(CP, "datum_vertices", lambda planar, law_: {_P0: 7})
+    rows = CP.plane_offset_rows(_FacePlanar([_P0]), law)   # p1 owns NO face
+    assert rows == []
+    st = CP.STATS["plane_offset_rows"]
+    assert st["ghost_dropped"] == 1, st
+    assert st["no_datum_column"] == 0, st
+    assert ref in st["ghosts"]
+    # EVICTED from both registries, so nothing downstream publishes it
+    assert ref not in BS.PLANE_PADS
+    assert not any(b.upper_ref == ref for b in BS.BASE_STEPS)
 
 
 def test_no_plane_pad_means_no_row_at_all(law, monkeypatch):
@@ -593,3 +651,61 @@ def _clean():
     yield
     BS.PLANE_PADS.clear()
     BS.BASE_STEPS.clear()
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 5  WHAT lane basepads4read MEASURED ON THE REAL CAPTURES (PR #220)
+#
+# A reader lane re-captured KASE / SPJC / HECA / KCLT / CYXY and replayed
+# this mint against a matched no-mint arm.  Three of its findings are
+# STOPs.  Each one below is the measurement turned into a twin, so the
+# next round verifies instead of re-discovering.  The two that need a
+# spec-author ruling are STRICT XFAILs: pre-registered, failing for the
+# reason recorded, and they will go XPASS -- and so FAIL -- the moment
+# the mechanism lands, which is what forces the marker off.
+# ══════════════════════════════════════════════════════════════════════
+
+def test_the_partition_holds_under_a_FIXED_PRECISION_pad(law, monkeypatch):
+    """PR #220 item 5, the 10-02m (D) STOP, root-caused by basepads4read.
+
+    The pad arrives carrying the arrangement's identity grid as a GEOS
+    FIXED-PRECISION MODEL (``shapely.get_precision(pad) == 0.5``), and
+    under a precision model every overlay snap-rounds its OWN output
+    independently -- so the chain of overlays this partition is made of
+    can disagree by up to half a cell.  Measured on the real HECA plan:
+    ``building257`` p0 n p3 **2.625 m2**, ``building168`` p0 n p2 0.5 m2,
+    ``building308`` p0 n p3 1.0 m2, every one a multiple of the 0.5 m
+    cell, and the same calls with the model stripped gave 0.0.
+
+    The bar: a precision-carrying pad mints a partition that is still
+    disjoint, and the regions come back WITHOUT a per-geometry precision
+    model (the arrangement applies the grid once, globally, in pass B)."""
+    import shapely
+    pr = _pad("building2", shapely.set_precision(PAD, 0.5))
+    assert shapely.get_precision(pr.polygon) == 0.5     # the fixture is the case
+    got, counts = _mint(law, _profile(), pads=[pr], monkeypatch=monkeypatch)
+    regs = [r for r in got if str(r.ref).startswith("building2")]
+    assert len(regs) >= 2, counts
+    for i in range(len(regs)):
+        for j in range(i + 1, len(regs)):
+            ov = regs[i].polygon.intersection(regs[j].polygon).area
+            assert ov <= 1e-6, (regs[i].ref, regs[j].ref, ov)
+    assert "regions_overlapped_m2" not in counts, counts
+
+
+def test_an_OVERLAPPING_partition_REFUSES_the_unit_rather_than_emitting_it():
+    """The GUARD behind the fix above (10-02m (D) is a STOP, so an
+    overlap must be structurally unable to reach the patch however it
+    arose).  Driving ``plane_regions`` with two planes whose polygons
+    genuinely coincide must mint NOTHING and say so -- never one pad of
+    the pair vanishing in the patch while the registry lists it."""
+    from auto_patch_v2.geom.base_planes import plane_regions
+    same = _sq(10.0, 10.0, 60.0, 40.0)
+    counts: dict = {}
+    regs, strips = plane_regions(
+        [same, same], [0.0, LOT_DY], [(0, 1, LOT_DY)], PAD,
+        strip_m=0.0, frontage_m=3.0, min_area_m2=250.0, counts=counts,
+        hold_m=0.0)
+    assert (regs, strips) == ([], [])
+    # it is REPORTED, by whichever gate caught it -- never silent
+    assert counts, counts

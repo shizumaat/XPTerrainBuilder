@@ -331,9 +331,18 @@ def _is_the_pad(r, regs: list) -> bool:
     opposed to another region of the same ref (a 23a rim sliver)?  The
     plane pads were cut OUT of it, so it is the region that contains
     them."""
+    # PRECISION-FREE (lane basepads4read, PR #220 item 5): the pad region
+    # carries the arrangement's 0.5 m GEOS fixed-precision model, under
+    # which ``buffer(1e-6)`` snap-rounds to nothing and ``contains``
+    # then answers False for the pad's OWN plane pads -- the mint falls
+    # through to the sliver path and replaces nothing.  Found by this
+    # PR's own precision twin.
+    import shapely
     try:
-        return all(r.polygon.buffer(1e-6).contains(g.polygon.representative_point())
-                   for g in regs)
+        P = shapely.set_precision(r.polygon, 0.0)
+        return all(P.buffer(1e-6).contains(
+            shapely.set_precision(g.polygon, 0.0).representative_point())
+            for g in regs)
     except Exception:                           # noqa: BLE001
         return False
 

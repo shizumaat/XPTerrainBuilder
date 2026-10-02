@@ -688,6 +688,20 @@ def frontage_hold_rows(planar: PlanarMap, law: Law,
     return rows
 
 
+def _has_no_face(planar: PlanarMap, ref: str) -> bool:
+    """Does ``ref`` own NO face in the arrangement at all (its collar and
+    its blocks included)?  The ghost predicate of
+    :func:`plane_offset_rows` -- a pad the mint registered and the layout
+    then dropped, as against a pad that is present but has no datum
+    column."""
+    from ..model.planar import platform_ref_of
+    for f in getattr(planar, "faces", {}).values():
+        r = str(getattr(f, "ref", ""))
+        if r == ref or platform_ref_of(r) == ref or r.startswith(ref + "/"):
+            return False
+    return True
+
+
 def plane_offset_rows(planar: PlanarMap, law: Law,
                       airport: Airport | None = None) -> list[Row]:
     """§2 (1) THE PLANE PADS ARE PINNED TO ``p0`` — HARD (base-profile spec
@@ -739,7 +753,8 @@ def plane_offset_rows(planar: PlanarMap, law: Law,
     ``no_datum_column`` can now only be a pad with NO FACE AT ALL, which
     is reported, never a silent missing pin.
     """
-    from ..model.base_step import PLANE_PADS, origin_ref_of, plane_pad_column
+    from ..model.base_step import (BASE_STEPS, PLANE_PADS, origin_ref_of,
+                                   plane_pad_column)
     STATS.pop("plane_offset_rows", None)
     if not PLANE_PADS:
         return []
@@ -756,7 +771,8 @@ def plane_offset_rows(planar: PlanarMap, law: Law,
 
     cols = type("_Cols", (), {"get": staticmethod(cols_get)})()
     rows: list[Row] = []
-    n_pin = n_no_col = n_no_origin = 0
+    n_pin = n_no_col = n_no_origin = n_ghost = 0
+    ghosts: list[str] = []
     for ref in sorted(PLANE_PADS):
         pad = PLANE_PADS[ref]
         if pad.k == 0:
@@ -767,6 +783,21 @@ def plane_offset_rows(planar: PlanarMap, law: Law,
             continue
         dk, d0 = cols.get(ref), cols.get(o_ref)
         if dk is None or d0 is None:
+            # THE REGISTRY GHOST, NAMED (lane basepads4read, PR #220 items
+            # 5/6; 10-02m (D)).  A pad with NO FACE AT ALL in the
+            # arrangement is not a pin failure -- it is a pad the mint
+            # registered and the layout then dropped (``merge_slivers``,
+            # §41 absorption), so there is nothing to pin and nothing to
+            # pin it to.  Measured: SPJC ``building21/p3`` (1,316 m2,
+            # +3.94 m) sat in PLANE_PADS and BASE_STEPS with no region in
+            # the patch, and read as the one ``no_datum_column``, which
+            # pointed at the pin instead of at the ghost.  The two are
+            # counted apart, and the ghost is EVICTED so the publication
+            # cannot list a pad the patch does not contain.
+            if plane_pad_column(planar, ref) is None and _has_no_face(planar, ref):
+                n_ghost += 1
+                ghosts.append(ref)
+                continue
             n_no_col += 1
             continue
         src = Source(GEN, PLANE_OFFSET_RULING
@@ -776,8 +807,20 @@ def plane_offset_rows(planar: PlanarMap, law: Law,
                      (ref, o_ref, f"platform:{ref}", "base_profile:plane_offset"))
         rows.append(Diff(dk, d0, 0.0, 0.0, src, rel=float(pad.dy_m)))
         n_pin += 1
+    for ref in ghosts:
+        # evicted here and not in the mint: the mint DID give every
+        # registered pad a region (the areas it registers come from the
+        # regions it cut), and the drop happens downstream in the
+        # arrangement -- so this is the first site that can see it
+        PLANE_PADS.pop(ref, None)
+    if ghosts:
+        BASE_STEPS[:] = [st for st in BASE_STEPS
+                         if st.lower_ref not in ghosts
+                         and st.upper_ref not in ghosts]
     STATS["plane_offset_rows"] = {"pins": n_pin, "no_datum_column": n_no_col,
-                                 "no_origin_pad": n_no_origin}
+                                  "no_origin_pad": n_no_origin,
+                                  "ghost_dropped": n_ghost,
+                                  "ghosts": ";".join(sorted(ghosts)[:8])}
     return rows
 
 

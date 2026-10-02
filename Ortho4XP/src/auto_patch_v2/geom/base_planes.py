@@ -71,12 +71,22 @@ from __future__ import annotations
 
 import typing as _t
 
+import shapely
 from shapely.geometry import MultiLineString, Polygon
 from shapely.ops import unary_union
 
 __all__ = ["place", "plane_regions", "PlaneRegion", "RiserStrip"]
 
 import dataclasses as _dc
+
+
+#: The area two plane regions may share before the partition is REFUSED
+#: (:func:`plane_regions`).  It is a numerical-noise floor, not a law
+#: value: with the precision model stripped the overlays are exact and
+#: the real residue is at the 1e-9 level, while the measured defect was
+#: 0.5--2.625 m2 (half a grid cell and up).  Anything above this is the
+#: 10-02m (D) STOP and the unit mints nothing.
+_DISJOINT_TOL_M2 = 1e-6
 
 
 @_dc.dataclass(frozen=True)
@@ -218,6 +228,26 @@ def plane_regions(polys: "_t.Sequence", ys: "_t.Sequence[float]",
     if pad is None or pad.is_empty:
         c["no_pad"] = c.get("no_pad", 0) + 1
         return [], []
+    # ── THE ARITHMETIC IS EXACT (lane basepads4read, PR #220 item 5) ──
+    # The pad polygon arrives carrying a GEOS FIXED-PRECISION MODEL --
+    # ``shapely.get_precision(pad) == 0.5``, the arrangement's identity
+    # grid -- and under a precision model EVERY overlay snap-rounds its
+    # own output independently.  The partition below is a chain of
+    # overlays (clip, hold-back, strip cut, ``pad`` less the others), so
+    # independently rounded results can disagree by up to half a cell and
+    # the regions come out OVERLAPPING: measured on the real HECA plan,
+    # ``building257`` p0 n p3 2.625 m2, ``building168`` p0 n p2 0.5 m2,
+    # ``building308`` p0 n p3 1.0 m2 -- every one a multiple of the 0.5 m
+    # cell, and re-running the same call with the model stripped gave 0.0
+    # in all three.  10-02m (D) is a STOP, so the arithmetic runs in
+    # EXACT arithmetic here and the grid is applied ONCE, globally, by
+    # the arrangement's own pass-B ``unary_union(..., grid_size=grid)``
+    # -- which is how every other region in the layout is already
+    # treated (``apron_cut_to_pads``, ``platform_split``).  Carrying a
+    # per-geometry precision model into a partition was the anomaly.
+    pad = shapely.set_precision(pad, 0.0)
+    polys = [None if (q is None or q.is_empty)
+             else shapely.set_precision(q, 0.0) for q in polys]
     if len(polys) < 2:
         # one plane IS today's pad (§1 (3)): the caller must get nothing
         # back, not one pad renamed ``/p0`` — a rename is not
@@ -368,5 +398,22 @@ def plane_regions(polys: "_t.Sequence", ys: "_t.Sequence[float]",
     strips = [s for s in strips if s.a in planes_kept and s.b in planes_kept]
     if not strips:
         c["no_riser_after_cut"] = c.get("no_riser_after_cut", 0) + 1
+        return [], []
+    # ── THE PARTITION IS VERIFIED, NOT TRUSTED (10-02m (D) is a STOP) ──
+    # Exact arithmetic is the FIX; this is the GUARD, so that an
+    # overlapping pair can never reach the patch however it arose.  A
+    # unit whose regions are not disjoint mints NOTHING and says so --
+    # refuse-and-report, the repo's own idiom, never a silent half-mint
+    # and never the registry ghost of a pad with no region.
+    worst = 0.0
+    for i in range(len(out)):
+        for j in range(i + 1, len(out)):
+            try:
+                worst = max(worst, float(out[i].polygon.intersection(
+                    out[j].polygon).area))
+            except Exception:                   # noqa: BLE001
+                worst = float("inf")
+    if worst > _DISJOINT_TOL_M2:
+        c["regions_overlapped_m2"] = round(worst, 4)
         return [], []
     return out, strips

@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport import obj8_grade as BP
 
@@ -703,3 +705,77 @@ def test_terrace_actual_step_prices_a_base_step_joint_as_declared():
         ways, nodes, ll_to_m, 0.015)
     assert bare and max(v.de_m for v in bare) >= declared - 1e-9, \
         [v.de_m for v in bare]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# WHAT lane basepads4read MEASURED ON THE REAL CAPTURES (PR #220)
+#
+# Both of these are STRICT XFAILs: pre-registered bars, failing for the
+# reason recorded, which go XPASS -- and so FAIL -- the moment the
+# mechanism lands.  That is what forces the marker off rather than
+# letting a measured STOP be forgotten.  Each needs a ruling, not a
+# guess, so neither is "fixed" here.
+# ══════════════════════════════════════════════════════════════════════
+
+@pytest.mark.xfail(strict=True, reason=(
+    "PR #220 item 3, a STOP, measured by lane basepads4read on the real "
+    "HECA v12 plan: `_storeys` cannot see a T3 roof because the T3 ground "
+    "floor is NOT a horizontal plane in the composed unit, so no lower "
+    "PLANE exists for the roof to overlap. Cover of building157's "
+    "+18.90 m plane by ALL lower planes combined is 0.13; building4/b1's "
+    "+12.58 m is 0.29; building168's +12.30 m is 0.00. building157 mints "
+    "that +18.90 m roof as its ORIGIN plane p0 (12,951 m2) with p4 at "
+    "-0.63 m. A plan-overlap discriminator is necessary but NOT "
+    "sufficient: what is missing is a rule that a base plane must be "
+    "GROUND -- either a height ceiling over the unit's feet (a NEW LAW "
+    "NUMBER, the owner's: somewhere between KASE's +3.9 m lot and T3's "
+    "+12.58 m roof) or p0 forced to the LOWEST plane rather than the "
+    "largest. Spec author rules."))
+def test_a_roof_over_a_unit_with_NO_horizontal_ground_floor_is_not_a_base(
+        tmp_path):
+    """A T3 hall as the real plan has it: a big roof slab high above, and
+    a ground floor that is NOT horizontal, so no lower plane exists for
+    the roof to stand on.  The roof must not read as a base plane, and
+    above all must never become the ORIGIN plane."""
+    S = 113.8                                   # 12,951 m2, building157's
+    V, T = _slab(0.0, 0.0, S, S, 18.90, base=0.0)
+    V, T = list(V), list(T)
+    k = len(V)
+    # the GROUND: a RAMPED floor (|n_y| < 0.95 -> not a horizontal face)
+    V += [(0.0, -0.63, 0.0), (S, 2.5, 0.0), (S, 2.5, S), (0.0, -0.63, S)]
+    T += [(k, k + 1, k + 2), (k, k + 2, k + 3)]
+    prof = _profile(tmp_path, "T3_hall.obj", [(V, T)])
+    high = [q for q in prof.planes if q.y > 5.0]
+    assert not high, prof.line()
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "PR #220 item 4, measured by lane basepads4read: KASE still mints 0 "
+    "plane pads. FireStation_7's +3.90 m lot is 6,398 m2 over 209 faces "
+    "whose vertices span +2.96..+4.44 m -- a ~2 % TILTED surface inside "
+    "ONE 0.25 m bin. The deviation split this PR added splits BETWEEN "
+    "bins and cannot split within one, so the LEVEL test still drops the "
+    "cluster and FS_7 reads `sloped` with 0 planes; unit:108 then "
+    "composes to `feet` because it has TWO sloped members (FS_2 and "
+    "FS_7) while the single-sloped branch needs exactly one. The lot is "
+    "genuinely sloped, so the answer is 10-01k Q5's own gradient -- but "
+    "spec §1 (2) has SLOPED only as a WHOLE-MEMBER verdict with no base "
+    "plane, not as one sloped plane among others, so admitting it is a "
+    "SPEC EXTENSION. Spec author rules."))
+def test_a_TILTED_lot_inside_one_bin_still_reaches_a_pad(tmp_path):
+    """The fire-station lot as the pack really authors it: one surface at
+    ~+3.9 m tilted ~2 %, so its own vertices span 1.48 m -- five times
+    ``split_tol_m`` -- inside a single height bin.  It is the ground the
+    station's upper lot stands on and must reach a pad, by whatever
+    verdict the spec author rules."""
+    V, T = _slab(-30.0, -30.0, 30.0, 30.0, 0.0, base=-0.5)
+    V, T = list(V), list(T)
+    k = len(V)
+    # the LOT: 80 x 80 m rising +2.96 -> +4.44 (1.85 %), one bin
+    V += [(0.0, 2.96, 0.0), (80.0, 4.44, 0.0), (80.0, 4.44, 80.0),
+          (0.0, 2.96, 80.0)]
+    T += [(k, k + 1, k + 2), (k, k + 2, k + 3)]
+    prof = _profile(tmp_path, "FireStation_7_tilted.obj", [(V, T)])
+    lot = [q for q in prof.planes if 2.5 <= q.y <= 4.6]
+    assert lot, prof.line()
+    assert prof.verdict == BP.STEPPED, prof.line()

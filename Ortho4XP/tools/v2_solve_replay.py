@@ -7,6 +7,7 @@ pattern of ``docs/specs/auto-patch-v2/heca-sag-ablation/ablate_heca_pin.py``,
 promoted on its second use by lane ``v2chord``).
 
     venv/bin/python tools/v2_solve_replay.py --capture ICAO --out DIR/ICAO.pkl
+    venv/bin/python tools/v2_solve_replay.py --capture ICAO --out DIR/ICAO.pkl --data-overlay DIR
     venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl [--from constraints|shapes|planar|classify]
         [--drop-generator G ...] [--json OUT.json] [--z-out Z.npy] [--why-hard [N]]
     venv/bin/python tools/v2_solve_replay.py --why-from SOLVED.pkl --why-hard [N]
@@ -37,7 +38,10 @@ patch is the closing build's (``harness/build_airport.py``).
 
 Run it from ``Ortho4XP/``; read-only on the shared corpus (the capture
 reads through the production loader like a build; nothing is written
-outside ``--out`` / ``--json``)."""
+outside ``--out`` / ``--json``).  ``--data-overlay DIR`` declares a
+LANE-LOCAL overlay for the corpus dirs it carries (issue #156,
+:func:`resolve_data_overlay`) and is RECORDED in the capture; it is a
+read-side declaration and authorises no write."""
 from __future__ import annotations
 
 # The console is UTF-8 before anything prints (#171, #125): ONE derivation
@@ -64,6 +68,99 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+
+#: THE LANE-LOCAL DATA OVERLAY (issue #156).  Two provider lanes
+#: (``las130``, ``cwcb154``) needed a capture on an inset a provider had
+#: just produced lane-locally, and took it by temporarily REPLACING the
+#: worktree's ``Elevation_data`` SYMLINK with their overlay directory and
+#: putting it back afterwards.  Nothing recorded it: the pickle another
+#: lane replays claims the shared corpus.  This flag makes the overlay a
+#: DECLARED input that travels IN the capture.
+DATA_OVERLAY_FLAG = "--data-overlay"
+#: the env default, for a lane that declares the overlay once per shell
+DATA_OVERLAY_ENV = "O4_DATA_OVERLAY"
+#: the key the overlay frame is RECORDED under, in the capture pickle, in
+#: the ``--solved-out`` pickle and in a ``--json`` result
+CAPTURE_OVERLAY_KEY = "data_overlay"
+#: the corpus directories an overlay may provide, named as the data root
+#: lays them out (``airport/load.Inputs`` reads one root per kind).  A
+#: directory the overlay does NOT carry stays on the shared corpus — that
+#: is what makes this an OVERLAY rather than a snapshot.
+OVERLAY_DIRS = ("Elevation_data", "OSM_data")
+#: ``Inputs`` field per overlay dir
+_OVERLAY_INPUT_FIELD = {"Elevation_data": "elevation_root",
+                        "OSM_data": "osm_root"}
+
+
+def resolve_data_overlay(spec: str | None = None, environ=None) -> dict | None:
+    """THE OVERLAY FRAME, or ``None`` for the shared corpus alone.
+
+    ``{"dir": <abs>, "provides": {<corpus dir>: <abs>}}``: the corpus
+    directories this overlay carries, and nothing else.  Pure — no
+    environment is armed, no file is read or written (issue #156; the
+    standing note that ``--allow-degraded-dem`` authorises NO write holds
+    here too: declaring an overlay is a READ-side act, and the
+    shared-repo write guard stays armed around the capture either way).
+
+    WHY NOT ``--corpus snapshot:DIR``, ``harness/build_airport.py``'s
+    spelling for a non-shared corpus (RULINGS ``7e90032``: extend a
+    near-fit, never fork it — which applies to flag vocabularies).  That
+    flag names a hash-stamped, manifest-VERIFIED SNAPSHOT that REPLACES
+    the corpus: ``corpus_snapshot.verify`` refuses a snapshot whose
+    manifest carries no complete read set for the airport, and ``mount``
+    re-points every corpus dir of the worktree at it.  A provider's fresh
+    inset has no manifest and no complete read set; it is a few files
+    that must be read BEFORE the shared corpus with the rest of the
+    corpus untouched.  Honouring ``--corpus`` here would have meant
+    either weakening the snapshot's verification or calling an
+    unverified partial tree a snapshot — so the two stay two acts with
+    two names, and BOTH are recorded.
+    """
+    environ = os.environ if environ is None else environ
+    val = spec if spec is not None else (environ.get(DATA_OVERLAY_ENV) or None)
+    if not val:
+        return None
+    d = Path(val).expanduser().resolve()
+    if not d.is_dir():
+        raise SystemExit(f"REFUSING: {DATA_OVERLAY_FLAG} {val!r}: not a "
+                         f"directory")
+    provides = {name: str(d / name) for name in OVERLAY_DIRS
+                if (d / name).is_dir()}
+    if not provides:
+        raise SystemExit(
+            f"REFUSING: {DATA_OVERLAY_FLAG} {d}: carries none of "
+            f"{', '.join(OVERLAY_DIRS)} — an overlay is a data root whose "
+            f"named corpus directories take precedence over the shared "
+            f"corpus's, not a bag of files")
+    return {"dir": str(d), "provides": provides}
+
+
+def overlay_inputs(inputs, frame: dict | None):
+    """``inputs`` with the overlay's roots in place of the shared ones —
+    only for the directories the overlay PROVIDES.  ``None`` returns the
+    inputs unchanged (identity), so the shared-corpus path is untouched."""
+    if not frame:
+        return inputs
+    over = {_OVERLAY_INPUT_FIELD[name]: path
+            for name, path in frame["provides"].items()
+            if name in _OVERLAY_INPUT_FIELD}
+    return _dc.replace(inputs, **over) if over else inputs
+
+
+def capture_data_overlay(cap: dict) -> dict | None:
+    """The overlay frame a capture was taken on, or ``None``.  A capture
+    written before issue #156 carries no key and reads as the shared
+    corpus, which is what it was."""
+    return cap.get(CAPTURE_OVERLAY_KEY) or None
+
+
+def overlay_line(icao: str, frame: dict | None) -> str:
+    """The ONE line that says this read was not the shared corpus."""
+    if not frame:
+        return f"[{icao}] data corpus: the SHARED repo"
+    return (f"[{icao}] DATA OVERLAY (issue #156, declared and recorded): "
+            f"{frame['dir']} provides "
+            + ", ".join(sorted(frame["provides"])))
 
 
 def capture_has_groups(cap: dict) -> bool:
@@ -164,7 +261,8 @@ def require_capture_isolation() -> None:
 def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
                      placement: dict[str, object] | None = None,
                      rule: dict[str, object] | None = None,
-                     cifp_dir: str | None = None) -> None:
+                     cifp_dir: str | None = None,
+                     data_overlay: str | None = None) -> None:
     """:func:`capture` with the shared-repo guard and the lane-local cache
     redirects armed around it (``harness/build_airport.
     arm_shared_repo_protection``, the ONE arming composition).  The
@@ -179,7 +277,8 @@ def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
     _guard, _redirects = _arm(ROOT, out.parent, f"cap_{icao}")
     _guard.__enter__()
     try:
-        capture(icao, out, mod_cache_root, placement, rule, cifp_dir)
+        capture(icao, out, mod_cache_root, placement, rule, cifp_dir,
+                data_overlay)
     finally:
         _guard.__exit__(None, None, None)
         _churn(_guard)
@@ -231,7 +330,8 @@ def _rules_override(rules, over: dict[str, object]):
 def capture(icao: str, out: Path, mod_cache_root: str | None = None,
             placement: dict[str, object] | None = None,
             rule: dict[str, object] | None = None,
-            cifp_dir: str | None = None) -> None:
+            cifp_dir: str | None = None,
+            data_overlay: str | None = None) -> None:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
     load → classify → planar and SKIPPED the pack partition and the group
@@ -279,6 +379,15 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
         law, _kw = _placement_override(law, placement)
         print(f"[{icao}] CAPTURE ARM [placement] {_kw}")
     inputs = default_inputs()
+    # THE LANE-LOCAL DATA OVERLAY (issue #156), BEFORE any other input
+    # override: the corpus dirs the overlay provides are read from it,
+    # every other input stays on the shared corpus, and the frame is
+    # pickled WITH the capture below so a replay can never mistake this
+    # for a shared-corpus read.  Read-side only — the shared-repo write
+    # guard armed by :func:`_capture_guarded` stays armed.
+    _overlay = resolve_data_overlay(data_overlay)
+    inputs = overlay_inputs(inputs, _overlay)
+    print(overlay_line(icao, _overlay))
     if mod_cache_root:
         # AN EXPLICIT OVERRIDE ONLY (lane ``v2roadcap2``, RULINGS
         # 2026-09-13ab).  ``default_inputs`` now resolves the root through
@@ -392,7 +501,9 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
         from auto_patch_v2.planar.overlay import PAD_AIRSIDE
         pickle.dump({"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
                      "inputs": inputs, "placement": dict(placement or {}),
-                     "pad_airside": dict(PAD_AIRSIDE)}, fh)
+                     "pad_airside": dict(PAD_AIRSIDE),
+                     # issue #156: the DECLARED overlay this capture read
+                     CAPTURE_OVERLAY_KEY: _overlay}, fh)
     print(f"[{icao}] captured -> {out} in {time.perf_counter() - t:.0f} s "
           f"(vertices {len(pm.vertices)}, faces {len(pm.faces)})")
 
@@ -1697,6 +1808,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         cap = pickle.load(fh)
     icao, airport, cl, pm, stage, inputs = (cap["icao"], cap["airport"], cap["cl"], cap["pm"],
                                             cap["stage"], cap["inputs"])
+    # issue #156: the capture's OWN declaration of the corpus it read, so
+    # a replay off an overlay capture says so in its first lines
+    _overlay = capture_data_overlay(cap)
+    print(overlay_line(icao, _overlay))
     # restore the arrangement's re-node reading (see ``--capture``); a
     # capture written before 2026-09-16 carries none and every reader
     # then reports the key ABSENT rather than zero
@@ -1801,7 +1916,8 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         _pr = pad_read(icao, pm, law, airport, sites or [])
         if pad_read_only:
             return {"icao": icao, "airport": airport, "cl": cl, "pm": pm,
-                    "law": law, "t0": t0, "pad_read": _pr}
+                    "law": law, "t0": t0, "pad_read": _pr,
+                    CAPTURE_OVERLAY_KEY: _overlay}
     from auto_patch_v2.constraints.runway_chord import with_runway_chord
 
     def _targets(m):
@@ -1902,7 +2018,8 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                                       if r.source.generator not in drop
                                       and ruling_head(r) not in drop])
     return {"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
-            "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0}
+            "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0,
+            CAPTURE_OVERLAY_KEY: _overlay}
 
 
 def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
@@ -2101,7 +2218,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             # (the duals solve is a second full LP; kept out of the timed arm)
             with solved_out.open("wb") as fh:
                 pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm_w,
-                             "cs": cs_w, "z": z}, fh)
+                             "cs": cs_w, "z": z,
+                             # issue #156: the overlay survives the hand-off
+                             CAPTURE_OVERLAY_KEY: prob.get(CAPTURE_OVERLAY_KEY)}, fh)
         if why_hard_limit is not None:
             result["why_hard"] = why_hard(icao, pm_w, law, cs_w, z, why_hard_limit,
                                           stage=why_hard_stage)
@@ -2132,6 +2251,18 @@ def _design_value(v: str):
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--capture", metavar="ICAO")
+    ap.add_argument(DATA_OVERLAY_FLAG, dest="data_overlay", default=None,
+                    metavar="DIR",
+                    help="issue #156: a LANE-LOCAL data overlay for the "
+                         "capture — a data root whose "
+                         f"{'/'.join(OVERLAY_DIRS)} take precedence over the "
+                         "shared corpus's (a provider inset not yet in the "
+                         "corpus); every other input stays shared.  DECLARED "
+                         "and RECORDED in the capture, so an overlay capture "
+                         "can never be mistaken for a shared-corpus one; "
+                         "authorises no write.  NOT --corpus snapshot:DIR, "
+                         "which is a manifest-verified snapshot REPLACING "
+                         f"the corpus.  Env default: {DATA_OVERLAY_ENV}")
     ap.add_argument("--mod-cache-root", metavar="DIR",
                     help="Airport_mod_cache root for the capture (the harness's "
                          "lane-local copy-on-write overlay); default: the engine "
@@ -2289,7 +2420,7 @@ def main() -> int:
         pl = dict(it.split("=", 1) for it in a.placement)
         rl = dict(it.split("=", 1) for it in a.rule)
         _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl, rl,
-                         a.cifp_dir)
+                         a.cifp_dir, a.data_overlay)
         return 0
     if a.reclassify:
         rl = dict(it.split("=", 1) for it in a.rule)

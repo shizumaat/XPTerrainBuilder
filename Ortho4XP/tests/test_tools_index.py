@@ -65,12 +65,7 @@ _TWIN = re.compile(r"\btests?/[A-Za-z0-9_./-]+\.py\b")
 #: already carried more than one row when this twin landed.  Each entry
 #: is a defect; none may be ADDED without an owner ruling, and an entry
 #: whose rows have been merged must be DELETED (test 3 enforces that).
-KNOWN_DUPLICATE_PATHS = frozenset({
-    "Ortho4XP/tools/lattice_overlap_read.py",         # 3 rows (two identical)
-    "Ortho4XP/tools/tunnel_portal_acceptance.py",     # 4 rows, flags disagree
-    "Ortho4XP/tools/object_pad_evidence_report.py",   # 2 rows
-    "Ortho4XP/tools/classify_report.py",              # 2 rows
-})
+KNOWN_DUPLICATE_PATHS = frozenset()  # emptied 2026-10-02: every duplicate row merged (#187)
 
 #: issue #187's subject: the stale duplicate was dropped, the superset kept
 SUBJECT = "Ortho4XP/tools/role_overlap_read.py"

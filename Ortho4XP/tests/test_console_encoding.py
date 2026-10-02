@@ -246,17 +246,96 @@ NO_HELP_ARM = {
 }
 
 
-def _help_under_cp1252(tool: Path):
+# The suite's socket guard (``conftest``, #122) lives in the pytest process
+# and its xdist workers — a CHILD is below it.  This arm spawns 80 children,
+# so without the same refusal in each one a tool that grows a network call at
+# import would put #122's 600 s Windows hang back into the suite through this
+# very twin.  ``sitecustomize`` is the only hook that reaches a script before
+# its own first line: on PYTHONPATH it is imported by ``site`` at interpreter
+# startup.  Measured 2026-10-02: no child reaches the network today, and this
+# is what keeps that true.
+_CHILD_NETWORK_GUARD = '''
+import ipaddress, socket
+
+
+def _loopback(host):
+    if host is None:
+        return True
+    if isinstance(host, (bytes, bytearray)):
+        host = bytes(host).decode("ascii", "replace")
+    name = str(host).strip().strip("[]").lower()
+    if name in ("", "localhost") or name.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(name.split("%", 1)[0])
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_unspecified
+
+
+_getaddrinfo, _connect = socket.getaddrinfo, socket.socket.connect
+
+
+def getaddrinfo(host, port, *args, **kwargs):
+    if not _loopback(host):
+        raise RuntimeError(
+            "O4_CHILD_NETWORK_REFUSED: DNS lookup of %r (issue #122)" % (host,))
+    return _getaddrinfo(host, port, *args, **kwargs)
+
+
+def connect(self, address, *args, **kwargs):
+    if isinstance(address, tuple) and address and not _loopback(address[0]):
+        raise RuntimeError(
+            "O4_CHILD_NETWORK_REFUSED: connect to %r (issue #122)" % (address,))
+    return _connect(self, address, *args, **kwargs)
+
+
+socket.getaddrinfo = getaddrinfo
+socket.socket.connect = connect
+'''
+
+
+@pytest.fixture(scope="session")
+def child_guard_dir(tmp_path_factory) -> Path:
+    """A directory holding nothing but the child network guard."""
+    path = tmp_path_factory.mktemp("child_network_guard")
+    (path / "sitecustomize.py").write_text(
+        _CHILD_NETWORK_GUARD, encoding="utf-8", newline="\n")
+    return path
+
+
+def _child_env(guard_dir: Path) -> dict:
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "cp1252"        # #171's own reproduction
     env.pop("PYTHONWARNINGS", None)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(guard_dir)] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
+    return env
+
+
+def _help_under_cp1252(tool: Path, guard_dir: Path):
     return subprocess.run(
         [sys.executable, str(tool), "--help"],
-        cwd=str(ENGINE_ROOT), env=env, capture_output=True, timeout=180)
+        cwd=str(ENGINE_ROOT), env=_child_env(guard_dir),
+        capture_output=True, timeout=180)
+
+
+def test_the_child_network_guard_is_live(child_guard_dir):
+    """A self-instrument: if ``sitecustomize`` were not reaching the
+    children, every case below would be measuring an unguarded child and
+    this file would be the hole it was written to close."""
+    done = subprocess.run(
+        [sys.executable, "-c",
+         "import socket; socket.getaddrinfo('overpass-api.de', 80)"],
+        cwd=str(ENGINE_ROOT), env=_child_env(child_guard_dir),
+        capture_output=True, timeout=120)
+    assert done.returncode != 0
+    assert b"O4_CHILD_NETWORK_REFUSED" in done.stderr, done.stderr[-800:]
 
 
 @pytest.mark.parametrize("tool", ARGPARSE_TOOLS, ids=lambda p: p.name)
-def test_every_tool_help_renders_on_a_cp1252_console(tool: Path):
+def test_every_tool_help_renders_on_a_cp1252_console(tool: Path,
+                                                     child_guard_dir):
     """The in-fact half.  RED before this landed for 15 of these tools:
     arm_site_read, band_clamp_attrib, harness/build_airport, harness/oracle,
     jetway_rider_census, mesh_region_tris, obj8_split_report,
@@ -265,7 +344,7 @@ def test_every_tool_help_renders_on_a_cp1252_console(tool: Path):
     trace_reach_route, tunnel_portal_acceptance, undulation."""
     if tool.name in NO_HELP_ARM:
         pytest.skip(NO_HELP_ARM[tool.name])
-    done = _help_under_cp1252(tool)
+    done = _help_under_cp1252(tool, child_guard_dir)
     assert done.returncode == 0, (
         f"{tool.name} --help exited {done.returncode} on a cp1252 console\n"
         + done.stderr.decode("utf-8", "backslashreplace")[-2000:])
@@ -273,12 +352,12 @@ def test_every_tool_help_renders_on_a_cp1252_console(tool: Path):
     done.stdout.decode("utf-8")              # what came out IS utf-8
 
 
-def test_the_171_reproducer_prints_its_greek():
+def test_the_171_reproducer_prints_its_greek(child_guard_dir):
     """#171 by name: ``obj8_split_report.py --help`` exited rc 1 on
     ``ε`` (U+03B5, module docstring + ``--contact-eps``'s help) and
     ``Δ`` (U+0394).  Both must now reach stdout as UTF-8."""
     tool = ENGINE_ROOT / "tools" / "obj8_split_report.py"
-    done = _help_under_cp1252(tool)
+    done = _help_under_cp1252(tool, child_guard_dir)
     assert done.returncode == 0, done.stderr.decode("utf-8", "replace")[-2000:]
     text = done.stdout.decode("utf-8")
     assert "ε" in text, "the epsilon that #171 died on never reached stdout"

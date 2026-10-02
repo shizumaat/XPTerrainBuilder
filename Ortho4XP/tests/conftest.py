@@ -144,10 +144,68 @@ _PROXY_ENVIRONMENT_VARIABLES = (
     "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
     "http_proxy", "https_proxy", "all_proxy")
 
-if os.environ.get("O4_SUITE_ALLOW_NETWORK", "0") != "1":
+#: ...AND ONLY UNDER PYTEST (issue #146).  Ten tools import this conftest
+#: outside pytest for ``xplane_root()`` alone (``tools/flat_site_sweep.py``,
+#: ``tools/classify_report.py``, ``tools/profile_airport_build.py``, …): the
+#: import armed the socket refusal and stripped the proxy variables in THEIR
+#: process, so every later download died with a message that reads as
+#: TRANSIENT — the harness had been offline since #122 (RULINGS 2026-09-30ay,
+#: found by lane las130, which papered over it at one consumer by setting
+#: O4_SUITE_ALLOW_NETWORK=1 in build_airport.main()).  The fix is HERE, at
+#: the single derivation site: the condition under which the guard arms.
+#:
+#: Which marker actually holds AT CONFTEST IMPORT — measured 2026-10-02 with
+#: a probe conftest under ``-n0`` and ``-n2``, not assumed:
+#:   * ``"pytest" in sys.modules``  — True in the controller AND in every
+#:     xdist worker.  This is the discriminator.
+#:   * ``PYTEST_XDIST_WORKER``      — set in workers only ('gw0', 'gw1').
+#:   * ``PYTEST_CURRENT_TEST``      — NOT yet set anywhere; it appears only
+#:     once a test item runs, far too late to gate this on.
+#: The env markers are kept as a belt-and-braces second signal (a runner
+#: that exec'd the worker without importing pytest first would still arm).
+#: Deliberately NOT moved into ``pytest_configure``: that hook does run in
+#: each xdist worker (measured), but it runs AFTER this module's import, and
+#: #122 requires the guard to be in place before ANYTHING ELSE in the
+#: process can import ``requests``.  Gating the import-time install keeps
+#: that timing exactly and costs the suite nothing.
+_PYTEST_PROCESS_MODULE = "pytest"
+_PYTEST_PROCESS_ENVIRONMENT_MARKERS = (
+    "PYTEST_CURRENT_TEST", "PYTEST_XDIST_WORKER")
+
+
+def _detect_pytest_process() -> bool:
+    """True when THIS process is a pytest controller or xdist worker.
+
+    False for a tool that merely imports conftest helpers (issue #146).
+    Called ONCE, below, before this module imports ``pytest`` itself
+    (line ~257) — after that import ``"pytest" in sys.modules`` is True in
+    every process, tools included, so the answer must be frozen here.
+    """
+    if _PYTEST_PROCESS_MODULE in sys.modules:
+        return True
+    return any(os.environ.get(marker)
+               for marker in _PYTEST_PROCESS_ENVIRONMENT_MARKERS)
+
+
+#: The frozen answer: whether a pytest run, not a tool, imported us.
+_PROCESS_IS_PYTEST = _detect_pytest_process()
+
+
+def running_under_pytest() -> bool:
+    """The frozen ``_detect_pytest_process()`` answer from import time."""
+    return _PROCESS_IS_PYTEST
+
+
+#: True only when the block below armed the guard during THIS module's
+#: import — the twin that pins #122's timing asserts on it.
+_GUARD_ARMED_AT_IMPORT = False
+
+if running_under_pytest() and \
+        os.environ.get("O4_SUITE_ALLOW_NETWORK", "0") != "1":
     for _proxy_variable in _PROXY_ENVIRONMENT_VARIABLES:
         os.environ.pop(_proxy_variable, None)
     _install_suite_network_guard()
+    _GUARD_ARMED_AT_IMPORT = True
 
 # An ambient ORTHO4XP_DATA_ROOT (commonly exported when probing production
 # data from the shell) outranks the cwd in O4_File_Names.resolve_data_root,

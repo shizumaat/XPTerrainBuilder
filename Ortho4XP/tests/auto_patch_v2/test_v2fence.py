@@ -170,16 +170,22 @@ def _fence_plan():
 
 def test_the_plan_round_trips_the_line_verdict():
     """§16.2 C2: ``Part.line`` travels in the plan (version 7; the
-    current ``PLAN_VERSION`` is 11, ``Member.base_profile``, the
-    building-base-profile spec §1 (4) — 10 was the welded deck's shade,
-    issue #14).
+    current ``PLAN_VERSION`` is 12, ``Member.origin`` — the placement row's
+    own ``(lat, lon)``, base-profile spec §1 (3)'s composed-unit roof test
+    — over 11's ``Member.base_profile`` (§1 (4)) and 10's welded-deck
+    shade, issue #14).
 
     The pin is deliberate: it is the ONE place a ``PLAN_VERSION`` bump has
     to be acknowledged in a test, so a field cannot be added to the plan
     without someone reading what the bump drops off the accepted window
-    (``from_dict`` takes ``PLAN_VERSION - 3``, so 11 retires version 7)."""
+    (``from_dict`` takes ``PLAN_VERSION - 3``, so 12 retires version 8 —
+    ``RebakePlan.abutments``, RULINGS 2026-09-10ay: a v8 owner plan no
+    longer replays offline.  Both version 11 and 12 are purely ADDITIVE
+    and change no field the seat reads, so widening the window would cost
+    nothing; REPORTED for the owner's ruling, not decided — lane
+    ``basepads2``)."""
     from auto_patch_v2.model.rebake import PLAN_VERSION, RebakePlan
-    assert PLAN_VERSION == 11
+    assert PLAN_VERSION == 12
     pl = _fence_plan()
     back = RebakePlan.from_json(pl.to_json())
     assert [p.line for u in back.units for m in u.members for p in m.parts] == \

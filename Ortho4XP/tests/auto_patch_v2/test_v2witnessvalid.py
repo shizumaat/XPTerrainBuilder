@@ -299,6 +299,10 @@ _UNION_FUNCTIONS = {
     ("obj8.py", "_in_window"),
     ("obj8_clip.py", "_union_rings"),
     ("obj8_grade.py", "memo_union"),
+    # base-profile spec §1 (1)/(3) (lane ``basepads2``): the riser WELD
+    # unions two base-plane polygons, which are PLACED pack geometry once
+    # ``compose_profiles`` has run — so it takes the §51 Law B ladder.
+    ("obj8_grade.py", "_weld_risers"),
     ("door_wells.py", "read_door_wells"),
     ("wall_corridors.py", "_bands_of"),
     ("basins.py", "_UnionClock"),

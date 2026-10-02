@@ -594,6 +594,10 @@ def feet_in_unit_lines(rep: dict) -> list[str]:
 
 def base_profile_report(plan, *, pad_terrace_floor_m: float,
                         pad_frontage_m: float,
+                        roof_support_fraction: float = 0.0,
+                        contact_band_m: float = 0.0,
+                        min_distinct_spacing_m: float = 0.0,
+                        input_quantum_m: float = 0.0,
                         filter_sub: str = "") -> dict:
     """§1 (4) / §7 step 3 THE BASE-PROFILE READ, off the PLAN — the
     ``--base-profile`` report (spec §3 C21).
@@ -615,18 +619,24 @@ def base_profile_report(plan, *, pad_terrace_floor_m: float,
     reach) — this tool holds no copy of a law number, as
     ``obj8_grade.base_profile`` holds none.
 
-    THE UNIT ROLL-UP IS THE VERTICAL-ONLY DRY READ, and is labelled as
-    such in every line and in the JSON (``composition: "vertical_only"``).
-    §1 (3)'s composition folds the members of one §16g unit through the
-    §16c contact graph's offsets AND re-runs the roof test on the composed
-    unit; this tool has the plan's authored floors (an exact ``Δy`` per
-    member) but applies neither each member's heading nor its plan
-    translation, and passes no ``lower_pts``.  So the roll-up is the
-    PER-MEMBER UPPER BOUND that §1 (3) and §0 fact 10 name as "what a dry
-    report reads": a unit of ONE member is EXACT, and a multi-member unit
-    may read a plane here that the composed unit will call a ROOF (the
-    HECA T3 risk §5 A5 pre-registers).  The §16g composition belongs to
-    the planar stage, which has the affines; it is NOT reproduced here.
+    THE UNIT ROLL-UP IS THE COMPOSED READ WHERE THE PLAN CAN CARRY IT,
+    and the VERTICAL-ONLY UPPER BOUND where it cannot — ``composition``
+    says which, per unit and for the report as a whole, and nothing
+    guesses.
+
+    §1 (3) folds the members of ONE §16g unit into one frame by each
+    member's HEADING and PLAN TRANSLATION and re-runs the roof test there
+    against the unit's own lower geometry.  A plan of version 12 or later
+    carries ``Member.origin``, so this report composes exactly as the
+    planar stage does — ONE implementation,
+    ``placement_family.cluster_base_profile`` (§6's STOP: "any
+    ``--base-profile`` read that disagrees with the planar stage's
+    published planes (two readers of one law)").  An OLDER plan carries no
+    origin; the roll-up is then each member's authored floor alone, which
+    is the PER-MEMBER UPPER BOUND §1 (3) and §0 fact 10 name as "what a
+    dry report reads" — a one-member unit is exact, a multi-member unit
+    may read a plane the composed unit calls a ROOF (the HECA T3 risk §5
+    A5 pre-registers, measured at 113 planes on ``unit:43``).
     """
     import sys as _sys
     _sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
@@ -660,33 +670,64 @@ def base_profile_report(plan, *, pad_terrace_floor_m: float,
                 "why": prof.why})
         if not mems:
             continue
-        # the VERTICAL-ONLY roll-up: each member's authored floor is its
-        # exact Delta-y into the unit (the same reading PlanCluster.floors
-        # takes, §16g (10) (1)), and nothing else is applied.
-        floors = [min((pt.base_y for pt in mm.parts), default=0.0)
-                  for mm in u.members
-                  if not filter_sub or filter_sub in str(mm.resource)]
-        y0 = min(floors) if floors else 0.0
-        parts = [(_bg.profile_from_json(mm.base_profile),
-                  (0.0, float(min((pt.base_y for pt in mm.parts), default=0.0) - y0), 0.0))
-                 for mm in u.members
-                 if not filter_sub or filter_sub in str(mm.resource)]
-        comp = _bg.compose_profiles(
-            parts, pad_terrace_floor_m=float(pad_terrace_floor_m),
-            pad_frontage_m=float(pad_frontage_m))
+        keep = [i for i, mm in enumerate(u.members)
+                if not filter_sub or filter_sub in str(mm.resource)]
+        how = ""
+        if roof_support_fraction > 0.0:
+            # §1 (3) THE COMPOSED READ, through the planar stage's OWN
+            # implementation — never a second one here.
+            from auto_patch_v2.airport.placement_family import (
+                ProfileLaw, cluster_base_profile)
+            rec, how = cluster_base_profile(
+                u, keep,
+                ProfileLaw(pad_terrace_floor_m=float(pad_terrace_floor_m),
+                           pad_frontage_m=float(pad_frontage_m),
+                           roof_support_fraction=float(roof_support_fraction),
+                           contact_band_m=float(contact_band_m),
+                           min_distinct_spacing_m=float(min_distinct_spacing_m),
+                           input_quantum_m=float(input_quantum_m)))
+            comp = _bg.profile_from_json(rec) if rec else None
+        else:
+            comp = None
+        if comp is None:
+            # the VERTICAL-ONLY roll-up: each member's authored floor is its
+            # Delta-y stand-in into the unit (the same reading
+            # PlanCluster.floors takes, §16g (10) (1)), and nothing else is
+            # applied.
+            # ``how`` "" = the composed read had NO base plane to compose
+            # (§1 (3)'s "keeps today's law exactly"), which is the same
+            # answer the dry roll-up gives: labelled so, never as a bound.
+            how = how or ("no_base_plane" if roof_support_fraction > 0.0
+                          else "vertical_only")
+            floors = [min((pt.base_y for pt in u.members[i].parts), default=0.0)
+                      for i in keep]
+            y0 = min(floors) if floors else 0.0
+            parts = [(_bg.profile_from_json(u.members[i].base_profile),
+                      (0.0, float(min((pt.base_y for pt in u.members[i].parts),
+                                      default=0.0) - y0), 0.0))
+                     for i in keep]
+            comp = _bg.compose_profiles(
+                parts, pad_terrace_floor_m=float(pad_terrace_floor_m),
+                pad_frontage_m=float(pad_frontage_m))
         units.append({
             "unit": u.id, "members": mems,
-            "composition": "vertical_only",
-            "exact": len(mems) == 1,
+            "composition": how,
+            "exact": how in ("composed", "no_base_plane") or len(mems) == 1,
             "verdict": comp.verdict, "line": comp.line(),
             "planes": [{"y": float(pl.y), "area_m2": float(pl.area_m2)}
                        for pl in comp.planes],
             "offsets": [float(o) for o in comp.offsets],
             "risers": [[r.a, r.b, float(r.dy)] for r in comp.risers]})
+    hows = sorted({x["composition"] for x in units if x["composition"]})
+    composed = bool(units) and all(
+        x["composition"] in ("composed", "no_base_plane") for x in units)
     return {"units": units, "verdicts": tally,
             "plane_pads_expected": sum(max(0, len(x["planes"])) for x in units),
-            "composition": "vertical_only",
-            "note": ("the unit roll-up is the PER-MEMBER UPPER BOUND (spec "
+            "composition": ("composed" if composed
+                            else "/".join(hows) or "vertical_only"),
+            "note": ("every unit composed by heading + plan translation with "
+                     "the roof test re-run (spec SS1 (3))" if composed else
+                     "at least one unit read the PER-MEMBER UPPER BOUND (spec "
                      "SS1 (3)): no heading, no plan translation, no "
                      "lower_pts, so the roof test is NOT re-run on the "
                      "composed unit -- a one-member unit is exact")}
@@ -1233,6 +1274,12 @@ def _main() -> int:
             plan,
             pad_terrace_floor_m=_law.tables.emit.terrace.pad_terrace_floor_m,
             pad_frontage_m=_law.tables.emit.design.pad_frontage_m,
+            roof_support_fraction=(
+                _law.tables.structures.base_profile.roof_support_fraction),
+            contact_band_m=_law.tables.structures.basin.contact_band_m,
+            min_distinct_spacing_m=(
+                _law.tables.emit.identity.min_distinct_spacing_m),
+            input_quantum_m=_law.tables.emit.identity.input_quantum_m,
             filter_sub=a.filter)
         print("\nBASE PROFILE (base-profile spec §1 (4), the plan's own "
               "published read — §7 step 3's control):")

@@ -38,7 +38,7 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
 #: anchor plane); 9: ``Member.elevated_deck`` (11a); 10: THE WELDED DECK's
 #: ``Member.deck_shade_ring`` / ``deck_pier_ratio`` (issue #14,
 #: ``welded-deck-spec.md`` §1 (4)).
-PLAN_VERSION = 11
+PLAN_VERSION = 12
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -242,6 +242,26 @@ class Member:
     #: ``profile_from_json`` reads as FEET with no plane, i.e. §1 (3)'s
     #: "a unit with no base plane keeps today's law exactly".
     base_profile: dict = _dc.field(default_factory=dict)
+    #: THE PLACEMENT ORIGIN (base-profile spec §1 (3), the COMPOSED-unit
+    #: roof test): this member's own DSF ``OBJECT`` row position as
+    #: ``(lat, lon)`` — the point the authored frame ``(x, z)`` is rotated
+    #: about by :attr:`heading_deg` (``obj8.placement_affine``).
+    #:
+    #: WHY THE PLAN HAS TO CARRY IT.  §1 (3) composes the members of one
+    #: §16g unit into ONE frame and RE-RUNS the roof test there, because a
+    #: member's own read cannot see supports that live in a SIBLING member
+    #: (the HECA T3 halls: 113 planes at the per-member upper bound, the
+    #: spec's §6 STOP).  The composition needs each member's heading AND
+    #: its plan translation; ``heading_deg`` was already here, this is the
+    #: translation.  Nothing else in the plan carries it: ``Part.lat/lon``
+    #: is a COMPONENT's plan centroid in the world, and recovering an
+    #: origin from one would need the authored centroid the plan does not
+    #: hold.
+    #:
+    #: ``None`` in a plan written before version 12, and the composition
+    #: then falls back to the VERTICAL-ONLY roll-up and SAYS SO (the
+    #: per-member upper bound §1 (3) names as "what a dry report reads").
+    origin: "LL | None" = None
 
 
 @_dc.dataclass(frozen=True)
@@ -384,6 +404,8 @@ class RebakePlan:
                           for poly in m.deck_shade_ring],
                     "deck_pier_ratio": m.deck_pier_ratio,
                     "base_profile": dict(m.base_profile or {}),
+                    "origin": (None if m.origin is None
+                               else [float(m.origin[0]), float(m.origin[1])]),
                 } for m in u.members],
             } for u in self.units],
         }
@@ -393,6 +415,14 @@ class RebakePlan:
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "RebakePlan":
+        # Version 12 is version 11 plus ``Member.origin`` (the placement
+        # row's own ``(lat, lon)``, base-profile spec §1 (3)): an 11 plan
+        # reads with ``origin`` None, and the unit composition then falls
+        # back to the VERTICAL-ONLY roll-up — the per-member UPPER BOUND
+        # §1 (3) names — instead of the composed roof test, and SAYS SO
+        # (``composition: "vertical_only"``).  Purely additive: no field
+        # the seat reads moves.
+        #
         # Version 11 is version 10 plus ``Member.base_profile`` (the
         # base-profile spec §1 (4)): a v10 plan reads with an EMPTY base
         # profile, which ``obj8_grade.profile_from_json`` takes as FEET
@@ -466,6 +496,8 @@ class RebakePlan:
                 deck_pier_ratio=None if m.get("deck_pier_ratio") is None
                 else float(m["deck_pier_ratio"]),
                 base_profile=dict(m.get("base_profile") or {}),
+                origin=(None if m.get("origin") is None
+                        else (float(m["origin"][0]), float(m["origin"][1]))),
             ) for m in u["members"])) for u in d["units"])
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,

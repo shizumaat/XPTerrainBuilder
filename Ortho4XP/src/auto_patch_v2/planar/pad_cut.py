@@ -63,6 +63,14 @@ _TOUCH_ONLY_M2 = 0.01
 #: constant cannot live upstream of its second reader.
 _SHARED_TIE_DP = 6
 
+#: a scrap stands INSIDE the BUILDING UNIT'S FOOTPRINT RING (owner
+#: RULINGS 2026-10-02x (2)) when the area of it standing OUTSIDE that ring
+#: is under this fraction of the identity-spacing area it is judged by
+#: (``_identity_sliver_m2``, the law's own derivation from
+#: ``identity.min_distinct_spacing_m``, so there is no second number):
+#: GEOS's own rounding of a run the two geometries share, never ground
+_PAD_INSIDE_SLACK = 1e-6
+
 
 def apron_cut_to_pads(base_regions, pad_regions, law,
                       grid: float = 0.0) -> tuple[list, list, dict]:
@@ -532,10 +540,11 @@ def _identity_sliver_m2(law) -> float:
     return (ident * sliver_area_factor(law)) ** 2
 
 
-def _dissolve_rest_slivers(rests: list, pieces: list, area_max: float
-                           ) -> tuple[list, list, dict]:
+def _dissolve_rest_slivers(rests: list, pieces: list, area_max: float,
+                           *, pad_fill=None) -> tuple[list, list, dict]:
     """A PLATEAU CUT MUST NOT CHANGE THE AIRSIDE FACE SET OUTSIDE THE
-    PLATEAU RINGS (issue #150, flat-pad spec v2 §7 A9).
+    PLATEAU RINGS (issue #150, flat-pad spec v2 §7 A9), AND A GROUND SCRAP
+    IS THE APRON'S, NEVER THE PLATEAU'S (owner RULINGS 2026-10-02x (2)).
 
     ``region - piece`` does not leave only the apron's body.  Where the
     quantised piece runs a CHORD between two ring stations the ring itself
@@ -543,33 +552,66 @@ def _dissolve_rest_slivers(rests: list, pieces: list, area_max: float
     ``pav14`` parts of 0-6 m2 within 1-23 m of the restored building84
     plateau, at SPJC ~21 ``pav49`` parts of 1-5 m2 (lane sweep1005attr on
     #150, RULINGS 2026-10-02q).  Emitted, each is a FACE — 4-5 airside
-    vertices minted outside every plateau ring, which is exactly what the
-    §7 criterion counts.  The planar build's own sliver merge
+    vertices outside every plateau ring, which is exactly what the §7
+    criterion counts.  The planar build's own sliver merge
     (``overlay.merge_slivers``, the same area bound) cannot reach them: it
     unions a face only into a face of the SAME ref, and a scrap's one
-    neighbour across the cut is the plateau piece, whose ref carries
+    neighbour ACROSS A RUN is the plateau piece, whose ref carries
     ``model.planar.PLATEAU_MARK``.
 
-    So a rest part under ``area_max`` is dissolved HERE, at the derivation
-    site that cut it (owner RULINGS 2026-08-30l: trim at the single
-    derivation site, never per consumer).  It is UNIONED INTO THE PART OF
-    ITS OWN HOST REGION IT BORDERS LONGEST — another REST part first (the
-    host's own face: same role, same ref, so nothing about the host
-    changes except the run of ring that comes back), then the host's
-    PLATEAU PIECE (inside the rings, where the spec permits the change;
-    dropping the scrap instead would leave the DEM a hole inside the
-    apron).  Smallest first, so a chain of scraps resolves into the body
-    and never into each other (``overlay.dissolve_sliver_zones``'s own
-    order).  A TIE READS ONLY THE TWO CANDIDATES (the #81 rule): one
-    shared run computed twice differs by microns, and a list's order is a
-    function of every face at the airport.  A scrap bordering NOTHING is
-    dropped, exactly as a part under the cut's own area floor is.
+    THE RULING: such a scrap is GROUND — apron surface standing between
+    the quantised plateau chord and the apron ring — so it joins the
+    APRON host and GRADES WITH IT.  Only a scrap inside the BUILDING
+    UNIT'S FOOTPRINT RING (``pad_fill``: the pad outline's own exterior
+    rings, holes filled) is part of the building's connected structure and
+    stays with the pad.  So a rest part under ``area_max`` is resolved
+    HERE, at the derivation site that cut it (owner RULINGS 2026-08-30l:
+    trim at the single derivation site, never per consumer), SMALLEST
+    FIRST (a chain of scraps resolves into the body and never into each
+    other — ``overlay.dissolve_sliver_zones``'s own order), with a TIE
+    READING ONLY THE TWO CANDIDATES (the #81 rule: one shared run computed
+    twice differs by microns, and a list's order is a function of every
+    face at the airport):
 
-    THE HOST'S STATIONS STAY THE HOST'S: a scrap's outer boundary IS the
-    region ring it was cut from, so unioning it back restores that run of
-    the ring station for station and the chord that cut it goes interior.
-    Returns ``(rests, pieces, stats)``."""
-    stats = {"dissolved": 0, "dropped": 0, "m2": 0.0}
+    1. UNIONED INTO THE PART OF ITS OWN HOST REGION IT BORDERS LONGEST —
+       another REST part (the host's own face: same role, same ref, so
+       nothing about the host changes except the run of ring that comes
+       back).  Inside ``pad_fill`` the host's PLATEAU PIECE comes first
+       instead: the ruling's structure exception, inside the rings where
+       §7 permits the change.
+    2. Otherwise the scrap STAYS AN APRON FACE OF THE HOST (``kept``),
+       with the host's own role and ref.  WHY THE REST TIER CANNOT FIRE
+       FOR IT: a scrap pinched between the chord and the ring meets the
+       host's body at the CHORD'S END STATIONS ONLY — a POINT, so the
+       shared run is zero-length and the tier never fired over 375 scraps
+       at three airports (RULINGS 2026-10-02w); and a union across a point
+       is TWO polygons, i.e. the scrap still standing as a face of its own
+       under another name.  A plateau piece that touches the ring at an
+       isolated station disconnects the rest there, and a ring touching
+       itself at a point is not a polygon, so there is no union to make.
+       The three alternatives are all refused upstream: giving it to the
+       plateau is the ruling itself (the plateau never grows past its
+       quantised footprint); DROPPING it, or letting a NEIGHBOURING apron
+       region absorb it across their shared ring run, takes the bulge's
+       own stations out of the arrangement, which is the §7 bar.  So it
+       stands, and is COUNTED: ``kept`` / ``kept_m2`` is the residual the
+       spec author rules on.
+    3. A scrap bordering NOTHING is dropped, exactly as a part under the
+       cut's own area floor is: the DEM owns it.
+
+    THE HOST'S STATIONS STAY THE HOST'S either way: a scrap's outer
+    boundary IS the region ring it was cut from, so unioning it back
+    restores that run station for station and the chord that cut it goes
+    interior, and leaving it standing moves nothing at all.
+
+    Returns ``(rests, pieces, stats)``.  ``stats`` counts the parts under
+    ``area_max`` by what became of them — ``dissolved`` (a rest part of
+    the host), ``padded`` (the host's plateau piece, inside the footprint
+    ring), ``kept`` (standing, an apron face of the host), ``dropped``
+    — with ``m2`` their TOTAL area (so it is comparable with the 10-02w
+    measurement) and ``kept_m2`` the part of it still standing."""
+    stats = {"dissolved": 0, "padded": 0, "kept": 0, "dropped": 0,
+             "m2": 0.0, "kept_m2": 0.0}
     if area_max <= 0.0 or not rests:
         return rests, pieces, stats
     keep: list = list(rests)
@@ -579,29 +621,41 @@ def _dissolve_rest_slivers(rests: list, pieces: list, area_max: float
         scrap = keep[i]
         if scrap is None or scrap.area >= area_max:
             continue
+        # THE RULING'S ONE EXCEPTION: inside the building unit's footprint
+        # ring the scrap is the building's connected structure, so the PAD
+        # is its host and the plateau piece ranks first
+        in_pad = (pad_fill is not None and not pad_fill.is_empty
+                  and scrap.difference(pad_fill).area
+                  <= area_max * _PAD_INSIDE_SLACK)
         sb = scrap.bounds
         ranked: list = []
-        for tier, bucket in ((0, keep), (1, out_pieces)):
+        bordered = False
+        for bid, bucket in ((0, keep), (1, out_pieces)):
             for j, cand in enumerate(bucket):
-                if cand is None or (tier == 0 and j == i):
+                if cand is None or (bid == 0 and j == i):
                     continue
                 cb = cand.bounds                   # a shared run touches
                 if (cb[0] > sb[2] or cb[2] < sb[0]  # ... so touching boxes
                         or cb[1] > sb[3] or cb[3] < sb[1]):   # stay in
                     continue
                 try:
-                    shared = scrap.boundary.intersection(cand.boundary).length
+                    shared = scrap.boundary.intersection(cand.boundary)
                 except Exception:                          # pragma: no cover
                     continue
-                if shared <= 0.0:
+                if shared.is_empty:
                     continue
-                ranked.append((tier, -round(shared, _SHARED_TIE_DP),
+                bordered = True            # a POINT is a border too: the
+                run = float(shared.length)  # ... scrap is not orphaned
+                if run <= 0.0 or (bid == 1 and not in_pad):
+                    continue
+                ranked.append(((1 if bid == 0 else 0) if in_pad else bid,
+                               -round(run, _SHARED_TIE_DP),
                                -round(cand.area, _SHARED_TIE_DP),
-                               _ring_key(cand), j))
+                               _ring_key(cand), bid, j))
         stats["m2"] += scrap.area
         keep[i] = None
-        for tier, _sh, _ar, _k, j in sorted(ranked):
-            bucket = keep if tier == 0 else out_pieces
+        for _tier, _sh, _ar, _k, bid, j in sorted(ranked):
+            bucket = keep if bid == 0 else out_pieces
             # ONE face or no dissolve: two parts meeting at a POINT union
             # into a multipolygon, which is the scrap still standing as a
             # face of its own under another name
@@ -609,11 +663,17 @@ def _dissolve_rest_slivers(rests: list, pieces: list, area_max: float
             if len(u) != 1:
                 continue
             bucket[j] = u[0]
-            stats["dissolved"] += 1
+            stats["dissolved" if bid == 0 else "padded"] += 1
             break
         else:
-            stats["dropped"] += 1
+            if bordered:
+                keep[i] = scrap          # GROUND: an apron face of the
+                stats["kept"] += 1       # ... host, never the plateau's
+                stats["kept_m2"] += scrap.area
+            else:
+                stats["dropped"] += 1
     stats["m2"] = round(stats["m2"], 2)
+    stats["kept_m2"] = round(stats["kept_m2"], 2)
     return [g for g in keep if g is not None], out_pieces, stats
 
 
@@ -684,7 +744,9 @@ def plateau_cut(base_regions, pad_regions, law, airport,
     weld = float(law.tables.emit.identity.weld_spacing_m)
     counts: dict = {"plateaus": 0, "plateau_m2": 0.0, "plateau_apron_pieces": 0,
                     "plateau_rest_dissolved": 0, "plateau_rest_dropped": 0,
-                    "plateau_rest_sliver_m2": 0.0}
+                    "plateau_rest_padded": 0, "plateau_rest_kept": 0,
+                    "plateau_rest_sliver_m2": 0.0,
+                    "plateau_rest_kept_m2": 0.0}
     if not HELD or airport is None or (D <= 0.0 and Rz <= 0.0):
         return base_regions, counts
     # every pad's outline, keyed by its PLATFORM ref (a block's collar joins
@@ -784,6 +846,13 @@ def plateau_cut(base_regions, pad_regions, law, airport,
     sliver_m2 = _identity_sliver_m2(law)
     for b, (zone, source) in zones.items():
         edge = outline[b].buffer(max(grid, ident))
+        # THE BUILDING UNIT'S FOOTPRINT RING (owner RULINGS 2026-10-02x
+        # (2)): the pad outline's own exterior rings with their holes
+        # FILLED -- a scrap standing inside it is the building's connected
+        # structure and stays with the pad; every other scrap is GROUND
+        # and rejoins the apron (:func:`_dissolve_rest_slivers`)
+        pad_fill = unary_union([Polygon(g.exterior)
+                                for g in _flat_polys(outline[b])])
         rec = {"source": source, "area_m2": 0.0, "apron_refs": [],
                "riders": len(riders_of.get(b, ())), "startups": 0}
         # every apron region STANDING NOW — an earlier block's rest parts
@@ -836,14 +905,22 @@ def plateau_cut(base_regions, pad_regions, law, airport,
             rests = [g for g in getattr(rest, "geoms", [rest])
                      if g.geom_type == "Polygon" and g.area > floor]
             # A REST PART UNDER THE IDENTITY-SPACING AREA IS NEVER A FACE
-            # (issue #150, §7 A9): it is dissolved back into the host
-            # region's own part it borders longest, so the cut changes no
-            # airside face outside the plateau rings
-            rests, pieces, rsl = _dissolve_rest_slivers(rests, pieces, sliver_m2)
+            # OF ITS OWN IF IT CAN HELP IT (issue #150, §7 A9) -- and it is
+            # NEVER THE PLATEAU'S unless it stands inside the building
+            # unit's footprint ring (owner RULINGS 2026-10-02x (2)): a
+            # ground scrap is dissolved back into the host region's own
+            # rest part, and where the chord pinched it off at a point it
+            # STANDS, as an apron face of the host
+            rests, pieces, rsl = _dissolve_rest_slivers(
+                rests, pieces, sliver_m2, pad_fill=pad_fill)
             counts["plateau_rest_dissolved"] += rsl["dissolved"]
+            counts["plateau_rest_padded"] += rsl["padded"]
+            counts["plateau_rest_kept"] += rsl["kept"]
             counts["plateau_rest_dropped"] += rsl["dropped"]
             counts["plateau_rest_sliver_m2"] = round(
                 counts["plateau_rest_sliver_m2"] + rsl["m2"], 2)
+            counts["plateau_rest_kept_m2"] = round(
+                counts["plateau_rest_kept_m2"] + rsl["kept_m2"], 2)
             slots[i][j] = [*(_dc.replace(r, polygon=g) for g in rests),
                            *(_dc.replace(r, ref=f"{r.ref}{PLATEAU_MARK}{b}",
                                          polygon=g) for g in pieces)]

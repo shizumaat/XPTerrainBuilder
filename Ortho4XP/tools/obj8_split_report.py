@@ -536,6 +536,7 @@ def base_profile_report(plan, *, pad_terrace_floor_m: float,
                         roof_support_fraction: float = 0.0,
                         contact_band_m: float = 0.0,
                         min_distinct_spacing_m: float = 0.0,
+                        input_quantum_m: float = 0.0,
                         filter_sub: str = "") -> dict:
     """§1 (4) / §7 step 3 THE BASE-PROFILE READ, off the PLAN — the
     ``--base-profile`` report (spec §3 C21).
@@ -622,7 +623,8 @@ def base_profile_report(plan, *, pad_terrace_floor_m: float,
                            pad_frontage_m=float(pad_frontage_m),
                            roof_support_fraction=float(roof_support_fraction),
                            contact_band_m=float(contact_band_m),
-                           min_distinct_spacing_m=float(min_distinct_spacing_m)))
+                           min_distinct_spacing_m=float(min_distinct_spacing_m),
+                           input_quantum_m=float(input_quantum_m)))
             comp = _bg.profile_from_json(rec) if rec else None
         else:
             comp = None
@@ -1210,6 +1212,7 @@ def _main() -> int:
             contact_band_m=_law.tables.structures.basin.contact_band_m,
             min_distinct_spacing_m=(
                 _law.tables.emit.identity.min_distinct_spacing_m),
+            input_quantum_m=_law.tables.emit.identity.input_quantum_m,
             filter_sub=a.filter)
         print("\nBASE PROFILE (base-profile spec §1 (4), the plan's own "
               "published read — §7 step 3's control):")

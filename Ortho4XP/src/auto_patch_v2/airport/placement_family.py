@@ -520,7 +520,7 @@ def _floor_split(cl: _t.Sequence[int], adj: _t.Mapping[int, set],
     return [sorted(v) for _k, v in sorted(comp.items())]
 
 
-#: base-profile spec §1 (3): THE FIVE LAW NUMBERS the composed read needs,
+#: base-profile spec §1 (3): THE SIX LAW NUMBERS the composed read needs,
 #: each at its OWN existing key at the caller (``planar/cluster.clusters``
 #: holds the ``Law``; this module holds no law number, as
 #: ``obj8_grade.base_profile`` holds none).  Passing them as one record
@@ -533,13 +533,17 @@ class ProfileLaw:
     pad_frontage_m`` (the adjacency reach), ``[base_profile]
     roof_support_fraction`` (the support-hull share that makes a ROOF),
     ``[basin] contact_band_m`` (how far below a plane a support counts)
-    and ``[identity] min_distinct_spacing_m`` (the polygon erosion)."""
+    ``[identity] min_distinct_spacing_m`` (the polygon erosion) and
+    ``emit.identity.input_quantum_m`` (§51's entry snap, read through
+    ``frame_entry.quantum`` — the composition places polygons, so it goes
+    through §51 (2)'s one entry site and needs that site's quantum)."""
 
     pad_terrace_floor_m: float
     pad_frontage_m: float
     roof_support_fraction: float
     contact_band_m: float
     min_distinct_spacing_m: float
+    input_quantum_m: float = 0.0
 
 
 def cluster_base_profile(unit: _t.Any, member_ix: _t.Sequence[int],
@@ -618,7 +622,8 @@ def cluster_base_profile(unit: _t.Any, member_ix: _t.Sequence[int],
         roof_support_fraction=(law.roof_support_fraction if lower is not None
                                else 0.0),
         lower_pts=lower, contact_band_m=law.contact_band_m,
-        min_distinct_spacing_m=law.min_distinct_spacing_m)
+        min_distinct_spacing_m=law.min_distinct_spacing_m,
+        input_quantum_m=law.input_quantum_m)
     return (profile_to_json(comp), "composed" if placed else "vertical_only")
 
 

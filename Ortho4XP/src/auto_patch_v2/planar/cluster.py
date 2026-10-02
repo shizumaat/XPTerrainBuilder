@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import typing as _t
 
+from ..airport import frame_entry as _frame_entry
 from ..airport.placement_family import PlanCluster, ProfileLaw, plan_clusters
 from ..geom import deck_shades as _geom_deck_shades
 from ..law import Law
@@ -95,7 +96,8 @@ def profile_law(law: Law) -> ProfileLaw:
         pad_frontage_m=float(law.tables.emit.design.pad_frontage_m),
         roof_support_fraction=float(st.base_profile.roof_support_fraction),
         contact_band_m=float(st.basin.contact_band_m),
-        min_distinct_spacing_m=float(law.tables.emit.identity.min_distinct_spacing_m))
+        min_distinct_spacing_m=float(law.tables.emit.identity.min_distinct_spacing_m),
+        input_quantum_m=float(_frame_entry.quantum(law)))
 
 
 def _touch_m(law: Law) -> float:

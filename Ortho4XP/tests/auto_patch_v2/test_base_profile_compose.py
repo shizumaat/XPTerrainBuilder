@@ -309,15 +309,38 @@ def test_the_rotation_is_what_puts_the_columns_under_the_floor(tmp_path):
 
 
 def test_the_affine_matches_the_engines_own_spelling():
-    """``obj8_grade._place`` must BE ``obj8.placement_affine`` — one
+    """``obj8_grade._place_matrix`` must BE ``obj8.placement_affine`` — one
     spelling of the authored -> frame affine.  Measured directly rather
     than by inspection: two readings of one law drifting apart is the
     defect class §6 names."""
     from shapely.geometry import Polygon
     ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0)]
-    got = BP._place(Polygon(ring), 7.0, -3.0, HEADING)
+    assert list(BP._place_matrix(7.0, -3.0, HEADING)) == \
+        obj8.placement_affine((7.0, -3.0), HEADING)
+    got = BP._place_all([Polygon(ring)], 7.0, -3.0, HEADING, 0.0)[0]
     want = Polygon([obj8._to_frame((7.0, -3.0), HEADING, x, z) for x, z in ring])
     assert got.equals_exact(want, 1e-9), (list(got.exterior.coords),
                                           list(want.exterior.coords))
     assert abs(math.hypot(*(np.array(got.centroid.coords[0])
                             - np.array(want.centroid.coords[0])))) < 1e-9
+
+
+def test_the_placement_goes_through_frame_entry():
+    """§51 (2) (``tests/auto_patch_v2/test_v2witnessvalid.py`` G1): the
+    composition's affine is applied by ``frame_entry.enter`` and nowhere
+    else — rotating a face-union polygon rounds micron slivers into
+    self-touching rings, and the first union that reads one (the riser
+    WELD, one step later) refuses it.  So ``enter`` must REPAIR here, not
+    merely transform."""
+    import inspect
+
+    from shapely.geometry import Polygon
+    assert "frame_entry" in inspect.getsource(BP._place_all)
+    # a bow-tie enters as a VALID polygonal geometry, never as itself
+    bow = Polygon([(0.0, 0.0), (4.0, 4.0), (4.0, 0.0), (0.0, 4.0)])
+    assert not bow.is_valid
+    got = BP._place_all([bow], 0.0, 0.0, HEADING, 0.0)[0]
+    assert got is not None and got.is_valid, got
+    # ... and a polygon that repairs to nothing comes back None
+    sliver = Polygon([(0.0, 0.0), (1e-9, 0.0), (1e-9, 1e-9)])
+    assert BP._place_all([sliver], 0.0, 0.0, HEADING, 0.0)[0] is None

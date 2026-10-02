@@ -94,6 +94,17 @@ class Patch:
         return (math.radians(lon - self.lon0) * R_EARTH * cos0,
                 math.radians(lat - self.lat0) * R_EARTH)
 
+    def to_ll(self, x: float, y: float) -> tuple[float, float]:
+        """THE INVERSE of :meth:`to_m` — the one place this layer turns a
+        census-frame metre point back into lat/lon.  A family whose row site
+        is a DERIVED point rather than a vertex (an overlap's representative
+        point, a projection foot) needs it to stamp the row's own ``lat`` /
+        ``lon``: #106/#107 was 20 families leaving them unset and falling
+        through to the ring CENTROID."""
+        cos0 = math.cos(math.radians(self.lat0))
+        return (self.lat0 + math.degrees(y / R_EARTH),
+                self.lon0 + math.degrees(x / (R_EARTH * cos0)))
+
     def cap(self, sh: Shape) -> float | None:
         """The within-shape LONGITUDINAL cap the census judges at — the
         role's own.  §37 (1) (RULINGS 2026-09-13q item 5): the

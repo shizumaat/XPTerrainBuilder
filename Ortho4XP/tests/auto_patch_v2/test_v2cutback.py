@@ -53,11 +53,15 @@ _PAIRED_ROAD_VERTICES = 2
 #: rules on it.  This list is an INVENTORY, not an exemption: it is frozen
 #: so that a family added to the census without a v2 counterpart fails
 #: this file instead of surfacing as a count mismatch on a built airport.
-OPEN_PARITY_GAPS: frozenset[str] = frozenset({
-    "seam_residual", "bank_across_seam", "ramp_in_road", "object_cut_offset",
-    "object_cut_depth", "ramp_in_strip", "road_coverage_join", "sea_wall",
-    "zone_on_pavement", "sentinel_elevation",
-})
+#: EMPTY since issue #186: all ten were classified — eight gained a v2
+#: verify reader (``verify/pins.py``, ``verify/keepout.py``) and two a
+#: reasoned ``NOT_IMPLEMENTED`` entry naming the construction that makes
+#: them vacuous on what verify reads (``bank_across_seam``, ``sea_wall``;
+#: the bank and the shore weld are minted into ``surf_out``, downstream of
+#: the design surface ``pipeline/build`` hands ``census_frame``).  The
+#: register below keeps its force with the inventory empty: a family added
+#: to ``LAW_FAMILIES`` without a counterpart has nowhere left to hide.
+OPEN_PARITY_GAPS: frozenset[str] = frozenset()
 
 #: ``census_patch`` serves these three outside the ``READERS`` table
 #: (``within_shape`` yields two families; ``pad_flat`` is called by name).

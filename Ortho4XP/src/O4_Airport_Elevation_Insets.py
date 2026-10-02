@@ -711,6 +711,88 @@ def raise_transient_discovery_failure(description, reason):
     raise TransientFetchError("%s failed: %s" % (description, reason))
 
 
+# =====================================================================
+# THE ANSWER-OUTCOME LAW — what ONE HTTP answer about ONE OBJECT means
+# =====================================================================
+#
+# ``discovery_status_is_transient`` above classifies a LISTING response
+# (does this catalog show coverage, or should we come back later?) and
+# is deliberately two-way: a listing is either an answer about coverage
+# or it is not.
+#
+# An answer about ONE NAMED OBJECT -- "is this COG in the bucket?", "did
+# this archive download?" -- is a different question with a THIRD
+# outcome that the two-way classifier structurally cannot express, and
+# RULINGS 2026-09-13b requires it: a provider the engine could not ASK
+# records ``unavailable:<reason>``, never ``no-coverage``.  So exactly
+# ONE classifier lives here for that question, and its transient half
+# DELEGATES to ``discovery_status_is_transient`` -- there is no second
+# transient convention in this module.
+#
+# The defect this closes (issue #124): ``DegreeNamedCogStrategy.
+# _url_exists`` printed "existence probe for ... returned status N" and
+# returned ``False`` for EVERY answer that was not 200 or 404.  A CDN
+# 403, a proxy 407, a 429 or a 503 therefore meant "this cell does not
+# exist", and COPERNICUSGLO30 could be written into the coverage index
+# as a durable ``no-coverage`` for the airport -- the #121 class again
+# (a failed transport becoming a permanent negative).
+HTTP_OUTCOME_OK = "ok"
+HTTP_OUTCOME_ABSENT = "absent"
+HTTP_OUTCOME_UNAVAILABLE = "unavailable"
+HTTP_OUTCOME_TRANSIENT = "transient"
+
+#: The ONLY statuses that are a well-formed answer ABOUT THE OBJECT: the
+#: server looked, and it is not there (404) or no longer there (410).
+#: These alone may become a durable negative.
+HTTP_ABSENT_STATUSES = (404, 410)
+
+#: Statuses where the server refused to serve THIS CLIENT rather than
+#: answering about the object: authentication and proxy refusals (401,
+#: 403, 407), a legal block (451), and a host that rejects the method
+#: the probe used (405 Method Not Allowed -- Saxony's tile host answers
+#: 401 to HEAD, hence the ``probe_mode`` knob elsewhere in this file).
+#: None of them says whether the object exists, so they are
+#: ``unavailable:<reason>``, never no-coverage.
+#:
+#: 501 Not Implemented is deliberately NOT here although it is the same
+#: "this host will not answer that question" shape: it is a 5xx, which
+#: ``discovery_status_is_transient`` already owns, and a SECOND opinion
+#: about one status is the drift SQ3 forbids.  Transient is the safe
+#: side of that disagreement -- nothing is recorded either way.
+HTTP_UNAVAILABLE_STATUSES = (401, 403, 405, 407, 451)
+
+
+def http_answer_outcome(status_code):
+    """Which outcome class one HTTP answer about one object belongs to.
+
+    * ``2xx``                    -> :data:`HTTP_OUTCOME_OK`.
+    * ``404`` / ``410``          -> :data:`HTTP_OUTCOME_ABSENT` (durable).
+    * ``401 403 405 407 451 501``-> :data:`HTTP_OUTCOME_UNAVAILABLE`.
+    * everything else            -> :data:`HTTP_OUTCOME_TRANSIENT`.
+
+    That last line is the point of the law, and it SUBSUMES the ``429`` /
+    ``5xx`` of ``discovery_status_is_transient`` (a twin pins that every
+    status that classifier calls transient lands here as transient too,
+    so the two never drift apart).  An answer this classifier does not
+    recognise -- a surfacing 3xx (a redirect loop or a 304), a 400, a 418
+    from a bot wall -- says NOTHING about whether the object is there,
+    and minting a durable negative from an answer nobody understood is
+    exactly how one outage became permanent.  Only the two statuses that
+    MEAN "not there" are allowed to.
+    """
+    try:
+        code = int(status_code)
+    except (TypeError, ValueError):
+        return HTTP_OUTCOME_TRANSIENT
+    if 200 <= code < 300:
+        return HTTP_OUTCOME_OK
+    if code in HTTP_ABSENT_STATUSES:
+        return HTTP_OUTCOME_ABSENT
+    if code in HTTP_UNAVAILABLE_STATUSES:
+        return HTTP_OUTCOME_UNAVAILABLE
+    return HTTP_OUTCOME_TRANSIENT
+
+
 def discovery_json_payload(response, description):
     """The parsed JSON body of one discovery response, or ``None``.
 
@@ -9288,6 +9370,12 @@ class XyzArchiveDropStrategy:
 # =====================================================================
 # Strategy 15: degree_named_cog (deterministic per-degree COG names)
 # =====================================================================
+#: Seconds one cell-existence HEAD probe may take.  A probe that runs out
+#: of time is a TRANSIENT failure (it got no answer), so this bounds how
+#: long a dead mirror costs per cell, never what gets recorded.
+DEGREE_COG_PROBE_TIMEOUT_S = 30
+
+
 @register_access_strategy("degree_named_cog")
 class DegreeNamedCogStrategy:
     """Cloud-Optimized GeoTIFFs named by their 1-degree cell coordinates.
@@ -9312,10 +9400,11 @@ class DegreeNamedCogStrategy:
 
     supports_wide_area = False
 
-    # Process-lifetime memo of definitive existence answers (HTTP 200 /
-    # 404) keyed by URL.  Transient failures (timeouts, 5xx) are NOT
-    # memoised: one network blip must not poison every later airport of
-    # the run with a false "absent".
+    # Process-lifetime memo of DEFINITIVE existence answers only (a 2xx,
+    # or the 404/410 of :data:`HTTP_ABSENT_STATUSES`) keyed by URL.
+    # Transient failures (timeouts, 5xx, 429) and host refusals (403,
+    # 407) are NOT memoised: one network blip must not poison every
+    # later airport of the run with a false "absent".
     _cell_exists_by_url = {}
 
     @staticmethod
@@ -9367,46 +9456,57 @@ class DegreeNamedCogStrategy:
         )
 
     def _url_exists(self, url):
+        """Is this cell's object in the bucket?
+
+        THE OUTCOME LAW (:func:`http_answer_outcome`, RULINGS
+        2026-09-13b, issue #124): only a 404/410 -- the server looked and
+        the object is not there -- may answer ``False``, the one answer
+        the caller is allowed to record as a durable no-coverage.  A
+        401/403/407/405/451/501 RAISES :class:`ProviderUnavailable` (the
+        host refused to serve this client, which says nothing about the
+        cell); a 429, a 5xx, an answer nobody recognises, and a probe
+        that got NO answer at all RAISE :class:`TransientFetchError`
+        (nothing recorded, asked again next run).
+        """
         memo = DegreeNamedCogStrategy._cell_exists_by_url
         if url in memo:
             return memo[url]
         import requests
 
         try:
-            response = requests.head(url, timeout=30)
+            response = requests.head(
+                url, timeout=DEGREE_COG_PROBE_TIMEOUT_S
+            )
         except Exception as error:
-            # A probe that got NO HTTP answer says nothing about whether
-            # the cell exists: the module-wide classifier decides, and a
-            # transport failure RAISES (never a durable no-coverage
-            # negative -- issue #121, the Copernicus probe under a broken
-            # TLS stack recorded COPERNICUSGLO30 "no-coverage").
-            if error_message_indicates_transient_network_failure(error):
-                raise TransientFetchError(
-                    "existence probe for %s died on the transport: %s"
-                    % (url, error)
-                ) from error
-            UI.vprint(
-                1,
-                "   WARNING: existence probe failed for",
-                url,
-                ":",
-                str(error),
-            )
-            return False
-        if response.status_code == 200:
+            # A probe that got NO HTTP ANSWER AT ALL says nothing about
+            # whether the cell exists -- whatever the exception's WORDING
+            # (issue #121 classified the message and fell through to a
+            # durable absent for every message not on the fragment list;
+            # #124: there is no message that makes "no answer" mean "not
+            # there").  Never memoised: one blip must not poison every
+            # later airport of the run with a false absent.
+            raise TransientFetchError(
+                "existence probe for %s died on the transport: %s"
+                % (url, error)
+            ) from error
+        outcome = http_answer_outcome(response.status_code)
+        if outcome == HTTP_OUTCOME_OK:
             memo[url] = True
-        elif response.status_code == 404:
+            return True
+        if outcome == HTTP_OUTCOME_ABSENT:
             memo[url] = False
-        else:
-            UI.vprint(
-                1,
-                "   WARNING: existence probe for",
-                url,
-                "returned status",
-                response.status_code,
-            )
             return False
-        return memo[url]
+        if outcome == HTTP_OUTCOME_UNAVAILABLE:
+            raise ProviderUnavailable(
+                "existence probe for %s was refused with status %s - the "
+                "host would not serve this client, which says NOTHING "
+                "about the cell: recorded unavailable, not no-coverage"
+                % (url, response.status_code)
+            )
+        raise TransientFetchError(
+            "existence probe for %s returned status %s - transient, NOT "
+            "recorded as no-coverage" % (url, response.status_code)
+        )
 
     def discover(self, definition, bounding_box_wgs84):
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
@@ -18473,6 +18573,49 @@ LEGACY_BASE_KEYWORD_ALIASES = {
 }
 
 
+#: How many archive member names a refusal lists before eliding.  A
+#: de Ferranti zip holds up to 24 .hgt members (a 6x4 degree zone), so
+#: the whole manifest fits -- the elision only guards a mis-pointed URL
+#: that served some other, huge archive.
+ARCHIVE_MEMBERS_IN_REFUSAL = 24
+
+
+def refuse_absent_base_archive(definition, lat, lon, url, detail):
+    """A base source answered "not there" for a tile it SHOULD hold.
+
+    THE LAW (alpha.2 "broken = refuse, never degrade"; issue #121 for
+    the transport half, issue #173 for this one): the historic ``return
+    0`` made the DEM loader substitute an ALL-ZERO raster for the cell
+    and finish the build at 0 m with exit 0.  A 404 on the archive of a
+    tile the source covers, or an archive that downloaded but holds no
+    member for it, is a MAPPING defect -- the zip name or the member
+    name is wrong, or upstream moved -- and the one thing it must never
+    do is become a silent zero.
+
+    The discriminator is the land mask the DEM loader already consults
+    before it asks for a cell at all (``O4_DEM_Utils.tile_is_land``, the
+    ONE predicate): an OCEAN-only tile is lawfully absent and keeps the
+    historic 0, a LAND tile refuses the build naming the URL, the tile
+    and what came back.
+    """
+    code = definition.get("code") or "base elevation source"
+    cell = "%+03d%+04d" % (lat, lon)
+    if not DEM.tile_is_land(lat, lon):
+        UI.vprint(
+            2,
+            "      " + code, "has no archive for the ocean-only cell",
+            cell + ";", "it is zero-filled, which is lawful.",
+        )
+        return 0
+    raise DEM.ElevationDownloadRefused(
+        "%s has no elevation for the LAND cell %s: %s (%s) -- REFUSING "
+        "to build this tile on an all-zero elevation raster.  The cell "
+        "is land in Utils/world_tiles.png and this source covers it, so "
+        "this is a MAPPING defect (the archive name or the member name), "
+        "not missing data; re-run with the URL above to confirm what the "
+        "server serves" % (code, cell, url, detail))
+
+
 def deferranti_archive_code(lat, lon):
     """The Viewfinderpanoramas letter+number archive code for a tile.
 
@@ -18586,8 +18729,23 @@ class ViewfinderZipStrategy:
             url, definition.get("legacy_keyword", definition["code"]), verbose
         )
         if not response:
-            return 0
+            # Every answer but a 404/410 already refused inside
+            # ``http_request``, so reaching here means the server LOOKED
+            # and the archive is not there.  For a land tile this source
+            # covers, that is the #173 mapping defect, never a zero.
+            return refuse_absent_base_archive(
+                definition, lat, lon, url,
+                "the archive is not on the server (404/410)")
+        member_names = []
+        # Did the archive hold a member for the cell that was ASKED for?
+        # The two failures must not be confused (#173): a member that is
+        # ABSENT is a mapping defect and refuses, while a member that is
+        # present and unreadable is upstream data damage, contained as
+        # before (the dem1/P32.zip CRC case).
+        requested_member_seen = False
         with zipfile.ZipFile(io.BytesIO(response.content), "r") as zip_ref:
+            for zipped_file in zip_ref.filelist:
+                member_names.append(zipped_file.filename)
             for zipped_file in zip_ref.filelist:
                 file_name = os.path.basename(zipped_file.filename)
                 if not file_name:
@@ -18607,6 +18765,8 @@ class ViewfinderZipStrategy:
                     lat0 *= -1
                 if ("W" in file_name) or ("w" in file_name):
                     lon0 *= -1
+                if (lat0, lon0) == (lat, lon):
+                    requested_member_seen = True
                 out_file_name = FNAMES.viewfinderpanorama(lat0, lon0)
                 # we don't wish to overwrite a 1 arc-second version by
                 # downloading the whole archive of a nearby 3 arc-second one
@@ -18640,7 +18800,26 @@ class ViewfinderZipStrategy:
                     os.replace(temporary_path, out_file_name)
         # Success is judged on the tile actually requested: a corrupt
         # OTHER member in the same archive costs a warning, nothing more.
-        return 1 if cached_elevation_file_is_valid(cache_path) else 0
+        if cached_elevation_file_is_valid(cache_path):
+            return 1
+        if requested_member_seen:
+            # The member WAS in the archive and could not be extracted:
+            # upstream CRC damage, contained exactly as before (a warning
+            # above, no cache file, 0 here).
+            return 0
+        # The archive DOWNLOADED and holds NO member for the cell that
+        # was asked for -- the second half of #173, and the half the
+        # historic ``return 0`` hid completely.  The refusal lists what
+        # the archive DOES hold, which is the measurement the attribution
+        # needs (wrong zone, or a member grammar this parser misreads).
+        return refuse_absent_base_archive(
+            definition, lat, lon, url,
+            "the archive downloaded but holds no member for this cell; "
+            "its %d members are %s"
+            % (len(member_names),
+               ", ".join(sorted(member_names)[:ARCHIVE_MEMBERS_IN_REFUSAL])
+               + ("..." if len(member_names) > ARCHIVE_MEMBERS_IN_REFUSAL
+                  else "")))
 
 
 @register_access_strategy("usgs_seamless")

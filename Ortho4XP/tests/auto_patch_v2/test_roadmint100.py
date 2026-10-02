@@ -121,3 +121,83 @@ def test_the_airside_is_unchanged_by_a_ribbon_and_the_kerb_is_shared(law):
     # and those are exactly the model's band-kerb set
     assert len(kerb) >= 4
     assert kerb <= pm1.band_kerb_vertices()
+
+
+# ── THE ROAD-EXIT LAW (owner RULINGS 2026-09-29y / 30z (1) / 10-02v (1);
+# lane roadmint100b, issue #100): a ribbon leaving the patch runs on until
+# the road cap's profile from the patch's level meets the terrain ─────────
+from shapely.geometry import LineString as _LS
+
+from auto_patch_v2.classify.roles import exit_reach
+
+
+class _ShelfDem:
+    """Flat at 100 m inside |x| <= 950 (the patch), a +5 m shelf beyond."""
+    provenance = {"base": "synthetic"}
+
+    def __init__(self, step=5.0, edge=950.0):
+        self.step, self.edge = step, edge
+
+    def z(self, x: float, y: float) -> float:
+        return 100.0 + (self.step if x > self.edge else 0.0)
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def test_exit_reach_runs_to_where_the_cap_profile_meets_a_shelf():
+    line = _LS([(600.0, -40.0), (1400.0, -40.0)])
+    airside = Polygon(_rect(0.0, -15.0, 900.0, 15.0))
+    cap = 0.08
+    a, b = exit_reach(line, 0.0, 350.0, _ShelfDem(5.0), airside, cap, 2.0, 8.0)
+    assert a == 0.0                                  # the way starts in the patch
+    # beyond x = 950 the DEM is 5 m up: the 8 % profile from the mouth's
+    # level (100 m) needs 62.5 m past the shelf edge; the mouth was at
+    # s = 350 (x = 950), so the reach is 62.5 m + one station
+    assert b == pytest.approx(350.0 + 62.5 + 2.0, abs=2.0)
+    # a flat terrain beyond the patch edge: the first station meets the
+    # profile, plus the one station that puts the last vertex on the DEM
+    _a, b_flat = exit_reach(line, 0.0, 350.0, _ShelfDem(0.0), airside, cap, 2.0, 8.0)
+    assert b_flat == pytest.approx(354.0, abs=1e-6)
+    # no DEM: the span is what it was
+    assert exit_reach(line, 0.0, 350.0, None, airside, cap, 2.0, 8.0) == (0.0, 350.0)
+
+
+def test_a_ribbon_leaving_the_patch_onto_a_shelf_reaches_the_terrain(law):
+    """The minted ribbon's far end stands past the shelf's reach (so its
+    last ring vertex is ON the terrain); a way far from the patch mints
+    nothing (the brief's 'a road far from the patch is untouched')."""
+    far = ((600.0, -40.0), (1400.0, -40.0))
+    # the synthetic's zone-2 envelopes reach x = 1100 and its airside
+    # x = 1060: the shelf starts past both, inside the hold window, so the mouth reads 100 m
+    shelf = _ShelfDem(5.0, edge=1105.0)
+    a = _dc.replace(_with(_way(-3, far, highway="tertiary")), dem=shelf)
+    cl = classify(a, law)
+    rib = _ribbons(cl)
+    assert [c.ref for c in rib] == ["small_roads:-3"]
+    xmax = max(x for x, _y in rib[0].ring)
+    cap = float(law.tables.common.road_max_grade)
+    assert xmax >= 1105.0 + 5.0 / cap
+    assert xmax <= 1105.0 + 5.0 / cap + 12.0
+    off = _dc.replace(_with(_way(-9, ((600.0, -3000.0), (1400.0, -3000.0)),
+                                highway="tertiary")), dem=shelf)
+    assert _ribbons(classify(off, law)) == []
+
+
+def test_a_band_is_not_cut_back_from_a_ribbon(law):
+    """13ar / 30e (4): the zone band shares the ribbon's kerb (no 0.6 m
+    stand-off strip), while a 1206 route corridor keeps its cut-back."""
+    from auto_patch_v2.planar.zones import zone_regions
+    a1 = _with(_way(-3, SOUTH, highway="tertiary"))
+    cl = classify(a1, law)
+    rib = _ribbons(cl)[0]
+    zones = zone_regions(tuple(cl.cells), law)
+    ribbon = Polygon(rib.ring, rib.holes)
+    touching = [z for z in zones if z.zone == 2 and
+                z.polygon.distance(ribbon) < 1e-6]
+    assert touching, "the zone-2 band abuts the ribbon with no stand-off"
+    routes = [c for c in cl.cells if c.role == "service_road" and not is_osm_ribbon(c)]
+    assert routes
+    corridor = Polygon(routes[0].ring, routes[0].holes)
+    cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+    assert all(z.polygon.distance(corridor) >= cut - 1e-6 for z in zones)

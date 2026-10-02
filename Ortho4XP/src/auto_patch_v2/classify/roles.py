@@ -83,12 +83,13 @@ import math
 import typing as _t
 
 import shapely
+import shapely.ops
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import (is_value_role, role_side, snap_margin_m,
+from ..law.tables import (is_value_role, role_cap, role_side, snap_margin_m,
                           zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.frame import XY
@@ -704,6 +705,73 @@ def bridge_gaps(intervals: list[tuple[float, float]], gap_m: float
     return [(a, b) for a, b in out]
 
 
+def _stations(d0: float, d1: float, step: float) -> list[float]:
+    out, d = [], d0
+    while d <= d1 + 1e-9:
+        out.append(d)
+        d += step
+    return out
+
+
+def exit_reach(line: LineString, a: float, b: float, dem, airside,
+               cap: float, station_m: float, hold_m: float = 0.0,
+               max_reach_m: float = 1000.0) -> tuple[float, float]:
+    """THE ROAD-EXIT LAW (owner RULINGS 2026-09-29y, 2026-09-30z (1),
+    2026-10-02v (1); spec-author 29r / 30aa rules 5-7): where a mapped
+    road LEAVES the patch (an in-patch span ``[a, b]`` of its way whose
+    way continues beyond) the ribbon runs on until a profile climbing
+    from the patch's level at exactly the road cap meets the terrain —
+    "the TERRAIN IS CUT to support that grade" — so the road never steps
+    up the patch edge.  The patch's level at the mouth is estimated before
+    the solve as the LOWER of the DEM at the mouth and the DEM at the
+    nearest airside pavement point (an adjacent-ground band is mandatory-
+    down from its pavement, never above it); the reach is the first
+    station ``d`` outward (stations one lane-width apart, the ribbon's
+    own scale) with ``|DEM(s) - z0| <= cap * d``, plus one
+    station so the last ring vertex stands ON the terrain — "met" meaning
+    met over the next ``hold_m`` as well (the ribbon's own width: a step
+    one lane past the mouth is the mouth's).  Without a DEM, a cap or an
+    airside the span is what it was."""
+    if dem is None or cap <= 0.0 or line.length <= 0.0:
+        return a, b
+
+    def z_at(s: float) -> float:
+        p = line.interpolate(s)
+        return float(dem.z(p.x, p.y))
+
+    def level(s: float) -> float:
+        p = line.interpolate(s)
+        z0 = z_at(s)
+        if airside is not None and not airside.is_empty:
+            q = shapely.ops.nearest_points(airside, p)[0]
+            z0 = min(z0, float(dem.z(q.x, q.y)))
+        return z0
+
+    def meets(s_exit: float, sign: float, d: float, z0: float) -> bool:
+        return abs(z_at(s_exit + sign * d) - z0) <= cap * d
+
+    def reach(s_exit: float, sign: float) -> float:
+        z0 = level(s_exit)
+        d = station_m
+        limit = min(max_reach_m, (line.length - s_exit) if sign > 0 else s_exit)
+        while d <= limit:
+            # the profile has MET the terrain when it stays on it over the
+            # ribbon's own width ahead (a shelf a lane-width past the
+            # mouth is still the mouth's step, not open terrain)
+            if all(meets(s_exit, sign, e, z0)
+                   for e in _stations(d, min(limit, d + hold_m), station_m)):
+                return min(limit, d + station_m)
+            d += station_m
+        return limit
+
+    eps = 1e-6
+    if b < line.length - eps:
+        b = min(line.length, b + reach(b, +1.0))
+    if a > eps:
+        a = max(0.0, a - reach(a, -1.0))
+    return a, b
+
+
 def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
                      rules: Rules, add) -> tuple[int, float]:
     """30e (1)-(3), (6): the RIBBON FACE of every mapped at-grade road
@@ -736,8 +804,15 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     grid = rules.cells.snap_grid_m
     from shapely.ops import substring
     n, area = 0, 0.0
+    cap = role_cap(law, "service_road")
+    cap_l = float(cap.longitudinal) if cap else 0.0
+    dem = getattr(airport, "dem", None)
+    airside = unary_union([Polygon(c.ring, c.holes) for c in cells
+                           if c.side == "airside"]) if cells else Polygon()
     for w, line in sorted(ways, key=lambda wl: (wl[0].kind, wl[0].id)):
         spans = bridge_gaps(_way_intervals(line, extent), orr.road_gap_bridge_m)
+        spans = [exit_reach(line, a, b, dem, airside, cap_l, hw, 2.0 * hw)
+                 for a, b in spans]
         axes = []
         for a, b in spans:
             seg = substring(line, a, b)

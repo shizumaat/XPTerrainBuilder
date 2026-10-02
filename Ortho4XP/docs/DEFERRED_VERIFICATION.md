@@ -6294,3 +6294,23 @@ constraint, and owed:
   run (OTHH: cache MISS, 348 s, peak 31.6 GB RSS against 19.2 GB before);
   whether the dry path may write that cache (it is the mod-cache class,
   not a --refresh-data act) is an orchestrator call.
+- 2026-10-02 lane cyxy108 (#108): the new `verify/cutback.py` reader was
+  proved against the oracle on a SYNTHETIC HECA-route19 strip only (this
+  clone has no corpus, so `test_cyxy_verify_matches_v1_census` SKIPS).
+  Owed on a real corpus: one `tests/auto_patch_v2/test_constraints.py
+  ::test_cyxy_verify_matches_v1_census` run, confirming the reader reads
+  the census's 9 `groundside_cutback` rows on the built CYXY surface
+  (tolerance `max(2, 0.2*9)`), and that no other family moved.
+- 2026-10-02 lane cyxy108 (#108): the new reader's build-time cost was
+  measured SYNTHETICALLY (40k road + 40k far vertices, lawful strip:
+  113 ms median of 3; the same shape unlawful end to end: 759 ms for
+  40,000 rows). Owed: the per-family `verify.WALL_S["groundside_cutback"]`
+  from one real HECA/OTHH build, against the 0.6 s (1 % of 60 s) gate.
+- 2026-10-02 lane cyxy108 (#108): ten census families remain with NO v2
+  verify reader and NO reasoned `NOT_IMPLEMENTED` entry (`seam_residual`,
+  `bank_across_seam`, `ramp_in_road`, `object_cut_offset`,
+  `object_cut_depth`, `ramp_in_strip`, `road_coverage_join`, `sea_wall`,
+  `zone_on_pavement`, `sentinel_elevation`), frozen as
+  `test_v2cutback.OPEN_PARITY_GAPS`. Each is owed a reader or a reason;
+  which, per family, is an owner/spawner call, and any of them reading
+  non-zero on a built airport is the next `#108`.

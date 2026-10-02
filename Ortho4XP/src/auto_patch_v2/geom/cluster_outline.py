@@ -24,7 +24,9 @@ from shapely.strtree import STRtree
 
 __all__ = ["cluster_outlines", "OUTLINE_SIMPLIFY_M", "airside_vertex_snap",
            "AirsideRim", "ON_BOUNDARY_EPS_M", "deck_shades",
-           "osm_building_evidence", "OSM_BUILDING_SOURCE"]
+           "osm_building_evidence", "OSM_BUILDING_SOURCE",
+           "CACHE_VOUCHED_SOURCE", "CLUSTER_EVIDENCE_SOURCES",
+           "cluster_building_evidence"]
 
 #: How close a pad coordinate must be to the airside boundary to count as
 #: lying ON it.  The clip's own output lies on it to float precision; this
@@ -157,8 +159,30 @@ def deck_shades(partition: _t.Any,
 #: and therefore not independent evidence of a building.
 OSM_BUILDING_SOURCE = "osm"
 
+#: v1's OWN VERTICAL VERDICT on the same pack geometry (lane
+#: ``padgates101b``, issue #101): the footprint cache's
+#: ``OBJECT_BUILDING_ROLE`` ring, carried verbatim in ``Building.source``
+#: (``airport/load.py`` writes ``dsf:object:<role>``).  The CLUSTER half
+#: of rule 10 reads it beside OSM, because v1 measured its vertical test
+#: on ITS weld — no floor split, no walled gate, no connector cut — and a
+#: v2 cluster is a smaller structure that can read under the evidence
+#: height where v1's read over it.  MEASURED HECA (capture at this
+#: branch): ``unit:43#765`` (9,131 m2, T3_26/T3_27, tallest 5.67 m) and
+#: ``unit:41#73`` (3,413 m2) stand on 6,711 / 3,087 m2 of rings v1
+#: VOUCHED, with no OSM building within 195 m.  Without this the port
+#: refuses ground v1 itself padded, which is not the gate the owner read.
+#: A role LITERAL crossing the v1/v2 boundary (``blast.py`` reports it).
+CACHE_VOUCHED_SOURCE = "dsf:object:object"
 
-def osm_building_evidence(buildings: _t.Iterable[_t.Any]):
+#: The evidence sources the CLUSTER half reads (OSM first, so the
+#: counter names v1's source (a) where both hold).  The FALLBACK half
+#: reads OSM alone: there the ring under test IS a cache ring, and its
+#: own role already is the cache's verdict.
+CLUSTER_EVIDENCE_SOURCES = (OSM_BUILDING_SOURCE, CACHE_VOUCHED_SOURCE)
+
+
+def osm_building_evidence(buildings: _t.Iterable[_t.Any],
+                          sources: _t.Sequence[str] = (OSM_BUILDING_SOURCE,)):
     """``outline -> bool``: does an OSM building footprint intersect it?
     v1's EVIDENCE SOURCE (a) (R18-2, owner ruling 2026-08-11b;
     ``pipeline._osm_building_evidence_predicate``), ported.
@@ -177,10 +201,19 @@ def osm_building_evidence(buildings: _t.Iterable[_t.Any]):
     ALREADY in the planar frame's metres (``airport/load.py`` projects
     every ring at load), which is the frame ``cluster_outlines`` works
     in — the same discipline :func:`deck_shades` keeps for the partition.
+
+    ``sources`` names the ``Building.source`` spellings that count, in
+    priority order — OSM alone by default (the fallback half), and
+    :data:`CLUSTER_EVIDENCE_SOURCES` at the cluster half's call sites.
+    The predicate returns the SOURCE that vouched (``""`` for none), so
+    the gate can count each evidence source under its own name.
     """
     polys: list[Polygon] = []
+    srcs: list[str] = []
+    rank = {str(k): i for i, k in enumerate(sources)}
     for b in buildings or ():
-        if str(getattr(b, "source", "")) != OSM_BUILDING_SOURCE:
+        src = str(getattr(b, "source", ""))
+        if src not in rank:
             continue
         ring = tuple(getattr(b, "outer", ()) or ())
         if len(ring) < 3:
@@ -189,23 +222,37 @@ def osm_building_evidence(buildings: _t.Iterable[_t.Any]):
                            if len(h) >= 3])
         if not g.is_valid:
             g = g.buffer(0.0)
-        polys.extend(_parts(g))
+        got = _parts(g)
+        polys.extend(got)
+        srcs.extend([src] * len(got))
     if not polys:
         return None
     tree = STRtree(polys)
 
-    def _has_evidence(outline) -> bool:
+    def _has_evidence(outline) -> str:
+        best = ""
         try:
             if outline is None or outline.is_empty:
-                return False
+                return ""
             for k in tree.query(outline):
                 if polys[int(k)].intersects(outline):
-                    return True
+                    src = srcs[int(k)]
+                    if not best or rank[src] < rank[best]:
+                        best = src
+                    if rank[best] == 0:
+                        break
         except Exception:
-            return False
-        return False
+            return ""
+        return best
 
     return _has_evidence
+
+
+def cluster_building_evidence(buildings: _t.Iterable[_t.Any]):
+    """THE CLUSTER HALF's evidence predicate — :func:`osm_building_evidence`
+    over :data:`CLUSTER_EVIDENCE_SOURCES`.  ONE spelling, so the mint, the
+    census and the tools cannot each name the sources differently."""
+    return osm_building_evidence(buildings, CLUSTER_EVIDENCE_SOURCES)
 
 
 def _vertical_evidence(ev, admission) -> tuple[bool, float]:
@@ -438,7 +485,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
               "post_bridged": 0,
               # §16g (10) (12), issue #101: the two ported v1 gates
               "no_tall_base": 0, "no_building_evidence": 0,
-              "unmeasured": 0, "osm_vouched": 0}
+              "unmeasured": 0, "osm_vouched": 0, "cache_vouched": 0}
     if not clusters:
         return [], counts
     order = sorted(
@@ -504,15 +551,18 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         if (admission is not None and ev is not None
                 and bool(admission.building_evidence)):
             vertical, _cov = _vertical_evidence(ev, admission)
-            if not vertical and not (osm_evidence is not None
-                                     and osm_evidence(u)):
+            vouch = (osm_evidence(u) if (not vertical
+                                         and osm_evidence is not None) else "")
+            if not vertical and not vouch:
                 _refuse(refused, counts, "no_building_evidence", c,
                         "building_evidence",
                         float(getattr(ev, "tallest_extent_m", 0.0)), u, ev)
                 continue
             if not vertical:
                 # the OSM half carried it — v1's evidence source (a)
-                counts["osm_vouched"] += 1
+                # (a ``True`` from a caller's own predicate reads as OSM)
+                counts["cache_vouched" if vouch == CACHE_VOUCHED_SOURCE
+                       else "osm_vouched"] += 1
         if shades is not None and not shades.is_empty and u.intersects(shades):
             # rule 8: the welded deck's shade leaves the outline
             u = u.difference(shades)

@@ -286,6 +286,9 @@ def _pad_refusals() -> dict[str, _t.Any]:
         "no_building_evidence": int(
             CLUSTER_PADS.get("no_building_evidence", 0) or 0),
         "osm_vouched": int(CLUSTER_PADS.get("osm_vouched", 0) or 0),
+        "cache_vouched": int(CLUSTER_PADS.get("cache_vouched", 0) or 0),
+        "fallback_osm_vouched": int(
+            PAD_REFUSED.get("fallback_osm_vouched", 0) or 0),
         "unmeasured": int(CLUSTER_PADS.get("unmeasured", 0) or 0),
         "fallback_no_building_evidence": int(
             PAD_REFUSED.get("fallback_no_building_evidence", 0) or 0),

@@ -34,8 +34,8 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
-from ..geom import (cluster_outlines, deck_shades,
-                    osm_building_evidence)
+from ..geom import (cluster_building_evidence, cluster_outlines,
+                    deck_shades)
 from ..law import Law
 from ..law.tables import pad_admission, rolled_on_roles
 from ..model.airport import Airport
@@ -168,7 +168,7 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             # can report a mismatch for (``geom.cluster_outlines``
             # rules 9/10)
             admission=admission,
-            osm_evidence=osm_building_evidence(
+            osm_evidence=cluster_building_evidence(
                 getattr(airport, "buildings", ()) or ()))
         _POLY_MEMO.append((id(airport), airport, (touch, akey), got))
         del _POLY_MEMO[:-2]

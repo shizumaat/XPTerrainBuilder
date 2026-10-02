@@ -194,7 +194,7 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
         pads = sxy = None
         try:
             from auto_patch_v2.geom import (cluster_outlines,
-                                             osm_building_evidence)
+                                             cluster_building_evidence)
             from auto_patch_v2.law.tables import pad_admission
             st = law.tables.structures.placement
             to_xy = ps["airport"].frame.entry()
@@ -205,7 +205,7 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
                                         walled_only=True, min_m2=mn,
                                         bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)),
                                         admission=pad_admission(law),
-                                        osm_evidence=osm_building_evidence(
+                                        osm_evidence=cluster_building_evidence(
                                             getattr(ps["airport"], "buildings", ()) or ()))
             sxy = to_xy(site[1], site[0])
         except Exception as exc:                  # an older tree: clusters only
@@ -270,7 +270,7 @@ def read_pickle(path: Path, site: tuple[float, float]) -> dict:
     import pickle
     if str(ROOT / "src") not in sys.path:
         sys.path.insert(0, str(ROOT / "src"))
-    from auto_patch_v2.geom import cluster_outlines, osm_building_evidence
+    from auto_patch_v2.geom import cluster_outlines, cluster_building_evidence
     from auto_patch_v2.law import Law
     from auto_patch_v2.law.tables import pad_admission
     from auto_patch_v2.planar.cluster import cluster_min_m2, clusters
@@ -286,7 +286,7 @@ def read_pickle(path: Path, site: tuple[float, float]) -> dict:
                                 bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)),
                                 # issue #101: the mint's gates, as above
                                 admission=pad_admission(law),
-                                osm_evidence=osm_building_evidence(
+                                osm_evidence=cluster_building_evidence(
                                     getattr(ap, "buildings", ()) or ()))
     rec = site_report(cl, site[0], site[1], mn, pads, to_xy(site[1], site[0]))
     rec["partition_counts"] = {k: int(ap.partition.counts.get(k, 0)) for k in COUNT_KEYS}

@@ -17,8 +17,8 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..geom import (cluster_outlines, deck_shades,
-                    osm_building_evidence)
+from ..geom import (cluster_building_evidence, cluster_outlines,
+                    deck_shades, osm_building_evidence)
 from ..law.tables import pad_admission
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
@@ -556,7 +556,7 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
                                    # still chains closes the outline
                                    bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)),
                                    admission=pad_admission(law),
-                                   osm_evidence=osm_building_evidence(
+                                   osm_evidence=cluster_building_evidence(
                                        getattr(airport, "buildings", ()) or ()),
                                    refused=_refused)
     CLUSTER_PADS.update(counts)
@@ -631,7 +631,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     _fallback_gate = bool(_st is not None
                           and getattr(_st, "building_evidence", False))
     _osm_ev = osm_building_evidence(airport.buildings) if _fallback_gate else None
-    _n_unvouched = 0
+    _n_unvouched = _n_osm = 0
     for b in airport.buildings:
         if not b.source.startswith(admitted):
             continue
@@ -643,8 +643,13 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
             if _osm_ev is None or not _osm_ev(p):
                 _n_unvouched += 1
                 continue
+            _n_osm += 1
         polys.append(p)
     PAD_REFUSED["fallback_no_building_evidence"] = _n_unvouched
+    # lane ``padgates101b``: the OSM half's own count on this half — the
+    # sweep read ``osm_vouched`` 0 everywhere because that counter is the
+    # CLUSTER half's alone, and the OSM half was firing here unseen
+    PAD_REFUSED["fallback_osm_vouched"] = _n_osm
     # §16g (10) (5) A DERIVED PAD NEVER TAKES AIRSIDE GROUND (owner
     # RULINGS 2026-09-14ah).  At EVIDENCE time the airside is what the
     # apt.dat surface says it is — the runway slabs and every 110

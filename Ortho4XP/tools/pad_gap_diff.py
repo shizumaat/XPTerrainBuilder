@@ -43,7 +43,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def mint(cl, ap, law, bridge_m: float):
     """The mint's own call (``classify/evidence._pads``) at one bridge value."""
     from auto_patch_v2.classify.evidence import deck_shades
-    from auto_patch_v2.geom import cluster_outlines, osm_building_evidence
+    from auto_patch_v2.geom import cluster_outlines, cluster_building_evidence
     from auto_patch_v2.law.tables import pad_admission
     st = law.tables.structures.placement
     to_xy = ap.frame.entry()
@@ -58,7 +58,7 @@ def mint(cl, ap, law, bridge_m: float):
                             # report a pre-gate population the build does
                             # not have (the census-wrapper defect)
                             admission=pad_admission(law),
-                            osm_evidence=osm_building_evidence(
+                            osm_evidence=cluster_building_evidence(
                                 getattr(ap, "buildings", ()) or ()))
 
 

@@ -24,7 +24,8 @@ from shapely.geometry import box
 
 from auto_patch_v2.airport.placement_contact import m_per_deg_exact
 from auto_patch_v2.airport.placement_family import plan_clusters
-from auto_patch_v2.geom import cluster_outlines, osm_building_evidence
+from auto_patch_v2.geom import (cluster_building_evidence, cluster_outlines,
+                                osm_building_evidence)
 from auto_patch_v2.geom.pad_evidence import (PadEvidence,
                                              has_vertical_structure_evidence,
                                              member_row, tall_base_fill)
@@ -365,7 +366,7 @@ def test_the_mint_and_the_census_read_one_admission():
     """§16g (10) (12): the MINT and the CENSUS must be judging a cluster at
     the SAME thresholds, or ``pad_cluster_mismatch`` ends up measuring the
     drift.  Both call ``law.tables.pad_admission`` and
-    ``geom.osm_building_evidence`` — asserted structurally, because a
+    ``geom.cluster_building_evidence`` — asserted structurally, because a
     second reading is exactly what no number can catch."""
     import inspect
 
@@ -373,7 +374,7 @@ def test_the_mint_and_the_census_read_one_admission():
     from auto_patch_v2.constraints import cluster_pad as census
     for src in (inspect.getsource(mint._cluster_pads),
                 inspect.getsource(census.cluster_polys)):
-        assert "osm_evidence=osm_building_evidence(" in src
+        assert "osm_evidence=cluster_building_evidence(" in src
     assert "pad_admission(law)" in inspect.getsource(mint._cluster_pads)
     assert "pad_admission(law)" in inspect.getsource(census._face_map)
 
@@ -447,3 +448,61 @@ def test_the_fallback_half_refuses_only_v1s_unvouched_role():
 def inspect_source(fn) -> str:
     import inspect
     return inspect.getsource(fn)
+
+
+# ── lane ``padgates101b``: what sweep sw1008b measured on the real corpus ──
+
+def test_a_wall_stacked_from_one_resource_reads_the_resources_height():
+    """v1's evidence row is per member RESOURCE over the welded structure
+    (``_res_min_y`` .. ``_res_max_y``); v2's unit is the welded COMPONENT.
+    HECA ``unit:43#807`` (10,006 m2 of ``Hangar_Tower/T3_32.obj``, 210
+    components, the tallest 5.15 m) was refused under the 6.0 m evidence
+    height although v1's own cache vouches the ground.  Two 4 m components
+    of ONE resource stacked 0..4 and 4..8 are an 8 m wall."""
+    stacked = _Plan((_Unit([_Member("Airport/Hangar_Tower/T3_32.obj", [
+        _Part(1, 0, 0, 60, 40, 4.0, base_y=0.0),
+        _Part(2, 0, 0, 60, 40, 4.0, base_y=4.0)])]),))
+    cl = _clusters(stacked)
+    assert max(c.evidence.tallest_extent_m for c in cl) == pytest.approx(8.0)
+    pads, counts = _outlines(cl, osm=None)
+    assert len(pads) >= 1 and counts["no_building_evidence"] == 0
+    # ...and the control: the SAME two components authored by two
+    # resources are two 4 m members, in v1 as here — still refused
+    split = _Plan((_Unit([
+        _Member("objects/wall_a.obj", [_Part(1, 0, 0, 60, 40, 4.0)]),
+        _Member("objects/wall_b.obj",
+                [_Part(2, 0, 0, 60, 40, 4.0, base_y=4.0)])]),))
+    cl = _clusters(split)
+    assert max(c.evidence.tallest_extent_m for c in cl) == pytest.approx(4.0)
+    # the tall-base term stays the component's own (PR #242 deviation 3)
+    from auto_patch_v2.geom.pad_evidence import resource_rows
+    rows = resource_rows([("r", 1.37, 1.37, 100.0)], (-0.2, 9.1))
+    assert rows == [("r", 1.37, pytest.approx(9.1), 100.0)]
+    assert resource_rows([("r", 1.0, 1.0, 5.0)], None) == [("r", 1.0, 1.0, 5.0)]
+
+
+def test_a_ring_v1_vouched_is_evidence_for_the_cluster_half_only():
+    """v1 took its vertical verdict on ITS weld (no floor split, no walled
+    gate, no connector cut), so a v2 cluster can read under the evidence
+    height on ground v1's own cache vouched (HECA ``unit:43#765``, 9,131
+    m2, tallest 5.67 m, over 6,711 m2 of ``dsf:object:object``).  The
+    CLUSTER half reads that role beside OSM and counts it by name; the
+    UNVOUCHED role vouches nothing; and the FALLBACK half's predicate
+    stays OSM-only."""
+    cl = _clusters(_slab_plan())
+    pred = cluster_building_evidence(
+        [_B("dsf:object:object", box(10, 10, 50, 30))])
+    pads, counts = _outlines(cl, osm=pred)
+    assert len(pads) == 1 and counts["no_building_evidence"] == 0
+    assert counts["cache_vouched"] == 1 and counts["osm_vouched"] == 0
+    # OSM outranks the cache where both hold, so v1's source (a) is named
+    both = cluster_building_evidence(
+        [_B("dsf:object:object", box(10, 10, 50, 30)),
+         _B("osm", box(10, 10, 50, 30))])
+    _pads, counts = _outlines(cl, osm=both)
+    assert counts["osm_vouched"] == 1 and counts["cache_vouched"] == 0
+    assert cluster_building_evidence(
+        [_B("dsf:object:object_unvouched", box(0, 0, 60, 40)),
+         _B("dsf:fac:building", box(0, 0, 60, 40))]) is None
+    assert osm_building_evidence(
+        [_B("dsf:object:object", box(0, 0, 60, 40))]) is None

@@ -24,7 +24,17 @@ them silently solved a different problem — no foot rows, no pad relief)
 → flat site → road profile → shape stage exactly as ``pipeline/build.py``
 does and pickles the airport, the classification, the planar map and the
 stage.  A capture predating that is REFUSED BY NAME at replay
-(:func:`capture_has_groups`).  ``--replay`` resumes from
+(:func:`capture_has_groups`).  It ALSO records THE CAPTURE STATE — the
+module registries the planar stage fills and the constraint generators
+read (``auto_patch_v2.pipeline.capture_state``: ``HELD``, ``PLATEAUS``,
+``PLATFORMS``, ``TERRACES``, ``PAD_AIRSIDE``) — because a LATE resume
+cannot re-derive them, and read every one EMPTY until 2026-10-02 (issues
+#224: KCLT 65,212 rows against the build's 49,981 on an identical vertex
+set; #208: HECA §5a relaxed 822 rows against 108, and two jetway strips
+armed that the build held disarmed).  A capture that carries no such
+record REFUSES ``--from shapes|constraints`` BY FIELD NAME
+(:func:`install_capture_state`); ``--from classify|planar`` re-runs the
+planar build, which refills them.  ``--replay`` resumes from
 the named stage (``constraints``: generators + joint filter + solve, the
 default; ``shapes``: the shape stage too; ``planar``: the planar build
 too — for a change in the map or the shapes) and
@@ -82,6 +92,13 @@ DATA_OVERLAY_ENV = "O4_DATA_OVERLAY"
 #: the key the overlay frame is RECORDED under, in the capture pickle, in
 #: the ``--solved-out`` pickle and in a ``--json`` result
 CAPTURE_OVERLAY_KEY = "data_overlay"
+#: THE RESUMES THAT DO NOT RE-DERIVE THE MODULE REGISTRIES (issues #208,
+#: #224).  ``--from classify|planar`` re-runs ``planar/build.build``, which
+#: REFILLS :data:`auto_patch_v2.pipeline.capture_state.REGISTRIES`; these
+#: two re-use the captured map, so the registries can only come from the
+#: capture — and a capture that carries none REFUSES here by field name
+#: rather than assembling a different LP from the build's.
+LATE_RESUMES = ("shapes", "constraints")
 #: the corpus directories an overlay may provide, named as the data root
 #: lays them out (``airport/load.Inputs`` reads one root per kind).  A
 #: directory the overlay does NOT carry stays on the shared corpus — that
@@ -161,6 +178,42 @@ def overlay_line(icao: str, frame: dict | None) -> str:
     return (f"[{icao}] DATA OVERLAY (issue #156, declared and recorded): "
             f"{frame['dir']} provides "
             + ", ".join(sorted(frame["provides"])))
+
+
+def _capture_state():
+    """The ONE capture-state module (``auto_patch_v2.pipeline.
+    capture_state``), imported lazily so ``--help`` and the offline twins
+    pay no engine import."""
+    from auto_patch_v2.pipeline import capture_state
+    return capture_state
+
+
+def install_capture_state(rec: dict, icao: str, stage: str, source: str,
+                          recapture: str, required: bool = True) -> tuple[str, ...]:
+    """THE CAPTURE STATE OF ``rec``, INSTALLED — or a REFUSAL naming every
+    field it does not carry (issues #208, #224).
+
+    ``rec`` is a ``--capture`` pickle or a ``--solved-out`` pickle; ``stage``
+    is the resume the caller is about to run.  The record is REQUIRED where
+    the stage cannot re-derive the registries itself — the late resumes
+    (:data:`LATE_RESUMES`) and every instrument that reads a solved pickle,
+    whose emit half reads ``PLATFORMS`` / ``TERRACES`` through
+    ``pipeline/publication``.  ``--from classify|planar`` re-runs
+    ``planar/build.build``, which refills them, so there the record is
+    installed when present and its absence is not a refusal.
+
+    THE REFUSAL IS THE POINT.  A registry the record does not carry is
+    EMPTY in this process, and the replay then assembles a different LP
+    from the build's and says nothing — which is how #208 and #224 were
+    adjudicated for weeks as replay-vs-build "divergence"."""
+    cstate = _capture_state()
+    state = rec.get(cstate.CAPTURE_STATE_KEY)
+    gone = cstate.missing(state)
+    if gone and (required or stage in LATE_RESUMES):
+        raise SystemExit(cstate.refusal(icao, stage, source, gone, recapture))
+    installed = cstate.install(state)
+    print(cstate.line(icao, installed, state))
+    return installed
 
 
 def capture_has_groups(cap: dict) -> bool:
@@ -491,21 +544,30 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     stage = shape_stage(pm, law, airport, cl)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("wb") as fh:
-        # §16g (10) (12) (2) (RULINGS 2026-09-16b): the ARRANGEMENT's own
-        # reading of what its pad stage did to the airside vertex set
-        # travels WITH the capture.  It is produced in ``build_planar``
-        # and lives in a module global, so a replay that did not run the
-        # arrangement has none — and ``pipeline/publication`` then OMITS
-        # the sidecar key rather than publishing an empty list, which
-        # would make every replay arm read a perfect
-        # ``pad_airside_renode``.  Carrying it here is what lets a
-        # matched replay PAIR be adjudicated on that family at all.
+        # THE CAPTURE STATE, AT THIS STAGE BOUNDARY (issues #208, #224;
+        # ``pipeline/capture_state.py`` carries the record, the consumer
+        # census and the refusal text).  Four of the build's planar-stage
+        # products are MODULE GLOBALS rather than values handed from stage
+        # to stage — ``HELD``, ``PLATEAUS``, ``PLATFORMS``, ``TERRACES`` —
+        # and the constraint generators read them.  Collected HERE, after
+        # the shape stage and BEFORE any generator has run, so the record
+        # is the build's own state entering ``shape_constraints``.
+        # §16g (10) (12) (2) (RULINGS 2026-09-16b) generalised: the
+        # ARRANGEMENT's own reading of what its pad stage did to the
+        # airside vertex set (``PAD_AIRSIDE``) was the FIRST registry to
+        # travel this way, and is now one field of the record — the legacy
+        # ``pad_airside`` key stays written so a reader of an older
+        # spelling keeps working.
+        from auto_patch_v2.pipeline import capture_state as _cstate
         from auto_patch_v2.planar.overlay import PAD_AIRSIDE
+        _state = _cstate.collect()
         pickle.dump({"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
                      "inputs": inputs, "placement": dict(placement or {}),
                      "pad_airside": dict(PAD_AIRSIDE),
+                     _cstate.CAPTURE_STATE_KEY: _state,
                      # issue #156: the DECLARED overlay this capture read
                      CAPTURE_OVERLAY_KEY: _overlay}, fh)
+    print(_cstate.line(icao, tuple(_state["fields"]), _state))
     print(f"[{icao}] captured -> {out} in {time.perf_counter() - t:.0f} s "
           f"(vertices {len(pm.vertices)}, faces {len(pm.faces)})")
 
@@ -1126,6 +1188,13 @@ def bank_from(pkl: Path, emit_dir: Path | None, walk: bool,
         sv = pickle.load(fh)
     icao, pm, airport, cs, z = (sv["icao"], sv["pm"], sv["airport"],
                                 sv["cs"], sv["z"])
+    # issues #208 / #224: the solved pickle's own module registries
+    # (``HELD`` for ``hold_pass``, ``PLATFORMS`` / ``TERRACES`` for the
+    # emit half) — REQUIRED here, because nothing in this path re-runs
+    # the planar stage that fills them.
+    install_capture_state(sv, icao, "bank-from", str(pkl),
+                          "Re-run the arm that wrote it with the current tool "
+                          "(--replay ... --solved-out PKL).")
     law = Law.for_airport(icao)
     sol = Solution(tuple(float(v) for v in z), Status.OPTIMAL, None)
     res: dict = {}
@@ -1177,6 +1246,13 @@ def stability_probe(pkl: Path, site: tuple[float, float], drop_m: float,
     with pkl.open("rb") as fh:
         sv = pickle.load(fh)
     icao, pm, airport, cs = sv["icao"], sv["pm"], sv["airport"], sv["cs"]
+    # issues #208 / #224: the solved pickle's own module registries
+    # (``HELD`` for ``hold_pass``, ``PLATFORMS`` / ``TERRACES`` for the
+    # emit half) — REQUIRED here, because nothing in this path re-runs
+    # the planar stage that fills them.
+    install_capture_state(sv, icao, "probe-site", str(pkl),
+                          "Re-run the arm that wrote it with the current tool "
+                          "(--replay ... --solved-out PKL).")
     law0 = Law.for_airport(icao)
     to_xy, _from = airport.frame.transformers()
     sx, sy = to_xy(site[1], site[0])
@@ -1320,6 +1396,13 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
         with pkl.open("rb") as fh:
             sv = pickle.load(fh)
         icao, pm, cs = sv["icao"], sv["pm"], sv["cs"]
+        # issues #208 / #224: the solved pickle's own module registries
+        # (``HELD`` for ``hold_pass``, ``PLATFORMS`` / ``TERRACES`` for the
+        # emit half) — REQUIRED here, because nothing in this path re-runs
+        # the planar stage that fills them.
+        install_capture_state(sv, icao, "stage1-dump", str(pkl),
+                              "Re-run the arm that wrote it with the current "
+                              "tool (--replay ... --solved-out PKL).")
         law = Law.for_airport(icao)
         if design_weights:
             d0 = law.tables.emit.design
@@ -1833,16 +1916,6 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     # a replay off an overlay capture says so in its first lines
     _overlay = capture_data_overlay(cap)
     print(overlay_line(icao, _overlay))
-    # restore the arrangement's re-node reading (see ``--capture``); a
-    # capture written before 2026-09-16 carries none and every reader
-    # then reports the key ABSENT rather than zero
-    _pa = cap.get("pad_airside")
-    if _pa:
-        from auto_patch_v2.planar.overlay import PAD_AIRSIDE
-        PAD_AIRSIDE.clear()
-        PAD_AIRSIDE.update(_pa)
-        print(f"[{cap['icao']}] pad/airside re-node from the capture: "
-              f"deleted {_pa.get('renode_deleted')} minted {_pa.get('renode_minted')}")
     if not capture_has_groups(cap):
         raise SystemExit(
             f"[{icao}] REFUSED: this capture carries no pack PARTITION / GROUPS, so the "
@@ -1850,6 +1923,31 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             "relief targets, no basin bodies) — the trap owner RULINGS 2026-09-12u names, "
             "spec \u00a730 (3a).  Re-capture with the current tool: "
             f"venv/bin/python tools/v2_solve_replay.py --capture {icao} --out {pkl}")
+    # THE CAPTURE STATE (issues #208, #224): the module registries the
+    # planar stage fills and the constraint generators read.  A LATE resume
+    # cannot re-derive them, so a capture that does not carry one REFUSES
+    # here by field name; ``--from classify|planar`` re-runs
+    # ``build_planar``, which refills them, so it installs what the record
+    # has and is faithful either way.
+    install_capture_state(cap, icao, resume, str(pkl),
+                          f"Re-capture with the current tool: venv/bin/python "
+                          f"tools/v2_solve_replay.py --capture {icao} --out {pkl}",
+                          required=False)
+    # THE LEGACY SPELLING of the arrangement's re-node reading (RULINGS
+    # 2026-09-16b, the FIRST registry to travel with a capture, before the
+    # record above generalised it): a capture written between 2026-09-16
+    # and that record carries ``pad_airside`` alone.  Such a capture
+    # REFUSES a late resume above, so this restores it only for the
+    # resumes that re-run the arrangement — where the read is the honest
+    # one anyway.  A capture older than BOTH has neither, and every reader
+    # then reports the key ABSENT rather than zero.
+    _pa = cap.get("pad_airside")
+    if _pa and not cap.get(_capture_state().CAPTURE_STATE_KEY):
+        from auto_patch_v2.planar.overlay import PAD_AIRSIDE
+        PAD_AIRSIDE.clear()
+        PAD_AIRSIDE.update(_pa)
+        print(f"[{cap['icao']}] pad/airside re-node from the capture: "
+              f"deleted {_pa.get('renode_deleted')} minted {_pa.get('renode_minted')}")
     # A CAPTURE PREDATING A TARGET CHANNEL REPLAYS WITH THAT CHANNEL
     # EMPTY, and says which (lane ``v2roadcontact``, §37 (10)).  A
     # ``PlanarMap`` field added since the pickle was written is simply
@@ -2260,8 +2358,15 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             # the solved set (pm, stage, rows, z) for a later ``--why-from``
             # (the duals solve is a second full LP; kept out of the timed arm)
             with solved_out.open("wb") as fh:
+                # issues #208 / #224: the module registries travel with the
+                # SOLVED pickle too — the emit half (``--bank-from``) reads
+                # ``PLATFORMS`` / ``TERRACES`` through ``pipeline/
+                # publication``, and the instruments re-solve under
+                # ``hold_pass``, which reads ``HELD``.  Collected after the
+                # solve, where they are still the arm's own.
                 pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm_w,
                              "cs": cs_w, "z": z,
+                             _capture_state().CAPTURE_STATE_KEY: _capture_state().collect(),
                              # issue #156: the overlay survives the hand-off
                              CAPTURE_OVERLAY_KEY: prob.get(CAPTURE_OVERLAY_KEY)}, fh)
         if why_hard_limit is not None:
@@ -2472,6 +2577,10 @@ def main() -> int:
         from auto_patch_v2.law import Law
         with a.why_from.open("rb") as fh:
             sv = pickle.load(fh)
+        # issues #208 / #224: see :func:`install_capture_state`
+        install_capture_state(sv, sv["icao"], "why-from", str(a.why_from),
+                              "Re-run the arm that wrote it with the current "
+                              "tool (--replay ... --solved-out PKL).")
         law = Law.for_airport(sv["icao"])
         if a.why_hard is not None:
             res = why_hard(sv["icao"], sv["pm"], law, sv["cs"], sv["z"], a.why_hard,

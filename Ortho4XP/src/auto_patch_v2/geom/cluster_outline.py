@@ -15,6 +15,7 @@ polygons out.  No law value is read — the caller passes the law's own.
 """
 from __future__ import annotations
 
+import math as _math
 import typing as _t
 
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
@@ -22,7 +23,8 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 __all__ = ["cluster_outlines", "OUTLINE_SIMPLIFY_M", "airside_vertex_snap",
-           "AirsideRim", "ON_BOUNDARY_EPS_M", "deck_shades"]
+           "AirsideRim", "ON_BOUNDARY_EPS_M", "deck_shades",
+           "osm_building_evidence", "OSM_BUILDING_SOURCE"]
 
 #: How close a pad coordinate must be to the airside boundary to count as
 #: lying ON it.  The clip's own output lies on it to float precision; this
@@ -143,6 +145,135 @@ def deck_shades(partition: _t.Any,
     return None if got is None or got.is_empty else got
 
 
+#: v1's EVIDENCE SOURCE (a) population: which ``model.airport.Building``
+#: source spelling is an OSM footprint.  ``airport/load.py`` :339 writes
+#: exactly ``"osm"`` for a closed OSM way passing its ``_is_building``
+#: predicate — ``building=*`` (not no/none), ``building:part``, or
+#: ``aeroway`` in terminal / hangar / tower — which is the SAME vocabulary
+#: v1's ``terminals._extract_osm_building_evidence`` collects
+#: (``_BUILDING_EVIDENCE_AEROWAY_TAGS`` + any ``building`` tag).  A source
+#: LITERAL, so ``blast.py`` reports it; the other two spellings are
+#: ``dsf:fac:*`` and ``dsf:object:*``, which are the PACK's own geometry
+#: and therefore not independent evidence of a building.
+OSM_BUILDING_SOURCE = "osm"
+
+
+def osm_building_evidence(buildings: _t.Iterable[_t.Any]):
+    """``outline -> bool``: does an OSM building footprint intersect it?
+    v1's EVIDENCE SOURCE (a) (R18-2, owner ruling 2026-08-11b;
+    ``pipeline._osm_building_evidence_predicate``), ported.
+
+    ONE derivation, and that is the point: the MINT
+    (``classify/evidence._cluster_pads``) and the CENSUS
+    (``constraints/cluster_pad.cluster_polys``) both call THIS with the
+    same ``Airport.buildings``, so neither can admit a cluster the other
+    refuses and ``pad_cluster_mismatch`` cannot end up measuring the
+    drift.  ``None`` where the airport has no mapped building at all,
+    which is the honest answer — v1's clause: no OSM in hand is NOT
+    evidence of absence, and the caller then rests on the vertical test
+    alone rather than refusing everything.
+
+    ``buildings`` are duck-typed (``.source``, ``.outer``, ``.holes``) and
+    ALREADY in the planar frame's metres (``airport/load.py`` projects
+    every ring at load), which is the frame ``cluster_outlines`` works
+    in — the same discipline :func:`deck_shades` keeps for the partition.
+    """
+    polys: list[Polygon] = []
+    for b in buildings or ():
+        if str(getattr(b, "source", "")) != OSM_BUILDING_SOURCE:
+            continue
+        ring = tuple(getattr(b, "outer", ()) or ())
+        if len(ring) < 3:
+            continue
+        g = Polygon(ring, [h for h in (getattr(b, "holes", ()) or ())
+                           if len(h) >= 3])
+        if not g.is_valid:
+            g = g.buffer(0.0)
+        polys.extend(_parts(g))
+    if not polys:
+        return None
+    tree = STRtree(polys)
+
+    def _has_evidence(outline) -> bool:
+        try:
+            if outline is None or outline.is_empty:
+                return False
+            for k in tree.query(outline):
+                if polys[int(k)].intersects(outline):
+                    return True
+        except Exception:
+            return False
+        return False
+
+    return _has_evidence
+
+
+def _vertical_evidence(ev, admission) -> tuple[bool, float]:
+    """The VERTICAL half of R18-2, re-run off the stamped measurement at
+    the GATE's own thresholds — v1
+    ``object_footprints.has_vertical_structure_evidence``, which
+    ``geom.pad_evidence`` holds as THE definition and this calls.
+
+    It is re-run rather than stamped as a verdict so the law's two numbers
+    stay the gate's (``law.tables.pad_admission`` — ONE reading for the
+    mint and the census) while only the MEASUREMENT travels on the
+    cluster: a cached cluster can then never carry a verdict taken at a
+    threshold the law no longer reads."""
+    from .pad_evidence import has_vertical_structure_evidence
+    return has_vertical_structure_evidence(
+        tuple(getattr(ev, "rows", ()) or ()),
+        float(getattr(ev, "hull_area_m2", 0.0) or 0.0),
+        float(admission.evidence_min_height_m),
+        float(admission.evidence_min_coverage),
+        bool(getattr(ev, "evidence_name_vouched", False)))
+
+
+def _rect(g) -> tuple[float, float]:
+    """``(length_m, width_m)`` of ``g``'s minimum rotated rectangle, long
+    side first — what a rule-9/10 refusal row carries for issue #229."""
+    try:
+        box = g.minimum_rotated_rectangle
+        xy = list(box.exterior.coords)[:-1] if box.geom_type == "Polygon" else []
+        if len(xy) < 4:
+            return 0.0, 0.0
+        sides = sorted(_math.dist(xy[i], xy[(i + 1) % len(xy)])
+                       for i in range(len(xy)))
+        return float(sides[-1]), float(sides[0])
+    except Exception:
+        return 0.0, 0.0
+
+
+def _refuse(refused, counts, key: str, cluster, gate: str, value: float,
+            outline=None, ev=None) -> None:
+    """Record ONE rule-9/10 refusal (owner RULINGS 2026-10-02v (3): "record
+    each refusal with ref + gate + measured value ... so the session can
+    list them") and bump its counter.
+
+    The length/width come from the refused OUTLINE where one exists, else
+    from the measured hull — issue #229 reads them to decide whether the
+    footprint REPRESENTS A ROAD, which is NOT this function's business."""
+    counts[key] = counts.get(key, 0) + 1
+    if refused is None:
+        return
+    if outline is not None and not outline.is_empty:
+        length_m, width_m = _rect(outline)
+        area_m2 = float(outline.area)
+    else:
+        length_m = float(getattr(ev, "length_m", 0.0) or 0.0)
+        width_m = float(getattr(ev, "width_m", 0.0) or 0.0)
+        area_m2 = float(getattr(ev, "hull_area_m2", 0.0) or 0.0)
+    refused.append({
+        "id": str(getattr(cluster, "id", "")),
+        "gate": gate,
+        "value": round(float(value), 6),
+        "area_m2": round(area_m2, 1),
+        "hull_area_m2": round(float(getattr(ev, "hull_area_m2", 0.0) or 0.0), 1),
+        "length_m": round(length_m, 2),
+        "width_m": round(width_m, 2),
+        "members": tuple(getattr(cluster, "members", ()) or ())[:8],
+    })
+
+
 def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      to_xy: _t.Callable[[float, float], tuple[float, float]],
                      touch_m: float,
@@ -153,6 +284,9 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      thin_m: float = THIN_PIECE_WIDTH_M,
                      shades=None,
                      bridge_m: float = 0.0,
+                     admission=None,
+                     osm_evidence=None,
+                     refused=None,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -243,16 +377,68 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        (:func:`_bridge`); counted ``post_bridged``.  MEASURED OTHH (sheetchain capture): cluster
        pads 61 (main) -> 72 without it -> 69 with it; HECA 79 -> 80 -> 80.
 
+    9. A SLAB/MAST WELD GETS NO PAD — v1's TALL-BASE FILL, ported
+       (issue #101; owner RULINGS 2026-10-02v (3), verbatim: *"We
+       definitely don't want a flat pad under the whole train at HECA"*).
+       A building's TALL member covers its OWN footprint; a 0.3 m plate
+       welded to a 28 m floodlight mast defeats both the height gate and
+       the base-fill gate and is still street furniture on a slab.  The
+       cluster's ``evidence.tall_base_fill`` (``geom.pad_evidence``, the
+       ONE measurement, stamped at ``placement_family.plan_clusters``)
+       under ``admission.min_tall_base_fill`` mints NOTHING — counted
+       ``no_tall_base``.  A real terminal reads ~1.0, the weld ~0.002;
+       the floor is v1's 0.002 and is DELIBERATELY LOW, because HECA's
+       thin-wall terminal shells read ~0.002-0.01 and raising it toward
+       0.05 culled ~140 of them (v1 ``config.py`` :3734-3758).  A
+       NAME-VOUCHED cluster (v1's shipped wide path match) is exempt, as
+       in v1.
+
+    10. NO BUILDING, NO PAD — v1's BUILDING EVIDENCE (R18-2, owner ruling
+       2026-08-11b), ported.  A footprint mints a pad only with evidence
+       a BUILDING is there, never on solid reach alone: EITHER the
+       VERTICAL test on the cluster's own solid geometry (a component
+       standing ``admission.evidence_min_height_m`` above grade on its
+       own, the tall members covering
+       ``admission.evidence_min_coverage`` of the hull — v1's
+       ``has_vertical_structure_evidence``, re-read here off the stamped
+       measurement) OR ``osm_evidence(outline)``, an intersecting OSM
+       building / terminal / hangar footprint.  Neither ⇒ the outline is
+       an apron slab, a barrier or a vehicle hull and mints nothing
+       (counted ``no_building_evidence``).  It closed four HECA pads
+       11-18 m BELOW their own ground.  ``osm_evidence=None`` means the
+       caller has no OSM in hand, which is NOT evidence of absence — the
+       gate then rests on the vertical test alone (v1's own clause).
+
+    THE REFUSAL IS RECORDED, NEVER SILENT (owner RULINGS 2026-10-02v
+    (3)).  ``refused``, when a list, collects one row per rule-9/10
+    refusal — ``{"id", "gate", "value", "area_m2", "length_m",
+    "width_m", "members"}`` — so the build and the sidecar can LIST what
+    each gate caught.  ``length_m``/``width_m`` are the footprint hull's
+    minimum rotated rectangle and are carried for issue #229 (a refused
+    pack object that REPRESENTS A ROAD grades as a road), which this
+    function does not implement.
+
+    A cluster carrying NO measurement (``evidence`` ``None`` — a twin
+    that does not ask, a cluster cached before the field) is refused by
+    NEITHER new rule and is counted ``unmeasured``: an unmeasured
+    population must never be read as a refused one, the same discipline
+    ``plan_clusters`` keeps for a plan with no solid heights.
+
     ``touch_m <= 0`` disarms the close (rule 2); ``bridge_m <= 0``
     disarms (2a); ``airside=None``
     disarms the clip (rule 4); ``walled_only=False`` and ``min_m2=0``
-    disarm (7); ``thin_m <= 0`` disarms (6); ``shades=None`` disarms (8).
+    disarm (7); ``thin_m <= 0`` disarms (6); ``shades=None`` disarms (8);
+    ``admission=None`` disarms (9) and (10), as does
+    ``min_tall_base_fill = 0`` / ``building_evidence = false`` in it.
     """
     counts = {"clusters": len(clusters), "no_rings": 0, "over_another": 0,
               "still_in_pieces": 0, "on_airside": 0, "clipped": 0,
               "leaf_dropped": 0, "under_min_m2": 0, "thin_dropped": 0,
               "pads": 0, "under_deck": 0, "deck_trimmed": 0,
-              "post_bridged": 0}
+              "post_bridged": 0,
+              # §16g (10) (12), issue #101: the two ported v1 gates
+              "no_tall_base": 0, "no_building_evidence": 0,
+              "unmeasured": 0, "osm_vouched": 0}
     if not clusters:
         return [], counts
     order = sorted(
@@ -269,6 +455,24 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
             continue
         if min_m2 > 0.0 and float(getattr(c, "area_m2", 0.0)) < min_m2:
             counts["under_min_m2"] += 1          # the cache's pad stands
+            continue
+        # ── rules 9 / 10: v1's two PAD-ADMISSION gates (issue #101) ──
+        ev = getattr(c, "evidence", None)
+        if admission is not None and ev is None:
+            # NOT MEASURED is not REFUSED (the ``cluster_no_height``
+            # discipline): the cluster keeps the pre-#101 reading and the
+            # population says so.
+            counts["unmeasured"] += 1
+        # rule 9 — THE TALL-BASE FILL.  Scalar, so it is asked before the
+        # rings are projected: a slab/mast weld never reaches the outline.
+        if (admission is not None and ev is not None
+                and float(admission.min_tall_base_fill) > 0.0
+                and not bool(getattr(ev, "name_vouched", False))
+                and float(getattr(ev, "hull_area_m2", 0.0)) > 0.0
+                and float(ev.tall_base_fill)
+                < float(admission.min_tall_base_fill)):
+            _refuse(refused, counts, "no_tall_base", c,
+                    "min_tall_base_fill", ev.tall_base_fill, None, ev)
             continue
         ps: list[Polygon] = []
         for r in (getattr(c, "rings", ()) or ()):
@@ -295,6 +499,20 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         if u.is_empty:
             counts["no_rings"] += 1
             continue
+        # rule 10 — NO BUILDING, NO PAD.  Asked on the CLOSED outline so
+        # the OSM half reads the same polygon the pad would have been.
+        if (admission is not None and ev is not None
+                and bool(admission.building_evidence)):
+            vertical, _cov = _vertical_evidence(ev, admission)
+            if not vertical and not (osm_evidence is not None
+                                     and osm_evidence(u)):
+                _refuse(refused, counts, "no_building_evidence", c,
+                        "building_evidence",
+                        float(getattr(ev, "tallest_extent_m", 0.0)), u, ev)
+                continue
+            if not vertical:
+                # the OSM half carried it — v1's evidence source (a)
+                counts["osm_vouched"] += 1
         if shades is not None and not shades.is_empty and u.intersects(shades):
             # rule 8: the welded deck's shade leaves the outline
             u = u.difference(shades)

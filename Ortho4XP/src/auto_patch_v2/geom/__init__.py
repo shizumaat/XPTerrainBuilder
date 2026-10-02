@@ -10,9 +10,12 @@ Only shape lives here: no law value, no model type, no I/O.
 """
 from __future__ import annotations
 
-from .cluster_outline import (OUTLINE_SIMPLIFY_M, AirsideRim,
-                              airside_vertex_snap, cluster_outlines, deck_shades)
+from .cluster_outline import (OSM_BUILDING_SOURCE, OUTLINE_SIMPLIFY_M,
+                              AirsideRim, airside_vertex_snap,
+                              cluster_outlines, deck_shades,
+                              osm_building_evidence)
 from .triangulate import face_triangles
 
 __all__ = ["face_triangles", "cluster_outlines", "deck_shades", "OUTLINE_SIMPLIFY_M",
-           "AirsideRim", "airside_vertex_snap"]
+           "AirsideRim", "airside_vertex_snap", "osm_building_evidence",
+           "OSM_BUILDING_SOURCE"]

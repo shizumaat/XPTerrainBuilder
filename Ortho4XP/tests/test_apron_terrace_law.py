@@ -783,9 +783,16 @@ def test_T2_emitter_and_validator_read_one_strip_footprint():
             assert math.hypot(ax - vx, ay - vy) < 0.05, (
                 f"footprint drift {math.hypot(ax - vx, ay - vy):.3f} m "
                 f"— the closed-ring duplicate is back in the axis fit")
-    # …and the drift the amendment measured is what the closed spelling
-    # would reintroduce, so the two spellings must agree at the source.
+    # …and the drift the amendment measured is GONE at the source: since
+    # #190 (ruling 2026-10-02v (7)) the fit is the minimum-area rectangle
+    # of the ring's CONVEX HULL, which dedups, so the repeated first
+    # vertex is invisible and the two spellings are bit-identical.  The
+    # amendment's "pass the open ring everywhere" agreement is no longer
+    # load-bearing.
     assert axis_closed is not None
+    assert axis_closed == axis_open, (
+        "the closed spelling of a runway ring must answer exactly what "
+        "the open one answers — issue #190")
 
 
 # ── T3  CERTIFICATE (§2) ────────────────────────────────────────────

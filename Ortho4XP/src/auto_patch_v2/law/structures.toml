@@ -1008,68 +1008,6 @@ connector_span_m    = 200.0
 # unitplatform): walled bodies' worst uncovered stretch <= 4.6 m, the
 # deck-on-piers rail concrete_3 b0 / b1 59.6 / 87.9 m.  0 disarms S1.
 connector_solid_gap_m = 20.0
-
-# ── §16g (10) (12) THE TWO PAD-ADMISSION GATES, PORTED FROM v1 ──────────
-# (issue #101; owner RULINGS 2026-10-02v (3), verbatim: "We definitely don't
-# want a flat pad under the whole train at HECA".)  v1 refused HECA's
-# 31,220 m2 train footprint as "a slab/mast weld, not a building" and refused
-# 446 structure rings for want of building evidence; v2 admitted both as pads.
-# Both gates are v1's, VALUE FOR VALUE — src/auto_patch/object_footprints.py
-# (structure_ring), src/auto_patch/config.py:3734-3790 (the calibration),
-# dsf_reader.read_dsf_object_building_evidence.  The measurement is
-# geom/pad_evidence.py; the gate is geom/cluster_outlines rules 9 and 10, so
-# the MINT (classify/evidence) and the CENSUS (constraints/cluster_pad) read
-# one verdict.
-
-# GATE 1 — TALL-BASE FILL (v1 DSF_OBJECT_MIN_TALL_BASE_FILL).  A building's
-# TALL member covers its OWN footprint.  A solid 0.3 m sidewalk plate welded
-# to a 28 m floodlight mast defeats the height gate (the mast supplies 37 m of
-# extent) and the base-fill gate (the plate supplies dense base triangles) and
-# is still street furniture on a slab.  Fill = SUM footprint area of
-# components whose own vertical extent reaches tall_member_min_extent_m /
-# the footprint HULL's area: a real terminal ~1.0, the weld ~0.002.
-# DELIBERATELY LOW, DO NOT RAISE (v1's own calibration, measured HECA
-# 2026-07-27): the weld class and sparse street furniture read < 0.002 (670 of
-# 813 skip events; phantom building124 ~0.0015), while THIN-WALL terminal
-# shells — material-split wall objects whose 1.5 m footing band projects as
-# thin strips — read ~0.002-0.01 and are REAL buildings that need their pads.
-# Raising it toward 0.05 culled ~140 thin-wall shells (buildings 498 -> 90).
-# 0 disarms.
-min_tall_base_fill       = 0.002
-# ...and what counts as TALL for it.  ITS OWN KEY ON PURPOSE, as in v1
-# (DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M): chain_min_height_m is a separately
-# owned gate that tests and users legitimately zero, and this discriminator
-# must not silently degrade to "everything is tall" when they do.  It reads
-# the same 2.5 m today; it is not the same number.
-tall_member_min_extent_m = 2.5
-
-# GATE 2 — BUILDING EVIDENCE (v1 DSF_OBJECT_BUILDING_EVIDENCE; R18-2, owner
-# ruling 2026-08-11b).  A footprint mints a pad ONLY with evidence a BUILDING
-# is there, never on solid reach alone.  Two sources, OR-ed: (a) an
-# intersecting OSM building / terminal / hangar footprint; (b) the VERTICAL
-# test below on the object's own solid geometry.  The defect it closes (HECA
-# Tai Models, measured 2026-08-11): four flat pads 11-18 m BELOW their own
-# ground (building172 14,672 m2 at 86.71 m over 104.7 m DEM; 176; 177; 186)
-# whose footprints are pack OBJECT rings — apron slabs, jersey barriers, fuel
-# trucks and buses — with ZERO OSM buildings under them.  false disarms.
-building_evidence        = true
-# ...the vertical test: some component stands at least this far ABOVE GRADE on
-# its own.  The four phantom rings top out at 2.85-5.36 m; every real terminal
-# shell reaches 6.1 m or more.  Raise it and single-storey buildings fall
-# through to the OSM half; lower it and the jet-blast fences vouch themselves.
-# 0 disables the height test.
-evidence_min_height_m    = 6.0
-# ...and how much of the hull those building-tall members must cover.  ARMED
-# AT 0 BY MEASUREMENT and the measurement is the point (HECA 2026-08-11): a
-# material-split pack authors one terminal as per-material thin wall strips
-# whose tall members cover 0.000-0.02 of the fused hull — the SAME range as
-# the phantom slab class (22,743 m2 / 14.98 m member -> 0.0020; 31,184 m2 /
-# 10.81 m -> 0.0004; the phantom 61,481 m2 ring -> 0.0000).  Any floor that
-# catches the phantoms deletes the real terminals; HEIGHT separates them
-# alone, and the coverage-shaped defence is carried upstream, as a REFUSAL, by
-# min_tall_base_fill.  It stays a floor on the EVIDENCE, never a refusal — a
-# cluster under it falls through to the OSM half.
-evidence_min_coverage    = 0.0
 # THE SEAT TILT (owner RULINGS 2026-10-01k Q1, verbatim: "Apron grade under a
 # structure with only post feet, adjust angle of object if necessary to seat all
 # the feet"; base-profile spec §8a Q1; issue #162).  A FEET-verdict base — posts,

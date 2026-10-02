@@ -113,7 +113,7 @@ jobs:
     strategy:
       fail-fast: false        # the frozen arm's red must not hide source's
       matrix:
-        arm: ${{ ((inputs.arm || 'source') == 'both' && fromJSON('["source","frozen"]')) || fromJSON(format('["{0}"]', inputs.arm || 'source')) }}
+        arm: ${{ ((inputs.arm || 'frozen') == 'both' && fromJSON('["source","frozen"]')) || fromJSON(format('["{0}"]', inputs.arm || 'frozen')) }}
     defaults:
       run:
         shell: bash           # one recipe; Git bash on the Windows runner

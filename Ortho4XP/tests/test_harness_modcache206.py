@@ -87,21 +87,50 @@ class _Notes:
         return "\n".join(self.lines)
 
 
+#: Windows has no ``#!`` and no executable bit, so the POSIX shebang
+#: script below is not runnable there (#206's twin went RED on the
+#: windows-latest leg for the FAKE, not for the code).  The payload is
+#: therefore always a plain ``.py`` file, and what we hand back as "the
+#: executable" is a ``.cmd`` shim on Windows and a shebang script
+#: elsewhere — the same argv either way.
+_DSFTOOL_SHIM_SUFFIX = ".cmd" if os.name == "nt" else ""
+
+_DSFTOOL_PAYLOAD = (
+    "import json, sys\n"
+    "open({log!r}, 'a', encoding='utf-8', newline='')"
+    ".write(json.dumps(sys.argv[1:]) + '\\n')\n"
+    "assert sys.argv[1] == '--dsf2text', sys.argv\n"
+    "open(sys.argv[3], 'w', encoding='utf-8', newline='').write("
+    "'PROPERTY sim/west 113\\n')\n"
+)
+
+
 def _fake_dsftool(tmp_path, calls_log):
     """An executable stand-in for DSFTool that writes the dump it is
-    asked for and appends its argv to ``calls_log`` (a JSONL file)."""
-    tool = tmp_path / "bin" / "DSFTool"
-    tool.parent.mkdir(parents=True, exist_ok=True)
-    tool.write_text(
-        "#!" + sys.executable + "\n"
-        "import json, sys\n"
-        f"open({str(calls_log)!r}, 'a', encoding='utf-8', newline='')"
-        ".write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "assert sys.argv[1] == '--dsf2text', sys.argv\n"
-        "open(sys.argv[3], 'w', encoding='utf-8', newline='').write("
-        "'PROPERTY sim/west 113\\n')\n",
-        encoding="utf-8", newline="\n")
-    tool.chmod(tool.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP)
+    asked for and appends its argv to ``calls_log`` (a JSONL file).
+
+    Cross-platform on purpose: see ``_DSFTOOL_SHIM_SUFFIX``.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    payload = bin_dir / "dsftool_payload.py"
+    payload.write_text(_DSFTOOL_PAYLOAD.format(log=str(calls_log)),
+                       encoding="utf-8", newline="\n")
+
+    tool = bin_dir / ("DSFTool" + _DSFTOOL_SHIM_SUFFIX)
+    if os.name == "nt":
+        # %* forwards argv verbatim; @echo off keeps the shim's own
+        # echo out of the captured output.
+        tool.write_text(
+            "@echo off\r\n"
+            f'"{sys.executable}" "{payload}" %*\r\n',
+            encoding="utf-8", newline="")
+    else:
+        tool.write_text(
+            "#!" + sys.executable + "\n"
+            f"exec(open({str(payload)!r}, encoding='utf-8').read())\n",
+            encoding="utf-8", newline="\n")
+        tool.chmod(tool.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP)
     return tool
 
 

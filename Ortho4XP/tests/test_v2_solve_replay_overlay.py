@@ -146,8 +146,11 @@ def test_an_overlay_providing_two_dirs_moves_both(R, tmp_path):
     d = _overlay(tmp_path, "Elevation_data", "OSM_data")
     frame = R.resolve_data_overlay(str(d), environ={})
     out = R.overlay_inputs(_Inputs(), frame)
-    assert out.elevation_root.endswith("overlay/Elevation_data")
-    assert out.osm_root.endswith("overlay/OSM_data")
+    # Compare as PATHS, not as strings: a hard-coded "/" in the expected
+    # tail makes this assertion fail on Windows for the separator rather
+    # than for the overlay (it did, on the windows-latest leg).
+    assert Path(out.elevation_root) == d / "Elevation_data"
+    assert Path(out.osm_root) == d / "OSM_data"
 
 
 def test_no_frame_leaves_the_inputs_alone(R):

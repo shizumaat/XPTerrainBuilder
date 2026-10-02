@@ -294,7 +294,7 @@ class BaseProfile:
 
 def _horizontal(v: np.ndarray, tris: np.ndarray, ny_min: float):
     """``(|n_y| per triangle, twice the PLAN area per triangle, the mean
-    y per triangle)`` — one vectorised pass.  The plan area is the right
+    y per triangle, its lowest vertex, its highest)`` — one vectorised pass.  The plan area is the right
     one for a face's own area in a HEIGHTFIELD reading: a horizontal face
     at ``|ny| >= 0.95`` differs from its plan projection by at most 5 %,
     and the pad it becomes is a plan polygon."""
@@ -308,15 +308,57 @@ def _horizontal(v: np.ndarray, tris: np.ndarray, ny_min: float):
     a2 = np.abs((p1[:, 0] - p0[:, 0]) * (p2[:, 2] - p0[:, 2])
                 - (p2[:, 0] - p0[:, 0]) * (p1[:, 2] - p0[:, 2]))
     ymean = (p0[:, 1] + p1[:, 1] + p2[:, 1]) / 3.0
-    return ny >= ny_min, 0.5 * a2, ymean
+    # each face's LOWEST and HIGHEST vertex -- the reading
+    # ``_clusters``' deviation bound and the LEVEL test both take
+    # (10-02m (A)); derived here so there is one pass, not three
+    ylo = np.minimum(np.minimum(p0[:, 1], p1[:, 1]), p2[:, 1])
+    yhi = np.maximum(np.maximum(p0[:, 1], p1[:, 1]), p2[:, 1])
+    return ny >= ny_min, 0.5 * a2, ymean, ylo, yhi
 
 
-def _clusters(ys: np.ndarray, areas: np.ndarray, merge_m: float
+def _deviation(ys: np.ndarray, areas: np.ndarray, bins: np.ndarray,
+               run: list, lo: np.ndarray, hi: np.ndarray) -> float:
+    """How far the VERTICES of the faces in ``run`` stand from the
+    cluster's own area-weighted height — ``max(|hi - y|, |y - lo|)``.
+
+    ``lo`` / ``hi`` are each face's lowest and highest vertex, so this is
+    the reading :func:`base_profile`'s LEVEL test takes, available while
+    the run is still GROWING (which is what makes it a split rule instead
+    of a drop)."""
+    sel = np.isin(bins, np.asarray(run))
+    if not sel.any():
+        return 0.0
+    y, _a, _sel = _cluster(ys, areas, bins, run)
+    return float(max(float(np.max(hi[sel])) - y, y - float(np.min(lo[sel]))))
+
+
+def _clusters(ys: np.ndarray, areas: np.ndarray, merge_m: float,
+              lo: "np.ndarray | None" = None, hi: "np.ndarray | None" = None,
               ) -> list[tuple[float, float, np.ndarray]]:
     """§1 (1): the height CLUSTERS of horizontal faces — ``(area-weighted
     y, area, the face selector)`` per cluster.  Faces are binned at
     :data:`_PLANE_BIN_M` and adjacent bins MERGE while their gap is
-    within ``merge_m`` (``[placement] split_tol_m``)."""
+    within ``merge_m`` (``[placement] split_tol_m``) **and the cluster
+    stays ONE PLANE**.
+
+    THE DEVIATION BOUND (owner RULINGS 2026-10-02m (A), the measured
+    reason PR #196 was reverted).  The gap rule alone is SINGLE-LINK: the
+    bin (0.25 m) is narrower than the tolerance (0.3 m), so every
+    adjacent pair of non-empty bins chains and a STAIRCASE of 0.25 m
+    treads merges end to end however tall it is.  Measured at KASE: the
+    fire station's +3.9 m lot chained through the whole bank staircase
+    behind it into ONE cluster (y +3.79, 9,375 m², **vertex deviation
+    4.59 m**), the LEVEL test downstream DROPPED that cluster, FS_7 read
+    ``sloped`` with 0 planes and the site the spec was written for minted
+    nothing at all.
+
+    So a run grows only while its own vertices stay within ``merge_m`` of
+    its area-weighted height (:func:`_deviation`): a cluster whose
+    vertices deviate more than the plane tolerance IS NOT ONE PLANE, and
+    the right answer is to SPLIT it, not to drop it.  ``merge_m`` is the
+    same ``split_tol_m`` the gap rule and §1 (2)'s SLOPED rms already
+    use — no new number.  Pass no ``lo`` / ``hi`` and the pre-10-02m
+    single-link rule stands (the dry roll-ups that hold no vertices)."""
     if ys.size == 0:
         return []
     bins = np.floor(ys / _PLANE_BIN_M).astype(np.int64)
@@ -325,11 +367,18 @@ def _clusters(ys: np.ndarray, areas: np.ndarray, merge_m: float
     run = [uniq[0]]
     for b in uniq[1:]:
         # the GAP between the two bins' near edges, in metres
-        if (b - run[-1]) * _PLANE_BIN_M <= merge_m:
-            run.append(b)
-        else:
+        if (b - run[-1]) * _PLANE_BIN_M > merge_m:
             out.append(_cluster(ys, areas, bins, run))
             run = [b]
+            continue
+        if (lo is not None and hi is not None
+                and _deviation(ys, areas, bins, run + [b], lo, hi) > merge_m):
+            # adding this bin would make the cluster deviate past the
+            # plane tolerance: it is the NEXT plane (the staircase case)
+            out.append(_cluster(ys, areas, bins, run))
+            run = [b]
+            continue
+        run.append(b)
     out.append(_cluster(ys, areas, bins, run))
     return out
 
@@ -431,11 +480,12 @@ def base_profile(geom: "ObjGeometry", comps: list["Component"], *,
     feet = int(foot_sel.shape[0])
     foot_pts = v[foot_sel]
 
-    horiz, areas, ymean = _horizontal(v, tris, horizontal_ny)
+    horiz, areas, ymean, ylo, yhi = _horizontal(v, tris, horizontal_ny)
     planes_out: list[BasePlane] = []
     if horiz.any():
         hidx = np.flatnonzero(horiz)
-        for y, area, sel in _clusters(ymean[hidx], areas[hidx], split_tol_m):
+        for y, area, sel in _clusters(ymean[hidx], areas[hidx], split_tol_m,
+                                      ylo[hidx], yhi[hidx]):
             if area < min_area_m2:
                 continue                      # furniture, §1 (1)
             # §1 (1) NARROWED — REPORTED, NOT DECIDED.  A PLANE is LEVEL:
@@ -460,8 +510,11 @@ def base_profile(geom: "ObjGeometry", comps: list["Component"], *,
                 continue
             planes_out.append(BasePlane(y, area, poly))
     # ── 3. the ROOF TEST, then the TRIM (§1 (1)) ────────────────────
+    storey = _storeys(planes_out, contact_band_m, roof_support_fraction)
     kept: list[BasePlane] = []
-    for p in planes_out:
+    for _i, p in enumerate(planes_out):
+        if _i in storey:
+            continue                          # a STOREY: never a base
         p2 = _roof_test(v, used, p, contact_band_m, min_distinct_spacing_m,
                         pad_frontage_m, roof_support_fraction)
         if p2 is not None:
@@ -553,6 +606,32 @@ def _roof_test(v: np.ndarray, used: np.ndarray, p: BasePlane,
     area = float(poly.area)
     if area <= 0.0:
         return None
+    # THE SUPPORT READING STAYS STRICTLY INSIDE THE ERODED POLYGON --
+    # A DEVIATION FROM THE basepads4 BRIEF, MEASURED AND REPORTED, NOT
+    # DECIDED.  10-02m (B) asks for support to be counted "on or within
+    # the perimeter band", because stacked identical-footprint storeys
+    # carry every lower vertex ON the perimeter (HECA T3: 26 lower
+    # vertices on the polygon, 0 inside) and so read BASE.  Widening the
+    # band to ``+erode_m`` does fix T3 -- and it MISREADS EVERY OPEN
+    # SHELL as a roof, which is the shape a pack authors a terrace lot
+    # in: a slab at ``y`` with a vertical SKIRT down to the ground has
+    # its own foot ring directly below its own boundary, inside any
+    # outward band, with a hull covering 100 % of the polygon.  Measured
+    # here: ``tests/auto_patch_v2/test_base_profile.py``'s FLAT,
+    # STEPPED, weld and furniture fixtures all went to 0 planes, and
+    # KASE's ``FireStation_7.obj`` IS that shape (11,820 of 12,335 m2
+    # horizontal, §0 fact 5) -- so the band would have un-minted the
+    # very site #163 is about.
+    #
+    # WHAT CARRIES 10-02m (B) INSTEAD is :func:`_storeys`, which asks
+    # the question the band was reaching for -- "is there a PLANE under
+    # this plane" -- against the planes themselves rather than against
+    # loose vertices.  It lands on T3's perimeter-only storeys, it lands
+    # on a storey whose supports live in a sibling member (where no
+    # vertex reading can reach), and it cannot confuse a slab's own
+    # skirt with a floor beneath it, because a skirt is not a plane.
+    # Both twins are held: a T3-shaped unit reads no plane pad, and an
+    # open-shell terrace still reads BASE.
     inner = poly.buffer(-erode_m, join_style=2, mitre_limit=2.0) if erode_m > 0.0 else poly
     if inner.is_empty:
         inner = poly
@@ -563,11 +642,10 @@ def _roof_test(v: np.ndarray, used: np.ndarray, p: BasePlane,
     inside = pts.intersection(inner)
     if inside.is_empty:
         return p
-    hull = inside.convex_hull
-    frac = float(hull.area) / area
+    frac = float(inside.convex_hull.area) / area
     if frac >= roof_fraction > 0.0:
         return None                            # a ROOF, never a base
-    if frontage_m <= 0.0:
+    if frontage_m <= 0.0 or inside.is_empty:
         return _dc.replace(p, support_fraction=frac)
     trim = inside.buffer(frontage_m, join_style=2, mitre_limit=2.0)
     left = poly.difference(trim)
@@ -576,6 +654,52 @@ def _roof_test(v: np.ndarray, used: np.ndarray, p: BasePlane,
     return _dc.replace(p, polygon=left, support_fraction=frac,
                        trimmed_m2=round(area - float(left.area), 3),
                        area_m2=p.area_m2 * float(left.area) / area)
+
+
+def _storeys(planes: "_t.Sequence[BasePlane]", contact_band_m: float,
+             cover_fraction: float) -> set[int]:
+    """§1 (1) THE STOREY TEST -- the indices of the planes that stand ON
+    ANOTHER PLANE of the same object and are therefore ROOFS / DECKS /
+    MEZZANINES, never bases (owner RULINGS 2026-10-02m (B), the second
+    half of the #196 reading).
+
+    A TERRAIN SURFACE IS SINGLE-VALUED IN PLAN.  Two BASE planes of one
+    unit are ground at two levels, so in plan they are DISJOINT -- a lot
+    beside a floor, a terrace beside a lot.  Two planes that OVERLAP in
+    plan are therefore not two grounds: the upper one is a storey, a deck
+    or a mezzanine standing on the lower, and the terrain under it is the
+    LOWER plane's.  That is the whole discriminator, and it needs no
+    vertex to be present anywhere: a slab's own supports may be authored
+    in a sibling member, as HECA's T3 halls are (§1 (3)), and the vertex
+    reading then sees nothing.
+
+    ``cover_fraction`` is ``[base_profile] roof_support_fraction`` -- the
+    one share the law already states for "is this geometry DISTRIBUTED
+    under this polygon", used here with the same meaning and introducing
+    no number.  ``contact_band_m`` is the same "below" the roof test
+    uses, so a kerb-height difference between two abutting pieces of one
+    ground is never read as a storey.
+
+    T3 reads here: 5 slabs of 16,756 m2 at one footprint -> slabs 1..4
+    each cover 100 % of the slab above them, so four of the five are
+    storeys and the composed unit keeps exactly ONE base plane: a FLAT
+    verdict, no plane pad, which is §6's standing STOP satisfied."""
+    out: set[int] = set()
+    for i, p in enumerate(planes):
+        pa = float(getattr(p.polygon, "area", 0.0) or 0.0)
+        if pa <= 0.0:
+            continue
+        for j, q in enumerate(planes):
+            if i == j or float(q.y) > float(p.y) - contact_band_m:
+                continue
+            try:
+                over = float(p.polygon.intersection(q.polygon).area)
+            except Exception:                   # noqa: BLE001 -- not a storey
+                continue
+            if cover_fraction > 0.0 and over >= cover_fraction * pa:
+                out.add(i)
+                break
+    return out
 
 
 def _adjacent(a: BasePlane, b: BasePlane, frontage_m: float) -> bool:
@@ -682,6 +806,25 @@ def _place_matrix(dx: float, dz: float, heading_deg: "float | None"
     return (cs, -sn, -sn, -cs, dx, dz)
 
 
+def _place_gradient(slope: tuple[float, float], heading_deg: "float | None"
+                    ) -> tuple[float, float]:
+    """§2 (2): one SLOPED base's authored gradient ``(dy/dx, dy/dz)`` in the
+    unit frame, under the same placement affine :func:`_place_matrix`
+    builds for the polygons.
+
+    THE MATRIX IS ITS OWN INVERSE AND ORTHOGONAL (``[[cs, -sn], [-sn,
+    -cs]]``: symmetric, and ``M @ M == I``), so the gradient transforms by
+    ``M`` itself — the cofactor rule ``grad' = M^-T grad`` collapses to
+    ``M grad`` and no inverse is formed.  ``heading_deg`` ``None`` is the
+    dry roll-up's pure translation, which leaves a gradient alone.
+    """
+    gx, gz = float(slope[0]), float(slope[1])
+    if heading_deg is None:
+        return (gx, gz)
+    a, b, d, e, _xo, _yo = _place_matrix(0.0, 0.0, heading_deg)
+    return (a * gx + b * gz, d * gx + e * gz)
+
+
 def _place_all(polys: "_t.Sequence", dx: float, dz: float,
                heading_deg: "float | None", q: float):
     """§1 (2)'s "orientation is carried by the polygons", through §51 (2)'s
@@ -753,13 +896,13 @@ def compose_profiles(parts: "_t.Sequence[tuple]",
     feet = 0
     low = None
     dropped = 0
-    sloped: list[tuple[BaseProfile, tuple[float, float, float]]] = []
+    sloped: list[tuple[BaseProfile, tuple[float, float, float], "float | None"]] = []
     for prof, (dx, dy, dz), hdg in rows:
         feet += int(prof.feet)
         fy = float(prof.feet_y) + float(dy)
         low = fy if low is None else min(low, fy)
         if prof.verdict == SLOPED:
-            sloped.append((prof, (dx, dy, dz)))
+            sloped.append((prof, (dx, dy, dz), hdg))
         if not prof.planes:
             continue
         placed = _place_all([p.polygon for p in prof.planes],
@@ -776,16 +919,34 @@ def compose_profiles(parts: "_t.Sequence[tuple]",
         # single SLOPED member's gradient is the unit's (its frame is the
         # unit's, the offsets being translations only).
         if len(sloped) == 1 and len(parts) >= 1:
-            prof = sloped[0][0]
+            prof, _off, hdg = sloped[0]
+            # §2 (2): the SLOPED gradient is ROTATED into the unit frame
+            # here, at the one site the heading is in hand.  A pad reader
+            # that rotated it itself would be the second spelling of the
+            # placement affine the composition already applies to the
+            # polygons (§1 (2): "orientation is carried by the polygons"
+            # — the gradient is the same orientation).
             return _dc.replace(prof, feet=feet, feet_y=float(low or 0.0),
-                               why=prof.why + " (composed: one sloped member)")
+                               slope=_place_gradient(prof.slope, hdg),
+                               why=prof.why + " (composed: one sloped member"
+                                   + ("" if hdg is None else
+                                      f", gradient at heading {float(hdg):.2f} deg")
+                                   + ")")
         if len(parts) == 1:
             prof = parts[0][0]
             return _dc.replace(prof, feet=feet, feet_y=float(low or 0.0))
         return BaseProfile(FEET, feet=feet, feet_y=float(low or 0.0),
                            why=f"{len(parts)} member(s), no base plane")
-    # §1 (3): the roof test RE-RUN on the composed unit, where the caller
-    # gave us the unit's own lower geometry (the HECA T3 case)
+    # §1 (3): the STOREY test and the roof test RE-RUN on the composed
+    # unit (the HECA T3 case).  THE STOREY TEST NEEDS NO ``lower_pts``
+    # (10-02m (B)): it reads the composed PLANES against each other, so
+    # it lands on the T3 halls whose supports live in sibling members
+    # and on the dry roll-up alike -- which is why a unit minting a pad
+    # for a +18.90 m "base" cannot come back.
+    if roof_support_fraction > 0.0:
+        _st = _storeys(moved, contact_band_m, roof_support_fraction)
+        if _st:
+            moved = [q for i, q in enumerate(moved) if i not in _st]
     if lower_pts is not None and roof_support_fraction > 0.0:
         used = np.arange(int(np.asarray(lower_pts).shape[0]))
         pts = np.asarray(lower_pts, dtype=float)

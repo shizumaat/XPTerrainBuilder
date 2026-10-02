@@ -96,20 +96,15 @@ def _frame(path, feature_out=None):
     the sidecar is still REQUIRED (no sidecar, no census context — the
     original refusal stands), the anchor is used WHEN THE PATCH CARRIES
     ONE, and the frame in force is named in the report and carried in the
-    JSON (``frame``) so two reads can never be quoted across frames."""
-    p = Path(path)
-    side_path = Path(str(p) + ".axes.json")
-    if not side_path.exists():
-        raise SystemExit(
-            f"REFUSING: {p} has no .axes.json sidecar — without the census "
-            f"context there is no metre frame to measure areas in.")
+    JSON (``frame``) so two reads can never be quoted across frames.
+
+    It now lives in the harness library itself
+    (``check_grade.sidecar_metre_frame``) because the SAME crash was
+    still in ``tools/lattice_overlap_read.py`` (issue #147) and a
+    slightly-different second copy of a frame reader is the census-
+    wrapper defect: one accessor, both tools."""
     import check_grade as CG
-    nodes, ways = CG._parse_osm(p, feature_out)
-    side = json.loads(side_path.read_text())
-    a = side.get("anchor")
-    anchor = (float(a[0]), float(a[1])) if a else None
-    return nodes, ways, anchor, ("builder anchor" if anchor
-                                 else "mean-of-nodes"), side
+    return CG.sidecar_metre_frame(path, feature_out)
 
 
 def read(path, *, over: str, on: str,

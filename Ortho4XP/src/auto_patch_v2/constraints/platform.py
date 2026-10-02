@@ -17,10 +17,18 @@ ONE-WAY, THE RIM LEADS (spec §1 (3); head in ``[design] one_way_rulings``):
 where the outer vertex is AIRSIDE (a vertex of a runway / taxi / apron
 face — ``pads.airside_vertices``) the platform vertex FOLLOWS — airside is
 king and the collar never pulls it (its value is stage 1's anyway, §20b).
-Where the outer vertex is the pad's OWN rim (groundside, or bare ground)
-there is no relief to absorb: the row is at cap 0, TWO-SIDED and priced at
-the plate's own weight (``pad_flat_rulings``) — the rim stays on the
-platform, where the plate held it before the collar existed.
+
+THE TOE IS PLACED BY THE SOLVE (owner RULINGS 2026-10-02v (5), issue #86).
+The collar is minted at the CAP width (``planar.platform``), so the bank
+always has the law's widest run to fall over, and NO row fixes the toe:
+where the outer vertex is the pad's OWN rim (groundside, or bare ground)
+the row is the 1:3 bank, BOTH SIGNS, ONE-WAY with the PLATFORM LEADING —
+the same ``Diff(o, i, bank, d, follows=(o,))`` the coverage edge takes
+since issue #223.  Within that bank the rim follows the ground objective,
+so a flat site reads exactly as the cap-0 equality read before (the rim
+sits on the platform because the ground does) while a site with relief
+lets the solve put the toe where the relief allows, in ONE pass.  It is
+still priced at the plate's own weight (``pad_flat_rulings``).
 
 Priced as the groundside terrace law prices a bank (``groundside_ramp_max``
 's pattern): a one-sided design penalty at the law's weight, never a hard
@@ -48,9 +56,10 @@ GEN = "platform_collar"
 #: The ruling HEAD (``solve.design.ruling_head``) — named by ``[design]
 #: one_way_rulings``.
 COLLAR_RULING = "structures.building_pad platform_collar bank"
-#: The head of the OWN-rim rows (cap 0, two-sided) — named by
-#: ``pad_flat_rulings``: the pad's own rim stays on its plate at the
-#: plate's price, as it did before the collar
+#: The head of the OWN-rim rows (the 1:3 bank, one-way, the platform
+#: leading — RULINGS 2026-10-02v (5)) — named by ``pad_flat_rulings`` for
+#: its PRICE (the plate's own weight, as before the toe was freed) and by
+#: ``one_way_rulings`` for its direction (the plate never follows the rim)
 RIM_RULING = "structures.building_pad platform_collar rim"
 #: The head of the BLOCK TERRACE rows (flat-pad spec §2 (5), RULINGS
 #: 2026-09-30r): the strip between two flat blocks of one unit, a two-sided
@@ -165,14 +174,17 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
                 n_terr += 1
                 rows.append(Diff(o, i, cap, d, src_terr))
             else:
-                # the pad's OWN rim carries no relief to absorb: it stays
-                # on the platform (cap 0, the rim follows), exactly where
-                # the plate put it before the collar existed
+                # the pad's OWN rim (issue #86, owner RULINGS 2026-10-02v
+                # (5)): the 1:3 bank, BOTH SIGNS, ONE-WAY with the PLATFORM
+                # leading — never the cap-0 equality that FIXED the toe at
+                # the rim.  The collar is minted at the cap, so the bank has
+                # the law's widest run; inside it the rim follows the ground
+                # objective, and the solve puts the toe where the relief
+                # allows in ONE pass (the two-pass re-mint is refused, 29l).
+                # The plate still never follows the rim: ``follows=(o,)``,
+                # the same direction the coverage edge takes (#223).
                 n_own += 1
-                # TWO-SIDED, as the plate priced it (a one-way row lags its
-                # leader: MEASURED on the islands twin, a courtyard hole ring
-                # stayed 0.26 m on the platform's round-0 value)
-                rows.append(Diff(o, i, 0.0, d, src_rim))
+                rows.append(Diff(o, i, cap, d, src_rim, follows=(o,)))
 
         # WHAT AN OUTER VERTEX IS NOT THE COLLAR'S TO GRADE (measured on the
         # HECA replay, lane ``unitplatform2``: 3,528 cap-0 rows missed by up
@@ -182,7 +194,9 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         #   "follower" row turns two-way and drags the PLATFORM to the
         #   courtyard's DEM, which is how the plate bent) — NOT a cap-0 rim
         #   row; since issue #223 it keeps the 1:3 bank ONE-WAY, the plate
-        #   leading (see the ``edge_v`` branch below);
+        #   leading (see the ``edge_v`` branch below).  Since 10-02v (5) the
+        #   OWN rim takes that same row, so the 3,528 figure is the count of
+        #   the rows the cap-0 equality used to fix, not of a live miss;
         # * a vertex shared with ANOTHER pad — two pads may sit at different
         #   floors (``step_exemption_pad_to_pad``); T2's ``building281``
         #   abuts ``building68`` 16.4 m higher, and a cap-0 row there is a

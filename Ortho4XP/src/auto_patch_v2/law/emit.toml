@@ -1028,6 +1028,7 @@ one_way_rulings = [
   "structures.building_pad frontage_level",                 # 09-10l: the pad FOLLOWS the pavement edge it fronts and never pulls it (the apron must not tier down into the terminal)
   "structures.building_pad frontage_level junior",
   "structures.building_pad platform_collar bank",           # unit-platform spec §1 (3) (RULINGS 2026-09-28a (1)): the COLLAR's 1:3 bank from the welded rim to the platform - an AIRSIDE rim vertex leads (the platform vertex follows; airside is king), the pad's OWN rim vertex follows the platform (the collar never tilts the plate)
+  "structures.building_pad platform_collar rim",            # issue #86 (RULINGS 2026-10-02v (5)): the pad's OWN rim row is the 1:3 bank, both signs, ONE-WAY with the PLATFORM leading - the toe is placed by the solve inside a collar minted at the cap, never fixed at the rim by the cap-0 equality this replaced.  Its PRICE stays the plate's (pad_flat_rulings); only its direction is named here
   "structures.structure_rim frontage_level",                # 09-10an: a structure RIM is flush with the pavement it sits in — the crest rises to the apron, it never pulls the apron down into the pit
   "structures.building_pad groundside_frontage",           # 09-12r / spec §28 (2): the LOT / SERVICE ROAD follows the pad's edge level and never pulls a pad — airside is king, and §20's apron frontage still sets the pad
   "structures.building_pad groundside_frontage junior",

@@ -12581,16 +12581,24 @@ def test_importing_the_guard_never_puts_the_engines_src_on_sys_path(
     load Ortho4XP import it, so importing it must not put the engine's
     ``src/`` on ``sys.path`` as a side effect — which is why
     ``APPROACH_RING_DIR_SUFFIX`` QUOTES the engine's spelling instead of
-    importing it.  The console pin the argparse law requires
-    (``tests/test_console_encoding.py``) therefore lives inside
-    ``_pin_console_streams``, called as the first statement of ``main``,
-    and NOT in the module body like every other tool's.  Replacing it with
-    the standard module-level block would pass that twin and silently break
-    this one, so the two are asserted together.
+    importing it.  The argparse console law
+    (``tests/test_console_encoding.py``) admits two shapes — a script pins
+    at MODULE level, a LIBRARY WITH A CLI pins inside the very function
+    that parses — and this module may only be the second kind.  That
+    intersection is one spelling: the pin inlined at the top of ``main()``.
+    The module-level block every other tool carries would pass the console
+    twin and silently break this one, so the two are asserted together.
 
-    Measured: PR #176 (the argparse console law) and PR #184 (this CLI)
-    were written in parallel, both merged clean, and main went RED on
-    exactly this interaction at 2026-10-02 05:43.
+    MEASURED, three times in ninety minutes on 2026-10-02 — which is why
+    this twin exists rather than a comment.  #176 (the console law) and
+    #184 (this CLI) were written in parallel, both merged clean, and main
+    went RED on their interaction at 05:43.  Then THREE independent fixes
+    landed for that one red: ``cabd10e`` (inline in ``main()``),
+    ``d4f0c154`` (the module-level block, lane winenc200) and ``ad19bb43``
+    (a named helper).  Together they left main with the pin at module level
+    AND in the entry — red on this twin at 07:01, which is this twin
+    catching in minutes the exact "someone tidies it back into the module
+    body" case it was written for.
     """
     source = (HARNESS / "shared_repo_guard.py").read_text(encoding="utf-8")
     tree = ast.parse(source)

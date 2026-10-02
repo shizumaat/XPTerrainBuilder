@@ -22,18 +22,10 @@ Owner 2026-09-04j (``sources.py``): a source polygon read as a road
 STRIP is its own face and a road (``service_road``); one read as a
 parking LOT is its own face and ``parking_lot``; both are cut from
 their neighbours at their own boundary (the mouth), so an apron never
-absorbs groundside pavement.  Pavement a network taxiway runs onto is
+absorbs groundside pavement.  A demoted (landside) cell with road
+evidence is a ``parking_lot``; one with none stays
+``groundside_pavement``.  Pavement a network taxiway runs onto is
 airside even without a pavement touch-chain (item 4).
-
-§110 UNCLASSIFIED GROUNDSIDE PAVEMENT IS A PARKING LOT (owner remark
-RULINGS 2026-09-30b, issue #110): a demoted (landside) cell, and a face
-the 04u open default sends groundside, is a road RIBBON when its
-proportions say so (``open_default.road_ribbon``) and a ``parking_lot``
-otherwise — one derivation, ``open_default.
-unclassified_groundside_role``, never re-spelled here.  Until #110 this
-pass read road evidence for the verdict ("a lot when a road reaches it,
-else ``groundside_pavement``"), which left every untouched landside face
-in a role with no plate law of its own.
 
 §27 AN AIRSIDE EDGE MAKES A LOT AIRSIDE (owner RULINGS 2026-09-12c and
 2026-09-12f; ``rules.lot.airside_edge_min_m`` / ``mouth_width_factor``,
@@ -103,8 +95,7 @@ from ..model.frame import XY
 from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
-from .open_default import (apron_evidence, open_pavement_role,
-                           unclassified_groundside_role)
+from .open_default import apron_evidence, open_pavement_role
 from .rules import Rules, load_rules
 from .sources import (SourceRecord, apron_union, classify_sources,
                       object_body_cuts)
@@ -527,19 +518,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         if i in demoted and ev.terminal_present and role in ("apron", *TAXI_FAMILY) \
                 and apron_evidence(face, src_of.get(ref), evid, start_tree,
                                    rules) is None:
-            # landside: §110's unclassified verdict (owner remark RULINGS
-            # 2026-09-30b, issue #110) — a road RIBBON by its proportions,
-            # else a parking LOT.  ONE derivation with the 04u open default
-            # below (``open_default.unclassified_groundside_role``), which
-            # this branch used to re-spell: the two-way "a lot when a road
-            # reaches it, else the paved island it always was" shipped
-            # ``groundside_pavement`` — a role with no plate law of its own
-            # — for every landside face no road happened to touch.  The
-            # 04z-1 taxi-name veto rides into it as ``taxi_named``.
-            role, _why = unclassified_groundside_role(
-                face, rules, road_reached=i in road_ev,
-                taxi_named=bool(evid.get("taxi_name")))
-            evid = dict(evid, demoted=1.0, **_why)
+            # landside: a lot when a road reaches it or a road/lot face
+            # touches it (the roads-and-lots complex, owner 2026-09-04j),
+            # else the paved island it always was
+            role = "parking_lot" if i in road_ev and not evid.get("taxi_name") \
+                else "groundside_pavement"
+            evid = dict(evid, demoted=1.0, road_evidence=float(i in road_ev))
             stats["demoted_lots"] += int(role == "parking_lot")
             letter = None
         elif role == "apron" and ev.terminal_present:

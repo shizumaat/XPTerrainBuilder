@@ -686,8 +686,8 @@ def frontage_hold_rows(planar: PlanarMap, law: Law,
     rows dropped) and PASS 1b, chooses the datum in it, re-prices a
     residual contact of an empty interval and adds the datum ``Pin`` and
     the runway's flex ``Band`` rows (``solve.design.solve_design``).  The
-    route-metric reach band (``runway_reach_band_values``) that bounded the
-    datum here is DELETED — it pinned ``preferred_z``, not solved values,
+    route-metric reach band (the former ``no_step.runway_reach_band_values``,
+    deleted with it) that bounded the datum here is DELETED — it pinned ``preferred_z``, not solved values,
     on a metric that reached 5 of SPJC's 8 blocks.  A generator."""
     STATS.pop("frontage_hold_rows", None)
     rows: list[Row] = []

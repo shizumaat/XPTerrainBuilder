@@ -902,7 +902,8 @@ def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
 #: Above this many pins :func:`reach` reads the envelope through ONE
 #: super-source walk per side instead of a pin x vertex matrix (the same
 #: max/min, O(E log V) instead of O(P·V) memory — a pin set of every runway
-#: vertex, ``no_step.runway_reach_band_values``).  A resolution constant.
+#: vertex, as the deleted ``no_step.runway_reach_band_values`` once passed and
+#: :func:`reach_anchored` always does).  A resolution constant.
 _SUPER_SOURCE_PINS = 64
 
 

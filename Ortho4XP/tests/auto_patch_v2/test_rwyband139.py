@@ -165,17 +165,24 @@ def _ridge(pm, law, ref="09/27"):
 
 def _arms(two_runways, law):
     """``(airport, pm, cs_post, cs_pre, raw, runway_verts)`` — the shipped
-    set and the reconstructed pre-10-02v set."""
+    set and the reconstructed pre-10-02v set: the shipped rows with every
+    reach band on a runway-family vertex or on an adjacent taxi face
+    (10-02ab (1)) replaced by the raw metric's."""
     airport, pm = two_runways
     raw = _raw_band(pm, law, airport)
     rwv = _runway_verts(pm, law, raw)
+    adj = no_step.adjacent_taxi_vertices(pm, law)
     cs, _c, _w = generate(pm, law, airport)
     src = Source(REACH_GENERATOR, "reach band: threshold values along taxi routes "
                  "at the path caps (2026-09-04o)", ())
-    pre = [Band(v, raw[v][0], raw[v][1], src) for v in sorted(rwv)
-           if raw[v][0] <= raw[v][1]]
+    subj = rwv | adj
+    keep = [r for r in cs.rows()
+            if not (isinstance(r, Band) and r.source.generator == REACH_GENERATOR
+                    and r.v in subj)]
+    pre = [Band(v, raw[v][0], raw[v][1], src) for v in sorted(subj)
+           if v in raw and raw[v][0] <= raw[v][1]]
     assert pre, "the fixture must reach the runway family at all"
-    return airport, pm, cs, ConstraintSet.from_rows([*cs.rows(), *pre]), raw, rwv
+    return airport, pm, cs, ConstraintSet.from_rows([*keep, *pre]), raw, rwv
 
 
 # ── the derivation site ──────────────────────────────────────────────────
@@ -189,9 +196,22 @@ def test_the_runway_family_is_the_bands_source_never_its_subject(two_runways, la
     pins = runway_profile.threshold_pins(pm, law, airport)
     g = routes(pm, law, airport)
     own = reach(no_step.runway_family_routes(g, pm, law), pins)
-    # OUTSIDE the runway family nothing moved: the metric is untouched
-    assert set(vals) - rwv == set(raw) - rwv
-    assert all(vals[v] == raw[v] for v in set(vals) - rwv)
+    adj = no_step.adjacent_taxi_vertices(pm, law)
+    assert adj and not adj & rwv
+    # OUTSIDE the runway family AND its adjacent faces nothing moved: the
+    # metric is untouched (10-02ab (1): only the faces sharing a runway
+    # vertex conform to the edge)
+    far = set(raw) - rwv - adj
+    assert far, "the fixture needs taxi vertices beyond the adjacent faces"
+    assert set(vals) - rwv - adj == far
+    assert all(vals[v] == raw[v] for v in far)
+    # THE ADJACENT FACES carry the runway edge's own band over the face at
+    # the path caps: the stub off 09/27 is no longer under 09L/27R's ceiling
+    stub_b = {u for f in pm.faces.values() if f.ref == "stubB"
+              for cyc in (f.ring, *f.holes) for u in pm.ring_vertices(cyc)} - rwv
+    assert stub_b and stub_b <= adj and stub_b <= set(vals)
+    assert all(vals[u][1] > raw[u][1] + 0.05 and vals[u][1] > HIGH_M - 3.0
+               for u in stub_b), [(raw[u], vals[u]) for u in stub_b]
     # INSIDE it every vertex takes its OWN family's routes' band — and the
     # population is the metric's, less only what no runway-only route reaches
     assert rwv & set(vals), "the runway family keeps its own band"
@@ -256,13 +276,18 @@ def test_the_shared_edge_ceiling_came_up_the_stub_at_the_taxi_cap(two_runways, l
 def test_runway_rows_are_otherwise_byte_identical(two_runways, law):
     _airport, _pm, cs, cs_pre, _raw, rwv = _arms(two_runways, law)
     post, pre = set(cs.rows()), set(cs_pre.rows())
+    adj = no_step.adjacent_taxi_vertices(_pm, law)
     gone = pre - post
-    assert not post - pre                       # nothing was ADDED by the fix
+    added = post - pre
+    # the only rows ADDED are the adjacent faces' re-sourced bands (10-02ab)
+    assert added and all(isinstance(r, Band) and r.source.generator == REACH_GENERATOR
+                         and (r.v in adj or r.v in rwv) for r in added)
+    assert any(r.v in adj for r in added) and any(r.v in rwv for r in added)
     assert gone and all(isinstance(r, Band) and r.source.generator == REACH_GENERATOR
-                        and r.v in rwv for r in gone)
+                        and (r.v in rwv or r.v in adj) for r in gone)
     # every other row of the set — the runway's pins, longitudinal caps,
     # vertical curve, crown, transverse maximum — stands unchanged
-    assert {r for r in pre if r not in gone} == post
+    assert {r for r in pre if r not in gone} == post - added
 
 
 def test_the_shared_edge_carries_the_transverse_row_and_its_own_band(two_runways, law):
@@ -319,12 +344,15 @@ def test_the_ridge_does_not_come_down(two_runways, law):
 
 
 def test_the_taxi_side_vertices_beyond_the_edge_still_obey_the_band(two_runways, law):
-    """The stub's own vertices — the ones no runway face owns — still
-    CARRY the band and the solve still honours it."""
+    """The taxi vertices BEYOND the adjacent faces — the parallel taxiway,
+    which shares no vertex with a runway — still CARRY the full metric's
+    band and the solve still honours it (10-02ab (1): only the faces
+    sharing a runway vertex conform to the edge)."""
     airport, pm, cs, _pre, raw, rwv = _arms(two_runways, law)
-    stub = {u for f in pm.faces.values() if f.role == "stub"
-            for cyc in (f.ring, *f.holes) for u in pm.ring_vertices(cyc)}
-    beyond = {u for u in stub - rwv if u in raw and raw[u][0] <= raw[u][1]}
+    adj = no_step.adjacent_taxi_vertices(pm, law)
+    taxi_a = {u for f in pm.faces.values() if f.ref == "taxiA"
+              for cyc in (f.ring, *f.holes) for u in pm.ring_vertices(cyc)}
+    beyond = {u for u in taxi_a - rwv - adj if u in raw and raw[u][0] <= raw[u][1]}
     assert len(beyond) >= 3, len(beyond)
     banded = {r.v: (r.lo, r.hi) for r in cs.bands
               if r.source.generator == REACH_GENERATOR}
@@ -348,3 +376,58 @@ def test_the_taxi_side_vertices_beyond_the_edge_still_obey_the_band(two_runways,
         max((z[u] - zf[u], u) for u in beyond)
     assert any(z[u] < zf[u] - 0.01 for u in beyond), \
         sorted(round(float(zf[u] - z[u]), 4) for u in beyond)
+
+
+def test_the_adjacent_stub_follows_the_edge_with_no_grade_break(two_runways, law):
+    """10-02ab (1): the stub off 09/27 rises WITH the edge (it is sourced
+    from it, not held under 09L/27R's ceiling), stands inside the band the
+    edge's own band implies, and every §1.2 rate row and longitudinal pair
+    row on it is met — no grade break where it leaves the runway."""
+    from auto_patch_v2.model.constraints import Diff, Linear
+    airport, pm, cs, cs_pre, raw, rwv = _arms(two_runways, law)
+    stub_b = {u for f in pm.faces.values() if f.ref == "stubB"
+              for cyc in (f.ring, *f.holes) for u in pm.ring_vertices(cyc)}
+    own_b = stub_b - rwv
+    assert own_b
+    pre_sol, _p = solve_design(pm, cs_pre, law)
+    post_sol, _q = solve_design(pm, cs, law)
+    assert post_sol.status in (Status.OPTIMAL, Status.FEASIBLE), post_sol.message
+    zp, zq = np.asarray(pre_sol.z, float), np.asarray(post_sol.z, float)
+    tol = law.tables.emit.design.hard_tol_m
+    _rw, edge, _vw = _shared_edge(pm, law)
+    # the stub rises with the edge: no stub vertex is left behind under the
+    # old ceiling while the edge goes up
+    assert zq[edge] > zp[edge] + 0.05
+    assert all(zq[u] >= zp[u] - tol for u in own_b), min((zq[u] - zp[u], u) for u in own_b)
+    assert any(zq[u] > zp[u] + 0.05 for u in own_b)
+    # it stands inside the band the edge's own band implies
+    vals = no_step.reach_band_values(pm, law, airport)
+    assert all(vals[u][0] - tol <= zq[u] <= vals[u][1] + tol for u in own_b
+               if u in vals), [(u, zq[u], vals[u]) for u in own_b if u in vals]
+    # ... and NO GRADE BREAK: every §1.2 rate row ON the stub — the corner
+    # where it leaves the runway and every station down it — is met at the
+    # post surface (the grade CHANGE is what a strip_arc row prices).  The
+    # stub's FAR junction with the parallel taxiway (whose band is still the
+    # full metric's) is where this fixture's contradiction has to land.
+    # The fixture's two runways contradict by 3.6 m along the taxi network,
+    # so the stub's longitudinal PAIRS are over their cap in BOTH arms; what
+    # the fix must not do is dump the edge's rise on the first hop: its
+    # over-cap grows by less than the edge rose.
+    edge_v = stub_b & rwv
+    assert edge_v
+    worst = 0.0
+    first_hop = []
+    for r in cs.rows():
+        if isinstance(r, Linear) and r.source.generator == no_step.GEN \
+                and all(v in stub_b for v, _c in r.terms):
+            val = sum(c * zq[v] for v, c in r.terms)
+            sc = 0.5 * sum(abs(c) for _v, c in r.terms)
+            ex = max((r.lo - val) if r.lo is not None else -1.0,
+                     (val - r.hi) if r.hi is not None else -1.0) / sc
+            worst = max(worst, ex)
+        elif isinstance(r, Diff) and {r.a, r.b} & edge_v and {r.a, r.b} <= stub_b \
+                and not float(getattr(r, "rel", 0.0) or 0.0):
+            first_hop.append((abs(zq[r.a] - zq[r.b]) - r.cap * r.d)
+                             - (abs(zp[r.a] - zp[r.b]) - r.cap * r.d))
+    assert worst <= tol + 1e-9, worst
+    assert first_hop and max(first_hop) < zq[edge] - zp[edge], (max(first_hop), zq[edge] - zp[edge])

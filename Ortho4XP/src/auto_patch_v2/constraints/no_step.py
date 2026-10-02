@@ -90,14 +90,14 @@ from ..model.airport import Airport
 from ..model.constraints import (REACH_GENERATOR, Band, ConstraintSet, Diff,
                                  Linear, Row, Source)
 from ..model.planar import PlanarMap
-from .routes import reach, route_neighbours, routes
+from .routes import reach, reach_anchored, route_neighbours, routes
 from .precedence import View, view
 from .runway_profile import threshold_pins
 
 __all__ = ["no_step_roles", "rigid_airside_roles", "no_step_pairs",
            "no_step_rate", "no_step_edges", "pad_only_vertices", "pad_contacts",
            "pad_pavement_edges", "rate_rows_for_chain", "reach_bands",
-           "reach_band_values", "runway_family_routes", "hold_interval", "hold_pass", "HoldPass",
+           "reach_band_values", "runway_family_routes", "adjacent_taxi_vertices", "hold_interval", "hold_pass", "HoldPass",
            "HoldInterval", "pair_graph", "runway_membership", "RUNWAY_FLEX",
            "FLEX_RULING"]
 
@@ -219,6 +219,27 @@ def reach_band_values(planar: PlanarMap, law: Law, airport: Airport
     band is never tighter than the raw metric's: this narrowing only
     ever loosens, and only on runway-family vertices.
 
+    THE ADJACENT TAXI FACES CONFORM TO THE RUNWAY (owner RULINGS
+    2026-10-02ab (1), issue #139, lane rwyband139c): every non-runway
+    vertex of a taxi-family face that SHARES a vertex with the runway
+    family (:func:`adjacent_taxi_vertices` — the stubs and fillets off the
+    runway edge) takes the band the runway edge's OWN band implies,
+    carried over those faces at the path caps (``routes.reach_anchored``
+    over the runway-family vertices as interval anchors, on the graph
+    restricted to the runway family and the adjacent faces) — never the
+    full metric's.  Measured at HECA (main, sweep sw1010): the ceiling a
+    FAR runway's threshold (05L/23R, 60.66 m) delivers over 3.2 km of
+    taxi network at the taxi cap stands 0.3-2.2 m UNDER the 05C/23C
+    runway on 93 of its vertices and under 219 taxi vertices beside it;
+    withdrawing it from the runway alone (PR #237) left the stubs pinned
+    under it while the runway rose, and opened a CRITICAL grade break at
+    the runway|stub corner (1.06 m over 65.6 m at 30.11202711,
+    31.41392002).  With the stubs sourced from the edge the break does
+    not open (CRITICAL motion 2 = main); the cost — the 05C runway up to
+    1.58 m higher, ~6,400 airside movers — is the owner's accepted
+    consequence (10-02ab (1)).  A taxi vertex NOT on such a face keeps
+    the full metric's band.
+
     The narrowing is at this ONE derivation site, so every reader (the
     ``reach_bands`` generator, the shape stage's withdraw set, the
     replay cross-check) inherits it without a veto of its own."""
@@ -230,9 +251,49 @@ def reach_band_values(planar: PlanarMap, law: Law, airport: Airport
     subjects = runway_membership(planar, law, vals.keys())
     if not subjects:
         return vals
-    own = reach(runway_family_routes(g, planar, law), pins)
-    return {v: (own[v] if v in subjects else b) for v, b in vals.items()
-            if v not in subjects or v in own}
+    member = runway_membership(planar, law, set(planar.vertices))
+    own = reach(_restrict(g, member), pins)
+    out = {v: (own[v] if v in subjects else b) for v, b in vals.items()
+           if v not in subjects or v in own}
+    # THE ADJACENT TAXI FACES CONFORM TO THE RUNWAY (owner RULINGS
+    # 2026-10-02ab (1)): every vertex of a taxi-family face that shares a
+    # vertex with the runway family takes the runway edge's OWN band carried
+    # over that face at the path caps — the edge is the band's source
+    adj = adjacent_taxi_vertices(planar, law, member)
+    if not adj:
+        return out
+    g_adj = _restrict(g, set(member) | adj)
+    anchors = {r: (0.5 * (lo + hi), 0.5 * (hi - lo)) for r, (lo, hi) in own.items()
+               if r in g_adj.nodes and lo <= hi}
+    if not anchors:
+        return {v: b for v, b in out.items() if v not in adj}
+    ar = reach_anchored(g_adj, anchors)
+    for v in adj:
+        lo, hi = float(ar.lo[v]), float(ar.hi[v])
+        if math.isfinite(lo) and math.isfinite(hi):
+            out[v] = (lo, hi)
+        else:
+            out.pop(v, None)
+    return out
+
+
+def adjacent_taxi_vertices(planar: PlanarMap, law: Law,
+                           member: _t.Mapping[int, _t.Any] | None = None) -> frozenset[int]:
+    """The NON-runway-family vertices of every taxi-family face that shares
+    a vertex with the runway family (``precedence.taxi_family`` /
+    ``runway_family``) — the faces the runway edge is the band's source for
+    (owner RULINGS 2026-10-02ab (1), issue #139)."""
+    from ..law.tables import role_family
+    if member is None:
+        member = runway_membership(planar, law, set(planar.vertices))
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if role_family(law, f.role) != "taxi":
+            continue
+        vs = {v for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
+        if any(v in member for v in vs):
+            out.update(v for v in vs if v not in member)
+    return frozenset(out)
 
 
 def runway_family_routes(g: "RouteGraph", planar: PlanarMap, law: Law) -> "RouteGraph":
@@ -246,21 +307,26 @@ def runway_family_routes(g: "RouteGraph", planar: PlanarMap, law: Law) -> "Route
     one.  Nothing else of the graph is touched: ``nodes``, ``station``
     and the foot tables stay as built, so the surviving walk ids and
     lengths are the ones the full metric uses."""
+    return _restrict(g, runway_membership(planar, law, set(planar.vertices)))
+
+
+def _restrict(g: "RouteGraph", keep: _t.AbstractSet[int]) -> "RouteGraph":
+    """``g`` with only the edges whose BOTH ends are in ``keep`` (a virtual
+    foot through its segment's two planar ends)."""
     import numpy as np
-    member = runway_membership(planar, law, set(planar.vertices))
 
     def inside(ident: int) -> bool:
         i = int(ident)
         if i >= g.n_planar:
             a, b, _t = g.foot[i]
-            return int(a) in member and int(b) in member
-        return i in member
+            return int(a) in keep and int(b) in keep
+        return i in keep
 
-    keep = np.fromiter((inside(a) and inside(b) for a, b in zip(g.a, g.b)),
-                       bool, len(g.a))
-    return _dc.replace(g, a=g.a[keep], b=g.b[keep], length=g.length[keep],
-                       cap=g.cap[keep], kind=g.kind[keep],
-                       face=(g.face[keep] if len(g.face) == len(keep) else g.face))
+    sel = np.fromiter((inside(a) and inside(b) for a, b in zip(g.a, g.b)),
+                      bool, len(g.a))
+    return _dc.replace(g, a=g.a[sel], b=g.b[sel], length=g.length[sel],
+                       cap=g.cap[sel], kind=g.kind[sel],
+                       face=(g.face[sel] if len(g.face) == len(sel) else g.face))
 
 
 #: THE RUNWAY FLEX RECORDS of the last solve (flat-pad spec v2 §6 A11):

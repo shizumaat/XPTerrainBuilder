@@ -61,7 +61,6 @@ from . import anchor_rule as _ar
 from . import placement_boxes as _pb
 from .placement_contact import (_clusters,  # noqa: F401
                                 boxes_touch, m_per_deg_exact, rings_touch)
-from ..geom.pad_evidence import member_row, pad_evidence
 from .sheet_chain import merge_by_sheets, sheet_links
 
 __all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
@@ -341,18 +340,6 @@ class PlanCluster:
     #: ``""`` (not asked).  §5 A5 / §6 read this: an upper-bound profile
     #: must never be mistaken for the composed one.
     composition: str = ""
-    #: §16g (10) (12) THE PAD-ADMISSION EVIDENCE (issue #101; owner RULINGS
-    #: 2026-10-02v (3)): what v1's two gates — tall-base fill and building
-    #: evidence — measure on this cluster's own solid geometry
-    #: (``geom.pad_evidence.PadEvidence``).  ONE derivation here, judged at
-    #: ``geom.cluster_outlines`` rules 9 and 10, so the MINT
-    #: (``classify/evidence``) and the CENSUS (``constraints/cluster_pad``)
-    #: read one verdict.  ``None`` when the caller passed no evidence law
-    #: (every twin that does not ask, and a cluster cached before the
-    #: field): the gate then reads "not measured" and refuses NOTHING —
-    #: the same discipline ``cluster_no_height`` keeps for a plan carrying
-    #: no solid heights.
-    evidence: _t.Any = None
 
     def line(self) -> str:
         return (f"{self.id}: {len(self.members)} member(s), footprint union "
@@ -456,7 +443,7 @@ class _Shim:
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "resource",
                  "floors", "rings", "floor", "footed", "walled", "pids",
-                 "outline", "bridges", "rows")
+                 "outline", "bridges")
 
     def __init__(self, member: int, boxes: list, resource: str,
                  floors: "list | None" = None,
@@ -465,8 +452,7 @@ class _Shim:
                  walled: bool = True,
                  pids: "frozenset[int]" = frozenset(),
                  outline: "list | None" = None,
-                 bridges: "list | None" = None,
-                 rows: "list | None" = None) -> None:
+                 bridges: "list | None" = None) -> None:
         self.member = member
         #: the body's part ids — the join to the §2 connector verdict
         self.pids = frozenset(pids)
@@ -484,13 +470,6 @@ class _Shim:
         #: issue #73 (lane ``courtyards``): the rings ``outline`` left out
         #: — posts and flat lines, which may still CLOSE the outline
         self.bridges = list(bridges or ())
-        #: §16g (10) (12), issue #101: one ``geom.pad_evidence.MemberRow``
-        #: per COMPONENT of this body — what the two ported v1
-        #: pad-admission gates are measured over.  Posts and flat lines
-        #: are INCLUDED: v1's hull is over every base vertex of the
-        #: structure, and the discriminator is precisely that the mast is
-        #: in the hull while its base is not in the numerator.
-        self.rows = list(rows or ())
         #: §16g (10) (1) / 14z: the body's GROUND FLOOR and whether it
         #: has a ground-contact component at all
         self.floor = float(floor)
@@ -656,8 +635,7 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                   cut: _t.AbstractSet[int] = frozenset(),
                   linear: "_t.AbstractSet[int] | None" = None,
                   outline_law: "tuple[float, float, float] | None" = None,
-                  profile_law: "ProfileLaw | None" = None,
-                  evidence_law: "tuple[float, float, float] | None" = None
+                  profile_law: "ProfileLaw | None" = None
                   ) -> list[PlanCluster]:
     """§16g (9) ONE POPULATION / (10) (1) THE PAD IS THE CLUSTER's own
     derivation, read off a ``RebakePlan`` — the planar-time half of the
@@ -770,11 +748,7 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                 outline=[r for q, d in zip(live, draw) if d
                          for r in q.rings if len(r) >= 3],
                 bridges=[r for q, d in zip(live, draw) if not d
-                         for r in q.rings if len(r) >= 3],
-                # §16g (10) (12), issue #101: the pad-admission rows —
-                # every live component, posts and flat lines included
-                rows=[member_row(q, u.members[mi].resource, ml_u, mo_u)
-                      for q in live] if evidence_law is not None else None))
+                         for r in q.rings if len(r) >= 3]))
         if not shims:
             continue
         # ``min_members=1``: §16g (9)'s population has no member gate —
@@ -859,18 +833,6 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                     # base-profile spec §1 (3)/(4) (C1): the group's own
                     # composed profile, derived HERE — the one site the
                     # planar stage and the object stage both read
-                    # §16g (10) (12), issue #101: v1's two pad-admission
-                    # gates, MEASURED here and judged at
-                    # ``geom.cluster_outlines``.  The hull is over every
-                    # component ring of the group (v1's hull over every
-                    # base vertex of the structure), never the pad
-                    # outline's union: a plate+mast weld's union is solid
-                    # and only the hull exposes the weld.
-                    evidence=(pad_evidence(
-                        [w for i in grp for w in shims[i].rows],
-                        [v for i in grp for r in shims[i].rings for v in r],
-                        ml_u, mo_u, *evidence_law)
-                        if evidence_law is not None else None),
                     **_profile_of(u, grp, shims, profile_law)))
     if counts is not None:
         counts["cluster_no_height"] = 0 if any_height else 1

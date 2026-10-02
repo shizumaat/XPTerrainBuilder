@@ -83,7 +83,7 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _level_fre
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
            "stage_split", "airside_stage_roles", "airside_stage_vertices",
-           "conforming_rulings",
+           "conforming_rulings", "groundside_pin_rulings",
            "bend_roles", "pavement_roles", "bend_class", "apron_roles",
            "taxi_body_roles", "datum_roles", "hard_rulings",
            "one_way_rulings", "pad_flat_rulings", "pad_level_rulings",
@@ -105,8 +105,9 @@ _LAG_OFF = 1.0e9
 
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
+from .design_stage import stage_split  # noqa: E402  (re-export: the §20b split)
 from .design_roles import (  # noqa: E402  (re-export)
-    airside_stage_roles, airside_stage_vertices, conforming_rulings, bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
+    airside_stage_roles, airside_stage_vertices, conforming_rulings, groundside_pin_rulings, bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
 
 @_dc.dataclass(frozen=True)
 class _BodyDatum:
@@ -157,34 +158,6 @@ class Base:
     #: ``one`` indices of the FOOT ROWS (``[design] foot_row_rulings``,
     #: 11ab): priced at ``pad_flat``, the pad law's own target
     foot_row_i: list[int] = _dc.field(default_factory=list)
-
-
-def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
-                ) -> tuple[frozenset[int], dict[int, float]]:
-    """§20b STAGE 1's SPLIT: the vertices whose columns are FOREIGN to the
-    airside problem, and the dummy values they are fixed at.
-
-    A column is AIRSIDE when any vertex mapped to it is a vertex of an
-    airside-pavement face (:func:`airside_stage_vertices`) — the test is on
-    the COLUMN, because a rigid ``Flat`` group welded to an apron vertex is
-    ONE unknown and the airside's own weld decides it.  Every other FREE
-    vertex is foreign: it is fixed (so it carries no column) and every row
-    touching it is dropped (``_Rows.drop``), which is the brief's "every row
-    whose every column is airside".  A vertex already FIXED — a ``Pin``, a
-    threshold, a seam pin (§38) — is never foreign: a constant is not a
-    column, and the rows footed on it belong to stage 1 exactly as the law
-    states them."""
-    red0 = _reduce(planar, cs, {})
-    air_v = airside_stage_vertices(planar, law)
-    air_cols = {int(red0.col[v]) for v in air_v if red0.col[v] >= 0}
-    foreign: dict[int, float] = {}
-    for vid in range(len(planar.vertices)):
-        col = int(red0.col[vid])
-        if col < 0 or col in air_cols:
-            continue
-        dz = planar.vertices[vid].dem_z
-        foreign[vid] = float(dz) if dz is not None else 0.0
-    return frozenset(foreign), foreign
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,

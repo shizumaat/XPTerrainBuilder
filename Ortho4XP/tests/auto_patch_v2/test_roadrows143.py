@@ -24,6 +24,13 @@ THE RULE (one helper, ``constraints/roads.road_pair_side``):
 3. between the stages a join pin whose welded road row cannot hold against
    stage 1's constant is released (``road_ramp.welded_join_release``): the
    road's first groundside vertex carries the cap FROM the welded level.
+
+EXTENDED by owner RULINGS 2026-10-02v (1) (lane ``roadsfree143``,
+``test_roadsfree143.py``): rule 2 is stated at stage 1's OWN derivation site
+— a pinned GROUNDSIDE vertex is foreign (``[design]
+groundside_pin_rulings``, ``solve/design.stage_split``) — so it holds for
+every generator and every road face, not the four this lane reached.  The
+pair law above STAYS: it also decides who FOLLOWS in stage 2.
 """
 from __future__ import annotations
 
@@ -189,16 +196,25 @@ def test_a_welded_road_contributes_no_stage_one_row_even_through_a_pin(law, buil
     gs = _first_groundside(pm, air)
     pinned = _pinned(pm, cs, {v: 600.0 for v in gs})
     drop, fixed = D.stage_split(pm, pinned, law)
-    assert not set(gs) & drop, "a pinned vertex is never foreign"
+    # A PINNED GROUNDSIDE VERTEX IS FOREIGN (owner RULINGS 2026-10-02v (1),
+    # lane ``roadsfree143``, ``tests/auto_patch_v2/test_roadsfree143.py``):
+    # this lane shut the door one generator at a time and read "a pinned
+    # vertex is never foreign" as stage 1's law; the ruling put the same law
+    # at stage 1's own site, where it holds for every generator.  Both
+    # statements are asserted here — the row outcome below is what the
+    # one-way minting buys on its own, and it must still hold.
+    assert set(gs) <= drop, "a pinned GROUNDSIDE vertex is foreign"
     rep = D.DesignReport()
     base = D.assemble(pm, pinned, law, rep, drop=drop, fixed=fixed,
                       stage_roles=D.airside_stage_roles(law))
     n = 0
     for _terms, _hi, row in base.one:
         vs = set(row_vertices(row))
-        # a road row between two PINS is a constant (no column) — it binds
-        # nothing; a road foot beside an AIRSIDE foot is the defect
+        # a road foot beside an AIRSIDE foot is the defect; a road row
+        # between two PINS was a constant that bound nothing, and since the
+        # ruling it is not stage 1's row at all
         assert not (vs & set(gs) and vs & air), (row.source, vs)
+        assert not vs & set(gs), (row.source, vs)
         n += bool(vs & air)
     assert n > 0, "stage 1 carries the airside's own rows"
 

@@ -153,10 +153,7 @@ def test_the_level_rulings_are_registered_one_way_and_the_senior_is_the_pad_weig
 def _fronting_cells():
     """One apron with a pad cut out of it as a hole, sharing that whole
     ring — the LEMD T4S shape: ``pav16`` and ``building16``."""
-    # 200 x 60 m: the cap mint (C = platform_collar_max_m, RULINGS
-    # 2026-10-02v (5)) erodes 15 m, so the 120 x 60 of the C = 5 m
-    # rounds would leave no platform over cluster_pad_min_m2
-    pad = _rect(-100.0, 180.0, 100.0, 240.0)
+    pad = _rect(-60.0, 180.0, 60.0, 240.0)
     return [RUNWAY,
             Cell(1, "apron", "apronA", _rect(-260, Y0, 260, Y1), (pad,),
                  None, None, "airside", "apron", {}),
@@ -168,13 +165,10 @@ def _mixed_rim_cells():
     the rim is MIXED — some vertices the apron's own, some the pad's.  The
     shape ``building16`` really has at LEMD (49 rim vertices on a basin's
     retaining wall against 11 on the apron it fronts)."""
-    # 200 x 60 m: the cap mint (C = platform_collar_max_m, RULINGS
-    # 2026-10-02v (5)) erodes 15 m, so the 120 x 60 of the C = 5 m
-    # rounds would leave no platform over cluster_pad_min_m2
-    pad = _rect(-100.0, 180.0, 100.0, 240.0)
+    pad = _rect(-60.0, 180.0, 60.0, 240.0)
     return [RUNWAY,
             Cell(1, "apron", "apronA", _rect(-260.0, Y0, 20.0, Y1),
-                 (_rect(-100.0, 180.0, 20.0, 240.0),),
+                 (_rect(-60.0, 180.0, 20.0, 240.0),),
                  None, None, "airside", "apron", {}),
             Cell(2, "building", "padA", pad, (), None, None, "airside", "pad", {})]
 
@@ -356,10 +350,7 @@ def _two_pavement_cells(drop_m: float):
     """A pad between an APRON on one side and a TAXIWAY on the other, the
     taxiway's own surface ``drop_m`` below the apron's over the 120 m the
     pad spans.  The taxi family is SENIOR to the apron."""
-    # 200 x 60 m: the cap mint (C = platform_collar_max_m, RULINGS
-    # 2026-10-02v (5)) erodes 15 m, so the 120 x 60 of the C = 5 m
-    # rounds would leave no platform over cluster_pad_min_m2
-    pad = _rect(-100.0, 180.0, 100.0, 240.0)
+    pad = _rect(-60.0, 180.0, 60.0, 240.0)
 
     class _Tilt:
         provenance = {"synthetic": "two levels"}
@@ -651,10 +642,7 @@ def test_every_welded_contact_has_a_bank_row(law):
     air = airside_vertices(pm, law)
     plat = _verts(pm, "padA")
     contacts = _unit_verts(pm, "padA") & air
-    # 9 since the cap mint widened this fixture's pad to 200 m (7 while
-    # it was 120 m wide); the two coverage-edge corners below are the
-    # population the twin is about, and they are unchanged
-    assert len(contacts) == 9, sorted(contacts)
+    assert len(contacts) == 7, sorted(contacts)
     bank = [r for r in platform_collar_rows(pm, law, airport)
             if r.source.ruling.startswith(COLLAR_RULING)]
     led = {r.a for r in bank}

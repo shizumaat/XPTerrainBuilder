@@ -43,23 +43,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def mint(cl, ap, law, bridge_m: float):
     """The mint's own call (``classify/evidence._pads``) at one bridge value."""
     from auto_patch_v2.classify.evidence import deck_shades
-    from auto_patch_v2.geom import cluster_outlines, osm_building_evidence
-    from auto_patch_v2.law.tables import pad_admission
+    from auto_patch_v2.geom import cluster_outlines
     st = law.tables.structures.placement
     to_xy = ap.frame.entry()
     airside = None  # pad_airside_clip: the outline is not pre-cut (evidence._pads)
     return cluster_outlines(cl, to_xy, float(st.footprint_touch_m), airside=airside,
                             walled_only=True, min_m2=float(st.cluster_pad_min_m2),
                             shades=deck_shades(getattr(ap, "partition", None), to_xy),
-                            bridge_m=float(bridge_m),
-                            # §16g (10) (12), issue #101: the two
-                            # pad-admission gates are the MINT's, so this
-                            # tool reads them too — without them it would
-                            # report a pre-gate population the build does
-                            # not have (the census-wrapper defect)
-                            admission=pad_admission(law),
-                            osm_evidence=osm_building_evidence(
-                                getattr(ap, "buildings", ()) or ()))
+                            bridge_m=float(bridge_m))
 
 
 def diff(got_a, got_b, to_ll) -> dict:

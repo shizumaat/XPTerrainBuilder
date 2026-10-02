@@ -19,22 +19,15 @@ bar) is split into TWO regions of its own role:
   ``building`` face with a HOLE, graded as a §31 (7) bank from the welded
   rim to the platform (``constraints.platform``).
 
-C IS THE CAP (owner RULINGS 2026-10-02v (5), issue #86): every platform
-is minted at ``platform_collar_max_m``, the widest collar the law allows,
-and the SOLVE places the toe inside it (``constraints.platform``: the
-collar's rows are one-way INEQUALITIES at the 1:3 bank, never a fixed-toe
-equality).  The DEM proxy it replaces — ``C = clamp(relief / bank_slope,
-bank_min_width_m, platform_collar_max_m)`` read off the DEM along the
-welded rim (:func:`rim_relief_m`) — under-read the SOLVED relief at HECA
-T3 ``building4`` (C 10.43 m, 11.2 m needed) and SPJC ``building5`` (C
-5.99 m, 14.0 m needed), and the two-pass re-mint that would close it is
-REFUSED (RULINGS 2026-09-29l: it does not converge — widening the collar
-moves the platform's plane, so the needed C grows again, 5.99 -> 13.99 ->
-17.88 m — and it doubles the solve, 08k (4) ONE pass).  The mint still
-READS the DEM relief and records it per platform (``Platform.rim_relief``),
-and the SOLVED relief is re-read after the solve and published
-(``platform_rim_relief``, with the collar it would need), so a cap too
-narrow for the relief shows there, never silently.
+C IS MEASURED PER PLATFORM (spec §1 (2); spec-author correction on #66,
+2026-09-28): ``C = clamp(relief / bank_slope, bank_min_width_m,
+platform_collar_max_m)`` where ``relief`` is the WELDED rim's largest
+distance from the platform plane (:func:`rim_relief_m`).  The spec reads it
+off stage 1; stage 1 runs after this arrangement, so the mint reads the
+one level there is here, the DEM along the welded rim, against the same
+tilt-bounded frontage plane — and the SOLVED relief is re-read after the
+solve and published per platform (``platform_rim_relief``, with the collar
+it would need), so a mint that under-read shows there, never silently.
 
 The erosion never touches the rim: no airside vertex is created or moved
 (the inner ring is at least C inside the pad, minted after the 23a cut).
@@ -72,10 +65,9 @@ _MIN_WELDED = 3
 
 
 def collar_width_m(law: Law) -> float:
-    """C (module docstring): the CAP, ``structures.building_pad
-    platform_collar_max_m`` (owner RULINGS 2026-10-02v (5)) — ONE
-    derivation, read by the mint and by its twins."""
-    return float(law.tables.structures.building_pad.platform_collar_max_m)
+    """C (module docstring): the §31 (7) bank floor
+    ``emit.design.bank_min_width_m`` — ONE derivation."""
+    return float(law.tables.emit.design.bank_min_width_m)
 
 
 def _parts(g) -> list[Polygon]:
@@ -160,10 +152,11 @@ def platform_split(base_regions, pad_regions, law: Law,
     from ..law.tables import design as design_law
     min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)
     near = float(design_law(law).pad_frontage_m)
-    C = collar_width_m(law)
+    C0 = collar_width_m(law)
     bank = float(law.tables.emit.design.bank_slope)
+    cmax = float(bp.platform_collar_max_m)
     slope_max = float(law.tables.emit.within_shape.pad_slope_max)
-    if min_m2 <= 0.0 or C <= 0.0 or bank <= 0.0:
+    if min_m2 <= 0.0 or C0 <= 0.0 or bank <= 0.0:
         return list(pad_regions), counts
     air_roles = rolled_on_roles(law)
     air_polys = [r.polygon for r in base_regions
@@ -190,12 +183,11 @@ def platform_split(base_regions, pad_regions, law: Law,
         if nw < _MIN_WELDED:
             out.append(pr)
             continue
-        # C IS THE CAP (owner RULINGS 2026-10-02v (5)): ONE width for every
-        # platform, the law's widest, so the solve has the whole bank to
-        # place the toe in.  The DEM relief is still READ — it is what the
-        # mint under-read (#86), and the record is how the cap is judged
-        # against the solved relief the census re-reads.
+        # C PER PLATFORM (spec-author correction on #66): the §31 (7) bank
+        # the welded rim's relief needs, clamped to [bank_min_width_m,
+        # platform_collar_max_m]
         rel = rim_relief_m(P, air, near, dem, slope_max)
+        C = C0 if rel is None else min(cmax, max(C0, rel / bank))
         inner = P.buffer(-C, join_style=2, mitre_limit=2.0)
         parts = sorted(_parts(inner), key=lambda q: -q.area)
         if not parts:

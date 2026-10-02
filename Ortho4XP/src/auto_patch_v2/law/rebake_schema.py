@@ -363,64 +363,6 @@ class Placement:
     #: WALLED ALONG ITS WHOLE LENGTH.  0 disarms S1.
     connector_solid_gap_m: float = 20.0
 
-    # ── §16g (10) (12) THE TWO PAD-ADMISSION GATES, PORTED FROM v1 ──
-    # (issue #101; owner RULINGS 2026-10-02v (3), verbatim: "We definitely
-    # don't want a flat pad under the whole train at HECA".)  The values
-    # below are v1's, value for value — ``src/auto_patch/config.py``
-    # :3734-3790 carries the calibration and
-    # ``geom/pad_evidence.py`` the measurement.
-
-    #: v1 ``DSF_OBJECT_MIN_TALL_BASE_FILL``: a cluster whose TALL members
-    #: cover less than this of its footprint HULL mints no pad — a
-    #: building's tall member covers its own footprint, a 0.3 m plate
-    #: welded to a 28 m mast does not.  A real terminal reads ~1.0, the
-    #: plate+mast weld ~0.002, HECA's elevated train the same.
-    #: DELIBERATELY LOW AND NOT TO BE RAISED (v1, measured HECA
-    #: 2026-07-27): the weld class and sparse street furniture measure
-    #: < 0.002 (670 of 813 skip events; phantom building124 ~0.0015) while
-    #: THIN-WALL terminal shells — material-split wall objects whose 1.5 m
-    #: footing band projects as thin strips — measure ~0.002-0.01 and are
-    #: REAL buildings that need their pads.  Raising it toward 0.05 culled
-    #: ~140 thin-wall shells (buildings 498 -> 90).  0 disarms.
-    min_tall_base_fill: float = 0.002
-    #: v1 ``DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M``: what counts as a TALL
-    #: member for the fill above.  ITS OWN KEY ON PURPOSE, exactly as in
-    #: v1 — ``chain_min_height_m`` is a separately owned gate (tests and
-    #: users legitimately zero it) and the tall-base discriminator must
-    #: not silently degrade to "everything is tall" when they do.  It
-    #: happens to read the same 2.5 m today; they are not one number.
-    tall_member_min_extent_m: float = 2.5
-    #: v1 ``DSF_OBJECT_BUILDING_EVIDENCE`` (R18-2, owner ruling
-    #: 2026-08-11b): a footprint mints a pad ONLY with evidence a BUILDING
-    #: is there, never on solid reach alone — (a) an intersecting OSM
-    #: building / terminal / hangar footprint, OR (b) the vertical test
-    #: below on the object's own solid geometry.  It closed four HECA pads
-    #: 11-18 m BELOW their own ground whose footprints were apron slabs,
-    #: jersey barriers, fuel trucks and buses with ZERO OSM buildings
-    #: under them.  false disarms the gate.
-    building_evidence: bool = True
-    #: v1 ``DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M``: the vertical test — some
-    #: component stands at least this far ABOVE GRADE on its own.  The
-    #: four phantom pads' rings top out at 2.85-5.36 m; every real
-    #: terminal shell reaches 6.1 m or more.  Raise it and single-storey
-    #: buildings fall through to the OSM half; lower it and the jet-blast
-    #: fences vouch themselves.  0 disables the height test.
-    evidence_min_height_m: float = 6.0
-    #: v1 ``DSF_OBJECT_EVIDENCE_MIN_COVERAGE``: how much of the hull those
-    #: building-tall members must cover.  ARMED AT 0 BY MEASUREMENT and
-    #: the measurement is the point (HECA 2026-08-11): a material-split
-    #: pack authors one terminal as per-material thin wall strips whose
-    #: tall members cover 0.000-0.02 of the fused hull — the SAME range as
-    #: the phantom slab class (a 22,743 m2 ring with a 14.98 m member
-    #: reads 0.0020, a 31,184 m2 ring with a 10.81 m member 0.0004, the
-    #: phantom 61,481 m2 ring 0.0000).  Any floor that catches the
-    #: phantoms deletes the real terminals; the HEIGHT separates them
-    #: alone, and the coverage-shaped defence is carried upstream, as a
-    #: REFUSAL, by ``min_tall_base_fill``.  A pack that needs the floor
-    #: arms it here; it stays a floor on the EVIDENCE, never a refusal —
-    #: a cluster below it falls through to the OSM half.
-    evidence_min_coverage: float = 0.0
-
 
 @_dc.dataclass(frozen=True)
 class Deck:

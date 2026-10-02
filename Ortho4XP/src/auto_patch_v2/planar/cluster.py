@@ -133,20 +133,6 @@ def _outline_law(law: Law) -> tuple[float, float, float]:
             float(getattr(pl, "flat_line_max_width_m", 0.0)))
 
 
-def _evidence_law(law: Law) -> tuple[float, float, float]:
-    """§16g (10) (12) (issue #101; owner RULINGS 2026-10-02v (3)): the three
-    ``[placement]`` keys the PAD-ADMISSION MEASUREMENT needs —
-    ``tall_member_min_extent_m``, ``evidence_min_height_m``,
-    ``evidence_min_coverage`` — ONE derivation site.  The four the GATE is
-    judged at are ``law.tables.pad_admission`` (``law/tables.py``), read by
-    the mint and the census; this triple is read once, here, where the
-    cluster is derived."""
-    pl = law.tables.structures.placement
-    return (float(getattr(pl, "tall_member_min_extent_m", 0.0)),
-            float(getattr(pl, "evidence_min_height_m", 0.0)),
-            float(getattr(pl, "evidence_min_coverage", 0.0)))
-
-
 def _floor_split_m(law: Law) -> float:
     """§16g (10) (1): ``[placement] floor_split_m`` — ONE derivation
     site.  0 leaves a touching chain one cluster however its floors
@@ -218,7 +204,6 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     tall = _chain_min_height_m(law)
     sheet = _sheet_chain_min_fraction(law)
     olaw = _outline_law(law)
-    elaw = _evidence_law(law)
     part = getattr(airport, "partition", None)
     WHY.clear()
     WHY.update(min_m2=cluster_min_m2(law), touch_m=eps, floor_split_m=split,
@@ -242,8 +227,7 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     key = id(airport)
     for k, ap, m0, e0, got in _MEMO:
         if (k == key and ap is airport
-                and m0 == (split, tall, sheet, cut, linear, olaw, plaw,
-                           elaw)
+                and m0 == (split, tall, sheet, cut, linear, olaw, plaw)
                 and e0 == eps):
             return got
     counts: dict = {}
@@ -251,7 +235,7 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
                               chain_min_height_m=tall, counts=counts,
                               sheet_chain_min_fraction=sheet, cut=cut,
                               linear=linear, outline_law=olaw,
-                              profile_law=plaw, evidence_law=elaw))
+                              profile_law=plaw))
     WHY["connectors_cut_out"] = counts.get("cluster_connectors_cut_out", 0)
     WHY["clusters"] = len(got)
     WHY["with_rings"] = sum(1 for c in got if c.rings)
@@ -260,20 +244,12 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     WHY["walled_clusters"] = sum(1 for c in got if c.walled)
     if not got:
         WHY["gate"] = "plan_clusters: the partition's units hold no body"
-    # §16g (10) (12), issue #101: the pad-admission measurement, SAID —
-    # an unmeasured population must never be mistaken for one the gates
-    # admitted (the ``cluster_no_height`` discipline)
-    WHY["pad_evidence"] = sum(1 for c in got
-                              if getattr(c, "evidence", None) is not None)
-    WHY["tall_member_min_extent_m"] = elaw[0]
-    WHY["evidence_min_height_m"] = elaw[1]
     WHY["base_profiles"] = sum(1 for c in got if c.base_profile)
     WHY["base_planes"] = sum(len(c.base_profile.get("planes") or ())
                              for c in got if c.base_profile)
     WHY["base_composition"] = ",".join(sorted(
         {c.composition for c in got if c.composition})) or "none"
-    _MEMO.append((key, airport,
-                  (split, tall, sheet, cut, linear, olaw, plaw, elaw),
+    _MEMO.append((key, airport, (split, tall, sheet, cut, linear, olaw, plaw),
                   eps, got))
     del _MEMO[:-_MEMO_MAX]
     return got

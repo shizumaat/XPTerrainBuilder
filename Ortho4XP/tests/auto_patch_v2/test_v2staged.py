@@ -85,9 +85,7 @@ def _cells():
              (), 3, "D", "airside", "runway", {}),
         Cell(1, "apron", "apronA", _rect(-260.0, 140.0, 260.0, 180.0), (),
              None, None, "airside", "apron", {}),
-        # 200 x 60 m: the cap mint erodes C = platform_collar_max_m
-        # (15 m, RULINGS 2026-10-02v (5)); 120 x 60 leaves no platform
-        Cell(2, "building", "padA", _rect(-100.0, 180.0, 100.0, 240.0), (),
+        Cell(2, "building", "padA", _rect(-60.0, 180.0, 60.0, 240.0), (),
              None, None, "airside", "pad", {}),
         Cell(3, "service_road", "roadA", _rect(-260.0, 252.0, 260.0, 264.0),
              (), None, None, "groundside", "road", {}),

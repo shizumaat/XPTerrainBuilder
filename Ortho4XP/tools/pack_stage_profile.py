@@ -193,20 +193,12 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
             mn = 0.0
         pads = sxy = None
         try:
-            from auto_patch_v2.geom import (cluster_outlines,
-                                             osm_building_evidence)
-            from auto_patch_v2.law.tables import pad_admission
+            from auto_patch_v2.geom import cluster_outlines
             st = law.tables.structures.placement
             to_xy = ps["airport"].frame.entry()
-            # §16g (10) (12), issue #101: the mint's two pad-admission
-            # gates ride here too, or this profile reads a pad population
-            # the build does not have
             pads, _c = cluster_outlines(ps["clusters"], to_xy, float(st.footprint_touch_m),
                                         walled_only=True, min_m2=mn,
-                                        bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)),
-                                        admission=pad_admission(law),
-                                        osm_evidence=osm_building_evidence(
-                                            getattr(ps["airport"], "buildings", ()) or ()))
+                                        bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)))
             sxy = to_xy(site[1], site[0])
         except Exception as exc:                  # an older tree: clusters only
             print(f"[{icao}] pad reading skipped: {exc}", flush=True)
@@ -270,9 +262,8 @@ def read_pickle(path: Path, site: tuple[float, float]) -> dict:
     import pickle
     if str(ROOT / "src") not in sys.path:
         sys.path.insert(0, str(ROOT / "src"))
-    from auto_patch_v2.geom import cluster_outlines, osm_building_evidence
+    from auto_patch_v2.geom import cluster_outlines
     from auto_patch_v2.law import Law
-    from auto_patch_v2.law.tables import pad_admission
     from auto_patch_v2.planar.cluster import cluster_min_m2, clusters
     with open(path, "rb") as fh:
         d = pickle.load(fh)
@@ -283,11 +274,7 @@ def read_pickle(path: Path, site: tuple[float, float]) -> dict:
     to_xy = ap.frame.entry()
     pads, _c = cluster_outlines(cl, to_xy, float(st.footprint_touch_m),
                                 walled_only=True, min_m2=mn,
-                                bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)),
-                                # issue #101: the mint's gates, as above
-                                admission=pad_admission(law),
-                                osm_evidence=osm_building_evidence(
-                                    getattr(ap, "buildings", ()) or ()))
+                                bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)))
     rec = site_report(cl, site[0], site[1], mn, pads, to_xy(site[1], site[0]))
     rec["partition_counts"] = {k: int(ap.partition.counts.get(k, 0)) for k in COUNT_KEYS}
     return rec

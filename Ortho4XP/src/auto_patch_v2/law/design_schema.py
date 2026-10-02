@@ -302,6 +302,14 @@ class Design:
     #: §37 (9)'s coverage-edge join: the core RIBBON yields at the join, not
     #: the 5 % pavement ceiling.  May be empty (nothing yields).
     yielding_pin_rulings: tuple[str, ...]
+    #: THE PINS THAT NEVER HOLD AIRSIDE (owner RULINGS 2026-10-02v (1), issue
+    #: #143; 2026-09-30aa rule 1 for EVERY road face): the ruling heads of
+    #: ``Pin`` rows whose vertex is GROUNDSIDE.  §20b stage 1 treats such a
+    #: vertex as FOREIGN instead of as one of its own constants, so no row
+    #: footed on it — whatever generator minted it — reaches the airside
+    #: problem (``solve/design.stage_split``).  A pin whose rigid ``Flat``
+    #: class contains an airside vertex is not groundside.  May be empty.
+    groundside_pin_rulings: tuple[str, ...]
     hard_weight: float
     #: THE HARD SET MUST SETTLE (owner RULINGS 2026-09-09r (3)): the polish
     #: iterates the augmented-Lagrangian multipliers until EVERY hard row is

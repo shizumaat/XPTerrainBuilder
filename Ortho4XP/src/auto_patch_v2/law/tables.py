@@ -8,7 +8,6 @@ docstring cites the ruling it serves.
 """
 from __future__ import annotations
 
-import dataclasses as _dc
 import math
 
 from pathlib import Path
@@ -32,7 +31,7 @@ __all__ = [
     "flat_site", "flat_datum_group", "flat_declared",
     "flat_source_class", "flat_relief_floor_m", "design",
     "design_weight", "sliver_area_factor", "affordances", "group_span_max_m",
-    "bend_class", "apron_roles", "PadAdmission", "pad_admission",
+    "bend_class", "apron_roles",
 ]
 
 #: The DEM source classes the flat-site detector knows (flat_site.toml
@@ -699,35 +698,3 @@ def sliver_area_factor(law: Law) -> float:
 def groundside_ramp_max(law: Law) -> float:
     """``emit.toml [terrace] groundside_ramp_max`` (08d change 4 (b))."""
     return float(law.tables.emit.terrace.groundside_ramp_max)
-
-
-@_dc.dataclass(frozen=True)
-class PadAdmission:
-    """§16g (10) (12): the four ``[placement]`` numbers the two PAD-ADMISSION
-    gates are judged at (issue #101, owner RULINGS 2026-10-02v (3)) — ONE
-    reading, so the MINT (``classify/evidence._cluster_pads``) and the CENSUS
-    (``constraints/cluster_pad.cluster_polys``) cannot be judging a cluster at
-    different thresholds.  ``geom/cluster_outlines`` takes this; the
-    MEASUREMENT's own two keys (``tall_member_min_extent_m``, and the same two
-    evidence numbers) are read by ``planar/cluster.clusters`` where the
-    cluster is derived."""
-
-    min_tall_base_fill: float
-    building_evidence: bool
-    evidence_min_height_m: float
-    evidence_min_coverage: float
-
-    @property
-    def armed(self) -> bool:
-        return self.min_tall_base_fill > 0.0 or self.building_evidence
-
-
-def pad_admission(law: Law) -> PadAdmission:
-    """``structures.toml [placement]``'s pad-admission gates — ONE
-    derivation site."""
-    p = law.tables.structures.placement
-    return PadAdmission(
-        min_tall_base_fill=float(getattr(p, "min_tall_base_fill", 0.0)),
-        building_evidence=bool(getattr(p, "building_evidence", False)),
-        evidence_min_height_m=float(getattr(p, "evidence_min_height_m", 0.0)),
-        evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)))

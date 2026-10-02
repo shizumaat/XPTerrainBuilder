@@ -1,12 +1,41 @@
 name: CI
 
+# ONE RUN PER COMMIT (#225).  Until 2026-10-02 this fired on BOTH
+# `push: branches: ["**"]` and `pull_request`, and the concurrency group
+# keyed on `github.ref`, which is a DIFFERENT string for the two events:
+#
+#   push         -> refs/heads/claude/<lane>
+#   pull_request -> refs/pull/<n>/merge
+#
+# Two group keys, so neither run cancelled the other and every push to a
+# branch with an open PR ran the whole 4-job matrix TWICE.  Measured on
+# PR #220: 8 check runs under 4 distinct names, from two run ids, on each
+# of three consecutive heads — roughly 40-50 runner-minutes per push.
+# `cancel-in-progress` did work WITHIN a trigger, which is why this looked
+# fine for as long as it did.
+#
+# The fix is at the trigger, not the group: `push` is narrowed to `main`,
+# so a branch gets exactly one run, from `pull_request`.  The group key is
+# event-independent as well, belt and braces — `github.head_ref` is the
+# SOURCE BRANCH NAME on a pull_request event and empty on a push, so the
+# two events on one branch would now collapse into one group even if both
+# fired again.
+#
+# WHAT THIS GIVES UP, deliberately: a branch pushed with NO open PR gets
+# no CI run at all.  `claude/*` lanes do push before opening a PR, so a
+# lane that pushes and stops now learns nothing from CI until its PR
+# exists — at which point `pull_request` runs the full matrix against the
+# merge ref, which is the stronger test anyway.  Tags are NOT added here:
+# `branches: ["**"]` never matched tags either, and release.yml carries
+# its own `push: tags: ["v*"]` trigger with its own four `check_tag_version
+# .sh` gates, so nothing in the release path depended on this workflow.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -184,6 +213,35 @@ jobs:
       # non-Qt and 309 Qt on Linux/py3.13, 2026-09-28) because Windows
       # platform-skips whole modules: they catch "collected 0" and
       # "collected 31", not drift.
+      # Also records the exact NODE-ID LIST behind each count, and its sorted
+      # digest, as a build artifact (#221).  #221 was filed as "the collected
+      # count varies between runs of the same commit" — 12,880 vs 12,912 on
+      # ubuntu for `bedf8a76`.  It was neither: the two runs were the PUSH run
+      # and the PULL_REQUEST run of #225's double trigger, and those check out
+      # DIFFERENT TREES.  `actions/checkout` on a pull_request event takes
+      # `refs/pull/<n>/merge`, so that job's log reads
+      #
+      #   HEAD is now at cdfd52b2 Merge bedf8a76... into 688159f6...
+      #
+      # while the push job built `bedf8a76` itself.  Both check runs report the
+      # PR HEAD as their head_sha, which is what made one commit look like two
+      # counts.  main had deleted `tests/auto_patch_v2/test_base_plane_pads.py`
+      # and shrunk `test_classify_lots.py`; the merge inherits those deletions,
+      # worth exactly 23 + 9 = 32 items (reconstructed from the two parents and
+      # measured: 13026 vs 12994 node ids, 32 in the head only, 0 in the merge
+      # only).  Collection itself is deterministic — four local collections, two
+      # `-n0` and two `-n auto`, produced byte-identical node-id lists.
+      #
+      # The trigger fix above is what closes #221: one run per commit leaves no
+      # divergent pair to compare.  This records the evidence anyway, because a
+      # count alone could not distinguish the two explanations and cost the
+      # issue its wrong premise — a digest says THAT the set moved, and the
+      # uploaded list says WHICH items.  Python does the hashing: `sha256sum`
+      # is Linux-only and `shasum` is not on every runner, while python is the
+      # thing under test.  Node ids use "/" on every platform, so the lists are
+      # comparable per-OS; they are NOT comparable ACROSS OSes, since Windows
+      # platform-skips whole modules.  Not a gate — the floor below is the
+      # gate; this is attribution, and it must never fail a job on its own.
       - name: Collection floor
         if: always()
         working-directory: Ortho4XP
@@ -192,19 +250,28 @@ jobs:
           # pipefail`, where grep finding nothing would abort before the
           # message that explains why.  An empty $n IS the failure signal.
           floor () {   # $1 = human name, $2 = floor, $3.. = pytest target args
-            name="$1"; min="$2"; shift 2
-            n=$(python -m pytest -q --no-header -p no:cacheprovider -n0 \
-                  --collect-only --continue-on-collection-errors "$@" 2>&1 \
-                | grep -oE '^[0-9]+' | tail -1 || true)
+            name="$1"; min="$2"; slug="$3"; shift 3
+            out="collect-$slug.txt"
+            python -m pytest -q --no-header -p no:cacheprovider -n0 \
+              --collect-only --continue-on-collection-errors "$@" > "$out" 2>&1 || true
+            n=$(grep -oE '^[0-9]+' "$out" | tail -1 || true)
+            # The node-id list behind that number, sorted so the digest is
+            # independent of collection order.
+            grep -E '^tests/' "$out" | LC_ALL=C sort > "nodeids-$slug.txt" || true
+            digest=$(python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest()[:16])" "nodeids-$slug.txt" || true)
             echo "$name: collected ${n:-0} (floor $min)"
+            echo "$name: $(wc -l < "nodeids-$slug.txt" | tr -d ' ') node ids, sorted sha256 ${digest:-unknown}"
             if [ -z "$n" ] || [ "$n" -lt "$min" ]; then
               echo "::error::$name collected ${n:-0} tests, below the floor $min —" \
                    "a glob or path stopped matching.  CI is not running what it claims."
               return 1
             fi
           }
-          floor "non-Qt" 9000 --ignore-glob='tests/test_qt_*.py' tests
-          floor "Qt"      250 tests/test_qt_*.py
+          # The checked-out commit, so a divergent pair is attributable to its
+          # TREE rather than to the head_sha both events report (#221).
+          echo "checked out: $(git rev-parse HEAD) ($(git log --oneline -1 --no-decorate))"
+          floor "non-Qt" 9000 non-qt --ignore-glob='tests/test_qt_*.py' tests
+          floor "Qt"      250 qt     tests/test_qt_*.py
 
       # EVERYTHING except the Qt files, in parallel.  No `|| [ $? -eq 5 ]`:
       # this target cannot legitimately collect nothing, and the floor above
@@ -293,11 +360,20 @@ jobs:
 
       # `if: always()`: the crash log is worth exactly as much as the run
       # that produced it is red.
-      - name: Upload Qt suite log
+      #
+      # The collection node-id lists ride along in the SAME artifact rather
+      # than in a second upload step (#221): they are evidence about this one
+      # job, they are wanted on green runs too — a divergence shows up as two
+      # green runs disagreeing — and `qt-suite.log` is already uploaded
+      # unconditionally for exactly that reason.
+      - name: Upload Qt suite log and collection node-id lists
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: qt-suite-log-${{ matrix.os }}
-          path: Ortho4XP/qt-suite.log
+          path: |
+            Ortho4XP/qt-suite.log
+            Ortho4XP/nodeids-non-qt.txt
+            Ortho4XP/nodeids-qt.txt
           if-no-files-found: warn
           retention-days: 30

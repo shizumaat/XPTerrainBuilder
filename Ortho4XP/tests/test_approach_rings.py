@@ -951,6 +951,90 @@ def test_no_vrt_or_stamp_is_written_outside_the_tmp_dir(
     assert list((tmp_path / "tmp").rglob("*.vrt"))
 
 
+def test_the_written_alt_file_carries_the_rings_through_the_step_one_path(
+    tmp_path, monkeypatch
+):
+    """The ``.alt`` the mesher reads carries the rings (#164, lane
+    ``ringsbake164``).
+
+    The twins above call :func:`bake_approach_rings_into_alt_dem` on a
+    stub ``tile.dem`` and read the array back; the BUILD takes
+    ``O4_Vector_Map.compose_tile_dem_from_disk`` -> DEM construction ->
+    densify -> level overlay -> rings -> ``smooth_raster_over_airports``
+    (insets last) -> ``DEM.write_to_file``.  This twin runs THAT call
+    path (only the base-raster load, the densify and the inset bake --
+    each a disk-state step with nothing to do here -- are stubbed) and
+    reads the written FILE: the fine layer on the aerodrome, the coarse
+    layer in the R2 annulus, the base beyond R2.
+    """
+    import O4_DEM_Utils as DEM
+    import O4_Vector_Map as VMAP
+
+    real_dem_class = DEM.DEM
+    centre_y = 0.5
+    _install_registry(monkeypatch, _definition("FINE", 1.0))
+    tile = _tile(
+        tmp_path, monkeypatch,
+        build_dir=str(tmp_path / "build"), iterate=0,
+        fill_nodata="to zero", apt_smoothing_pix=0,
+    )
+    os.makedirs(tile.build_dir)
+    dico = _dico(KASE=_boundary(0.5, centre_y))
+    plan = RINGS.resolve_approach_ring_plan(tile, dico)
+    for cell in plan["cells"]:
+        if not cell.get("provider"):
+            continue
+        _write_geotiff(
+            cell["path"],
+            RINGS.approach_ring_cell_box(
+                TILE_LAT, TILE_LON, cell["column"], cell["row"]
+            ),
+            500.0 if cell["reach_index"] == 1 else 100.0,
+            pixels=24,
+            ramp=0.0,
+        )
+
+    def _base_dem(lat, lon, source, fill_nodata, info_only=False,
+                  elevation_level="auto"):
+        """A REAL ``DEM`` object (its own ``write_to_file``) over a flat
+        base surface -- the 90 m base raster's stand-in."""
+        dem = object.__new__(real_dem_class)
+        probe = _tile_probe_dem(base_value=0.0)
+        for key, value in vars(probe).items():
+            setattr(dem, key, value)
+        return dem
+
+    monkeypatch.setattr(
+        INSETS, "assemble_inset_composite_source",
+        lambda tile, base_source: "<base>",
+    )
+    monkeypatch.setattr(DEM, "drop_missing_pinned_files", lambda s: s)
+    monkeypatch.setattr(DEM, "DEM", _base_dem)
+    monkeypatch.setattr(INSETS, "densify_tile_dem_for_insets", lambda t: None)
+    monkeypatch.setattr(
+        INSETS, "bake_airport_insets_into_alt_dem", lambda t: False
+    )
+    monkeypatch.setattr(
+        INSETS, "overlay_flat_site_insets", lambda t, d=None: None
+    )
+
+    VMAP.compose_tile_dem_from_disk(tile, dico)
+
+    alt_path = FNAMES.alt_file(tile)
+    written = numpy.fromfile(alt_path, dtype=numpy.float32).reshape(
+        TILE_PROBE_CELLS, TILE_PROBE_CELLS
+    )
+    on_disk = SimpleNamespace(alt_dem=written)
+    assert _probe_at(on_disk, 0.5, centre_y) == pytest.approx(500.0, abs=1e-2)
+    assert _probe_at(on_disk, 0.71, centre_y) == pytest.approx(
+        100.0, abs=1e-2
+    )
+    assert _probe_at(on_disk, 0.85, centre_y) == pytest.approx(0.0, abs=1e-6)
+    assert [
+        layer["ring"] for layer in tile.dem.approach_ring_provenance["layers"]
+    ] == ["ring2", "ring1"]
+
+
 # =====================================================================
 # THE HARNESS (spec §6 rows 14-16, §5): the ``rings`` refresh scope, the
 # frame key and the corpus-stamp part

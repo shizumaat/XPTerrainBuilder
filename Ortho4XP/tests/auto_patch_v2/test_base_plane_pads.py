@@ -120,16 +120,26 @@ def test_the_riser_strip_is_cut_out_of_BOTH_planes_at_the_identity_spacing():
     hi = [r.polygon for r in regs if r.k == 1]
     assert len(strips) == 1 and strips[0].a == 0 and strips[0].b == 1
     assert strips[0].dy == pytest.approx(LOT_DY)
-    # the two pads do not touch, and the gap IS the spacing (to the
-    # buffer's own flat-cap precision)
-    gap = min(a.distance(b) for a in lo for b in hi)
-    assert gap == pytest.approx(STRIP_M, abs=0.02), gap
-    # nothing claims the strip: its interior is outside every region
+    # RE-FOUNDED (owner RULINGS 2026-10-02m (C)/(D), lane basepads4):
+    # ``p0`` is now THE PAD LESS the other planes less the strips, so it
+    # wraps the upper plane and the reading that states the law is the
+    # strip itself -- its interior is claimed by NOTHING, and the upper
+    # plane's rim stands the strip's half-width off the riser line.
     mid = Point(40.0, 15.0)                     # on the shared edge x = 40
-    assert not any(p.covers(mid) for p in lo + hi)
-    # and the floor really did give up ground (it was 40 x 30 = 1,200)
-    assert sum(p.area for p in lo) < 1200.0
-    assert sum(p.area for p in lo) > 1200.0 - 0.6 * 30.0
+    assert not any(q.covers(mid) for q in lo + hi)
+    assert strips[0].strip.covers(mid)
+    
+    # the upper plane gave up half the spacing along the riser line
+    assert min(q.distance(Point(40.0, 15.0)) for q in hi) >= 0.5 * STRIP_M - 0.02
+    # the regions PARTITION the pad: disjoint, and their union is the
+    # pad less the strips (10-02m (D), the SPJC overlap STOP)
+    from shapely.ops import unary_union
+    allr = lo + hi
+    for i in range(len(allr)):
+        for j in range(i + 1, len(allr)):
+            assert allr[i].intersection(allr[j]).area < 1e-6
+    left = PAD.difference(unary_union([s.strip for s in strips]))
+    assert unary_union(allr).area == pytest.approx(left.area, rel=1e-6)
 
 
 def test_a_sub_floor_riser_never_reaches_the_mint():
@@ -179,14 +189,30 @@ def test_a_plane_under_the_area_floor_is_dropped_and_counted():
     assert counts.get("one_plane_after_cut") == 1
 
 
-def test_the_ORIGIN_plane_is_never_half_minted():
-    """§2 (1): ``p0`` carries today's datum law.  A unit whose ``p0`` falls
-    under the area floor mints NOTHING — never the upper plane alone,
-    which would be a pad with no datum to be pinned to."""
+def test_the_ORIGIN_plane_is_THE_PAD_LESS_THE_OTHERS():
+    """RE-FOUNDED (owner RULINGS 2026-10-02m (C)/(D), lane basepads4).
+
+    This twin asserted that a unit whose ``p0`` FACE UNION fell under the
+    area floor minted nothing.  ``p0`` is no longer its face union: it is
+    THE PAD LESS the other planes less the strips (10-02m (C)), because
+    #196 replaced the unit's pad region with the planes' own unions and
+    left whatever they did not cover UNCLAIMED -- a hole where a building
+    pad had been -- while SPJC's p0/p1 came out as the SAME polygon
+    (10-02m (D)).  So a tiny ``p0`` face union still mints: the ground
+    the lot does not take is ``p0``'s, which is exactly today's law for
+    it, and ``p0``'s outer ring stays the PAD'S own so no airside vertex
+    can move.  ``origin_under_min`` now fires only where the PAD itself
+    has nothing left."""
     tiny = _sq(32.0, 0.0, 8.0, 5.0)          # ADJACENT to the lot's west rim
     regs, strips, counts = _regions(planes=(tiny, LOT), ys=(0.0, LOT_DY))
-    assert (regs, strips) == ([], [])
-    assert counts.get("origin_under_min") == 1
+    assert strips and {r.k for r in regs} == {0, 1}
+    z = [r.polygon for r in regs if r.k == 0]
+    hi = [r.polygon for r in regs if r.k == 1]
+    # p0 is the pad's remainder, not the 40 m2 face union
+    assert sum(q.area for q in z) > sum(q.area for q in hi)
+    # and its outer ring is the PAD'S own, coordinate for coordinate
+    big = max(z, key=lambda q: q.area)
+    assert set(big.exterior.coords) == set(PAD.exterior.coords)
 
 
 def test_planes_that_face_each_other_nowhere_mint_nothing():
@@ -301,18 +327,36 @@ def _mint(law, prof, pads=None, monkeypatch=None, cid="unit:108#0"):
     return PP.plane_pad_split(pads, law, 0.5, _Airport())
 
 
+#: RE-FOUNDED (owner RULINGS 2026-10-02m (C), lane basepads4): ``p0``'s
+#: ref IS the unit's own, because the mint now runs AFTER
+#: ``platform_split`` and ``p0`` is the region the split already minted
+#: -- with its platform record, its collar, its hold and its datum
+#: column all keyed on that ref (``planar/plane_pads._ref_of``).
+_P0 = "building2"
+
+
 def test_the_mint_replaces_the_unit_pad_with_one_pad_per_plane(law, monkeypatch):
-    """§2 (1) + C7: the refs are ``<unit>/p<k>``, ``p0`` is the origin
-    plane, and ``unit_ref_of`` folds them back to ONE unit so every
-    reader keyed on the unit ref — ``pad_cluster_mismatch`` among them,
-    C25 — sees one cluster."""
+    """§2 (1) + C7, RE-FOUNDED (owner RULINGS 2026-10-02m (C), lane
+    basepads4): a non-origin plane takes ``<unit>/p<k>`` and ``p0``
+    KEEPS THE UNIT'S OWN REF.
+
+    #196 renamed every plane including ``p0`` to ``<unit>/p0``, and the
+    mint ran BEFORE ``platform_split``.  The mint now runs LAST (after
+    ``plateau_cut``, so nothing downstream of it reads the airside --
+    10-02m (C)'s 214 runway movers), which means ``p0`` IS the region
+    the split already minted: its platform record, its collar, its hold
+    and its datum column are all keyed on the unit ref, and renaming it
+    would orphan every one of them.  Keeping the ref is §2 (1)'s "p0
+    takes the unit's datum exactly as today", literally.
+    ``unit_ref_of`` still folds the lot back to ONE unit, so every
+    reader keyed on it -- ``pad_cluster_mismatch`` among them, C25 --
+    sees one cluster."""
     got, counts = _mint(law, _profile(), monkeypatch=monkeypatch)
     refs = sorted(str(r.ref) for r in got)
-    assert refs == [plane_ref("building2", 0), plane_ref("building2", 1),
+    assert refs == ["building2", plane_ref("building2", 1),
                     plane_ref("building2", 1)]
-    assert "building2" not in refs           # the unit pad itself is gone
     assert {unit_ref_of(r) for r in refs} == {"building2"}
-    assert {plane_of(r)[1] for r in refs} == {0, 1}
+    assert {(plane_of(r) or ("building2", 0))[1] for r in refs} == {0, 1}
     assert counts["plane_units"] == 1 and counts["base_steps"] == 1
     assert counts["plane_pads"] == 2
     # every minted region keeps the pad's ROLE: a plane pad is a pad
@@ -329,11 +373,11 @@ def test_the_registries_carry_the_offsets_and_the_declared_riser(law, monkeypatc
     assert pads[1].dy_m == pytest.approx(LOT_DY)
     assert pads[1].y_m == pytest.approx(LOT_DY)
     assert all(p.verdict == BG.STEPPED and p.gradient is None for p in pads)
-    assert BS.origin_ref_of("building2") == plane_ref("building2", 0)
+    assert BS.origin_ref_of("building2") == _P0
     assert len(BS.BASE_STEPS) == 1
     st = BS.BASE_STEPS[0]
     assert st.declared_step_m == pytest.approx(LOT_DY)
-    assert (st.lower_ref, st.upper_ref) == (plane_ref("building2", 0),
+    assert (st.lower_ref, st.upper_ref) == (_P0,
                                             plane_ref("building2", 1))
     assert st.strip_width_m == pytest.approx(STRIP_M)
     assert st.strip_m2 > 0.0
@@ -404,7 +448,15 @@ def test_a_rim_sliver_of_a_replaced_pad_joins_its_nearest_plane_pad(
                     monkeypatch=monkeypatch)
     moved = [r for r in got if r.polygon is sliver.polygon]
     assert len(moved) == 1
-    assert plane_of(moved[0].ref) == ("building2", 1)
+    # RE-FOUNDED (owner RULINGS 2026-10-02m (C)/(D), lane basepads4):
+    # ``p0`` is now THE PAD LESS the other planes (not its own 40 m2
+    # face union), so it reaches the pad's east rim and IS the nearest
+    # region to a sliver standing just outside it -- the sliver joins
+    # ``p0``, which keeps the unit's own ref.  Either way the law the
+    # twin states holds: no region is left naming a pad that does not
+    # exist.
+    assert unit_ref_of(moved[0].ref) == "building2"
+    assert str(moved[0].ref) in {_P0, plane_ref("building2", 1)}
 
 
 def test_the_mint_is_a_no_op_with_the_base_read_disarmed(law, monkeypatch):
@@ -433,7 +485,8 @@ def _pin_rows(law, monkeypatch, cols):
 def _pads_registered(unit="building2", dys=(0.0, LOT_DY)):
     BS.PLANE_PADS.clear()
     for k, dy in enumerate(dys):
-        ref = plane_ref(unit, k)
+        # the mint's OWN ref rule (10-02m (C)): ``p0`` keeps the unit ref
+        ref = PP._ref_of(unit, k)
         BS.PLANE_PADS[ref] = BS.PlanePad(ref=ref, unit=unit, k=k, dy_m=dy,
                                          y_m=dy, area_m2=1000.0,
                                          verdict=BG.STEPPED)
@@ -447,7 +500,7 @@ def test_one_hard_row_per_non_origin_plane_at_the_authored_riser(
     ``-0 <= (z[a] − rel) − z[b] <= 0``: the equality, exactly."""
     _pads_registered()
     rows = _pin_rows(law, monkeypatch,
-                     {plane_ref("building2", 0): 7, plane_ref("building2", 1): 11})
+                     {_P0: 7, plane_ref("building2", 1): 11})
     assert len(rows) == 1                     # p0 keeps today's datum law
     r = rows[0]
     assert isinstance(r, Diff)
@@ -481,7 +534,7 @@ def test_a_plane_pad_with_no_datum_column_is_reported_never_pinned_to_nothing(
     own (Q3's case); a pin onto a column that is not an unknown is a row
     on a constant.  It is COUNTED, so the unit's fallback is readable."""
     _pads_registered()
-    rows = _pin_rows(law, monkeypatch, {plane_ref("building2", 0): 7})
+    rows = _pin_rows(law, monkeypatch, {_P0: 7})
     assert rows == []
     assert CP.STATS["plane_offset_rows"]["no_datum_column"] == 1
 

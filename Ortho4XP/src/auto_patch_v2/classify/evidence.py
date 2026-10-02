@@ -447,13 +447,22 @@ def _trim_leadins(chains: list[Chain], airport: Airport, rules: Rules
 #: build's own say-line and the sidecar (``pipeline/publication``).
 CLUSTER_PADS: dict[str, object] = {}
 
-#: v1 ``dsf_reader.OBJECT_BUILDING_ROLE`` — the footprint cache's own
-#: verdict that a structure passed R18-2's VERTICAL test.  A ROLE LITERAL
-#: crossing the v1/v2 boundary (``blast.py`` reports it): v2 carries it in
-#: ``Building.source`` as ``dsf:object:<role>`` (``airport/load.py`` :525),
-#: and the other spelling v1 writes is
-#: ``OBJECT_BUILDING_UNVOUCHED_ROLE`` = ``"object_unvouched"``.
-_OBJECT_BUILDING_ROLE = "object"
+#: v1 ``dsf_reader.OBJECT_BUILDING_UNVOUCHED_ROLE`` — the footprint
+#: cache's own verdict that a structure FAILED R18-2's vertical test.  A
+#: ROLE LITERAL crossing the v1/v2 boundary (``blast.py`` reports it): v2
+#: carries the cached role in ``Building.source`` as ``dsf:object:<role>``
+#: (``airport/load.py`` :525), and v1 writes exactly two spellings —
+#: ``OBJECT_BUILDING_ROLE`` ``"object"`` (passed) and this one.
+#:
+#: The gate is stated as "REFUSE the unvouched spelling", not "refuse
+#: anything that is not ``object``", for the same reason the cluster half
+#: counts ``unmeasured`` rather than refusing it: an UNRECOGNISED role is
+#: not a measurement that failed.  ``airport/dsf.read_footprint_cache``
+#: :355 already defaults a role-less cache row to ``"object"``, and a
+#: fixture or a future writer naming its own role would otherwise be
+#: refused by a gate that never measured it.  Over the real cache the two
+#: formulations are the same set, which is v1's own gate exactly.
+_OBJECT_BUILDING_UNVOUCHED_ROLE = "object_unvouched"
 
 #: §16g (10) (12), issue #101: what the FALLBACK half's building-evidence
 #: gate refused this pass, for the build's say-line and the sidecar beside
@@ -612,10 +621,10 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # role IS the cache's verdict and v2 carries it verbatim in the source
     # spelling — ``dsf:object:object`` is v1's ``OBJECT_BUILDING_ROLE``
     # (the vertical test passed), ``dsf:object:object_unvouched`` is not —
-    # so the gate is v1's, read off the same string: the ring is admitted
-    # on its own vertical verdict OR on an intersecting OSM building, and
-    # on neither it is an apron slab / barrier / vehicle hull and seeds no
-    # pad.  ``_osm_ev`` None (no mapped building anywhere) is NOT evidence
+    # so the gate is v1's, read off the same string: a ring the cache
+    # marked UNVOUCHED is admitted only on an intersecting OSM building,
+    # and without one it is an apron slab / barrier / vehicle hull and
+    # seeds no pad.  ``_osm_ev`` None (no mapped building anywhere) is NOT evidence
     # of absence and leaves the gate resting on the role alone, exactly as
     # v1 states.
     _st = law.tables.structures.placement if law is not None else None
@@ -629,8 +638,8 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
         p = polygon_from(b.outer, b.holes)
         if p is None or p.area <= 0:
             continue
-        if (_fallback_gate and b.source.startswith("dsf:object")
-                and b.source != f"dsf:object:{_OBJECT_BUILDING_ROLE}"):
+        if (_fallback_gate
+                and b.source == f"dsf:object:{_OBJECT_BUILDING_UNVOUCHED_ROLE}"):
             if _osm_ev is None or not _osm_ev(p):
                 _n_unvouched += 1
                 continue

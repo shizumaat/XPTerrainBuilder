@@ -420,3 +420,30 @@ def test_a_degenerate_footprint_is_unmeasured_not_refused():
         [_dc.replace(_clusters(_slab_plan())[0], evidence=ev)],
         admission=PadAdmission(0.002, False, 6.0, 0.0))
     assert len(pads) == 1 and counts["no_tall_base"] == 0
+
+
+# ── the FALLBACK half (v1's footprint cache) ──────────────────────────
+
+def test_the_fallback_half_refuses_only_v1s_unvouched_role():
+    """``classify/evidence._pads``'s fallback reads v1's footprint CACHE,
+    which already carries v1's TALL-BASE refusal (the weld class never
+    reached the cache) but NOT R18-2 — v1 closed that in its pipeline.
+
+    v1 writes exactly two role spellings and v2 carries them in
+    ``Building.source``: ``dsf:object:object`` (the vertical test passed)
+    and ``dsf:object:object_unvouched``.  The gate refuses the UNVOUCHED
+    one, and an unrecognised spelling is NOT a refusal — the same
+    "unmeasured is not refused" discipline the cluster half keeps, and
+    what ``airport/dsf.read_footprint_cache`` already assumes when it
+    defaults a role-less row to ``object``."""
+    from auto_patch_v2.classify import evidence as mint
+    assert mint._OBJECT_BUILDING_UNVOUCHED_ROLE == "object_unvouched"
+    src = inspect_source(mint._pads)
+    assert 'b.source == f"dsf:object:{_OBJECT_BUILDING_UNVOUCHED_ROLE}"' in src
+    # ...and it is OR-ed with the OSM half, never a bare role test
+    assert "_osm_ev is None or not _osm_ev(p)" in src
+
+
+def inspect_source(fn) -> str:
+    import inspect
+    return inspect.getsource(fn)

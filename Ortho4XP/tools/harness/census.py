@@ -223,6 +223,12 @@ def load_by_path(name: str, path: Path):
     return mod
 
 
+#: The ``sys.modules`` name this file executes ``tools/check_grade.py``
+#: under — its OWN name, never the plain ``check_grade`` a parallel lane
+#: may have imported from another tree (see :func:`load_by_path`).
+CHECK_GRADE_MODULE = "harness_check_grade"
+
+
 def load_check_grade():
     """Load ``tools/check_grade.py`` from THIS tree (never an installed copy).
 
@@ -233,7 +239,7 @@ def load_check_grade():
     for p in (ROOT / "src", ROOT, ROOT / "tests", ROOT / "tools"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
-    return load_by_path("harness_check_grade", ROOT / "tools" / "check_grade.py")
+    return load_by_path(CHECK_GRADE_MODULE, ROOT / "tools" / "check_grade.py")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -802,7 +808,7 @@ def zone_split(osm: Path, cg, families: dict) -> dict:
             buckets["outside"] += 1
         else:
             try:
-                chord = LineString([r.pt_a, r.pt_b])
+                chord = LineString([*cg.row_points(r)])
                 if union.covers(chord):
                     buckets["in_zone"] += 1
                 elif union.intersects(chord):
@@ -917,19 +923,37 @@ def _axis_frame_override(osm: Path, cg, frame: str) -> tuple[dict, dict]:
             {"frame": "base", "axes_total": len(axes), "axes_kept": len(kept)})
 
 
+#: The law module :func:`row_points` delegates through, resolved on first
+#: use and kept — HOISTED TO MODULE SCOPE deliberately (issue #191): a
+#: per-row ``load_check_grade()`` would re-exec the whole law for every
+#: endpoint read, and ``--sites`` reads every law-true row's endpoints
+#: twice.  Lazy so that importing this module stays cheap for a consumer
+#: that never touches a row, and resolved through ``sys.modules`` first so
+#: one process holds ONE law object for this read.
+_ROW_LAW = None
+
+
 def row_points(r):
     """The row's two ENDPOINTS in layout-local metres, as ``(a, b)``.
 
-    ``pt_a``/``pt_b`` for a grade violation, ``vert_pt``/``proj_pt`` for an
-    edge step — the two row shapes ``run_checks`` emits.  ONE spelling,
-    because both the ``--rows-json`` itemisation and the ``--sites``
-    clustering key on these points: a second copy that forgot the step
-    shape would silently cluster every step row as pointless.
+    ONE SPELLING, AND IT IS THE LAW'S (issue #191): this DELEGATES to
+    ``check_grade.row_points`` — the accessor beside ``row_roles`` /
+    ``row_magnitude`` / ``row_side``, driven by
+    ``check_grade.ROW_POINT_KEYS``.  This file used to carry its own copy;
+    two readers of one row shape look identical until a late-added key
+    (the edge step's ``vert_pt``/``proj_pt`` pair was exactly that) is
+    taught to only one of them, which is the census-wrapper defect.
+
+    Kept as a module-level name because ``tools/frontage_split.py`` reads
+    rows through it.  The census's OWN call sites already hold a law
+    handle and call ``cg.row_points`` directly, so they pay nothing here.
     """
-    a, b = getattr(r, "pt_a", None), getattr(r, "pt_b", None)
-    if a is None:
-        a, b = getattr(r, "vert_pt", None), getattr(r, "proj_pt", None)
-    return a, b
+    global _ROW_LAW
+    law = _ROW_LAW
+    if law is None:
+        law = _ROW_LAW = (sys.modules.get(CHECK_GRADE_MODULE)
+                          or load_check_grade())
+    return law.row_points(r)
 
 
 def row_ways(r):
@@ -958,7 +982,7 @@ def row_record(cg, family: str, r) -> dict:
     ~2 cm at another.  ``lat``/``lon`` ride along for pointing a human (or
     a KML) at the spot.
     """
-    a, b = row_points(r)
+    a, b = cg.row_points(r)
     wa, wb = row_ways(r)
     grade = getattr(r, "grade_pct", None)
     cap = getattr(r, "cap_pct", None)
@@ -1166,7 +1190,7 @@ def cluster_sites(all_rows, cg, *, visibility_m: float = None,
     # Endpoints, flattened: row i owns points 2i and 2i+1.
     pts: list = []
     for _key, r in rows:
-        a, b = row_points(r)
+        a, b = cg.row_points(r)
         pts.append(a)
         pts.append(b)
     node_ids, _centres = canonical_nodes(pts, tol)
@@ -1220,7 +1244,7 @@ def cluster_sites(all_rows, cg, *, visibility_m: float = None,
                 if wid is not None:
                     ways.add(str(wid))
             roles["|".join(sorted(cg.row_roles(r)))] += 1
-            for p in row_points(r):
+            for p in cg.row_points(r):
                 if p is not None:
                     xs.append(float(p[0]))
                     ys.append(float(p[1]))

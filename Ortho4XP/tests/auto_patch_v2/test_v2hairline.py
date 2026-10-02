@@ -198,19 +198,141 @@ def test_a_sub_spacing_segment_is_merged_away(law):
     assert tiny not in [v.ll for v in out.vertices]
 
 
-def test_the_senior_vertex_keeps_its_coordinate(law):
-    """Nothing MOVES: the junior disappears, the senior stands where it
-    stood — the shared vertex (higher degree) is always the senior."""
+def test_the_survivor_keeps_its_coordinate(law):
+    """Nothing MOVES: one of the two disappears and the other stands where
+    it stood.  WHICH one is :func:`survivor_key`'s — the lower canonical
+    coordinate — and NOT the vertex more sequences share (issue #199).
+
+    This test carried the OLD law: ``tiny`` is shared by the breakline, so
+    the degree rule kept it and dropped the ring's own corner.  Under the
+    pair-local key the ring corner has the lower latitude and survives, and
+    the junction's coordinate MOVES — by 0.2 m here, always under
+    ``min_distinct_spacing_m``, the band inside which the law says the two
+    were never distinct vertices.  REPORTED as a deviation on #199, not
+    decided here; the ring does not tear either way (below)."""
     from auto_patch_v2.emit.osm_adapter import merge_sub_spacing
     tiny = (40.4763 + 0.2 / M_LAT, -3.5460)
+    corner = (40.4763, -3.5460)
     surf = _square(law, tiny)
     surf = type(surf)(**{**surf.__dict__,
                          "breaklines": (SurfaceBreakline(1, "bank_foot", "b",
                                                          (4, 0)),)})
     out = merge_sub_spacing(surf, law, WeldReport())
     kept = [v.ll for v in out.vertices]
-    assert tiny in kept, "the vertex the breakline shares is the senior"
-    assert (40.4763, -3.5460) not in kept
+    assert corner in kept, "the lower canonical coordinate survives"
+    assert tiny not in kept
+    # NO RING TEARS: the breakline that met the ring at ``tiny`` meets it
+    # at the survivor — the merge remaps the dropped vertex EVERYWHERE.
+    kept_id = next(v.id for v in out.vertices if v.ll == corner)
+    assert kept_id in out.breaklines[0].vertices
+    assert set(out.faces[0].ring) & set(out.breaklines[0].vertices)
+
+
+# ── §39 (iii) THE SURVIVOR IS THE PAIR'S OWN (issue #199) ───────────────
+# ``merge_sub_spacing`` kept the senior by ``(sequences sharing the vertex,
+# then the lower id)``.  Both terms read the WHOLE arrangement, so the
+# emitted node set flipped between the two members of a 0.5 m pair that
+# both exist in the planar map of every arm — 4 pairs measured at HECA
+# against sw1003 (RULINGS 2026-10-02k mechanism 3), among them #150's
+# "building9 vertex moved 0.5 m, unattributed".
+
+#: The HECA pair of issue #199's first table row (apron ``pav1`` /
+#: ``building9``): 0.5 m apart, and the survivor FLIPPED between arms.
+H_PAIR_A = (30.11003015117, 31.39688841457)
+H_PAIR_B = (30.11003015049, 31.39688322676)
+#: Somewhere else entirely in the layout — the "unrelated upstream set".
+H_ELSEWHERE = (30.10560435655, 31.39003118471)
+
+
+def _pair_surface(*, ids, degrees, extra=()):
+    """The #199 pair as a face ring, with the pair's GLOBAL IDS and the
+    DEGREES of its two members both under the caller's control.
+
+    ``ids`` is the (a, b) id pair; ``degrees`` is how many extra sequences
+    each member is shared by; ``extra`` are unrelated vertices added to the
+    ring elsewhere in the layout.  The pair's own geometry never changes,
+    so a survivor rule that reads only the pair must return the same answer
+    for every combination."""
+    far = [(30.1110, 31.3980), (30.1110, 31.3960), (30.1100, 31.3960)]
+    pts = {ids[0]: H_PAIR_A, ids[1]: H_PAIR_B}
+    nxt = max(ids) + 1
+    ring = [ids[0], ids[1]]
+    for ll in list(extra) + far:
+        pts[nxt] = ll
+        ring.append(nxt)
+        nxt += 1
+    breaks = []
+    for member, n in zip(ids, degrees):
+        for _k in range(n):
+            # a two-vertex open chain: it SHARES ``member`` (so the member's
+            # degree rises) and its other end is 100 m away, out of the
+            # merge's reach
+            pts[nxt] = (30.1120 + 1e-4 * nxt, 31.3990)
+            breaks.append(SurfaceBreakline(len(breaks) + 1, "bank_foot",
+                                           f"b{len(breaks) + 1}",
+                                           (member, nxt)))
+            nxt += 1
+    verts = tuple(SurfaceVertex(i, ll, 600.0) for i, ll in sorted(pts.items()))
+    return GradedSurface(icao="TEST", ruleset="icao", origin=H_PAIR_A,
+                         crs="+proj=tmerc", identity_dp=11, vertices=verts,
+                         faces=(SurfaceFace(1, "apron", "pav1", tuple(ring),
+                                            (), "airside"),),
+                         breaklines=tuple(breaks), provenance={})
+
+
+def _survivor_ll(law, surf):
+    """Which member of the #199 pair the merge kept."""
+    from auto_patch_v2.emit.osm_adapter import merge_sub_spacing
+    out = merge_sub_spacing(surf, law, WeldReport())
+    kept = {v.ll for v in out.vertices}
+    assert (H_PAIR_A in kept) != (H_PAIR_B in kept), (
+        "exactly one member of a sub-spacing pair survives")
+    return H_PAIR_A if H_PAIR_A in kept else H_PAIR_B
+
+
+def test_the_pair_of_199_is_under_the_spacing(law):
+    """The fixture IS the issue's pair: 0.5 m apart, so the merge acts."""
+    assert _m(H_PAIR_A, H_PAIR_B) < float(
+        law.tables.emit.identity.min_distinct_spacing_m)
+
+
+def test_the_survivor_key_reads_only_the_vertexs_own_coordinate():
+    """The key of a vertex is its ``ll`` at the identity, and nothing
+    else — no id, no degree, no neighbour."""
+    from auto_patch_v2.emit.osm_adapter import (SURVIVOR_IS_MINIMUM,
+                                                survivor_key)
+    assert SURVIVOR_IS_MINIMUM is True
+    assert survivor_key(H_PAIR_A, 11) == H_PAIR_A
+    assert survivor_key(H_PAIR_B, 11) < survivor_key(H_PAIR_A, 11)
+    # the key rounds AT the identity: a difference below the written
+    # coordinate cannot decide a survivor
+    below = (H_PAIR_B[0] + 1e-13, H_PAIR_B[1])
+    assert survivor_key(below, 11) == survivor_key(H_PAIR_B, 11)
+
+
+@pytest.mark.parametrize("ids", [(1, 2), (2, 1), (907, 11), (11, 907)])
+@pytest.mark.parametrize("degrees", [(0, 0), (3, 0), (0, 3), (1, 2)])
+def test_the_same_pair_keeps_the_same_survivor_whatever_its_ids_and_degrees(
+        law, ids, degrees):
+    """ISSUE #199, THE BAR: the pair's geometry decides, so renumbering the
+    vertices or changing how many sequences each member is shared by must
+    not move the survivor.  Under the old ``(degree, -id)`` rule EVERY one
+    of these 16 combinations could answer differently."""
+    got = _survivor_ll(law, _pair_surface(ids=ids, degrees=degrees))
+    assert got == H_PAIR_B
+
+
+def test_an_unrelated_vertex_elsewhere_changes_no_survivor(law):
+    """#199's mechanism, as a synthetic layout: an upstream set that adds a
+    vertex SOMEWHERE ELSE (a plateau cut adding faces) renumbers ids and
+    shifts degrees.  The pair's survivor must not notice."""
+    base = _survivor_ll(law, _pair_surface(ids=(1, 2), degrees=(0, 0)))
+    with_extra = _survivor_ll(
+        law, _pair_surface(ids=(1, 2), degrees=(0, 0), extra=(H_ELSEWHERE,)))
+    renumbered = _survivor_ll(
+        law, _pair_surface(ids=(40, 41), degrees=(2, 1),
+                           extra=(H_ELSEWHERE,)))
+    assert base == with_extra == renumbered == H_PAIR_B
 
 
 def test_a_lawful_ring_is_untouched(law):

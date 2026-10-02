@@ -303,8 +303,20 @@ def _host_hole_strip(law):
     """A 200 m apron with a 100 m hole, and the zone strip that IS the
     hole (the arrangement's partition: the strip ring shares the hole's
     vertices).  One hole vertex ``B`` stands 0.42 m from its neighbour
-    ``H2`` and 0.3 m into the hole — a sub-spacing detour the identity
-    join folds away.  Returns ``(surface, B's vertex id)``."""
+    corner and 0.3 m into the hole — a sub-spacing detour the identity
+    join folds away, taking 0.5 x 100 m x 0.3 m = 15 m² of the hole with
+    it.  Returns ``(surface, B's vertex id)``.
+
+    ISSUE #199: ``B`` SITS AT THE LOW CORNER, and that is now load-bearing.
+    The detour must be the member the merge DROPS, and since #199 the
+    survivor is the pair's lower canonical coordinate
+    (``osm_adapter.survivor_key``) rather than its lower id — so ``B`` is
+    placed INWARD FROM THE HOLE'S LOW CORNER, where "into the hole" and
+    "higher coordinate" are the same direction.  At the high corner (where
+    it stood while the rule read ids) the new rule would keep the detour
+    and fold the corner away, which is a lawful merge of the same pair but
+    not the stale-hole geometry these two twins measure.  The defect, the
+    sliver and its 15 m² are unchanged."""
     import math
 
     from auto_patch_v2.emit.surface import (GradedSurface, SurfaceFace,
@@ -317,9 +329,9 @@ def _host_hole_strip(law):
 
     pts = {0: ll(0, 0), 1: ll(200, 0), 2: ll(200, 200), 3: ll(0, 200),
            4: ll(50, 50), 5: ll(50, 150), 6: ll(150, 150), 7: ll(150, 50),
-           8: ll(150 - 0.3, 150 - 0.3)}       # B: 0.42 m from H2 (id 6)
+           8: ll(50 + 0.3, 50 + 0.3)}         # B: 0.42 m from H1 (id 4)
     verts = tuple(SurfaceVertex(i, pts[i], 100.0) for i in sorted(pts))
-    hole = (4, 5, 8, 6, 7)
+    hole = (4, 8, 5, 6, 7)
     faces = (SurfaceFace(1, "apron", "pav1", (0, 1, 2, 3), (hole,), "airside"),
              SurfaceFace(2, "graded_strip", "adjacent_ground:taxi:E:zone1#1",
                          tuple(reversed(hole)), (), "airside"))

@@ -390,11 +390,9 @@ def test_a_coverage_edge_collar_vertex_keeps_the_bank_and_the_ground(built, law)
     COVERAGE EDGE carried no row at all — the bank exempted it ("the DEM
     governs") while nothing fixes the DEM since 09-09b (3) — so the bending
     stencil alone extrapolated it.  It now takes the 1:3 bank ONE-WAY (it
-    follows; the platform leads) and the ground's datum, and the solve
-    holds it inside the bank from its platform and never above every ring
+    follows; the platform leads), and the solve holds it inside the bank from its platform and never above every ring
     neighbour by more than the bank allows."""
     from auto_patch_v2.solve import solve_design
-    from auto_patch_v2.solve.design_ground import ground_datum_vertices
     pm, airport = built
     cov = _coverage_collar_vertices(pm, "padU")
     assert cov, "the fixture's pad rim must reach the coverage edge"
@@ -405,7 +403,6 @@ def test_a_coverage_edge_collar_vertex_keeps_the_bank_and_the_ground(built, law)
         mine = [r for r in rows if r.a == v]
         assert mine and all(r.cap == pytest.approx(bs) and r.follows == (v,)
                             and r.b in inner for r in mine), v
-    assert cov <= ground_datum_vertices(pm, law)
     cs, _c, _w = generate(pm, law, airport)
     sol, _rep = solve_design(pm, cs, law)
     z = np.asarray(sol.z, float)

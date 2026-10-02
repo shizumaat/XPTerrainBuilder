@@ -100,11 +100,7 @@ def test_a_pad_fronting_no_airside_or_too_narrow_gets_no_platform(law):
     air = [Region("apron", "a", Polygon(APRON), None, None, "airside", "cell")]
     thin = Region("building", "thin", Polygon(_rect(-60.0, 200.0, 60.0, 208.0)),
                   None, None, "airside", "cell")
-    # 18,000 m2, 60 m deep: the cap mint (C = platform_collar_max_m, RULINGS
-    # 2026-10-02v (5)) erodes 15 m, so a pad that mints must leave
-    # ``cluster_pad_min_m2`` after it — the 9,000 m2 pad this fixture used
-    # while C was 5 m is the refusal twin below
-    big = _rect(-150.0, 200.0, 150.0, 260.0)
+    big = _rect(-100.0, 200.0, 100.0, 245.0)            # 9,000 m2, 45 m deep
     far = Region("building", "far", Polygon(_rect(-60.0, 600.0, 60.0, 700.0)),
                  None, None, "airside", "cell")
     got, counts = pplat.platform_split(air, [thin, far], law, 0.5)
@@ -240,13 +236,10 @@ def test_a_platform_is_one_face_when_a_foreign_ring_edge_crosses_the_pad(law):
     C-shapes with no hole.  After it: ONE platform face, ONE collar face
     whose hole IS the platform's ring, and no vertex of the dividing edge
     left inside the platform."""
-    # 240 x 60 m (the 120 x 60 of the C = 5 m rounds leaves no platform
-    # once the cap mint erodes 15 m): the apron's hole still covers only
-    # the pad's western half and still touches its shell along x = 20
-    pad = _rect(-120.0, 180.0, 120.0, 240.0)
+    pad = _rect(-60.0, 180.0, 60.0, 240.0)
     cells = [_cells(pad)[0],
              Cell(1, "apron", "apronA", _rect(-260.0, 140.0, 20.0, 260.0),
-                  (_rect(-120.0, 180.0, 20.0, 240.0),), None, None, "airside",
+                  (_rect(-60.0, 180.0, 20.0, 240.0),), None, None, "airside",
                   "apron", {}),
              Cell(2, "building", "padU", pad, (), None, None, "airside", "pad", {})]
     pm, _st = build(_airport(law, _Dem()), Classification(tuple(cells), (), {}, ()), law)
@@ -475,10 +468,12 @@ def _solved(law, cells, dem):
     return pm, airport, np.asarray(sol.z, float)
 
 
-def test_the_collar_is_minted_at_the_cap(law):
-    """§1 (2) as re-ruled (10-02v (5)): C is ``platform_collar_max_m``, the
-    law's widest, whatever the DEM relief reads — ONE width, ONE derivation
-    (``planar.platform.collar_width_m``)."""
+def test_a_pad_that_carries_the_cap_is_minted_at_the_cap(law):
+    """§1 (2) as re-ruled (10-02v (5), amended 10-02z): C is
+    ``platform_collar_max_m`` — the law's widest, whatever the DEM relief
+    reads — on every pad whose erosion by it still leaves a platform.  ONE
+    derivation (``planar.platform._collar_for_pad``), whose ceiling is
+    ``collar_width_m``.  This 200 x 120 m pad leaves 170 x 90 m."""
     cap = float(law.tables.structures.building_pad.platform_collar_max_m)
     assert pplat.collar_width_m(law) == pytest.approx(cap)
     air = [Region("apron", "a", Polygon(APRON), None, None, "airside", "cell")]
@@ -488,6 +483,8 @@ def test_the_collar_is_minted_at_the_cap(law):
         got, counts = pplat.platform_split(air, [pad], law, 0.5, dem=dem)
         assert counts["platforms"] == 1
         assert [p.collar_m for p in pplat.PLATFORMS] == [pytest.approx(cap)]
+        assert [p.collar_why for p in pplat.PLATFORMS] == ["cap"]
+        assert counts["platform_collar_why"] == {"cap": 1, "area": 0, "floor": 0}
         plat = next(r for r in got if r.ref == "u")
         # the platform stands exactly the cap inside the rim
         assert Polygon(pad.polygon.exterior).exterior.distance(
@@ -600,14 +597,149 @@ def test_the_pads_own_rim_row_is_a_one_way_bank_not_a_fixed_toe(law):
         assert abs(z[r.a] - z[r.b]) <= bs * r.d + 0.5
 
 
-def test_the_cap_mint_refuses_a_pad_the_narrow_collar_would_have_minted(law):
-    """REPORTED, not decided (#86): minting at the cap erodes 15 m, so a pad
-    that leaves ``cluster_pad_min_m2`` after 5 m and not after 15 m loses its
-    platform and keeps today's welded plate.  This 9,000 m2 pad is the twin
-    file's own ``big`` fixture from the C = 5 m rounds."""
+# --------------------------------------------------------------------------
+# ROUND 2 (owner RULINGS 2026-10-02z, issue #86).  Round 1 minted the cap
+# UNCONDITIONALLY and the sweep MEASURED the cost: live platforms KCLT
+# 10 -> 3, SPJC 8 -> 5, HECA 14 -> 8, the plateaus lost with them.  C is
+# now the WIDEST width at or under the cap that still leaves a platform,
+# searched UP from the width ``origin/main`` minted — so round 2 may only
+# WIDEN a collar, and the set of pads that get a platform is main's set
+# exactly (the refusal is judged at that same status-quo width).
+# --------------------------------------------------------------------------
+
+
+def _widths(air, pads, law, grid=0.5, dem=None):
+    """``{ref: (C, why)}`` per MINTED platform and ``{ref: refused}``."""
+    pplat.platform_split(air, pads, law, grid, dem=dem)
+    return ({p.ref: (p.collar_m, p.collar_why) for p in pplat.PLATFORMS
+             if not p.refused},
+            {p.ref: p.refused for p in pplat.PLATFORMS if p.refused})
+
+
+def _main_collar_m(law, P, air, near, dem, slope_max) -> float:
+    """``origin/main``'s (pre-collar86) C for this pad: the DEM-relief
+    proxy ``clamp(relief / bank_slope, bank_min_width_m,
+    platform_collar_max_m)``, written out here — INDEPENDENTLY of
+    ``_collar_for_pad``'s own floor — so the invariant twin compares round
+    2 against the width main really minted, not against a number copied
+    into the assertion."""
+    cmin = float(law.tables.emit.design.bank_min_width_m)
+    cmax = float(law.tables.structures.building_pad.platform_collar_max_m)
+    bank = float(law.tables.emit.design.bank_slope)
+    rel = pplat.rim_relief_m(P, air, near, dem, slope_max)
+    return cmin if rel is None else min(cmax, max(cmin, rel / bank))
+
+
+def test_a_narrow_pad_the_cap_would_erode_away_keeps_its_platform(law):
+    """THE ROUND-1 DEFECT, closed.  This 9,000 m2 pad (the twin file's own
+    ``big`` fixture) leaves 70 x 15 m = 1,050 m2 under the cap — far under
+    ``cluster_pad_min_m2`` — and round 1 REFUSED it ``under_min_area``.
+    Round 2 narrows C station by station until the platform fits and mints
+    it, at a C never under ``bank_min_width_m`` and never under the width
+    ``origin/main`` gave."""
     air = [Region("apron", "a", Polygon(APRON), None, None, "airside", "cell")]
     mid = Region("building", "mid", Polygon(_rect(-100.0, 200.0, 100.0, 245.0)),
                  None, None, "airside", "cell")
-    got, counts = pplat.platform_split(air, [mid], law, 0.5)
-    assert [r.ref for r in got] == ["mid"] and counts["platforms"] == 0
-    assert [(p.ref, p.refused) for p in pplat.PLATFORMS] == [("mid", "under_min_area")]
+    cmin = float(law.tables.emit.design.bank_min_width_m)
+    cap = float(law.tables.structures.building_pad.platform_collar_max_m)
+    minted, refused = _widths(air, [mid], law)
+    assert refused == {}
+    (C, why), = minted.values()
+    assert list(minted) == ["mid"]
+    assert cmin <= C < cap                 # narrowed, never round 1's bare cap
+    assert why in ("area", "floor")
+    # >= what main gives: DEM-less, main's proxy reads no relief and takes
+    # its own floor (``test_round_2_never_refuses_a_platform_main_grants``
+    # sweeps the DEM arm)
+    assert C >= _main_collar_m(law, mid.polygon, Polygon(APRON), 2.0, None, 0.0)
+    # and the platform the narrowed C leaves is over the gate
+    plat = next(p for p in pplat.PLATFORMS if not p.refused)
+    assert plat.platform_m2 >= float(law.tables.structures.placement.cluster_pad_min_m2)
+
+
+def test_the_width_search_is_monotone_and_takes_the_widest_station(law):
+    """C is THE WIDEST passing width, not merely a passing one: one station
+    of ``emit.identity.input_quantum_m`` wider refuses the pad, and the
+    width sits on that lattice off ``bank_min_width_m`` — a named law
+    resolution, no literal of its own."""
+    cmin = float(law.tables.emit.design.bank_min_width_m)
+    cap = float(law.tables.structures.building_pad.platform_collar_max_m)
+    step = float(law.tables.emit.identity.input_quantum_m)
+    pmin = float(law.tables.structures.building_pad.min_area_m2)
+    min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)
+    bank = float(law.tables.emit.design.bank_slope)
+    P = Polygon(_rect(-100.0, 200.0, 100.0, 245.0))
+    C, why, _parts, plats, tot = pplat._collar_for_pad(
+        P, 0.5, cap, cmin, bank, None, step, pmin, min_m2)
+    assert plats and tot >= min_m2
+    assert why == "area" and cmin < C < cap
+    assert (C - cmin) % step == pytest.approx(0.0, abs=1e-6)   # on the lattice
+    # one station wider does not fit
+    _p2, pl2, t2 = pplat._eroded(P, C + step, 0.5, pmin)
+    assert not pl2 or t2 < min_m2
+    # and a sample of narrower widths all do (the predicate is monotone)
+    for w in (cmin, 0.5 * (cmin + C), C - step):
+        _p3, pl3, t3 = pplat._eroded(P, w, 0.5, pmin)
+        assert pl3 and t3 >= min_m2, w
+
+
+def test_a_pad_main_already_refuses_stays_refused(law):
+    """The other direction: a pad whose status-quo collar already erodes it
+    past the gates gets no platform, exactly as ``origin/main`` gives none
+    — the refusal is judged at that same width and the predicate is
+    monotone, so no width round 2 could pick would mint it.  5,600 m2,
+    28 m deep: the floor leaves 18 m x 190 m = 3,420 m2."""
+    air = [Region("apron", "a", Polygon(APRON), None, None, "airside", "cell")]
+    thinner = Region("building", "thin2", Polygon(_rect(-100.0, 200.0, 100.0, 228.0)),
+                     None, None, "airside", "cell")
+    minted, refused = _widths(air, [thinner], law)
+    assert minted == {} and refused == {"thin2": "under_min_area"}
+    assert [p.collar_m for p in pplat.PLATFORMS] == [
+        pytest.approx(float(law.tables.emit.design.bank_min_width_m))]
+    assert [p.collar_why for p in pplat.PLATFORMS] == ["floor"]
+
+
+def test_round_2_never_refuses_a_platform_main_grants(law):
+    """THE INVARIANT (owner RULINGS 2026-10-02z): the set of pads that get a
+    platform is EXACTLY the set ``origin/main`` (pre-collar86) gives, and
+    every C is at or over main's.  Swept over the pad depths 24-120 m at
+    4 m, DEM-less and on the falling DEM (50 pads) — main's own derivation
+    is written out independently above and the two verdicts compared pad
+    for pad."""
+    near = 2.0
+    slope_max = float(law.tables.emit.within_shape.pad_slope_max)
+    cmin = float(law.tables.emit.design.bank_min_width_m)
+    pmin = float(law.tables.structures.building_pad.min_area_m2)
+    min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)
+    cap = float(law.tables.structures.building_pad.platform_collar_max_m)
+    step = float(law.tables.emit.identity.input_quantum_m)
+    airP = Polygon(APRON)
+    air = [Region("apron", "a", airP, None, None, "airside", "cell")]
+    bank = float(law.tables.emit.design.bank_slope)
+    seen = {"both": 0, "neither": 0, "widened": 0}
+    for depth in range(24, 124, 4):
+        P = Polygon(_rect(-100.0, 200.0, 100.0, 200.0 + depth))
+        for dem in (None, _Dem()):
+            Cm = _main_collar_m(law, P, airP, near, dem, slope_max)
+            _pm, plm, tm = pplat._eroded(P, Cm, 0.5, pmin)
+            main_ok = bool(plm) and tm >= min_m2
+            rel = pplat.rim_relief_m(P, airP, near, dem, slope_max)
+            Cb, _why, _pb, plb, tb = pplat._collar_for_pad(
+                P, 0.5, cap, cmin, bank, rel, step, pmin, min_m2)
+            b_ok = bool(plb) and tb >= min_m2
+            # THE SET IS IDENTICAL, pad for pad, on both DEM arms
+            assert b_ok == main_ok, (depth, dem is not None, Cm, Cb)
+            if main_ok:
+                # and NEVER a narrower collar: the lattice is §46 (4)'s own
+                # input quantum, so the search's granularity is below every
+                # materiality in the system (``hard_tol_m`` 0.02)
+                assert Cb >= Cm - step, (depth, Cm, Cb)
+                assert Cb <= cap + 1e-9
+                seen["both"] += 1
+                if Cb > Cm + step:
+                    seen["widened"] += 1
+            else:
+                seen["neither"] += 1
+    assert seen["both"] and seen["neither"]
+    # and the point of round 2: where the pad carries it, the collar WIDENS
+    assert seen["widened"], seen

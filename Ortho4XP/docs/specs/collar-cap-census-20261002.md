@@ -1,4 +1,5 @@
-# The 15 m collar's consumer census (#86, owner RULINGS 2026-10-02v (5))
+# The collar's consumer census (#86, owner RULINGS 2026-10-02v (5),
+# amended 2026-10-02z)
 
 Owner ruling 2026-10-02v (5): the platform collar is minted at the CAP
 width and the SOLVE places the toe, in ONE pass.  RULINGS 2026-08-30l
@@ -52,17 +53,56 @@ veto.
 | 22 | `planar/cluster.py`, `airport/footprint_connector.py` | read the CONSTANT `platform_collar_max_m * bank_slope` as `step_max_m` | they read the constant, not the ring; the constant is unchanged | Unchanged |
 | 23 | `solve/why.py` | the `platform_collar` attribution heads | heads unchanged | Unchanged |
 
-## The one consequence that is NOT neutral — REPORTED, not decided
+## The one consequence that was NOT neutral — MEASURED, and closed in round 2
 
-Minting at the cap erodes 15 m instead of 5-15 m, so a pad that leaves
+Round 1 minted at the cap UNCONDITIONALLY, so a pad that leaves
 `[placement] cluster_pad_min_m2` (5,000 m2) after a 5 m erosion and not
-after a 15 m one loses its platform and keeps today's welded plate
-(`under_min_area`, reported in `PLATFORMS` and by the census family
-`platform_refused`).  For a square pad the mint bar moves from about
-6,500 m2 to about 10,100 m2.  Three fixtures in the suite crossed it and
-were widened (`test_unitplatform_platform.py` x2, `test_v2padlevel.py`
-x1); the twin
-`test_the_cap_mint_refuses_a_pad_the_narrow_collar_would_have_minted`
-pins the behaviour at 9,000 m2.  How many real pads this takes is a
-SWEEP read (`platforms_refused` per airport), not a synthetic one, and
-whether it is acceptable is the owner's ruling, not this lane's.
+after a 15 m one lost its platform and kept today's welded plate
+(`under_min_area`).  For a square pad the mint bar moved from about
+6,500 m2 to about 10,100 m2.  This lane REPORTED it and the owner's sweep
+sw1008c MEASURED it (RULINGS 2026-10-02z): live platforms **KCLT 10 -> 3,
+SPJC 8 -> 5, HECA 14 -> 8**, KCLT plateaus 192,770 -> 114,314 m2, 106 KCLT
+runway movers with 18L/36R flex at 98 % of budget, and a new KCLT CRITICAL
+`strip_arc` 0.18 m. Round 1 was REVERTED (10ee7b99); where the platform
+survived, the bank goal WAS met (HECA `building4` 1:3.27 -> 1:4.61, SPJC
+`building5` 1:1.89 -> 1:4.41, `building13` 1:2.81 -> 1:3.14), i.e. the
+one-way rows of rows 3 + 9 below are sound and only the WIDTH needed
+re-deriving.
+
+### Round 2 (owner RULINGS 2026-10-02z): C is the widest width the pad CARRIES
+
+`planar/platform.py::_collar_for_pad` is now the one derivation: the
+widest width at or under `platform_collar_max_m` whose erosion still
+passes the mint's own gates, **searched up from the width the pre-collar86
+engine minted** (`clamp(relief / bank_slope, bank_min_width_m,
+platform_collar_max_m)`), on the lattice of
+`emit.identity.input_quantum_m` (§46 (4), 1 mm — a named law resolution,
+no literal of C's own). One pass, no re-mint, no second solve; the toe
+stays solve-placed.
+
+**The platform SET is unchanged by construction.** The refusal is judged
+at that same status-quo width, so round 2 alters a collar's WIDTH and
+nothing else — the invariant the owner asked to twin
+(`test_round_2_never_refuses_a_platform_main_grants`, 50 synthetic pads
+over two DEM arms: the verdict is identical pad for pad and every C is at
+or over main's). A floor at `bank_min_width_m` instead — the ruling's
+literal words — would additionally MINT platforms main refuses (2 of those
+50 pads: a pad whose relief-width erosion crossed the min-area bar while a
+5 m one does not). That is a strict gain in 10-02z's own direction, but it
+CHANGES the platform set, so it is REPORTED here for the owner and not
+taken.
+
+**The census table below stands unchanged**, with two readings narrowed:
+
+| # | Row | Round 1 reading | Round 2 reading |
+|---|---|---|---|
+| 1 | `platform_split` | C is `platform_collar_max_m` for every pad | C is the widest width the pad carries, `_collar_for_pad`; `_eroded` is the gate predicate the search and the mint SHARE |
+| 3 | `platform_collar_rows` | `d` grows to ~15 m | `d` grows to C, which is ~15 m wherever the pad carries it and narrower where it does not — the one-way 1:3 rows are unchanged |
+| 5 | `platform_records` / `collar_width` | `collar_m` reads 15.0 | `collar_m` reads C; the record also carries `collar_minted_m` and `collar_why` (`cap` / `area` / `floor`), so an area-limited collar is READ, never inferred |
+| 20 | `osm_adapter` `platforms` key | reads 15.0 for every platform | reads C, with `collar_why` beside it |
+| 21 | `publication` refused report | more refusals | the SAME refusals as `origin/main`, by construction |
+
+Rows 2, 4, 6-19, 22, 23 are unaffected by the change from a constant C to
+a per-pad C: each reads the ring, the unit footprint or a constant, none
+of which the derivation moves. Row 6's `pads.py` comment reads "C inside
+the pad", which stays correct.

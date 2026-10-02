@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 import types
 from types import SimpleNamespace
@@ -880,6 +881,10 @@ def test_auto_patch_solves_run_at_full_width(
     exceed the osm cap of two."""
     monkeypatch.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
     monkeypatch.setenv("O4_OSM_CLASS_LIMIT", "2")
+    # Same spawn-stagger exposure as #142's twin below; the osm cap of two
+    # makes it worse, since tiles three and four fetch LATER by design.
+    # The fetch intervals asserted below all END before the barrier.
+    monkeypatch.setenv("STUB_WORKER_PHASE_BARRIER", "4")
     session = EngineSession()
     tiles = [(63, -100), (63, -101), (63, -102), (63, -103)]
     result = _run_build(session, collector, tiles, slots=4)
@@ -945,6 +950,11 @@ def test_imagery_conversion_tails_run_at_full_width(
     """
     monkeypatch.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
     monkeypatch.setenv("STUB_WORKER_CONVERT_SECONDS", "3.0")
+    # The barrier (#142) absorbs the stagger the docstring above describes
+    # directly, instead of buying margin against it.  The 3.0 s tail is
+    # KEPT: it is the mitigation the #76 reading ruled, and removing it is
+    # the owner's call, not this lane's.
+    monkeypatch.setenv("STUB_WORKER_PHASE_BARRIER", "6")
     session = EngineSession()
     tiles = [(64, -100 - index) for index in range(6)]
     result = _run_build(session, collector, tiles, slots=6, timeout=60.0,
@@ -996,6 +1006,14 @@ def test_cached_tiles_reach_full_width_past_the_fetch_cap(
     all cached, N workers are simultaneously in their processor-burning
     phase even though the osm fetch cap is four."""
     monkeypatch.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
+    # The six workers are six PROCESSES.  Whenever something staggers
+    # their arrival at the solve phase by more than the 0.6 s solve lasts,
+    # the sampled peak drops below the admission width with the
+    # coordinator behaving perfectly -- windows-latest read 5 of 6 that
+    # way (#142).  The barrier absorbs the stagger BEFORE the measurement
+    # window opens: a worker the coordinator never admits never arrives,
+    # so the exact `== 6` below still fails a short admission width.
+    monkeypatch.setenv("STUB_WORKER_PHASE_BARRIER", "6")
     tiles = [(63, -100 - index) for index in range(6)]
     _stub_predicates(monkeypatch, cached_tiles=tiles)
     session = EngineSession()
@@ -1334,3 +1352,76 @@ def test_enqueue_refused_once_run_finished():
     run = _bare_run([(10, 10)], 2)
     run._finished = True
     assert run.enqueue([(11, 11)], "P", 16, "", (True, False, False)) == 0
+
+
+# ── the stub worker's phase barrier (#142) ───────────────────────────
+# The barrier exists so a concurrency twin measures ADMISSION width and
+# not this machine's process-spawn stagger.  It must release only when the
+# party has assembled, and it must never turn a SHORT party into a pass —
+# those are the two properties the twins above now rest on.
+def _barrier_module(monkeypatch, tmp_path, party, seconds=1.0):
+    """The stub worker imported as a module, armed for `party` arrivals."""
+    import importlib.util
+    monkeypatch.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
+    monkeypatch.setenv("STUB_WORKER_PHASE_BARRIER", str(party))
+    monkeypatch.setenv("STUB_WORKER_PHASE_BARRIER_SECONDS", str(seconds))
+    spec = importlib.util.spec_from_file_location("_stub_worker_probe",
+                                                  STUB_WORKER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_phase_barrier_releases_when_the_party_assembles(
+        monkeypatch, tmp_path):
+    stub = _barrier_module(monkeypatch, tmp_path, party=3)
+    started = time.time()
+    threads = [
+        threading.Thread(target=stub._await_phase_barrier,
+                         args=("solve", 63, -100 - index))
+        for index in range(3)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10.0)
+    assert not any(t.is_alive() for t in threads), "the barrier never released"
+    # Released by ARRIVAL, not by the 1.0 s deadline.
+    assert time.time() - started < 1.0
+
+
+def test_the_phase_barrier_does_not_wait_forever_on_a_short_party(
+        monkeypatch, tmp_path):
+    """Two of three arrive: each returns False on the deadline and goes on,
+    so the twin's own concurrency assertion reports the short width —
+    the barrier never hangs the run."""
+    stub = _barrier_module(monkeypatch, tmp_path, party=3, seconds=0.3)
+    outcomes = []
+    threads = [
+        threading.Thread(
+            target=lambda n: outcomes.append(
+                stub._await_phase_barrier("solve", 63, -100 - n)),
+            args=(index,))
+        for index in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10.0)
+    assert outcomes == [False, False], outcomes
+
+
+def test_the_phase_barrier_is_a_no_op_when_not_armed(monkeypatch, tmp_path):
+    """Every twin that does not opt in must be untouched: no arrival file
+    is written and the call returns at once."""
+    stub = _barrier_module(monkeypatch, tmp_path, party=0)
+    assert stub._await_phase_barrier("solve", 63, -100) is True
+    assert not list(tmp_path.glob("phasearrival_*"))
+
+
+def test_the_phase_barrier_counts_only_its_own_phase(monkeypatch, tmp_path):
+    """Solve arrivals must not release a convert barrier (one mark dir
+    serves both phases of a single twin)."""
+    stub = _barrier_module(monkeypatch, tmp_path, party=2, seconds=0.3)
+    stub._write_marker("%s_solve" % stub._PHASE_BARRIER_PREFIX, 63, -100)
+    assert stub._await_phase_barrier("convert", 64, -100) is False

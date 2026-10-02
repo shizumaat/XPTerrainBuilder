@@ -232,10 +232,13 @@ def _library_index_sidecar(
     sidecars) covers, and therefore invalidates on ANY change to:
 
     * :data:`_LIB_INDEX_CACHE_VERSION` and the absolute ``xplane_root``;
-    * ``Custom Scenery/scenery_packs.ini`` — its (size, mtime), or an
-      explicit "absent" marker.  The ini decides pack PRIORITY, and a
-      reorder that changes nothing else still changes who wins a virtual
-      path;
+    * ``Custom Scenery/scenery_packs.ini`` — its CONTENT, or an explicit
+      "absent" marker.  The ini decides pack PRIORITY, and a reorder that
+      changes nothing else still changes who wins a virtual path.  Its
+      (size, mtime) was NOT enough: a reorder keeps the length, and ubuntu
+      stamps mtimes from a coarse clock, so a rewrite inside one tick
+      moved neither (#141, #104).  The ini is one small file, so it is
+      digested outright;
     * the ordered list of every ``library.txt`` consulted, each as
       ``(path, size, mtime)``.  Mtimes are taken in NANOSECONDS: a file
       rewritten within the same microsecond as its predecessor and to
@@ -245,6 +248,14 @@ def _library_index_sidecar(
       added or removed, or a library.txt created, deleted or edited,
       changes this list — there is no path by which the merged dict can
       differ while the fingerprint matches.
+
+    The order was the only signal that a reorder changed anything, and it
+    is derived from the ini THROUGH :func:`O4_Scenery_Packs.parse_ini`,
+    whose own cache was keyed on the same collapsing stat — so when that
+    one went stale, both signals went stale together and the "impossible
+    case" above happened (#141).  Digesting the ini's content costs one
+    small read and makes this fingerprint hold on its own, whatever any
+    other cache upstream decides.
 
     Returns ``(None, None)`` — no read, no write, exactly the
     pre-cache behaviour — when ``O4_LIBRARY_INDEX_CACHE=0``, when no
@@ -265,9 +276,10 @@ def _library_index_sidecar(
         ini = os.path.join(xplane_root, "Custom Scenery",
                            "scenery_packs.ini")
         try:
-            ini_stat = os.stat(ini)
-            digest.update(
-                f"|ini:{ini_stat.st_size}:{ini_stat.st_mtime_ns}".encode())
+            with open(ini, "rb") as ini_handle:
+                ini_bytes = ini_handle.read()
+            digest.update(f"|ini:{len(ini_bytes)}:".encode())
+            digest.update(hashlib.sha1(ini_bytes).hexdigest().encode())
         except OSError:
             digest.update(b"|ini:absent")
         for source in sources:

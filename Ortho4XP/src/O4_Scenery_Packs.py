@@ -41,6 +41,7 @@ InstallationScanner.swift``, is the cross-language reference and
 
 from __future__ import annotations
 
+import hashlib
 import os
 from typing import Iterable
 
@@ -69,9 +70,21 @@ _DISABLED_TOKEN = "SCENERY_PACK_DISABLED"
 
 _CUSTOM_SCENERY = "Custom Scenery"
 
-# (ini_path, mtime, size) -> (ordered, disabled).  One install per process
-# in practice, so a single-entry cache is enough and keeps a toggled ini
-# from ever being served stale (mtime/size are part of the key).
+# (ini_path, sha1 of the ini's BYTES) -> (ordered, disabled).  One install
+# per process in practice, so a single-entry cache is enough.
+#
+# The key was ``(path, st_mtime, st_size)`` and served a REORDERED ini
+# stale (#141, and #104 before it).  A pure reorder changes neither the
+# length nor any name, and ubuntu stamps inode mtimes from a COARSE clock,
+# so a rewrite landing in the same tick as the original does not advance
+# ``st_mtime`` either -- the key then matched and X-Plane's pack PRIORITY
+# was read from the superseded file.  That is a product defect, not only a
+# flake: priority decides which pack wins a virtual library path, so the
+# wrong pack supplied footprint geometry (reproduced -- the reorder was
+# invisible and the old winner kept the path).  No stat tuple can tell a
+# same-length rewrite inside one timestamp tick from no rewrite at all, so
+# the key is the CONTENT.  The ini is small and the bytes are read anyway
+# to parse it, so a hit now costs one read plus one sha1.
 _INI_CACHE: dict[tuple, tuple[tuple[str, ...], frozenset]] = {}
 
 
@@ -117,32 +130,29 @@ def parse_ini(ini_path: str) -> tuple[list[str], set[str]]:
     enabled.  Duplicate enabled rows keep their first position.
     """
     try:
-        stat = os.stat(ini_path)
-        key = (os.path.abspath(ini_path), stat.st_mtime, stat.st_size)
+        with open(ini_path, "rb") as handle:
+            raw = handle.read()
     except OSError:
         return ([], set())
+    key = (os.path.abspath(ini_path), hashlib.sha1(raw).hexdigest())
     cached = _INI_CACHE.get(key)
     if cached is not None:
         return (list(cached[0]), set(cached[1]))
     ordered: list[str] = []
     disabled: set[str] = set()
-    try:
-        with open(ini_path, "r", encoding="utf-8", errors="replace") as handle:
-            for line in handle:
-                tokens = line.strip().split(None, 1)
-                if len(tokens) != 2:
-                    continue
-                name = pack_name_from_ini_path(tokens[1])
-                if not name:
-                    continue
-                # EXACT token: "SCENERY_PACK_DISABLED".startswith(
-                # "SCENERY_PACK") is True, which is the E1 defect.
-                if tokens[0] == _DISABLED_TOKEN:
-                    disabled.add(name)
-                elif tokens[0] == _ENABLED_TOKEN and name not in ordered:
-                    ordered.append(name)
-    except OSError:
-        return ([], set())
+    for line in raw.decode("utf-8", "replace").splitlines():
+        tokens = line.strip().split(None, 1)
+        if len(tokens) != 2:
+            continue
+        name = pack_name_from_ini_path(tokens[1])
+        if not name:
+            continue
+        # EXACT token: "SCENERY_PACK_DISABLED".startswith(
+        # "SCENERY_PACK") is True, which is the E1 defect.
+        if tokens[0] == _DISABLED_TOKEN:
+            disabled.add(name)
+        elif tokens[0] == _ENABLED_TOKEN and name not in ordered:
+            ordered.append(name)
     _INI_CACHE.clear()
     _INI_CACHE[key] = (tuple(ordered), frozenset(disabled))
     return (list(ordered), set(disabled))

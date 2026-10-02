@@ -899,6 +899,15 @@ def _build_write_verify_one(task: dict) -> dict:
 # so nothing built is lost by killing a straggler — only its exit.
 POOL_TEARDOWN_SECONDS = 20.0
 MANAGER_SHUTDOWN_SECONDS = 10.0
+# Seconds a straggler gets to honour SIGTERM before it is killed, and the
+# shared budget the KILLED children are then polled for until the kernel
+# has reaped them.  A kill cannot be refused, so the second budget buys
+# reap latency only -- but ``join`` measures WALL CLOCK, and a 2-core CI
+# runner under ``-n auto`` can deschedule the parent for a whole budget
+# while the child is dying (#118, #140, #169).
+POOL_SIGTERM_GRACE_SECONDS = 2.0
+POOL_REAP_SECONDS = 5.0
+POOL_REAP_POLL_SECONDS = 0.02
 
 
 def _teardown_pool(ex, results: list, futs: dict, pending, *,
@@ -963,7 +972,8 @@ def _teardown_pool(ex, results: list, futs: dict, pending, *,
         except Exception:
             pass
     if stragglers:
-        t_kill = _time.time() + 2.0
+        t_kill = _time.time() + POOL_SIGTERM_GRACE_SECONDS
+        killed = []
         for p in stragglers:
             p.join(timeout=max(0.0, t_kill - _time.time()))
             if p.is_alive():
@@ -973,7 +983,45 @@ def _teardown_pool(ex, results: list, futs: dict, pending, *,
                     p.kill()
                 except Exception:
                     pass
-                p.join(timeout=2.0)
+                killed.append(p)
+        _reap_or_name(killed, "worker pid")
+
+
+def _reap_or_name(killed: list, what: str) -> None:
+    """Wait for SIGKILLed children to be REAPED, then NAME any that were
+    not -- the last step of every bounded teardown here.
+
+    A kill cannot be refused, so what remains after one is reap latency.
+    But a per-child ``join(timeout=...)`` measures wall clock, not
+    progress: on a loaded 2-core runner the parent can be descheduled for
+    the whole budget while the child is already dying.  The old code spent
+    one unchecked 2 s join per child and returned whatever came of it, so
+    teardown could hand back a live, unreaped child AND say nothing about
+    it -- the caller (and the twin on the next line) then reads
+    ``is_alive()`` as True with no log line to attribute it to (#118,
+    #140, #169).
+
+    So the killed children are polled here against ONE shared deadline
+    (``is_alive`` is a non-blocking ``waitpid``, so the poll reaps as it
+    goes) and each one still alive when it expires is named.  The contract
+    is unchanged -- a BOUNDED return, never the unbounded
+    ``shutdown(wait=True)`` -- with the reap now either confirmed or
+    reported."""
+    if not killed:
+        return
+    import time as _time
+    t_reap = _time.time() + POOL_REAP_SECONDS
+    while True:
+        if not any(p.is_alive() for p in killed):
+            return
+        if _time.time() >= t_reap:
+            break
+        _time.sleep(POOL_REAP_POLL_SECONDS)
+    for p in killed:
+        if p.is_alive():
+            UI.lvprint(0, "   Auto-patch:", what, p.pid,
+                       "survived SIGKILL and was not reaped within",
+                       "{:.0f}s; abandoning it.".format(POOL_REAP_SECONDS))
 
 
 def _shutdown_manager(mgr, *,
@@ -997,14 +1045,18 @@ def _shutdown_manager(mgr, *,
                getattr(proc, "pid", "?"), ") did not shut down within",
                "{:.0f}s; terminating it.".format(deadline_s))
     if proc is not None:
+        killed = []
         try:
             proc.terminate()
-            proc.join(timeout=2.0)
+            proc.join(timeout=POOL_SIGTERM_GRACE_SECONDS)
             if proc.is_alive():
                 proc.kill()
-                proc.join(timeout=2.0)
+                killed.append(proc)
         except Exception:
             pass
+        # Same reap contract as the pool's: the manager's server process
+        # must be confirmed reaped before this returns, or named.
+        _reap_or_name(killed, "progress manager pid")
 
 
 def _swallow(fn) -> None:

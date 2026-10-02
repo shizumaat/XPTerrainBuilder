@@ -59,6 +59,17 @@ override with O4_RUN_LEDGER_PATH).  Concurrent appends are flock-guarded.
 """
 from __future__ import annotations
 
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``.  Self-contained and ahead of every
+# other import because a tool's own ``--help`` carries the house spelling
+# (``Δ``, ``ε``, ``≥``, ``→``) and a Windows console RAISES on those
+# rather than mangling them.  Twin: ``tests/test_console_encoding.py``.
+import os as _o4os, sys as _o4sys                                    # noqa: E402
+_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
+    _o4os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console                             # noqa: E402
+_o4console.configure_console_streams()
+
 import argparse
 import hashlib
 import json
@@ -253,10 +264,11 @@ def round_totals(records) -> dict:
 
 def main(argv=None) -> int:
     # UTF-8 on every OS: a piped stdout on Windows is cp1252 and the first
-    # non-ASCII character (→, −, §) raised UnicodeEncodeError (#92)
-    for _stream in (sys.stdout, sys.stderr):
-        if hasattr(_stream, "reconfigure"):
-            _stream.reconfigure(encoding="utf-8")
+    # non-ASCII character (→, −, §) raised UnicodeEncodeError (#92).  The
+    # module-level call at the head of this file is the ONE derivation site
+    # (#171, #125); this repeat is for a caller that imports ``main``
+    # directly, and it is idempotent.
+    _o4console.configure_console_streams()
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
         usage="run_with_ledger.py [options] -- command [args...]")

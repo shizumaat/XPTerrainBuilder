@@ -460,6 +460,73 @@ def hairline_preflight(poly_file, tile):
 
 
 
+# THE INSET-BOX MESH RULE (#233, lane meshbox233).  Triangle4XP splits a
+# triangle while ``maxedge * maxcurv * weight > curvature_tol``
+# (``Utils/src/Triangle4XP.c`` ``triunsuitable``): ``curvature_tol`` c
+# bounds the TURN ``L * k`` of an edge L over curvature k, so the flat
+# facet sags ``L^2 k / 8 = L * c / 8`` under the surface at the split
+# boundary — c is eight times the permitted sag-to-edge ratio.
+# ``curvature_tol`` is the tolerance of the 1 arc-second base class
+# (30 m: ``O4_Elevation_Level.LEVEL_GRID_FACTORS[30] == 1``).  Inside an
+# airport's elevation-inset box the surface IS the inset, so the box is
+# held to the inset's own class by the same ratio:
+#
+#     inset_box_curv_tol = curvature_tol * resolution_m / 30 m
+#     weight             = 30 m / resolution_m          (never below 1)
+#
+# i.e. the sag the base class is allowed on an edge shrinks with the
+# posting: at the default curvature_tol 2.0 a 30 m surface may sag 30 m
+# on a 120 m edge, a 1 m lidar inset 1 m.  1 m -> weight 30, 5 m -> 6,
+# 10 m -> 3, and a 30 m (or coarser) inset -> 1: NOTHING changes, so a
+# tile with no inset finer than the base class keeps today's weight map
+# byte for byte.  The extent is the box the inset raster DELIVERS (never
+# a literal), the resolution the one its data honestly carries, and the
+# weight only ever tightens what the cell already holds (``maximum``).
+#
+# On a tile whose mesh is bound by ``limit_tris`` (KASE at
+# elevation_level 10 wants > 4.6 M triangles against a 3.0 M budget) the
+# weight is in effect the box's PRIORITY for the budget: Triangle4XP
+# serves bad triangles by ``ratio * area`` and stops when the Steiner
+# points run out, so the total stays where it was and the box is served
+# first.  A sag-true weight (``c / sqrt(8 tol K)`` per cell from the
+# raster's own curvature) was measured and REFUTED for that reason: it
+# is right on an unbound tile and loses the queue on a bound one
+# (KASE box centroid p95 3.9 m against 1.7 m for this rule).
+INSET_BOX_REFERENCE_CLASS_M = 30.0
+
+
+def inset_box_curv_weight(resolution_m):
+    """The curv_tol weight of an inset box whose data carries
+    ``resolution_m`` (>= 1: never looser than the tile's own rule)."""
+    return max(INSET_BOX_REFERENCE_CLASS_M / float(resolution_m), 1.0)
+
+
+def apply_inset_box_curv_weights(tile, weight_array, inset_boxes):
+    """Raise ``weight_array`` over each ``(box, resolution_m, ...)`` of
+    ``inset_boxes`` (``box`` = ``(west, south, east, north)``, EPSG:4326)
+    to :func:`inset_box_curv_weight` where that is tighter than what the
+    cell already holds.  Returns the number of cells raised."""
+    raised = 0
+    for entry in inset_boxes:
+        ((west, south, east, north), resolution_m) = (entry[0], entry[1])
+        if not resolution_m or resolution_m <= 0:
+            continue
+        weight = numpy.float32(inset_box_curv_weight(resolution_m))
+        if weight <= 1.0:
+            continue
+        # Same cell arithmetic as the airport rectangle below.
+        colmin = max(round((west - tile.lon) * 1000), 0)
+        colmax = min(round((east - tile.lon) * 1000), 1000)
+        rowmin = max(round((tile.lat + 1 - north) * 1000), 0)
+        rowmax = min(round((tile.lat + 1 - south) * 1000), 1000)
+        if colmin > colmax or rowmin > rowmax:
+            continue
+        cells = weight_array[rowmin : rowmax + 1, colmin : colmax + 1]
+        raised += int((cells < weight).sum())
+        numpy.maximum(cells, weight, out=cells)
+    return raised
+
+
 def build_curv_tol_weight_map(tile, weight_array):
     if tile.apt_curv_tol != tile.curvature_tol and tile.apt_curv_tol > 0:
         UI.vprint(
@@ -488,6 +555,20 @@ def build_curv_tol_weight_map(tile, weight_array):
             rowmin = max(round(((1 - ymax) - y_shift) * 1000), 0)
             weight_array[rowmin : rowmax + 1, colmin : colmax + 1] = (
                 tile.curvature_tol / tile.apt_curv_tol
+            )
+        # The inset boxes ride the SAME owner switch as the airport rule
+        # (apt_curv_tol == curvature_tol or 0 turns airport density off).
+        try:
+            inset_boxes = INSETS.baked_inset_boxes(tile)
+        except Exception as error:
+            UI.vprint(1, "   WARNING: inset boxes unreadable for the "
+                      "curv_tol weight map:", str(error))
+            inset_boxes = []
+        raised = apply_inset_box_curv_weights(tile, weight_array, inset_boxes)
+        if raised:
+            UI.vprint(
+                1, "-> Modifying curv_tol weight map according to airport "
+                "elevation inset boxes (%d cells)." % raised
             )
     if tile.coast_curv_tol != tile.curvature_tol:
         UI.vprint(

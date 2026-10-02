@@ -22,10 +22,15 @@ WHAT THE LAW DOES ABOUT IT
 --------------------------
 
 The terrain STAYS AT THE APRON GRADE — there is no block cut, and the
-1.5 % cap is not bent.  A DSF ``OBJECT`` row carries HEADING only (X-Plane
-cannot pitch a placement), so the only thing left that can seat the feet
-is the body's own geometry, and the object stage already re-authors body
-files.  So:
+1.5 % cap is not bent.  A DSF ``OBJECT`` row carries HEADING only — the
+only pitch X-Plane can apply is the OBJ8 header's own ``TILTED``, which
+rotates the whole object to the terrain normal it samples under the
+anchor, a seat NOTHING here can aim (it is read from the mesh, not from
+the design surface, and under a split it differs body by body; #232 is
+what it costs, and :data:`obj8_split.SEAT_OWNED_DIRECTIVES` is why no
+file this stage writes carries it).  So the only thing left that can seat
+the feet is the body's own geometry, and the object stage already
+re-authors body files.  So:
 
 1. fit a plane, by LEAST SQUARES, through the design-surface reads at the
    body's own ground-contact feet;

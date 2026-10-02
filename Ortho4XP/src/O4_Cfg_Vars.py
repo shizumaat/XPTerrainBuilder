@@ -506,7 +506,7 @@ cfg_tile_vars = {
     },
     "limit_tris": {
         "type": float,
-        "default": 3.0,
+        "default": 4.5,
         "hint": "If non zero, approx upper bound _in millions_ on the number of final triangles in the mesh. Note: When 0 we impose a hard limit of 5M, to keep X-Plane comfortable. For high resolution DEMS you _should_ use it.",
     },
     "min_angle": {

@@ -504,3 +504,41 @@ def test_the_full_tile_pass_leaves_the_runners_proj_alone(driver):
         "the full-tile pass must leave the runner's PROJ environment "
         "alone — it runs the engine from the checkout, where the "
         "bundle's scrub does not apply")
+
+
+# ---------------------------------------------------------------------------
+# 10. The .dsf lives TWO levels under "Earth nav data"
+# ---------------------------------------------------------------------------
+def test_the_dsf_is_found_at_the_depth_fnames_actually_writes_it(driver,
+                                                                 tmp_path):
+    """Run 37034293088 built the tile — its own log read "DSF file encoded,
+    total size is : 37996339 bytes (36.2M)" and "*Activating DSF file." —
+    and the check reported "no .dsf … the tile produced no scenery at all".
+
+    ``FNAMES.dsf_file`` joins ``build_dir`` + ``"Earth nav data"`` +
+    ``long_latlon(lat, lon)``, and ``long_latlon`` is itself a TWO-LEVEL
+    path (the 10-degree block, then the tile).  A glob one level short
+    finds nothing — and silently made the ``.dsf.tmp`` leftover check
+    vacuous too, so the Windows locked-file class it exists to catch
+    could never have fired.
+    """
+    root = tmp_path / "data"
+    built = (root / "Tiles" / "zOrtho4XP_+60-136" / "Earth nav data"
+             / "+60-140")
+    built.mkdir(parents=True)
+    (built / "+60-136.dsf").write_bytes(b"XPLNEDSF" + b"\0" * 70000)
+    found = driver._tile_dsfs(str(root))
+    assert [Path(p).name for p in found] == ["+60-136.dsf"], found
+
+    # A one-level spelling must be found too: `**` matches zero
+    # directories, so the helper cannot be wrong either way.
+    flat = root / "Tiles" / "zOrtho4XP_+00+000" / "Earth nav data"
+    flat.mkdir(parents=True)
+    (flat / "+00+000.dsf").write_bytes(b"XPLNEDSF")
+    assert len(driver._tile_dsfs(str(root))) == 2
+
+    # And the leftover check sees a temp file at the real depth.
+    assert driver._tile_dsfs(str(root), ".dsf.tmp") == []
+    (built / "+60-136.dsf.tmp").write_bytes(b"XPLNEDSF")
+    assert [Path(p).name for p in driver._tile_dsfs(str(root), ".dsf.tmp")] \
+        == ["+60-136.dsf.tmp"]

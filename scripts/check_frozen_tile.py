@@ -1699,6 +1699,29 @@ def _download_table(data_root, log_text, path):
     return downloaded_files, downloaded_bytes, giveups
 
 
+def _tile_dsfs(data_root, suffix=".dsf"):
+    """Every ``<suffix>`` file under the built tile's ``Earth nav data``.
+
+    RECURSIVE, and that is the whole point.  ``FNAMES.dsf_file`` joins
+    ``build_dir`` + ``"Earth nav data"`` + ``FNAMES.long_latlon(lat, lon)``,
+    and ``long_latlon`` is ITSELF A TWO-LEVEL PATH — the 10-degree block
+    directory and then the tile — so the real file is
+
+        Tiles/zOrtho4XP_+60-136/Earth nav data/+60-140/+60-136.dsf
+
+    MEASURED, run 37034293088: a glob with one level too few found
+    nothing on a build whose own log read "DSF file encoded, total size
+    is : 37996339 bytes (36.2M)" and "*Activating DSF file." — the tile
+    was there and the check said it was not.  Worse, the same mistake
+    made the ``.dsf.tmp`` leftover check VACUOUS: it could never have
+    seen a surviving temp file either.  ``**`` with ``recursive=True``
+    matches zero directories as well as two, so this is right whatever
+    depth ``long_latlon`` is spelled at.
+    """
+    return glob.glob(os.path.join(data_root, "Tiles", "*", "Earth nav data",
+                                  "**", "*" + suffix), recursive=True)
+
+
 def _write_full_tile_fixture(root, repo_root, lat, lon, icao, apt_dat,
                              cifp_dat):
     """An EMPTY data root plus the X-Plane-shaped tree the install supplies.
@@ -1858,8 +1881,7 @@ def run_full_tile(binary, repo_root, log_dir, lat, lon, icao, provider,
         # (64 KiB): a real zl15 tile DSF is megabytes, and what this
         # refuses is the EMPTY-shell class — a DSFTool that ran, wrote a
         # header and found no terrain to put in it.
-        dsfs = glob.glob(os.path.join(build_dir_glob, "Earth nav data",
-                                      "*.dsf"))
+        dsfs = _tile_dsfs(data_root)
         if not dsfs:
             failures.append(
                 "no .dsf under %s — the tile produced no scenery at all"
@@ -1873,8 +1895,7 @@ def run_full_tile(binary, repo_root, log_dir, lat, lon, icao, provider,
                     "the .dsf at %s is %d bytes — below the 64 KiB floor, "
                     "i.e. a header with no terrain in it"
                     % (os.path.relpath(path, data_root), size))
-        leftover = glob.glob(os.path.join(build_dir_glob, "Earth nav data",
-                                          "*.dsf.tmp"))
+        leftover = _tile_dsfs(data_root, ".dsf.tmp")
         if leftover:
             failures.append(
                 "a .dsf.tmp survived (%s) — the rename that ACTIVATES the "

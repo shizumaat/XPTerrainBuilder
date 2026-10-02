@@ -474,6 +474,19 @@ class PlanarMap:
     shape_of_vertex: _t.Mapping[int, int] = _dc.field(default_factory=dict)
     shape_of_face: _t.Mapping[int, int] = _dc.field(default_factory=dict)
     shape_joints: tuple[ShapeJoint, ...] = ()
+    #: AN APRON FACE NEVER CARRIES A TERRACE (owner RULINGS 2026-10-02v
+    #: (2); issues #189 / #253): the APRON BODY faces, inside which a step
+    #: is no terrace, and the AIRSIDE PAVEMENT faces (§20b stage 1's
+    #: roles), the sides that do not VETO such a pair.  A vertex pair whose
+    #: common faces include an apron face and are all airside reads as ONE
+    #: shape (``planar.shapes.straddles``): no row is withdrawn, the pair
+    #: cap stays published and no ``terrace_joints`` record is written.  A
+    #: pair with a GROUNDSIDE side (a lot, groundside pavement, a service
+    #: road, a terrain face) or a RIGID pad side (28b) keeps all three —
+    #: terraces stay lawful groundside, which is what #253 lost when round
+    #: one welded the LABELS instead (one union took KCLT's five joints).
+    no_terrace_faces: frozenset[int] = frozenset()
+    airside_pavement_faces: frozenset[int] = frozenset()
     #: The roads crossing from one shape to another (owner RULINGS
     #: 2026-09-08r-2): unlabelled, ramping, never a joint.
     road_ramps: tuple[RoadRamp, ...] = ()

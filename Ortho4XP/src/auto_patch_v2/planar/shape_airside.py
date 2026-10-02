@@ -1,7 +1,18 @@
 """AN APRON FACE NEVER CARRIES A TERRACE (owner RULINGS 2026-10-02v (2),
-issue #189) — the third weld of ``planar/shapes.build_shapes``, split out
-of ``shapes.py`` by the planar layer's 1,000-line budget (as the 30bk
-mouth weld was)."""
+issues #189 and #253) — the per-EDGE law of ``planar/shapes.build_shapes``
+and its third weld, split out of ``shapes.py`` by the planar layer's
+1,000-line budget (as the 30bk mouth weld was).
+
+Round one (#189) welded the LABELS of an apron face.  A ``uf.union`` is
+GLOBAL, so a label pair welded through one apron face lost its joint on
+every edge between those labels: at KCLT all five joints went (5 -> 0)
+although two of the edges were ``apron|parking_lot`` and
+``parking_lot|parking_lot``, against the ruling's "terraces stay lawful
+GROUNDSIDE" (#253, RULINGS 2026-10-02y).  The law is carried per EDGE now
+(:func:`inside_apron_body`), read by the ONE label reader
+(``planar.shapes.straddles``) and by the contour derivation; the weld that
+remains consolidates IDENTITY only, never across a pair a surviving joint
+edge separates."""
 from __future__ import annotations
 
 import typing as _t
@@ -10,7 +21,8 @@ from ..law import Law
 from ..law.tables import airside_stage_roles, family
 from ..model.planar import NO_SHAPE, PlanarMap
 
-__all__ = ["weld_airside_faces", "airside_apron_roles"]
+__all__ = ["weld_airside_faces", "airside_apron_roles", "airside_face_sets",
+           "inside_apron_body", "separated_label_pairs"]
 
 
 def airside_apron_roles(law: Law) -> frozenset[str]:
@@ -31,8 +43,83 @@ def airside_apron_roles(law: Law) -> frozenset[str]:
     return frozenset(law.tables.emit.terrace.one_shape_roles) & airside_stage_roles(law)
 
 
+def airside_face_sets(pm: PlanarMap, law: Law) -> tuple[frozenset[int], frozenset[int]]:
+    """``(the apron body faces, the airside pavement faces)`` — the two
+    face sets the per-edge law reads (:func:`inside_apron_body`).  The
+    first is :func:`airside_apron_roles`, the ruling's SUBJECT ("an apron
+    face"); the second is §20b stage 1's roles
+    (:func:`law.tables.airside_stage_roles`), the sides that do not VETO —
+    every GROUNDSIDE class and the RIGID pad are outside it, so a pair
+    with one of those on it keeps its joint."""
+    apron = airside_apron_roles(law)
+    if not apron:
+        return frozenset(), frozenset()
+    airside = airside_stage_roles(law)
+    return (frozenset(f for f, fa in pm.faces.items() if fa.role in apron),
+            frozenset(f for f, fa in pm.faces.items() if fa.role in airside))
+
+
+def inside_apron_body(pm: PlanarMap, ids: _t.Iterable[int]) -> bool:
+    """THE LAW, PER EDGE (owner RULINGS 2026-10-02v (2), issue #253):
+    whether the vertices ``ids`` all lie INSIDE the apron body, where "an
+    apron face never carries a terrace" — the faces incident to EVERY one
+    of them include an apron face and are ALL airside pavement.
+
+    THE #253 DEFECT this replaces.  Round one (#189) welded the LABELS of
+    an apron face through ``uf.union``, and a union is GLOBAL: a label pair
+    welded through one apron face lost its joint on every edge between
+    those labels.  At KCLT that took all five joints (5 -> 0) although the
+    edge census was ``apron|apron`` 8, ``apron|parking_lot`` 1,
+    ``parking_lot|parking_lot`` 1 — the groundside joint went with the
+    airside one, against the ruling's "terraces stay lawful GROUNDSIDE".
+
+    So the joint is carried per EDGE, not per label pair.  The common-face
+    reading is what makes it an edge test: the two SIDES of a planar edge
+    are the faces incident to both its endpoints, and a chord across one
+    apron's interior has that apron alone.  The OPEN BOUNDARY is not a
+    face, so an apron ring edge against it is inside the apron body (#189's
+    own pair); a ``parking_lot`` / ``groundside_pavement`` / service-road
+    side, and a RIGID pad (28b), are faces outside ``airside_stage_roles``
+    and veto."""
+    if not pm.no_terrace_faces:
+        return False
+    common: set[int] | None = None
+    for v in ids:
+        vert = pm.vertices.get(v)
+        if vert is None:
+            return False
+        fs = set(vert.incident_faces)
+        common = fs if common is None else (common & fs)
+        if not common:
+            return False
+    if not common or not (common & pm.no_terrace_faces):
+        return False
+    return common <= pm.airside_pavement_faces
+
+
+def separated_label_pairs(pm: PlanarMap, label: dict[int, int],
+                          no_terrace: frozenset[int],
+                          airside: frozenset[int]) -> frozenset[tuple[int, int]]:
+    """The label pairs a SURVIVING joint edge separates: the pairs carried
+    by a planar edge that is NOT :func:`inside_apron_body`.  Those two
+    labels are two shapes wherever that edge is, so they are never merged
+    (#253: that merge is what lost KCLT's ``parking_lot|parking_lot``
+    joint)."""
+    out: set[tuple[int, int]] = set()
+    for e in pm.edges.values():
+        la, lb = label.get(e.a, NO_SHAPE), label.get(e.b, NO_SHAPE)
+        if la == NO_SHAPE or lb == NO_SHAPE or la == lb:
+            continue
+        sides = set(pm.vertices[e.a].incident_faces) & set(pm.vertices[e.b].incident_faces)
+        if sides and (sides & no_terrace) and sides <= airside:
+            continue                                    # inside the apron body
+        out.add((min(la, lb), max(la, lb)))
+    return frozenset(out)
+
+
 def weld_airside_faces(pm: PlanarMap, law: Law, label: dict[int, int],
-                       uf: _t.Any, stats: _t.Any) -> None:
+                       uf: _t.Any, stats: _t.Any,
+                       separated: frozenset[tuple[int, int]] = frozenset()) -> None:
     """APRONS ALWAYS GRADE (owner RULINGS 2026-10-02v (2), issue #189):
     "an apron face never carries a terrace — a contour joint inside one
     apron face does not withdraw the 29ac pavement fallback; terraces stay
@@ -52,18 +139,31 @@ def weld_airside_faces(pm: PlanarMap, law: Law, label: dict[int, int],
     lot / taxiway) is KEPT, and the step then stands inside the apron
     anyway.
 
-    THE FIX, AT THE JOINT'S DERIVATION.  An :func:`airside_apron_roles`
-    face carries ONE label: the labels on its ring and holes WELD here,
-    after 30bk's mouth weld, so AIRSIDE IS KING — a groundside class change
-    elsewhere on the pair (30bk's kept verdict) cannot leave a step inside
-    an apron.  Nothing downstream is vetoed: the contour admission
-    (``len(labs) >= 2``), the gap midlines, :func:`planar.shapes.straddles`
-    and every consumer of the joints read the LABELS, so with the face of
-    one label there is no joint to declare, no row to withdraw and no
-    sidecar ``terrace_joints`` record.  A groundside face (a lot, a road,
-    the open boundary) keeps 08k's joint: a terrace there is lawful.  A
-    RIGID pad is outside ``airside_stage_roles``, so the 28b pad|apron
-    terraces stand.
+    THE FIX, AT THE JOINT'S DERIVATION — AND WHY THIS IS NO LONGER THE
+    WELD (owner RULINGS 2026-10-02y, issue #253).  Round one welded the
+    LABELS of an apron face, and a ``uf.union`` is GLOBAL: a label pair
+    welded through one apron face lost its joint on EVERY edge between
+    those labels.  At KCLT that took all five joints (5 -> 0) although two
+    joint edges were ``apron|parking_lot`` and ``parking_lot|parking_lot``
+    — a groundside terrace, which 10-02v (2) keeps lawful, died with the
+    airside one.  So the law is carried PER EDGE now, by
+    :func:`inside_apron_body`, which :func:`planar.shapes.straddles` (the
+    one reader of the labels: the row filter, the published pair caps and
+    the joint-edge census all go through it) and the contour derivation
+    (``planar.shapes._contour_joints``) both consult: a pair inside the
+    apron body has no joint to declare, no row to withdraw and no sidecar
+    ``terrace_joints`` record, while a pair with a GROUNDSIDE side (a lot,
+    groundside pavement, a service road, a terrain face) or a RIGID pad
+    side (28b) keeps all three.
+
+    WHAT IS LEFT HERE IS IDENTITY, NOT LAW.  Two labels that no surviving
+    joint edge separates (``separated``, :func:`separated_label_pairs`)
+    are indistinguishable to every consumer of the joints — there is no
+    edge anywhere at which they are two shapes — so an apron face carrying
+    them records ONE shape, as round one did.  A pair a surviving joint
+    edge DOES separate is never merged: that merge is #253.  The weld is
+    therefore a no-op for the joint law and cannot lose a groundside
+    joint.
 
     THE ROAD'S OWN STEP IS NOT THE APRON'S (owner RULINGS 2026-09-08r-2,
     kept).  A road running ALONG a boundary takes the level of the shape it
@@ -91,7 +191,23 @@ def weld_airside_faces(pm: PlanarMap, law: Law, label: dict[int, int],
         if len(labs) < 2:
             continue
         for l in labs[1:]:
+            if _merges_separated(uf, separated, labs[0], l):
+                stats.airside_faces_kept += 1
+                continue
             if uf.union(labs[0], l):
                 stats.welded_airside_faces += 1
     for v in label:
         label[v] = uf.find(label[v])
+
+
+def _merges_separated(uf: _t.Any, separated: frozenset[tuple[int, int]],
+                      a: int, b: int) -> bool:
+    """Whether merging ``a``'s class with ``b``'s would put the two labels
+    of a SEPARATED pair in one shape.  Merging classes ``Ca`` and ``Cb``
+    makes same-class exactly the pairs whose roots are ``{Ca, Cb}``, so the
+    test needs no rollback — and it catches the TRANSITIVE case (``A|B``
+    and ``B|C`` welded through two faces while ``A|C`` is separated)."""
+    if not separated:
+        return False
+    ends = {uf.find(a), uf.find(b)}
+    return any({uf.find(x), uf.find(y)} == ends for x, y in separated)

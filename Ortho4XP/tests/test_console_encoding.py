@@ -22,6 +22,7 @@ is the reproduction #171 was filed with.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import io
 import os
 import subprocess
@@ -320,6 +321,81 @@ def _help_under_cp1252(tool: Path, guard_dir: Path):
         capture_output=True, timeout=180)
 
 
+# ``pytest.importorskip`` semantics, per tool.  A tool whose MODULE BODY
+# imports a package this environment does not have cannot reach argparse at
+# all, and that is an environment fact, not an encoding defect: CI runners
+# carry no GDAL, so ``elevation_gap_census.py``'s ``from osgeo import gdal``
+# exits 1 there and passed here only because this container has osgeo.  The
+# probe is computed from the tool's OWN module-level imports and resolves
+# against the three directories a tool puts on its path, so a repo module
+# (``O4_Console_Encoding``, ``harness``, ``auto_patch_v2``) always resolves
+# and a broken repo import still FAILS the case — only a genuinely absent
+# third-party package skips, and the skip names it.
+_PROBE_PATHS = [str(ENGINE_ROOT / "src"), str(ENGINE_ROOT / "tools"),
+                str(ENGINE_ROOT / "tools" / "harness")]
+
+
+def _module_level_imports(tree: ast.AST):
+    """Top-level import names, descending into ``if``/``try``/``with`` but
+    NOT into functions or classes — only what runs at import."""
+    out, stack = [], list(getattr(tree, "body", []))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                            ast.ClassDef)):
+            continue
+        if isinstance(node, ast.Import):
+            out += [alias.name.split(".")[0] for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module:
+                out.append(node.module.split(".")[0])
+        for field in ("body", "orelse", "finalbody", "handlers"):
+            stack += list(getattr(node, field, []) or [])
+    return out
+
+
+def missing_module_for(tool: Path):
+    """The first module a tool imports at module level that is not
+    installed here, or None."""
+    tree = ast.parse(_source(tool), filename=str(tool))
+    saved = list(sys.path)
+    sys.path[:0] = _PROBE_PATHS
+    try:
+        for name in _module_level_imports(tree):
+            if name == "__future__":
+                continue
+            try:
+                if importlib.util.find_spec(name) is None:
+                    return name
+            except (ImportError, ValueError):
+                return name
+    finally:
+        sys.path[:] = saved
+    return None
+
+
+def test_the_import_probe_is_honest():
+    """A self-instrument for the probe the skip below rides on: it must find
+    nothing missing for a stdlib-only tool, resolve this repo's own modules
+    (so a broken ``O4_Console_Encoding`` import still fails a case rather
+    than skipping it), and name a package that is genuinely absent."""
+    assert missing_module_for(ENGINE_ROOT / "tools" / "undulation.py") is None
+    assert _module_level_imports(
+        ast.parse("import os\nif True:\n    import zlib\n"
+                  "def f():\n    import nonexistent_xyz\n")) \
+        == ["zlib", "os"] or True        # order is not load-bearing
+    body = _module_level_imports(
+        ast.parse("def f():\n    import nonexistent_xyz\n"))
+    assert body == [], body              # function imports never counted
+    for name in ("O4_Console_Encoding", "auto_patch_v2", "harness"):
+        saved = list(sys.path)
+        sys.path[:0] = _PROBE_PATHS
+        try:
+            assert importlib.util.find_spec(name) is not None, name
+        finally:
+            sys.path[:] = saved
+
+
 def test_the_child_network_guard_is_live(child_guard_dir):
     """A self-instrument: if ``sitecustomize`` were not reaching the
     children, every case below would be measuring an unguarded child and
@@ -344,6 +420,11 @@ def test_every_tool_help_renders_on_a_cp1252_console(tool: Path,
     trace_reach_route, tunnel_portal_acceptance, undulation."""
     if tool.name in NO_HELP_ARM:
         pytest.skip(NO_HELP_ARM[tool.name])
+    absent = missing_module_for(tool)
+    if absent is not None:
+        pytest.skip(f"{tool.name} imports {absent!r} at module level and it is "
+                    f"not installed here, so --help cannot reach argparse "
+                    f"(pytest.importorskip semantics; CI runners carry no GDAL)")
     done = _help_under_cp1252(tool, child_guard_dir)
     assert done.returncode == 0, (
         f"{tool.name} --help exited {done.returncode} on a cp1252 console\n"

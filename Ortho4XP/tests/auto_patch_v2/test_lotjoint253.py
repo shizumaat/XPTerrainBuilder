@@ -121,8 +121,7 @@ def test_the_separated_pairs_are_read_off_the_surviving_joint_edges(built, law):
     two labels of the fixture are separated, because the lot's edges carry
     them with a GROUNDSIDE side."""
     _ap, pm, _st, _cl = built
-    pairs = separated_label_pairs(pm, dict(pm.shape_of_vertex),
-                                  pm.no_terrace_faces, pm.airside_pavement_faces)
+    pairs = separated_label_pairs(pm, dict(pm.shape_of_vertex))
     labs = sorted({s for s in pm.shape_of_vertex.values() if s != S.NO_SHAPE})
     assert len(labs) == 2 and pairs == frozenset({(labs[0], labs[1])})
 

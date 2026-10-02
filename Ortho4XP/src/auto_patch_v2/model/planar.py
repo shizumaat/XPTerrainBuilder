@@ -485,8 +485,12 @@ class PlanarMap:
     #: road, a terrain face) or a RIGID pad side (28b) keeps all three —
     #: terraces stay lawful groundside, which is what #253 lost when round
     #: one welded the LABELS instead (one union took KCLT's five joints).
+    #: ... and the ROAD SEPARATOR (owner RULINGS 2026-09-08r-2): the
+    #: vertices on a road face.  A pair touching one is never inside the
+    #: apron body — the step is the ROAD's, declared at the road's edge.
     no_terrace_faces: frozenset[int] = frozenset()
     airside_pavement_faces: frozenset[int] = frozenset()
+    road_separator_vertices: frozenset[int] = frozenset()
     #: The roads crossing from one shape to another (owner RULINGS
     #: 2026-09-08r-2): unlabelled, ramping, never a joint.
     road_ramps: tuple[RoadRamp, ...] = ()

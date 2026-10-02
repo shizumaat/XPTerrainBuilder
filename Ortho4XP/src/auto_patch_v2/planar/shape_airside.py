@@ -22,7 +22,7 @@ from ..law.tables import airside_stage_roles, family
 from ..model.planar import NO_SHAPE, PlanarMap
 
 __all__ = ["weld_airside_faces", "airside_apron_roles", "airside_face_sets",
-           "inside_apron_body", "separated_label_pairs"]
+           "inside_apron_body", "separated_label_pairs", "declarable_pairs"]
 
 
 def airside_apron_roles(law: Law) -> frozenset[str]:
@@ -43,20 +43,32 @@ def airside_apron_roles(law: Law) -> frozenset[str]:
     return frozenset(law.tables.emit.terrace.one_shape_roles) & airside_stage_roles(law)
 
 
-def airside_face_sets(pm: PlanarMap, law: Law) -> tuple[frozenset[int], frozenset[int]]:
-    """``(the apron body faces, the airside pavement faces)`` — the two
-    face sets the per-edge law reads (:func:`inside_apron_body`).  The
-    first is :func:`airside_apron_roles`, the ruling's SUBJECT ("an apron
-    face"); the second is §20b stage 1's roles
+def airside_face_sets(pm: PlanarMap, law: Law) -> dict[str, frozenset[int]]:
+    """The ``PlanarMap`` fields this law publishes, ready to
+    ``dataclasses.replace`` onto the map — the apron body faces, the
+    airside pavement faces and the road vertices
+    (:func:`inside_apron_body` reads all three).
+
+    The first is :func:`airside_apron_roles`, the ruling's SUBJECT ("an
+    apron face"); the second is §20b stage 1's roles
     (:func:`law.tables.airside_stage_roles`), the sides that do not VETO —
-    every GROUNDSIDE class and the RIGID pad are outside it, so a pair
-    with one of those on it keeps its joint."""
+    every GROUNDSIDE class and the RIGID pad are outside it, so a pair with
+    one of those on it keeps its joint.  The third is the ROAD SEPARATOR
+    (owner RULINGS 2026-09-08r-2, kept from round one's ``on_road``): every
+    vertex incident to a ``road_cross_section`` face."""
     apron = airside_apron_roles(law)
     if not apron:
-        return frozenset(), frozenset()
-    airside = airside_stage_roles(law)
-    return (frozenset(f for f, fa in pm.faces.items() if fa.role in apron),
-            frozenset(f for f, fa in pm.faces.items() if fa.role in airside))
+        return {k: frozenset() for k in _FIELDS}
+    airside, roadish = airside_stage_roles(law), set(family(law, "road_cross_section").roles)
+    return dict(zip(_FIELDS, (
+        frozenset(f for f, fa in pm.faces.items() if fa.role in apron),
+        frozenset(f for f, fa in pm.faces.items() if fa.role in airside),
+        frozenset(v for f in pm.faces.values() if f.role in roadish
+                  for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)))))
+
+
+#: the ``PlanarMap`` fields :func:`airside_face_sets` fills, in order
+_FIELDS = ("no_terrace_faces", "airside_pavement_faces", "road_separator_vertices")
 
 
 def inside_apron_body(pm: PlanarMap, ids: _t.Iterable[int]) -> bool:
@@ -80,11 +92,22 @@ def inside_apron_body(pm: PlanarMap, ids: _t.Iterable[int]) -> bool:
     face, so an apron ring edge against it is inside the apron body (#189's
     own pair); a ``parking_lot`` / ``groundside_pavement`` / service-road
     side, and a RIGID pad (28b), are faces outside ``airside_stage_roles``
-    and veto."""
+    and veto.
+
+    THE ROAD'S OWN STEP IS NOT THE APRON'S (owner RULINGS 2026-09-08r-2,
+    kept from round one's ``on_road``).  A road running ALONG a boundary
+    takes the level of the shape it is welded to and "the step stands at
+    the road's FAR edge ... B's faces along it carry two labels and the
+    contour hugs their edge inside B".  That second label reaches B only
+    through the road weld and the ROAD is the separator, so a pair touching
+    a road vertex is not inside the apron body however airside its sides
+    are: the step is the road's, declared at the road's edge."""
     if not pm.no_terrace_faces:
         return False
     common: set[int] | None = None
     for v in ids:
+        if v in pm.road_separator_vertices:
+            return False
         vert = pm.vertices.get(v)
         if vert is None:
             return False
@@ -97,9 +120,20 @@ def inside_apron_body(pm: PlanarMap, ids: _t.Iterable[int]) -> bool:
     return common <= pm.airside_pavement_faces
 
 
-def separated_label_pairs(pm: PlanarMap, label: dict[int, int],
-                          no_terrace: frozenset[int],
-                          airside: frozenset[int]) -> frozenset[tuple[int, int]]:
+def declarable_pairs(pm: PlanarMap, pairs: _t.Iterable[tuple[int, int]]
+                     ) -> list[tuple[int, int]]:
+    """``pairs`` without the ones INSIDE THE APRON BODY — the contour
+    derivation's filter (``planar.shapes._contour_joints``).  A pair inside
+    the apron body is no terrace, so it is not a joint pair, and a contour
+    of nothing but such pairs is not declared at all.  The SAME predicate
+    :func:`planar.shapes.straddles` reads, so the sidecar record and the
+    row withdrawal can never diverge — #189's class is a step with no row
+    AND no declaration."""
+    return [q for q in pairs if not inside_apron_body(pm, q)]
+
+
+def separated_label_pairs(pm: PlanarMap, label: dict[int, int]
+                          ) -> frozenset[tuple[int, int]]:
     """The label pairs a SURVIVING joint edge separates: the pairs carried
     by a planar edge that is NOT :func:`inside_apron_body`.  Those two
     labels are two shapes wherever that edge is, so they are never merged
@@ -108,12 +142,9 @@ def separated_label_pairs(pm: PlanarMap, label: dict[int, int],
     out: set[tuple[int, int]] = set()
     for e in pm.edges.values():
         la, lb = label.get(e.a, NO_SHAPE), label.get(e.b, NO_SHAPE)
-        if la == NO_SHAPE or lb == NO_SHAPE or la == lb:
-            continue
-        sides = set(pm.vertices[e.a].incident_faces) & set(pm.vertices[e.b].incident_faces)
-        if sides and (sides & no_terrace) and sides <= airside:
-            continue                                    # inside the apron body
-        out.add((min(la, lb), max(la, lb)))
+        if la != NO_SHAPE and lb != NO_SHAPE and la != lb \
+                and not inside_apron_body(pm, (e.a, e.b)):
+            out.add((min(la, lb), max(la, lb)))
     return frozenset(out)
 
 

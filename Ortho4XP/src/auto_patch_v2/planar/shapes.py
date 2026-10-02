@@ -58,7 +58,13 @@ gap is priced by no reader).  Both are declared in the sidecar
 ``terrace_joints`` (v1's record shape, ``pipeline/publication.py``) with
 the BUILT step over their vertex pairs — no cap, no re-solve: joints are
 geometric, known before the solve.  Inside a shape no joint exists and no
-step is lawful.
+step is lawful.  AN APRON FACE CARRIES ONE SHAPE (owner RULINGS
+2026-10-02v (2), issue #189: "an apron face never carries a terrace ...
+terraces stay lawful groundside only"): the labels on an airside apron face
+weld (:func:`planar.shape_airside.weld_airside_faces`) before the record is
+built, so no contour is cut inside it and the 29ac pavement fallback across
+its ring edges survives the filter.  A groundside face keeps 08k's joint,
+and so does the 08r-2 step at a road's far edge (the road separates).
 
 The dependency law lets ``planar`` import law / model / airport / classify
 only; the reach bands the pipeline reads beside the shapes stay there.
@@ -85,6 +91,7 @@ from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint
+from .shape_airside import weld_airside_faces
 from .shape_mouths import weld_same_role_mouths
 
 __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes", "network_faces", "network_vertices", "strip_keepout",
@@ -130,6 +137,7 @@ class ShapeStats:
     welded_same_role_mouths: int = 0   # 30bk: body pairs welded across a mouth with the same apron role on both sides
     mouths_kept: int = 0            # 30bk: body pairs whose mouth is flanked by another role (a road / taxiway leaving an apron)
     mouths_mixed: int = 0           # 30bk: body pairs joined by a same-role mouth AND a class-change edge (welded: one apron)
+    welded_airside_faces: int = 0   # 10-02v (2): label pairs welded because ONE APRON face carried them, the 08r-2 road weld apart (an apron face never carries a terrace)
     joint_edges: int = 0            # planar edges whose endpoints carry two shapes
     joint_edges_by_roles: dict[str, int] = _dc.field(default_factory=dict)
     contours: int = 0               # declared label-boundary polylines
@@ -876,6 +884,10 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     keep = strip_keepout(classification, law) if classification is not None else None
     uf = _weld_strip(pm, label, keep, stats)
     weld_same_role_mouths(pm, law, label, N, uf, stats)   # 30bk: one apron, one shape
+    # 10-02v (2) (issue #189): AN APRON FACE NEVER CARRIES A TERRACE —
+    # after the mouth weld, so a class change elsewhere on a pair (30bk's
+    # kept verdict) cannot leave a step inside an apron; airside is king
+    weld_airside_faces(pm, law, label, uf, stats)
     # the record: dense shape ids in order of first appearance by area rank
     of_face: dict[int, int] = {}
     area: dict[int, float] = {}

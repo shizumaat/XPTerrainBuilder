@@ -16030,6 +16030,51 @@ def inset_is_effectively_empty(inset_path):
     return (fraction < INSET_MIN_VALID_FRAC, fraction)
 
 
+def bake_candidate_inset_paths(tile):
+    """The cached inset rasters the bake step considers for ``tile``, in
+    bake order: every cached ``*.tif`` of a provider the tile's
+    ``airport_elevation_providers`` selects.  ONE listing for the bake
+    (:func:`bake_airport_insets_into_alt_dem`) and for every later reader
+    of "which insets does this tile's raster carry" that runs without the
+    step-1 DEM object — the mesh's curvature weight map (#233) derives
+    its inset boxes from it in step 2, where ``tile.dem`` is header-only.
+    Empty when the feature is gated off."""
+    if not insets_enabled_for_tile(tile):
+        return []
+    provider_definitions = select_provider_definitions(
+        getattr(tile, "airport_elevation_providers", "auto")
+    )
+    codes = [definition["code"] for definition in provider_definitions]
+    return list_cached_inset_dems(
+        tile.lat, tile.lon, provider_codes=codes or None
+    )
+
+
+def baked_inset_boxes(tile):
+    """``[(box, resolution_m, path)]`` for every inset the bake step puts
+    into ``tile``'s raster: the box the raster DELIVERS
+    (:func:`delivered_inset_bounding_box`, ``(west, south, east, north)``
+    in EPSG:4326) and the resolution its data HONESTLY carries
+    (:func:`_honest_inset_resolution_m`).  Disk-state driven, like the
+    bake itself: an effectively-empty inset (refused by the bake) and one
+    whose header cannot be read are left out."""
+    boxes = []
+    for inset_path in bake_candidate_inset_paths(tile):
+        try:
+            (is_empty, _valid_fraction) = inset_is_effectively_empty(
+                inset_path)
+            if is_empty:
+                continue
+            box = delivered_inset_bounding_box(inset_path)
+            resolution_m = _honest_inset_resolution_m(inset_path)
+        except Exception:
+            continue
+        if box is None or not resolution_m or resolution_m <= 0:
+            continue
+        boxes.append((box, float(resolution_m), inset_path))
+    return boxes
+
+
 def bake_airport_insets_into_alt_dem(tile):
     """Bake cached insets into ``tile.dem.alt_dem`` with a feather band.
 
@@ -16049,13 +16094,7 @@ def bake_airport_insets_into_alt_dem(tile):
         return
     if tile.dem is None or tile.dem.alt_dem is None:
         return
-    provider_definitions = select_provider_definitions(
-        getattr(tile, "airport_elevation_providers", "auto")
-    )
-    codes = [definition["code"] for definition in provider_definitions]
-    inset_paths = list_cached_inset_dems(
-        tile.lat, tile.lon, provider_codes=codes or None
-    )
+    inset_paths = bake_candidate_inset_paths(tile)
     # Record which insets actually bake into this DEM so the auto_patch
     # provenance stamp can report the true elevation source per airport (see
     # auto_patch.provenance).  An EMPTY list means the bake step ran but found

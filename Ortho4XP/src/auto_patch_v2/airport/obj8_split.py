@@ -119,11 +119,89 @@ import numpy as np
 from . import obj8 as _obj8
 
 __all__ = ["BodyCut", "SplitFile", "SplitResult", "split_obj8",
-           "body_resource_name", "offset_tag", "tilt_matrix", "NO_TILT"]
+           "body_resource_name", "offset_tag", "tilt_matrix", "NO_TILT",
+           "SEAT_OWNED_DIRECTIVES", "is_seat_owned", "strip_seat_owned",
+           "seat_owned_in_file", "SEAT_HEADER_BYTES"]
 
 #: :attr:`BodyCut.tilt` for a body that is NOT tilted — the identity, and
 #: the value every caller that knows nothing of the seat tilt passes.
 NO_TILT: "tuple[float, float]" = (0.0, 0.0)
+
+#: THE SEAT IS THE STAGE'S (issue #232; #162, #163).  These two OBJ8
+#: header directives hand the seat to X-PLANE: ``TILTED`` rotates the
+#: whole object to the terrain normal sampled under its own DSF anchor,
+#: and ``SLOPE_LIMIT`` is the band it does that in.  Every file THIS
+#: writer mints is already seated by the stage — its vertices carry the
+#: body's own offset and, under 10-01k Q1, the fitted seat rotation — so
+#: replaying either directive asks X-Plane to seat it a SECOND time, on a
+#: normal the stage never read:
+#:
+#: * the bodies of ONE building sit at DIFFERENT anchors (that is what a
+#:   split is), so each tilts to its own patch of terrain and the parts
+#:   come apart — KASE's fire station, 6 placements cut into 14 bodies
+#:   at 9 anchors, rigid plan (seat spread 0.000 m), 3.91 m apart at the
+#:   owner's point;
+#: * a body whose seat tilt the stage BAKED is tilted again on top of the
+#:   bake — KASE's shelters, one body, 0.75 deg baked within tolerance,
+#:   then the anchor's 1.46 % slope applied over it: 284 of 292 feet
+#:   float, p50 +1.39 m, max +2.95 m.
+#:
+#: So a written file carries NEITHER, wherever the authored file spelled
+#: it.  An AUTHORED file this stage does not write keeps what it was
+#: authored with — stripping a directive out of the user's own object is
+#: not this writer's act — and the kept-whole census counts those
+#: (``placement_plan``'s ``tilted_kept_whole``) for the owner to rule on.
+SEAT_OWNED_DIRECTIVES: frozenset = frozenset({"TILTED", "SLOPE_LIMIT"})
+
+
+def is_seat_owned(line: str) -> bool:
+    """Whether ``line`` is one of :data:`SEAT_OWNED_DIRECTIVES` — the
+    ONE test, so the header writer and the command replay cannot drift
+    apart about what a written file may carry."""
+    s = line.strip()
+    if not s:
+        return False
+    return s.split(None, 1)[0] in SEAT_OWNED_DIRECTIVES
+
+
+def strip_seat_owned(lines: "_t.Iterable[str]") -> "list[str]":
+    """``lines`` without the seat directives, every other line kept in
+    order (:data:`SEAT_OWNED_DIRECTIVES`)."""
+    return [ln for ln in lines if not is_seat_owned(ln)]
+
+
+#: How far into a file the seat directives are looked for.  Both are OBJ8
+#: HEADER directives, so they stand before ``POINT_COUNTS`` and therefore
+#: before the first ``VT``; ``object_pavement.header_facts`` reads the
+#: same header under the same budget.
+SEAT_HEADER_BYTES = 8192
+
+
+def seat_owned_in_file(path: str) -> "tuple[str, ...]":
+    """The seat directives the file at ``path`` SPELLS, in the order it
+    spells them (``()`` where it spells none, or where the file cannot be
+    read — a census, never a refusal).
+
+    This is the KEPT-WHOLE reading (#232): the placement stage does not
+    write such a file, so what it carries is the author's and is reported,
+    not changed.  It reads :data:`SEAT_HEADER_BYTES` and stops at the
+    vertex table, so a file whose body happens to contain the word is not
+    counted.
+    """
+    try:
+        with open(path, "r", encoding="latin-1", errors="replace") as fh:
+            head = fh.read(SEAT_HEADER_BYTES)
+    except OSError:
+        return ()
+    found: list[str] = []
+    for ln in head.split("\n"):
+        s = ln.strip()
+        kw = s.split(None, 1)[0] if s else ""
+        if kw in ("VT", "VLINE", "VLIGHT") or kw.startswith("IDX"):
+            break
+        if kw in SEAT_OWNED_DIRECTIVES:
+            found.append(kw)
+    return tuple(found)
 
 #: The commands that carry a POSITION in the authored frame and must be
 #: translated with the vertices: keyword -> index of the first of the
@@ -428,7 +506,12 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
     pack-relative spelling the new names are derived from (defaults to
     the file's own basename under ``objects/``)."""
     counts: dict[str, int] = {"bodies": len(bodies), "tris": 0, "assigned": 0,
-                              "nearest": 0, "anim_blocks": 0, "lod_brackets": 0}
+                              "nearest": 0, "anim_blocks": 0, "lod_brackets": 0,
+                              # #232: the seat directives this writer
+                              # dropped out of the SOURCE (once per source,
+                              # not once per body — every body's file loses
+                              # the same lines)
+                              "seat_owned_dropped": 0}
     src = _read(pristine_path)
     if src is None:
         return SplitResult(pristine_path, (), "unparsable", counts)
@@ -770,6 +853,14 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
             out[body].append(_retok(ln, first, offset_of[body], tilt_of[body]))
             i += 1
             continue
+        if is_seat_owned(ln):
+            # #232: a seat directive AFTER the vertex tables is the same
+            # directive in the same file — ``_read`` only files it under
+            # the header when it is spelled before them.  The stage owns
+            # the seat wherever the authored file put it.
+            counts["seat_owned_dropped"] += 1
+            i += 1
+            continue
         # every other command (ANIM_hide, a bare keyword, a comment) goes
         # to every body: it is state, not geometry, and dropping it would
         # change what the bodies that inherit it render
@@ -786,10 +877,17 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
     if rel.endswith(".anchor_bak"):
         rel = rel[: -len(".anchor_bak")]
     stem = os.path.splitext(os.path.basename(rel))[0]
+    # THE ONE HEADER THIS WRITER MINTS (#232).  Taken once — every body's
+    # file carries the same header lines — with ``POINT_COUNTS`` dropped
+    # (recomputed per body below) and the SEAT DIRECTIVES dropped because
+    # the stage, not X-Plane, seats a file it writes
+    # (:data:`SEAT_OWNED_DIRECTIVES`).
+    _head_src = [h for j, h in enumerate(src.header) if j != src.point_counts_at]
+    head = strip_seat_owned(_head_src)
+    counts["seat_owned_dropped"] += len(_head_src) - len(head)
     files: list[SplitFile] = []
     for b in live:
         bid = b.body_id
-        head = [h for j, h in enumerate(src.header) if j != src.point_counts_at]
         body_text: list[str] = list(head)
         body_text.append(f"POINT_COUNTS\t{len(vt_out[bid])} {len(vline_out[bid])} "
                          f"{len(vlight_out[bid])} {len(idx_out[bid])}")

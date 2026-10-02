@@ -77,6 +77,7 @@ def cmd_order(args) -> int:
     build's own ``rebake plan`` line.
     """
     import time
+    from auto_patch_v2.airport import frame_entry as _fe
     from auto_patch_v2.airport.load import load
     from auto_patch_v2.airport.obj8 import ResourceCache
     from auto_patch_v2.airport.pack_partition import (extend_partition,
@@ -91,7 +92,10 @@ def cmd_order(args) -> int:
     inputs = default_inputs(None, None, None, 60.0, args.dem_frame, True)
     t = time.perf_counter()
     airport = load(icao, inputs, law)
-    cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    # §51 (6) / RULINGS 2026-10-02v (4) (issue #222): the quantum, through
+    # the package's ONE accessor — mirrors ``pipeline/build.pack_stage``.
+    cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m,
+                          _fe.quantum(law))
     objects, _rep = read_objects(airport, law, cache)
     t_load = time.perf_counter() - t
     screen, objs = screen_of(objects, cache, law)

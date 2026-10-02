@@ -1983,6 +1983,19 @@ _STRAY_SWEEP_EPILOG = (
 
 def main(argv=None) -> int:
     import argparse
+    import sys
+
+    # The console is UTF-8 before argparse can print (#171, #125) — ONE
+    # derivation site, ``src/O4_Console_Encoding.py``.  The pin lives HERE,
+    # in the entry, and not at module import as it does in the 80 tools under
+    # ``tools/``: this module is THE shared-repo write guard, imported by the
+    # harness and by every tool that arms it, and a library has no business
+    # reconfiguring the streams of a process that merely imported it.  The
+    # ``src`` bootstrap is needed because running this file as a CLI puts only
+    # ``tools/harness`` on the path.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+    import O4_Console_Encoding
+    O4_Console_Encoding.configure_console_streams()
 
     parser = argparse.ArgumentParser(
         prog="shared_repo_guard.py",

@@ -58,7 +58,8 @@ import typing as _t
 
 from shapely.geometry import MultiPoint
 
-__all__ = ["MemberRow", "PadEvidence", "member_row", "ring_area",
+__all__ = ["MemberRow", "PadEvidence", "member_row", "resource_rows",
+           "ring_area",
            "tall_base_fill", "tall_member_coverage", "tallest_extent_m",
            "has_vertical_structure_evidence", "evidence_name_vouches",
            "wide_path_name_vouches", "pad_evidence",
@@ -169,6 +170,34 @@ def member_row(part: _t.Any, resource: str, ml: float, mo: float) -> MemberRow:
     area = sum(ring_area(r, ml, mo)
                for r in (getattr(part, "rings", ()) or ()))
     return (str(resource), extent, above, area)
+
+
+def resource_rows(rows: _t.Sequence[MemberRow],
+                  span: "tuple[float, float] | None") -> list[MemberRow]:
+    """``rows`` with the ABOVE-GRADE extent read per member RESOURCE over
+    its welded structure, which is what v1's evidence row IS
+    (``object_footprints.structure_ring``: ``max(_res_max_y, 0) -
+    max(_res_min_y, 0)`` over every triangle the resource contributes to
+    the structure) — lane ``padgates101b``, issue #101.
+
+    ``span`` is the resource's authored ``(lowest base y, highest top y)``
+    over the welded chain.  v2's unit of solid geometry is the welded
+    COMPONENT, and a material-split pack stacks many components of one
+    resource into one wall: MEASURED HECA (sweep sw1008b), cluster
+    ``unit:43#807`` — 10,006 m2 of ``Hangar_Tower/T3_32.obj``, 210
+    components, the tallest 5.15 m — was refused under the 6.0 m evidence
+    height although v1's own cache vouches the same ground (role
+    ``object``, 9,423 m2 of overlap).  The per-component reading can only
+    ever UNDER-read v1's, so the fold can only ever KEEP a building.
+
+    The TOTAL extent (the tall-base accumulator's term) stays the
+    component's own: there the per-component reading is the
+    discriminator — a deck-on-piers weld's tall members are its piers,
+    not its deck (PR #242 deviation 3)."""
+    if span is None:
+        return list(rows)
+    above = max(float(span[1]), 0.0) - max(float(span[0]), 0.0)
+    return [(r[0], r[1], max(r[2], above), r[3]) for r in rows]
 
 
 def tall_member_coverage(rows: _t.Sequence[MemberRow], hull_area_m2: float,

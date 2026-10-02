@@ -61,7 +61,7 @@ from . import anchor_rule as _ar
 from . import placement_boxes as _pb
 from .placement_contact import (_clusters,  # noqa: F401
                                 boxes_touch, m_per_deg_exact, rings_touch)
-from ..geom.pad_evidence import member_row, pad_evidence
+from ..geom.pad_evidence import member_row, pad_evidence, resource_rows
 from .sheet_chain import merge_by_sheets, sheet_links
 
 __all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
@@ -456,7 +456,7 @@ class _Shim:
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "resource",
                  "floors", "rings", "floor", "footed", "walled", "pids",
-                 "outline", "bridges", "rows")
+                 "outline", "bridges", "rows", "span")
 
     def __init__(self, member: int, boxes: list, resource: str,
                  floors: "list | None" = None,
@@ -466,7 +466,8 @@ class _Shim:
                  pids: "frozenset[int]" = frozenset(),
                  outline: "list | None" = None,
                  bridges: "list | None" = None,
-                 rows: "list | None" = None) -> None:
+                 rows: "list | None" = None,
+                 span: "tuple[float, float] | None" = None) -> None:
         self.member = member
         #: the body's part ids — the join to the §2 connector verdict
         self.pids = frozenset(pids)
@@ -491,6 +492,11 @@ class _Shim:
         #: structure, and the discriminator is precisely that the mast is
         #: in the hull while its base is not in the numerator.
         self.rows = list(rows or ())
+        #: lane ``padgates101b``: this body's authored ``(lowest base y,
+        #: highest top y)`` over its live components — what
+        #: ``geom.pad_evidence.resource_rows`` folds per member RESOURCE
+        #: over the welded chain, v1's ``_res_min_y`` / ``_res_max_y``
+        self.span = span
         #: §16g (10) (1) / 14z: the body's GROUND FLOOR and whether it
         #: has a ground-contact component at all
         self.floor = float(floor)
@@ -774,7 +780,11 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                 # §16g (10) (12), issue #101: the pad-admission rows —
                 # every live component, posts and flat lines included
                 rows=[member_row(q, u.members[mi].resource, ml_u, mo_u)
-                      for q in live] if evidence_law is not None else None))
+                      for q in live] if evidence_law is not None else None,
+                span=(min(float(q.base_y) for q in live),
+                      max(float(q.base_y)
+                          + float(getattr(q, "height_m", 0.0) or 0.0)
+                          for q in live))))
         if not shims:
             continue
         # ``min_members=1``: §16g (9)'s population has no member gate —
@@ -836,6 +846,22 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
             counts["cluster_leaf_bodies"] = \
                 counts.get("cluster_leaf_bodies", 0) + len(leaves) - len(sheets)
         for cl in chains:
+            # lane ``padgates101b`` (issue #101): v1's evidence row is per
+            # member RESOURCE over the whole WELDED STRUCTURE — its
+            # ``_res_min_y`` .. ``_res_max_y`` — and v2's welded structure
+            # is this CHAIN, before (10) (1) splits it at a floor.  A
+            # material-split pack authors one wall as stacked components
+            # of one resource (HECA ``Hangar_Tower/T3_32.obj``: 210
+            # components, the tallest 5.15 m, the resource far taller), so
+            # a per-component height read real terminal pieces as slabs.
+            spans: dict[int, tuple[float, float]] = {}
+            if evidence_law is not None:
+                for i in cl:
+                    sp = shims[i].span
+                    if sp is None:
+                        continue
+                    lo, hi = spans.get(shims[i].member, sp)
+                    spans[shims[i].member] = (min(lo, sp[0]), max(hi, sp[1]))
             for grp in _floor_split(cl, adj, shims, floor_split_m):
                 boxes = [b for i in grp for b in shims[i].part_boxes]
                 if not boxes:
@@ -867,7 +893,8 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                     # outline's union: a plate+mast weld's union is solid
                     # and only the hull exposes the weld.
                     evidence=(pad_evidence(
-                        [w for i in grp for w in shims[i].rows],
+                        [w for i in grp for w in resource_rows(
+                            shims[i].rows, spans.get(shims[i].member))],
                         [v for i in grp for r in shims[i].rings for v in r],
                         ml_u, mo_u, *evidence_law)
                         if evidence_law is not None else None),

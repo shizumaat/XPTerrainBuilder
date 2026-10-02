@@ -1674,13 +1674,33 @@ def _download_table(data_root, log_text, path):
     lines.append("")
     lines.append("### URL hosts the engine logged")
     lines.append("")
+    # PARTIAL BY CONSTRUCTION, and the table has to say so itself.
+    # These are the hosts that appear in a LOG LINE, which is not the
+    # same as the hosts that were contacted: GDAL's /vsicurl and the
+    # STAC search print their URLs under CPL_DEBUG, while the imagery
+    # fetcher and the Overpass reader name a PROVIDER and a LAYER
+    # rather than a URL.  MEASURED, runs 37034293088 and 37037617202:
+    # one host listed, while the byte counts above show elevation, OSM
+    # and imagery all arriving.  A reader who took this table for the
+    # whole traffic would conclude three download classes came from
+    # nowhere — the census-wrapper class, where the artefact looks
+    # right and is not — so the caveat rides IN the table rather than
+    # in a commit message nobody reads next year.
+    lines.append("_Hosts that appear in a log line — NOT the whole "
+                 "traffic.  GDAL's /vsicurl and the STAC search print "
+                 "their URLs; the imagery fetcher and the Overpass "
+                 "reader name a provider and a layer instead.  The "
+                 "per-class files and bytes above are the authoritative "
+                 "record of what came down._")
+    lines.append("")
     if hosts:
         lines.append("| host | log lines |")
         lines.append("|---|--:|")
         for host in sorted(hosts, key=lambda h: (-hosts[h], h)):
             lines.append("| `%s` | %d |" % (host, hosts[host]))
     else:
-        lines.append("_the engine logged no URL — verbosity, or no fetch_")
+        lines.append("_no URL in any log line, which on its own says "
+                     "nothing: read the byte counts above_")
     lines.append("")
     lines.append("### Retries and give-ups")
     lines.append("")

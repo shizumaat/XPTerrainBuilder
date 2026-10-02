@@ -263,6 +263,14 @@ def test_the_table_never_counts_a_derived_file_as_a_download(driver,
     assert "viewfinderpanoramas.org" in text
     assert "Derived on the runner (NOT downloads)" in text
     assert "retry" in text
+    # The host list is PARTIAL by construction (the imagery fetcher and the
+    # Overpass reader name a provider and a layer, not a URL), so the table
+    # must say so where it is read.  Runs 37034293088 and 37037617202 each
+    # listed ONE host while the byte counts showed three classes arriving;
+    # a table that reads as complete when it is not is the census-wrapper
+    # class, where the artefact looks right and is not.
+    assert "NOT the whole" in text
+    assert "authoritative" in text
 
 
 def test_the_table_reports_a_giveup_as_a_giveup(driver, tmp_path):

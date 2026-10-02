@@ -339,7 +339,8 @@ class _LoadGeom:
 def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                   sc: Screen, deck_family_ids: _t.Collection[str], pack_root: str,
                   counts: dict[str, int], skipped: dict[str, str],
-                  no_solid: set[str] | None = None):
+                  no_solid: set[str] | None = None,
+                  origin: "tuple[float, float] | None" = None):
     """One placement as a :class:`Member` plus the geometry the contact
     pass places, or ``None`` when nothing about it can be seated.  ONE
     implementation: the load loop and :func:`extend_partition` build a
@@ -454,7 +455,9 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                     deck_end_stations=(), deck_profile=(), deck_evidence=(),
                     deck_stations=(), plate_y=None, plate_stations=(),
                     skirted=skirted, elevated_deck=deck_body,
-                    scatter=is_scatter, base_profile=base_prof)
+                    scatter=is_scatter, base_profile=base_prof,
+                    origin=(None if origin is None
+                            else (float(origin[0]), float(origin[1]))))
     return member, (o, geom, list(comps)), bool(is_line)
 
 
@@ -638,8 +641,13 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         members = units_by_key.setdefault(key, {})
         if o.path in members:
             continue        # the same resource at the same anchor twice: one bake
+        # THE PLACEMENT ORIGIN (base-profile spec §1 (3)): ``key`` IS the
+        # row's own ``(lat, lon, agl)`` (built above from ``o.xy`` through
+        # the frame's ``to_ll``), so the member's origin costs no second
+        # conversion and cannot disagree with the anchor it is keyed by.
         built = _build_member(o, cache, law, sc, deck_family_ids, pack_root,
-                              counts, skipped, no_solid)
+                              counts, skipped, no_solid,
+                              origin=(key[0], key[1]))
         if built is None:
             continue
         member, mgeom, is_line = built
@@ -847,7 +855,8 @@ def extend_partition(part: PackPartition, airport: Airport,
             continue
         seen.add((key, o.path))
         built = _build_member(o, cache, law, sc, geom.deck_family_ids,
-                              part.pack_root, counts, skipped)
+                              part.pack_root, counts, skipped,
+                              origin=(key[0], key[1]))
         if built is None:
             continue
         member, mgeom, is_line = built

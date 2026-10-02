@@ -67,7 +67,8 @@ __all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
            "pad_plurality", "bind_families",
            "census_families", "census_families_lines",
            "union_area_m2", "PlanCluster", "plan_clusters", "bodies_of_plan",
-           "cluster_plane", "member_is_deck"]
+           "cluster_plane", "member_is_deck", "ProfileLaw",
+           "cluster_base_profile"]
 
 #: §16f (1): two placement rows do not make a family and neither does one
 #: member — a FAMILY is a cluster of at least this many members of one
@@ -318,6 +319,27 @@ class PlanCluster:
     #: (``geom.cluster_outlines``, ``[placement] post_bridge_gap_m``):
     #: the post still chains, so the unit is one.
     bridges: tuple[tuple[tuple[float, float], ...], ...] = ()
+    #: THE COMPOSED BASE PROFILE (base-profile spec §1 (3)/(4); owner
+    #: RULINGS 2026-10-01f): this cluster's own profile — its members'
+    #: published per-member reads (``Member.base_profile``) composed into
+    #: ONE frame by each member's HEADING and PLAN TRANSLATION, with the
+    #: roof test RE-RUN on the composed body group
+    #: (:func:`cluster_base_profile`).  The planar stage reads the PLANES
+    #: here and mints one pad per plane (§2 (1)); nothing re-derives it
+    #: from the OBJ or the DSF (§6's STOP).
+    #:
+    #: ``{}`` when the caller passed no :class:`ProfileLaw` (the pre-base
+    #: -read reader, and every twin that does not ask), or when no member
+    #: of the group carries a base plane — §1 (3)'s "a unit with no base
+    #: plane keeps today's law exactly".
+    base_profile: dict = _dc.field(default_factory=dict)
+    #: WHICH composition produced :attr:`base_profile`: ``"composed"``
+    #: (every member's origin was on the plan — the §1 (3) read),
+    #: ``"vertical_only"`` (a plan before version 12 carried no origin, so
+    #: the PER-MEMBER UPPER BOUND stands and is labelled as such), or
+    #: ``""`` (not asked).  §5 A5 / §6 read this: an upper-bound profile
+    #: must never be mistaken for the composed one.
+    composition: str = ""
 
     def line(self) -> str:
         return (f"{self.id}: {len(self.members)} member(s), footprint union "
@@ -498,6 +520,108 @@ def _floor_split(cl: _t.Sequence[int], adj: _t.Mapping[int, set],
     return [sorted(v) for _k, v in sorted(comp.items())]
 
 
+#: base-profile spec §1 (3): THE FIVE LAW NUMBERS the composed read needs,
+#: each at its OWN existing key at the caller (``planar/cluster.clusters``
+#: holds the ``Law``; this module holds no law number, as
+#: ``obj8_grade.base_profile`` holds none).  Passing them as one record
+#: rather than five keywords keeps ``plan_clusters``'s signature from
+#: growing a tail an insertion can shift (``pack_partition``'s own
+#: "EVERY OPTIONAL FIELD IS PASSED BY NAME" lesson).
+@_dc.dataclass(frozen=True)
+class ProfileLaw:
+    """``[terrace] pad_terrace_floor_m`` (the riser weld floor), ``[seam]
+    pad_frontage_m`` (the adjacency reach), ``[base_profile]
+    roof_support_fraction`` (the support-hull share that makes a ROOF),
+    ``[basin] contact_band_m`` (how far below a plane a support counts)
+    and ``[identity] min_distinct_spacing_m`` (the polygon erosion)."""
+
+    pad_terrace_floor_m: float
+    pad_frontage_m: float
+    roof_support_fraction: float
+    contact_band_m: float
+    min_distinct_spacing_m: float
+
+
+def cluster_base_profile(unit: _t.Any, member_ix: _t.Sequence[int],
+                         law: "ProfileLaw",
+                         pids: "_t.AbstractSet[int] | None" = None,
+                         ) -> "tuple[dict, str]":
+    """§1 (3) THE COMPOSED-UNIT PROFILE of one body group — ``(the profile
+    as its publication dict, the composition label)``.
+
+    THE PROBLEM THIS SOLVES, measured (base-profile spec §0 fact 10, §5
+    A5, §6's STOP): a member's OWN base read cannot see supports that
+    live in a SIBLING member, so HECA's T3 complex (``unit:43``) reads
+    STEPPED with **113 planes** at the per-member upper bound — the halls'
+    upper floors, whose walls are other members' geometry.  §1 (3)
+    composes the members into ONE frame and RE-RUNS the roof test there,
+    and those floors read ROOF.  A plane pad minted for one of them is
+    §6's "a plane pad whose polygon contains lower geometry of its unit
+    after composition (a roof pad)".
+
+    THE FRAME is metres east/north about the UNIT's own anchor.  Each
+    member's base polygons are AUTHORED ``(x, z)``; they are rotated by
+    that member's ``heading_deg`` and translated to its ``Member.origin``
+    (``obj8_grade._place``, the ``placement_affine`` matrix).  The
+    composed lower geometry the roof test needs is every PART FOOT of
+    the group (``Part.feet`` — the components' own ground-contact
+    vertices, ``(lat, lon, authored y)``, RULINGS 2026-09-09s (2)), which
+    is exactly the "solid vertices of the UNIT lying contact_band_m or
+    more below" a hall floor stands on.
+
+    VERTICALLY NOTHING IS OFFSET.  A unit carries ONE ``agl_m``, so every
+    member's authored ``y`` is already in one frame (it is why
+    ``PlanCluster.floors`` compares members' ``base_y`` directly, §16g
+    (10) (1)).
+
+    A member whose plan ``origin`` is absent (a plan before version 12)
+    makes the whole group's read the VERTICAL-ONLY upper bound, labelled
+    ``"vertical_only"`` — never a composed answer from a half-placed set.
+    """
+    from .obj8_grade import compose_profiles, profile_from_json, profile_to_json
+    seen: list[int] = []
+    for mi in member_ix:
+        if mi not in seen:
+            seen.append(mi)
+    mems = [unit.members[mi] for mi in seen]
+    profs = [profile_from_json(m.base_profile) for m in mems]
+    if not any(p.planes for p in profs):
+        # §1 (3): no member carries a base plane -> today's law exactly.
+        # Nothing is composed and nothing is published: the cheap exit
+        # every FEET cluster takes (HECA: 2,677 clusters, a handful of
+        # them with a plane between them).
+        return ({}, "")
+    lat0, lon0 = float(unit.anchor[0]), float(unit.anchor[1])
+    ml, mo = m_per_deg_exact(lat0)
+    placed = all(getattr(m, "origin", None) is not None for m in mems)
+    rows = []
+    for m, prof in zip(mems, profs):
+        if placed:
+            o = m.origin
+            dE = (float(o[1]) - lon0) * mo
+            dN = (float(o[0]) - lat0) * ml
+            rows.append((prof, (dE, 0.0, dN), float(m.heading_deg)))
+        else:
+            rows.append((prof, (0.0, 0.0, 0.0), 0.0))
+    lower = None
+    if placed:
+        import numpy as _np
+        pts = [((float(lo) - lon0) * mo, float(y), (float(la) - lat0) * ml)
+               for m in mems for q in m.parts
+               if pids is None or q.pid in pids
+               for (la, lo, y) in q.feet]
+        if pts:
+            lower = _np.asarray(pts, dtype=float)
+    comp = compose_profiles(
+        rows, pad_terrace_floor_m=law.pad_terrace_floor_m,
+        pad_frontage_m=law.pad_frontage_m,
+        roof_support_fraction=(law.roof_support_fraction if lower is not None
+                               else 0.0),
+        lower_pts=lower, contact_band_m=law.contact_band_m,
+        min_distinct_spacing_m=law.min_distinct_spacing_m)
+    return (profile_to_json(comp), "composed" if placed else "vertical_only")
+
+
 def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                   floor_split_m: float = 0.0,
                   chain_min_height_m: float = 0.0,
@@ -505,7 +629,8 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                   sheet_chain_min_fraction: float = 0.0,
                   cut: _t.AbstractSet[int] = frozenset(),
                   linear: "_t.AbstractSet[int] | None" = None,
-                  outline_law: "tuple[float, float, float] | None" = None
+                  outline_law: "tuple[float, float, float] | None" = None,
+                  profile_law: "ProfileLaw | None" = None
                   ) -> list[PlanCluster]:
     """§16g (9) ONE POPULATION / (10) (1) THE PAD IS THE CLUSTER's own
     derivation, read off a ``RebakePlan`` — the planar-time half of the
@@ -699,10 +824,30 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                                   for r in shims[i].bridges),
                     bodies=len(grp),
                     footed=sum(1 for i in grp if shims[i].footed),
-                    walled=sum(1 for i in grp if shims[i].walled)))
+                    walled=sum(1 for i in grp if shims[i].walled),
+                    # base-profile spec §1 (3)/(4) (C1): the group's own
+                    # composed profile, derived HERE — the one site the
+                    # planar stage and the object stage both read
+                    **_profile_of(u, grp, shims, profile_law)))
     if counts is not None:
         counts["cluster_no_height"] = 0 if any_height else 1
     return out
+
+
+def _profile_of(u: _t.Any, grp: _t.Sequence[int], shims: _t.Sequence[_t.Any],
+                profile_law: "ProfileLaw | None"
+                ) -> dict:
+    """The two ``PlanCluster`` base-profile fields for one body group, as
+    the keywords the mint splats — ``{}`` where the caller asked for no
+    profile (base-profile spec §1 (4) / C1)."""
+    if profile_law is None:
+        return {}
+    pids: set[int] = set()
+    for i in grp:
+        pids |= set(shims[i].pids)
+    rec, how = cluster_base_profile(u, [shims[i].member for i in grp],
+                                    profile_law, pids=pids)
+    return {"base_profile": rec, "composition": how}
 
 
 def pad_plurality(cands: _t.Sequence[tuple[float, float, float, float]],

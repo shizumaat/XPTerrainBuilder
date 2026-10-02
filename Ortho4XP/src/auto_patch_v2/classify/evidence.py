@@ -17,7 +17,9 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..geom import cluster_outlines, deck_shades
+from ..geom import (cluster_outlines, deck_shades,
+                    osm_building_evidence)
+from ..law.tables import pad_admission
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
 from .rules import Rules
@@ -445,6 +447,19 @@ def _trim_leadins(chains: list[Chain], airport: Airport, rules: Rules
 #: build's own say-line and the sidecar (``pipeline/publication``).
 CLUSTER_PADS: dict[str, object] = {}
 
+#: v1 ``dsf_reader.OBJECT_BUILDING_ROLE`` — the footprint cache's own
+#: verdict that a structure passed R18-2's VERTICAL test.  A ROLE LITERAL
+#: crossing the v1/v2 boundary (``blast.py`` reports it): v2 carries it in
+#: ``Building.source`` as ``dsf:object:<role>`` (``airport/load.py`` :525),
+#: and the other spelling v1 writes is
+#: ``OBJECT_BUILDING_UNVOUCHED_ROLE`` = ``"object_unvouched"``.
+_OBJECT_BUILDING_ROLE = "object"
+
+#: §16g (10) (12), issue #101: what the FALLBACK half's building-evidence
+#: gate refused this pass, for the build's say-line and the sidecar beside
+#: ``CLUSTER_PADS["refused"]`` (the cluster half's own rows).
+PAD_REFUSED: dict[str, object] = {}
+
 
 
 
@@ -515,6 +530,13 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
     # leave every outline — the SAME reading ``constraints/cluster_pad``
     # censuses with
     shades = deck_shades(getattr(airport, "partition", None), to_xy)
+    # §16g (10) (12), issue #101 (owner RULINGS 2026-10-02v (3)): v1's two
+    # PAD-ADMISSION gates.  The thresholds come from the ONE reading the
+    # census takes too (``law.tables.pad_admission``) and the OSM half from
+    # the ONE predicate it takes too (``geom.osm_building_evidence`` over
+    # the same ``Airport.buildings``), so a cluster this site refuses is a
+    # cluster ``constraints/cluster_pad`` refuses.
+    _refused: list[dict] = []
     got, counts = cluster_outlines(cl, to_xy, float(st.footprint_touch_m),
                                    airside=_mint_airside,
                                    # §16g (10) (7): LEAVES GET NO PAD
@@ -523,8 +545,15 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
                                    shades=shades,
                                    # issue #73 rule 2a: a post that
                                    # still chains closes the outline
-                                   bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)))
+                                   bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)),
+                                   admission=pad_admission(law),
+                                   osm_evidence=osm_building_evidence(
+                                       getattr(airport, "buildings", ()) or ()),
+                                   refused=_refused)
     CLUSTER_PADS.update(counts)
+    # the refusals, LISTED with ref + gate + measured value (and the
+    # footprint's length/width, which issue #229 reads)
+    CLUSTER_PADS["refused"] = _refused
     CLUSTER_PADS["deck_shade_m2"] = round(shades.area, 1) if shades is not None else 0.0
     CLUSTER_PADS["area_m2"] = round(sum(g.area for _i, _c, g in got), 1)
     return [g for _i, _c, g in got]
@@ -571,12 +600,42 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     cache's."""
     polys = []
     admitted = tuple(rules.buildings.sources)
+    # §16g (10) (12) THE BUILDING-EVIDENCE GATE ON THE FALLBACK HALF TOO
+    # (issue #101; owner RULINGS 2026-10-02v (3)).  The fallback's
+    # ``dsf:object`` rings come from v1's footprint CACHE
+    # (``airport/load.py`` :525), so v1's TALL-BASE FILL is already baked
+    # into that population — ``object_footprints.structure_ring`` refused
+    # the weld class before the ring was ever written.  R18-2's
+    # BUILDING-EVIDENCE gate is not: v1 closed it in its PIPELINE
+    # (``pipeline._collect_dsf_object_building_footprints``), after the
+    # cache, and v2 admitted every cached ring whatever its role.  The
+    # role IS the cache's verdict and v2 carries it verbatim in the source
+    # spelling — ``dsf:object:object`` is v1's ``OBJECT_BUILDING_ROLE``
+    # (the vertical test passed), ``dsf:object:object_unvouched`` is not —
+    # so the gate is v1's, read off the same string: the ring is admitted
+    # on its own vertical verdict OR on an intersecting OSM building, and
+    # on neither it is an apron slab / barrier / vehicle hull and seeds no
+    # pad.  ``_osm_ev`` None (no mapped building anywhere) is NOT evidence
+    # of absence and leaves the gate resting on the role alone, exactly as
+    # v1 states.
+    _st = law.tables.structures.placement if law is not None else None
+    _fallback_gate = bool(_st is not None
+                          and getattr(_st, "building_evidence", False))
+    _osm_ev = osm_building_evidence(airport.buildings) if _fallback_gate else None
+    _n_unvouched = 0
     for b in airport.buildings:
         if not b.source.startswith(admitted):
             continue
         p = polygon_from(b.outer, b.holes)
-        if p is not None and p.area > 0:
-            polys.append(p)
+        if p is None or p.area <= 0:
+            continue
+        if (_fallback_gate and b.source.startswith("dsf:object")
+                and b.source != f"dsf:object:{_OBJECT_BUILDING_ROLE}"):
+            if _osm_ev is None or not _osm_ev(p):
+                _n_unvouched += 1
+                continue
+        polys.append(p)
+    PAD_REFUSED["fallback_no_building_evidence"] = _n_unvouched
     # §16g (10) (5) A DERIVED PAD NEVER TAKES AIRSIDE GROUND (owner
     # RULINGS 2026-09-14ah).  At EVIDENCE time the airside is what the
     # apt.dat surface says it is — the runway slabs and every 110

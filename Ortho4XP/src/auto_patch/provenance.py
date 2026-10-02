@@ -236,6 +236,9 @@ DEM_SYNTHETIC_FLAT_SITE_ATTR = "synthetic_flat_site_provenance"
 # and out of ``raw``: the patch WAS graded on the base DEM and must say so.
 DEM_INSET_NODATA_REFUSAL_ATTR = "airport_inset_nodata_refusals"
 
+#: The approach-ring bake's record on the DEM object (ring spec §3.2).
+DEM_APPROACH_RING_ATTR = "approach_ring_provenance"
+
 
 def dem_provenance_from_dem(dem_obj, icao: str | None = None) -> dict:
     """Read elevation provenance off the DEM object the solve graded against.
@@ -272,7 +275,37 @@ def dem_provenance_from_dem(dem_obj, icao: str | None = None) -> dict:
            "synthetic_flat_site": synthetic}
     if refused:
         out["nodata_refused"] = refused
+    rings = getattr(dem_obj, DEM_APPROACH_RING_ATTR, None)
+    if isinstance(rings, dict) and rings.get("layers"):
+        # THE APPROACH RINGS (ring spec §3.2, consumer census row 17).
+        # An ADDITIVE field with ONE decoder: the key is absent when the
+        # tile has no ring plan, so a record with nothing to report is
+        # the record every existing reader already knows.  ``raw`` keeps
+        # its meaning -- a ring is not an inset of this airport, it is
+        # the base terrain the inset baked over.
+        out["rings"] = {
+            "plan_stamp": rings.get("plan_stamp"),
+            "layers": [
+                {"class_m": entry.get("class_m"), "ring": entry.get("ring"),
+                 "providers": list(entry.get("providers") or []),
+                 "cells": entry.get("cells"),
+                 "feather_m": entry.get("feather_m")}
+                for entry in rings["layers"]],
+        }
     return out
+
+
+def rings_label(dem_meta: dict) -> str:
+    """The ``rings=`` stamp value: ``10.31m:USGS3DEP:9cell`` per layer,
+    finest first, or ``""`` when this tile baked no ring."""
+    rings = (dem_meta or {}).get("rings") or {}
+    layers = sorted(rings.get("layers") or [],
+                    key=lambda entry: float(entry.get("class_m") or 0.0))
+    return ",".join(
+        "%sm:%s:%dcell" % (entry.get("class_m"),
+                           "/".join(entry.get("providers") or ["?"]),
+                           int(entry.get("cells") or 0))
+        for entry in layers)
 
 
 def _entries_for_icao(entries, icao: str | None) -> list:
@@ -409,6 +442,11 @@ def provenance_tags(prov: dict) -> dict:
     tags["o4_provenance_gates_total"] = str(gates.get("total", 0))
     tags["o4_provenance_dem_raw"] = "true" if dem.get("raw", True) else "false"
     tags["o4_provenance_dem"] = _quote(dem_label(dem))
+    rings = rings_label(dem)
+    if rings:
+        # Additive, and only when there is something to say: a patch from
+        # a tile with no ring plan carries no such tag at all.
+        tags["o4_provenance_rings"] = _quote(rings)
     tags["o4_provenance_built"] = _quote(prov.get("built") or "")
     tags["o4_provenance_icao"] = _quote(prov.get("icao") or "")
     return tags

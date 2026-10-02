@@ -955,11 +955,29 @@ class ProductionDem:
             + (", nodata_refused=" + ",".join(
                 f"{d.get('icao')}:{os.path.basename(str(d.get('path', '?')))}"
                 for d in declined) if declined else ""))
+        # THE APPROACH RINGS (ring spec §3.2, consumer census row 7):
+        # what the bake actually put under the inset box, carried on the
+        # provenance as ``rings:<stem>`` beside ``tile:<stem>`` so an arm
+        # can be read back without the log -- and ABSENT (never a key
+        # that lies) when the tile has no ring plan.
+        rings = getattr(dem, "approach_ring_provenance", None)
+        if isinstance(rings, dict) and rings.get("layers"):
+            self.provenance[f"rings:{stem}"] = (
+                "plan " + str(rings.get("plan_stamp")) + ": "
+                + ", ".join(
+                    f"ring{entry.get('ring')}@{entry.get('class_m')}m"
+                    f":{'/'.join(entry.get('providers') or [])}"
+                    f":{entry.get('cells')}cell"
+                    f":feather{int(entry.get('feather_m') or 0)}m"
+                    for entry in rings["layers"]))
+            self._out(f"  [dem] approach rings {stem}: "
+                      f"{self.provenance[f'rings:{stem}']}")
         self._record_inset_boxes(lat, lon, baked)
         if tile is not None:
             for k in ("apt_smoothing_pix", "apt_smoothing_auto", "working_grid_arc_seconds",
                       "airport_elevation_insets", "airport_elevation_inset_feather_m",
-                      "elevation_level", "custom_dem", "fill_nodata"):
+                      "elevation_level", "approach_rings", "custom_dem",
+                      "fill_nodata"):
                 value = getattr(tile, k, "")
                 if k in _MODE_VALUED_KEYS:
                     value = normalize_mode(value, k)   # spec §A.5, row 26

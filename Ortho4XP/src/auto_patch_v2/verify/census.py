@@ -32,6 +32,9 @@ from .cutback import groundside_cutback
 from .eat import eat_ceiling
 from .jetway import jetway_strip
 from .frontage import frontage_near_miss
+from .keepout import (object_cut_depth, object_cut_offset,
+                      ramp_in_road, ramp_in_strip, zone_on_pavement)
+from .pins import road_coverage_join, seam_residual, sentinel_elevation
 from .structures import ACCEPTANCE, basin_floor_declaration, wall_in_runway_strip
 from .transverse import transverse
 from .within import FAMILY_TAXI_BOX, plane_gradient, taxi_box, within_shape
@@ -81,6 +84,31 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "eat_ceiling": eat_ceiling,
     # jetway-strip spec §2 (6) (owner RULINGS 2026-09-18t Q3)
     "jetway_strip": jetway_strip,
+    # §38 (5) / §37 (9) THE TWO PINS (owner RULINGS 2026-09-13ah/13am/13an,
+    # 2026-09-13be; issue #186): the solve publishes the value it HELD per
+    # vertex — the vertex's own tile DEM sample at a seam, the core ribbon's
+    # altitude at a coverage exit — and verify prices the EMITTED elevation
+    # against it, joined at the canonical identity (``verify/pins.py``).
+    "seam_residual": seam_residual,
+    "road_coverage_join": road_coverage_join,
+    # RULINGS 2026-09-13m (lane ``v2zerocrater``; issue #186): the
+    # SHIP-SIDE net — a vertex far below the patch's own 5th-percentile
+    # ground band is a sentinel, not geometry.  Patch-intrinsic: no
+    # witness to carry, so verify reads it exactly as the census does.
+    "sentinel_elevation": sentinel_elevation,
+    # §34 (10) / §34 (5) (b) / §41 (2) / §33 (6) THE KEEP-OUT AND OVERLAP
+    # READINGS (owner RULINGS 2026-09-14bd, 2026-09-15h, 2026-09-13co item
+    # 2, 2026-09-15e/15g; issue #186): all five read where a face STANDS on
+    # the design surface verify is handed — the ramp faces, the road
+    # ribbons, the pavement solids and their holes, the zone bands, the
+    # structure rims — against the law's own populations (``verify/
+    # keepout.py``).  Three are PRESENCE families: a guard on a derivation
+    # site, not a defect count.
+    "ramp_in_road": ramp_in_road,
+    "ramp_in_strip": ramp_in_strip,
+    "zone_on_pavement": zone_on_pavement,
+    "object_cut_offset": object_cut_offset,
+    "object_cut_depth": object_cut_depth,
     # issue #97 M1 / #108: the stand-off strip a zone band is cut back from
     # a groundside road by — REPORT-ONLY (its intent is Q-97 on #58), but a
     # reading of the emitted rings and so verify's to make
@@ -144,6 +172,26 @@ NOT_IMPLEMENTED: dict[str, str] = {
         "sidecar key the emitter publishes); a ``Patch`` carries the emitted "
         "surface and nothing outside it, so the oracle and the mesh "
         "pre-flight are the only instruments",
+    # §38 (3) (owner RULINGS 2026-09-13ah/13an; issue #186)
+    "bank_across_seam":
+        "prices ``bank_foot`` nodes, and NO bank exists on what verify "
+        "reads: ``pipeline/build`` hands ``census_frame`` the DESIGN "
+        "surface ``surf``, while the bank is minted into a SECOND surface "
+        "(``surf_out = emit.bank.with_bank(surf, …)``) that only the "
+        "written patch carries — spec §9.2 A7 keeps the two apart on "
+        "purpose, so the family is vacuous by construction here.  The "
+        "oracle over the emitted patch is the instrument (its ``bank_foot`` "
+        "feature channel)",
+    # §37 (11) (5) (owner RULINGS 2026-09-15f item 2; issue #186)
+    "sea_wall":
+        "prices emitted ring EDGES whose BOTH vertices stand ON the "
+        "declared shore, and that population is CREATED after verify's "
+        "input: ``emit.shore.weld_to_shore`` projects the rings onto the "
+        "shore line into ``surf_out``, downstream of the ``surf`` "
+        "``census_frame`` reads, so on the design surface no edge stands "
+        "on the shore by construction.  Same structural bar as "
+        "``hairline_pair``, whose witness (``shore_edges``) this family "
+        "shares, and the same instruments",
     # RULINGS 2026-09-29ac (#105)
     "pavement_over_road_cap":
         "the universal pavement cap is HELD by the engine's hard row family "

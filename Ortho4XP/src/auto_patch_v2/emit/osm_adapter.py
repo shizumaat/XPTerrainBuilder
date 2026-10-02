@@ -80,7 +80,8 @@ from .surface import GradedSurface
 
 __all__ = ["SIDECAR_KEYS", "PatchPaths", "write_patch", "render_patch",
            "render_sidecar", "tile_of_face", "write_tile_pieces",
-           "WeldReport", "shore_edges_of", "weld_to_shore", "merge_sub_spacing"]
+           "WeldReport", "shore_edges_of", "weld_to_shore", "merge_sub_spacing",
+           "survivor_key", "SURVIVOR_IS_MINIMUM"]
 
 #: A lat/lon pair, as everything emit-side spells it.
 LL_T = _t.Tuple[float, float]
@@ -863,6 +864,50 @@ def weld_to_shore(surface: GradedSurface, law: Law,
                        breaklines=tuple(breaks))
 
 
+#: §39 (iii) / issue #199: the ORDER the sub-spacing merge picks a
+#: survivor in — ascending :func:`survivor_key`, so the survivor of a
+#: merged component is its MINIMUM.  Named because the twins assert the
+#: direction, not a spelling of it.
+SURVIVOR_IS_MINIMUM = True
+
+
+def survivor_key(ll: _t.Sequence[float], identity_dp: int) -> tuple[float, float]:
+    """THE SUB-SPACING SURVIVOR KEY (issue #199): a total order on vertices
+    that reads NOTHING but the vertex's own canonical identity coordinate.
+
+    ``merge_sub_spacing`` keeps the member of a merged component whose key
+    is LOWEST (:data:`SURVIVOR_IS_MINIMUM`).  Three properties, each one a
+    thing the old ``(degree, -id)`` rule did not have:
+
+    * PAIR-LOCAL — the key of a vertex is its own ``ll`` rounded to the
+      identity the patch is written at (``GradedSurface.identity_dp``, the
+      11-dp ``emit.identity.coordinate_dp`` join).  Adding, removing or
+      renumbering a vertex ANYWHERE else cannot move it, which is exactly
+      the #199 defect: both of the old terms could.
+    * ORDER-INDEPENDENT — a total order makes the union-find's survivor the
+      component's minimum whatever order the sequence walk visits its
+      edges in, because ``min`` is associative.  ``(degree, -id)`` is a
+      total order too, so this is not new; it is what keeps the merge
+      replay-stable once the key is local.
+    * AT THE IDENTITY — the key rounds to ``identity_dp`` because that is
+      where two coordinates ARE one coordinate.  Comparing unrounded
+      floats would let a sub-micrometre difference below the written
+      identity decide the survivor.
+
+    THE COST, REPORTED (issue #199, not decided here): the old rule's
+    FIRST term preferred the vertex more emitted sequences share, so a
+    junction kept its coordinate and only a leaf moved.  A pair-local key
+    cannot see a degree, so where a junction is the higher-keyed member of
+    a sub-spacing pair its coordinate now moves — by less than
+    ``emit.identity.min_distinct_spacing_m`` (0.5 m), the band inside
+    which the law says the two were never distinct vertices.  No ring
+    tears either way: the merge remaps the dropped vertex in EVERY
+    sequence that carries it, so the rings that meet at a junction still
+    meet, at the survivor.
+    """
+    return (round(float(ll[0]), identity_dp), round(float(ll[1]), identity_dp))
+
+
 def merge_sub_spacing(surface: GradedSurface, law: Law,
                       report: "WeldReport | None" = None) -> GradedSurface:
     """§39 (iii) THE IDENTITY JOIN MERGES, IT NEVER WRITES, A SUB-SPACING
@@ -879,12 +924,24 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
 
     THE MERGE, at the one site the ring writer is: two vertices adjacent in
     an emitted sequence and closer than the spacing are ONE vertex.  The
-    SENIOR keeps its coordinate and nothing moves: seniority is (1) the
-    vertex more sequences share — merging away a junction would tear the
-    rings that meet there — then (2) the lower id, so the choice is
-    deterministic and replay-stable.  A ring that would fall below three
-    vertices keeps them all: a triangle is the smallest thing the mesh can
-    constrain, and collapsing it would delete a face.
+    SURVIVOR keeps its coordinate and nothing moves, and WHICH of the two
+    survives is a property OF THE PAIR AND NOTHING ELSE
+    (:func:`survivor_key`, issue #199).
+
+    THE OLD RULE READ THE WHOLE ARRANGEMENT (issue #199; RULINGS
+    2026-10-02k mechanism 3): seniority was ``(sequences sharing the
+    vertex, then the lower id)``, and BOTH terms move when an unrelated
+    part of the layout changes — a plateau cut adds faces, so degrees
+    shift, and vertex ids renumber.  So the emitted node set FLIPPED
+    between the two members of a pair that both exist in the planar map of
+    every arm: 4 such pairs measured at HECA against sw1003, among them
+    the "building9 vertex moved 0.5 m, unattributed" of #150, which is why
+    the A9 bar (0 added / 0 removed airside nodes outside the plateau
+    rings) could not read 0 on an emitted patch.
+
+    A ring that would fall below three vertices keeps them all: a triangle
+    is the smallest thing the mesh can constrain, and collapsing it would
+    delete a face.
 
     Runs AFTER :func:`weld_to_shore`, whose projection can itself bring two
     vertices together on the shore line.
@@ -907,10 +964,13 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
             seqs.append((f"hole{hi}", f.id, list(h), True))
     for b in surface.breaklines:
         seqs.append(("break", b.id, list(b.vertices), False))
-    degree: dict[int, int] = {}
-    for _w, _o, ids, _c in seqs:
-        for i in set(ids):
-            degree[i] = degree.get(i, 0) + 1
+    # §39 (iii) THE SURVIVOR IS THE PAIR'S OWN (issue #199): the key is
+    # the vertex's CANONICAL IDENTITY COORDINATE and nothing else — no
+    # degree table (it reads the face set) and no vertex id (it renumbers).
+    dp = int(surface.identity_dp)
+
+    def key(i: int) -> tuple[float, float]:
+        return survivor_key(vll[i], dp)
 
     parent: dict[int, int] = {}
 
@@ -933,8 +993,7 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
             pa, pb = pxy[a], pxy[b]
             if math.hypot(pa[0] - pb[0], pa[1] - pb[1]) >= spacing:
                 continue
-            keep, drop = ((a, b) if (degree.get(a, 0), -a) >= (degree.get(b, 0), -b)
-                          else (b, a))
+            keep, drop = (a, b) if key(a) <= key(b) else (b, a)
             parent[drop] = keep
     remap = {i: find(i) for i in vll}
     if all(t == i for i, t in remap.items()):

@@ -62,6 +62,13 @@ KEPT_NO_CARRIER = "footless_no_carrier"
 #: own footprint (``placement_plan.OWN_GROUND``, repeated here because no
 #: module may import the other way round).
 OWN_GROUND = "footless_own_ground"
+#: issue #31 (§16g (11)): the reason a footless piece CARRIED BY ITS
+#: §16g UNIT writes.  The one spelling is
+#: ``footprint_unit.UNIT_CARRY``; this module cannot import it (the
+#: ``placement_carrier`` <-> ``placement_census`` cycle), so the twin
+#: ``test_v2jetways31`` asserts the two are the same string — the same
+#: discipline :data:`OWN_GROUND` is kept under.
+UNIT_CARRY = "footless_carried_by_unit"
 FOOTLESS_KEPT = (KEPT_FOOTLESS, KEPT_NO_CARRIER)
 
 
@@ -162,6 +169,15 @@ def census_v14(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             # own centre that point IS the row.  What §14 bars is a
             # footless file left on the row because nothing carried it.
             if str(b.get("anchor_reason", "")).startswith(OWN_GROUND):
+                continue
+            # issue #31 (§16g (11)): nor is a body on its UNIT's datum
+            # "on the ground" — its ``y_zero`` is the distance from its
+            # own terrain to the unit's plane, which is the whole point
+            # of carrying it (a terminal on a pad 10 m over the DEM
+            # gives its jetway y_zero -10), and reading that as §13's
+            # drape would bar the fix for the defect.  Counted as
+            # ``footless_carried_by_unit`` instead.
+            if str(b.get("anchor_reason", "")).startswith(UNIT_CARRY):
                 continue
             if plat is not None and abs(float(a.get("lat", 0.0)) - float(plat)) < 1e-9 \
                     and abs(float(a.get("lon", 0.0)) - float(plon)) < 1e-9:

@@ -960,6 +960,34 @@ def _msl_census(a, plan, ss, sampler) -> None:
                   f"{s.lat:.7f},{s.lon:.7f}  why={s.why}")
 
 
+def print_footless(c: _t.Mapping[str, _t.Any]) -> None:
+    """§13 (3) / §14 (1) / §16 (3) / §16g (11): the FOOTLESS classes of one
+    plan's counts.
+
+    A module-level printer so the twins can read the exact lines the
+    report prints (``tests/auto_patch_v2/test_v2jetways31.py``) instead
+    of re-deriving them, which is the census-wrapper defect CLAUDE.md
+    names."""
+    print(f"  footless placements: {c.get('footless', 0)} "
+          f"({c.get('footless_carried', 0)} carried by a footed body of their "
+          f"unit, {c.get('footless_no_carrier', 0)} with no footed body in the "
+          f"unit at all, {c.get('footless_carrier_kept_whole', 0)} onto a "
+          f"carrier still on its authored row); plan-overlap bound "
+          f"{c.get('bodies_plan_bound', 0)} "
+          f"body group(s), {c.get('basin_bodies_bound', 0)} basin resource(s) "
+          f"made one file (§14)")
+    # issue #31 (§16g (11)): the footless pieces THE UNIT carries — no
+    # footed body of the plan would (a terminal on its pad is refused by
+    # §16a (2)), and §16 (3) wrote them at the ground under their own
+    # footprint, which is the jetway separating from its terminal.
+    print(f"  §16g (11) footless pieces carried by their UNIT's datum "
+          f"(issue #31): {c.get('footless_carried_by_unit', 0)} "
+          f"({c.get('footless_unit_carry_by_pid', 0)} by part id, "
+          f"{c.get('footless_unit_carry_within', 0)} within the unit's "
+          f"footprint, {c.get('footless_unit_carry_frontage', 0)} on its "
+          f"frontage)")
+
+
 def _write_pack(a, plan, ss, sampler) -> None:
     """THE WRITE HALF into a pack COPY (11e (3)) — the same order the
     engine runs (``airport/placement_write.apply_plan``), never a second
@@ -1389,14 +1417,7 @@ def _main() -> int:
     # (a roof, a deck, a tower part set on the ground); the second is the
     # lawful answer for a placement that has no ground body at all.
     own = c.get("elevated_own_files", 0)
-    print(f"  footless placements: {c.get('footless', 0)} "
-          f"({c.get('footless_carried', 0)} carried by a footed body of their "
-          f"unit, {c.get('footless_no_carrier', 0)} with no footed body in the "
-          f"unit at all, {c.get('footless_carrier_kept_whole', 0)} onto a "
-          f"carrier still on its authored row); plan-overlap bound "
-          f"{c.get('bodies_plan_bound', 0)} "
-          f"body group(s), {c.get('basin_bodies_bound', 0)} basin resource(s) "
-          f"made one file (§14)")
+    print_footless(c)
     # (A), owner RULINGS 2026-09-12ap: the binds the ground REFUSED.
     print(f"  §16c (7) bound by contact: "
           f"{c.get('bodies_bound_by_unit_contact', 0)} footed body(ies) "
@@ -1412,7 +1433,8 @@ def _main() -> int:
     print(f"  elevated bodies as own files: {own}"
           f"{'' if own == 0 else '   *** §13 (1) VIOLATED (bar 0) ***'}; "
           f"footless placements on their OWN ground (§16 (3), no carrier "
-          f"the law accepts): {c.get('footless_no_carrier', 0)}; "
+          f"the law accepts and no unit that admits them): "
+          f"{c.get('footless_no_carrier', 0)}; "
           f"elevated bodies carried by a ground body's file: "
           f"{c.get('bodies_elevated_carried', 0)}")
     # §14 (4): ONE implementation of the four bars, shared with

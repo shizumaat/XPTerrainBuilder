@@ -45,13 +45,185 @@ from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
                                bodies_of_plan, cluster_plane, pad_plurality,
                                union_area_m2)
 
-__all__ = ["UNIT_REASON", "bind_footprint_units", "PlanConnector",
-           "ClusterTopology"]
+__all__ = ["UNIT_REASON", "UNIT_CARRY", "UnitCarry",
+           "bind_footprint_units", "unit_carry", "unit_carry_index",
+           "PlanConnector", "ClusterTopology"]
 
 
 #: §16g's own counts key prefix, so the census can tell a §16g unit from
 #: a §16f family in a plan written by either tree.
 UNIT_REASON = "§16g unit"
+
+#: issue #31 (§16g (11), the owner's SPJC read of 2026-09-30y: "the
+#: terminal ... separating from its jetways"): the reason a FOOTLESS
+#: placement carried by its own FOOTPRINT UNIT records, and the counts
+#: key both instruments read.  §16 (3)'s ``footless_own_ground`` keeps
+#: only the footless pieces no unit of the plan admits.
+UNIT_CARRY = "footless_carried_by_unit"
+
+#: issue #31: the unit's own part boxes are read at this stride cap when
+#: the frontage question is asked of one — the same bound
+#: ``FAMILY_CONTACTS_MAX`` puts on a unit's contacts, for the same
+#: reason (a 1,000 m terminal publishes tens of thousands of parts and
+#: the answer does not depend on reading every one of them).
+UNIT_CARRY_BOXES_MAX = 4000
+
+
+@_dc.dataclass(frozen=True)
+class UnitCarry:
+    """issue #31: one footless piece's CARRIER, where the carrier is its
+    §16g FOOTPRINT UNIT rather than a footed body of it.
+
+    ``zero_z`` is the unit's DATUM — the one zero §16g (2) gives every
+    member, which after #174/#182 is the composed unit's origin plane
+    ``p0``: a pad plane, a deck's abutment datum, or the median ground
+    under the unit's contacts.  ``why`` is the sentence the anchor's
+    reason carries, so the record names the carrier the law chose."""
+
+    unit: str
+    zero_z: float
+    where: str
+    source: str
+    why: str
+
+
+def unit_carry_index(plan: _t.Any, plan_wide: _t.Mapping[int, tuple]
+                     ) -> dict[str, tuple]:
+    """issue #31: ``unit id -> (plan hull, part boxes, zero, where,
+    source)`` for every §16g unit of ``plan`` that has a datum.
+
+    The FOOTPRINT is the unit's own part boxes (§16g (1)'s own reading,
+    the one its derivation chains at ``footprint_touch_m``); the hull is
+    kept beside them only as the cheap pre-filter :func:`unit_carry`
+    tests first, because a unit's hull overstates its footprint wherever
+    the unit is L-shaped.  LINE parts are left out: a fence's
+    axis-aligned box says nothing about where a unit stands (§16 (3)'s
+    own sentence, read on this side).
+
+    Built ONCE per plan and only where a footless piece actually asks —
+    a plan whose every footless piece found a footed carrier pays
+    nothing."""
+    boxes: dict[str, list[tuple[float, float, float, float]]] = {}
+    info: dict[str, tuple[float, str, str]] = {}
+    for u in getattr(plan, "units", ()) or ():
+        for m in u.members:
+            for p in m.parts:
+                if getattr(p, "line", False) or not p.box:
+                    continue
+                row = plan_wide.get(p.pid)
+                if row is None or row[1] is None:
+                    continue
+                uid = str(row[0])
+                if uid not in info:
+                    info[uid] = (float(row[1]), str(row[2] or ""),
+                                 str(row[3] or ""))
+                boxes.setdefault(uid, []).append(tuple(p.box))
+    out: dict[str, tuple] = {}
+    for uid, bx in boxes.items():
+        h = _pb.hull_of(bx)
+        if h is None:
+            continue
+        step = max(1, len(bx) // UNIT_CARRY_BOXES_MAX)
+        z, where, src = info[uid]
+        out[uid] = (h, tuple(bx[::step]), z, where, src)
+    return out
+
+
+def unit_carry(pids: _t.AbstractSet[int],
+               box: "tuple[float, float, float, float] | None",
+               plan_wide: _t.Mapping[int, tuple],
+               index: _t.Mapping[str, tuple],
+               *, frontage_m: float = 0.0,
+               counts: "dict | None" = None) -> "UnitCarry | None":
+    """issue #31 (§16 (3) NARROWED): WHICH UNIT CARRIES THIS FOOTLESS
+    PIECE?  ``None`` where no unit of the plan admits it, and only then
+    does §16 (3)'s own-ground path still apply.
+
+    The owner's law is 2026-09-18s read on the object stage: *"Anything
+    that intersects the building (and doesn't extend of hundreds of
+    metres like a railway) is just treated as part of that building and
+    moves with it ... the flat terminal area should include the
+    jetways."*  A jetway's ``.obj`` has no foot below the contact band —
+    its tunnel hangs off the terminal and its rotunda stands on the
+    terminal's own floor — so it is a FOOTLESS body, and §16 (3) wrote it
+    at the ground under its own footprint whenever the carrier search
+    refused every footed body of its unit.  A terminal seated on a pad is
+    exactly that case: §16a (2) refuses its walls as a carrier (their
+    zero is the pad's and the ground under their own feet is the DEM
+    metres below), the fallbacks are refused by the carried-side test for
+    the same reason, and the jetway is left on the terrain while the
+    terminal rides the pad.  That is the separation the owner read at
+    SPJC (RULINGS 2026-09-30y).
+
+    TWO JOINS, in order:
+
+    1. **THE PART ID.**  A piece whose own parts already name a unit in
+       ``plan_wide`` is a member of it by §16g (1)'s own derivation —
+       the chain, S6's CONTENTS or 27a's spanning sheet put it there.
+       Where its parts name more than one, the unit holding the most of
+       them wins (the unit id breaks a tie, so the answer never depends
+       on iteration order).
+    2. **THE PLAN BOX.**  Otherwise the piece's plan box is asked against
+       each unit's own footprint: the unit it OVERLAPS most, else — a
+       jetway bay set down against the frontage and overlapping nothing
+       — the nearest unit within ``frontage_m``.  ``frontage_m`` is
+       ``[placement] footprint_touch_m``, the same tolerance §16g (1)
+       chains two footprints at; 0 disarms the box join entirely.
+
+    The piece takes that unit's DATUM and nothing else: no ground read
+    of its own, no height guessed from its neighbours."""
+    if not index:
+        return None
+    hit: dict[str, int] = {}
+    for q in pids:
+        row = plan_wide.get(q)
+        if row is not None and str(row[0]) in index:
+            hit[str(row[0])] = hit.get(str(row[0]), 0) + 1
+    if hit:
+        uid = max(sorted(hit), key=lambda k: hit[k])
+        _h, _bx, z, where, src = index[uid]
+        if counts is not None:
+            counts["footless_unit_carry_by_pid"] = \
+                counts.get("footless_unit_carry_by_pid", 0) + 1
+        return UnitCarry(uid, z, where, src,
+                         f"{UNIT_CARRY}: within its own §16g unit {uid}"
+                         f" (§16g (1): its parts are the unit's)")
+    if box is None or frontage_m <= 0.0:
+        return None
+    best_over: tuple[float, str] | None = None
+    best_gap: tuple[float, str] | None = None
+    for uid in sorted(index):
+        h, bx, _z, _w, _s = index[uid]
+        if _pb.box_gap_m(box, h) > frontage_m:
+            continue
+        over = max((_pb.overlap_m2(box, b) for b in bx), default=0.0)
+        if over > 0.0:
+            if best_over is None or over > best_over[0]:
+                best_over = (over, uid)
+            continue
+        gap = min((_pb.box_gap_m(box, b) for b in bx), default=None)
+        if gap is not None and gap <= frontage_m:
+            if best_gap is None or gap < best_gap[0]:
+                best_gap = (gap, uid)
+    if best_over is not None:
+        uid = best_over[1]
+        _h, _bx, z, where, src = index[uid]
+        if counts is not None:
+            counts["footless_unit_carry_within"] = \
+                counts.get("footless_unit_carry_within", 0) + 1
+        return UnitCarry(uid, z, where, src,
+                         f"{UNIT_CARRY}: its plan box lies within unit "
+                         f"{uid}'s footprint ({best_over[0]:.1f} m2)")
+    if best_gap is not None:
+        uid = best_gap[1]
+        _h, _bx, z, where, src = index[uid]
+        if counts is not None:
+            counts["footless_unit_carry_frontage"] = \
+                counts.get("footless_unit_carry_frontage", 0) + 1
+        return UnitCarry(uid, z, where, src,
+                         f"{UNIT_CARRY}: it touches unit {uid}'s frontage "
+                         f"({best_gap[0]:.2f} m)")
+    return None
 
 
 def _is_deck_member(st: _t.Any) -> bool:

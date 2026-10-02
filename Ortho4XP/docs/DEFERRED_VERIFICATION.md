@@ -6306,3 +6306,24 @@ constraint, and owed:
   copy path). Owed to the session/orchestrator: one KGRK or CYXY tile build
   with a cold clip cache, then
   `python tools/harness/shared_repo_guard.py --stray-temporaries`.
+- 2026-10-02 lane harnessbugs2 A (#206, #177): both fixes are proven by
+  TWINS ONLY — this lane has no corpus, no network and no DSFTool binary.
+  NOT RUN, and owed to the session/orchestrator, two real harness runs:
+  (a) #206, the warm the issue was measured on —
+  `build_airport.py KGEG --tile 47 -118 --refresh-only --refresh-data
+  airport_mod_cache`, which must now DERIVE
+  `Airport_mod_cache/c_USA - 100_airport - KGEG - Spokane Intl - VS/
+  +47-118.dsf.f9e323ec.text` through the engine's own
+  `auto_patch.dsf_reader.ensure_dsf_text_path` (real DSFTool, real
+  `Airport_mod_cache`), land a `REFRESH RECORDED [airport_mod_cache]`
+  line in `.harness/refresh_ledger.jsonl`, and be followed by a
+  `build_airport.py KGEG --tag …` that no longer refuses on that
+  artifact; the twin fakes the `--dsf2text` binary, so the one thing it
+  cannot show is that REAL DSFTool's dump satisfies
+  `auto_patch_v2.airport.dsf.find_text_dump` for the pristine path.
+  (b) #177, the one real harness run the issue asks for — a
+  `--refresh-data dem` warm confirming the harness still REACHES the
+  network now that `main()` no longer sets `O4_SUITE_ALLOW_NETWORK=1`
+  (the #146 derivation-site gate is verified by reading
+  `tests/conftest.py` and by a non-pytest subprocess probe, which is as
+  far as an offline lane can take it).

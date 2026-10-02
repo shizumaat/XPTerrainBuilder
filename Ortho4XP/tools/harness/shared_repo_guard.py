@@ -180,7 +180,15 @@ DIR_SUFFIX_SCOPES = (
 def scope_of(relpath: str):
     """The ``--refresh-data`` scope a shared-repo path belongs to, most
     specific prefix first.  ``None`` for a path outside every scope."""
-    rel = str(relpath)
+    # Every comparison below is spelled with "/" (the prefix table, the
+    # component split).  A caller handing us an OS-separator path -- which
+    # is what ``str(Path.relative_to(...))`` yields on Windows -- would
+    # otherwise fall through every clause and read as "outside every
+    # scope", so an authorised refresh would see no in-scope write and
+    # report "wrote NOTHING".  Normalise once, here.
+    rel = str(relpath).replace(os.sep, "/")
+    if os.altsep:
+        rel = rel.replace(os.altsep, "/")
     for name, under, suffixes in SUFFIX_SCOPES:
         if rel.startswith(under) and rel.endswith(suffixes):
             return name
@@ -291,7 +299,12 @@ def shared_repo_snapshot(repo=None) -> dict:
                     st = p.stat()
                 except OSError:
                     continue
-                snap[str(p.relative_to(repo))] = (st.st_size, st.st_mtime_ns)
+                # POSIX spelling, not the OS separator: these keys are the
+                # vocabulary `scope_of`, `record_refresh` and the refresh
+                # ledger all read, and a "\" one classifies as outside
+                # every scope on Windows.  Identical to str() on POSIX.
+                snap[p.relative_to(repo).as_posix()] = (st.st_size,
+                                                        st.st_mtime_ns)
     return snap
 
 

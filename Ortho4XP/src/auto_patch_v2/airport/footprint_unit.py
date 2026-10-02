@@ -28,6 +28,7 @@ census.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math as _math
 import typing as _t
 
 from . import anchor_rule as _ar
@@ -133,7 +134,7 @@ def unit_carry(pids: _t.AbstractSet[int],
                box: "tuple[float, float, float, float] | None",
                plan_wide: _t.Mapping[int, tuple],
                index: _t.Mapping[str, tuple],
-               *, frontage_m: float = 0.0,
+               *, frontage_m: float = 0.0, span_max_m: float = 0.0,
                counts: "dict | None" = None) -> "UnitCarry | None":
     """issue #31 (§16 (3) NARROWED): WHICH UNIT CARRIES THIS FOOTLESS
     PIECE?  ``None`` where no unit of the plan admits it, and only then
@@ -170,10 +171,25 @@ def unit_carry(pids: _t.AbstractSet[int],
        ``[placement] footprint_touch_m``, the same tolerance §16g (1)
        chains two footprints at; 0 disarms the box join entirely.
 
+    THE RAILWAY CARVE-OUT IS THE OWNER'S OWN (09-18s: "doesn't extend of
+    hundreds of metres like a railway").  A piece whose own plan diagonal
+    reaches ``span_max_m`` (``[placement] connector_span_m``) is the
+    CONNECTOR class §16g (3)/(6) governs — cut at §10's stations and
+    seated per end, never bound rigidly to one unit's datum — so it is
+    refused here and keeps whatever §16 (3) gave it.  0 disarms the test.
+
     The piece takes that unit's DATUM and nothing else: no ground read
     of its own, no height guessed from its neighbours."""
     if not index:
         return None
+    if span_max_m > 0.0 and box is not None:
+        ml, mo = m_per_deg_exact(0.5 * (box[0] + box[2]))
+        if _math.hypot((box[2] - box[0]) * ml,
+                       (box[3] - box[1]) * mo) >= span_max_m:
+            if counts is not None:
+                counts["footless_unit_carry_refused_connector"] = \
+                    counts.get("footless_unit_carry_refused_connector", 0) + 1
+            return None
     hit: dict[str, int] = {}
     for q in pids:
         row = plan_wide.get(q)

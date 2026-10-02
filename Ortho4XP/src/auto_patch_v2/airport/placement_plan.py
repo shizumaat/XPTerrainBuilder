@@ -1148,9 +1148,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # against its frontage) is a member of it by 09-18s.  It
             # takes that datum and the unit's seat; §16 (3)'s own
             # ground stays for a piece no unit of the plan admits.
+            # ... except a 29q CUT CONNECTOR's own geometry, which §2
+            # takes out of every unit chain and seats by its verdict
+            # (RULINGS 2026-09-30m: a linear elevated structure is no
+            # carrier, and nothing binds it to one datum)
             uc = (_fu.unit_carry(_pids, _bx, _pw, _unit_ix(),
-                                 frontage_m=touch_m, counts=counts)
-                  if st.footless and _pw else None)
+                                 frontage_m=touch_m,
+                                 span_max_m=connector_span_m, counts=counts)
+                  if st.footless and _pw and not (_pids & _cut29q) else None)
             if uc is not None:
                 st.unit_carried.append((grp, uc))
             else:

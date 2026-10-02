@@ -25,6 +25,7 @@ footprint.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import io
 import os
 
@@ -46,6 +47,7 @@ ELEVATED_BASE_M = 0.5
 TOUCH_M = 0.5                 # [placement] footprint_touch_m
 BIND_GROUND_M = 0.5
 COARSEN_REACH_M = 30.0
+CONNECTOR_SPAN_M = 200.0      # [placement] connector_span_m
 #: the terrain, and the pad the terminal unit is seated on
 GROUND_Z = 100.0
 PAD_Z = 110.0
@@ -217,6 +219,29 @@ def test_a_footless_object_far_from_every_unit_keeps_its_own_ground(tmp_path):
     # its AUTHORED y is kept, so it renders JETWAY_Y over its own ground
     assert abs(float(b.anchor.y_zero)) < 1e-9
     assert abs(float(b.anchor.surface_z) - GROUND_Z) < 1e-6
+
+
+def test_a_long_connector_span_is_not_bound_to_the_units_datum(tmp_path):
+    """The owner's OWN carve-out (09-18s): "anything that intersects the
+    building (and DOESN'T EXTEND OF HUNDREDS OF METERS LIKE A RAILWAY)".
+    A footless piece whose plan diagonal reaches
+    ``[placement] connector_span_m`` is §16g (3)/(6)'s CONNECTOR class —
+    cut at §10's stations and seated per end — so the unit never binds it
+    rigidly to one datum, and §16 (3) keeps it."""
+    plan = _plan(tmp_path)
+    # widen the jetway's own part into a 300 m span touching the terminal
+    j = plan.units[0].members[1]
+    p0 = j.parts[0]
+    wide = _dc.replace(p0, box=(p0.box[0], p0.box[1],
+                                p0.box[2] + 300.0 / _ML, p0.box[3]))
+    plan = _dc.replace(plan, units=(_dc.replace(
+        plan.units[0],
+        members=(plan.units[0].members[0], _dc.replace(j, parts=(wide,)))),))
+    ss = PP.build_splits(plan, _flat(GROUND_Z), (_pad(),), write=False,
+                         **_args(connector_span_m=CONNECTOR_SPAN_M))
+    assert ss.counts[FU.UNIT_CARRY] == 0
+    assert ss.counts["footless_unit_carry_refused_connector"] == 1
+    assert ss.counts["footless_own_ground"] == 1
 
 
 # ── the instruments ───────────────────────────────────────────────────────

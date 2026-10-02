@@ -60,6 +60,28 @@ THE FOUR RULES THE WALK OBEYS
    both inside and outside a block is simply written TWICE (the tables
    are rebuilt per body anyway), so nothing straddles by accident.
 
+5. **A SEAT TILT is baked into the vertices, and so are the normals**
+   (owner RULINGS 2026-10-01k Q1; base-profile spec §8a Q1).  A DSF
+   ``OBJECT`` row carries HEADING only, so a post-feet body that must
+   stand on a graded apron can only be seated by rotating the model
+   itself.  :attr:`BodyCut.tilt` names that rotation as the two authored
+   gradients the body's own feet fitted, and every vertex a body keeps is
+   written ``R · (v − offset)`` with ``R`` from :func:`tilt_matrix` —
+   the translation first, so the rotation is about the body's NEW origin,
+   which is the point X-Plane drapes.  A ``VT`` row's NORMAL triple is
+   rotated with its position (a tilted body whose normals stayed put
+   lights as though it were still level), and ``LIGHT_*`` / ``SMOKE_*``
+   positions rotate too.  Nothing here decides WHETHER a body tilts or by
+   how much — that is ``airport/placement_seat_tilt.py``, which fits the
+   gradients on the design surface under the feet and caps them.
+
+   A body that owns an ``ANIM`` block is NEVER tilted: rule 4's
+   compensation is a translation and there is no ``ANIM`` command that
+   pre-rotates a block's accumulated frame, so baking the rotation would
+   swing the animated part out of its pivot.  Such a body is written
+   UNTILTED and counted (``counts["tilt_refused_anim"]``) — reported,
+   never silently bent.
+
 WHEN A PLACEMENT IS KEPT WHOLE
 ------------------------------
 
@@ -87,6 +109,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import hashlib
+import math
 import os
 import struct
 import typing as _t
@@ -96,7 +119,11 @@ import numpy as np
 from . import obj8 as _obj8
 
 __all__ = ["BodyCut", "SplitFile", "SplitResult", "split_obj8",
-           "body_resource_name", "offset_tag"]
+           "body_resource_name", "offset_tag", "tilt_matrix", "NO_TILT"]
+
+#: :attr:`BodyCut.tilt` for a body that is NOT tilted — the identity, and
+#: the value every caller that knows nothing of the seat tilt passes.
+NO_TILT: "tuple[float, float]" = (0.0, 0.0)
 
 #: The commands that carry a POSITION in the authored frame and must be
 #: translated with the vertices: keyword -> index of the first of the
@@ -152,6 +179,15 @@ class BodyCut:
     offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     #: authored vertex triples this body owns outright (a SEGMENT)
     tris: tuple[tuple[int, int, int], ...] = ()
+    #: THE SEAT TILT (rule 5; owner RULINGS 2026-10-01k Q1): the two
+    #: AUTHORED-frame gradients ``(dy/dx, dy/dz)`` of the plane the body's
+    #: own feet fitted on the design surface, as
+    #: ``placement_seat_tilt.fit`` decided them.  :data:`NO_TILT` — the
+    #: default, and what every body with a floor plane keeps — writes
+    #: exactly the pre-tilt bytes.  The rotation itself is
+    #: :func:`tilt_matrix`; this names it in ONE place so the fit's
+    #: residual check and the writer cannot disagree about what was baked.
+    tilt: tuple[float, float] = NO_TILT
 
 
 @_dc.dataclass(frozen=True)
@@ -168,6 +204,12 @@ class SplitFile:
     offset: tuple[float, float, float]
     lods: tuple[str, ...]
     anim_blocks: int
+    #: rule 5: the seat tilt THIS FILE ACTUALLY BAKED — :data:`NO_TILT`
+    #: where the body was not tilted, or where it owns an ANIM block and
+    #: the writer refused the tilt.  The plan's ``seat`` record says what
+    #: was ASKED FOR; this says what was written, and the two differ
+    #: exactly on the refusal the counts name.
+    tilt: tuple[float, float] = NO_TILT
 
 
 @_dc.dataclass(frozen=True)
@@ -178,26 +220,70 @@ class SplitResult:
     counts: _t.Mapping[str, int]
 
 
-def offset_tag(offset: _t.Sequence[float]) -> str:
-    """THE BAKED OFFSET, AS EIGHT HEX CHARACTERS (RULINGS 2026-09-14at).
+def tilt_matrix(tilt: _t.Sequence[float]) -> np.ndarray:
+    """THE SEAT ROTATION, DERIVED ONCE (rule 5; owner RULINGS 2026-10-01k
+    Q1).
 
-    The tag is a pure function of the three doubles the cut SUBTRACTS
-    from every vertex it keeps — ``blake2s`` over their IEEE-754 bytes —
-    and of nothing else.  That is the whole reason it is a hash and not
+    ``tilt`` is the pair of AUTHORED-frame gradients ``(gx, gz)`` of the
+    plane the feet fitted: the plane ``y = gx·x + gz·z`` through the
+    body's own origin.  The matrix returned is the MINIMAL rotation that
+    carries the authored up axis onto that plane's normal — Rodrigues
+    about ``ŷ × n``, so no third degree of freedom (a yaw) is invented
+    and the body's HEADING, which is the one thing the DSF row still
+    carries, is untouched.
+
+    It is a rotation, not a shear: ``RᵀR = I``, so the model is seated
+    without being stretched, and ``(R·(1,0,0))ᵧ = gx/√(1+|g|²)`` — the
+    authored ``+x`` end rises by the fitted gradient (exactly, to the
+    cosine the rotation costs), and ``+z`` by ``gz``.
+    :data:`NO_TILT` returns the identity, which is why an untilted body's
+    file is byte-identical to the pre-tilt writer's.
+    """
+    gx, gz = float(tilt[0]), float(tilt[1])
+    g = math.hypot(gx, gz)
+    if g == 0.0:
+        return np.eye(3)
+    theta = math.atan(g)
+    kx, ky, kz = -gz / g, 0.0, gx / g
+    K = np.asarray([[0.0, -kz, ky], [kz, 0.0, -kx], [-ky, kx, 0.0]])
+    return np.eye(3) + math.sin(theta) * K + (1.0 - math.cos(theta)) * (K @ K)
+
+
+def offset_tag(offset: _t.Sequence[float],
+               tilt: _t.Sequence[float] = NO_TILT) -> str:
+    """THE BAKED TRANSFORM, AS EIGHT HEX CHARACTERS (RULINGS 2026-09-14at;
+    the seat tilt added by 2026-10-01k Q1).
+
+    The tag is a pure function of what the cut BAKES into the vertices it
+    keeps — ``blake2s`` over the IEEE-754 bytes of the three offset
+    doubles, and of the two tilt gradients where the body is tilted — and
+    of nothing else.  That is the whole reason it is a hash and not
     "the index of this offset among the resource's distinct offsets":
     an index is a function of the POPULATION, so adding or removing an
     unrelated placement of the same resource renames another
     placement's file, and the previous write's own body files (the ones
     ``o4_placement_provenance.json`` names) then go stale in the pack.
     The hash renames a file only when the file's own contents move.
+
+    THE TILT IS IN THE TAG for the same reason the offset is (14at's
+    OTHH ``tunnel1``, 38.7 m): two placements of one resource over two
+    aprons fit two different gradients, and a name blind to the tilt
+    would give the second placement the first one's seated geometry.  An
+    UNTILTED body hashes exactly the three doubles 14at hashed, so every
+    file a pre-tilt write named keeps its name and no pack churns.
     """
     x, y, z = (float(v) for v in offset)
-    return hashlib.blake2s(struct.pack("<3d", x, y, z),
+    gx, gz = float(tilt[0]), float(tilt[1])
+    if (gx, gz) == (0.0, 0.0):
+        return hashlib.blake2s(struct.pack("<3d", x, y, z),
+                               digest_size=4).hexdigest()
+    return hashlib.blake2s(struct.pack("<5d", x, y, z, gx, gz),
                            digest_size=4).hexdigest()
 
 
 def body_resource_name(resource: str, k: int,
-                       offset: "_t.Sequence[float] | None" = None) -> str:
+                       offset: "_t.Sequence[float] | None" = None,
+                       tilt: _t.Sequence[float] = NO_TILT) -> str:
     """``objects/<stem>__b<k>_<tag>.obj`` beside the original (§4.5).
 
     THE FILE IS KEYED ON WHAT IT CONTAINS (owner RULINGS 2026-09-14at;
@@ -221,7 +307,7 @@ def body_resource_name(resource: str, k: int,
     stem, _ext = os.path.splitext(resource)
     if offset is None:
         return f"{stem}__b{k}.obj"
-    return f"{stem}__b{k}_{offset_tag(offset)}.obj"
+    return f"{stem}__b{k}_{offset_tag(offset, tilt)}.obj"
 
 
 # ── the file, as text ────────────────────────────────────────────────────
@@ -297,16 +383,39 @@ def _coords(rows: list[str], n_lead: int) -> np.ndarray:
     return out
 
 
-def _retok(line: str, first: int, delta: tuple[float, float, float]) -> str:
-    """``line`` with its three coordinate tokens at ``first`` shifted by
-    ``-delta``, printed to the millimetre (the authored files' own
-    precision)."""
+def _retok(line: str, first: int, delta: tuple[float, float, float],
+           rot: "np.ndarray | None" = None, normal_at: int = -1) -> str:
+    """``line`` with its three coordinate tokens at ``first`` moved into
+    the body's own frame — shifted by ``-delta`` and then, where ``rot``
+    is given, ROTATED about the new origin (rule 5) — printed to the
+    millimetre (the authored files' own precision).
+
+    ``normal_at`` names a second triple on the same row that is a
+    DIRECTION, not a position: a ``VT`` row's normal, which is rotated by
+    the same ``rot`` and never translated.  It is written to six decimals,
+    the unit-vector precision the exporters use; a zero or unparsable
+    normal is left exactly as authored.
+    """
     t = line.split()
     try:
-        for j in range(3):
-            t[first + j] = f"{float(t[first + j]) - delta[j]:.3f}"
+        p = [float(t[first + j]) - delta[j] for j in range(3)]
     except (IndexError, ValueError):
         return line
+    if rot is not None:
+        p = [float(rot[r][0] * p[0] + rot[r][1] * p[1] + rot[r][2] * p[2])
+             for r in range(3)]
+    for j in range(3):
+        t[first + j] = f"{p[j]:.3f}"
+    if rot is not None and normal_at >= 0:
+        try:
+            n = [float(t[normal_at + j]) for j in range(3)]
+        except (IndexError, ValueError):
+            return "\t".join(t)
+        if n[0] or n[1] or n[2]:
+            n = [float(rot[r][0] * n[0] + rot[r][1] * n[1] + rot[r][2] * n[2])
+                 for r in range(3)]
+            for j in range(3):
+                t[normal_at + j] = f"{n[j]:.6f}"
     return "\t".join(t)
 
 
@@ -488,6 +597,21 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
     anim_count: dict[int, int] = {b.body_id: 0 for b in bodies}
     tri_count: dict[int, int] = {b.body_id: 0 for b in bodies}
     offset_of = {b.body_id: b.offset for b in bodies}
+    # rule 5: the body's own seat rotation, or None where it is not
+    # tilted (then every row below takes the pre-tilt path exactly)
+    tilt_of: dict[int, "np.ndarray | None"] = {
+        b.body_id: (None if tuple(b.tilt) == NO_TILT else tilt_matrix(b.tilt))
+        for b in bodies}
+    #: rule 5: a body that OWNS an ANIM block is written untilted — the
+    #: compensation of rule 4 is a translation and no ANIM command
+    #: pre-rotates a block's frame, so the rotation would swing the
+    #: animated part out of its pivot.  Counted, never silent.
+    for blk in blocks:
+        _bid = blk.get("owner")
+        if _bid is not None and tilt_of.get(_bid) is not None:
+            tilt_of[_bid] = None
+            counts["tilt_refused_anim"] = counts.get("tilt_refused_anim", 0) + 1
+    counts["tilted"] = sum(1 for v in tilt_of.values() if v is not None)
 
     def vt_index(body: int, v: int, in_anim: bool) -> int:
         key = (v, in_anim)
@@ -495,7 +619,10 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         if hit is not None:
             return hit
         row = src.vt[v] if 0 <= v < len(src.vt) else src.vt[0]
-        vt_out[body].append(row if in_anim else _retok(row, 1, offset_of[body]))
+        # a ``VT`` row is ``VT x y z nx ny nz s t``: the normal at token 4
+        # rotates with the position (rule 5)
+        vt_out[body].append(row if in_anim else
+                            _retok(row, 1, offset_of[body], tilt_of[body], 4))
         vmap[body][key] = len(vt_out[body]) - 1
         return len(vt_out[body]) - 1
 
@@ -505,7 +632,8 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         if hit is not None:
             return hit
         row = src.vline[v] if 0 <= v < len(src.vline) else src.vline[0]
-        vline_out[body].append(row if in_anim else _retok(row, 1, offset_of[body]))
+        vline_out[body].append(row if in_anim else
+                               _retok(row, 1, offset_of[body], tilt_of[body]))
         lmap[body][key] = len(vline_out[body]) - 1
         return len(vline_out[body]) - 1
 
@@ -626,7 +754,8 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
                 sync(body)
                 start = len(vlight_out[body])
                 for v in rows:
-                    vlight_out[body].append(_retok(src.vlight[v], 1, offset_of[body]))
+                    vlight_out[body].append(
+                        _retok(src.vlight[v], 1, offset_of[body], tilt_of[body]))
                 out[body].append(f"LIGHTS\t{start} {len(rows)}")
             i += 1
             continue
@@ -638,7 +767,7 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
                 p = np.zeros(3)
             body = nearest(p)
             sync(body)
-            out[body].append(_retok(ln, first, offset_of[body]))
+            out[body].append(_retok(ln, first, offset_of[body], tilt_of[body]))
             i += 1
             continue
         # every other command (ANIM_hide, a bare keyword, a comment) goes
@@ -664,8 +793,11 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         body_text: list[str] = list(head)
         body_text.append(f"POINT_COUNTS\t{len(vt_out[bid])} {len(vline_out[bid])} "
                          f"{len(vlight_out[bid])} {len(idx_out[bid])}")
+        _tl = tilt_of[bid]
         body_text.append(f"# o4 split of {stem} body {k} offset "
-                         f"{b.offset[0]:.3f} {b.offset[1]:.3f} {b.offset[2]:.3f}")
+                         f"{b.offset[0]:.3f} {b.offset[1]:.3f} {b.offset[2]:.3f}"
+                         + ("" if _tl is None else
+                            f" tilt {b.tilt[0]:.6f} {b.tilt[1]:.6f}"))
         body_text.append("")
         body_text.extend(vt_out[bid])
         body_text.extend(vline_out[bid])
@@ -695,8 +827,11 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         # its body id, so two placements of one resource at two anchors
         # write two files instead of one that holds the first
         # placement's translation (OTHH's ``tunnel1``, 38.7 m).
-        files.append(SplitFile(bid, body_resource_name(rel, bid, b.offset),
+        _baked = NO_TILT if _tl is None else (float(b.tilt[0]), float(b.tilt[1]))
+        files.append(SplitFile(bid,
+                               body_resource_name(rel, bid, b.offset, _baked),
                                "\n".join(body_text) + "\n",
                                len(vt_out[bid]), tri_count[bid], b.offset,
-                               tuple(lods_seen[bid]), anim_count[bid]))
+                               tuple(lods_seen[bid]), anim_count[bid],
+                               _baked))
     return SplitResult(pristine_path, tuple(files), "", counts)

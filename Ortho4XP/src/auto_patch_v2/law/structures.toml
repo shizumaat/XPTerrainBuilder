@@ -1008,6 +1008,20 @@ connector_span_m    = 200.0
 # unitplatform): walled bodies' worst uncovered stretch <= 4.6 m, the
 # deck-on-piers rail concrete_3 b0 / b1 59.6 / 87.9 m.  0 disarms S1.
 connector_solid_gap_m = 20.0
+# THE SEAT TILT (owner RULINGS 2026-10-01k Q1, verbatim: "Apron grade under a
+# structure with only post feet, adjust angle of object if necessary to seat all
+# the feet"; base-profile spec §8a Q1; issue #162).  A FEET-verdict base — posts,
+# NO floor plane — over a graded apron keeps the apron grade under it (no block
+# cut) and is seated by rotating the body: the object stage fits a least-squares
+# plane through the design-surface reads at the feet and BAKES that plane's tilt
+# into the written .obj vertices and normals (a DSF OBJECT row carries heading
+# only).  This is the steepest TOTAL tilt that may be baked; past it the surface
+# is a riser or a bank, not an apron grade, and the tilt is REPORTED not applied.
+# From the data: the hard apron cap is 1.5 % in both directions, so the steepest
+# lawful apron plane tilts hypot(1.5,1.5) % = 2.12 % = 1.22 deg; KASE's shelters
+# (247 m over the 1.36 % the cap carries in pav7) need 0.81 deg; KASE's cut-slope
+# staircase reads 17 % = 9.6 deg and is what the cap refuses.  0 disarms the seat.
+seat_tilt_max_deg   = 1.5
 
 # ─────────────────────────────────────────────────────────────────────────
 # §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec

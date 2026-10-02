@@ -240,20 +240,35 @@ def _library_index_sidecar(
       moved neither (#141, #104).  The ini is one small file, so it is
       digested outright;
     * the ordered list of every ``library.txt`` consulted, each as
-      ``(path, size, mtime)``.  Mtimes are taken in NANOSECONDS: a file
-      rewritten within the same microsecond as its predecessor and to
-      the same length must still miss.  The ORDER is digested too (it
-      is the merge order), so a reprioritised ini invalidates even in
-      the impossible case where its own stat is unchanged.  A pack
-      added or removed, or a library.txt created, deleted or edited,
-      changes this list — there is no path by which the merged dict can
-      differ while the fingerprint matches.
+      ``(path, size, mtime)``.  The ORDER is digested too (it is the
+      merge order), so a reprioritised ini invalidates through this
+      list as well as through its own bytes above.  A pack added or
+      removed, or a library.txt created, deleted or edited to a
+      different length, changes this list.
+
+      This leg is STILL the collapsing stat the ini leg was fixed away
+      from, and it is the only sibling of that class in this module
+      (owner RULINGS 2026-10-02v (8), #192 — the ruling hashes the ini;
+      this is REPORTED, not decided).  Mtimes are read in NANOSECOND
+      UNITS, which is not nanosecond RESOLUTION: ``st_mtime_ns`` is
+      only as fine as the filesystem's timestamp granularity, and the
+      ubuntu-22.04 CI runner collapses two writes microseconds apart
+      into one granule (#192).  So a ``library.txt`` rewritten to the
+      SAME LENGTH inside one granule can still match, and the merged
+      dict would then differ while the fingerprint holds.  The window
+      is narrower than the ini's was — a reorder keeps a length by
+      construction, whereas an EXPORT edit has to hit the old length by
+      coincidence — and closing it is not free the way the ini was: the
+      ini is one small file, these are every library.txt of the install
+      (337 files on the reference X-Plane 12 install), so digesting
+      their content would read on every HIT the bytes this cache exists
+      to avoid touching.  Cost versus window is the owner's call.
 
     The order was the only signal that a reorder changed anything, and it
     is derived from the ini THROUGH :func:`O4_Scenery_Packs.parse_ini`,
     whose own cache was keyed on the same collapsing stat — so when that
-    one went stale, both signals went stale together and the "impossible
-    case" above happened (#141).  Digesting the ini's content costs one
+    one went stale, both signals went stale together and a reordered ini
+    was served from the sidecar (#141).  Digesting the ini's content costs one
     small read and makes this fingerprint hold on its own, whatever any
     other cache upstream decides.
 

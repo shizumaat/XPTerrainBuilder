@@ -242,7 +242,7 @@ NO_HELP_ARM = {
     "pad_airside_arm.py":
         "its module body reads V2PADVERT_ENGINE, chdir()s into it and arms "
         "the shared-repo write guard BEFORE argparse exists, so --help "
-        "cannot run without doing real work (pre-existing, filed separately)",
+        "cannot run without doing real work (pre-existing, #178)",
 }
 
 

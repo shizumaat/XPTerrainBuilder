@@ -27,6 +27,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..law.tables import role_side
+from ..model.frame import rectangle_axes
 from .rules import Rules
 
 __all__ = ["airside_edge_flip"]
@@ -71,25 +72,13 @@ def _strip_axis_width(poly: Polygon,
     rectangle.  Degenerate rings give ``((1, 0), 0.0)``."""
     if cache is not None and id(poly) in cache:
         return cache[id(poly)]
-    if poly.is_empty or poly.area <= 0.0:
-        return (1.0, 0.0), 0.0
-    try:
-        with _np.errstate(divide="ignore", invalid="ignore"):
-            # GEOS' oriented_envelope trips numpy's error state on an
-            # axis-aligned box: a warning, never a wrong answer.
-            rect = poly.minimum_rotated_rectangle
-        xs = list(getattr(rect, "exterior", rect).coords)
-    except Exception:                                    # pragma: no cover
-        return (1.0, 0.0), 0.0
-    if len(xs) < 5:
-        return (1.0, 0.0), 0.0
-    e1 = (xs[1][0] - xs[0][0], xs[1][1] - xs[0][1])
-    e2 = (xs[2][0] - xs[1][0], xs[2][1] - xs[1][1])
-    l1 = math.hypot(*e1)
-    l2 = math.hypot(*e2)
-    lng, shrt = (e1, l2) if l1 >= l2 else (e2, l1)
-    n = math.hypot(*lng) or 1.0
-    out = ((lng[0] / n, lng[1] / n), float(shrt))
+    # ONE spelling of the rectangle reading (``model.frame.rectangle_axes``;
+    # issue #110 reads the SAME long/short sides for the road-ribbon
+    # proportions).  It carries ``rotated_rectangle``'s warning guard, so
+    # GEOS' oriented_envelope no longer trips numpy's error state on an
+    # axis-aligned box — a warning, never a wrong answer.
+    axis, _long_m, short_m = rectangle_axes(poly)
+    out = (axis, short_m)
     if cache is not None:
         cache[id(poly)] = out
     return out

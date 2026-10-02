@@ -490,9 +490,45 @@ def edit_dump(text: str, plan: PlacementPlan,
     return "".join(out)
 
 
+def _extwrite():
+    """``O4_External_Writes``, the one site the engine asks whether a CHILD
+    PROCESS may write a path (#159).
+
+    Imported lazily and absolutely, not relatively: this package lives
+    under ``src/`` beside the module, and every engine entry puts ``src/``
+    on ``sys.path``.  A missing import must never stop a DSFTool run, so a
+    failure yields a no-op stand-in.
+    """
+    try:
+        import O4_External_Writes as module
+        return module
+    except Exception:
+        class _NoGuard:
+            @staticmethod
+            def declare_external_write(path, *, writer):
+                return None
+        return _NoGuard
+
+
 # ── DSFTool ─────────────────────────────────────────────────────────────
 
-def _run(args: list[str]) -> None:
+#: How the DSFTool child is NAMED when its output path is declared to an
+#: armed shared-repo write guard (#159).
+_DSFTOOL_WRITER_NAME = "DSFTool"
+
+
+def _run(args: list[str], *, writes: str | None = None) -> None:
+    # A SPAWN IS A WRITE DECLARATION (#159, RULINGS 2026-09-30bs).  DSFTool
+    # rewrites the SERVING PACK under the owner's ``Custom Scenery`` (the
+    # 2026-09-15av class: lane v2vmmcshore's tile build rewrote the live
+    # VHHH pack) and dumps into the shared ``Airport_mod_cache``, and
+    # neither write passes the harness's Python-level guard because the
+    # writer is a child process.  Declaring the output path means the child
+    # is never started when an armed guard refuses it, and the refusal is
+    # RECORDED, so swallowing it fails the run.
+    if writes is not None:
+        _extwrite().declare_external_write(writes,
+                                          writer=_DSFTOOL_WRITER_NAME)
     proc = subprocess.run(args, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"{' '.join(args[:2])} failed (rc {proc.returncode}): "
@@ -503,7 +539,7 @@ def dump(dsf_path: str, text_out: str, tool: str) -> str:
     """``DSFTool --dsf2text`` into ``text_out``; returns it."""
     if not tool or not os.path.isfile(tool):
         raise RuntimeError(f"DSFTool binary required, got {tool!r}")
-    _run([tool, "--dsf2text", dsf_path, text_out])
+    _run([tool, "--dsf2text", dsf_path, text_out], writes=text_out)
     return text_out
 
 
@@ -600,7 +636,7 @@ def encode(text_path: str, dsf_out: str, tool: str) -> str:
                     f"{text_path}:{n}: {len(raw)}-character row, DSFTool's "
                     f"text reader keeps {DSFTOOL_LINE_MAX}: {raw[:60]!r}")
     os.makedirs(os.path.dirname(os.path.abspath(dsf_out)) or ".", exist_ok=True)
-    _run([tool, "--text2dsf", text_path, dsf_out])
+    _run([tool, "--text2dsf", text_path, dsf_out], writes=dsf_out)
     if not os.path.isfile(dsf_out):
         raise RuntimeError(f"DSFTool wrote no DSF at {dsf_out}")
     if long_props:

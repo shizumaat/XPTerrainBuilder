@@ -4061,8 +4061,11 @@ def test_degree_discover_transient_status_is_not_memoised(monkeypatch):
         INSETS.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
     )
     probed = []
-    # A 5xx is transient: treated as absent for this call but NOT memoised,
-    # so a network blip cannot poison later airports of the run.
+    # A 5xx is transient: it RAISES (issue #124) and is NOT memoised, so
+    # a network blip cannot poison later airports of the run.  It used to
+    # be "treated as absent for this call", which made ``discover``
+    # answer ``None`` -- and a returned ``None`` is exactly what the
+    # module records as a DURABLE no-coverage.
     monkeypatch.setattr(
         requests,
         "head",
@@ -4072,12 +4075,14 @@ def test_degree_discover_transient_status_is_not_memoised(monkeypatch):
     definition = _degree_definition()
     box = (51.1, 25.1, 51.9, 25.9)
 
-    assert strategy.discover(definition, box) is None
+    with pytest.raises(INSETS.TransientFetchError):
+        strategy.discover(definition, box)
     memo = INSETS.DegreeNamedCogStrategy._cell_exists_by_url
     assert _degree_cell_url(25, 51) not in memo
     # A second run re-probes (the 500 left nothing cached).
     probes_after_first = len(probed)
-    strategy.discover(definition, box)
+    with pytest.raises(INSETS.TransientFetchError):
+        strategy.discover(definition, box)
     assert len(probed) > probes_after_first
 
 

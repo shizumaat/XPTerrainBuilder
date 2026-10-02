@@ -197,6 +197,23 @@ class Placement:
     #: MET at LEMD T4, MISSED at HECA T3 (see `structures.toml`).
     airside_floor: bool = False
 
+    #: THE SEAT TILT CAP (owner RULINGS 2026-10-01k Q1; base-profile spec
+    #: §8a Q1; issue #162).  A FEET-verdict body — posts, no floor plane —
+    #: over a graded apron is seated by ROTATING THE BODY, and this is the
+    #: steepest total tilt that may be baked (degrees).  Past it the
+    #: surface under the feet is not an apron grade but a riser or a bank,
+    #: and the tilt is REPORTED, never applied (and never a block cut).
+    #:
+    #: 1.5 deg is proposed FROM THE DATA, not from a standard: the hard
+    #: apron cap is 1.5 % in BOTH directions, so the steepest lawful apron
+    #: plane tilts ``hypot(1.5, 1.5) %`` = 2.12 % = 1.22 deg, and 1.5 deg
+    #: clears it with margin.  The KASE shelters, the site the ruling was
+    #: read on, need 0.81 deg (3.5 m of fall over 247 m at the 1.36 % the
+    #: cap carries there); KASE's cut-slope staircase reads 17 % = 9.6 deg
+    #: and is the class the cap must refuse.  0 disarms the seat tilt
+    #: entirely (every FEET body stays vertical, the pre-10-01k reading).
+    seat_tilt_max_deg: float = 1.5
+
     #: §16g (1) THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo,
     #: interviewed): "We always want to keep objects covering the same
     #: footprint together when changing their seat."  Two bodies whose

@@ -598,7 +598,14 @@ def _weld_risers(planes: list[BasePlane], floor_m: float, frontage_m: float
     chain of pairs."""
     if floor_m <= 0.0 or len(planes) < 2:
         return list(planes)
-    from shapely.ops import unary_union
+    # §51 LAW B (``frame_entry.union``): the operands are PLACED pack
+    # geometry once :func:`compose_profiles` has run, and GEOS's exact
+    # overlay can refuse valid input (the TNCM "side location conflict").
+    # A weld that threw here would abort the whole pack read, so this
+    # union takes the fallback ladder like every other union of placed
+    # geometry.  ``tests/auto_patch_v2/test_v2witnessvalid.py`` G2 holds
+    # the census that names this function.
+    from . import frame_entry as _fe
     cur = list(planes)
     changed = True
     while changed and len(cur) > 1:
@@ -612,7 +619,8 @@ def _weld_risers(planes: list[BasePlane], floor_m: float, frontage_m: float
                 y = ((a.y * a.area_m2 + b.y * b.area_m2) / tot if tot > 0.0
                      else 0.5 * (a.y + b.y))
                 merged = BasePlane(
-                    y, tot, unary_union([a.polygon, b.polygon]),
+                    y, tot, _fe.union([a.polygon, b.polygon],
+                                      "obj8_grade._weld_risers"),
                     max(a.support_fraction, b.support_fraction),
                     a.trimmed_m2 + b.trimmed_m2)
                 cur = [q for k, q in enumerate(cur) if k not in (i, j)] + [merged]
@@ -635,21 +643,93 @@ def _risers(planes: list[BasePlane], frontage_m: float) -> list[Riser]:
     return out
 
 
-def compose_profiles(parts: "_t.Sequence[tuple[BaseProfile, tuple[float, float, float]]]",
+def _part_row(row) -> "tuple[BaseProfile, tuple[float, float, float], float | None]":
+    """One ``parts`` row normalised to ``(profile, (dx, dy, dz), heading)``.
+
+    Two spellings are accepted because the composition grew a HEADING.  A
+    3-tuple carries the member's own ``heading_deg`` and is PLACED
+    (:func:`_place`'s affine).  A 2-tuple carries NO heading and reads
+    ``None`` — a pure translation, which is the DRY upper-bound roll-up
+    (``obj8_split_report --base-profile``: no heading, no plan
+    translation, the per-member bound §1 (3) names).
+
+    ``None`` RATHER THAN 0.0 is the whole point: the placement affine at
+    heading 0 is ``[1, 0, 0, −1, …]`` — authored ``z`` runs SOUTH — so
+    a 0° member placed through the affine and a 0° member merely
+    translated sit MIRRORED to one another.  Spelling "no heading" as 0.0
+    would make two members of one unit disagree whenever one of them is
+    authored due north."""
+    if len(row) >= 3:
+        prof, off, hdg = row[0], row[1], row[2]
+        return (prof, (float(off[0]), float(off[1]), float(off[2])),
+                None if hdg is None else float(hdg))
+    prof, off = row[0], row[1]
+    return (prof, (float(off[0]), float(off[1]), float(off[2])), None)
+
+
+def _place_matrix(dx: float, dz: float, heading_deg: "float | None"
+                  ) -> tuple[float, float, float, float, float, float]:
+    """The ``[a, b, d, e, xoff, yoff]`` taking one member's AUTHORED
+    ``(x, z)`` into the unit frame — ``obj8.placement_affine``'s matrix
+    for a placed member, and a pure TRANSLATION for ``heading_deg`` None
+    (the dry roll-up, :func:`_part_row`).  The matrix is BUILT here and
+    APPLIED by ``airport/frame_entry.enter``, which §51 (2) makes the one
+    site that puts a placement affine on a polygon."""
+    if heading_deg is None:
+        return (1.0, 0.0, 0.0, 1.0, dx, dz)
+    h = math.radians(heading_deg)
+    sn, cs = math.sin(h), math.cos(h)
+    return (cs, -sn, -sn, -cs, dx, dz)
+
+
+def _place_all(polys: "_t.Sequence", dx: float, dz: float,
+               heading_deg: "float | None", q: float):
+    """§1 (2)'s "orientation is carried by the polygons", through §51 (2)'s
+    ONE ENTRY SITE: one member's base-plane polygons placed into the unit
+    frame by ``frame_entry.enter`` — the affine, the 1 mm snap and the
+    repair, in ONE vectorised call for the member.
+
+    IT MUST BE ``enter`` AND NOT A BARE AFFINE.  Rotating a face-union
+    polygon is exactly the defect §51 names: the rotation rounds micron
+    slivers into self-touching rings, and an invalid ring refuses the
+    first union that reads it — which here is :func:`_weld_risers`, one
+    step later.  ``tests/auto_patch_v2/test_v2witnessvalid.py`` G1 holds
+    the allow-list empty, and this lane was caught by it.
+
+    A polygon that repairs to NOTHING comes back ``None``; the caller
+    drops that plane and names the drop (never a silent plane)."""
+    from . import frame_entry as _fe
+    return list(_fe.enter(list(polys), _place_matrix(dx, dz, heading_deg), q))
+
+
+def compose_profiles(parts: "_t.Sequence[tuple]",
                      *, seat_xz: "tuple[float, float] | None" = None,
                      pad_terrace_floor_m: float, pad_frontage_m: float,
                      roof_support_fraction: float = 0.0,
                      lower_pts: "_t.Any" = None,
                      contact_band_m: float = 0.0,
-                     min_distinct_spacing_m: float = 0.0) -> BaseProfile:
+                     min_distinct_spacing_m: float = 0.0,
+                     input_quantum_m: float = 0.0) -> BaseProfile:
     """§1 (3) THE UNIT PROFILE — the members of ONE §16g unit composed into
     one frame.
 
     ``parts`` is ``(the member's profile, its offset (dx, dy, dz) into the
-    unit frame)``: the §16c contact graph the rebake plan already carries
-    gives welded part pairs' relative offset EXACTLY
+    unit frame, its heading in degrees)`` — the 2-tuple without the
+    heading is still accepted and reads heading 0 (:func:`_part_row`).
+    Nothing is FITTED here: the plan carries each member's placement
+    origin (``Member.origin``) and its ``heading_deg``, and the §16c
+    contact graph's welded part pairs give the relative offset exactly
     (``cluster_pads[].pad_offset_spread`` publishes it — 13.3 m at KASE's
-    ``unit:108``), so nothing is fitted here.
+    ``unit:108``).
+
+    THE OFFSET IS A PLAN TRANSLATION ONLY.  ``dy`` is 0 for the members
+    of ONE §16g unit: a unit carries ONE ``agl_m``, so every member's
+    placement puts its authored ``y = 0`` at the SAME elevation and the
+    authored heights are already in one vertical frame (it is exactly why
+    ``PlanCluster.floors`` compares members' ``base_y`` directly, §16g
+    (10) (1)).  ``dy`` is kept in the signature for the DRY roll-up, which
+    has no origins and uses each member's authored floor as a stand-in
+    upper bound.
 
     THE ORIGIN PLANE ``p0`` is the base plane whose polygon contains the
     unit's seat point ``seat_xz`` (the §16g datum sample centre), else the
@@ -668,21 +748,28 @@ def compose_profiles(parts: "_t.Sequence[tuple[BaseProfile, tuple[float, float, 
     A unit with no base plane keeps today's law exactly: the composed
     verdict is the single member's where there is one, else FEET.
     """
-    from shapely import affinity
+    rows = [_part_row(r) for r in parts]
     moved: list[BasePlane] = []
     feet = 0
     low = None
+    dropped = 0
     sloped: list[tuple[BaseProfile, tuple[float, float, float]]] = []
-    for prof, (dx, dy, dz) in parts:
+    for prof, (dx, dy, dz), hdg in rows:
         feet += int(prof.feet)
         fy = float(prof.feet_y) + float(dy)
         low = fy if low is None else min(low, fy)
         if prof.verdict == SLOPED:
             sloped.append((prof, (dx, dy, dz)))
-        for p in prof.planes:
+        if not prof.planes:
+            continue
+        placed = _place_all([p.polygon for p in prof.planes],
+                            float(dx), float(dz), hdg, float(input_quantum_m))
+        for p, poly in zip(prof.planes, placed):
+            if poly is None or poly.is_empty:
+                dropped += 1          # repaired to nothing: NAMED, never silent
+                continue
             moved.append(BasePlane(
-                float(p.y) + float(dy), p.area_m2,
-                affinity.translate(p.polygon, xoff=float(dx), yoff=float(dz)),
+                float(p.y) + float(dy), p.area_m2, poly,
                 p.support_fraction, p.trimmed_m2))
     if not moved:
         # no member carried a base plane: the unit keeps today's law.  A
@@ -717,7 +804,9 @@ def compose_profiles(parts: "_t.Sequence[tuple[BaseProfile, tuple[float, float, 
     return BaseProfile(verdict, tuple(moved), tuple(_risers(moved, pad_frontage_m)),
                        feet=feet, feet_y=float(low or 0.0),
                        why=f"composed from {len(parts)} member(s): "
-                           f"{len(moved)} base plane(s)")
+                           f"{len(moved)} base plane(s)"
+                           + (f" ({dropped} repaired to nothing at entry)"
+                              if dropped else ""))
 
 
 def _origin_first(planes: list[BasePlane],

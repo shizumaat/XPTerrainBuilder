@@ -213,6 +213,17 @@ and ``arm.py``, ``scratchpad/reltiles/run_release_tile.py`` and
 """
 from __future__ import annotations
 
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``.  Self-contained and ahead of every
+# other import because a tool's own ``--help`` carries the house spelling
+# (``Δ``, ``ε``, ``≥``, ``→``) and a Windows console RAISES on those
+# rather than mangling them.  Twin: ``tests/test_console_encoding.py``.
+import os as _o4os, sys as _o4sys                                    # noqa: E402
+_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(_o4os.path.dirname(
+    _o4os.path.abspath(__file__)))), "src"))
+import O4_Console_Encoding as _o4console                             # noqa: E402
+_o4console.configure_console_streams()
+
 import argparse
 import dataclasses
 import dataclasses as _dc
@@ -275,6 +286,12 @@ from shared_repo_guard import (                          # noqa: E402,F401
     BuildInputScope, contaminating_writes, tiles_named_in, airports_named_in,
     tile_input_scope, mod_cache_pack_of, mod_cache_packs_naming,
     require_no_unauthorised_writes, _clonefile,
+    # THE EXTERNAL WRITER (#159): a spawn is a write declaration, and a
+    # stray temporary is a subprocess/C-level partial output the window
+    # attribution must never externalise.
+    active_guard_refuses, external_write_refusal, refuse_external_write,
+    EXTERNAL_WRITER_VIA, STRAY_TEMPORARY_RE, temporary_writer_pid,
+    is_stray_temporary, stray_temporaries,
 )
 
 #: The owner's production app config — the one the shipped app runs with.

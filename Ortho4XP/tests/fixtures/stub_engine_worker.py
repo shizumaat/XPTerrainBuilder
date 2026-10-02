@@ -51,6 +51,11 @@ Tile-coordinate scripts (switch on ``lat``):
 * anything else — the happy path: two ``StepProgress`` lines, then
   ``TileState`` done + ``BuildDone`` ok + ``RunDone``.
 
+``STUB_WORKER_PHASE_BARRIER=N`` makes the solve / conversion phases wait
+for N workers to reach them before their start marker is written, so a
+concurrency twin measures admission width and not this machine's process
+spawn stagger (see ``_await_phase_barrier``).
+
 If ``STUB_WORKER_MARK_DIR`` is set, ``start_<lat>_<lon>`` and
 ``end_<lat>_<lon>`` marker files (each containing ``time.time()``) are
 written at build start / end so a test can PROVE two tiles overlapped in
@@ -87,6 +92,32 @@ _CONVERT_SECONDS = float(
 _DOWNLOAD_SECONDS = float(
     os.environ.get("STUB_WORKER_DOWNLOAD_SECONDS", "0.15"))
 
+# ── the phase barrier (#142, and the #76 class before it) ─────────────
+# A concurrency twin measures ADMISSION width by sampling the overlap of
+# per-tile phase intervals.  That reading is only exact while the phases
+# START together: the workers are separate PROCESSES, so anything that
+# staggers their arrival at the measured phase by more than the phase
+# lasts drops the sampled peak below the width being proved, with the
+# scheduler behaving perfectly.  #142 read 5 of 6 that way on
+# windows-latest, #76 read 5 of 6 on macOS; #76 was mitigated by
+# LENGTHENING the phase, which buys margin against the stagger without
+# bounding it.  (What produces the stagger on those runners is NOT
+# established -- interpreter spawn skew up to 2 s did not reproduce it on
+# a 4-core Linux box.  The barrier does not need to know: it removes the
+# dependence on alignment rather than the cause of the misalignment.)
+# With ``STUB_WORKER_PHASE_BARRIER=N`` set, every worker entering the
+# measured phase announces its arrival in the mark dir and waits for N
+# arrivals before the phase's start marker is written, so the stagger is
+# absorbed BEFORE the measurement window opens.  A worker the scheduler
+# never admits never arrives, so an admission width BELOW N still fails
+# the twin -- this moves the machine out of the measurement, it does not
+# weaken the assertion.
+_PHASE_BARRIER_PARTY = int(os.environ.get("STUB_WORKER_PHASE_BARRIER", "0"))
+_PHASE_BARRIER_SECONDS = float(
+    os.environ.get("STUB_WORKER_PHASE_BARRIER_SECONDS", "20.0"))
+_PHASE_BARRIER_POLL = 0.01
+_PHASE_BARRIER_PREFIX = "phasearrival"
+
 _cancel_flag = threading.Event()
 _build_queue: "queue.Queue" = queue.Queue()
 _eof = threading.Event()
@@ -121,6 +152,37 @@ def _write_marker(kind, lat, lon, step=None, only_if_absent=False):
         os.replace(temporary, path)
     except OSError as error:
         _chatter("stub worker could not write marker", path, error)
+
+
+def _await_phase_barrier(phase, lat, lon):
+    """Hold until ``_PHASE_BARRIER_PARTY`` workers have reached ``phase``.
+
+    Returns True when the party assembled, False when it did not (the
+    deadline expired, i.e. the scheduler never ran that many at once) --
+    either way the worker proceeds, so a short party is reported by the
+    twin's own concurrency assertion rather than by a hang here.  Arrival
+    is a file in the shared mark dir because the workers are processes
+    with no other channel between them; a barrier of 0 or 1, or no mark
+    dir, is a no-op, so every twin that does not opt in is unaffected."""
+    if _PHASE_BARRIER_PARTY < 2 or not MARK_DIR:
+        return True
+    _write_marker("%s_%s" % (_PHASE_BARRIER_PREFIX, phase), lat, lon)
+    prefix = "%s_%s_" % (_PHASE_BARRIER_PREFIX, phase)
+    deadline = time.time() + _PHASE_BARRIER_SECONDS
+    while True:
+        try:
+            arrived = sum(1 for name in os.listdir(MARK_DIR)
+                          if name.startswith(prefix)
+                          and not name.endswith(".tmp"))
+        except OSError:
+            return True
+        if arrived >= _PHASE_BARRIER_PARTY:
+            return True
+        if time.time() >= deadline:
+            _chatter("stub worker phase barrier", phase, "timed out with",
+                     arrived, "of", _PHASE_BARRIER_PARTY, "arrived")
+            return False
+        time.sleep(_PHASE_BARRIER_POLL)
 
 
 def _step(lat, lon, key, percent, indeterminate=False):
@@ -292,6 +354,9 @@ def _auto_patch_tile(lat, lon, step_key="vector"):
     _write_marker("fetchend", lat, lon)
     _emit({"event": "AutoPatchBegin", "airports": [airport],
            "lat": lat, "lon": lon})
+    # The fetch token is released by AutoPatchBegin above, so a worker
+    # waiting here holds nothing the others need.
+    _await_phase_barrier("solve", lat, lon)
     _write_marker("solvestart", lat, lon)
     _burn_processor(_SOLVE_SECONDS)          # the solve: real processor
     _write_marker("solveend", lat, lon)
@@ -324,6 +389,9 @@ def _imagery_tile(lat, lon, step_key="imagery"):
     _write_marker("downloadend", lat, lon)
     _emit({"event": "ImageryDownloadsDone", "lat": lat, "lon": lon,
            "downloaded": 4, "failed": 0})
+    # As in the solve above: the download token is released by
+    # ImageryDownloadsDone, so the late tiles can still get theirs.
+    _await_phase_barrier("convert", lat, lon)
     _write_marker("convertstart", lat, lon)
     _burn_processor(_CONVERT_SECONDS)
     _write_marker("convertend", lat, lon)

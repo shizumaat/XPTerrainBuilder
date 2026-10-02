@@ -74,6 +74,36 @@ WIN_REQUANTISES = pytest.mark.xfail(
     reason="Windows DSFTool re-pools HEIGHTS 0.06250 -> 0.12500 (#131 note)")
 
 
+#: What the Windows binary re-pools the pack quantum to (#166).
+WIN_REQUANTISED = "0.12500"
+
+#: The attribution record the Windows twin below prints into the CI log.
+#: #166 asks whether the Windows refusal is an OLDER XPTools build or a
+#: parse difference, and that cannot be answered from a red/green bit --
+#: it needs the binary's own version string NEXT TO the quantum it
+#: produced, on the runner that produced it.  Linux and macOS record the
+#: same pair, so one CI run of the matrix is the whole comparison.
+ATTRIBUTION_RECORD = "DSFTOOL-HEIGHTS-ATTRIBUTION"
+
+
+def _dsftool_version(tool: str, tmp_path: Path) -> str:
+    """The version line DSFTool writes into its own dumps.
+
+    Line 2 of a dump is ``800 written by DSFTool <version>``; the fixture
+    header above only carries line 1 (``A`` / ``I``), which says nothing
+    about the build.
+    """
+    seed = tmp_path / "version.text"
+    seed.write_text(DUMP, encoding="utf-8", newline="\n")
+    W._run([tool, "--text2dsf", str(seed), str(tmp_path / "version.dsf")])
+    dumped = Path(W.dump(str(tmp_path / "version.dsf"),
+                         str(tmp_path / "version.back.text"), tool))
+    for line in dumped.read_text(encoding="utf-8").splitlines()[:4]:
+        if "written by" in line:
+            return line.strip()
+    return "unknown (no 'written by' line in the dump)"
+
+
 def _platform(text: str, tool: str, tmp_path: Path) -> str:
     """``text`` with the platform DSFTool's own header line (``A`` on
     macOS / Linux, ``I`` on Windows) — a pack's pristine dump always comes
@@ -162,3 +192,39 @@ def test_full_conversion_passes_and_the_heights_text_is_not_stored(tmp_path):
         o, _ = _encode(tmp_path, f"v{q}", variant, tool)
         digests.add(hashlib.sha256(o.read_bytes()).hexdigest())
     assert len(digests) == 1
+
+
+# ── #166: the attribution record, one line per platform in the CI log ──
+
+@pytest.mark.skipif(_dsftool_path() is None, reason="no DSFTool on this machine")
+def test_the_heights_quantum_is_recorded_with_the_dsftool_version(tmp_path,
+                                                                  capsys):
+    """Record (platform, DSFTool version, quantum) and pin the known map.
+
+    This is the twin #166 asks for and the one the strict xfails above
+    cannot be: an xfail says only THAT Windows differs.  This says WHICH
+    BINARY differed, in the CI log of the run that measured it, so the
+    attribution ("older XPTools build" vs "parse difference") is read off
+    the matrix instead of guessed -- and the day the bundled
+    ``Utils/win/DSFTool.exe`` is replaced, the recorded version changes
+    and this test says whether the quantum followed it.
+
+    No fix is expected from Linux or macOS: neither can run the Windows
+    binary, so this records and pins, it does not repair.
+    """
+    tool = _dsftool_path()
+    version = _dsftool_version(tool, tmp_path)
+    dump = _platform(DUMP, tool, tmp_path)
+    _out, back = _encode(tmp_path, "attribution", dump, tool)
+    quantum = _heights(back)
+    record = (f"{ATTRIBUTION_RECORD} platform={sys.platform} "
+              f"version={version!r} heights_in={PACK_QUANTUM} "
+              f"heights_out={quantum}")
+    with capsys.disabled():
+        print("\n" + record)
+    expected = WIN_REQUANTISED if sys.platform == "win32" else PACK_QUANTUM
+    assert quantum == expected, (
+        f"a THIRD behaviour, neither the honoured {PACK_QUANTUM} of the "
+        f"macOS/Linux builds nor the {WIN_REQUANTISED} measured on "
+        f"windows-latest run 36877241692 -- re-attribute #166 from this "
+        f"record: {record}")

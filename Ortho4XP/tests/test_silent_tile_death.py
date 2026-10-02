@@ -501,3 +501,88 @@ def test_manager_shutdown_is_bounded(monkeypatch):
     assert not mgr._process.is_alive()
     assert any("progress manager" in ln and str(mgr._process.pid) in ln
                for ln in lines), lines
+
+
+# ── 7b. the teardown REAPS what it kills, or names it (#118/#140/#169) ─
+# The twin above samples ``is_alive()`` on the line after _teardown_pool
+# returns.  That read is only meaningful if the call guarantees the reap,
+# and it did not: after ``kill()`` it spent one unchecked ``join(2.0)``
+# per child and returned whatever came of it.  ``join`` measures WALL
+# CLOCK, so on a loaded 2-core runner under ``-n auto`` the parent can be
+# descheduled for the whole budget while the child is dying — teardown
+# then handed back a live, unreaped child AND logged nothing to attribute
+# it to.  Posed here with stub children, so the budget is spent by
+# construction rather than by waiting for a starved runner.
+class _StubChild:
+    """A child process stub whose joins report no progress.  Equivalent to
+    a real child whose every join budget is consumed by starvation."""
+
+    def __init__(self, pid, reaped_after_kill=False):
+        self.pid = pid
+        self._reaped_after_kill = reaped_after_kill
+        self._killed = False
+        self.signals = []
+
+    def join(self, timeout=None):
+        return None
+
+    def is_alive(self):
+        return not (self._killed and self._reaped_after_kill)
+
+    def terminate(self):
+        self.signals.append("SIGTERM")
+
+    def kill(self):
+        self.signals.append("SIGKILL")
+        self._killed = True
+
+
+class _StubExecutor:
+    def __init__(self, procs):
+        self._processes = {p.pid: p for p in procs}
+
+    def shutdown(self, wait=True, cancel_futures=False):
+        self._processes = None
+
+
+def _teardown_with(procs, monkeypatch, **kwargs):
+    lines = []
+    monkeypatch.setattr(UI, "lvprint",
+                        lambda _lvl, *a: lines.append(" ".join(map(str, a))))
+    monkeypatch.setattr(DRIVER, "POOL_REAP_SECONDS", 0.2)
+    DRIVER._teardown_pool(
+        _StubExecutor(procs),
+        [{"icao": "KAAA", "ok": True, "worker_pid": procs[0].pid}],
+        {}, set(), deadline_s=0.0, **kwargs)
+    return "\n".join(lines)
+
+
+def test_a_child_that_cannot_be_reaped_is_named_not_swallowed(monkeypatch):
+    procs = [_StubChild(4242), _StubChild(4243)]
+    text = _teardown_with(procs, monkeypatch)
+    for p in procs:
+        assert p.signals == ["SIGTERM", "SIGKILL"], p.signals
+        assert str(p.pid) in text
+    assert text.count("survived SIGKILL") == len(procs), text
+    assert "was not reaped" in text
+
+
+def test_a_reaped_child_is_never_reported_as_a_straggler(monkeypatch):
+    """The other side: a child the kill does reap produces the kill line
+    and NO survival line — the twin must not cry wolf on the happy path."""
+    procs = [_StubChild(4242, reaped_after_kill=True)]
+    text = _teardown_with(procs, monkeypatch)
+    assert "ignored SIGTERM" in text
+    assert "survived SIGKILL" not in text, text
+    assert not any(p.is_alive() for p in procs)
+
+
+def test_the_reap_wait_is_bounded_and_shared(monkeypatch):
+    """The reap budget is ONE deadline shared by every killed child, not a
+    budget per child — teardown's whole contract is a bounded return."""
+    import time
+    procs = [_StubChild(5000 + n) for n in range(6)]
+    t0 = time.time()
+    _teardown_with(procs, monkeypatch)
+    wall = time.time() - t0
+    assert wall < 6 * 0.2, wall

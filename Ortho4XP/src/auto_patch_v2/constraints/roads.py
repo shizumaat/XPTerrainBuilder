@@ -16,6 +16,7 @@ owns the general road profile.
 from __future__ import annotations
 
 import math
+import typing as _t
 
 from ..law import Law
 from ..law.tables import family, role_cap, role_side
@@ -27,7 +28,8 @@ from .precedence import view
 
 __all__ = ["road_within_shape", "road_family_roles", "road_law_caps",
            "road_pair_reading", "one_ribbon_m", "RIBBON_RULING",
-           "NOT_A_PAIR", "NO_FRAME"]
+           "NOT_A_PAIR", "NO_FRAME", "road_pair_side", "stage_one_vertices",
+           "PAIR_AIRSIDE", "PAIR_WELD", "PAIR_GROUNDSIDE"]
 
 #: §37 (10) (2) THE RIBBON PAIR THAT TOUCHES A MOUTH (owner RULINGS
 #: 2026-09-13cs item 4, coordinator 2026-09-13 round 2).  A road RING's
@@ -46,6 +48,58 @@ NOT_A_PAIR = "not_a_pair"     # two routes: a switchback's branches
 NO_FRAME = "no_frame"         # no route answers one of them: the chord law
 
 GEN = "roads"
+
+#: :func:`road_pair_side` verdicts (issue #143, lane ``roadrows143``).
+PAIR_AIRSIDE = "airside"          # every foot airside: the airside's own pair
+PAIR_WELD = "weld"                # airside AND groundside feet: one-way
+PAIR_GROUNDSIDE = "groundside"    # no airside foot: the road's own law
+
+
+def stage_one_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
+    """§20b STAGE 1's vertices — every vertex of an airside-pavement face
+    (``model.platform.stage_air_vertices``, the one derivation
+    ``solve/design_roles.airside_stage_vertices`` is built on)."""
+    from ..model.platform import stage_air_vertices
+    return frozenset(stage_air_vertices(planar, law))
+
+
+def road_pair_side(air: _t.AbstractSet[int], vertices: _t.Iterable[int]
+                   ) -> tuple[str, tuple[int, ...]]:
+    """THE ROAD'S PAIR LAW AGAINST AIRSIDE (issue #143 item 2, lane
+    ``roadrows143``; owner 2026-09-30 Q-97/Q-100 "Why would a road EVER move
+    airside? It should be welded to airside and then grading DEM to
+    maintain its cap"; RULINGS 2026-09-30aa rules 3-4; free-road ruling;
+    airside-is-king) — THE ONE HELPER every groundside road row asks.
+
+    ``air`` is :func:`stage_one_vertices`.  Returns ``(verdict, followers)``:
+
+    * :data:`PAIR_AIRSIDE` — every foot is an airside vertex: no road
+      LEVEL enters the row, only a cap between two airside points (the
+      free-road ruling: a road edge-sharing an apron IS the apron), so the
+      pair is minted as before, two-way, and stage 1 solves it with the
+      airside.  NOT "no row" (RULINGS 2026-09-30aa rule 3), and that is
+      MEASURED, not argued (lane ``roadrows143``, same-capture replays):
+      dropping these pairs left airside pairs no airside family prices —
+      SPJC ``apron|stub`` cliffs 0.89 m over 1.59 m at -12.03123,
+      -77.10710 (CRITICAL motion 0 -> 8), HECA 419 taxi/strip movers up to
+      0.39 m with no road within 89 m; the census still prices them.
+    * :data:`PAIR_WELD` — airside and groundside feet: the row is minted
+      ONE-WAY on its groundside feet (``follows = followers``).  §20b
+      stage 1 refuses every row carrying a follower (``solve/design``'s
+      conforming filter), so a road row can never reach stage 1 — not even
+      through a PINNED groundside foot, which stage 1 never treats as
+      foreign (HECA v28332: a §37 (9) join pin welded by
+      ``road_cross_section`` to apron ring vertex v7898).  Stage 2 holds
+      the airside vertex at stage 1's value and the road takes its cap
+      FROM it: the road's law starts at its first groundside vertex.
+    * :data:`PAIR_GROUNDSIDE` — the road's own pair, unchanged."""
+    vs = tuple(dict.fromkeys(int(v) for v in vertices))
+    gs = tuple(v for v in vs if v not in air)
+    if len(gs) == len(vs):
+        return PAIR_GROUNDSIDE, ()
+    if not gs:
+        return PAIR_AIRSIDE, ()
+    return PAIR_WELD, gs
 
 #: per-generator statistics (``constraints.generate`` publishes them
 #: beside the row count as ``road_within_shape.<key>``)
@@ -212,13 +266,28 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     stats = STATS.setdefault("road_within_shape",
                              {"routed": 0, "chord": 0, "not_a_pair": 0,
                               "ring_edge": 0, "ribbon_follower": 0,
-                              "ribbon_airside_pair": 0})
+                              "ribbon_airside_pair": 0,
+                              "airside_pair": 0, "weld_follower": 0})
     for k in stats:
         stats[k] = 0
     min_deg = law.tables.common.road_transverse_axis_min_deg
     ribbon = one_ribbon_m(law)          # §37 (10) (2): one ribbon's width
     min_d = law.tables.emit.identity.min_distinct_spacing_m
+    air = stage_one_vertices(planar, law)   # issue #143: the pair law
     rows: list[Row] = []
+
+    def _mint(a: int, b: int, cap: float, d: float, src: Source) -> None:
+        """issue #143 (``road_pair_side``): a ONE-WAY row on the
+        groundside foot of a pair welded to airside."""
+        side, gs = road_pair_side(air, (a, b))
+        if side == PAIR_AIRSIDE:
+            stats["airside_pair"] += 1
+        if side == PAIR_WELD:
+            stats["weld_follower"] += 1
+            rows.append(Diff(a, b, cap, d, src, follows=gs))
+            return
+        rows.append(Diff(a, b, cap, d, src))
+
     # groundside classes without a cross-section axis: all pairs at the
     # role's longitudinal cap (parking_lot: owner 2026-09-04j, 5 %)
     roles = tuple(roads) + ("groundside_pavement", "parking_lot")
@@ -303,14 +372,14 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                                                  src_ribbon,
                                                  follows=(b if air_a else a,)))
                                 continue
-                        rows.append(Diff(a, b, bound / d, d,
-                                         src_t if transverse else src_l))
+                        _mint(a, b, bound / d, d,
+                              src_t if transverse else src_l)
                         continue
                     stats["chord"] += 1
                     (ax_, ay_), (bx_, by_) = vw.xy[a], vw.xy[b]
                     if axis is not None and pair_is_transverse(
                             axis, bx_ - ax_, by_ - ay_, min_deg):
-                        rows.append(Diff(a, b, cap_t, d, src_t))
+                        _mint(a, b, cap_t, d, src_t)
                     else:
-                        rows.append(Diff(a, b, cap_l, d, src_l))
+                        _mint(a, b, cap_l, d, src_l)
     return rows

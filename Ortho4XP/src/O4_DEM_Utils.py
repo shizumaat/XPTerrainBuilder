@@ -129,6 +129,34 @@ def _world_tiles():
     return None if mask is False else mask
 
 
+def tile_is_land(lat, lon) -> bool:
+    """Does the world mask say this 1x1 tile holds any LAND?
+
+    THE ONE land/ocean predicate (issue #173): the mask indexing
+    (``[89 - lat, (180 + lon) % 360]``) lived open-coded at both reading
+    sites, and a third reader spelling it its own way is the
+    census-wrapper defect.  ``True`` whenever the mask cannot be read --
+    the conservative direction every caller wants: a land verdict only
+    ever demands MORE of a source (a file fetched, a 404 refused), never
+    less.
+    """
+    mask = _world_tiles()
+    if mask is None:
+        return True
+    try:
+        latitude = int(lat)
+        longitude = int(lon)
+    except (TypeError, ValueError):
+        return True
+    # The mask has one row per latitude from +89 down to -90.  Bounds are
+    # checked rather than caught: ``mask[89 - 95]`` is a NEGATIVE index,
+    # which numpy answers from the far side of the array instead of
+    # raising -- a silently wrong land verdict for an impossible tile.
+    if not -90 <= latitude <= 89:
+        return True
+    return bool(mask[89 - latitude, (180 + longitude) % 360])
+
+
 def is_cached(tile) -> bool:
     """True when this tile's base elevation is already on disk.
 
@@ -171,12 +199,10 @@ def is_cached(tile) -> bool:
         if source not in global_sources:
             return ELEVATION_PROVIDERS.base_tile_is_cached(
                 source, lat, lon, prefer_coarse=prefer_coarse)
-        world_tiles = _world_tiles()
         for (lat0, lon0) in itertools.product(
             (lat, lat - 1, lat + 1), (lon, lon - 1, lon + 1)
         ):
-            if (world_tiles is not None
-                    and not world_tiles[89 - lat0, (180 + lon0) % 360]):
+            if not tile_is_land(lat0, lon0):
                 continue          # ocean only: zero-filled, never fetched
             if not ELEVATION_PROVIDERS.base_tile_is_cached(
                     source, lat0, (lon0 + 180) % 360 - 180,
@@ -771,9 +797,6 @@ def _ensure_cell_elevation(source, lat, lon, lat0, lon0, verbose,
 
 
 def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False):
-    world_tiles = numpy.array(
-        Image.open(os.path.join(FNAMES.Utils_dir, "world_tiles.png"))
-    )
     if source in ("View", "SRTM"):
         base = 3601
         overlap = 1
@@ -809,9 +832,7 @@ def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False):
         if UI.red_flag:
             break
         verbose = True if (lat0 == lat and lon0 == lon) else False
-        x = (180 + lon0) % 360
-        y = 89 - lat0
-        if not world_tiles[y, x]:
+        if not tile_is_land(lat0, lon0):
             tmparray = numpy.zeros((base, base), dtype=numpy.float32)
         elif _ensure_cell_elevation(
             source, lat, lon, lat0, (lon0 + 180) % 360 - 180, verbose,
@@ -1068,9 +1089,27 @@ class ElevationDownloadRefused(RuntimeError):
     (docs/specs/proj-runtime-robustness-spec.md) -- applies: the tile
     build fails, naming the source, the URL and the last error.
 
-    A 30x/40x answer is NOT this: the server DID answer, the file is not
-    there, and the historic 0 convention stands.
+    A 404/410 answer is NOT this: the server looked, the file is not
+    there, and the historic 0 convention stands (the STRATEGY then
+    decides whether an absent file is lawful for that tile -- see
+    ``O4_Airport_Elevation_Insets.refuse_absent_base_archive``).
+
+    Every OTHER non-2xx answer is this (issues #124/#173): a 403 from a
+    CDN or a bot wall, a 407 from a proxy, a 429, a surfacing 3xx, a
+    400 -- none of them says the file is not there, and the historic
+    classifier read all of 400-409 and 300-309 as "Not Found" (and
+    retried 410/429/451 six times before returning 0 with no refusal at
+    all, because it recorded no ``last_failure`` for them).
     """
+
+
+#: Attempts :func:`http_request` makes before it gives up.  Named so a
+#: twin can shorten the loop instead of waiting out the 2+4+8+16+32 s
+#: exponential back-off.
+HTTP_REQUEST_ATTEMPT_CAP = 6
+
+#: Seconds one base-tile GET may take.
+HTTP_REQUEST_TIMEOUT_S = 10
 
 
 def http_request(url, source, verbose=False):
@@ -1082,6 +1121,11 @@ def http_request(url, source, verbose=False):
         from o4_engine import download_meter as METER
     except Exception:
         METER = None
+    # Imported lazily for the same reason every other reference in this
+    # module is: O4_Airport_Elevation_Insets imports THIS module at
+    # module level.  It owns the ONE answer-outcome classifier (SQ3: a
+    # second convention at a call site is the defect, not a refinement).
+    import O4_Airport_Elevation_Insets as ELEVATION_OUTCOMES
     s = requests.Session()
     tentative = 0
     last_failure = None
@@ -1094,10 +1138,18 @@ def http_request(url, source, verbose=False):
             return 0
         try:
             t0 = time.time()
-            r = s.get(url, timeout=10)
+            r = s.get(url, timeout=HTTP_REQUEST_TIMEOUT_S)
             elapsed = time.time() - t0
-            status_code = str(r)
-            if "[20" in status_code:
+            # THE ONE OUTCOME LAW, classified on the STATUS INTEGER
+            # (issues #124/#173).  The historic test was a substring of
+            # ``str(response)``: "[40" matched 400-409, so a CDN 403 and
+            # a proxy 407 both printed "Server said 'Not Found'" and
+            # returned 0 -- which the DEM loader turns into an ALL-ZERO
+            # raster for that cell.  A 410/429/451 matched nothing at
+            # all, so it was retried six times and then returned 0
+            # SILENTLY, with no ``last_failure`` to refuse on.
+            outcome = ELEVATION_OUTCOMES.http_answer_outcome(r.status_code)
+            if outcome == ELEVATION_OUTCOMES.HTTP_OUTCOME_OK:
                 # Feed the throughput meter with this completed fetch so
                 # the build-time ETA prices elevation downloads from
                 # measurement.  Never raise from telemetry.
@@ -1107,26 +1159,42 @@ def http_request(url, source, verbose=False):
                     except Exception:
                         pass
                 return r
-            elif "[40" in status_code or "[30" in status_code:
+            elif outcome == ELEVATION_OUTCOMES.HTTP_OUTCOME_ABSENT:
                 if verbose:
                     UI.vprint(2, "    Server said 'Not Found'")
                 return 0
-            elif "[5" in status_code:
-                last_failure = "server error " + status_code
+            elif outcome == ELEVATION_OUTCOMES.HTTP_OUTCOME_UNAVAILABLE:
+                # The host refused to serve THIS CLIENT.  It never looked
+                # for the file, so this can never become a 0: refuse now,
+                # without spending five more identical refusals.
+                raise ElevationDownloadRefused(
+                    "the %s elevation download of %s was REFUSED by the "
+                    "server with status %d -- that says nothing about "
+                    "whether the tile exists, so this build will not "
+                    "fall back to an all-zero elevation raster; check "
+                    "for a proxy, a bot wall or an expired credential"
+                    % (source, url, r.status_code))
+            else:
+                last_failure = "status %d" % r.status_code
                 if verbose:
                     UI.vprint(
-                        2, "    Server said 'Internal Error'.", status_code
+                        2, "    Server answered", r.status_code,
+                        "- transient, retrying."
                     )
-            else:
-                if verbose:
-                    UI.vprint(2, status_code)
+        except ElevationDownloadRefused:
+            # OUR OWN refusal, raised a few lines above for a host that
+            # would not serve this client.  It must pass through: the
+            # broad ``except`` below used to catch it, log it as a
+            # transport failure and RETRY it five more times before
+            # raising a vaguer refusal of its own.
+            raise
         except Exception as e:
             last_failure = "%s: %s" % (type(e).__name__, e)
             # ALWAYS printed (it used to need verbose): the transport
             # error is the one line that says WHY the elevation is missing.
             UI.vprint(1, "    ", source, "download failed:", last_failure)
         tentative += 1
-        if tentative == 6:
+        if tentative >= HTTP_REQUEST_ATTEMPT_CAP:
             if last_failure is not None and not UI.red_flag:
                 raise ElevationDownloadRefused(
                     "the %s elevation download of %s failed %d times on "

@@ -14,7 +14,7 @@ access_strategy=viewfinder_zip
 # behaviour.
 legacy_keyword=View
 
-download_url_template=http://viewfinderpanoramas.org/dem1/{archive_code}.zip
+download_url_template=https://viewfinderpanoramas.org/dem1/{archive_code}.zip
 
 resolution_arc_seconds=1
 

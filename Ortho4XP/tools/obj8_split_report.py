@@ -52,6 +52,17 @@ field, which is what a drape reads.
 """
 from __future__ import annotations
 
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``.  Self-contained and ahead of every
+# other import because a tool's own ``--help`` carries the house spelling
+# (``Δ``, ``ε``, ``≥``, ``→``) and a Windows console RAISES on those
+# rather than mangling them.  Twin: ``tests/test_console_encoding.py``.
+import os as _o4os, sys as _o4sys                                    # noqa: E402
+_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
+    _o4os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console                             # noqa: E402
+_o4console.configure_console_streams()
+
 import argparse
 import collections
 import dataclasses as _dc
@@ -59,6 +70,7 @@ import json
 import os
 import sys
 import time
+import typing as _t
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
@@ -514,6 +526,55 @@ def feet_in_unit(foot_floats, graded_doc: dict, unit: str,
     return out
 
 
+def seat_rows(b: _t.Any, pad: str = "        ") -> list[str]:
+    """THE SEAT ROW (owner RULINGS 2026-10-01k Q1; issue #162) — one line
+    per body the seat looked at, or none.
+
+    It reads the body's own ``seat`` record and derives nothing: what the
+    plan decided is what prints, so this report cannot disagree with the
+    geometry the writer baked."""
+    seat = getattr(b, "seat", None)
+    if seat is None:
+        return []
+    verb = "BAKED" if seat.applied else "reported, NOT applied"
+    out = [f"{pad}seat {verb}: tilt {seat.total_deg:.3f} deg "
+           f"(pitch {seat.tilt_deg:+.3f}, roll {seat.roll_deg:+.3f}) over "
+           f"{seat.feet} feet; worst foot {seat.residual_before_m:+.2f} -> "
+           f"{seat.residual_max_m:+.2f} m"
+           + ("  OVER TOLERANCE" if seat.over_tolerance else "")]
+    out.append(f"{pad}  {seat.reason}")
+    return out
+
+
+def seat_tilt_lines(ss: _t.Any, *, cap_deg: float, tol_m: float,
+                    top: int = 5) -> list[str]:
+    """§8a Q1's own census: every body the seat looked at, what it did and
+    what is left over — the block a reader checks the ruling against."""
+    seats = [(b, b.seat) for s in ss.all for b in s.bodies
+             if getattr(b, "seat", None) is not None]
+    if not seats:
+        return []
+    applied = [q for q in seats if q[1].applied]
+    over = [q for q in seats if q[1].over_tolerance]
+    capped = [q for q in seats if not q[1].applied and q[1].over_tolerance]
+    out = [f"\nSEAT TILT (10-01k Q1, cap {cap_deg:g} deg, foot tolerance "
+           f"{tol_m:g} m): {len(seats)} post-feet bodies looked at, "
+           f"{len(applied)} TILTED, {len(capped)} over the cap (reported), "
+           f"{len(over) - len(capped)} tilted but still over tolerance "
+           f"(reported, no block cut)"]
+    if applied:
+        worst_before = max(q[1].residual_before_m for q in applied)
+        worst_after = max(q[1].residual_max_m for q in applied)
+        out.append(f"    worst foot over the tilted bodies "
+                   f"{worst_before:.2f} -> {worst_after:.2f} m; "
+                   f"steepest tilt {max(q[1].total_deg for q in applied):.3f} deg")
+    for b, st in sorted(seats, key=lambda q: -q[1].residual_before_m)[:top]:
+        out.append(f"    {st.total_deg:6.3f} deg  "
+                   f"{st.residual_before_m:+7.2f} -> {st.residual_max_m:+6.2f} m  "
+                   f"{b.new_resource.split('/')[-1][:44]}")
+    return out
+
+
 def feet_in_unit_lines(rep: dict) -> list[str]:
     def fmt(d):
         w = d["worst"]
@@ -533,6 +594,10 @@ def feet_in_unit_lines(rep: dict) -> list[str]:
 
 def base_profile_report(plan, *, pad_terrace_floor_m: float,
                         pad_frontage_m: float,
+                        roof_support_fraction: float = 0.0,
+                        contact_band_m: float = 0.0,
+                        min_distinct_spacing_m: float = 0.0,
+                        input_quantum_m: float = 0.0,
                         filter_sub: str = "") -> dict:
     """§1 (4) / §7 step 3 THE BASE-PROFILE READ, off the PLAN — the
     ``--base-profile`` report (spec §3 C21).
@@ -554,18 +619,24 @@ def base_profile_report(plan, *, pad_terrace_floor_m: float,
     reach) — this tool holds no copy of a law number, as
     ``obj8_grade.base_profile`` holds none.
 
-    THE UNIT ROLL-UP IS THE VERTICAL-ONLY DRY READ, and is labelled as
-    such in every line and in the JSON (``composition: "vertical_only"``).
-    §1 (3)'s composition folds the members of one §16g unit through the
-    §16c contact graph's offsets AND re-runs the roof test on the composed
-    unit; this tool has the plan's authored floors (an exact ``Δy`` per
-    member) but applies neither each member's heading nor its plan
-    translation, and passes no ``lower_pts``.  So the roll-up is the
-    PER-MEMBER UPPER BOUND that §1 (3) and §0 fact 10 name as "what a dry
-    report reads": a unit of ONE member is EXACT, and a multi-member unit
-    may read a plane here that the composed unit will call a ROOF (the
-    HECA T3 risk §5 A5 pre-registers).  The §16g composition belongs to
-    the planar stage, which has the affines; it is NOT reproduced here.
+    THE UNIT ROLL-UP IS THE COMPOSED READ WHERE THE PLAN CAN CARRY IT,
+    and the VERTICAL-ONLY UPPER BOUND where it cannot — ``composition``
+    says which, per unit and for the report as a whole, and nothing
+    guesses.
+
+    §1 (3) folds the members of ONE §16g unit into one frame by each
+    member's HEADING and PLAN TRANSLATION and re-runs the roof test there
+    against the unit's own lower geometry.  A plan of version 12 or later
+    carries ``Member.origin``, so this report composes exactly as the
+    planar stage does — ONE implementation,
+    ``placement_family.cluster_base_profile`` (§6's STOP: "any
+    ``--base-profile`` read that disagrees with the planar stage's
+    published planes (two readers of one law)").  An OLDER plan carries no
+    origin; the roll-up is then each member's authored floor alone, which
+    is the PER-MEMBER UPPER BOUND §1 (3) and §0 fact 10 name as "what a
+    dry report reads" — a one-member unit is exact, a multi-member unit
+    may read a plane the composed unit calls a ROOF (the HECA T3 risk §5
+    A5 pre-registers, measured at 113 planes on ``unit:43``).
     """
     import sys as _sys
     _sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
@@ -599,33 +670,64 @@ def base_profile_report(plan, *, pad_terrace_floor_m: float,
                 "why": prof.why})
         if not mems:
             continue
-        # the VERTICAL-ONLY roll-up: each member's authored floor is its
-        # exact Delta-y into the unit (the same reading PlanCluster.floors
-        # takes, §16g (10) (1)), and nothing else is applied.
-        floors = [min((pt.base_y for pt in mm.parts), default=0.0)
-                  for mm in u.members
-                  if not filter_sub or filter_sub in str(mm.resource)]
-        y0 = min(floors) if floors else 0.0
-        parts = [(_bg.profile_from_json(mm.base_profile),
-                  (0.0, float(min((pt.base_y for pt in mm.parts), default=0.0) - y0), 0.0))
-                 for mm in u.members
-                 if not filter_sub or filter_sub in str(mm.resource)]
-        comp = _bg.compose_profiles(
-            parts, pad_terrace_floor_m=float(pad_terrace_floor_m),
-            pad_frontage_m=float(pad_frontage_m))
+        keep = [i for i, mm in enumerate(u.members)
+                if not filter_sub or filter_sub in str(mm.resource)]
+        how = ""
+        if roof_support_fraction > 0.0:
+            # §1 (3) THE COMPOSED READ, through the planar stage's OWN
+            # implementation — never a second one here.
+            from auto_patch_v2.airport.placement_family import (
+                ProfileLaw, cluster_base_profile)
+            rec, how = cluster_base_profile(
+                u, keep,
+                ProfileLaw(pad_terrace_floor_m=float(pad_terrace_floor_m),
+                           pad_frontage_m=float(pad_frontage_m),
+                           roof_support_fraction=float(roof_support_fraction),
+                           contact_band_m=float(contact_band_m),
+                           min_distinct_spacing_m=float(min_distinct_spacing_m),
+                           input_quantum_m=float(input_quantum_m)))
+            comp = _bg.profile_from_json(rec) if rec else None
+        else:
+            comp = None
+        if comp is None:
+            # the VERTICAL-ONLY roll-up: each member's authored floor is its
+            # Delta-y stand-in into the unit (the same reading
+            # PlanCluster.floors takes, §16g (10) (1)), and nothing else is
+            # applied.
+            # ``how`` "" = the composed read had NO base plane to compose
+            # (§1 (3)'s "keeps today's law exactly"), which is the same
+            # answer the dry roll-up gives: labelled so, never as a bound.
+            how = how or ("no_base_plane" if roof_support_fraction > 0.0
+                          else "vertical_only")
+            floors = [min((pt.base_y for pt in u.members[i].parts), default=0.0)
+                      for i in keep]
+            y0 = min(floors) if floors else 0.0
+            parts = [(_bg.profile_from_json(u.members[i].base_profile),
+                      (0.0, float(min((pt.base_y for pt in u.members[i].parts),
+                                      default=0.0) - y0), 0.0))
+                     for i in keep]
+            comp = _bg.compose_profiles(
+                parts, pad_terrace_floor_m=float(pad_terrace_floor_m),
+                pad_frontage_m=float(pad_frontage_m))
         units.append({
             "unit": u.id, "members": mems,
-            "composition": "vertical_only",
-            "exact": len(mems) == 1,
+            "composition": how,
+            "exact": how in ("composed", "no_base_plane") or len(mems) == 1,
             "verdict": comp.verdict, "line": comp.line(),
             "planes": [{"y": float(pl.y), "area_m2": float(pl.area_m2)}
                        for pl in comp.planes],
             "offsets": [float(o) for o in comp.offsets],
             "risers": [[r.a, r.b, float(r.dy)] for r in comp.risers]})
+    hows = sorted({x["composition"] for x in units if x["composition"]})
+    composed = bool(units) and all(
+        x["composition"] in ("composed", "no_base_plane") for x in units)
     return {"units": units, "verdicts": tally,
             "plane_pads_expected": sum(max(0, len(x["planes"])) for x in units),
-            "composition": "vertical_only",
-            "note": ("the unit roll-up is the PER-MEMBER UPPER BOUND (spec "
+            "composition": ("composed" if composed
+                            else "/".join(hows) or "vertical_only"),
+            "note": ("every unit composed by heading + plan translation with "
+                     "the roof test re-run (spec SS1 (3))" if composed else
+                     "at least one unit read the PER-MEMBER UPPER BOUND (spec "
                      "SS1 (3)): no heading, no plan translation, no "
                      "lower_pts, so the roof test is NOT re-run on the "
                      "composed unit -- a one-member unit is exact")}
@@ -1111,6 +1213,12 @@ def _main() -> int:
                     "footprint), and with @LAT,LON[,R] (R default 60 m) the "
                     "feet within R of the site — a projection of the SAME "
                     "census pass (repeatable)")
+    ap.add_argument("--no-seat-tilt", action="store_true",
+                    help="disarm the SEAT TILT (owner RULINGS 2026-10-01k Q1, "
+                    "issue #162: a FEET-verdict post base over a graded apron "
+                    "is seated by baking a pitch/roll into its body mesh) and "
+                    "report the pre-tilt bodies — the matched arm for "
+                    "measuring what the seat changed")
     ap.add_argument("--base-profile", action="store_true",
                     help="building-base-profile spec §1 (4) / §7 step 3 (C21): "
                     "per unit and per member the BASE PROFILE the pack read "
@@ -1166,6 +1274,12 @@ def _main() -> int:
             plan,
             pad_terrace_floor_m=_law.tables.emit.terrace.pad_terrace_floor_m,
             pad_frontage_m=_law.tables.emit.design.pad_frontage_m,
+            roof_support_fraction=(
+                _law.tables.structures.base_profile.roof_support_fraction),
+            contact_band_m=_law.tables.structures.basin.contact_band_m,
+            min_distinct_spacing_m=(
+                _law.tables.emit.identity.min_distinct_spacing_m),
+            input_quantum_m=_law.tables.emit.identity.input_quantum_m,
             filter_sub=a.filter)
         print("\nBASE PROFILE (base-profile spec §1 (4), the plan's own "
               "published read — §7 step 3's control):")
@@ -1209,6 +1323,11 @@ def _main() -> int:
                          deck_on_fraction=_law.tables.structures.deck.on_fraction,
                          deck_edge_m=_law.tables.structures.deck.edge_m,
                          deck_under_m=_law.tables.structures.deck.under_m,
+                         # 10-01k Q1 (#162): the SEAT TILT cap
+                         seat_tilt_max_deg=(
+                             0.0 if a.no_seat_tilt else
+                             float(_law.tables.structures.placement
+                                   .seat_tilt_max_deg)),
                          split_tol_m=tol_m,
                          elevated_base_m=rb.elevated_base_m,
                          line_segment_m=seg_m,
@@ -1439,6 +1558,8 @@ def _main() -> int:
                   f"{b.anchor.lon:.7f}  y0 {b.anchor.y_zero:+.2f}  "
                   f"offset {b.anchor.offset[0]:+.1f},{b.anchor.offset[1]:+.1f},"
                   f"{b.anchor.offset[2]:+.1f}  {b.anchor.reason}")
+            for line in seat_rows(b):
+                print(line)
         if len(s.bodies) > 6:
             print(f"      ... {len(s.bodies) - 6} more")
 
@@ -1542,6 +1663,15 @@ def _main() -> int:
         print(f"  block straddlers (welded across a block boundary, no strict "
               f"majority; plan-wide): {sum(v for _, v in _st)}"
               + "".join(f"\n    {n} x{v}" for n, v in _st[:10]))
+
+    # 10-01k Q1 (#162): the SEAT TILT census, read off the plan's own
+    # ``seat`` records (nothing re-derived here)
+    for line in seat_tilt_lines(
+            ss, cap_deg=(0.0 if a.no_seat_tilt else
+                         float(_law.tables.structures.placement
+                               .seat_tilt_max_deg)),
+            tol_m=tol_m):
+        print(line)
 
     if a.json:
         out = ss.to_dict()

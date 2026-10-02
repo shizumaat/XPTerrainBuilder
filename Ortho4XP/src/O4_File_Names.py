@@ -654,14 +654,73 @@ def tile_overlay_index(lat, lon):
     return os.path.join(tile_overlay_directory(lat, lon), "index.json")
 
 
+def _resolution_token(target_resolution_m):
+    """``10.29`` for 10.29 m -- the cache stem's resolution component."""
+    return ("%.2f" % float(target_resolution_m)).rstrip("0").rstrip(".")
+
+
 def _tile_overlay_stem(provider_code, target_resolution_m):
     """Cache stem keyed by provider and warp resolution, e.g.
     ``usgs3dep_10.29m`` — changing the elevation level changes the target
     resolution and therefore the cache key."""
-    resolution_token = ("%.2f" % float(target_resolution_m)).rstrip(
-        "0"
-    ).rstrip(".")
-    return provider_code.lower() + "_" + resolution_token + "m"
+    return (
+        provider_code.lower()
+        + "_"
+        + _resolution_token(target_resolution_m)
+        + "m"
+    )
+
+
+#: Characters kept in a ladder-rung filename token; every other run of
+#: characters becomes one separator (``1/3 arc-second`` -> ``1-3-arc-second``).
+RUNG_TOKEN_KEEP = "abcdefghijklmnopqrstuvwxyz0123456789."
+#: The separator a rung label's punctuation and whitespace collapses to.
+RUNG_TOKEN_SEPARATOR = "-"
+
+
+def rung_path_token(rung_label):
+    """Filename-safe token for a resolution-ladder rung label.
+
+    A graded cell (an approach ring, a coastline band cell) is fetched
+    from the ladder RUNG whose native resolution is at most the cell's
+    class (owner RULINGS 2026-10-02f), so the rung is part of WHAT the
+    cached raster is: ``1/3 arc-second`` -> ``1-3-arc-second``.  Returns
+    ``""`` for an empty label (no rung folded into the stem).
+    """
+    if not rung_label:
+        return ""
+    token = []
+    previous_separator = False
+    for character in str(rung_label).strip().lower():
+        if character in RUNG_TOKEN_KEEP:
+            token.append(character)
+            previous_separator = False
+        elif not previous_separator:
+            token.append(RUNG_TOKEN_SEPARATOR)
+            previous_separator = True
+    return "".join(token).strip(RUNG_TOKEN_SEPARATOR)
+
+
+def _graded_cell_stem(provider_code, target_resolution_m, rung_token=None):
+    """Cache stem of one graded 0.1 degree cell: provider, RUNG, class.
+
+    The rung token sits between the provider and the warp resolution
+    (``usgs3dep_1-3-arc-second_10.29m``).  A cell fetched under the old
+    no-ladder rule carries no rung token, so it is simply NOT the planned
+    file -- it reads COLD and ``--refresh-data rings`` re-fetches it
+    (owner RULINGS 2026-10-02f; the mechanism spec section 5 already uses
+    for a changed provider set).
+    """
+    if not rung_token:
+        return _tile_overlay_stem(provider_code, target_resolution_m)
+    return (
+        provider_code.lower()
+        + "_"
+        + rung_token
+        + "_"
+        + _resolution_token(target_resolution_m)
+        + "m"
+    )
 
 
 def tile_overlay_dem(lat, lon, provider_code, target_resolution_m):
@@ -696,14 +755,16 @@ def coastline_band_index(lat, lon):
 
 
 def coastline_band_cell_dem(
-    lat, lon, cell_column, cell_row, provider_code, target_resolution_m
+    lat, lon, cell_column, cell_row, provider_code, target_resolution_m,
+    rung_token=None,
 ):
-    """One warped band cell, keyed by cell indices, provider and warp
-    resolution, e.g. ``cell_03_07_usgs3dep_10.29m.tif``."""
+    """One warped band cell, keyed by cell indices, provider, LADDER RUNG
+    and warp resolution, e.g. ``cell_03_07_usgs3dep_1-3-arc-second_10.29m
+    .tif``."""
     return os.path.join(
         coastline_band_directory(lat, lon),
         "cell_%02d_%02d_" % (cell_column, cell_row)
-        + _tile_overlay_stem(provider_code, target_resolution_m)
+        + _graded_cell_stem(provider_code, target_resolution_m, rung_token)
         + ".tif",
     )
 
@@ -738,27 +799,32 @@ def approach_ring_index(lat, lon):
 
 
 def approach_ring_cell_dem(
-    lat, lon, cell_column, cell_row, provider_code, target_resolution_m
+    lat, lon, cell_column, cell_row, provider_code, target_resolution_m,
+    rung_token=None,
 ):
     """One warped ring cell, keyed like the coastline band's cells, e.g.
-    ``cell_03_07_usgs3dep_10.29m.tif`` -- deliberately the SAME stem, so a
-    cell already fetched for the band is reused by stem (spec §5)."""
+    ``cell_03_07_usgs3dep_1-3-arc-second_10.29m.tif`` -- deliberately the
+    SAME stem, so a cell already fetched for the band is reused by stem
+    (spec §5), the ladder rung included (RULINGS 2026-10-02f: both plans
+    fetch a cell of this class from the same rung, so a cell shared by
+    reference is the same raster)."""
     return os.path.join(
         approach_ring_directory(lat, lon),
         "cell_%02d_%02d_" % (cell_column, cell_row)
-        + _tile_overlay_stem(provider_code, target_resolution_m)
+        + _graded_cell_stem(provider_code, target_resolution_m, rung_token)
         + ".tif",
     )
 
 
 def approach_ring_cell_provenance(
-    lat, lon, cell_column, cell_row, provider_code, target_resolution_m
+    lat, lon, cell_column, cell_row, provider_code, target_resolution_m,
+    rung_token=None,
 ):
     """The per-cell fetch provenance sidecar beside the ring cell raster."""
     return os.path.splitext(
         approach_ring_cell_dem(
             lat, lon, cell_column, cell_row, provider_code,
-            target_resolution_m,
+            target_resolution_m, rung_token,
         )
     )[0] + ".json"
 

@@ -137,7 +137,9 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                deck_edge_m: float = 0.0,
                deck_under_m: float = 0.0,
                jetway_strips: _t.Sequence = (),
-               jetway_strip_m: float | None = None) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
+               jetway_strip_m: float | None = None,
+               # 10-01k Q1 (#162): the SEAT TILT cap, 0 disarms the seat
+               seat_tilt_max_deg: float = 0.0) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
     ``rebake_plan`` is the build's own ``<ICAO>.rebake.json`` model (the
@@ -170,7 +172,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           abutment_step_m=abutment_step_m,
                           abutment_walk_max_m=abutment_walk_max_m,
                           decks=decks, deck_on_fraction=deck_on_fraction,
-                          deck_edge_m=deck_edge_m, deck_under_m=deck_under_m)
+                          deck_edge_m=deck_edge_m, deck_under_m=deck_under_m,
+                          seat_tilt_max_deg=seat_tilt_max_deg)
     splits, kept = _pp.to_placement_records(ss)
     conversions, _kept_conv = _dw.conversions_for_dump(dump, pack_root)
     split_idx = frozenset(s.placement.index for s in splits)

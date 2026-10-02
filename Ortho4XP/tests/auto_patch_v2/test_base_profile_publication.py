@@ -158,18 +158,21 @@ def test_the_plan_carries_the_profile_through_json():
 
 
 def test_the_plan_version_is_bumped_and_the_old_one_still_reads():
-    """Version 11 is version 10 plus the base profile.  A v10 plan — an
-    owner's plan from an earlier build — must still replay, reading as
-    the PRE-BASE law (§1 (3)), never raising."""
-    assert PLAN_VERSION == 11
+    """Version 11 is version 10 plus the base profile; version 12 is 11
+    plus ``Member.origin`` (§1 (3), the composed read).  An older plan — an
+    owner's plan from an earlier build — must still replay, reading as the
+    PRE-BASE law (§1 (3)), never raising."""
+    assert PLAN_VERSION == 12
     d = json.loads(_plan(_member("m0", _stepped())).to_json())
-    assert d["version"] == 11
+    assert d["version"] == 12
     assert d["units"][0]["members"][0]["base_profile"]["verdict"] == "stepped"
-    # the v10 plan: the key simply is not there
+    # the v10 plan: neither key is there
     d["version"] = 10
     del d["units"][0]["members"][0]["base_profile"]
+    del d["units"][0]["members"][0]["origin"]
     old = RebakePlan.from_dict(d)
     assert old.units[0].members[0].base_profile == {}
+    assert old.units[0].members[0].origin is None
     assert BG.profile_from_json(
         old.units[0].members[0].base_profile).verdict == BG.FEET
 
@@ -181,6 +184,7 @@ def test_the_member_field_defaults_to_empty():
     m = Member(id="m", resource="r", authored_path="a", live_path="l",
                heading_deg=0.0)
     assert m.base_profile == {}
+    assert m.origin is None
 
 
 def test_pack_partition_passes_the_base_profile_by_name():
@@ -193,6 +197,7 @@ def test_pack_partition_passes_the_base_profile_by_name():
     src = inspect.getsource(PP._build_member)
     assert "base_profile=base_prof" in src
     assert "cache.base_profile(o.resolved, law)" in src
+    assert "origin=(None if origin is None" in src
 
 
 # ------------------------------------------------------- the report (C21)

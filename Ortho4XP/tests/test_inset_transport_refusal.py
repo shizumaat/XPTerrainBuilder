@@ -235,9 +235,15 @@ class _Session:
 class _Response:
     def __init__(self, status):
         self._status = status
+        self.status_code = status
         self.content = b""
 
     def __repr__(self):
+        # The HISTORIC classifier read this repr as a string ("[40" in
+        # str(response)), which is how a 403 became "Not Found" and a 429
+        # matched nothing at all (#124/#173).  ``http_request`` now
+        # classifies ``status_code``; the repr stays so the stub still
+        # looks like a ``requests`` response in a traceback.
         return "<Response [%d]>" % self._status
 
 
@@ -255,10 +261,40 @@ def test_base_download_refuses_after_transport_failures(monkeypatch):
     assert "View" in str(caught.value)
 
 
-def test_base_download_404_keeps_the_zero_convention(monkeypatch):
+@pytest.mark.parametrize("status", [404, 410])
+def test_base_download_absent_keeps_the_zero_convention(monkeypatch, status):
+    """The server LOOKED and the file is not there: still a 0 here.
+
+    The strategy above decides whether an absent file is lawful for the
+    tile (``refuse_absent_base_archive``); only these two statuses get
+    to reach that decision.
+    """
     monkeypatch.setattr(DEM.requests, "Session",
-                        lambda: _Session(lambda url: _Response(404)))
+                        lambda: _Session(lambda url: _Response(status)))
     assert DEM.http_request("https://example.test/none.zip", "View") == 0
+
+
+@pytest.mark.parametrize("status", [401, 403, 407, 451])
+def test_base_download_host_refusal_is_not_a_zero(monkeypatch, status):
+    """#124/#173: all of 400-409 used to print "Not Found" and return 0."""
+    monkeypatch.setattr(DEM.requests, "Session",
+                        lambda: _Session(lambda url: _Response(status)))
+    with pytest.raises(DEM.ElevationDownloadRefused) as caught:
+        DEM.http_request("https://example.test/none.zip", "View")
+    assert str(status) in str(caught.value)
+
+
+@pytest.mark.parametrize("status", [429, 500, 503, 400])
+def test_base_download_transient_status_refuses_rather_than_zero(
+        monkeypatch, status):
+    """A 429/410/451 matched no branch, so it retried six times and then
+    returned a SILENT 0 -- no ``last_failure`` had been recorded."""
+    monkeypatch.setattr(DEM.requests, "Session",
+                        lambda: _Session(lambda url: _Response(status)))
+    monkeypatch.setattr(DEM.time, "sleep", lambda seconds: None)
+    with pytest.raises(DEM.ElevationDownloadRefused) as caught:
+        DEM.http_request("https://example.test/none.zip", "View")
+    assert str(status) in str(caught.value)
 
 
 def test_base_download_stop_is_not_a_refusal(monkeypatch):

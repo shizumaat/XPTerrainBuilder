@@ -149,6 +149,19 @@ over the 1″ base already is today under `elevation_level=30`.
   ring 2). No ring-2 provider either → the cell is `no-coverage` (cached negative,
   as the band does) and the base DEM stands; the plan records it. A tile with no
   inset airport has NO ring plan (byte-identical to today).
+* **THE RUNG (owner RULINGS 2026-10-02f, amending this section's letter).**
+  "Through its ladder's own discovery" above was read as `fetch_inset(definition,
+  ...)` with no ladder, which takes RUNG 0 — for USGS3DEP the 1 m PROJECTS
+  resampled to the class, which carry the #130 Aspen hole (KASE's ring-1 cells
+  read 0.0003–0.99 valid; the bake handed the holes back to the 90 m base).
+  RULED: a ring cell is fetched from the provider's ladder rung whose native
+  resolution is at most the ring's class — the COARSEST such rung, among the
+  rungs that can be a surround (`_rung_can_be_surround`: never a point-cloud
+  tile index, never an AOI polygon POST, never a rung judged by airport cover).
+  USGS3DEP ring 1 = the `10|1/3 arc-second` rung; ring 2 = the same product at
+  30.87 m, which is this section's "one product, one datum, one vintage".
+  ONE derivation site (`O4_Elevation_Level.surround_rung_for_class`), shared
+  with the coastline band, which took the same defect through the same call.
 * **Per-cell discovery negatives** live in the ring directory's `index.json`
   exactly as the band's stamp does (`_read_coastline_band_stamp`); the once-per-
   engine-version re-probe door (RULINGS 2026-09-15aq (4)) applies to them through
@@ -291,13 +304,18 @@ untouched (census row 7).
 ## §5 DOWNLOAD + CORPUS
 
 * **Artefacts** (new directory, the band's layout): `Elevation_data/<block>/
-  <stem>_approach_rings/cell_<ii>_<jj>_<code>_<res>m.tif` (+ `.json` provenance
-  sidecar per cell, the `fetch_inset` provenance + `fetch_date`), `index.json`
-  (plan stamp + per-cell outcomes + negatives). Cells are fetched through
-  `INSETS.fetch_inset(definition, cell_box, target_resolution_m, path)` — the band's
-  one call per missing cell (`ensure_coastline_band` :487), reused. A cell whose
-  file already exists in the tile's `_coastline_band` directory with the same
-  stem is REUSED by reference (never copied) — one cell cache, two plans.
+  <stem>_approach_rings/cell_<ii>_<jj>_<code>_<rung>_<res>m.tif` (+ `.json`
+  provenance sidecar per cell, the `fetch_inset` provenance + `fetch_date` +
+  `ring_rung`), `index.json` (plan stamp + per-cell outcomes + negatives).
+  Cells are fetched through `INSETS.fetch_inset(RUNG_definition, cell_box,
+  target_resolution_m, path)` — the band's one call per missing cell
+  (`ensure_coastline_band` :487), reused, through the rung §2 names (owner
+  RULINGS 2026-10-02f: the rung is part of the stem and of the plan stamp, so a
+  cell fetched under the old no-ladder rule is simply not the planned file —
+  COLD, and `--refresh-data rings` re-fetches it). A cell whose file already
+  exists in the tile's `_coastline_band` directory with the same stem — the
+  rung included — is REUSED by reference (never copied): one cell cache, two
+  plans, one rung per class.
 * **Bytes.** A 0.1° cell at 10.29 m is ≈ 0.95 M cells = 3.8 MB raw (deflate ≈ 40 %
   on smooth 10 m ground; the 1 m lidar compresses to 22 %); at 30.87 m 0.1 M cells
   = 0.4 MB. KASE needs ≈ 9 ring-1 cells + ≈ 16 ring-2 cells ≈ 40 MB raw / ≈ 16 MB on

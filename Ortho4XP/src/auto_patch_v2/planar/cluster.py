@@ -54,13 +54,14 @@ from __future__ import annotations
 
 import typing as _t
 
-from ..airport.placement_family import PlanCluster, plan_clusters
+from ..airport import frame_entry as _frame_entry
+from ..airport.placement_family import PlanCluster, ProfileLaw, plan_clusters
 from ..geom import deck_shades as _geom_deck_shades
 from ..law import Law
 from ..model.airport import Airport
 
 __all__ = ["cluster_min_m2", "clusters", "PlanCluster", "deck_shades",
-           "connector_verdicts"]
+           "connector_verdicts", "profile_law"]
 
 #: The derivation is O(bodies^2) inside a unit and the constraint pass
 #: asks for it once per generator.  A tiny memo keyed on the airport
@@ -78,6 +79,25 @@ def cluster_min_m2(law: Law) -> float:
     PAD PLANE at.  0 disarms the cluster pad and leaves every pad its own
     plane."""
     return float(law.tables.structures.placement.cluster_pad_min_m2)
+
+
+def profile_law(law: Law) -> ProfileLaw:
+    """base-profile spec §1 (3): the five EXISTING law keys the composed
+    base read needs — ONE derivation site, each at its own key (the read
+    introduces no number here; ``[base_profile]``'s four live in
+    ``obj8.ResourceCache.base_profile``).
+
+    ``roof_support_fraction`` 0 disarms the composed roof test, and the
+    members' own verdicts then stand — the per-member UPPER BOUND §1 (3)
+    names, which is what the §6 STOP was measured at."""
+    st = law.tables.structures
+    return ProfileLaw(
+        pad_terrace_floor_m=float(law.tables.emit.terrace.pad_terrace_floor_m),
+        pad_frontage_m=float(law.tables.emit.design.pad_frontage_m),
+        roof_support_fraction=float(st.base_profile.roof_support_fraction),
+        contact_band_m=float(st.basin.contact_band_m),
+        min_distinct_spacing_m=float(law.tables.emit.identity.min_distinct_spacing_m),
+        input_quantum_m=float(_frame_entry.quantum(law)))
 
 
 def _touch_m(law: Law) -> float:
@@ -203,16 +223,19 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     linear = linear_pids(verdicts)          # RULINGS 2026-09-29v (1)
     WHY["connectors_cut"] = sum(1 for v in verdicts if not v.solid)
     WHY["connectors_solid"] = sum(1 for v in verdicts if v.solid)
+    plaw = profile_law(law)
     key = id(airport)
     for k, ap, m0, e0, got in _MEMO:
-        if (k == key and ap is airport and m0 == (split, tall, sheet, cut, linear, olaw)
+        if (k == key and ap is airport
+                and m0 == (split, tall, sheet, cut, linear, olaw, plaw)
                 and e0 == eps):
             return got
     counts: dict = {}
     got = tuple(plan_clusters(part, eps, floor_split_m=split,
                               chain_min_height_m=tall, counts=counts,
                               sheet_chain_min_fraction=sheet, cut=cut,
-                              linear=linear, outline_law=olaw))
+                              linear=linear, outline_law=olaw,
+                              profile_law=plaw))
     WHY["connectors_cut_out"] = counts.get("cluster_connectors_cut_out", 0)
     WHY["clusters"] = len(got)
     WHY["with_rings"] = sum(1 for c in got if c.rings)
@@ -221,7 +244,13 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     WHY["walled_clusters"] = sum(1 for c in got if c.walled)
     if not got:
         WHY["gate"] = "plan_clusters: the partition's units hold no body"
-    _MEMO.append((key, airport, (split, tall, sheet, cut, linear, olaw), eps, got))
+    WHY["base_profiles"] = sum(1 for c in got if c.base_profile)
+    WHY["base_planes"] = sum(len(c.base_profile.get("planes") or ())
+                             for c in got if c.base_profile)
+    WHY["base_composition"] = ",".join(sorted(
+        {c.composition for c in got if c.composition})) or "none"
+    _MEMO.append((key, airport, (split, tall, sheet, cut, linear, olaw, plaw),
+                  eps, got))
     del _MEMO[:-_MEMO_MAX]
     return got
 

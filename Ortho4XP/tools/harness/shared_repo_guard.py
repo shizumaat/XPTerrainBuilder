@@ -856,15 +856,150 @@ def active_guard_refuses(path) -> bool:
     import the harness, so it looks this module up in ``sys.modules``
     and calls this; with no guard armed the answer is ``False``.
     """
-    for guard in list(_ACTIVE_GUARDS):
+    for guard in reversed(list(_ACTIVE_GUARDS)):
         if getattr(guard, "record_only", False):
             continue
         try:
-            if guard._violation(path, op="open"):
+            if guard._violation(path, op="open") is not None:
                 return True
         except Exception:
             return True
     return False
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE EXTERNAL WRITER (#159, RULINGS 2026-09-30bs/bw)
+# ══════════════════════════════════════════════════════════════════════
+# THE MEASURED DEFECT.  ``SharedRepoWriteGuard`` patches the PYTHON level,
+# so a write a CHILD PROCESS makes never passes it.  Lane tx154's clip
+# cutter spawned ``osmium extract --output <corpus>/....tmp-52850-...pbf``
+# with the guard armed: osmium wrote 10.5 MB into the shared
+# ``OSM_data/_regional_extracts/clips/`` through the mounted symlink, and
+# the Python ``os.remove`` that should have cleaned it up was then the only
+# call the guard ever saw — so the guard's record said "blocked a remove"
+# while the 10.5 MB stayed.  Eight older strays (2026-08-11 … 09-01,
+# ~100 MB) show the hole predates that lane.  The same shape is the
+# DSFTool text dump, which ``build_airport.py`` defends by REFUSING UP
+# FRONT precisely because "the dump is a SUBPROCESS write no Python guard
+# can refuse at the call" (``tools/INDEX.md``).
+#
+# THE FIX, and it is the cheap one: A SPAWN IS A WRITE DECLARATION.  The
+# launcher knows the output path before the child exists, so it asks here
+# and the child is never started.  Two entries, deliberately different:
+#
+#   * :func:`external_write_refusal` ASKS (no record, no raise) — the
+#     best-effort question :func:`active_guard_refuses` already answers,
+#     now returning the ``(rel, scope)`` a message can name.
+#   * :func:`refuse_external_write` REFUSES: it RECORDS the block on the
+#     armed guard and raises :class:`SharedRepoWriteBlocked`, exactly as a
+#     Python-level write would.  A spawn is NOT best-effort — the build
+#     wants that output — so a swallowed refusal must fail the run through
+#     :func:`require_no_swallowed_write_block`, and it does.
+
+
+def external_write_refusal(path):
+    """``(rel, scope, guard)`` when an ARMED guard in this process would
+    refuse a write to ``path``, else ``None``.
+
+    THE QUESTION AN EXTERNAL WRITER ASKS BEFORE IT SPAWNS (#159).  The
+    engine cannot import the harness, so it looks this module up in
+    ``sys.modules`` — ``src/O4_External_Writes.py`` is the one engine-side
+    helper that does it; with no guard armed the answer is ``None``.
+
+    ANY armed guard refusing is a refusal, which is exactly what a
+    Python-level write meets: nested guards each wrap the one beneath, so
+    an inner guard that authorises the scope still hands the call to the
+    outer guard's wrapper, which refuses it.  Walked newest first
+    (``_ACTIVE_GUARDS`` is kept newest-last) so the ``(rel, scope)`` named
+    in the refusal is the innermost refuser's, and so the record lands on
+    the guard a lane is reading.
+    """
+    for guard in reversed(list(_ACTIVE_GUARDS)):
+        try:
+            hit = guard._violation(path, op="open")
+        except Exception:
+            continue
+        if hit is None:
+            continue
+        rel, scope = hit
+        return rel, scope, guard
+    return None
+
+
+def refuse_external_write(path, *, writer: str) -> None:
+    """Refuse an EXTERNAL writer's output path, RECORDING the block.
+
+    ``writer`` names the child that would have written it (``osmium``,
+    ``DSFTool``, ``lerc-worker``) and rides in the record's ``via`` field,
+    so a refusal says WHICH child was stopped and not merely that one was.
+
+    Raises :class:`SharedRepoWriteBlocked` when an armed guard refuses and
+    returns ``None`` when none does.  A ``record_only`` guard records and
+    lets the spawn proceed, exactly as it does for a Python write.
+    """
+    hit = external_write_refusal(path)
+    if hit is None:
+        return
+    rel, scope, guard = hit
+    guard._refuse(rel, scope, EXTERNAL_WRITER_VIA % writer)
+
+
+#: How an external writer's refusal is spelled in ``guard.blocked``'s
+#: ``via`` field, and therefore in the swallowed-refusal detector's report.
+EXTERNAL_WRITER_VIA = "spawn %s writing"
+
+#: The temporary-output marker an engine writer stamps into a name it cuts
+#: beside its destination: ``.tmp-<pid>``, ``.tmp-<pid>-<thread id>``, or
+#: that followed by any further ``-<n>`` parts (the retired
+#: ``cut_clip_with_osmium`` spelled its parts ``.tmp-<pid>-<tid>-<index>``)
+#: (``O4_OSM_Extract_Filter``'s cut temporaries, ``_write_json_atomic``'s
+#: sidecars).  The PID is the PYTHON process that BUILT the name, never the
+#: child's — which is exactly what makes a stray attributable: a stray
+#: carrying OUR pid was cut by THIS build.
+#: ``tests/test_osm_extract_filter.py`` twin-asserts the engine's own
+#: spelling still matches this, so a rename there cannot silently
+#: un-attribute a stray.
+STRAY_TEMPORARY_RE = re.compile(r"\.tmp-(\d+)(?:-\d+)*(?:\.|$)")
+
+
+def temporary_writer_pid(relpath):
+    """The PID stamped into a ``*.tmp-<pid>[-<tid>]*`` name, or ``None``."""
+    m = STRAY_TEMPORARY_RE.search(os.path.basename(str(relpath)))
+    try:
+        return int(m.group(1)) if m else None
+    except (TypeError, ValueError):
+        return None
+
+
+def is_stray_temporary(relpath) -> bool:
+    """Is this corpus path a writer's PARTIAL OUTPUT, left behind (#159)?
+
+    A stray temporary is never corpus data and never has a reader: the
+    manifest that would name it is written only once every part has landed,
+    so whatever is in one is a cut that did not finish.  That is why the
+    audit must never EXTERNALISE one — see
+    :func:`report_unauthorised_writes`.
+    """
+    return temporary_writer_pid(relpath) is not None
+
+
+def stray_temporaries(repo=None) -> list:
+    """Every ``*.tmp-*`` stray under the shared corpus, oldest first.
+
+    THE SWEEP (#159 bar 4).  Nine strays sat in the clips directory for
+    seven weeks because nothing ever looked: a per-run audit sees only its
+    own window, and a stray older than the window is invisible to it.
+    """
+    repo = Path(repo or DATA_REPO)
+    out = []
+    for rel, (size, mtime_ns) in shared_repo_snapshot(repo).items():
+        if not is_stray_temporary(rel):
+            continue
+        out.append({"path": rel, "size": size, "mtime_ns": mtime_ns,
+                    "scope": scope_of(rel),
+                    "writer_pid": temporary_writer_pid(rel)})
+    out.sort(key=lambda row: (row["mtime_ns"], row["path"]))
+    return out
 
 
 class SharedRepoWriteGuard:
@@ -1622,9 +1757,27 @@ def report_unauthorised_writes(changes: dict, requested: set,
             scope = scope_of(rel)
             if scope in requested:
                 continue
-            off_scope = may_externalise and not input_scope.covers(rel)
-            off_redirect = scope in redirected
+            # A STRAY TEMPORARY IS NEVER EXTERNALISED (#159).  See
+            # :func:`is_stray_temporary`: it is a writer's partial output,
+            # not corpus data, and nothing reads it — so neither
+            # externalising reason may reach it.  ``covers`` answers
+            # "unscopable ⇒ in scope" for a clips path, so the osmium
+            # stray was never OUT OF SCOPE either; what let the run pass
+            # was that the only entry which wrote one runs no snapshot at
+            # all, and a stray older than the window is invisible to every
+            # entry that does.  Hence BOTH halves: this rule, and
+            # :func:`stray_temporaries`, which looks past the window.
+            stray = is_stray_temporary(rel)
+            writer_pid = temporary_writer_pid(rel)
+            off_scope = (may_externalise and not stray
+                         and not input_scope.covers(rel))
+            off_redirect = scope in redirected and not stray
             offenders.append({"path": rel, "kind": kind, "scope": scope,
+                              "stray_temporary": bool(stray),
+                              "writer_pid": writer_pid,
+                              "writer_is_this_process": (
+                                  writer_pid == os.getpid()
+                                  if writer_pid is not None else None),
                               "external_candidate": bool(off_scope
                                                          or off_redirect),
                               "external_reason": ("redirected"
@@ -1641,6 +1794,20 @@ def report_unauthorised_writes(changes: dict, requested: set,
                   f"process refreshed the shared install-index sidecar "
                   f"after the X-Plane install's scenery_packs.ini / "
                   f"library.txt changed")
+    for o in offenders:
+        if not o.get("stray_temporary"):
+            continue
+        whose = ("THIS process (pid %d) — the pid in the name is the "
+                 "Python process that BUILT it, so this build cut it"
+                 % o["writer_pid"]) if o.get("writer_is_this_process") else \
+                ("pid %s, which is not this process; a cut that died here "
+                 "or in a concurrent lane" % o["writer_pid"])
+        prog.note(f"   STRAY TEMPORARY (subprocess/C-level partial output, "
+                  f"NOT corpus data and read by nothing): {o['kind']} "
+                  f"{o['path']} — cut by {whose}.  A stray is never an "
+                  f"external candidate: sweep the corpus with "
+                  f"`python tools/harness/shared_repo_guard.py "
+                  f"--stray-temporaries`.")
     external = [o for o in offenders if o["external_candidate"]]
     mine = contaminating_writes(offenders)
 
@@ -1792,3 +1959,68 @@ def require_no_swallowed_write_block(blocked, *, allow_degraded: bool = False,
     if prog is not None:
         prog.note("DEGRADED (accepted by --allow-degraded-dem): " + msg)
     print("  [harness] DEGRADED BUILD (accepted by flag): " + msg)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE STRAY SWEEP — the module's ONE read-only CLI (#159 bar 4)
+# ══════════════════════════════════════════════════════════════════════
+# Everything above is library: the write law has one implementation and
+# ``build_airport.py`` re-exports it.  This is the one thing a lane needs
+# to ASK the corpus rather than arm around a build, and it is read-only:
+# nine strays (~100 MB) sat in ``OSM_data/_regional_extracts/clips/`` for
+# seven weeks because no entry's window reached back far enough to see
+# them.  It NAMES them and never removes one — a removal inside the corpus
+# is a `--refresh-data` act with a ledger line, never a sweep's side
+# effect (owner ruling e9daef5; the nine of 2026-10-01 were removed by the
+# session on the owner's order and recorded as a ``manual_cleanup`` event).
+
+_STRAY_SWEEP_EPILOG = (
+    "A stray is a writer's PARTIAL output: no manifest names it, nothing "
+    "reads it, and it is not corpus data. Remove them deliberately and "
+    "record the removal in the refresh ledger."
+)
+
+
+def main(argv=None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="shared_repo_guard.py",
+        description="Read-only audits of THE shared data repo.",
+        epilog=_STRAY_SWEEP_EPILOG)
+    parser.add_argument("--stray-temporaries", action="store_true",
+                        help="list every *.tmp-<pid>[-<tid>]* partial output "
+                             "left under the corpus (rc 1 when any exist)")
+    parser.add_argument("--repo", default=None,
+                        help=f"the corpus to sweep (default {DATA_REPO})")
+    parser.add_argument("--json", action="store_true",
+                        help="emit the rows as JSON instead of a table")
+    args = parser.parse_args(argv)
+    if not args.stray_temporaries:
+        parser.error("nothing to do: pass --stray-temporaries")
+    repo = Path(args.repo or DATA_REPO)
+    if not repo.is_dir():
+        print(f"no such corpus: {repo}")
+        return 2
+    rows = stray_temporaries(repo)
+    if args.json:
+        print(json.dumps({"repo": str(repo), "strays": rows}, indent=1))
+    elif not rows:
+        print(f"no stray temporaries under {repo} "
+              f"({len(SHARED_DATA_DIRS)} data dir(s) walked)")
+    else:
+        total = sum(r["size"] for r in rows)
+        print(f"{len(rows)} STRAY TEMPORARY file(s) under {repo}, "
+              f"{total / (1 << 20):.1f} MB, oldest first:")
+        for r in rows:
+            stamp = time.strftime(REFRESH_TS_FORMAT,
+                                  time.localtime(r["mtime_ns"] / 1e9))
+            print(f"  {stamp}  {r['size'] / (1 << 20):8.2f} MB  "
+                  f"[{r['scope'] or '<outside every scope>'}]  "
+                  f"pid {r['writer_pid']}  {r['path']}")
+        print("\n" + _STRAY_SWEEP_EPILOG)
+    return 1 if rows else 0
+
+
+if __name__ == "__main__":        # pragma: no cover - CLI
+    raise SystemExit(main())

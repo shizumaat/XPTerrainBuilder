@@ -117,6 +117,7 @@ def authored_offset(anchor_lat: float, anchor_lon: float, y_zero: float,
 # §10's segment cut, §16 (2)'s terrain cut and the body formation they
 # feed live next door (the 1,000-line law); they are re-exported here
 # because every caller and every twin reads them as this module's.
+from . import placement_seat_tilt as _pst  # noqa: E402
 from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
                             GROUND_CELL_M, _atom_targets, _bodies_of,
                             _carrier_pieces, _footless_targets,
@@ -371,7 +372,11 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
     err = ""
     if write:
         cuts = [_split.BodyCut(b.body_id, b.cut_components, b.anchor.offset,
-                               b.tris) for b in bodies]
+                               b.tris,
+                               # 10-01k Q1: the seat tilt the writer bakes
+                               (b.seat.grad if b.seat is not None
+                                else _split.NO_TILT))
+                for b in bodies]
         try:
             res = _split.split_obj8(pristine_path(m), cuts, m.resource,
                                     allow_single=always_write)
@@ -393,6 +398,19 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
         return
     counts["split"] += 1
     counts["files"] += len(files) or len(bodies)
+    # 10-01k Q1 (#162), REPORTED: a CARRIED body takes its carrier's
+    # ANCHOR (§14) but not its seat ROTATION — it is written level on a
+    # tilted carrier, so the pair separates by the tilt over the rider's
+    # own reach.  Counted here, where a member's riders and its tilted
+    # bodies are in hand together; the cross-member case is named in
+    # ``placement_seat_tilt``'s doc and is not decided by this lane.
+    _tilted = {b.new_resource for b in bodies
+               if b.seat is not None and b.seat.applied}
+    if _tilted:
+        _riders = sum(1 for b in bodies if b.merged_into in _tilted)
+        if _riders:
+            counts["seat_tilt_level_rider"] = \
+                counts.get("seat_tilt_level_rider", 0) + _riders
     if files and len(files) < len(bodies):
         # §16d (1): a body the cut left with NO TRIANGLE has no file, so
         # it has no DSF row either — a row on a name nothing wrote is an
@@ -490,7 +508,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  decks: _t.Sequence[_ar.DeckFace] = (),
                  deck_on_fraction: float = 0.5,
                  deck_edge_m: float = 0.0,
-                 deck_under_m: float = 0.0) -> SplitSet:
+                 deck_under_m: float = 0.0,
+                 # 10-01k Q1 (#162): a FEET-verdict post base over a graded
+                 # apron is seated by TILTING THE BODY, capped here
+                 # (``[placement] seat_tilt_max_deg``); 0 disarms the seat
+                 seat_tilt_max_deg: float = 0.0) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
     (1)) and each anchored by the generic rule of 11e (2).
@@ -1075,6 +1097,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       on_fraction=deck_on_fraction, edge_m=deck_edge_m,
                     surface=surface, under_m=deck_under_m,
                                       counts=counts) for b in bodies]
+            # 10-01k Q1 (#162): and a POST-FEET body with no floor plane
+            # is seated by its own TILT — after the deck, which may have
+            # moved its anchor and so the surface its feet read against
+            bodies = [_pst.seat_tilt(b, u, m, surface=surface,
+                                     max_total_deg=seat_tilt_max_deg,
+                                     foot_tol_m=split_tol_m,
+                                     band_m=foot_band_m, counts=counts)
+                      for b in bodies]
             # 14at: the GROUP bodies are this member's candidates, in
             # candidate order — what a body riding one of them is
             # ``merged_into``

@@ -31,9 +31,19 @@ both:
 The reader's answers: an EPSILON-INCLUSIVE boundary
 (``check_grade.STRIP_STATION_BOUNDARY_EPS_M``) and a CANONICAL,
 geometry-determined chain start (``check_grade._strip_chain_start``).  The
-second is an invariant by construction; the first is the honest half-fix,
+second is an invariant by construction; the first was the honest half-fix,
 because the invariant for (1) belongs at the footprint's own derivation,
-which is shared with the EMITTER and so not the census's to change.
+which is shared with the EMITTER and so was not the census's to change.
+
+(1) IS NOW FIXED AT THAT DERIVATION (issue #190, owner ruling
+``RULINGS 2026-10-02v`` (7)): ``runway_axis_and_width`` is the long side
+of the minimum-area rotated rectangle of the ring cloud's CONVEX HULL, so
+a vertex inserted on an edge changes the footprint by nothing.  The
+epsilon stays — it is the census's one identity tolerance, and a rim
+vertex emitted ON the boundary still has to read as inside — but it is no
+longer load-bearing.  ``test_one_extra_collinear_runway_vertex_...``
+below is the station-set half of that claim; the fit itself is twinned in
+``tests/test_runway_axis_insertion_invariance.py``.
 """
 from __future__ import annotations
 
@@ -62,6 +72,10 @@ _BASE_ELEV_M = 10.0
 #: the station where it starts (so the row sits ~2.6 km from the far end).
 _RAMP_FROM_INDEX = 80
 _RAMP_RISE_PER_STATION_M = 0.36
+#: Where #190's collinear insertion goes: on the runway's long edge,
+#: 2.6 km along and NOT on the 30 m vertex grid, so it is a genuinely new
+#: vertex strictly between two emitted ones.
+_COLLINEAR_VERTEX_AT_M = 2600.0
 #: Rotation applied to the strip ring's emitted start vertex.
 _START_ROTATION = 37
 #: How far the unrelated "far" shape sits from the airport.
@@ -98,6 +112,7 @@ def _ll(x: float, y: float):
 
 def _patch(tmp_path: Path, strip_half: float, *,
            extra_runway_vertex: bool = False,
+           collinear_runway_vertex: bool = False,
            far_shape: bool = False,
            start_rotation: int = 0,
            name: str = "STRIP"):
@@ -106,7 +121,10 @@ def _patch(tmp_path: Path, strip_half: float, *,
     the centreline) — the configuration the emitter produces.
 
     ``extra_runway_vertex`` inserts ONE more vertex at the runway's FAR
-    end (issue #116's mechanism); ``far_shape`` adds an unrelated ring
+    end (issue #116's mechanism); ``collinear_runway_vertex`` inserts one
+    EXACTLY on the runway's own long edge at
+    ``_COLLINEAR_VERTEX_AT_M`` (#190's own twin, and the harder arm: a
+    vertex a hull cannot see at all); ``far_shape`` adds an unrelated ring
     ``_FAR_SHAPE_OFFSET_M`` away (the issue's "far vertex" literally);
     ``start_rotation`` rotates the strip ring's own emitted start vertex.
     None of the three touches a single strip-band coordinate or elevation.
@@ -131,6 +149,12 @@ def _patch(tmp_path: Path, strip_half: float, *,
     if extra_runway_vertex:
         rw.append(add(_RUNWAY_LENGTH_M, -_RUNWAY_HALF_WIDTH_M + 0.001,
                       _BASE_ELEV_M))
+    if collinear_runway_vertex:
+        # ON the long edge, between two emitted vertices: the insertion
+        # a densification step or a crossing split really makes.
+        rw.insert(
+            int(_COLLINEAR_VERTEX_AT_M / _RUNWAY_VERTEX_SPACING_M) + 1,
+            add(_COLLINEAR_VERTEX_AT_M, -_RUNWAY_HALF_WIDTH_M, _BASE_ELEV_M))
     rw += [add(x, _RUNWAY_HALF_WIDTH_M, _BASE_ELEV_M)
            for x in reversed(xs)]
     ways.append((rw + [rw[0]],
@@ -250,6 +274,36 @@ def test_one_extra_runway_vertex_far_away_changes_nothing(
         f"the strip_arc row set changed with a far vertex: "
         f"only-far {sorted(far[0] - base[0])}, "
         f"only-base {sorted(base[0] - far[0])}")
+
+
+def test_one_extra_collinear_runway_vertex_far_away_changes_nothing(
+        cg, tmp_path, strip_half_width_m):
+    """COUPLING 1, AT ITS DERIVATION (#190, ruling 2026-10-02v (7)).  The
+    arm above perturbs the ring 1 mm INSIDE its own edge; this one inserts
+    a vertex EXACTLY ON the long edge 2.6 km from the row, which is what a
+    densification step or a crossing split actually emits.  Under the
+    vertex-count-weighted PCA that tilted the axis and dragged the
+    centroid toward the denser edge; under the hull rectangle the vertex
+    is invisible, so the station set is identical rather than merely
+    stable."""
+    base_osm, base_surface = _patch(
+        tmp_path, strip_half_width_m, name="BASEC")
+    ins_osm, ins_surface = _patch(
+        tmp_path, strip_half_width_m, collinear_runway_vertex=True,
+        name="COLL")
+    assert base_surface == ins_surface, (
+        "the fixture perturbed the strip band itself")
+    base = _arc_reading(cg, base_osm)
+    ins = _arc_reading(cg, ins_osm)
+    assert ins[1] == base[1], (
+        f"the reader visited {ins[1]} strip stations against {base[1]} "
+        f"after ONE collinear runway vertex "
+        f"{_RUNWAY_LENGTH_M - _COLLINEAR_VERTEX_AT_M:.0f} m from the far "
+        f"end — issue #190")
+    assert ins[0] == base[0], (
+        f"the strip_arc row set changed with a collinear runway vertex: "
+        f"only-inserted {sorted(ins[0] - base[0])}, "
+        f"only-base {sorted(base[0] - ins[0])}")
 
 
 def test_an_unrelated_shape_kilometres_away_changes_nothing(

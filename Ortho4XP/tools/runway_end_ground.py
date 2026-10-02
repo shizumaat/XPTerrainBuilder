@@ -52,6 +52,9 @@ for _p in (str(_ROOT / "src"), str(_ROOT), str(_ROOT / "tests"), str(_HERE)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from auto_patch_v2.constraints.geometry import (                 # noqa: E402
+    principal_axis as _principal_axis_law)
+
 R_EARTH = 6378137.0
 
 #: The SURFACE roles the question is about (below-grade families excluded
@@ -106,29 +109,26 @@ def measure(patch, ends, radius_m=500.0, level_m=0.0, roles=DEFAULT_ROLES):
 
 
 def _principal_axis(pts):
-    """``(a, b, unit, length, width)`` — the same fit
-    ``auto_patch_v2.constraints.geometry.principal_axis`` makes (largest-
-    variance axis, its extreme stations, the transverse EXTENT)."""
-    n = len(pts)
-    cx = sum(p[0] for p in pts) / n
-    cy = sum(p[1] for p in pts) / n
-    sxx = syy = sxy = 0.0
-    for x, y in pts:
-        dx, dy = x - cx, y - cy
-        sxx += dx * dx
-        syy += dy * dy
-        sxy += dx * dy
-    tr = sxx + syy
-    lam = 0.5 * tr + math.sqrt(max(0.0, (0.5 * tr) ** 2 - (sxx * syy - sxy * sxy)))
-    ux, uy = (lam - syy, sxy) if abs(sxy) > 1e-9 else \
-             ((1.0, 0.0) if sxx >= syy else (0.0, 1.0))
-    norm = math.hypot(ux, uy)
-    ux, uy = ux / norm, uy / norm
-    along = [(x - cx) * ux + (y - cy) * uy for x, y in pts]
-    across = [-(x - cx) * uy + (y - cy) * ux for x, y in pts]
-    s0, s1 = min(along), max(along)
-    return ((cx + s0 * ux, cy + s0 * uy), (cx + s1 * ux, cy + s1 * uy),
-            (ux, uy), s1 - s0, max(across) - min(across))
+    """``(a, b, unit, length, width)`` — the ENGINE's own fit, adapted to
+    this tool's tuple shape.
+
+    It carried its own transcription of the largest-variance closed form
+    until 2026-10-02.  Issue #190 made that fit insertion-invariant
+    (convex-hull minimum-area rectangle), and a tool that must not "fit
+    the runway differently from the law that priced it"
+    (``tests/test_runway_end_corners.py``) cannot hold a second copy
+    through a change of the fit — so it binds the law instead.
+    ``None`` for a cloud with no two distinct points.
+    """
+    ax = _principal_axis_law(pts)
+    if ax is None:
+        return None
+    a, b, width = ax
+    length = math.dist(a, b)
+    if length <= 0.0:
+        return None
+    return (a, b, ((b[0] - a[0]) / length, (b[1] - a[1]) / length),
+            length, width)
 
 
 def _nearest_on_segment(px, py, ax, ay, bx, by):
@@ -194,7 +194,10 @@ def corners(patch, icao):
         pts = [xy(n) for n in ids]
         if len(pts) < 3:
             continue
-        a, _b, (ux, uy), length, width = _principal_axis(pts)
+        ax = _principal_axis(pts)
+        if ax is None:
+            continue
+        a, _b, (ux, uy), length, width = ax
         code = runway_code_number(length, law)
         half2 = zone2_half_width_m(law, "runway", code, None) or 0.0
         end_len = (corridor.value(code, None) if corridor is not None else 0.0) or 0.0

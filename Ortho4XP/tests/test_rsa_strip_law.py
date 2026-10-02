@@ -296,10 +296,13 @@ def _write_patch(tmp_path, band_alts, y0=20.0, step=25.0):
             f"<way id='{nid[0]}' visible='true'>{body}"
             f"<tag k='role' v='{role}'/><tag k='ref' v='{ref}'/></way>")
 
-    # Densified long edges: ``runway_axis_and_width`` takes the principal
-    # axis of the vertex cloud, and a 4-corner ring whose closing vertex
-    # repeats one corner tilts that axis by a few milliradians.  Real
-    # runway rings carry many vertices; the fixture matches them.
+    # Densified long edges, because real runway rings carry many
+    # vertices and the fixture matches them.  It used to be LOAD-BEARING:
+    # ``runway_axis_and_width`` was a vertex-count-weighted PCA, and a
+    # 4-corner ring whose closing vertex repeated one corner tilted that
+    # axis by a few milliradians.  Since #190 (ruling 2026-10-02v (7)) the
+    # fit is the hull's minimum-area rectangle, so the duplicate is a
+    # no-op and the densification is only realism.
     rw = []
     for i in range(21):
         rw.append((i * 150.0, -22.5))

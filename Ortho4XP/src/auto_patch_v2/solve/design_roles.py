@@ -19,7 +19,7 @@ from ..law.tables import (airside_stage_roles as _airside_stage_roles,
                           role_side, zone_class)
 from ..model.constraints import Row
 
-__all__ = ['airside_stage_roles', 'conforming_rulings', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
+__all__ = ['airside_stage_roles', 'conforming_rulings', 'groundside_pin_rulings', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
 
 def bend_roles(law: Law) -> tuple[str, ...]:
     """The roles whose faces form the SHEETS the bending term shapes: every
@@ -125,6 +125,19 @@ def one_way_rulings(law: Law) -> frozenset[str]:
     one_way_rulings`` (RULINGS 2026-09-09b (2)/(3): the adjacent ground
     follows the pavement edge and never pulls it)."""
     return frozenset(design_law(law).one_way_rulings)
+
+
+def groundside_pin_rulings(law: Law) -> frozenset[str]:
+    """THE PINS THAT NEVER HOLD AIRSIDE — ``[design] groundside_pin_rulings``
+    (owner RULINGS 2026-10-02v (1), issue #143; 2026-09-30aa rule 1 read for
+    EVERY road face, not only the mapped-road ribbons).
+
+    The ruling HEADS of ``Pin`` rows minted on a GROUNDSIDE vertex.  §20b
+    stage 1 treats such a vertex as FOREIGN rather than as one of its own
+    constants, so no row footed on it reaches the airside problem —
+    whichever generator minted the row (``solve/design.stage_split``, the
+    one derivation site).  May be empty (every pin holds)."""
+    return frozenset(getattr(design_law(law), "groundside_pin_rulings", ()) or ())
 
 
 def foot_row_rulings(law: Law) -> frozenset[str]:

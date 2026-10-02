@@ -340,18 +340,6 @@ class PlanCluster:
     #: ``""`` (not asked).  §5 A5 / §6 read this: an upper-bound profile
     #: must never be mistaken for the composed one.
     composition: str = ""
-    #: THE FRAME :attr:`base_profile`'s POLYGONS ARE IN — the ``(lat,
-    #: lon)`` of the unit anchor they are metres EAST/NORTH of
-    #: (:func:`cluster_base_profile` composes about ``unit.anchor``).
-    #:
-    #: It is carried because the planar stage has to put those polygons
-    #: in ITS frame to mint a pad from them (§2 (1), C1/C2), and a second
-    #: guess at "which anchor were these composed about" is the
-    #: census-wrapper defect: the composition and the placement would
-    #: drift and nothing would assert they agree.  ``(0.0, 0.0)`` where
-    #: no profile was asked — :attr:`base_profile` is then ``{}`` and
-    #: there is nothing to place.
-    profile_anchor: tuple[float, float] = (0.0, 0.0)
 
     def line(self) -> str:
         return (f"{self.id}: {len(self.members)} member(s), footprint union "
@@ -594,31 +582,18 @@ def cluster_base_profile(unit: _t.Any, member_ix: _t.Sequence[int],
     makes the whole group's read the VERTICAL-ONLY upper bound, labelled
     ``"vertical_only"`` — never a composed answer from a half-placed set.
     """
-    from .obj8_grade import (FEET, compose_profiles, profile_from_json,
-                             profile_to_json)
+    from .obj8_grade import compose_profiles, profile_from_json, profile_to_json
     seen: list[int] = []
     for mi in member_ix:
         if mi not in seen:
             seen.append(mi)
     mems = [unit.members[mi] for mi in seen]
     profs = [profile_from_json(m.base_profile) for m in mems]
-    if not any(p.planes or p.verdict != FEET for p in profs):
-        # §1 (3): EVERY member reads FEET with no plane -> today's law
-        # exactly.  Nothing is composed and nothing is published: the
-        # cheap exit every FEET cluster takes (HECA: 2,677 clusters, a
-        # handful of them with a plane between them).
-        #
-        # ``or p.verdict != FEET`` IS THE 10-02m (A) FIX.  The exit used
-        # to read ``not any(p.planes ...)``, i.e. "no member has a
-        # PLANE", and a SLOPED member has none by definition (§1 (2):
-        # SLOPED is "no base plane >= 250 m2 but a contact set ...").  So
-        # at KASE, where FS_7 fell to ``sloped`` with 0 planes, the unit
-        # lost its profile entirely -- ``({}, "")`` -- and Q5's sloped
-        # pad could never reach unit:108 either.  A unit must never lose
-        # its profile because its members carry no PLANE: the composition
-        # below already has the FEET / single-member / single-SLOPED
-        # answers, and each of them is "today's law exactly" where that
-        # is what the law says.
+    if not any(p.planes for p in profs):
+        # §1 (3): no member carries a base plane -> today's law exactly.
+        # Nothing is composed and nothing is published: the cheap exit
+        # every FEET cluster takes (HECA: 2,677 clusters, a handful of
+        # them with a plane between them).
         return ({}, "")
     lat0, lon0 = float(unit.anchor[0]), float(unit.anchor[1])
     ml, mo = m_per_deg_exact(lat0)
@@ -867,14 +842,9 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
 def _profile_of(u: _t.Any, grp: _t.Sequence[int], shims: _t.Sequence[_t.Any],
                 profile_law: "ProfileLaw | None"
                 ) -> dict:
-    """The three ``PlanCluster`` base-profile fields for one body group, as
+    """The two ``PlanCluster`` base-profile fields for one body group, as
     the keywords the mint splats — ``{}`` where the caller asked for no
-    profile (base-profile spec §1 (4) / C1).
-
-    The ANCHOR travels with the profile because the composed polygons are
-    metres east/north of it (``PlanCluster.profile_anchor``): it is the
-    composition's own frame, published once rather than re-guessed by the
-    planar reader that places the planes."""
+    profile (base-profile spec §1 (4) / C1)."""
     if profile_law is None:
         return {}
     pids: set[int] = set()
@@ -882,8 +852,7 @@ def _profile_of(u: _t.Any, grp: _t.Sequence[int], shims: _t.Sequence[_t.Any],
         pids |= set(shims[i].pids)
     rec, how = cluster_base_profile(u, [shims[i].member for i in grp],
                                     profile_law, pids=pids)
-    return {"base_profile": rec, "composition": how,
-            "profile_anchor": (float(u.anchor[0]), float(u.anchor[1]))}
+    return {"base_profile": rec, "composition": how}
 
 
 def pad_plurality(cands: _t.Sequence[tuple[float, float, float, float]],

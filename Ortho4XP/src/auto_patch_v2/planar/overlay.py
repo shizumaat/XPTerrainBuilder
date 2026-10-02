@@ -244,19 +244,6 @@ def build_arrangement(airport: Airport, classification: Classification,
         base_regions, _plateau = plateau_cut(base_regions, pad_regions, law,
                                              airport, float(grid))
         _pad_clip.update(_plateau)
-        # base-profile spec §2 (1)/(3) (owner RULINGS 2026-10-01f, 10-01k;
-        # PLACED HERE BY 10-02m (C)): a unit whose COMPOSED base reads
-        # STEPPED mints ONE PAD PER BASE PLANE -- LAST, after everything
-        # that reads or cuts the airside has run.  #196 minted before
-        # ``platform_split``, so the held set it changed changed
-        # ``plateau_cut``'s apron and 214 HECA runway vertices moved.
-        # It takes pad regions and returns pad regions; ``base_regions``
-        # is final and untouched from here on, which is what makes "no
-        # airside vertex moves" structural rather than hoped for.
-        from .plane_pads import plane_pad_split
-        pad_regions, _planes = plane_pad_split(pad_regions, law, float(grid),
-                                               airport)
-        _pad_clip.update(_planes)
 
     def _ring_lines_of(rs) -> list[LineString]:
         out: list[LineString] = []

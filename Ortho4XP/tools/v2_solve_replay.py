@@ -502,9 +502,6 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
         pickle.dump({"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
                      "inputs": inputs, "placement": dict(placement or {}),
                      "pad_airside": dict(PAD_AIRSIDE),
-                     # issue #208: the planar stage's registries, which a
-                     # resume after the arrangement cannot re-derive
-                     "planar_registries": planar_registries(),
                      # issue #156: the DECLARED overlay this capture read
                      CAPTURE_OVERLAY_KEY: _overlay}, fh)
     print(f"[{icao}] captured -> {out} in {time.perf_counter() - t:.0f} s "
@@ -1795,78 +1792,6 @@ def _face_vids(f) -> list[int]:
     return face_vertex_ids(f.ring, f.holes)
 
 
-#: issue #208 (owner RULINGS 2026-10-02m (G)): THE PLANAR STAGE'S
-#: REGISTRIES, which live in module globals and are therefore EMPTY in a
-#: replay that resumes AFTER the arrangement.  Every one of them is read
-#: by a constraint generator, so a ``--from constraints`` replay solved a
-#: DIFFERENT problem from ``--from planar`` on the same capture: §5a
-#: relaxed 822 rows against 108, CYXY showed 441 movers up to 2.35 m with
-#: nothing minted, and the plane-pad pin had no registry to mint from at
-#: all.  They are captured at the planar boundary and restored here, so
-#: the two resumes are the same problem.  ``(label, module, attribute)``.
-_PLANAR_REGISTRIES: tuple[tuple[str, str, str], ...] = (
-    ("plane_pads", "auto_patch_v2.model.base_step", "PLANE_PADS"),
-    ("base_steps", "auto_patch_v2.model.base_step", "BASE_STEPS"),
-    ("held", "auto_patch_v2.model.platform", "HELD"),
-    ("platforms", "auto_patch_v2.model.platform", "PLATFORMS"),
-    ("plateaus", "auto_patch_v2.model.platform", "PLATEAUS"),
-    ("block_plans", "auto_patch_v2.planar.pad_blocks", "BLOCK_PLANS"),
-    ("terraces", "auto_patch_v2.planar.pad_terrace", "TERRACES"),
-)
-
-
-def _registry(label: str, mod: str, attr: str):
-    """The live registry object, or ``None`` where this tree has none (an
-    OLD tree replaying a NEW capture, and the reverse)."""
-    try:
-        return getattr(__import__(mod, fromlist=[attr]), attr)
-    except (ImportError, AttributeError):
-        return None
-
-
-def planar_registries() -> dict:
-    """Every registry of :data:`_PLANAR_REGISTRIES`, copied for the
-    capture.  A registry this tree does not have is simply absent."""
-    out: dict = {}
-    for label, mod, attr in _PLANAR_REGISTRIES:
-        reg = _registry(label, mod, attr)
-        if reg is None:
-            continue
-        out[label] = dict(reg) if isinstance(reg, dict) else list(reg)
-    return out
-
-
-def restore_planar_registries(cap: dict, icao: str) -> dict:
-    """Put a capture's planar registries back, and SAY what was carried
-    (issue #208).  A capture written before this carries none and says
-    so, rather than letting a replay report a silent zero -- the
-    ``capture predates`` rule the ``PlanarMap`` backfill follows."""
-    got = cap.get("planar_registries")
-    counts: dict = {}
-    if not got:
-        print(f"[{icao}] capture predates the planar REGISTRIES (#208): a "
-              f"--from constraints replay has no plane pads, held blocks, "
-              f"platforms, plateaus, blocks or terraces, so its stage-1 "
-              f"problem is NOT the build's.  Re-capture, or use --from planar.")
-        return counts
-    for label, mod, attr in _PLANAR_REGISTRIES:
-        if label not in got:
-            continue
-        reg = _registry(label, mod, attr)
-        if reg is None:
-            counts[label] = "no registry in this tree"
-            continue
-        reg.clear()
-        if isinstance(reg, dict):
-            reg.update(got[label])
-        else:
-            reg.extend(got[label])
-        counts[label] = len(reg)
-    print(f"[{icao}] planar registries from the capture (#208): "
-          + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
-    return counts
-
-
 def replay_problem(pkl: Path, resume: str, drop: list[str],
                    design_weights: dict | None = None,
                    chord_fill: tuple[str, ...] = (),
@@ -1916,12 +1841,6 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         PAD_AIRSIDE.update(_pa)
         print(f"[{cap['icao']}] pad/airside re-node from the capture: "
               f"deleted {_pa.get('renode_deleted')} minted {_pa.get('renode_minted')}")
-    # issue #208 (10-02m (G)): the planar registries BEFORE anything reads
-    # them.  A resume that re-runs the arrangement repopulates them itself
-    # (``build_planar`` clears and re-mints every one), so restoring here
-    # is correct on every arm and load-bearing on ``--from constraints``
-    # and ``--from shapes``.
-    restore_planar_registries(cap, icao)
     if not capture_has_groups(cap):
         raise SystemExit(
             f"[{icao}] REFUSED: this capture carries no pack PARTITION / GROUPS, so the "

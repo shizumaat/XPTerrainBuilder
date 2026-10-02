@@ -319,14 +319,7 @@ def test_composition_folds_a_sibling_members_supports_into_a_roof(tmp_path):
     a = _profile(tmp_path, "hall.obj",
                  [_slab(0.0, 0.0, 30.0, 20.0, 0.0, base=-1.0),
                   _slab(0.0, 0.0, 30.0, 20.0, 4.0, base=3.8)])
-    # RE-FOUNDED (owner RULINGS 2026-10-02m (B), lane basepads4): the
-    # MEMBER read already folds this, because ``_storeys`` reads the
-    # PLANES against each other and these two slabs share a footprint.
-    # The composed roof test below still covers the case the twin was
-    # written for -- supports in a SIBLING member, which no vertex
-    # reading inside one member can reach.
-    assert a.verdict == BP.FLAT and len(a.planes) == 1, a.line()
-    assert abs(a.planes[0].y) < 1e-9, a.line()
+    assert a.verdict == BP.STEPPED, a.line()
     # the COLUMNS under that upper slab, as a sibling member would carry them
     lower = np.array([(x, 1.0, z)
                       for x in (2.0, 11.0, 20.0, 28.0) for z in (2.0, 10.0, 18.0)],
@@ -401,87 +394,6 @@ def test_disarming_the_read_is_todays_law(tmp_path):
 # deviation is ruled by the spec's Fable author).  Each twin asserts what
 # the code does TODAY so the ruling cannot land silently.
 
-def test_a_T3_SHAPED_unit_with_perimeter_only_storeys_reads_no_base_plane(
-        tmp_path):
-    """§6's STANDING STOP, MADE REAL (owner RULINGS 2026-10-02m (B), the
-    measured reason PR #196 was reverted; lane basepads4).
-
-    ``road_train/T3_concrete_Yellow.obj`` on the real HECA v12 plan: 5
-    slabs of 16,756 m2 at ONE footprint, stacked, their support carried
-    by walls running around the perimeter -- **26 lower vertices ON the
-    polygon, 0 strictly inside it**.  #196's ``_roof_test`` counted
-    support strictly inside the ERODED polygon, which is the one place a
-    stacked storey has none: all five read BASE, unit:43 read STEPPED
-    with 89 planes and ``building4`` took 12 plane pads up to +25.6 m
-    (HECA pads 432 -> 529).
-
-    The bar: ONE base plane, the lowest, and therefore NO plane pad.
-    This test FAILS on #196's code."""
-    S = 129.4                                   # 16,756 m2, T3's own
-    parts = []
-    for k in range(5):
-        y = k * 6.4
-        parts.append(_slab(0.0, 0.0, S, S, y, base=(y - 6.4 if k else -0.5)))
-    prof = _profile(tmp_path, "T3_concrete_Yellow.obj", parts)
-    assert prof.verdict == BP.FLAT, prof.line()
-    assert len(prof.planes) == 1, prof.line()
-    assert abs(prof.planes[0].y) < 1e-6, prof.line()
-    assert not prof.risers, prof.line()
-
-
-def test_the_FIRE_STATION_lot_and_floor_mint_and_the_staircase_does_not(
-        tmp_path):
-    """§5 A2 / 10-02m (A) MADE REAL (lane basepads4): KASE's
-    ``FireStation_7.obj`` -- the floor at 0, the +3.9 m upper lot, and
-    the BANK STAIRCASE behind it at +4.1, +4.4, +4.6, +5.1, +5.6, +5.9,
-    +6.1, +6.6 m (47-210 m2 each, the cut slope).
-
-    #196 chained every one of those 0.25 m bins (each gap 0.25 <=
-    ``split_tol_m`` 0.3, and the bin is NARROWER than the tolerance, so
-    the chain never breaks) into ONE cluster with the lot -- y +3.79,
-    9,375 m2, vertex deviation 4.59 m -- which the LEVEL test then
-    DROPPED, so FS_7 read ``sloped`` with 0 planes and the site #163 is
-    about minted nothing at all.
-
-    The bar: exactly TWO base planes (the floor and the lot) and ONE
-    riser between them; the staircase sheets stay out, each being under
-    ``min_area_m2`` (10-01k Q4: "every plane >= 250 m2").  This test
-    FAILS on #196's code."""
-    parts = [_slab(-30.0, -30.0, 30.0, 30.0, 0.0, base=-0.5),
-             _slab(0.0, 0.0, 80.0, 80.0, 3.9, base=-0.5)]
-    for i, y in enumerate([4.1, 4.4, 4.6, 5.1, 5.6, 5.9, 6.1, 6.6]):
-        parts.append(_slab(0.0, 80.0 + i * 0.9, 80.0, 0.9, y, base=y - 0.4))
-    prof = _profile(tmp_path, "FireStation_7.obj", parts)
-    assert prof.verdict == BP.STEPPED, prof.line()
-    assert len(prof.planes) == 2, prof.line()
-    ys = sorted(float(q.y) for q in prof.planes)
-    assert abs(ys[0]) < 1e-9, prof.line()
-    # §5 A2's bar on the lot: within 0.3 m of the authored +3.9 (the
-    # +4.1 m first bank tread welds in under ``pad_terrace_floor_m``,
-    # which is the law, and moves it by 2 mm)
-    assert abs(ys[1] - 3.9) <= 0.3, prof.line()
-    assert len(prof.risers) == 1, prof.line()
-    # ``Riser.dy`` is the record's own 4-dp rounding
-    assert abs(abs(prof.risers[0].dy) - (ys[1] - ys[0])) < 1e-4, prof.line()
-
-
-def test_an_OPEN_shell_still_reads_its_top_as_the_base_plane(tmp_path):
-    """THE MEASUREMENT THAT KEEPS 10-02m (B) OFF THE PERIMETER BAND
-    (lane basepads4, reported not decided).  The brief asks the roof
-    test to count support "on or within the perimeter band".  A slab on
-    a vertical SKIRT has its own foot ring directly below its own
-    boundary, so ANY outward band reads a 100 % support hull there and
-    calls it a roof -- and that is the shape a pack authors a terrace
-    lot in, KASE's own terrain sheet among them (11,820 of 12,335 m2
-    horizontal, spec §0 fact 5).  It is a BASE plane.  What carries
-    10-02m (B) instead is ``_storeys``, which asks whether there is a
-    PLANE under this plane."""
-    prof = _profile(tmp_path, "shell.obj",
-                    [_slab(0.0, 0.0, 30.0, 20.0, 0.0, base=-1.0)])
-    assert prof.verdict == BP.FLAT and len(prof.planes) == 1, prof.line()
-    assert abs(prof.planes[0].y) < 1e-9, prof.line()
-
-
 def test_a_flat_underside_also_reads_as_a_base_plane(tmp_path):
     """OPEN QUESTION 1 — is ``horizontal_ny`` SIGNED?
 
@@ -499,19 +411,9 @@ def test_a_flat_underside_also_reads_as_a_base_plane(tmp_path):
     should become ``n_y >= horizontal_ny`` (up-facing only)."""
     prof = _profile(tmp_path, "closed.obj",
                     [_closed_slab(0.0, 0.0, 30.0, 20.0, 0.0, base=-2.0)])
-    assert prof.verdict == BP.FLAT, prof.line()
-    assert len(prof.planes) == 1, prof.line()
-    # RE-FOUNDED (owner RULINGS 2026-10-02m (B), lane basepads4): the
-    # PHANTOM LOWER PAD this twin warned about is GONE.  The box's TOP
-    # overlaps its own underside in plan by 100 %, and a terrain surface
-    # is single-valued in plan, so §1 (1)'s storey reading
-    # (``obj8_grade._storeys``) folds the top away and ONE plane is left
-    # -- the UNDERSIDE, which is where a closed box standing on the
-    # ground actually meets it.  The spec author's open question ("up-
-    # facing only?") no longer changes the pad COUNT, only which of the
-    # two heights the one plane reads at.
-    assert abs(prof.planes[0].y + 2.0) < 1e-6, prof.line()
-    assert not prof.risers, prof.line()
+    assert prof.verdict == BP.STEPPED, prof.line()
+    assert sorted(round(p.y, 3) for p in prof.planes) == [-2.0, 0.0], prof.line()
+    assert len(prof.risers) == 1 and abs(prof.risers[0].dy - 2.0) < 1e-6
 
 
 def test_a_level_cluster_is_required_for_a_plane(tmp_path):

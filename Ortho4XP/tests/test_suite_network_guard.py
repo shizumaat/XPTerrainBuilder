@@ -195,6 +195,62 @@ def test_a_non_pytest_import_of_conftest_neither_arms_nor_strips_proxies():
     assert reported["xplane_root"] == "True", completed.stdout
 
 
+#: The OTHER two import-time side effects (#175).  Same shape as the probe
+#: above, asking the two questions that matter in a TOOL's process: did the
+#: ambient data root survive, and is ``keyring`` still the real module (i.e.
+#: absent from ``sys.modules`` until something imports it for real)?
+_NON_PYTEST_SIDE_EFFECT_PROBE = """\
+import os, sys
+sys.path.insert(0, sys.argv[1])
+import conftest
+print("under_pytest=%r" % bool(conftest.running_under_pytest()))
+print("data_root=%r" % os.environ.get("ORTHO4XP_DATA_ROOT"))
+print("keyring_faked=%r" % bool(
+    "keyring" in sys.modules
+    and not hasattr(sys.modules["keyring"], "__file__")))
+print("xplane_root=%r" % bool(conftest.xplane_root()))
+"""
+
+_PROBE_DATA_ROOT = "/tmp/o4-175-ambient-data-root"
+
+
+def test_a_non_pytest_import_of_conftest_touches_neither_data_root_nor_keyring():
+    """Issue #175 at the same derivation site as #146.
+
+    A tool that imports conftest for ``xplane_root()`` alone must keep the
+    data root the shell gave it — a root that moves under a tool is the
+    PRIVATE-CORPUS hazard the harness refuses everywhere else — and must
+    keep the real ``keyring``, since a tool legitimately signs in."""
+    import subprocess
+
+    environment = dict(os.environ)
+    environment["ORTHO4XP_DATA_ROOT"] = _PROBE_DATA_ROOT
+    environment.pop("PYTEST_CURRENT_TEST", None)
+    environment.pop("PYTEST_XDIST_WORKER", None)
+    completed = subprocess.run(
+        [sys.executable, "-c", _NON_PYTEST_SIDE_EFFECT_PROBE,
+         str(pathlib.Path(conftest.__file__).parent)],
+        capture_output=True, text=True, env=environment, timeout=300)
+    assert completed.returncode == 0, completed.stderr
+    reported = dict(
+        line.split("=", 1) for line in completed.stdout.split("\n") if "=" in line)
+    assert reported["under_pytest"] == "False", completed.stdout
+    assert reported["data_root"] == repr(_PROBE_DATA_ROOT), completed.stdout
+    assert reported["keyring_faked"] == "False", completed.stdout
+    # The reason the tools import conftest at all still works.
+    assert reported["xplane_root"] == "True", completed.stdout
+
+
+def test_the_pytest_process_still_gets_both_side_effects():
+    """The other half of #175: inside pytest the pop and the keyring fake
+    are exactly as they were — this process is living proof."""
+    assert conftest.running_under_pytest()
+    assert "ORTHO4XP_DATA_ROOT" not in os.environ
+    # The fake is a synthesised ModuleType, so it carries no ``__file__``.
+    assert not hasattr(sys.modules["keyring"], "__file__")
+    assert sys.modules["keyring"] is conftest._fake_keyring
+
+
 def test_the_guard_is_armed_at_conftest_import_not_by_a_later_hook():
     """#122's timing requirement, kept: the arming happens while conftest
     itself is being imported — before pytest imports any test module, so

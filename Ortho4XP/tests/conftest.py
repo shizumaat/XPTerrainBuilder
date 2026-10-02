@@ -216,7 +216,17 @@ if running_under_pytest() and \
 # env-var path set it explicitly with monkeypatch.setenv, which restores
 # per-test.  _restore_ambient_data_root below puts the shell's value back at
 # session end.
-_AMBIENT_DATA_ROOT = os.environ.pop("ORTHO4XP_DATA_ROOT", None)
+#
+# ...AND ONLY UNDER PYTEST (issue #175), for the same reason #146 gated the
+# socket guard: the ~31 tools that import this conftest for ``xplane_root()``
+# alone would have the data root MOVE UNDER THEM at import, which is the
+# private-corpus hazard the harness refuses everywhere else — a tool whose
+# data root changed reports numbers from the wrong corpus and says nothing.
+# Gated at this single derivation site, not per consumer.
+_AMBIENT_DATA_ROOT_VARIABLE = "ORTHO4XP_DATA_ROOT"
+_AMBIENT_DATA_ROOT = (
+    os.environ.pop(_AMBIENT_DATA_ROOT_VARIABLE, None)
+    if running_under_pytest() else None)
 
 # No test may reach the platform secret store either: provider-session
 # code paths (O4_Authenticated_Sessions.load_credentials/load_api_key)
@@ -262,9 +272,17 @@ def _make_fake_keyring():
     return fake, fake_errors
 
 
+#: The module names the fake occupies in ``sys.modules``.
+_FAKE_KEYRING_MODULES = ("keyring", "keyring.errors")
+
 _fake_keyring, _fake_keyring_errors = _make_fake_keyring()
-sys.modules["keyring"] = _fake_keyring
-sys.modules["keyring.errors"] = _fake_keyring_errors
+# ...AND ONLY UNDER PYTEST (issue #175).  Building the fake above mutates
+# nothing; INSTALLING it does, and a tool that imports this conftest for
+# ``xplane_root()`` alone must keep the real keyring — tools legitimately
+# sign in to providers.  Same derivation-site gate as #146 and the pop above.
+if running_under_pytest():
+    sys.modules[_FAKE_KEYRING_MODULES[0]] = _fake_keyring
+    sys.modules[_FAKE_KEYRING_MODULES[1]] = _fake_keyring_errors
 
 import pytest
 
@@ -278,9 +296,9 @@ def _restore_ambient_data_root():
     survives the run untouched."""
     yield
     if _AMBIENT_DATA_ROOT is not None:
-        os.environ["ORTHO4XP_DATA_ROOT"] = _AMBIENT_DATA_ROOT
+        os.environ[_AMBIENT_DATA_ROOT_VARIABLE] = _AMBIENT_DATA_ROOT
     else:
-        os.environ.pop("ORTHO4XP_DATA_ROOT", None)
+        os.environ.pop(_AMBIENT_DATA_ROOT_VARIABLE, None)
 
 
 @pytest.fixture(autouse=True)

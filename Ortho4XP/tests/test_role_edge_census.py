@@ -25,6 +25,7 @@ No network, no DEM, no X-Plane install.
 from __future__ import annotations
 
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -238,4 +239,15 @@ def test_the_tool_is_in_the_index():
     index = _ROOT.parent / "tools" / "INDEX.md"
     if not index.exists():                      # a lane worktree mirror
         pytest.skip("no repo-root tools/INDEX.md in this checkout")
-    assert "role_edge_census.py" in index.read_text(encoding="utf-8")
+    # ONE ROW WHOSE FIRST CELL IS THIS TOOL (issue #187).  A bare
+    # substring match was green on a NEIGHBOURING row's prose --
+    # the first "role_edge_census.py" in the file is in
+    # another tool's description -- so it would have stayed green
+    # with this tool's own row deleted, and it could not see the
+    # stale DUPLICATE row either.  Row uniqueness across the whole
+    # table is pinned in ``tests/test_tools_index.py``.
+    rows = [ln for ln in index.read_text(encoding="utf-8").splitlines()
+            if re.match(r"^\|\s*`[^`]*/role_edge_census\.py`", ln)]
+    assert len(rows) == 1, (
+        f"tools/INDEX.md has {len(rows)} rows whose first cell is "
+        "role_edge_census.py -- expected exactly one")

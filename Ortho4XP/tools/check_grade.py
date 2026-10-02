@@ -11663,23 +11663,40 @@ def row_side(row) -> str:
     return "airside"
 
 
+#: THE ROW SHAPES ``run_checks`` emits, as ordered ``(first, second)``
+#: attribute-name pairs: a grade violation carries ``pt_a``/``pt_b``, an
+#: edge step the vertex and its projection.  THE REGISTER, not a comment:
+#: :func:`row_points` reads it, and ``tests/test_harness.py`` drives its
+#: "no second endpoint accessor" greps off it — so a NEW row shape is
+#: added HERE, once, and every reader and every twin extends with it.
+#: Order is PRECEDENCE: the first pair whose first key is set wins.
+ROW_POINT_KEYS: Tuple[Tuple[str, str], ...] = (("pt_a", "pt_b"),
+                                               ("vert_pt", "proj_pt"))
+
+
 def row_points(row):
     """THE ROW'S TWO ENDPOINTS in the census's own metre frame, as
-    ``(a, b)`` — ONE spelling for the two row shapes ``run_checks``
-    emits: ``pt_a``/``pt_b`` for a grade violation, ``vert_pt``/
-    ``proj_pt`` for an edge step.
+    ``(a, b)`` — ONE spelling for every row shape in
+    :data:`ROW_POINT_KEYS`.
 
     This is the ``site_m`` of the row dump (``harness/census.row_record``)
     and the point pair every site printer projects back to lat/lon
-    (``_stamp_row_sites``).  ``tools/harness/census.py`` still carries its
-    own copy for its ``--sites`` clustering; that copy should delegate
-    here (follow-up, named in the lane report) — a THIRD copy is the
-    census-wrapper defect.
+    (``_stamp_row_sites``).  It is THE only implementation in the tree
+    (issue #191): ``tools/harness/census.py`` used to carry an independent
+    copy for its ``--sites`` clustering, and a bare ``pt_a``/``pt_b`` read
+    in its ``--zone-split``; both now read this.  A second copy is the
+    census-wrapper defect — two readers of one row shape look identical
+    until a late-added key (``vert_pt``/``proj_pt`` was exactly that)
+    reaches only one of them.
+
+    A row of no registered shape reads ``(None, None)`` rather than
+    raising: callers treat a missing site as "unknown", never as an error.
     """
-    a, b = getattr(row, "pt_a", None), getattr(row, "pt_b", None)
-    if a is None:
-        a, b = getattr(row, "vert_pt", None), getattr(row, "proj_pt", None)
-    return a, b
+    for first, second in ROW_POINT_KEYS:
+        a = getattr(row, first, None)
+        if a is not None:
+            return a, getattr(row, second, None)
+    return None, None
 
 
 def row_roles(row) -> Tuple[str, str]:

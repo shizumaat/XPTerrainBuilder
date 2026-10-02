@@ -39,16 +39,34 @@ much — an ``errors`` policy that can never raise:
 * reads use ``replace``: the JSONL command stream must not die on one bad
   byte from a front end.
 
-``PYTHONIOENCODING`` is ``setdefault``-ed so that CHILD processes inherit
-the same text layer — the engine re-execs itself as ``--engine-worker``
-and ``--lerc-decode`` children, and a frozen Windows exe has no ``-X
-utf8`` to hand them.  ``setdefault`` (the ``PYTHONHASHSEED`` precedent in
-``Ortho4XP_Qt.py``) so an explicitly chosen value still wins — which is
-what lets a twin reproduce #171 by exporting ``PYTHONIOENCODING=cp1252``
-and still measure a child's own streams.
+Every engine child pins its OWN console: ``--engine-worker`` and
+``--lerc-decode`` are re-execs of ``Ortho4XP.py`` / ``Ortho4XP_Qt.py``,
+whose module body calls this function, and the multiprocessing helpers
+re-import that entry as ``__mp_main__``, which runs it too.  So nothing
+here needs to reach into a child's environment, and it does not.
 
 What this deliberately does NOT do
 ----------------------------------
+**It does not touch ``os.environ``, and in particular does not set
+``PYTHONIOENCODING`` for child processes.**  The first version of this
+module did, as belt and braces for those re-execs.  Windows CI measured
+what that costs (run 36965348610, head 769590f2): flipping a child's
+stdout to UTF-8 breaks every parent that reads it as TEXT, because
+``subprocess``'s ``text=True`` decodes with the *locale* encoding —
+cp1252 on Windows.  Two consumers went red at once, both green on the
+base commit:
+
+* ``tests/test_schema_snapshot.py`` compared a locale-decoded dump against
+  the UTF-8 snapshot and saw a mismatch it reported as a stale snapshot;
+* ``tests/test_blast_index.py`` took ``UnicodeDecodeError: 'charmap'
+  codec can't decode byte 0x81`` inside ``subprocess._readerthread``.
+
+That is a census of exactly two consumers, found by accident.  Changing
+what a child WRITES is a cross-cutting change whose readers must be
+censused first and ruled in ONE table (owner ruling, RULINGS
+2026-08-30l), so it is REPORTED, not taken here — and it is unnecessary
+for #171 and #125, per the paragraph above.
+
 It does not set ``PYTHONUTF8``/UTF-8 mode.  That would change the default
 encoding of every ``open()`` in every child, i.e. the *file* layer, which
 #92 (RULINGS 17g) already pins explicitly at each writer and reader.  The
@@ -63,7 +81,6 @@ to fix a crash class.  Such a stream is recorded as skipped, with why.
 from __future__ import annotations
 
 import io
-import os
 import sys
 from typing import Any, Dict, Optional
 
@@ -77,9 +94,6 @@ WRITE_ERRORS = "backslashreplace"
 #: Read-side error policy: never raises; one bad byte from a front end
 #: must not end the JSONL read loop.
 READ_ERRORS = "replace"
-
-#: What children are told, unless the environment already chose.
-CHILD_IO_ENCODING = f"{CONSOLE_ENCODING}:{WRITE_ERRORS}"
 
 _STREAMS = ("stdin", "stdout", "stderr")
 
@@ -130,9 +144,12 @@ def configure_console_streams(force: bool = False) -> Dict[str, Any]:
 
     Returns a record of what happened to each stream — ``reconfigured``,
     ``already-utf-8``, ``absent`` (no console at all), ``no-reconfigure``
-    (nothing with a code page), ``errors-only`` or ``refused`` — plus the
-    ``PYTHONIOENCODING`` the children will see.  Callers do not have to
-    read it; the twins do.
+    (nothing with a code page), ``errors-only`` or ``refused``.  Callers do
+    not have to read it; the twins do.
+
+    Touches THIS process and nothing else — no environment variable, so no
+    child's streams change behind its parent's back (the module docstring
+    records what that cost when they did).
     """
     global _RESULT
     if _RESULT is not None and not force:
@@ -141,8 +158,5 @@ def configure_console_streams(force: bool = False) -> Dict[str, Any]:
     for name in _STREAMS:
         errors = READ_ERRORS if name == "stdin" else WRITE_ERRORS
         record[name] = _pin(getattr(sys, name, None), errors)
-    # Children inherit the same text layer; an explicit choice still wins.
-    os.environ.setdefault("PYTHONIOENCODING", CHILD_IO_ENCODING)
-    record["PYTHONIOENCODING"] = os.environ["PYTHONIOENCODING"]
     _RESULT = record
     return record

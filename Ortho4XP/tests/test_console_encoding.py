@@ -148,21 +148,56 @@ def test_stdin_is_pinned_too_with_a_read_policy_that_cannot_raise(monkeypatch):
     assert "Jörg" in sys.stdin.readline()
 
 
-def test_children_inherit_the_text_layer(monkeypatch):
-    """The engine re-execs itself (``--engine-worker``, ``--lerc-decode``)
-    and a frozen exe has no ``-X utf8`` to hand a child."""
-    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
-    record = CE.configure_console_streams(force=True)
-    assert record["PYTHONIOENCODING"] == CE.CHILD_IO_ENCODING
-    assert os.environ["PYTHONIOENCODING"] == "utf-8:backslashreplace"
+def test_it_changes_nothing_outside_this_process(monkeypatch):
+    """THE LEAK THIS TWIN EXISTS FOR.  An earlier version `setdefault`-ed
+    ``PYTHONIOENCODING`` so the engine's re-exec children would inherit the
+    text layer.  Two costs, both measured on Windows CI (run 36965348610,
+    head 769590f2):
+
+    * it escaped THIS twin into the pytest worker's own environment, since
+      a test that calls ``configure_console_streams`` does not restore
+      ``os.environ`` — so every subprocess the worker spawned afterwards
+      wrote UTF-8;
+    * and a parent reading such a child with ``subprocess``'s ``text=True``
+      decodes with the LOCALE encoding, cp1252 on Windows.
+      ``test_schema_snapshot`` read a mismatch as a stale snapshot and
+      ``test_blast_index`` took ``UnicodeDecodeError: 'charmap' codec can't
+      decode byte 0x81``; both were green on the base commit.
+
+    Children need nothing: each engine child is a re-exec of an entry whose
+    module body pins its own console (``__mp_main__`` included).  Flipping
+    what children WRITE is a cross-cutting change its readers must be
+    censused for first (RULINGS 2026-08-30l) — reported on the PR, not
+    taken here.  So the invariant is the simple one: this function touches
+    this process and nothing else.
+    """
+    before = dict(os.environ)
+    monkeypatch.setattr(sys, "stdout", _cp1252_stream()[0])
+    CE.configure_console_streams(force=True)
+    assert dict(os.environ) == before
+    assert "PYTHONIOENCODING" not in os.environ or \
+        os.environ["PYTHONIOENCODING"] == before.get("PYTHONIOENCODING")
 
 
-def test_an_explicit_child_encoding_still_wins(monkeypatch):
-    """``setdefault``, the ``PYTHONHASHSEED`` precedent — and it is what
-    lets the subprocess arms below reproduce #171 at all."""
-    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
-    assert CE.configure_console_streams(force=True)["PYTHONIOENCODING"] \
-        == "cp1252"
+def test_the_module_never_writes_the_environment():
+    """Structural, so the leak cannot come back by a different spelling:
+    nothing in the derivation site assigns into ``os.environ``."""
+    source = (ENGINE_ROOT / "src" / "O4_Console_Encoding.py").read_text(
+        encoding="utf-8")
+    tree = ast.parse(source)
+    offenders = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr in ("setdefault", "update", "pop",
+                                       "setenv", "putenv") \
+                and "environ" in ast.dump(node.func.value):
+            offenders.append(node.lineno)
+        if isinstance(node, ast.Subscript) and "environ" in ast.dump(node.value) \
+                and isinstance(getattr(node, "ctx", None), ast.Store):
+            offenders.append(node.lineno)
+    assert offenders == [], (
+        f"O4_Console_Encoding writes os.environ at lines {offenders}; a "
+        "child's text layer is not this function's to change")
 
 
 def test_it_is_idempotent(monkeypatch):

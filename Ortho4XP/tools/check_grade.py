@@ -3399,6 +3399,98 @@ def _point_in_rect_ring(px: float, py: float,
     return (margin <= t1 <= l1 - margin) and (margin <= t2 <= l2 - margin)
 
 
+#: STRIP STATION MEMBERSHIP EPSILON (issue #116).  How far OUTSIDE a
+#: runway-strip footprint ring an emitted vertex may sit and still be read
+#: as a station of that strip.  Set to the census's one identity tolerance
+#: (``SHARED_VERTEX_TOL_M``, the solver's weld tolerance): a vertex within
+#: the identity tolerance of the boundary IS on the boundary as far as this
+#: instrument can tell, so it is ADMITTED rather than coin-flipped.
+STRIP_STATION_BOUNDARY_EPS_M = SHARED_VERTEX_TOL_M
+
+
+def _strip_station_inside(px: float, py: float,
+                          ring: List[Tuple[float, float]]) -> bool:
+    """IS ``(px, py)`` A STATION OF THE STRIP whose footprint is ``ring``?
+
+    THE DEFECT THIS CLOSES (issue #116, lane terrace11c / #11).  The strip
+    band's own rim vertices lie EXACTLY on this ring's boundary by
+    construction — emitter and validator build the footprint from the same
+    ``runway_strip_wall_keepout_rings`` call on the same numbers, which is
+    the documented lockstep — so a margin-0 membership test decides every
+    one of them on the last bit of the arithmetic.  And the footprint
+    MOVES with the runway's vertex MULTISET: ``grade_law.
+    runway_axis_and_width`` is a vertex-count-weighted PCA, so inserting a
+    vertex anywhere on the runway ring shifts the centroid and tilts the
+    axis.  Measured between two replay arms whose way -10100 and every
+    vertex within 30 m of 30.0996269, 31.3974530 were BYTE-IDENTICAL: the
+    reader visited 602 vs 603 strip stations and the census read a NEW
+    ``strip_arc`` CRITICAL motion row (0.36 m over 37.27 m,
+    ``runway|junction``) in ONE arm — 2.9 km from the only nodes that
+    differed (A-only 9, B-only 13).  Synthetic twin
+    (``tests/test_strip_station_invariance.py``): ONE extra runway vertex
+    2.4 km away moved 318 stations to 217 and dropped the row.
+
+    So the boundary is EPSILON-INCLUSIVE: the decision line is moved off
+    the place where emitted vertices actually sit to a place where, by the
+    same construction, none of them is.  It is the honest half-fix — a
+    vertex at exactly ``boundary + eps`` is a new (far smaller) knife edge
+    — because the invariant belongs at the footprint's own derivation,
+    which is SHARED WITH THE EMITTER and therefore not the census's to
+    change (see the lane report / DEFERRED_VERIFICATION).  Inclusive, not
+    exclusive: an instrument may read a station twice, never go blind.
+
+    THE one predicate every strip-footprint station set is built from, so
+    the ``strip_arc``, ``strip_abeam``, ``resa_transverse`` and ``raoa``
+    readers can never disagree about where a strip is.
+    """
+    return _point_in_rect_ring(px, py, ring, -STRIP_STATION_BOUNDARY_EPS_M)
+
+
+def _strip_chain_start(pts, inside) -> int:
+    """THE CANONICAL FIRST VERTEX of a closed strip ring's station chain —
+    a function of the ring's own GEOMETRY, never of the emitted vertex
+    order (issue #116, the "flips with the patch's start vertex" half).
+
+    ``runway_strip_longitudinal_runs`` walks an OPEN chain, so on a closed
+    ring the array boundary is an extra break: rotating the emitted start
+    vertex moves that break and changes the station count (measured on the
+    synthetic twin: 318 stations at rotation 0, 316 at rotation 37, local
+    surface byte-identical).  Anchoring the start to the ring's own
+    geometry makes the station set start-invariant by construction.
+
+    Preferred start: the vertex FOLLOWING an outside-the-footprint vertex —
+    that pair is already a break, so the array boundary costs no station —
+    and among those the geometrically smallest, which is order-free.  With
+    every vertex inside, the geometrically smallest vertex.  (A ring
+    carrying STACKED nodes could still tie; stacked nodes are their own law
+    family and outlawed.)"""
+    n = len(pts)
+    outs = [(i + 1) % n for i, f in enumerate(inside) if not f]
+    cands = outs or range(n)
+    return min(cands, key=lambda i: pts[i])
+
+
+def _strip_station_runs(pts, axis, inside, closed: bool):
+    """``runway_strip_longitudinal_runs`` on an ORDER-INVARIANT chain.
+
+    Same runs, same law (the shared emitter/validator split), but a closed
+    ring is rotated to its canonical start (``_strip_chain_start``) first
+    and the returned index lists are mapped back to the caller's own
+    indices.  THE one place a strip station chain is built."""
+    if _runway_strip_longitudinal_runs is None:        # pragma: no cover
+        return []
+    n = len(pts)
+    if not closed or n < 2 or not any(inside):
+        return _runway_strip_longitudinal_runs(pts, axis, inside)
+    k = _strip_chain_start(pts, inside)
+    if k == 0:
+        return _runway_strip_longitudinal_runs(pts, axis, inside)
+    order = [(i + k) % n for i in range(n)]
+    runs = _runway_strip_longitudinal_runs(
+        [pts[i] for i in order], axis, [inside[i] for i in order])
+    return [[order[i] for i in run] for run in runs]
+
+
 # ── THE ACTIVE RULESET (phase B) ─────────────────────────────────────
 # The census judges in the ruleset the BUILD ran under — carried by the
 # ``.axes.json`` sidecar's ``ruleset`` key and never re-resolved from the
@@ -3587,8 +3679,8 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
     for w in ways:
         if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
-        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
-              else w.nids)
+        closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+        nn = w.nids[:-1] if closed else w.nids
         pts: List[Tuple[float, float]] = []
         zs: List[Optional[float]] = []
         for k, nid in enumerate(nn):
@@ -3607,13 +3699,14 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
             # BETWEEN THE ENDS only: ``rings[0]`` is the lateral graded
             # strip; the end corridors carry the runway-END regime's own
             # longitudinal law (FAA §3.16.5 items 2-4), read elsewhere.
-            inside = [_point_in_rect_ring(px, py, rings[0], 0.0)
+            inside = [_strip_station_inside(px, py, rings[0])
                       for px, py in pts]
             if not any(inside):
                 continue
             cap, arc_rate = _strip_longitudinal_law(
                 code, letter, _ACTIVE_RULESET)
-            for run in _runway_strip_longitudinal_runs(pts, axis, inside):
+            for run in _strip_station_runs(pts, axis, inside,
+                                           closed):
                 for a, b in zip(run, run[1:]):
                     if zs[a] is None or zs[b] is None:
                         continue
@@ -3759,8 +3852,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
     for w in ways:
         if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
-        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
-              else w.nids)
+        closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+        nn = w.nids[:-1] if closed else w.nids
         pts, zs = [], []
         ok = True
         for k, nid in enumerate(nn):
@@ -3772,7 +3865,7 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
         if not ok or len(pts) < 3:
             continue
         for rings, axis, code, _length, letter in groups:
-            inside = [_point_in_rect_ring(px, py, rings[0], 0.0)
+            inside = [_strip_station_inside(px, py, rings[0])
                       for px, py in pts]
             if not any(inside):
                 continue
@@ -3780,7 +3873,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
                 code, letter, _ACTIVE_RULESET)
             if not arc_rate:
                 continue
-            for run in _runway_strip_longitudinal_runs(pts, axis, inside):
+            for run in _strip_station_runs(pts, axis, inside,
+                                           closed):
                 s = [pts[i][0] * axis[0] + pts[i][1] * axis[1] for i in run]
                 z = [zs[i] for i in run]
                 n_stations += max(0, len(run) - 2)
@@ -3872,7 +3966,7 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m
                 if ring_idx >= len(rings):
                     continue
                 ring = rings[ring_idx]
-                inside = [_point_in_rect_ring(qx, qy, ring, 0.0)
+                inside = [_strip_station_inside(qx, qy, ring)
                           for qx, qy in pts]
                 if not any(inside):
                     continue
@@ -3966,7 +4060,7 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
         if not ok or len(pts) < 3:
             continue
         for ring, inward in rects:
-            inside = [_point_in_rect_ring(qx, qy, ring, 0.0)
+            inside = [_strip_station_inside(qx, qy, ring)
                       for qx, qy in pts]
             if sum(1 for f in inside if f) < 3:
                 continue

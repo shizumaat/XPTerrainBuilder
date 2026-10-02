@@ -3239,24 +3239,30 @@ def archive_raster_members(root, extensions, depth=0):
                                               depth + 1)
 
 
-def download_zip_whole(definition, source, scratch_path, member,
-                       progress_label):
-    """One zip archive, WHOLE, into ``scratch_path``; re-GET whole once
-    when the transfer dies, the bytes are not a zip, or the zip does not
-    hold ``member`` (``member=None``: any well-formed zip).  ``True``, or
-    ``False`` for a 404 (the listed archive is not on the server).  A
-    5xx/429, a JSON/HTML body inside a 200 and a transfer that died twice
-    are TRANSIENT; any other status is ``unavailable``.
+def download_whole(definition, source, scratch_path, progress_label,
+                   validate=None):
+    """One remote file, WHOLE, into ``scratch_path``; re-GET whole once
+    when the transfer dies or ``validate`` rejects the bytes.  ``True``,
+    or ``False`` for a 404 (the listed object is not on the server).  A
+    5xx/429, a JSON/HTML body inside a 200 and a transfer that died
+    twice are TRANSIENT; any other status is ``unavailable``.
 
-    The one whole-archive download of the module's zip readers: the
-    CWCB lidar tiles (the server ignores ``Range``) and the zipped
-    ERDAS IMAGINE products TNM lists for USGS 1/9 arc-second (#157 --
-    a deflated member cannot be range-read, so the archive comes whole
-    to scratch beside the destination and the caller removes it).
+    THE module's one whole-file download, with one streaming / progress
+    / byte-count / retry body for every caller: the CWCB lidar tiles
+    (the server ignores ``Range``) and the zipped ERDAS IMAGINE products
+    TNM lists for USGS 1/9 arc-second come through
+    :func:`download_zip_whole`, which is this function plus a zip
+    validator (#157); the STRIPPED OPR tiles come through
+    :func:`_prefetch_whole_stripped_sources` (#158).  A second
+    streaming downloader beside this one would be the defect, not the
+    shortcut.
+
+    ``validate(scratch_path)`` returns ``None`` when the bytes on disk
+    are what was asked for, else a short problem string, which costs
+    the caller its one retry exactly as a died transfer does.
     """
     import requests
     import time as _time
-    import zipfile
 
     code = definition.get("code")
     url = source["download_url"]
@@ -3325,19 +3331,38 @@ def download_zip_whole(definition, source, scratch_path, member,
         if total and have != total:
             last_problem = "%d of %d bytes" % (have, total)
             continue
-        try:
-            with zipfile.ZipFile(scratch_path) as archive:
-                names = archive.namelist()
-        except zipfile.BadZipFile as error:
-            last_problem = error
-            continue
-        if member is not None and member not in names:
-            last_problem = "no member %s in %s" % (member, names[:4])
+        problem = validate(scratch_path) if validate is not None else None
+        if problem is not None:
+            last_problem = problem
             continue
         return True
     raise TransientFetchError(
         "%s: tile %s download died twice: %s"
         % (code, source["source_id"], last_problem))
+
+
+def download_zip_whole(definition, source, scratch_path, member,
+                       progress_label):
+    """One zip archive, WHOLE, into ``scratch_path``; re-GET whole once
+    when the transfer dies, the bytes are not a zip, or the zip does not
+    hold ``member`` (``member=None``: any well-formed zip).  Otherwise
+    exactly :func:`download_whole` -- the zip validator is the whole
+    difference (#157/#158: ONE whole-file downloader, not two).
+    """
+    import zipfile
+
+    def _holds_the_wanted_member(path):
+        try:
+            with zipfile.ZipFile(path) as archive:
+                names = archive.namelist()
+        except zipfile.BadZipFile as error:
+            return str(error)
+        if member is not None and member not in names:
+            return "no member %s in %s" % (member, names[:4])
+        return None
+
+    return download_whole(definition, source, scratch_path, progress_label,
+                          validate=_holds_the_wanted_member)
 
 
 def warp_vsicurl_sources_to_geotiff(
@@ -3775,6 +3800,13 @@ _SOURCE_FOOTPRINT_PROBE_SAMPLES = 32
 #: Parallel header reads when a listing's sources are inspected.
 _SOURCE_INSPECTION_WORKERS = 8
 
+#: Whole-tile prefetch (#158) stops asking above this many bytes for one
+#: airport; beyond it the windowed ``/vsicurl`` read -- slower, but
+#: bounded by the window and needing no scratch -- carries the fetch.  A
+#: provider raises or lowers it with ``prefetch_whole_max_bytes`` in its
+#: ``.elv``.  2 GB holds KGEG's 64 x ~16 MB OPR campaign twice over.
+PREFETCH_WHOLE_MAX_BYTES = 2.0e9
+
 
 def _definition_reads_source_units(definition):
     """``source_units=from_source``: the provider's products each carry
@@ -3825,22 +3857,66 @@ def raster_native_resolution_m(dataset):
     return pixel
 
 
+def _raster_source_byte_size(warp_input):
+    """The source file's size in bytes, or ``None``.  ``gdal.VSIStatL``
+    answers for a local path and from the ``/vsicurl`` HEAD the open has
+    already made and cached, so this costs no extra request."""
+    try:
+        stat = gdal.VSIStatL(warp_input)
+    except Exception:                                    # pragma: no cover
+        return None
+    if stat is None:
+        return None
+    try:
+        size = int(stat.size)
+    except (AttributeError, TypeError, ValueError):       # pragma: no cover
+        return None
+    return size if size > 0 else None
+
+
 def _inspect_raster_source(warp_input):
-    """One source's header facts, or ``None`` when it cannot be opened."""
+    """One source's header facts, or ``None`` when it cannot be opened.
+
+    The BLOCK LAYOUT comes out with the rest (#158): the headers are read
+    once for every listed product anyway, so whether a product is
+    stripped or tiled is known before a single byte of raster is asked
+    for."""
     dataset = gdal.Open(warp_input)
     if dataset is None:
         return None
     (factor, unit, rule) = raster_height_unit(dataset)
     srs = dataset.GetSpatialRef()
+    band = dataset.GetRasterBand(1)
+    (block_x_size, block_y_size) = band.GetBlockSize()
     record = {
         "native_resolution_m": round(raster_native_resolution_m(dataset), 4),
         "z_to_m": factor,
         "height_unit": unit,
         "height_unit_rule": rule,
         "crs": (srs.GetName() if srs is not None else None),
+        "raster_x_size": int(dataset.RasterXSize),
+        "raster_y_size": int(dataset.RasterYSize),
+        "block_x_size": int(block_x_size),
+        "block_y_size": int(block_y_size),
+        "overview_count": int(band.GetOverviewCount()),
+        "file_bytes": _raster_source_byte_size(warp_input),
     }
+    band = None
     dataset = None
     return record
+
+
+def _raster_source_is_stripped(source):
+    """A STRIPPED raster: its block is as wide as the raster itself
+    (#158 -- WA_NorthEast_B22's 2000 x 1 DEFLATE strips), so decoding
+    ANY pixel decodes the whole row and a windowed read is never
+    cheaper than the file.  A 256 x 256 tiled Cloud-Optimized GeoTIFF is
+    not: the window read is what it was built for."""
+    width = source.get("raster_x_size")
+    block_x_size = source.get("block_x_size")
+    if not width or not block_x_size:
+        return False
+    return int(block_x_size) >= int(width) > 1
 
 
 def _inspect_and_screen_raster_sources(definition, sources, warp_input_for):
@@ -4097,6 +4173,137 @@ class TnmCloudOptimizedGeoTiffStrategy:
             staged[source["download_url"]] = chosen
         return staged
 
+    def _prefetch_whole_stripped_sources(self, definition, sources,
+                                         warp_input_for, destination_path,
+                                         scratch_paths):
+        """Every STRIPPED listed product downloaded WHOLE into scratch
+        beside the destination, over the provider's fetch slots;
+        ``({download_url: local path}, record)``; the map is empty
+        when nothing stripped is remote, when a size could not be read,
+        or when the bytes exceed the prefetch threshold, and the record
+        says which of those happened (it becomes the provenance keys --
+        without them a manifest reader cannot tell a 13-minute windowed
+        fetch from a prefetched one, which is the whole question #158
+        asks).
+
+        WHY (#158, measured 2026-10-02 against a loopback server over a
+        synthetic WA_NorthEast_B22 layout: 4 stripped tiles, 2000 x 2000
+        px at 0.5 m in a State Plane foot CRS, 2000 x 1 DEFLATE strips,
+        no overviews, 10.3 MB each).  The windowed ``/vsicurl`` warp
+        issued 6.5 requests per tile and moved 1.14x (a 20 % x 20 % box)
+        to 2.00x (the full box) the tiles' WHOLE bytes -- NEVER less
+        than the files, whatever the window's shape, because a strip as
+        wide as the raster must be decoded whole for any pixel in it.
+        One whole GET per tile moves 1.00x in ONE request, and the warp
+        then reads local files: 4 requests and 41.3 MB against 26
+        requests and 67.3 MB, with byte-identical output (twin).
+
+        Tiled Cloud-Optimized GeoTIFFs stay on ``/vsicurl``: a 256 x 256
+        block IS the window read the strategy was built for, and the
+        field numbers back it (PANC's 68 tiled COGs in 1:56 against
+        KGEG's 64 stripped tiles in 13:42).
+
+        The byte threshold is judged BEFORE any GET, and exceeding it is
+        NOT the cap class (RULINGS 2026-09-30bm): ``/vsicurl`` is a
+        complete and correct fetch of the same window, so the threshold
+        switches strategy and SAYS SO on one line -- it never refuses a
+        provider that would otherwise deliver.  A listed tile the server
+        does not have (404) is ``unavailable``, exactly as a listed
+        archive is in :meth:`_stage_archives`; a 5xx is transient and
+        the caller's ``finally`` removes every partial scratch file.
+
+        Only a source the warp would read THROUGH CURL is a candidate: a
+        staged archive member and a local scratch file are already on
+        this disk, and "downloading" one would be a copy with a GET
+        bolted to it.
+        """
+        code = definition.get("code")
+        airport = _las_airport_label(destination_path)
+        remote = [source for source in sources
+                  if str(warp_input_for(source)).startswith("/vsicurl/")
+                  and _raster_source_is_stripped(source)]
+        stripped = [source for source in remote if source.get("file_bytes")]
+        unsized = [source for source in remote
+                   if not source.get("file_bytes")]
+        # Counted BEFORE the switch, so a manifest reader can see that
+        # this fetch had stripped products and did not prefetch them.
+        record = {"sources_stripped": len(remote),
+                  "sources_prefetched_whole": 0,
+                  "prefetched_whole_bytes": 0}
+        if not _parse_boolean(definition.get("prefetch_whole_stripped",
+                                             "True")):
+            record["prefetch_whole_skipped"] = "prefetch_whole_stripped=False"
+            return ({}, record)
+        if unsized:
+            # The threshold must be judged before any GET, and a source
+            # whose size nobody could read cannot be judged: it stays on
+            # the windowed read rather than be prefetched unbounded.
+            UI.vprint(1, "    [inset] %s %s: %d stripped tile(s) report no "
+                      "size - left on the windowed /vsicurl read (the "
+                      "prefetch threshold must be judged before any GET)"
+                      % (airport, code, len(unsized)))
+            record["prefetch_whole_skipped"] = (
+                "%d stripped tile(s) report no size" % len(unsized))
+        if not stripped:
+            return ({}, record)
+        threshold = _parse_float(definition.get("prefetch_whole_max_bytes"),
+                                 default=PREFETCH_WHOLE_MAX_BYTES)
+        total_bytes = sum(int(source["file_bytes"]) for source in stripped)
+        if threshold and total_bytes > threshold:
+            UI.vprint(1, "    [inset] %s %s: %d stripped tile(s) = %s exceed "
+                      "the %s whole-tile prefetch threshold "
+                      "(prefetch_whole_max_bytes in %s.elv) - reading the "
+                      "window through /vsicurl instead"
+                      % (airport, code, len(stripped),
+                         _las_size_text(total_bytes),
+                         _las_size_text(threshold), code))
+            record["prefetch_whole_skipped"] = (
+                "%s over the %s prefetch_whole_max_bytes threshold"
+                % (_las_size_text(total_bytes), _las_size_text(threshold)))
+            return ({}, record)
+        slots = provider_fetch_slots(definition)
+        UI.vprint(1, "    [inset] %s %s: prefetching %d stripped tile(s) "
+                  "WHOLE (%s) over %d connection(s) - a strip as wide as "
+                  "the raster cannot be window-read (#158)"
+                  % (airport, code, len(stripped),
+                     _las_size_text(total_bytes), slots))
+        os.makedirs(os.path.dirname(destination_path) or ".", exist_ok=True)
+        wanted = []
+        for (number, source) in enumerate(stripped):
+            scratch_path = "%s.prefetch%d.tif" % (destination_path, number)
+            # Appended BEFORE the GET so the caller's ``finally`` removes
+            # a partial file (the #157 pattern).
+            scratch_paths.append(scratch_path)
+            wanted.append((number, source, scratch_path))
+
+        def _download(item):
+            (number, source, scratch_path) = item
+            label = "%s %s stripped tile %d/%d %s" % (
+                airport, code, number + 1, len(wanted),
+                source.get("source_id"))
+            with _held_provider_fetch_slot(code, slots):
+                return download_whole(definition, source, scratch_path,
+                                      label)
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=slots) as pool:
+            results = list(pool.map(_download, wanted))
+        prefetched = {}
+        for ((_number, source, scratch_path), present) in zip(wanted,
+                                                              results):
+            if not present:
+                raise ProviderUnavailable(
+                    "%s: listed product %s is not on the server (HTTP 404) "
+                    "- %s" % (code, source.get("source_id"),
+                              source["download_url"]))
+            prefetched[source["download_url"]] = scratch_path
+        record["sources_prefetched_whole"] = len(prefetched)
+        record["prefetched_whole_bytes"] = total_bytes
+        record["prefetch_whole_slots"] = slots
+        record.pop("prefetch_whole_skipped", None)
+        return (prefetched, record)
+
     def fetch(
         self,
         definition,
@@ -4120,7 +4327,7 @@ class TnmCloudOptimizedGeoTiffStrategy:
 
             return self._fetch_listed(
                 definition, sources, warp_input_for, bounding_box_wgs84,
-                target_resolution_m, destination_path)
+                target_resolution_m, destination_path, scratch_paths)
         finally:
             for path in scratch_paths:
                 if os.path.isfile(path):
@@ -4131,9 +4338,10 @@ class TnmCloudOptimizedGeoTiffStrategy:
 
     def _fetch_listed(self, definition, sources, warp_input_for,
                       bounding_box_wgs84, target_resolution_m,
-                      destination_path):
+                      destination_path, scratch_paths=None):
         """The warp + record of the listed ``sources``; each is read
-        through ``warp_input_for`` (a staged archive member, else
+        through ``warp_input_for`` (a whole tile prefetched into
+        scratch, else a staged archive member, else
         :meth:`_warp_input_for`)."""
         # R13-2 -- EVERY PIXEL TAKES THE NEWEST SOURCE WITH VALID DATA
         # THERE.  Keeping only the newest publication date is what lost
@@ -4154,6 +4362,8 @@ class TnmCloudOptimizedGeoTiffStrategy:
         from_source = _definition_reads_source_units(definition)
         excluded = []
         scratch_inputs = []
+        prefetched = {}
+        prefetch_record = {}
         warp_configuration = None
         if from_source:
             # ORIGINAL PRODUCT RESOLUTION (#153): each product carries
@@ -4169,6 +4379,20 @@ class TnmCloudOptimizedGeoTiffStrategy:
                 definition, sources, warp_input_for)
             if not sources:
                 return None
+            # STRIPPED products come WHOLE (#158): the headers just read
+            # say which are, so the switch costs no extra request.  The
+            # local files then serve BOTH the warp and the per-source
+            # contribution probe below.
+            (prefetched, prefetch_record) = (
+                self._prefetch_whole_stripped_sources(
+                    definition, sources, warp_input_for, destination_path,
+                    scratch_paths if scratch_paths is not None else []))
+            if prefetched:
+                remote_input_for = warp_input_for
+
+                def warp_input_for(source):                  # noqa: F811
+                    return (prefetched.get(source.get("download_url"))
+                            or remote_input_for(source))
         oldest_first = list(reversed(sources))   # discover sorts newest first
         warp_inputs = []
         for source in oldest_first:
@@ -4286,6 +4510,7 @@ class TnmCloudOptimizedGeoTiffStrategy:
             provenance.update(
                 _source_units_provenance(used or sources, excluded,
                                          definition))
+            provenance.update(prefetch_record)
         return provenance
 
 

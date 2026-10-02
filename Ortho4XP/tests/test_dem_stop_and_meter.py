@@ -40,6 +40,12 @@ class _FakeResponse:
         self._status = status
         self.status_code = status
         self.content = content
+        #: No ``Location``: nothing for the #193 redirect follow to
+        #: follow, so the status reaches the outcome classifier as before.
+        self.headers = {}
+
+    def close(self):
+        pass
 
     def __repr__(self):
         return "<Response [%d]>" % self._status
@@ -52,7 +58,9 @@ class _FakeSession:
         self._get_impl = get_impl
         self.calls = 0
 
-    def get(self, url, timeout=None):
+    def get(self, url, timeout=None, allow_redirects=None):
+        # ``allow_redirects`` since #193 (the transport follows
+        # redirects itself, bounded and recorded).
         self.calls += 1
         return self._get_impl(url)
 

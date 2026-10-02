@@ -228,7 +228,10 @@ class _Session:
     def __init__(self, get):
         self._get = get
 
-    def get(self, url, timeout=None):
+    def get(self, url, timeout=None, allow_redirects=None):
+        # ``allow_redirects`` is passed explicitly since #193: the
+        # transport follows redirects itself, bounded and recorded, so
+        # the double has to accept the real signature.
         return self._get(url)
 
 
@@ -237,6 +240,13 @@ class _Response:
         self._status = status
         self.status_code = status
         self.content = b""
+        #: No ``Location``: nothing for the #193 redirect follow to
+        #: follow, so every status below reaches the outcome classifier
+        #: exactly as it did before.
+        self.headers = {}
+
+    def close(self):
+        pass
 
     def __repr__(self):
         # The HISTORIC classifier read this repr as a string ("[40" in
@@ -365,3 +375,134 @@ def test_missing_truststore_is_a_logged_line_not_a_crash(monkeypatch,
     captured = capsys.readouterr()
     assert captured.out == ""                 # stdout may be the protocol
     assert "system trust store" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# 8. #193 -- the transport follows redirects, BOUNDED and RECORDED
+#
+# MEASURED 2026-10-02 against a redirecting server on loopback.  BEFORE:
+# ``requests`` followed a same-host 301 silently (so viewfinderpanoramas'
+# http -> https move worked by accident and said nothing), and a redirect
+# LOOP cost 31 requests per attempt x HTTP_REQUEST_ATTEMPT_CAP = 186
+# requests and 62 s of exponential back-off before refusing with "failed
+# on the transport" -- never naming the redirect.  AFTER: the same 301 is
+# followed and RECORDED, and the loop refuses in 6 requests / 0.1 s
+# naming the chain.
+# ---------------------------------------------------------------------------
+def _redirecting_server(redirects, body=b"PK\x05\x06" + b"\x00" * 18):
+    """A loopback server: ``redirects`` {path: (status, Location)}, every
+    other path the ``body``.  Returns ``(base_url, requests, close)``."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *_args):
+            pass
+
+        def do_GET(self):
+            seen.append(self.path)
+            hop = redirects.get(self.path)
+            if hop is not None:
+                (status, location) = hop
+                self.send_response(status)
+                self.send_header("Location", location)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = "http://127.0.0.1:%d" % server.server_address[1]
+    return (base, seen, server.shutdown)
+
+
+def test_a_same_host_redirect_is_followed_and_recorded():
+    """The #193 case: the http URL answers 301 to its https twin.  The
+    object arrives, and the hop is on the record instead of invisible."""
+    (base, seen, close) = _redirecting_server(
+        {"/dem3/L11.zip": (301, "/L11.zip")})
+    try:
+        response = DEM.http_request(base + "/dem3/L11.zip", "View")
+        assert response and response.status_code == 200
+        assert len(response.o4_redirect_chain) == 1
+        assert response.o4_redirect_chain[0].startswith("301 ")
+        assert response.o4_redirect_chain[0].endswith("/L11.zip")
+        assert seen == ["/dem3/L11.zip", "/L11.zip"]
+    finally:
+        close()
+
+
+@pytest.mark.parametrize("status", DEM.HTTP_REQUEST_REDIRECT_STATUSES)
+def test_every_followed_status_is_followed(status):
+    (base, _seen, close) = _redirecting_server({"/a.zip": (status, "/b.zip")})
+    try:
+        response = DEM.http_request(base + "/a.zip", "View")
+        assert response and response.status_code == 200
+    finally:
+        close()
+
+
+def test_a_direct_answer_records_no_redirect():
+    (base, seen, close) = _redirecting_server({})
+    try:
+        response = DEM.http_request(base + "/L11.zip", "View")
+        assert response.o4_redirect_chain == []
+        assert seen == ["/L11.zip"]
+    finally:
+        close()
+
+
+def test_a_redirect_loop_refuses_within_the_hop_bound(monkeypatch):
+    """A looping host is refused NAMING THE REDIRECT, in
+    HTTP_REQUEST_REDIRECT_HOPS + 1 requests -- not 186 of them across
+    the back-off, and never as an all-zero raster."""
+    (base, seen, close) = _redirecting_server(
+        {"/loop/a.zip": (302, "/loop/b.zip"),
+         "/loop/b.zip": (302, "/loop/a.zip")})
+    monkeypatch.setattr(DEM.time, "sleep",
+                        lambda seconds: pytest.fail("backed off"))
+    try:
+        with pytest.raises(DEM.ElevationDownloadRefused) as caught:
+            DEM.http_request(base + "/loop/a.zip", "View")
+        assert "REDIRECTED more than %d" % DEM.HTTP_REQUEST_REDIRECT_HOPS \
+            in str(caught.value)
+        assert "/loop/b.zip" in str(caught.value)
+        assert len(seen) == DEM.HTTP_REQUEST_REDIRECT_HOPS + 1
+    finally:
+        close()
+
+
+def test_a_chain_within_the_bound_still_arrives():
+    hops = DEM.HTTP_REQUEST_REDIRECT_HOPS
+    redirects = {"/c%d.zip" % step: (301, "/c%d.zip" % (step + 1))
+                 for step in range(hops - 1)}
+    redirects["/c%d.zip" % (hops - 1)] = (301, "/L11.zip")
+    (base, seen, close) = _redirecting_server(redirects)
+    try:
+        response = DEM.http_request(base + "/c0.zip", "View")
+        assert response and response.status_code == 200
+        assert len(response.o4_redirect_chain) == hops
+        assert len(seen) == hops + 1
+    finally:
+        close()
+
+
+def test_a_3xx_without_a_location_still_reaches_the_outcome_classifier(
+        monkeypatch):
+    """A 3xx this transport cannot follow (no ``Location``) is NOT a
+    redirect: it goes to the one outcome classifier, which calls it
+    transient because it says nothing about the object (#124/#173)."""
+    monkeypatch.setattr(DEM.requests, "Session",
+                        lambda: _Session(lambda url: _Response(304)))
+    monkeypatch.setattr(DEM.time, "sleep", lambda seconds: None)
+    with pytest.raises(DEM.ElevationDownloadRefused) as caught:
+        DEM.http_request("https://example.test/K30.zip", "View")
+    assert "status 304" in str(caught.value)

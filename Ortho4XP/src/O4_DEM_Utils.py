@@ -1111,6 +1111,81 @@ HTTP_REQUEST_ATTEMPT_CAP = 6
 #: Seconds one base-tile GET may take.
 HTTP_REQUEST_TIMEOUT_S = 10
 
+#: Redirect hops :func:`http_request` follows before refusing (issue
+#: #193).  Named so a twin can prove the bound instead of waiting out
+#: ``requests``' own 30-hop default.  Five is far above what any real
+#: service needs (viewfinderpanoramas.org's http -> https move is ONE)
+#: and far below the cost of the default: measured 2026-10-02 against a
+#: looping fake server, a redirect loop cost 31 requests per attempt x
+#: :data:`HTTP_REQUEST_ATTEMPT_CAP` attempts = 186 requests and 62 s of
+#: exponential back-off, and then refused with "failed on the
+#: transport", never naming the redirect at all.
+HTTP_REQUEST_REDIRECT_HOPS = 5
+
+#: Statuses :func:`http_request` follows.  301/302 are the pair #193
+#: names (viewfinderpanoramas.org answers 301 on http); 303/307/308 are
+#: the same answer in later HTTP revisions, and a GET -- the only method
+#: this transport issues -- is safe to repeat under all five.
+HTTP_REQUEST_REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+
+
+def http_request_get_following_redirects(session, url, source,
+                                         verbose=False):
+    """One GET, following at most :data:`HTTP_REQUEST_REDIRECT_HOPS`
+    redirects EXPLICITLY; ``(response, chain)``.
+
+    ``requests`` follows redirects on its own, up to thirty, and says
+    nothing about it -- so a moved host worked by accident and a looping
+    one burned 186 requests before refusing (both measured 2026-10-02;
+    #193).  The follow is made explicit here so that it is BOUNDED, so
+    that each hop is RECORDED (``chain``, lifted onto the response as
+    ``o4_redirect_chain`` and printed), and so that exhausting the bound
+    refuses NAMING THE REDIRECT instead of looking like a dead
+    transport.  A same-host hop is the quiet case; a hop that changes
+    host is followed too -- narrowing that would be a new refusal for
+    any provider that later rides a CDN -- but says so on one line.
+
+    A 3xx this function cannot follow (no ``Location``, a 304, a status
+    outside :data:`HTTP_REQUEST_REDIRECT_STATUSES`) is returned AS IS,
+    so the one outcome classifier still judges it.
+    """
+    from urllib.parse import urljoin, urlparse
+
+    chain = []
+    current = url
+    for _hop in range(HTTP_REQUEST_REDIRECT_HOPS + 1):
+        response = session.get(current, timeout=HTTP_REQUEST_TIMEOUT_S,
+                               allow_redirects=False)
+        status = int(response.status_code)
+        location = (response.headers or {}).get("Location")
+        if status not in HTTP_REQUEST_REDIRECT_STATUSES or not location:
+            if chain:
+                response.o4_redirect_chain = list(chain)
+                UI.vprint(1, "    ", source, "followed", len(chain),
+                          "redirect(s):", " -> ".join(chain))
+            else:
+                response.o4_redirect_chain = []
+            return (response, chain)
+        target = urljoin(current, location)
+        if urlparse(target).hostname != urlparse(current).hostname:
+            UI.vprint(1, "    ", source, "redirect leaves the host:",
+                      current, "->", target)
+        elif verbose:
+            UI.vprint(2, "    ", source, "redirected", status, "to", target)
+        response.close()
+        chain.append("%d %s" % (status, target))
+        current = target
+    # The bound is spent and the host is still redirecting: it will not
+    # serve this object, and repeating identical GETs cannot change that
+    # (the UNAVAILABLE precedent a few lines below -- a server that never
+    # looked for the file is refused now, not five times more).
+    raise ElevationDownloadRefused(
+        "the %s elevation download of %s was REDIRECTED more than %d "
+        "times (%s) -- the host will not serve this object, so this "
+        "build will not fall back to an all-zero elevation raster; "
+        "check the provider's download_url_template in its .elv"
+        % (source, url, HTTP_REQUEST_REDIRECT_HOPS, " -> ".join(chain)))
+
 
 def http_request(url, source, verbose=False):
     # Guarded import of the process-wide throughput meter (sanctioned
@@ -1138,7 +1213,8 @@ def http_request(url, source, verbose=False):
             return 0
         try:
             t0 = time.time()
-            r = s.get(url, timeout=HTTP_REQUEST_TIMEOUT_S)
+            (r, _redirects) = http_request_get_following_redirects(
+                s, url, source, verbose)
             elapsed = time.time() - t0
             # THE ONE OUTCOME LAW, classified on the STATUS INTEGER
             # (issues #124/#173).  The historic test was a substring of

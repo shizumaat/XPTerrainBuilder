@@ -947,3 +947,57 @@ def test_manual_setup_reports_dropped_state(tmp_path, monkeypatch, shipped_regis
         INSETS.manual_elevation_setup_for_tile(64, -20)[0]["already_dropped"]
         is True
     )
+
+
+# ---------------------------------------------------------------------------
+# #193 -- every shipped provider URL is https, and the ONE exception is
+# named here on purpose
+# ---------------------------------------------------------------------------
+#: The only ``http://`` host left in the shipped registry, and why it is
+#: still there: Sardinia's URL is a WCS SERVICE endpoint read by GDAL's
+#: WCS driver, not by ``http_request``, and it was verified live over
+#: plain http on 2026-07-16.  Switching an endpoint nobody has re-probed
+#: is a change to a working provider made blind, so it is reported, not
+#: done (#193).  Any OTHER http:// host added to a ``.elv`` fails this
+#: twin: viewfinderpanoramas.org answered 301 on http and every dem3 zip
+#: came back "status 400" before VIEWFINDER1/3 moved to https.
+EXPECTED_PLAIN_HTTP_HOSTS = {
+    "SARDINIA1M": {"webgis2.regione.sardegna.it"},
+}
+
+
+def _elv_urls(path):
+    import re
+
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+            for match in re.finditer(r"https?://[^\s\"']+", line):
+                yield match.group(0)
+
+
+def test_no_new_plain_http_provider_urls():
+    found = {}
+    for name in sorted(os.listdir(SHIPPED_PROVIDERS_DIRECTORY)):
+        if not name.endswith(".elv"):
+            continue
+        code = name[:-4]
+        hosts = set()
+        for url in _elv_urls(os.path.join(SHIPPED_PROVIDERS_DIRECTORY, name)):
+            if url.startswith("http://"):
+                hosts.add(url[len("http://"):].split("/", 1)[0].split(":")[0])
+        if hosts:
+            found[code] = hosts
+    assert found == EXPECTED_PLAIN_HTTP_HOSTS
+
+
+def test_the_two_viewfinder_providers_are_https():
+    """#193/#173: the http URL answers 301 and every dem3 zip failed as
+    'status 400'; both providers are on https now."""
+    providers = INSETS.initialize_elevation_providers_dict(
+        SHIPPED_PROVIDERS_DIRECTORY)
+    for code in ("VIEWFINDER1", "VIEWFINDER3"):
+        template = providers[code]["download_url_template"]
+        assert template.startswith("https://"), code

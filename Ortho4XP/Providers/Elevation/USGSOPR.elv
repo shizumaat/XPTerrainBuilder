@@ -46,6 +46,25 @@ ladder_judge=airport_cover
 # thousands of ~1 km OPR tiles, many stripped (read whole).
 supports_wide_area=false
 
+# WHOLE-TILE PREFETCH (#158).  The OPR products are STRIPPED GeoTIFFs --
+# WA_NorthEast_B22 over KGEG is 64 tiles of 2000 x 2000 px at 0.5 m in
+# 2000 x 1 DEFLATE strips with no overviews, ~16 MB each -- and a strip
+# as wide as the raster must be decoded whole for any pixel in it, so a
+# windowed /vsicurl read never moves LESS than the files (measured
+# 2026-10-02 on a loopback layout: 1.14x the whole bytes for a 20 % box,
+# 2.00x for the full box, 6.5 requests per tile).  Each stripped tile
+# therefore comes WHOLE into scratch beside the inset over this many
+# connections and the warp reads local files; the field measurement in
+# #158 moved 128 MB over 8 parallel whole downloads at 2.2 MB/s
+# aggregate against the windowed read's 1.25 MB/s.  Tiled COGs are
+# untouched by this (PANC's 68 of them fetch in 1:56).
+fetch_slots=8
+# Judged BEFORE any GET.  KGEG's campaign is ~1 GB; above this the
+# windowed read -- slower, but needing no scratch beside the inset --
+# carries the fetch instead (never a refusal: /vsicurl is a complete
+# fetch of the same window).
+prefetch_whole_max_bytes=3e9
+
 # Same regions as USGS3DEP.elv (3DEP is US-only, RULINGS 2026-09-16c).
 coverage_bbox=-125.0,24.0,-95.15,49.05
 coverage_bbox=-95.25,48.9,-94.9,49.45

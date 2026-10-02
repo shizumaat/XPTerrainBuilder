@@ -1,0 +1,278 @@
+name: Windows full tile smoke (issue #250)
+
+# DISPATCH ONLY — never a gate on push or pull_request.  This workflow makes
+# REAL HTTPS requests to elevation, Overpass and imagery servers and takes
+# tens of minutes; a gate that did that would be a denial-of-service against
+# those servers and against the runner budget both.  ci.yml's Windows job
+# stays what it is (the suite, network REFUSED at the socket).
+#
+# OWNER REQUIREMENT (Beta 2 gate, 2026-10-02, issue #250): before Beta 2
+# ships we must have SEEN a full tile build complete on Windows, including
+# every download it needs — elevation rungs, OSM, imagery, airport data —
+# with the log to prove it.  Nothing before this had: CI runs the suite with
+# `tests/conftest.py` refusing every non-loopback connect, and
+# win-lemd-elevation.yml (#121) fetches ELEVATION ALONE through the vector
+# step.  No Windows run had ever produced a .dsf from live data.
+#
+# WHAT THIS RUNS.  `scripts/check_frozen_tile.py --pass full-tile`, which
+# drives the engine's own JSON-lines protocol (`--engine-jsonl`) — the same
+# entry `Sources/SceneryKit/OrthoEngineClient.swift` and the Qt front end
+# drive, with the same `{"cmd": "build", ...}` command and the front ends'
+# own step list (vector, mesh, masks, imagery).  The data root starts
+# holding ONE file, `Ortho4XP.cfg`, so every byte on disk afterwards came
+# down during the run.  NO cache is restored: `actions/setup-python`'s pip
+# cache covers the Python packages only, and the data root is a fresh
+# `$RUNNER_TEMP` directory on every run by construction.
+#
+# TWO ARMS, and the order matters:
+#   source — the engine from this checkout, under the runner's CPython.
+#            Cheap, and it is where a path-separator or encoding defect
+#            shows up first.
+#   frozen — the Windows engine frozen exactly as release.yml freezes it,
+#            driven through the shipped exe.  THE THING USERS GET, and the
+#            only arm that can catch a PyInstaller packaging defect.
+#
+# WHAT A RUNNER CANNOT SUPPLY.  There is no X-Plane install here, and two
+# build inputs come from one: the airport's `apt.dat` (reached through
+# `custom_scenery_dir`) and the `Custom Data/CIFP/<ICAO>.dat` that
+# `cifp_data_path` names.  The apt.dat is fetched LIVE from the X-Plane
+# Scenery Gateway for the one airport (redistributable, one airport); the
+# CIFP record is NOT redistributable, so the repository's own checked-in
+# CYXY fixture stands in.  Neither substitution is silent: the driver
+# writes `substitutions.json`, prints a SUBSTITUTIONS block naming what a
+# real install provides instead, and the job summary carries it.  The
+# vendored tools (DSFTool.exe, Triangle4XP.exe, nvcompress, osmium.exe in
+# `Ortho4XP/Utils/win`) are what the release ships, so those are NOT
+# substitutions — the runner uses exactly the user's binaries.
+#
+# Dispatch:
+#   gh workflow run win-tile-smoke.yml --ref claude/wintile \
+#     -f arm=source -f lat=60 -f lon=-136 -f zl=15
+# THE BOOTSTRAP TRIGGER, and why it is not a gate.  `workflow_dispatch`
+# registers ONLY from the default branch: until this file is on `main`,
+# `gh workflow run win-tile-smoke.yml --ref claude/wintile` answers 404 and
+# the workflow cannot be run at all — which would mean shipping a smoke test
+# nobody had ever seen run.  So a `push` trigger is scoped to a branch
+# namespace that exists for nothing else: `claude/wintile-run/**`.  It
+# matches no lane branch, no release branch and `main` least of all, and it
+# fires on no pull_request, so it gates nothing and costs nothing until
+# someone deliberately pushes a run branch.  Once this file is on `main`,
+# `workflow_dispatch` is the interface and the `push:` block below can go.
+on:
+  push:
+    branches: ["claude/wintile-run/**"]
+  workflow_dispatch:
+    inputs:
+      lat:
+        description: "Tile latitude (SW corner)"
+        default: "60"
+      lon:
+        description: "Tile longitude (SW corner)"
+        default: "-136"
+      icao:
+        description: "The airport auto-patch solves inside the tile"
+        default: "CYXY"
+      zl:
+        description: "Imagery zoom level — this is what bounds the imagery"
+        default: "15"
+      provider:
+        description: "Imagery provider code (no API key)"
+        default: "Arc"
+      arm:
+        description: "source | frozen | both"
+        default: "source"
+      deadline:
+        description: "Seconds the engine gets to reach RunDone"
+        default: "5400"
+
+env:
+  PYTHON_VERSION: "3.13"   # matches the vendored cp313 wheels in Utils/
+
+# A run branch pushed twice must not leave two 2-hour Windows jobs racing
+# for the same answer.
+concurrency:
+  group: win-tile-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    # `jobs.<id>.name` reads github/needs/strategy/matrix/vars/inputs and
+    # NOT `env`, so a title that named the tile would be repeating the
+    # fallbacks from a second place and could disagree with the run (it
+    # did: a zl13 run branch titled itself zl15).  The arm is the only
+    # thing the title needs; the values are in the step log and the job
+    # summary, which are where they are true.
+    name: "full tile build, real downloads (${{ matrix.arm }})"
+    runs-on: windows-latest
+    # Two hours: the budget is the IMAGERY, and it scales 4x per zoom level.
+    # At the default zl15 over a 1-degree tile the build downloads thousands
+    # of orthophoto tiles and DDS-compresses every texture.  The engine gets
+    # `deadline` seconds of that (default 5400) and the job keeps the rest
+    # for the install, the freeze and the artifact upload.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false        # the frozen arm's red must not hide source's
+      matrix:
+        arm: ${{ ((inputs.arm || 'source') == 'both' && fromJSON('["source","frozen"]')) || fromJSON(format('["{0}"]', inputs.arm || 'source')) }}
+    defaults:
+      run:
+        shell: bash           # one recipe; Git bash on the Windows runner
+    env:
+      # ONE resolution site for every knob, in the JOB's env — where the
+      # `inputs` context is available and every step can read it.  A
+      # `push` event carries no `inputs` at all, so each value falls back
+      # to the same default the dispatch form shows, and a run branch that
+      # wants another value edits the literal here.  That is also why the
+      # fallbacks are written out rather than hidden in a step.
+      LAT: ${{ inputs.lat || '60' }}
+      LON: ${{ inputs.lon || '-136' }}
+      ICAO: ${{ inputs.icao || 'CYXY' }}
+      ZL: ${{ inputs.zl || '15' }}
+      PROVIDER: ${{ inputs.provider || 'Arc' }}
+      DEADLINE: ${{ inputs.deadline || '5400' }}
+      # The engine writes non-ASCII airport names and the house spelling to
+      # its log; a cp1252 console is #171's crash.  The engine pins its own
+      # streams (`O4_Console_Encoding`), and this is the belt: if the pin
+      # ever regresses, the poison list in the driver catches it rather than
+      # the job dying with no log.
+      PYTHONUNBUFFERED: "1"
+      PYTHONFAULTHANDLER: "1"
+      LOGS: ${{ github.workspace }}/tile-smoke-logs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: Ortho4XP/requirements.txt
+
+      # EXACTLY ci.yml's Windows recipe (python-tests job), minus the
+      # dev/test tail this needs nothing from:
+      #   * the vendored cp313 wheels first (gdal, scikit-fmm) — the same
+      #     two the release installs;
+      #   * then the pins, with those two filtered out of requirements.txt.
+      - name: Install engine packages
+        working-directory: Ortho4XP
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install Utils/win/*.whl
+          grep -v '^gdal==' requirements.txt \
+            | grep -v '^scikit-fmm==' > reqs-smoke.txt
+          python -m pip install -r reqs-smoke.txt
+          python -m pip list
+
+      # ---- THE FROZEN ARM: release.yml's Windows freeze, unchanged -----
+      - name: Generate icon and version resource (frozen arm)
+        if: matrix.arm == 'frozen'
+        run: |
+          python scripts/make_icon.py --out Ortho4XP/Utils/icons/generated
+          python scripts/make_version_resource.py Ortho4XP/version_info.txt
+
+      - name: Freeze Qt app (frozen arm)
+        if: matrix.arm == 'frozen'
+        working-directory: Ortho4XP
+        run: |
+          python -m pip install pyinstaller
+          python -m PyInstaller Ortho4XP_Qt.spec --noconfirm
+
+      # ---- WHAT THE X-PLANE INSTALL WOULD HAVE SUPPLIED ----------------
+      # The X-Plane Scenery Gateway publishes per-airport apt.dat text
+      # through its public API.  Two requests: the airport record names a
+      # recommended scenery pack, and the pack carries the .dat as base64.
+      # This is a REAL download of airport data on Windows, which is one of
+      # the four classes #250 names.
+      #
+      # It is allowed to FAIL: a Gateway outage must not turn this smoke
+      # test red for a reason that has nothing to do with the engine.  When
+      # it fails the driver falls back to the repository fixture and records
+      # the substitution AND the coverage gap, which is reported rather than
+      # hidden.
+      - name: Airport data from the X-Plane Scenery Gateway
+        id: gateway
+        continue-on-error: true
+        run: |
+          mkdir -p "$LOGS"
+          python scripts/fetch_gateway_apt.py "$ICAO" \
+            --out "$LOGS/apt.dat" --record "$LOGS/gateway.json"
+
+      - name: Full tile build with every download real
+        run: |
+          mkdir -p "$LOGS"
+          if [ "${{ matrix.arm }}" = "frozen" ]; then
+            entry="Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe"
+          else
+            entry="Ortho4XP/Ortho4XP.py"
+          fi
+          apt=""
+          if [ -s "$LOGS/apt.dat" ]; then
+            apt="--apt-dat $LOGS/apt.dat"
+          else
+            echo "::warning::no Scenery Gateway apt.dat — the driver will" \
+                 "substitute the repository fixture and record the gap"
+          fi
+          python scripts/check_frozen_tile.py "$entry" \
+            --pass full-tile \
+            --lat "$LAT" --lon "$LON" \
+            --icao "$ICAO" \
+            --provider "$PROVIDER" \
+            --zl "$ZL" \
+            --deadline "$DEADLINE" \
+            --engine-python "$(python -c 'import sys;print(sys.executable)')" \
+            $apt \
+            --logs "$LOGS"
+
+      # The download table is the artifact a human reads first, so it goes
+      # in the job summary whether the build passed or failed — a red run's
+      # table is what says WHICH class did not come down.
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## ${{ matrix.arm }} arm — $ICAO $LAT $LON zl$ZL ($PROVIDER)"
+            echo
+            if [ -f "$LOGS/download-table.md" ]; then
+              cat "$LOGS/download-table.md"
+            else
+              echo "_no download table: the driver did not reach the"
+              echo "tabulation step (see the step log)_"
+            fi
+            echo
+            echo "### Substitutions for the absent X-Plane install"
+            echo
+            if [ -f "$LOGS/substitutions.json" ]; then
+              echo '```json'
+              cat "$LOGS/substitutions.json"
+              echo '```'
+            else
+              echo "_none recorded — the driver did not reach the fixture step_"
+            fi
+            echo
+            echo "### Scenery Gateway fetch"
+            echo
+            if [ -f "$LOGS/gateway.json" ]; then
+              echo '```json'
+              cat "$LOGS/gateway.json"
+              echo '```'
+            else
+              echo "_the Gateway step produced no record_"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The engine log, the cfg, the patch + sidecar, the solver's report,
+      # the download table and the substitution record.  NOT the imagery:
+      # it is hundreds of megabytes and proves nothing a byte count does
+      # not (the table carries files and bytes per class).
+      - name: Logs and witnesses
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tile-smoke-${{ matrix.arm }}
+          path: |
+            ${{ env.LOGS }}/*.log
+            ${{ env.LOGS }}/*.json
+            ${{ env.LOGS }}/*.md
+            ${{ env.LOGS }}/*.osm
+            ${{ env.LOGS }}/Ortho4XP.cfg
+          if-no-files-found: warn
+          retention-days: 30

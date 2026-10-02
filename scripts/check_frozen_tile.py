@@ -517,7 +517,8 @@ def _tail(path, lines=60):
 
 
 def _drive(binary, work, data_root, command, jsonl_log, stderr_log,
-           deadline, label, tolerated=None, extra_env=None):
+           deadline, label, tolerated=None, extra_env=None,
+           engine_python=None, hostile_proj=True):
     """Run one ``build`` command through the frozen binary's protocol.
 
     Returns ``(stream, elapsed, failures)``.  The protocol-level
@@ -532,16 +533,42 @@ def _drive(binary, work, data_root, command, jsonl_log, stderr_log,
     a property of the fixture rather than of the frozen artifact (see
     :func:`run_airport`).  It is never a blanket pardon — every other
     terminal error still fails.
+
+    ``engine_python`` is the interpreter to put in front of a SOURCE
+    entry (``--arm source``, see :func:`_engine_argv`); a frozen bundle
+    ignores it.
+
+    ``hostile_proj`` points ``PROJ_LIB``/``PROJ_DATA`` at a nonexistent
+    directory, which is the right thing to do to a FROZEN bundle and the
+    wrong thing to do to a source tree — see the comment at the
+    assignment.
     """
     failures = []
     started = time.time()
     environment = dict(os.environ)
     environment["ORTHO4XP_DATA_ROOT"] = data_root
     environment["PYTHONHASHSEED"] = "0"
-    # The bundle must find its own PROJ data whatever the shell says
-    # — the same hostile environment the PROJ self-check uses.
-    environment["PROJ_LIB"] = os.path.join(work, "nonexistent-proj")
-    environment["PROJ_DATA"] = environment["PROJ_LIB"]
+    # THE HOSTILE PROJ ENVIRONMENT, and why it is not unconditional.
+    # A FROZEN bundle must find its own PROJ data whatever the shell says
+    # (``O4_Proj_Runtime.scrub_proj_env`` drops PROJ_* precisely because
+    # the bundle ships its own proj.db), so pointing these at nothing is
+    # the same hostile environment release.yml's ``--proj-selfcheck``
+    # step uses, and the frozen passes keep it.
+    #
+    # A SOURCE run is the opposite.  The scrub is conditioned on the
+    # bundle, so a source tree inherits the bogus search path, GDAL's
+    # ``osr.ImportFromEPSG(4326)`` dies with "Cannot find proj.db", and
+    # the engine REFUSES to build — "PROJ runtime is broken, builds are
+    # disabled to avoid a silently degraded tile", which is exactly the
+    # right behaviour and exactly not the question this pass is asking.
+    # MEASURED, run 37033688936: the vector step failed in 0.5 s with
+    # ``sys.frozen: False`` and
+    # ``osr.GetPROJSearchPaths(): ['...\\nonexistent-proj']``.  So the
+    # full-tile pass leaves the runner's own PROJ environment alone and
+    # the PROJ question stays where it already has an answer.
+    if hostile_proj:
+        environment["PROJ_LIB"] = os.path.join(work, "nonexistent-proj")
+        environment["PROJ_DATA"] = environment["PROJ_LIB"]
     # ``--xplat-dump`` arms the engine's own per-stage digest writer
     # (``auto_patch_v2/pipeline/xplat.py``).  It travels in the CHILD's
     # environment because the driver never imports the engine — the bundle
@@ -550,13 +577,13 @@ def _drive(binary, work, data_root, command, jsonl_log, stderr_log,
         environment[key] = value
 
     print("   fixture data root: %s" % data_root)
-    print("   driving %s --engine-jsonl (%s, steps %s, deadline %d s)"
-          % (binary, label, ",".join(command.get("steps") or ["(all)"]),
-             deadline))
+    print("   driving %s (%s, steps %s, deadline %d s)"
+          % (" ".join(_engine_argv(binary, engine_python)), label,
+             ",".join(command.get("steps") or ["(all)"]), deadline))
 
     with open(stderr_log, "wb") as errors:
         child = subprocess.Popen(
-            [binary, "--engine-jsonl"],
+            _engine_argv(binary, engine_python),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=errors,
@@ -1386,6 +1413,761 @@ def run_lemd_elevation(binary, repo_root, log_dir, deadline, keep,
         log_dir, stderr_log, jsonl_log)
 
 
+# ---------------------------------------------------------------------------
+# PASS 4 (dispatch only, never a release gate): A FULL TILE BUILD WITH
+# EVERY DOWNLOAD REAL, ON WINDOWS (issue #250).
+#
+# Every other pass in this file is deliberately offline or narrow: pass 1
+# builds a tile from a hand-written .hgt with seeded empty OSM caches and
+# imagery off, pass 2 solves one airport out of a checked-in fixture, and
+# pass 3 fetches elevation ALONE.  None of them has ever asked the
+# question the owner asked on 2026-10-02: can a Windows machine with no
+# Ortho4XP data at all build a whole tile, fetching every artefact the
+# build needs as it goes?
+#
+# So this pass starts from a data root holding ONE file — ``Ortho4XP.cfg``
+# — and runs the front ends' own step list (vector, mesh, masks,
+# imagery) over a real tile.  Everything else on disk afterwards was
+# downloaded on Windows during the run, which is also what makes the
+# download table below honest: on an empty root there is nothing else it
+# could be.
+#
+# WHAT A RUNNER CANNOT SUPPLY, AND WHAT IS SUBSTITUTED INSTEAD.  A user's
+# machine has an X-Plane install; a GitHub runner does not.  Two inputs
+# come from it, and both are RECORDED rather than faked silently (every
+# substitution lands in ``substitutions.json`` beside the logs and in the
+# printed SUBSTITUTIONS block):
+#
+#   * ``apt.dat`` — the airport's own geometry, reached through
+#     ``custom_scenery_dir``.  Redistributable: the X-Plane Scenery
+#     Gateway publishes per-airport apt.dat text under its own terms, and
+#     the workflow fetches the one airport.  A real install carries the
+#     whole global apt.dat plus whatever the user has in Custom Scenery.
+#   * ``Custom Data/CIFP/<ICAO>.dat`` — the procedures file
+#     ``cifp_data_path`` points at.  X-Plane's CIFP data is NOT
+#     redistributable, so this pass uses the repository's own checked-in
+#     CYXY fixture record (``tests/auto_patch_v2/fixtures/CYXY/CIFP``).
+#     That is a COVERAGE GAP, named as one: the CIFP *reader* is
+#     exercised on Windows, the breadth of a real install's CIFP tree is
+#     not.
+#
+# Nothing else is substituted.  DSFTool, Triangle4XP, osmium and
+# nvcompress are vendored in ``Ortho4XP/Utils/win`` and ship in the
+# release, so the runner uses exactly what a user gets; no X-Plane
+# Global Scenery raster is read by the build (the DSF step writes a new
+# .dsf, it does not merge an existing one).
+# ---------------------------------------------------------------------------
+#: CYXY (Whitehorse, Yukon) — a small airport on a modest tile, the same
+#: airport the offline airport pass solves, so a Windows red here is
+#: attributable to the PLATFORM rather than to a new airport.
+FULL_TILE_ICAO = "CYXY"
+FULL_TILE_LAT = 60
+FULL_TILE_LON = -136
+#: The front ends' own step list for "build this tile" (see
+#: ``Sources/SceneryKit/OrthoEngineClient.swift`` and the Qt build
+#: button).  ``masks`` is INCLUDED here, unlike pass 1 — a user's build
+#: runs it, and its coastline/bathymetry limbs are among the downloads
+#: this pass exists to exercise.
+FULL_TILE_STEPS = ("vector", "mesh", "masks", "imagery")
+
+FULL_TILE_CONFIG = """# Generated by scripts/check_frozen_tile.py --pass full-tile (#250).
+# NOTHING is pinned to a fixture: every elevation rung resolves and
+# DOWNLOADS the way a user's first build does.
+custom_dem=
+base_elevation_source=auto
+elevation_level=auto
+# The airport elevation insets are a download class of their own (the
+# national meter-class rasters) — ON, every provider.
+airport_elevation_insets=%(icao)s
+airport_elevation_providers=auto
+# THE TWO SWITCHES THAT MAKE THIS PASS REAL.  skip_downloads=True is
+# "do not fetch imagery" and skip_converts=True is "do not build DDS";
+# both are False here, so the orthophoto tiles come down over HTTPS and
+# nvcompress runs on them.
+skip_downloads=False
+skip_converts=False
+# AUTO-PATCH ON, by ICAO: the airport is solved inside this build, so the
+# patch + sidecar witnesses below are of a WINDOWS solve on live data.
+auto_patch=ICAO
+cifp_data_path=%(cifp)s
+custom_scenery_dir=%(scenery)s
+# THE GEOFABRIK LIMB, OFF.  ``osm_regional_extracts`` ships True, and
+# on this tile it would download Canada's whole .osm.pbf extract — a
+# multi-hundred-megabyte transfer that proves nothing Overpass does not
+# and would dominate the runner's budget.  Overpass is also the path a
+# first build on a cold cache actually takes.
+osm_regional_extracts=False
+# The shipped default: major roads tile-wide plus every road near an
+# airport, which is TWO Overpass layers rather than one.
+road_level=auto
+# THE THREE KEYS THAT WOULD OTHERWISE DEMAND AN X-PLANE INSTALL, pinned
+# to their shipped defaults so a changed default cannot silently turn
+# this pass into one that needs a Global Scenery donor:
+#   * texture_mode: ``default_xplane`` / ``airport_ortho`` both raise
+#     "requires the default Global Scenery base-mesh DSF";
+#   * dsf_bathymetry: ``False`` demands a donor raster and hard-errors
+#     without one — ``auto`` synthesises from the tile's own DEM;
+#   * the overlay sources: read by the overlays step, which is not in
+#     this pass's step list at all.
+texture_mode=full_ortho
+water_tech=XP12
+dsf_bathymetry=auto
+custom_overlay_src=
+custom_overlay_src_alternate=
+max_build_slots=1
+verbosity=2
+"""
+
+#: THE WINDOWS POISON LIST (#250 §4).  Any of these in the engine's log
+#: fails the pass, whatever the exit code said.  Each is a class that has
+#: actually shipped broken on Windows and nowhere else.
+FULL_TILE_POISON = (
+    ("Traceback (most recent call last)",
+     "a Python traceback reached the log"),
+    ("WinError",
+     "a Windows API error (a path, a handle or a locked file)"),
+    ("UnicodeEncodeError",
+     "the #171 console class: a non-ASCII line killed a writer"),
+    ("'charmap' codec",
+     "a cp1252 stream was written to without the console pin"),
+    ("cp1252",
+     "a cp1252 codec was named at all (#125/#171)"),
+    ("PermissionError",
+     "a file could not be opened — the Windows locked-file class"),
+    ("UnicodeDecodeError",
+     "a byte stream was read under the wrong codec"),
+)
+
+#: A DOWNLOAD THAT GAVE UP.  The engine's own wording, from the three
+#: fetchers: ``O4_DEM_Utils`` (elevation base), ``O4_Tile_Utils`` /
+#: ``O4_Imagery_Utils`` (orthophotos) and ``O4_Airport_Elevation_Insets``
+#: (the inset rungs).  These are VERDICTS, not retries — see
+#: :data:`FULL_TILE_RETRY_MARKERS`.
+FULL_TILE_GIVEUP_MARKERS = (
+    "download failed",
+    "every texture download failed",
+    "max retries exceeded",
+    "OSM overpass server answer was corrupted",
+    "continuing without insets",
+    "failed without a durable answer",
+)
+
+#: RETRY lines — counted and printed, never fatal on their own: a runner
+#: whose connection is reset once and served on the retry has proven the
+#: retry works (the Viewfinderpanoramas precedent, run 36666292962).  The
+#: on-disk witnesses below are what decide whether the bytes arrived.
+FULL_TILE_RETRY_MARKERS = (
+    "server may be down or busy",
+    "Server could not be connected, retrying",
+)
+
+#: The data-root subdirectories, by DOWNLOAD CLASS, for the job summary
+#: table.  ``Tiles``/``Geotiffs``/``Masks``/``tmp`` are DERIVED — built
+#: on the runner out of the fetched bytes — and are tabulated separately
+#: so the table never claims a computed file was downloaded.
+FULL_TILE_DOWNLOAD_CLASSES = (
+    ("Elevation_data", "elevation (base rungs + airport insets)"),
+    ("OSM_data", "OpenStreetMap (Overpass, per layer)"),
+    ("Orthophotos", "imagery (orthophoto tiles)"),
+    ("Airport_mod_cache", "airport data (mod cache)"),
+)
+FULL_TILE_DERIVED_CLASSES = (
+    ("Tiles", "the built scenery (.dsf, mesh, textures)"),
+    ("Geotiffs", "assembled imagery rasters"),
+    ("Masks", "water / coastline masks"),
+    ("Patches", "the emitted auto-patch + sidecar"),
+    ("tmp", "the solver's reports and scratch"),
+)
+
+#: A URL in a log line.  The host is all this pass records — never the
+#: query string, which can carry a provider key.
+_URL = re.compile(r"https?://([A-Za-z0-9._\-]+(?::\d+)?)")
+
+
+def _engine_argv(binary, engine_python=None):
+    """The child's argv: ``[<binary>, --engine-jsonl]`` for a frozen
+    bundle, with the interpreter in front for a SOURCE entry.
+
+    ``--arm source`` points this check at ``Ortho4XP/Ortho4XP.py``, which
+    is the SAME protocol entry the frozen bundle exposes (``Ortho4XP.py``
+    is what PyInstaller freezes) — so one driver covers both arms and
+    neither gets its own private recipe.
+    """
+    if binary.lower().endswith(".py"):
+        return [engine_python or sys.executable, binary, "--engine-jsonl"]
+    return [binary, "--engine-jsonl"]
+
+
+def _tree_bytes(root):
+    """``(files, bytes)`` under ``root``, 0/0 when it does not exist."""
+    files = total = 0
+    for base, _dirs, names in os.walk(root):
+        for name in names:
+            try:
+                total += os.path.getsize(os.path.join(base, name))
+            except OSError:
+                continue
+            files += 1
+    return files, total
+
+
+def _hosts(text):
+    """``{host: hits}`` over every URL the logs printed."""
+    counts = {}
+    for host in _URL.findall(text):
+        counts[host] = counts.get(host, 0) + 1
+    return counts
+
+
+def _count(text, markers):
+    """``[(marker, hits, first line)]`` for the markers that appear."""
+    out = []
+    lines = text.splitlines()
+    for marker in markers:
+        hits = [l.strip() for l in lines if marker in l]
+        if hits:
+            out.append((marker, len(hits), hits[0][:300]))
+    return out
+
+
+def _download_table(data_root, log_text, path):
+    """THE DOWNLOAD TABLE (#250 §4) — markdown, for the job summary.
+
+    Honest by construction: the data root started EMPTY, so every byte
+    under a download class came down during this run.  The hosts come
+    from the logs, the retries and failures from the engine's own
+    wording, and the derived classes are reported SEPARATELY so nothing
+    computed on the runner is counted as a download.
+    """
+    rows = []
+    downloaded_files = downloaded_bytes = 0
+    for name, label in FULL_TILE_DOWNLOAD_CLASSES:
+        files, size = _tree_bytes(os.path.join(data_root, name))
+        downloaded_files += files
+        downloaded_bytes += size
+        rows.append((name, label, files, size))
+    derived = []
+    for name, label in FULL_TILE_DERIVED_CLASSES:
+        derived.append((name,) + (label,) + _tree_bytes(
+            os.path.join(data_root, name)))
+
+    hosts = _hosts(log_text)
+    retries = _count(log_text, FULL_TILE_RETRY_MARKERS)
+    giveups = _count(log_text, FULL_TILE_GIVEUP_MARKERS)
+
+    lines = []
+    lines.append("### Downloads on this Windows run (empty data root)")
+    lines.append("")
+    lines.append("| class | what it holds | files | bytes |")
+    lines.append("|---|---|--:|--:|")
+    for name, label, files, size in rows:
+        lines.append("| `%s` | %s | %d | %d |" % (name, label, files, size))
+    lines.append("| **total downloaded** | | **%d** | **%d** |"
+                 % (downloaded_files, downloaded_bytes))
+    lines.append("")
+    lines.append("### Derived on the runner (NOT downloads)")
+    lines.append("")
+    lines.append("| class | what it holds | files | bytes |")
+    lines.append("|---|---|--:|--:|")
+    for name, label, files, size in derived:
+        lines.append("| `%s` | %s | %d | %d |" % (name, label, files, size))
+    lines.append("")
+    lines.append("### URL hosts the engine logged")
+    lines.append("")
+    # PARTIAL BY CONSTRUCTION, and the table has to say so itself.
+    # These are the hosts that appear in a LOG LINE, which is not the
+    # same as the hosts that were contacted: GDAL's /vsicurl and the
+    # STAC search print their URLs under CPL_DEBUG, while the imagery
+    # fetcher and the Overpass reader name a PROVIDER and a LAYER
+    # rather than a URL.  MEASURED, runs 37034293088 and 37037617202:
+    # one host listed, while the byte counts above show elevation, OSM
+    # and imagery all arriving.  A reader who took this table for the
+    # whole traffic would conclude three download classes came from
+    # nowhere — the census-wrapper class, where the artefact looks
+    # right and is not — so the caveat rides IN the table rather than
+    # in a commit message nobody reads next year.
+    lines.append("_Hosts that appear in a log line — NOT the whole "
+                 "traffic.  GDAL's /vsicurl and the STAC search print "
+                 "their URLs; the imagery fetcher and the Overpass "
+                 "reader name a provider and a layer instead.  The "
+                 "per-class files and bytes above are the authoritative "
+                 "record of what came down._")
+    lines.append("")
+    if hosts:
+        lines.append("| host | log lines |")
+        lines.append("|---|--:|")
+        for host in sorted(hosts, key=lambda h: (-hosts[h], h)):
+            lines.append("| `%s` | %d |" % (host, hosts[host]))
+    else:
+        lines.append("_no URL in any log line, which on its own says "
+                     "nothing: read the byte counts above_")
+    lines.append("")
+    lines.append("### Retries and give-ups")
+    lines.append("")
+    lines.append("| kind | marker | lines | first |")
+    lines.append("|---|---|--:|---|")
+    for marker, hits, first in retries:
+        lines.append("| retry | `%s` | %d | %s |" % (marker, hits, first))
+    for marker, hits, first in giveups:
+        lines.append("| **GAVE UP** | `%s` | %d | %s |" % (marker, hits, first))
+    if not retries and not giveups:
+        lines.append("| — | _none_ | 0 | |")
+    text = "\n".join(lines) + "\n"
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+    print(text)
+    return downloaded_files, downloaded_bytes, giveups
+
+
+def _tile_dsfs(data_root, suffix=".dsf"):
+    """Every ``<suffix>`` file under the built tile's ``Earth nav data``.
+
+    RECURSIVE, and that is the whole point.  ``FNAMES.dsf_file`` joins
+    ``build_dir`` + ``"Earth nav data"`` + ``FNAMES.long_latlon(lat, lon)``,
+    and ``long_latlon`` is ITSELF A TWO-LEVEL PATH — the 10-degree block
+    directory and then the tile — so the real file is
+
+        Tiles/zOrtho4XP_+60-136/Earth nav data/+60-140/+60-136.dsf
+
+    MEASURED, run 37034293088: a glob with one level too few found
+    nothing on a build whose own log read "DSF file encoded, total size
+    is : 37996339 bytes (36.2M)" and "*Activating DSF file." — the tile
+    was there and the check said it was not.  Worse, the same mistake
+    made the ``.dsf.tmp`` leftover check VACUOUS: it could never have
+    seen a surviving temp file either.  ``**`` with ``recursive=True``
+    matches zero directories as well as two, so this is right whatever
+    depth ``long_latlon`` is spelled at.
+    """
+    return glob.glob(os.path.join(data_root, "Tiles", "*", "Earth nav data",
+                                  "**", "*" + suffix), recursive=True)
+
+
+def _write_full_tile_fixture(root, repo_root, lat, lon, icao, apt_dat,
+                             cifp_dat):
+    """An EMPTY data root plus the X-Plane-shaped tree the install supplies.
+
+    Returns ``(data_root, xplane_root, substitutions)``.  ``substitutions``
+    is the record the brief requires: what was provided from where, and
+    what a real X-Plane install has instead.
+    """
+    data_root = os.path.join(root, "data")
+    xplane_root = os.path.join(root, "xplane")
+    os.makedirs(data_root, exist_ok=True)
+    substitutions = []
+
+    # ---- Custom Data/CIFP: the procedures file ``cifp_data_path`` names.
+    cifp = os.path.join(xplane_root, "Custom Data", "CIFP")
+    os.makedirs(cifp, exist_ok=True)
+    if not cifp_dat:
+        cifp_dat = os.path.join(_airport_fixture_dir(repo_root), "CIFP",
+                                "%s.dat" % icao)
+        source = ("the repository's own checked-in fixture "
+                  "(tests/auto_patch_v2/fixtures/%s/CIFP)" % icao)
+        real = ("X-Plane's Custom Data/CIFP tree — the whole world's "
+                "procedures, not one airport's")
+    else:
+        source = cifp_dat
+        real = "X-Plane's own Custom Data/CIFP tree"
+    if not os.path.isfile(cifp_dat):
+        raise RuntimeError("no CIFP record for %s at %s" % (icao, cifp_dat))
+    shutil.copy2(cifp_dat, os.path.join(cifp, "%s.dat" % icao))
+    substitutions.append({
+        "input": "Custom Data/CIFP/%s.dat" % icao,
+        "provided_from": source,
+        "bytes": os.path.getsize(cifp_dat),
+        "a_real_install_provides": real,
+        "redistributable": "repository fixture" if "fixture" in source
+                           else "caller-supplied",
+        "coverage_gap": ("X-Plane's CIFP data is not redistributable, so "
+                         "this run proves the CIFP READER on Windows, not "
+                         "the breadth of a real install's CIFP tree"),
+    })
+
+    # ---- Custom Scenery: the airport's apt.dat.
+    scenery = os.path.join(xplane_root, "Custom Scenery",
+                           "%s Gateway" % icao, "Earth nav data")
+    os.makedirs(scenery, exist_ok=True)
+    if apt_dat and os.path.isfile(apt_dat):
+        shutil.copy2(apt_dat, os.path.join(scenery, "apt.dat"))
+        substitutions.append({
+            "input": "Custom Scenery/.../Earth nav data/apt.dat",
+            "provided_from": apt_dat,
+            "bytes": os.path.getsize(apt_dat),
+            "a_real_install_provides": ("the global apt.dat in Global "
+                                        "Scenery plus the user's own "
+                                        "Custom Scenery airports"),
+            "redistributable": "X-Plane Scenery Gateway, one airport",
+            "coverage_gap": ("one airport, so no Custom Scenery precedence "
+                             "or duplicate-ICAO resolution is exercised"),
+        })
+    else:
+        fallback = os.path.join(
+            _airport_fixture_dir(repo_root), "Custom Scenery")
+        if not os.path.isdir(fallback):
+            raise RuntimeError("no apt.dat supplied and no fixture at %s"
+                               % fallback)
+        shutil.rmtree(os.path.join(xplane_root, "Custom Scenery"),
+                      ignore_errors=True)
+        shutil.copytree(fallback, os.path.join(xplane_root, "Custom Scenery"))
+        substitutions.append({
+            "input": "Custom Scenery/.../Earth nav data/apt.dat",
+            "provided_from": ("the repository's own checked-in fixture "
+                              "(tests/auto_patch_v2/fixtures/%s/Custom "
+                              "Scenery) — NO apt.dat was supplied" % icao),
+            "bytes": None,
+            "a_real_install_provides": ("the global apt.dat plus the user's "
+                                        "Custom Scenery airports"),
+            "redistributable": "repository fixture",
+            "coverage_gap": ("the Scenery Gateway fetch did not happen, so "
+                             "the apt.dat this run read is a FIXTURE, not "
+                             "live airport data"),
+        })
+
+    with open(os.path.join(data_root, "Ortho4XP.cfg"), "w",
+              encoding="utf-8", newline="\n") as handle:
+        handle.write(FULL_TILE_CONFIG % {
+            "icao": icao,
+            "cifp": cifp,
+            "scenery": os.path.join(xplane_root, "Custom Scenery"),
+        })
+    return data_root, xplane_root, substitutions
+
+
+def run_full_tile(binary, repo_root, log_dir, lat, lon, icao, provider,
+                  zoomlevel, deadline, keep, apt_dat=None, cifp_dat=None,
+                  engine_python=None, steps=FULL_TILE_STEPS):
+    """PASS 4 — a WHOLE tile built on Windows from an empty data root (#250).
+
+    The assertions are on the OUTCOME, never on the exit code: the
+    activated ``.dsf``, the mesh, the auto-patch's patch + sidecar and
+    its ``solve=optimal``, at least one orthophoto texture, and the
+    absence of every Windows poison string.  A build that returns 0 and
+    wrote nothing fails here, which is the whole point.
+    """
+    os.makedirs(log_dir, exist_ok=True)
+    jsonl_log = os.path.join(log_dir, "engine-full-tile-jsonl.log")
+    stderr_log = os.path.join(log_dir, "engine-full-tile-stderr.log")
+    work = tempfile.mkdtemp(prefix="full-tile-")
+    failures = []
+    try:
+        data_root, xplane_root, substitutions = _write_full_tile_fixture(
+            work, repo_root, lat, lon, icao, apt_dat, cifp_dat)
+        with open(os.path.join(log_dir, "substitutions.json"), "w",
+                  encoding="utf-8", newline="\n") as handle:
+            json.dump(substitutions, handle, indent=2, sort_keys=True)
+        print("   == SUBSTITUTIONS (what a runner lacks and this run used) ==")
+        for item in substitutions:
+            print("   * %s" % item["input"])
+            print("       from: %s" % item["provided_from"])
+            print("       a real X-Plane install provides: %s"
+                  % item["a_real_install_provides"])
+            print("       COVERAGE GAP: %s" % item["coverage_gap"])
+
+        command = {
+            "cmd": "build",
+            "id": 1,
+            "tiles": [[lat, lon]],
+            "provider": provider,
+            "zoomlevel": zoomlevel,
+            "custom_build_dir": "",
+            "steps": list(steps),
+            "slots": 1,
+            # An UNATTENDED run never grows its own tile list: the
+            # boundary policy is "skip", loudly, which is what
+            # ``auto_patch_boundary`` says a headless build must do.
+            "boundary_policy": "skip",
+            "do_overlays": False,
+        }
+        stream, elapsed, failures = _drive(
+            binary, work, data_root, command, jsonl_log, stderr_log,
+            deadline, "FULL tile %s (%s, %s zl%d)"
+            % (_short_latlon(lat, lon), icao, provider, zoomlevel),
+            # The geometry law's verdict on a LIVE airport is not what
+            # this pass guards (pass 2's reasoning, same words): the
+            # solve, the emit and the platform are.  A verify defect is
+            # printed loudly below.
+            tolerated=lambda text: VERIFY_DEFECT_MARKER in text,
+            extra_env={"CPL_DEBUG": "ON", "CPL_CURL_VERBOSE": "YES"},
+            engine_python=engine_python,
+            # The source arm runs the engine from the checkout, where the
+            # bundle's PROJ scrub does not apply — see _drive.
+            hostile_proj=False)
+
+        build_dir_glob = os.path.join(data_root, "Tiles", "*")
+
+        # ---- THE .dsf, ACTIVATED AND NON-TRIVIAL ----------------------
+        # ``build_dsf`` writes ``.dsf.tmp`` and renames it last, so only
+        # the activated file counts.  The floor is deliberately low
+        # (64 KiB): a real zl15 tile DSF is megabytes, and what this
+        # refuses is the EMPTY-shell class — a DSFTool that ran, wrote a
+        # header and found no terrain to put in it.
+        dsfs = _tile_dsfs(data_root)
+        if not dsfs:
+            failures.append(
+                "no .dsf under %s — the tile produced no scenery at all"
+                % os.path.join(data_root, "Tiles"))
+        for path in dsfs:
+            size = os.path.getsize(path)
+            print("   .dsf %s (%d bytes)"
+                  % (os.path.relpath(path, data_root), size))
+            if size < 65536:
+                failures.append(
+                    "the .dsf at %s is %d bytes — below the 64 KiB floor, "
+                    "i.e. a header with no terrain in it"
+                    % (os.path.relpath(path, data_root), size))
+        leftover = _tile_dsfs(data_root, ".dsf.tmp")
+        if leftover:
+            failures.append(
+                "a .dsf.tmp survived (%s) — the rename that ACTIVATES the "
+                "tile did not happen (the Windows locked-file class)"
+                % ", ".join(os.path.basename(p) for p in leftover))
+
+        # ---- THE MESH ------------------------------------------------
+        meshes = glob.glob(os.path.join(
+            build_dir_glob, "Data" + _short_latlon(lat, lon) + ".mesh"))
+        if not meshes:
+            failures.append(
+                "no Data%s.mesh under %s — Triangle4XP never produced a "
+                "mesh" % (_short_latlon(lat, lon),
+                          os.path.join(data_root, "Tiles")))
+        for path in meshes:
+            size = os.path.getsize(path)
+            print("   mesh %s (%d bytes)"
+                  % (os.path.relpath(path, data_root), size))
+            if size < 65536:
+                failures.append("the mesh at %s is only %d bytes"
+                                % (os.path.relpath(path, data_root), size))
+
+        # ---- AT LEAST ONE ORTHOPHOTO TEXTURE -------------------------
+        # ``skip_converts=False``, so the witness is a DDS in the tile's
+        # own ``textures/`` — the file X-Plane loads.  The downloaded
+        # jpegs under ``Orthophotos`` are reported too: a textures
+        # directory full of DDS with no jpegs behind it would mean the
+        # imagery came from somewhere other than the network.
+        textures = [p for p in glob.glob(os.path.join(
+            build_dir_glob, "textures", "*")) if p.lower().endswith(".dds")]
+        jpegs, jpeg_bytes = _tree_bytes(os.path.join(data_root,
+                                                     "Orthophotos"))
+        print("   textures: %d .dds in the tile; %d orthophoto file(s), "
+              "%d bytes downloaded" % (len(textures), jpegs, jpeg_bytes))
+        if not textures:
+            failures.append(
+                "no .dds texture under %s — no orthophoto texture was "
+                "produced (the imagery step, the DDS converter, or the "
+                "download)" % os.path.join("Tiles", "*", "textures"))
+        elif max(os.path.getsize(p) for p in textures) < 65536:
+            failures.append(
+                "every .dds texture is under 64 KiB — the converter wrote "
+                "placeholders, not imagery")
+        # ``ImageryDownloadsDone`` is the engine's OWN statement that the
+        # imagery step finished its downloads (events.py:209).  It is the
+        # one protocol event the Swift front end has no case for, so it
+        # is invisible in the app — here it is a witness.
+        for event in stream.events("ImageryDownloadsDone"):
+            print("   ImageryDownloadsDone: %s"
+                  % json.dumps({k: v for k, v in event.items()
+                                if k != "event"}, sort_keys=True)[:400])
+        if not jpegs:
+            failures.append(
+                "nothing under Orthophotos/ — the imagery step produced "
+                "textures WITHOUT downloading any orthophoto tile, so this "
+                "run proves no imagery download")
+
+        # ---- AUTO-PATCH RAN FOR THE AIRPORT --------------------------
+        if not stream.has("AutoPatchBegin"):
+            failures.append(
+                "no AutoPatchBegin event — auto-patch never ran, so the "
+                "CIFP resolution or the airports layer failed and the tile "
+                "was built with no airport surface at all")
+        else:
+            print("   AutoPatchBegin: %s"
+                  % (stream.events("AutoPatchBegin")[0].get("airports"),))
+        verify_defect = None
+        for event in stream.events("AutoPatchFailed"):
+            stage = str(event.get("stage") or "")
+            text = str(event.get("error") or "")
+            if stage == "verify":
+                verify_defect = text
+                continue
+            failures.append("AutoPatchFailed %s at stage %s: %s"
+                            % (event.get("airport"), stage, text))
+
+        # The report is the direct witness of the SOLVE — "the log shows
+        # solve=optimal" in the engine's own numbers rather than a
+        # grepped word.
+        reports = glob.glob(os.path.join(
+            data_root, "tmp", "auto_patch_v2", "*", icao,
+            "%s.report.json" % icao))
+        report = None
+        if not reports:
+            failures.append(
+                "no %s.report.json under %s — the airport pipeline never "
+                "reached its own reporting stage"
+                % (icao, os.path.join(data_root, "tmp", "auto_patch_v2")))
+        else:
+            try:
+                with open(reports[0], "r", encoding="utf-8") as handle:
+                    report = json.load(handle)
+            except (OSError, ValueError) as error:
+                failures.append("the build report %s is not readable JSON: %s"
+                                % (reports[0], error))
+        patch = sidecar = None
+        if isinstance(report, dict):
+            solve = report.get("solve") or {}
+            status = str(solve.get("status") or "")
+            lp = report.get("lp") or {}
+            print("   solve=%s rounds=%s wall=%ss; LP %s rows x %s columns"
+                  % (status or "(none)", solve.get("rounds"),
+                     solve.get("wall_s"), lp.get("rows"), lp.get("columns")))
+            if status != "optimal":
+                failures.append(
+                    "the solve came back %r, not \"optimal\" — issue #250 "
+                    "asks for solve=optimal on Windows" % status)
+            if not lp.get("rows"):
+                failures.append("the report's LP has NO rows — no programme "
+                                "was built")
+            emit = report.get("emit") or {}
+            patch = emit.get("patch")
+            sidecar = emit.get("sidecar")
+
+        installed = os.path.join(
+            data_root, "Patches", _round_latlon(lat, lon),
+            _short_latlon(lat, lon), "%s_auto.patch.osm" % icao)
+        if os.path.isfile(installed):
+            patch, sidecar = installed, installed + ".axes.json"
+        if not patch or not os.path.isfile(patch):
+            failures.append(
+                "no %s_auto.patch.osm on disk (not installed at %s and not "
+                "in the scratch dir the report names)" % (icao, installed))
+            patch = None
+        else:
+            print("   patch %s (%d bytes)"
+                  % (os.path.relpath(patch, data_root),
+                     os.path.getsize(patch)))
+        if not sidecar:
+            sidecar = (patch + ".axes.json") if patch else ""
+        axes = None
+        if not sidecar or not os.path.isfile(sidecar):
+            failures.append(
+                "no .axes.json sidecar beside the patch (%s) — every census "
+                "of it would silently degrade to the context-free frame"
+                % (sidecar or "(no path)"))
+        else:
+            try:
+                with open(sidecar, "r", encoding="utf-8") as handle:
+                    axes = json.load(handle)
+            except (OSError, ValueError) as error:
+                failures.append("the sidecar %s is not readable JSON: %s"
+                                % (sidecar, error))
+        if isinstance(axes, dict):
+            print("   sidecar keys: %s" % ", ".join(sorted(axes)[:12]))
+            if "ruleset" not in axes:
+                failures.append("the sidecar carries no 'ruleset' — not a "
+                                "law-true sidecar")
+            if not axes.get("axes"):
+                failures.append("the sidecar carries no 'axes' — the solve "
+                                "produced no graded surface")
+        # Copy the two witnesses out before the fixture is deleted.
+        for source in [p for p in (patch, sidecar) if p and
+                       os.path.isfile(p)]:
+            shutil.copy2(source, os.path.join(log_dir,
+                                              os.path.basename(source)))
+        for source in (os.path.join(data_root, "Ortho4XP.cfg"),
+                       os.path.join(data_root, "Ortho4XP.log")):
+            if os.path.isfile(source):
+                shutil.copy2(source, os.path.join(
+                    log_dir, os.path.basename(source)))
+        if reports:
+            shutil.copy2(reports[0], os.path.join(
+                log_dir, "%s.report.json" % icao))
+
+        # ---- THE ENGINE LOG: POISON AND GIVE-UPS ---------------------
+        # All three streams, because a worker traceback reaches only one
+        # of them: the protocol stream, the child's stderr, and the
+        # engine's own Ortho4XP.log inside the data root.
+        log_text = "\n".join([
+            _tail(jsonl_log, 10 ** 7),
+            _tail(stderr_log, 10 ** 7),
+            _tail(os.path.join(data_root, "Ortho4XP.log"), 10 ** 7),
+        ])
+        # ---- THE PROVENANCE LINE, IN THE LOG (#250 §4) ---------------
+        # ``auto_patch.provenance.format_log_line`` /
+        # ``auto_patch.engine_v2._provenance_line`` write ONE line per
+        # airport at patch completion:
+        #   ``  [provenance] CYXY patch: engine=v2 sha=… law=… ruleset=…
+        #       solve=optimal dem=…``
+        # It is the engine's own answer to "which code, which law table,
+        # which elevation surface, and did the programme solve" — so the
+        # brief's two witnesses (the provenance line AND ``solve=optimal``)
+        # are the same line, asserted here rather than inferred.
+        prov_lines = [l.strip() for l in log_text.splitlines()
+                      if "[provenance]" in l and icao in l]
+        if not prov_lines:
+            failures.append(
+                "no '[provenance] %s patch:' line in any log — the patch "
+                "was written with no provenance stamp, so the build cannot "
+                "be attributed to a commit, a law table or a DEM surface"
+                % icao)
+        else:
+            for line in prov_lines[:4]:
+                print("   %s" % line[:400])
+            if not any("solve=optimal" in l for l in prov_lines):
+                failures.append(
+                    "no provenance line reports solve=optimal for %s: %s"
+                    % (icao, " | ".join(prov_lines[:2])[:600]))
+            if any("no airport-elevation inset" in l for l in prov_lines):
+                print("   NOTE: the patch was graded on the BASE DEM — no "
+                      "airport-elevation inset baked for %s.  Not a failure "
+                      "here (inset coverage over the Yukon is a data "
+                      "question, not a platform one), but it means the "
+                      "inset rung was not exercised end to end." % icao)
+
+        for marker, why in FULL_TILE_POISON:
+            hits = [l.strip() for l in log_text.splitlines() if marker in l]
+            if hits:
+                failures.append(
+                    "WINDOWS POISON %r (%s), %d line(s): %s"
+                    % (marker, why, len(hits), " | ".join(hits[:3])[:800]))
+        for marker, hits, first in _count(log_text,
+                                          FULL_TILE_GIVEUP_MARKERS):
+            failures.append("a download GAVE UP — %r, %d line(s): %s"
+                            % (marker, hits, first))
+        for marker, hits, first in _count(log_text,
+                                          FULL_TILE_RETRY_MARKERS):
+            print("   NOTE: %d retry line(s) %r — not a failure; the "
+                  "on-disk witnesses above decide whether the bytes "
+                  "arrived.  First: %s" % (hits, marker, first))
+
+        # ---- THE DOWNLOAD TABLE --------------------------------------
+        files, size, giveups = _download_table(
+            data_root, log_text,
+            os.path.join(log_dir, "download-table.md"))
+        if not files:
+            failures.append(
+                "the data root holds NO downloaded file at all — this run "
+                "proves no download happened on Windows")
+
+        if verify_defect:
+            print("   WARNING: the emitted surface did not pass the geometry "
+                  "law's verify: %s"
+                  % verify_defect.strip().splitlines()[0][:300])
+            print("   (the solve, the emit and the platform are what this "
+                  "pass guards — a verify residual is a law matter)")
+
+        print("   FULL tile build finished in %.0f s (%d downloaded files, "
+              "%d bytes)" % (elapsed, files, size))
+    finally:
+        if keep:
+            print("   fixture kept at %s" % work)
+        else:
+            shutil.rmtree(work, ignore_errors=True)
+
+    return _report(
+        failures,
+        "a FULL tile build did not complete on this platform (#250).",
+        log_dir, stderr_log, jsonl_log)
+
+
 #: §46 (7) THE GATE'S BAR, and the RESIDUES it names instead of failing on
 #: (spec §46 (6), lane ``xplatquantum``).  Everything not listed here is a
 #: gate failure.  A residue is a line the MEASUREMENT shows the quantum
@@ -1598,7 +2380,8 @@ def main(argv):
                         help="the frozen executable under test (omitted "
                              "only with --compare, which runs none)")
     parser.add_argument("--pass", dest="which", default="both",
-                        choices=("tile", "airport", "both", "lemd-elevation"),
+                        choices=("tile", "airport", "both",
+                                 "lemd-elevation", "full-tile"),
                         help="which pass(es) to run (default both); "
                              "lemd-elevation is the NETWORK pass of issue "
                              "#121 (dispatch only, never a release gate)")
@@ -1616,8 +2399,39 @@ def main(argv):
                         help="seconds for the AIRPORT pass (default 300)")
     parser.add_argument("--logs", default="frozen-tile-logs",
                         help="directory for the JSONL + stderr logs")
-    parser.add_argument("--lat", type=int, default=DEFAULT_LAT)
-    parser.add_argument("--lon", type=int, default=DEFAULT_LON)
+    # Per-PASS defaults, resolved below: the tile pass's (0, 0) is open
+    # water in the Gulf of Guinea, the full-tile pass's is CYXY.  One
+    # shared numeric default would silently build the wrong tile.
+    parser.add_argument("--lat", type=int, default=None)
+    parser.add_argument("--lon", type=int, default=None)
+    # ---- --pass full-tile only (issue #250) --------------------------
+    parser.add_argument("--icao", default=FULL_TILE_ICAO,
+                        help="with --pass full-tile: the airport "
+                             "auto-patch solves inside the tile")
+    parser.add_argument("--provider", default="Arc",
+                        help="with --pass full-tile: the imagery provider "
+                             "code (Providers/, no key required)")
+    parser.add_argument("--zl", dest="zoomlevel", type=int, default=15,
+                        help="with --pass full-tile: the imagery zoom "
+                             "level, which sets how much imagery comes "
+                             "down")
+    parser.add_argument("--steps", default=",".join(FULL_TILE_STEPS),
+                        help="with --pass full-tile: the comma list of "
+                             "build steps (default the front ends' own)")
+    parser.add_argument("--apt-dat", dest="apt_dat", default=None,
+                        help="with --pass full-tile: an apt.dat to put in "
+                             "Custom Scenery (the X-Plane Scenery Gateway "
+                             "record for ONE airport).  Absent, the "
+                             "repository fixture is used and RECORDED as "
+                             "a substitution.")
+    parser.add_argument("--cifp-dat", dest="cifp_dat", default=None,
+                        help="with --pass full-tile: a CIFP .dat for the "
+                             "airport.  Absent, the repository fixture is "
+                             "used and RECORDED as a substitution.")
+    parser.add_argument("--engine-python", dest="engine_python",
+                        default=None,
+                        help="the interpreter to run a SOURCE protocol "
+                             "entry with; default this one")
     parser.add_argument("--keep", action="store_true",
                         help="keep the generated fixture for debugging")
     parser.add_argument("--xplat-dump", dest="xplat_dump", default=None,
@@ -1678,6 +2492,20 @@ def main(argv):
     log_dir = os.path.abspath(arguments.logs)
 
     status = 0
+    if arguments.which == "full-tile":
+        lat = FULL_TILE_LAT if arguments.lat is None else arguments.lat
+        lon = FULL_TILE_LON if arguments.lon is None else arguments.lon
+        steps = tuple(s for s in
+                      (part.strip() for part in arguments.steps.split(","))
+                      if s)
+        print("== FULL TILE (network, #250): a WHOLE tile built from an "
+              "EMPTY data root, every artefact downloaded ==")
+        return run_full_tile(
+            binary, repo_root, log_dir, lat, lon, arguments.icao,
+            arguments.provider, arguments.zoomlevel, arguments.deadline,
+            arguments.keep, apt_dat=arguments.apt_dat,
+            cifp_dat=arguments.cifp_dat,
+            engine_python=arguments.engine_python, steps=steps)
     if arguments.which == "lemd-elevation":
         print("== LEMD ELEVATION (network, #121): the frozen bundle fetches "
               "SPAIN5M + the base DEM ==")
@@ -1686,8 +2514,10 @@ def main(argv):
                                   expect_refusal=arguments.expect_refusal)
     if arguments.which in ("tile", "both"):
         print("== PASS 1/2: the frozen bundle builds a TILE ==")
-        status |= run(binary, repo_root, log_dir, arguments.lat,
-                      arguments.lon, arguments.deadline, arguments.keep)
+        status |= run(binary, repo_root, log_dir,
+                      DEFAULT_LAT if arguments.lat is None else arguments.lat,
+                      DEFAULT_LON if arguments.lon is None else arguments.lon,
+                      arguments.deadline, arguments.keep)
     if arguments.which in ("airport", "both"):
         # Both passes always run, even when the first one failed: two
         # independent witnesses of the same bundle are worth more than

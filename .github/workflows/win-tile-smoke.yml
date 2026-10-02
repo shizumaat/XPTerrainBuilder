@@ -85,19 +85,8 @@ on:
         description: "Seconds the engine gets to reach RunDone"
         default: "5400"
 
-# ONE resolution site for every knob.  A `push` event carries no
-# `inputs` at all, so each value falls back to the same default the
-# dispatch form shows — and a run branch that wants another value edits
-# the literal here, which is why the fallbacks are written out rather
-# than hidden in a step.
 env:
   PYTHON_VERSION: "3.13"   # matches the vendored cp313 wheels in Utils/
-  LAT: ${{ inputs.lat || '60' }}
-  LON: ${{ inputs.lon || '-136' }}
-  ICAO: ${{ inputs.icao || 'CYXY' }}
-  ZL: ${{ inputs.zl || '15' }}
-  PROVIDER: ${{ inputs.provider || 'Arc' }}
-  DEADLINE: ${{ inputs.deadline || '5400' }}
 
 # A run branch pushed twice must not leave two 2-hour Windows jobs racing
 # for the same answer.
@@ -107,7 +96,10 @@ concurrency:
 
 jobs:
   smoke:
-    name: "full tile ${{ env.ICAO }} ${{ env.LAT }} ${{ env.LON }} zl${{ env.ZL }} (${{ matrix.arm }})"
+    # `jobs.<id>.name` reads github/needs/strategy/matrix/vars/inputs —
+    # NOT `env`, which is why the title repeats the fallbacks instead of
+    # reading the job env below.
+    name: "full tile ${{ inputs.icao || 'CYXY' }} ${{ inputs.lat || '60' }} ${{ inputs.lon || '-136' }} zl${{ inputs.zl || '15' }} (${{ matrix.arm }})"
     runs-on: windows-latest
     # Two hours: the budget is the IMAGERY, and it scales 4x per zoom level.
     # At the default zl15 over a 1-degree tile the build downloads thousands
@@ -123,6 +115,18 @@ jobs:
       run:
         shell: bash           # one recipe; Git bash on the Windows runner
     env:
+      # ONE resolution site for every knob, in the JOB's env — where the
+      # `inputs` context is available and every step can read it.  A
+      # `push` event carries no `inputs` at all, so each value falls back
+      # to the same default the dispatch form shows, and a run branch that
+      # wants another value edits the literal here.  That is also why the
+      # fallbacks are written out rather than hidden in a step.
+      LAT: ${{ inputs.lat || '60' }}
+      LON: ${{ inputs.lon || '-136' }}
+      ICAO: ${{ inputs.icao || 'CYXY' }}
+      ZL: ${{ inputs.zl || '15' }}
+      PROVIDER: ${{ inputs.provider || 'Arc' }}
+      DEADLINE: ${{ inputs.deadline || '5400' }}
       # The engine writes non-ASCII airport names and the house spelling to
       # its log; a cp1252 console is #171's crash.  The engine pins its own
       # streams (`O4_Console_Encoding`), and this is the belt: if the pin

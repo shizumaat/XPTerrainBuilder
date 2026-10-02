@@ -718,6 +718,62 @@ def verify(snap: Path, *, quiet=False) -> dict:
             "present": len(present), "files": len(man["files"])}
 
 
+#: WHAT A MOUNT PROVIDES IN THE LANE (issue #103).  :func:`mount`
+#: symlinks every one of these into ``snap/data``, creating the target
+#: directory if the snapshot has not got one yet — so a build root that
+#: lacks them is not a wrong cwd when a snapshot is on its way in.  The
+#: build-cwd law reads this list; ``venv/`` is deliberately NOT in it.
+MOUNTABLE_LANE_DIRS = DATA_DIRS
+
+#: One spelling of the "this is not a snapshot a mount could consume"
+#: refusal, so the build-cwd law and the mount refuse in the same words.
+NOT_MOUNTABLE = "REFUSING: snapshot {snap} is not mountable"
+
+
+def mountable(snap) -> dict:
+    """The CHEAP half of :func:`verify`: could a mount consume ``snap``?
+
+    Manifest present and parseable, re-derives its own hash, and at least
+    one airport's read set fully present at the recorded SIZE.  It does
+    NOT re-hash the files — this runs in build PRE-FLIGHT, before the cwd
+    law (issue #103: the cwd law has to know whether a mount is coming,
+    and sha256-ing a 2.2 GB snapshot twice per build is not free).
+    :func:`mount` still runs the FULL :func:`verify`; this never replaces
+    it, and a byte-mutated file of the right size is caught there.
+    """
+    snap = Path(snap)
+    why = NOT_MOUNTABLE.format(snap=snap)
+    man_path = snap / "snapshot.json"
+    if not man_path.is_file():
+        raise SystemExit(f"{why}: no snapshot.json at {man_path} — fetch and "
+                         f"unpack the release assets (docs/CLOUD-CORPUS.md)")
+    try:
+        man = json.loads(man_path.read_text())
+        files, airports = man["files"], man["airports"]
+    except Exception as exc:
+        raise SystemExit(f"{why}: {man_path} is not a readable snapshot "
+                         f"manifest ({type(exc).__name__}: {exc})")
+    if manifest_hash(files) != man.get("hash"):
+        raise SystemExit(f"{why}: snapshot.json does not re-derive its own "
+                         f"hash — the manifest was edited")
+    present = set()
+    for rel, rec in files.items():
+        p = snap / rel
+        try:
+            if p.stat().st_size == rec["size"]:
+                present.add(rel)
+        except OSError:
+            continue
+    complete = sorted(i for i, rec in airports.items()
+                      if set(rec["files"]) <= present)
+    if not complete:
+        raise SystemExit(f"{why}: no airport carries a complete read set "
+                         f"({len(present)}/{len(files)} files present) — "
+                         f"fetch and unpack the <ICAO>.tar.gz")
+    return {"hash": man["hash"], "complete": complete,
+            "present": len(present), "files": len(files)}
+
+
 def snapshot_request(argv, environ=None):
     """The snapshot dir a build asked for (``--corpus snapshot:DIR`` wins
     over ``O4_CORPUS_SNAPSHOT``), or ``None`` for the shared corpus.  Read

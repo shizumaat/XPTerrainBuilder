@@ -360,3 +360,59 @@ def test_main_runs_the_pass_and_carries_the_named_airport(build_mod):
         "refresh_shore_feed(", "refresh_tile_dem(",
         "refresh_approach_rings(", "refresh_airport_mod_cache(")]
     assert order == sorted(order), order
+
+
+# ------------------------------------------------- the scope vocabulary
+# Found by THIS twin on the windows-latest CI leg: the warm derived the
+# dump correctly, and then `scope_of` could not see it, because
+# `shared_repo_snapshot` keyed it `Airport_mod_cache\TestPack\...` while
+# every clause of `scope_of` compares with "/".  On Windows that made
+# EVERY shared-repo write read as "outside every scope", so an authorised
+# refresh's audit saw no in-scope write -- #206's own symptom, by a
+# different route.  Both halves are pinned here so neither can drift back.
+
+#: The one in-scope path, spelled both ways.
+_SCOPED_POSIX = f"{MOD_CACHE_DIR}/{PACK_NAME}/+22+113.dsf.a7e856e4.text"
+
+
+def test_scope_of_reads_an_os_separator_path_as_the_same_scope(guard_mod):
+    """`scope_of` is separator-agnostic: a caller handing it the spelling
+    `str(Path.relative_to(...))` produces gets the same answer as the
+    POSIX one, never ``None``.
+
+    Spelled through ``os.sep``/``os.altsep`` rather than a literal "\\":
+    on POSIX a backslash is a legal filename character, so translating it
+    there would be wrong, and these arms are a no-op — the question only
+    bites on Windows, which is where the red was.
+    """
+    assert guard_mod.scope_of(_SCOPED_POSIX) == SCOPE
+    native = _SCOPED_POSIX.replace("/", os.sep)
+    assert guard_mod.scope_of(native) == SCOPE, native
+    # the directory itself, which is the warm's first write
+    assert guard_mod.scope_of(
+        os.sep.join((MOD_CACHE_DIR, PACK_NAME))) == SCOPE
+    # a path outside every scope still reads as outside one
+    assert guard_mod.scope_of(
+        os.sep.join(("Nowhere", "at", "all.txt"))) is None
+    # and the Path spelling itself, which is what the walk hands over
+    assert guard_mod.scope_of(Path(MOD_CACHE_DIR) / PACK_NAME) == SCOPE
+
+
+def test_the_snapshot_keys_every_file_in_posix_spelling(guard_mod,
+                                                        tmp_path):
+    """The snapshot's keys ARE the vocabulary `scope_of`,
+    `record_refresh` and the refresh ledger read, so they carry no OS
+    separator -- identical to `str()` on POSIX, the fix on Windows."""
+    repo = tmp_path / "repo"
+    nested = repo / MOD_CACHE_DIR / PACK_NAME
+    nested.mkdir(parents=True)
+    (nested / "+22+113.dsf.a7e856e4.text").write_text(
+        "PROPERTY sim/west 113\n", encoding="utf-8", newline="\n")
+
+    snap = guard_mod.shared_repo_snapshot(repo)
+    assert snap, "the walk found nothing to key"
+    assert not [k for k in snap if "\\" in k], sorted(snap)
+    assert _SCOPED_POSIX in snap, sorted(snap)
+    # every key the walk produced is classifiable -- the property the
+    # Windows red actually broke
+    assert all(guard_mod.scope_of(k) is not None for k in snap), sorted(snap)

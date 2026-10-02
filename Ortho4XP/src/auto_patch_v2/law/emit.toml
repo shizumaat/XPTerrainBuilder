@@ -846,6 +846,7 @@ hard_rulings = [
   "structures.building_pad pad_slope_max ceiling",       # 09-09c: a building pad is ONE PLANE tilting at most 1 %
   "structures.building_pad platform plane",               # unit-platform spec §1 (1) (RULINGS 2026-09-28a (1)): a PLATFORM is ONE plane over all its pieces (constraints/platform.py) — measured: as a target alone the collar's bank rows bent HECA T3's platform 8.3 m
   "structures.building_pad frontage_hold",               # flat-pad spec §1 (2) (owner RULINGS 2026-09-30y, #128): a held block's welded contact AT its flat datum, and the datum within its reach-band interval — HARD in stage 1 (the priced hold at weight 30, 30u (a), carried a ~5 m 1:2 collar the owner read as a drop/ramp; its reason, KCLT runway movers at weight 300, was the pinless-runway class #119 closed)
+  "rulesets.base_profile.plane_offset",                  # base-profile spec §2 (1) (owner RULINGS 2026-10-01f, issues #162/#163): a unit whose COMPOSED base reads STEPPED mints one pad per BASE PLANE (`<unit>/p<k>`), and plane k's datum column stands at the OBJECT'S OWN authored riser above p0's -- ONE hard `Diff` at cap 0 against a relief target (`constraints/platform.plane_offset_rows`).  Without it the plane pads are two independently frontage-held pads at two FREE datums: the authored 3.9 m riser meets whatever gap the two frontages solved to, an UNCONTROLLED cliff worse than today's single pad.  Ranked WITH the pad hold (the lowest tier): a §5a conflict naming it relaxes it and the unit falls back towards one pad, reported
   "rulesets.runway.flex_budget",                         # flat-pad spec v2 §1 (4) (owner RULINGS 2026-09-30as): a PULLED runway's column within +/- beta_R (= runway_flex_share x the pulling route's lift) of its pass-1a value — the runway flexes 20 %, never more; the runway's own pins / K / longitudinal / transverse / yield stay hard beside it
   "road_cross_section",                                  # §37 (8) (owner 2026-09-13, RULINGS 13bb): the 2 % cross-section is LAW on every road-family face, groundside included — "a hillside road keeps its crossfall on a BENCH, not by tilting".  It was a target at 300 and it LOST: KCLT verify 781 violated pairs on the control, 462 with the ramp.  Compatible with the ramp ceiling by construction since §37 (8): the ramp target is one value per (route, station) and cap-Lipschitz along the route, so it can never tilt a section
   "roads.groundside_road ramp ceiling",                  # §37 (6) (owner 13j item 5): a groundside road stands at most [cockpit] visual_m above its ramp target from the airside contact to the DEM — the objective held KCLT's east access road +9.71 m above its own target with NO row binding (13aj), and a weight contest is not a law
@@ -891,7 +892,7 @@ hard_conflict_ranks = [
    "common.roles.apron on the shared edge portion",
    "apron body chord, stationed across the face", "plane_gradient", "apron body chord, strict"],
   ["structures.building_pad pad_slope_max ceiling", "structures.building_pad platform plane",
-   "structures.building_pad frontage_hold"],
+   "structures.building_pad frontage_hold", "rulesets.base_profile.plane_offset"],
   ["road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.bore_datum_m"],
 ]
 # the price ratio between two adjacent tiers in the elastic LP's objective

@@ -682,6 +682,25 @@ def _place_matrix(dx: float, dz: float, heading_deg: "float | None"
     return (cs, -sn, -sn, -cs, dx, dz)
 
 
+def _place_gradient(slope: tuple[float, float], heading_deg: "float | None"
+                    ) -> tuple[float, float]:
+    """§2 (2): one SLOPED base's authored gradient ``(dy/dx, dy/dz)`` in the
+    unit frame, under the same placement affine :func:`_place_matrix`
+    builds for the polygons.
+
+    THE MATRIX IS ITS OWN INVERSE AND ORTHOGONAL (``[[cs, -sn], [-sn,
+    -cs]]``: symmetric, and ``M @ M == I``), so the gradient transforms by
+    ``M`` itself — the cofactor rule ``grad' = M^-T grad`` collapses to
+    ``M grad`` and no inverse is formed.  ``heading_deg`` ``None`` is the
+    dry roll-up's pure translation, which leaves a gradient alone.
+    """
+    gx, gz = float(slope[0]), float(slope[1])
+    if heading_deg is None:
+        return (gx, gz)
+    a, b, d, e, _xo, _yo = _place_matrix(0.0, 0.0, heading_deg)
+    return (a * gx + b * gz, d * gx + e * gz)
+
+
 def _place_all(polys: "_t.Sequence", dx: float, dz: float,
                heading_deg: "float | None", q: float):
     """§1 (2)'s "orientation is carried by the polygons", through §51 (2)'s
@@ -753,13 +772,13 @@ def compose_profiles(parts: "_t.Sequence[tuple]",
     feet = 0
     low = None
     dropped = 0
-    sloped: list[tuple[BaseProfile, tuple[float, float, float]]] = []
+    sloped: list[tuple[BaseProfile, tuple[float, float, float], "float | None"]] = []
     for prof, (dx, dy, dz), hdg in rows:
         feet += int(prof.feet)
         fy = float(prof.feet_y) + float(dy)
         low = fy if low is None else min(low, fy)
         if prof.verdict == SLOPED:
-            sloped.append((prof, (dx, dy, dz)))
+            sloped.append((prof, (dx, dy, dz), hdg))
         if not prof.planes:
             continue
         placed = _place_all([p.polygon for p in prof.planes],
@@ -776,9 +795,19 @@ def compose_profiles(parts: "_t.Sequence[tuple]",
         # single SLOPED member's gradient is the unit's (its frame is the
         # unit's, the offsets being translations only).
         if len(sloped) == 1 and len(parts) >= 1:
-            prof = sloped[0][0]
+            prof, _off, hdg = sloped[0]
+            # §2 (2): the SLOPED gradient is ROTATED into the unit frame
+            # here, at the one site the heading is in hand.  A pad reader
+            # that rotated it itself would be the second spelling of the
+            # placement affine the composition already applies to the
+            # polygons (§1 (2): "orientation is carried by the polygons"
+            # — the gradient is the same orientation).
             return _dc.replace(prof, feet=feet, feet_y=float(low or 0.0),
-                               why=prof.why + " (composed: one sloped member)")
+                               slope=_place_gradient(prof.slope, hdg),
+                               why=prof.why + " (composed: one sloped member"
+                                   + ("" if hdg is None else
+                                      f", gradient at heading {float(hdg):.2f} deg")
+                                   + ")")
         if len(parts) == 1:
             prof = parts[0][0]
             return _dc.replace(prof, feet=feet, feet_y=float(low or 0.0))

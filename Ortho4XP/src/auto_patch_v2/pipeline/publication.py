@@ -766,6 +766,7 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
                     "gap": bool(j.gap), "roles": list(j.roles), "pairs": len(j.pairs),
                     "length_m": round(j.length_m, 2)})
     out.extend(pad_terrace_joints(planar, law, z))
+    out.extend(base_step_joints(planar, law, z))
     return out
 
 
@@ -854,6 +855,109 @@ def pad_terrace_joints(planar: PlanarMap, law: Law,
                         "gap": True, "roles": [], "pairs": len(pairs),
                         "length_m": 0.0})
     return out
+
+
+def base_step_joints(planar: PlanarMap, law: Law,
+                     z: _t.Sequence[float] | None = None
+                     ) -> list[dict[str, _t.Any]]:
+    """THE RISERS DECLARED BETWEEN TWO PLANE PADS OF ONE UNIT (base-profile
+    spec §2 (3) / §3 C15/C17; owner RULINGS 2026-10-01f, 10-01k Q2):
+    one ``terrace_joints`` record of kind ``base_step`` per riser
+    (``model.base_step.BASE_STEPS``, minted by ``planar/plane_pads``).
+
+    ``declared_step_m`` IS THE OBJECT'S OWN AUTHORED RISER — not a
+    measured step, and that is the whole point of the record: the census
+    prices the EMITTED step against it
+    (``check_grade.terrace_actual_step``, which reads a ``base_step``
+    joint exactly as it reads a ``pad_terrace`` one — its reader is
+    kind-blind by construction), and the pair itself holds the registered
+    ``base_plane_step`` exemption (``check_grade.STEP_EXEMPTIONS``,
+    ruling 10-01f).  A joint whose emitted step EXCEEDS the declared
+    riser is therefore a priced defect, which is what makes the mint
+    measurable rather than merely forgiven.
+
+    ``step_m`` is the emitted step over the chords crossing the riser
+    line, read the way ``pad_terrace_joints`` reads it: the largest |Δz|
+    between a vertex of the LOWER plane pad and one of the UPPER within
+    the frontage horizon, plus the patch's own centimetre rounding.  0
+    before a solve.
+
+    ``gap`` is TRUE: the 0.5 m strip between the two rims claims no pad
+    (§4, the wall-gap precedent RULINGS 2026-09-01c) — the two vertex
+    rows ARE the step and the mesher's triangles across them are the
+    steep ones.
+    """
+    from ..model.base_step import BASE_STEPS
+    if not BASE_STEPS:
+        return []
+    ident = law.tables.emit.identity
+    horizon = (float(law.tables.emit.design.pad_frontage_m)
+               + 2.0 * float(ident.weld_spacing_m))
+    vs_of: dict[str, list[int]] = {}
+    for f in planar.faces.values():
+        vs_of.setdefault(str(f.ref), [])
+    for v, vx in planar.vertices.items():
+        for fid in vx.incident_faces:
+            f = planar.faces.get(fid)
+            if f is not None:
+                vs_of.setdefault(str(f.ref), []).append(v)
+    out: list[dict[str, _t.Any]] = []
+    for st in BASE_STEPS:
+        # the two pads' vertex sets, the COLLAR of each included (a plane
+        # pad over ``cluster_pad_min_m2`` is a platform inside a collar,
+        # and the rim facing the riser is the collar's — ``platform_split``
+        # mints it so, C2)
+        lo = sorted({v for r, vs in vs_of.items() if _same_pad(r, st.lower_ref)
+                     for v in vs})
+        hi = sorted({v for r, vs in vs_of.items() if _same_pad(r, st.upper_ref)
+                     for v in vs})
+        pairs: list[tuple[int, int]] = []
+        pts: list[list[float]] = []
+        if lo and hi:
+            hx = [(w, planar.vertices[w].xy) for w in hi]
+            for a in lo:
+                ax, ay = planar.vertices[a].xy
+                d, b = min(((math.hypot(ax - bx, ay - by), w)
+                            for w, (bx, by) in hx))
+                if d <= horizon:
+                    pairs.append((a, b))
+            for a, b in pairs:
+                (la0, lo0), (la1, lo1) = planar.vertices[a].key, planar.vertices[b].key
+                pts.append([(la0 + la1) / 2.0, (lo0 + lo1) / 2.0])
+        if len(pts) < 2:
+            # the arrangement did not node the riser line into pairs: the
+            # record still stands (the DECLARED riser is law, not a
+            # measurement) with the line the mint cut, so a census can
+            # never silently lose the declaration
+            pts = [[round(float(la), 8), round(float(lo), 8)]
+                   for part in (st.line or ()) for la, lo in part]
+            if len(pts) < 2:
+                continue
+        step = 0.0
+        if z is not None and pairs:
+            step = max(abs(float(z[a]) - float(z[b])) for a, b in pairs)
+            step += _EMIT_Z_ROUND_M
+        out.append({"points": pts, "step_m": round(step, 4),
+                    "declared_step_m": round(float(st.declared_step_m), 4),
+                    "faced": False, "kind": "base_step", "faces": [],
+                    "shapes": [st.lower_ref, st.upper_ref], "gap": True,
+                    "roles": [], "pairs": len(pairs), "length_m": 0.0,
+                    "unit": st.unit, "strip_width_m": st.strip_width_m,
+                    "strip_m2": st.strip_m2})
+    return out
+
+
+def _same_pad(ref: str, pad_ref: str) -> bool:
+    """Is ``ref`` the pad ``pad_ref``, its collar, or a block inside it?
+    (``model.planar.platform_ref_of`` / ``block_of``: ONE spelling, so a
+    plane pad that ``platform_split`` cut into blocks is still read whole
+    by the joint.)"""
+    from ..model.planar import block_of, platform_ref_of
+    r = platform_ref_of(ref)
+    b = block_of(r)
+    if b is not None:
+        r = b[0]
+    return r == pad_ref
 
 
 def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:

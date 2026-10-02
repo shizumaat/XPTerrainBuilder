@@ -340,6 +340,18 @@ class PlanCluster:
     #: ``""`` (not asked).  §5 A5 / §6 read this: an upper-bound profile
     #: must never be mistaken for the composed one.
     composition: str = ""
+    #: THE FRAME :attr:`base_profile`'s POLYGONS ARE IN — the ``(lat,
+    #: lon)`` of the unit anchor they are metres EAST/NORTH of
+    #: (:func:`cluster_base_profile` composes about ``unit.anchor``).
+    #:
+    #: It is carried because the planar stage has to put those polygons
+    #: in ITS frame to mint a pad from them (§2 (1), C1/C2), and a second
+    #: guess at "which anchor were these composed about" is the
+    #: census-wrapper defect: the composition and the placement would
+    #: drift and nothing would assert they agree.  ``(0.0, 0.0)`` where
+    #: no profile was asked — :attr:`base_profile` is then ``{}`` and
+    #: there is nothing to place.
+    profile_anchor: tuple[float, float] = (0.0, 0.0)
 
     def line(self) -> str:
         return (f"{self.id}: {len(self.members)} member(s), footprint union "
@@ -842,9 +854,14 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
 def _profile_of(u: _t.Any, grp: _t.Sequence[int], shims: _t.Sequence[_t.Any],
                 profile_law: "ProfileLaw | None"
                 ) -> dict:
-    """The two ``PlanCluster`` base-profile fields for one body group, as
+    """The three ``PlanCluster`` base-profile fields for one body group, as
     the keywords the mint splats — ``{}`` where the caller asked for no
-    profile (base-profile spec §1 (4) / C1)."""
+    profile (base-profile spec §1 (4) / C1).
+
+    The ANCHOR travels with the profile because the composed polygons are
+    metres east/north of it (``PlanCluster.profile_anchor``): it is the
+    composition's own frame, published once rather than re-guessed by the
+    planar reader that places the planes."""
     if profile_law is None:
         return {}
     pids: set[int] = set()
@@ -852,7 +869,8 @@ def _profile_of(u: _t.Any, grp: _t.Sequence[int], shims: _t.Sequence[_t.Any],
         pids |= set(shims[i].pids)
     rec, how = cluster_base_profile(u, [shims[i].member for i in grp],
                                     profile_law, pids=pids)
-    return {"base_profile": rec, "composition": how}
+    return {"base_profile": rec, "composition": how,
+            "profile_anchor": (float(u.anchor[0]), float(u.anchor[1]))}
 
 
 def pad_plurality(cands: _t.Sequence[tuple[float, float, float, float]],

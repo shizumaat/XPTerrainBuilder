@@ -42,7 +42,8 @@ __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
            "TERRACE_RULING", "HOLD_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
            "HOLD_RESIDUAL_RULING", "hold_sets", "hold_row",
-           "PLANE_RULING", "GEN", "collar_faces", "platform_records"]
+           "PLANE_RULING", "GEN", "collar_faces", "platform_records",
+           "PLANE_OFFSET_RULING", "plane_offset_rows"]
 
 GEN = "platform_collar"
 #: The ruling HEAD (``solve.design.ruling_head``) — named by ``[design]
@@ -63,6 +64,12 @@ HOLD_RULING = "structures.building_pad frontage_hold"
 #: PRICED at the law's weight — deliberately NOT in ``[design]
 #: hard_rulings``
 HOLD_RESIDUAL_RULING = "structures.building_pad frontage_hold residual"
+#: base-profile spec §2 (1) (owner RULINGS 2026-10-01f): the head of THE
+#: PLANE-OFFSET PIN — one hard row per non-origin plane pad fixing its
+#: datum column at the object's OWN authored riser above the origin
+#: plane's.  Named by ``[design] hard_rulings`` and ranked WITH the pad
+#: hold in ``hard_conflict_ranks`` (C13, the lowest law tier).
+PLANE_OFFSET_RULING = "rulesets.base_profile.plane_offset"
 #: How many platform vertices each outer collar vertex is tied to: the
 #: triangulation joins a rim vertex to a fan of inner ones, and three is a
 #: fan (a solver-conditioning constant, not a law value).
@@ -678,6 +685,73 @@ def frontage_hold_rows(planar: PlanarMap, law: Law,
             n_c += 1
     STATS["frontage_hold_rows"] = {"blocks": n_b, "contacts": n_c,
                                    "contacts_ramp": n_ramp}
+    return rows
+
+
+def plane_offset_rows(planar: PlanarMap, law: Law,
+                      airport: Airport | None = None) -> list[Row]:
+    """§2 (1) THE PLANE PADS ARE PINNED TO ``p0`` — HARD (base-profile spec
+    §2 (1); owner RULINGS 2026-10-01f, 10-01k Q4).  A generator.
+
+    ``p0`` takes the unit's datum exactly as today (``plan_unit_datums``'s
+    median / ``no_step.hold_interval``'s ``D_b`` — the airside frontage
+    decides it, airside is king).  Every OTHER plane pad ``k`` of the same
+    unit takes **ONE** row between the two pads' DATUM COLUMNS::
+
+        z[D_k] - z[D_0] = dy_k          (dy_k = y_k - y_0, the object's own riser)
+
+    stated as a ``Diff`` at cap 0 against a RELIEF TARGET (``rel``,
+    RULINGS 2026-09-11j): the row reads ``-0 <= (z[a] - rel) - z[b] <= 0``,
+    which is the equality above with no new row class, no new column class
+    and no second generator — §2 (1)'s "no new column class, no new row
+    generator: the plane pad's datum column is the platform's datum
+    column".
+
+    WHY IT IS HARD AND WHY IT IS THE LOWEST TIER.  Without it the plane
+    pads are two independently frontage-held pads at two FREE datums: the
+    object's authored 3.9 m riser would meet whatever gap the two
+    frontages happened to solve to — an UNCONTROLLED cliff, worse than
+    today's single pad (PR #174 finding 3).  With it the pair is ONE rigid
+    profile the airside positions through ``p0``.  It ranks WITH the pad
+    hold (C13), so a §5a conflict that names it relaxes it and the unit
+    falls back towards one pad — reported, never a silent cliff and never
+    a runway mover (§6: "a plane-offset row relaxed outside an IIS, or an
+    IIS that names a runway / taxi row beside it" is a STOP).
+
+    A plane pad whose datum column the stage split did not register (no
+    welded frontage of its own — Q3's case where the plane touches no
+    apron) has nothing to pin FROM on its side; it is named in
+    :data:`STATS` and left to the pad law, because a pin onto a column
+    that is not a stage-1 unknown is a row on a constant.
+    """
+    from ..model.base_step import PLANE_PADS, origin_ref_of
+    STATS.pop("plane_offset_rows", None)
+    if not PLANE_PADS:
+        return []
+    cols = datum_vertices(planar, law)
+    rows: list[Row] = []
+    n_pin = n_no_col = n_no_origin = 0
+    for ref in sorted(PLANE_PADS):
+        pad = PLANE_PADS[ref]
+        if pad.k == 0:
+            continue                    # p0 keeps today's datum law exactly
+        o_ref = origin_ref_of(pad.unit)
+        if o_ref is None:
+            n_no_origin += 1
+            continue
+        dk, d0 = cols.get(ref), cols.get(o_ref)
+        if dk is None or d0 is None:
+            n_no_col += 1
+            continue
+        src = Source(GEN, PLANE_OFFSET_RULING
+                     + " (base-profile spec §2 (1), RULINGS 2026-10-01f: plane "
+                       f"pad p{pad.k} stands at the object's own "
+                       f"{pad.dy_m:+.3f} m above p0)",
+                     (ref, o_ref, f"platform:{ref}", "base_profile:plane_offset"))
+        rows.append(Diff(dk, d0, 0.0, 0.0, src, rel=float(pad.dy_m)))
+        n_pin += 1
+    STATS["plane_offset_rows"] = {"pins": n_pin, "no_datum_column": n_no_col,
+                                 "no_origin_pad": n_no_origin}
     return rows
 
 

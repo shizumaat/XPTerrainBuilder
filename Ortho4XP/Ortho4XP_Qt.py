@@ -21,6 +21,16 @@ Ortho4XP_dir = ".." if getattr(sys, "frozen", False) else "."
 
 sys.path.append(os.path.join(Ortho4XP_dir, "src"))
 
+# THE CONSOLE IS UTF-8 BEFORE ANYTHING PRINTS (issues #171, #125).  One
+# derivation site, ``src/O4_Console_Encoding.py``; this is the engine's
+# call into it, and it comes FIRST because the very next block can print
+# a PROJ self-check failure to stderr.  Without it the frozen Windows
+# engine writes stderr in the ANSI code page (``Adolfo Su?rez``, #125)
+# and any non-cp1252 character in a printed string is an exception, not
+# mojibake (#171).  Parity twin: tests/test_frozen_spec_parity.py.
+import O4_Console_Encoding
+O4_Console_Encoding.configure_console_streams()
+
 # The frozen bundle carries two independent libproj copies (pyproj's wheel and
 # GDAL's), each with its own proj.db: each must read the database it shipped
 # with, and the user's PROJ_LIB/PROJ_DATA must not redirect either

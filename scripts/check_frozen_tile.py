@@ -518,7 +518,7 @@ def _tail(path, lines=60):
 
 def _drive(binary, work, data_root, command, jsonl_log, stderr_log,
            deadline, label, tolerated=None, extra_env=None,
-           engine_python=None):
+           engine_python=None, hostile_proj=True):
     """Run one ``build`` command through the frozen binary's protocol.
 
     Returns ``(stream, elapsed, failures)``.  The protocol-level
@@ -537,16 +537,38 @@ def _drive(binary, work, data_root, command, jsonl_log, stderr_log,
     ``engine_python`` is the interpreter to put in front of a SOURCE
     entry (``--arm source``, see :func:`_engine_argv`); a frozen bundle
     ignores it.
+
+    ``hostile_proj`` points ``PROJ_LIB``/``PROJ_DATA`` at a nonexistent
+    directory, which is the right thing to do to a FROZEN bundle and the
+    wrong thing to do to a source tree — see the comment at the
+    assignment.
     """
     failures = []
     started = time.time()
     environment = dict(os.environ)
     environment["ORTHO4XP_DATA_ROOT"] = data_root
     environment["PYTHONHASHSEED"] = "0"
-    # The bundle must find its own PROJ data whatever the shell says
-    # — the same hostile environment the PROJ self-check uses.
-    environment["PROJ_LIB"] = os.path.join(work, "nonexistent-proj")
-    environment["PROJ_DATA"] = environment["PROJ_LIB"]
+    # THE HOSTILE PROJ ENVIRONMENT, and why it is not unconditional.
+    # A FROZEN bundle must find its own PROJ data whatever the shell says
+    # (``O4_Proj_Runtime.scrub_proj_env`` drops PROJ_* precisely because
+    # the bundle ships its own proj.db), so pointing these at nothing is
+    # the same hostile environment release.yml's ``--proj-selfcheck``
+    # step uses, and the frozen passes keep it.
+    #
+    # A SOURCE run is the opposite.  The scrub is conditioned on the
+    # bundle, so a source tree inherits the bogus search path, GDAL's
+    # ``osr.ImportFromEPSG(4326)`` dies with "Cannot find proj.db", and
+    # the engine REFUSES to build — "PROJ runtime is broken, builds are
+    # disabled to avoid a silently degraded tile", which is exactly the
+    # right behaviour and exactly not the question this pass is asking.
+    # MEASURED, run 37033688936: the vector step failed in 0.5 s with
+    # ``sys.frozen: False`` and
+    # ``osr.GetPROJSearchPaths(): ['...\\nonexistent-proj']``.  So the
+    # full-tile pass leaves the runner's own PROJ environment alone and
+    # the PROJ question stays where it already has an answer.
+    if hostile_proj:
+        environment["PROJ_LIB"] = os.path.join(work, "nonexistent-proj")
+        environment["PROJ_DATA"] = environment["PROJ_LIB"]
     # ``--xplat-dump`` arms the engine's own per-stage digest writer
     # (``auto_patch_v2/pipeline/xplat.py``).  It travels in the CHILD's
     # environment because the driver never imports the engine — the bundle
@@ -1525,7 +1547,6 @@ FULL_TILE_GIVEUP_MARKERS = (
     "download failed",
     "every texture download failed",
     "max retries exceeded",
-    "could not be downloaded",
     "OSM overpass server answer was corrupted",
     "continuing without insets",
     "failed without a durable answer",
@@ -1824,7 +1845,10 @@ def run_full_tile(binary, repo_root, log_dir, lat, lon, icao, provider,
             # printed loudly below.
             tolerated=lambda text: VERIFY_DEFECT_MARKER in text,
             extra_env={"CPL_DEBUG": "ON", "CPL_CURL_VERBOSE": "YES"},
-            engine_python=engine_python)
+            engine_python=engine_python,
+            # The source arm runs the engine from the checkout, where the
+            # bundle's PROJ scrub does not apply — see _drive.
+            hostile_proj=False)
 
         build_dir_glob = os.path.join(data_root, "Tiles", "*")
 

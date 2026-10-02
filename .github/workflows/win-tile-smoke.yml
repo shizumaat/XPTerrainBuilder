@@ -96,10 +96,13 @@ concurrency:
 
 jobs:
   smoke:
-    # `jobs.<id>.name` reads github/needs/strategy/matrix/vars/inputs —
-    # NOT `env`, which is why the title repeats the fallbacks instead of
-    # reading the job env below.
-    name: "full tile ${{ inputs.icao || 'CYXY' }} ${{ inputs.lat || '60' }} ${{ inputs.lon || '-136' }} zl${{ inputs.zl || '15' }} (${{ matrix.arm }})"
+    # `jobs.<id>.name` reads github/needs/strategy/matrix/vars/inputs and
+    # NOT `env`, so a title that named the tile would be repeating the
+    # fallbacks from a second place and could disagree with the run (it
+    # did: a zl13 run branch titled itself zl15).  The arm is the only
+    # thing the title needs; the values are in the step log and the job
+    # summary, which are where they are true.
+    name: "full tile build, real downloads (${{ matrix.arm }})"
     runs-on: windows-latest
     # Two hours: the budget is the IMAGERY, and it scales 4x per zoom level.
     # At the default zl15 over a 1-degree tile the build downloads thousands

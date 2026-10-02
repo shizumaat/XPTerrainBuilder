@@ -15,6 +15,7 @@ import typing as _t
 from . import anchor_rule as _ar
 from . import footprint_unit as _fu
 from . import obj8_split as _split
+from . import placement_seat_tilt as _pst
 from ..model.rebake import Member
 
 __all__ = ["Body", "Split", "Kept", "SplitSet", "Staged"]
@@ -93,6 +94,14 @@ class Body:
     #: The bodies sharing one value are ONE RIGID CLUSTER and rest only
     #: on each other.
     bridge_of: str = ""
+    #: THE SEAT TILT (owner RULINGS 2026-10-01k Q1; issue #162): what
+    #: ``placement_seat_tilt.seat_tilt`` decided for this body — the
+    #: fitted tilt, whether it was BAKED, and the worst foot residual as
+    #: the body will be written.  ``None`` where the seat never looked at
+    #: the body (it has a floor plane, another law owns its elevation, or
+    #: the seat is disarmed); a record with ``applied`` False is the
+    #: REPORTED case, which is never a block cut.
+    seat: "_pst.SeatTilt | None" = None
 
     def to_dict(self) -> dict[str, _t.Any]:
         a = self.anchor
@@ -129,6 +138,7 @@ class Body:
                 "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
                              for q in self.geom_pts],
                 "bridge_of": self.bridge_of or None,
+                "seat": None if self.seat is None else self.seat.to_dict(),
                 "feet": len(self.feet)}
 
 

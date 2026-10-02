@@ -820,6 +820,10 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         deck_on_fraction=law.tables.structures.deck.on_fraction,
         deck_edge_m=law.tables.structures.deck.edge_m,
         deck_under_m=law.tables.structures.deck.under_m,
+        # 10-01k Q1 (#162): a FEET-verdict post base over a graded apron
+        # is seated by baking its own TILT, capped by this
+        seat_tilt_max_deg=float(
+            law.tables.structures.placement.seat_tilt_max_deg),
         # jetway-strip spec §4 (C17): the riders' population and strips
         jetway_strips=jetway_strips,
         # a CLAMPED GATE is a clamp within D of the rider (#31)

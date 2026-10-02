@@ -59,6 +59,7 @@ import json
 import os
 import sys
 import time
+import typing as _t
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
@@ -511,6 +512,55 @@ def feet_in_unit(foot_floats, graded_doc: dict, unit: str,
         out["site"] = {"lat": site[0], "lon": site[1], "radius_m": site[2],
                        **stat([r for r in foot_floats
                                if _near_m(site[0], site[1], r[2], r[3]) <= site[2]])}
+    return out
+
+
+def seat_rows(b: _t.Any, pad: str = "        ") -> list[str]:
+    """THE SEAT ROW (owner RULINGS 2026-10-01k Q1; issue #162) — one line
+    per body the seat looked at, or none.
+
+    It reads the body's own ``seat`` record and derives nothing: what the
+    plan decided is what prints, so this report cannot disagree with the
+    geometry the writer baked."""
+    seat = getattr(b, "seat", None)
+    if seat is None:
+        return []
+    verb = "BAKED" if seat.applied else "reported, NOT applied"
+    out = [f"{pad}seat {verb}: tilt {seat.total_deg:.3f} deg "
+           f"(pitch {seat.tilt_deg:+.3f}, roll {seat.roll_deg:+.3f}) over "
+           f"{seat.feet} feet; worst foot {seat.residual_before_m:+.2f} -> "
+           f"{seat.residual_max_m:+.2f} m"
+           + ("  OVER TOLERANCE" if seat.over_tolerance else "")]
+    out.append(f"{pad}  {seat.reason}")
+    return out
+
+
+def seat_tilt_lines(ss: _t.Any, *, cap_deg: float, tol_m: float,
+                    top: int = 5) -> list[str]:
+    """§8a Q1's own census: every body the seat looked at, what it did and
+    what is left over — the block a reader checks the ruling against."""
+    seats = [(b, b.seat) for s in ss.all for b in s.bodies
+             if getattr(b, "seat", None) is not None]
+    if not seats:
+        return []
+    applied = [q for q in seats if q[1].applied]
+    over = [q for q in seats if q[1].over_tolerance]
+    capped = [q for q in seats if not q[1].applied and q[1].over_tolerance]
+    out = [f"\nSEAT TILT (10-01k Q1, cap {cap_deg:g} deg, foot tolerance "
+           f"{tol_m:g} m): {len(seats)} post-feet bodies looked at, "
+           f"{len(applied)} TILTED, {len(capped)} over the cap (reported), "
+           f"{len(over) - len(capped)} tilted but still over tolerance "
+           f"(reported, no block cut)"]
+    if applied:
+        worst_before = max(q[1].residual_before_m for q in applied)
+        worst_after = max(q[1].residual_max_m for q in applied)
+        out.append(f"    worst foot over the tilted bodies "
+                   f"{worst_before:.2f} -> {worst_after:.2f} m; "
+                   f"steepest tilt {max(q[1].total_deg for q in applied):.3f} deg")
+    for b, st in sorted(seats, key=lambda q: -q[1].residual_before_m)[:top]:
+        out.append(f"    {st.total_deg:6.3f} deg  "
+                   f"{st.residual_before_m:+7.2f} -> {st.residual_max_m:+6.2f} m  "
+                   f"{b.new_resource.split('/')[-1][:44]}")
     return out
 
 
@@ -1111,6 +1161,12 @@ def _main() -> int:
                     "footprint), and with @LAT,LON[,R] (R default 60 m) the "
                     "feet within R of the site — a projection of the SAME "
                     "census pass (repeatable)")
+    ap.add_argument("--no-seat-tilt", action="store_true",
+                    help="disarm the SEAT TILT (owner RULINGS 2026-10-01k Q1, "
+                    "issue #162: a FEET-verdict post base over a graded apron "
+                    "is seated by baking a pitch/roll into its body mesh) and "
+                    "report the pre-tilt bodies — the matched arm for "
+                    "measuring what the seat changed")
     ap.add_argument("--base-profile", action="store_true",
                     help="building-base-profile spec §1 (4) / §7 step 3 (C21): "
                     "per unit and per member the BASE PROFILE the pack read "
@@ -1209,6 +1265,11 @@ def _main() -> int:
                          deck_on_fraction=_law.tables.structures.deck.on_fraction,
                          deck_edge_m=_law.tables.structures.deck.edge_m,
                          deck_under_m=_law.tables.structures.deck.under_m,
+                         # 10-01k Q1 (#162): the SEAT TILT cap
+                         seat_tilt_max_deg=(
+                             0.0 if a.no_seat_tilt else
+                             float(_law.tables.structures.placement
+                                   .seat_tilt_max_deg)),
                          split_tol_m=tol_m,
                          elevated_base_m=rb.elevated_base_m,
                          line_segment_m=seg_m,
@@ -1439,6 +1500,8 @@ def _main() -> int:
                   f"{b.anchor.lon:.7f}  y0 {b.anchor.y_zero:+.2f}  "
                   f"offset {b.anchor.offset[0]:+.1f},{b.anchor.offset[1]:+.1f},"
                   f"{b.anchor.offset[2]:+.1f}  {b.anchor.reason}")
+            for line in seat_rows(b):
+                print(line)
         if len(s.bodies) > 6:
             print(f"      ... {len(s.bodies) - 6} more")
 
@@ -1542,6 +1605,15 @@ def _main() -> int:
         print(f"  block straddlers (welded across a block boundary, no strict "
               f"majority; plan-wide): {sum(v for _, v in _st)}"
               + "".join(f"\n    {n} x{v}" for n, v in _st[:10]))
+
+    # 10-01k Q1 (#162): the SEAT TILT census, read off the plan's own
+    # ``seat`` records (nothing re-derived here)
+    for line in seat_tilt_lines(
+            ss, cap_deg=(0.0 if a.no_seat_tilt else
+                         float(_law.tables.structures.placement
+                               .seat_tilt_max_deg)),
+            tol_m=tol_m):
+        print(line)
 
     if a.json:
         out = ss.to_dict()

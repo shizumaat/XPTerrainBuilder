@@ -12,6 +12,7 @@ import pathlib
 import pytest
 
 import O4_File_Names as FNAMES
+import O4_UI_Utils as UI
 from auto_patch import engine_v2
 from auto_patch import post_mesh
 
@@ -75,6 +76,90 @@ def test_switch_on_runs_the_stage(rebake_stage):
     counts = engine_v2.rebake_after_mesh(tile)
 
     assert counts["airports_failed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# ISSUE #42 -- THE STAND-DOWN IS SILENT, AND IT COMES FIRST
+#
+# The 09-18a arm sat BELOW the plan glob and the two mesh tests, so with
+# the box unchecked a build still printed ``[v2 rebake] STALE MESH ...``
+# (verbosity 0, so always), ``[v2 rebake] mesh not found ...``, or the
+# wrapper's ``[v2 rebake] failed: ...`` -- the owner's report on build 350.
+# ---------------------------------------------------------------------------
+
+
+def _rebake_lines(capsys):
+    """Every ``[v2 rebake]`` / ``[v2 placement]`` line the stage printed."""
+    out = capsys.readouterr().out
+    return [ln for ln in out.splitlines()
+            if "[v2 rebake]" in ln or "[v2 placement]" in ln]
+
+
+def test_switch_off_prints_no_rebake_line(rebake_stage, capsys):
+    """Issue #42: at the default verbosity the console carries NO
+    ``[v2 rebake]`` line when the box is unchecked."""
+    tile, _plan = rebake_stage
+    tile.modify_custom_airports = False
+    assert UI.verbosity == 1                      # the app's own default
+
+    counts = engine_v2.rebake_after_mesh(tile)
+
+    assert _rebake_lines(capsys) == []
+    assert counts == {"airports": 0, "airports_failed": 0, "packs_written": 0}
+
+
+def test_switch_off_names_the_switch_at_v2(rebake_stage, capsys, monkeypatch):
+    """...and ``-v2`` still says WHICH switch stood the stage down."""
+    tile, _plan = rebake_stage
+    tile.modify_custom_airports = False
+    monkeypatch.setattr(UI, "verbosity", engine_v2._STAND_DOWN_VERBOSITY)
+
+    engine_v2.rebake_after_mesh(tile)
+
+    lines = _rebake_lines(capsys)
+    assert len(lines) == 1 and "modify_custom_airports is off" in lines[0]
+
+
+@pytest.mark.parametrize("break_", ["stale_mesh", "no_mesh", "no_worklist"])
+def test_switch_off_outranks_every_other_rebake_print(rebake_stage, capsys,
+                                                      monkeypatch, break_):
+    """The gate is the FIRST statement of the stage: none of the three
+    pre-09-18a leaks can print once the box is unchecked."""
+    tile, _plan = rebake_stage
+    tile.modify_custom_airports = False
+    if break_ == "stale_mesh":
+        monkeypatch.setattr(post_mesh, "_mesh_is_newer_than_alt",
+                            lambda _t, _m: False)
+    elif break_ == "no_mesh":
+        monkeypatch.setattr(FNAMES, "mesh_file",
+                            lambda _b, _lat, _lon: "/nonexistent/mesh.mes")
+    else:
+        def _boom(_t):
+            raise RuntimeError("no worklist path")
+        monkeypatch.setattr(post_mesh, "object_anchor_worklist_path", _boom)
+
+    counts = engine_v2.rebake_after_mesh(tile)
+
+    assert _rebake_lines(capsys) == []
+    assert counts == {"airports": 0, "airports_failed": 0, "packs_written": 0}
+
+
+@pytest.mark.parametrize("break_", ["stale_mesh", "no_mesh"])
+def test_switch_on_still_reports_a_mesh_problem(rebake_stage, capsys,
+                                                monkeypatch, break_):
+    """The control: with the box CHECKED the mesh diagnostics are the
+    whole point of the stage and still print."""
+    tile, _plan = rebake_stage
+    if break_ == "stale_mesh":
+        monkeypatch.setattr(post_mesh, "_mesh_is_newer_than_alt",
+                            lambda _t, _m: False)
+    else:
+        monkeypatch.setattr(FNAMES, "mesh_file",
+                            lambda _b, _lat, _lon: "/nonexistent/mesh.mes")
+
+    engine_v2.rebake_after_mesh(tile)
+
+    assert len(_rebake_lines(capsys)) == 1
 
 
 # ---------------------------------------------------------------------------

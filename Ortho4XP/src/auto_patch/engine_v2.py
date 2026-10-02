@@ -558,6 +558,12 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
 #: ``o4_v2_rebake_<ICAO>.seat.json`` is NOT a plan.
 _PLAN_NAME_RE = re.compile(r"^o4_v2_rebake_(?!result_)[A-Za-z0-9]{2,8}\.json$")
 
+#: Verbosity of the one line the ``modify_custom_airports`` stand-down
+#: prints (issue #42).  ABOVE the default (``O4_UI_Utils.verbosity`` 1), so
+#: the owner's console stays clean when the box is unchecked while ``-v2``
+#: still records which switch stood the stage down.
+_STAND_DOWN_VERBOSITY = 2
+
 
 def _place_rebake_plan(task: dict, src_plan, icao: str) -> str | None:
     """Copy the pipeline's plan beside the patch (``Patches/<tile>/``)."""
@@ -917,6 +923,34 @@ def rebake_after_mesh(tile) -> dict:
                             object_anchor_worklist_path)
 
     counts = {"airports": 0, "airports_failed": 0, "packs_written": 0}
+    # THE USER'S SWITCH IS A STAND-DOWN, NOT A MEASURE-ONLY ARM (owner
+    # ruling RULINGS 2026-09-18a (3), BETA2 GEN-1; issue #42).  When the
+    # user unchecks "Modify custom airports" the whole placement stage is
+    # skipped: no pack DSF dump into the mod cache, no placement plan, no
+    # ``[v2 placement]`` output.  The env arms further down
+    # (``O4_PACK_WRITES=measure_only``, the ``DSF_OBJECT_REANCHOR`` kill
+    # switch) exist precisely to KEEP the measurement while standing the
+    # writes down, so they do NOT take this return.
+    #
+    # ISSUE #42, THE SECOND HALF: THE STAND-DOWN IS ALSO SILENT, AND IT
+    # COMES FIRST.  The 09-18a arm sat BELOW the plan glob and the two
+    # mesh tests, so a build with the box unchecked still printed
+    # ``[v2 rebake] STALE MESH …`` (at verbosity 0, so always), ``[v2
+    # rebake] mesh not found …``, or ``[v2 rebake] failed: …`` from the
+    # wrapper when the worklist path itself raised — the owner's report on
+    # build 350 ("if the box is not checked, nothing in the airport should
+    # be modified, so why any ``[v2 rebake]`` lines?").  A stage that is
+    # standing down reads no mesh, so it has nothing to say about one:
+    # the gate is now the FIRST statement of the stage, above every other
+    # read and every other print, and its own line is ``vprint(2)`` — the
+    # console at default verbosity carries NO ``[v2 rebake]`` line at all,
+    # while ``-v2`` still names the switch for anyone debugging.
+    if not getattr(tile, "modify_custom_airports", True):
+        UI.vprint(_STAND_DOWN_VERBOSITY,
+                  "  [v2 rebake] modify_custom_airports is off — "
+                  "placement stage skipped entirely (no pack is read, "
+                  "dumped or written, no placement plan is computed)")
+        return counts
     try:
         patch_dir = os.path.dirname(object_anchor_worklist_path(tile))
         # RULINGS 2026-09-09w (3): the engine loads ITS OWN plan files only.
@@ -935,21 +969,9 @@ def rebake_after_mesh(tile) -> dict:
             UI.vprint(0, "  [v2 rebake] STALE MESH: the mesh predates the tile's .alt — "
                          "placement SKIPPED; rebuild the mesh after the elevation step")
             return counts
-        # THE USER'S SWITCH IS A STAND-DOWN, NOT A MEASURE-ONLY ARM
-        # (owner ruling RULINGS 2026-09-18a (3), BETA2 GEN-1).  When the
-        # user unchecks "Modify custom airports" the whole placement stage
-        # is skipped: no pack DSF dump into the mod cache, no placement
-        # plan, no ``[v2 placement]`` output — ONE line naming the switch.
-        # The env arms below (``O4_PACK_WRITES=measure_only``, the
-        # ``DSF_OBJECT_REANCHOR`` kill switch) exist precisely to KEEP the
-        # measurement while standing the writes down, so they do NOT take
-        # this return.
-        measure_only = not getattr(tile, "modify_custom_airports", True)
-        if measure_only:
-            UI.vprint(1, "  [v2 rebake] modify_custom_airports is off — "
-                         "placement stage skipped entirely (no pack is read, "
-                         "dumped or written, no placement plan is computed)")
-            return counts
+        # the user's switch stood the whole stage down above; what is left
+        # here are the ENV arms, which keep the measurement
+        measure_only = False
         # v1's engine-wide kill switch (``O4_DSF_OBJECT_REANCHOR=0`` "leaves
         # every pack byte-identical"; function-local import so tests drive
         # it): the placement plan is still built and reported — the

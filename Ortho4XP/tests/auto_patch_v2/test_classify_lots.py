@@ -605,3 +605,42 @@ def test_road_evidence_no_longer_decides_the_unclassified_verdict(law):
     alone, why_a = unclassified_groundside_role(plate, rules, road_reached=False)
     assert reached == alone == rules.groundside.unclassified_role
     assert why_r["road_evidence"] == 1.0 and why_a["road_evidence"] == 0.0
+
+
+
+def test_a_proportions_ribbon_bridging_airside_end_on_is_apron(law):
+    """issue #110 x §27 (5), HECA ``dsf:objpav0`` (lane hecamove,
+    2026-10-02): a §110 ribbon is a road by PROPORTIONS, not by EVIDENCE,
+    so it offers no free-road MOUTH and owes no §37 (2) share -- the §27
+    airside-edge pass judges it as the LOT it would otherwise have been.
+    At HECA a 7.1 m x 43 m object-pavement remnant (aspect 6.1, no road)
+    joining two airside junction faces end-on read its 8.9 / 10.1 m
+    contacts as its own mouths, stayed a groundside ``service_road`` and
+    moved 875 airside values by up to 0.56 m (CRITICAL motion +1).
+
+    Here, on the ONE derivation site (``airside_edge_flip``): an 8 x 60 m
+    remnant joining two junction faces END-ON at both ends (two 8 m
+    contacts, each within ``mouth_width_factor`` strip-widths, 16 m
+    together).  The same face BORN a road by evidence keeps its mouths."""
+    from auto_patch_v2.classify.airside_edge import airside_edge_flip
+    from auto_patch_v2.classify.open_default import unclassified_groundside_role
+    rules = load_rules()
+    j1 = Polygon(_rect(0.0, 0.0, 30.0, 30.0))
+    j2 = Polygon(_rect(0.0, 90.0, 30.0, 120.0))
+    link = Polygon(_rect(11.0, 30.0, 19.0, 90.0))
+    role, why = unclassified_groundside_role(link, rules, road_reached=False)
+    assert role == "service_road"                       # §110: road proportions
+
+    def run(evid):
+        final = [["junction", "j1", j1, None, {}, "junction"],
+                 ["junction", "j2", j2, None, {}, "junction"],
+                 [role, "link", link, None, dict(evid), role]]
+        airside_edge_flip(final, [], law, rules)
+        return final[2]
+
+    flipped = run(why)
+    assert flipped[0] == "apron", flipped[4]
+    assert flipped[4]["airside_edge_was"] == "service_road"
+    # a road BY EVIDENCE (no §110 proportions verdict) keeps its mouths
+    kept = run({})
+    assert kept[0] == "service_road", kept[4]

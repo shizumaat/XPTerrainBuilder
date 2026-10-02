@@ -33,7 +33,13 @@ always-allowed state directory the refresh ledger and the locks live in;
 file (or directory, e.g. a capture dir) is COPIED there, a `patch` brings
 its `.axes.json` sidecar along, and the row points at the DURABLE copy
 (`copied_from` keeps the original).  An existing destination is reused
-only when it is byte-identical; otherwise it is refused, never overwritten.
+only when it is byte-identical; otherwise the copy lands BESIDE it under
+the base sha (`<stem>.<base><ext>`, `BASE_SUFFIX_FMT`) and the row points
+at the NEW copy -- never overwritten, and never a row naming bytes this
+invocation did not write (issue #102: lane train98's SECOND
+`HECA.rebake.json` was correctly not overwritten, but its row still
+pointed at round 1's file, so the registry attributed round 2's frame to
+round 1's bytes).
 Rows registered before this law are untouched; `list` marks any row whose
 path is gone `[MISSING]`.
 """
@@ -45,6 +51,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import sys
 
@@ -52,6 +59,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 REGISTRY = os.path.join(ROOT, "docs", "frames.jsonl")
 KINDS = ("capture", "rebake", "patch", "graded", "mesh", "inset")
 SIDECAR_SUFFIX = ".axes.json"     # census.py: Path(str(osm) + ".axes.json")
+
+#: THE SECOND-ROUND NAME (issue #102).  When ``--copy``'s destination
+#: basename is already taken by DIFFERENT bytes, the copy lands beside it
+#: under this name and the registry row points at THAT file -- so the
+#: invariant "a row's path names the bytes this invocation registered"
+#: holds without ever overwriting a frame.
+BASE_SUFFIX_FMT = "{stem}.{base}{ext}"
+
+#: A base sha is only usable as a filename component when it is a bare
+#: token (a lane may pass a branch name, a path, or an empty string);
+#: without one there is no second name and the copy is REFUSED naming the
+#: existing path -- issue #102's option (a), its (b) being the normal case.
+BASE_SUFFIX_SAFE = re.compile(r"[0-9A-Za-z][0-9A-Za-z_.-]{0,63}\Z")
 
 
 def inset_sidecar(path: str) -> str:
@@ -97,12 +117,61 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def _copy_durable(path: str, lane: str, kind: str) -> tuple[str, list[str]]:
+def _base_suffixed(dest: str, base: str) -> "str | None":
+    """``.../HECA.rebake.json`` + base ``26f7fea6`` ->
+    ``.../HECA.rebake.26f7fea6.json``; ``None`` when ``base`` is not a
+    bare token that can be a filename component."""
+    if not base or not BASE_SUFFIX_SAFE.match(base):
+        return None
+    stem, ext = os.path.splitext(dest)
+    return BASE_SUFFIX_FMT.format(stem=stem, base=base, ext=ext)
+
+
+def _pick_dest(path: str, dest: str, base: str, is_dir: bool) -> str:
+    """WHERE the copy goes, and THE INVARIANT it establishes (issue #102):
+    the path returned always names the bytes this invocation writes (or
+    byte-identical ones already there) -- never an earlier round's frame
+    that happens to share the basename.
+
+    ``dest`` free -> ``dest``.  ``dest`` taken by BYTE-IDENTICAL bytes ->
+    ``dest`` (the row names the same bytes either way).  Taken by
+    DIFFERING bytes -> the base-suffixed name beside it, which is issue
+    #102's option (b): the natural fix, since ``register`` has the base
+    sha right here and option (a) alone would make every lane's second
+    round unregisterable.  A directory is never compared, so it always
+    takes the second name.  When neither name can be established (no
+    usable base sha, or the suffixed name is taken by yet other bytes)
+    the copy is REFUSED naming the path(s): a frame is never replaced in
+    place, and a row never points at bytes it did not write."""
+    if not os.path.exists(dest):
+        return dest
+    if not is_dir and os.path.isfile(dest) and _sha256(dest) == _sha256(path):
+        return dest                                   # byte-identical: reuse
+    alt = _base_suffixed(dest, base)
+    if alt is None:
+        raise SystemExit(
+            f"frames: refusing to overwrite an existing durable path that "
+            f"differs: {dest}\n  (no usable base sha to name a second copy "
+            f"with -- pass --base <sha>, or rename the source; a frame is "
+            f"never replaced in place)")
+    if not os.path.exists(alt):
+        return alt
+    if not is_dir and os.path.isfile(alt) and _sha256(alt) == _sha256(path):
+        return alt                                    # byte-identical: reuse
+    raise SystemExit(
+        f"frames: refusing to overwrite an existing durable path that "
+        f"differs: {dest}\n  ...nor its base-suffixed name, which is taken "
+        f"by other bytes: {alt}\n  (rename the source; a frame is never "
+        f"replaced in place, and a row never names bytes it did not write)")
+
+
+def _copy_durable(path: str, lane: str, kind: str,
+                  base: str = "") -> tuple[str, list[str]]:
     """Copy ``path`` (file or directory) into ``<durable root>/<lane>/`` and
     return ``(durable_path, extra_files_copied)``.  A ``patch`` brings its
     ``.axes.json`` sidecar (without it every census degrades to the
-    context-free frame that overcounts).  Never overwrites: an existing
-    destination is reused only when byte-identical, otherwise REFUSED."""
+    context-free frame that overcounts).  Never overwrites: see
+    :func:`_pick_dest` for where a taken basename sends the copy."""
     # both separators: on Windows '/' is one too, and os.sep alone let
     # "claude/lane" nest a directory (#92)
     if (not lane or "/" in lane or "\\" in lane or lane in (".", "..")
@@ -112,26 +181,26 @@ def _copy_durable(path: str, lane: str, kind: str) -> tuple[str, list[str]]:
     dest = os.path.join(dest_dir, os.path.basename(path.rstrip(os.sep)))
     os.makedirs(dest_dir, exist_ok=True)
     extras: list[str] = []
-    if os.path.isdir(path):
-        if os.path.exists(dest):
-            raise SystemExit(
-                f"frames: refusing to overwrite an existing durable directory: {dest}\n"
-                f"  (rename the source, or register {dest} as-is if it is the same frame)")
+    is_dir = os.path.isdir(path)
+    dest = _pick_dest(path, dest, base, is_dir)
+    if is_dir:
         shutil.copytree(path, dest, symlinks=False)
     else:
-        if os.path.exists(dest):
-            if not (os.path.isfile(dest) and _sha256(dest) == _sha256(path)):
-                raise SystemExit(
-                    f"frames: refusing to overwrite an existing durable file that "
-                    f"differs: {dest}\n  (rename the source; a frame is never replaced in place)")
-            # byte-identical: reuse
-        else:
+        if not os.path.exists(dest):
             shutil.copy2(path, dest)
+        # an existing dest here is byte-identical (``_pick_dest``)
         if kind == "patch":
             side = path + SIDECAR_SUFFIX
             if os.path.isfile(side):
                 side_dest = dest + SIDECAR_SUFFIX
-                if not os.path.exists(side_dest):
+                if os.path.exists(side_dest):
+                    if _sha256(side_dest) != _sha256(side):
+                        raise SystemExit(
+                            f"frames: refusing to overwrite an existing durable "
+                            f"patch sidecar that differs: {side_dest}\n  (the row "
+                            f"would name this patch's bytes and another run's "
+                            f"census context)")
+                else:
                     shutil.copy2(side, side_dest)
                 extras.append(side_dest)
         if kind == "inset":
@@ -181,7 +250,7 @@ def register(icao: str, kind: str, path: str, base: str, lane: str, note: str = 
                 f"the durable root {durable_root()}/<lane>/ — or pass --copy to copy "
                 f"this one there and register the copy.")
         copied_from = path
-        path, extras = _copy_durable(path, lane, kind)
+        path, extras = _copy_durable(path, lane, kind, base)
         print(f"frames: copied {copied_from} -> {path}"
               + (f" (+ {', '.join(os.path.basename(e) for e in extras)})" if extras else ""),
               file=sys.stderr)

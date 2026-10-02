@@ -510,6 +510,75 @@ def _ll_to_m_factory(nodes: Dict[str, Tuple[float, float]],
     return _f
 
 
+#: The sidecar key that carries the BUILDER's projection anchor WHEN THE
+#: PATCH HAS ONE.  v1 wrote it; v2's register
+#: (``auto_patch_v2.emit.osm_adapter.SIDECAR_KEYS``) deliberately does
+#: NOT — so a reader that SUBSCRIPTS it dies with ``KeyError: 'anchor'``
+#: on every current patch, which is what both read tools did (issue #147
+#: for ``lattice_overlap_read``, RULINGS 2026-09-13cs for
+#: ``role_overlap_read``).  Read through :func:`sidecar_anchor`, never
+#: spelled again.
+SIDECAR_ANCHOR_KEY = "anchor"
+
+#: The two metre frames a patch can be read in, NAMED — so a reader can
+#: print the frame in force and two reads are never quoted across frames
+#: (the x-scale differs by ``cos(lat0)``: millimetres over a chord, which
+#: is enough to flip an epsilon contact predicate).
+FRAME_BUILDER_ANCHOR = "builder anchor"
+FRAME_MEAN_OF_NODES = "mean-of-nodes"
+
+
+def sidecar_anchor(sidecar: "Optional[Dict[str, Any]]"
+                   ) -> "Optional[Tuple[float, float]]":
+    """The builder's projection anchor a ``.axes.json`` DECLARES, or
+    ``None`` when it carries none — THE one read of
+    :data:`SIDECAR_ANCHOR_KEY`, and the same ``.get``-with-fallback
+    :func:`law_context_from_sidecar` does, so a tool and the census never
+    disagree about which frame a patch is read in."""
+    a = (sidecar or {}).get(SIDECAR_ANCHOR_KEY)
+    return (float(a[0]), float(a[1])) if a else None
+
+
+def sidecar_metre_frame(path, feature_out=None):
+    """``(nodes, ways, anchor, frame_name, sidecar)`` for one emitted
+    patch — THE single sidecar FRAME reader the measurement tools share
+    (``tools/role_overlap_read.py``, ``tools/lattice_overlap_read.py``).
+
+    ``feature_out``: the dict :func:`_parse_osm` collects the ROLE-LESS
+    feature ways into, so a reader that needs them stays ONE parse.
+
+    The sidecar is REQUIRED (no sidecar, no census context — a
+    context-free read is a different measurement, memory
+    ``check-grade-needs-law-true-frame``); the anchor is used WHEN THE
+    PATCH CARRIES ONE and otherwise the frame is this module's own
+    fallback, the MEAN OF NODES — the frame the census and every pytest
+    fixture read the same patch in.  ``frame_name`` is
+    :data:`FRAME_BUILDER_ANCHOR` or :data:`FRAME_MEAN_OF_NODES`, for the
+    report.  A patch that declares no anchor AND has no nodes to derive
+    one from is REFUSED naming its sidecar: the factory would hand back a
+    frame about (0, 0), in which every metre reads 0.0 and looks lawful.
+    """
+    import json as _json
+    p = Path(path)
+    side_path = Path(str(p) + ".axes.json")
+    if not side_path.exists():
+        raise SystemExit(
+            f"REFUSING: {p} has no .axes.json sidecar — without the census "
+            f"context there is no metre frame to measure in, and a guessed "
+            f"one is a different projection.")
+    nodes, ways = _parse_osm(p, feature_out)
+    sidecar = _json.loads(side_path.read_text())
+    anchor = sidecar_anchor(sidecar)
+    if anchor is None and not nodes:
+        raise SystemExit(
+            f"REFUSING: {side_path} declares no "
+            f"{SIDECAR_ANCHOR_KEY!r} and {p} has no nodes to take the "
+            f"mean of — there is no metre frame to measure in.")
+    return (nodes, ways, anchor,
+            FRAME_BUILDER_ANCHOR if anchor else FRAME_MEAN_OF_NODES,
+            sidecar)
+
+
 # ── Vertex / edge tables ────────────────────────────────────────
 
 @dataclass
@@ -11115,8 +11184,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     else:
         ctx["taxi_axes_ll"] = data.get("axes") or None
         ctx["routes_ll"] = data.get("routes") or None
-    anchor = data.get("anchor") or None
-    ctx["anchor"] = tuple(anchor) if anchor else None
+    ctx["anchor"] = sidecar_anchor(data)
     ctx["seam_pins_ll"] = data.get("seam_pins")
     # §16g (10) (12) (2): the re-node witness list (absent on any patch
     # written before 2026-09-16, which then reports nothing)

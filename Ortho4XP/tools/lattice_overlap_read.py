@@ -22,9 +22,19 @@ same class would be caught.
 
 TWO PARSE CONVENTIONS, DELIBERATELY.  Geometry, the metre frame and the
 role-carrying rings come from the harness library itself
-(``check_grade._parse_osm`` / ``_ll_to_m_factory`` about the sidecar's
-own anchor) — imported, never re-spelled, which is the census-wrapper
-precedent.  But ``_parse_osm`` DROPS ANY WAY WITH FEWER THAN THREE
+(``check_grade.sidecar_metre_frame`` — its ``_parse_osm`` and its
+``_ll_to_m_factory`` about the sidecar's own anchor) — imported, never
+re-spelled, which is the census-wrapper precedent.  THE ANCHOR REPAIR
+(issue #147): this read used to do ``side["anchor"]`` and died
+``KeyError: 'anchor'`` on EVERY current patch, the reference frame
+``frames/reference/sw1002_HECA.osm`` included, because v2's sidecar
+register (``emit/osm_adapter.SIDECAR_KEYS``) publishes no anchor,
+deliberately, and the library itself falls back to the MEAN OF NODES —
+the frame the census reads the same patch in.  The sidecar is still
+REQUIRED, a legacy anchor is still used when the patch carries one, and
+a patch with neither is refused naming its sidecar.  ``role_overlap_
+read`` took the same repair (RULINGS 2026-09-13cs); the accessor is now
+ONE, in the library, rather than a second slightly-different copy.  But ``_parse_osm`` DROPS ANY WAY WITH FEWER THAN THREE
 NODES before its open-feature route, and a two-node membrane breakline
 is exactly what a short apron crossing emits: read through that parser
 alone, 13 of 18 HECA station crossings were invisible and the tool
@@ -118,15 +128,15 @@ def _feature_ways(path):
     return out
 
 
-def _ll_of(anchor, xy):
+def _ll_of(to_m, xy):
     """The INVERSE of the harness library's own metre frame, so a
-    reported coordinate is in the frame the sidecar declares.  The
-    forward map is ``check_grade._ll_to_m_factory``; this is only for
-    REPORTING a position, never for measuring one."""
-    import math
-    lat = float(anchor[0]) + xy[1] / 111320.0
-    lon = float(anchor[1]) + xy[0] / (
-        111320.0 * max(1e-9, math.cos(math.radians(float(anchor[0])))))
+    reported coordinate is in the frame the read is MEASURED in.  The
+    inverse is the factory's own (``check_grade._ll_to_m_factory``'s
+    ``.inverse``) — this used to re-spell it about the sidecar anchor at
+    111320 m/deg, which both gave a second metre-per-degree constant and
+    could not report at all once the frame was the mean of nodes (issue
+    #147).  For REPORTING a position, never for measuring one."""
+    lat, lon = to_m.inverse(xy[0], xy[1])
     return [round(lat, 7), round(lon, 7)]
 
 
@@ -145,9 +155,7 @@ def read(path, *, features=DEFAULT_FEATURES,
     from shapely.ops import unary_union
 
     path = Path(path)
-    nodes, ways = CG._parse_osm(path)
-    side = json.loads(Path(str(path) + ".axes.json").read_text())
-    anchor = tuple(side["anchor"])
+    nodes, ways, anchor, _frame, _side = CG.sidecar_metre_frame(path)
     to_m = CG._ll_to_m_factory(nodes, anchor)
 
     aprons: list = []
@@ -204,7 +212,7 @@ def read(path, *, features=DEFAULT_FEATURES,
                     "outside_m": round(float(outside), 2),
                     "through": through,
                     "mid_m": [round(mid[0], 1), round(mid[1], 1)],
-                    "mid_ll": _ll_of(anchor, mid)})
+                    "mid_ll": _ll_of(to_m, mid)})
         bad.sort(key=lambda d: -d["outside_m"])
         out[cls] = {"ways": n_ways, "segments": n_segs, "outside": bad,
                     "outside_total_m": round(
@@ -255,13 +263,11 @@ def read_on_edge(path, *, features=DEFAULT_FEATURES,
 
     path = Path(path)
     fout: dict = {}
-    nodes, ways = CG._parse_osm(path, feature_out=fout)
+    nodes, ways, anchor, _frame, _side = CG.sidecar_metre_frame(path, fout)
     fways = {}
     for _cls, _lst in fout.items():
         for _w in _lst:
             fways[str(_w.wid)] = _w
-    side = json.loads(Path(str(path) + ".axes.json").read_text())
-    anchor = tuple(side["anchor"])
     to_m = CG._ll_to_m_factory(nodes, anchor)
 
     edges: list = []    # (ax, ay, bx, by, role, wid, za, zb, na, nb)
@@ -359,7 +365,7 @@ def read_on_edge(path, *, features=DEFAULT_FEATURES,
                 "along_b_m": round(best[4], 2),
                 "nearest_vertex_m": (round(dv, 3) if dv is not None
                                      else None),
-                "ll": _ll_of(anchor, (x, y)),
+                "ll": _ll_of(to_m, (x, y)),
                 "station_alt": (None if sa is None else round(float(sa), 3)),
                 "hosts": len(hosts),
                 "tears": tears,
@@ -377,11 +383,11 @@ def read_on_edge(path, *, features=DEFAULT_FEATURES,
     # between them along the whole collinear run.  Same instrument, same
     # parse, because it is the same defect seen from the mesh side.
     out["near_parallel_pairs"] = _near_parallel_pairs(
-        edges, feats, nodes, to_m, anchor, features)
+        edges, feats, nodes, to_m, features)
     return out
 
 
-def _near_parallel_pairs(edges, feats, nodes, to_m, anchor, features):
+def _near_parallel_pairs(edges, feats, nodes, to_m, features):
     """Side-by-side constrained-segment pairs: FEATURE segment x ring
     edge (the §A class), and apron ring x apron ring (a SECOND, older
     source — two rings tracing one boundary with non-identical
@@ -428,7 +434,7 @@ def _near_parallel_pairs(edges, feats, nodes, to_m, anchor, features):
                         "host_role": e[4], "host_way": e[5],
                         "gap_m": round(hit[0], 4),
                         "overlap_m": round(hit[1], 2),
-                        "ll": _ll_of(anchor,
+                        "ll": _ll_of(to_m,
                                      (0.5 * (a[0] + b[0]),
                                       0.5 * (a[1] + b[1])))})
 
@@ -462,7 +468,7 @@ def _near_parallel_pairs(edges, feats, nodes, to_m, anchor, features):
                 "shares_node_ids": shares,
                 "gap_m": round(hit[0], 4),
                 "overlap_m": round(hit[1], 2),
-                "ll": _ll_of(anchor, (0.5 * (e[0] + e[2]),
+                "ll": _ll_of(to_m, (0.5 * (e[0] + e[2]),
                                       0.5 * (e[1] + e[3])))})
             if hit[0] <= COINCIDENT_GAP_M and shares:
                 sharing += 1
@@ -626,11 +632,8 @@ def main(argv=None):
     features = tuple(f for f in args.features.split(",") if f)
     payload: dict = {}
     for p in args.patches:
-        if not Path(str(p) + ".axes.json").exists():
-            raise SystemExit(
-                f"REFUSING: {p} has no .axes.json sidecar — without the "
-                f"anchor there is no metre frame to measure in, and a "
-                f"guessed one is a different projection.")
+        # the sidecar refusal is the shared accessor's own
+        # (``check_grade.sidecar_metre_frame``), not a second copy here
         if args.on_edge:
             res = read_on_edge(p, features=features, near_m=args.near,
                                vertex_tol_m=args.vertex_tol)

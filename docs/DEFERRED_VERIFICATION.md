@@ -5,3 +5,23 @@
 - 2026-10-01 (#164, rings164impl): NOT DONE in the lane and owed as its own follow-up — the coastline band's own BAKE is still ONE mixed-resolution VRT baked once, so its unfeathered 10 m-vs-20 m cell-edge step (ring spec §0 fact 6) stands. Only its GRADING was rewired through the shared `approach_class` (values unchanged, Q2). Per-class band layers through `bake_overlay_layer_into_alt_dem` need the band plan to carry `layers` + per-class regions; the ring side already has both.
 - 2026-10-01 (#164, rings164impl): the `--witness` ring rows (ring spec census row 19) and the Qt / `O4_Qt_Settings` / Swift `SettingsLayout.swift` one-line surfaces (census row 18) are NOT implemented. The `approach_rings` cfg key is registered with its hint, so both UIs render it from the schema; the "approach rings: 10 m to 10 km (CODE), 30 m to 20 km" tile-info line from `summarize_tile_elevation_sources` is owed.
 - 2026-10-02 (#103, harnessbugs/mount103): the build-cwd law now excuses a missing corpus dir when `CS.mountable()` passes, but the END-TO-END proof the issue describes is owed — a cloud session with the data repo attached, fresh clone, `O4_CORPUS_SNAPSHOT` set and NO hand-made `OSM_data` symlink, running `build_airport.py CYXY` to rc 0 / 0 leaks (the shape `docs/CLOUD-CORPUS.md` now documents). The lane ran CODE + TWINS only in a corpus-free clone: it proved `require_build_cwd` passes and `CS.mount` then creates the symlink, but never ran the two in one real build. The `mountable()` timing (121.8 ms, 0.20 % of the 60 s auto-patch budget) is from a synthetic manifest of HECA's file COUNT, not HECA's bytes — correct for a stat-bound check, but not a measurement of the real snapshot.
+- 2026-10-02 lane cyxy108 (#108): the new `verify/cutback.py` reader was
+  proved against the oracle on a SYNTHETIC HECA-route19 strip only (this
+  clone has no corpus, so `test_cyxy_verify_matches_v1_census` SKIPS).
+  Owed on a real corpus: one `tests/auto_patch_v2/test_constraints.py
+  ::test_cyxy_verify_matches_v1_census` run, confirming the reader reads
+  the census's 9 `groundside_cutback` rows on the built CYXY surface
+  (tolerance `max(2, 0.2*9)`), and that no other family moved.
+- 2026-10-02 lane cyxy108 (#108): the new reader's build-time cost was
+  measured SYNTHETICALLY (40k road + 40k far vertices, lawful strip:
+  113 ms median of 3; the same shape unlawful end to end: 759 ms for
+  40,000 rows). Owed: the per-family `verify.WALL_S["groundside_cutback"]`
+  from one real HECA/OTHH build, against the 0.6 s (1 % of 60 s) gate.
+- 2026-10-02 lane cyxy108 (#108): ten census families remain with NO v2
+  verify reader and NO reasoned `NOT_IMPLEMENTED` entry (`seam_residual`,
+  `bank_across_seam`, `ramp_in_road`, `object_cut_offset`,
+  `object_cut_depth`, `ramp_in_strip`, `road_coverage_join`, `sea_wall`,
+  `zone_on_pavement`, `sentinel_elevation`), frozen as
+  `test_v2cutback.OPEN_PARITY_GAPS`. Each is owed a reader or a reason;
+  which, per family, is an owner/spawner call, and any of them reading
+  non-zero on a built airport is the next `#108`.

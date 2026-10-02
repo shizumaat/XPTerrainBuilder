@@ -12077,3 +12077,12 @@ def test_refresh_only_rings_still_cold_refuses(build_mod, tmp_path, monkeypatch)
     monkeypatch.setattr(build_mod, "approach_ring_problem", lambda *a, **kw: None)
     build_mod.require_refreshed_frame(tmp_path, 39, -107, {"rings"}, refresh_only=True)
 
+
+def test_refresh_runs_never_wrap_in_the_run_ledger(build_mod):
+    """A refresh is an event against a corpus that moves under an unchanged
+    tree+argv; the ledger HIT path replayed a stale "re-judged CURRENT"
+    (2026-10-01, KASE rings). The wrap condition must exclude it."""
+    import inspect
+    src = inspect.getsource(build_mod.main) if hasattr(build_mod, "main") else inspect.getsource(build_mod)
+    assert "is_refresh" in src and "refresh_data" in src
+

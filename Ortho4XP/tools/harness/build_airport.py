@@ -4232,7 +4232,15 @@ def main(argv=None) -> int:
     # remember the prefix — the ledger is not optional discipline.
     # NEVER wrap a run whose OUTPUT IS A TIME: a replay would report a
     # stale number as a measurement.  ``--no-ledger`` is that escape.
-    if not args.no_ledger and not os.environ.get("O4_HARNESS_IN_LEDGER"):
+    # NEVER wrap a REFRESH either: a refresh is an EVENT against the shared
+    # corpus, and the corpus moves under an unchanged tree+argv (measured
+    # 2026-10-01: a ``--refresh-data rings`` retry after TNM 500s was a
+    # ledger HIT that replayed "re-judged CURRENT" with 13 cells still
+    # unanswered -- a stale verdict reported as a fresh one).
+    is_refresh = bool(getattr(args, "refresh_data", None)
+                      or getattr(args, "refresh_only", False))
+    if (not args.no_ledger and not is_refresh
+            and not os.environ.get("O4_HARNESS_IN_LEDGER")):
         env = dict(os.environ, O4_HARNESS_IN_LEDGER="1")
         label = f"harness-build-{args.tag or args.icao}"
         cmd = [sys.executable, str(root / "tools" / "run_with_ledger.py"),

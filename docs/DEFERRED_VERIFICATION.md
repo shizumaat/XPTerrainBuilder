@@ -30,3 +30,21 @@
 - 2026-10-02 (#116, harnessbugs/census106116): the strip-station fixes may MOVE COUNTS on a real strip, and the direction is predicted but unmeasured — station counts should RISE (the eps-inclusive boundary admits boundary-coincident rim vertices; the canonical chain start recovers the two stations the array boundary used to eat), so `strip_arc` / `strip_abeam` / `resa_transverse` / `raoa` row counts may rise with them. NOTE the eps predicate was widened past #116's own family to all four strip-footprint station sets (reported deviation: patching `strip_arc` alone would leave two readers disagreeing about where a strip is). Owed: `census.py` family counts for those four on a HECA patch against the current shared control for the same base-sha; and KCLT.
 - 2026-10-02 (#116, harnessbugs/census106116): the DEFINITIVE read is the original terrace11c pair — the two replay arms at 30.0996269, 31.3974530 (HECA) whose `strip_arc` CRITICAL motion row appeared in one arm only. Re-run both arms and confirm the row no longer flips. Needs the captures; the lane had none.
 - 2026-10-02 lane roadsfree143 (#143, RULINGS 2026-10-02v (1)): the stage-1 foreign rule for a pinned groundside road vertex was proved on a SYNTHETIC apron + service road only (this clone has no corpus and the brief forbids builds). Measured there: 4 road-footed rows left stage 1 (10,270 -> 10,266), stage-1 unknowns 177 unchanged, airside bit-identical with and without the §37 (9) join pin (0.0 m). OWED on the corpus, the owner's session: the HECA / KCLT / SPJC replays the ruling quotes — 3,537 solve-owned HECA movers over 0.02 m, worst 1.00 m at 30.13577666876, 31.41073906739, runway 85 movers worst ≤ 0.06 m, stage-1 rows 123,305 -> 122,592, hard_conflict against the 115 bar, CRITICAL motion, and KCLT's 3 door-ramp structure pins of the same shape (NOT in `groundside_pin_rulings` — reported, not decided). The references are re-cut once per the ruling.
+- 2026-10-02 lane altraster238 (#238): the `.alt` frame sidecar and the
+  reader that takes it were proved on a SYNTHETIC raster only (this clone
+  has no corpus and the brief forbids builds). The twin posts a 9-square
+  raster on the KASE-class frame (±5.5″ beyond the tile) over a surface
+  LINEAR in tile-relative degrees, so a correct bilinear read is exact
+  everywhere: read under the recorded frame the worst error is < 1e-3 m,
+  read under the old viewfinder constant it is metres. OWED on the
+  corpus, the owner's session: one KASE +39-107 tile build at
+  `elevation_level=10`, then `mesh_elevation_sampler.py Data+39-107.mesh
+  --alt-raster Data+39-107.alt` over the free vertices kaseread368
+  measured 58 m of disagreement at — the banner must name the written
+  sidecar (10834x10834, x/y about -0.0015 .. 1.0015) and worst/rms must
+  come back under 1 cm, which is the best-fit extent kaseread368 found.
+  The 58 m number itself is from that lane's read and is NOT re-measured
+  here. Also owed: one build of a tile with NO airport insets, confirming
+  the sidecar it writes is the viewfinder frame (3673, -0.01 .. 1.01) and
+  that `patch_transect.py --alt` and `mesh_region_tris.py
+  --interp-alt-audit` read it unchanged against their pre-#238 numbers.

@@ -27,8 +27,11 @@ box and OUTSIDE the patch rings (``--graded``, the patch's own
   the control surface; a moved one is a defect).
 
 It reads the inset raster itself (bilinear, nodata-aware) and never the
-tile's ``.alt``: ``mesh_elevation_sampler.AltRaster`` assumes the
-viewfinder extent [-0.01, 1.01] and misreads a NED1-based ``.alt``.
+tile's ``.alt``.  (``mesh_elevation_sampler.AltRaster`` used to assume
+the viewfinder extent [-0.01, 1.01] and misread a NED1-based ``.alt``;
+#238 gave the ``.alt`` a frame sidecar, but the INSET raster is still
+the right question here -- it is the surface the mesh is judged against,
+not the raster the mesher was handed.)
 It prices no law and builds nothing.
 
 Usage (from ``Ortho4XP/``)::

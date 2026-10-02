@@ -7589,6 +7589,13 @@ def verify_export_image_chunk(path, width, height, nodata, code):
 # =====================================================================
 # Strategy 9: tile_grid_http (deterministic projected kilometre tiles)
 # =====================================================================
+#: Seconds one tile-grid existence probe (HEAD or ranged GET) may
+#: wait for an answer.  A probe that times out is TRANSIENT: it got
+#: no answer, so it says nothing about whether the tile is there
+#: (:meth:`TileGridHttpStrategy._tile_exists`, issue #180).
+TILE_GRID_PROBE_TIMEOUT_S = 30
+
+
 @register_access_strategy("tile_grid_http")
 class TileGridHttpStrategy:
     """Deterministic per-kilometre tile downloads on a projected grid.
@@ -7790,14 +7797,45 @@ class TileGridHttpStrategy:
         reject HEAD -- Saxony's answers 401 to it), ``gdal_open``
         (templates that are GDAL virtual paths rather than plain URLs,
         e.g. members inside one big remote zip), or ``none``.
+
+        THE OUTCOME LAW (:func:`http_answer_outcome`, RULINGS
+        2026-09-13b, issue #180 -- the #124 family at this second site):
+        only a 404/410 -- the server looked and the tile is not there --
+        may answer ``False``.  That answer SKIPS the tile, and a box
+        whose every candidate is skipped leaves ``discover`` with no
+        sources, which the caller records as a durable no-coverage; so a
+        CDN 403, a proxy 407, a 429, a 503 or a dead transport must never
+        reach it.  A 401/403/405/407/451 RAISES
+        :class:`ProviderUnavailable` (the host refused to serve this
+        client, which says nothing about the tile); a 429, a 5xx, an
+        answer nobody recognises, and a probe that got NO answer at all
+        RAISE :class:`TransientFetchError` (nothing recorded, asked again
+        next run).  Both raises climb out through :meth:`fetch` into the
+        ladder, which rules them per rung.
+
+        REPORTED, NOT DECIDED (#180's open measurement): for a host whose
+        answer for a genuinely absent tile is NOT a 404/410 -- no shipped
+        definition is known to be one, and the one-request-per-provider
+        live sweep the issue asks for is still untaken -- this turns a
+        working provider into a refusal instead of a quiet skip.  The
+        escape is the definition's own ``probe_mode=none``, which probes
+        nothing and lets the warp decide; it needs no new knob.
         """
         probe_mode = str(definition.get("probe_mode", "head")).lower()
         if url.startswith("/vsi") or probe_mode == "gdal_open":
+            # ``gdal.Open`` has ONE answer for "not there" and "refused"
+            # alike (``None``), so this branch cannot tell the two apart
+            # and keeps reading ``None`` as absent.  An EXCEPTION is not
+            # an answer at all, and is classified as what it is.
             try:
                 dataset = gdal.Open(url)
-                return dataset is not None
-            except Exception:
-                return False
+            except Exception as error:
+                raise TransientFetchError(
+                    "tile existence probe for %s died inside GDAL: %s - "
+                    "transient, NOT recorded as no-coverage"
+                    % (url, error)
+                ) from error
+            return dataset is not None
         if probe_mode == "none":
             return True
         try:
@@ -7806,18 +7844,43 @@ class TileGridHttpStrategy:
                 request_headers["Range"] = "bytes=0-0"
                 probe = session.get(
                     url,
-                    timeout=30,
+                    timeout=TILE_GRID_PROBE_TIMEOUT_S,
                     headers=request_headers,
                     stream=True,
                 )
                 probe.close()
-                return probe.status_code in (200, 206)
-            probe = session.head(
-                url, timeout=30, headers=headers, allow_redirects=True
-            )
-            return probe.status_code == 200
-        except Exception:
+            else:
+                probe = session.head(
+                    url,
+                    timeout=TILE_GRID_PROBE_TIMEOUT_S,
+                    headers=headers,
+                    allow_redirects=True,
+                )
+        except Exception as error:
+            # No HTTP answer at all says NOTHING about the tile, whatever
+            # the exception's wording (#121: the wording was classified
+            # and fell through to a durable absent for every message not
+            # on a fragment list).
+            raise TransientFetchError(
+                "tile existence probe for %s died on the transport: %s - "
+                "transient, NOT recorded as no-coverage" % (url, error)
+            ) from error
+        outcome = http_answer_outcome(probe.status_code)
+        if outcome == HTTP_OUTCOME_OK:
+            return True
+        if outcome == HTTP_OUTCOME_ABSENT:
             return False
+        if outcome == HTTP_OUTCOME_UNAVAILABLE:
+            raise ProviderUnavailable(
+                "tile existence probe for %s was refused with status %s - "
+                "the host would not serve this client, which says NOTHING "
+                "about the tile: recorded unavailable, not no-coverage"
+                % (url, probe.status_code)
+            )
+        raise TransientFetchError(
+            "tile existence probe for %s returned status %s - transient, "
+            "NOT recorded as no-coverage" % (url, probe.status_code)
+        )
 
     def _zip_inner_name(self, definition, url):
         """The GeoTIFF member name inside a per-tile zip.

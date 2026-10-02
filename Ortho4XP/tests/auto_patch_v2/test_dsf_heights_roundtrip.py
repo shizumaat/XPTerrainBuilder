@@ -228,3 +228,110 @@ def test_the_heights_quantum_is_recorded_with_the_dsftool_version(tmp_path,
         f"macOS/Linux builds nor the {WIN_REQUANTISED} measured on "
         f"windows-latest run 36877241692 -- re-attribute #166 from this "
         f"record: {record}")
+
+
+# ── #181: WHAT THE DUMPED ``HEIGHTS`` LINE IS WORTH ──────────────────────
+#
+# #181 reported the three DSFTool twins above as ORDER-DEPENDENT: green
+# alone, red after the elevation-inset files, with a wrong quantum coming
+# back, and hypothesised shared Python state (the dump cache, a module
+# global keyed on something that collides).  Measured here on linux,
+# DSFTool 2.4.0-b1, 2026-10-02 — that hypothesis is REFUTED, and the real
+# mechanism is worse:
+#
+# * The re-dump's ``HEIGHTS`` line is not a function of the DSF.  One
+#   binary, one 537-byte input, rc 0, ``strace -e trace=file`` showing
+#   IDENTICAL syscalls (the input opened, the output created, nothing
+#   else read) — and the line comes back ``0.06250`` for one output path
+#   and ``1.00000`` (the default scale, max encodeable 65535) for
+#   another.  It is deterministic per (output path, pre-existing output):
+#   10/10 identical runs; it does not move with the input path, the cwd,
+#   the environment, rlimits, the signal mask, the locale or memory
+#   pressure, all compared and equal.  Reproduced from a bare shell with
+#   no pytest in sight.
+# * So the "run order" was a correlation: a different order gives
+#   different tmp paths, and the pytest basetemp happens to be a
+#   neighbourhood where this build prints the default.
+# * The ENCODED quantum is NOT affected.  In both dumps the object pools
+#   carry ``4095.93750`` (= 0.06250 x 65535), i.e. the round trip really
+#   does preserve the pack's scale; only the text line DSFTool writes
+#   about it is unreliable.
+#
+# REPORTED, NOT DECIDED (two consequences this lane must not rule on):
+#   1. ``dsf_write.compare_dumps`` compares that text line in full while an
+#      elevated row remains (the #131 law), so a correct write can be
+#      refused at random on ANY platform — exactly the "structural row N:
+#      HEIGHTS" refusal #131 and #166 are about.  The remedy #166's own
+#      comment names (compare the quantum by ENCODABLE RANGE rather than by
+#      text) is a law change, the spec author's and owner's call.
+#   2. #166's attribution rests on the same field: a windows-latest run
+#      printing ``0.12500`` may be this build's default in that
+#      neighbourhood rather than a re-pooling by an older XPTools build.
+#      The version record below is still the discriminator; a single
+#      red/green bit is not.
+#
+# The twin below is the part that is safe to land: it pins the stable
+# observable (the encoded pool scale) and RECORDS the unstable one in the
+# CI log of every platform, so the owner can read Windows's answer without
+# trusting an order-dependent xfail.
+
+#: The object-pool scale line DSFTool writes as a dump comment.  Its
+#: elevation column is quantum x 65535 and survives the round trip.
+POOL_COMMENT_PREFIX = "# pool"
+#: What ``PACK_QUANTUM`` encodes to in that column.
+PACK_POOL_SCALE = "4095.93750"
+#: The record this twin prints, one line per platform, like
+#: :data:`ATTRIBUTION_RECORD` (#181).
+NONDETERMINISM_RECORD = "DSFTOOL-HEIGHTS-TEXT-STABILITY"
+
+
+def _pool_elevation_scales(text: str) -> list[str]:
+    """The elevation column of every 4-plane object-pool comment."""
+    out = []
+    for line in text.splitlines():
+        if line.startswith(POOL_COMMENT_PREFIX) and "p=4" in line:
+            out.append(line.split()[-2])
+    return out
+
+
+@pytest.mark.skipif(_dsftool_path() is None, reason="no DSFTool on this machine")
+def test_the_encoded_quantum_survives_whatever_the_heights_text_says(
+        tmp_path, capsys):
+    """The round trip preserves the pack's scale; the text may not say so.
+
+    Dumps ONE encoded DSF to two different output paths — nothing about
+    the file differs, so a dump that is a function of the file must agree
+    — and asserts the ENCODED scale is identical both times.  Whether the
+    ``HEIGHTS`` text agreed is printed, not asserted: that is the #181
+    measurement, and the day this build becomes deterministic the record
+    says so without a test flipping colour for the wrong reason.
+    """
+    tool = _dsftool_path()
+    dump = _platform(DUMP, tool, tmp_path)
+    (encoded, _back) = _encode(tmp_path, "stability", dump, tool)
+
+    texts = []
+    # Two output paths as unlike each other as a test may make them --
+    # this build's answer moved with nothing else (#181).
+    deep = tmp_path / ("nested" + "/deeper" * 4)
+    deep.mkdir(parents=True)
+    for out in (tmp_path / "s.text", deep / ("a" * 40 + ".text")):
+        texts.append(Path(W.dump(str(encoded), str(out), tool)).read_text(
+            encoding="utf-8"))
+
+    scales = [_pool_elevation_scales(text) for text in texts]
+    quanta = [_heights(text) for text in texts]
+    record = (f"{NONDETERMINISM_RECORD} platform={sys.platform} "
+              f"pool_scales={scales} heights_in={PACK_QUANTUM} "
+              f"heights_text={quanta} "
+              f"stable={len(set(quanta)) == 1}")
+    with capsys.disabled():
+        print("\n" + record)
+
+    assert scales[0] == scales[1], (
+        f"the ENCODED quantum moved between two dumps of one DSF, which "
+        f"would make the round trip itself unsound (not merely its text "
+        f"record): {record}")
+    assert scales[0] and all(scale == PACK_POOL_SCALE for scale in scales[0]), (
+        f"the pack's {PACK_QUANTUM} quantum did not survive the round trip "
+        f"in the pools either: {record}")

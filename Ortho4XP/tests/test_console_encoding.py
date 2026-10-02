@@ -388,12 +388,18 @@ def test_the_rule_is_not_satisfied_by_line_order_alone():
 #: Tools whose ``--help`` cannot be measured, with WHY.  Not an encoding
 #: exemption: the static arm above still covers them, and this arm SKIPS
 #: with the reason printed rather than passing quietly.
-NO_HELP_ARM = {
-    "pad_airside_arm.py":
-        "its module body reads V2PADVERT_ENGINE, chdir()s into it and arms "
-        "the shared-repo write guard BEFORE argparse exists, so --help "
-        "cannot run without doing real work (pre-existing, #178)",
-}
+#: EMPTY since #178: ``pad_airside_arm.py`` was the only entry — its module
+#: body read V2PADVERT_ENGINE, chdir()'d into it, made a directory and armed
+#: the shared-repo write guard BEFORE argparse existed, so ``--help`` exited
+#: 1 on a KeyError and this arm could only skip it.  That work now happens in
+#: ``main()`` after ``parse_args()``, so the tool is measured like the other
+#: 79.  Keep the mechanism: a future unmeasurable ``--help`` belongs here
+#: with its reason, never passing quietly.
+NO_HELP_ARM: dict[str, str] = {}
+
+#: #178's tool and the two variables its module body used to read.
+PAD_AIRSIDE_ENGINE_VARIABLE = "V2PADVERT_ENGINE"
+PAD_AIRSIDE_OUT_VARIABLE = "V2PADVERT_OUT"
 
 
 # The suite's socket guard (``conftest``, #122) lives in the pytest process
@@ -566,7 +572,12 @@ def test_every_tool_help_renders_on_a_cp1252_console(tool: Path,
     jetway_rider_census, mesh_region_tris, obj8_split_report,
     object_pad_evidence_report, object_seating_report,
     pad_frontage_step, patch_proximity_diff, patch_water_audit,
-    trace_reach_route, tunnel_portal_acceptance, undulation."""
+    trace_reach_route, tunnel_portal_acceptance, undulation.
+
+    Since #178 this arm measures ALL 81 tools (it skipped
+    ``pad_airside_arm.py`` before — see NO_HELP_ARM).  That tool is not a
+    16th RED: its help text happens to carry no character cp1252 cannot
+    encode, so it is a 16th MEASURED tool, green on arrival."""
     if tool.name in NO_HELP_ARM:
         pytest.skip(NO_HELP_ARM[tool.name])
     absent = missing_module_for(tool)
@@ -580,6 +591,65 @@ def test_every_tool_help_renders_on_a_cp1252_console(tool: Path,
         + done.stderr.decode("utf-8", "backslashreplace")[-2000:])
     assert b"usage" in done.stdout.lower()
     done.stdout.decode("utf-8")              # what came out IS utf-8
+
+
+def test_pad_airside_arm_help_does_no_work_before_argparse(child_guard_dir,
+                                                           tmp_path):
+    """#178.  ``--help`` with NO ``V2PADVERT_ENGINE`` set: it must print its
+    usage and exit 0 without reading the variable, chdir-ing into an engine
+    tree, creating its output directory or arming the shared-repo write
+    guard.  It was the ONE argparse-bearing tool whose ``--help`` could not
+    be measured, so the parametrised arm above had to skip it."""
+    tool = ENGINE_ROOT / "tools" / "pad_airside_arm.py"
+    environment = _child_env(child_guard_dir)
+    environment.pop(PAD_AIRSIDE_ENGINE_VARIABLE, None)
+    environment[PAD_AIRSIDE_OUT_VARIABLE] = str(tmp_path / "would-be-out")
+    done = subprocess.run(
+        [sys.executable, str(tool), "--help"],
+        cwd=str(ENGINE_ROOT), env=environment,
+        capture_output=True, timeout=180)
+    assert done.returncode == 0, (
+        done.stderr.decode("utf-8", "backslashreplace")[-2000:])
+    text = done.stdout.decode("utf-8")           # what came out IS utf-8
+    assert "usage" in text.lower()
+    assert "--engine" in text, "the env var should now also be a flag"
+    # NOTHING was made: no OUT directory, nothing else under tmp_path.
+    assert list(tmp_path.iterdir()) == [], list(tmp_path.iterdir())
+
+    # ...and a bare IMPORT of the module arms nothing either: no guard
+    # object, no engine, no output directory, no chdir.  (Asserted in the
+    # child's own process rather than on --help's stdout, because the help
+    # text itself quotes the "[guard] shared repo UNCHANGED" line.)
+    probe = subprocess.run(
+        [sys.executable, "-c",
+         "import os, sys; sys.path.insert(0, sys.argv[1]);"
+         " was = os.getcwd(); import pad_airside_arm as m;"
+         " print('guard=%r engine=%r out=%r cwd_moved=%r'"
+         " % (m.GUARD, m.ENGINE, m.OUT, os.getcwd() != was))",
+         str(ENGINE_ROOT / "tools")],
+        cwd=str(ENGINE_ROOT), env=environment, capture_output=True, timeout=180)
+    assert probe.returncode == 0, (
+        probe.stderr.decode("utf-8", "backslashreplace")[-2000:])
+    assert probe.stdout.decode("utf-8").strip() == (
+        "guard=None engine=None out=None cwd_moved=False"), probe.stdout
+
+
+def test_pad_airside_arm_help_survives_a_bogus_engine_variable(child_guard_dir,
+                                                               tmp_path):
+    """#178's second face: with the variable set to a path that is not an
+    engine tree the module body died with FileNotFoundError from the chdir.
+    ``--help`` must not care — nothing reads it before ``parse_args()``."""
+    tool = ENGINE_ROOT / "tools" / "pad_airside_arm.py"
+    environment = _child_env(child_guard_dir)
+    environment[PAD_AIRSIDE_ENGINE_VARIABLE] = str(tmp_path / "no-such-engine")
+    done = subprocess.run(
+        [sys.executable, str(tool), "--help"],
+        cwd=str(ENGINE_ROOT), env=environment,
+        capture_output=True, timeout=180)
+    assert done.returncode == 0, (
+        done.stderr.decode("utf-8", "backslashreplace")[-2000:])
+    assert b"usage" in done.stdout.lower()
+    assert list(tmp_path.iterdir()) == [], list(tmp_path.iterdir())
 
 
 def test_the_171_reproducer_prints_its_greek(child_guard_dir):

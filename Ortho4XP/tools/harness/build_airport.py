@@ -294,6 +294,17 @@ from shared_repo_guard import (                          # noqa: E402,F401
     is_stray_temporary, stray_temporaries,
 )
 
+#: THE PER-PACK SIDECAR CACHE — the ``REFRESH_SCOPES`` scope name and
+#: the data-repo directory it names, spelled ONCE (#206: the scope is
+#: named by the pre-flight refusal, the authorised refresh pass and the
+#: re-judge, and three spellings is three chances to drift).
+SCOPE_AIRPORT_MOD_CACHE = "airport_mod_cache"
+MOD_CACHE_DIR_NAME = "Airport_mod_cache"
+#: What a cached DSFTool ``--dsf2text`` dump is named
+#: (``<dsf basename>.<sha256[:8]>.text``; the engine's own
+#: ``auto_patch_v2.airport.dsf.find_text_dump`` writes and finds it).
+DSF_TEXT_DUMP_SUFFIX = ".text"
+
 #: The owner's production app config — the one the shipped app runs with.
 #: It lives IN the shared data repo, which is the point: the config and the
 #: corpus it describes travel together.
@@ -1195,8 +1206,30 @@ def _ladder_recheck_problem(INSETS, lat, lon, icao, required):
             f"{','.join(scopes)}; --warm-insets {icao})")
 
 
-def missing_pack_dsf_dumps(root, lat, lon, icao) -> list:
-    """THE PACK DSF TEXT-DUMP REFUSAL (RULINGS 2026-09-15ar).
+def pack_dsf_dump_state(root, lat, lon, icao) -> dict | None:
+    """THE PACK DSF TEXT-DUMP PREDICATE — ONE DERIVATION SITE (#206).
+
+    Asked by ALL THREE consumers: the build's pre-flight
+    (:func:`missing_pack_dsf_dumps`, through
+    :func:`missing_shared_artifacts`), the authorised refresh pass
+    (:func:`refresh_airport_mod_cache`) and the ``--refresh-only``
+    RE-JUDGE (:func:`require_refreshed_frame`).  THE LAW IS RULINGS
+    2026-10-02b: the refresh-only re-judge asks the SAME predicate the
+    pre-flight asks.  A second copy of this reasoning is the
+    census-wrapper defect (CLAUDE.md), and #206 is what the divergence
+    cost: a ``--refresh-only --refresh-data airport_mod_cache`` run on
+    KGEG +47-118 printed "re-judged CURRENT" while the next build
+    refused on ``+47-118.dsf.f9e323ec.text``, the very artifact the
+    scope names.
+
+    Returns ``None`` when NO judgement applies — no airport named (a
+    ``--tile`` run's worklist is the build's, not ours), no serving pack,
+    no pack DSF on disk, or the engine could not be asked at all — and
+    otherwise the resolved frame: the pack, the PRISTINE DSF the plan is
+    read from, its content tag, the dump found (``None`` when there is
+    none) and the two mod-cache roots that were asked.
+
+    THE REFUSAL THIS FEEDS.
 
     v2's read frame is the serving pack's PRISTINE tile DSF
     (``airport/dsf_write.pristine_dsf_path`` — the ``.dsf.anchor_bak``
@@ -1232,7 +1265,7 @@ def missing_pack_dsf_dumps(root, lat, lon, icao) -> list:
     is ``None`` there and this check stands down rather than guess.
     """
     if not icao:
-        return []
+        return None
     for p in (Path(root) / "src", Path(root), Path(root) / "tests"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
@@ -1245,24 +1278,47 @@ def missing_pack_dsf_dumps(root, lat, lon, icao) -> list:
         xplane_root = os.environ.get("XPLANE_ROOT") or _owner_xplane_root()
         sel = select_pack(xplane_root, icao)
         if sel is None:
-            return []
+            return None
         dsf_path = pristine_dsf_path(
             _dsf.dsf_path_in_pack(sel.root, int(lat), int(lon)))
         if not os.path.isfile(dsf_path):
-            return []
+            return None
         roots = [FNAMES.airport_mod_cache_root(),
-                 str(lane_cache_root(root) / "Airport_mod_cache")]
+                 str(lane_cache_root(root) / MOD_CACHE_DIR_NAME)]
+        dump = None
         for mod_root in roots:
-            if _dsf.find_text_dump(mod_root, sel.name, int(lat), int(lon),
-                                   dsf_path=dsf_path):
-                return []
+            dump = _dsf.find_text_dump(mod_root, sel.name, int(lat),
+                                       int(lon), dsf_path=dsf_path)
+            if dump:
+                break
         tag = _dsf.text_dump_tag(dsf_path)
     except Exception as exc:
         print(f"  [harness] pack DSF dump check skipped ({exc!r})")
+        return None
+    return {"icao": icao, "pack": sel.name, "pack_root": sel.root,
+            "dsf_path": dsf_path, "tag": tag, "dump": dump,
+            "mod_cache_roots": roots,
+            # the SHARED-repo spelling the refusal, the ledger's
+            # ``scope_of`` and the refresh pass all name it by
+            "artifact": (f"{MOD_CACHE_DIR_NAME}/{sel.name}/"
+                         f"{os.path.basename(dsf_path)}.{tag}"
+                         f"{DSF_TEXT_DUMP_SUFFIX}"),
+            "dump_name": (f"{os.path.basename(dsf_path)}.{tag}"
+                          f"{DSF_TEXT_DUMP_SUFFIX}")}
+
+
+def missing_pack_dsf_dumps(root, lat, lon, icao) -> list:
+    """THE PRE-FLIGHT ROW for an uncached pack DSF dump (RULINGS
+    2026-09-15ar) — :func:`pack_dsf_dump_state` turned into the
+    ``(scope, artifact, why)`` shape ``missing_shared_artifacts`` and
+    ``require_no_implicit_refresh`` speak.  No judgement of its own.
+    """
+    state = pack_dsf_dump_state(root, lat, lon, icao)
+    if state is None or state["dump"]:
         return []
-    return [("airport_mod_cache",
-             f"Airport_mod_cache/{sel.name}/"
-             f"{os.path.basename(dsf_path)}.{tag}.text",
+    tag = state["tag"]
+    return [(SCOPE_AIRPORT_MOD_CACHE,
+             state["artifact"],
              f"the pack's DSF sha ({tag}) has NO cached text dump in the "
              f"shared corpus or this lane's overlay — the build would run "
              f"DSFTool --dsf2text and cache the result, a cache "
@@ -2487,7 +2543,112 @@ def _refresh_airport_inset(root, state, lat, lon, icao, prog) -> list:
             f"{icao}_*.tif [{problem[0]}]"]
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE AUTHORISED PACK-DUMP DERIVATION (--refresh-data airport_mod_cache)
+# ══════════════════════════════════════════════════════════════════════
+
+def refresh_airport_mod_cache(root, lat, lon, prog, icao=None) -> dict:
+    """THE AUTHORISED PACK DSF TEXT-DUMP DERIVATION (#206).
+
+    MEASURED 2026-10-02 (the owner's session): ``build_airport.py KGEG``
+    refused on ``Airport_mod_cache/c_USA - 100_airport - KGEG …/
+    +47-118.dsf.f9e323ec.text``, and the run that NAMES that scope —
+    ``KGEG --tile 47 -118 --refresh-only --refresh-data
+    airport_mod_cache`` — answered "authorised but wrote NOTHING" and
+    "re-judged CURRENT".  There was no pass for the scope at all: the run
+    took the lock, snapshotted, armed the guard and derived nothing.
+
+    THE DERIVATION IS THE ENGINE'S OWN, never a DSFTool call of ours:
+    ``auto_patch.dsf_reader.ensure_dsf_text_path`` is the one wrapper
+    that spawns ``DSFTool --dsf2text``, declares the output to an armed
+    guard (#159), names the dump the way
+    ``auto_patch_v2.airport.dsf.find_text_dump`` looks for it
+    (``<basename>.<sha256[:8]>.text``, RULINGS 2026-09-11m) and puts it
+    under the pack's ``airport_mod_cache_dir``.  Which root that resolves
+    to is the caller's doing and is already law: an authorised scope is
+    NOT redirected lane-local (:func:`redirect_engine_caches`), so an
+    authorised refresh lands in the SHARED repo, which is the only place
+    a refresh may land (ruling e9daef5).
+
+    WHICH dump is owed is NOT decided here — :func:`pack_dsf_dump_state`
+    is the one predicate, the same one the build's pre-flight and the
+    ``--refresh-only`` re-judge ask (RULINGS 2026-10-02b).  So a dump
+    already cached under this DSF's own sha is RECYCLED, and a pass that
+    derived nothing while the artifact is still owed REFUSES rather than
+    let the re-judge print CURRENT.
+
+    ONE LIMIT, inherited from the predicate and stated again: only the
+    NAMED airport's serving pack is derived.  A ``--tile`` run's object
+    stage reaches every pack covering the tile, and enumerating those
+    needs the build's own worklist; this pass is handed the airport named
+    on the command line and warms that pack's tile DSF.
+
+    The caller owns the law: the scope lock, the before/after snapshot
+    and the armed guard (the ledger line is the audit's, stamped from the
+    snapshot diff on every exit path).
+    """
+    tile = [int(lat), int(lon)]
+    state = pack_dsf_dump_state(root, lat, lon, icao)
+    if state is None:
+        prog.note(f"--refresh-data {SCOPE_AIRPORT_MOD_CACHE}: nothing to "
+                  f"derive for {icao or 'this run'} at "
+                  f"{tile[0]:+d}{tile[1]:+d} — no airport was named, no "
+                  f"pack serves it, or it carries no DSF for this tile")
+        return {"tile": tile, "icao": icao, "pack": None, "dump": None,
+                "derived": None, "recycled": False}
+    if state["dump"]:
+        prog.note(f"--refresh-data {SCOPE_AIRPORT_MOD_CACHE}: "
+                  f"{state['artifact']} RECYCLED — a dump for this DSF's "
+                  f"own sha ({state['tag']}) is already cached at "
+                  f"{state['dump']}; DSFTool is not run")
+        return {"tile": tile, "icao": icao, "pack": state["pack"],
+                "dump": state["dump"], "derived": None, "recycled": True,
+                "tag": state["tag"]}
+    prog.note(f"--refresh-data {SCOPE_AIRPORT_MOD_CACHE}: {state['pack']} "
+              f"owes {state['dump_name']} — deriving it through the "
+              f"engine's own DSFTool wrapper "
+              f"(auto_patch.dsf_reader.ensure_dsf_text_path) from "
+              f"{state['dsf_path']}")
+    for p in (Path(root) / "src", Path(root)):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    try:
+        from auto_patch import dsf_reader as _reader
+        made = _reader.ensure_dsf_text_path(state["dsf_path"])
+    except SystemExit:
+        raise
+    except Exception as error:
+        raise SystemExit(
+            f"REFUSING --refresh-data {SCOPE_AIRPORT_MOD_CACHE}: the pack "
+            f"dump derivation for {icao} raised {type(error).__name__}: "
+            f"{error}.  Nothing may be measured against a half-written "
+            f"dump cache.")
+    after = pack_dsf_dump_state(root, lat, lon, icao)
+    if after is None or not after["dump"]:
+        raise SystemExit(
+            f"REFUSING: --refresh-data {SCOPE_AIRPORT_MOD_CACHE} derived "
+            f"NOTHING for {icao} — {state['artifact']} is still absent "
+            f"from the shared corpus and this lane's overlay after the "
+            f"pass"
+            + (f" (the engine's wrapper answered {made!r}, which is not a "
+               f"dump this build would find: a guard-refused or "
+               f"permission-denied write falls back to a TEMPORARY file)"
+               if made else " (the engine's wrapper answered None: no "
+                            "DSFTool binary, or the conversion failed — "
+                            "see the [dsf-reader] WARN above)")
+            + f".  A refresh that warmed nothing must never report the "
+              f"frame CURRENT (#206).")
+    prog.note(f"--refresh-data {SCOPE_AIRPORT_MOD_CACHE}: DERIVED "
+              f"{after['artifact']} ({os.path.getsize(after['dump'])} "
+              f"bytes at {after['dump']})")
+    return {"tile": tile, "icao": icao, "pack": after["pack"],
+            "dump": after["dump"], "derived": after["dump"],
+            "recycled": False, "tag": after["tag"],
+            "artifact": after["artifact"]}
+
+
 def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
+                            named_icao=None,
                             refresh_only: bool = False,
                             allow_degraded: bool = False) -> None:
     """THE RE-JUDGE, after this run's authorised refreshes.
@@ -2526,6 +2687,20 @@ def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
         ring_problem = approach_ring_problem(lat, lon, icao)
         if ring_problem:
             mine.append(("rings", "approach ring cells", ring_problem[1]))
+    # THE PACK DSF DUMP, same law, same shape (#206).  ``icao`` is NULLED
+    # for a ``--tile`` run -- which is right for the build's pre-flight
+    # (a tile build's packs are its own worklist) and WRONG here: the
+    # owner's warm was ``KGEG --tile 47 -118 --refresh-only
+    # --refresh-data airport_mod_cache``, which NAMES an airport, and the
+    # predicate stood down on the nulled icao and printed "re-judged
+    # CURRENT" while the next build refused on that very dump.  So the
+    # NAMED airport is carried separately and the SAME predicate the
+    # pre-flight asks is asked with it (RULINGS 2026-10-02b).
+    if SCOPE_AIRPORT_MOD_CACHE in requested:
+        for row in missing_pack_dsf_dumps(root, lat, lon,
+                                          named_icao or icao):
+            if row not in mine:        # never counted twice
+                mine.append(row)
     for scope, artifact, why in others:
         print(f"  [harness] still cold, in a scope this run did NOT "
               f"request — informational, not a failure: [{scope}] "
@@ -4131,17 +4306,16 @@ def resolve_tile_for(icao: str, root: Path):
 
 
 def main(argv=None) -> int:
-    # THE HARNESS IS NOT THE SUITE (lane las130, 2026-09-30).  The CLI
-    # imports ``tests/conftest.py`` for ``xplane_root``
-    # (:func:`resolve_tile_for`), and since #122 (7d5f73a1) that import
-    # installs the SUITE's socket-level network refusal in the importing
-    # process -- so every discovery / download a harness run makes after
-    # it (``--refresh-data dem`` warms, the per-airport ladder re-check)
-    # died "the test suite may not reach the network", read as a
-    # transient, and warmed nothing.  The harness's own law is the
-    # shared-repo WRITE guard, not a network ban; the suite's override is
-    # set for this process before anything imports conftest.
-    os.environ.setdefault("O4_SUITE_ALLOW_NETWORK", "1")
+    # NO ``O4_SUITE_ALLOW_NETWORK`` HERE (#177).  This used to set it:
+    # lane las130's consumer-side workaround for #146, when importing
+    # ``tests/conftest.py`` for ``xplane_root`` armed the #122 socket
+    # guard in the importing process.  #146 fixed that at the derivation
+    # site -- the guard arms only under ``running_under_pytest()`` -- so
+    # the setdefault was redundant, and it was a hole: it wrote the
+    # variable into the PROCESS ENVIRONMENT, which every pytest
+    # subprocess spawned from a build inherited with the suite's network
+    # guard explicitly DISARMED, the Windows 600 s hang class #122
+    # exists to prevent.
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -4742,6 +4916,7 @@ def main(argv=None) -> int:
     seed_summary = None
     osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
     shore_refresh_summary = rings_refresh_summary = None
+    mod_cache_refresh_summary = None
     t0 = time.time()
     # EVERYTHING FROM HERE IS INSIDE THE AUDIT'S ``finally`` (2026-09-15,
     # round 6).  It used not to be, and two things leaked, both measured
@@ -4818,6 +4993,19 @@ def main(argv=None) -> int:
             with guard:
                 rings_refresh_summary = refresh_approach_rings(
                     root, lat, lon, prog)
+        # THE PACK DUMP DERIVATION runs AFTER the four passes above
+        # (#206).  The step order osm_layers -> warm_insets -> shore ->
+        # dem -> rings is law (RULINGS 2026-10-02e) and is untouched:
+        # this pass neither feeds nor reads any of them — it needs only
+        # the serving pack's tile DSF in the owner's X-Plane install, and
+        # nothing above consults the dump cache.  It goes LAST rather
+        # than first for the same reason ``rings`` does: a refusal here
+        # would otherwise abort the osm/dem/ring warms a combined run
+        # asked for, and this is the cheapest pass to repeat.
+        if SCOPE_AIRPORT_MOD_CACHE in requested and lat is not None:
+            with guard:
+                mod_cache_refresh_summary = refresh_airport_mod_cache(
+                    root, lat, lon, prog, icao=args.icao)
         # THE LEDGER RECONCILIATION (--reconcile-ledger), before the
         # re-judge for the same reason the audit moved: it is a RECORD of
         # what is on disk, and a later refusal must not lose it.
@@ -4834,6 +5022,8 @@ def main(argv=None) -> int:
             require_refreshed_frame(
                 root, lat, lon, requested,
                 icao=None if args.tile else args.icao,
+                # THE NAMED AIRPORT, whatever ``--tile`` says (#206)
+                named_icao=args.icao,
                 refresh_only=args.refresh_only,
                 allow_degraded=args.allow_degraded_dem)
 
@@ -4855,6 +5045,7 @@ def main(argv=None) -> int:
                       "refresh_dem": dem_refresh_summary,
                       "refresh_shore": shore_refresh_summary,
                       "refresh_rings": rings_refresh_summary,
+                      "refresh_airport_mod_cache": mod_cache_refresh_summary,
                       "wall_seconds": round(time.time() - t0, 1)}
             prog.note(f"REFRESH-ONLY: the authorised refresh(es) "
                       f"{sorted(requested)} are done and the frame is "

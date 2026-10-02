@@ -7779,6 +7779,118 @@ def test_no_floor_constant_is_written_twice(census_mod):
     assert "cg.MATERIALITY_SUB_FLOOR_LABEL" in src
 
 
+# ── row_points: ONE row-endpoint accessor (issue #191) ───────────────
+# #106/#107 added ``check_grade.row_points`` as THE spelling of a row's
+# endpoints, beside ``row_roles`` / ``row_magnitude`` / ``row_side``.
+# ``tools/harness/census.py`` already carried an independent copy (plus a
+# third, bare ``r.pt_a``/``r.pt_b`` read in ``--zone-split``), so one row
+# shape had three readers — the census-wrapper defect (CLAUDE.md, "The
+# standard test harness"), and precisely the shape that loses a LATE-ADDED
+# key: the edge-step ``vert_pt``/``proj_pt`` pair is such an addition, and
+# a reader that predates it clusters every step row as pointless.
+# These twins pin that a SECOND copy cannot come back.
+
+class _PtsGradeRow:
+    """A grade-violation row: the ``pt_a``/``pt_b`` shape."""
+
+    def __init__(self, a, b):
+        self.pt_a, self.pt_b = a, b
+
+
+class _PtsStepRow:
+    """An edge-step row: the ``vert_pt``/``proj_pt`` shape."""
+
+    def __init__(self, v, p):
+        self.vert_pt, self.proj_pt = v, p
+
+
+def test_only_the_law_defines_the_row_endpoint_accessor(cg, census_mod):
+    """ONE IMPLEMENTATION and ONE delegate, and the twin names both.
+
+    A THIRD ``def row_points`` under ``tools/`` or ``src/`` fails here
+    whatever it does, and the delegate is held to being one: it may not
+    spell a row key, so it cannot quietly grow into a second reader.
+    """
+    defs = sorted(
+        p.relative_to(ROOT).as_posix()
+        for root in (ROOT / "tools", ROOT / "src") for p in root.rglob("*.py")
+        if "venv" not in p.parts
+        and re.search(r"^\s*def row_points\(",
+                      p.read_text(encoding="utf-8", errors="replace"),
+                      re.M))
+    assert defs == ["tools/check_grade.py", "tools/harness/census.py"], (
+        f"row_points is defined in {defs} — the law owns the one "
+        f"implementation and the census keeps one delegate for "
+        f"tools/frontage_split.py; anything else is the census-wrapper "
+        f"defect (issue #191), two readers of one row shape that look "
+        f"identical until one of them misses a row key")
+    delegate = _code_only(inspect.getsource(census_mod.row_points))
+    assert ". row_points (" in delegate, (
+        "the census delegate must delegate")
+    for pair in cg.ROW_POINT_KEYS:
+        for key in pair:
+            assert not re.search(rf"\b{key}\b", delegate), (
+                f"the census delegate spells {key!r} — it is a second "
+                f"reader again")
+
+
+def test_the_law_reads_its_row_keys_from_its_own_register(cg):
+    """``ROW_POINT_KEYS`` is the register of row shapes, and ``row_points``
+    reads it rather than re-typing the keys — so a NEW shape is added in
+    ONE place and every grep below extends with it."""
+    assert [tuple(pair) for pair in cg.ROW_POINT_KEYS] == [
+        ("pt_a", "pt_b"), ("vert_pt", "proj_pt")], (
+        "the row-shape register changed — re-read every consumer of "
+        "row_points before accepting this")
+    body = _code_only(inspect.getsource(cg.row_points))
+    assert "ROW_POINT_KEYS" in body
+    for pair in cg.ROW_POINT_KEYS:
+        for key in pair:
+            assert not re.search(rf"\b{key}\b", body), (
+                f"row_points still spells {key!r} itself — read the "
+                f"register, or the register is decoration")
+
+
+def test_the_census_reads_row_endpoints_through_the_law(cg, census_mod):
+    """The census must not spell a row key ANYWHERE: not in its own
+    accessor (it had one), and not bare in ``--zone-split`` (it had that
+    too).  Driven off the law's register, so a third row shape cannot slip
+    past this grep."""
+    code = _code_only(Path(inspect.getfile(census_mod)).read_text(
+        encoding="utf-8"))
+    for pair in cg.ROW_POINT_KEYS:
+        for key in pair:
+            assert not re.search(rf"\b{key}\b", code), (
+                f"census.py reads the row key {key!r} itself — that is a "
+                f"second row-endpoint accessor (issue #191)")
+    assert "cg . row_points (" in code, (
+        "the census must read endpoints through the law's accessor")
+
+
+def test_the_census_row_endpoint_read_is_the_laws_own(cg, census_mod):
+    """Behaviour, both row shapes and the subtleties: the first pair whose
+    FIRST key is set wins, a half-set pair is returned half-set, and a row
+    of neither shape is ``(None, None)`` rather than an exception."""
+    grade = _PtsGradeRow((1.0, 2.0), (3.0, 4.0))
+    step = _PtsStepRow((5.0, 6.0), (7.0, 8.0))
+    half = _PtsGradeRow((1.0, 2.0), None)
+    neither = _PtsStepRow(None, None)
+    assert cg.row_points(grade) == ((1.0, 2.0), (3.0, 4.0))
+    assert cg.row_points(step) == ((5.0, 6.0), (7.0, 8.0))
+    assert cg.row_points(half) == ((1.0, 2.0), None)
+    assert cg.row_points(neither) == (None, None)
+    assert cg.row_points(object()) == (None, None)
+    # A row carrying BOTH shapes reads the grade pair — the order in the
+    # register is the precedence, and it is the order the old copies had.
+    both = _PtsGradeRow((1.0, 2.0), (3.0, 4.0))
+    both.vert_pt, both.proj_pt = (9.0, 9.0), (9.0, 9.0)
+    assert cg.row_points(both) == ((1.0, 2.0), (3.0, 4.0))
+    # The census's public name (``tools/frontage_split.py`` calls it) is
+    # the SAME read, not a parallel one.
+    for row in (grade, step, half, neither, object()):
+        assert census_mod.row_points(row) == cg.row_points(row)
+
+
 # ── row_excess_m: the accumulation's own arithmetic ─────────────────
 
 def test_row_excess_m_is_the_excess_not_the_magnitude(cg):
@@ -12469,16 +12581,24 @@ def test_importing_the_guard_never_puts_the_engines_src_on_sys_path(
     load Ortho4XP import it, so importing it must not put the engine's
     ``src/`` on ``sys.path`` as a side effect — which is why
     ``APPROACH_RING_DIR_SUFFIX`` QUOTES the engine's spelling instead of
-    importing it.  The console pin the argparse law requires
-    (``tests/test_console_encoding.py``) therefore lives inside
-    ``_pin_console_streams``, called as the first statement of ``main``,
-    and NOT in the module body like every other tool's.  Replacing it with
-    the standard module-level block would pass that twin and silently break
-    this one, so the two are asserted together.
+    importing it.  The argparse console law
+    (``tests/test_console_encoding.py``) admits two shapes — a script pins
+    at MODULE level, a LIBRARY WITH A CLI pins inside the very function
+    that parses — and this module may only be the second kind.  That
+    intersection is one spelling: the pin inlined at the top of ``main()``.
+    The module-level block every other tool carries would pass the console
+    twin and silently break this one, so the two are asserted together.
 
-    Measured: PR #176 (the argparse console law) and PR #184 (this CLI)
-    were written in parallel, both merged clean, and main went RED on
-    exactly this interaction at 2026-10-02 05:43.
+    MEASURED, three times in ninety minutes on 2026-10-02 — which is why
+    this twin exists rather than a comment.  #176 (the console law) and
+    #184 (this CLI) were written in parallel, both merged clean, and main
+    went RED on their interaction at 05:43.  Then THREE independent fixes
+    landed for that one red: ``cabd10e`` (inline in ``main()``),
+    ``d4f0c154`` (the module-level block, lane winenc200) and ``ad19bb43``
+    (a named helper).  Together they left main with the pin at module level
+    AND in the entry — red on this twin at 07:01, which is this twin
+    catching in minutes the exact "someone tidies it back into the module
+    body" case it was written for.
     """
     source = (HARNESS / "shared_repo_guard.py").read_text(encoding="utf-8")
     tree = ast.parse(source)

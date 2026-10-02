@@ -850,3 +850,198 @@ def test_the_stray_temporary_spelling_matches_the_harness_regex(guard_mod):
         assert guard_mod.temporary_writer_pid(rel) == 52850, rel
     assert not guard_mod.is_stray_temporary(
         "OSM_data/_regional_extracts/clips/clip_+030-0095_ab-part0.osm.pbf")
+
+
+# ---------------------------------------------------------------------------
+# #205: the atomic replace retries a HELD DESTINATION, on Windows only
+#
+# POSIX ``rename`` replaces a destination even while another process holds it
+# open; Windows ``MoveFileEx(..., REPLACE_EXISTING)`` fails with WinError 5
+# (access denied) or 32 (sharing violation).  Two cutters racing the same
+# clip both replace onto the same destination, so the loser can meet a
+# destination momentarily held — measured as the single windows-latest
+# failure of PR #202 (run 36974952001), in the cross-volume staging move
+# every Windows machine whose scenery and TEMP sit on different drives takes
+# on EVERY cut.
+#
+# These twins drive the ONE move site with a FAKE CLIPPER (no osmium, no
+# real cross-volume mount), so they run on every platform: the Windows
+# behaviour is injected as the error Windows raises, and the Windows-only
+# switch is the module flag the production code reads.
+# ---------------------------------------------------------------------------
+
+import errno  # noqa: E402
+import threading as _threading  # noqa: E402
+
+
+def _held_destination_error(path, winerror=5):
+    """The OSError Windows raises for a replace onto a held destination."""
+    error = PermissionError(errno.EACCES, "Access is denied", path)
+    error.winerror = winerror
+    return error
+
+
+@pytest.fixture()
+def windows_replace(monkeypatch):
+    """``os.replace`` under a simulated Windows, with failures to inject.
+
+    Only calls whose DESTINATION is a registered target are intercepted;
+    everything else (pytest's own, the staging copy's) reaches the real
+    ``os.replace`` untouched.  ``sleep`` is recorded rather than slept, so
+    the backoff is asserted without spending it.
+    """
+    real_replace = os.replace
+    state = {"targets": set(), "fail_with": {}, "per_thread": {},
+             "attempts": [], "sleeps": []}
+
+    def _replace(source, destination, **kwargs):
+        if str(destination) in state["targets"]:
+            state["attempts"].append((str(source), str(destination)))
+            # A per-thread queue where the test registered one, so two
+            # racing cutters each meet THEIR OWN injected failures.
+            queue = state["per_thread"].get(_threading.get_ident())
+            if queue is None:
+                queue = state["fail_with"].setdefault(str(destination), [])
+            if queue:
+                raise queue.pop(0)
+        return real_replace(source, destination, **kwargs)
+
+    monkeypatch.setattr(FILTER.os, "replace", _replace)
+    monkeypatch.setattr(FILTER.time, "sleep", state["sleeps"].append)
+    monkeypatch.setattr(FILTER, "_RETRY_HELD_DESTINATION", True)
+    return state
+
+
+def _cut(tmp_path, name="cut.osm.pbf", body=b"cut-bytes"):
+    """A finished cut sitting in its scratch directory (the fake clipper)."""
+    scratch = tmp_path / ("scratch-" + name)
+    scratch.mkdir(exist_ok=True)
+    temporary = scratch / "clip.osm.pbf"
+    temporary.write_bytes(body)
+    return str(temporary)
+
+
+def test_a_held_destination_is_retried_until_the_holder_lets_go(
+        tmp_path, windows_replace):
+    destination = str(tmp_path / "clip.osm.pbf")
+    windows_replace["targets"].add(destination)
+    windows_replace["fail_with"][destination] = [
+        _held_destination_error(destination),
+        _held_destination_error(destination, winerror=32),
+    ]
+    FILTER._move_into_place(_cut(tmp_path), destination)
+    assert open(destination, "rb").read() == b"cut-bytes"
+    assert len(windows_replace["attempts"]) == 3
+    # the bounded, doubling backoff, nothing more
+    assert windows_replace["sleeps"] == [
+        FILTER._REPLACE_FIRST_BACKOFF_S, FILTER._REPLACE_FIRST_BACKOFF_S * 2]
+
+
+def test_a_destination_held_forever_raises_after_the_bounded_attempts(
+        tmp_path, windows_replace):
+    destination = str(tmp_path / "clip.osm.pbf")
+    windows_replace["targets"].add(destination)
+    windows_replace["fail_with"][destination] = [
+        _held_destination_error(destination)
+        for _ in range(FILTER._REPLACE_ATTEMPTS + 5)]
+    with pytest.raises(PermissionError):
+        FILTER._move_into_place(_cut(tmp_path), destination)
+    assert len(windows_replace["attempts"]) == FILTER._REPLACE_ATTEMPTS
+    assert len(windows_replace["sleeps"]) == FILTER._REPLACE_ATTEMPTS - 1
+    assert max(windows_replace["sleeps"]) <= FILTER._REPLACE_MAX_BACKOFF_S
+    assert sum(windows_replace["sleeps"]) < 2.0
+
+
+@pytest.mark.parametrize("error_number", [errno.ENOENT, errno.EACCES])
+def test_a_failure_that_is_not_a_held_destination_raises_at_once(
+        tmp_path, windows_replace, error_number):
+    """A retry loop must never wait out an error that will not clear —
+    a missing source, or a shared-repo write guard's refusal."""
+    destination = str(tmp_path / "clip.osm.pbf")
+    windows_replace["targets"].add(destination)
+    windows_replace["fail_with"][destination] = [
+        OSError(error_number, "no"), OSError(error_number, "no")]
+    with pytest.raises(OSError):
+        FILTER._move_into_place(_cut(tmp_path), destination)
+    assert len(windows_replace["attempts"]) == 1
+    assert windows_replace["sleeps"] == []
+
+
+def test_the_retry_is_windows_only(tmp_path, windows_replace, monkeypatch):
+    """Off Windows the same error is a real failure, not a wait."""
+    monkeypatch.setattr(FILTER, "_RETRY_HELD_DESTINATION", False)
+    destination = str(tmp_path / "clip.osm.pbf")
+    windows_replace["targets"].add(destination)
+    windows_replace["fail_with"][destination] = [
+        _held_destination_error(destination) for _ in range(3)]
+    with pytest.raises(PermissionError):
+        FILTER._move_into_place(_cut(tmp_path), destination)
+    assert len(windows_replace["attempts"]) == 1
+
+
+def test_the_flag_follows_the_platform():
+    assert FILTER._RETRY_HELD_DESTINATION == (sys.platform == "win32")
+
+
+def test_the_cross_volume_staging_replace_retries_too(
+        tmp_path, windows_replace):
+    """The call that actually failed on CI is the EXDEV fallback's.
+
+    The first replace answers EXDEV (workspace on D:, TEMP on C:), the
+    data is copied to a per-writer staged name in the destination's own
+    directory, and THAT replace is the one WinError 5 hit.
+    """
+    destination = str(tmp_path / "clip.osm.pbf")
+    windows_replace["targets"].add(destination)
+    windows_replace["fail_with"][destination] = [
+        OSError(errno.EXDEV, "cross-device link"),
+        _held_destination_error(destination),
+    ]
+    FILTER._move_into_place(_cut(tmp_path), destination)
+    assert open(destination, "rb").read() == b"cut-bytes"
+    assert len(windows_replace["attempts"]) == 3
+    assert [p.name for p in tmp_path.iterdir() if ".tmp-" in p.name] == []
+
+
+def test_two_cutters_racing_one_destination_both_succeed_when_held(
+        tmp_path, windows_replace):
+    """The #205 shape: two threads, one destination, cross-volume.
+
+    Each thread's first replace answers EXDEV (so both take the staging
+    branch, as a Windows runner does, where the workspace is on ``D:`` and
+    ``TEMP`` on ``C:``), and each thread's staging replace is refused once
+    with WinError 5 / 32 — the loser meeting a destination the winner still
+    holds.  Both cutters must finish: the invariant the 2026-07-23 field
+    failure bought is that neither writer loses minutes of work to the
+    other's rename.
+    """
+    destination = str(tmp_path / "clip.osm.pbf")
+    windows_replace["targets"].add(destination)
+    errors = []
+
+    # No barrier: each thread's failures are injected per thread, so the
+    # race is deterministic without one -- and a barrier with a wall clock
+    # is itself a flake on a loaded runner.
+    def cut(tag, winerror):
+        windows_replace["per_thread"][_threading.get_ident()] = [
+            OSError(errno.EXDEV, "cross-device link"),
+            _held_destination_error(destination, winerror=winerror),
+        ]
+        try:
+            FILTER._move_into_place(
+                _cut(tmp_path, name=tag, body=tag.encode()), destination)
+        except Exception as error:     # noqa: BLE001 - the assertion target
+            errors.append(error)
+
+    threads = [_threading.Thread(target=cut, args=("a" * 8, 5)),
+               _threading.Thread(target=cut, args=("b" * 8, 32))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert not errors
+    assert os.path.isfile(destination)
+    assert open(destination, "rb").read() in (b"a" * 8, b"b" * 8)
+    assert [p.name for p in tmp_path.iterdir() if ".tmp-" in p.name] == []
+    # each cutter attempted the move three times: EXDEV, held, done
+    assert len(windows_replace["attempts"]) == 6

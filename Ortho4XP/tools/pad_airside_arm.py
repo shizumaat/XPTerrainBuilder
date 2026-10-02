@@ -2,6 +2,7 @@
 ``v2padvert``; promoted from that lane's scratchpad on its eighth use per
 RULINGS ``7e90032``).
 
+    venv/bin/python tools/pad_airside_arm.py --engine <engine tree> ICAO OUT.json
     V2PADVERT_ENGINE=<engine tree> venv/bin/python tools/pad_airside_arm.py ICAO OUT.json
 
 ONE load, then classify+planar TWICE — ``[placement] pad_from_cluster``
@@ -40,20 +41,53 @@ from pathlib import Path
 
 import os
 ROOT = Path(__file__).resolve()
-ENGINE = Path(os.environ["V2PADVERT_ENGINE"])
-os.chdir(ENGINE)
-sys.path.insert(0, str(ENGINE / "src"))
-sys.path.insert(0, str(ENGINE))
-sys.path.insert(0, str(ENGINE / "tools"))
-from harness.build_airport import arm_shared_repo_protection, report_guard_churn  # noqa: E402
-OUT = Path(os.environ.get("V2PADVERT_OUT", str(ENGINE / "tmp" / "padvert")))
-OUT.mkdir(parents=True, exist_ok=True)
-GUARD, _RED = arm_shared_repo_protection(ENGINE, OUT, "v2padvert")
-from auto_patch_v2.planar.__main__ import default_inputs  # noqa: E402
-from auto_patch_v2.airport.load import load_with_report  # noqa: E402
-from auto_patch_v2.classify import classify, load_rules  # noqa: E402
-from auto_patch_v2.law import Law  # noqa: E402
-from auto_patch_v2.planar.build import build  # noqa: E402
+
+#: The engine tree and the scratch/guard directory.  They are ``--engine``
+#: and ``--out-dir``, each DEFAULTING to the historical environment variable
+#: so no existing caller breaks — which is how the rest of the harness
+#: spells an engine tree (#178).
+ENGINE_VARIABLE = "V2PADVERT_ENGINE"
+OUT_VARIABLE = "V2PADVERT_OUT"
+
+#: Filled by ``arm_engine()``, called from ``main()`` AFTER ``parse_args()``
+#: (#178).  NOTHING here runs at import: this module body used to read
+#: ENGINE_VARIABLE (KeyError when unset), ``chdir`` into it
+#: (FileNotFoundError when wrong), ``mkdir`` the output directory and ARM
+#: the shared-repo write guard before ``argparse`` existed, so ``--help``
+#: could not be run at all — the one tool of 80 whose help
+#: ``tests/test_console_encoding.py`` had to skip.  The engine imports are
+#: function-local for the same reason: they need ``<engine>/src`` on
+#: ``sys.path``, which only ``arm_engine()`` knows.
+ENGINE: Path | None = None
+OUT: Path | None = None
+GUARD = None
+_RED = None
+
+
+def arm_engine(engine: str | None = None, out: str | None = None):
+    """Enter the engine tree and arm the shared-repo write guard.
+
+    Everything this module used to do at import time, now behind
+    ``parse_args()``.  ``engine``/``out`` fall back to ENGINE_VARIABLE /
+    OUT_VARIABLE, then to ``<engine>/tmp/padvert``."""
+    global ENGINE, OUT, GUARD, _RED
+    engine = engine or os.environ.get(ENGINE_VARIABLE)
+    if not engine:
+        raise SystemExit(
+            f"[arm] no engine tree: pass --engine <tree> or export "
+            f"{ENGINE_VARIABLE}=<tree>")
+    ENGINE = Path(engine).resolve()
+    if not ENGINE.is_dir():
+        raise SystemExit(f"[arm] --engine is not a directory: {ENGINE}")
+    os.chdir(ENGINE)
+    for entry in (ENGINE / "tools", ENGINE, ENGINE / "src"):
+        sys.path.insert(0, str(entry))
+    OUT = Path(out or os.environ.get(OUT_VARIABLE)
+               or (ENGINE / "tmp" / "padvert"))
+    OUT.mkdir(parents=True, exist_ok=True)
+    from harness.build_airport import arm_shared_repo_protection
+    GUARD, _RED = arm_shared_repo_protection(ENGINE, OUT, "v2padvert")
+    return GUARD
 
 
 def armed(law, on: bool | dict):
@@ -122,6 +156,9 @@ def read(pm, law):
 
 
 def run(icao="HECA", out="arm.json", arm_a=None, arm_b=None):
+    from harness.build_airport import report_guard_churn
+    if GUARD is None:
+        raise SystemExit("[arm] arm_engine() must run before run()")
     GUARD.__enter__()
     try:
         _run(icao, out, arm_a, arm_b)
@@ -133,6 +170,15 @@ def run(icao="HECA", out="arm.json", arm_a=None, arm_b=None):
 
 
 def _run(icao, out, arm_a=None, arm_b=None):
+    # Engine imports are deferred: they need <engine>/src on sys.path, which
+    # only arm_engine() knows, and importing them at module level is what
+    # made --help unmeasurable (#178).
+    from auto_patch_v2.planar.__main__ import default_inputs
+    from auto_patch_v2.airport.load import load_with_report
+    from auto_patch_v2.classify import classify, load_rules
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.build import build
+
     law0 = Law.for_airport(icao)
     t = time.perf_counter()
     inputs = default_inputs()
@@ -235,18 +281,34 @@ def _run(icao, out, arm_a=None, arm_b=None):
     print("->", out)
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    """``--help`` returns from HERE, before any env read, chdir, mkdir or
+    guard arm — all of which happen in ``arm_engine()`` below (#178)."""
     import argparse
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("icao", nargs="?", default="HECA")
     ap.add_argument("out", nargs="?", default="arm.json")
+    ap.add_argument("--engine", metavar="TREE",
+                    default=os.environ.get(ENGINE_VARIABLE),
+                    help=f"the engine tree to run in (default: the "
+                         f"{ENGINE_VARIABLE} environment variable)")
+    ap.add_argument("--out-dir", metavar="DIR",
+                    default=os.environ.get(OUT_VARIABLE),
+                    help=f"guard/scratch directory (default: the "
+                         f"{OUT_VARIABLE} environment variable, else "
+                         f"<engine>/tmp/padvert)")
     ap.add_argument("--arm-a", metavar="KEY=V[,KEY=V]",
                     help="[placement] keys for the FIRST arm (default: "
                          "pad_from_cluster=false)")
     ap.add_argument("--arm-b", metavar="KEY=V[,KEY=V]",
                     help="[placement] keys for the SECOND arm (default: "
                          "pad_from_cluster=true)")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
+    arm_engine(a.engine, a.out_dir)
     run(a.icao, a.out,
         _parse_arm(a.arm_a) if a.arm_a else None,
         _parse_arm(a.arm_b) if a.arm_b else None)
+
+
+if __name__ == "__main__":
+    main()

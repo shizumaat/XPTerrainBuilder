@@ -63,8 +63,10 @@ import errno
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import osmium
@@ -168,6 +170,76 @@ def _discard_cut_scratch(scratch: Optional[str]) -> None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+# --- WHY THE REPLACE RETRIES ON WINDOWS (#205) -----------------------------
+#
+# POSIX ``rename`` replaces a destination even while another process holds
+# it open.  Windows ``MoveFileEx(..., MOVEFILE_REPLACE_EXISTING)`` does not:
+# it fails with ERROR_ACCESS_DENIED (5) or ERROR_SHARING_VIOLATION (32) when
+# the destination has an open handle.  Two cutters racing the same clip both
+# stage to a thread-unique name (correct, and what the #159-era work fixed)
+# and then both replace onto the SAME destination, so the loser can meet a
+# destination that is momentarily held — by the winner's own just-closed
+# write or its cleanup, or by the scanner/indexer Windows runs over a freshly
+# created file.  Neither holder lasts: the condition is transient by nature,
+# so the remedy is a bounded retry around the one move site, and each attempt
+# is still ONE atomic replace, so the guarantee the 2026-07-23 field failure
+# bought is unchanged.
+#
+# Measured as the single windows-latest failure of PR #202 (run 36974952001):
+# ``[WinError 5] Access is denied: 'clip.osm.pbf.tmp-600-1304.osm.pbf' ->
+# 'clip.osm.pbf'`` — the EXDEV staging move, because a GitHub Windows runner
+# has the workspace on ``D:`` and ``TEMP`` on ``C:``.  The same class reaches
+# users: any Windows machine whose scenery lives on a different drive from
+# ``TEMP`` takes the cross-volume branch on EVERY cut.
+#
+# NOT attempted here, and REPORTED rather than decided (#205): making
+# ``_make_cut_scratch`` prefer a scratch root on the DESTINATION's volume so
+# the cross-volume branch is not the Windows default at all.  The section
+# comment above deliberately forbids the destination's own directory for the
+# shared-repo-guard reason, so "same volume, not same directory" is a
+# guard-law question for the owner, not a free change.
+
+#: Windows error codes for "the destination is held by someone else".  Both
+#: are transient; neither says the move is wrong.
+_WINDOWS_HELD_DESTINATION_ERRORS = (5, 32)
+#: Attempts at the atomic replace, the first one included.
+_REPLACE_ATTEMPTS = 6
+#: Backoff before the second attempt, doubling up to the cap: the whole
+#: bound is 0.05 + 0.1 + 0.2 + 0.4 + 0.8 = 1.55 s, a holder's lifetime and
+#: nothing like the minutes of osmium work the move would throw away.
+_REPLACE_FIRST_BACKOFF_S = 0.05
+_REPLACE_MAX_BACKOFF_S = 0.8
+#: Only Windows can refuse a replace for a held destination, so only there
+#: is a retry anything but a swallowed error.  A module-level flag, not an
+#: inline ``sys.platform`` test, so the twins can exercise the Windows path
+#: on the runner they have.
+_RETRY_HELD_DESTINATION = sys.platform == "win32"
+
+
+def _replace_retrying_a_held_destination(source: str, destination: str) -> None:
+    """``os.replace(source, destination)``, retrying a HELD destination.
+
+    Windows only (see the section comment above): a replace that fails
+    because the destination has an open handle is retried with a bounded,
+    doubling backoff and then raised.  Every other failure — EXDEV, a
+    missing source, a shared-repo write guard's refusal — raises on the
+    FIRST attempt, unchanged: a retry loop must never wait out a refusal.
+    """
+    backoff = _REPLACE_FIRST_BACKOFF_S
+    for attempt in range(1, _REPLACE_ATTEMPTS + 1):
+        try:
+            os.replace(source, destination)
+            return
+        except OSError as e:
+            held = getattr(e, "winerror", None) in (
+                _WINDOWS_HELD_DESTINATION_ERRORS)
+            if (not _RETRY_HELD_DESTINATION or not held
+                    or attempt == _REPLACE_ATTEMPTS):
+                raise
+            time.sleep(backoff)
+            backoff = min(backoff * 2, _REPLACE_MAX_BACKOFF_S)
+
+
 def _move_into_place(temporary_path: str, output_path: str) -> None:
     """Move a finished cut onto its destination, atomically where it can.
 
@@ -180,9 +252,13 @@ def _move_into_place(temporary_path: str, output_path: str) -> None:
     step is still an atomic replace.  That copy's ``open(..., "wb")`` is a
     Python write too, so the guard refuses it the same way; and the
     temporary is removed on every exit path.
+
+    Both replaces go through :func:`_replace_retrying_a_held_destination`,
+    which on Windows alone retries the one failure concurrent cutters
+    cause (#205).
     """
     try:
-        os.replace(temporary_path, output_path)
+        _replace_retrying_a_held_destination(temporary_path, output_path)
         return
     except OSError as e:
         if e.errno != errno.EXDEV:
@@ -191,7 +267,7 @@ def _move_into_place(temporary_path: str, output_path: str) -> None:
         output_path, os.getpid(), threading.get_ident())
     try:
         shutil.copyfile(temporary_path, staged)
-        os.replace(staged, output_path)
+        _replace_retrying_a_held_destination(staged, output_path)
     finally:
         for leftover in (staged, temporary_path):
             try:

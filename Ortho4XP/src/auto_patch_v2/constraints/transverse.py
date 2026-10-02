@@ -35,7 +35,8 @@ from ..model.planar import PlanarMap
 from .geometry import TransectAxis, TransectShape, walk_transects
 from .precedence import View, view
 from .stretches import edge_cap, stretches
-from .roads import road_family_roles
+from .roads import (PAIR_WELD, road_family_roles, road_pair_side,
+                    stage_one_vertices)
 
 __all__ = ["Axis", "axes", "transverse", "priced_roles",
            "junction_raw_transverse", "RAW_PAIR_RULING",
@@ -156,6 +157,11 @@ def transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     taxes = [TransectAxis([vw.xy[v] for v in a.vertices], a.cap_l,
                           a.is_service, key=i) for i, a in enumerate(axs)]
     rows: list[Row] = []
+    # issue #143 (``roads.road_pair_side``): a SERVICE axis prices the road
+    # family, so its cross-section is a ROAD row — one-way on the
+    # groundside feet of a section welded to airside
+    air = stage_one_vertices(planar, law) if any(a.is_service for a in axs) \
+        else frozenset()
     for st in walk_transects(shapes, taxes,
                              lambda ax: priced_roles(law, ax.is_service),
                              step_m=tw.step_m, half_m=tw.half_width_m,
@@ -178,10 +184,16 @@ def transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if not terms:
             continue
         bound = axis.cap_t * st.width_m
+        follows = None
+        if axis.is_service:
+            side, gs = road_pair_side(air, terms)
+            if side == PAIR_WELD:
+                follows = gs
         rows.append(Linear(tuple(terms.items()), -bound, bound,
                            Source(GEN, "rulesets.taxi.transverse (2026-08-21)",
                                   (f"axis:{axis.ref}", f"face:{st.shape_key}",
-                                   f"station:{st.px:.1f},{st.py:.1f}"))))
+                                   f"station:{st.px:.1f},{st.py:.1f}")),
+                           follows=follows))
     return rows
 
 

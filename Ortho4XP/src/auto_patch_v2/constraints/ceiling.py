@@ -140,14 +140,36 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     from .platform import RIM_RULING as _RIM
     _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J, _GS_LVL, _GS_LVL_J, _COLLAR, _PLANE,
              _RIM}
+    # issue #143 (``roads.road_pair_side``): A ROAD ROW'S TWIN IS A ROAD
+    # ROW.  A road pair welded to airside is minted ONE-WAY on its
+    # groundside foot so §20b stage 1 refuses it; its twin, minted two-way,
+    # carried the same pair straight back into stage 1 (HECA v28332 |
+    # v7898: ``road_cross_section`` AND this twin at 0.294 m).  The twin
+    # keeps the road row's followers; its dedupe key carries them, so a
+    # two-way twin some airside family mints over the same pair is not lost.
+    from .roads import GEN as _ROAD_GEN
+    from .transverse import GEN as _TRANSVERSE_GEN
+    _road_transverse = "rulesets.taxi.transverse"
+
+    def _road_follows(row: Row):
+        fv = getattr(row, "follows", None)
+        if fv is None:
+            return None
+        g = row.source.generator
+        head = row.source.ruling.split(" (")[0].strip()
+        if g == _ROAD_GEN or (g == _TRANSVERSE_GEN and head == _road_transverse):
+            return fv
+        return None
+
     for row in rows:
         if row.source.ruling.split(" (")[0].strip() in _skip:
             continue
+        fol = _road_follows(row)
         if isinstance(row, Diff):
             vs: tuple[int, ...] = (row.a, row.b)
             if not 0.0 < row.d <= max_span or not set(vs) <= pav:
                 continue
-            key = (min(vs), max(vs))
+            key = (min(vs), max(vs), fol is not None)
             if key in seen:
                 continue
             seen.add(key)
@@ -156,7 +178,8 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
             # a row the law itself prices ABOVE the ceiling (a yielded
             # runway, an altiport) is not twinned below its own cap — the
             # twin would re-make infeasible exactly what §50 made feasible.
-            out.append(Diff(row.a, row.b, max(cap, row.cap), row.d, src))
+            out.append(Diff(row.a, row.b, max(cap, row.cap), row.d, src,
+                            follows=fol))
             continue
         if not isinstance(row, Linear) or row.source.generator == GEN:
             continue
@@ -173,7 +196,7 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         hc, d = got
         if d > max_span:
             continue
-        key = tuple(sorted(row.terms))
+        key = (tuple(sorted(row.terms)), fol is not None)
         if key in seen:
             continue
         seen.add(key)
@@ -181,5 +204,5 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         # §50.1 (6), the two-sided form: the twin's bound never falls
         # below the ROW'S OWN bound.
         bound = max(hc * cap * d, float(row.hi))
-        out.append(Linear(row.terms, -bound, bound, src))
+        out.append(Linear(row.terms, -bound, bound, src, follows=fol))
     return out

@@ -26,7 +26,7 @@ from ..model.planar import PlanarMap
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
            "road_contact_rows", "reach_seed_rewrite", "BANK_RULING",
-           "between_levels_rewrite", "airside_joins"]
+           "between_levels_rewrite", "airside_joins", "welded_join_release"]
 
 GEN = "road_ramp"
 #: The ruling HEAD of the DESIGN TARGET (everything before the first
@@ -188,7 +188,107 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     ``between_levels``."""
     cs, rep = _reach_seed(planar, law, cs, levels)
     cs, rep["between_levels"] = between_levels_rewrite(planar, law, cs, levels)
+    cs, rep["welded_join"] = welded_join_release(planar, law, cs, levels)
     return cs, rep
+
+
+def welded_join_release(planar: PlanarMap, law: Law, cs: ConstraintSet,
+                        levels: _t.Mapping[int, float]
+                        ) -> tuple[ConstraintSet, list[dict]]:
+    """THE JOIN WELDED TO AIRSIDE YIELDS TO IT (issue #143 item 2, lane
+    ``roadrows143``; owner 2026-09-30 Q-97/Q-100 "Why would a road EVER
+    move airside? It should be welded to airside and then grading DEM to
+    maintain its cap"; RULINGS 2026-09-27a (10), 2026-10-01a).
+
+    Called between §20b's stages with ``levels`` = stage 1's solved
+    airside columns.  A road row welded to airside is ONE-WAY on its
+    groundside feet (``roads.road_pair_side``) and never reaches stage 1,
+    so stage 1 no longer reads — and no longer yields — a §37 (9) join pin
+    standing on such a foot.  Stage 2 holds the airside vertex at stage 1's
+    value; a join pin there whose own road row cannot hold against that
+    constant (``|row| > bound + hard_tol_m`` with the pin at its ribbon
+    value) would leave a constant violated row — the road spike lane
+    ``joinyield128`` measured at HECA v28332 (ribbon 100.755 m, 5.3 m from
+    apron v7898 at 91.98 m).  That pin is RELEASED to a design target at
+    its own value (``solve.pin_yield.release_pins``'s form), so the road
+    takes its cap FROM the weld; the record joins the solve's
+    ``pin_yield`` and the core ribbon yields to the level the patch
+    carries (``emit/road_join.with_pin_yield``).  Only rows whose every
+    other foot stage 1 levelled are read — a row through a free groundside
+    vertex is the road's own grading problem.
+
+    ONE HOP, and the second hop is an OPEN residual: KCLT's coverage edge
+    carries join v10783 0.71 m behind the welded join v10782, never welded
+    itself, and it still holds the road 0.88 m over the apron 1.4 m away
+    (``pavement_over_road_cap`` at 35.204173, -80.939746).  A reach over
+    the road's hard pair rows released it but was REFUTED at HECA: it
+    walks rows the §5a LP itself relaxes (``road_cross_section`` 1.12 m
+    over a 0.04 m bound at v10443|v10444) and released v10705/v10706 that
+    were held lawfully (``hard_conflict`` 113 -> 136).
+
+    Returns the rewritten set and one record per released pin
+    (``v``, ``pinned_m``, the worst ``excess`` of its welded rows)."""
+    joins = {p.v: p for p in cs.pins
+             if p.source.generator == GEN and p.source.ruling == JOIN_RULING}
+    if not joins or not levels:
+        return cs, []
+    tol = float(law.tables.emit.design.hard_tol_m)
+    worst: dict[int, float] = {}
+
+    def _feet(fv) -> tuple[int, ...]:
+        return (int(fv),) if isinstance(fv, int) else tuple(int(v) for v in fv)
+
+    def _check(v: int, others: _t.Iterable[int], miss: float) -> None:
+        if all(o in levels for o in others) and miss > tol:
+            worst[v] = max(worst.get(v, 0.0), miss)
+
+    for r in cs.diffs:
+        fv = getattr(r, "follows", None)
+        if fv is None:
+            continue
+        for v in _feet(fv):
+            if v not in joins:
+                continue
+            other = r.b if r.a == v else r.a
+            if other not in levels:
+                continue
+            za = float(joins[v].z) if r.a == v else float(levels[r.a])
+            zb = float(joins[v].z) if r.b == v else float(levels[r.b])
+            _check(v, (other,), abs(za - zb) - float(r.cap) * float(r.d))
+    for r in cs.linears:
+        fv = getattr(r, "follows", None)
+        if fv is None:
+            continue
+        fs = _feet(fv)
+        if len(fs) != 1 or fs[0] not in joins:
+            continue
+        v = fs[0]
+        others = [t for t, _c in r.terms if t != v]
+        if not others or not all(o in levels for o in others):
+            continue
+        val = sum(c * (float(joins[v].z) if t == v else float(levels[t]))
+                  for t, c in r.terms)
+        miss = max((float(r.lo) - val) if r.lo is not None else 0.0,
+                   (val - float(r.hi)) if r.hi is not None else 0.0)
+        _check(v, others, miss)
+    if not worst:
+        return cs, []
+    keep = []
+    targets = []
+    for p in cs.pins:
+        if p.v in worst and p.v in joins:
+            targets.append(Linear(((p.v, 1.0),), float(p.z), float(p.z),
+                                  p.source))
+        else:
+            keep.append(p)
+    recs = [{"v": int(v),
+             "xy": tuple(float(c) for c in planar.vertices[v].xy),
+             "pinned_m": round(float(joins[v].z), 4),
+             "z_m": round(float(joins[v].z), 4), "excess_m": 0.0,
+             "welded_miss_m": round(m, 4), "stage": "2w"}
+            for v, m in sorted(worst.items())]
+    return (_dc.replace(cs, pins=tuple(keep),
+                        linears=tuple(cs.linears) + tuple(targets)), recs)
 
 
 def _reach_seed(planar: PlanarMap, law: Law, cs: ConstraintSet,

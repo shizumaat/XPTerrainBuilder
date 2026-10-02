@@ -34,6 +34,21 @@ once per merged batch — `Ortho4XP/CLAUDE.md` BUILD ECONOMY). The
 spawner owns the merge. Current plan of record:
 `Ortho4XP/docs/specs/zero-airside-plan-20260903.md`.
 
+## Single master (owner standing 2026-10-02)
+
+ONE session is the project master: it alone talks to the owner, dispatches,
+measures, merges and records rulings. Lanes — local (`Agent`, needs the
+corpus) and cloud (`RemoteTrigger` routines, code + twins only; briefs live
+in `docs/cloud-briefs/<date>/` and the trigger prompt just points at the
+file) — report ONLY to the master: a local lane through its final report, a
+cloud lane through its PR body. Lanes NEVER comment on issues, NEVER merge,
+NEVER create a routine/trigger or follow-up, NEVER notify the owner. The
+master merges one PR at a time with a sweep after each, posts the one
+evidence comment per issue, and messages the owner once per decision or
+ready build (PushNotification when Remote Control is on). Handoff between
+master sessions is the memory checkpoint + `Ortho4XP/docs/RULINGS.md` + the
+issue tracker.
+
 ## Beta 2 gate (owner standing 2026-09-18)
 
 `docs/BETA2-BLOCKERS.md` is the beta 1 feedback list (23 rows). ANY attempt

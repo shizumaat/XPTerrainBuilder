@@ -15,7 +15,10 @@ the SAME frame now ends in well under five seconds with a named refusal
 the retry loop does not swallow, loopback stays reachable, and every
 refusal is booked for the teardown that fails the reaching test.
 """
+import os
+import pathlib
 import socket
+import sys
 import threading
 import time
 
@@ -139,3 +142,87 @@ def test_a_background_thread_refusal_is_booked_with_its_thread_name():
 ])
 def test_the_loopback_predicate(host, expected):
     assert conftest.is_loopback_host(host) is expected
+
+
+# ---------------------------------------------------------------------------
+# Issue #146: the guard must arm ONLY under pytest.  Ten tools import this
+# conftest outside pytest for ``xplane_root()`` alone; before the fix the
+# import armed the socket refusal and stripped the proxy variables in THEIR
+# process, and every later network read died with a message that reads as
+# transient (the harness had been offline since #122).  The three twins
+# below pin both halves of the contract: armed at conftest IMPORT under
+# pytest — controller and xdist worker alike, which is what #122 requires
+# so no test module can import ``requests`` ahead of the guard — and inert
+# on a plain ``import conftest``.
+# ---------------------------------------------------------------------------
+
+_NON_PYTEST_IMPORT_PROBE = """\
+import os, socket, sys
+sys.path.insert(0, sys.argv[1])
+import conftest
+print("armed=%r" % bool(getattr(socket, "_o4_suite_network_guard", False)))
+print("armed_at_import=%r" % bool(conftest._GUARD_ARMED_AT_IMPORT))
+print("under_pytest=%r" % bool(conftest.running_under_pytest()))
+print("proxy=%r" % os.environ.get("HTTPS_PROXY"))
+print("lower_proxy=%r" % os.environ.get("https_proxy"))
+print("xplane_root=%r" % bool(conftest.xplane_root()))
+"""
+
+
+def test_a_non_pytest_import_of_conftest_neither_arms_nor_strips_proxies():
+    """Issue #146 at the derivation site.  No connection is made here."""
+    import subprocess
+
+    environment = dict(os.environ)
+    environment["HTTPS_PROXY"] = "http://proxy.invalid:3128"
+    environment["https_proxy"] = "http://proxy.invalid:3128"
+    environment.pop("PYTEST_CURRENT_TEST", None)
+    environment.pop("PYTEST_XDIST_WORKER", None)
+    environment.pop("O4_SUITE_ALLOW_NETWORK", None)
+    completed = subprocess.run(
+        [sys.executable, "-c", _NON_PYTEST_IMPORT_PROBE,
+         str(pathlib.Path(conftest.__file__).parent)],
+        capture_output=True, text=True, env=environment, timeout=300)
+    assert completed.returncode == 0, completed.stderr
+    reported = dict(
+        line.split("=", 1) for line in completed.stdout.split("\n") if "=" in line)
+    assert reported["under_pytest"] == "False", completed.stdout
+    assert reported["armed"] == "False", completed.stdout
+    assert reported["armed_at_import"] == "False", completed.stdout
+    assert reported["proxy"] == "'http://proxy.invalid:3128'", completed.stdout
+    assert reported["lower_proxy"] == "'http://proxy.invalid:3128'", completed.stdout
+    # The reason the tools import conftest at all still works.
+    assert reported["xplane_root"] == "True", completed.stdout
+
+
+def test_the_guard_is_armed_at_conftest_import_not_by_a_later_hook():
+    """#122's timing requirement, kept: the arming happens while conftest
+    itself is being imported — before pytest imports any test module, so
+    nothing can import ``requests`` ahead of the guard."""
+    assert conftest.running_under_pytest() is True
+    assert conftest._GUARD_ARMED_AT_IMPORT is True
+    assert getattr(socket, "_o4_suite_network_guard", False) is True
+    with pytest.raises(conftest.SuiteNetworkRefused):
+        try:
+            socket.getaddrinfo("overpass-api.de", 443)
+        finally:
+            _drop_refusals_since(_booked() - 1)
+
+
+def test_the_guard_is_armed_in_an_xdist_worker_too():
+    """Run this file under ``-n2`` as well as ``-n0``: in a worker process
+    the controller's arming is worth nothing, the worker must arm its own
+    socket module at ITS conftest import."""
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    assert conftest._GUARD_ARMED_AT_IMPORT is True, worker
+    assert getattr(socket, "_o4_suite_network_guard", False) is True, worker
+    if worker:
+        # ``"pytest" in sys.modules`` is what holds at conftest import in
+        # BOTH processes (measured); the worker env var is a second marker.
+        assert conftest.running_under_pytest() is True
+    start = _booked()
+    try:
+        with pytest.raises(conftest.SuiteNetworkRefused):
+            socket.getaddrinfo("example.org", 80)
+    finally:
+        _drop_refusals_since(start)

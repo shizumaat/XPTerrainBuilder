@@ -22,18 +22,6 @@ UNCHANGED.
 """
 from __future__ import annotations
 
-# The console is UTF-8 before anything prints (#171, #125; issue #200): ONE
-# derivation site, ``src/O4_Console_Encoding.py``.  Self-contained and ahead
-# of every other import because this tool's own ``--help`` carries the house
-# spelling and a Windows console RAISES on it rather than mangling it.  The
-# ``winenc`` sweep over 80 argparse tools missed this one; the twin
-# ``tests/test_console_encoding.py`` counts it and was RED ON MAIN.
-import os as _o4os, sys as _o4sys                                    # noqa: E402
-_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(_o4os.path.dirname(
-    _o4os.path.abspath(__file__)))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
-_o4console.configure_console_streams()
-
 import hashlib
 import json
 import os
@@ -1993,25 +1981,23 @@ _STRAY_SWEEP_EPILOG = (
 )
 
 
-def _pin_console_streams() -> None:
-    """Pin stdout/stderr to UTF-8 before this CLI can print (#171, #125).
-
-    THE ONE PLACE THIS MODULE MAY TOUCH ``sys.path``, and it is NOT at
-    import time.  Every other argparse tool carries the standard block in
-    its module body, but this module is armed by ``tests/conftest.py`` for
-    EVERY test and is imported by tools that never load Ortho4XP, so its
-    header law is that importing it must not put the engine's ``src/`` on
-    ``sys.path`` as a side effect (see the ``APPROACH_RING_DIR_SUFFIX``
-    note, which quotes the engine rather than importing it for exactly this
-    reason).  Called as the FIRST statement of :func:`main`, the guarantee
-    the twin exists for still holds to the letter: the console is pinned
-    before an ``ArgumentParser`` exists, so no help text and no stray row
-    can reach an unpinned stream.
-
-    ``tests/test_console_encoding.py`` is the twin, both arms: the static
-    one reads this call, and the subprocess one runs ``--help`` under a
-    cp1252 console.
-    """
+def main(argv=None) -> int:
+    # THE CONSOLE IS PINNED HERE, IN THE ENTRY, AND NOWHERE ELSE (#171,
+    # #125, #200).  The argparse console law admits exactly two shapes
+    # (``tests/test_console_encoding.py``): a script pins at module level,
+    # a LIBRARY WITH A CLI pins inside the very function that parses, ahead
+    # of the parse.  This module is the second kind and may not be the
+    # first: ``tests/conftest.py`` arms it for EVERY test and tools that
+    # never load Ortho4XP import it, so importing it must not put the
+    # engine's ``src/`` on ``sys.path`` as a side effect -- the same reason
+    # ``APPROACH_RING_DIR_SUFFIX`` QUOTES the engine's spelling instead of
+    # importing it.  ``tests/test_harness.py``'s
+    # ``test_importing_the_guard_never_puts_the_engines_src_on_sys_path``
+    # holds that half, and the two twins together leave this one spelling.
+    # Inline rather than behind a helper because the law reads the pin
+    # LEXICALLY inside the parsing function; an indirection passes neither
+    # arm.
+    import argparse
     import sys
 
     src = Path(__file__).resolve().parents[2] / "src"
@@ -2021,11 +2007,6 @@ def _pin_console_streams() -> None:
 
     console.configure_console_streams()
 
-
-def main(argv=None) -> int:
-    import argparse
-
-    _pin_console_streams()
     parser = argparse.ArgumentParser(
         prog="shared_repo_guard.py",
         description="Read-only audits of THE shared data repo.",

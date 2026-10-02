@@ -2330,6 +2330,15 @@ def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
     requested = set(requested or ())
     mine = [m for m in missing if m[0] in requested]
     others = [m for m in missing if m[0] not in requested]
+    # THE RING CELLS are not in ``missing_shared_artifacts`` (their cold
+    # verdict is the engine's one predicate, spec #164 §5), so a
+    # ``--refresh-data rings`` run that left planned cells UNANSWERED
+    # (measured 2026-10-01: 13 of 60 KASE cells behind TNM 500s) must
+    # still be judged here -- the old path printed "re-judged CURRENT".
+    if "rings" in requested:
+        ring_problem = approach_ring_problem(lat, lon, icao)
+        if ring_problem:
+            mine.append(("rings", "approach ring cells", ring_problem[1]))
     for scope, artifact, why in others:
         print(f"  [harness] still cold, in a scope this run did NOT "
               f"request — informational, not a failure: [{scope}] "

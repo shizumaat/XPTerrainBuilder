@@ -12058,3 +12058,22 @@ def test_inset_arp_sanity_skips_without_inputs(build_mod, tmp_path):
         "status"] == "skipped"
     rec = build_mod.inset_arp_sanity_record([inset], apt, "KXXX")
     assert rec["status"] == "skipped" and "ARP" in rec["why"]
+
+
+def test_refresh_only_rings_still_cold_refuses(build_mod, tmp_path, monkeypatch):
+    """A ``--refresh-only --refresh-data rings`` run whose planned cells are
+    still unanswered afterwards (TNM 500s, 2026-10-01: 13 of 60 at KASE)
+    refuses as STILL not current -- never "re-judged CURRENT" (#164)."""
+    monkeypatch.setattr(build_mod, "missing_shared_artifacts",
+                        lambda *a, **kw: [])
+    monkeypatch.setattr(build_mod, "approach_ring_problem",
+                        lambda *a, **kw: ("cold", "13 of 60 planned approach-ring cell(s) UNANSWERED"))
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_refreshed_frame(tmp_path, 39, -107, {"rings"},
+                                          refresh_only=True)
+    assert "STILL not current" in str(exc.value)
+    assert "approach-ring" in str(exc.value)
+    # answered -> a success
+    monkeypatch.setattr(build_mod, "approach_ring_problem", lambda *a, **kw: None)
+    build_mod.require_refreshed_frame(tmp_path, 39, -107, {"rings"}, refresh_only=True)
+

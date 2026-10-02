@@ -2351,8 +2351,15 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
                   f"engine's own loader — a fetch here is the POINT of "
                   f"this run, not a side effect")
         import O4_DEM_Utils as DEM                          # noqa: E402
+        # ``info_only=True`` returns the grid geometry BEFORE any fetch
+        # (``build_combined_raster`` returns at its info_only branch), so
+        # the historic call here derived nothing on a never-built tile
+        # (measured 2026-10-02, KGEG +47-118: "derived NOTHING for
+        # ['base_raster']").  The full loader assembles the 3x3 raster
+        # through ``ensure_elevation`` per cell, which IS the download
+        # this authorised refresh exists to make.
         DEM.DEM(lat, lon, getattr(tile, "custom_dem", "") or "",
-                info_only=True)
+                info_only=False)
         derived.append(f"Elevation_data/**/{state['tile_stem']}.hgt")
 
     if not state["airport_insets"]:

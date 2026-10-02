@@ -2698,6 +2698,10 @@ def test_a_dem_refresh_without_an_airports_layer_REFUSES(
     """The inset boxes come from the airports layer; without it they
     would come from an overpass query the run never authorised."""
     root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
+    # The base-raster branch now runs the FULL loader (a real download);
+    # this twin is about the airports-layer refusal that follows it.
+    import O4_DEM_Utils as DEM
+    monkeypatch.setattr(DEM, "DEM", lambda *a, **kw: None)
     with pytest.raises(SystemExit) as exc:
         build_mod.refresh_tile_dem(root, 32, -97, _Notes())
     assert "--refresh-data osm_layers,dem" in str(exc.value)
@@ -12279,4 +12283,16 @@ def test_refresh_runs_never_wrap_in_the_run_ledger(build_mod):
     import inspect
     src = inspect.getsource(build_mod.main) if hasattr(build_mod, "main") else inspect.getsource(build_mod)
     assert "is_refresh" in src and "refresh_data" in src
+
+
+def test_the_base_raster_refresh_runs_the_full_loader(build_mod):
+    """``--refresh-data dem`` on a tile with no base raster must run the
+    DEM loader for real (``info_only=False``): the info-only call returns
+    before any fetch and derived nothing at KGEG (2026-10-02, #172)."""
+    import inspect
+    src = inspect.getsource(build_mod.refresh_tile_dem)
+    branch = src.split('if not state["base_raster"]')[1].split('if not state["airport_insets"]')[0]
+    code = "\n".join(l for l in branch.splitlines() if not l.strip().startswith("#"))
+    assert "info_only=False" in code
+    assert "info_only=True" not in code
 

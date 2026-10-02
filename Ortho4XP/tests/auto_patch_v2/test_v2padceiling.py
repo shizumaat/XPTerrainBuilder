@@ -43,7 +43,10 @@ from auto_patch_v2.solve.design_roles import hard_rulings, ruling_head
 RUN_LEN = 1600.0
 HALF_W = 22.5
 Y0, Y1 = 140.0, 260.0
-PAD = ((-60.0, 180.0), (60.0, 180.0), (60.0, 240.0), (-60.0, 240.0))
+# 200 x 60 m: the cap mint erodes C = platform_collar_max_m (15 m,
+# RULINGS 2026-10-02v (5)), so the 120 x 60 of the C = 5 m rounds
+# would leave no platform over cluster_pad_min_m2
+PAD = ((-100.0, 180.0), (100.0, 180.0), (100.0, 240.0), (-100.0, 240.0))
 
 
 def _rect(x0, y0, x1, y1):

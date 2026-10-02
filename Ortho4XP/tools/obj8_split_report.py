@@ -573,6 +573,33 @@ def seat_tilt_lines(ss: _t.Any, *, cap_deg: float, tol_m: float,
         out.append(f"    {st.total_deg:6.3f} deg  "
                    f"{st.residual_before_m:+7.2f} -> {st.residual_max_m:+6.2f} m  "
                    f"{b.new_resource.split('/')[-1][:44]}")
+    out.extend(tilted_kept_whole_rows(ss, top=top))
+    return out
+
+
+def tilted_kept_whole_rows(ss, *, top: int = 5) -> list[str]:
+    """#232, REPORTED NOT DECIDED: the KEPT-WHOLE placements whose
+    AUTHORED file carries ``TILTED`` / ``SLOPE_LIMIT``.
+
+    Every file the stage WRITES loses both (``obj8_split``'s
+    :data:`~auto_patch_v2.airport.obj8_split.SEAT_OWNED_DIRECTIVES`) --
+    the stage owns the seat of what it writes.  A placement kept whole is
+    NOT written, so X-Plane still seats it to the terrain normal under
+    its anchor, which on a graded pad is the surface the stage just
+    solved.  Whether it should is the owner's rule (#232); this prints
+    the census the rule would be read off."""
+    rows = getattr(ss, "tilted_kept_whole", ())
+    if not rows:
+        return []
+    out = [f"\nTILTED KEPT WHOLE (#232, REPORTED — the owner rules this "
+           f"case): {len(rows)} of {ss.counts.get('kept', 0)} kept-whole "
+           f"placements carry a seat directive the stage did not write and "
+           f"so did not strip"]
+    for index, resource, directives in rows[:top]:
+        out.append(f"    #{index} {resource.split('/')[-1][:44]}  "
+                   f"{' '.join(directives)}")
+    if len(rows) > top:
+        out.append(f"    ... {len(rows) - top} more")
     return out
 
 

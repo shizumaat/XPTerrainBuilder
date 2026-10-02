@@ -368,3 +368,53 @@ def test_a_refused_platform_fronting_airside_takes_the_contact_led_fit(law):
     W = np.array([pm.vertices[v].xy for v in weld])
     rel = (np.c_[W - c0, np.ones(len(W))] @ co) - z[weld]
     assert float(np.max(np.abs(rel))) <= 0.25
+
+
+def _coverage_collar_vertices(pm, ref):
+    """The collar's OWN vertices on the coverage edge (an edge with no face
+    beyond): issue #223's population."""
+    col = set(_faces(pm, ref + COLLAR_SUFFIX))
+    out = set()
+    for e in pm.edges.values():
+        if (e.left_face is None) == (e.right_face is None):
+            continue
+        if (e.left_face if e.left_face is not None else e.right_face) not in col:
+            continue
+        out.update(v for v in (e.a, e.b) if set(pm.vertices[v].incident_faces) <= col)
+    return out
+
+
+def test_a_coverage_edge_collar_vertex_keeps_the_bank_and_the_ground(built, law):
+    """Issue #223 (SPJC building14#collar at -12.02514481, -77.10577155:
+    46.26 m over a 24.7 m platform and a 30.04 m DEM): a collar vertex on the
+    COVERAGE EDGE carried no row at all — the bank exempted it ("the DEM
+    governs") while nothing fixes the DEM since 09-09b (3) — so the bending
+    stencil alone extrapolated it.  It now takes the 1:3 bank ONE-WAY (it
+    follows; the platform leads) and the ground's datum, and the solve
+    holds it inside the bank from its platform and never above every ring
+    neighbour by more than the bank allows."""
+    from auto_patch_v2.solve import solve_design
+    from auto_patch_v2.solve.design_ground import ground_datum_vertices
+    pm, airport = built
+    cov = _coverage_collar_vertices(pm, "padU")
+    assert cov, "the fixture's pad rim must reach the coverage edge"
+    bs = float(law.tables.emit.design.bank_slope)
+    inner = _vs(pm, _faces(pm, "padU"))
+    rows = platform.platform_collar_rows(pm, law, airport)
+    for v in cov:
+        mine = [r for r in rows if r.a == v]
+        assert mine and all(r.cap == pytest.approx(bs) and r.follows == (v,)
+                            and r.b in inner for r in mine), v
+    assert cov <= ground_datum_vertices(pm, law)
+    cs, _c, _w = generate(pm, law, airport)
+    sol, _rep = solve_design(pm, cs, law)
+    z = np.asarray(sol.z, float)
+    # the priced bank's own slack (a one-sided penalty, never a hard row)
+    tol = 0.5
+    edges = pm.edges_of_vertex()
+    for v in cov:
+        for r in (r for r in rows if r.a == v):
+            assert abs(z[v] - z[r.b]) <= bs * r.d + tol, (v, z[v], z[r.b], r.d)
+        nb = [pm.edges[e].b if pm.edges[e].a == v else pm.edges[e].a for e in edges[v]]
+        reach = max(bs * math.dist(pm.vertices[v].xy, pm.vertices[o].xy) for o in nb)
+        assert z[v] <= max(z[o] for o in nb) + reach + tol, (v, z[v])

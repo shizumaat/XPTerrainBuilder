@@ -112,7 +112,7 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
     air = airside_vertices(planar, law)
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     rows: list[Row] = []
-    n_air = n_own = n_terr = 0
+    n_air = n_own = n_terr = n_cov = 0
     # the COVERAGE EDGE: a vertex of an edge with no face on one side
     edge_v = {v for e in planar.edges.values()
               if e.left_face is None or e.right_face is None for v in (e.a, e.b)}
@@ -134,11 +134,12 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
                           "blocks is a 1:3 bank)",
                           (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
         terrace: set[int] = set()
+        cover: set[int] = set()
         tree = cKDTree([xy[v] for v in inner])
         seen: set[tuple[int, int]] = set()
 
         def _row(o: int, i: int) -> None:
-            nonlocal n_air, n_own, n_terr
+            nonlocal n_air, n_own, n_terr, n_cov
             key = (o, i)
             if key in seen or o == i:
                 return
@@ -149,6 +150,13 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
             if o in air:
                 n_air += 1
                 rows.append(Diff(o, i, cap, d, src, follows=(i,)))
+            elif o in cover:
+                # the COVERAGE EDGE (issue #223): the 1:3 bank, ONE-WAY with
+                # the PLATFORM leading — the rim follows the plate within the
+                # bank and the ground's datum (``solve/design_ground``) sets
+                # its level inside it; the plate never follows the rim
+                n_cov += 1
+                rows.append(Diff(o, i, cap, d, src, follows=(o,)))
             elif o in terrace:
                 n_terr += 1
                 rows.append(Diff(o, i, cap, d, src_terr))
@@ -168,7 +176,9 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         # * a vertex on the COVERAGE EDGE — a courtyard HOLE of the pad no
         #   region claims, where the DEM governs (a fixed vertex: its
         #   "follower" row turns two-way and drags the PLATFORM to the
-        #   courtyard's DEM, which is how the plate bent);
+        #   courtyard's DEM, which is how the plate bent) — NOT a cap-0 rim
+        #   row; since issue #223 it keeps the 1:3 bank ONE-WAY, the plate
+        #   leading (see the ``edge_v`` branch below);
         # * a vertex shared with ANOTHER pad — two pads may sit at different
         #   floors (``step_exemption_pad_to_pad``); T2's ``building281``
         #   abuts ``building68`` 16.4 m higher, and a cap-0 row there is a
@@ -189,11 +199,23 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
             if o in air:
                 keep.append(o)             # a welded contact always leads
                 continue
-            if o in edge_v:
-                continue                   # the coverage edge: the DEM's
             inc = [q for q in planar.vertices[o].incident_faces if q not in own_f]
             other = [q for q in inc if planar.faces[q].role == planar.faces[cfids[0]].role
                      and planar.faces[q].ref.split("#")[0] != base]
+            if o in edge_v:
+                # the coverage edge: the DEM's level, the collar's SLOPE
+                # (issue #223).  The exemption above was written while the
+                # terrain beyond the zone was a FIXED value (a two-way cap-0
+                # row dragged the plate to it); since 09-09b (3) nothing
+                # fixes it, and a vertex with no row at all was held by the
+                # bending stencil alone — SPJC building14#collar at
+                # -12.02514481, -77.10577155 stood 46.26 m over a 24.7 m
+                # platform and a 30.04 m DEM.  It keeps a ONE-WAY bank row
+                # (the plate leads) unless it is another pad's rim.
+                if not other:
+                    cover.add(o)
+                    keep.append(o)
+                continue
             if other and all(unit_ref_of(planar.faces[q].ref) == unit for q in other):
                 # flat-pad spec §2 (5) (RULINGS 2026-09-30r): a vertex on the
                 # TERRACE between two blocks of one unit — the 1:3 bank from
@@ -219,7 +241,8 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
     STATS["platform_collar_rows"] = {"collars": len(pairs),
                                      "rows_rim_airside_leads": n_air,
                                      "rows_own_rim_follows": n_own,
-                                     "rows_block_terrace": n_terr}
+                                     "rows_block_terrace": n_terr,
+                                     "rows_coverage_edge_follows": n_cov}
     return rows
 
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from ..law import Law
 from ..law.tables import bend_class
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, is_collar_ref
 from .design_roles import bend_roles, pavement_roles
 
 __all__ = ["ground_roles", "ground_datum_vertices"]
@@ -48,6 +48,10 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     overridden there.  The test is a flood over ground faces through shared
     edges, seeded from the faces carrying an edge with no face on its other
     side (``Edge.left_face``/``right_face`` ``None`` = outside the map).
+
+    (e) A platform COLLAR's own vertex on that coverage edge qualifies too
+    (issue #223): the collar's bank rows set its SLOPE against the platform
+    and nothing else gave it a level (block (e) below).
     """
     roles = ground_roles(law)
     pav_roles = frozenset(pavement_roles(law))
@@ -86,6 +90,30 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
             pav.update(planar.ring_vertices(ring))
 
     out: set[int] = set()
+    # (e) THE COLLAR'S COVERAGE EDGE (issue #223): a platform collar's outer
+    # vertex on an edge with no face beyond is exempt from the collar's bank
+    # rows because "the DEM governs" there (``constraints/platform``) — but
+    # nothing fixes the DEM since 09-09b (3), so such a vertex carried NO
+    # level term at all and the bending stencil extrapolated it (SPJC
+    # building14#collar, -12.02514481, -77.10577155: 46.26 m over a 24.7 m
+    # ring and a 30.04 m DEM).  It takes the ground's own datum, exactly as
+    # an adjacent-ground vertex on the coverage edge does.
+    for e in planar.edges.values():
+        if e.left_face is not None and e.right_face is not None:
+            continue
+        fid = e.left_face if e.left_face is not None else e.right_face
+        if fid is None or not is_collar_ref(getattr(planar.faces[fid], "ref", "")):
+            continue
+        for v in (e.a, e.b):
+            vx = planar.vertices[v]
+            # the collar's OWN (or the ground's) vertex only — a vertex shared
+            # with any other face is that face's value (a welded contact is
+            # stage 1's, another pad's rim is its floor)
+            if vx.dem_z is None or not all(
+                    is_collar_ref(getattr(planar.faces[q], "ref", "")) or q in is_ground
+                    for q in vx.incident_faces):
+                continue
+            out.add(v)
     for fid in outer:
         f = planar.faces[fid]
         for ring in (f.ring, *f.holes):

@@ -516,13 +516,20 @@ def network_crosscheck(pm, law, airport) -> dict:
     threshold pins reach along the route graph, against
     ``planar.shapes.network_faces`` (the breakline graph from the runway
     roots); prints and returns the two counts and the symmetric difference."""
-    from auto_patch_v2.constraints.no_step import reach_band_values
+    # 10-02v (6) / #139: the ROUTE METRIC, not ``reach_band_values`` — this
+    # predicate asks which vertices the pins REACH on the FULL graph, and the
+    # band no longer answers that: a runway-family vertex now carries the
+    # band its own family's routes imply, so a runway edge a taxi route
+    # reaches reads by its own reach and the count would drift with the law
+    from auto_patch_v2.constraints.routes import reach as route_reach
+    from auto_patch_v2.constraints.routes import routes as route_graph
+    from auto_patch_v2.constraints.runway_profile import threshold_pins
     from auto_patch_v2.planar.shapes import STATION_KIND, network_faces
     net, _N = network_faces(pm, law)
     rw = set(law.tables.precedence.runway_family.members)
     taxi = set(law.tables.precedence.taxi_family.members)
     planar_net = {f for f in net if pm.faces[f].role in taxi}
-    reach = reach_band_values(pm, law, airport)
+    reach = route_reach(route_graph(pm, law, airport), threshold_pins(pm, law, airport))
     by_reach: set[int] = set()
     for b in pm.breaklines.values():
         if b.kind != STATION_KIND:

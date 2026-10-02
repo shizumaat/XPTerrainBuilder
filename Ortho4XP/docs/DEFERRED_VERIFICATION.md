@@ -6294,3 +6294,15 @@ constraint, and owed:
   run (OTHH: cache MISS, 348 s, peak 31.6 GB RSS against 19.2 GB before);
   whether the dry path may write that cache (it is the mod-cache class,
   not a --refresh-data act) is an orchestrator call.
+- 2026-10-02 lane osmium159 (#159): the subprocess/C-level write law is
+  proven by TWINS ONLY — this lane has no corpus and no `osmium` binary, so
+  the four real-binary twins in `tests/test_osm_extract_filter.py` skip and
+  the FAKE-osmium twins (which assert the cutter's choice of path, the thing
+  #159 turns on) carry the proof. NOT RUN: an armed `build_airport.py --tile`
+  clip cut on the real shared corpus, which is the one measurement that shows
+  a real `osmium extract` leaves zero files in
+  `OSM_data/_regional_extracts/clips/` and that the lane-local scratch and the
+  corpus are on one filesystem (so `_move_into_place` never takes its EXDEV
+  copy path). Owed to the session/orchestrator: one KGRK or CYXY tile build
+  with a cold clip cache, then
+  `python tools/harness/shared_repo_guard.py --stray-temporaries`.

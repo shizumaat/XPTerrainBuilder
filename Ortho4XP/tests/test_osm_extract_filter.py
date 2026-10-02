@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -620,3 +621,232 @@ def test_osmium_cut_rejects_multiple_boxes(tmp_path):
         FILTER.cut_clip_with_osmium(
             [source], [CLIP_BOX, (2.0, 2.0, 3.0, 3.0)],
             str(tmp_path / "clip.osm.pbf"), _OSMIUM or "osmium")
+
+
+# ---------------------------------------------------------------------------
+# WHERE A CUT'S TEMPORARY LIVES (#159, RULINGS 2026-09-30bs)
+# ---------------------------------------------------------------------------
+# THE MEASURED DEFECT.  Until 2026-10-02 every cutter here wrote its
+# temporary BESIDE THE DESTINATION, and the clip cache's destination is
+# inside the SHARED data repo.  Neither writer passes the harness's
+# Python-level write guard — ``osmium extract`` is a child process,
+# ``osmium.SimpleWriter`` is a C extension — so lane tx154's cut put a
+# 10.5 MB ``clip_+030-0095_….tmp-52850-….osm.pbf`` into the shared
+# ``OSM_data/_regional_extracts/clips/`` with the guard armed, and the
+# Python ``os.remove`` of the finally block was then the ONLY call the guard
+# saw: it refused the cleanup and the 10.5 MB stayed.  Eight older strays
+# (2026-08-11 … 09-01, ~100 MB) show the hole predates that lane.
+#
+# The twins below use a FAKE OSMIUM that writes exactly where it is told,
+# so what is asserted is the CUTTER's choice of path, not osmium's — and
+# they run on every platform, unlike the real-binary twins above.
+
+import importlib  # noqa: E402
+
+_HARNESS_DIR = str(Path(__file__).resolve().parents[1] / "tools" / "harness")
+
+#: The shared-repo-relative directory the real clip cache lives in.
+_CLIPS_RELATIVE = "OSM_data/_regional_extracts/clips"
+
+
+@pytest.fixture()
+def guard_mod():
+    if _HARNESS_DIR not in sys.path:
+        sys.path.insert(0, _HARNESS_DIR)
+    return importlib.import_module("shared_repo_guard")
+
+
+@pytest.fixture()
+def fake_osmium(monkeypatch):
+    """``osmium extract`` replaced by a writer that obeys ``--output``.
+
+    Records every output path it is told to write, so a twin can assert
+    WHERE the cutter asked for the bytes — the whole question #159 turns
+    on — and can assert the child was never started at all.
+    """
+    told = []
+
+    class _Process:
+        def __init__(self, path):
+            self._path = path
+
+        def wait(self, timeout=None):
+            return 0
+
+    def _popen(command, **kwargs):
+        output = command[command.index("--output") + 1]
+        told.append(output)
+        with open(output, "wb") as handle:
+            handle.write(b"fake-osmium-output")
+        return _Process(output)
+
+    monkeypatch.setattr(FILTER.subprocess, "Popen", _popen)
+    return told
+
+
+def _corpus_clips(tmp_path):
+    """A tmp corpus with the real clip cache's directory layout."""
+    repo = tmp_path / "corpus"
+    clips = repo / _CLIPS_RELATIVE
+    clips.mkdir(parents=True)
+    return repo, clips
+
+
+def _files_under(directory):
+    return sorted(p.name for p in Path(directory).iterdir() if p.is_file())
+
+
+def test_an_armed_guard_leaves_ZERO_files_in_the_shared_clips_dir(
+        tmp_path, guard_mod, fake_osmium, monkeypatch):
+    """THE BAR (#159 (1)).  With the guard armed, a cut targeting the shared
+    clips directory must leave NOTHING there — not a part, not a temporary,
+    not a stderr capture — and must never start the child."""
+    source = _mixed_fixture(tmp_path)
+    repo, clips = _corpus_clips(tmp_path)
+    monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
+    guard = guard_mod.SharedRepoWriteGuard(set(), str(tmp_path / "lane"),
+                                           repo=repo)
+    with guard:
+        with pytest.raises((FILTER.ExtractFilterError,
+                            guard_mod.SharedRepoWriteBlocked)):
+            FILTER.cut_clip_parts_with_osmium(
+                [source], CLIP_BOX,
+                [str(clips / "clip_+030-0095_ab-part0.osm.pbf")],
+                "osmium", temporary_directory=str(tmp_path / "lane_tmp"))
+    assert _files_under(clips) == [], (
+        "an armed run must leave the shared clips directory untouched")
+    assert fake_osmium == [], (
+        "the child must never be started: a spawn is a write declaration")
+    assert [b["path"] for b in guard.blocked] == [
+        f"{_CLIPS_RELATIVE}/clip_+030-0095_ab-part0.osm.pbf"]
+
+
+def test_the_cut_temporary_is_NOT_a_sibling_of_the_destination(
+        tmp_path, fake_osmium):
+    """Unarmed, so the cut completes: the part the child is told to write
+    must sit under the lane-local scratch, and the destination directory
+    must end up holding the finished clip and NOTHING else."""
+    source = _mixed_fixture(tmp_path)
+    _repo, clips = _corpus_clips(tmp_path)
+    scratch_root = tmp_path / "lane_tmp"
+    output = clips / "clip_+030-0095_ab-part0.osm.pbf"
+    FILTER.cut_clip_parts_with_osmium(
+        [source], CLIP_BOX, [str(output)], "osmium",
+        temporary_directory=str(scratch_root))
+    assert len(fake_osmium) == 1
+    told = Path(fake_osmium[0])
+    assert scratch_root in told.parents, (
+        f"the child was told to write {told}, which is not under the "
+        f"lane-local scratch {scratch_root}")
+    assert clips not in told.parents, (
+        "the whole defect: a temporary cut beside a destination in the "
+        "shared corpus is a write no Python guard can see")
+    assert _files_under(clips) == [output.name]
+    assert not list(scratch_root.iterdir()), (
+        "the scratch directory is removed on every exit path")
+
+
+def test_the_single_file_osmium_cutter_uses_the_scratch_too(
+        tmp_path, fake_osmium):
+    """``cut_clip_with_osmium`` is the other osmium entry and had the same
+    sibling temporaries (``<output>.tmp-<pid>-<tid>-<N>.osm.pbf``)."""
+    source = _mixed_fixture(tmp_path)
+    _repo, clips = _corpus_clips(tmp_path)
+    scratch_root = tmp_path / "lane_tmp"
+    output = clips / "clip.osm.pbf"
+    FILTER.cut_clip_with_osmium([source], CLIP_BOX, str(output), "osmium",
+                                temporary_directory=str(scratch_root))
+    assert scratch_root in Path(fake_osmium[0]).parents
+    assert _files_under(clips) == [output.name]
+
+
+def test_the_pyosmium_cutter_also_cuts_into_the_scratch(tmp_path):
+    """``osmium.SimpleWriter`` is a C extension holding its own file
+    handle, so its temporary is the SAME hole as the subprocess's — the
+    GDAL class of RULINGS 2026-09-30bw.  No fake here: the real writer
+    runs and the destination directory must still see only the output."""
+    source = _mixed_fixture(tmp_path)
+    _repo, clips = _corpus_clips(tmp_path)
+    scratch_root = tmp_path / "lane_tmp"
+    output = clips / "clip.osm.pbf"
+    FILTER.clip_extracts_to_pbf([source], CLIP_BOX, str(output),
+                                temporary_directory=str(scratch_root))
+    assert _files_under(clips) == [output.name]
+    assert output.stat().st_size > 0
+    assert not list(scratch_root.iterdir())
+
+
+def test_a_failing_cut_leaves_the_destination_directory_EMPTY(
+        tmp_path, monkeypatch):
+    """The crash path is how the nine strays were born: a cut that dies
+    must leave nothing behind, in the corpus or in the scratch."""
+    source = _mixed_fixture(tmp_path)
+    _repo, clips = _corpus_clips(tmp_path)
+    scratch_root = tmp_path / "lane_tmp"
+
+    def _dies(command, **kwargs):
+        raise OSError("no such binary")
+
+    monkeypatch.setattr(FILTER.subprocess, "Popen", _dies)
+    with pytest.raises(FILTER.ExtractFilterError):
+        FILTER.cut_clip_parts_with_osmium(
+            [source], CLIP_BOX, [str(clips / "clip.osm.pbf")], "osmium",
+            temporary_directory=str(scratch_root))
+    assert _files_under(clips) == []
+    assert not list(scratch_root.iterdir())
+
+
+def test_the_scratch_defaults_to_the_engines_lane_local_tmp_dir(
+        tmp_path, monkeypatch):
+    """Production passes no ``temporary_directory``: the default must be
+    the engine's own lane-local ``tmp`` product dir, asked at CALL time
+    because ``Tmp_dir`` is empty until ``_apply_data_root`` runs."""
+    import O4_File_Names as FNAMES
+
+    lane_tmp = tmp_path / "lane" / "tmp"
+    monkeypatch.setattr(FNAMES, "Tmp_dir", str(lane_tmp))
+    scratch = FILTER._make_cut_scratch()
+    try:
+        assert lane_tmp.resolve() == Path(scratch).parent.resolve()
+        assert Path(scratch).name.startswith(FILTER._CUT_SCRATCH_PREFIX)
+    finally:
+        FILTER._discard_cut_scratch(scratch)
+
+
+def test_an_empty_engine_tmp_dir_falls_back_to_the_platform_temp(
+        monkeypatch):
+    """A standalone load (the Qt app before a data root, this test file)
+    must still get a scratch, and it must not be the destination's dir."""
+    import O4_File_Names as FNAMES
+
+    monkeypatch.setattr(FNAMES, "Tmp_dir", "")
+    scratch = FILTER._make_cut_scratch()
+    try:
+        assert os.path.isdir(scratch)
+    finally:
+        FILTER._discard_cut_scratch(scratch)
+
+
+def test_the_stray_temporary_spelling_matches_the_harness_regex(guard_mod):
+    """THE TWIN the harness's ``STRAY_TEMPORARY_RE`` docstring claims.
+
+    The harness attributes a stray by the PID the engine stamped into the
+    name.  Both spellings the engine ever wrote must match it: the
+    historical sibling temporaries (the nine strays) and the cross-device
+    staging name ``_move_into_place`` still uses.
+    """
+    historical = [
+        "OSM_data/_regional_extracts/clips/clip_+030-0095_ab"
+        "-part0.osm.pbf.tmp-52850-123145.osm.pbf",
+        "OSM_data/_regional_extracts/clips/clip.osm.pbf.tmp-52850-123145"
+        "-0.osm.pbf",
+        "OSM_data/_regional_extracts/clips/clip.osm.pbf.tmp-52850-123145"
+        ".stderr",
+    ]
+    staged = "%s.tmp-%d-%d.osm.pbf" % (
+        "OSM_data/_regional_extracts/clips/clip.osm.pbf", 52850, 123145)
+    for rel in historical + [staged]:
+        assert guard_mod.is_stray_temporary(rel), rel
+        assert guard_mod.temporary_writer_pid(rel) == 52850, rel
+    assert not guard_mod.is_stray_temporary(
+        "OSM_data/_regional_extracts/clips/clip_+030-0095_ab-part0.osm.pbf")

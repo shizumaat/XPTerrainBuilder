@@ -59,16 +59,145 @@ file wins.
 
 from __future__ import annotations
 
+import errno
 import os
+import shutil
 import subprocess
+import tempfile
 import threading
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import osmium
 
+import O4_External_Writes as EXTWRITE
+
 
 class ExtractFilterError(Exception):
     """An extract file could not be read or filtered."""
+
+
+# ---------------------------------------------------------------------------
+# WHERE A CUTTER'S TEMPORARY LIVES (#159)
+# ---------------------------------------------------------------------------
+# Every cutter here writes its output to a temporary and then moves it into
+# place, so a crashed cut can never leave a plausible-looking clip.  Until
+# 2026-10-02 that temporary was cut BESIDE THE DESTINATION — i.e. inside the
+# shared data repo, which is where the clip cache lives — and NEITHER writer
+# passes the harness's Python-level write guard: ``osmium extract`` is a
+# CHILD PROCESS and ``osmium.SimpleWriter`` is a C extension holding its own
+# file handle.  Lane tx154 measured the consequence: a 10.5 MB
+# ``clip_+030-0095_….tmp-52850-….osm.pbf`` landed in the shared
+# ``OSM_data/_regional_extracts/clips/`` with the guard armed, and the
+# Python ``os.remove`` that would have cleaned it up was then the ONLY call
+# the guard saw — so it refused the cleanup and kept the 10.5 MB.  Eight
+# older strays (2026-08-11 … 09-01, ~100 MB) show the hole predates it.
+#
+# So the temporary goes under a LANE-LOCAL scratch directory (the engine's
+# own ``tmp`` product dir) and only the FINAL MOVE targets the destination.
+# That move is ``os.replace``, which IS a Python call, so an armed guard
+# refuses it at the call and an armed run leaves ZERO files in the shared
+# clips directory.  Belt to that brace: the osmium launcher DECLARES its
+# output path before it spawns (``O4_External_Writes``), so under an armed
+# guard the child is never started at all.
+
+#: Scratch directory name prefix for one cut's temporaries.  A whole
+#: directory, not a sibling file: the parts of a multi-extract cut then
+#: share one tree that a single ``rmtree`` removes on every exit path.
+_CUT_SCRATCH_PREFIX = "o4_osm_clip_cut-"
+
+#: Basename of the cut's stderr capture inside the scratch directory.
+_CUT_STDERR_NAME = "osmium.stderr"
+
+#: How a cut part is named inside the scratch directory.  The suffix must
+#: stay format-recognizable: both writers infer the format from the name.
+_CUT_PART_TEMPLATE = "part%d.osm.pbf"
+
+#: How the IN-PROCESS C-extension writer is NAMED when its destination is
+#: declared to an armed shared-repo write guard (#159).  It is not a child
+#: process, but it is the same blindness: ``osmium.SimpleWriter`` holds its
+#: own file handle, so no patched ``builtins.open`` ever sees its bytes —
+#: the GDAL class of RULINGS 2026-09-30bw.
+_PYOSMIUM_WRITER_NAME = "osmium.SimpleWriter"
+
+
+def _engine_temporary_root() -> Optional[str]:
+    """The engine's own lane-local ``tmp`` product directory, or ``None``.
+
+    Asked at call time, never cached: ``O4_File_Names.Tmp_dir`` is empty
+    until ``_apply_data_root`` runs and a lane may re-root mid-process.
+    The import is guarded because this module is also loaded standalone by
+    its own tests and by ``auto_patch_v2``'s OSM adapter.
+    """
+    try:
+        import O4_File_Names as FNAMES
+    except Exception:
+        return None
+    root = getattr(FNAMES, "Tmp_dir", "") or ""
+    if not root:
+        return None
+    try:
+        os.makedirs(root, exist_ok=True)
+    except OSError:
+        return None
+    return root if os.path.isdir(root) else None
+
+
+def _make_cut_scratch(temporary_directory: Optional[str] = None) -> str:
+    """A fresh scratch directory for one cut's temporaries.
+
+    ``temporary_directory`` names the root explicitly (the twins pass a
+    ``tmp_path``); otherwise the engine's lane-local ``tmp`` dir, and the
+    platform temp dir when the engine has no data root yet.  NEVER the
+    destination's directory — that is the whole point (see the section
+    comment above).
+    """
+    root = temporary_directory or _engine_temporary_root()
+    try:
+        if root:
+            os.makedirs(root, exist_ok=True)
+        return tempfile.mkdtemp(prefix=_CUT_SCRATCH_PREFIX, dir=root or None)
+    except OSError as e:
+        raise ExtractFilterError(
+            "could not create a clip-cut scratch directory under "
+            + str(root or tempfile.gettempdir()) + ": " + str(e)) from e
+
+
+def _discard_cut_scratch(scratch: Optional[str]) -> None:
+    """Remove a scratch directory and everything in it, never raising."""
+    if scratch:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _move_into_place(temporary_path: str, output_path: str) -> None:
+    """Move a finished cut onto its destination, atomically where it can.
+
+    ``os.replace`` is atomic and is a PYTHON call, so an armed shared-repo
+    write guard refuses it here — which is exactly what must happen when
+    the destination is the shared corpus and nothing authorised the write.
+
+    Across filesystems ``os.replace`` cannot work (``EXDEV``), so the data
+    is copied through a temporary IN THE DESTINATION DIRECTORY and the last
+    step is still an atomic replace.  That copy's ``open(..., "wb")`` is a
+    Python write too, so the guard refuses it the same way; and the
+    temporary is removed on every exit path.
+    """
+    try:
+        os.replace(temporary_path, output_path)
+        return
+    except OSError as e:
+        if e.errno != errno.EXDEV:
+            raise
+    staged = "%s.tmp-%d-%d.osm.pbf" % (
+        output_path, os.getpid(), threading.get_ident())
+    try:
+        shutil.copyfile(temporary_path, staged)
+        os.replace(staged, output_path)
+    finally:
+        for leftover in (staged, temporary_path):
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
 
 
 # A tag matcher is ``(key, value_or_None)``: value None means key-existence.
@@ -500,6 +629,7 @@ def clip_extracts_to_pbf(
     extract_paths: Iterable[str],
     bounding_box,
     output_path: str,
+    temporary_directory: Optional[str] = None,
 ) -> None:
     """Write a merged, bbox-clipped extract covering every element any
     statement query over a sub-box of ``bounding_box`` could select.
@@ -517,22 +647,36 @@ def clip_extracts_to_pbf(
     Python dicts — a dense metropolitan 1° tile can reach a couple of GB;
     comparable to the mesh step's own peak and released immediately.
 
-    Raises ExtractFilterError on any read/write failure; the temp file is
-    removed and ``output_path`` is only ever replaced atomically.
+    Raises ExtractFilterError on any read/write failure; the scratch
+    directory is removed and ``output_path`` is only ever replaced
+    atomically.
+
+    temporary_directory: root for the cut's scratch directory, which is
+        where the temporary is written before the atomic move onto
+        ``output_path`` (#159 — never beside the destination, which may be
+        the shared corpus).  Default: the engine's lane-local ``tmp``
+        product directory, or the platform temp dir when the engine has no
+        data root yet.
     """
+    # THE DESTINATION IS DECLARED BEFORE ANY WORK (#159 bar 2).  The cut is
+    # the expensive part — a whole-country extract read — and there is no
+    # point paying it for an output an armed shared-repo write guard will
+    # refuse to let land.  Declaring here means the refusal arrives before
+    # the read, before the scratch, and before any child process exists.
+    EXTWRITE.declare_external_write(output_path,
+                                    writer=_PYOSMIUM_WRITER_NAME)
     bounding_boxes = _normalize_bounding_boxes(bounding_box)
     nodes, ways, rels = _merge_extracts(
         extract_paths, _MATCH_ALL, bounding_boxes)
-    # The suffix must stay format-recognizable: SimpleWriter infers the
-    # output format from the file name.  Unique per pid AND thread:
-    # concurrent same-process cutters sharing one temp path chased each
-    # other's writes and renames (the clip callers now serialize, but a
-    # shared temp name must never be load-bearing).
-    temporary_path = "%s.tmp-%d-%d.osm.pbf" % (
-        output_path, os.getpid(), threading.get_ident())
+    # LANE-LOCAL SCRATCH, not a sibling of the destination (#159): the
+    # writer below is ``osmium.SimpleWriter``, a C extension holding its
+    # own file handle, so a temporary cut beside an output in the shared
+    # corpus is a C-level corpus write no Python guard can see.  The
+    # scratch dir is fresh per cut, so the old per-pid-and-thread unique
+    # name is no longer load-bearing either.
+    scratch = _make_cut_scratch(temporary_directory)
+    temporary_path = os.path.join(scratch, _CUT_PART_TEMPLATE % 0)
     try:
-        if os.path.exists(temporary_path):
-            os.remove(temporary_path)   # SimpleWriter refuses to overwrite
         writer = osmium.SimpleWriter(temporary_path)
         try:
             # Stream order nodes -> ways -> relations: the selection
@@ -551,17 +695,15 @@ def clip_extracts_to_pbf(
                     id=rel_id, members=members, tags=tags))
         finally:
             writer.close()
-        os.replace(temporary_path, output_path)
+        _move_into_place(temporary_path, output_path)
     except ExtractFilterError:
         raise
     except Exception as e:
-        try:
-            os.remove(temporary_path)
-        except OSError:
-            pass
         raise ExtractFilterError(
             "could not write clip " + str(output_path) + ": " + str(e)
         ) from e
+    finally:
+        _discard_cut_scratch(scratch)
 
 
 # ---------------------------------------------------------------------------
@@ -595,6 +737,12 @@ def clip_extracts_to_pbf(
 
 _OSMIUM_POLL_SECONDS = 0.5
 
+#: How the osmium child is NAMED when its output path is declared to an
+#: armed shared-repo write guard (#159), and therefore in the refusal and
+#: in the swallowed-refusal report: "a subprocess" is not an answer a lane
+#: can act on.
+_OSMIUM_WRITER_NAME = "osmium"
+
 
 def _run_osmium_extract(
     osmium_binary: str,
@@ -612,6 +760,13 @@ def _run_osmium_extract(
     message on a non-zero exit."""
     if should_stop is not None and should_stop():
         raise ExtractFilterError("clip cutting stopped")
+    # A SPAWN IS A WRITE DECLARATION (#159).  Both paths are lane-local by
+    # construction now, so under an armed guard this refuses NOTHING; it is
+    # here so that a future caller passing a corpus path never gets to
+    # spawn a child the guard cannot see.  The refusal is the harness's own
+    # and is RECORDED, so swallowing it fails the run.
+    EXTWRITE.declare_external_writes(
+        (output_path, stderr_path), writer=_OSMIUM_WRITER_NAME)
     command = [
         osmium_binary, "extract",
         "--strategy", "smart", "--option", "types=any",
@@ -668,6 +823,7 @@ def cut_clip_with_osmium(
     osmium_binary: str,
     should_stop: Optional[Callable[[], bool]] = None,
     spawn_kwargs: Optional[dict] = None,
+    temporary_directory: Optional[str] = None,
 ) -> None:
     """:func:`clip_extracts_to_pbf` semantics, cut by osmium-tool.
 
@@ -691,6 +847,13 @@ def cut_clip_with_osmium(
     Raises ExtractFilterError on any failure, stop request included;
     ``output_path`` is only ever replaced atomically and temporaries are
     removed on every path.
+
+    temporary_directory: root for the cut's scratch directory, which is
+        where the temporary is written before the atomic move onto
+        ``output_path`` (#159 — never beside the destination, which may be
+        the shared corpus).  Default: the engine's lane-local ``tmp``
+        product directory, or the platform temp dir when the engine has no
+        data root yet.
     """
     boxes = _normalize_bounding_boxes(bounding_box)
     if len(boxes) != 1:
@@ -704,14 +867,21 @@ def cut_clip_with_osmium(
     for path in paths:
         if not os.path.isfile(path):
             raise ExtractFilterError("extract file not found: " + path)
-    # Unique per pid AND thread, exactly as the pyosmium cutter's temp
-    # files: concurrent cutters of the same clip must never collide.
-    unique = "%d-%d" % (os.getpid(), threading.get_ident())
-    part_paths = [
-        "%s.tmp-%s-%d.osm.pbf" % (output_path, unique, index)
-        for index in range(len(paths))
-    ]
-    stderr_path = "%s.tmp-%s.stderr" % (output_path, unique)
+    # THE DESTINATION IS DECLARED BEFORE ANY WORK (#159 bar 2).  The cut is
+    # the expensive part — a whole-country extract read — and there is no
+    # point paying it for an output an armed shared-repo write guard will
+    # refuse to let land.  Declaring here means the refusal arrives before
+    # the read, before the scratch, and before any child process exists.
+    EXTWRITE.declare_external_write(output_path,
+                                    writer=_OSMIUM_WRITER_NAME)
+    # LANE-LOCAL SCRATCH (#159): osmium is a CHILD PROCESS, so a part cut
+    # beside an output in the shared corpus is a write no Python guard can
+    # refuse.  A fresh directory per cut also removes the need for the old
+    # per-pid-and-thread unique names.
+    scratch = _make_cut_scratch(temporary_directory)
+    part_paths = [os.path.join(scratch, _CUT_PART_TEMPLATE % index)
+                  for index in range(len(paths))]
+    stderr_path = os.path.join(scratch, _CUT_STDERR_NAME)
     try:
         for source_path, part_path in zip(paths, part_paths):
             _run_osmium_extract(
@@ -719,17 +889,15 @@ def cut_clip_with_osmium(
                 stderr_path, should_stop, spawn_kwargs,
             )
         if len(part_paths) == 1:
-            os.replace(part_paths[0], output_path)
+            _move_into_place(part_paths[0], output_path)
         else:
             # Small inputs now: the pyosmium cutter's read cost is a few
             # seconds here, and its first-file-wins merge is the oracle.
-            clip_extracts_to_pbf(part_paths, boxes[0], output_path)
+            # It cuts its OWN scratch temporary and moves it into place.
+            clip_extracts_to_pbf(part_paths, boxes[0], output_path,
+                                 temporary_directory=temporary_directory)
     finally:
-        for leftover in part_paths + [stderr_path]:
-            try:
-                os.remove(leftover)
-            except OSError:
-                pass
+        _discard_cut_scratch(scratch)
 
 
 def cut_clip_parts_with_osmium(
@@ -739,6 +907,7 @@ def cut_clip_parts_with_osmium(
     osmium_binary: str,
     should_stop: Optional[Callable[[], bool]] = None,
     spawn_kwargs: Optional[dict] = None,
+    temporary_directory: Optional[str] = None,
 ) -> None:
     """Cut one clip PART per extract, no merge — C++ end to end.
 
@@ -752,7 +921,15 @@ def cut_clip_parts_with_osmium(
 
     Each part is written atomically; the CALLER owns completeness (it
     writes its parts manifest only after this returns).  Same failure
-    contract as :func:`cut_clip_with_osmium`.
+    contract as :func:`cut_clip_with_osmium`, and the same lane-local
+    scratch.
+
+    temporary_directory: root for the cut's scratch directory, which is
+        where the temporary is written before the atomic move onto
+        ``output_path`` (#159 — never beside the destination, which may be
+        the shared corpus).  Default: the engine's lane-local ``tmp``
+        product directory, or the platform temp dir when the engine has no
+        data root yet.
     """
     boxes = _normalize_bounding_boxes(bounding_box)
     if len(boxes) != 1:
@@ -771,11 +948,18 @@ def cut_clip_parts_with_osmium(
     for path in paths:
         if not os.path.isfile(path):
             raise ExtractFilterError("extract file not found: " + path)
-    unique = "%d-%d" % (os.getpid(), threading.get_ident())
-    temporary_paths = [
-        "%s.tmp-%s.osm.pbf" % (output, unique) for output in outputs
-    ]
-    stderr_path = "%s.tmp-%s.stderr" % (outputs[0], unique)
+    # THE DESTINATION IS DECLARED BEFORE ANY WORK (#159 bar 2).  The cut is
+    # the expensive part — a whole-country extract read — and there is no
+    # point paying it for an output an armed shared-repo write guard will
+    # refuse to let land.  Declaring here means the refusal arrives before
+    # the read, before the scratch, and before any child process exists.
+    EXTWRITE.declare_external_writes(outputs,
+                                     writer=_OSMIUM_WRITER_NAME)
+    # LANE-LOCAL SCRATCH (#159) — see :func:`cut_clip_with_osmium`.
+    scratch = _make_cut_scratch(temporary_directory)
+    temporary_paths = [os.path.join(scratch, _CUT_PART_TEMPLATE % index)
+                       for index in range(len(outputs))]
+    stderr_path = os.path.join(scratch, _CUT_STDERR_NAME)
     try:
         for source_path, temporary_path in zip(paths, temporary_paths):
             _run_osmium_extract(
@@ -783,10 +967,6 @@ def cut_clip_parts_with_osmium(
                 stderr_path, should_stop, spawn_kwargs,
             )
         for temporary_path, output in zip(temporary_paths, outputs):
-            os.replace(temporary_path, output)
+            _move_into_place(temporary_path, output)
     finally:
-        for leftover in temporary_paths + [stderr_path]:
-            try:
-                os.remove(leftover)
-            except OSError:
-                pass
+        _discard_cut_scratch(scratch)

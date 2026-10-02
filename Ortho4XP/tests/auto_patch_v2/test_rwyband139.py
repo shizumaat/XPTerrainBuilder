@@ -14,10 +14,26 @@ on the edge is a ceiling on the crowned RIDGE: the runway comes down to
 meet a bound derived from the taxi network.
 
 The fix is at the band's ONE derivation site: a vertex whose role set
-carries a runway-family role takes no band at all.  The routes are
-untouched — they still TRANSIT the runway, the thresholds are still the
-band's pins, and the taxi-side vertices BEYOND the shared edge keep
-their bands and still obey them.
+carries a runway-family role takes the band its OWN family's routes
+imply (``no_step.runway_family_routes``) and never the raw metric's.
+The routes are untouched — they still TRANSIT the runway, the
+thresholds are still the band's pins, and the taxi-side vertices BEYOND
+the shared edge keep the full metric's band and still obey it.
+
+WHY THE RUNWAY'S OWN BAND IS KEPT (round 2, and the whole of this
+lane's red CI): the ruling's subject is a TAXI-FAMILY band.  Round 1
+withdrew EVERY band on a runway-family vertex, which also withdraws the
+band a runway derives from its OWN thresholds along its OWN ridge at
+its own longitudinal cap — the envelope its own hard path rows already
+imply, and a row the ruling does not name.  Measured: on
+``test_v2smooth.valley`` and ``test_v2ground.taxi_map`` — fixtures with
+no taxi centreline at all, so every one of their 202 route edges is
+runway-only — all 163 bands are the runway's own, and withdrawing them
+moved the graded strip's smallest fill 0.70 m -> 0.4276 m and the
+``runway_profile`` family's worst miss 0.5706 m -> 0.6556 m.  Dropping
+routes can only RAISE the least budget, so the runway-only band is
+never tighter than the raw metric's: the narrowing only ever loosens,
+and only on runway-family vertices.
 
 THE FIXTURE is two runways joined only through the taxi network: 09/27
 with both thresholds at 700 m, and a lower 09L/27R at 689.5 m reachable
@@ -170,27 +186,41 @@ def test_the_runway_family_is_the_bands_source_never_its_subject(two_runways, la
     rwv = _runway_verts(pm, law, raw)
     assert rwv, "the fixture must reach runway-family vertices"
     vals = no_step.reach_band_values(pm, law, airport)
-    # the SUBJECTS are the metric's vertices less the runway family's
-    assert set(raw) - set(vals) == rwv
-    # ... and nothing else moved: the metric is untouched where it applies
-    assert all(vals[v] == raw[v] for v in vals)
-    # the thresholds are the band's PINS and carry no band of their own
     pins = runway_profile.threshold_pins(pm, law, airport)
-    assert pins and all(v not in vals for v in pins)
-    # the generator mints exactly those subjects
+    g = routes(pm, law, airport)
+    own = reach(no_step.runway_family_routes(g, pm, law), pins)
+    # OUTSIDE the runway family nothing moved: the metric is untouched
+    assert set(vals) - rwv == set(raw) - rwv
+    assert all(vals[v] == raw[v] for v in set(vals) - rwv)
+    # INSIDE it every vertex takes its OWN family's routes' band — and the
+    # population is the metric's, less only what no runway-only route reaches
+    assert rwv & set(vals), "the runway family keeps its own band"
+    assert all(vals[v] == own[v] for v in rwv & set(vals))
+    assert (rwv - set(vals)) == (rwv - set(own))
+    # ... and that band is never TIGHTER than the raw metric's: dropping
+    # routes can only raise the least budget (10-02v (6) only ever loosens)
+    assert all(vals[v][0] <= raw[v][0] + 1e-9 and vals[v][1] >= raw[v][1] - 1e-9
+               for v in rwv & set(vals))
+    # and on the shared edge it is STRICTLY looser — that is the whole fix
+    _rw, shared, _vw = _shared_edge(pm, law)
+    assert vals[shared][1] > raw[shared][1] + 0.05, (raw[shared], vals[shared])
+    # the generator mints exactly the feasible subjects
     rows = no_step.reach_bands(pm, law, airport)
     assert rows and all(r.source.generator == REACH_GENERATOR for r in rows)
     assert {r.v for r in rows} == {v for v, (lo, hi) in vals.items() if lo <= hi}
-    assert not any(r.v in rwv for r in rows)
 
 
-def test_the_shape_stage_has_no_runway_band_left_to_withdraw(two_runways, law, capsys):
+def test_the_shape_stage_reads_the_narrowed_band_not_the_raw_metric(two_runways, law, capsys):
     """The second reader (``pipeline/shapes.shape_stage``) inherits the
-    narrowed subject set from the derivation site — no veto of its own."""
+    narrowed VALUES from the derivation site — no veto of its own."""
     airport, pm = two_runways
     stage = shape_stage(pm, law, airport, out=lambda _s: None)
+    raw = _raw_band(pm, law, airport)
     rwv = _runway_verts(pm, law, stage.bands)
-    assert stage.bands and not rwv
+    assert stage.bands and rwv
+    assert stage.bands == no_step.reach_band_values(pm, law, airport)
+    _rw, shared, _vw = _shared_edge(pm, law)
+    assert stage.bands[shared][1] > raw[shared][1] + 0.05
     # the withdraw set is band_roles-driven and is NOT how the runway family
     # loses its band (no apron/junction/service face in this fixture at all)
     assert not set(law.tables.emit.terrace.band_roles) & {f.role for f in pm.faces.values()}
@@ -235,11 +265,14 @@ def test_runway_rows_are_otherwise_byte_identical(two_runways, law):
     assert {r for r in pre if r not in gone} == post
 
 
-def test_the_shared_edge_carries_the_transverse_row_and_no_band(two_runways, law):
-    airport, pm, cs, _pre, _raw, _rwv = _arms(two_runways, law)
+def test_the_shared_edge_carries_the_transverse_row_and_its_own_band(two_runways, law):
+    airport, pm, cs, _pre, raw, _rwv = _arms(two_runways, law)
     rw, v, vw = _shared_edge(pm, law)
-    assert not any(isinstance(r, Band) and r.source.generator == REACH_GENERATOR
-                   and r.v == v for r in cs.rows())
+    # the band it carries is its OWN runway's reach, not the taxi ceiling
+    mine = [r for r in cs.rows() if isinstance(r, Band)
+            and r.source.generator == REACH_GENERATOR and r.v == v]
+    assert len(mine) == 1
+    assert mine[0].hi > HIGH_M - 3.0 > raw[v][1], (raw[v], mine[0].hi)
     trans = runway_profile.runway_transverse(pm, law, airport)
     on_v = [r for r in trans if any(u == v for u, _c in r.terms)]
     assert on_v and all(r.soft is None for r in on_v)       # HARD (05o)

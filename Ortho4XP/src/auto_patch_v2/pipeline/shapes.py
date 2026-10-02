@@ -8,10 +8,10 @@ declared the joints, ``planar/shapes.py``) and the constraint generators.
    owner RULINGS 2026-09-08p leaves the network's vertices unlabelled) (RULINGS
    2026-09-07g (2): the in-shape band measured INFEASIBLE under pairwise
    agreement — the kept rows carry the reach).  A RUNWAY-FAMILY vertex
-   never reaches this stage with a band to withdraw: owner RULINGS
-   2026-10-02v (6) (issue #139) makes the runway edge the band's SOURCE
-   and never its subject, so ``reach_band_values`` omits it at the
-   derivation site.
+   reaches this stage with the band its OWN family's routes imply, never
+   the raw metric's: owner RULINGS 2026-10-02v (6) (issue #139) keeps a
+   TAXI-family band off the runway edge at the derivation site
+   (``reach_band_values``), so this stage needs no veto of its own.
 2. THE FILTER, ONCE, at assembly: every row of every generator whose
    endpoints carry two shapes is dropped here — never per generator —
    counted per generator.  A ``Flat`` row (a pad, a plate: one rigid

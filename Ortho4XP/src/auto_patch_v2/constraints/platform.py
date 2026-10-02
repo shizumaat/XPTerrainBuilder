@@ -121,7 +121,7 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
     air = airside_vertices(planar, law)
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     rows: list[Row] = []
-    n_air = n_own = n_terr = n_cov = 0
+    n_air = n_own = n_terr = n_cov = n_isl = 0
     # the COVERAGE EDGE: a vertex of an edge with no face on one side
     edge_v = {v for e in planar.edges.values()
               if e.left_face is None or e.right_face is None for v in (e.a, e.b)}
@@ -130,6 +130,17 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
                         for v in r})
         cvs = {v for q in cfids for r in [vw.rings[q], *vw.holes[q]] for v in r}
         outer = sorted(cvs - set(inner))
+        # THE PAD'S OWN RIM IS THE COLLAR'S EXTERIOR.  A vertex on one of
+        # the collar's HOLE rings that is not the platform's is an ISLAND
+        # inside the footprint — the courtyard a region DID claim (an
+        # apron island; the unclaimed kind is the coverage edge below).
+        # The islands rule (RULINGS 2026-09-29d (b)) is that it follows its
+        # pad's platform, and there is no rim relief inside a building to
+        # place a toe against, so it keeps the cap-0 two-sided row 10-02v
+        # (5) took off the OUTER rim.  MEASURED on the islands twin: at the
+        # one-way bank the ring lagged its leader onto its own DEM bump
+        # (1.31 m, and 0.26 m when the collar was 5 m wide).
+        island = {v for q in cfids for r in vw.holes[q] for v in r} - set(inner)
         if len(inner) < 3 or not outer:
             continue
         src = Source(GEN, COLLAR_RULING + " (unit-platform spec §1 (3); "
@@ -148,7 +159,7 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         seen: set[tuple[int, int]] = set()
 
         def _row(o: int, i: int) -> None:
-            nonlocal n_air, n_own, n_terr, n_cov
+            nonlocal n_air, n_own, n_terr, n_cov, n_isl
             key = (o, i)
             if key in seen or o == i:
                 return
@@ -173,6 +184,12 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
             elif o in terrace:
                 n_terr += 1
                 rows.append(Diff(o, i, cap, d, src_terr))
+            elif o in island:
+                # an ISLAND ring inside the footprint (the islands rule,
+                # RULINGS 2026-09-29d (b)): cap 0, TWO-SIDED, as the plate
+                # priced it — it follows its platform and carries no relief
+                n_isl += 1
+                rows.append(Diff(o, i, 0.0, d, src_rim))
             else:
                 # the pad's OWN rim (issue #86, owner RULINGS 2026-10-02v
                 # (5)): the 1:3 bank, BOTH SIGNS, ONE-WAY with the PLATFORM
@@ -260,6 +277,7 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
                                      "rows_rim_airside_leads": n_air,
                                      "rows_own_rim_follows": n_own,
                                      "rows_block_terrace": n_terr,
+                                     "rows_island_flat": n_isl,
                                      "rows_coverage_edge_follows": n_cov}
     return rows
 

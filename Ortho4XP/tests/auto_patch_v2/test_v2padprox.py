@@ -248,10 +248,12 @@ def _hole_cells():
     MIXED rim: its western half shares the apron's hole ring, its eastern
     half stands in a notch the apron does not reach, so the pad keeps
     vertices of its own."""
-    pad = _rect(-60.0, 180.0, 60.0, 240.0)
+    # 200 x 60 m: the cap mint erodes C = platform_collar_max_m (15 m,
+    # RULINGS 2026-10-02v (5)); 120 x 60 would leave no platform
+    pad = _rect(-100.0, 180.0, 100.0, 240.0)
     return [RUNWAY,
             Cell(1, "apron", "apronA", _rect(-260.0, Y0, 20.0, Y1), (
-                _rect(-60.0, 180.0, 20.0, 240.0),), None, None,
+                _rect(-100.0, 180.0, 20.0, 240.0),), None, None,
                 "airside", "apron", {}),
             Cell(2, "building", "padA", pad, (), None, None,
                  "airside", "pad", {})]

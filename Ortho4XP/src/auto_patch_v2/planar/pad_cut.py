@@ -379,6 +379,87 @@ def _renode_counts(before, after, air) -> dict:
     return out
 
 
+#: the plateau quantisation's pass cap (:func:`_quantise_to_ring`): a pass
+#: quantises, the next re-clips to the region and re-quantises what the clip
+#: crossed; the loop ends at the first pass that changes nothing
+_QUANTISE_PASSES = 4
+
+
+def _quantise_to_ring(piece, region: Polygon, tol: float, floor: float,
+                      keep: frozenset = frozenset()):
+    """The plateau piece ``piece`` (``region ∩ zone``) with every coordinate
+    standing within ``tol`` of ``region``'s boundary and not one of its own
+    ring coordinates moved to the NEAREST ring coordinate (issue #150).
+
+    ``region ∩ zone`` puts a new vertex wherever the zone's edge crosses the
+    apron ring.  That vertex is a node MINTED on the ring — and the ring edge
+    is shared: with a junction (a vertex minted on a taxi-family face), with
+    a pad collar (pass B nodes it as a crossing), and pass A's 0.5 m
+    snap-rounding put the ring's node one hot pixel beside the plateau's own
+    corner, so the ring carried a vertex no plateau ring owns (HECA, the
+    flatpad128v3 fix arm: 7 added / 2 removed airside nodes outside the
+    plateau rings, 0.5-10 m from a ring).  Quantised, the piece meets the
+    ring only at coordinates the uncut ring already carries — the ring's
+    node set is unchanged and every new vertex stands inside the apron, ON
+    the plateau ring.  ``None`` when nothing over ``floor`` m² is left.
+
+    ``keep``: coordinates that stay where they are (the REST of the region
+    is quantised too, keeping the plateau's own vertices: GEOS's difference
+    resolves a near-touching ring — a neck — with a node of its own, which
+    measured HECA put a vertex 0.35 m off pav1's ring, a junction it shares
+    re-noded 60 m from any plateau)."""
+    ring_cs = [(float(x), float(y))
+               for ring in (region.exterior, *region.interiors)
+               for x, y in list(ring.coords)[:-1]]
+    if not ring_cs:
+        return None
+    own = set(ring_cs) | set(keep)
+    arr = np.asarray(ring_cs, dtype=float)
+    bnd = region.boundary
+    from shapely.geometry import Point
+
+    def _q(c):
+        if c in own or bnd.distance(Point(c)) > tol:
+            return c
+        i = int(np.argmin(np.hypot(arr[:, 0] - c[0], arr[:, 1] - c[1])))
+        return ring_cs[i]
+
+    for _ in range(_QUANTISE_PASSES):
+        moved = False
+        out = []
+        for g in _polys(piece):
+            rings = []
+            for ring in (g.exterior, *g.interiors):
+                cs: list = []
+                for x, y in list(ring.coords)[:-1]:
+                    c = (float(x), float(y))
+                    qc = _q(c)
+                    moved = moved or qc != c
+                    if not cs or cs[-1] != qc:
+                        cs.append(qc)
+                while len(cs) > 1 and cs[0] == cs[-1]:
+                    cs.pop()
+                rings.append(cs)
+            if len(rings[0]) < 3:
+                moved = True
+                continue
+            out.extend(_polys(shapely.make_valid(
+                Polygon(rings[0], [h for h in rings[1:] if len(h) >= 3]))))
+        piece = unary_union(out) if out else None
+        if piece is None or piece.is_empty:
+            return None
+        # a quantised edge may cut a concave corner of the ring: re-clip,
+        # and the next pass quantises whatever the clip crossed
+        outside = piece.difference(region).area
+        if outside > floor:
+            piece = piece.intersection(region)
+            moved = True
+        if not moved:
+            break
+    polys = [g for g in _polys(piece) if g.area > floor]
+    return unary_union(polys) if polys else None
+
+
 def _held_span(samples, ramp, depth: float):
     """The SPAN of a held block's HELD contacts (spec v2 §3): the union of
     each consecutive held-sample segment's flat-capped band ``depth`` wide
@@ -443,6 +524,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
     reach_s = float(d.stand_zone_startup_reach_m)
     kinds = frozenset(d.stand_zone_startup_kinds)
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
+    weld = float(law.tables.emit.identity.weld_spacing_m)
     counts: dict = {"plateaus": 0, "plateau_m2": 0.0, "plateau_apron_pieces": 0}
     if not HELD or airport is None or (D <= 0.0 and Rz <= 0.0):
         return base_regions, counts
@@ -483,7 +565,6 @@ def plateau_cut(base_regions, pad_regions, law, airport,
                 riders_of.setdefault(best[1], []).append((pt, float(reach)))
     starts = [st for st in (getattr(airport, "startups", ()) or ())
               if str(st.kind) in kinds]
-    apron_ix = [i for i, r in enumerate(base_regions) if r.role == "apron"]
     zones: dict[str, tuple] = {}
     for b in held:
         h = HELD[b]
@@ -532,15 +613,26 @@ def plateau_cut(base_regions, pad_regions, law, airport,
         zones[b] = (zone, "+".join(sorted(src)))
     if not zones:
         return base_regions, counts
-    out = list(base_regions)
+    # ONE SLOT PER INPUT REGION, in the input's order: a cut region's rest
+    # parts and plateau pieces take ITS slot, so every region the cut does
+    # not touch keeps its place in the list.  The arrangement downstream is
+    # ORDER-SENSITIVE (measured HECA, no plateau at all: the base regions
+    # merely reversed re-node 4 / 5 airside vertices and re-tag 12 — the
+    # #150 far vertex, route21 | dsf:objpav85 300 m from any plateau, was
+    # this class while the pieces were appended at the end)
+    slots: list[list] = [[r] for r in base_regions]
     floor = ident * ident
     for b, (zone, source) in zones.items():
         edge = outline[b].buffer(max(grid, ident))
         rec = {"source": source, "area_m2": 0.0, "apron_refs": [],
                "riders": len(riders_of.get(b, ())), "startups": 0}
-        for i in apron_ix:
-            r = out[i]
-            if r is None or PLATEAU_MARK in str(r.ref) or not r.polygon.intersects(edge):
+        # every apron region STANDING NOW — an earlier block's rest parts
+        # included (a rest's main body need not be its first part)
+        cut_at = [(i, j) for i, sl in enumerate(slots)
+                  for j, r in enumerate(sl) if r.role == "apron"]
+        for i, j in cut_at:
+            r = slots[i][j]
+            if PLATEAU_MARK in str(r.ref) or not r.polygon.intersects(edge):
                 continue
             # THE RING'S OWN STATIONS FIRST: the region is densified at its
             # role's chord cap (``chords.ring_lines``' own densifier) before
@@ -556,22 +648,35 @@ def plateau_cut(base_regions, pad_regions, law, airport,
             piece = r.polygon.intersection(zone)
             if piece.is_empty or piece.area <= floor:
                 continue
-            # the new boundary snapped to the region's own coordinates
-            piece = shapely.make_valid(
-                shapely.snap(piece, MultiPoint(list(r.polygon.exterior.coords)), ident))
-            piece = unary_union([g for g in getattr(piece, "geoms", [piece])
-                                 if g.geom_type == "Polygon"]).intersection(r.polygon)
+            # THE PLATEAU MEETS THE APRON RING ONLY AT THE RING'S OWN
+            # COORDINATES (issue #150, spec v2 §3 / §7 "any airside vertex
+            # minted outside plateau_rings"): every piece vertex standing on
+            # or within ``tol`` of the region boundary is QUANTISED to the
+            # region's nearest ring coordinate, so the cut mints nothing on
+            # the ring a neighbour (a junction, a collar) shares, and no
+            # pass-A hot pixel splits a ring edge beside the plateau corner
+            piece = _quantise_to_ring(piece, r.polygon,
+                                      max(weld, grid + ident), floor)
+            if piece is None:
+                continue
             rest = r.polygon.difference(piece)
+            p_own = frozenset((float(x), float(y))
+                              for g in _polys(piece)
+                              for ring in (g.exterior, *g.interiors)
+                              for x, y in ring.coords)
+            rest = _quantise_to_ring(rest, r.polygon, max(weld, grid + ident),
+                                     floor, keep=p_own)
+            if rest is None:
+                rest = Polygon()
             pieces = [g for g in getattr(piece, "geoms", [piece])
                       if g.geom_type == "Polygon" and g.area > floor]
             if not pieces:
                 continue
             rests = [g for g in getattr(rest, "geoms", [rest])
                      if g.geom_type == "Polygon" and g.area > floor]
-            out[i] = _dc.replace(r, polygon=rests[0]) if rests else None
-            out.extend(_dc.replace(r, polygon=g) for g in rests[1:])
-            out.extend(_dc.replace(r, ref=f"{r.ref}{PLATEAU_MARK}{b}", polygon=g)
-                       for g in pieces)
+            slots[i][j] = [*(_dc.replace(r, polygon=g) for g in rests),
+                           *(_dc.replace(r, ref=f"{r.ref}{PLATEAU_MARK}{b}",
+                                         polygon=g) for g in pieces)]
             rec["area_m2"] += sum(g.area for g in pieces)
             rec["apron_refs"].append(str(r.ref))
             counts["plateau_apron_pieces"] += len(pieces)
@@ -580,4 +685,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
             PLATEAUS[b] = rec
             counts["plateaus"] += 1
             counts["plateau_m2"] = round(counts["plateau_m2"] + rec["area_m2"], 1)
-    return [r for r in out if r is not None], counts
+        # a cut entry is a list until its block is done: flatten the slots
+        for i, sl in enumerate(slots):
+            slots[i] = [x for e in sl for x in (e if isinstance(e, list) else (e,))]
+    return [r for sl in slots for r in sl], counts

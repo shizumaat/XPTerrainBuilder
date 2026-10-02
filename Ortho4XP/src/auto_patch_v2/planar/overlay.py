@@ -614,6 +614,12 @@ def inscribed_width_m(poly: Polygon, tol: float = 0.01) -> float:
         return 0.0
 
 
+#: shared-boundary lengths equal to this many decimals (metres) are a TIE
+#: in :func:`dissolve_sliver_zones` (1 µm: the float noise of two
+#: computations of one shared run, never a real difference)
+_SHARED_TIE_DP = 6
+
+
 def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
                           area_min_m2: float, width_min_m: float,
                           host_roles: tuple[str, ...] = (),
@@ -682,7 +688,14 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
                 continue
             tier = (0 if rj.role in hosts else
                     (1 if rj.source != "zone" else 2))
-            rank = (tier, -shared)
+            # A TIE READS ONLY THE TWO CANDIDATES (the issue #81 rule of
+            # ``_claiming_region``): two hosts bordering the sliver by the
+            # SAME length were decided by the STRtree's query order — a
+            # function of every face at the airport — so a plateau cut
+            # 300 m away flipped HECA's ``zone1#44`` between
+            # ``dsf:objpav85`` and ``route21`` and re-noded both (#150)
+            rank = (tier, -round(shared, _SHARED_TIE_DP), str(rj.role),
+                    str(rj.ref), round(pj.area, _SHARED_TIE_DP))
             if best_rank is None or rank < best_rank:
                 best, best_rank = j, rank
         area += poly.area

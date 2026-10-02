@@ -334,17 +334,52 @@ DEM_FRAME_KEYS = (
 # REFUSALS
 # ══════════════════════════════════════════════════════════════════════
 
-def require_build_cwd(root) -> Path:
-    """The build-cwd law.  Refuses rather than degrading."""
+#: THE BUILD-CWD LAW's required directories.  ``venv`` is the engine,
+#: ``OSM_data`` the corpus: without either an auto_patch build exits 0 on
+#: a silently smaller layout.
+BUILD_CWD_REQUIRED_DIRS = ("venv", "OSM_data")
+
+#: THE ONE ESCAPE (issue #103): a CORPUS directory may be absent when a
+#: snapshot was requested and VERIFIES AS MOUNTABLE, because
+#: ``CS.mount`` is precisely what creates it — and the mount runs after
+#: this check (a fresh cloud clone has no ``OSM_data`` at all, and was
+#: refused before the mount could make one).  ``venv`` is NOT in this
+#: list: nothing mounts an engine.  The escape is not "set the env var
+#: and the cwd law stops applying" — ``CS.mountable`` refuses an absent,
+#: unreadable, edited or incomplete snapshot in its own words.
+BUILD_CWD_SNAPSHOT_EXCUSED_DIRS = CS.MOUNTABLE_LANE_DIRS
+
+#: Appended to the refusal ONLY on a snapshot run, so the shared-corpus
+#: refusal stays the message every lane and twin already knows.
+BUILD_CWD_SNAPSHOT_NOTE = (
+    "  The requested snapshot mounts {mounts} — it does NOT mount this.")
+
+
+def require_build_cwd(root, snapshot=None) -> Path:
+    """The build-cwd law.  Refuses rather than degrading.
+
+    ``snapshot`` is the snapshot dir this build asked for (``--corpus
+    snapshot:DIR`` / ``O4_CORPUS_SNAPSHOT``), or None for the shared
+    corpus.  See :data:`BUILD_CWD_SNAPSHOT_EXCUSED_DIRS` (issue #103).
+    """
     root = Path(root)
-    missing = [d for d in ("venv", "OSM_data") if not (root / d).is_dir()]
+    excused: tuple = ()
+    if snapshot is not None:
+        # Refuses here if the snapshot cannot be mounted at all, so the
+        # escape can never be wider than a real, complete snapshot.
+        CS.mountable(snapshot)
+        excused = tuple(BUILD_CWD_SNAPSHOT_EXCUSED_DIRS)
+    missing = [d for d in BUILD_CWD_REQUIRED_DIRS
+               if d not in excused and not (root / d).is_dir()]
     if missing:
         raise SystemExit(
             f"REFUSING: build root {root} lacks {' and '.join(missing)}.  "
             f"An auto_patch build from here exits 0 with a silently SMALLER "
             f"layout (fake speedup, fake defect drop).  Run from Ortho4XP/ "
             f"in the main tree, or set the lane worktree up with "
-            f"tools/harness/lane_worktree.sh (which symlinks both).")
+            f"tools/harness/lane_worktree.sh (which symlinks both)."
+            + (BUILD_CWD_SNAPSHOT_NOTE.format(
+                mounts=", ".join(excused)) if excused else ""))
     return root
 
 
@@ -4358,7 +4393,15 @@ def main(argv=None) -> int:
             f"hash-stamped events, never a build side effect).\n"
             f"    --refresh-data dem --warm-insets {','.join(warm_insets)}")
 
-    root = require_build_cwd(Path.cwd())
+    # ── THE CORPUS REQUEST IS READ FIRST (issue #103) ────────────────
+    # ``CS.mount`` is what creates the lane's corpus directories, and it
+    # cannot run here: it needs the validated ``root``, and the LEDGER
+    # RE-EXEC below would make the parent mount and then the child mount
+    # again.  So the REQUEST (a pure argv/env read) comes up instead, and
+    # the cwd law judges itself against the mount that is coming.
+    snap_dir = _SNAPSHOT_DIR if __name__ == "__main__" else \
+        CS.snapshot_request(argv if argv is not None else sys.argv[1:])
+    root = require_build_cwd(Path.cwd(), snapshot=snap_dir)
 
     # LEDGER WRAP (owner 2026-07-18): correctness runs go through the
     # persistent cross-session ledger, so a build another session already
@@ -4392,8 +4435,6 @@ def main(argv=None) -> int:
     prog.note(f"START {tag} argv={' '.join(sys.argv[1:])}")
 
     # ── THE CORPUS: shared repo, or a hash-stamped snapshot (28a (7)) ──
-    snap_dir = _SNAPSHOT_DIR if __name__ == "__main__" else \
-        CS.snapshot_request(argv if argv is not None else sys.argv[1:])
     snapshot_rec = leak_watch = None
     if snap_dir is not None:
         if Path(DATA_REPO).resolve() != (snap_dir / "data").resolve():

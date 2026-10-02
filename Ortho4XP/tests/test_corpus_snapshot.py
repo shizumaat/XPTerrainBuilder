@@ -314,3 +314,111 @@ def test_snapshot_library_index_is_rekeyed_for_the_snapshot_install(
     assert obj8.resolve_resource("lib/a.obj", None, idx) == \
         str(snap / "xplane" / "R" / "a.obj")
     assert CS.seed_library_index(tmp_path / "nowhere", mod) is None
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ISSUE #103 — the build-cwd law vs the mount that creates the corpus
+# ══════════════════════════════════════════════════════════════════════
+
+def _fresh_clone(tmp_path):
+    """A fresh cloud clone's build root: ``venv/`` (the setup script made
+    it) and NO corpus directory at all — the mount is what creates those."""
+    root = tmp_path / "clone"
+    (root / "venv").mkdir(parents=True)
+    return root
+
+
+def test_fresh_clone_with_a_mountable_snapshot_passes_the_cwd_law(
+        CS, tmp_path, monkeypatch):
+    """#103: ``require_build_cwd`` ran BEFORE ``CS.mount``, so a fresh
+    clone was refused for lacking the very ``OSM_data`` the mount makes.
+    A requested, mountable snapshot excuses the corpus dirs — and only
+    those — and the mount then creates them."""
+    monkeypatch.setenv("XPLANE_ROOT", "/real/X")
+    snap, man = _fake_snapshot(CS, tmp_path)
+    root = _fresh_clone(tmp_path)
+    import build_airport as BA
+
+    assert BA.require_build_cwd(root, snapshot=snap) == root
+    assert not (root / "OSM_data").exists()      # still nothing yet
+    CS.mount(root, snap, icao="ZZZZ")
+    assert (root / "OSM_data").is_symlink()
+    assert (root / "OSM_data").resolve() == (snap / "data" / "OSM_data").resolve()
+    # the post-mount cwd is lawful on its own terms (no snapshot excuse)
+    assert BA.require_build_cwd(root) == root
+
+
+def test_fresh_clone_without_a_snapshot_is_still_refused(tmp_path):
+    """Invariant 1 (the fake-layout trap): no snapshot requested means the
+    build-cwd law is untouched, with the same message naming the dir."""
+    root = _fresh_clone(tmp_path)
+    import build_airport as BA
+
+    with pytest.raises(SystemExit) as exc:
+        BA.require_build_cwd(root)
+    assert "OSM_data" in str(exc.value)
+    assert "silently SMALLER layout" in str(exc.value)
+
+
+def test_a_snapshot_that_does_not_verify_is_still_refused(CS, tmp_path):
+    """Invariant 2: the escape is not "set the env var and the cwd law
+    stops applying".  An absent, unreadable, edited or incomplete
+    snapshot refuses, and the refusal names the snapshot."""
+    root = _fresh_clone(tmp_path)
+    import build_airport as BA
+
+    absent = tmp_path / "nowhere"
+    with pytest.raises(SystemExit) as exc:
+        BA.require_build_cwd(root, snapshot=absent)
+    assert str(absent) in str(exc.value) and "snapshot.json" in str(exc.value)
+
+    snap, man = _fake_snapshot(CS, tmp_path)
+    man["files"]["data/Ortho4XP.cfg.in"]["sha256"] = "0" * 64
+    (snap / "snapshot.json").write_text(json.dumps(man), encoding="utf-8",
+                                        newline="")
+    with pytest.raises(SystemExit, match="re-derive"):
+        BA.require_build_cwd(root, snapshot=snap)
+
+    snap2, man2 = _fake_snapshot(CS, tmp_path / "two")
+    (snap2 / "data/Elevation_data/+10+010/N10E010.hgt").unlink()
+    with pytest.raises(SystemExit, match="complete"):
+        BA.require_build_cwd(root, snapshot=snap2)
+
+    bad = tmp_path / "garbage"
+    bad.mkdir()
+    (bad / "snapshot.json").write_text("{", encoding="utf-8", newline="")
+    with pytest.raises(SystemExit, match="manifest"):
+        BA.require_build_cwd(root, snapshot=bad)
+
+
+def test_the_snapshot_excuse_never_covers_venv(CS, tmp_path):
+    """Nothing mounts ``venv/``, so the snapshot excuse must not reach it."""
+    snap, _ = _fake_snapshot(CS, tmp_path)
+    root = tmp_path / "noenv"
+    root.mkdir()
+    import build_airport as BA
+
+    with pytest.raises(SystemExit, match="venv"):
+        BA.require_build_cwd(root, snapshot=snap)
+
+
+def test_mountable_is_the_cheap_half_and_mount_still_fully_verifies(
+        CS, tmp_path):
+    """``mountable`` does NOT re-hash (it is pre-flight, run once per
+    build); a byte-mutated file of the right SIZE passes it and is caught
+    by ``mount``'s full ``verify``."""
+    snap, _ = _fake_snapshot(CS, tmp_path)
+    assert CS.mountable(snap)["complete"] == ["ZZZZ"]
+    (snap / "data/Elevation_data/+10+010/N10E010.hgt").write_text(
+        "DEM", encoding="utf-8", newline="")          # same size, new bytes
+    assert CS.mountable(snap)["complete"] == ["ZZZZ"]
+    with pytest.raises(SystemExit, match="do not match"):
+        CS.mount(_fresh_clone(tmp_path), snap, icao="ZZZZ")
+
+
+def test_build_airport_reads_the_snapshot_request_before_the_cwd_law():
+    """The ORDER is the defect: the snapshot request must be in hand
+    before ``require_build_cwd`` is called (#103)."""
+    src = (HARNESS / "build_airport.py").read_text(encoding="utf-8")
+    assert src.index("snap_dir = ") < src.index("root = require_build_cwd(")
+    assert "require_build_cwd(Path.cwd(), snapshot=snap_dir)" in src

@@ -385,11 +385,22 @@ def _renode_counts(before, after, air) -> dict:
 _QUANTISE_PASSES = 4
 
 
+def _flat_polys(g) -> list[Polygon]:
+    """Every polygon of ``g`` with area, through any nesting —
+    ``make_valid`` returns a GeometryCollection that HOLDS a MultiPolygon,
+    which :func:`_polys` (one level) reads as nothing."""
+    if g is None or g.is_empty:
+        return []
+    if isinstance(g, Polygon):
+        return [g] if g.area > 0.0 else []
+    return [p for part in getattr(g, "geoms", ()) for p in _flat_polys(part)]
+
+
 def _quantise_to_ring(piece, region: Polygon, tol: float, floor: float,
-                      keep: frozenset = frozenset()):
+                      keep: frozenset = frozenset(), outward: bool = False):
     """The plateau piece ``piece`` (``region ∩ zone``) with every coordinate
     standing within ``tol`` of ``region``'s boundary and not one of its own
-    ring coordinates moved to the NEAREST ring coordinate (issue #150).
+    ring coordinates moved ONTO a ring coordinate (issue #150).
 
     ``region ∩ zone`` puts a new vertex wherever the zone's edge crosses the
     apron ring.  That vertex is a node MINTED on the ring — and the ring edge
@@ -403,24 +414,51 @@ def _quantise_to_ring(piece, region: Polygon, tol: float, floor: float,
     node set is unchanged and every new vertex stands inside the apron, ON
     the plateau ring.  ``None`` when nothing over ``floor`` m² is left.
 
+    ``outward`` (the plateau): a CROSSING — a coordinate with exactly one
+    ring neighbour, the run the piece follows along the ring — goes to the
+    station of its ring edge BEYOND it, so the plateau keeps the whole run
+    of frontage it reached (nearest-station rounding collapsed a 52 m run
+    between two stations 58 m apart onto ONE point).  It grows by at most
+    one station spacing.  Every other coordinate goes to the nearest.
+
     ``keep``: coordinates that stay where they are (the REST of the region
     is quantised too, keeping the plateau's own vertices: GEOS's difference
     resolves a near-touching ring — a neck — with a node of its own, which
     measured HECA put a vertex 0.35 m off pav1's ring, a junction it shares
     re-noded 60 m from any plateau)."""
-    ring_cs = [(float(x), float(y))
-               for ring in (region.exterior, *region.interiors)
-               for x, y in list(ring.coords)[:-1]]
+    rings_r = [[(float(x), float(y)) for x, y in list(ring.coords)[:-1]]
+               for ring in (region.exterior, *region.interiors)]
+    ring_cs = [c for r in rings_r for c in r]
     if not ring_cs:
         return None
     own = set(ring_cs) | set(keep)
     arr = np.asarray(ring_cs, dtype=float)
+    seg_a = np.asarray([r[k] for r in rings_r for k in range(len(r))], dtype=float)
+    seg_b = np.asarray([r[(k + 1) % len(r)] for r in rings_r for k in range(len(r))],
+                       dtype=float)
     bnd = region.boundary
     from shapely.geometry import Point
 
-    def _q(c):
+    def _near_ring(c) -> bool:
+        return c in own or bnd.distance(Point(c)) <= tol
+
+    def _q(c, along=None):
         if c in own or bnd.distance(Point(c)) > tol:
             return c
+        if along is not None:
+            # the ring edge the crossing stands on, and its station BEYOND
+            # the run (the end farther from the along-ring neighbour)
+            ab = seg_b - seg_a
+            L2 = np.maximum((ab ** 2).sum(axis=1), 1e-18)
+            t = np.clip(((c[0] - seg_a[:, 0]) * ab[:, 0]
+                         + (c[1] - seg_a[:, 1]) * ab[:, 1]) / L2, 0.0, 1.0)
+            dx = seg_a[:, 0] + t * ab[:, 0] - c[0]
+            dy = seg_a[:, 1] + t * ab[:, 1] - c[1]
+            k = int(np.argmin(dx * dx + dy * dy))
+            a, b = tuple(seg_a[k]), tuple(seg_b[k])
+            da = (a[0] - along[0]) ** 2 + (a[1] - along[1]) ** 2
+            db = (b[0] - along[0]) ** 2 + (b[1] - along[1]) ** 2
+            return a if da >= db else b
         i = int(np.argmin(np.hypot(arr[:, 0] - c[0], arr[:, 1] - c[1])))
         return ring_cs[i]
 
@@ -431,9 +469,15 @@ def _quantise_to_ring(piece, region: Polygon, tol: float, floor: float,
             rings = []
             for ring in (g.exterior, *g.interiors):
                 cs: list = []
-                for x, y in list(ring.coords)[:-1]:
-                    c = (float(x), float(y))
-                    qc = _q(c)
+                raw = [(float(x), float(y)) for x, y in list(ring.coords)[:-1]]
+                for k, c in enumerate(raw):
+                    along = None
+                    if outward and len(raw) >= 3:
+                        nb = [raw[k - 1], raw[(k + 1) % len(raw)]]
+                        on = [q for q in nb if _near_ring(q)]
+                        if len(on) == 1:
+                            along = on[0]
+                    qc = _q(c, along)
                     moved = moved or qc != c
                     if not cs or cs[-1] != qc:
                         cs.append(qc)
@@ -443,7 +487,7 @@ def _quantise_to_ring(piece, region: Polygon, tol: float, floor: float,
             if len(rings[0]) < 3:
                 moved = True
                 continue
-            out.extend(_polys(shapely.make_valid(
+            out.extend(_flat_polys(shapely.make_valid(
                 Polygon(rings[0], [h for h in rings[1:] if len(h) >= 3]))))
         piece = unary_union(out) if out else None
         if piece is None or piece.is_empty:
@@ -656,7 +700,8 @@ def plateau_cut(base_regions, pad_regions, law, airport,
             # the ring a neighbour (a junction, a collar) shares, and no
             # pass-A hot pixel splits a ring edge beside the plateau corner
             piece = _quantise_to_ring(piece, r.polygon,
-                                      max(weld, grid + ident), floor)
+                                      max(weld, grid + ident), floor,
+                                      outward=True)
             if piece is None:
                 continue
             rest = r.polygon.difference(piece)

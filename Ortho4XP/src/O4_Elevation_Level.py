@@ -165,6 +165,18 @@ APPROACH_RING_FEATHER_ROUNDING_M = 100.0
 #: The BASE elevation class a ring 2 hands back to: 3 arc-second posting.
 BASE_CLASS_ARC_SECONDS = 3.0
 
+#: The PER-DEFINITION ring opt-in (owner RULINGS 2026-10-02c, spec §9 Q1).
+#: A ``.elv`` carrying ``approach_ring_class=<rung label>`` (``ring2``)
+#: may serve approach-ring cells of THAT rung and coarser ones even though
+#: its access strategy is not wide-area -- Copernicus GLO-30, a SURFACE
+#: model, serving ring 2 (1 arc-second to 20 km) only.  It is eligible
+#: only where NO wide-area candidate covers the cell (it ranks after every
+#: one of them), it never serves a finer rung (the 1 m core and the 10 m
+#: ring are never a DSM), and it never enters
+#: :func:`_wide_area_candidate_definitions` -- the tile-wide overlay, the
+#: coastline band and the working-grid data cap stay blind to it.
+APPROACH_RING_CLASS_KEY = "approach_ring_class"
+
 
 def approach_rung_ladder():
     """The ring ladder: 10 m to 10 km, 1 arc-second to 20 km, base beyond."""
@@ -318,6 +330,22 @@ def _wide_area_candidate_definitions(lat, lon, providers_config="auto"):
     (role=bathymetry) are excluded outright -- their tidal-datum depths are
     never terrain (spec section 2.1).
     """
+    return _registry_definitions_reaching_tile(
+        lat, lon, providers_config, require_wide_area=True
+    )
+
+
+def _registry_definitions_reaching_tile(
+    lat, lon, providers_config="auto", require_wide_area=True
+):
+    """The registry walk behind :func:`_wide_area_candidate_definitions`.
+
+    ``require_wide_area=False`` drops ONLY the access-strategy class test
+    (the per-definition ``supports_wide_area=False`` opt-out still holds)
+    -- the approach-ring opt-in reads the registry through it so the ring
+    source set and the wide-area set can never disagree on enablement,
+    the providers config, bathymetry exclusion or tile coverage.
+    """
     import O4_Airport_Elevation_Insets as INSETS
 
     if not INSETS.elevation_providers_dict:
@@ -348,7 +376,9 @@ def _wide_area_candidate_definitions(lat, lon, providers_config="auto"):
         )
         if strategy_factory is None:
             continue
-        if not getattr(strategy_factory, "supports_wide_area", False):
+        if require_wide_area and not getattr(
+            strategy_factory, "supports_wide_area", False
+        ):
             continue
         if str(definition.get("supports_wide_area", "")).strip().lower() \
                 in ("false", "0", "no"):
@@ -1519,35 +1549,98 @@ def approach_rings_enabled(tile):
     return True
 
 
-def _approach_ring_candidates(lat, lon, providers_config, max_native_m):
+def _approach_ring_candidates(
+    lat, lon, providers_config, max_native_m, rung_label=None, ladder=None
+):
     """Wide-area definitions covering the tile whose NATIVE resolution is at
     most ``max_native_m``, in :func:`select_tile_overlay_definition`'s own
-    ranking (finest first, then priority, then code).
+    ranking (finest first, then priority, then code) -- FOLLOWED BY the
+    ring opt-in definitions eligible for ``rung_label`` (RULINGS
+    2026-10-02c), ranked the same way among themselves.
 
     Spec section 2: ring sources come through the EXISTING registry -- the
     wide-area candidate set with ONE added native-resolution filter -- never
     a second registry.  A definition that does not declare its resolution
     is not a candidate: a ring's class is the whole point of the ring.
+    The opt-ins rank strictly AFTER every wide-area candidate: the surface
+    model serves a cell only where no wide-area source covers it (the
+    caller walks the list and takes the first that covers the cell).
     """
     import O4_Airport_Elevation_Insets as INSETS
 
-    ranked = []
-    for definition in _wide_area_candidate_definitions(
-        lat, lon, providers_config
-    ):
-        native_m = INSETS._definition_resolution_m(definition)
-        if native_m is None or native_m > max_native_m:
-            continue
-        ranked.append(
-            (
-                native_m,
-                -float(definition.get("priority", 0.0)),
-                definition["code"],
-                definition,
+    def _ranked(definitions, seen):
+        rows = []
+        for definition in definitions:
+            if definition["code"] in seen:
+                continue
+            native_m = INSETS._definition_resolution_m(definition)
+            if native_m is None or native_m > max_native_m:
+                continue
+            rows.append(
+                (
+                    native_m,
+                    -float(definition.get("priority", 0.0)),
+                    definition["code"],
+                    definition,
+                )
             )
-        )
-    ranked.sort(key=lambda row: row[:3])
-    return [row[3] for row in ranked]
+        rows.sort(key=lambda row: row[:3])
+        return [row[3] for row in rows]
+
+    wide_area = _ranked(
+        _wide_area_candidate_definitions(lat, lon, providers_config), set()
+    )
+    if rung_label is None:
+        return wide_area
+    opt_ins = _ranked(
+        _approach_ring_opt_in_definitions(
+            lat, lon, providers_config, rung_label, ladder
+        ),
+        {definition["code"] for definition in wide_area},
+    )
+    return wide_area + opt_ins
+
+
+def approach_ring_opt_in_rung(definition, ladder=None):
+    """The finest ring rung label a definition opted into, or ``None``.
+
+    ``approach_ring_class`` names a rung of :func:`approach_rung_ladder`
+    by its label; an unknown label opts into nothing (fail closed -- a
+    typo must never let a surface model into a finer ring).
+    """
+    value = str((definition or {}).get(APPROACH_RING_CLASS_KEY, "") or "")
+    value = value.strip().lower()
+    if not value:
+        return None
+    labels = [rung.label for rung in (ladder or approach_rung_ladder())]
+    return value if value in labels else None
+
+
+def _approach_ring_opt_in_definitions(
+    lat, lon, providers_config, rung_label, ladder=None
+):
+    """Registry definitions that opted into the ring ``rung_label``.
+
+    A definition opted into rung ``k`` serves rung ``k`` and every
+    COARSER rung, never a finer one.  Read through
+    :func:`_registry_definitions_reaching_tile` WITHOUT the wide-area
+    strategy test -- the only filter dropped; everything else (enabled,
+    providers config, bathymetry, coverage) is the wide-area walk's own.
+    """
+    labels = [rung.label for rung in (ladder or approach_rung_ladder())]
+    if rung_label not in labels:
+        return []
+    rung_index = labels.index(rung_label)
+    eligible = []
+    for definition in _registry_definitions_reaching_tile(
+        lat, lon, providers_config, require_wide_area=False
+    ):
+        opted = approach_ring_opt_in_rung(definition, ladder)
+        if opted is None:
+            continue
+        if labels.index(opted) <= rung_index:
+            eligible.append(definition)
+    return eligible
 
 
 def approach_ring_cell_box(lat, lon, column, row):
@@ -1848,7 +1941,8 @@ def _approach_ring_cell(
                 "stem": None,
             }
         for definition in _approach_ring_candidates(
-            lat, lon, providers_config, rung.resolution_m
+            lat, lon, providers_config, rung.resolution_m,
+            rung_label=rung.label, ladder=rungs,
         ):
             if not _definition_covers_box(definition, box):
                 continue

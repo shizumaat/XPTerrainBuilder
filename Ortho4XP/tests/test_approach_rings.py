@@ -1136,3 +1136,184 @@ def test_the_ring_directory_itself_is_the_rings_scope():
         "Elevation_data/+30-110/N39W107_approach_rings/cell_00_00_usgs3dep_10m.tif") == "rings"
     assert guard.scope_of("Elevation_data/+30-110/N39W107.hgt") == "dem"
 
+
+
+# =====================================================================
+# Ring-2 opt-in for a surface model (owner RULINGS 2026-10-02c, spec §9
+# Q1): Copernicus GLO-30 may serve RING 2 ONLY, by per-definition opt-in,
+# where no wide-area source covers the cell.  The 1 m core and the 10 m
+# ring are never a DSM; every other wide-area consumer stays blind to it.
+# =====================================================================
+RING2_LABEL = RINGS.approach_rung_ladder()[1].label
+RING1_LABEL = RINGS.approach_rung_ladder()[0].label
+
+
+def _ring2_dsm(code="DSM", native_m=30.0, opted=RING2_LABEL, **extra):
+    """A synthetic surface-model definition on the NON-wide-area strategy
+    Copernicus uses, opted into ``opted`` (or not, when ``None``)."""
+    definition = _definition(
+        code, native_m, access_strategy="degree_named_cog", **extra
+    )
+    if opted is not None:
+        definition[RINGS.APPROACH_RING_CLASS_KEY] = opted
+    return definition
+
+
+def _install_with_opt_in(monkeypatch, wide_area, opt_ins):
+    """``wide_area`` is the wide-area candidate set (as the registry would
+    return it); ``opt_ins`` are registry-only definitions the wide-area
+    walk never lists (their strategy is not wide-area)."""
+    by_code = _install_registry(monkeypatch, *wide_area)
+    for definition in opt_ins:
+        by_code[definition["code"]] = definition
+    return by_code
+
+
+def test_a_ring2_opt_in_never_serves_a_ring_one_cell(tmp_path, monkeypatch):
+    """Even a FINE surface model opted into ring 2 is never a ring-1
+    source: with nothing else on the registry every ring-1-reach cell
+    collapses to the ring-2 class (the existing collapse rule)."""
+    _install_with_opt_in(monkeypatch, [], [_ring2_dsm(native_m=1.0)])
+    tile = _tile(tmp_path, monkeypatch)
+    plan = RINGS.resolve_approach_ring_plan(
+        tile, _dico(KASE=_boundary(0.5, 0.5))
+    )
+    assert plan is not None and plan["cells"]
+    assert all(c["provider"] == "DSM" for c in plan["cells"])
+    assert all(c["ring"] == RING2_LABEL for c in plan["cells"])
+    assert all(c["class_m"] == RING2_CLASS_M for c in plan["cells"])
+    assert {c["reach_ring"] for c in plan["cells"]} == {
+        RING1_LABEL, RING2_LABEL
+    }
+    assert [layer["ring"] for layer in plan["ring_layers"]] == ["ring2"]
+
+
+def test_a_fine_wide_area_source_keeps_ring_one_beside_the_dsm(
+    tmp_path, monkeypatch
+):
+    """Where a <= 10 m wide-area source covers a ring-1 cell, it serves
+    the cell at 10 m; the DSM takes only the cells it does not cover."""
+    _install_with_opt_in(
+        monkeypatch, [_definition("FINE", 1.0)], [_ring2_dsm()]
+    )
+    monkeypatch.setattr(
+        INSETS,
+        "_coverage_bbox_intersects",
+        lambda definition, box: (
+            True if definition["code"] == "DSM"
+            else box[0] < TILE_LON + 0.5
+        ),
+    )
+    tile = _tile(tmp_path, monkeypatch)
+    plan = RINGS.resolve_approach_ring_plan(
+        tile, _dico(KASE=_boundary(0.5, 0.5))
+    )
+    assert _cell(plan, 4, 5)["provider"] == "FINE"
+    assert _cell(plan, 4, 5)["class_m"] == RING1_CLASS_M
+    assert _cell(plan, 5, 5)["provider"] == "DSM"
+    assert _cell(plan, 5, 5)["class_m"] == RING2_CLASS_M
+    assert not [
+        c for c in plan["cells"]
+        if c["provider"] == "DSM" and c["ring"] != RING2_LABEL
+    ]
+
+
+def test_the_dsm_serves_ring_two_only_where_no_wide_area_source_covers(
+    tmp_path, monkeypatch
+):
+    """A wide-area ring-2 source at the SAME native resolution still wins
+    every cell it covers: the opt-in ranks after every wide-area one."""
+    _install_with_opt_in(
+        monkeypatch, [_definition("COARSE", 30.0)],
+        [_ring2_dsm(priority=1000.0)],
+    )
+    monkeypatch.setattr(
+        INSETS,
+        "_coverage_bbox_intersects",
+        lambda definition, box: (
+            True if definition["code"] == "DSM"
+            else box[0] < TILE_LON + 0.5
+        ),
+    )
+    tile = _tile(tmp_path, monkeypatch)
+    plan = RINGS.resolve_approach_ring_plan(
+        tile, _dico(KASE=_boundary(0.5, 0.5))
+    )
+    west = [c for c in plan["cells"] if c["column"] < 5]
+    east = [c for c in plan["cells"] if c["column"] >= 5]
+    assert west and east
+    assert {c["provider"] for c in west} == {"COARSE"}
+    assert {c["provider"] for c in east} == {"DSM"}
+
+
+def test_without_the_opt_in_the_dsm_is_never_a_ring_source(
+    tmp_path, monkeypatch
+):
+    """No key (and an unknown label, which fails CLOSED) -> no ring source:
+    today's behaviour, every cell no-provider."""
+    for opted in (None, "ring9"):
+        _install_with_opt_in(monkeypatch, [], [_ring2_dsm(opted=opted)])
+        tile = _tile(tmp_path, monkeypatch)
+        plan = RINGS.resolve_approach_ring_plan(
+            tile, _dico(KASE=_boundary(0.5, 0.5))
+        )
+        assert all(c["provider"] is None for c in plan["cells"])
+
+
+def test_adding_the_opt_in_moves_the_plan_stamp_and_reads_cold(
+    tmp_path, monkeypatch
+):
+    """The key changes the plan's cells, so the stamp moves and the frame
+    reads COLD until ``--refresh-data rings`` warms the new cells."""
+    _install_with_opt_in(monkeypatch, [], [_ring2_dsm(opted=None)])
+    tile = _tile(tmp_path, monkeypatch)
+    dico = _dico(KASE=_boundary(0.5, 0.5))
+    before = RINGS.resolve_approach_ring_plan(tile, dico)
+    assert RINGS.approach_ring_frame_problem(
+        TILE_LAT, TILE_LON, before
+    ) is None
+    _install_with_opt_in(monkeypatch, [], [_ring2_dsm()])
+    after = RINGS.resolve_approach_ring_plan(tile, dico)
+    assert RINGS.approach_ring_plan_stamp(after) != \
+        RINGS.approach_ring_plan_stamp(before)
+    problem = RINGS.approach_ring_frame_problem(TILE_LAT, TILE_LON, after)
+    assert problem is not None and problem[0] == "cold"
+    assert "--refresh-data rings" in problem[1]
+
+
+def test_the_real_copernicus_definition_is_ring_two_only_and_not_wide_area(
+    monkeypatch,
+):
+    """The shipped registry: COPERNICUSGLO30 carries the opt-in (citing
+    10-02c), is a ring-2 source over HECA's tile, is NOT a ring-1 source,
+    and the tile-wide overlay / working-grid cap never see it."""
+    monkeypatch.setattr(INSETS, "elevation_providers_dict", {})
+    INSETS.initialize_elevation_providers_dict()
+    code = "COPERNICUSGLO30"
+    definition = INSETS.elevation_providers_dict[code]
+    assert RINGS.approach_ring_opt_in_rung(definition) == RING2_LABEL
+    assert "2026-10-02c" in definition.get("license_note", "")
+    lat, lon = 30, 31
+    assert code not in {
+        d["code"] for d in RINGS._wide_area_candidate_definitions(lat, lon)
+    }
+    overlay = RINGS.select_tile_overlay_definition(lat, lon, 30)
+    assert overlay is None or overlay["code"] != code
+    assert code in {
+        d["code"] for d in RINGS._approach_ring_opt_in_definitions(
+            lat, lon, "auto", RING2_LABEL)
+    }
+    assert code not in {
+        d["code"] for d in RINGS._approach_ring_opt_in_definitions(
+            lat, lon, "auto", RING1_LABEL)
+    }
+    ring2_class = RINGS.approach_rung_ladder()[1].resolution_m
+    ring1_class = RINGS.approach_rung_ladder()[0].resolution_m
+    assert code in {
+        d["code"] for d in RINGS._approach_ring_candidates(
+            lat, lon, "auto", ring2_class, rung_label=RING2_LABEL)
+    }
+    assert code not in {
+        d["code"] for d in RINGS._approach_ring_candidates(
+            lat, lon, "auto", ring1_class, rung_label=RING1_LABEL)
+    }

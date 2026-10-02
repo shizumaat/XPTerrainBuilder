@@ -87,6 +87,7 @@ import numpy as np                                             # noqa: E402
 from auto_patch_v2.airport import apt_dat as _apt              # noqa: E402
 from auto_patch_v2.airport import deck_signature as _deck      # noqa: E402
 from auto_patch_v2.airport import dsf as _dsf                  # noqa: E402
+from auto_patch_v2.airport import frame_entry as _fe           # noqa: E402
 from auto_patch_v2.airport import line_object as _line         # noqa: E402
 from auto_patch_v2.airport import obj8 as _obj8                # noqa: E402
 from auto_patch_v2.airport import pack as _pack                # noqa: E402
@@ -212,7 +213,9 @@ def census(icao: str, xplane_root: str, mod_cache_root: str,
     if info.get("skip"):
         rep["skipped"] = info["skip"]
         return rep
-    cache = _obj8.ResourceCache(bl.min_solid_thickness_m)
+    # §51 (6) / RULINGS 2026-10-02v (4) (issue #222): the quantum, through
+    # the package's ONE accessor — mirrors ``pipeline/build.pack_stage``.
+    cache = _obj8.ResourceCache(bl.min_solid_thickness_m, _fe.quantum(law))
     by_res: dict[str, list[Placement]] = {}
     for p in places:
         by_res.setdefault(p.resolved, []).append(p)

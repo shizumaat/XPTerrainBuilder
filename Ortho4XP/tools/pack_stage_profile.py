@@ -221,6 +221,7 @@ def _legacy_pack_stage(icao, airport, law, inputs, lrep, out=print):
     base arm times the same four calls.  Never used on a tree that has
     ``pack_stage``."""
     import dataclasses as _d
+    from auto_patch_v2.airport import frame_entry as _fe
     from auto_patch_v2.airport.obj8 import ResourceCache
     from auto_patch_v2.airport.pack_partition import partition_pack
     from auto_patch_v2.law.tables import group_span_max_m
@@ -229,7 +230,10 @@ def _legacy_pack_stage(icao, airport, law, inputs, lrep, out=print):
     from auto_patch_v2.planar.group import derive
     sub = {}
     t0 = t = time.perf_counter()
-    oc = ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    # §51 (6) / RULINGS 2026-10-02v (4) (issue #222): the quantum, through
+    # the package's ONE accessor — mirrors ``pipeline/build.pack_stage``.
+    oc = ResourceCache(law.tables.structures.basin.min_solid_thickness_m,
+                       _fe.quantum(law))
     objs, rep = read_objects(airport, law, oc)
     sub["read"] = time.perf_counter() - t
     t = time.perf_counter()

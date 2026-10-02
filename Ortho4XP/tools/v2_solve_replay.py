@@ -728,8 +728,27 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     surf_out = with_bank(surf, pm, law, airport, brep)
     surf_out = with_terrain_edges(surf_out, pm, law)
     print("    " + brep.line(icao))
+    # §39 (1) THE SHORE WELD + §39 (iii) THE SUB-SPACING MERGE — the build's
+    # last two passes before ``write_patch`` (``pipeline/build.py``).  They
+    # were MISSING here until lane ``sweep1005attr`` (2026-10-02): a replay
+    # arm emitted every sub-spacing vertex the build merges (SPJC 108 extra
+    # vertices, 13 on plateau rings; KCLT 307 + 2,381 row-side values off
+    # the build), so an ``--emit`` arm never reproduced its own build.
+    from auto_patch_v2.emit.osm_adapter import (WeldReport, merge_sub_spacing,
+                                                shore_edges_of, weld_to_shore)
+    wrep = WeldReport()
+    shore = shore_edges_of(airport.dem, surf_out)
+    surf_out = weld_to_shore(surf_out, law, shore, wrep)
+    surf_out = merge_sub_spacing(surf_out, law, wrep)
+    print("    " + wrep.line(icao))
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=strip_rep)
+    pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
+    wedges = getattr(pm, "natural_shore_wedges", ()) or ()
+    if wedges:
+        _to_ll = airport.frame.transformers()[1]
+        pub["natural_shore"] = [[list(_to_ll(x, y)) for x, y in ring]
+                                for ring in wedges]
     header = {"o4_apt_dat": airport.pack.apt_dat_path, "o4_pack": airport.pack.name,
               "o4_replay": "v2_solve_replay"}
     paths = write_patch(surf_out, law, emit_dir, pub, header, face_tags(pm, law, airport))
@@ -1765,6 +1784,21 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
               f"{len(airport.clusters)} off its own partition "
               f"({time.perf_counter() - _ct:.0f} s)")
     t0 = time.perf_counter()
+    _ocache = _objs = _orep = None
+    if resume in ("classify", "planar"):
+        # THE BUILD'S OWN PACK READ (``pipeline/build.pack_stage``): ONE
+        # ``ResourceCache`` built exactly as the build builds it, the pack's
+        # objects read through it ONCE, and both handed to classify and to
+        # ``build_planar`` — as ``--capture`` and the build do.  Until lane
+        # ``sweep1005attr`` (2026-10-02) the replay let ``build_planar`` read
+        # the objects itself, whose DEFAULT cache carries §51 (6)'s input
+        # quantum while the build's does not: the replay's map lost a KCLT
+        # tunnel_ramp + its wall (14 vertices at 35.2217, -80.9417) and the
+        # arm read 2,381 row-side values off its own build (worst 1.12 m).
+        from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
+        from auto_patch_v2.planar.basins import read_objects as _read_objects
+        _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m)
+        _objs, _orep = _read_objects(airport, law, _ocache)
     if resume == "classify":
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster
@@ -1785,11 +1819,12 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         print(f"[{icao}] clusters re-derived under the current tree: "
               f"{len(airport.clusters)} ({time.perf_counter() - _ct:.0f} s) {dict(_WHY)}")
         _ct = time.perf_counter()
-        cl = _classify(airport, law, _load_rules())
+        cl = _classify(airport, law, _load_rules(), cache=_ocache)
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
     if resume in ("classify", "planar"):
-        pm, _ps = build_planar(airport, cl, law)
+        pm, _ps = build_planar(airport, cl, law, cache=_ocache, objects=_objs,
+                               object_report=_orep)
         # §37 (11) THE SHORE DECISION (29a, issue #72): every contact's
         # verdict — the replay's read of the shore
         from auto_patch_v2.pipeline.build import shore_decision_lines

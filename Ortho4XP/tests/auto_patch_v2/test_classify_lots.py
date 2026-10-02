@@ -193,8 +193,16 @@ def test_network_taxiway_makes_a_detached_page_airside(law):
     assert page
     assert all(c.side == "airside" for c in page), [(c.role, c.side) for c in page]
     assert all(c.role != "groundside_pavement" and c.role != "parking_lot" for c in page)
-    # the detached island with NO taxiway on it is still landside (M1 law)
-    assert any(c.role == "groundside_pavement" and c.ref == "island" for c in cl.cells)
+    # the detached island with NO taxiway on it is still landside (M1 law).
+    # Its ROLE moved on 2026-10-02 (§110, issue #110): the 100 x 100 m
+    # island is unclassified groundside pavement with no ribbon
+    # proportions, so it is a `parking_lot` where it used to be
+    # `groundside_pavement`.  What this twin pins is the SIDE -- the M1
+    # touch-chain law -- not which groundside role §110 names.
+    island = [c for c in cl.cells if c.ref == "island"]
+    assert island and all(c.side == "groundside" for c in island)
+    assert [c.role for c in island] == ["parking_lot"], \
+        [(c.role, c.side) for c in island]
 
 
 # ── the register and the oracle alias ───────────────────────────────────
@@ -489,3 +497,111 @@ def test_an_apt_page_is_still_read_under_its_own_id(law):
     recs = {r.id: r for r in classify_sources(a, ev, rules)[0]}
     assert recs["named"].description == "GA Apron"
     assert recs["apron"].description == ""
+
+
+# ── §110: unclassified groundside pavement, and the road ribbon ─────────
+#
+# Owner remark RULINGS 2026-09-30b (issue #110): groundside pavement that
+# is neither a road nor an identified lot is graded like a parking lot (a
+# flat plate under the universal cap) so no corridor identification is
+# needed where the data has none; pavement with road proportions is a road
+# ribbon instead.  ONE derivation site —
+# ``open_default.unclassified_groundside_role`` — serves the 04u open
+# default AND the 11ac/04j landside demotion.
+
+def _unclassified_airport():
+    """Two landside pages west of the runway, detached from everything and
+    carrying NO evidence at all — no road, no taxi centreline, no startup,
+    no apron name, no ``amenity=parking``:
+
+    * ``ribbon`` — 200 x 6 m, aspect 33: ROAD proportions;
+    * ``plate``  — 60 x 50 m, aspect 1.2: a parking LOT.
+    """
+    a = _synthetic(gate=True)
+    ribbon = Pavement("ribbon", Surface.ASPHALT, _rect(-500.0, 100.0, -494.0, 300.0), ())
+    plate = Pavement("plate", Surface.ASPHALT, _rect(-400.0, 100.0, -340.0, 150.0), ())
+    return _dc.replace(a, pavements=a.pavements + (ribbon, plate))
+
+
+def test_unclassified_groundside_pavement_is_a_lot_or_a_road_ribbon(law):
+    rules = load_rules()
+    a = _unclassified_airport()
+    ev = build_evidence(a, rules, law.tables.structures.building_pad.min_area_m2)
+    recs = {r.id: r for r in classify_sources(a, ev, rules)[0]}
+    # neither page is classified by its SOURCE: no road, no parking map
+    assert recs["ribbon"].cls == "open", recs["ribbon"]
+    assert recs["plate"].cls == "open", recs["plate"]
+
+    cl = classify(a, law, rules)
+    cells = _cells(cl)
+    ribbon = [c for c in cells if c[1] == "ribbon"]
+    plate = [c for c in cells if c[1] == "plate"]
+    assert [c[0] for c in ribbon] == ["service_road"], ribbon
+    assert [c[0] for c in plate] == ["parking_lot"], plate
+    # both stay groundside, and each is priced by its OWN law
+    assert ribbon[0][3].side == "groundside" and plate[0][3].side == "groundside"
+    assert role_cap(law, "service_road").longitudinal == pytest.approx(0.08)
+    assert role_cap(law, "parking_lot").longitudinal == pytest.approx(0.05)
+    # the proportions are RECORDED as evidence on the face
+    assert ribbon[0][3].evidence["ribbon_aspect"] > \
+        rules.groundside.road_ribbon_min_aspect
+    assert plate[0][3].evidence["ribbon_aspect"] < \
+        rules.groundside.road_ribbon_min_aspect
+    assert "§110" in str(plate[0][3].evidence["unclassified_default"])
+
+
+def test_the_ribbon_test_reads_the_rotated_rectangle_not_the_bbox(law):
+    """A DIAGONAL 200 x 6 m ribbon is the same ribbon: the proportions
+    come from the minimum rotated rectangle (``model.frame.
+    rectangle_axes``), never from an axis-aligned bounding box, which
+    would read this one as a 145 m square."""
+    from auto_patch_v2.classify.open_default import road_ribbon
+    rules = load_rules()
+    h = 6.0 / (2 ** 0.5)
+    diag = Polygon(((0.0, 0.0), (h, -h), (h + 141.4, 141.4 - h), (141.4, 141.4)))
+    is_ribbon, aspect, width_m = road_ribbon(diag, rules)
+    assert is_ribbon and width_m == pytest.approx(6.0, abs=0.1)
+    assert aspect == pytest.approx(200.0 / 6.0, rel=0.05)
+
+
+@pytest.mark.parametrize("w,h,expect", [
+    (6.0, 200.0, True),       # the owner's ribbon
+    (50.0, 60.0, False),      # a car park
+    (60.0, 200.0, False),     # a wide plate: aspect 3.3, under the bar
+    (26.0, 400.0, False),     # aspect 15 but WIDER than a free road: a plate
+    (25.0, 150.0, True),      # exactly the free-road width, aspect 6
+])
+def test_the_road_ribbon_bar_is_two_named_numbers(law, w, h, expect):
+    """A ribbon is NARROW (at most ``service.free_max_width_m`` — the
+    free-road ruling's own width) AND LONG (``groundside.
+    road_ribbon_min_aspect``).  Neither test alone is the rule."""
+    from auto_patch_v2.classify.open_default import road_ribbon
+    rules = load_rules()
+    is_ribbon, _aspect, _width = road_ribbon(Polygon(_rect(0.0, 0.0, w, h)), rules)
+    assert is_ribbon is expect
+
+
+def test_a_taxi_named_demoted_face_is_neither_a_lot_nor_a_road(law):
+    """The 04z-1 VETO outranks §110: a demoted face on a TAXIWAY-NAMED
+    source keeps ``groundside.default_open_role`` even with ribbon
+    proportions."""
+    from auto_patch_v2.classify.open_default import unclassified_groundside_role
+    rules = load_rules()
+    ribbon = Polygon(_rect(0.0, 0.0, 6.0, 200.0))
+    role, why = unclassified_groundside_role(ribbon, rules, road_reached=True,
+                                             taxi_named=True)
+    assert role == rules.groundside.default_open_role
+    assert "04z-1" in str(why["unclassified_default"])
+
+
+def test_road_evidence_no_longer_decides_the_unclassified_verdict(law):
+    """§110: a plate is a lot whether or not a road reaches it — a road
+    reaching a face was never what made it a car park.  The evidence is
+    still RECORDED."""
+    from auto_patch_v2.classify.open_default import unclassified_groundside_role
+    rules = load_rules()
+    plate = Polygon(_rect(0.0, 0.0, 50.0, 60.0))
+    reached, why_r = unclassified_groundside_role(plate, rules, road_reached=True)
+    alone, why_a = unclassified_groundside_role(plate, rules, road_reached=False)
+    assert reached == alone == rules.groundside.unclassified_role
+    assert why_r["road_evidence"] == 1.0 and why_a["road_evidence"] == 0.0

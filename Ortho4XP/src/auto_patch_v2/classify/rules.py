@@ -119,6 +119,8 @@ class Groundside:
     touch_tol_m: float
     requires_terminal: bool
     default_open_role: str
+    unclassified_role: str
+    road_ribbon_min_aspect: float
 
 
 @_dc.dataclass(frozen=True)

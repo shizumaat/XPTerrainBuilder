@@ -362,6 +362,7 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     redirect the engine would ignore reads as absent."""
     require_capture_isolation()
     from auto_patch_v2.airport import flat_site as _flat
+    from auto_patch_v2.airport.frame_entry import quantum as _fe_quantum
     from auto_patch_v2.airport.load import load_with_report
     from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
     from auto_patch_v2.airport.pack_partition import partition_pack as _partition_pack
@@ -429,7 +430,8 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     # THE PACK PARTITION AND THE GROUPS (build.py:288-318, verbatim in
     # kind — the pad law's bodies, feet and abutments, and the feasibility
     # verdict priced against the DEM's own fall, RULINGS 09-11j / 09-11q).
-    ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m)
+    ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
+                     _fe_quantum(law))
     pack_objects, pack_report = _read_objects(airport, law, ocache)
     _part = _partition_pack(airport, pack_objects, ocache, law)
     _to_xy, _ = airport.frame.transformers()
@@ -1914,12 +1916,18 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         # ``build_planar`` — as ``--capture`` and the build do.  Until lane
         # ``sweep1005attr`` (2026-10-02) the replay let ``build_planar`` read
         # the objects itself, whose DEFAULT cache carries §51 (6)'s input
-        # quantum while the build's does not: the replay's map lost a KCLT
+        # quantum while the build's did not: the replay's map lost a KCLT
         # tunnel_ramp + its wall (14 vertices at 35.2217, -80.9417) and the
         # arm read 2,381 row-side values off its own build (worst 1.12 m).
+        # The BUILD now carries the quantum too (owner RULINGS 2026-10-02v
+        # (4), issue #222: the snapped read is the law), so the mirror is a
+        # quantised cache on both sides — and the divergence above is what
+        # the fix removes, not something the replay still has to match.
+        from auto_patch_v2.airport import frame_entry as _fe
         from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
         from auto_patch_v2.planar.basins import read_objects as _read_objects
-        _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m)
+        _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
+                          _fe.quantum(law))
         _objs, _orep = _read_objects(airport, law, _ocache)
     if resume == "classify":
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.

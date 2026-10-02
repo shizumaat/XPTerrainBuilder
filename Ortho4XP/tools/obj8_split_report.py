@@ -90,6 +90,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 import numpy as np                                             # noqa: E402
 
 from auto_patch_v2.airport import anchor_rule as _ar           # noqa: E402
+from auto_patch_v2.airport import frame_entry as _fe           # noqa: E402
 from auto_patch_v2.airport import obj8                         # noqa: E402
 from auto_patch_v2.airport import placement_boxes as PB        # noqa: E402
 from auto_patch_v2.airport import placement_plan as PP         # noqa: E402
@@ -572,6 +573,33 @@ def seat_tilt_lines(ss: _t.Any, *, cap_deg: float, tol_m: float,
         out.append(f"    {st.total_deg:6.3f} deg  "
                    f"{st.residual_before_m:+7.2f} -> {st.residual_max_m:+6.2f} m  "
                    f"{b.new_resource.split('/')[-1][:44]}")
+    out.extend(tilted_kept_whole_rows(ss, top=top))
+    return out
+
+
+def tilted_kept_whole_rows(ss, *, top: int = 5) -> list[str]:
+    """#232, REPORTED NOT DECIDED: the KEPT-WHOLE placements whose
+    AUTHORED file carries ``TILTED`` / ``SLOPE_LIMIT``.
+
+    Every file the stage WRITES loses both (``obj8_split``'s
+    :data:`~auto_patch_v2.airport.obj8_split.SEAT_OWNED_DIRECTIVES`) --
+    the stage owns the seat of what it writes.  A placement kept whole is
+    NOT written, so X-Plane still seats it to the terrain normal under
+    its anchor, which on a graded pad is the surface the stage just
+    solved.  Whether it should is the owner's rule (#232); this prints
+    the census the rule would be read off."""
+    rows = getattr(ss, "tilted_kept_whole", ())
+    if not rows:
+        return []
+    out = [f"\nTILTED KEPT WHOLE (#232, REPORTED — the owner rules this "
+           f"case): {len(rows)} of {ss.counts.get('kept', 0)} kept-whole "
+           f"placements carry a seat directive the stage did not write and "
+           f"so did not strip"]
+    for index, resource, directives in rows[:top]:
+        out.append(f"    #{index} {resource.split('/')[-1][:44]}  "
+                   f"{' '.join(directives)}")
+    if len(rows) > top:
+        out.append(f"    ... {len(rows) - top} more")
     return out
 
 
@@ -761,7 +789,7 @@ def base_profile_lines(rep: dict, top: int = 15) -> list[str]:
 
 def admit_skipped(plan, pack_root: str, dsftool: str | None,
                   elevated_base_m: float, foot_band_m: float,
-                  thickness_m: float):
+                  thickness_m: float, input_quantum_m: float):
     """§16 (1) OFFLINE: put the resources the plan SKIPPED for the seat-era
     thickness gate back into the population, so a dry run can measure the
     switch the engine makes at LOAD.
@@ -803,7 +831,11 @@ def admit_skipped(plan, pack_root: str, dsftool: str | None,
     text = os.path.join(work, "pristine.text")
     _dw.dump(_dw.pristine_dsf_path(dsfs[0]), text, dsftool or _dsftool_path())
     dump = _dsf.read_dump(text)
-    cache = obj8.ResourceCache(thickness_m)
+    # §51 (6) / RULINGS 2026-10-02v (4) (issue #222): the quantum the BUILD
+    # reads the pack under, handed down from the caller's law through
+    # ``frame_entry.quantum`` — a dry run that measures the engine's switch
+    # must read the same snapped geometry the engine does.
+    cache = obj8.ResourceCache(thickness_m, input_quantum_m)
     units = {(round(u.anchor[0], 9), round(u.anchor[1], 9)): [ui, list(u.members)]
              for ui, u in enumerate(plan.units)}
     extra: dict[tuple, list] = {}
@@ -1318,7 +1350,8 @@ def _main() -> int:
         plan, n_rows, n_res = admit_skipped(
             plan, os.path.abspath(a.admit_skipped), a.dsftool,
             rb0.elevated_base_m, band_m,
-            _law.tables.structures.basin.min_solid_thickness_m)
+            _law.tables.structures.basin.min_solid_thickness_m,
+            _fe.quantum(_law))
         print(f"  §16 (1) ADMITTED {n_res} resource(s) the plan skipped for the "
               f"thickness gate ({n_rows} DSF row(s)) — the population a build's "
               f"own plan now carries")

@@ -489,9 +489,23 @@ def _ll_to_m_factory(nodes: Dict[str, Tuple[float, float]],
     sidecar) instead of the mean of nodes — the two frames differ in x-scale
     via ``cos(lat0)``, millimetres over a chord, enough to flip epsilon
     contact predicates (the crossing-skip rule) and make the validator read
-    the law differently from the solver.  Same formula and R_EARTH as
-    ``auto_patch.layout._projection``, so with the anchor the frames are
-    identical to float precision."""
+    the law differently from the solver.
+
+    PASS ONE (issue #215).  The mean-of-nodes fallback is
+    POPULATION-DEPENDENT: a vertex added or removed anywhere moves
+    ``lat0``, and because x is scaled by ``cos(lat0)`` that RESCALES
+    every projected x — so a length derived in this frame drifts with
+    the patch's node multiset (measured: 15 m over a 3600 m runway), and
+    across ``config.runway_code_number``'s steps that changes which LAW
+    a strip is judged under.  A census verdict may depend only on the
+    geometry it judges and the sidecar law context, so every census
+    caller takes its anchor from :func:`sidecar_anchor`, which is
+    population-independent by construction.  The fallback remains for
+    the bare, context-free frame only, and is named
+    :data:`FRAME_MEAN_OF_NODES` wherever it is reported.
+
+    Same formula and R_EARTH as ``auto_patch.layout._projection``, so
+    with the anchor the frames are identical to float precision."""
     if anchor is not None:
         lat0, lon0 = float(anchor[0]), float(anchor[1])
     elif nodes:
@@ -537,17 +551,139 @@ SIDECAR_ANCHOR_KEY = "anchor"
 #: is enough to flip an epsilon contact predicate).
 FRAME_BUILDER_ANCHOR = "builder anchor"
 FRAME_MEAN_OF_NODES = "mean-of-nodes"
+#: The frame a patch that declares no ``anchor`` is read in: the origin
+#: taken from the patch's own SIDECAR-DECLARED geometry
+#: (:data:`SIDECAR_FRAME_DATUM_KEYS`) rather than from its node multiset.
+#: Issue #215 — see :func:`_sidecar_frame_datum`.
+FRAME_SIDECAR_DATUM = "sidecar law datum"
+
+#: THE FRAME DATUM KEYS (issue #215), in the order they are read.  A
+#: patch that declares no ``anchor`` takes its metre-frame origin from
+#: the first of these its sidecar carries.  Every one is a BUILD
+#: DECLARATION — ``runway_axes`` is ``[ref, lat_a, lon_a, lat_b, lon_b,
+#: half_m]`` off the apt.dat ends and width (never a fit to the emitted
+#: rings), ``axes`` / ``axes_exact`` are the published centrelines,
+#: ``seam_pins`` the tile cut — so each is a function of what the BUILD
+#: declared and NOT of how many vertices the emitted patch happens to
+#: carry.  That is the whole point: see :func:`_sidecar_frame_datum`.
+SIDECAR_FRAME_DATUM_KEYS: Tuple[str, ...] = (
+    "runway_axes", "axes_exact", "axes", "seam_pins")
+
+
+def _frame_datum_points(key: str, value) -> "List[Tuple[float, float]]":
+    """Every ``(lat, lon)`` the sidecar key ``key`` declares, by that
+    key's OWN published shape — explicit per key, never a guessing walk
+    over nested lists (a walker that mistook a cap for a latitude would
+    put the frame origin in the Gulf of Guinea and every metre would
+    still read plausibly)."""
+    out: "List[Tuple[float, float]]" = []
+    if key == "runway_axes":
+        # ``[ref, lat_a, lon_a, lat_b, lon_b, half_m]`` (§40 (2))
+        for r in value or ():
+            if isinstance(r, (list, tuple)) and len(r) >= 5:
+                out.append((float(r[1]), float(r[2])))
+                out.append((float(r[3]), float(r[4])))
+    elif key in ("axes_exact", "axes"):
+        # ``[[[lat, lon], ...], cL, cT, ordinal, is_service]`` per axis
+        for e in value or ():
+            if not (isinstance(e, (list, tuple)) and e):
+                continue
+            pts = e[0]
+            if not isinstance(pts, (list, tuple)):
+                continue
+            for q in pts:
+                if isinstance(q, (list, tuple)) and len(q) >= 2:
+                    out.append((float(q[0]), float(q[1])))
+    elif key == "seam_pins":
+        for q in value or ():
+            if isinstance(q, (list, tuple)) and len(q) >= 2:
+                out.append((float(q[0]), float(q[1])))
+    return out
+
+
+def _sidecar_frame_datum(sidecar: "Optional[Dict[str, Any]]"
+                         ) -> "Optional[Tuple[float, float]]":
+    """A POPULATION-INDEPENDENT frame origin from the patch's own
+    sidecar, or ``None`` when it declares no geometry to take one from.
+
+    THE DEFECT THIS CLOSES (issue #215).  A census verdict may depend
+    only on the geometry it judges and the sidecar law context — never on
+    the patch's node POPULATION.  ``_ll_to_m_factory``'s fallback origin
+    is the MEAN OF NODES, so adding or removing a vertex anywhere moves
+    the frame; and because the frame's x scale is ``cos(lat0)``, moving
+    ``lat0`` rescales every projected x.  v2's sidecar register
+    (``auto_patch_v2.emit.osm_adapter.SIDECAR_KEYS``) deliberately
+    publishes no ``anchor``, so EVERY current patch is censused in that
+    moving frame.
+
+    Measured on this repo's own synthetic twin
+    (``tests/test_census_frame_population.py``): 400 unrelated apron
+    nodes 40 km away, not one strip or runway coordinate touched, moved
+    the derived runway length 1200.975 m -> 1198.982 m.  Across
+    ``config.runway_code_number``'s 1200 m step that is aerodrome code 3
+    against code 2, which is ``ruleset_strip_half_width_m`` 75 m against
+    40 m and ``grade_law.strip_longitudinal_law`` 1.75 % against 1.5 % —
+    the strip footprint itself changed by 35 m and the ``strip_arc``
+    reading went 1 row / 198 stations to 0 rows / 99 stations.  That is
+    the #215 signature (``sw1003_HECA`` 0 rows, ``sw1004b_HECA`` 1) with
+    the mechanism in the open.
+
+    The origin is the ``min()`` over every point the chosen key declares,
+    so the key's own LIST ORDER cannot move the frame either (the
+    ``_strip_chain_start`` lesson: a canonical choice, not the first
+    element of an array whose order is an emitter detail).
+
+    NOT closed here: ``grade_law.runway_axis_and_width`` is
+    vertex-count-weighted (issue #190, ``needs-owner``), so the derived
+    length still drifts with the RUNWAY's own vertex multiset and the
+    code tables remain a knife edge under it.  #215 is the FRAME; #190 is
+    the fit.  Fixing the frame removes the whole-patch coupling and
+    leaves #190's runway-ring coupling exactly where its issue puts it.
+    """
+    side = sidecar or {}
+    for key in SIDECAR_FRAME_DATUM_KEYS:
+        if key not in side:
+            continue
+        try:
+            pts = _frame_datum_points(key, side[key])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if pts:
+            return min(pts)
+    return None
 
 
 def sidecar_anchor(sidecar: "Optional[Dict[str, Any]]"
                    ) -> "Optional[Tuple[float, float]]":
-    """The builder's projection anchor a ``.axes.json`` DECLARES, or
-    ``None`` when it carries none — THE one read of
-    :data:`SIDECAR_ANCHOR_KEY`, and the same ``.get``-with-fallback
-    :func:`law_context_from_sidecar` does, so a tool and the census never
-    disagree about which frame a patch is read in."""
+    """The patch's POPULATION-INDEPENDENT metre-frame origin: the
+    builder's projection anchor a ``.axes.json`` DECLARES, else one
+    derived from the sidecar's own declared geometry
+    (:func:`_sidecar_frame_datum`), else ``None`` when it carries
+    neither.
+
+    THE one read of :data:`SIDECAR_ANCHOR_KEY` and the one derivation
+    site for the frame origin, so a tool and the census never disagree
+    about which frame a patch is read in.  ``None`` now means the
+    sidecar declares NO frame at all — the caller then falls back to
+    ``_ll_to_m_factory``'s mean of nodes, which is population-DEPENDENT
+    (issue #215) and is named :data:`FRAME_MEAN_OF_NODES` so no report
+    can mistake it for a declared frame.
+    """
     a = (sidecar or {}).get(SIDECAR_ANCHOR_KEY)
-    return (float(a[0]), float(a[1])) if a else None
+    if a:
+        return (float(a[0]), float(a[1]))
+    return _sidecar_frame_datum(sidecar)
+
+
+def sidecar_frame_name(sidecar: "Optional[Dict[str, Any]]") -> str:
+    """Which of the three frames :func:`sidecar_anchor` just handed back,
+    for the report — THE one naming site, so two tools cannot print two
+    names for one frame."""
+    if (sidecar or {}).get(SIDECAR_ANCHOR_KEY):
+        return FRAME_BUILDER_ANCHOR
+    if _sidecar_frame_datum(sidecar) is not None:
+        return FRAME_SIDECAR_DATUM
+    return FRAME_MEAN_OF_NODES
 
 
 def sidecar_metre_frame(path, feature_out=None):
@@ -564,8 +700,11 @@ def sidecar_metre_frame(path, feature_out=None):
     PATCH CARRIES ONE and otherwise the frame is this module's own
     fallback, the MEAN OF NODES — the frame the census and every pytest
     fixture read the same patch in.  ``frame_name`` is
-    :data:`FRAME_BUILDER_ANCHOR` or :data:`FRAME_MEAN_OF_NODES`, for the
-    report.  A patch that declares no anchor AND has no nodes to derive
+    :data:`FRAME_BUILDER_ANCHOR`, :data:`FRAME_SIDECAR_DATUM` or
+    :data:`FRAME_MEAN_OF_NODES` (:func:`sidecar_frame_name`), for the
+    report — the middle one is the population-independent origin issue
+    #215 added for the patches v2 declares no ``anchor`` on.  A patch
+    that declares no anchor AND has no nodes to derive
     one from is REFUSED naming its sidecar: the factory would hand back a
     frame about (0, 0), in which every metre reads 0.0 and looks lawful.
     """
@@ -585,9 +724,7 @@ def sidecar_metre_frame(path, feature_out=None):
             f"REFUSING: {side_path} declares no "
             f"{SIDECAR_ANCHOR_KEY!r} and {p} has no nodes to take the "
             f"mean of — there is no metre frame to measure in.")
-    return (nodes, ways, anchor,
-            FRAME_BUILDER_ANCHOR if anchor else FRAME_MEAN_OF_NODES,
-            sidecar)
+    return (nodes, ways, anchor, sidecar_frame_name(sidecar), sidecar)
 
 
 # ── Vertex / edge tables ────────────────────────────────────────
@@ -11347,7 +11484,9 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
         print(f"  (axes sidecar loaded: {len(ctx['taxi_axes_ll'] or [])} axes"
               + (" [exact]" if exact else "")
               + f", {len(ctx['routes_ll'] or [])} routes"
-              + (", builder anchor frame" if ctx["anchor"] else "")
+              + (f", {sidecar_frame_name(data)} frame"
+                 if ctx["anchor"] else ", NO declared frame (mean of "
+                 "nodes — population-dependent, issue #215)")
               + (f", {len(ctx['seam_pins_ll'])} seam pins"
                  if ctx["seam_pins_ll"] is not None else "")
               + (f", {len(ctx['mesh_edges_ll'])} solver mesh edges"

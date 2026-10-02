@@ -361,15 +361,74 @@ def test_invalidates_when_a_pack_is_removed(tmp_path):
 
 
 def test_invalidates_when_scenery_packs_ini_is_reordered(tmp_path):
+    """A reorder invalidates with BOTH of the ini's stat signals held
+    fixed (owner RULINGS 2026-10-02v (8), #192).
+
+    ``Alpha`` and ``Bravo`` are both five characters, so the rewritten
+    ini is the same LENGTH; and the stamp is pinned back to the
+    original ``st_mtime_ns`` after the write, which is what a
+    coarse-granularity filesystem does on its own when two writes land
+    microseconds apart.  That clock dependency is what made this twin
+    red on ubuntu-22.04 CI and green everywhere else (#192); pinning
+    the stamp removes it, so the twin now poses its real question in
+    every environment instead of only on a coarse clock.
+
+    It does not, on its own, pin the ini CONTENT hash: end to end a
+    reorder also moves the merge ORDER of the ``library.txt`` sources,
+    which is digested too, so this case stays green even against the
+    retired size+mtime key (measured).  The twin below isolates the ini
+    leg; this one is the end-to-end behaviour, clock-independent.
+    """
     root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
     assert _fwd(_cold_index(root)["lib/shared.agp"]).endswith("Alpha/alpha.agp")
+    ini = root / "Custom Scenery" / "scenery_packs.ini"
+    before = ini.stat()
     # Same packs, same library.txt files — only the priority order moves.
-    (root / "Custom Scenery" / "scenery_packs.ini").write_text(
+    ini.write_text(
         "I\n1000 Version\nSCENERY\n\n"
         "SCENERY_PACK Custom Scenery/Bravo/\n"
         "SCENERY_PACK Custom Scenery/Alpha/\n", encoding="utf-8", newline="")
+    os.utime(ini, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = ini.stat()
+    assert (after.st_size, after.st_mtime_ns) == (
+        before.st_size, before.st_mtime_ns), (
+        "this twin must pose a SAME-size, SAME-mtime reorder — otherwise "
+        "it no longer distinguishes a content hash from a stat key")
     index = _assert_rebuilds_to_truth(root)
     assert _fwd(index["lib/shared.agp"]).endswith("Bravo/bravo.agp")
+
+
+def test_fingerprint_moves_on_a_same_size_same_mtime_ini_edit(tmp_path):
+    """The ini leg hashes BYTES (owner RULINGS 2026-10-02v (8), #192).
+
+    End to end a reorder is caught TWICE — by the ini and by the merge
+    ORDER of the ``library.txt`` sources, which a reorder also moves —
+    so the twin above passes against a stat-keyed fingerprint too and
+    cannot pin the ruling on its own.  This one isolates the ini leg by
+    holding ``sources`` fixed across the edit, and moves the ini by
+    content alone: same length, same ``st_mtime_ns``.  A stat key
+    cannot see that; the digest must.
+    """
+    root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
+    sources = A._library_source_files(str(root))
+    ini = root / "Custom Scenery" / "scenery_packs.ini"
+    before = ini.stat()
+    _, first = A._library_index_sidecar(str(root), sources)
+    ini.write_text(
+        "I\n1000 Version\nSCENERY\n\n"
+        "SCENERY_PACK Custom Scenery/Bravo/\n"
+        "SCENERY_PACK Custom Scenery/Alpha/\n", encoding="utf-8", newline="")
+    os.utime(ini, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = ini.stat()
+    assert (after.st_size, after.st_mtime_ns) == (
+        before.st_size, before.st_mtime_ns), (
+        "this twin must pose a SAME-size, SAME-mtime edit — otherwise a "
+        "stat key would pass it too")
+    _, second = A._library_index_sidecar(str(root), sources)
+    assert first and second, "the fingerprint must be computable here"
+    assert first != second, (
+        "a same-size, same-mtime ini edit moved no fingerprint — the ini "
+        "leg is back on the collapsing stat (#192)")
 
 
 def test_invalidates_when_scenery_packs_ini_is_removed(tmp_path):

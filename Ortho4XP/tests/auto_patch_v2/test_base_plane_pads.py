@@ -459,6 +459,32 @@ def test_a_rim_sliver_of_a_replaced_pad_joins_its_nearest_plane_pad(
     assert str(moved[0].ref) in {_P0, plane_ref("building2", 1)}
 
 
+def test_a_cluster_carrying_NO_PROFILE_AT_ALL_mints_nothing_and_never_raises(
+        law, monkeypatch):
+    """§1 (3) "a unit with no base plane keeps today's law exactly", at the
+    channel (lane basepads4).
+
+    The mint reads ``Airport.clusters`` now -- the stamped derivation,
+    not a re-run of it (10-02m (F): the ``id(airport)`` memo missed and
+    cost 36 of 37.7 s at HECA).  That channel is PUBLIC, and a cluster on
+    it may carry no ``base_profile`` attribute at all: a plan before
+    version 12, or a cluster-shaped fixture.  Reading it as an attribute
+    took **17 tests red** across ``test_v2clusterpad.py`` and
+    ``test_v2jetwaystrip.py`` in the full suite, which is this twin's
+    measurement.  No profile means NO MINT, not an AttributeError."""
+    class _Bare:
+        id = "unit:0#0"                         # no base_profile at all
+
+    airport = _Airport()
+    airport.clusters = (_Bare(),)
+    pads = [_pad()]
+    got, counts = PP.plane_pad_split(pads, law, 0.5, airport)
+    assert got == pads
+    assert counts["plane_pads"] == 0 and counts["plane_units"] == 0
+    assert not BS.PLANE_PADS and not BS.BASE_STEPS
+    assert "no cluster reads STEPPED or SLOPED" in str(PP.WHY.get("gate"))
+
+
 def test_the_mint_is_a_no_op_with_the_base_read_disarmed(law, monkeypatch):
     """§1 (1): ``[base_profile] horizontal_ny`` 0 disarms the read, so
     there is no profile to mint from — ONE gate, the read's own."""

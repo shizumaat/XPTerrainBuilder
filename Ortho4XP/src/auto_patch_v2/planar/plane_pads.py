@@ -135,9 +135,17 @@ def _cluster_pieces(airport, law: Law):
     profile from ("as it reads the cluster today") and it is already
     carried on the airport for exactly that reason; the derivation below
     is the fallback for a twin whose fixture stamps none."""
+    # ``getattr`` and not ``c.base_profile``: ``Airport.clusters`` is a
+    # public channel, and a cluster carrying NO profile at all (a plan
+    # before version 12, a twin's fixture) is §1 (3)'s "a unit with no
+    # base plane keeps today's law exactly" -- it mints nothing, it does
+    # not raise.  (Measured: the full suite's ``test_v2clusterpad`` and
+    # ``test_v2jetwaystrip`` fixtures are cluster-shaped stand-ins with
+    # no ``base_profile``, and attribute access took 17 of them red.)
     cl = [c for c in (getattr(airport, "clusters", None)
                       or _derive_clusters(airport, law) or ())
-          if (c.base_profile or {}).get("verdict") in _MINTING]
+          if (getattr(c, "base_profile", None) or {}).get("verdict")
+          in _MINTING]
     if not cl:
         return []
     from ..geom import cluster_outlines

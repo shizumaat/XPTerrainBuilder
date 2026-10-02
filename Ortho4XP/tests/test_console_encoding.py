@@ -24,6 +24,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import io
+import pathlib
 import os
 import subprocess
 import sys
@@ -248,24 +249,137 @@ def test_the_argparse_tool_set_is_not_empty():
     assert len(ARGPARSE_TOOLS) >= 70, len(ARGPARSE_TOOLS)
 
 
-@pytest.mark.parametrize(
-    "tool", ARGPARSE_TOOLS, ids=lambda p: p.name)
+def _enclosing_function(tree: ast.AST, node: ast.AST):
+    """The FunctionDef that lexically contains ``node``, or None."""
+    for candidate in ast.walk(tree):
+        if not isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for inner in ast.walk(candidate):
+            if inner is node:
+                return candidate
+    return None
+
+
+@pytest.mark.parametrize("tool", ARGPARSE_TOOLS, ids=lambda p: p.name)
 def test_every_argparse_tool_pins_the_console_before_its_parser(tool: Path):
     """The structural half, and the one that holds for a tool written
-    tomorrow: the call is at MODULE level and ahead of the first
-    ``ArgumentParser``, so no help text and no report line can be printed
-    through an unpinned stream.  The allowlist is EMPTY."""
+    tomorrow — as it did: `osmium159` (#159) gave
+    ``tools/harness/shared_repo_guard.py`` a CLI in the same merge window as
+    this twin, and this case went red on main for it.
+
+    TWO lawful shapes, because a tool and a library are different things:
+
+    * **at module level** — the idiom in the 80 tools under ``tools/``, which
+      are scripts: nothing can print before it;
+    * **inside the entry, before ``parse_args``** — for a module that is a
+      LIBRARY with a CLI (``shared_repo_guard`` is THE shared-repo write
+      guard, imported by the harness and by every tool that arms it).  A
+      library pinning the console at import would reconfigure the streams of
+      a process that merely imported it, which is the opposite of what this
+      lane is for.
+
+    Anything else fails: a call in a function that does NOT reach the parser,
+    or one after ``parse_args`` has already printed.  The allowlist is EMPTY.
+    """
     tree = ast.parse(_source(tool), filename=str(tool))
-    calls = [n.lineno for n in ast.walk(tree)
-             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-             and n.func.attr == "configure_console_streams"]
+
+    module_level = [n.value.lineno for n in tree.body
+                    if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
+                    and isinstance(n.value.func, ast.Attribute)
+                    and n.value.func.attr == "configure_console_streams"]
     parsers = [n.lineno for n in ast.walk(tree)
                if isinstance(n, ast.Attribute) and n.attr == "ArgumentParser"]
-    assert calls, (f"{tool.name} prints but never calls "
-                   "O4_Console_Encoding.configure_console_streams()")
-    assert min(calls) < min(parsers), (
-        f"{tool.name} builds its parser at line {min(parsers)} before "
-        f"pinning the console at line {min(calls)}")
+    assert parsers, tool.name
+
+    if module_level:
+        assert min(module_level) < min(parsers), (
+            f"{tool.name} builds its parser at line {min(parsers)} before "
+            f"pinning the console at line {min(module_level)}")
+        return
+
+    # The library-with-a-CLI shape: the pin must be inside the very function
+    # that parses, ahead of the parse.
+    parses = [n for n in ast.walk(tree)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+              and n.func.attr == "parse_args"]
+    assert parses, (
+        f"{tool.name} prints but never calls "
+        "O4_Console_Encoding.configure_console_streams() at module level, and "
+        "has no parse_args() for an entry-level pin to sit ahead of")
+    for parse in parses:
+        entry = _enclosing_function(tree, parse)
+        assert entry is not None, (
+            f"{tool.name} parses at module level (line {parse.lineno}) with no "
+            "module-level console pin")
+        pins = [n.lineno for n in ast.walk(entry)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "configure_console_streams"]
+        assert pins and min(pins) < parse.lineno, (
+            f"{tool.name}: {entry.name}() parses at line {parse.lineno} "
+            f"without pinning the console first (pins in it: {pins or 'none'})"
+            " — a library with a CLI pins in the ENTRY, a script at module "
+            "level, and one of the two is required")
+
+
+def _judge(source: str):
+    """Run the rule above against a synthetic module; True when it passes."""
+    import tempfile
+    path = pathlib.Path(tempfile.mkdtemp()) / "synthetic_tool.py"
+    path.write_text(source, encoding="utf-8", newline="\n")
+    try:
+        test_every_argparse_tool_pins_the_console_before_its_parser(path)
+        return True
+    except AssertionError:
+        return False
+
+
+def test_the_rule_is_not_satisfied_by_line_order_alone():
+    """A SELF-INSTRUMENT for the rule, and the weakness it closes.
+
+    The rule used to be ``min(pin lineno) < min(parser lineno)``, which a pin
+    sitting in a function the CLI never calls satisfies for free — measured:
+    pin at line 6, parser at line 10, rule passes, console never pinned.  The
+    entry-shape branch asks the question that was meant: is the pin in the
+    function that PARSES, ahead of the parse?
+    """
+    sneaky = (
+        '"""A tool."""\n'
+        "import argparse\n\n\n"
+        "def unrelated():\n"
+        "    CE.configure_console_streams()\n\n\n"
+        "def main():\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    return parser.parse_args()\n")
+    assert not _judge(sneaky), (
+        "a pin in a function the CLI never calls must not satisfy the rule")
+
+    entry = (
+        '"""A tool."""\n'
+        "import argparse\n\n\n"
+        "def main():\n"
+        "    CE.configure_console_streams()\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    return parser.parse_args()\n")
+    assert _judge(entry), "the library-with-a-CLI shape must be lawful"
+
+    too_late = (
+        '"""A tool."""\n'
+        "import argparse\n\n\n"
+        "def main():\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    args = parser.parse_args()\n"
+        "    CE.configure_console_streams()\n"
+        "    return args\n")
+    assert not _judge(too_late), (
+        "a pin after parse_args() has already printed must not be lawful")
+
+    module_level = (
+        '"""A tool."""\n'
+        "CE.configure_console_streams()\n"
+        "import argparse\n\n\n"
+        "def main():\n"
+        "    return argparse.ArgumentParser().parse_args()\n")
+    assert _judge(module_level), "the script shape must stay lawful"
 
 
 # ---------------------------------------------------------------------------

@@ -97,12 +97,6 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # flat-pad spec §1 (2) (RULINGS 2026-09-30f/r, #111): a HELD block's
     # welded frontage at its flat datum, a stage-1 row
     ("frontage_hold", platform.frontage_hold_rows),
-    # base-profile spec §2 (1) (owner RULINGS 2026-10-01f, #162/#163): a
-    # non-origin PLANE PAD's datum column at the object's own authored
-    # riser above p0's — the pin that makes the plane pads ONE rigid
-    # profile instead of two freely-held pads (a stage-1 row, beside the
-    # hold rows it pins against)
-    ("plane_offset", platform.plane_offset_rows),
     # §30 (4)'s apron reach / collar generators: DELETED (jetway-strip
     # spec §6 Q3) — the JETWAY STRIP projection is their successor.
     ("frontage_near_miss", pads.frontage_near_miss),

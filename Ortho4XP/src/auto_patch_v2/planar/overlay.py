@@ -228,17 +228,6 @@ def build_arrangement(airport: Airport, classification: Classification,
         base_regions, pad_regions, _terr = pad_terrace_split(
             base_regions, pad_regions, law, getattr(airport, "dem", None))
         _pad_clip.update(_terr)
-        # base-profile spec §2 (1)/(3) (owner RULINGS 2026-10-01f, 10-01k):
-        # a unit whose COMPOSED base reads STEPPED mints ONE PAD PER BASE
-        # PLANE here — after the 23a cut and the 28b terrace (the polygon
-        # the planes are clipped to is final, no airside vertex moves) and
-        # BEFORE the platform split, so each plane pad goes through it as
-        # a pad in its own right and a non-origin plane gets its OWN
-        # frontage hold (Q3) from the pad law, not from a second rule
-        from .plane_pads import plane_pad_split
-        pad_regions, _planes = plane_pad_split(pad_regions, law, float(grid),
-                                               airport)
-        _pad_clip.update(_planes)
         # unit-platform spec §1 (2)-(4) (RULINGS 2026-09-28a (1)): a unit
         # pad fronting airside becomes a PLATFORM inside a COLLAR — minted
         # from the FINAL pad polygon (after the 23a cut and the 28b

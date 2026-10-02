@@ -19,8 +19,7 @@ XY = tuple[float, float]
 LL = tuple[float, float]
 Key = tuple[float, float]
 
-__all__ = ["XY", "LL", "Key", "Frame", "identity_key",
-           "rotated_rectangle", "rectangle_axes"]
+__all__ = ["XY", "LL", "Key", "Frame", "identity_key"]
 
 #: THE FRAME HAS TWO PROJECTIONS, AND THE DIFFERENCE BETWEEN THEM IS THE
 #: LAW (spec §46, owner 2026-09-17 Q 17d-1; RULINGS 2026-09-17d / 17g).
@@ -187,36 +186,3 @@ def rotated_rectangle(poly):
         warnings.simplefilter("ignore", RuntimeWarning)
         return poly.minimum_rotated_rectangle
 
-
-
-def rectangle_axes(poly) -> tuple[tuple[float, float], float, float]:
-    """``((ux, uy), long_m, short_m)`` of ``poly`` read as a RIBBON.
-
-    The long-side unit direction and the two side lengths of
-    :func:`rotated_rectangle` — the idiom ``[lot] mouth_width_factor``
-    names ("the strip's width and axis are its minimum rotated
-    rectangle's short and long sides").  ONE spelling for every caller
-    that reads a face's axis, its width or its proportions
-    (``classify/airside_edge._strip_axis_width``, the issue #110 road
-    ribbon in ``classify/open_default``).  A degenerate ring — empty,
-    zero area, or a rectangle shapely returns as a Point / LineString —
-    reads ``((1.0, 0.0), 0.0, 0.0)``, which every caller already treats
-    as "no axis, no width".
-    """
-    import math
-    if poly.is_empty or poly.area <= 0.0:
-        return (1.0, 0.0), 0.0, 0.0
-    try:
-        rect = rotated_rectangle(poly)
-        xs = list(getattr(rect, "exterior", rect).coords)
-    except Exception:                                    # pragma: no cover
-        return (1.0, 0.0), 0.0, 0.0
-    if len(xs) < 5:
-        return (1.0, 0.0), 0.0, 0.0
-    e1 = (xs[1][0] - xs[0][0], xs[1][1] - xs[0][1])
-    e2 = (xs[2][0] - xs[1][0], xs[2][1] - xs[1][1])
-    l1 = math.hypot(*e1)
-    l2 = math.hypot(*e2)
-    lng, long_m, short_m = (e1, l1, l2) if l1 >= l2 else (e2, l2, l1)
-    n = math.hypot(*lng) or 1.0
-    return (lng[0] / n, lng[1] / n), float(long_m), float(short_m)

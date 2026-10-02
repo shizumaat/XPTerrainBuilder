@@ -1982,6 +1982,18 @@ _STRAY_SWEEP_EPILOG = (
 
 
 def main(argv=None) -> int:
+    # The console is UTF-8 before anything prints (#171/#125) -- pinned
+    # HERE, inside the CLI entry, never at import: this module is loaded
+    # by tests/conftest.py and by tools that never load the engine, and
+    # must not put ``src/`` on ``sys.path`` as an import side effect.
+    import os as _os
+    import sys as _sys
+    _src = _os.path.join(_os.path.dirname(_os.path.dirname(
+        _os.path.dirname(_os.path.abspath(__file__)))), "src")
+    if _src not in _sys.path:
+        _sys.path.insert(0, _src)
+    import O4_Console_Encoding as _o4console
+    _o4console.configure_console_streams()
     import argparse
 
     parser = argparse.ArgumentParser(

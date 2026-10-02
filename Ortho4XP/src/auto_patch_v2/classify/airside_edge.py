@@ -324,8 +324,15 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     road_ctx = _Roads(roads, weld_m, rules.service.free_max_width_m,
                       rules.service.min_run_m)
     #: a face OFFERS A MOUTH by the role it was BORN with: a road that
-    #: became apron in an earlier round still meets its neighbour end-on
-    was_road = ([f[0] in _ROAD_ROLES for f in final] if road_class is None
+    #: became apron in an earlier round still meets its neighbour end-on.
+    #: A §110 RIBBON (``open_default.unclassified_groundside_role``,
+    #: ``road_by_proportions``) is a road by its SHAPE, not by EVIDENCE: it
+    #: offers no mouth and owes no §37 (2) share — it is judged as the LOT
+    #: it would otherwise have been (HECA ``dsf:objpav0``, lane hecamove
+    #: 2026-10-02: a 7.1 x 43 m remnant joining two airside junction faces
+    #: end-on read both contacts as its own mouths and stayed groundside).
+    was_road = ([f[0] in _ROAD_ROLES and not f[4].get("road_by_proportions")
+                 for f in final] if road_class is None
                 else [i in road_class for i in range(len(final))])
     fixed = [(Polygon(c.ring, c.holes), False) for c in cells
              if c.role != "building" and c.side == "airside"]

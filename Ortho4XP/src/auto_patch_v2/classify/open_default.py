@@ -120,8 +120,12 @@ def unclassified_groundside_role(face: Polygon, rules: Rules, *,
                                     "ribbon_aspect": aspect,
                                     "ribbon_width_m": width_m}
     if is_ribbon:
+        # ``road_by_proportions``: a road by its SHAPE, never by evidence —
+        # §27 judges it as the lot it would otherwise be (no MOUTH, no
+        # §37 (2) share; ``airside_edge.airside_edge_flip``, HECA
+        # ``dsf:objpav0``, lane hecamove 2026-10-02).
         return "service_road", dict(
-            evid, unclassified_default=(f"road proportions (§110): aspect {aspect:.1f} "
+            evid, road_by_proportions=1.0, unclassified_default=(f"road proportions (§110): aspect {aspect:.1f} "
                                         f">= {rules.groundside.road_ribbon_min_aspect:g}, "
                                         f"width {width_m:.1f} m"))
     return rules.groundside.unclassified_role, dict(

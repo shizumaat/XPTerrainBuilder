@@ -40,7 +40,16 @@ path caps give each airside vertex a floor and a ceiling
 ``model.constraints.REACH_GENERATOR`` — the solver cannot place a vertex
 outside what any route from the thresholds allows.  They are the
 envelope the hard path rows already imply; the law-ordered solve
-withdraws them once a tier yields (``solve/tiers.py``).
+withdraws them once a tier yields (``solve/tiers.py``).  THE RUNWAY
+FAMILY IS THE BAND'S SOURCE AND NEVER ITS SUBJECT (owner RULINGS
+2026-10-02v (6), issue #139): no band is derived for a vertex carrying
+a runway-family role, so a taxi route's budget can never cap the
+runway edge it shares (:func:`reach_band_values`).  Note this is
+narrower than ``emit.toml [terrace] band_roles``, whose trailing
+comment still reads "the taxi / runway faces keep theirs": that key
+withdraws the apron/junction/service faces' bands at assembly
+(``pipeline/shapes``), while the runway family's are never minted at
+all.
 
 THE POPULATION is derived from the tables (03i): the airside VALUE roles
 that are governed and not rigid — a pad is a flat group levelled by its
@@ -175,11 +184,32 @@ def reach_band_values(planar: PlanarMap, law: Law, airport: Airport
                       ) -> dict[int, tuple[float, float]]:
     """Vertex -> ``(floor, ceiling)`` from the threshold pins along the
     routes (``planar.routes.reach``); empty when no runway carries a
-    CIFP threshold."""
+    CIFP threshold.
+
+    THE RUNWAY EDGE IS THE BAND'S SOURCE, NEVER ITS SUBJECT (owner
+    RULINGS 2026-10-02v (6), issue #139): a vertex whose role set
+    carries a RUNWAY-FAMILY role (``precedence.runway_family``, read
+    through :func:`runway_membership`) takes NO band — the band's
+    values come FROM the runway's thresholds, and letting the metric
+    turn around and cap the runway's own vertices is the taxi family's
+    longitudinal law reaching the runway edge through a shared vertex,
+    exactly the 05o class (HECA v1703: a ``runway|stub`` edge vertex
+    whose cheapest route to a threshold runs up the stub at the TAXI
+    cap, so its ceiling sits under the crowned ridge and the ridge
+    comes down with it).  What governs that edge is the runway's own
+    TRANSVERSE row (``runway_profile.runway_transverse``) and the
+    profile; the taxi-side vertices BEYOND the edge keep their band,
+    and the routes still TRANSIT the runway unchanged — only the
+    subject set is narrowed, at this one derivation site, so every
+    reader (the ``reach_bands`` generator, the shape stage's withdraw
+    set, the replay cross-check) inherits it without a veto of its
+    own."""
     pins = threshold_pins(planar, law, airport)
     if not pins:
         return {}
-    return reach(routes(planar, law, airport), pins)
+    vals = reach(routes(planar, law, airport), pins)
+    subjects = runway_membership(planar, law, vals.keys())
+    return {v: b for v, b in vals.items() if v not in subjects}
 
 
 #: THE RUNWAY FLEX RECORDS of the last solve (flat-pad spec v2 §6 A11):

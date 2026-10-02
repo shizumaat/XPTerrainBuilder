@@ -99,6 +99,16 @@ def _verts_of_role(pm, role):
             for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
 
 
+def _banded(pm, law, band):
+    """The raw route metric ``band`` restricted to the vertices the band
+    GOVERNS: owner RULINGS 2026-10-02v (6) (issue #139) makes the runway
+    edge the band's SOURCE and never its subject, so a vertex carrying a
+    runway-family role is dropped at the derivation site
+    (``no_step.reach_band_values``) while the metric itself is
+    unchanged."""
+    return set(band) - set(no_step.runway_membership(pm, law, set(band)))
+
+
 def test_route_graph_excludes_service_and_carries_centrelines(loop, law):
     _airport, pm = loop
     g = build_routes(pm, law)
@@ -176,8 +186,14 @@ def test_reach_bands_are_the_envelope_of_the_hard_rows(loop, law):
         assert band[v] == (pytest.approx(z), pytest.approx(z))
     rows = no_step.reach_bands(pm, law, airport)
     assert rows and all(isinstance(r, Band) and r.source.generator == REACH_GENERATOR for r in rows)
-    assert {r.v for r in rows} == set(band)
+    # 10-02v (6): the SUBJECTS are the metric's vertices less the runway
+    # family's — the thresholds themselves are sources, so the pins carry
+    # no band of their own any more
+    assert {r.v for r in rows} == _banded(pm, law, band)
+    assert all(v not in {r.v for r in rows} for v in pins)
     assert all(r.lo <= r.hi for r in rows)
+    # the values are the metric's, untouched: only the subject set narrowed
+    assert all((r.lo, r.hi) == pytest.approx(band[r.v]) for r in rows)
     # the far apron corner's ceiling is the route's budget above the pin
     apron = _verts_of_role(pm, "apron")
     far = max(apron, key=lambda v: band[v][1])
@@ -571,9 +587,10 @@ def test_apron_beside_the_taxiway_attaches_by_the_hop_never_its_perimeter(arc, l
     kinds = {(int(a), int(b)): int(k) for a, b, k in zip(g.a, g.b, g.kind)}
     on_ring = [key for key in ring if key in kinds]
     assert on_ring and all(kinds[key] == LATERAL and end in key for key in on_ring)
-    # reach and no_step keep their form
+    # reach and no_step keep their form (10-02v (6): less the runway family,
+    # whose vertices are the band's source and never its subject)
     rows = no_step.reach_bands(pm, law, airport)
-    assert {r.v for r in rows} == set(band) and all(r.lo <= r.hi for r in rows)
+    assert {r.v for r in rows} == _banded(pm, law, band) and all(r.lo <= r.hi for r in rows)
     pairs = no_step.no_step_edges(pm, law, airport)
     assert pairs and all(0 < dd <= law.tables.emit.no_step.window_m + 1e-9 for *_x, dd in pairs)
 
@@ -610,7 +627,7 @@ def test_apron_crossed_by_no_centreline_has_no_perimeter_route(between, law):
             for eid in f.ring for e in [pm.edges[eid]]}
     assert all(kinds[key] == LATERAL for key in ring if key in kinds)
     rows = no_step.reach_bands(pm, law, airport)
-    assert {r.v for r in rows} == set(band)
+    assert {r.v for r in rows} == _banded(pm, law, band)   # 10-02v (6)
     # the far stub still pairs along ITS OWN centreline with the apron's
     # north-mouth vertices (a route, though none reaches a pin) and never
     # with a west-mouth vertex (no perimeter joins the two mouths)

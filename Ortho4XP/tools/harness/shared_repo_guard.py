@@ -187,10 +187,16 @@ def scope_of(relpath: str):
     for name, under, dir_suffix in DIR_SUFFIX_SCOPES:
         if not rel.startswith(under):
             continue
-        # Any DIRECTORY component (never the file itself) ending in the
-        # suffix names the scope: ``Elevation_data/<block>/
-        # <stem>_approach_rings/<cell>.tif``.
-        if any(part.endswith(dir_suffix) for part in rel.split("/")[:-1]):
+        # Any DIRECTORY component ending in the suffix names the scope:
+        # ``Elevation_data/<block>/<stem>_approach_rings/<cell>.tif`` --
+        # and the directory ITSELF when the path has no file extension
+        # (the ``os.makedirs`` that creates it is the ring warm's first
+        # write; measured 2026-10-02: without this clause it classified as
+        # ``dem`` and the authorised ``--refresh-data rings`` refused).
+        parts = rel.split("/")
+        if any(part.endswith(dir_suffix) for part in parts[:-1]):
+            return name
+        if parts[-1].endswith(dir_suffix) and "." not in parts[-1]:
             return name
     for name, prefix, _why in REFRESH_SCOPES:
         if rel == prefix or rel.startswith(prefix + "/"):

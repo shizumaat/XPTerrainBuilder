@@ -1117,3 +1117,22 @@ def test_rings_fetched_is_a_build_time_download_qualifier():
     )
     assert 'features.get("rings_fetched")' in source
     assert hasattr(check_build_time, "newest_tile_measurement")
+
+
+def test_the_ring_directory_itself_is_the_rings_scope():
+    """The warm's first write is ``os.makedirs`` of the ring directory;
+    that path (no file component) must classify as ``rings``, not fall
+    through to ``dem`` (measured refusal 2026-10-02, RULINGS 2026-10-02b)."""
+    import importlib.util
+    import os
+    spec = importlib.util.spec_from_file_location(
+        "shared_repo_guard",
+        os.path.join(os.path.dirname(__file__), "..", "tools", "harness",
+                     "shared_repo_guard.py"))
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    assert guard.scope_of("Elevation_data/+30-110/N39W107_approach_rings") == "rings"
+    assert guard.scope_of(
+        "Elevation_data/+30-110/N39W107_approach_rings/cell_00_00_usgs3dep_10m.tif") == "rings"
+    assert guard.scope_of("Elevation_data/+30-110/N39W107.hgt") == "dem"
+

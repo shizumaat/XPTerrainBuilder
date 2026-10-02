@@ -2610,6 +2610,12 @@ def test_refresh_only_exits_0_for_a_scope_it_was_not_asked_to_warm(
     monkeypatch.setattr(build_mod, "dem_cache_state", lambda *a: {
         "tile": [33, -112], "tile_stem": "N33W112", "base_raster": True,
         "airports_layer": True, "airport_insets": True})
+    # The ring probe reads the REAL corpus (a cached +33-112 airports
+    # layer derives a real plan with cold cells on a warm machine, and
+    # None on CI): this twin is about the dem/osm_layers scopes, so the
+    # rings verdict is pinned to "no problem" (#164, 2026-10-02).
+    monkeypatch.setattr(build_mod, "approach_ring_problem",
+                        lambda *a, **kw: None)
 
     # refresh-only, osm_layers requested and STILL stale -> refuses
     with pytest.raises(SystemExit) as exc:

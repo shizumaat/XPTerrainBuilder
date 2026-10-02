@@ -45,6 +45,16 @@ TILE_LON = -87
 CELL_DEGREES = ELEVATION_LEVEL.COASTLINE_CELL_DEGREES
 NODATA = -32768.0
 
+#: The band's synthetic provider: its DECLARED native resolution and the
+#: label of the ladder rung every band cell is fetched from.  A band cell
+#: is a SURROUND of its tier's class, fetched from the ladder rung whose
+#: native resolution is at most that class (owner RULINGS 2026-10-02f), so
+#: the rung is part of the cell's cache stem -- and a definition that
+#: declares no native resolution is no surround source at all.
+LIDAR_NATIVE_M = 1.0
+LIDAR_RUNG_LABEL = "1 m lidar"
+LIDAR_RUNG_TOKEN = FNAMES.rung_path_token(LIDAR_RUNG_LABEL)
+
 NEAR_RESOLUTION_M = round(ELEVATION_LEVEL.grid_posting_metres(3), 2)  # 10.31
 MID_RESOLUTION_M = float(ELEVATION_LEVEL.COASTLINE_MID_RESOLUTION_M)  # 20.0
 FAR_RESOLUTION_M = round(ELEVATION_LEVEL.grid_posting_metres(1), 2)  # 30.92
@@ -87,7 +97,11 @@ def _install_coastline(monkeypatch, coastline_geometry):
 
 def _install_provider(monkeypatch, code="TESTLIDAR"):
     """Make provider selection return a synthetic wide-area definition."""
-    definition = {"code": code}
+    definition = {
+        "code": code,
+        "native_resolution_m": LIDAR_NATIVE_M,
+        "ladder_label": LIDAR_RUNG_LABEL,
+    }
     monkeypatch.setattr(
         ELEVATION_LEVEL,
         "select_tile_overlay_definition",
@@ -162,6 +176,9 @@ def _writing_fetch(records):
                 "bbox": bounding_box,
                 "resolution_m": resolution_m,
                 "path": destination,
+                # WHICH definition the band fetched through: the ladder
+                # RUNG at or under the cell's class (RULINGS 2026-10-02f).
+                "definition": definition,
             }
         )
         _write_cell_geotiff(destination, *bounding_box)
@@ -384,7 +401,8 @@ def test_clean_none_records_negative_honoured_on_rerun(monkeypatch, tmp_path):
     target_stem = os.path.splitext(
         os.path.basename(
             FNAMES.coastline_band_cell_dem(
-                TILE_LAT, TILE_LON, 1, 3, "TESTLIDAR", FAR_RESOLUTION_M
+                TILE_LAT, TILE_LON, 1, 3, "TESTLIDAR", FAR_RESOLUTION_M,
+                LIDAR_RUNG_TOKEN,
             )
         )
     )[0]
@@ -431,7 +449,8 @@ def test_fetch_exception_does_not_poison_or_raise(monkeypatch, tmp_path):
     target_stem = os.path.splitext(
         os.path.basename(
             FNAMES.coastline_band_cell_dem(
-                TILE_LAT, TILE_LON, 1, 3, "TESTLIDAR", FAR_RESOLUTION_M
+                TILE_LAT, TILE_LON, 1, 3, "TESTLIDAR", FAR_RESOLUTION_M,
+                LIDAR_RUNG_TOKEN,
             )
         )
     )[0]
@@ -628,7 +647,8 @@ def test_bake_blends_band_and_leaves_uncovered_at_base(monkeypatch, tmp_path):
         east = west + CELL_DEGREES
         north = south + CELL_DEGREES
         path = FNAMES.coastline_band_cell_dem(
-            TILE_LAT, TILE_LON, column, 4, "TESTLIDAR", MID_RESOLUTION_M
+            TILE_LAT, TILE_LON, column, 4, "TESTLIDAR", MID_RESOLUTION_M,
+            LIDAR_RUNG_TOKEN,
         )
         _write_cell_geotiff(path, west, south, east, north, value=100.0, pixels=pixels)
         cell_paths.append(path)
@@ -693,7 +713,8 @@ def _cell_stem(column, row, resolution_m=FAR_RESOLUTION_M):
     return os.path.splitext(
         os.path.basename(
             FNAMES.coastline_band_cell_dem(
-                TILE_LAT, TILE_LON, column, row, "TESTLIDAR", resolution_m
+                TILE_LAT, TILE_LON, column, row, "TESTLIDAR",
+                resolution_m, LIDAR_RUNG_TOKEN,
             )
         )
     )[0]
@@ -772,7 +793,8 @@ def test_constant_zero_fetch_recorded_no_coverage(monkeypatch, tmp_path):
     # The implausible raster is deleted, never mosaicked.
     assert not os.path.isfile(
         FNAMES.coastline_band_cell_dem(
-            TILE_LAT, TILE_LON, *target_cell, "TESTLIDAR", FAR_RESOLUTION_M
+            TILE_LAT, TILE_LON, *target_cell, "TESTLIDAR",
+            FAR_RESOLUTION_M, LIDAR_RUNG_TOKEN,
         )
     )
 
@@ -836,7 +858,8 @@ def test_cached_constant_cell_purged_not_recycled(monkeypatch, tmp_path):
     _install_coastline(monkeypatch, SHORT_COASTLINE)
     poisoned_cell = (1, 3)
     poisoned_path = FNAMES.coastline_band_cell_dem(
-        TILE_LAT, TILE_LON, *poisoned_cell, "TESTLIDAR", FAR_RESOLUTION_M
+        TILE_LAT, TILE_LON, *poisoned_cell, "TESTLIDAR", FAR_RESOLUTION_M,
+        LIDAR_RUNG_TOKEN,
     )
     west = TILE_LON + poisoned_cell[0] * CELL_DEGREES
     south = TILE_LAT + poisoned_cell[1] * CELL_DEGREES
@@ -860,3 +883,115 @@ def test_cached_constant_cell_purged_not_recycled(monkeypatch, tmp_path):
     assert stamp["cells"][_cell_stem(*poisoned_cell)] == INSETS.NO_COVERAGE
     # Healthy cached cells (none here) aside, the other cells fetched fine.
     assert poisoned_cell not in [record["cell"] for record in records]
+
+
+# =====================================================================
+# THE LADDER RUNG a band cell is fetched from (owner RULINGS 2026-10-02f)
+#
+# The band took the rings' defect through the very same no-ladder
+# ``fetch_inset`` call: a 1 m project discovery resampled to the tier's
+# class, holes included.  One derivation site, shared with the rings
+# (``ELEVATION_LEVEL.surround_rung_for_class``).
+# =====================================================================
+SEAMLESS_RUNG_LABEL = "1/3 arc-second"
+SEAMLESS_RUNG_NATIVE_M = 10.0
+SEAMLESS_RUNG_DISCOVERY = "file://seamless/{west}"
+
+
+def _install_laddered_provider(monkeypatch, code="LADDERLIDAR"):
+    """A USGS3DEP-shaped band provider: a 1 m project discovery over one
+    seamless 10 m product."""
+    definition = {
+        "code": code,
+        "enabled": True,
+        "native_resolution_m": LIDAR_NATIVE_M,
+        "ladder_label": LIDAR_RUNG_LABEL,
+        "access_strategy": "tnm_cog",
+        "discovery_url_template": "file://one-metre/{west}",
+        "resolution_ladder_rungs": [
+            {
+                "label": SEAMLESS_RUNG_LABEL,
+                "native_resolution_m": SEAMLESS_RUNG_NATIVE_M,
+                "discovery_url_template": SEAMLESS_RUNG_DISCOVERY,
+            },
+        ],
+    }
+    monkeypatch.setattr(
+        ELEVATION_LEVEL,
+        "select_tile_overlay_definition",
+        lambda lat, lon, level, providers_config="auto": definition,
+    )
+    return definition
+
+
+@pytest.mark.skipif(not HAS_GDAL, reason="requires the GDAL bindings")
+def test_band_cells_are_fetched_from_the_rung_under_their_class(
+    monkeypatch, tmp_path
+):
+    """Every band cell is handed the SEAMLESS rung's definition, asked for
+    the tier's class, and cached under a stem naming the rung -- never the
+    provider's own 1 m project discovery."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    _install_laddered_provider(monkeypatch)
+    _install_coastline(monkeypatch, SHORT_COASTLINE)
+    records = []
+    monkeypatch.setattr(INSETS, "fetch_inset", _writing_fetch(records))
+
+    assert ELEVATION_LEVEL.ensure_coastline_band(_coastline_tile(), None)
+    assert records
+    token = FNAMES.rung_path_token(SEAMLESS_RUNG_LABEL)
+    for record in records:
+        assert record["definition"]["discovery_url_template"] == \
+            SEAMLESS_RUNG_DISCOVERY
+        assert record["definition"]["native_resolution_m"] == \
+            SEAMLESS_RUNG_NATIVE_M
+        assert token in os.path.basename(record["path"])
+        # The tier's class is still what the rung is ASKED for.
+        assert record["resolution_m"] in (
+            NEAR_RESOLUTION_M, MID_RESOLUTION_M, FAR_RESOLUTION_M
+        )
+
+
+@pytest.mark.skipif(not HAS_GDAL, reason="requires the GDAL bindings")
+def test_the_band_rung_is_the_rings_rung(monkeypatch, tmp_path):
+    """One derivation site: what the band fetched is what
+    :func:`surround_rung_for_class` answers for the same class."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    definition = _install_laddered_provider(monkeypatch)
+    _install_coastline(monkeypatch, SHORT_COASTLINE)
+    records = []
+    monkeypatch.setattr(INSETS, "fetch_inset", _writing_fetch(records))
+
+    ELEVATION_LEVEL.ensure_coastline_band(_coastline_tile(), None)
+    for record in records:
+        rung = ELEVATION_LEVEL.surround_rung_for_class(
+            definition, record["resolution_m"]
+        )
+        assert rung.label == SEAMLESS_RUNG_LABEL
+        assert record["definition"]["discovery_url_template"] == \
+            rung.definition["discovery_url_template"]
+
+
+@pytest.mark.skipif(not HAS_GDAL, reason="requires the GDAL bindings")
+def test_a_provider_declaring_no_resolution_yields_no_band(
+    monkeypatch, tmp_path
+):
+    """A band cell is a surround of its tier's CLASS: a provider that
+    declares no native resolution has no rung at or under it, so no cell
+    is fetched and the base elevation source stands (it is never fetched
+    at an unknown class instead)."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(
+        ELEVATION_LEVEL,
+        "select_tile_overlay_definition",
+        lambda lat, lon, level, providers_config="auto": {"code": "NORES"},
+    )
+    _install_coastline(monkeypatch, SHORT_COASTLINE)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("no cell may be fetched without a rung")
+
+    monkeypatch.setattr(INSETS, "fetch_inset", fail_if_called)
+    assert ELEVATION_LEVEL.ensure_coastline_band(
+        _coastline_tile(), None
+    ) is None

@@ -210,6 +210,79 @@ def coastline_rung_ladder():
     )
 
 
+#: The provenance-sidecar key recording the ladder rung a graded cell was
+#: fetched from (owner RULINGS 2026-10-02f).
+SURROUND_RUNG_PROVENANCE_KEY = "ring_rung"
+
+#: One chosen ladder rung: its label, the definition to fetch THROUGH, its
+#: native resolution in metres, and its filename token.
+SurroundRung = collections.namedtuple(
+    "SurroundRung",
+    ("label", "definition", "native_resolution_m", "token"),
+)
+
+
+def surround_rung_for_class(definition, class_m):
+    """THE one derivation of the ladder RUNG a graded cell of ``class_m``
+    is fetched from -- shared by the approach rings and the coastline band
+    (owner RULINGS 2026-10-02f, the ruling this function exists for).
+
+    A ring or band cell is a SURROUND: one seamless whole-cell raster of
+    the cell's class.  Fetching it through the provider's own definition
+    takes RUNG 0 -- for USGS3DEP the 1 m lidar PROJECTS resampled to the
+    class, which carry the #130 Aspen hole: KASE's ring-1 cells read
+    0.0003-0.99 valid and the bake handed the holes back to the 90 m base.
+
+    THE RULE: the rung is the COARSEST rung whose native resolution is at
+    most the class, among the rungs that can be a surround
+    (:func:`O4_Airport_Elevation_Insets._rung_can_be_surround` -- never a
+    point-cloud tile index, never an AOI polygon POST, never a rung judged
+    by airport cover: each lists or serves the AIRPORT, not the cell).
+    For USGS3DEP that is the ``1/3 arc-second`` rung at BOTH classes --
+    ring 1 (10.29 m) because it is the coarsest rung at or under the
+    class, and ring 2 (30.87 m) because it is the coarsest rung the
+    provider HAS, which is the ruling's "the same product at 30.87 m":
+    one product, one datum, one vintage across the 10 m -> 30 m seam
+    (spec section 2).
+
+    The ladder is read WITHOUT a bounding box on purpose: the box turns on
+    GLOBAL ASSEMBLY (RULINGS 2026-09-30bm), which would join a global 30 m
+    member to the chain and make it the coarsest rung under the ring-2
+    class -- handing ring 2 to a DIFFERENT product, datum and vintage than
+    ring 1, which is exactly what spec section 2 forbids.  "The provider's
+    ladder rung" is the provider's own chain.
+
+    Returns a :class:`SurroundRung`, or ``None`` when the provider has no
+    surround-capable rung at or under the class -- it is then not a ring
+    source for that class, and the caller walks on to the next candidate
+    (the collapse rule, unchanged).
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+
+    if definition is None or class_m is None:
+        return None
+    limit_m = float(class_m)
+    best = None
+    for label, rung_definition in INSETS._ladder_rung_definitions(definition):
+        if not INSETS._rung_can_be_surround(rung_definition):
+            continue
+        native_m = INSETS._definition_resolution_m(rung_definition)
+        if native_m is None or native_m > limit_m:
+            continue
+        if best is not None and native_m <= best.native_resolution_m:
+            # Strictly coarser wins, so a tie keeps the FINEST-FIRST
+            # ladder's own order (the file's rung before a cross-provider
+            # rung of the same resolution).
+            continue
+        best = SurroundRung(
+            label,
+            rung_definition,
+            native_m,
+            FNAMES.rung_path_token(label),
+        )
+    return best
+
+
 def approach_class(distance_m, ladder):
     """The ladder rung serving a point ``distance_m`` from the reference.
 
@@ -765,6 +838,9 @@ def ensure_coastline_band(tile, dico_airports):
 
     # Select coastal cells and grade each by the approach ladder.
     cells = []
+    #: Cells whose class the provider has no surround-capable rung for
+    #: (RULINGS 2026-10-02f): the base elevation source stands there.
+    cells_without_a_rung = 0
     cell_count = 10  # a 1 degree tile is a 10 x 10 grid of 0.1 degree cells
     for cell_column in range(cell_count):
         for cell_row in range(cell_count):
@@ -790,8 +866,18 @@ def ensure_coastline_band(tile, dico_airports):
             rung = approach_class(airport_distance_m, band_ladder)
             tier = rung.label
             resolution_m = rung.resolution_m
+            # THE SAME RULING AS THE RINGS (2026-10-02f): a band cell is a
+            # SURROUND of its tier's class, so it is fetched from the
+            # ladder rung whose native resolution is at most that class --
+            # one derivation site, shared (the band took the ring's defect
+            # through the very same no-ladder ``fetch_inset`` call).
+            source_rung = surround_rung_for_class(definition, resolution_m)
+            if source_rung is None:
+                cells_without_a_rung += 1
+                continue
             cell_path = FNAMES.coastline_band_cell_dem(
-                lat, lon, cell_column, cell_row, code, resolution_m
+                lat, lon, cell_column, cell_row, code, resolution_m,
+                source_rung.token,
             )
             cells.append(
                 {
@@ -799,6 +885,7 @@ def ensure_coastline_band(tile, dico_airports):
                     "row": cell_row,
                     "tier": tier,
                     "resolution_m": resolution_m,
+                    "source_rung": source_rung,
                     "path": cell_path,
                     "stem": os.path.splitext(
                         os.path.basename(cell_path)
@@ -806,6 +893,16 @@ def ensure_coastline_band(tile, dico_airports):
                 }
             )
 
+    if cells_without_a_rung:
+        UI.vprint(
+            1,
+            "   INFO:",
+            cells_without_a_rung,
+            "coastline band cell(s) have no",
+            code,
+            "ladder rung at or under their class (owner ruling"
+            " 2026-10-02f); the base elevation source stands there.",
+        )
     if not cells:
         UI.vprint(
             1,
@@ -884,7 +981,7 @@ def ensure_coastline_band(tile, dico_airports):
             continue
         try:
             provenance = INSETS.fetch_inset(
-                definition,
+                cell["source_rung"].definition,
                 (
                     lon + cell["column"] * COASTLINE_CELL_DEGREES,
                     lat + cell["row"] * COASTLINE_CELL_DEGREES,
@@ -1935,6 +2032,7 @@ def _approach_ring_cell(
                 "class_m": rung.resolution_m,
                 "reach_ring": reach_ring.label,
                 "provider": None,
+                "source_rung": None,
                 "state": APPROACH_RING_SUPERSEDED,
                 "path": None,
                 "band_path": None,
@@ -1946,9 +2044,20 @@ def _approach_ring_cell(
         ):
             if not _definition_covers_box(definition, box):
                 continue
+            # THE RULING (2026-10-02f): the cell is fetched from the
+            # provider's ladder rung whose native resolution is at most
+            # this class -- never the provider's own 1 m discovery.  A
+            # provider with no such rung is not a ring source for the
+            # class: walk on (the collapse rule, unchanged).
+            source_rung = surround_rung_for_class(
+                definition, rung.resolution_m
+            )
+            if source_rung is None:
+                continue
             code = definition["code"]
             path = FNAMES.approach_ring_cell_dem(
-                lat, lon, column, row, code, rung.resolution_m
+                lat, lon, column, row, code, rung.resolution_m,
+                source_rung.token,
             )
             return {
                 "column": column,
@@ -1957,13 +2066,19 @@ def _approach_ring_cell(
                 "class_m": rung.resolution_m,
                 "reach_ring": reach_ring.label,
                 "provider": code,
+                "source_rung": source_rung.label,
+                "source_rung_native_m": source_rung.native_resolution_m,
+                "source_rung_token": source_rung.token,
                 "state": None,
                 "path": path,
                 # ONE cell cache, two plans (spec section 5): a cell already
                 # fetched for the coastline band at the same stem is
-                # reused BY REFERENCE, never copied.
+                # reused BY REFERENCE, never copied.  The rung is part of
+                # the stem, so the two plans share a cell only when they
+                # fetched it from the same rung.
                 "band_path": FNAMES.coastline_band_cell_dem(
-                    lat, lon, column, row, code, rung.resolution_m
+                    lat, lon, column, row, code, rung.resolution_m,
+                    source_rung.token,
                 ),
                 "stem": os.path.splitext(os.path.basename(path))[0],
             }
@@ -1974,6 +2089,7 @@ def _approach_ring_cell(
         "class_m": reach_ring.resolution_m,
         "reach_ring": reach_ring.label,
         "provider": None,
+        "source_rung": None,
         "state": "no-provider",
         "path": None,
         "band_path": None,
@@ -2028,7 +2144,17 @@ def approach_ring_plan_stamp(plan):
         {
             "airports": plan["airports"],
             "cells": [
-                [c["column"], c["row"], c["stem"], c["provider"], c["ring"]]
+                # The chosen RUNG is part of the key (owner RULINGS
+                # 2026-10-02f): a cell fetched under the old no-ladder
+                # rule is not the planned file and the stamp moves with it.
+                [
+                    c["column"],
+                    c["row"],
+                    c["stem"],
+                    c["provider"],
+                    c["ring"],
+                    c.get("source_rung"),
+                ]
                 for c in plan["cells"]
             ],
             "feathers": plan["feathers"],
@@ -2105,6 +2231,13 @@ def summarize_approach_rings(lat, lon, plan):
         "providers": sorted(
             {c["provider"] for c in planned if c.get("provider")}
         ),
+        # WHICH RUNG answered each class (owner RULINGS 2026-10-02f): the
+        # provider alone does not say -- USGS3DEP's 1 m discovery and its
+        # 1/3 arc-second rung are the same provider and a different
+        # product, and only one of them is a lawful ring source.
+        "rungs": sorted(
+            {c["source_rung"] for c in planned if c.get("source_rung")}
+        ),
         "layers": {
             layer["ring"]: {
                 "class_m": layer["class_m"],
@@ -2172,10 +2305,27 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
         definition = INSETS.elevation_providers_dict.get(cell["provider"])
         if definition is None:
             continue
+        # THE RULING (2026-10-02f): fetch THROUGH the planned rung, not
+        # through the provider's own (1 m, project-discovered) definition.
+        source_rung = surround_rung_for_class(definition, cell["class_m"])
+        if source_rung is None or source_rung.label != cell.get("source_rung"):
+            # The registry moved under the plan derived at the top of this
+            # function: the planned stem is not what this rung would write.
+            UI.vprint(
+                2,
+                "   Approach ring cell",
+                stem,
+                "plans rung",
+                cell.get("source_rung"),
+                "but the registry now offers",
+                None if source_rung is None else source_rung.label,
+                "- skipping it.",
+            )
+            continue
         os.makedirs(FNAMES.approach_ring_directory(lat, lon), exist_ok=True)
         try:
             provenance = INSETS.fetch_inset(
-                definition,
+                source_rung.definition,
                 approach_ring_cell_box(lat, lon, cell["column"], cell["row"]),
                 cell["class_m"],
                 cell["path"],
@@ -2198,9 +2348,18 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
             fetched += 1
             record = dict(provenance)
             record["fetch_date"] = datetime.date.today().isoformat()
+            # The sidecar records the RUNG (owner RULINGS 2026-10-02f): a
+            # cell's class alone does not say which product answered it.
+            record[SURROUND_RUNG_PROVENANCE_KEY] = {
+                "label": source_rung.label,
+                "native_resolution_m": source_rung.native_resolution_m,
+                "provider": source_rung.definition.get(
+                    "code", cell["provider"]
+                ),
+            }
             sidecar = FNAMES.approach_ring_cell_provenance(
                 lat, lon, cell["column"], cell["row"], cell["provider"],
-                cell["class_m"],
+                cell["class_m"], cell.get("source_rung_token"),
             )
             with open(
                 sidecar, "w", encoding="utf-8", newline="\n"

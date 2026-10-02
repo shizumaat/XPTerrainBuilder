@@ -350,6 +350,91 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                 geom_pts=_geom_pts(raw, grp))
 
 
+def _unit_carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int],
+                       m: Member, u: Unit, surface: _ar.Surface,
+                       uc: _t.Any, body_id: int, counts: dict[str, int],
+                       by_class: dict[str, int],
+                       part_boxes: _t.Sequence[_t.Sequence[tuple]] = (),
+                       bridge: _t.Sequence[str] = (),
+                       geom_boxes: _t.Sequence = ()) -> Body:
+    """issue #31 (§16 (3) NARROWED): the bodies of ``grp`` as ONE file on
+    their FOOTPRINT UNIT's datum — the terminal's seat, not the ground
+    under the jetway.
+
+    THE DEFECT (owner RULINGS 2026-09-30y, the SPJC central-terminal
+    read: "the terminal floats at one end and is sunk at the other,
+    separating from its jetways"): a jetway's ``.obj`` carries no foot
+    below the contact band, and an animated jetway is one kept-whole
+    ``ANIM`` body the part cut cannot divide — either way a FOOTLESS
+    body.  A terminal seated on its pad then refuses to carry it (§16a
+    (2): the walls' own zero is the pad's and the ground under their feet
+    is the DEM metres below), every fallback is refused by the
+    carried-side test for the same reason, and §16 (3) wrote the jetway
+    at the ground under its OWN footprint.  The terminal moved with its
+    pad and the jetway stayed on the terrain.
+
+    THE FILE IS THE UNIT'S SEAT.  ``y_zero`` is set so the body's zero
+    plane is exactly the unit's datum ``uc.zero_z`` (the plane
+    :func:`footprint_unit.bind_footprint_units` gave every footed member
+    of the unit, ``p0`` of the composed unit after #174/#182), and the
+    AUTHORED y is kept — a tunnel authored 4 m up renders 4 m over the
+    terminal's floor, which is where the pack authored it.  The anchor's
+    ``surface_z`` is still the ground under the body's own footprint, so
+    the census can read how far the unit holds it off its own terrain;
+    nothing is derived from it.
+
+    ``merged_into`` names THE UNIT, because that is the carrier the law
+    chose.  It is not a body resource, so the §15 (3) float instrument —
+    which resolves ``merged_into`` to a body and measures the two zeros —
+    finds no body beneath and leaves these files out of that class.  That
+    is the honest reading (a datum has no zero of its own to disagree
+    with, and the float against the unit plane is 0 by construction) and
+    the count ``footless_carried_by_unit`` is what reports them instead.
+    REPORTED, not decided: whether the instrument should grow a class of
+    its own for a unit-carried body is the spec author's."""
+    parts = [p for i in grp for p in raw[i][0]]
+    cls = raw[max(grp, key=lambda i: len(raw[i][0]))][1]
+    box = (_pc.hull_of(b for i in grp for b in part_boxes[i]) if part_boxes
+           else _pc.box_of((), parts))
+    clat, clon = 0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])
+    z = _pc.ground_under(surface, _pc.foot_boxes(
+        [b for i in grp for b in part_boxes[i]]) if part_boxes else (), box)
+    # the zero plane IS the unit's datum: ``zero = surface_z - y_zero``
+    y_zero = (float(z) - float(uc.zero_z)) if z is not None else 0.0
+    off = authored_offset(clat, clon, y_zero, u.anchor[0], u.anchor[1],
+                          m.heading_deg)
+    a = _ar.Anchor(cls, clat, clon, y_zero,
+                   f"{uc.why} on "
+                   + (f"pad {uc.where}" if uc.source in ("pad", "cluster_pad")
+                      else (f"deck {uc.where}" if uc.source == "deck"
+                            else "its median ground"))
+                   + f" at {float(uc.zero_z):.2f}"
+                   + ("" if z is None
+                      else f" (own ground {float(z) - float(uc.zero_z):+.2f} m)"),
+                   z, off)
+    by_class[cls] = by_class.get(cls, 0) + 1
+    counts[_fu.UNIT_CARRY] = counts.get(_fu.UNIT_CARRY, 0) + 1
+    tris = tuple(t for i in grp for t in raw[i][5])
+    cut_comps = tuple(sorted({p.comp for i in grp if not raw[i][5]
+                              for p in raw[i][0]}))
+    return Body(body_id, cls, tuple(sorted(p.comp for p in parts)), a,
+                _split.body_resource_name(m.resource, body_id, off),
+                tuple(sorted(p.pid for p in parts)), feet=(),
+                merged_into=uc.unit, merged_into_written=True,
+                cut_components=cut_comps, tris=tris, elevated=True,
+                elevated_members=len(grp), plan_box=box,
+                geom_box=(_geom_hull(grp, part_boxes, geom_boxes)
+                          if part_boxes else box) or box,
+                foot_boxes=(_pc.foot_boxes([b for i in grp for b in part_boxes[i]])
+                            if part_boxes else ()),
+                fill=(_pc.fill_of(_pc.hull_of(b for i in grp
+                                              for b in part_boxes[i]),
+                                  [b for i in grp for b in part_boxes[i]])
+                      if part_boxes else 1.0),
+                bridge_of=_bf.body_bridge(bridge, grp),
+                geom_pts=_geom_pts(raw, grp))
+
+
 def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
                   splits: list[Split], kept: list[Kept], whole: list[Split],
                   *, always_write: bool) -> None:
@@ -599,6 +684,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                               # §13 (3) / §14 (4) / §15's reported classes
                               "footless": 0, "elevated_own_files": 0,
                               "footless_carried": 0, "footless_no_carrier": 0,
+                              # issue #31
+                              _fu.UNIT_CARRY: 0,
                               "basin_bodies_bound": 0, "bodies_plan_bound": 0,
                               "groups_re_cut": 0, "elevated_ride_other_file": 0,
                               "footless_own_ground": 0}
@@ -649,6 +736,17 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       chain_min_height_m,  # §16g (10) (4)
                                       contents_min_fraction,  # S6
                                       sheet_chain_min_fraction)  # 27a
+
+    # issue #31: the §16g unit footprints a FOOTLESS piece with no footed
+    # carrier is asked against — built ONCE, and only if one asks, so a
+    # plan whose footless pieces all find a footed carrier pays nothing
+    # (``unit_carry_index`` walks every part of the plan).
+    _uix: list[dict] = []
+
+    def _unit_ix() -> dict:
+        if not _uix:
+            _uix.append(_fu.unit_carry_index(plan, _pw) if _pw else {})
+        return _uix[0]
 
     # RULINGS 2026-09-29q: the ONE verdict's cut connectors (their decks
     # carry what is authored on them)
@@ -1029,16 +1127,37 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     # branch remains for the placement NOTHING carries).
                     # issue #127: ...unless it is WELDED to a body that
                     # has one — asked after every member has searched
-                    _no_carrier.append((st, list(grp), _pids))
+                    _no_carrier.append((st, list(grp), _pids, bx))
                     continue
                 _ride(st, grp, over)
         _wc = welded_carriers([t[2] for t in _no_carrier], _placed,
                               unit_pairs.get(ui, ()))
-        for ti, (st, grp, _pids) in enumerate(_no_carrier):
+        for ti, (st, grp, _pids, _bx) in enumerate(_no_carrier):
             if ti in _wc:
                 counts["footless_rides_weld"] = \
                     counts.get("footless_rides_weld", 0) + 1
                 _ride(st, grp, [_wc[ti]])
+                continue
+            # issue #31 (§16g (11), owner 2026-09-18s read on the object
+            # stage: "the flat terminal area should include the
+            # jetways"): THE UNIT ITSELF IS AN ADMISSIBLE CARRIER.  No
+            # footed body of the plan will carry this footless piece —
+            # a terminal on its pad is refused by §16a (2), and so is
+            # every fallback — but the piece's own §16g unit has ONE
+            # datum, and a jetway inside the terminal's footprint (or
+            # against its frontage) is a member of it by 09-18s.  It
+            # takes that datum and the unit's seat; §16 (3)'s own
+            # ground stays for a piece no unit of the plan admits.
+            # ... except a 29q CUT CONNECTOR's own geometry, which §2
+            # takes out of every unit chain and seats by its verdict
+            # (RULINGS 2026-09-30m: a linear elevated structure is no
+            # carrier, and nothing binds it to one datum)
+            uc = (_fu.unit_carry(_pids, _bx, _pw, _unit_ix(),
+                                 frontage_m=touch_m,
+                                 span_max_m=connector_span_m, counts=counts)
+                  if st.footless and _pw and not (_pids & _cut29q) else None)
+            if uc is not None:
+                st.unit_carried.append((grp, uc))
             else:
                 st.own_ground.append(grp)
         for st in staged:
@@ -1063,7 +1182,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         for mi in _pc.cut_order(deps):
             st = by_mi[mi]
             m = st.m
-            if st.footless and not st.carried and not st.own_ground:
+            if (st.footless and not st.carried and not st.own_ground
+                    and not st.unit_carried):
                 # §16 (3): no carrier the law accepts anywhere in this
                 # unit — the placement is written at the GROUND UNDER ITS
                 # OWN FOOTPRINT with its authored y kept, never left on
@@ -1118,6 +1238,13 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                      st.geom_boxes),
                     u, m, decks, on_fraction=deck_on_fraction, edge_m=deck_edge_m,
                     surface=surface, under_m=deck_under_m, counts=counts))
+            # issue #31: the unit-carried pieces, BEFORE the §15 carries
+            # — their zero is the unit's datum and depends on no other
+            # member's file, so they need no place in ``cut_order``
+            for grp, uc in st.unit_carried:
+                bodies.append(_unit_carried_file(
+                    st.raw, grp, m, u, surface, uc, len(bodies), counts,
+                    by_class, st.part_boxes, st.bridge, st.geom_boxes))
             for grp, c, why in st.carried:
                 cw = written_of.get(c.member, True)
                 bodies.append(_carried_file(
@@ -1135,7 +1262,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 # footless placement can be partly carried and partly on
                 # its own ground — it counts as carried only where a
                 # carrier was actually found
-                if st.carried:
+                if st.carried or st.unit_carried:
                     counts["footless_carried"] += 1
                 else:
                     counts["footless_no_carrier"] += 1

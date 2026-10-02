@@ -255,6 +255,14 @@ class Staged:
     #: and not a body since §16b (2): the carrier question is asked per
     #: terrain group, so the answer "nobody" is given per group too.
     own_ground: list[list[int]] = _dc.field(default_factory=list)
+    #: issue #31 (§16g (11)): ``(body indices, the UNIT that carries
+    #: them)`` — the footless pieces no footed body of the plan would
+    #: carry but whose own §16g unit does, each written as ONE file on
+    #: that unit's datum (``footprint_unit.UNIT_CARRY``).  A GROUP for
+    #: the same reason ``own_ground`` is one: §16b (2) asks the carrier
+    #: question per terrain group, so the unit answers per group too.
+    unit_carried: list[tuple[list[int], _t.Any]] = \
+        _dc.field(default_factory=list)
     #: §16e (3): one BRIDGE key per raw body — the deck whose model
     #: footprint contains it, or ``""``.  §16e (3) is WITHDRAWN (RULINGS
     #: 2026-09-13ae): nothing BINDS or FILTERS on it, and it is carried

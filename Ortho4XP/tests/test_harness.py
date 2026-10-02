@@ -12296,3 +12296,165 @@ def test_the_base_raster_refresh_runs_the_full_loader(build_mod):
     assert "info_only=False" in code
     assert "info_only=True" not in code
 
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE STRAY TEMPORARY (#159, RULINGS 2026-09-30bs)
+# ══════════════════════════════════════════════════════════════════════
+# An ``osmium`` SUBPROCESS cut wrote a 10.5 MB
+# ``clips/clip_+030-0095_….tmp-52850-….osm.pbf`` into the SHARED corpus
+# with the Python-level guard armed, and the run was not flagged
+# CONTAMINATED.  WHY IT WAS NOT ATTRIBUTED, measured here rather than
+# argued: the window-attribution instrument's only positive-exclusion test
+# is ``BuildInputScope.covers``, and a clips path names NEITHER a tile nor
+# an airport, so ``covers`` already answered "unscopable ⇒ in scope" and
+# the stray was never OUT OF SCOPE (the first twin below pins that).  What
+# let it through is the other end: the entry that cut it runs no
+# before/after snapshot at all, and a stray older than a run's window is
+# invisible to every entry that does.  Hence two mechanisms — a stray is
+# never externalised by EITHER reason, and ``stray_temporaries`` looks past
+# the window.
+
+_STRAY_CLIP = ("OSM_data/_regional_extracts/clips/clip_+030-0095_"
+               "a1b2c3d4e5f6-part0.osm.pbf.tmp-52850-123145.osm.pbf")
+
+
+def test_a_clips_path_names_no_tile_so_covers_already_said_IN_SCOPE(
+        build_mod):
+    """THE MEASURED FACT the fix had to start from: the clip prefix is
+    ``clip_%+04d%+05d`` (three lat digits, four lon), which the tile
+    regexes deliberately do not match, and no ICAO appears either.  So
+    ``covers`` returns True and the stray was ALREADY contamination by
+    this test — the attribution never ran where it could have fired."""
+    assert build_mod.tiles_named_in(_STRAY_CLIP) == set()
+    assert build_mod.airports_named_in(_STRAY_CLIP) is None
+    scope = build_mod.BuildInputScope(tiles=[(35, -79)], icaos=["KRDU"])
+    assert scope.covers(_STRAY_CLIP) is True
+
+
+def test_a_stray_temporary_is_NEVER_an_external_candidate(build_mod):
+    """THE FIX (#159 (3)).  Out of the input set AND the guard blocked
+    nothing — the two conditions that externalise any other delta — and it
+    still CONTAMINATES, because a stray is a writer's partial output, not
+    corpus data, and no concurrent lane's window can excuse one."""
+    notes = []
+    prog = types.SimpleNamespace(note=notes.append)
+    stray = ("Elevation_data/+40+000/N40E003_airport_insets/LEMD.tif"
+             ".tmp-52850-123145")
+    scope = build_mod.BuildInputScope(tiles=[(30, 31)], icaos=["HECA"])
+    assert scope.covers(stray) is False, (
+        "the fixture must be positively OUT of the input set, or the twin "
+        "proves nothing")
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [stray], "modified": [], "removed": []},
+        set(), prog, blocked=[], input_scope=scope, redirected=())
+    assert offenders[0]["stray_temporary"] is True
+    assert offenders[0]["external_candidate"] is False
+    assert build_mod.contaminating_writes(offenders) == offenders
+    blob = "\n".join(notes)
+    assert "STRAY TEMPORARY" in blob
+    assert "--stray-temporaries" in blob, (
+        "the note must name the sweep, because one stray means there are "
+        "probably older ones the window cannot see")
+    assert "CONTAMINATED" in blob
+
+
+def test_a_stray_in_a_REDIRECTED_scope_still_CONTAMINATES(build_mod):
+    """The second externalising reason (the VHHH mis-attribution,
+    2026-09-15) must not reach a stray either: a redirect proves no writer
+    could reach the SHARED copy of that family, and a stray sitting in it
+    says one did."""
+    notes = []
+    prog = types.SimpleNamespace(note=notes.append)
+    stray = "Airport_mod_cache/VHHH/+22+113.dsf.abc.text.tmp-52850-1"
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [stray], "modified": [], "removed": []},
+        set(), prog, blocked=[], input_scope=None,
+        redirected={"airport_mod_cache"})
+    assert offenders[0]["external_candidate"] is False
+    assert build_mod.contaminating_writes(offenders) == offenders
+
+
+def test_a_stray_carrying_OUR_pid_is_named_as_this_builds_own_cut(
+        build_mod):
+    """THE ATTRIBUTION, and why it is sound: the pid in the name is the
+    PYTHON process that BUILT the name, never the child's — so a stray
+    carrying our pid was cut by THIS build, whatever wrote the bytes."""
+    notes = []
+    prog = types.SimpleNamespace(note=notes.append)
+    mine = ("OSM_data/_regional_extracts/clips/clip_+030-0095_ab-part0"
+            ".osm.pbf.tmp-%d-123145.osm.pbf" % os.getpid())
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [mine], "modified": [], "removed": []},
+        set(), prog, blocked=[], input_scope=None, redirected=())
+    assert offenders[0]["writer_pid"] == os.getpid()
+    assert offenders[0]["writer_is_this_process"] is True
+    assert "THIS process" in "\n".join(notes)
+
+
+def test_a_real_corpus_file_is_not_a_stray(build_mod):
+    """The negative half: the finished clip, the manifest, the extract."""
+    for rel in ("OSM_data/_regional_extracts/clips/clip_+030-0095_ab"
+                "-part0.osm.pbf",
+                "OSM_data/_regional_extracts/clips/clip_+030-0095_ab"
+                ".parts.json",
+                "Elevation_data/+30+030/N30E031.hgt"):
+        assert build_mod.is_stray_temporary(rel) is False, rel
+        assert build_mod.temporary_writer_pid(rel) is None, rel
+
+
+def test_the_sweep_finds_strays_the_window_cannot_see(
+        guard_mod, tmp_path, monkeypatch):
+    """#159 (4).  Nine strays (~100 MB) sat in the clips directory for
+    seven weeks: a per-run audit sees only its own window.  The sweep
+    walks the whole corpus, names each with its scope and writer pid, and
+    sorts oldest first."""
+    repo = tmp_path / "corpus"
+    clips = repo / "OSM_data" / "_regional_extracts" / "clips"
+    clips.mkdir(parents=True)
+    monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
+    (clips / "clip_+030-0095_ab-part0.osm.pbf").write_bytes(b"real")
+    old = clips / "clip_+030-0095_ab-part0.osm.pbf.tmp-11-1.osm.pbf"
+    new = clips / "clip_+031-0096_cd-part0.osm.pbf.tmp-22-2.osm.pbf"
+    old.write_bytes(b"partial")
+    new.write_bytes(b"partial")
+    os.utime(old, (1_600_000_000, 1_600_000_000))
+    os.utime(new, (1_700_000_000, 1_700_000_000))
+    rows = guard_mod.stray_temporaries(repo)
+    assert [r["path"] for r in rows] == [
+        "OSM_data/_regional_extracts/clips/" + old.name,
+        "OSM_data/_regional_extracts/clips/" + new.name], (
+        "oldest first, and the finished clip is not a stray")
+    assert [r["writer_pid"] for r in rows] == [11, 22]
+    assert {r["scope"] for r in rows} == {"osm_layers"}
+
+
+def test_the_sweep_CLI_exits_nonzero_only_when_a_stray_exists(
+        guard_mod, tmp_path, capsys):
+    """The CLI is READ-ONLY by ruling: a removal inside the corpus is a
+    `--refresh-data` act with a ledger line, never a sweep's side effect."""
+    repo = tmp_path / "corpus"
+    clips = repo / "OSM_data" / "_regional_extracts" / "clips"
+    clips.mkdir(parents=True)
+    assert guard_mod.main(["--stray-temporaries", "--repo", str(repo)]) == 0
+    assert "no stray temporaries" in capsys.readouterr().out
+    stray = clips / "clip_+030-0095_ab-part0.osm.pbf.tmp-52850-1.osm.pbf"
+    stray.write_bytes(b"partial")
+    assert guard_mod.main(["--stray-temporaries", "--repo", str(repo)]) == 1
+    out = capsys.readouterr().out
+    assert stray.name in out and "52850" in out
+    assert stray.exists(), "the sweep must never remove anything"
+    assert guard_mod.main(["--stray-temporaries", "--repo", str(repo),
+                           "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert [r["writer_pid"] for r in payload["strays"]] == [52850]
+
+
+def test_the_sweep_CLI_refuses_a_corpus_that_is_not_there(
+        guard_mod, tmp_path, capsys):
+    """rc 2, not 0: "no strays" and "I could not look" are different
+    answers, and a lane scripting the sweep must be able to tell them
+    apart."""
+    assert guard_mod.main(["--stray-temporaries",
+                           "--repo", str(tmp_path / "nope")]) == 2
+    assert "no such corpus" in capsys.readouterr().out

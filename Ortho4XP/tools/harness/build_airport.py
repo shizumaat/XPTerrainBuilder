@@ -275,6 +275,12 @@ from shared_repo_guard import (                          # noqa: E402,F401
     BuildInputScope, contaminating_writes, tiles_named_in, airports_named_in,
     tile_input_scope, mod_cache_pack_of, mod_cache_packs_naming,
     require_no_unauthorised_writes, _clonefile,
+    # THE EXTERNAL WRITER (#159): a spawn is a write declaration, and a
+    # stray temporary is a subprocess/C-level partial output the window
+    # attribution must never externalise.
+    active_guard_refuses, external_write_refusal, refuse_external_write,
+    EXTERNAL_WRITER_VIA, STRAY_TEMPORARY_RE, temporary_writer_pid,
+    is_stray_temporary, stray_temporaries,
 )
 
 #: The owner's production app config — the one the shipped app runs with.

@@ -518,6 +518,23 @@ def ensure_dsf_text_path(dsf_path: str,
                      or (os.path.getmtime(text_path) < mtime)
                      or os.path.getsize(text_path) == 0)
     if needs_convert:
+        # A SPAWN IS A WRITE DECLARATION (#159, RULINGS 2026-09-30bs), and
+        # here the honest answer is to pick a lawful destination rather
+        # than refuse: this dump is DERIVED cache, identical wherever it
+        # lands, and DSFTool is a CHILD PROCESS whose write into the shared
+        # ``Airport_mod_cache`` passes no Python guard — which is why
+        # ``build_airport.py`` has to refuse a missing dump UP FRONT
+        # (``missing_pack_dsf_dumps``, ``tools/INDEX.md``).  Asked BEFORE
+        # the spawn, an armed guard sends the dump to the temp file this
+        # call already falls back to, so no corpus write is attempted, no
+        # refusal is recorded, and the reader still gets its text.
+        if _external_write_refused(text_path):
+            import tempfile as _tempfile
+            handle = _tempfile.NamedTemporaryFile(
+                suffix=".dsf.text", delete=False)
+            text_path = handle.name
+            handle.close()
+            cache_dir = os.path.dirname(text_path)
         try:
             os.makedirs(cache_dir, exist_ok=True)
             # ``UI.external_tool_keyword_arguments()`` is LOAD-BEARING,
@@ -560,6 +577,21 @@ def ensure_dsf_text_path(dsf_path: str,
                 f"{os.path.basename(dsf_path)}: {exc}")
             return None
     return text_path
+
+
+def _external_write_refused(path) -> bool:
+    """Would an ARMED shared-repo write guard refuse a CHILD PROCESS
+    writing ``path``?  ``False`` when no guard is armed (#159).
+
+    Asks ``O4_External_Writes`` — the one site that does the lookup — and
+    answers ``False`` on any import failure, because a missing helper must
+    never stop a DSFTool run.
+    """
+    try:
+        import O4_External_Writes as EXTWRITE
+        return EXTWRITE.refusal_for(path) is not None
+    except Exception:
+        return False
 
 
 def _load_dsf_text(dsf_path: str,

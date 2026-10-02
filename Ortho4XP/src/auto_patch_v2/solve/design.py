@@ -899,7 +899,15 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         for r in yielded:
             r["stage"] = 2
     rep2.reach_seed = seed_rep
-    rep2.pin_yield = yielded1 + yielded
+    # issue #143: the §37 (9) joins the rewrite released because their road
+    # row is welded to a stage-1 constant (``road_ramp.welded_join_release``)
+    # — published with the level stage 2 gave them, like every yielded join
+    welded = [dict(r) for r in (seed_rep.get("welded_join") or ())]
+    for r in welded:
+        if sol2.z and len(sol2.z) > r["v"]:
+            r["z_m"] = round(float(sol2.z[r["v"]]), 4)
+            r["excess_m"] = round(r["z_m"] - float(r["pinned_m"]), 4)
+    rep2.pin_yield = yielded1 + yielded + welded
     if strip_rep is not None:
         rep2.jetway_strip = strip_rep
     w2 = time.perf_counter() - t2

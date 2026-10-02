@@ -79,8 +79,16 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     pav = set(pavement_roles(law))
     face_vs: dict[int, tuple[int, ...]] = {}
     pad_faces: set[int] = set()
-    rings: list[tuple[int, ...]] = []
+    road_faces: set[int] = set()
+    rings: list[tuple[tuple[int, ...], bool]] = []
     collar_v: set[int] = set()
+    # issue #143 (``roads.road_pair_side``): a pair this fallback reads off
+    # a ROAD's ring is a road row — one-way on the groundside foot of a
+    # pair welded to airside
+    from .roads import (PAIR_WELD, road_family_roles, road_pair_side,
+                        stage_one_vertices)
+    roads = set(road_family_roles(law))
+    air = stage_one_vertices(planar, law)
     for f in planar.faces.values():
         if f.role not in pav:
             continue
@@ -88,10 +96,12 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         if is_collar_ref(f.ref):
             collar_v.update(v for c in cyc for v in c)
             continue
-        rings.extend(c for c in cyc if len(c) >= 2)
+        rings.extend((c, f.role in roads) for c in cyc if len(c) >= 2)
         face_vs[f.id] = tuple(dict.fromkeys(v for c in cyc for v in c))
         if f.role == PAD_ROLE:
             pad_faces.add(f.id)
+        if f.role in roads:
+            road_faces.add(f.id)
     if not face_vs:
         return []
     # already capped at or under the fallback (a hard Diff over the pair)
@@ -107,12 +117,17 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     seen: set[tuple[int, int]] = set()
     out: list[Row] = []
 
-    def _mint(a: int, b: int) -> None:
+    def _mint(a: int, b: int, road: bool = False) -> None:
         if a == b:
             return
         key = (min(a, b), max(a, b))
         if key in seen or key in capped:
             return
+        follows = None
+        if road:
+            side, gs = road_pair_side(air, key)
+            if side == PAIR_WELD:
+                follows = gs
         seen.add(key)
         if a in collar_v or b in collar_v or (a in pinned and b in pinned):
             return
@@ -120,11 +135,11 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         d = math.hypot(xa - xb, ya - yb)
         if d <= 0.0:
             return
-        out.append(Diff(key[0], key[1], cap, d, src))
+        out.append(Diff(key[0], key[1], cap, d, src, follows=follows))
 
-    for c in rings:
+    for c, road in rings:
         for i, a in enumerate(c):
-            _mint(a, c[(i + 1) % len(c)])
+            _mint(a, c[(i + 1) % len(c)], road)
     # welded neighbours of two different faces
     owner: dict[int, set[int]] = {}
     for fid, vs in face_vs.items():
@@ -142,5 +157,8 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                 continue
             if owner[a] <= pad_faces and owner[b] <= pad_faces:
                 continue            # pad|pad: a step (30l (2)), not a grade
-            _mint(a, b)
+            # a welded pair whose groundside foot is a road's alone is a
+            # road pair (issue #143)
+            _mint(a, b, (a not in air and owner[a] <= road_faces)
+                  or (b not in air and owner[b] <= road_faces))
     return out

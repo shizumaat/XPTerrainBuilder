@@ -13,7 +13,7 @@ Two halves, both pinned here.
 THE MAPPING (static, so it is twinned exhaustively rather than sampled):
 the de Ferranti archive code is a 6x4 degree zone name, and the zone it
 names must CONTAIN the tile asked for.  +47-118 -> ``L11`` ->
-``http://viewfinderpanoramas.org/dem3/L11.zip``, and L11 is 44-48N,
+``https://viewfinderpanoramas.org/dem3/L11.zip``, and L11 is 44-48N,
 120-114W: the mapping for KGEG is RIGHT, so the silent zero came from the
 transport/answer classification, not from the zone table.
 
@@ -111,7 +111,7 @@ def test_the_kgeg_url_is_the_dem3_zone_archive(shipped_registry):
     definition = INSETS.elevation_providers_dict["VIEWFINDER3"]
     strategy = INSETS.ACCESS_STRATEGIES["viewfinder_zip"]()
     assert strategy.download_url(definition, *KGEG_TILE) == (
-        "http://viewfinderpanoramas.org/dem3/%s.zip" % KGEG_ZONE)
+        "https://viewfinderpanoramas.org/dem3/%s.zip" % KGEG_ZONE)
 
 
 def test_every_zone_contains_the_tile_it_is_named_for():

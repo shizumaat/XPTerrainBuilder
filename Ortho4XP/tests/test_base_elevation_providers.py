@@ -321,7 +321,7 @@ def test_viewfinder_url_for_dem1_whitelist_tile(shipped_registry):
     assert strategy.covers(definition, 46, 7)
     assert (
         strategy.download_url(definition, 46, 7)
-        == "http://viewfinderpanoramas.org/dem1/L32.zip"
+        == "https://viewfinderpanoramas.org/dem1/L32.zip"
     )
 
 
@@ -336,7 +336,7 @@ def test_viewfinder_url_for_dem3_tile(shipped_registry):
     assert strategy.covers(definition, 36, -87)
     assert (
         strategy.download_url(definition, 36, -87)
-        == "http://viewfinderpanoramas.org/dem3/J16.zip"
+        == "https://viewfinderpanoramas.org/dem3/J16.zip"
     )
 
 

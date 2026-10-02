@@ -517,3 +517,91 @@ def test_the_plane_pad_separator_is_one_spelling():
     from auto_patch_v2.model import planar
     assert cg.PLANE_PAD_SEP == planar.PLANE_SEP
     assert cg.BASE_STEP_JOINT_KIND == "base_step"
+
+
+def test_terrace_actual_step_prices_a_base_step_joint_as_declared():
+    """§2 (3) / §3 C17: the riser is published as a ``terrace_joints``
+    record of kind ``base_step`` carrying ``declared_step_m = Δy``, and the
+    census reads it through the family it already has —
+    ``terrace_actual_step`` (``families.toml:103``) — pricing the EMITTED
+    step against the DECLARED one.  "One family extended, never a parallel
+    rule."
+
+    The fixture is §4's own emittable form: two plane pads of ONE unit
+    whose rims are the two vertex rows of the 0.5 m identity strip
+    (``min_distinct_spacing_m``), with the declared riser between them.
+
+    Three readings, because "forgiven" and "priced as declared" are not
+    the same thing and only the second is the law:
+
+    * the EMITTED step equal to the declared riser -> no row;
+    * an emitted step PAST it -> a row, with the excess measured;
+    * the joints read KIND-BLIND, so a ``base_step`` record is not
+      silently dropped the way a private census once dropped
+      ``terrace_joints_ll`` whole (RULINGS 2026-08-30l).
+    """
+    import math
+
+    import tools.check_grade as cg
+
+    lat0, lon0 = 39.2215, -106.8701
+    cos0 = math.cos(math.radians(lat0))
+
+    def ll(x, y):
+        return (lat0 + math.degrees(y / cg.R_EARTH),
+                lon0 + math.degrees(x / (cg.R_EARTH * cos0)))
+
+    #: the identity strip's half width — the two rims are one
+    #: ``min_distinct_spacing_m`` apart across the riser, never coincident
+    half = 0.5 * LAW["min_distinct_spacing_m"]
+    declared = 3.0
+
+    def _pads(dy: float):
+        """``(nodes, ways)``: ``p0`` at z 100 south of the joint, ``p1`` at
+        ``100 + dy`` north of it, both ``building`` faces of one unit."""
+        lo = [(-20.0, -half), (20.0, -half), (20.0, -20.0), (-20.0, -20.0)]
+        hi = [(-20.0, half), (20.0, half), (20.0, 20.0), (-20.0, 20.0)]
+        nodes, ways = {}, []
+        for k, (ring, z, ref) in enumerate(((lo, 100.0, "building2/p0"),
+                                            (hi, 100.0 + dy, "building2/p1"))):
+            nids = []
+            for j, (x, y) in enumerate(ring):
+                nid = f"n{k}{j}"
+                nodes[nid] = ll(x, y)
+                nids.append(nid)
+            ways.append(cg.Way(f"w{k}", "building", ref, "", nids + [nids[0]],
+                               [z] * (len(nids) + 1),
+                               {"role": "building", "ref": ref}))
+        return nodes, ways
+
+    nodes, ways = _pads(declared)
+    ll_to_m = cg._ll_to_m_factory(nodes)
+    # the DECLARED riser, as §2 (3) publishes it
+    joint_rows = [{"points": [ll(-20.0, 0.0), ll(20.0, 0.0)],
+                   "step_m": declared, "kind": cg.BASE_STEP_JOINT_KIND,
+                   "declared_step_m": declared}]
+    joints = cg._terrace_joints_to_m(joint_rows, ll_to_m)
+    assert joints and joints[0][1] == declared, joints
+    rows = cg._check_terrace_actual_step(joints, ways, nodes, ll_to_m, 0.015)
+    assert not rows, [(v.de_m, v.distance_m) for v in rows]
+
+    # the emitted step PAST the declared riser is priced
+    nodes2, ways2 = _pads(declared + 1.5)
+    ll_to_m2 = cg._ll_to_m_factory(nodes2)
+    joints2 = cg._terrace_joints_to_m(
+        [{"points": [ll(-20.0, 0.0), ll(20.0, 0.0)], "step_m": declared,
+          "kind": cg.BASE_STEP_JOINT_KIND, "declared_step_m": declared}],
+        ll_to_m2)
+    rows2 = cg._check_terrace_actual_step(joints2, ways2, nodes2, ll_to_m2, 0.015)
+    assert rows2, "an emitted step past the declared riser must be priced"
+    assert max(v.de_m for v in rows2) > declared, [v.de_m for v in rows2]
+
+    # UNDECLARED, the same geometry is the whole step: the declaration is
+    # what the family prices against, not a blanket forgiveness
+    bare = cg._check_terrace_actual_step(
+        cg._terrace_joints_to_m(
+            [{"points": [ll(-20.0, 0.0), ll(20.0, 0.0)], "step_m": 0.0,
+              "kind": cg.BASE_STEP_JOINT_KIND}], ll_to_m),
+        ways, nodes, ll_to_m, 0.015)
+    assert bare and max(v.de_m for v in bare) >= declared - 1e-9, \
+        [v.de_m for v in bare]

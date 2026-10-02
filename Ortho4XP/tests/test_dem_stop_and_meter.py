@@ -26,11 +26,19 @@ from o4_engine import download_meter
 
 
 class _FakeResponse:
-    """Enough of a requests.Response for http_request's ``str(r)`` status
-    sniffing and ``r.content`` body read."""
+    """Enough of a requests.Response for http_request's ``status_code``
+    classification and ``r.content`` body read.
+
+    ``http_request`` used to sniff the status out of ``str(r)``, which is
+    how a 403 became "Not Found" and a 429 matched no branch at all
+    (#124/#173); it now classifies the integer, so the stub must carry
+    one.  The repr stays so the stub still reads like a response in a
+    traceback.
+    """
 
     def __init__(self, status, content=b""):
         self._status = status
+        self.status_code = status
         self.content = content
 
     def __repr__(self):

@@ -160,3 +160,64 @@ def test_a_free_standing_deck_still_seats_on_its_landing_ground():
     cands = [c]
     assert FU.seat_viaducts(cands, [st], _surface, {}, {}, unit_index=0) == []
     assert cands[0] is c
+
+
+# ── task (2): the ramp landing (RULINGS 2026-10-03e) ─────────────────────
+
+def test_the_landing_is_the_ramp_end_within_the_band_at_its_foot():
+    """The deck footprint clipped to y <= min + 0.5: the 100 m ramp's low
+    end, 4.5 m of it, at the foot's authored y (0)."""
+    pieces = BF.landing_pieces(_ramp(), 0.5)
+    assert pieces and all(y == 0.0 for _r, y in pieces)
+    lats = [la for ring, _y in pieces for la, _lo in ring]
+    assert min(lats) == 40.0
+    assert abs((max(lats) - 40.0) - 0.0009 * 0.05) < 1e-9     # 0.5 of 10 m
+
+
+def test_the_planar_stage_asks_the_same_derivation_with_block_keys():
+    """ONE reader of the relation: ``viaduct_units`` keyed by the held
+    BLOCK a part stands on returns the same deck -> unit as the plan-wide
+    seat reading."""
+    blocks = {2: "building4/b4", 3: "building4/b4", 4: "building4/b4"}
+    v = BF.viaduct_units([_ramp()], _plan(), lambda q: blocks.get(q.pid, ""))
+    assert v["T23/T3_road.obj"][0] == "building4/b4"
+    w = BF.unit_viaducts([_ramp()], _plan(), _pw(), {})
+    assert w["T23/T3_road.obj"].where == v["T23/T3_road.obj"][0]
+
+
+def test_a_landing_ref_is_never_a_block():
+    from auto_patch_v2.model.planar import block_of, unit_ref_of
+    from auto_patch_v2.model.platform import is_landing_ref
+    assert is_landing_ref("building4/landing0")
+    assert is_landing_ref("building4/landing12#collar")
+    assert not is_landing_ref("building4/b4")
+    assert block_of("building4/landing0") is None
+    assert block_of("building4/landing0#collar") is None
+    assert unit_ref_of("building4/landing0") != "building4"
+
+
+def test_the_landing_cut_takes_a_lot_never_a_road_or_airside():
+    from shapely.geometry import box
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.platform import LANDINGS
+    from auto_patch_v2.planar import landing as LD
+    from auto_patch_v2.planar.overlay import Region
+    law = Law.load()
+    land = Region("building", "u/landing0", box(0, 0, 10, 10), None, None,
+                  "airside", "cell")
+    lot = Region("parking_lot", "lot", box(-5, -5, 20, 20), None, None,
+                 "groundside", "cell")
+    road = Region("service_road", "rd", box(-5, 2, 20, 4), None, None,
+                  "groundside", "cell")
+    apron = Region("apron", "ap", box(10, 0, 20, 10), None, None,
+                   "airside", "cell")
+    LANDINGS.clear()
+    LANDINGS["u/landing0"] = {"block": "u/b0", "y": 0.0}
+    try:
+        out = LD.landing_cut([lot, road, apron], [land], law)
+    finally:
+        LANDINGS.clear()
+    lots = [r for r in out if r.role == "parking_lot"]
+    assert abs(sum(r.polygon.area for r in lots) - (25 * 25 - 100)) < 1e-6
+    assert [r for r in out if r.role == "service_road"][0] is road
+    assert [r for r in out if r.role == "apron"][0] is apron

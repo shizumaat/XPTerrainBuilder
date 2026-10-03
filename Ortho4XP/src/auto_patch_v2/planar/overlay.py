@@ -256,6 +256,10 @@ def build_arrangement(airport: Airport, classification: Classification,
                                             getattr(airport, "dem", None),
                                             airport=airport)
         _pad_clip.update(_plat)
+        # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING takes
+        # its own footprint out of the groundside lot / road it lands on
+        from .landing import landing_cut
+        base_regions = landing_cut(base_regions, pad_regions, law, _plat)
         # flat-pad spec v2 §3: THE STAND LINE — the held blocks' plateaus
         # cut out of the apron they front, off the blocks just minted
         from .pad_cut import plateau_cut

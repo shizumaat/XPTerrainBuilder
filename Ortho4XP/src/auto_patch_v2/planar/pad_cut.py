@@ -710,7 +710,14 @@ def _held_span(samples, ramp, depth: float):
     """The SPAN of a held block's HELD contacts (spec v2 §3): the union of
     each consecutive held-sample segment's flat-capped band ``depth`` wide
     on both sides — perpendicular to the frontage, so a RAMP stretch
-    between two blocks (``samples_ramp``) is covered by neither."""
+    between two blocks (``samples_ramp``) is covered by neither.
+
+    ONE BAND PER RUN OF CONSECUTIVE HELD SEGMENTS, its joins filled (issue
+    #284): a band per SEGMENT left a V notch ``depth`` deep at every turn
+    of the frontage — at SPJC building5 a hair slit of apron every few
+    metres along the plateau's outer edge, each a jagged face of its own.
+    A run still ends at a ramp sample or a jump, with a flat cap, so the
+    ramp between two blocks stays covered by neither."""
     import math as _m
     pts = [tuple(map(float, p)) for p in (samples if samples is not None else ())]
     if len(pts) < 2:
@@ -718,15 +725,49 @@ def _held_span(samples, ramp, depth: float):
     flags = [bool(r) for r in (ramp if ramp is not None else [False] * len(pts))]
     gaps = sorted(_m.dist(a, b) for a, b in zip(pts, pts[1:]))
     step = gaps[len(gaps) // 2] if gaps else 0.0
-    bands = []
+    runs: list[list] = []
+    cur: list = []
     for i in range(len(pts) - 1):
-        if flags[i] or flags[i + 1]:
-            continue
         d = _m.dist(pts[i], pts[i + 1])
-        if d <= 0.0 or d > 3.0 * step:          # a jump in the sample order
-            continue
-        bands.append(LineString([pts[i], pts[i + 1]]).buffer(depth, cap_style="flat"))
+        ok = not (flags[i] or flags[i + 1]) and 0.0 < d <= 3.0 * step
+        if ok:                                   # a held segment: extend
+            if not cur:
+                cur = [pts[i]]
+            cur.append(pts[i + 1])
+        elif cur:                                # a ramp or a jump ends it
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    bands = [LineString(r).buffer(depth, cap_style="flat", join_style="round")
+             for r in runs]
     return unary_union(bands) if bands else None
+
+
+def _stand_zone(parts: list, close_m: float, span, outline, ident: float):
+    """THE STAND ZONE IS ONE REGION FRONTING ITS BLOCK (issue #284, owner
+    sim read 1.0.371: "one apron area = one shape", no jagged interior
+    pieces).
+
+    The union of the rider rectangles and the stand capsules leaves V
+    notches and hair slits between neighbours (two octagons, a rectangle
+    beside a disc) and, where they ring a patch of apron, HOLES; each one
+    cut out of the apron is a jagged face of its own (SPJC building5/b0:
+    a plateau with 19 holes, 18 of them 0.6-5 m2 ``pav49`` faces).  So the
+    union is CLOSED by half the stand radius — a notch narrower than the
+    stand's own radius belongs to the stands either side of it — its holes
+    are filled, it is clipped to the held span as before, and only the
+    parts touching the block's outline stand (a part the span cut away
+    from the block fronts nothing).  ``None`` when nothing is left."""
+    zone = unary_union(parts)
+    if close_m > 0.0:
+        zone = zone.buffer(close_m, join_style="mitre").buffer(
+            -close_m, join_style="mitre")
+    zone = unary_union([Polygon(g.exterior) for g in _flat_polys(zone)])
+    zone = zone.intersection(span).simplify(ident)
+    near = outline.buffer(max(ident, 1e-6))
+    keep = [Polygon(g.exterior) for g in _flat_polys(zone) if g.intersects(near)]
+    return unary_union(keep) if keep else None
 
 
 def plateau_cut(base_regions, pad_regions, law, airport,
@@ -757,6 +798,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
 
     from shapely.geometry import MultiPoint, Point
     from shapely.geometry.polygon import orient
+    from shapely.ops import nearest_points
     from shapely.strtree import STRtree
 
     from ..law.tables import chord_cap_m, design as design_law
@@ -775,7 +817,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
                     "plateau_rest_dissolved": 0, "plateau_rest_dropped": 0,
                     "plateau_rest_padded": 0, "plateau_rest_kept": 0,
                     "plateau_rest_sliver_m2": 0.0,
-                    "plateau_rest_kept_m2": 0.0}
+                    "plateau_rest_kept_m2": 0.0, "plateau_islands_dropped": 0}
     if not HELD or airport is None or (D <= 0.0 and Rz <= 0.0):
         return base_regions, counts
     # every pad's outline, keyed by its PLATFORM ref (a block's collar joins
@@ -853,12 +895,30 @@ def plateau_cut(base_regions, pad_regions, law, airport,
             for st in starts:
                 p = Point(*st.xy)
                 if mp.distance(p) <= reach_s:
-                    parts.append(p.buffer(Rz, quad_segs=2))
+                    # A PLATEAU TO THE STAND LINE (owner RULINGS 2026-09-30y
+                    # addendum; issue #284): the stand's disc is swept to
+                    # the block's outline, so a stand standing beyond
+                    # ``stand_zone_radius_m`` of the pad never cuts a flat
+                    # ISLAND inside the apron (SPJC building5/b2: faces
+                    # 126 / 127, 3.7k / 3.4k m2, 2.8 m off the pad)
+                    # ... and on INTO the pad by the radius, so the
+                    # capsule's sides CROSS the pad edge (the #150 cut
+                    # quantises a crossing; a capsule end lying ALONG the
+                    # edge collapsed the plateau's run to one station)
+                    q = nearest_points(outline[b], p)[0]
+                    dd = q.distance(p)
+                    if dd > 0.0:
+                        ux, uy = (q.x - p.x) / dd, (q.y - p.y) / dd
+                        parts.append(LineString(
+                            [(p.x, p.y), (q.x + Rz * ux, q.y + Rz * uy)]
+                        ).buffer(Rz, quad_segs=2))
+                    else:
+                        parts.append(p.buffer(Rz, quad_segs=2))
                     src.add("startups")
         if not parts:
             continue
-        zone = unary_union(parts).intersection(span).simplify(ident)
-        if zone.is_empty:
+        zone = _stand_zone(parts, 0.5 * Rz, span, outline[b], ident)
+        if zone is None:
             continue
         zones[b] = (zone, "+".join(sorted(src)))
     if not zones:
@@ -918,6 +978,16 @@ def plateau_cut(base_regions, pad_regions, law, airport,
                                       outward=True)
             if piece is None:
                 continue
+            # ONE APRON AREA, ONE PLATEAU (issue #284): a piece the cut
+            # leaves standing apart from its block — the zone crossed a
+            # face that is not this apron's — is no plateau FRONTING the
+            # block; it stays the host's ground
+            own = [g for g in _polys(piece) if g.intersects(edge)]
+            if not own:
+                continue
+            if len(own) != len(_polys(piece)):
+                counts["plateau_islands_dropped"] += len(_polys(piece)) - len(own)
+                piece = unary_union(own)
             rest = r.polygon.difference(piece)
             p_own = frozenset((float(x), float(y))
                               for g in _polys(piece)

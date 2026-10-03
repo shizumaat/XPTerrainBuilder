@@ -795,6 +795,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       chain_min_height_m,  # §16g (10) (4)
                                       contents_min_fraction,  # S6
                                       sheet_chain_min_fraction)  # 27a
+    # owner RULINGS 2026-10-03e (#290): the decks that are a UNIT'S —
+    # derived once per plan; their whole viaduct rides the unit's level
+    _viaducts = _bf.unit_viaducts(prints, plan, _pw, counts) if _pw else {}
+    _deck_by_key = {p.key: p for p in prints}
 
     # issue #31: the §16g unit footprints a FOOTLESS piece with no footed
     # carrier is asked against — built ONCE, and only if one asks, so a
@@ -1006,6 +1010,15 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             cluster_min_m2=cluster_min_m2, connector_span_m=connector_span_m,
             plan_wide=_pw, cluster_of=(_clus if airside_floor else None),
             airside_floor=airside_floor, welded=_welded))
+        # owner RULINGS 2026-10-03e (#290): a unit's VIADUCT (deck, piers,
+        # sidewalks, railings, kerbs) is ONE rigid unit at the unit's
+        # level — after the unit bind, before anything searches a carrier
+        if _viaducts:
+            fams.extend(_fu.seat_viaducts(
+                cands, staged, surface, counts, _viaducts, unit_index=ui,
+                visual_m=bind_ground_m,
+                beside=lambda k, parts: _deck_rider(
+                    _deck_by_key.get(k), parts, foot_band_m, deck_edge_m)))
         # RULINGS 2026-09-29q (#98): a CUT connector's rail top and floor
         # ride the DECK — the authored unit's own body — never the station
         # unit the §16c (7) contact bind above handed them to
@@ -1015,6 +1028,26 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 plan, ui, staged, cands, _cut29q,
                 contacts=unit_pairs.get(ui, ()), counts=counts)
             forced.update(_rides29q)
+        def _viaduct_carrier(st, grp, ui_, cands_):
+            fr = _bf.frame_of(st.m)
+            if fr is None or st.m.deck_kind in ("flag", "signature"):
+                return None
+            parts = [q for i in grp for q in st.raw[i][0]]
+            for k, v in sorted(_viaducts.items()):
+                if v.frame != fr or v.unit != ui_:
+                    continue
+                if not _deck_rider(_deck_by_key.get(k), parts, foot_band_m,
+                                   deck_edge_m):
+                    continue
+                dc = [c for c in cands_ if c.member == v.member]
+                if not dc:
+                    continue
+                counts["viaduct_riders_to_deck"] = \
+                    counts.get("viaduct_riders_to_deck", 0) + 1
+                return (dc[0], "RULINGS 2026-10-03e rides its unit's "
+                        "viaduct deck")
+            return None
+
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
         by_key = {(c.member, c.group): c for c in cands}
@@ -1173,6 +1206,15 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                         solid_cands=_solid, index=_index,
                         reach_m=coarsen_reach_m,
                         not_carriers=_cut29q)            # 30m
+                # owner RULINGS 2026-10-03e (#290): a piece of a unit's
+                # VIADUCT — authored in the deck's own placement frame and
+                # standing on the deck's authored surface (or at its edge,
+                # ``_deck_rider``) — rides the deck, whatever else the
+                # search found to rest on (a sidewalk beside the ramp)
+                if _viaducts and over:
+                    _vd = _viaduct_carrier(st, grp, ui, cands)
+                    if _vd is not None:
+                        over = [_vd]
                 # issue #10 [HECA-5]: a UNIT'S CONTENTS RIDE THE UNIT — a
                 # piece whose parts are unit U's keeps a carrier only at
                 # U's zero (``footprint_unit.contents_seat``)

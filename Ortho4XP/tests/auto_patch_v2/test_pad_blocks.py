@@ -440,16 +440,20 @@ def test_a_stepped_based_unit_keeps_its_blocks_at_the_step():
     assert abs(abs(plan.steps[0][2]) - 6.0) < 3.0
 
 
-def test_a_unit_with_no_base_plane_or_no_cluster_is_not_cut():
-    """Only a STEPPED base admits the cut: a sloped / feet / plane-less
-    unit, or a pad no cluster covers, is one level."""
+def test_a_one_level_base_is_one_block_but_unknown_keeps_the_cut():
+    """Master decision (2): FLAT / SLOPED / FEET force one block; a unit
+    with no base read (no base plane, no covering cluster) keeps the cut —
+    unknown is not flat."""
     import dataclasses
 
     from auto_patch_v2.planar.pad_blocks import plan_blocks
-    for v in ("sloped", "feet", ""):
+    for v in ("sloped", "feet"):
         P, regs, law, dem, airport = _two_level_site(6.0, v)
         plan = plan_blocks("t3", P, regs, law, dem, airport, 2.0)
         assert len(plan.blocks) == 1, v
+    P, regs, law, dem, airport = _two_level_site(6.0, "")
+    plan = plan_blocks("t3", P, regs, law, dem, airport, 2.0)
+    assert plan.base == "" and len(plan.blocks) == 2
     plan = plan_blocks("t3", P, regs, law, dem,
                        dataclasses.replace(airport, clusters=()), 2.0)
-    assert len(plan.blocks) == 1 and plan.base == ""
+    assert plan.base == "" and len(plan.blocks) == 2

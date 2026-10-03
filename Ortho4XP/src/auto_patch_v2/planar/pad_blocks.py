@@ -19,12 +19,12 @@ parts cross a straight chord of the pad — and each block is seated flat at
 its own level; the walls step at the block boundary (a declared pad|pad
 terrace, exempt from the cap, 30l).
 
-ONLY A STEPPED BASE IS CUT (owner RULINGS 2026-10-02aj (2), "seat T3 as
-one level"; 10-01f).  The cut is admitted only for a unit whose COMPOSED
-base profile (``PlanCluster.base_profile``, base-profile spec §1 (3)) reads
-STEPPED (:func:`unit_base`); every other unit — a flat base, a sloped one,
-post feet, no base plane — is ONE block at one datum, and a contact no
-single level serves is the frontage hold's residual.  This is the ONE gate:
+A ONE-LEVEL BASE IS NEVER CUT (owner RULINGS 2026-10-02aj (2), "seat T3
+as one level"; 10-01f).  A unit whose COMPOSED base profile
+(``PlanCluster.base_profile``, base-profile spec §1 (3), read by
+:func:`unit_base`) is FLAT, SLOPED or FEET is ONE block at one datum, and a
+contact no single level serves is the frontage hold's residual; a STEPPED
+base, or a unit with no base read at all, keeps the cut.  This is the ONE gate:
 every block reader (the mint, the collars, the hold, the object stage's
 ``pad_block_seat``, the census) reads the ``<ref>/b<k>`` refs this plan
 yields, so a one-block plan reaches none of them.
@@ -559,16 +559,17 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
     # extending 10-01f "stepped pads only where the base is stepped"): the
     # Q-111b cut (30r) splits the BUILDING into blocks at its necks, which
     # is only true to the object where the object's own base steps.  A
-    # unit whose composed base reads anything but STEPPED — flat, sloped,
-    # post feet (10-01k Q1: the object is pitched, never the ground cut),
-    # or no base plane at all — is ONE block: one platform, one datum,
-    # held at a level the apron can meet (the frontage hold's datum row,
-    # RULINGS 10-02ah (1)); a contact no single level serves is the hold's
-    # residual, never a cut.  MEASURED at HECA T3 (unit:40, 30,411 m2, base
-    # FLAT): five blocks 100.20-102.77 m before this gate.
-    from ..airport.obj8_grade import STEPPED
+    # unit whose composed base READS one level — FLAT, SLOPED, or post
+    # FEET (10-01k Q1: the object is pitched, never the ground cut) — is
+    # ONE block: one platform, one datum, held at a level the apron can
+    # meet (the frontage hold's datum row, RULINGS 10-02ah (1)); a contact
+    # no single level serves is the hold's residual, never a cut.  A unit
+    # with NO base read (no base plane, no covering cluster) keeps the cut:
+    # unknown is not flat (master decision (2): KCLT building49, no base
+    # plane, 2 blocks -> 1 left 109 contacts missing 0.39 m).
+    from ..airport.obj8_grade import FEET, FLAT, SLOPED
     base, base_cluster = unit_base(P, airport)
-    if base != STEPPED:
+    if base in (FLAT, SLOPED, FEET):
         cap_blocks = 1
     p = law.tables.precedence
     runway_roles = set(p.runway_family.members)
@@ -698,8 +699,8 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
     else:
         # a unit held to ONE level by its base (aj (2)) never reached a
         # block cap: its miss is the hold's residual
-        plan.verdict = ("stop_cap" if len(pieces) >= cap_blocks and base == STEPPED
-                        else "residual")
+        plan.verdict = ("stop_cap" if len(pieces) >= cap_blocks
+                        and base not in (FLAT, SLOPED, FEET) else "residual")
         plan.note = (f"{'STOP' if plan.verdict == 'stop_cap' else 'RESIDUAL'}: "
                      f"{len(pieces)} block(s) still miss by "
                      f"{max(b.residual_max_m for b in plan.blocks):.2f} m")

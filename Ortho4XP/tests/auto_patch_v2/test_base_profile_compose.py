@@ -297,6 +297,17 @@ def test_the_rotation_is_what_puts_the_columns_under_the_floor(tmp_path):
     of step it does not, and the plane survives.  The rotation is load-
     bearing law, not decoration."""
     unit = _t3_unit(tmp_path, halls=1)
+    # the floor STANDS on a foot of its own at its level (RULINGS
+    # 2026-10-02aj (2): a base plane carries ground contact at its level,
+    # or it is an upper storey whatever the roof test reads) — so the
+    # wrong heading's surviving plane is the roof test's verdict alone
+    import dataclasses as _dcs
+    hall = unit.members[0]
+    org = hall.origin
+    hall = _dcs.replace(hall, parts=tuple(
+        _dcs.replace(p, feet=((*_ll(org, HEADING, 0.0, 0.0), 8.2),))
+        for p in hall.parts))
+    unit = _dcs.replace(unit, members=(hall,) + tuple(unit.members[1:]))
     wrong = RB.Unit(id=unit.id, anchor=unit.anchor, agl_m=unit.agl_m,
                     members=tuple(m if m.id.startswith("cols")
                                   else __import__("dataclasses").replace(
@@ -344,3 +355,40 @@ def test_the_placement_goes_through_frame_entry():
     # ... and a polygon that repairs to nothing comes back None
     sliver = Polygon([(0.0, 0.0), (1e-9, 0.0), (1e-9, 1e-9)])
     assert BP._place_all([sliver], 0.0, 0.0, HEADING, 0.0)[0] is None
+
+
+# owner RULINGS 2026-10-02aj (2) "seat T3 as one level", master decision
+# (1) to lane ``t3onelevel10``: a BASE plane carries ground contact at its
+# level; a plane with no foot at its level is an upper storey, never a
+# riser.  HECA T3's 32 upper planes (+3.65 .. +27.95 m) carried 0 feet at
+# their level against the ground floor's 5,848.
+def _composed(planes_and_feet, tmp_path):
+    kw = dict(pad_terrace_floor_m=LAW["pad_terrace_floor_m"],
+              pad_frontage_m=LAW["pad_frontage_m"],
+              roof_support_fraction=LAW["roof_support_fraction"],
+              contact_band_m=LAW["contact_band_m"],
+              min_distinct_spacing_m=LAW["min_distinct_spacing_m"])
+    rows, feet = [], []
+    for i, (x0, y, fy) in enumerate(planes_and_feet):
+        prof = _profile(tmp_path, f"p{i}.obj",
+                        [_slab(x0, 0.0, 40.0, 30.0, y, base=y - 0.2)])
+        rows.append((prof, (0.0, 0.0, 0.0)))
+        if fy is not None:
+            feet += [(x0 + x, fy, z) for x in (0.0, 40.0) for z in (0.0, 30.0)]
+    return BP.compose_profiles(rows, lower_pts=np.asarray(feet, dtype=float), **kw)
+
+
+def test_a_supported_ground_plane_under_unsupported_upper_planes_reads_flat(tmp_path):
+    # a ground floor standing on its feet, and two upper floors beside it
+    # (nothing beneath them for the roof test to find) with no foot at
+    # their level
+    got = _composed([(0.0, 0.0, 0.0), (60.0, 8.0, None), (120.0, 14.0, None)],
+                    tmp_path)
+    assert got.verdict == BP.FLAT and len(got.planes) == 1, got.line()
+    assert abs(got.planes[0].y) < 1e-6 and not got.risers
+
+
+def test_two_supported_planes_three_metres_apart_read_stepped(tmp_path):
+    got = _composed([(0.0, 0.0, 0.0), (42.0, 3.0, 3.0)], tmp_path)
+    assert got.verdict == BP.STEPPED and len(got.planes) == 2, got.line()
+    assert got.risers and abs(abs(got.risers[0].dy) - 3.0) < 1e-6, got.line()

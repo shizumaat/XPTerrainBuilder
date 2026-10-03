@@ -242,13 +242,18 @@ def contents_seat(over: _t.Sequence[tuple], pids: _t.AbstractSet[int],
             return list(over), None
     elif is_connector_length(box, span_max_m):
         return list(over), None
-    if deck_rider is not None and any(
-            getattr(c, "body_class", "") == "deck" and deck_rider(c)
-            for c, *_r in over):
-        if counts is not None:
-            counts[CONTENTS_SEAT + "_kept_deck_rider"] = \
-                counts.get(CONTENTS_SEAT + "_kept_deck_rider", 0) + 1
-        return list(over), None
+    if deck_rider is not None:
+        on_deck = [t for t in over
+                   if getattr(t[0], "body_class", "") == "deck"
+                   and deck_rider(t[0])]
+        if on_deck:
+            # the deck ALONE carries it: a sidewalk or kerb beside the
+            # deck that the search also named is seated by its own rule
+            # and is not the deck's datum
+            if counts is not None:
+                counts[CONTENTS_SEAT + "_kept_deck_rider"] = \
+                    counts.get(CONTENTS_SEAT + "_kept_deck_rider", 0) + 1
+            return on_deck, None
     uc = unit_by_pid(pids, plan_wide, index)
     if uc is None:
         return list(over), None

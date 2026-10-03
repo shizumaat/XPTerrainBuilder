@@ -123,6 +123,13 @@ def test_a_deck_rider_keeps_its_deck_whatever_its_zero():
                                deck_rider=lambda c: True)
     assert uc is None and out == over
     assert counts[FU.CONTENTS_SEAT + "_kept_deck_rider"] == 1
+    # the search also named the ramp's sidewalk (on its own ground, 2.3 m
+    # off the deck): the DECK alone carries the rider
+    walk = _cand("side_walk__b4.obj", 95.42)
+    out1, uc1 = FU.contents_seat([(walk, "rests on it"), (deck, "rests on it")],
+                                 frozenset({1}), BOX, PW, INDEX, tol_m=TOL,
+                                 span_max_m=200.0, deck_rider=lambda c: True)
+    assert uc1 is None and [c for c, *_ in out1] == [deck]
     # not a rider (facade glass over the deck in plan): #10 still reroutes
     out2, uc2 = FU.contents_seat(over, frozenset({1}), BOX, PW, INDEX,
                                  tol_m=TOL, span_max_m=200.0,

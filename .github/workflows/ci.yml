@@ -377,6 +377,14 @@ jobs:
       # diverges rather than printing two numbers and leaving the reader to
       # subtract.  `if: always()`: a red suite still collected something, and
       # a floor/suite divergence is most interesting exactly then.
+      #
+      # The same ITEM is NAMED differently by the two sides, in ways that
+      # would otherwise make this step red on every run: xdist appends the
+      # `xdist_group` marker as an `@<icao>` nodeid suffix (130 items; the
+      # floor runs no xdist at all), and junit writes a dotted module path.
+      # The tool normalises both through pytest's OWN `mangle_test_address`,
+      # which is the function that wrote the junit names, and its twin
+      # asserts that equivalence rather than imitating it.
       - name: Collection floor vs suite reconciliation
         if: always()
         working-directory: Ortho4XP

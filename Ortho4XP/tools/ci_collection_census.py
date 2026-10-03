@@ -69,11 +69,14 @@ import re                                                            # noqa: E40
 import xml.etree.ElementTree as ElementTree                          # noqa: E402
 
 #: A collect-only node id: a path under ``tests/`` and at least one ``::``.
-#: The ``::`` is what separates an ITEM from a traceback line in the ERRORS
-#: section, which also starts with ``tests/`` (``tests/test_x.py:12: in
-#: <module>``) and which ci.yml's own ``grep -E '^tests/'`` used to fold
-#: into the digest.
-NODE_ID = re.compile(r"^(tests/\S*\.py::\S*)\s*$")
+#: The ``.py::`` is what separates an ITEM from a traceback line in the
+#: ERRORS section, which also starts with ``tests/`` (``tests/test_x.py:12:
+#: in <module>`` -- one colon) and which ci.yml's own ``grep -E '^tests/'``
+#: used to fold into the digest.  Everything after the ``::`` is taken
+#: whole: 70 of this suite's ids carry SPACES inside their parametrisation
+#: (``...[emit.toml-coordinate_dp           = 11-...]``), and a ``\S``
+#: match silently dropped every one of them.
+NODE_ID = re.compile(r"^(tests/\S+\.py::.+?)\s*$")
 
 #: ``SKIPPED [3] tests/test_x.py:23: could not import 'laspy'`` -- pytest's
 #: collection-skip report.  The bracketed number is the count, not an index.
@@ -86,18 +89,38 @@ COLLECTION_ERROR = re.compile(r"ERROR collecting (\S+\.py)")
 #: carries the module (not a test) in ``name`` with an empty ``classname``.
 JUNIT_COLLECTION_SKIP = "collection skipped"
 
+#: xdist turns the ``xdist_group`` marker into an ``@<group>`` NODE-ID
+#: SUFFIX (``xdist/remote.py``; this suite's ``tests/conftest.py`` assigns
+#: every airport-parametrised test the group ``<icao>`` so one worker builds
+#: each airport once).  So the same item is named
+#: ``...::test_x[CYXY]@CYXY`` by the suite and ``...::test_x[CYXY]`` by the
+#: floor, which does not run xdist at all: 130 items here.  A renaming, not
+#: a different item, so it is normalised away rather than reported.
+XDIST_GROUP_SUFFIX = re.compile(r"@[^@\[\]]+$")
+
 
 def canonical(node_id: str) -> str:
     """One spelling for a node id and for junit's classname/name pair.
 
     ``tests/a/test_b.py::TestC::test_d[p]`` and junit's
     ``classname="tests.a.test_b.TestC" name="test_d[p]"`` are the same
-    item written two ways; both come here.
+    item written two ways.  pytest's own ``mangle_test_address`` converts
+    the FILE PATH to a dotted name and leaves everything after the first
+    ``[`` alone, so this does exactly that and no more: a parametrised id
+    carries backslashes of its own (``...[CYQQ-\n]``, 40 items here) and
+    folding those into dots would invent a divergence out of a rendering.
     """
-    path, _, rest = node_id.partition("::")
-    module = path[:-3] if path.endswith(".py") else path
-    module = module.replace("\\", "/").replace("/", ".")
-    return ".".join([module] + [part for part in rest.split("::") if part])
+    # pytest's own ``mangle_test_address`` (_pytest/junitxml.py), which is
+    # what wrote the junit names: partition at the FIRST ``[`` before
+    # splitting on ``::``, because a parametrised id can contain both
+    # (``test_the_loopback_predicate[::1-True]``, 3 items here).
+    head, bracket, params = XDIST_GROUP_SUFFIX.sub("", node_id).partition("[")
+    names = [part for part in head.split("::") if part]
+    names[0] = names[0].replace("\\", "/").replace("/", ".")
+    if names[0].endswith(".py"):
+        names[0] = names[0][:-3]
+    names[-1] += bracket + params
+    return ".".join(names)
 
 
 def census(collect_output: str) -> dict:
@@ -150,7 +173,11 @@ def junit_outcomes(junit_xml: str) -> dict:
                 and skipped.get("message") == JUNIT_COLLECTION_SKIP):
             collection_skipped.append(name)
             continue
-        items.append(".".join(part for part in (class_name, name) if part))
+        # junit already carries the dotted module name, so only the
+        # ``@group`` suffix xdist added needs normalising away -- running
+        # the path conversion over a name would eat its parametrisation.
+        items.append(XDIST_GROUP_SUFFIX.sub(
+            "", ".".join(part for part in (class_name, name) if part)))
     return {"items": items, "collection_skipped": collection_skipped}
 
 

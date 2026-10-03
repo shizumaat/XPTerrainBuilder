@@ -107,16 +107,60 @@ def test_the_digest_is_order_independent():
             == CENSUS.census(COLLECT_OUTPUT)["digest"])
 
 
+#: Every way this suite's own node ids differ from junit's spelling of
+#: them, each one measured against the real pair (floor collect output vs
+#: the suite's junit) and each one a divergence this gate would otherwise
+#: INVENT -- which is worse than the gap it exists to close, because it
+#: would be red on every run.
 @pytest.mark.parametrize("node_id,junit", [
     ("tests/test_a.py::test_one", "tests.test_a.test_one"),
     ("tests/test_a.py::test_two[x-1]", "tests.test_a.test_two[x-1]"),
     ("tests/sub/test_b.py::TestC::test_three",
      "tests.sub.test_b.TestC.test_three"),
     ("tests/test_optional.py", "tests.test_optional"),
+    # xdist appends the xdist_group marker as an @<group> nodeid suffix
+    # (tests/conftest.py groups every airport-parametrised test by ICAO):
+    # 130 items here, and the floor never runs xdist at all.
+    ("tests/test_x.py::test_y[CYXY]@CYXY", "tests.test_x.test_y[CYXY]"),
+    # A parametrised id can carry a BACKSLASH (40 items: the apt.dat
+    # line-ending arms) ...
+    (r"tests/test_x.py::test_y[CYQQ-\n]", r"tests.test_x.test_y[CYQQ-\n]"),
+    # ... a SPACE (70 items: the law-table refusal arms) ...
+    ("tests/test_x.py::test_y[a           = 11-missing]",
+     "tests.test_x.test_y[a           = 11-missing]"),
+    # ... and ``::`` itself (3 items: the IPv6 loopback arms), which is
+    # why the partition at the first ``[`` comes FIRST, exactly as
+    # pytest's own mangle_test_address does it.
+    ("tests/test_x.py::test_y[::1-True]", "tests.test_x.test_y[::1-True]"),
+    ("tests/test_x.py::test_y[[::1]-True]",
+     "tests.test_x.test_y[[::1]-True]"),
 ])
 def test_a_node_id_and_its_junit_spelling_canonicalise_together(
         node_id, junit):
     assert CENSUS.canonical(node_id) == junit
+
+
+def test_the_canonical_form_is_pytests_own_mangling():
+    """Not a lookalike of it: the junit names this gate compares against
+    were written BY that function, so any difference is a false red."""
+    from _pytest.junitxml import mangle_test_address
+    for node_id in ("tests/test_a.py::test_one",
+                    "tests/sub/test_b.py::TestC::test_three[::1-True]",
+                    r"tests/test_x.py::test_y[CYQQ-\n]",
+                    "tests/test_x.py::test_y[a           = 11-missing]"):
+        assert CENSUS.canonical(node_id) == ".".join(
+            mangle_test_address(node_id))
+
+
+def test_a_space_bearing_node_id_is_counted():
+    """70 of this suite's ids carry spaces inside their parametrisation; a
+    ``\\S`` match dropped every one of them, and the census then under-read
+    the floor by 70 while looking perfectly consistent."""
+    record = CENSUS.census(
+        "tests/test_x.py::test_y[a           = 11-missing]\n")
+    assert record["collected"] == 1
+    assert record["node_ids"] == [
+        "tests/test_x.py::test_y[a           = 11-missing]"]
 
 
 def test_the_floor_still_fails_below_its_threshold(tmp_path, capsys):

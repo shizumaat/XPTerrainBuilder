@@ -51,12 +51,22 @@ from .precedence import view
 __all__ = ["GEN_GS", "GS_LEVEL_RULING", "GS_LEVEL_JUNIOR_RULING",
            "STATS", "frontage_step_max_m", "pair_dem_step_m",
            "pad_airside_frontage", "pad_area_weighted_dem",
-           "groundside_frontage", "groundside_frontage_level"]
+           "groundside_frontage", "groundside_frontage_level",
+           "HELD_PAIRS", "held_terrace_pairs"]
 
 #: THE GENERATOR'S OWN STATISTICS, published beside its row count by
 #: ``constraints.build`` as ``groundside_frontage_level.<key>`` — the
 #: design report's "frontage pairs held as terraces" line (§28 (6)).
 STATS: dict[str, dict[str, int]] = {}
+
+#: §28 (6)'s HELD PAIRS AS DATA (issue #264, CYXY 60.7137823, -135.0763504):
+#: ``(id(planar), faces, vertices) -> {(groundside face id, pad face id)}`` — every pad|face
+#: pair :func:`groundside_frontage` DROPPED as a hillside terrace, published
+#: from the ONE derivation so the fallback cap (``constraints/pavement_cap``)
+#: reads the same population and never welds a held pair back together
+#: (``held_terrace_pairs``).  Keyed by the map's identity: a replay that
+#: drops the §28 generator re-derives it rather than reading a stale set.
+HELD_PAIRS: dict[tuple[int, int, int], set[tuple[int, int]]] = {}
 
 #: THE §28 FAMILY.  Its own generator name, so ``DesignReport.families`` and
 #: ``solve/why`` name the PAD holding a lot's edge rather than the pad
@@ -364,6 +374,7 @@ def groundside_frontage(planar: PlanarMap, law: Law
     # which is the expensive half of this module's population.
     front_rel = pad_frontage(planar, law)
     held = 0
+    held_pairs: set[tuple[int, int]] = set()
     out: dict[int, list[tuple[int, str, float, list[int], list[int]]]] = {}
     for gid, _role, _ref, gvs, gpoly in _groundside_geoms(planar, law):
         cand = (tree.query(gpoly, predicate="dwithin", distance=r) if r > 0.0
@@ -385,6 +396,7 @@ def groundside_frontage(planar: PlanarMap, law: Law
                                    rel=front_rel)
             if step is not None and abs(step) > bound:
                 held += 1
+                held_pairs.add((gid, pid))
                 continue
             length = 0.0
             for cyc in [vw.rings[gid], *vw.holes[gid]]:
@@ -397,7 +409,37 @@ def groundside_frontage(planar: PlanarMap, law: Law
             got.sort(key=lambda t: (-t[2], t[0]))
             out[gid] = got
     STATS["groundside_frontage_level"] = {"pairs_held_as_terrace": held}
+    HELD_PAIRS[_held_key(planar)] = held_pairs
     return out
+
+
+def held_terrace_pairs(planar: PlanarMap, law: Law) -> set[tuple[int, int]]:
+    """THE §28 (6) HILLSIDE TERRACE PAIRS — ``{(groundside face id, pad
+    face id)}`` the relation DROPPED because the pair's DEM step exceeds
+    ``frontage_step_max_m`` (owner RULINGS 2026-09-13o/13p: "those two
+    buildings are cut into the hillside with groundside pavement arriving
+    at the second story").  Derived by :func:`groundside_frontage` and
+    read here by any OTHER family that must not price the pair as a
+    GRADE: issue #264 measured the fallback cap (``pavement_cap``, 29ac)
+    welding CYXY ``pav4``'s corner vertex to ``building9``'s pad at 8 %
+    over 1.0 m (v2030 -> v4159, 695.01 m) across exactly such a held
+    pair, after which the lot climbed at its own 5 % cap 2.88 m over 57 m
+    back to its ground — the owner's "dip" beside the terminal.  Dropping
+    the fallback family put the lot level at 698.4-698.7 m along the
+    whole wall (its DEM, the second storey), the site vertex 695.32 ->
+    698.55 m.  ONE derivation: re-run only when this map has none."""
+    got = HELD_PAIRS.get(_held_key(planar))
+    if got is None:
+        groundside_frontage(planar, law)
+        got = HELD_PAIRS.get(_held_key(planar), set())
+    return set(got)
+
+
+def _held_key(planar: PlanarMap) -> tuple[int, int, int]:
+    """The map's identity for ``HELD_PAIRS`` — its object id with its face
+    and vertex counts, so a recycled id of a different map never reads a
+    stale set."""
+    return (id(planar), len(planar.faces), len(planar.vertices))
 
 
 def groundside_frontage_level(planar: PlanarMap, law: Law, airport: Airport

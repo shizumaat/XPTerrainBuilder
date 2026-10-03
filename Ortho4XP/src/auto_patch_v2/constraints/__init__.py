@@ -66,6 +66,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # road's way leaves the patch coverage the patch takes the CORE
     # ribbon's altitude just outside — the two are one road.
     ("road_coverage_join", road_ramp.road_join_rows),
+    # OWNER RULINGS 2026-10-03c (#291): the lot at a placed wall's foot is
+    # flat to its building's pad (one-way, stage 2); the wall is the step
+    ("wall_terrace", road_ramp.wall_terrace_rows),
     ("groundside_ramp", groundside.groundside_ramps),
     ("transverse", transverse.transverse),
     # §34 (13) (3) (Fable 2026-09-15; RULINGS 2026-09-15y): the RAW PAIR

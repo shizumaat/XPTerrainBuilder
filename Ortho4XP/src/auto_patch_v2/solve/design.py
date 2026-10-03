@@ -160,6 +160,56 @@ class Base:
     foot_row_i: list[int] = _dc.field(default_factory=list)
 
 
+def _welded_faces(planar: PlanarMap) -> set[int]:
+    """The WELDED road faces (RULINGS 2026-09-30aa): the mapped-road
+    RIBBONS (``model.planar.is_osm_ribbon_ref``) — the same predicate as
+    ``constraints/roads.welded_road`` (``solve`` may not import
+    ``constraints``).  Measured (lane ``roadweld100``, HECA replay): the
+    rule over the apt.dat 1206 routes' own faces moves the reference
+    airside (3,537 nodes, worst 1.00 m) — an owner question."""
+    from ..model.planar import is_osm_ribbon_ref
+    return {f.id for f in planar.faces.values()
+            if f.role == "service_road" and is_osm_ribbon_ref(f.ref)}
+
+
+#: the generators whose rows a WELDED road face MINTS (``constraints/
+#: roads.GEN``, ``road_ramp.GEN``, ``pavement_cap.GEN``, ``ceiling.GEN``;
+#: ``solve`` may not import ``constraints``, so the names are spelled here
+#: and ``tests/auto_patch_v2/test_roadmint100.py`` holds them equal)
+_ROAD_GENERATORS = frozenset({"roads", "road_ramp", "pavement_road_cap",
+                              "pavement_ceiling"})
+
+
+def _groundside_minter(planar: PlanarMap, law: Law
+                       ) -> _t.Callable[[_t.Any], bool]:
+    """RULINGS 2026-09-30aa rule 1: ``row -> True`` when the row names a
+    ``face:N`` input whose face is a WELDED road face — the row that face
+    MINTED, stage 2's whatever its columns."""
+    gs = _welded_faces(planar)
+
+    def _is(row) -> bool:
+        if not gs:
+            return False
+        src = getattr(row, "source", None)
+        # THE ROAD'S OWN GENERATORS ONLY (lane roadmint100b, measured
+        # CYXY): the apron's edge-portion cap along an edge it shares with
+        # a ribbon names the ribbon face as its input too, and dropping
+        # those 124 APRON rows from stage 1 moved a pad-welded taxiway
+        # 2.26 m at 60.70471799655, -135.07455343850 — the apron's law on
+        # its own edge is stage 1's whatever face it reads
+        if getattr(src, "generator", None) not in _ROAD_GENERATORS:
+            return False
+        for t in getattr(src, "inputs", ()) or ():
+            if isinstance(t, str) and t.startswith("face:"):
+                try:
+                    if int(t[5:]) in gs:
+                        return True
+                except ValueError:
+                    continue
+        return False
+    return _is
+
+
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
              rep: DesignReport, *,
              drop: _t.AbstractSet[int] | None = None,
@@ -433,6 +483,12 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     tol_ref = float(design_law(law).hard_tol_m)
     rep.fronting_promoted, rep.fronting_promoted_by = 0, {}
     ap_hard = apron_hard_rows(planar, law)   # §5: the apron cap HARD (30be/30bf)
+    # RULINGS 2026-09-30aa rule 1 (#100; owner 30z (1): a road never moves
+    # the airside): a row MINTED by a WELDED road face (the mapped-road
+    # ribbon) is stage 2's WHATEVER ITS COLUMNS — a ribbon ring pair footed
+    # on two rim vertices has only airside columns, and stage 1 took it by
+    # column (30aa (b)).  The minting face is the row's own ``face:N``.
+    gs_minted = _groundside_minter(planar, law) if drop_f else None
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -442,6 +498,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if conform and (getattr(row, "follows", None) is not None
                         or ruling_head(row) in conform):
             stage_dropped += 1        # §20b (1b): a conforming row is stage 2's
+            continue
+        if gs_minted is not None and gs_minted(row):
+            stage_dropped += 1        # 30aa rule 1: a groundside face's row
             continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
@@ -525,6 +584,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                         or ruling_head(side[2]) in conform):
             stage_dropped += 1        # §20b (1b)
             continue
+        if gs_minted is not None and gs_minted(side[2]):
+            stage_dropped += 1        # 30aa rule 1
+            continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
             continue
@@ -584,8 +646,14 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #    no route and pinned by nothing — its datum is ITS OWN TERRAIN PLANE
     #    too, even where a shared vertex ties it to the airside sheet.  The
     #    airside design surface is never given one.
+    #    RULINGS 2026-09-30aa rule 1: a WELDED road face's datum is a row
+    #    that face MINTS — stage 2's, never stage 1's (in stage 1 its only
+    #    columns are the rim vertices it shares: its plane would pull the
+    #    apron toward the road's terrain), so stage 1 reads the bodies
+    #    without the ribbons
     gs_roles = {r for r in pav_roles if role_side(law, r) == "groundside"}
-    for vs in _role_bodies(planar, gs_roles, red):
+    welded = _welded_faces(planar) if drop_f else set()
+    for vs in _role_bodies(planar, gs_roles, red, welded):
         by_comp.setdefault(("groundside", vs[0]), vs)
     #    A RIGID GROUP (a pad, a plate, a wall band) is ONE column, so its
     #    own bending rows collapse to nothing: bending gives it no level at

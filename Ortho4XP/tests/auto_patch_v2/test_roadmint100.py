@@ -201,3 +201,16 @@ def test_a_band_is_not_cut_back_from_a_ribbon(law):
     corridor = Polygon(routes[0].ring, routes[0].holes)
     cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
     assert all(z.polygon.distance(corridor) >= cut - 1e-6 for z in zones)
+
+
+def test_the_road_generator_names_the_stage_filter_reads_are_the_generators_own():
+    """30aa rule 1 as landed (lane roadmint100b): ``solve/design`` may not
+    import ``constraints``, so it spells the road generators' names; this
+    twin holds them equal to the generators' own ``GEN`` — and holds the
+    apron's edge-portion generator OUT (dropping its 124 rows from stage 1
+    moved a pad-welded taxiway 2.23 m at CYXY)."""
+    from auto_patch_v2.constraints import ceiling, pavement_cap, road_ramp, roads
+    from auto_patch_v2.solve.design import _ROAD_GENERATORS
+    assert _ROAD_GENERATORS == {roads.GEN, road_ramp.GEN, pavement_cap.GEN,
+                                ceiling.GEN}
+    assert "apron_edge_portion" not in _ROAD_GENERATORS

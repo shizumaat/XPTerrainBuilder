@@ -355,7 +355,7 @@ class AirsideRim:
     """
 
     __slots__ = ("airside", "boundary", "_coords", "_pts", "_segs", "band",
-                 "snap_max", "nodes_ring", "nodes_kept")
+                 "snap_max", "nodes_ring", "nodes_kept", "node_tol")
 
     def __init__(self, airside, band_m: float = 0.0, snap_max_m: float = 0.0,
                  nodes=None, node_tol_m: float = ON_BOUNDARY_EPS_M):
@@ -393,6 +393,9 @@ class AirsideRim:
         #: grid.  0 disarms the band and only exact contacts are quantised.
         self.band = float(band_m)
         self.snap_max = float(snap_max_m)
+        #: how far off the boundary an arrangement node may stand and still
+        #: be the rim's (the grid's half cell when built by ``build_rim``)
+        self.node_tol = float(node_tol_m)
         self.airside = airside
         self.boundary = None if airside is None or airside.is_empty \
             else airside.boundary
@@ -434,6 +437,19 @@ class AirsideRim:
         i = self._pts.query_nearest(Point(c), max_distance=ON_BOUNDARY_EPS_M,
                                     return_distance=False)
         return len(i) > 0
+
+    def nodes_along(self, coords, tol: float):
+        """The rim NODES lying within ``tol`` of the polyline ``coords``,
+        in order along it (RULINGS 2026-09-30aa rule 9: a ribbon's contact
+        run is rebuilt from exactly these)."""
+        if self._pts is None or len(coords) < 2:
+            return []
+        line = LineString(coords)
+        hits = self._pts.query(line.buffer(max(tol, 1e-9)))
+        got = [(line.project(Point(self._coords[int(i)])), self._coords[int(i)])
+               for i in hits
+               if line.distance(Point(self._coords[int(i)])) <= max(tol, 1e-9)]
+        return [c for _s, c in sorted(got)]
 
     def nearest_vertex(self, c):
         """The nearest airside boundary vertex to ``c`` (``None`` if none)."""

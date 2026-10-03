@@ -130,7 +130,15 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                 road_only.difference_update(planar.ring_vertices(ring))
     max_span = float(law.tables.emit.within_shape.withdrawn_chord_min_m)
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
-    src = Source(GEN, RULING, ())
+    # THE TWIN CARRIES THE FACE OF THE ROW IT TWINS (#100 round 5, lane
+    # roadmint100e; RULINGS 2026-09-30aa rule 1): ``solve/design_stage.
+    # _groundside_minter`` stages a WELDED ribbon's rows by the ``face:N``
+    # their source names, and a twin minted with no inputs slipped past it
+    # BY COLUMN — measured HECA (replay vs sw1014): 684 ceiling twins of the
+    # ribbons' own rows between two apron rim vertices entered stage 1 and
+    # pulled the apron 2.89 m at 30.12168150540, 31.42043668180.
+    def _src(row: Row) -> Source:
+        return Source(GEN, RULING, tuple(getattr(row.source, "inputs", ()) or ()))
     seen: set[tuple] = set()
     out: list[Row] = []
     # A PAD'S OWN CEILING IS STRICTER AND ALREADY HARD (owner 2026-09-09c,
@@ -196,7 +204,7 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
             # a row the law itself prices ABOVE the ceiling (a yielded
             # runway, an altiport) is not twinned below its own cap — the
             # twin would re-make infeasible exactly what §50 made feasible.
-            out.append(Diff(row.a, row.b, max(cap, row.cap), row.d, src,
+            out.append(Diff(row.a, row.b, max(cap, row.cap), row.d, _src(row),
                             follows=fol))
             continue
         if not isinstance(row, Linear) or row.source.generator == GEN:
@@ -222,5 +230,5 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         # §50.1 (6), the two-sided form: the twin's bound never falls
         # below the ROW'S OWN bound.
         bound = max(hc * cap * d, float(row.hi))
-        out.append(Linear(row.terms, -bound, bound, src, follows=fol))
+        out.append(Linear(row.terms, -bound, bound, _src(row), follows=fol))
     return out

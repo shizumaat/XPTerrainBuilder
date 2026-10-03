@@ -206,6 +206,12 @@ class SplitSet:
     #: the OWNER'S call (issue #232, "needs a rule"); this names them so
     #: the ruling is read off a census and not a guess.
     tilted_kept_whole: tuple[tuple[int, str, tuple[str, ...]], ...] = ()
+    #: issue #10: the PLAN-WIDE §16g map the stage seated by (``part id ->
+    #: (unit id, zero, ...)``, ``footprint_seats.plan_wide_seats``) —
+    #: published so the contents census reads the SAME map the law used.
+    #: Not serialised (``to_dict``): it is per part, and the plan has it.
+    plan_wide: _t.Mapping[int, tuple] = _dc.field(default_factory=dict,
+                                                  repr=False, compare=False)
 
     @property
     def all(self) -> tuple[Split, ...]:

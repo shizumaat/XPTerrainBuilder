@@ -23,7 +23,8 @@ from ..law.tables import bend_class
 from ..model.planar import PlanarMap
 from .design_roles import bend_roles, pavement_roles
 
-__all__ = ["ground_roles", "ground_datum_vertices"]
+__all__ = ["ground_roles", "ground_datum_vertices", "ground_rim_vertices",
+           "coverage_edge_collar_vertices"]
 
 
 def ground_roles(law: Law) -> frozenset[str]:
@@ -97,6 +98,13 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
                 out.add(v)
     out.update(coverage_edge_collar_vertices(planar))
     return frozenset(out)
+
+
+def ground_rim_vertices(planar: PlanarMap) -> frozenset[int]:
+    """The members of :func:`ground_datum_vertices` that carry the datum as
+    a COLLAR RIM (issue #302) and so anchor no sheet: their datum levels the
+    vertex, never the pad's body (``solve.design.assemble`` reads it)."""
+    return frozenset(coverage_edge_collar_vertices(planar))
 
 
 def coverage_edge_collar_vertices(planar: PlanarMap) -> set[int]:

@@ -399,6 +399,31 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             kind, axis = "apron", None
             evid = dict(evid, kind="apron", apron_cover_refused_corridor=1.0,
                         cell_apron_cover=cover)
+        # #262 (owner sim read 2026-10-02, CYXY 60.7085411, -135.0764314): A
+        # 1300 STARTUP INSIDE THE CELL REFUSES THE CORRIDOR KIND, the same
+        # rung as §40 (2) read on the apt.dat author's own evidence — a
+        # startup location is where an aircraft PARKS, and a taxiway has no
+        # parking position on it.  The startup is already the first rung of
+        # 04u's apron-evidence ladder (``open_default.apron_evidence``) and
+        # RULINGS 2026-09-11ac item 7 ("a face whose pavement source carries
+        # 1300 STARTUPS ... is airside on evidence"); it was read for the
+        # demotion and for apron-vs-service, never against the corridor
+        # mean-width rung.  MEASURED (CYXY pav5 cell 66): 'Apron 2' — pav5
+        # + pav18 + pav27, 17,096 m2 holding two 1300 'Apron 2' stands —
+        # read mean width 33.2 m because taxi A2 / osm:-17 run ALONG its
+        # edge for 515 m (§43 (3): "a taxiway can run along an apron
+        # edge"), and shipped `cross_connector` under the taxi law.  The
+        # whole cell is apron, no route-proximity cut (as §40 (2)).  DRY
+        # COLLATERAL on the registered captures: SPJC 0 / HECA 0 corridor
+        # cells hold a startup; KCLT 1 (pav165, 3,008 m2, 'FireStation19');
+        # CYXY 2 (this one and pav3's 'South ramp' stand).  A boolean rung:
+        # no threshold, no literal.
+        if kind == "corridor" and not is_neck and _holds_startup(face, start_tree):
+            apron_refused = True
+            kind, axis = "apron", None
+            evid = dict(evid, kind="apron", startup_refused_corridor=1.0,
+                        cell_startups=float(len(start_tree.query(
+                            face, predicate="contains"))))
         # §43 (1) THE NECK CUT, at the one place the ladder knows this face
         # is an APRON CANDIDATE.  "An apron cell is CUT at both ends of
         # every neck": a face the ladder already reads as a CORRIDOR is a

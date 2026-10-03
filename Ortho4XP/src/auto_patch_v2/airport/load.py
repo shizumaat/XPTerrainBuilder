@@ -33,6 +33,7 @@ from . import obj8 as _obj8
 from . import object_pavement as _objpav
 from . import osm as _osm
 from . import pack as _pack
+from . import riders as _riders
 
 _log = logging.getLogger(__name__)
 
@@ -441,7 +442,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             "walls, 2026-09-04). Refresh it explicitly: build_airport.py "
             "--refresh-data airport_mod_cache (the app's driver refreshes it "
             "before the build).")
-    n_fac = n_obj = n_pol = 0
+    n_fac = n_obj = n_pol = n_agp = 0
     dsf_pavements: list[Pavement] = []
     # THE ADMISSION GATE (RULINGS 2026-09-06a): the tile DSF carries EVERY
     # airport's pavement pages; a page is this airport's only within
@@ -513,6 +514,27 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             dsf_objects.append(DsfObject(
                 f"dsf:obj{i}", pl.def_path, to_xy(pl.lon, pl.lat),
                 pl.heading_deg, None, False, None, agl, resolved, pl.kind))
+            # ── .agp point-placed HANGARS are buildings (issue #263) ──
+            # v1 ``dsf_reader.read_dsf_buildings``'s second source
+            # (``AGP_BUILDINGS``, user 2026-06-17): a stock-library hangar
+            # ``.agp`` is ONE placement whose footprint is the file's own
+            # TILE / CROP_POLY about its ANCHOR_PT.  v2 read every ``.agp``
+            # as a RIDER (spec §1 (1): "a placement the plan holds no
+            # geometry for") and never as a footprint, so CYXY's
+            # ``Med_Blue_Hangar.agp`` (``hangar_40x26_3_lb.agp``, 46 x 26 m)
+            # got no pad.  Admitted like the ``.fac`` hangars: by def path
+            # (``dsf.agp_building_role``), source ``dsf:agp:hangar``,
+            # ``[buildings] sources`` gates it in ``classify/evidence``.
+            _agp_role = _dsf.agp_building_role(pl.def_path)
+            if _agp_role is not None and resolved is not None:
+                _agp_ring = _riders.agp_footprint_xy(
+                    resolved, dsf_objects[-1].xy, pl.heading_deg)
+                if _agp_ring is not None and len(_agp_ring) >= 3:
+                    buildings.append(Building(
+                        f"dsf:agp{i}", _agp_ring, (), f"dsf:agp:{_agp_role}",
+                        None, None, dsf_objects[-1]))
+                    n_agp += 1
+    rep.buildings_by_source["dsf:agp"] = n_agp
     rep.dsf_pavements = n_pol
     rep.dsf_pavements_far = n_far
     cache_path = inputs.footprint_cache_path or (

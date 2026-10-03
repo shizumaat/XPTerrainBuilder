@@ -124,4 +124,4 @@ min_area_m2         = 5.0       # a clipped page below this is dropped
 graded_codes = [1, 2, 3, 4, 5, 12, 14]   # apt.dat surfaces that are pavement to grade; water (13) / transparent (15) are not
 
 [buildings]
-sources = ["osm", "dsf:fac", "dsf:object"]   # footprint sources admitted as pads (v1: OSM + DSF facades + OBJ8 structures)
+sources = ["osm", "dsf:fac", "dsf:object", "dsf:agp"]   # footprint sources admitted as pads (v1: OSM + DSF facades + OBJ8 structures + the stock-library hangar .agp placements — issue #263: v1 `AGP_BUILDINGS` was never ported, CYXY's Med_Blue_Hangar.agp at 60.7081125,-135.0757268 had no pad; `airport/dsf.agp_building_role` is the def-path gate, `airport/riders.agp_footprint_xy` the footprint)

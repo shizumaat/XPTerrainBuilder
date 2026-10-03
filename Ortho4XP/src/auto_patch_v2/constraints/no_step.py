@@ -579,11 +579,18 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     for pref, dv, weld, n_all, n_ramp in sets:
         if not weld:
             continue
-        lo, hi, lo_c, hi_c = interval(ar0, weld)
         plat_v = set(HELD[pref].get("plateau_vertices") or ())
-        front = [zof(c) for c in weld if c in cols and c in air_c and c not in plat_v]
+        front_c = [c for c in weld if c in cols and c in air_c and c not in plat_v]
+        # RULINGS 2026-10-02ah (1): [lo, hi] is what the apron can WELD TO
+        # within its own caps and anchors (the pair graph from the fixed
+        # anchors at beta_R = 0, over the frontage contacts) — the datum is
+        # the apron's own level (the median) where that lies inside it, and
+        # the nearest point of the interval where it does not: the apron
+        # blends to the pad, but is never asked what its 1.5 % cap forbids
+        lo, hi, lo_c, hi_c = interval(ar0, front_c or weld)
+        front = [zof(c) for c in front_c]
         med = _median(front or [zof(c) for c in weld if c in cols] or [0.0])
-        D = med
+        D = nearest(lo, hi, med)
         blocks[pref] = {"dv": dv, "weld": weld, "n_all": n_all, "n_ramp": n_ramp,
                         "I0": (lo, hi), "empty0": lo > hi, "med": med, "D": D,
                         "unreached": sum(1 for c in weld if c not in lo_c and c not in hi_c)}
@@ -603,7 +610,15 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         # pad without breaking a cap or a pin — it keeps its hold PRICED
         # (``HOLD_RESIDUAL_RULING``, flat-pad spec v2 §2 EMPTY (i)) and the
         # block reads ``residual`` there, never a relaxed hard row
-        _lo, _hi, lo_c, hi_c = interval(ar0, b["weld"])
+        lo, hi, lo_c, hi_c = interval(ar0, b["weld"])
+        if lo > hi:
+            # an EMPTY interval (no datum serves every contact): the bound
+            # nearest the median of the contact bands' mid-points, and the
+            # contacts whose band excludes it keep their hold PRICED
+            mids = sorted(0.5 * (lo_c.get(c, -math.inf) + hi_c.get(c, math.inf))
+                          for c in b["weld"] if c in lo_c and c in hi_c)
+            m = mids[len(mids) // 2] if mids else b["med"]
+            b["D"] = nearest(lo, hi, m)
         D = b["D"]
         b["residual"] = [c for c in b["weld"] if c in lo_c and c in hi_c
                          and not (lo_c[c] - 1e-9 <= D <= hi_c[c] + 1e-9)]

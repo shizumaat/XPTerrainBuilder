@@ -2143,9 +2143,13 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         # and supersedes the core's road fit for the vertices it governs.
         try:
             from auto_patch_v2.airport.road_ramp import with_road_ramp
+            from auto_patch_v2.classify.rules import load_rules as _lr
         except ImportError:
             return m
-        m = with_road_ramp(m, law, airport)
+        # issue #303: the [service] thresholds come from the CALLER
+        # (``airport`` may not read ``classify``), so the replay hands
+        # them over exactly as the build does.
+        m = with_road_ramp(m, law, airport, service=_lr().service)
         # §37 (9) the coverage-edge join, after the frame it reads
         try:
             from auto_patch_v2.airport.road_profile import core_profiles

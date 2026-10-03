@@ -25,6 +25,19 @@ __all__ = ["weld_airside_faces", "airside_apron_roles", "airside_face_sets",
            "inside_apron_body", "separated_label_pairs", "declarable_pairs",
            "separator_faces"]
 
+#: A MAPPED-ROAD RIBBON IS UNLABELLED (#100 round 4, lane roadmint100e;
+#: RULINGS 2026-09-30aa rules 1-2; moved here from ``shapes._label_others``
+#: by the 1,000-line file law): its own vertices carry no shape, as a
+#: crossing road's do (08r-2) — its rows all survive the filter and it ramps
+#: at its own law (``shapes._label_roads`` skips it).  roadweld100's
+#: ``_label_ribbons`` gave them the majority contact shape, and a ribbon
+#: running from apron A to apron B then carried A-labelled vertices onto B's
+#: rim edges: every such edge is outside the apron body, so
+#: ``separated_label_pairs`` read (A, B) as SEPARATED and the airside's own
+#: weld through its apron faces was refused — measured HECA: 58 shapes for
+#: main's 52.
+RIBBON_UNLABELLED = True
+
 
 def airside_apron_roles(law: Law) -> frozenset[str]:
     """THE AIRSIDE APRON BODY ROLES — the ruling's subject, "an apron

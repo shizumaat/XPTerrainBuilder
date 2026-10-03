@@ -562,15 +562,7 @@ def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[i
             if v in label:
                 label[v] = top
         stats.pads_relabelled += 1
-    # A MAPPED-ROAD RIBBON IS UNLABELLED (#100 round 4, lane roadmint100e;
-    # RULINGS 2026-09-30aa rules 1-2): its own vertices carry no shape, as a
-    # crossing road's do (08r-2) — its rows all survive the filter and it
-    # ramps at its own law.  roadweld100's ``_label_ribbons`` gave them the
-    # majority contact shape, and a ribbon running from apron A to apron B
-    # then carried A-labelled vertices onto B's rim edges: every such edge
-    # is outside the apron body, so ``separated_label_pairs`` read (A, B)
-    # as SEPARATED and the airside's own weld through its apron faces was
-    # refused — measured HECA: 58 shapes for main's 52.
+    # A MAPPED-ROAD RIBBON IS UNLABELLED: ``shape_airside.RIBBON_UNLABELLED``.
     return ramps
 
 

@@ -191,6 +191,16 @@ def stage_one_on(stage1: _t.Any, law: Law, solve1: _t.Callable, yield_heads
             strip_rep = project_strips(pm1, law, stage1.strips, levels1,
                                        got[0].z, cs1.flats)
     to = stage1.to_full
+    if strip_rep is not None:
+        # the report's vertex ids (targets, clamps) onto the FULL map, which
+        # the sidecar publishes the strips on (measured HECA: unmapped, the
+        # census read strip:unit:43#16's apron vertices 0.49 m off targets
+        # looked up under the wrong ids)
+        for d in strip_rep.strips:
+            d["targets"] = {j: z for v, z in (d.get("targets") or {}).items()
+                            if (j := to(v)) is not None}
+            d["clamps"] = [[to(c[0]), *c[1:]] for c in d.get("clamps") or ()
+                           if to(c[0]) is not None]
     levels = {j: z for v, z in levels1.items() if (j := to(v)) is not None}
     s1_read = frozenset(j for j in map(to, read1) if j is not None)
     released = [dict(r, v=to(r["v"]), v_stage1=int(r["v"]))

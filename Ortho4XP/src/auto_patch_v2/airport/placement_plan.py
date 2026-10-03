@@ -538,6 +538,33 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
 
 
 
+def _deck_rider(deck: "_bf.DeckPrint | None", parts: _t.Sequence[_t.Any],
+                band_m: float, edge_m: float = 0.0) -> bool:
+    """Issue #290: is a carried piece its DECK's own furniture — a
+    railing, a lamp post, a sign gantry STANDING ON the road surface?
+
+    True when at least half of the piece's parts stand over the deck's
+    model footprint or within ``edge_m`` of it (``[deck] edge_m``: a
+    parapet stands on the deck's edge), and the piece's LOWEST part is
+    one of them, its base within ``band_m`` (``[basin]
+    contact_band_m``) of the deck's authored surface there
+    (:meth:`DeckPrint.top_at` — a ramp is read where the part stands).
+    A terminal's facade glass beside a departures viaduct reaches down
+    metres below the deck surface: not a rider.  MEASURED (HECA control
+    ``hecaobjects_ctl``): T3's departures floor slabs at y 17.08 stand
+    more than 6 m from ``T23/T3_road`` and stay with the terminal; the
+    railings (y 16.93) stand 1-3 m off its edge."""
+    if deck is None or not parts:
+        return False
+    tops = [deck.top_at(float(p.lat), float(p.lon), edge_m) for p in parts]
+    n_over = sum(1 for y in tops if y is not None)
+    if 2 * n_over < len(parts):
+        return False
+    k = min(range(len(parts)), key=lambda i: float(parts[i].base_y))
+    return (tops[k] is not None
+            and abs(float(parts[k].base_y) - tops[k]) <= band_m)
+
+
 def _split_by_unit(groups: _t.Sequence[_t.Sequence[int]],
                    raw: _t.Sequence[_t.Any],
                    plan_wide: _t.Mapping[int, tuple],
@@ -758,6 +785,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
     prints = _bf.deck_prints(plan, _cutter_for)
     counts["bridge_deck_footprints"] = len(prints)
+    # issue #290: the deck footprint of a (unit, member), for the
+    # deck-rider test ``footprint_unit.contents_seat`` asks
+    _deck_of = {(p.unit, p.member): p for p in prints}
 
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,
@@ -1151,7 +1181,18 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                         over, _pids, bx, _pw, _unit_ix(),
                         alternatives=[cands[q] for q in _f[1:]] if _f else (),
                         tol_m=split_tol_m, span_max_m=connector_span_m,
-                        counts=counts)
+                        counts=counts,
+                        # #289: the carve-out per PART of the piece (a
+                        # raw body is a §16c (7) chain and spans 240-331 m
+                        # of scattered panes at HECA T3)
+                        piece_boxes=[tuple(p.box) for i in grp
+                                     for p in st.raw[i][0]
+                                     if getattr(p, "box", None)],
+                        # #290: a deck's own furniture stays on the deck
+                        deck_rider=(lambda c, _p=[q for i in grp
+                                                  for q in st.raw[i][0]]:
+                                    _deck_rider(_deck_of.get((ui, c.member)),
+                                                _p, foot_band_m, deck_edge_m)))
                     if _uc10 is not None:
                         st.unit_carried.append((grp, _uc10))
                         continue

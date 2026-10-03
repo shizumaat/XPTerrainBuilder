@@ -451,6 +451,17 @@ class PlanarMap:
     #: run to the road vertex and ``d`` its run to its own foot.
     road_between_levels: _t.Mapping[str, _t.Mapping] = \
         _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-10-03b (#100, the ROAD TERRACE): a mapped-road
+    #: ribbon BORDERING airside pavement takes that pavement's level (a cut
+    #: terrace) and climbs at <= the road cap only on bare runs.  Published
+    #: pre-solve from geometry alone by ``airport/road_ramp.road_terrace``
+    #: — ``{"foot": {v: (a, b, u, ref)}, "pad": {v: ref}, "station": {v:
+    #: (route, s)}}`` over every ribbon-owned vertex: ``foot`` the nearest
+    #: §20b STAGE-1 pavement ring edge within its adjacent-ground reach,
+    #: ``pad`` a vertex bordered only by a pad (whose level is its apron's,
+    #: 10-02ag (1)); the levels are stage 1's, so the profile is applied
+    #: between §20b's stages (``constraints/road_ramp.terrace_rewrite``).
+    road_terrace: _t.Mapping[str, _t.Mapping] = _dc.field(default_factory=dict)
     #: §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be;
     #: ``emit/road_join.py``): road vertex -> the CORE ribbon's altitude at
     #: the first station outside the patch coverage, as an EQUALITY — the

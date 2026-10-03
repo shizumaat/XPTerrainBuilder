@@ -161,6 +161,12 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # WITHDRAWN, ``[[lat, lon], ...]`` — the runway-edge tie (verify and
     # census, one core) reads no hit on them
     "road_cap_governs",
+    # OWNER RULINGS 2026-10-03b (#100) THE ROAD TERRACE'S SECOND WITNESS,
+    # REPORT ONLY (no census family reads it): per pack fence / wall line
+    # along a bordered ribbon run, the object, the DEM along it, the level
+    # the terrace gave the road beside it and their agreement
+    # (``pipeline/terrace_witness``)
+    "road_terrace_witness",
     # §33 (6) THE OBJECT CUTS (owner RULINGS 2026-09-15e/15g; lane
     # `v2objcut`): per signature-B corridor, the PACK OBJECT'S own wall
     # line as a lat/lon ring and the AUTHORED floor its floor plate

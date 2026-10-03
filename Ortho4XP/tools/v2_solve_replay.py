@@ -928,8 +928,8 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
     # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is
     # withdrawn under (road cap governs) — the census reads the same set
-    from auto_patch_v2.law.tables import airside_stage_roles as _asr
-    rc_vs = pm.road_cap_vertices(_asr(law))
+    from auto_patch_v2.constraints.strips import road_cap_crossing as _road_cap_crossing
+    rc_vs = _road_cap_crossing(pm, law, airport)
     if rc_vs:
         _to_ll_rc = airport.frame.transformers()[1]
         pub["road_cap_governs"] = [list(_to_ll_rc(*pm.vertices[v].xy))

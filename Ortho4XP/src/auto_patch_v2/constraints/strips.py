@@ -63,7 +63,7 @@ from .precedence import View, view
 __all__ = ["RunwayGroup", "runway_groups", "runway_code_number",
            "pavement_ring_vertices", "strip_longitudinal_pairs",
            "strip_longitudinal", "strip_arc", "resa_transverse",
-           "end_corridor_longitudinal", "raoa"]
+           "end_corridor_longitudinal", "raoa", "road_cap_crossing"]
 
 #: A strip pair shorter than this ALONG the axis carries more rounding
 #: than signal (the census's own floor, ``check_grade`` strip readers).
@@ -150,6 +150,30 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
                  rect_ring(a, b, length - m, length + end_len + m, end_half + m))
         out.append(RunwayGroup(ref, a, b, unit, length, width, code, letter, rings))
     return out
+
+
+def road_cap_crossing(planar: PlanarMap, law: Law, airport: Airport) -> frozenset[int]:
+    """OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS — WHERE A
+    MAPPED ROAD CROSSES THE STRIP: the vertices the strip's tie rows are
+    withdrawn under (``zones.strip_transverse``, ``_end_foot_rows``) and
+    the sidecar ``road_cap_governs`` publishes — ONE set, one derivation.
+    The footprint is every runway's strip rect and its two end corridors
+    (``runway_groups``); a ribbon is withdrawn only over a run of it that
+    ENTERS AND LEAVES that footprint (``PlanarMap.road_cap_vertices``'
+    crossing criterion, round 6).  A ribbon running along the strip keeps
+    the tie."""
+    import shapely
+    from shapely.geometry import Polygon
+    from shapely.prepared import prep
+    vw = view(planar, law)
+    rings = [Polygon(r) for g in runway_groups(vw, airport) for r in g.rings if len(r) >= 3]
+    if not rings:
+        return frozenset()
+    foot = prep(shapely.union_all(rings))
+    xy = planar.vertices
+    return planar.road_cap_vertices(
+        airside_stage_roles(law),
+        inside=lambda v: foot.intersects(shapely.Point(xy[v].xy)))
 
 
 def _strip_rings(vw: View) -> list[tuple[int, list[int], list[XY]]]:
@@ -326,6 +350,7 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     q = law.tables.emit.instrument.strip_edge_noise_m - law.tables.emit.materiality.elevation_m
     rows: list[Row] = []
     seen: set[tuple[int, int]] = set()
+    road_cap = road_cap_crossing(planar, law, airport)
     for g in runway_groups(vw, airport):
         src = Source(GEN, "rulesets.end_skirt.max_down_grade (reg-set 2026-08-08)",
                      (f"rwy:{g.ref}",))
@@ -344,12 +369,13 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                         seen.add(key)
                         rows.append(Linear(((a, 1.0), (b, -1.0)), -cap * ds - q,
                                            cap * ds + q, src))
-        rows.extend(_end_foot_rows(vw, g, cap, q, src, seen))
+        rows.extend(_end_foot_rows(vw, g, cap, q, src, seen, road_cap))
     return rows
 
 
 def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
-                   seen: set[tuple[int, int]]) -> list[Row]:
+                   seen: set[tuple[int, int]],
+                   road_cap: _t.AbstractSet[int] = frozenset()) -> list[Row]:
     """THE CHORD FORM of the same law, from the runway END EDGE: every
     strip vertex in an end corridor abeam the runway's width is bound to
     the interpolation along the end edge over its along-axis distance
@@ -400,8 +426,8 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
     # chord from the runway end binds it — the zones stop at the wall
     walls = {v for f in vw.faces_of_role(("retaining_wall",)) for v in vw.rings[f.id]}
     # OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS: no end-foot
-    # chord under a mapped-road ribbon (``PlanarMap.ribbon_vertices``)
-    road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
+    # chord under a mapped-road ribbon CROSSING the footprint
+    # (``road_cap_crossing``, the caller's one derivation)
     rows: list[Row] = []
     for fid, ids, xy in _strip_rings(vw):
         for k, v in enumerate(ids):

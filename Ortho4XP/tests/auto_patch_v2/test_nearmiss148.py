@@ -166,15 +166,15 @@ def test_rim_and_near_miss_contacts_sit_on_the_datum(law, built, registry):
     assert max(abs(z[e] - D) for e, *_r in near) <= tol + 1e-6
 
 
-def test_an_unreachable_near_miss_contact_is_a_reported_residual(law, built,
-                                                               registry,
-                                                               monkeypatch):
-    """The rim is held by the rest of the airport (pinned at 700.5 m, as the
-    apron's own anchors would) and the near-miss frontage (apronC) is pinned 1 m up:
-    no datum serves both.  The near-miss contact is in the set the §2
-    interval reads, so the block goes RESIDUAL at it — its hold priced and
-    reported (``pad_frontage_infeasible`` reads ``unheld_contacts``) — the
-    rim stays on the datum and the hard set solves: no step is dumped."""
+def test_an_unreachable_near_miss_contact_is_a_reported_needs_split(law, built,
+                                                                  registry):
+    """Round 5 (owner 2026-10-02, RULINGS 2026-10-02ah (1)): the datum is a
+    FREE column; the rim is pinned at 700.5 m and the near-miss frontage
+    (apronC) 1 m up, so NO single D serves the block.  The solve keeps the
+    datum where the rim's welds hold it, the elastic LP releases ONLY the
+    near-miss weld (pad tier; never an apron cap), and the record names the
+    block ``needs_split`` with the released contact — the owner's
+    two-pads-with-a-cliff class, reported for the base-profile split."""
     from auto_patch_v2.constraints.platform import _conforming_records
     pm, cs, _h = built
     lw = _arm(law, staged_solve=True)
@@ -185,34 +185,25 @@ def test_an_unreachable_near_miss_contact_is_a_reported_residual(law, built,
                                        for q in pm.vertices[v].incident_faces))
     assert len(rim) > len(near)
     src = Source("fixture", "nearmiss148 twin anchor", ())
-    e = near[0]
     pins = [Pin(v, 700.5, src) for v in rim] + [Pin(q, 701.5, src) for q in near]
     z, rep = _solve(pm, ConstraintSet.from_rows([*cs.rows(), *pins]), lw)
     tol = float(lw.tables.emit.design.hard_tol_m)
-    h = registry["padB"]
-    assert h["reach_eval"] == "residual"
-    assert e in set(h.get("residual") or ())
-    # the datum is the rim's (the median of the contact bands), not the
-    # near-miss frontage's: the residual is the frontage, priced
-    assert h["datum_chosen"] == pytest.approx(700.5)
-    assert max(abs(z[v] - 700.5) for v in rim) <= tol + 1e-6
-    D = h["datum_chosen"]
     rec = {r["ref"]: r for r in _conforming_records(pm, lw, z)}["padB"]
-    assert rec["unheld_contacts"] >= 1 and rec["hold_verdict"] == "residual"
-    import sys
-    from pathlib import Path
-    tools = str(Path(__file__).resolve().parents[2] / "tools")
-    if tools not in sys.path:
-        sys.path.insert(0, tools)
-    from check_grade import _check_pad_frontage
-    # NO STEP DUMPED: the hard set is no worse than the same pins without
-    # the near-miss holds (the hand pins alone leave a 0.78 m apron ceiling
-    # miss in this fixture — the matched control carries it too)
-    worst = float(rep.hard_max_violation_m)
-    import auto_patch_v2.constraints.platform as P
-    monkeypatch.setattr(P, "_with_near_miss", lambda _pm, _lw, sets: sets)
-    _z0, rep0 = _solve(pm, ConstraintSet.from_rows([*cs.rows(), *pins]), lw)
-    assert worst <= float(rep0.hard_max_violation_m) + 1e-3
-    rows = _check_pad_frontage([dict(rec, centroid_ll=[60.5, -135.5],
-                                     unheld_miss_max_m=abs(z[e] - D))], False)
-    assert len(rows) == 1 and rows[0].de_m == pytest.approx(1.0, abs=0.05)
+    assert rec["needs_split"] and rec["released"] >= 1
+    # the datum sits at ONE of the two levels the welds can meet (the
+    # elastic LP's pick), never between them, and every weld at that level
+    # is held
+    D = rec["datum"]
+    near_tol = 0.05       # the elastic LP's own residual on the kept level (3 dp record)
+    assert min(abs(D - 700.5), abs(D - 701.5)) <= near_tol, D
+    kept = rim if abs(D - 700.5) <= near_tol else near
+    assert max(abs(z[v] - D) for v in kept) <= near_tol
+    rel = {tuple(k) for k in rec["released_ll"]}
+    lost = near if kept is rim else rim
+    assert {tuple(pm.vertices[q].key) for q in lost} & rel
+    # nothing but the pad's own hold was relaxed for it
+    from auto_patch_v2.solve.feasibility import HARD_CONFLICT
+    conf = [r for r in HARD_CONFLICT if "frontage_hold" not in r["row"]
+            and "building_pad" in r["row"]]
+    assert not conf, conf
+    assert any("frontage_hold" in r["row"] for r in HARD_CONFLICT)

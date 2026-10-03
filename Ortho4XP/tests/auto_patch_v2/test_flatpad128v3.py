@@ -413,7 +413,15 @@ def test_a_conforming_pad_is_held_flat(law, built_full):
     tol = float(lw.tables.emit.design.hard_tol_m)
     dv = datum_vertices(pm, lw)["padB"]
     D = z[dv]
-    assert abs(D - HELD["padB"]["datum_chosen"]) <= tol + 1e-6   # no drift
+    # round 5 (owner 2026-10-02): the datum is a FREE column — the record's
+    # datum IS the solved column (no pin to disagree with); the median is
+    # only the soft preference's target
+    from auto_patch_v2.constraints.platform import _conforming_records
+    rec = {r["ref"]: r for r in _conforming_records(pm, lw, z)}["padB"]
+    assert abs(rec["datum"] - D) <= 1e-3
+    assert rec["datum_median"] == HELD["padB"]["datum_chosen"]
+    assert rec["welded"] + rec["released"] == rec["held_contacts"]
+    assert rec["released"] == 0 or rec["needs_split"]
     contacts = {o for o, _z in HELD["padB"].get("hold_contacts", [])}
     vs = {v for f in pm.faces.values() if f.ref == "padB"
           for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
@@ -438,4 +446,5 @@ def test_a_conforming_pad_is_held_flat(law, built_full):
     # its datum)
     if interior:
         assert max(abs(z[v] - D) for v in interior) <= tol + 1e-6
-    assert off and off <= contacts, "the runway-shared contacts are the reported residual"
+    assert off <= contacts
+    assert bool(off) == bool(rec["needs_split"])

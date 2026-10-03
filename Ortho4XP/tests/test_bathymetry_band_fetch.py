@@ -336,7 +336,18 @@ def test_waiter_resumes_from_the_other_process_cells(monkeypatch):
              "checked": "2026-07-16"},
             index_file,
         )
-    os.remove(lock_path)
+    # Release through the engine's OWN release, not a bare os.remove: on
+    # Windows the waiting consumer holds this file open for its staleness
+    # read and an open handle blocks the unlink (WinError 32), which made
+    # this twin stricter than the code it models and red at random on the
+    # windows-latest leg (#230, #249).  The release is not what is under
+    # test here -- the resume-without-refetch below is.
+    BATHYBAND._release_band_lock(band_directory)
+    # The twin's OWN precondition, stated where it fails: a release that
+    # did not land would otherwise be reported 15 s later as the consumer
+    # failing to finish, which is the wrong failure.
+    assert not os.path.isfile(lock_path), (
+        "the hand-played other process could not release its lock")
     consumer_thread.join(timeout=15)
     assert not consumer_thread.is_alive()
     # It resumed from the other fetch's cells: nothing was refetched.

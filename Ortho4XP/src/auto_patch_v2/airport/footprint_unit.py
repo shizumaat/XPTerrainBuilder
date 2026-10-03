@@ -54,14 +54,19 @@ from .footprint_carry import (  # noqa: F401
     _is_connector_row, contents_seat, is_connector_length, unit_by_pid,
     unit_carry, unit_carry_index)
 
-__all__ = ["UNIT_REASON", "UNIT_CARRY", "UnitCarry",
-           "bind_footprint_units", "unit_carry", "unit_carry_index",
+__all__ = ["UNIT_REASON", "UNIT_CARRY", "UnitCarry", "VIADUCT_SRC",
+           "bind_footprint_units", "seat_viaducts", "unit_carry", "unit_carry_index",
            "PlanConnector", "ClusterTopology"]
 
 
 #: §16g's own counts key prefix, so the census can tell a §16g unit from
 #: a §16f family in a plan written by either tree.
 UNIT_REASON = "§16g unit"
+
+#: owner RULINGS 2026-10-03e (#290): the seat source a UNIT'S VIADUCT
+#: body is written with (``seat_viaducts``) — the unit's level, carried
+#: by every piece of the viaduct as one rigid unit.
+VIADUCT_SRC = "viaduct"
 
 
 def _is_deck_member(st: _t.Any) -> bool:
@@ -251,6 +256,77 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
             spread_before_m=((max(gz) - min(gz)) if gz else 0.0),
             spread_after_m=0.0, apart=()))
     return units
+
+
+def seat_viaducts(cands: list, staged: _t.Sequence[_t.Any],
+                  surface: _ar.Surface, counts: dict,
+                  viaducts: _t.Mapping[str, _t.Any], *, unit_index: int,
+                  visual_m: float = 0.0,
+                  beside: "_t.Callable[[str, _t.Sequence[_t.Any]], bool] | None" = None
+                  ) -> list[Family]:
+    """owner RULINGS 2026-10-03e (#290): A UNIT'S VIADUCT RIDES THE UNIT.
+
+    ``viaducts`` is :func:`bridge_family.unit_viaducts`'s plan-wide
+    answer.  Every candidate of this pass that is a piece of one — the
+    DECK member's own bodies, and every body §16e (3) names as that
+    deck's (``Body.bridge_of``: its plan centre inside the deck's model
+    footprint) which no §16g unit seat already placed, and every such
+    body of a member SHARING THE DECK'S PLACEMENT FRAME that stands on
+    the deck's authored surface at its edge (``beside(deck, parts)`` —
+    ``placement_plan._deck_rider``: a sidewalk or kerb beside the plate,
+    the OTHH lesson of §16e (3)) — is seated at the viaduct's unit zero by the one anchor rewrite (:func:`_seat`), so the
+    deck's y = 0 stands at the unit datum and the piers, sidewalks,
+    railings, signs and kerb segments with it: ONE rigid unit, spread 0.
+    A body a unit seat already placed keeps it (it IS the unit's level,
+    or another block's).  A free-standing deck is not in ``viaducts``
+    and keeps 2026-09-30g (3).
+
+    Runs AFTER :func:`bind_footprint_units` and BEFORE the carrier search,
+    so whatever rides the deck rides it at the unit's level."""
+    if not viaducts or not cands:
+        return []
+    from .bridge_family import body_bridge, frame_of
+    by_mi = {st.mi: st for st in staged}
+    mine = {(v.unit, v.member): v for v in viaducts.values()}
+    per_v: dict[str, dict[int, list]] = {}
+    for ci, c in enumerate(cands):
+        st = by_mi.get(c.member)
+        if st is None or c.body_class == _ar.BASIN:
+            continue
+        v = mine.get((unit_index, c.member))
+        if v is None:
+            if getattr(c.anchor, "unit_seat", False):
+                continue
+            grp = (st.groups[c.group]
+                   if 0 <= c.group < len(st.groups) else ())
+            key = body_bridge(getattr(st, "bridge", ()) or (), grp)
+            v = viaducts.get(key) if key else None
+            if v is None and beside is not None:
+                fr = frame_of(getattr(st, "m", None))
+                parts = [q for i in grp for q in st.raw[i][0]]
+                v = next((w for _k, w in sorted(viaducts.items())
+                          if fr is not None and w.frame == fr
+                          and beside(w.deck, parts)), None)
+                if v is not None:
+                    counts["viaduct_bodies_beside_the_plate"] = \
+                        counts.get("viaduct_bodies_beside_the_plate", 0) + 1
+            if v is None:
+                continue
+        cc = _contacts_of(c, st, surface)
+        if not cc:
+            continue
+        per_v.setdefault(v.deck, {})[ci] = cc
+    out: list[Family] = []
+    for key, per in sorted(per_v.items()):
+        v = viaducts[key]
+        n0 = counts.get("bodies_bound_to_unit", 0)
+        out.extend(_seat(cands, by_mi, surface, counts, per, v.zero,
+                         f"{key.rsplit('/', 1)[-1]} on {v.where or v.src}",
+                         VIADUCT_SRC, v.uid, visual_m))
+        counts["viaduct_bodies_seated"] = \
+            counts.get("viaduct_bodies_seated", 0) \
+            + counts.get("bodies_bound_to_unit", 0) - n0
+    return out
 
 
 def cluster_zero_allowed(forced: _t.Sequence[int], st: _t.Any,
@@ -1046,7 +1122,9 @@ def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
             f"{UNIT_REASON} {fid} of {len(mems)} member(s) on "
             + (f"pad {where}" if src in ("pad", "cluster_pad")
                else (f"deck {where}" if src == "deck"
-                     else "its median ground"))
+                     else (f"its viaduct {where} (RULINGS 2026-10-03e)"
+                           if src == VIADUCT_SRC
+                           else "its median ground")))
             + f" at {zero:.2f} (own ground {own - z_i:+.2f} m)"
             + ("" if z_i <= zero else
                f" — §16g (2)/17x AIRSIDE FLOOR: raised to {z_i:.2f} "

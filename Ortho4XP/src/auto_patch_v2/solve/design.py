@@ -104,7 +104,7 @@ _LAG_OFF = 1.0e9
 
 
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
-from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
+from .design_ground import ground_datum_vertices, ground_rim_vertices, ground_roles  # noqa: E402
 from .design_stage import stage_split  # noqa: E402  (re-export: the §20b split)
 from .design_stage import _groundside_minter, _welded_faces, stage_one_on  # noqa: E402
 from .design_roles import (  # noqa: E402  (re-export)
@@ -565,11 +565,19 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     comp = _sheet_components(tris, red)
     rep.components = len(set(comp.values()))
     anchored: set[int] = set()
+    # A collar's coverage-edge rim datum (issue #302) gives THAT VERTEX a
+    # level inside its slack bank; it does not anchor the pad's sheet.
+    # Counted as an anchor it withdrew the sheet's own body datum, and the
+    # §20c single-solve locality twin (``test_v2qp``) read a 1.32 m far
+    # response at ANY datum weight (measured down to 1e-6) — the anchor
+    # test, not the pull, was the coupling.
+    rim_only = ground_rim_vertices(planar)
     for vid in range(n):
         col = int(red.col[vid])
         if col < 0:                                   # a pin / the DEM beyond
             continue
-        if vid in pref or vid in ground or ramp.get(vid, 0.0) > 0.0:
+        if (vid in pref or (vid in ground and vid not in rim_only)
+                or ramp.get(vid, 0.0) > 0.0):
             anchored.add(comp[col])
     for vid in hard_follow:                           # a HARD row anchors too
         col = int(red.col[vid])

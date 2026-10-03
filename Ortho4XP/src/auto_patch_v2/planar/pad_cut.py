@@ -203,7 +203,8 @@ def apron_cut_to_pads(base_regions, pad_regions, law,
     return [r for r in out if r is not None], pads_out, counts
 
 
-def airside_clip(regions, law, air=None, nodes=None, rim=None) -> tuple[list, dict]:
+def airside_clip(regions, law, air=None, nodes=None, rim=None, select=None,
+                 near_m: float = 0.0, keep_out=None) -> tuple[list, dict]:
     """§16g (10) (5) AT THE SITE WHERE THE FACES HAVE ROLES (owner RULINGS
     2026-09-14ax): every RIGID (``building``) region clipped out of the
     airside faces — ``law.tables.rolled_on_roles``: the runway family, the
@@ -233,9 +234,19 @@ def airside_clip(regions, law, air=None, nodes=None, rim=None) -> tuple[list, di
     A pad the clip would ERASE is counted and dropped: it stands wholly
     on what an aircraft rolls on, and §16g (10) (5)'s own clause is that
     its bodies seat on the pavement.
+
+    ``select`` (default: the rigid roles) picks the regions clipped, and
+    ``near_m`` also quantises a selected region standing within it of the
+    airside without touching it.  RULINGS 2026-09-30aa rule 9 (#100): the
+    mapped-road RIBBONS join pass B through THIS clip — ``select`` their
+    regions, ``near_m`` the rim's hot-pixel band — so no ribbon ring node
+    stands within the band except AS a rim node: the contact is a WELD.
+    ``keep_out``: ground the weld never grows a ribbon into (the other
+    cells standing — a lot between the ribbon and an apron).
     """
     counts: dict = {}
-    pad_ix = [i for i, r in enumerate(regions) if is_rigid_role(law, r.role)]
+    pick = select if select is not None else (lambda r: is_rigid_role(law, r.role))
+    pad_ix = [i for i, r in enumerate(regions) if pick(r)]
     if not pad_ix:
         return list(regions), counts
     if air is None:
@@ -259,6 +270,24 @@ def airside_clip(regions, law, air=None, nodes=None, rim=None) -> tuple[list, di
     drop: set[int] = set()
     for i in pad_ix:
         r = out[i]
+        if near_m > 0.0:
+            # 30aa rule 9: THE WELD — no ring node within the band except AS
+            # a rim node (``_weld_to_rim``)
+            if r.polygon.distance(air) > near_m:
+                continue
+            from .ribbon_weld import _weld_to_rim   # lazy: ribbon_weld imports this module
+            ps = _polys(_weld_to_rim(r.polygon.difference(air), rim, near_m,
+                                     counts, keep_out))
+            counts["welded"] = int(counts.get("welded", 0)) + 1
+            if not ps:
+                counts["dropped_wholly_in_band"] = \
+                    int(counts.get("dropped_wholly_in_band", 0)) + 1
+                drop.add(i)
+                continue
+            out[i] = _dc.replace(r, polygon=max(ps, key=lambda q: q.area))
+            for extra in sorted(ps, key=lambda q: -q.area)[1:]:
+                out.append(_dc.replace(r, polygon=extra))
+            continue
         if not r.polygon.intersects(air):
             continue
         g = r.polygon.difference(air)

@@ -28,7 +28,7 @@ from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..classify.roles import Classification
+from ..classify.roles import Classification, is_osm_ribbon
 from ..geom.containment import sets_inside_one_ring
 from ..law import Law
 from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
@@ -151,6 +151,14 @@ class Arrangement:
 PAD_AIRSIDE: dict[str, object] = {}
 
 
+def _faces_of_lazy():
+    """``planar/ribbons._faces_of`` (the polygonise-and-claim pass), imported
+    at call time: ``ribbons`` reads this module's merge passes, so the
+    import runs the other way (the §20 line budget split, lane roadmint100b)."""
+    from .ribbons import _faces_of
+    return _faces_of
+
+
 def _node_coords(noded) -> list[tuple[float, float]]:
     """Every distinct coordinate of a noded line work — the arrangement's
     own node set, which is exactly the vertex set its polygonized faces
@@ -172,7 +180,16 @@ def build_arrangement(airport: Airport, classification: Classification,
     """Regions + breakline sources -> ONE noded arrangement."""
     grid = grid_m if grid_m is not None else \
         law.tables.emit.identity.min_distinct_spacing_m
-    cells, weld = weld_cells(classification.cells, law)
+    # RULINGS 2026-09-30aa rules 2/9 (#100): the MAPPED-ROAD RIBBONS take
+    # no part in the weld, the zone derivation or pass A — the airside, and
+    # every ring pass A nodes, is the arrangement WITHOUT them — and join at
+    # pass B through the pads' own clip (below).  Inside a band the ribbon
+    # CLAIMS its footprint from the zone at the face claim (a senior role):
+    # the flush cut, no stand-off, no knife, no sliver of its own making.
+    ribbon_cells = tuple(c for c in classification.cells if is_osm_ribbon(c))
+    cells, weld = weld_cells(tuple(c for c in classification.cells
+                                   if not is_osm_ribbon(c)), law) \
+        if ribbon_cells else weld_cells(classification.cells, law)
     regions: list[Region] = []
     for c in cells:
         regions.append(Region(c.role, c.ref, Polygon(c.ring, c.holes),
@@ -333,58 +350,33 @@ def build_arrangement(airport: Airport, classification: Classification,
     # the ones standing there AFTER.  ``deleted`` and ``minted`` are both
     # the defect; the bar is 0.
     _pad_clip.update(_renode_counts(nodes_a, _node_coords(noded), air))
+    frozen = None
+    if ribbon_cells:
+        from .ribbons import _ribbons_pass_c   # lazy: ribbons imports this module
+        rib_lines, regions, frozen, air_f, base_order = _ribbons_pass_c(
+            ribbon_cells, noded, regions, bands, law, keeps, float(grid),
+            _ring_lines_of, _pad_clip)
+        if rib_lines:
+            # ONE second pass, pads and ribbons together — never a third
+            # snap-rounding pass over the finished set (snap rounding is not
+            # idempotent: a third global pass collapsed HECA ``pav75``'s
+            # 0.25 m² face 40 m from any ribbon)
+            nodes_b = sorted(frozen)
+            noded = shapely.unary_union(
+                unary_union([noded_a, *pad_lines, *rib_lines]), grid_size=grid)
+            if noded.geom_type == "LineString":
+                noded = MultiLineString([noded])
+            _pad_clip.update({f"ribbon_{k}": v for k, v in _renode_counts(
+                nodes_b, _node_coords(noded),
+                shapely.set_precision(air_f, float(grid))).items()})
     PAD_AIRSIDE.clear()
     PAD_AIRSIDE.update(_pad_clip)
-    polys = [g for g in shapely.get_parts(shapely.polygonize([noded]))
-             if g.geom_type == "Polygon" and not g.is_empty]
-
-    tree = STRtree([r.polygon for r in regions])
-    faces: list[tuple[Polygon, Region]] = []
-    dropped = 0
-    dropped_seam = 0
-    for poly in polys:
-        if bands and any(b.contains(poly.representative_point()) for b in bands):
-            dropped_seam += 1
-            continue
-        best, best_a = _claiming_region(poly, regions,
-                                        tree.query(poly, predicate="intersects"), law)
-        if best is None or best_a < 0.5 * poly.area:
-            dropped += 1
-            continue
-        faces.append((poly, best))
-    if keeps:
-        # RULINGS 2026-09-29n (4), #94: ONE platform, ONE face — a foreign
-        # ring edge noded through the pad is dropped at this derivation site
-        from .platform import merge_platform_faces
-        faces, _plat_merged = merge_platform_faces(faces)
-        PAD_AIRSIDE["platform_faces_merged"] = _plat_merged
-        from .platform import MERGE_READ
-        if MERGE_READ:
-            PAD_AIRSIDE["platform_merge_read"] = "; ".join(
-                f"{r} {a}->{'refused' if b is None else b}"
-                for r, (a, b) in sorted(MERGE_READ.items()))
-    ident = law.tables.emit.identity.min_distinct_spacing_m
-    faces, merged = merge_slivers(faces,
-                                  (ident * law.tables.emit.terrace.sliver_area_factor) ** 2,
-                                  law.tables.emit.identity.weld_spacing_m)
-    # §41 (1): an enclosed pavement face is its host's hole — absorbed HERE,
-    # at the single derivation site, so every consumer downstream reads one
-    # body with one law (owner RULINGS 2026-08-30l: trim at the derivation
-    # site, never per consumer)
-    faces, absorbed, detached = absorb_enclosed_pavement(
-        faces, tuple(law.tables.emit.terrace.shape_roles),
-        mouth_m=law.tables.emit.terrace.narrow_mouth_max_m)
-    # §41 (4): a sliver ZONE face is dissolved into the pavement it borders
-    # HERE, before the host's hole is cut — the same single-derivation-site
-    # discipline (owner RULINGS 2026-08-30l) the absorption above follows
-    faces, zs_dissolved, zs_dropped, zs_area, zs_rows = dissolve_sliver_zones(
-        faces, law.tables.emit.terrace.strip_min_m2,
-        law.tables.emit.terrace.strip_min_width_m,
-        tuple(law.tables.emit.terrace.shape_roles),
-        tuple(r for r, spec in law.tables.precedence.roles.items()
-              if spec.rigid))
-    faces, holes_gone = dissolve_degenerate_holes(
-        faces, law.tables.emit.terrace.separation_m, ident ** 2)
+    (faces, dropped, dropped_seam, merged, absorbed, detached, zs_dissolved,
+     zs_dropped, zs_area, zs_rows, holes_gone, _polys) = _faces_of_lazy()(
+        noded, regions, bands, law, keeps, frozen,
+        air_f if frozen is not None else None,
+        base_order[0] if frozen is not None else None,
+        base_order[1] if frozen is not None else None)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
                        bands, dropped_seam, weld, merged,
                        tuple(edge_lines), erep, holes_gone,
@@ -392,11 +384,11 @@ def build_arrangement(airport: Airport, classification: Classification,
                        zs_dissolved, zs_dropped, zs_area, zs_rows)
 
 
-#: Two overlaps within this many m² of each other are ONE overlap (a tie).
-CLAIM_TIE_M2 = 1e-6
 
 #: A region whose outline stands within this many m of another's is drawn
 #: inside it (the ring buffer of ``geom.containment.sets_inside_one_ring``).
+#: Two overlaps within this many m² of each other are ONE overlap (a tie).
+CLAIM_TIE_M2 = 1e-6
 CLAIM_CONTAIN_M = 1e-3
 
 
@@ -429,6 +421,14 @@ def _claiming_region(poly: Polygon, regions: "list[Region]", hits,
             cands.append((a, r))
     if not cands:
         return None, 0.0
+    # 30aa (#100): a mapped-road RIBBON claims its footprint FROM THE ZONE it
+    # lies in (the flush cut, no stand-off): the zone region never saw the
+    # ribbon, and the face's densified, snap-rounded edges overlap the raw
+    # ribbon by a few m² less than the zone around it (measured HECA
+    # ``small_roads:-3890#3``: 560.8 vs 568.0 of 571.9 m²)
+    rib = [(a, r) for a, r in cands if a >= 0.5 * poly.area and is_osm_ribbon(r)]
+    if rib and all(r.source == "zone" or is_osm_ribbon(r) for _a, r in cands):
+        return max(rib, key=lambda t: (t[0], str(t[1].ref)))[::-1]
     top = max(a for a, _ in cands)
     tied = [(a, r) for a, r in cands if top - a <= CLAIM_TIE_M2]
     if len(tied) > 1:
@@ -620,7 +620,9 @@ def inscribed_width_m(poly: Polygon, tol: float = 0.01) -> float:
 def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
                           area_min_m2: float, width_min_m: float,
                           host_roles: tuple[str, ...] = (),
-                          refuse_roles: tuple[str, ...] = ()
+                          refuse_roles: tuple[str, ...] = (),
+                          frozen: "set | None" = None,
+                          hosts_seen: "dict | None" = None
                           ) -> tuple[list[tuple[Polygon, Region]], int, int,
                                      float, tuple]:
     """§41 (4) — A SLIVER ZONE STRIP IS DISSOLVED (owner RULINGS
@@ -649,7 +651,16 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
 
     Smallest-first, so a chain of slivers resolves into the body and never
     into each other.  Returns ``(faces, dissolved, dropped, area_m2,
-    rows)``."""
+    rows)``.
+
+    ``frozen`` (RULINGS 2026-09-30aa rules 9-10, #100): the node set pass A
+    fixed.  A sliver carrying a coordinate pass B added (a mapped-road
+    ribbon cut it) never grows an aircraft-pavement host — that would give
+    the airside a vertex it does not have without the ribbon; it takes
+    the next host, else the DEM owns it.  A sliver pass A made alone
+    dissolves exactly as it always did — into the host it took there
+    (``hosts_seen``: sliver geometry -> host ref, recorded by that run and
+    read back by this one, so an order-broken tie resolves the same)."""
     if (area_min_m2 <= 0.0 and width_min_m <= 0.0) or not faces:
         return faces, 0, 0, 0.0, ()
     tree = STRtree([p for p, _r in faces])
@@ -658,6 +669,11 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
     refused = set(refuse_roles)
     order = sorted((i for i, (_p, r) in enumerate(faces) if r.source == "zone"),
                    key=lambda i: faces[i][0].area)
+
+    def _thawed(poly) -> bool:
+        return frozen is not None and any(
+            (float(x), float(y)) not in frozen
+            for ring in (poly.exterior, *poly.interiors) for x, y in ring.coords)
     dissolved = dropped = 0
     area = 0.0
     rows: list[tuple] = []
@@ -670,12 +686,15 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
             continue
         best = None
         best_rank = None
+        thawed = _thawed(poly)
+        key = shapely.normalize(poly).wkb if hosts_seen is not None else None
+        want = hosts_seen.get(key) if (hosts_seen is not None and frozen is not None) else None
         for j in tree.query(poly, predicate="intersects"):
             j = int(j)
             if j == i or keep[j] is None:
                 continue
             pj, rj = keep[j]
-            if rj.role in refused:
+            if rj.role in refused or (thawed and rj.role in hosts):
                 continue
             try:
                 shared = poly.boundary.intersection(pj.boundary).length
@@ -693,6 +712,9 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
             # ``dsf:objpav85`` and ``route21`` and re-noded both (#150)
             rank = (tier, -round(shared, _SHARED_TIE_DP), str(rj.role),
                     str(rj.ref), round(pj.area, _SHARED_TIE_DP))
+            if want is not None and rj.ref == want:
+                rank = (-1, -round(shared, _SHARED_TIE_DP), str(rj.role),
+                        str(rj.ref), round(pj.area, _SHARED_TIE_DP))
             if best_rank is None or rank < best_rank:
                 best, best_rank = j, rank
         area += poly.area
@@ -702,6 +724,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
             rows.append((region.ref, round(poly.area, 1), round(width, 2), None))
             continue
         pj, rj = keep[best]
+        if hosts_seen is not None and frozen is None:
+            hosts_seen[key] = rj.ref
         u = pj.union(poly)
         if u.geom_type != "Polygon":
             u = max(shapely.get_parts(u), key=lambda g: g.area)

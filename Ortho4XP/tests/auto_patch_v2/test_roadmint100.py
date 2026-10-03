@@ -315,6 +315,34 @@ def test_the_strip_tie_is_withdrawn_under_a_ribbon_crossing_the_strip_on_a_slope
     assert pub == rib_xy
 
 
+def _airside_and_pad_rings(pm, law):
+    from auto_patch_v2.law.tables import is_rigid_role
+    air = rolled_on_roles(law)
+    return sorted((f.role, f.ref, tuple(pm.vertices[v].xy
+                                        for v in pm.ring_vertices(f.ring)))
+                  for f in pm.faces.values()
+                  if f.role in air or is_rigid_role(law, f.role))
+
+
+def test_a_ribbon_along_a_pad_edge_mints_no_pad_or_airside_node(law):
+    """30z (1) / 30aa rule 10, round 6: the ribbon's pass leaves the
+    WHOLE finished airside byte-identical — aircraft pavement AND the pads.
+    A ribbon whose kerb runs across a pad's side edge (HECA building117,
+    whose frontage-hold vertex moved 13 m) is clipped by the pad and welds
+    at its nodes; the arrangement's own census reads 0 added / 0 removed."""
+    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
+    pad = Building("shed", _rect(700.0, -60.0, 780.0, -41.0), (), "osm", 6.0, 1)
+    a0 = _with(buildings=(pad,))
+    a1 = _with(_way(-3, SOUTH, highway="tertiary"), buildings=(pad,))
+    pm0, _ = planar_build(a0, classify(a0, law), law)
+    pm1, _ = planar_build(a1, classify(a1, law), law)
+    assert any(f.ref.startswith("small_roads:") for f in pm1.faces.values())
+    assert _airside_and_pad_rings(pm1, law) == _airside_and_pad_rings(pm0, law)
+    assert PAD_AIRSIDE.get("ribbon_airside_added") == 0
+    assert PAD_AIRSIDE.get("ribbon_airside_removed") == 0
+    assert PAD_AIRSIDE.get("ribbon_rim_mints_left") == 0
+
+
 def test_the_road_cap_governs_key_is_read_by_the_census_core(law):
     """``verify/strips.runway_edge_tie`` skips a point inside the published
     set and reads every other point as before — one core for the verify

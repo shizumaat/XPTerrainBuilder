@@ -353,19 +353,11 @@ def build_arrangement(airport: Airport, classification: Classification,
     frozen = None
     if ribbon_cells:
         from .ribbons import _ribbons_pass_c   # lazy: ribbons imports this module
-        rib_lines, regions, frozen, air_f, base_order = _ribbons_pass_c(
-            ribbon_cells, noded, regions, bands, law, keeps, float(grid),
-            _ring_lines_of, _pad_clip)
-        if rib_lines:
-            # ONE second pass, pads and ribbons together — never a third
-            # snap-rounding pass over the finished set (snap rounding is not
-            # idempotent: a third global pass collapsed HECA ``pav75``'s
-            # 0.25 m² face 40 m from any ribbon)
-            nodes_b = sorted(frozen)
-            noded = shapely.unary_union(
-                unary_union([noded_a, *pad_lines, *rib_lines]), grid_size=grid)
-            if noded.geom_type == "LineString":
-                noded = MultiLineString([noded])
+        nodes_b = _node_coords(noded)
+        noded, regions, frozen, air_f, base_order = _ribbons_pass_c(
+            ribbon_cells, noded, noded_a, pad_lines, regions, bands, law, keeps,
+            float(grid), _ring_lines_of, _pad_clip)
+        if frozen is not None:
             _pad_clip.update({f"ribbon_{k}": v for k, v in _renode_counts(
                 nodes_b, _node_coords(noded),
                 shapely.set_precision(air_f, float(grid))).items()})
@@ -377,6 +369,14 @@ def build_arrangement(airport: Airport, classification: Classification,
         air_f if frozen is not None else None,
         base_order[0] if frozen is not None else None,
         base_order[1] if frozen is not None else None)
+    if frozen is not None:
+        # 30aa rule 10 / 30z (1) AT THE DERIVATION SITE: the airside's own
+        # vertex set (aircraft pavement + pads) with the ribbons against the
+        # one the arrangement WITHOUT them finished with — both 0 is the bar
+        from .ribbons import airside_vertex_set
+        _after = airside_vertex_set(faces, law)
+        PAD_AIRSIDE["ribbon_airside_added"] = len(_after - base_order[2])
+        PAD_AIRSIDE["ribbon_airside_removed"] = len(base_order[2] - _after)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
                        bands, dropped_seam, weld, merged,
                        tuple(edge_lines), erep, holes_gone,

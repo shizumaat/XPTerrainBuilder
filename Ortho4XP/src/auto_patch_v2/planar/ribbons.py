@@ -9,7 +9,8 @@ from __future__ import annotations
 import dataclasses as _dc
 
 import shapely
-from shapely.geometry import Polygon
+from shapely.geometry import MultiLineString, Point, Polygon
+from shapely.prepared import prep
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -23,10 +24,10 @@ from .overlay import (PAD_AIRSIDE, Region, _claiming_region, _node_coords,
                       dissolve_sliver_zones, merge_slivers)
 from .platform import merge_platform_faces
 
-__all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts"]
+__all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts", "airside_vertex_set"]
 
-def _ribbons_pass_c(ribbon_cells, noded, regions, bands, law: Law, keeps: bool,
-                    grid: float, ring_lines_of, counts: dict):
+def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law: Law,
+                    keeps: bool, grid: float, ring_lines_of, counts: dict):
     """RULINGS 2026-09-30aa rules 2, 9-10 (#100) — THE MAPPED-ROAD RIBBONS
     JOIN THE FINISHED AIRSIDE.  The arrangement WITHOUT them (pass A and
     the pads, ``noded``) is finished first — claimed, merged, absorbed and
@@ -44,18 +45,27 @@ def _ribbons_pass_c(ribbon_cells, noded, regions, bands, law: Law, keeps: bool,
     got = _faces_of(noded, regions, bands, law, keeps, None, hosts_seen=hosts_seen)
     base_faces = got[0]
     base_order = ({shapely.normalize(g).wkb: k for k, g in enumerate(got[-1])},
-                  hosts_seen)
+                  hosts_seen, airside_vertex_set(base_faces, law))
     rolled = rolled_on_roles(law)
     air_raw = unary_union([p for p, r in base_faces if r.role in rolled])
-    air_f = shapely.set_precision(air_raw, grid)
+    # THE WELD'S RIM IS THE WHOLE FINISHED AIRSIDE — aircraft pavement AND
+    # the pads (30z (1), 30aa rule 9; round 6): a ribbon clipped by the
+    # pavement alone ran its ring along / across a pad edge and minted a
+    # node on it (HECA building117 at 30.12298506514, 31.41935756115 —
+    # the pad's frontage-hold vertex relocated 13 m)
+    from ..law.tables import is_rigid_role
+    clip_f = shapely.set_precision(unary_union(
+        [p for p, r in base_faces if r.role in rolled or is_rigid_role(law, r.role)]),
+        grid)
     nodes_b = _node_coords(noded)
-    rim_f = build_rim(air_f, law, nodes_b)
+    rim_f = build_rim(clip_f, law, nodes_b)
     keep_out = unary_union([shapely.set_precision(r.polygon, 0.0) for r in regions
-                            if r.source == "cell" and r.role not in rolled])
+                            if r.source == "cell" and r.role not in rolled
+                            and not is_rigid_role(law, r.role)])
     ribs, rc = airside_clip(
         [Region(c.role, c.ref, Polygon(c.ring, c.holes), c.code_number,
                 c.code_letter, c.side, "cell") for c in ribbon_cells],
-        law, air=air_f, nodes=nodes_b, rim=rim_f, select=lambda r: True,
+        law, air=clip_f, nodes=nodes_b, rim=rim_f, select=lambda r: True,
         near_m=rim_f.band, keep_out=keep_out)
     counts.update({f"ribbon_{k}": v for k, v in rc.items()})
     # ON THE IDENTITY GRID, as the noding will put its ring (the pad's own
@@ -64,16 +74,60 @@ def _ribbons_pass_c(ribbon_cells, noded, regions, bands, law: Law, keeps: bool,
     ribs = [_dc.replace(r, polygon=q) for r in ribs
             for q in _grid_parts(r.polygon, grid)]
     if not ribs:
-        return [], regions, None, air_raw, None
-    own = {(float(x), float(y)) for r in ribs
-           for ring in (r.polygon.exterior, *r.polygon.interiors)
-           for x, y in ring.coords}
-    lines, mid = _drop_rim_midpoints(ring_lines_of(ribs), rim_f, set(nodes_b),
-                                     own, grid if keeps else 0.0)
+        return noded, regions, None, air_raw, None
+    # THE NODING, and its guard (30aa rule 10, round 6): ONE second pass,
+    # pads and ribbons together off pass A — never a third snap-rounding
+    # pass over the finished set (snap rounding is not idempotent: a third
+    # global pass collapsed HECA ``pav75``'s 0.25 m² face 40 m from any
+    # ribbon).  A node the pass mints ON the finished airside's rim is the
+    # defect the bar forbids: a ribbon edge leaving a weld node at a
+    # shallow angle crosses a zone line inside the hot-pixel band, and the
+    # crossing rounds onto the rim (HECA ``small_roads:-18900#3`` on
+    # ``dsf:objpav399`` at 30.11939473102, 31.40749170792).  The RIBBON
+    # yields there: it is notched by the band around that point and noded
+    # again — the airside is never the side that moves.
+    frozen = set(nodes_b)
+    # A node minted within a HOT PIXEL of the rim bends a rim edge through
+    # it (snap rounding snaps every segment crossing the pixel), so the
+    # test is the pixel's half-diagonal, not containment.  FLOATING:
+    # ``clip_f`` carries the identity grid's precision model, and a buffer
+    # of it would round the tolerance onto the grid.
+    rim_line = shapely.set_precision(clip_f, 0.0).boundary
+    hot = prep(rim_line.buffer(grid * 0.5 ** 0.5 + 1e-6))
+    cut_w = max(float(rim_f.band), 2.0 * grid)
+    trimmed = 0
+    for _attempt in range(_RIM_GUARD_PASSES):
+        own = {(float(x), float(y)) for r in ribs
+               for ring in (r.polygon.exterior, *r.polygon.interiors)
+               for x, y in ring.coords}
+        lines, mid = _drop_rim_midpoints(ring_lines_of(ribs), rim_f, frozen,
+                                         own, grid if keeps else 0.0)
+        out = shapely.unary_union(
+            unary_union([noded_a, *pad_lines, *lines]), grid_size=grid)
+        if out.geom_type == "LineString":
+            out = MultiLineString([out])
+        bad = [c for c in _node_coords(out)
+               if c not in frozen and hot.contains(Point(c))]
+        if not bad:
+            break
+        trimmed += len(bad)
+        # the ribbon stands off the rim by the band THERE (never the rim
+        # moving): the band along the rim, local to each offending node
+        notch = rim_line.buffer(cut_w).intersection(unary_union(
+            [Point(c).buffer(3.0 * cut_w) for c in bad]))
+        ribs = [_dc.replace(r, polygon=q) for r in ribs
+                for q in _grid_parts(shapely.set_precision(r.polygon, 0.0)
+                                     .difference(notch), grid)]
     counts["ribbon_rim_midpoints_dropped"] = mid
+    counts["ribbon_rim_mints_notched"] = trimmed
+    counts["ribbon_rim_mints_left"] = len(bad)
     # the claim guard reads the RAW union: the grid would erase a sub-cell
     # airside needle (HECA dsf:objpav402, 0.4 m) and its face with it
-    return lines, regions + ribs, set(nodes_b), air_raw, base_order
+    return out, regions + ribs, frozen, air_raw, base_order
+
+
+#: noding passes the rim guard may take before it reports what is left
+_RIM_GUARD_PASSES = 4
 
 
 def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
@@ -145,6 +199,17 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
         faces, law.tables.emit.terrace.separation_m, ident ** 2)
     return (faces, dropped, dropped_seam, merged, absorbed, detached,
             zs_dissolved, zs_dropped, zs_area, zs_rows, holes_gone, polys)
+
+
+def airside_vertex_set(faces, law: Law) -> set:
+    """Every ring coordinate of an AIRSIDE face — aircraft pavement
+    (``rolled_on_roles``) and the rigid pads — the set 30aa rule 10 holds
+    byte-identical with and without the ribbons."""
+    from ..law.tables import is_rigid_role
+    rolled = rolled_on_roles(law)
+    return {(float(x), float(y)) for p, r in faces
+            if r.role in rolled or is_rigid_role(law, r.role)
+            for ring in (p.exterior, *p.interiors) for x, y in ring.coords}
 
 
 def _grid_parts(g, grid: float) -> list[Polygon]:

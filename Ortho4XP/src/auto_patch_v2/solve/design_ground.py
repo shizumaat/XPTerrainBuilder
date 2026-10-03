@@ -95,6 +95,60 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
                 if planar.vertices[v].dem_z is None:
                     continue
                 out.add(v)
+    out.update(coverage_edge_collar_vertices(planar))
     return frozenset(out)
+
+
+def coverage_edge_collar_vertices(planar: PlanarMap) -> set[int]:
+    """THE COLLAR'S COVERAGE EDGE IS GROUND (issue #302; owner RULINGS
+    2026-10-02r / 10-02v (5): "within the bank the rim follows the GROUND
+    objective"; ``constraints/platform``: "the coverage edge: the DEM's
+    level, the collar's SLOPE").
+
+    A platform collar's outer vertex on an edge with NO face beyond it
+    stands against the base mesh, which IS the DEM.  Since #223 it carries
+    only its ONE-WAY 1:3 bank rows (the plate leads), and those are SLACK
+    wherever it stands more than 3x its rise from the nearest platform
+    vertex — so nothing gave it a level.  MEASURED (HECA replay of
+    ``hecamove/HECA.pkl --from classify``, main 43b7896b): ``building75``'s
+    rim v21675 at 30.12086521267, 31.41819005825 carried 2 bending rows of
+    Σc² 0.0098 against ~1e6 on the pavement beside it and 6 bank rows, all
+    inactive (allowance 7.5 m, 23 m from the plate) — a near-null column.
+    Its height was whatever the solve path left: 107.2 m through lag round
+    4, 102.7 m from round 6, alternating 103.0 / 107.14 between sweeps
+    sw1020 / sw1021 with the nearest change 174 m away.
+
+    Such a vertex is adjacent ground in every sense §23 names: not
+    pavement, its law rows one-sided and ONE-WAY (``follows = v``), and the
+    natural ground its objective.  It takes the same WEAK datum, so it
+    EQUALS the DEM where the bank allows and the bank cuts it TO THE LAW
+    LINE where it binds.  A vertex shared with ANOTHER pad's face is not
+    this collar's ground (``constraints/platform``'s own exemption) and is
+    left out, as is any vertex of a pavement face (an airside contact
+    leads): every incident face must be this pad's own collar or platform.
+    (``building`` is a pavement role, so the §23 (b) pavement test cannot be
+    applied to a collar vertex as written — it would exclude them all.)"""
+    from ..model.planar import is_collar_ref, platform_ref_of
+    if not any(is_collar_ref(getattr(f, "ref", "")) for f in planar.faces.values()):
+        return set()
+    edge_v = {v for e in planar.edges.values()
+              if e.left_face is None or e.right_face is None
+              for v in (e.a, e.b)}
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if not is_collar_ref(f.ref):
+            continue
+        own = platform_ref_of(f.ref)
+        for ring in (f.ring, *f.holes):
+            for v in planar.ring_vertices(ring):
+                if v not in edge_v or v in out:
+                    continue
+                vx = planar.vertices[v]
+                if vx.dem_z is None:
+                    continue
+                if all(platform_ref_of(planar.faces[q].ref) == own
+                       for q in vx.incident_faces):
+                    out.add(v)
+    return out
 
 

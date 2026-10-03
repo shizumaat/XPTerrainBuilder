@@ -282,6 +282,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.alt:
         from mesh_elevation_sampler import AltRaster
         raster = AltRaster(str(args.alt), int(args.tile[0]), int(args.tile[1]))
+        print(raster.describe_frame())
         dem = [raster.elevation_at(r["lat"], r["lon"]) for r in rows[0]]
 
     head = f"{'dist':>6} {'lon':>13} {'z':>9} {'DEM':>9} {'z-DEM':>8}"

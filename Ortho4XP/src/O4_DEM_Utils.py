@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import requests
 import itertools
@@ -214,6 +215,144 @@ def is_cached(tile) -> bool:
 
 
 ################################################################################
+# ---- THE .alt RASTER'S FRAME SIDECAR (#238) ---------------------------
+#
+# ``DEM.write_to_file`` emits a HEADERLESS raw float32 raster, so nothing
+# in the ``.alt`` file tells a reader which patch of the world its
+# samples span.  Readers therefore used to ASSUME the historic
+# viewfinder frame -- [-0.01, 1.01]^2 on a 3673-square grid.  A tile
+# whose base is a GeoTIFF or a densified inset grid does not have that
+# frame: KASE +39-107 at ``elevation_level=10`` is 10834 square over
+# about +-5.5 arc-seconds, and reading it as the viewfinder's put the
+# samples 58 m away from the mesh they were baked into (#238, lanes
+# kaseread368 / meshbox233).
+#
+# So the BUILD records its own working-grid frame beside the raster, at
+# the one site that writes the raster (``DEM.write_frame_sidecar``), and
+# readers resolve the frame through ``resolve_alt_frame`` below.  The
+# viewfinder frame stays assumable -- but only for a raster whose grid
+# actually IS the viewfinder's, and only when no sidecar contradicts it;
+# anything else refuses rather than quietly reading the wrong metres.
+ALT_FRAME_SIDECAR_SUFFIX = ".frame.json"
+ALT_FRAME_SCHEMA = "o4.alt.frame/1"
+
+# The frame itself.  ``tile_lat``/``tile_lon``/``epsg`` ride along as
+# context and are cross-checked when present, but they are not the frame.
+ALT_FRAME_KEYS = ("x0", "y0", "x1", "y1", "nxdem", "nydem")
+
+# The source whose frame a header-less ``.alt`` may be assumed to carry.
+# Its extent and grid are NOT restated here: ``build_combined_raster``
+# derives them, and asking it (``info_only``, so no download and no
+# array) keeps this file the only place either number lives.
+VIEWFINDER_ALT_SOURCE = "View"
+
+# The reader interprets the frame as tile-relative DEGREES.
+ALT_FRAME_EPSG = 4326
+
+
+class AltFrameRefused(RuntimeError):
+    """A ``.alt`` raster whose frame cannot be established honestly."""
+
+
+def alt_frame_sidecar_path(alt_filename):
+    """The frame sidecar that belongs beside ``alt_filename``."""
+    return str(alt_filename) + ALT_FRAME_SIDECAR_SUFFIX
+
+
+def viewfinder_alt_frame(lat, lon):
+    """The frame a viewfinder-grid ``.alt`` for this tile carries."""
+    (epsg, x0, y0, x1, y1, _nodata, nxdem, nydem, _array) = (
+        build_combined_raster(VIEWFINDER_ALT_SOURCE, lat, lon, True)
+    )
+    return {
+        "schema": ALT_FRAME_SCHEMA,
+        "x0": float(x0), "y0": float(y0),
+        "x1": float(x1), "y1": float(y1),
+        "nxdem": int(nxdem), "nydem": int(nydem),
+        "epsg": int(epsg),
+        "tile_lat": int(lat), "tile_lon": int(lon),
+        "origin": "viewfinder-grid fallback (no sidecar)",
+    }
+
+
+def read_alt_frame_sidecar(alt_filename):
+    """The sidecar beside ``alt_filename``, or ``None`` if there is none.
+
+    A sidecar that is present but unreadable, or missing a frame key,
+    REFUSES: it is the record the build was supposed to leave, and
+    falling back past a broken one is how a wrong frame gets read
+    silently (#238).
+    """
+    path = alt_frame_sidecar_path(alt_filename)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            frame = json.load(handle)
+    except (OSError, ValueError) as error:
+        raise AltFrameRefused(
+            "%s is not readable as a frame sidecar: %s" % (path, error)
+        ) from error
+    if not isinstance(frame, dict):
+        raise AltFrameRefused("%s does not hold a frame object" % path)
+    missing = [key for key in ALT_FRAME_KEYS if key not in frame]
+    if missing:
+        raise AltFrameRefused(
+            "%s carries no %s -- it does not describe a frame"
+            % (path, ", ".join(missing))
+        )
+    frame = dict(frame)
+    frame.setdefault("origin", path)
+    return frame
+
+
+def resolve_alt_frame(alt_filename, side, tile_lat, tile_lon):
+    """The frame of a ``side``-square ``.alt``, or a refusal saying why.
+
+    Order: the build's own sidecar, then -- only when there is none AND
+    the grid is the viewfinder's -- the viewfinder frame.  A raster on
+    any other grid with no sidecar has no knowable frame, so it refuses.
+    """
+    frame = read_alt_frame_sidecar(alt_filename)
+    if frame is None:
+        frame = viewfinder_alt_frame(tile_lat, tile_lon)
+        if (frame["nxdem"], frame["nydem"]) != (side, side):
+            raise AltFrameRefused(
+                "%s holds a %d-square raster and carries no frame sidecar "
+                "(%s). Only the viewfinder grid (%dx%d) can be assumed, so "
+                "this raster's extent is unknowable -- rebuild the tile with "
+                "a build that writes the sidecar, or pass the extent "
+                "explicitly."
+                % (alt_filename, side, alt_frame_sidecar_path(alt_filename),
+                   frame["nxdem"], frame["nydem"])
+            )
+        return frame
+    if (frame["nxdem"], frame["nydem"]) != (side, side):
+        raise AltFrameRefused(
+            "%s describes a %dx%d grid but %s holds a %d-square raster -- "
+            "the sidecar does not belong to this raster"
+            % (frame.get("origin"), frame["nxdem"], frame["nydem"],
+               alt_filename, side)
+        )
+    epsg = frame.get("epsg")
+    if epsg is not None and int(epsg) != ALT_FRAME_EPSG:
+        raise AltFrameRefused(
+            "%s records EPSG %s; the frame is read as tile-relative "
+            "degrees (EPSG %d) and cannot be reprojected here"
+            % (frame.get("origin"), epsg, ALT_FRAME_EPSG)
+        )
+    for key, expected in (("tile_lat", tile_lat), ("tile_lon", tile_lon)):
+        recorded = frame.get(key)
+        if recorded is not None and int(recorded) != int(expected):
+            raise AltFrameRefused(
+                "%s records %s %d but the raster is being read as tile "
+                "%+03d%+04d -- wrong tile, or a stale sidecar"
+                % (frame.get("origin"), key, int(recorded),
+                   int(tile_lat), int(tile_lon))
+            )
+    return frame
+
+
 class DEM:
     def __init__(
         self,
@@ -407,6 +546,39 @@ class DEM:
 
     def write_to_file(self, filename):
         self.alt_dem.astype(numpy.float32).tofile(filename)
+        self.write_frame_sidecar(filename)
+        return
+
+    def write_frame_sidecar(self, filename):
+        """Record THIS raster's own frame beside it (see ALT_FRAME_* below).
+
+        The grid is read back off ``alt_dem.shape`` rather than off
+        ``nxdem``/``nydem`` so the sidecar describes the BYTES that were
+        just written -- ``tofile`` flattens the array, and a reader that
+        trusted a stale pair of counters would stride the file wrong.
+        ``tile_lat``/``tile_lon``/``epsg`` are context, written only when
+        the object carries them; the FRAME keys are not optional.
+        """
+        nydem, nxdem = self.alt_dem.shape
+        frame = {
+            "schema": ALT_FRAME_SCHEMA,
+            "x0": float(self.x0),
+            "y0": float(self.y0),
+            "x1": float(self.x1),
+            "y1": float(self.y1),
+            "nxdem": int(nxdem),
+            "nydem": int(nydem),
+        }
+        for key, attribute in (
+            ("tile_lat", "lat"), ("tile_lon", "lon"), ("epsg", "epsg"),
+        ):
+            value = getattr(self, attribute, None)
+            if value is not None:
+                frame[key] = int(value)
+        with open(alt_frame_sidecar_path(filename), "w",
+                  encoding="utf-8", newline="\n") as handle:
+            json.dump(frame, handle, indent=1, sort_keys=True)
+            handle.write("\n")
         return
 
     def create_normal_map(self, pixx, pixy):

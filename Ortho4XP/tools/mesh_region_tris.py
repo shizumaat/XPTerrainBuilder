@@ -542,12 +542,15 @@ def water_audit(mesh_path, step_flag_m=1.0, zero_tol_m=1e-3, near=None):
 def _alt_reader(alt_path, tile_lat, tile_lon):
     """The tile's own ``.alt`` raster, read exactly as Triangle4XP read
     it — the SINGLE implementation in ``mesh_elevation_sampler.AltRaster``
-    (bilinear, extent [-0.01, 1.01]^2), never a second one here."""
+    (bilinear, in the frame the BUILD recorded beside the raster — #238),
+    never a second one here."""
     import os
     import sys
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from mesh_elevation_sampler import AltRaster
-    return AltRaster(alt_path, tile_lat, tile_lon)
+    raster = AltRaster(alt_path, tile_lat, tile_lon)
+    print(raster.describe_frame())
+    return raster
 
 
 def _tri_plane_slope(x, y, z):

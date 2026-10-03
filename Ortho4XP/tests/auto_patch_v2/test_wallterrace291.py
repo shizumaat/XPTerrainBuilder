@@ -115,7 +115,7 @@ class _LotDem:
     provenance = {"base": "synthetic"}
 
     def z(self, x: float, y: float) -> float:
-        return 97.0 + max(0.0, y - 510.0) * 0.04 if y > 505.0 else 100.0
+        return 97.0 + max(0.0, y - 510.0) * 0.06 if y > 505.0 else 100.0
 
     def bounds(self):
         return (-5000.0, -5000.0, 5000.0, 5000.0)
@@ -129,8 +129,8 @@ def _lot_airport():
     from auto_patch_v2.model.airport import Building, Pavement, Surface
     from test_classify import _rect, _synthetic
     a = _synthetic(gate=True, island=False)
-    lot = Pavement("lot", Surface.CONCRETE, _rect(300.0, 510.0, 500.0, 600.0), ())
-    bld = Building("b9", _rect(350.0, 540.0, 450.0, 590.0), (), "osm", None, None)
+    lot = Pavement("lot", Surface.CONCRETE, _rect(300.0, 510.0, 500.0, 560.0), ())
+    bld = Building("b9", _rect(320.0, 520.0, 480.0, 550.0), (), "osm", None, None)
     return _dc.replace(a, pavements=tuple(a.pavements) + (lot,),
                        buildings=tuple(a.buildings) + (bld,), dem=_LotDem())
 
@@ -168,11 +168,12 @@ def test_a_wall_between_the_apron_and_a_lower_lot_is_a_declared_terrace(law, mon
     assert js[0]["height_m"] == pytest.approx(3.0)
     assert js[0]["declared_step_m"] <= 3.01 + 1e-9
     assert js[0]["length_m"] == pytest.approx(200.0, abs=0.5)
-    # the lot is flat at its building's level
-    l0, l1 = _span(pm1, sol1, lot)
+    # the lot at the wall's foot is at its building's level
+    rec = next(iter(recs.values()))
+    feet = [lv for lv, _pv in rec["pairs"]]
     p0, p1 = _span(pm1, sol1, pad)
-    assert l1 - l0 <= 0.25, (l0, l1)
-    assert p0 - 0.15 <= l0 and l1 <= p1 + 0.15, ((l0, l1), (p0, p1))
+    assert feet and all(p0 - 0.15 <= sol1.z[v] <= p1 + 0.15 for v in feet), \
+        ([round(float(sol1.z[v]), 2) for v in feet], (p0, p1))
     # the apron is unchanged by the wall
     assert _span(pm1, sol1, apron) == pytest.approx(_span(pm0, sol0, apron), abs=1e-6)
     # without the wall: no declaration, no row, the lot follows its ground
@@ -199,3 +200,22 @@ def test_the_wall_lot_ruling_is_one_way(law):
     from auto_patch_v2.model.constraints import Linear, Source
     row = Linear(((1, 1.0), (2, -1.0)), 0.0, 0.0, Source("wall_terrace", WALL_LOT_RULING, ()))
     assert ruling_head(row) in one_way_rulings(law)
+
+
+def test_a_1206_road_is_governed_on_its_bordered_runs_only():
+    """#291: a 1206 corridor / DSF page vertex (``own``) is governed where it
+    is bordered or straight between two bordered stations; its pad-bordered
+    and bare runs keep their own targets (it is a pad's frontage — holding
+    it would drag the pad).  A ribbon vertex keeps 10-03b's full profile."""
+    from auto_patch_v2.constraints.road_ramp import terrace_profile
+    st = {i: (0, i * 10.0) for i in range(8)}
+    foot = {v: (1000 + v, 1000 + v, 0.0, "apron") for v in (0, 3)}
+    lv = {1000: 100.0, 1003: 103.0}
+    floor = {v: 110.0 for v in st}
+    terr = {"foot": foot, "pad": {4: "b1", 5: "b1"}, "station": st}
+    rib, _ = terrace_profile(terr, lv, floor, 0.08)
+    own, _ = terrace_profile({**terr, "own": {v: True for v in st}}, lv, floor, 0.08)
+    assert rib[1] == own[1] == pytest.approx(101.0)          # linked: both
+    assert rib[4] == rib[5] == pytest.approx(103.0)          # ribbon: pad-held
+    assert 4 not in own and 5 not in own and 6 not in own    # 1206: its own
+    assert rib[6] == pytest.approx(103.0 + 0.08 * 10.0)      # ribbon: bare climb

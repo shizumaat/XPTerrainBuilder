@@ -261,6 +261,7 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     Returns ``{v: target}`` for every vertex it governs and the report."""
     foot = terrace.get("foot") or {}
     pad = terrace.get("pad") or {}
+    own = terrace.get("own") or {}
     station = terrace.get("station") or {}
     rep: dict[str, _t.Any] = {"bordered": 0, "linked": 0, "pad_held": 0,
                               "bare": 0, "unlevelled": 0, "routes": 0,
@@ -300,6 +301,8 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                 out[v] = lev[v]
                 rep["bordered"] += 1
                 continue
+            if v in own and v in pad:
+                continue        # #291: a 1206 / DSF road is its pad's frontage
             i = bisect.bisect_left(ks, s_)
             if 0 < i < len(ks):
                 (s0, z0), (s1, z1) = known[i - 1], known[i]
@@ -310,6 +313,8 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                     rep["max_link_grade"] = max(rep["max_link_grade"],
                                                 abs(z1 - z0) / (s1 - s0))
                 continue
+            if v in own:
+                continue        # #291: a 1206 / DSF road's unbordered run is its own
             z_e = known[0][1] if i == 0 else known[-1][1]
             d = (lo_s - s_) if i == 0 else (s_ - hi_s)
             if d <= 0.0:

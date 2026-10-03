@@ -1035,7 +1035,7 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     # road here (10-03b's ribbon-to-1206 meet — HECA ``small_roads:-4043``
     # 2.0 m under DSF road ``objpav405`` — is now one rule on both: they
     # share their bordering pavement's level).
-    from shapely.geometry import LineString, Point, Polygon as _Poly
+    from shapely.geometry import Point, Polygon as _Poly
     from shapely.strtree import STRtree
     lane = float(law.tables.emit.road_profile.lane_width_m)
 
@@ -1055,16 +1055,21 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             hits = otree.query(p, predicate="dwithin", distance=lane)
             if not len(hits):
                 continue
-            # 10-03c: a lot BEHIND A WALL is not met — the wall is the step
-            # (the straight way from the vertex to the lot crosses a wall)
+            # 10-03c: a lot AT A WALL is not met — the wall is the step.  A
+            # wall-class piece within one lane width of the road vertex that
+            # also stands within one lane width of the lot (on its edge, or
+            # between the two) takes the meet away.  MEASURED HECA (sw1018
+            # capture): ``route3`` shares its kerb with lot ``dsf:objpav394``
+            # and ``metal_strip_2.obj`` comp 117 stands 0.7-0.9 m off the
+            # kerb INSIDE the lot's edge — no straight way crosses it, and
+            # 56 meets held the road at its DEM, 2.1 m under the apron
+            near_w = ([walls[int(j)] for j in wtree.query(p, predicate="dwithin",
+                                                          distance=lane)]
+                      if wtree is not None else [])
             free = False
             for k in hits:
                 g = others[int(k)]
-                q = g.exterior.interpolate(g.exterior.project(p)) \
-                    if not g.contains(p) else p
-                seg = LineString([p, q]) if q.distance(p) > 1e-9 else None
-                if seg is None or wtree is None or not len(
-                        wtree.query(seg, predicate="intersects")):
+                if not any(wg.distance(g) <= lane for wg in near_w):
                     free = True
                     break
             if free:
@@ -1074,6 +1079,19 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     pads = frozenset(r for r in contact_roles(law)
                      if role_side(law, r) == "airside" and r not in stage1)
     feet = _feet_index(pm, law, stage1 | pads)
+    # A 1206 CORRIDOR / DSF PAGE IS GOVERNED ON ITS BORDERED RUNS ONLY
+    # (``own``: bordered, or straight between two bordered stations of its
+    # route).  Unlike a ribbon (#100 option (c)) it IS a pad's frontage, so
+    # holding its pad-bordered run at a distant stage-1 level drags the pad
+    # that levels FROM it — MEASURED HECA arm (sw1018 capture): ``route3``
+    # held beside ``building12`` sank 2.8 m (95.6 -> 92.8, DEM 103.6) and
+    # the pad and lot ``pav57`` followed it; its bare and pad-bordered runs
+    # keep their own §37 (6) targets.
+    from ..model.planar import is_osm_ribbon_ref
+    rib_v = {v for f in pm.faces.values()
+             if f.role in roads and is_osm_ribbon_ref(f.ref)
+             for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+    out["own"] = {v: True for v in vs if v not in rib_v}
     for v in vs:
         r, s_, _t_ = frame[v]
         out["station"][v] = (int(r), float(s_))
@@ -1173,7 +1191,6 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
     if not walls:
         return out
     from shapely.geometry import LineString, Point, Polygon as _Poly
-    from shapely.ops import unary_union
     from shapely.strtree import STRtree
     from ..law.tables import airside_stage_roles
     stage1 = airside_stage_roles(law)
@@ -1259,37 +1276,35 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
             lots = sorted(lots_by[lo])
             lower = [v for v in sides[lo] if v not in up_v]
             pairs: list[tuple[int, int]] = []
-            # THE LOT IS ITS REF, not one face: a lot page the zones cut into
-            # pieces is one lot with one building (MEASURED synthetic twin: a
-            # corner piece of the lot with no pad within reach kept its DEM
-            # 3.2 m under the rest)
-            lots = sorted({i for i in lot_ids
-                           if pm.faces[i].ref in {pm.faces[j].ref for j in lots}})
-            by_ref: dict[str, list[int]] = {}
-            for fid in lots:
-                by_ref.setdefault(pm.faces[fid].ref, []).append(fid)
-            pad_of: dict[str, int] = {}
-            for ref_, fids in by_ref.items():
-                g = unary_union([lot_f[i] for i in fids])
-                cand = ([pad_ids[int(j)] for j in ptree.query(g, predicate="dwithin",
-                                                              distance=lane)]
-                        if ptree is not None else [])
-                if cand:
-                    pad_of[ref_] = min(cand, key=lambda i: (pad_f[i].distance(g), i))
-            for fid in lots:
-                pf = pad_of.get(pm.faces[fid].ref)
-                if pf is None:
+            # THE LOT AT THE WALL'S FOOT (10-03c: "graded flat to the
+            # building's level at the wall's foot"): every lot vertex on the
+            # lower side within the wall's reach takes the level of ITS
+            # building — the nearest pad within two reaches of it.  Never the
+            # whole lot page: MEASURED HECA arm (sw1018 capture) — lot
+            # ``dsf:objpav394`` is one 264-vertex page over 8 m of relief
+            # (95.6-104.0 m), and coupling all of it to ``building15``
+            # (99.04 m) left it at 96.3-103.6 m, flat nowhere
+            lot_set = set(lots)
+            pairs = []
+            for lv in lower:
+                if lv in air_or_pad:
                     continue
-                pv = list(dict.fromkeys(pm.ring_vertices(pm.faces[pf].ring)))
-                for lv in dict.fromkeys(pm.ring_vertices(pm.faces[fid].ring)):
-                    if lv in air_or_pad or any(
-                            pm.faces[g_].role in roads
-                            for g_ in pm.vertices[lv].incident_faces):
-                        continue        # the road's kerb is the road's level
-                    lx, ly = pm.vertices[lv].xy
-                    pv_near = min(pv, key=lambda q: (math.hypot(
-                        pm.vertices[q].xy[0] - lx, pm.vertices[q].xy[1] - ly), q))
-                    pairs.append((lv, pv_near))
+                inc = pm.vertices[lv].incident_faces
+                if not any(g_ in lot_set or (pm.faces[g_].role in lot_roles)
+                           for g_ in inc) or any(pm.faces[g_].role in roads for g_ in inc):
+                    continue        # not the lot; the road's kerb is the road's
+                p = Point(pm.vertices[lv].xy)
+                cand = ([pad_ids[int(j)] for j in ptree.query(p, predicate="dwithin",
+                                                              distance=2.0 * reach)]
+                        if ptree is not None else [])
+                if not cand:
+                    continue
+                pf = min(cand, key=lambda i: (pad_f[i].distance(p), i))
+                lx, ly = p.x, p.y
+                pv_near = min(dict.fromkeys(pm.ring_vertices(pm.faces[pf].ring)),
+                              key=lambda q: (math.hypot(pm.vertices[q].xy[0] - lx,
+                                                        pm.vertices[q].xy[1] - ly), q))
+                pairs.append((lv, pv_near))
             out[k] = {"line": line, "height_m": w.height_m, "label": w.label,
                       "upper": upper, "lower": lower, "lots": lots,
                       "pads": sorted(pads_by[lo]), "pairs": pairs}

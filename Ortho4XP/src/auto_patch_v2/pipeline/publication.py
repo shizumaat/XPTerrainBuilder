@@ -269,6 +269,32 @@ def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
 
 
 
+def _pad_refusals() -> dict[str, _t.Any]:
+    """§16g (10) (12), issue #101: what the two ported v1 pad-admission
+    gates refused on THIS build — the cluster half's rows
+    (``classify.evidence.CLUSTER_PADS["refused"]``, each with its ref, the
+    gate that closed, the measured value and the footprint's
+    length/width) and the fallback half's counter
+    (``classify.evidence.PAD_REFUSED``).
+
+    Read off the SAME derivations the mint ran, never a second reading."""
+    from ..classify.evidence import CLUSTER_PADS, PAD_REFUSED
+    rows = list(CLUSTER_PADS.get("refused") or ())
+    return {
+        "clusters": rows,
+        "no_tall_base": int(CLUSTER_PADS.get("no_tall_base", 0) or 0),
+        "no_building_evidence": int(
+            CLUSTER_PADS.get("no_building_evidence", 0) or 0),
+        "osm_vouched": int(CLUSTER_PADS.get("osm_vouched", 0) or 0),
+        "cache_vouched": int(CLUSTER_PADS.get("cache_vouched", 0) or 0),
+        "fallback_osm_vouched": int(
+            PAD_REFUSED.get("fallback_osm_vouched", 0) or 0),
+        "unmeasured": int(CLUSTER_PADS.get("unmeasured", 0) or 0),
+        "fallback_no_building_evidence": int(
+            PAD_REFUSED.get("fallback_no_building_evidence", 0) or 0),
+    }
+
+
 def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                  z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
     """§30 (4): one record per TERMINAL CLUSTER — its id, its members, the
@@ -473,6 +499,13 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # what the report reads to name the apron faces that stayed
             # graded.  Empty at an airport with no cluster (CYXY's class).
             "cluster_pads": cluster_pads(planar, law, airport, z),
+            # §16g (10) (12) THE PAD-ADMISSION REFUSALS (issue #101; owner
+            # RULINGS 2026-10-02v (3): "record each refusal with ref +
+            # gate + measured value ... so the session can list them").
+            # One row per footprint v1's two ported gates refused, with
+            # its length/width — which issue #229 (a refused pack object
+            # that REPRESENTS A ROAD) reads.
+            "pad_refusals": _pad_refusals(),
             # unit-platform spec §3 P21 / §4 (5): per platform its collar,
             # its solved plane and the rim relief the collar carries; the
             # refused ones by reason — LAW INPUT for the census's

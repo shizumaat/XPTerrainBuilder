@@ -305,6 +305,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"roundtrip ok={r['ok']} placements={r['placements']} "
               f"unmatched={r['unmatched']} max_deg={r['max_deg']:.3g} "
               f"max_hdg={r['max_heading_deg']:.4g} max_elev_m={r['max_elev_m']:.4g}")
+        # #166/#181: a HEIGHTS quantum the re-dump re-pooled is a RECORD,
+        # not a refusal — print it so the class sweep counts them.
+        if r.get("heights_repool"):
+            print(f"  HEIGHTS re-pool: {r['heights_repool']}")
         for f in r["findings"]:
             print("  finding:", f)
         return 0 if r["ok"] else 1

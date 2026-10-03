@@ -463,8 +463,7 @@ def bay_m(law) -> float:
 def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
                 near: float) -> "BlockPlan | None":
     """The §2 test and partition for one platform pad (module docstring)."""
-    from ..law.tables import (apron_roles, is_rigid_role, role_cap, role_side,
-                              zone2_half_width_m)
+    from ..law.tables import (frontage_roles, role_cap, zone2_half_width_m)
     if dem is None or airport is None:
         return None
     # the arrangement's regions carry a PRECISION GRID (0.5 m): a chord cut
@@ -479,8 +478,10 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
     p = law.tables.precedence
     runway_roles = set(p.runway_family.members)
     taxi_roles = set(p.taxi_family.members)
-    ap_roles = {r for r in apron_roles(law)
-                if role_side(law, r) == "airside" and not is_rigid_role(law, r)}
+    # the frontage is ANY airside pavement face (``frontage_roles``: the
+    # ONE accessor the mint reads too) — a junction / taxi cell fronts a
+    # pad exactly as an apron body does
+    ap_roles = frontage_roles(law)
     a = float(role_cap(law, "apron").longitudinal)
     letters = [rw.code_letter for rw in getattr(airport, "runways", ()) if rw.code_letter]
     letter = max(letters) if letters else None

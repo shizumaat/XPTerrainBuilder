@@ -235,7 +235,12 @@ def test_the_fixture_holds_a_block(law, built):
     assert datum_vertices(pm, law), "the fixture's pad is a held block"
 
 
-def test_the_runway_moves_within_its_budget(law, built):
+def test_the_runway_is_never_pulled_by_a_pad(law, built):
+    """Owner RULINGS 2026-10-02ag (1) ("pad stays flat, apron twists to weld
+    to it ... the pad area just has to be blended into the rest of the
+    apron"): no pad earns a runway budget — beta_R = 0, ``runway_flex``
+    reports no pulled runway, and every runway column sits at its pass-1a
+    value under the hold (the 30as 20 % share is withdrawn with the pull)."""
     pm, cs = built
     lw = _arm(law, staged_solve=True)
     tol = float(lw.tables.emit.design.hard_tol_m)
@@ -246,13 +251,10 @@ def test_the_runway_moves_within_its_budget(law, built):
     assert "stage1a" in rep.stages                     # pass 1a ran
     rw = _runway_v(pm)
     moved = max(abs(z1[v] - z0[v]) for v in rw)
-    beta = max((float(r["budget_m"]) for r in rep.runway_flex), default=0.0)
-    assert rep.runway_flex and beta > tol, "the fixture's pad pulls the runway"
-    assert moved <= beta + tol, (moved, beta)
-    # the Bands are on the runway's columns, head in the hard register
+    assert not rep.runway_flex                         # nothing pulls
+    assert moved <= tol, moved
     assert FLEX_RULING in lw.tables.emit.design.hard_rulings
-    for r in rep.runway_flex:
-        assert r["share_used"] <= float(lw.tables.emit.design.runway_flex_share) + 1e-6
+    assert hp.result.stats["runway_bands_unpulled"] == hp.result.stats["runway_bands"]
 
 
 def test_share_zero_holds_the_runway(law, built):
@@ -368,27 +370,72 @@ def test_the_stand_cuts_a_plateau_and_renodes_nothing_else(law, built_full):
     assert (k1 - k0) <= ring, "the cut minted a vertex off the plateau ring"
 
 
-def test_the_plateau_is_flat_on_the_datum(law, built_full):
-    from auto_patch_v2.model.platform import datum_vertices, plateau_vertices
+def test_the_plateau_is_not_pulled_to_the_datum(law, built_full):
+    """Owner RULINGS 2026-10-02ag (1): the only airside vertices a pad may
+    move are its welded CONTACTS (to D); a plateau vertex is an apron
+    INTERIOR vertex and takes no hold row — the apron around the contacts
+    blends under its own caps instead (flat-pad spec v2 §3's stand line is
+    withdrawn with the pull)."""
+    from auto_patch_v2.constraints.platform import HOLD_RULING
+    from auto_patch_v2.model.platform import plateau_vertices
     pm, cs, _pm0, _p = built_full
     lw = _arm(law, staged_solve=True)
-    z, _rep = _solve(pm, cs, lw, hold=True)
-    tol = float(lw.tables.emit.design.hard_tol_m)
-    D = z[datum_vertices(pm, lw)["padA"]]
-    pv = plateau_vertices(pm, lw)["padA"]
-    taxi_rw = {v for f in pm.faces.values() if f.role in ("runway",)
-               for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
-    assert max(abs(z[v] - D) for v in pv - taxi_rw) <= tol + 1e-6
+    hp = hold_pass(pm, lw)
+    _sol, _rep = solve_design(pm, cs, lw, hold=hp)
+    pv = set(plateau_vertices(pm, lw)["padA"])
+    assert pv
+    contacts = {o for o, _z in hp.result.blocks["padA"]["weld"] and
+                [(o, None) for o in hp.result.blocks["padA"]["weld"]]}
+    touched = set()
+    for r in hp.result.rows:
+        if r.source.ruling.split(" (")[0].strip() != HOLD_RULING:
+            continue
+        for term in getattr(r, "terms", ()):
+            touched.add(int(term[0]))
+    assert not (touched & (pv - contacts)), "a plateau vertex carries a hold row"
 
 
 def test_a_conforming_pad_is_held_flat(law, built_full):
+    """Owner RULINGS 2026-10-02ag (1): the pad STAYS FLAT at the apron's own
+    frontage level — the datum column holds exactly the level
+    ``hold_interval`` chose (the median of the contacts' pass-1a value; the
+    apron-tier ``frontage_hold datum`` row is never the relaxed one) — and
+    the apron twists to weld to it.  A contact the airside's own anchors
+    cannot bring to D (this fixture's apron shares RUNWAY ring vertices,
+    held at pass 1a by the zero-budget flex Bands) keeps its own level with
+    its hold relaxed in the pad tier and is REPORTED, never a lift of the
+    runway; the pad's interior stays on D."""
     from auto_patch_v2.model.platform import HELD, datum_vertices
     pm, cs, _pm0, _p = built_full
     assert HELD.get("padB", {}).get("conforming")
     lw = _arm(law, staged_solve=True)
     z, _rep = _solve(pm, cs, lw, hold=True)
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    dv = datum_vertices(pm, lw)["padB"]
+    D = z[dv]
+    assert abs(D - HELD["padB"]["datum_chosen"]) <= tol + 1e-6   # no drift
+    contacts = {o for o, _z in HELD["padB"].get("hold_contacts", [])}
     vs = {v for f in pm.faces.values() if f.ref == "padB"
           for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
-    D = z[datum_vertices(pm, lw)["padB"]]
-    tol = float(lw.tables.emit.design.hard_tol_m)
-    assert max(abs(z[v] - D) for v in vs) <= tol + 1e-6    # flat, on its datum
+    off = {v for v in contacts if abs(z[v] - D) > tol + 1e-6}
+    # an own vertex not welded beside a relaxed contact is on the datum
+    import itertools
+    nbr = set()
+    for f in pm.faces.values():
+        if f.ref != "padB":
+            continue
+        for ring in (f.ring, *f.holes):
+            rv = list(pm.ring_vertices(ring))
+            for a, b in zip(rv, rv[1:] + rv[:1]):
+                if a in off:
+                    nbr.add(b)
+                if b in off:
+                    nbr.add(a)
+    interior = vs - contacts - nbr
+    # this 4-vertex fixture pad has both own vertices beside a runway-shared
+    # contact, so the interior claim is empty here; the datum line above
+    # carries the ruling (and the SPJC build: every held pad's own ring on
+    # its datum)
+    if interior:
+        assert max(abs(z[v] - D) for v in interior) <= tol + 1e-6
+    assert off and off <= contacts, "the runway-shared contacts are the reported residual"

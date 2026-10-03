@@ -182,12 +182,15 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
             elif o in cover:
                 # the COVERAGE EDGE (issue #223): the 1:3 bank, ONE-WAY with
                 # the PLATFORM leading — the rim follows the plate within the
-                # bank; the plate never follows the rim.  NO DEM datum: a
-                # weak ``ground_datum`` row here was near-inert at SPJC
-                # (<= 0.06 m on the spike ring, bending dominates) and broke
-                # the §20c single-solve locality twin (``test_v2qp``: the
-                # collar's bending is not affine, so the pull reached the
-                # apron through the plate — 0.95 m at its far corner)
+                # bank; the plate never follows the rim.  Its LEVEL inside a
+                # slack bank is the §23 ground datum (issue #302:
+                # ``solve/design_ground.coverage_edge_collar_vertices``) —
+                # without it HECA ``building75``'s rim was a near-null column
+                # (bending Σc² 0.0098) whose height the solve path chose.
+                # #223 had measured that datum breaking ``test_v2qp``
+                # (0.95 m through the plate): the coupling was the datum
+                # counting as a SHEET ANCHOR (the pad lost its body datum),
+                # which ``design_ground.ground_rim_vertices`` withdraws
                 n_cov += 1
                 rows.append(Diff(o, i, cap, d, src, follows=(o,)))
             elif o in terrace:

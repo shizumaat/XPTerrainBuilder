@@ -161,6 +161,18 @@ def unit_by_pid(pids: _t.AbstractSet[int], plan_wide: _t.Mapping[int, tuple],
                      f" (§16g (1): its parts are the unit's)")
 
 
+def _is_connector_row(row: "tuple | None") -> bool:
+    """Does a plan-wide row (``footprint_seats.plan_wide_seats``) name a
+    §16g (6) CONNECTOR — two distinct ends, or the plan's ``cut``
+    verdict?"""
+    if not row:
+        return False
+    if len(row) > 6 and row[6] == "cut":
+        return True
+    pair = row[4] if len(row) > 4 else None
+    return bool(pair) and len(pair) == 2 and pair[0] != pair[1]
+
+
 #: the count of carried bodies :func:`contents_seat` moved off a carrier
 #: standing at another level onto their own unit's datum
 CONTENTS_SEAT = "contents_rerouted_to_unit"
@@ -172,7 +184,9 @@ def contents_seat(over: _t.Sequence[tuple], pids: _t.AbstractSet[int],
                   index: _t.Mapping[str, tuple], *,
                   alternatives: _t.Sequence[_t.Any] = (),
                   tol_m: float = 0.0, span_max_m: float = 0.0,
-                  counts: "dict | None" = None
+                  counts: "dict | None" = None,
+                  piece_boxes: "_t.Sequence[tuple] | None" = None,
+                  deck_rider: "_t.Callable[[_t.Any], bool] | None" = None
                   ) -> "tuple[list, UnitCarry | None]":
     """Issue #10 [HECA-5] (lane ``interiors10``): A UNIT'S CONTENTS RIDE
     THE UNIT.  ``(carriers, None)`` to keep — or replace — the carriers
@@ -196,9 +210,44 @@ def contents_seat(over: _t.Sequence[tuple], pids: _t.AbstractSet[int],
     cluster) standing at U's zero takes it; failing that the piece rides
     U ITSELF (the issue #31 unit carry — its authored y kept over U's
     datum).  A CONNECTOR-length piece (``span_max_m``) is left alone: the
-    owner's railway carve-out, as in :func:`unit_carry`."""
-    if (not over or not plan_wide or not index
-            or is_connector_length(box, span_max_m)):
+    owner's railway carve-out, as in :func:`unit_carry`.
+
+    ISSUE #289 (lane ``hecaobjects``): the carve-out is read on the
+    piece's own PARTS (``piece_boxes``, one plan box per solid
+    component), never on the hull of the whole piece.  A carried piece
+    is often a scatter of small components of one material — T3's
+    ``T3_6``/``360_room``/``T2_glass`` panes chained 240-331 m across the
+    terminal by §16c (7) — whose hull reads connector-length while no
+    one of them is a railway; the carve-out kept them on a carrier
+    standing on ANOTHER block (2.64-3.27 m off their own, HECA control
+    ``hecaobjects_ctl``).  A part reaching connector length is the
+    carve-out only where the PLAN calls its piece a connector (its
+    plan-wide row carries two connector ends, §16g (6)): T3's 240-331 m
+    floor and roof slabs (8,108-13,148 m2) are members of the terminal's
+    unit, not railways.
+
+    ISSUE #290: a piece RIDING A DECK stays on its deck.  ``deck_rider``
+    says, for a DECK carrier, whether the piece is that deck's own edge
+    furniture (its parts stand on the deck's authored surface —
+    ``bridge_family.DeckPrint.top_at``); such a carrier is kept whatever
+    its zero, because a deck and what stands on it are one rigid
+    assembly (§16e (3)).  HECA's ``T23/T3_road`` viaduct had its
+    railings, lamp posts and signs moved by this rule onto the terminal's
+    datum 6.17 m above the road surface they stand on."""
+    if not over or not plan_wide or not index:
+        return list(over), None
+    if piece_boxes:
+        if (any(is_connector_length(b, span_max_m) for b in piece_boxes)
+                and any(_is_connector_row(plan_wide.get(q)) for q in pids)):
+            return list(over), None
+    elif is_connector_length(box, span_max_m):
+        return list(over), None
+    if deck_rider is not None and any(
+            getattr(c, "body_class", "") == "deck" and deck_rider(c)
+            for c, *_r in over):
+        if counts is not None:
+            counts[CONTENTS_SEAT + "_kept_deck_rider"] = \
+                counts.get(CONTENTS_SEAT + "_kept_deck_rider", 0) + 1
         return list(over), None
     uc = unit_by_pid(pids, plan_wide, index)
     if uc is None:

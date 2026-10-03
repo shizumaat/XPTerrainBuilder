@@ -479,7 +479,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     import numpy as np
     from ..law.tables import design as design_law
     from ..model.platform import HELD
-    from .platform import GEN as PGEN, HOLD_RULING, hold_sets, hold_row
+    from .platform import GEN as PGEN, HOLD_DATUM_RULING, HOLD_RULING, hold_sets, hold_row
     from .routes import reach_anchored, route_path
     sets = hold_sets(planar, law)
     if not sets:
@@ -555,16 +555,24 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         for k, x in sorted(by.items())}
     # every contact's LEAST-BUDGET runway column (R(c), §1 (2))
     near = reach_anchored(g, {v: (0.0, 0.0) for v in rw_v}, transit=False)
-    # THE AIRSIDE LEADS, THE PAD CONFORMS (owner 2026-10-02, issues #223 /
-    # #111 / #96; airside is king, a building pad is groundside): the
-    # block's datum is the hold law's statistic — the median — of its
-    # AIRSIDE frontage contacts' OWN stage-1 level (``z¹ᵃ``, pass 1a: the
-    # airside solved with no pad row at all), and those contacts take NO row
-    # against the pad: a frontage vertex is a constant to the pad, never a
-    # column its rows can move.  The ``Band`` the solver used to float the
-    # datum in (SPJC ``building14`` 1.0 m above its junction, ``building5``
-    # b0 2.2 m under its chosen D) and the hard two-way contact hold that
-    # moved the apron / junction / taxi to meet the pad are gone with it.
+    # OWNER RULING 2026-10-02ag (1), verbatim: "pad stays flat, apron twists
+    # to weld to it.  It shouldn't have to twist too much since the apron
+    # should only be at a max 1.5% slope anyway, the pad area just has to be
+    # blended into the rest of the apron."  (issues #223 / #111 / #96)
+    #   * D_b = the apron's OWN level at the frontage: the median of the
+    #     block's airside FRONTAGE contacts' pass-1a value ``z¹ᵃ`` (the
+    #     airside solved with no pad row) — never a Band the solver floats
+    #     (that lifted SPJC ``building14``'s junction 1.0 m, ``building5`` b0
+    #     sat 2.2 m under its chosen D);
+    #   * the pad is ONE FLAT plate at D (hard: the datum column's zero-width
+    #     Band + ``platform.platform_plane_rows`` / the §4 own-vertex rows);
+    #   * the apron CONTACT vertices take D (the hard two-way weld hold), and
+    #     the apron around them BLENDS to the rest of the apron under its own
+    #     caps and the no_step / within_shape law — a bounded local twist of
+    #     the contacts' spread about D;
+    #   * nothing else airside is pulled: no plateau row (an apron interior
+    #     vertex), no runway budget (beta_R = 0, every runway column held at
+    #     pass 1a).
     from .pads import airside_vertices as _air_v
     air_c = _air_v(planar, law)
     blocks: dict[str, dict] = {}
@@ -572,7 +580,8 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         if not weld:
             continue
         lo, hi, lo_c, hi_c = interval(ar0, weld)
-        front = [zof(c) for c in weld if c in cols and c in air_c]
+        plat_v = set(HELD[pref].get("plateau_vertices") or ())
+        front = [zof(c) for c in weld if c in cols and c in air_c and c not in plat_v]
         med = _median(front or [zof(c) for c in weld if c in cols] or [0.0])
         D = med
         blocks[pref] = {"dv": dv, "weld": weld, "n_all": n_all, "n_ramp": n_ramp,
@@ -587,29 +596,36 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     beta: dict[str, float] = {}
     ar1 = None
     for pref, b in blocks.items():
-        # the interval is a REPORT now (``reach_band``): the datum is the
-        # frontage's own level, which no pad row can push off the airside
-        b["eval"], b["I"], b["held"] = "i", b["I0"], True
+        # D is the frontage's own level, so the block is HELD at it; the
+        # pair-graph interval is kept as the REPORT (``reach_band``) and as
+        # the per-contact test it always was: a contact whose own band from
+        # the fixed anchors (beta_R = 0) EXCLUDES D cannot be welded to the
+        # pad without breaking a cap or a pin — it keeps its hold PRICED
+        # (``HOLD_RESIDUAL_RULING``, flat-pad spec v2 §2 EMPTY (i)) and the
+        # block reads ``residual`` there, never a relaxed hard row
+        _lo, _hi, lo_c, hi_c = interval(ar0, b["weld"])
+        D = b["D"]
+        b["residual"] = [c for c in b["weld"] if c in lo_c and c in hi_c
+                         and not (lo_c[c] - 1e-9 <= D <= hi_c[c] + 1e-9)]
+        b["I"], b["held"] = b["I0"], True
+        b["eval"] = "residual" if b["residual"] else "i"
     # the rows
     rows: list = []
     for pref, b in blocks.items():
         plat = set(HELD[pref].get("plateau_vertices") or ())
+        res = set(b.get("residual") or ())
         for o in b["weld"]:
-            if o in air_c:
-                continue           # an AIRSIDE contact: fixed, never pulled
-            rows.extend(hold_row(o, b["dv"], pref, plateau=o in plat))
+            if o in plat:
+                continue           # an apron INTERIOR vertex: never pulled (02ag)
+            rows.extend(hold_row(o, b["dv"], pref, residual=o in res))  # the weld takes D
         # THE DATUM: the block's datum column AT the frontage's own level —
-        # HARD (``HOLD_RULING``), a zero-width ``Band``.  The pad's own flat
-        # rows (``platform.platform_plane_rows``, the §4 own-vertex rows
-        # below) put the whole block on it; the frontage stays where the
-        # airside solved it.  (The old pair-graph ``Band`` let the solver
-        # float the datum and the hard contact rows carried the apron with
-        # it — SPJC ``building14`` lifted its junction 24.23 -> 25.22 m.)
+        # HARD (``HOLD_RULING``), a zero-width ``Band``
         rows.append(Band(b["dv"], b["D"], b["D"],
-                         Source(PGEN, HOLD_RULING + " (the block datum = the "
-                                "median of its airside frontage's own stage-1 "
-                                "level; the airside leads, the pad conforms — "
-                                "owner 2026-10-02, #223 / #111)",
+                         Source(PGEN, HOLD_DATUM_RULING + " (the block datum = the "
+                                "apron's own level at the frontage, the median "
+                                "of its contacts' pass-1a value; owner RULINGS "
+                                "2026-10-02ag (1): the pad stays flat, the apron "
+                                "twists to weld to it)",
                                 (pref, f"platform:{pref}"))))
     # EVERY runway of a hold-bearing airport carries its Bands (§1 (3)-(4):
     # "beta_R ... 0 for a runway no route reaches", "at most 2 x 2,610" =
@@ -754,9 +770,10 @@ class HoldPass:
     result: HoldInterval | None = None
 
     def strip(self, cs: ConstraintSet) -> ConstraintSet | None:
-        from .platform import HOLD_RULING
+        from .platform import HOLD_DATUM_RULING, HOLD_RULING
         keep = [r for r in cs.rows()
-                if r.source.ruling.split(" (")[0].strip() != HOLD_RULING]
+                if r.source.ruling.split(" (")[0].strip() not in (HOLD_RULING,
+                                                                   HOLD_DATUM_RULING)]
         if len(keep) == len(cs.rows()):
             return None
         return ConstraintSet.from_rows(keep)

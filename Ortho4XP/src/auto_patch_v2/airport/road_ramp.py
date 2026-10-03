@@ -987,7 +987,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
       ribbon shares with a zone band (``kerb``, see below)."""
     from ..law.tables import airside_stage_roles
     from ..model.planar import is_osm_ribbon_ref
-    out: dict[str, dict] = {"foot": {}, "pad": {}, "station": {}, "kerb": {}}
+    out: dict[str, dict] = {"foot": {}, "pad": {}, "station": {}, "kerb": {},
+                            "meet": {}}
     ribbon_v: set[int] = set()
     for f in pm.faces.values():
         if f.role in _road_roles(law) and is_osm_ribbon_ref(f.ref):
@@ -1006,6 +1007,27 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     out["kerb"] = {v: True for v in vs if v in kerb}
     if not vs:
         return out
+    # THE MEET: a ribbon vertex within one lane width of a road face that is
+    # NOT a mapped-road ribbon (a 1206 route, a DSF road page) — the other
+    # road is outside this rule and grades on its own target, so the ribbon
+    # must arrive at ITS level there, at the cap, like at a coverage join.
+    # MEASURED (HECA replay): ribbon ``small_roads:-4043`` welded down to
+    # its apron's level stood 2.0 m under DSF road ``objpav405`` 0.6 m away
+    # (30.133629, 31.4129105 — 31 new mid-edge / vertex-to-edge steps).
+    from shapely.geometry import Point, Polygon as _Poly
+    from shapely.strtree import STRtree
+    lane = float(law.tables.emit.road_profile.lane_width_m)
+    others = [_Poly([pm.vertices[v].xy for v in pm.ring_vertices(f.ring)])
+              for f in pm.faces.values()
+              if f.role in _road_roles(law) and not is_osm_ribbon_ref(f.ref)
+              and len(pm.ring_vertices(f.ring)) >= 3]
+    others = [g if g.is_valid else g.buffer(0.0) for g in others]
+    if others:
+        otree = STRtree(others)
+        for v in vs:
+            if len(otree.query(Point(pm.vertices[v].xy), predicate="dwithin",
+                               distance=lane)):
+                out["meet"][v] = True
     pads = frozenset(r for r in contact_roles(law)
                      if role_side(law, r) == "airside" and r not in stage1)
     feet = _feet_index(pm, law, stage1 | pads)

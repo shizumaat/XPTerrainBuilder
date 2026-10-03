@@ -347,6 +347,12 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
                 floor[v] = float(r.hi)
     joins = {p.v: float(p.z) for p in cs.pins
              if p.source.generator == GEN and p.source.ruling == JOIN_RULING}
+    # a MEET (``road_terrace``'s ``meet``: the ribbon within a lane width of
+    # a road that is not a ribbon) keeps its own §37 (6) target and anchors
+    # the profile like a join — the other road leads there
+    for v in terr.get("meet") or {}:
+        if v in floor and v not in joins:
+            joins[v] = floor[v]
     prof, rep = terrace_profile(terr, levels, floor, cap, joins)
     # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
     # row — the band leads there — and gets ONE: the terrace level as the

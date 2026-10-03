@@ -90,11 +90,10 @@ from ..law import Law
 from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_m
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.planar import (NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint,
-                            is_osm_ribbon_ref)
-from .shape_airside import (airside_face_sets, declarable_pairs,
-                            inside_apron_body, separated_label_pairs,
-                            weld_airside_faces)
+from ..model.planar import NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint
+from .ribbons import _label_ribbons, is_osm_ribbon_ref
+from .shape_airside import (airside_face_sets, declarable_pairs, inside_apron_body,
+                            separated_label_pairs, weld_airside_faces)
 from .shape_mouths import weld_same_role_mouths
 
 __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes", "network_faces", "network_vertices", "strip_keepout",
@@ -105,8 +104,7 @@ __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes
 STATION_KIND = "taxi_centerline"
 #: The runway ridge breakline kind (``constraints.routes.RIDGE_KIND``): a root of the network.
 RIDGE_KIND = "runway_profile"
-#: A shape is a surface: fewer vertices than a polygon has is no shape (a
-#: structural bound, never a law value).
+#: A shape is a surface: fewer vertices than a polygon has is no shape (structural, not law).
 MIN_SHAPE_VERTICES = 3
 
 
@@ -466,9 +464,7 @@ def _label_roads(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[in
         return (sum(x for x, _y in xs) / len(xs), sum(y for _x, y in xs) / len(xs))
 
     for fid, f in pm.faces.items():
-        # a mapped-road RIBBON is WELDED to the airside and never labels
-        # it (RULINGS 2026-09-30aa rules 1-2; :func:`_label_ribbons`)
-        if f.role not in roads or is_osm_ribbon_ref(f.ref):
+        if f.role not in roads or is_osm_ribbon_ref(f.ref):   # 30aa: see _label_ribbons
             continue
         vs = [v for v in _face_vertices(pm, fid) if v not in N]
         if not vs:
@@ -548,26 +544,6 @@ def _label_roads(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[in
     return ramps
 
 
-def _label_ribbons(pm: PlanarMap, label: dict[int, int], N: frozenset[int]) -> None:
-    """THE MAPPED-ROAD RIBBON TAKES A SHAPE, IT NEVER GIVES ONE (RULINGS
-    2026-09-30aa rules 1-2, #100; lane ``roadweld100``, measured: 08r-2's
-    road labelling run over the ribbons relabelled the apron rim vertices
-    they weld to and re-drew HECA's stage-1 joint filter).  Each ribbon's
-    OWN unlabelled vertices take the majority shape of its labelled
-    contacts; a labelled vertex keeps its label, and no ribbon is a
-    crossing (the 1206 roads' labelling ran without them)."""
-    for fid, f in pm.faces.items():
-        if not is_osm_ribbon_ref(f.ref):
-            continue
-        vs = [v for v in _face_vertices(pm, fid) if v not in N]
-        ls = [label[v] for v in vs if v in label]
-        if not ls:
-            continue
-        top = max(set(ls), key=lambda l: (ls.count(l), -l))
-        for v in vs:
-            label.setdefault(v, top)
-
-
 def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[int],
                   stats: ShapeStats) -> list[RoadRamp]:
     """Roads (:func:`_label_roads`); rigid pads by their majority (module
@@ -587,9 +563,7 @@ def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[i
             if v in label:
                 label[v] = top
         stats.pads_relabelled += 1
-    # LAST: a ribbon takes a shape and never votes one (the pads' majority
-    # above is the one the arrangement without it gives)
-    _label_ribbons(pm, label, N)
+    _label_ribbons(pm, label, N)      # LAST: a ribbon takes a shape, never votes one
     return ramps
 
 

@@ -15,7 +15,8 @@ import pytest
 from shapely.geometry import Polygon
 
 from auto_patch_v2.classify import classify, load_rules
-from auto_patch_v2.classify.roles import bridge_gaps, is_osm_ribbon
+from auto_patch_v2.classify.ribbon_mint import bridge_gaps
+from auto_patch_v2.classify.roles import is_osm_ribbon
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import rolled_on_roles
 from auto_patch_v2.model.airport import Building, OsmWay
@@ -128,7 +129,7 @@ def test_the_airside_is_unchanged_by_a_ribbon_and_the_kerb_is_shared(law):
 # the road cap's profile from the patch's level meets the terrain ─────────
 from shapely.geometry import LineString as _LS
 
-from auto_patch_v2.classify.roles import exit_reach
+from auto_patch_v2.classify.ribbon_mint import exit_reach
 
 
 class _ShelfDem:
@@ -210,7 +211,7 @@ def test_the_road_generator_names_the_stage_filter_reads_are_the_generators_own(
     apron's edge-portion generator OUT (dropping its 124 rows from stage 1
     moved a pad-welded taxiway 2.23 m at CYXY)."""
     from auto_patch_v2.constraints import ceiling, pavement_cap, road_ramp, roads
-    from auto_patch_v2.solve.design import _ROAD_GENERATORS
+    from auto_patch_v2.solve.design_stage import _ROAD_GENERATORS
     assert _ROAD_GENERATORS == {roads.GEN, road_ramp.GEN, pavement_cap.GEN,
                                 ceiling.GEN}
     assert "apron_edge_portion" not in _ROAD_GENERATORS

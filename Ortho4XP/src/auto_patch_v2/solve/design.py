@@ -106,6 +106,7 @@ _LAG_OFF = 1.0e9
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
 from .design_stage import stage_split  # noqa: E402  (re-export: the §20b split)
+from .design_stage import _groundside_minter, _welded_faces  # noqa: E402  (30aa rule 1)
 from .design_roles import (  # noqa: E402  (re-export)
     airside_stage_roles, airside_stage_vertices, conforming_rulings, groundside_pin_rulings, bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
 
@@ -158,56 +159,6 @@ class Base:
     #: ``one`` indices of the FOOT ROWS (``[design] foot_row_rulings``,
     #: 11ab): priced at ``pad_flat``, the pad law's own target
     foot_row_i: list[int] = _dc.field(default_factory=list)
-
-
-def _welded_faces(planar: PlanarMap) -> set[int]:
-    """The WELDED road faces (RULINGS 2026-09-30aa): the mapped-road
-    RIBBONS (``model.planar.is_osm_ribbon_ref``) — the same predicate as
-    ``constraints/roads.welded_road`` (``solve`` may not import
-    ``constraints``).  Measured (lane ``roadweld100``, HECA replay): the
-    rule over the apt.dat 1206 routes' own faces moves the reference
-    airside (3,537 nodes, worst 1.00 m) — an owner question."""
-    from ..model.planar import is_osm_ribbon_ref
-    return {f.id for f in planar.faces.values()
-            if f.role == "service_road" and is_osm_ribbon_ref(f.ref)}
-
-
-#: the generators whose rows a WELDED road face MINTS (``constraints/
-#: roads.GEN``, ``road_ramp.GEN``, ``pavement_cap.GEN``, ``ceiling.GEN``;
-#: ``solve`` may not import ``constraints``, so the names are spelled here
-#: and ``tests/auto_patch_v2/test_roadmint100.py`` holds them equal)
-_ROAD_GENERATORS = frozenset({"roads", "road_ramp", "pavement_road_cap",
-                              "pavement_ceiling"})
-
-
-def _groundside_minter(planar: PlanarMap, law: Law
-                       ) -> _t.Callable[[_t.Any], bool]:
-    """RULINGS 2026-09-30aa rule 1: ``row -> True`` when the row names a
-    ``face:N`` input whose face is a WELDED road face — the row that face
-    MINTED, stage 2's whatever its columns."""
-    gs = _welded_faces(planar)
-
-    def _is(row) -> bool:
-        if not gs:
-            return False
-        src = getattr(row, "source", None)
-        # THE ROAD'S OWN GENERATORS ONLY (lane roadmint100b, measured
-        # CYXY): the apron's edge-portion cap along an edge it shares with
-        # a ribbon names the ribbon face as its input too, and dropping
-        # those 124 APRON rows from stage 1 moved a pad-welded taxiway
-        # 2.26 m at 60.70471799655, -135.07455343850 — the apron's law on
-        # its own edge is stage 1's whatever face it reads
-        if getattr(src, "generator", None) not in _ROAD_GENERATORS:
-            return False
-        for t in getattr(src, "inputs", ()) or ():
-            if isinstance(t, str) and t.startswith("face:"):
-                try:
-                    if int(t[5:]) in gs:
-                        return True
-                except ValueError:
-                    continue
-        return False
-    return _is
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,

@@ -607,19 +607,6 @@ def cliff_grade(law: Law) -> float:
     return float(value_at(law.tables, law.tables.emit.cockpit.cliff_grade))
 
 
-def frontage_roles(law: Law) -> frozenset[str]:
-    """THE FACES A BUILDING PAD FRONTS — every AIRSIDE pavement an aircraft
-    rolls on (:func:`rolled_on_roles`: the runway and taxi families, the
-    apron and its stands), ONE accessor for the platform mint
-    (``planar/platform.platform_split``) and the flat-pad block planner
-    (``planar/pad_blocks.plan_blocks``).  Until 2026-10-02 (issue #223) the
-    planner read ``apron_roles`` alone while the mint read every rolled-on
-    role, so SPJC ``building14`` — fronting pav40's JUNCTION cell, the
-    apron body 57 m away — minted a platform the planner never held (the
-    29s contact-led tilt, 0.5 %)."""
-    return rolled_on_roles(law)
-
-
 def rolled_on_roles(law: Law) -> frozenset[str]:
     """THE SURFACES THE AIRCRAFT ROLLS ON (§31 (1)), derived from
     ``precedence.toml`` — never a literal list.

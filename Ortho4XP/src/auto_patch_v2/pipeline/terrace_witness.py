@@ -29,7 +29,6 @@ classifier; it excludes fences by name, so fences come from the facades).
 """
 from __future__ import annotations
 
-import math
 import typing as _t
 
 __all__ = ["terrace_witness", "WITNESS_WORDS"]
@@ -65,25 +64,20 @@ def _lines_from_dump(dump_path: str | None, to_xy) -> list[tuple[str, str, list]
 
 
 def _lines_from_walls(airport, cfg) -> list[tuple[str, str, list, float]]:
-    from ..classify.retaining_wall import wall_class_components
+    """Every wall-class OBJ8 piece as its line — ``airport/road_ramp.
+    wall_pieces`` (the one classifier, less a piece shorter than its own
+    height: #291, HECA's 9 sub-metre records were posts and stubs)."""
+    from ..airport.road_ramp import wall_midline, wall_pieces
     out = []
-    for c in wall_class_components(airport, cfg):
-        for g in c.pieces:
-            rect = g.minimum_rotated_rectangle
-            cs = list(rect.exterior.coords)
-            if len(cs) < 5:
-                continue
-            e = sorted(((cs[i], cs[i + 1]) for i in range(4)),
-                       key=lambda ab: -math.dist(*ab))
-            (a0, a1), (b0, b1) = e[0], e[1]
-            mid = [((a0[0] + b1[0]) / 2, (a0[1] + b1[1]) / 2),
-                   ((a1[0] + b0[0]) / 2, (a1[1] + b0[1]) / 2)]
-            out.append((f"{c.resource}#comp{c.comp}", "obj8_wall", mid, c.height_m))
+    for w in wall_pieces(airport):
+        mid = wall_midline(w.poly)
+        if len(mid) == 2:
+            out.append((w.label, "obj8_wall", mid, w.height_m))
     return out
 
 
 def terrace_witness(pm, airport, z: _t.Sequence[float] | None, rules,
-                    dump_path: str | None = None) -> list[dict[str, _t.Any]]:
+                    dump_path: str | None = None, law=None) -> list[dict[str, _t.Any]]:
     """The ``road_terrace_witness`` records (module docstring).  Empty
     before a solve or when no ribbon run is bordered."""
     terr = getattr(pm, "road_terrace", None) or {}
@@ -96,11 +90,14 @@ def terrace_witness(pm, airport, z: _t.Sequence[float] | None, rules,
     cfg = rules.service
     reach = float(cfg.retaining_wall_reach_m)
     share_min = float(cfg.retaining_wall_along_fraction)
-    # the BORDERED RUN as ribbon ring edges whose two ends are both bordered
-    # (a ribbon's long kerb edges carry no vertex between their ends)
+    # the BORDERED RUN as road ring edges whose two ends are both bordered
+    # (a road's long kerb edges carry no vertex between their ends) — every
+    # road since #291 (the ribbon, the 1206 corridor, the DSF page)
+    from ..law.tables import family
+    roads = frozenset(family(law, "road_cross_section").roles) if law else None
     segs: list[tuple[int, int]] = []
     for f in pm.faces.values():
-        if not is_osm_ribbon_ref(f.ref):
+        if not (f.role in roads if roads is not None else is_osm_ribbon_ref(f.ref)):
             continue
         ring = list(pm.ring_vertices(f.ring))
         for a, b in zip(ring, ring[1:] + ring[:1]):

@@ -21,13 +21,14 @@ from ..law import Law
 from ..law.tables import family, role_cap
 from ..model.airport import Airport
 from ..model.constraints import Band, ConstraintSet, Linear, Pin, Row, Source
-from ..model.planar import PlanarMap, is_osm_ribbon_ref
+from ..model.planar import PlanarMap
 
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
            "road_contact_rows", "reach_seed_rewrite", "BANK_RULING",
            "between_levels_rewrite", "airside_joins", "welded_join_release",
-           "terrace_rewrite", "terrace_profile"]
+           "terrace_rewrite", "terrace_profile", "wall_terrace_rows",
+           "WALL_LOT_RULING"]
 
 GEN = "road_ramp"
 #: The ruling HEAD of the DESIGN TARGET (everything before the first
@@ -124,6 +125,38 @@ def road_contact_rows(planar: PlanarMap, law: Law, airport: Airport
                            None, cap * float(s),
                            Source(GEN, CONTACT_RULING, (f"vertex:{v}", ref)),
                            follows=(v,)))
+    return rows
+
+
+#: OWNER RULINGS 2026-10-03c (#291): the LOT AT A WALL'S FOOT follows its
+#: building's pad — registered in ``[design] one_way_rulings`` (the lot
+#: vertex follows, the pad leads: the lot never lifts or sinks the pad).
+WALL_LOT_RULING = ("structures.wall_terrace lot level "
+                   "(owner 2026-10-03c; issue #291)")
+
+
+def wall_terrace_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """OWNER RULINGS 2026-10-03c: per declared wall terrace
+    (``PlanarMap.road_terrace['wall']``, derived once by
+    ``airport/road_ramp.wall_terraces``), one ONE-WAY row per lot vertex at
+    the wall's foot, ``z[lot] - z[pad] = 0`` at the law weight — the lot is
+    graded flat to its building's level (the pad leads, ``follows=(lot,)``).
+    The lot's and the pad's columns are groundside / pad (stage 2), so the
+    row is stage 2's and the airside is untouched.  A map without the
+    channel mints nothing."""
+    walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
+    rows: list[Row] = []
+    seen: set[int] = set()
+    for k in sorted(walls):
+        rec = walls[k]
+        for lv, pv in rec.get("pairs") or ():
+            if lv in seen:
+                continue
+            seen.add(lv)
+            rows.append(Linear(((int(lv), 1.0), (int(pv), -1.0)), 0.0, 0.0,
+                               Source("wall_terrace", WALL_LOT_RULING,
+                                      (f"vertex:{lv}", str(rec.get("label", "")))),
+                               follows=(int(lv),)))
     return rows
 
 
@@ -316,9 +349,9 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
 def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
                     levels: _t.Mapping[int, float]
                     ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
-    """OWNER RULINGS 2026-10-03b (#100): THE STAGE-2 REWRITE of a mapped-
-    road ribbon's §37 (6) DESIGN TARGET and HARD CEILING to the terrace
-    profile (:func:`terrace_profile`) — called between §20b's stages with
+    """OWNER RULINGS 2026-10-03b (#100): THE STAGE-2 REWRITE of a ROAD's
+    (ribbon, 1206 corridor, DSF page — #291) §37 (6) DESIGN TARGET and HARD
+    CEILING to the terrace profile (:func:`terrace_profile`) — called between §20b's stages with
     ``levels`` = stage 1's solved airside columns, so every bordered level
     is a constant and the rows stay stage 2's: AIRSIDE IS UNTOUCHED BY
     CONSTRUCTION.  The target is the vertex's §37 (6) row (``lo = hi =``
@@ -347,8 +380,8 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
                 floor[v] = float(r.hi)
     joins = {p.v: float(p.z) for p in cs.pins
              if p.source.generator == GEN and p.source.ruling == JOIN_RULING}
-    # a MEET (``road_terrace``'s ``meet``: the ribbon within a lane width of
-    # a road that is not a ribbon) keeps its own §37 (6) target and anchors
+    # a MEET (``road_terrace``'s ``meet``: the road within a lane width of
+    # a groundside lot / pavement page) keeps its own §37 (6) target and anchors
     # the profile like a join — the other road leads there
     for v in terr.get("meet") or {}:
         if v in floor and v not in joins:
@@ -374,7 +407,7 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         linears.append(r)
     for v in sorted(add):
         ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
-                    if is_osm_ribbon_ref(planar.faces[f].ref)), "")
+                    if planar.faces[f].role in roles), "")
         linears.append(Linear(((v, 1.0),), add[v], add[v],
                               Source(GEN, RULING, (f"vertex:{v}", ref))))
     bands = []

@@ -933,7 +933,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # the core's soft road fit for every vertex it governs — the ONE
     # superseding site.  The rows are ``constraints/road_ramp.py``'s.
     ramp_rep: dict = {}
-    pm = with_road_ramp(pm, law, airport, ramp_rep, road_profiles)
+    pm = with_road_ramp(pm, law, airport, ramp_rep, road_profiles,
+                        service=load_rules().service)
     # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): the core
     # levels the road OUTSIDE the coverage and not inside it, so where a
     # way leaves, the patch takes the ribbon's own altitude there.
@@ -1025,8 +1026,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         pm0 = with_runway_chord(_dc.replace(pm0, preferred_z=pref0), law, ap0, {})
         pm0 = withdraw_trend_over_reach(with_apron_trend(with_taxi_trend(
             pm0, law, ap0, {}), law, ap0, {}), law, ap0, {})
-        pm0 = with_road_coverage_join(with_road_ramp(pm0, law, ap0, {}, prof0),
-                                      law, prof0, {})
+        pm0 = with_road_coverage_join(
+            with_road_ramp(pm0, law, ap0, {}, prof0,
+                           service=load_rules().service),
+            law, prof0, {})
         st0 = shape_stage(pm0, law, ap0, cl0, out=lambda m: None)
         cs0, _c0, _w0 = shape_constraints(st0.pm, law, ap0, st0)
         return (st0.pm, cs0, jetway_strips(st0.pm, law, ap0, cs0,

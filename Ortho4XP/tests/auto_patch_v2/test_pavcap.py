@@ -15,6 +15,7 @@ import pytest
 from auto_patch_v2.constraints import pavement_cap
 from auto_patch_v2.law import tables as T
 from auto_patch_v2.model.constraints import Diff, Pin, Source
+from auto_patch_v2.model.planar import PlanarMap
 
 
 @pytest.fixture(scope="module")
@@ -25,24 +26,61 @@ def law():
 @_dc.dataclass
 class _V:
     xy: tuple
+    #: model invariant I5 (``model.planar.Vertex.incident_faces``): every
+    #: vertex lists ALL faces incident to it.  ``precedence.view`` reads it
+    #: for every vertex, so the stub DERIVES it (``_Planar``) rather than
+    #: carrying a dummy — an empty tuple here would test a map that
+    #: violates I5.
+    incident_faces: tuple = ()
 
 
 @_dc.dataclass
 class _F:
+    """The face fields the cap family reads — the SAME field set and
+    defaults as ``model.planar.Face`` (§50.1 (4) gave ``face_cap`` its
+    ``code_number`` / ``code_letter`` reads, and a stub short of the
+    production signature tests a narrower law than it claims)."""
+
     id: int
     role: str
     ref: str
     ring: tuple
     holes: tuple = ()
+    code_number: int | None = None
+    code_letter: str | None = None
+    side: str = "airside"
+
+
+#: the production defaults for every ``PlanarMap`` field this stub does
+#: not model.  A hand-enumerated stub falls behind the production record
+#: silently (§50.1 (4) gave ``face_cap`` two new ``Face`` reads and
+#: ``precedence.view`` a ``breaklines`` read; the stub answered neither),
+#: so ``_Planar`` DELEGATES instead of listing: whatever a pass reads off
+#: a real ``PlanarMap`` answers here with that field's real default.
+_EMPTY_PM = PlanarMap("", {}, {}, {}, {})
 
 
 class _Planar:
-    """The two things the family reads off a ``PlanarMap``: faces (ring
-    as a cycle of vertex ids here) and vertex coordinates."""
+    """The parts of a ``PlanarMap`` this family reads: faces (ring as a
+    cycle of vertex ids here) and vertex coordinates, with every other
+    field delegated to :data:`_EMPTY_PM`'s production default."""
+
+    def __getattr__(self, name):
+        # only reached when the attribute is not one this stub models
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return getattr(_EMPTY_PM, name)
 
     def __init__(self, verts, faces):
-        self.vertices = {v: _V(xy) for v, xy in verts.items()}
         self.faces = {f.id: f for f in faces}
+        inc: dict[int, list[int]] = {}
+        for f in faces:
+            for cyc in (f.ring, *f.holes):
+                for v in cyc:
+                    if f.id not in inc.setdefault(v, []):
+                        inc[v].append(f.id)
+        self.vertices = {v: _V(xy, tuple(inc.get(v, ())))
+                         for v, xy in verts.items()}
 
     @staticmethod
     def ring_vertices(cycle):

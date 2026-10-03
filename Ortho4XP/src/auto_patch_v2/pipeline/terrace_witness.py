@@ -66,10 +66,14 @@ def _lines_from_dump(dump_path: str | None, to_xy) -> list[tuple[str, str, list]
 def _lines_from_walls(airport, cfg) -> list[tuple[str, str, list, float]]:
     """Every wall-class OBJ8 piece as its line — ``airport/road_ramp.
     wall_pieces`` (the one classifier, less a piece shorter than its own
-    height: #291, HECA's 9 sub-metre records were posts and stubs)."""
+    height: #291, HECA's 9 sub-metre records were posts and stubs).
+
+    ``cfg`` is the ``[service]`` record ``wall_pieces`` is handed (issue
+    #303: ``airport`` may not read ``classify``, so the thresholds come
+    from the caller)."""
     from ..airport.road_ramp import wall_midline, wall_pieces
     out = []
-    for w in wall_pieces(airport):
+    for w in wall_pieces(airport, cfg):
         mid = wall_midline(w.poly)
         if len(mid) == 2:
             out.append((w.label, "obj8_wall", mid, w.height_m))

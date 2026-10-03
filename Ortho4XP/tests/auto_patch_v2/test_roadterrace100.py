@@ -107,20 +107,26 @@ def test_a_coverage_join_is_reached_at_the_cap():
 
 def _solve(airport, law):
     from auto_patch_v2.airport.road_ramp import with_road_ramp
+    from auto_patch_v2.classify.rules import load_rules
     from auto_patch_v2.constraints import generate
     from auto_patch_v2.constraints.no_step import hold_pass
     from auto_patch_v2.constraints.road_ramp import reach_seed_rewrite
     from auto_patch_v2.pipeline.stage_one_map import stage_one_problem
     from auto_patch_v2.solve import solve_design
 
+    # issue #303: the [service] thresholds are the CALLER's to hand over
+    # (``airport`` may not read ``classify``) — the same record
+    # ``pipeline/build`` passes, so this arm stays the build's own frame.
+    svc = load_rules().service
+
     def derive(cl0):
         pm0, _ = planar_build(airport, cl0, law)
-        pm0 = with_road_ramp(pm0, law, airport)
+        pm0 = with_road_ramp(pm0, law, airport, service=svc)
         cs0, _c, _w = generate(pm0, law, airport)
         return pm0, cs0, None, hold_pass(pm0, law)
     cl = classify(airport, law)
     pm, _ = planar_build(airport, cl, law)
-    pm = with_road_ramp(pm, law, airport)
+    pm = with_road_ramp(pm, law, airport, service=svc)
     cs, _c, _w = generate(pm, law, airport)
     s1 = stage_one_problem(cl, derive)
     if s1 is not None:

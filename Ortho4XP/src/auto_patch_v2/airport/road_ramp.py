@@ -998,7 +998,7 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
       ribbon shares with a zone band (``kerb``, see below).
 
     ``walls`` — the WALL-CLASS pack pieces (plan polygons,
-    ``classify/retaining_wall.wall_class_components``): a road vertex whose
+    ``airport/wall_class.wall_class_components``): a road vertex whose
     way to a groundside lot crosses one does NOT meet that lot (RULINGS
     2026-10-03c: the wall IS the step between the road at the airside level
     and the lot at its building's level — ``wall_terrace``)."""
@@ -1119,18 +1119,24 @@ class WallPiece(_t.NamedTuple):
     label: str          # ``<resource>#comp<N>``
 
 
-def wall_pieces(airport: Airport | None) -> tuple[WallPiece, ...]:
+def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
     """The WALL-CLASS pack pieces — the one classifier,
-    ``classify/retaining_wall.wall_class_components`` (fences excluded by
+    :func:`airport.wall_class.wall_class_components` (fences excluded by
     name, 29h) — less every piece SHORTER THAN ITS OWN HEIGHT (#291: a post,
     a pier or a stub is not a wall a terrace runs along; HECA's witness
-    carried 9 sub-metre records).  Empty with no partition."""
-    if airport is None or getattr(airport, "partition", None) is None:
+    carried 9 sub-metre records).  Empty with no partition.
+
+    ``cfg`` is ``classify/rules.toml``'s ``[service]`` record, supplied BY
+    THE CALLER: ``airport`` may not read ``classify``
+    (``test_model.py::test_dependency_direction``), and the ruleset table
+    is bound to ``classify/rules.toml`` beside its loader.  Empty without
+    it — no thresholds, no wall class."""
+    if airport is None or getattr(airport, "partition", None) is None \
+            or cfg is None:
         return ()
-    from ..classify.retaining_wall import wall_class_components
-    from ..classify.rules import load_rules
+    from .wall_class import wall_class_components
     out = []
-    for c in wall_class_components(airport, load_rules().service):
+    for c in wall_class_components(airport, cfg):
         for g in c.pieces:
             if _piece_length(g) >= float(c.height_m):
                 out.append(WallPiece(g, float(c.height_m),
@@ -1293,7 +1299,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
 
 def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                    report: dict[str, _t.Any] | None = None,
-                   profiles=None) -> PlanarMap:
+                   profiles=None, *, service=None) -> PlanarMap:
     """THE ONE DERIVATION SITE (§37 (6)): publish the ramp target as
     ``PlanarMap.road_ramp_z`` and WITHDRAW ``preferred_road_z``'s soft fit
     for every vertex it governs — one target per vertex, not two
@@ -1355,16 +1361,16 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         report["between_levels_strip"] = len(bl.get("strip", {}))
     # OWNER RULINGS 2026-10-03b: the ribbon's bordered / bare segmentation
     # — geometry only; the levels are stage 1's, applied between the stages
-    walls = wall_pieces(airport)
+    walls = wall_pieces(airport, service)
     terr = road_terrace(pm, law, _owned(pm, _road_roles(law), law), frame,
                         tuple(w.poly for w in walls))
     # OWNER RULINGS 2026-10-03c (#291): the wall between the airside level
     # and a lower lot is a DECLARED TERRACE — geometry only, read off the
     # terrace's own bordered set; rows ``constraints/road_ramp.
     # wall_terrace_rows``, joint ``pipeline/publication`` (``wall_terrace``)
-    from ..classify.rules import load_rules
     terr = {**terr, "wall": wall_terraces(
-        pm, law, walls, terr, float(load_rules().service.retaining_wall_reach_m))}
+        pm, law, walls, terr,
+        float(service.retaining_wall_reach_m)) if walls else {}}
     if report is not None:
         report["terrace_stations"] = len(terr.get("station", {}))
         report["terrace_foot"] = len(terr.get("foot", {}))

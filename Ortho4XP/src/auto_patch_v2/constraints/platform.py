@@ -187,8 +187,9 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
                 # without it HECA ``building75``'s rim was a near-null column
                 # (bending Σc² 0.0098) whose height the solve path chose.
                 # #223 had measured that datum breaking ``test_v2qp``
-                # (0.95 m through the plate); on main 43b7896b the twin
-                # passes with it
+                # (0.95 m through the plate): the coupling was the datum
+                # counting as a SHEET ANCHOR (the pad lost its body datum),
+                # which ``design_ground.ground_rim_vertices`` withdraws
                 n_cov += 1
                 rows.append(Diff(o, i, cap, d, src, follows=(o,)))
             elif o in terrace:

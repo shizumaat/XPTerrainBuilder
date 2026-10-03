@@ -1553,6 +1553,13 @@ def _main() -> int:
             [q.to_dict() for q in _sp] + [q.to_dict() for q in _wh],
             sampler)):
         print(line)
+    # issue #10: the CONTENTS-APART census — every body whose parts are a
+    # §16g unit's, against the unit's datum, by the rule that seated it
+    from auto_patch_v2.airport import contents_census as CC
+    unit_levels = CC.census_unit_levels(
+        ss, visual_m=_law.tables.emit.cockpit.visual_m, top=a.top)
+    for line in CC.census_unit_levels_lines(unit_levels):
+        print(line)
     # §16 (1): THE POPULATION — every OBJECT row of the pack is in the
     # plan; the seat-era thickness skip is not applied under ``agl``.
     for line in PC.census_population_lines(PC.census_population(plan.skipped)):
@@ -1741,6 +1748,7 @@ def _main() -> int:
             out["contact_pairs"] = cp
         if bp_rep is not None:
             out["base_profile"] = bp_rep
+        out["unit_levels"] = unit_levels
         json.dump(out, open(a.json, "w", encoding="utf-8"))
         print(f"report -> {a.json}")
     return 0

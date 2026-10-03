@@ -813,6 +813,60 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
     # 30aa rule 7 (#100 round 8): a ribbon's step at its higher contact
     from .ribbon_steps import ribbon_contact_steps
     out.extend(ribbon_contact_steps(planar, law, z))
+    out.extend(wall_terrace_joints(planar, law, z))
+    return out
+
+
+def wall_terrace_joints(planar: PlanarMap, law: Law,
+                        z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
+    """OWNER RULINGS 2026-10-03c (#291): THE WALL IS THE STEP — one
+    ``terrace_joints`` record (``kind`` ``wall_terrace``) per declared wall
+    terrace (``PlanarMap.road_terrace['wall']``, ``airport/road_ramp.
+    wall_terraces``) along the wall's own OUTLINE (a bent wall is its
+    footprint, never a chord of it — every segment across the wall crosses
+    it).  The DECLARED step is the
+    wall's authored height (the object IS the riser, as ``base_step``'s is
+    the object's own) — or the emitted step where the solve put less there
+    — plus the emit's rounding, so both instruments forgive at most the
+    wall across that line and price any excess; ``emitted_step_m``
+    reports the largest step the solve put across it (each upper vertex with
+    its nearest lower partner) and ``agreement_m`` the emitted minus the
+    wall — the reading that says the terrace sits where the pack put it."""
+    walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
+    if not walls:
+        return []
+    from .ribbon_steps import _to_ll
+    to_ll = _to_ll(planar)
+    out: list[dict[str, _t.Any]] = []
+    for k in sorted(walls):
+        rec = walls[k]
+        line = rec.get("line") or []
+        if len(line) < 2:
+            continue
+        h = float(rec.get("height_m") or 0.0)
+        step_e = None
+        if z is not None and rec.get("upper") and rec.get("lower"):
+            lo = [(planar.vertices[w].xy, float(z[w])) for w in rec["lower"]]
+            step_e = 0.0
+            for v in rec["upper"]:
+                vx, vy = planar.vertices[v].xy
+                (_p, zl) = min(lo, key=lambda t: math.hypot(t[0][0] - vx, t[0][1] - vy))
+                step_e = max(step_e, float(z[v]) - zl)
+        # the declared riser is the WALL, never more than the solve put
+        # there: an emitted step under the wall's height declares itself
+        declared = round((h if step_e is None else min(h, max(step_e, 0.0)))
+                         + _EMIT_Z_ROUND_M, 4)
+        r = {"points": [list(to_ll(x, y)) for x, y in line],
+             "step_m": declared, "declared_step_m": declared, "faced": False,
+             "kind": "wall_terrace", "faces": [], "shapes": [str(rec.get("label", ""))],
+             "gap": False, "roles": [], "pairs": len(rec.get("pairs") or ()),
+             "length_m": round(sum(math.dist(line[i], line[i + 1])
+                                   for i in range(len(line) - 1)) / 2.0, 2),
+             "height_m": round(h, 3), "lots": len(rec.get("lots") or ())}
+        if step_e is not None:
+            r["emitted_step_m"] = round(step_e, 3)
+            r["agreement_m"] = round(step_e - h, 3)
+        out.append(r)
     return out
 
 

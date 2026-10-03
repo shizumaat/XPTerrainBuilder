@@ -62,15 +62,16 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import (family, is_value_role, role_cap, role_side,
-                          senior_role, zone2_half_width_m)
+from ..law.tables import (family, is_structure_role, is_value_role, role_cap,
+                          role_side, senior_role, zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
 __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
            "road_route_frame", "reach_contacts", "merge_routes",
            "with_road_ramp", "RampTargets", "between_levels",
-           "road_terrace"]
+           "road_terrace", "wall_pieces", "wall_terraces", "WallPiece",
+           "wall_midline"]
 
 class RampTargets(_t.NamedTuple):
     """The derivation's product: ``targets`` vertex id -> the ramp target,
@@ -954,14 +955,24 @@ def between_levels(pm: PlanarMap, law: Law,
 
 
 def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
-                 frame: _t.Mapping[int, tuple[int, float, float]]
-                 ) -> dict[str, dict]:
+                 frame: _t.Mapping[int, tuple[int, float, float]],
+                 walls: _t.Sequence = ()) -> dict[str, dict]:
     """OWNER RULINGS 2026-10-03b (#100, NLWF): THE ROAD TERRACE — the
-    segmentation of every mapped-road RIBBON's course into BORDERED and BARE
+    segmentation of every groundside ROAD's course into BORDERED and BARE
     runs, from geometry alone (the levels are stage 1's and are applied
     between §20b's stages, ``constraints/road_ramp.terrace_rewrite``).
 
-    A ribbon-owned vertex is BORDERED when it stands inside the ADJACENT
+    EVERY ROAD, NOT ONLY THE RIBBON (issue #291, RULINGS 2026-10-03c): the
+    mapped-road ribbon, the apt.dat 1206 corridor (``route{i}``) and the
+    DSF road page (``dsf:…``) alike — one rule at this one derivation site.
+    A bridge DECK is not a road on the ground (:func:`deck_refs`) and is
+    out.  MEASURED (HECA cargo area 30.1132604, 31.4052094, lane
+    roadterrace100 on sw1018): 1206 ``route3`` beside apron ``objpav433``
+    (103.88 m, the wall top) sat at 101.6-101.8 m, 2.1 m under it, because
+    10-03b reached ribbons only.  The 1206 corridor's coverage-join pins
+    stay stage 2's (roadsfree143) and anchor its profile like a ribbon's.
+
+    A road-owned vertex is BORDERED when it stands inside the ADJACENT
     GROUND of an airside pavement — within that pavement's own zone-2 half
     width plus the cut-back plus one ribbon width, the reach
     :func:`between_levels` already reads (29x/29ad): the runway STRIP for a
@@ -984,14 +995,21 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
       the last) — it never climbs away from the pad it runs beside.
     * ``station`` — ``v -> (route, s)`` for every ribbon-owned vertex the
       route frame answers (bordered or bare), and every ribbon vertex the
-      ribbon shares with a zone band (``kerb``, see below)."""
+      ribbon shares with a zone band (``kerb``, see below).
+
+    ``walls`` — the WALL-CLASS pack pieces (plan polygons,
+    ``classify/retaining_wall.wall_class_components``): a road vertex whose
+    way to a groundside lot crosses one does NOT meet that lot (RULINGS
+    2026-10-03c: the wall IS the step between the road at the airside level
+    and the lot at its building's level — ``wall_terrace``)."""
     from ..law.tables import airside_stage_roles
-    from ..model.planar import is_osm_ribbon_ref
     out: dict[str, dict] = {"foot": {}, "pad": {}, "station": {}, "kerb": {},
                             "meet": {}}
-    ribbon_v: set[int] = set()
+    decks = deck_refs(pm)
+    roads = _road_roles(law)
+    ribbon_v: set[int] = set()          # every ROAD vertex (#291), decks out
     for f in pm.faces.values():
-        if f.role in _road_roles(law) and is_osm_ribbon_ref(f.ref):
+        if f.role in roads and f.ref not in decks:
             ribbon_v.update(v for cyc in (f.ring, *f.holes)
                             for v in pm.ring_vertices(cyc))
     stage1 = airside_stage_roles(law)
@@ -1007,37 +1025,73 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     out["kerb"] = {v: True for v in vs if v in kerb}
     if not vs:
         return out
-    # THE MEET: a ribbon vertex within one lane width of a road face that is
-    # NOT a mapped-road ribbon (a 1206 route, a DSF road page) — the other
-    # road is outside this rule and grades on its own target, so the ribbon
-    # must arrive at ITS level there, at the cap, like at a coverage join.
-    # MEASURED (HECA replay): ribbon ``small_roads:-4043`` welded down to
-    # its apron's level stood 2.0 m under DSF road ``objpav405`` 0.6 m away
-    # (30.133629, 31.4129105 — 31 new mid-edge / vertex-to-edge steps).
+    # THE MEET: a road vertex within one lane width of a GROUNDSIDE VALUE
+    # face that is not a road — a lot, a groundside pavement page — which is
+    # outside this rule and grades on its own target, so the road must
+    # arrive at ITS level there, at the cap, like at a coverage join
+    # (MEASURED CYXY build: ribbon ``-441`` welded to its apron 0.85 m under
+    # the pavement it abuts at 60.71532, -135.07815 — a ramp-ceiling hard
+    # conflict).  Since #291 every ROAD is in the rule, so a road meets no
+    # road here (10-03b's ribbon-to-1206 meet — HECA ``small_roads:-4043``
+    # 2.0 m under DSF road ``objpav405`` — is now one rule on both: they
+    # share their bordering pavement's level).
     from shapely.geometry import Point, Polygon as _Poly
     from shapely.strtree import STRtree
     lane = float(law.tables.emit.road_profile.lane_width_m)
-    # every GROUNDSIDE VALUE face that is not a ribbon — a road, a lot, a
-    # groundside pavement page (MEASURED CYXY build: ribbon ``-441`` welded
-    # to its apron 0.85 m under the pavement it abuts at 60.71532,
-    # -135.07815 — a ramp-ceiling hard conflict the road-only meet missed)
+
     def _meets(role: str) -> bool:
-        return role in _road_roles(law) or (
+        return role not in roads and (
             role_side(law, role) == "groundside" and is_value_role(law, role))
     others = [_Poly([pm.vertices[v].xy for v in pm.ring_vertices(f.ring)])
               for f in pm.faces.values()
-              if _meets(f.role) and not is_osm_ribbon_ref(f.ref)
-              and len(pm.ring_vertices(f.ring)) >= 3]
+              if _meets(f.role) and len(pm.ring_vertices(f.ring)) >= 3]
     others = [g if g.is_valid else g.buffer(0.0) for g in others]
+    wtree = STRtree(list(walls)) if walls else None
+    out["walled"] = {}
     if others:
         otree = STRtree(others)
         for v in vs:
-            if len(otree.query(Point(pm.vertices[v].xy), predicate="dwithin",
-                               distance=lane)):
+            p = Point(pm.vertices[v].xy)
+            hits = otree.query(p, predicate="dwithin", distance=lane)
+            if not len(hits):
+                continue
+            # 10-03c: a lot AT A WALL is not met — the wall is the step.  A
+            # wall-class piece within one lane width of the road vertex that
+            # also stands within one lane width of the lot (on its edge, or
+            # between the two) takes the meet away.  MEASURED HECA (sw1018
+            # capture): ``route3`` shares its kerb with lot ``dsf:objpav394``
+            # and ``metal_strip_2.obj`` comp 117 stands 0.7-0.9 m off the
+            # kerb INSIDE the lot's edge — no straight way crosses it, and
+            # 56 meets held the road at its DEM, 2.1 m under the apron
+            near_w = ([walls[int(j)] for j in wtree.query(p, predicate="dwithin",
+                                                          distance=lane)]
+                      if wtree is not None else [])
+            free = False
+            for k in hits:
+                g = others[int(k)]
+                if not any(wg.distance(g) <= lane for wg in near_w):
+                    free = True
+                    break
+            if free:
                 out["meet"][v] = True
+            else:
+                out["walled"][v] = True
     pads = frozenset(r for r in contact_roles(law)
                      if role_side(law, r) == "airside" and r not in stage1)
     feet = _feet_index(pm, law, stage1 | pads)
+    # A 1206 CORRIDOR / DSF PAGE IS GOVERNED ON ITS BORDERED RUNS ONLY
+    # (``own``: bordered, or straight between two bordered stations of its
+    # route).  Unlike a ribbon (#100 option (c)) it IS a pad's frontage, so
+    # holding its pad-bordered run at a distant stage-1 level drags the pad
+    # that levels FROM it — MEASURED HECA arm (sw1018 capture): ``route3``
+    # held beside ``building12`` sank 2.8 m (95.6 -> 92.8, DEM 103.6) and
+    # the pad and lot ``pav57`` followed it; its bare and pad-bordered runs
+    # keep their own §37 (6) targets.
+    from ..model.planar import is_osm_ribbon_ref
+    rib_v = {v for f in pm.faces.values()
+             if f.role in roads and is_osm_ribbon_ref(f.ref)
+             for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+    out["own"] = {v: True for v in vs if v not in rib_v}
     for v in vs:
         r, s_, _t_ = frame[v]
         out["station"][v] = (int(r), float(s_))
@@ -1054,6 +1108,186 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                      if feet.role_of.get(ref) in pads)
         if pad:
             out["pad"][v] = pad[0][1]
+    return out
+
+
+class WallPiece(_t.NamedTuple):
+    """One footprint piece of a wall-class pack component (frame xy)."""
+
+    poly: _t.Any
+    height_m: float
+    label: str          # ``<resource>#comp<N>``
+
+
+def wall_pieces(airport: Airport | None) -> tuple[WallPiece, ...]:
+    """The WALL-CLASS pack pieces — the one classifier,
+    ``classify/retaining_wall.wall_class_components`` (fences excluded by
+    name, 29h) — less every piece SHORTER THAN ITS OWN HEIGHT (#291: a post,
+    a pier or a stub is not a wall a terrace runs along; HECA's witness
+    carried 9 sub-metre records).  Empty with no partition."""
+    if airport is None or getattr(airport, "partition", None) is None:
+        return ()
+    from ..classify.retaining_wall import wall_class_components
+    from ..classify.rules import load_rules
+    out = []
+    for c in wall_class_components(airport, load_rules().service):
+        for g in c.pieces:
+            if _piece_length(g) >= float(c.height_m):
+                out.append(WallPiece(g, float(c.height_m),
+                                     f"{c.resource}#comp{c.comp}"))
+    return tuple(out)
+
+
+def _piece_length(g) -> float:
+    """A thin piece's length along its own course: half its outline less
+    its width (``2·area / perimeter``) — a bent wall is as long as it runs,
+    not as its rectangle."""
+    if g.length <= 0.0:
+        return 0.0
+    return g.length / 2.0 - 2.0 * g.area / g.length
+
+
+def wall_midline(g) -> list[tuple[float, float]]:
+    """The wall LINE of a thin piece: the midline of its minimum rotated
+    rectangle along the long axis (the witness's own reading)."""
+    cs = list(g.minimum_rotated_rectangle.exterior.coords)
+    if len(cs) < 5:
+        return []
+    e = sorted(((cs[i], cs[i + 1]) for i in range(4)), key=lambda ab: -math.dist(*ab))
+    (a0, a1), (b0, b1) = e[0], e[1]
+    return [((a0[0] + b1[0]) / 2, (a0[1] + b1[1]) / 2),
+            ((a1[0] + b0[0]) / 2, (a1[1] + b0[1]) / 2)]
+
+
+def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
+                  terr: _t.Mapping[str, _t.Mapping], reach: float
+                  ) -> dict[int, dict[str, _t.Any]]:
+    """OWNER RULINGS 2026-10-03c (issue #291, HECA cargo area 30.1132604,
+    31.4052094): A PLACED WALL BETWEEN THE AIRSIDE LEVEL AND A LOWER LOT IS
+    A DECLARED TERRACE — geometry only, pre-solve.
+
+    A wall piece (:func:`wall_pieces`) qualifies when, within ``reach``
+    (``[service] retaining_wall_reach_m``, the §47 reader's "along") of its
+    footprint, an AIRSIDE-LEVEL vertex — a road vertex the terrace BORDERS
+    (``terr['foot']``) or a §20b stage-1 pavement vertex — and a LOT vertex
+    (a groundside lot / pavement page, not a road, not a pad) stand ACROSS
+    it (the segment to the nearest one of the other kind crosses the
+    piece).  Per qualifying piece ``{line, height_m, label, upper, lower,
+    lots, pairs}``:
+
+    * ``line`` — the piece's own OUTLINE (a pack wall bends: the declared
+      joint and the release read the footprint, never a chord of it);
+    * ``upper`` / ``lower`` — the airside-level and lot vertices across the
+      wall from each other (the step the publication declares and measures;
+      ``constraints/road_ramp.wall_release`` withdraws the pair rows
+      between the two sides);
+    * ``pairs`` — ``(lot vertex, pad vertex)``: every ``lower`` vertex with
+      the nearest ring vertex of ITS building (the nearest pad within two
+      reaches) — the lot→pad coupling, one one-way stage-2 row each
+      (``constraints/road_ramp.wall_terrace_rows``): the lot at the wall's
+      foot is at its building's level, the wall is the step.
+
+    MEASURED (lane roadterrace100, sw1018): apron ``objpav433`` 103.88 m
+    (the wall top), lot ``objpav394`` 100.67 m at the wall foot,
+    ``building8`` 100.62 m; ``concrete_3.obj`` comp 37 3.19 m tall — the
+    apron minus the lot is the wall height within 0.02 m."""
+    out: dict[int, dict[str, _t.Any]] = {}
+    if not walls:
+        return out
+    from shapely.geometry import LineString, Point, Polygon as _Poly
+    from shapely.strtree import STRtree
+    from ..law.tables import airside_stage_roles
+    stage1 = airside_stage_roles(law)
+    roads = _road_roles(law)
+    pad_roles = frozenset(r for r in contact_roles(law)
+                          if role_side(law, r) == "airside" and r not in stage1)
+    lot_roles = frozenset(r for r in law.tables.precedence.roles
+                          if r not in roads and role_side(law, r) == "groundside"
+                          and is_value_role(law, r) and not is_structure_role(law, r))
+    lane = float(law.tables.emit.road_profile.lane_width_m)
+    foot = terr.get("foot") or {}
+    # every vertex with a side to stand on
+    up_v: set[int] = set(foot)
+    lot_f: dict[int, _t.Any] = {}
+    pad_f: dict[int, _t.Any] = {}
+    for fid, f in pm.faces.items():
+        ring = list(pm.ring_vertices(f.ring))
+        if f.role in stage1:
+            up_v.update(ring)
+        elif f.role in lot_roles and len(ring) >= 3:
+            g = _Poly([pm.vertices[v].xy for v in ring])
+            lot_f[fid] = g if g.is_valid else g.buffer(0.0)
+        elif f.role in pad_roles and len(ring) >= 3:
+            g = _Poly([pm.vertices[v].xy for v in ring])
+            pad_f[fid] = g if g.is_valid else g.buffer(0.0)
+    if not up_v or not (lot_f or pad_f):
+        return out
+    ids = sorted(pm.vertices)
+    vtree = STRtree([Point(pm.vertices[v].xy) for v in ids])
+    lot_ids, pad_ids = list(lot_f), list(pad_f)
+    ltree = STRtree([lot_f[i] for i in lot_ids]) if lot_ids else None
+    ptree = STRtree([pad_f[i] for i in pad_ids]) if pad_ids else None
+    air_or_pad = up_v | {v for i in pad_ids for v in pm.ring_vertices(pm.faces[i].ring)}
+    for k, w in enumerate(walls):
+        # THE WALL IS ITS OWN FOOTPRINT, never a chord of it: a pack wall
+        # bends (HECA ``metal_strip_2.obj`` comp 117: one 262 m piece fills
+        # 1.9 % of its minimum rotated rectangle), so "across the wall" is
+        # "the segment crosses the piece" and the declared line is the
+        # piece's own outline
+        ring = list(w.poly.exterior.coords)
+        if len(ring) < 4:
+            continue
+        zone = w.poly.buffer(reach)
+        near = [ids[int(j)] for j in vtree.query(zone, predicate="intersects")]
+        near = [v for v in near if not w.poly.contains(Point(pm.vertices[v].xy))]
+        upper_all = [v for v in near if v in up_v]
+        lots = sorted({lot_ids[int(j)] for j in ltree.query(zone, predicate="intersects")}
+                      if ltree is not None else set())
+        if not upper_all or not lots:
+            continue
+        lot_set = set(lots)
+        low_all = [v for v in near if v not in air_or_pad
+                   and any(g_ in lot_set for g_ in pm.vertices[v].incident_faces)
+                   and not any(pm.faces[g_].role in roads
+                               for g_ in pm.vertices[v].incident_faces)]
+        if not low_all:
+            continue
+
+        def across(a: int, b: int) -> bool:
+            return LineString([pm.vertices[a].xy, pm.vertices[b].xy]).intersects(w.poly)
+
+        def nearest(v: int, pool: list[int]) -> int:
+            x, y = pm.vertices[v].xy
+            return min(pool, key=lambda q: (math.hypot(pm.vertices[q].xy[0] - x,
+                                                       pm.vertices[q].xy[1] - y), q))
+        # the LOWER side: lot vertices whose nearest airside-level vertex is
+        # across the wall; the UPPER side: airside-level vertices whose
+        # nearest lot vertex is across it (the wall stands BETWEEN them)
+        lower = [v for v in low_all if across(v, nearest(v, upper_all))]
+        upper = [v for v in upper_all if across(v, nearest(v, low_all))]
+        if not lower or not upper:
+            continue
+        # THE LOT AT THE WALL'S FOOT (10-03c: "graded flat to the
+        # building's level at the wall's foot"): every lower lot vertex
+        # takes the level of ITS building — the nearest pad within two
+        # reaches of it.  Never the whole lot page: MEASURED HECA arm
+        # (sw1018 capture) — lot ``dsf:objpav394`` is one 264-vertex page
+        # over 8 m of relief (95.6-104.0 m), and coupling all of it to
+        # ``building15`` (99.04 m) left it at 96.3-103.6 m, flat nowhere
+        pairs: list[tuple[int, int]] = []
+        for lv in lower:
+            p = Point(pm.vertices[lv].xy)
+            cand = ([pad_ids[int(j)] for j in ptree.query(p, predicate="dwithin",
+                                                          distance=2.0 * reach)]
+                    if ptree is not None else [])
+            if not cand:
+                continue
+            pf = min(cand, key=lambda i: (pad_f[i].distance(p), i))
+            pairs.append((lv, nearest(lv, list(dict.fromkeys(
+                pm.ring_vertices(pm.faces[pf].ring))))))
+        out[k] = {"line": [tuple(c) for c in ring], "height_m": w.height_m,
+                  "label": w.label, "upper": upper, "lower": lower,
+                  "lots": lots, "pairs": pairs}
     return out
 
 
@@ -1121,11 +1355,22 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         report["between_levels_strip"] = len(bl.get("strip", {}))
     # OWNER RULINGS 2026-10-03b: the ribbon's bordered / bare segmentation
     # — geometry only; the levels are stage 1's, applied between the stages
-    terr = road_terrace(pm, law, _owned(pm, _road_roles(law), law), frame)
+    walls = wall_pieces(airport)
+    terr = road_terrace(pm, law, _owned(pm, _road_roles(law), law), frame,
+                        tuple(w.poly for w in walls))
+    # OWNER RULINGS 2026-10-03c (#291): the wall between the airside level
+    # and a lower lot is a DECLARED TERRACE — geometry only, read off the
+    # terrace's own bordered set; rows ``constraints/road_ramp.
+    # wall_terrace_rows``, joint ``pipeline/publication`` (``wall_terrace``)
+    from ..classify.rules import load_rules
+    terr = {**terr, "wall": wall_terraces(
+        pm, law, walls, terr, float(load_rules().service.retaining_wall_reach_m))}
     if report is not None:
         report["terrace_stations"] = len(terr.get("station", {}))
         report["terrace_foot"] = len(terr.get("foot", {}))
         report["terrace_pad"] = len(terr.get("pad", {}))
+        report["terrace_walled"] = len(terr.get("walled", {}))
+        report["wall_terraces"] = len(terr.get("wall", {}))
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,
                        road_contact_edge=contact, road_route_merged=merged,
                        road_reach_seed=seed, preferred_z=keep,

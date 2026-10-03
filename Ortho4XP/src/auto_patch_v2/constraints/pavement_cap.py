@@ -89,6 +89,19 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                         stage_one_vertices)
     roads = set(road_family_roles(law))
     air = stage_one_vertices(planar, law)
+    # issue #264 (CYXY 60.7137823, -135.0763504): a pad|groundside pair §28
+    # (6) HOLDS AS A HILLSIDE TERRACE (owner RULINGS 2026-09-13o/13p, the
+    # lot arriving at the second storey) is a STEP, not a grade — as the
+    # pad|pad pair is (30l (2)).  Welding it here at 8 % over 1.0 m pulled
+    # ``pav4``'s corner vertex onto ``building9``'s pad (695.01 m) and the
+    # lot then climbed at its own cap 2.88 m back to its ground: the
+    # owner's dip.  ONE derivation of "held": ``pad_frontage_gs``.
+    from .pad_frontage_gs import held_terrace_pairs
+    held = held_terrace_pairs(planar, law)
+    held_faces: dict[int, set[int]] = {}
+    for gid, pid in held:
+        held_faces.setdefault(gid, set()).add(pid)
+        held_faces.setdefault(pid, set()).add(gid)
     for f in planar.faces.values():
         if f.role not in pav:
             continue
@@ -157,6 +170,10 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                 continue
             if owner[a] <= pad_faces and owner[b] <= pad_faces:
                 continue            # pad|pad: a step (30l (2)), not a grade
+            if held_faces and any(
+                    fb in held_faces.get(fa, ())
+                    for fa in owner[a] for fb in owner[b]):
+                continue            # a §28 (6) hillside terrace pair (#264)
             # a welded pair whose groundside foot is a road's alone is a
             # road pair (issue #143)
             _mint(a, b, (a not in air and owner[a] <= road_faces)

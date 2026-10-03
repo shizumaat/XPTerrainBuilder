@@ -337,6 +337,25 @@ def building_role_for_def(path: str) -> str | None:
     return None
 
 
+#: v1 ``agp_reader.is_agp_building_def``'s scope: the stock library's
+#: point-placed hangars.  A def-path gate like ``building_role_for_def``'s
+#: facade rows above (``"hangar" in p``) — the SAME kind of admission the
+#: ``.fac`` hangars already have, for the ``.agp`` ones.
+AGP_BUILDING_PREFIX = "lib/airport/common_elements/hangars/"
+
+
+def agp_building_role(path: str) -> str | None:
+    """``hangar`` for an ``OBJECT_DEF`` that is a stock-library hangar
+    ``.agp`` (issue #263: CYXY's ``Med_Blue_Hangar.agp`` had no pad
+    because v2 read ``.agp`` placements only as RIDERS), else ``None``.
+    v1 ``dsf_reader.read_dsf_buildings``'s second source (``AGP_BUILDINGS``,
+    user 2026-06-17), ported with its own scope."""
+    p = path.lower()
+    if p.endswith(".agp") and p.startswith(AGP_BUILDING_PREFIX):
+        return "hangar"
+    return None
+
+
 def read_footprint_cache(path: str) -> list[tuple[tuple[LonLat, ...], str]]:
     """The OBJ8 structure footprints v1 cached for the pack's tile:
     ``[(outer_ring, role), ...]`` (rings ``(lon, lat)``, unclosed).

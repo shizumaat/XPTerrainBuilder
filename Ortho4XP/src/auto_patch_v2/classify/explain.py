@@ -29,6 +29,7 @@ __all__ = ["shape_polygon", "explain_at", "explain_polygon", "render",
 REKIND_MARKS: tuple[tuple[str, str], ...] = (
     ("shoulder_shared_m", "runway shoulder (§40 (1))"),
     ("apron_cover_refused_corridor", "apron cover refused the corridor (§40 (2))"),
+    ("startup_refused_corridor", "a 1300 startup inside refused the corridor (#262)"),
     ("airside_edge_flip", "airside edge (§27)"),
     ("taxi_name", "taxi by name (04z-1)"),
     ("open_default", "open default (04u)"),

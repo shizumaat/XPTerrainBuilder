@@ -1017,9 +1017,16 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     from shapely.geometry import Point, Polygon as _Poly
     from shapely.strtree import STRtree
     lane = float(law.tables.emit.road_profile.lane_width_m)
+    # every GROUNDSIDE VALUE face that is not a ribbon — a road, a lot, a
+    # groundside pavement page (MEASURED CYXY build: ribbon ``-441`` welded
+    # to its apron 0.85 m under the pavement it abuts at 60.71532,
+    # -135.07815 — a ramp-ceiling hard conflict the road-only meet missed)
+    def _meets(role: str) -> bool:
+        return role in _road_roles(law) or (
+            role_side(law, role) == "groundside" and is_value_role(law, role))
     others = [_Poly([pm.vertices[v].xy for v in pm.ring_vertices(f.ring)])
               for f in pm.faces.values()
-              if f.role in _road_roles(law) and not is_osm_ribbon_ref(f.ref)
+              if _meets(f.role) and not is_osm_ribbon_ref(f.ref)
               and len(pm.ring_vertices(f.ring)) >= 3]
     others = [g if g.is_valid else g.buffer(0.0) for g in others]
     if others:

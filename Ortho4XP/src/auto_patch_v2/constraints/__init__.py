@@ -94,6 +94,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # COLLAR between a platform and its welded rim is a 1:3 bank
     ("platform_collar", platform.platform_collar_rows),
     ("platform_plane", platform.platform_plane_rows),
+    # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING held at
+    # its block's datum + the deck's y — a stage-2 row
+    ("landing_level", platform.landing_rows),
     # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): the plane is CONTACT-LED —
     # one one-way level row per welded collar contact, at the plane there
     ("platform_level", platform.platform_level_rows),

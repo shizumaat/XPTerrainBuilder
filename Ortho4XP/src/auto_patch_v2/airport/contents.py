@@ -74,6 +74,29 @@ def _poly(rings: _t.Sequence, boxes: _t.Sequence, ml: float, mo: float):
     return unary_union(gs) if len(gs) > 1 else gs[0]
 
 
+def _grow(g, touch_m: float):
+    """A host outline widened by ``footprint_touch_m`` — and VALID.
+
+    GEOS's buffer of a valid MultiPolygon can return an invalid one (issue
+    #307, GEOS 3.13.1: OTHH's terminal cluster, the union of 6,706 walled
+    bodies, came back from ``buffer(0.5)`` with NESTED SHELLS and the next
+    ``intersection`` raised a TopologyException).  Three of its bodies
+    reproduce it (``tests/auto_patch_v2/fixtures/othh307_nested_shells
+    .json``): the buffer DROPS an 8.2 m2 hole of the union (a 2.2 m2 hole
+    once widened) and emits a stray 0.15 m2 shell beside it — so no
+    ``make_valid`` recovers the outline (structure fills the hole,
+    linework keeps the stray shell; both 2.2-2.3 m2 off).  The repair is
+    the definition: a widened outline is the UNION of its widened
+    polygons, each a single valid polygon GEOS buffers correctly.  A
+    valid buffer passes through untouched (every other host unchanged)."""
+    if touch_m <= 0.0:
+        return g
+    b = g.buffer(touch_m)
+    if not b.is_valid:
+        b = shapely.union_all(shapely.buffer(shapely.get_parts(g), touch_m))
+    return b
+
+
 def attach_contents(shims: _t.Sequence[_t.Any],
                     clusters: _t.Sequence[_t.Sequence[int]],
                     walled_ix: _t.Sequence[int], leaves: _t.Sequence[int],
@@ -109,7 +132,7 @@ def attach_contents(shims: _t.Sequence[_t.Any],
             hosts.append((-1 - s, g))
     if not hosts:
         return {}, []
-    grown = [g.buffer(touch_m) if touch_m > 0.0 else g for _k, g in hosts]
+    grown = [_grow(g, touch_m) for _k, g in hosts]
     areas = [g.area for g in grown]
     tree = shapely.STRtree(grown)
     out: dict[int, int] = {}

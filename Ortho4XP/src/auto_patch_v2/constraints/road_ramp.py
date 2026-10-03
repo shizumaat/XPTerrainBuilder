@@ -21,12 +21,13 @@ from ..law import Law
 from ..law.tables import family, role_cap
 from ..model.airport import Airport
 from ..model.constraints import Band, ConstraintSet, Linear, Pin, Row, Source
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, is_osm_ribbon_ref
 
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
            "road_contact_rows", "reach_seed_rewrite", "BANK_RULING",
-           "between_levels_rewrite", "airside_joins", "welded_join_release"]
+           "between_levels_rewrite", "airside_joins", "welded_join_release",
+           "terrace_rewrite", "terrace_profile"]
 
 GEN = "road_ramp"
 #: The ruling HEAD of the DESIGN TARGET (everything before the first
@@ -187,9 +188,197 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     carries the seed's keys and the between-levels report under
     ``between_levels``."""
     cs, rep = _reach_seed(planar, law, cs, levels)
+    # 10-03b BEFORE 29x: a ribbon vertex between two pavements at different
+    # levels still takes the LOWER one (rule 8 of 30aa: 29x stands)
+    cs, rep["terrace"] = terrace_rewrite(planar, law, cs, levels)
     cs, rep["between_levels"] = between_levels_rewrite(planar, law, cs, levels)
     cs, rep["welded_join"] = welded_join_release(planar, law, cs, levels)
     return cs, rep
+
+
+def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
+                    levels: _t.Mapping[int, float],
+                    floor: _t.Mapping[int, float], cap: float,
+                    anchors: _t.Mapping[int, float] | None = None
+                    ) -> tuple[dict[int, float], dict[str, _t.Any]]:
+    """OWNER RULINGS 2026-10-03b: THE RIBBON'S PROFILE, per route, from
+    ``PlanarMap.road_terrace`` (``airport/road_ramp.road_terrace``) and
+    stage 1's solved levels.
+
+    * a BORDERED vertex (``foot``) takes its foot's level — the pavement it
+      runs beside, read as a stage-1 constant (a one-way weld: the pavement
+      leads, nothing airside moves);
+    * a run between two bordered stations of ONE route — a pad's frontage,
+      or a stretch inside the airport between two pavements — runs
+      STRAIGHT between their two levels (it never climbs away from the
+      pavements it links);
+    * a run beyond the LAST bordered station of its route, past any pad
+      frontage that continues it (held flat), is BARE: it climbs from that
+      level at <= ``cap`` toward its own §37 (6) target ``floor`` (the road
+      exit, 29y / 10-02v (1)) — ``clip(floor, L - cap·d, L + cap·d)``;
+    * a route with no levelled foot keeps its targets;
+    * an ``anchors`` vertex — a §37 (9) COVERAGE-EDGE JOIN, where the core's
+      levelled road takes over — is never governed, and every vertex of its
+      route reaches it at <= ``cap``: ``clip(target, z_a - cap·d, z_a +
+      cap·d)`` (the road leaves the terrace at its cap to meet the core road;
+      MEASURED HECA replay: ``small_roads:-20210`` welded to apron ``pav37``
+      at 89.6 m four metres from its join pinned at 96.89 m — a 12.98 m
+      hard conflict of the ramp ceiling against the pin).
+
+    Returns ``{v: target}`` for every vertex it governs and the report."""
+    foot = terrace.get("foot") or {}
+    pad = terrace.get("pad") or {}
+    station = terrace.get("station") or {}
+    rep: dict[str, _t.Any] = {"bordered": 0, "linked": 0, "pad_held": 0,
+                              "bare": 0, "unlevelled": 0, "routes": 0,
+                              "max_cut_m": 0.0, "max_link_grade": 0.0}
+    lev: dict[int, float] = {}
+    for v, (a, b, u, _ref) in foot.items():
+        if a in levels and b in levels:
+            lev[v] = (1.0 - u) * float(levels[a]) + u * float(levels[b])
+        else:
+            rep["unlevelled"] += 1
+    by_route: dict[int, list[tuple[float, int]]] = {}
+    for v, (r, s_) in station.items():
+        by_route.setdefault(int(r), []).append((float(s_), int(v)))
+    out: dict[int, float] = {}
+    for r, items in sorted(by_route.items()):
+        items.sort()
+        known = [(s_, lev[v]) for s_, v in items if v in lev]
+        if not known:
+            continue
+        rep["routes"] += 1
+        ks = [k[0] for k in known]
+        # the pad frontage beyond each end of the levelled stretch, held flat
+        lo_s, hi_s = ks[0], ks[-1]
+        for s_, v in reversed([it for it in items if it[0] < ks[0]]):
+            if v in pad:
+                lo_s = s_
+            else:
+                break
+        for s_, v in [it for it in items if it[0] > ks[-1]]:
+            if v in pad:
+                hi_s = s_
+            else:
+                break
+        import bisect
+        for s_, v in items:
+            if v in lev:
+                out[v] = lev[v]
+                rep["bordered"] += 1
+                continue
+            i = bisect.bisect_left(ks, s_)
+            if 0 < i < len(ks):
+                (s0, z0), (s1, z1) = known[i - 1], known[i]
+                t = (s_ - s0) / (s1 - s0) if s1 > s0 else 0.0
+                out[v] = z0 + t * (z1 - z0)
+                rep["linked"] += 1
+                if s1 > s0:
+                    rep["max_link_grade"] = max(rep["max_link_grade"],
+                                                abs(z1 - z0) / (s1 - s0))
+                continue
+            z_e = known[0][1] if i == 0 else known[-1][1]
+            d = (lo_s - s_) if i == 0 else (s_ - hi_s)
+            if d <= 0.0:
+                out[v] = z_e
+                rep["pad_held"] += 1
+                continue
+            fl = floor.get(v)
+            if fl is None:
+                continue
+            out[v] = min(max(float(fl), z_e - cap * d), z_e + cap * d)
+            rep["bare"] += 1
+    anchors = anchors or {}
+    by_anchor: dict[int, list[tuple[float, float]]] = {}
+    for v, za in anchors.items():
+        if v in station:
+            r, s_ = station[v]
+            by_anchor.setdefault(int(r), []).append((float(s_), float(za)))
+            out.pop(v, None)
+    rep["anchored"] = 0
+    for v in list(out):
+        r, s_ = station[v]
+        for sa, za in by_anchor.get(int(r), ()):
+            d = abs(float(s_) - sa)
+            t = min(max(out[v], za - cap * d), za + cap * d)
+            if abs(t - out[v]) > 1e-9:
+                out[v] = t
+                rep["anchored"] += 1
+    for v, t in out.items():
+        fl = floor.get(v)
+        if fl is not None and float(fl) - t > rep["max_cut_m"]:
+            rep["max_cut_m"] = float(fl) - t
+    rep["max_cut_m"] = round(rep["max_cut_m"], 3)
+    rep["max_link_grade"] = round(rep["max_link_grade"], 4)
+    return out, rep
+
+
+def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
+                    levels: _t.Mapping[int, float]
+                    ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
+    """OWNER RULINGS 2026-10-03b (#100): THE STAGE-2 REWRITE of a mapped-
+    road ribbon's §37 (6) DESIGN TARGET and HARD CEILING to the terrace
+    profile (:func:`terrace_profile`) — called between §20b's stages with
+    ``levels`` = stage 1's solved airside columns, so every bordered level
+    is a constant and the rows stay stage 2's: AIRSIDE IS UNTOUCHED BY
+    CONSTRUCTION.  The target is the vertex's §37 (6) row (``lo = hi =``
+    the profile) and the ceiling ``profile + [cockpit] visual_m`` — the
+    ceiling FOLLOWS the target down into the cut, so the terrain is cut to
+    the road and the road is never held up the hill by its old ceiling."""
+    terr = getattr(planar, "road_terrace", None) or {}
+    if not terr or not terr.get("station") or not levels:
+        return cs, {"governed": 0}
+    roles = family(law, "road_cross_section").roles
+    caps = [role_cap(law, r).longitudinal for r in roles if role_cap(law, r)]
+    if not caps:
+        return cs, {"governed": 0}
+    cap = min(caps)
+    vis = float(law.tables.emit.cockpit.visual_m)
+
+    def _vertex(src: Source) -> int | None:
+        tag = src.inputs[0] if src.inputs else ""
+        return int(tag[7:]) if tag.startswith("vertex:") else None
+
+    floor: dict[int, float] = {}
+    for r in cs.linears:
+        if r.source.generator == GEN and r.source.ruling == RULING:
+            v = _vertex(r.source)
+            if v is not None and r.hi is not None:
+                floor[v] = float(r.hi)
+    joins = {p.v: float(p.z) for p in cs.pins
+             if p.source.generator == GEN and p.source.ruling == JOIN_RULING}
+    prof, rep = terrace_profile(terr, levels, floor, cap, joins)
+    # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
+    # row — the band leads there — and gets ONE: the terrace level as the
+    # same law-weight design target, never a ceiling (the band's own rows
+    # stay the hard ones).  A bare kerb has no floor and gets nothing.
+    kerb = terr.get("kerb") or {}
+    add = {v: z for v, z in prof.items() if v in kerb and v not in floor}
+    prof = {v: z for v, z in prof.items() if v in floor}
+    rep["governed"] = len(prof) + len(add)
+    rep["kerb"] = len(add)
+    if not prof and not add:
+        return cs, rep
+    linears = []
+    for r in cs.linears:
+        if r.source.generator == GEN and r.source.ruling == RULING:
+            v = _vertex(r.source)
+            if v in prof:
+                r = _dc.replace(r, lo=prof[v], hi=prof[v])
+        linears.append(r)
+    for v in sorted(add):
+        ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
+                    if is_osm_ribbon_ref(planar.faces[f].ref)), "")
+        linears.append(Linear(((v, 1.0),), add[v], add[v],
+                              Source(GEN, RULING, (f"vertex:{v}", ref))))
+    bands = []
+    for r in cs.bands:
+        if r.source.generator == GEN and r.source.ruling == RULING_CEILING:
+            v = _vertex(r.source)
+            if v in prof and r.hi is not None:
+                r = _dc.replace(r, hi=prof[v] + vis)
+        bands.append(r)
+    return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands)), rep
 
 
 def welded_join_release(planar: PlanarMap, law: Law, cs: ConstraintSet,

@@ -69,7 +69,8 @@ from ..model.planar import PlanarMap
 
 __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
            "road_route_frame", "reach_contacts", "merge_routes",
-           "with_road_ramp", "RampTargets", "between_levels"]
+           "with_road_ramp", "RampTargets", "between_levels",
+           "road_terrace"]
 
 class RampTargets(_t.NamedTuple):
     """The derivation's product: ``targets`` vertex id -> the ramp target,
@@ -781,6 +782,92 @@ _OPPOSITE_COS = -0.3
 _BETWEEN_SLACK = 1.5
 
 
+class _FeetIndex:
+    """THE PAVEMENT FEET a road vertex stands beside (29x / 29ad, shared by
+    :func:`between_levels` and :func:`road_terrace`): every ring edge of a
+    face whose role is in ``roles``, each reaching its OWN class's zone-2
+    half width (``zones.toml [adjacent_ground]``; a pavement with no zone
+    class the taxi class's DEFAULT) plus the groundside cut-back plus one
+    ribbon's width (``[road_contact] pair_lateral_m``) — the adjacent
+    ground the pavement owns, read at the road's whole width.
+
+    ``feet(p, refs=None)`` -> ``{ref: (d, a, b, u, (ux, uy))}``: the
+    nearest foot per pavement ref within that pavement's reach."""
+
+    def __init__(self, pm: PlanarMap, edges, reach: float, role_of):
+        from shapely import STRtree
+        from shapely.geometry import LineString
+        self.pm, self.edges, self.reach, self.role_of = pm, edges, reach, role_of
+        xy = lambda v: pm.vertices[v].xy                   # noqa: E731
+        self.tree = STRtree([LineString([xy(a), xy(b)]) for a, b, _r, _h in edges])
+
+    def __call__(self, p, refs=None) -> dict[str, tuple]:
+        from shapely.geometry import Point
+        xy = lambda v: self.pm.vertices[v].xy              # noqa: E731
+        best: dict[str, tuple] = {}
+        for k in self.tree.query(Point(p).buffer(self.reach)):
+            a, b, ref, h = self.edges[int(k)]
+            if refs is not None and ref not in refs:
+                continue
+            (ax, ay), (bx, by) = xy(a), xy(b)
+            vx, vy = bx - ax, by - ay
+            l2 = vx * vx + vy * vy
+            u = 0.0 if l2 < 1e-18 else max(0.0, min(
+                1.0, ((p[0] - ax) * vx + (p[1] - ay) * vy) / l2))
+            fx, fy = ax + u * vx, ay + u * vy
+            d = math.hypot(p[0] - fx, p[1] - fy)
+            if d > h or d < 1e-6:
+                continue
+            if ref not in best or d < best[ref][0]:
+                best[ref] = (d, a, b, u, ((fx - p[0]) / d, (fy - p[1]) / d))
+        return best
+
+
+def _feet_index(pm: PlanarMap, law: Law, roles: _t.AbstractSet[str]
+                ) -> _FeetIndex | None:
+    """:class:`_FeetIndex` over the faces of ``roles`` (``None`` when no
+    such face carries an edge)."""
+    prec = law.tables.precedence
+    fam = {r: "runway" for r in prec.runway_family.members}
+    fam.update({r: "junction" for r in prec.taxi_family.members})
+    cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+    # "BOTH ZONES OVERLAP ITS CORRIDOR" (29x) is a test on the road's WHOLE
+    # WIDTH: a band reaching the near kerb reaches every vertex of the
+    # section, so the reach from any road vertex adds one ribbon's width
+    # (``[road_contact] pair_lateral_m``).  Measured HECA round 1: per
+    # vertex alone, route19's far kerb stood 13-19 m from ``objpav99`` —
+    # past its class's half width — and the road was never published.
+    ribbon = float(law.tables.emit.road_contact.pair_lateral_m)
+    edges: list[tuple[int, int, str, float]] = []
+    role_of: dict[str, str] = {}
+    seen: set[tuple[int, int]] = set()
+    # A pavement with no zone class reaches the taxi class's DEFAULT half
+    # width (``zones.toml [adjacent_ground.taxi] half_width_m.default``).
+    taxi_default = zone2_half_width_m(law, "junction", None, None)
+    for fid, f in pm.faces.items():
+        if f.role not in roles:
+            continue
+        role = fam.get(f.role)
+        half = (zone2_half_width_m(law, role, f.code_number, f.code_letter)
+                if role is not None else taxi_default)
+        if not half:
+            continue
+        ref = f.ref.split("+")[0]
+        role_of.setdefault(ref, f.role)
+        for cyc in (f.ring, *f.holes):
+            vs = list(pm.ring_vertices(cyc))
+            for k in range(len(vs)):
+                a, b = vs[k], vs[(k + 1) % len(vs)]
+                key = (min(a, b), max(a, b))
+                if a == b or key in seen:
+                    continue
+                seen.add(key)
+                edges.append((a, b, ref, float(half) + cut + ribbon))
+    if not edges:
+        return None
+    return _FeetIndex(pm, edges, max(h for *_x, h in edges), role_of)
+
+
 def between_levels(pm: PlanarMap, law: Law,
                    owned: _t.Mapping[int, str]) -> dict[str, dict]:
     """OWNER RULINGS 2026-09-29x (Q-97 (b), issue #97, HECA 30.126819,
@@ -797,73 +884,12 @@ def between_levels(pm: PlanarMap, law: Law,
     road takes the LOWER foot's level, and the strip on the HIGHER side is
     one bank from the road's far kerb to the pavement edge (the cut-back
     strip is part of that bank's run)."""
-    from shapely import STRtree
-    from shapely.geometry import LineString
-    prec = law.tables.precedence
-    fam = {r: "runway" for r in prec.runway_family.members}
-    fam.update({r: "junction" for r in prec.taxi_family.members})
-    cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
-    # "BOTH ZONES OVERLAP ITS CORRIDOR" (29x) is a test on the road's WHOLE
-    # WIDTH: a band reaching the near kerb reaches every vertex of the
-    # section, so the reach from any road vertex adds one ribbon's width
-    # (``[road_contact] pair_lateral_m``).  Measured HECA round 1: per
-    # vertex alone, route19's far kerb stood 13-19 m from ``objpav99`` —
-    # past its class's half width — and the road was never published.
-    ribbon = float(law.tables.emit.road_contact.pair_lateral_m)
-    edges: list[tuple[int, int, str, float]] = []
-    seen: set[tuple[int, int]] = set()
-    # THE FEET ARE EVERY AIRSIDE PAVEMENT THAT CARRIES A LEVEL (RULINGS
-    # 2026-09-29ad: ``contact_roles``, the apron included — at HECA the
-    # LOWER pavement beside route19 is ``objpav115``'s APRON piece).  A
-    # pavement with no zone class reaches the taxi class's DEFAULT half
-    # width (``zones.toml [adjacent_ground.taxi] half_width_m.default``).
-    feet_roles = contact_roles(law)
-    taxi_default = zone2_half_width_m(law, "junction", None, None)
-    for fid, f in pm.faces.items():
-        if f.role not in feet_roles:
-            continue
-        role = fam.get(f.role)
-        half = (zone2_half_width_m(law, role, f.code_number, f.code_letter)
-                if role is not None else taxi_default)
-        if not half:
-            continue
-        ref = f.ref.split("+")[0]
-        for cyc in (f.ring, *f.holes):
-            vs = list(pm.ring_vertices(cyc))
-            for k in range(len(vs)):
-                a, b = vs[k], vs[(k + 1) % len(vs)]
-                key = (min(a, b), max(a, b))
-                if a == b or key in seen:
-                    continue
-                seen.add(key)
-                edges.append((a, b, ref, float(half) + cut + ribbon))
     out: dict[str, dict] = {"road": {}, "strip": {}}
-    if not edges:
+    feet = _feet_index(pm, law, contact_roles(law))
+    if feet is None:
         return out
     xy = lambda v: pm.vertices[v].xy                       # noqa: E731
-    tree = STRtree([LineString([xy(a), xy(b)]) for a, b, _r, _h in edges])
-    reach = max(h for *_x, h in edges)
-
-    def feet(p, refs=None) -> dict[str, tuple]:
-        """ref -> (d, a, b, u, (ux, uy)) the nearest foot per pavement."""
-        from shapely.geometry import Point
-        best: dict[str, tuple] = {}
-        for k in tree.query(Point(p).buffer(reach)):
-            a, b, ref, h = edges[int(k)]
-            if refs is not None and ref not in refs:
-                continue
-            (ax, ay), (bx, by) = xy(a), xy(b)
-            vx, vy = bx - ax, by - ay
-            l2 = vx * vx + vy * vy
-            u = 0.0 if l2 < 1e-18 else max(0.0, min(
-                1.0, ((p[0] - ax) * vx + (p[1] - ay) * vy) / l2))
-            fx, fy = ax + u * vx, ay + u * vy
-            d = math.hypot(p[0] - fx, p[1] - fy)
-            if d > h or d < 1e-6:
-                continue
-            if ref not in best or d < best[ref][0]:
-                best[ref] = (d, a, b, u, ((fx - p[0]) / d, (fy - p[1]) / d))
-        return best
+    reach = feet.reach
 
     road: dict[int, tuple] = {}
     for r, role in sorted(owned.items()):
@@ -924,6 +950,81 @@ def between_levels(pm: PlanarMap, law: Law,
                     continue
                 strip[s_] = (r, (a, b, u, ref), float(w), float(d))
     out["strip"] = strip
+    return out
+
+
+def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
+                 frame: _t.Mapping[int, tuple[int, float, float]]
+                 ) -> dict[str, dict]:
+    """OWNER RULINGS 2026-10-03b (#100, NLWF): THE ROAD TERRACE — the
+    segmentation of every mapped-road RIBBON's course into BORDERED and BARE
+    runs, from geometry alone (the levels are stage 1's and are applied
+    between §20b's stages, ``constraints/road_ramp.terrace_rewrite``).
+
+    A ribbon-owned vertex is BORDERED when it stands inside the ADJACENT
+    GROUND of an airside pavement — within that pavement's own zone-2 half
+    width plus the cut-back plus one ribbon width, the reach
+    :func:`between_levels` already reads (29x/29ad): the runway STRIP for a
+    runway, the taxiway strip for the taxi family, the taxi DEFAULT for an
+    apron.  No new distance: "borders the runway strip" is "stands in the
+    strip", and the strip's width is the zone table's.  MEASURED (NLWF
+    capture at 3d870a8e): road −3 runs 28-46 m off 07/25's edge along the
+    runway and 7-25 m off the terminal pad and the apron behind it — a lane
+    width (4 m) or the contact reach (15 m) would call the whole runway run
+    bare.
+
+    * ``foot`` — the NEAREST §20b STAGE-1 pavement foot (runway family,
+      taxi family, apron): ``v -> (a, b, u, ref)``.  Its level is stage 1's
+      constant, so the weld is ONE-WAY by construction (airside untouched).
+    * ``pad`` — a vertex bordered by a PAD (a pad's frontage) and by no
+      stage-1 pavement: ``v -> ref``.  A pad's level is its apron's own
+      level at the frontage (10-02ag (1)), which stage 1 does not carry for
+      the pad's ring, so a pad-bordered run is held at the level of the
+      stage-1 run it continues (interpolated between two, held flat beyond
+      the last) — it never climbs away from the pad it runs beside.
+    * ``station`` — ``v -> (route, s)`` for every ribbon-owned vertex the
+      route frame answers (bordered or bare), and every ribbon vertex the
+      ribbon shares with a zone band (``kerb``, see below)."""
+    from ..law.tables import airside_stage_roles
+    from ..model.planar import is_osm_ribbon_ref
+    out: dict[str, dict] = {"foot": {}, "pad": {}, "station": {}, "kerb": {}}
+    ribbon_v: set[int] = set()
+    for f in pm.faces.values():
+        if f.role in _road_roles(law) and is_osm_ribbon_ref(f.ref):
+            ribbon_v.update(v for cyc in (f.ring, *f.holes)
+                            for v in pm.ring_vertices(cyc))
+    stage1 = airside_stage_roles(law)
+    # THE BAND KERB IS THE RIBBON'S KERB TOO (30e (4) gave it to the band so
+    # no DEM-read ramp target would contest the band's mandatory-down rows;
+    # the terrace level IS the pavement's, the direction the band already
+    # leads).  MEASURED (NLWF capture at 3d870a8e): road −1 along 07/25 is
+    # band kerb on BOTH sides for 600 m — no owned vertex, no road row
+    # reaches it — and it stood 4.0 m over the runway edge 24 m away
+    # (v367 8.54 m, runway 4.52 m) on a strip whose outer edge is at 4.0 m.
+    kerb = pm.band_kerb_vertices(stage1)
+    vs = sorted(v for v in ribbon_v if (v in owned or v in kerb) and v in frame)
+    out["kerb"] = {v: True for v in vs if v in kerb}
+    if not vs:
+        return out
+    pads = frozenset(r for r in contact_roles(law)
+                     if role_side(law, r) == "airside" and r not in stage1)
+    feet = _feet_index(pm, law, stage1 | pads)
+    for v in vs:
+        r, s_, _t_ = frame[v]
+        out["station"][v] = (int(r), float(s_))
+        if feet is None:
+            continue
+        fs = feet(pm.vertices[v].xy)
+        lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
+                      if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
+        if lev:
+            d, ref, a, b, u = lev[0]
+            out["foot"][v] = (a, b, u, ref)
+            continue
+        pad = sorted((d, ref) for ref, (d, *_x) in fs.items()
+                     if feet.role_of.get(ref) in pads)
+        if pad:
+            out["pad"][v] = pad[0][1]
     return out
 
 
@@ -989,7 +1090,14 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     if report is not None:
         report["between_levels_road"] = len(bl.get("road", {}))
         report["between_levels_strip"] = len(bl.get("strip", {}))
+    # OWNER RULINGS 2026-10-03b: the ribbon's bordered / bare segmentation
+    # — geometry only; the levels are stage 1's, applied between the stages
+    terr = road_terrace(pm, law, _owned(pm, _road_roles(law), law), frame)
+    if report is not None:
+        report["terrace_stations"] = len(terr.get("station", {}))
+        report["terrace_foot"] = len(terr.get("foot", {}))
+        report["terrace_pad"] = len(terr.get("pad", {}))
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,
                        road_contact_edge=contact, road_route_merged=merged,
                        road_reach_seed=seed, preferred_z=keep,
-                       road_between_levels=bl)
+                       road_between_levels=bl, road_terrace=terr)

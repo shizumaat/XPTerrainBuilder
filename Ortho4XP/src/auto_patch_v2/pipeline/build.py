@@ -1252,6 +1252,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _to_ll_rc = airport.frame.transformers()[1]
             pub["road_cap_governs"] = [list(_to_ll_rc(*pm.vertices[v].xy))
                                        for v in sorted(rc_vs)]
+        # OWNER RULINGS 2026-10-03b (#100): the terrace's second witness — a
+        # pack fence / wall line along a bordered ribbon run (REPORT ONLY)
+        from .terrace_witness import terrace_witness
+        _wit = terrace_witness(pm, airport, sol.z, load_rules(), lrep.dsf_dump_path)
+        if _wit:
+            pub["road_terrace_witness"] = _wit
+        _say(f"[{icao}] road terrace witness (10-03b, report only): {len(_wit)} "
+             "fence/wall line(s) along a bordered ribbon run"
+             + "".join(f"; {w['object']} {w['length_m']} m road {w['road_m']['mean']} m"
+                       + (f" dem {w['dem_m']['min']}..{w['dem_m']['max']} m"
+                          if 'dem_m' in w else "") for w in _wit[:6]), out)
         wedges = getattr(pm, "natural_shore_wedges", ()) or ()
         if wedges:
             _to_ll = airport.frame.transformers()[1]

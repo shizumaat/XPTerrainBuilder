@@ -165,3 +165,35 @@ def test_a_ribbon_in_the_runway_strip_on_a_hillside_stays_at_the_runway_level(la
     z0 = {pm0.vertices[v].xy: sol0.z[v] for v in airside_stage_vertices(pm0, law)}
     at1 = {pm1.vertices[v].xy: v for v in range(len(pm1.vertices))}
     assert z0 and all(abs(sol1.z[at1[xy]] - zz) <= 1e-9 for xy, zz in z0.items())
+
+
+def test_a_fence_along_a_bordered_run_is_recorded_as_the_terrace_witness(law, tmp_path):
+    """10-03b's SECOND WITNESS (report only): a pack fence facade running
+    along the bordered ribbon (3 m outside its kerb) is recorded in
+    ``road_terrace_witness`` with the DEM along it and the level the terrace
+    gave the road — and a facade 60 m away, along nothing, is not."""
+    from auto_patch_v2.classify import load_rules
+    from auto_patch_v2.emit.osm_adapter import SIDECAR_KEYS
+    from auto_patch_v2.pipeline.terrace_witness import terrace_witness
+    a1 = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_SlopeDem())
+    pm1, sol1, _rep = _solve(a1, law)
+    to_ll = a1.frame.transformers()[1]
+
+    def poly(path_idx, pts):
+        out = [f"BEGIN_POLYGON {path_idx} 2 2", "BEGIN_WINDING"]
+        for x, y in pts:
+            lat, lon = to_ll(x, y)
+            out.append(f"POLYGON_POINT {lon:.9f} {lat:.9f}")
+        return out + ["END_WINDING", "END_POLYGON"]
+    lines = ["POLYGON_DEF objects/vele_fence.fac", "POLYGON_DEF objects/other_fence.fac"]
+    lines += poly(0, [(620.0, -47.0), (750.0, -47.0), (880.0, -47.0)])
+    lines += poly(1, [(620.0, -110.0), (750.0, -110.0), (880.0, -110.0)])
+    dump = tmp_path / "x.dsf.txt"
+    dump.write_text("\n".join(lines) + "\n")
+    wit = terrace_witness(pm1, a1, sol1.z, load_rules(), str(dump))
+    assert [w["object"] for w in wit] == ["objects/vele_fence.fac"]
+    w = wit[0]
+    assert w["along_share"] >= 0.8 and w["refs"] == ["09/27"]
+    assert w["dem_m"]["min"] == pytest.approx(113.5, abs=0.6)
+    assert w["agreement_m"]["road_minus_dem_min"] < -5.0     # the road is in the cut
+    assert "road_terrace_witness" in SIDECAR_KEYS

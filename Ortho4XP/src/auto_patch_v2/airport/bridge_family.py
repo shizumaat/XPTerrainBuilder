@@ -118,6 +118,12 @@ class DeckPrint:
     box: tuple[float, float, float, float]
     tris: tuple[tuple[tuple[float, float], tuple[float, float],
                       tuple[float, float]], ...] = ()
+    #: issue #290: the AUTHORED ``y`` of each triangle's three vertices,
+    #: parallel to ``tris`` — what :meth:`top_at` reads the deck SURFACE
+    #: height at a plan point from (a ramp deck is not one height).
+    #: Empty for a print built without heights; :meth:`top_at` then
+    #: reads None.
+    ys: tuple[tuple[float, float, float], ...] = ()
     _grid: dict = _dc.field(default_factory=dict, repr=False)
     _ml: float = 1.0
     _mo: float = 1.0
@@ -193,6 +199,79 @@ class DeckPrint:
             if _near_tri(self.tris[q], lat, lon, self._ml, self._mo) <= t2:
                 return True
         return False
+
+
+    def top_at(self, lat: float, lon: float,
+               reach_m: float = 0.0) -> "float | None":
+        """issue #290: the deck's authored SURFACE height at a plan point
+        — the highest of its own triangles containing the point,
+        interpolated inside each (a ramp is sampled where it is, a
+        stacked crossing reads its top).  A point OUTSIDE every triangle
+        but within ``reach_m`` of one (a parapet or lamp post set on the
+        deck's edge) reads that nearest triangle's nearest vertex.
+        ``None`` beyond it, or for a print with no heights."""
+        if not self.tris or len(self.ys) != len(self.tris):
+            return None
+        pad_la = reach_m / self._ml if self._ml else 0.0
+        pad_lo = reach_m / self._mo if self._mo else 0.0
+        if (lat < self.box[0] - pad_la or lat > self.box[2] + pad_la
+                or lon < self.box[1] - pad_lo or lon > self.box[3] + pad_lo):
+            return None
+        c = _CELL_M
+        ci = int(lat * self._ml // c)
+        cj = int(lon * self._mo // c)
+        rng = (0,) if reach_m <= 0.0 else (0, -1, 1)
+        keys = [("big",)] + [(ci + di, cj + dj) for di in rng for dj in rng]
+        near: list[int] = []
+        seen: set[int] = set()
+        for k in keys:
+            for q in self._grid.get(k, ()):
+                if q not in seen:
+                    seen.add(q)
+                    near.append(q)
+        best: "float | None" = None
+        for q in near:
+            w = _bary(self.tris[q], lat, lon)
+            if w is None:
+                continue
+            y = sum(wi * yi for wi, yi in zip(w, self.ys[q]))
+            if best is None or y > best:
+                best = y
+        if best is not None or reach_m <= 0.0:
+            return best
+        # the nearest EDGE point within reach, its height interpolated
+        # along that edge (a 600 m road triangle's nearest VERTEX can be
+        # 100 m down the ramp)
+        t2 = (reach_m / max(self._ml, 1e-9)) ** 2
+        k = self._mo / self._ml if self._ml else 1.0
+        cand = None
+        for q in near:
+            t, ys = self.tris[q], self.ys[q]
+            for i in range(3):
+                a, b = t[i], t[(i + 1) % 3]
+                dx, dy = b[0] - a[0], (b[1] - a[1]) * k
+                den = dx * dx + dy * dy
+                s = 0.0 if den < 1e-24 else max(0.0, min(1.0, (
+                    (lat - a[0]) * dx + (lon - a[1]) * k * dy) / den))
+                d = ((lat - a[0] - s * dx) ** 2
+                     + ((lon - a[1]) * k - s * dy) ** 2)
+                if d <= t2 and (cand is None or d < cand[0]):
+                    cand = (d, ys[i] + s * (ys[(i + 1) % 3] - ys[i]))
+        return None if cand is None else cand[1]
+
+
+def _bary(t, lat: float, lon: float) -> "tuple[float, float, float] | None":
+    """Barycentric weights of the point in plan triangle ``t``, or None
+    outside it (``_in_tri``'s own arithmetic)."""
+    (a0, a1), (b0, b1), (c0, c1) = t
+    d = (b1 - c1) * (a0 - c0) + (c0 - b0) * (a1 - c1)
+    if abs(d) < 1e-18:
+        return None
+    u = ((b1 - c1) * (lat - c0) + (c0 - b0) * (lon - c1)) / d
+    v = ((c1 - a1) * (lat - c0) + (a0 - c0) * (lon - c1)) / d
+    if u < 0.0 or v < 0.0 or u + v > 1.0:
+        return None
+    return (u, v, 1.0 - u - v)
 
 
 def _in_tri(t, lat: float, lon: float) -> bool:
@@ -279,17 +358,18 @@ def deck_prints(plan: _t.Any, cutter_for: _t.Callable) -> list[DeckPrint]:
             ll = {int(i): _latlon(float(v[i, 0]), float(v[i, 2]),
                                   cut.lat, cut.lon, m.heading_deg)
                   for i in ids.tolist()}
-            rows = tuple(tuple(ll[int(q)] for q in row)
-                         for row in tris.tolist()
-                         if all(int(q) in ll for q in row))
+            kept = [row for row in tris.tolist()
+                    if all(int(q) in ll for q in row)]
+            rows = tuple(tuple(ll[int(q)] for q in row) for row in kept)
             if not rows:
                 continue
+            ys = tuple(tuple(float(v[int(q), 1]) for q in row) for row in kept)
             las = [q[0] for t in rows for q in t]
             los = [q[1] for t in rows for q in t]
             p = DeckPrint(key=m.resource, unit=ui, member=mi,
                           under_y=float(min(c.min_y for c in comps)),
                           box=(min(las), min(los), max(las), max(los)),
-                          tris=rows)
+                          tris=rows, ys=ys)
             p.index()
             out.append(p)
     return out

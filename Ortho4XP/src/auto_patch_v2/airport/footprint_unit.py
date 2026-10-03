@@ -130,6 +130,115 @@ def unit_carry_index(plan: _t.Any, plan_wide: _t.Mapping[int, tuple]
     return out
 
 
+def is_connector_length(box: "tuple[float, float, float, float] | None",
+             span_max_m: float) -> bool:
+    """The owner's railway carve-out (09-18s), read on a plan box: a
+    piece whose plan diagonal reaches ``span_max_m`` is the CONNECTOR
+    class, never bound rigidly to one unit's datum.  0 disarms."""
+    if span_max_m <= 0.0 or box is None:
+        return False
+    ml, mo = m_per_deg_exact(0.5 * (box[0] + box[2]))
+    return _math.hypot((box[2] - box[0]) * ml,
+                       (box[3] - box[1]) * mo) >= span_max_m
+
+
+def unit_by_pid(pids: _t.AbstractSet[int], plan_wide: _t.Mapping[int, tuple],
+                index: _t.Mapping[str, tuple]) -> "UnitCarry | None":
+    """THE PART-ID JOIN (:func:`unit_carry`'s first join, factored so the
+    contents seat below reads the same answer): the §16g unit holding the
+    most of ``pids`` (the unit id breaks a tie), or ``None``."""
+    hit: dict[str, int] = {}
+    for q in pids:
+        row = plan_wide.get(q)
+        if row is not None and str(row[0]) in index:
+            hit[str(row[0])] = hit.get(str(row[0]), 0) + 1
+    if not hit:
+        return None
+    uid = max(sorted(hit), key=lambda k: hit[k])
+    _h, _bx, z, where, src = index[uid]
+    return UnitCarry(uid, z, where, src,
+                     f"{UNIT_CARRY}: within its own §16g unit {uid}"
+                     f" (§16g (1): its parts are the unit's)")
+
+
+#: the count of carried bodies :func:`contents_seat` moved off a carrier
+#: standing at another level onto their own unit's datum
+CONTENTS_SEAT = "contents_rerouted_to_unit"
+
+
+def contents_seat(over: _t.Sequence[tuple], pids: _t.AbstractSet[int],
+                  box: "tuple[float, float, float, float] | None",
+                  plan_wide: _t.Mapping[int, tuple],
+                  index: _t.Mapping[str, tuple], *,
+                  alternatives: _t.Sequence[_t.Any] = (),
+                  tol_m: float = 0.0, span_max_m: float = 0.0,
+                  counts: "dict | None" = None
+                  ) -> "tuple[list, UnitCarry | None]":
+    """Issue #10 [HECA-5] (lane ``interiors10``): A UNIT'S CONTENTS RIDE
+    THE UNIT.  ``(carriers, None)`` to keep — or replace — the carriers
+    the search chose; ``([], unit)`` to seat the piece on its own unit's
+    datum instead.
+
+    MEASURED (HECA, main 0bc1a0ce): of the 2,491 written bodies whose part
+    ids the plan-wide map (§16g (1) chain, S6 contents, 27a sheets) puts
+    in a footprint unit, 180 stand more than 0.5 m off that unit's datum,
+    140 of them CARRIED — 118 through §16c (7)'s contact cluster, whose
+    senior footed body is a kerb, a sidewalk or a NEIGHBOUR's wall (66 in
+    another unit, 62 in none), and 20 through §15's "rests on it".  The
+    windows, doors and glass of a terminal then render at the sidewalk's
+    level (T3 ``Plastic`` -7.24 m, the T23 hangar's doors +10.58 m) — the
+    owner's "missing interiors / levels separated".
+
+    THE RULE.  A piece whose own parts name unit U (the part-id join,
+    :func:`unit_by_pid`) keeps the carrier only where that carrier's zero
+    IS U's (within ``tol_m``, ``[placement] split_tol_m``).  Otherwise a
+    member of ``alternatives`` (the other candidates of the same rigid
+    cluster) standing at U's zero takes it; failing that the piece rides
+    U ITSELF (the issue #31 unit carry — its authored y kept over U's
+    datum).  A CONNECTOR-length piece (``span_max_m``) is left alone: the
+    owner's railway carve-out, as in :func:`unit_carry`."""
+    if (not over or not plan_wide or not index
+            or is_connector_length(box, span_max_m)):
+        return list(over), None
+    uc = unit_by_pid(pids, plan_wide, index)
+    if uc is None:
+        return list(over), None
+
+    def _zero(c: _t.Any) -> "float | None":
+        a = c.anchor
+        return (None if a.surface_z is None
+                else float(a.surface_z) - float(a.y_zero))
+
+    def _at(c: _t.Any) -> bool:
+        z = _zero(c)
+        return z is not None and abs(z - float(uc.zero_z)) <= tol_m
+
+    if all(_at(c) for c, *_r in over):
+        return list(over), None
+    for alt in alternatives:
+        if _at(alt):
+            if counts is not None:
+                counts[CONTENTS_SEAT + "_alt_carrier"] = \
+                    counts.get(CONTENTS_SEAT + "_alt_carrier", 0) + 1
+            return [(alt, f"issue #10: its parts are unit {uc.unit}'s "
+                     "contents — the member of its rigid cluster at the "
+                     "unit's zero")], None
+    c0 = next((c for c, *_r in over if not _at(c)), over[0][0])
+    z0 = _zero(c0)
+    if counts is not None:
+        counts[CONTENTS_SEAT] = counts.get(CONTENTS_SEAT, 0) + 1
+        if z0 is not None:
+            counts[CONTENTS_SEAT + "_worst_m"] = max(
+                counts.get(CONTENTS_SEAT + "_worst_m", 0.0),
+                round(abs(z0 - float(uc.zero_z)), 3))
+    return [], _dc.replace(
+        uc, why=(f"{UNIT_CARRY}: issue #10, its parts are unit {uc.unit}'s "
+                 f"contents and the carrier "
+                 f"{str(getattr(c0, 'resource', '?')).rsplit('/', 1)[-1]} "
+                 + ("stands off-sheet" if z0 is None else
+                    f"stands {z0 - float(uc.zero_z):+.2f} m off its datum")))
+
+
 def unit_carry(pids: _t.AbstractSet[int],
                box: "tuple[float, float, float, float] | None",
                plan_wide: _t.Mapping[int, tuple],
@@ -182,28 +291,17 @@ def unit_carry(pids: _t.AbstractSet[int],
     of its own, no height guessed from its neighbours."""
     if not index:
         return None
-    if span_max_m > 0.0 and box is not None:
-        ml, mo = m_per_deg_exact(0.5 * (box[0] + box[2]))
-        if _math.hypot((box[2] - box[0]) * ml,
-                       (box[3] - box[1]) * mo) >= span_max_m:
-            if counts is not None:
-                counts["footless_unit_carry_refused_connector"] = \
-                    counts.get("footless_unit_carry_refused_connector", 0) + 1
-            return None
-    hit: dict[str, int] = {}
-    for q in pids:
-        row = plan_wide.get(q)
-        if row is not None and str(row[0]) in index:
-            hit[str(row[0])] = hit.get(str(row[0]), 0) + 1
-    if hit:
-        uid = max(sorted(hit), key=lambda k: hit[k])
-        _h, _bx, z, where, src = index[uid]
+    if is_connector_length(box, span_max_m):
+        if counts is not None:
+            counts["footless_unit_carry_refused_connector"] = \
+                counts.get("footless_unit_carry_refused_connector", 0) + 1
+        return None
+    by_pid = unit_by_pid(pids, plan_wide, index)
+    if by_pid is not None:
         if counts is not None:
             counts["footless_unit_carry_by_pid"] = \
                 counts.get("footless_unit_carry_by_pid", 0) + 1
-        return UnitCarry(uid, z, where, src,
-                         f"{UNIT_CARRY}: within its own §16g unit {uid}"
-                         f" (§16g (1): its parts are the unit's)")
+        return by_pid
     if box is None or frontage_m <= 0.0:
         return None
     best_over: tuple[float, str] | None = None

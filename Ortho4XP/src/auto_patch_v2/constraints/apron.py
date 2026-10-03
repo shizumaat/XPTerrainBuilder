@@ -70,7 +70,7 @@ from ..law.tables import is_rigid_role, role_cap, role_preferred_cap, snap_margi
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.frame import rotated_rectangle
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, is_osm_ribbon_ref
 from .geometry import (chord_midpoints_hit, chords_covered, face_cover,
                        principal_axis, project_to_chain)
 from .precedence import View, view
@@ -388,6 +388,17 @@ def apron_edge_portions(planar: PlanarMap, law: Law, airport: Airport
     rows: list[Row] = []
     for fid, f in planar.faces.items():
         if f.role == "apron" or vw.caps[fid] is None or is_rigid_role(law, f.role):
+            continue
+        # A MAPPED-ROAD RIBBON MINTS NO APRON ROW (RULINGS 2026-09-30aa rule
+        # 1, owner 30z (1); issue #100 round 4, lane roadmint100e).  The
+        # ribbon is WELDED to the apron rim one-way — it reads the apron's
+        # values in stage 2 — so the shared run is the apron's own ring,
+        # already priced by ``apron_within_shape``; 04t-2's all-pairs rows
+        # along it are rows the airside did not have without the ribbon.
+        # MEASURED (HECA replay vs sw1014): 16,040 such rows entered stage 1
+        # by column on 238 ribbons.  Staging them to 2 instead (roadmint100b
+        # tried, CYXY) leaves constant hard rows on fixed columns — no.
+        if is_osm_ribbon_ref(f.ref):
             continue
         face_cap = vw.caps[fid][0]
         hard_here = cap.longitudinal if face_cap > cap.longitudinal else None

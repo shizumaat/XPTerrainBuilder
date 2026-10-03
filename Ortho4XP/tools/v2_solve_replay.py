@@ -926,6 +926,14 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=strip_rep)
     pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
+    # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is
+    # withdrawn under (road cap governs) — the census reads the same set
+    from auto_patch_v2.law.tables import airside_stage_roles as _asr
+    rc_vs = pm.road_cap_vertices(_asr(law))
+    if rc_vs:
+        _to_ll_rc = airport.frame.transformers()[1]
+        pub["road_cap_governs"] = [list(_to_ll_rc(*pm.vertices[v].xy))
+                                   for v in sorted(rc_vs)]
     wedges = getattr(pm, "natural_shore_wedges", ()) or ()
     if wedges:
         _to_ll = airport.frame.transformers()[1]
@@ -1399,10 +1407,19 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
         prob = replay_problem(pkl, resume, drop, design_weights,
                               placement=placement or None)
         icao, pm, cs, law = prob["icao"], prob["pm"], prob["cs"], prob["law"]
+        if prob.get("stage1") is not None:     # #100 option (c)
+            from auto_patch_v2.pipeline import capture_state as _cst
+            pm, cs = prob["stage1"].pm, prob["stage1"].cs
+            _cst.install(prob["stage1"].state)
     else:
         with pkl.open("rb") as fh:
             sv = pickle.load(fh)
         icao, pm, cs = sv["icao"], sv["pm"], sv["cs"]
+        if sv.get("pm_s1") is not None:
+            # #100 option (c): stage 1 was assembled on the RIBBON-FREE map
+            pm, cs = sv["pm_s1"], sv["cs_s1"]
+            sv = dict(sv, **{_capture_state().CAPTURE_STATE_KEY: sv["capture_state_s1"]})
+            print(f"[{icao}] stage 1 read off the ribbon-free map (#100 (c))")
         # issues #208 / #224: the solved pickle's own module registries
         # (``HELD`` for ``hold_pass``, ``PLATFORMS`` / ``TERRACES`` for the
         # emit half) — REQUIRED here, because nothing in this path re-runs
@@ -1889,7 +1906,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                    chord_fill: tuple[str, ...] = (),
                    placement: dict | None = None,
                    sites: list[tuple[float, float]] | None = None,
-                   pad_read_only: bool = False) -> dict:
+                   pad_read_only: bool = False, shape_dump: Path | None = None) -> dict:
     """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
     the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
     it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
@@ -2062,6 +2079,17 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                                              inputs.lane_width_m)
         pm = _dc.replace(pm, preferred_z=road_pref)
         _pr = pad_read(icao, pm, law, airport, sites or [])
+        if shape_dump is not None:
+            # THE SHAPE READ (#100 round 4): every labelled vertex's shape by
+            # canonical lat/lon, so two arms diff the 08k labelling BY IDENTITY
+            _to_ll_sd = airport.frame.transformers()[1]
+            _lab = {"%.11f,%.11f" % tuple(_to_ll_sd(*pm.vertices[v].xy)): int(l)
+                    for v, l in pm.shape_of_vertex.items()}
+            _jn = [[str(getattr(j, "kind", "")), list(getattr(j, "shapes", ()) or ())]
+                   for j in pm.shape_joints]
+            Path(shape_dump).write_text(json.dumps({"shape_of_vertex": _lab, "joints": _jn}))
+            print(f"[{icao}] shape dump -> {shape_dump}: {len(_lab)} labelled vertices, "
+                  f"{len(set(_lab.values()))} shapes, {len(_jn)} joints")
         if pad_read_only:
             return {"icao": icao, "airport": airport, "cl": cl, "pm": pm,
                     "law": law, "t0": t0, "pad_read": _pr,
@@ -2165,9 +2193,51 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         cs = ConstraintSet.from_rows([r for r in cs.rows()
                                       if r.source.generator not in drop
                                       and ruling_head(r) not in drop])
+    # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
+    # THIS prelude re-run on the classification without ribbons
+    # (``pipeline/stage_one_map``); ``None`` when the map carries no ribbon
+    s1 = None
+    try:
+        from auto_patch_v2.pipeline.stage_one_map import stage_one_problem
+    except ImportError:                       # a tree that predates (c)
+        stage_one_problem = None
+    if stage_one_problem is not None:
+        def _ribbon_free(cl0):
+            nonlocal _ocache, _objs, _orep
+            if _ocache is None:
+                from auto_patch_v2.airport import frame_entry as _fe
+                from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
+                from auto_patch_v2.planar.basins import read_objects as _read_objects
+                _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
+                                  _fe.quantum(law))
+                _objs, _orep = _read_objects(airport, law, _ocache)
+            from auto_patch_v2.airport.riders import rider_candidates
+            from auto_patch_v2.constraints.jetway_strip import jetway_strips
+            from auto_patch_v2.constraints.no_step import hold_pass
+            pm0, _ps0 = build_planar(airport, cl0, law, cache=_ocache, objects=_objs,
+                                     object_report=_orep)
+            pref0, _r0, _p0 = preferred_road_z(airport, pm0, law, inputs.road_grade_limit,
+                                               inputs.lane_width_m)
+            st0 = shape_stage(_targets(_dc.replace(pm0, preferred_z=pref0)), law,
+                              airport, cl0, out=lambda m: None)
+            cs0, _c0, _w0 = shape_constraints(st0.pm, law, airport, st0)
+            if drop:
+                from auto_patch_v2.solve.design_roles import ruling_head
+                cs0 = ConstraintSet.from_rows([r for r in cs0.rows()
+                                               if r.source.generator not in drop
+                                               and ruling_head(r) not in drop])
+            return (st0.pm, cs0, jetway_strips(st0.pm, law, airport, cs0,
+                                               rider_candidates(airport, law)),
+                    hold_pass(st0.pm, law))
+        _t1 = time.perf_counter()
+        s1 = stage_one_problem(cl, _ribbon_free)
+        if s1 is not None:
+            s1.bind(pm)
+            print(f"[{icao}] stage 1 on the ribbon-free map (#100 (c)): {s1.report} "
+                  f"({time.perf_counter() - _t1:.0f} s)")
     return {"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
             "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0,
-            CAPTURE_OVERLAY_KEY: _overlay}
+            "stage1": s1, CAPTURE_OVERLAY_KEY: _overlay}
 
 
 def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
@@ -2221,8 +2291,12 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         _kw["hold"] = hold_pass(pm, law)
     except ImportError:
         pass
+    if prob.get("stage1") is not None:
+        _kw["stage1"] = prob["stage1"]          # #100 option (c)
     sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
                             method=method, strips=strips, **_kw)
+    if prob.get("stage1") is not None:
+        print(f"[{icao}] stage 1 map (#100 (c)): {rep.stages.get('stage1_map')}")
     wall = round(time.perf_counter() - t, 1)
     # the rows stage 2 SOLVED are the ones --why-hard / --verify must read
     # (a seeded ramp ceiling read at its pre-seed value is a false row)
@@ -2359,8 +2433,11 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         # 1b SOLVED — the hold's rows as derived (datum / runway Bands, the
         # residual holds priced) on the map the fronting set is published on
         _hp = _kw.get("hold")
-        cs_w = _hp.apply(cs) if _hp is not None else cs
-        pm_w = _hp.planar_of(pm) if _hp is not None else pm
+        _s1 = prob.get("stage1")
+        cs_w = (_s1.apply_full(cs) if _s1 is not None
+                else _hp.apply(cs) if _hp is not None else cs)
+        pm_w = (_s1.planar_of_full(pm) if _s1 is not None
+                else _hp.planar_of(pm) if _hp is not None else pm)
         if solved_out is not None:
             # the solved set (pm, stage, rows, z) for a later ``--why-from``
             # (the duals solve is a second full LP; kept out of the timed arm)
@@ -2374,6 +2451,13 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm_w,
                              "cs": cs_w, "z": z,
                              _capture_state().CAPTURE_STATE_KEY: _capture_state().collect(),
+                             # #100 option (c): the map + set stage 1 SOLVED
+                             # (the ribbon-free one) and its registries, which
+                             # --stage1-dump reads in place of pm / cs
+                             **({"pm_s1": _s1.hold.planar_of(_s1.pm),
+                                 "cs_s1": _s1.hold.apply(_s1.cs),
+                                 "capture_state_s1": _s1.state}
+                                if _s1 is not None else {}),
                              # issue #156: the overlay survives the hand-off
                              CAPTURE_OVERLAY_KEY: prob.get(CAPTURE_OVERLAY_KEY)}, fh)
         if why_hard_limit is not None:
@@ -2463,6 +2547,10 @@ def main() -> int:
                     help="print the design solve's objective per active-set round")
     ap.add_argument("--method", default="normal", choices=("normal", "cg", "lsqr"),
                     help="the design solve's linear solver (solve/design.METHODS)")
+    ap.add_argument("--shape-dump", type=Path, metavar="OUT.json",
+                    help="with --pad-read: write every labelled vertex's 08k shape by "
+                         "canonical lat/lon and the joints (the shape read two arms "
+                         "diff by identity; #100 round 4)")
     ap.add_argument("--pad-read", action="store_true",
                     help="DRY: with --from classify/planar, re-run the stage, print "
                          "the PAD READ (pad/airside arrangement counters, building vs "
@@ -2616,7 +2704,8 @@ def main() -> int:
         pl = dict(it.split("=", 1) for it in a.placement)
         if a.pad_read:
             res = replay_problem(a.replay, a.resume, a.drop_generator, None, (),
-                                 placement=pl, sites=sites, pad_read_only=True)
+                                 placement=pl, sites=sites, pad_read_only=True,
+                                 shape_dump=a.shape_dump)
             if a.json:
                 a.json.write_text(json.dumps(res["pad_read"], indent=1, default=str))
             return 0

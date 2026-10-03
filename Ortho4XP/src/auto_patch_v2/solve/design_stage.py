@@ -111,3 +111,100 @@ def _groundside_pinned(planar: PlanarMap, cs: ConstraintSet, law: Law,
         return {}
     return {vid: float(red.value[vid]) for vid in range(len(planar.vertices))
             if red.find(vid) in roots}
+
+
+def _welded_faces(planar: PlanarMap) -> set[int]:
+    """The WELDED road faces (RULINGS 2026-09-30aa): the mapped-road
+    RIBBONS (``model.planar.is_osm_ribbon_ref``) — the same predicate as
+    ``constraints/roads.welded_road`` (``solve`` may not import
+    ``constraints``).  Measured (lane ``roadweld100``, HECA replay): the
+    rule over the apt.dat 1206 routes' own faces moves the reference
+    airside (3,537 nodes, worst 1.00 m) — an owner question."""
+    from ..model.planar import is_osm_ribbon_ref
+    return {f.id for f in planar.faces.values()
+            if f.role == "service_road" and is_osm_ribbon_ref(f.ref)}
+
+
+#: the generators whose rows a WELDED road face MINTS (``constraints/
+#: roads.GEN``, ``road_ramp.GEN``, ``pavement_cap.GEN``, ``ceiling.GEN``;
+#: ``solve`` may not import ``constraints``, so the names are spelled here
+#: and ``tests/auto_patch_v2/test_roadmint100.py`` holds them equal)
+_ROAD_GENERATORS = frozenset({"roads", "road_ramp", "pavement_road_cap",
+                              "pavement_ceiling"})
+
+
+def _groundside_minter(planar: PlanarMap, law: Law
+                       ) -> _t.Callable[[_t.Any], bool]:
+    """RULINGS 2026-09-30aa rule 1: ``row -> True`` when the row names a
+    ``face:N`` input whose face is a WELDED road face — the row that face
+    MINTED, stage 2's whatever its columns."""
+    gs = _welded_faces(planar)
+
+    def _is(row) -> bool:
+        if not gs:
+            return False
+        src = getattr(row, "source", None)
+        # THE ROAD'S OWN GENERATORS ONLY (lane roadmint100b, measured
+        # CYXY): the apron's edge-portion cap along an edge it shares with
+        # a ribbon names the ribbon face as its input too, and dropping
+        # those 124 APRON rows from stage 1 moved a pad-welded taxiway
+        # 2.26 m at 60.70471799655, -135.07455343850 — the apron's law on
+        # its own edge is stage 1's whatever face it reads
+        if getattr(src, "generator", None) not in _ROAD_GENERATORS:
+            return False
+        for t in getattr(src, "inputs", ()) or ():
+            if isinstance(t, str) and t.startswith("face:"):
+                try:
+                    if int(t[5:]) in gs:
+                        return True
+                except ValueError:
+                    continue
+        return False
+    return _is
+
+
+def stage_one_on(stage1: _t.Any, law: Law, solve1: _t.Callable, yield_heads
+                 ) -> tuple:
+    """§20b STAGE 1 ASSEMBLED ON THE RIBBON-FREE MAP (issue #100 round 8,
+    master decision option (c); ``pipeline/stage_one_map.StageOne``, read
+    duck-typed: ``solve`` may not import ``pipeline``).  Pass 1a, the
+    interval, pass 1b and the jetway-strip projection run on
+    ``stage1.pm`` / ``stage1.cs`` under that map's own module registries
+    (``stage1.scope()``), so every stage-1 row, column, triangle and sheet
+    face is the ribbon-free map's by construction.  Returns ``(solve1's
+    answer, pass-1a record, released pins, levels, stage-1-read pins,
+    strip report)`` with the levels, the released pins and the read pins
+    carried onto the FULL map by the coordinate join (``stage1.to_full``);
+    the answer itself keeps the ribbon-free ids (``hold.finish`` reads
+    them)."""
+    from .flex import stage_one
+    from .pin_yield import stage1_read_pins
+    strip_rep = None
+    with stage1.scope():
+        pm1, cs1, got, pass1a, yielded1 = stage_one(stage1.pm, stage1.cs, law,
+                                                    stage1.hold, solve1)
+        drop, levels1 = got[2], got[4]
+        read1 = (stage1_read_pins(cs1, yield_heads, drop)
+                 | {int(r["v"]) for r in yielded1} if yield_heads else frozenset())
+        if stage1.strips:
+            from .project_strip import project_strips
+            strip_rep = project_strips(pm1, law, stage1.strips, levels1,
+                                       got[0].z, cs1.flats)
+    to = stage1.to_full
+    if strip_rep is not None:
+        # the report's vertex ids (targets, clamps) onto the FULL map, which
+        # the sidecar publishes the strips on (measured HECA: unmapped, the
+        # census read strip:unit:43#16's apron vertices 0.49 m off targets
+        # looked up under the wrong ids)
+        for d in strip_rep.strips:
+            d["targets"] = {j: z for v, z in (d.get("targets") or {}).items()
+                            if (j := to(v)) is not None}
+            d["clamps"] = [[to(c[0]), *c[1:]] for c in d.get("clamps") or ()
+                           if to(c[0]) is not None]
+    levels = {j: z for v, z in levels1.items() if (j := to(v)) is not None}
+    s1_read = frozenset(j for j in map(to, read1) if j is not None)
+    released = [dict(r, v=to(r["v"]), v_stage1=int(r["v"]))
+                for r in yielded1 if to(r["v"]) is not None]
+    stage1.report.update(levels=len(levels1), levels_unmapped=len(levels1) - len(levels),
+                         released_unmapped=len(yielded1) - len(released))
+    return got, pass1a, released, levels, s1_read, strip_rep

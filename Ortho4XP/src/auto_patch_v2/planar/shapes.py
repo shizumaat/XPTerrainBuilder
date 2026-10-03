@@ -90,10 +90,9 @@ from ..law import Law
 from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_m
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.planar import NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint
-from .shape_airside import (airside_face_sets, declarable_pairs,
-                            inside_apron_body, separated_label_pairs,
-                            weld_airside_faces)
+from ..model.planar import NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint, is_osm_ribbon_ref
+from .shape_airside import (airside_face_sets, declarable_pairs, inside_apron_body,
+                            separated_label_pairs, weld_airside_faces)
 from .shape_mouths import weld_same_role_mouths
 
 __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes", "network_faces", "network_vertices", "strip_keepout",
@@ -104,8 +103,7 @@ __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes
 STATION_KIND = "taxi_centerline"
 #: The runway ridge breakline kind (``constraints.routes.RIDGE_KIND``): a root of the network.
 RIDGE_KIND = "runway_profile"
-#: A shape is a surface: fewer vertices than a polygon has is no shape (a
-#: structural bound, never a law value).
+#: A shape is a surface: fewer vertices than a polygon has is no shape (structural, not law).
 MIN_SHAPE_VERTICES = 3
 
 
@@ -465,7 +463,7 @@ def _label_roads(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[in
         return (sum(x for x, _y in xs) / len(xs), sum(y for _x, y in xs) / len(xs))
 
     for fid, f in pm.faces.items():
-        if f.role not in roads:
+        if f.role not in roads or is_osm_ribbon_ref(f.ref):   # 30aa: a ribbon is unlabelled
             continue
         vs = [v for v in _face_vertices(pm, fid) if v not in N]
         if not vs:
@@ -564,6 +562,7 @@ def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[i
             if v in label:
                 label[v] = top
         stats.pads_relabelled += 1
+    # A MAPPED-ROAD RIBBON IS UNLABELLED: ``shape_airside.RIBBON_UNLABELLED``.
     return ramps
 
 

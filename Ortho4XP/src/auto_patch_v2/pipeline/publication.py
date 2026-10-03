@@ -810,6 +810,9 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
                     "gap": bool(j.gap), "roles": list(j.roles), "pairs": len(j.pairs),
                     "length_m": round(j.length_m, 2)})
     out.extend(pad_terrace_joints(planar, law, z))
+    # 30aa rule 7 (#100 round 8): a ribbon's step at its higher contact
+    from .ribbon_steps import ribbon_contact_steps
+    out.extend(ribbon_contact_steps(planar, law, z))
     return out
 
 

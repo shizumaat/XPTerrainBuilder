@@ -47,7 +47,7 @@ from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of, unit_ref_o
 from ..model.platform import HELD, datum_vertices
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
-           "TERRACE_RULING", "HOLD_RULING", "HOLD_DATUM_RULING",
+           "TERRACE_RULING", "HOLD_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
            "HOLD_RESIDUAL_RULING", "hold_sets", "hold_row",
            "PLANE_RULING", "GEN", "collar_faces", "platform_records"]
@@ -68,14 +68,6 @@ TERRACE_RULING = "structures.building_pad platform_collar terrace"
 #: The head of the FRONTAGE HOLD rows (flat-pad spec §1 (2); RULINGS
 #: 2026-09-30f / 30r): a held block's welded contact at the block's datum
 HOLD_RULING = "structures.building_pad frontage_hold"
-#: The head of the block DATUM's own row (owner RULINGS 2026-10-02ag (1)):
-#: the datum column pinned at the APRON'S OWN frontage level — ranked in the
-#: APRON tier of ``[design] hard_conflict_ranks`` (it is the apron's level,
-#: not the pad's wish), so a weld the caps or a pin cannot bring to D is
-#: the row the elastic LP relaxes (that contact keeps its own level), never
-#: the datum (MEASURED on the ``test_flatpad128v3`` conforming twin: the
-#: datum relaxed 0.64 m and the free contact followed the pad 0.9 m DOWN)
-HOLD_DATUM_RULING = "structures.building_pad frontage_hold datum"
 #: The head of a RESIDUAL contact's hold (flat-pad spec v2 §2 EMPTY (i)):
 #: PRICED at the law's weight — deliberately NOT in ``[design]
 #: hard_rulings``

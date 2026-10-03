@@ -73,12 +73,9 @@ def airside_stage_vertices(planar: _t.Any, law: Law) -> frozenset[int]:
     own population, read off the planar map's faces (rings and holes)."""
     from ..model.platform import datum_vertices, stage_air_vertices
     out = stage_air_vertices(planar, law)
-    # flat-pad spec §1 (2) (RULINGS 2026-09-30f/r; owner 2026-10-02ag (1)):
-    # each HELD block's FRONTAGE DATUM COLUMN — one platform vertex, no
-    # groundside sheet of its own — is an unknown of the airside problem:
-    # the weld's hard two-way hold ties the apron CONTACTS to it, and the
-    # column itself is pinned at the apron's own frontage level
-    # (``constraints/no_step.hold_interval``)
+    # flat-pad spec §1 (2) (RULINGS 2026-09-30f/r): each HELD block's
+    # FRONTAGE DATUM COLUMN — one platform vertex, no groundside sheet of
+    # its own — is an unknown of the airside problem
     out.update(datum_vertices(planar, law, out).values())
     return frozenset(out)
 

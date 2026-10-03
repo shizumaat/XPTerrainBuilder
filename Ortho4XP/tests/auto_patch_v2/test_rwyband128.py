@@ -81,7 +81,11 @@ def test_a_vertex_shared_with_an_apron_face_carries_the_band(law, built):  # noq
         by_col.setdefault(c, set()).add(v)
     for v in free:   # one Band per column: some member of v's column carries it
         assert by_col[cols[v]] & banded, v
-    beta = max(float(r["budget_m"]) for r in rep.runway_flex)
+    # owner RULINGS 2026-10-02ag (1): a pad never pulls a runway — the
+    # budget is 0 (``rep.runway_flex`` carries no pulled runway) and every
+    # shared column sits at its pass-1a value
+    assert not rep.runway_flex
+    beta = 0.0
     tol = float(lw.tables.emit.design.hard_tol_m)
     z = np.asarray(sol.z, float)
     ref = {v: z0 for cm in hp.result.columns.values() for v, z0 in cm.items()}

@@ -47,7 +47,7 @@ from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of, unit_ref_o
 from ..model.platform import HELD, datum_vertices
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
-           "TERRACE_RULING", "HOLD_RULING",
+           "TERRACE_RULING", "HOLD_RULING", "HOLD_DATUM_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
            "HOLD_RESIDUAL_RULING", "hold_sets", "hold_row",
            "PLANE_RULING", "GEN", "collar_faces", "platform_records"]
@@ -68,6 +68,14 @@ TERRACE_RULING = "structures.building_pad platform_collar terrace"
 #: The head of the FRONTAGE HOLD rows (flat-pad spec §1 (2); RULINGS
 #: 2026-09-30f / 30r): a held block's welded contact at the block's datum
 HOLD_RULING = "structures.building_pad frontage_hold"
+#: The head of the block DATUM's own row (owner 2026-10-02 round 5, RULINGS
+#: 2026-10-02ah (1) restated: "the pad must be seated flat at a level the
+#: apron can meet"): a SOFT preference — in no hard register, priced at the
+#: law's weight — pulling the free datum column toward the apron's own
+#: frontage level (the contacts' pass-1a median).  The welds (contact = D),
+#: the pad's flat rows and the apron's caps are the hard set that decides D
+#: jointly; a weld is released only when no single D serves the block
+HOLD_DATUM_RULING = "structures.building_pad frontage_hold datum"
 #: The head of a RESIDUAL contact's hold (flat-pad spec v2 §2 EMPTY (i)):
 #: PRICED at the law's weight — deliberately NOT in ``[design]
 #: hard_rulings``
@@ -836,6 +844,8 @@ def platform_records(planar: PlanarMap, law: Law,
                 # the block is a RESIDUAL (reported, the owner reads it)
                 rec["hold_verdict"] = ("held" if hm.size and not int((hm > mg).sum())
                                        and not um else "residual")
+                rec.update(_datum_record(planar, z, D, [v for v in hw if v in held_v],
+                                         htol, h))
                 rec.update({"held_contacts": int(hm.size),
                             "held_miss_max_m": round(float(hm.max()), 3) if hm.size else None,
                             "held_over_margin": int((hm > mg).sum()) if hm.size else 0,
@@ -887,6 +897,37 @@ def platform_records(planar: PlanarMap, law: Law,
     return out + conf
 
 
+def _datum_record(planar: PlanarMap, z, D: float, held_v, tol: float,
+                  h: dict) -> dict:
+    """Round 5 (owner 2026-10-02, RULINGS 2026-10-02ah (1)): the block's
+    datum against the apron's own level — ``datum_median`` (the contacts'
+    pass-1a median the soft preference pulled toward), ``datum_minus_median_m``,
+    the welds the solve held (``welded``) and RELEASED (``released`` — a
+    contact off D by more than ``hard_tol_m``: the elastic LP found no single
+    D for the block), their coordinates and the released contacts' spread,
+    and ``needs_split`` — the owner's two-pads-with-a-cliff class, reported
+    for the base-profile split, never decided here."""
+    import numpy as np
+    med = h.get("datum_chosen")
+    rel = [(abs(float(z[v]) - D), float(z[v]), v) for v in held_v]
+    out_v = [(d, zz, v) for d, zz, v in rel if d > tol + 1e-6]
+    zs = [zz for _d, zz, _v in out_v]
+    rl = h.get("reach_isect")
+    return {"datum_median": med,
+            "reach_isect": rl, "reach_isect_empty": bool(h.get("reach_isect_empty")),
+            "datum_in_reach_isect": (bool(rl is not None and (rl[0] is None or rl[0] - tol <= D)
+                                          and (rl[1] is None or D <= rl[1] + tol))),
+            "reach_bands_contacts": h.get("reach_bands_contacts"),
+            "datum_minus_median_m": (round(D - float(med), 3) if med is not None else None),
+            "welded": len(rel) - len(out_v), "released": len(out_v),
+            "released_ll": [list(planar.vertices[v].key) for _d, _z, v in
+                            sorted(out_v, reverse=True)[:12]],
+            "released_spread_m": (round(max(zs) - min(zs), 3) if len(zs) > 1
+                                  else (0.0 if zs else None)),
+            "released_max_m": (round(max(d for d, _z, _v in out_v), 3) if out_v else 0.0),
+            "needs_split": bool(out_v) or bool(h.get("reach_isect_empty"))}
+
+
 def _conforming_records(planar: PlanarMap, law: Law, z) -> list[dict]:
     """flat-pad spec v2 §4 / A8: the sidecar record of every HELD §20
     CONFORMING pad — its datum, its contacts held within ``hard_tol_m``,
@@ -929,6 +970,7 @@ def _conforming_records(planar: PlanarMap, law: Law, z) -> list[dict]:
                   "reach_gap0_m", "reach_eval", "reach_empty", "datum_chosen"):
             if k in h:
                 rec[k] = h[k]
+        rec.update(_datum_record(planar, z, D, held_v, tol, h))
         out.append(rec)
     return out
 

@@ -657,29 +657,68 @@ _OBJECT_GOVERNED_REFS = ("object_bridge_ramp",)
 
 
 def _principal_axis(poly):
-    """The unit vector along a polygon's LONG axis, from its own
-    coordinates (the covariance's dominant eigenvector).
+    """The unit vector along a corridor's LONG axis — the long side of the
+    MINIMUM-AREA rotated rectangle of its exterior's CONVEX HULL.
 
     A corridor's direction is the direction its own surface runs.  Taking
     it from the geometry rather than from a portal record is what lets
     this check read a patch offline, with no build state — and it is the
     only thing "one wall per SIDE" needs.
+
+    INSERTION-INVARIANT (issue #245) — the same defect class issue #190
+    fixed at the RUNWAY axis under owner ruling ``2026-10-02v`` (7).
+    Until 2026-10-02 this was a vertex-MASS-weighted PCA (the dominant
+    right singular vector of the mean-centred coordinates), so inserting
+    one vertex anywhere on the ring — a densification step, a tile cut, a
+    crossing split, a closed ring's repeated first vertex — moved the
+    centroid and tilted the axis with nothing about the corridor's shape
+    having changed.  Measured on this tool's own corridor shapes, that
+    cost up to **0.37°** on a widening ramp, **15.03°** on a turning arm
+    and **90.00°** on a near-square throat plate.
+
+    WHY THE CONSEQUENCE IS DISCRETE, NOT METRIC.  This axis is the
+    half-plane :func:`_side_cover` splits a site's boundary with, so a
+    fraction of a degree moves a face from one SIDE of the corridor to
+    the other and changes a reported row rather than nudging it — and
+    ``min(wl, wr)`` against the per-side bar, plus
+    :func:`_unmerged_pairs`' bearing verdict, are pass/fail.
+
+    THE FIT IS THE LAW'S OWN, NOT A SECOND ONE.  It binds
+    ``auto_patch_v2.constraints.geometry`` — the primitive #190 put the
+    runway axis on (``_convex_hull_xy`` + ``_min_area_rect_of_points``)
+    — so this tool holds no geometry fit to keep in sync.  A vertex
+    inserted ON an edge lies on or inside the hull, so it changes the
+    answer by NOTHING rather than by a little; duplicate and collinear
+    vertices are dropped by the hull itself.
+
+    It takes the rectangle's OWN unit vector rather than normalising the
+    public ``geometry.principal_axis``'s two endpoints, which costs 1 ULP
+    on some bearings (measured: 3 of 4 test bearings).  The runway's
+    consumers are metric and can absorb that; this one is a half-plane
+    whose side assignment must be BIT-identical for an identical shape,
+    because a corridor boundary vertex can sit exactly on the axis line
+    by construction.
+
+    ``None`` for a ring with fewer than three vertices, or with no extent
+    — where the old fit returned an arbitrary unit vector from a
+    degenerate covariance.  Every caller is already ``None``-safe.
     """
-    import numpy
+    from auto_patch_v2.constraints.geometry import _min_area_rect_of_points
     try:
-        pts = numpy.asarray(poly.exterior.coords, dtype=float)[:-1]
+        pts = [(float(x), float(y))
+               for x, y in list(poly.exterior.coords)[:-1]]
     except Exception:                                    # pragma: no cover
         return None
     if len(pts) < 3:
         return None
-    pts = pts - pts.mean(axis=0)
-    try:
-        _u, _s, vt = numpy.linalg.svd(pts, full_matrices=False)
-    except Exception:                                    # pragma: no cover
+    rect = _min_area_rect_of_points(pts)
+    if rect is None:
         return None
-    ax, ay = float(vt[0][0]), float(vt[0][1])
-    n = math.hypot(ax, ay)
-    return None if n <= 1e-9 else (ax / n, ay / n)
+    # The rect's long side is already a unit vector, canonically oriented
+    # into the +x half-plane.  Renormalising here would cost the exactness
+    # the paragraph above is about, so it is returned as the fit gave it.
+    (ax, ay), _mid, long_m, _short_m = rect
+    return None if long_m <= 0.0 else (ax, ay)
 
 
 def _fmt(v):

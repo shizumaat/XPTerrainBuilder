@@ -1009,10 +1009,37 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # flat-pad spec v2 §1 / §2 (RULINGS 2026-09-30as): the hold's pass 1a /
     # interval / pass 1b, bound here for the same reason
     from ..constraints.no_step import hold_pass
+    # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
+    # this build's own prefix, re-run on the classification without ribbons
+    # (``pipeline/stage_one_map``); ``None`` when no ribbon was minted
+    from .stage_one_map import stage_one_problem
+
+    def _ribbon_free(cl0):
+        objs0: list = []
+        pm0, _st0 = build_planar(airport, cl0, law, objects_out=objs0, cache=ocache,
+                                 objects=pack_objects, object_report=pack_report)
+        ap0 = _dc.replace(airport, flat_site=_flat.detect(
+            airport, law, objects=objs0[0] if objs0 else (), land=_classified_land(cl0)))
+        pref0, _r0, prof0 = preferred_road_z(ap0, pm0, law, inputs.road_grade_limit,
+                                             inputs.lane_width_m)
+        pm0 = with_runway_chord(_dc.replace(pm0, preferred_z=pref0), law, ap0, {})
+        pm0 = withdraw_trend_over_reach(with_apron_trend(with_taxi_trend(
+            pm0, law, ap0, {}), law, ap0, {}), law, ap0, {})
+        pm0 = with_road_coverage_join(with_road_ramp(pm0, law, ap0, {}, prof0),
+                                      law, prof0, {})
+        st0 = shape_stage(pm0, law, ap0, cl0, out=lambda m: None)
+        cs0, _c0, _w0 = shape_constraints(st0.pm, law, ap0, st0)
+        return (st0.pm, cs0, jetway_strips(st0.pm, law, ap0, cs0,
+                                           rider_candidates(ap0, law)),
+                hold_pass(st0.pm, law))
+    _s1 = stage_one_problem(cl, _ribbon_free)
+    if _s1 is not None:
+        _s1.bind(pm)
+        _say(f"[{icao}] stage 1 on the ribbon-free map (#100 (c)): {_s1.report}", out)
     sol, design_rep = solve_design(
         pm, cs, law, cfg.options, size_out=size, strips=strips,
         stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
-        hold=hold_pass(pm, law))
+        hold=hold_pass(pm, law), stage1=_s1)
     wall["solve"] = time.perf_counter() - t
     # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS where the solve
     # released a §37 (9) join pin — the join takes the patch's level and

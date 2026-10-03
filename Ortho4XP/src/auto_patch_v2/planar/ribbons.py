@@ -24,8 +24,7 @@ from .overlay import (PAD_AIRSIDE, Region, _claiming_region, _node_coords,
                       dissolve_sliver_zones, merge_slivers)
 from .platform import merge_platform_faces
 
-__all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts", "airside_vertex_set",
-           "ribbon_ghosts"]
+__all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts", "airside_vertex_set"]
 
 def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law: Law,
                     keeps: bool, grid: float, ring_lines_of, counts: dict):
@@ -46,7 +45,7 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
     got = _faces_of(noded, regions, bands, law, keeps, None, hosts_seen=hosts_seen)
     base_faces = got[0]
     base_order = ({shapely.normalize(g).wkb: k for k, g in enumerate(got[-1])},
-                  hosts_seen, airside_vertex_set(base_faces, law), base_faces)
+                  hosts_seen, airside_vertex_set(base_faces, law))
     rolled = rolled_on_roles(law)
     air_raw = unary_union([p for p, r in base_faces if r.role in rolled])
     # THE WELD'S RIM IS THE WHOLE FINISHED AIRSIDE — aircraft pavement AND
@@ -219,34 +218,3 @@ def _grid_parts(g, grid: float) -> list[Polygon]:
     q = q if q.is_valid else q.buffer(0.0)
     return [p for p in shapely.get_parts(q) if isinstance(p, Polygon)
             and not p.is_empty and p.area > 0.0]
-
-
-def ribbon_ghosts(base_faces, faces, law: Law) -> tuple:
-    """OPTION (b) OF THE #100 ROUND-7 DECISION — THE RIBBON INHERITS THE
-    STAGE-1 ROWS OF THE FACE IT DISPLACES: every GROUNDSIDE face of the
-    arrangement WITHOUT the ribbons (``base_faces``) that the ribbons
-    changed and that touches the finished airside, as ``(role, ref,
-    exterior coords, hole coords)``.  A generator whose rows over AIRSIDE
-    vertices are derived from a groundside face's ring (the strip's end
-    corridor and RESA rows, the apron's shared-run rows) reads these
-    rings for those rows, so stage 1 is the arrangement-without-ribbons'
-    by construction (``model.planar.PlanarMap.ghost_rings``).  Measured
-    (round 6, HECA same-capture control): 82 one-sided stage-1 rows lost
-    where a ribbon replaced the strip ring / a lot along the rim."""
-    from ..law.tables import is_rigid_role
-    rolled = rolled_on_roles(law)
-    air = airside_vertex_set(base_faces, law)
-    final = {shapely.normalize(p).wkb for p, _r in faces}
-    out = []
-    for p, r in base_faces:
-        if r.role in rolled or is_rigid_role(law, r.role):
-            continue
-        if shapely.normalize(p).wkb in final:
-            continue
-        ext = tuple((float(x), float(y)) for x, y in p.exterior.coords)
-        holes = tuple(tuple((float(x), float(y)) for x, y in h.coords)
-                      for h in p.interiors)
-        if not any(c in air for c in ext) and not any(c in air for h in holes for c in h):
-            continue
-        out.append((r.role, str(r.ref), ext, holes))
-    return tuple(out)

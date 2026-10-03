@@ -161,3 +161,40 @@ def _groundside_minter(planar: PlanarMap, law: Law
                     continue
         return False
     return _is
+
+
+def stage_one_on(stage1: _t.Any, law: Law, solve1: _t.Callable, yield_heads
+                 ) -> tuple:
+    """§20b STAGE 1 ASSEMBLED ON THE RIBBON-FREE MAP (issue #100 round 8,
+    master decision option (c); ``pipeline/stage_one_map.StageOne``, read
+    duck-typed: ``solve`` may not import ``pipeline``).  Pass 1a, the
+    interval, pass 1b and the jetway-strip projection run on
+    ``stage1.pm`` / ``stage1.cs`` under that map's own module registries
+    (``stage1.scope()``), so every stage-1 row, column, triangle and sheet
+    face is the ribbon-free map's by construction.  Returns ``(solve1's
+    answer, pass-1a record, released pins, levels, stage-1-read pins,
+    strip report)`` with the levels, the released pins and the read pins
+    carried onto the FULL map by the coordinate join (``stage1.to_full``);
+    the answer itself keeps the ribbon-free ids (``hold.finish`` reads
+    them)."""
+    from .flex import stage_one
+    from .pin_yield import stage1_read_pins
+    strip_rep = None
+    with stage1.scope():
+        pm1, cs1, got, pass1a, yielded1 = stage_one(stage1.pm, stage1.cs, law,
+                                                    stage1.hold, solve1)
+        drop, levels1 = got[2], got[4]
+        read1 = (stage1_read_pins(cs1, yield_heads, drop)
+                 | {int(r["v"]) for r in yielded1} if yield_heads else frozenset())
+        if stage1.strips:
+            from .project_strip import project_strips
+            strip_rep = project_strips(pm1, law, stage1.strips, levels1,
+                                       got[0].z, cs1.flats)
+    to = stage1.to_full
+    levels = {j: z for v, z in levels1.items() if (j := to(v)) is not None}
+    s1_read = frozenset(j for j in map(to, read1) if j is not None)
+    released = [dict(r, v=to(r["v"]), v_stage1=int(r["v"]))
+                for r in yielded1 if to(r["v"]) is not None]
+    stage1.report.update(levels=len(levels1), levels_unmapped=len(levels1) - len(levels),
+                         released_unmapped=len(yielded1) - len(released))
+    return got, pass1a, released, levels, s1_read, strip_rep

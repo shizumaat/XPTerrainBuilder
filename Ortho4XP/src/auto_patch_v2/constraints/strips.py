@@ -152,25 +152,9 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
     return out
 
 
-def _strip_rings(vw: View, ghosts: bool = True) -> list[tuple[int, list[int], list[XY]]]:
-    """The graded-strip rings, then (``ghosts``) the strip rings the
-    mapped-road ribbons DISPLACED along the airside rim (#100 round 7,
-    option (b): the ribbon inherits the stage-1 rows of the face it
-    displaces — ``PlanarMap.ghost_rings``).  A ghost id is ``-1`` off the
-    airside, and no row touching ``-1`` is minted (:func:`_ok`)."""
-    out = [(f.id, vw.rings[f.id], [vw.xy[v] for v in vw.rings[f.id]])
-           for f in vw.faces_of_role(("graded_strip",))]
-    if ghosts:
-        for k, (role, _ref, ids, xy) in enumerate(
-                vw.pm.ghost_rings(airside_stage_roles(vw.law))):
-            if role == "graded_strip" and sum(1 for v in ids if v >= 0) >= 2:
-                out.append((-1 - k, list(ids), [tuple(p) for p in xy]))
-    return out
-
-
-def _ok(*vs: int) -> bool:
-    """No row over a ghost ring's off-airside point (:func:`_strip_rings`)."""
-    return min(vs) >= 0
+def _strip_rings(vw: View) -> list[tuple[int, list[int], list[XY]]]:
+    return [(f.id, vw.rings[f.id], [vw.xy[v] for v in vw.rings[f.id]])
+            for f in vw.faces_of_role(("graded_strip",))]
 
 
 def _along(u: XY, p: XY, q: XY) -> float:
@@ -243,7 +227,7 @@ def strip_longitudinal(planar: PlanarMap, law: Law, airport: Airport
             for i, j, ds in strip_longitudinal_pairs(ids, xy, g.unit, g.rings[0], pav):
                 a, b = ids[i], ids[j]
                 key = (min(a, b), max(a, b))
-                if key in seen or not _ok(a, b):
+                if key in seen:
                     continue
                 seen.add(key)
                 rows.append(Linear(((a, 1.0), (b, -1.0)), -cap * ds - q,
@@ -270,7 +254,7 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 for k in range(1, len(run) - 1):
                     a, b, c = ids[run[k - 1]], ids[run[k]], ids[run[k + 1]]
                     key = tuple(sorted((a, b, c)))
-                    if key in seen or len(set(key)) < 3 or not _ok(a, b, c):
+                    if key in seen or len(set(key)) < 3:
                         continue
                     dp, dn = abs(s[k] - s[k - 1]), abs(s[k + 1] - s[k])
                     if dp < 1e-6 or dn < 1e-6:
@@ -321,7 +305,7 @@ def resa_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                         continue
                     a, b = ids[i], ids[j]
                     key = (min(a, b), max(a, b))
-                    if key in seen or not _ok(a, b):
+                    if key in seen:
                         continue
                     seen.add(key)
                     # the census reads ``across`` in its own frame; a pair near
@@ -355,7 +339,7 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                         a, b = ids[i], ids[j]
                         ds = _along(g.unit, xy[i], xy[j])
                         key = (min(a, b), max(a, b))
-                        if ds < 1.0 or key in seen or not _ok(a, b):
+                        if ds < 1.0 or key in seen:
                             continue
                         seen.add(key)
                         rows.append(Linear(((a, 1.0), (b, -1.0)), -cap * ds - q,
@@ -419,7 +403,7 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
     # chord under a mapped-road ribbon (``PlanarMap.ribbon_vertices``)
     road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
     rows: list[Row] = []
-    for fid, ids, xy in _strip_rings(vw, ghosts=False):
+    for fid, ids, xy in _strip_rings(vw):
         for k, v in enumerate(ids):
             if v in vw.pavement_vertices or v in walls or v in road_cap:
                 continue
@@ -498,7 +482,7 @@ def raoa(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                         continue          # a cross-width neighbour, not a profile step
                     a, b, c = src_ids[k - 1], src_ids[k], src_ids[k + 1]
                     key = (a, b, c)
-                    if key in seen or len(set(key)) < 3 or not _ok(a, b, c):
+                    if key in seen or len(set(key)) < 3:
                         continue
                     seen.add(key)
                     bound = rate * 0.5 * (dp + dn) + q * (1.0 / dp + 1.0 / dn)

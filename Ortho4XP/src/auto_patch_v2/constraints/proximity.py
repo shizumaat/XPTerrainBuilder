@@ -71,15 +71,6 @@ def cross_shape_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     for v in faces_of:
         x, y = vw.xy[v]
         grid.setdefault((int(math.floor(x / cell)), int(math.floor(y / cell))), []).append(v)
-    # #100 round 7 (option (b)): between two AIRSIDE vertices a mapped-road
-    # ribbon welded to them is no shape of theirs — the pair is read as the
-    # arrangement without the ribbons had it (HECA round 6: 4 rows minted)
-    from ..law.tables import airside_stage_roles
-    from ..model.planar import is_osm_ribbon_ref
-    rib = {fid for fid in caps if is_osm_ribbon_ref(planar.faces[fid].ref)}
-    asr = airside_stage_roles(law)
-    air = {v for fid in caps if planar.faces[fid].role in asr
-           for ring in [vw.rings[fid], *vw.holes[fid]] for v in ring}
     rows: list[Row] = []
     seen: set[tuple[int, int]] = set()
     for v, fa in faces_of.items():
@@ -99,11 +90,8 @@ def cross_shape_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                         continue
                     cap = None
                     pair: tuple[int, int] | None = None
-                    both_air = rib and v in air and w in air
                     for A in fa:
                         for B in faces_of[w]:
-                            if both_air and (A in rib or B in rib):
-                                continue
                             if A == B or _designed_separation(
                                     law, roads, planar.faces[A].role, planar.faces[B].role):
                                 continue

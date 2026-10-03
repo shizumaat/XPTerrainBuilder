@@ -64,14 +64,7 @@ def groundside_ramps(pm: PlanarMap, law: Law, airport=None) -> list[Row]:
     # 0.46 m under the DEM at a door well
     ground = groundside_face_roles(law)
     gv: dict[int, tuple[float, float]] = {}
-    # #100 round 7 (option (b)): a mapped-road RIBBON is no lot the apron
-    # ramps to — it is WELDED to the rim (30aa rule 2, no stand-off) and its
-    # own ramp is ``road_ramp``'s; read as one it took the apron's ramp rows
-    # from its weld vertices and gave stage 1 new ones (HECA round 6: 6 / 16)
-    from ..model.planar import is_osm_ribbon_ref
     for f in vw.faces_of_role(ground):
-        if is_osm_ribbon_ref(f.ref):
-            continue
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             for v in ring:
                 gv[v] = vw.xy[v]

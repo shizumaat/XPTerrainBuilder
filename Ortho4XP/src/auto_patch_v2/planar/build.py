@@ -343,8 +343,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                        if getattr(r, "natural_shore", False)),
                    natural_shore_wedges=_wedge_rings(arr.regions),
                    shore_verdicts=_shore_verdicts(arr.regions),
-                   pad_terraces=_pad_terraces(),
-                   ribbon_ghosts=getattr(arr, "ribbon_ghosts", ()))
+                   pad_terraces=_pad_terraces())
     validate(pm)
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
     # touching pavement, their joints declared — the only lawful steps

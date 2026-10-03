@@ -356,44 +356,128 @@ def test_the_road_cap_governs_key_is_read_by_the_census_core(law):
     assert road_cap_geometry(None, None, law) is None
 
 
-# ── ROUND 7 (lane roadmint100g; #100 master decision option (b)): THE
-# RIBBON INHERITS THE STAGE-1 ROWS OF THE FACE IT DISPLACES ──────────────
-def _stage1_one_sided(pm, cs, law):
-    """Stage 1's one-sided law rows (``solve/design.assemble`` after the
-    §20b split), keyed canonically by generator, ruling head, the 11-dp
-    vertex keys and the bound — the population the replay's
-    ``--stage1-dump`` diffs."""
+# ── ROUND 8 (lane roadmint100h; #100 master decision option (c)): STAGE 1
+# IS ASSEMBLED ON THE RIBBON-FREE MAP (``pipeline/stage_one_map``) ────────
+#: a road crossing the runway's END STRIP 4 m past the threshold: the strip
+#: ring's own pairs on the runway rim carry stage-1 rows (end skirt / RESA)
+#: that the ribbon displaces on the full map — HECA's round-6 class
+RWY_END = ((1004.0, -60.0), (1004.0, 60.0))
+
+
+def _stage1_population(pm, cs, law):
+    """Stage 1's whole assembled population, keyed canonically (11-dp
+    lat/lon): one-sided law rows, least-squares rows by owner, columns,
+    triangles and sheet faces — what ``--stage1-dump`` diffs."""
     from collections import Counter
 
     from auto_patch_v2.solve.design import assemble, stage_split
     from auto_patch_v2.solve.design_report import DesignReport
-    from auto_patch_v2.solve.design_roles import airside_stage_roles, ruling_head
+    from auto_patch_v2.solve.design_roles import (airside_stage_roles, bend_roles,
+                                                  ruling_head)
+    from auto_patch_v2.solve.rows import _face_triangles
     drop_v, foreign = stage_split(pm, cs, law)
-    base = assemble(pm, cs, law, DesignReport(), drop=drop_v, fixed=foreign,
-                    stage_roles=airside_stage_roles(law))
+    rep = DesignReport()
+    s_roles = airside_stage_roles(law)
+    base = assemble(pm, cs, law, rep, drop=drop_v, fixed=foreign, stage_roles=s_roles)
 
     def key(v):
         lat, lon = pm.vertices[v].key
         return f"{lat:.11f},{lon:.11f}"
-    return Counter((row.source.generator, ruling_head(row),
-                    tuple(sorted((key(v), round(c, 6)) for v, c in terms)),
-                    round(hi, 6)) for terms, hi, row in base.one)
+    one = Counter((row.source.generator, ruling_head(row),
+                   tuple(sorted((key(v), round(c, 6)) for v, c in terms)), round(hi, 6))
+                  for terms, hi, row in base.one)
+    cols: dict = {}
+    for v in range(len(pm.vertices)):
+        if base.red.col[v] >= 0:
+            cols.setdefault(int(base.red.col[v]), []).append(key(v))
+    col_key = {c: min(vs) + f"#{len(vs)}" for c, vs in cols.items()}
+    terms: dict = {}
+    for r_, c_, v_ in zip(base.rows.r, base.rows.c, base.rows.v):
+        terms.setdefault(int(r_), []).append((col_key[int(c_)], round(float(v_), 6)))
+    ls = Counter((str(base.rows.owner[i][0]), tuple(sorted(terms.get(i, ()))),
+                  round(float(base.rows.b[i]), 6)) for i in range(base.rows.n))
+    roles = set(bend_roles(law)) & set(s_roles)
+    faces, tris = set(), Counter()
+    for f in pm.faces.values():
+        vs = [v for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)]
+        if f.role not in roles or any(v in drop_v for v in vs):
+            continue
+        faces.add((f.role, tuple(sorted({key(v) for v in vs}))))
+        for a, b, c in _face_triangles(pm, f.id):
+            tris[tuple(sorted((key(a), key(b), key(c))))] += 1
+    return {"one": one, "ls": ls, "cols": sorted(col_key.values()),
+            "faces": faces, "tris": tris}
 
 
-def test_a_ribbon_over_a_zone_band_run_leaves_stage_one_row_for_row(law):
-    """The WEST ribbon takes the apron zone band's run along the apron rim
-    (welded, no stand-off): every row that band — and the generators
-    walking the strip / lot rings it displaced — minted over AIRSIDE
-    vertices is minted from the displaced ring as the arrangement without
-    the ribbon had it (``PlanarMap.ghost_rings``), so stage 1's one-sided
-    row multiset is IDENTICAL with and without the ribbon (round 6, HECA:
-    82 A-only / 22 B-only)."""
+def _derive(airport, law):
     from auto_patch_v2.constraints import generate
-    a0, a1 = _with(), _with(_way(-3, WEST, highway="tertiary"))
-    pm0, _ = planar_build(a0, classify(a0, law), law)
-    pm1, _ = planar_build(a1, classify(a1, law), law)
-    assert pm1.ribbon_ghosts, "the ribbon displaced a groundside face on the rim"
+    from auto_patch_v2.constraints.no_step import hold_pass
+
+    def run(cl0):
+        pm0, _ = planar_build(airport, cl0, law)
+        cs0, _c, _w = generate(pm0, law, airport)
+        return pm0, cs0, None, hold_pass(pm0, law)
+    return run
+
+
+def test_stage_one_is_assembled_on_the_ribbon_free_map(law):
+    """A ribbon crossing the runway's end strip displaces the strip ring
+    whose pairs on the runway rim carry stage-1 rows: on the FULL map the
+    stage-1 population loses them (the fixture discriminates).  Stage 1
+    assembled on the RIBBON-FREE map (``stage_one_problem``) is the
+    no-ribbon airport's — one-sided rows, least-squares rows, columns,
+    triangles and sheet faces identical — and the ribbon reaches no stage-1
+    vertex."""
+    from auto_patch_v2.constraints import generate
+    from auto_patch_v2.pipeline.stage_one_map import ribbon_free, stage_one_problem
+    a0, a1 = _with(), _with(_way(-3, RWY_END, highway="tertiary"))
+    cl0, cl1 = classify(a0, law), classify(a1, law)
+    assert ribbon_free(cl0) is None and _ribbons(cl1)
+    pm0, _ = planar_build(a0, cl0, law)
+    pm1, _ = planar_build(a1, cl1, law)
     cs0, _c, _w = generate(pm0, law, a0)
     cs1, _c, _w = generate(pm1, law, a1)
-    s0, s1 = _stage1_one_sided(pm0, cs0, law), _stage1_one_sided(pm1, cs1, law)
-    assert s0 - s1 == {} and s1 - s0 == {}, (sorted(s0 - s1)[:6], sorted(s1 - s0)[:6])
+    ref = _stage1_population(pm0, cs0, law)
+    full = _stage1_population(pm1, cs1, law)
+    lost = ref["one"] - full["one"]
+    assert sum(lost.values()) > 0 and {k[0] for k in lost} == {"strips"}, \
+        "the fixture must discriminate: the full map's stage 1 loses strip rows"
+    s1 = stage_one_problem(cl1, _derive(a1, law)).bind(pm1)
+    got = _stage1_population(s1.pm, s1.cs, law)
+    for k in ("one", "ls", "cols", "faces", "tris"):
+        assert got[k] == ref[k], k
+    assert s1.unmapped == 0          # every ribbon-free vertex is on the full map
+    rib_v = {v for f in pm1.faces.values() if is_osm_ribbon(f)
+             for ring in (f.ring, *f.holes) for v in pm1.ring_vertices(ring)}
+    # no ribbon-own vertex (one not on the full map's airside) is a stage-1
+    # column: the ribbon contributes stage-2 rows only
+    from auto_patch_v2.solve.design import stage_split
+    from auto_patch_v2.solve.design_roles import airside_stage_vertices
+    drop1, _f = stage_split(s1.pm, s1.cs, law)
+    cols1 = {s1.to_full(v) for v in s1.pm.vertices if v not in drop1}
+    own = rib_v - set(airside_stage_vertices(pm1, law))
+    assert own and not (own & cols1)
+
+
+def test_the_staged_solve_leaves_every_airside_value_of_the_ribbon_free_airport(law):
+    """``solve_design(stage1=...)``: stage 1 on the ribbon-free map, its
+    levels carried onto the full map by coordinate — every airside value of
+    the airport with the ribbon equals the airport without it, exactly."""
+    from auto_patch_v2.constraints import generate
+    from auto_patch_v2.constraints.no_step import hold_pass
+    from auto_patch_v2.pipeline.stage_one_map import stage_one_problem
+    from auto_patch_v2.solve import solve_design
+    from auto_patch_v2.solve.design_roles import airside_stage_vertices
+    a0, a1 = _with(), _with(_way(-3, RWY_END, highway="tertiary"))
+    cl0, cl1 = classify(a0, law), classify(a1, law)
+    pm0, _ = planar_build(a0, cl0, law)
+    cs0, _c, _w = generate(pm0, law, a0)
+    sol0, _r0 = solve_design(pm0, cs0, law, hold=hold_pass(pm0, law))
+    pm1, _ = planar_build(a1, cl1, law)
+    cs1, _c, _w = generate(pm1, law, a1)
+    s1 = stage_one_problem(cl1, _derive(a1, law)).bind(pm1)
+    sol1, rep1 = solve_design(pm1, cs1, law, hold=hold_pass(pm1, law), stage1=s1)
+    assert rep1.stages["stage1_map"]["levels_unmapped"] == 0
+    z0 = {pm0.vertices[v].xy: sol0.z[v] for v in airside_stage_vertices(pm0, law)}
+    at1 = {pm1.vertices[v].xy: v for v in range(len(pm1.vertices))}
+    assert z0 and all(sol1.z[at1[xy]] == z for xy, z in z0.items())

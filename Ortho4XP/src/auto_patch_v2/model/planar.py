@@ -537,37 +537,6 @@ class PlanarMap:
     #: bank inside it and unions it into the coverage before the collar.
     seam_band_rings: tuple[tuple[tuple[float, float], ...], ...] = ()
 
-    #: #100 round 7, option (b) (``planar/ribbons.ribbon_ghosts``): the
-    #: GROUNDSIDE faces of the arrangement without the ribbons that the
-    #: ribbons displaced along the airside rim, as ``(role, ref, exterior
-    #: coords, hole coords)`` in the frame — read through
-    #: :meth:`ghost_rings`, never as faces.
-    ribbon_ghosts: tuple = ()
-
-    def ghost_rings(self, airside_roles: _t.AbstractSet[str]
-                    ) -> list[tuple[str, str, tuple[int, ...], tuple[tuple[float, float], ...]]]:
-        """THE DISPLACED FACES' RINGS (#100 round 7, option (b): the ribbon
-        inherits the stage-1 rows of the face it displaces), each as
-        ``(role, ref, vertex ids, coords)`` with the closing point dropped.
-        A ring point that is not a vertex of an ``airside_roles`` face is
-        ``-1``: a ghost speaks ONLY for rows over airside vertices (stage
-        1's), and a row touching ``-1`` is never minted — the ribbon and
-        the cut face own every other row."""
-        if not self.ribbon_ghosts:
-            return []
-        air: set[int] = set()
-        for f in self.faces.values():
-            if f.role in airside_roles:
-                for cyc in (f.ring, *f.holes):
-                    air.update(self.ring_vertices(cyc))
-        vid = {self.vertices[v].xy: v for v in air}
-        out = []
-        for role, ref, ext, holes in self.ribbon_ghosts:
-            for cyc in (ext, *holes):
-                pts = list(cyc[:-1]) if len(cyc) > 1 and cyc[0] == cyc[-1] else list(cyc)
-                out.append((role, ref, tuple(vid.get(p, -1) for p in pts), tuple(pts)))
-        return out
-
     def ribbon_vertices(self) -> frozenset[int]:
         """Every vertex of a mapped-road ribbon face (:func:`is_osm_ribbon_ref`)
         — the ribbon's own and the rim / kerb vertices it shares.  The
@@ -634,17 +603,12 @@ class PlanarMap:
                 tgt.update(self.ring_vertices(cyc))
         return frozenset((rib & band) - air)
 
-    def roles_at(self, v: int, ribbons: bool = True) -> tuple[str, ...]:
+    def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of
         every face touching vertex ``v`` (I5 — the record, never a
         re-derivation); which of them OWNS the value is the law's question
-        (``law.tables.senior_role`` / ``tier_of_roles``).  ``ribbons=False``
-        is the AIRSIDE's reading (#100 round 7): a mapped-road ribbon welded
-        to the vertex is not one of its roles — the airside's own
-        derivations read the vertex as the arrangement without the ribbons
-        had it."""
-        return tuple(self.faces[f].role for f in self.vertices[v].incident_faces
-                     if ribbons or not is_osm_ribbon_ref(self.faces[f].ref))
+        (``law.tables.senior_role`` / ``tier_of_roles``)."""
+        return tuple(self.faces[f].role for f in self.vertices[v].incident_faces)
 
     def edges_of_vertex(self) -> dict[int, tuple[int, ...]]:
         """Vertex id -> incident edge ids (derived, not stored)."""

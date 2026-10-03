@@ -65,6 +65,13 @@ is what identical means here:
    segments, RENUMBERS their node ids (LEMD: node 249 -> 243 on an
    untouched round trip) and may emit one end-first.
 
+One structural row is NOT compared token for token: ``HEIGHTS quantum
+base``, the scale of the object pools' elevation plane.  Its quantum is
+compared BY ENCODABLE RANGE (#131, #166, #181) — the printed text is not
+a function of the DSF, and a re-pool that still carries every elevated
+row is RECORDED, not refused.  :func:`_heights_reconciled` is the one
+site that decides it and carries the measurements.
+
 The write itself follows the OBJ discipline of v1's ``object_rebake``: the pristine DSF is kept once as
 ``<name>.dsf.anchor_bak`` and is the SOURCE of every later edit, so a
 rerun is idempotent and cannot stack; a provenance record
@@ -657,6 +664,12 @@ class RoundTripReport:
     max_heading_deg: float
     max_elev_m: float
     findings: tuple[str, ...] = ()
+    #: #166/#181: ``"<expected> -> <actual>"`` when the re-dump's
+    #: ``HEIGHTS`` quantum differs from the edited text's and was accepted
+    #: as a PURE RE-POOL (it still encodes every elevated row that
+    #: remains); ``""`` when the two texts agreed.  The write report
+    #: carries it so a re-pool is a RECORD, never a silent pass.
+    heights_repool: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:
         return _dc.asdict(self)
@@ -758,29 +771,108 @@ def _split_rows(text: str) -> tuple[list[list[str]], dict, list[tuple], dict]:
 #: The dump keyword of the elevation scale row (``HEIGHTS quantum base``).
 HEIGHTS_KEYWORD = "HEIGHTS"
 
+#: ``HEIGHTS quantum base`` as DSFTool writes it (a trailing
+#: ``# max encodeable ...`` comment may follow and is not read — it is
+#: ``quantum * POOL_QUANTA + base``, recomputed here).
+_HEIGHTS_ROW = re.compile(rf"^{HEIGHTS_KEYWORD}\s+(\S+)\s+(\S+)")
 
-def _heights_unstored(struct: list[list[str]], places: dict) -> list[list[str]]:
-    """``struct`` with the ``HEIGHTS`` QUANTUM dropped when the text holds
-    no elevated placement (#131).
 
-    The quantum is the scale of the ELEVATION plane of the object pools,
-    and DSFTool stores it only beside an ``OBJECT_MSL`` / ``OBJECT_AGL``
-    row; with none left there is nothing in the DSF to carry it, and the
-    re-dump prints DSFTool's own default.  Measured 2026-10-01 (lane
-    roundtrip131, DSFTool 2.4.0-b1) on the Aerosoft KASE ``+39-107.dsf``
-    (14 ``OBJECT_MSL`` at 2337-2444 m, ``HEIGHTS 0.06250``): with every
-    elevated row converted on-ground, texts carrying ``HEIGHTS 0.06250``,
-    ``0.12500``, ``0.03125`` or NO ``HEIGHTS`` row encode to ONE byte-
-    identical DSF, re-dumped as ``0.03125``; with one elevated row left
-    the text's quantum is honoured (0.06250 -> 0.06250, 0.12500 ->
-    0.12500).  A polygon/road-only DSF (no object pools) re-dumps
-    ``0.50000`` whatever its text says — byte-identical again.  So the
-    row is compared IN FULL while an elevated row remains (the scale its
-    elevations are stored in) and by keyword only when none does; the
-    elevations themselves stay under ``TOL_ELEV_M`` per placement."""
-    if any(k[0] in CONVERTIBLE_KINDS for k in places):
-        return struct
+def _heights_keyword_only(struct: list[list[str]]) -> list[list[str]]:
+    """``struct`` with every ``HEIGHTS`` row reduced to its KEYWORD, so the
+    row's PRESENCE is still compared and its operands are not."""
     return [r[:1] if r and r[0] == HEIGHTS_KEYWORD else r for r in struct]
+
+
+def _heights_scale(text: str) -> tuple[str, float, float] | None:
+    """``(quantum as written, quantum, base)`` of a dump's ``HEIGHTS`` row,
+    or ``None`` when the text carries none."""
+    for raw in text.splitlines():
+        m = _HEIGHTS_ROW.match(raw.strip())
+        if m is None:
+            continue
+        try:
+            return m.group(1), float(m.group(1)), float(m.group(2))
+        except ValueError:
+            return None
+    return None
+
+
+def _encodable_elevations(quantum: float, base: float) -> tuple[float, float]:
+    """``(lowest, highest)`` elevation a ``HEIGHTS quantum base`` pool can
+    carry: a 16-bit plane stores ``base + quantum * q`` for
+    ``0 <= q <= POOL_QUANTA``, which is the ``# max encodeable`` DSFTool
+    prints beside the row."""
+    return base, base + quantum * POOL_QUANTA
+
+
+def _heights_reconciled(sa: list[list[str]], sb: list[list[str]],
+                        places: dict, expected: str, actual: str
+                        ) -> tuple[list[list[str]], list[list[str]], str]:
+    """``(expected rows, actual rows, re-pool record)`` — THE ONE SITE that
+    decides what the ``HEIGHTS`` row means to the round trip.
+
+    The row is the scale of the ELEVATION plane of the object pools, and
+    DSFTool stores it only beside an ``OBJECT_MSL`` / ``OBJECT_AGL`` row.
+    Two measurements set the law:
+
+    * #131 (lane roundtrip131, 2026-10-01, Aerosoft KASE ``+39-107.dsf``,
+      14 ``OBJECT_MSL`` at 2337-2444 m, ``HEIGHTS 0.06250``): with every
+      elevated row converted on-ground, texts carrying ``0.06250``,
+      ``0.12500``, ``0.03125`` or NO ``HEIGHTS`` row encode to ONE
+      byte-identical DSF, re-dumped as ``0.03125``; a polygon/road-only
+      DSF re-dumps ``0.50000`` whatever its text says.  With NO elevated
+      row left there is nothing in the DSF to carry the quantum.
+    * #181/#166 (this lane, 2026-10-02, DSFTool 2.4.0-b1 on linux): the
+      quantum DSFTool PRINTS on ``--dsf2text`` is not a function of the
+      DSF.  One binary, one byte-identical 537-byte input (``cmp``
+      clean), same invocation: ``/tmp/m1/x.dsf -> /tmp/m1/aa.text`` dumps
+      ``HEIGHTS 0.06250  # max encodeable 4095.93750`` and
+      ``/tmp/bt181/mA/x.dsf -> /tmp/bt181/mA/aa.text`` dumps
+      ``HEIGHTS 1.00000  # max encodeable 65535.00000``, 3/3 each; in ONE
+      directory a fresh output path gives ``1.00000`` and overwriting an
+      existing one gives ``0.06250``.  ``strace -e trace=openat,write``
+      over both: the ONLY difference is one extra
+      ``openat(..., O_DIRECTORY)`` of the output path's extra component
+      (DSFTool walks the output path) and the resulting ``write`` length
+      (845 vs 838 bytes — exactly the 7 by which the two lines differ).
+      The input is read identically and nothing else is opened.  The
+      ENCODED scale is unaffected: the ``# pool ... p=4`` comments carry
+      ``4095.93750`` (= 0.06250 x 65535) in both dumps.  So the printed
+      quantum follows DSFTool's own memory, not the file — and the
+      Windows ``0.12500`` of #166 is the same field (identical version
+      string ``2.4.0-b1``, and it flipped between two runs of one commit).
+
+    Comparing that text IN FULL therefore refuses correct writes at
+    random on EVERY platform.  The law is the one both issues name:
+    compare the quantum BY ENCODABLE RANGE, not by text.
+
+    1. No elevated placement remains -> nothing stores the quantum:
+       compare the KEYWORD only.  A MISSING row is still a structural
+       loss (the keyword row disappears and the row lists differ).
+    2. An elevated placement remains -> the actual quantum must still
+       ENCODE every one of them.  One that does is a PURE RE-POOL:
+       accepted, and RECORDED in :attr:`RoundTripReport.heights_repool`.
+       One that cannot (KASE's ``0.03125`` tops out at 2047.96875 m, below
+       its 2444 m rows — #131's own refusal row) stays a refusal, with
+       both texts in the finding.
+
+    Resolution loss needs no separate clause: a quantum change that MOVED
+    a row is refused by this same comparison's ``elevation drift``
+    finding, exempted ``HEIGHTS`` row or not, since every matched
+    placement still has to agree within :data:`TOL_ELEV_M`."""
+    elevated = [row[2] for key, rows in places.items()
+                if key[0] in CONVERTIBLE_KINDS
+                for row in rows if len(row) > 2]
+    if not elevated:
+        return _heights_keyword_only(sa), _heights_keyword_only(sb), ""
+    want, got = _heights_scale(expected), _heights_scale(actual)
+    if want is None or got is None or want[0] == got[0]:
+        return sa, sb, ""
+    low, high = _encodable_elevations(got[1], got[2])
+    if any(z < low - TOL_ELEV_M or z > high + TOL_ELEV_M for z in elevated):
+        return sa, sb, ""
+    return (_heights_keyword_only(sa), _heights_keyword_only(sb),
+            f"{want[0]} -> {got[0]}")
 
 
 def _match(a: list, b: list, tol: float, tiebreak: bool,
@@ -842,7 +934,7 @@ def compare_dumps(expected: str, actual: str) -> RoundTripReport:
     findings: list[str] = []
     sa, pa, ga, na = _split_rows(expected)
     sb, pb, gb, nb = _split_rows(actual)
-    sa, sb = _heights_unstored(sa, pa), _heights_unstored(sb, pa)
+    sa, sb, heights_repool = _heights_reconciled(sa, sb, pa, expected, actual)
     # #60: the tolerances follow the pools of BOTH texts (the encoder
     # re-pools), floored at the pinned values
     tol_deg, tol_heading = pool_tolerances(expected, actual)
@@ -899,7 +991,7 @@ def compare_dumps(expected: str, actual: str) -> RoundTripReport:
     if mz > TOL_ELEV_M:
         findings.append(f"elevation drift {mz:.4g} m > {TOL_ELEV_M}")
     return RoundTripReport(not findings, total, unmatched + seg_unmatched, md, mh, mz,
-                           tuple(findings))
+                           tuple(findings), heights_repool)
 
 
 def verify_roundtrip(dsf_path: str, expected_text: str, tool: str,

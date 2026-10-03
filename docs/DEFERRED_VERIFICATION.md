@@ -30,3 +30,25 @@
 - 2026-10-02 (#116, harnessbugs/census106116): the strip-station fixes may MOVE COUNTS on a real strip, and the direction is predicted but unmeasured — station counts should RISE (the eps-inclusive boundary admits boundary-coincident rim vertices; the canonical chain start recovers the two stations the array boundary used to eat), so `strip_arc` / `strip_abeam` / `resa_transverse` / `raoa` row counts may rise with them. NOTE the eps predicate was widened past #116's own family to all four strip-footprint station sets (reported deviation: patching `strip_arc` alone would leave two readers disagreeing about where a strip is). Owed: `census.py` family counts for those four on a HECA patch against the current shared control for the same base-sha; and KCLT.
 - 2026-10-02 (#116, harnessbugs/census106116): the DEFINITIVE read is the original terrace11c pair — the two replay arms at 30.0996269, 31.3974530 (HECA) whose `strip_arc` CRITICAL motion row appeared in one arm only. Re-run both arms and confirm the row no longer flips. Needs the captures; the lane had none.
 - 2026-10-02 lane roadsfree143 (#143, RULINGS 2026-10-02v (1)): the stage-1 foreign rule for a pinned groundside road vertex was proved on a SYNTHETIC apron + service road only (this clone has no corpus and the brief forbids builds). Measured there: 4 road-footed rows left stage 1 (10,270 -> 10,266), stage-1 unknowns 177 unchanged, airside bit-identical with and without the §37 (9) join pin (0.0 m). OWED on the corpus, the owner's session: the HECA / KCLT / SPJC replays the ruling quotes — 3,537 solve-owned HECA movers over 0.02 m, worst 1.00 m at 30.13577666876, 31.41073906739, runway 85 movers worst ≤ 0.06 m, stage-1 rows 123,305 -> 122,592, hard_conflict against the 115 bar, CRITICAL motion, and KCLT's 3 door-ramp structure pins of the same shape (NOT in `groundside_pin_rulings` — reported, not decided). The references are re-cut once per the ruling.
+- 2026-10-02 lane padgates101 (#101, owner RULINGS 2026-10-02v (3)): v1's
+  two pad-admission gates were ported and verified SYNTHETICALLY only (17
+  twins, `tests/auto_patch_v2/test_padgates101.py`) — the lane had no
+  corpus and no captures by brief. Owed on a real corpus, and the owner's
+  session is the one that can run it: (a) `tools/v2_solve_replay.py
+  --replay --from classify HECA`, reading the new `cluster pads` counters
+  `no_tall_base` / `no_building_evidence` / `osm_vouched` / `unmeasured`
+  and the `pad_refusals` sidecar rows, with the HECA elevated train
+  (`road_train/concrete_3.obj`, v1's 31,220 m2 slab/mast weld) expected in
+  the `min_tall_base_fill` list; (b) the same for KCLT / SPJC / OTHH /
+  LEMD so the per-airport refused counts are on the record before the
+  sweep; (c) one HECA closing build against the airside reference,
+  confirming the airside constraint set is UNCHANGED (the gates mint
+  fewer pads and must move no airside vertex); (d) the per-family
+  build-time delta — the measurement is O(components) over a population
+  already walked and was NOT timed on a real pack.
+- 2026-10-02 lane padgates101 (#101): the FALLBACK half's gate (the v1
+  footprint-cache rings, admitted on their cached role OR an OSM
+  building) was proved by inspection of `airport/load.py`'s source
+  spelling, not against a real cache. Owed: one HECA read confirming the
+  `dsf:object:object_unvouched` population is non-empty and that
+  `pad_refusals.fallback_no_building_evidence` counts it.

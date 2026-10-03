@@ -67,7 +67,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import rolled_on_roles
+from ..law.tables import frontage_roles
 from ..model.planar import COLLAR_SUFFIX, block_ref
 from ..model.platform import HELD, PLATFORMS, Platform
 
@@ -354,7 +354,7 @@ def platform_split(base_regions, pad_regions, law: Law,
     slope_max = float(law.tables.emit.within_shape.pad_slope_max)
     if min_m2 <= 0.0 or cap <= 0.0 or bank <= 0.0:
         return list(pad_regions), counts
-    air_roles = rolled_on_roles(law)
+    air_roles = frontage_roles(law)
     air_polys = [r.polygon for r in base_regions
                  if r.source == "cell" and r.role in air_roles
                  and r.polygon is not None and not r.polygon.is_empty]

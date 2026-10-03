@@ -71,12 +71,19 @@ airside_stage_roles = _airside_stage_roles
 def airside_stage_vertices(planar: _t.Any, law: Law) -> frozenset[int]:
     """Every vertex of an :func:`airside_stage_roles` face — §20b stage 1's
     own population, read off the planar map's faces (rings and holes)."""
-    from ..model.platform import datum_vertices, stage_air_vertices
+    from ..model.platform import stage_air_vertices
     out = stage_air_vertices(planar, law)
-    # flat-pad spec §1 (2) (RULINGS 2026-09-30f/r): each HELD block's
-    # FRONTAGE DATUM COLUMN — one platform vertex, no groundside sheet of
-    # its own — is an unknown of the airside problem
-    out.update(datum_vertices(planar, law, out).values())
+    # THE DATUM COLUMN IS NOT AN AIRSIDE UNKNOWN (owner 2026-10-02, #223 /
+    # #111: the airside leads, the pad conforms).  Flat-pad spec §1 (2)
+    # made each held block's datum a stage-1 column so the hard contact
+    # hold could be solved WITH the airside — that hold is gone
+    # (``constraints/no_step.hold_interval``: the datum is pinned at the
+    # frontage's own stage-1 median and no contact takes a pad row), and a
+    # datum left in stage 1 still let the pad's hard pairs over it reach
+    # the frontage (MEASURED SPJC: 10 frontage vertices moved <= 0.12 m
+    # against a stage 1 with no pad column at all).  Stage 2 states the
+    # datum Band and every row that follows it; its airside feet are
+    # constants there.
     return frozenset(out)
 
 

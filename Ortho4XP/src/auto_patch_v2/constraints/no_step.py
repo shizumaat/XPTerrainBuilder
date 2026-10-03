@@ -555,75 +555,61 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         for k, x in sorted(by.items())}
     # every contact's LEAST-BUDGET runway column (R(c), §1 (2))
     near = reach_anchored(g, {v: (0.0, 0.0) for v in rw_v}, transit=False)
+    # THE AIRSIDE LEADS, THE PAD CONFORMS (owner 2026-10-02, issues #223 /
+    # #111 / #96; airside is king, a building pad is groundside): the
+    # block's datum is the hold law's statistic — the median — of its
+    # AIRSIDE frontage contacts' OWN stage-1 level (``z¹ᵃ``, pass 1a: the
+    # airside solved with no pad row at all), and those contacts take NO row
+    # against the pad: a frontage vertex is a constant to the pad, never a
+    # column its rows can move.  The ``Band`` the solver used to float the
+    # datum in (SPJC ``building14`` 1.0 m above its junction, ``building5``
+    # b0 2.2 m under its chosen D) and the hard two-way contact hold that
+    # moved the apron / junction / taxi to meet the pad are gone with it.
+    from .pads import airside_vertices as _air_v
+    air_c = _air_v(planar, law)
     blocks: dict[str, dict] = {}
     for pref, dv, weld, n_all, n_ramp in sets:
         if not weld:
             continue
         lo, hi, lo_c, hi_c = interval(ar0, weld)
-        med = _median([zof(c) for c in weld if c in cols] or [0.0])
-        D = nearest(lo, hi, med)
+        front = [zof(c) for c in weld if c in cols and c in air_c]
+        med = _median(front or [zof(c) for c in weld if c in cols] or [0.0])
+        D = med
         blocks[pref] = {"dv": dv, "weld": weld, "n_all": n_all, "n_ramp": n_ramp,
                         "I0": (lo, hi), "empty0": lo > hi, "med": med, "D": D,
                         "unreached": sum(1 for c in weld if c not in lo_c and c not in hi_c)}
     if not blocks:
         return None
-    # Λ_c and R(c) → β_R
+    # Λ_c and R(c) → β_R: ZERO — nothing pulls the airside any more, so no
+    # runway earns a flex budget (every runway column is held at its
+    # pass-1a value, A1 (c)); the lift records stay for the report
     lift: dict[str, tuple[float, str, int]] = {}
-    for pref, b in blocks.items():
-        for c in b["weld"]:
-            if c not in cols:
-                continue
-            path = near.binding(c, "hi")
-            if not path:
-                continue
-            p0 = path[0]
-            lam = abs(b["D"] - zof(c))
-            for r in member.get(p0, ()):
-                if r not in lift or lam > lift[r][0]:
-                    lift[r] = (lam, pref, c)
-    beta = {r: share * lam for r, (lam, _p, _c) in lift.items()}
+    beta: dict[str, float] = {}
     ar1 = None
     for pref, b in blocks.items():
-        if not b["empty0"]:
-            b["eval"], b["I"], b["held"] = "i", b["I0"], True
-            continue
-        if ar1 is None:
-            ar1 = reach_anchored(g, anchors(beta), transit=False)
-        lo, hi, lo_c, hi_c = interval(ar1, b["weld"])
-        b["I"] = (lo, hi)
-        if lo <= hi:
-            b["eval"], b["held"], b["D"] = "ii", True, nearest(lo, hi, b["med"])
-            continue
-        b["eval"], b["held"] = "residual", False
-        mids = sorted(0.5 * (lo_c.get(c, -math.inf) + hi_c.get(c, math.inf))
-                      for c in b["weld"] if c in lo_c and c in hi_c)
-        m = mids[len(mids) // 2] if mids else b["med"]
-        D = nearest(lo, hi, m)
-        b["D"] = D
-        b["residual"] = [c for c in b["weld"] if c in lo_c and c in hi_c
-                         and not (lo_c[c] - 1e-9 <= D <= hi_c[c] + 1e-9)]
+        # the interval is a REPORT now (``reach_band``): the datum is the
+        # frontage's own level, which no pad row can push off the airside
+        b["eval"], b["I"], b["held"] = "i", b["I0"], True
     # the rows
     rows: list = []
     for pref, b in blocks.items():
-        res = set(b.get("residual") or ())
         plat = set(HELD[pref].get("plateau_vertices") or ())
         for o in b["weld"]:
-            rows.extend(hold_row(o, b["dv"], pref, residual=o in res,
-                                 plateau=o in plat))
-        # THE DATUM BAND (§2 "Derivation site" / §5 "datum Band"): the
-        # block's datum column within its pair-graph interval — HARD, head
-        # ``HOLD_RULING``; a residual block's collapses to its chosen D.
-        # ``D_b`` (§2 "The datum") sets the lift and the runway's budget;
-        # the solver places the datum inside the band, so two held blocks
-        # of one unit meet across their ramp (a per-block PIN at each
-        # median measured SPJC building5 b0|b1 INFEASIBLE: 3.6 m over a
-        # ramp of a few metres, 27 hard rows, 10.6 m shortfall)
-        lo_b, hi_b = b["I"] if b["held"] else (b["D"], b["D"])
-        rows.append(Band(b["dv"], lo_b if math.isfinite(lo_b) else None,
-                         hi_b if math.isfinite(hi_b) else None,
-                         Source(PGEN, HOLD_RULING + " (the block datum within "
-                                "its pair-graph interval: flat-pad spec v2 §2, "
-                                "RULINGS 2026-09-30y (2) / 30as)",
+            if o in air_c:
+                continue           # an AIRSIDE contact: fixed, never pulled
+            rows.extend(hold_row(o, b["dv"], pref, plateau=o in plat))
+        # THE DATUM: the block's datum column AT the frontage's own level —
+        # HARD (``HOLD_RULING``), a zero-width ``Band``.  The pad's own flat
+        # rows (``platform.platform_plane_rows``, the §4 own-vertex rows
+        # below) put the whole block on it; the frontage stays where the
+        # airside solved it.  (The old pair-graph ``Band`` let the solver
+        # float the datum and the hard contact rows carried the apron with
+        # it — SPJC ``building14`` lifted its junction 24.23 -> 25.22 m.)
+        rows.append(Band(b["dv"], b["D"], b["D"],
+                         Source(PGEN, HOLD_RULING + " (the block datum = the "
+                                "median of its airside frontage's own stage-1 "
+                                "level; the airside leads, the pad conforms — "
+                                "owner 2026-10-02, #223 / #111)",
                                 (pref, f"platform:{pref}"))))
     # EVERY runway of a hold-bearing airport carries its Bands (§1 (3)-(4):
     # "beta_R ... 0 for a runway no route reaches", "at most 2 x 2,610" =

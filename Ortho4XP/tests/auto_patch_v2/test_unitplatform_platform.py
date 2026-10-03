@@ -149,6 +149,23 @@ def test_a_draped_facade_footprint_takes_no_collar(law):
     assert "fac" + COLLAR_SUFFIX in {r.ref for r in got} and counts["platforms"] == 1
 
 
+def test_a_junction_frontage_is_a_frontage_at_both_sites(law):
+    """Issue #223 deviation 4: the mint and the flat-pad block planner read
+    ONE frontage accessor (``law.tables.frontage_roles`` = every airside
+    rolled-on role).  A pad fronting only a taxi-family JUNCTION cell (SPJC
+    ``building14`` on pav40's junction) is a platform AND a planned block —
+    never a platform the planner leaves unheld (the 29s contact-led tilt)."""
+    from auto_patch_v2.law.tables import frontage_roles, rolled_on_roles
+    from auto_patch_v2.planar.pad_blocks import plan_blocks
+    assert frontage_roles(law) == rolled_on_roles(law)
+    assert {"junction", "apron", "stub", "runway"} <= frontage_roles(law)
+    air = [Region("junction", "j", Polygon(APRON), 3, "C", "airside", "cell")]
+    pad = Region("building", "u", Polygon(PAD), None, None, "airside", "cell")
+    airport = _airport(law, _Dem())
+    plan = plan_blocks("u", Polygon(PAD), air, law, _Dem(), airport, 2.0)
+    assert plan is not None and plan.contacts > 0
+
+
 def test_a_second_region_of_a_platform_ref_is_collar(law):
     """ONE REF, ONE PAD: a sliver the 23a cut left under the same ref is
     collar, never a platform piece (HECA ``building4``'s rim slivers)."""

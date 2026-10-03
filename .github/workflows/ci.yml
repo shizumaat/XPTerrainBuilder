@@ -246,26 +246,25 @@ jobs:
         if: always()
         working-directory: Ortho4XP
         run: |
-          # `|| true` on the substitution: the step runs under `bash -eo
-          # pipefail`, where grep finding nothing would abort before the
-          # message that explains why.  An empty $n IS the failure signal.
+          # The count, the sorted node-id digest and the floor itself come
+          # from `tools/ci_collection_census.py`, which the reconciliation
+          # step below reads back: ONE implementation, so the number the
+          # gate prints and the number it compares cannot drift (#244).
+          # It also writes the node-id list the artifact has always carried.
+          #
+          # `|| true` on the pytest call: the step runs under `bash -eo
+          # pipefail`, and a collect-only run that errors on a module is
+          # still evidence — the census counts those modules by name.  An
+          # empty collect file IS the failure signal, and the census's own
+          # floor check reports it.
           floor () {   # $1 = human name, $2 = floor, $3.. = pytest target args
             name="$1"; min="$2"; slug="$3"; shift 3
             out="collect-$slug.txt"
             python -m pytest -q --no-header -p no:cacheprovider -n0 \
               --collect-only --continue-on-collection-errors "$@" > "$out" 2>&1 || true
-            n=$(grep -oE '^[0-9]+' "$out" | tail -1 || true)
-            # The node-id list behind that number, sorted so the digest is
-            # independent of collection order.
-            grep -E '^tests/' "$out" | LC_ALL=C sort > "nodeids-$slug.txt" || true
-            digest=$(python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest()[:16])" "nodeids-$slug.txt" || true)
-            echo "$name: collected ${n:-0} (floor $min)"
-            echo "$name: $(wc -l < "nodeids-$slug.txt" | tr -d ' ') node ids, sorted sha256 ${digest:-unknown}"
-            if [ -z "$n" ] || [ "$n" -lt "$min" ]; then
-              echo "::error::$name collected ${n:-0} tests, below the floor $min —" \
-                   "a glob or path stopped matching.  CI is not running what it claims."
-              return 1
-            fi
+            python tools/ci_collection_census.py census "$out" \
+              --name "$name" --floor "$min" --json "census-$slug.json" \
+              --nodeids "nodeids-$slug.txt" || return 1
           }
           # The checked-out commit, so a divergent pair is attributable to its
           # TREE rather than to the head_sha both events report (#221).
@@ -315,6 +314,7 @@ jobs:
             progress="-v -v"                     # net verbose over PYTEST_FLAGS' -q
           fi
           $limit python -m pytest $PYTEST_FLAGS -n auto $progress \
+            --junitxml=junit-non-qt.xml \
             --ignore-glob='tests/test_qt_*.py' tests
 
       # SERIAL (-n0) and, where the runner has coreutils, under a wall
@@ -356,7 +356,43 @@ jobs:
           set -o pipefail
           $limit python -m pytest $PYTEST_FLAGS \
             -p faulthandler -o faulthandler_timeout=0 \
+            --junitxml=junit-qt.xml \
             -n0 -v -v tests/test_qt_*.py 2>&1 | tee qt-suite.log
+
+      # THE FLOOR MUST GATE THE SET THE SUITE RUNS (#244).  The floor
+      # reported ~10 FEWER items than the suite in the same job on the same
+      # tree (12,991 vs 13,001 on run 37016002700), so a regression living
+      # only in those items was invisible to the gate by construction.  It is
+      # not the `-n`: xdist skips itself entirely when only collecting, so
+      # the floor's `-n0 --collect-only` collects exactly what an `-n auto`
+      # one would.  The gap is that the floor counted COLLECTED ITEMS while
+      # the suite's summary counts REPORTED OUTCOMES, and a module that
+      # cannot be collected at all (a module-level `importorskip` for an
+      # optional dependency the runner lacks, an import error under
+      # `--continue-on-collection-errors`) contributes zero node ids and one
+      # outcome.  Those modules differ per runner, which is why the gap moved
+      # between runs and why no local checkout reproduced it.
+      #
+      # So this step asserts the two SETS are the same set, naming whatever
+      # diverges rather than printing two numbers and leaving the reader to
+      # subtract.  `if: always()`: a red suite still collected something, and
+      # a floor/suite divergence is most interesting exactly then.
+      #
+      # The same ITEM is NAMED differently by the two sides, in ways that
+      # would otherwise make this step red on every run: xdist appends the
+      # `xdist_group` marker as an `@<icao>` nodeid suffix (130 items; the
+      # floor runs no xdist at all), and junit writes a dotted module path.
+      # The tool normalises both through pytest's OWN `mangle_test_address`,
+      # which is the function that wrote the junit names, and its twin
+      # asserts that equivalence rather than imitating it.
+      - name: Collection floor vs suite reconciliation
+        if: always()
+        working-directory: Ortho4XP
+        run: |
+          python tools/ci_collection_census.py reconcile --name "non-Qt" \
+            --census census-non-qt.json --junit junit-non-qt.xml
+          python tools/ci_collection_census.py reconcile --name "Qt" \
+            --census census-qt.json --junit junit-qt.xml
 
       # `if: always()`: the crash log is worth exactly as much as the run
       # that produced it is red.
@@ -366,7 +402,7 @@ jobs:
       # job, they are wanted on green runs too — a divergence shows up as two
       # green runs disagreeing — and `qt-suite.log` is already uploaded
       # unconditionally for exactly that reason.
-      - name: Upload Qt suite log and collection node-id lists
+      - name: Upload Qt suite log and the collection census
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -375,5 +411,9 @@ jobs:
             Ortho4XP/qt-suite.log
             Ortho4XP/nodeids-non-qt.txt
             Ortho4XP/nodeids-qt.txt
+            Ortho4XP/collect-non-qt.txt
+            Ortho4XP/collect-qt.txt
+            Ortho4XP/census-non-qt.json
+            Ortho4XP/census-qt.json
           if-no-files-found: warn
           retention-days: 30

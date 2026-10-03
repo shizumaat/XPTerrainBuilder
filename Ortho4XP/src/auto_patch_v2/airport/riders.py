@@ -37,7 +37,8 @@ import typing as _t
 from ..law import Law
 from . import obj8 as _obj8
 
-__all__ = ["rider_candidates", "agp_half_extent_m", "obj_half_extent_m",
+__all__ = ["rider_candidates", "agp_half_extent_m", "agp_footprint_local",
+           "agp_footprint_xy", "obj_half_extent_m",
            "riders_for_dump", "rider_census", "SEAT_WHY"]
 
 #: §4 (1): how a rider row is seated.
@@ -87,6 +88,97 @@ def agp_half_extent_m(path: str) -> float | None:
     got = float(units * m_per_unit)
     _EXTENT_MEMO[path] = got
     return got
+
+
+_FOOTPRINT_MEMO: dict[str, tuple[tuple[tuple[float, float], ...], float] | None] = {}
+
+
+def agp_footprint_local(path: str) -> tuple[tuple[tuple[float, float], ...], float] | None:
+    """The ``.agp``'s OWN PLAN FOOTPRINT in metres about its ``ANCHOR_PT``
+    (east, north; the authored frame before the placement heading) and
+    its ``ROTATION`` — the first ``CROP_POLY`` when the file has one, else
+    the four ``TILE`` corners, texture units scaled by ``TEXTURE_WIDTH /
+    TEXTURE_SCALE`` (``TEXTURE_HEIGHT`` over the second scale for t).
+
+    v1's ``auto_patch/agp_reader.parse_agp`` read exactly this for the
+    stock-library hangars (``AGP_BUILDINGS``, user 2026-06-17); v2 never
+    ported it, so a placement like CYXY's ``Med_Blue_Hangar.agp`` —
+    ``hangar_40x26_3_lb.agp``, a 46 x 26 m TILE — was a RIDER with no
+    geometry and got no pad (issue #263, owner sim read 2026-10-02 at
+    60.7081125, -135.0757268).  ``None`` for an unreadable file or one
+    with no TILE / CROP_POLY or no scale."""
+    if path in _FOOTPRINT_MEMO:
+        return _FOOTPRINT_MEMO[path]
+    tile = anchor = crop = None
+    scale_s = scale_t = width = height = None
+    rotation = 0.0
+    try:
+        with open(path, "r", encoding="latin-1", errors="replace") as fh:
+            for ln in fh:
+                t = ln.split()
+                if not t:
+                    continue
+                k = t[0]
+                try:
+                    if k == "TILE" and len(t) >= 5 and tile is None:
+                        tile = tuple(float(x) for x in t[1:5])
+                    elif k == "CROP_POLY" and len(t) >= 7 and crop is None:
+                        crop = [float(x) for x in t[1:]]
+                    elif k == "ANCHOR_PT" and len(t) >= 3 and anchor is None:
+                        anchor = (float(t[1]), float(t[2]))
+                    elif k == "ROTATION" and len(t) >= 2:
+                        rotation = float(t[1])
+                    elif k == "TEXTURE_SCALE" and len(t) >= 2:
+                        scale_s = float(t[1])
+                        scale_t = float(t[2]) if len(t) >= 3 else None
+                    elif k == "TEXTURE_WIDTH" and len(t) >= 2:
+                        width = float(t[1])
+                    elif k == "TEXTURE_HEIGHT" and len(t) >= 2:
+                        height = float(t[1])
+                except ValueError:
+                    continue
+    except OSError:
+        _FOOTPRINT_MEMO[path] = None
+        return None
+    if not scale_s or width is None:
+        _FOOTPRINT_MEMO[path] = None
+        return None
+    if height is None:
+        height, scale_t = width, scale_t or scale_s
+    scale_t = scale_t or scale_s
+    mpp_x, mpp_y = width / scale_s, height / scale_t
+    pts: list[tuple[float, float]] = []
+    if crop is not None:
+        pts = [(crop[i], crop[i + 1]) for i in range(0, len(crop) - 1, 2)]
+    if len(pts) < 3 and tile is not None:
+        left, bottom, right, top = tile
+        pts = [(left, bottom), (right, bottom), (right, top), (left, top)]
+    if len(pts) < 3:
+        _FOOTPRINT_MEMO[path] = None
+        return None
+    if anchor is None:
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        anchor = ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+    ax, ay = anchor
+    local = tuple(((px - ax) * mpp_x, (py - ay) * mpp_y) for px, py in pts)
+    _FOOTPRINT_MEMO[path] = (local, rotation)
+    return _FOOTPRINT_MEMO[path]
+
+
+def agp_footprint_xy(path: str, xy: tuple[float, float], heading_deg: float
+                     ) -> tuple[tuple[float, float], ...] | None:
+    """:func:`agp_footprint_local` placed at ``xy`` (frame metres, east /
+    north) under the DSF heading (degrees clockwise from north) plus the
+    tile's own ``ROTATION`` — v1 ``agp_reader.agp_footprint_lonlat``'s
+    rotation, in the frame instead of degrees.  Unclosed ring."""
+    got = agp_footprint_local(path)
+    if got is None:
+        return None
+    local, rotation = got
+    th = math.radians(heading_deg + rotation)
+    s, c = math.sin(th), math.cos(th)
+    x0, y0 = xy
+    return tuple((x0 + ex * c + ny * s, y0 - ex * s + ny * c) for ex, ny in local)
 
 
 def obj_half_extent_m(path: str) -> float | None:

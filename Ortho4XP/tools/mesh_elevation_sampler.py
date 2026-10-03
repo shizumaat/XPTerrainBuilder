@@ -181,21 +181,49 @@ class MeshElevationSampler:
 # Reading it here rather than in a scratchpad is the SECOND use of that
 # comparison (the round's attribution read, then its acceptance table),
 # which is the signal to promote it into the tool that already owns
-# mesh sampling (tool discipline, RULINGS 7e90032).  The frame is
-# ``O4_DEM_Utils``' own: a square float32 raster over the tile-relative
-# extent [-0.01, 1.01]^2 (``O4_DEM_Utils.py:760``), row 0 at y1, and the
-# interpolation is the TRUE BILINEAR of ``Triangle4XP.altitude()`` /
-# ``DEM.alt_baked`` — nearest-neighbour here would read up to a whole
-# 14.8 m cell off, which on an escarpment is tens of metres of fake
-# disagreement.
-ALT_RASTER_EXTENT = (-0.01, 1.01)
+# mesh sampling (tool discipline, RULINGS 7e90032).  The interpolation
+# is the TRUE BILINEAR of ``Triangle4XP.altitude()`` / ``DEM.alt_baked``
+# -- nearest-neighbour here would read up to a whole 14.8 m cell off,
+# which on an escarpment is tens of metres of fake disagreement.
+#
+# THE FRAME IS THE BUILD'S, NOT A CONSTANT (#238).  This reader used to
+# hard-code the historic viewfinder extent [-0.01, 1.01]^2.  A tile whose
+# base is a GeoTIFF or a densified inset grid does not have that frame
+# -- KASE +39-107 at ``elevation_level=10`` is 10834 square over about
+# +-5.5 arc-seconds -- and reading it as the viewfinder's put every
+# sample 58 m away from the mesh it was baked into.  So the frame now
+# comes from the sidecar the build writes beside the ``.alt``
+# (``O4_DEM_Utils.ALT_FRAME_*``, one derivation site for writer and
+# reader alike); the viewfinder frame is assumed only for a raster whose
+# grid actually is the viewfinder's, and anything else refuses.
+
+
+def alt_raster_frame(path: str, side: int,
+                     tile_lat: int, tile_lon: int) -> dict:
+    """The frame of a ``side``-square ``.alt``, per the engine's contract.
+
+    The resolution order lives in ``O4_DEM_Utils.resolve_alt_frame`` so
+    the writer and every reader share it; this only turns its refusal
+    into the tool-house ``REFUSING:`` exit.
+    """
+    import O4_DEM_Utils as DEM_UTILS
+
+    try:
+        return DEM_UTILS.resolve_alt_frame(path, side, tile_lat, tile_lon)
+    except DEM_UTILS.AltFrameRefused as error:
+        raise SystemExit(f"REFUSING: {error}") from error
 
 
 class AltRaster:
-    """Bilinear reader for a built ``Data<tile>.alt``, in metres."""
+    """Bilinear reader for a built ``Data<tile>.alt``, in metres.
+
+    ``extent`` is an explicit ``(x0, x1)`` override applied to both axes,
+    for a raster whose frame is known out of band; left unset, the frame
+    is resolved from the build's own sidecar (#238).
+    """
 
     def __init__(self, path: str, tile_lat: int, tile_lon: int,
-                 extent: tuple[float, float] = ALT_RASTER_EXTENT) -> None:
+                 extent: tuple[float, float] | None = None) -> None:
         raw = numpy.fromfile(path, dtype=numpy.float32)
         side = int(round(math.sqrt(raw.size)))
         if side * side != raw.size:
@@ -206,8 +234,28 @@ class AltRaster:
         self.side = side
         self.tile_lat = tile_lat
         self.tile_lon = tile_lon
-        (self.x0, self.x1) = extent
-        self.y0, self.y1 = extent
+        if extent is None:
+            self.frame = alt_raster_frame(path, side, tile_lat, tile_lon)
+            self.x0, self.x1 = self.frame["x0"], self.frame["x1"]
+            self.y0, self.y1 = self.frame["y0"], self.frame["y1"]
+        else:
+            (self.x0, self.x1) = extent
+            self.y0, self.y1 = extent
+            self.frame = {
+                "x0": self.x0, "y0": self.y0,
+                "x1": self.x1, "y1": self.y1,
+                "nxdem": side, "nydem": side,
+                "origin": "caller-supplied extent",
+            }
+
+    def describe_frame(self) -> str:
+        """One line naming the frame in use and where it came from."""
+        return (
+            "  .alt frame: {}x{} over x [{:.6f}, {:.6f}] y [{:.6f}, {:.6f}]"
+            "  <- {}".format(
+                self.side, self.side, self.x0, self.x1, self.y0, self.y1,
+                self.frame.get("origin", "unknown"))
+        )
 
     def elevation_at(self, latitude: float, longitude: float) -> float:
         n = self.side - 1
@@ -459,10 +507,9 @@ def main(argv=None):
         (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
                                 else tile_origin_from_mesh_path(args.mesh))
         alt = AltRaster(args.alt_raster, tile_lat, tile_lon)
-        print("=== .alt reference: {} ({}x{} float32, tile {:+03d}{:+04d}, "
-              "extent {}..{}) ===".format(
-                  args.alt_raster, alt.side, alt.side, tile_lat, tile_lon,
-                  alt.x0, alt.x1))
+        print("=== .alt reference: {} (tile {:+03d}{:+04d}) ===".format(
+            args.alt_raster, tile_lat, tile_lon))
+        print(alt.describe_frame())
 
     margin = 0.001
     if args.lon is not None and args.lat_range:

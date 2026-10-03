@@ -52,3 +52,21 @@
   spelling, not against a real cache. Owed: one HECA read confirming the
   `dsf:object:object_unvouched` population is non-empty and that
   `pad_refusals.fallback_no_building_evidence` counts it.
+- 2026-10-02 lane altraster238 (#238): the `.alt` frame sidecar and the
+  reader that takes it were proved on a SYNTHETIC raster only (this clone
+  has no corpus and the brief forbids builds). The twin posts a 9-square
+  raster on the KASE-class frame (±5.5″ beyond the tile) over a surface
+  LINEAR in tile-relative degrees, so a correct bilinear read is exact
+  everywhere: read under the recorded frame the worst error is < 1e-3 m,
+  read under the old viewfinder constant it is metres. OWED on the
+  corpus, the owner's session: one KASE +39-107 tile build at
+  `elevation_level=10`, then `mesh_elevation_sampler.py Data+39-107.mesh
+  --alt-raster Data+39-107.alt` over the free vertices kaseread368
+  measured 58 m of disagreement at — the banner must name the written
+  sidecar (10834x10834, x/y about -0.0015 .. 1.0015) and worst/rms must
+  come back under 1 cm, which is the best-fit extent kaseread368 found.
+  The 58 m number itself is from that lane's read and is NOT re-measured
+  here. Also owed: one build of a tile with NO airport insets, confirming
+  the sidecar it writes is the viewfinder frame (3673, -0.01 .. 1.01) and
+  that `patch_transect.py --alt` and `mesh_region_tris.py
+  --interp-alt-audit` read it unchanged against their pre-#238 numbers.

@@ -81,7 +81,7 @@ from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import View, view
 from .roads import road_family_roles
-from .strips import road_cap_crossing, runway_groups
+from .strips import runway_groups
 
 __all__ = ["zone_bands", "strip_transverse"]
 
@@ -593,10 +593,9 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
     rim_of: dict[int, int] = {v: fid for fid, rim in ctx.rigid_rims.items() for v in rim}
     rows: list[Row] = []
     # OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS: no tie row
-    # under a mapped-road ribbon CROSSING the strip (enters and leaves it;
-    # round 6) — its own vertices and the strip vertices it shares there;
-    # the road climbs at the road cap across the strip
-    road_cap = road_cap_crossing(planar, law, airport)
+    # under a mapped-road ribbon — its own vertices and the strip vertices
+    # it shares; the road climbs at the road cap across the strip
+    road_cap = planar.road_cap_vertices(airside_stage_roles(law))
     for v in sorted(ctx.tie_pop):
         if v in road_cap:
             continue

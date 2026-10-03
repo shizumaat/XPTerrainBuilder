@@ -549,8 +549,7 @@ class PlanarMap:
                     out.update(self.ring_vertices(cyc))
         return frozenset(out)
 
-    def road_cap_vertices(self, airside_roles: _t.AbstractSet[str],
-                          inside: "_t.Callable[[int], bool] | None" = None) -> frozenset[int]:
+    def road_cap_vertices(self, airside_roles: _t.AbstractSet[str]) -> frozenset[int]:
         """OWNER RULINGS 2026-10-02ag (2) (#100) "ROAD CAP GOVERNS": the
         vertices UNDER a mapped-road ribbon where the runway strip's
         transverse tie is WITHDRAWN (``constraints/zones.strip_transverse``,
@@ -566,73 +565,13 @@ class PlanarMap:
         that pavement's, and its tie is the airside's law — the ribbon is
         welded to it one-way and changes nothing there.  roadmint100b
         withdrew the tie on the whole raw set, apron and taxi rim vertices
-        included.
-
-        ``inside`` (the strip FOOTPRINT, ``constraints/strips.
-        road_cap_crossing``): only the footprint vertices of a ribbon that
-        CROSSES it — enters and leaves (round 6, lane roadmint100f)."""
+        included."""
         air: set[int] = set()
         for f in self.faces.values():
             if f.role in airside_roles:
                 for cyc in (f.ring, *f.holes):
                     air.update(self.ring_vertices(cyc))
-        if inside is None:
-            return frozenset(v for v in self.ribbon_vertices() if v not in air)
-        # THE CROSSING CRITERION (round 6): the tie is withdrawn only where
-        # the ribbon CROSSES the footprint — enters it and leaves it.  Per
-        # ribbon (its ref), the ribbon's vertices inside the footprint fall
-        # into connected runs (over the ribbon's own ring edges); a run is a
-        # crossing when the ribbon continues OUTSIDE at two separate places
-        # of it (two distinct outside components touch it).  A ribbon running
-        # ALONG the strip, or ending inside it, keeps the tie.
-        edges_of: dict[str, dict[int, set[int]]] = {}
-        for f in self.faces.values():
-            if not (f.role == "service_road" and is_osm_ribbon_ref(f.ref)):
-                continue
-            adj = edges_of.setdefault(str(f.ref), {})
-            for cyc in (f.ring, *f.holes):
-                rv = list(self.ring_vertices(cyc))
-                for i, a in enumerate(rv):
-                    b = rv[(i + 1) % len(rv)]
-                    if a != b:
-                        adj.setdefault(a, set()).add(b)
-                        adj.setdefault(b, set()).add(a)
-        out: set[int] = set()
-        for adj in edges_of.values():
-            ins = {v for v in adj if inside(v)}
-            if not ins or len(ins) == len(adj):
-                continue
-            label: dict[int, int] = {}
-            for v0 in adj:
-                if v0 in ins or v0 in label:
-                    continue
-                label[v0] = v0
-                stack = [v0]
-                while stack:
-                    u = stack.pop()
-                    for w in adj[u]:
-                        if w not in ins and w not in label:
-                            label[w] = v0
-                            stack.append(w)
-            seen_in: set[int] = set()
-            for v0 in ins:
-                if v0 in seen_in:
-                    continue
-                comp, stack, outs = {v0}, [v0], set()
-                seen_in.add(v0)
-                while stack:
-                    u = stack.pop()
-                    for w in adj[u]:
-                        if w in ins:
-                            if w not in seen_in:
-                                seen_in.add(w)
-                                comp.add(w)
-                                stack.append(w)
-                        else:
-                            outs.add(label[w])
-                if len(outs) >= 2:
-                    out.update(comp)
-        return frozenset(v for v in out if v not in air)
+        return frozenset(v for v in self.ribbon_vertices() if v not in air)
 
     def band_kerb_vertices(self, airside_roles: _t.AbstractSet[str] = frozenset()
                            ) -> frozenset[int]:

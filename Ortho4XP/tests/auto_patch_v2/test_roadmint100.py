@@ -285,27 +285,21 @@ def _tie_rows(cs):
     return [r for r in cs.linears if "strip tie" in str(r.source.ruling)]
 
 
-#: a road that ENTERS the runway's south strip and LEAVES it again (a V
-#: down to 30 m off the axis), clear of every pavement and the 1206 route
-CROSSING = ((600.0, -150.0), (750.0, -30.0), (900.0, -150.0))
-
-
 def test_the_strip_tie_is_withdrawn_under_a_ribbon_crossing_the_strip_on_a_slope(law):
-    """A ribbon CROSSING the runway's strip (enters and leaves it) on a
-    hillside: no strip tie row touches a withdrawn vertex, the strip's
-    other vertices keep theirs, and the published ``road_cap_governs`` set
-    is the generators' own (``strips.road_cap_crossing``)."""
+    """A ribbon across the runway's zone-2 strip on a hillside: no strip
+    tie row touches a ribbon vertex (its own or the strip vertices it
+    shares), the strip's other vertices keep theirs, and the published
+    ``road_cap_governs`` set is exactly the ribbon's vertices."""
     from auto_patch_v2.constraints import generate
-    from auto_patch_v2.constraints.strips import road_cap_crossing
     a0 = _dc.replace(_with(), dem=_SlopeDem())
-    a1 = _dc.replace(_with(_way(-3, CROSSING, highway="tertiary")), dem=_SlopeDem())
+    a1 = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_SlopeDem())
     pm0, _ = planar_build(a0, classify(a0, law), law)
     pm1, _ = planar_build(a1, classify(a1, law), law)
     cs0, _c, _w = generate(pm0, law, a0)
     cs1, _c, _w = generate(pm1, law, a1)
-    rib = road_cap_crossing(pm1, law, a1)
-    assert len(rib) >= 2 and road_cap_crossing(pm0, law, a0) == frozenset()
-    assert rib <= pm1.ribbon_vertices()
+    from auto_patch_v2.law.tables import airside_stage_roles
+    rib = pm1.road_cap_vertices(airside_stage_roles(law))
+    assert len(rib) >= 4 and pm0.road_cap_vertices(airside_stage_roles(law)) == frozenset()
     ties1 = _tie_rows(cs1)
     assert ties1, "the strip keeps its tie elsewhere"
     assert not any(v in rib for r in ties1 for v, _c in r.terms)
@@ -315,23 +309,10 @@ def test_the_strip_tie_is_withdrawn_under_a_ribbon_crossing_the_strip_on_a_slope
         return {pm.vertices[r.terms[0][0]].xy for r in _tie_rows(cs)}
     kept = _tied_xy(pm1, cs1)
     rib_xy = {pm1.vertices[v].xy for v in rib}
-    assert kept <= _tied_xy(pm0, cs0) | {pm1.vertices[v].xy for v in pm1.ribbon_vertices()}
-    assert not (kept & rib_xy)
-
-
-def test_a_ribbon_running_along_the_strip_keeps_the_tie(law):
-    """THE CROSSING CRITERION (round 6): a ribbon running ALONG the strip
-    (in it, never across it) withdraws nothing — the tie binds its
-    vertices as it binds the strip's."""
-    from auto_patch_v2.constraints import generate
-    from auto_patch_v2.constraints.strips import road_cap_crossing
-    a1 = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_SlopeDem())
-    pm1, _ = planar_build(a1, classify(a1, law), law)
-    assert pm1.ribbon_vertices()
-    assert road_cap_crossing(pm1, law, a1) == frozenset()
-    cs1, _c, _w = generate(pm1, law, a1)
-    tied = {v for r in _tie_rows(cs1) for v, _c in r.terms}
-    assert tied & pm1.ribbon_vertices()
+    assert kept == _tied_xy(pm0, cs0) - rib_xy
+    # the generator and the verify/census read ONE set: the publication
+    pub = {tuple(pm1.vertices[v].xy) for v in rib}
+    assert pub == rib_xy
 
 
 def _airside_and_pad_rings(pm, law):

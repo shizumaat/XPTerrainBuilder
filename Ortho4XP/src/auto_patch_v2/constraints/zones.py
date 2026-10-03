@@ -592,7 +592,13 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
             pad_pick[fid] = best[1]
     rim_of: dict[int, int] = {v: fid for fid, rim in ctx.rigid_rims.items() for v in rim}
     rows: list[Row] = []
+    # OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS: no tie row
+    # under a mapped-road ribbon — its own vertices and the strip vertices
+    # it shares; the road climbs at the road cap across the strip
+    road_cap = planar.ribbon_vertices()
     for v in sorted(ctx.tie_pop):
+        if v in road_cap:
+            continue
         fid_rigid = rim_of.get(v)
         if fid_rigid is not None and pad_pick.get(fid_rigid) != v:
             continue

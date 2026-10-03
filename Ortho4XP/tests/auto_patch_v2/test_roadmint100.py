@@ -215,3 +215,62 @@ def test_the_road_generator_names_the_stage_filter_reads_are_the_generators_own(
     assert _ROAD_GENERATORS == {roads.GEN, road_ramp.GEN, pavement_cap.GEN,
                                 ceiling.GEN}
     assert "apron_edge_portion" not in _ROAD_GENERATORS
+
+
+# ── OWNER RULINGS 2026-10-02ag (2) (#100) "ROAD CAP GOVERNS" ─────────────
+class _SlopeDem:
+    """A hillside across the runway's south strip: +0.5 m per metre south
+    of y = -20 (the road at y = -40 stands 10 m above the runway edge)."""
+    provenance = {"base": "synthetic"}
+
+    def z(self, x: float, y: float) -> float:
+        return 100.0 + max(0.0, -20.0 - y) * 0.5
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def _tie_rows(cs):
+    return [r for r in cs.linears if "strip tie" in str(r.source.ruling)]
+
+
+def test_the_strip_tie_is_withdrawn_under_a_ribbon_crossing_the_strip_on_a_slope(law):
+    """A ribbon across the runway's zone-2 strip on a hillside: no strip
+    tie row touches a ribbon vertex (its own or the strip vertices it
+    shares), the strip's other vertices keep theirs, and the published
+    ``road_cap_governs`` set is exactly the ribbon's vertices."""
+    from auto_patch_v2.constraints import generate
+    a0 = _dc.replace(_with(), dem=_SlopeDem())
+    a1 = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_SlopeDem())
+    pm0, _ = planar_build(a0, classify(a0, law), law)
+    pm1, _ = planar_build(a1, classify(a1, law), law)
+    cs0, _c, _w = generate(pm0, law, a0)
+    cs1, _c, _w = generate(pm1, law, a1)
+    rib = pm1.ribbon_vertices()
+    assert len(rib) >= 4 and pm0.ribbon_vertices() == frozenset()
+    ties1 = _tie_rows(cs1)
+    assert ties1, "the strip keeps its tie elsewhere"
+    assert not any(v in rib for r in ties1 for v, _c in r.terms)
+    # the strip's OTHER vertices are tied exactly as without the ribbon
+    # (by coordinate: the arrangement with the ribbon re-numbers vertices)
+    def _tied_xy(pm, cs):
+        return {pm.vertices[r.terms[0][0]].xy for r in _tie_rows(cs)}
+    kept = _tied_xy(pm1, cs1)
+    rib_xy = {pm1.vertices[v].xy for v in rib}
+    assert kept == _tied_xy(pm0, cs0) - rib_xy
+    # the generator and the verify/census read ONE set: the publication
+    pub = {tuple(pm1.vertices[v].xy) for v in rib}
+    assert pub == rib_xy
+
+
+def test_the_road_cap_governs_key_is_read_by_the_census_core(law):
+    """``verify/strips.runway_edge_tie`` skips a point inside the published
+    set and reads every other point as before — one core for the verify
+    and ``check_grade``."""
+    from auto_patch_v2.verify.strips import road_cap_geometry
+    g = road_cap_geometry([[60.0, -135.0]], lambda la, lo: ((lo + 135.0) * 1e5, (la - 60.0) * 1e5), law)
+    r = float(law.tables.emit.identity.min_distinct_spacing_m)
+    from shapely.geometry import Point
+    assert g.covers(Point(0.0, 0.0)) and g.covers(Point(0.5 * r, 0.0))
+    assert not g.covers(Point(3.0 * r, 0.0))
+    assert road_cap_geometry(None, None, law) is None

@@ -537,6 +537,22 @@ class PlanarMap:
     #: bank inside it and unions it into the coverage before the collar.
     seam_band_rings: tuple[tuple[tuple[float, float], ...], ...] = ()
 
+    def ribbon_vertices(self) -> frozenset[int]:
+        """OWNER RULINGS 2026-10-02ag (2) (#100) "ROAD CAP GOVERNS": every
+        vertex of a mapped-road ribbon face (:func:`is_osm_ribbon_ref`) —
+        the ribbon's own and the strip vertices it shares.  Under them the
+        runway strip's transverse tie is WITHDRAWN (``constraints/zones.
+        strip_transverse``, ``constraints/strips._end_foot_rows``) and the
+        road climbs at <= the road cap, no hill cut; the set is published
+        (sidecar ``road_cap_governs``) so the verify and the census read the
+        same withdrawal (``verify/strips.runway_edge_tie``)."""
+        out: set[int] = set()
+        for f in self.faces.values():
+            if f.role == "service_road" and is_osm_ribbon_ref(f.ref):
+                for cyc in (f.ring, *f.holes):
+                    out.update(self.ring_vertices(cyc))
+        return frozenset(out)
+
     def band_kerb_vertices(self) -> frozenset[int]:
         """30e (4) (spec-author RULINGS 2026-09-30e, 29r): the KERB a
         mapped-road ribbon shares with an adjacent-ground band — every

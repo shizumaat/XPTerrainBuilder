@@ -19,10 +19,24 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import airside_stage_roles, family
-from ..model.planar import NO_SHAPE, PlanarMap
+from ..model.planar import NO_SHAPE, PlanarMap, is_osm_ribbon_ref
 
 __all__ = ["weld_airside_faces", "airside_apron_roles", "airside_face_sets",
-           "inside_apron_body", "separated_label_pairs", "declarable_pairs"]
+           "inside_apron_body", "separated_label_pairs", "declarable_pairs",
+           "separator_faces"]
+
+#: A MAPPED-ROAD RIBBON IS UNLABELLED (#100 round 4, lane roadmint100e;
+#: RULINGS 2026-09-30aa rules 1-2; moved here from ``shapes._label_others``
+#: by the 1,000-line file law): its own vertices carry no shape, as a
+#: crossing road's do (08r-2) — its rows all survive the filter and it ramps
+#: at its own law (``shapes._label_roads`` skips it).  roadweld100's
+#: ``_label_ribbons`` gave them the majority contact shape, and a ribbon
+#: running from apron A to apron B then carried A-labelled vertices onto B's
+#: rim edges: every such edge is outside the apron body, so
+#: ``separated_label_pairs`` read (A, B) as SEPARATED and the airside's own
+#: weld through its apron faces was refused — measured HECA: 58 shapes for
+#: main's 52.
+RIBBON_UNLABELLED = True
 
 
 def airside_apron_roles(law: Law) -> frozenset[str]:
@@ -63,8 +77,25 @@ def airside_face_sets(pm: PlanarMap, law: Law) -> dict[str, frozenset[int]]:
     return dict(zip(_FIELDS, (
         frozenset(f for f, fa in pm.faces.items() if fa.role in apron),
         frozenset(f for f, fa in pm.faces.items() if fa.role in airside),
-        frozenset(v for f in pm.faces.values() if f.role in roadish
+        frozenset(v for f in separator_faces(pm, roadish)
                   for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)))))
+
+
+def separator_faces(pm: PlanarMap, roadish: _t.AbstractSet[str]) -> list:
+    """THE ROAD SEPARATORS (owner RULINGS 2026-09-08r-2): the road-family
+    faces — WITHOUT the mapped-road RIBBONS (RULINGS 2026-09-30aa rules 1-2,
+    owner 30z (1); issue #100 round 4).  A ribbon is a stage-2 face WELDED
+    to the airside at the rim's own nodes: it takes the airside's level and
+    never gives one, so it is no separator either.  MEASURED (HECA, lane
+    roadmint100e, replay vs sw1014): read as separators, 238 ribbons made
+    every welded apron rim vertex a road vertex, so apron pairs touching
+    one were never "inside the apron body" — 22 joints where main has 0
+    (``apron|apron`` 8 edges), 58 shapes for 52, 1,014 of the apron's own
+    rows withdrawn across the new joints and the apron pulled 2.03 m at
+    30.12313852458, 31.41538836594.  The 1206 corridor faces stay the
+    separators they were."""
+    return [f for f in pm.faces.values()
+            if f.role in roadish and not is_osm_ribbon_ref(getattr(f, "ref", ""))]
 
 
 #: the ``PlanarMap`` fields :func:`airside_face_sets` fills, in order
@@ -139,8 +170,19 @@ def separated_label_pairs(pm: PlanarMap, label: dict[int, int]
     labels are two shapes wherever that edge is, so they are never merged
     (#253: that merge is what lost KCLT's ``parking_lot|parking_lot``
     joint)."""
+    # A MAPPED-ROAD RIBBON'S EDGE IS NO WITNESS (#100 round 4, lane
+    # roadmint100e; RULINGS 2026-09-30aa rules 1-2): the ribbon is welded to
+    # the airside and stage 2's, and its edges are edges the airside does
+    # not have without it — measured HECA: a ribbon through a zone pocket
+    # inside dsf:objpav399's hole ran from a hole-ring vertex (shape 0) to
+    # a pad rim vertex (shape 15) and that one edge kept the two apart
+    # (53 shapes for main's 52, a joint [0, 15], the apron pulled 2.89 m).
+    ribbon = {fid for fid, f in pm.faces.items()
+              if is_osm_ribbon_ref(getattr(f, "ref", ""))}
     out: set[tuple[int, int]] = set()
     for e in pm.edges.values():
+        if e.left_face in ribbon or e.right_face in ribbon:
+            continue
         la, lb = label.get(e.a, NO_SHAPE), label.get(e.b, NO_SHAPE)
         if la != NO_SHAPE and lb != NO_SHAPE and la != lb \
                 and not inside_apron_body(pm, (e.a, e.b)):
@@ -212,7 +254,7 @@ def weld_airside_faces(pm: PlanarMap, law: Law, label: dict[int, int],
     if not roles:
         return
     roadish = set(family(law, "road_cross_section").roles)
-    on_road = {v for f in pm.faces.values() if f.role in roadish
+    on_road = {v for f in separator_faces(pm, roadish)     # never a ribbon (#100)
                for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
     for f in pm.faces.values():
         if f.role not in roles:

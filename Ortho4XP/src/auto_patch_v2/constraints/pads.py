@@ -80,7 +80,8 @@ from ..law.tables import (design as design_law, is_rigid_role, pavement_roles,
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.islands import courtyard_faces
-from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of
+from ..model.planar import (PlanarMap, is_collar_ref, is_osm_ribbon_ref,
+                            platform_ref_of)
 from .pad_relief import pad_relief_offsets
 from .precedence import view
 
@@ -217,8 +218,8 @@ def _pavement_faces(planar: PlanarMap, law: Law) -> list[tuple[str, set[int]]]:
     court = courtyard_faces(planar, law)
     out: list[tuple[str, set[int]]] = []
     for f in vw.faces_of_role(tuple(r for r in pavement_roles(law) if r not in rigid)):
-        if f.id in court:
-            continue                    # a pad never fronts its courtyard
+        if f.id in court or is_osm_ribbon_ref(f.ref):
+            continue                    # its courtyard; a ribbon (#100 (c))
         vs = {v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
         if vs:
             out.append((f.role, vs))
@@ -266,8 +267,13 @@ def _pavement_geoms(planar: PlanarMap, law: Law
     court = courtyard_faces(planar, law)
     out: list[tuple[str, set[int], Polygon]] = []
     for f in vw.faces_of_role(tuple(r for r in pavement_roles(law) if r not in rigid)):
-        if f.id in court:
-            continue                    # a pad never fronts its courtyard
+        # a pad never fronts its courtyard — nor a MAPPED-ROAD RIBBON (#100
+        # round 8, option (c): the ribbon contributes its own stage-2 rows
+        # only; a pad's frontage, hence its level, is the ribbon-free map's
+        # — measured HECA: building6 took a ribbon as its only frontage and
+        # moved 3.13 m whole-plate, building133 2.45 m)
+        if f.id in court or is_osm_ribbon_ref(f.ref):
+            continue
         vs = {v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
         ring = vw.rings[f.id]
         if not vs or len(ring) < 3:

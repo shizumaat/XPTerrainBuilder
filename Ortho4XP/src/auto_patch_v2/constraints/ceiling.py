@@ -105,6 +105,23 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         pav.update(vs)
         if f.role in road_roles:
             road_only.update(v for v in vs if v not in road_only)
+    # 30e (4): a ribbon's KERB shared with a zone band leads for the BAND
+    # (29r): a row from the kerb to anything but the ribbon (the strip's
+    # transverse pairs to the runway, the band's own pairs) is the band's
+    # law surface and is not twinned; a row from the kerb INTO the ribbon
+    # is the road's and keeps the road cap (29ab (1), 29ac)
+    from ..law.tables import airside_stage_roles as _asr
+    kerb = planar.band_kerb_vertices(_asr(law))   # never a pavement rim (#100 r4)
+    rib_vs: set[int] = set()
+    if kerb:
+        from ..model.planar import is_osm_ribbon_ref
+        for f in planar.faces.values():
+            if f.role in road_roles and is_osm_ribbon_ref(f.ref):
+                for ring in (f.ring, *f.holes):
+                    rib_vs.update(planar.ring_vertices(ring))
+
+    def _band_row(vset) -> bool:
+        return bool(kerb) and bool(vset & kerb) and not vset <= rib_vs
     # a vertex any NON-road pavement also touches is that pavement's
     # (the free-road ruling: only a genuinely free road keeps the 8 %)
     for f in planar.faces.values():
@@ -113,7 +130,15 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                 road_only.difference_update(planar.ring_vertices(ring))
     max_span = float(law.tables.emit.within_shape.withdrawn_chord_min_m)
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
-    src = Source(GEN, RULING, ())
+    # THE TWIN CARRIES THE FACE OF THE ROW IT TWINS (#100 round 5, lane
+    # roadmint100e; RULINGS 2026-09-30aa rule 1): ``solve/design_stage.
+    # _groundside_minter`` stages a WELDED ribbon's rows by the ``face:N``
+    # their source names, and a twin minted with no inputs slipped past it
+    # BY COLUMN — measured HECA (replay vs sw1014): 684 ceiling twins of the
+    # ribbons' own rows between two apron rim vertices entered stage 1 and
+    # pulled the apron 2.89 m at 30.12168150540, 31.42043668180.
+    def _src(row: Row) -> Source:
+        return Source(GEN, RULING, tuple(getattr(row.source, "inputs", ()) or ()))
     seen: set[tuple] = set()
     out: list[Row] = []
     # A PAD'S OWN CEILING IS STRICTER AND ALREADY HARD (owner 2026-09-09c,
@@ -167,7 +192,8 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         fol = _road_follows(row)
         if isinstance(row, Diff):
             vs: tuple[int, ...] = (row.a, row.b)
-            if not 0.0 < row.d <= max_span or not set(vs) <= pav:
+            if not 0.0 < row.d <= max_span or not set(vs) <= pav \
+                    or _band_row(set(vs)):
                 continue
             key = (min(vs), max(vs), fol is not None)
             if key in seen:
@@ -178,7 +204,7 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
             # a row the law itself prices ABOVE the ceiling (a yielded
             # runway, an altiport) is not twinned below its own cap — the
             # twin would re-make infeasible exactly what §50 made feasible.
-            out.append(Diff(row.a, row.b, max(cap, row.cap), row.d, src,
+            out.append(Diff(row.a, row.b, max(cap, row.cap), row.d, _src(row),
                             follows=fol))
             continue
         if not isinstance(row, Linear) or row.source.generator == GEN:
@@ -188,7 +214,7 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         if len(row.terms) not in (2, 3):
             continue
         vs2 = {v for v, _c in row.terms}
-        if not vs2 <= pav:
+        if not vs2 <= pav or _band_row(vs2):
             continue
         got = _span(row.terms, xy)
         if got is None:
@@ -204,5 +230,5 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         # §50.1 (6), the two-sided form: the twin's bound never falls
         # below the ROW'S OWN bound.
         bound = max(hc * cap * d, float(row.hi))
-        out.append(Linear(row.terms, -bound, bound, src, follows=fol))
+        out.append(Linear(row.terms, -bound, bound, _src(row), follows=fol))
     return out

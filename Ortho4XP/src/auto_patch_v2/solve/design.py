@@ -106,6 +106,7 @@ _LAG_OFF = 1.0e9
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
 from .design_stage import stage_split  # noqa: E402  (re-export: the §20b split)
+from .design_stage import _groundside_minter, _welded_faces, stage_one_on  # noqa: E402
 from .design_roles import (  # noqa: E402  (re-export)
     airside_stage_roles, airside_stage_vertices, conforming_rulings, groundside_pin_rulings, bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
 
@@ -433,6 +434,12 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     tol_ref = float(design_law(law).hard_tol_m)
     rep.fronting_promoted, rep.fronting_promoted_by = 0, {}
     ap_hard = apron_hard_rows(planar, law)   # §5: the apron cap HARD (30be/30bf)
+    # RULINGS 2026-09-30aa rule 1 (#100; owner 30z (1): a road never moves
+    # the airside): a row MINTED by a WELDED road face (the mapped-road
+    # ribbon) is stage 2's WHATEVER ITS COLUMNS — a ribbon ring pair footed
+    # on two rim vertices has only airside columns, and stage 1 took it by
+    # column (30aa (b)).  The minting face is the row's own ``face:N``.
+    gs_minted = _groundside_minter(planar, law) if drop_f else None
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -442,6 +449,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if conform and (getattr(row, "follows", None) is not None
                         or ruling_head(row) in conform):
             stage_dropped += 1        # §20b (1b): a conforming row is stage 2's
+            continue
+        if gs_minted is not None and gs_minted(row):
+            stage_dropped += 1        # 30aa rule 1: a groundside face's row
             continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
@@ -525,6 +535,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                         or ruling_head(side[2]) in conform):
             stage_dropped += 1        # §20b (1b)
             continue
+        if gs_minted is not None and gs_minted(side[2]):
+            stage_dropped += 1        # 30aa rule 1
+            continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
             continue
@@ -584,8 +597,14 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #    no route and pinned by nothing — its datum is ITS OWN TERRAIN PLANE
     #    too, even where a shared vertex ties it to the airside sheet.  The
     #    airside design surface is never given one.
+    #    RULINGS 2026-09-30aa rule 1: a WELDED road face's datum is a row
+    #    that face MINTS — stage 2's, never stage 1's (in stage 1 its only
+    #    columns are the rim vertices it shares: its plane would pull the
+    #    apron toward the road's terrain), so stage 1 reads the bodies
+    #    without the ribbons
     gs_roles = {r for r in pav_roles if role_side(law, r) == "groundside"}
-    for vs in _role_bodies(planar, gs_roles, red):
+    welded = _welded_faces(planar) if drop_f else set()
+    for vs in _role_bodies(planar, gs_roles, red, welded):
         by_comp.setdefault(("groundside", vs[0]), vs)
     #    A RIGID GROUP (a pad, a plate, a wall band) is ONE column, so its
     #    own bending rows collapse to nothing: bending gives it no level at
@@ -764,9 +783,13 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  stage2_rewrite: _t.Callable[
                      [_t.Mapping[int, float]],
                      tuple[ConstraintSet, dict]] | None = None,
-                 hold: _t.Any = None
+                 hold: _t.Any = None,
+                 stage1: _t.Any = None
                  ) -> tuple[Solution, DesignReport]:
     """THE DESIGN SURFACE, in ONE stage or TWO (§20b).
+
+    ``stage1`` (#100 option (c), ``design_stage.stage_one_on``): stage 1
+    assembled on the RIBBON-FREE map; ``None``: on ``planar`` itself.""
 
     ``stage2_rewrite`` (owner RULINGS 2026-09-27a (11)): the caller's
     rewrite of the constraint set from STAGE 1's solved levels, applied
@@ -825,14 +848,20 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               stage_roles=airside_stage_roles(law))
         return so, rp, d_x, f_x, lv, sz
     t1 = time.perf_counter()
-    # issue #87's stage-1 pin yield runs INSIDE each pass (``flex.stage_one``)
-    planar, cs, (sol1, rep1, drop, foreign, levels, size1), pass1a, yielded1 = \
-        stage_one(planar, cs, law, hold, _s1)
     from .pin_yield import stage1_read_pins
     yield_heads = frozenset(
         getattr(design_law(law), "yielding_pin_rulings", ()) or ())
-    s1_read = (stage1_read_pins(cs, yield_heads, drop) | {int(r["v"]) for r in yielded1}
-               if yield_heads else frozenset())
+    strip_rep = None
+    if stage1 is not None:              # #100 option (c): the ribbon-free map
+        (sol1, rep1, drop, foreign, levels1, size1), pass1a, yielded1, levels, \
+            s1_read, strip_rep = stage_one_on(stage1, law, _s1, yield_heads)
+        planar, hold, strips = stage1.planar_of_full(planar), stage1.hold, None
+    else:
+        # issue #87's stage-1 pin yield runs INSIDE each pass (``flex.stage_one``)
+        planar, cs, (sol1, rep1, drop, foreign, levels, size1), pass1a, yielded1 = \
+            stage_one(planar, cs, law, hold, _s1)
+        s1_read = (stage1_read_pins(cs, yield_heads, drop) | {int(r["v"]) for r in yielded1}
+                   if yield_heads else frozenset())
     w1 = time.perf_counter() - t1
     # THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3; jetway-strip spec §2
     # (4)): a PROJECTION of stage 1's airside answer, applied before stage
@@ -841,7 +870,6 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # zero by construction.  ``strips`` is ``model.jetway.StripSet``,
     # derived by the caller (``constraints.jetway_strip``: this layer may
     # not import ``constraints``).
-    strip_rep = None
     if strips:
         from .project_strip import project_strips
         strip_rep = project_strips(planar, law, strips, levels, sol1.z,
@@ -856,7 +884,12 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if yielded1:
             from .pin_yield import release_pins
             cs = release_pins(cs, {int(r["v"]) for r in yielded1}, yield_heads)
-    if pass1a is not None and hasattr(hold, "apply"):
+    elif stage1 is not None and yielded1 and yield_heads:
+        from .pin_yield import release_pins
+        cs = release_pins(cs, {int(r["v"]) for r in yielded1}, yield_heads)
+    if stage1 is not None:
+        cs = stage1.apply_full(cs)  # pass 1b's hold law, carried by the join
+    elif pass1a is not None and hasattr(hold, "apply"):
         cs = hold.apply(cs)        # stage 2 states pass 1b's hold law (§4)
     t2 = time.perf_counter()
     sol2, rep2 = _solve_stage(planar, cs, law, options, size_out=size_out,
@@ -890,7 +923,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep2.stage1_unlevelled = rep1.stage1_unlevelled
     rep2.stage_dropped_rows = rep1.stage_dropped_rows
     if hold is not None:
-        rep2.runway_flex = hold.finish(levels, sol1.z,
+        rep2.runway_flex = hold.finish(levels if stage1 is None else levels1, sol1.z,
                                        caps_held=bool(rep1.hard_settled))
     rep2.stages = {"stage1": dict(rep1.as_dict(), wall_s=round(w1, 3),
                                   projection_line=rep1.runway_projection.line(),
@@ -906,6 +939,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               "rounds": rep2.rounds, "wall_s": round(w2, 3)}}
     if pass1a is not None:
         rep2.stages["stage1a"] = pass1a
+    if stage1 is not None:
+        rep2.stages["stage1_map"] = dict(stage1.report)   # #100 option (c)
     rep2.stages["stage1"]["hard_feasibility"] = publish_stages(rep1, rep2, pass1a=pass1a, law=law)
     # THE HARD SET IS THE COMBINATION (§20b's census table): an airside hard
     # row carries no column in stage 2 — it was enforced and read in stage 1,

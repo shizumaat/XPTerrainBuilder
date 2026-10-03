@@ -189,7 +189,7 @@ def test_a_fence_along_a_bordered_run_is_recorded_as_the_terrace_witness(law, tm
     lines += poly(0, [(620.0, -47.0), (750.0, -47.0), (880.0, -47.0)])
     lines += poly(1, [(620.0, -110.0), (750.0, -110.0), (880.0, -110.0)])
     dump = tmp_path / "x.dsf.txt"
-    dump.write_text("\n".join(lines) + "\n")
+    dump.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     wit = terrace_witness(pm1, a1, sol1.z, load_rules(), str(dump))
     assert [w["object"] for w in wit] == ["objects/vele_fence.fac"]
     w = wit[0]

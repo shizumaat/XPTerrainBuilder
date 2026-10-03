@@ -706,6 +706,43 @@ def _dissolve_rest_slivers(rests: list, pieces: list, area_max: float,
     return [g for g in keep if g is not None], out_pieces, stats
 
 
+def _enclosed_rests_to_plateau(rests: list, pieces: list) -> tuple[list, list, int]:
+    """A REST PART INSIDE A PLATEAU PIECE'S OUTLINE IS THE PLATEAU'S
+    (issue #288).
+
+    The zone is filled to its outline (``plateau_cut``), but the ring
+    QUANTISATION can still close a hole in a piece the raw cut did not
+    have (HECA building4/b3: 43.2 m2 at 30.1096273, 31.39589).  ``region -
+    piece`` turns such a hole into a rest part ENCLOSED by the plateau: it
+    borders no apron ring and no rest body, so neither 10-02x (2)'s "rejoin
+    the apron host" nor the scrap tiers can reach it, and it stood as an
+    apron face of its own inside the plateau — a separate surface the
+    plateau's own rows never see (the 1.92 m pit of #288 was this class).
+    What really is not plateau inside an outline — a pad, a building — is
+    a hole of the REGION, so it is never a rest part and is untouched here.
+
+    Returns ``(rests, pieces, n_enclosed)``; a union that does not come out
+    ONE polygon leaves the part where it was."""
+    if not rests or not pieces:
+        return rests, pieces, 0
+    pieces = list(pieces)
+    outlines = [Polygon(p.exterior) for p in pieces]
+    kept: list = []
+    n = 0
+    for g in rests:
+        host = next((k for k, o in enumerate(outlines)
+                     if o.covers(g) or g.difference(o).area <= 1e-9 * max(g.area, 1.0)),
+                    None)
+        if host is not None:
+            u = _flat_polys(shapely.make_valid(pieces[host].union(g)))
+            if len(u) == 1:
+                pieces[host] = u[0]
+                n += 1
+                continue
+        kept.append(g)
+    return kept, pieces, n
+
+
 def _held_span(samples, ramp, depth: float):
     """The SPAN of a held block's HELD contacts (spec v2 §3): the union of
     each consecutive held-sample segment's flat-capped band ``depth`` wide
@@ -718,14 +755,34 @@ def _held_span(samples, ramp, depth: float):
     flags = [bool(r) for r in (ramp if ramp is not None else [False] * len(pts))]
     gaps = sorted(_m.dist(a, b) for a, b in zip(pts, pts[1:]))
     step = gaps[len(gaps) // 2] if gaps else 0.0
-    bands = []
+    # ONE BAND PER RUN of consecutive held segments, never one per segment
+    # (issue #288): a 2 m segment's own flat-capped band, ``depth`` (90 m at
+    # HECA) to each side, fans away from its neighbour's at every bend of
+    # the frontage, and the union of the fan is a comb — a thin open wedge
+    # (a SPINE, ~1 m x 45 m at 30.1133729, 31.4011679) on the outside of
+    # every bend and a closed micro-hole wherever two wedges met (HECA
+    # building4/b1: 122 zone holes, 57 of them left in the plateau piece,
+    # each a rest scrap standing as an apron face of its own inside the
+    # plateau, 1.92 m under it).  A run is buffered as ONE line: the flat
+    # caps stay at the run's ends (the ramp stretch between two blocks is
+    # still covered by neither) and the bends take the buffer's own round
+    # join, which is the band the frontage actually sweeps.
+    runs: list[list] = []
+    cur: list = []
     for i in range(len(pts) - 1):
-        if flags[i] or flags[i + 1]:
-            continue
         d = _m.dist(pts[i], pts[i + 1])
-        if d <= 0.0 or d > 3.0 * step:          # a jump in the sample order
+        if flags[i] or flags[i + 1] or d <= 0.0 or d > 3.0 * step:
+            if len(cur) >= 2:                  # a ramp, or a jump in the
+                runs.append(cur)               # ... sample order: the run ends
+            cur = []
             continue
-        bands.append(LineString([pts[i], pts[i + 1]]).buffer(depth, cap_style="flat"))
+        if not cur:
+            cur = [pts[i]]
+        cur.append(pts[i + 1])
+    if len(cur) >= 2:
+        runs.append(cur)
+    bands = [LineString(r).buffer(depth, cap_style="flat", join_style="round")
+             for r in runs]
     return unary_union(bands) if bands else None
 
 
@@ -775,7 +832,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
                     "plateau_rest_dissolved": 0, "plateau_rest_dropped": 0,
                     "plateau_rest_padded": 0, "plateau_rest_kept": 0,
                     "plateau_rest_sliver_m2": 0.0,
-                    "plateau_rest_kept_m2": 0.0}
+                    "plateau_rest_kept_m2": 0.0, "plateau_rest_enclosed": 0}
     if not HELD or airport is None or (D <= 0.0 and Rz <= 0.0):
         return base_regions, counts
     # every pad's outline, keyed by its PLATFORM ref (a block's collar joins
@@ -858,6 +915,17 @@ def plateau_cut(base_regions, pad_regions, law, airport,
         if not parts:
             continue
         zone = unary_union(parts).intersection(span).simplify(ident)
+        # THE ZONE IS ITS OUTLINE (issue #288): a hole the union of the
+        # rider rectangles, the stand discs and the span leaves INSIDE the
+        # zone is apron the stand zone encloses — never a ground the
+        # plateau fronts.  Cut out, it is a rest part the host's body can
+        # never reach (enclosed by the plateau), so it stood as an apron
+        # face of its own inside the plateau (HECA building4/b1: a 692 m2
+        # island at 30.1125488, 31.4011612; building4/b3 three of 24-43
+        # m2).  The plateau takes it.  What really is not apron inside the
+        # zone — a pad, a building — is a HOLE OF THE REGION and stays one
+        # through ``region ∩ zone`` below.
+        zone = unary_union([Polygon(g.exterior) for g in _flat_polys(zone)])
         if zone.is_empty:
             continue
         zones[b] = (zone, "+".join(sorted(src)))
@@ -940,6 +1008,8 @@ def plateau_cut(base_regions, pad_regions, law, airport,
             # ground scrap is dissolved back into the host region's own
             # rest part, and where the chord pinched it off at a point it
             # STANDS, as an apron face of the host
+            rests, pieces, n_enc = _enclosed_rests_to_plateau(rests, pieces)
+            counts["plateau_rest_enclosed"] += n_enc
             rests, pieces, rsl = _dissolve_rest_slivers(
                 rests, pieces, sliver_m2, pad_fill=pad_fill)
             counts["plateau_rest_dissolved"] += rsl["dissolved"]

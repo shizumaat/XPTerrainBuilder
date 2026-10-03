@@ -156,11 +156,6 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # ``[[[lat, lon], ...], ...]`` rings — the runway-edge tie (verify and
     # census, one core) reads the bank-slope fall inside them.
     "natural_shore",
-    # OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS: the vertices
-    # under a mapped-road ribbon where the runway strip's transverse tie is
-    # WITHDRAWN, ``[[lat, lon], ...]`` — the runway-edge tie (verify and
-    # census, one core) reads no hit on them
-    "road_cap_governs",
     # §33 (6) THE OBJECT CUTS (owner RULINGS 2026-09-15e/15g; lane
     # `v2objcut`): per signature-B corridor, the PACK OBJECT'S own wall
     # line as a lat/lon ring and the AUTHORED floor its floor plate

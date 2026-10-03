@@ -537,41 +537,6 @@ class PlanarMap:
     #: bank inside it and unions it into the coverage before the collar.
     seam_band_rings: tuple[tuple[tuple[float, float], ...], ...] = ()
 
-    def ribbon_vertices(self) -> frozenset[int]:
-        """OWNER RULINGS 2026-10-02ag (2) (#100) "ROAD CAP GOVERNS": every
-        vertex of a mapped-road ribbon face (:func:`is_osm_ribbon_ref`) —
-        the ribbon's own and the strip vertices it shares.  Under them the
-        runway strip's transverse tie is WITHDRAWN (``constraints/zones.
-        strip_transverse``, ``constraints/strips._end_foot_rows``) and the
-        road climbs at <= the road cap, no hill cut; the set is published
-        (sidecar ``road_cap_governs``) so the verify and the census read the
-        same withdrawal (``verify/strips.runway_edge_tie``)."""
-        out: set[int] = set()
-        for f in self.faces.values():
-            if f.role == "service_road" and is_osm_ribbon_ref(f.ref):
-                for cyc in (f.ring, *f.holes):
-                    out.update(self.ring_vertices(cyc))
-        return frozenset(out)
-
-    def band_kerb_vertices(self) -> frozenset[int]:
-        """30e (4) (spec-author RULINGS 2026-09-30e, 29r): the KERB a
-        mapped-road ribbon shares with an adjacent-ground band — every
-        vertex touching both an OSM ribbon face (:func:`is_osm_ribbon_ref`)
-        and a ``graded_strip`` face.  It is the BAND's vertex: the band's
-        rows lead there, and no road generator prices it as road."""
-        rib: set[int] = set()
-        band: set[int] = set()
-        for f in self.faces.values():
-            if f.role == "graded_strip":
-                tgt = band
-            elif f.role == "service_road" and is_osm_ribbon_ref(f.ref):
-                tgt = rib
-            else:
-                continue
-            for cyc in (f.ring, *f.holes):
-                tgt.update(self.ring_vertices(cyc))
-        return frozenset(rib & band)
-
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of
         every face touching vertex ``v`` (I5 — the record, never a
@@ -724,15 +689,3 @@ def _check_cycle(pm: PlanarMap, fid: int, cycle: tuple[int, ...]) -> None:
                               f"from vertex {prev_end}")
     if prev_end != first_start:
         raise PlanarError(f"I4 face {fid}: cycle does not close")
-
-
-#: 30e (6): the FEED prefix a mapped-road ribbon's ref carries
-#: (``small_roads:-3``) — ``classify/roles.mint_osm_ribbons`` spells refs
-#: with it; the ONE reading every layer asks through
-#: :func:`is_osm_ribbon_ref`.
-OSM_RIBBON_FEEDS = {"airport_small_roads": "small_roads", "big_roads": "big_roads"}
-
-
-def is_osm_ribbon_ref(ref) -> bool:
-    """A face ref the widened road-face mint spelled (30e (6))."""
-    return str(ref or "").split(":", 1)[0] in OSM_RIBBON_FEEDS.values()

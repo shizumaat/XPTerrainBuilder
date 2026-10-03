@@ -399,13 +399,10 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
     # a wall vertex carries the crest (the DEM, 2026-09-03b L1) and no
     # chord from the runway end binds it — the zones stop at the wall
     walls = {v for f in vw.faces_of_role(("retaining_wall",)) for v in vw.rings[f.id]}
-    # OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS: no end-foot
-    # chord under a mapped-road ribbon (``PlanarMap.ribbon_vertices``)
-    road_cap = vw.pm.ribbon_vertices()
     rows: list[Row] = []
     for fid, ids, xy in _strip_rings(vw):
         for k, v in enumerate(ids):
-            if v in vw.pavement_vertices or v in walls or v in road_cap:
+            if v in vw.pavement_vertices or v in walls:
                 continue
             x, y = xy[k]
             # THE NEAREST POINT of the nearest end edge (§35 (1)): ``t``

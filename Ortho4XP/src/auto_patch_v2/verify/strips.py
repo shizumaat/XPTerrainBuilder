@@ -54,7 +54,7 @@ from .no_step import rate_breaches
 __all__ = ["groups", "strip_longitudinal", "strip_arc", "resa_transverse",
            "raoa", "adjacent_ground_tear", "strip_seam_tear", "strip_transverse",
            "runway_edge_tie", "TiePoint", "TieEdge", "TieHit",
-           "natural_shore_geometry", "road_cap_geometry"]
+           "natural_shore_geometry"]
 
 FAMILY_STRIP_TRANSVERSE = "strip_transverse"
 RUNWAY_FAMILY = ("runway", "runway_crossing")
@@ -93,7 +93,7 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
                     axes: _t.Mapping[str, tuple[tuple[float, float], tuple[float, float], float]],
                     law, q: float, edge_tol: float,
                     all_hits: bool = False,
-                    natural_shore=None, road_cap=None) -> list[TieHit]:
+                    natural_shore=None) -> list[TieHit]:
     """THE RUNWAY-EDGE TIE, geometric (module docstring; RULINGS
     2026-09-06p (1)/(3)): for every point its nearest runway-family ring
     edge whose runway's lateral extent holds it abeam (``axes[ref] =
@@ -126,12 +126,6 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
     half_of: dict[tuple, float | None] = {}
     out: list[TieHit] = []
     for vid, x, y, z, both, label in points:
-        # OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS: under a
-        # mapped-road ribbon the tie is withdrawn (the generator minted no
-        # row there); ``road_cap`` is the published set, one reading for
-        # the verify and the census
-        if road_cap is not None and road_cap.covers(_ShPoint(x, y)):
-            continue
         cx, cy = int(x // cell), int(y // cell)
         best = None
         for dx in (-1, 0, 1):
@@ -538,9 +532,8 @@ def strip_transverse(p: Patch) -> list[Row]:
     pts.sort()
     out: list[Row] = []
     shore = natural_shore_geometry(p.publication.get("natural_shore"), p.to_m, law)
-    road_cap = road_cap_geometry(p.publication.get("road_cap_governs"), p.to_m, law)
     for h in runway_edge_tie(pts, edges, axes, law, q, edge_tol,
-                             natural_shore=shore, road_cap=road_cap):
+                             natural_shore=shore):
         role = str(h.label)
         r = row(FAMILY_STRIP_TRANSVERSE, (role, "runway"),
                 p.side(role) if role in law.tables.precedence.roles else p.side("graded_strip"),
@@ -559,19 +552,6 @@ def _ref_of(p: Patch, rings) -> str:
         if sh.role == "runway" and all(point_in_rect_ring(x, y, rings[0]) for x, y in sh.xy[:3]):
             return sh.ref
     return ""
-
-
-def road_cap_geometry(points_ll, to_m, law):
-    """OWNER RULINGS 2026-10-02ag (2): the published ``road_cap_governs``
-    vertices (sidecar, ``[[lat, lon], ...]``) as ONE geometry in the
-    reader's metres frame — each grown by the identity spacing so the
-    emitted vertex reads inside.  ``None`` when the patch publishes none."""
-    if not points_ll:
-        return None
-    from shapely.ops import unary_union
-    r = float(law.tables.emit.identity.min_distinct_spacing_m)
-    pts = [_ShPoint(*to_m(float(a), float(b))).buffer(r) for a, b in points_ll]
-    return unary_union(pts) if pts else None
 
 
 def natural_shore_geometry(rings_ll, to_m, law):

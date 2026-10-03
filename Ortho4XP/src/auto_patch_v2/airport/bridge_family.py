@@ -86,7 +86,8 @@ from .rebake_plan import _mpd as _m_per_deg
 import math as _math
 
 __all__ = ["DeckPrint", "deck_prints", "bridge_of_point", "CONTACT_M",
-           "assign_bodies", "body_bridge",
+           "assign_bodies", "body_bridge", "Viaduct", "unit_viaducts", "frame_of", "viaduct_units",
+           "landing_pieces",
            "census_bridges", "census_bridges_lines", "bridge_tag"]
 
 #: §16e (3): "centroid-in-polygon or within 0.5 m of it".  The spec's own
@@ -434,6 +435,163 @@ def body_bridge(bridge: _t.Sequence[str], grp: _t.Sequence[int]) -> str:
     keys = {bridge[i] for i in grp if i < len(bridge)}
     keys.discard("")
     return keys.pop() if len(keys) == 1 else ""
+
+
+# ── owner RULINGS 2026-10-03e (#290): A UNIT'S VIADUCT ──────────────────
+
+@_dc.dataclass(frozen=True)
+class Viaduct:
+    """A deck that is a MEMBER of a terminal unit (owner RULINGS
+    2026-10-03e): the whole viaduct — deck, piers, sidewalks, railings,
+    signs, kerbs — rides the unit's level as ONE rigid unit.
+
+    ``uid`` / ``zero`` / ``where`` / ``src`` are the plan-wide §16g seat
+    row of the unit (``footprint_unit.plan_wide_seats``) the deck's own
+    model footprint stands in; ``voters`` the parts of that unit (of
+    members sharing the deck's placement origin and heading) whose plan
+    centre lies inside the footprint — the piers and sidewalks that make
+    the deck the unit's."""
+
+    deck: str
+    unit: int
+    member: int
+    uid: str
+    zero: float
+    where: str
+    src: str
+    voters: int
+    #: the deck's placement frame ``(lat, lon, heading)`` — what a piece
+    #: BESIDE the plate must share to be the viaduct's (:func:`frame_of`)
+    frame: tuple = ()
+
+
+def frame_of(m: _t.Any) -> "tuple | None":
+    """A member's PLACEMENT FRAME — its pack row's origin and heading —
+    or None for a plan written without origins."""
+    org = getattr(m, "origin", None)
+    if org is None:
+        return None
+    return (round(float(org[0]), 9), round(float(org[1]), 9),
+            round(float(getattr(m, "heading_deg", 0.0)), 6))
+
+
+def unit_viaducts(prints: _t.Sequence[DeckPrint], plan: _t.Any,
+                  plan_wide: _t.Mapping[int, tuple],
+                  counts: "dict | None" = None) -> dict[str, Viaduct]:
+    """owner RULINGS 2026-10-03e: WHICH DECKS ARE A UNIT'S — derived ONCE
+    PER PLAN, keyed by the deck's resource.
+
+    A deck is a unit member where parts of a §16g plan-wide unit, authored
+    in members that SHARE THE DECK'S PLACEMENT ORIGIN AND HEADING (one
+    pack row, one authored frame), stand inside the deck's own model
+    footprint (:meth:`DeckPrint.contains`, §16e (3)'s contact reach) AND
+    that unit holds parts OUTSIDE the footprint too — it is a terminal
+    with a viaduct, not a bridge whose own piers chained into a unit of
+    their own.  The unit is the plurality of those parts (ties: the lower
+    unit id).  A deck no such unit claims is FREE-STANDING and keeps 2026-
+    09-30g (3) — it is not in the result.
+
+    A plan without placement origins (``Member.origin`` None, version
+    < 12) names no viaduct: shared origin is the ruling's own evidence."""
+    out: dict[str, Viaduct] = {}
+    if not prints or not plan_wide:
+        return out
+    rows: dict[str, tuple] = {}
+    for r in plan_wide.values():
+        rows.setdefault(r[0], r)
+    for key, (uid, voters, frame, p) in sorted(viaduct_units(
+            prints, plan, lambda q: (plan_wide.get(q.pid) or ("",))[0],
+            counts).items()):
+        row = rows[uid]
+        out[key] = Viaduct(key, p.unit, p.member, uid, float(row[1]),
+                           str(row[2]), str(row[3]), voters, frame)
+    return out
+
+
+def viaduct_units(prints: _t.Sequence[DeckPrint], plan: _t.Any,
+                  key_of: _t.Callable[[_t.Any], "str | None"],
+                  counts: "dict | None" = None
+                  ) -> dict[str, tuple[str, int, tuple, DeckPrint]]:
+    """THE ONE DERIVATION of owner RULINGS 2026-10-03e's relation — which
+    unit a deck belongs to — over any reading of "unit": ``key_of(part)``
+    names the unit a pack part stands in (the object stage: its §16g
+    plan-wide seat row; the planar stage: the held platform BLOCK its
+    centre stands on, ``planar.landing``), ``None``/``""`` for none.
+
+    ``{deck key: (unit key, voters, deck frame, print)}``: the plurality
+    (ties: the lower key) of the parts of members SHARING THE DECK'S
+    PLACEMENT FRAME whose plan centre lies inside the deck's model
+    footprint, kept only where that unit holds parts OUTSIDE the footprint
+    too.  Every other deck is FREE-STANDING and absent."""
+    out: dict[str, tuple[str, int, tuple, DeckPrint]] = {}
+    if not prints:
+        return out
+    total: dict[str, int] = {}
+    keyed: list = []
+    for ui, u in enumerate(plan.units):
+        for mi, mm in enumerate(u.members):
+            fr = frame_of(mm)
+            for q in mm.parts:
+                k = key_of(q)
+                if not k:
+                    continue
+                total[k] = total.get(k, 0) + 1
+                keyed.append((fr, ui, mi, q, k))
+    for p in prints:
+        frame = frame_of(plan.units[p.unit].members[p.member])
+        if frame is None:
+            continue
+        votes: dict[str, int] = {}
+        for fr, ui, mi, q, k in keyed:
+            if fr != frame or (ui, mi) == (p.unit, p.member):
+                continue
+            b = q.box
+            if p.contains(0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])):
+                votes[k] = votes.get(k, 0) + 1
+        votes = {k: v for k, v in votes.items() if total.get(k, 0) > v}
+        if not votes:
+            if counts is not None:
+                counts["viaduct_decks_free_standing"] = \
+                    counts.get("viaduct_decks_free_standing", 0) + 1
+            continue
+        k = min(votes, key=lambda x: (-votes[x], x))
+        out[p.key] = (k, votes[k], frame, p)
+        if counts is not None:
+            counts["viaduct_decks_of_a_unit"] = \
+                counts.get("viaduct_decks_of_a_unit", 0) + 1
+    return out
+
+
+def landing_pieces(p: DeckPrint, band_m: float
+                   ) -> list[tuple[tuple[tuple[float, float], ...], float]]:
+    """owner RULINGS 2026-10-03e: THE RAMP LANDINGS of a deck — every
+    triangle of its model footprint CLIPPED to where the deck's authored
+    surface stands within ``band_m`` of its lowest ``y`` (a ramp end; a
+    long ramp triangle contributes its low sliver), as ``(lat/lon ring,
+    LOWEST authored y of the piece)`` — the landing's foot.  The caller unions the pieces in its
+    own plan frame into the landings."""
+    if not p.tris or len(p.ys) != len(p.tris):
+        return []
+    lo = min(y for t in p.ys for y in t)
+    cut = lo + float(band_m)
+    out = []
+    for t, ys in zip(p.tris, p.ys):
+        if min(ys) > cut:
+            continue
+        pts: list = []
+        for i in range(3):
+            a, b = t[i], t[(i + 1) % 3]
+            ya, yb = ys[i], ys[(i + 1) % 3]
+            if ya <= cut:
+                pts.append((a[0], a[1], ya))
+            if (ya <= cut) != (yb <= cut) and yb != ya:
+                f = (cut - ya) / (yb - ya)
+                pts.append((a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1]),
+                            cut))
+        if len(pts) >= 3:
+            out.append((tuple((q[0], q[1]) for q in pts),
+                        min(q[2] for q in pts)))
+    return out
 
 
 # ── the instrument (§16e (3)'s bars) ─────────────────────────────────────

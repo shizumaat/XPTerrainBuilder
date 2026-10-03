@@ -13,7 +13,8 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Platform", "PLATFORMS", "HELD", "PLATEAUS", "plateau_vertices",
+__all__ = ["Platform", "PLATFORMS", "HELD", "LANDINGS", "LANDING_SEP",
+           "is_landing_ref", "PLATEAUS", "plateau_vertices",
            "held_platform_vertices",
            "datum_vertex_of", "datum_vertices", "stage_air_vertices"]
 
@@ -58,6 +59,26 @@ PLATFORMS: list[Platform] = []
 #: ``planar/platform.platform_split``; ``[building_pad] frontage_hold``
 #: off leaves it empty.
 HELD: dict[str, dict[str, _t.Any]] = {}
+
+#: owner RULINGS 2026-10-03e (#290): the last arrangement's RAMP LANDINGS
+#: of a unit's viaduct — ``<unit ref>/landing<k>`` (its collar
+#: ``.../landing<k>#collar``) -> ``{"block", "y", "deck", "area_m2"}``: a
+#: flat groundside pad held in stage 2 at the block's datum + the deck's
+#: authored ``y`` there (``constraints/platform.landing_rows``).  Minted by
+#: ``planar/landing.landing_regions`` from ``platform_split``.  The
+#: spelling is NOT a block's (``model.planar.block_of`` reads ``/b<k>``):
+#: a landing is never a block of its unit.
+LANDINGS: dict[str, dict[str, _t.Any]] = {}
+
+#: the landing ref's separator (``<unit ref>/landing<k>``)
+LANDING_SEP = "/landing"
+
+
+def is_landing_ref(ref: object) -> bool:
+    """Is this face ref a viaduct ramp LANDING (platform or collar)?"""
+    r = str(ref).split("#", 1)[0]
+    i = r.rfind(LANDING_SEP)
+    return i > 0 and r[i + len(LANDING_SEP):].isdigit()
 
 
 #: flat-pad spec v2 §3: the last arrangement's PLATEAUS — held block ref ->

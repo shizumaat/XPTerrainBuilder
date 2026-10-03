@@ -465,6 +465,11 @@ def pad_datum_withdrawn(planar: PlanarMap, law: Law) -> set[int]:
             continue
         sh = shared.get(fid, set())
         out.update(v for v in group if v not in sh)
+    # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING is held
+    # at its deck's level, never at the building's terrain
+    from .platform import landing_vertices
+    for vs in landing_vertices(planar).values():
+        out.update(vs)
     return out
 
 

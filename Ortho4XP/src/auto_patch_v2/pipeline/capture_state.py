@@ -47,6 +47,7 @@ registry                             written by (stage)             read by     
 ``model.platform.HELD``              ``planar/platform``,           ``constraints/{platform,no_step,     CARRIED
                                      ``planar/pad_cut``             jetway_strip}``, ``model/platform``
 ``model.platform.PLATEAUS``          ``planar/pad_cut``             ``constraints/platform``             CARRIED
+``model.platform.LANDINGS``          ``planar/landing``             ``constraints/{platform,pads}``      CARRIED
 ``model.platform.PLATFORMS``         ``planar/platform``            ``constraints/platform``,            CARRIED
                                                                     ``pipeline/publication``
 ``model.pad_terrace.TERRACES``       ``planar/pad_terrace``,        ``constraints/pad_fronting``,        CARRIED
@@ -144,6 +145,10 @@ REGISTRIES: tuple[Registry, ...] = (
     Registry("plateaus", "auto_patch_v2.model.platform", "PLATEAUS",
              "planar/pad_cut.py (the planar stage)",
              ("constraints/platform.py (the stand-line plateau)",)),
+    Registry("landings", "auto_patch_v2.model.platform", "LANDINGS",
+             "planar/landing.py via planar/platform.py (the planar stage)",
+             ("constraints/platform.py (the landing level rows, RULINGS 2026-10-03e)",
+              "constraints/pads.py (the DEM-datum withdrawal)")),
     Registry("platforms", "auto_patch_v2.model.platform", "PLATFORMS",
              "planar/platform.py (the planar stage)",
              ("constraints/platform.py (the refused platforms)",

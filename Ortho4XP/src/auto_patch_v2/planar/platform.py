@@ -80,6 +80,58 @@ _STEP_M = 2.0
 #: A pad needs at least this many welded ring samples to FRONT airside (a
 #: plane has three degrees of freedom; a corner touch fronts nothing).
 _MIN_WELDED = 3
+#: A DRAPED FACADE'S FOOTPRINT TAKES NO COLLAR (issue #223, owner read
+#: 2026-10-02: SPJC ``building14`` = ``dsf:fac170``, the facade FLOATING at
+#: −12.0257776, −77.1063868).  The collar is a terrace INSIDE the footprint
+#: whose premise is unit-platform spec §1 (3)/(5): the object stage seats
+#: the unit on the platform plane, so the bank under the walls is invisible.
+#: A ``.fac`` building is not a pack object: the SIM drapes it, at ONE floor
+#: over the terrain under its footprint, and no stage of ours seats it — so
+#: every metre of collar relief under it is the facade's own float (sw1010:
+#: platform 24.63 m, collar rim to 31.56 m, the apron it fronts 24.23 m).
+#: Such a pad keeps the plate the pre-collar engine gave it, which flat-pad
+#: spec v2 §4 HOLDS flat at its frontage datum (``conforming``), and the
+#: patch-boundary bank (``emit/bank``) carries the relief OUTSIDE the
+#: footprint.  The footprint is the facade's when a ``dsf:fac:*`` building
+#: covers at least this fraction of the pad's area (the 23a cut trims a pad
+#: at its airside edge; a pad a facade merely touches is not its footprint).
+DRAPED_FACADE_COVER = 0.5
+#: The ``Platform.refused`` reason of such a pad.
+REFUSED_DRAPED_FACADE = "draped_facade"
+
+
+def draped_facade_pads(pad_regions, airport) -> "set[int]":
+    """``id(region)`` of every pad region whose polygon is a draped
+    facade's footprint (:data:`DRAPED_FACADE_COVER`): the ``airport``'s
+    ``dsf:fac:*`` buildings (``model.airport.Building.source``), in the
+    arrangement's own frame.  ONE derivation, read by the mint and its
+    twin.  Empty without an airport."""
+    out: set[int] = set()
+    bs = [b for b in getattr(airport, "buildings", ()) or ()
+          if str(getattr(b, "source", "")).startswith("dsf:fac")]
+    if not bs:
+        return out
+    polys = []
+    for b in bs:
+        try:
+            q = Polygon(b.outer, [list(h) for h in (b.holes or ())])
+        except Exception:
+            continue
+        if q.is_valid and not q.is_empty:
+            polys.append(q)
+    if not polys:
+        return out
+    tree = STRtree(polys)
+    for r in pad_regions:
+        P = r.polygon
+        if P is None or P.is_empty or P.area <= 0.0:
+            continue
+        cov = 0.0
+        for j in tree.query(P, predicate="intersects"):
+            cov = max(cov, P.intersection(polys[int(j)]).area)
+        if cov >= DRAPED_FACADE_COVER * P.area:
+            out.add(id(r))
+    return out
 
 
 # ``Platform`` / ``PLATFORMS`` live in ``model/platform`` (issue #104:
@@ -309,6 +361,7 @@ def platform_split(base_regions, pad_regions, law: Law,
     if not air_polys:
         return list(pad_regions), counts
     tree = STRtree(air_polys)
+    draped = draped_facade_pads(pad_regions, airport)
     out: list = []
     plat_ids: set[int] = set()
     for pr in pad_regions:
@@ -325,6 +378,15 @@ def platform_split(base_regions, pad_regions, law: Law,
         air = unary_union(cand)
         nw = _welded_samples(P, air, near)
         if nw < _MIN_WELDED:
+            out.append(pr)
+            continue
+        if id(pr) in draped:
+            # a DRAPED FACADE's footprint (module constant): no collar —
+            # the sim floors the facade on the terrain under the WHOLE
+            # footprint, so the plate stays whole and §4 holds it flat
+            PLATFORMS.append(Platform(str(pr.ref), 0.0, round(P.area, 1), 0.0,
+                                      nw, rim_relief_m(P, air, near, dem, slope_max),
+                                      REFUSED_DRAPED_FACADE, ""))
             out.append(pr)
             continue
         # C IS THE WIDEST WIDTH THIS PAD CAN CARRY (owner RULINGS 2026-10-02z

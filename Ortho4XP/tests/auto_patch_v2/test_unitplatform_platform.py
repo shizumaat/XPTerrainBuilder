@@ -115,6 +115,40 @@ def test_a_pad_fronting_no_airside_or_too_narrow_gets_no_platform(law):
         ("big", ""), ("narrow", "eroded_away")]
 
 
+def test_a_draped_facade_footprint_takes_no_collar(law):
+    """Issue #223 (owner read 2026-10-02, SPJC ``building14`` = ``dsf:fac170``
+    floating): a pad whose polygon is a DRAPED FACADE's footprint (a
+    ``dsf:fac:*`` building covering >= ``DRAPED_FACADE_COVER`` of it) is
+    REFUSED ``draped_facade`` and keeps its plate WHOLE — no ``#collar``
+    region, no platform — so flat-pad spec v2 §4 holds the whole footprint
+    flat at its frontage datum and the sim's one-floor facade sits on it.
+    An OSM building's pad, a pad a facade merely touches, and a run with no
+    airport keep today's platform + collar."""
+    from types import SimpleNamespace as NS
+    air = [Region("apron", "a", Polygon(APRON), None, None, "airside", "cell")]
+    pad = Region("building", "fac", Polygon(PAD), None, None, "airside", "cell")
+    osm = _dc.replace(pad, ref="osm", polygon=Polygon(_rect(-60.0, 320.0, 60.0, 420.0)))
+    air2 = air + [Region("apron", "b", Polygon(_rect(-100.0, 300.0, 100.0, 320.0)),
+                         None, None, "airside", "cell")]
+    fac = NS(source="dsf:fac:building", outer=tuple(PAD), holes=())
+    touch = NS(source="dsf:fac:building",
+               outer=tuple(_rect(50.0, 400.0, 80.0, 440.0)), holes=())   # grazes ``osm``
+    airport = NS(buildings=(fac, touch))
+    got, counts = pplat.platform_split(air2, [pad, osm], law, 0.5, airport=airport)
+    refs = sorted(r.ref for r in got)
+    assert "fac" in refs and "fac" + COLLAR_SUFFIX not in refs
+    assert "osm" in refs and "osm" + COLLAR_SUFFIX in refs
+    assert [(p.ref, p.refused, p.collar_m) for p in pplat.PLATFORMS
+            if p.ref == "fac"] == [("fac", pplat.REFUSED_DRAPED_FACADE, 0.0)]
+    assert counts["platforms"] == 1 and counts["platforms_refused"] == 1
+    # the one derivation both the mint and this twin read
+    assert pplat.draped_facade_pads([pad, osm], airport) == {id(pad)}
+    assert pplat.draped_facade_pads([pad, osm], None) == set()
+    # no airport: today's path, a platform inside a collar
+    got, counts = pplat.platform_split(air, [pad], law, 0.5)
+    assert "fac" + COLLAR_SUFFIX in {r.ref for r in got} and counts["platforms"] == 1
+
+
 def test_a_second_region_of_a_platform_ref_is_collar(law):
     """ONE REF, ONE PAD: a sliver the 23a cut left under the same ref is
     collar, never a platform piece (HECA ``building4``'s rim slivers)."""

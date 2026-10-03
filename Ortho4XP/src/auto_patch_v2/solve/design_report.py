@@ -741,6 +741,19 @@ class DesignReport:
                     f"{rs.get('max_raise_m', 0.0):.3f} m"
                     + (f", {rs['unlevelled']} on an unlevelled edge"
                        if rs.get("unlevelled") else "") + "); ")
+        tr = rs.get("terrace") or {}
+        if tr.get("governed"):
+            out += (f"road terrace (10-03b): {tr['governed']} ribbon vertices — "
+                    f"{tr.get('bordered', 0)} at their bordering pavement's "
+                    f"level, {tr.get('linked', 0)} straight between two, "
+                    f"{tr.get('pad_held', 0)} held along a pad frontage, "
+                    f"{tr.get('kerb', 0)} band-kerb targets added, "
+                    f"{tr.get('anchored', 0)} reaching a coverage join at the cap, "
+                    f"{tr.get('bare', 0)} climbing <= cap from the last "
+                    f"bordered level (max cut {tr.get('max_cut_m', 0.0):.2f} m, "
+                    f"max link grade {tr.get('max_link_grade', 0.0):.4f}"
+                    + (f", {tr['unlevelled']} unlevelled feet"
+                       if tr.get("unlevelled") else "") + "); ")
         bl = rs.get("between_levels") or {}
         if bl.get("road"):
             out += (f"between-levels road (29x): {bl['road']} road vertices "

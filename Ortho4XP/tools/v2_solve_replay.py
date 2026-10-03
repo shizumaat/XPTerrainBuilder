@@ -928,7 +928,8 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
     # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is
     # withdrawn under (road cap governs) — the census reads the same set
-    rc_vs = pm.ribbon_vertices()
+    from auto_patch_v2.law.tables import airside_stage_roles as _asr
+    rc_vs = pm.road_cap_vertices(_asr(law))
     if rc_vs:
         _to_ll_rc = airport.frame.transformers()[1]
         pub["road_cap_governs"] = [list(_to_ll_rc(*pm.vertices[v].xy))
@@ -1896,7 +1897,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                    chord_fill: tuple[str, ...] = (),
                    placement: dict | None = None,
                    sites: list[tuple[float, float]] | None = None,
-                   pad_read_only: bool = False) -> dict:
+                   pad_read_only: bool = False, shape_dump: Path | None = None) -> dict:
     """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
     the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
     it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
@@ -2069,6 +2070,17 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                                              inputs.lane_width_m)
         pm = _dc.replace(pm, preferred_z=road_pref)
         _pr = pad_read(icao, pm, law, airport, sites or [])
+        if shape_dump is not None:
+            # THE SHAPE READ (#100 round 4): every labelled vertex's shape by
+            # canonical lat/lon, so two arms diff the 08k labelling BY IDENTITY
+            _to_ll_sd = airport.frame.transformers()[1]
+            _lab = {"%.11f,%.11f" % tuple(_to_ll_sd(*pm.vertices[v].xy)): int(l)
+                    for v, l in pm.shape_of_vertex.items()}
+            _jn = [[str(getattr(j, "kind", "")), list(getattr(j, "shapes", ()) or ())]
+                   for j in pm.shape_joints]
+            Path(shape_dump).write_text(json.dumps({"shape_of_vertex": _lab, "joints": _jn}))
+            print(f"[{icao}] shape dump -> {shape_dump}: {len(_lab)} labelled vertices, "
+                  f"{len(set(_lab.values()))} shapes, {len(_jn)} joints")
         if pad_read_only:
             return {"icao": icao, "airport": airport, "cl": cl, "pm": pm,
                     "law": law, "t0": t0, "pad_read": _pr,
@@ -2470,6 +2482,10 @@ def main() -> int:
                     help="print the design solve's objective per active-set round")
     ap.add_argument("--method", default="normal", choices=("normal", "cg", "lsqr"),
                     help="the design solve's linear solver (solve/design.METHODS)")
+    ap.add_argument("--shape-dump", type=Path, metavar="OUT.json",
+                    help="with --pad-read: write every labelled vertex's 08k shape by "
+                         "canonical lat/lon and the joints (the shape read two arms "
+                         "diff by identity; #100 round 4)")
     ap.add_argument("--pad-read", action="store_true",
                     help="DRY: with --from classify/planar, re-run the stage, print "
                          "the PAD READ (pad/airside arrangement counters, building vs "
@@ -2623,7 +2639,8 @@ def main() -> int:
         pl = dict(it.split("=", 1) for it in a.placement)
         if a.pad_read:
             res = replay_problem(a.replay, a.resume, a.drop_generator, None, (),
-                                 placement=pl, sites=sites, pad_read_only=True)
+                                 placement=pl, sites=sites, pad_read_only=True,
+                                 shape_dump=a.shape_dump)
             if a.json:
                 a.json.write_text(json.dumps(res["pad_read"], indent=1, default=str))
             return 0

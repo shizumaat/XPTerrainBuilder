@@ -52,7 +52,7 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import zone2_half_width_m
+from ..law.tables import airside_stage_roles, zone2_half_width_m
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -401,7 +401,7 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
     walls = {v for f in vw.faces_of_role(("retaining_wall",)) for v in vw.rings[f.id]}
     # OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS: no end-foot
     # chord under a mapped-road ribbon (``PlanarMap.ribbon_vertices``)
-    road_cap = vw.pm.ribbon_vertices()
+    road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
     rows: list[Row] = []
     for fid, ids, xy in _strip_rings(vw):
         for k, v in enumerate(ids):

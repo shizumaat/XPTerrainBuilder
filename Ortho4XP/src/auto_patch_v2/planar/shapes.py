@@ -90,8 +90,7 @@ from ..law import Law
 from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_m
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.planar import NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint
-from .ribbons import _label_ribbons, is_osm_ribbon_ref
+from ..model.planar import NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint, is_osm_ribbon_ref
 from .shape_airside import (airside_face_sets, declarable_pairs, inside_apron_body,
                             separated_label_pairs, weld_airside_faces)
 from .shape_mouths import weld_same_role_mouths
@@ -464,7 +463,7 @@ def _label_roads(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[in
         return (sum(x for x, _y in xs) / len(xs), sum(y for _x, y in xs) / len(xs))
 
     for fid, f in pm.faces.items():
-        if f.role not in roads or is_osm_ribbon_ref(f.ref):   # 30aa: see _label_ribbons
+        if f.role not in roads or is_osm_ribbon_ref(f.ref):   # 30aa: a ribbon is unlabelled
             continue
         vs = [v for v in _face_vertices(pm, fid) if v not in N]
         if not vs:
@@ -563,7 +562,15 @@ def _label_others(pm: PlanarMap, law: Law, label: dict[int, int], N: frozenset[i
             if v in label:
                 label[v] = top
         stats.pads_relabelled += 1
-    _label_ribbons(pm, label, N)      # LAST: a ribbon takes a shape, never votes one
+    # A MAPPED-ROAD RIBBON IS UNLABELLED (#100 round 4, lane roadmint100e;
+    # RULINGS 2026-09-30aa rules 1-2): its own vertices carry no shape, as a
+    # crossing road's do (08r-2) — its rows all survive the filter and it
+    # ramps at its own law.  roadweld100's ``_label_ribbons`` gave them the
+    # majority contact shape, and a ribbon running from apron A to apron B
+    # then carried A-labelled vertices onto B's rim edges: every such edge
+    # is outside the apron body, so ``separated_label_pairs`` read (A, B)
+    # as SEPARATED and the airside's own weld through its apron faces was
+    # refused — measured HECA: 58 shapes for main's 52.
     return ramps
 
 

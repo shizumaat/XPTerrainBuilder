@@ -538,14 +538,10 @@ class PlanarMap:
     seam_band_rings: tuple[tuple[tuple[float, float], ...], ...] = ()
 
     def ribbon_vertices(self) -> frozenset[int]:
-        """OWNER RULINGS 2026-10-02ag (2) (#100) "ROAD CAP GOVERNS": every
-        vertex of a mapped-road ribbon face (:func:`is_osm_ribbon_ref`) —
-        the ribbon's own and the strip vertices it shares.  Under them the
-        runway strip's transverse tie is WITHDRAWN (``constraints/zones.
-        strip_transverse``, ``constraints/strips._end_foot_rows``) and the
-        road climbs at <= the road cap, no hill cut; the set is published
-        (sidecar ``road_cap_governs``) so the verify and the census read the
-        same withdrawal (``verify/strips.runway_edge_tie``)."""
+        """Every vertex of a mapped-road ribbon face (:func:`is_osm_ribbon_ref`)
+        — the ribbon's own and the rim / kerb vertices it shares.  The
+        road-cap withdrawal reads :func:`road_cap_vertices`, never this raw
+        set (#100 round 4)."""
         out: set[int] = set()
         for f in self.faces.values():
             if f.role == "service_road" and is_osm_ribbon_ref(f.ref):
@@ -553,24 +549,59 @@ class PlanarMap:
                     out.update(self.ring_vertices(cyc))
         return frozenset(out)
 
-    def band_kerb_vertices(self) -> frozenset[int]:
+    def road_cap_vertices(self, airside_roles: _t.AbstractSet[str]) -> frozenset[int]:
+        """OWNER RULINGS 2026-10-02ag (2) (#100) "ROAD CAP GOVERNS": the
+        vertices UNDER a mapped-road ribbon where the runway strip's
+        transverse tie is WITHDRAWN (``constraints/zones.strip_transverse``,
+        ``constraints/strips._end_foot_rows``) and the road climbs at <= the
+        road cap, no hill cut; published as sidecar ``road_cap_governs`` so
+        the verify and the census read the same set
+        (``verify/strips.runway_edge_tie``).
+
+        THE SET IS THE ROAD'S FOOTPRINT, NEVER A PAVEMENT RIM (round 4, lane
+        roadmint100e; owner 30z (1) airside is king): a ribbon vertex that
+        also lies on an AIRSIDE-PAVEMENT face (``airside_roles`` = §20b
+        stage 1's roles — the runway and taxi families and the apron) is
+        that pavement's, and its tie is the airside's law — the ribbon is
+        welded to it one-way and changes nothing there.  roadmint100b
+        withdrew the tie on the whole raw set, apron and taxi rim vertices
+        included."""
+        air: set[int] = set()
+        for f in self.faces.values():
+            if f.role in airside_roles:
+                for cyc in (f.ring, *f.holes):
+                    air.update(self.ring_vertices(cyc))
+        return frozenset(v for v in self.ribbon_vertices() if v not in air)
+
+    def band_kerb_vertices(self, airside_roles: _t.AbstractSet[str] = frozenset()
+                           ) -> frozenset[int]:
         """30e (4) (spec-author RULINGS 2026-09-30e, 29r): the KERB a
         mapped-road ribbon shares with an adjacent-ground band — every
         vertex touching both an OSM ribbon face (:func:`is_osm_ribbon_ref`)
         and a ``graded_strip`` face.  It is the BAND's vertex: the band's
-        rows lead there, and no road generator prices it as road."""
+        rows lead there, and no road generator prices it as road.
+
+        NEVER A PAVEMENT-RIM VERTEX (#100 round 4, lane roadmint100e): a
+        vertex also on an ``airside_roles`` face (§20b stage 1's roles) is
+        that pavement's — the apron's rows lead there, not the band's — so
+        the kerb reading, which withholds the pavement-ceiling twin from
+        every row leaving the kerb (``constraints/ceiling``), never reaches
+        the airside's own rows."""
         rib: set[int] = set()
         band: set[int] = set()
+        air: set[int] = set()
         for f in self.faces.values():
             if f.role == "graded_strip":
                 tgt = band
             elif f.role == "service_road" and is_osm_ribbon_ref(f.ref):
                 tgt = rib
+            elif f.role in airside_roles:
+                tgt = air
             else:
                 continue
             for cyc in (f.ring, *f.holes):
                 tgt.update(self.ring_vertices(cyc))
-        return frozenset(rib & band)
+        return frozenset((rib & band) - air)
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

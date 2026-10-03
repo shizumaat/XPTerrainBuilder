@@ -110,7 +110,8 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     # transverse pairs to the runway, the band's own pairs) is the band's
     # law surface and is not twinned; a row from the kerb INTO the ribbon
     # is the road's and keeps the road cap (29ab (1), 29ac)
-    kerb = planar.band_kerb_vertices()
+    from ..law.tables import airside_stage_roles as _asr
+    kerb = planar.band_kerb_vertices(_asr(law))   # never a pavement rim (#100 r4)
     rib_vs: set[int] = set()
     if kerb:
         from ..model.planar import is_osm_ribbon_ref

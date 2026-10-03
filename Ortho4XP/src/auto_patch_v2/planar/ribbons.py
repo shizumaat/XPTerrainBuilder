@@ -23,7 +23,7 @@ from .overlay import (PAD_AIRSIDE, Region, _claiming_region, _node_coords,
                       dissolve_sliver_zones, merge_slivers)
 from .platform import merge_platform_faces
 
-__all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts", "_label_ribbons"]
+__all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts"]
 
 def _ribbons_pass_c(ribbon_cells, noded, regions, bands, law: Law, keeps: bool,
                     grid: float, ring_lines_of, counts: dict):
@@ -153,24 +153,3 @@ def _grid_parts(g, grid: float) -> list[Polygon]:
     q = q if q.is_valid else q.buffer(0.0)
     return [p for p in shapely.get_parts(q) if isinstance(p, Polygon)
             and not p.is_empty and p.area > 0.0]
-
-
-def _label_ribbons(pm: PlanarMap, label: dict[int, int], N: frozenset[int]) -> None:
-    """THE MAPPED-ROAD RIBBON TAKES A SHAPE, IT NEVER GIVES ONE (RULINGS
-    2026-09-30aa rules 1-2, #100; lane ``roadweld100``, measured: 08r-2's
-    road labelling run over the ribbons relabelled the apron rim vertices
-    they weld to and re-drew HECA's stage-1 joint filter).  Each ribbon's
-    OWN unlabelled vertices take the majority shape of its labelled
-    contacts; a labelled vertex keeps its label, and no ribbon is a
-    crossing (the 1206 roads' labelling ran without them)."""
-    for fid, f in pm.faces.items():
-        if not is_osm_ribbon_ref(f.ref):
-            continue
-        vs = [v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)
-              if v not in N]
-        ls = [label[v] for v in vs if v in label]
-        if not ls:
-            continue
-        top = max(set(ls), key=lambda l: (ls.count(l), -l))
-        for v in vs:
-            label.setdefault(v, top)

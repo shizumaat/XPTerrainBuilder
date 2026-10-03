@@ -35,9 +35,17 @@ def weld_same_role_mouths(pm: PlanarMap, law: Law, label: dict[int, int],
         return
     spec = law.tables.precedence.roles
     paved = frozenset(r for r, sp_ in spec.items() if sp_.value and not sp_.rigid)
+    # A MAPPED-ROAD RIBBON IS NO SIDE (#100 round 4, lane roadmint100e;
+    # RULINGS 2026-09-30aa rules 1-2): it stands where the zone strip stood
+    # — welded to the rim, stage 2's — so a mouth edge it flanks reads as
+    # it read without it.  MEASURED (HECA replay vs sw1014): read as a
+    # paved side, 238 ribbons refused the one-apron weld at every mouth
+    # they flanked — 58 shapes for main's 52, 20 contour joints for 0.
+    from ..model.planar import is_osm_ribbon_ref
+    ribbon = {fid for fid, f in pm.faces.items() if is_osm_ribbon_ref(f.ref)}
     major: dict[int, int] = {}
     for fid, f in pm.faces.items():
-        if f.role in paved:
+        if f.role in paved and fid not in ribbon:
             ls = [label[v] for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc) if v in label]
             if ls:
                 major[fid] = max(set(ls), key=lambda l: (ls.count(l), -l))
@@ -48,7 +56,8 @@ def weld_same_role_mouths(pm: PlanarMap, law: Law, label: dict[int, int],
         la, lb = label.get(e.a), label.get(e.b)
         if la is None or lb is None or la == lb:
             continue
-        fs = {f for f in (e.left_face, e.right_face) if f is not None}
+        fs = {f for f in (e.left_face, e.right_face)
+              if f is not None and f not in ribbon}
         fs |= {f for v, l in ((e.a, la), (e.b, lb))
                for f in pm.vertices[v].incident_faces if major.get(f) == l}
         side = {pm.faces[f].role for f in fs if pm.faces[f].role in paved}

@@ -217,6 +217,57 @@ def test_the_road_generator_names_the_stage_filter_reads_are_the_generators_own(
     assert "apron_edge_portion" not in _ROAD_GENERATORS
 
 
+# ── ROUND 4 (lane roadmint100e): THE AIRSIDE IS THE SAME WITH AND WITHOUT
+# THE RIBBONS — the three doors the HECA replay found open (vs sw1014:
+# 5,635 movers, apron 2.03 m) ─────────────────────────────────────────────
+#: a road along the apron's NORTH edge (y = 500, x = 300..700): its ribbon
+#: is welded to the apron rim and lies inside the apron's zone band
+WEST = ((400.0, 503.0), (680.0, 503.0))
+
+
+def _apron_vertices(pm):
+    return {v for f in pm.faces.values() if f.role == "apron"
+            for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+
+
+def test_a_ribbon_welded_to_an_apron_rim_is_no_separator_and_no_shape(law):
+    """``shape_airside``: a ribbon is NEVER a road separator (08r-2's
+    separator is the 1206 corridor), its own vertices carry no shape, and
+    the shapes / joints are those of the arrangement without it."""
+    a0, a1 = _with(), _with(_way(-3, WEST, highway="tertiary"))
+    pm0, _ = planar_build(a0, classify(a0, law), law)
+    pm1, _ = planar_build(a1, classify(a1, law), law)
+    rib = pm1.ribbon_vertices()
+    shared = rib & _apron_vertices(pm1)
+    assert len(shared) >= 2, "the ribbon is welded to the apron rim"
+    assert not (shared & pm1.road_separator_vertices)
+    sep = lambda pm: {pm.vertices[v].xy for v in pm.road_separator_vertices}  # noqa: E731
+    assert sep(pm1) == sep(pm0)
+    assert not any(v in pm1.shape_of_vertex for v in rib - shared)
+    assert len(set(pm1.shape_of_vertex.values())) == len(set(pm0.shape_of_vertex.values()))
+    assert len(pm1.shape_joints) == len(pm0.shape_joints)
+
+
+def test_a_ribbon_mints_no_apron_edge_portion_row_and_keeps_the_rim_tie(law):
+    """04t-2's all-pairs rows along a shared apron run are never a ribbon's
+    (the weld is one-way), and the road-cap withdrawal never reaches a
+    pavement-rim vertex."""
+    from auto_patch_v2.constraints import generate
+    from auto_patch_v2.constraints.apron import GEN_EDGE
+    from auto_patch_v2.law.tables import airside_stage_roles
+    a1 = _with(_way(-3, WEST, highway="tertiary"))
+    pm1, _ = planar_build(a1, classify(a1, law), law)
+    cs1, _c, _w = generate(pm1, law, a1)
+    rib_faces = {f"face:{f.id}" for f in pm1.faces.values() if is_osm_ribbon(f)}
+    assert rib_faces
+    for r in (*cs1.diffs, *cs1.linears):
+        if r.source.generator == GEN_EDGE:
+            assert not (set(r.source.inputs) & rib_faces)
+    rc = pm1.road_cap_vertices(airside_stage_roles(law))
+    assert rc and not (rc & _apron_vertices(pm1))
+    assert rc < pm1.ribbon_vertices()
+
+
 # ── OWNER RULINGS 2026-10-02ag (2) (#100) "ROAD CAP GOVERNS" ─────────────
 class _SlopeDem:
     """A hillside across the runway's south strip: +0.5 m per metre south
@@ -246,8 +297,9 @@ def test_the_strip_tie_is_withdrawn_under_a_ribbon_crossing_the_strip_on_a_slope
     pm1, _ = planar_build(a1, classify(a1, law), law)
     cs0, _c, _w = generate(pm0, law, a0)
     cs1, _c, _w = generate(pm1, law, a1)
-    rib = pm1.ribbon_vertices()
-    assert len(rib) >= 4 and pm0.ribbon_vertices() == frozenset()
+    from auto_patch_v2.law.tables import airside_stage_roles
+    rib = pm1.road_cap_vertices(airside_stage_roles(law))
+    assert len(rib) >= 4 and pm0.road_cap_vertices(airside_stage_roles(law)) == frozenset()
     ties1 = _tie_rows(cs1)
     assert ties1, "the strip keeps its tie elsewhere"
     assert not any(v in rib for r in ties1 for v, _c in r.terms)

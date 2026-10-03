@@ -70,3 +70,13 @@
   the sidecar it writes is the viewfinder frame (3673, -0.01 .. 1.01) and
   that `patch_transect.py --alt` and `mesh_region_tris.py
   --interp-alt-audit` read it unchanged against their pre-#238 numbers.
+- 2026-10-02 lane interiors10 (#10 HECA-5, branch `claude/interiors10`):
+  the contents seat (`footprint_unit.contents_seat`, the no-carrier
+  part-id join, the unit carry reading the surface at its anchor) was
+  measured at HECA only (CONTENTS APART 180 -> 25 bodies > 0.5 m off
+  their unit's datum; files 3,558 -> 3,658). OWED: the object stage of
+  the other packs (LEMD, OTHH, KCLT, SPJC, KASE) through
+  `obj8_split_report` — the rule moves every pack's contents and the
+  #31 unit-carried files' anchors — and the owner's sim read of HECA's
+  terminals (T1/T2/T3, the T23 hangar 30.11475, 31.39793: doors and
+  glass were +10.58 m) in the next app build.

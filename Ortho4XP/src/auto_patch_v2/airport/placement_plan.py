@@ -397,8 +397,15 @@ def _unit_carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int],
     box = (_pc.hull_of(b for i in grp for b in part_boxes[i]) if part_boxes
            else _pc.box_of((), parts))
     clat, clon = 0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])
-    z = _pc.ground_under(surface, _pc.foot_boxes(
+    zg = _pc.ground_under(surface, _pc.foot_boxes(
         [b for i in grp for b in part_boxes[i]]) if part_boxes else (), box)
+    # issue #10: the row is draped at the surface AT THE ANCHOR, so the
+    # zero is read there — ``zero = surface(anchor) - y_zero`` — never at
+    # the median ground under the footprint, which put the written zero
+    # ``surface(anchor) - median`` off the unit's datum.  The median stays
+    # the fallback for an anchor off the sheet.
+    za = surface(clat, clon)
+    z = za if za is not None else zg
     # the zero plane IS the unit's datum: ``zero = surface_z - y_zero``
     y_zero = (float(z) - float(uc.zero_z)) if z is not None else 0.0
     off = authored_offset(clat, clon, y_zero, u.anchor[0], u.anchor[1],
@@ -409,8 +416,8 @@ def _unit_carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int],
                       else (f"deck {uc.where}" if uc.source == "deck"
                             else "its median ground"))
                    + f" at {float(uc.zero_z):.2f}"
-                   + ("" if z is None
-                      else f" (own ground {float(z) - float(uc.zero_z):+.2f} m)"),
+                   + ("" if zg is None
+                      else f" (own ground {float(zg) - float(uc.zero_z):+.2f} m)"),
                    z, off)
     by_class[cls] = by_class.get(cls, 0) + 1
     counts[_fu.UNIT_CARRY] = counts.get(_fu.UNIT_CARRY, 0) + 1
@@ -1136,6 +1143,18 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                         solid_cands=_solid, index=_index,
                         reach_m=coarsen_reach_m,
                         not_carriers=_cut29q)            # 30m
+                # issue #10 [HECA-5]: a UNIT'S CONTENTS RIDE THE UNIT — a
+                # piece whose parts are unit U's keeps a carrier only at
+                # U's zero (``footprint_unit.contents_seat``)
+                if over and _pw and not (_pids & _cut29q):
+                    over, _uc10 = _fu.contents_seat(
+                        over, _pids, bx, _pw, _unit_ix(),
+                        alternatives=[cands[q] for q in _f[1:]] if _f else (),
+                        tol_m=split_tol_m, span_max_m=connector_span_m,
+                        counts=counts)
+                    if _uc10 is not None:
+                        st.unit_carried.append((grp, _uc10))
+                        continue
                 if not over:
                     # §16 (3): no carrier the law will accept — the body
                     # anchors on the ground under its OWN footprint with
@@ -1178,6 +1197,17 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                  frontage_m=touch_m,
                                  span_max_m=connector_span_m, counts=counts)
                   if st.footless and _pw and not (_pids & _cut29q) else None)
+            # issue #10: an ELEVATED piece of a footed member that no
+            # carrier takes still rides its own unit when its parts are
+            # that unit's (the part-id join only — the box join stays the
+            # footless placement's, #31)
+            if (uc is None and not st.footless and _pw
+                    and not (_pids & _cut29q)
+                    and not _fu.is_connector_length(_bx, connector_span_m)):
+                uc = _fu.unit_by_pid(_pids, _pw, _unit_ix())
+                if uc is not None:
+                    counts[_fu.CONTENTS_SEAT + "_no_carrier"] = \
+                        counts.get(_fu.CONTENTS_SEAT + "_no_carrier", 0) + 1
             if uc is not None:
                 st.unit_carried.append((grp, uc))
             else:
@@ -1263,7 +1293,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # issue #31: the unit-carried pieces, BEFORE the §15 carries
             # — their zero is the unit's datum and depends on no other
             # member's file, so they need no place in ``cut_order``
+            # issue #10: the pieces of one member riding ONE unit share its
+            # one zero, so they are ONE file — the anchor moves but every
+            # vertex lands where it did (zero = the unit datum, authored y
+            # kept), and the file count does not grow with the targets
+            _by_unit: dict[str, tuple[list, _t.Any]] = {}
             for grp, uc in st.unit_carried:
+                _by_unit.setdefault(uc.unit, ([], uc))[0].extend(grp)
+            for grp, uc in _by_unit.values():
                 bodies.append(_unit_carried_file(
                     st.raw, grp, m, u, surface, uc, len(bodies), counts,
                     by_class, st.part_boxes, st.bridge, st.geom_boxes))
@@ -1321,7 +1358,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     for k, v in sorted(refused.items()):
         counts[f"carrier_refused_{k}"] = v
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
-                    tuple(fams), tuple(_seats), tuple(tilted_whole))
+                    tuple(fams), tuple(_seats), tuple(tilted_whole),
+                    plan_wide=_pw or {})
 
 
 

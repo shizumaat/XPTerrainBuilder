@@ -27,7 +27,7 @@ FIX = pathlib.Path(__file__).parent / "fixtures" / "othh307_nested_shells.json"
 
 @pytest.fixture(scope="module")
 def fx():
-    return json.loads(FIX.read_text())
+    return json.loads(FIX.read_text(encoding="utf-8"))
 
 
 def _parts(fx):

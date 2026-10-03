@@ -90,8 +90,6 @@ class OsmRoads:
     highways: tuple[str, ...]
     dedup_m: float
     min_len_m: float
-    ribbon_highways: tuple[str, ...]
-    road_gap_bridge_m: float
 
 
 @_dc.dataclass(frozen=True)

@@ -83,7 +83,6 @@ import math
 import typing as _t
 
 import shapely
-import shapely.ops
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
@@ -93,7 +92,6 @@ from ..law.tables import (is_value_role, role_side, snap_margin_m,
                           zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.planar import is_osm_ribbon_ref   # 30e (6): the ribbon ref
 from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
@@ -627,22 +625,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # owner RULINGS 2026-09-10ag: the pads a SKIRT made unnecessary
     stats["pads_skirted"] = len(ev.skirted_pads)
     notes.extend(ev.skirted_pads)
-    # ── THE ROAD-FACE MINT, WIDENED: every mapped road in the patch ──
-    # (owner RULINGS 2026-09-30b Q-100b, spec-author 30e (1)-(3), (6);
-    # issue #100).  Minted AFTER §27 and the pads, so no ribbon is read by
-    # the airside-edge flip (a ribbon is never airside) and every face
-    # already standing — pavement, runway, shoulder, pad — keeps its
-    # ground: the ribbon is what is left of the road's corridor.
-    # AFTER the pad set-back (lane roadweld100, measured HECA): a ribbon
-    # beside a pad armed that pad's knife, whose mitred corner then cut two
-    # EXISTING groundside cells (pav57, dsf:objpav405) — a ribbon changing
-    # the cells pass A nodes.  The ribbon takes the same set-back itself.
     cells, n_cut = _cut_back_groundside(cells, law, rules)
     stats["mixed_pad_cutbacks"] = n_cut
-    from .ribbon_mint import mint_osm_ribbons   # lazy: ribbon_mint imports this module
-    n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add)
-    stats["osm_ribbons"] = n_rib
-    stats["osm_ribbon_m2"] = m_rib
     stats["taxi_chains"] = len(ev.taxi_chains)
     stats["truck_chains"] = len(ev.truck_chains)
     stats["terminal_present"] = float(ev.terminal_present)
@@ -665,14 +649,6 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
     return Classification(tuple(cells), tuple(cut), stats, tuple(notes),
                           sources=tuple(sources))
-
-
-def is_osm_ribbon(cell_or_region) -> bool:
-    """A face the widened road-face mint made from a MAPPED road (30e) —
-    read off its ref, the one mark every stage carries (``Cell`` and
-    ``planar.overlay.Region`` alike)."""
-    return getattr(cell_or_region, "role", "") == "service_road" and \
-        is_osm_ribbon_ref(getattr(cell_or_region, "ref", ""))
 
 
 def _mouth_ll(mouth, to_ll) -> str:

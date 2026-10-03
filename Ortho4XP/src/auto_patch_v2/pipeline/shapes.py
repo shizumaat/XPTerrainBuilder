@@ -94,7 +94,7 @@ def shape_stage(pm: PlanarMap, law: Law, airport: Airport,
     # unlabelled now and loses it the same)
     withdraw = frozenset(
         v for v, vert in pm.vertices.items()
-        if v not in stations and any(pm.faces[f].role in band_roles for f in vert.incident_faces))
+        if v not in stations and any(r in band_roles for r in pm.roles_at(v, ribbons=False)))
     edges = joint_planar_edges(pm)
     stage = ShapeStage(pm, edges, bands, withdraw, time.perf_counter() - t0)
     n_shapes = len({s for s in pm.shape_of_vertex.values() if s != NO_SHAPE})

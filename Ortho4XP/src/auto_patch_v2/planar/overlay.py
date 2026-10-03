@@ -141,6 +141,9 @@ class Arrangement:
     #: One record per dissolved/dropped sliver: ``(ref, area_m2, width_m,
     #: host role:ref or None)`` — what the report names.
     zone_sliver_rows: tuple = ()
+    #: #100 round 7 option (b): the groundside faces the ribbons displaced
+    #: along the airside rim (``planar/ribbons.ribbon_ghosts``)
+    ribbon_ghosts: tuple = ()
 
 
 #: RULINGS 2026-09-14ax: what the ARRANGEMENT's pad clip did this build —
@@ -377,11 +380,17 @@ def build_arrangement(airport: Airport, classification: Classification,
         _after = airside_vertex_set(faces, law)
         PAD_AIRSIDE["ribbon_airside_added"] = len(_after - base_order[2])
         PAD_AIRSIDE["ribbon_airside_removed"] = len(base_order[2] - _after)
+    ghosts = ()
+    if frozen is not None:
+        from .ribbons import ribbon_ghosts   # #100 round 7, option (b)
+        ghosts = ribbon_ghosts(base_order[3], faces, law)
+        PAD_AIRSIDE["ribbon_ghosts"] = len(ghosts)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
                        bands, dropped_seam, weld, merged,
                        tuple(edge_lines), erep, holes_gone,
                        absorbed, detached,
-                       zs_dissolved, zs_dropped, zs_area, zs_rows)
+                       zs_dissolved, zs_dropped, zs_area, zs_rows,
+                       ribbon_ghosts=ghosts)
 
 
 

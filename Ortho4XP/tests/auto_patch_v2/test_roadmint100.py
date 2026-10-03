@@ -354,3 +354,46 @@ def test_the_road_cap_governs_key_is_read_by_the_census_core(law):
     assert g.covers(Point(0.0, 0.0)) and g.covers(Point(0.5 * r, 0.0))
     assert not g.covers(Point(3.0 * r, 0.0))
     assert road_cap_geometry(None, None, law) is None
+
+
+# ── ROUND 7 (lane roadmint100g; #100 master decision option (b)): THE
+# RIBBON INHERITS THE STAGE-1 ROWS OF THE FACE IT DISPLACES ──────────────
+def _stage1_one_sided(pm, cs, law):
+    """Stage 1's one-sided law rows (``solve/design.assemble`` after the
+    §20b split), keyed canonically by generator, ruling head, the 11-dp
+    vertex keys and the bound — the population the replay's
+    ``--stage1-dump`` diffs."""
+    from collections import Counter
+
+    from auto_patch_v2.solve.design import assemble, stage_split
+    from auto_patch_v2.solve.design_report import DesignReport
+    from auto_patch_v2.solve.design_roles import airside_stage_roles, ruling_head
+    drop_v, foreign = stage_split(pm, cs, law)
+    base = assemble(pm, cs, law, DesignReport(), drop=drop_v, fixed=foreign,
+                    stage_roles=airside_stage_roles(law))
+
+    def key(v):
+        lat, lon = pm.vertices[v].key
+        return f"{lat:.11f},{lon:.11f}"
+    return Counter((row.source.generator, ruling_head(row),
+                    tuple(sorted((key(v), round(c, 6)) for v, c in terms)),
+                    round(hi, 6)) for terms, hi, row in base.one)
+
+
+def test_a_ribbon_over_a_zone_band_run_leaves_stage_one_row_for_row(law):
+    """The WEST ribbon takes the apron zone band's run along the apron rim
+    (welded, no stand-off): every row that band — and the generators
+    walking the strip / lot rings it displaced — minted over AIRSIDE
+    vertices is minted from the displaced ring as the arrangement without
+    the ribbon had it (``PlanarMap.ghost_rings``), so stage 1's one-sided
+    row multiset is IDENTICAL with and without the ribbon (round 6, HECA:
+    82 A-only / 22 B-only)."""
+    from auto_patch_v2.constraints import generate
+    a0, a1 = _with(), _with(_way(-3, WEST, highway="tertiary"))
+    pm0, _ = planar_build(a0, classify(a0, law), law)
+    pm1, _ = planar_build(a1, classify(a1, law), law)
+    assert pm1.ribbon_ghosts, "the ribbon displaced a groundside face on the rim"
+    cs0, _c, _w = generate(pm0, law, a0)
+    cs1, _c, _w = generate(pm1, law, a1)
+    s0, s1 = _stage1_one_sided(pm0, cs0, law), _stage1_one_sided(pm1, cs1, law)
+    assert s0 - s1 == {} and s1 - s0 == {}, (sorted(s0 - s1)[:6], sorted(s1 - s0)[:6])

@@ -291,31 +291,43 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     # groundside classes without a cross-section axis: all pairs at the
     # role's longitudinal cap (parking_lot: owner 2026-09-04j, 5 %)
     roles = tuple(roads) + ("groundside_pavement", "parking_lot")
-    for f in vw.faces_of_role(roles):
-        cap = role_cap(law, f.role)
+    # #100 round 7, option (b): the ribbon INHERITS the stage-1 rows of the
+    # face it displaced along the airside rim — that face's ring as the
+    # arrangement without the ribbons had it (``PlanarMap.ghost_rings``),
+    # read for its pairs of AIRSIDE vertices only (a ghost id off the
+    # airside is ``-1``); the cut face and the ribbon own every other row
+    items = [(f.id, f.role, f.ref, vw.rings[f.id], list(vw.holes[f.id]), None)
+             for f in vw.faces_of_role(roles)]
+    from ..law.tables import airside_stage_roles as _asr
+    items += [(None, role, ref, list(ids), [], xy)
+              for role, ref, ids, xy in planar.ghost_rings(_asr(law)) if role in roles]
+    for fid, f_role, f_ref, ring, holes, gxy in items:
+        cap = role_cap(law, f_role)
         if cap is None:
             continue
         # §37 (1): the longitudinal cap is the ROLE'S OWN; lateral
         # contiguity binds the transverse cap only
         cap_l = cap.longitudinal
         cap_t = min(cap.transverse, cap_l,
-                    law_caps.get(f.id, cap.transverse))
-        ring = vw.rings[f.id]
+                    law_caps.get(fid, cap.transverse))
         axis = None
-        if f.role in roads:
-            ax = long_axis([vw.xy[v] for v in ring])
+        if f_role in roads:
+            ax = long_axis(list(gxy) if gxy is not None else [vw.xy[v] for v in ring])
             axis = ax[0] if ax else None
-        src_l = Source(GEN, "common.roles longitudinal (2026-08-03)",
-                       (f"face:{f.id}", f.ref))
-        src_t = Source(GEN, "road_cross_section (2026-08-25g)",
-                       (f"face:{f.id}", f.ref))
-        src_ribbon = Source(GEN, RIBBON_RULING, (f"face:{f.id}", f.ref))
-        for cyc in [ring, *vw.holes[f.id]]:
+        tag = f"face:{fid}" if fid is not None else f"ghost:{f_ref}"
+        src_l = Source(GEN, "common.roles longitudinal (2026-08-03)", (tag, f_ref))
+        src_t = Source(GEN, "road_cross_section (2026-08-25g)", (tag, f_ref))
+        src_ribbon = Source(GEN, RIBBON_RULING, (tag, f_ref))
+        for cyc in [ring, *holes]:
             n = len(cyc)
             for i in range(n):
                 a = cyc[i]
+                if a < 0:
+                    continue
                 for j in range(i + 1, n):
                     b = cyc[j]
+                    if b < 0:
+                        continue
                     d = vw.dist(a, b)
                     if d < min_d:
                         continue

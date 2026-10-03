@@ -232,7 +232,7 @@ def _face_extension(pm: PlanarMap, law: Law, chains: list[_Chain],
                 if v in have or v in seen:
                     continue
                 seen.add(v)
-                roles = pm.roles_at(v)
+                roles = pm.roles_at(v, ribbons=False)   # #100 r7: airside reading
                 # THE TAXI FAMILY MUST OWN THE VERTEX OUTRIGHT.  A vertex
                 # the face SHARES with another VALUE surface — a runway
                 # contact (hard and flush, the runway's own value) or an

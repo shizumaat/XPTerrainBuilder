@@ -325,17 +325,17 @@ def face_width(xy: list[tuple[float, float]]) -> float:
 
 
 def shared_apron_runs(vw: View, fid: int, apron_v: frozenset[int],
-                      ratio: float) -> list[list[int]]:
+                      ratio: float, ghost=None) -> list[list[int]]:
     """The LONG shared runs of face ``fid`` with the aprons: maximal
     contiguous ring runs whose every edge has both ends on an apron ring
     (the edge IS shared — same vertex ids in the planar map), kept when
     the run's length >= ``ratio`` × the face's width.  A closed run (the
     whole ring) is one run."""
-    ring = vw.rings[fid]
+    ring = vw.rings[fid] if ghost is None else list(ghost[0])
     n = len(ring)
     if n < 2:
         return []
-    width = face_width(vw.face_ring_xy(fid))
+    width = face_width(vw.face_ring_xy(fid) if ghost is None else list(ghost[1]))
     shared_edge = [ring[i] in apron_v and ring[(i + 1) % n] in apron_v for i in range(n)]
     if all(shared_edge):
         total = sum(vw.dist(ring[i], ring[(i + 1) % n]) for i in range(n))
@@ -411,11 +411,38 @@ def apron_edge_portions(planar: PlanarMap, law: Law, airport: Airport
         src = Source(GEN_EDGE, "common.roles.apron on the shared edge portion (04t-2)",
                      (f"face:{fid}", f.ref))
         tier = _Tier(fid, f.ref, hard_here, pref_here, GEN_EDGE)
-        for run in runs:
-            for i in range(len(run)):
-                for j in range(i + 1, len(run)):
-                    a, b = run[i], run[j]
-                    d = vw.dist(a, b)
-                    if d >= min_d:
-                        rows.extend(tier.rows(a, b, d, src))
+        _all_pairs(vw, runs, tier, src, min_d, rows)
+    # #100 round 7, option (b): THE RIBBON INHERITS THE STAGE-1 ROWS OF THE
+    # FACE IT DISPLACES — a groundside face's shared apron run as the
+    # arrangement without the ribbons had it (``PlanarMap.ghost_rings``;
+    # every run vertex is an apron vertex, so every such row is stage 1's).
+    # Measured (round 6, HECA): a lot's run along ``dsf:objpav399`` the
+    # ribbon ``small_roads:-18900`` took lost 16 rows here.
+    from ..law.tables import airside_stage_roles
+    for k, (role, ref, ids, xy) in enumerate(planar.ghost_rings(airside_stage_roles(law))):
+        rc = role_cap(law, role)
+        if role == "apron" or rc is None or is_rigid_role(law, role):
+            continue
+        hard_here = cap.longitudinal if rc.longitudinal > cap.longitudinal else None
+        pref_here = pref_l if pref_l is not None and rc.longitudinal > pref_l else None
+        if hard_here is None and pref_here is None:
+            continue
+        runs = shared_apron_runs(vw, -1 - k, apron_fv, ratio, ghost=(ids, xy))
+        if not runs:
+            continue
+        src = Source(GEN_EDGE, "common.roles.apron on the shared edge portion (04t-2)",
+                     (f"ghost:{ref}", ref))
+        _all_pairs(vw, runs, _Tier(-1 - k, ref, hard_here, pref_here, GEN_EDGE),
+                   src, min_d, rows)
     return rows
+
+
+def _all_pairs(vw: View, runs, tier, src: Source, min_d: float, rows: list) -> None:
+    """04t-2's all-pairs rows over each shared run."""
+    for run in runs:
+        for i in range(len(run)):
+            for j in range(i + 1, len(run)):
+                a, b = run[i], run[j]
+                d = vw.dist(a, b)
+                if d >= min_d:
+                    rows.extend(tier.rows(a, b, d, src))

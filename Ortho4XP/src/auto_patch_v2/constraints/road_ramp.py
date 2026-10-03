@@ -28,6 +28,7 @@ __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "road_contact_rows", "reach_seed_rewrite", "BANK_RULING",
            "between_levels_rewrite", "airside_joins", "welded_join_release",
            "terrace_rewrite", "terrace_profile", "wall_terrace_rows",
+           "wall_release",
            "WALL_LOT_RULING"]
 
 GEN = "road_ramp"
@@ -160,6 +161,75 @@ def wall_terrace_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     return rows
 
 
+def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
+                 ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
+    """OWNER RULINGS 2026-10-03c (#291): THE WALL IS THE STEP — between
+    §20b's stages, every stage-2 pair row (``Diff``, multi-term ``Linear``)
+    whose vertices STRADDLE a declared wall terrace's line (two of them on
+    either side, the segment between them crossing the wall) is withdrawn:
+    the step across the wall is the declared ``wall_terrace`` joint's
+    (``pipeline/publication.wall_terrace_joints``), not a grade the road or
+    the lot must climb.  Only the wall's own line is read — a row that does
+    not cross it is untouched.
+
+    MEASURED HECA arm (sw1018 capture): ``route3``'s kerb is shared with
+    lot ``dsf:objpav394`` and ``metal_strip_2.obj`` comp 117 stands 0.8 m
+    inside the lot edge; with the terrace target at the apron level
+    (104.02 m) the road held at 101.89 m — the road-family longitudinal
+    pairs and the lot's within-shape pairs across the wall to lot vertices
+    at 100.8 m priced the 3.1 m wall as a grade."""
+    walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
+    rep: dict[str, _t.Any] = {"walls": len(walls), "released": 0}
+    if not walls:
+        return cs, rep
+    from shapely.geometry import LineString, Point, Polygon
+    from shapely.strtree import STRtree
+    polys = []
+    for _k, r in sorted(walls.items()):
+        if len(r.get("line") or ()) >= 4:
+            g = Polygon(r["line"])
+            polys.append(g if g.is_valid else g.buffer(0.0))
+    if not polys:
+        return cs, rep
+    ltree = STRtree(polys)
+    reach = max(max(r["height_m"] for r in walls.values()) * 4.0, 20.0)
+    zone = STRtree([g.buffer(reach) for g in polys])
+    near = {v for v, vx in planar.vertices.items()
+            if len(zone.query(Point(vx.xy), predicate="intersects"))}
+    xy = {v: planar.vertices[v].xy for v in near}
+
+    # only a pair with its LOW end on a wall's lot side is the wall's step
+    # (a road's own longitudinal chord past a bent wall is not)
+    low = {v for r in walls.values() for v in (r.get("lower") or ())}
+
+    def crosses(vs) -> bool:
+        vs = [v for v in vs if v in xy]
+        for i, a in enumerate(vs):
+            for b in vs[i + 1:]:
+                if (a in low) == (b in low):
+                    continue
+                seg = LineString([xy[a], xy[b]])
+                if len(ltree.query(seg, predicate="intersects")):
+                    return True
+        return False
+    diffs = []
+    for r in cs.diffs:
+        if r.a in xy and r.b in xy and crosses((r.a, r.b)):
+            rep["released"] += 1
+            continue
+        diffs.append(r)
+    linears = []
+    for r in cs.linears:
+        vs = [v for v, _c in r.terms]
+        if len(vs) >= 2 and sum(v in xy for v in vs) >= 2 and crosses(vs):
+            rep["released"] += 1
+            continue
+        linears.append(r)
+    if not rep["released"]:
+        return cs, rep
+    return _dc.replace(cs, diffs=tuple(diffs), linears=tuple(linears)), rep
+
+
 def airside_joins(planar: PlanarMap, law: Law) -> frozenset[int]:
     """THE JOINS ON AIRSIDE (lane ``joinyield128``, issue #128 / #143; owner
     RULINGS 2026-09-30be — the apron cap is HARD everywhere — under the free-
@@ -224,6 +294,7 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # 10-03b BEFORE 29x: a ribbon vertex between two pavements at different
     # levels still takes the LOWER one (rule 8 of 30aa: 29x stands)
     cs, rep["terrace"] = terrace_rewrite(planar, law, cs, levels)
+    cs, rep["wall_release"] = wall_release(planar, law, cs)
     cs, rep["between_levels"] = between_levels_rewrite(planar, law, cs, levels)
     cs, rep["welded_join"] = welded_join_release(planar, law, cs, levels)
     return cs, rep

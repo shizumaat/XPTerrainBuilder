@@ -822,7 +822,9 @@ def wall_terrace_joints(planar: PlanarMap, law: Law,
     """OWNER RULINGS 2026-10-03c (#291): THE WALL IS THE STEP — one
     ``terrace_joints`` record (``kind`` ``wall_terrace``) per declared wall
     terrace (``PlanarMap.road_terrace['wall']``, ``airport/road_ramp.
-    wall_terraces``) along the wall's own line.  The DECLARED step is the
+    wall_terraces``) along the wall's own OUTLINE (a bent wall is its
+    footprint, never a chord of it — every segment across the wall crosses
+    it).  The DECLARED step is the
     wall's authored height (the object IS the riser, as ``base_step``'s is
     the object's own) — or the emitted step where the solve put less there
     — plus the emit's rounding, so both instruments forgive at most the
@@ -858,7 +860,8 @@ def wall_terrace_joints(planar: PlanarMap, law: Law,
              "step_m": declared, "declared_step_m": declared, "faced": False,
              "kind": "wall_terrace", "faces": [], "shapes": [str(rec.get("label", ""))],
              "gap": False, "roles": [], "pairs": len(rec.get("pairs") or ()),
-             "length_m": round(math.dist(line[0], line[-1]), 2),
+             "length_m": round(sum(math.dist(line[i], line[i + 1])
+                                   for i in range(len(line) - 1)) / 2.0, 2),
              "height_m": round(h, 3), "lots": len(rec.get("lots") or ())}
         if step_e is not None:
             r["emitted_step_m"] = round(step_e, 3)

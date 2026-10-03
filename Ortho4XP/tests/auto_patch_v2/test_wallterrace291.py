@@ -155,8 +155,11 @@ def test_a_wall_between_the_apron_and_a_lower_lot_is_a_declared_terrace(law, mon
     the wall nothing is declared and the lot follows its own ground."""
     from auto_patch_v2.airport.road_ramp import WallPiece
     from auto_patch_v2.pipeline.publication import terrace_joints_ll
-    pm1, sol1, _r1 = _lot_arm(law, monkeypatch, (WallPiece(WALL, 3.0, "wall.obj#comp0"),))
-    pm0, sol0, _r0 = _lot_arm(law, monkeypatch, ())
+    pm1, sol1, r1 = _lot_arm(law, monkeypatch, (WallPiece(WALL, 3.0, "wall.obj#comp0"),))
+    pm0, sol0, r0 = _lot_arm(law, monkeypatch, ())
+    # the pair rows across the wall are the joint's, not a grade (stage 2)
+    assert r1.reach_seed["wall_release"]["walls"] == 1
+    assert r0.reach_seed["wall_release"]["released"] == 0
     lot = lambda f: f.ref == "lot" and f.role == "groundside_pavement"  # noqa: E731
     pad = lambda f: f.role == "building" and f.ref != "building1"   # noqa: E731
     apron = lambda f: f.role == "apron"                             # noqa: E731
@@ -188,7 +191,12 @@ def test_a_piece_shorter_than_its_own_height_is_not_a_wall():
     stub) is not a wall a terrace runs along (HECA's witness carried 9
     sub-metre records)."""
     from auto_patch_v2.airport.road_ramp import _piece_length, wall_midline
-    assert _piece_length(box(0.0, 0.0, 2.5, 0.3)) == pytest.approx(2.5)
+    assert _piece_length(box(0.0, 0.0, 2.5, 0.3)) == pytest.approx(2.5, abs=0.05)
+    # a BENT wall is as long as it runs (an L of 2 x 20 m legs: ~40 m)
+    from shapely.geometry import LineString
+    bent = LineString([(0, 0), (20, 0), (20, 20)]).buffer(0.15, cap_style="flat",
+                                                          join_style="mitre")
+    assert _piece_length(bent) == pytest.approx(40.0, abs=0.5)
     line = wall_midline(box(0.0, 0.0, 20.0, 0.3))
     assert sorted(line) == [pytest.approx((0.0, 0.15)), pytest.approx((20.0, 0.15))]
 
@@ -219,3 +227,31 @@ def test_a_1206_road_is_governed_on_its_bordered_runs_only():
     assert rib[4] == rib[5] == pytest.approx(103.0)          # ribbon: pad-held
     assert 4 not in own and 5 not in own and 6 not in own    # 1206: its own
     assert rib[6] == pytest.approx(103.0 + 0.08 * 10.0)      # ribbon: bare climb
+
+
+def test_the_pair_rows_across_a_bent_wall_to_its_lot_side_are_released(law):
+    """THE WALL IS THE STEP: between the stages a pair row from the road
+    kerb to a lot vertex BEYOND a bent wall (its outline, never a chord of
+    it) is withdrawn; a road chord past the wall and a pair that does not
+    cross it are kept.  MEASURED HECA: ``metal_strip_2.obj`` comp 117 fills
+    1.9 % of its rectangle — the chord missed every crossing."""
+    from types import SimpleNamespace as NS
+    from shapely.geometry import LineString
+    from auto_patch_v2.constraints.road_ramp import wall_release
+    from auto_patch_v2.model.constraints import ConstraintSet, Diff, Source
+    wall = LineString([(0, 1), (20, 1), (20, 21)]).buffer(0.15, cap_style="flat",
+                                                        join_style="mitre")
+    pts = {0: (10.0, 0.0),      # road kerb (upper), below the wall's first leg
+           1: (10.0, 3.0),      # lot vertex beyond it (lower)
+           2: (22.0, 10.0),     # road vertex beyond the second leg
+           3: (12.0, 0.0)}      # another road kerb vertex
+    pm = NS(vertices={v: NS(xy=p) for v, p in pts.items()},
+            road_terrace={"wall": {0: {"line": list(wall.exterior.coords),
+                                       "height_m": 3.0, "lower": [1]}}})
+    src = Source("roads", "x", ())
+    cs = ConstraintSet(diffs=(Diff(0, 1, 0.05, 3.0, src),     # across, to the lot
+                              Diff(0, 2, 0.05, 15.0, src),    # road chord past the wall
+                              Diff(0, 3, 0.05, 2.0, src)))    # same side
+    out, rep = wall_release(pm, law, cs)
+    assert rep["released"] == 1
+    assert [(d.a, d.b) for d in out.diffs] == [(0, 2), (0, 3)]

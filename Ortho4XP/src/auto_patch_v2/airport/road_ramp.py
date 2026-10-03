@@ -1139,12 +1139,12 @@ def wall_pieces(airport: Airport | None) -> tuple[WallPiece, ...]:
 
 
 def _piece_length(g) -> float:
-    """A thin piece's length along its long axis (its minimum rotated
-    rectangle's long side)."""
-    cs = list(g.minimum_rotated_rectangle.exterior.coords)
-    if len(cs) < 4:
+    """A thin piece's length along its own course: half its outline less
+    its width (``2·area / perimeter``) — a bent wall is as long as it runs,
+    not as its rectangle."""
+    if g.length <= 0.0:
         return 0.0
-    return max(math.dist(cs[0], cs[1]), math.dist(cs[1], cs[2]))
+    return g.length / 2.0 - 2.0 * g.area / g.length
 
 
 def wall_midline(g) -> list[tuple[float, float]]:
@@ -1168,20 +1168,24 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
 
     A wall piece (:func:`wall_pieces`) qualifies when, within ``reach``
     (``[service] retaining_wall_reach_m``, the §47 reader's "along") of its
-    line, ONE side carries the AIRSIDE LEVEL — a road vertex the terrace
-    BORDERS (``terr['foot']``) or a §20b stage-1 pavement vertex — and the
-    OTHER side a LOWER AREA: a groundside lot / pavement page (not a road)
-    or a building pad.  Per qualifying piece ``{line, height_m, label,
-    upper, lower, lots, pairs}``:
+    footprint, an AIRSIDE-LEVEL vertex — a road vertex the terrace BORDERS
+    (``terr['foot']``) or a §20b stage-1 pavement vertex — and a LOT vertex
+    (a groundside lot / pavement page, not a road, not a pad) stand ACROSS
+    it (the segment to the nearest one of the other kind crosses the
+    piece).  Per qualifying piece ``{line, height_m, label, upper, lower,
+    lots, pairs}``:
 
-    * ``upper`` / ``lower`` — the vertices within reach on each side (the
-      step the publication declares and measures across the line);
-    * ``pairs`` — ``(lot vertex, pad vertex)``: every ring vertex of a lot
-      face at the wall foot that is not a pad's or an airside vertex, with
-      the nearest ring vertex of ITS BUILDING's pad (the pad nearest that
-      lot face, within one lane width of it) — the lot→pad coupling, one
-      one-way stage-2 row each (``constraints/road_ramp.wall_terrace_rows``):
-      the lot is flat to its building's level, the wall is the step.
+    * ``line`` — the piece's own OUTLINE (a pack wall bends: the declared
+      joint and the release read the footprint, never a chord of it);
+    * ``upper`` / ``lower`` — the airside-level and lot vertices across the
+      wall from each other (the step the publication declares and measures;
+      ``constraints/road_ramp.wall_release`` withdraws the pair rows
+      between the two sides);
+    * ``pairs`` — ``(lot vertex, pad vertex)``: every ``lower`` vertex with
+      the nearest ring vertex of ITS building (the nearest pad within two
+      reaches) — the lot→pad coupling, one one-way stage-2 row each
+      (``constraints/road_ramp.wall_terrace_rows``): the lot at the wall's
+      foot is at its building's level, the wall is the step.
 
     MEASURED (lane roadterrace100, sw1018): apron ``objpav433`` 103.88 m
     (the wall top), lot ``objpav394`` 100.67 m at the wall foot,
@@ -1225,90 +1229,65 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
     ptree = STRtree([pad_f[i] for i in pad_ids]) if pad_ids else None
     air_or_pad = up_v | {v for i in pad_ids for v in pm.ring_vertices(pm.faces[i].ring)}
     for k, w in enumerate(walls):
-        line = wall_midline(w.poly)
-        if len(line) < 2:
+        # THE WALL IS ITS OWN FOOTPRINT, never a chord of it: a pack wall
+        # bends (HECA ``metal_strip_2.obj`` comp 117: one 262 m piece fills
+        # 1.9 % of its minimum rotated rectangle), so "across the wall" is
+        # "the segment crosses the piece" and the declared line is the
+        # piece's own outline
+        ring = list(w.poly.exterior.coords)
+        if len(ring) < 4:
             continue
-        ln = LineString(line)
-        (x0, y0), (x1, y1) = line
-        nx, ny = -(y1 - y0), x1 - x0
+        zone = w.poly.buffer(reach)
+        near = [ids[int(j)] for j in vtree.query(zone, predicate="intersects")]
+        near = [v for v in near if not w.poly.contains(Point(pm.vertices[v].xy))]
+        upper_all = [v for v in near if v in up_v]
+        lots = sorted({lot_ids[int(j)] for j in ltree.query(zone, predicate="intersects")}
+                      if ltree is not None else set())
+        if not upper_all or not lots:
+            continue
+        lot_set = set(lots)
+        low_all = [v for v in near if v not in air_or_pad
+                   and any(g_ in lot_set for g_ in pm.vertices[v].incident_faces)
+                   and not any(pm.faces[g_].role in roads
+                               for g_ in pm.vertices[v].incident_faces)]
+        if not low_all:
+            continue
 
-        def side(p) -> float:
-            return (p[0] - x0) * nx + (p[1] - y0) * ny
-        near = [ids[int(j)] for j in vtree.query(ln.buffer(reach))]
-        sides: dict[int, list[int]] = {1: [], -1: []}
-        for v in near:
-            p = pm.vertices[v].xy
-            if w.poly.contains(Point(p)):
-                continue
-            s = side(p)
-            if s != 0.0:
-                sides[1 if s > 0 else -1].append(v)
-        zone = ln.buffer(reach)
-        lots_by = {1: set(), -1: set()}
-        pads_by = {1: set(), -1: set()}
-        for tree, idl, polys, acc in ((ltree, lot_ids, lot_f, lots_by),
-                                      (ptree, pad_ids, pad_f, pads_by)):
-            if tree is None:
-                continue
-            for j in tree.query(zone, predicate="intersects"):
-                fid = idl[int(j)]
-                c = polys[fid].intersection(zone)
-                if c.is_empty:
-                    continue
-                s = side(c.representative_point().coords[0])
-                if s != 0.0:
-                    acc[1 if s > 0 else -1].add(fid)
-        # A BUILDING'S OWN WALL IS NOT A TERRACE WALL: a wall-class piece
-        # standing on a pad (a hangar's facade, door or floor strip — HECA
-        # carries dozens) is the building, and its pad's frontage law is the
-        # pad's; only a free-standing wall between pavement and a lot is one
-        if ptree is not None and w.poly.area > 0.0 and sum(
-                pad_f[pad_ids[int(j)]].intersection(w.poly).area
-                for j in ptree.query(w.poly, predicate="intersects")) > 0.5 * w.poly.area:
+        def across(a: int, b: int) -> bool:
+            return LineString([pm.vertices[a].xy, pm.vertices[b].xy]).intersects(w.poly)
+
+        def nearest(v: int, pool: list[int]) -> int:
+            x, y = pm.vertices[v].xy
+            return min(pool, key=lambda q: (math.hypot(pm.vertices[q].xy[0] - x,
+                                                       pm.vertices[q].xy[1] - y), q))
+        # the LOWER side: lot vertices whose nearest airside-level vertex is
+        # across the wall; the UPPER side: airside-level vertices whose
+        # nearest lot vertex is across it (the wall stands BETWEEN them)
+        lower = [v for v in low_all if across(v, nearest(v, upper_all))]
+        upper = [v for v in upper_all if across(v, nearest(v, low_all))]
+        if not lower or not upper:
             continue
-        for hi in (1, -1):
-            lo = -hi
-            upper = [v for v in sides[hi] if v in up_v]
-            # the LOWER side is a LOT (the ruling's building's surrounding
-            # pavement), never a bare pad frontage
-            if not upper or not lots_by[lo]:
+        # THE LOT AT THE WALL'S FOOT (10-03c: "graded flat to the
+        # building's level at the wall's foot"): every lower lot vertex
+        # takes the level of ITS building — the nearest pad within two
+        # reaches of it.  Never the whole lot page: MEASURED HECA arm
+        # (sw1018 capture) — lot ``dsf:objpav394`` is one 264-vertex page
+        # over 8 m of relief (95.6-104.0 m), and coupling all of it to
+        # ``building15`` (99.04 m) left it at 96.3-103.6 m, flat nowhere
+        pairs: list[tuple[int, int]] = []
+        for lv in lower:
+            p = Point(pm.vertices[lv].xy)
+            cand = ([pad_ids[int(j)] for j in ptree.query(p, predicate="dwithin",
+                                                          distance=2.0 * reach)]
+                    if ptree is not None else [])
+            if not cand:
                 continue
-            lots = sorted(lots_by[lo])
-            lower = [v for v in sides[lo] if v not in up_v]
-            pairs: list[tuple[int, int]] = []
-            # THE LOT AT THE WALL'S FOOT (10-03c: "graded flat to the
-            # building's level at the wall's foot"): every lot vertex on the
-            # lower side within the wall's reach takes the level of ITS
-            # building — the nearest pad within two reaches of it.  Never the
-            # whole lot page: MEASURED HECA arm (sw1018 capture) — lot
-            # ``dsf:objpav394`` is one 264-vertex page over 8 m of relief
-            # (95.6-104.0 m), and coupling all of it to ``building15``
-            # (99.04 m) left it at 96.3-103.6 m, flat nowhere
-            lot_set = set(lots)
-            pairs = []
-            for lv in lower:
-                if lv in air_or_pad:
-                    continue
-                inc = pm.vertices[lv].incident_faces
-                if not any(g_ in lot_set or (pm.faces[g_].role in lot_roles)
-                           for g_ in inc) or any(pm.faces[g_].role in roads for g_ in inc):
-                    continue        # not the lot; the road's kerb is the road's
-                p = Point(pm.vertices[lv].xy)
-                cand = ([pad_ids[int(j)] for j in ptree.query(p, predicate="dwithin",
-                                                              distance=2.0 * reach)]
-                        if ptree is not None else [])
-                if not cand:
-                    continue
-                pf = min(cand, key=lambda i: (pad_f[i].distance(p), i))
-                lx, ly = p.x, p.y
-                pv_near = min(dict.fromkeys(pm.ring_vertices(pm.faces[pf].ring)),
-                              key=lambda q: (math.hypot(pm.vertices[q].xy[0] - lx,
-                                                        pm.vertices[q].xy[1] - ly), q))
-                pairs.append((lv, pv_near))
-            out[k] = {"line": line, "height_m": w.height_m, "label": w.label,
-                      "upper": upper, "lower": lower, "lots": lots,
-                      "pads": sorted(pads_by[lo]), "pairs": pairs}
-            break
+            pf = min(cand, key=lambda i: (pad_f[i].distance(p), i))
+            pairs.append((lv, nearest(lv, list(dict.fromkeys(
+                pm.ring_vertices(pm.faces[pf].ring))))))
+        out[k] = {"line": [tuple(c) for c in ring], "height_m": w.height_m,
+                  "label": w.label, "upper": upper, "lower": lower,
+                  "lots": lots, "pairs": pairs}
     return out
 
 

@@ -25,6 +25,7 @@ from shapely.ops import unary_union
 from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
 from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
+from ..model.planar import is_osm_ribbon_ref
 from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
                     shore_declarations, shore_verdict)
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
@@ -171,9 +172,18 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # ``graded_strip|graded_strip`` ``within_shape`` rows against zero in
     # the base.  A road elsewhere inside adjacent ground grades WITH the
     # zone (the standing law).
+    # A MAPPED-ROAD RIBBON (``classify/roles.mint_osm_ribbons``, #100) gets
+    # NO stand-off: inside a band the road grades WITH the zone (13ar) and
+    # the kerb it shares with the band is the BAND's (spec-author 30e (4),
+    # 29r — ``PlanarMap.band_kerb_vertices``), so the band and the ribbon
+    # are welded, never terraced across a 0.6 m strip.  Where the ribbon
+    # LEAVES the band it climbs from that shared kerb at the road cap
+    # (29y / 29r); a 1206 route and every other groundside cell keep the
+    # cut-back.
     everything = unary_union(
         [Polygon(c.ring, c.holes).buffer(cut, **_MITRE)
-         if c.side == "groundside" else Polygon(c.ring, c.holes) for c in cells]
+         if c.side == "groundside" and not is_osm_ribbon_ref(getattr(c, "ref", ""))
+         else Polygon(c.ring, c.holes) for c in cells]
         + [Polygon(k).buffer(cut, **_MITRE) for k in keepouts]) if cells else Polygon()
     lip = ag.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}

@@ -1217,6 +1217,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _say(wrep.line(icao), out)
         report["shore_weld"] = _dc.asdict(wrep)
         pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
+        # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is
+        # withdrawn under (road cap governs) — the census reads the same set
+        rc_vs = pm.ribbon_vertices()
+        if rc_vs:
+            _to_ll_rc = airport.frame.transformers()[1]
+            pub["road_cap_governs"] = [list(_to_ll_rc(*pm.vertices[v].xy))
+                                       for v in sorted(rc_vs)]
         wedges = getattr(pm, "natural_shore_wedges", ()) or ()
         if wedges:
             _to_ll = airport.frame.transformers()[1]

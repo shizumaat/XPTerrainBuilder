@@ -106,6 +106,7 @@ _LAG_OFF = 1.0e9
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
 from .design_stage import stage_split  # noqa: E402  (re-export: the §20b split)
+from .design_stage import _groundside_minter, _welded_faces  # noqa: E402  (30aa rule 1)
 from .design_roles import (  # noqa: E402  (re-export)
     airside_stage_roles, airside_stage_vertices, conforming_rulings, groundside_pin_rulings, bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
 
@@ -433,6 +434,12 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     tol_ref = float(design_law(law).hard_tol_m)
     rep.fronting_promoted, rep.fronting_promoted_by = 0, {}
     ap_hard = apron_hard_rows(planar, law)   # §5: the apron cap HARD (30be/30bf)
+    # RULINGS 2026-09-30aa rule 1 (#100; owner 30z (1): a road never moves
+    # the airside): a row MINTED by a WELDED road face (the mapped-road
+    # ribbon) is stage 2's WHATEVER ITS COLUMNS — a ribbon ring pair footed
+    # on two rim vertices has only airside columns, and stage 1 took it by
+    # column (30aa (b)).  The minting face is the row's own ``face:N``.
+    gs_minted = _groundside_minter(planar, law) if drop_f else None
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -442,6 +449,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if conform and (getattr(row, "follows", None) is not None
                         or ruling_head(row) in conform):
             stage_dropped += 1        # §20b (1b): a conforming row is stage 2's
+            continue
+        if gs_minted is not None and gs_minted(row):
+            stage_dropped += 1        # 30aa rule 1: a groundside face's row
             continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
@@ -525,6 +535,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                         or ruling_head(side[2]) in conform):
             stage_dropped += 1        # §20b (1b)
             continue
+        if gs_minted is not None and gs_minted(side[2]):
+            stage_dropped += 1        # 30aa rule 1
+            continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
             continue
@@ -584,8 +597,14 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #    no route and pinned by nothing — its datum is ITS OWN TERRAIN PLANE
     #    too, even where a shared vertex ties it to the airside sheet.  The
     #    airside design surface is never given one.
+    #    RULINGS 2026-09-30aa rule 1: a WELDED road face's datum is a row
+    #    that face MINTS — stage 2's, never stage 1's (in stage 1 its only
+    #    columns are the rim vertices it shares: its plane would pull the
+    #    apron toward the road's terrain), so stage 1 reads the bodies
+    #    without the ribbons
     gs_roles = {r for r in pav_roles if role_side(law, r) == "groundside"}
-    for vs in _role_bodies(planar, gs_roles, red):
+    welded = _welded_faces(planar) if drop_f else set()
+    for vs in _role_bodies(planar, gs_roles, red, welded):
         by_comp.setdefault(("groundside", vs[0]), vs)
     #    A RIGID GROUP (a pad, a plate, a wall band) is ONE column, so its
     #    own bending rows collapse to nothing: bending gives it no level at

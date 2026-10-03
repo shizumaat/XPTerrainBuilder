@@ -495,15 +495,17 @@ def apply_level_belt(pm: PlanarMap, rows: "_Rows", body: "_Rows | None",
     return added
 
 
-def _role_bodies(pm: PlanarMap, roles: _t.AbstractSet[str], red: _Reduction
-                 ) -> list[list[int]]:
+def _role_bodies(pm: PlanarMap, roles: _t.AbstractSet[str], red: _Reduction,
+                 skip: _t.AbstractSet[int] = frozenset()) -> list[list[int]]:
     """The connected BODIES of the faces of ``roles`` (faces sharing a
-    vertex), each as its unknown vertices carrying a DEM sample."""
-    return [vs for vs, _fs in _role_bodies_faced(pm, roles, red)]
+    vertex), each as its unknown vertices carrying a DEM sample; the face
+    ids in ``skip`` take no part."""
+    return [vs for vs, _fs in _role_bodies_faced(pm, roles, red, skip)]
 
 
 def _role_bodies_faced(pm: PlanarMap, roles: _t.AbstractSet[str],
-                       red: _Reduction) -> list[tuple[list[int], list[int]]]:
+                       red: _Reduction, skip: _t.AbstractSet[int] = frozenset()
+                       ) -> list[tuple[list[int], list[int]]]:
     """:func:`_role_bodies`, each body paired with the FACES it is made of
     (the per-body datum reads their shape ids — a body's own shape is the
     shape of its FACES, never a vote among its vertices, which a road
@@ -519,7 +521,7 @@ def _role_bodies_faced(pm: PlanarMap, roles: _t.AbstractSet[str],
 
     members: dict[int, list[int]] = {}
     for f in pm.faces.values():
-        if f.role not in roles:
+        if f.role not in roles or f.id in skip:
             continue
         vs = [v for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)]
         if not vs:

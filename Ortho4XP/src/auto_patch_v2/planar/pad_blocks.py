@@ -19,6 +19,16 @@ parts cross a straight chord of the pad — and each block is seated flat at
 its own level; the walls step at the block boundary (a declared pad|pad
 terrace, exempt from the cap, 30l).
 
+ONLY A STEPPED BASE IS CUT (owner RULINGS 2026-10-02aj (2), "seat T3 as
+one level"; 10-01f).  The cut is admitted only for a unit whose COMPOSED
+base profile (``PlanCluster.base_profile``, base-profile spec §1 (3)) reads
+STEPPED (:func:`unit_base`); every other unit — a flat base, a sloped one,
+post feet, no base plane — is ONE block at one datum, and a contact no
+single level serves is the frontage hold's residual.  This is the ONE gate:
+every block reader (the mint, the collars, the hold, the object stage's
+``pad_block_seat``, the census) reads the ``<ref>/b<k>`` refs this plan
+yields, so a one-block plan reaches none of them.
+
 THE TEST, PER FRONTAGE CONTACT.  A welded contact ``c`` (a pad ring sample
 within ``near`` of a fronted apron body) can carry a level ``D`` iff the
 apron in front of it grades from ``D`` to the taxiway it faces within the
@@ -135,10 +145,16 @@ class BlockPlan:
     steps: list[tuple[int, int, float]] = _dc.field(default_factory=list)
     bay_m: float = 0.0
     note: str = ""
+    #: the unit's COMPOSED base verdict (:func:`unit_base`) and the cluster
+    #: it was read off — only a ``stepped`` base may be cut (RULINGS
+    #: 2026-10-02aj (2))
+    base: str = ""
+    base_cluster: str = ""
 
     def to_dict(self) -> dict:
         return {"ref": self.ref, "verdict": self.verdict, "contacts": self.contacts,
                 "q": self.q, "bay_m": self.bay_m, "note": self.note,
+                "base": self.base, "base_cluster": self.base_cluster,
                 "neck_m": [round(n, 2) for n in self.neck_m],
                 "steps": [[i, j, round(s, 3)] for i, j, s in self.steps],
                 "cuts": [[list(c) for c in s.coords] for s in self.cuts],
@@ -153,7 +169,8 @@ class BlockPlan:
             + (f" (max {b.residual_max_m:.2f})" if b.residual else "")
             for b in self.blocks)
         st = ", ".join(f"b{i}|b{j} {s:+.2f}" for i, j, s in self.steps)
-        return (f"{self.ref}: {self.verdict} contacts {self.contacts} q {self.q} "
+        return (f"{self.ref}: {self.verdict} base {self.base or '-'} "
+                f"({self.base_cluster or '-'}) contacts {self.contacts} q {self.q} "
                 f"blocks {len(self.blocks)} bay {self.bay_m:g} m steps [{st}] "
                 f"necks {[round(n, 1) for n in self.neck_m]}"
                 f"{' ' + self.note if self.note else ''} | {bl}")
@@ -440,6 +457,69 @@ def _part_index(airport) -> "tuple[list[Polygon], _t.Any] | None":
     return polys, tree
 
 
+_BASE_CACHE: dict[int, tuple] = {}
+
+
+def _cluster_index(airport) -> "tuple[list[tuple[Polygon, str, str]], _t.Any] | None":
+    """Every §16g cluster's OUTLINE (plan xy, the union of its member
+    footprint rings — the pad the design surface mints for it, §16g (10)
+    (2)), its id and its COMPOSED base-profile verdict
+    (``PlanCluster.base_profile``, base-profile spec §1 (3)/(4)), with an
+    STRtree, once per airport."""
+    from shapely.strtree import STRtree
+    key = id(airport)
+    hit = _BASE_CACHE.get(key)
+    if hit is not None and hit[0] is airport:
+        return hit[1], hit[2]
+    cls = getattr(airport, "clusters", None)
+    if not cls:
+        return None
+    to_xy = airport.frame.entry()
+    rows: list[tuple[Polygon, str, str]] = []
+    for c in cls:
+        polys = []
+        for r in getattr(c, "rings", ()) or ():
+            if len(r) < 3:
+                continue
+            q = Polygon([to_xy(float(lo), float(la)) for la, lo in r])
+            if not q.is_valid:
+                q = q.buffer(0)
+            if not q.is_empty and q.area > 0.0:
+                polys.append(q)
+        if not polys:
+            continue
+        verdict = str((getattr(c, "base_profile", None) or {}).get("verdict", "") or "")
+        rows.append((unary_union(polys), str(c.id), verdict))
+    tree = STRtree([g for g, _i, _v in rows]) if rows else None
+    _BASE_CACHE.clear()
+    _BASE_CACHE[key] = (airport, rows, tree)
+    return rows, tree
+
+
+def unit_base(P: Polygon, airport) -> tuple[str, str]:
+    """``(verdict, cluster id)`` of the unit a platform pad ``P`` is the pad
+    of: the cluster whose outline covers the most of ``P`` (the pad IS the
+    cluster, §16g (10) (2) — the pad's ref no longer names it), and that
+    cluster's COMPOSED base verdict (``obj8_grade`` ``flat`` / ``stepped``
+    / ``sloped`` / ``feet``; ``""`` where the cluster carries no base plane
+    or no cluster covers the pad).  Owner RULINGS 2026-10-02aj (2): the
+    verdict decides whether the unit may be CUT into blocks at all."""
+    idx = _cluster_index(airport)
+    if idx is None or idx[1] is None:
+        return "", ""
+    rows, tree = idx
+    best, bid, bv = 0.0, "", ""
+    for j in tree.query(P, predicate="intersects"):
+        g, cid, v = rows[int(j)]
+        try:
+            a = g.intersection(P).area
+        except Exception:  # noqa: BLE001 — a degenerate outline
+            continue
+        if a > best:
+            best, bid, bv = a, cid, v
+    return bv, bid
+
+
 def _sample_ring(ring, step: float) -> list[tuple[float, float]]:
     n = max(4, int(ring.length // step))
     return [ring.interpolate(i * ring.length / n).coords[0] for i in range(n)]
@@ -475,6 +555,21 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
     bp = law.tables.structures.building_pad
     margin = float(bp.frontage_hold_margin_m)
     cap_blocks = int(bp.frontage_blocks_max)
+    # SEAT A FLAT-BASED UNIT AS ONE LEVEL (owner RULINGS 2026-10-02aj (2),
+    # extending 10-01f "stepped pads only where the base is stepped"): the
+    # Q-111b cut (30r) splits the BUILDING into blocks at its necks, which
+    # is only true to the object where the object's own base steps.  A
+    # unit whose composed base reads anything but STEPPED — flat, sloped,
+    # post feet (10-01k Q1: the object is pitched, never the ground cut),
+    # or no base plane at all — is ONE block: one platform, one datum,
+    # held at a level the apron can meet (the frontage hold's datum row,
+    # RULINGS 10-02ah (1)); a contact no single level serves is the hold's
+    # residual, never a cut.  MEASURED at HECA T3 (unit:40, 30,411 m2, base
+    # FLAT): five blocks 100.20-102.77 m before this gate.
+    from ..airport.obj8_grade import STEPPED
+    base, base_cluster = unit_base(P, airport)
+    if base != STEPPED:
+        cap_blocks = 1
     p = law.tables.precedence
     runway_roles = set(p.runway_family.members)
     taxi_roles = set(p.taxi_family.members)
@@ -568,7 +663,8 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
         m = own == k
         D[k] = _datum(L[m], U[m], Cz[m])[0] if m.any() else float(np.median(Cz))
     held, ramp = hold_mask(D, own, S, perim, L, U, a)
-    plan = BlockPlan(ref, "", int(C.shape[0]), int(Q.shape[0]), [], bay_m=bay)
+    plan = BlockPlan(ref, "", int(C.shape[0]), int(Q.shape[0]), [], bay_m=bay,
+                     base=base, base_cluster=base_cluster)
     for k, g in enumerate(pieces):
         m = own == k
         z = Cz[m]
@@ -600,7 +696,10 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
     if complete:
         plan.verdict = "one_block" if len(pieces) == 1 else "split"
     else:
-        plan.verdict = "stop_cap" if len(pieces) >= cap_blocks else "residual"
+        # a unit held to ONE level by its base (aj (2)) never reached a
+        # block cap: its miss is the hold's residual
+        plan.verdict = ("stop_cap" if len(pieces) >= cap_blocks and base == STEPPED
+                        else "residual")
         plan.note = (f"{'STOP' if plan.verdict == 'stop_cap' else 'RESIDUAL'}: "
                      f"{len(pieces)} block(s) still miss by "
                      f"{max(b.residual_max_m for b in plan.blocks):.2f} m")

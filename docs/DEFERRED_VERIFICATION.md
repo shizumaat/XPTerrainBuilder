@@ -80,3 +80,15 @@
   #31 unit-carried files' anchors — and the owner's sim read of HECA's
   terminals (T1/T2/T3, the T23 hangar 30.11475, 31.39793: doors and
   glass were +10.58 m) in the next app build.
+- 2026-10-02 lane t3onelevel10 (RULINGS 2026-10-02aj (2), branch
+  `claude/t3onelevel10`): the block cut is gated on the unit's composed
+  base verdict (`pad_blocks.unit_base`; only `stepped` is cut). Measured
+  on replays only (HECA `hecamove/HECA.pkl --from classify`, KCLT/SPJC
+  `sweep1005attr/*.pkl --from planar`): HECA and SPJC plans unchanged,
+  KCLT `building49` (35.21284, -80.93814; no base plane) 2 blocks -> 1.
+  HECA T3 (`building4`) is NOT changed: its cluster `unit:43#6330`
+  composes STEPPED (34 planes — ceilings, upper floors and roof nets read
+  as base planes); the FLAT `unit:40` is `heca_ground_polygon.obj`, not
+  the terminal. OWED: the HECA closing build + census (not run — it
+  would reproduce the unchanged T3), and the owner's ruling on T3's
+  stepped read.

@@ -479,7 +479,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     import numpy as np
     from ..law.tables import design as design_law
     from ..model.platform import HELD
-    from .platform import GEN as PGEN, HOLD_RULING, hold_sets, hold_row
+    from .platform import GEN as PGEN, HOLD_DATUM_RULING, HOLD_RULING, hold_sets, hold_row
     from .routes import reach_anchored, route_path
     sets = hold_sets(planar, law)
     if not sets:
@@ -555,76 +555,114 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         for k, x in sorted(by.items())}
     # every contact's LEAST-BUDGET runway column (R(c), §1 (2))
     near = reach_anchored(g, {v: (0.0, 0.0) for v in rw_v}, transit=False)
+    # OWNER RULING 2026-10-02ag (1), verbatim: "pad stays flat, apron twists
+    # to weld to it.  It shouldn't have to twist too much since the apron
+    # should only be at a max 1.5% slope anyway, the pad area just has to be
+    # blended into the rest of the apron."  (issues #223 / #111 / #96)
+    #   * D_b = the apron's OWN level at the frontage: the median of the
+    #     block's airside FRONTAGE contacts' pass-1a value ``z¹ᵃ`` (the
+    #     airside solved with no pad row) — never a Band the solver floats
+    #     (that lifted SPJC ``building14``'s junction 1.0 m, ``building5`` b0
+    #     sat 2.2 m under its chosen D);
+    #   * the pad is ONE FLAT plate at D (hard: the datum column's zero-width
+    #     Band + ``platform.platform_plane_rows`` / the §4 own-vertex rows);
+    #   * the apron CONTACT vertices take D (the hard two-way weld hold), and
+    #     the apron around them BLENDS to the rest of the apron under its own
+    #     caps and the no_step / within_shape law — a bounded local twist of
+    #     the contacts' spread about D;
+    #   * nothing else airside is pulled: no plateau row (an apron interior
+    #     vertex), no runway budget (beta_R = 0, every runway column held at
+    #     pass 1a).
+    from .pads import airside_vertices as _air_v
+    air_c = _air_v(planar, law)
+    reach_c: dict[int, tuple] = {int(bd.v): (bd.lo, bd.hi) for bd in cs.bands
+                                 if bd.source.generator == REACH_GENERATOR}
     blocks: dict[str, dict] = {}
     for pref, dv, weld, n_all, n_ramp in sets:
         if not weld:
             continue
-        lo, hi, lo_c, hi_c = interval(ar0, weld)
-        med = _median([zof(c) for c in weld if c in cols] or [0.0])
-        D = nearest(lo, hi, med)
+        plat_v = set(HELD[pref].get("plateau_vertices") or ())
+        front_c = [c for c in weld if c in cols and c in air_c and c not in plat_v]
+        # OWNER 2026-10-02 (round 5, RULINGS 2026-10-02ah (1) as restated:
+        # "the pad must be seated flat at a level the apron can meet"): the
+        # datum is a FREE COLUMN of the stage-1 solve.  The hard two-way
+        # weld rows (contact = D), the pad's own flat rows and the apron's
+        # caps and anchors decide it jointly; ONE SOFT preference (the
+        # zero-width Band below, priced at the law's weight — its head is
+        # in no hard register) pulls D toward the apron's own level at the
+        # frontage, the median of the contacts' pass-1a value.  The pair-
+        # graph interval is kept as the REPORT only.
+        lo, hi, lo_c, hi_c = interval(ar0, front_c or weld)
+        front = [zof(c) for c in front_c]
+        med = _median(front or [zof(c) for c in weld if c in cols] or [0.0])
+        D = med
+        # OWNER ADDENDUM 2026-10-02: "the whole point of the reach band is to
+        # calculate where to seat building pads so their frontages can be
+        # reached within grade law" — the datum's BOUND is the INTERSECTION
+        # of its airside contacts' REACH BANDS (the same ``Band`` rows the
+        # apron vertices obey, read off ``cs`` — ``reach_band_values`` is
+        # their one derivation).  Non-empty => an apron meeting the pad at D
+        # exists by construction and the solve picks the smoothest; empty =>
+        # the block ``needs_split`` by definition (its contacts' bands are
+        # recorded so the owner can read why).
+        bands_c = {c: reach_c[c] for c in front_c if c in reach_c}
+        r_lo = max((b[0] for b in bands_c.values() if b[0] is not None), default=-math.inf)
+        r_hi = min((b[1] for b in bands_c.values() if b[1] is not None), default=math.inf)
         blocks[pref] = {"dv": dv, "weld": weld, "n_all": n_all, "n_ramp": n_ramp,
                         "I0": (lo, hi), "empty0": lo > hi, "med": med, "D": D,
+                        "reach_isect": (r_lo, r_hi), "reach_bands_c": bands_c,
                         "unreached": sum(1 for c in weld if c not in lo_c and c not in hi_c)}
     if not blocks:
         return None
-    # Λ_c and R(c) → β_R
+    # Λ_c and R(c) → β_R: ZERO — nothing pulls the airside any more, so no
+    # runway earns a flex budget (every runway column is held at its
+    # pass-1a value, A1 (c)); the lift records stay for the report
     lift: dict[str, tuple[float, str, int]] = {}
-    for pref, b in blocks.items():
-        for c in b["weld"]:
-            if c not in cols:
-                continue
-            path = near.binding(c, "hi")
-            if not path:
-                continue
-            p0 = path[0]
-            lam = abs(b["D"] - zof(c))
-            for r in member.get(p0, ()):
-                if r not in lift or lam > lift[r][0]:
-                    lift[r] = (lam, pref, c)
-    beta = {r: share * lam for r, (lam, _p, _c) in lift.items()}
+    beta: dict[str, float] = {}
     ar1 = None
     for pref, b in blocks.items():
-        if not b["empty0"]:
-            b["eval"], b["I"], b["held"] = "i", b["I0"], True
-            continue
-        if ar1 is None:
-            ar1 = reach_anchored(g, anchors(beta), transit=False)
-        lo, hi, lo_c, hi_c = interval(ar1, b["weld"])
-        b["I"] = (lo, hi)
-        if lo <= hi:
-            b["eval"], b["held"], b["D"] = "ii", True, nearest(lo, hi, b["med"])
-            continue
-        b["eval"], b["held"] = "residual", False
-        mids = sorted(0.5 * (lo_c.get(c, -math.inf) + hi_c.get(c, math.inf))
-                      for c in b["weld"] if c in lo_c and c in hi_c)
-        m = mids[len(mids) // 2] if mids else b["med"]
-        D = nearest(lo, hi, m)
-        b["D"] = D
-        b["residual"] = [c for c in b["weld"] if c in lo_c and c in hi_c
-                         and not (lo_c[c] - 1e-9 <= D <= hi_c[c] + 1e-9)]
+        # D is the frontage's own level, so the block is HELD at it; the
+        # pair-graph interval is kept as the REPORT (``reach_band``) and as
+        # the per-contact test it always was: a contact whose own band from
+        # the fixed anchors (beta_R = 0) EXCLUDES D cannot be welded to the
+        # pad without breaking a cap or a pin — it keeps its hold PRICED
+        # (``HOLD_RESIDUAL_RULING``, flat-pad spec v2 §2 EMPTY (i)) and the
+        # block reads ``residual`` there, never a relaxed hard row
+        # no contact is pre-priced: the solve releases a weld ONLY when no
+        # single D serves the block (the elastic LP relaxes the pad-tier
+        # hold, never an apron cap); the record names it ``needs_split``
+        b["residual"] = []
+        b["I"], b["held"] = b["I0"], True
+        b["eval"] = "residual" if b["residual"] else "i"
     # the rows
     rows: list = []
     for pref, b in blocks.items():
-        res = set(b.get("residual") or ())
         plat = set(HELD[pref].get("plateau_vertices") or ())
+        res = set(b.get("residual") or ())
         for o in b["weld"]:
-            rows.extend(hold_row(o, b["dv"], pref, residual=o in res,
-                                 plateau=o in plat))
-        # THE DATUM BAND (§2 "Derivation site" / §5 "datum Band"): the
-        # block's datum column within its pair-graph interval — HARD, head
-        # ``HOLD_RULING``; a residual block's collapses to its chosen D.
-        # ``D_b`` (§2 "The datum") sets the lift and the runway's budget;
-        # the solver places the datum inside the band, so two held blocks
-        # of one unit meet across their ramp (a per-block PIN at each
-        # median measured SPJC building5 b0|b1 INFEASIBLE: 3.6 m over a
-        # ramp of a few metres, 27 hard rows, 10.6 m shortfall)
-        lo_b, hi_b = b["I"] if b["held"] else (b["D"], b["D"])
-        rows.append(Band(b["dv"], lo_b if math.isfinite(lo_b) else None,
-                         hi_b if math.isfinite(hi_b) else None,
-                         Source(PGEN, HOLD_RULING + " (the block datum within "
-                                "its pair-graph interval: flat-pad spec v2 §2, "
-                                "RULINGS 2026-09-30y (2) / 30as)",
+            if o in plat:
+                continue           # an apron INTERIOR vertex: never pulled (02ag)
+            rows.extend(hold_row(o, b["dv"], pref, residual=o in res))  # the weld takes D
+        # THE DATUM: the block's datum column AT the frontage's own level —
+        # HARD (``HOLD_RULING``), a zero-width ``Band``
+        rows.append(Band(b["dv"], b["D"], b["D"],
+                         Source(PGEN, HOLD_DATUM_RULING + " (SOFT: the block datum's "
+                                "preference for the apron's own frontage level, "
+                                "the median of its contacts' pass-1a value; owner "
+                                "2026-10-02 round 5 / RULINGS 2026-10-02ah (1): the "
+                                "datum is a free column, the welds and the apron's "
+                                "caps are hard)",
                                 (pref, f"platform:{pref}"))))
+        r_lo, r_hi = b["reach_isect"]
+        if r_lo <= r_hi and (math.isfinite(r_lo) or math.isfinite(r_hi)):
+            rows.append(Band(b["dv"], r_lo if math.isfinite(r_lo) else None,
+                             r_hi if math.isfinite(r_hi) else None,
+                             Source(PGEN, HOLD_RULING + " (the block datum within the "
+                                    "INTERSECTION of its frontage contacts' reach "
+                                    "bands — owner addendum 2026-10-02: the band is "
+                                    "where a pad can be seated so its frontage is "
+                                    "reachable within grade law)",
+                                    (pref, f"platform:{pref}", "reach"))))
     # EVERY runway of a hold-bearing airport carries its Bands (§1 (3)-(4):
     # "beta_R ... 0 for a runway no route reaches", "at most 2 x 2,610" =
     # every HECA runway column; A1 (c): a runway with beta_R = 0 moves 0) —
@@ -695,6 +733,11 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         h["reach_eval"] = b["eval"]
         h["reach_unreached"] = b["unreached"]
         h["datum_chosen"] = round(float(b["D"]), 3)
+        rl, rh = b["reach_isect"]
+        h["reach_isect"] = [_r(rl), _r(rh)]
+        h["reach_isect_empty"] = bool(rl > rh)
+        h["reach_bands_contacts"] = {str(c): [(_r(float(x)) if x is not None else None) for x in bb]
+                                     for c, bb in list(b["reach_bands_c"].items())[:40]}
         h["residual"] = list(b.get("residual") or ())
         # the binding anchors of the (final) interval
         ar = ar1 if (b["eval"] != "i" and ar1 is not None) else ar0
@@ -768,9 +811,10 @@ class HoldPass:
     result: HoldInterval | None = None
 
     def strip(self, cs: ConstraintSet) -> ConstraintSet | None:
-        from .platform import HOLD_RULING
+        from .platform import HOLD_DATUM_RULING, HOLD_RULING
         keep = [r for r in cs.rows()
-                if r.source.ruling.split(" (")[0].strip() != HOLD_RULING]
+                if r.source.ruling.split(" (")[0].strip() not in (HOLD_RULING,
+                                                                   HOLD_DATUM_RULING)]
         if len(keep) == len(cs.rows()):
             return None
         return ConstraintSet.from_rows(keep)

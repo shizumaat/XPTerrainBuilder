@@ -43,7 +43,7 @@ def test_wholly_inside_is_kept():
 def test_mint_loop_uses_the_area_gate():
     import inspect
     src = inspect.getsource(ev._pads)
-    assert "_inside_gate(piece, gate, rules.buildings.pad_gate_near_m)" in src
+    assert "_inside_gate(piece, gate, gate_near_m)" in src
     assert "gate.contains(piece.representative_point())" not in src
 
 

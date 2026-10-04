@@ -750,6 +750,8 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     out: list[tuple[str, Polygon]] = []
     dropped = 0
     minted = 0
+    # #336: a rules stub without the key keeps the pre-#336 gate
+    gate_near_m = float(getattr(rules.buildings, "pad_gate_near_m", 0.0))
     for part in sorted(parts,
                        key=lambda g: (round(g.bounds[1]), round(g.bounds[0]))):
         if not runway_union.is_empty and part.intersects(runway_union):
@@ -760,7 +762,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
             if piece.area < min_area:
                 dropped += 1
                 continue
-            if not _inside_gate(piece, gate, rules.buildings.pad_gate_near_m):
+            if not _inside_gate(piece, gate, gate_near_m):
                 dropped += 1
                 continue
             out.append((ref if k == 0 else f"{ref}#{k}", piece))

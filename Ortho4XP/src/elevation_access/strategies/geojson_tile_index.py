@@ -1,6 +1,6 @@
-"""The ``geojson_tile_index`` access strategy (:class:`GeojsonTileIndexStrategy`).
+"""One national GeoJSON tile catalog whose features carry file URLs.
 
-One national GeoJSON tile catalog whose features carry file URLs.
+The ``geojson_tile_index`` access strategy (:class:`GeojsonTileIndexStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

@@ -1,6 +1,6 @@
-"""The ``wcs`` access strategy (:class:`WcsStrategy`).
+"""National lidar terrain models served over OGC Web Coverage Service.
 
-National lidar terrain models served over OGC Web Coverage Service.
+The ``wcs`` access strategy (:class:`WcsStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

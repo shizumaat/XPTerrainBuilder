@@ -1,4 +1,6 @@
-"""The ``arcgis_export_image`` access strategy (:class:`ArcgisExportImageStrategy`).
+"""Chunked ``exportImage`` against an ArcGIS ImageServer with no tile cache.
+
+The ``arcgis_export_image`` access strategy (:class:`ArcgisExportImageStrategy`).
 
 Chunked ``exportImage`` against an ArcGIS ImageServer with no tile cache
 (Oregon DOGAMI, Hillsborough County's native 2.5 ft DEM).

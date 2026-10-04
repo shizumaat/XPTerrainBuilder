@@ -1,6 +1,6 @@
-"""The ``stac`` access strategy (:class:`StacCloudOptimizedGeoTiffStrategy`).
+"""Fetch lidar elevation via a STAC API search + Cloud-Optimized GeoTIFF.
 
-Fetch lidar elevation via a STAC API search + Cloud-Optimized GeoTIFF.
+The ``stac`` access strategy (:class:`StacCloudOptimizedGeoTiffStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

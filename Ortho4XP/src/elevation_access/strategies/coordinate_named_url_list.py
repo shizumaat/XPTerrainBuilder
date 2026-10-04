@@ -1,6 +1,6 @@
-"""The ``coordinate_named_url_list`` access strategy (:class:`CoordinateNamedUrlListStrategy`).
+"""Cloud-Optimized GeoTIFFs indexed by a plain-text list of URLs.
 
-Cloud-Optimized GeoTIFFs indexed by a plain-text list of URLs.
+The ``coordinate_named_url_list`` access strategy (:class:`CoordinateNamedUrlListStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

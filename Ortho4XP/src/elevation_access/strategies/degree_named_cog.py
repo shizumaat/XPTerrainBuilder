@@ -1,6 +1,6 @@
-"""The ``degree_named_cog`` access strategy (:class:`DegreeNamedCogStrategy`).
+"""Cloud-Optimized GeoTIFFs named by their 1-degree cell coordinates.
 
-Cloud-Optimized GeoTIFFs named by their 1-degree cell coordinates.
+The ``degree_named_cog`` access strategy (:class:`DegreeNamedCogStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

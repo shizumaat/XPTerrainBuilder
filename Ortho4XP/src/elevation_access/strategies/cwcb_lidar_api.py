@@ -1,4 +1,6 @@
-"""The ``cwcb_lidar_api`` access strategy (:class:`CwcbLidarApiStrategy`).
+"""The Colorado (CWCB) lidar API: per-tile zips of a ready-gridded DEM.
+
+The ``cwcb_lidar_api`` access strategy (:class:`CwcbLidarApiStrategy`).
 
 The Colorado Water Conservation Board lidar API
 (``coloradohazardmapping.com/api/lidar``): per-tile zips of a ready-

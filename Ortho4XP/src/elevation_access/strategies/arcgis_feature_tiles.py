@@ -1,4 +1,6 @@
-"""The ``arcgis_feature_tiles`` access strategy (:class:`ArcgisFeatureTileStrategy`).
+"""ArcGIS feature layers whose attributes carry or resolve to archive URLs.
+
+The ``arcgis_feature_tiles`` access strategy (:class:`ArcgisFeatureTileStrategy`).
 
 ArcGIS feature layers whose attributes carry -- or resolve to -- archive
 URLs.

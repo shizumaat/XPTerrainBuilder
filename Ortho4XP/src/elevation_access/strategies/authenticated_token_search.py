@@ -1,6 +1,6 @@
-"""The ``authenticated_token_search`` access strategy (:class:`AuthenticatedTokenSearchStrategy`).
+"""OGC/STAC search whose asset downloads need a signed-in session.
 
-OGC/STAC search whose asset downloads need a signed-in session.
+The ``authenticated_token_search`` access strategy (:class:`AuthenticatedTokenSearchStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

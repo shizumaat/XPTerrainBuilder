@@ -1,6 +1,6 @@
-"""The ``aoi_zip_download`` access strategy (:class:`AoiZipDownloadStrategy`).
+"""An AOI download portal: POST the polygon, GET one zip of tiles.
 
-An AOI download portal: POST the polygon, GET one zip of tiles.
+The ``aoi_zip_download`` access strategy (:class:`AoiZipDownloadStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

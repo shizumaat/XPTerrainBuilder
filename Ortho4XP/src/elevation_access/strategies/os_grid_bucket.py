@@ -1,6 +1,6 @@
-"""The ``os_grid_bucket`` access strategy (:class:`OsGridBucketStrategy`).
+"""Anonymous S3 buckets of Ordnance-Survey-grid-named GeoTIFFs.
 
-Anonymous S3 buckets of Ordnance-Survey-grid-named GeoTIFFs.
+The ``os_grid_bucket`` access strategy (:class:`OsGridBucketStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

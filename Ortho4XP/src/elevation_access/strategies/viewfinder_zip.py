@@ -1,6 +1,6 @@
-"""The ``viewfinder_zip`` access strategy (:class:`ViewfinderZipStrategy`).
+"""Viewfinderpanoramas (J. de Ferranti) zip archives, whole tiles.
 
-Viewfinderpanoramas (J. de Ferranti) zip archives, whole tiles.
+The ``viewfinder_zip`` access strategy (:class:`ViewfinderZipStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

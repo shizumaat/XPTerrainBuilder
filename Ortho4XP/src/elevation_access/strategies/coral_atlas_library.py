@@ -1,6 +1,6 @@
-"""The ``coral_atlas_library`` access strategy (:class:`CoralAtlasLibraryStrategy`).
+"""Locally downloaded Allen Coral Atlas packages as a provider.
 
-Locally downloaded Allen Coral Atlas packages as a provider.
+The ``coral_atlas_library`` access strategy (:class:`CoralAtlasLibraryStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

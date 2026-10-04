@@ -1,6 +1,6 @@
-"""The ``las_tile_index`` access strategy (:class:`LasTileIndexStrategy`).
+"""Classified LAS point-cloud tiles behind an ArcGIS feature index.
 
-Classified LAS point-cloud tiles behind an ArcGIS feature index.
+The ``las_tile_index`` access strategy (:class:`LasTileIndexStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

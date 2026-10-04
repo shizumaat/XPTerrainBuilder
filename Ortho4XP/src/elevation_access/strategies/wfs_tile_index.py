@@ -1,6 +1,6 @@
-"""The ``wfs_tile_index`` access strategy (:class:`WfsTileIndexStrategy`).
+"""Tile catalogs served over WFS whose features carry download URLs.
 
-Tile catalogs served over WFS whose features carry download URLs.
+The ``wfs_tile_index`` access strategy (:class:`WfsTileIndexStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

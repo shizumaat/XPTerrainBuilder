@@ -1,6 +1,6 @@
-"""The ``xyz_archive_drop`` access strategy (:class:`XyzArchiveDropStrategy`).
+"""Manually downloaded archives of ASCII-grid elevation sheets.
 
-Manually downloaded archives of ASCII-grid elevation sheets.
+The ``xyz_archive_drop`` access strategy (:class:`XyzArchiveDropStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

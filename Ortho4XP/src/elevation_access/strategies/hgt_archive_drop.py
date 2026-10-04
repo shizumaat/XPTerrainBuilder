@@ -1,6 +1,6 @@
-"""The ``hgt_archive_drop`` access strategy (:class:`HgtArchiveDropStrategy`).
+"""Manually downloaded .hgt tile archives recycled from a drop folder.
 
-Manually downloaded .hgt tile archives recycled from a drop folder.
+The ``hgt_archive_drop`` access strategy (:class:`HgtArchiveDropStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

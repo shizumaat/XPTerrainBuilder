@@ -1,6 +1,6 @@
-"""The ``wcs_kvp`` access strategy (:class:`WcsKvpStrategy`).
+"""GetCoverage by explicit key-value URL for quirky WCS servers.
 
-GetCoverage by explicit key-value URL for quirky WCS servers.
+The ``wcs_kvp`` access strategy (:class:`WcsKvpStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

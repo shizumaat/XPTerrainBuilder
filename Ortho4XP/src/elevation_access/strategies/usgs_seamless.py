@@ -1,6 +1,6 @@
-"""The ``usgs_seamless`` access strategy (:class:`UsgsSeamlessStrategy`).
+"""USGS national elevation dataset staged GeoTIFF products.
 
-USGS national elevation dataset staged GeoTIFF products.
+The ``usgs_seamless`` access strategy (:class:`UsgsSeamlessStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

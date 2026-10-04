@@ -1,6 +1,6 @@
-"""The ``static_stac`` access strategy (:class:`StaticStacCatalogStrategy`).
+"""Static STAC catalog trees on object storage (no /search API).
 
-Static STAC catalog trees on object storage (no /search API).
+The ``static_stac`` access strategy (:class:`StaticStacCatalogStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

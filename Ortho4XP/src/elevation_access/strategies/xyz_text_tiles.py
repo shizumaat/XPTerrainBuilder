@@ -1,6 +1,6 @@
-"""The ``xyz_text_tiles`` access strategy (:class:`XyzTextTileStrategy`).
+"""Slippy-map elevation tiles carrying comma-separated metre values.
 
-Slippy-map elevation tiles carrying comma-separated metre values.
+The ``xyz_text_tiles`` access strategy (:class:`XyzTextTileStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

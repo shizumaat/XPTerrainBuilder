@@ -1,6 +1,6 @@
-"""The ``direct_cog`` access strategy (:class:`DirectCogStrategy`).
+"""National models published as a few fixed Cloud-Optimized GeoTIFFs.
 
-National models published as a few fixed Cloud-Optimized GeoTIFFs.
+The ``direct_cog`` access strategy (:class:`DirectCogStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

@@ -1,6 +1,6 @@
-"""The ``manual_download`` access strategy (:class:`ManualDownloadStrategy`).
+"""Sources whose direct downloads are dead upstream (SRTM, ALOS).
 
-Sources whose direct downloads are dead upstream (SRTM, ALOS).
+The ``manual_download`` access strategy (:class:`ManualDownloadStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

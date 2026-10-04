@@ -1,6 +1,6 @@
-"""The ``arcgis_lerc_tiles`` access strategy (:class:`ArcgisLercTileStrategy`).
+"""Tiles-only ArcGIS elevation services (LERC blobs in Web Mercator).
 
-Tiles-only ArcGIS elevation services (LERC blobs in Web Mercator).
+The ``arcgis_lerc_tiles`` access strategy (:class:`ArcgisLercTileStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

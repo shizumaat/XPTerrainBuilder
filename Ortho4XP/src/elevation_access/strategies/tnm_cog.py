@@ -1,6 +1,6 @@
-"""The ``tnm_cog`` access strategy (:class:`TnmCloudOptimizedGeoTiffStrategy`).
+"""Fetch United States Geological Survey 3DEP lidar via the National Map.
 
-Fetch United States Geological Survey 3DEP lidar via the National Map.
+The ``tnm_cog`` access strategy (:class:`TnmCloudOptimizedGeoTiffStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

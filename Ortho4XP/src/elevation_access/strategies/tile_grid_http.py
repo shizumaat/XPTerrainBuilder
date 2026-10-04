@@ -1,6 +1,6 @@
-"""The ``tile_grid_http`` access strategy (:class:`TileGridHttpStrategy`).
+"""Deterministic per-kilometre tile downloads on a projected grid.
 
-Deterministic per-kilometre tile downloads on a projected grid.
+The ``tile_grid_http`` access strategy (:class:`TileGridHttpStrategy`).
 
 Everything used by this strategy alone lives in this file; what it
 shares with other strategies is imported from ``elevation_access``.

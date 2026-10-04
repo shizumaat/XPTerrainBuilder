@@ -79,20 +79,12 @@ so there is no second copy to keep in sync. Change the number in `config.py` onl
 ## Build & test workflow
 - Repo: `/Users/noah/XPTerrainBuilder/Ortho4XP`. Use the venv: `venv/bin/python` (there is no
   system `python`). `venv/bin/pip` is broken — use `venv/bin/python -m pip`.
-- Single-airport build in a script (needs `src/`, repo root, and `tests/` on `sys.path`):
-  ```python
-  from conftest import xplane_root
-  from auto_patch.pipeline import build_airport_pavement
-  layout = build_airport_pavement("CYXY", xplane_root(), compute_elevations=True)
-  layout.to_osm("/tmp/CYXY.osm")
-  ```
-  A build takes ~60–90 s.
-- Tests: `venv/bin/python -m pytest tests/ -q` (~3–7 min). Fixtures: SPJC, SPLP, CYXY,
-  HECA/HEAZ, MMOX. The suite encodes the geometry/grade invariants — treat it as the
-  guardrail when changing rules or solver behavior.
-- Validate grade on an emitted patch: `tools/check_grade.py`. Other tools of note:
-  `tools/build_target_osm.py` (re-cut compare-target fixtures), `tools/mesh_region_tris.py`
-  (triangle-count / load-time measurement).
+- Build, census and grade checks go ONLY through the harness entries in the
+  root `CLAUDE.md` ("The standard test harness"): `tools/harness/build_airport.py`,
+  `census.py`, `oracle.py`. A script-level `build_airport_pavement` call or a bare
+  `tools/check_grade.py` run is a lane-private measurement, not evidence.
+- Tests: Qt files serial first (`-n0 tests/test_qt_*.py`), then
+  `--ignore-glob='tests/test_qt_*.py' tests`. Fixtures: SPJC, SPLP, CYXY, HECA/HEAZ, MMOX.
 
 ## Gotchas (these bite everyone)
 - **DEM smoothing.** Production gets Ortho4XP's airport-SMOOTHED `tile.dem` via

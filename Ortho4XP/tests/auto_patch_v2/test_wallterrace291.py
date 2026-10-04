@@ -63,47 +63,112 @@ def _route_faces(pm):
             if f.role == "service_road" and str(f.ref).startswith("route")]
 
 
+#: 10-03l twin (ii): a lot WEST of the route and a 3 m wall between them
+WEST_WALL = box(280.85, 330.0, 281.15, 470.0)
+
+
+def _west_lot(a):
+    from auto_patch_v2.model.airport import Pavement, Surface
+    from test_classify import _rect
+    lot = Pavement("lot", Surface.CONCRETE, _rect(240.0, 340.0, 276.0, 460.0), ())
+    return _dc.replace(a, pavements=tuple(a.pavements) + (lot,))
+
+
 @pytest.fixture(scope="module")
 def solved(law):
+    """(no wall, route-free control, wall-witnessed) — one DEM, one route."""
+    from auto_patch_v2.airport import road_ramp as rr
+    from auto_patch_v2.airport.road_ramp import WallPiece
     a1 = _dc.replace(_with_route(_with(), WEST_ROUTE), dem=_WestSlopeDem())
     a0 = _dc.replace(_with(), dem=_WestSlopeDem())
-    return _solve(a1, law), _solve(a0, law)
+    a2 = _west_lot(a1)
+    no_wall, free = _solve(a1, law), _solve(a0, law)
+    mp = pytest.MonkeyPatch()
+    try:
+        mp.setattr(rr, "wall_pieces", lambda _ap, _cfg=None: (
+            WallPiece(WEST_WALL, 3.0, "wall.obj#comp0"),))
+        walled = _solve(a2, law)
+    finally:
+        mp.undo()
+    return no_wall, free, walled
 
 
-def test_a_1206_route_beside_an_apron_is_bordered_and_rides_its_level(law, solved):
-    """The 1206 corridor beside the apron is in the terrace (``foot`` on the
-    apron), its stage-2 target is the apron's solved level, and it is
-    solved there — metres under its own DEM (the hill is the cut)."""
-    (pm1, sol1, rep1), _ = solved
-    faces = _route_faces(pm1)
-    route_v = {v for f in faces for v in pm1.ring_vertices(f.ring)}
+def _beside(pm):
+    route_v = {v for f in _route_faces(pm) for v in pm.ring_vertices(f.ring)}
     assert route_v, "the synthetic 1206 route minted no corridor face"
+    return {v for v in route_v if 340.0 <= pm.vertices[v].xy[1] <= 460.0}
+
+
+def test_a_1206_route_beside_an_apron_across_a_bank_keeps_its_own_target(law, solved):
+    """OWNER RULINGS 2026-10-03l (#315 / #316, CYXY 60.7090573, -135.0740232):
+    a NON-RIBBON road beside airside pavement with NO placed-wall witness
+    leaves the terrace — no foot, no station — and is solved on its own
+    §37 (6) target (its ground), not at the apron's level across the bank."""
+    (pm1, sol1, rep1), _free, _walled = solved
+    beside = _beside(pm1)
     terr = pm1.road_terrace
-    feet = {v: terr["foot"][v] for v in route_v if v in terr["foot"]}
-    # the route's west of the apron, inside its reach
-    beside = {v for v in route_v
-              if 340.0 <= pm1.vertices[v].xy[1] <= 460.0}
-    assert beside and set(feet) >= (beside & set(terr["station"]))
+    assert not terr.get("wall")
+    assert not (beside & set(terr["foot"])) and not (beside & set(terr["station"]))
     tr = rep1.reach_seed.get("terrace", {})
-    assert tr.get("bordered", 0) > 0
+    assert tr.get("bordered", 0) == 0
     z = sol1.z
+    tgt = {v: pm1.road_ramp_z[v] for v in beside if v in pm1.road_ramp_z}
+    assert tgt, "the route carries no §37 (6) target beside the apron"
+    assert max(abs(z[v] - t) for v, t in tgt.items()) <= 0.6
+    # on its ground: never the 1.5 m+ cut the adjacency weld made (the
+    # uphill kerb's bench on the 30 % cross slope is the cross-section's)
+    assert max(pm1.vertices[v].dem_z - z[v] for v in beside) <= 1.2
+
+
+def test_a_1206_route_along_a_placed_wall_rides_the_apron_level(law, solved):
+    """10-03l (the HECA #291 key): the SAME route with a wall-class piece
+    between it and a lot (10-03c's witness, ``wall_terraces``) is in the
+    terrace along the wall — ``foot`` on the apron, solved at the apron's
+    level, metres under its own DEM (the hill is the cut)."""
+    _no_wall, _free, (pm2, sol2, rep2) = solved
+    beside = _beside(pm2)
+    terr = pm2.road_terrace
+    assert len(terr["wall"]) == 1
+    feet = {v: terr["foot"][v] for v in beside if v in terr["foot"]}
+    assert feet and set(feet) >= (beside & set(terr["station"]))
+    assert rep2.reach_seed.get("terrace", {}).get("bordered", 0) > 0
+    z = sol2.z
     for v, (a, b, u, _ref) in feet.items():
-        if v not in beside:
-            continue
         lvl = (1 - u) * z[a] + u * z[b]
         assert abs(z[v] - lvl) <= 0.6, (v, z[v], lvl)
-    assert max(pm1.vertices[v].dem_z - z[v] for v in beside) > 1.5
+    assert max(pm2.vertices[v].dem_z - z[v] for v in beside) > 1.5
+
+
+def test_the_wall_key_leaves_a_ribbon_in_the_terrace():
+    """10-03l (iii): ``wall_keyed`` trims ``own`` vertices only — a ribbon
+    vertex keeps its foot / station with no wall anywhere (10-03b stands),
+    an ``own`` vertex stays only inside a wall's ``upper`` span of ITS
+    route, and one outside the span (or on another route) leaves."""
+    from auto_patch_v2.airport.road_ramp import wall_keyed
+    st = {1: (7, 0.0), 2: (7, 10.0),                 # ribbon, route 7
+          10: (8, 0.0), 11: (8, 20.0), 12: (8, 30.0), 13: (8, 60.0),
+          20: (9, 5.0)}                              # own, another route
+    foot = {v: (100, 101, 0.5, "apron") for v in (1, 2, 10, 12, 13, 20)}
+    terr = {"foot": foot, "pad": {11: "b1"}, "station": st, "kerb": {}, "meet": {13: True},
+            "own": {v: True for v in (10, 11, 12, 13, 20)}, "wall": {}}
+    out, left = wall_keyed(terr)
+    assert left == 5 and set(out["station"]) == {1, 2} and set(out["foot"]) == {1, 2}
+    terr["wall"] = {0: {"upper": [10, 12, 999]}}
+    out, left = wall_keyed(terr)
+    assert left == 2
+    assert set(out["station"]) == {1, 2, 10, 11, 12} and set(out["foot"]) == {1, 2, 10, 12}
+    assert out["pad"] == {11: "b1"} and out["meet"] == {}
 
 
 def test_the_airside_is_untouched_by_the_1206_terrace(law, solved):
     """AIRSIDE IS KING: every stage-1 airside value equals the route-free
     airport's (the weld is one-way by construction)."""
     from auto_patch_v2.solve.design_roles import airside_stage_vertices
-    (pm1, sol1, _r1), (pm0, sol0, _r0) = solved
+    _no_wall, (pm0, sol0, _r0), (pm1, sol1, _r1) = solved
     z0 = {pm0.vertices[v].xy: sol0.z[v] for v in airside_stage_vertices(pm0, law)}
     at1 = {pm1.vertices[v].xy: v for v in range(len(pm1.vertices))}
     common = [xy for xy in z0 if xy in at1]
-    assert len(common) > 0.9 * len(z0)
+    assert len(common) > 0.8 * len(z0)
     worst = max(abs(sol1.z[at1[xy]] - z0[xy]) for xy in common)
     assert worst <= 0.02, worst
 

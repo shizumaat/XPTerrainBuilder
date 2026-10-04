@@ -1297,6 +1297,52 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
     return out
 
 
+def wall_keyed(terr: _t.Mapping[str, _t.Mapping]) -> tuple[dict, int]:
+    """OWNER RULINGS 2026-10-03l (#315 / #316, amends 10-03g): A NON-RIBBON
+    ROAD (DSF road page, 1206 corridor, apt.dat pavement classed road —
+    ``terr['own']``) JOINS THE TERRACE ONLY ALONG A PLACED-WALL WITNESS
+    (10-03c, ``terr['wall']`` = :func:`wall_terraces`), never by adjacency.
+    Kept: an ``own`` vertex whose route station lies within the span of one
+    wall's ``upper`` road vertices on that route (both kerbs of the run the
+    wall stands along).  Every other ``own`` vertex LEAVES the terrace — no
+    foot, no pad, no station (so no linked straight run), no kerb, no meet —
+    and keeps its own §37 (6) target.  A ribbon is untouched (10-03b).
+
+    MEASURED (CYXY capture at a43fc86a): DSF page ``dsf:pol120`` stood
+    703.06 m beside apron ``dsf:pol130`` over a DEM of 700.38 (a real 2.7 m
+    bank between them), and ``pav29#2`` ran 489 m straight between ``pav16``
+    and ``pav21`` up to 3.57 m under its ground.  Returns the terrace and
+    the count of vertices that left it."""
+    own = terr.get("own") or {}
+    station = terr.get("station") or {}
+    if not own:
+        return dict(terr), 0
+    spans: dict[int, list[tuple[float, float]]] = {}
+    for rec in (terr.get("wall") or {}).values():
+        by_route: dict[int, list[float]] = {}
+        for v in rec.get("upper", ()):
+            if v in own and v in station:
+                r, s_ = station[v]
+                by_route.setdefault(int(r), []).append(float(s_))
+        for r, ss in by_route.items():
+            spans.setdefault(r, []).append((min(ss), max(ss)))
+
+    def left(v: int) -> bool:
+        if v not in own:
+            return False
+        if v not in station:
+            return True
+        r, s_ = station[v]
+        return not any(lo - 1e-9 <= float(s_) <= hi + 1e-9
+                       for lo, hi in spans.get(int(r), ()))
+    gone = {v for v in own if left(v)}
+    out = dict(terr)
+    for key in ("foot", "pad", "station", "kerb", "meet", "walled"):
+        out[key] = {v: x for v, x in (terr.get(key) or {}).items()
+                    if v not in gone}
+    return out, len(gone)
+
+
 def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                    report: dict[str, _t.Any] | None = None,
                    profiles=None, *, service=None) -> PlanarMap:
@@ -1371,7 +1417,11 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     terr = {**terr, "wall": wall_terraces(
         pm, law, walls, terr,
         float(service.retaining_wall_reach_m)) if walls else {}}
+    # OWNER RULINGS 2026-10-03l: a non-ribbon road is in the terrace only
+    # along that wall witness (the ONE trim, here at the derivation site)
+    terr, left = wall_keyed(terr)
     if report is not None:
+        report["terrace_own_left"] = left
         report["terrace_stations"] = len(terr.get("station", {}))
         report["terrace_foot"] = len(terr.get("foot", {}))
         report["terrace_pad"] = len(terr.get("pad", {}))

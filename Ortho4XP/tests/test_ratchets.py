@@ -1,10 +1,12 @@
-"""TWINS FOR THE MERGE RATCHETS (owner RULINGS 2026-10-04a (1), (3), as
-amended by 2026-10-04b: past 1,000 needs a recorded justification).
+"""TWINS FOR ``tools/ratchets.py`` (owner RULINGS 2026-10-04a (1), (3),
+amended 04b and 04c).
 
-``tools/ratchets.py`` is the one implementation; ``tools/blast.py --audit``
-and these twins read it.  The live assertions run on the checked-out tree
-(no build, no corpus, no network); the rule itself is pinned on synthetic
-inputs so a baseline that happens to be green cannot hide a broken rule.
+SIZE IS A GUIDE AND A WARNING, NEVER A GATE (04c (1)): nothing here
+asserts on a file's length — growth past 1,000 with no note PASSES and is
+reported.  THE DUPLICATE RATCHET IS THE GATE (04c (2)): the identical-body
+count may fall, never rise.  The live assertions run on the checked-out
+tree (no build, no corpus, no network); the rules are pinned on synthetic
+inputs.
 """
 import io
 import json
@@ -28,23 +30,22 @@ pytestmark = pytest.mark.skipif(
 
 
 # ------------------------------------------------------------------ live
-def test_size_ratchet_holds_on_this_tree():
+def test_size_is_reported_and_never_fails_on_this_tree():
     base = ratchets.load_baseline()
-    assert (base["soft"], base["hard"]) == (ratchets.SOFT, ratchets.HARD)
-    refusals, soft = ratchets.check_size(ratchets.sizes(), base["size"])
-    if soft:                             # ONE warning, not one per file
-        worst = sorted(soft, key=lambda x: -x[1])[:5]
-        warnings.warn("%d files past the %d-line soft limit (largest: %s) — "
-                      "a PR that takes a file past it says why it is not split"
-                      % (len(soft), ratchets.SOFT,
-                         ", ".join("%s %d" % x for x in worst)), stacklevel=1)
-    assert not refusals, "\n".join(refusals)
+    out = io.StringIO()
+    rep = ratchets.print_size(ratchets.sizes(), base["size"], out=out,
+                              justified=base.get("justified"))
+    assert "never a gate" in out.getvalue()
+    if rep["grew"] or rep["new"]:        # ONE warning; the test still passes
+        warnings.warn("size report: %d grew, %d newly past %d — %s"
+                      % (len(rep["grew"]), len(rep["new"]), ratchets.HARD,
+                         ", ".join(x[0] for x in rep["grew"] + rep["new"])),
+                      stacklevel=1)
 
 
-def test_baseline_lists_only_files_that_were_past_the_hard_limit():
-    """An entry at or under 1,000 would be a licence to grow back to it."""
+def test_baseline_snapshot_lists_only_files_past_1000():
     base = ratchets.load_baseline()["size"]
-    assert base and all(n > ratchets.HARD for n in base.values())
+    assert all(n > ratchets.HARD for n in base.values())
     assert all(r.startswith(tuple(x + "/" for x in ratchets.SIZE_ROOTS))
                and r.endswith(ratchets.EXTS) for r in base)
 
@@ -57,19 +58,64 @@ def test_duplicate_ratchet_holds_on_this_tree():
 
 
 # ------------------------------------------------------------- the rule
-def test_size_rule_new_file_soft_hard_and_ratchet():
-    recorded = {"tools/old.py": 1200, "tools/gone.py": 5000}
-    refusals, soft = ratchets.check_size(
+def test_size_report_names_growth_and_new_files_without_refusing():
+    recorded = {"tools/old.py": 1200, "tools/gone.py": 5000,
+                "tools/shrunk.py": 1300}
+    rep = ratchets.check_size(
         {"tools/a.py": 600, "tools/b.py": 601, "tools/c.py": 1000,
-         "tools/old.py": 1200}, recorded)
-    assert refusals == []                      # a gone entry is not an error
-    assert soft == [("tools/b.py", 601), ("tools/c.py", 1000)]
-    refusals, _ = ratchets.check_size({"tools/c.py": 1001}, recorded)
-    assert len(refusals) == 1 and "--justify tools/c.py" in refusals[0]
-    refusals, _ = ratchets.check_size({"tools/old.py": 1201}, recorded)
-    assert len(refusals) == 1 and "recorded 1200" in refusals[0]
-    # 13bz's 1,500 band is gone: what matters is the recorded size
-    assert ratchets.check_size({"tools/old.py": 1199}, recorded)[0] == []
+         "tools/old.py": 1450, "tools/shrunk.py": 1250,
+         "tools/new.py": 1001}, recorded)
+    assert rep["soft"] == [("tools/b.py", 601), ("tools/c.py", 1000)]
+    assert rep["grew"] == [("tools/old.py", 1200, 1450)]
+    assert rep["new"] == [("tools/new.py", 1001)]
+    assert [r for r, _ in rep["past"]] == [
+        "tools/new.py", "tools/old.py", "tools/shrunk.py"]
+
+
+def test_default_run_exits_zero_on_size_and_one_on_duplicates(
+        tmp_path, monkeypatch, capsys):
+    """04c: growth past 1,000 with NO justification passes and is
+    reported; a risen duplicate count still fails."""
+    path = str(tmp_path / "baseline.json")
+    g2 = [[("a.py", "f", 1), ("b.py", "f", 1)]]
+    grown = {"tools/big.py": 1600, "tools/new.py": 1100}
+    assert ratchets.regenerate(path, init=True, groups=g2, current={
+        "tools/big.py": 1500}) == []
+    monkeypatch.setattr(ratchets, "sizes", lambda roots=None: (
+        grown if roots is None else {}))
+    monkeypatch.setattr(ratchets, "long_functions", lambda: [])
+    monkeypatch.setattr(ratchets, "duplicate_groups", lambda: g2)
+    assert ratchets.main(["--baseline", path]) == 0
+    out = capsys.readouterr().out
+    assert "WARN tools/big.py: 1500 -> 1600 (+100)" in out
+    assert "WARN tools/new.py: 1100" in out
+    assert "DUPLICATE RATCHET PASS" in out
+    monkeypatch.setattr(ratchets, "duplicate_groups", lambda: g2 + [
+        [("c.py", "h", 1), ("d.py", "h", 1)]])
+    assert ratchets.main(["--baseline", path]) == 1
+    assert "DUPLICATE RATCHET FAIL" in capsys.readouterr().out
+
+
+def test_long_functions_are_listed_longest_first(tmp_path):
+    pad = "".join("    x%d = %d\n" % (i, i) for i in range(210))
+    files = [
+        _write(tmp_path, "a.py", "def short():\n    return 1\n\n"
+               "def long_one():\n" + pad + "    return 0\n"),
+        _write(tmp_path, "b.py", "class K:\n    def m(self):\n"
+               + pad.replace("    x", "        x") + pad.replace("    x", "        y")
+               + "        def inner():\n" + pad.replace("    x", "            x")
+               + "        return inner\n"),
+        _write(tmp_path, "broken.py", "def (:\n"),
+    ]
+    got = ratchets.long_functions(files, repo=str(tmp_path))
+    assert [(n, name) for n, _, name, _ in got] == [
+        (633, "K.m"), (212, "long_one"), (211, "K.m.inner")]
+    assert ratchets.long_functions(files, repo=str(tmp_path), min_lines=700) == []
+    out = io.StringIO()
+    ratchets.print_funcs(
+        [(250, "Ortho4XP/src/auto_patch_v2/x.py", "f", 3),
+         (220, "tools/y.py", "g", 9)], out=out)
+    assert "2 functions (Ortho4XP/src 1, tools 1; auto_patch_v2 1)" in out.getvalue()
 
 
 def _write(tmp_path, name, text):
@@ -104,7 +150,7 @@ def test_duplicate_rule_normalises_and_needs_two_files(tmp_path):
     assert ratchets.check_duplicates(groups, 1)
 
 
-def test_regenerate_only_ever_lowers(tmp_path):
+def test_regenerate_snapshots_sizes_and_refuses_only_risen_duplicates(tmp_path):
     path = str(tmp_path / "baseline.json")
     g2 = [[("a.py", "f", 1), ("b.py", "f", 1)]]
     assert ratchets.regenerate(path, init=True, groups=g2, current={
@@ -112,32 +158,27 @@ def test_regenerate_only_ever_lowers(tmp_path):
     assert json.load(open(path))["size"] == {"tools/big.py": 1500}
     assert ratchets.regenerate(path, init=True, groups=g2, current={})  # exists
     before = open(path).read()
-    # a grown entry, a new file past the hard limit, a risen duplicate
-    # count: each refuses and writes nothing
-    for cur, grp in (({"tools/big.py": 1501}, g2),
-                     ({"tools/big.py": 1500, "tools/new.py": 1001}, g2),
-                     ({"tools/big.py": 1500}, g2 + [[("c.py", "h", 1),
-                                                     ("d.py", "h", 1)]])):
-        assert ratchets.regenerate(path, groups=grp, current=cur)
-        assert open(path).read() == before
-    # shrink, delete, and a file that fell under the limit leaves the list
-    assert ratchets.regenerate(path, groups=[], current={"tools/big.py": 1100}) == []
-    doc = json.load(open(path))
-    assert doc["size"] == {"tools/big.py": 1100} and doc["duplicates"] == 0
+    # a risen duplicate count refuses and writes nothing
+    assert ratchets.regenerate(path, current={"tools/big.py": 1500}, groups=g2 + [
+        [("c.py", "h", 1), ("d.py", "h", 1)]])
+    assert open(path).read() == before
+    # growth and a new file past 1,000 are RECORDED (04c: a snapshot)
+    assert ratchets.regenerate(path, groups=g2, current={
+        "tools/big.py": 1501, "tools/new.py": 1001}) == []
+    assert json.load(open(path))["size"] == {
+        "tools/big.py": 1501, "tools/new.py": 1001}
+    # shrink, delete, and a file that fell to 1,000 leaves the list
     assert ratchets.regenerate(path, groups=[], current={"tools/big.py": 900}) == []
-    assert json.load(open(path))["size"] == {}
+    doc = json.load(open(path))
+    assert doc["size"] == {} and doc["duplicates"] == 0
 
 
-def test_justify_is_the_only_way_an_entry_rises(tmp_path):
-    """04b (1): unjustified growth past 1,000 fails, justified growth
-    passes, an empty reason is refused, and --regenerate keeps the
-    justification without ever inventing one."""
+def test_justify_is_an_optional_note_shown_in_the_report(tmp_path):
     path = str(tmp_path / "baseline.json")
     cur = {"tools/big.py": 1500, "tools/new.py": 900}
     assert ratchets.regenerate(path, init=True, groups=[], current=cur) == []
     assert json.load(open(path))["justified"] == {}     # none invented
     grown = {"tools/big.py": 1600, "tools/new.py": 1100}
-    assert len(ratchets.check_size(grown, json.load(open(path))["size"])[0]) == 2
     before = open(path).read()
     for reason in ("", "   ", "\n"):
         assert ratchets.justify("tools/big.py", reason, path, current=grown)
@@ -149,26 +190,17 @@ def test_justify_is_the_only_way_an_entry_rises(tmp_path):
     doc = json.load(open(path))
     assert doc["size"]["tools/big.py"] == 1600
     assert doc["justified"] == {"tools/big.py": "one solver, one file"}
-    # big is covered now; new is still unjustified
-    refusals, _ = ratchets.check_size(grown, doc["size"])
-    assert len(refusals) == 1 and refusals[0].startswith("tools/new.py")
-    assert ratchets.justify("tools/new.py", "a law table", path, current=grown) == []
-    doc = json.load(open(path))
-    assert ratchets.check_size(grown, doc["size"])[0] == []
-    # growth beyond the JUSTIFIED size needs a fresh act
-    assert ratchets.check_size({"tools/big.py": 1601}, doc["size"])[0]
-    # regenerate lowers, keeps the reason while the file is past 1,000 and
-    # drops it with the entry
+    # regenerate keeps the note while the file is past 1,000
     assert ratchets.regenerate(path, groups=[], current={
-        "tools/big.py": 1550, "tools/new.py": 800}) == []
+        "tools/big.py": 1700, "tools/new.py": 800}) == []
     doc = json.load(open(path))
-    assert doc["size"] == {"tools/big.py": 1550}
+    assert doc["size"] == {"tools/big.py": 1700}
     assert doc["justified"] == {"tools/big.py": "one solver, one file"}
     out = io.StringIO()
-    ratchets.print_size({"tools/big.py": 1550}, doc["size"], out=out,
+    ratchets.print_size({"tools/big.py": 1800}, doc["size"], out=out,
                         justified=doc["justified"])
-    assert "tools/big.py (1550 lines, recorded 1550): one solver, one file" \
-        in out.getvalue()
+    assert ("WARN tools/big.py: 1700 -> 1800 (+100)  [note: one solver, one "
+            "file]") in out.getvalue()
 
 
 def test_live_justifications_are_real():

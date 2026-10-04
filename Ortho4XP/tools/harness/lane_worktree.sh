@@ -4,6 +4,7 @@
 #   tools/harness/lane_worktree.sh up   NAME|PATH [REF]
 #   tools/harness/lane_worktree.sh down NAME|PATH
 #   tools/harness/lane_worktree.sh check NAME|PATH
+#   tools/harness/lane_worktree.sh reclaim NAME|PATH   (re-clone the cache overlay)
 #   tools/harness/lane_worktree.sh data          (report the shared repo)
 #
 # Run from anywhere.  Every lane sets its tree up with THIS script; a
@@ -41,7 +42,11 @@
 #                      interpreter and one set of installed packages for
 #                      every lane.  A per-lane venv is 2 GB and a chance
 #                      for the trees to diverge on a dependency.
-#   Patches/           CLONED (cp -R), and this one is deliberate: every
+#   Patches/           CLONED COPY-ON-WRITE (cp -cR: APFS clonefile, so the
+#                      lane's copy costs no disk until a file is rewritten;
+#                      a volume that cannot clone gets a real copy and a
+#                      loud FULL COPY line, never a silent one — #338), and
+#                      lane-local is deliberate: every
 #                      tile build WRITES {ICAO}_auto.patch.osm into
 #                      Patches/<tile>/ (auto_patch.driver), so it is a
 #                      lane's OUTPUT, not a cache.  Sharing it would let
@@ -67,6 +72,18 @@
 #                      second copy of that rule here: one source, one
 #                      implementation (owner ruling 2026-08-12b, lane
 #                      inputs are provisioned, never hand-seeded).
+#   tmp/engine_caches  NOT TOUCHED by `up`.  It is the lane-persistent
+#                      derived-cache overlay, and the FIRST BUILD seeds it
+#                      (build_airport.redirect_engine_caches: clonefile, 0.1 s
+#                      for the whole corpus).  It reads 29 GB under `du` in
+#                      every tree and costs megabytes: `du` counts a clone at
+#                      full size.  `check` reports its PRIVATE bytes (the
+#                      real disk, tools/harness/cow_audit.py) and `reclaim`
+#                      re-clones the files that went private while staying
+#                      byte-identical to the shared corpus, keeping every
+#                      file the lane rewrote or derived (#338, measured
+#                      2026-10-04: 0–130 MB private in five live trees,
+#                      1.9 GB in one, 4.5 GB in the main tree).
 #   tools/INDEX.md     REACHABLE, always — see below.
 #
 # ── THE CONSULTATION SURFACE (owner ruling 7e90032) ──────────────────
@@ -131,15 +148,21 @@ NEVER_MOUNT="Patches Tiles Previews tmp"
 # ROOT of both the main tree and the worktree.  Mirrored read-only into a
 # lane whose checkout does not carry it; never overwritten when it does.
 INDEX_REL="tools/INDEX.md"
+# The lane-persistent derived-cache overlay (build_airport.LANE_CACHE_SUBDIR)
+# and the shared dir its files are clones of.
+CACHE_REL="tmp/engine_caches/Airport_mod_cache"
+CACHE_SHARED="Airport_mod_cache"
+COW_AUDIT="$(cd "$(dirname "$0")" && pwd -P)/cow_audit.py"
 
 die() { echo "REFUSING: $*" >&2; exit 2; }
 
 usage() {
-    echo "usage: $0 {up|down|check} NAME|PATH [REF]" >&2
+    echo "usage: $0 {up|down|check|reclaim} NAME|PATH [REF]" >&2
     echo "       $0 data" >&2
     echo "       (PATH — anything with a slash — addresses an EXISTING" >&2
     echo "        registered worktree, e.g. a chip session's under" >&2
-    echo "        Ortho4XP/.claude/worktrees/; NAME creates/finds a lane)" >&2
+    echo "        Ortho4XP/.claude/worktrees/; NAME creates/finds a lane;" >&2
+    echo "        reclaim also takes the MAIN repo's path)" >&2
     exit 64
 }
 
@@ -253,6 +276,7 @@ case "$TARGET" in
 esac
 _mainphys=$( (cd "$MAIN_REPO" && pwd -P) )
 [ "$( (cd "$WT" 2>/dev/null && pwd -P) )" != "$_mainphys" ] \
+    || [ "$ACTION" = "reclaim" ] \
     || die "$WT is the MAIN repository, not a lane worktree — the ritual
     never mounts or tears down the main tree."
 NAME=$(basename "$WT")
@@ -283,6 +307,45 @@ audit_untracked() {
     fi
     echo "  [ritual] untracked audit clean (only the mounted symlinks)."
     return 0
+}
+
+# ── copy-on-write helpers (#338) ─────────────────────────────────────
+# Can $2 hold a clone of $1?  clonefile(2) needs ONE APFS volume.  Asked
+# up front because `cp -c` falls back to a byte copy without a word.
+can_clone() {
+    _sdev=$(df -P "$1" 2>/dev/null | awk 'NR==2 {print $1}')
+    _ddev=$(df -P "$2" 2>/dev/null | awk 'NR==2 {print $1}')
+    [ -n "$_sdev" ] && [ "$_sdev" = "$_ddev" ] \
+        && mount 2>/dev/null | grep -q "^$_sdev on .*(apfs"
+}
+
+# The interpreter cow_audit.py runs under: the main tree's venv, else
+# whatever python3 is on PATH (stdlib only).  Empty when there is none.
+harness_python() {
+    if [ -n "${O4_HARNESS_PYTHON:-}" ]; then echo "$O4_HARNESS_PYTHON"
+    elif [ -x "$MAIN_ENGINE/venv/bin/python" ]; then echo "$MAIN_ENGINE/venv/bin/python"
+    else command -v python3 2>/dev/null
+    fi
+}
+
+# One line on what the cache overlay really costs.  Reported, never a
+# failure: a full copy is lawful, just 29 GB dearer than it has to be.
+cache_state() {
+    [ -d "$ENGINE/$CACHE_REL" ] || {
+        echo "  [ritual] OK      $CACHE_REL absent — the first build seeds it (clones)"
+        return 0; }
+    _py=$(harness_python)
+    [ -n "$_py" ] && [ -f "$COW_AUDIT" ] || {
+        echo "  [ritual] UNKNOWN $CACHE_REL: no python to measure private bytes with"
+        return 0; }
+    _line=$("$_py" "$COW_AUDIT" audit "$ENGINE/$CACHE_REL"); _rc=$?
+    if [ $_rc -eq 3 ]; then
+        echo "  [ritual] FULL COPY $CACHE_REL: $_line"
+        echo "                   — not clones of $DATA_REPO/$CACHE_SHARED."
+        echo "                   Reclaim: $0 reclaim $NAME"
+    else
+        echo "  [ritual] OK      $CACHE_REL: $_line"
+    fi
 }
 
 # One symlink, reported.  $1 = name, $2 = target.
@@ -396,12 +459,19 @@ up)
         [ -L "$ENGINE/$d" ] && die "$d must be a real directory, not a symlink:
     every tile build WRITES its emitted patches there, so sharing it would
     put one lane's geometry into another lane's build."
+        if can_clone "$MAIN_ENGINE/$d" "$ENGINE/$d"; then
+            _cp="cp -cR"; _how="copy-on-write clones, no extra disk"
+        else
+            _cp="cp -R"
+            _how="FULL COPY — clonefile unavailable (needs one APFS volume)"
+        fi
         for src in "$MAIN_ENGINE/$d"/*/; do
             [ -d "$src" ] || continue
             base=$(basename "$src")
-            [ -e "$ENGINE/$d/$base" ] || cp -R "$src" "$ENGINE/$d/$base"
+            [ -e "$ENGINE/$d/$base" ] || $_cp "$src" "$ENGINE/$d/$base" \
+                || die "could not clone $d/$base into the lane"
         done
-        echo "  [ritual] cloned $d ($(ls -1 "$ENGINE/$d" 2>/dev/null | wc -l | tr -d ' ') entries) — lane-private OUTPUT, writes stay here"
+        echo "  [ritual] cloned $d ($(ls -1 "$ENGINE/$d" 2>/dev/null | wc -l | tr -d ' ') entries; $_how) — lane-private OUTPUT, writes stay here"
     done
     for f in $CLONE_FILES; do
         [ -e "$MAIN_ENGINE/$f" ] || die "the MAIN tree has no $f — without
@@ -477,9 +547,53 @@ check)
             echo "                   constructor defaults, not production's"; rc=1
         fi
     done
+    cache_state
     index_state check || rc=1
     audit_untracked || rc=1
     exit $rc
+    ;;
+
+reclaim)
+    # Re-clone the cache overlay's private-but-identical files from the
+    # shared corpus; files the lane rewrote or derived are kept (#338).
+    [ -d "$ENGINE" ] || die "no engine tree at $ENGINE"
+    [ -d "$ENGINE/$CACHE_REL" ] || {
+        echo "  [ritual] $ENGINE/$CACHE_REL does not exist — nothing to reclaim."
+        exit 0; }
+    [ -d "$DATA_REPO/$CACHE_SHARED" ] || die "the shared data repo has no
+    $CACHE_SHARED to re-clone from."
+    command -v lsof >/dev/null 2>&1 || die "reclaim needs lsof to prove no
+    build is running in $ENGINE."
+    # A BUILD RUNS FROM $ENGINE (the harness refuses any other cwd), so a
+    # python or engine process whose cwd is inside it IS the build.  Nested
+    # chip worktrees (Ortho4XP/.claude/worktrees/*) are other trees.
+    _enginephys=$( (cd "$ENGINE" && pwd -P) )
+    holders=$(lsof -a -d cwd -c python -c Python -c Ortho4XP -Fpn 2>/dev/null \
+              | awk -v e="$_enginephys" '
+                  /^p/ { pid = substr($0, 2) }
+                  /^n/ { d = substr($0, 2)
+                         if ((d == e || index(d, e "/") == 1) \
+                             && index(d, e "/.claude/worktrees/") != 1)
+                             print "pid " pid " cwd " d }')
+    if [ -n "$holders" ]; then
+        echo "$holders" | sed 's/^/    /' >&2
+        die "a build is running in $ENGINE (above).  Re-cloning a sidecar
+    under a live writer could drop its write — wait for it."
+    fi
+    openfiles=$(lsof +D "$ENGINE/tmp/engine_caches" 2>/dev/null | tail -n +2 | head -5)
+    if [ -n "$openfiles" ]; then
+        echo "$openfiles" | sed 's/^/    /' >&2
+        die "open file handles under $ENGINE/tmp/engine_caches — see above."
+    fi
+    can_clone "$DATA_REPO/$CACHE_SHARED" "$ENGINE/$CACHE_REL" || die "
+    $ENGINE/$CACHE_REL cannot hold clones of $DATA_REPO/$CACHE_SHARED
+    (clonefile needs ONE APFS volume) — nothing here can be reclaimed."
+    _py=$(harness_python)
+    [ -n "$_py" ] && [ -f "$COW_AUDIT" ] || die "no python to run $COW_AUDIT"
+    _line=$("$_py" "$COW_AUDIT" reseed "$ENGINE/$CACHE_REL" \
+            --shared "$DATA_REPO/$CACHE_SHARED") \
+        || die "reclaim failed: $_line"
+    echo "  [ritual] reclaimed $ENGINE/$CACHE_REL: $_line"
     ;;
 
 down)

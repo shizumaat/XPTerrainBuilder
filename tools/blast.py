@@ -1239,6 +1239,9 @@ def cmd_audit(idx, mutations=0, mutation_sample=None, ceiling=CHEAP_CEILING):
     bad += ["duplicates"] if ratchets.print_dupes(
         ratchets.duplicate_groups(),
         ratchets.load_baseline()["duplicates"]) else []
+    bad += ["layers"] if ratchets.print_layers(
+        ratchets.layer_edges(),
+        ratchets.load_baseline().get("layers")) else []
     print("\n" + ("AUDIT PASS" if not bad else "AUDIT FAIL: %s" % bad))
     return 0 if not bad else 1
 
@@ -1269,8 +1272,32 @@ def main(argv=None):
     p.add_argument("--mutation-sample", default=None, metavar="FILE",
                    help="--audit --mutations: the file to mutate (default "
                         "%s)" % MUTATION_SAMPLE)
+    p.add_argument("--map", nargs="?", const="", metavar="PACKAGE",
+                   help="THE ARCHITECTURE MAP (tools/archmap.py): one line "
+                        "per module of PACKAGE (auto_patch_v2/airport, "
+                        "auto_patch, o4_engine, src, tools, "
+                        "Sources/SceneryKit, ...); no PACKAGE: one line "
+                        "per package")
+    p.add_argument("--wide", action="store_true",
+                   help="--map: full docstring lines and every used name")
+    p.add_argument("--find", nargs="+", metavar="KEYWORD",
+                   help="functions / classes whose name or first docstring "
+                        "line matches every KEYWORD, with signature and "
+                        "file:line — run it BEFORE adding a function")
+    p.add_argument("--top", type=int, default=None, metavar="N",
+                   help="--find: rows to print (default 5; 0 = all)")
     a = p.parse_args(argv)
+    for stream in (sys.stdout, sys.stderr):          # cp1252 consoles (#92)
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     idx = index_dir(a.index_dir)
+    if a.map is not None or a.find:
+        # the map is a second responsibility, so a second module
+        import archmap
+        if a.find:
+            return archmap.cmd_find(
+                a.find, idx, archmap.FIND_TOP if a.top is None else a.top)
+        return archmap.cmd_map(a.map, idx, wide=a.wide)
     if a.tests_for is not None:
         return cmd_tests_for(a.tests_for, idx, ref=a.since or "HEAD",
                              ceiling=a.cheap_ceiling)

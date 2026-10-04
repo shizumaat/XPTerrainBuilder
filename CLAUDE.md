@@ -90,6 +90,18 @@ Before editing anything under `Ortho4XP/src/` or `Sources/`, run:
 wire-protocol hazards, co-change neighbors. Self-rebuilds when stale (~2 s).
 `tools/blast.py --audit` verifies index recall against grep ground truth.
 
+Before ADDING a function, class or module, look for the existing one:
+
+    Ortho4XP/venv/bin/python tools/blast.py --find <keyword> [<keyword>…]
+    Ortho4XP/venv/bin/python tools/blast.py --map [<package>]
+
+`--find` answers "does it exist?" (`name(args)`, `file:line`; `[shared N]`
+marks the one N other modules already use — extend that one). `--map` is one
+line per module of a package, or one line per package with no argument. The
+map is generated from docstrings and `__all__`, never hand-written;
+`tools/brief_pack.py --map <package>` puts it in a lane's brief.
+`tools/ratchets.py layers` gates `auto_patch_v2`'s package order.
+
 ## Reuse and readable modules (owner RULINGS 2026-10-04 "FILE SIZE…" a/b/c)
 
 The goal is clean, human-readable code that the next session can fix and add

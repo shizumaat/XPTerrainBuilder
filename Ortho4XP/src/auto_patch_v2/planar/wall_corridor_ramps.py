@@ -38,7 +38,7 @@ from ..airport import frame_entry as _fe
 from ..airport import obj8
 from ..law.cutout_schema import WALL_BOTTOM
 from ..law.tables import role_side
-from ..model.frame import XY
+from ..model.frame import XY, rotated_rectangle
 from ..model.structures import profile_z
 from ..airport.wall_corridors import CLASS_GARAGE
 from .object_corridor import Group
@@ -227,7 +227,7 @@ def _road_half_width_m(poly, cell, roads) -> float:
     width, and the half-width is half of it.  Which one this is, is read
     from the layout: a sibling face of the SAME road that shares a long
     edge with this one."""
-    mrr = poly.minimum_rotated_rectangle
+    mrr = rotated_rectangle(poly)
     cs = list(mrr.exterior.coords)[:-1]
     if len(cs) < 4:
         return 0.0
@@ -296,7 +296,7 @@ def road_edge_witness(airport, road_poly, at: XY, wc, cache: dict) -> tuple[obje
 def _parallel_deg(line_body, edge, at: Point) -> float:
     """The angle between a marking body's principal direction and the road
     edge's direction at ``at``, in degrees (0..90)."""
-    mrr = line_body.minimum_rotated_rectangle
+    mrr = rotated_rectangle(line_body)
     cs = list(mrr.exterior.coords)[:-1]
     if len(cs) < 4:
         return 90.0

@@ -150,6 +150,78 @@ def test_the_area_floor_and_the_y_tolerance(tmp_path):
     assert len(bodies) == 1
 
 
+# ── THE GAP SHEET (owner RULINGS 2026-10-04o (a); issues #292, #358) ───
+
+def _sheet(tmp: Path, name: str, *, flat: int, high: int, y_high: float = 0.15,
+           side: float = 20.0) -> Path:
+    """A draped pavement page of ``flat`` quads at Y = 0 and ``high`` quads
+    at ``y_high``, side by side along x."""
+    verts, idx = [], []
+    for i in range(flat + high):
+        h = 0.0 if i < flat else y_high
+        x0, b = i * side, len(verts)
+        verts += [(x0, h, 0.0), (x0 + side, h, 0.0), (x0 + side, h, side), (x0, h, side)]
+        idx += [b, b + 1, b + 2, b, b + 2, b + 3]
+    lines = ["I", "800", "OBJ", "", PAVEMENT_HEADER,
+             f"POINT_COUNTS\t{len(verts)}\t0\t0\t{len(idx)}"]
+    lines += [f"VT\t{x}\t{h}\t{z}\t0\t1\t0\t0\t0" for x, h, z in verts]
+    lines += [f"IDX\t{i}" for i in idx] + ["ATTR_draped", f"TRIS\t0\t{len(idx)}"]
+    p = tmp / name
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
+    return p
+
+
+def test_a_page_flat_but_for_a_few_triangles_is_a_gap_sheet(tmp_path):
+    """Flatness is judged PER TRIANGLE: the off-plane triangles are dropped
+    and the page is kept, marked ``gap_only`` — never a source."""
+    p = _sheet(tmp_path, "asphalt.obj", flat=199, high=1)
+    bodies, rep = OP.read_object_pavements([_place(p)], LAW)
+    assert rep.refused == {}
+    assert [b.gap_only for b in bodies] == [True]
+    assert bodies[0].polygon.area == pytest.approx(199 * 400.0)
+    row = rep.rows[0]
+    assert (row.layer_group, row.dropped_triangles) == (OP.GAP_SHEET, 2)
+    assert row.dropped_m2 == pytest.approx(400.0)
+    assert "GAP SHEET" in rep.line() and "dropped" in rep.resource_lines()[0]
+
+
+def test_a_page_mostly_off_the_plane_stays_refused(tmp_path):
+    share = LAW.tables.structures.load.gap_sheet_offplane_max_share
+    assert share == 0.01
+    p = _sheet(tmp_path, "skirt.obj", flat=97, high=3)        # 3 % > 1 %
+    bodies, rep = OP.read_object_pavements([_place(p)], LAW)
+    assert bodies == [] and rep.refused == {"draped geometry off Y = 0": 1}
+
+
+def test_a_page_flat_whole_is_a_source_not_a_gap_sheet(tmp_path):
+    p = _sheet(tmp_path, "concrete.obj", flat=10, high=0)
+    bodies, rep = OP.read_object_pavements([_place(p)], LAW)
+    assert [b.gap_only for b in bodies] == [False]
+    assert rep.rows[0].dropped_triangles == 0 and "GAP SHEET" not in rep.line()
+
+
+def test_the_gap_sheet_key_off_is_the_whole_page_refusal(tmp_path):
+    import dataclasses as dc
+    st = LAW.tables.structures
+    off = dc.replace(LAW, tables=dc.replace(LAW.tables, structures=dc.replace(
+        st, load=dc.replace(st.load, gap_sheet_offplane_max_share=0.0))))
+    p = _sheet(tmp_path, "asphalt.obj", flat=199, high=1)
+    bodies, rep = OP.read_object_pavements([_place(p)], off)
+    assert bodies == [] and rep.refused == {"draped geometry off Y = 0": 1}
+
+
+def test_the_y_tolerance_is_not_what_admits_a_gap_sheet(tmp_path):
+    """``draped_y_tol_m`` is shared with the hard-plane reads and is NOT
+    raised: the whole-page read still refuses the sheet."""
+    from auto_patch_v2.airport import obj8
+    geom = obj8.parse_obj8(str(_sheet(tmp_path, "asphalt.obj", flat=199, high=1)))
+    tol = LAW.tables.structures.load.draped_y_tol_m
+    assert tol == 0.05 and OP.draped_footprint(geom, tol) is None
+    u, n, m2 = OP.gap_sheet_footprint(geom, tol, 0.01)
+    assert (n, m2) == (2, pytest.approx(400.0)) and u.area == pytest.approx(79600.0)
+    assert OP.gap_sheet_footprint(geom, tol, 0.001) is None
+
+
 def test_one_resource_is_parsed_once_for_many_placements(tmp_path):
     p = _obj(tmp_path, "one.obj", header=PAVEMENT_HEADER, quads=[(0, 0, 40, 40)])
     pls = [OP.Placement(f"dsf:obj{i}", "Airport/ground/Concrete.obj", str(p),

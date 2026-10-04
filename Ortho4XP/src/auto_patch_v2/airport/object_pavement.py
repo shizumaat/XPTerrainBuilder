@@ -44,6 +44,18 @@ asphalt, ``Concrete_Polygon_1.obj`` among them at exactly the 29 bodies /
 ``law/structures.toml``), so relaxing it is one law edit and one measured
 arm, not a code change.
 
+THE GAP SHEET (owner RULINGS 2026-10-04o (a); issues #292, #358).  A
+pavement page that is flat but for a FEW triangles is not refused whole:
+flatness is judged PER TRIANGLE, the off-plane triangles are dropped, and
+the page is kept when their share of its plan area is at most
+``gap_sheet_offplane_max_share``.  HECA ``Airport/ground/asphalt.obj`` is
+the case: 10,437 triangles, 1,645,011 m², refused for 3 triangles (458 m²,
+0.028 %) at Y = 0.150.  Such a page is NOT a pavement source — it is
+marked ``gap_only`` and the loader keeps it off ``Airport.pavements``
+(``Airport.gap_sheets``): only its remainder after every pavement the
+engine already knows becomes ground.  ``draped_y_tol_m`` is unchanged, so
+the hard-plane reads that share the key see what they saw.
+
 COST.  The layer group and the texture name are read from the file HEADER
 (the bytes before the first vertex), so the 528 unique resources of a HECA
 pack are screened in 0.01 s and only the ~10 survivors are parsed
@@ -67,7 +79,8 @@ from . import obj8 as _obj8
 
 __all__ = ["Placement", "DrapedBody", "ResourceRow", "ObjectPavementReport",
            "header_facts", "draped_footprint", "hard_plane_footprint",
-           "HARD_PLANE_PREFIX", "is_hard_plane_ref",
+           "gap_sheet_footprint",
+           "HARD_PLANE_PREFIX", "is_hard_plane_ref", "GAP_SHEET",
            "read_object_pavements"]
 
 #: How far into the file the header facts are looked for.  An OBJ8 header
@@ -76,6 +89,8 @@ __all__ = ["Placement", "DrapedBody", "ResourceRow", "ObjectPavementReport",
 #: whatever the size.
 _HEADER_BYTES = 8192
 _GEOMETRY_KEYWORDS = (b"VT", b"VLINE", b"VLIGHT", b"IDX", b"IDX10", b"TRIS")
+#: the census's layer-group word for a page admitted as a GAP SHEET
+GAP_SHEET = "gap_sheet"
 
 
 @_dc.dataclass(frozen=True)
@@ -109,6 +124,11 @@ class DrapedBody:
     #: body is a hard zero-thickness Y = 0 object with no draped layer —
     #: graded LEVEL at its runway-edge frontage, no DEM datum.
     hard_plane: bool = False
+    #: THE GAP SHEET (owner RULINGS 2026-10-04o (a)): the page was admitted
+    #: by the PER-TRIANGLE flatness read (some triangles dropped).  It is
+    #: never a pavement source: only its remainder after every known
+    #: pavement is ground.
+    gap_only: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -127,6 +147,10 @@ class ResourceRow:
     #: 580,331 m2)
     raw_bodies: int = 0
     raw_area_m2: float = 0.0
+    #: THE GAP SHEET: the off-plane triangles the per-triangle read dropped
+    #: (0 / 0.0 for a page that is flat whole)
+    dropped_triangles: int = 0
+    dropped_m2: float = 0.0
 
 
 @_dc.dataclass
@@ -146,7 +170,7 @@ class ObjectPavementReport:
     refused: dict[str, int] = _dc.field(default_factory=dict)
 
     def line(self) -> str:
-        if not self.bodies and not self.resources_seen:
+        if not self.bodies and not self.resources_seen and not self.rows:
             return ""
         head = (f"object_pavements {self.bodies} bodies / {self.area_m2:,.0f} m2 "
                 f"from {self.resources_admitted} of {self.resources_seen} "
@@ -154,6 +178,11 @@ class ObjectPavementReport:
         if self.pad_clipped_bodies:
             head += (f"; pads took {self.pad_clipped_m2:,.0f} m2 from "
                      f"{self.pad_clipped_bodies} body(ies)")
+        gap = [r for r in self.rows if r.layer_group == GAP_SHEET]
+        if gap:
+            head += (f"; plus {len(gap)} GAP SHEET(s) / "
+                     f"{sum(r.area_m2 for r in gap):,.0f} m2 (gap pieces only, "
+                     f"not a source)")
         return head
 
     def resource_lines(self) -> list[str]:
@@ -162,6 +191,8 @@ class ObjectPavementReport:
                 f"(authored {r.raw_bodies} / {r.raw_area_m2:,.0f} m2; "
                 f"layer {r.layer_group}+{r.layer_offset}, "
                 f"{r.placements} placement(s))"
+                + (f" — {r.dropped_triangles} off-plane triangle(s) / "
+                   f"{r.dropped_m2:,.0f} m2 dropped" if r.dropped_triangles else "")
                 for r in self.rows]
 
 
@@ -213,16 +244,23 @@ def draped_footprint(geom: _obj8.ObjGeometry, y_tol_m: float):
     ys = v[geom.draped.reshape(-1), 1]
     if not ys.size or float(abs(ys).max()) > y_tol_m:
         return None
-    tris = v[geom.draped][:, :, [0, 2]]
-    # The triangles are built and dissolved IN BULK.  A draped page is a
-    # TRIANGULATION — the triangles tile their footprint and do not
-    # overlap — so ``coverage_union_all`` dissolves them by their shared
-    # edges instead of intersecting every pair: measured over HECA's
-    # eight pages (379-2,000 triangles each) 0.34 s -> 0.23 s for the
-    # same eight areas to the square metre.  A page whose triangles are
-    # NOT a clean coverage (an exporter's T-vertices, a self-overlap)
-    # makes the coverage union refuse or return an invalid geometry, and
-    # the general union does the work.
+    return _union_triangles(v[geom.draped][:, :, [0, 2]])
+
+
+def _union_triangles(tris: np.ndarray):
+    """The union of plan triangles ``(n, 3, 2)``, or ``None`` when empty.
+
+    The triangles are built and dissolved IN BULK.  A draped page is a
+    TRIANGULATION — the triangles tile their footprint and do not
+    overlap — so ``coverage_union_all`` dissolves them by their shared
+    edges instead of intersecting every pair: measured over HECA's
+    eight pages (379-2,000 triangles each) 0.34 s -> 0.23 s for the
+    same eight areas to the square metre.  A page whose triangles are
+    NOT a clean coverage (an exporter's T-vertices, a self-overlap)
+    makes the coverage union refuse or return an invalid geometry, and
+    the general union does the work."""
+    if not tris.shape[0]:
+        return None
     rings = np.concatenate([tris, tris[:, :1, :]], axis=1)
     polys = shapely.polygons(shapely.linearrings(
         rings.reshape(-1, 2),
@@ -239,6 +277,33 @@ def draped_footprint(geom: _obj8.ObjGeometry, y_tol_m: float):
     if not u.is_valid:
         u = u.buffer(0)
     return None if u.is_empty else u
+
+
+def gap_sheet_footprint(geom: _obj8.ObjGeometry, y_tol_m: float,
+                        max_share: float):
+    """THE GAP SHEET (owner RULINGS 2026-10-04o (a)): flatness judged PER
+    TRIANGLE.  ``(footprint, dropped triangles, dropped m2)`` — the union
+    of the draped triangles whose three vertices all stand within
+    ``y_tol_m`` of Y = 0 — when at least one triangle is off the plane and
+    the off-plane triangles' share of the page's plan area is at most
+    ``max_share``; else ``None`` (a page flat whole is
+    :func:`draped_footprint`'s, a page mostly off the plane is not a
+    ground polygon)."""
+    if max_share <= 0.0 or not geom.draped.shape[0]:
+        return None
+    v = geom.vertices
+    flat = (np.abs(v[geom.draped][:, :, 1]) <= y_tol_m).all(axis=1)
+    if bool(flat.all()) or not bool(flat.any()):
+        return None
+    tris = v[geom.draped][:, :, [0, 2]]
+    a, b, c = tris[:, 0], tris[:, 1], tris[:, 2]
+    areas = 0.5 * np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1])
+                         - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0]))
+    total, dropped = float(areas.sum()), float(areas[~flat].sum())
+    if total <= 0.0 or dropped > max_share * total:
+        return None
+    u = _union_triangles(tris[flat])
+    return None if u is None else (u, int((~flat).sum()), dropped)
 
 
 def _ground_plane_candidate(path: str, y_tol_m: float) -> bool:
@@ -310,6 +375,7 @@ def read_object_pavements(placements: _t.Sequence[Placement], law,
 
     # ── per RESOURCE: the header screen, then one parse and one union ──
     footprints: dict[str, tuple[object, str, tuple[str, int]]] = {}
+    dropped: dict[str, tuple[int, float]] = {}     # gap sheets: path -> (n, m2)
     seen: set[str] = set()
     for pl in placements:
         path = pl.resolved_path
@@ -362,8 +428,14 @@ def read_object_pavements(placements: _t.Sequence[Placement], law,
             continue
         u = draped_footprint(geom, lw.draped_y_tol_m)
         if u is None:
-            refuse("draped geometry off Y = 0")
-            continue
+            # 04o (a): flat but for a few triangles = a GAP SHEET
+            got = gap_sheet_footprint(geom, lw.draped_y_tol_m,
+                                      lw.gap_sheet_offplane_max_share)
+            if got is None:
+                refuse("draped geometry off Y = 0")
+                continue
+            u, group = got[0], (GAP_SHEET, group[1])
+            dropped[path] = got[1:]
         if u.area < lw.object_pavement_min_m2:
             refuse(f"under {lw.object_pavement_min_m2:g} m2")
             continue
@@ -400,7 +472,8 @@ def read_object_pavements(placements: _t.Sequence[Placement], law,
         n, area = 0, 0.0
         for body in bodies:
             out.append(DrapedBody(pl.id, pl.def_path, texture, body,
-                                  group[0] == "hard_plane"))
+                                  group[0] == "hard_plane",
+                                  group[0] == GAP_SHEET))
             n += 1
             area += body.area
         if not n:
@@ -413,10 +486,13 @@ def read_object_pavements(placements: _t.Sequence[Placement], law,
             (row.area_m2 if row else 0.0) + area,
             group[0], group[1],
             (row.raw_bodies if row else 0) + raw_n,
-            (row.raw_area_m2 if row else 0.0) + raw_a)
+            (row.raw_area_m2 if row else 0.0) + raw_a,
+            *dropped.get(pl.resolved_path, (0, 0.0)))
     rep.rows = sorted(rows.values(), key=lambda r: -r.area_m2)
-    rep.resources_admitted = len(rep.rows)
-    rep.placements = sum(r.placements for r in rep.rows)
-    rep.bodies = len(out)
-    rep.area_m2 = sum(r.area_m2 for r in rep.rows)
+    # the head counts the SOURCES; a gap sheet is counted on its own
+    src = [r for r in rep.rows if r.layer_group != GAP_SHEET]
+    rep.resources_admitted = len(src)
+    rep.placements = sum(r.placements for r in src)
+    rep.bodies = sum(r.bodies for r in src)
+    rep.area_m2 = sum(r.area_m2 for r in src)
     return out, rep

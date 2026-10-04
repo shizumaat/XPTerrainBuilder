@@ -18027,3 +18027,46 @@ THE 6–8 m IS A SLOPE ACROSS THE SITE, NOT ROOFS IN THE DSM (production frame, 
 * THE OUTER EDGE is a plain face: the mesh reaches the raw terrain over the first triangles outside the strip ring — 10–90 % of the rise standing 5 m out takes 0.75–4.5 m, and at `building25` only 3.3 m of the ~7 m cut is reached within 5 m.
 * THE 5 ROW-SIDE MOVERS (`graded_strip`+`service_road`, 0.05–0.06 m at -12.02637, -77.10600) are reproduced by NO single group on one capture: only-lot 0, only-court-hosts 0, only-small-hosts 0, only-`dsf:fac170` 0; all-but-`dsf:fac170` 5. They are ribbon-kerb vertices of stage 2 (0 solve-owned airside movers in every arm): the stage-2 solve settling on a different ribbon set, not the mint or the projection touching them.
 * OTHER AIRPORTS under 04h (2), dump read with may-attach edges: HECA (32 facade polygons), CYXY (122), KCLT (320), NLWF (3), OTHH (10) — no reach >= 5 m, no lot class. KASE (12): `Garage_2.fac` (parking_structure) may attach `gar2_ramp32_3s.obj` at 34.2 m on 6 edges at 39.190095, -106.839906, but it is not a name-gated pad source (04d (e): after Beta 2), so it has no pad and mints nothing. Nothing is minted outside SPJC; those patches are unchanged by construction. NOTE for the class-based admission round: a non-vehicle attachment with a 34 m reach would take a 34 m strip under today's rule.
+
+## §54 THE LOT PAGE ENDS AT THE WALL (owner RULINGS 2026-10-04o (4) / 2026-10-04p (B) b1; issue #359) — lane `heca8`, branch `claude/heca8-trim`. THE TRIM ONLY. (§53 is the gap lane's.)
+
+MASTER RULINGS, round 2 (2026-10-04, recorded here at the master's order):
+
+* 04p (A): THE GATE BOUND USES THE LAW TABLE'S ROAD CAP — `2·h / cap` with `cap` = `common.roles.service_road.longitudinal` (8 %: 3.10 m → 77.5 m). 04p's "5 % = 124 m" was the scout's slip (5 % is the parking-lot cap). As built in `airport/road_ramp.gate_merged`.
+* 04p (C): pads `building19` / `building23` dropping to the lot's level (103.78 → 98.22–98.37, 101.73–101.78 → 97.65–97.70) is the RULED outcome — they stand in holes of a lot cut to ~97 m; the owner reads it.
+* 04p (B) b2 — "a lot vertex between a pad and a wall takes that pad's level" — is WITHDRAWN FOR BETA 2. The owner's intent is that the PAD leads and the lot follows; MEASURED (lane `heca8`, arm 1): a pad's level is fitted one-way to its lot frontage (`pads.pad_frontage_level`, 10l) and a one-way row from those same lot vertices back onto the pad closes a loop of two lags with no leader — `building8` 100.37 → 99.24 m, `building15` −1.7, `building19` −2.5. It needs the pad FROZEN before the lot rows (a follower stage), built on `feature/pavement-gaps`; the code and its census rows wait on `claude/heca8-B`.
+
+### §54 (1) The derivation (ONE site — 08-30l corollary (a))
+
+`classify/wall_trim.trim_lots_at_walls`, called LAST in `classify/roles.classify` (after §27, the pad set-back, the facade mint and the ribbons). Per wall piece (`airport/road_ramp.wall_pieces`, the terrace's own reader) the SHADOW is the piece plus the ground between it and the UPPER pavement (road family, §20b stage-1 airside) within `[road_profile] lane_width_m`: the outline walked at `[identity] min_distinct_spacing_m`, each step joined to its nearest upper points. Every groundside LOT cell (value role, not a road, not a structure) loses the shadow widened by the zone band's own groundside stand-off (`[adjacent_ground] groundside_cutback_m` + `tables.snap_margin_m` = 0.95 m). What the wall leaves of a lot under the planar sliver floor (`(spacing × [terrace] sliver_area_factor)²` = 16 m²) is dropped. No new number.
+
+THE STAND-OFF IS MEASURED: with the snap margin alone (arm 1) nine lot vertices 0.35–0.65 m off `route3` noded back onto its kerb where `metal_strip_2.obj` stands ON the kerb, and the lot's wall foot stood at the road's level.
+
+EMITTABLE: the freed strip (wall + gap + stand-off, ≥ 0.95 m wide) is nobody's pavement; the mesh carries the step across it as a slope. No vertical face is asked for. Past the wall's end and through a gate the lot still reaches the road.
+
+### §54 (2) THE CONSUMER CENSUS — the trim's rows
+
+| # | consumer (file:line) | reads | the trimmed page | ruling |
+|---|---|---|---|---|
+| 1 | `classify/roles.classify` cells → `planar/build` | every cell | an ordinary, smaller lot cell; ids re-numbered like the pad set-back's | none: trimmed at the derivation, every reader sees one lot |
+| 2 | `classify/airside_edge.airside_edge_flip` (§27) | groundside faces sharing an airside edge | runs BEFORE the trim | the trim never changes a role; a lot §27 made airside is no lot and is not trimmed |
+| 3 | `classify/roles._cut_back_groundside`, `facade_mint`, `ribbon_mint` | cells standing | run BEFORE the trim | the trim is last, so no later mint re-fills the freed strip. OPEN for the gap lane (§53): a gap piece minted over the strip would re-pave it — its mint runs before this trim or subtracts the same shadows |
+| 4 | `planar/zones.zone_regions` (groundside cut-back) | lot outlines | a zone band may reach the freed strip | lawful: a soft receiver between the kerb and the wall foot; the step is the wall's |
+| 5 | `airport/road_ramp.road_terrace` meet / walled test | groundside value faces within a lane of a road vertex, walls within a lane of both | the lot is still within a lane of the kerb along the wall → `walled`; at the gate it still meets | unchanged; under 04p (A) a keyed non-ribbon road carries no meet |
+| 6 | `airport/road_ramp.wall_terraces` `upper` / `lower` / `pairs` | lot vertices not on a road face, across the wall from airside | the lot's own ring now runs along the wall foot, so `lower` (and its 10-03c pad pairs) is the foot itself — before, the shared kerb vertices were excluded | none: the same wall, a truer foot |
+| 7 | `airport/road_ramp.wall_keyed` | `wall[*].upper` spans | unchanged (`upper` is road / airside) | none |
+| 8 | `constraints/road_ramp.wall_terrace_rows` | `wall[*].pairs` | UNCHANGED code; more `lower` vertices carry a 10-03c pair | none (b2's `wall_lot` channel is not published) |
+| 9 | `constraints/road_ramp.wall_release` | `wall[*].line`, `lower` | road and lot share no face across the wall; pair rows kerb ↔ foot straddle the line and are released as before | none |
+| 10 | `pipeline/publication.wall_terrace_joints`, sidecar `terrace_joints` | `wall[*]` | `emitted_step_m` is kerb → wall foot (the true riser) | none |
+| 11 | `constraints/pad_frontage_gs` (§28), `pads.pad_frontage_level` | lot faces fronting a pad | unchanged — the trim is at the road side, never at a pad | none |
+| 12 | `tools/pad_frontage_step.py` | §28's pair population | reads the trimmed lot | none (report tool) |
+| 13 | `solve/design` stage split | roles | the lot stays stage 2 | AIRSIDE UNTOUCHED BY CONSTRUCTION |
+| 14 | `constraints/roads.road_within_shape` | lot rings | the trimmed ring's own pairs; 04p (C) hole pairs unchanged | none |
+
+### §54 (3) MEASURED (same-capture replays, `conc333/HECA_main28500ecf.pkl --from classify`, vs the C+A build) — THE TRIM ALONE MISSES ITS BAR; NOT SHIPPED
+
+* Fires: HECA 11 lots / 15 walls / 991 m² (`dsf:objpav394` 33,507 → 32,707 m²); KCLT 3 lots / 4 walls / 129 m²; CYXY, NLWF, KASE, SPJC nowhere (byte-identical).
+* The wall-top kerb vertices are gone from the lot; the lot's edge at the wall foot stands 100.52–100.87 m beside `building8` (pad 100.51–100.78). `route3` s 195–255: −0.34…−0.75 → −0.00…−0.01.
+* BUT the road falls at the wall's END: s 15–30 −0.73 → −2.37 (v24871 102.25, DEM 104.00), s 30–45 −0.16 → −0.89, s 390–405 → −1.27. `--why-vertex 24871`: the lot's own 5 % cap × 30.3 m to v34326, the lot vertex on `building8`'s frontage (100.74, `pad_frontage_level`). Beyond the wall's end the lot still shares vertices with the road, and the lot — now free to stand at the pad's level at the wall foot — cannot climb 3.4 m in 30 m under its cap, so the road yields. Before the trim the shared kerb held the lot up along the whole wall.
+* With the snap margin alone as the stand-off (arm 1) that fall does not happen (s 0–75 unchanged) — because nine lot vertices node back onto the kerb, i.e. the trim does not hold there.
+* WHAT IT NEEDS (not built): the road leads at a mouth beyond a wall's end — the lot's ramp to it is the follower's (the same follower stage b2 waits for), or the wall's terrace is carried to where the lot can reach the road under its cap.

@@ -54,6 +54,24 @@ gdal_proj_datas = (
 # tile driver imports the package lazily, per engine selection.
 # ---------------------------------------------------------------------------
 import glob as _glob
+
+# ELEVATION ACCESS STRATEGIES register on import and are looked up BY KEY
+# (``access_strategy=`` in a Providers/Elevation/*.elv file): a strategy
+# module the static scan missed is a provider silently lost in the frozen
+# app (the #344 class).  ``elevation_access.strategies`` imports each one
+# statically, which is what carries them; naming every module file here is
+# the belt.  Listed from the files, not by importing the package, so the
+# spec never runs engine code.
+elevation_access_hidden = sorted(
+    os.path.splitext(os.path.relpath(f, "src"))[0].replace(os.sep, ".")
+    for f in _glob.glob(os.path.join("src", "elevation_access", "**", "*.py"),
+                        recursive=True)
+    if os.path.basename(f) != "__init__.py")
+if len(elevation_access_hidden) < 30:
+    raise SystemExit(
+        f"ERROR: expected the elevation_access package under src/ "
+        f"(26 strategy modules + the shared ones), found "
+        f"{len(elevation_access_hidden)} module(s).")
 v2_law_datas = (
     [(f, os.path.join("auto_patch_v2", "law"))
      for f in sorted(_glob.glob(os.path.join("src", "auto_patch_v2", "law", "*.toml")))]
@@ -105,6 +123,7 @@ a = Analysis(
     ] + gdal_proj_datas + v2_law_datas + highspy_datas + tifffile_datas
       + imagecodecs_datas,
     hiddenimports=(collect_submodules('PIL') + collect_submodules('auto_patch_v2')
+                   + elevation_access_hidden
                    # ``o4_engine.parallel.STEP_FETCH_SUBSYSTEMS`` resolves its
                    # fetch predicates BY NAME (``__import__``), which the
                    # static scan cannot see.  The auto_patch one lives in

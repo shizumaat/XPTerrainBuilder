@@ -1018,6 +1018,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         objs0: list = []
         pm0, _st0 = build_planar(airport, cl0, law, objects_out=objs0, cache=ocache,
                                  objects=pack_objects, object_report=pack_report)
+        # the heartbeat names THIS work, not the inner planar build's last step
+        _pulse.tick("stage 1 on the ribbon-free map: shapes and constraints")
         ap0 = _dc.replace(airport, flat_site=_flat.detect(
             airport, law, objects=objs0[0] if objs0 else (), land=_classified_land(cl0)))
         pref0, _r0, prof0 = preferred_road_z(ap0, pm0, law, inputs.road_grade_limit,
@@ -1035,6 +1037,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                            rider_candidates(ap0, law)),
                 hold_pass(st0.pm, law))
     _s1 = stage_one_problem(cl, _ribbon_free)
+    _pulse.tick("solving the surface")
     if _s1 is not None:
         _s1.bind(pm)
         _say(f"[{icao}] stage 1 on the ribbon-free map (#100 (c)): {_s1.report}", out)

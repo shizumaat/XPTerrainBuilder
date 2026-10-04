@@ -113,6 +113,7 @@ if _SOURCE_DIRECTORY not in sys.path:
 
 import O4_File_Names as FNAMES
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import warp as ea_warp
 
 
 def _parse_pair(text, label):
@@ -215,7 +216,7 @@ def witness_record(inset_path, apt_dat_path, icao, footprint_polygon,
         "delivered_label": ladder.get("delivered_label"),
         "native_resolution_m": provenance.get("native_resolution_m"),
         "resolution_m": provenance.get("resolution_m"),
-        "valid_fraction": round(INSETS.inset_valid_fraction(inset_path), 6),
+        "valid_fraction": round(ea_warp.inset_valid_fraction(inset_path), 6),
         # THE CORE'S OWN COVER beside the cover AFTER the ladder fills
         # (spec las-tile §12): the sidecar's rung-selection number, else
         # (a pre-§12 sidecar) the raster's own cover -- one and the same

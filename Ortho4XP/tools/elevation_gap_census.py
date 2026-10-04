@@ -434,11 +434,13 @@ def airport_box(row: dict[str, Any], buffer_m: float) -> tuple[float, float, flo
 def ladder_would_deliver(row: dict[str, Any], args: argparse.Namespace, INSETS: Any) -> dict[str, Any]:
     """One HOLDER row: the covering rungs in the engine's ladder order, each
     judged from recorded discovery, and the first that would deliver."""
+    from elevation_access import definitions as ea_definitions
+
     box_ = airport_box(row, args.buffer_m)
     root = INSETS.elevation_providers_dict[args.ladder_root]
     rungs, chosen = [], None
     for index, (label, rung) in enumerate(INSETS._ladder_rung_definitions(root, box_)):
-        if not INSETS._coverage_bbox_intersects(rung, box_):
+        if not ea_definitions._coverage_bbox_intersects(rung, box_):
             continue  # not a rung for this airport (spec §1: coverage-boxed)
         ds = _tnm_dataset_key(rung)
         share, evidence = None, ""

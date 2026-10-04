@@ -19,6 +19,14 @@ import pytest
 
 import O4_File_Names as FNAMES
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import base as ea_base
+from elevation_access import capabilities as ea_capabilities
+from elevation_access import definitions as ea_definitions
+from elevation_access import las_tiles as ea_las_tiles
+from elevation_access import registry as ea_registry
+from elevation_access.strategies import las_tile_index as ea_las_tile_index
+from elevation_access.strategies import tnm_cog as ea_tnm_cog
+from elevation_access import warp as ea_warp
 
 try:
     from osgeo import gdal, osr
@@ -59,7 +67,7 @@ def fake_strategy():
     plan = {}
     calls = []
 
-    @INSETS.register_access_strategy(STRATEGY)
+    @ea_registry.register_access_strategy(STRATEGY)
     class _Fake:
         def discover(self, definition, bounding_box_wgs84):
             return [{"note": "fake"}]
@@ -85,14 +93,14 @@ def fake_strategy():
     try:
         yield plan, calls
     finally:
-        INSETS.ACCESS_STRATEGIES.pop(STRATEGY, None)
+        ea_registry.ACCESS_STRATEGIES.pop(STRATEGY, None)
 
 
 def _definition():
     return {
         "code": "FAKE3DEP",
         "access_strategy": STRATEGY,
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 1.0,
         "native_resolution_m": 1.0,
@@ -121,7 +129,7 @@ def test_empty_1m_climbs_to_3m(tmp_path, fake_strategy):
     assert [r["outcome"] for r in ladder["rungs_tried"]] == [
         "below-threshold", "delivered"]
     # The 3 m raster IS the inset now; no rung scratch file survives.
-    assert INSETS.inset_valid_fraction(destination) == 1.0
+    assert ea_warp.inset_valid_fraction(destination) == 1.0
     assert sorted(os.listdir(tmp_path)) == ["KASE_fake3dep.tif"]
 
 
@@ -180,9 +188,9 @@ def test_no_coverage_only_when_every_rung_lists_nothing(tmp_path,
 @requires_gdal
 def test_transient_rung_raises_and_leaves_no_scratch(tmp_path, fake_strategy):
     plan, calls = fake_strategy
-    plan.update({1.0: 0.0, 3.0: INSETS.TransientFetchError("outage")})
+    plan.update({1.0: 0.0, 3.0: ea_base.TransientFetchError("outage")})
     destination = str(tmp_path / "a.tif")
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         INSETS.fetch_inset(
             _definition(), BOX, 1.0, destination, resolution_ladder=True)
     assert not any(name.startswith("a.tif.rung")
@@ -238,15 +246,15 @@ def test_shipped_opr_and_lpc_rungs():
     usgs = providers["USGS3DEP"]
     assert opr["access_strategy"] == "tnm_cog"
     assert "Original Product Resolution" in opr["discovery_url_template"]
-    assert INSETS._definition_reads_source_units(opr)
+    assert ea_tnm_cog._definition_reads_source_units(opr)
     assert INSETS._rung_judged_by_airport_cover(opr)
     assert float(opr["max_source_resolution_m"]) > 1.5   # MS Coastal 4 ftUS
     assert lpc["access_strategy"] == "las_tile_index"
     assert lpc["index_format"] == "tnm"
     assert "Lidar Point Cloud" in lpc["index_url_template"]
     assert INSETS.provider_required_capabilities(lpc) == [
-        INSETS.CAPABILITY_LAS, INSETS.CAPABILITY_LAZ]
-    assert INSETS._las_crs_from_header(lpc)
+        ea_capabilities.CAPABILITY_LAS, ea_capabilities.CAPABILITY_LAZ]
+    assert ea_las_tile_index._las_crs_from_header(lpc)
     for definition in (opr, lpc):
         assert definition["coverage_bbox"] == usgs["coverage_bbox"]
         assert definition["priority"] < providers["PITKIN1M"]["priority"]
@@ -298,7 +306,7 @@ def two_providers(monkeypatch, tmp_path):
             key = _key(definition)
             calls["discover"].append(key)
             if key in discover_raise:
-                raise INSETS.TransientFetchError("index outage")
+                raise ea_base.TransientFetchError("index outage")
             listing = plan.get(key, {}).get("listing") or []
             return [{"source_id": i} for i in listing] or None
 
@@ -308,10 +316,10 @@ def two_providers(monkeypatch, tmp_path):
             calls["fetch"].append(key)
             entry = plan.get(key) or {}
             if entry.get("unavailable"):
-                raise INSETS.ProviderUnavailable(entry["unavailable"])
+                raise ea_base.ProviderUnavailable(entry["unavailable"])
             if entry.get("transient"):
                 _write_raster(destination_path, 0.5)     # partial file
-                raise INSETS.TransientFetchError(entry["transient"])
+                raise ea_base.TransientFetchError(entry["transient"])
             if entry.get("valid") is None:
                 self.last_listing = [{"source_id": i} for i in
                                      entry.get("listing") or []]
@@ -330,12 +338,12 @@ def two_providers(monkeypatch, tmp_path):
                                  for i in entry.get("listing") or []],
             }
 
-    INSETS.register_access_strategy(STRATEGY)(type("_A", (_Base,), {}))
-    INSETS.register_access_strategy(OTHER_STRATEGY)(type("_B", (_Base,), {}))
+    ea_registry.register_access_strategy(STRATEGY)(type("_A", (_Base,), {}))
+    ea_registry.register_access_strategy(OTHER_STRATEGY)(type("_B", (_Base,), {}))
     chain = {
         "code": "FAKE3DEP",
         "access_strategy": STRATEGY,
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 1.0,
         "native_resolution_m": 1.0,
@@ -347,13 +355,13 @@ def two_providers(monkeypatch, tmp_path):
     other = {
         "code": "FAKEPIT",
         "access_strategy": OTHER_STRATEGY,
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 0.5,
         "native_resolution_m": 1.0,
         "coverage_bbox": "-107.4,38.95,-106.3,39.55",
     }
-    other["coverage_bboxes"] = INSETS._parse_bounding_boxes(
+    other["coverage_bboxes"] = ea_definitions._parse_bounding_boxes(
         other["coverage_bbox"])
     monkeypatch.setattr(INSETS, "elevation_providers_dict",
                         {"FAKE3DEP": chain, "FAKEPIT": other})
@@ -361,8 +369,8 @@ def two_providers(monkeypatch, tmp_path):
     try:
         yield plan, calls, chain, other, discover_raise
     finally:
-        INSETS.ACCESS_STRATEGIES.pop(STRATEGY, None)
-        INSETS.ACCESS_STRATEGIES.pop(OTHER_STRATEGY, None)
+        ea_registry.ACCESS_STRATEGIES.pop(STRATEGY, None)
+        ea_registry.ACCESS_STRATEGIES.pop(OTHER_STRATEGY, None)
 
 
 def _sidecar(icao="KASE"):
@@ -573,7 +581,7 @@ def core_chain(monkeypatch, tmp_path, two_providers):
         def fetch(self, definition, bounding_box_wgs84,
                   target_resolution_m, destination_path):
             calls["fetch"].append("FAKEPIT")
-            seen["footprint"] = definition.get(INSETS.LAS_FOOTPRINT_KEY)
+            seen["footprint"] = definition.get(ea_las_tiles.LAS_FOOTPRINT_KEY)
             _write_partial(destination_path, bounding_box_wgs84, 2400.0,
                            plan["core_keep"])
             return {"provider": "FAKEPIT", "native_resolution_m": 1.0,
@@ -581,16 +589,16 @@ def core_chain(monkeypatch, tmp_path, two_providers):
                     "source_ids": ["T1"],
                     "core": {"provider": "FAKEPIT",
                              "boundary_polygon_wgs84": definition.get(
-                                 INSETS.LAS_FOOTPRINT_KEY),
+                                 ea_las_tiles.LAS_FOOTPRINT_KEY),
                              "footprint_buffer_m": 0.0,
                              "tile_names": ["T1"], "feather_m": 60.0}}
 
-    INSETS.register_access_strategy(CORE_STRATEGY)(_Core)
+    ea_registry.register_access_strategy(CORE_STRATEGY)(_Core)
     other["access_strategy"] = CORE_STRATEGY
     try:
         yield plan, calls, chain, seen
     finally:
-        INSETS.ACCESS_STRATEGIES.pop(CORE_STRATEGY, None)
+        ea_registry.ACCESS_STRATEGIES.pop(CORE_STRATEGY, None)
 
 
 def _airport():
@@ -617,7 +625,7 @@ def test_core_delivered_over_the_airport_with_a_surround(tmp_path,
     ladder = provenance["ladder"]
     assert ladder["delivered_rung"] == 1
     assert ladder["delivered_provider"] == "FAKEPIT"
-    assert ladder[INSETS.LAS_FOOTPRINT_KEY]["type"] == "Polygon"
+    assert ladder[ea_las_tiles.LAS_FOOTPRINT_KEY]["type"] == "Polygon"
     assert provenance["airport_valid_fraction"] >= \
         INSETS.INSET_MIN_AIRPORT_COVER_FRAC
     assert provenance["core"]["rung"] == 1
@@ -714,7 +722,7 @@ def test_every_rung_transient_is_no_answer(tmp_path, two_providers):
     plan.update({"FAKE3DEP:1": {"transient": "a"},
                  "FAKEPIT": {"transient": "b"},
                  "FAKE3DEP:10": {"transient": "c"}})
-    with pytest.raises(INSETS.TransientFetchError, match="a"):
+    with pytest.raises(ea_base.TransientFetchError, match="a"):
         INSETS.fetch_inset(chain, BOX, 1.0, str(tmp_path / "K_f.tif"),
                            resolution_ladder=True)
     assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT", "FAKE3DEP:10"]
@@ -801,11 +809,11 @@ def test_surround_never_takes_a_lidar_rung(tmp_path, core_chain,
     rungs (never asked) and is the seamless 10 m layer, as before."""
     plan, calls, chain, seen = core_chain
     lidar = {"code": "FAKEOPR", "access_strategy": STRATEGY,
-             "role": INSETS.ROLE_AIRPORT_INSET, "enabled": True,
+             "role": ea_definitions.ROLE_AIRPORT_INSET, "enabled": True,
              "priority": 0.4, "native_resolution_m": 1.0,
              "ladder_judge": "airport_cover"}
     cloud = {"code": "FAKELPC", "access_strategy": "las_tile_index",
-             "role": INSETS.ROLE_AIRPORT_INSET, "enabled": True,
+             "role": ea_definitions.ROLE_AIRPORT_INSET, "enabled": True,
              "priority": 0.3, "native_resolution_m": 1.0}
     INSETS.elevation_providers_dict.update(
         {"FAKEOPR": lidar, "FAKELPC": cloud})
@@ -870,7 +878,7 @@ def test_partial_rung_zero_yields_to_a_same_resolution_rung(tmp_path,
         INSETS.INSET_MIN_AIRPORT_COVER_FRAC
     assert provenance["ladder"]["delivered_provider"] == "FAKEPIT"
     assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT"]
-    assert INSETS.inset_valid_fraction(
+    assert ea_warp.inset_valid_fraction(
         str(tmp_path / "KGEG_fake3dep.tif")) == 1.0
     assert sorted(os.listdir(tmp_path)) == ["KGEG_fake3dep.tif"]
 
@@ -968,7 +976,7 @@ def test_member_needs_the_key_a_box_and_enabled(monkeypatch):
              "resolution_ladder_rungs": INSETS._parse_resolution_ladder(
                  "3|three|u3;10|ten|u10")}
     def member(code, **keys):
-        definition = {"code": code, "role": INSETS.ROLE_AIRPORT_INSET,
+        definition = {"code": code, "role": ea_definitions.ROLE_AIRPORT_INSET,
                       "enabled": True, "priority": 90.0,
                       "native_resolution_m": 2.0, "ladder_member": True,
                       "coverage_bboxes": [(0.0, 0.0, 1.0, 1.0)]}
@@ -1002,7 +1010,7 @@ def test_member_rung_delivers_and_out_of_box_member_is_no_row(
         tmp_path, two_providers):
     plan, calls, chain, _other, _raise = two_providers
     holder = {"code": "FAKEHOLD", "access_strategy": OTHER_STRATEGY,
-              "role": INSETS.ROLE_AIRPORT_INSET, "enabled": True,
+              "role": ea_definitions.ROLE_AIRPORT_INSET, "enabled": True,
               "priority": 0.25, "native_resolution_m": 2.0,
               "ladder_member": True,
               "coverage_bboxes": [(-107.0, 39.0, -106.5, 39.5)]}
@@ -1039,7 +1047,7 @@ def test_recheck_asks_a_global_member(two_providers):
     plan, calls, chain, _other, _raise = two_providers
     INSETS.elevation_providers_dict["FAKEHOLD"] = {
         "code": "FAKEHOLD", "access_strategy": OTHER_STRATEGY,
-        "role": INSETS.ROLE_AIRPORT_INSET, "enabled": True,
+        "role": ea_definitions.ROLE_AIRPORT_INSET, "enabled": True,
         "priority": 0.25, "native_resolution_m": 2.0, "ladder_member": True,
         "coverage_bboxes": [(-107.0, 39.0, -106.5, 39.5)]}
     plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
@@ -1108,7 +1116,7 @@ def test_unavailable_rung_zero_with_nothing_else_stays_unavailable(
     plan.update({"FAKE3DEP:1": {"unavailable": "undecodable zip member"},
                  "FAKEPIT": {"valid": None, "listing": []},
                  "FAKE3DEP:10": {"valid": None, "listing": []}})
-    with pytest.raises(INSETS.ProviderUnavailable):
+    with pytest.raises(ea_base.ProviderUnavailable):
         INSETS.fetch_inset(chain, BOX, 1.0,
                            str(tmp_path / "KASE_fake3dep.tif"),
                            resolution_ladder=True)

@@ -1264,7 +1264,7 @@ class ElevationDownloadRefused(RuntimeError):
     A 404/410 answer is NOT this: the server looked, the file is not
     there, and the historic 0 convention stands (the STRATEGY then
     decides whether an absent file is lawful for that tile -- see
-    ``O4_Airport_Elevation_Insets.refuse_absent_base_archive``).
+    ``elevation_access.strategies.viewfinder_zip.refuse_absent_base_archive``).
 
     Every OTHER non-2xx answer is this (issues #124/#173): a 403 from a
     CDN or a bot wall, a 407 from a proxy, a 429, a surfacing 3xx, a
@@ -1372,7 +1372,7 @@ def http_request(url, source, verbose=False):
     # module is: O4_Airport_Elevation_Insets imports THIS module at
     # module level.  It owns the ONE answer-outcome classifier (SQ3: a
     # second convention at a call site is the defect, not a refinement).
-    import O4_Airport_Elevation_Insets as ELEVATION_OUTCOMES
+    from elevation_access import discovery as ea_discovery
     s = requests.Session()
     tentative = 0
     last_failure = None
@@ -1396,8 +1396,8 @@ def http_request(url, source, verbose=False):
             # raster for that cell.  A 410/429/451 matched nothing at
             # all, so it was retried six times and then returned 0
             # SILENTLY, with no ``last_failure`` to refuse on.
-            outcome = ELEVATION_OUTCOMES.http_answer_outcome(r.status_code)
-            if outcome == ELEVATION_OUTCOMES.HTTP_OUTCOME_OK:
+            outcome = ea_discovery.http_answer_outcome(r.status_code)
+            if outcome == ea_discovery.HTTP_OUTCOME_OK:
                 # Feed the throughput meter with this completed fetch so
                 # the build-time ETA prices elevation downloads from
                 # measurement.  Never raise from telemetry.
@@ -1407,11 +1407,11 @@ def http_request(url, source, verbose=False):
                     except Exception:
                         pass
                 return r
-            elif outcome == ELEVATION_OUTCOMES.HTTP_OUTCOME_ABSENT:
+            elif outcome == ea_discovery.HTTP_OUTCOME_ABSENT:
                 if verbose:
                     UI.vprint(2, "    Server said 'Not Found'")
                 return 0
-            elif outcome == ELEVATION_OUTCOMES.HTTP_OUTCOME_UNAVAILABLE:
+            elif outcome == ea_discovery.HTTP_OUTCOME_UNAVAILABLE:
                 # The host refused to serve THIS CLIENT.  It never looked
                 # for the file, so this can never become a 0: refuse now,
                 # without spending five more identical refusals.

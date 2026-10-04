@@ -28,6 +28,10 @@ import pytest
 
 import O4_File_Names as FNAMES
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import definitions as ea_definitions
+from elevation_access.strategies import tnm_cog as ea_tnm_cog
+from elevation_access import warp as ea_warp
 
 try:
     from osgeo import gdal, osr
@@ -46,7 +50,7 @@ TILE = (0, 0)
 DEFINITION = {
     "code": "USGS3DEP",
     "access_strategy": "tnm_cog",
-    "role": INSETS.ROLE_AIRPORT_INSET,
+    "role": ea_definitions.ROLE_AIRPORT_INSET,
     "enabled": True,
     "priority": 1.0,
     "native_resolution_m": 1,
@@ -77,7 +81,7 @@ def _write_geotiff(path, values, bounding_box=BBOX):
     band.WriteArray(values.astype(numpy.float32))
     band.FlushCache()
     dataset = None
-    INSETS._inset_valid_fraction_cache.clear()
+    ea_warp._inset_valid_fraction_cache.clear()
     return path
 
 
@@ -110,7 +114,7 @@ def _local_strategy(monkeypatch, sources):
     ``/vsicurl/`` prefix, and discovery returns the given sources.  The
     ordering, the mosaic and the per-source probe are the shipped code.
     """
-    strategy_class = INSETS.TnmCloudOptimizedGeoTiffStrategy
+    strategy_class = ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy
     monkeypatch.setattr(
         strategy_class, "discover",
         lambda self, definition, bounding_box: list(sources),
@@ -191,7 +195,7 @@ def test_a_record_whose_raster_is_gone_or_empty_refetches(
     assert os.path.isfile(
         os.path.join(directory, "KSTJ_usgs3dep.json.invalid-" + stamp))
     # The refetched raster replaced the empty one.
-    assert INSETS.inset_valid_fraction(destination) == 1.0
+    assert ea_warp.inset_valid_fraction(destination) == 1.0
     assert "0.00 % valid pixels" in capsys.readouterr().out
 
 
@@ -227,14 +231,14 @@ def test_the_newer_source_wins_only_where_it_has_data(tmp_path, monkeypatch):
     strategy = _local_strategy(monkeypatch, [newer, older])
 
     ordering = []
-    original_warp = INSETS.warp_vsicurl_sources_to_geotiff
+    original_warp = ea_warp.warp_vsicurl_sources_to_geotiff
 
     def _recording_warp(inputs, *args, **kwargs):
         ordering.extend(inputs)
         return original_warp(inputs, *args, **kwargs)
 
-    monkeypatch.setattr(
-        INSETS, "warp_vsicurl_sources_to_geotiff", _recording_warp)
+    patch_inset_code(
+        monkeypatch, "warp_vsicurl_sources_to_geotiff", _recording_warp)
 
     destination = os.path.join(str(tmp_path), "KMCI_usgs3dep.tif")
     provenance = strategy.fetch(DEFINITION, BBOX, 3000.0, destination)
@@ -352,7 +356,7 @@ def test_mixed_vertical_datums_refuse_the_mosaic(tmp_path, monkeypatch):
 def test_the_project_name_is_read_off_the_product_title():
     """3DEP titles end in the project name; that is what a reader needs
     when two states meet over one airport."""
-    assert INSETS._tnm_project_of(
+    assert ea_tnm_cog._tnm_project_of(
         "USGS 1 Meter 15 x34y435 KS_Statewide_2018_A18"
     ) == "KS_Statewide_2018_A18"
-    assert INSETS._tnm_project_of(None) == "?"
+    assert ea_tnm_cog._tnm_project_of(None) == "?"

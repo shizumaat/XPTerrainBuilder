@@ -19,6 +19,7 @@ import pytest
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
 
 try:
     from osgeo import gdal, osr
@@ -217,7 +218,7 @@ def _bake_fixture(tmp_path, monkeypatch):
     """A composite DEM (flat base + ramped coarse inset) after the real
     ``bake_airport_insets_into_alt_dem``.  Returns (tile, dem, window)."""
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
 
     base = numpy.zeros((301, 301), dtype=numpy.float32)

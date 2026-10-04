@@ -43,8 +43,10 @@ STANDING = """\
   2026-09-13au — there is no `--engine` flag); base arms cut with
   `git archive <sha> src`, never another live checkout.
 - NEVER write `/Users/noah/XPTerrainBuilderData` or `/Users/noah/X-Plane 12/Custom Scenery/`;
-  no `--refresh-data`; every run prints `[guard] shared repo UNCHANGED`;
-  lane-local `O4_DSF_CACHE_DIR` / `O4_AIRPORT_MOD_CACHE_DIR` under your scratchpad.
+  no `--refresh-data`; every run prints `[guard] shared repo UNCHANGED`.
+  Do NOT set `O4_DSF_CACHE_DIR` / `O4_AIRPORT_MOD_CACHE_DIR`: the harness makes its own
+  overlay, and with them set a build refuses ("pack DSF dump MISSING", #342) — they are
+  the pytest suite's mechanism, set by `tests/conftest.py`.
 - Any wait loop is bounded (`timeout N` or `$SECONDS`); prefer foreground.
 - Suite from `Ortho4XP/` twice: `venv/bin/python -m pytest -q --no-header -p no:cacheprovider -rfE tests/auto_patch_v2 tests/test_harness.py tests/test_role_edge_census.py tests/test_auto_patch_freshness.py`.
 - Attempt cap two per rule; a bar that moves backwards twice → delete the code, report the measurement.

@@ -669,12 +669,14 @@ def weld_to_shore(surface: GradedSurface, law: Law,
     every emitted ring passes through.
 
     THE DEFECT IT REMOVES (owner RULINGS 2026-09-13bk; measured here at
-    LEMD 40.4762773, −3.5456742): the bank foot ring follows the water
-    line because ``emit/bank.py`` cuts the banked region BY the water, so
-    its vertices ARE the water polygon's — but the ring is then chord-split
-    at ``bank_chord_max_m`` in the FRAME (tmerc metres), while the mesh
-    constrains the water edge as a straight segment in tile-relative
-    DEGREES.  A straight line in one frame is not a straight line in the
+    LEMD 40.4762773, −3.5456742, on the bank pass since deleted by RULINGS
+    2026-10-04c (3)): the bank foot ring followed the water line because
+    the bank pass cut the banked region BY the water, so its vertices WERE
+    the water polygon's — but the ring was then chord-split at the pass's
+    chord cap in the FRAME (tmerc metres), while the mesh constrains the
+    water edge as a straight segment in tile-relative DEGREES.  Any ring
+    that runs along a shore and is chord-split in the frame is the same
+    class.  A straight line in one frame is not a straight line in the
     other: over a 74.5 m water edge the two separate by 0.0676 mm in the
     middle while sharing both endpoints exactly.  Triangle4XP must recover
     both segments and fills that hairline wedge with a Steiner cascade —

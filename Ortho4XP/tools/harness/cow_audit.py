@@ -177,6 +177,11 @@ def describe(report: dict) -> str:
 
 
 def main(argv=None) -> int:
+    # The console is UTF-8 before the parser can print (#171, #125); a
+    # library with a CLI pins in its entry.  Twin: test_console_encoding.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+    import O4_Console_Encoding
+    O4_Console_Encoding.configure_console_streams()
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("action", choices=("audit", "reseed"))
     parser.add_argument("tree", type=Path)

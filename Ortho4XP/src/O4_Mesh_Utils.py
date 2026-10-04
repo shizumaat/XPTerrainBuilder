@@ -1146,8 +1146,10 @@ BANK_FOOT_FEATURE = "bank_foot"
 #: to be impossible.
 BANK_RING_MATCH_TOLERANCE = 1.0e-6
 
-#: ``emit.design.bank_max_width_m``, in metres (converted per call: the
-#: degree scale constant is defined further down this module).
+#: The widest bank, in metres (converted per call: the degree scale
+#: constant is defined further down this module).  It WAS the law key
+#: ``emit.design.bank_max_width_m``; the key went with v2's bank pass
+#: (RULINGS 2026-10-04c (3)) and this constant is now the only spelling.
 BANK_MAX_WIDTH_M = 200.0
 
 #: WHAT THE LAST :func:`_bank_rings_from_patches` READ — a report figure
@@ -1818,7 +1820,7 @@ BANK_BLEND_STATS = {}
 
 
 #: How far out along a ring normal the foot is looked for, in metres.
-#: ``[design] bank_max_width_m`` is 200 m; twice that leaves room for a
+#: :data:`BANK_MAX_WIDTH_M` is 200 m; twice that leaves room for a
 #: normal that leaves its own station obliquely at a corner.
 BANK_RAY_MAX_M = 400.0
 

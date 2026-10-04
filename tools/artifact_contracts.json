@@ -5,7 +5,6 @@
       "pattern": "Patches/<tile>/<ICAO>_auto.patch.osm",
       "note": "The auto-patch vector layer. layout.to_osm writes it atomically; O4_Vector_Map merges it into the tile's OSM dicos at build time, and driver re-reads its header to decide whether the patch is stale. production_airport_patch only stats/removes it (weak edge).",
       "writers": [
-        "Ortho4XP/src/auto_patch/layout.py",
         "Ortho4XP/src/auto_patch/driver.py"
       ],
       "readers": [
@@ -15,7 +14,6 @@
         "Ortho4XP/tools/production_airport_patch.py"
       ],
       "evidence": [
-        "W Ortho4XP/src/auto_patch/layout.py:2356  tmp_file.write(text)  (_atomic_write_text, called from to_osm at :2201)",
         "W Ortho4XP/src/auto_patch/driver.py:1063  patch_dir, \"{}_auto.patch.osm\".format(icao)  (name construction; to_osm call at :632)",
         "R Ortho4XP/src/O4_Vector_Map.py:1158  auto_patches = [f for f in all_patch_files if \"_auto.patch.osm\" in f]  -> :1210 passed to patch_layer.update_dicosm",
         "R Ortho4XP/src/auto_patch/driver.py:245  meta = read_patch_source(auto_patch_file)  -> layout.py:2390 open(path, \"r\")",
@@ -26,15 +24,12 @@
     {
       "pattern": "Patches/<tile>/<ICAO>_auto.patch.osm.axes.json",
       "note": "Runway-axis sidecar written next to the patch. The write is best-effort (bare except: pass), so a missing sidecar is normal -- check_grade guards with .exists(), flex_audit does NOT and will raise.",
-      "writers": [
-        "Ortho4XP/src/auto_patch/layout.py"
-      ],
+      "writers": [],
       "readers": [
         "Ortho4XP/tools/check_grade.py",
         "Ortho4XP/tools/flex_audit.py"
       ],
       "evidence": [
-        "W Ortho4XP/src/auto_patch/layout.py:2303  Path(str(path) + \".axes.json\").write_text(_json.dumps(data))  (_write_axes_sidecar, called from to_osm at :2202)",
         "R Ortho4XP/tools/check_grade.py:2468-2472  sidecar = Path(str(args.osm) + \".axes.json\") ... _json.loads(sidecar.read_text())",
         "R Ortho4XP/tools/flex_audit.py:92  sidecar = json.load(open(on_path + \".axes.json\"))"
       ]
@@ -65,13 +60,11 @@
       "note": "Per-pack derived-data cache. dsf_reader.airport_mod_cache_dir (:1151) is the cross-module contract -- object_terrain_assembly (:286/:463/:793) and post_mesh (:264) import it. agp_reader uses a FLAT sibling (Airport_mod_cache/o4_library_index_<root>.cache) built from its own path helper. Changing the directory name, the pickle payload shape, or the cache-version stamp silently invalidates or corrupts every consumer. O4_Airport_Elevation_Insets.py and O4_Tile_Utils.py were DROPPED from this row: their references are prose only.",
       "writers": [
         "Ortho4XP/src/auto_patch/dsf_reader.py",
-        "Ortho4XP/src/auto_patch/object_terrain_assembly.py",
         "Ortho4XP/src/auto_patch/post_mesh.py",
         "Ortho4XP/src/auto_patch/agp_reader.py"
       ],
       "readers": [
         "Ortho4XP/src/auto_patch/dsf_reader.py",
-        "Ortho4XP/src/auto_patch/object_terrain_assembly.py",
         "Ortho4XP/src/auto_patch/post_mesh.py",
         "Ortho4XP/src/auto_patch/agp_reader.py"
       ],
@@ -79,11 +72,9 @@
         "path Ortho4XP/src/auto_patch/dsf_reader.py:1172  return _FNAMES.data_path(os.path.join(\"Airport_mod_cache\", pack_name))",
         "path Ortho4XP/src/auto_patch/agp_reader.py:281  cache_directory = _FNAMES.data_path(\"Airport_mod_cache\")",
         "W Ortho4XP/src/auto_patch/dsf_reader.py:1757-1758, :1960-1961, :2096-2097  os.makedirs(...) / open(sidecar_path, \"wb\")",
-        "W Ortho4XP/src/auto_patch/object_terrain_assembly.py:379-380, :683-684, :843-845(+os.replace :853)",
         "W Ortho4XP/src/auto_patch/post_mesh.py:320-322  os.makedirs / open(temporary_path, \"wb\")  (+os.replace :330)",
         "W Ortho4XP/src/auto_patch/agp_reader.py:341,:347  os.makedirs(cache_directory) / os.replace(temporary_path, sidecar_path)",
         "R Ortho4XP/src/auto_patch/dsf_reader.py:1361-1362 (pickle.load), :2076",
-        "R Ortho4XP/src/auto_patch/object_terrain_assembly.py:361, :594, :832",
         "R Ortho4XP/src/auto_patch/post_mesh.py:309  open(cache_path, \"rb\")",
         "R Ortho4XP/src/auto_patch/agp_reader.py:301  open(sidecar_path, \"rb\")"
       ]

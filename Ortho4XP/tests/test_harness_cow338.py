@@ -126,7 +126,8 @@ def _lane(tmp_path):
     big = main / "Ortho4XP" / "Patches" / "+10+010" / "big.patch.osm"
     big.parent.mkdir()
     big.write_bytes(BLOB)
-    with open(main / ".git" / "info" / "exclude", "a", encoding="utf-8") as fh:
+    with open(main / ".git" / "info" / "exclude", "a", encoding="utf-8",
+              newline="\n") as fh:
         fh.write("Ortho4XP/tmp/\n")
     up = _ritual(env, "up", "lane1")
     assert up.returncode == 0, up.stdout + up.stderr

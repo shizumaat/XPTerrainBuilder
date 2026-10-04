@@ -91,7 +91,12 @@ def test_the_floor_is_the_area_and_a_lane_wide_disc():
     assert stats["gap_pieces_under_floor"] == 2
 
 
-def test_a_piece_along_a_runway_or_taxi_face_and_no_apron_is_not_minted():
+def test_a_piece_along_a_runway_or_taxi_face_and_no_apron_is_not_minted(monkeypatch):
+    """Where the taxi face carries NO band (the envelope is empty) a piece
+    running along it and touching no apron is listed, not minted; with a
+    band the piece is trimmed off it instead (the band twin below)."""
+    from auto_patch_v2.classify import ribbon_mint
+    monkeypatch.setattr(ribbon_mint, "ribbon_extent", lambda cells, law, pu: Polygon())
     taxi = _cell(0, "junction", "pav9", box(0, 0, 100, 30))
     out, stats, notes = _mint(_airport(box(0, 30, 100, 60)), [taxi])
     assert out == [] and stats["gap_pieces_unminted_airside"] == 1
@@ -124,3 +129,18 @@ def test_the_sheet_outline_is_simplified_before_the_difference():
     out, _s, _n = _mint(_airport(sheet), [apron])
     assert len(out) == 1 and len(out[0][2].exterior.coords) <= 8
     assert out[0][2].bounds[1] == pytest.approx(50.0)
+
+
+def test_a_piece_never_claims_the_runway_or_taxi_familys_band():
+    """The adjacent-ground bands are not cells; the mint subtracts their
+    un-trimmed envelope (``ribbon_mint.ribbon_extent``) like a standing cell."""
+    from auto_patch_v2.classify.ribbon_mint import ribbon_extent
+    taxi = Cell(0, "junction", "pav9", _ring(box(0, 0, 200, 30)), (), 4, "E", "airside",
+                "junction", {})
+    apron = _cell(1, "apron", "pav1", box(0, 300, 200, 400))
+    band = ribbon_extent([taxi, apron], LAW, Polygon())
+    assert band.area > Polygon(taxi.ring).area            # there IS a band here
+    out, stats, _ = _mint(_airport(box(0, 30, 200, 300)), [taxi, apron])
+    assert len(out) == 1
+    assert out[0][2].intersection(band).area == pytest.approx(0.0, abs=1e-6)
+    assert stats["gap_band_trim_m2"] > 0.0

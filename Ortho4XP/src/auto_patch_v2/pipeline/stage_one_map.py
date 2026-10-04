@@ -42,7 +42,7 @@ from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
 
 __all__ = ["StageOne", "ribbon_free", "stage_one_problem", "remap_row",
            "gap_free", "late_followers", "late_fixed", "late_constraints",
-           "row_vertices"]
+           "row_vertices", "late_rim_levels"]
 
 
 def ribbon_free(cl):
@@ -139,6 +139,43 @@ def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int]
     return fixed, {"base_vertices": len(pm_base.vertices), "full_vertices": n_full,
                    "base_unmapped": miss, "fixed": len(fixed),
                    "unjoined": n_full - len(fixed) - len(free)}
+
+
+def late_rim_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
+                    free: _t.AbstractSet[int], tol_m: float) -> dict:
+    """THE NEW NODE ON A STANDING EDGE STANDS ON THAT EDGE (spec §53 (11)).
+    A follower's ring nodes the rim it shares with a standing cell, so the
+    full map carries vertices the base map lacks that no follower owns.
+    Each one lying within ``tol_m`` of a BASE edge is given that edge's own
+    level at its foot — the linear interpolation of the edge's two solved
+    ends — and joins ``fixed`` (in place): the standing cell's surface is
+    the base's, with one more node on a straight edge.  A vertex on no base
+    edge is counted (``off_edge``) and stays an unknown."""
+    import shapely
+    from shapely.strtree import STRtree
+    todo = [j for j, _v in _items(pm_full.vertices) if j not in fixed and j not in free]
+    rep = {"rim_nodes": len(todo), "on_a_base_edge": 0, "off_edge": 0}
+    if not todo:
+        return rep
+    bv = pm_base.vertices
+    edges = [e for e in pm_base.edges.values()] if isinstance(pm_base.edges, dict) \
+        else list(pm_base.edges)
+    lines = shapely.linestrings([[bv[e.a].xy, bv[e.b].xy] for e in edges])
+    tree = STRtree(lines)
+    pts = shapely.points([pm_full.vertices[j].xy for j in todo])
+    near = tree.query_nearest(pts, max_distance=tol_m, all_matches=False)
+    hit = {int(i): int(k) for i, k in zip(near[0], near[1])}
+    for i, j in enumerate(todo):
+        k = hit.get(i)
+        if k is None:
+            rep["off_edge"] += 1
+            continue
+        e = edges[k]
+        length = float(shapely.length(lines[k]))
+        t = float(shapely.line_locate_point(lines[k], pts[i])) / length if length else 0.0
+        fixed[j] = (1.0 - t) * float(z_base[e.a]) + t * float(z_base[e.b])
+        rep["on_a_base_edge"] += 1
+    return rep
 
 
 def row_vertices(row) -> tuple[int, ...]:

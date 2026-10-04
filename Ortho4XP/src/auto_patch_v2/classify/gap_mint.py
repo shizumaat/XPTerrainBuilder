@@ -98,6 +98,16 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
     if knife_m > 0.0:
         standing += [q.buffer(knife_m, join_style="mitre", mitre_limit=2.0)
                      for c, q in polys if c.role == "building"]
+    # THE ADJACENT-GROUND BANDS ARE THE RUNWAY / TAXI FAMILY'S GROUND (master
+    # 2026-10-04: airside is king — a gap piece never claims zone ground).
+    # The bands are not CELLS — ``planar/zones`` derives them later, from the
+    # cells — so "every cell standing" does not hold them; their un-trimmed
+    # extent is ``ribbon_mint.ribbon_extent``'s own envelope (the zone
+    # table's half-widths), subtracted here like a standing cell.
+    from .ribbon_mint import ribbon_extent
+    bands = ribbon_extent(cells, law, Polygon())
+    if not bands.is_empty:
+        standing.append(bands)
     aprons = [q for c, q in polys if c.role == "apron"]
     rolled = [q for c, q in polys if c.role in rolling]
     apron_tree = STRtree(aprons) if aprons else None
@@ -108,6 +118,9 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
     # runs it shares with a standing cell stay that cell's own boundary
     sheet = unary_union(sheets).simplify(0.5 * ident, preserve_topology=True)
     geom = shapely.set_precision(sheet.difference(unary_union(standing)), grid)
+    if not bands.is_empty:
+        stats["gap_band_trim_m2"] = float(sheet.difference(
+            unary_union(standing[:-1])).intersection(bands).area)
     to_ll = airport.frame.transformers()[1]
     parts = sorted(polygon_parts(geom),
                    key=lambda q: (-round(q.area), round(q.bounds[0], 2),

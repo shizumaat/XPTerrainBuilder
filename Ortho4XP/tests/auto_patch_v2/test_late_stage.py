@@ -108,3 +108,15 @@ def test_a_row_with_no_unknown_is_not_the_last_stages():
     kept = list(cs.rows())
     assert dropped == {"Pin": 1, "Diff": 1}
     assert sorted(som.row_vertices(r) for r in kept) == [(2, 7), (7,)]
+
+
+def test_a_new_node_on_a_standing_edge_takes_the_edges_own_level():
+    base = _pm([(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)], [("parking_lot", "dsf:pol10", (0, 1, 2))])
+    base.edges = {k: types.SimpleNamespace(a=a, b=b)
+                  for k, (a, b) in enumerate([(0, 1), (1, 2), (2, 0)])}
+    full = _pm([(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (2.5, 0.0), (50.0, 50.0)], [])
+    z = {0: 100.0, 1: 104.0, 2: 90.0}
+    fixed = {0: 100.0, 1: 104.0, 2: 90.0}
+    rep = som.late_rim_levels(base, z, full, fixed, set(), 0.01)
+    assert fixed[3] == 101.0 and 4 not in fixed
+    assert rep == {"rim_nodes": 2, "on_a_base_edge": 1, "off_edge": 1}

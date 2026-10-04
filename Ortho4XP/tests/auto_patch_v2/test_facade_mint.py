@@ -126,7 +126,7 @@ def test_projection_puts_every_strip_vertex_on_the_host_pad_and_moves_no_pad():
     assert rep["vertices"] == 4 and rep["no_host"] == 1
     assert rep["shared"] == 2                    # the road's two vertices went with the strip
     (s,) = rep["strips"]
-    assert s["pad_ref"] == "building7" and s["level"] == pytest.approx(25.88)
+    assert s["pad_ref"] == "building7" and s["level"] == pytest.approx([25.88, 25.88])
     assert s["moved_max_m"] == pytest.approx(7.32)
     # an UNHELD pad's plane (1 % ceiling) is evaluated at the strip vertex
     z2 = [30.0, 30.2, 30.2, 30.0] + z[4:]
@@ -192,13 +192,19 @@ def test_projection_never_moves_a_vertex_an_airside_face_carries():
     assert out[4] == pytest.approx(25.88) and out[6] == pytest.approx(25.88)
 
 
-def test_projection_reads_the_platform_not_its_collar():
+def test_projection_takes_the_pad_rim_nearest_the_strip_collar_or_not():
+    """A collared pad: the strip reads the RIM it stands beside (level
+    across the stand-off), not the platform inside it."""
     from auto_patch_v2.solve.project_strip import project_facade_strips
     law, pm = Law.for_airport("SPJC"), _fake_map()
-    # building7's collar: shares the platform's rim (0, 1) and climbs to 12
-    pm.vertices[13] = types.SimpleNamespace(xy=(20.0, 25.0))
+    # building7 is now the PLATFORM, inset; its collar's outer rim runs
+    # (20, 21) just north of the strip and climbs 16.9 -> 17.7
+    pm.vertices[20] = types.SimpleNamespace(xy=(0.0, -0.2))
+    pm.vertices[21] = types.SimpleNamespace(xy=(40.0, -0.2))
     pm.faces[9] = types.SimpleNamespace(id=9, role="building", ref="building7#collar",
-                                        ring=(2, 3, 13), holes=())
-    z = [16.1, 16.1, 16.1, 16.1] + [32.5, 33.0, 31.0, 33.2] + [40.0] * 3 + [9.0, 50.0, 19.0]
-    out, _rep = project_facade_strips(pm, law, z + [19.0])
-    assert out[4:8] == pytest.approx((16.1,) * 4, abs=1e-6)
+                                        ring=(20, 21, 1, 0), holes=())
+    z = [16.1] * 4 + [32.5, 33.0, 31.0, 33.2] + [40.0] * 3 + [9.0, 50.0] + [0.0] * 7 + [16.9, 17.7]
+    out, rep = project_facade_strips(pm, law, z)
+    assert out[4] == pytest.approx(16.9) and out[5] == pytest.approx(17.7)
+    assert out[6] == pytest.approx(17.7) and out[7] == pytest.approx(16.9)
+    assert rep["strips"][0]["level"] == pytest.approx([16.9, 17.7])

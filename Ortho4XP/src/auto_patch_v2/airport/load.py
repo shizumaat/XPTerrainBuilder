@@ -18,7 +18,7 @@ import zlib
 
 from ..law import Law
 from ..law.tables import identity_dp, input_quantum_m
-from ..model.airport import (Airport, Boundary, Building, DsfObject,
+from ..model.airport import (Airport, Boundary, Building, DsfObject, FacadeRead,
                              GroundRoute, LinearFeature, OsmWay, Pavement,
                              Runway, RunwayEnd, Startup, Surface, TaxiEdge,
                              TaxiNode)
@@ -29,6 +29,7 @@ from . import cifp as _cifp
 from . import dem as _dem
 from . import dsf as _dsf
 from . import dsf_write as _dw
+from . import facade as _facade
 from . import obj8 as _obj8
 from . import object_pavement as _objpav
 from . import osm as _osm
@@ -442,7 +443,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             "walls, 2026-09-04). Refresh it explicitly: build_airport.py "
             "--refresh-data airport_mod_cache (the app's driver refreshes it "
             "before the build).")
-    n_fac = n_obj = n_pol = n_agp = 0
+    n_fac = n_obj = n_pol = n_agp = n_lot = 0
     dsf_pavements: list[Pavement] = []
     # THE ADMISSION GATE (RULINGS 2026-09-06a): the tile DSF carries EVERY
     # airport's pavement pages; a page is this airport's only within
@@ -455,17 +456,36 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         # resolve through v1's cached merged index; absent = unresolved.
         # Read BEFORE the polygons: the pavement gate asks an
         # abbreviation-named ``.pol`` (``conc_3.pol``) for its own SURFACE
-        # declaration (RULINGS 2026-10-04d (2)).
+        # declaration (RULINGS 2026-10-04d (2)), and the facade reader
+        # resolves each ``.fac`` and its attached objects through it (§52).
         lib_path = _obj8.library_index_path(inputs.mod_cache_root, inputs.xplane_root) \
             if inputs.mod_cache_root and inputs.xplane_root else ""
         index = _obj8.read_library_index(lib_path)
         rep.library_index_path = lib_path if index is not None else None
         is_pavement = _dsf.pavement_gate(
             lambda p: _obj8.resolve_resource(p, sel.root, index))
+
+        def _named(p: str) -> bool:
+            return _dsf.building_role_for_def(p) is not None or is_pavement(p)[0]
+
+        # §52 (RULINGS 2026-10-04d (3) (c)): an OPEN-LOT facade is read by
+        # what its FILE says, never by name — the only class the name gate
+        # does not already carry that this stage admits
         dump = _dsf.read_dump(
-            dump_path, lambda p: _dsf.building_role_for_def(p) is not None
-            or is_pavement(p)[0])
-        for i, poly in enumerate(dump.polygons):
+            dump_path, lambda p: _named(p) or _facade.is_lot_def(p, sel.root, index))
+        i = -1          # the id index counts the NAME-GATED polygons, as before
+        for poly in dump.polygons:
+            if not _named(poly.def_path):
+                ring = _ring(poly.windings[0], to_xy)
+                if own_extent is None or own_extent.intersects(_shape_of(ring)):
+                    buildings.append(Building(
+                        f"dsf:faclot{n_lot}", ring,
+                        tuple(_ring(h, to_xy) for h in poly.windings[1:]),
+                        _facade.LOT_SOURCE, None, None, None,
+                        FacadeRead(poly.def_path, _facade.LOT)))
+                    n_lot += 1
+                continue
+            i += 1
             if is_pavement(poly.def_path)[0]:
                 if own_extent is not None and not own_extent.intersects(
                         _shape_of(_ring(poly.windings[0], to_xy))):
@@ -491,7 +511,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             buildings.append(Building(
                 f"dsf:fac{i}", _ring(poly.windings[0], to_xy),
                 tuple(_ring(h, to_xy) for h in poly.windings[1:]),
-                f"dsf:fac:{role}", None, None))
+                f"dsf:fac:{role}", None, None, None,
+                _facade.read_placed(poly, sel.root, index, to_xy)))
             n_fac += 1
         for i, pl in enumerate(dump.placements):
             if not pl.def_path.lower().endswith((".obj", ".agp")):
@@ -554,6 +575,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                                       f"dsf:object:{kind}", None, None))
             n_obj += 1
     rep.buildings_by_source["dsf:fac"] = n_fac
+    rep.buildings_by_source["dsf:lot"] = n_lot
     rep.buildings_by_source["dsf:object"] = n_obj
 
     # ── §42 OBJECT-BASED PAVEMENT (RULINGS 2026-09-13cv) ───────────────

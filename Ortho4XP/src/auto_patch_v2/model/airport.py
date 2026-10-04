@@ -22,7 +22,7 @@ Ring = tuple[XY, ...]
 __all__ = [
     "Ring", "Surface", "RunwayEnd", "Runway", "Pavement", "LinearFeature",
     "TaxiNode", "TaxiEdge", "GroundRoute", "Boundary", "Startup",
-    "OsmWay", "Building", "DemSample", "DsfObject", "SceneryPack",
+    "OsmWay", "Building", "FacadeEdge", "FacadeRead", "DemSample", "DsfObject", "SceneryPack",
     "FlatVerdict", "Airport",
 ]
 
@@ -193,6 +193,33 @@ class OsmWay:
 
 
 @_dc.dataclass(frozen=True)
+class FacadeEdge:
+    """One wall edge of a placed facade that ATTACHES something: ``a`` ->
+    ``b`` in the frame, the widest outward reach of its attachments and
+    the object that sets it (``airport/facade.py``, spec §52)."""
+
+    a: XY
+    b: XY
+    reach_m: float
+    wall: str
+    obj: str
+    vehicle: bool
+
+
+@_dc.dataclass(frozen=True)
+class FacadeRead:
+    """What the ``.fac`` FILE says of a placed facade (spec §52): its
+    class (``line`` / ``roofed`` / ``lot`` / ``parking_structure``), the
+    attaching edges, and how many edges had NO decidable wall (a polygon
+    with no DSF wall index whose fitting walls differ)."""
+
+    def_path: str
+    cls: str
+    edges: tuple[FacadeEdge, ...] = ()
+    undecided: int = 0
+
+
+@_dc.dataclass(frozen=True)
 class Building:
     """A building footprint (OSM ``building=*`` or a DSF object's
     footprint) with its pad law inputs (RULINGS 2026-09-01g/i)."""
@@ -204,6 +231,10 @@ class Building:
     height_m: float | None
     levels: int | None
     dsf_object: "DsfObject | None" = None
+    #: the facade file's own reading, for a ``dsf:fac`` / ``dsf:lot:fac``
+    #: footprint (``None``: not a facade, unresolved, or a capture older
+    #: than the reader)
+    facade: "FacadeRead | None" = None
 
 
 class DemSample(_t.Protocol):

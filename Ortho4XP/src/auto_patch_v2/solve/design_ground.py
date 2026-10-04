@@ -12,7 +12,7 @@ cut or filled only where a law row binds.
 
 THIS IS THE SINGLE DERIVATION SITE of "which vertex is adjacent ground"
 (owner 2026-08-30l: trim at the derivation, never per consumer).
-``solve/design.assemble`` mints the rows from it and ``solve/why`` names the
+``solve/design.assemble`` mints the rows from it and ``tools/v2_why_solve`` names the
 terminal from it; neither re-derives the set.
 """
 from __future__ import annotations

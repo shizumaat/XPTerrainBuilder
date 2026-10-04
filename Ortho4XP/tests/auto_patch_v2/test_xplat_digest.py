@@ -28,6 +28,10 @@ import sys
 import pytest
 
 from auto_patch_v2.pipeline import xplat
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(
+    _os.path.abspath(__file__)))), "tools"))
+import xplat_compare  # noqa: E402
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
@@ -86,7 +90,7 @@ def test_compare_names_the_first_divergent_stage():
     other = json.loads(json.dumps(base))
     other["env"]["machine"] = "x86_64"
     other["stages"]["planar"]["counts"]["vertices"] = 4300
-    lines = xplat.compare({"mac": base, "linux": other})
+    lines = xplat_compare.compare({"mac": base, "linux": other})
     assert any(line.startswith("env machine") and "DIFFER" in line
                for line in lines)
     load = [ln for ln in lines if ln.startswith("load ")]

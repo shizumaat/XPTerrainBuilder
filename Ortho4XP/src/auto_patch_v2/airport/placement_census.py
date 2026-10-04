@@ -21,7 +21,10 @@ import typing as _t
 
 from . import anchor_rule as _ar
 from . import basin_ring as _br
-from .placement_carrier import (ground_samples, overlap, stands_over_rank)
+# The plan-box geometry's own home, NOT ``placement_carrier`` (which
+# re-exports it): the carrier re-exports THIS module from its tail, so a
+# census imported first must not ask the carrier for anything (issue #341).
+from .placement_boxes import (ground_samples, overlap, stands_over_rank)
 
 __all__ = ["census_v14", "census_v14_lines", "census_v15", "census_v15_lines",
            "census_v16", "census_v16_lines", "census_v16b",

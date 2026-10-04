@@ -162,7 +162,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     extra_groups = list(extra_groups)
     tunnel_ways = [w for w in airport.osm_ways
                    if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
-    cells = list(classification.cells)
+    # A GAP PIECE NEVER LEADS (spec §53 (18)): the structures are derived
+    # over the STANDING cells only — a ramp's climb, a wall band's stops and
+    # a deck's intervals read ``cells``, and a piece beside a tunnel would
+    # re-shape it (MEASURED at HECA: 15 wall / ramp vertices the base map
+    # does not carry).  The pieces are set aside and cut by the finished
+    # footprints at the end.
+    from ..model.planar import is_gap_ref
+    gap_cells = [c for c in classification.cells if is_gap_ref(c.ref)]
+    cells = [c for c in classification.cells if not is_gap_ref(c.ref)]
     polys = [Polygon(c.ring, c.holes) for c in cells]
     # A BRIDGE STATES THE CROSSING (spec §34 (5); ARMED at round 2,
     # RULINGS 2026-09-13ai): an ``aeroway`` ``bridge=yes layer >= 1`` way
@@ -945,22 +953,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # family, never a pad — those refused above; an object's walls cut pads)
     knife = unary_union(footprints)
     hull_knife = unary_union(hull_knives) if hull_knives else None
-    from ..classify.gap_mint import standoff_m
-    from ..model.planar import is_gap_ref
-    gap_knife = knife.buffer(standoff_m(law), join_style="mitre", mitre_limit=2.0) \
-        if any(is_gap_ref(c.ref) for c in cells) and not knife.is_empty else None
     out_cells: list[Cell] = []
-    for c, p in zip(cells, polys):
-        blade = knife
-        if c.role == "building":
-            blade = hull_knife
-        elif gap_knife is not None and is_gap_ref(c.ref):
-            # spec §53 (13): a gap piece STANDS OFF a structure as it stands
-            # off every standing cell — the footprints grown by the stand-off
-            blade = gap_knife
+
+    def _cut(c: Cell, p, blade) -> None:
         if c.role in RUNWAY_FAMILY or blade is None or not p.intersects(blade):
             out_cells.append(c)
-            continue
+            return
         rest = p.difference(blade)
         stats.cells_cut += 1
         for k, part in enumerate(_parts(rest)):
@@ -971,6 +969,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                   tuple(tuple(h.coords)[:-1] for h in part.interiors),
                                   c.code_number, c.code_letter, c.side, c.kind,
                                   dict(c.evidence, structure_cut=1.0)))
+
+    for c, p in zip(cells, polys):
+        _cut(c, p, hull_knife if c.role == "building" else knife)
     # §33 (6) B AMENDED (3) (c) (owner RULINGS 2026-09-15br): the surface
     # elements over an OBJECT-DECKED trench RIDE THE OBJECT — the cut lines
     # are trimmed at each such outline's rim, one derivation site
@@ -992,6 +993,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         out_cells.append(Cell(len(out_cells), role, ref, tuple(part.exterior.coords)[:-1],
                               tuple(tuple(h.coords)[:-1] for h in part.interiors),
                               None, None, role_side(law, role), "structure", {}))
+    if gap_cells:
+        # spec §53 (13): a gap piece STANDS OFF a structure as it stands off
+        # every standing cell — the footprints grown by the stand-off.  LAST,
+        # so every standing and structure cell keeps the base map's place.
+        from ..classify.gap_mint import standoff_m
+        gap_knife = None if knife.is_empty else knife.buffer(
+            standoff_m(law), join_style="mitre", mitre_limit=2.0)
+        for c in gap_cells:
+            _cut(c, Polygon(c.ring, c.holes), gap_knife)
     out_cells = [_dc.replace(c, id=i) for i, c in enumerate(out_cells)]
     cl = _dc.replace(classification, cells=tuple(out_cells),
                      cut_lines=tuple(cut_lines),

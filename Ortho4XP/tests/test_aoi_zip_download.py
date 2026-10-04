@@ -27,6 +27,10 @@ import pytest
 import requests
 
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import base as ea_base
+from elevation_access import definitions as ea_definitions
+from elevation_access import las_tiles as ea_las_tiles
+from elevation_access.strategies import aoi_zip_download as ea_aoi_zip_download
 import O4_UI_Utils as UI
 
 try:
@@ -51,10 +55,10 @@ MEMBER = "datasetsC/whidbey_refresh23_2024/dtm/be_w1n1_dtm.tif"
 
 @pytest.fixture(autouse=True)
 def _fresh_gate_and_flag():
-    INSETS._aoi_gate_cookie_cache.clear()
+    ea_aoi_zip_download._aoi_gate_cookie_cache.clear()
     UI.red_flag = False
     yield
-    INSETS._aoi_gate_cookie_cache.clear()
+    ea_aoi_zip_download._aoi_gate_cookie_cache.clear()
     UI.red_flag = False
 
 
@@ -269,7 +273,7 @@ def test_the_surgical_core_is_what_the_portal_is_asked_for(
         [-122.695, 48.335], [-122.685, 48.335], [-122.685, 48.345],
         [-122.695, 48.345], [-122.695, 48.335]]]}
     definition = _definition(footprint_buffer_m="300")
-    definition[INSETS.LAS_FOOTPRINT_KEY] = footprint
+    definition[ea_las_tiles.LAS_FOOTPRINT_KEY] = footprint
     (provenance, _destination) = _fetch(tmp_path, definition)
     posted = json.loads(portal.calls[0][4]["geojson"])
     # A buffered polygon, not the box: more than four corners.
@@ -302,7 +306,7 @@ def test_a_listing_without_the_dataset_is_a_durable_no_coverage(
 def test_a_broken_query_is_transient(tmp_path, monkeypatch, portal_kwargs):
     portal = _Portal(listing=_listing(), **portal_kwargs)
     _install(monkeypatch, portal)
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         _fetch(tmp_path, _definition())
 
 
@@ -322,7 +326,7 @@ def test_a_non_json_listing_is_transient(tmp_path, monkeypatch):
         return session
 
     monkeypatch.setattr(requests, "Session", _session)
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         _fetch(tmp_path, _definition())
 
 
@@ -330,7 +334,7 @@ def test_a_5xx_download_is_transient_and_leaves_no_scratch(
         tmp_path, monkeypatch):
     portal = _Portal(listing=_listing(), archive=b"", download_status=502)
     _install(monkeypatch, portal)
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         _fetch(tmp_path, _definition())
     assert not [name for name in os.listdir(tmp_path)
                 if name.startswith("KNUW_aoitest.tif.")]
@@ -340,7 +344,7 @@ def test_a_truncated_archive_is_transient(tmp_path, monkeypatch):
     archive = _tile_zip(tmp_path)
     portal = _Portal(listing=_listing(), archive=archive[: len(archive) // 2])
     _install(monkeypatch, portal)
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         _fetch(tmp_path, _definition())
 
 
@@ -348,7 +352,7 @@ def test_no_member_matching_the_glob_is_unavailable(tmp_path, monkeypatch):
     portal = _Portal(listing=_listing(),
                      archive=_tile_zip(tmp_path, member="hillshade/x.tif"))
     _install(monkeypatch, portal)
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         _fetch(tmp_path, _definition())
     assert "member_glob" in caught.value.reason
 
@@ -360,7 +364,7 @@ def test_over_the_byte_cap_is_unavailable_before_any_download(
         tmp_path, monkeypatch):
     portal = _Portal(listing=_listing(bytes_=304134301, files=42))
     _install(monkeypatch, portal)
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         _fetch(tmp_path, _definition())
     reason = caught.value.reason
     assert "AOITEST: KNUW needs 42 files" in reason
@@ -374,16 +378,16 @@ def test_the_default_cap_is_the_spec_default(tmp_path, monkeypatch):
     _install(monkeypatch, portal)
     definition = _definition()
     definition.pop("max_bytes_per_airport")
-    with pytest.raises(INSETS.ProviderUnavailable):
+    with pytest.raises(ea_base.ProviderUnavailable):
         _fetch(tmp_path, definition)
-    assert INSETS.AOI_ZIP_DEFAULT_MAX_BYTES_PER_AIRPORT == 300000000
+    assert ea_aoi_zip_download.AOI_ZIP_DEFAULT_MAX_BYTES_PER_AIRPORT == 300000000
 
 
 def test_a_zip64_archive_is_unavailable_whatever_the_cap(
         tmp_path, monkeypatch):
     portal = _Portal(listing=_listing(bytes_=9200000000, files=1))
     _install(monkeypatch, portal)
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         _fetch(tmp_path, _definition(max_bytes_per_airport="20000000000"))
     assert "Zip64" in caught.value.reason
     assert portal.verbs() == [("POST", QUERY)]
@@ -412,7 +416,7 @@ def test_the_gate_is_opened_once_and_its_cookie_replayed(
     assert portal.verbs() == [("GET", "https://portal.test/"),
                               ("POST", QUERY), ("GET", DOWNLOAD)]
     for (_verb, _url, headers, _cookies, _data) in portal.calls:
-        assert headers["User-Agent"] == INSETS.AOI_ZIP_BROWSER_USER_AGENT
+        assert headers["User-Agent"] == ea_aoi_zip_download.AOI_ZIP_BROWSER_USER_AGENT
     assert portal.calls[1][3] == {"dlgate": "ok"}
     assert first["gate"]["cookie_names"] == ["dlgate"]
     assert first["gate"]["cookie_reused"] is False
@@ -441,7 +445,7 @@ def test_a_403_without_the_cookie_is_unavailable_gate_after_one_request(
     # unavailable with the reason 'gate', never a retry loop.
     portal = _Portal(listing=_listing(), require_cookie="dlgate")
     _install(monkeypatch, portal)
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         _fetch(tmp_path, _definition())
     assert caught.value.reason.startswith("AOITEST: gate - ")
     assert "HTTP 403" in caught.value.reason
@@ -453,12 +457,12 @@ def test_a_403_after_the_gate_forgets_the_cookie(tmp_path, monkeypatch):
     portal = _Portal(listing=_listing(), gate=_gate_page(),
                      query_status=403)
     _install(monkeypatch, portal)
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         _fetch(tmp_path, _gated_definition())
     assert "gate" in caught.value.reason
     assert portal.verbs() == [("GET", "https://portal.test/"),
                               ("POST", QUERY)]
-    assert INSETS._aoi_gate_cookie_cache == {}
+    assert ea_aoi_zip_download._aoi_gate_cookie_cache == {}
 
 
 @pytest.mark.parametrize("gate_page", [
@@ -472,7 +476,7 @@ def test_a_gate_that_does_not_open_like_a_browser_is_unavailable(
         tmp_path, monkeypatch, gate_page):
     portal = _Portal(listing=_listing(), gate=gate_page)
     _install(monkeypatch, portal)
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         _fetch(tmp_path, _gated_definition())
     assert caught.value.reason.startswith("AOITEST: gate - ")
     assert portal.verbs() == [("GET", "https://portal.test/")]
@@ -482,13 +486,13 @@ def test_a_5xx_gate_page_is_transient(tmp_path, monkeypatch):
     portal = _Portal(listing=_listing(),
                      gate=_Response(503, url="https://portal.test/"))
     _install(monkeypatch, portal)
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         _fetch(tmp_path, _gated_definition())
 
 
 def test_an_unknown_user_agent_profile_is_unavailable(tmp_path, monkeypatch):
     _install(monkeypatch, _Portal(listing=_listing()))
-    with pytest.raises(INSETS.ProviderUnavailable):
+    with pytest.raises(ea_base.ProviderUnavailable):
         _fetch(tmp_path, _definition(user_agent_profile="curl"))
 
 
@@ -513,14 +517,14 @@ def test_the_three_provider_files():
         definition = providers[code]
         assert definition["access_strategy"] == "aoi_zip_download"
         assert definition["enabled"] is True
-        assert INSETS._parse_boolean(definition["ladder_member"]) is True
+        assert ea_definitions._parse_boolean(definition["ladder_member"]) is True
         assert definition["priority"] == 90.0
         assert definition.get("license") and definition.get("attribution")
         assert definition.get("license_note")
-        assert INSETS._coverage_bbox_intersects(
+        assert ea_definitions._coverage_bbox_intersects(
             definition, (lon, lat, lon, lat))
         for (clat, clon) in CONTROLS.values():
-            assert not INSETS._coverage_bbox_intersects(
+            assert not ea_definitions._coverage_bbox_intersects(
                 definition, (clon - 0.1, clat - 0.1, clon + 0.1, clat + 0.1))
     wadnr = providers["WADNR"]
     assert wadnr["gate_cookie_from"] == "/"
@@ -528,7 +532,7 @@ def test_the_three_provider_files():
     assert wadnr["vertical_unit"] == "ftUS"
     assert "2026-09-30bn" in wadnr["license_note"]
     assert "honor the gate like a browser" in wadnr["license_note"]
-    assert INSETS._coverage_bbox_intersects(
+    assert ea_definitions._coverage_bbox_intersects(
         wadnr, (-122.6316, 48.1878, -122.6316, 48.1878))          # KNRA
     for code in ("AKHOMER", "AKHAINES"):
         assert "gate_cookie_from" not in providers[code]

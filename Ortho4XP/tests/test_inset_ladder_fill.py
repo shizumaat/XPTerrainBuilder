@@ -19,6 +19,9 @@ import pytest
 
 import O4_File_Names as FNAMES
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import base as ea_base
+from elevation_access import definitions as ea_definitions
+from elevation_access import registry as ea_registry
 
 gdal = pytest.importorskip("osgeo.gdal")
 from osgeo import osr  # noqa: E402
@@ -207,7 +210,7 @@ def ladder(monkeypatch, tmp_path):
                 self.last_listing = []
                 return None
             if entry.get("unavailable"):
-                raise INSETS.ProviderUnavailable(entry["unavailable"])
+                raise ea_base.ProviderUnavailable(entry["unavailable"])
             size = 120
             (west, south, east, north) = bounding_box_wgs84
             values = numpy.full((size, size), NODATA, dtype=numpy.float32)
@@ -233,11 +236,11 @@ def ladder(monkeypatch, tmp_path):
                     "resolution_m": target_resolution_m,
                     "source_ids": [key], "sources_used": [{"source_id": key}]}
 
-    INSETS.register_access_strategy(STRATEGY)(type("_A", (_Base,), {}))
-    INSETS.register_access_strategy(OTHER)(type("_B", (_Base,), {}))
+    ea_registry.register_access_strategy(STRATEGY)(type("_A", (_Base,), {}))
+    ea_registry.register_access_strategy(OTHER)(type("_B", (_Base,), {}))
     chain = {
         "code": "FAKE3DEP", "access_strategy": STRATEGY,
-        "role": INSETS.ROLE_AIRPORT_INSET, "enabled": True, "priority": 1.0,
+        "role": ea_definitions.ROLE_AIRPORT_INSET, "enabled": True, "priority": 1.0,
         "native_resolution_m": 1.0, "ladder_label": "1 meter",
         "discovery_url_template": "rung0",
         "resolution_ladder_rungs": INSETS._parse_resolution_ladder(
@@ -246,7 +249,7 @@ def ladder(monkeypatch, tmp_path):
     }
     opr = {
         "code": "FAKEOPR", "access_strategy": OTHER,
-        "role": INSETS.ROLE_AIRPORT_INSET, "enabled": True, "priority": 0.5,
+        "role": ea_definitions.ROLE_AIRPORT_INSET, "enabled": True, "priority": 0.5,
         "native_resolution_m": 1.0, "ladder_judge": "airport_cover",
     }
     monkeypatch.setattr(INSETS, "elevation_providers_dict",
@@ -255,8 +258,8 @@ def ladder(monkeypatch, tmp_path):
     try:
         yield plan, calls, chain
     finally:
-        INSETS.ACCESS_STRATEGIES.pop(STRATEGY, None)
-        INSETS.ACCESS_STRATEGIES.pop(OTHER, None)
+        ea_registry.ACCESS_STRATEGIES.pop(STRATEGY, None)
+        ea_registry.ACCESS_STRATEGIES.pop(OTHER, None)
 
 
 LADDER_BOX = (-117.56, 47.60, -117.50, 47.64)       # ~4.5 x 4.4 km

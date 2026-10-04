@@ -26,6 +26,20 @@ import pytest
 
 import O4_File_Names as FNAMES
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import inset_code_source, patch_inset_code
+from elevation_access import base as ea_base
+from elevation_access import capabilities as ea_capabilities
+from elevation_access import definitions as ea_definitions
+from elevation_access import discovery as ea_discovery
+from elevation_access import failures as ea_failures
+from elevation_access import registry as ea_registry
+from elevation_access import stac_assets as ea_stac_assets
+from elevation_access.strategies import degree_named_cog as ea_degree_named_cog
+from elevation_access.strategies import os_grid_bucket as ea_os_grid_bucket
+from elevation_access.strategies import stac as ea_stac
+from elevation_access.strategies import static_stac as ea_static_stac
+from elevation_access.strategies import wcs as ea_wcs
+from elevation_access import warp as ea_warp
 
 try:
     from osgeo import gdal, osr
@@ -127,7 +141,7 @@ def test_role_defaults_to_airport_inset_when_absent(tmp_path):
     parsed = INSETS.initialize_elevation_providers_dict(
         str(providers_directory)
     )
-    assert parsed["NOROLE"]["role"] == INSETS.ROLE_AIRPORT_INSET
+    assert parsed["NOROLE"]["role"] == ea_definitions.ROLE_AIRPORT_INSET
 
 
 def test_base_role_excluded_from_inset_selection(tmp_path):
@@ -169,7 +183,7 @@ def test_second_strategy_plugs_in_without_orchestration_change(tmp_path):
     """
     calls = {"discover": 0, "fetch": 0}
 
-    @INSETS.register_access_strategy("dummy_test_strategy")
+    @ea_registry.register_access_strategy("dummy_test_strategy")
     class _DummyStrategy:
         def discover(self, definition, bounding_box_wgs84):
             calls["discover"] += 1
@@ -192,7 +206,7 @@ def test_second_strategy_plugs_in_without_orchestration_change(tmp_path):
         definition = {
             "code": "DUMMY",
             "access_strategy": "dummy_test_strategy",
-            "role": INSETS.ROLE_AIRPORT_INSET,
+            "role": ea_definitions.ROLE_AIRPORT_INSET,
             "enabled": True,
             "priority": 1.0,
         }
@@ -214,7 +228,7 @@ def test_second_strategy_plugs_in_without_orchestration_change(tmp_path):
         ]
         assert calls["discover"] == 1
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("dummy_test_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("dummy_test_strategy", None)
 
 
 # =====================================================================
@@ -225,7 +239,7 @@ def test_negative_result_is_cached_and_not_requeried(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     discover_calls = {"count": 0}
 
-    @INSETS.register_access_strategy("no_coverage_strategy")
+    @ea_registry.register_access_strategy("no_coverage_strategy")
     class _NoCoverageStrategy:
         def discover(self, definition, bounding_box_wgs84):
             discover_calls["count"] += 1
@@ -239,7 +253,7 @@ def test_negative_result_is_cached_and_not_requeried(tmp_path, monkeypatch):
         definition = {
             "code": "NOCOV",
             "access_strategy": "no_coverage_strategy",
-            "role": INSETS.ROLE_AIRPORT_INSET,
+            "role": ea_definitions.ROLE_AIRPORT_INSET,
             "enabled": True,
             "priority": 1.0,
         }
@@ -266,7 +280,7 @@ def test_negative_result_is_cached_and_not_requeried(tmp_path, monkeypatch):
         # index.json is on disk at the tile's inset directory.
         assert os.path.isfile(FNAMES.airport_inset_index(36, -87))
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("no_coverage_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("no_coverage_strategy", None)
 
 
 # =====================================================================
@@ -285,7 +299,7 @@ def _register_box_recording_strategy(name, calls, fail_when=None):
     ``gdal.Warp`` would).
     """
 
-    @INSETS.register_access_strategy(name)
+    @ea_registry.register_access_strategy(name)
     class _BoxRecordingStrategy:
         def discover(self, definition, bounding_box_wgs84):
             if fail_when is not None and fail_when(bounding_box_wgs84):
@@ -319,7 +333,7 @@ def _box_definition(code, strategy_name):
     return {
         "code": code,
         "access_strategy": strategy_name,
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 1.0,
     }
@@ -361,7 +375,7 @@ def test_margin_growth_refetches_cached_inset(tmp_path, monkeypatch):
         )
         assert fetch_calls == [_SMALL_BOX, _LARGE_BOX]
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("box_growth_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("box_growth_strategy", None)
 
 
 @requires_gdal
@@ -380,7 +394,7 @@ def test_margin_shrink_reuses_superset_inset(tmp_path, monkeypatch):
         )
         assert fetch_calls == [_LARGE_BOX]
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("box_shrink_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("box_shrink_strategy", None)
 
 
 @requires_gdal
@@ -417,7 +431,7 @@ def test_failed_refetch_keeps_previous_inset(tmp_path, monkeypatch):
         )
         assert fetch_calls == [_SMALL_BOX, _LARGE_BOX, _LARGE_BOX]
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("box_fail_large_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("box_fail_large_strategy", None)
 
 
 @requires_gdal
@@ -453,7 +467,7 @@ def test_margin_growth_rechecks_negative_results(tmp_path, monkeypatch):
         assert fetch_calls == [_SMALL_BOX, _LARGE_BOX]
         assert second["CYXY"]["BOXNEG"] == "ok"
     finally:
-        INSETS.ACCESS_STRATEGIES.pop(
+        ea_registry.ACCESS_STRATEGIES.pop(
             "box_small_no_coverage_strategy", None
         )
 
@@ -504,7 +518,7 @@ def test_legacy_caches_without_recorded_box_are_reused(
         assert index["CYXY"]["bounding_box"] == list(_LARGE_BOX)
         assert index["CYYY"]["BOXLEGACY"] == INSETS.NO_COVERAGE
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("box_legacy_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("box_legacy_strategy", None)
 
 
 def test_the_index_is_not_rewritten_when_its_content_is_unchanged(
@@ -558,7 +572,7 @@ def test_composite_assembly_is_deterministic_across_steps(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     # Reload the shipped USGS3DEP definition for a real provider code.
     INSETS.initialize_elevation_providers_dict()
 
@@ -592,7 +606,7 @@ def test_composite_assembly_is_deterministic_across_steps(
 
 def test_composite_assembly_is_noop_when_gate_off(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     tile = _FakeTile(36, -87, custom_dem="SRTM;/some/local.tif")
     tile.airport_elevation_insets = False
     # Gate off -> the source is returned untouched (byte-identical build).
@@ -610,7 +624,7 @@ def test_alt_bake_applies_inset_with_feather(tmp_path, monkeypatch):
     import O4_DEM_Utils as DEM
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
 
     tile_latitude, tile_longitude = 0, 0
@@ -695,7 +709,7 @@ def _bake_tile_with_insets(tmp_path, monkeypatch, insets):
     import O4_DEM_Utils as DEM
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
 
     base_path = str(tmp_path / "base.tif")
@@ -772,7 +786,7 @@ def test_alt_bake_is_noop_without_cached_insets(tmp_path, monkeypatch):
     import O4_DEM_Utils as DEM
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
 
     base_path = str(tmp_path / "base.tif")
@@ -820,7 +834,7 @@ class _RadiusTile(_FakeTile):
 
 def test_override_precedence_beats_auto(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     tile = _RadiusTile(0, 0)
     # The explicit per-airport override wins over the automatic rule...
     (radius, source_pixel, coverage) = INSETS.resolve_airport_smoothing_radius(
@@ -835,7 +849,7 @@ def test_override_precedence_beats_auto(tmp_path, monkeypatch):
 
 def test_auto_gate_off_gives_legacy_radius(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     tile = _RadiusTile(0, 0)
     tile.apt_smoothing_auto = False
     assert INSETS.resolve_airport_smoothing_radius(
@@ -854,7 +868,7 @@ def test_coverage_threshold_behaviour(tmp_path, monkeypatch):
     from shapely import geometry as shapely_geometry
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
     tile = _RadiusTile(0, 0)
     working_pixel_m = 30.9
@@ -964,7 +978,7 @@ def test_ensure_airport_insets_clamps_a_finer_pin_to_native(
     definition = {
         "code": "COARSEONLY",
         "access_strategy": "tnm_cog",
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 1.0,
         "native_resolution_m": 30,
@@ -1019,7 +1033,7 @@ def test_upsampled_inset_does_not_shrink_the_radius(tmp_path, monkeypatch):
     from shapely import geometry as shapely_geometry
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
     tile = _RadiusTile(0, 0)
     os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
@@ -1047,7 +1061,7 @@ def test_neighbouring_fine_inset_does_not_set_this_airports_radius(
     from shapely import geometry as shapely_geometry
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
     tile = _RadiusTile(0, 0)
     os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
@@ -1091,7 +1105,7 @@ def test_mixed_coverage_resolves_to_the_finest_blanket(tmp_path, monkeypatch):
     from shapely import geometry as shapely_geometry
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
     tile = _RadiusTile(0, 0)
     os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
@@ -1120,11 +1134,11 @@ def test_oversampled_cache_is_regenerated_at_native_posting(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     definition = {
         "code": "COARSEONLY",
         "access_strategy": "tnm_cog",
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 1.0,
         "native_resolution_m": 30,
@@ -1275,7 +1289,7 @@ def test_ensure_airport_insets_auto_target_uses_native_resolution(
     definition = {
         "code": "AUTOTGT",
         "access_strategy": "tnm_cog",
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 1.0,
         "native_resolution_m": 0.4,
@@ -1295,12 +1309,12 @@ def test_ensure_airport_insets_auto_target_uses_native_resolution(
 
 
 def test_ensure_insets_for_tile_reads_airport_elevation_level(monkeypatch):
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setattr(
         INSETS,
         "select_provider_definitions",
-        lambda config, role=INSETS.ROLE_AIRPORT_INSET: [
-            {"code": "DUMMY", "role": INSETS.ROLE_AIRPORT_INSET}
+        lambda config, role=ea_definitions.ROLE_AIRPORT_INSET: [
+            {"code": "DUMMY", "role": ea_definitions.ROLE_AIRPORT_INSET}
         ],
     )
     monkeypatch.setattr(
@@ -1414,7 +1428,7 @@ def test_smoothing_radius_preserves_physical_footprint_when_densified():
 
 def _fake_inset_tile(lat, lon, tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
     return _FakeTile(lat, lon)
 
@@ -1727,7 +1741,7 @@ _STAC_ITEMCOLLECTION_FIXTURE = {
 
 
 def test_stac_search_payload_parsing():
-    parse = INSETS.StacCloudOptimizedGeoTiffStrategy._parse_search_payload
+    parse = ea_stac.StacCloudOptimizedGeoTiffStrategy._parse_search_payload
     items = parse(_STAC_ITEMCOLLECTION_FIXTURE)
     assert [item["id"] for item in items] == [
         "hrdem-lidar-item-a",
@@ -1746,7 +1760,7 @@ def test_stac_search_payload_parsing():
 
 def test_stac_asset_selection_prefers_dtm():
     items = _STAC_ITEMCOLLECTION_FIXTURE["features"]
-    selected = INSETS._select_stac_dtm_assets(items, ["dtm"])
+    selected = ea_stac_assets._select_stac_dtm_assets(items, ["dtm"])
     # Item A: the DTM wins over the DSM by explicit preference.
     assert selected[0][0] == "https://example.ca/tile_a_dtm.tif"
     assert selected[0][1] == 1.0  # gsd carried through
@@ -1754,12 +1768,12 @@ def test_stac_asset_selection_prefers_dtm():
     assert selected[1][0] == "s3://hrdem-bucket/tile_b.tif"
     assert selected[1][1] == 2.0  # resolution property carried through
     # With no preference given, a DTM-roled/keyed asset is still chosen.
-    fallback = INSETS._select_stac_dtm_assets(items, [])
+    fallback = ea_stac_assets._select_stac_dtm_assets(items, [])
     assert fallback[0][0] == "https://example.ca/tile_a_dtm.tif"
 
 
 def test_stac_asset_href_to_vsicurl():
-    convert = INSETS._stac_asset_href_to_vsicurl
+    convert = ea_stac_assets._stac_asset_href_to_vsicurl
     assert convert("https://x/y.tif") == "/vsicurl/https://x/y.tif"
     assert convert("http://x/y.tif") == "/vsicurl/http://x/y.tif"
     assert convert("s3://bucket/key.tif") == "/vsis3/bucket/key.tif"
@@ -1771,16 +1785,16 @@ def test_stac_strategy_registered_and_dispatches(tmp_path, monkeypatch):
     """The REAL second strategy is in the registry and is dispatched by the
     orchestration's fetch_inset with zero orchestration change -- discovery
     and the warp core are stubbed so no network / GDAL is touched."""
-    assert "stac" in INSETS.ACCESS_STRATEGIES
+    assert "stac" in ea_registry.ACCESS_STRATEGIES
 
     monkeypatch.setattr(
-        INSETS.StacCloudOptimizedGeoTiffStrategy,
+        ea_stac.StacCloudOptimizedGeoTiffStrategy,
         "discover",
         lambda self, definition, bbox: _STAC_ITEMCOLLECTION_FIXTURE[
             "features"
         ],
     )
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
 
     warp_calls = {}
 
@@ -1792,14 +1806,14 @@ def test_stac_strategy_registered_and_dispatches(tmp_path, monkeypatch):
             handle.write(b"stub-geotiff")
         return True
 
-    monkeypatch.setattr(
-        INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp
+    patch_inset_code(
+        monkeypatch, "warp_vsicurl_sources_to_geotiff", _fake_warp
     )
 
     definition = {
         "code": "HRDEM",
         "access_strategy": "stac",
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 90.0,
         "collections": "hrdem-lidar",
@@ -1868,7 +1882,7 @@ def test_stac_discover_follows_post_token_pagination(monkeypatch):
         return types.SimpleNamespace(status_code=200, json=lambda: payload)
 
     monkeypatch.setattr(requests, "post", _fake_post)
-    strategy = INSETS.ACCESS_STRATEGIES["stac"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["stac"]()
     definition = {
         "code": "SWISSALTI3D",
         "access_strategy": "stac",
@@ -1916,7 +1930,7 @@ def test_stac_discover_follows_get_next_href(monkeypatch):
         )
 
     monkeypatch.setattr(requests, "get", _fake_get)
-    strategy = INSETS.ACCESS_STRATEGIES["stac"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["stac"]()
     definition = {
         "code": "TESTSTAC",
         "access_strategy": "stac",
@@ -1953,13 +1967,13 @@ def test_stac_discover_pagination_failure_raises_transient(monkeypatch):
         "post",
         lambda url, json=None, timeout=None: responses.pop(0),
     )
-    strategy = INSETS.ACCESS_STRATEGIES["stac"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["stac"]()
     definition = {
         "code": "TESTSTAC",
         "access_strategy": "stac",
         "discovery_url_template": "https://stac.test/search",
     }
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         strategy.discover(definition, (6.05, 46.20, 6.15, 46.26))
 
 
@@ -1985,14 +1999,14 @@ def test_stac_discover_pagination_is_capped(monkeypatch):
         return types.SimpleNamespace(status_code=200, json=lambda: payload)
 
     monkeypatch.setattr(requests, "post", _endless_post)
-    strategy = INSETS.ACCESS_STRATEGIES["stac"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["stac"]()
     definition = {
         "code": "TESTSTAC",
         "access_strategy": "stac",
         "discovery_url_template": "https://stac.test/search",
     }
     items = strategy.discover(definition, (6.05, 46.20, 6.15, 46.26))
-    cap = INSETS.StacCloudOptimizedGeoTiffStrategy._SEARCH_MAX_PAGES
+    cap = ea_stac.StacCloudOptimizedGeoTiffStrategy._SEARCH_MAX_PAGES
     assert post_count["count"] == cap
     assert len(items) == cap
 
@@ -2004,7 +2018,7 @@ def test_hrdem_definition_ships_and_is_selectable():
     assert "HRDEM" in INSETS.elevation_providers_dict
     hrdem = INSETS.elevation_providers_dict["HRDEM"]
     assert hrdem["access_strategy"] == "stac"
-    assert hrdem["role"] == INSETS.ROLE_AIRPORT_INSET
+    assert hrdem["role"] == ea_definitions.ROLE_AIRPORT_INSET
     assert hrdem["collections"] == "hrdem-lidar"
     codes = [d["code"] for d in INSETS.select_provider_definitions("auto")]
     assert "HRDEM" in codes and "USGS3DEP" in codes
@@ -2257,7 +2271,7 @@ def _wcs_definition(**overrides):
 
 
 def test_wcs_dataset_name_construction():
-    strategy = INSETS.ACCESS_STRATEGIES["wcs"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["wcs"]()
     assert strategy.dataset_name(_wcs_definition()) == (
         "WCS:https://example.test/wcs"
         "?version=2.0.1&coverage=national__DTM_1m"
@@ -2273,7 +2287,7 @@ def test_wcs_dataset_name_construction():
 
 
 def test_wcs_discover_honours_coverage_bbox():
-    strategy = INSETS.ACCESS_STRATEGIES["wcs"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["wcs"]()
     definition = _wcs_definition(coverage_bbox=(-6.5, 49.8, 1.9, 55.9))
     heathrow = (-0.49, 51.44, -0.41, 51.49)
     doha = (51.55, 25.24, 51.65, 25.29)
@@ -2341,7 +2355,7 @@ def test_wcs_window_is_read_with_an_explicit_size(tmp_path, monkeypatch):
     # own grid arithmetic decides the cell count and the driver refuses
     # the answer when it differs by one row.  The strategy must state the
     # size it wants and warp the materialised window.
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     _stub_wcs_open(monkeypatch)
     translate_calls = []
     _stub_wcs_translate(monkeypatch, translate_calls)
@@ -2354,7 +2368,7 @@ def test_wcs_window_is_read_with_an_explicit_size(tmp_path, monkeypatch):
         _write_constant_geotiff(destination, west, south, east, north, 7.0)
         return True
 
-    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp)
+    patch_inset_code(monkeypatch, "warp_vsicurl_sources_to_geotiff", _fake_warp)
     destination = str(tmp_path / "EGLL_testwcs.tif")
     provenance = INSETS.fetch_inset(
         _wcs_definition(), (-0.49, 51.44, -0.41, 51.49), 1.0, destination
@@ -2381,7 +2395,7 @@ def test_wcs_window_read_retries_once_with_one_extra_cell(
     # A stated size that happens to equal the source window is a 1:1 read
     # again -- the one shape that carries no size.  One extra cell per
     # axis can never be 1:1 and never asks the server to downsample.
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     _stub_wcs_open(monkeypatch)
     translate_calls = []
     _stub_wcs_translate(monkeypatch, translate_calls, grid_error_on_call=1)
@@ -2392,7 +2406,7 @@ def test_wcs_window_read_retries_once_with_one_extra_cell(
         _write_constant_geotiff(destination, west, south, east, north, 7.0)
         return True
 
-    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp)
+    patch_inset_code(monkeypatch, "warp_vsicurl_sources_to_geotiff", _fake_warp)
     provenance = INSETS.fetch_inset(
         _wcs_definition(),
         (-0.49, 51.44, -0.41, 51.49),
@@ -2416,7 +2430,7 @@ def test_wcs_window_read_failure_falls_back_to_direct_warp(
     # A driver that cannot serve the explicit window must not lose the
     # provider: the fetch falls back to the driver's own windowing, the
     # behaviour every inset already in the cache was fetched with.
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     opened_dataset = _stub_wcs_open(monkeypatch)
     translate_calls = []
     _stub_wcs_translate(monkeypatch, translate_calls, returns_dataset=False)
@@ -2429,7 +2443,7 @@ def test_wcs_window_read_failure_falls_back_to_direct_warp(
         _write_constant_geotiff(destination, west, south, east, north, 7.0)
         return True
 
-    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp)
+    patch_inset_code(monkeypatch, "warp_vsicurl_sources_to_geotiff", _fake_warp)
     provenance = INSETS.fetch_inset(
         _wcs_definition(),
         (-0.49, 51.44, -0.41, 51.49),
@@ -2443,7 +2457,7 @@ def test_wcs_window_read_failure_falls_back_to_direct_warp(
 def test_grid_configuration_classifier_matches_the_driver_refusal():
     # The exact GDAL WCS driver text from the shipped app's Spanish
     # fetches; a coverage answer ("no data here") must stay durable.
-    classify = INSETS.error_message_indicates_grid_configuration_failure
+    classify = ea_failures.error_message_indicates_grid_configuration_failure
     assert classify(
         "Returned tile does not match expected configuration.\n"
         "Got 1111x823 instead of 1112x824."
@@ -2465,8 +2479,8 @@ def test_grid_configuration_warp_failure_is_transient(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(INSETS.gdal, "Warp", _grid_mismatch_warp)
-    with pytest.raises(INSETS.TransientFetchError):
-        INSETS.warp_vsicurl_sources_to_geotiff(
+    with pytest.raises(ea_base.TransientFetchError):
+        ea_warp.warp_vsicurl_sources_to_geotiff(
             ["/vsicurl/https://example.test/tile.tif"],
             (-3.38, 40.74, -3.33, 40.78),
             5.0,
@@ -2476,7 +2490,7 @@ def test_grid_configuration_warp_failure_is_transient(tmp_path, monkeypatch):
 
 @requires_gdal
 def test_wcs_fetch_writes_inset_and_provenance(tmp_path, monkeypatch):
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     open_calls = []
     _stub_wcs_open(monkeypatch, open_calls)
     _stub_wcs_translate(monkeypatch, [])
@@ -2490,8 +2504,8 @@ def test_wcs_fetch_writes_inset_and_provenance(tmp_path, monkeypatch):
         )
         return True
 
-    monkeypatch.setattr(
-        INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp
+    patch_inset_code(
+        monkeypatch, "warp_vsicurl_sources_to_geotiff", _fake_warp
     )
     definition = _wcs_definition()
     destination = str(tmp_path / "EGLL_testwcs.tif")
@@ -2507,7 +2521,7 @@ def test_wcs_fetch_writes_inset_and_provenance(tmp_path, monkeypatch):
         "?version=2.0.1&coverage=national__DTM_1m"
     )
     assert open_calls[0]["open_options"] == [
-        "TIMEOUT=%d" % INSETS.WCS_REQUEST_TIMEOUT_SECONDS
+        "TIMEOUT=%d" % ea_wcs.WCS_REQUEST_TIMEOUT_SECONDS
     ]
     assert warp_calls["inputs"] == [destination + ".getcoverage.tif"]
     assert provenance["provider"] == "TESTWCS"
@@ -2521,7 +2535,7 @@ def test_wcs_all_nodata_window_is_no_coverage(tmp_path, monkeypatch):
     # An airport inside the coverage_bbox but outside the national data
     # extent warps to all nodata: the strategy must delete the file and
     # report no coverage (so the orchestration caches the negative).
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     _stub_wcs_open(monkeypatch)
 
     def _fake_warp(inputs, bounding_box, resolution, destination, **keyword_arguments):
@@ -2531,8 +2545,8 @@ def test_wcs_all_nodata_window_is_no_coverage(tmp_path, monkeypatch):
         )
         return True
 
-    monkeypatch.setattr(
-        INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp
+    patch_inset_code(
+        monkeypatch, "warp_vsicurl_sources_to_geotiff", _fake_warp
     )
     destination = str(tmp_path / "EGXX_testwcs.tif")
     provenance = INSETS.fetch_inset(
@@ -2544,10 +2558,10 @@ def test_wcs_all_nodata_window_is_no_coverage(tmp_path, monkeypatch):
 
 @requires_gdal
 def test_wcs_failed_warp_is_no_coverage(tmp_path, monkeypatch):
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     _stub_wcs_open(monkeypatch)
-    monkeypatch.setattr(
-        INSETS,
+    patch_inset_code(
+        monkeypatch,
         "warp_vsicurl_sources_to_geotiff",
         lambda *arguments, **keyword_arguments: False,
     )
@@ -2565,7 +2579,7 @@ def test_wcs_open_timeout_raises_transient_fetch_error(tmp_path, monkeypatch):
     # The exact libcurl total-transfer timeout message from the EGLL /
     # ENGLAND1M failure: a transient network answer, never a durable
     # no-coverage one.
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
 
     def _timeout_open(*arguments, **keyword_arguments):
         raise RuntimeError(
@@ -2574,7 +2588,7 @@ def test_wcs_open_timeout_raises_transient_fetch_error(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(INSETS.gdal, "OpenEx", _timeout_open)
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         INSETS.fetch_inset(
             _wcs_definition(),
             (-0.49, 51.44, -0.41, 51.49),
@@ -2585,7 +2599,7 @@ def test_wcs_open_timeout_raises_transient_fetch_error(tmp_path, monkeypatch):
 
 @requires_gdal
 def test_wcs_durable_open_failure_is_no_coverage(tmp_path, monkeypatch):
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
 
     def _broken_open(*arguments, **keyword_arguments):
         raise RuntimeError("Unable to parse coverage description")
@@ -2611,8 +2625,8 @@ def test_warp_curl_timeout_raises_transient_fetch_error(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(INSETS.gdal, "Warp", _timeout_warp)
-    with pytest.raises(INSETS.TransientFetchError):
-        INSETS.warp_vsicurl_sources_to_geotiff(
+    with pytest.raises(ea_base.TransientFetchError):
+        ea_warp.warp_vsicurl_sources_to_geotiff(
             ["/vsicurl/https://example.test/tile.tif"],
             (-0.49, 51.44, -0.41, 51.49),
             1.0,
@@ -2624,7 +2638,7 @@ def test_transient_classifier_treats_429_rate_limit_as_transient():
     # A 429 says "come back later", never "no data here" -- without this
     # a throttled warp recorded a durable NO_COVERAGE for the airport,
     # the exact poisoning the search path was already cured of.
-    classify = INSETS.error_message_indicates_transient_network_failure
+    classify = ea_failures.error_message_indicates_transient_network_failure
     # GDAL's formatting of an HTTP status surfaced from /vsicurl.
     assert classify("HTTP error code : 429")
     assert classify("HTTP error code: 429")
@@ -2646,8 +2660,8 @@ def test_warp_http_429_raises_transient_fetch_error(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(INSETS.gdal, "Warp", _throttled_warp)
-    with pytest.raises(INSETS.TransientFetchError):
-        INSETS.warp_vsicurl_sources_to_geotiff(
+    with pytest.raises(ea_base.TransientFetchError):
+        ea_warp.warp_vsicurl_sources_to_geotiff(
             ["/vsicurl/https://data.geo.admin.ch/tile.tif"],
             (6.05, 46.20, 6.15, 46.26),
             1.0,
@@ -2662,7 +2676,7 @@ def test_warp_durable_failure_still_returns_false(tmp_path, monkeypatch):
 
     monkeypatch.setattr(INSETS.gdal, "Warp", _broken_warp)
     assert (
-        INSETS.warp_vsicurl_sources_to_geotiff(
+        ea_warp.warp_vsicurl_sources_to_geotiff(
             ["/vsicurl/https://example.test/tile.tif"],
             (-0.49, 51.44, -0.41, 51.49),
             1.0,
@@ -2679,14 +2693,14 @@ def test_transient_fetch_failure_is_not_cached_as_negative(
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     fetch_calls = {"count": 0}
 
-    @INSETS.register_access_strategy("transient_failure_strategy")
+    @ea_registry.register_access_strategy("transient_failure_strategy")
     class _TransientFailureStrategy:
         def discover(self, definition, bounding_box_wgs84):
             return [{}]
 
         def fetch(self, definition, bbox, resolution_m, destination_path):
             fetch_calls["count"] += 1
-            raise INSETS.TransientFetchError(
+            raise ea_base.TransientFetchError(
                 "Operation timed out after 30000 milliseconds"
             )
 
@@ -2694,7 +2708,7 @@ def test_transient_fetch_failure_is_not_cached_as_negative(
         definition = {
             "code": "FLAKY",
             "access_strategy": "transient_failure_strategy",
-            "role": INSETS.ROLE_AIRPORT_INSET,
+            "role": ea_definitions.ROLE_AIRPORT_INSET,
             "enabled": True,
             "priority": 1.0,
         }
@@ -2710,7 +2724,7 @@ def test_transient_fetch_failure_is_not_cached_as_negative(
         INSETS.ensure_airport_insets(51, -1, boxes, [definition], 3.0)
         assert fetch_calls["count"] == 2
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("transient_failure_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("transient_failure_strategy", None)
 
 
 # =====================================================================
@@ -2750,7 +2764,7 @@ def test_stac_asset_selection_picks_finest_geotiff():
             },
         }
     ]
-    chosen = INSETS._select_stac_dtm_assets(items, prefer_asset_keys=[])
+    chosen = ea_stac_assets._select_stac_dtm_assets(items, prefer_asset_keys=[])
     assert chosen == [("https://example.test/tile_05.tif", 0.5)]
 
 
@@ -2779,7 +2793,7 @@ def test_stac_asset_selection_takes_coarsest_sufficient_for_target():
     # A 3 m inset target: the 2 m asset oversamples it at ~1/16th the
     # bytes of the 0.5 m one (the 2026-07-23 field finding — ~100 MB of
     # half-metre data per airport resampled straight down to 3 m).
-    chosen = INSETS._select_stac_dtm_assets(
+    chosen = ea_stac_assets._select_stac_dtm_assets(
         [_multi_resolution_item()], prefer_asset_keys=[],
         target_resolution_m=3.0)
     assert chosen == [("https://example.test/tile_2.tif", 2.0)]
@@ -2787,7 +2801,7 @@ def test_stac_asset_selection_takes_coarsest_sufficient_for_target():
 
 def test_stac_asset_selection_keeps_finest_when_target_needs_it():
     # A 1 m target: only the 0.5 m asset oversamples it.
-    chosen = INSETS._select_stac_dtm_assets(
+    chosen = ea_stac_assets._select_stac_dtm_assets(
         [_multi_resolution_item()], prefer_asset_keys=[],
         target_resolution_m=1.0)
     assert chosen == [("https://example.test/tile_05.tif", 0.5)]
@@ -2795,7 +2809,7 @@ def test_stac_asset_selection_keeps_finest_when_target_needs_it():
 
 def test_stac_asset_selection_best_effort_when_nothing_sufficient():
     # A 0.25 m target no asset satisfies: the finest is the best effort.
-    chosen = INSETS._select_stac_dtm_assets(
+    chosen = ea_stac_assets._select_stac_dtm_assets(
         [_multi_resolution_item()], prefer_asset_keys=[],
         target_resolution_m=0.25)
     assert chosen == [("https://example.test/tile_05.tif", 0.5)]
@@ -2821,7 +2835,7 @@ def test_stac_asset_selection_prefers_named_dtm_key():
             },
         }
     ]
-    chosen = INSETS._select_stac_dtm_assets(items, prefer_asset_keys=["dtm"])
+    chosen = ea_stac_assets._select_stac_dtm_assets(items, prefer_asset_keys=["dtm"])
     assert chosen == [("https://example.test/dtm.tif", 1.0)]
 
 
@@ -2830,7 +2844,7 @@ def test_stac_asset_selection_prefers_named_dtm_key():
 # =====================================================================
 @requires_gdal
 def test_direct_cog_fetch_and_bbox_gate(tmp_path, monkeypatch):
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     warp_calls = {}
 
     def _fake_warp(inputs, bounding_box, resolution, destination, **keyword_arguments):
@@ -2839,8 +2853,8 @@ def test_direct_cog_fetch_and_bbox_gate(tmp_path, monkeypatch):
         _write_constant_geotiff(destination, west, south, east, north, 60.0)
         return True
 
-    monkeypatch.setattr(
-        INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp
+    patch_inset_code(
+        monkeypatch, "warp_vsicurl_sources_to_geotiff", _fake_warp
     )
     definition = {
         "code": "TESTCOG",
@@ -2851,7 +2865,7 @@ def test_direct_cog_fetch_and_bbox_gate(tmp_path, monkeypatch):
     }
     cardiff = (-3.35, 51.39, -3.33, 51.40)
     doha = (51.55, 25.24, 51.65, 25.29)
-    strategy = INSETS.ACCESS_STRATEGIES["direct_cog"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["direct_cog"]()
     assert strategy.discover(definition, doha) is None
     destination = str(tmp_path / "EGFF_testcog.tif")
     provenance = INSETS.fetch_inset(definition, cardiff, 1.0, destination)
@@ -2927,9 +2941,9 @@ def test_static_stac_walks_and_memoises(tmp_path, monkeypatch):
         return _STATIC_TREE.get(url)
 
     monkeypatch.setattr(
-        INSETS.StaticStacCatalogStrategy, "_fetch_json", _fake_fetch_json
+        ea_static_stac.StaticStacCatalogStrategy, "_fetch_json", _fake_fetch_json
     )
-    strategy = INSETS.ACCESS_STRATEGIES["static_stac"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["static_stac"]()
     definition = _static_stac_definition()
     auckland = (174.78, -37.01, 174.80, -36.99)
     sources = strategy.discover(definition, auckland)
@@ -2952,9 +2966,9 @@ def test_static_stac_walks_and_memoises(tmp_path, monkeypatch):
         raise AssertionError("catalog re-walked despite the index")
 
     monkeypatch.setattr(
-        INSETS.StaticStacCatalogStrategy, "_fetch_json", _forbidden
+        ea_static_stac.StaticStacCatalogStrategy, "_fetch_json", _forbidden
     )
-    strategy_two = INSETS.ACCESS_STRATEGIES["static_stac"]()
+    strategy_two = ea_registry.ACCESS_STRATEGIES["static_stac"]()
     assert strategy_two.discover(definition, auckland) == sources
 
 
@@ -3003,7 +3017,7 @@ def _xyz_definition(**overrides):
 def test_xyz_tiles_primary_layer_serves(tmp_path, monkeypatch):
     import requests
 
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setattr(
         requests,
         "Session",
@@ -3024,7 +3038,7 @@ def test_xyz_tiles_primary_layer_serves(tmp_path, monkeypatch):
 def test_xyz_tiles_fall_back_to_composite(tmp_path, monkeypatch):
     import requests
 
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     # The 5 m layer has no tiles here; the nationwide composite does.
     monkeypatch.setattr(
         requests,
@@ -3068,7 +3082,7 @@ def test_xyz_archive_drop_converts_and_serves(tmp_path, monkeypatch):
     import zipfile
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     definition = {
         "code": "TESTTWN",
         "access_strategy": "xyz_archive_drop",
@@ -3081,7 +3095,7 @@ def test_xyz_archive_drop_converts_and_serves(tmp_path, monkeypatch):
     # A sheet of N,E,H points (northing first) on a 20 m TWD97 grid
     # covering the requested WGS84 window.
     bbox = (121.226, 25.076, 121.238, 25.084)
-    strategy = INSETS.ACCESS_STRATEGIES["xyz_archive_drop"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["xyz_archive_drop"]()
     (x_min, y_min, x_max, y_max) = strategy._bounding_box_in_source_crs(
         definition, bbox
     )
@@ -3132,7 +3146,7 @@ def test_xyz_archive_drop_instructions_when_empty(tmp_path, monkeypatch):
         "drop_directory_name": "Taiwan_test_drop",
         "source_epsg": "3826",
     }
-    strategy = INSETS.ACCESS_STRATEGIES["xyz_archive_drop"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["xyz_archive_drop"]()
     assert strategy.discover(definition, (121.2, 25.0, 121.3, 25.1)) is None
 
 
@@ -3144,7 +3158,7 @@ def test_wfs_tile_index_discovers_and_fetches(tmp_path, monkeypatch):
     import types
     import requests
 
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     # A real (tiny) GeoTIFF is served as the tile payload.
     tile_path = str(tmp_path / "payload.tif")
     _write_constant_geotiff(tile_path, 1.35, 43.62, 1.38, 43.64, 150.0)
@@ -3203,7 +3217,7 @@ def test_wfs_tile_index_empty_featureset_is_no_coverage(monkeypatch):
             status_code=200, json=lambda: {"features": []}
         ),
     )
-    strategy = INSETS.ACCESS_STRATEGIES["wfs_tile_index"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["wfs_tile_index"]()
     definition = {
         "code": "TESTWFS",
         "access_strategy": "wfs_tile_index",
@@ -3220,7 +3234,7 @@ def test_wfs_tile_index_empty_featureset_is_no_coverage(monkeypatch):
 def test_wcs_kvp_instantiates_bbox_and_fetches(tmp_path, monkeypatch):
     import requests
 
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     payload_path = str(tmp_path / "payload.tif")
     _write_constant_geotiff(payload_path, 8.56, 50.02, 8.59, 50.04, 105.0)
     with open(payload_path, "rb") as handle:
@@ -3263,7 +3277,7 @@ def test_wcs_kvp_instantiates_bbox_and_fetches(tmp_path, monkeypatch):
 @requires_gdal
 def test_tile_grid_odd_easting_offset(monkeypatch):
     # Baden-Wuerttemberg's 2 km tiles anchor at ODD easting km.
-    strategy = INSETS.ACCESS_STRATEGIES["tile_grid_http"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["tile_grid_http"]()
     definition = {
         "code": "TESTBW",
         "access_strategy": "tile_grid_http",
@@ -3299,7 +3313,7 @@ def test_tile_grid_html_index_resolution(tmp_path, monkeypatch):
         return response
 
     monkeypatch.setattr(requests, "get", _fake_get)
-    strategy = INSETS.ACCESS_STRATEGIES["tile_grid_http"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["tile_grid_http"]()
     definition = {
         "code": "TESTRLP",
         "access_strategy": "tile_grid_http",
@@ -3325,7 +3339,7 @@ def test_tile_grid_html_index_resolution(tmp_path, monkeypatch):
 @requires_gdal
 def test_xyz_archive_drop_converts_loose_file(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     definition = {
         "code": "TESTHH",
         "access_strategy": "xyz_archive_drop",
@@ -3334,7 +3348,7 @@ def test_xyz_archive_drop_converts_loose_file(tmp_path, monkeypatch):
         "xyz_column_order": "AUTO",
         "native_resolution_m": "1",
     }
-    strategy = INSETS.ACCESS_STRATEGIES["xyz_archive_drop"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["xyz_archive_drop"]()
     bbox = (9.985, 53.628, 9.995, 53.635)
     (x_min, y_min, x_max, y_max) = strategy._bounding_box_in_source_crs(
         definition, bbox
@@ -3380,7 +3394,7 @@ def test_warp_sanitizes_undeclared_sentinel_values(tmp_path):
     dataset.GetRasterBand(1).WriteArray(values)
     dataset = None
     destination = str(tmp_path / "sanitized.tif")
-    assert INSETS.warp_vsicurl_sources_to_geotiff(
+    assert ea_warp.warp_vsicurl_sources_to_geotiff(
         [source_path], (4.75, 52.28, 4.79, 52.32), 100.0, destination
     )
     # Hold the dataset reference: chaining Open().GetRasterBand() lets
@@ -3423,7 +3437,7 @@ def test_warp_keeps_compound_crs_heights_unshifted(tmp_path):
     )
     dataset = None
     destination = str(tmp_path / "unshifted.tif")
-    assert INSETS.warp_vsicurl_sources_to_geotiff(
+    assert ea_warp.warp_vsicurl_sources_to_geotiff(
         [source_path], (17.93, 59.35, 17.95, 59.36), 100.0, destination
     )
     dataset = gdal.Open(destination)
@@ -3445,7 +3459,7 @@ def test_gdal_guard_defaults_suppress_remote_sidecar_probes():
 
 
 def test_vsicurl_allowed_extensions_derived_from_inputs():
-    allowed = INSETS._vsicurl_allowed_extensions(
+    allowed = ea_warp._vsicurl_allowed_extensions(
         [
             "/vsicurl/https://data.test/tiles/swissalti3d_2024.tif",
             "/vsis3/bucket/dem/n47_e008.TIFF",
@@ -3456,14 +3470,14 @@ def test_vsicurl_allowed_extensions_derived_from_inputs():
     assert allowed == ".tif,.tiff,.vrt"
     # A presigned URL's query string is not mistaken for the extension.
     assert (
-        INSETS._vsicurl_allowed_extensions(
+        ea_warp._vsicurl_allowed_extensions(
             ["/vsicurl/https://s3.test/dem.tif?X-Amz-Signature=abc.def"]
         )
         == ".tif,.tiff,.vrt"
     )
     # An unusual raster extension joins the list rather than locking the
     # provider out of its own fetch.
-    assert ".asc" in INSETS._vsicurl_allowed_extensions(
+    assert ".asc" in ea_warp._vsicurl_allowed_extensions(
         ["/vsicurl/https://data.test/sheet.asc"]
     ).split(",")
 
@@ -3472,20 +3486,20 @@ def test_vsicurl_allowed_extensions_omitted_when_unsafe():
     # Local scratch files and open Dataset handles (the wcs strategy)
     # never go through curl: no curl input, no allowlist.
     assert (
-        INSETS._vsicurl_allowed_extensions(["/tmp/mosaic.tif", object()])
+        ea_warp._vsicurl_allowed_extensions(["/tmp/mosaic.tif", object()])
         is None
     )
     # A chained virtual path reads an underlying URL whose extension
     # differs from the path's -- the option must be omitted, not guessed.
     assert (
-        INSETS._vsicurl_allowed_extensions(
+        ea_warp._vsicurl_allowed_extensions(
             ["/vsizip//vsicurl/https://data.test/pack.zip/dem.tif"]
         )
         is None
     )
     # No usable extension on a curl input: omitted.
     assert (
-        INSETS._vsicurl_allowed_extensions(
+        ea_warp._vsicurl_allowed_extensions(
             ["/vsicurl/https://data.test/coverage/42"]
         )
         is None
@@ -3501,7 +3515,7 @@ def test_geojson_tile_index_caches_and_fetches(tmp_path, monkeypatch):
     import requests
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     catalog = {
         "features": [
             {
@@ -3540,7 +3554,7 @@ def test_geojson_tile_index_caches_and_fetches(tmp_path, monkeypatch):
         "index_url": "https://catalog.test/grid.geojson",
         "url_property": "MDT_geoT",
     }
-    strategy = INSETS.ACCESS_STRATEGIES["geojson_tile_index"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["geojson_tile_index"]()
     montevideo = (-56.038, -34.845, -56.022, -34.833)
     sources = strategy.discover(definition, montevideo)
     assert [entry["url"] for entry in sources] == [
@@ -3602,7 +3616,7 @@ def test_arcgis_lerc_tiles_decodes_and_serves(tmp_path, monkeypatch):
     blob = _lerc_blob_via_subprocess(tmp_path)
     if blob is None:
         pytest.skip("imagecodecs with LERC not available")
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setattr(
         requests,
         "Session",
@@ -3640,7 +3654,7 @@ def test_arcgis_lerc_tiles_missing_tiles_are_no_coverage(
     import types
     import requests
 
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setattr(
         requests,
         "Session",
@@ -3679,7 +3693,7 @@ def test_arcgis_lerc_tiles_projected_pyramid_grid(tmp_path, monkeypatch):
     blob = _lerc_blob_via_subprocess(tmp_path)
     if blob is None:
         pytest.skip("imagecodecs with LERC not available")
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     requested = []
 
     def _get(url, timeout=None):
@@ -3727,26 +3741,26 @@ def test_arcgis_lerc_tiles_projected_pyramid_grid(tmp_path, monkeypatch):
 # =====================================================================
 def test_ordnance_survey_square_extents():
     # 100 km anchors: NS (Glasgow) and HY (Orkney).
-    assert INSETS._ordnance_survey_square_extent("NS16") == (
+    assert ea_os_grid_bucket._ordnance_survey_square_extent("NS16") == (
         210000, 660000, 220000, 670000
     )
-    assert INSETS._ordnance_survey_square_extent("HY20") == (
+    assert ea_os_grid_bucket._ordnance_survey_square_extent("HY20") == (
         320000, 1000000, 330000, 1010000
     )
     # Quadrants halve to 5 km.
-    assert INSETS._ordnance_survey_square_extent("NS16NE") == (
+    assert ea_os_grid_bucket._ordnance_survey_square_extent("NS16NE") == (
         215000, 665000, 220000, 670000
     )
-    assert INSETS._ordnance_survey_square_extent("NS16SW") == (
+    assert ea_os_grid_bucket._ordnance_survey_square_extent("NS16SW") == (
         210000, 660000, 215000, 665000
     )
     # Four digits address a 1 km square.
-    assert INSETS._ordnance_survey_square_extent("NR5712") == (
+    assert ea_os_grid_bucket._ordnance_survey_square_extent("NR5712") == (
         157000, 612000, 158000, 613000
     )
     # Garbage returns None.
-    assert INSETS._ordnance_survey_square_extent("1234") is None
-    assert INSETS._ordnance_survey_square_extent("NSXY") is None
+    assert ea_os_grid_bucket._ordnance_survey_square_extent("1234") is None
+    assert ea_os_grid_bucket._ordnance_survey_square_extent("NSXY") is None
 
 
 # =====================================================================
@@ -3760,7 +3774,7 @@ def test_arcgis_feature_tiles_catalog_and_fills(tmp_path, monkeypatch):
     import requests
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     # Archive payload: one DTM GeoTIFF whose fill is -99 but whose
     # band DECLARES nodata 0.0 (the broken Irish campaign shape).
     import numpy as numpy_module
@@ -3837,7 +3851,7 @@ def test_arcgis_feature_tiles_catalog_and_fills(tmp_path, monkeypatch):
     assert valid.size and float(valid.min()) > 0
     assert abs(float(valid.max()) - 62.0) < 0.5
     # The layer catalog was cached.
-    strategy = INSETS.ACCESS_STRATEGIES["arcgis_feature_tiles"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["arcgis_feature_tiles"]()
     assert os.path.isfile(strategy.index_path(definition))
 
 
@@ -3850,7 +3864,7 @@ def test_xyz_archive_drop_indexes_geotiffs_in_place(tmp_path, monkeypatch):
     import numpy as numpy_module
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     definition = {
         "code": "TESTWAL",
         "access_strategy": "xyz_archive_drop",
@@ -3858,7 +3872,7 @@ def test_xyz_archive_drop_indexes_geotiffs_in_place(tmp_path, monkeypatch):
         "source_epsg": "3812",
         "native_resolution_m": "1",
     }
-    strategy = INSETS.ACCESS_STRATEGIES["xyz_archive_drop"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["xyz_archive_drop"]()
     # A georeferenced GeoTIFF member (carries its own CRS): must be
     # indexed THROUGH the zip, without an extracted converted copy.
     bbox = (4.44, 50.455, 4.46, 50.468)
@@ -3936,7 +3950,7 @@ _DEGREE_URL_TEMPLATE = (
 
 def _degree_cell_url(cell_latitude, cell_longitude):
     latitude_token, longitude_token = (
-        INSETS.DegreeNamedCogStrategy.degree_cell_tokens(
+        ea_degree_named_cog.DegreeNamedCogStrategy.degree_cell_tokens(
             cell_latitude, cell_longitude
         )
     )
@@ -3949,7 +3963,7 @@ def _degree_definition(**overrides):
     definition = {
         "code": "COPERTEST",
         "access_strategy": "degree_named_cog",
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 1.0,
         "url_template": _DEGREE_URL_TEMPLATE,
@@ -3961,7 +3975,7 @@ def _degree_definition(**overrides):
 
 
 def test_degree_cell_tokens_encode_hemispheres_and_zero_padding():
-    tokens = INSETS.DegreeNamedCogStrategy.degree_cell_tokens
+    tokens = ea_degree_named_cog.DegreeNamedCogStrategy.degree_cell_tokens
     # Northern / eastern positives, zero-padded to 2 and 3 digits.
     assert tokens(25, 51) == ("N25", "E051")
     assert tokens(5, 7) == ("N05", "E007")
@@ -3973,7 +3987,7 @@ def test_degree_cell_tokens_encode_hemispheres_and_zero_padding():
 
 
 def test_degree_cells_of_bounding_box_enumeration():
-    cells = INSETS.DegreeNamedCogStrategy.degree_cells_of_bounding_box
+    cells = ea_degree_named_cog.DegreeNamedCogStrategy.degree_cells_of_bounding_box
     # A box wholly inside one degree cell -> exactly that cell.
     assert cells((51.1, 25.1, 51.9, 25.9)) == [(25, 51)]
     # A box straddling both integer boundaries -> the four cells it spans.
@@ -3995,7 +4009,7 @@ def test_degree_discover_filters_by_head_probe_and_memoises(monkeypatch):
 
     # A fresh per-test memo dict (monkeypatch restores the class attribute).
     monkeypatch.setattr(
-        INSETS.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
+        ea_degree_named_cog.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
     )
     # Four cells span the box; two objects exist, two are absent (ocean).
     present = {
@@ -4007,7 +4021,7 @@ def test_degree_discover_filters_by_head_probe_and_memoises(monkeypatch):
         requests, "head", _fake_head_from_status_map(present, probed)
     )
 
-    strategy = INSETS.DegreeNamedCogStrategy()
+    strategy = ea_degree_named_cog.DegreeNamedCogStrategy()
     definition = _degree_definition()
     box = (50.5, 24.5, 51.5, 25.5)
     sources = strategy.discover(definition, box)
@@ -4023,7 +4037,7 @@ def test_degree_discover_filters_by_head_probe_and_memoises(monkeypatch):
     assert cells == {(25, 51), (24, 50)}
 
     # All four definitive 200/404 answers are memoised on the class dict.
-    memo = INSETS.DegreeNamedCogStrategy._cell_exists_by_url
+    memo = ea_degree_named_cog.DegreeNamedCogStrategy._cell_exists_by_url
     assert memo[_degree_cell_url(25, 51)] is True
     assert memo[_degree_cell_url(24, 50)] is True
     assert memo[_degree_cell_url(24, 51)] is False
@@ -4040,14 +4054,14 @@ def test_degree_discover_all_absent_returns_none(monkeypatch):
     import requests
 
     monkeypatch.setattr(
-        INSETS.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
+        ea_degree_named_cog.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
     )
     probed = []
     # Empty status map -> every cell probes 404 (absent from the bucket).
     monkeypatch.setattr(
         requests, "head", _fake_head_from_status_map({}, probed)
     )
-    strategy = INSETS.DegreeNamedCogStrategy()
+    strategy = ea_degree_named_cog.DegreeNamedCogStrategy()
     assert (
         strategy.discover(_degree_definition(), (51.1, 25.1, 51.9, 25.9))
         is None
@@ -4058,7 +4072,7 @@ def test_degree_discover_transient_status_is_not_memoised(monkeypatch):
     import requests
 
     monkeypatch.setattr(
-        INSETS.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
+        ea_degree_named_cog.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
     )
     probed = []
     # A 5xx is transient: it RAISES (issue #124) and is NOT memoised, so
@@ -4071,17 +4085,17 @@ def test_degree_discover_transient_status_is_not_memoised(monkeypatch):
         "head",
         _fake_head_from_status_map({_degree_cell_url(25, 51): 500}, probed),
     )
-    strategy = INSETS.DegreeNamedCogStrategy()
+    strategy = ea_degree_named_cog.DegreeNamedCogStrategy()
     definition = _degree_definition()
     box = (51.1, 25.1, 51.9, 25.9)
 
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         strategy.discover(definition, box)
-    memo = INSETS.DegreeNamedCogStrategy._cell_exists_by_url
+    memo = ea_degree_named_cog.DegreeNamedCogStrategy._cell_exists_by_url
     assert _degree_cell_url(25, 51) not in memo
     # A second run re-probes (the 500 left nothing cached).
     probes_after_first = len(probed)
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         strategy.discover(definition, box)
     assert len(probed) > probes_after_first
 
@@ -4090,13 +4104,13 @@ def test_degree_discover_empty_url_template_returns_none(monkeypatch):
     import requests
 
     monkeypatch.setattr(
-        INSETS.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
+        ea_degree_named_cog.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
     )
     probed = []
     monkeypatch.setattr(
         requests, "head", _fake_head_from_status_map({}, probed)
     )
-    strategy = INSETS.DegreeNamedCogStrategy()
+    strategy = ea_degree_named_cog.DegreeNamedCogStrategy()
     assert (
         strategy.discover(
             _degree_definition(url_template=""), (51.1, 25.1, 51.9, 25.9)
@@ -4111,13 +4125,13 @@ def test_degree_discover_coverage_miss_returns_none(monkeypatch):
     import requests
 
     monkeypatch.setattr(
-        INSETS.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
+        ea_degree_named_cog.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
     )
     probed = []
     monkeypatch.setattr(
         requests, "head", _fake_head_from_status_map({}, probed)
     )
-    strategy = INSETS.DegreeNamedCogStrategy()
+    strategy = ea_degree_named_cog.DegreeNamedCogStrategy()
     # A coverage_bbox that does not intersect the requested box short-circuits.
     definition = _degree_definition(coverage_bbox=(0.0, 0.0, 10.0, 10.0))
     assert (
@@ -4132,9 +4146,9 @@ def test_degree_fetch_provenance_strips_vsicurl_and_records_warp_inputs(
 ):
     import requests
 
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setattr(
-        INSETS.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
+        ea_degree_named_cog.DegreeNamedCogStrategy, "_cell_exists_by_url", {}
     )
     # Two of the four spanned cells exist; the other two are ocean (absent).
     present = {
@@ -4162,11 +4176,11 @@ def test_degree_fetch_provenance_strips_vsicurl_and_records_warp_inputs(
         )
         return True
 
-    monkeypatch.setattr(
-        INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp
+    patch_inset_code(
+        monkeypatch, "warp_vsicurl_sources_to_geotiff", _fake_warp
     )
 
-    strategy = INSETS.DegreeNamedCogStrategy()
+    strategy = ea_degree_named_cog.DegreeNamedCogStrategy()
     definition = _degree_definition()
     box = (50.5, 24.5, 51.5, 25.5)
     destination = str(tmp_path / "copernicus.tif")
@@ -4232,7 +4246,7 @@ def _write_surface_model_with_building_bump(path):
 def test_masking_replaces_building_bump_and_preserves_ground_and_nodata(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     path = str(tmp_path / "surface_model.tif")
     footprint = _write_surface_model_with_building_bump(path)
     monkeypatch.setattr(
@@ -4273,7 +4287,7 @@ def test_masking_replaces_building_bump_and_preserves_ground_and_nodata(
 def test_masking_skips_when_no_footprints_and_leaves_raster_unchanged(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     path = str(tmp_path / "surface_model.tif")
     _write_surface_model_with_building_bump(path)
     monkeypatch.setattr(
@@ -4313,7 +4327,7 @@ def test_masking_skips_when_no_footprints_and_leaves_raster_unchanged(
 def test_fetch_inset_runs_masking_only_when_flag_true(tmp_path, monkeypatch):
     """The dispatcher runs the masking pass and stores its summary iff the
     definition opts in, and never calls it otherwise."""
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     mask_calls = {"count": 0}
     mask_summary = {"masked_pixel_count": 7, "footprint_count": 1}
 
@@ -4344,7 +4358,7 @@ def test_fetch_inset_runs_masking_only_when_flag_true(tmp_path, monkeypatch):
             return {"provider": definition["code"]}
 
     monkeypatch.setitem(
-        INSETS.ACCESS_STRATEGIES, "flag_test_strategy", _FlagStrategy
+        ea_registry.ACCESS_STRATEGIES, "flag_test_strategy", _FlagStrategy
     )
     box = (-1.0, -1.0, 1.0, 1.0)
 
@@ -4352,7 +4366,7 @@ def test_fetch_inset_runs_masking_only_when_flag_true(tmp_path, monkeypatch):
     definition_on = {
         "code": "MASKON",
         "access_strategy": "flag_test_strategy",
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 1.0,
         INSETS.SURFACE_MODEL_BUILDING_MASKING: True,
@@ -4384,7 +4398,7 @@ def test_copernicus_glo30_ships_with_masking_flag_and_ranks_last():
     # The surface-model masking flag parses to a real boolean True.
     assert copernicus[INSETS.SURFACE_MODEL_BUILDING_MASKING] is True
     assert copernicus["access_strategy"] == "degree_named_cog"
-    assert copernicus["role"] == INSETS.ROLE_AIRPORT_INSET
+    assert copernicus["role"] == ea_definitions.ROLE_AIRPORT_INSET
     assert copernicus["priority"] == 1.0
 
     # It is the global fallback: LAST among the enabled airport_inset
@@ -4834,7 +4848,7 @@ def test_ensure_airport_insets_threads_one_prefetch_to_masking(
     """The orchestration hands the SAME tile-level prefetch (carrying
     every airport's box) to each airport's masking pass."""
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     seen_prefetches = []
 
     def _fake_mask(
@@ -4847,7 +4861,7 @@ def test_ensure_airport_insets_threads_one_prefetch_to_masking(
         INSETS, "mask_building_footprints_in_surface_model", _fake_mask
     )
 
-    @INSETS.register_access_strategy("prefetch_thread_test_strategy")
+    @ea_registry.register_access_strategy("prefetch_thread_test_strategy")
     class _Strategy:
         def discover(self, definition, bounding_box_wgs84):
             return [{"note": "covers"}]
@@ -4868,7 +4882,7 @@ def test_ensure_airport_insets_threads_one_prefetch_to_masking(
         definition = {
             "code": "PREFTEST",
             "access_strategy": "prefetch_thread_test_strategy",
-            "role": INSETS.ROLE_AIRPORT_INSET,
+            "role": ea_definitions.ROLE_AIRPORT_INSET,
             "enabled": True,
             "priority": 1.0,
             INSETS.SURFACE_MODEL_BUILDING_MASKING: True,
@@ -4879,7 +4893,7 @@ def test_ensure_airport_insets_threads_one_prefetch_to_masking(
         }
         INSETS.ensure_airport_insets(10, 0, boxes, [definition], 3.0)
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("prefetch_thread_test_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("prefetch_thread_test_strategy", None)
 
     assert len(seen_prefetches) == 2
     assert all(
@@ -4895,7 +4909,7 @@ def test_ensure_airport_insets_threads_one_prefetch_to_masking(
 
 
 def test_rescale_wms_tile_url_requests_target_resolution():
-    from O4_Airport_Elevation_Insets import _rescale_wms_tile_url
+    from elevation_access.strategies.wfs_tile_index import _rescale_wms_tile_url
 
     definition = {"native_resolution_m": 0.5}
     url = ("https://data.geopf.fr/wms-r?SERVICE=WMS&REQUEST=GetMap"
@@ -4917,7 +4931,7 @@ def test_rescale_wms_tile_url_requests_target_resolution():
 
 
 def test_wcs_kvp_requests_target_resolution_pixels():
-    from O4_Airport_Elevation_Insets import WcsKvpStrategy
+    from elevation_access.strategies.wcs_kvp import WcsKvpStrategy
 
     definition = {
         "source_epsg": "4326",
@@ -4973,7 +4987,7 @@ def test_zero_byte_cached_inset_is_swept_and_refetched(tmp_path, monkeypatch):
             assert handle.read() == repr(_SMALL_BOX).encode()
         assert INSETS.list_cached_inset_dems(60, -136) == [destination]
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("box_sweep_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("box_sweep_strategy", None)
 
 
 # =====================================================================
@@ -5000,7 +5014,7 @@ def _fake_response(status_code=200, payload=None, body_is_json=True):
 
 
 def test_discovery_status_classifier_splits_transient_from_durable():
-    transient = INSETS.discovery_status_is_transient
+    transient = ea_discovery.discovery_status_is_transient
     # Says nothing about coverage: the server broke, or told us to wait.
     for status in (500, 502, 503, 504, 429):
         assert transient(status) is True, status
@@ -5010,20 +5024,20 @@ def test_discovery_status_classifier_splits_transient_from_durable():
 
 
 def test_discovery_json_payload_classifies_every_shape():
-    payload = INSETS.discovery_json_payload
+    payload = ea_discovery.discovery_json_payload
     # A real answer comes back as the parsed body.
     assert payload(_fake_response(200, {"items": []}), "probe") == {
         "items": []
     }
     # 5xx / 429 -> transient.
     for status in (500, 503, 504, 429):
-        with pytest.raises(INSETS.TransientFetchError):
+        with pytest.raises(ea_base.TransientFetchError):
             payload(_fake_response(status), "probe")
     # 4xx other than 429 -> durable no-coverage.
     for status in (400, 403, 404):
         assert payload(_fake_response(status), "probe") is None
     # An error page served with a 200 is an outage artefact, not a catalog.
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         payload(_fake_response(200, body_is_json=False), "probe")
 
 
@@ -5042,8 +5056,8 @@ def test_tnm_discovery_server_failure_raises_transient(monkeypatch, status):
     monkeypatch.setattr(
         requests, "get", lambda url, timeout=None: _fake_response(status)
     )
-    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
-    with pytest.raises(INSETS.TransientFetchError):
+    strategy = ea_registry.ACCESS_STRATEGIES["tnm_cog"]()
+    with pytest.raises(ea_base.TransientFetchError):
         strategy.discover(_tnm_definition(), (-95.0, 39.7, -94.9, 39.8))
 
 
@@ -5054,8 +5068,8 @@ def test_tnm_discovery_transport_failure_raises_transient(monkeypatch):
         raise OSError("Operation timed out after 30000 milliseconds")
 
     monkeypatch.setattr(requests, "get", _boom)
-    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
-    with pytest.raises(INSETS.TransientFetchError):
+    strategy = ea_registry.ACCESS_STRATEGIES["tnm_cog"]()
+    with pytest.raises(ea_base.TransientFetchError):
         strategy.discover(_tnm_definition(), (-95.0, 39.7, -94.9, 39.8))
 
 
@@ -5067,8 +5081,8 @@ def test_tnm_discovery_non_json_body_raises_transient(monkeypatch):
         "get",
         lambda url, timeout=None: _fake_response(200, body_is_json=False),
     )
-    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
-    with pytest.raises(INSETS.TransientFetchError):
+    strategy = ea_registry.ACCESS_STRATEGIES["tnm_cog"]()
+    with pytest.raises(ea_base.TransientFetchError):
         strategy.discover(_tnm_definition(), (-95.0, 39.7, -94.9, 39.8))
 
 
@@ -5081,7 +5095,7 @@ def test_tnm_discovery_empty_catalog_stays_durable_none(monkeypatch):
         "get",
         lambda url, timeout=None: _fake_response(200, {"items": []}),
     )
-    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["tnm_cog"]()
     assert (
         strategy.discover(_tnm_definition(), (-95.0, 39.7, -94.9, 39.8))
         is None
@@ -5094,7 +5108,7 @@ def test_tnm_discovery_404_stays_durable_none(monkeypatch):
     monkeypatch.setattr(
         requests, "get", lambda url, timeout=None: _fake_response(404)
     )
-    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["tnm_cog"]()
     assert (
         strategy.discover(_tnm_definition(), (-95.0, 39.7, -94.9, 39.8))
         is None
@@ -5136,7 +5150,7 @@ def _tnm_discover_with_body(monkeypatch, body, status_code=200):
         "get",
         lambda url, timeout=None: _fake_byte_response(status_code, body),
     )
-    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["tnm_cog"]()
     return strategy.discover(_tnm_definition(), _KPHX_BOX)
 
 
@@ -5159,7 +5173,7 @@ def test_tnm_degraded_200_body_is_transient_not_no_coverage(
     monkeypatch, body
 ):
     """None of these may become a durable negative for KPHX."""
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         _tnm_discover_with_body(monkeypatch, body)
 
 
@@ -5205,7 +5219,7 @@ def test_degraded_tnm_200_leaves_the_index_record_absent(
         supports_wide_area = True
 
         def discover(self, definition, bounding_box_wgs84):
-            return INSETS.ACCESS_STRATEGIES["tnm_cog"]().discover(
+            return ea_registry.ACCESS_STRATEGIES["tnm_cog"]().discover(
                 definition, bounding_box_wgs84
             )
 
@@ -5216,7 +5230,7 @@ def test_degraded_tnm_200_leaves_the_index_record_absent(
                 return None
             raise AssertionError("the fixture never reaches a warp")
 
-    INSETS.ACCESS_STRATEGIES["tnm_cog_discovery_only"] = _DiscoveryOnlyTnm
+    ea_registry.ACCESS_STRATEGIES["tnm_cog_discovery_only"] = _DiscoveryOnlyTnm
     try:
         definition = dict(
             _box_definition("USGS3DEP", "tnm_cog_discovery_only"),
@@ -5249,7 +5263,7 @@ def test_degraded_tnm_200_leaves_the_index_record_absent(
         )
         assert index["KPHX"]["USGS3DEP"] == INSETS.NO_COVERAGE
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("tnm_cog_discovery_only", None)
+        ea_registry.ACCESS_STRATEGIES.pop("tnm_cog_discovery_only", None)
 
 
 def _wfs_definition():
@@ -5269,8 +5283,8 @@ def test_wfs_tile_index_server_failure_raises_transient(monkeypatch, status):
     monkeypatch.setattr(
         requests, "get", lambda url, timeout=None: _fake_response(status)
     )
-    strategy = INSETS.ACCESS_STRATEGIES["wfs_tile_index"]()
-    with pytest.raises(INSETS.TransientFetchError):
+    strategy = ea_registry.ACCESS_STRATEGIES["wfs_tile_index"]()
+    with pytest.raises(ea_base.TransientFetchError):
         strategy.discover(_wfs_definition(), (6.0, 46.2, 6.1, 46.3))
 
 
@@ -5282,8 +5296,8 @@ def test_wfs_tile_index_non_json_raises_transient(monkeypatch):
         "get",
         lambda url, timeout=None: _fake_response(200, body_is_json=False),
     )
-    strategy = INSETS.ACCESS_STRATEGIES["wfs_tile_index"]()
-    with pytest.raises(INSETS.TransientFetchError):
+    strategy = ea_registry.ACCESS_STRATEGIES["wfs_tile_index"]()
+    with pytest.raises(ea_base.TransientFetchError):
         strategy.discover(_wfs_definition(), (6.0, 46.2, 6.1, 46.3))
 
 
@@ -5295,7 +5309,7 @@ def test_wfs_tile_index_empty_feature_set_stays_durable_none(monkeypatch):
         "get",
         lambda url, timeout=None: _fake_response(200, {"features": []}),
     )
-    strategy = INSETS.ACCESS_STRATEGIES["wfs_tile_index"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["wfs_tile_index"]()
     assert strategy.discover(_wfs_definition(), (6.0, 46.2, 6.1, 46.3)) is None
 
 
@@ -5313,11 +5327,11 @@ def test_transient_discovery_failure_is_not_cached_as_negative(
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     discover_calls = {"count": 0}
 
-    @INSETS.register_access_strategy("transient_discovery_strategy")
+    @ea_registry.register_access_strategy("transient_discovery_strategy")
     class _TransientDiscoveryStrategy:
         def discover(self, definition, bounding_box_wgs84):
             discover_calls["count"] += 1
-            INSETS.raise_transient_discovery_failure(
+            ea_discovery.raise_transient_discovery_failure(
                 "test discovery request", "status 504"
             )
 
@@ -5328,7 +5342,7 @@ def test_transient_discovery_failure_is_not_cached_as_negative(
         definition = {
             "code": "OUTAGE",
             "access_strategy": "transient_discovery_strategy",
-            "role": INSETS.ROLE_AIRPORT_INSET,
+            "role": ea_definitions.ROLE_AIRPORT_INSET,
             "enabled": True,
             "priority": 1.0,
         }
@@ -5343,7 +5357,7 @@ def test_transient_discovery_failure_is_not_cached_as_negative(
         INSETS.ensure_airport_insets(39, -95, boxes, [definition], 3.0)
         assert discover_calls["count"] == 2
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("transient_discovery_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("transient_discovery_strategy", None)
 
 
 # ── THE INDEX IS NOT REWRITTEN FOR FRESHNESS (2026-09-10) ─────────────
@@ -5411,7 +5425,7 @@ _LERC_DEFINITION = {
     "code": "LERCPROVIDER",
     "access_strategy": "capability_probe_strategy",
     "asset_compression": "lerc",
-    "role": INSETS.ROLE_AIRPORT_INSET,
+    "role": ea_definitions.ROLE_AIRPORT_INSET,
     "enabled": True,
     "priority": 90.0,
     "coverage_bbox": (-180.0, -90.0, 180.0, 90.0),
@@ -5422,7 +5436,7 @@ def _capability_strategy(outcome):
     """Register a strategy whose fetch enacts ``outcome`` and count calls."""
     calls = {"count": 0}
 
-    @INSETS.register_access_strategy("capability_probe_strategy")
+    @ea_registry.register_access_strategy("capability_probe_strategy")
     class _Strategy:
         def discover(self, definition, bounding_box_wgs84):
             return [{"href": "https://example.invalid/a.tif"}]
@@ -5441,9 +5455,9 @@ def test_an_empty_decode_result_never_writes_no_coverage(monkeypatch):
     absent -- must raise :class:`ProviderUnavailable`, never return the
     empty list whose emptiness became a durable negative.
     """
-    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: False)
-    strategy = INSETS.ACCESS_STRATEGIES["static_stac"]()
-    with pytest.raises(INSETS.ProviderUnavailable) as raised:
+    patch_inset_code(monkeypatch, "lerc_decode_available", lambda: False)
+    strategy = ea_registry.ACCESS_STRATEGIES["static_stac"]()
+    with pytest.raises(ea_base.ProviderUnavailable) as raised:
         strategy._decode_lerc_sources(
             _LERC_DEFINITION,
             [{"href": "https://example.invalid/a.tif"}],
@@ -5461,10 +5475,10 @@ def test_unavailable_is_a_status_class_of_its_own(tmp_path, monkeypatch):
     it as a coverage answer.
     """
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: True)
+    patch_inset_code(monkeypatch, "lerc_decode_available", lambda: True)
     calls = _capability_strategy(
         lambda: (_ for _ in ()).throw(
-            INSETS.ProviderUnavailable("the LERC decoder is not available")
+            ea_base.ProviderUnavailable("the LERC decoder is not available")
         )
     )
     try:
@@ -5483,7 +5497,7 @@ def test_unavailable_is_a_status_class_of_its_own(tmp_path, monkeypatch):
         )
         assert calls["count"] == 2
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
 
 
 @requires_gdal
@@ -5498,7 +5512,7 @@ def test_a_legacy_lerc_negative_is_re_probed_exactly_once(
     alone.
     """
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: True)
+    patch_inset_code(monkeypatch, "lerc_decode_available", lambda: True)
     monkeypatch.setattr(INSETS, "_engine_version", lambda: "1.50.1772")
     index_path = FNAMES.airport_inset_index(-45, 168)
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
@@ -5531,7 +5545,7 @@ def test_a_legacy_lerc_negative_is_re_probed_exactly_once(
         )
         assert calls["count"] == 1
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
 
 
 def test_a_genuine_recorded_negative_is_never_re_probed(tmp_path, monkeypatch):
@@ -5541,7 +5555,7 @@ def test_a_genuine_recorded_negative_is_never_re_probed(tmp_path, monkeypatch):
     recorded the capability it had.  Nothing re-probes that.
     """
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: True)
+    patch_inset_code(monkeypatch, "lerc_decode_available", lambda: True)
     index_path = FNAMES.airport_inset_index(-45, 168)
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
     with open(index_path, "w", encoding="utf-8", newline="") as handle:
@@ -5562,7 +5576,7 @@ def test_a_genuine_recorded_negative_is_never_re_probed(tmp_path, monkeypatch):
         )
         assert calls["count"] == 0
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
 
 
 def test_an_out_of_box_negative_is_never_unverified(tmp_path, monkeypatch):
@@ -5671,7 +5685,7 @@ def test_a_stamp_that_records_the_MISSING_capability_verifies_nothing():
 _PLAIN_DEFINITION = {
     "code": "PLAINPROVIDER",
     "access_strategy": "capability_probe_strategy",
-    "role": INSETS.ROLE_AIRPORT_INSET,
+    "role": ea_definitions.ROLE_AIRPORT_INSET,
     "enabled": True,
     "priority": 90.0,
     "coverage_bbox": (-180.0, -90.0, 180.0, 90.0),
@@ -5725,7 +5739,7 @@ def test_a_capability_free_negative_is_re_probed_once_per_version(
         )
         assert calls["count"] == 1
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
 
 
 def test_a_same_version_capability_free_negative_is_never_asked(
@@ -5744,7 +5758,7 @@ def test_a_same_version_capability_free_negative_is_never_asked(
         )
         assert calls["count"] == 0
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
 
 
 def test_the_two_reprobe_doors_never_read_each_others_records():
@@ -5868,13 +5882,13 @@ def test_repeated_coverage_bbox_lines_parse_as_a_list(tmp_path):
     # Between the two regions (mid-Pacific) is NOT covered, though the
     # hull contains it.
     assert (
-        INSETS._coverage_bbox_intersects(definition, _tiny_box(25.0, -140.0))
+        ea_definitions._coverage_bbox_intersects(definition, _tiny_box(25.0, -140.0))
         is False
     )
-    assert INSETS._coverage_bbox_intersects(
+    assert ea_definitions._coverage_bbox_intersects(
         definition, _tiny_box(21.3, -157.9)
     )
-    assert INSETS._coverage_bbox_intersects(
+    assert ea_definitions._coverage_bbox_intersects(
         definition, _tiny_box(32.9, -97.0)
     )
 
@@ -5917,22 +5931,22 @@ def test_single_box_provider_is_unchanged_by_the_list_parser(tmp_path):
     )["ONEBOX"]
     assert definition["coverage_bbox"] == (-9.6, 36.9, -6.1, 42.2)
     assert definition["coverage_bboxes"] == ((-9.6, 36.9, -6.1, 42.2),)
-    assert INSETS.coverage_boxes(definition) == (
+    assert ea_definitions.coverage_boxes(definition) == (
         (-9.6, 36.9, -6.1, 42.2),
     )
     # Lisbon in, Madrid out -- the pre-filter is what it was.
-    assert INSETS._coverage_bbox_intersects(
+    assert ea_definitions._coverage_bbox_intersects(
         definition, _tiny_box(38.77, -9.13)
     )
     assert (
-        INSETS._coverage_bbox_intersects(
+        ea_definitions._coverage_bbox_intersects(
             definition, _tiny_box(40.47, -3.56)
         )
         is False
     )
     # A provider declaring nothing still covers everywhere.
-    assert INSETS.coverage_boxes({"code": "X"}) == ()
-    assert INSETS._coverage_bbox_intersects(
+    assert ea_definitions.coverage_boxes({"code": "X"}) == ()
+    assert ea_definitions._coverage_bbox_intersects(
         {"code": "X"}, _tiny_box(0.0, 0.0)
     )
 
@@ -6003,7 +6017,7 @@ def test_usgs3dep_coverage_is_united_states_only():
         "NSTU": (-14.331, -170.710),
     }
     for icao, (latitude, longitude) in covered.items():
-        assert INSETS._coverage_bbox_intersects(
+        assert ea_definitions._coverage_bbox_intersects(
             usgs, _tiny_box(latitude, longitude)
         ), icao
     outside = {
@@ -6018,7 +6032,7 @@ def test_usgs3dep_coverage_is_united_states_only():
     }
     for icao, (latitude, longitude) in outside.items():
         assert (
-            INSETS._coverage_bbox_intersects(
+            ea_definitions._coverage_bbox_intersects(
                 usgs, _tiny_box(latitude, longitude)
             )
             is False
@@ -6032,7 +6046,7 @@ def test_usgs3dep_coverage_is_united_states_only():
         "CYYZ": (43.677, -79.631),
         "CYUL": (45.470, -73.741),
     }.items():
-        assert INSETS._coverage_bbox_intersects(
+        assert ea_definitions._coverage_bbox_intersects(
             usgs, _tiny_box(latitude, longitude)
         ), icao
 
@@ -6050,7 +6064,7 @@ def test_hrdem_coverage_is_canada_only():
         "CYUL": (45.470, -73.741),
         "CYHZ": (44.881, -63.509),
     }.items():
-        assert INSETS._coverage_bbox_intersects(
+        assert ea_definitions._coverage_bbox_intersects(
             hrdem, _tiny_box(latitude, longitude)
         ), icao
     for icao, (latitude, longitude) in {
@@ -6060,7 +6074,7 @@ def test_hrdem_coverage_is_canada_only():
         "KDEN": (39.862, -104.673),
     }.items():
         assert (
-            INSETS._coverage_bbox_intersects(
+            ea_definitions._coverage_bbox_intersects(
                 hrdem, _tiny_box(latitude, longitude)
             )
             is False
@@ -6073,7 +6087,7 @@ def test_hrdem_coverage_is_canada_only():
         "KMSP": (44.882, -93.222),
         "KDTW": (42.212, -83.353),
     }.items():
-        assert INSETS._coverage_bbox_intersects(
+        assert ea_definitions._coverage_bbox_intersects(
             hrdem, _tiny_box(latitude, longitude)
         ), icao
 
@@ -6085,14 +6099,14 @@ def test_new_zealand_covers_the_chatham_islands():
     )
     for code in ("NEWZEALAND1M", "NEWZEALANDTIDAL"):
         definition = parsed[code]
-        assert INSETS._coverage_bbox_intersects(
+        assert ea_definitions._coverage_bbox_intersects(
             definition, _tiny_box(-43.810, -176.457)   # NZCI
         ), code
-        assert INSETS._coverage_bbox_intersects(
+        assert ea_definitions._coverage_bbox_intersects(
             definition, _tiny_box(-43.489, 172.534)    # NZCH
         ), code
         assert (
-            INSETS._coverage_bbox_intersects(
+            ea_definitions._coverage_bbox_intersects(
                 definition, _tiny_box(-33.946, 151.177)   # YSSY
             )
             is False
@@ -6126,7 +6140,7 @@ def test_out_of_box_negative_is_never_version_stale_for_cyxy():
     }
     usgs = parsed["USGS3DEP"]
     assert (
-        INSETS._coverage_bbox_intersects(usgs, tuple(record["bounding_box"]))
+        ea_definitions._coverage_bbox_intersects(usgs, tuple(record["bounding_box"]))
         is False
     )
     assert (
@@ -6334,7 +6348,7 @@ def test_pack_set_change_refetches_a_cached_inset(tmp_path, monkeypatch):
         )
         assert len(fetch_calls) == 2          # the pack set moved
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("pack_set_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("pack_set_strategy", None)
 
 
 # =====================================================================
@@ -6389,7 +6403,7 @@ def test_fetch_inset_records_requested_and_delivered_boxes(
             -135.061, 60.689, -135.039, 60.721
         ]
     finally:
-        INSETS.ACCESS_STRATEGIES.pop("both_boxes_strategy", None)
+        ea_registry.ACCESS_STRATEGIES.pop("both_boxes_strategy", None)
 
 
 # =====================================================================
@@ -6402,7 +6416,7 @@ def test_partial_inset_coverage_warns_loudly_and_names_the_inset(
     from shapely import geometry as shapely_geometry
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
     tile = _RadiusTile(0, 0)
     os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
@@ -6446,7 +6460,7 @@ def test_full_inset_coverage_says_nothing(tmp_path, monkeypatch):
     from shapely import geometry as shapely_geometry
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
     tile = _RadiusTile(0, 0)
     os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
@@ -6527,7 +6541,7 @@ def test_warn_rule_fires_on_a_clipped_delivery_and_never_recuts(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
     tile = _RadiusTile(0, 0)
     os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
@@ -6566,7 +6580,7 @@ def test_warn_rule_fires_on_a_clipped_delivery_and_never_recuts(
 @requires_gdal
 def test_warn_rule_is_silent_on_a_fully_delivered_inset(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
     tile = _RadiusTile(0, 0)
     os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
@@ -6595,10 +6609,9 @@ def test_every_strategy_stamps_native_resolution_beside_the_target():
     (measured 2026-09-17: 229 usgs3dep manifests on the corpus had no
     ``native_resolution_m``).  Read structurally so a NEW strategy cannot
     reintroduce the omission."""
-    import inspect
     import re
 
-    source = inspect.getsource(INSETS)
+    source = inset_code_source()
     # Every manifest literal that states the warp target must state the
     # source's own resolution too; they are three lines apart at most.
     blocks = [match.start() for match in

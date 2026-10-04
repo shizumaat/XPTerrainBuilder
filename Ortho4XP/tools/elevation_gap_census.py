@@ -438,7 +438,7 @@ def ladder_would_deliver(row: dict[str, Any], args: argparse.Namespace, INSETS: 
     root = INSETS.elevation_providers_dict[args.ladder_root]
     rungs, chosen = [], None
     for index, (label, rung) in enumerate(INSETS._ladder_rung_definitions(root, box_)):
-        if not INSETS._coverage_bbox_intersects(rung, box_):
+        if not ea_definitions._coverage_bbox_intersects(rung, box_):
             continue  # not a rung for this airport (spec §1: coverage-boxed)
         ds = _tnm_dataset_key(rung)
         share, evidence = None, ""

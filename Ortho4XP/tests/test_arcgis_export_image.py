@@ -32,6 +32,12 @@ import pytest
 sys.path.insert(0, "src")
 
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import base as ea_base
+from elevation_access import capabilities as ea_capabilities
+from elevation_access import definitions as ea_definitions
+from elevation_access.strategies import arcgis_export_image as ea_arcgis_export_image
+from elevation_access.strategies import wcs_kvp as ea_wcs_kvp
 import O4_UI_Utils as UI
 
 gdal = pytest.importorskip("osgeo.gdal")
@@ -163,14 +169,14 @@ def _assert_tiles_exactly(chunks, width, height, max_px, max_w=None,
 def test_a_76_mpx_box_is_13_chunks_at_6_mpx():
     """Spec §6.5: the DOGAMI-sized box (8718 x 8718 = 76.0 Mpx, no side
     limit -- maxImageWidth/Height 120,000) is the floor ceil(76/6)."""
-    chunks = INSETS.export_image_chunk_grid(8718, 8718, 6000000)
+    chunks = ea_arcgis_export_image.export_image_chunk_grid(8718, 8718, 6000000)
     assert len(chunks) == 13
     _assert_tiles_exactly(chunks, 8718, 8718, 6000000)
 
 
 def test_the_per_side_limits_bind():
     """Hillsborough's service: 15,000 wide, 4,100 tall at most."""
-    chunks = INSETS.export_image_chunk_grid(7000, 9000, 6000000,
+    chunks = ea_arcgis_export_image.export_image_chunk_grid(7000, 9000, 6000000,
                                             15000, 4100)
     _assert_tiles_exactly(chunks, 7000, 9000, 6000000, 15000, 4100)
     assert len(chunks) == 11
@@ -186,7 +192,7 @@ def test_the_per_side_limits_bind():
 ])
 def test_the_chunker_covers_once_within_every_limit(width, height, max_px,
                                                     max_w, max_h):
-    chunks = INSETS.export_image_chunk_grid(width, height, max_px, max_w,
+    chunks = ea_arcgis_export_image.export_image_chunk_grid(width, height, max_px, max_w,
                                             max_h)
     _assert_tiles_exactly(chunks, width, height, max_px, max_w, max_h)
     assert len(chunks) >= -(-width * height // max_px)
@@ -235,7 +241,7 @@ def test_the_elv_parser_keeps_a_rendering_rule_json_intact(tmp_path):
     registry = INSETS.initialize_elevation_providers_dict(str(tmp_path))
     assert registry["RULED"]["rendering_rule"] == rule
     assert registry["RULED"]["enabled"] is True
-    strategy = INSETS.ArcgisExportImageStrategy()
+    strategy = ea_arcgis_export_image.ArcgisExportImageStrategy()
     definition = dict(registry["RULED"], native_resolution_m=0.9144)
     grid = strategy.request_grid(definition, KEUG_BOX)
     url = strategy.chunk_url(definition, grid, (0, 0, 10, 10))
@@ -253,7 +259,7 @@ def test_the_shipped_exportimage_providers_carry_nodata():
         assert definition["nodata"] == "-9999"
         assert "noData={nodata}" in definition["wcs_getcoverage_template"]
         assert "definition_refusal" not in definition
-        url = INSETS.WcsKvpStrategy()._request_url(
+        url = ea_wcs_kvp.WcsKvpStrategy()._request_url(
             definition, definition["coverage_bbox"], 50.0)
         assert "noData=-9999&" in url
     for (code, unit, epsg) in (("OREGONDOGAMI", "ft", "6557"),
@@ -275,7 +281,7 @@ def test_the_shipped_exportimage_providers_carry_nodata():
                 (-135.09, 60.70, -135.05, 60.72),  # CYXY
                 (-77.13, -12.03, -77.10, -12.01)):  # SPJC
         for code in ("OREGONDOGAMI", "HILLSBOROUGHNATIVE"):
-            assert not INSETS._coverage_bbox_intersects(registry[code], box)
+            assert not ea_definitions._coverage_bbox_intersects(registry[code], box)
 
 
 # ---------------------------------------------------------------------
@@ -285,7 +291,7 @@ def test_the_chunked_feet_export_arrives_in_metres(tmp_path, monkeypatch):
     server = _serve(monkeypatch, lambda query, n: _answer(
         200, _render_tiff(query)))
     definition = _definition()
-    strategy = INSETS.ArcgisExportImageStrategy()
+    strategy = ea_arcgis_export_image.ArcgisExportImageStrategy()
     grid = strategy.request_grid(definition, KEUG_BOX, 5.0)
     expected_chunks = strategy.chunks(definition, grid)
     assert len(expected_chunks) > 1
@@ -332,7 +338,7 @@ def test_the_chunked_feet_export_arrives_in_metres(tmp_path, monkeypatch):
 def test_a_cap_is_unavailable_before_any_get(tmp_path, monkeypatch):
     server = _serve(monkeypatch, lambda query, n: pytest.fail("a GET"))
     definition = _definition(max_bytes_per_airport="1000")
-    with pytest.raises(INSETS.ProviderUnavailable) as raised:
+    with pytest.raises(ea_base.ProviderUnavailable) as raised:
         INSETS.fetch_inset(definition, KEUG_BOX, 5.0,
                            str(tmp_path / "KEUG_TESTEXPORT.tif"))
     assert "max_bytes_per_airport" in raised.value.reason
@@ -344,7 +350,7 @@ def test_an_untagged_chunk_is_refused_never_sea_level(tmp_path, monkeypatch):
     """#155: the empty-noData answer -- 0.0 with no nodata tag."""
     _serve(monkeypatch, lambda query, n: _answer(
         200, _render_tiff(query, tagged=False)))
-    with pytest.raises(INSETS.ProviderUnavailable) as raised:
+    with pytest.raises(ea_base.ProviderUnavailable) as raised:
         INSETS.fetch_inset(_definition(), KEUG_BOX, 5.0,
                            str(tmp_path / "KEUG_TESTEXPORT.tif"))
     assert "#155" in raised.value.reason
@@ -359,7 +365,7 @@ def test_an_oversize_answer_is_a_chunker_bug_not_a_transient(
     for status in (200, 500):
         _serve(monkeypatch, lambda query, n: _answer(
             status, body, body.decode()))
-        with pytest.raises(INSETS.ProviderUnavailable) as raised:
+        with pytest.raises(ea_base.ProviderUnavailable) as raised:
             INSETS.fetch_inset(_definition(), KEUG_BOX, 5.0,
                                str(tmp_path / "KEUG_TESTEXPORT.tif"))
         assert "CHUNKER BUG" in raised.value.reason
@@ -368,10 +374,10 @@ def test_an_oversize_answer_is_a_chunker_bug_not_a_transient(
 def test_a_5xx_is_retried_then_transient(tmp_path, monkeypatch):
     server = _serve(monkeypatch, lambda query, n: _answer(
         503, b"", "Service Unavailable"))
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         INSETS.fetch_inset(_definition(), KEUG_BOX, 5.0,
                            str(tmp_path / "KEUG_TESTEXPORT.tif"))
-    assert len(server.urls) == INSETS.EXPORT_IMAGE_TRANSIENT_ATTEMPTS
+    assert len(server.urls) == ea_arcgis_export_image.EXPORT_IMAGE_TRANSIENT_ATTEMPTS
 
 
 def test_one_5xx_then_the_chunk_arrives(tmp_path, monkeypatch):
@@ -389,14 +395,14 @@ def test_one_5xx_then_the_chunk_arrives(tmp_path, monkeypatch):
 def test_a_non_tiff_200_is_transient(tmp_path, monkeypatch):
     _serve(monkeypatch, lambda query, n: _answer(
         200, b"<html>maintenance</html>"))
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         INSETS.fetch_inset(_definition(), KEUG_BOX, 5.0,
                            str(tmp_path / "KEUG_TESTEXPORT.tif"))
 
 
 def test_a_404_is_unavailable_never_no_coverage(tmp_path, monkeypatch):
     _serve(monkeypatch, lambda query, n: _answer(404, b"", "Not Found"))
-    with pytest.raises(INSETS.ProviderUnavailable):
+    with pytest.raises(ea_base.ProviderUnavailable):
         INSETS.fetch_inset(_definition(), KEUG_BOX, 5.0,
                            str(tmp_path / "KEUG_TESTEXPORT.tif"))
 
@@ -435,8 +441,8 @@ def test_outside_the_coverage_box_no_call(tmp_path, monkeypatch):
 
 def test_lerc_without_the_decoder_is_unavailable(tmp_path, monkeypatch):
     server = _serve(monkeypatch, lambda query, n: pytest.fail("a GET"))
-    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: False)
-    with pytest.raises(INSETS.ProviderUnavailable):
+    patch_inset_code(monkeypatch, "lerc_decode_available", lambda: False)
+    with pytest.raises(ea_base.ProviderUnavailable):
         INSETS.fetch_inset(_definition(export_format="lerc",
                                        lerc_max_error="0.01"),
                            KEUG_BOX, 5.0,
@@ -450,7 +456,7 @@ def test_the_lerc_chunks_decode_uncropped_and_georeference(
     (the shared worker; ``*.lercimg`` is never cropped to a 256 tile)
     and laid back on the request grid."""
     definition = _definition(export_format="lerc", lerc_max_error="0.001")
-    strategy = INSETS.ArcgisExportImageStrategy()
+    strategy = ea_arcgis_export_image.ArcgisExportImageStrategy()
     grid = strategy.request_grid(definition, KEUG_BOX, 5.0)
     chunks = strategy.chunks(definition, grid)
     (x_min, y_max, pixel, _w, _h, _epsg) = grid
@@ -524,7 +530,7 @@ def test_wcs_kvp_fills_nodata_and_refuses_an_untagged_answer(
     assert "noData=-9999&" in seen[-1]
     monkeypatch.setattr(requests, "get", lambda url, timeout=None,
                         headers=None: fake_get(url, tagged=False))
-    with pytest.raises(INSETS.ProviderUnavailable) as raised:
+    with pytest.raises(ea_base.ProviderUnavailable) as raised:
         INSETS.fetch_inset(definition, KEUG_BOX, 5.0,
                            str(tmp_path / "KEUG_B.tif"))
     assert "#155" in raised.value.reason

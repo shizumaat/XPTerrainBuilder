@@ -19,6 +19,11 @@ import numpy
 import pytest
 
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import base as ea_base
+from elevation_access import discovery as ea_discovery
+from elevation_access.strategies import tnm_cog as ea_tnm_cog
+from elevation_access import warp as ea_warp
 
 gdal = pytest.importorskip("osgeo.gdal")
 from osgeo import osr  # noqa: E402
@@ -97,17 +102,17 @@ def test_height_unit_rules(tmp_path):
         path = _write_tile(tmp_path / ("t%d.tif" % number), value=100.0,
                            pixel=pixel, **kwargs)
         dataset = gdal.Open(path)
-        (got, _name, got_rule) = INSETS.raster_height_unit(dataset)
+        (got, _name, got_rule) = ea_tnm_cog.raster_height_unit(dataset)
         assert got == pytest.approx(factor, rel=1e-9), kwargs
         assert got_rule == rule, kwargs
-        assert INSETS.raster_native_resolution_m(dataset) == pytest.approx(
+        assert ea_tnm_cog.raster_native_resolution_m(dataset) == pytest.approx(
             pixel * (FTUS if kwargs["epsg"] == SPFT else 1.0), rel=1e-6)
         dataset = None
 
 
 def test_metre_scaled_vrt_keeps_nodata(tmp_path):
     tile = _write_tile(tmp_path / "ft.tif", SPFT, 1000.0, 3.0)
-    vrt = INSETS._metre_scaled_vrt(tile, FTUS, str(tmp_path / "ft.vrt"))
+    vrt = ea_tnm_cog._metre_scaled_vrt(tile, FTUS, str(tmp_path / "ft.vrt"))
     dataset = gdal.Open(vrt)
     band = dataset.GetRasterBand(1)
     values = band.ReadAsArray()
@@ -156,7 +161,7 @@ def fake_tnm(monkeypatch):
 
 def test_listing_is_paged(fake_tnm):
     fake_tnm["items"] = [_item("T%03d" % n, "2023-01-01") for n in range(97)]
-    items = INSETS.tnm_listing_items("https://tnm.test/p?x=1", "TNM")
+    items = ea_discovery.tnm_listing_items("https://tnm.test/p?x=1", "TNM")
     assert [item["sourceId"] for item in items] == [
         "T%03d" % n for n in range(97)]
     assert fake_tnm["calls"] == ["https://tnm.test/p?x=1",
@@ -167,15 +172,15 @@ def test_one_page_listing_asks_once(fake_tnm):
     """A 1 m listing (a handful of 10 km tiles) makes exactly the request
     discovery always made -- the controls' listing is unchanged."""
     fake_tnm["items"] = [_item("T1", "2020-01-01")]
-    INSETS.tnm_listing_items("https://tnm.test/p", "TNM")
+    ea_discovery.tnm_listing_items("https://tnm.test/p", "TNM")
     assert fake_tnm["calls"] == ["https://tnm.test/p"]
 
 
 def test_a_listing_that_stops_short_is_transient(fake_tnm):
     fake_tnm["items"] = [_item("T%03d" % n, "2023") for n in range(97)]
     fake_tnm["drop_page"] = 50
-    with pytest.raises(INSETS.TransientFetchError, match="97 product"):
-        INSETS.tnm_listing_items("https://tnm.test/p", "TNM")
+    with pytest.raises(ea_base.TransientFetchError, match="97 product"):
+        ea_discovery.tnm_listing_items("https://tnm.test/p", "TNM")
 
 
 def _opr_definition(**overrides):
@@ -212,10 +217,10 @@ def test_fetch_reads_units_and_resolution_from_the_files(tmp_path, fake_tnm,
                          _item("NEWM", "2023-01-01"),
                          _item("IFSAR", "2010-01-01")]
     monkeypatch.setattr(
-        INSETS.TnmCloudOptimizedGeoTiffStrategy, "_warp_input_for",
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy, "_warp_input_for",
         lambda self, source: paths[source["source_id"]])
     destination = str(tmp_path / "out" / "KGEG_usgs3dep.tif.rung2")
-    strategy = INSETS.TnmCloudOptimizedGeoTiffStrategy()
+    strategy = ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy()
     provenance = strategy.fetch(_opr_definition(), BOX, 1.0, destination)
     dataset = gdal.Open(destination)
     values = dataset.GetRasterBand(1).ReadAsArray()
@@ -251,9 +256,9 @@ def test_only_coarse_products_is_no_coverage_with_the_listing_kept(
     paths = {"IFSAR": _write_tile(tmp_path / "ifsar.tif", UTM, -50.0, 5.0)}
     fake_tnm["items"] = [_item("IFSAR", "2010-01-01")]
     monkeypatch.setattr(
-        INSETS.TnmCloudOptimizedGeoTiffStrategy, "_warp_input_for",
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy, "_warp_input_for",
         lambda self, source: paths[source["source_id"]])
-    strategy = INSETS.TnmCloudOptimizedGeoTiffStrategy()
+    strategy = ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy()
     assert strategy.fetch(_opr_definition(), BOX, 1.0,
                           str(tmp_path / "a.tif")) is None
     assert INSETS._listing_ids(strategy.last_listing) == ["IFSAR"]
@@ -262,10 +267,10 @@ def test_only_coarse_products_is_no_coverage_with_the_listing_kept(
 def test_unreadable_header_is_transient(tmp_path, fake_tnm, monkeypatch):
     fake_tnm["items"] = [_item("GONE", "2023-01-01")]
     monkeypatch.setattr(
-        INSETS.TnmCloudOptimizedGeoTiffStrategy, "_warp_input_for",
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy, "_warp_input_for",
         lambda self, source: str(tmp_path / "missing.tif"))
-    with pytest.raises(INSETS.TransientFetchError, match="header of GONE"):
-        INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    with pytest.raises(ea_base.TransientFetchError, match="header of GONE"):
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
             _opr_definition(), BOX, 1.0, str(tmp_path / "a.tif"))
 
 
@@ -276,19 +281,19 @@ def test_usgs3dep_rung_zero_is_untouched_by_source_units(
     paths = {"M": _write_tile(tmp_path / "m.tif", UTM, 400.0, 1.0)}
     fake_tnm["items"] = [_item("M", "2020-01-01")]
     monkeypatch.setattr(
-        INSETS.TnmCloudOptimizedGeoTiffStrategy, "_warp_input_for",
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy, "_warp_input_for",
         lambda self, source: paths[source["source_id"]])
     seen = []
-    real = INSETS.warp_vsicurl_sources_to_geotiff
+    real = ea_warp.warp_vsicurl_sources_to_geotiff
 
     def _spy(inputs, *args, **kwargs):
         seen.append((list(inputs), kwargs.get("gdal_configuration_options")))
         return real(inputs, *args, **kwargs)
 
-    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _spy)
-    monkeypatch.setattr(INSETS, "_inspect_raster_source",
+    patch_inset_code(monkeypatch, "warp_vsicurl_sources_to_geotiff", _spy)
+    patch_inset_code(monkeypatch, "_inspect_raster_source",
                         lambda *a: pytest.fail("header read"))
-    provenance = INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    provenance = ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
         {"code": "USGS3DEPTEST", "access_strategy": "tnm_cog",
          "discovery_url_template": "https://tnm.test/p",
          "native_resolution_m": 1.0}, BOX, 1.0, str(tmp_path / "b.tif"))

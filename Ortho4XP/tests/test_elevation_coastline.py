@@ -29,6 +29,7 @@ sys.path.insert(
 )
 
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import warp as ea_warp
 import O4_Elevation_Level as ELEVATION_LEVEL
 import O4_File_Names as FNAMES
 
@@ -732,7 +733,7 @@ def test_geotiff_is_constant_value_probe(tmp_path):
     )
     assert INSETS.geotiff_is_constant_value(constant_zero) is True
     # ... and the pre-guard validity check is exactly what let it through.
-    assert INSETS._geotiff_has_valid_data(constant_zero) is True
+    assert ea_warp._geotiff_has_valid_data(constant_zero) is True
 
     constant_nonzero = str(tmp_path / "constant_nonzero.tif")
     _write_cell_geotiff(

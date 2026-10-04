@@ -33,6 +33,12 @@ import numpy
 import pytest
 
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import base as ea_base
+from elevation_access import definitions as ea_definitions
+from elevation_access import downloads as ea_downloads
+from elevation_access import fetch_slots as ea_fetch_slots
+from elevation_access.strategies import tnm_cog as ea_tnm_cog
 
 gdal = pytest.importorskip("osgeo.gdal")
 from osgeo import osr  # noqa: E402
@@ -299,10 +305,10 @@ def test_the_synthetic_layout_really_is_stripped(tmp_path):
     assert (block_x, block_y) == (width, 1)
     (width, (block_x, _block_y)) = _block_shape(cog)
     assert block_x == 128 < width
-    assert INSETS._raster_source_is_stripped(
-        INSETS._inspect_raster_source(stripped))
-    assert not INSETS._raster_source_is_stripped(
-        INSETS._inspect_raster_source(cog))
+    assert ea_tnm_cog._raster_source_is_stripped(
+        ea_tnm_cog._inspect_raster_source(stripped))
+    assert not ea_tnm_cog._raster_source_is_stripped(
+        ea_tnm_cog._inspect_raster_source(cog))
 
 
 def test_prefetch_output_is_byte_identical_to_the_window_read(layout,
@@ -312,7 +318,7 @@ def test_prefetch_output_is_byte_identical_to_the_window_read(layout,
     prefetch, produces the same raster -- and the prefetch asks for each
     tile exactly ONCE, with no Range header."""
     served = layout(stripped_ids=("S0", "S1"))
-    strategy = INSETS.TnmCloudOptimizedGeoTiffStrategy()
+    strategy = ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy()
 
     window_out = str(tmp_path / "win" / "KGEG_window.tif")
     window_record = strategy.fetch(
@@ -350,7 +356,7 @@ def test_a_tiled_cog_stays_on_the_window_read(layout, tmp_path):
     never prefetched; a stripped neighbour in the same listing still is."""
     served = layout(stripped_ids=("S0",), cog_ids=("C0",))
     destination = str(tmp_path / "mix" / "KGEG_mixed.tif")
-    record = INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    record = ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
         _definition(served, "OPRMIXED"), BOX, 1.0, destination)
     assert record["sources_stripped"] == 1
     assert record["sources_prefetched_whole"] == 1
@@ -364,7 +370,7 @@ def test_the_pool_is_bounded_by_fetch_slots(layout, tmp_path, monkeypatch):
     served = layout(stripped_ids=("S0", "S1", "S2", "S3"))
     state = {"now": 0, "peak": 0}
     lock = threading.Lock()
-    real = INSETS.download_whole
+    real = ea_downloads.download_whole
 
     def _counted(*args, **kwargs):
         with lock:
@@ -376,8 +382,8 @@ def test_the_pool_is_bounded_by_fetch_slots(layout, tmp_path, monkeypatch):
             with lock:
                 state["now"] -= 1
 
-    monkeypatch.setattr(INSETS, "download_whole", _counted)
-    record = INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    patch_inset_code(monkeypatch, "download_whole", _counted)
+    record = ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
         _definition(served, "OPRSLOTS", fetch_slots="2"), BOX, 1.0,
         str(tmp_path / "slots" / "KGEG_slots.tif"))
     assert record["sources_prefetched_whole"] == 4
@@ -393,8 +399,8 @@ def test_a_5xx_mid_prefetch_is_transient_and_leaves_no_scratch(layout,
     served = layout(stripped_ids=("S0", "S1", "S2", "S3"),
                     whole_statuses={"S2": 500})
     destination = str(tmp_path / "boom" / "KGEG_boom.tif")
-    with pytest.raises(INSETS.TransientFetchError, match="S2"):
-        INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    with pytest.raises(ea_base.TransientFetchError, match="S2"):
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
             _definition(served, "OPR5XX"), BOX, 1.0, destination)
     assert os.listdir(os.path.dirname(destination)) == []
 
@@ -405,8 +411,8 @@ def test_a_404_tile_is_unavailable_never_no_coverage(layout, tmp_path):
     ``None`` would record."""
     served = layout(stripped_ids=("S0", "S9"),
                     whole_statuses={"S9": 404})
-    with pytest.raises(INSETS.ProviderUnavailable, match="S9"):
-        INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    with pytest.raises(ea_base.ProviderUnavailable, match="S9"):
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
             _definition(served, "OPR404"), BOX, 1.0,
             str(tmp_path / "gone" / "KGEG_gone.tif"))
 
@@ -417,7 +423,7 @@ def test_the_byte_threshold_is_judged_before_any_get(layout, tmp_path):
     window read carries the fetch, and the record says why."""
     served = layout(stripped_ids=("S0", "S1"))
     destination = str(tmp_path / "cap" / "KGEG_cap.tif")
-    record = INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    record = ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
         _definition(served, "OPRCAP", prefetch_whole_max_bytes="1"),
         BOX, 1.0, destination)
     assert record["sources_stripped"] == 2
@@ -431,7 +437,7 @@ def test_the_byte_threshold_is_judged_before_any_get(layout, tmp_path):
 
 def test_the_provider_can_switch_the_prefetch_off(layout, tmp_path):
     served = layout(stripped_ids=("S0",))
-    record = INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    record = ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
         _definition(served, "OPROFF", prefetch_whole_stripped="False"),
         BOX, 1.0, str(tmp_path / "off" / "KGEG_off.tif"))
     assert record["prefetch_whole_skipped"] == (
@@ -454,9 +460,9 @@ def test_download_zip_whole_rides_the_one_whole_file_downloader(monkeypatch,
             handle.write(b"not a zip")
         return True
 
-    monkeypatch.setattr(INSETS, "download_whole", _spy)
+    patch_inset_code(monkeypatch, "download_whole", _spy)
     scratch = str(tmp_path / "a.zip")
-    assert INSETS.download_zip_whole(
+    assert ea_downloads.download_zip_whole(
         {"code": "Z"}, {"source_id": "T", "download_url": "u"},
         scratch, None, "label") is True
     assert seen["label"] == "label"
@@ -467,6 +473,6 @@ def test_download_zip_whole_rides_the_one_whole_file_downloader(monkeypatch,
 def test_usgsopr_elv_declares_the_prefetch():
     """The shipped provider carries the keys the measurement asked for."""
     definition = INSETS.initialize_elevation_providers_dict()["USGSOPR"]
-    assert INSETS.provider_fetch_slots(definition) == 8
-    assert INSETS._parse_float(
+    assert ea_fetch_slots.provider_fetch_slots(definition) == 8
+    assert ea_definitions._parse_float(
         definition["prefetch_whole_max_bytes"]) == pytest.approx(3.0e9)

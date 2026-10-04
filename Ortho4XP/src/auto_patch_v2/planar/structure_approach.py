@@ -25,20 +25,12 @@ from ..model.frame import XY
 from ..airport.deck_signature import (DEFAULT_TUNNEL_VALUES, is_bridge_way,
                                       is_tunnel_way)
 from ..classify.roles import Cell
+from ..geom.union_find import find_root
+from ..airport.dem import dem_z_at
+from ..geom.vector import unit_vector
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
-
-def _dem(airport: Airport, p: XY) -> float:
-    """ONE implementation with ``planar/structures._dem`` (the DEM sample
-    at a frame point)."""
-    return float(airport.dem.z(p[0], p[1]))
-
-
-def _parts(geom) -> list[Polygon]:
-    if geom is None or geom.is_empty:
-        return []
-    return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]
 
 __all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
@@ -298,10 +290,9 @@ class Mouth:
     ways: tuple[int, ...]
 
 
-def unit(a: XY, b: XY) -> XY:
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    L = math.hypot(dx, dy) or 1.0
-    return (dx / L, dy / L)
+#: The unit vector from ``a`` towards ``b`` — ``geom.vector.unit_vector``,
+#: under the name the planar structure modules import it by.
+unit = unit_vector
 
 
 def under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
@@ -674,19 +665,14 @@ def merge_duals(mouths: list[Mouth], law: Law, stats
     n = len(mouths)
     parent = list(range(n))
 
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
 
     for i in range(n):
         for j in range(i + 1, n):
             if _parallel(mouths[i], mouths[j], sep_max):
-                parent[find(i)] = find(j)
+                parent[find_root(parent, i)] = find_root(parent, j)
     groups: dict[int, list[Mouth]] = {}
     for i in range(n):
-        groups.setdefault(find(i), []).append(mouths[i])
+        groups.setdefault(find_root(parent, i), []).append(mouths[i])
     out = []
     for members in groups.values():
         if len(members) == 1:
@@ -767,7 +753,7 @@ def ramp_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: fl
         # DEM 8.4 m under the datum 24 m out) is descended to, never
         # stepped down to
         reach = g * (s - climb_from)
-        d = _dem(airport, axis_fn(s))
+        d = dem_z_at(airport, axis_fn(s))
         if math.isnan(d):
             return None, ss
         if abs(d - mouth_z) <= reach:
@@ -785,7 +771,7 @@ def approach_ground(airport: Airport, axis_fn, band_m: float, spacing: float) ->
     zs = []
     s = band_m
     while s <= 4.0 * band_m + 1e-9:
-        z = _dem(airport, axis_fn(s))
+        z = dem_z_at(airport, axis_fn(s))
         if not math.isnan(z):
             zs.append(z)
         s += max(spacing, 1.0)

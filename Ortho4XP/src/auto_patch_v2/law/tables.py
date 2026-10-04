@@ -17,6 +17,7 @@ from .model import (Affordances, Cockpit, Declared, Family, FlatSite, Law,
                     RoleCap, ZoneClass, load_tables, resolve_ruleset)
 
 __all__ = [
+    "footprint_touch_m",
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
     "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
     "pavement_roles", "pavement_fallback_cap", "authority_rank",
@@ -733,3 +734,10 @@ def pad_admission(law: Law) -> PadAdmission:
         building_evidence=bool(getattr(p, "building_evidence", False)),
         evidence_min_height_m=float(getattr(p, "evidence_min_height_m", 0.0)),
         evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)))
+
+
+def footprint_touch_m(law: Law) -> float:
+    """§16g (7) (1) / (10) (2): ``[placement] footprint_touch_m`` — ONE
+    read of the tolerance a cluster is CHAINED with and its outline is
+    CLOSED with (``geom.cluster_outlines`` rule 2)."""
+    return float(law.tables.structures.placement.footprint_touch_m)

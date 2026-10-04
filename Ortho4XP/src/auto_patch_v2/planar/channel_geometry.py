@@ -27,14 +27,11 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
 from .structure_approach import unit
+from ..airport.dem import dem_z_at
 
 __all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_along', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts', '_ends', '_witness_along', '_lidar_cut', '_confirmed']
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
-
-
-def _dem(airport: Airport, p: XY) -> float:
-    return float(airport.dem.z(p[0], p[1]))
 
 
 def _hole_region(union, field=None):
@@ -265,7 +262,7 @@ def _lidar_floor(airport: Airport, axis_fn, s: float, window_m: float) -> float:
     k = max(2, int(window_m // 2.0))
     for i in range(-k, k + 1):
         t = i * (window_m / (2.0 * k))
-        z = _dem(airport, (p[0] + nv[0] * t, p[1] + nv[1] * t))
+        z = dem_z_at(airport, (p[0] + nv[0] * t, p[1] + nv[1] * t))
         if math.isnan(z):
             continue
         best = z if math.isnan(best) else min(best, z)
@@ -310,7 +307,7 @@ def _lidar_cut(airport: Airport, law: Law, axis_fn, ss, cap: float) -> bool:
             top = float("nan")
             t = step
             while t <= cap:
-                z = _dem(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
+                z = dem_z_at(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
                 if not math.isnan(z):
                     top = z if math.isnan(top) else max(top, z)
                 t += step
@@ -335,7 +332,7 @@ def _bank_width(airport: Airport, axis_fn, ss, profile, slope: float, shape: str
     from ..model.structures import profile_z
     drops = []
     for s in ss:
-        z = _dem(airport, axis_fn(s))
+        z = dem_z_at(airport, axis_fn(s))
         if math.isnan(z):
             continue
         drops.append(max(0.0, z - profile_z(profile, s)))
@@ -408,7 +405,7 @@ def _bank_toe_half(airport: Airport, law: Law, axis_fn, ss, cap: float,
             toe: float | None = None
             t = step
             while t <= cap:
-                z = _dem(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
+                z = dem_z_at(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
                 if not math.isnan(z) and (z - flr) >= rise:
                     if _confirmed(airport, p, nv, sgn, t, confirm, step, flr, rise, cap):
                         toe = t
@@ -421,10 +418,10 @@ def _bank_toe_half(airport: Airport, law: Law, axis_fn, ss, cap: float,
                 continue
             # the TOP: outward from the toe while the DTM still climbs
             top = toe
-            run = _dem(airport, (p[0] + nv[0] * sgn * toe, p[1] + nv[1] * sgn * toe))
+            run = dem_z_at(airport, (p[0] + nv[0] * sgn * toe, p[1] + nv[1] * sgn * toe))
             t = toe + step
             while t <= cap:
-                z = _dem(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
+                z = dem_z_at(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
                 if math.isnan(z) or z <= run + tol:
                     break
                 run = z
@@ -456,7 +453,7 @@ def _confirmed(airport: Airport, p: XY, nv: XY, sgn: float, t0: float,
     t = t0 + step
     end = t0 + confirm_m
     while t <= end:
-        z = _dem(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
+        z = dem_z_at(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
         if math.isnan(z):
             return t >= cap                 # the DTM ends: take the toe
         if (z - floor_z) < rise:
@@ -530,8 +527,8 @@ def _ends(airport: Airport, law: Law, decks, axis_ln: LineString, axis_fn,
                 a, b = axis_fn(max(0.0, t - 1.0)), axis_fn(t + 1.0)
                 u = unit(a, b)
                 nv = (-u[1], u[0])
-                rim = max(_dem(airport, (p[0] + nv[0] * half_at, p[1] + nv[1] * half_at)),
-                          _dem(airport, (p[0] - nv[0] * half_at, p[1] - nv[1] * half_at)))
+                rim = max(dem_z_at(airport, (p[0] + nv[0] * half_at, p[1] + nv[1] * half_at)),
+                          dem_z_at(airport, (p[0] - nv[0] * half_at, p[1] - nv[1] * half_at)))
                 flr = _lidar_floor(airport, axis_fn, t, window)
                 if math.isnan(rim) or math.isnan(flr) or (rim - flr) < depth:
                     break

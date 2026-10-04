@@ -30,6 +30,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..model.frame import XY
+from ..geom.vector import unit_vector
 
 __all__ = ["WallLines", "Station", "read_wall_lines", "stations_along", "midline"]
 
@@ -107,12 +108,6 @@ def _ring(poly_ring) -> list[XY]:
     return c
 
 
-def _dir(a: XY, b: XY) -> XY:
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    L = math.hypot(dx, dy) or 1.0
-    return (dx / L, dy / L)
-
-
 def _length(pts: _t.Sequence[XY]) -> float:
     return sum(math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
                for i in range(len(pts) - 1))
@@ -127,8 +122,8 @@ def _free_ends(ring: list[XY], max_len: float) -> list[int]:
         a, b = ring[i], ring[(i + 1) % n]
         if math.hypot(b[0] - a[0], b[1] - a[1]) > max_len:
             continue
-        d_prev = _dir(ring[(i - 1) % n], a)
-        d_next = _dir(b, ring[(i + 2) % n])
+        d_prev = unit_vector(ring[(i - 1) % n], a)
+        d_next = unit_vector(b, ring[(i + 2) % n])
         if d_prev[0] * d_next[0] + d_prev[1] * d_next[1] <= _REVERSAL_COS:
             out.append(i)
     return out
@@ -140,8 +135,8 @@ def _corners(chain: list[XY]) -> list[int]:
     out = []
     cos_lim = math.cos(math.radians(_CORNER_DEG))
     for i in range(1, len(chain) - 1):
-        d0 = _dir(chain[i - 1], chain[i])
-        d1 = _dir(chain[i], chain[i + 1])
+        d0 = unit_vector(chain[i - 1], chain[i])
+        d1 = unit_vector(chain[i], chain[i + 1])
         if d0[0] * d1[0] + d0[1] * d1[1] < cos_lim:
             out.append(i)
     return out
@@ -160,8 +155,8 @@ def _drop_jogs(chain: list[XY], corners: list[int], jog_max: float) -> list[int]
         if i + 1 < len(corners):
             d = corners[i + 1]
             if _length(chain[c: d + 1]) <= jog_max:
-                d0 = _dir(chain[c - 1], chain[c])
-                d1 = _dir(chain[d], chain[d + 1])
+                d0 = unit_vector(chain[c - 1], chain[c])
+                d1 = unit_vector(chain[d], chain[d + 1])
                 if d0[0] * d1[0] + d0[1] * d1[1] >= cos_lim:
                     i += 2
                     continue
@@ -265,7 +260,7 @@ def read_wall_lines(plate, law) -> WallLines | str:
             th = []
             for ew, p0 in zip(end_walls, (a[0], a[-1])):
                 mid = ((ew[0][0] + ew[-1][0]) / 2.0, (ew[0][1] + ew[-1][1]) / 2.0)
-                u = _dir(mid, a[0] if p0 is a[-1] else a[-1])
+                u = unit_vector(mid, a[0] if p0 is a[-1] else a[-1])
                 t = _thickness_at(mid, (-u[0], -u[1]), plate_u, 3.0 * tmax)
                 th.append(t if t else mean_t)
             # the end walls' inner faces from a's end to b's end
@@ -296,7 +291,7 @@ def read_wall_lines(plate, law) -> WallLines | str:
         end_wall = inner[i1: i2 + 1]
         side_b = inner[i2:]
         mid = ((end_wall[0][0] + end_wall[-1][0]) / 2.0, (end_wall[0][1] + end_wall[-1][1]) / 2.0)
-        u = _dir(mid, ((side_a[-1][0] + side_b[-1][0]) / 2.0, (side_a[-1][1] + side_b[-1][1]) / 2.0))
+        u = unit_vector(mid, ((side_a[-1][0] + side_b[-1][0]) / 2.0, (side_a[-1][1] + side_b[-1][1]) / 2.0))
         t = _thickness_at(mid, (-u[0], -u[1]), plate_u, 3.0 * tmax)
         return WallLines(plate_u, side_a, side_b, (True, False), (t if t else mean_t, 0.0),
                          mean_t, "U", (tuple(end_wall), ()))
@@ -318,7 +313,7 @@ def read_wall_lines(plate, law) -> WallLines | str:
                      / max(len(chains[j]), 1))
             inners.append(chains[ki])
         a, b = inners
-        da, db = _dir(a[0], a[-1]), _dir(b[0], b[-1])
+        da, db = unit_vector(a[0], a[-1]), unit_vector(b[0], b[-1])
         if da[0] * db[0] + da[1] * db[1] < 0.0:
             b = list(reversed(b))
         return WallLines(plate_u, a, b, (False, False), (0.0, 0.0), mean_t, "II")
@@ -356,7 +351,7 @@ def stations_along(axis: _t.Sequence[XY], walls: WallLines, sample_m: float, gri
     # which side is A on? (the cross product at the axis midpoint)
     pm = ln.interpolate(0.5, normalized=True)
     q0, q1 = ln.interpolate(max(0.0, L * 0.5 - 1.0)), ln.interpolate(min(L, L * 0.5 + 1.0))
-    u = _dir((q0.x, q0.y), (q1.x, q1.y))
+    u = unit_vector((q0.x, q0.y), (q1.x, q1.y))
     pa = A.interpolate(A.project(pm))
     cross = u[0] * (pa.y - pm.y) - u[1] * (pa.x - pm.x)
     left, right = (A, B) if cross >= 0.0 else (B, A)
@@ -368,7 +363,7 @@ def stations_along(axis: _t.Sequence[XY], walls: WallLines, sample_m: float, gri
         inner chain (past a wall's end: the free ends are oblique)."""
         p = ln.interpolate(s)
         a0, a1 = ln.interpolate(max(0.0, s - 1.0)), ln.interpolate(min(L, s + 1.0))
-        u = _dir((a0.x, a0.y), (a1.x, a1.y))
+        u = unit_vector((a0.x, a0.y), (a1.x, a1.y))
         n = (-u[1], u[0])
         halves = []
         thicks = []

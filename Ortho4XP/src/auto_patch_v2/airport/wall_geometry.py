@@ -22,6 +22,8 @@ from . import bulk_geos as _bulk
 from . import frame_entry as _fe
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
+from ..geom.union_find import find_root
+from ..geom.vector import chord_bearing_mod180
 
 #: A face's plan segment shorter than this is a point (a degenerate face).
 _MIN_SEG_M = 0.02
@@ -91,11 +93,6 @@ def _plan_segments_indexed(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[flo
     return out
 
 
-def _bearing(seg: LineString) -> float:
-    (x0, y0), (x1, y1) = seg.coords[0], seg.coords[-1]
-    return (math.degrees(math.atan2(x1 - x0, y1 - y0)) + 360.0) % 180.0
-
-
 def _angle_diff(a: float, b: float) -> float:
     d = abs(a - b) % 180.0
     return min(d, 180.0 - d)
@@ -111,7 +108,7 @@ def _straight_runs(segs: list[tuple[LineString, int]], parallel_deg: float, t_ma
     a list of indices into ``segs``."""
     clusters: list[tuple[float, list[int]]] = []
     for k, (seg, _t) in enumerate(segs):
-        b = _bearing(seg)
+        b = chord_bearing_mod180(seg)
         for cl in clusters:
             if _angle_diff(b, cl[0]) <= parallel_deg:
                 cl[1].append(k)
@@ -240,11 +237,6 @@ def _merge_walls(bands: list[WallBand], parallel_deg: float, t_max: float, gap_m
     n = len(bands)
     parent = list(range(n))
 
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
     for i in range(n):
         for j in range(i + 1, n):
             A, B = bands[i], bands[j]
@@ -260,10 +252,10 @@ def _merge_walls(bands: list[WallBand], parallel_deg: float, t_max: float, gap_m
             lo, hi, ov = _overlap_along(u, A, B)
             if ov < -gap_m:
                 continue
-            parent[find(i)] = find(j)
+            parent[find_root(parent, i)] = find_root(parent, j)
     groups: dict[int, list[WallBand]] = {}
     for i in range(n):
-        groups.setdefault(find(i), []).append(bands[i])
+        groups.setdefault(find_root(parent, i), []).append(bands[i])
     out: list[WallBand] = []
     for members in groups.values():
         if len(members) == 1:

@@ -171,6 +171,7 @@ from .basin_geometry import (_floors, _floors_inside, _outer, _ramp_axis, _regio
                              _renode, _rim, _snap_ring, rim_wall_report,
                              shell_thickness_m)
 from .structure_geometry import rim_standoff, rim_yield_m
+from ..geom.parts import polygon_parts_with_area
 
 __all__ = ["BasinStats", "read_objects", "build_basins", "FLOOR_ROLE", "WALL_ROLE"]
 
@@ -704,7 +705,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             # §24 (8): the corridor's own climb axis, so the floor faces
             # carry a vertex per station for §24 (5)'s per-station pins
             ax = _ramp_axis(r["faces"])
-            for part in _parts(r["ring"].intersection(rim).difference(plate_floor_u)):
+            for part in polygon_parts_with_area(r["ring"].intersection(rim).difference(plate_floor_u)):
                 for f in _floors_inside([part], rim, standoff, grid):
                     if f.area < grid * grid:
                         continue
@@ -770,7 +771,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             # they govern their own ground per station (§24 (5))
             new_cells.append((FLOOR_ROLE, floor_ref if j == 0 else f"{floor_ref}#{j}", f,
                               tuple(tuple(h.coords)[:-1] for h in f.interiors)))
-        for part in _parts(void):
+        for part in polygon_parts_with_area(void):
             new_cells.append((WALL_ROLE, wall_ref, part,
                               tuple(tuple(h.coords)[:-1] for h in part.interiors)))
         knives.append(rim)
@@ -860,7 +861,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             continue
         rest_p = p.difference(knife)
         stats.cells_cut += 1
-        for j, part in enumerate(_parts(rest_p)):
+        for j, part in enumerate(polygon_parts_with_area(rest_p)):
             if part.area < 0.25:
                 continue
             out_cells.append(Cell(len(out_cells), c.role, c.ref if j == 0 else f"{c.ref}#{j}",
@@ -916,12 +917,6 @@ def _ll(airport: Airport, geom) -> str:
     return f"{la:.6f},{lo:.6f}"
 
 
-def _parts(geom) -> list[Polygon]:
-    if geom is None or geom.is_empty:
-        return []
-    return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]
-
-
 def object_decks(objects: _t.Sequence[obj8.PlacedObject]) -> list[tuple[str, Polygon, float]]:
     """``(object id, hard-deck footprint, rendered deck top)`` per
     hard-deck object — the tunnel pass's object bridges."""
@@ -929,6 +924,6 @@ def object_decks(objects: _t.Sequence[obj8.PlacedObject]) -> list[tuple[str, Pol
     for o in objects:
         if o.hard_deck is None or o.deck_top_z is None:
             continue
-        for part in _parts(o.hard_deck):
+        for part in polygon_parts_with_area(o.hard_deck):
             out.append((o.id, part, float(o.deck_top_z)))
     return out

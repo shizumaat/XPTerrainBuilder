@@ -57,7 +57,6 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import enum
-import hashlib
 import json
 import os
 import re
@@ -66,6 +65,7 @@ import typing as _t
 from datetime import datetime, timezone
 
 from ..model.placement import BACKUP_SUFFIX, PROVENANCE_FILENAME
+from .file_hash import sha256_file_or_none
 
 __all__ = ["State", "Verdict", "BackupUnproven", "OWNERSHIP_PROPERTY",
            "SUPERSEDED_INFIX", "UNRECOGNISED_INFIX", "RECORD_VERSION",
@@ -167,17 +167,6 @@ def _stat(path: str) -> tuple[int, int] | None:
     except OSError:
         return None
     return (st.st_size, st.st_mtime_ns)
-
-
-def _sha256(path: str) -> str | None:
-    h = hashlib.sha256()
-    try:
-        with open(path, "rb") as fh:
-            for chunk in iter(lambda: fh.read(1 << 20), b""):
-                h.update(chunk)
-    except OSError:
-        return None
-    return h.hexdigest()
 
 
 def carries_our_mark(dsf_path: str) -> bool:
@@ -377,7 +366,7 @@ def _same_file(a: str, b: str, digest: dict) -> str:
 def _digest(path: str, memo: dict) -> str | None:
     """sha256 of ``path``, computed at most once per classification."""
     if path not in memo:
-        memo[path] = _sha256(path)
+        memo[path] = sha256_file_or_none(path)
     return memo[path]
 
 
@@ -519,7 +508,7 @@ def backup_matches_record(dsf_path: str) -> bool:
         return True
     if isinstance(size, int) and size != st[0]:
         return False
-    return _sha256(backup) == want                          # rung (iii)
+    return sha256_file_or_none(backup) == want                          # rung (iii)
 
 
 # ── the OBJECT table ────────────────────────────────────────────────────
@@ -605,7 +594,7 @@ def _classify_object(live: str, backup: str, pack_root: str) -> Verdict:
         # equal SIZE, different mtime: ONE byte compare decides O3 from a
         # same-size replacement.  After O3's ``utime`` this pair is row
         # O2 forever, so the compare is a first-build cost only.
-        if _sha256(live) == _sha256(backup):
+        if sha256_file_or_none(live) == sha256_file_or_none(backup):
             # O3: same bytes, moved mtime — sync it and be O2 next time
             return Verdict(State.PRISTINE, live, backup, backup, True,
                            "sha256")
@@ -615,7 +604,7 @@ def _classify_object(live: str, backup: str, pack_root: str) -> Verdict:
     entry = _v1_sidecar(pack_root).get(rel) or {}
     want = entry.get("written_sha256")
     if want:
-        if _sha256(live) == want:
+        if sha256_file_or_none(live) == want:
             return Verdict(State.OURS, live, backup, backup, True, "sha256")
         # O6: a sidecar entry exists and the live file is not what it
         # says we wrote — the user's file.

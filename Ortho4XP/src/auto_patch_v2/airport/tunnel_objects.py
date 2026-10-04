@@ -539,9 +539,10 @@ def _rotated_box(w: WallLines) -> WallLines:
     la, lb = LineString(w.inner_a), LineString(w.inner_b)
     pa, pb = la.interpolate(0.5, normalized=True), lb.interpolate(0.5, normalized=True)
     mid_ab = ((pa.x + pb.x) / 2.0, (pa.y + pb.y) / 2.0)
-    from .tunnel_walls import _dir, _thickness_at
-    ua = _dir(mid_ab, (pa.x, pa.y))
-    ub = _dir(mid_ab, (pb.x, pb.y))
+    from ..geom.vector import unit_vector
+    from .tunnel_walls import _thickness_at
+    ua = unit_vector(mid_ab, (pa.x, pa.y))
+    ub = unit_vector(mid_ab, (pb.x, pb.y))
     ta = _thickness_at((pa.x, pa.y), ua, w.plate, 3.0 * max(w.thickness_m, 0.5))
     tb = _thickness_at((pb.x, pb.y), ub, w.plate, 3.0 * max(w.thickness_m, 0.5))
     return WallLines(w.plate, a, b, (True, True), (ta or w.thickness_m, tb or w.thickness_m),

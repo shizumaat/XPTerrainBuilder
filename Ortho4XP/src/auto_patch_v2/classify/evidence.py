@@ -23,6 +23,7 @@ from ..law.tables import pad_admission
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
 from .rules import Rules
+from ..geom.parts import line_parts
 
 __all__ = ["Chain", "Evidence", "build_evidence", "polygon_from",
            "polygon_parts", "chains_from_edges", "apron_named", "taxi_name_match"]
@@ -343,22 +344,13 @@ def _osm_roads(airport: Airport, truck_chains: list[Chain], pavement_union,
         g = LineString(w.points).intersection(pavement_union)
         if not cover.is_empty:
             g = g.difference(cover)
-        for part in _line_parts(g):
+        for part in line_parts(g):
             if part.length < orr.min_len_m:
                 continue
             out.append(Chain(first_id + len(out), part, (None,) * (len(part.coords) - 1),
                              frozenset([f"osm:{w.id}"]), (False, False), True, (1, 1),
                              aisle=w.tags.get("service") == "parking_aisle"))
     return out
-
-
-def _line_parts(geom) -> list[LineString]:
-    if geom is None or geom.is_empty:
-        return []
-    if geom.geom_type == "LineString":
-        return [geom]
-    return [g for g in getattr(geom, "geoms", ()) if g.geom_type == "LineString"
-            and g.length > 0]
 
 
 def _dsf_pavements(raw: list[tuple[str, Polygon]], apt_union, boundary,

@@ -640,11 +640,6 @@ class ThinBand:
     bearing_deg: float
 
 
-def _bearing(ln: LineString) -> float:
-    (x0, y0), (x1, y1) = ln.coords[0], ln.coords[-1]
-    return (math.degrees(math.atan2(x1 - x0, y1 - y0)) + 360.0) % 180.0
-
-
 def thin_bands(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
                mat, law) -> list[ThinBand]:
     """The resource's thin surface walls, in the AIRPORT frame.

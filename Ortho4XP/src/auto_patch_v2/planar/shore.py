@@ -56,6 +56,7 @@ from shapely.geometry import LineString, Polygon
 
 from ..law import Law
 from ..law.tables import snap_margin_m
+from ..airport.dem import dem_z_many
 
 __all__ = ["SHORE_WALL_TAGS", "SHORE_WITNESSES", "ShoreVerdict", "PackWall",
            "shore_declarations", "pack_shore_walls", "shore_contact",
@@ -174,14 +175,6 @@ def shore_contact(part, water, law: Law):
     return None if c.is_empty or c.length <= 0.0 else c
 
 
-def _dem_many(dem, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
-    many = getattr(dem, "z_many", None)
-    if many is not None:
-        return np.asarray(many(xs, ys), dtype=float)
-    return np.asarray([dem.z(float(x), float(y)) for x, y in zip(xs, ys)],
-                      dtype=float)
-
-
 def _stations(contact) -> list[tuple[float, float, float, float]]:
     """``(x, y, tx, ty)`` stations along ``contact`` (unit tangent)."""
     parts = [g for g in shapely.get_parts(contact)
@@ -234,7 +227,7 @@ def shore_profile(contact, water, dem, law: Law):
     xs = (px[:, None] + nx[:, None] * d[None, :]).ravel()
     ys = (py[:, None] + ny[:, None] * d[None, :]).ravel()
     try:
-        z = _dem_many(dem, xs, ys).reshape(len(st), k + 1)
+        z = dem_z_many(dem, xs, ys).reshape(len(st), k + 1)
     except Exception:                                   # pragma: no cover
         return 0, 0, 0, []
     ok = np.all(np.isfinite(z[:, 1:]), axis=1)

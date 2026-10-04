@@ -13,6 +13,7 @@ import pytest
 
 from auto_patch_v2.airport import obj8, object_cut
 from auto_patch_v2.law import Law
+from auto_patch_v2.geom.vector import chord_bearing_mod180
 
 
 @pytest.fixture(scope="module")
@@ -265,7 +266,7 @@ def _band(ax, ay, bx, by, *, comp=0, width=1.0, height=1.0):
     axis = LineString([(ax, ay), (bx, by)])
     return object_cut.ThinBand(comp, axis.buffer(width / 2.0, cap_style="flat"),
                                axis, float(axis.length), width, height,
-                               object_cut._bearing(axis))
+                               chord_bearing_mod180(axis))
 
 
 def test_pairs_that_meet_end_to_end_are_ONE_mouth_ramp(law):

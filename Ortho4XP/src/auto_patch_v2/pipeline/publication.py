@@ -126,7 +126,8 @@ from ..constraints.roads import road_law_caps
 from ..constraints.runway_profile import crown_drops, runway_half_widths
 from ..constraints.runway_yield import RunwayCap as _RunwayCap
 from ..constraints.runway_yield import TaxiYield as _TaxiYield
-from ..constraints.seams import seam_pins, seam_vertices_pinned
+from ..constraints.seams import GEN as SEAM_GEN, seam_pins
+from ..model.constraints import pinned_vertices
 from ..constraints.stretches import stretches
 from ..constraints.taxi import taxi_pair_routes
 from ..constraints.transverse import axes
@@ -396,7 +397,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     # honour.  A pin holds exactly, so there is no "honoured" subset to
     # filter by, and the census's ``seam_residual`` family reads exactly
     # this list against the DEM value published beside it.
-    seam_all = seam_vertices_pinned(seam_pins(planar, law, airport))
+    seam_all = pinned_vertices(seam_pins(planar, law, airport), SEAM_GEN)
     pins = sorted(seam_all)
     # the pairs the solver priced: a pin↔pin pair was exempt in the solve
     # (constraints.seam_exempt) and is not published — the census prices

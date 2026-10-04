@@ -26,7 +26,7 @@ import numpy as np
 
 from ..model.frame import Frame
 
-__all__ = ["HgtRaster", "GeoTiffRaster", "DemSampler", "resolve_dem_files",
+__all__ = ["dem_z_at", "dem_z_many", "HgtRaster", "GeoTiffRaster", "DemSampler", "resolve_dem_files",
            "hgt_name", "load_dem"]
 
 _LAT_SCALE = 111320.0
@@ -279,3 +279,18 @@ def load_dem(frame: Frame, elevation_root: str, icao: str,
             except (OSError, ValueError):
                 pass
     return DemSampler(frame, elevation_root, inset, feather_m, prov)
+
+
+def dem_z_at(airport, p) -> float:
+    """The DEM altitude at frame point p — airport.dem.z as a float."""
+    return float(airport.dem.z(p[0], p[1]))
+
+
+def dem_z_many(dem, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+    """The DEM altitude at every (xs[i], ys[i]): the sampler's own
+    vectorised z_many where it has one, a per-point walk where not."""
+    many = getattr(dem, "z_many", None)
+    if many is not None:
+        return np.asarray(many(xs, ys), dtype=float)
+    return np.asarray([dem.z(float(x), float(y)) for x, y in zip(xs, ys)],
+                      dtype=float)

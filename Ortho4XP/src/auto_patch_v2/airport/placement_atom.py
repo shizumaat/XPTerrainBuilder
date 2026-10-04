@@ -17,6 +17,7 @@ import dataclasses as _dc
 import typing as _t
 
 import numpy as np
+from ..geom.union_find import find_root
 
 #: §16c (8): the reach is asked only of a member with at most this many
 #: components.  An AFFORDABILITY bound, measured and not a law: the reach
@@ -127,14 +128,9 @@ def comp_cluster(cut) -> "list[int]":
     n = len(cut._comps)
     par = list(range(n))
 
-    def _find(a: int) -> int:
-        while par[a] != a:
-            par[a] = par[par[a]]
-            a = par[a]
-        return a
 
     def _union(a: int, b: int) -> None:
-        ra, rb = _find(a), _find(b)
+        ra, rb = find_root(par, a), find_root(par, b)
         if ra != rb:
             par[ra] = rb
 
@@ -188,7 +184,7 @@ def comp_cluster(cut) -> "list[int]":
                 j0 = order[b]
                 if lo[j0][0] > hi[i0][0] + eps:
                     break                      # the sweep's own bound
-                if _find(i0) == _find(j0):
+                if find_root(par, i0) == find_root(par, j0):
                     continue
                 if (lo[i0][1] > hi[j0][1] + eps or lo[j0][1] > hi[i0][1] + eps
                         or lo[i0][2] > hi[j0][2] + eps
@@ -212,7 +208,7 @@ def comp_cluster(cut) -> "list[int]":
                 # union is refused when the merged cluster's plan
                 # diagonal would exceed ``span_max``.
                 if span_max > 0.0:
-                    ra, rb = _find(i0), _find(j0)
+                    ra, rb = find_root(par, i0), find_root(par, j0)
                     m0 = np.minimum(clo[ra], clo[rb])
                     m1 = np.maximum(chi[ra], chi[rb])
                     if float(np.hypot(m1[0] - m0[0], m1[2] - m0[2])) > span_max:
@@ -227,13 +223,13 @@ def comp_cluster(cut) -> "list[int]":
                 d, _ix = tj.query(a_pts, k=1,
                                   distance_upper_bound=eps)
                 if np.isfinite(d).any():
-                    ra, rb = _find(i0), _find(j0)
+                    ra, rb = find_root(par, i0), find_root(par, j0)
                     box_lo = np.minimum(clo[ra], clo[rb])
                     box_hi = np.maximum(chi[ra], chi[rb])
                     _union(i0, j0)
-                    r = _find(i0)
+                    r = find_root(par, i0)
                     clo[r], chi[r] = box_lo, box_hi
-    cut._clusters = [_find(i) for i in range(n)]
+    cut._clusters = [find_root(par, i) for i in range(n)]
     return cut._clusters
 
 def comp_blocks(cut, tris) -> "list[list[int]]":
@@ -283,18 +279,13 @@ def unit_clusters(cands: _t.Sequence[_t.Any],
     n = len(cands)
     par = list(range(n))
 
-    def _find(a: int) -> int:
-        while par[a] != a:
-            par[a] = par[par[a]]
-            a = par[a]
-        return a
 
     pid_index: dict[int, list[int]] = {}
     for i, c in enumerate(cands):
         for p in c.pids:
             pid_index.setdefault(p, []).append(i)
     if n < 2:
-        return ([_find(i) for i in range(n)], pid_index)
+        return ([find_root(par, i) for i in range(n)], pid_index)
     # A LINE OBJECT NEVER BINDS (§16c (8)'s own exclusion, for the same
     # reason): §10 cuts a fence or a grass mat into stations ON PURPOSE,
     # every station reading its own ground, and the contact graph links
@@ -317,7 +308,7 @@ def unit_clusters(cands: _t.Sequence[_t.Any],
             for j in ib:
                 if not (ok[i] and ok[j]):
                     continue
-                ra, rb = _find(i), _find(j)
+                ra, rb = find_root(par, i), find_root(par, j)
                 if ra == rb:
                     continue
                 ba, bb = cbox.get(ra), cbox.get(rb)
@@ -331,7 +322,7 @@ def unit_clusters(cands: _t.Sequence[_t.Any],
                 par[ra] = rb
                 if m0 is not None:
                     cbox[rb] = m0
-    return ([_find(i) for i in range(n)], pid_index)
+    return ([find_root(par, i) for i in range(n)], pid_index)
 
 
 @_dc.dataclass(frozen=True)
@@ -406,11 +397,6 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
     n = len(nodes)
     par = list(range(n))
 
-    def _find(a: int) -> int:
-        while par[a] != a:
-            par[a] = par[par[a]]
-            a = par[a]
-        return a
 
     pid_node: dict[int, list[int]] = {}
     for i, q in enumerate(nodes):
@@ -427,7 +413,7 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
                      + ((b[3] - b[1]) * mo) ** 2) ** 0.5
 
     def _union(i: int, j: int) -> None:
-        ra, rb = _find(i), _find(j)
+        ra, rb = find_root(par, i), find_root(par, j)
         if ra == rb:
             return
         ba, bb = cbox.get(ra), cbox.get(rb)
@@ -507,7 +493,7 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
                 _union(i, j)
     groups: dict[int, list[int]] = {}
     for i in range(n):
-        groups.setdefault(_find(i), []).append(i)
+        groups.setdefault(find_root(par, i), []).append(i)
 
     def _area(i: int) -> float:
         if nodes[i].footprint_m2:

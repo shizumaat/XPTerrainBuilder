@@ -18,6 +18,7 @@ from ..model.planar import OSM_RIBBON_FEEDS
 from .evidence import Evidence, polygon_parts
 from .roles import TAXI_FAMILY, is_runway_shoulder
 from .rules import Rules
+from ..geom.parts import line_parts
 
 __all__ = ["mint_osm_ribbons", "ribbon_extent", "bridge_gaps", "exit_reach"]
 
@@ -47,7 +48,7 @@ def ribbon_extent(cells, law: Law, pavement_union):
 def _way_intervals(line: LineString, inside) -> list[tuple[float, float]]:
     """The arclength intervals of ``line`` inside ``inside``."""
     out = []
-    for part in _line_parts_of(line.intersection(inside)):
+    for part in line_parts(line.intersection(inside)):
         a = line.project(Point(part.coords[0]))
         b = line.project(Point(part.coords[-1]))
         if b < a:
@@ -56,15 +57,6 @@ def _way_intervals(line: LineString, inside) -> list[tuple[float, float]]:
             out.append((a, b))
     out.sort()
     return out
-
-
-def _line_parts_of(g) -> list[LineString]:
-    if g is None or g.is_empty:
-        return []
-    if g.geom_type == "LineString":
-        return [g]
-    return [q for q in getattr(g, "geoms", ()) if q.geom_type == "LineString"
-            and q.length > 0]
 
 
 def bridge_gaps(intervals: list[tuple[float, float]], gap_m: float
@@ -200,7 +192,7 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
         for a, b in spans:
             seg = substring(line, a, b)
             if not cover.is_empty:
-                axes.extend(_line_parts_of(seg.difference(cover)))
+                axes.extend(line_parts(seg.difference(cover)))
             else:
                 axes.append(seg)
         axes = [ax for ax in axes if ax.length >= orr.min_len_m]

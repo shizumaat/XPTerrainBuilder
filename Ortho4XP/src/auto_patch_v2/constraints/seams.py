@@ -53,7 +53,7 @@ from ..model.airport import Airport
 from ..model.constraints import Pin, Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["seam_pins", "seam_vertices_pinned"]
+__all__ = ["seam_pins", "GEN"]
 
 GEN = "seams"
 RULING = "tile seam DEM pin (user 2026-07-04; owner 2026-07-24/26; RULINGS 2026-09-13ah)"
@@ -71,7 +71,3 @@ def seam_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     return rows
 
 
-def seam_vertices_pinned(rows) -> set[int]:
-    """The vertices the seam generator pinned (for the pair exemption)."""
-    return {r.v for r in rows
-            if isinstance(r, Pin) and r.source.generator == GEN}

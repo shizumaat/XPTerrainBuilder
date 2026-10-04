@@ -19,11 +19,12 @@ added the footprint polygon (owner RULINGS 2026-09-14c item 1, attributed
 """
 from __future__ import annotations
 
-import math as _math
 import typing as _t
 
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
+from ..geom.union_find import find_root
+from ..model.frame import m_per_deg_exact   # noqa: F401  (re-exported: its callers read it here)
 
 __all__ = ["boxes_touch", "rings_touch", "ring_metres",
            "m_per_deg_exact", "FAMILY_MIN_MEMBERS"]
@@ -35,25 +36,6 @@ FAMILY_MIN_MEMBERS = 2
 #: :func:`boxes_touch` answers a small pair by the plain product — the
 #: filtering and sorting cost more than the comparisons below this many.
 _PAIR_PRODUCT_MAX = 4096
-
-
-def m_per_deg_exact(lat: float) -> tuple[float, float]:
-    """``(metres per degree of latitude, of longitude)`` at ``lat``,
-    computed and NOT memoised.
-
-    ``anchor_rule._m_per_deg`` buckets on ``int(lat * 1e4)``, so whoever
-    calls it FIRST inside a bucket fixes the value every later caller
-    sees — this lane measured the consequence in round 1 (a ring node at
-    exactly 50 m of longitude reads 50.00000000000935 cold and
-    49.99999999998842 once the bucket was warmed at 40.00009 N, and
-    `test_a_basin_wall_follows_its_ring_...` flips).  §16g (7)'s scaling
-    is wanted ONCE per cluster, so the memo buys nothing here and taking
-    it would make this law an order-dependence for every reader after
-    it.  The memo's own defect is NAMED, not fixed here: it is another
-    law's instrument."""
-    r = _math.radians(lat)
-    return (111_132.954 - 559.822 * _math.cos(2 * r) + 1.175 * _math.cos(4 * r),
-            111_412.84 * _math.cos(r) - 93.5 * _math.cos(3 * r))
 
 
 def ring_metres(ring, ml: float, mo: float):
@@ -270,11 +252,6 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float,
             counts.get("unit_chain_no_polygon", 0) + no_ring
     parent = {i: i for i in live}
 
-    def find(a: int) -> int:
-        while parent[a] != a:
-            parent[a] = parent[parent[a]]
-            a = parent[a]
-        return a
 
     # the body HULL is the cheap reject, then the part-by-part scan —
     # ordered by the hull's south edge so the sweep stops (§14 (3)'s own
@@ -288,11 +265,11 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float,
     _slack = eps_m / 111_132.0
 
     def _bind(a: int, b: int) -> None:
-        if find(a) == find(b) or _pb.box_gap_m(hull[a], hull[b]) > eps_m:
+        if find_root(parent, a) == find_root(parent, b) or _pb.box_gap_m(hull[a], hull[b]) > eps_m:
             return
         if (boxes_touch(boxes[a], boxes[b], hull[a], hull[b], eps_m)
                 and _polys_touch(rings.get(a), rings.get(b), eps_m)):
-            parent[find(a)] = find(b)
+            parent[find_root(parent, a)] = find_root(parent, b)
             # §16f (4): the CONTACT EDGES are kept — a member on no
             # pad joins the pad group it TOUCHES, and that needs the
             # graph, not just its components
@@ -321,7 +298,7 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float,
             _bind(a, b)
     out: dict[int, list[int]] = {}
     for i in live:
-        out.setdefault(find(i), []).append(i)
+        out.setdefault(find_root(parent, i), []).append(i)
     # a cluster is a FAMILY only where it spans more than one MEMBER:
     # one member's own bodies are already one object to §14 (3) / §16c
     return ([sorted(v) for _k, v in sorted(out.items(),

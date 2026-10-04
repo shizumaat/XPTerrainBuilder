@@ -12,7 +12,7 @@ import typing as _t
 
 from ..law import Law
 from ..model.airport import Airport
-from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Row
+from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Row, pinned_vertices
 from ..model.planar import PlanarMap
 from . import (apron, ceiling, cluster_pad, eat, flat_site, foot_rows,
                groundside, hard_plane,
@@ -233,7 +233,7 @@ def water_exempt(rows: list[Row]) -> tuple[list[Row], int]:
 
     Returns the rows and the number withdrawn.
     """
-    pinned = water.water_vertices_pinned(rows)
+    pinned = pinned_vertices(rows, water.GEN)
     if not pinned:
         return rows, 0
     out: list[Row] = []
@@ -299,7 +299,7 @@ def seam_exempt(rows: list[Row], yielded_out: list[Row] | None = None
 
     Returns the rows, the number of PAIRS dropped and the number of seam
     PINS withdrawn against a senior pin."""
-    pinned = seams.seam_vertices_pinned(rows)
+    pinned = pinned_vertices(rows, seams.GEN)
     if not pinned:
         return rows, 0, 0
     senior = {r.v for r in rows

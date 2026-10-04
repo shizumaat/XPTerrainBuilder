@@ -19,7 +19,8 @@ import typing as _t
 
 from ..law import Law
 from ..model.airport import Airport
-from .channel_geometry import _across, _along, _dem
+from ..airport.dem import dem_z_at
+from .channel_geometry import _across, _along
 
 if _t.TYPE_CHECKING:                          # the candidate lives in
     from .channel import _Cand                # ``channel``, which imports THIS
@@ -212,7 +213,7 @@ def _pack_ids(grp: list["_Cand"], objects: _t.Sequence, half_m: float,
     the 120 m cap is the widest a corridor may END UP, never the band a
     wall may be found in.  See :func:`_pack_witnesses`."""
     ch = law.tables.structures.channel
-    zs = [_dem(airport, axis_fn(s)) for s in ss]
+    zs = [dem_z_at(airport, axis_fn(s)) for s in ss]
     good = [z for z in zs if not math.isnan(z)]
     crest = (sum(good) / len(good)) if good else float("nan")
     out: list[str] = []

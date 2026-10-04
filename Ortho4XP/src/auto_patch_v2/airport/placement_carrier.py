@@ -67,6 +67,7 @@ from .placement_boxes import (                           # noqa: E402
     hull_of, overlap,
     overlap_m2, parts_overlap,
     stands_over_rank)
+from ..geom.union_find import find_root
 
 # ── §13 (1): is this body's file standing on the ground at all? ──────────
 
@@ -287,14 +288,9 @@ def bind_plan_overlaps(groups: _t.Sequence[_t.Sequence[int]],
     n = len(boxes)
     parent = list(range(n))
 
-    def find(a: int) -> int:
-        while parent[a] != a:
-            parent[a] = parent[parent[a]]
-            a = parent[a]
-        return a
 
     def union(a: int, b: int) -> None:
-        ra, rb = find(a), find(b)
+        ra, rb = find_root(parent, a), find_root(parent, b)
         if ra != rb:
             parent[ra] = rb
 
@@ -331,7 +327,7 @@ def bind_plan_overlaps(groups: _t.Sequence[_t.Sequence[int]],
         for j in live[a_i + 1:]:
             if hull[j][0] > north:
                 break
-            if (find(i) == find(j) or _key_apart(bind_keys, i, j)
+            if (find_root(parent, i) == find_root(parent, j) or _key_apart(bind_keys, i, j)
                     or overlap(hull[i], hull[j]) <= 0.0):
                 continue
             if any(overlap(a, b) > 0.0 for a in boxes[i] for b in boxes[j]):
@@ -348,7 +344,7 @@ def bind_plan_overlaps(groups: _t.Sequence[_t.Sequence[int]],
     root_group: dict[int, int] = {}
     for gi, g in enumerate(groups):
         for i in g:
-            r = find(i)
+            r = find_root(parent, i)
             if r in root_group:
                 ra, rb = gfind(root_group[r]), gfind(gi)
                 if ra != rb:

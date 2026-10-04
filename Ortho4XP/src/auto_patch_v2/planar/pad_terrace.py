@@ -66,6 +66,7 @@ from shapely.ops import nearest_points
 from shapely.strtree import STRtree
 
 from ..model.pad_terrace import TERRACES, Terrace
+from ..geom.parts import nonempty_polygon_parts
 
 __all__ = ["pad_terrace_split", "Terrace", "TERRACES"]
 
@@ -79,14 +80,6 @@ _GRAZE_M = 0.5
 
 # ``Terrace`` / ``TERRACES`` live in ``model/pad_terrace`` (issue #104:
 # ``constraints`` reads them and may not import ``planar``); re-exported.
-
-
-def _polys(g) -> list[Polygon]:
-    if g is None or g.is_empty:
-        return []
-    if isinstance(g, Polygon):
-        return [g]
-    return [q for q in getattr(g, "geoms", []) if isinstance(q, Polygon) and not q.is_empty]
 
 
 def _samples(poly: Polygon) -> list[tuple[float, float]]:
@@ -229,7 +222,7 @@ def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, 
     extra = []
     for i, bufs in cut_apron.items():
         r = base[i]
-        ps = sorted(_polys(r.polygon.difference(unary_union(bufs))), key=lambda q: -q.area)
+        ps = sorted(nonempty_polygon_parts(r.polygon.difference(unary_union(bufs))), key=lambda q: -q.area)
         if not ps:
             base[i] = None
             continue
@@ -237,7 +230,7 @@ def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, 
         extra.extend(_dc.replace(r, polygon=q) for q in ps[1:])
     for j, bufs in cut_pad.items():
         r = pads[j]
-        ps = sorted(_polys(r.polygon.difference(unary_union(bufs))), key=lambda q: -q.area)
+        ps = sorted(nonempty_polygon_parts(r.polygon.difference(unary_union(bufs))), key=lambda q: -q.area)
         pads[j] = _dc.replace(r, polygon=ps[0]) if ps else None
     counts["pad_terraces"] = len(TERRACES)
     counts["pad_terrace_list"] = "; ".join(

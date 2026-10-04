@@ -42,6 +42,8 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap, block_of, is_collar_ref, platform_ref_of, unit_ref_of
 from .pads import _pad_groups, _pad_polys
 from .precedence import view
+from ..geom.union_find import find_root
+from ..law.tables import footprint_touch_m
 
 __all__ = ["cluster_polys", "cluster_pad_faces",
            "YIELDED", "TOUCHING_STEPS", "NO_OUTLINE", "pad_cluster_mismatch",
@@ -257,7 +259,7 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
     # cluster read as one 94,301 m2 piece here against three minted refs).
     # With the clip disarmed the mint still pre-splits, and so does this.
     pairs = cluster_polys(
-        airport, min_m2, _touch_m(law),
+        airport, min_m2, footprint_touch_m(law),
         None if bool(law.tables.structures.placement.pad_airside_clip)
         else airside_union(planar, law), _bridge_m(law),
         pad_admission(law))
@@ -496,11 +498,6 @@ def _plane_groups(planar: PlanarMap, law: Law, airport: Airport | None,
     # clusters are therefore UNIONED over the faces they share.
     root: dict[str, str] = {cid: cid for cid in faces}
 
-    def _find(a: str) -> str:
-        while root[a] != a:
-            root[a] = root[root[a]]
-            a = root[a]
-        return a
 
     owner: dict[int, str] = {}
     for cid in sorted(faces):
@@ -509,10 +506,10 @@ def _plane_groups(planar: PlanarMap, law: Law, airport: Airport | None,
             if other is None:
                 owner[fid] = cid
             else:
-                ra, rb = _find(cid), _find(other)
+                ra, rb = find_root(root, cid), find_root(root, other)
                 if ra != rb:
                     root[max(ra, rb)] = min(ra, rb)
-    of_face: dict[int, str] = {fid: _find(cid)
+    of_face: dict[int, str] = {fid: find_root(root, cid)
                                for fid, cid in sorted(owner.items())}
     merged: dict[str, tuple[int, list[int], set[int], list[int]]] = {}
     out: list[tuple[int, str, list[int], tuple[int, ...]]] = []
@@ -726,8 +723,3 @@ def _bridge_m(law: Law) -> float:
                          "post_bridge_gap_m", 0.0))
 
 
-def _touch_m(law: Law) -> float:
-    """§16g (7) (1) / (10) (2): ``[placement] footprint_touch_m`` — ONE
-    read, the same tolerance the cluster was CHAINED with, used to CLOSE
-    its outline (``geom.cluster_outlines`` rule 2)."""
-    return float(law.tables.structures.placement.footprint_touch_m)

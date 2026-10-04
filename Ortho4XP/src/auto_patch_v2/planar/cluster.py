@@ -59,6 +59,7 @@ from ..airport.placement_family import PlanCluster, ProfileLaw, plan_clusters
 from ..geom import deck_shades as _geom_deck_shades
 from ..law import Law
 from ..model.airport import Airport
+from ..law.tables import footprint_touch_m
 
 __all__ = ["cluster_min_m2", "clusters", "PlanCluster", "deck_shades",
            "connector_verdicts", "profile_law"]
@@ -98,15 +99,6 @@ def profile_law(law: Law) -> ProfileLaw:
         contact_band_m=float(st.basin.contact_band_m),
         min_distinct_spacing_m=float(law.tables.emit.identity.min_distinct_spacing_m),
         input_quantum_m=float(_frame_entry.quantum(law)))
-
-
-def _touch_m(law: Law) -> float:
-    """§16g (1) (owner RULINGS 2026-09-13bo): ``[placement]
-    footprint_touch_m`` — THE CLUSTER IS THE FOOTPRINT UNIT, so the
-    design surface groups by the same 0.5 m touch the object stage
-    binds by.  Until 13bo this read ``contact_eps_m`` (2 mm) and the two
-    sides would have grouped differently."""
-    return float(law.tables.structures.placement.footprint_touch_m)
 
 
 def _chain_min_height_m(law: Law) -> float:
@@ -186,7 +178,7 @@ def connector_verdicts(airport: Airport, law: Law) -> tuple:
         return None if z != z else z
     counts: dict = {}
     got = solid_connectors(
-        part, _ground, touch_m=_touch_m(law),
+        part, _ground, touch_m=footprint_touch_m(law),
         span_m=float(pl.connector_span_m),
         visual_m=float(law.tables.emit.cockpit.visual_m),
         chain_min_height_m=_chain_min_height_m(law),
@@ -213,7 +205,7 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     NOT the two families §16f's gates used to leave.  The size threshold
     that used to live here is :func:`cluster_min_m2` and belongs to the
     cluster PAD PLANE alone."""
-    eps = _touch_m(law)
+    eps = footprint_touch_m(law)
     split = _floor_split_m(law)
     tall = _chain_min_height_m(law)
     sheet = _sheet_chain_min_fraction(law)

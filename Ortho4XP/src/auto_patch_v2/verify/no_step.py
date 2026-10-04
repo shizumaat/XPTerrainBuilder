@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 
-from ..constraints.no_step import no_step_roles
+from ..constraints.routes import route_roles
 from .frame import Patch, Row, noise_m, row
 from .steps import joint_index
 
@@ -111,7 +111,7 @@ def no_step_rate(p: Patch) -> list[Row]:
     rate = r.grade / r.per_m
     q = law.tables.emit.instrument.coarse_noise_m
     floor = law.tables.emit.materiality.grade
-    roles = no_step_roles(law)
+    roles = route_roles(law)
     joints = joint_index(p)      # a triple across a declared joint reads the step, not a rate (07g)
     out: list[Row] = []
     seen: set = set()

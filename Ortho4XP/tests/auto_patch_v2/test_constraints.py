@@ -111,7 +111,7 @@ def test_precedence_derives_tiers_from_the_tables(law):
     assert "graded_strip" in ungov and "retaining_wall" in ungov
     assert not set(gov) & set(ungov)
     assert pads.rigid_roles(law) == ("building",)
-    assert "building" not in no_step.no_step_roles(law)
+    assert "building" not in no_step.route_roles(law)
 
 
 def test_runway_generator_pins_profile_and_crown(synthetic, law):

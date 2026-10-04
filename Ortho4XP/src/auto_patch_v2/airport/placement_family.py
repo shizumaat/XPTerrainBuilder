@@ -63,6 +63,7 @@ from .placement_contact import (_clusters,  # noqa: F401
                                 boxes_touch, m_per_deg_exact, rings_touch)
 from ..geom.pad_evidence import member_row, pad_evidence, resource_rows
 from .sheet_chain import merge_by_sheets, sheet_links
+from ..geom.union_find import find_root
 
 __all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
            "pad_plurality", "census_families", "census_families_lines",
@@ -492,22 +493,17 @@ def _floor_split(cl: _t.Sequence[int], adj: _t.Mapping[int, set],
         return [list(cl)]
     par = {i: i for i in cl}
 
-    def find(a: int) -> int:
-        while par[a] != a:
-            par[a] = par[par[a]]
-            a = par[a]
-        return a
 
     for a in cl:
         for b in adj.get(a, ()):
-            if b not in par or find(a) == find(b):
+            if b not in par or find_root(par, a) == find_root(par, b):
                 continue
             both = shims[a].footed and shims[b].footed
             if not both or abs(shims[a].floor - shims[b].floor) <= floor_split_m:
-                par[find(a)] = find(b)
+                par[find_root(par, a)] = find_root(par, b)
     comp: dict[int, list[int]] = {}
     for i in cl:
-        comp.setdefault(find(i), []).append(i)
+        comp.setdefault(find_root(par, i), []).append(i)
     return [sorted(v) for _k, v in sorted(comp.items())]
 
 

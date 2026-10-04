@@ -41,6 +41,7 @@ from . import placement_geom as _pg                   # noqa: E402
 from .placement_geom import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402,F401
                              _geom_ground, _geom_span, surface_many,
                              thin_points)
+from ..geom.union_find import find_root
 
 # ── THE LINE SEGMENT (owner RULINGS 2026-09-11f (2); spec §10) ───────────
 
@@ -829,20 +830,15 @@ def _bodies_of(member: Member, edges: _t.Sequence[tuple[int, int]]
     pid_of = {p.pid: p for p in member.parts}
     parent = {p.pid: p.pid for p in member.parts}
 
-    def find(a: int) -> int:
-        while parent[a] != a:
-            parent[a] = parent[parent[a]]
-            a = parent[a]
-        return a
 
     for a, b in edges:
         if a in parent and b in parent and not pid_of[a].line and not pid_of[b].line:
-            ra, rb = find(a), find(b)
+            ra, rb = find_root(parent, a), find_root(parent, b)
             if ra != rb:
                 parent[ra] = rb
     groups: dict[int, list[int]] = {}
     for p in member.parts:
-        groups.setdefault(find(p.pid), []).append(p.pid)
+        groups.setdefault(find_root(parent, p.pid), []).append(p.pid)
     return [groups[k] for k in sorted(groups, key=lambda k: min(groups[k]))]
 
 

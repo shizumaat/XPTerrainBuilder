@@ -101,6 +101,7 @@ from .open_default import apron_evidence, open_pavement_role
 from .rules import Rules, load_rules
 from .sources import (SourceRecord, apron_union, classify_sources,
                       object_body_cuts)
+from ..geom.parts import line_parts
 
 __all__ = ["Cell", "CutLine", "Classification", "classify", "SHOULDER_KIND",
            "is_runway_shoulder"]
@@ -672,11 +673,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     if strips:                                     # the road axis inside each strip
         strip_u = unary_union(strips)
         for c in ev.truck_chains + ev.road_chains:
-            for ln in _line_parts(c.line.intersection(strip_u)):
+            for ln in line_parts(c.line.intersection(strip_u)):
                 cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
     for c in ev.truck_chains:                      # the corridor spine outside pavement
         outside = c.line.difference(ev.pavement_union)
-        for ln in _line_parts(outside):
+        for ln in line_parts(outside):
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
     return Classification(tuple(cells), tuple(cut), stats, tuple(notes),
                           sources=tuple(sources))
@@ -907,15 +908,6 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
 
 # ── slice helpers ────────────────────────────────────────────────────────
 
-def _line_parts(geom) -> list[LineString]:
-    if geom is None or geom.is_empty:
-        return []
-    if geom.geom_type == "LineString":
-        return [geom]
-    return [g for g in getattr(geom, "geoms", ()) if g.geom_type == "LineString"
-            and g.length > 0]
-
-
 def _cut_lines(ev: Evidence, region, rules: Rules,
                cut_polys: _t.Mapping[str, Polygon]):
     """Centreline parts inside the region, the proximity contour, the
@@ -923,19 +915,19 @@ def _cut_lines(ev: Evidence, region, rules: Rules,
     boundaries (owner 2026-09-04j: the mouth cut).  A free route part
     inside a strip does not cut again (the strip is one face)."""
     taxi_parts = [(ln, c) for c in ev.taxi_chains
-                  for ln in _line_parts(c.line.intersection(region))]
+                  for ln in line_parts(c.line.intersection(region))]
     src_u = unary_union(list(cut_polys.values())) if cut_polys else Polygon()
     src_cuts: list[LineString] = []
     for poly in cut_polys.values():
         for ring in [poly.exterior, *poly.interiors]:
-            src_cuts += _line_parts(LineString(ring.coords).intersection(region.buffer(0.01)))
+            src_cuts += line_parts(LineString(ring.coords).intersection(region.buffer(0.01)))
     truck_parts = []
     for c in ev.truck_chains:
         for ln in _free_road_parts(c.line, ev.pavement_union, rules):
             g = ln.intersection(region)
             if not src_u.is_empty:
                 g = g.difference(src_u)
-            truck_parts += [(q, c) for q in _line_parts(g)]
+            truck_parts += [(q, c) for q in line_parts(g)]
     src = [c.line.buffer(rules.apron.route_proximity_m, join_style="mitre",
                          mitre_limit=2.0) for c in _through_routes(ev, rules)]
     if not ev.runway_union.is_empty:
@@ -1047,8 +1039,8 @@ def _keyholes(lines: list[LineString], region, rules: Rules) -> list[LineString]
 def _slice(region, taxi_parts, truck_parts, spurs, rules: Rules
            ) -> list[Polygon]:
     """Polygonize the region boundary + cuts; keep the pieces on pavement."""
-    lines = _line_parts(region.boundary) if region.geom_type != "MultiPolygon" \
-        else [ln for g in region.geoms for ln in _line_parts(g.boundary)]
+    lines = line_parts(region.boundary) if region.geom_type != "MultiPolygon" \
+        else [ln for g in region.geoms for ln in line_parts(g.boundary)]
     lines += [ln for ln, _c in taxi_parts] + [ln for ln, _c in truck_parts] + spurs
     # Node in FULL precision first (a contour endpoint lies on a boundary
     # segment's interior; snapping the lines separately opens a gap the

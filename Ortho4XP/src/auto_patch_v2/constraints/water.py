@@ -46,7 +46,7 @@ from ..model.constraints import Pin, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import view
 
-__all__ = ["water_pins", "water_vertices_pinned", "GEN"]
+__all__ = ["water_pins", "GEN"]
 
 GEN = "water"
 RULING = ("water is a datum: a ground vertex sampled on water is pinned to the "
@@ -184,7 +184,3 @@ def _natural_shore_pins(vw, planar: PlanarMap, law: Law, airport: Airport,
     return rows
 
 
-def water_vertices_pinned(rows) -> set[int]:
-    """The vertices this generator pinned (for the exemption post-pass)."""
-    return {r.v for r in rows
-            if isinstance(r, Pin) and r.source.generator == GEN}

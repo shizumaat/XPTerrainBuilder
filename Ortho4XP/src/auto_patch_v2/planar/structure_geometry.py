@@ -38,6 +38,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..model.frame import XY
+from ..geom.vector import unit_vector
 
 if _t.TYPE_CHECKING:                      # annotations only (PEP 563 is on)
     from ..law import Law
@@ -66,12 +67,7 @@ def pad_hit(outer: Polygon, pads: list[tuple[Polygon, str]], tree: STRtree | Non
     return None
 
 
-def _unit(a: XY, b: XY) -> XY:
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    L = math.hypot(dx, dy) or 1.0
-    return (dx / L, dy / L)
-
-__all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_out",
+__all__ = ["RampGeometry", "geometry", "normals", "snap", "snap_out",
            "rim_standoff", "rim_yield_m", "corner_distance", "beyond_strip",
            "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "covered_start", "reseat_expect"]
 
@@ -152,10 +148,6 @@ def normals(axis: _t.Sequence[XY]) -> list[XY]:
         L = math.hypot(dx, dy) or 1.0
         out.append((-dy / L, dx / L))
     return out
-
-
-def offset_line(axis: _t.Sequence[XY], nrm: _t.Sequence[XY], off: float) -> list[XY]:
-    return [(p[0] + nv[0] * off, p[1] + nv[1] * off) for p, nv in zip(axis, nrm)]
 
 
 def snap(p: XY, grid: float) -> XY:
@@ -782,7 +774,7 @@ def beyond_strip(axis_fn, s_end: float, length: float) -> Polygon:
     """The half-plane strip BEYOND the axis station ``s_end`` (an object
     corridor's open end line): ``length`` long along the axis, as wide."""
     a, b = axis_fn(max(0.0, s_end - 1.0)), axis_fn(s_end)
-    ux, uy = _unit(a, b)
+    ux, uy = unit_vector(a, b)
     nx, ny = -uy, ux
     e = axis_fn(s_end)
     return Polygon([(e[0] + nx * length, e[1] + ny * length),

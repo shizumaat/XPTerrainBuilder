@@ -126,7 +126,7 @@ from .below_zero import read_below_zero, read_wall_height
 from .wall_corridor_probe import (ROAD_ROLES, MouthRoad, _floor_road, _floor_slab,
                                   _RoadLevels, mouth_roads)
 from .wall_geometry import (WallBand, _DENSIFY_M, _seat_base, _MITRE, _MIN_SEG_M, _SHEET_BAND_M, _angle_diff, _band_polygon,
-                            _bearing, _densified, _merge_walls, _overlap_along,
+                            _densified, _merge_walls, _overlap_along,
                             _plan_polys, _plan_segments, _plan_segments_indexed,
                             _rect_axis, _rect_sides, _straight_runs, _tri_normals_y)
 from .deck_signature import family_key

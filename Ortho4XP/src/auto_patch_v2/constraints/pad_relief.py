@@ -52,7 +52,6 @@ the ONE grouping derivation).  No mesh, no environment.
 """
 from __future__ import annotations
 
-import typing as _t
 
 from shapely.geometry import Point
 from shapely.strtree import STRtree
@@ -159,11 +158,3 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
     return out
 
 
-def offsets_report(offsets: _t.Mapping[int, float]) -> dict[str, float]:
-    """The one line a build prints: how many pad vertices carry a relief
-    target and how far it reaches."""
-    if not offsets:
-        return {"vertices": 0, "max_m": 0.0, "spread_m": 0.0}
-    vals = list(offsets.values())
-    return {"vertices": len(vals), "max_m": round(max(abs(v) for v in vals), 3),
-            "spread_m": round(max(vals) - min(vals), 3)}

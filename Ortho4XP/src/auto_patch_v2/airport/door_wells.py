@@ -64,6 +64,7 @@ from ..model.frame import XY
 from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .deck_signature import family_key
+from ..geom.vector import unit_vector
 
 __all__ = ["DoorWell", "DoorStats", "read_door_wells", "ID_PREFIX"]
 
@@ -174,12 +175,6 @@ def _sill_witnesses(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resou
             out.append((o, w, id(comp)))
             stats.sill_witnesses += 1
     return out
-
-
-def _unit(a: XY, b: XY) -> XY:
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    L = math.hypot(dx, dy) or 1.0
-    return (dx / L, dy / L)
 
 
 def _extent(poly: Polygon, origin: XY, d: XY) -> tuple[float, float]:
@@ -379,7 +374,7 @@ def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                 continue
             sill = LineString([a, b])
             outside = region.exterior.difference(above_u.buffer(grid))
-            face_dir = _unit(a, b)
+            face_dir = unit_vector(a, b)
             n = (-face_dir[1], face_dir[0])
             ex = sides[i_exit]
             exm = ((ex[0][0] + ex[1][0]) / 2.0, (ex[0][1] + ex[1][1]) / 2.0)

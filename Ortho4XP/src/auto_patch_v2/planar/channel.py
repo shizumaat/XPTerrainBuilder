@@ -59,6 +59,7 @@ from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
 from .channel_floor import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
                             channel_floor as _floor)
 from .structure_underpass import aeroway_decks
+from ..airport.dem import dem_z_at
 
 __all__ = ["ChannelStats", "identify_channels",
            "FLOOR_ROLE", "WALL_ROLE",
@@ -243,10 +244,6 @@ def _aeroway_bridges(airport: Airport, law: Law) -> list[tuple[OsmWay, LineStrin
     which is a second site for §34 (12) (4)'s below-grade witness to miss
     when ``v2vmmcshore`` r6 lands it."""
     return [(w, LineString(w.points)) for w in aeroway_decks(airport, law)]
-
-
-def _dem(airport: Airport, p: XY) -> float:
-    return float(airport.dem.z(p[0], p[1]))
 
 
 def _lidar_credible(airport: Airport, law: Law) -> bool:
@@ -503,7 +500,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # width; that is the 404.7 m of round 1)
     lateral = max((_across(axis_ln, c.line.coords) for c in grp), default=0.0)
     half_base = min(cap, lateral + widest / 2.0 + tn.lane_width_m)
-    zs0 = [_dem(airport, axis_fn(s)) for s in ss]
+    zs0 = [dem_z_at(airport, axis_fn(s)) for s in ss]
     good0 = [z for z in zs0 if not math.isnan(z)]
     crest_est = (sum(good0) / len(good0)) if good0 else 0.0
     pit_drop: list[str] = []

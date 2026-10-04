@@ -33,24 +33,16 @@ from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..model.structures import Deck
 from .structure_approach import PARALLEL_COS, carriageway_width_m, unit
+from ..geom.union_find import find_root
+from ..geom.vector import chord_bearing_mod180
+from ..geom.parts import polygon_parts_with_area
+from ..airport.dem import dem_z_at
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 __all__ = ["PavementDeck", "pavement_deck_intervals", "deck_intervals", "flanking_pair",
            "object_deck_intervals", "deck_groups", "group_way", "deck_ends",
            "deck_items", "emit_decks"]
-
-
-def _dem(airport: Airport, p: XY) -> float:
-    """ONE implementation with ``planar/structure_approach._dem``."""
-    return float(airport.dem.z(p[0], p[1]))
-
-
-def _parts(geom) -> list[Polygon]:
-    if geom is None or geom.is_empty:
-        return []
-    return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]
-
 
 
 @_dc.dataclass(frozen=True)
@@ -93,7 +85,7 @@ def pavement_deck_intervals(axis_ln: LineString, half_outer: float, s_end: float
         if s0 <= grid or s1 >= min(s_end, axis_ln.length) - grid:
             continue
         rest = corridor.difference(p)
-        if len(_parts(rest)) < 2:
+        if len(polygon_parts_with_area(rest)) < 2:
             continue
         out.append((PavementDeck(c.ref, c.role, int(j)), s0, s1, p))
     out.sort(key=lambda t: t[1])
@@ -198,7 +190,7 @@ def flanking_pair(ln: LineString, plates: _t.Sequence, law: Law):
             A, B, inner = q
             if inner <= 0.0:
                 continue
-            brg = _bearing_of(ln)
+            brg = chord_bearing_mod180(ln)
             d = abs(brg - A.bearing_deg) % 180.0
             if min(d, 180.0 - d) > wc.parallel_max_deg:
                 continue
@@ -216,11 +208,6 @@ def flanking_pair(ln: LineString, plates: _t.Sequence, law: Law):
             if best is None or inner < best[0]:
                 best = (float(inner), mid)
     return best
-
-
-def _bearing_of(ln: LineString) -> float:
-    (x0, y0), (x1, y1) = ln.coords[0], ln.coords[-1]
-    return (math.degrees(math.atan2(x1 - x0, y1 - y0)) + 360.0) % 180.0
 
 
 def _median(vals: list[float]) -> float:
@@ -426,11 +413,6 @@ def deck_groups(ivals: list[tuple], law: Law) -> list[list[int]]:
     gap_max = float(law.tables.structures.bridge.deck_group_gap_max_m)
     parent = list(range(n))
 
-    def find(a: int) -> int:
-        while parent[a] != a:
-            parent[a] = parent[parent[a]]
-            a = parent[a]
-        return a
 
     for i in range(n):
         wi, s0i, s1i, _dpi = ivals[i]
@@ -442,12 +424,12 @@ def deck_groups(ivals: list[tuple], law: Law) -> list[list[int]]:
             uj = unit(tuple(wj.points[0]), tuple(wj.points[-1]))
             if abs(ui[0] * uj[0] + ui[1] * uj[1]) < PARALLEL_COS:
                 continue                     # not parallel: two crossings
-            a, b = find(i), find(j)
+            a, b = find_root(parent, i), find_root(parent, j)
             if a != b:
                 parent[a] = b
     seen: dict[int, list[int]] = {}
     for i in range(n):
-        seen.setdefault(find(i), []).append(i)
+        seen.setdefault(find_root(parent, i), []).append(i)
     return sorted(seen.values(), key=lambda g: min(ivals[k][1] for k in g))
 
 
@@ -511,7 +493,7 @@ def deck_ends(airport: Airport, w, cells, polys, cell_tree, law: Law | None = No
     pts: list[XY] = [tuple(w.points[0]), tuple(w.points[-1])]
     reach = float(law.tables.structures.bridge.deck_end_reach_m) if law is not None else 0.0
     for e in (w.points[0], w.points[-1]):
-        z = _dem(airport, e)
+        z = dem_z_at(airport, e)
         zs.append(float(z) if not math.isnan(z) else float("nan"))
         ref = ""
         if cell_tree is not None:
@@ -570,7 +552,7 @@ def _deck_face(polys: list[Polygon], grid: float, law: Law) -> tuple[Polygon | N
     u = unary_union(polys)
     if u.is_empty:
         return None, 0.0
-    parts = _parts(u)
+    parts = polygon_parts_with_area(u)
     if len(parts) <= 1:
         return (max(parts, key=lambda g: g.area) if parts else None), 0.0
     gap = 0.0
@@ -582,7 +564,7 @@ def _deck_face(polys: list[Polygon], grid: float, law: Law) -> tuple[Polygon | N
         return None, 0.0
     c = gap / 2.0 + grid
     closed = u.buffer(c, **_MITRE).buffer(-c, **_MITRE)
-    cp = _parts(closed)
+    cp = polygon_parts_with_area(closed)
     if len(cp) != 1:
         return None, 0.0
     return cp[0], gap
@@ -642,7 +624,7 @@ def emit_decks(airport: Airport, law: Law, items: list[tuple], obj_ivals: list[t
         if dpoly.is_empty or dpoly.area < 1.0:
             continue
         if dpoly.geom_type != "Polygon":
-            dpoly = max(_parts(dpoly), key=lambda g: g.area, default=None)
+            dpoly = max(polygon_parts_with_area(dpoly), key=lambda g: g.area, default=None)
             if dpoly is None:
                 continue
         dref = f"bridge_deck:{w.id}"
@@ -681,7 +663,7 @@ def emit_decks(airport: Airport, law: Law, items: list[tuple], obj_ivals: list[t
         if dpoly.is_empty or dpoly.area < 1.0:
             continue
         if dpoly.geom_type != "Polygon":
-            dpoly = max(_parts(dpoly), key=lambda g: g.area, default=None)
+            dpoly = max(polygon_parts_with_area(dpoly), key=lambda g: g.area, default=None)
             if dpoly is None:
                 continue
         decks.append(Deck(f"object_deck:{oid}", 0, s0, s1,

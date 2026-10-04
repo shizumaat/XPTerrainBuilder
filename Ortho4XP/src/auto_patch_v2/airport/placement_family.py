@@ -63,10 +63,10 @@ from .placement_contact import (_clusters,  # noqa: F401
                                 boxes_touch, m_per_deg_exact, rings_touch)
 from ..geom.pad_evidence import member_row, pad_evidence, resource_rows
 from .sheet_chain import merge_by_sheets, sheet_links
+from ..geom.union_find import find_root
 
 __all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
-           "pad_plurality", "bind_families",
-           "census_families", "census_families_lines",
+           "pad_plurality", "census_families", "census_families_lines",
            "union_area_m2", "PlanCluster", "plan_clusters", "bodies_of_plan",
            "cluster_plane", "member_is_deck", "ProfileLaw",
            "cluster_base_profile"]
@@ -219,41 +219,6 @@ def union_area_m2(boxes: _t.Iterable[tuple[float, float, float, float]]
         if dy <= 0.0:
             continue
         spans = live
-        if not spans:
-            continue
-        ml, mo = _ar._m_per_deg(0.5 * (y0 + y1))
-        cover = 0.0
-        lo, hi = spans[0]
-        for a, b in spans[1:]:
-            if a > hi:
-                cover += hi - lo
-                lo, hi = a, b
-            else:
-                hi = max(hi, b)
-        cover += hi - lo
-        total += (dy * ml) * (cover * mo)
-    return total
-
-
-def _union_area_m2_reference(boxes: _t.Iterable[tuple[float, float, float, float]]
-                             ) -> float:
-    """THE PRE-SWEEP READING of :func:`union_area_m2`, kept for the
-    EXACT-EQUALITY TWIN alone (RULINGS 2026-09-14b): the same law read
-    with the O(slabs x boxes) re-scan the active set replaced.  It is
-    called by nothing in the engine; `test_v2unionsweep` asserts the two
-    agree BIT FOR BIT (``==`` on the float, and on the raw bytes of
-    ``struct.pack``) on synthetic overlapping / touching / nested /
-    disjoint boxes and on the OTHH capture's own cluster boxes."""
-    bs = [b for b in boxes if b and b[2] > b[0] and b[3] > b[1]]
-    if not bs:
-        return 0.0
-    ys = sorted({b[0] for b in bs} | {b[2] for b in bs})
-    total = 0.0
-    for y0, y1 in zip(ys, ys[1:]):
-        dy = y1 - y0
-        if dy <= 0.0:
-            continue
-        spans = sorted((b[1], b[3]) for b in bs if b[0] <= y0 and b[2] >= y1)
         if not spans:
             continue
         ml, mo = _ar._m_per_deg(0.5 * (y0 + y1))
@@ -528,22 +493,17 @@ def _floor_split(cl: _t.Sequence[int], adj: _t.Mapping[int, set],
         return [list(cl)]
     par = {i: i for i in cl}
 
-    def find(a: int) -> int:
-        while par[a] != a:
-            par[a] = par[par[a]]
-            a = par[a]
-        return a
 
     for a in cl:
         for b in adj.get(a, ()):
-            if b not in par or find(a) == find(b):
+            if b not in par or find_root(par, a) == find_root(par, b):
                 continue
             both = shims[a].footed and shims[b].footed
             if not both or abs(shims[a].floor - shims[b].floor) <= floor_split_m:
-                par[find(a)] = find(b)
+                par[find_root(par, a)] = find_root(par, b)
     comp: dict[int, list[int]] = {}
     for i in cl:
-        comp.setdefault(find(i), []).append(i)
+        comp.setdefault(find_root(par, i), []).append(i)
     return [sorted(v) for _k, v in sorted(comp.items())]
 
 
@@ -1046,336 +1006,6 @@ def cluster_plane(boxes: _t.Sequence[tuple[float, float, float, float]],
     if not zs:
         return None, ()
     return _median(zs), tuple(sorted(set(refs)))
-
-
-def _bind_cluster(cands: list, by_mi: _t.Mapping[int, _t.Any],
-                  surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
-                  counts: dict, per: _t.Mapping[int, list],
-                  cl: _t.Sequence[int], area_m2: float, *,
-                  unit_id: str, bind_ground_m: float,
-                  bound_ci: set) -> list[Family]:
-    """§16f (7): ONE UNIT, ONE PLANE, ONE PAD.  Every body of ``per``
-    takes the cluster pad's level — no pad partition (4), no pavement
-    clause (5), no ground bound at the join.  A member whose own contacts
-    stand further than ``bind_ground_m`` off the plane is COUNTED and
-    NAMED, never re-seated: "these large complex structures have to be
-    seated as a unit"."""
-    from . import placement_carrier as _pc
-    boxes = [b for ci in cl for b in (cands[ci].part_boxes or
-                                      ([cands[ci].box] if cands[ci].box else []))]
-    zero, refs = cluster_plane(boxes, pads)
-    where = "+".join(refs) if refs else ""
-    if zero is None:
-        zero = _median([q[3] - q[2] for cc in per.values() for q in cc])
-    fid = f"{unit_id or 'unit'}#{cl[0]}@cluster"
-    mems = sorted({cands[ci].member for ci in per})
-    gz = [cands[ci].anchor.surface_z - cands[ci].anchor.y_zero
-          for ci in per if cands[ci].anchor.surface_z is not None]
-    moved = 0
-    n_off = 0
-    worst = 0.0
-    n_contacts = 0
-    for ci, cc in sorted(per.items()):
-        c = cands[ci]
-        st = by_mi[c.member]
-        n_contacts += len(cc)
-        _st = max(1, len(cc) // _pb.GROUND_OFF_FEET_MAX)
-        own_med = _median([q[3] - q[2] for q in cc[::_st]])
-        if bind_ground_m > 0.0 and abs(own_med - zero) > bind_ground_m:
-            n_off += 1
-            if abs(own_med - zero) > abs(worst):
-                worst = own_med - zero
-        best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - zero), 6),
-                                      round(abs(q[2]), 6), q[0], q[1]))
-        own = best[3] - best[2]
-        a = _ar.Anchor(
-            c.anchor.body_class, best[0], best[1], best[3] - zero,
-            f"§16f (7) cluster {fid} of {len(mems)} member(s) on "
-            + (f"pad {where}" if where else "its median ground")
-            + f" at {zero:.2f} (own ground {own - zero:+.2f} m)",
-            best[3], family=fid)
-        grp0 = (st.groups[c.group] if 0 <= c.group < len(st.groups) else ())
-        if not grp0:
-            continue
-        k0 = _pc.senior_of(st.raw, grp0)
-        r0 = st.raw[k0]
-        st.raw[k0] = (r0[0], r0[1], a) + tuple(r0[3:])
-        _off = _pb.anchor_ground_off(
-            a, tuple(f for j in grp0 for f in st.raw[j][3]), surface)
-        if c.group < len(st.ground_off):
-            st.ground_off[c.group] = _off
-        cands[ci] = _dc.replace(c, anchor=a, ground_off=_off)
-        bound_ci.add(ci)
-        moved += 1
-    if not moved:
-        return []
-    counts["bodies_bound_to_family"] = \
-        counts.get("bodies_bound_to_family", 0) + moved
-    counts["families"] = counts.get("families", 0) + 1
-    counts["family_clusters"] = counts.get("family_clusters", 0) + 1
-    counts["cluster_bodies"] = counts.get("cluster_bodies", 0) + moved
-    counts["cluster_footprint_union_m2"] = max(
-        counts.get("cluster_footprint_union_m2", 0), int(area_m2))
-    if n_off:
-        counts["cluster_members_off_the_plane"] = \
-            counts.get("cluster_members_off_the_plane", 0) + n_off
-        counts["cluster_worst_off_the_plane_cm"] = max(
-            counts.get("cluster_worst_off_the_plane_cm", 0),
-            int(round(abs(worst) * 100)))
-    return [Family(
-        id=fid, unit=unit_id or "",
-        members=tuple(by_mi[m].m.resource for m in mems if m in by_mi),
-        bodies=moved, contacts=n_contacts, zero_z=zero, pad=where,
-        spread_before_m=((max(gz) - min(gz)) if gz else 0.0),
-        spread_after_m=0.0, apart=())]
-
-
-def bind_families(cands: list, staged: _t.Sequence[_t.Any],
-                  surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
-                  counts: dict, *, unit_id: str = "",
-                  contact_eps_m: float = 0.0, bind_ground_m: float = 0.0,
-                  cluster_min_m2: float = 0.0,
-                  has_deck: bool = False) -> list[Family]:
-    """§16f APPLIED TO ONE UNIT.  ``cands`` and each ``staged`` member's
-    ``raw`` / ``ground_off`` are mutated in place, exactly as
-    :func:`placement_atom.bind_unit` mutates them — this runs AFTER it,
-    so §16c (7)'s rigid clusters are formed and the family plane is the
-    last word on a FOOTED body's zero.  The carried and elevated bodies
-    are untouched: each rides a footed carrier by §15 and follows it onto
-    the plane.
-
-    A unit carrying a DECK member forms NO family (§16f (3), naming the
-    case): OTHH's bridges put three decks 250 m apart on one row with
-    their piers and clutter BESIDE the plate, §16e (3) is WITHDRAWN
-    exactly because a footprint family there is PARTIAL, and a
-    plan-contact family binds the same clutter by another route —
-    measured, unit:6 came out 29 members at one zero with a member
-    8.20 m off its own ground.  The deck is the only datum body of a
-    bridge (§16e (2)) and its clutter rests on its own ground.
-
-    §16f (7) A LARGE TERMINAL CLUSTER IS ONE UNIT ON ONE PAD (owner
-    RULINGS 2026-09-13bj item 1).  A family whose FOOTPRINT UNION
-    (:func:`union_area_m2`) exceeds ``cluster_min_m2`` is a CLUSTER, and
-    for it (4)'s pad partition, (5)'s pavement clause and the pad-join
-    ground bound are ALL withdrawn: every member — walls, roofs, floors,
-    the interior furniture, the pieces standing on the apron — takes ONE
-    zero, the plane of the CLUSTER PAD the design surface emitted for it
-    (design spec §30 (4)).  The owner read the alternative at KCLT
-    1.0.327: 13aq's partition put the terminal on two pad groups, and the
-    passengers and seats, which have no pad of their own and no contact
-    with one, were cut to the ground UNDER the building.  A member whose
-    own contacts stand further than ``bind_ground_m`` off the plane is
-    REPORTED here (``cluster_members_off_the_plane``) and seated anyway —
-    that is the whole of "seated as a unit".
-
-    Returns the families derived, for the census."""
-    if contact_eps_m <= 0.0 or not cands:
-        return []
-    if has_deck:
-        counts["family_units_with_a_deck"] = \
-            counts.get("family_units_with_a_deck", 0) + 1
-        return []
-    from . import placement_carrier as _pc
-    by_mi = {st.mi: st for st in staged}
-    families: list[Family] = []
-    clusters, adj = _clusters(cands, contact_eps_m)
-    # §16f (3): the unit's family-eligible population, and the partial
-    # clusters that are NOT a family — reported, never bound
-    eligible = sum(1 for c in cands
-                   if c.body_class not in (_ar.LINE_SEGMENT, _ar.BASIN)
-                   and (c.part_boxes or c.box))
-    partial = [cl for cl in clusters
-               if len(cl) <= FAMILY_SHARE_MIN * max(1, eligible)]
-    if partial:
-        counts["family_partial_clusters"] = \
-            counts.get("family_partial_clusters", 0) + len(partial)
-        counts["family_bodies_partial"] = \
-            counts.get("family_bodies_partial", 0) + sum(len(c) for c in partial)
-    bound_ci: set[int] = set()
-    for cl in clusters:
-        if len(cl) <= FAMILY_SHARE_MIN * max(1, eligible):
-            continue
-        # §16f (7): IS THIS A CLUSTER?  The FOOTPRINT UNION of the plan
-        # cluster's own part boxes, measured before anything is cut away
-        # from it — (5)'s pavement clause and (4)'s pad partition are
-        # what a cluster withdraws, so neither may decide whether it is
-        # one.
-        area = union_area_m2([b for ci in cl for b in
-                              (cands[ci].part_boxes or
-                               ([cands[ci].box] if cands[ci].box else []))])
-        is_cluster = cluster_min_m2 > 0.0 and area >= cluster_min_m2
-        # every contact of the family, and the zero each body reads today
-        per: dict[int, list] = {}
-        zeros_before: list[float] = []
-        n_paved = 0
-        for ci in cl:
-            c = cands[ci]
-            st = by_mi.get(c.member)
-            if st is None:
-                continue
-            cc = _contacts_of(c, st, surface)
-            if not cc:
-                continue
-            # §16f (5) PAVEMENT IS KING (RULINGS 2026-09-13aq (ii)): a
-            # body every ground contact of which stands on rolled-on
-            # pavement is CUT APART from its family and stays on that
-            # pavement — an object never moves the aircraft.  Round 1
-            # held a KCLT terminal wall +2.99 m over the apron.
-            #
-            # IT YIELDS INSIDE A CLUSTER (§16f (7), RULINGS 2026-09-13bj
-            # item 1): a wall standing on apron takes the cluster plane
-            # and the apron under it is the design surface's business
-            # (§30 (4)'s reach) — the owner ruled the terminal seats as
-            # one unit and the apron around it may be flattened to it.
-            if not is_cluster and _all_on_pavement(cc, surface):
-                n_paved += 1
-                continue
-            per[ci] = cc
-            if c.anchor.surface_z is not None:
-                zeros_before.append(float(c.anchor.surface_z)
-                                    - float(c.anchor.y_zero))
-        if is_cluster and per:
-            families.extend(_bind_cluster(
-                cands, by_mi, surface, pads, counts, per, cl, area,
-                unit_id=unit_id, bind_ground_m=bind_ground_m,
-                bound_ci=bound_ci))
-            continue
-        if n_paved:
-            counts["family_bodies_on_pavement"] = \
-                counts.get("family_bodies_on_pavement", 0) + n_paved
-        if len({cands[ci].member for ci in per}) < FAMILY_MIN_MEMBERS:
-            continue
-        # §16f (4) ONE PLANE PER PAD: each body joins the pad holding the
-        # PLURALITY of its own ground contacts; a body on no pad joins
-        # the group it touches; a body touching none is left out.
-        pad_by_ref: dict[str, _ar.PadRing] = {}
-        pad_of: dict[int, str] = {}
-        for ci, cc in per.items():
-            step = max(1, len(cc) // FAMILY_CONTACTS_MAX)
-            p = pad_plurality(cc[::step], pads)
-            if p is not None:
-                pad_of[ci] = p.ref
-                pad_by_ref[p.ref] = p
-        groups = _pad_groups(sorted(per), pad_of, adj)
-        fid0 = f"{unit_id or 'unit'}#{cl[0]}"
-        for ref, gis in groups.items():
-            pad = pad_by_ref.get(ref)
-            # THE PAD'S PLANE: the median of the group's contacts that
-            # stand INSIDE the pad ring — never the ones a footprint
-            # spills onto the apron beside it (§16d (6)'s own reading,
-            # taken over the group instead of one body).
-            on: list[float] = []
-            allc: list[float] = []
-            n_contacts = 0
-            for ci in gis:
-                cc = per[ci]
-                step = max(1, len(cc) // FAMILY_CONTACTS_MAX)
-                n_contacts += len(cc)
-                for q in cc[::step]:
-                    allc.append(q[3] - q[2])
-                    if _ar.pad_contains(pad, q[0], q[1]):
-                        on.append(q[3] - q[2])
-            # §16f (4): EACH PAD GROUP TAKES ITS PAD'S PLANE — the
-            # median of the PAD's own graded vertices, so ONE pad is ONE
-            # plane however many families stand on it and whichever unit
-            # the walk reaches first.  Measured: KCLT's two terminal rows
-            # read their own on-pad contacts as 221.78 and 221.45, and
-            # the 0.33 m between them is the pad's own relief sampled
-            # twice, not two authorings.  The group's own on-pad contacts
-            # are the fallback where the caller read a pad without its
-            # heights (every twin that builds one by hand).
-            zero = (_median(pad.z) if pad is not None and pad.z
-                    else _median(on or allc))
-            fid = f"{fid0}@{ref}"
-            mems = sorted({cands[ci].member for ci in gis})
-            gz = [cands[ci].anchor.surface_z - cands[ci].anchor.y_zero
-                  for ci in gis if cands[ci].anchor.surface_z is not None]
-            moved = 0
-            n_far = 0
-            for ci in gis:
-                c = cands[ci]
-                cc = per[ci]
-                st = by_mi[c.member]
-                # §16f (4) + §16d (5): THE GROUND BOUND HOLDS AT THE PAD
-                # JOIN TOO.  §16c (7)'s bind already refuses where the
-                # two bodies' own grounds disagree by more than
-                # ``bind_ground_m`` (12ap (A)); the pad join needs the
-                # same arbiter, because the members a pad group picks up
-                # BY CONTACT (§16c (6)) are exactly the ones standing off
-                # the pad on real relief — measured, they came out +4.44
-                # (KCLT), +8.92 (LEMD), +12.21 m (OTHH) above their own
-                # ground.  A member further than the bound from the pad's
-                # plane is CUT TO ITS OWN GROUND (§16c) and counted.
-                # THE BOUND AND THE CENSUS READ THE SAME SAMPLE: the
-                # census is ``placement_boxes.anchor_ground_off``, which
-                # steps the feet down to ``GROUND_OFF_FEET_MAX``; testing
-                # on every foot instead let LEMD's worst member read 0.54
-                # against a 0.50 bound the walk thought it had met.
-                if bind_ground_m > 0.0:
-                    _st = max(1, len(cc) // _pb.GROUND_OFF_FEET_MAX)
-                    own_zs = [q[3] - q[2] for q in cc[::_st]]
-                    if abs(_median(own_zs) - zero) > bind_ground_m:
-                        n_far += 1
-                        continue
-                best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - zero), 6),
-                                              round(abs(q[2]), 6), q[0], q[1]))
-                own = best[3] - best[2]
-                a = _ar.Anchor(
-                    c.anchor.body_class, best[0], best[1], best[3] - zero,
-                    f"§16f family {fid} of {len(mems)} member(s) on "
-                    f"pad {ref} at {zero:.2f} "
-                    f"(own ground {own - zero:+.2f} m)",
-                    best[3], family=fid)
-                grp0 = (st.groups[c.group]
-                        if 0 <= c.group < len(st.groups) else ())
-                if not grp0:
-                    continue
-                k0 = _pc.senior_of(st.raw, grp0)
-                r0 = st.raw[k0]
-                st.raw[k0] = (r0[0], r0[1], a) + tuple(r0[3:])
-                _off = _pb.anchor_ground_off(
-                    a, tuple(f for j in grp0 for f in st.raw[j][3]), surface)
-                if c.group < len(st.ground_off):
-                    st.ground_off[c.group] = _off
-                cands[ci] = _dc.replace(c, anchor=a, ground_off=_off)
-                bound_ci.add(ci)
-                moved += 1
-            if n_far:
-                counts["family_bodies_off_the_pad_plane"] = \
-                    counts.get("family_bodies_off_the_pad_plane", 0) + n_far
-            if not moved:
-                continue
-            counts["bodies_bound_to_family"] = \
-                counts.get("bodies_bound_to_family", 0) + moved
-            counts["family_pad_groups"] = \
-                counts.get("family_pad_groups", 0) + 1
-            families.append(Family(
-                id=fid, unit=unit_id or "",
-                members=tuple(by_mi[m].m.resource for m in mems if m in by_mi),
-                bodies=moved, contacts=n_contacts, zero_z=zero, pad=ref,
-                spread_before_m=((max(gz) - min(gz)) if gz else 0.0),
-                spread_after_m=0.0, apart=()))
-        if groups:
-            counts["families"] = counts.get("families", 0) + 1
-        # a body of the family that touches NO pad group is cut to its
-        # own ground (§16f (4) / §16c) — counted, never silent
-        loose = [ci for ci in per if ci not in bound_ci]
-        if loose:
-            counts["family_bodies_off_every_pad"] = \
-                counts.get("family_bodies_off_every_pad", 0) + len(loose)
-    if families:
-        fam_members = {m for f in families for m in f.members}
-        names = tuple(sorted(
-            {f"{cands[ci].resource}" for ci, c in enumerate(cands)
-             if ci not in bound_ci
-             and c.body_class not in (_ar.LINE_SEGMENT, _ar.BASIN)
-             and by_mi.get(c.member) is not None
-             and by_mi[c.member].m.resource in fam_members}))
-        if names:
-            families = [_dc.replace(f, apart=names) for f in families]
-            counts["family_bodies_apart"] = \
-                counts.get("family_bodies_apart", 0) + len(names)
-    return families
 
 
 # ── §16f (3): THE CENSUS ─────────────────────────────────────────────────

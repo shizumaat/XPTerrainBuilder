@@ -174,14 +174,13 @@ NOT_IMPLEMENTED: dict[str, str] = {
         "pre-flight are the only instruments",
     # §38 (3) (owner RULINGS 2026-09-13ah/13an; issue #186)
     "bank_across_seam":
-        "prices ``bank_foot`` nodes, and NO bank exists on what verify "
-        "reads: ``pipeline/build`` hands ``census_frame`` the DESIGN "
-        "surface ``surf``, while the bank is minted into a SECOND surface "
-        "(``surf_out = emit.bank.with_bank(surf, …)``) that only the "
-        "written patch carries — spec §9.2 A7 keeps the two apart on "
-        "purpose, so the family is vacuous by construction here.  The "
-        "oracle over the emitted patch is the instrument (its ``bank_foot`` "
-        "feature channel)",
+        "prices ``bank_foot`` nodes, and v2 emits none: the patch-boundary "
+        "bank pass is deleted (owner RULINGS 2026-10-04c (3)), so neither "
+        "the DESIGN surface ``surf`` that ``census_frame`` reads nor the "
+        "emitted ``surf_out`` carries a bank and the family is vacuous by "
+        "construction.  The oracle over the emitted patch still prices its "
+        "``bank_foot`` feature channel for patches written before the "
+        "deletion",
     # §37 (11) (5) (owner RULINGS 2026-09-15f item 2; issue #186)
     "sea_wall":
         "prices emitted ring EDGES whose BOTH vertices stand ON the "

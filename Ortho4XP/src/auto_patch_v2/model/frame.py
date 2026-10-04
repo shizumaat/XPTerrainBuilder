@@ -13,13 +13,14 @@ No shapely / numpy: the frame is arithmetic over floats.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 import typing as _t
 
 XY = tuple[float, float]
 LL = tuple[float, float]
 Key = tuple[float, float]
 
-__all__ = ["XY", "LL", "Key", "Frame", "identity_key"]
+__all__ = ["m_per_deg_exact", "XY", "LL", "Key", "Frame", "identity_key"]
 
 #: THE FRAME HAS TWO PROJECTIONS, AND THE DIFFERENCE BETWEEN THEM IS THE
 #: LAW (spec §46, owner 2026-09-17 Q 17d-1; RULINGS 2026-09-17d / 17g).
@@ -186,3 +187,21 @@ def rotated_rectangle(poly):
         warnings.simplefilter("ignore", RuntimeWarning)
         return poly.minimum_rotated_rectangle
 
+
+def m_per_deg_exact(lat: float) -> tuple[float, float]:
+    """``(metres per degree of latitude, of longitude)`` at ``lat``,
+    computed and NOT memoised.
+
+    ``anchor_rule._m_per_deg`` buckets on ``int(lat * 1e4)``, so whoever
+    calls it FIRST inside a bucket fixes the value every later caller
+    sees — this lane measured the consequence in round 1 (a ring node at
+    exactly 50 m of longitude reads 50.00000000000935 cold and
+    49.99999999998842 once the bucket was warmed at 40.00009 N, and
+    `test_a_basin_wall_follows_its_ring_...` flips).  §16g (7)'s scaling
+    is wanted ONCE per cluster, so the memo buys nothing here and taking
+    it would make this law an order-dependence for every reader after
+    it.  The memo's own defect is NAMED, not fixed here: it is another
+    law's instrument."""
+    r = math.radians(lat)
+    return (111_132.954 - 559.822 * math.cos(2 * r) + 1.175 * math.cos(4 * r),
+            111_412.84 * math.cos(r) - 93.5 * math.cos(3 * r))

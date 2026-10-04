@@ -59,6 +59,7 @@ import os
 import pickle
 import typing as _t
 import zlib
+from .file_hash import sha256_file_or_none
 
 __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
            "pristine_stamps", "resolved_digest", "peek"]
@@ -295,21 +296,10 @@ def pristine_stamps(pack_root: str) -> list[tuple[str, int, float, str]] | None:
     return out
 
 
-def _file_sha256(path: str) -> str | None:
-    h = hashlib.sha256()
-    try:
-        with open(path, "rb") as fh:
-            for chunk in iter(lambda: fh.read(1 << 22), b""):
-                h.update(chunk)
-    except OSError:
-        return None
-    return h.hexdigest()
-
-
 def _header(fp: str) -> dict[str, tuple[float, str | None]]:
     """``relpath -> (mtime, sha256)`` of the pristine files under ``fp`` —
     what :func:`read` checks an mtime-only change against."""
-    return {rel: (mt, _file_sha256(src)) for rel, _sz, mt, src in _STAMPS.get(fp, ())}
+    return {rel: (mt, sha256_file_or_none(src)) for rel, _sz, mt, src in _STAMPS.get(fp, ())}
 
 
 def _stamps_hold(fp: str, header: _t.Any) -> bool:
@@ -323,7 +313,7 @@ def _stamps_hold(fp: str, header: _t.Any) -> bool:
             return False
         if got[0] == mt:
             continue
-        if got[1] is None or _file_sha256(src) != got[1]:
+        if got[1] is None or sha256_file_or_none(src) != got[1]:
             return False
     return True
 

@@ -43,6 +43,7 @@ from shapely.strtree import STRtree
 from ..airport.road_ways import road_ways
 from ..law import Law
 from ..law.tables import snap_margin_m
+from ..airport.dem import dem_z_many
 
 __all__ = ["EdgeClip", "EdgeReport", "road_lines", "road_ways", "road_half_width_m",
            "clip_to_terrain_edge"]
@@ -148,14 +149,6 @@ def _outward(px: np.ndarray, py: np.ndarray, seed) -> tuple[np.ndarray, np.ndarr
     return ux, uy
 
 
-def _dem_many(dem, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
-    many = getattr(dem, "z_many", None)
-    if many is not None:
-        return np.asarray(many(xs, ys), dtype=float)
-    return np.asarray([dem.z(float(x), float(y)) for x, y in zip(xs, ys)],
-                      dtype=float)
-
-
 def _crest_geometry(part: Polygon, seed, dem, law) -> tuple[object, int]:
     """The CREST cells of one region part (rule 1), as one geometry."""
     d = law.tables.emit.design
@@ -173,8 +166,8 @@ def _crest_geometry(part: Polygon, seed, dem, law) -> tuple[object, int]:
         return Polygon(), 0
     X, Y = X[inside], Y[inside]
     ux, uy = _outward(X, Y, seed)
-    z0 = _dem_many(dem, X, Y)
-    z1 = _dem_many(dem, X + ux * probe, Y + uy * probe)
+    z0 = dem_z_many(dem, X, Y)
+    z1 = dem_z_many(dem, X + ux * probe, Y + uy * probe)
     drop = z0 - z1
     crest = (np.isfinite(drop) & (drop > float(d.edge_min_drop_m))
              & (drop > float(d.bank_slope) * probe))

@@ -81,8 +81,7 @@ from scipy.spatial import Delaunay as _Delaunay, QhullError as _QhullError
 
 from .feet_mst import neighbour_pairs
 
-__all__ = ["neighbour_pairs_fast", "fallback_count", "reset_fallback_count",
-           "SMALL_N", "BIG_N"]
+__all__ = ["neighbour_pairs_fast", "fallback_count", "SMALL_N", "BIG_N"]
 
 _LOG = _logging.getLogger(__name__)
 
@@ -105,13 +104,6 @@ def fallback_count() -> int:
     designed small path, not a degeneracy).  Reported as
     ``mst_fallback`` in the group report."""
     return _FALLBACKS
-
-
-def reset_fallback_count() -> None:
-    """Zero the counter (the group report reads a per-``derive`` delta;
-    tests read an absolute)."""
-    global _FALLBACKS
-    _FALLBACKS = 0
 
 
 def _fallback(pts: _t.Sequence[tuple[float, float]], why: str

@@ -92,13 +92,6 @@ def ridge_chains(vw: View) -> dict[str, list[list[int]]]:
     return out
 
 
-def _runway_code(airport: Airport, ref: str) -> tuple[int | None, str | None]:
-    for rw in airport.runways:
-        if rw.id == ref:
-            return rw.code_number, rw.code_letter
-    return None, None
-
-
 def dem_degraded(airport: Airport) -> str:
     """Why the production DEM frame is DEGRADED, or ``""`` (spec §21.2 (2)).
 

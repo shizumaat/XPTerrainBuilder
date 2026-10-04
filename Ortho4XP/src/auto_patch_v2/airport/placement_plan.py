@@ -70,12 +70,10 @@ from .placement_record import Body, Kept, Split, SplitSet
 from .placement_record import Staged as _Staged   # noqa: F401
 # §16e (3): THE BRIDGE FAMILY (the deck's own model footprint), next door
 from . import bridge_family as _bf
-# §16b (2) / §16e (3): WHICH CANDIDATES A TARGET MAY REST ON, and what
-# the carrier cut makes of the answer — next door for the 1,000-line law
-# (moved whole by lane ``v2bridgecontact``, no line changed), re-exported
-# because every caller and every twin reads them as this module's.
-from .placement_targets import (_carrier_pieces,          # noqa: F401
-                                _footless_targets, welded_carriers)
+# issue #127: a body the carrier search left bare rides what it is welded
+# to.  (The carrier question and its cut — ``_footless_targets``,
+# ``_carrier_pieces`` — are ``placement_body``'s, re-exported below.)
+from .placement_targets import welded_carriers          # noqa: F401
 # THE PLAN AND GRADED-DOC READERS live next door (the 1,000-line law,
 # moved by lane ``v2bridgecontact``) and are re-exported: every caller
 # and every twin — ``engine_v2``, ``obj8_split_report``, the replay —

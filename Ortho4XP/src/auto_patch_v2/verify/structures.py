@@ -28,6 +28,7 @@ from ..model.structures import deck_z_on_faces
 #: published corridor is lon/lat and the tolerance travels with it.
 _RING_TOL_DEG = 1.0 / 111320.0
 from .frame import Patch, Row, Shape, row
+from ..geom.union_find import find_root
 
 __all__ = ["wall_in_runway_strip", "basin_floor_declaration", "tunnel_mouth_canonical",
            "tunnel_deck_clearance", "basin_floor_at_declaration", "structure_rim_gap",
@@ -401,19 +402,14 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
     ramps_all = _ramps(p)
     parent = list(range(len(ramps_all)))
 
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
 
     for i in range(len(ramps_all)):
         for j in range(i + 1, len(ramps_all)):
             if min(_dist(a, b) for a in ramps_all[i].xy for b in ramps_all[j].xy) <= 25.0:
-                parent[find(i)] = find(j)
+                parent[find_root(parent, i)] = find_root(parent, j)
     by_id: dict[str, list[Shape]] = {}
     for i, r in enumerate(ramps_all):
-        by_id.setdefault(f"site{find(i)}", []).append(r)
+        by_id.setdefault(f"site{find_root(parent, i)}", []).append(r)
     # THE OBJECT CORRIDORS (RULINGS 2026-09-05k-1; sidecar ``tunnel_objects``):
     # their mouth is the object's — floor = seat, crest = plate, a mouth
     # at each OPEN end with no cap — so the 09-03b mouth law (cap crest =

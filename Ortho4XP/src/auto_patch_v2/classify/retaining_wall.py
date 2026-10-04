@@ -62,17 +62,6 @@ class RetainingPiece:
     gap_m: float
 
 
-def _wall_class(poly: Polygon, height_m: float, cfg) -> bool:
-    if height_m < float(cfg.retaining_wall_min_height_m):
-        return False
-    if poly.area <= 0.0 or poly.length <= 0.0:
-        return False
-    width = 2.0 * poly.area / poly.length
-    length = poly.length / 2.0 - width
-    return (width <= float(cfg.retaining_wall_max_width_m)
-            and length >= float(cfg.retaining_wall_min_length_m))
-
-
 # THE WALL-CLASS CLASSIFIER lives in ``airport/wall_class`` (issue #303:
 # ``airport/road_ramp`` is its third reader and ``airport`` may not read
 # ``classify``); re-exported here, every caller's path unchanged.

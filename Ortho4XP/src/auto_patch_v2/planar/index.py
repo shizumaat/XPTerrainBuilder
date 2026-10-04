@@ -6,7 +6,6 @@ faces and breaklines in lat/lon for viewing (QGIS, geojson.io).
 """
 from __future__ import annotations
 
-import json
 
 import numpy as np
 from shapely.geometry import Polygon
@@ -114,8 +113,4 @@ def _cycle_vids(pm: PlanarMap, cycle: tuple[int, ...]) -> list[int]:
         out.append(prev)
     return out[:-1] if len(out) > 1 and out[0] == out[-1] else out
 
-
-def dump_geojson(path: str, collection: dict) -> None:
-    with open(path, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(collection, fh)
 

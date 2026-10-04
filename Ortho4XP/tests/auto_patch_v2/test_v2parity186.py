@@ -279,14 +279,14 @@ def test_the_two_unreadable_entries_cite_their_construction():
 
 def test_the_declared_construction_is_the_builds_own():
     """The citation is checked against ``pipeline/build``, not trusted: the
-    bank and the shore weld go into ``surf_out`` and the verify stage reads
+    terrain-edge ways and the shore weld go into ``surf_out`` and the verify stage reads
     ``surf``.  A refactor that fed ``surf_out`` to ``census_frame`` would
     make both families readable, and must fail here."""
     import inspect
 
     from auto_patch_v2.pipeline import build as B
     src = inspect.getsource(B)
-    assert "surf_out = with_bank(surf," in src
+    assert "surf_out = with_terrain_edges(surf," in src
     assert "surf_out = weld_to_shore(surf_out," in src
     assert "census_frame(surf, law, pub," in src
 

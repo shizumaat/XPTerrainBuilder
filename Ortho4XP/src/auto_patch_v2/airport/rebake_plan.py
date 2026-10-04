@@ -33,6 +33,7 @@ from . import deck_signature as _deck
 from . import obj8 as _obj8
 from .pack_partition import (PackPartition, Screen, extend_partition,
                              partition_pack)
+from ..model.frame import m_per_deg_exact
 
 __all__ = ["plan", "screen_of", "DeckDatum", "ring_ends", "end_line_stations"]
 
@@ -112,10 +113,9 @@ def end_line_stations(ends, step_m: float) -> tuple[tuple[float, float], ...]:
     return tuple(out)
 
 
-def _mpd(lat: float) -> tuple[float, float]:
-    r = _math.radians(lat)
-    return (111_132.954 - 559.822 * _math.cos(2 * r) + 1.175 * _math.cos(4 * r),
-            111_412.84 * _math.cos(r) - 93.5 * _math.cos(3 * r))
+#: ``(metres per degree of latitude, of longitude)`` at a latitude — the
+#: un-memoised reading, ONE implementation (``model/frame``).
+_mpd = m_per_deg_exact
 
 
 def screen_of(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,

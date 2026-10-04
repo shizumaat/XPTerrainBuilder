@@ -24,6 +24,7 @@ from ..law import Law
 from ..law.tables import zone2_half_width_m
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import NO_SHAPE, PlanarMap
+from ..geom.union_find import find_root
 
 __all__ = ["_Reduction", "_reduce", "_face_triangles", "_cotangent_laplacian",
            "_Rows", "_Side", "_law_sides", "_violation", "_zone_weights",
@@ -373,20 +374,15 @@ def _sheet_components(tris: _t.Sequence[tuple[int, int, int]],
     """
     parent: dict[int, int] = {c: c for c in range(red.n_cols)}
 
-    def find(v: int) -> int:
-        while parent[v] != v:
-            parent[v] = parent[parent[v]]
-            v = parent[v]
-        return v
 
     for a, b, c in tris:
         cols = [int(red.col[v]) for v in (a, b, c) if red.col[v] >= 0]
         if len(cols) < 2:
             continue
-        ra = find(cols[0])
+        ra = find_root(parent, cols[0])
         for other in cols[1:]:
-            parent[find(other)] = ra
-    return {c: find(c) for c in range(red.n_cols)}
+            parent[find_root(parent, other)] = ra
+    return {c: find_root(parent, c) for c in range(red.n_cols)}
 
 
 def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
@@ -415,23 +411,18 @@ def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
     """
     parent: dict[int, int] = {c: c for c in range(red.n_cols)}
 
-    def find(v: int) -> int:
-        while parent[v] != v:
-            parent[v] = parent[parent[v]]
-            v = parent[v]
-        return v
 
     has_level: set[int] = set()
 
     def take(cols: _t.Sequence[int], coefs: _t.Sequence[float]) -> None:
         if not cols:
             return
-        r0 = find(int(cols[0]))
+        r0 = find_root(parent, int(cols[0]))
         for c in cols[1:]:
-            parent[find(int(c))] = r0
-            r0 = find(r0)
+            parent[find_root(parent, int(c))] = r0
+            r0 = find_root(parent, r0)
         if abs(sum(coefs)) > tol:
-            has_level.add(find(int(cols[0])))
+            has_level.add(find_root(parent, int(cols[0])))
 
     for src in (rows, body):
         if src is None or not src.n:
@@ -451,8 +442,8 @@ def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
                 coefs.append(float(coef))
         take(cols, coefs)
     # a root's level marker must survive later unions: re-reduce
-    level_roots = {find(r) for r in has_level}
-    return {c: find(c) for c in range(red.n_cols) if find(c) not in level_roots}
+    level_roots = {find_root(parent, r) for r in has_level}
+    return {c: find_root(parent, c) for c in range(red.n_cols) if find_root(parent, c) not in level_roots}
 
 
 def apply_level_belt(pm: PlanarMap, rows: "_Rows", body: "_Rows | None",

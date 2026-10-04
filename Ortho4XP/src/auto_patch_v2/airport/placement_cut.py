@@ -41,6 +41,7 @@ from . import placement_geom as _pg                   # noqa: E402
 from .placement_geom import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402,F401
                              _geom_ground, _geom_span, surface_many,
                              thin_points)
+from ..geom.union_find import find_root
 
 # ── THE LINE SEGMENT (owner RULINGS 2026-09-11f (2); spec §10) ───────────
 
@@ -829,20 +830,15 @@ def _bodies_of(member: Member, edges: _t.Sequence[tuple[int, int]]
     pid_of = {p.pid: p for p in member.parts}
     parent = {p.pid: p.pid for p in member.parts}
 
-    def find(a: int) -> int:
-        while parent[a] != a:
-            parent[a] = parent[parent[a]]
-            a = parent[a]
-        return a
 
     for a, b in edges:
         if a in parent and b in parent and not pid_of[a].line and not pid_of[b].line:
-            ra, rb = find(a), find(b)
+            ra, rb = find_root(parent, a), find_root(parent, b)
             if ra != rb:
                 parent[ra] = rb
     groups: dict[int, list[int]] = {}
     for p in member.parts:
-        groups.setdefault(find(p.pid), []).append(p.pid)
+        groups.setdefault(find_root(parent, p.pid), []).append(p.pid)
     return [groups[k] for k in sorted(groups, key=lambda k: min(groups[k]))]
 
 
@@ -870,16 +866,6 @@ def _basin_floor_member(cutter: "_LineCutter", parts: _t.Sequence[Part],
         return False
     frac, base_y = r
     return _br.member_kind(frac, base_y, tol_m) == _br.FLOOR
-
-
-def _rim_ring_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
-                 base_y: float) -> "_ar.RimRing | None":
-    """:func:`_rim_of`'s own verdict with the RING it found — §14a needs
-    the ring itself (its nodes, their heights and its ref), and reading
-    it twice would be two answers waiting to disagree."""
-    if base_y >= 0.0:
-        return None
-    return _ar.rim_of(rims, lat, lon)
 
 
 def _rim_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,

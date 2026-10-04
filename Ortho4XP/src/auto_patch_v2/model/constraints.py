@@ -16,7 +16,8 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Source", "Pin", "Diff", "Flat", "Band", "Offset", "Linear",
+__all__ = [
+    "pinned_vertices","Source", "Pin", "Diff", "Flat", "Band", "Offset", "Linear",
            "Row", "ConstraintSet", "REACH_GENERATOR"]
 
 #: The generator name of the ROUTE-REACH bands (RULINGS 2026-09-04o: the
@@ -265,3 +266,11 @@ class ConstraintSet:
         model never imports); this method only names it."""
         raise NotImplementedError(
             "use auto_patch_v2.solve.assemble.to_sparse(constraints, n)")
+
+
+def pinned_vertices(rows, generator: str) -> set[int]:
+    """The vertices ``generator`` pinned among ``rows`` — what a pair
+    exemption or a post-pass reads to know which vertices that generator
+    already holds."""
+    return {r.v for r in rows
+            if isinstance(r, Pin) and r.source.generator == generator}

@@ -70,6 +70,7 @@ from ..law import Law
 from ..law.tables import frontage_roles
 from ..model.planar import COLLAR_SUFFIX, block_ref
 from ..model.platform import HELD, PLATFORMS, Platform
+from ..geom.parts import nonempty_polygon_parts
 
 __all__ = ["platform_split", "Platform", "PLATFORMS", "collar_width_m",
            "merge_platform_faces"]
@@ -163,7 +164,7 @@ def _eroded(P: Polygon, C: float, grid: float, pmin: float
     min_area_m2`` (the smallest pad the mint keeps) stays in the collar,
     which is where its ground is."""
     inner = P.buffer(-C, join_style=2, mitre_limit=2.0)
-    parts = sorted(_parts(inner), key=lambda q: -q.area)
+    parts = sorted(nonempty_polygon_parts(inner), key=lambda q: -q.area)
     plats = []
     for q in parts:
         if grid > 0.0:
@@ -257,14 +258,6 @@ def _collar_for_pad(P: Polygon, grid: float, cap: float, cmin: float,
         else:
             hi = mid
     return _w(lo), ("floor" if lo == 0 else "area"), best[0], best[1], best[2]
-
-
-def _parts(g) -> list[Polygon]:
-    if g is None or g.is_empty:
-        return []
-    if isinstance(g, Polygon):
-        return [g]
-    return [q for q in getattr(g, "geoms", []) if isinstance(q, Polygon) and not q.is_empty]
 
 
 def _welded_samples(poly: Polygon, air, near_m: float) -> int:
@@ -413,7 +406,7 @@ def platform_split(base_regions, pad_regions, law: Law,
                                       why))
             out.append(pr)
             continue
-        cparts = _parts(P.difference(unary_union(plats)))
+        cparts = nonempty_polygon_parts(P.difference(unary_union(plats)))
         if not cparts:
             out.append(pr)
             continue
@@ -561,7 +554,7 @@ def _mint_blocks(pr, P: Polygon, plats: list, bplan, law: Law, grid: float,
         if cut:
             body = body.difference(unary_union(cut))
         keep = []
-        for q in _parts(body):
+        for q in nonempty_polygon_parts(body):
             if grid > 0.0:
                 s_ = q.simplify(0.5 * grid, preserve_topology=True)
                 q = s_ if isinstance(s_, Polygon) and not s_.is_empty else q
@@ -571,7 +564,7 @@ def _mint_blocks(pr, P: Polygon, plats: list, bplan, law: Law, grid: float,
             return None
         ref = block_ref(str(pr.ref), b.k)
         plat_regs.extend(_dc.replace(pr, ref=ref, polygon=q) for q in keep)
-        col = _parts(Q.difference(unary_union(keep)))
+        col = nonempty_polygon_parts(Q.difference(unary_union(keep)))
         col_regs.extend(_dc.replace(pr, ref=ref + COLLAR_SUFFIX, polygon=q) for q in col)
         recs.append((ref, b, sum(q.area for q in keep)))
     for ref, b, a in recs:

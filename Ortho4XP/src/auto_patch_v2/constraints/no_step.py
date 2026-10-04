@@ -85,17 +85,17 @@ import math
 import typing as _t
 
 from ..law import Law, LawError
-from ..law.tables import is_rigid_role, is_value_role, role_cap, role_side
+from ..law.tables import is_rigid_role
 from ..model.airport import Airport
 from ..model.constraints import (REACH_GENERATOR, Band, ConstraintSet, Diff,
                                  Linear, Row, Source)
 from ..model.planar import PlanarMap
-from .routes import reach, reach_anchored, route_neighbours, routes
+from .routes import reach, reach_anchored, route_neighbours, route_roles, routes
 from .precedence import View, view
 from .runway_profile import threshold_pins
 
-__all__ = ["no_step_roles", "rigid_airside_roles", "no_step_pairs",
-           "no_step_rate", "no_step_edges", "pad_only_vertices", "pad_contacts",
+__all__ = ["route_roles", "no_step_pairs",
+           "no_step_rate", "no_step_edges", "pad_contacts",
            "pad_pavement_edges", "rate_rows_for_chain", "reach_bands",
            "reach_band_values", "runway_family_routes", "adjacent_taxi_vertices", "hold_interval", "hold_pass", "HoldPass",
            "HoldInterval", "pair_graph", "runway_membership", "RUNWAY_FLEX",
@@ -105,23 +105,6 @@ GEN = "no_step"
 #: The §1.1 pair rows' ruling prefix (both the pavement and the pad-contact
 #: pairs): the yielding transform selects them by it (``constraints/yielding.py``).
 PAIR_RULING_PREFIX = "airside_no_step §1.1"
-
-
-def no_step_roles(law: Law) -> frozenset[str]:
-    """Airside, value-carrying, governed, not rigid (03i)."""
-    reg = law.tables.precedence.roles
-    return frozenset(r for r in reg
-                     if role_side(law, r) == "airside" and is_value_role(law, r)
-                     and role_cap(law, r) is not None and not is_rigid_role(law, r))
-
-
-def rigid_airside_roles(law: Law) -> frozenset[str]:
-    """Airside, value-carrying, governed, RIGID (a pad) — the pad side
-    of the pad↔pavement pairs."""
-    reg = law.tables.precedence.roles
-    return frozenset(r for r in reg
-                     if role_side(law, r) == "airside" and is_value_role(law, r)
-                     and role_cap(law, r) is not None and is_rigid_role(law, r))
 
 
 def _airside_vertices(vw: View, roles: frozenset[str]) -> dict[int, float]:
@@ -171,7 +154,7 @@ _EDGES_MEMO: list[tuple] = []
 def _no_step_edges(planar: PlanarMap, law: Law, airport: Airport | None, ns
                    ) -> list[tuple[int, int, float, float]]:
     vw = view(planar, law)
-    caps = _airside_vertices(vw, no_step_roles(law))
+    caps = _airside_vertices(vw, route_roles(law))
     g = routes(planar, law, airport)
     out: list[tuple[int, int, float, float]] = []
     for a, b, d, bud in route_neighbours(g, caps, ns.window_m, ns.k, targets=caps):
@@ -339,13 +322,6 @@ RUNWAY_FLEX: list[dict] = []
 #: ``[design] hard_rulings`` (flat-pad spec v2 §1 (4))
 FLEX_RULING = "rulesets.runway.flex_budget"
 FLEX_GEN = "runway_flex"
-
-
-def runway_stage_family(law: Law) -> frozenset[str]:
-    """The runway family's roles (``precedence.toml``)."""
-    from ..law.tables import role_family
-    return frozenset(r for r in law.tables.precedence.roles
-                     if role_family(law, r) == "runway")
 
 
 def _median(vals: list[float]) -> float:
@@ -890,21 +866,6 @@ def reach_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     return rows
 
 
-def pad_only_vertices(planar: PlanarMap, law: Law) -> dict[int, float]:
-    """Vertex -> cap for every PAD-ONLY airside vertex: a rigid face's
-    vertex touching rigid faces and nothing else (a pad vertex shared
-    with airside pavement is that pavement's; one shared with a
-    groundside lot is the lot's — a mixed pad, 09-01g: the terrace in
-    the stand-off is lawful; measured SPJC: pairing it minted 7.2 m
-    building|groundside_pavement rows)."""
-    vw = view(planar, law)
-    rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
-    pav = _airside_vertices(vw, no_step_roles(law))
-    return {v: c for v, c in _airside_vertices(vw, rigid_airside_roles(law)).items()
-            if v not in pav and all(planar.faces[f].role in rigid
-                                    for f in vw.vertex_faces[v])}
-
-
 def pad_contacts(planar: PlanarMap, law: Law) -> dict[int, list[int]]:
     """Pad face id -> its CONTACT vertices, sorted: the rim vertices
     shared with airside pavement (the no-step roles), and — RULINGS
@@ -915,7 +876,7 @@ def pad_contacts(planar: PlanarMap, law: Law) -> dict[int, list[int]]:
     airside pavement does is the lot's (09-01g) and is no contact."""
     from .pads import frontage_contacts
     vw = view(planar, law)
-    pav = _airside_vertices(vw, no_step_roles(law))
+    pav = _airside_vertices(vw, route_roles(law))
     rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
     near: dict[int, set[int]] = {}
     for e, j, pid, _d, _cap, _sf in frontage_contacts(planar, law):
@@ -947,7 +908,7 @@ def pad_pavement_edges(planar: PlanarMap, law: Law,
         return []
     ns = law.tables.emit.no_step
     vw = view(planar, law)
-    pav = _airside_vertices(vw, no_step_roles(law))
+    pav = _airside_vertices(vw, route_roles(law))
     own: dict[int, set[int]] = {}
     for fid, cvs in contacts.items():
         group: set[int] = set(vw.rings[fid])
@@ -1011,7 +972,7 @@ def no_step_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # rows 0.1 mm over, all at the bound)
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     rows: list[Row] = []
-    for f in vw.faces_of_role(no_step_roles(law)):
+    for f in vw.faces_of_role(route_roles(law)):
         src = Source(GEN, "airside_no_step §1.2 rate (2026-08-27)",
                      (f"face:{f.id}", f.ref))
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:

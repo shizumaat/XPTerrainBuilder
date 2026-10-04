@@ -22,12 +22,15 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+from shapely.geometry import Point, Polygon
+
 from ..model.planar import PlanarMap
 
 XY = tuple[float, float]
 
 __all__ = [
-    "ring_vertex_ids", "face_outer_ids", "principal_axis", "long_axis",
+    "nearest_vertex_of_containing_cell",
+    "ring_vertex_ids", "principal_axis", "long_axis",
     "pair_is_transverse", "station_indices", "longitudinal_runs",
     "rect_ring", "point_in_ring", "point_in_rect_ring", "project_to_chain",
     "TransectShape", "TransectAxis", "Transect", "walk_transects",
@@ -116,11 +119,6 @@ def ring_vertex_ids(pm: PlanarMap, cycle: _t.Sequence[int]) -> list[int]:
     """The vertex ids of an edge cycle in walking order (first not
     repeated) — ``PlanarMap.ring_vertices``."""
     return list(pm.ring_vertices(cycle))
-
-
-def face_outer_ids(pm: PlanarMap) -> dict[int, list[int]]:
-    """Face id -> outer ring vertex ids (open), for every face."""
-    return {fid: ring_vertex_ids(pm, f.ring) for fid, f in pm.faces.items()}
 
 
 def polyline_length(pts: _t.Sequence[XY]) -> float:
@@ -570,3 +568,32 @@ def walk_transects(shapes: _t.Sequence[TransectShape],
                         u_lo=u_lo, edge_lo=e_lo, t_lo=t_lo, z_lo=z_lo,
                         u_hi=u_hi, edge_hi=e_hi, t_hi=t_hi, z_hi=z_hi,
                         width_m=u_hi - u_lo, cap_l=axis.cap_l)
+
+
+def nearest_vertex_of_containing_cell(planar: PlanarMap, vw, v: int, structure_roles) -> int | None:
+    """THE GOVERNED CELL A VERTEX STANDS IN, and that cell's nearest OTHER
+    vertex — the value the vertex takes.  The governed pavement face (not a
+    structure role, not ``graded_strip``) whose ring CONTAINS the vertex's
+    plan point; ``None`` where it stands in no such face.
+
+    ONE reading, two callers asking it of different vertices: a portal rim
+    vertex under a DECK cell (spec §34 (5) as amended — ``None`` keeps
+    09-03b L1's DEM pin) and a channel CREST vertex at the corridor edge
+    (§45 (5))."""
+    pt = Point(planar.vertices[v].xy)
+    best = None
+    for fid, cap in vw.caps.items():
+        f = planar.faces[fid]
+        if cap is None or f.role in structure_roles or f.role == "graded_strip":
+            continue
+        ring = list(vw.rings[fid])
+        if v in ring:
+            continue
+        poly = Polygon([planar.vertices[u].xy for u in ring])
+        if not poly.is_valid or not poly.contains(pt):
+            continue
+        for u in ring:
+            d = pt.distance(Point(planar.vertices[u].xy))
+            if best is None or d < best[0]:
+                best = (d, u)
+    return None if best is None else best[1]

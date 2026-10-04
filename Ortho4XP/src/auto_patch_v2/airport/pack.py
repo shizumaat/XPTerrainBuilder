@@ -23,12 +23,12 @@ pack is not written during the patch build; the re-bake after the mesh
 from __future__ import annotations
 
 import dataclasses as _dc
-import hashlib
 import os
 
 from ..model.airport import SceneryPack
 from . import borrow as _borrow
 from .apt_dat import block_sha256, find_apt_dat
+from .file_hash import sha256_file
 
 __all__ = ["PackSelection", "select_pack", "tile_dsf_path", "signature",
            "sha256_file", "AUTHORED_BACKUP_SUFFIX", "authored_source",
@@ -126,14 +126,6 @@ def tile_dsf_path(pack_root: str, lat: int, lon: int) -> str | None:
                      f"{(lat // 10) * 10:+03d}{(lon // 10) * 10:+04d}",
                      f"{lat:+03d}{lon:+04d}.dsf")
     return p if os.path.isfile(p) else None
-
-
-def sha256_file(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def signature(sel: PackSelection, block: list[str], lat: int,

@@ -54,6 +54,7 @@ __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_ban
 #: (RULINGS 2026-09-13dc) applies the same test to a §42 object body
 #: before the slice, and ``classify`` may not import ``planar``.
 from ..classify.sources import ENCLOSED_MIN_FRAC  # noqa: E402,F401
+from ..geom.union_find import find_root
 
 
 @_dc.dataclass(frozen=True)
@@ -808,11 +809,6 @@ def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
     #: union-find: which face each original index now lives in
     home = list(range(len(faces)))
 
-    def root(i: int) -> int:
-        while home[i] != i:
-            home[i] = home[home[i]]
-            i = home[i]
-        return i
 
     absorbed = detached = 0
     from ..model.planar import PLATEAU_MARK
@@ -834,7 +830,7 @@ def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
         # a BOUNDING-BOX query, not ``intersects``: the enclosed face lies
         # in the host's HOLE, so the two are disjoint as solids
         for j in tree.query(poly):
-            j = root(int(j))
+            j = find_root(home, int(j))
             if j == i or keep[j] is None:
                 continue
             pj, rj = keep[j]

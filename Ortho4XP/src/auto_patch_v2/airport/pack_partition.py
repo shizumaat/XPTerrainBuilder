@@ -58,7 +58,6 @@ import numpy as np
 
 from ..law import Law
 from ..model.airport import Airport
-from ..model.frame import XY
 from ..model import pulse as _pulse
 from ..model.rebake import Member, Part, Unit
 from . import contact as _contact
@@ -799,21 +798,6 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
                        else float(p.box_max[1]) - float(p.box_min[1]), 3),
                  scatter=bool(p.scatter)))
     return out
-
-
-def frame_xy(airport: Airport) -> _t.Callable[[float, float], XY]:
-    """``(lat, lon) -> frame xy`` — the plan's coordinates are degrees and
-    every geometric consumer works in the frame.
-
-    §46 (9) census row 3: the plan's degrees are DSF/OBJ8 input, so this
-    is the ENTRY projection.  (Measured at the census: this helper has no
-    caller anywhere in the tree; it is switched rather than left as a
-    public door back onto the exact projection.)"""
-    to_xy = airport.frame.entry()
-
-    def f(lat: float, lon: float) -> XY:
-        return to_xy(lon, lat)
-    return f
 
 
 def extend_partition(part: PackPartition, airport: Airport,

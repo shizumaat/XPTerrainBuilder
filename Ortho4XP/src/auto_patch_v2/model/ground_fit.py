@@ -26,14 +26,16 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-__all__ = ["GroundFit", "ground_fit"]
+__all__ = ["GroundFit", "ground_fit", "m_per_deg_spherical"]
 
 #: metres per degree of latitude — the plane reading a body's feet are
 #: compared in (they span tens of metres, never a projection's worth)
 _M_PER_DEG_LAT = 111_132.0
 
 
-def _m_per_deg(lat: float) -> tuple[float, float]:
+def m_per_deg_spherical(lat: float) -> tuple[float, float]:
+    """``(metres per degree of latitude, of longitude)`` at ``lat`` on a
+    sphere — the scale the ground fit and the group derivation share."""
     return _M_PER_DEG_LAT, _M_PER_DEG_LAT * math.cos(math.radians(lat))
 
 
@@ -122,7 +124,7 @@ def ground_fit(feet: _t.Sequence[Foot], y_zero: float,
         # reading) and there is no NEIGHBOUR to make a fall to
         return GroundFit(level, 0.0, 0.0, True, keep[0],
                          tuple(keep), tuple(targets), tuple(zs))
-    ml, mo = _m_per_deg(sum(feet[i].lat for i in keep) / n)
+    ml, mo = m_per_deg_spherical(sum(feet[i].lat for i in keep) / n)
     pts = [((feet[i].lon) * mo, (feet[i].lat) * ml) for i in keep]
     worst, worst_res, worst_lim, ok = -1, 0.0, 0.0, True
     worst_pair = (-1, -1)

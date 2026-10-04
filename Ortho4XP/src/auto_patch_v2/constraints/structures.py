@@ -81,6 +81,7 @@ from ..model.frame import XY
 from ..model.planar import Face, PlanarMap
 from ..model.structures import UNDERPASS_NOTE, Basin, Tunnel
 from .precedence import view
+from .geometry import nearest_vertex_of_containing_cell
 
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
            "reconcile_datums", "structure_of", "rim_level", "rim_contacts",
@@ -343,7 +344,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             on_deck: dict[int, int] = {}
             if up_ref is not None:
                 for v in wall_vs:
-                    gv = _deck_cell_vertex(planar, vw, v, structure_roles)
+                    gv = nearest_vertex_of_containing_cell(planar, vw, v, structure_roles)
                     if gv is not None:
                         on_deck[v] = gv
                 for v, gv in on_deck.items():
@@ -646,31 +647,6 @@ def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:
             d = near.distance(Point(planar.vertices[v].xy))
             if best is None or d < best[0]:
                 best = (d, v)
-    return None if best is None else best[1]
-
-
-def _deck_cell_vertex(planar: PlanarMap, vw, v: int, structure_roles) -> int | None:
-    """THE DECK CELL A PORTAL RIM VERTEX STANDS IN (spec §34 (5) as
-    amended): the governed pavement face whose ring CONTAINS the vertex's
-    plan point, and that face's nearest OTHER vertex — the value the rim
-    takes.  ``None`` where the vertex stands on no such face (an ordinary
-    rim, which keeps 09-03b L1's DEM pin)."""
-    pt = Point(planar.vertices[v].xy)
-    best = None
-    for fid, cap in vw.caps.items():
-        f = planar.faces[fid]
-        if cap is None or f.role in structure_roles or f.role == "graded_strip":
-            continue
-        ring = list(vw.rings[fid])
-        if v in ring:
-            continue
-        poly = Polygon([planar.vertices[u].xy for u in ring])
-        if not poly.is_valid or not poly.contains(pt):
-            continue
-        for u in ring:
-            d = pt.distance(Point(planar.vertices[u].xy))
-            if best is None or d < best[0]:
-                best = (d, u)
     return None if best is None else best[1]
 
 

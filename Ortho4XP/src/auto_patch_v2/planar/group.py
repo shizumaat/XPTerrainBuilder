@@ -74,7 +74,7 @@ import typing as _t
 
 from ..geom import feet_graph as _feet_graph
 from ..geom.feet_graph import neighbour_pairs_fast as _pairs_fast
-from ..model.ground_fit import GroundFit, ground_fit
+from ..model.ground_fit import GroundFit, ground_fit, m_per_deg_spherical
 from ..model.rebake import Member, Part, RebakePlan
 
 __all__ = ["Foot", "Group", "GroupSet", "derive", "bodies_of_plan", "BODY_KEY"]
@@ -86,11 +86,6 @@ BODY_KEY = _t.Tuple[int, int, int]
 #: metres per degree of latitude.  The plan's coordinates are degrees and
 #: the spans here are metres; the same two lines ``airport/anchor_rule``
 #: uses, and for the same reason (no pyproj in a law-shaped module).
-_M_PER_DEG_LAT = 111_132.0
-
-
-def _m_per_deg(lat: float) -> tuple[float, float]:
-    return _M_PER_DEG_LAT, _M_PER_DEG_LAT * math.cos(math.radians(lat))
 
 
 @_dc.dataclass(frozen=True)
@@ -213,7 +208,7 @@ class Group:
         flat pad."""
         if not self.feet:
             return None
-        ml, mo = _m_per_deg(lat)
+        ml, mo = m_per_deg_spherical(lat)
         best: Foot | None = None
         best_d2 = radius_m * radius_m
         for f in self.feet:
@@ -301,7 +296,7 @@ def _relief_slope(feet: _t.Sequence[Foot]) -> float:
     n = len(feet)
     if n < 2:
         return 0.0
-    ml, mo = _m_per_deg(sum(f.lat for f in feet) / n)
+    ml, mo = m_per_deg_spherical(sum(f.lat for f in feet) / n)
     worst = 0.0
     # over a decimated set when the body is large: the worst pair of a
     # well-spread subset plus every consecutive pair, the pad law's own
@@ -327,7 +322,7 @@ def _span_m(feet: _t.Sequence[Foot]) -> float:
         return 0.0
     lats = [f.lat for f in feet]
     lons = [f.lon for f in feet]
-    ml, mo = _m_per_deg(sum(lats) / len(lats))
+    ml, mo = m_per_deg_spherical(sum(lats) / len(lats))
     return math.hypot((max(lats) - min(lats)) * ml, (max(lons) - min(lons)) * mo)
 
 

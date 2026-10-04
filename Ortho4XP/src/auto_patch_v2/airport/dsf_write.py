@@ -131,6 +131,7 @@ from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
                                PROVENANCE_FILENAME, PlacementPlan)
 from . import backup_state as _bs
 from .backup_state import BackupUnproven, State
+from .file_hash import sha256_file
 
 __all__ = ["conversions_for_dump", "TOL_DEG", "TOL_HEADING_DEG", "TOL_ELEV_M",
            "pool_tolerances",
@@ -1034,14 +1035,6 @@ class WriteResult:
     orphaned_bodies: tuple[str, ...] = ()
 
 
-def _sha256(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def remove_cut_files(paths: _t.Iterable[str]) -> tuple[str, ...]:
     """Unlink the given body files — each confirmed to carry this writer's
     ``CUT_MARK`` first, so a corrupt or hand-edited record can never
@@ -1298,8 +1291,8 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             "state": verdict.state.value,
             "superseded": os.path.basename(superseded) if superseded else "",
             "preserved": os.path.basename(preserved) if preserved else "",
-            "backup_sha256": _sha256(backup),
-            "live_sha256": _sha256(dsf_path),
+            "backup_sha256": sha256_file(backup),
+            "live_sha256": sha256_file(dsf_path),
         })
 
     # THE RECORD GOES FIRST (§12a (2)).  It used to be written AFTER the
@@ -1312,11 +1305,11 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     # carrying the mark: row D4, never D5.
     entry = {
         "backup": os.path.basename(backup),
-        "backup_sha256": _sha256(backup),
+        "backup_sha256": sha256_file(backup),
         "backup_size": bak_stat.st_size,
         "backup_mtime_ns": bak_stat.st_mtime_ns,
         "dump_sha256": hashlib.sha256(text.encode("utf-8", "replace")).hexdigest(),
-        "written_sha256": _sha256(out_dsf),
+        "written_sha256": sha256_file(out_dsf),
         "prior_written_sha256": prior,
         "written_size": None,
         "written_mtime_ns": None,

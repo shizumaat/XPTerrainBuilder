@@ -17,7 +17,8 @@ import typing as _t
 from ..law import Law
 from ..model.airport import Airport
 from ..model.structures import Deck
-from .channel_geometry import _dem, _lidar_floor
+from ..airport.dem import dem_z_at
+from .channel_geometry import _lidar_floor
 
 __all__ = ["channel_floor", "DATUM_PACK", "DATUM_LIDAR", "DATUM_CLEARANCE"]
 
@@ -49,7 +50,7 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
     br = law.tables.structures.bridge
     # the corridor's CREST estimate, used only to judge a pack witness's
     # depth and to report: the DEM along the axis outside the decks
-    samples = [_dem(airport, axis_fn(s)) for s in ss]
+    samples = [dem_z_at(airport, axis_fn(s)) for s in ss]
     good = [z for z in samples if not math.isnan(z)]
     crest_est = (sum(good) / len(good)) if good else float("nan")
 
@@ -90,7 +91,7 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
     anchors: list[tuple[float, float]] = []
     for d in decks:
         mid = (d.s0 + d.s1) / 2.0
-        top = _dem(airport, axis_fn(mid))
+        top = dem_z_at(airport, axis_fn(mid))
         if math.isnan(top):
             continue
         anchors.append((mid, top - br.clearance_m))
@@ -132,7 +133,7 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
     worst = 0.0
     for s in stations:
         z = float(min(zd + grade * abs(s - sd) for sd, zd in anchors))
-        ground = _dem(airport, axis_fn(s))
+        ground = dem_z_at(airport, axis_fn(s))
         if not math.isnan(ground) and z > ground:
             capped += 1
             worst = max(worst, z - ground)

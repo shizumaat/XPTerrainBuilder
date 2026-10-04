@@ -56,7 +56,7 @@ from ..model.frame import Frame
 from .dem import hgt_name, resolve_dem_files
 
 __all__ = ["ColdDemFrame", "ProductionDem", "load_production_dem",
-           "engine_root", "frame_state", "TileWater"]
+           "frame_state", "TileWater"]
 
 #: Posts per axis the inland-body level is sampled on (the median of a
 #: body's own DEM cells; a 32x32 grid inside the body is plenty for a
@@ -69,10 +69,6 @@ ENGINE_DIR = Path(__file__).resolve().parents[3]
 
 class ColdDemFrame(RuntimeError):
     """The production frame cannot be composed from cached disk state."""
-
-
-def engine_root() -> Path:
-    return ENGINE_DIR
 
 
 def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,

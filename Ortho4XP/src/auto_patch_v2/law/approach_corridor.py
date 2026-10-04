@@ -47,7 +47,7 @@ import math as _math
 import typing as _t
 
 __all__ = ["ApproachCorridor", "corridor_rings", "CorridorEnd",
-           "RunwayViewBand", "band_rings"]
+           "RunwayViewBand"]
 
 XY = _t.Tuple[float, float]
 
@@ -193,13 +193,6 @@ class RunwayViewBand(_EndSet):
                                     self.half_width_m,
                                     f"{name}:band" if name else "band"))
         self.ends = tuple(ends)
-
-
-def band_rings(axes: _t.Iterable[_t.Sequence], half_width_m: float
-               ) -> list[_t.Tuple[XY, XY, XY, XY]]:
-    """``RunwayViewBand(...).rings()`` — the shorthand for a caller that
-    only wants the polygons."""
-    return RunwayViewBand(axes, half_width_m).rings()
 
 
 class ApproachCorridor(_EndSet):

@@ -17,6 +17,7 @@ from .model import (Affordances, Cockpit, Declared, Family, FlatSite, Law,
                     RoleCap, ZoneClass, load_tables, resolve_ruleset)
 
 __all__ = [
+    "footprint_touch_m",
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
     "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
     "pavement_roles", "pavement_fallback_cap", "authority_rank",
@@ -25,7 +26,7 @@ __all__ = [
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
     "Cockpit", "cockpit", "cliff_grade", "rolled_on_roles",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
-    "tier_of_roles", "role_preferred_cap",
+    "role_preferred_cap",
     "runway_transverse_max", "runway_transverse_bound", "runway_shoulder_cap",
     "runway_vertical_curve_bound", "strip_transverse_bound",
     "taxi_half_width_m",
@@ -396,19 +397,6 @@ def role_tier(law: Law, role: str) -> int:
     raise KeyError(f"role {role!r} is not registered in precedence.toml")
 
 
-def tier_of_roles(roles: "tuple[str, ...] | list[str]", tier_of: "dict[str, int]",
-                  lowest: int) -> int:
-    """The tier a VALUE shared by ``roles`` belongs to: the most SENIOR
-    (smallest) tier among them, ``lowest`` when there are none — a shared
-    vertex is owned by its senior surface (``senior_role``)."""
-    best = lowest
-    for r in roles:
-        k = tier_of[r]
-        if k < best:
-            best = k
-    return best
-
-
 # ── adjacent-ground zones (RULINGS 2026-08-01) ───────────────────────────
 
 def zone_class(law: Law, role: str) -> ZoneClass | None:
@@ -746,3 +734,10 @@ def pad_admission(law: Law) -> PadAdmission:
         building_evidence=bool(getattr(p, "building_evidence", False)),
         evidence_min_height_m=float(getattr(p, "evidence_min_height_m", 0.0)),
         evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)))
+
+
+def footprint_touch_m(law: Law) -> float:
+    """§16g (7) (1) / (10) (2): ``[placement] footprint_touch_m`` — ONE
+    read of the tolerance a cluster is CHAINED with and its outline is
+    CLOSED with (``geom.cluster_outlines`` rule 2)."""
+    return float(law.tables.structures.placement.footprint_touch_m)

@@ -96,7 +96,8 @@ from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, airside_stops,
                                   cap_held_note,
                                   locked_road_stops, road_true_edge, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
-from .structure_approach import (_dem,FieldRegion, apply_plates,
+from ..airport.dem import dem_z_at
+from .structure_approach import (FieldRegion, apply_plates,
                                  approach_ground as _approach_ground,
                                  carriageway_width_m,
                                  chains, field_region_for, mouth_reports, under_cover,
@@ -369,7 +370,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # slab or the bore law, ``mouth_depth = "floor_slab"``, 2026-09-08l),
         # read by the corridor reader.
         cap_c = (mouth[0] + inward[0] * rim_off, mouth[1] + inward[1] * rim_off)
-        mouth_dem = _dem(airport, cap_c) if c is None else c.mouth_dem_z
+        mouth_dem = dem_z_at(airport, cap_c) if c is None else c.mouth_dem_z
         if math.isnan(mouth_dem):
             stats.refused.append(f"{tid}: no DEM at the mouth")
             continue
@@ -434,7 +435,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # §47 (6): the ramp descends INSIDE the well to the building
             # wall at the cap (``door_ramps.door_profile``) — always fits
             deck_ivals, obj_ivals, pav_ivals = [], [], []
-            far_ground = _dem(airport, axis_fn(g.hull_s))
+            far_ground = dem_z_at(airport, axis_fn(g.hull_s))
             if math.isnan(far_ground):
                 far_ground = c.mouth_dem_z
             mouth_z, design_grade, door_residual_m = _door_profile(
@@ -458,7 +459,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                                  cell_tree, law, grid)
             resume = max([0.0] + [s1 + gap for _d, _s0, s1, _p in pav_ivals])
             e = axis_fn(g.hull_s)
-            far_ground = _dem(airport, e)
+            far_ground = dem_z_at(airport, e)
             rise = (far_ground - mouth_z) if not math.isnan(far_ground) else c.depth_m
             rise = max(rise, 0.0)
             # the ring pairs the census prices: the resume line's corners
@@ -522,11 +523,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                   s_min=g.hull_s if c is not None else 0.0, grade=grade_g,
                                   max_len=max_len_g)
             if s_top is None:
-                if any(math.isnan(_dem(airport, axis_fn(s))) for s in ss):
+                if any(math.isnan(dem_z_at(airport, axis_fn(s))) for s in ss):
                     stats.refused.append(f"{tid}: no DEM along the climb (the corridor leaves "
                                          f"the DEM / reaches water) within {ss[-1]:.0f} m")
                 else:
-                    ds = [_dem(airport, axis_fn(s)) for s in ss]
+                    ds = [dem_z_at(airport, axis_fn(s)) for s in ss]
                     m = axis_fn(climb_from)
                     e = axis_fn(ss[-1])
                     lim = tn.max_ramp_length_m if g.max_length_m is None else g.max_length_m
@@ -801,7 +802,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                              f"{c.depth_m:.2f} ({'floor slab' if c.floor_y is not None else 'bore_datum_m'}; "
                              f"crest {c.plate_y:.2f}), ends {c.ends}, mouth by {c.mouth_kind}")
             elif g.kind == "door":
-                top_ground = _dem(airport, axis_fn(s_top))
+                top_ground = dem_z_at(airport, axis_fn(s_top))
                 notes.append(_door_note(c.resource, mouth_z, c.floor_z, top_ground,
                                         design_grade, grade_g, g.hull_s, door_residual_m)
                              + (f" — STOPS at {clipped_by}" if clipped_by else ""))

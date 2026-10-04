@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Point
 
 from ..law import Law
 from ..model.airport import Airport
@@ -30,6 +30,7 @@ from ..model.constraints import Offset, Pin, Row, Source
 from ..model.planar import PlanarMap
 from ..model.structures import CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE, CREST_DESIGN
 from .precedence import view
+from .geometry import nearest_vertex_of_containing_cell
 
 __all__ = ["channels", "GEN", "FLOOR_RULING", "CREST_RULING",
            "floor_faces_of", "wall_faces_of"]
@@ -132,7 +133,7 @@ def channels(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     continue          # the void's inner ring IS the floor edge
                 if _shared_with_ground(planar, vw, v, structure_roles):
                     continue          # one node, one value: the cell governs it
-                gv = _governed_vertex(planar, vw, v, structure_roles)
+                gv = nearest_vertex_of_containing_cell(planar, vw, v, structure_roles)
                 if gv is None:
                     continue          # adjacent ground: §19 / the zones govern
                 rows.append(Offset(v, gv, 0.0, src_crest))
@@ -155,27 +156,3 @@ def _shared_with_ground(planar: PlanarMap, vw, v: int, structure_roles) -> bool:
     return False
 
 
-def _governed_vertex(planar: PlanarMap, vw, v: int, structure_roles) -> int | None:
-    """The governed cell this crest vertex stands IN, and that cell's
-    nearest OTHER vertex — the value the crest takes (§45 (5)).  ONE
-    reading with ``constraints/structures._deck_cell_vertex``'s, stated
-    here because a channel's crest reads the cell at the corridor EDGE
-    and a portal rim reads the DECK cell it stands under; widening that
-    function to serve both would make one law answer two questions."""
-    pt = Point(planar.vertices[v].xy)
-    best = None
-    for fid, cap in vw.caps.items():
-        f = planar.faces[fid]
-        if cap is None or f.role in structure_roles or f.role == "graded_strip":
-            continue
-        ring = list(vw.rings[fid])
-        if v in ring:
-            continue
-        poly = Polygon([planar.vertices[u].xy for u in ring])
-        if not poly.is_valid or not poly.contains(pt):
-            continue
-        for u in ring:
-            d = pt.distance(Point(planar.vertices[u].xy))
-            if best is None or d < best[0]:
-                best = (d, u)
-    return None if best is None else best[1]

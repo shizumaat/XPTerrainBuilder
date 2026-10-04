@@ -222,42 +222,14 @@ class Design:
     #: stage-1 airside frontage fits its plane within this (max residual,
     #: metres); elsewhere the 23a weld alone governs.
     jetway_strip_plane_tol_m: float
-    #: THE BANK (owner RULINGS 2026-09-09e; spec §9): the patch's own
-    #: embankment out to the DEM, because the mesh does not blend.
-    #: ``bank_slope`` is the bank's grade (0.33 = 1:3), ``bank_min_width_m``
-    #: the narrowest bank, ``bank_foot_smooth`` the second-difference
-    #: weight along the foot chain that keeps the toe from zigzagging.
+    #: THE BANK GRADE AND ITS NARROWEST WIDTH (owner RULINGS 2026-09-09e).
+    #: ``bank_slope`` is the grade an embankment / cut slope may carry and
+    #: still read as ground (0.33 = 1:3); ``bank_min_width_m`` the narrowest
+    #: bank.  The patch-boundary bank PASS that first read them is deleted
+    #: (owner RULINGS 2026-10-04c (3)); the platform collar, the foot rows,
+    #: the terrain edge and the cliff grade still read both.
     bank_slope: float
     bank_min_width_m: float
-    bank_foot_smooth: float
-    #: THE DAYLIGHT LINE (owner RULINGS 2026-09-09g; spec §11): the foot is
-    #: the civil-engineering DAYLIGHT (catch) POINT, not the smooth-ground
-    #: fixed point — walking outward in ``bank_sample_m`` stations, the first
-    #: station where the design slope line meets the DEM within
-    #: ``bank_daylight_tol_m``, clamped to ``[bank_min_width_m,
-    #: bank_max_width_m]``.  ``bank_toe_break_m`` is the jump in raw daylight
-    #: distance between neighbours that CUTS the toe's plan smoothing: the
-    #: toe may jump where the ground does.
-    #: §37 (3) THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (owner
-    #: RULINGS 2026-09-13q item 8): the longest chord of an emitted foot
-    #: chain, and the mid-chord stand-off that splits one further.  The
-    #: materiality floor itself is DERIVED (``bank_materiality_m``,
-    #: ``emit/bank.py``), never typed.
-    bank_chord_max_m: float
-    bank_split_tol_m: float
-    #: THE OMIT ARM (owner request 2026-09-13, via the round's
-    #: coordinator: "can we please try completely omitting the bank_foot
-    #: shapes altogether to confirm they're necessary?").  ``true`` and
-    #: the bank pass emits NOTHING at all.  A MEASUREMENT ARM, default
-    #: ``false``; it is deleted the moment the owner rules on the
-    #: bank_foot class (13ce / 13cm).  It is a law key and not an
-    #: environment gate because ``auto_patch_v2`` reads no environment
-    #: by design (``tests/auto_patch_v2/test_model.py``).
-    bank_omit: bool
-    bank_sample_m: float
-    bank_daylight_tol_m: float
-    bank_max_width_m: float
-    bank_toe_break_m: float
     #: THE MESH MUST HAVE VERTICES TO CARRY THE BLEND (owner RULINGS
     #: 2026-09-09x; spec §13.8).  The bank annulus is handed to Triangle
     #: as a REGION whose maximum triangle area is ``(w / this) ** 2`` for
@@ -449,32 +421,10 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.pad_level_rulings {missing}: every level "
                   f"ruling must also be in one_way_rulings — the pad FOLLOWS "
                   f"the pavement and never pulls it (RULINGS 2026-09-10l)")
-    if d.bank_chord_max_m <= d.bank_min_width_m:
-        raise err(f"emit.design.bank_chord_max_m {d.bank_chord_max_m}: the "
-                  "foot chord limit must exceed bank_min_width_m (the split "
-                  "floor)")
-    if d.bank_split_tol_m <= 0.0:
-        raise err(f"emit.design.bank_split_tol_m {d.bank_split_tol_m}: a "
-                  "positive mid-chord stand-off")
     if not 0.0 < d.bank_slope <= 1.0:
         raise err(f"emit.design.bank_slope {d.bank_slope}: a bank grade in (0, 1]")
     if not d.bank_min_width_m > 0.0:
         raise err(f"emit.design.bank_min_width_m {d.bank_min_width_m}: positive metres")
-    if not d.bank_foot_smooth > 0.0:
-        raise err(f"emit.design.bank_foot_smooth {d.bank_foot_smooth}: a positive weight")
-    if not d.bank_sample_m > 0.0:
-        raise err(f"emit.design.bank_sample_m {d.bank_sample_m}: the daylight "
-                  "walk's station, positive metres (09-09g)")
-    if not d.bank_daylight_tol_m > 0.0:
-        raise err(f"emit.design.bank_daylight_tol_m {d.bank_daylight_tol_m}: "
-                  "the slope line MEETS the DEM within this, positive metres")
-    if not d.bank_max_width_m > d.bank_min_width_m:
-        raise err(f"emit.design.bank_max_width_m {d.bank_max_width_m}: wider "
-                  f"than bank_min_width_m {d.bank_min_width_m} — the daylight "
-                  "walk has to have somewhere to walk (09-09g)")
-    if not d.bank_toe_break_m > 0.0:
-        raise err(f"emit.design.bank_toe_break_m {d.bank_toe_break_m}: the toe "
-                  "smoothing's break, positive metres")
     if not d.bank_triangle_divisions >= 1.0:
         raise err(f"emit.design.bank_triangle_divisions "
                   f"{d.bank_triangle_divisions}: at least one triangle across "

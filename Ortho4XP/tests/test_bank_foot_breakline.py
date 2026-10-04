@@ -52,7 +52,6 @@ class TestOpenRunWearsTheMarker:
         from auto_patch_v2.emit import osm_adapter as OSM_A
 
         assert VMAP.OPEN_BREAKLINE_FEATURES == ("bank_foot", "structure_rim")
-        assert OSM_A.BANK_FEATURE in VMAP.OPEN_BREAKLINE_FEATURES
         assert OSM_A.RIM_FEATURE in VMAP.OPEN_BREAKLINE_FEATURES
         assert OSM_A.RIDGE_FEATURE not in VMAP.OPEN_BREAKLINE_FEATURES
         assert OSM_A.EDGE_FEATURE not in VMAP.OPEN_BREAKLINE_FEATURES
@@ -87,25 +86,6 @@ class TestTheMeshNeverClosesTheFootItself:
     def test_the_projection_closure_is_deleted(self):
         assert not hasattr(MESH, "_close_open_foot")
         assert not hasattr(MESH, "BANK_OPEN_CHAIN_AREA_WIDTHS")
-
-    def test_the_OMIT_arm_is_a_law_key_not_an_env_gate(self):
-        # ``auto_patch_v2`` reads NO environment by design
-        # (``tests/auto_patch_v2/test_model.py``), so the owner's
-        # "omit the bank_foot shapes altogether" arm is a law key.
-        from auto_patch_v2.law import tables as T
-
-        assert T.load_default().tables.emit.design.bank_omit is True   # owner RULINGS 2026-09-13cy (1.0.330 read)
-
-    def test_the_emitter_emits_a_CLOSED_ring(self):
-        # ``emit/bank.py`` is the single closure site: every bank_foot
-        # breakline it writes repeats its first vertex.
-        import inspect
-
-        from auto_patch_v2.emit import bank as B
-
-        body = inspect.getsource(B.with_bank)
-        assert "tuple(ids) + (ids[0],)" in body
-        assert "rep.open_chains += int(not closed)" not in body
 
 
 # ── THE LOUD BAR ──────────────────────────────────────────────────────

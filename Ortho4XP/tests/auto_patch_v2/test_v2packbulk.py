@@ -26,6 +26,7 @@ import shapely
 from shapely.geometry import LineString, Point, Polygon, box
 
 from auto_patch_v2.airport import bulk_geos, object_cut, skirt, wall_geometry
+from auto_patch_v2.geom.vector import chord_bearing_mod180
 
 
 # ── the scalar references (the shipped loops, verbatim) ─────────────────
@@ -34,7 +35,7 @@ def _ref_straight_runs(segs, parallel_deg, t_max):
     from auto_patch_v2.airport import frame_entry as _fe
     clusters = []
     for k, (seg, _t) in enumerate(segs):
-        b = wall_geometry._bearing(seg)
+        b = chord_bearing_mod180(seg)
         for cl in clusters:
             if wall_geometry._angle_diff(b, cl[0]) <= parallel_deg:
                 cl[1].append(k)

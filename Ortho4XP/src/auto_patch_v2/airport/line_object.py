@@ -28,14 +28,12 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import math
-import typing as _t
 
 import numpy as np
 
 from . import obj8 as _obj8
 
-__all__ = ["component_shape", "is_line_shaped", "is_line_object", "station_delta",
-           "LineLaw", "Segment", "farthest_point_stations", "segment_by_station"]
+__all__ = ["component_shape", "is_line_shaped", "is_line_object", "LineLaw", "Segment", "farthest_point_stations", "segment_by_station"]
 
 
 def component_shape(geom: _obj8.ObjGeometry, comp: _obj8.Component
@@ -81,35 +79,6 @@ def is_line_object(cache: _obj8.ResourceCache, resolved: str, rb) -> bool:
     if geom is None or not comps:
         return False
     return all(is_line_shaped(geom, c, rb) for c in comps)
-
-
-def station_delta(stations: _t.Sequence[_t.Sequence[float]], lat: float, lon: float
-                  ) -> float | None:
-    """THE SEGMENT SEAT's lookup (spec §16.1 rule 3): the delta of the
-    station NEAREST ``(lat, lon)`` in plan, over rows ``(lat, lon,
-    delta)``.  ``None`` when there is no station.  Plan distance in
-    degrees scaled by the local metres per degree is monotone with the
-    metric one at this scale, and the caller may pass either."""
-    best: float | None = None
-    best_d = 0.0
-    ml = 111_132.954
-    mo = 111_412.84 * math.cos(math.radians(lat))
-    for la, lo, d in stations:
-        dd = ((la - lat) * ml) ** 2 + ((lo - lon) * mo) ** 2
-        if best is None or dd < best_d:
-            best, best_d = float(d), dd
-    return best
-
-
-def station_deltas_at(stations: _t.Sequence[_t.Sequence[float]],
-                      lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
-    """:func:`station_delta` over arrays — the writer's per-vertex drape."""
-    st = np.asarray([[float(a), float(b), float(c)] for a, b, c in stations], dtype=float)
-    ml = 111_132.954
-    mo = 111_412.84 * math.cos(math.radians(float(st[:, 0].mean())))
-    dla = (st[None, :, 0] - lats[:, None]) * ml
-    dlo = (st[None, :, 1] - lons[:, None]) * mo
-    return st[np.argmin(dla * dla + dlo * dlo, axis=1), 2]
 
 
 # ── THE SEGMENT CUT (owner RULINGS 2026-09-11f (2); spec §10) ────────────

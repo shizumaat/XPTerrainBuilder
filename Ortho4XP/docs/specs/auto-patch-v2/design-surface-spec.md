@@ -17900,3 +17900,78 @@ The lip and the mandatory-down ceiling stand; the rise side of the runway-edge t
 `man_made` shore tags (the coastline / water / airport feeds were grepped for VMMC +22+113 and NLWF
 -15-179: none), so until a shore-structure feed lands EVERY coast reads natural except where the
 pavement edge is the coastline — VMMC's 15f quay stands only where its taxiway edge is within the lip.
+
+## §52 FACADES ARE READ, NOT NAMED — THE TRUCK STRIP AND THE FACADE LOT (owner RULINGS 2026-10-04d (3); issue #334) — lane `fac334`, ROUND 1: THE READER AND THE CONSUMER CENSUS. NOTHING BELOW (2) IS IMPLEMENTED; (3)–(5) ARE PROPOSALS AWAITING THE MASTER'S GO.
+
+### §52 (1) The reader (LANDED, no layout change)
+
+`airport/facade.py` opens the `.fac` a `POLYGON_DEF` resolves to (pack-relative, then the library index — `obj8.resolve_resource`) and returns its CLASS (`facade_class`: `line` / `roofed` / `lot` / `parking_structure`), its floors, and per `WALL` the objects its spellings attach with their outward reach (`Attachment.reach`, widest over every library variant of the object, straight and `SEGMENT_CURVED` tables kept apart). `dsf.read_dump` now carries the DSF's own nodes per winding (`DsfPolygon.nodes`: lon, lat, wall index or None, curved) and the polygon depth; `windings` are byte-identical. `facade.placed_edges` joins the two: one row per polygon edge with the wall it draws.
+
+MEASURED (SPJC `-13-078.dsf.anchor_bak.2928b1fe.text`, `tools/facade_census.py`):
+
+* 280 facade polygons in the dump (depth 2: 41, 3: 237, 4: 1, 5: 1); 186 have >= 3 nodes and are materialised, 94 are two-node fence runs `read_dump` has always dropped. 31 defs, every one resolved through the library index into `Resources/default scenery/`.
+* `Cargo_Terminal.fac` (`cargo05_L.fac`): 25 polygons, roofed, 84,456 m². `Loading_doors` (wall 0) attaches `semiTrailer_40ft.obj` DRAPED, reach 0.9..13.2 m over 11 variants, on THREE edges / 273.4 m: `building24` (-12.025652, -77.105912) edges 7 and 9, 44.7 + 44.3 m; `building16` (-12.028752, -77.104154) edge 4, 184.4 m. Stairs 2.9 m, doors 0.8 m.
+* `White_Warehouse.fac` (`warehouse_01_L.fac`): 15 polygons, roofed, 56,879 m². `Office_entrance` attaches `entrance_wh_8m_1.obj` GRADED, reach 8.1 m, on ONE edge 79.1 m (polygon -12.013076, -77.111609 = pad `building50`; the strip is 75 % inside the apt.dat boundary, DEM 22.4–22.9).
+* `Fenced_Parking.fac` (`fence_parking_1.fac`): 1 polygon, class `lot` (one floor, `ROOF_HEIGHT 0`, `lib/cars/car_static.obj` roof objects), 13,376 m², all ten walls `fence` (index 0).
+* `term_roof_level_01/02/03`: roofed, 20,788 m² (04d (d): stays out). `classic1/2`, `high_metallic_01`: roofed, unread by the name gate (04d (e): after Beta 2).
+
+THE WALL OF A POLYGON WITH NO WALL INDEX IS NOT WALL 0. The facade specification: with a DSF wall index "the wall-picking rules and filters are completely ignored and the DSF wall choice is always used"; without one, a wall whose width range fits the edge is used and "given multiple walls that fit ... the sim will pick one randomly". `cargo05_L.fac`'s six walls are all `WALL 0 1000 0 0`, so on a depth-2 / depth-4 polygon every edge may draw any of them: UNDECIDED, reported, no strip. SPJC: the depth-4 Cargo_Terminal at -12.028655, -77.103120 (5 edges) and five small depth-2 White/Blue warehouses. (`Fenced_Parking.fac` shows the rule from the other side: its gate walls are `WALL 0 0 0 0` — never auto-picked — and only `fence` is `0 10000`.)
+
+THE CARGO TERMINAL AT -12.028655, -77.103120 HAS NO PAD BECAUSE OF THE BOUNDARY GATE, not its depth: `load.py` admits it (`dsf:fac201`, 3,542 m²) and `classify/evidence._pads` drops it at `_inside_gate` (:763) — the footprint lies 0.0 % inside the apt.dat boundary, 0.5 m beyond it. A different defect from this lane's (not fixed here). It faces `building16`'s loading wall across a 27 m truck court.
+
+### §52 (2) What stands at the sites today (capture `onelevel318/SPJC.pkl`)
+
+| site | pad | strip (edge × reach) | covered by a face | DEM in the strip | vs pad |
+|---|---|---|---|---|---|
+| building24 edge 7 | 25.88 | 44.7 × 13.2 = 590 m² | 0 m² | 32.46–32.99 | +6.6..+7.1 |
+| building24 edge 9 | 25.88 | 44.3 × 13.2 = 585 m² | 0 m² | 32.38–33.16 | +6.5..+7.3 |
+| building16 edge 4 | 30.23 | 184.5 × 13.2 = 2,435 m² | 0 m² (apron `pav34` 8.0 m beyond) | 36.22–38.26 | +6.0..+8.0 |
+| Fenced_Parking | — | 13,384 m² | apron `dsf:pol70` 42 m², pad `building48` 11 m², mapped-road ribbons 1,203 m²; pad `building45` 0.4 m away | 19.84–21.22 | — |
+
+Every strip is wholly inside the apt.dat boundary and wholly outside the patch.
+
+### §52 (3) PROPOSED model and its single derivation sites
+
+* CARRIER (load, no decision): `airport/load.py:479-482` gives each `dsf:fac` `Building` its placed edges (a new optional `Building.facade`, default `None` so every capture still unpickles); an open-lot facade enters `Airport.buildings` under source `dsf:lot:fac` — a prefix `[buildings] sources` does NOT admit (`"dsf:fac"` does not prefix it), so it can never be a pad (04d (c)).
+* ONE MINT: a new `classify/facade_mint.py`, called from `classify/roles.py:658` beside `mint_osm_ribbons`, AFTER the pads, §27 and the pad set-back. It mints
+  * the STRIP per attaching edge: edge × reach, reach >= 5 m (trailers 13.2, canopy 8.1; stairs 2.9 out), minus every cell standing (airside wins; another pad wins), role `groundside_pavement`, ref `facstrip:<pad ref>:<edge>`, host pad = the pad covering the facade footprint (`platform.draped_facade_pads`' own cover rule);
+  * the LOT: the facade ring minus every cell standing and every pad's set-back, role `parking_lot`, ref `faclot:<i>`.
+* THEY JOIN THE FINISHED MAP AS THE RIBBONS DO (pass C, `planar/ribbons._ribbons_pass_c`; stage 1 on the map without them, `pipeline/stage_one_map.ribbon_free`): the airside and every pad — vertex set, frontage, weld, level — are the map's without them BY CONSTRUCTION, which is 04d (a)'s "the pad footprint, frontage and weld do not move" at one site instead of a veto per consumer (2026-08-30l corollary (a); the #100 rounds 4–7 record of what the vetoes cost). The predicate widens from "mapped-road ribbon" to "late cell" at the arrangement sites only; the road-specific readers keep `is_osm_ribbon_ref`.
+* THE STRIP'S LEVEL is one new stage-2 row family: every strip vertex equals its host pad's level, pad leading (stage 1 fixed it). §28 cannot carry it: `frontage_step_max_m` = 2.4 m drops a pad|lot pair whose DEM step exceeds it, and these stand 6–8 m.
+
+### §52 (4) THE CONSUMER CENSUS (2026-08-30l) — every pass that would see (i) the strip, (ii) the lot
+
+| # | consumer (file:line) | reads | (i) strip | (ii) lot | proposed ruling |
+|---|---|---|---|---|---|
+| 1 | `airport/load.py:454-483` name gate + `Building` | facade polygons | carries edges | carries the ring | carrier only; `dsf:lot:fac` is not an admitted pad source |
+| 2 | `classify/evidence._pads` :635 | `Airport.buildings` by source prefix | unchanged | not admitted | twin: an open-lot facade mints no pad |
+| 3 | `classify/evidence.py:304` terminal_present; `geom/cluster_outline`, `constraints/cluster_pad:166` | `Airport.buildings` | — | sees one more non-terminal building | none needed (`:terminal` suffix / cluster predicates do not match); twin |
+| 4 | `planar/platform.draped_facade_pads` :110 | `source.startswith("dsf:fac")` | — | `dsf:lot:fac` does not match | none; twin |
+| 5 | `classify/sources.classify_sources`, the slice (`roles.py:237-282`) | `Airport.pavements` → `pavement_union` | NOT a source | NOT a source | minted late, so the airside REGION and its slice are unchanged |
+| 6 | `classify/roles._groundside` / `open_pavement_role` / `_road_evidence` (:541-575) | scored faces | not scored | not scored | role is the facade file's verdict, not the evidence ladder's |
+| 7 | `classify/airside_edge.airside_edge_flip` (:631; candidates incl. `parking_lot`, `groundside_pavement`) | groundside faces sharing an airside edge | minted after it | minted after it — the lot touches apron `dsf:pol70` and WOULD flip airside | a fenced lot is never airside (04d (c)): mint after §27 |
+| 8 | `classify/roles._cut_back_groundside` (:656, knife 0.6 m + snap) | groundside value cells near a pad | would be cut 0.6 m off its own pad | lot is 0.4 m from `building45`, overlaps `building48` | strip: exempt from ITS HOST's knife (welded, 04d (a)), other pads' knives apply; lot: takes the set-back at the mint like a ribbon (`ribbon_mint.py:170-175`) |
+| 9 | `classify/ribbon_mint.mint_osm_ribbons` `occupied` (:170) | every cell standing | ribbons minted first | 1,203 m² of ribbons already stand inside the lot | INTENT QUESTION Q1: mint the facade cells BEFORE the ribbons (roads inside the lot are the lot — the free-road reading) or after (the lot is what the ribbons leave). Proposed: before |
+| 10 | `planar/overlay.build_arrangement` :189-191 weld / pass A; `planar/zones.zone_regions` :185 groundside cut-back | all cells | excluded like ribbons | excluded like ribbons | late cell: no zone band is cut back for it, pass A never sees it |
+| 11 | `planar/ribbons._ribbons_pass_c` (`airside_clip`, rim guard) | late cells vs finished airside + pads | welded to the pad rim at its own nodes, no mint on the rim | clipped by `dsf:pol70` / pads | the mechanism of record; twin: `ribbon_airside_added/_removed` 0 / 0 with facade cells |
+| 12 | `planar/overlay._claiming_region` :433 | ribbon claims its footprint from a zone | strips lie in no zone at SPJC; same claim rule | lot may overlap a taxi zone band | late cell claims from the zone (the ribbon rule) |
+| 13 | `pipeline/stage_one_map.ribbon_free` :50, `solve/design_stage._welded_faces` :125, `solve/design_assemble.py:543` groundside bodies | stage split | stage 2 only | stage 2 only | late cells are dropped from the stage-1 map; `_welded_faces` stays road-only |
+| 14 | `constraints/pads._pavement_faces` / `_pavement_geoms` (:221, :275), `pad_fronting.py:132` | pavement a pad FRONTS (identity or 3.0 m proximity) | would become the pad's frontage and move its level | lot beside `building45` likewise | excluded with the ribbons (the #100 r8 measurement: HECA building6 moved 3.13 m on a ribbon frontage); moot under stage-1-map exclusion, kept for stage 2 |
+| 15 | `constraints/pad_frontage_gs.groundside_frontage` (§28; `frontage_step_max_m` 2.4) | groundside face fronting a pad | pair DROPPED as a hillside terrace (DEM step 6–8 m) | applies as to any lot | strip: its own level family (§52 (3)), §28 skips it; lot: §28 as written |
+| 16 | `constraints/roads.py:293` groundside all-pairs cap (`groundside_pavement` 8 %, `parking_lot` 5 %) | faces by role | flat, so satisfied | applies | none |
+| 17 | `constraints/groundside.groundside_ramps` (apron ↔ nearest groundside vertex within the cut-back horizon, 5 %) | groundside rings | strip corner near apron ⇒ a row on an apron vertex | lot edge on `dsf:pol70` likewise | stage-2 row with the apron fixed: follower only; confirm no stage-1 entry by `--stage1-diff` (0 added rows) |
+| 18 | `constraints/apron.py:401`, `constraints/ceiling.py:119`, `constraints/pavement_cap.py:79`, `constraints/proximity.py:46`, `constraints/no_step`, `constraints/zones` | pairs across a shared rim | shared rim is the pad's | shared rim with apron | as the ribbons: no apron row minted by a late cell; pad↔strip pair is at equal level; SEAM-PROBE at C (static read not decisive for `no_step` / `zones`) |
+| 19 | `constraints/jetway_strip`, `planar/pad_blocks.py:580`, `planar/platform.py:359` (`frontage_roles` = rolled-on roles) | airside frontage of a pad | groundside role, not read | not read | none |
+| 20 | `planar/landing.landing_cut` (`LOT_ROLES = {"parking_lot"}`) | lots a ramp lands on | role `groundside_pavement`, never cut | a late cell is not in `base_regions` | none; twin |
+| 21 | `planar/shapes.py:466`, `shape_mouths.py:45`, `shape_airside.py:98/181` | road faces as separators / labels | not a road role | not a road role | none (role-gated); SEAM-PROBE the shape count at C (`--pad-read --shape-dump`, 0 changed airside labels) |
+| 22 | `airport/road_profile.py:412`, `airport/road_ramp.py:1044/1211`, `planar/wall_corridor_ramps.py:55`, `constraints/roads` joins | groundside pavement as a road's landing | a road meeting the strip joins it at pad level | a road meeting the lot joins it | as any groundside page; none |
+| 23 | object stage (`airport/riders.py`, placement plan) | pack OBJECT placements | facade attachments are not DSF placements: nothing to seat | — | none: the sim drapes the trailers on the strip |
+| 24 | `emit/osm_adapter`, sidecar publication, `verify/census` families (`platform_refused`, `pad_cluster_mismatch`, within_shape, groundside steps) | faces by role / ref | emitted as a groundside pavement way; a flat face | a `parking_lot` way | new sidecar key `facade_strips` (host pad, level, reach, m²); census families unchanged |
+| 25 | `emit/bank.py`, `emit/terrain_edge.py`, `emit/seam_band.py` | patch boundary | — | — | BEING DELETED (2026-10-04c (3)); `bank_omit = true` has shipped since 13cy — not relied on |
+| 26 | `tools/v2_solve_replay.py` capture / `pipeline/capture_state` | pickled `Airport` | `Building.facade` absent in old captures | no `dsf:lot:fac` building in old captures | a capture predating the reader replays with NO strip and says so by name (the 12u rule); SPJC needs one new capture |
+
+### §52 (5) Emittable in the heightfield mesh? YES — and the boundary is a ONE-TRIANGLE STEP, as every patch edge is today
+
+There is no bank pass (13cy, deleted by 04c). The strip is a flat groundside face at the pad's level; its outer ring meets the raw DEM over the first mesh triangle outside the constrained ring (design-surface §8.4). So the 6–8 m step that stands AT THE WALL today (pad 25.88 against DEM 32.4–33.2; the trailers drape on the high side) moves 13.2 m out, to the far edge of the strip. One z per (x, y) everywhere: emittable. No existing mechanism softens it — zone bands exist only around the runway and taxi families, the retaining-wall extension only along a road with a pack wall object, pad terraces only inside a footprint. INTENT QUESTION Q2: is a 6–8 m one-triangle face 13 m from the dock acceptable, or does the strip's outer edge want a graded run-out (which is a new law, not this lane's).
+
+At `building16` the court is 27 m wide and the facade opposite (`dsf:fac201`, no pad, draped on DEM 36–38) stands 13.7 m beyond the strip: the step lands in the middle of the truck court. A pad for `dsf:fac201` (the boundary-gate defect above) would put both terminals and the court on one level — INTENT QUESTION Q3.

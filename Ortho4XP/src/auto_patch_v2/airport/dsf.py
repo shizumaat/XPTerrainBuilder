@@ -43,6 +43,15 @@ class DsfPolygon:
     def_path: str
     param: int
     windings: tuple[tuple[LonLat, ...], ...]
+    #: ``coords_per_point`` of the ``BEGIN_POLYGON`` row (a facade: 2
+    #: ``lon lat``, 3 ``+ wall``, 4 ``+ ctrl``, 5 ``+ wall + ctrl``)
+    depth: int = 2
+    #: THE DSF'S OWN NODES per winding, before the bezier flattening:
+    #: ``(lon, lat, wall index or None, curved)`` — ``windings`` cannot
+    #: carry a per-vertex wall (a curve is re-sampled and sparsified), and
+    #: the facade reader (``airport/facade.py``, issue #334) needs the
+    #: wall each edge was given.  Empty for a UV-mapped polygon.
+    nodes: tuple[tuple[tuple[float, float, int | None, bool], ...], ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -205,8 +214,9 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
                 rings = tuple(r for r in (_flatten(w, cur_cpp, cur_param) for w in windings)
                               if len(r) >= 3)
                 if rings:
-                    polygons.append(DsfPolygon(polygon_defs[cur_def],
-                                               cur_param, rings))
+                    polygons.append(DsfPolygon(
+                        polygon_defs[cur_def], cur_param, rings, cur_cpp,
+                        tuple(_nodes(w, cur_cpp, cur_param) for w in windings)))
                 cur_def = None
     return DsfDump(path, tuple(object_defs), tuple(polygon_defs),
                    tuple(polygons), tuple(placements))
@@ -282,6 +292,27 @@ def _flatten(points: list[list[str]], cpp: int, param: int = 0) -> tuple[LonLat,
             if out[-1] != p:
                 out.append(p)
     return tuple(_sparsify(out, True, lon_scale))
+
+
+def _nodes(points: list[list[str]], cpp: int, param: int = 0
+           ) -> tuple[tuple[float, float, int | None, bool], ...]:
+    """A winding's DSF nodes as authored: ``(lon, lat, wall, curved)``.
+    The wall index is column 2 at cpp 3 / 5 (``lon lat wall [ctrl]``) and
+    absent at cpp 2 / 4; ``curved`` = the node carries a control point
+    off itself.  A UV-mapped polygon has neither."""
+    if param == UV_MAPPED_PARAM:
+        return ()
+    out: list[tuple[float, float, int | None, bool]] = []
+    try:
+        for p in points:
+            lon, lat = float(p[0]), float(p[1])
+            wall = int(float(p[2])) if cpp in (3, 5) and len(p) > 2 else None
+            curved = (cpp >= 4 and len(p) >= cpp
+                      and (float(p[cpp - 2]), float(p[cpp - 1])) != (lon, lat))
+            out.append((lon, lat, wall, curved))
+    except ValueError:
+        return ()
+    return tuple(out)
 
 
 #: X-Plane STOCK pavement namespaces (v1 ``_PAVEMENT_PREFIXES``) and the

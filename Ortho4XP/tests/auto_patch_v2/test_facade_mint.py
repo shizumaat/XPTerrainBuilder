@@ -55,6 +55,7 @@ def test_strip_is_hosted_trimmed_and_thresholded():
     apron = _cell(1, "apron", "pav1", ((30.0, -30.0), (60.0, -30.0), (60.0, -5.0), (30.0, -5.0)))
     out, stats = _mint([_fac([south, stairs], undecided=2)], [pad, apron])
     assert [(r, ref) for r, ref, _p, _e in out] == [("groundside_pavement", "facstrip:building7:0")]
+    assert out[0][2].distance(Polygon(SQ)) > 0.5         # the host's set-back stands
     strip = out[0][2]
     # outside the pad and the apron (airside wins), inside the sweep
     assert strip.intersection(Polygon(SQ)).area == pytest.approx(0.0, abs=1e-6)
@@ -134,7 +135,8 @@ def test_projection_puts_every_strip_vertex_on_the_host_pad_and_moves_no_pad():
     # no strip: z comes back as it went in
     pm.faces = {i: f for i, f in pm.faces.items() if not mp.is_facade_strip_ref(f.ref)}
     assert project_facade_strips(pm, law, z) == (tuple(z), {
-        "strips": [], "vertices": 0, "no_host": 0, "shared": 0, "moved_max_m": 0.0})
+        "strips": [], "vertices": 0, "no_host": 0, "shared": 0, "yielded": 0,
+        "moved_max_m": 0.0})
 
 
 def test_both_exits_of_the_design_solve_project_the_strips():
@@ -155,3 +157,48 @@ def test_both_exits_of_the_design_solve_project_the_strips():
     assert out.z[4:8] == pytest.approx((25.88,) * 4) and rep.facade_strip["vertices"] == 4
     empty, _ = design._with_facade_strips(pm, law, S(()), rep)
     assert empty.z == ()
+
+
+def test_two_hosts_strips_are_trimmed_apart_at_the_equidistant_line():
+    """RULINGS 2026-10-04h (2): the court between two docks — each strip
+    keeps its own host's side, the standing set-back between them."""
+    north = ((0.0, 40.0), (40.0, 40.0), (40.0, 60.0), (0.0, 60.0))   # 20 m court
+    a = _fac([FacadeEdge((0.0, 20.0), (40.0, 20.0), 13.2, "Loading_doors", "t.obj", True)])
+    b = Building("dsf:fac2", north, (), "dsf:fac:building", None, None, None,
+                 FacadeRead("lib/x/Cargo.fac", facade.ROOFED, (FacadeEdge(
+                     (0.0, 40.0), (40.0, 40.0), 13.2, "(any fitting wall)", "t.obj", True),), 4))
+    out, stats = _mint([a, b], [_cell(0, "building", "building7", SQ),
+                                _cell(1, "building", "building8", north)])
+    by = {ref.split(":")[1]: poly for _r, ref, poly, _e in out}
+    assert set(by) == {"building7", "building8"} and stats["facade_strip_pairs_trimmed"] == 1
+    assert by["building7"].bounds[3] < 30.0 < by["building8"].bounds[1]
+    # the pad set-back between the strips; one identity cell more off a pad
+    gap = by["building7"].distance(by["building8"])
+    off = by["building7"].distance(Polygon(SQ))
+    assert 0.6 <= gap <= 1.0 and off == pytest.approx(gap + 0.5, abs=0.05)
+    assert by["building7"].area == pytest.approx(by["building8"].area, rel=0.02)
+    # strips that never come within the set-back are not trimmed
+    far = Polygon([(0, 80), (40, 80), (40, 90), (0, 90)])
+    assert fm.strips_apart(Polygon(SQ).buffer(5.0), Polygon(SQ), far.buffer(5.0), far, 0.6)[2] is False
+
+
+def test_projection_never_moves_a_vertex_an_airside_face_carries():
+    from auto_patch_v2.solve.project_strip import project_facade_strips
+    law, pm = Law.for_airport("SPJC"), _fake_map()
+    pm.faces[9] = types.SimpleNamespace(id=9, role="apron", ref="pav34", ring=(5, 9, 10), holes=())
+    z = [25.88] * 4 + [32.5, 33.0, 31.0, 33.2] + [40.0] * 3 + [9.0, 50.0]
+    out, rep = project_facade_strips(pm, law, z)
+    assert out[5] == 33.0 and rep["yielded"] == 1          # the apron's vertex stays
+    assert out[4] == pytest.approx(25.88) and out[6] == pytest.approx(25.88)
+
+
+def test_projection_reads_the_platform_not_its_collar():
+    from auto_patch_v2.solve.project_strip import project_facade_strips
+    law, pm = Law.for_airport("SPJC"), _fake_map()
+    # building7's collar: shares the platform's rim (0, 1) and climbs to 12
+    pm.vertices[13] = types.SimpleNamespace(xy=(20.0, 25.0))
+    pm.faces[9] = types.SimpleNamespace(id=9, role="building", ref="building7#collar",
+                                        ring=(2, 3, 13), holes=())
+    z = [16.1, 16.1, 16.1, 16.1] + [32.5, 33.0, 31.0, 33.2] + [40.0] * 3 + [9.0, 50.0, 19.0]
+    out, _rep = project_facade_strips(pm, law, z + [19.0])
+    assert out[4:8] == pytest.approx((16.1,) * 4, abs=1e-6)

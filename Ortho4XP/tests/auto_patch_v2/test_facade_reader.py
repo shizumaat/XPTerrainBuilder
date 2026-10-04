@@ -241,3 +241,29 @@ def test_census_reads_class_area_and_reach(tmp_path, cargo, monkeypatch):
     # the two polygons with no wall index are undecided on every edge
     assert len(r["undecided"]) == 6
     assert facade_census.census(polys, None, None, keep=lambda la, lo: False) == {}
+
+
+def test_an_undecided_edge_may_attach_the_widest_candidate(cargo):
+    """RULINGS 2026-10-04h (2): no DSF wall index and fitting walls that
+    differ -> the edge is graded for what ANY of them may attach; a bezier
+    edge counts its candidates' CURVED tables only."""
+    nodes = [(0.0, 0.0, None, False), (50.0, 0.0, None, False),
+             (50.0, 20.0, None, True), (0.0, 20.0, None, False)]
+    e0, e1, e2, e3 = facade.placed_edges(cargo, 6.0, nodes)
+    assert e0.wall.wall is None and e0.attachments == ()
+    assert max(a.reach_m for a in e0.may_attach) == pytest.approx(13.2)
+    assert e1.curved and max(a.reach_m for a in e1.may_attach) == pytest.approx(0.8)
+    assert not e3.curved and max(a.reach_m for a in e3.may_attach) == pytest.approx(13.2)
+    # a DECIDED edge never reads the candidates
+    (d,) = facade.placed_edges(cargo, 6.0, [(0.0, 0.0, 2, False), (50.0, 0.0, 2, False)][:2]
+                               + [(50.0, 20.0, 2, False)])[:1]
+    assert d.may_attach == () and d.name == "Solid_wall"
+    poly = dsf.DsfPolygon("x.fac", 6, (((0.0, 0.0), (0.0005, 0.0), (0.0005, 0.0002)),), 2,
+                          (((0.0, 0.0, None, False), (0.0005, 0.0, None, False),
+                            (0.0005, 0.0002, None, False)),))
+    import unittest.mock as um
+    with um.patch.object(facade, "read_facade", lambda *a: cargo):
+        fr = facade.read_placed(poly, None, None, lambda lo, la: (lo * 1e5, la * 1e5))
+    assert fr.undecided == 3 and len(fr.edges) == 3
+    assert {round(e.reach_m, 1) for e in fr.edges} == {13.2}
+    assert fr.edges[0].wall == "(any fitting wall)" and fr.edges[0].vehicle

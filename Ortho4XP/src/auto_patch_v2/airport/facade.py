@@ -478,6 +478,11 @@ class PlacedEdge:
     wall: EdgeWall
     name: str                       # the wall's name ("" = undecided)
     attachments: tuple[Attachment, ...]
+    #: an UNDECIDED edge (no DSF wall index, fitting walls differ): what
+    #: ANY fitting wall may attach, each object at its widest reach — the
+    #: straight tables for a straight edge, the curved ones for a bezier
+    #: (owner RULINGS 2026-10-04h (2): a wall where trucks MAY appear)
+    may_attach: tuple[Attachment, ...] = ()
 
 
 def placed_edges(fac: FacadeDef, height_m: float,
@@ -502,9 +507,19 @@ def placed_edges(fac: FacadeDef, height_m: float,
     out = []
     for (i, a, b, length, curved, _w), ew in zip(rows, walls):
         w = floor.walls[ew.wall] if ew.wall is not None else None
+        may: dict[tuple[str, str], Attachment] = {}
+        if w is None and not ew.from_dsf:
+            for k in ew.candidates:
+                c = floor.walls[k]
+                for at in (c.curved_attachments if curved else c.attachments):
+                    old = may.get((at.kind, at.obj))
+                    if at.reach is not None and (old is None
+                                                 or at.reach[1] > old.reach[1]):
+                        may[(at.kind, at.obj)] = at
         out.append(PlacedEdge(
             i, a, b, length, curved, ew, w.name if w else "",
-            () if w is None else (w.curved_attachments if curved else w.attachments)))
+            () if w is None else (w.curved_attachments if curved else w.attachments),
+            tuple(may[k] for k in sorted(may))))
     return tuple(out)
 
 
@@ -553,11 +568,14 @@ def read_placed(poly: _t.Any, pack_root: str | None,
     for e in placed_edges(fac, float(poly.param), nodes):
         if e.wall.wall is None and not e.wall.from_dsf:
             undecided += 1
-        got = [a for a in e.attachments if a.reach is not None]
+        # 04h (2): an undecided edge is graded for what ANY fitting wall
+        # may attach — the largest candidate reach
+        got = [a for a in (e.attachments or e.may_attach) if a.reach is not None]
         if not got:
             continue
         top = max(got, key=lambda a: a.reach[1])
         if top.reach[1] > 0.0:
-            edges.append(FacadeEdge(e.a, e.b, float(top.reach[1]), e.name,
+            edges.append(FacadeEdge(e.a, e.b, float(top.reach[1]),
+                                    e.name or "(any fitting wall)",
                                     top.obj, top.vehicle))
     return FacadeRead(poly.def_path, facade_class(fac), tuple(edges), undecided)

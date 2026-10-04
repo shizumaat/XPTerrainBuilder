@@ -40,9 +40,10 @@ import typing as _t
 import numpy as np
 
 from ..law import Law
-from ..law.tables import design as design_law, role_cap
+from ..law.tables import design as design_law, role_cap, role_side
 from ..model.jetway import StripSet
-from ..model.planar import PlanarMap, facade_strip_host, is_facade_strip_ref
+from ..model.planar import (PlanarMap, facade_strip_host, is_collar_ref,
+                            is_facade_strip_ref)
 
 __all__ = ["StripReport", "project_strips", "project_facade_strips"]
 
@@ -387,17 +388,22 @@ def project_facade_strips(planar: PlanarMap, law: Law,
     were measured and failed (spec §52 (6): a hard row collapsed stage 2, a
     one-way row lagged 1.11 m, a two-way row moved an unheld pad 0.03 m).
 
-    A strip vertex ANOTHER face shares (a road or lot reaching the strip)
-    is moved too — the strip never moves to meet the road (04f) — and
-    counted in ``shared``.  Returns the new ``z`` and the report."""
+    A strip vertex a GROUNDSIDE face shares (a road or lot reaching the
+    strip) is moved too — the strip never moves to meet the road (04f) —
+    and counted in ``shared``.  A vertex an AIRSIDE-side face carries (an
+    apron the strip was trimmed against, a pad corner) is NEVER moved: the
+    strip yields there, counted in ``yielded`` (airside is king).  Returns
+    the new ``z`` and the report."""
     faces = [f for f in planar.faces.values() if is_facade_strip_ref(f.ref)]
     rep: dict[str, _t.Any] = {"strips": [], "vertices": 0, "no_host": 0,
-                              "shared": 0, "moved_max_m": 0.0}
+                              "shared": 0, "yielded": 0, "moved_max_m": 0.0}
     if not faces:
         return tuple(z), rep
     pad_vs: dict[str, set[int]] = {}
+    collar_vs: dict[str, set[int]] = {}
     strip_vs: dict[int, set[int]] = {}
     users: dict[int, int] = {}
+    airside: set[int] = set()
     for f in planar.faces.values():
         vs = {v for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
         if is_facade_strip_ref(f.ref):
@@ -405,8 +411,16 @@ def project_facade_strips(planar: PlanarMap, law: Law,
         else:
             for v in vs:
                 users[v] = users.get(v, 0) + 1
+            if role_side(law, f.role) == "airside":
+                airside.update(vs)
             if bool(getattr(law.tables.precedence.roles.get(f.role), "rigid", False)):
-                pad_vs.setdefault(str(f.ref).split("#")[0], set()).update(vs)
+                # the pad's LEVEL is its platform's: a ``#collar`` face is
+                # the bank from the welded rim to it (unit-platform §1 (3))
+                # and reads only where the pad has no other face
+                (collar_vs if is_collar_ref(f.ref) else pad_vs).setdefault(
+                    str(f.ref).split("#")[0], set()).update(vs)
+    for ref, vs in collar_vs.items():
+        pad_vs.setdefault(ref, vs)
     out = [float(v) for v in z]
     levels = {v: out[v] for vs in pad_vs.values() for v in vs if v < len(out)}
     xy = {v: planar.vertices[v].xy for v in planar.vertices}
@@ -422,6 +436,9 @@ def project_facade_strips(planar: PlanarMap, law: Law,
                         levels, xy, pvs, tilt_max)
         moved = 0.0
         for v in vs:
+            if v in airside:
+                rep["yielded"] += 1
+                continue
             new = _at(pl, xy[v])
             moved = max(moved, abs(new - out[v]))
             out[v] = new

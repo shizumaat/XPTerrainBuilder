@@ -90,6 +90,19 @@ Before editing anything under `Ortho4XP/src/` or `Sources/`, run:
 wire-protocol hazards, co-change neighbors. Self-rebuilds when stale (~2 s).
 `tools/blast.py --audit` verifies index recall against grep ground truth.
 
+## Reuse and file size (owner RULINGS 2026-10-04a/b)
+
+The priority is small modules with one responsibility and no second
+implementation of a thing that exists. Extend what is there; a new family
+member (provider, constraint, emit adapter) is a new file in its package,
+never an append. Modules past 1,000 lines should be rare: passing 1,000, or
+growing a file already past it, needs a recorded reason
+(`tools/ratchets.py --justify PATH "reason"`); unjustified growth fails
+`tests/test_ratchets.py`. The identical-duplicate count may fall, never rise;
+near-duplicates are reported by `tools/ratchets.py dupes --near`. Split by
+responsibility — never fold comments or cut a file at 999 to make a number.
+Every lane report carries net lines added/removed and new public symbols.
+
 ## Cross-language wire protocol (silent-break hazard)
 
 `Ortho4XP/src/o4_engine/events.py` class names ARE the JSONL wire names

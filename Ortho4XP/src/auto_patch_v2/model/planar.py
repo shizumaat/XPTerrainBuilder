@@ -44,7 +44,8 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
-           "is_late_ref", "GAP_PREFIX", "is_gap_ref"]
+           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "face_edge_ids",
+           "face_vertex_set"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
 #: (``planar/platform.py`` mints it).  ``#`` is the tree's split spelling,
@@ -219,6 +220,24 @@ class Face:
     code_number: int | None = None
     code_letter: str | None = None
     side: str = "airside"
+
+
+def face_edge_ids(face) -> set[int]:
+    """THE EDGE SET OF A FACE — its outer ring's and every hole ring's edge
+    ids (a face ring is a cycle of EDGE ids, never of vertices)."""
+    out = {int(e) for e in face.ring}
+    for h in getattr(face, "holes", ()) or ():
+        out.update(int(e) for e in h)
+    return out
+
+
+def face_vertex_set(pm, face) -> set[int]:
+    """THE VERTEX SET OF A FACE read through ``PlanarMap.ring_vertices`` —
+    the only lawful reading of a ring of edge ids."""
+    out = {int(v) for v in pm.ring_vertices(face.ring)}
+    for h in getattr(face, "holes", ()) or ():
+        out.update(int(v) for v in pm.ring_vertices(h))
+    return out
 
 
 def face_vertex_ids(ring: _t.Sequence[int],

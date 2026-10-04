@@ -37,7 +37,9 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap, snap_margin_m
 from ..model.constraints import Linear, Source
-from ..model.planar import PlanarMap, is_gap_ref, is_osm_ribbon_ref
+from ..model.planar import (PlanarMap, face_edge_ids as _edges,
+                            face_vertex_set as _vertices, is_gap_ref,
+                            is_osm_ribbon_ref)
 
 __all__ = ["GEN", "RULING", "gap_follow_rows", "reach_m"]
 
@@ -53,20 +55,6 @@ def reach_m(law: Law) -> float:
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
     return float(law.tables.structures.building_pad.groundside_cutback_m) \
         + snap_margin_m(law) + 2.0 * ident
-
-
-def _vertices(pm: PlanarMap, f) -> set[int]:
-    out = {int(v) for v in pm.ring_vertices(f.ring)}
-    for h in getattr(f, "holes", ()) or ():
-        out.update(int(v) for v in pm.ring_vertices(h))
-    return out
-
-
-def _edges(f) -> set[int]:
-    out = {int(e) for e in f.ring}
-    for h in getattr(f, "holes", ()) or ():
-        out.update(int(e) for e in h)
-    return out
 
 
 def gap_follow_rows(planar: PlanarMap, law: Law,

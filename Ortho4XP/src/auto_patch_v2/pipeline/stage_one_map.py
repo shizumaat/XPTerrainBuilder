@@ -37,6 +37,8 @@ import contextlib
 import dataclasses as _dc
 import typing as _t
 
+from ..model.planar import face_edge_ids as _face_edges
+from ..model.planar import face_vertex_set as _face_vertices
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
                                  Offset, Pin)
 
@@ -68,21 +70,6 @@ def gap_free(cl):
     if len(cells) == len(cl.cells):
         return None
     return _dc.replace(cl, cells=cells)
-
-
-def _face_vertices(pm, f) -> set[int]:
-    """A face's vertices (its rings are cycles of EDGE ids)."""
-    out = {int(v) for v in pm.ring_vertices(f.ring)}
-    for h in getattr(f, "holes", ()) or ():
-        out.update(int(v) for v in pm.ring_vertices(h))
-    return out
-
-
-def _face_edges(f) -> set[int]:
-    out = {int(e) for e in f.ring}
-    for h in getattr(f, "holes", ()) or ():
-        out.update(int(e) for e in h)
-    return out
 
 
 def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset()

@@ -1298,7 +1298,32 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
     return out
 
 
-def wall_keyed(terr: _t.Mapping[str, _t.Mapping]) -> tuple[dict, int]:
+def gate_merged(spans: _t.Sequence[tuple[float, float, float]],
+                cap: float | None) -> list[tuple[float, float, float]]:
+    """OWNER RULINGS 2026-10-04p (A, issue #8): A GAP BETWEEN TWO WALL-
+    WITNESS SPANS OF ONE ROUTE NO LONGER THAN ``2·h / cap`` IS A GATE — the
+    terrace runs through it.  ``spans`` are ``(lo, hi, wall height)`` along
+    one route; ``h`` is the LOWER of the two walls and ``cap`` the road's
+    own longitudinal cap, so the bound is the there-and-back ramp the road
+    would need to leave the wall top and return to it: a shorter gap is an
+    opening in one wall, not two terraces.  No cap, no merge.
+
+    MEASURED (HECA capture at 28500ecf): ``route3`` beside apron
+    ``dsf:objpav433`` runs along ``metal_strip_2.obj`` in three spans; the
+    57.4 m gate at s 294-351 dropped the terrace and the road dipped 3.08 m
+    under the apron it shares a kerb with."""
+    out: list[tuple[float, float, float]] = []
+    for lo, hi, h in sorted(spans):
+        if out and cap and lo - out[-1][1] <= 2.0 * min(out[-1][2], h) / cap:
+            p = out[-1]
+            out[-1] = (p[0], max(p[1], hi), min(p[2], h))
+        else:
+            out.append((lo, hi, h))
+    return out
+
+
+def wall_keyed(terr: _t.Mapping[str, _t.Mapping],
+               cap: float | None = None) -> tuple[dict, int]:
     """OWNER RULINGS 2026-10-03l (#315 / #316, amends 10-03g): A NON-RIBBON
     ROAD (DSF road page, 1206 corridor, apt.dat pavement classed road —
     ``terr['own']``) JOINS THE TERRACE ONLY ALONG A PLACED-WALL WITNESS
@@ -1309,6 +1334,15 @@ def wall_keyed(terr: _t.Mapping[str, _t.Mapping]) -> tuple[dict, int]:
     foot, no pad, no station (so no linked straight run), no kerb, no meet —
     and keeps its own §37 (6) target.  A ribbon is untouched (10-03b).
 
+    OWNER RULINGS 2026-10-04p (A, issue #8), both HERE at the one trim:
+    (1) the spans of one route are joined across a GATE
+    (:func:`gate_merged`, ``cap`` = the road's longitudinal cap); (2)
+    INSIDE A KEYED SPAN THE ROAD LEADS — a kept ``own`` vertex carries no
+    ``meet`` (the anchor at its own DEM target where a lot stands within a
+    lane width but its wall does not): the lot meets the road, never the
+    road the lot.  MEASURED (HECA, same capture): eight such anchors held
+    ``route3`` 1.23 m under apron ``dsf:objpav433`` on average.
+
     MEASURED (CYXY capture at a43fc86a): DSF page ``dsf:pol120`` stood
     703.06 m beside apron ``dsf:pol130`` over a DEM of 700.38 (a real 2.7 m
     bank between them), and ``pav29#2`` ran 489 m straight between ``pav16``
@@ -1318,7 +1352,7 @@ def wall_keyed(terr: _t.Mapping[str, _t.Mapping]) -> tuple[dict, int]:
     station = terr.get("station") or {}
     if not own:
         return dict(terr), 0
-    spans: dict[int, list[tuple[float, float]]] = {}
+    spans: dict[int, list[tuple[float, float, float]]] = {}
     for rec in (terr.get("wall") or {}).values():
         by_route: dict[int, list[float]] = {}
         for v in rec.get("upper", ()):
@@ -1326,7 +1360,9 @@ def wall_keyed(terr: _t.Mapping[str, _t.Mapping]) -> tuple[dict, int]:
                 r, s_ = station[v]
                 by_route.setdefault(int(r), []).append(float(s_))
         for r, ss in by_route.items():
-            spans.setdefault(r, []).append((min(ss), max(ss)))
+            spans.setdefault(r, []).append(
+                (min(ss), max(ss), float(rec.get("height_m", 0.0))))
+    spans = {r: gate_merged(lst, cap) for r, lst in spans.items()}
 
     def left(v: int) -> bool:
         if v not in own:
@@ -1335,13 +1371,22 @@ def wall_keyed(terr: _t.Mapping[str, _t.Mapping]) -> tuple[dict, int]:
             return True
         r, s_ = station[v]
         return not any(lo - 1e-9 <= float(s_) <= hi + 1e-9
-                       for lo, hi in spans.get(int(r), ()))
+                       for lo, hi, _h in spans.get(int(r), ()))
     gone = {v for v in own if left(v)}
     out = dict(terr)
     for key in ("foot", "pad", "station", "kerb", "meet", "walled"):
         out[key] = {v: x for v, x in (terr.get(key) or {}).items()
                     if v not in gone}
+    out["meet"] = _road_leads(out["meet"], own)
     return out, len(gone)
+
+
+def _road_leads(meet: _t.Mapping[int, _t.Any],
+                own: _t.Mapping[int, _t.Any]) -> dict[int, _t.Any]:
+    """04p (A) (2): the meets less every ``own`` vertex — called on the
+    TRIMMED terrace, where the only ``own`` vertices left are the keyed
+    ones."""
+    return {v: x for v, x in meet.items() if v not in own}
 
 
 def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
@@ -1420,7 +1465,9 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         float(service.retaining_wall_reach_m)) if walls else {}}
     # OWNER RULINGS 2026-10-03l: a non-ribbon road is in the terrace only
     # along that wall witness (the ONE trim, here at the derivation site)
-    terr, left = wall_keyed(terr)
+    road_caps = [role_cap(law, r).longitudinal for r in _road_roles(law)
+                 if role_cap(law, r)]
+    terr, left = wall_keyed(terr, min(road_caps) if road_caps else None)
     if report is not None:
         report["terrace_own_left"] = left
         report["terrace_stations"] = len(terr.get("station", {}))

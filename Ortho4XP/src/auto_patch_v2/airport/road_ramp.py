@@ -66,6 +66,7 @@ from ..law.tables import (family, is_structure_role, is_value_role, role_cap,
                           role_side, senior_role, zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
+from ..model.frame import rotated_rectangle
 
 __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
            "road_route_frame", "reach_contacts", "merge_routes",
@@ -1156,7 +1157,7 @@ def _piece_length(g) -> float:
 def wall_midline(g) -> list[tuple[float, float]]:
     """The wall LINE of a thin piece: the midline of its minimum rotated
     rectangle along the long axis (the witness's own reading)."""
-    cs = list(g.minimum_rotated_rectangle.exterior.coords)
+    cs = list(rotated_rectangle(g).exterior.coords)
     if len(cs) < 5:
         return []
     e = sorted(((cs[i], cs[i + 1]) for i in range(4)), key=lambda ab: -math.dist(*ab))

@@ -31,6 +31,7 @@ from shapely.geometry import Point, Polygon
 
 from ..law import Law
 from ..model.planar import PlanarMap, is_osm_ribbon_ref
+from ..model.frame import rotated_rectangle
 
 __all__ = ["ribbon_contact_steps", "AT"]
 
@@ -96,7 +97,7 @@ def ribbon_contact_steps(planar: PlanarMap, law: Law,
         # kerb vertex, ordered along the ribbon's long axis; a chord the line
         # does not cross properly gets a short line of its own across it
         from shapely.geometry import LineString
-        rect = poly.minimum_rotated_rectangle
+        rect = rotated_rectangle(poly)
         cs = list(rect.exterior.coords)
         e0 = (cs[1][0] - cs[0][0], cs[1][1] - cs[0][1])
         e1 = (cs[2][0] - cs[1][0], cs[2][1] - cs[1][1])

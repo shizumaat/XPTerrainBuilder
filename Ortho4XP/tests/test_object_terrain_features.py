@@ -2275,3 +2275,78 @@ class TestKbnaStandaloneDrapeEvidence:
             for bridge in result.bridges
             for resource in bridge.object_resources
         )
+
+
+class TestRegionPolygonInFrame:
+    """``region_polygon_in_frame`` — THE one projection of a below-grade
+    region's ring into another record's metre frame.
+
+    Production reaches it from ``regions_with_lazy_above_grade_coverage``
+    (the DEM inset prep's basin reading); the v1 cut removed its only
+    test reference (RULINGS 2026-10-04j "coverage owed").  The v1 twin
+    asserted it equal to the assembly's delegate; the delegate is gone,
+    so the claim is re-founded on what the function IS: the region's ring
+    carried through longitude/latitude and back, by the documented
+    converter pair."""
+
+    ORIGIN = (ANCHOR_LONGITUDE, ANCHOR_LATITUDE)
+    RING = Polygon([(-40.0, -15.0), (60.0, -15.0), (60.0, 25.0),
+                    (-40.0, 25.0)])
+
+    def _region(self, polygon=None, origin=None):
+        return otf.BelowGradeRegion(
+            polygon=self.RING if polygon is None else polygon,
+            frame_origin_longitude_latitude=origin or self.ORIGIN,
+            solid_minimum_y_m=-7.0)
+
+    def _origin_offset_by(self, east_m, north_m):
+        latitude, longitude = obj8_reader.local_offset_to_lonlat(
+            ANCHOR_LATITUDE, ANCHOR_LONGITUDE, 0.0, east_m, north_m)
+        return (longitude, latitude)
+
+    def test_its_own_frame_gives_the_ring_back(self) -> None:
+        same = otf.region_polygon_in_frame(self._region(), self.ORIGIN)
+        assert same.symmetric_difference(self.RING).area < 1e-6
+        assert same.area == pytest.approx(self.RING.area, rel=1e-9)
+
+    def test_another_frame_is_the_ring_shifted_by_the_origin_offset(
+            self) -> None:
+        target = self._origin_offset_by(120.0, -80.0)
+        moved = otf.region_polygon_in_frame(self._region(), target)
+        # the target frame's own measure of where the source origin sits
+        source_x, source_z = obj8_reader.lonlat_to_local_offset(
+            target[1], target[0], 0.0, ANCHOR_LATITUDE, ANCHOR_LONGITUDE)
+        min_x, min_z, max_x, max_z = moved.bounds
+        assert min_x == pytest.approx(-40.0 + source_x, abs=0.05)
+        assert max_x == pytest.approx(60.0 + source_x, abs=0.05)
+        assert min_z == pytest.approx(-15.0 + source_z, abs=0.05)
+        assert max_z == pytest.approx(25.0 + source_z, abs=0.05)
+        assert moved.area == pytest.approx(self.RING.area, rel=1e-3)
+        # ...and the trip back is the ring again: one projection, both ways
+        back = otf.polygon_between_frames(moved, target, self.ORIGIN)
+        assert back.symmetric_difference(self.RING).area < 1e-3
+
+    def test_it_is_polygon_between_frames_applied_to_the_ring(self) -> None:
+        target = self._origin_offset_by(-300.0, 45.0)
+        region = self._region()
+        assert otf.region_polygon_in_frame(region, target).equals(
+            otf.polygon_between_frames(
+                region.polygon, region.frame_origin_longitude_latitude,
+                target))
+
+    def test_an_empty_ring_projects_to_nothing(self) -> None:
+        assert otf.region_polygon_in_frame(
+            self._region(polygon=Polygon()), self.ORIGIN) is None
+        assert otf.polygon_between_frames(None, self.ORIGIN,
+                                          self.ORIGIN) is None
+
+    def test_a_two_part_body_stays_two_parts(self) -> None:
+        from shapely.geometry import MultiPolygon
+        far = Polygon([(200.0, 0.0), (230.0, 0.0), (230.0, 30.0),
+                       (200.0, 30.0)])
+        both = otf.polygon_between_frames(
+            MultiPolygon([self.RING, far]), self.ORIGIN,
+            self._origin_offset_by(10.0, 10.0))
+        assert both.geom_type == "MultiPolygon" and len(both.geoms) == 2
+        assert both.area == pytest.approx(self.RING.area + far.area,
+                                          rel=1e-3)

@@ -189,6 +189,15 @@ def _stub_v2(monkeypatch, *, status="optimal", pieces_tiles=None, raise_exc=None
     mods["auto_patch_v2.law"].Law = _Law
     mods["auto_patch_v2.law"].law_tables_digest = lambda law_dir=None: {
         "dir": "stub", "files": ["emit.toml"], "sha256": "feedfacecafebeef" * 4}
+    # THE STUB ROOT IS STILL A PACKAGE.  ``engine_v2`` also imports v2
+    # modules this stub does not replace (``V2Progress`` reads
+    # ``auto_patch_v2.model.pulse``); a path-less root answers "is not a
+    # package" for them unless an EARLIER test file happened to import the
+    # real ones into ``sys.modules`` — five tests here went red when the
+    # file ran alone.  The real package's ``__path__`` lets every
+    # unstubbed submodule resolve to the real one, in any order.
+    import auto_patch_v2 as _real_v2
+    mods["auto_patch_v2"].__path__ = list(_real_v2.__path__)
     for name, m in mods.items():
         monkeypatch.setitem(sys.modules, name, m)
     return calls

@@ -2165,16 +2165,25 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         # followers are unknowns
         from auto_patch_v2.pipeline.stage_one_map import late_fixed, late_followers
         from auto_patch_v2.solve.design import solve_late_stage
+        _late_fixed: dict = {}
         with open(late_from, "rb") as _fh:
             _base = pickle.load(_fh)
         _free, _frep = late_followers(pm, frozenset({"graded_strip"}))
         _fixed, _jrep = late_fixed(_base["pm"], _base["z"], pm, _free)
-        print(f"[{icao}] LAST STAGE (§53 (9)) off {late_from}: followers {_frep}; join {_jrep}")
+        from auto_patch_v2.pipeline.stage_one_map import late_constraints
+        cs, _dropped = late_constraints(cs, _fixed)
+        print(f"[{icao}] LAST STAGE (§53 (9)) off {late_from}: followers {_frep}; join {_jrep}; "
+              f"rows with no unknown dropped {_dropped}")
+        _late_fixed = dict(_fixed)
         sol, rep = solve_late_stage(pm, cs, law, _fixed, Options(verbose=verbose),
                                     size_out=size, method=method)
     else:
         sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
                                 method=method, strips=strips, **_kw)
+    if late_from is not None and sol.z:
+        _off = [abs(float(sol.z[v]) - z) for v, z in _late_fixed.items()]
+        print(f"[{icao}] LAST STAGE: fixed vertices off their constant by > 0.02 m: "
+              f"{sum(1 for d in _off if d > 0.02)} of {len(_off)} (worst {max(_off, default=0.0):.3f} m)")
     if late_from is None and prob.get("stage1") is not None:
         print(f"[{icao}] stage 1 map (#100 (c)): {rep.stages.get('stage1_map')}")
     wall = round(time.perf_counter() - t, 1)

@@ -41,7 +41,8 @@ from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
                                  Offset, Pin)
 
 __all__ = ["StageOne", "ribbon_free", "stage_one_problem", "remap_row",
-           "gap_free", "late_followers", "late_fixed"]
+           "gap_free", "late_followers", "late_fixed", "late_constraints",
+           "row_vertices"]
 
 
 def ribbon_free(cl):
@@ -69,19 +70,18 @@ def gap_free(cl):
     return _dc.replace(cl, cells=cells)
 
 
-def _face_vertices(f) -> set[int]:
-    out = {int(v) for v in f.ring}
+def _face_vertices(pm, f) -> set[int]:
+    """A face's vertices (its rings are cycles of EDGE ids)."""
+    out = {int(v) for v in pm.ring_vertices(f.ring)}
     for h in getattr(f, "holes", ()) or ():
-        out.update(int(v) for v in h)
+        out.update(int(v) for v in pm.ring_vertices(h))
     return out
 
 
-def _face_edges(f) -> set[frozenset]:
-    out = set()
-    for ring in (f.ring, *(getattr(f, "holes", ()) or ())):
-        n = len(ring)
-        out.update(frozenset((int(ring[i]), int(ring[(i + 1) % n])))
-                   for i in range(n))
+def _face_edges(f) -> set[int]:
+    out = {int(e) for e in f.ring}
+    for h in getattr(f, "holes", ()) or ():
+        out.update(int(e) for e in h)
     return out
 
 
@@ -110,9 +110,9 @@ def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset()
     held: set[int] = set()
     for f in pm_full.faces.values():
         if f.id in follow:
-            free |= _face_vertices(f)
+            free |= _face_vertices(pm_full, f)
         elif f.role not in soft_roles:
-            held |= _face_vertices(f)
+            held |= _face_vertices(pm_full, f)
     rep = {"gap_faces": len(gap), "follower_ribbons": len(ribbons),
            "follower_ribbon_refs": sorted({str(f.ref) for f in ribbons}),
            "vertices": len(free - held), "held_on_a_leader": len(free & held)}
@@ -139,6 +139,39 @@ def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int]
     return fixed, {"base_vertices": len(pm_base.vertices), "full_vertices": n_full,
                    "base_unmapped": miss, "fixed": len(fixed),
                    "unjoined": n_full - len(fixed) - len(free)}
+
+
+def row_vertices(row) -> tuple[int, ...]:
+    """Every vertex ``row`` names (its ``follows`` leaders are not unknowns
+    of the row and are not counted)."""
+    if isinstance(row, (Pin, Band)):
+        return (int(row.v),)
+    if isinstance(row, (Diff, Offset)):
+        return (int(row.a), int(row.b))
+    if isinstance(row, Flat):
+        return tuple(int(v) for v in row.group)
+    if isinstance(row, Linear):
+        return tuple(int(v) for v, _c in row.terms)
+    raise TypeError(f"stage_one_map: unknown row type {type(row).__name__}")
+
+
+def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float]
+                     ) -> tuple[ConstraintSet, dict]:
+    """THE LAST STAGE'S OWN ROWS (spec §53 (10), master 2026-10-04): a row
+    with NO unknown is not the last stage's.  Every row whose vertices are
+    ALL constants of the earlier stages is dropped — so a PIN restated on
+    the full map never moves an earlier stage's level (the reduction lets a
+    pin outrank a substituted constant), and a law row between two fixed
+    vertices is the earlier stage's residual, already published there, not
+    a row this stage can answer for.  ``(set, {type: dropped})``."""
+    kept, dropped = [], {}
+    for r in cs.rows():
+        if all(v in fixed for v in row_vertices(r)):
+            k = type(r).__name__
+            dropped[k] = dropped.get(k, 0) + 1
+        else:
+            kept.append(r)
+    return ConstraintSet.from_rows(kept), dropped
 
 
 def remap_row(row, vmap: _t.Mapping[int, int]):

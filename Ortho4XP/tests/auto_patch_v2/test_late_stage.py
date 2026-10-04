@@ -11,10 +11,27 @@ from auto_patch_v2.pipeline import stage_one_map as som
 
 
 def _pm(coords, faces):
+    """A map whose face rings are cycles of EDGE ids, as ``PlanarMap``'s are
+    (an edge = an unordered vertex pair, numbered as first met)."""
+    eid: dict = {}
+    ends: dict = {}
+
+    def edge(a, b):
+        k = frozenset((a, b))
+        if k not in eid:
+            eid[k] = 1000 + len(eid)
+            ends[eid[k]] = (a, b)
+        return eid[k]
+    fs = {}
+    for i, (role, ref, ring) in enumerate(faces):
+        n = len(ring)
+        fs[i] = types.SimpleNamespace(
+            id=i, role=role, ref=ref, holes=(),
+            ring=tuple(edge(ring[k], ring[(k + 1) % n]) for k in range(n)))
     return types.SimpleNamespace(
-        vertices=[types.SimpleNamespace(xy=xy) for xy in coords],
-        faces={i: types.SimpleNamespace(id=i, role=role, ref=ref, ring=tuple(ring), holes=())
-               for i, (role, ref, ring) in enumerate(faces)})
+        vertices={i: types.SimpleNamespace(xy=xy) for i, xy in enumerate(coords)},
+        faces=fs,
+        ring_vertices=lambda cyc: tuple(v for e in cyc for v in ends[e]))
 
 
 #   0---1---2---3---4      apron | gap | ribbon | lot, a far ribbon beyond
@@ -77,3 +94,17 @@ def test_gap_free_drops_the_pieces_only():
         cells: tuple
     got = som.gap_free(CL(cl.cells))
     assert [c.ref for c in got.cells] == ["pav1", "small_roads:-7"]
+
+
+def test_a_row_with_no_unknown_is_not_the_last_stages():
+    """A pin restated on the full map never moves an earlier stage's level,
+    and a law row between two constants is the earlier stage's own."""
+    from auto_patch_v2.model.constraints import ConstraintSet, Diff, Pin, Source
+    src = Source("twin", "twin (2026-10-04)", ())
+    rows = [Pin(v=1, z=99.0, source=src), Pin(v=7, z=50.0, source=src),
+            Diff(a=1, b=2, cap=0.01, d=10.0, source=src),
+            Diff(a=2, b=7, cap=0.01, d=10.0, source=src)]
+    cs, dropped = som.late_constraints(ConstraintSet.from_rows(rows), {1: 10.0, 2: 11.0})
+    kept = list(cs.rows())
+    assert dropped == {"Pin": 1, "Diff": 1}
+    assert sorted(som.row_vertices(r) for r in kept) == [(2, 7), (7,)]

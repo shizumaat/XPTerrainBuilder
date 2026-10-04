@@ -18146,3 +18146,27 @@ MEASURED (base = `conc333/HECA_main28500ecf.pkl` solved on this tree; arm = `gap
 * LAST-STAGE HARD SET: 2 of 148,638 rows over 0.02 m, worst 0.089 m; one CRITICAL infeasible set (0.0012 m) — an apron body chord at 30.12063519598, 31.41005987145 between two fixed vertices; lag not settled on 2 of 2,163 one-way rows (0.041 m).
 
 NEXT (not done): (a) the constant outranks a pin on a fixed vertex in the last stage (one site: the late stage's own constraint set); (b) attribute the held-but-emitted-different movers; (c) why the site-2 ribbon is not free; (d) the new nodes on pads and existing faces — either the gap ring takes its neighbours' nodes without minting (pass C's rule for the airside rim, extended to every standing cell) or they stay last-stage unknowns.
+
+### §53 (10) ROUND 5, ITEM 1 — A ROW WITH NO UNKNOWN IS NOT THE LAST STAGE'S; AND A CORRECTION TO §53 (8) AND (9)
+
+CORRECTION (lane defect, found at item 3): `PlanarMap` face rings are cycles of EDGE ids. The round-4 follower read and the §53 (8) row census read them as VERTEX ids. So (a) §53 (9)'s follower set was wrong — its "1,941 new nodes on existing faces", its per-role tally, the residual pad / lot / road movers and "the site-2 ribbon is not free" were artefacts of that set; (b) §53 (8)'s row counts per pad (`building26` 49 rows, `building12` none, `building28` 4) are NOT evidence and are withdrawn — the arm they were read on was not kept. What stands from (8): the patch-level movers, and the ruling for a stage of its own. `late_followers` now reads vertices through `PlanarMap.ring_vertices` and edges as edge ids; the twin builds its map with edge-id rings.
+
+ITEM 1 (master 2026-10-04): `pipeline/stage_one_map.late_constraints` — every row whose vertices are ALL constants of the earlier stages is dropped from the last stage's set (`row_vertices`). A pin restated on the full map therefore never moves an earlier level, and a law row between two fixed vertices (the round-4 "CRITICAL" apron chord at 30.12063519598, 31.41005987145) is the earlier stage's residual, not a row of this stage.
+
+RE-MEASURED (base as §53 (9); arm `--late-from`, corrected followers + item 1; tolerance 0.02 m):
+
+| population | movers |
+|---|---|
+| fixed vertices off their constant | 0 of 34,385 |
+| runway / taxi | 0 / 0 |
+| solve-owned airside | 1 node, 0.03 m, at 30.10293930965, 31.39370972399 (`pav69`; the same node as every earlier arm; 3 nodes only in each patch — not attributed) |
+| pads | 0 |
+| existing groundside pavement, lots | 0 / 0 |
+| non-ribbon roads (apt.dat routes, pack roads) | 0 |
+| mapped-road ribbons | 54 refs / 273 nodes, worst 6.65 m — every one a FOLLOWER (62 follower refs; no moved ribbon is outside the set) |
+| adjacent-ground bands (soft, not holding) | 7 refs / 9 nodes, worst 2.87 m (`adjacent_ground:taxi:E:zone2#8`); 21 band refs only in the base (claimed by a piece) |
+
+* THE STAGE: 114 gap faces, 63 follower ribbon faces; 8,740 unknown follower vertices, 1,135 follower vertices held on a leader; 34,385 constants; 31 base vertices the full map lacks; 175 full-map vertices neither has — NEW nodes on the rim a follower shares with a standing cell (groundside pavement, service_road 103, parking_lot 42, retaining_wall 19, tunnel_ramp 8 by the faces carrying them). Item 2's bar is these 175.
+* ROWS: 1,013,542 rows with no unknown dropped (Diff 913,915; Linear 90,233; Band 9,137; Pin 185; Flat 45; Offset 27). Last solve 8,900 unknowns, 37,879 rows, 46 s; hard set 0 of 120,164 violated (max 0.0093 m).
+* SITE 2: ribbon `small_roads:-20210` 96.23–96.89 → 89.79–90.24, `#1` 94.59–95.86 → 89.76–90.50 (both faces wholly free, every vertex shared only with `gap:0`); `building26` 90.79–90.86 and the aprons unchanged.
+* RIBBONS THAT WENT UP, to be judged per ref (not done): `small_roads:-18733` 84.39–85.13 → 86.31–87.52; `small_roads:-3927` 74.24–75.42 → 74.82–77.61; `small_roads:-3929` 71.78–73.00 → 71.90–74.50.

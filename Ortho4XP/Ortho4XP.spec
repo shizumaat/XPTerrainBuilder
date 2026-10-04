@@ -105,6 +105,16 @@ a = Analysis(
     ] + gdal_proj_datas + v2_law_datas + highspy_datas + tifffile_datas
       + imagecodecs_datas,
     hiddenimports=(collect_submodules('PIL') + collect_submodules('auto_patch_v2')
+                   # ``o4_engine.parallel.STEP_FETCH_SUBSYSTEMS`` resolves its
+                   # fetch predicates BY NAME (``__import__``), which the
+                   # static scan cannot see.  The auto_patch one lives in
+                   # ``build_support`` (statically imported by the driver, so
+                   # this is a belt); until 2026-10-04 it named
+                   # ``auto_patch.osm_load``, which NO import reached after
+                   # the round-1 seam cut, so by the static closure a frozen
+                   # engine would not carry it — and the scheduler reads an
+                   # unresolvable predicate as "never cached".
+                   + ['auto_patch.build_support']
                    + highspy_hidden + tifffile_hidden + imagecodecs_hidden
                    # O4_Scenery_Packs is imported at TOP LEVEL by every
                    # consumer, so PyInstaller would find it anyway; named

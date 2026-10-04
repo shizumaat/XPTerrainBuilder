@@ -106,16 +106,9 @@ class TestTheRecognitionCap:
 
 
 # ── (f) THE GATE ───────────────────────────────────────────────────
-class TestTheGate:
-    """(f) OFF ⇒ the 2026-07-27 recognition exactly — the attribution
-    arm this round's numbers are read against."""
-
-    def test_the_gate_defaults_on(self):
-        import re
-        from pathlib import Path
-        src = Path(cfg.__file__).read_text(encoding="utf-8")
-        m = re.search(r'O4_EAT_SCOPING_V2",\s*"(\d)"', src)
-        assert m is not None, "the gate's env default line moved"
-        assert m.group(1) == "1"
 
 
+# RETIRED with the v1 engine (stage B round 2, lane ``v1cut``, 2026-10-04) —
+# it read config.py's source for O4_EAT_SCOPING_V2, a v1 recognition gate
+# nothing reads any more (removed in the config split):
+# ``TestTheGate.test_the_gate_defaults_on``.

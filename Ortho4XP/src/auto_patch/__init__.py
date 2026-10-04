@@ -1,27 +1,36 @@
-"""Auto-patch: generate runway slope patches from CIFP/AIRAC data.
+"""Auto-patch: the tile driver, the readers and the object stage.
 
-The public entry point :func:`generate_auto_patches` is invoked
-per tile by ``O4_Vector_Map``.  It scans the CIFP directory for
-airport data, parses runway threshold elevations, and writes
-``{ICAO}_auto.patch.osm`` files into the tile's Patches directory.
+The public entry point :func:`generate_auto_patches` is invoked per tile by
+``O4_Vector_Map``.  It selects the tile's airports, builds each one through
+the v2 engine (``auto_patch_v2``, the ONLY engine since RULINGS 2026-09-13au)
+and places ``{ICAO}_auto.patch.osm`` into the tile's Patches directory.
+Auto-patches have lower priority than user-provided manual patches.
 
-Auto-patches replace Ortho4XP's default polynomial-fit altitude
-model with authoritative aeronautical data.  They have lower
-priority than user-provided manual patches.
+THE CHARTER (stage B of the v1 retirement, round 2, 2026-10-04): this
+package is what SURVIVED the v1 engine — the 27 modules production reaches,
+declared one by one in ``tests/test_v1_retired.py`` (``KEEP``), which also
+asserts that nothing else is on disk here.  The v1 pavement builder, its
+solver, law, emitter and feature passes (104 modules, 185k lines) are
+deleted; surface construction, the solve, the law tables and the emitter
+live in ``auto_patch_v2``.  A new module here is a visible edit to ``KEEP``;
+new engine work belongs in ``auto_patch_v2``.
 
 Package layout
 --------------
-* ``driver``                — tile-level orchestrator (this entry point)
-* ``pipeline``              — per-airport pavement-build orchestrator
-* ``layout`` / ``config``   — shared data model + tunables
-* ``cifp_reader``           — CIFP threshold-elevation reader
-* ``osm_aeroway``           — OSM aeroway data extraction
-* ``elevation``             — phase-2 altitude solver
-* ``boundary``              — airport perimeter ribbon
-* ``bridges``               — taxi/road bridges (gated off)
-* ``groundside``            — curbside / drop-off pavement
-* ``terminals``             — OSM terminal building pads
-* ``pavement/``             — airside paved-surface construction (sub-package)
+* the drivers — ``driver`` (tile-level orchestrator, this entry point),
+  ``engine_v2`` (the per-airport v2 adapter: build, stamp, verify, place),
+  ``selection`` (which airports a tile builds), ``progress``,
+  ``provenance`` (the freshness stamps and gate inventory)
+* the readers — ``apt_dat_reader``, ``cifp_reader``, ``dsf_reader``,
+  ``agp_reader``, ``obj8_reader``, ``osm_aeroway``
+* the flat-site detector — ``flat_site`` / ``flat_site_mode``
+* the object stage (post-mesh) — ``post_mesh``, ``object_rebake``,
+  ``object_anchor``, ``object_frame``, ``object_clusters``,
+  ``object_footprints``, ``object_terrain_features``,
+  ``object_terrain_kinds``, ``obj8_partition``, ``mesh_sampler``
+* shared support — ``build_support`` (apt.dat selection, the airports OSM
+  prefetch and its fetch predicate, the local-metre frame), ``config``
+  (the constants still read), ``geom_safe``
 """
 from __future__ import annotations
 

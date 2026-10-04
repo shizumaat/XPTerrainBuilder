@@ -41,10 +41,10 @@ from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
 from .structure_road import mouth_pair_roads
-from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
-from ..airport.thin_plates import read_plates
-from ..airport.door_wells import DoorStats, read_door_wells
-from ..airport.sunken_roads import SunkenRoadStats, read_sunken_roads
+from ..airport.tunnel_objects import TunnelObjectStats
+from ..airport.door_wells import DoorStats
+from ..airport.sunken_roads import SunkenRoadStats
+from .pack_reads import pack_reads
 from ..airport.wall_corridors import WallCorridorStats, read_wall_corridors
 from .door_ramps import door_groups, sunken_groups
 from .wall_corridor_ramps import wall_corridor_groups
@@ -200,24 +200,26 @@ def build(airport: Airport, classification: Classification, law: Law,
     if objects_out is not None:
         objects_out[:] = [objects, cache]
     read_s = _time.perf_counter() - t0
-    # THE TUNNEL WALL OBJECTS (RULINGS 2026-09-05k-1): read over the
-    # geometry the cache already holds, they replace the OSM bores they cover
-    _pulse.tick("tunnel and plate objects")
-    corridors, tstats = read_corridors(airport, objects, cache, law)
-    # THE THIN-PLATE WALL OBJECTS (spec §33 (2)): the pack's bridge / tunnel
-    # PLATES, which the wall reader's skirt pre-screen refuses — they govern
-    # the MOUTH of the bore they span (owner RULINGS 2026-09-13d item 5)
-    plates, pstats = read_plates(airport, objects, cache, law,
-                                 {c.resource for c in corridors})
+    # THE CLASSIFICATION-FREE PACK READS, ONCE PER BUILD (issue #362;
+    # ``planar/pack_reads``): the tunnel wall objects (RULINGS 2026-09-05k-1
+    # — they replace the OSM bores they cover), the thin-plate wall objects
+    # (spec §33 (2); they govern the MOUTH of the bore they span, owner
+    # RULINGS 2026-09-13d item 5), the door wells and the sunken roads
+    # (RULINGS 2026-09-08b/c).  A second pass over the same pack (the
+    # ribbon-free map, #100 (c)) is handed the first's reading.
+    pr = pack_reads(airport, objects, cache, law)
+    corridors, tstats, plates, pstats = (pr.corridors, pr.tunnel_stats,
+                                         pr.plates, pr.plate_stats)
+    wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
     tstats.plates = pstats.plates
     tstats.refused.extend(pstats.refused)
-    # THE DOOR WELLS AND SUNKEN ROADS (RULINGS 2026-09-08b/c): read over the
-    # same geometry, built through the same structure machinery
-    wells, dstats = read_door_wells(airport, objects, cache, law)
-    roads, rstats = read_sunken_roads(airport, objects, cache, law)
+    _pulse.tick("wall corridors")
     walls_c, wstats = read_wall_corridors(airport, objects, cache, law, classification)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
+    # the reads are done: what follows is the channel / structure / basin
+    # decision, and the heartbeat says so (not the last read's label)
+    _pulse.tick("channels, structures and basins")
     # ── THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i) ──────
     # The structure pass reads them to keep a crossing inside a channel
     # from ever becoming a bore with mouths (§45 (1)/(6)), and the basin

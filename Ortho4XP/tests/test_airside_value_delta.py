@@ -255,3 +255,63 @@ def test_the_recorded_SPJC_sweep_result_is_reproduced():
     assert own["n_moved"] == 0 and (own["a_only"], own["b_only"]) == (0, 0)
     for f in avd.compare(b, b, tol_m=0.0)["frames"].values():
         assert (f["n_moved"], f["a_only"], f["b_only"]) == (0, 0, 0)
+
+
+# ── --by-ref: the movers PER ROLE AND REF ──────────────────────────────
+def _ref_patch(path: Path, ways) -> Path:
+    """``ways`` = [(role, ref, [(lat, lon, alt), ...]), ...]."""
+    nodes, body, nid, seen = [], [], -1, {}
+    for role, ref, pts in ways:
+        refs = []
+        for la, lo, alt in pts:
+            key = (f"{la:.11f}", f"{lo:.11f}")
+            if key not in seen:
+                seen[key] = nid
+                nodes.append(f"<node id='{nid}' lat='{la:.11f}' lon='{lo:.11f}'>"
+                             f"<tag k='alt_abs' v='{alt}'/></node>")
+                nid -= 1
+            refs.append(seen[key])
+        nds = "".join(f"<nd ref='{r}'/>" for r in refs + [refs[0]])
+        body.append(f"<way id='{nid}'>{nds}<tag k='role' v='{role}'/>"
+                    f"<tag k='ref' v='{ref}'/></way>")
+        nid -= 1
+    path.write_text("<?xml version='1.0'?><osm version='0.6'>" + "".join(nodes)
+                    + "".join(body) + "</osm>", encoding="utf-8", newline="")
+    return path
+
+
+def _sq(lat, z):
+    return [(lat, 31.0, z), (lat, 31.001, z), (lat + 0.001, 31.001, z)]
+
+
+def test_by_ref_names_the_shape_that_moved_and_its_levels(tmp_path, capsys):
+    a = _ref_patch(tmp_path / "a.osm", [
+        ("building", "building26", _sq(30.0, 90.79)),
+        ("building", "building7", _sq(30.1, 50.0)),
+        ("service_road", "route3", _sq(30.2, 92.0)),
+        ("apron", "pav1", _sq(30.3, 80.0))])
+    b = _ref_patch(tmp_path / "b.osm", [
+        ("building", "building26", _sq(30.0, 93.94)),
+        ("building", "building7", _sq(30.1, 50.005)),          # under the floor
+        ("apron", "pav1", _sq(30.3, 80.0)),
+        ("groundside_pavement", "gap:0", _sq(30.4, 91.0))])
+    t = avd.by_ref(a, b, 0.02)
+    assert [r["ref"] for r in t["building"]["moved"]] == ["building26"]
+    row = t["building"]["moved"][0]
+    assert (row["moved"], row["joined"], row["worst_m"]) == (3, 3, 3.15)
+    assert row["a_m"] == [90.79, 90.79] and row["b_m"] == [93.94, 93.94]
+    # a group one arm lacks is ABSENT, never a mover
+    assert t["service_road"] == {"moved": [], "absent_in_b": ["route3"], "absent_in_a": []}
+    assert t["groundside_pavement"]["absent_in_a"] == ["gap:0"]
+    assert t["apron"]["moved"] == []
+    # the CLI's JSON carries the same table
+    out = tmp_path / "o.json"
+    assert avd.main([str(a), str(b), "--tol", "0.02", "--by-ref", "--json", str(out)]) == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["by_ref"] == json.loads(json.dumps(t))
+    assert "building26" in capsys.readouterr().out
+
+
+def test_by_ref_is_in_the_index_row():
+    idx = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
+    row = next(ln for ln in idx.splitlines() if "tools/airside_value_delta.py" in ln)
+    assert "--by-ref" in row

@@ -94,7 +94,6 @@ def gap_follow_rows(planar: PlanarMap, law: Law,
         return [], rep
     lines = shapely.linestrings(segs)
     tree = STRtree(lines)
-    src = Source(GEN, RULING, ())
     rows: list[Linear] = []
     # THE FOLLOWERS (master 2026-10-04): the pieces, and the mapped-road
     # ribbons sharing a ring edge with one — a ribbon is never lifted above
@@ -136,7 +135,8 @@ def gap_follow_rows(planar: PlanarMap, law: Law,
                 "upper": lo_n, "upper_m": round(best[lo_n][1], 3),
                 "lower": hi_n, "lower_m": round(best[hi_n][1], 3)})
             lo, hi = hi, lo
-        rows.append(Linear(((v, 1.0),), lo, hi, src))
+        # the row cites the two rings that bound it (the floor's, the ceiling's)
+        rows.append(Linear(((v, 1.0),), lo, hi, Source(GEN, RULING, (lo_n, hi_n))))
     rep["rows"] = len(rows)
     rep["vertices_in_reach"] = len(near)
     return rows, rep

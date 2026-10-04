@@ -2,7 +2,7 @@
 """THE AIRSIDE VALUE DELTA between two emitted patches.
 
     venv/bin/python tools/airside_value_delta.py A.osm B.osm
-        [--tol 0.01] [--top 20] [--json OUT.json]
+        [--tol 0.01] [--top 20] [--json OUT.json] [--by-ref [N]]
 
 THE QUESTION IT ANSWERS.  "Did this lane move airside?"  A census A/B
 cannot answer it: a value can move by 0.13 m and cross no law threshold,
@@ -253,6 +253,75 @@ def compare(a_path, b_path, tol_m: float = DEFAULT_TOL_M) -> dict:
     return out
 
 
+def read_refs(path) -> dict:
+    """``{(role, ref): {key: alt}}`` — each emitted way GROUP's own nodes at
+    their altitudes, keyed like :func:`read_patch` (a ref cut into several
+    ways is one group)."""
+    cg = _check_grade()
+    nodes, ways = cg._parse_osm(Path(path))
+    out: dict = {}
+    for w in ways:
+        grp = out.setdefault((w.role, w.ref), {})
+        for nid, e in zip(w.nids, w.elevs):
+            ll = nodes.get(nid)
+            if ll is not None and e is not None:
+                grp[(f"{ll[0]:.11f}", f"{ll[1]:.11f}")] = round(float(e), 6)
+    return out
+
+
+def by_ref(a_path, b_path, tol_m: float = DEFAULT_TOL_M) -> dict:
+    """THE MOVERS PER ROLE AND REF (``--by-ref``): which shape moved, by how
+    much and from what level to what — the question the frame totals leave
+    open ("48 pads moved" names none).  Same canonical join, taken INSIDE
+    each ``(role, ref)`` group; a group one arm lacks is ``absent``, never
+    a mover.  ``{role: {"moved": [...], "absent_in_b": [...],
+    "absent_in_a": [...]}}``, each moved row with its node counts, the
+    worst ``|dz|`` and both arms' level range."""
+    a, b = read_refs(a_path), read_refs(b_path)
+    out: dict = {}
+    for (role, ref), na in sorted(a.items()):
+        slot = out.setdefault(role, {"moved": [], "absent_in_b": [],
+                                     "absent_in_a": []})
+        nb = b.get((role, ref))
+        if nb is None:
+            slot["absent_in_b"].append(ref)
+            continue
+        dz = [abs(nb[k] - v) for k, v in na.items() if k in nb]
+        mv = [d for d in dz if d > tol_m]
+        if mv and na and nb:
+            slot["moved"].append({
+                "ref": ref, "moved": len(mv), "joined": len(dz),
+                "nodes_a": len(na), "nodes_b": len(nb),
+                "worst_m": round(max(mv), 4),
+                "a_m": [min(na.values()), max(na.values())],
+                "b_m": [min(nb.values()), max(nb.values())]})
+    for (role, ref) in sorted(set(b) - set(a)):
+        out.setdefault(role, {"moved": [], "absent_in_b": [],
+                              "absent_in_a": []})["absent_in_a"].append(ref)
+    for slot in out.values():
+        slot["moved"].sort(key=lambda r: (-r["worst_m"], r["ref"]))
+    return out
+
+
+def _print_by_ref(table: dict, top: int) -> None:
+    print("\n=== MOVERS BY ROLE AND REF (canonical join inside each group) ===")
+    for role in sorted(table):
+        slot = table[role]
+        mv = slot["moved"]
+        if not (mv or slot["absent_in_b"] or slot["absent_in_a"]):
+            continue
+        print(f"  {role}: {len(mv)} ref(s) moved, "
+              f"{sum(r['moved'] for r in mv)} node(s), worst "
+              f"{max((r['worst_m'] for r in mv), default=0.0):.2f} m; "
+              f"{len(slot['absent_in_b'])} ref(s) only in A, "
+              f"{len(slot['absent_in_a'])} only in B")
+        for r in mv[:top]:
+            print(f"      {r['ref']:<28} {r['moved']:>5}/{r['joined']:<5} "
+                  f"worst {r['worst_m']:.2f} m   "
+                  f"{r['a_m'][0]:.2f}..{r['a_m'][1]:.2f} -> "
+                  f"{r['b_m'][0]:.2f}..{r['b_m'][1]:.2f}")
+
+
 def _print(res, top: int) -> None:
     print("=== AIRSIDE VALUE DELTA (verbatim read; no law, no defect "
           "counts) ===")
@@ -299,6 +368,10 @@ def main(argv=None) -> int:
                     help="materiality floor in metres (default 0.01)")
     ap.add_argument("--top", type=int, default=20)
     ap.add_argument("--json", type=Path)
+    ap.add_argument("--by-ref", nargs="?", type=int, const=10, default=None,
+                    metavar="N", help="also print the movers PER ROLE AND REF "
+                    "(N rows per role, default 10) and put the table in the "
+                    "JSON under 'by_ref'")
     args = ap.parse_args(argv)
     for p in (args.a, args.b):
         if not p.is_file():
@@ -306,6 +379,9 @@ def main(argv=None) -> int:
             return 2
     res = compare(args.a, args.b, args.tol)
     _print(res, args.top)
+    if args.by_ref is not None:
+        res["by_ref"] = by_ref(args.a, args.b, args.tol)
+        _print_by_ref(res["by_ref"], args.by_ref)
     if args.json:
         args.json.write_text(json.dumps(res, indent=1))
         print(f"\nJSON -> {args.json}")

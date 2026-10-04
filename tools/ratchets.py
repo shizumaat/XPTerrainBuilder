@@ -36,20 +36,30 @@ its order of first appearance and replacing every constant by its type,
 in two or more files.  Functions under ``NEAR_MIN_NODES`` AST nodes are
 skipped.  Streaming: one file parsed at a time, one digest per function.
 
+LAYERS — THE SECOND GATE (04a (3)).  ``layers``: the package-to-package
+import matrix of ``auto_patch_v2`` (file -> file edges, read by
+``tools/archmap.py``), checked against ``LAYER_ORDER`` (bottom first): a
+package imports only packages BELOW it.  An edge from a lower package to
+a higher one is a violation; the recorded list may shrink, never grow,
+and a package missing from ``LAYER_ORDER`` is one.  Function-level
+imports count (they are the same dependency, deferred).
+``layers --propose`` prints the order with the fewest violations.
+
     tools/ratchets.py                    # all sections; exit 1 ONLY on a
-                                         # risen duplicate count
+                                         # risen duplicate or layer count
     tools/ratchets.py size               # the size report alone
     tools/ratchets.py funcs [--top N]    # the long functions
     tools/ratchets.py dupes [--top N]    # the identical-body groups
     tools/ratchets.py dupes --near       # the near-duplicate groups
+    tools/ratchets.py layers [--propose] # the v2 import matrix + violations
     tools/ratchets.py --justify PATH "reason"   # an optional note
     tools/ratchets.py --regenerate       # re-snapshot the baseline
 
 ``--regenerate`` re-snapshots the sizes (growth included — the snapshot
 is what "grew" is measured against), keeps existing notes, and refuses
-(writing nothing) only on a risen duplicate count.  ``--init`` writes the
+(writing nothing) only on a risen duplicate or layer count.  ``--init`` writes the
 first baseline and refuses when one exists.  ``tools/blast.py --audit``
-prints the duplicate section and fails on a rise.
+prints the duplicate and layer sections and fails on a rise.
 """
 from __future__ import annotations
 
@@ -65,7 +75,10 @@ __all__ = ["SOFT", "HARD", "SIZE_ROOTS", "DUP_ROOT", "BASELINE",
            "tracked_sources", "line_count", "sizes", "check_size",
            "duplicate_groups", "duplicate_count", "check_duplicates",
            "load_baseline", "regenerate", "justify", "near_duplicate_groups",
-           "NEAR_MIN_NODES", "long_functions", "LONG_FUNCTION", "main"]
+           "NEAR_MIN_NODES", "long_functions", "LONG_FUNCTION", "main",
+           "V2_ROOT", "LAYER_ORDER", "layer_edges", "layer_matrix",
+           "layer_violations", "propose_order", "check_layers",
+           "print_layers"]
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE = os.path.join(REPO, "tools", "ratchet_baseline.json")
@@ -76,6 +89,13 @@ SIZE_ROOTS = ("Ortho4XP/src", "Ortho4XP/tools", "tools", "Sources")
 REPORT_ROOTS = ("Ortho4XP/tests",)          # reported, not gated
 DUP_ROOT = "Ortho4XP/src"
 EXTS = (".py", ".swift")
+V2_ROOT = "Ortho4XP/src/auto_patch_v2"
+# bottom first: a package imports only the packages to its LEFT.  The plan
+# (docs/specs/auto-patch-v2-plan.md §1) numbers airport 1 … emit 7; this
+# is the order the code obeys (measured 2026-10-04, `layers --propose`):
+# the three leaf packages below the plan's seven, verify and pipeline on top.
+LAYER_ORDER = ("geom", "law", "model", "airport", "classify", "planar",
+               "constraints", "solve", "emit", "verify", "pipeline")
 
 
 def tracked_sources(roots=SIZE_ROOTS, repo=REPO, exts=EXTS):
@@ -276,6 +296,111 @@ def near_duplicate_groups(files=None, repo=REPO):
 
 
 # ------------------------------------------------------------------ report
+# ------------------------------------------------------------- layering
+def layer_edges(repo=REPO, root=V2_ROOT):
+    """Cross-package import edges inside ``root``: sorted
+    ``(importer rel, imported rel, lazy)``, one per file pair; ``lazy``
+    only when every import of that pair sits inside a function.  Files
+    directly in ``root`` (``__init__``, ``__main__``) are entry points
+    above every layer and are not edges."""
+    import archmap
+    files, pre, pairs = archmap.scan(repo, (root,)), root + "/", {}
+    for rel, e in files.items():
+        for target, _line, lazy in e["imports"]:
+            a, b = rel[len(pre):].split("/"), target[len(pre):].split("/")
+            if len(a) > 1 and len(b) > 1 and a[0] != b[0]:
+                pairs[(rel, target)] = pairs.get((rel, target), 1) and lazy
+    return sorted((s, d, bool(z)) for (s, d), z in pairs.items())
+
+
+def _layer(rel, root=V2_ROOT):
+    return rel[len(root) + 1:].split("/")[0]
+
+
+def layer_matrix(edges, root=V2_ROOT):
+    """``{(importer package, imported package): file-pair count}``."""
+    out = {}
+    for s, d, _lazy in edges:
+        k = (_layer(s, root), _layer(d, root))
+        out[k] = out.get(k, 0) + 1
+    return out
+
+
+def layer_violations(edges, order=LAYER_ORDER, root=V2_ROOT):
+    """Edges whose importer sits BELOW what it imports, as
+    ``"pkg/a.py -> pkg/b.py"`` (root-relative), plus one row per package
+    that ``order`` does not rank."""
+    rank = {p: i for i, p in enumerate(order)}
+    out = {"UNRANKED package %s — add it to ratchets.LAYER_ORDER" % p
+           for s, d, _ in edges for p in (_layer(s, root), _layer(d, root))
+           if p not in rank}
+    for s, d, lazy in edges:
+        a, b = rank.get(_layer(s, root)), rank.get(_layer(d, root))
+        if a is not None and b is not None and a < b:
+            out.add("%s -> %s%s" % (s[len(root) + 1:], d[len(root) + 1:],
+                                    " (lazy)" if lazy else ""))
+    return sorted(out)
+
+
+def propose_order(matrix, prefer=LAYER_ORDER):
+    """The bottom-first order with the FEWEST upward file pairs (exact:
+    dynamic programme over subsets), ties broken towards ``prefer``.
+    Returns ``(order, violations)``."""
+    pk = sorted({p for k in matrix for p in k},
+                key=lambda p: (prefer.index(p) if p in prefer else len(prefer), p))
+    n = len(pk)
+    best = {0: (0, ())}
+    for mask in range(1, 1 << n):
+        cands = []
+        for i in range(n):                 # pk[i] is the TOP of this subset
+            if mask >> i & 1:
+                cost, order = best[mask ^ (1 << i)]
+                up = sum(matrix.get((pk[j], pk[i]), 0)
+                         for j in range(n) if (mask ^ (1 << i)) >> j & 1)
+                cands.append((cost + up, order + (i,)))
+        best[mask] = min(cands)
+    cost, order = best[(1 << n) - 1]
+    return tuple(pk[i] for i in order), cost
+
+
+def check_layers(violations, recorded):
+    """Refusals: the violation list may shrink, never grow.  ``recorded``
+    is the baseline's list (None: no baseline yet, nothing is gated)."""
+    if recorded is None or len(violations) <= len(recorded):
+        return []
+    new = [v for v in violations if v not in set(recorded)]
+    return ["LAYERING ROSE: %d upward imports in %s, the baseline records "
+            "%d.  A package imports only the packages below it "
+            "(ratchets.LAYER_ORDER, bottom first: %s).  New: %s"
+            % (len(violations), V2_ROOT, len(recorded),
+               " < ".join(LAYER_ORDER), "; ".join(new))]
+
+
+def print_layers(edges, recorded, out=None, order=LAYER_ORDER, propose=False):
+    out = out or sys.stdout
+    matrix = layer_matrix(edges)
+    pk = [p for p in order if any(p in k for k in matrix)] + sorted(
+        {p for k in matrix for p in k} - set(order))
+    print("LAYERS (%s; file pairs, row imports column; bottom first)"
+          % V2_ROOT, file=out)
+    print(" " * 12 + " ".join("%5s" % p[:5] for p in pk), file=out)
+    for a in pk:
+        print("%-12s" % a + " ".join(
+            "%5s" % (matrix.get((a, b)) or ".") for b in pk), file=out)
+    viol = layer_violations(edges, order)
+    print("  order: %s" % " < ".join(order), file=out)
+    print("  upward imports: %d (recorded %s)"
+          % (len(viol), "none" if recorded is None else len(recorded)),
+          file=out)
+    for v in viol:
+        print("        " + v, file=out)
+    if propose:
+        best, cost = propose_order(matrix, order)
+        print("  proposed order (%d upward): %s" % (cost, " < ".join(best)),
+              file=out)
+    return check_layers(viol, recorded)
+
+
 def _tree_of(rel):
     return next(r for r in sorted(SIZE_ROOTS + REPORT_ROOTS, key=len,
                                   reverse=True) if rel.startswith(r + "/"))
@@ -365,27 +490,32 @@ def print_dupes(groups, recorded, top=10, out=None, near=False):
     return check_duplicates(groups, recorded)
 
 
-def _write_baseline(path, size, justified, duplicates):
+def _write_baseline(path, size, justified, duplicates, layers=None):
     doc = {"ruling": "RULINGS 2026-10-04a, amended 04b and 04c",
            "note": "generated by tools/ratchets.py; `size` is a snapshot "
                    "the report measures growth against (never a gate), "
-                   "`duplicates` may fall and never rise; never edit by "
+                   "`duplicates` and `layers` (upward imports in "
+                   "auto_patch_v2) may fall and never rise; never edit by "
                    "hand",
            "soft": SOFT, "hard": HARD, "duplicates": duplicates,
            "size": dict(sorted(size.items())),
            "justified": dict(sorted(justified.items()))}
+    if layers is not None:
+        doc["layers"] = sorted(layers)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, indent=1, ensure_ascii=False)
         f.write("\n")
 
 
-def regenerate(path=BASELINE, init=False, current=None, groups=None):
+def regenerate(path=BASELINE, init=False, current=None, groups=None,
+               layers=None):
     """Re-snapshot the baseline: every file past 1,000 at its CURRENT size
     (growth included — size is a report, 04c), notes kept for files still
     past 1,000, none invented.  Refuses, writing nothing, only on a risen
-    duplicate count.  Returns the list of refusals."""
+    duplicate or layer count.  Returns the list of refusals."""
     current = sizes() if current is None else current
     groups = duplicate_groups() if groups is None else groups
+    layers = layer_violations(layer_edges()) if layers is None else layers
     past = {r: n for r, n in current.items() if n > HARD}
     kept = {}
     if init:
@@ -393,11 +523,12 @@ def regenerate(path=BASELINE, init=False, current=None, groups=None):
             return ["%s exists — --init never overwrites a baseline" % path]
     else:
         old = load_baseline(path)
-        bad = check_duplicates(groups, old["duplicates"])
+        bad = check_duplicates(groups, old["duplicates"]) \
+            + check_layers(layers, old.get("layers"))
         if bad:
             return bad
         kept = {r: w for r, w in old.get("justified", {}).items() if r in past}
-    _write_baseline(path, past, kept, duplicate_count(groups))
+    _write_baseline(path, past, kept, duplicate_count(groups), layers)
     return []
 
 
@@ -421,18 +552,24 @@ def justify(rel, reason, path=BASELINE, current=None):
     old = load_baseline(path)
     size, just = dict(old["size"]), dict(old.get("justified", {}))
     size[rel], just[rel] = current[rel], reason
-    _write_baseline(path, size, just, old["duplicates"])
+    _write_baseline(path, size, just, old["duplicates"], old.get("layers"))
     return []
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):          # cp1252 consoles (#92)
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("what", nargs="?", choices=("size", "funcs", "dupes"))
+    p.add_argument("what", nargs="?", choices=("size", "funcs", "dupes", "layers"))
     p.add_argument("--top", type=int, default=10,
                    help="dupes / funcs: rows to print (0 = all)")
     p.add_argument("--near", action="store_true",
                    help="dupes: the near-duplicate groups (reported, not "
                         "gated)")
+    p.add_argument("--propose", action="store_true",
+                   help="layers: also print the order with the fewest "
+                        "upward imports")
     p.add_argument("--justify", nargs=2, metavar=("PATH", "REASON"),
                    help="an optional one-line note shown beside PATH in "
                         "the size report")
@@ -459,8 +596,10 @@ def main(argv=None):
             print("REFUSED " + r)
         if not bad:
             b = load_baseline(a.baseline)
-            print("baseline written: %d files, %d lines, %d duplicates"
-                  % (len(b["size"]), sum(b["size"].values()), b["duplicates"]))
+            print("baseline written: %d files, %d lines, %d duplicates, "
+                  "%d upward imports"
+                  % (len(b["size"]), sum(b["size"].values()),
+                     b["duplicates"], len(b.get("layers") or ())))
         return 1 if bad else 0
     base = load_baseline(a.baseline)
     bad = []
@@ -473,6 +612,13 @@ def main(argv=None):
     if a.what in (None, "dupes"):
         print("DUPLICATE RATCHET " + ("PASS" if not bad else "FAIL")
               + " (size and long functions are reports, never a gate)")
+    if a.what in (None, "layers"):
+        worse = print_layers(layer_edges(), base.get("layers"),
+                             propose=a.propose)
+        for r in worse:
+            print("REFUSED " + r)
+        print("LAYER RATCHET " + ("PASS" if not worse else "FAIL"))
+        bad += worse
     return 1 if bad else 0
 
 

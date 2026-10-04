@@ -51,7 +51,10 @@ yours at the end (`frames.py register …`) so the next lane does not hunt.
   ≤ 15 min, a suite ≤ 10 min) — never "until it appears".
 
 - REUSE BEFORE NEW (owner RULINGS 2026-10-04 "FILE SIZE…" a/b/c): before
-  adding a function or module, look for the existing one and extend it; a
+  adding a function or module, look for the existing one with
+  `tools/blast.py --find <keyword>` and `tools/blast.py --map <package>`
+  (your brief pack carries the map of each package it names) and extend
+  it — `[shared N]` marks the implementation others already use; a
   new family member is a new file in its package, never an append. Write
   for the next reader: one responsibility per module, functions short
   enough to read whole. 1,000 lines is a guide and a warning, not a gate —

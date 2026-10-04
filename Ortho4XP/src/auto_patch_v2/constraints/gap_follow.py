@@ -15,8 +15,12 @@ standing ring is bound to that ring's level at its nearest point,
 the piece meets the pad AT the pad's level: the distance is counted from the
 pad's set-back (the facade strip's rule), so at the stand-off the allowance
 is one identity cell of grade.  The ring's level is a CONSTANT of the
-earlier stages, so the row is a ``Band`` on the piece's vertex — between an
-unknown and a constant only, and nothing standing can move for it.
+earlier stages, so the row is a one-term ``Linear`` on the follower's vertex
+(a ``Band`` is the adjacent ground's soft window in the design solve —
+MEASURED: 168 of 1,511 follow rows stated as ``Band`` were missed by up to
+5.22 m with the hard set reported settled) — between an unknown and a
+constant only, and nothing standing can move for it.  The followers are the
+pieces AND the mapped-road ribbons sharing a ring edge with one.
 
 WHERE TWO FIXED NEIGHBOURS DISAGREE by more than the piece can span, no
 level satisfies both: the vertex is bound BETWEEN them (the interval from
@@ -32,7 +36,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap, snap_margin_m
-from ..model.constraints import Band, Source
+from ..model.constraints import Linear, Source
 from ..model.planar import PlanarMap, is_gap_ref, is_osm_ribbon_ref
 
 __all__ = ["GEN", "RULING", "gap_follow_rows", "reach_m"]
@@ -66,7 +70,7 @@ def _edges(f) -> set[int]:
 
 
 def gap_follow_rows(planar: PlanarMap, law: Law,
-                    fixed: _t.Mapping[int, float]) -> tuple[list[Band], dict]:
+                    fixed: _t.Mapping[int, float]) -> tuple[list[Linear], dict]:
     """The follow rows of every gap-piece vertex that is an UNKNOWN (not in
     ``fixed``), and the report: rows, vertices bound, conflicts (each with
     both neighbours and their levels)."""
@@ -90,17 +94,29 @@ def gap_follow_rows(planar: PlanarMap, law: Law,
         pad = is_rigid_role(law, f.role)
         for e in _edges(f):
             ed = planar.edges[e]
-            if ed.a in fixed and ed.b in fixed:
-                segs.append([V[ed.a].xy, V[ed.b].xy])
+            # a follower follows every FIXED point of a neighbouring ring:
+            # an edge with one fixed end binds at that end
+            ends = [v for v in (ed.a, ed.b) if v in fixed]
+            if ends:
+                p, q = ends[0], ends[-1]
+                segs.append([V[p].xy, V[q].xy])
                 meta.append((f"{f.role}:{str(f.ref).split('#')[0]}",
-                             float(fixed[ed.a]), float(fixed[ed.b]), cap, pad))
+                             float(fixed[p]), float(fixed[q]), cap, pad))
     if not segs:
         return [], rep
     lines = shapely.linestrings(segs)
     tree = STRtree(lines)
     src = Source(GEN, RULING, ())
-    rows: list[Band] = []
-    todo = sorted({v for f in gap for v in _vertices(planar, f)} - set(fixed))
+    rows: list[Linear] = []
+    # THE FOLLOWERS (master 2026-10-04): the pieces, and the mapped-road
+    # ribbons sharing a ring edge with one — a ribbon is never lifted above
+    # the fixed ground it runs beside
+    gap_edges = set().union(*[_edges(f) for f in gap])
+    ribbons = [f for f in faces.values()
+               if f.role == "service_road" and is_osm_ribbon_ref(f.ref)
+               and _edges(f) & gap_edges]
+    todo = sorted({v for f in (*gap, *ribbons) for v in _vertices(planar, f)}
+                  - set(fixed))
     pts = shapely.points([V[v].xy for v in todo])
     hit = tree.query(pts, predicate="dwithin", distance=reach)
     near: dict[int, list[int]] = {}
@@ -132,7 +148,7 @@ def gap_follow_rows(planar: PlanarMap, law: Law,
                 "upper": lo_n, "upper_m": round(best[lo_n][1], 3),
                 "lower": hi_n, "lower_m": round(best[hi_n][1], 3)})
             lo, hi = hi, lo
-        rows.append(Band(v, lo, hi, src))
+        rows.append(Linear(((v, 1.0),), lo, hi, src))
     rep["rows"] = len(rows)
     rep["vertices_in_reach"] = len(near)
     return rows, rep

@@ -48,14 +48,16 @@ def test_a_piece_vertex_is_bound_to_the_fixed_ring_at_the_tighter_cap():
     fixed = {0: 96.0, 1: 96.0, 2: 100.0, 3: 100.0}
     rows, rep = gf.gap_follow_rows(pm, LAW, fixed)
     cap = role_cap(LAW, "service_road").longitudinal
-    by = {r.v: r for r in rows}
+    by = {r.terms[0][0]: r for r in rows}
     assert sorted(by) == [4, 7] and rep["rows"] == 2 and rep["conflicts"] == []
     assert by[4].lo == pytest.approx(96.0 - cap * 1.45) and by[4].hi == pytest.approx(96.0 + cap * 1.45)
     assert by[7].lo == pytest.approx(100.0 - cap * 1.45)
     assert ruling_head(rows[0]) in hard_rulings(LAW)
-    # an UNFIXED ring binds nothing; a fixed piece vertex takes no row
-    assert gf.gap_follow_rows(pm, LAW, {0: 96.0})[0] == []
-    assert sorted(r.v for r in gf.gap_follow_rows(pm, LAW, {**fixed, 4: 96.0})[0]) == [7]
+    # an UNFIXED ring binds nothing; an edge with ONE fixed end binds at that
+    # end; a fixed piece vertex takes no row
+    assert gf.gap_follow_rows(pm, LAW, {})[0] == []
+    assert [r.terms[0][0] for r in gf.gap_follow_rows(pm, LAW, {1: 96.0})[0]] == [4]
+    assert sorted(r.terms[0][0] for r in gf.gap_follow_rows(pm, LAW, {**fixed, 4: 96.0})[0]) == [7]
 
 
 def test_beside_a_pad_the_distance_counts_from_the_set_back():
@@ -77,7 +79,7 @@ def test_two_fixed_neighbours_that_disagree_bind_the_vertex_between_them():
                       ("parking_lot", "dsf:pol10", (8, 9, 10, 11))])
     fixed = {0: 96.0, 1: 96.0, 2: 96.0, 3: 96.0, 8: 92.0, 9: 92.0, 10: 92.0, 11: 92.0}
     rows, rep = gf.gap_follow_rows(pm, LAW, fixed)
-    r4 = next(r for r in rows if r.v == 4)
+    r4 = next(r for r in rows if r.terms[0][0] == 4)
     assert 92.0 < r4.lo < r4.hi < 96.0
     c = rep["conflicts"][0]
     assert (c["upper"], c["lower"]) == ("service_road:route3", "parking_lot:dsf:pol10")
@@ -92,4 +94,20 @@ def test_the_own_rim_and_a_follower_ribbon_bind_nothing():
               ("service_road", "small_roads:-7", (6, 7, 8, 9))])
     fixed = {0: 92.0, 1: 92.0, 2: 92.0, 3: 92.0, 6: 96.0, 7: 96.0, 8: 96.0, 9: 96.0}
     rows, _ = gf.gap_follow_rows(pm, LAW, fixed)
+    # ...but the ribbon is no NEIGHBOUR: the piece's vertices 4, 5 (1 m from
+    # it) take no row from it, and it shares no edge with the piece, so it is
+    # no follower either
     assert rows == []
+
+
+def test_a_follower_ribbon_takes_the_same_rows():
+    pm = _pm([(0.0, 0.0), (10.0, 0.0), (10.0, 40.0), (0.0, 40.0),
+              (11.45, 0.0), (20.0, 0.0), (20.0, 40.0), (11.45, 40.0),
+              (40.0, 0.0), (40.0, 40.0)],
+             [("parking_lot", "dsf:pol10", (0, 1, 2, 3)),
+              ("service_road", "small_roads:-7", (4, 5, 6, 7)),
+              ("groundside_pavement", "gap:0", (5, 8, 9, 6))])
+    rows, _ = gf.gap_follow_rows(pm, LAW, {0: 90.0, 1: 90.0, 2: 90.0, 3: 90.0})
+    cap = role_cap(LAW, "parking_lot").longitudinal
+    assert sorted(r.terms[0][0] for r in rows) == [4, 7]          # the RIBBON's vertices
+    assert rows[0].hi == pytest.approx(90.0 + cap * 1.45)

@@ -39,7 +39,7 @@ from ..model.planar import GAP_PREFIX, is_osm_ribbon_ref
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["mint_gap_pieces", "ROLE", "APRON_TOUCH_ROLE", "KIND"]
+__all__ = ["mint_gap_pieces", "standoff_m", "ROLE", "APRON_TOUCH_ROLE", "KIND"]
 
 #: every gap piece (04m (3): graded at the road grade cap)
 ROLE = "groundside_pavement"
@@ -48,6 +48,14 @@ ROLE = "groundside_pavement"
 #: the piece takes the apron's LEVEL at the weld, not its role.
 APRON_TOUCH_ROLE = ROLE
 KIND = "gap_piece"
+
+
+def standoff_m(law: Law) -> float:
+    """THE STAND-OFF of a gap piece from a standing cell it does not weld to
+    (spec §53 (12)): the pad set-back + the snap margin + one identity cell
+    — the §52 facade strip's own (``facade_mint``'s ``strip_knives``)."""
+    return float(law.tables.structures.building_pad.groundside_cutback_m) \
+        + snap_margin_m(law) + float(law.tables.emit.identity.min_distinct_spacing_m)
 
 
 def _poly(ring, holes=()):
@@ -104,10 +112,10 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
     # ``strip_knives``, 1.45 m), for §52 (8)'s own reason — at the bare
     # set-back a sub-cell sliver is merged across and one shared vertex moves
     # the neighbour.  So no gap ring nodes a standing ring.
-    standoff_m = knife_m + ident
+    stand = standoff_m(law)
 
     def off(q):
-        return q.buffer(standoff_m, join_style="mitre", mitre_limit=2.0)
+        return q.buffer(stand, join_style="mitre", mitre_limit=2.0)
     flush = [q for c, q in polys
              if c.role == "apron" or is_osm_ribbon_ref(c.ref)]
     apart = [off(q) for c, q in polys
@@ -150,7 +158,7 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
         touches = apron_m >= min_edge
         if not touches and rolled_tree is not None:
             # across the stand-off: the piece is never flush on such a face
-            rolled_m = _shared_m(part, rolled_tree, rolled, standoff_m + weld_m)
+            rolled_m = _shared_m(part, rolled_tree, rolled, stand + weld_m)
             if rolled_m >= min_edge:
                 stats["gap_pieces_unminted_airside"] += 1
                 if notes is not None:
@@ -161,7 +169,7 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
                         f"{lat:.7f}, {lon:.7f} runs {rolled_m:,.0f} m along a "
                         f"runway / taxi face and touches no apron (§53)")
                 continue
-        lost = (float(part.buffer(standoff_m).intersection(before_bands)
+        lost = (float(part.buffer(stand).intersection(before_bands)
                       .intersection(band_knife).area)
                 if not band_knife.is_empty else 0.0)
         if notes is not None and lost >= 1.0:

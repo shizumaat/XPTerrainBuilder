@@ -945,11 +945,19 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # family, never a pad — those refused above; an object's walls cut pads)
     knife = unary_union(footprints)
     hull_knife = unary_union(hull_knives) if hull_knives else None
+    from ..classify.gap_mint import standoff_m
+    from ..model.planar import is_gap_ref
+    gap_knife = knife.buffer(standoff_m(law), join_style="mitre", mitre_limit=2.0) \
+        if any(is_gap_ref(c.ref) for c in cells) and not knife.is_empty else None
     out_cells: list[Cell] = []
     for c, p in zip(cells, polys):
         blade = knife
         if c.role == "building":
             blade = hull_knife
+        elif gap_knife is not None and is_gap_ref(c.ref):
+            # spec §53 (13): a gap piece STANDS OFF a structure as it stands
+            # off every standing cell — the footprints grown by the stand-off
+            blade = gap_knife
         if c.role in RUNWAY_FAMILY or blade is None or not p.intersects(blade):
             out_cells.append(c)
             continue

@@ -600,7 +600,7 @@ jobs:
   # divergence found at tag time is found an hour too late.  It needs
   # nothing but the runner's own python3 — check_frozen_tile.py derives no
   # number, the bundles under test did (and the comparison itself is the
-  # ENGINE's own pipeline/xplat.compare, never re-spelled here).
+  # one comparer, Ortho4XP/tools/xplat_compare.py, never re-spelled here).
   xplat_gate:
     name: One programme on every platform (§46 (7))
     needs: [mac, windows, linux]

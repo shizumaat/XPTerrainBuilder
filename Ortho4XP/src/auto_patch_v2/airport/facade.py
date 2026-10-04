@@ -278,13 +278,19 @@ def object_variants(name: str, fac_dir: str,
     if not index:
         return ()
     out: list[str] = []
+    # one file is ONE variant however its path is spelled: on Windows the
+    # library's exports and the index name the same file with different
+    # separators / case (CI windows-latest counted 4 variants for 3 files)
+    seen: set[str] = set()
     for key in (name, name.lower()):
         phys = index.get(key)
         if not phys:
             continue
         lib = _library_txt_of(phys)
         for p in (_library_exports(lib).get(name.lower(), ()) if lib else ()) + (phys,):
-            if p not in out and os.path.isfile(p):
+            same = os.path.normcase(os.path.normpath(p))
+            if same not in seen and os.path.isfile(p):
+                seen.add(same)
                 out.append(p)
     return tuple(out)
 

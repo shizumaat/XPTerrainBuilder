@@ -31,6 +31,9 @@ import numpy
 import pytest
 
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import base as ea_base
+from elevation_access import warp as ea_warp
 import O4_File_Names as FNAMES
 from auto_patch_v2.airport import dem_production as DP
 
@@ -84,7 +87,7 @@ def _corpus(tmp_path, monkeypatch, *, valid, manifest=True):
     layer.mkdir(parents=True)
     (layer / "+46+006_airports.osm.bz2").write_bytes(b"\0")
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(elevation))
-    INSETS._inset_valid_fraction_cache.clear()
+    ea_warp._inset_valid_fraction_cache.clear()
     raster = insets / f"{ICAO}_swissalti3d.tif"
     _write_raster(raster, valid=valid)
     if manifest:
@@ -105,7 +108,7 @@ def test_the_predicate_names_an_empty_raster_and_clears_a_valid_one(
     (_e, _o, empty) = _corpus(tmp_path, monkeypatch, valid=False)
     reason = INSETS.cached_inset_declined_reason(empty)
     assert reason and "0.00 % valid pixels" in reason
-    INSETS._inset_valid_fraction_cache.clear()
+    ea_warp._inset_valid_fraction_cache.clear()
     _write_raster(empty, valid=True)
     assert INSETS.cached_inset_declined_reason(empty) is None
     assert INSETS.cached_inset_declined_reason(empty + ".absent") is None
@@ -269,7 +272,7 @@ def _fetch_once(tmp_path, monkeypatch, *, fetch):
     definition = {"code": "SWISSALTI3D", "access_strategy": "stac_cog",
                   "coverage_bbox": "5.5,45.5,11.0,48.0"}
     monkeypatch.setattr(INSETS, "fetch_inset", fetch)
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.ensure_airport_insets(LAT, LON, {ICAO: REQUIRED}, [definition],
                                  30.0)
     return INSETS._read_index(LAT, LON)[ICAO]
@@ -283,7 +286,7 @@ def test_an_empty_cached_raster_is_recorded_empty_and_refetched(
 
     def fetch(definition, box, resolution, destination, **kwargs):
         seen.append(destination)
-        raise INSETS.TransientFetchError("the provider timed out")
+        raise ea_base.TransientFetchError("the provider timed out")
 
     record = _fetch_once(tmp_path, monkeypatch, fetch=fetch)
     assert seen == [raster]                    # it asked again
@@ -312,7 +315,7 @@ def test_a_successful_refetch_overwrites_the_empty_status(tmp_path,
                                manifest=False)
 
     def fetch(definition, box, resolution, destination, **kwargs):
-        INSETS._inset_valid_fraction_cache.clear()
+        ea_warp._inset_valid_fraction_cache.clear()
         _write_raster(destination, valid=True)
         return {"provider": "SWISSALTI3D", "bounding_box_wgs84": list(box),
                 "fetch_date": "2026-09-18"}
@@ -320,5 +323,5 @@ def test_a_successful_refetch_overwrites_the_empty_status(tmp_path,
     record = _fetch_once(tmp_path, monkeypatch, fetch=fetch)
     assert record["SWISSALTI3D"] == "ok"
     assert os.path.isfile(raster[:-4] + ".json")
-    INSETS._inset_valid_fraction_cache.clear()
+    ea_warp._inset_valid_fraction_cache.clear()
     assert INSETS.cached_inset_declined_reason(raster) is None

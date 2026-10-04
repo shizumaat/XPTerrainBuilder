@@ -29,6 +29,10 @@ import subprocess
 import sys
 
 from auto_patch_v2.pipeline import xplat
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(
+    _os.path.abspath(__file__)))), "tools"))
+import xplat_compare  # noqa: E402
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
@@ -59,7 +63,7 @@ def test_the_join_is_exact_and_never_proximity():
     it must never be paired with its neighbour and reported as a spread."""
     a = _dump([(1.0, 2.0, 100.0, 200.0)])
     b = _dump([(1.0 + 2 ** -52, 2.0, 100.5, 200.0)], name="linux")
-    lines = xplat.compare_projection({"mac": a, "linux": b})
+    lines = xplat_compare.compare_projection({"mac": a, "linux": b})
     joined = [ln for ln in lines if "recorded (n=" in ln]
     assert joined == [] or "n=0" in joined[0], (
         "a row whose INPUT differs must not join: %s" % joined)
@@ -69,7 +73,7 @@ def test_a_platform_against_itself_has_zero_spread_and_no_straddles():
     rows = [(0.1 * k, 0.2 * k, 12.3456789 * k, -98.7654321 * k)
             for k in range(1, 200)]
     a = _dump(rows)
-    lines = xplat.compare_projection({"mac": a, "mac2": _dump(rows, "mac2")})
+    lines = xplat_compare.compare_projection({"mac": a, "mac2": _dump(rows, "mac2")})
     text = "\n".join(lines)
     assert "max 0.000e+00" in text, text
     for grid in ("0.0001", "0.001", "0.01"):
@@ -84,8 +88,8 @@ def test_the_straddle_count_is_the_snap_boundary_and_not_bankers_rounding():
     0.0005 -> 0 and 0.0015 -> 2, i.e. report a straddle that a snap does
     not make."""
     grid = 1e-3
-    assert xplat._snap(0.0005, grid) == 1, "a snap takes the tie UP"
-    assert xplat._snap(0.0015, grid) == 2
+    assert xplat_compare._snap(0.0005, grid) == 1, "a snap takes the tie UP"
+    assert xplat_compare._snap(0.0015, grid) == 2
     assert round(0.0005 / grid) == 0, (
         "the precedent: banker's rounding would disagree with the snap")
     pairs = [
@@ -93,7 +97,7 @@ def test_the_straddle_count_is_the_snap_boundary_and_not_bankers_rounding():
         (0.00049, 0.00051),      # either side of the 0.5-cell boundary
         (0.0012345, 0.0012347),  # same cell again
     ]
-    got = xplat._straddles(pairs)
+    got = xplat_compare._straddles(pairs)
     assert got["0.001"] == 1, got
     assert got["0.01"] == 0, got
     # …and at the 0.1 mm grid the SAME pair does not straddle: both snap
@@ -107,7 +111,7 @@ def test_a_coordinate_straddles_when_EITHER_axis_does():
     per axis: x agreeing does not save a vertex whose y straddles."""
     a = _dump([(1.0, 2.0, 5.00049, 7.0)])
     b = _dump([(1.0, 2.0, 5.00049, 7.00051)], name="linux")
-    lines = xplat.compare_projection({"mac": a, "linux": b})
+    lines = xplat_compare.compare_projection({"mac": a, "linux": b})
     text = "\n".join(lines)
     assert "straddles x  0.0001 m:0 0.001 m:0 0.01 m:0 0.5 m:0" in text, text
     assert "straddles COORD 0.0001 m:1 0.001 m:1 0.01 m:0 0.5 m:0 of 1" \
@@ -123,7 +127,7 @@ def test_the_decade_histogram_buckets_by_magnitude():
     for k, delta in enumerate((0.0, 1e-9, 5e-7, 3e-5)):
         rows_a.append((float(k), 0.0, 100.0, 0.0))
         rows_b.append((float(k), 0.0, 100.0 + delta, 0.0))
-    lines = xplat.compare_projection({"mac": _dump(rows_a),
+    lines = xplat_compare.compare_projection({"mac": _dump(rows_a),
                                       "linux": _dump(rows_b, "linux")})
     text = "\n".join(lines)
     assert "0:1" in text and "1e-9:1" in text and "1e-7:1" in text \
@@ -138,7 +142,7 @@ def test_the_bands_report_the_spread_against_distance_from_the_origin():
     for k, r in enumerate((100.0, 700.0, 6000.0)):
         rows_a.append((float(k), 0.0, r, 0.0))
         rows_b.append((float(k), 0.0, r + r * 1e-9, 0.0))
-    lines = xplat.compare_projection({"mac": _dump(rows_a),
+    lines = xplat_compare.compare_projection({"mac": _dump(rows_a),
                                       "linux": _dump(rows_b, "linux")})
     bands = [ln for ln in lines if ln.strip().startswith("r ")]
     assert len(bands) == 3, bands
@@ -153,7 +157,7 @@ def test_the_solved_z_is_straddle_counted_on_the_same_grids():
     a = _dump([], solved=[(10.0, 20.0, 615.123), (11.0, 21.0, 7.0)])
     b = _dump([], name="linux",
               solved=[(10.0, 20.0, 615.1235), (11.0, 21.0, 7.0)])
-    lines = xplat.compare_projection({"mac": a, "linux": b})
+    lines = xplat_compare.compare_projection({"mac": a, "linux": b})
     text = "\n".join(lines)
     assert "SOLVED z (n=2 joined of [2, 2])" in text, text
     assert "straddles z  0.0001 m:1 0.001 m:1 0.01 m:0 0.5 m:0 of 2" \
@@ -169,8 +173,8 @@ def test_the_grids_include_the_two_the_pipeline_ALREADY_SNAPS_TO():
     difference can already become a DECISION, so the straddle table must
     price them beside the owner's candidate quanta — and it must read them
     off the RAW projection, not a quantised arm."""
-    assert 0.5 in xplat.GRIDS and 1e-2 in xplat.GRIDS
-    assert 1e-4 in xplat.GRIDS and 1e-3 in xplat.GRIDS
+    assert 0.5 in xplat_compare.GRIDS and 1e-2 in xplat_compare.GRIDS
+    assert 1e-4 in xplat_compare.GRIDS and 1e-3 in xplat_compare.GRIDS
     law = open(os.path.join(_ROOT, "Ortho4XP", "src", "auto_patch_v2",
                             "law", "emit.toml"), encoding="utf-8").read()
     assert "min_distinct_spacing_m  = 0.5" in law, (
@@ -188,7 +192,7 @@ def test_the_expectation_scales_CYXY_to_a_hub():
     for k in range(100):
         rows_a.append((float(k), 0.0, 1000.0, 0.0))
         rows_b.append((float(k), 0.0, 1000.0 + 1e-5, 0.0))
-    lines = xplat.compare_projection({"mac": _dump(rows_a),
+    lines = xplat_compare.compare_projection({"mac": _dump(rows_a),
                                       "linux": _dump(rows_b, "linux")})
     text = "\n".join(lines)
     assert "what each quantum buys" in text, text
@@ -215,7 +219,7 @@ def test_a_duplicate_constraint_KEY_is_grouped_not_overwritten():
     rows = [("diff|pavement_ceiling|r|1,2|3,4", (0.015, 40.0)),
             ("diff|pavement_ceiling|r|1,2|3,4", (0.015, 51.0)),
             ("diff|taxi|r|9,9|8,8", (0.015, 7.0))]
-    lines = xplat.compare_projection({"mac": _cons(rows),
+    lines = xplat_compare.compare_projection({"mac": _cons(rows),
                                       "linux": _cons(rows, "linux")})
     text = "\n".join(lines)
     assert "CONSTRAINT ROW VALUES ([3, 3] rows, 0 unmatched keys)" in text, text
@@ -228,7 +232,7 @@ def test_a_real_constraint_value_difference_is_named_by_generator():
          ("diff|no_step|rate|5,6|7,8", (0.02, 3.0))]
     b = [("diff|taxi|plane_gradient|1,2|3,4", (0.015, 7.0)),
          ("diff|no_step|rate|5,6|7,8", (0.02, 3.0004))]
-    lines = xplat.compare_projection({"mac": _cons(a),
+    lines = xplat_compare.compare_projection({"mac": _cons(a),
                                       "linux": _cons(b, "linux")})
     text = "\n".join(lines)
     assert "taxi                         n 1       differ 0" in text, text
@@ -241,7 +245,7 @@ def test_a_row_present_on_one_side_only_is_UNMATCHED_not_silently_dropped():
     a = [("diff|taxi|r|1,2|3,4", (0.015, 7.0)),
          ("diff|taxi|r|9,9|8,8", (0.015, 7.0))]
     b = [("diff|taxi|r|1,2|3,4", (0.015, 7.0))]
-    lines = xplat.compare_projection({"mac": _cons(a),
+    lines = xplat_compare.compare_projection({"mac": _cons(a),
                                       "linux": _cons(b, "linux")})
     assert any("1 unmatched keys" in ln for ln in lines), lines
 
@@ -264,7 +268,7 @@ def test_the_constraint_table_is_written_ONLY_in_the_quantised_arm():
 
 
 def test_a_mixed_quantum_comparison_is_called_out():
-    lines = xplat.compare_projection(
+    lines = xplat_compare.compare_projection(
         {"mac": _dump([], quantise=0.0),
          "linux": _dump([], name="linux", quantise=1e-3)})
     assert any("WARNING" in ln and "DIFFERENT quanta" in ln

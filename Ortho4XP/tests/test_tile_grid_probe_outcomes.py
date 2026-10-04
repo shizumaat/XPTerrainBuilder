@@ -41,6 +41,11 @@ import pytest
 sys.path.insert(0, "src")
 
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import base as ea_base
+from elevation_access import definitions as ea_definitions
+from elevation_access import discovery as ea_discovery
+from elevation_access.strategies import tile_grid_http as ea_tile_grid_http
 
 #: The statuses the law sorts, mirrored from the module so a drift in
 #: either direction is a twin failure rather than a silent re-reading.
@@ -118,7 +123,7 @@ def _tile_url(definition):
 def _probe(server, status, **extra):
     """Run the ONE probe site against ``status``; returns its answer."""
     server.fixed_status = status
-    strategy = INSETS.TileGridHttpStrategy()
+    strategy = ea_tile_grid_http.TileGridHttpStrategy()
     definition = _definition(server, **extra)
     import requests
 
@@ -166,7 +171,7 @@ def test_only_a_look_that_found_nothing_skips_the_tile(fake_host, status):
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("status", UNAVAILABLE_STATUSES)
 def test_a_host_refusal_is_unavailable_not_absent(fake_host, status):
-    with pytest.raises(INSETS.ProviderUnavailable) as raised:
+    with pytest.raises(ea_base.ProviderUnavailable) as raised:
         _probe(fake_host, status)
     assert str(status) in str(raised.value)
     assert "unavailable" in str(raised.value)
@@ -179,7 +184,7 @@ def test_the_401_a_HEAD_rejecting_host_answers_is_not_a_missing_tile(
     Before the law that 401 skipped the tile, so a provider whose every
     tile answered 401 recorded a durable no-coverage for the airport.
     """
-    with pytest.raises(INSETS.ProviderUnavailable):
+    with pytest.raises(ea_base.ProviderUnavailable):
         _probe(fake_host, 401)
 
 
@@ -188,17 +193,17 @@ def test_the_401_a_HEAD_rejecting_host_answers_is_not_a_missing_tile(
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("status", TRANSIENT_STATUSES)
 def test_an_answer_that_says_nothing_is_transient(fake_host, status):
-    with pytest.raises(INSETS.TransientFetchError) as raised:
+    with pytest.raises(ea_base.TransientFetchError) as raised:
         _probe(fake_host, status)
     assert "NOT recorded as no-coverage" in str(raised.value)
 
 
 def test_no_answer_at_all_is_transient_whatever_the_wording():
-    strategy = INSETS.TileGridHttpStrategy()
+    strategy = ea_tile_grid_http.TileGridHttpStrategy()
     import requests
 
     with requests.Session() as session:
-        with pytest.raises(INSETS.TransientFetchError) as raised:
+        with pytest.raises(ea_base.TransientFetchError) as raised:
             strategy._tile_exists({"code": "X"}, session, None, _dead_url())
     assert "NOT recorded as no-coverage" in str(raised.value)
 
@@ -215,13 +220,13 @@ def test_a_ranged_get_probe_asks_for_one_byte_and_obeys_the_same_law(
 
 @pytest.mark.parametrize("status", UNAVAILABLE_STATUSES)
 def test_a_ranged_get_refusal_is_also_unavailable(fake_host, status):
-    with pytest.raises(INSETS.ProviderUnavailable):
+    with pytest.raises(ea_base.ProviderUnavailable):
         _probe(fake_host, status, probe_mode="ranged_get")
 
 
 @pytest.mark.parametrize("status", TRANSIENT_STATUSES)
 def test_a_ranged_get_non_answer_is_also_transient(fake_host, status):
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         _probe(fake_host, status, probe_mode="ranged_get")
 
 
@@ -245,12 +250,12 @@ VSI_TILE_URL = "/vsizip//vsicurl/http://h/x.zip/a.tif"
 def _gdal_probe(monkeypatch, module):
     """``_tile_exists`` on a vsi path with ``INSETS.gdal`` replaced.
 
-    ``raising=False``: the module binds ``gdal`` only when ``from osgeo
-    import gdal`` SUCCEEDED (``has_gdal`` is the flag), so on a machine
-    without GDAL -- every macOS CI runner -- the attribute is absent.
+    ``elevation_access.gdal_support`` binds ``gdal`` to ``None`` when
+    ``from osgeo import gdal`` fails (``has_gdal`` is the flag), which is
+    the state of every macOS CI runner.
     """
-    monkeypatch.setattr(INSETS, "gdal", module, raising=False)
-    strategy = INSETS.TileGridHttpStrategy()
+    patch_inset_code(monkeypatch, "gdal", module)
+    strategy = ea_tile_grid_http.TileGridHttpStrategy()
     return strategy._tile_exists({"code": "X"}, None, None, VSI_TILE_URL)
 
 
@@ -263,7 +268,7 @@ def test_a_gdal_probe_that_raises_is_transient_not_absent(monkeypatch):
         def Open(url):                                     # noqa: N802
             raise RuntimeError("CURL error: Peer certificate")
 
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         _gdal_probe(monkeypatch, _Boom)
 
 
@@ -279,14 +284,14 @@ def test_a_gdal_probe_that_finds_nothing_still_skips_the_tile(monkeypatch):
 def test_no_gdal_at_all_is_transient_not_a_missing_tile(monkeypatch):
     """A machine without GDAL knows NOTHING about the tile.
 
-    The module binds ``gdal`` only on a successful import, so the probe's
-    own name is missing here.  The old ``except Exception: return False``
-    swallowed that ``NameError`` into a durable absent -- a provider
+    ``gdal`` is ``None`` on a machine without GDAL, so the probe's own
+    call fails.  The old ``except Exception: return False`` swallowed
+    that error into a durable absent -- a provider
     recorded as no-coverage because the LOCAL machine lacked a library.
     """
-    monkeypatch.delattr(INSETS, "gdal", raising=False)
-    strategy = INSETS.TileGridHttpStrategy()
-    with pytest.raises(INSETS.TransientFetchError):
+    patch_inset_code(monkeypatch, "gdal", None)
+    strategy = ea_tile_grid_http.TileGridHttpStrategy()
+    with pytest.raises(ea_base.TransientFetchError):
         strategy._tile_exists({"code": "X"}, None, None, VSI_TILE_URL)
 
 
@@ -303,20 +308,20 @@ def test_no_status_outside_the_absent_set_can_ever_skip_a_tile(fake_host):
     durable = [
         status
         for status in range(100, 600)
-        if INSETS.http_answer_outcome(status) == INSETS.HTTP_OUTCOME_ABSENT
+        if ea_discovery.http_answer_outcome(status) == ea_discovery.HTTP_OUTCOME_ABSENT
     ]
-    assert tuple(durable) == INSETS.HTTP_ABSENT_STATUSES
+    assert tuple(durable) == ea_discovery.HTTP_ABSENT_STATUSES
 
 
 def test_the_probe_shares_the_modules_one_transient_convention():
     for status in range(100, 600):
-        if INSETS.discovery_status_is_transient(status):
-            assert (INSETS.http_answer_outcome(status)
-                    == INSETS.HTTP_OUTCOME_TRANSIENT), status
+        if ea_discovery.discovery_status_is_transient(status):
+            assert (ea_discovery.http_answer_outcome(status)
+                    == ea_discovery.HTTP_OUTCOME_TRANSIENT), status
 
 
 def test_the_probe_timeout_is_a_named_constant():
-    assert INSETS.TILE_GRID_PROBE_TIMEOUT_S == 30
+    assert ea_tile_grid_http.TILE_GRID_PROBE_TIMEOUT_S == 30
 
 
 # ---------------------------------------------------------------------------
@@ -336,20 +341,20 @@ def one_tile_box(monkeypatch):
             PROBE_EASTING_KM * 1000.0, PROBE_NORTHING_KM * 1000.0,
         )
 
-    monkeypatch.setattr(INSETS, "transform_bounding_box_to_epsg", _transform)
+    patch_inset_code(monkeypatch, "transform_bounding_box_to_epsg", _transform)
     return (11.7, 48.1, 11.8, 48.2)
 
 
 def test_an_absent_tile_is_skipped_and_discovery_answers_no_sources(
         fake_host, one_tile_box):
     fake_host.fixed_status = 404
-    strategy = INSETS.TileGridHttpStrategy()
+    strategy = ea_tile_grid_http.TileGridHttpStrategy()
     assert strategy.discover(_definition(fake_host), one_tile_box) is None
 
 
 def test_a_present_tile_is_discovered(fake_host, one_tile_box):
     fake_host.fixed_status = 200
-    strategy = INSETS.TileGridHttpStrategy()
+    strategy = ea_tile_grid_http.TileGridHttpStrategy()
     sources = strategy.discover(_definition(fake_host), one_tile_box)
     assert sources == [{"url": _tile_url(_definition(fake_host))}]
 
@@ -363,14 +368,14 @@ def test_a_refusal_climbs_out_of_discover_instead_of_emptying_it(
     arrive as the refusal it is.
     """
     fake_host.fixed_status = 403
-    strategy = INSETS.TileGridHttpStrategy()
-    with pytest.raises(INSETS.ProviderUnavailable):
+    strategy = ea_tile_grid_http.TileGridHttpStrategy()
+    with pytest.raises(ea_base.ProviderUnavailable):
         strategy.discover(_definition(fake_host), one_tile_box)
 
 
 def test_an_outage_climbs_out_of_discover_instead_of_emptying_it(
         fake_host, one_tile_box):
     fake_host.fixed_status = 503
-    strategy = INSETS.TileGridHttpStrategy()
-    with pytest.raises(INSETS.TransientFetchError):
+    strategy = ea_tile_grid_http.TileGridHttpStrategy()
+    with pytest.raises(ea_base.TransientFetchError):
         strategy.discover(_definition(fake_host), one_tile_box)

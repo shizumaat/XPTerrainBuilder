@@ -27,6 +27,7 @@ from .geometry import long_axis, pair_is_transverse
 from .precedence import view
 
 __all__ = ["road_within_shape", "road_family_roles", "road_law_caps",
+           "hole_pairs",
            "road_pair_reading", "one_ribbon_m", "RIBBON_RULING",
            "NOT_A_PAIR", "NO_FRAME", "road_pair_side", "stage_one_vertices",
            "PAIR_AIRSIDE", "PAIR_WELD", "PAIR_GROUNDSIDE"]
@@ -267,7 +268,8 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                              {"routed": 0, "chord": 0, "not_a_pair": 0,
                               "ring_edge": 0, "ribbon_follower": 0,
                               "ribbon_airside_pair": 0,
-                              "airside_pair": 0, "weld_follower": 0})
+                              "airside_pair": 0, "weld_follower": 0,
+                              "hole_pair": 0})
     for k in stats:
         stats[k] = 0
     min_deg = law.tables.common.road_transverse_axis_min_deg
@@ -382,4 +384,43 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                         _mint(a, b, cap_t, d, src_t)
                     else:
                         _mint(a, b, cap_l, d, src_l)
+        if f.role not in roads:
+            for a, b, d in hole_pairs(vw.xy, ring, vw.holes[f.id], min_d):
+                stats["hole_pair"] += 1
+                _mint(a, b, cap_l, d, Source(
+                    GEN, src_l.ruling, (*src_l.inputs, "hole")))
     return rows
+
+
+def hole_pairs(xy: _t.Mapping[int, tuple[float, float]],
+               ring: _t.Sequence[int], holes: _t.Iterable[_t.Sequence[int]],
+               min_d: float) -> list[tuple[int, int, float]]:
+    """OWNER RULINGS 2026-10-04p (C, issue #360): A LOT'S OWN GRADE CAP
+    BINDS ACROSS ITS HOLES — ``(hole vertex, nearest outer-ring vertex,
+    plan distance)`` for every hole-ring vertex of one face.  The ring
+    loop above pairs each cycle with ITSELF only, so a hole ring was
+    coupled to the page it is cut from by no row at all.  MEASURED (HECA
+    capture at 28500ecf): lot ``pav57``'s hole ring round pads
+    ``building19`` / ``building23`` stood 105.29 m at 30.1156466,
+    31.4091106, +8.3 m over the lot's outer ring 4.3 m away.
+
+    A vertex the hole SHARES with the outer ring, or closer to it than
+    ``min_d`` (one emitted point), is no pair.  Ties go to the first
+    outer-ring vertex in ring order."""
+    import numpy as np
+    outer = list(dict.fromkeys(int(v) for v in ring))
+    if not outer:
+        return []
+    on_outer = set(outer)
+    pts = np.array([xy[v] for v in outer], dtype=float)
+    out: list[tuple[int, int, float]] = []
+    for hole in holes:
+        for v in dict.fromkeys(int(v) for v in hole):
+            if v in on_outer:
+                continue
+            x, y = xy[v]
+            dd = np.hypot(pts[:, 0] - x, pts[:, 1] - y)
+            k = int(np.argmin(dd))
+            if float(dd[k]) >= min_d:
+                out.append((v, outer[k], float(dd[k])))
+    return out

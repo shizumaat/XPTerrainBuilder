@@ -74,7 +74,7 @@ if __name__ == "__main__" and "--proj-selfcheck" in sys.argv:
 
 # THE LERC DECODE WORKER (owner RULINGS 2026-09-12as (3) / 2026-09-13a (1)):
 # the elevation inset fetcher spawns ``sys.executable --lerc-decode IN OUT``
-# when frozen (``O4_Airport_Elevation_Insets.lerc_worker_argv``) to decode a
+# when frozen (``elevation_access.capabilities.lerc_worker_argv``) to decode a
 # LERC asset out of process — imagecodecs' LERC decoder and the osgeo
 # libraries abort a process that loads both.  On Windows and Linux THIS
 # binary is the engine, so ``sys.executable`` is this file's frozen self and

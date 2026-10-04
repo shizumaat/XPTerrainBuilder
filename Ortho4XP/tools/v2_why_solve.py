@@ -1,8 +1,11 @@
 """WHAT BINDS THIS SHAPE — the owner's sim-read question as one command
-(lane v2why, 2026-09-04): ``python -m auto_patch_v2 why ICAO --shape N |
---at LAT,LON``.
+(lane v2why, 2026-09-04): ``venv/bin/python tools/v2_why.py ICAO --shape N |
+--at LAT,LON``.  A LIBRARY (no CLI of its own): ``tools/v2_why.py`` is the
+airport front end, ``tools/v2_solve_replay.py --why-*`` the capture one.
+Production never calls it (RULINGS 2026-10-04c (4); it was
+``auto_patch_v2/solve/why.py``).
 
-Read-only over the pipeline's own solve (``pipeline/why.py`` rebuilds it:
+Read-only over the pipeline's own solve (``tools/v2_why.py`` rebuilds it:
 load → classify → planar → constraints → the same DESIGN SURFACE solve, no emit;
 this module reads ``law`` and ``model`` only, 04q-3): for the vertices of one face
 it prints the solved z, the DEM, z − dem, the ACTIVE rows touching them
@@ -35,13 +38,13 @@ from collections import deque
 
 import numpy as np
 
-from ..law import Law
-from ..model.airport import Airport
-from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
+from auto_patch_v2.law import Law
+from auto_patch_v2.model.airport import Airport
+from auto_patch_v2.model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
                                  Offset, Pin, Row)
-from ..model.planar import PlanarMap
-from .design import DesignReport, solve_design
-from .design_ground import ground_datum_vertices
+from auto_patch_v2.model.planar import PlanarMap
+from auto_patch_v2.solve.design import DesignReport, solve_design
+from auto_patch_v2.solve.design_ground import ground_datum_vertices
 
 __all__ = ["Prepared", "prepare", "solve_with_pressure", "family_of",
            "resolve_faces", "Binding", "bindings", "Step", "Trace",
@@ -85,8 +88,8 @@ def solve_with_pressure(pm: PlanarMap, cs: ConstraintSet, law: Law
     PRESSURE of every law row kept: ``2 · w_law · max(0, violation)``, the
     objective's gradient through that row — what the LP's dual became when
     the law became a design target (RULINGS 2026-09-08t)."""
-    from .design import _law_sides, _violation
-    from ..law.tables import design as design_law
+    from auto_patch_v2.solve.design import _law_sides, _violation
+    from auto_patch_v2.law.tables import design as design_law
     sol, rep = solve_design(pm, cs, law)
     w = design_law(law).law
     z = np.asarray(sol.z, float)

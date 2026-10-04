@@ -21,6 +21,10 @@ import pytest
 import O4_File_Names as FNAMES
 import O4_DEM_Utils as DEM
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import base_tiles as ea_base_tiles
+from elevation_access import definitions as ea_definitions
+from elevation_access import registry as ea_registry
+from elevation_access.strategies import usgs_seamless as ea_usgs_seamless
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SHIPPED_PROVIDERS_DIRECTORY = os.path.normpath(
@@ -48,7 +52,7 @@ def no_network(monkeypatch):
 
 
 def _strategy_for(definition):
-    return INSETS.ACCESS_STRATEGIES[definition["access_strategy"]]()
+    return ea_registry.ACCESS_STRATEGIES[definition["access_strategy"]]()
 
 
 # =====================================================================
@@ -166,10 +170,10 @@ def test_shipped_definitions_parse(shipped_registry):
         "ALOS",
         "SONNY1",
     ):
-        assert shipped_registry[code]["role"] == INSETS.ROLE_BASE, code
-    assert shipped_registry["USGS3DEP"]["role"] == INSETS.ROLE_AIRPORT_INSET
+        assert shipped_registry[code]["role"] == ea_definitions.ROLE_BASE, code
+    assert shipped_registry["USGS3DEP"]["role"] == ea_definitions.ROLE_AIRPORT_INSET
     # Phase C2: the second inset provider family (Canada HRDEM via STAC).
-    assert shipped_registry["HRDEM"]["role"] == INSETS.ROLE_AIRPORT_INSET
+    assert shipped_registry["HRDEM"]["role"] == ea_definitions.ROLE_AIRPORT_INSET
     assert shipped_registry["HRDEM"]["access_strategy"] == "stac"
     # The third inset provider family: national lidar over OGC WCS.
     for code in (
@@ -179,7 +183,7 @@ def test_shipped_definitions_parse(shipped_registry):
         "POLAND1M",
         "AUSTRALIA5M",
     ):
-        assert shipped_registry[code]["role"] == INSETS.ROLE_AIRPORT_INSET
+        assert shipped_registry[code]["role"] == ea_definitions.ROLE_AIRPORT_INSET
         assert shipped_registry[code]["access_strategy"] == "wcs"
     # The German Laender wave (2026-07-16): kilometre tile grids, two
     # more WCS endpoints, one KVP WCS, one drop folder.
@@ -270,7 +274,7 @@ def test_shipped_definitions_parse(shipped_registry):
     )
     # The coverage box must reach Shetland: tile +59-002 (Sumburgh,
     # Fair Isle) regressed to the 90 m base when it stopped at 58.7.
-    assert INSETS._coverage_bbox_intersects(
+    assert ea_definitions._coverage_bbox_intersects(
         shipped_registry["SCOTLAND50CM"], (-2.0, 59.0, -1.0, 60.0)
     )
     assert shipped_registry["SAXONYANHALT1M"]["access_strategy"] == "wcs"
@@ -291,7 +295,7 @@ def test_shipped_definitions_parse(shipped_registry):
     )
     # STAC search providers (swisstopo; Finland's Paituli mirror).
     for code in ("SWISSALTI3D", "FINLAND2M"):
-        assert shipped_registry[code]["role"] == INSETS.ROLE_AIRPORT_INSET
+        assert shipped_registry[code]["role"] == ea_definitions.ROLE_AIRPORT_INSET
         assert shipped_registry[code]["access_strategy"] == "stac"
     # Fixed-URL country-wide Cloud-Optimized GeoTIFF (Wales) and the
     # static catalog walker (New Zealand, LERC-compressed tiles).
@@ -317,7 +321,7 @@ def test_viewfinder_url_for_dem1_whitelist_tile(shipped_registry):
     definition = shipped_registry["VIEWFINDER1"]
     strategy = _strategy_for(definition)
     # (46, 7) is in the Alps: archive code L32, on the dem1 whitelist.
-    assert INSETS.deferranti_archive_code(46, 7) == "L32"
+    assert ea_base_tiles.deferranti_archive_code(46, 7) == "L32"
     assert strategy.covers(definition, 46, 7)
     assert (
         strategy.download_url(definition, 46, 7)
@@ -327,7 +331,7 @@ def test_viewfinder_url_for_dem1_whitelist_tile(shipped_registry):
 
 def test_viewfinder_url_for_dem3_tile(shipped_registry):
     # (36, -87) -- the KBNA tile -- is NOT on the dem1 whitelist.
-    assert INSETS.deferranti_archive_code(36, -87) == "J16"
+    assert ea_base_tiles.deferranti_archive_code(36, -87) == "J16"
     assert not _strategy_for(shipped_registry["VIEWFINDER1"]).covers(
         shipped_registry["VIEWFINDER1"], 36, -87
     )
@@ -341,7 +345,7 @@ def test_viewfinder_url_for_dem3_tile(shipped_registry):
 
 
 def test_usgs_seamless_urls(shipped_registry):
-    assert INSETS.usgs_seamless_tile_identifier(36, -87) == "n37w087"
+    assert ea_usgs_seamless.usgs_seamless_tile_identifier(36, -87) == "n37w087"
     ned_one = shipped_registry["NED1"]
     assert _strategy_for(ned_one).download_url(ned_one, 36, -87) == (
         "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1/TIFF/"
@@ -369,7 +373,7 @@ def test_view_alias_resolves_per_tile():
     # Wellington: SK60 IS on the whitelist but the tile is excluded
     # (missing 1 arc-second data), so the alias falls to 3 arc-second --
     # the historic hardcoded exception, now the exclude_tiles field.
-    assert INSETS.deferranti_archive_code(-42, 174) == "SK60"
+    assert ea_base_tiles.deferranti_archive_code(-42, 174) == "SK60"
     assert INSETS.resolve_base_definition(-42, 174, "View")["code"] == (
         "VIEWFINDER3"
     )
@@ -461,7 +465,7 @@ def test_prefer_coarse_falls_back_to_fine_tier_without_coarse_source():
     disabled = []
     for definition in INSETS.elevation_providers_dict.values():
         if (
-            definition.get("role") == INSETS.ROLE_BASE
+            definition.get("role") == ea_definitions.ROLE_BASE
             and definition.get("resolution_arc_seconds", 0.0) >= 3.0
         ):
             definition["enabled"] = False
@@ -596,12 +600,12 @@ def test_wcs_inset_definitions_cover_expected_airports(shipped_registry):
     heathrow = (-0.49, 51.44, -0.41, 51.49)
     gardermoen = (11.05, 60.17, 11.13, 60.22)
     doha = (51.55, 25.24, 51.65, 25.29)
-    assert INSETS._coverage_bbox_intersects(england, heathrow)
-    assert not INSETS._coverage_bbox_intersects(england, gardermoen)
-    assert not INSETS._coverage_bbox_intersects(england, doha)
-    assert INSETS._coverage_bbox_intersects(norway, gardermoen)
-    assert not INSETS._coverage_bbox_intersects(norway, heathrow)
-    assert not INSETS._coverage_bbox_intersects(norway, doha)
+    assert ea_definitions._coverage_bbox_intersects(england, heathrow)
+    assert not ea_definitions._coverage_bbox_intersects(england, gardermoen)
+    assert not ea_definitions._coverage_bbox_intersects(england, doha)
+    assert ea_definitions._coverage_bbox_intersects(norway, gardermoen)
+    assert not ea_definitions._coverage_bbox_intersects(norway, heathrow)
+    assert not ea_definitions._coverage_bbox_intersects(norway, doha)
 
 
 # =====================================================================
@@ -873,7 +877,7 @@ def test_zero_byte_cache_file_is_not_recycled(tmp_path, monkeypatch):
     assert DEM.ensure_elevation("NED1", 36, -87) == 0
     # The same guard heals the manual drop strategy's covers() test.
     sonny = INSETS.elevation_providers_dict["SONNY1"]
-    strategy = INSETS.ACCESS_STRATEGIES["hgt_archive_drop"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["hgt_archive_drop"]()
     zero_byte_cache = FNAMES.elevation_data("SONNY1", 50, 8)
     os.makedirs(os.path.dirname(zero_byte_cache), exist_ok=True)
     open(zero_byte_cache, "wb").close()
@@ -891,7 +895,7 @@ def test_manual_setup_entries_per_region(tmp_path, monkeypatch, shipped_registry
     codes = [entry["code"] for entry in entries]
     assert codes == ["SONNY1"]
     entry = entries[0]
-    assert entry["role"] == INSETS.ROLE_BASE
+    assert entry["role"] == ea_definitions.ROLE_BASE
     assert entry["download_page"] == "https://sonny.4lima.de"
     assert entry["drop_directory"].endswith("Sonny_LiDAR_Europe")
     assert entry["already_dropped"] is False

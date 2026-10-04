@@ -35,6 +35,9 @@ import pytest
 sys.path.insert(0, "src")
 
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import base as ea_base
+from elevation_access import discovery as ea_discovery
+from elevation_access.strategies import degree_named_cog as ea_degree_named_cog
 
 #: A cell whose object the Copernicus mirror would hold, as a URL template
 #: of the shape the .elv definitions use.
@@ -82,9 +85,9 @@ def fake_bucket():
 @pytest.fixture(autouse=True)
 def _clear_the_memo():
     """The existence memo is process-lifetime state on the CLASS."""
-    INSETS.DegreeNamedCogStrategy._cell_exists_by_url.clear()
+    ea_degree_named_cog.DegreeNamedCogStrategy._cell_exists_by_url.clear()
     yield
-    INSETS.DegreeNamedCogStrategy._cell_exists_by_url.clear()
+    ea_degree_named_cog.DegreeNamedCogStrategy._cell_exists_by_url.clear()
 
 
 def _definition(server):
@@ -100,7 +103,7 @@ def _definition(server):
 
 def _probe(server, status):
     server.fixed_status = status
-    strategy = INSETS.DegreeNamedCogStrategy()
+    strategy = ea_degree_named_cog.DegreeNamedCogStrategy()
     definition = _definition(server)
     url = strategy._cell_url(definition, CELL_LATITUDE, CELL_LONGITUDE)
     return strategy, definition, url
@@ -112,45 +115,45 @@ def _probe(server, status):
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("status", [200, 201, 204, 206, 299])
 def test_a_success_is_an_existence_answer(status):
-    assert INSETS.http_answer_outcome(status) == INSETS.HTTP_OUTCOME_OK
+    assert ea_discovery.http_answer_outcome(status) == ea_discovery.HTTP_OUTCOME_OK
 
 
 @pytest.mark.parametrize("status", ABSENT_STATUSES)
 def test_only_a_look_that_found_nothing_is_durable(status):
-    assert INSETS.http_answer_outcome(status) == INSETS.HTTP_OUTCOME_ABSENT
+    assert ea_discovery.http_answer_outcome(status) == ea_discovery.HTTP_OUTCOME_ABSENT
 
 
 @pytest.mark.parametrize("status", UNAVAILABLE_STATUSES)
 def test_a_host_refusal_is_unavailable(status):
-    assert (INSETS.http_answer_outcome(status)
-            == INSETS.HTTP_OUTCOME_UNAVAILABLE)
+    assert (ea_discovery.http_answer_outcome(status)
+            == ea_discovery.HTTP_OUTCOME_UNAVAILABLE)
 
 
 @pytest.mark.parametrize("status", TRANSIENT_STATUSES)
 def test_everything_else_is_transient(status):
-    assert INSETS.http_answer_outcome(status) == INSETS.HTTP_OUTCOME_TRANSIENT
+    assert ea_discovery.http_answer_outcome(status) == ea_discovery.HTTP_OUTCOME_TRANSIENT
 
 
 def test_no_status_outside_the_two_absent_ones_is_ever_durable():
     """The whole point of the law, swept over every HTTP status."""
     durable = [
         status for status in range(100, 600)
-        if INSETS.http_answer_outcome(status) == INSETS.HTTP_OUTCOME_ABSENT
+        if ea_discovery.http_answer_outcome(status) == ea_discovery.HTTP_OUTCOME_ABSENT
     ]
-    assert durable == list(INSETS.HTTP_ABSENT_STATUSES)
+    assert durable == list(ea_discovery.HTTP_ABSENT_STATUSES)
 
 
 def test_the_outcome_law_never_drifts_from_the_discovery_classifier():
     """SQ3: the module has ONE transient convention, not two."""
     for status in range(100, 600):
-        if INSETS.discovery_status_is_transient(status):
-            assert (INSETS.http_answer_outcome(status)
-                    == INSETS.HTTP_OUTCOME_TRANSIENT), status
+        if ea_discovery.discovery_status_is_transient(status):
+            assert (ea_discovery.http_answer_outcome(status)
+                    == ea_discovery.HTTP_OUTCOME_TRANSIENT), status
 
 
 @pytest.mark.parametrize("status", [None, "", "not a status", object()])
 def test_an_unreadable_status_is_transient(status):
-    assert INSETS.http_answer_outcome(status) == INSETS.HTTP_OUTCOME_TRANSIENT
+    assert ea_discovery.http_answer_outcome(status) == ea_discovery.HTTP_OUTCOME_TRANSIENT
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +162,7 @@ def test_an_unreadable_status_is_transient(status):
 def test_a_served_cell_exists_and_is_memoised(fake_bucket):
     strategy, definition, url = _probe(fake_bucket, 200)
     assert strategy._url_exists(url) is True
-    assert INSETS.DegreeNamedCogStrategy._cell_exists_by_url[url] is True
+    assert ea_degree_named_cog.DegreeNamedCogStrategy._cell_exists_by_url[url] is True
     # the memo answers the second ask without a second request
     assert strategy._url_exists(url) is True
     assert len(fake_bucket.probed_paths) == 1
@@ -170,7 +173,7 @@ def test_a_cell_the_server_looked_for_is_absent_and_memoised(
         fake_bucket, status):
     strategy, definition, url = _probe(fake_bucket, status)
     assert strategy._url_exists(url) is False
-    assert INSETS.DegreeNamedCogStrategy._cell_exists_by_url[url] is False
+    assert ea_degree_named_cog.DegreeNamedCogStrategy._cell_exists_by_url[url] is False
     assert strategy.discover(definition, ONE_CELL_BOX) is None
 
 
@@ -178,21 +181,21 @@ def test_a_cell_the_server_looked_for_is_absent_and_memoised(
 def test_a_host_refusal_raises_unavailable_and_is_not_memoised(
         fake_bucket, status):
     strategy, definition, url = _probe(fake_bucket, status)
-    with pytest.raises(INSETS.ProviderUnavailable) as refusal:
+    with pytest.raises(ea_base.ProviderUnavailable) as refusal:
         strategy._url_exists(url)
     assert str(status) in str(refusal.value)
     assert url in str(refusal.value)
     assert "no-coverage" in str(refusal.value)
-    assert INSETS.DegreeNamedCogStrategy._cell_exists_by_url == {}
+    assert ea_degree_named_cog.DegreeNamedCogStrategy._cell_exists_by_url == {}
 
 
 @pytest.mark.parametrize("status", TRANSIENT_STATUSES)
 def test_a_transient_answer_raises_and_is_not_memoised(fake_bucket, status):
     strategy, definition, url = _probe(fake_bucket, status)
-    with pytest.raises(INSETS.TransientFetchError) as refusal:
+    with pytest.raises(ea_base.TransientFetchError) as refusal:
         strategy._url_exists(url)
     assert str(status) in str(refusal.value)
-    assert INSETS.DegreeNamedCogStrategy._cell_exists_by_url == {}
+    assert ea_degree_named_cog.DegreeNamedCogStrategy._cell_exists_by_url == {}
 
 
 def test_no_answer_at_all_raises_whatever_the_wording(fake_bucket):
@@ -205,10 +208,10 @@ def test_no_answer_at_all_raises_whatever_the_wording(fake_bucket):
     strategy, definition, url = _probe(fake_bucket, 200)
     fake_bucket.shutdown()
     fake_bucket.server_close()
-    with pytest.raises(INSETS.TransientFetchError) as refusal:
+    with pytest.raises(ea_base.TransientFetchError) as refusal:
         strategy._url_exists(url)
     assert "transport" in str(refusal.value)
-    assert INSETS.DegreeNamedCogStrategy._cell_exists_by_url == {}
+    assert ea_degree_named_cog.DegreeNamedCogStrategy._cell_exists_by_url == {}
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +223,7 @@ def test_discovery_raises_rather_than_answering_no_coverage(
     """``discover`` returning ``None`` is what gets written to the index."""
     strategy, definition, _url = _probe(fake_bucket, status)
     with pytest.raises(
-            (INSETS.ProviderUnavailable, INSETS.TransientFetchError)):
+            (ea_base.ProviderUnavailable, ea_base.TransientFetchError)):
         strategy.discover(definition, ONE_CELL_BOX)
 
 
@@ -231,14 +234,14 @@ def test_a_fetch_refuses_too_rather_than_returning_nothing(
     if not INSETS.has_gdal:
         pytest.skip("the fetch short-circuits without GDAL")
     with pytest.raises(
-            (INSETS.ProviderUnavailable, INSETS.TransientFetchError)):
+            (ea_base.ProviderUnavailable, ea_base.TransientFetchError)):
         strategy.fetch(definition, ONE_CELL_BOX, 30.0, "unused.tif")
 
 
 def test_one_refused_cell_does_not_poison_the_next_airport(fake_bucket):
     """The memo must not carry a non-definitive answer forward."""
     strategy, definition, url = _probe(fake_bucket, 403)
-    with pytest.raises(INSETS.ProviderUnavailable):
+    with pytest.raises(ea_base.ProviderUnavailable):
         strategy._url_exists(url)
     fake_bucket.fixed_status = 200
     assert strategy._url_exists(url) is True

@@ -24,6 +24,11 @@ import pytest
 
 import O4_File_Names as FNAMES
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import base as ea_base
+from elevation_access import definitions as ea_definitions
+from elevation_access import las_tiles as ea_las_tiles
+from elevation_access.strategies import cwcb_lidar_api as ea_cwcb_lidar_api
 
 gdal = pytest.importorskip("osgeo.gdal")
 from osgeo import osr  # noqa: E402
@@ -124,7 +129,7 @@ def _definition(**overrides):
     definition = {
         "code": "CWCBTEST",
         "access_strategy": "cwcb_lidar_api",
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "tiles_url": "https://cwcb.test/api/lidar/tiles",
         "summaries_url": "https://cwcb.test/api/lidar/tileSummaries",
@@ -242,16 +247,16 @@ def test_shipped_cwcb1m_definition():
     assert definition["native_resolution_m"] == pytest.approx(0.9144)
     assert int(definition["max_tiles_per_airport"]) == 24
     assert int(definition["max_bytes_per_airport"]) == 120000000
-    assert INSETS._parse_boolean(definition["ladder_member"]) is True
+    assert ea_definitions._parse_boolean(definition["ladder_member"]) is True
     assert definition["priority"] == 90.0
     assert definition["enabled"] is True
     assert "2026-09-30aw" in definition["license_note"]
     assert "Merrick" in definition["attribution"]
     # KHDN (Yampa Valley) and KCAG (Craig) inside the box; KASE outside.
     for (lon, lat) in ((-107.2177, 40.4812), (-107.5217, 40.4952)):
-        assert INSETS._coverage_bbox_intersects(
+        assert ea_definitions._coverage_bbox_intersects(
             definition, (lon - 0.01, lat - 0.01, lon + 0.01, lat + 0.01))
-    assert not INSETS._coverage_bbox_intersects(
+    assert not ea_definitions._coverage_bbox_intersects(
         definition, (-106.88, 39.21, -106.86, 39.23))
     assert INSETS.provider_required_capabilities(definition) == []
 
@@ -260,7 +265,7 @@ def test_shipped_cwcb1m_definition():
 # discovery
 # ---------------------------------------------------------------------
 def test_discovery_filters_to_the_dataset_and_memoises_the_listing(server):
-    strategy = INSETS.CwcbLidarApiStrategy()
+    strategy = ea_cwcb_lidar_api.CwcbLidarApiStrategy()
     sources = strategy.discover(_definition(), _box_inside([0, SIZE]))
     assert [source["source_id"] for source in sources] == ["LDT1", "LDT2"]
     assert all(source["dataset"] == DATASET for source in sources)
@@ -271,7 +276,7 @@ def test_discovery_filters_to_the_dataset_and_memoises_the_listing(server):
     (_post, _url, body) = _posts(server, "/tiles")[0]
     assert isinstance(body, str) and body.startswith("POLYGON")
     assert _posts(server, "/tileSummaries")[0][2] == [DATASET]
-    cache = INSETS.cwcb_summaries_cache_path("CWCBTEST", DATASET)
+    cache = ea_las_tiles.cwcb_summaries_cache_path("CWCBTEST", DATASET)
     assert os.path.isfile(cache)
     # A second discovery reads the memo: no second listing POST.
     strategy.discover(_definition(), _box_inside([0, SIZE]))
@@ -279,9 +284,9 @@ def test_discovery_filters_to_the_dataset_and_memoises_the_listing(server):
 
 
 def test_stale_or_contradicted_listing_is_relisted(server):
-    strategy = INSETS.CwcbLidarApiStrategy()
+    strategy = ea_cwcb_lidar_api.CwcbLidarApiStrategy()
     strategy.discover(_definition(), _box_inside([0]))
-    cache = INSETS.cwcb_summaries_cache_path("CWCBTEST", DATASET)
+    cache = ea_las_tiles.cwcb_summaries_cache_path("CWCBTEST", DATASET)
     # STALE by age: re-listed; an unchanged listing is not rewritten.
     old = time.time() - 40 * 86400
     os.utime(cache, (old, old))
@@ -304,19 +309,19 @@ def test_footprint_selects_tiles_meeting_the_polygon(server):
     from shapely.geometry import box as _box
 
     definition = _definition()
-    definition[INSETS.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(
+    definition[ea_las_tiles.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(
         _box(*_box_inside([0], inset_ft=30.0)))
-    sources = INSETS.CwcbLidarApiStrategy().discover(
+    sources = ea_cwcb_lidar_api.CwcbLidarApiStrategy().discover(
         definition, _box_inside([0, SIZE]))
     assert [source["source_id"] for source in sources] == ["LDT1"]
 
 
 def test_well_formed_empty_answer_is_durable_no_coverage(server):
     server["tiles"] = {"datasets": [OTHER], "tiles": ["k-other"]}
-    assert INSETS.CwcbLidarApiStrategy().discover(
+    assert ea_cwcb_lidar_api.CwcbLidarApiStrategy().discover(
         _definition(), _box_inside([0])) is None
     server["tiles"] = {"datasets": [], "tiles": []}
-    assert INSETS.CwcbLidarApiStrategy().discover(
+    assert ea_cwcb_lidar_api.CwcbLidarApiStrategy().discover(
         _definition(), _box_inside([0])) is None
 
 
@@ -332,21 +337,21 @@ def test_well_formed_empty_answer_is_durable_no_coverage(server):
 ])
 def test_degraded_tiles_answer_is_transient(server, answer):
     server["tiles"] = answer
-    with pytest.raises(INSETS.TransientFetchError):
-        INSETS.CwcbLidarApiStrategy().discover(_definition(),
+    with pytest.raises(ea_base.TransientFetchError):
+        ea_cwcb_lidar_api.CwcbLidarApiStrategy().discover(_definition(),
                                                _box_inside([0]))
 
 
 def test_degraded_listing_is_transient(server):
     server["summaries"] = {"something": {}}
-    with pytest.raises(INSETS.TransientFetchError):
-        INSETS.CwcbLidarApiStrategy().discover(_definition(),
+    with pytest.raises(ea_base.TransientFetchError):
+        ea_cwcb_lidar_api.CwcbLidarApiStrategy().discover(_definition(),
                                                _box_inside([0]))
 
 
 def test_out_of_coverage_makes_no_call(server):
     definition = _definition(coverage_bbox=(0.0, 0.0, 1.0, 1.0))
-    assert INSETS.CwcbLidarApiStrategy().discover(
+    assert ea_cwcb_lidar_api.CwcbLidarApiStrategy().discover(
         definition, _box_inside([0])) is None
     assert server["calls"] == []
 
@@ -355,8 +360,8 @@ def test_out_of_coverage_makes_no_call(server):
 # refusals
 # ---------------------------------------------------------------------
 def test_las_member_is_refused_with_the_reason(server, tmp_path):
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
-        INSETS.CwcbLidarApiStrategy().fetch(
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
+        ea_cwcb_lidar_api.CwcbLidarApiStrategy().fetch(
             _definition(member_suffix=".las"), _box_inside([0]), 1.0,
             str(tmp_path / "KHDN_x.tif"))
     assert "member_suffix=.las" in caught.value.reason
@@ -365,16 +370,16 @@ def test_las_member_is_refused_with_the_reason(server, tmp_path):
 
 
 def test_cap_wording_is_exact_and_no_byte_moves(server, tmp_path):
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
-        INSETS.CwcbLidarApiStrategy().fetch(
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
+        ea_cwcb_lidar_api.CwcbLidarApiStrategy().fetch(
             _definition(max_tiles_per_airport="1"), _box_inside([0, SIZE]),
             1.0, str(tmp_path / "KHDN_cwcbtest.tif"))
     assert caught.value.reason == (
         "CWCBTEST: KHDN needs 2 tiles / 0 MB, cap 1 / 120 MB "
         "(max_tiles_per_airport / max_bytes_per_airport in CWCBTEST.elv) "
         "— SKIPPED, recorded unavailable, not no-coverage")
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
-        INSETS.CwcbLidarApiStrategy().fetch(
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
+        ea_cwcb_lidar_api.CwcbLidarApiStrategy().fetch(
             _definition(max_bytes_per_airport="10000"),
             _box_inside([0, SIZE]), 1.0, str(tmp_path / "KHDN_cwcbtest.tif"))
     assert "needs 2 tiles" in caught.value.reason
@@ -386,7 +391,7 @@ def test_cap_wording_is_exact_and_no_byte_moves(server, tmp_path):
 # ---------------------------------------------------------------------
 def test_fetch_converts_feet_to_metres_and_records(server, tmp_path,
                                                    monkeypatch):
-    monkeypatch.setattr(INSETS, "LAS_PROGRESS_INTERVAL_S", 0.0)
+    patch_inset_code(monkeypatch, "LAS_PROGRESS_INTERVAL_S", 0.0)
     lines = []
     monkeypatch.setattr(INSETS.UI, "vprint",
                         lambda level, *parts: lines.append(" ".join(
@@ -394,7 +399,7 @@ def test_fetch_converts_feet_to_metres_and_records(server, tmp_path,
     from shapely.geometry import box as _box
 
     definition = _definition()
-    definition[INSETS.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(
+    definition[ea_las_tiles.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(
         _box(*_box_inside([0, SIZE], inset_ft=20.0)))
     destination = str(tmp_path / "out" / "KHDN_cwcbtest.tif")
     provenance = INSETS.fetch_inset(definition, _box_inside([0, SIZE]),
@@ -442,33 +447,33 @@ def test_fetch_converts_feet_to_metres_and_records(server, tmp_path,
 def test_missing_tiles_are_recorded_and_all_missing_is_unavailable(
         server, tmp_path):
     del server["files"]["k2"]
-    provenance = INSETS.CwcbLidarApiStrategy().fetch(
+    provenance = ea_cwcb_lidar_api.CwcbLidarApiStrategy().fetch(
         _definition(), _box_inside([0, SIZE]), 1.0,
         str(tmp_path / "KHDN_cwcbtest.tif"))
     assert provenance["tiles_missing"] == ["LDT2"]
     server["files"].clear()
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
-        INSETS.CwcbLidarApiStrategy().fetch(
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
+        ea_cwcb_lidar_api.CwcbLidarApiStrategy().fetch(
             _definition(), _box_inside([0, SIZE]), 1.0,
             str(tmp_path / "KHDN_cwcbtest2.tif"))
     assert "server has none" in caught.value.reason
 
 
 @pytest.mark.parametrize("response, expected", [
-    (_Response(503), INSETS.TransientFetchError),
-    (_Response(429), INSETS.TransientFetchError),
-    (_Response(403), INSETS.ProviderUnavailable),
+    (_Response(503), ea_base.TransientFetchError),
+    (_Response(429), ea_base.TransientFetchError),
+    (_Response(403), ea_base.ProviderUnavailable),
     (_Response(200, body=b'{"error": "x"}',
                headers={"Content-Type": "application/json"}),
-     INSETS.TransientFetchError),
+     ea_base.TransientFetchError),
     (_Response(200, body=b"PK\x03\x04truncated",
                headers={"Content-Type": "application/octet-stream"}),
-     INSETS.TransientFetchError),
+     ea_base.TransientFetchError),
 ])
 def test_tile_download_classes(server, tmp_path, response, expected):
     server["file_response"] = response
     with pytest.raises(expected):
-        INSETS.CwcbLidarApiStrategy().fetch(
+        ea_cwcb_lidar_api.CwcbLidarApiStrategy().fetch(
             _definition(), _box_inside([0]), 1.0,
             str(tmp_path / "KHDN_cwcbtest.tif"))
     # No scratch survives a failed fetch.
@@ -496,7 +501,7 @@ def test_died_transfer_is_regot_whole_once(server, tmp_path):
     original = requests.get
     requests.get = _get
     try:
-        provenance = INSETS.CwcbLidarApiStrategy().fetch(
+        provenance = ea_cwcb_lidar_api.CwcbLidarApiStrategy().fetch(
             _definition(), _box_inside([0]), 1.0,
             str(tmp_path / "KHDN_cwcbtest.tif"))
     finally:

@@ -29,7 +29,7 @@ detector (``require_no_swallowed_write_block``) exactly as a swallowed
 Python-level refusal is.  That is deliberate: a spawn is not a
 best-effort write — the build wants that output — which is why this module
 is separate from the best-effort question
-``O4_Airport_Elevation_Insets._write_refused_by_armed_guard`` asks.
+``elevation_access.downloads._write_refused_by_armed_guard`` asks.
 """
 from __future__ import annotations
 

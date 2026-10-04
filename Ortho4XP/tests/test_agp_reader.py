@@ -681,3 +681,59 @@ def test_a_touched_ini_alone_does_not_invalidate_the_sidecar(tmp_path):
     reparses: list[str] = []
     _cold_index(root, reparses)
     assert reparses == []
+
+
+# ── _scenery_pack_order (RULINGS 2026-10-04j "coverage owed") ────────
+# ``resolve_library_path`` -> ``_library_source_files`` -> here, on every build
+# that resolves a library object; the v1 cut removed the one test that
+# named it (and that one REPLACED it with a stub).
+def test_pack_order_is_low_to_high_with_unlisted_packs_lowest(tmp_path):
+    from object_stage_support import custom_scenery
+    root = tmp_path / "XP"
+    custom_scenery(root, ["Alpha", "Bravo", "Zulu", "Mike"],
+                   ini_rows=[("SCENERY_PACK", "Bravo"),
+                             ("SCENERY_PACK", "Alpha"),
+                             ("SCENERY_PACK", "Bravo")])   # a repeated row
+    # ini order (high -> low) is Bravo, Alpha; Mike and Zulu are unlisted,
+    # appended sorted at the LOWEST priority; the answer is reversed so a
+    # dict-overwrite leaves the highest-priority provider last.
+    assert A._scenery_pack_order(str(root)) == [
+        "Zulu", "Mike", "Alpha", "Bravo"]
+
+
+def test_a_disabled_pack_is_not_in_the_pack_order(tmp_path):
+    """Owner RULINGS 2026-09-17b: ``SCENERY_PACK_DISABLED`` also starts
+    with ``SCENERY_PACK`` — a disabled pack once WON a library path."""
+    from object_stage_support import custom_scenery
+    root = tmp_path / "XP"
+    custom_scenery(root, ["Alpha", "Bravo"],
+                   ini_rows=[("SCENERY_PACK_DISABLED", "Bravo"),
+                             ("SCENERY_PACK", "Alpha")])
+    assert A._scenery_pack_order(str(root)) == ["Alpha"]
+
+
+def test_a_listed_pack_missing_from_disk_is_not_in_the_pack_order(tmp_path):
+    from object_stage_support import custom_scenery
+    root = tmp_path / "XP"
+    custom_scenery(root, ["Alpha"], ini_rows=[("SCENERY_PACK", "Ghost"),
+                                              ("SCENERY_PACK", "Alpha")])
+    assert A._scenery_pack_order(str(root)) == ["Alpha"]
+
+
+def test_pack_order_without_an_ini_is_every_pack_sorted(tmp_path):
+    from object_stage_support import custom_scenery
+    root = tmp_path / "XP"
+    custom_scenery(root, ["Bravo", "Alpha"])
+    assert A._scenery_pack_order(str(root)) == ["Bravo", "Alpha"]
+    assert A._scenery_pack_order(str(tmp_path / "no install")) == []
+
+
+def test_library_sources_follow_the_pack_order(tmp_path):
+    """The order IS the priority: default scenery first, then the packs
+    low -> high, so the last writer of a virtual path is the winner."""
+    root = _install(tmp_path, _PACKS, ini_order=["Bravo", "Alpha"],
+                    default="EXPORT lib/x.agp x.agp\n")
+    names = [os.path.basename(os.path.dirname(p))
+             for p in A._library_source_files(str(root))]
+    assert names == ["airport scenery"] + A._scenery_pack_order(str(root))
+    assert names[-1] == "Bravo"

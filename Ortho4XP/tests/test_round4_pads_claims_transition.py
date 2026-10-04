@@ -11,6 +11,8 @@ no shared data repo, no network.
 """
 from __future__ import annotations
 
+import math
+
 
 from auto_patch import driver, object_anchor, post_mesh
 
@@ -157,6 +159,51 @@ def test_a_single_entry_cell_is_unchanged():
                 "claim": driver._airport_claim_lonlat(_OTBD)}]
     assign = post_mesh.worklist_claim_assigner(entries)
     assert assign("/p/a.dsf", 40.0, -70.0) == "OTBD"
+
+
+def test_a_claim_with_no_hull_is_tested_by_its_centre_and_radius():
+    """An entry whose hull is unusable (a one-runway strip: two thresholds
+    make no polygon) still CLAIMS — by ``centre_lonlat`` + ``radius_m``.
+    The flat-site prep reads the mode (``flat_site_mode``: only
+    ``CLAIM_CONTAINMENT`` licenses moving terrain), and this arm is the
+    one the production tile build takes that no test did (RULINGS
+    2026-10-04j "coverage owed")."""
+    dsf = "/packs/aeroscape/+25+051.dsf"
+    entries = _two_airport_entries(dsf)
+    disc = {"centre_lonlat": [51.5700, 25.2660], "radius_m": 800.0,
+            "hull_lonlat": [[51.5650, 25.2610], [51.5750, 25.2710]]}
+    entries[0]["claim"] = disc                      # OTBD: no polygon
+    assign = post_mesh.worklist_claim_assigner(entries)
+    # inside the disc: a containment answer, and it beats OTHH's polygon
+    # on a genuine overlap (the disc carries area 0 — the tighter claim)
+    assert assign(dsf, 25.2660, 51.5700, with_mode=True) == (
+        "OTBD", post_mesh.CLAIM_CONTAINMENT)
+    assert assign(dsf, 25.2660 + 500.0 / 111320.0, 51.5700) == "OTBD"
+    # outside the disc and outside OTHH's hull: the nearest-centre fallback,
+    # reported as what it is
+    assert assign(dsf, 25.2660 + 1500.0 / 111320.0, 51.5700,
+                  with_mode=True) == ("OTBD", post_mesh.CLAIM_NEAREST)
+    # OTHH's own hull still answers for OTHH
+    assert assign(dsf, 25.2660, 51.6180, with_mode=True) == (
+        "OTHH", post_mesh.CLAIM_CONTAINMENT)
+    # the radius is measured in METRES east-west too (cos latitude)
+    east_m = 700.0
+    east_deg = east_m / (111320.0 * math.cos(math.radians(25.2660)))
+    assert assign(dsf, 25.2660, 51.5700 + east_deg, with_mode=True) == (
+        "OTBD", post_mesh.CLAIM_CONTAINMENT)
+    assert assign(dsf, 25.2660, 51.5700 + east_deg * 1.3,
+                  with_mode=True)[1] == post_mesh.CLAIM_NEAREST
+
+
+def test_a_sole_entry_and_an_unknown_dsf_report_their_mode():
+    entries = [{"icao": "OTBD", "dsf_path": "/p/a.dsf", "claim": {}}]
+    assign = post_mesh.worklist_claim_assigner(entries)
+    assert assign("/p/a.dsf", 40.0, -70.0, with_mode=True) == (
+        "OTBD", post_mesh.CLAIM_SOLE_ENTRY)
+    assert assign("/p/other.dsf", 40.0, -70.0, with_mode=True) == (None, None)
+    assert assign("/p/other.dsf", 40.0, -70.0) is None
+    assert post_mesh.worklist_claim_assigner(
+        [{"icao": "X"}])("/p/a.dsf", 0.0, 0.0) is None    # no dsf_path
 
 
 def test_the_run_fingerprint_is_keyed_by_the_claiming_airport():

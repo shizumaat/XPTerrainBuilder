@@ -443,20 +443,29 @@ def _words(name):
                                           name.replace("_", " "))}
 
 
+def _starts_word(term, text):
+    return re.search(r"(?<![a-z0-9])" + re.escape(term), text) is not None
+
+
 def find(terms, files):
-    """Defs whose name or first docstring line contains EVERY term
-    (case-insensitive), best first: exact name, whole-word name match,
-    name substring, docstring only; names other modules use before
-    private ones.  Rows are (rel, line, name, kind, signature, doc)."""
+    """Defs matching EVERY term (case-insensitive) in their own name or
+    first docstring line, or in their MODULE's name or first docstring
+    line (``union find`` reaches ``union_find.find_root``).  RANKED FOR
+    REUSE: names another non-test module uses first, then public names,
+    then private ones; inside a group the closest name match, then the
+    most used.  Rows are (rel, line, name, kind, signature, doc, users)."""
     terms = [t.lower() for t in terms if t]
     hits = []
     for rel, e in files.items():
         used = e["used"]
+        stem = os.path.basename(rel).rsplit(".", 1)[0].lower()
+        mdoc = e["doc"].lower().replace("-", " ")
+        in_mod = [t in stem or _starts_word(t, mdoc) for t in terms]
         for name, kind, sig, line, doc in e["defs"]:
             leaf = name.rsplit(".", 1)[-1]
             low, dlow, words = leaf.lower(), doc.lower(), _words(leaf)
-            if not all(t in low or re.search(r"\b" + re.escape(t), dlow)
-                       for t in terms):
+            if not all(t in low or _starts_word(t, dlow) or m
+                       for t, m in zip(terms, in_mod)):
                 continue
             if "_".join(terms) == low or "".join(terms) == low:
                 rank = 0
@@ -464,27 +473,34 @@ def find(terms, files):
                 rank = 1
             elif all(t in low for t in terms):
                 rank = 2
-            else:
+            elif all(t in low or _starts_word(t, dlow) for t in terms):
                 rank = 3
-            reach = 0 if leaf in used else (2 if leaf.startswith("_") else 1)
-            hits.append((rank, reach, kind == "m", rel, line,
-                         name, kind, sig, doc))
-    return [h[3:] for h in sorted(hits)]
+            else:
+                rank = 4                    # reached through its module
+            users = used.get(name.split(".")[0], 0)   # a method: its class
+            group = 0 if users else (2 if leaf.startswith("_") else 1)
+            hits.append((group, kind == "m", rank, -users, len(name), rel,
+                         line, name, kind, sig, doc, users))
+    return [h[5:] for h in sorted(hits)]
 
 
 def render_find(terms, files, top=FIND_TOP):
+    """``path:line name(args) [shared N] — doc``; ``[shared N]`` marks a
+    name N other modules already use — the one to extend."""
     hits = find(terms, files)
     if not hits:
         return "no function or class matches %r — it does not exist yet" \
             % " ".join(terms)
     out = []
-    for rel, line, name, kind, sig, doc in hits[:top or None]:
+    for rel, line, name, kind, sig, doc, users in hits[:top or None]:
         shape = {"c": name, "x": "extension " + name}.get(
             kind, "%s(%s)" % (name, sig))
-        out.append("%s:%d %s%s" % (_short(rel), line, shape,
-                                   " — " + doc if doc else ""))
+        out.append("%s:%d %s%s%s" % (
+            _short(rel), line, shape,
+            " [shared %d]" % users if users and kind != "m" else "",
+            " — " + doc if doc else ""))
     if top and len(hits) > top:
-        out.append("+%d more (--top N; 0 = all)" % (len(hits) - top))
+        out.append("+%d more matched (--top N; 0 = all)" % (len(hits) - top))
     return "\n".join(out)
 
 

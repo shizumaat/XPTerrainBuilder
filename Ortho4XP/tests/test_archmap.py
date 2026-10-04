@@ -118,16 +118,50 @@ def test_package_arguments_read_the_way_the_map_prints(tmp_path):
 def test_find_matches_name_or_docstring_with_signature_and_line(tmp_path):
     files = archmap.scan(_tree(tmp_path))
     out = archmap.render_find(["ring", "area"], files).splitlines()
-    assert out == ["src/auto_patch_v2/geom/ring.py:3 ring_area(ring, signed)"
-                   " — Shoelace area of a closed ring"]
-    # name matches first (the used name leading), then docstring-only
-    hits = archmap.find(["ring"], files)
-    assert [h[2] for h in hits] == ["ring_area", "ring_length", "perimeter"]
+    assert out[0].startswith("src/auto_patch_v2/geom/ring.py:")
+    assert out[0].endswith(" ring_area(ring, signed) [shared 1]"
+                           " — Shoelace area of a closed ring")
     assert archmap.render_find(["send"], files) == \
         "../Sources/Kit/Client.swift:6 send(_ line: String)"
     assert "does not exist yet" in archmap.render_find(["nothing_like_it"], files)
-    assert archmap.render_find(["ring"], files, top=1).splitlines()[-1] \
-        .startswith("+")
+    last = archmap.render_find(["ring"], files, top=1).splitlines()[-1]
+    assert last.startswith("+3 more matched")
+
+
+def test_find_ranks_shared_then_public_then_private(tmp_path):
+    """RANKED FOR REUSE: what another module already uses comes first and
+    is marked; a private one-file helper never outranks a shared export."""
+    repo = _tree(tmp_path)
+    _write(repo, V2 + "/solve/local.py",
+           '"""Local."""\n__all__ = []\n'
+           "def _ring_area(r):\n    pass\n"
+           "def ring_area_public(r):\n    pass\n")
+    files = archmap.scan(repo)
+    names = [h[2] for h in archmap.find(["ring", "area"], files)]
+    # _ring_area is the closer NAME match and still comes last
+    assert names[:3] == ["ring_area", "ring_area_public", "_ring_area"]
+    assert [h[2] for h in archmap.find(["ring"], files)][:2] \
+        == ["ring_area", "perimeter"]                 # the two shared names
+    out = archmap.render_find(["ring", "area"], files).splitlines()
+    assert "[shared" in out[0] and not any("[shared" in l for l in out[1:3])
+
+
+def test_find_matches_the_module_name_and_docstring(tmp_path):
+    """`union find` must reach `union_find.find_root`: the keywords are in
+    the MODULE's name and docstring, not the function's."""
+    repo = _tree(tmp_path)
+    _write(repo, V2 + "/geom/union_find.py",
+           '"""UNION-FIND: the root of an element\'s set."""\n'
+           "__all__ = ['find_root']\n"
+           "def find_root(parent, i):\n    pass\n")
+    _write(repo, V2 + "/solve/comp.py",
+           '"""Components."""\nfrom ..geom.union_find import find_root\n'
+           "__all__ = []\n"
+           "class _UnionFind:\n    pass\n")
+    files = archmap.scan(repo)
+    assert [h[2] for h in archmap.find(["union", "find"], files)] \
+        == ["find_root", "_UnionFind"]
+    assert [h[2] for h in archmap.find(["root", "set"], files)] == ["find_root"]
 
 
 # ------------------------------------------------------------------ live
@@ -135,6 +169,19 @@ def test_live_find_finds_a_known_symbol():
     files = archmap.scan(REPO, ("tools",))
     hit = archmap.find(["make", "resolver"], files)[0]
     assert hit[0] == "tools/archmap.py" and hit[2] == "make_resolver"
+
+
+def test_live_find_puts_the_shared_helper_first():
+    files = archmap.scan(REPO, ("Ortho4XP/src", "Ortho4XP/tools"))
+    for terms, want in ((["union", "find"], "find_root"),
+                        (["sha256", "file"], "sha256_file")):
+        hits = archmap.find(terms, files)
+        assert hits[0][2] == want and hits[0][6] > 0, (terms, hits[:3])
+        groups = [0 if h[6] else (2 if h[2].rsplit(".", 1)[-1].startswith("_")
+                                  else 1) for h in hits if h[3] != "m"]
+        assert groups == sorted(groups), terms
+    text = archmap.render_find(["union", "find"], files)
+    assert len(text) <= 900 and "more matched" in text
 
 
 def test_live_map_stays_scannable():

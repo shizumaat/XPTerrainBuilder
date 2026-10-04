@@ -42,9 +42,9 @@ import numpy as np
 from ..law import Law
 from ..law.tables import design as design_law, role_cap
 from ..model.jetway import StripSet
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, facade_strip_host, is_facade_strip_ref
 
-__all__ = ["StripReport", "project_strips"]
+__all__ = ["StripReport", "project_strips", "project_facade_strips"]
 
 
 @_dc.dataclass
@@ -367,3 +367,68 @@ def _frontage_residual(st: _t.Any, levels: _t.Mapping[int, float],
     if len(pts) < 3:
         pts = vs
     return float(max(abs(levels[v] - _at(pl, xy[v])) for v in pts))
+
+
+# ── §52: the facade strip takes its host pad's FINAL plane ───────────────
+
+def project_facade_strips(planar: PlanarMap, law: Law,
+                          z: _t.Sequence[float]) -> tuple[tuple[float, ...], dict]:
+    """THE FACADE STRIP STANDS AT ITS HOST PAD'S LEVEL (spec §52; owner
+    RULINGS 2026-10-04d (3) (a) "at the pad's level ... the pad footprint,
+    frontage and weld do not move", 2026-10-04f "it should stay with the
+    building pad"; master 2026-10-04 round 3).
+
+    A PROJECTION AFTER THE WHOLE SOLVE, on the final ``z``: every vertex of
+    a ``facstrip:<pad>:<k>`` face takes the host pad's plane evaluated at
+    it — :func:`_pad_plane` over the pad's own vertices at their FINAL
+    values (a held pad is level; an unheld one may carry its 1 % plane).
+    The strip mints no row and the pad is read, never written, so no pad
+    and no airside vertex can move BY CONSTRUCTION — the in-solve forms
+    were measured and failed (spec §52 (6): a hard row collapsed stage 2, a
+    one-way row lagged 1.11 m, a two-way row moved an unheld pad 0.03 m).
+
+    A strip vertex ANOTHER face shares (a road or lot reaching the strip)
+    is moved too — the strip never moves to meet the road (04f) — and
+    counted in ``shared``.  Returns the new ``z`` and the report."""
+    faces = [f for f in planar.faces.values() if is_facade_strip_ref(f.ref)]
+    rep: dict[str, _t.Any] = {"strips": [], "vertices": 0, "no_host": 0,
+                              "shared": 0, "moved_max_m": 0.0}
+    if not faces:
+        return tuple(z), rep
+    pad_vs: dict[str, set[int]] = {}
+    strip_vs: dict[int, set[int]] = {}
+    users: dict[int, int] = {}
+    for f in planar.faces.values():
+        vs = {v for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
+        if is_facade_strip_ref(f.ref):
+            strip_vs[f.id] = vs
+        else:
+            for v in vs:
+                users[v] = users.get(v, 0) + 1
+            if bool(getattr(law.tables.precedence.roles.get(f.role), "rigid", False)):
+                pad_vs.setdefault(str(f.ref).split("#")[0], set()).update(vs)
+    out = [float(v) for v in z]
+    levels = {v: out[v] for vs in pad_vs.values() for v in vs if v < len(out)}
+    xy = {v: planar.vertices[v].xy for v in planar.vertices}
+    tilt_max = float(law.tables.emit.within_shape.pad_slope_max)
+    for f in sorted(faces, key=lambda f: f.id):
+        host = facade_strip_host(f.ref)
+        pvs = sorted(pad_vs.get(host or "", ()))
+        vs = sorted(v for v in strip_vs[f.id] if v < len(out))
+        if not pvs or not vs:
+            rep["no_host"] += 1
+            continue
+        pl = _pad_plane(_dc.make_dataclass("_Host", ["pad_vertices"])(tuple(pvs)),
+                        levels, xy, pvs, tilt_max)
+        moved = 0.0
+        for v in vs:
+            new = _at(pl, xy[v])
+            moved = max(moved, abs(new - out[v]))
+            out[v] = new
+            rep["shared"] += int(users.get(v, 0) > 0)
+        rep["strips"].append({"face": f.id, "ref": f.ref, "pad_ref": host,
+                              "level": round(float(pl[0]), 4),
+                              "vertices": len(vs), "moved_max_m": round(moved, 4)})
+        rep["vertices"] += len(vs)
+        rep["moved_max_m"] = max(rep["moved_max_m"], round(moved, 4))
+    return tuple(out), rep

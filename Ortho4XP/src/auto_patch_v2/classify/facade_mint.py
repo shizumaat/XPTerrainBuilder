@@ -14,12 +14,12 @@ and the pad set-back, BEFORE the ribbons:
   ``groundside_pavement``, ref ``facstrip:<host pad>:<k>``.  The host is
   the pad the facade's footprint stands on (``planar/platform.
   DRAPED_FACADE_COVER``'s cover rule); a facade with no pad mints no strip.
-  ROUND-2 STATE, PENDING THE MASTER'S RULING (spec §52 (6)): the strip
-  takes the pad set-back from its HOST too, like every groundside cell,
-  and is held at the pad's level across it (``constraints/facade_strip``).
-  Row 8 ruled it welded by identity; MEASURED at SPJC, a strip sharing the
-  rim of a pad stage 2 solves (``building16``) drags that pad 5 m through
-  its own within-face caps.
+  THE STRIP KEEPS THE PAD SET-BACK FROM ITS HOST, like every groundside
+  cell, and takes the pad's level AFTER the solve (``solve/project_strip.
+  project_facade_strips``).  Welded by identity its face carries the
+  pad's rim vertices, so every per-face row and sheet term the solve
+  mints on it has a pad column in it — MEASURED (SPJC replay vs the
+  no-facade control): ``building16`` +0.61 m welded, 0 movers set back.
 * THE LOT: the facade's own ring minus every cell standing and every
   pad's set-back.  Role ``parking_lot``, ref ``faclot:<k>``; the existing
   lot law grades it, no level law of its own.

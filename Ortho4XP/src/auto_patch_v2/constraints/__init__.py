@@ -14,7 +14,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Row
 from ..model.planar import PlanarMap
-from . import (apron, ceiling, cluster_pad, eat, facade_strip, flat_site, foot_rows,
+from . import (apron, ceiling, cluster_pad, eat, flat_site, foot_rows,
                groundside, hard_plane,
                junction_mesh,
                no_step, pad_frontage_gs, pad_fronting, pads, pavement_cap,
@@ -110,9 +110,6 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # 2026-09-11ai-1 -> 2026-09-12r "grade frontages only"): §20's frontage
     # rule read the other way — the lot / service road follows the pad.
     ("groundside_frontage_level", pad_frontage_gs.groundside_frontage_level),
-    # §52 (owner RULINGS 2026-10-04d (3) (a)): a facade wall's strip stands
-    # at its host pad's level over its whole face — a stage-2 row
-    ("facade_strip_level", facade_strip.facade_strip_level),
     # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
     # ruled 13q item 2; spec §36): the rect beyond a departure end is PINNED
     # a tail height below the departure surface, and the taxi rows either

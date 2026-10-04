@@ -93,3 +93,45 @@ def test_facade_cells_are_late_and_not_road_ribbons():
     assert mp.is_facade_strip_ref("facstrip:b:1") and not mp.is_facade_strip_ref("faclot:0")
     assert mp.is_late_ref("small_roads:-3") and not mp.is_late_ref("pav12")
     assert mp.facade_strip_host("faclot:0") is None
+
+
+# ── the strip's level: a projection onto the host pad's FINAL plane ──────
+
+def _fake_map():
+    xy = {0: (0, 0), 1: (40, 0), 2: (40, 20), 3: (0, 20),            # pad b7
+          4: (0, -0.7), 5: (40, -0.7), 6: (40, -13.2), 7: (0, -13.2),  # its strip
+          8: (100, 0), 9: (120, 0), 10: (120, 20),                    # pad b9
+          11: (0, -13.2), 12: (40, -30.0)}
+    V = {k: types.SimpleNamespace(xy=(float(x), float(y))) for k, (x, y) in xy.items()}
+    F = [("building", "building7", (0, 1, 2, 3)),
+         ("groundside_pavement", "facstrip:building7:0", (4, 5, 6, 7)),
+         ("building", "building9#collar", (8, 9, 10)),
+         ("service_road", "small_roads:-1", (6, 7, 12)),               # a road at the strip
+         ("groundside_pavement", "facstrip:building404:1", (11, 6, 12))]
+    faces = {i: types.SimpleNamespace(id=i, role=r, ref=ref, ring=ring, holes=())
+             for i, (r, ref, ring) in enumerate(F)}
+    return types.SimpleNamespace(faces=faces, vertices=V,
+                                 ring_vertices=lambda ring: tuple(ring))
+
+
+def test_projection_puts_every_strip_vertex_on_the_host_pad_and_moves_no_pad():
+    from auto_patch_v2.solve.project_strip import project_facade_strips
+    law, pm = Law.for_airport("SPJC"), _fake_map()
+    z = [25.88] * 4 + [32.5, 33.0, 31.0, 33.2] + [40.0] * 3 + [9.0, 50.0]
+    out, rep = project_facade_strips(pm, law, z)
+    assert out[4:8] == pytest.approx((25.88,) * 4, abs=1e-9)
+    assert out[:4] == tuple(z[:4]) and out[8:11] == tuple(z[8:11])   # pads read, never written
+    assert out[11:] == tuple(z[11:])                                  # hostless strip untouched
+    assert rep["vertices"] == 4 and rep["no_host"] == 1
+    assert rep["shared"] == 2                    # the road's two vertices went with the strip
+    (s,) = rep["strips"]
+    assert s["pad_ref"] == "building7" and s["level"] == pytest.approx(25.88)
+    assert s["moved_max_m"] == pytest.approx(7.32)
+    # an UNHELD pad's plane (1 % ceiling) is evaluated at the strip vertex
+    z2 = [30.0, 30.2, 30.2, 30.0] + z[4:]
+    out2, _ = project_facade_strips(pm, law, z2)
+    assert out2[4] == pytest.approx(30.0, abs=1e-6) and out2[5] == pytest.approx(30.2, abs=1e-6)
+    # no strip: z comes back as it went in
+    pm.faces = {i: f for i, f in pm.faces.items() if not mp.is_facade_strip_ref(f.ref)}
+    assert project_facade_strips(pm, law, z) == (tuple(z), {
+        "strips": [], "vertices": 0, "no_host": 0, "shared": 0, "moved_max_m": 0.0})

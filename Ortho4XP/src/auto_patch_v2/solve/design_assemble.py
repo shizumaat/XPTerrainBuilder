@@ -21,7 +21,7 @@ from ..law import Law
 from ..law.design_schema import BEND_CLASSES
 from ..law.tables import design as design_law, role_side
 from ..model.constraints import ConstraintSet, Diff
-from ..model.planar import PlanarMap, is_facade_strip_ref
+from ..model.planar import PlanarMap
 from .design_report import DesignReport
 from .feasibility import _carries_a_column, apron_hard_rows
 from .flex import _held_at_ref
@@ -542,13 +542,6 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #    without the ribbons
     gs_roles = {r for r in pav_roles if role_side(law, r) == "groundside"}
     welded = _welded_faces(planar) if drop_f else set()
-    #    §52 (owner RULINGS 2026-10-04d (3) (a)): a FACADE STRIP takes its
-    #    host pad's level and NO DEM datum of its own — as a body it would
-    #    be joined to the pad through their shared rim and pull the pad
-    #    toward the strip's terrain (MEASURED, SPJC replay: ``building16``
-    #    30.23 -> 34.85 m).  Its faces form no body, here and at 9b.
-    strip_f = {f.id for f in planar.faces.values() if is_facade_strip_ref(f.ref)}
-    welded = set(welded) | strip_f
     for vs in _role_bodies(planar, gs_roles, red, welded):
         by_comp.setdefault(("groundside", vs[0]), vs)
     #    A RIGID GROUP (a pad, a plate, a wall band) is ONE column, so its
@@ -680,7 +673,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if stage_roles is not None:
             roles_b = frozenset(roles_b) & frozenset(stage_roles)
         for vs_b in _shape_bodies(planar, red,
-                                  _role_bodies_faced(planar, roles_b, red, strip_f)):
+                                  _role_bodies_faced(planar, roles_b, red)):
             # 10l: a pad that fronts pavement takes its frontage's level, not
             # the ground's — its vertices leave every body's datum fit
             vs_b = [v for v in vs_b if v not in pad_follow and v not in hard_v

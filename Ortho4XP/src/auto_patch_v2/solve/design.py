@@ -342,7 +342,11 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     status = (Status.ERROR if Status.ERROR in (sol1.status, sol2.status)
               else Status.FEASIBLE if Status.FEASIBLE in (sol1.status, sol2.status)
               else sol2.status)
-    sol = _dc.replace(sol2, status=status,
+    # §52: the facade strips take their host pads' FINAL plane — after the
+    # whole solve, so no pad and no airside value can move for them
+    from .project_strip import project_facade_strips
+    z_fs, rep2.facade_strip = project_facade_strips(planar, law, sol2.z)
+    sol = _dc.replace(sol2, z=z_fs, status=status,
                       iterations=sol1.iterations + sol2.iterations,
                       wall_s=time.perf_counter() - t_all,
                       message=f"staged design surface (20b): stage 1 {sol1.message}; "

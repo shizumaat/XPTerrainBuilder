@@ -135,3 +135,23 @@ def test_projection_puts_every_strip_vertex_on_the_host_pad_and_moves_no_pad():
     pm.faces = {i: f for i, f in pm.faces.items() if not mp.is_facade_strip_ref(f.ref)}
     assert project_facade_strips(pm, law, z) == (tuple(z), {
         "strips": [], "vertices": 0, "no_host": 0, "shared": 0, "moved_max_m": 0.0})
+
+
+def test_both_exits_of_the_design_solve_project_the_strips():
+    """``staged_solve = false`` returns through the same projection (the
+    single solve leaves a strip on its own terrain otherwise)."""
+    import inspect
+    from auto_patch_v2.solve import design
+    src = inspect.getsource(design.solve_design)
+    assert src.count("return _with_facade_strips(") == 2
+    assert "return published(" not in src and "return sol, rep2" not in src
+    pm, law = _fake_map(), Law.for_airport("SPJC")
+    z = tuple([25.88] * 4 + [32.5, 33.0, 31.0, 33.2] + [40.0] * 3 + [9.0, 50.0])
+    sol = types.SimpleNamespace(z=z)
+    rep = types.SimpleNamespace(facade_strip={})
+    import dataclasses
+    S = dataclasses.make_dataclass("S", ["z"])
+    out, rep = design._with_facade_strips(pm, law, S(z), rep)
+    assert out.z[4:8] == pytest.approx((25.88,) * 4) and rep.facade_strip["vertices"] == 4
+    empty, _ = design._with_facade_strips(pm, law, S(()), rep)
+    assert empty.z == ()

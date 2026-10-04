@@ -172,8 +172,9 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     counters in ``stages`` and the hard set COMBINED (§20b's census table).
     """
     if not bool(design_law(law).staged_solve):
-        return published(*_solve_stage(planar, cs, law, options, size_out=size_out,
-                                       method=method, low_rank=low_rank))
+        return _with_facade_strips(planar, law, *published(*_solve_stage(
+            planar, cs, law, options, size_out=size_out, method=method,
+            low_rank=low_rank)))
     t_all = time.perf_counter()
     # PASS 1a / THE INTERVAL / PASS 1b (flat-pad spec v2 §1-§2, owner
     # RULINGS 2026-09-30as; ``solve/flex.stage_one``): ``hold`` is the
@@ -342,16 +343,26 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     status = (Status.ERROR if Status.ERROR in (sol1.status, sol2.status)
               else Status.FEASIBLE if Status.FEASIBLE in (sol1.status, sol2.status)
               else sol2.status)
-    # §52: the facade strips take their host pads' FINAL plane — after the
-    # whole solve, so no pad and no airside value can move for them
-    from .project_strip import project_facade_strips
-    z_fs, rep2.facade_strip = project_facade_strips(planar, law, sol2.z)
-    sol = _dc.replace(sol2, z=z_fs, status=status,
+    sol = _dc.replace(sol2, status=status,
                       iterations=sol1.iterations + sol2.iterations,
                       wall_s=time.perf_counter() - t_all,
                       message=f"staged design surface (20b): stage 1 {sol1.message}; "
                               f"stage 2 {sol2.message}")
-    return sol, rep2
+    return _with_facade_strips(planar, law, sol, rep2)
+
+
+def _with_facade_strips(planar: PlanarMap, law: Law, sol: Solution,
+                        rep: DesignReport) -> tuple[Solution, DesignReport]:
+    """§52: THE FACADE STRIPS TAKE THEIR HOST PADS' FINAL PLANE — after the
+    whole solve, so no pad and no airside value can move for them.  BOTH
+    exits of :func:`solve_design` pass through here (the staged solve and
+    the single one): a strip is minted whichever path solves the map, and
+    unprojected it stands on its own terrain, metres off the dock."""
+    from .project_strip import project_facade_strips
+    if not sol.z:
+        return sol, rep
+    z, rep.facade_strip = project_facade_strips(planar, law, sol.z)
+    return _dc.replace(sol, z=z), rep
 
 
 def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,

@@ -321,3 +321,26 @@ def test_why_chain_kml_writes_one_line_per_binding_row(tmp_path):
     assert "TERMINAL" in text and "START" in text
     for s in tr.steps:
         assert f"{s.family}" in text
+
+
+def test_why_on_a_late_stage_solve_keeps_the_constants(prepared, law):
+    """Spec §53 (18): a why on a LAST-STAGE solve re-solves the last stage —
+    the earlier stages' levels stay constants (the plain design solve would
+    move them and every binding read would be of another surface), and a
+    chain ends on a constant as ``FIXED``."""
+    import numpy as np
+    from auto_patch_v2.pipeline.stage_one_map import late_constraints
+    free = set(why.face_vertices(prepared, _apron_face(prepared)))
+    fixed = {int(v): float(prepared.z[v]) for v in prepared.pm.vertices
+             if v not in free}
+    assert free and fixed
+    cs2, _dropped = late_constraints(prepared.cs, fixed)
+    sol, rep, press = why.solve_with_pressure(prepared.pm, cs2, law, fixed)
+    z2 = np.asarray(sol.z, float)
+    assert max(abs(z2[v] - z) for v, z in fixed.items()) < 1e-6
+    prep2 = why.Prepared("ZZZZ", prepared.airport, law, prepared.pm, cs2, {},
+                         rep, z2, {}, press, fixed)
+    kind, note = why._terminal_kind(prep2, next(iter(fixed)), [])
+    assert kind == "FIXED" and "constant" in note
+    rr = why.relax_family(prep2, "apron_within_shape", sorted(free))
+    assert rr.status in ("optimal", "feasible")

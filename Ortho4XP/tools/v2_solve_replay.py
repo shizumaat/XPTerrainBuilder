@@ -791,7 +791,8 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
 
 
 def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
-              out=print, relax: list[str] | None = None, vertex: int | None = None) -> dict:
+              out=print, relax: list[str] | None = None, vertex: int | None = None,
+              fixed: dict | None = None) -> dict:
     """``why`` for the highest crown-ridge vertex of ``runway`` in stations
     ``[s0, s1]`` (z − threshold chord): the binding rows by family on the
     vertex (v2_why_solve.bindings — a duals solve of the SAME LP) and the chain
@@ -829,11 +830,12 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
     out(f"[{icao}] why-hump {runway}: ridge vertex v{v} at s={s:.0f}  z {z[v]:.2f}  chord+{above:.2f}  "
         f"DEM {pm.vertices[v].dem_z:.2f} (z-DEM {z[v] - pm.vertices[v].dem_z:+.2f}); pressure solve ...")
     t = time.perf_counter()
-    sol2, drep, press = solve_with_pressure(pm, cs, law)
+    sol2, drep, press = solve_with_pressure(pm, cs, law, fixed)
     zz = np.asarray(sol2.z, float)
     out(f"    pressure solve {time.perf_counter() - t:.0f} s status {sol2.status.value}; "
-        f"|z_pressure - z| max {float(np.max(np.abs(zz - np.asarray(z)))):.3f} m")
-    prep = Prepared(icao, airport, law, pm, cs, {}, drep, zz, {}, press)
+        f"|z_pressure - z| max {float(np.max(np.abs(zz - np.asarray(z)))):.3f} m"
+        + (f"; LAST STAGE, {len(fixed)} constants" if fixed else ""))
+    prep = Prepared(icao, airport, law, pm, cs, {}, drep, zz, {}, press, fixed)
     bl = bindings(prep, [v])[v]
     fam: dict[str, dict] = {}
     for b in bl:
@@ -2351,6 +2353,11 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 else _hp.apply(cs) if _hp is not None else cs)
         pm_w = (_s1.planar_of_full(pm) if _s1 is not None
                 else _hp.planar_of(pm) if _hp is not None else pm)
+        if late_from is not None:
+            # spec §53 (18): the LAST STAGE's own set (rows with no unknown
+            # dropped, the follow rows added) is what a later why re-solves,
+            # with the earlier stages' levels as constants (``late_fixed``)
+            cs_w = cs
         if solved_out is not None:
             # the solved set (pm, stage, rows, z) for a later ``--why-from``
             # (the duals solve is a second full LP; kept out of the timed arm)
@@ -2363,6 +2370,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 # solve, where they are still the arm's own.
                 pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm_w,
                              "cs": cs_w, "z": z,
+                             **({"late_fixed": dict(_late_fixed)}
+                                if late_from is not None else {}),
                              _capture_state().CAPTURE_STATE_KEY: _capture_state().collect(),
                              # #100 option (c): the map + set stage 1 SOLVED
                              # (the ribbon-free one) and its registries, which
@@ -2609,7 +2618,7 @@ def main() -> int:
                       f"{a.site_radius:g} m")
                 return 1
         res = _why_hump(sv["icao"], sv["pm"], law, sv["airport"], sv["cs"], sv["z"], *wh,
-                        relax=a.why_relax, vertex=vertex)
+                        relax=a.why_relax, vertex=vertex, fixed=sv.get("late_fixed"))
         if a.json:
             a.json.write_text(json.dumps(res, indent=1, default=str))
         return 0

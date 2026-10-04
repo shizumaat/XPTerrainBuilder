@@ -75,6 +75,9 @@ class Prepared:
     #: ``id(row)`` -> the pressure of each of its one-sided sides, in the
     #: order ``solve.design._law_sides`` states them
     pressure: dict[int, list[float]] = _dc.field(default_factory=dict)
+    #: THE LAST STAGE's constants (spec §53 (9)): vertex -> the level an
+    #: earlier stage gave it.  ``None``: the ordinary design solve.
+    fixed: _t.Mapping[int, float] | None = None
 
     @property
     def dem(self) -> np.ndarray:
@@ -82,7 +85,18 @@ class Prepared:
                          else math.nan for i in range(len(self.pm.vertices))], float)
 
 
-def solve_with_pressure(pm: PlanarMap, cs: ConstraintSet, law: Law
+def _solve(pm: PlanarMap, cs: ConstraintSet, law: Law,
+           fixed: _t.Mapping[int, float] | None):
+    """The solve the surface came from: the design solve, or — when the
+    solved set carries an earlier stage's constants — the last stage's."""
+    if fixed:
+        from auto_patch_v2.solve.design import solve_late_stage
+        return solve_late_stage(pm, cs, law, fixed)
+    return solve_design(pm, cs, law)
+
+
+def solve_with_pressure(pm: PlanarMap, cs: ConstraintSet, law: Law,
+                        fixed: _t.Mapping[int, float] | None = None
                         ) -> tuple[_t.Any, DesignReport, dict[int, list[float]]]:
     """The pipeline's own solve (``solve.design.solve_design``) with the
     PRESSURE of every law row kept: ``2 · w_law · max(0, violation)``, the
@@ -90,7 +104,7 @@ def solve_with_pressure(pm: PlanarMap, cs: ConstraintSet, law: Law
     the law became a design target (RULINGS 2026-09-08t)."""
     from auto_patch_v2.solve.design import _law_sides, _violation
     from auto_patch_v2.law.tables import design as design_law
-    sol, rep = solve_design(pm, cs, law)
+    sol, rep = _solve(pm, cs, law, fixed)
     w = design_law(law).law
     z = np.asarray(sol.z, float)
     one, eqs = _law_sides(cs)
@@ -158,6 +172,9 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     # ``constraints/ceiling.py``): its own family, so a ``why`` trace names
     # the ceiling rather than the class cap it rides beside
     ("pavement_ceiling", "", "pavement_ceiling"),
+    # THE LAST STAGE's follow rows (spec §53 (13)): a one-term Linear
+    # between a follower and a constant of the standing ground
+    ("gap_follow", "", "gap_follow"),
 )
 
 
@@ -331,7 +348,7 @@ class Trace:
     start: int
     steps: tuple[Step, ...]
     terminal: int
-    terminal_kind: str          # PIN | SEAM | BAND | FREE
+    terminal_kind: str          # FIXED | PIN | SEAM | BAND | FREE
     terminal_note: str
     reached: dict[str, int]     # terminals reachable by kind (count)
     visited: int
@@ -358,11 +375,18 @@ def _ground_datum(prep: Prepared) -> frozenset[int]:
 
 def _terminal_kind(prep: Prepared, v: int, blist: list[Binding]) -> tuple[str, str] | None:
     """Whether ``v`` ends a chain, and why."""
+    if prep.fixed and v in prep.fixed:
+        return "FIXED", (f"an earlier stage's level, a constant of the last "
+                         f"stage ({float(prep.fixed[v]):.2f} m)")
     for b in blist:
         if b.note == "PIN":
             return "PIN", f"{b.row.source.ruling} ({b.row.source.inputs})"
         if b.note.startswith("BAND"):
             return "BAND", f"{b.row.source.ruling}"
+        if isinstance(b.row, Linear) and len(b.row.terms) == 1 and not b.must_rise:
+            # a one-term Linear is a bound on the vertex (the last stage's
+            # follow rows): it ends the chain and names its rings
+            return "BAND", f"{b.row.source.ruling} {b.row.source.inputs} {b.note}"
         if b.family == "seam_values" and b.slack_m <= BIND_TOL_M:
             return "SEAM", "seam DEM value held"
     if not any(b.must_rise for b in blist):
@@ -396,7 +420,7 @@ def chain_trace(prep: Prepared, start: _t.Iterable[int], tol: float = BIND_TOL_M
     prev: dict[int, tuple[int, Binding] | None] = {v: None for v in start}
     found: dict[str, list[int]] = {}
     reached: dict[str, int] = {}
-    order = ("PIN", "SEAM", "BAND", "FREE")
+    order = ("FIXED", "PIN", "SEAM", "BAND", "FREE")
     depth_of: dict[int, int] = {v: 0 for v in start}
     stop_depth: int | None = None
     while q:
@@ -410,7 +434,7 @@ def chain_trace(prep: Prepared, start: _t.Iterable[int], tol: float = BIND_TOL_M
         if term is not None:
             reached[term[0]] = reached.get(term[0], 0) + 1
             found.setdefault(term[0], []).append(v)
-            if term[0] == "PIN" and stop_depth is None:
+            if term[0] in ("PIN", "FIXED") and stop_depth is None:
                 stop_depth = depth_of[v]
             continue
         for b in bl:
@@ -459,7 +483,7 @@ def relax_family(prep: Prepared, family: str, verts: _t.Sequence[int]
     rows = [r for r in prep.cs.rows() if family_of(r) not in (family, _ENVELOPE)]
     dropped = len(prep.cs.rows()) - len(rows)
     t = time.perf_counter()
-    sol, _rep = solve_design(prep.pm, ConstraintSet.from_rows(rows), prep.law)
+    sol, _rep = _solve(prep.pm, ConstraintSet.from_rows(rows), prep.law, prep.fixed)
     wall = time.perf_counter() - t
     if sol.status.value not in ("optimal", "feasible"):
         return RelaxResult(family, dropped, sol.status.value, math.nan, math.nan,

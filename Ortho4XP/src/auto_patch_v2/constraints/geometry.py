@@ -27,7 +27,7 @@ from ..model.planar import PlanarMap
 XY = tuple[float, float]
 
 __all__ = [
-    "ring_vertex_ids", "face_outer_ids", "principal_axis", "long_axis",
+    "ring_vertex_ids", "principal_axis", "long_axis",
     "pair_is_transverse", "station_indices", "longitudinal_runs",
     "rect_ring", "point_in_ring", "point_in_rect_ring", "project_to_chain",
     "TransectShape", "TransectAxis", "Transect", "walk_transects",
@@ -116,11 +116,6 @@ def ring_vertex_ids(pm: PlanarMap, cycle: _t.Sequence[int]) -> list[int]:
     """The vertex ids of an edge cycle in walking order (first not
     repeated) — ``PlanarMap.ring_vertices``."""
     return list(pm.ring_vertices(cycle))
-
-
-def face_outer_ids(pm: PlanarMap) -> dict[int, list[int]]:
-    """Face id -> outer ring vertex ids (open), for every face."""
-    return {fid: ring_vertex_ids(pm, f.ring) for fid, f in pm.faces.items()}
 
 
 def polyline_length(pts: _t.Sequence[XY]) -> float:

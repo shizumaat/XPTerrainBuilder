@@ -37,7 +37,7 @@ import typing as _t
 from ..law import Law
 from . import obj8 as _obj8
 
-__all__ = ["rider_candidates", "agp_half_extent_m", "agp_footprint_local",
+__all__ = ["rider_candidates", "agp_footprint_local",
            "agp_footprint_xy", "obj_half_extent_m",
            "riders_for_dump", "rider_census", "SEAT_WHY"]
 
@@ -45,49 +45,6 @@ __all__ = ["rider_candidates", "agp_half_extent_m", "agp_footprint_local",
 SEAT_WHY = ("on_ground", "msl_written", "no_host")
 
 _EXTENT_MEMO: dict[str, float | None] = {}
-
-
-def agp_half_extent_m(path: str) -> float | None:
-    """The ``.agp``'s own declared plan half-extent in metres: the
-    ``TILE s1 t1 s2 t2`` rectangle about its ``ANCHOR_PT``, in texture
-    units scaled to metres by ``TEXTURE_WIDTH / TEXTURE_SCALE``.  HECA's
-    ``HECA_Jetway_No_glass.agp``: ``TILE -5 -5 5 5``, scale 10, width 10
-    -> 5.0 m.  ``None`` when the file carries no ``TILE``."""
-    if path in _EXTENT_MEMO:
-        return _EXTENT_MEMO[path]
-    tile = anchor = None
-    scale_s = width = None
-    try:
-        with open(path, "r", encoding="latin-1", errors="replace") as fh:
-            for ln in fh:
-                t = ln.split()
-                if not t:
-                    continue
-                k = t[0]
-                try:
-                    if k == "TILE" and len(t) >= 5 and tile is None:
-                        tile = tuple(float(x) for x in t[1:5])
-                    elif k == "ANCHOR_PT" and len(t) >= 3 and anchor is None:
-                        anchor = (float(t[1]), float(t[2]))
-                    elif k == "TEXTURE_SCALE" and len(t) >= 2:
-                        scale_s = float(t[1])
-                    elif k == "TEXTURE_WIDTH" and len(t) >= 2:
-                        width = float(t[1])
-                except ValueError:
-                    continue
-    except OSError:
-        _EXTENT_MEMO[path] = None
-        return None
-    if tile is None:
-        _EXTENT_MEMO[path] = None
-        return None
-    ax, ay = anchor or (0.0, 0.0)
-    units = max(abs(tile[0] - ax), abs(tile[2] - ax),
-                abs(tile[1] - ay), abs(tile[3] - ay))
-    m_per_unit = (width / scale_s) if (width and scale_s) else 1.0
-    got = float(units * m_per_unit)
-    _EXTENT_MEMO[path] = got
-    return got
 
 
 _FOOTPRINT_MEMO: dict[str, tuple[tuple[tuple[float, float], ...], float] | None] = {}

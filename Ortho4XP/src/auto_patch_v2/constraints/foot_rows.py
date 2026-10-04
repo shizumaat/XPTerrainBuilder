@@ -542,16 +542,3 @@ def _bary(p: tuple[float, float], a: tuple[float, float],
     return (wa, wb, wc)
 
 
-def targets_report(rows: _t.Sequence[FootTarget],
-                   verdicts: _t.Sequence[BodyVerdict],
-                   counts: _t.Mapping[str, int]) -> dict[str, float]:
-    """The one line a build prints."""
-    out = {k: float(v) for k, v in counts.items()}
-    if rows:
-        moved = [abs(r.z - r.dem_z) for r in rows]
-        out["move_max_m"] = round(max(moved), 3)
-        out["move_mean_m"] = round(sum(moved) / len(moved), 3)
-    inf = [v for v in verdicts if v.verdict == "infeasible"]
-    if inf:
-        out["infeasible_worst_m"] = round(max(v.residual_m for v in inf), 3)
-    return out

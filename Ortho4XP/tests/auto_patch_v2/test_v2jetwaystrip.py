@@ -162,8 +162,7 @@ def test_the_agp_reach_is_12_m_and_the_rest_keep_their_touch(law, agp):
     ``.agp`` reaches rider_reach_max_m (12 m) whatever its 5 m TILE (still
     read: 5.0 m); a non-``.agp`` keeps max(footprint_touch_m, its plan box)
     — an unreadable extent keeps the 0.5 m anchor rule, never a guess."""
-    from auto_patch_v2.airport.riders import agp_half_extent_m, rider_candidates
-    assert agp_half_extent_m(agp) == pytest.approx(5.0)
+    from auto_patch_v2.airport.riders import rider_candidates
     cap = float(law.tables.structures.placement.rider_reach_max_m)
     assert cap == pytest.approx(12.0)
     got = rider_candidates(_airport(law, agp), law)

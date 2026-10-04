@@ -33,21 +33,7 @@ from __future__ import annotations
 import typing as _t
 
 __all__ = ["foot_float", "feet_in_band", "ground_contact_feet",
-           "census_motion", "census_motion_lines", "MotionBody"]
-
-
-class MotionBody(_t.TypedDict, total=False):
-    """One written body as this census reads it — the projection every
-    caller can build from what it already holds (a ``Body`` record, or a
-    plan row plus the pack's own feet)."""
-
-    res: str
-    cls: str
-    anchor_lat: float
-    anchor_lon: float
-    anchor_z: "float | None"
-    y_zero: float
-    feet: _t.Sequence[_t.Tuple[float, float, float]]
+           "census_motion", "census_motion_lines"]
 
 
 def foot_float(z_foot: float, z_anchor: float, y_foot: float,

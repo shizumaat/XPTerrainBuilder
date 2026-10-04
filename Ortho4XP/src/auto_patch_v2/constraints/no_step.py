@@ -94,8 +94,8 @@ from .routes import reach, reach_anchored, route_neighbours, routes
 from .precedence import View, view
 from .runway_profile import threshold_pins
 
-__all__ = ["no_step_roles", "rigid_airside_roles", "no_step_pairs",
-           "no_step_rate", "no_step_edges", "pad_only_vertices", "pad_contacts",
+__all__ = ["no_step_roles", "no_step_pairs",
+           "no_step_rate", "no_step_edges", "pad_contacts",
            "pad_pavement_edges", "rate_rows_for_chain", "reach_bands",
            "reach_band_values", "runway_family_routes", "adjacent_taxi_vertices", "hold_interval", "hold_pass", "HoldPass",
            "HoldInterval", "pair_graph", "runway_membership", "RUNWAY_FLEX",
@@ -113,15 +113,6 @@ def no_step_roles(law: Law) -> frozenset[str]:
     return frozenset(r for r in reg
                      if role_side(law, r) == "airside" and is_value_role(law, r)
                      and role_cap(law, r) is not None and not is_rigid_role(law, r))
-
-
-def rigid_airside_roles(law: Law) -> frozenset[str]:
-    """Airside, value-carrying, governed, RIGID (a pad) — the pad side
-    of the pad↔pavement pairs."""
-    reg = law.tables.precedence.roles
-    return frozenset(r for r in reg
-                     if role_side(law, r) == "airside" and is_value_role(law, r)
-                     and role_cap(law, r) is not None and is_rigid_role(law, r))
 
 
 def _airside_vertices(vw: View, roles: frozenset[str]) -> dict[int, float]:
@@ -339,13 +330,6 @@ RUNWAY_FLEX: list[dict] = []
 #: ``[design] hard_rulings`` (flat-pad spec v2 §1 (4))
 FLEX_RULING = "rulesets.runway.flex_budget"
 FLEX_GEN = "runway_flex"
-
-
-def runway_stage_family(law: Law) -> frozenset[str]:
-    """The runway family's roles (``precedence.toml``)."""
-    from ..law.tables import role_family
-    return frozenset(r for r in law.tables.precedence.roles
-                     if role_family(law, r) == "runway")
 
 
 def _median(vals: list[float]) -> float:
@@ -888,21 +872,6 @@ def reach_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if lo <= hi:
             rows.append(Band(v, lo, hi, src))
     return rows
-
-
-def pad_only_vertices(planar: PlanarMap, law: Law) -> dict[int, float]:
-    """Vertex -> cap for every PAD-ONLY airside vertex: a rigid face's
-    vertex touching rigid faces and nothing else (a pad vertex shared
-    with airside pavement is that pavement's; one shared with a
-    groundside lot is the lot's — a mixed pad, 09-01g: the terrace in
-    the stand-off is lawful; measured SPJC: pairing it minted 7.2 m
-    building|groundside_pavement rows)."""
-    vw = view(planar, law)
-    rigid = {r for r in law.tables.precedence.roles if is_rigid_role(law, r)}
-    pav = _airside_vertices(vw, no_step_roles(law))
-    return {v: c for v, c in _airside_vertices(vw, rigid_airside_roles(law)).items()
-            if v not in pav and all(planar.faces[f].role in rigid
-                                    for f in vw.vertex_faces[v])}
 
 
 def pad_contacts(planar: PlanarMap, law: Law) -> dict[int, list[int]]:

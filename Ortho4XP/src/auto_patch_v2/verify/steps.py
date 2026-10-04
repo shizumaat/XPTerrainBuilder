@@ -28,7 +28,7 @@ from ..law.tables import role_cap
 from .frame import Patch, Row, Shape, pair_side, row
 
 __all__ = ["cross_shape", "vertex_to_edge_step", "mid_edge_step", "stacked_nodes",
-           "terrace_joints_m", "declared_step_allowance", "JointIndex", "joint_index"]
+           "terrace_joints_m", "JointIndex", "joint_index"]
 
 
 def _designed_separation(p: Patch, ra: str, rb: str) -> bool:
@@ -176,18 +176,6 @@ def joint_index(p: Patch) -> JointIndex:
 
 
 _INDEX: dict = {}
-
-
-def declared_step_allowance(joints, a, b) -> float:
-    """Σ of the declared steps of the joints the segment ``a``–``b`` crosses
-    (the v1 reader's ``_terrace_step_allowance``)."""
-    total = 0.0
-    for pts, step in joints:
-        for k in range(len(pts) - 1):
-            if _cross(a, b, pts[k], pts[k + 1]):
-                total += step
-                break
-    return total
 
 
 def _step_rows(p: Patch, family: str, probes, edges, search: float,

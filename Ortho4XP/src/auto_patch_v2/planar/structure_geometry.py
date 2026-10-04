@@ -71,7 +71,7 @@ def _unit(a: XY, b: XY) -> XY:
     L = math.hypot(dx, dy) or 1.0
     return (dx / L, dy / L)
 
-__all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_out",
+__all__ = ["RampGeometry", "geometry", "normals", "snap", "snap_out",
            "rim_standoff", "rim_yield_m", "corner_distance", "beyond_strip",
            "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "covered_start", "reseat_expect"]
 
@@ -152,10 +152,6 @@ def normals(axis: _t.Sequence[XY]) -> list[XY]:
         L = math.hypot(dx, dy) or 1.0
         out.append((-dy / L, dx / L))
     return out
-
-
-def offset_line(axis: _t.Sequence[XY], nrm: _t.Sequence[XY], off: float) -> list[XY]:
-    return [(p[0] + nv[0] * off, p[1] + nv[1] * off) for p, nv in zip(axis, nrm)]
 
 
 def snap(p: XY, grid: float) -> XY:

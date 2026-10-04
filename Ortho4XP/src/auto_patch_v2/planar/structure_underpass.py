@@ -384,19 +384,6 @@ def _deck_half_width(axis_fn, ss, cells, polys, half_default: float,
     return half, n_read, n_refused
 
 
-def _far_boundary(p, nv, sgn: float, poly, reach: float = 400.0) -> float | None:
-    """The distance from ``p`` to the FARTHEST point at which the outward
-    normal ray leaves ``poly`` — the far kerb of the cell the ray is
-    standing in.  ``None`` where the ray never meets its boundary."""
-    ray = LineString([p, (p[0] + nv[0] * sgn * reach, p[1] + nv[1] * sgn * reach)])
-    x = ray.intersection(poly.boundary)
-    if x.is_empty:
-        return None
-    ds = [math.hypot(g.x - p[0], g.y - p[1])
-          for g in getattr(x, "geoms", [x]) if g.geom_type == "Point"]
-    return max(ds) if ds else None
-
-
 def _edges_at(p, nv, sgn: float, poly, reach: float = 600.0):
     """``(the NEAR boundary distance, the FAR one)`` at which the outward
     normal ray from ``p`` crosses ``poly``'s boundary — the two kerbs of

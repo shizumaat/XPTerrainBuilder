@@ -25,7 +25,7 @@ __all__ = [
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
     "Cockpit", "cockpit", "cliff_grade", "rolled_on_roles",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
-    "tier_of_roles", "role_preferred_cap",
+    "role_preferred_cap",
     "runway_transverse_max", "runway_transverse_bound", "runway_shoulder_cap",
     "runway_vertical_curve_bound", "strip_transverse_bound",
     "taxi_half_width_m",
@@ -394,19 +394,6 @@ def role_tier(law: Law, role: str) -> int:
         if role in t:
             return k
     raise KeyError(f"role {role!r} is not registered in precedence.toml")
-
-
-def tier_of_roles(roles: "tuple[str, ...] | list[str]", tier_of: "dict[str, int]",
-                  lowest: int) -> int:
-    """The tier a VALUE shared by ``roles`` belongs to: the most SENIOR
-    (smallest) tier among them, ``lowest`` when there are none — a shared
-    vertex is owned by its senior surface (``senior_role``)."""
-    best = lowest
-    for r in roles:
-        k = tier_of[r]
-        if k < best:
-            best = k
-    return best
 
 
 # ── adjacent-ground zones (RULINGS 2026-08-01) ───────────────────────────

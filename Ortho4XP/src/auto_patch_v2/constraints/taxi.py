@@ -77,7 +77,7 @@ from .routes import CENTRELINE, CONTACT, CROSSING, LATERAL, route_pairs, routes
 from .stretches import AxisIndex, Stretches, edge_cap, pair_caps, stretches
 
 __all__ = ["taxi_chain", "taxi_centerlines", "triangle_planes",
-           "all_pairs", "pad_vertices", "plane_rows", "box_rows",
+           "pad_vertices", "plane_rows", "box_rows",
            "plane_gradient_terms", "PricedPair",
            "taxi_pair_routes", "chain_ruling",
            "taxi_box", "short_pairs", "box_pair_rows", "axis_index",
@@ -94,22 +94,6 @@ BOX_RULING = "short-pair box |dz| <= cL*|ds| + cT*|dt| vs the nearest stretch ax
 #: ``taxi_box``: ``pairs`` (short pairs boxed), ``no_axis`` (a map with
 #: no stretch: no row).
 STATS: dict[str, dict[str, int]] = {}
-
-
-def all_pairs(vw: View, ring: list[int], cap_l: float, src: Source,
-              min_d: float) -> list[Row]:
-    """Every distinct vertex pair of ``ring`` at ``cap_l``."""
-    rows: list[Row] = []
-    n = len(ring)
-    for i in range(n):
-        a = ring[i]
-        for j in range(i + 1, n):
-            b = ring[j]
-            d = vw.dist(a, b)
-            if d < min_d:
-                continue
-            rows.append(Diff(a, b, cap_l, d, src))
-    return rows
 
 
 def pad_vertices(vw: View) -> frozenset[int]:

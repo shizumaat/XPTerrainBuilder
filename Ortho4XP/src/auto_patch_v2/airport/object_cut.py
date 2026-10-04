@@ -24,7 +24,7 @@ the bridge" (LEMD).  Detected by GEOMETRY, never by name, never by ICAO:
   ``thin_plates`` takes 1.0-1.5 m of solids only.
 * **C — thin surface walls and parapets** (LEMD): solids under
   ``parapet_max_height_m``, long, narrow, sitting on the surface.  The
-  BAND reading lives here (:func:`thin_bands`, :func:`band_pair`) and
+  BAND reading lives here (:func:`thin_bands`, :func:`band_pairs`) and
   ``airport/thin_plates.py`` applies it.
 
 THE WALL LINE, and why it is not a hull.  A shell is L-shaped or a
@@ -56,8 +56,7 @@ from . import frame_entry as _fe
 from . import obj8 as _obj8
 
 __all__ = ["ObjectCut", "SHELL", "CRESTED", "THIN", "shell_reading", "read_shells",
-           "thin_bands", "band_pair", "band_pairs", "wall_polyline",
-           "chord_error_m", "cut_placement_ids", "ObjectCutStats",
+           "thin_bands", "band_pairs", "cut_placement_ids", "ObjectCutStats",
            "valid_polygon", "largest_polygon", "placement_key",
            "placement_order"]
 
@@ -718,81 +717,6 @@ def _pair_reading(A: ThinBand, B: ThinBand, law
     return gap - (A.width_m + B.width_m) / 2.0, ov
 
 
-def wall_polyline(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
-                  mat, law) -> "list[LineString]":
-    """§33 (6) C2' — A BAND IS A POLYLINE, straight or curved (RULINGS
-    2026-09-15x).  The INNER FACE of each thin surface wall, as a
-    polyline in the AIRPORT frame: the wall's plan band (the union of its
-    vertical faces' plan segments, widened to the measured thickness)
-    reduced to its own centreline by walking its ring's longer side.
-
-    :func:`thin_bands` reads STRAIGHT runs — a bearing cluster — which is
-    exactly what a CURVED wall has none of: LEMD `Bridge4.obj` is one
-    2.016 m U whose vertical faces turn a few degrees per face, so it
-    reads sixteen short runs and no band at all.  This reads the same
-    faces as ONE chain per connected piece, so the ring the cut follows
-    can be the wall's own curve instead of a nine-station chord.
-
-    Returned longest first; a piece shorter than `hull_min_length_m` is
-    dropped (a stub, the same floor the wall readers use)."""
-    from . import wall_geometry as _wg
-    ob = law.tables.structures.tunnel.object
-    out: list[LineString] = []
-    v = geom.vertices
-    for c in genuine:
-        h = c.max_y - c.min_y
-        if h > ob.parapet_max_height_m or c.min_y < ob.parapet_y_min:
-            continue
-        ny = _face_normals_y(v, c.tris)
-        vert = c.tris[ny < ob.plate_normal_y_min]
-        if vert.shape[0] == 0:
-            continue
-        segs = [g for g, _k in _wg._plan_segments_indexed(v, vert, mat)]
-        if not segs:
-            continue
-        band = unary_union([g.buffer(ob.parapet_max_width_m / 2.0, cap_style="flat",
-                                     join_style="mitre") for g in segs]).buffer(0)
-        for part in (shapely.get_parts(band) if band.geom_type != "Polygon" else [band]):
-            if part.geom_type != "Polygon" or part.area <= 0.0:
-                continue
-            ring = list(shapely.simplify(part, 0.10).exterior.coords)[:-1]
-            if len(ring) < 4:
-                continue
-            # the ring of a thin band runs out along one face and back
-            # along the other: cut it at its two ENDS (the two vertices
-            # whose adjacent edges reverse most) and keep the longer side
-            n = len(ring)
-            turn = []
-            for i in range(n):
-                a, b, cc = ring[(i - 1) % n], ring[i], ring[(i + 1) % n]
-                u = (b[0] - a[0], b[1] - a[1])
-                w = (cc[0] - b[0], cc[1] - b[1])
-                lu = math.hypot(*u) or 1.0
-                lw = math.hypot(*w) or 1.0
-                turn.append(((u[0] * w[0] + u[1] * w[1]) / (lu * lw), i))
-            turn.sort()
-            i0, i1 = sorted(t[1] for t in turn[:2])
-            side_a = [ring[k] for k in range(i0, i1 + 1)]
-            side_b = [ring[k % n] for k in range(i1, i0 + n + 1)]
-            best = max((side_a, side_b), key=lambda q: LineString(q).length
-                       if len(q) >= 2 else 0.0)
-            if len(best) < 2:
-                continue
-            ln = LineString(best)
-            if ln.length >= ob.hull_min_length_m:
-                out.append(ln)
-    out.sort(key=lambda g: -g.length)
-    return out
-
-
-def chord_error_m(ring_pts: _t.Sequence[XY], wall: LineString) -> float:
-    """The worst distance from a vertex of an emitted ring to the wall
-    polyline it is supposed to follow — §33 (6) C2''s "chord error"."""
-    if not ring_pts or wall.is_empty:
-        return 0.0
-    return max(wall.distance(Point(q)) for q in ring_pts)
-
-
 def band_pairs(bands: _t.Sequence[ThinBand], law
                ) -> "list[tuple[ThinBand, ThinBand, float]]":
     """EVERY parallel PAIR of thin walls the object carries (§33 (6) C1'
@@ -821,13 +745,6 @@ def band_pairs(bands: _t.Sequence[ThinBand], law
         used.add(j)
         out.append((bands[i], bands[j], inner))
     return out
-
-
-def band_pair(bands: _t.Sequence[ThinBand], law
-              ) -> "tuple[ThinBand, ThinBand, float] | None":
-    """The widest-overlap pair, or ``None`` — :func:`band_pairs`'s first."""
-    ps = band_pairs(bands, law)
-    return ps[0] if ps else None
 
 
 # ── the claim: what basins.py must not see ───────────────────────────────

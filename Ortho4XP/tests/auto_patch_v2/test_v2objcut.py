@@ -191,9 +191,9 @@ def test_a_thin_wall_pair_is_read_as_straight_runs_not_components(law):
     ident = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
     bands = object_cut.thin_bands(g, comps, ident, law)
     assert len(bands) >= 2, [(b.length_m, b.width_m) for b in bands]
-    pair = object_cut.band_pair(bands, law)
-    assert pair is not None
-    A, B, inner = pair
+    pairs = object_cut.band_pairs(bands, law)
+    assert pairs
+    A, B, inner = pairs[0]
     assert inner == pytest.approx(13.0, abs=1.5), inner
 
 
@@ -213,7 +213,7 @@ def test_bands_too_far_apart_are_not_a_pair(law):
     g = _geom(_thin_pair(spacing=120.0), hardness=0)
     bands = object_cut.thin_bands(g, _components(g),
                                   [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], law)
-    assert object_cut.band_pair(bands, law) is None
+    assert not object_cut.band_pairs(bands, law)
 
 
 def test_the_publication_carries_the_object_cut_witness(law):

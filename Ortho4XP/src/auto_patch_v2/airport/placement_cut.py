@@ -872,16 +872,6 @@ def _basin_floor_member(cutter: "_LineCutter", parts: _t.Sequence[Part],
     return _br.member_kind(frac, base_y, tol_m) == _br.FLOOR
 
 
-def _rim_ring_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
-                 base_y: float) -> "_ar.RimRing | None":
-    """:func:`_rim_of`'s own verdict with the RING it found — §14a needs
-    the ring itself (its nodes, their heights and its ref), and reading
-    it twice would be two answers waiting to disagree."""
-    if base_y >= 0.0:
-        return None
-    return _ar.rim_of(rims, lat, lon)
-
-
 def _rim_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
             base_y: float) -> bool:
     """A BASIN body: its lowest component stands BELOW the authored zero

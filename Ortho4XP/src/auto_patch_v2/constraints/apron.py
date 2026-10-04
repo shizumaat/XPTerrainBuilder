@@ -77,7 +77,7 @@ from .precedence import View, view
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
            "face_width", "STATS", "PREFERENCE_GROUP", "PREFERENCE_RULING",
-           "tiered_rows", "preference_face"]
+           "tiered_rows"]
 
 #: The preference rows' escalation-group prefix (``Weights.preference``
 #: key; ``solve/assemble.preference_weight``): ``apron:<face>:<k>``.
@@ -156,18 +156,6 @@ def tiered_rows(fid: int, ref: str, hard: float | None, preferred: float | None,
                 generator: str = GEN) -> _Tier:
     """A face's tiered-row minter (module docstring)."""
     return _Tier(fid, ref, hard, preferred, generator)
-
-
-def preference_face(row: Row) -> int | None:
-    """The face an apron PREFERENCE row belongs to (its group's second
-    field), ``None`` for any other row."""
-    g = getattr(row, "soft", None)
-    if not g or not g.startswith(PREFERENCE_GROUP + ":"):
-        return None
-    try:
-        return int(g.split(":", 2)[1])
-    except (IndexError, ValueError):
-        return None
 
 
 def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport

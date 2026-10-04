@@ -23,8 +23,15 @@ sys.dont_write_bytecode = True
 
 import blast  # noqa: E402
 
-LAYOUT = "Ortho4XP/src/auto_patch/layout.py"
-STRIPS = "Ortho4XP/src/auto_patch/pavement/strips.py"
+# RE-POINTED 2026-10-04 (stage B round 2 of the v1 retirement, lane
+# ``v1cut``): the index's sample modules were v1's ``auto_patch/layout.py``
+# (the hub every v1 module imported) and ``pavement/strips.py`` (the
+# sub-package member it aliased its roles from).  Both are deleted; the same
+# properties are held on v2's hub and one of its sub-package members, and the
+# role vocabulary is the census library's (``blast.ROLE_VOCABULARY``).
+LAYOUT = "Ortho4XP/src/auto_patch_v2/law/tables.py"
+STRIPS = "Ortho4XP/src/auto_patch_v2/model/planar.py"
+ROLES = "Ortho4XP/tools/harness/law_support/roles.py"
 
 
 @pytest.fixture(scope="module")
@@ -44,30 +51,32 @@ def index(index_path):
 # ---------------------------------------------------------------- R1 canaries
 def test_relative_imports_resolve_layout_has_all_importers(index):
     card = index["modules"][LAYOUT]
-    assert len(card["imported_by"]) >= 100, (
-        "layout.py has 100+ relative importers in auto_patch/ (119 after "
-        "the 2026-07-29 rect-machinery retirement); a LOW count means "
+    assert len(card["imported_by"]) >= 150, (
+        "law/tables.py has 150+ importers (182 on 2026-10-04), most of them "
+        "RELATIVE inside auto_patch_v2/; a LOW count means "
         "ast.ImportFrom node.level is being ignored again")
 
 
 def test_submodule_package_gets_a_card(index):
-    """`from .pavement import strips` must produce an edge to strips.py."""
+    """`from ..model import planar` must produce an edge to model/planar.py."""
     card = index["modules"].get(STRIPS)
-    assert card is not None, "strips.py must be indexed, not silently dropped"
+    assert card is not None, "planar.py must be indexed, not silently dropped"
     assert len(card["imported_by"]) >= 1
-    assert LAYOUT in card["imported_by"]
+    assert any(r.startswith("Ortho4XP/src/auto_patch_v2/planar/")
+               for r in card["imported_by"])
 
 
 def test_role_aliases_resolved_through_strips(index):
     for value in ("apron", "primary_parallel", "runway"):
         assert value in index["roles"], (
-            "%s is aliased from pavement/strips.py; a regex that only sees "
-            "direct string assigns in layout.py loses it" % value)
+            "%s is a ROLE_* value of %s" % (value, blast.ROLE_VOCABULARY))
 
 
 def test_role_confidence_split_is_stored_not_printed(index):
     assert set(index["roles"]["apron"]) == {"high", "low"}
-    assert LAYOUT in index["roles"]["apron"]["high"]
+    assert blast.ROLE_VOCABULARY == ROLES
+    assert any(f.startswith("Ortho4XP/src/auto_patch_v2/")
+               for f in index["roles"]["apron"]["high"])
     lows = {f for v in index["roles"].values() for f in v["low"]}
     for rel in lows - {f for v in index["roles"].values() for f in v["high"]}:
         assert not any(line.startswith("ROLE LITERALS HERE")
@@ -110,7 +119,8 @@ def test_zero_relationship_file_says_indexed_not_missing(index):
 
 # ---------------------------------------------------- path normalization (R2)
 def test_three_path_forms_resolve_identically():
-    forms = [os.path.join(REPO, LAYOUT), LAYOUT, "src/auto_patch/layout.py"]
+    forms = [os.path.join(REPO, LAYOUT), LAYOUT,
+             "src/auto_patch_v2/law/tables.py"]
     resolved = [blast.normalize(f) for f in forms]
     assert resolved == [(LAYOUT, True)] * 3
 
@@ -228,20 +238,27 @@ def test_tests_line_drops_conftest_and_is_hedged(index):
 # conftest.cached_airport_layout -> auto_patch.pipeline -> (transitively)
 # both files.  These twins keep that edge recorded, rendered and selected.
 
-RUNWAY_SEGMENTS = "Ortho4XP/src/auto_patch/pavement/runway_segments.py"
-GAP_FILL = "Ortho4XP/src/auto_patch/gap_fill.py"
-GRADE_TEST = "Ortho4XP/tests/test_pavement_grade.py"
-SINGLE_GRAPH_TEST = "Ortho4XP/tests/test_single_graph_acceptance.py"
+#
+# RE-POINTED 2026-10-04 (lane ``v1cut``): those four files and the
+# ``cached_airport_layout`` helper went with the v1 engine.  The one
+# fixture-mediated edge the tree still has is the DSF-dump-cache redirect:
+# ``conftest.reapply_dsf_dump_cache_redirect`` imports ``O4_File_Names``
+# inside its body, which imports ``O4_UI_Utils``; ``test_data_root.py``
+# calls the helper and never imports ``O4_UI_Utils``.
+
+RUNWAY_SEGMENTS = "Ortho4XP/src/O4_UI_Utils.py"
+GRADE_TEST = "Ortho4XP/tests/test_data_root.py"
+HELPER = "reapply_dsf_dump_cache_redirect"
 
 
 def test_the_real_index_joins_the_2026_08_20_misses_through_the_fixture(index):
     conftest = blast._read("Ortho4XP/tests/conftest.py")
-    for rel in (RUNWAY_SEGMENTS, GAP_FILL):
+    for rel in (RUNWAY_SEGMENTS,):
         card = index["modules"][rel]
         fx = card["tests_via_fixture"]
-        for test in (GRADE_TEST, SINGLE_GRAPH_TEST):
+        for test in (GRADE_TEST,):
             assert test in fx, "%s must reach %s via fixture" % (test, rel)
-            assert "cached_airport_layout" in fx[test]
+            assert HELPER in fx[test]
             assert test not in card.get("tests", ()), \
                 "a direct importer is listed once, under tests"
         # every recorded edge is REAL: the test names the helper it is
@@ -257,9 +274,9 @@ def test_the_card_renders_the_fixture_group_apart_from_direct_importers(index):
     direct = [l for l in lines if l.startswith("TESTS (direct importers")]
     via = [l for l in lines if l.startswith("TESTS VIA CONFTEST FIXTURE")]
     assert len(direct) == 1 and len(via) == 1
-    assert "cached_airport_layout ->" in via[0]
-    assert "test_pavement_grade.py" in via[0]
-    assert "test_pavement_grade.py" not in direct[0]
+    assert HELPER + " ->" in via[0]
+    assert "test_data_root.py" in via[0]
+    assert "test_data_root.py" not in direct[0]
 
 
 def test_the_audit_carries_the_fixture_canaries(index):
@@ -345,7 +362,7 @@ def _shards(modules):
 def test_the_index_records_symbol_test_edges_for_selection(index):
     """v1 stored only hot-symbol COUNTS; a count cannot select a test."""
     card = index["modules"][LAYOUT]
-    assert card["symbol_tests"], "layout.py must carry per-symbol test edges"
+    assert card["symbol_tests"], "tables.py must carry per-symbol test edges"
     assert set(card["symbol_tests"]) <= set(card["symbols_attributed"])
     for sym, tests in card["symbol_tests"].items():
         assert tests and all(t.startswith("Ortho4XP/tests/") for t in tests)
@@ -453,7 +470,7 @@ def test_a_clean_file_reports_no_changed_symbol_and_widens(tmp_path):
     selector must widen (clause 3) rather than emit an empty sweep."""
     syms, notes = blast.changed_symbols(LAYOUT, "HEAD")
     if syms:
-        pytest.skip("layout.py is dirty in this working tree")
+        pytest.skip("tables.py is dirty in this working tree")
     assert notes == []
 
 

@@ -22,14 +22,20 @@ from auto_patch_v2.law import tables as T
 
 # v1 — test-only imports (the oracle side of the cross-check)
 from auto_patch import config as v1  # noqa: E402
-from auto_patch import layout as v1_layout  # noqa: E402
-from auto_patch import road_transition as v1_rt  # noqa: E402
-from auto_patch import emit_decimate as v1_dec  # noqa: E402
+# THE v1 HALF OF THIS LOCKSTEP, after the engine's retirement (stage B
+# round 2, lane ``v1cut``, 2026-10-04): the constants that are still read by
+# something come from where they live now — ``auto_patch.config`` (a KEEP
+# module) as ``v1`` below, the harness's own law copy
+# (``harness.law_support``, which the census reads and
+# tests/test_law_support.py pins), ``object_terrain_kinds`` and
+# ``object_terrain_features`` (KEEP).  Two comparisons retire with their
+# only other copy — see the notes at their sites.
 
 _TOOLS = str(Path(__file__).resolve().parents[2] / "tools")
 if _TOOLS not in sys.path:
     sys.path.insert(0, _TOOLS)
 import check_grade as v1_cg  # noqa: E402
+from harness.law_support import roles as v1_layout  # noqa: E402
 
 LETTERS = "ABCDEF"
 CODES = (1, 2, 3, 4)
@@ -286,10 +292,11 @@ def _structures_emit_checks(c: Checks, t) -> None:
     c.eq("bridge.clearance_minimum_m", v1.BRIDGE_ROAD_CLEARANCE_MINIMUM_M,
          s.bridge.clearance_minimum_m)
     c.eq("building_pad.min_area_m2", v1.PAD_MIN_AREA_M2, s.building_pad.min_area_m2)
-    c.eq("chords.pavement_max_chord_m (emit_decimate)", v1_dec.MAX_CHORD_M,
-         e.chords.pavement_max_chord_m)
-    c.eq("chords.pavement_max_chord_m (layout)", v1_layout.PAVEMENT_NODE_MAX_CHORD_M,
-         e.chords.pavement_max_chord_m)
+    # ``chords.pavement_max_chord_m`` RETIRES ITS SECOND COPY (2026-10-04):
+    # both of its v1 witnesses — ``emit_decimate.MAX_CHORD_M`` and
+    # ``layout.PAVEMENT_NODE_MAX_CHORD_M``, the two decimators that capped
+    # the same chord — went with the engine.  ``emit.toml`` is the only copy
+    # left, so there is nothing to hold it against and nothing left to drift.
     c.eq("chords.apron_interior_spacing_m", v1.APRON_LATTICE_SPACING_M,
          e.chords.apron_interior_spacing_m)
     c.eq("identity.min_distinct_spacing_m", v1_layout.SHARED_VERTEX_TOL_M,
@@ -298,14 +305,15 @@ def _structures_emit_checks(c: Checks, t) -> None:
          v1_cg.LAW_TRUE_KNOBS["proximity_m"], e.identity.min_distinct_spacing_m)
     c.eq("materiality.step_m", v1_cg.LAW_TRUE_KNOBS["edge_step_m"],
          e.materiality.step_m)
-    c.eq("materiality.elevation_m", v1_rt.MATERIALITY_M, e.materiality.elevation_m)
+    # ``materiality.elevation_m`` likewise retires its second copy:
+    # ``road_transition.MATERIALITY_M`` was the v1 witness.
     c.eq("no_step.window_m", v1.AIRSIDE_NO_STEP_WINDOW_M, e.no_step.window_m)
     c.eq("no_step.k", v1.AIRSIDE_NO_STEP_K, e.no_step.k)
     # M3b: the near-miss frontage law and the lateral-contiguity walk
     c.eq("building_pad.frontage_near_miss_m", v1.BUILDING_FRONTAGE_NEAR_MISS_M,
          s.building_pad.frontage_near_miss_m)
     assert tuple(s.building_pad.frontage_soft_roles) == tuple(v1.NEAR_MISS_FRONTAGE_SOFT_ROLES)
-    from auto_patch import lateral_contiguity as v1_lc
+    from harness.law_support import contiguity as v1_lc
     c.eq("lateral_contiguity.station_step_m", v1_lc.STATION_STEP_M,
          e.lateral_contiguity.station_step_m)
     c.eq("lateral_contiguity.probe_m", v1_lc.PROBE_M, e.lateral_contiguity.probe_m)
@@ -313,7 +321,7 @@ def _structures_emit_checks(c: Checks, t) -> None:
     c.eq("lateral_contiguity.min_member_m", v1_lc.MIN_MEMBER_M,
          e.lateral_contiguity.min_member_m)
     # M4b: the basin law (RULINGS 2026-08-26) and the object reader gates
-    from auto_patch import object_terrain_assembly as v1_ota
+    from auto_patch import object_terrain_kinds as v1_ota
     from auto_patch import object_terrain_features as v1_otf
     c.eq("basin.min_solid_thickness_m", v1.MIN_SOLID_PART_THICKNESS_M,
          s.basin.min_solid_thickness_m)

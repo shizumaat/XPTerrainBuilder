@@ -269,7 +269,13 @@ jobs:
           # The checked-out commit, so a divergent pair is attributable to its
           # TREE rather than to the head_sha both events report (#221).
           echo "checked out: $(git rev-parse HEAD) ($(git log --oneline -1 --no-decorate))"
-          floor "non-Qt" 9000 non-qt --ignore-glob='tests/test_qt_*.py' tests
+          # 9000 -> 5300 on 2026-10-04 (lane v1cut): the v1 engine's own
+          # suite went with the engine (stage B round 2 of the v1
+          # retirement), taking the non-Qt collection from 13,581 to 7,97x
+          # items on the corpus machine.  The floor keeps the proportion it
+          # had (about two thirds of the collection): it is a guard against
+          # the collection COLLAPSING, never a count of the suite.
+          floor "non-Qt" 5300 non-qt --ignore-glob='tests/test_qt_*.py' tests
           floor "Qt"      250 qt     tests/test_qt_*.py
 
       # EVERYTHING except the Qt files, in parallel.  No `|| [ $? -eq 5 ]`:

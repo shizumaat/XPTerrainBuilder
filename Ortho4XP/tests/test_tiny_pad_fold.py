@@ -24,20 +24,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
-from auto_patch import grade_law as GL                         # noqa: E402
 from auto_patch.config import PAD_MIN_AREA_M2                  # noqa: E402
 
 
 # ── 2. THE TINY-PAD FOLD ──────────────────────────────────────────────
-
-def test_pad_min_area_is_the_ruled_constant():
-    """250 m², the threshold the owner adopted to catch exemplar -10144
-    (216 m²), and it replaces the pipeline's bare 100.0 floor."""
-    assert PAD_MIN_AREA_M2 == pytest.approx(250.0)
-    src = (Path(__file__).resolve().parents[1]
-           / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
-    assert "simp.area >= PAD_MIN_AREA_M2" in src, (
-        "the pipeline pad floor must read the ruled constant, not 100.0")
 
 
 def _fold(polys):
@@ -58,29 +48,7 @@ def test_sub_threshold_pad_folds_and_at_threshold_pad_is_untouched():
         "the threshold is inclusive — a 250 m² pad still seats")
 
 
-def test_the_heca_10144_exemplar_geometry_folds():
-    """The owner's exemplar, synthetically: a 216 m² pad 68 m from the
-    terminal it serves.  It must not mint a pad — which is what removes
-    its independent seat, its frontage authority and the 2.56 m step."""
-    exemplar = Polygon([(0, 0), (18, 0), (18, 12), (0, 12)])
-    terminal = Polygon([(68, -30), (188, -30), (188, 60), (68, 60)])
-    kept = _fold([exemplar, terminal])
-    assert exemplar not in kept and terminal in kept
-    # …and with the pad gone, the ground it stood on carries NO building
-    # ring, so it mints no frontage vertex either.
-    assert GL.frontage_vertex_keys(
-        [list(range(4))] if exemplar in kept else [], {0, 1, 2, 3}) == set()
-
-
-def test_the_fold_is_wired_at_the_apron_punch_out():
-    """The fold must run BEFORE ``terminal_union`` — the punch-out that
-    removes pad ground from the apron — or the footprint would not
-    "remain apron" as the ruling requires."""
-    src = (Path(__file__).resolve().parents[1]
-           / "src" / "auto_patch" / "pipeline.py").read_text(encoding="utf-8")
-    fold_at = src.index("tiny pad(s) under")
-    union_at = src.index("terminal_union = (unary_union(terminal_polys)")
-    assert fold_at < union_at, (
-        "the tiny-pad fold must precede the apron punch-out")
-
-
+# RETIRED with the v1 engine (stage B round 2, lane ``v1cut``, 2026-10-04) —
+# the test read the SOURCE of a deleted v1 module:
+# ``test_pad_min_area_is_the_ruled_constant``,
+# ``test_the_fold_is_wired_at_the_apron_punch_out``.

@@ -1,70 +1,48 @@
-"""WHO WROTE THIS VALUE — per-vertex authorship for an auto_patch build.
+"""WHAT THIS PATCH'S VERTICES SIT ON, AND WHO OWES EACH CERTIFICATE ROW.
 
-    venv/bin/python tools/harness/who_wrote.py ICAO [--dem M]
-        [--roles service_junction,groundside_pavement] [--at X,Y ...]
-        [--author final_grade_projection] [--author-tol 0.01]
-        [--author-dump moves.jsonl] [--footprint X,Y ...]
-        [--out DIR] [--tol 0.05]
+    venv/bin/python tools/harness/who_wrote.py --emitted-patch PATCH.osm
+        --dem M [--who-json ICAO_who_wrote.json]
+    venv/bin/python tools/harness/who_wrote.py --cert-attrib CERT.json
+        --vertex-json V.jsonl [--cert-base LABEL=PATH ...]
+        [--moves-json MOVES.jsonl] [--attrib-md OUT.md] [--attrib-json OUT.json]
 
 Run it from ``Ortho4XP/``.
 
-A census tells you a vertex is wrong.  It cannot tell you WHICH PASS put the
-value there, and reading the code to guess has a bad record in this campaign
-(nine falsified mechanisms in two days from reading attribution as causal).
-This tool answers it by MEASUREMENT: it wraps ``BuiltShape.node_altitudes``
-in a recording property, runs the build through the harness build entry, and
-reports the call site of every write.
+THE BUILD-AND-INTERCEPT MODE IS GONE (2026-09-17, lane ``v1retire`` round 2; landed by lane ``v1cut``, 2026-10-04).
+Per-vertex authorship here WAS property interception on v1's
+``layout.BuiltShape`` during a ``build_airport.build_patch`` build: the four
+reports (the DEM-authorship census, the node history, the displacement census,
+the footprint history) all read a sequence of per-shape writes.  v2 solves the
+whole airport as ONE linear program — there is no such sequence — so the
+machinery and its CLI options are DELETED rather than left inert, and ``main``
+REFUSES BY NAME with the pointer.  For v2, authorship is read out of the solve:
+``tools/v2_solve_replay.py --why-hard / --why-hard-stage N / --probe-site
+LAT,LON``.
 
-FOUR REPORTS, one build:
+TWO REPORTS SURVIVE, both ENGINE-NEUTRAL FILE READS (no build, no ICAO):
 
-* **THE DEM-AUTHORSHIP CENSUS** (default, needs ``--dem``).  For every shape
-  that finishes with vertices sitting EXACTLY on the constant DEM, the write
-  that INTRODUCED them — defined as the first write after the last write at
-  which the shape's DEM-vertex count was zero.  That definition matters: the
-  LAST writer is almost always the final projection's writeback, which merely
-  carries a value some earlier pass authored.  Under a constant DEM "sits
-  exactly on the DEM" is a decidable predicate, which is what makes the
-  question answerable at all (RULINGS 5578b6a: DEM is a SEED, never an
-  authority — this names the passes that break that).
+* **THE EMITTED FRAME** (``--emitted-patch PATCH --dem M``, repeatable).  How
+  many vertices sit exactly on the constant DEM **in the shipped patch**, by
+  way role, and split into the STRANDED subset — on-DEM vertices sharing a way
+  with a law-valued one, the class a within-shape law row is minted in — versus
+  whole ways lying flat on the DEM, which mint none.  ``--who-json`` joins an
+  earlier authorship report onto it by ``shapeID`` and says so when the join
+  matches nothing.  The in-memory and emitted frames differ by the decimators
+  (HECA read 16,019 in memory and shipped 938), which is why both halves came
+  out of one tool.
 
-* **THE NODE HISTORY** (``--at X,Y``, metre frame, repeatable).  Every write
-  touching that plan coordinate, in order, with the value and the call site,
-  compressed to the changes.  Run it in two constant-DEM worlds and diff the
-  two histories to find the exact pass where the worlds first disagree — the
-  instrument that attributed the negative band widths to the runway flex.
+* **THE R1.1 ATTRIBUTION TABLE** (``--cert-attrib CERT.json --vertex-json
+  V.jsonl``).  Every residual row of an airside-certificate dump
+  (``O4_AIRSIDE_CERT_DUMP``) joined to the vertex history at each endpoint and
+  grouped by (family, endpoint role pair, the LAST PRE-PROJECTION WRITER of
+  each endpoint, whether the projection moved an endpoint), with count / p50 /
+  max excess, membership in earlier readings (``--cert-base``) and a MECHANICAL
+  predicted disposition stated so an arm can check it — never a verdict.
+  ``--moves-json`` adds the untouched-class moves by last pre-projection
+  writer.  Twin: ``tests/test_who_wrote_attrib.py``.
 
-* **THE DISPLACEMENT CENSUS** (``--author SITE``, repeatable).  How far a
-  named pass moves values AWAY FROM THE SOLVE'S, per vertex, split three
-  ways: ``new_geometry`` (the shape's ring changed after the solve — law
-  pairs the solve never saw, which is a post-solve projection's legitimate
-  job), ``moved_post_solve`` (some other pass had already moved the value,
-  so the author is not the one disagreeing with the solve), and
-  ``untouched`` — a vertex the solve produced that nothing else touched.
-  The tool REPORTS the three counts and the class definitions; whether a
-  move in the ``untouched`` class is the second author the single-solve
-  architecture forbids is adjudicated by the law layer (RULINGS
-  2026-08-03; the ingestion spec's requirement 2 sets the materiality
-  floor at 0.01 m).  This is the reader for
-  ``docs/specs/cycle4-projection-ingestion-spec.md``.
-
-* **THE FOOTPRINT HISTORY** (``--footprint X,Y``, metre frame, repeatable).
-  The same question asked of the RING instead of the value: *which pass put
-  pavement over this spot at all?*  A value history cannot answer it — a
-  point outside every shape has no vertex to trace, and the passes that
-  MOVE a footprint (the absorb / merge / re-role family) write a polygon,
-  never an altitude.  The probe wraps ``BuiltShape.polygon`` the same way,
-  and reports per probe point every write at which a shape STARTED or
-  STOPPED covering it, with the call site, the role at that moment, and the
-  areas either side.  A shape's first sighting is reported as a ``birth``
-  row (``dataclasses.replace`` mints a new instance for the same ring all
-  over this pipeline, so "a new object covers the point" is NOT by itself a
-  pass that grew a footprint — the row says which it is).  It measures no
-  law and counts no defects: coverage is ``shapely`` containment on the
-  ring as written, and defect counts come from ``harness/census.py`` alone.
-
-The hooks are READ-ONLY: they record and delegate, so the build is the same
-build ``tools/harness/build_airport.py`` would have produced (same refusals,
-same frame snapshots, same sidecar guarantee).
+Everything either report needs is a JSON/OSM file some earlier run wrote, so
+this tool builds nothing and touches no corpus.
 """
 from __future__ import annotations
 
@@ -870,599 +848,34 @@ def render_attribution_md(cert_attr, moves_attr=None, top=None):
     return "\n".join(lines) + "\n"
 
 
-class AuthorshipProbe:
-    """Records every ``node_altitudes`` assignment.  ``install`` swaps the
-    dataclass field for a property; ``uninstall`` puts it back."""
-
-    def __init__(self, shape_cls, dem_m=None, roles=None, at=(), tol=0.05,
-                 authors=(), author_tol=0.01, solve_site=_SOLVE_SITE,
-                 dump_moves=False, track_vertices=False):
-        self.cls = shape_cls
-        self.dem_m = dem_m
-        self.roles = set(roles or ())
-        self.at = [(float(x), float(y)) for x, y in at]
-        self.tol = float(tol)
-        self.authors = tuple(authors or ())
-        self.author_tol = float(author_tol)
-        self.solve_site = solve_site
-        self.by_shape: dict = {}
-        self.by_point: dict = {p: [] for p in self.at}
-        #: shape id → the values the SOLVE last wrote (the reference state
-        #: requirement (2) of the ingestion spec measures idempotence against)
-        self._solved: dict = {}
-        #: shape id → the values as they stood before the write in progress
-        self._prev: dict = {}
-        #: (author, class, role) → [|Δ| …] over every moved vertex
-        self.author_moves: dict = {}
-        #: the worst rows, kept small: (|Δ|, author, cls, role, ref, before,
-        #: after, x, y)
-        self.author_worst: list = []
-        #: ``--author-dump``: EVERY moved vertex, not just the worst 40.
-        #: The aggregate report answers "how much"; only a per-vertex dump
-        #: answers "are these the SAME vertices some other writer seeded",
-        #: which needs a join key (shape + ring index + plan coordinate).
-        self.dump_moves = bool(dump_moves)
-        self.move_rows: list = []
-        #: shape id → {ring index: site of the FIRST write that gave that
-        #: index a value} — the vertex's ORIGIN writer.  One entry per
-        #: vertex, so it is bounded by the layout, not by the write count.
-        self.origin_site: dict = {}
-        #: shape id → {ring index: site of the FIRST write at which that
-        #: index sat EXACTLY on the constant DEM} — the vertex-granular
-        #: version of the DEM-authorship census, which is per SHAPE.
-        self.dem_origin_site: dict = {}
-        #: ``--vertex-dump``: THE VERTEX HISTORY — for EVERY vertex the
-        #: build ever wrote, the ordered list of writes that CHANGED its
-        #: value (beyond ``author_tol``), keyed by (role, ref, plan
-        #: coordinate) so it survives the ``dataclasses.replace`` re-
-        #: minting that gives one ring a new instance id.  This is the
-        #: "last solver stage that wrote each endpoint" axis the R1
-        #: attribution table groups on (zero-airside plan R1.1).
-        self.track_vertices = bool(track_vertices)
-        self.vhist: dict = {}
-        self._vprev: dict = {}
-        self._vring: dict = {}
-        self._sites: dict = {}
-        self.site_list: list = []
-        self._step = 0
-        self._saved = None
-
-    # ── the hook ─────────────────────────────────────────────────────
-    def _record(self, shape, values):
-        self._step += 1
-        role = getattr(shape, "role", "") or ""
-        # ONE stack walk per write, shared by both censuses: ``extract_stack``
-        # dominates the probe's cost and a second walk would double the
-        # instrumented build's overhead for the same string.
-        site = call_site(skip=4) if values is not None else None
-        if values is not None and (not self.roles or role in self.roles):
-            hit = 0
-            if self.dem_m is not None:
-                hit = sum(1 for a in values
-                          if a is not None
-                          and abs(float(a) - self.dem_m) <= _MEM_TOL)
-            self.by_shape.setdefault(id(shape), []).append(
-                (hit, len(values), site))
-        if self.dump_moves and values is not None and site is not None:
-            org = self.origin_site.setdefault(id(shape), {})
-            dorg = (self.dem_origin_site.setdefault(id(shape), {})
-                    if self.dem_m is not None else None)
-            for k, v in enumerate(values):
-                if v is None:
-                    continue
-                if k not in org:
-                    org[k] = site
-                if (dorg is not None and k not in dorg
-                        and abs(float(v) - self.dem_m) <= _MEM_TOL):
-                    dorg[k] = site
-        if self.authors:
-            self._record_author(shape, role, values, site)
-        if self.track_vertices and values is not None and site is not None:
-            self._record_vertices(shape, role, values, site)
-        if not self.at or not values:
-            return
-        poly = getattr(shape, "polygon", None)
-        if poly is None or poly.is_empty or poly.geom_type != "Polygon":
-            return
-        ring = list(poly.exterior.coords)
-        site = None
-        for k in range(min(len(ring), len(values))):
-            rx, ry = ring[k]
-            for p in self.at:
-                if abs(rx - p[0]) <= self.tol and abs(ry - p[1]) <= self.tol:
-                    if site is None:
-                        site = call_site(skip=4)
-                    v = values[k]
-                    self.by_point[p].append(
-                        (self._step, role, getattr(shape, "ref", "") or "",
-                         None if v is None else round(float(v), 3), site))
-
-    # ── the displacement census (ingestion spec requirement (2)) ─────
-    def _record_author(self, shape, role, values, site):
-        """Attribute this write's per-vertex displacement, and classify it.
-
-        The classification is the ingestion spec's own partition of the
-        post-solve world (``docs/specs/cycle4-projection-ingestion-spec.md``
-        §requirement 2):
-
-        * ``new_geometry`` — the shape's ring vertex COUNT differs from what
-          the solve wrote (a planarize insert, a T-weld adoption, a merge, a
-          clip rebuild).  These law pairs the solve never saw, so projecting
-          them is this pass's legitimate residual job.
-        * ``moved_post_solve`` — the value the author overwrote is already
-          off the solved value: some other post-solve pass authored it, so
-          the author is not the one disagreeing with the solve.
-        * ``untouched`` — neither.  A vertex whose geometry and value the
-          solve produced and no later pass changed.  **A move here is the
-          second-author class**: the spec's materiality floor is 0.01 m.
-        """
-        sid = id(shape)
-        prev = self._prev.get(sid)
-        if values is not None:
-            vals = [None if v is None else float(v) for v in values]
-        else:
-            vals = None
-        # The reference state: whatever the SOLVE last wrote on this shape.
-        if vals is not None and self.solve_site in site:
-            self._solved[sid] = list(vals)
-        if vals is None or prev is None or site is None:
-            self._prev[sid] = list(vals) if vals is not None else None
-            return
-        author = next((a for a in self.authors if a in site), None)
-        if author is None:
-            self._prev[sid] = list(vals)
-            return
-        solved = self._solved.get(sid)
-        ring = None
-        for k in range(min(len(prev), len(vals))):
-            a, b = prev[k], vals[k]
-            if a is None or b is None:
-                continue
-            delta = abs(b - a)
-            if delta <= self.author_tol:
-                continue
-            if solved is None or len(solved) != len(vals):
-                cls = "new_geometry"
-            elif solved[k] is None:
-                cls = "new_geometry"
-            elif abs(a - solved[k]) > self.author_tol:
-                cls = "moved_post_solve"
-            else:
-                cls = "untouched"
-            self.author_moves.setdefault((author, cls, role),
-                                         []).append(delta)
-            if delta > 0.05 or self.dump_moves:
-                if ring is None:
-                    poly = getattr(shape, "polygon", None)
-                    ring = (list(poly.exterior.coords)
-                            if (poly is not None and not poly.is_empty
-                                and poly.geom_type == "Polygon") else ())
-                x, y = (ring[k] if k < len(ring) else (None, None))
-            if delta > 0.05:
-                self.author_worst.append(
-                    (delta, author, cls, role, getattr(shape, "ref", "") or "",
-                     round(a, 3), round(b, 3), x, y))
-            if self.dump_moves:
-                sv = (None if (solved is None or len(solved) != len(vals)
-                               or solved[k] is None) else round(solved[k], 4))
-                self.move_rows.append(
-                    (author, cls, role, getattr(shape, "ref", "") or "",
-                     site, sid, k, round(a, 4), round(b, 4), sv, x, y))
-        if len(self.author_worst) > 8 * _WORST_KEEP:
-            self.author_worst.sort(key=lambda r: -r[0])
-            del self.author_worst[_WORST_KEEP:]
-        self._prev[sid] = list(vals)
-
-    # ── the vertex history (``--vertex-dump``) ────────────────────────
-    def _record_vertices(self, shape, role, values, site):
-        """Append this write to the history of every vertex it CHANGED.
-
-        A vertex is keyed by ``(role, ref, x, y)`` with the plan
-        coordinate rounded to 1 mm, read from the shape's ring at the
-        time of the write (cached per instance and ring length).  A
-        write is a change when the value differs from the instance's
-        previous value by more than ``author_tol``; the first write of a
-        NEW instance (``dataclasses.replace``) that repeats the key's
-        last recorded value is a carry, not a change.  In-place list
-        mutation (``shape.node_altitudes[k] = v``) never reaches the
-        property setter and is invisible here, as it is to every other
-        report of this probe.
-        """
-        sid = id(shape)
-        n = len(values)
-        ring = self._vring.get(sid)
-        if ring is None or len(ring) != n:
-            poly = getattr(shape, "polygon", None)
-            ring = (list(poly.exterior.coords)
-                    if (poly is not None and not poly.is_empty
-                        and poly.geom_type == "Polygon") else [])
-            self._vring[sid] = ring
-        prev = self._vprev.get(sid)
-        sidx = self._sites.get(site)
-        if sidx is None:
-            sidx = len(self.site_list)
-            self._sites[site] = sidx
-            self.site_list.append(site)
-        ref = getattr(shape, "ref", "") or ""
-        tol = self.author_tol
-        vh = self.vhist
-        for k in range(min(n, len(ring))):
-            v = values[k]
-            if v is None:
-                continue
-            v = float(v)
-            p = prev[k] if (prev is not None and k < len(prev)) else None
-            if p is not None and abs(v - p) <= tol:
-                continue
-            x, y = ring[k]
-            key = (role, ref, round(x, 3), round(y, 3))
-            h = vh.get(key)
-            if h is None:
-                h = []
-                vh[key] = h
-            elif p is None and abs(h[-1][1] - v) <= tol:
-                continue
-            h.append((sidx, round(v, 4)))
-        self._vprev[sid] = [None if v is None else float(v) for v in values]
-
-    def write_vertex_dump(self, path):
-        """``--vertex-dump``: one JSONL record per vertex key.
-
-        ``meta`` first (the site table — records carry site INDICES into
-        it — the materiality floor and the solve reference site), then
-        one ``vertex`` record per key: role, ref, plan coordinate, the
-        ordered ``hist`` of ``[site_index, value]`` changes, the
-        ``final`` value, the ``solved`` value (the value at the last
-        change whose site contains ``solve_site``; ``None`` when the
-        solve never wrote it) and ``last_site`` (index).
-        """
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        solve_hits = [self.solve_site in st for st in self.site_list]
-        n = 0
-        with path.open("w") as fh:
-            fh.write(json.dumps({
-                "kind": "meta", "sites": self.site_list,
-                "tol_m": self.author_tol, "solve_site": self.solve_site,
-                "n_vertices": len(self.vhist)}) + "\n")
-            for (role, ref, x, y), hist in self.vhist.items():
-                solved = None
-                for (si, v) in hist:
-                    if solve_hits[si]:
-                        solved = v
-                fh.write(json.dumps({
-                    "kind": "vertex", "role": role, "ref": ref,
-                    "x": x, "y": y, "hist": [[si, v] for si, v in hist],
-                    "final": hist[-1][1] if hist else None,
-                    "solved": solved,
-                    "last_site": hist[-1][0] if hist else None}) + "\n")
-                n += 1
-        return {"vertices": n, "sites": len(self.site_list),
-                "path": str(path)}
-
-    def author_report(self):
-        """``(table_rows, totals)`` for the displacement census."""
-        rows = []
-        for (author, cls, role), deltas in self.author_moves.items():
-            deltas.sort()
-            rows.append({
-                "author": author, "class": cls, "role": role,
-                "n_moved": len(deltas),
-                "max_m": round(deltas[-1], 3),
-                "p50_m": round(deltas[len(deltas) // 2], 3),
-            })
-        rows.sort(key=lambda r: (r["author"], r["class"], -r["n_moved"]))
-        totals: dict = {}
-        for r in rows:
-            t = totals.setdefault((r["author"], r["class"]),
-                                  {"n_moved": 0, "max_m": 0.0})
-            t["n_moved"] += r["n_moved"]
-            t["max_m"] = max(t["max_m"], r["max_m"])
-        self.author_worst.sort(key=lambda r: -r[0])
-        del self.author_worst[_WORST_KEEP:]
-        return rows, totals
-
-    def install(self):
-        probe = self
-        # A SENTINEL, not ``getattr(..., None)``: ``node_altitudes`` is a
-        # dataclass field whose class-level default IS ``None``, so a plain
-        # getattr cannot tell "the attribute held None" from "there was no
-        # attribute" — and uninstall would then leave the property in place.
-        self._saved = self.cls.__dict__.get("node_altitudes", _MISSING)
-
-        # WRITE THROUGH TO THE INSTANCE DICT, never to a private alias: a
-        # data descriptor wins over the instance dict while it is installed,
-        # and the instance dict wins the moment it is removed.  So the values
-        # survive ``uninstall`` and a report taken afterwards still sees
-        # them.  (An alias silently reported ZERO on-DEM vertices — an
-        # instrument that loses its subject is worse than no instrument.)
-        def _get(self):
-            return self.__dict__.get("node_altitudes")
-
-        def _set(self, value):
-            self.__dict__["node_altitudes"] = value
-            try:
-                probe._record(self, value)
-            except Exception:          # instrumentation never breaks a build
-                pass
-
-        self.cls.node_altitudes = property(_get, _set)
-        return self
-
-    def uninstall(self):
-        if self._saved is _MISSING:
-            try:
-                delattr(self.cls, "node_altitudes")
-            except AttributeError:
-                pass
-        else:
-            setattr(self.cls, "node_altitudes", self._saved)
-        self._saved = None
-
-    # ── the reports ──────────────────────────────────────────────────
-    def dem_authorship(self, layout):
-        """``(rows, by_author)`` over shapes ending ON the constant DEM."""
-        rows, by_author = [], Counter()
-        for i, s in enumerate(getattr(layout, "shapes", ()) or ()):
-            values = s.node_altitudes
-            if not values or (self.roles and s.role not in self.roles):
-                continue
-            hit = sum(1 for a in values
-                      if a is not None and abs(float(a) - self.dem_m) <= _MEM_TOL)
-            if not hit:
-                continue
-            history = self.by_shape.get(id(s)) or []
-            intro = introducing_write(history)
-            site = intro[2] if intro else (history[-1][2] if history
-                                           else "?NO-TRACE?")
-            by_author[(s.role, site)] += hit
-            rows.append({"shape": i, "role": s.role, "ref": s.ref or "",
-                         "on_dem": hit, "n": len(values),
-                         "writes": len(history), "introduced_by": site,
-                         "history": [f"{h[0]}/{h[1]} {h[2]}"
-                                     for h in history]})
-        rows.sort(key=lambda r: -r["on_dem"])
-        return rows, by_author
-
-    def write_move_dump(self, layout, path):
-        """``--author-dump``: every moved vertex + its shape's write history.
-
-        JSONL, three record kinds:
-
-        * ``shape`` — one per shape the probe saw: its final index in
-          ``layout.shapes``, role, ref, ring size, how many of its values
-          end EXACTLY on the constant DEM, and the ORDERED list of write
-          sites (consecutive duplicates collapsed).
-        * ``move``  — one per vertex displacement above the materiality
-          floor: author, class, role, the FULL call site of the moving
-          write (the writing-pass axis the aggregate report collapses),
-          before / after / the solve's value, the plan coordinate, and
-          the vertex's ``origin`` writer + ``dem_origin`` writer.
-        * ``meta``  — the header.
-
-        ``origin``/``dem_origin`` are keyed by RING INDEX, which is stable
-        only while the ring is: for a vertex whose ring was rebuilt after
-        the solve (the ``new_geometry`` class) the index may name a
-        different point than it did before the rebuild.  For the
-        ``untouched`` class the ring is unchanged since the solve wrote
-        it, so the join is exact there — which is the class the
-        second-author question is about.
-        """
-        index_of = {}
-        for i, s in enumerate(getattr(layout, "shapes", ()) or ()):
-            index_of[id(s)] = i
-        dem_of = {}
-        for i, s in enumerate(getattr(layout, "shapes", ()) or ()):
-            vals = s.node_altitudes or ()
-            dem_of[id(s)] = (sum(1 for a in vals
-                                 if a is not None and self.dem_m is not None
-                                 and abs(float(a) - self.dem_m) <= _MEM_TOL),
-                             len(vals), s.role, getattr(s, "ref", "") or "")
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        n_shape = 0
-        with path.open("w") as fh:
-            fh.write(json.dumps({
-                "kind": "meta", "dem_m": self.dem_m,
-                "authors": list(self.authors),
-                "author_tol": self.author_tol,
-                "solve_site": self.solve_site,
-                "n_moves": len(self.move_rows)}) + "\n")
-            for sid, hist in self.by_shape.items():
-                sites, last = [], None
-                for (_hit, _n, st) in hist:
-                    if st != last:
-                        sites.append(st)
-                        last = st
-                on_dem, n_v, role, ref = dem_of.get(sid, (0, 0, "", ""))
-                fh.write(json.dumps({
-                    "kind": "shape", "sid": sid,
-                    "shape_index": index_of.get(sid),
-                    "role": role, "ref": ref, "n": n_v,
-                    "on_dem": on_dem, "writes": len(hist),
-                    "sites": sites}) + "\n")
-                n_shape += 1
-            for (author, cls, role, ref, site, sid, k, a, b, sv,
-                 x, y) in self.move_rows:
-                fh.write(json.dumps({
-                    "kind": "move", "author": author, "class": cls,
-                    "role": role, "ref": ref, "site": site,
-                    "sid": sid, "shape_index": index_of.get(sid), "k": k,
-                    "before": a, "after": b, "solved": sv, "x": x, "y": y,
-                    "origin": self.origin_site.get(sid, {}).get(k),
-                    "dem_origin": self.dem_origin_site.get(sid, {}).get(k),
-                }) + "\n")
-        return {"shapes": n_shape, "moves": len(self.move_rows),
-                "path": str(path)}
-
-    def node_history(self):
-        """``{"x,y": [change, …]}`` — writes compressed to the changes."""
-        out = {}
-        for p, writes in self.by_point.items():
-            compressed, last = [], {}
-            for (step, role, ref, value, site) in writes:
-                key = (role, ref)
-                if last.get(key) != value:
-                    compressed.append({"step": step, "role": role,
-                                       "ref": ref, "value": value,
-                                       "site": site})
-                    last[key] = value
-            out[f"{p[0]},{p[1]}"] = compressed
-        return out
+# ``AuthorshipProbe`` and ``FootprintProbe`` — THE BUILD-AND-INTERCEPT
+# MACHINERY — were DELETED on 2026-09-17 (lane v1retire round 2,
+# session ruling: DELETE-class code inside a keep tool).  They wrapped
+# ``auto_patch.layout.BuiltShape``'s ``node_altitudes`` / ``polygon``
+# in recording properties while ``build_airport.build_patch`` ran the
+# v1 pipeline; the class, the builder and the pipeline are all gone
+# with the engine.  v2 solves the whole airport as ONE linear program,
+# so there is no per-shape write sequence to record — the equivalent
+# question is answered from the solve itself
+# (``tools/v2_solve_replay.py --why-hard / --why-hard-stage /
+# --probe-site``).  THE READING MODES BELOW ARE ENGINE-NEUTRAL AND
+# STAY: ``--emitted-patch`` (with ``--dem`` / ``--who-json``) and
+# ``--cert-attrib`` (the R1.1 attribution table).
 
 
-class FootprintProbe:
-    """Records every ``BuiltShape.polygon`` assignment that CHANGES whether
-    a probe point is covered — the FOOTPRINT counterpart of
-    :class:`AuthorshipProbe`.
-
-    ``install`` swaps the dataclass field for a property; ``uninstall``
-    puts it back.  Instances are tracked by ``id()`` GUARDED BY A WEAK
-    REFERENCE, and both halves are load-bearing: ``BuiltShape`` is a
-    plain ``@dataclass``, so Python sets ``__hash__ = None`` and a
-    ``WeakKeyDictionary`` raises ``TypeError`` on every write — inside
-    the "instrumentation never breaks a build" guard, which turns it
-    into an instrument that silently records NOTHING (measured: an
-    entire HECA build, zero rows).  A bare ``id()`` is the opposite
-    failure: ids are reused within one build, which silently joins two
-    unrelated shapes' histories.  So each entry keeps a ``weakref`` and
-    an entry whose referent is gone (or is a different object) is
-    treated as a fresh instance.
-
-    The probe DERIVES NOTHING.  Coverage is ``polygon.covers(Point)`` on
-    the ring exactly as the pass wrote it; the report is the ordered list
-    of transitions, and naming which of them is the defect is the reader's
-    job.
-    """
-
-    def __init__(self, shape_cls, at=()):
-        from shapely.geometry import Point            # noqa: PLC0415
-        self.cls = shape_cls
-        self.at = [(float(x), float(y)) for x, y in at]
-        self._pts = [Point(p) for p in self.at]
-        #: "x,y" → [row, …], in write order
-        self.rows: dict = {f"{p[0]},{p[1]}": [] for p in self.at}
-        #: id(shape) → [weakref(shape), ordinal, {probe index: covered?}]
-        #: as of that instance's last recorded write.  See the class
-        #: docstring for why it is neither a WeakKeyDictionary nor a bare
-        #: id map.
-        self._state: dict = {}
-        self._n_inst = 0
-        self._step = 0
-        self._saved = None
-
-    # ── the hook ─────────────────────────────────────────────────────
-    def _record(self, shape, poly):
-        if not self._pts:
-            return
-        self._step += 1
-        try:
-            empty = poly is None or poly.is_empty
-            bounds = None if empty else poly.bounds
-        except Exception:
-            return
-        import weakref                                # noqa: PLC0415
-        key = id(shape)
-        entry = self._state.get(key)
-        if entry is not None and entry[0]() is not shape:
-            entry = None                  # the id was reused by a new object
-        first = entry is None
-        if first:
-            self._n_inst += 1
-            try:
-                ref = weakref.ref(shape)
-            except TypeError:             # not weakref-able: id alone
-                ref = lambda: shape       # noqa: E731
-            entry = [ref, self._n_inst, {}]
-            self._state[key] = entry
-        prev = entry[2]
-        state = {}
-        changed = []
-        for i, pt in enumerate(self._pts):
-            hit = False
-            if not empty:
-                x, y = self.at[i]
-                if (bounds[0] <= x <= bounds[2]
-                        and bounds[1] <= y <= bounds[3]):
-                    try:
-                        hit = bool(poly.covers(pt))
-                    except Exception:
-                        hit = False
-            state[i] = hit
-            if prev.get(i, False) != hit or (first and hit):
-                changed.append((i, prev.get(i, False), hit))
-        entry[2] = state
-        if not changed:
-            return
-        site = call_site(skip=3)
-        for i, was, now in changed:
-            self.rows[f"{self.at[i][0]},{self.at[i][1]}"].append({
-                "step": self._step,
-                "instance": entry[1],
-                "event": "birth" if first else ("grew" if now else "shrank"),
-                "covered": now,
-                "was_covered": was,
-                "role": getattr(shape, "role", "") or "",
-                "ref": getattr(shape, "ref", "") or "",
-                "area_m2": None if empty else round(poly.area, 1),
-                "site": site,
-            })
-
-    def install(self):
-        probe = self
-        self._saved = self.cls.__dict__.get("polygon", _MISSING)
-
-        # WRITE THROUGH TO THE INSTANCE DICT (the AuthorshipProbe note
-        # applies verbatim): the ring must survive ``uninstall`` so the
-        # layout a report is taken from is the layout the build produced.
-        def _get(self):
-            return self.__dict__.get("polygon")
-
-        def _set(self, value):
-            self.__dict__["polygon"] = value
-            try:
-                probe._record(self, value)
-            except Exception:          # instrumentation never breaks a build
-                pass
-
-        self.cls.polygon = property(_get, _set)
-        return self
-
-    def uninstall(self):
-        if self._saved is _MISSING:
-            try:
-                delattr(self.cls, "polygon")
-            except AttributeError:
-                pass
-        else:
-            setattr(self.cls, "polygon", self._saved)
-        self._saved = None
-
-    # ── the report ───────────────────────────────────────────────────
-    def footprint_history(self, layout=None):
-        """``{"x,y": {"final": …, "changes": [row, …]}}``.
-
-        ``final`` names the shape covering the point in the FINISHED
-        layout — the emitted answer the change list has to end at.  It is
-        read off ``layout.shapes`` by index, which IS the ``shapeID`` tag
-        ``layout.to_osm`` writes, so a row here joins a patch read.
-        """
-        out = {}
-        for i, key in enumerate(self.rows):
-            final = []
-            if layout is not None:
-                for idx, s in enumerate(getattr(layout, "shapes", ()) or ()):
-                    p = getattr(s, "polygon", None)
-                    try:
-                        if p is not None and not p.is_empty \
-                                and p.covers(self._pts[i]):
-                            final.append({"shapeID": idx, "role": s.role,
-                                          "ref": getattr(s, "ref", ""),
-                                          "area_m2": round(p.area, 1)})
-                    except Exception:
-                        continue
-            out[key] = {"final": final, "changes": self.rows[key]}
-        return out
+# ``AuthorshipProbe`` and ``FootprintProbe`` — THE BUILD-AND-INTERCEPT
+# MACHINERY — were DELETED on 2026-09-17 (lane v1retire round 2,
+# session ruling: DELETE-class code inside a keep tool).  They wrapped
+# ``auto_patch.layout.BuiltShape``'s ``node_altitudes`` / ``polygon``
+# in recording properties while ``build_airport.build_patch`` ran the
+# v1 pipeline; the class, the builder and the pipeline are all gone
+# with the engine.  v2 solves the whole airport as ONE linear program,
+# so there is no per-shape write sequence to record — the equivalent
+# question is answered from the solve itself
+# (``tools/v2_solve_replay.py --why-hard / --why-hard-stage /
+# --probe-site``).  THE READING MODES BELOW ARE ENGINE-NEUTRAL AND
+# STAY: ``--emitted-patch`` (with ``--dem`` / ``--who-json``) and
+# ``--cert-attrib`` (the R1.1 attribution table).
 
 
 def main(argv=None) -> int:
@@ -1497,31 +910,6 @@ def main(argv=None) -> int:
     ap.add_argument("--dem", type=float, default=None,
                     help="constant-DEM elevation; required for the "
                          "DEM-authorship census (the predicate needs it)")
-    ap.add_argument("--roles", default="",
-                    help="comma-separated role filter (default: all)")
-    ap.add_argument("--at", action="append", default=[], metavar="X,Y",
-                    help="metre-frame coordinate to trace, repeatable")
-    ap.add_argument("--tol", type=float, default=0.05)
-    ap.add_argument("--author", action="append", default=[], metavar="SITE",
-                    help="displacement census: how far this call site (a "
-                         "substring of the reported site, e.g. "
-                         "final_grade_projection) moves values AWAY from the "
-                         "solve's, split by whether the vertex was touched "
-                         "post-solve.  Repeatable.")
-    ap.add_argument("--author-tol", type=float, default=0.01,
-                    metavar="M",
-                    help="materiality floor for the displacement census "
-                         "(default 0.01 m, the campaign floor)")
-    ap.add_argument("--author-dump", type=Path, default=None, metavar="PATH",
-                    help="displacement census: write EVERY moved vertex to "
-                         "PATH as JSONL (author, class, role, the full call "
-                         "site of the moving write, before/after/solved, the "
-                         "plan coordinate, and the vertex's origin and "
-                         "DEM-origin writers), plus one record per shape "
-                         "with its ordered write-site history.  The printed "
-                         "report keeps only the worst 40 rows, which cannot "
-                         "answer whether a moved vertex is one some other "
-                         "writer seeded.")
     ap.add_argument("--cert-attrib", default=None, metavar="CERT.json",
                     help="NO BUILD: THE R1.1 TABLE — attribute every "
                          "residual row of an airside-certificate dump "
@@ -1550,37 +938,6 @@ def main(argv=None) -> int:
     ap.add_argument("--move-floor", type=float, default=0.1,
                     help="with --cert-attrib: an endpoint counts as "
                          "'FGP moved' at this displacement (default 0.1 m)")
-    ap.add_argument("--vertex-dump", type=Path, default=None,
-                    metavar="PATH",
-                    help="THE VERTEX HISTORY: write, for EVERY vertex the "
-                         "build wrote, the ordered list of writes that "
-                         "CHANGED its value (site + value), keyed by "
-                         "(role, ref, plan coordinate), as JSONL.  The "
-                         "axis the R1 attribution joins the airside "
-                         "certificate's residual endpoints on (which "
-                         "solver stage last wrote each endpoint).  Uses "
-                         "--author-tol as its change floor.")
-    ap.add_argument("--footprint", action="append", default=[],
-                    metavar="X,Y",
-                    help="FOOTPRINT history: metre-frame coordinate whose "
-                         "COVERAGE is traced instead of its value — every "
-                         "write at which a shape started or stopped "
-                         "covering it, with the call site.  Repeatable.  "
-                         "The report a 'which pass put pavement here at "
-                         "all' question needs; a point outside every shape "
-                         "has no vertex for --at to trace.")
-    ap.add_argument("--out", type=Path, default=Path("/tmp/harness/who"))
-    ap.add_argument("--allow-degraded-dem", action="store_true",
-                    help="relaxes the ONE gate that lives in build_patch "
-                         "itself — the swallowed-degradation refusal (a "
-                         "write the shared-repo guard blocked, or a layout "
-                         "with no DEM provenance at all), which this entry "
-                         "does reach.  The cfg-frame and cold-cache gates "
-                         "are armed in build_airport's own main(), which "
-                         "who_wrote never enters, so for those the flag is "
-                         "still RECORDED ONLY "
-                         "(allow_degraded_dem_requested).  It authorises no "
-                         "write to the shared data repo.")
     args = ap.parse_args(argv)
     if args.cert_attrib:
         if not args.vertex_json:
@@ -1632,17 +989,7 @@ def main(argv=None) -> int:
             print(f"\n  [harness] {p}")
             print_emitted_on_dem(rep)
         return 0
-    if args.icao is None:
-        ap.error("give an ICAO (to build) or --emitted-patch (to read a "
-                 "patch an earlier build wrote)")
-    if (args.dem is None and not args.at and not args.author
-            and not args.footprint and not args.vertex_dump):
-        ap.error("give --dem (authorship census), --at X,Y (node history), "
-                 "--author SITE (displacement census), --footprint X,Y "
-                 "(footprint history), --vertex-dump PATH (vertex "
-                 "history), or any combination")
-
-    # ── THE BUILD-AND-INTERCEPT MODE HAS NO SUBJECT (lane v1retire round 1,
+    # ── THE BUILD-AND-INTERCEPT MODE HAS NO SUBJECT (lane v1retire,
     # 2026-09-17; ruling (f) of the stage-B brief, the 13az pattern) ─────
     # Per-vertex authorship here IS property interception on v1's
     # ``layout.BuiltShape`` (``node_altitudes`` / ``polygon``), driven by a
@@ -1658,7 +1005,7 @@ def main(argv=None) -> int:
     # For v2 the equivalent of "which pass authored this value" is read from
     # the solve itself: ``tools/v2_solve_replay.py --why-hard /
     # --why-hard-stage / --probe-site`` (the hard set and its provenance),
-    # and ``tools/solve_cut.py`` for a stage replay.
+    # (``tools/solve_cut.py`` went with the v1 solver in this same round).
     raise SystemExit(
         "REFUSED: who_wrote's BUILD mode is a v1 instrument and v1 is "
         "retired (RULINGS 2026-09-13au/13aw; lane v1retire 2026-09-17).\n"
@@ -1670,194 +1017,7 @@ def main(argv=None) -> int:
         "[--who-json REPORT] reads a patch an earlier build wrote and is "
         "engine-neutral.\n"
         "  For v2 authorship use tools/v2_solve_replay.py --why-hard / "
-        "--why-hard-stage N / --probe-site LAT,LON, or "
-        "tools/solve_cut.py for a stage replay.")
-
-    root = HB.require_build_cwd(Path.cwd())
-    for p in (root / "src", root, root / "tests"):
-        if str(p) not in sys.path:
-            sys.path.insert(0, str(p))
-    from auto_patch.layout import BuiltShape                  # noqa: E402
-
-    at = [tuple(float(v) for v in a.split(",")) for a in args.at]
-    roles = [r for r in args.roles.split(",") if r]
-    out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-    prog = HB.Progress(out / f"{args.icao}_who_wrote.progress")
-
-    fp_at = [tuple(float(v) for v in a.split(",")) for a in args.footprint]
-    probe = AuthorshipProbe(BuiltShape, args.dem, roles, at, args.tol,
-                            authors=args.author,
-                            author_tol=args.author_tol,
-                            dump_moves=bool(args.author_dump),
-                            track_vertices=bool(args.vertex_dump)).install()
-    fprobe = FootprintProbe(BuiltShape, fp_at).install() if fp_at else None
-    try:
-        tag = f"{args.icao}_who{'' if args.dem is None else f'_dem{args.dem:g}'}"
-        result = HB.build_patch(args.icao, root, out, tag, prog,
-                                const_dem=args.dem,
-                                allow_degraded=args.allow_degraded_dem)
-        layout = result["_layout"]
-    finally:
-        if fprobe is not None:
-            fprobe.uninstall()
-        probe.uninstall()
-
-    report: dict = {"icao": args.icao, "dem_m": args.dem,
-                    "patch": result["patch"],
-                    # FRAME STAMP for the whole run (RULINGS 2026-08-06
-                    # point 3).  ``--allow-degraded-dem`` is PASSED to
-                    # ``HB.build_patch`` (it relaxes the swallowed-
-                    # degradation refusal, which lives there and which this
-                    # path does reach) and recorded as REQUESTED for the
-                    # rest: the cfg/DEM-frame gates it also relaxes live in
-                    # build_airport's own ``main``, which this path never
-                    # enters.
-                    "roles_filter": roles or None,
-                    "at_tol_m": args.tol,
-                    "allow_degraded_dem_requested": bool(
-                        args.allow_degraded_dem)}
-    if args.dem is not None:
-        rows, by_author = probe.dem_authorship(layout)
-        report["dem_authorship"] = rows
-        report["dem_authorship_frame"] = {
-            "frame": "IN-MEMORY layout",
-            "tol_m": _MEM_TOL,
-            "world": f"constant DEM {args.dem:g} m",
-            "shapes": len(getattr(layout, "shapes", ()) or ()),
-            "roles_filter": roles or None}
-        total = sum(by_author.values())
-        print(f"\n  === IN-MEMORY layout values within {_MEM_TOL:g} m of "
-              f"the {args.dem:g} m constant DEM: {total}, "
-              f"by INTRODUCING writer")
-        print(f"      [frame: IN-MEMORY layout.shapes"
-              f"  |  world: constant DEM {args.dem:g} m"
-              f"  |  NOT the emitted-patch count]\n")
-        for (role, site), n in by_author.most_common():
-            print(f"    {n:6d}  {role}")
-            print(f"            {site}")
-        print(f"\n  === per shape (top 15, IN-MEMORY frame)")
-        for r in rows[:15]:
-            print(f"    #{r['shape']:<5}{r['role']:<22}"
-                  f"{r['on_dem']:5d}/{r['n']:<5d} writes={r['writes']}")
-            print(f"          introduced by: {r['introduced_by']}")
-        # The EMITTED frame of the same question, from this build's own
-        # patch — so the two counts are never separated.
-        try:
-            emitted = emitted_on_dem(result["patch"], args.dem,
-                                     authorship=rows,
-                                     authorship_source="probe.dem_authorship")
-            report["emitted_on_dem"] = emitted
-            print_emitted_on_dem(emitted)
-        except Exception as exc:                        # pragma: no cover
-            print(f"  [harness] EMITTED-frame count unavailable "
-                  f"({type(exc).__name__}: {exc}); the IN-MEMORY count "
-                  f"above stands alone")
-    if args.author:
-        rows, totals = probe.author_report()
-        report["author_displacement"] = rows
-        report["author_worst"] = [
-            {"delta_m": round(d, 3), "author": a, "class": c, "role": r,
-             "ref": ref, "before": before, "after": after, "x": x, "y": y}
-            for (d, a, c, r, ref, before, after, x, y) in probe.author_worst]
-        report["author_frame"] = {
-            "frame": "IN-MEMORY write stream",
-            "materiality_m": args.author_tol,
-            "solve_site": probe.solve_site,
-            "authors": list(args.author),
-            "classes": {
-                "new_geometry": "the shape's ring length differs from the "
-                                "solve's, or the solve wrote None there",
-                "moved_post_solve": "the overwritten value was already "
-                                    "further than materiality from the "
-                                    "solve's",
-                "untouched": "the overwritten value was within materiality "
-                             "of this shape's last solve write"}}
-        print("\n  === VALUES MOVED AWAY FROM THE SOLVE, by author")
-        print(f"      [frame: IN-MEMORY write stream  |  materiality "
-              f"{args.author_tol:g} m  |  solve reference: writes whose "
-              f"site contains {probe.solve_site!r}]\n")
-        print(f"    {'author':<26}{'class':<18}{'role':<22}"
-              f"{'n_moved':>9}{'max|d| m':>11}{'p50|d| m':>10}")
-        for r in rows:
-            print(f"    {r['author']:<26}{r['class']:<18}{r['role']:<22}"
-                  f"{r['n_moved']:>9}{r['max_m']:>11.3f}{r['p50_m']:>10.3f}")
-        print()
-        for (author, cls), t in sorted(totals.items()):
-            print(f"    TOTAL  {author:<26}{cls:<18}"
-                  f"{t['n_moved']:>9}{t['max_m']:>11.3f}")
-        # The class DEFINITIONS, not a finding about them: whether a move
-        # in the ``untouched`` class is a second author is the law layer's
-        # call (docs/specs/cycle4-projection-ingestion-spec.md §req 2),
-        # and this tool's own docstring records that the ring-index join
-        # behind the classes is exact only while the ring is unchanged.
-        print(f"\n    class 'untouched'      = the overwritten value was "
-              f"within {args.author_tol:g} m of this shape's last "
-              f"{probe.solve_site!r} write")
-        print("    class 'moved_post_solve' = it was further than that")
-        print(f"    class 'new_geometry'   = ring length differs from the "
-              f"solve's, or the solve wrote None at that index")
-        print(f"\n  === worst {len(probe.author_worst)} displaced vertices "
-              f"(|d| > 0.05 m; IN-MEMORY write stream)")
-        for (d, a, c, r, ref, before, after, x, y) in probe.author_worst[:20]:
-            print(f"    {d:9.3f} m  {c:<16}{r:<20}{ref:<16}"
-                  f"{before} -> {after}   at ({x},{y})")
-    if args.vertex_dump:
-        vinfo = probe.write_vertex_dump(args.vertex_dump)
-        report["vertex_dump"] = vinfo
-        print(f"\n  [harness] per-vertex history dump -> {vinfo['path']} "
-              f"({vinfo['vertices']} vertices, {vinfo['sites']} distinct "
-              f"write sites)")
-    if args.author_dump:
-        info = probe.write_move_dump(layout, args.author_dump)
-        report["author_dump"] = info
-        print(f"\n  [harness] per-vertex move dump -> {info['path']} "
-              f"({info['moves']} move row(s), {info['shapes']} shape row(s))")
-    if at:
-        history = probe.node_history()
-        report["node_history"] = history
-        report["node_history_frame"] = {
-            "frame": "IN-MEMORY write stream",
-            "coordinate_space": "layout METRE frame (shape exterior ring)",
-            "match_tol_m": args.tol,
-            "value_dp": 3,
-            "compressed": "consecutive equal values per (role, ref) dropped"}
-        print(f"\n  === NODE HISTORY  [frame: IN-MEMORY write stream  |  "
-              f"coordinates: layout METRE frame  |  matched within "
-              f"{args.tol:g} m  |  values rounded to 3 dp  |  consecutive "
-              f"equal values per (role, ref) dropped]")
-        for point, changes in history.items():
-            print(f"\n  === ({point})  {len(changes)} change(s)")
-            for c in changes:
-                print(f"    {c['step']:7d} {c['role']:<18}{c['ref']:<20}"
-                      f"{c['value']}   {c['site']}")
-    if fprobe is not None:
-        hist = fprobe.footprint_history(layout)
-        report["footprint_history"] = hist
-        report["footprint_history_frame"] = {
-            "frame": "IN-MEMORY write stream",
-            "coordinate_space": "layout METRE frame",
-            "predicate": "shapely polygon.covers(Point)",
-            "rows": "transitions only; a shape's first write is a 'birth' "
-                    "row (dataclasses.replace mints a new instance for an "
-                    "unchanged ring, so birth != a pass that grew anything)",
-            "final": "shapes covering the point in the finished layout, "
-                     "indexed by layout.shapes index == the emitted "
-                     "shapeID tag"}
-        print(f"\n  === FOOTPRINT HISTORY  [frame: IN-MEMORY write stream  "
-              f"|  coordinates: layout METRE frame  |  predicate: "
-              f"polygon.covers(point)  |  transitions only]")
-        for point, rec in hist.items():
-            print(f"\n  === ({point})  {len(rec['changes'])} transition(s)")
-            for c in rec["changes"]:
-                print(f"    {c['step']:7d} inst{c['instance']:<6} "
-                      f"{c['event']:<7}{'IN ' if c['covered'] else 'OUT'} "
-                      f"{c['role']:<22}{str(c['area_m2']):>10}  {c['site']}")
-            print(f"    FINAL: {rec['final'] or '(covered by nothing)'}")
-    path = out / f"{args.icao}_who_wrote.json"
-    path.write_text(json.dumps(report, indent=1, default=str))
-    print(f"\n  [harness] authorship report -> {path}")
-    return 0
+        "--why-hard-stage N / --probe-site LAT,LON.")
 
 
 if __name__ == "__main__":

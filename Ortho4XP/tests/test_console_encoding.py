@@ -246,7 +246,9 @@ ARGPARSE_TOOLS = [p for p in TOOLS if "ArgumentParser" in _source(p)]
 def test_the_argparse_tool_set_is_not_empty():
     """A self-instrument: if the discovery below silently found nothing,
     every parametrised case would vacuously pass."""
-    assert len(ARGPARSE_TOOLS) >= 70, len(ARGPARSE_TOOLS)
+    # 65 after the v1 retirement took the v1-only tools (lane v1cut,
+    # 2026-10-04); the floor guards against discovery finding NOTHING.
+    assert len(ARGPARSE_TOOLS) >= 60, len(ARGPARSE_TOOLS)
 
 
 def _enclosing_function(tree: ast.AST, node: ast.AST):

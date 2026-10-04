@@ -371,3 +371,22 @@ def test_repository_baselines_and_approvals_files_are_valid():
         approvals_document, warn=warnings.append)
     assert not warnings
     assert len(usable) == len(approvals_document["approvals"])
+
+
+def test_a_v2_report_becomes_a_store_record_and_is_read_back(tmp_path):
+    """The ``--run-one`` body after the v1 retirement (lane v1cut): v2 writes
+    no build-time store, so the record is minted from the report's ``wall_s``
+    stage clocks and must read back through the checker's own reader."""
+    record = check_build_time.v2_report_to_store_record(
+        {"wall_s": {"load": 1.5, "solve": 2.25, "note": "n/a"}}, 100.0)
+    assert record["phase_seconds"] == {"load": 1.5, "solve": 2.25}
+    assert record["total_seconds"] == 3.75 and record["engine"] == "v2"
+    check_build_time.append_store_record(str(tmp_path), "TEST", record)
+    measurement = check_build_time.newest_airport_measurement(
+        "TEST", str(tmp_path), finished_after=50.0)
+    assert measurement["total_seconds"] == 3.75
+    assert measurement["phase_seconds"] == {"load": 1.5, "solve": 2.25}
+    import inspect
+    body = inspect.getsource(check_build_time.run_one_airport_build)
+    assert "auto_patch.pipeline import" not in body
+    assert "build_airport.py" in body and "--no-ledger" in body

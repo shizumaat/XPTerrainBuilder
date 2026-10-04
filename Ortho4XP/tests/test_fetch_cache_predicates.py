@@ -127,7 +127,9 @@ def test_airport_pack_predicate_follows_the_road_level(
 ):
     import O4_File_Names as FNAMES
     import O4_Vector_Map as VMAP
-    from auto_patch import osm_load
+    # the predicate moved from ``osm_load`` to ``build_support`` with the
+    # v1 retirement (2026-10-04) — beside the prefetch it gates
+    from auto_patch import build_support as osm_load
 
     monkeypatch.setattr(FNAMES, "OSM_dir", str(tmp_path / "OSM_data"))
     tile = SimpleNamespace(lat=30, lon=31)

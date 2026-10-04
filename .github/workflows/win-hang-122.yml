@@ -102,7 +102,10 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/hangdump"
           export PYTHONPATH="$GITHUB_WORKSPACE/.github/win-hang-122"
           export HANGDUMP_DIR="$GITHUB_WORKSPACE/hangdump"
-          FILES="tests/test_airport_elevation_insets.py tests/test_solve_capture.py"
+          # (tests/test_solve_capture.py — the second file this probe ran —
+          # was a v1 solve-capture suite and went with the v1 engine,
+          # 2026-10-04; the header's one sighting there is history.)
+          FILES="tests/test_airport_elevation_insets.py"
           PLUG="-p hangdump122 -p faulthandler -o faulthandler_timeout=0"
           set -o pipefail
           case "${{ matrix.arm }}" in

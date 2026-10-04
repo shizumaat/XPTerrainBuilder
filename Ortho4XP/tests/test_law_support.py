@@ -27,7 +27,6 @@ import inspect
 import os
 import sys
 
-import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
@@ -35,28 +34,7 @@ for _p in (os.path.join(_ROOT, "src"), os.path.join(_ROOT, "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from harness.law_support import (           # noqa: E402
-    contiguity, corridor, grade_graph, grade_law, roles, strip_seam, transect)
-
-#: harness module -> the v1 modules its definitions were copied from.
-SOURCES = {
-    roles: ("auto_patch.layout", "auto_patch.pavement.strips"),
-    strip_seam: ("auto_patch.strip_seam_law",),
-    grade_law: ("auto_patch.grade_law",),
-    grade_graph: ("auto_patch.grade_graph",),
-    contiguity: ("auto_patch.lateral_contiguity", "auto_patch.lateral_spine_nodes",
-                 "auto_patch.enclaves", "auto_patch.gap_fill",
-                 "auto_patch.adjacent_ground"),
-    corridor: ("auto_patch.elevation_per_surface.route_profile.apron_terrace",),
-    transect: ("auto_patch.transect_walk",),
-}
-
-#: The four collapsed flag reads (package docstring, "THE ONE DELIBERATE
-#: CHANGE").  A source pair differing ONLY by one of these lines is a match.
-_FLAG_COLLAPSE = (
-    'if fabric_flags.on(', 'if not fabric_flags.on(',
-    'if True:', 'if False:',
-)
+from harness.law_support import roles
 
 
 def _v1(module_name):
@@ -64,113 +42,6 @@ def _v1(module_name):
         return importlib.import_module(module_name)
     except Exception:
         return None
-
-
-def _harness_defs(mod):
-    """Top-level names the harness module DEFINES (not the ones it imports)."""
-    tree = ast.parse(inspect.getsource(mod))
-    out = []
-    for n in tree.body:
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            out.append(n.name)
-        elif isinstance(n, ast.Assign):
-            out.extend(t.id for t in n.targets if isinstance(t, ast.Name))
-        elif isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
-            out.append(n.target.id)
-    return out
-
-
-#: The import spellings the copy rewrote: the harness form on the left, the v1
-#: form on the right.  A rewritten import is not drift — a rewritten BODY is.
-_IMPORT_FORMS = (
-    ("from .roles import", "from .layout import"),
-    ("from .strip_seam import", "from .strip_seam_law import"),
-    ("from .contiguity import", "from .lateral_contiguity import"),
-    ("from .contiguity import", "from .lateral_spine_nodes import"),
-    ("from .contiguity import", "from .enclaves import"),
-    ("from .contiguity import", "from .gap_fill import"),
-    ("from .contiguity import", "from .adjacent_ground import"),
-    ("from .transect import", "from .transect_walk import"),
-    ("from .corridor import",
-     "from .elevation_per_surface.route_profile.apron_terrace import"),
-    ("from auto_patch.config import", "from .config import"),
-    ("from auto_patch import config as", "from . import config as"),
-)
-
-
-def _normalise(text):
-    """Source with the collapsed flag lines dropped and the rewritten import
-    spellings canonicalised, so only a BODY change reads as drift."""
-    keep = []
-    for line in text.splitlines():
-        if any(m in line for m in _FLAG_COLLAPSE):
-            continue
-        st = line.strip()
-        if st.startswith("from ") or st.startswith("import "):
-            for ours, theirs in _IMPORT_FORMS:
-                if st.startswith(ours):
-                    line = line.replace(ours, "IMPORT", 1)
-                elif st.startswith(theirs):
-                    line = line.replace(theirs, "IMPORT", 1)
-        keep.append(line.rstrip())
-    return "\n".join(keep)
-
-
-@pytest.mark.parametrize("harness_module", list(SOURCES))
-def test_every_copied_definition_is_the_v1_definition(harness_module):
-    """Round-1 lockstep: the copy has not drifted from what it copied."""
-    originals = [m for m in (_v1(n) for n in SOURCES[harness_module]) if m]
-    if not originals:
-        pytest.skip("the v1 modules are deleted (round 2) — nothing to compare")
-    checked = compared = 0
-    for name in _harness_defs(harness_module):
-        if name.startswith("__"):
-            continue
-        ours = getattr(harness_module, name, None)
-        theirs = None
-        for src in originals:
-            if hasattr(src, name):
-                theirs = getattr(src, name)
-                break
-        if theirs is None:
-            continue
-        checked += 1
-        if inspect.isfunction(ours) or inspect.isclass(ours):
-            try:
-                a, b = inspect.getsource(ours), inspect.getsource(theirs)
-            except OSError:                       # pragma: no cover
-                continue
-            assert _normalise(a) == _normalise(b), (
-                f"{harness_module.__name__}.{name} has DRIFTED from "
-                f"{theirs.__module__}.{name}")
-            compared += 1
-        else:
-            assert ours == theirs, (
-                f"{harness_module.__name__}.{name} = {ours!r} but "
-                f"the v1 value is {theirs!r}")
-            compared += 1
-    assert checked and compared, (
-        f"{harness_module.__name__}: nothing was compared — the twin is vacuous")
-
-
-def test_the_flag_collapse_is_exactly_four_lines_and_all_default_on():
-    """The one deliberate change, pinned: four reads, every flag DEFAULT-ON."""
-    v1_law = _v1("auto_patch.grade_law")
-    if v1_law is None:
-        pytest.skip("v1 deleted (round 2)")
-    flags = _v1("auto_patch.fabric_flags")
-    ours = inspect.getsource(grade_law)
-    theirs = inspect.getsource(v1_law)
-    names = [n for n in ("O4_FABRIC_W2_RETIRE_APRON_SURROUND",
-                         "O4_FABRIC_W2_RETIRE_SERVICE_SHADOW",
-                         "O4_FABRIC_W2_ICAO_STRIP_AUTHORITY",
-                         "O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY")
-             if f'fabric_flags.on("{n}")' in theirs]
-    assert len(names) == 4, names
-    assert "fabric_flags" not in ours.replace("# ", "").replace(
-        "fabric_flags registry", "")
-    for n in names:
-        assert flags.on(n), f"{n} is NOT default-on — the collapse changes law"
 
 
 def test_the_role_tags_are_v2s_own_precedence_names():

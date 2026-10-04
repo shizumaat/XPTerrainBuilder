@@ -16,12 +16,10 @@ Plus per-row value twins for the §4 table: each number is asserted
 against its PRIMARY citation, so a silent edit to a regulation constant
 fails here rather than at an airport.
 """
-import os
 
 import pytest
 
 from auto_patch import config as CFG
-from auto_patch import grade_law as GL
 
 
 # ── §3 twin 1 — the resolver table ───────────────────────────────────
@@ -99,67 +97,6 @@ def test_registry_is_open_ended():
 
 # ── §3 twin 2 — the sidecar round-trip ───────────────────────────────
 
-def test_sidecar_carries_the_ruleset_key():
-    """``layout._write_axes_sidecar`` writes the key the BUILD ran under,
-    and ``check_grade`` consumes it instead of re-resolving from the ICAO
-    identifier (the two-instruments law applied to authority).
-
-    Source-inspection twin (the ref-pull precedent): reaching the write
-    site needs a full build, which this suite does not run.
-
-    The CONSUME half used to be asserted as three literal lines inside
-    ``check_grade.main``.  That inline parse is gone: there is now ONE
-    sidecar reader, ``check_grade.law_context_from_sidecar``, which the
-    CLI, ``tools/harness/census.py`` and the test fixtures all call (a
-    private per-lane copy of it is exactly how ``ruleset`` went missing
-    from one lane's census in the first place).  The assertion follows the
-    key rather than the old call site, and now exercises the reader for
-    real instead of grepping for it."""
-    import inspect
-    import json
-    import sys
-    import tempfile
-    from pathlib import Path
-    from auto_patch import layout as LAY
-    src = inspect.getsource(LAY.PavementLayout._write_axes_sidecar)
-    assert '"ruleset": _grade_law_ruleset_of(self)' in src
-
-    check = os.path.normpath(os.path.join(os.path.dirname(os.path.dirname(
-        os.path.abspath(LAY.__file__))), "..", "tools", "check_grade.py"))
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("cg_ruleset_twin", check)
-    cg = importlib.util.module_from_spec(spec)
-    # Registered BEFORE exec: @dataclass resolves its own module by name.
-    sys.modules[spec.name] = cg
-    spec.loader.exec_module(cg)
-
-    assert cg.SIDECAR_LAW_KEYS["ruleset"] == "ruleset", (
-        "the sidecar's ruleset key must map to run_checks' ruleset kwarg")
-    with tempfile.TemporaryDirectory() as td:
-        osm = Path(td) / "p.osm"
-        osm.write_text("<osm version='0.6'></osm>", encoding="utf-8", newline="")
-        Path(str(osm) + ".axes.json").write_text(json.dumps(
-            {"anchor": None, "ruleset": "faa"}), encoding="utf-8", newline="")
-        assert cg.law_context_from_sidecar(osm)["ruleset"] == "faa", (
-            "the one sidecar reader must carry the BUILD's ruleset through "
-            "to run_checks — never re-resolved from the ICAO identifier")
-    assert "_set_active_ruleset(ruleset)" in open(check, encoding="utf-8").read()
-
-
-def test_ruleset_of_prefers_the_carried_key_over_re_resolution():
-    class _Layout:
-        icao = "HECA"
-        ruleset = "faa"        # what the build actually ran under
-
-    assert GL.ruleset_of(_Layout()) == "faa"
-
-    class _NoKey:
-        icao = "HECA"
-
-    assert GL.ruleset_of(_NoKey()) == "icao"
-    assert GL.ruleset_of("KCLT") == "faa"
-    assert GL.ruleset_of(None) == CFG.DEFAULT_RULESET
-
 
 # ── §3 twin 3 — lockstep across every split family ───────────────────
 
@@ -178,17 +115,6 @@ def test_every_split_family_resolves_for_every_ruleset(family, _keying, key):
     assert isinstance(table, CFG.CodeTable)
     for code, letter in ((4, "E"), (3, "C"), (2, "B"), (1, "A")):
         table.value(code, letter)      # must not raise
-
-
-@pytest.mark.parametrize("key", ["faa", "icao"])
-def test_emitter_and_validator_read_one_accessor(key):
-    """The emitter's call and the validator's call are the SAME function
-    with the same arguments, so they cannot return different numbers."""
-    for code, letter in ((4, "E"), (3, "C"), (1, "A")):
-        assert (CFG.ruleset_runway_max_grade(code, letter, key)
-                == CFG.ruleset_runway_max_grade(code, letter, key))
-        assert (GL.runway_strip_max_longitudinal_slope(code, key, letter)
-                == CFG.ruleset_strip_max_longitudinal_slope(code, letter, key))
 
 
 # ── §4 the per-authority value table, against its citations ──────────
@@ -388,73 +314,6 @@ def test_provisional_values_are_flagged_as_provisional():
     assert CFG.GROUNDSIDE_MIN_DRAINAGE_GRADE == 0.010
 
 
-def test_crown_minimum_binds_on_runways_and_is_recorded_on_taxiways():
-    """Owner question 5, ANSWERED for runways (RULINGS d48bc0a): this
-    version implements runway crowns and binds their 1 % minimum; the
-    taxiway floor is CARRIED (so the validator can report) and asserted
-    by no constraint."""
-    assert CFG.CROWN_MINIMUM_BOUND_RUNWAYS is True
-    assert CFG.CROWN_MINIMUM_BOUND_TAXIWAYS is False
-    assert CFG.get_ruleset("faa").runway_transverse_min == 0.010
-    assert CFG.get_ruleset("icao").runway_transverse_min == 0.010
-    assert CFG.get_ruleset("faa").taxi_transverse_min == 0.010
-    # ICAO §3.9.11 states no taxiway minimum.  Reg-set ruling 2
-    # (2026-08-08) fills that gap with the FAA 1.0 % as a NAMED
-    # PROVISIONAL HOUSE CONSTANT, so the value is present and the
-    # LABEL — not a None — is what preserves the distinction.  Full
-    # twin: tests/test_fabric_reg_set_w1.py family F.
-    assert CFG.get_ruleset("icao").taxi_transverse_min == 0.010
-    assert CFG.ruleset_taxi_transverse_min_provisional("icao") is True
-    assert CFG.ruleset_taxi_transverse_min_provisional("faa") is False
-    # taxiway unbound ⇒ its surface bound stays symmetric
-    lo, hi = GL.transverse_surface_bounds("taxiway", "C", 10.0, "faa")
-    assert lo == pytest.approx(-0.15)
-    assert hi == pytest.approx(0.15)
-    # runway BOUND ⇒ mandatory-down, [-cap·t, -min·t]
-    lo, hi = GL.transverse_surface_bounds("runway", "C", 10.0, "faa")
-    assert lo == pytest.approx(-0.15)
-    assert hi == pytest.approx(-0.10)
-
-
 # ── the end-skirt constants now have ONE copy ────────────────────────
 
-def test_end_skirt_constants_derive_from_the_faa_ruleset():
-    """The values came from the FAA text, so they LIVE on the FAA
-    ruleset; ``grade_law``'s historical names are that ruleset's view.
-    Exactly one copy — an edit to either moves both."""
-    assert GL.RUNWAY_END_SKIRT_NEAR_ZONE_M == 61.0
-    assert GL.RUNWAY_END_SKIRT_NEAR_MAX_DOWN_GRADE == 0.03
-    assert GL.RUNWAY_END_SKIRT_MAX_DOWN_GRADE == 0.05
-    faa = CFG.get_ruleset("faa")
-    assert GL.RUNWAY_END_SKIRT_NEAR_ZONE_M == faa.end_skirt_near_zone_m
-    assert (GL.RUNWAY_END_SKIRT_MAX_GRADE_CHANGE_PER_M
-            == faa.end_skirt_max_grade_change_per_m)
 
-
-def test_icao_skirt_has_no_near_zone():
-    """Annex 14 §3.5.10 is a single ≤5 % down cap with no 61 m near
-    zone, so an ICAO skirt descends FASTER near the end than an FAA
-    one — jurisdictional fidelity, and the predicted row-10 delta."""
-    near, near_max, max_down, rate = GL.runway_end_skirt_law("icao")
-    assert near is None and near_max is None
-    assert max_down == 0.05
-    assert rate == pytest.approx(0.02 / 30.5)     # PROVISIONAL, flagged
-
-    faa_depths = GL.runway_end_skirt_floor_profile([61.0, 240.0], 0.0, "faa")
-    icao_depths = GL.runway_end_skirt_floor_profile([61.0, 240.0], 0.0, "icao")
-    assert icao_depths[0] > faa_depths[0]
-    assert icao_depths[1] > faa_depths[1]
-    # …and both stay monotone and non-negative.
-    assert 0.0 <= faa_depths[0] < faa_depths[1]
-
-
-def test_runway_profile_law_is_one_resolver():
-    law = GL.runway_profile_law(4, "E", "precision", 4000.0, "icao")
-    assert law["max_grade"] == pytest.approx(0.0125)
-    assert law["end_grade"] == pytest.approx(0.008)
-    assert law["end_zone_m"] == pytest.approx(1000.0)
-    assert law["max_grade_change_per_m"] == pytest.approx(1.0 / 30000.0)
-    law = GL.runway_profile_law(4, "E", "precision", 4000.0, "faa")
-    assert law["max_grade"] == pytest.approx(0.015)
-    assert law["end_zone_m"] == pytest.approx(762.0)
-    assert law["max_grade_change_per_m"] == pytest.approx(0.01 / 305.0)

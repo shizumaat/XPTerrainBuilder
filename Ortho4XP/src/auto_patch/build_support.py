@@ -16,6 +16,9 @@ two sides cannot drift for the one round they coexist.
       ``engine_v2.select_apt_dat`` — one selector, one datum)
   ``ensure_airports_osm_tile_cached``  the tile driver's ``airports`` OSM
       prefetch
+  ``is_cached``  the parallel scheduler's fetch-admission predicate for the
+      airport packs (moved in round 2, 2026-10-04; resolved by NAME from
+      ``o4_engine.parallel.STEP_FETCH_SUBSYSTEMS``)
   ``read_patch_source``  the build-input provenance a patch header carries
       (the freshness gate's reader)
   ``_find_cifp_path``  the CIFP ``.dat`` resolver (AIRAC, then stock)
@@ -125,6 +128,50 @@ def ensure_airports_osm_tile_cached(tile_latitude: int,
             f"  [pav-builder] WARN: airport OSM download error: "
             f"{exc}")
     return os.path.isfile(cache_path)
+
+
+def is_cached(tile) -> bool:
+    """True when this tile's airport packs would fetch nothing remote.
+
+    One of the per-subsystem fetch-admission predicates of
+    docs/specs/apron-string-and-scheduling-spec.md §A.2, co-located with
+    :func:`ensure_airports_osm_tile_cached` — the ONLY remote traffic an
+    auto-patch build issues.  Everything else it reads is local: apt.dat
+    and CIFP come from the X-Plane install, scenery-pack DSFs from disk,
+    and ``Airport_mod_cache`` holds derived sidecars, not downloads.
+
+    Cheap (``isfile`` only), never a network probe, and conservative:
+    the road layers an airport build pre-feeds from (the tile-wide
+    ``small_roads`` cache) are required whenever the tile's ``road_level``
+    calls for them, so a tile that would fall back to a regional-extract
+    fetch is never reported cached.
+
+    ``tile`` is a configured ``O4_Config_Utils.Tile``.
+
+    MOVED here from ``osm_load`` UNCHANGED (stage B round 2 of the v1
+    retirement, lane ``v1cut``, 2026-10-04 — the sixth seam).  The parallel
+    scheduler resolves it BY NAME (``o4_engine.parallel
+    .STEP_FETCH_SUBSYSTEMS``, a ``__import__`` the static closure twin in
+    ``tests/test_v1_retired.py`` cannot see), so deleting ``osm_load``
+    without moving it would have silently pinned every tile's vector step
+    to "not cached".
+    """
+    try:
+        lat, lon = int(tile.lat), int(tile.lon)
+        if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):
+            return False
+        import O4_Vector_Map as _VMAP
+
+        (road_level, _auto) = _VMAP.resolved_road_level(tile)
+        if road_level >= 1 and not os.path.isfile(
+                FNAMES.osm_cached(lat, lon, "big_roads")):
+            return False
+        if road_level >= 2 and not os.path.isfile(
+                FNAMES.osm_cached(lat, lon, "small_roads")):
+            return False
+        return True
+    except Exception:
+        return False
 
 
 # ──────────────────────────────────────────────────────────────────────

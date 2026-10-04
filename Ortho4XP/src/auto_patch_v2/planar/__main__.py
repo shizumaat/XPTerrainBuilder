@@ -350,26 +350,24 @@ def structure_records(airport, cl, law) -> dict:
     arrangement or solve).  Runs the same passes in the same order as
     ``planar.build.build``."""
     from ..airport import frame_entry, obj8
-    from ..airport.tunnel_objects import read_corridors
     from .basins import build_basins, read_objects
     from .structures import build_structures
     to_ll = airport.frame.transformers()[1]
     cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m,
                                frame_entry.quantum(law))
     objects, orep = read_objects(airport, law, cache)
-    from ..airport.door_wells import read_door_wells
-    from ..airport.sunken_roads import read_sunken_roads
     from .door_ramps import door_groups, sunken_groups
     from ..airport.wall_corridors import read_wall_corridors
+    from .pack_reads import pack_reads
     from .wall_corridor_ramps import wall_corridor_groups
-    corridors, tstats = read_corridors(airport, objects, cache, law)
-    from ..airport.thin_plates import read_plates
-    plates, pstats = read_plates(airport, objects, cache, law,
-                                 {c.resource for c in corridors})
+    # the four classification-free pack reads: THE ONE site
+    # (``planar/pack_reads``), shared with ``planar.build.build``
+    pr = pack_reads(airport, objects, cache, law)
+    corridors, tstats, plates, pstats = (pr.corridors, pr.tunnel_stats,
+                                         pr.plates, pr.plate_stats)
+    wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
     tstats.plates = pstats.plates
     tstats.refused.extend(pstats.refused)
-    wells, dstats = read_door_wells(airport, objects, cache, law)
-    roads, rstats = read_sunken_roads(airport, objects, cache, law)
     walls_c, wstats = read_wall_corridors(airport, objects, cache, law, cl,
                                           measure=True)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \

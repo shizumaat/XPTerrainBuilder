@@ -45,7 +45,8 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from auto_patch_v2.classify import classify, load_rules  # noqa: E402
-from auto_patch_v2.classify.explain import role_census  # noqa: E402
+sys.path.insert(0, str(ROOT / "tools"))
+from v2_explain import role_census  # noqa: E402
 from auto_patch_v2.classify.roles import TAXI_FAMILY  # noqa: E402
 from auto_patch_v2.constraints.precedence import view  # noqa: E402
 from auto_patch_v2.constraints.strips import runway_groups  # noqa: E402

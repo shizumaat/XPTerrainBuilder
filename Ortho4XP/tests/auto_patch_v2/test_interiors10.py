@@ -159,7 +159,10 @@ def test_the_contents_census_reads_the_stages_own_unit_map(tmp_path):
     of the #31 twin are one unit at the pad, nobody is apart; a body moved
     3 m off the datum is counted under the rule its reason names."""
     import dataclasses as dc
-    from auto_patch_v2.airport import contents_census as CC
+    import os, sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "tools"))
+    import contents_census as CC
 
     ss = PP.build_splits(J._plan(tmp_path), J._flat(J.GROUND_Z), (J._pad(),),
                          write=False, **J._args())

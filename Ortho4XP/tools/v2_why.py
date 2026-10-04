@@ -1,27 +1,46 @@
-"""``why`` — THE PIPELINE SIDE (lane v2route, RULINGS 2026-09-04q-3:
-``solve/`` imports law and model only): rebuild the pipeline's own LP
-(load → classify → planar → constraints → the HiGHS solve with duals,
-seam passes included, no emit), resolve the target face from a shapeID /
-a patch / a coordinate, and read the apt.dat 1202 code-letter evidence
-along the centrelines touching it.  The analysis over the prepared LP
-(bindings, chain trace, relax-one-family, the report) is
-``solve/why.py``.
+"""``venv/bin/python tools/v2_why.py ICAO --shape N | --at LAT,LON`` — WHAT
+BINDS THIS SHAPE, the airport front end (lane v2why / v2route): rebuild
+the pipeline's own LP (load → classify → planar → constraints → the design
+solve with pressures, seam passes included, no emit), resolve the target
+face from a shapeID / a patch / a coordinate, and read the apt.dat 1202
+code-letter evidence along the centrelines touching it.  The analysis over
+the prepared LP (bindings, chain trace, relax-one-family, the report) is
+``tools/v2_why_solve.py``, which ``tools/v2_solve_replay.py --why-*`` reads
+on a capture without this front end.
+
+Production never calls either, so both live here and not in the engine
+package (RULINGS 2026-10-04c (4); they were ``auto_patch_v2/pipeline/why.py``,
+``auto_patch_v2/solve/why.py`` and the ``why`` subcommand of
+``python -m auto_patch_v2``).  A relaxed family is a MEASUREMENT ARM, never
+a build — nothing here writes a patch or edits a table.
 """
 from __future__ import annotations
 
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``.  Twin: ``tests/test_console_encoding.py``.
+import os as _o4os, sys as _o4sys                                    # noqa: E402
+_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
+    _o4os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console                             # noqa: E402
+_o4console.configure_console_streams()
+_o4sys.path.insert(0, _o4os.path.dirname(_o4os.path.abspath(__file__)))
+
+import argparse
 import dataclasses as _dc
+import os
+import sys
 import time
 import typing as _t
 
 import numpy as np
 
-from ..law import Law
-from ..model.planar import PlanarMap
-from ..solve.why import Prepared, _drop, solve_with_pressure
-from ..solve.why import report as _report
+from auto_patch_v2.law import Law
+from auto_patch_v2.model.planar import PlanarMap
+from v2_why_solve import Prepared, _drop, solve_with_pressure
+from v2_why_solve import report as _report
 
 __all__ = ["prepare", "_prepare_solved", "resolve_faces", "taxi_letters",
-           "design_block", "report", "chain_kml"]
+           "design_block", "report", "chain_kml", "build_parser", "main"]
 
 
 def prepare(icao: str, inputs, law: Law | None = None,
@@ -32,10 +51,10 @@ def prepare(icao: str, inputs, law: Law | None = None,
     ``drop``: families (``family_of`` labels) removed BEFORE the solve —
     a labelled measurement arm ("with no-step relaxed, what binds
     next?"), never the build."""
-    from ..airport.load import load_with_report
-    from ..classify import classify, load_rules
-    from ..constraints import generate
-    from ..planar.build import build as build_planar
+    from auto_patch_v2.airport.load import load_with_report
+    from auto_patch_v2.classify import classify, load_rules
+    from auto_patch_v2.constraints import generate
+    from auto_patch_v2.planar.build import build as build_planar
     wall: dict[str, float] = {}
     t = time.perf_counter()
     law = law or Law.for_airport(icao)
@@ -55,7 +74,7 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law,
     per-row pressures, the seam passes — ``prepare``'s solve half, so a twin
     can drive it on a synthetic airport.  There is no infeasible branch any
     more (RULINGS 2026-09-08t): the least-squares solve always answers."""
-    from .shapes import shape_constraints, shape_stage
+    from auto_patch_v2.pipeline.shapes import shape_constraints, shape_stage
     wall = wall if wall is not None else {"load": 0.0, "classify+planar": 0.0}
     t = time.perf_counter()
     # THE SHAPE STAGE (2026-09-08k): the rows ``why`` reads are the build's
@@ -71,8 +90,8 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law,
     # minus that channel.  Adding it reds `test_why`'s chain-trace twin
     # (the trace's own dz changes), which is §21's ground, not this
     # round's; the lane reports it rather than widening someone else's twin.
-    from ..constraints.apron_trend import with_apron_trend
-    from ..constraints.taxi_trend import with_taxi_trend
+    from auto_patch_v2.constraints.apron_trend import with_apron_trend
+    from auto_patch_v2.constraints.taxi_trend import with_taxi_trend
     pm = with_taxi_trend(pm, law, airport)
     # THE APRON BODY'S 2-D TREND (spec §8.7) is published for the same
     # reason and in the same order the pipeline publishes it: without it an
@@ -83,7 +102,7 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law,
     # trend channels over the derived ramp reach before it solves, so
     # ``why`` must too — otherwise a ramp vertex reads as held by a
     # ``taxi_trend`` row the build does not have.
-    from ..constraints.eat import withdraw_trend_over_reach
+    from auto_patch_v2.constraints.eat import withdraw_trend_over_reach
     pm = withdraw_trend_over_reach(pm, law, airport)
     stage = _dc.replace(stage, pm=pm)
     cs, counts, _g = shape_constraints(pm, law, airport, stage)
@@ -144,7 +163,7 @@ def resolve_faces(prep: Prepared, shape: int | None = None,
     if shape is None:
         raise ValueError("why: one of shape / at")
     if patch is not None:
-        from ..classify.explain import shape_polygon
+        from v2_explain import shape_polygon
         found = shape_polygon(patch, shape, prep.airport)
         if found is None:
             return [], f"no way with shapeID={shape} in {patch}"
@@ -172,8 +191,8 @@ def taxi_letters(prep: Prepared, fid: int, near_m: float = 3.0) -> list[str]:
     names and width-class letters, and the faces it bounds with their
     code letter and longitudinal cap — the evidence hypothesis (d) reads."""
     from shapely.geometry import LineString
-    from ..constraints.precedence import face_cap, view
-    from ..solve.why import face_vertices
+    from auto_patch_v2.constraints.precedence import face_cap, view
+    from v2_why_solve import face_vertices
     vw = view(prep.pm, prep.law)
     verts = set(face_vertices(prep, fid))
     nodes = {k: n.xy for k, n in prep.airport.taxi_nodes.items()}
@@ -267,8 +286,8 @@ def chain_kml(prep: Prepared, fid: int, path: str, title: str | None = None,
     surface for "which rows hold this shape" (RULINGS 2026-09-05aa /
     06n were ruled on exactly this artefact).  Returns the trace."""
     from xml.sax.saxutils import escape
-    from ..model.constraints import Diff
-    from ..solve.why import BIND_TOL_M, chain_trace, face_vertices
+    from auto_patch_v2.model.constraints import Diff
+    from v2_why_solve import BIND_TOL_M, chain_trace, face_vertices
     tr = chain_trace(prep, face_vertices(prep, fid), BIND_TOL_M if tol is None else tol)
     _to_xy, to_ll = prep.airport.frame.transformers()
     pm, z = prep.pm, prep.z
@@ -314,3 +333,67 @@ def chain_kml(prep: Prepared, fid: int, path: str, title: str | None = None,
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(L) + "\n")
     return tr
+
+
+# ── the CLI ──────────────────────────────────────────────────────────────
+
+def build_parser() -> argparse.ArgumentParser:
+    """The CLI's parser (a factory so a twin can parse without running)."""
+    from auto_patch_v2.planar.__main__ import add_dem_frame_args
+    y = argparse.ArgumentParser(
+        prog="v2_why",
+        description="WHAT BINDS THIS SHAPE: the active rows, the chain trace to "
+                    "the nearest hard pin and the relax-one-family rises")
+    y.add_argument("icao")
+    y.add_argument("--shape", type=int, help="face id (= shapeID of the v2 patch)")
+    y.add_argument("--at", help="LAT,LON (WGS84)")
+    y.add_argument("--patch", help="match --shape's ring in THIS patch to a face instead")
+    y.add_argument("--relax", help="comma-separated families to relax (default: the "
+                   "binding families by Σ|dual|, at most --max-relax)")
+    y.add_argument("--max-relax", type=int, default=5)
+    y.add_argument("--drop", help="comma-separated families dropped BEFORE the solve "
+                   "(a labelled arm: 'with X relaxed, what binds next?')")
+    y.add_argument("--top", type=int, default=3, help="binding rows shown per vertex")
+    y.add_argument("--kml", help="ALSO write the chain trace as a KML here (one line per "
+                   "binding row, coloured by family — the owner's reading surface)")
+    y.add_argument("--xplane-root")
+    y.add_argument("--cifp-dir")
+    y.add_argument("--data-root")
+    y.add_argument("--law-dir", help="an ALTERNATIVE law-table directory (a labelled arm)")
+    add_dem_frame_args(y)
+    return y
+
+
+def main(argv: list[str] | None = None) -> int:
+    """The pipeline's LP rebuilt (no emit) and one face's binding story."""
+    from auto_patch_v2.pipeline.__main__ import shared_repo_guard
+    from auto_patch_v2.planar.__main__ import ENGINE_DIR, default_inputs
+    args = build_parser().parse_args(argv)
+    os.chdir(ENGINE_DIR)   # the core's resource/data contract (production DEM frame)
+    if (args.shape is None) == (args.at is None):
+        print("why: exactly one of --shape N / --at LAT,LON")
+        return 2
+    icao = args.icao.upper()
+    inputs = default_inputs(args.xplane_root, args.cifp_dir, args.data_root,
+                            60.0, args.dem_frame, args.allow_degraded_dem)
+    law = Law.for_airport(icao, law_dir=args.law_dir) if args.law_dir else None
+    drop = args.drop.split(",") if args.drop else ()
+    with shared_repo_guard():
+        prep = prepare(icao, inputs, law, drop=drop)
+    at = tuple(float(v) for v in args.at.split(",")) if args.at else None
+    faces, how = resolve_faces(prep, args.shape, at, args.patch)
+    print(f"[{icao}] why: {how}")
+    if not faces:
+        return 1
+    relax = args.relax.split(",") if args.relax else None
+    for fid in faces:
+        print(report(prep, fid, top=args.top, relax=relax, max_relax=args.max_relax))
+        if args.kml:
+            tr = chain_kml(prep, fid, args.kml)
+            print(f"[{icao}] why: chain KML -> {args.kml} "
+                  f"({0 if tr is None else len(tr.steps)} rows)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

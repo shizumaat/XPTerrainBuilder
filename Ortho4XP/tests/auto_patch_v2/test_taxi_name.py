@@ -18,7 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from auto_patch_v2.classify import classify, load_rules  # noqa: E402
 from auto_patch_v2.classify.evidence import build_evidence, taxi_name_match  # noqa: E402
-from auto_patch_v2.classify.explain import explain_polygon  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+from v2_explain import explain_polygon  # noqa: E402
 from auto_patch_v2.classify.sources import classify_sources  # noqa: E402
 from auto_patch_v2.law import Law  # noqa: E402
 from auto_patch_v2.model.airport import GroundRoute, Pavement, Surface, TaxiNode  # noqa: E402

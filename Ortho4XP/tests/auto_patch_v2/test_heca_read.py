@@ -19,8 +19,11 @@ from auto_patch_v2.model.constraints import Linear
 from auto_patch_v2.pipeline.publication import publication
 from auto_patch_v2.solve import Options, Status, solve_design
 from auto_patch_v2.solve import solve_design
-from auto_patch_v2.solve.why import family_of
 from auto_patch_v2.verify import census
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(
+    _os.path.abspath(__file__)))), "tools"))
+from v2_why_solve import family_of  # noqa: E402
 from auto_patch_v2.verify.census import DEFECT_KEYS
 from auto_patch_v2.verify.runway import FAMILY_VERTICAL_CURVE
 from auto_patch_v2.verify.strips import FAMILY_STRIP_TRANSVERSE

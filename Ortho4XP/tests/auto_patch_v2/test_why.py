@@ -1,4 +1,4 @@
-"""Twins for ``solve/why.py`` — WHAT BINDS THIS SHAPE (lane v2why).
+"""Twins for ``tools/v2_why_solve.py`` / ``tools/v2_why.py`` — WHAT BINDS THIS SHAPE (lane v2why).
 
 A synthetic apron behind a parallel taxiway and a stub from a PINNED
 runway, on a DEM that climbs steeply away from the runway: the apron
@@ -18,8 +18,11 @@ from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
                                          SceneryPack, TaxiEdge, TaxiNode)
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar.build import build
-from auto_patch_v2.pipeline import why as pwhy
-from auto_patch_v2.solve import why
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(
+    _os.path.abspath(__file__)))), "tools"))
+import v2_why as pwhy  # noqa: E402
+import v2_why_solve as why  # noqa: E402
 
 
 class _SteepDem:
@@ -306,7 +309,7 @@ def test_why_chain_kml_writes_one_line_per_binding_row(tmp_path):
     law_ = test_why.law.__wrapped__()
     prep = test_why.prepared.__wrapped__(law_)
     fid = _apron_face(prep)
-    from auto_patch_v2.pipeline.why import chain_kml
+    from v2_why import chain_kml
     out = tmp_path / "chain.kml"
     tr = chain_kml(prep, fid, str(out))
     text = out.read_text(encoding="utf-8")

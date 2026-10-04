@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import typing as _t
 
-from .placement_census import CARRIED_OWN_GROUND_TOL_M, STANDS_OVER_TOL_M
-
 __all__ = ["cockpit_block", "cockpit_block_lines", "COCKPIT_RULING"]
 
 #: The owner rulings this block reads under, quoted in its heading.
@@ -321,3 +319,10 @@ def cockpit_block_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
     if not c["report"]:
         out.append("      (none)")
     return out
+
+
+# LAST, not at the top (issue #341): ``placement_census`` re-exports this
+# module's names from ITS tail, so this module defines its own before it
+# asks for the census's two tolerances (read inside function bodies only).
+from .placement_census import (CARRIED_OWN_GROUND_TOL_M,  # noqa: E402
+                               STANDS_OVER_TOL_M)

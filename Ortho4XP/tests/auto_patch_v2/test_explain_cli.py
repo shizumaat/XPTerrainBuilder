@@ -1,4 +1,4 @@
-"""``auto_patch_v2 explain`` CLI twins (RULINGS 2026-09-13cs chip, scout
+"""``tools/v2_explain.py`` CLI twins (RULINGS 2026-09-13cs chip, scout
 ``v2heca329``): the default patch is the one the DATA-ROOT RESOLUTION
 lands a tile build's product at — never silently the engine tree's
 days-stale ``Patches/`` clone — the resolved path and its mtime are
@@ -18,24 +18,25 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tools"))
 
-import auto_patch_v2.pipeline.__main__ as M  # noqa: E402
+import v2_explain as M  # noqa: E402
 
 REL = Path("Patches") / "+30+030" / "+30+031" / "HECA_auto.patch.osm"
 
 
 @pytest.mark.parametrize("argv", [
-    ["explain", "--shape", "5", "HECA"],
-    ["explain", "HECA", "--shape", "5"],
-    ["explain", "HECA", "--patch", "p.osm", "--shape", "5"],
-    ["explain", "--shape", "5", "--patch", "p.osm", "HECA"],
+    ["--shape", "5", "HECA"],
+    ["HECA", "--shape", "5"],
+    ["HECA", "--patch", "p.osm", "--shape", "5"],
+    ["--shape", "5", "--patch", "p.osm", "HECA"],
 ])
 def test_shape_parses_in_either_position(argv):
     """The chip said ``--shape`` was accepted only before the ICAO; the
     parser takes it on either side of the positional (and after
     ``--patch``), and the twin pins that it stays so."""
     a = M.build_parser().parse_args(argv)
-    assert a.cmd == "explain" and a.icao == "HECA" and a.shape == 5
+    assert a.icao == "HECA" and a.shape == 5
     assert a.patch == ("p.osm" if "--patch" in argv else None)
 
 

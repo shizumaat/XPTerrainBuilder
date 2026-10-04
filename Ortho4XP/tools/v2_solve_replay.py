@@ -794,13 +794,13 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
               out=print, relax: list[str] | None = None, vertex: int | None = None) -> dict:
     """``why`` for the highest crown-ridge vertex of ``runway`` in stations
     ``[s0, s1]`` (z − threshold chord): the binding rows by family on the
-    vertex (solve.why.bindings — a duals solve of the SAME LP) and the chain
+    vertex (v2_why_solve.bindings — a duals solve of the SAME LP) and the chain
     trace to its hard terminal.  No relax arms (each is a full re-solve)."""
     import numpy as np
     from auto_patch_v2.constraints.precedence import view
     from auto_patch_v2.constraints.runway_profile import ridge_chains
     from auto_patch_v2.model.constraints import Diff, Linear
-    from auto_patch_v2.solve.why import Prepared, bindings, chain_trace, solve_with_pressure, _vname, _row_desc
+    from v2_why_solve import Prepared, bindings, chain_trace, solve_with_pressure, _vname, _row_desc
     hump: list[int] = []
     best = None
     if vertex is not None:
@@ -868,7 +868,7 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
         out("    chain trace: no terminal reached — the objective holds it")
     arms = {}
     if relax:
-        from auto_patch_v2.solve.why import relax_family
+        from v2_why_solve import relax_family
         out(f"    relax-one-family arms over {len(hump)} ridge vertices (full re-solve each; dz = z_arm - z):")
         for fam_name in relax:
             t = time.perf_counter()
@@ -2508,7 +2508,7 @@ def main() -> int:
                          "problem's (N=1: the AIRSIDE problem alone, the set "
                          "RULINGS 13y (B)/13ab/14as call unsettled)")
     ap.add_argument("--why-relax", nargs="+", default=[], metavar="FAMILY",
-                    help="relax-one-family arms (solve.why family labels) over the hump's ridge vertices")
+                    help="relax-one-family arms (v2_why_solve family labels) over the hump's ridge vertices")
     ap.add_argument("--why-hump", nargs=3, metavar=("RUNWAY", "S0", "S1"),
                     help="why on the highest ridge vertex above the chord in stations S0..S1")
     ap.add_argument("--bank-from", type=Path, metavar="PKL",

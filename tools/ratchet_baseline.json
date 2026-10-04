@@ -58,7 +58,6 @@
   "Ortho4XP/src/auto_patch_v2/law/model.py": 1177,
   "Ortho4XP/src/auto_patch_v2/pipeline/build.py": 1471,
   "Ortho4XP/src/auto_patch_v2/pipeline/publication.py": 1171,
-  "Ortho4XP/src/auto_patch_v2/pipeline/xplat.py": 1014,
   "Ortho4XP/src/o4_engine/parallel.py": 2042,
   "Ortho4XP/src/o4_engine/session.py": 1846,
   "Ortho4XP/tools/arm_site_read.py": 1116,

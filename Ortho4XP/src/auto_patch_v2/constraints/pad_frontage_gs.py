@@ -42,7 +42,7 @@ from ..law import Law
 from ..law.tables import pavement_roles, role_side
 from ..model.airport import Airport
 from ..model.constraints import Row, Source
-from ..model.planar import PlanarMap, is_collar_ref
+from ..model.planar import PlanarMap, is_collar_ref, is_facade_strip_ref
 from .groundside import groundside_face_roles
 from .pads import (_pad_polys, _two_sided, design_law, frontage_radius_m,
                    pad_frontage, pad_fronts_airside, rigid_roles)
@@ -292,6 +292,8 @@ def _groundside_geoms(planar: PlanarMap, law: Law
     out: list[tuple[int, str, str, set[int], Polygon]] = []
     for f in vw.faces_of_role(tuple(r for r in groundside_face_roles(law)
                                     if r not in rigid)):
+        if is_facade_strip_ref(f.ref):
+            continue        # §52: held at its host pad by its own row family
         ring = vw.rings[f.id]
         vs = {v for cyc in [ring, *vw.holes[f.id]] for v in cyc}
         if not vs or len(ring) < 3:

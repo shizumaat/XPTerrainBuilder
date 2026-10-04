@@ -154,6 +154,9 @@ class Surfaces:
 @_dc.dataclass(frozen=True)
 class Buildings:
     sources: tuple[str, ...]
+    #: §52 (RULINGS 2026-10-04d (3) (b)): a facade wall's attachment must
+    #: reach at least this far for its strip to be graded
+    facade_strip_min_reach_m: float = 5.0
 
 
 @_dc.dataclass(frozen=True)

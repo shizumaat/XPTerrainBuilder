@@ -17975,3 +17975,28 @@ Every strip is wholly inside the apt.dat boundary and wholly outside the patch.
 There is no bank pass (13cy, deleted by 04c). The strip is a flat groundside face at the pad's level; its outer ring meets the raw DEM over the first mesh triangle outside the constrained ring (design-surface §8.4). So the 6–8 m step that stands AT THE WALL today (pad 25.88 against DEM 32.4–33.2; the trailers drape on the high side) moves 13.2 m out, to the far edge of the strip. One z per (x, y) everywhere: emittable. No existing mechanism softens it — zone bands exist only around the runway and taxi families, the retaining-wall extension only along a road with a pack wall object, pad terraces only inside a footprint. INTENT QUESTION Q2: is a 6–8 m one-triangle face 13 m from the dock acceptable, or does the strip's outer edge want a graded run-out (which is a new law, not this lane's).
 
 At `building16` the court is 27 m wide and the facade opposite (`dsf:fac201`, no pad, draped on DEM 36–38) stands 13.7 m beyond the strip: the step lands in the middle of the truck court. A pad for `dsf:fac201` (the boundary-gate defect above) would put both terminals and the court on one level — INTENT QUESTION Q3.
+
+### §52 (6) ROUND 2 — RULED (2026-10-04d + master 2026-10-04; owner 2026-10-04f on the run-out), AND WHAT THE REPLAY MEASURED. NOT MERGE-READY: two rulings do not survive the solve as written; the tree stands in the best MEASURED arm and awaits a ruling.
+
+RULED: the derivation site (`classify/facade_mint.py` beside the ribbons, cells joining at pass C, stage 1 on the map without them); row 7 mint after §27; row 8 strip exempt from its HOST's knife only; row 14 not pad frontage; row 15 one HARD stage-2 row, strip = host pad level; row 9 facade cells before the ribbons; undecided-wall edges no strip; lot = `parking_lot`, existing lot law; the other cell wins every overlap; 04f: no run-out, plain edge, a road reaching a strip joins at the strip's level.
+
+THE RIBBON PATH CARRIES NON-ROAD ROLES — proved on a new SPJC capture: 4 strips + 1 lot minted and faced; `ribbon_airside_added / _removed` 0 / 0, `ribbon_renode_minted / _deleted` 0 / 0, rim mints notched 0; airside node set vs `sw1026_SPJC` 8,899 = 8,899 (0 added, 0 removed). The predicate widened (`model.planar.is_late_ref`) at the arrangement (`planar/overlay`, `planar/zones`), the stage-1 map (`pipeline/stage_one_map`) and the pad-frontage readers (`constraints/pads`, `pad_fronting`); no road-specific reader (`is_osm_ribbon_ref`) was touched and none reads a facade ref.
+
+MEASURED, one capture, one variable per arm (pad levels: reference `sw1026` building24 25.88, building16 30.23, building50 22.66):
+
+| arm | building24 / strips | building16 / strip | building50 / strip |
+|---|---|---|---|
+| welded, row HARD + one-way (as ruled) | 23.37–25.88 / 3.03–25.88 | 0.06–0.76 / 0.00–0.76 | 0.04–0.14 / 0.00–0.14 — the stage-2 solve collapses |
+| welded, `pad_flat` price, one-way | 25.88 / 25.88–25.92 | 34.85–35.04 / 34.85–35.85 | 22.66 / 22.65–22.66 |
+| + strip takes no DEM datum | 25.88 / 25.88–25.89 | 35.21–35.41 / 35.21–36.26 | 22.66 / 22.65–22.66 |
+| level generator dropped (attribution) | 25.88 / 25.88–26.96 | 30.24 / 30.24–31.31 | 22.65 / 22.25–22.73 |
+| set-back from the host too, one-way | 25.88 / 25.89 | 30.23 / 31.34 | 22.66 / 22.66 |
+| set-back, TWO-WAY at `pad_flat` (THE TREE) | 25.88 / 25.89 | 30.26 / 30.26–30.27 | 22.65–22.66 / 22.65 |
+
+Mechanism: `building24` and `building50` are HELD in stage 1 and cannot move; `building16` is a pad stage 2 itself levels (two `frontage_level` rows "facing across"). Welded, the strip's face carries the pad's rim vertices, so its own within-face caps (`roads` 55 pairs, `pavement_ceiling` 11) tie pad and strip two-way while the level row is one-way: the lag chases itself (§28's own warning) and the pad rides up. Set back, nothing couples them but the level row; one-way, the three lag rounds leave the strip 1.11 m off a pad that is still moving; two-way, the strip has no other force (no datum, flat so no active cap) and holds within 0.01 m, at the cost of 0.03 m on the unheld pad (13 `building` vertices, the only airside-side movers vs `sw1026` at 0.02; pavement 0, runway 0).
+
+QUESTIONS FOR THE RULING: (a) row 8 — accept the standing 0.6 m set-back from the host (strip 0.7–1.1 m off the wall after the snap; the level weld holds across it), or keep the identity weld and veto the strip's within-face caps in `constraints/roads` and `constraints/ceiling`; (b) row 15 — accept two-way at the pad's own price, with 0.03 m on an unheld pad, or require the pad immovable (which needs the strip's level taken after the pad is final — a post-solve projection like the jetway strip's, `solve/project_strip.py`).
+
+04f ROADS: no road face stands within 3 m of any of the four strips at SPJC today (the only neighbour is the host pad). The road-contact path is untested against a strip.
+
+THE 6–8 m IS A SLOPE ACROSS THE SITE, NOT ROOFS IN THE DSM (production frame, `SPJC:COPERNICUSGLO30` inset, `apt_smoothing_pix` 8): building24 footprint 26.1–32.8 (median 29.3), its strips 32.4–33.2, open ground 50–100 m away and >= 15 m from any building 24.8–34.7 (median 29.8); building16 footprint 30.8–37.9 (median 35.2), strip 35.9–38.3, open ground 28.7–39.3 (median 36.5). The footprints are not higher than the open ground around them; the pads sit at their AIRSIDE (low) frontage and the docks are on the high side.

@@ -46,8 +46,8 @@ __all__ = ["StageOne", "ribbon_free", "stage_one_problem", "remap_row"]
 def ribbon_free(cl):
     """``cl`` without its mapped-road ribbon cells, or ``None`` when it has
     none (then the map IS ribbon-free and stage 1 is assembled on it)."""
-    from ..classify.roles import is_osm_ribbon
-    cells = tuple(c for c in cl.cells if not is_osm_ribbon(c))
+    from ..classify.roles import is_late_cell
+    cells = tuple(c for c in cl.cells if not is_late_cell(c))
     if len(cells) == len(cl.cells):
         return None
     return _dc.replace(cl, cells=cells)

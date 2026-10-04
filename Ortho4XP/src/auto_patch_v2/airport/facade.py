@@ -50,7 +50,8 @@ __all__ = ["Attachment", "Wall", "Floor", "FacadeDef", "EdgeWall",
            "parse_facade", "read_facade", "facade_class", "floor_for",
            "edge_walls", "placed_edges", "PlacedEdge", "object_variants",
            "is_vehicle",
-           "LINE", "ROOFED", "LOT", "PARKING_STRUCTURE"]
+           "LINE", "ROOFED", "LOT", "PARKING_STRUCTURE", "LOT_SOURCE",
+           "is_lot_def", "read_placed"]
 
 LINE, ROOFED, LOT, PARKING_STRUCTURE = (
     "line", "roofed", "lot", "parking_structure")
@@ -505,3 +506,58 @@ def placed_edges(fac: FacadeDef, height_m: float,
             i, a, b, length, curved, ew, w.name if w else "",
             () if w is None else (w.curved_attachments if curved else w.attachments)))
     return tuple(out)
+
+
+# ── what the loader carries (spec §52 (3)) ───────────────────────────────
+
+#: The ``Building.source`` of an OPEN-LOT facade's ring.  NOT a prefix
+#: ``[buildings] sources`` admits (``"dsf:fac"`` does not prefix it), so it
+#: is never a pad (RULINGS 2026-10-04d (3) (c)).
+LOT_SOURCE = "dsf:lot:fac"
+
+
+_IS_LOT: dict[tuple[str, str | None], bool] = {}
+
+
+def is_lot_def(def_path: str, pack_root: str | None,
+               index: _t.Mapping[str, str] | None) -> bool:
+    """Whether a ``POLYGON_DEF`` is a facade whose FILE is an open lot."""
+    if not def_path.lower().endswith(".fac"):
+        return False
+    key = (def_path, pack_root)
+    if key not in _IS_LOT:
+        from .obj8 import resolve_resource
+        phys = resolve_resource(def_path, pack_root, index)
+        try:
+            # the CLASS needs no object: parsed without the index, so a
+            # tile's hundred fence defs open no ``.obj``
+            _IS_LOT[key] = phys is not None and \
+                facade_class(parse_facade(phys)) == LOT
+        except OSError:
+            _IS_LOT[key] = False
+    return _IS_LOT[key]
+
+
+def read_placed(poly: _t.Any, pack_root: str | None,
+                index: _t.Mapping[str, str] | None,
+                to_xy: _t.Callable[[float, float], tuple[float, float]]):
+    """``model.airport.FacadeRead`` of one placed ``dsf.DsfPolygon``: its
+    class and every edge whose DECIDED wall attaches a resolved object,
+    with the widest reach.  ``None`` when the def does not resolve."""
+    from ..model.airport import FacadeEdge, FacadeRead
+    fac = read_facade(poly.def_path, pack_root, index)
+    if fac is None or not poly.nodes:
+        return None
+    nodes = [(*to_xy(lon, lat), w, c) for lon, lat, w, c in poly.nodes[0]]
+    edges, undecided = [], 0
+    for e in placed_edges(fac, float(poly.param), nodes):
+        if e.wall.wall is None and not e.wall.from_dsf:
+            undecided += 1
+        got = [a for a in e.attachments if a.reach is not None]
+        if not got:
+            continue
+        top = max(got, key=lambda a: a.reach[1])
+        if top.reach[1] > 0.0:
+            edges.append(FacadeEdge(e.a, e.b, float(top.reach[1]), e.name,
+                                    top.obj, top.vehicle))
+    return FacadeRead(poly.def_path, facade_class(fac), tuple(edges), undecided)

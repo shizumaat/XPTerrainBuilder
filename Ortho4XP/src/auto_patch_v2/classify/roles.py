@@ -93,7 +93,7 @@ from ..law.tables import (is_value_role, role_side, snap_margin_m,
                           zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.planar import is_osm_ribbon_ref   # 30e (6): the ribbon ref
+from ..model.planar import is_facade_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52
 from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
@@ -654,6 +654,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # the cells pass A nodes.  The ribbon takes the same set-back itself.
     cells, n_cut = _cut_back_groundside(cells, law, rules)
     stats["mixed_pad_cutbacks"] = n_cut
+    # §52 (RULINGS 2026-10-04d (3)): the facade strips and lots — after §27
+    # (never airside) and the set-back, BEFORE the ribbons (a mapped road
+    # inside a facade lot is the lot)
+    from .facade_mint import mint_facade_cells
+    stats.update(mint_facade_cells(airport, cells, law, rules, add))
     from .ribbon_mint import mint_osm_ribbons   # lazy: ribbon_mint imports this module
     n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add)
     stats["osm_ribbons"] = n_rib
@@ -688,6 +693,14 @@ def is_osm_ribbon(cell_or_region) -> bool:
     ``planar.overlay.Region`` alike)."""
     return getattr(cell_or_region, "role", "") == "service_road" and \
         is_osm_ribbon_ref(getattr(cell_or_region, "ref", ""))
+
+
+def is_late_cell(cell_or_region) -> bool:
+    """A cell that JOINS THE FINISHED MAP (``planar/ribbons`` pass C) and is
+    absent from the stage-1 map: a mapped-road ribbon or a §52 facade cell
+    (``model.planar.is_late_ref``)."""
+    return is_osm_ribbon(cell_or_region) or \
+        is_facade_ref(getattr(cell_or_region, "ref", ""))
 
 
 def _mouth_ll(mouth, to_ll) -> str:

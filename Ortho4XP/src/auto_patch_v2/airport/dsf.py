@@ -32,7 +32,7 @@ from .apt_dat import LonLat, _bezier, _segments_for, _sparsify, _LAT_SCALE
 import math
 
 __all__ = ["DsfPolygon", "DsfPlacement", "DsfDump", "find_text_dump",
-           "read_dump", "pol_surface", "pavement_gate", "building_role_for_def", "read_footprint_cache",
+           "read_dump", "pol_declaration", "pavement_gate", "building_role_for_def", "read_footprint_cache",
            "mod_cache_dir"]
 
 
@@ -294,39 +294,51 @@ PAVEMENT_SKIP = ("/lines/", "/markings/", "/lights/", "/decals/", "dirsigns")
 MATERIAL_TOKENS = ("asphalt", "concrete", "asphalte", "beton", "béton",
                    "hormigon", "hormigón", "asfalto", "cemento", "calcestruzzo",
                    "betão", "concreto")
-THIRD_PARTY_SKIP = PAVEMENT_SKIP + (
-    "grass", "terrain", "dirt", "gravel", "soil", "mud", "snow", "paint",
-    "line", "marking", "light", "decal", "sign", "logo", "grunge", "stain",
-    "skid", "crack_line")
+#: TERRAIN WORDS veto whatever the file declares: OTHH's
+#: ``Ground/Poly/Grass3.pol`` is ``TEXTURE Grass3.dds`` under
+#: ``DECAL_LIB .../grasses_combo.dcl`` and still says ``SURFACE asphalt``.
+SOFT_NAME_TOKENS = ("grass", "terrain", "dirt", "gravel", "soil", "mud", "snow")
+#: PAINT / SIGN WORDS veto a NAME; against the file's own declaration
+#: they stand only when the file names no layer group (see the gate).
+DECORATIVE_TOKENS = ("paint", "line", "marking", "light", "decal", "sign",
+                     "logo", "grunge", "stain", "skid", "crack_line")
+THIRD_PARTY_SKIP = PAVEMENT_SKIP + SOFT_NAME_TOKENS + DECORATIVE_TOKENS
 
 
 #: MATERIAL ABBREVIATIONS, matched as a WORD (owner RULINGS 2026-10-04d
 #: (2), issue #333: "We should recognize the conc_3.pol as pavement").
-#: SPJC's ``zannespol/conc_3.pol`` (11 polygons, 309,370 m2 of apron)
-#: names no ``MATERIAL_TOKENS`` entry and was refused.  ``conc`` must not
-#: be a substring test: ``concourse_roof.pol`` is not concrete.
+#: ``conc`` must not be a substring test: ``concourse_roof.pol`` is not
+#: concrete.  Since 04e (1) this is the FALLBACK for a ``.pol`` whose
+#: file cannot be resolved or declares no surface.
 ABBREV_TOKEN_RE = re.compile(r"(?<![a-z])conc(?![a-z])")
-#: THE ``.pol``'s OWN DECLARATION CONFIRMS AN ABBREVIATION.  The file
-#: says what it is: ``conc_3.pol`` declares ``SURFACE concrete``.  A
-#: resolved file that declares anything else — a soft surface, or the
-#: ``markings`` layer group (paint declares the surface it sits ON:
+#: THE ``.pol``'s OWN DECLARATION (owner RULINGS 2026-10-04e (1), issue
+#: #337): a draped polygon whose file declares ``SURFACE asphalt`` or
+#: ``SURFACE concrete`` is pavement WHATEVER ITS NAME, minus markings —
+#: the ``markings`` layer group (paint declares the surface it sits ON:
 #: KCLT's ``ground_marks/mark_dir_amarillo.pol`` is ``SURFACE concrete``
-#: / ``LAYER_GROUP markings +1``) — refuses the abbreviation; a file
-#: that cannot be resolved, or declares nothing, leaves the name standing.
+#: / ``LAYER_GROUP markings +1``) and the paint/sign name families.
 HARD_SURFACES = ("asphalt", "concrete")
 PAINT_LAYER_GROUPS = ("markings",)
-#: what :func:`pol_surface` returns for a paint-group file
+#: :attr:`PolDeclaration.layer` of a file with a paint-group row
 PAINT = "paint"
 
 
-def pol_surface(physical_path: str | None) -> str | None:
-    """The first ``SURFACE`` value a ``.pol`` file declares, lower-cased;
-    :data:`PAINT` when any ``LAYER_GROUP`` row names a paint group
-    (paint's surface is not its own); ``None`` when there is no file, it
-    is unreadable, or it declares no surface."""
-    if not physical_path:
-        return None
+class PolDeclaration(_t.NamedTuple):
+    """What a ``.pol`` file says of itself: its first ``SURFACE`` value
+    and its first ``LAYER_GROUP`` name (both lower-cased, ``None`` when
+    absent); ``layer`` is :data:`PAINT` when ANY row names a paint group."""
+
     surface: str | None = None
+    layer: str | None = None
+
+
+def pol_declaration(physical_path: str | None) -> PolDeclaration:
+    """Read a ``.pol``'s own declaration; empty when there is no file or
+    it is unreadable."""
+    if not physical_path:
+        return PolDeclaration()
+    surface: str | None = None
+    layer: str | None = None
     try:
         with open(physical_path, "r", errors="ignore") as fh:
             for line in fh:
@@ -336,50 +348,72 @@ def pol_surface(physical_path: str | None) -> str | None:
                 kw = toks[0].upper()
                 if kw == "SURFACE" and surface is None:
                     surface = toks[1].lower()
-                elif kw == "LAYER_GROUP" and toks[1].lower() in PAINT_LAYER_GROUPS:
-                    return PAINT
+                elif kw == "LAYER_GROUP":
+                    if toks[1].lower() in PAINT_LAYER_GROUPS:
+                        layer = PAINT
+                    elif layer is None:
+                        layer = toks[1].lower()
     except OSError:
-        return None
-    return surface
+        return PolDeclaration()
+    return PolDeclaration(surface, layer)
 
 
-def is_pavement_def(path: str, surface: str | None = None) -> bool:
-    """Whether a ``POLYGON_DEF`` path is bulk pavement (v1
-    ``_is_pavement_def``).  ``surface`` is the resolved ``.pol``'s own
-    declaration (:func:`pol_surface`), ``None`` when the caller did not
-    resolve it; it is read ONLY for an abbreviation-named def
-    (:data:`ABBREV_TOKEN_RE`), which it confirms or refuses.  Stock
-    namespaces and ``MATERIAL_TOKENS`` names are judged as they always
-    were, and ``THIRD_PARTY_SKIP`` vetoes every third-party name."""
+def is_pavement_def(path: str, decl: PolDeclaration | None = None) -> bool:
+    """Whether a ``POLYGON_DEF`` path is bulk pavement.  ``decl`` is the
+    resolved ``.pol``'s own declaration (:func:`pol_declaration`),
+    ``None`` when the caller did not resolve it.  THE ORDER:
+
+    1. a stock pavement namespace is judged by ``PAVEMENT_SKIP`` alone;
+    2. a decorative NAMESPACE (``PAVEMENT_SKIP``) or a terrain word
+       (``SOFT_NAME_TOKENS``) refuses, whatever the file says;
+    3. a material-token name with no paint/sign word is pavement, as it
+       always was — its file is not consulted;
+    4. THE FILE (04e (1)): a paint layer group refuses; ``SURFACE
+       asphalt|concrete`` admits, and beats a paint/sign word in the name
+       when the file names its own non-paint layer group (HECA
+       ``Asphalt_1_NOLINE.pol``, ``LAYER_GROUP taxiways +1`` — the word
+       stands only against a file that names no layer); a soft surface
+       refuses;
+    5. no surface declared, or no file (04d (2)): the ``conc`` word with
+       no paint/sign word in the name."""
     p = path.lower()
     if p.startswith(PAVEMENT_PREFIXES):
         return not any(s in p for s in PAVEMENT_SKIP)
-    if not p.endswith(".pol") or any(s in p for s in THIRD_PARTY_SKIP):
+    if not p.endswith(".pol") or any(
+            s in p for s in PAVEMENT_SKIP + SOFT_NAME_TOKENS):
         return False
-    if any(t in p for t in MATERIAL_TOKENS):
+    decorative = any(s in p for s in DECORATIVE_TOKENS)
+    if not decorative and any(t in p for t in MATERIAL_TOKENS):
         return True
-    return bool(ABBREV_TOKEN_RE.search(p)) and (
-        surface is None or surface in HARD_SURFACES)
+    if decl is not None:
+        if decl.layer == PAINT:
+            return False
+        if decl.surface is not None:
+            return decl.surface in HARD_SURFACES and (
+                decl.layer is not None or not decorative)
+    return not decorative and bool(ABBREV_TOKEN_RE.search(p))
 
 
 def pavement_gate(resolve: _t.Callable[[str], str | None]
                   ) -> _t.Callable[[str], tuple[bool, str | None]]:
     """``def_path -> (is pavement, declared SURFACE)``, memoised per def.
     ``resolve`` maps a def path to its physical file (pack-relative, then
-    the library index) and is asked ONLY for an abbreviation-named
-    ``.pol`` — every other def opens no file."""
+    the library index) and is asked ONLY for a ``.pol`` the name alone
+    does not settle (steps 4-5 of :func:`is_pavement_def`)."""
     memo: dict[str, tuple[bool, str | None]] = {}
 
     def gate(path: str) -> tuple[bool, str | None]:
         hit = memo.get(path)
         if hit is None:
-            p = path.lower()
-            if is_pavement_def(path) and not any(t in p for t in MATERIAL_TOKENS) \
-                    and not p.startswith(PAVEMENT_PREFIXES):
-                surface = pol_surface(resolve(path))
-                hit = (is_pavement_def(path, surface), surface)
-            else:
+            # an EMPTY declaration settles the name-only steps: whatever
+            # it changes is what the file may decide
+            if not path.lower().endswith(".pol") or is_pavement_def(
+                    path, PolDeclaration("soft")) or not is_pavement_def(
+                    path, PolDeclaration(HARD_SURFACES[0], "x")):
                 hit = (is_pavement_def(path), None)
+            else:
+                decl = pol_declaration(resolve(path))
+                hit = (is_pavement_def(path, decl), decl.surface)
             memo[path] = hit
         return hit
     return gate

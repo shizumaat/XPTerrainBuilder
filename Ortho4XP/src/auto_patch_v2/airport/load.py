@@ -453,9 +453,9 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     if dump_path and os.path.isfile(dump_path):
         # THE LIBRARY INDEX, read-only (M4b): ``lib/...`` placements
         # resolve through v1's cached merged index; absent = unresolved.
-        # Read BEFORE the polygons: the pavement gate asks an
-        # abbreviation-named ``.pol`` (``conc_3.pol``) for its own SURFACE
-        # declaration (RULINGS 2026-10-04d (2)).
+        # Read BEFORE the polygons: the pavement gate asks a ``.pol``
+        # its name does not settle for its own SURFACE / LAYER_GROUP
+        # declaration (RULINGS 2026-10-04e (1); 04d (2) the fallback).
         lib_path = _obj8.library_index_path(inputs.mod_cache_root, inputs.xplane_root) \
             if inputs.mod_cache_root and inputs.xplane_root else ""
         index = _obj8.read_library_index(lib_path)

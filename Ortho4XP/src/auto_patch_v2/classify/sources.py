@@ -390,3 +390,42 @@ def object_body_cuts(ev: Evidence, region) -> list[LineString]:
                                 else list(getattr(g, "geoms", ())))
                     if q.geom_type == "LineString" and q.length > 0.0]
     return out
+
+
+#: apt.dat's own pavement ids carry no source prefix; every DSF-read page
+#: (``dsf:pol``, ``dsf:objpav``, the hard planes) does.
+DSF_SOURCE_PREFIX = "dsf:"
+
+
+def is_apt_source(sid: str) -> bool:
+    """Whether a pavement source id is apt.dat's own declaration."""
+    return not sid.startswith(DSF_SOURCE_PREFIX)
+
+
+def apt_boundary_cuts(ev: Evidence, region) -> list[LineString]:
+    """ADMITTED DSF PAVEMENT NEVER CHANGES THE ROLE OF GROUND THAT APT.DAT
+    PAVEMENT ALREADY COVERS (master ruling on lane ``surface337`` r3, from
+    "airside is king": apt.dat is the airport's own declaration of runway,
+    taxiway and apron).
+
+    THE DEFECT, measured (lane ``surface337`` r2).  The slice runs over the
+    fused ``ev.pavement_union``, so a DSF page — or the remainder of an
+    overlay page — that merely TOUCHES an apt.dat page dissolved into its
+    face, and the face's evidence ladder then re-partitioned ground apt.dat
+    had already kinded: at SPJC a 542 m2 remainder of ``conc_3.pol`` grew
+    the ``pav6`` face 163,794 -> 167,664 m2 and 1,450 m2 of junction came
+    out apron (two vertices 0.93 / 1.14 m lower); at OTHH a runway cell
+    (5,222 m2) came out ``stub``.
+
+    So the apt.dat pavement CUTS AT ITS OWN BOUNDARY, exactly as a strip, a
+    lot and an object body do (:func:`object_body_cuts`): the faces on
+    apt.dat ground are the faces of the apt.dat pavement alone, and a DSF
+    face beside them is kinded by its own evidence and welded at the seam.
+    One site — the slice's cut set — and no consumer is vetoed."""
+    apt = [g for sid, g in ev.pavement_polys if is_apt_source(sid)]
+    if not apt or len(apt) == len(ev.pavement_polys):
+        return []
+    edge = unary_union(apt).boundary.intersection(region.buffer(0.01))
+    return [q for q in ([edge] if edge.geom_type == "LineString"
+                        else list(getattr(edge, "geoms", ())))
+            if q.geom_type == "LineString" and q.length > 0.0]

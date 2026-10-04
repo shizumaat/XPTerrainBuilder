@@ -99,8 +99,8 @@ from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
 from .open_default import apron_evidence, open_pavement_role
 from .rules import Rules, load_rules
-from .sources import (SourceRecord, apron_union, classify_sources,
-                      object_body_cuts)
+from .sources import (SourceRecord, apron_union, apt_boundary_cuts,
+                      classify_sources, is_apt_source, object_body_cuts)
 
 __all__ = ["Cell", "CutLine", "Classification", "classify", "SHOULDER_KIND",
            "is_runway_shoulder"]
@@ -268,7 +268,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # it is its own face and is kinded by evidence — never dissolved into
     # the page it merely touches (``sources.object_body_cuts``).
     obj_cuts = object_body_cuts(ev, region)
-    src_cuts = src_cuts + obj_cuts
+    # ...and apt.dat's own pavement cuts at ITS boundary: the faces on
+    # apt.dat ground never depend on which DSF pages were admitted
+    # (``sources.apt_boundary_cuts``).
+    apt_cuts = apt_boundary_cuts(ev, region)
+    src_cuts = src_cuts + obj_cuts + apt_cuts
+    stats["apt_boundary_cuts"] = len(apt_cuts)
     stats["object_body_cuts"] = len(obj_cuts)
     faces = _slice(region, taxi_parts, truck_parts, spurs + src_cuts, rules)
     stats["slice_faces"] = len(faces)
@@ -1401,13 +1406,20 @@ def _subrole(axis: Chain, ev: Evidence, rules: Rules) -> str:
 
 
 def _ref_for(face: Polygon, pav_tree: STRtree, ev: Evidence) -> str:
-    """The source pavement with the largest overlap."""
+    """The source pavement with the largest overlap — apt.dat's own page
+    on ground apt.dat covers (most of the face), whatever DSF page lies
+    over it: the ref, and the source evidence read through it, do not
+    churn with the pack's draped pages (``sources.apt_boundary_cuts``)."""
     best, best_a = "", 0.0
+    apt, apt_a = "", 0.0
     for j in pav_tree.query(face, predicate="intersects"):
-        a = ev.pavement_polys[j][1].intersection(face).area
+        sid, g = ev.pavement_polys[j]
+        a = g.intersection(face).area
         if a > best_a:
-            best, best_a = ev.pavement_polys[j][0], a
-    return best
+            best, best_a = sid, a
+        if a > apt_a and is_apt_source(sid):
+            apt, apt_a = sid, a
+    return apt if apt_a > 0.5 * face.area else best
 
 
 def _groundside(scored, ev: Evidence, rules: Rules) -> set[int]:

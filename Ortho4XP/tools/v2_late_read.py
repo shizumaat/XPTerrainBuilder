@@ -37,6 +37,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT), str(ROOT / "tools")]
+# The console is UTF-8 before anything prints (twin:
+# ``tests/test_console_encoding.py``): ONE derivation, the engine's own.
+import O4_Console_Encoding as _o4console                             # noqa: E402
+_o4console.configure_console_streams()
 
 #: metres: a moved level / a missed row (the lane's read tolerance)
 TOL_M = 0.02

@@ -18106,3 +18106,23 @@ MEASURED (capture `gaps292/HECA.pkl`; control = the sheet-free `conc333/HECA_mai
 * SITE 2: ribbon `small_roads:-20210` 96.23–96.89 → 89.79–90.24 and `#1` 94.59–95.86 → 89.76–90.50 (down to the aprons, 89.68–91.93 unchanged) — but the pad went UP 3.1–3.9 m.
 * SITE 1: `gap:7` stands at 92.08–101.76; `pav37` unchanged; `route3` keeps its range (92.02–105.77) with 146 of 210 nodes moved, worst 4.99 m.
 * VERIFY rows 20,576 → 21,112 (within_shape +460, transverse +49, road_cross_section +25, pad_flat +7, mid_edge_step +5); stage-2 relaxed rows 242 → 337 (groundside 171 → 245, taxi 61 → 82, pad 10 = 10).
+
+### §53 (8) ROUND 3, STEP 1 — WHY THE PADS MOVE (row read, NOT yet an intervention), AND THE PROPOSED RULE: A THIRD STAGE (owner 2026-10-04q; master round 3: the work continues on `feature/pavement-gaps`, nothing merges before Beta 2)
+
+OWNER 04q on Q1: "Pavement touching an apron must either be apron itself, or if there's a mouth or other road evidence it could be a road leaving the apron." R1's lot welded to the apron is NOT allowed for an apron-touching piece; the three-way class is step 3 of this round and is NOT built.
+
+RE-MEASURED on the tree with main `cd7a99fa` merged (control and arm re-run, `--from classify`): the same movers as §53 (7) — 48 pads / 1,742 nodes, worst 3.97 m; solve 160 → 252 s.
+
+THE ROWS (arm `solved.pkl`, every row touching a moved pad's vertices):
+
+* `building26` (+3.1..3.9 m) shares no vertex with a gap face (the set-back stands) and is tied to gap-face vertices by 49 rows: 44 `road_ramp` "groundside_road airside contact" Linears, 2 `pad_level` "frontage_level junior (groundside_pavement)", 2 `pad_level` "frontage_level (service_road)", 1 `pavement_road_cap`. The pad's level rows READ the groundside face in front of it: the piece LEADS the pad directly.
+* `building12` (+3.2..3.6 m, the worst) has NO row with a gap-face vertex at all. It fronts EXISTING groundside pavement (94 §28 `groundside_frontage` rows), and that pavement moved because a gap piece is welded to it (`pav57` 4.12 m, `dsf:pol10` 2.02 m, 97 road refs): the piece leads the existing groundside, which leads the pad through the lagged one-way rows — the mechanism §52 (6) measured for the facade strip.
+* `building28` (+2.3 m): 4 `pavement_road_cap` rows to gap vertices.
+
+So the leak is not one generator. A veto per generator (`pad_level`, `road_ramp`, `pavement_road_cap`, then every row that ties a piece to existing groundside) is the pattern 2026-08-30l rules against, and the second channel has no gap vertex in its rows to veto on.
+
+PROPOSED — ONE SITE: THE GAP PIECES ARE SOLVED IN A STAGE OF THEIR OWN, AFTER THE MAP WITHOUT THEM IS FINAL. `pipeline/stage_one_map` already assembles stage 1 on the map without the late cells and carries its levels by the coordinate join. The same mechanism one level up: the map WITHOUT the gap pieces is built and solved exactly as today (its own stage 1 and stage 2 — that IS the control), its levels cross to the full map by coordinate, and the last solve has every one of them FIXED: only the gap pieces' own vertices are unknowns. Pads, roads' airside contacts, existing lots and existing roads are then leaders BY CONSTRUCTION (movers 0 on every existing vertex), whatever generator mints a row between them and a piece.
+
+WHAT IT COSTS, AND THE OPEN POINT: (a) a second planar build and constraint generation on airports that have a gap sheet (HECA only today); (b) the mapped-road ribbons crossing a piece stay where the control put them — at site 2 `small_roads:-20210` would stay at 94.59–96.89 between a 90.79 pad and 89.68–91.93 aprons, and the piece would climb to it. The owner's site wants that ribbon DOWN. Either the ribbons that run through or along a gap piece are followers too (free in the last stage with the pieces: the free-road reading — a road on a pavement is the pavement), or they stay leaders. INTENT / master question.
+
+CONSUMERS of the third stage (to be confirmed by seam probe when built): `pipeline/build.py` (the derive prefix run on the gap-free classification), `pipeline/stage_one_map` (`ribbon_free` → a second cut `gap_free`; `StageOne.bind` join; `apply_full` hold rows), `solve/design.solve_design` (`fixed=` for the last solve; the pin-yield and `stage2_rewrite` paths must not re-open fixed columns), `solve/project_strip` (facade strips project after stage 2 — before the last stage), `pipeline/capture_state` registries (a third scope), `pipeline/publication` (stage tags per vertex), `tools/v2_solve_replay.py` (`--from` stages, stage-1 dump), `verify` (rows on fixed|free pairs are the piece's).

@@ -451,11 +451,22 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                              law.tables.emit.identity.dsf_pavement_admission_m)
     n_far = 0
     if dump_path and os.path.isfile(dump_path):
+        # THE LIBRARY INDEX, read-only (M4b): ``lib/...`` placements
+        # resolve through v1's cached merged index; absent = unresolved.
+        # Read BEFORE the polygons: the pavement gate asks an
+        # abbreviation-named ``.pol`` (``conc_3.pol``) for its own SURFACE
+        # declaration (RULINGS 2026-10-04d (2)).
+        lib_path = _obj8.library_index_path(inputs.mod_cache_root, inputs.xplane_root) \
+            if inputs.mod_cache_root and inputs.xplane_root else ""
+        index = _obj8.read_library_index(lib_path)
+        rep.library_index_path = lib_path if index is not None else None
+        is_pavement = _dsf.pavement_gate(
+            lambda p: _obj8.resolve_resource(p, sel.root, index))
         dump = _dsf.read_dump(
             dump_path, lambda p: _dsf.building_role_for_def(p) is not None
-            or _dsf.is_pavement_def(p))
+            or is_pavement(p)[0])
         for i, poly in enumerate(dump.polygons):
-            if _dsf.is_pavement_def(poly.def_path):
+            if is_pavement(poly.def_path)[0]:
                 if own_extent is not None and not own_extent.intersects(
                         _shape_of(_ring(poly.windings[0], to_xy))):
                     n_far += 1
@@ -467,7 +478,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                 # is classification's, in ``classify/evidence.py``.
                 dsf_pavements.append(Pavement(
                     f"dsf:pol{i}", normalise_surface(
-                        _dsf.pavement_surface_code(poly.def_path)),
+                        _dsf.pavement_surface_code(
+                            poly.def_path, is_pavement(poly.def_path)[1])),
                     _ring(poly.windings[0], to_xy),
                     tuple(_ring(h, to_xy) for h in poly.windings[1:]),
                     poly.def_path))
@@ -481,12 +493,6 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                 tuple(_ring(h, to_xy) for h in poly.windings[1:]),
                 f"dsf:fac:{role}", None, None))
             n_fac += 1
-        # THE LIBRARY INDEX, read-only (M4b): ``lib/...`` placements
-        # resolve through v1's cached merged index; absent = unresolved
-        lib_path = _obj8.library_index_path(inputs.mod_cache_root, inputs.xplane_root) \
-            if inputs.mod_cache_root and inputs.xplane_root else ""
-        index = _obj8.read_library_index(lib_path)
-        rep.library_index_path = lib_path if index is not None else None
         for i, pl in enumerate(dump.placements):
             if not pl.def_path.lower().endswith((".obj", ".agp")):
                 continue

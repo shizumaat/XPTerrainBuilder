@@ -44,7 +44,6 @@ import dataclasses
 import pytest
 
 from auto_patch import config as CFG
-from auto_patch import grade_law as GL
 
 
 _RULESETS = ("faa", "icao")
@@ -125,34 +124,6 @@ def test_A_the_letter_proxy_is_a_VIEW_of_the_matrix_not_a_second_copy():
             CFG.faa_rsa_half_width_m(*rdc)
         assert CFG.FAA_ROFA_HALF_WIDTH_M_BY_LETTER[letter] == \
             CFG.faa_rofa_half_width_m(*rdc)
-
-
-def test_A_lockstep_the_live_strip_accessor_is_unmoved():
-    """The strip half-width accessor emitter and validator share still
-    returns exactly what it returned before W1 — 76.2 m at FAA C/D/E,
-    75.0 m at ICAO code 4, the ~1.2 m KCLT widening.  Re-rooting the
-    table on the matrix must be invisible from every call site.
-
-    Lockstep is asserted as SOURCE plus VALUE, never as object
-    identity: several suites ``importlib.reload(config)``, which mints
-    a new function object while the emitter's module-level alias still
-    points at the old one.  That is a reload artefact, not a law
-    divergence — an identity assertion here fails only in a full-suite
-    run and says nothing about the regulation."""
-    import inspect
-    from auto_patch import adjacent_ground as AG
-    assert CFG.ruleset_strip_half_width_m(4, "E", "faa") == 76.2
-    assert CFG.ruleset_strip_half_width_m(4, "E", "icao") == 75.0
-    # the emitter READS the accessor; it does not carry its own table
-    src = inspect.getsource(AG)
-    assert "ruleset_strip_half_width_m as _ruleset_strip_half_width_m" in src
-    assert "FAA_RSA_HALF_WIDTH_M_BY_LETTER = " not in src
-    # ...and every reader answers with the same number
-    for code, letter in ((4, "E"), (3, "C"), (1, "A")):
-        for key in _RULESETS:
-            expected = CFG.ruleset_strip_half_width_m(code, letter, key)
-            assert AG._ruleset_strip_half_width_m(code, letter, key) == expected
-            assert GL.ruleset_strip_half_width_m(code, letter, key) == expected
 
 
 def test_A_an_unknown_key_raises_never_guesses():
@@ -445,28 +416,6 @@ def test_F_bind_the_MINIMUM_never_the_CROWN_FORM():
         "Recommended Practice"
 
 
-def test_F_the_taxiway_minimum_stays_RECORDED_NOT_BOUND():
-    """W1 is constants only.  ``CROWN_MINIMUM_BOUND_TAXIWAYS`` is still
-    False, so giving the ICAO field a value moves no emitted geometry
-    and no census row: the taxiway transect band stays symmetric under
-    BOTH rulesets, and the drainage-minimum family never reads it."""
-    assert CFG.CROWN_MINIMUM_BOUND_TAXIWAYS is False
-    assert GL.transverse_minimum_binds("taxiway") is False
-    for key in _RULESETS:
-        lo, hi = GL.transverse_surface_bounds("taxiway", "C", 11.0, key)
-        assert lo == pytest.approx(-hi) and hi > 0.0
-        assert GL.drainage_minimum_grade("taxiway", key) is None
-
-
-def test_F_lockstep_one_reader_for_the_taxiway_minimum():
-    """Emitter and validator both go through
-    ``grade_law.transverse_minimum_for_role``, which reads the ruleset
-    field — there is no second copy to disagree with."""
-    for key in _RULESETS:
-        assert (GL.transverse_minimum_for_role("taxiway", key)
-                == CFG.get_ruleset(key).taxi_transverse_min)
-
-
 # ══════════════════════════════════════════════════════════════════════
 # G — the 105 m precision-approach graded strip: DROPPED (Q5, reversed)
 # ══════════════════════════════════════════════════════════════════════
@@ -735,106 +684,6 @@ def test_X3_every_live_consumed_constant_is_pinned_to_its_pre_W1_value():
     assert CFG.ruleset_strip_half_width_m(4, "E", "icao") == 75.0
     assert CFG.RUNWAY_END_CLEARANCE_LENGTH_BY_CODE == {
         1: 60.0, 2: 90.0, 3: 150.0, 4: 240.0}
-
-
-@pytest.fixture
-def w2_flags_off(monkeypatch):
-    """Every W2 flag that can reach ``adjacent_ground_envelope``, OFF."""
-    for env in ("O4_FABRIC_W2_ICAO_STRIP_AUTHORITY", "O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY",
-                "O4_FABRIC_W2_RETIRE_APRON_SURROUND",
-                "O4_FABRIC_W2_RETIRE_SERVICE_SHADOW"):
-        monkeypatch.setenv(env, "0")
-    return None
-
-
-def test_X3_the_adjacent_ground_envelope_is_bit_for_bit_what_it_was(
-        w2_flags_off):
-    """SUCCESSOR to the W1 pin (retired with the W2 flips, same commit).
-
-    The pin's job was "W1 moved no geometry"; W2 moves geometry ON
-    PURPOSE, so the same numbers now certify the OFF ARM — with every W2
-    flag disabled the function is bit-for-bit the pre-W2 corridor.  That
-    is the per-flag identity proof the batch plan requires, at the one
-    function every W1 constant could have reached.  Spot values across
-    all three zones and both branches, under both rulesets, as plain
-    numbers — no derivation the change could also have moved."""
-    # runway branch, ICAO code 4: lip (0-3 m), band, then ungraded
-    assert GL.adjacent_ground_envelope("runway", 4, "E", 1.0, "icao") == \
-        pytest.approx((-0.05, -0.03))
-    assert GL.adjacent_ground_envelope("runway", 4, "E", 10.0, "icao") == \
-        pytest.approx((-0.36, -0.195))
-    # taxiway branch, code letter C, inside the lip and inside the band
-    assert GL.adjacent_ground_envelope("taxiway", None, "C", 1.0, "icao") == \
-        pytest.approx((-0.05, -0.03))
-    assert GL.adjacent_ground_envelope("taxiway", None, "C", 6.0, "icao") == \
-        pytest.approx((-0.30, -0.135))
-    # and the FAA arm, which the lip correction would have moved first
-    assert GL.adjacent_ground_envelope("taxiway", None, "C", 1.0, "faa") == \
-        pytest.approx((-0.05, -0.03))
-    # the two families W2 retires outright, pre-W2: the apron's 3 m
-    # 1-3 % shoulder and the service road's flat 15 m cut shadow
-    assert GL.adjacent_ground_envelope("apron", None, None, 1.0, "faa") == \
-        pytest.approx((-0.03, -0.01))
-    assert GL.adjacent_ground_envelope(
-        "service_road", None, None, 6.0, "faa") == (None, 0.0)
-
-
-def test_X3_the_W2_flip_list_is_exactly_the_divergences():
-    """SUCCESSOR to the pending-flip pin (retired with the flips).
-
-    The pin asserted the divergence and that no flip had landed.  All
-    three landed in W2, so what has to stay true now is: the two halves
-    still DISAGREE (a live constant quietly edited to match would move
-    the flag-OFF arm, which is emitted geometry and a STOP), and each
-    row names a REGISTERED flag that actually selects between them."""
-    from auto_patch import fabric_flags as FF
-    assert not hasattr(CFG, "RULESET_W2_PENDING_FLIPS"), (
-        "the pending-flip checklist retired into RULESET_W2_FLIPS")
-    assert len(CFG.RULESET_W2_FLIPS) == 3
-    for family, live_field, authority_field, key, flag in \
-            CFG.RULESET_W2_FLIPS:
-        rs = CFG.get_ruleset(key)
-        assert hasattr(rs, live_field), live_field
-        assert hasattr(rs, authority_field), authority_field
-        assert getattr(rs, live_field) != getattr(rs, authority_field), (
-            f"{family}: {key}.{live_field} now equals {authority_field} — "
-            f"a live constant moved, and that is emitted geometry on the "
-            f"flag-OFF arm, i.e. a STOP")
-        assert flag in FF.FLAG_INDEX, (
-            f"{family}: {flag} is not a registered Phase-B flag")
-        assert FF.FLAG_INDEX[flag].default == "1"
-
-
-def test_X3_each_flip_selects_the_authority_value_on_and_the_blend_off(
-        monkeypatch):
-    """The flips are LIVE: the consumer reads each authority's own
-    mandate by default, and the pre-W2 blend with the flag off."""
-    icao = CFG.get_ruleset("icao")
-    faa = CFG.get_ruleset("faa")
-    # ruling 1 — ICAO mandates no fall across the graded strip, so its
-    # band ceiling stops descending past the lip; the FAA form does not
-    # move (KCLT), which is the whole point of a per-authority flip.
-    monkeypatch.delenv("O4_FABRIC_W2_ICAO_STRIP_AUTHORITY", raising=False)
-    assert GL._w2_strip_band_min_down(icao) is None
-    assert GL._w2_strip_band_min_down(faa) == faa.strip_band_min_down_slope
-    assert GL.adjacent_ground_envelope("runway", 4, "E", 60.0, "icao")[1] == \
-        pytest.approx(-0.09)
-    monkeypatch.setenv("O4_FABRIC_W2_ICAO_STRIP_AUTHORITY", "0")
-    assert GL._w2_strip_band_min_down(icao) == icao.strip_band_min_down_slope
-    assert GL.adjacent_ground_envelope("runway", 4, "E", 60.0, "icao")[1] == \
-        pytest.approx(-0.945)
-    # F-10 — the FAA taxiway/apron edge lip is 4.5-5.5 %, not the
-    # runway's 3-5 %; ICAO states no taxiway lip at all, so its near
-    # zone is ZERO wide and the band starts at the edge.
-    monkeypatch.delenv("O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY", raising=False)
-    assert GL._w2_paved_edge_lip(faa) == (3.0, 0.045, 0.055)
-    assert GL._w2_paved_edge_lip(icao) == (0.0, 0.0, 0.0)
-    assert GL.adjacent_ground_envelope("taxiway", None, "C", 1.0, "faa") == \
-        pytest.approx((-0.055, -0.045))
-    monkeypatch.setenv("O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY", "0")
-    assert GL._w2_paved_edge_lip(faa) == (3.0, 0.03, 0.05)
-    assert GL.adjacent_ground_envelope("taxiway", None, "C", 1.0, "faa") == \
-        pytest.approx((-0.05, -0.03))
 
 
 def test_X3_the_reg_set_added_no_new_region_invariant_constant():

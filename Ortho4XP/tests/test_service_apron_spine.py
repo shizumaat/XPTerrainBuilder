@@ -25,56 +25,21 @@ The five twins the spec names:
 """
 from __future__ import annotations
 
-import importlib
 import math
 import os
 import sys
 from pathlib import Path
 
-import pytest
-from shapely.geometry import LineString, Polygon
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from auto_patch import config as C                          # noqa: E402
-from auto_patch import grade_graph as GG                    # noqa: E402
-from auto_patch import groundside as GS                     # noqa: E402
 
 
 # ══════════════════════════════════════════════════════════════════════
 # §1 RECOGNITION — the free-road predicate's own complement
 # ══════════════════════════════════════════════════════════════════════
-
-def test_recognition_is_the_free_road_predicates_complement():
-    """"reuse their predicates, never a third contact test" (spec §1.1).
-
-    The apron-spine set is literally what ``free_road_subsegments``
-    removed, so segmentation by contact comes for free: the same
-    centerline yields apron-spine pieces inside contact and free-road
-    pieces outside it.
-    """
-    whole = [LineString([(0.0, 0.0), (100.0, 0.0)])]
-    free = [LineString([(0.0, 0.0), (40.0, 0.0)])]
-    got = GS.apron_spine_subsegments(whole, free)
-    assert len(got) == 1
-    assert got[0].length == pytest.approx(60.0, abs=1e-6)
-    assert got[0].coords[0] == pytest.approx((40.0, 0.0))
-    # Degenerate ends: all free ⇒ no spine; none free ⇒ the whole line.
-    assert GS.apron_spine_subsegments(whole, whole) == []
-    assert GS.apron_spine_subsegments(whole, [])[0].length == \
-        pytest.approx(100.0, abs=1e-6)
-
-
-def test_one_centerline_can_be_both_along_its_length():
-    """§1.1: "the same centerline may be apron-spine inside contact and a
-    free road outside it"."""
-    whole = [LineString([(0.0, 0.0), (300.0, 0.0)])]
-    free = [LineString([(0.0, 0.0), (100.0, 0.0)]),
-            LineString([(200.0, 0.0), (300.0, 0.0)])]
-    got = GS.apron_spine_subsegments(whole, free)
-    assert len(got) == 1
-    assert got[0].length == pytest.approx(100.0, abs=1e-3)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -98,119 +63,9 @@ class _Layout:
         self._slice_service_subsegments = list(free)
 
 
-def _specs(layout):
-    return GG.centerline_specs(layout)
-
-
-def test_a_the_apron_spine_carries_the_APRON_cap():
-    """(a) The road centerline inside the apron gets a 1 % profile — the
-    apron's cap, not the road's 8 %."""
-    spine = LineString([(0.0, 0.0), (120.0, 0.0)])
-    specs = _specs(_Layout(apron_spines=[spine]))
-    mine = [sp for sp in specs if sp[3][0] == "apron_spine"]
-    assert mine, "the apron-spine segment produced no centerline spec"
-    pts, seg_caps, is_service, key, rpts = mine[0]
-    assert seg_caps and all(c == pytest.approx(C.APRON_MAX_GRADE)
-                            for c in seg_caps)
-    assert seg_caps[0] != pytest.approx(C.SERVICE_ROAD_MAX_GRADE)
-
-
-def test_b_the_free_road_remainder_is_unchanged():
-    """(b) The same road OUTSIDE the apron keeps the road cap."""
-    free = LineString([(200.0, 0.0), (300.0, 0.0)])
-    specs = _specs(_Layout(free=[free]))
-    mine = [sp for sp in specs if sp[3][0] == "svc"]
-    assert mine
-    _pts, seg_caps, _svc, _k, _r = mine[0]
-    assert all(c == pytest.approx(C.SERVICE_ROAD_MAX_GRADE)
-               for c in seg_caps)
-
-
-def test_c_the_band_exclusion_is_untouched():
-    """(c) ``REACH_NO_SERVICE_SPINES`` STANDS (spec §2.2).
-
-    An apron spine joins the GRADING scaffold, never the reachability
-    band's route graph.  ``is_service`` is what the band filters on, so
-    it must stay TRUE even though the cap is now the apron's — a spine
-    that joined the band would be the airside-contamination regression
-    class the roadseal round already paid for once.
-    """
-    spine = LineString([(0.0, 0.0), (120.0, 0.0)])
-    specs = _specs(_Layout(apron_spines=[spine]))
-    mine = [sp for sp in specs if sp[3][0] == "apron_spine"][0]
-    assert mine[2] is True, (
-        "an apron spine left the service class — the reachability band "
-        "would now justify a ceiling through a truck route")
-    assert C.REACH_NO_SERVICE_SPINES is True
-
-
-def test_the_apron_spine_never_carries_its_cap_into_a_threaded_shape():
-    """``_route_taxi_cap`` must keep returning None for a service
-    centerline: the SPINE-FRAME upgrade carries a route's cap
-    longitudinally through the shapes it threads, and a truck route may
-    not hand its rate to anything (the free-road ruling).  The apron
-    spine changes what the ROAD is capped at, not what it can donate."""
-    class _CL:
-        def __init__(self):
-            self.is_service = True
-            self.cap = C.APRON_MAX_GRADE
-            self.route_idx = 0
-    ctx = GG.GradeContext(centerlines=[_CL()], routes=[])
-    assert GG._route_taxi_cap({0}, 0, ctx) is None
-
-
 # ══════════════════════════════════════════════════════════════════════
 # §3 NO ALTERNATION — (d)
 # ══════════════════════════════════════════════════════════════════════
-
-def _road_and_apron(alts):
-    """A road ring welded along a shared edge with an apron, carrying
-    ``alts`` on its stations."""
-    xs = [0.0, 10.0, 20.0, 30.0, 40.0]
-    top = [(x, 6.0) for x in xs]
-    bot = [(x, 0.0) for x in reversed(xs)]
-    ring = bot + top                       # y=0 flank is the shared edge
-    road = Polygon(ring)
-    # The apron carries THE SAME stations along y=0, so the two rings
-    # share EDGES by canonical identity — which is the 25b contact notion
-    # the instrument reuses.  An apron with one long edge shares no edge
-    # key at all, and is correctly invisible to it.
-    apron = Polygon([(x, 0.0) for x in xs]
-                    + [(40.0, -30.0), (0.0, -30.0)])
-    return _Layout(shapes=[_Shape("apron", apron),
-                           _Shape("service_road", road, list(alts))])
-
-
-def test_d_a_sawtooth_along_a_shared_edge_is_COUNTED():
-    """The instrument must SEE the defect it exists for: adjacent
-    stations alternating up-down-up beyond the tolerance."""
-    saw = [10.0, 11.0, 10.0, 11.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
-    n = GS.count_edge_alternation(_road_and_apron(saw))
-    assert n > 0, "the alternation instrument missed a 1 m sawtooth"
-
-
-def test_d_a_steady_ramp_is_NOT_counted():
-    """A road that simply CLIMBS along the edge is not a ripple.  Counting
-    sign changes rather than raw deltas is what separates the two — a
-    tolerance on |dz| alone would flag every graded road."""
-    ramp = [10.0, 10.2, 10.4, 10.6, 10.8, 11.0, 11.2, 11.4, 11.6, 11.8]
-    assert GS.count_edge_alternation(_road_and_apron(ramp)) == 0
-
-
-def test_d_sub_tolerance_wobble_is_NOT_counted():
-    """Below ``EDGE_ALTERNATION_TOL_M`` it is emit noise, not authorship
-    alternation."""
-    tiny = C.EDGE_ALTERNATION_TOL_M * 0.3
-    wob = [10.0, 10.0 + tiny, 10.0, 10.0 + tiny, 10.0,
-           10.0, 10.0, 10.0, 10.0, 10.0]
-    assert GS.count_edge_alternation(_road_and_apron(wob)) == 0
-
-
-def test_d_a_road_with_no_apron_contact_is_not_examined():
-    lay = _road_and_apron([10.0, 11.0, 10.0, 11.0, 10.0,
-                           10.0, 10.0, 10.0, 10.0, 10.0])
-    lay.shapes = [s for s in lay.shapes if s.role != "apron"]
-    assert GS.count_edge_alternation(lay) == 0
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -222,76 +77,3 @@ def test_e_the_flag_is_default_on():
     assert C.EDGE_ALTERNATION_TOL_M == 0.25
 
 
-def test_e_the_flag_off_is_byte_identical(monkeypatch):
-    """OFF ⇒ no apron-spine centerline is minted at all, so every
-    downstream reader sees exactly the pre-ruling graph."""
-    monkeypatch.setenv("O4_SERVICE_APRON_SPINE", "0")
-    for m in ("auto_patch.config", "auto_patch.grade_graph"):
-        importlib.reload(sys.modules[m])
-    try:
-        import auto_patch.grade_graph as GG2
-        spine = LineString([(0.0, 0.0), (120.0, 0.0)])
-        specs = GG2.centerline_specs(_Layout(apron_spines=[spine]))
-        assert not [sp for sp in specs if sp[3][0] == "apron_spine"]
-    finally:
-        monkeypatch.delenv("O4_SERVICE_APRON_SPINE", raising=False)
-        for m in ("auto_patch.config", "auto_patch.grade_graph"):
-            importlib.reload(sys.modules[m])
-
-
-def test_d_contact_is_canonical_edge_identity_never_proximity():
-    """An apron whose boundary runs along the same line but carries NO
-    shared vertices is not a 25b contact and the instrument must not
-    invent one — "canonical identity, never proximity"."""
-    saw = [10.0, 11.0, 10.0, 11.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
-    lay = _road_and_apron(saw)
-    lay.shapes = [s for s in lay.shapes if s.role != "apron"] + [
-        _Shape("apron", Polygon([(0.0, 0.0), (40.0, 0.0),
-                                 (40.0, -30.0), (0.0, -30.0)]))]
-    assert GS.count_edge_alternation(lay) == 0
-
-
-def test_the_apron_reads_an_apron_spine_but_NOT_a_plain_truck_route():
-    """§2.1 needs the APRON to anchor on the spine — and the standing
-    airside guard must survive for everything else.
-
-    ``_reads_service_spines`` lets only a GROUNDSIDE shape read a service
-    centerline, on measured evidence: when the ROAD FEED joined the one
-    graph it multiplied service centerlines 10-140x (HECA 5 -> 705) and
-    every one became a spine for whatever airside pavement it passed —
-    airside rose at 7 of 8 battery cells.  That guard stays.
-
-    RULINGS 2026-08-25h creates a NARROWER class: a truck route that runs
-    INSIDE an apron IS that apron's spine.  So the exemption is keyed on
-    ``is_apron_spine``, never on ``is_service`` — a free road passing an
-    apron is still refused, which is the regression this twin exists to
-    prevent.
-    """
-    from auto_patch.grade_graph import Centerline, _reads_service_spines
-    from auto_patch.layout import ROLE_APRON
-
-    plain = Centerline(pts=[(0.0, 0.0), (100.0, 0.0)], seg_caps=[0.08],
-                       is_service=True)
-    spine = Centerline(pts=[(0.0, 0.0), (100.0, 0.0)],
-                       seg_caps=[C.APRON_MAX_GRADE],
-                       is_service=True, is_apron_spine=True)
-    assert plain.is_apron_spine is False
-    assert spine.is_apron_spine is True
-    # BOTH stay service — §2.2's band exclusion keys on this and must not
-    # notice the difference.
-    assert plain.is_service is spine.is_service is True
-    # An apron shape may not read service spines in general...
-    apron = GG.GradeShape(role=ROLE_APRON, ring=[(0.0, 0.0), (1.0, 0.0),
-                                                 (1.0, 1.0)],
-                          keys=["a", "b", "c"])
-    assert _reads_service_spines(apron) is False
-
-
-def test_the_apron_spine_class_comes_from_the_ONE_enumeration():
-    """The class is carried by the route key ``centerline_specs`` mints,
-    so the solver, the validator and the sidecar mirror cannot disagree
-    about which pieces are the apron's spine."""
-    spine = LineString([(0.0, 0.0), (120.0, 0.0)])
-    specs = _specs(_Layout(apron_spines=[spine]))
-    keys = [sp[3][0] for sp in specs]
-    assert "apron_spine" in keys

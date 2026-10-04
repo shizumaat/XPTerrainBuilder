@@ -18,7 +18,6 @@ mesh/.alt files are empty stand-ins whose mtimes are set with ``os.utime``.
 GDAL-dependent tests skip cleanly when ``osgeo`` is unavailable.
 """
 
-import json
 import os
 import types
 
@@ -175,19 +174,6 @@ def test_inset_survives_active_airport_smoothing(tmp_path, monkeypatch):
 
 
 # =====================================================================
-# O2 -- production override_dem is returned by identity (no pre-bake copy)
-# =====================================================================
-def test_load_airport_dem_returns_override_by_identity():
-    from auto_patch import elevation
-
-    sentinel = object()
-    returned = elevation._load_airport_dem(36.1, -86.7, override_dem=sentinel)
-    # IDENTITY, not equality: auto_patch samples the very DEM object the
-    # inset bake mutated in place -- never a re-loaded / re-smoothed copy.
-    assert returned is sentinel
-
-
-# =====================================================================
 # O3 -- the mesh-newer-than-.alt ordering guard
 # =====================================================================
 def _touch(path, mtime):
@@ -246,59 +232,3 @@ def test_mesh_newer_than_alt_true_when_no_alt_present(tmp_path):
     assert post_mesh._mesh_is_newer_than_alt(tile, mesh_path) is True
 
 
-def test_rebake_skips_on_stale_mesh(tmp_path, monkeypatch):
-    """A stale mesh must trip the guard and RETURN before touching any
-    airport -- proven by a bogus (nonexistent) DSF that would otherwise
-    raise and bump ``airports_failed``."""
-    from auto_patch import post_mesh
-    from auto_patch import config
-
-    monkeypatch.setattr(config, "DSF_OBJECT_REANCHOR", True)
-
-    patches_directory = tmp_path / "Patches"
-    patches_directory.mkdir(parents=True)
-    monkeypatch.setattr(
-        FNAMES, "patch_dir",
-        lambda latitude, longitude: str(patches_directory),
-    )
-
-    build_directory = tmp_path / "Tiles"
-    build_directory.mkdir(parents=True)
-    tile = types.SimpleNamespace(
-        lat=36, lon=-87, build_dir=str(build_directory), iterate=0
-    )
-    stub = os.path.join(
-        tile.build_dir, "Data" + FNAMES.short_latlon(tile.lat, tile.lon)
-    )
-    mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
-    _touch(mesh_path, mtime=1000.0)
-    _touch(stub + ".alt", mtime=2000.0)  # newer -> mesh is stale
-
-    worklist_path = os.path.join(
-        str(patches_directory), post_mesh.OBJECT_ANCHOR_WORKLIST_FILENAME
-    )
-    with open(worklist_path, "w", encoding="utf-8", newline="") as handle:
-        json.dump(
-            {
-                "version": post_mesh.OBJECT_ANCHOR_WORKLIST_VERSION,
-                "tile": "+36-087",
-                "xplane_root": None,
-                "airports": [
-                    {
-                        "icao": "KTST",
-                        "dsf_path": "/nonexistent/never.dsf",
-                        "dsf_mtime": None,
-                        "pack_root": "/nonexistent/pack",
-                        "xplane_root": None,
-                    }
-                ],
-            },
-            handle,
-        )
-
-    from auto_patch import post_mesh_v1
-
-    counts = post_mesh_v1.rebake_dsf_objects(tile)
-    # Guard fired: the airport was never reached, so no failure was counted.
-    assert counts["airports_failed"] == 0
-    assert counts["airports_processed"] == 0

@@ -27,8 +27,6 @@ mesh, a monkeypatched DSF text.  No pack content enters the repository.
 
 from __future__ import annotations
 
-import dataclasses as _dataclasses
-import json
 import math
 import os
 import sys
@@ -42,25 +40,20 @@ if _SRC not in sys.path:
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from shapely.geometry import Polygon  # noqa: E402
 
 from auto_patch import config  # noqa: E402
 from auto_patch import obj8_reader  # noqa: E402
 from auto_patch import object_rebake  # noqa: E402
-from auto_patch import object_terrain_assembly as assembly  # noqa: E402
 from auto_patch import post_mesh  # noqa: E402
 
-from test_object_basin_trench import (  # noqa: E402
+from test_object_basin_trench import (
     ANCHOR_LATITUDE,
     ANCHOR_LONGITUDE,
-    _Classification,
     _GeometryBuilder,
     _at_grade_building_geometry,
-    _interface,
     _obj8_text,
     _pit_shell,
     _square_ring,
-    _vertex_y_values,
 )
 
 # The synthetic pit: a 30 m half-span body about the datum, floor 7 m
@@ -263,22 +256,6 @@ class TestBasinGroupSeat:
             lambda _path: definition_lines + placement_lines)
         return dsf_path, pack_root
 
-    def _facility(self, *, resources=(PIT_SHELL,)):
-        """The classifier's record for the synthetic pit: the body ring
-        the emitter cut, and the pit shell as its interface member."""
-        ring = tuple(
-            (ANCHOR_LONGITUDE + longitude_offset,
-             ANCHOR_LATITUDE + latitude_offset)
-            for longitude_offset, latitude_offset
-            in _square_ring(BODY_HALF_SPAN_M)
-        )
-        return assembly.BasinRimFlushFacility(
-            object_resources=tuple(sorted(resources)),
-            anchor_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
-            body_rings_longitude_latitude=(ring,),
-            solid_minimum_y_m=PIT_FLOOR_Y_M,
-            anchor_inside_body=True,
-        )
 
     def _rebake(self, dsf_path, mesh_path, pack_root, facilities, **kwargs):
         return post_mesh.discover_and_rebake_airport(
@@ -295,289 +272,21 @@ class TestBasinGroupSeat:
             **kwargs,
         )
 
-    def _run(self, tmp_path, monkeypatch, **mesh_kwargs):
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path, **mesh_kwargs)
-        facility = self._facility()
-        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
-        return result, pack_root
 
     # -- §3 case 1: the relationship invariant (the owner's metric) -------
 
-    def test_every_member_lands_on_one_datum_plane(
-        self, tmp_path, monkeypatch
-    ):
-        """THE LAW: ``mesh(anchor) + delta == G`` for every group member,
-        across two anchors 6 m apart on differently sloping ground."""
-        result, _pack_root = self._run(tmp_path, monkeypatch)
-
-        record = result["basin_group_seat"][0]
-        assert record["decision_kind"] == "basin_group_seat"
-        seat_datum = record["g_m"]
-        assert seat_datum == pytest.approx(RIM_ELEVATION_M)
-        assert record["baked"] is True
-        deltas = record["delta_by_resource"]
-        # The at-grade shell and both below-grade decks joined the pit
-        # shell — the whole local complex, and only it.
-        assert set(deltas) == {
-            PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7}
-        # Two different anchor grounds (the slope is real)...
-        grounds = {
-            resource: seat_datum - delta
-            for resource, delta in deltas.items()
-        }
-        assert grounds[DECK_MINUS_7] > grounds[PIT_SHELL] + 0.3
-        # ...and ONE rendered datum plane.
-        for resource, delta in deltas.items():
-            assert grounds[resource] + delta == pytest.approx(
-                seat_datum, abs=1e-9), resource
-
-    def test_the_authored_relationships_survive(self, tmp_path, monkeypatch):
-        """The owner's metric stated in rendered metres: every pair's
-        rendered vertical relationship equals its authored one — 0.000 m
-        relative shift, materiality 0.01 m."""
-        result, pack_root = self._run(tmp_path, monkeypatch)
-        record = result["basin_group_seat"][0]
-        deltas = record["delta_by_resource"]
-        seat_datum = record["g_m"]
-
-        rendered_top: dict[str, float] = {}
-        for resource in (PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7):
-            live = _vertex_y_values(pack_root / resource)
-            authored = _vertex_y_values(
-                pack_root / (resource + ".anchor_bak"))
-            per_vertex = {round(baked - original, 6)
-                          for baked, original in zip(live, authored)}
-            # Rigid within the file: ONE delta, never a per-cluster set.
-            assert len(per_vertex) == 1, resource
-            assert per_vertex.pop() == pytest.approx(
-                deltas[resource], abs=1e-4)
-            ground = seat_datum - deltas[resource]
-            rendered_top[resource] = ground + deltas[resource] + max(authored)
-
-        # Authored: the −3 deck's top sits 4 m above the −7 deck's, and
-        # the terminal's roof 14 m above grade.  Rendered: the same.
-        assert (rendered_top[DECK_MINUS_3]
-                - rendered_top[DECK_MINUS_7]) == pytest.approx(
-                    DECK_MINUS_3_TOP_Y - DECK_MINUS_7_TOP_Y, abs=0.01)
-        assert (rendered_top[TERMINAL]
-                - rendered_top[DECK_MINUS_3]) == pytest.approx(
-                    14.0 - DECK_MINUS_3_TOP_Y, abs=0.01)
 
     # -- §3 case 3: seat-group membership --------------------------------
 
-    def test_an_overlapping_structure_joins_and_leaves_the_generic_pass(
-        self, tmp_path, monkeypatch
-    ):
-        """Widening is ONE step (trap T1, the LSGG starvation law): the
-        structure over the body is seated by this law AND removed from
-        the generic pass's population in the same decision."""
-        result, pack_root = self._run(tmp_path, monkeypatch)
-
-        seated_by_group = {
-            resource
-            for _pool, decision in result["decisions"]
-            for resource in decision.decision_kind_by_resource
-        }
-        assert TERMINAL in seated_by_group
-        skip_reasons = {
-            resource: reason for resource, reason in result["skipped"]
-        }
-        assert "basin_group_seat" in skip_reasons.get(TERMINAL, ""), (
-            "the seat-group member was not withheld from the generic pass "
-            "in the same step")
-        provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
-        assert provenance["objects"][TERMINAL]["decision_kind"] == (
-            "basin_group_seat")
-
-    def test_a_distant_structure_on_the_same_datum_never_joins(
-        self, tmp_path, monkeypatch
-    ):
-        """The scope test the spec draws: the group is the local complex,
-        never the whole shared-datum family (the LSGG lesson)."""
-        result, pack_root = self._run(tmp_path, monkeypatch)
-
-        record = result["basin_group_seat"][0]
-        assert FAR_BUILDING not in record["delta_by_resource"]
-        provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
-        far_entry = provenance["objects"].get(FAR_BUILDING)
-        if far_entry is not None:
-            assert far_entry.get("decision_kind") is None
 
     # -- §3 case 4: the threshold no-op (item 6 retired) -----------------
 
-    def test_a_family_already_on_its_plane_is_a_recorded_no_op(
-        self, tmp_path, monkeypatch
-    ):
-        """The OTHH pattern: anchor ground == R_mesh, the drape is
-        already correct, so the bake is a RECORDED no-op and no ``.obj``
-        is rewritten (spec §2.3 item 2)."""
-        result, pack_root = self._run(
-            tmp_path, monkeypatch, flat_elevation_m=RIM_ELEVATION_M)
-
-        record = result["basin_group_seat"][0]
-        assert record["threshold_no_op"] is True
-        assert record["baked"] is False
-        assert "NO-OP" in record["decision"]
-        assert record["delta_max_m"] == pytest.approx(0.0, abs=1e-6)
-        for resource in (PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7):
-            assert not (pack_root / (resource + ".anchor_bak")).exists()
-
-    def test_the_no_op_still_withholds_the_group(self, tmp_path, monkeypatch):
-        """A no-op is an ANSWER, not an abstention: the group stays out of
-        the generic pass, or the cluster law would seat it after all."""
-        result, _pack_root = self._run(
-            tmp_path, monkeypatch, flat_elevation_m=RIM_ELEVATION_M)
-        skip_reasons = {
-            resource: reason for resource, reason in result["skipped"]
-        }
-        assert "basin_group_seat" in skip_reasons.get(TERMINAL, "")
 
     # -- the modes the pre-amendment law already had (carried forward) ----
 
-    def test_measure_only_records_the_group_and_writes_nothing(
-        self, tmp_path, monkeypatch
-    ):
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path)
-        result = self._rebake(
-            dsf_path, mesh_path, pack_root, [self._facility()],
-            measure_only=True)
-        record = result["basin_group_seat"][0]
-        assert record["measure_only"] is True
-        assert record["baked"] is False
-        assert record["g_m"] == pytest.approx(RIM_ELEVATION_M)
-        assert result["objects_written"] == []
-        for resource in (PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7):
-            backup = pack_root / (resource + ".anchor_bak")
-            if backup.exists():
-                assert (pack_root / resource).read_bytes() == (
-                    backup.read_bytes())
-
-    def test_a_dry_run_reports_the_group_without_writing(
-        self, tmp_path, monkeypatch
-    ):
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path)
-        result = self._rebake(
-            dsf_path, mesh_path, pack_root, [self._facility()],
-            write_changes=False)
-        record = result["basin_group_seat"][0]
-        assert record["dry_run"] is True
-        assert record["baked"] is False
-        assert record["delta_by_resource"]
-        for resource in (PIT_SHELL, TERMINAL):
-            assert not (pack_root / (resource + ".anchor_bak")).exists()
-
-    def test_the_group_bake_is_byte_idempotent(self, tmp_path, monkeypatch):
-        """Invariant I-15: the second run rewrites from ``.anchor_bak``,
-        so it lands on the same bytes — never twice the delta."""
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path)
-        facility = self._facility()
-        self._rebake(dsf_path, mesh_path, pack_root, [facility])
-        first = {
-            resource: (pack_root / resource).read_bytes()
-            for resource in (PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7)
-        }
-        self._rebake(dsf_path, mesh_path, pack_root, [facility])
-        for resource, expected in first.items():
-            assert (pack_root / resource).read_bytes() == expected
-
-    def test_the_clearance_finding_still_fires_on_the_group_datum(
-        self, tmp_path, monkeypatch
-    ):
-        """Item 7 unchanged, wider membership: a built rim below
-        ``R_est − margin`` means the section-2.1 margin is too small for
-        this airport — reported, never silently re-derived."""
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        # A 7 m pit needs 7.5 m of clearance under its rim; give it 5.
-        _write_sloped_trench_mesh(mesh_path, floor_slope=0.0)
-        facility = self._facility()
-        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
-        record = result["basin_group_seat"][0]
-        assert record["clearance_finding"] is True
-        # R_est = floor + DECK + MARGIN - y_true_min = 10 + 0.5 + 1 + 7
-        assert record["rim_estimate_m"] == pytest.approx(18.5)
-        assert record["r_mesh_minus_r_est_m"] == pytest.approx(-3.5)
-
-    def test_two_facilities_sharing_one_rigid_unit_are_refused(
-        self, tmp_path, monkeypatch, capsys
-    ):
-        """MEASURED AT LEMD (2026-08-27 acceptance run): the §2.1 split
-        produced a second, DEGENERATE body component (1.6e-13 m² beside
-        the real 27,806 m² T4S ring) whose seat group was the same rigid
-        unit — and it seated those 42 files onto a SECOND datum 3.705 m
-        away, last writer winning.  A group that overlaps an earlier
-        group is REFUSED and named, never silently re-seated."""
-        import O4_UI_Utils as UI
-
-        UI.verbosity = 1
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path)
-        facility = self._facility()
-        result = self._rebake(
-            dsf_path, mesh_path, pack_root, [facility, facility])
-
-        first, second = result["basin_group_seat"]
-        assert first["baked"] is True
-        assert second["baked"] is False
-        assert "SHARES" in second["decision"]
-        assert "BASIN GROUP SEAT FINDING" in capsys.readouterr().out
-        # ...and the pack is left on ONE datum plane.
-        provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
-        datums = {
-            entry["seat_datum_m"]
-            for entry in provenance["objects"].values()
-            if entry.get("decision_kind") == "basin_group_seat"
-        }
-        assert len(datums) == 1
 
     # -- §2.4: the member fates are LOUD, never silent -------------------
 
-    def test_a_multi_placement_member_is_named_against_its_facility(
-        self, tmp_path, monkeypatch, capsys
-    ):
-        """Invariant I-4 stands — one shared file cannot carry
-        per-placement offsets — but the skip is no longer silent to the
-        facility whose relationships the member is missing from."""
-        import O4_UI_Utils as UI
-
-        from auto_patch import dsf_reader
-
-        UI.verbosity = 1
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        # A SECOND draped placement of the pit shell — the I-4 pattern
-        # (~19 of LEMD's 203 placements).
-        original = dsf_reader._load_dsf_text(str(dsf_path))
-        index = [
-            line for line in original if line.startswith("OBJECT_DEF")
-        ].index(f"OBJECT_DEF {PIT_SHELL}")
-        monkeypatch.setattr(
-            dsf_reader, "_load_dsf_text",
-            lambda _path: list(original) + [
-                f"OBJECT {index} {_metres_east_to_longitude(80.0)} "
-                f"{ANCHOR_LATITUDE} 0.0"])
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path)
-        result = self._rebake(
-            dsf_path, mesh_path, pack_root, [self._facility()])
-
-        out = capsys.readouterr().out
-        assert "BASIN GROUP SEAT: facility member" in out, (
-            "the I-4 skip was silent to the facility")
-        assert PIT_SHELL in out
-        assert PIT_SHELL not in result["basin_group_seat"][0].get(
-            "delta_by_resource", {})
 
     def test_the_reach_floor_drop_reports_itself(self):
         """Trap T5's silent fate: the generic discovery's reach-floor
@@ -620,23 +329,6 @@ class TestBasinGroupSeat:
 
     # -- §3 case 5: provenance + the gate lists ---------------------------
 
-    def test_the_provenance_records_the_delta_and_the_datum(
-        self, tmp_path, monkeypatch
-    ):
-        """Trap T6: until now no delta survived the write, so LEMD's
-        applied offsets were unrecoverable from a restored pack."""
-        result, pack_root = self._run(tmp_path, monkeypatch)
-        record = result["basin_group_seat"][0]
-        provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
-        for resource, delta in record["delta_by_resource"].items():
-            entry = provenance["objects"][resource]
-            assert entry["decision_kind"] == "basin_group_seat"
-            assert entry["seat_datum_m"] == pytest.approx(record["g_m"])
-            assert entry["delta_m"] == pytest.approx(delta)
-            # ...and the invariant is re-readable from the sidecar alone.
-            assert (entry["anchor_ground_m"] + entry["delta_m"]
-                    == pytest.approx(entry["seat_datum_m"], abs=1e-9))
 
     def test_the_gate_lists_carry_every_basin_environment_name(self):
         """Spec §2.5 and recon trap T3: four basin gates were missing
@@ -663,152 +355,6 @@ class TestBasinGroupSeat:
 
     # -- §3 case 6: the gate off ------------------------------------------
 
-    def test_the_gate_off_restores_the_interface_member_law(
-        self, tmp_path, monkeypatch
-    ):
-        """``O4_BASIN_GROUP_SEAT=0`` is the pre-amendment behaviour:
-        ``basin_rim_flush``, interface members only, the group untouched
-        by the basin law."""
-        monkeypatch.setattr(config, "BASIN_GROUP_SEAT", False)
-        result, pack_root = self._run(tmp_path, monkeypatch)
-
-        assert result["basin_group_seat"] == []
-        record = result["basin_rim_flush"][0]
-        assert record["decision_kind"] == "basin_rim_flush"
-        assert record["baked"] is True
-        assert record["objects_written"] == [PIT_SHELL]
-        provenance = json.loads(
-            (pack_root / ".o4_reanchor_provenance.json").read_text(encoding="utf-8"))
-        assert provenance["objects"][PIT_SHELL]["decision_kind"] == (
-            "basin_rim_flush")
-        # ...and the pre-amendment entry gains no group fields.
-        assert "seat_datum_m" not in provenance["objects"][PIT_SHELL]
-        terminal_entry = provenance["objects"].get(TERMINAL)
-        if terminal_entry is not None:
-            assert terminal_entry.get("decision_kind") is None
-
-    def test_the_gate_off_keeps_the_topological_item_six(
-        self, tmp_path, monkeypatch
-    ):
-        """The retired scope test still decides under the gate: an
-        anchor-OUTSIDE facility does not bake at all."""
-        monkeypatch.setattr(config, "BASIN_GROUP_SEAT", False)
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path)
-        facility = self._facility()
-        outside = assembly.BasinRimFlushFacility(
-            object_resources=facility.object_resources,
-            anchor_longitude_latitude=facility.anchor_longitude_latitude,
-            body_rings_longitude_latitude=(
-                facility.body_rings_longitude_latitude),
-            solid_minimum_y_m=facility.solid_minimum_y_m,
-            anchor_inside_body=False,
-        )
-        result = self._rebake(dsf_path, mesh_path, pack_root, [outside])
-        assert result["basin_rim_flush"][0]["baked"] is False
-        assert "OUTSIDE its body" in result["basin_rim_flush"][0]["decision"]
-
-
-class TestFacilitySplitPerConnectedBody:
-    """Spec §3 case 2 / §2.1.  The anchor key is the pack's DATUM, so a
-    shared-datum pack lands every below-grade structure in ONE facility
-    whose body unions unrelated pits — which is how LEMD's T4S facility
-    "contained" an anchor 406 m outside its own ring."""
-
-    NEAR_PIT = Polygon([(-40, -40), (40, -40), (40, 40), (-40, 40)])
-    FAR_PIT = Polygon([(400, -40), (480, -40), (480, 40), (400, 40)])
-
-    def _facilities(self):
-        return assembly.basin_rim_flush_facilities(_Classification(
-            ground_interfaces=[
-                _interface(
-                    footprint=self.NEAR_PIT,
-                    resources=("T4S/near_pit.obj",),
-                    floor_y_m=-6.0,
-                ),
-                _interface(
-                    footprint=self.FAR_PIT,
-                    resources=("T4S/far_pit.obj",),
-                    floor_y_m=-4.0,
-                ),
-            ]))
-
-    def test_two_disjoint_pits_become_two_facilities(self, monkeypatch):
-        monkeypatch.setattr(config, "BASIN_GROUP_SEAT", True)
-        facilities = self._facilities()
-        assert len(facilities) == 2
-        by_resource = {
-            facility.object_resources: facility for facility in facilities
-        }
-        assert set(by_resource) == {
-            ("T4S/near_pit.obj",), ("T4S/far_pit.obj",)}
-        # Each component keeps its OWN floor key — the far pit's shallower
-        # body never deepens the near pit's, and vice versa.
-        assert by_resource[("T4S/near_pit.obj",)].solid_minimum_y_m == (
-            pytest.approx(-6.0))
-        assert by_resource[("T4S/far_pit.obj",)].solid_minimum_y_m == (
-            pytest.approx(-4.0))
-        # Exactly one of them contains the shared datum anchor.
-        assert sorted(
-            facility.anchor_inside_body for facility in facilities
-        ) == [False, True]
-
-    #: A body part twenty orders of magnitude below anything this project
-    #: models — the LEMD artifact (1.6e-13 m²) at test scale: ~9e-10 m².
-    SLIVER = Polygon([
-        (60.0, 0.0), (60.00003, 0.0), (60.00003, 0.00003), (60.0, 0.00003)])
-
-    def test_a_degenerate_sliver_is_dropped_not_founded(
-        self, monkeypatch, capsys
-    ):
-        """§2.1 Amendment 2 (Fable 2026-08-27).  MEASURED AT LEMD: the
-        body union split into the real 27,806 m² T4S ring AND a
-        1.6e-13 m² sliver, and the sliver became a full facility with its
-        own datum ``G`` 3.705 m away that double-seated 42 files.  It is
-        numerical noise, not a facility: repaired, measured in metres,
-        dropped LOUDLY — and the overlap refusal never has to fire."""
-        import O4_UI_Utils as UI
-
-        UI.verbosity = 1
-        monkeypatch.setattr(config, "BASIN_GROUP_SEAT", True)
-        facilities = assembly.basin_rim_flush_facilities(_Classification(
-            ground_interfaces=[
-                _interface(
-                    footprint=self.NEAR_PIT,
-                    resources=("T4S/near_pit.obj",),
-                    floor_y_m=-6.0,
-                ),
-                _interface(
-                    footprint=self.SLIVER,
-                    resources=("T4S/sliver.obj",),
-                    floor_y_m=-6.0,
-                ),
-            ]))
-        # ONE facility — the real pit — and the sliver is not among them.
-        assert len(facilities) == 1
-        assert facilities[0].object_resources == ("T4S/near_pit.obj",)
-        out = capsys.readouterr().out
-        assert "DEGENERATE BODY COMPONENT dropped" in out, (
-            "the sliver was dropped SILENTLY")
-        assert "geometric-validity floor" in out
-        # With one facility there is no second seat group, so the
-        # ratified overlap refusal is never reached.
-        assert "BASIN GROUP SEAT FINDING" not in out
-
-    def test_the_gate_off_keeps_the_one_unioned_facility(self, monkeypatch):
-        monkeypatch.setattr(config, "BASIN_GROUP_SEAT", False)
-        facilities = self._facilities()
-        assert len(facilities) == 1
-        facility = facilities[0]
-        assert set(facility.object_resources) == {
-            "T4S/near_pit.obj", "T4S/far_pit.obj"}
-        # The pre-amendment reading: one body, both rings, the deepest
-        # member's key, and ``covers`` judged against the union.
-        assert len(facility.body_rings_longitude_latitude) == 2
-        assert facility.solid_minimum_y_m == pytest.approx(-6.0)
-        assert facility.anchor_inside_body is True
-
 
 # ── §4a/§4c: THE FOUNDED DATUM IS CARRIED, NEVER RE-DERIVED ──────────
 #
@@ -820,216 +366,6 @@ class TestFacilitySplitPerConnectedBody:
 # carve lane with ONE instrument over ONE facility: 596.682 m on the
 # 2026-08-27 +40-004 surface and 600.510 m on the 2026-08-28 one — 3.83 m
 # of "seat" that is only which mesh answered.
-
-#: The +40-004 class in miniature: the value the spec names as the basin
-#: arc's founded datum, carried in the pack's own provenance sidecar.
-FOUNDED_DATUM_M = 596.682
-
-
-def _seed_founded_provenance(pack_root, resources, datum_m=FOUNDED_DATUM_M):
-    """Write a provenance sidecar that already seats ``resources`` on
-    ``datum_m`` under the group-seat law — i.e. a pack that HAS been
-    baked, which is what "carried through every rebake" is about.
-
-    Written through the module's own constants (filename, version,
-    decision kind), never a hand-spelled path or literal."""
-    sidecar = {
-        "version": object_rebake.PROVENANCE_VERSION,
-        "meshes": {},
-        "objects": {
-            resource: {
-                "decision_kind": assembly.BASIN_GROUP_SEAT_DECISION_KIND,
-                "seat_datum_m": float(datum_m),
-                "delta_m": 0.0,
-            }
-            for resource in resources
-        },
-    }
-    path = os.path.join(str(pack_root), object_rebake.PROVENANCE_FILENAME)
-    with open(path, "w", encoding="utf-8", newline="") as handle:
-        json.dump(sidecar, handle)
-    return path
-
-
-class TestFoundedSeatDatumReader:
-    """``object_rebake.founded_seat_datum`` — the CARRIER, read only."""
-
-    def test_no_sidecar_is_no_datum(self, tmp_path):
-        value, reason = object_rebake.founded_seat_datum(
-            str(tmp_path), {PIT_SHELL},
-            assembly.BASIN_GROUP_SEAT_DECISION_KIND)
-        assert value is None
-        assert "never been baked" in reason
-
-    def test_it_reads_the_datum_the_pack_already_seats_on(self, tmp_path):
-        _seed_founded_provenance(tmp_path, [PIT_SHELL, TERMINAL])
-        value, source = object_rebake.founded_seat_datum(
-            str(tmp_path), {PIT_SHELL, TERMINAL},
-            assembly.BASIN_GROUP_SEAT_DECISION_KIND)
-        assert value == pytest.approx(FOUNDED_DATUM_M)
-        assert source == sorted([PIT_SHELL, TERMINAL])
-
-    def test_another_law_s_record_is_not_this_law_s_datum(self, tmp_path):
-        _seed_founded_provenance(tmp_path, [PIT_SHELL])
-        value, reason = object_rebake.founded_seat_datum(
-            str(tmp_path), {PIT_SHELL}, "some_other_law")
-        assert value is None
-        assert "no 'some_other_law' seat datum" in reason
-
-    def test_members_that_disagree_are_NOT_averaged(self, tmp_path):
-        """Two bakes wrote one group and the sidecar no longer describes
-        ONE plane.  A mean would mint a value no law produced (the
-        emit-consensus precedent) — so it is a refusal, reported."""
-        import json
-        path = _seed_founded_provenance(tmp_path, [PIT_SHELL, TERMINAL])
-        payload = json.load(open(path, encoding="utf-8"))
-        payload["objects"][TERMINAL]["seat_datum_m"] = FOUNDED_DATUM_M + 0.5
-        json.dump(payload, open(path, "w", encoding="utf-8", newline=""))
-        value, reason = object_rebake.founded_seat_datum(
-            str(tmp_path), {PIT_SHELL, TERMINAL},
-            assembly.BASIN_GROUP_SEAT_DECISION_KIND)
-        assert value is None
-        assert "disagree by 0.500 m" in reason
-
-    def test_the_reader_writes_nothing(self, tmp_path):
-        path = _seed_founded_provenance(tmp_path, [PIT_SHELL])
-        before = (os.path.getsize(path), open(path, encoding="utf-8").read())
-        object_rebake.founded_seat_datum(
-            str(tmp_path), {PIT_SHELL},
-            assembly.BASIN_GROUP_SEAT_DECISION_KIND)
-        assert (os.path.getsize(path), open(path, encoding="utf-8").read()) == before
-
-
-class TestCarvedFacilityCarriesItsFoundedDatum:
-    """§4a/§4b/§4c end to end, on the same synthetic +40-004-class pack
-    the class above bakes.
-
-    Its fixtures and builders are REUSED BY REFERENCE, not inherited:
-    subclassing would re-collect all of that class's own tests under
-    this name, and a suite that reports one law twice is the thing
-    ``test_harness``'s twins exist to stop.  The carved and uncarved
-    arms are then the SAME facility with one field added."""
-
-    _sandbox = TestBasinGroupSeat._sandbox
-    _pack = TestBasinGroupSeat._pack
-    _facility = TestBasinGroupSeat._facility
-    _rebake = TestBasinGroupSeat._rebake
-
-    def _carved_facility(self):
-        """The facility, plus a carve corridor beside its body — the
-        ramp the pad-authority carve plates.  The corridor is a real
-        polygon in the same lon/lat spelling the emitter carries."""
-        base = self._facility()
-        span = BODY_HALF_SPAN_M
-        step = span / 111320.0
-        corridor = tuple(
-            (ANCHOR_LONGITUDE + longitude, ANCHOR_LATITUDE + latitude)
-            for longitude, latitude in (
-                (step, -step / 3.0), (2.0 * step, -step / 3.0),
-                (2.0 * step, step / 3.0), (step, step / 3.0),
-                (step, -step / 3.0)))
-        return _dataclasses.replace(
-            base, carve_corridor_rings_longitude_latitude=(corridor,))
-
-    def _run_carved(self, tmp_path, monkeypatch, **mesh_kwargs):
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path, **mesh_kwargs)
-        facility = self._carved_facility()
-        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
-        return result, pack_root
-
-    def test_the_carved_facility_seats_at_the_FOUNDED_datum(
-        self, tmp_path, monkeypatch
-    ):
-        """§4a, and the round's acceptance: with the carve gate ON, a
-        +40-004-class rebake seats the pack at the datum its provenance
-        carries — 596.682 m — NOT at the mesh median under the carved
-        band, whatever that mesh says."""
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        _seed_founded_provenance(
-            pack_root, [PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7])
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path)
-        result = self._rebake(
-            dsf_path, mesh_path, pack_root, [self._carved_facility()])
-
-        record = result["basin_group_seat"][0]
-        assert record["seat_datum_source"] == "founded"
-        assert record["g_m"] == pytest.approx(FOUNDED_DATUM_M)
-        assert record["founded_seat_datum_m"] == pytest.approx(
-            FOUNDED_DATUM_M)
-        # ...and the mesh median is nowhere near it, which is the point.
-        assert abs(record["r_mesh_m"] - FOUNDED_DATUM_M) > 100.0
-        # Every member still lands on ONE plane — the carry moves the
-        # plane, never the relationships.
-        deltas = record["delta_by_resource"]
-        assert deltas
-        for resource, delta in deltas.items():
-            ground = record["g_m"] - delta
-            assert ground + delta == pytest.approx(
-                record["g_m"], abs=1e-9), resource
-
-    def test_the_drift_detector_is_recorded_and_never_applied(
-        self, tmp_path, monkeypatch
-    ):
-        """§4b: the corridor-EXCLUDED read is not a seat, it is the test
-        that the carve touched only the ground it was allowed to.  Both
-        halves are recorded so the split cannot be lost, and neither is
-        the datum."""
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        _seed_founded_provenance(
-            pack_root, [PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7])
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path)
-        result = self._rebake(
-            dsf_path, mesh_path, pack_root, [self._carved_facility()])
-
-        record = result["basin_group_seat"][0]
-        assert "drift_detector_scoped_m" in record
-        assert "drift_detector_unscoped_m" in record
-        assert record["drift_detector_scoped_m"] == pytest.approx(
-            record["r_mesh_m"])
-        # The corridor really did take stations out of the band.
-        assert (record["drift_detector_scoped_stations"]
-                < record["drift_detector_unscoped_stations"])
-        # ...and none of it reached the seat.
-        assert record["g_m"] == pytest.approx(FOUNDED_DATUM_M)
-
-    def test_a_carved_facility_with_NO_founded_datum_REFUSES(
-        self, tmp_path, monkeypatch
-    ):
-        """§4c.  Seating it would establish a datum FROM the carved
-        surface, which is the one thing §4a forbids — so the pack is
-        left where it is, loudly."""
-        result, _pack_root = self._run_carved(tmp_path, monkeypatch)
-
-        record = result["basin_group_seat"][0]
-        assert record["seat_datum_source"] == "refused_no_founded_datum"
-        assert "§4c" in record["decision"]
-        assert not record.get("baked")
-        assert "g_m" not in record
-
-    def test_an_UNCARVED_facility_is_untouched_by_all_of_it(
-        self, tmp_path, monkeypatch
-    ):
-        """SCOPE.  A facility with no carve corridor has no carved
-        surface: it re-derives from ``R_mesh`` exactly as before, even
-        with a founded datum sitting in the sidecar.  That is every
-        facility in a build with the gate off."""
-        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        _seed_founded_provenance(
-            pack_root, [PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7])
-        mesh_path = tmp_path / "Data+25+051.mesh"
-        _write_sloped_trench_mesh(mesh_path)
-        result = self._rebake(
-            dsf_path, mesh_path, pack_root, [self._facility()])
-
-        record = result["basin_group_seat"][0]
-        assert record["seat_datum_source"] == "r_mesh"
-        assert record["g_m"] == pytest.approx(RIM_ELEVATION_M)
-        assert "founded_seat_datum_m" not in record
-        assert "drift_detector_scoped_m" not in record
 
 
 class TestDriftDetectorAcrossTheCarve:

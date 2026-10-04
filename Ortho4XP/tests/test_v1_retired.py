@@ -215,6 +215,60 @@ def test_the_keep_set_is_neither_stale_nor_vacuous():
     assert inside <= KEEP
 
 
+def _dotted_auto_patch_strings(path: Path) -> list[tuple[int, str]]:
+    """Every string CONSTANT in ``path`` that is, whole, a dotted
+    ``auto_patch.<name>`` (optionally ``:attr``) — the shape of a module
+    name handed to ``__import__`` / ``importlib`` / a registry table."""
+    import re
+    shape = re.compile(r"auto_patch(\.[A-Za-z_]\w*)+(:[A-Za-z_]\w*)?")
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:                                    # pragma: no cover
+        return []
+    return [(n.lineno, n.value) for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            and shape.fullmatch(n.value)]
+
+
+def test_no_production_module_NAMES_a_v1_module_as_a_string():
+    """THE STATIC CLOSURE'S BLIND SPOT, closed for the one shape that bit
+    (round 2, lane ``v1cut``, 2026-10-04).  ``o4_engine/parallel.py`` holds
+    ``STEP_FETCH_SUBSYSTEMS``, a table of MODULE NAMES it ``__import__``s
+    for their ``is_cached`` predicate — and one of them was
+    ``"auto_patch.osm_load"``, a DELETE module no ``import`` statement
+    reached.  Deleting it would have made that predicate unresolvable, which
+    the scheduler reads as "never cached" (rc 0, no error, every tile's
+    vector step throttled).  The predicate moved to ``build_support``; this
+    twin holds every such name inside the keep set and on disk."""
+    mods = _modules()
+    offenders = []
+    for m in _production_roots(mods) + sorted(KEEP):
+        for lineno, value in _dotted_auto_patch_strings(mods[m]):
+            name = value.partition(":")[0]
+            if name not in mods or name not in KEEP:
+                # ``auto_patch.driver.something`` — an attribute path — is
+                # fine when its module prefix is a keep module on disk
+                owner = _resolve(name, mods)
+                if owner in KEEP and owner != "auto_patch":
+                    continue
+                offenders.append(f"{mods[m].name}:{lineno}: {value!r}")
+    assert not offenders, (
+        "a production module names an auto_patch module that is not in the "
+        "keep set: " + "; ".join(offenders))
+    # ... and the table that bit resolves, entry by entry
+    import importlib
+    import sys
+    sys.path.insert(0, str(SRC))
+    parallel = importlib.import_module("o4_engine.parallel")
+    named = [n.partition(":")[0]
+             for names in parallel.STEP_FETCH_SUBSYSTEMS.values()
+             for n in names]
+    assert "auto_patch.build_support" in named
+    for name in named:
+        if _is_auto_patch(name):
+            assert name in KEEP and name in mods, name
+
+
 def test_the_v1_tree_is_still_on_disk_in_round_1():
     """Round 1 is the SEAM cut and nothing else: the twin above must be green
     while every DELETE module still exists.  Round 2 removes them, and this

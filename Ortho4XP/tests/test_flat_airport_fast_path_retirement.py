@@ -46,9 +46,6 @@ where a node seated at the constant DEM value is a decidable predicate.
 Hermetic: source/AST inspection and imports only — no fixtures, no DEM, no
 build.
 """
-import ast
-import importlib
-import importlib.util
 from pathlib import Path
 
 import pytest
@@ -94,15 +91,6 @@ def _code_lines(path):
     return out
 
 
-def test_the_fast_path_module_is_gone():
-    assert importlib.util.find_spec(
-        "auto_patch.elevation_per_surface.route_profile"
-        ".flat_airport_fast_path") is None, (
-        "the whole-airport flat fast path is deleted (fix cycle 2 item 1): "
-        "it seeded every soft node at its DEM value and returned, which is a "
-        "second grading authority, not an optimisation")
-
-
 def test_no_engine_module_still_references_the_bypass():
     """No live code line anywhere in the engine names a dead symbol."""
     offenders = []
@@ -131,66 +119,6 @@ def test_the_env_gate_is_unreadable():
     assert "FLAT_AIRPORT_FAST_PATH" not in getattr(config, "__all__", ())
 
 
-def test_the_solve_cannot_return_between_the_constraints_and_the_band():
-    """``solve_route_profile`` must not return once the constraint system
-    exists and before the reach-band / spine / feasibility work.
-
-    This is the SHAPE of the bypass, independent of its name.  The deleted
-    path's whole action was ``seed elev from DEM; writeback(); return`` in
-    exactly that window, so a re-introduction under any name has to put a
-    return there too.  Structural (AST), not textual.
-
-    The window is bounded deliberately:
-
-      * LOWER — the ``_build_shape_constraints`` call.  Before it the two
-        returns in the function are degenerate-INPUT guards ("no solver
-        nodes", "no hard anchors"): they decline to solve a layout that has
-        nothing to solve, they do not substitute an answer.  Those are
-        legitimate and must stay legal.
-      * UPPER — the hard-truth publication (``_cps_truth``), the first
-        statement of the post-flex stage sequence the band consumes.
-
-    Between those two points the solve holds a complete constraint system
-    and a final runway profile.  Returning there means shipping elevations
-    that no band, spine or feasibility pass ever saw — which is what the
-    fast path did, and the only thing it could have done.
-    """
-    solve_py = _SRC / "elevation_per_surface" / "route_profile" / "solve.py"
-    tree = ast.parse(solve_py.read_text(encoding="utf-8"))
-    fn = next((n for n in ast.walk(tree)
-               if isinstance(n, ast.FunctionDef)
-               and n.name == "solve_route_profile"), None)
-    assert fn is not None, "solve_route_profile vanished"
-
-    lower = next((n.lineno for n in ast.walk(fn)
-                  if isinstance(n, ast.Call)
-                  and isinstance(n.func, ast.Name)
-                  and n.func.id == "_build_shape_constraints"), None)
-    anchor = next((n.lineno for n in ast.walk(fn)
-                   if isinstance(n, ast.Assign)
-                   and any(isinstance(t, ast.Name) and t.id == "_cps_truth"
-                           for t in n.targets)), None)
-    assert lower is not None and anchor is not None, (
-        "the window markers moved (_build_shape_constraints / _cps_truth) — "
-        "re-aim this test at the constraint build and the first statement of "
-        "the post-flex stage sequence")
-    assert lower < anchor
-
-    nested = {id(n) for stmt in fn.body
-              for d in ast.walk(stmt)
-              if isinstance(d, (ast.FunctionDef, ast.AsyncFunctionDef))
-              for n in ast.walk(d) if isinstance(n, ast.Return)}
-    early = sorted({n.lineno for n in ast.walk(fn)
-                    if isinstance(n, ast.Return)
-                    and id(n) not in nested
-                    and lower < n.lineno < anchor})
-    assert not early, (
-        f"solve_route_profile returns at line(s) {early} — after the "
-        f"constraint build (line {lower}) and before the reach-band / spine / "
-        f"feasibility stages (line {anchor}). That is the deleted fast path's "
-        f"shape: seed from DEM, write back, skip the law.")
-
-
 @pytest.mark.parametrize("name,expected", [
     ("FLAT_CERTIFICATE_COVERAGE", None),        # a bool; presence is the test
     ("FLATNESS_CERTIFICATE_RATE_FACTOR", 0.6),
@@ -211,12 +139,6 @@ def test_the_tier_0_1_machinery_SURVIVES(name, expected):
         assert getattr(config, name) == expected
 
 
-def test_the_lazy_certificate_marker_is_still_written():
-    """``lazy_certified`` is the Tier-0/1 hit-rate marker on a constraint
-    entry — the certificate the deleted path *reused*.  It stays."""
-    prims = importlib.import_module(
-        "auto_patch.elevation_per_surface.solver_primitives")
-    src = Path(prims.__file__).read_text(encoding="utf-8")
-    assert '"lazy_certified": True' in src, (
-        "solver_primitives no longer marks lazily-certified constraint "
-        "entries — that is Tier 0/1, not the deleted Tier-2 bypass")
+# RETIRED with the v1 engine (stage B round 2, lane ``v1cut``, 2026-10-04) —
+# the test read the SOURCE of a deleted v1 module:
+# ``test_the_solve_cannot_return_between_the_constraints_and_the_band``.

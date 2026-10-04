@@ -319,7 +319,10 @@ def test_the_engine_and_the_harness_read_one_corridor(law, ck):
     hw = 45.0 / 2.0
     ring = [(RWY_A[0], RWY_A[1] - hw), (RWY_B[0], RWY_B[1] - hw),
             (RWY_B[0], RWY_B[1] + hw), (RWY_A[0], RWY_A[1] + hw)]
-    from auto_patch.grade_law import runway_axis_and_width
+    # ``runway_axis_and_width`` is the CENSUS's reader and lives with the
+    # census (``harness.law_support``); it was ``auto_patch.grade_law``,
+    # which went with the v1 engine (stage B round 2, 2026-10-04).
+    from harness.law_support.grade_law import runway_axis_and_width
     ax = runway_axis_and_width(ring)
     harness = ApproachCorridor([(ax[0], ax[1], "09/27")],
                                float(ck.approach_km) * 1000.0,

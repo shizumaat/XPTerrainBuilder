@@ -10,9 +10,7 @@ alongside the hole-survival behaviour the walk exists for.
 
 Hermetic: hand-built geometry, no fixtures, no DEM, no network.
 """
-from shapely.geometry import LineString, Point, Polygon
-
-from auto_patch.pavement.global_slice import build_global_slice_faces
+from shapely.geometry import LineString, Polygon
 
 
 def _holed_slab():
@@ -29,7 +27,6 @@ def _holed_slab():
 
 
 _SLAB = _holed_slab()
-_SPINE = LineString([(10.0, 200.0), (590.0, 200.0)])
 
 
 def test_the_piece_buffer_is_pure_and_its_verdicts_are_stable():
@@ -49,22 +46,3 @@ def test_the_piece_buffer_is_pure_and_its_verdicts_are_stable():
         "the fixture must exercise both verdicts"
 
 
-def test_holes_survive_the_slice():
-    """Every hole is still unpaved after the cut — the keyhole walk's
-    reason to exist, and the behaviour the memo must not change."""
-    faces = build_global_slice_faces(_SLAB, [_SPINE])
-    assert faces
-    for ix in range(3):
-        for iy in range(3):
-            centre = Point(60.0 + 180.0 * ix + 20.0,
-                           60.0 + 100.0 * iy + 15.0)
-            assert not any(f.polygon.contains(centre) for f in faces), \
-                f"hole ({ix},{iy}) was paved over"
-
-
-def test_the_slice_covers_the_paved_area():
-    """Sanity floor: the faces are the slab, less the holes, less the
-    grid-snapped cut linework."""
-    faces = build_global_slice_faces(_SLAB, [_SPINE])
-    total = sum(f.polygon.area for f in faces)
-    assert total > 0.99 * _SLAB.area

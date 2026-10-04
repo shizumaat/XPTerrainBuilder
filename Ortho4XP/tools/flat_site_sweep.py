@@ -171,8 +171,8 @@ def sweep_one(icao: str, xplane_root: str, *, elevation_level: str,
     import O4_File_Names as FNAMES
     from auto_patch import apt_dat_reader as APR
     from auto_patch import flat_site
-    from auto_patch.layout import _airport_anchor, _projection
-    from auto_patch.osm_load import _pick_best_apt_dat_against_osm
+    from auto_patch.build_support import _airport_anchor, _projection
+    from auto_patch.build_support import _pick_best_apt_dat_against_osm
 
     row = {"icao": icao.upper(), "apt_dat": None, "dem_path": None,
            "record": None, "note": None}

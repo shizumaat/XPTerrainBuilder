@@ -373,20 +373,6 @@ class TestTunnelRecognition:
 # (docs/specs/round5-vhhh-tunnel-admission-spec.md)
 # ---------------------------------------------------------------------------
 
-def _submerged_shell_geometry() -> ObjectGeometry:
-    """The VHHH ``tunnel/sea_X.obj`` class: a drivable-looking shell that
-    lives entirely under water — deck at −20, highest solid corner at
-    −3.129, nothing within half a metre of grade."""
-    builder = _GeometryBuilder()
-    builder.add_horizontal_rectangle(
-        -50, 50, -50, 50, -20.0, hardness="hard_deck", segments=4
-    )
-    builder.add_horizontal_rectangle(
-        -50, 50, -50, 50, -3.129, hardness="hard_deck", segments=4
-    )
-    builder.add_vertical_wall(-50.0, -50.0, 50.0, -28.2, -3.129)
-    return builder.build()
-
 
 def _island_scale_shell_geometry() -> ObjectGeometry:
     """The VHHH ``tunnel/sea.obj`` class: a real roof at grade and a real
@@ -466,45 +452,6 @@ class TestRound5TunnelAdmission:
         assert len(tunnel.mouth_polygons) == 2
         assert result.exclusions == [("PACK", "tunnel/real.obj")]
         assert result.refusals == []
-
-    def test_vhhh_sea_bed_floor_arithmetic_never_emits(self, monkeypatch):
-        """The regression pin for the defect itself.
-
-        The measured VHHH record (``tunnel/sea.obj`` + ``sea_X.obj``,
-        21,495,901 m² of deck) carried ``body_depth_m`` 4.133 and
-        ``solid_minimum_y_m`` −28.200; the ``min()`` in
-        ``object_terrain_assembly`` takes the deeper of the two, so on
-        VHHH's 7.32 m datum the trench floor came out at −21.38 m — a
-        28.7 m canyon through the taxiways.  The arithmetic is CORRECT
-        and stays; the guards mean no such record is ever built, so that
-        floor is never computed.
-        """
-        from auto_patch import grade_law
-
-        body_depth_m = 4.132678974666667
-        solid_minimum_y_m = -28.199621
-        deck_reference_y = min(-body_depth_m, solid_minimum_y_m)
-        assert deck_reference_y == pytest.approx(solid_minimum_y_m)
-        floor_m = grade_law.tunnel_trench_floor_elevation_m(
-            7.32, deck_reference_y
-        )
-        assert floor_m == pytest.approx(-21.38, abs=0.01)
-
-        self._record_log(monkeypatch)
-        result = otf.classify_object_terrain_features(
-            [
-                _placement("tunnel/sea.obj"),
-                _placement("tunnel/sea_X.obj"),
-            ],
-            {
-                "tunnel/sea.obj": _island_scale_shell_geometry(),
-                "tunnel/sea_X.obj": _submerged_shell_geometry(),
-            },
-            pack_root="PACK",
-        )
-        assert result.tunnels == []
-        assert result.bridges == []
-        assert result.exclusions == []
 
 
 # ---------------------------------------------------------------------------

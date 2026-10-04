@@ -376,7 +376,7 @@ def test_missing_law_tables_refuse_loudly_never_fall_back(tmp_path, monkeypatch,
 
 
 def test_engine_is_a_compared_freshness_stamp_readable_from_the_root(tmp_path):
-    from auto_patch.layout import read_patch_source
+    from auto_patch.build_support import read_patch_source
     assert "o4_ap_engine" in PROV.FRESHNESS_COMPARED_KEYS
     stamped = {k: "x" for k in PROV.FRESHNESS_COMPARED_KEYS}
     live = dict(stamped, o4_ap_engine="v2")

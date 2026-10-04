@@ -30,34 +30,6 @@ class _Poly:
         self.exterior = type("E", (), {"coords": coords})()
 
 
-def test_vertex_history_records_changes_and_skips_replace_carries():
-    probe = WW.AuthorshipProbe(_Shape, track_vertices=True,
-                               author_tol=0.01)
-    coords = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 0.0)]
-    s = _Shape(role="apron", ref="A", polygon=_Poly(coords))
-    probe._record(s, [1.0, 2.0, 3.0, 1.0])            # origin
-    probe._record(s, [1.0, 2.5, 3.0, 1.0])            # one change
-    s2 = _Shape(role="apron", ref="A", polygon=_Poly(coords))
-    probe._record(s2, [1.0, 2.5, 3.0, 1.0])           # replace: carry
-    probe._record(s2, [1.0, 2.5, 9.0, 1.0])           # change at k=2
-    k1 = ("apron", "A", 10.0, 0.0)
-    k2 = ("apron", "A", 10.0, 10.0)
-    assert [v for _, v in probe.vhist[k1]] == [2.0, 2.5]
-    assert [v for _, v in probe.vhist[k2]] == [3.0, 9.0]
-    assert len(probe.site_list) >= 1
-
-
-def test_vertex_dump_roundtrip(tmp_path):
-    probe = WW.AuthorshipProbe(_Shape, track_vertices=True)
-    s = _Shape(polygon=_Poly([(0.0, 0.0), (1.0, 0.0), (0.0, 0.0)]))
-    probe._record(s, [5.0, 6.0, 5.0])
-    out = probe.write_vertex_dump(tmp_path / "v.jsonl")
-    assert out["vertices"] == 2
-    sites, index = WW.load_vertex_dump(tmp_path / "v.jsonl")
-    assert len(sites) == out["sites"]
-    assert index[(1.0, 0.0)][0]["final"] == 6.0
-
-
 def _sites():
     return [
         "solve.py:6246:solve_route_profile <- solver.py:29:solve <- "
@@ -169,3 +141,9 @@ def test_cert_attrib_cli_is_no_build(tmp_path, capsys):
     assert (tmp_path / "t.md").exists()
     with pytest.raises(SystemExit):
         WW.main(["--cert-attrib", str(cert)])
+
+
+# RETIRED with the v1 engine (stage B round 2, lane ``v1cut``, 2026-10-04) —
+# who_wrote's build-and-intercept probes (AuthorshipProbe / FootprintProbe
+# over v1 layout.BuiltShape) are deleted: ``test_vertex_dump_roundtrip``,
+# ``test_vertex_history_records_changes_and_skips_replace_carries``.

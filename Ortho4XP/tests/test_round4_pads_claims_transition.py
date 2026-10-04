@@ -11,12 +11,8 @@ no shared data repo, no network.
 """
 from __future__ import annotations
 
-import math
 
-import pytest
-from shapely.geometry import Polygon
-
-from auto_patch import driver, groundside, object_anchor, post_mesh
+from auto_patch import driver, object_anchor, post_mesh
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -110,15 +106,6 @@ def test_the_fallback_cap_is_the_config_constant(monkeypatch):
     ) is None
 
 
-def test_the_sidecar_version_gate_discards_the_old_requests():
-    """v5: the 30-hectare requests already on disk are refused whole."""
-    from auto_patch import object_pads
-
-    assert post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION == 5
-    assert not object_pads.sidecar_is_current({"version": 4})
-    assert object_pads.sidecar_is_current({"version": 5})
-
-
 # ──────────────────────────────────────────────────────────────────
 # R2 — objects claim their CONTAINING airport
 # ──────────────────────────────────────────────────────────────────
@@ -172,37 +159,6 @@ def test_a_single_entry_cell_is_unchanged():
     assert assign("/p/a.dsf", 40.0, -70.0) == "OTBD"
 
 
-def test_the_worklist_is_per_airport_per_pack(monkeypatch, tmp_path):
-    """The dedup key is (airport, DSF), so a shared cell appears once
-    for each airport instead of once for the tile."""
-    dsf = tmp_path / "+25+051.dsf"
-    dsf.write_text("stub", encoding="utf-8", newline="")
-    pack_root = str(tmp_path)
-
-    monkeypatch.setattr(
-        driver, "_enabled_airport_pack_tile_dsfs",
-        lambda *a, **k: [(str(dsf), pack_root)], raising=False)
-    from auto_patch import dsf_reader, osm_load
-
-    monkeypatch.setattr(
-        dsf_reader, "read_dsf_object_placement_positions",
-        lambda *a, **k: [(51.6180, 25.2660), (51.5700, 25.2660)])
-    monkeypatch.setattr(
-        osm_load, "_pick_best_apt_dat_against_osm", lambda *a, **k: None)
-
-    seen: set = set()
-    cache: dict = {}
-    entries = []
-    for icao, runways in (("OTBD", _OTBD), ("OTHH", _OTHH)):
-        entries.extend(driver._object_anchor_worklist_entries(
-            icao, str(tmp_path), runways, 25, 51, seen, cache,
-            claim=driver._airport_claim_lonlat(runways)))
-
-    assert [entry["icao"] for entry in entries] == ["OTBD", "OTHH"]
-    assert all(entry["claim"]["hull_lonlat"] for entry in entries)
-    assert post_mesh.OBJECT_ANCHOR_WORKLIST_VERSION == 3
-
-
 def test_the_run_fingerprint_is_keyed_by_the_claiming_airport():
     """Without this the second airport's run matches the FIRST one's
     record, short-circuits, and inherits its pad requests wholesale."""
@@ -235,180 +191,3 @@ class _Layout:
         self.shapes = list(shapes)
 
 
-def _diving_ramp_chain(length_m=600.0, top=4.0, portal=-4.02, pieces=30):
-    """A tunnel ramp emitted the way bridges.py emits one: a CHAIN of
-    quads descending from grade to the portal.  The portal (deepest
-    station, where the below-grade surface meets grade under the
-    pavement) is at ``x = length_m``."""
-    ramps = []
-    for i in range(pieces):
-        x0, x1 = length_m * i / pieces, length_m * (i + 1) / pieces
-        z0 = top + (portal - top) * (i / pieces)
-        z1 = top + (portal - top) * ((i + 1) / pieces)
-        ramps.append(_Shape(
-            Polygon([(x0, 0), (x1, 0), (x1, 10), (x0, 10)]),
-            "tunnel_ramp", "tunnel_ramp",
-            node_altitudes=[z0, z1, z1, z0, z0],
-        ))
-    return ramps
-
-
-def _densified_band(y_inner=10.6, y_outer=11.6, length_m=600.0, step=10.0):
-    """The perimeter wall band's ring, densified the way a shapely buffer
-    densifies it — the along-the-ring run is only meaningful on a ring
-    that has vertices."""
-    xs = [i * step for i in range(int(length_m / step) + 1)]
-    return Polygon([(x, y_outer) for x in xs]
-                   + [(x, y_inner) for x in reversed(xs)])
-
-
-def _inner_crest(shape, x_target, y_inner=10.6):
-    ring = list(shape.polygon.exterior.coords)[:-1]
-    alts = (shape.node_altitudes[:len(ring)] if shape.node_altitudes
-            else [shape.altitude] * len(ring))
-    for (x, y), altitude in zip(ring, alts):
-        if abs(x - x_target) < 0.01 and abs(y - y_inner) < 0.01:
-            return altitude
-    raise AssertionError(f"no inner-band vertex at x={x_target}")
-
-
-def test_the_wall_crest_stands_at_grade_everywhere_portal_included():
-    """THE CREST IS THE CLIFF TOP (owner 2026-09-03, tunnel-wall-crest-
-    dem-spec L1/L2 — superseding lead ruling 2026-08-10 R5 for wall
-    crest bands).  The crest is the surrounding surface ALL THE WAY
-    ROUND the ramp, the portal included: the wall carries the whole
-    drop, and ``apply_below_grade_transition`` moves 0 wall shapes.
-    The previous twin asserted convergence on the ramp at the portal
-    (−4.02 within the cap-limited run); that profile is the defect the
-    owner read at OTHH (wall −1.10 beside ramp −1.12 under a 4.0 DEM)."""
-    ramps = _diving_ramp_chain()
-    band = _Shape(_densified_band(), "retaining_wall", "tunnel_wall",
-                  altitude=4.0)
-    layout = _Layout(ramps + [band])
-    assert groundside.apply_below_grade_transition(layout) == 0
-
-    for x in (100.0, 300.0, 590.0, 600.0):
-        assert _inner_crest(band, x) == pytest.approx(4.0, abs=1e-9), x
-    assert band.node_altitudes is None and band.altitude == 4.0
-
-
-def test_the_crest_does_not_hug_the_ramp():
-    """The mirror-image collapse: a crest measured across the horizontal
-    GAP would sit ~0.05 m above the ramp the whole way down.  With the
-    crest the DEM everywhere this can no longer happen anywhere on the
-    band, the portal included."""
-    ramps = _diving_ramp_chain()
-    band = _Shape(_densified_band(), "retaining_wall", "tunnel_wall",
-                  altitude=4.0)
-    groundside.apply_below_grade_transition(_Layout(ramps + [band]))
-    ramp_at_mid = 4.0 - 8.02 / 2.0
-    assert _inner_crest(band, 300.0) - ramp_at_mid > 3.0
-    assert _inner_crest(band, 600.0) - (-4.02) > 3.0
-
-
-def _flat_site_layout():
-    """THE FLAT CASE IS THE FIXTURE (spec R5's own test note): a ramp
-    chain diving to a portal, and a groundside plate beside it whose DEM
-    sample is the constant Z0 = 4.00 m flat mode produces."""
-    ramps = _diving_ramp_chain(length_m=300.0, top=4.0, portal=-4.0,
-                               pieces=15)
-    xs = [i * 10.0 for i in range(31)]
-    plate = _Shape(
-        Polygon([(x, 12.0) for x in xs] + [(x, 220.0) for x in reversed(xs)]),
-        "groundside_pavement", "groundside", altitude=4.0,
-    )
-    return _Layout(ramps + [plate]), ramps, plate
-
-
-def test_a_flat_plate_beside_a_ramp_takes_the_transition_law():
-    """S7's defect: the plate lost its per-node profile, went flat at
-    3.96 and met the ramp with a 5.62 m step at 2.6 m spacing.
-
-    UNWALLED ramp: round-4 R5 stands.  The walled-ramp twin (L3, the
-    plate stands at the crest) is ``test_tunnel_wall_crest_dem.py``."""
-    layout, _ramps, plate = _flat_site_layout()
-    assert groundside.apply_below_grade_transition(layout) == 1
-    alts = plate.node_altitudes
-    assert alts is not None and len(set(round(a, 2) for a in alts)) > 1
-    # It converges on the ramp at the portal ...
-    assert min(alts) < 0.0
-    # ... and the surrounding surface still stands where it should.
-    assert max(alts) == pytest.approx(4.0, abs=1e-6)
-
-
-def test_the_transition_never_exceeds_the_lawful_cap():
-    """No edge of the re-profiled ring may break GROUNDSIDE_MAX_GRADE —
-    the 5.62 m over 2.6 m step is exactly what this forbids."""
-    layout, _ramps, plate = _flat_site_layout()
-    groundside.apply_below_grade_transition(layout)
-    ring = list(plate.polygon.exterior.coords)
-    if ring[0] == ring[-1]:
-        ring = ring[:-1]
-    alts = plate.node_altitudes[:len(ring)]
-    for i in range(len(ring)):
-        j = (i + 1) % len(ring)
-        run = math.hypot(ring[j][0] - ring[i][0], ring[j][1] - ring[i][1])
-        # 5e-3 is the relaxation's own convergence floor: the shared
-        # ``_grade_limit_ring`` primitive stops at a 1e-3 worst-excess
-        # pass, so a converged ring keeps a few mm of slack per edge.
-        assert abs(alts[j] - alts[i]) <= (
-            groundside.GROUNDSIDE_MAX_GRADE * run + 5e-3)
-
-
-def test_the_law_holds_on_a_real_dem_site_too():
-    """The DEM sample was ALWAYS the wrong witness beside a law-cut ramp;
-    flat mode only exposed it.  A varying (real-DEM) surface beside the
-    same ramp is governed identically."""
-    layout, _ramps, plate = _flat_site_layout()
-    ring_length = len(list(plate.polygon.exterior.coords)) - 1
-    plate.altitude = None
-    plate.node_altitudes = [
-        4.0 + 0.4 * math.sin(i) for i in range(ring_length)
-    ]
-    plate.node_altitudes.append(plate.node_altitudes[0])
-    assert groundside.apply_below_grade_transition(layout) == 1
-    assert min(plate.node_altitudes) < 0.0
-
-
-def test_a_plate_out_of_reach_is_untouched():
-    """Beyond |dz| / cap the surrounding surface stands: an airport with
-    no below-grade geometry near a plate sees no change at all."""
-    ramp = _Shape(
-        Polygon([(0, 0), (100, 0), (100, 10), (0, 10)]),
-        "tunnel_ramp", "tunnel_ramp",
-        node_altitudes=[0.0, -4.0, -4.0, 0.0, 0.0],
-    )
-    far = _Shape(
-        Polygon([(0, 5000), (100, 5000), (100, 5100), (0, 5100)]),
-        "groundside_pavement", "groundside", altitude=4.0,
-    )
-    layout = _Layout([ramp, far])
-    assert groundside.apply_below_grade_transition(layout) == 0
-    assert far.node_altitudes is None
-
-
-def test_a_layout_with_no_below_grade_geometry_is_a_no_op():
-    plate = _Shape(
-        Polygon([(0, 0), (100, 0), (100, 100), (0, 100)]),
-        "groundside_pavement", "groundside", altitude=4.0,
-    )
-    layout = _Layout([plate])
-    assert groundside.apply_below_grade_transition(layout) == 0
-    assert plate.altitude == 4.0
-
-
-def test_one_anchor_per_below_grade_body():
-    """A ramp is emitted as a CHAIN of quads: anchoring per quad would
-    pin the transition surface to the ramp along its whole length.  Two
-    SEPARATE tunnels beside one plate must still get one portal each."""
-    from auto_patch.groundside import _BelowGradeIndex, below_grade_sources
-
-    left = _diving_ramp_chain(length_m=200.0, pieces=10)
-    right = []
-    for shape in _diving_ramp_chain(length_m=200.0, pieces=10):
-        ring = [(x + 1000.0, y) for x, y in shape.polygon.exterior.coords]
-        right.append(_Shape(Polygon(ring), "tunnel_ramp", "tunnel_ramp",
-                            node_altitudes=list(shape.node_altitudes)))
-    index = _BelowGradeIndex(
-        below_grade_sources(_Layout(left + right)))
-    assert len(set(index.component_of)) == 2

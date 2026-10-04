@@ -46,11 +46,6 @@ def _load(name: str, path: Path):
 
 
 @pytest.fixture(scope="module")
-def irr():
-    return _load("twin_interval_reach_replay", TOOLS / "interval_reach_replay.py")
-
-
-@pytest.fixture(scope="module")
 def fa():
     return _load("twin_flex_audit", TOOLS / "flex_audit.py")
 
@@ -58,11 +53,6 @@ def fa():
 @pytest.fixture(scope="module")
 def pp():
     return _load("twin_patch_provenance", TOOLS / "patch_provenance.py")
-
-
-@pytest.fixture(scope="module")
-def trr():
-    return _load("twin_trace_reach_route", TOOLS / "trace_reach_route.py")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -79,78 +69,6 @@ def _state(hard_cat: dict | None, **extra) -> dict:
         st["hard_cat"] = hard_cat
     st.update(extra)
     return st
-
-
-def test_the_seam_arm_selects_the_current_classes_not_the_dead_literal(irr):
-    """KNOWN ANSWER.  hard_cat = {0: seam_pin, 1: rwy_profile,
-    2: seam_spine_anchor, 3: rwy_join} and hard = {0,1,2,3}.  The seam
-    classes are exactly {seam_pin, seam_spine_anchor} = nodes 0 and 2, so
-    free-seams must free 2 anchors and leave {1, 3} hard.
-
-    Under the pre-sweep code this selected on the literal
-    ``"seed_rwy_seam"``, matched NOTHING, and returned all four still
-    hard — byte-identical to --arm production.
-    """
-    st = _state({0: "seam_pin", 1: "rwy_profile",
-                 2: "seam_spine_anchor", 3: "rwy_join"})
-    _e, hard, _nb, _gb = irr._apply_arm(
-        "free-seams", st["entries"], st["hard"],
-        st["node_bounds"], st["group_bounds"], st)
-    assert hard == {1, 3}, "free-seams must free exactly the seam classes"
-    assert set(irr.SEAM_CLASSES) == {"seam_pin", "seam_spine_anchor"}
-    assert "seed_rwy_seam" not in irr.HARD_CLASSES_CURRENT
-
-
-def test_a_zero_match_seam_arm_REFUSES_and_names_what_the_dump_carries(irr):
-    """KNOWN ANSWER: a dump whose hard anchors are all runway-surface
-    values carries NO seam class, so the arm cannot run.  It must RAISE,
-    not return the production set — and the message must carry the class
-    census so the reader can see what was actually there."""
-    st = _state({0: "rwy_profile", 1: "rwy_profile",
-                 2: "rwy_join", 3: "rwy_flexed"})
-    with pytest.raises(SystemExit) as excinfo:
-        irr._apply_arm("free-seams", st["entries"], st["hard"],
-                       st["node_bounds"], st["group_bounds"], st)
-    msg = str(excinfo.value)
-    assert "REFUSING --arm free-seams" in msg
-    assert "ZERO" in msg
-    # The whole point: it says the run WOULD have looked like production.
-    assert "no difference" in msg
-    assert "rwy_profile" in msg and "rwy_join" in msg
-
-
-def test_a_LEGACY_blanket_dump_is_refused_not_silently_equated(irr):
-    """A pre-092af7f dump DOES carry ``seed_rwy_seam`` — on every base-hard
-    node, whatever made it hard.  Freeing that class is ``--arm free-hard``
-    wearing this arm's name.  Reading it as the seam intervention is the
-    two-instruments trap, so it must refuse and say so."""
-    st = _state({i: irr.HARD_CLASS_LEGACY_BLANKET for i in range(4)})
-    with pytest.raises(SystemExit) as excinfo:
-        irr._apply_arm("free-seams", st["entries"], st["hard"],
-                       st["node_bounds"], st["group_bounds"], st)
-    msg = str(excinfo.value)
-    assert "LEGACY" in msg and "BLANKET CONSTANT" in msg
-    assert "free-hard" in msg
-
-
-def test_a_dump_with_no_class_axis_is_refused(irr):
-    """No ``hard_cat`` at all is a third state: the classes cannot be
-    selected, so no seam claim is computable."""
-    with pytest.raises(SystemExit) as excinfo:
-        st = _state(None)
-        irr._apply_arm("free-seams", st["entries"], st["hard"],
-                       st["node_bounds"], st["group_bounds"], st)
-    assert "NO hard_cat" in str(excinfo.value)
-
-
-def test_production_is_the_identity_arm(irr):
-    """The control arm must be exactly the inputs — otherwise every A/B
-    against it measures the arm machinery instead of the intervention."""
-    st = _state({0: "seam_pin"})
-    out = irr._apply_arm("production", st["entries"], st["hard"],
-                         st["node_bounds"], st["group_bounds"], st)
-    assert out == (st["entries"], st["hard"],
-                   st["node_bounds"], st["group_bounds"])
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -215,18 +133,6 @@ class _G:
                           2: [(1, 1.0), (3, 1.0)], 3: [(2, 1.0)]}
 
 
-def test_the_node_space_token_is_a_fact_two_reports_can_be_compared_on(trr):
-    """Solver node ids are valid only inside the one ``_build_node_list``
-    call that assigned them.  The token must therefore DIFFER between two
-    graphs and be STABLE for one — that is what turns 'different frames'
-    from an asserted cause into a measured fact."""
-    g1, g2 = _G(), _G()
-    assert trr._nodespace(g1) == trr._nodespace(g1)
-    assert trr._nodespace(g1) != trr._nodespace(g2)
-    assert "n=4" in trr._nodespace(g1)
-    assert trr._nodespace(None) == "none"
-
-
 # SUPERSEDED PREMISE, REWRITTEN (the three twins below).  They called
 # ``trr._edge_budget`` / ``trr._walk_to_anchor`` — PRIVATE COPIES that
 # used to live in ``tools/trace_reach_route.py``.  Spec
@@ -243,66 +149,6 @@ def test_the_node_space_token_is_a_fact_two_reports_can_be_compared_on(trr):
 # through ``trr`` deliberately keeps testing the TOOL's surface, and the
 # identity twin below pins that the tool's name and the engine's name are
 # one object, which is the property the retirement was for.
-
-def test_the_edge_budget_is_read_never_re_derived(trr):
-    """KNOWN ANSWER: hop 0→1 is priced 1.0; a pair with no edge is None,
-    not 0.0 — a missing edge and a free edge are different findings."""
-    g = _G()
-    assert trr.spine_edge_budget(g, 0, 1) == 1.0
-    assert trr.spine_edge_budget(g, 0, 3) is None
-
-
-def test_the_walk_replays_the_recorded_route_and_reports_completeness(trr):
-    """KNOWN ANSWER.  Anchor 0; recorded budgets 0/1/2/3 m at nodes
-    0/1/2/3.  Walking from node 3 must reproduce the chain [0,1,2,3]
-    (anchor-first) and report path_complete=True, because every hop
-    reconciles: rec[v] + edge == rec[u] exactly."""
-    g = _G()
-    prov = {0: (0, 0.0), 1: (0, 1.0), 2: (0, 2.0), 3: (0, 3.0)}
-    path, complete = trr.walk_to_anchor(g, prov, 3, 0)
-    assert path == [0, 1, 2, 3]
-    assert complete is True
-
-
-def test_a_route_that_does_not_reconcile_is_INCOMPLETE_not_invented(trr):
-    """KNOWN ANSWER: node 2's recorded budget is 9.0 m, which no hop from
-    node 3 reconciles.  The walk must STOP and say so rather than let a
-    second metric quietly invent a path."""
-    g = _G()
-    prov = {0: (0, 0.0), 1: (0, 1.0), 2: (0, 9.0), 3: (0, 3.0)}
-    path, complete = trr.walk_to_anchor(g, prov, 3, 0)
-    assert complete is False
-    assert path[0] == 3, "an incomplete walk returns what it reached"
-
-
-def test_the_tools_walk_IS_the_engines_walk_not_a_copy(trr):
-    """THE RETIREMENT'S WHOLE POINT, asserted as identity.
-
-    ``pad-binding-routes-spec.md`` §1.1 removed the tool's private walk so
-    the forensic report and the engine's published binding routes cannot
-    disagree.  Object identity is the only assertion that actually pins
-    that: a re-forked copy would still pass every known-answer twin above
-    while drifting from production the moment either side changed.
-    """
-    from auto_patch.elevation_per_surface import building_feasibility
-    assert trr.walk_to_anchor is building_feasibility.walk_to_anchor
-    assert trr.spine_edge_budget is building_feasibility.spine_edge_budget
-    # …and the retired private names are GONE, not shadowing the re-export.
-    for retired in ("_walk_to_anchor", "_edge_budget"):
-        with pytest.raises(AttributeError):
-            getattr(trr, retired)
-
-
-def test_the_budget_agreement_contract_is_a_named_constant(trr):
-    """Binding point 4 needs a MATERIALITY, not a bare literal buried in a
-    format string.  The drift comparison is the agreement assertion for the
-    route-budget quantity, so its contract has to be nameable and quotable."""
-    assert isinstance(trr.ROUTE_BUDGET_AGREEMENT_M, float)
-    assert trr.ROUTE_BUDGET_AGREEMENT_M > 0
-    src = (TOOLS / "trace_reach_route.py").read_text(encoding="utf-8")
-    assert "do not equate" not in src, (
-        "the BUDGET DRIFT line must report the number and the measured "
-        "frame comparison, not instruct the reader")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -444,89 +290,6 @@ def test_a_directory_expands_to_its_patch_files(pp, tmp_path):
 # hardness".  These three arms each drop ONE bound class with the hard
 # set untouched, which is what makes the 2x2 readable.
 # ══════════════════════════════════════════════════════════════════════
-
-def _box_state():
-    """A dump with both bound classes and a named groundside-pin subset:
-    node bounds on 5 and 6, of which 6 is the groundside pin."""
-    return {"entries": [{"edges": [(0, 1, 1.0)]}],
-            "hard": {0, 1},
-            "node_bounds": {5: (-1.0, 1.0), 6: (-1e18, -0.5)},
-            "group_bounds": [(0.0, 1.0), None],
-            "hard_cat": {0: "rwy_profile", 1: "rwy_join"},
-            "fp8_kwargs": {"gs_pin_nodes": [6]}}
-
-
-def test_the_box_knives_each_drop_one_class_and_keep_the_hard_set(irr):
-    """KNOWN ANSWER, one dump, three arms:
-
-    * ``no-node-boxes``  -> node bounds gone, group bounds kept, hard kept
-    * ``no-group-boxes`` -> group bounds gone, node bounds kept, hard kept
-    * ``no-gs-pin-boxes``-> ONLY node 6 (the named pin) gone; 5 kept
-    """
-    st = _box_state()
-    _e, hard, nb, gb = irr._apply_arm(
-        "no-node-boxes", st["entries"], st["hard"],
-        st["node_bounds"], st["group_bounds"], st)
-    assert nb is None and gb == st["group_bounds"] and hard == {0, 1}
-
-    _e, hard, nb, gb = irr._apply_arm(
-        "no-group-boxes", st["entries"], st["hard"],
-        st["node_bounds"], st["group_bounds"], st)
-    assert gb is None and nb == st["node_bounds"] and hard == {0, 1}
-
-    _e, hard, nb, gb = irr._apply_arm(
-        "no-gs-pin-boxes", st["entries"], st["hard"],
-        st["node_bounds"], st["group_bounds"], st)
-    assert set(nb) == {5}, "only the groundside-pin bound may be dropped"
-    assert gb == st["group_bounds"] and hard == {0, 1}
-
-
-@pytest.mark.parametrize("arm,empty", [
-    ("no-node-boxes", {"node_bounds": {}}),
-    ("no-group-boxes", {"group_bounds": [None, None]}),
-    ("no-gs-pin-boxes", {"fp8_kwargs": {"gs_pin_nodes": []}}),
-])
-def test_a_box_knife_with_nothing_to_cut_REFUSES(irr, arm, empty):
-    """A bound class the dump does not carry would replay identically to
-    production and read as "this class owns nothing" — the free-seams
-    failure mode.  Every knife refuses instead, naming the census."""
-    st = {**_box_state(), **empty}
-    with pytest.raises(SystemExit) as excinfo:
-        irr._apply_arm(arm, st["entries"], st["hard"],
-                       st["node_bounds"], st["group_bounds"], st)
-    msg = str(excinfo.value)
-    assert f"REFUSING --arm {arm}" in msg and "ZERO" in msg
-
-
-def test_every_named_arm_is_reachable_from_the_cli_choices(irr):
-    """The knives are useless if ``--arm`` will not accept them."""
-    for arm in ("no-node-boxes", "no-group-boxes", "no-gs-pin-boxes"):
-        assert arm in irr.ARMS
-
-
-def test_the_pad_rigidity_knife_validates_here_and_applies_in_do_replay(irr):
-    """``no-pad-groups`` intervenes on ``flat_groups``, which is not one
-    of the four values ``_apply_arm`` slices — so it is VALIDATED here
-    (one refusal law for every arm) and APPLIED in ``do_replay``.  The
-    registry that carries it across must name it, or the arm would print
-    its banner and change nothing."""
-    st = {**_box_state(), "pad_groups": [{1, 2}, {3, 4}]}
-    out = irr._apply_arm("no-pad-groups", st["entries"], st["hard"],
-                         st["node_bounds"], st["group_bounds"], st)
-    # a pass-through for the four sliced values: the pads are dissolved
-    # by do_replay, and nothing else may change.
-    assert out == (st["entries"], st["hard"],
-                   st["node_bounds"], st["group_bounds"])
-    assert "no-pad-groups" in irr.PAD_GROUP_ARMS
-    assert "no-pad-groups" in irr.ARMS
-
-
-def test_the_pad_rigidity_knife_REFUSES_when_there_are_no_pads(irr):
-    st = {**_box_state(), "pad_groups": []}
-    with pytest.raises(SystemExit) as excinfo:
-        irr._apply_arm("no-pad-groups", st["entries"], st["hard"],
-                       st["node_bounds"], st["group_bounds"], st)
-    assert "REFUSING --arm no-pad-groups" in str(excinfo.value)
 
 
 def test_by_role_breakdown_reads_each_node_role_once(fa, tmp_path):

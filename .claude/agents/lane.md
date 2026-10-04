@@ -50,5 +50,15 @@ yours at the end (`frames.py register …`) so the next lane does not hunt.
   over a poll loop; size the deadline to the thing you wait for (a build
   ≤ 15 min, a suite ≤ 10 min) — never "until it appears".
 
+- REUSE BEFORE NEW (owner RULINGS 2026-10-04 "FILE SIZE…" a/b/c): before
+  adding a function or module, look for the existing one and extend it; a
+  new family member is a new file in its package, never an append. Write
+  for the next reader: one responsibility per module, functions short
+  enough to read whole. 1,000 lines is a guide and a warning, not a gate —
+  split because a file does two things, never to make a number. The
+  duplicate ratchet IS a gate: `tools/ratchets.py` must pass before you
+  report, and its size warnings for files you touched go in your report.
+
 Report back: what was measured (with the ledger key or build tag), what
-changed, the branch/sha, and every item you did NOT do.
+changed, the branch/sha, net lines added/removed and new public symbols,
+and every item you did NOT do.

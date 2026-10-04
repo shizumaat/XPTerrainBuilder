@@ -33,8 +33,12 @@ STANDING = """\
 - Worktree: `tools/harness/lane_worktree.sh up <lane> <base sha>`; branch `claude/<lane>`.
   `git merge main` FIRST if main has moved past the base sha.
 - `Ortho4XP/venv/bin/python tools/blast.py <file>` before editing each source
-  file; a file past 1,000 lines is a warning to reconsider its architecture (split by
-  responsibility when it no longer fits; past 1,500 split before merging — owner 13bz).
+  file. SIZE (owner 2026-10-04c, `tools/ratchets.py`): 1,000 lines is a guide and a
+  warning, never a gate — the report (files past 1,000, files that grew, functions of
+  200+ lines) is read by the master at merge. Split by responsibility, never to make a
+  number. THE PRIORITY IS REUSE: small one-responsibility modules, no second
+  implementation of a thing that exists (the identical-body duplicate count IS a gate:
+  it may fall, never rise; `dupes --near` is reported).
 - ONE closing build through the harness (v2 is the only engine, RULINGS
   2026-09-13au — there is no `--engine` flag); base arms cut with
   `git archive <sha> src`, never another live checkout.
@@ -49,7 +53,8 @@ STANDING = """\
 - Read law with `tools/docq.py spec '§N'`, `tools/docq.py ruling 13xx`, `tools/docq.py index <name>`;
   find captures with `tools/harness/frames.py list [ICAO]`; register yours when done.
 - REPORT: branch + sha; per-bar before → after with the frame named; what you did NOT do;
-  intent questions with their measurement; files touched.
+  intent questions with their measurement; files touched; net lines added/removed
+  + new public symbols (owner 2026-10-04a (5)).
 """
 
 

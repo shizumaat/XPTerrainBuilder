@@ -474,12 +474,7 @@ STEP_FETCH_SUBSYSTEMS = {
         "O4_DEM_Utils",
         "O4_Airport_Elevation_Insets",
         "O4_Bathymetry_Band",
-        # the airport packs' predicate; it lived in ``auto_patch.osm_load``
-        # until the v1 retirement moved it beside the prefetch it gates
-        # (2026-10-04).  A NAME, resolved by ``__import__`` below — the
-        # static closure twin cannot see it; ``test_v1_retired`` asserts
-        # every name in this table resolves inside the keep set.
-        "auto_patch.build_support",
+        "auto_patch.build_support",   # was .osm_load (v1) until 2026-10-04
     ),
     "imagery": ("O4_Tile_Utils",),
 }

@@ -454,6 +454,22 @@ def test_a_renamed_dsf_finds_the_dump_of_its_own_bytes(tmp_path):
     assert S.content_keyed_dump(str(d), str(bak)) is None
 
 
+def test_a_renamed_dsf_matches_its_dump_whatever_the_case_of_the_name(tmp_path):
+    """Windows (#370): the pack ships ``+25+051.DSF`` and its dump was
+    written under that spelling, or under the ``.dsf`` this engine
+    spells — the file system calls them one file, so the locator must."""
+    dsf, bak, d, dump = _renamed_pack(tmp_path)
+    upper = d / dump.name.replace(".dsf.", ".DSF.")
+    os.replace(dump, upper)
+    assert S.content_keyed_dump(str(d), str(bak)) is not None
+    assert os.path.samefile(S.content_keyed_dump(str(d), str(bak)), upper)
+    shouting = bak.with_name("+25+051.DSF.anchor_bak")
+    os.replace(bak, shouting)
+    assert os.path.samefile(S.content_keyed_dump(str(d), str(shouting)), upper)
+    # the tag is still the identity: other bytes, same name, no dump
+    assert S.content_keyed_dump(str(d), str(dsf)) is None
+
+
 def test_the_dsftool_wrapper_adopts_the_renamed_dsfs_dump(tmp_path, monkeypatch):
     """The v1 wrapper asks the SAME locator before it spawns DSFTool: the
     app's driver (``fresh_pack_dump``) must not re-dump a DSF whose dump

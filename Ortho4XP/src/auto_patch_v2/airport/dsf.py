@@ -140,8 +140,13 @@ def content_keyed_dump(cache_dir: str, dsf_path: str) -> str | None:
     stem = (base[:cut + 4] if cut >= 0 else base) + "."
     tail = f".{text_dump_tag(dsf_path)}.text"
     own = base + tail
+    # names are compared CASE-FOLDED: a Windows pack's ``+25+051.DSF`` and
+    # the ``.dsf`` this engine spells are one file there, and the tag —
+    # the content — is what makes a match safe on any file system
+    stem, tail = stem.lower(), tail.lower()
     for name in [own] + sorted(n for n in names if n != own
-                               and n.startswith(stem) and n.endswith(tail)):
+                               and n.lower().startswith(stem)
+                               and n.lower().endswith(tail)):
         path = os.path.join(cache_dir, name)
         try:
             if (os.path.isfile(path) and os.path.getsize(path) > 0

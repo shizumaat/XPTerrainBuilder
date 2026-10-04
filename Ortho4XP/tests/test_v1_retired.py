@@ -191,8 +191,10 @@ def _closure(seeds, mods):
 
 
 def test_the_production_closure_reaches_no_v1_module():
-    """THE LINE ITSELF.  Every DELETE module must be unreachable from every
-    production root, with the v1 tree still sitting on disk."""
+    """THE LINE ITSELF.  Nothing under ``auto_patch/`` outside the keep set
+    is reachable from any production root (round 1 held this with the v1
+    tree still on disk; since round 2 the tree is gone and
+    :func:`test_the_v1_tree_is_ABSENT` holds the other half)."""
     mods = _modules()
     reached, why = _closure(_production_roots(mods), mods)
     v1 = sorted(m for m in reached if _is_auto_patch(m) and m not in KEEP)
@@ -269,10 +271,24 @@ def test_no_production_module_NAMES_a_v1_module_as_a_string():
             assert name in KEEP and name in mods, name
 
 
-# ``test_the_v1_tree_is_still_on_disk_in_round_1`` — the one check in this
-# file that expected the tree to be BIG — went with round 1's state: round 2
-# (lane ``v1cut``, 2026-10-04) deletes the DELETE modules one group per
-# commit, and the ABSENCE assertion lands with the last group.
+def test_the_v1_tree_is_ABSENT():
+    """THE ABSENCE ASSERTION (stage B round 2, lane ``v1cut``, 2026-10-04).
+    Round 1 held the production closure off the v1 tree while it still sat
+    on disk; round 2 deleted it.  What is on disk under ``src/auto_patch/``
+    is now the keep set, exactly: a module outside it is v1 coming back (or
+    a new module that must be DECLARED in ``KEEP``, a visible edit here),
+    and the two v1 sub-packages are gone as directories."""
+    mods = _modules()
+    on_disk = {m for m in mods if _is_auto_patch(m)}
+    assert on_disk == set(KEEP), (
+        f"on disk but not KEEP: {sorted(on_disk - KEEP)}; "
+        f"KEEP but not on disk: {sorted(KEEP - on_disk)}")
+    pkg = SRC / "auto_patch"
+    stray = sorted(p.name for p in pkg.iterdir()
+                   if p.is_dir() and p.name != "__pycache__")
+    assert stray == [], f"sub-packages under auto_patch/ again: {stray}"
+    for gone in ("pavement", "elevation_per_surface"):
+        assert not (pkg / gone).exists()
 
 
 def test_the_census_library_imports_no_v1_module():

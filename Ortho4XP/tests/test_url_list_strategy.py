@@ -28,6 +28,9 @@ sys.path.insert(
 )
 
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import definitions as ea_definitions
+from elevation_access import registry as ea_registry
+from elevation_access.strategies import coordinate_named_url_list as ea_coordinate_named_url_list
 import O4_File_Names as FNAMES
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -35,7 +38,7 @@ SHIPPED_PROVIDERS_DIRECTORY = os.path.normpath(
     os.path.join(_HERE, "..", "Providers", "Elevation")
 )
 
-STRATEGY = INSETS.CoordinateNamedUrlListStrategy
+STRATEGY = ea_coordinate_named_url_list.CoordinateNamedUrlListStrategy
 
 # A tiny CUDEM URL list: four coordinate-named tiles plus the kind of
 # non-tile sidecar lines the real lists carry (a shapefile, a metadata
@@ -80,7 +83,7 @@ def _definition(code="CUDEMCONUS"):
     return {
         "code": code,
         "access_strategy": "coordinate_named_url_list",
-        "role": INSETS.ROLE_BATHYMETRY,
+        "role": ea_definitions.ROLE_BATHYMETRY,
         "enabled": True,
         "priority": 100.0,
         "native_resolution_m": 3.4,
@@ -216,7 +219,7 @@ def test_cudem_url_list_providers_registered():
     for code in ("CUDEMCONUS", "CUDEMCONUSTHIRD", "CUDEMGUAM"):
         assert code in registry, code
         definition = registry[code]
-        assert definition["role"] == INSETS.ROLE_BATHYMETRY, code
+        assert definition["role"] == ea_definitions.ROLE_BATHYMETRY, code
         assert (
             definition["access_strategy"] == "coordinate_named_url_list"
         ), code
@@ -230,4 +233,4 @@ def test_cudem_url_list_providers_registered():
         registry["CUDEMCONUS"]["priority"]
         > registry["CUDEMCONUSTHIRD"]["priority"]
     )
-    assert registry["CUDEMCONUS"]["access_strategy"] in INSETS.ACCESS_STRATEGIES
+    assert registry["CUDEMCONUS"]["access_strategy"] in ea_registry.ACCESS_STRATEGIES

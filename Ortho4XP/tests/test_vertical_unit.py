@@ -20,6 +20,13 @@ import numpy
 import pytest
 
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import base as ea_base
+from elevation_access import capabilities as ea_capabilities
+from elevation_access import registry as ea_registry
+from elevation_access.strategies import las_tile_index as ea_las_tile_index
+from elevation_access import vertical_units as ea_vertical_units
+from elevation_access import warp as ea_warp
 
 try:
     from osgeo import gdal, osr
@@ -68,7 +75,7 @@ def _feet_source_with_holes(path, srs_text="EPSG:4326"):
 
 def _warp(sources, destination, vertical_unit=None, **kwargs):
     kwargs.setdefault("provider_code", "NCTEST")
-    return INSETS.warp_vsicurl_sources_to_geotiff(
+    return ea_warp.warp_vsicurl_sources_to_geotiff(
         sources, BOX, 20.0, str(destination), vertical_unit=vertical_unit,
         **kwargs)
 
@@ -83,11 +90,11 @@ def _read(path):
 
 # ---------------------------------------------------------------- the table
 def test_unit_factors_are_exact_and_shared():
-    assert INSETS.VERTICAL_UNIT_TO_M["ftUS"] == 1200.0 / 3937.0
-    assert INSETS.VERTICAL_UNIT_TO_M["ft"] == 0.3048
-    assert INSETS.VERTICAL_UNIT_TO_M["m"] == 1.0
+    assert ea_vertical_units.VERTICAL_UNIT_TO_M["ftUS"] == 1200.0 / 3937.0
+    assert ea_vertical_units.VERTICAL_UNIT_TO_M["ft"] == 0.3048
+    assert ea_vertical_units.VERTICAL_UNIT_TO_M["m"] == 1.0
     # ONE table: the LAS gridder reads the same object.
-    assert INSETS.LAS_UNIT_TO_M is INSETS.VERTICAL_UNIT_TO_M
+    assert ea_las_tile_index.LAS_UNIT_TO_M is ea_vertical_units.VERTICAL_UNIT_TO_M
 
 
 # ------------------------------------------------------------ the warp site
@@ -102,12 +109,12 @@ def test_feet_raster_bakes_at_the_unit_factor_with_holes_kept(tmp_path, unit):
     # The holes stay -32768, cell for cell.
     assert numpy.array_equal(raw_valid, metres != -32768.0)
     assert (~raw_valid).any()
-    factor = INSETS.VERTICAL_UNIT_TO_M[unit]
+    factor = ea_vertical_units.VERTICAL_UNIT_TO_M[unit]
     assert numpy.max(numpy.abs(metres[raw_valid] - raw[raw_valid] * factor)) \
         < 1e-3
-    assert meta[INSETS.VERTICAL_UNIT_STAMP_DECLARED] == unit
-    assert meta[INSETS.VERTICAL_UNIT_STAMP_SOURCE] == "elv"
-    assert meta[INSETS.VERTICAL_UNIT_STAMP_APPLIED] == "m"
+    assert meta[ea_vertical_units.VERTICAL_UNIT_STAMP_DECLARED] == unit
+    assert meta[ea_vertical_units.VERTICAL_UNIT_STAMP_SOURCE] == "elv"
+    assert meta[ea_vertical_units.VERTICAL_UNIT_STAMP_APPLIED] == "m"
     assert not any(key.startswith("O4_VERTICAL_UNIT") for key in raw_meta)
 
 
@@ -127,9 +134,9 @@ def test_no_key_is_a_strict_no_op(tmp_path, monkeypatch):
     def _probe_called(*_args, **_kwargs):
         raise AssertionError("the source CRS was probed without a key")
 
-    monkeypatch.setattr(INSETS, "resolve_warp_vertical_unit", _probe_called)
+    patch_inset_code(monkeypatch, "resolve_warp_vertical_unit", _probe_called)
     source = _feet_source_with_holes(tmp_path / "src.tif")
-    assert INSETS.warp_vsicurl_sources_to_geotiff(
+    assert ea_warp.warp_vsicurl_sources_to_geotiff(
         [source], BOX, 20.0, str(tmp_path / "a.tif"))
     assert _warp([source], tmp_path / "b.tif", vertical_unit=None)
     with open(tmp_path / "a.tif", "rb") as a, open(tmp_path / "b.tif",
@@ -143,7 +150,7 @@ def test_no_key_is_a_strict_no_op(tmp_path, monkeypatch):
 def test_declared_metre_compound_crs_refuses_a_feet_key(tmp_path):
     source = _feet_source_with_holes(tmp_path / "m.tif",
                                      srs_text="EPSG:6318+5703")
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         _warp([source], tmp_path / "out.tif", vertical_unit="ftUS")
     assert str(caught.value) == (
         "NCTEST: .elv vertical_unit=ftUS but %s declares metre" % source)
@@ -154,7 +161,7 @@ def test_declared_metre_compound_crs_refuses_a_feet_key(tmp_path):
 def test_metre_key_on_a_feet_compound_crs_refuses(tmp_path):
     source = _feet_source_with_holes(tmp_path / "ft.tif",
                                      srs_text="EPSG:6318+6360")
-    with pytest.raises(INSETS.ProviderUnavailable,
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="vertical_unit=m but .* declares US survey foot"):
         _warp([source], tmp_path / "out.tif", vertical_unit="m")
 
@@ -171,15 +178,15 @@ def test_agreeing_compound_crs_is_recorded_as_elv_eq_crs(tmp_path):
 def test_mixed_declared_units_across_one_mosaic_refuse(tmp_path):
     a = _feet_source_with_holes(tmp_path / "a.tif", srs_text="EPSG:6318+6360")
     b = _feet_source_with_holes(tmp_path / "b.tif", srs_text="EPSG:6318+5703")
-    with pytest.raises(INSETS.ProviderUnavailable,
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="declare different vertical units"):
         _warp([a, b], tmp_path / "out.tif", vertical_unit="ftUS")
 
 
 def test_unknown_unit_is_unavailable_not_a_guess():
-    with pytest.raises(INSETS.ProviderUnavailable, match="furlong"):
-        INSETS._raster_vertical_unit({"code": "X", "vertical_unit": "furlong"})
-    assert INSETS._raster_vertical_unit({"code": "X"}) is None
+    with pytest.raises(ea_base.ProviderUnavailable, match="furlong"):
+        ea_vertical_units._raster_vertical_unit({"code": "X", "vertical_unit": "furlong"})
+    assert ea_vertical_units._raster_vertical_unit({"code": "X"}) is None
 
 
 # -------------------------------------------------------------- provenance
@@ -192,13 +199,13 @@ def test_fetch_inset_lifts_the_stamp_into_the_provenance(tmp_path,
             return [{"source_id": "s"}]
 
         def fetch(self, definition, box, resolution, destination):
-            assert INSETS.warp_vsicurl_sources_to_geotiff(
+            assert ea_warp.warp_vsicurl_sources_to_geotiff(
                 [source], box, resolution, destination,
-                vertical_unit=INSETS._raster_vertical_unit(definition),
+                vertical_unit=ea_vertical_units._raster_vertical_unit(definition),
                 provider_code=definition.get("code"))
             return {"provider": definition["code"]}
 
-    monkeypatch.setitem(INSETS.ACCESS_STRATEGIES, "vunit_fake", _Feet)
+    monkeypatch.setitem(ea_registry.ACCESS_STRATEGIES, "vunit_fake", _Feet)
     feet = INSETS.fetch_inset(
         {"code": "NCTEST", "access_strategy": "vunit_fake",
          "vertical_unit": "ftUS"}, BOX, 20.0, str(tmp_path / "f.tif"))
@@ -224,8 +231,8 @@ def test_two_layer_assembler_refuses_a_unit_mismatch(tmp_path):
     surround = _write_source(tmp_path / "surround.tif", _plane(),
                              nodata=-32768.0)
     # A core that DECLARES feet and was never applied: the KASE class.
-    _stamp(core, **{INSETS.VERTICAL_UNIT_STAMP_DECLARED: "ftUS"})
-    with pytest.raises(INSETS.ProviderUnavailable,
+    _stamp(core, **{ea_vertical_units.VERTICAL_UNIT_STAMP_DECLARED: "ftUS"})
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="core holds ftUS"):
         INSETS.assemble_ladder_inset(core, [(surround, {"label": "s"})],
                                      str(tmp_path / "out.tif"), None,
@@ -237,8 +244,8 @@ def test_ladder_assembler_refuses_a_feet_fill(tmp_path):
     core = _write_source(tmp_path / "core.tif", _plane(), nodata=-32768.0)
     surround = _write_source(tmp_path / "surround.tif", _plane(),
                              nodata=-32768.0)
-    _stamp(surround, **{INSETS.VERTICAL_UNIT_STAMP_DECLARED: "ftUS"})
-    with pytest.raises(INSETS.ProviderUnavailable,
+    _stamp(surround, **{ea_vertical_units.VERTICAL_UNIT_STAMP_DECLARED: "ftUS"})
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="fill 's' holds ftUS"):
         INSETS.assemble_ladder_inset(core, [(surround, {"label": "s"})],
                                      str(tmp_path / "out.tif"), None,
@@ -250,9 +257,9 @@ def test_two_layer_assembler_carries_the_core_stamp(tmp_path):
     core = _write_source(tmp_path / "core.tif", _plane(), nodata=-32768.0)
     surround = _write_source(tmp_path / "surround.tif", _plane(),
                              nodata=-32768.0)
-    _stamp(core, **{INSETS.VERTICAL_UNIT_STAMP_DECLARED: "ftUS",
-                    INSETS.VERTICAL_UNIT_STAMP_SOURCE: "elv",
-                    INSETS.VERTICAL_UNIT_STAMP_APPLIED: "m"})
+    _stamp(core, **{ea_vertical_units.VERTICAL_UNIT_STAMP_DECLARED: "ftUS",
+                    ea_vertical_units.VERTICAL_UNIT_STAMP_SOURCE: "elv",
+                    ea_vertical_units.VERTICAL_UNIT_STAMP_APPLIED: "m"})
     out = str(tmp_path / "out.tif")
     INSETS.assemble_ladder_inset(core, [(surround, {"label": "s"})], out,
                                  None, 0.0, 30.0)
@@ -296,14 +303,14 @@ def test_post_key_sidecar_stands(tmp_path):
 
 # --------------------------------------------------------- the cap class
 def test_lerc_tile_cap_is_unavailable_not_no_coverage(tmp_path, monkeypatch):
-    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: True)
+    patch_inset_code(monkeypatch, "lerc_decode_available", lambda: True)
     definition = {"code": "HILLSTEST", "access_strategy": "arcgis_lerc_tiles",
                   "tile_url_template": "https://example.invalid/{z}/{y}/{x}",
                   "tile_level": 17}
     destination = str(tmp_path / "KTPA_HILLSTEST.tif")
     big_box = (-82.60, 27.90, -82.45, 28.05)       # > 1,024 tiles at L17
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
-        INSETS.ACCESS_STRATEGIES["arcgis_lerc_tiles"]().fetch(
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
+        ea_registry.ACCESS_STRATEGIES["arcgis_lerc_tiles"]().fetch(
             definition, big_box, 1.0, destination)
     text = str(caught.value)
     assert text.startswith("HILLSTEST: KTPA needs ")
@@ -313,13 +320,13 @@ def test_lerc_tile_cap_is_unavailable_not_no_coverage(tmp_path, monkeypatch):
 
 def test_feature_archive_cap_is_unavailable_never_a_silent_slice(
         tmp_path, monkeypatch):
-    strategy_class = INSETS.ACCESS_STRATEGIES["arcgis_feature_tiles"]
+    strategy_class = ea_registry.ACCESS_STRATEGIES["arcgis_feature_tiles"]
     listing = [{"url": "https://example.invalid/%d.zip" % n}
                for n in range(9)]
     monkeypatch.setattr(strategy_class, "discover",
                         lambda self, definition, box: list(listing))
     definition = {"code": "TXTEST", "access_strategy": "arcgis_feature_tiles"}
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         strategy_class().fetch(definition, BOX, 1.0,
                                str(tmp_path / "KGRK_TXTEST.tif"))
     assert ("TXTEST: KGRK needs 9 archives, cap 8 "
@@ -335,7 +342,7 @@ def test_feature_archive_cap_is_unavailable_never_a_silent_slice(
         raise requests.ConnectionError("no network in the suite")
 
     monkeypatch.setattr(requests, "get", _refused)
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         strategy_class().fetch(
             dict(definition, max_archives_per_airport="16"), BOX, 1.0,
             str(tmp_path / "KGRK_TXTEST.tif"))
@@ -346,9 +353,9 @@ def test_tile_grid_cap_is_unavailable(tmp_path):
                   "source_epsg": 25832, "tile_size_km": 1,
                   "tile_url_template": "https://example.invalid/{e}_{n}.tif"}
     wide_box = (9.0, 50.0, 9.3, 50.2)               # ~21 x 22 km of 1 km tiles
-    with pytest.raises(INSETS.ProviderUnavailable,
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="cap 120 tiles \\(max_tiles_per_airport"):
-        INSETS.ACCESS_STRATEGIES["tile_grid_http"]().discover(
+        ea_registry.ACCESS_STRATEGIES["tile_grid_http"]().discover(
             definition, wide_box)
 
 
@@ -369,6 +376,6 @@ def test_truncated_wfs_listing_is_unavailable(monkeypatch):
     definition = {"code": "WFSTEST", "access_strategy": "wfs_tile_index",
                   "wfs_service_url": "https://example.invalid/wfs",
                   "wfs_type_name": "t"}
-    with pytest.raises(INSETS.ProviderUnavailable,
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="needs 300 tiles \\(the WFS returned 120\\)"):
-        INSETS.ACCESS_STRATEGIES["wfs_tile_index"]().discover(definition, BOX)
+        ea_registry.ACCESS_STRATEGIES["wfs_tile_index"]().discover(definition, BOX)

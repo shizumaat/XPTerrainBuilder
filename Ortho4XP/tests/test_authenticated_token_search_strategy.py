@@ -31,6 +31,14 @@ from typing import Callable, Dict, List, Optional
 import pytest
 
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import base as ea_base
+from elevation_access import failures as ea_failures
+from elevation_access import registry as ea_registry
+from elevation_access.strategies import authenticated_token_search as ea_authenticated_token_search
+from elevation_access.strategies import stac as ea_stac
+from elevation_access.strategies import wcs as ea_wcs
+from elevation_access import warp as ea_warp
 import O4_Authenticated_Sessions as SESSIONS
 
 #: Most tests here only need ``has_gdal`` forced on (the ``gdal_stub``
@@ -68,8 +76,8 @@ def _definition() -> dict:
     }
 
 
-def _strategy() -> INSETS.AuthenticatedTokenSearchStrategy:
-    return INSETS.ACCESS_STRATEGIES["authenticated_token_search"]()
+def _strategy() -> ea_authenticated_token_search.AuthenticatedTokenSearchStrategy:
+    return ea_registry.ACCESS_STRATEGIES["authenticated_token_search"]()
 
 
 def _feature_collection() -> dict:
@@ -184,7 +192,7 @@ def test_discover_raises_transient_on_server_failure(monkeypatch):
             ),
         )
         bounding_box = (-9.2, 38.6, -9.0, 38.8)
-        with pytest.raises(INSETS.TransientFetchError):
+        with pytest.raises(ea_base.TransientFetchError):
             _strategy().discover(_definition(), bounding_box)
 
 
@@ -236,7 +244,7 @@ def test_item_download_hrefs_prefers_data_role():
             },
         }
     ]
-    hrefs = INSETS.AuthenticatedTokenSearchStrategy._item_download_hrefs(items)
+    hrefs = ea_authenticated_token_search.AuthenticatedTokenSearchStrategy._item_download_hrefs(items)
     assert hrefs == ["https://example.invalid/download/token-1"]
 
 
@@ -250,7 +258,7 @@ def test_item_download_hrefs_single_asset_fallback():
             },
         }
     ]
-    hrefs = INSETS.AuthenticatedTokenSearchStrategy._item_download_hrefs(items)
+    hrefs = ea_authenticated_token_search.AuthenticatedTokenSearchStrategy._item_download_hrefs(items)
     assert hrefs == ["https://example.invalid/download/token-1"]
 
 
@@ -270,7 +278,7 @@ def test_item_download_hrefs_skips_malformed_items():
             },
         },
     ]
-    hrefs = INSETS.AuthenticatedTokenSearchStrategy._item_download_hrefs(items)
+    hrefs = ea_authenticated_token_search.AuthenticatedTokenSearchStrategy._item_download_hrefs(items)
     assert hrefs == ["https://example.invalid/download/token-good"]
 
 
@@ -285,7 +293,7 @@ def test_redeem_href_returns_http_location():
         return FakeResponse(302, headers={"Location": presigned})
 
     session = FakeSession(_get)
-    result = INSETS.AuthenticatedTokenSearchStrategy._redeem_download_href(
+    result = ea_authenticated_token_search.AuthenticatedTokenSearchStrategy._redeem_download_href(
         session, "https://example.invalid/download/token-1"
     )
     assert result == presigned
@@ -298,7 +306,7 @@ def test_redeem_href_none_on_200():
         return FakeResponse(200)
 
     session = FakeSession(_get)
-    result = INSETS.AuthenticatedTokenSearchStrategy._redeem_download_href(
+    result = ea_authenticated_token_search.AuthenticatedTokenSearchStrategy._redeem_download_href(
         session, "https://example.invalid/download/token-1"
     )
     assert result is None
@@ -311,7 +319,7 @@ def test_redeem_href_none_on_non_http_location():
         return FakeResponse(302, headers={"Location": "ftp://example.invalid/x"})
 
     session = FakeSession(_get)
-    result = INSETS.AuthenticatedTokenSearchStrategy._redeem_download_href(
+    result = ea_authenticated_token_search.AuthenticatedTokenSearchStrategy._redeem_download_href(
         session, "https://example.invalid/download/token-1"
     )
     assert result is None
@@ -324,7 +332,7 @@ def test_redeem_href_none_on_request_error():
         raise ConnectionError("token aged out")
 
     session = FakeSession(_get)
-    result = INSETS.AuthenticatedTokenSearchStrategy._redeem_download_href(
+    result = ea_authenticated_token_search.AuthenticatedTokenSearchStrategy._redeem_download_href(
         session, "https://example.invalid/download/token-1"
     )
     assert result is None
@@ -336,10 +344,10 @@ def test_redeem_href_none_on_request_error():
 @pytest.fixture
 def gdal_stub(monkeypatch):
     """Force ``has_gdal`` on and clear the once-per-provider warning set."""
-    monkeypatch.setattr(INSETS, "has_gdal", True)
-    INSETS._SIGN_IN_WARNED_PROVIDERS.clear()
+    patch_inset_code(monkeypatch, "has_gdal", True)
+    ea_failures._SIGN_IN_WARNED_PROVIDERS.clear()
     yield
-    INSETS._SIGN_IN_WARNED_PROVIDERS.clear()
+    ea_failures._SIGN_IN_WARNED_PROVIDERS.clear()
 
 
 def _install_discover(monkeypatch):
@@ -401,8 +409,8 @@ def test_fetch_happy_path_provenance_hides_presigned_urls(
         captured_inputs.append(list(vsicurl_inputs))
         return True
 
-    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _warp)
-    monkeypatch.setattr(INSETS, "_geotiff_has_valid_data", lambda path: True)
+    patch_inset_code(monkeypatch, "warp_vsicurl_sources_to_geotiff", _warp)
+    patch_inset_code(monkeypatch, "_geotiff_has_valid_data", lambda path: True)
 
     destination = str(tmp_path / "out.tif")
     bounding_box = (-9.2, 38.6, -9.0, 38.8)
@@ -439,8 +447,8 @@ def test_fetch_returns_none_when_warp_fails(
     monkeypatch.setattr(
         SESSIONS, "ensure_session", lambda d, credentials=None: FakeSession(_get)
     )
-    monkeypatch.setattr(
-        INSETS, "warp_vsicurl_sources_to_geotiff", lambda *a, **k: False
+    patch_inset_code(
+        monkeypatch, "warp_vsicurl_sources_to_geotiff", lambda *a, **k: False
     )
 
     destination = str(tmp_path / "out.tif")
@@ -465,8 +473,8 @@ def test_fetch_returns_none_when_all_redemptions_fail(
     monkeypatch.setattr(
         SESSIONS, "ensure_session", lambda d, credentials=None: FakeSession(_get)
     )
-    monkeypatch.setattr(
-        INSETS,
+    patch_inset_code(
+        monkeypatch,
         "warp_vsicurl_sources_to_geotiff",
         lambda *a, **k: warp_calls.append(a) or True,
     )
@@ -503,13 +511,13 @@ def _wcs_definition() -> dict:
 
 def test_wcs_dataset_name_leaves_placeholder_literal_without_key():
     """Without a key the ``{api_key}`` placeholder stays literal."""
-    dataset = INSETS.WcsStrategy().dataset_name(_wcs_definition())
+    dataset = ea_wcs.WcsStrategy().dataset_name(_wcs_definition())
     assert "{api_key}" in dataset
 
 
 def test_wcs_dataset_name_substitutes_key():
     """With a key the placeholder is substituted and no longer present."""
-    dataset = INSETS.WcsStrategy().dataset_name(
+    dataset = ea_wcs.WcsStrategy().dataset_name(
         _wcs_definition(), api_key="SECRETKEY"
     )
     assert "SECRETKEY" in dataset
@@ -528,13 +536,13 @@ def test_wcs_fetch_login_error_warns_exactly_once(
 
     monkeypatch.setattr(SESSIONS, "ensure_api_key", _ensure_api_key)
     warp_calls: List[tuple] = []
-    monkeypatch.setattr(
-        INSETS,
+    patch_inset_code(
+        monkeypatch,
         "warp_vsicurl_sources_to_geotiff",
         lambda *a, **k: warp_calls.append(a) or True,
     )
 
-    strategy = INSETS.WcsStrategy()
+    strategy = ea_wcs.WcsStrategy()
     destination = str(tmp_path / "out.tif")
     bounding_box = (8.0, 55.0, 8.2, 55.2)
     first = strategy.fetch(_wcs_definition(), bounding_box, 1.0, destination)
@@ -570,12 +578,12 @@ def test_wcs_fetch_happy_path_provenance_hides_api_key(
         captured_inputs.append(list(vsicurl_inputs))
         return True
 
-    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _warp)
-    monkeypatch.setattr(INSETS, "_geotiff_has_valid_data", lambda path: True)
+    patch_inset_code(monkeypatch, "warp_vsicurl_sources_to_geotiff", _warp)
+    patch_inset_code(monkeypatch, "_geotiff_has_valid_data", lambda path: True)
 
     destination = str(tmp_path / "out.tif")
     bounding_box = (8.0, 55.0, 8.2, 55.2)
-    provenance = INSETS.WcsStrategy().fetch(
+    provenance = ea_wcs.WcsStrategy().fetch(
         _wcs_definition(), bounding_box, 1.0, destination
     )
 
@@ -642,7 +650,7 @@ def test_stac_fetch_http_basic_passes_userpwd_config(
         lambda definition, credentials=None: _AuthedSession(("u", "p")),
     )
     monkeypatch.setattr(
-        INSETS.StacCloudOptimizedGeoTiffStrategy,
+        ea_stac.StacCloudOptimizedGeoTiffStrategy,
         "discover",
         lambda self, definition, bbox: [_stac_geotiff_item()],
     )
@@ -653,11 +661,11 @@ def test_stac_fetch_http_basic_passes_userpwd_config(
         captured["gdal_config"] = kwargs.get("gdal_configuration_options")
         return True
 
-    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _warp)
+    patch_inset_code(monkeypatch, "warp_vsicurl_sources_to_geotiff", _warp)
 
     destination = str(tmp_path / "out.tif")
     bounding_box = (12.0, 57.0, 12.2, 57.2)
-    provenance = INSETS.StacCloudOptimizedGeoTiffStrategy().fetch(
+    provenance = ea_stac.StacCloudOptimizedGeoTiffStrategy().fetch(
         _stac_http_basic_definition(), bounding_box, 1.0, destination
     )
 
@@ -677,14 +685,14 @@ def test_stac_fetch_http_basic_login_error_returns_none_no_warp(
 
     monkeypatch.setattr(SESSIONS, "ensure_session", _ensure_session)
     warp_calls: List[tuple] = []
-    monkeypatch.setattr(
-        INSETS,
+    patch_inset_code(
+        monkeypatch,
         "warp_vsicurl_sources_to_geotiff",
         lambda *a, **k: warp_calls.append(a) or True,
     )
     # discover would raise if reached (it never should be).
     monkeypatch.setattr(
-        INSETS.StacCloudOptimizedGeoTiffStrategy,
+        ea_stac.StacCloudOptimizedGeoTiffStrategy,
         "discover",
         lambda self, definition, bbox: (_ for _ in ()).throw(
             AssertionError("discover reached after LoginError")
@@ -693,7 +701,7 @@ def test_stac_fetch_http_basic_login_error_returns_none_no_warp(
 
     destination = str(tmp_path / "out.tif")
     bounding_box = (12.0, 57.0, 12.2, 57.2)
-    result = INSETS.StacCloudOptimizedGeoTiffStrategy().fetch(
+    result = ea_stac.StacCloudOptimizedGeoTiffStrategy().fetch(
         _stac_http_basic_definition(), bounding_box, 1.0, destination
     )
     assert result is None
@@ -714,7 +722,7 @@ def test_stac_fetch_without_credential_kind_passes_no_config(
 
     monkeypatch.setattr(SESSIONS, "ensure_session", _ensure_session)
     monkeypatch.setattr(
-        INSETS.StacCloudOptimizedGeoTiffStrategy,
+        ea_stac.StacCloudOptimizedGeoTiffStrategy,
         "discover",
         lambda self, definition, bbox: [_stac_geotiff_item()],
     )
@@ -725,11 +733,11 @@ def test_stac_fetch_without_credential_kind_passes_no_config(
         captured["gdal_config"] = kwargs.get("gdal_configuration_options")
         return True
 
-    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _warp)
+    patch_inset_code(monkeypatch, "warp_vsicurl_sources_to_geotiff", _warp)
 
     destination = str(tmp_path / "out.tif")
     bounding_box = (12.0, 57.0, 12.2, 57.2)
-    provenance = INSETS.StacCloudOptimizedGeoTiffStrategy().fetch(
+    provenance = ea_stac.StacCloudOptimizedGeoTiffStrategy().fetch(
         definition, bounding_box, 1.0, destination
     )
 

@@ -55,6 +55,9 @@ sys.path.insert(
 )
 
 import O4_Airport_Elevation_Insets as INSETS  # noqa: E402
+from elevation_access import definitions as ea_definitions
+from elevation_access import registry as ea_registry
+from elevation_access.strategies import coral_atlas_library as ea_coral_atlas_library
 import O4_Bathymetry_Band as BATHYBAND  # noqa: E402
 import O4_Coral_Atlas as CORAL  # noqa: E402
 import O4_File_Names as FNAMES  # noqa: E402
@@ -247,7 +250,7 @@ def test_fetch_window_to_geotiff_metres_and_nodata(monkeypatch, tmp_path):
 # 4. coral_atlas_library access strategy
 # =====================================================================
 def test_strategy_is_registered():
-    assert "coral_atlas_library" in INSETS.ACCESS_STRATEGIES
+    assert "coral_atlas_library" in ea_registry.ACCESS_STRATEGIES
 
 
 @requires_gdal
@@ -255,7 +258,7 @@ def test_strategy_discover_no_coverage(monkeypatch, tmp_path):
     """discover returns None off the coverage_bbox and when the library is
     empty (covered on paper but no downloaded package overlaps)."""
     _install_library(monkeypatch, tmp_path)
-    strategy = INSETS.CoralAtlasLibraryStrategy()
+    strategy = ea_coral_atlas_library.CoralAtlasLibraryStrategy()
     definition = {
         "code": CORAL.PROVIDER_CODE,
         "access_strategy": "coral_atlas_library",
@@ -461,7 +464,7 @@ def _fake_definition(code, native_resolution_m):
     return {
         "code": code,
         "access_strategy": "coral_atlas_library",
-        "role": INSETS.ROLE_BATHYMETRY,
+        "role": ea_definitions.ROLE_BATHYMETRY,
         "native_resolution_m": native_resolution_m,
         "coverage_bbox": (-160.5, 18.5, -154.5, 22.5),
     }

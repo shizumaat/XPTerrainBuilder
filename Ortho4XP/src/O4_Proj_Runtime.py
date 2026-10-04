@@ -263,7 +263,10 @@ def import_selfcheck_main(argv: list[str]) -> int:
     module imports in THIS interpreter -- the frozen bundle's smoke test
     for packages the engine imports LAZILY (laspy, #130: the static scan
     never sees a function-level import, the highspy precedent of
-    2026-09-10).  One line per module on stdout."""
+    2026-09-10).  One line per module on stdout, then one line for the
+    elevation access registry (:func:`elevation_access.registry.
+    registry_selfcheck`): the number of registered strategy keys, and a
+    failure naming the missing and the unexpected ones."""
     import importlib
 
     names = [name.strip() for name in
@@ -281,6 +284,22 @@ def import_selfcheck_main(argv: list[str]) -> int:
             print(line.rstrip())
         except Exception:
             pass
+    # The elevation access strategies are looked up BY KEY, so a strategy
+    # module missing from the bundle is no ImportError anywhere -- the
+    # binary counts its own registry against the pinned set.
+    try:
+        from elevation_access.registry import registry_selfcheck
+
+        (registry_ok, line) = registry_selfcheck()
+    except Exception as error:
+        (registry_ok, line) = (False, "elevation_access registry: %s: %s"
+                               % (type(error).__name__, error))
+    if not registry_ok:
+        failed += 1
+    try:
+        print(line.rstrip())
+    except Exception:
+        pass
     return 0 if names and not failed else 1
 
 

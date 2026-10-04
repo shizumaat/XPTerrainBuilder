@@ -26,6 +26,7 @@ import pytest
 
 import O4_File_Names as FNAMES
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
 import O4_Airport_Utils as APT
 
 try:
@@ -91,7 +92,7 @@ def test_inset_survives_active_airport_smoothing(tmp_path, monkeypatch):
     import O4_DEM_Utils as DEM
 
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
 
     tile_latitude, tile_longitude = 0, 0

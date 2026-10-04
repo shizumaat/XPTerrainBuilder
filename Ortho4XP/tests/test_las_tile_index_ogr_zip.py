@@ -25,6 +25,12 @@ import pytest
 
 import O4_File_Names as FNAMES
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import base as ea_base
+from elevation_access import capabilities as ea_capabilities
+from elevation_access import definitions as ea_definitions
+from elevation_access import las_tiles as ea_las_tiles
+from elevation_access.strategies import las_tile_index as ea_las_tile_index
 
 laspy = pytest.importorskip("laspy")
 gdal = pytest.importorskip("osgeo.gdal")
@@ -135,8 +141,8 @@ def test_ogr_index_is_cut_to_the_footprint_with_its_field_keys(tmp_path):
     core_box = (w + dx, s + dy, e - dx, n - dy)
     definition = _ogr_definition(
         index, index_url_field="href", index_name_field="tile",
-        **{INSETS.LAS_FOOTPRINT_KEY: _core_mapping(core_box)})
-    strategy = INSETS.LasTileIndexStrategy()
+        **{ea_las_tiles.LAS_FOOTPRINT_KEY: _core_mapping(core_box)})
+    strategy = ea_las_tile_index.LasTileIndexStrategy()
     # the request box spans T1 and T2 -- only the footprint decides
     request_box = (w, s, _to_wgs84_box(beside)[2], n)
     listing = strategy.discover(definition, request_box)
@@ -151,7 +157,7 @@ def test_ogr_index_is_cut_to_the_footprint_with_its_field_keys(tmp_path):
              strategy.discover(plain, request_box)]
     assert names == ["T1.copc", "T2.copc"]
     # the default keys are url / filename: absent here -> transient
-    with pytest.raises(INSETS.TransientFetchError,
+    with pytest.raises(ea_base.TransientFetchError,
                        match="no 'url'/'filename' attribute"):
         strategy.discover(_ogr_definition(index), request_box)
 
@@ -161,14 +167,14 @@ def test_ogr_index_empty_is_durable_unreadable_is_transient(tmp_path):
         ("FAR.copc.laz", "https://tiles.test/FAR.copc.laz",
          _tile_square_ft(40, 40))])
     box = _to_wgs84_box(_tile_square_ft(0, 0))
-    strategy = INSETS.LasTileIndexStrategy()
+    strategy = ea_las_tile_index.LasTileIndexStrategy()
     assert strategy.discover(_ogr_definition(index), box) is None
     with open(tmp_path / "junk.gpkg", "wb") as handle:
         handle.write(b"not a geopackage")
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         strategy.discover(_ogr_definition(str(tmp_path / "junk.gpkg")),
                           box)
-    with pytest.raises(INSETS.ProviderUnavailable, match="needs index_url"):
+    with pytest.raises(ea_base.ProviderUnavailable, match="needs index_url"):
         strategy.discover(_ogr_definition(""), box)
 
 
@@ -250,7 +256,7 @@ def test_remote_gpkg_is_read_by_ranges_not_whole(tmp_path, range_server):
     url = "http://127.0.0.1:%d/idx_%s.gpkg" % (server.server_address[1],
                                               os.getpid())
     gdal.VSICurlClearCache()
-    listing = INSETS.LasTileIndexStrategy().discover(
+    listing = ea_las_tile_index.LasTileIndexStrategy().discover(
         _ogr_definition(url), _to_wgs84_box(inside))
     assert [source["source_id"] for source in listing] == ["T1.copc"]
     whole = len(handler.payload)
@@ -264,20 +270,20 @@ def test_remote_gpkg_is_read_by_ranges_not_whole(tmp_path, range_server):
 # ---------------------------------------------------------------------
 def test_laz_without_the_backend_is_unavailable_before_any_read(
         tmp_path, monkeypatch):
-    monkeypatch.setattr(INSETS, "laz_reader_available", lambda: False)
+    patch_inset_code(monkeypatch, "laz_reader_available", lambda: False)
     calls = []
-    monkeypatch.setattr(INSETS.LasTileIndexStrategy, "discover",
+    monkeypatch.setattr(ea_las_tile_index.LasTileIndexStrategy, "discover",
                         lambda *args: calls.append(args))
     definition = _ogr_definition(str(tmp_path / "none.gpkg"),
                                  point_compression="laz")
-    with pytest.raises(INSETS.ProviderUnavailable,
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match=r"LAZ backend \(lazrs\) missing"):
-        INSETS.LasTileIndexStrategy().fetch(
+        ea_las_tile_index.LasTileIndexStrategy().fetch(
             definition, _to_wgs84_box(_tile_square_ft(0, 0)), 1.0,
             str(tmp_path / "PAVD_x.tif"))
     assert calls == []
     assert INSETS.provider_required_capabilities(definition) == [
-        INSETS.CAPABILITY_LAS, INSETS.CAPABILITY_LAZ]
+        ea_capabilities.CAPABILITY_LAS, ea_capabilities.CAPABILITY_LAZ]
 
 
 def test_ogr_caps_are_judged_before_any_tile_get(tmp_path, monkeypatch):
@@ -302,8 +308,8 @@ def test_ogr_caps_are_judged_before_any_tile_get(tmp_path, monkeypatch):
     monkeypatch.setattr(requests, "get", _get)
     box = (_to_wgs84_box(squares[0])[0], _to_wgs84_box(squares[0])[1],
            _to_wgs84_box(squares[2])[2], _to_wgs84_box(squares[2])[3])
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
-        INSETS.LasTileIndexStrategy().fetch(
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
+        ea_las_tile_index.LasTileIndexStrategy().fetch(
             _ogr_definition(index, max_tiles_per_airport="16",
                             max_bytes_per_airport="1500000000"),
             box, 1.0, str(tmp_path / "PAVD_noaavaldezlaz.tif"))
@@ -400,9 +406,9 @@ def test_zip_las_extracts_the_member_and_leaves_no_zip(fake_cwcb, tmp_path,
         fake_cwcb["size"] = len(handle.read())
     destination = str(tmp_path / "out" / "7V2_cwcblastest.tif")
     os.makedirs(os.path.dirname(destination))
-    provenance = INSETS.LasTileIndexStrategy().fetch(
+    provenance = ea_las_tile_index.LasTileIndexStrategy().fetch(
         _cwcb_las_definition(), LTI._box_of_tile(), 1.0, destination)
-    cache = INSETS.las_tile_cache_directory("CWCBLASTEST")
+    cache = ea_las_tile_index.las_tile_cache_directory("CWCBLASTEST")
     assert sorted(os.listdir(cache)) == [
         "WCO_1.las", "WCO_1_dtm.json", "WCO_1_dtm.tif"]
     with open(os.path.join(cache, "WCO_1.las"), "rb") as cached, \
@@ -424,12 +430,12 @@ def test_zip_with_two_las_members_is_unavailable_and_removed(
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "E"))
     las = LTI._write_las(tmp_path / "src" / "WCO_1.las")
     fake_cwcb["zips"]["k1"] = _las_zip_bytes(las, extra_member="b/x.las")
-    with pytest.raises(INSETS.ProviderUnavailable,
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="holds 2 .las member"):
-        INSETS.LasTileIndexStrategy().fetch(
+        ea_las_tile_index.LasTileIndexStrategy().fetch(
             _cwcb_las_definition(), LTI._box_of_tile(), 1.0,
             str(tmp_path / "7V2_x.tif"))
-    cache = INSETS.las_tile_cache_directory("CWCBLASTEST")
+    cache = ea_las_tile_index.las_tile_cache_directory("CWCBLASTEST")
     assert os.listdir(cache) == []
 
 
@@ -437,23 +443,23 @@ def test_zip_las_cap_is_judged_on_the_listing_before_download(
         fake_cwcb, tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "E"))
     fake_cwcb["size"] = 2_000_000_000
-    with pytest.raises(INSETS.ProviderUnavailable,
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="SKIPPED, recorded unavailable"):
-        INSETS.LasTileIndexStrategy().fetch(
+        ea_las_tile_index.LasTileIndexStrategy().fetch(
             _cwcb_las_definition(max_bytes_per_airport="1800000000"),
             LTI._box_of_tile(), 1.0, str(tmp_path / "7V2_x.tif"))
     assert [c for c in fake_cwcb["calls"] if c[0] in ("GET", "HEAD")] == []
 
 
 def test_unknown_archive_member_and_index_format_refuse(tmp_path):
-    with pytest.raises(INSETS.ProviderUnavailable,
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="archive_member=tar is not supported"):
-        INSETS.LasTileIndexStrategy().fetch(
+        ea_las_tile_index.LasTileIndexStrategy().fetch(
             _cwcb_las_definition(archive_member="tar"),
             LTI._box_of_tile(), 1.0, str(tmp_path / "x.tif"))
-    with pytest.raises(INSETS.ProviderUnavailable,
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="index_format=wfs is not one of"):
-        INSETS.LasTileIndexStrategy().discover(
+        ea_las_tile_index.LasTileIndexStrategy().discover(
             _ogr_definition("x", index_format="wfs"), LTI._box_of_tile())
 
 
@@ -464,15 +470,15 @@ def test_shipped_holder_las_definitions():
     providers = INSETS.initialize_elevation_providers_dict()
     valdez = providers["NOAAVALDEZLAZ"]
     assert valdez["access_strategy"] == "las_tile_index"
-    assert valdez["index_format"] == INSETS.LAS_INDEX_FORMAT_OGR
+    assert valdez["index_format"] == ea_las_tile_index.LAS_INDEX_FORMAT_OGR
     assert valdez["index_url"].endswith(
         "/laz/geoid12b/8539/tileindex_ak2012_valdez_m8539.gpkg")
     assert valdez["point_compression"] == "laz"
     assert INSETS.provider_required_capabilities(valdez) == [
-        INSETS.CAPABILITY_LAS, INSETS.CAPABILITY_LAZ]
+        ea_capabilities.CAPABILITY_LAS, ea_capabilities.CAPABILITY_LAZ]
     seven = providers["CWCB7V2LAS"]
-    assert seven["index_format"] == INSETS.LAS_INDEX_FORMAT_CWCB
-    assert seven["archive_member"] == INSETS.LAS_ARCHIVE_MEMBER_LAS
+    assert seven["index_format"] == ea_las_tile_index.LAS_INDEX_FORMAT_CWCB
+    assert seven["archive_member"] == ea_las_tile_index.LAS_ARCHIVE_MEMBER_LAS
     for definition in (valdez, seven):
         assert str(definition["ladder_member"]).lower() == "true"
         assert int(float(definition["priority"])) == 90
@@ -480,16 +486,16 @@ def test_shipped_holder_las_definitions():
         assert definition["license_note"]
         assert definition["attribution"]
         assert definition.get("coverage_bbox")
-        assert INSETS.las_core_geometry(definition) is None
+        assert ea_las_tiles.las_core_geometry(definition) is None
     # the boxes hold their airports (PAVD 61.132 N -146.248 E; 7V2
     # 38.833 N -107.643 E) and nothing of the five controls
-    assert INSETS._coverage_bbox_intersects(
+    assert ea_definitions._coverage_bbox_intersects(
         valdez, (-146.26, 61.12, -146.23, 61.14))
-    assert INSETS._coverage_bbox_intersects(
+    assert ea_definitions._coverage_bbox_intersects(
         seven, (-107.66, 38.82, -107.63, 38.84))
     for definition in (valdez, seven):
         for box in ((31.38, 30.10, 31.42, 30.14),      # HECA
                     (-80.96, 35.20, -80.92, 35.24),    # KCLT
                     (-106.88, 39.21, -106.86, 39.23)):  # KASE
-            assert not INSETS._coverage_bbox_intersects(definition, box)
+            assert not ea_definitions._coverage_bbox_intersects(definition, box)
 

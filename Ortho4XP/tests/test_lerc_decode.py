@@ -31,7 +31,10 @@ import pytest
 # suite fail when they are missing instead of a user's terrain quietly
 # losing a tier.  Importing is safe; only a decode beside GDAL aborts.
 import O4_LERC_Decode as LERC
-import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import base as ea_base
+from tests.inset_code import inset_code_source, patch_inset_code
+from elevation_access import capabilities as ea_capabilities
+from elevation_access import registry as ea_registry
 
 ENGINE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENTRY = os.path.join(ENGINE_DIR, "Ortho4XP.py")
@@ -91,7 +94,7 @@ def test_the_geotiff_decode_carries_the_values_and_the_tags(tmp_path):
     npy = tmp_path / "out.npy"
     _write_lerc_tiff(tiff)
     completed = subprocess.run(
-        INSETS.lerc_worker_argv(str(tiff), str(npy)),
+        ea_capabilities.lerc_worker_argv(str(tiff), str(npy)),
         capture_output=True, text=True, timeout=300)
     assert completed.returncode == 0, completed.stderr[-400:]
     tags = json.loads(completed.stdout)
@@ -111,7 +114,7 @@ def test_the_blob_decode_crops_the_shared_edge(tmp_path):
     out.mkdir()
     _write_lerc_blob(blobs / "7_9.lerc")
     completed = subprocess.run(
-        INSETS.lerc_worker_argv(str(blobs), str(out)),
+        ea_capabilities.lerc_worker_argv(str(blobs), str(out)),
         capture_output=True, text=True, timeout=300)
     assert completed.returncode == 0, completed.stderr[-400:]
     values = numpy.load(out / "7_9.npy")
@@ -139,7 +142,7 @@ def test_the_FROZEN_engine_spawns_its_own_binary(monkeypatch):
     internal ``--lerc-decode``, never a bare interpreter with ``-c``
     (which is what silently skipped NEWZEALAND1M)."""
     monkeypatch.setattr(sys, "frozen", True, raising=False)
-    argv = INSETS.lerc_worker_argv("/tmp/in.tif", "/tmp/out.npy")
+    argv = ea_capabilities.lerc_worker_argv("/tmp/in.tif", "/tmp/out.npy")
     assert argv == [sys.executable, "--lerc-decode", "/tmp/in.tif",
                     "/tmp/out.npy"]
     assert "-c" not in argv
@@ -147,7 +150,7 @@ def test_the_FROZEN_engine_spawns_its_own_binary(monkeypatch):
 
 def test_the_SOURCE_engine_spawns_the_decoder_module(monkeypatch):
     monkeypatch.delattr(sys, "frozen", raising=False)
-    argv = INSETS.lerc_worker_argv("/tmp/in.tif", "/tmp/out.npy")
+    argv = ea_capabilities.lerc_worker_argv("/tmp/in.tif", "/tmp/out.npy")
     assert argv[0] == sys.executable
     assert argv[1].endswith(os.path.join("src", "O4_LERC_Decode.py"))
     assert os.path.isfile(argv[1])
@@ -156,8 +159,7 @@ def test_the_SOURCE_engine_spawns_the_decoder_module(monkeypatch):
 def test_no_frozen_skip_is_left_in_the_fetchers():
     """The two fetchers used to bail out under ``sys.frozen`` with a
     WARNING and no data.  Neither may again."""
-    source = open(os.path.join(ENGINE_DIR, "src",
-                               "O4_Airport_Elevation_Insets.py"), encoding="utf-8").read()
+    source = inset_code_source()
     assert "not available in the packaged application" not in source
 
 
@@ -271,8 +273,7 @@ def test_the_tags_also_land_BESIDE_the_array(tmp_path):
 def test_the_fetcher_falls_back_to_the_sidecar():
     """The reader of that sidecar is the inset fetcher, and it deletes
     it with the array — a scratch file must not survive the fetch."""
-    source = open(os.path.join(ENGINE_DIR, "src",
-                               "O4_Airport_Elevation_Insets.py"), encoding="utf-8").read()
+    source = inset_code_source()
     assert 'npy_path + ".tags.json"' in source
     assert source.count('npy_path + ".tags.json"') >= 2  # read AND cleanup
 # ── THE CAPABILITY PROBE (owner RULINGS 2026-09-13b) ──────────────────
@@ -282,23 +283,23 @@ def test_the_fetcher_falls_back_to_the_sidecar():
 # worker argv a real decode would spawn — frozen binary included — and
 # asks it nothing but whether the codecs imported.
 def test_the_selftest_argv_is_the_production_worker():
-    argv = INSETS.lerc_selftest_argv()
-    assert argv[:-1] == INSETS.lerc_worker_argv("IN", "OUT")[:-2]
+    argv = ea_capabilities.lerc_selftest_argv()
+    assert argv[:-1] == ea_capabilities.lerc_worker_argv("IN", "OUT")[:-2]
     assert argv[-1] == "--selftest"
 
 
 def test_the_selftest_answers_and_the_capability_is_memoised():
-    completed = subprocess.run(INSETS.lerc_selftest_argv(),
+    completed = subprocess.run(ea_capabilities.lerc_selftest_argv(),
                                capture_output=True, text=True, timeout=180)
     assert completed.returncode == 0, completed.stderr[-400:]
-    INSETS._LERC_CAPABILITY[0] = None
+    ea_capabilities._LERC_CAPABILITY[0] = None
     try:
-        assert INSETS.lerc_decode_available() is True
+        assert ea_capabilities.lerc_decode_available() is True
         # Memoised: a second call spawns nothing.
-        INSETS._LERC_CAPABILITY[0] = False
-        assert INSETS.lerc_decode_available() is False
+        ea_capabilities._LERC_CAPABILITY[0] = False
+        assert ea_capabilities.lerc_decode_available() is False
     finally:
-        INSETS._LERC_CAPABILITY[0] = None
+        ea_capabilities._LERC_CAPABILITY[0] = None
 
 
 def test_the_ENGINE_ENTRY_answers_the_selftest():
@@ -316,9 +317,9 @@ def test_a_missing_decoder_raises_instead_of_answering_no_coverage(
     """The 1.0.324 defect, in one assertion: the fetcher used to return
     an EMPTY list here, which became ``None``, which became a durable
     ``no-coverage`` for New Zealand's 1 m LiDAR at NZQN."""
-    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: False)
-    strategy = INSETS.ACCESS_STRATEGIES["static_stac"]()
-    with pytest.raises(INSETS.ProviderUnavailable):
+    patch_inset_code(monkeypatch, "lerc_decode_available", lambda: False)
+    strategy = ea_registry.ACCESS_STRATEGIES["static_stac"]()
+    with pytest.raises(ea_base.ProviderUnavailable):
         strategy._decode_lerc_sources(
             {"code": "NEWZEALAND1M", "asset_compression": "lerc"},
             [{"href": "https://example.invalid/a.tif"}], "/tmp/unused")

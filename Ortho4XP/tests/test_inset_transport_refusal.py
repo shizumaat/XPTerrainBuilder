@@ -28,6 +28,9 @@ import pytest
 sys.path.insert(0, "src")
 
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import base as ea_base
+from elevation_access import failures as ea_failures
+from elevation_access.strategies import degree_named_cog as ea_degree_named_cog
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
@@ -72,7 +75,7 @@ def _clean_flag():
     "ProxyError('Unable to connect to proxy')",
 ])
 def test_transport_security_failures_are_transient(message):
-    assert INSETS.error_message_indicates_transient_network_failure(message)
+    assert ea_failures.error_message_indicates_transient_network_failure(message)
 
 
 @pytest.mark.parametrize("message", [
@@ -81,7 +84,7 @@ def test_transport_security_failures_are_transient(message):
     "Got 1111x823 instead of 1112x824",
 ])
 def test_data_answers_stay_durable(message):
-    assert not INSETS.error_message_indicates_transient_network_failure(
+    assert not ea_failures.error_message_indicates_transient_network_failure(
         message)
 
 
@@ -95,14 +98,14 @@ def test_existence_probe_raises_on_a_tls_failure(monkeypatch):
         raise requests.exceptions.SSLError(REQUESTS_SSL)
 
     monkeypatch.setattr(requests, "head", _broken_head)
-    monkeypatch.setattr(INSETS.DegreeNamedCogStrategy,
+    monkeypatch.setattr(ea_degree_named_cog.DegreeNamedCogStrategy,
                         "_cell_exists_by_url", {})
-    strategy = INSETS.DegreeNamedCogStrategy()
-    with pytest.raises(INSETS.TransientFetchError):
+    strategy = ea_degree_named_cog.DegreeNamedCogStrategy()
+    with pytest.raises(ea_base.TransientFetchError):
         strategy._url_exists("https://example.test/cell.tif")
     # ...and nothing was memoised as "does not exist".
     assert "https://example.test/cell.tif" not in \
-        INSETS.DegreeNamedCogStrategy._cell_exists_by_url
+        ea_degree_named_cog.DegreeNamedCogStrategy._cell_exists_by_url
 
 
 def test_existence_probe_404_is_still_a_durable_no(monkeypatch):
@@ -112,9 +115,9 @@ def test_existence_probe_404_is_still_a_durable_no(monkeypatch):
         status_code = 404
 
     monkeypatch.setattr(requests, "head", lambda url, timeout=None: _Answer())
-    monkeypatch.setattr(INSETS.DegreeNamedCogStrategy,
+    monkeypatch.setattr(ea_degree_named_cog.DegreeNamedCogStrategy,
                         "_cell_exists_by_url", {})
-    assert INSETS.DegreeNamedCogStrategy()._url_exists(
+    assert ea_degree_named_cog.DegreeNamedCogStrategy()._url_exists(
         "https://example.test/none.tif") is False
 
 

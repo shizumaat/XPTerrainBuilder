@@ -28,6 +28,10 @@ import pytest
 
 import O4_File_Names as FNAMES
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import base as ea_base
+from elevation_access import definitions as ea_definitions
+from elevation_access.strategies import tnm_cog as ea_tnm_cog
+from elevation_access import warp as ea_warp
 
 gdal = pytest.importorskip("osgeo.gdal")
 from osgeo import osr  # noqa: E402
@@ -147,7 +151,7 @@ def test_a_zipped_img_product_warps_and_leaves_no_scratch(tmp_path,
     })
     out = tmp_path / "out"
     destination = str(out / "KGRK_usgs3dep.tif.rung4")
-    provenance = INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    provenance = ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
         _definition(), BOX, 3.0, destination)
     values = _values(destination)
     assert numpy.all(values == pytest.approx(FIELD_M))
@@ -163,7 +167,7 @@ def test_a_zip_without_img_takes_its_geotiff_member(tmp_path, fake_tnm):
     fake_tnm["listings"][LISTING_FINE] = [_item(ZIP_URL, "z")]
     fake_tnm["bodies"][ZIP_URL] = _zip({"inner/z.tif": tif})
     destination = str(tmp_path / "a.tif")
-    INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
         _definition(), BOX, 3.0, destination)
     assert numpy.all(_values(destination) == pytest.approx(300.0))
 
@@ -173,9 +177,9 @@ def test_an_undecodable_product_is_unavailable_never_no_coverage(
     fake_tnm["listings"][LISTING_FINE] = [_item(ZIP_URL, "ned19_kgrk")]
     fake_tnm["bodies"][ZIP_URL] = _zip({"ned19_kgrk.img": b"\0garbage" * 64})
     out = tmp_path / "out"
-    with pytest.raises(INSETS.ProviderUnavailable,
+    with pytest.raises(ea_base.ProviderUnavailable,
                        match="1 listed product.*could not be read"):
-        INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
             _definition(), BOX, 3.0, str(out / "KGRK.tif"))
     assert not out.exists() or os.listdir(out) == []
 
@@ -189,10 +193,10 @@ def test_an_unreadable_listed_raster_is_unavailable(tmp_path, fake_tnm,
     bad.write_bytes(b"II*\0garbage")
     fake_tnm["listings"][LISTING_ONE_M] = [
         _item("https://prd-tnm.test/1m/x.tif", "x")]
-    monkeypatch.setattr(INSETS.TnmCloudOptimizedGeoTiffStrategy,
+    monkeypatch.setattr(ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy,
                         "_warp_input_for", lambda self, source: str(bad))
-    with pytest.raises(INSETS.ProviderUnavailable, match="could not be read"):
-        INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    with pytest.raises(ea_base.ProviderUnavailable, match="could not be read"):
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
             _definition(LISTING_ONE_M, 1.0), BOX, 1.0,
             str(tmp_path / "b.tif"))
 
@@ -200,8 +204,8 @@ def test_an_unreadable_listed_raster_is_unavailable(tmp_path, fake_tnm,
 def test_a_zip_with_no_raster_member_is_unavailable(tmp_path, fake_tnm):
     fake_tnm["listings"][LISTING_FINE] = [_item(ZIP_URL, "z")]
     fake_tnm["bodies"][ZIP_URL] = _zip({"z.shp": b"x", "readme.pdf": b"y"})
-    with pytest.raises(INSETS.ProviderUnavailable, match="no raster member"):
-        INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    with pytest.raises(ea_base.ProviderUnavailable, match="no raster member"):
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
             _definition(), BOX, 3.0, str(tmp_path / "c.tif"))
     assert not any(name.endswith(".zip") for name in os.listdir(tmp_path))
 
@@ -209,15 +213,15 @@ def test_a_zip_with_no_raster_member_is_unavailable(tmp_path, fake_tnm):
 def test_a_listed_archive_missing_from_the_server_is_unavailable(
         tmp_path, fake_tnm):
     fake_tnm["listings"][LISTING_FINE] = [_item(ZIP_URL, "z")]
-    with pytest.raises(INSETS.ProviderUnavailable, match="HTTP 404"):
-        INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    with pytest.raises(ea_base.ProviderUnavailable, match="HTTP 404"):
+        ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
             _definition(), BOX, 3.0, str(tmp_path / "d.tif"))
 
 
 def test_a_well_formed_empty_listing_is_still_no_coverage(tmp_path,
                                                          fake_tnm):
     fake_tnm["listings"][LISTING_FINE] = []
-    assert INSETS.TnmCloudOptimizedGeoTiffStrategy().fetch(
+    assert ea_tnm_cog.TnmCloudOptimizedGeoTiffStrategy().fetch(
         _definition(), BOX, 3.0, str(tmp_path / "e.tif")) is None
     assert fake_tnm["gets"] == [
         _definition()["discovery_url_template"].format(
@@ -238,7 +242,7 @@ def test_the_ladder_records_unavailable_and_climbs(tmp_path, fake_tnm,
     fake_tnm["bodies"][ZIP_URL] = _zip({"ned19_kgrk.img": b"\0bad" * 64})
     fake_tnm["bodies"][COARSE_ZIP_URL] = _zip({"u13.tif": tif})
     chain = dict(_definition(LISTING_ONE_M, 1.0, code="USGS3DEPZIPCHAIN"),
-                 role=INSETS.ROLE_AIRPORT_INSET, enabled=True, priority=1.0,
+                 role=ea_definitions.ROLE_AIRPORT_INSET, enabled=True, priority=1.0,
                  ladder_label="1 meter")
     chain["resolution_ladder_rungs"] = INSETS._parse_resolution_ladder(
         "3|1/9 arc-second|%s&bbox={west},{south},{east},{north};"
@@ -262,9 +266,9 @@ def test_the_ladder_records_unavailable_and_climbs(tmp_path, fake_tnm,
 
 
 def test_a_local_archive_member_keeps_the_curl_extension_fence():
-    fence = INSETS._vsicurl_allowed_extensions(
+    fence = ea_warp._vsicurl_allowed_extensions(
         ["/vsizip//tmp/x.tif.tnm0.zip/a.img",
          "/vsicurl/https://prd-tnm.test/a.tif"])
     assert fence == ".tif,.tiff,.vrt"
-    assert INSETS._vsicurl_allowed_extensions(
+    assert ea_warp._vsicurl_allowed_extensions(
         ["/vsizip//vsicurl/https://h.test/a.zip/a.img"]) is None

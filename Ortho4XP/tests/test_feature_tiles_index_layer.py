@@ -30,6 +30,11 @@ import numpy
 import pytest
 
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import base as ea_base
+from elevation_access import definitions as ea_definitions
+from elevation_access import las_tiles as ea_las_tiles
+from elevation_access import registry as ea_registry
+from elevation_access import vertical_units as ea_vertical_units
 import O4_File_Names as FNAMES
 
 try:
@@ -172,7 +177,7 @@ pytestmark = pytest.mark.skipif(not HAS_GDAL, reason="no osgeo")
 
 
 def _strategy():
-    return INSETS.ACCESS_STRATEGIES["arcgis_feature_tiles"]()
+    return ea_registry.ACCESS_STRATEGIES["arcgis_feature_tiles"]()
 
 
 def test_index_layer_pages_resolves_and_reads_one_member_per_tile(
@@ -214,7 +219,7 @@ def test_index_layer_pages_resolves_and_reads_one_member_per_tile(
 
 
 def test_index_layer_page_size_is_asked_for(tmp_path, server, monkeypatch):
-    strategy_class = INSETS.ACCESS_STRATEGIES["arcgis_feature_tiles"]
+    strategy_class = ea_registry.ACCESS_STRATEGIES["arcgis_feature_tiles"]
     monkeypatch.setattr(strategy_class, "INDEX_PAGE_SIZE", 1)
     entries = strategy_class().discover(_definition(tmp_path), BOX)
     assert [e["source_id"] for e in entries] == sorted(TILES)
@@ -230,7 +235,7 @@ def test_index_layer_listing_that_never_ends_is_transient(tmp_path,
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "elev"))
     monkeypatch.setattr(requests, "get",
                         _FakeServer(endless_index=True).get)
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         _strategy().discover(_definition(tmp_path), BOX)
 
 
@@ -241,7 +246,7 @@ def test_index_layer_5xx_is_transient_never_no_coverage(tmp_path,
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "elev"))
     monkeypatch.setattr(requests, "get",
                         _FakeServer(index_status=503).get)
-    with pytest.raises(INSETS.TransientFetchError):
+    with pytest.raises(ea_base.TransientFetchError):
         _strategy().discover(_definition(tmp_path), BOX)
 
 
@@ -264,7 +269,7 @@ def test_tile_without_a_resource_is_unavailable_after_one_refresh(
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "elev"))
     fake = _FakeServer(resource_keys=("3097000",))
     monkeypatch.setattr(requests, "get", fake.get)
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         _strategy().discover(_definition(tmp_path), BOX, resolve=True)
     assert "has no archive in collection" in str(caught.value)
     # The memo was consulted, then the listing refetched ONCE.
@@ -277,7 +282,7 @@ def test_member_missing_from_its_archive_is_unavailable(tmp_path, server):
     _quad_zip(tmp_path, {
         "proj20-1m_3197581a1.tif": (TILES["3197581a1"], 300.0, True, "GTiff"),
     })
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         _strategy().fetch(_definition(tmp_path), BOX, 50.0,
                           str(tmp_path / "KGRK_txtest.tif"))
     assert "holds no member" in str(caught.value)
@@ -285,7 +290,7 @@ def test_member_missing_from_its_archive_is_unavailable(tmp_path, server):
 
 
 def test_member_cap_is_unavailable_in_members(tmp_path, server):
-    with pytest.raises(INSETS.ProviderUnavailable) as caught:
+    with pytest.raises(ea_base.ProviderUnavailable) as caught:
         _strategy().fetch(
             _definition(tmp_path, max_archives_per_airport="2"), BOX, 50.0,
             str(tmp_path / "KGRK_txtest.tif"))
@@ -307,7 +312,7 @@ def test_surgical_core_keeps_only_tiles_meeting_the_boundary(
     boundary = shapely_box(-97.838, 31.062, -97.834, 31.066)
     definition = _definition(tmp_path, footprint_buffer_m="50",
                              core_feather_m="20")
-    definition[INSETS.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(boundary)
+    definition[ea_las_tiles.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(boundary)
     provenance = _strategy().fetch(definition, BOX, 50.0,
                                    str(tmp_path / "KGRK_txtest.tif"))
     assert provenance["source_ids"] == ["3197581a1"]
@@ -346,7 +351,7 @@ def test_url_form_provenance_keys_unchanged():
     import inspect
 
     source = inspect.getsource(
-        INSETS.ACCESS_STRATEGIES["arcgis_feature_tiles"].fetch)
+        ea_registry.ACCESS_STRATEGIES["arcgis_feature_tiles"].fetch)
     assert 'if definition.get("index_layer_url"):' in source
 
 
@@ -380,14 +385,14 @@ def test_holder_elv_parses_declares_unit_and_joins_the_ladder(code):
     assert definition["enabled"] in (True, "True")
     assert str(definition["ladder_member"]) == "True"
     assert float(definition["priority"]) == 90.0
-    assert INSETS._raster_vertical_unit(definition) == unit
+    assert ea_vertical_units._raster_vertical_unit(definition) == unit
     assert definition.get("vertical_datum") == "NAVD88"
     assert definition.get("license") and definition.get("license_note")
     assert definition.get("attribution")
-    assert INSETS._coverage_bbox_intersects(definition,
+    assert ea_definitions._coverage_bbox_intersects(definition,
                                             _point_box(lat, lon))
     for (icao, (clat, clon)) in CONTROLS.items():
-        assert not INSETS._coverage_bbox_intersects(
+        assert not ea_definitions._coverage_bbox_intersects(
             definition, _point_box(clat, clon)), (code, icao)
 
 

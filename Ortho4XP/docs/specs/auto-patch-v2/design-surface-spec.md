@@ -18089,3 +18089,20 @@ A late piece's rim on airside and pads is FIXED and its rim on roads and lots is
 * Q2 (the 728,305 m² part): one piece as ruled ("each connected remainder is its own piece"), or cut — and by what. Not answered by §43's necks. Under R1 it is one 5 % lot spanning 43.6 m of relief; under R3 it is one apron.
 * Q3 (what "touches" is): the §27 length (10 m of shared boundary) admits a fringe contact — site 1's 143 m with `pav37` is 0 m after a 2 m opening.
 * Q4 (the floor): `object_pavement_min_m2` (200 m²) and a lane-width disc drop 75 slivers / 3,077 m² and leave them raw, as today.
+
+### §53 (7) ROUND 2 — RULED (master 2026-10-04, pending owner on Q1), AND WHAT THE REPLAY MEASURED. NOT MERGE-READY: the arm fails the pad bar and the row bound.
+
+RULED: Q1 = R1 (every gap piece a late groundside cell `gap:<k>` at the road grade cap, `touches_apron` published; R2 rejected; R3 only on the owner's word — `gap_mint.APRON_TOUCH_ROLE` is the one switch). Q2: one piece if the solve can carry it. Q3: the §27 length. Q4: 200 m² + a lane-wide disc. A piece along a runway / taxi face and no apron is not minted. The second HECA refusal is `heca_ground_polygon.obj` (out of scope).
+
+AS BUILT: `classify/gap_mint.py`, called last in `roles.classify`; `model.planar.GAP_PREFIX` / `is_gap_ref`, `is_late_ref` widened; the sheet outline simplified at half the identity spacing before the difference.
+
+MEASURED (capture `gaps292/HECA.pkl`; control = the sheet-free `conc333/HECA_main28500ecf.pkl`, both `--from classify` on this tree; the control's patch has `sw1028`'s 34,053 nodes):
+
+* CLASSIFY: 1,497 → 1,545 cells; 0 existing cells differ (id, role, ref, side, kind, geometry); cut lines equal. 48 pieces / 1,035,883 m² (31 apron-touching / 874,302 m²; 17 others / 161,582 m²); 90 parts under the floor; 3 not minted (2,636 m² at 30.1013003, 31.3970013; 967 m² at 30.1024895, 31.3992756; 490 m² at 30.1270903, 31.4107448).
+* STAGE 1 IS THE CONTROL'S: 19,487 unknowns / 117,478 rows, the same residual; stage-1 map 32,737 vertices both arms. Solve-owned airside nodes 17,268 = 17,268 (3 removed, 3 added), ONE mover, 0.04 m, at 30.10293930965, 31.39370972399 (`pav69`; not attributed).
+* THE ROW BOUND FAILS: `road_within_shape` 171,430 → 3,870,395 rows (its chord rows 107,001 → 3,801,102; weld followers 13,478 → 175,538); all `diffs` 903,131 → 4,659,275; stage-2 hard rows 170,499 → 286,606; map vertices 34,898 → 43,300; solve 187 → 304 s, verify 111 → 204 s, the replay's stage wall 423 → 471 s.
+* THE PAD BAR FAILS: 48 pads move (1,742 nodes), worst 3.97 m — the pads stage 2 levels are NOT fixed, and a gap piece beside one moves it (mechanism not attributed). `building26` 90.79–90.86 → 93.94–94.74 (no longer one level), `building12` 95.49–96.01 → 98.70–99.58, `building29` +3.30, `building9` +2.31, `building131` +1.89. §53 (3)'s "every pad … by construction" holds only for the pads stage 1 holds.
+* ROADS AND LOTS RE-SOLVED WITH THE PIECES: 97 road refs / 906 nodes, worst 6.65 m; 14 groundside pavement refs / 820 nodes, worst 4.12 m (`pav57`); 26 zone refs / 66 nodes, worst 1.83 m, and 21 zone refs absent in the arm.
+* SITE 2: ribbon `small_roads:-20210` 96.23–96.89 → 89.79–90.24 and `#1` 94.59–95.86 → 89.76–90.50 (down to the aprons, 89.68–91.93 unchanged) — but the pad went UP 3.1–3.9 m.
+* SITE 1: `gap:7` stands at 92.08–101.76; `pav37` unchanged; `route3` keeps its range (92.02–105.77) with 146 of 210 nodes moved, worst 4.99 m.
+* VERIFY rows 20,576 → 21,112 (within_shape +460, transverse +49, road_cross_section +25, pad_flat +7, mid_edge_step +5); stage-2 relaxed rows 242 → 337 (groundside 171 → 245, taxi 61 → 82, pad 10 = 10).

@@ -44,7 +44,7 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
-           "is_late_ref"]
+           "is_late_ref", "GAP_PREFIX", "is_gap_ref"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
 #: (``planar/platform.py`` mints it).  ``#`` is the tree's split spelling,
@@ -807,9 +807,21 @@ def facade_strip_host(ref) -> "str | None":
     return parts[1] if len(parts) >= 3 and parts[0] == FACADE_STRIP_PREFIX else None
 
 
+#: §53 (owner RULINGS 2026-10-04o (a)): the ref ``classify/gap_mint`` spells
+#: — ``gap:<k>``, one remainder of a pack pavement page after every pavement
+#: the engine already knows.
+GAP_PREFIX = "gap"
+
+
+def is_gap_ref(ref) -> bool:
+    """A §53 gap piece."""
+    return str(ref or "").split(":", 1)[0] == GAP_PREFIX
+
+
 def is_late_ref(ref) -> bool:
     """A LATE cell's ref: a face that JOINS THE FINISHED MAP (pass C,
     ``planar/ribbons``) and is absent from the stage-1 map — the mapped-road
-    ribbons (30aa) and the §52 facade cells.  The ARRANGEMENT asks this;
-    the road laws keep asking :func:`is_osm_ribbon_ref`."""
-    return is_osm_ribbon_ref(ref) or is_facade_ref(ref)
+    ribbons (30aa), the §52 facade cells and the §53 gap pieces.  The
+    ARRANGEMENT asks this; the road laws keep asking
+    :func:`is_osm_ribbon_ref`."""
+    return is_osm_ribbon_ref(ref) or is_facade_ref(ref) or is_gap_ref(ref)

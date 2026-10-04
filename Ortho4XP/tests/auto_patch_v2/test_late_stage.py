@@ -120,3 +120,16 @@ def test_a_new_node_on_a_standing_edge_takes_the_edges_own_level():
     rep = som.late_rim_levels(base, z, full, fixed, set(), 0.01)
     assert fixed[3] == 101.0 and 4 not in fixed
     assert rep == {"rim_nodes": 2, "on_a_base_edge": 1, "off_edge": 1}
+
+
+def test_a_yielding_pin_on_a_follower_is_released():
+    from auto_patch_v2.model.constraints import ConstraintSet, Pin, Source
+    join = Source("road_coverage_join", "roads.coverage_edge join (27a (10))", ())
+    other = Source("twin", "tunnel.bore_datum_m (x)", ())
+    rows = [Pin(v=7, z=87.51, source=join), Pin(v=8, z=50.0, source=other)]
+    cs, dropped = som.late_constraints(ConstraintSet.from_rows(rows), {1: 10.0},
+                                       frozenset({"roads.coverage_edge join"}))
+    assert [r.v for r in cs.rows()] == [8]
+    assert dropped == {"Pin (yielding, on a follower)": 1}
+    # without the register nothing is released
+    assert len(list(som.late_constraints(ConstraintSet.from_rows(rows), {1: 10.0})[0].rows())) == 2

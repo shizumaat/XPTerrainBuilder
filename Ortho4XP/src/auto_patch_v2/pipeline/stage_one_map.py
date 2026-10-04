@@ -179,7 +179,8 @@ def row_vertices(row) -> tuple[int, ...]:
     raise TypeError(f"stage_one_map: unknown row type {type(row).__name__}")
 
 
-def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float]
+def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
+                     yield_heads: _t.AbstractSet[str] = frozenset()
                      ) -> tuple[ConstraintSet, dict]:
     """THE LAST STAGE'S OWN ROWS (spec §53 (10), master 2026-10-04): a row
     with NO unknown is not the last stage's.  Every row whose vertices are
@@ -190,6 +191,17 @@ def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float]
     a row this stage can answer for.  ``(set, {type: dropped})``."""
     kept, dropped = [], {}
     for r in cs.rows():
+        if isinstance(r, Pin) and int(r.v) not in fixed \
+                and str(r.source.ruling).split("(")[0].strip() in yield_heads:
+            # A YIELDING PIN ON A FOLLOWER IS RELEASED (spec §53 (17)): a
+            # follower ribbon's §37 (9) join pin is the core ribbon's level,
+            # restated on the full map; the stage has no pin-yield pass, and
+            # held hard it keeps the ribbon on its terrain against the fixed
+            # ground beside it (MEASURED: ``small_roads:-18733`` pinned at
+            # 87.51 beside an apron at 82.41)
+            dropped["Pin (yielding, on a follower)"] = \
+                dropped.get("Pin (yielding, on a follower)", 0) + 1
+            continue
         if all(v in fixed for v in row_vertices(r)):
             k = type(r).__name__
             dropped[k] = dropped.get(k, 0) + 1

@@ -2175,7 +2175,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             _base["pm"], _base["z"], pm, _fixed, _free,
             float(law.tables.emit.identity.min_distinct_spacing_m) * 0.02)
         from auto_patch_v2.pipeline.stage_one_map import late_constraints
-        cs, _dropped = late_constraints(cs, _fixed)
+        from auto_patch_v2.law.tables import design as _design_law
+        cs, _dropped = late_constraints(cs, _fixed, frozenset(
+            getattr(_design_law(law), "yielding_pin_rulings", ()) or ()))
         print(f"[{icao}] LAST STAGE (§53 (9)) off {late_from}: followers {_frep}; join {_jrep}; "
               f"rows with no unknown dropped {_dropped}")
         from auto_patch_v2.constraints.gap_follow import gap_follow_rows

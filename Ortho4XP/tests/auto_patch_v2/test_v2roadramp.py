@@ -118,7 +118,9 @@ def _map(law, airport, cells, *, ramp: bool = True):
     pm = _dc.replace(pm, preferred_z=pref)
     rep: dict = {}
     if ramp:
-        pm = with_road_ramp(pm, law, airport, rep)
+        from auto_patch_v2.classify.rules import load_rules
+        pm = with_road_ramp(pm, law, airport, rep,
+                            service=load_rules().service)
     return pm, rep
 
 

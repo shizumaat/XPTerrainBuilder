@@ -137,7 +137,10 @@ def _lot_airport():
 
 def _lot_arm(law, monkeypatch, walls):
     from auto_patch_v2.airport import road_ramp as rr
-    monkeypatch.setattr(rr, "wall_pieces", lambda _ap: tuple(walls))
+    # the stub carries ``wall_pieces``' own signature — it takes the
+    # [service] record the caller hands over (issue #303)
+    monkeypatch.setattr(rr, "wall_pieces",
+                        lambda _ap, _cfg=None: tuple(walls))
     return _solve(_lot_airport(), law)
 
 

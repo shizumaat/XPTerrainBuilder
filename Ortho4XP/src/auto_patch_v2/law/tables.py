@@ -616,7 +616,9 @@ def frontage_roles(law: Law) -> frozenset[str]:
     planner read ``apron_roles`` alone while the mint read every rolled-on
     role, so SPJC ``building14`` — fronting pav40's JUNCTION cell, the
     apron body 57 m away — minted a platform the planner never held (the
-    29s contact-led tilt, 0.5 %)."""
+    29 s contact-led tilt, half a percent — the figure is spelled out
+    because this file carries no numerals a reader could mistake for law:
+    see ``test_no_numeric_literal_in_law_python_still_holds``)."""
     return rolled_on_roles(law)
 
 

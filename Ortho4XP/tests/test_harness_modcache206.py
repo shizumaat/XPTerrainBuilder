@@ -276,6 +276,40 @@ def test_a_dump_already_cached_is_RECYCLED_not_re_dumped(
     assert "RECYCLED" in prog.text
 
 
+def test_a_RENAMED_dsf_is_judged_by_its_content_like_the_loader(
+        build_mod, tmp_path, monkeypatch):
+    """#370: the object stage renamed the pristine DSF to ``.anchor_bak``
+    and its dump is cached under the OLD name.  The pre-flight, the
+    refresh pass and the engine's loader ask ONE locator, so none of them
+    refuses what the others can read — and DSFTool is never spawned."""
+    from auto_patch import dsf_reader
+    from auto_patch_v2.airport import dsf as _dsf
+
+    repo, dsf, shared = _pack_frame(tmp_path, monkeypatch, build_mod)
+    want = _expected_dump(dsf, shared)               # <tile>.dsf.<tag>.text
+    want.parent.mkdir(parents=True, exist_ok=True)
+    want.write_text("# dump\n", encoding="utf-8", newline="")
+    bak = dsf.with_name(dsf.name + ".anchor_bak")
+    os.replace(dsf, bak)
+    dsf.write_bytes(b"binary dsf bytes, written by the object stage")
+    calls_log = tmp_path / "dsftool_calls.jsonl"
+    monkeypatch.setattr(dsf_reader, "_dsftool_path",
+                        lambda: str(_fake_dsftool(tmp_path, calls_log)))
+
+    state = build_mod.pack_dsf_dump_state(repo, *TILE, ICAO)
+    assert state["dsf_path"] == str(bak)
+    assert state["dump"] == str(want)
+    assert build_mod.missing_pack_dsf_dumps(repo, *TILE, ICAO) == []
+    assert _dsf.find_text_dump(str(shared), PACK_NAME, *TILE,
+                               dsf_path=str(bak)) == str(want)
+    assert dsf_reader.ensure_dsf_text_path(
+        str(bak), str(shared / PACK_NAME)) == str(want)
+    summary = build_mod.refresh_airport_mod_cache(repo, *TILE, _Notes(),
+                                                  icao=ICAO)
+    assert summary["recycled"] is True
+    assert not calls_log.exists(), "DSFTool must not be spawned"
+
+
 def test_a_refresh_that_derived_NOTHING_refuses_instead_of_reporting_CURRENT(
         build_mod, tmp_path, monkeypatch):
     """The whole point of #206: a pass that wrote nothing while the

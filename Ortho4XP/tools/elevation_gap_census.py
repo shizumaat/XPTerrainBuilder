@@ -434,6 +434,8 @@ def airport_box(row: dict[str, Any], buffer_m: float) -> tuple[float, float, flo
 def ladder_would_deliver(row: dict[str, Any], args: argparse.Namespace, INSETS: Any) -> dict[str, Any]:
     """One HOLDER row: the covering rungs in the engine's ladder order, each
     judged from recorded discovery, and the first that would deliver."""
+    from elevation_access import definitions as ea_definitions
+
     box_ = airport_box(row, args.buffer_m)
     root = INSETS.elevation_providers_dict[args.ladder_root]
     rungs, chosen = [], None

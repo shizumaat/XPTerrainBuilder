@@ -145,7 +145,10 @@ def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
     ONCE more, with the same erosion and the same verdict, at
     ``apron.arm_reread_factor`` times its own mean width: the pavement
     "under the width" is then the path alone, and its mouth is the
-    cross-section where it opens — the owner's line."""
+    cross-section where it opens — the owner's line.  The CALLER
+    (``roles._neck_pieces``) makes a re-read cut only on taxi evidence (a
+    centreline along the arm) and never through a 1300 startup; a cut the
+    50 m reading makes is unchanged (``Neck.reread``)."""
     w = rules.corridor.max_width_m
     out, refused = _read(face, w, rules, None)
     for part, width in refused:

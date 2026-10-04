@@ -291,6 +291,15 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # neck's mouths and its pieces go back through the SAME ladder, each
     # scored on its own evidence (``_neck_pieces``).
     to_ll = airport.frame.transformers()[1]
+
+    def _ladder_taxi(poly: Polygon) -> list[Chain]:
+        """The taxi evidence the ladder reads on ``poly`` (below)."""
+        chains = _touching(poly, taxi_tree, taxi_parts, rules)
+        page = _ref_for(poly, pav_tree, ev)
+        if _apron_named(src_of.get(page), rules):
+            return _authored(chains, pav_of.get(page))
+        return chains
+
     queue: list[tuple[Polygon, dict]] = [(f, {}) for f in faces]
     stats["apron_necks"] = 0
     qi = 0
@@ -369,17 +378,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         net = any(c.runway_network for c in taxi)
         ref = _ref_for(face, pav_tree, ev)
         if _apron_named(src_of.get(ref), rules):
-            # RULINGS 2026-09-03j: stand lanes (unnamed 1202 edges) inside
-            # an apron pavement are apron; taxi law applies where an
-            # AUTHORED taxiway (a named designator) runs
-            # ...and runs ON it: at least half the chain lies inside this
-            # pavement (a neighbour's taxiway along the boundary, or a
-            # stub poking in, is that neighbour's evidence — CYXY pav17)
-            src_poly = pav_of.get(ref)
-            named = [c for c in taxi
-                     if any(not n.startswith("osm:") for n in c.names)
-                     and src_poly is not None
-                     and c.line.intersection(src_poly).length >= 0.5 * c.line.length]
+            named = _authored(taxi, pav_of.get(ref))
             kind, axis, evid = _kind(face, named, rules)
             evid["apron_named"] = 1.0
             evid["n_taxi_unnamed"] = len(taxi) - len(named)
@@ -457,7 +456,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                            or neck_ev.get("neck_new_apron"))
         if not already_cut and (kind == "apron" or apron_refused):
             pieces = _neck_pieces(face, rules, to_ll, notes, stats,
-                                  start_tree)
+                                  start_tree, _ladder_taxi)
             if pieces:
                 if evid.get("startup_refused_corridor"):
                     pieces = [(p, dict(m, startup_refused_parent=1.0)
@@ -699,8 +698,8 @@ def _mouth_ll(mouth, to_ll) -> str:
 
 
 def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
-                 stats: dict, start_tree: STRtree | None = None
-                 ) -> list[tuple[Polygon, dict]]:
+                 stats: dict, start_tree: STRtree | None = None,
+                 taxi_of=None) -> list[tuple[Polygon, dict]]:
     """§43 AN APRON ENDS AT ITS MOUTH (owner RULINGS 2026-09-14c item 2):
     ``face`` cut at the mouths of its NECKS (``classify/neck.py``), as
     ``(polygon, mark)`` pairs for the scorer's worklist — empty where the
@@ -733,6 +732,20 @@ def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
         stats["neck_startup_refused"] = \
             stats.get("neck_startup_refused", 0) + len(held)
         necks = [n for n in necks if n not in held]
+    # A RE-READ ARM BECOMES TAXIWAY ONLY ON TAXI EVIDENCE (master ruling on
+    # the lane, 2026-10-03): a taxi centreline runs along it — `taxi_of`,
+    # THE LADDER'S OWN READING of the arm (`_touching`: `cells.min_shared_m`
+    # within `cells.on_tol_m`; on an apron-named source only an AUTHORED
+    # taxiway, 03j — a stand lane is not taxi evidence).  No new number.
+    # MEASURED without it: 8 own-width cuts at SPJC / KCLT / HECA no
+    # centreline touches (service lanes and pockets of an apron), and HECA's
+    # runway moved 0.49 m beside three of them (dsf:objpav115).
+    bare = [n for n in necks if n.reread
+            and not (taxi_of is not None and taxi_of(n.polygon))]
+    if bare:
+        stats["neck_reread_no_centreline"] = \
+            stats.get("neck_reread_no_centreline", 0) + len(bare)
+        necks = [n for n in necks if n not in bare]
     if not necks:
         return []
     pieces = split_at_necks(face, necks, rules)
@@ -1144,6 +1157,18 @@ def _junction_letter(part: Polygon, touching: list[Chain], through: list[Chain],
     if best is None:
         return None, 0
     return best[1].letter, 1
+
+
+def _authored(taxi: list[Chain], src_poly) -> list[Chain]:
+    """RULINGS 2026-09-03j: stand lanes (unnamed 1202 edges) inside an
+    apron pavement are apron; taxi law applies where an AUTHORED taxiway
+    (a named designator) runs — and runs ON it: at least half the chain
+    lies inside this pavement (a neighbour's taxiway along the boundary,
+    or a stub poking in, is that neighbour's evidence — CYXY pav17)."""
+    return [c for c in taxi
+            if any(not n.startswith("osm:") for n in c.names)
+            and src_poly is not None
+            and c.line.intersection(src_poly).length >= 0.5 * c.line.length]
 
 
 def _touching(face: Polygon, tree: STRtree | None, parts, rules: Rules

@@ -243,18 +243,11 @@ def test_no_v1_import_no_env_gate_no_geometry_in_model():
             not in text and "auto_patch." not in text.replace(
                 "auto_patch_v2", ""), py
         assert "os.environ" not in text and "getenv" not in text, py
-        # THE 1,000-LINE FILE LAW IS A GUIDELINE, NOT A HARD NUMBER (owner
-        # 2026-09-13, RULINGS 2026-09-13bz): a file past it is a WARNING that
-        # the architecture wants a look — does it all still logically fit,
-        # or should it split into classes / functions / modules — never a
-        # refusal.  The warning names the file and its length; a file past
-        # 1,500 is the point at which the lane MUST split before merging.
-        n = len(text.splitlines())
-        if n > 1000:
-            import warnings
-            warnings.warn(f"{py.relative_to(SRC)}: {n} lines (guideline 1,000) "
-                          f"— consider the architecture", stacklevel=1)
-        assert n <= 1500, f"{py}: {n} lines — past the 1,500 split point"
+        # FILE LENGTH is not judged here: RULINGS 2026-10-04a/04b replaced
+        # 13bz's warn-1,000 / refuse-1,500 pair with ONE rule over every
+        # source tree — past 1,000 needs a recorded justification, modules
+        # past 1,000 should be rare, 600 is a reported band
+        # (``tests/test_ratchets.py``).
         if py.parent.name in ("model", "law"):
             assert not re.search(r"^\s*(import|from)\s+(shapely|numpy)",
                                  text, re.M), py

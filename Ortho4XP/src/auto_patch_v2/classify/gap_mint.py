@@ -35,7 +35,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..law.tables import snap_margin_m
 from ..model.airport import Airport
-from ..model.planar import GAP_PREFIX
+from ..model.planar import GAP_PREFIX, is_osm_ribbon_ref
 from .evidence import polygon_parts
 from .rules import Rules
 
@@ -87,27 +87,40 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
     weld_m = float(law.tables.emit.identity.weld_spacing_m)
     lane = float(law.tables.emit.road_profile.lane_width_m)
     knife_m = float(law.tables.structures.building_pad.groundside_cutback_m) \
-        + snap_margin_m(law)
+        + snap_margin_m(law)                 # the pad set-back (``ribbon_mint``'s)
     min_edge = float(rules.lot.airside_edge_min_m)
     grid = rules.cells.snap_grid_m
     p = law.tables.precedence
     rolling = set(p.runway_family.members) | set(p.taxi_family.members)
     polys = [(c, q) for c, q in ((c, _poly(c.ring, c.holes)) for c in cells)
              if q is not None]
-    standing = [q for _c, q in polys]
-    if knife_m > 0.0:
-        standing += [q.buffer(knife_m, join_style="mitre", mitre_limit=2.0)
-                     for c, q in polys if c.role == "building"]
+    # THE STAND-OFF (spec §53 (12), master 2026-10-04): a piece welds ONLY to
+    # the APRON rim (pass C's own rim rule) and shares its rim with the
+    # mapped-road ribbons that run through or along it (they are solved WITH
+    # it — the last stage's followers).  From every OTHER standing cell — a
+    # pad, an apt.dat or pack road, a lot, groundside pavement, a facade
+    # cell, a runway / taxi face — it stands one identity cell beyond the pad
+    # set-back: the §52 facade strip's own stand-off (``facade_mint``'s
+    # ``strip_knives``, 1.45 m), for §52 (8)'s own reason — at the bare
+    # set-back a sub-cell sliver is merged across and one shared vertex moves
+    # the neighbour.  So no gap ring nodes a standing ring.
+    standoff_m = knife_m + ident
+
+    def off(q):
+        return q.buffer(standoff_m, join_style="mitre", mitre_limit=2.0)
+    flush = [q for c, q in polys
+             if c.role == "apron" or is_osm_ribbon_ref(c.ref)]
+    apart = [off(q) for c, q in polys
+             if not (c.role == "apron" or is_osm_ribbon_ref(c.ref))]
     # THE ADJACENT-GROUND BANDS ARE THE RUNWAY / TAXI FAMILY'S GROUND (master
     # 2026-10-04: airside is king — a gap piece never claims zone ground).
     # The bands are not CELLS — ``planar/zones`` derives them later, from the
-    # cells — so "every cell standing" does not hold them; their un-trimmed
-    # extent is ``ribbon_mint.ribbon_extent``'s own envelope (the zone
-    # table's half-widths), subtracted here like a standing cell.
+    # cells, so their own rings do not exist here; their UN-TRIMMED extent is
+    # ``ribbon_mint.ribbon_extent``'s envelope (the zone table's
+    # half-widths), stood off like a standing cell.
     from .ribbon_mint import ribbon_extent
     bands = ribbon_extent(cells, law, Polygon())
-    if not bands.is_empty:
-        standing.append(bands)
+    band_knife = off(bands) if not bands.is_empty else Polygon()
     aprons = [q for c, q in polys if c.role == "apron"]
     rolled = [q for c, q in polys if c.role in rolling]
     apron_tree = STRtree(aprons) if aprons else None
@@ -117,10 +130,12 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
     # simplified at half the identity spacing BEFORE the difference, so the
     # runs it shares with a standing cell stay that cell's own boundary
     sheet = unary_union(sheets).simplify(0.5 * ident, preserve_topology=True)
-    geom = shapely.set_precision(sheet.difference(unary_union(standing)), grid)
-    if not bands.is_empty:
-        stats["gap_band_trim_m2"] = float(sheet.difference(
-            unary_union(standing[:-1])).intersection(bands).area)
+    before_bands = sheet.difference(unary_union(flush + apart))
+    geom = shapely.set_precision(
+        before_bands.difference(band_knife) if not band_knife.is_empty
+        else before_bands, grid)
+    if not band_knife.is_empty:
+        stats["gap_band_trim_m2"] = float(before_bands.intersection(band_knife).area)
     to_ll = airport.frame.transformers()[1]
     parts = sorted(polygon_parts(geom),
                    key=lambda q: (-round(q.area), round(q.bounds[0], 2),
@@ -134,7 +149,8 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
         apron_m = _shared_m(part, apron_tree, aprons, weld_m) if apron_tree else 0.0
         touches = apron_m >= min_edge
         if not touches and rolled_tree is not None:
-            rolled_m = _shared_m(part, rolled_tree, rolled, weld_m)
+            # across the stand-off: the piece is never flush on such a face
+            rolled_m = _shared_m(part, rolled_tree, rolled, standoff_m + weld_m)
             if rolled_m >= min_edge:
                 stats["gap_pieces_unminted_airside"] += 1
                 if notes is not None:
@@ -145,6 +161,12 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
                         f"{lat:.7f}, {lon:.7f} runs {rolled_m:,.0f} m along a "
                         f"runway / taxi face and touches no apron (§53)")
                 continue
+        lost = (float(part.buffer(standoff_m).intersection(before_bands)
+                      .intersection(band_knife).area)
+                if not band_knife.is_empty else 0.0)
+        if notes is not None and lost >= 1.0:
+            notes.append(f"gap piece {GAP_PREFIX}:{k}: {part.area:,.0f} m2; the "
+                         f"runway / taxi band envelope took {lost:,.0f} m2 beside it (§53 (12))")
         add(APRON_TOUCH_ROLE if touches else ROLE, f"{GAP_PREFIX}:{k}", part,
             KIND, None, None,
             {"gap_piece": 1.0, "area_m2": float(part.area),

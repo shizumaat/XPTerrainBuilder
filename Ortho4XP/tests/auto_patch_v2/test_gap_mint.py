@@ -59,8 +59,12 @@ def test_a_piece_is_the_sheet_minus_every_cell_standing_and_the_pad_setback():
     piece = out[0][2]
     for c in (apron, road, pad):
         assert piece.intersection(Polygon(c.ring)).area == pytest.approx(0.0, abs=1e-6)
-    assert piece.distance(Polygon(pad.ring)) > 0.5          # the set-back stands
-    assert piece.distance(Polygon(apron.ring)) == 0.0       # flush on the apron rim
+    ident = LAW.tables.emit.identity.min_distinct_spacing_m
+    # one identity cell beyond the pad set-back — the facade strip's stand-off
+    # — from the pad AND from the road; flush on the apron rim only
+    assert piece.distance(Polygon(pad.ring)) == pytest.approx(0.95 + ident, abs=0.02)
+    assert piece.distance(Polygon(road.ring)) == pytest.approx(0.95 + ident, abs=0.02)
+    assert piece.distance(Polygon(apron.ring)) == 0.0
     assert stats["gap_pieces"] == 1 and stats["gap_piece_m2"] == pytest.approx(piece.area)
 
 
@@ -100,7 +104,7 @@ def test_a_piece_along_a_runway_or_taxi_face_and_no_apron_is_not_minted(monkeypa
     taxi = _cell(0, "junction", "pav9", box(0, 0, 100, 30))
     out, stats, notes = _mint(_airport(box(0, 30, 100, 60)), [taxi])
     assert out == [] and stats["gap_pieces_unminted_airside"] == 1
-    assert "NOT minted" in notes[0] and "3,000 m2" in notes[0]
+    assert "NOT minted" in notes[0] and "2,855 m2" in notes[0]
     # ...and with an apron contact as well it IS minted
     apron = _cell(1, "apron", "pav1", box(100, 30, 160, 60))
     out, _s, _n = _mint(_airport(box(0, 30, 100, 60)), [taxi, apron])
@@ -144,3 +148,13 @@ def test_a_piece_never_claims_the_runway_or_taxi_familys_band():
     assert len(out) == 1
     assert out[0][2].intersection(band).area == pytest.approx(0.0, abs=1e-6)
     assert stats["gap_band_trim_m2"] > 0.0
+
+
+def test_a_piece_shares_its_rim_with_a_mapped_road_ribbon():
+    """A ribbon through a piece is solved WITH it (the last stage's
+    follower): no stand-off between them."""
+    apron = _cell(0, "apron", "pav1", box(0, 0, 100, 50))
+    ribbon = _cell(1, "service_road", "small_roads:-7", box(0, 80, 100, 88))
+    out, _s, _n = _mint(_airport(box(0, 50, 100, 120)), [apron, ribbon])
+    assert len(out) == 2
+    assert all(p.distance(Polygon(ribbon.ring)) == 0.0 for _r, _f, p, _k, _e in out)

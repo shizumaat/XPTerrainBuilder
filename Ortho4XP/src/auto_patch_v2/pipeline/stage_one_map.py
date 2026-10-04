@@ -40,7 +40,8 @@ import typing as _t
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
                                  Offset, Pin)
 
-__all__ = ["StageOne", "ribbon_free", "stage_one_problem", "remap_row"]
+__all__ = ["StageOne", "ribbon_free", "stage_one_problem", "remap_row",
+           "gap_free", "late_followers", "late_fixed"]
 
 
 def ribbon_free(cl):
@@ -51,6 +52,93 @@ def ribbon_free(cl):
     if len(cells) == len(cl.cells):
         return None
     return _dc.replace(cl, cells=cells)
+
+
+def _items(vertices):
+    """``(id, vertex)`` of a map's vertex table (a dict, or a list)."""
+    return vertices.items() if isinstance(vertices, dict) else enumerate(vertices)
+
+
+def gap_free(cl):
+    """``cl`` without its §53 gap pieces, or ``None`` when it has none —
+    THE BASE MAP of the last stage (below)."""
+    from ..model.planar import is_gap_ref
+    cells = tuple(c for c in cl.cells if not is_gap_ref(getattr(c, "ref", "")))
+    if len(cells) == len(cl.cells):
+        return None
+    return _dc.replace(cl, cells=cells)
+
+
+def _face_vertices(f) -> set[int]:
+    out = {int(v) for v in f.ring}
+    for h in getattr(f, "holes", ()) or ():
+        out.update(int(v) for v in h)
+    return out
+
+
+def _face_edges(f) -> set[frozenset]:
+    out = set()
+    for ring in (f.ring, *(getattr(f, "holes", ()) or ())):
+        n = len(ring)
+        out.update(frozenset((int(ring[i]), int(ring[(i + 1) % n])))
+                   for i in range(n))
+    return out
+
+
+def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset()
+                   ) -> tuple[set[int], dict]:
+    """THE LAST STAGE'S UNKNOWNS (spec §53 (9); owner RULINGS 2026-10-04o/q,
+    master 2026-10-04: "pieces follow, never lead"): the vertices of every
+    §53 GAP PIECE, and of every mapped-road RIBBON
+    (``model.planar.is_osm_ribbon_ref``) that shares a ring EDGE with a gap
+    piece — a road through or along a pavement is that pavement (the
+    free-road ruling) — LESS every vertex a face that is neither carries:
+    a pad, an airside face, an apt.dat road, an existing lot keeps the level
+    the earlier stages gave it, and the follower grades up to it.  A face of
+    a ``soft_roles`` role (the adjacent-ground bands, which adopt their
+    value) does not hold a vertex.  ``(vertices, report)``."""
+    from ..model.planar import is_gap_ref, is_osm_ribbon_ref
+    gap = [f for f in pm_full.faces.values() if is_gap_ref(f.ref)]
+    gap_edges: set = set()
+    for f in gap:
+        gap_edges |= _face_edges(f)
+    ribbons = [f for f in pm_full.faces.values()
+               if f.role == "service_road" and is_osm_ribbon_ref(f.ref)
+               and _face_edges(f) & gap_edges]
+    follow = {f.id for f in gap} | {f.id for f in ribbons}
+    free: set[int] = set()
+    held: set[int] = set()
+    for f in pm_full.faces.values():
+        if f.id in follow:
+            free |= _face_vertices(f)
+        elif f.role not in soft_roles:
+            held |= _face_vertices(f)
+    rep = {"gap_faces": len(gap), "follower_ribbons": len(ribbons),
+           "follower_ribbon_refs": sorted({str(f.ref) for f in ribbons}),
+           "vertices": len(free - held), "held_on_a_leader": len(free & held)}
+    return free - held, rep
+
+
+def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int]
+               ) -> tuple[dict[int, float], dict]:
+    """THE LAST STAGE'S CONSTANTS: the base map's solved level of every
+    vertex the full map carries (the CANONICAL join, by coordinate — the
+    one ``StageOne.bind`` makes) that is not ``free``.  A full-map vertex
+    the base map lacks and no follower owns is COUNTED (``unjoined``) and
+    left an unknown, never guessed."""
+    at = {tuple(v.xy): i for i, v in _items(pm_full.vertices)}
+    fixed: dict[int, float] = {}
+    miss = 0
+    for i, v in _items(pm_base.vertices):
+        j = at.get(tuple(v.xy))
+        if j is None:
+            miss += 1
+        elif j not in free:
+            fixed[j] = float(z_base[i])
+    n_full = len(pm_full.vertices)
+    return fixed, {"base_vertices": len(pm_base.vertices), "full_vertices": n_full,
+                   "base_unmapped": miss, "fixed": len(fixed),
+                   "unjoined": n_full - len(fixed) - len(free)}
 
 
 def remap_row(row, vmap: _t.Mapping[int, int]):
@@ -94,11 +182,6 @@ def remap_row(row, vmap: _t.Mapping[int, int]):
             return None
         return _dc.replace(row, terms=ts, follows=fo)
     raise TypeError(f"stage_one_map: unknown row type {type(row).__name__}")
-
-
-def _items(vertices):
-    """``(id, vertex)`` of a map's vertex table (a dict, or a list)."""
-    return vertices.items() if isinstance(vertices, dict) else enumerate(vertices)
 
 
 @_dc.dataclass

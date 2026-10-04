@@ -2113,7 +2113,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            solved_out: Path | None = None, chord_fill: tuple[str, ...] = (),
            site_radius_m: float = 12.0, why_hard_limit: int | None = None,
            why_hard_stage: int | None = None,
-           placement: dict | None = None) -> int:
+           placement: dict | None = None,
+           late_from: Path | None = None) -> int:
     import numpy as np
     from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps
@@ -2158,9 +2159,23 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         pass
     if prob.get("stage1") is not None:
         _kw["stage1"] = prob["stage1"]          # #100 option (c)
-    sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
-                            method=method, strips=strips, **_kw)
-    if prob.get("stage1") is not None:
+    if late_from is not None:
+        # spec §53 (9) THE LAST STAGE: the BASE solve (--solved-out of the
+        # same airport WITHOUT its gap pieces) is the constant; only the
+        # followers are unknowns
+        from auto_patch_v2.pipeline.stage_one_map import late_fixed, late_followers
+        from auto_patch_v2.solve.design import solve_late_stage
+        with open(late_from, "rb") as _fh:
+            _base = pickle.load(_fh)
+        _free, _frep = late_followers(pm, frozenset({"graded_strip"}))
+        _fixed, _jrep = late_fixed(_base["pm"], _base["z"], pm, _free)
+        print(f"[{icao}] LAST STAGE (§53 (9)) off {late_from}: followers {_frep}; join {_jrep}")
+        sol, rep = solve_late_stage(pm, cs, law, _fixed, Options(verbose=verbose),
+                                    size_out=size, method=method)
+    else:
+        sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
+                                method=method, strips=strips, **_kw)
+    if late_from is None and prob.get("stage1") is not None:
         print(f"[{icao}] stage 1 map (#100 (c)): {rep.stages.get('stage1_map')}")
     wall = round(time.perf_counter() - t, 1)
     # the rows stage 2 SOLVED are the ones --why-hard / --verify must read
@@ -2432,6 +2447,11 @@ def main() -> int:
     ap.add_argument("--chord-fill", nargs="+", default=[], metavar="ROLE",
                     help="experiment arm (08g-2): these roles' vertices within the strip take the "
                          "crown-plane chord as their fit target (constraints.runway_chord fill_roles)")
+    ap.add_argument("--late-from", type=Path, metavar="PKL",
+                    help="spec \u00a753 (9) THE LAST STAGE: a --solved-out pickle of the "
+                         "SAME airport without its gap pieces (the base solve); every "
+                         "vertex it carries is fixed at its level and only the gap "
+                         "pieces and the ribbons along them are solved")
     ap.add_argument("--solved-out", type=Path, metavar="PKL",
                     help="pickle the solved set for --why-from")
     ap.add_argument("--why-from", type=Path, metavar="PKL",
@@ -2578,7 +2598,8 @@ def main() -> int:
                       verbose=a.design_verbose, sites=sites, site_radius_m=a.site_radius,
                       emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,
                       chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard,
-                      why_hard_stage=a.why_hard_stage, placement=pl)
+                      why_hard_stage=a.why_hard_stage, placement=pl,
+                      late_from=a.late_from)
     ap.error("one of --capture / --replay")
     return 2
 

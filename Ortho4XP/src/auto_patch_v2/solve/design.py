@@ -365,6 +365,22 @@ def _with_facade_strips(planar: PlanarMap, law: Law, sol: Solution,
     return _dc.replace(sol, z=z), rep
 
 
+def solve_late_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
+                     fixed: _t.Mapping[int, float],
+                     options: Options | None = None, *,
+                     size_out: dict | None = None,
+                     method: str = DEFAULT_METHOD,
+                     low_rank: str = DEFAULT_LOW_RANK
+                     ) -> tuple[Solution, DesignReport]:
+    """THE LAST STAGE (spec §53 (9)): the full map with every level the
+    earlier stages gave substituted as a constant — ``fixed``, the caller's
+    coordinate join (``pipeline/stage_one_map.late_fixed``) — so only the
+    followers are unknowns and every row between a follower and a leader has
+    a constant on the leader's side: one-way by construction."""
+    return published(*_solve_stage(planar, cs, law, options, size_out=size_out,
+                                   method=method, low_rank=low_rank, fixed=fixed))
+
+
 def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  options: Options | None = None, *,
                  size_out: dict | None = None,

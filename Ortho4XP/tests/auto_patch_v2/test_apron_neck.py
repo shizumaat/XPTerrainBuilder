@@ -296,3 +296,13 @@ def test_a_narrow_stretch_holding_a_startup_is_not_cut(rules):
     assert stats["neck_startup_refused"] == 1
     on_apron = STRtree([Point(75.0, 75.0)])
     assert len(_neck_pieces(face, rules, ident, [], stats, on_apron)) == 2
+    # RE-READ ARMS ONLY: an arm the 50 m reading itself cuts is cut with
+    # or without a stand on it, exactly as before #314 (HECA's Remote
+    # Stand bays, KCLT's 'FireStation19')
+    first = _pav188()
+    assert [n.reread for n in necks_of(first, rules)] == [False]
+    assert [n.reread for n in necks_of(face, rules)] == [True]
+    on_first = STRtree([Point(300.0, 35.0)])
+    stats = {}
+    assert len(_neck_pieces(first, rules, ident, [], stats, on_first)) == 2
+    assert "neck_startup_refused" not in stats

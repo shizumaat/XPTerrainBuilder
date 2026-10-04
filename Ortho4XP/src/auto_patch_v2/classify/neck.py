@@ -122,6 +122,8 @@ class Neck:
     #: the arm verdict's own two numbers, published for the census
     aspect: float = 0.0
     mouth_factor: float = 0.0
+    #: found by the OWN-WIDTH re-read (#314), not at ``corridor.max_width_m``
+    reread: bool = False
 
 
 def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
@@ -149,7 +151,8 @@ def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
     for part, width in refused:
         own = rules.apron.arm_reread_factor * width
         if 0.0 < own < w:
-            out.extend(_read(face, own, rules, part)[0])
+            out.extend(_dc.replace(n, reread=True)
+                       for n in _read(face, own, rules, part)[0])
     return out
 
 

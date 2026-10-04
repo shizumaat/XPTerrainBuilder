@@ -425,7 +425,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # junction (CYXY pav5: 1,555 m2 of the 14,978 m2 remainder; pav3:
         # the whole 5,542 m2 'South ramp').  The parent's refusal travels
         # with the piece (`startup_refused_parent`) and stands wherever the
-        # piece still holds a stand of its own.
+        # piece still holds a stand of its own.  Only beyond a cut the
+        # OWN-WIDTH re-read made (`neck_reread`): the 50 m reading's
+        # products are scored exactly as before.
         if not is_neck and _holds_startup(face, start_tree) and (
                 kind == "corridor" or neck_ev.get("startup_refused_parent")):
             apron_refused = True
@@ -458,8 +460,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                                   start_tree)
             if pieces:
                 if evid.get("startup_refused_corridor"):
-                    pieces = [(p, m if m.get("neck_cut") else
-                               dict(m, startup_refused_parent=1.0))
+                    pieces = [(p, dict(m, startup_refused_parent=1.0)
+                               if m.get("neck_reread") else m)
                               for p, m in pieces]
                 queue.extend(pieces)
                 continue
@@ -722,7 +724,11 @@ def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
     # parking position on it" — the same rung that refuses the corridor
     # kind refuses the cut that would mint one.  MEASURED (CYXY pav3,
     # 'South ramp'): the stand sits on a 7.4 m x 189 m arm of the cell.
-    held = [n for n in necks if _holds_startup(n.polygon, start_tree)]
+    # RE-READ ARMS ONLY (master ruling on the lane, 2026-10-03): a cut the
+    # 50 m reading makes behaves exactly as before — HECA's Remote Stand
+    # bays and KCLT's 'FireStation19' arm stay cut.
+    held = [n for n in necks
+            if n.reread and _holds_startup(n.polygon, start_tree)]
     if held:
         stats["neck_startup_refused"] = \
             stats.get("neck_startup_refused", 0) + len(held)
@@ -749,7 +755,10 @@ def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
     out: list[tuple[Polygon, dict]] = []
     for poly, is_neck in pieces:
         if not is_neck:
-            out.append((poly, {"neck_new_apron": 1.0, "neck_mouths": mouths}))
+            mark = {"neck_new_apron": 1.0, "neck_mouths": mouths}
+            if any(n.reread for n in necks):
+                mark["neck_reread"] = 1.0
+            out.append((poly, mark))
             continue
         # THIS piece's OWN neck (a face may hold several): the census has
         # to name each cut with the width and length ITS rule read, never

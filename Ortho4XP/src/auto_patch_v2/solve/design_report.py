@@ -337,6 +337,10 @@ class DesignReport:
     #: §2): the apron under the jetways levelled between the stages
     #: (``solve/project_strip.project_strips``)
     jetway_strip: StripReport = _dc.field(default_factory=StripReport)
+    #: §52 THE FACADE STRIPS (owner RULINGS 2026-10-04d (3) (a), 04f): each
+    #: strip projected onto its host pad's final plane after the solve
+    #: (``solve/project_strip.project_facade_strips``)
+    facade_strip: dict = _dc.field(default_factory=dict)
     #: THE RUNWAY'S FLEX (flat-pad spec v2 §1 / §6 A11, RULINGS
     #: 2026-09-30as): per PULLED runway its budget, lift, used share and
     #: pulling pad (``constraints/no_step.HoldPass.finish``); empty where no
@@ -644,6 +648,7 @@ class DesignReport:
                 "runway_projection": self.runway_projection.as_dict(),
                 "zone_projection": self.zone_projection.as_dict(),
                 "jetway_strip": self.jetway_strip.as_dict(),
+                "facade_strip": dict(self.facade_strip),
                 "runway_flex": self.runway_flex,
                 "fronting_promoted": self.fronting_promoted,
                 "fronting_promoted_by": self.fronting_promoted_by,

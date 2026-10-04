@@ -25,7 +25,7 @@ from shapely.ops import unary_union
 from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
 from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
-from ..model.planar import is_osm_ribbon_ref
+from ..model.planar import is_late_ref
 from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
                     shore_declarations, shore_verdict)
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
@@ -182,7 +182,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # cut-back.
     everything = unary_union(
         [Polygon(c.ring, c.holes).buffer(cut, **_MITRE)
-         if c.side == "groundside" and not is_osm_ribbon_ref(getattr(c, "ref", ""))
+         if c.side == "groundside" and not is_late_ref(getattr(c, "ref", ""))
          else Polygon(c.ring, c.holes) for c in cells]
         + [Polygon(k).buffer(cut, **_MITRE) for k in keepouts]) if cells else Polygon()
     lip = ag.lip_width_m

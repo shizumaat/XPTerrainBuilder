@@ -63,7 +63,7 @@ from ..law import Law
 from ..law.tables import design as design_law, pavement_roles
 from ..model.airport import Airport
 from ..model.constraints import Row, Source
-from ..model.planar import PlanarMap, is_osm_ribbon_ref
+from ..model.planar import PlanarMap, is_late_ref
 from .precedence import view
 
 __all__ = ["reach_m", "facing", "analysis", "pad_fronting_level",
@@ -129,7 +129,7 @@ def facing(planar: PlanarMap, law: Law) -> dict[int, dict[int, list[int]]]:
     # HECA: a ribbon in the gap cut building168's facing frontage to
     # ``dsf:objpav115`` and the pad fell to its DEM datum, 3.67 m
     blockers = [b for b in _polys(planar, law, tuple(pavement_roles(law)))
-                if not is_osm_ribbon_ref(planar.faces[b[0]].ref)]
+                if not is_late_ref(planar.faces[b[0]].ref)]
     a_tree = STRtree([a[3] for a in aprons])
     b_tree = STRtree([b[3] for b in blockers])
     xy = {v: vx.xy for v, vx in planar.vertices.items()}

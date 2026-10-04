@@ -34,17 +34,18 @@ strips + transitions <= hard_tol_m" holds BY CONSTRUCTION.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 import time
 import typing as _t
 
 import numpy as np
 
 from ..law import Law
-from ..law.tables import design as design_law, role_cap
+from ..law.tables import design as design_law, role_cap, role_side
 from ..model.jetway import StripSet
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, facade_strip_host, is_facade_strip_ref
 
-__all__ = ["StripReport", "project_strips"]
+__all__ = ["StripReport", "project_strips", "project_facade_strips"]
 
 
 @_dc.dataclass
@@ -367,3 +368,92 @@ def _frontage_residual(st: _t.Any, levels: _t.Mapping[int, float],
     if len(pts) < 3:
         pts = vs
     return float(max(abs(levels[v] - _at(pl, xy[v])) for v in pts))
+
+
+# ── §52: the facade strip takes its host pad's FINAL level at its edge ────
+
+def project_facade_strips(planar: PlanarMap, law: Law,
+                          z: _t.Sequence[float]) -> tuple[tuple[float, ...], dict]:
+    """THE FACADE STRIP STANDS AT ITS HOST PAD'S LEVEL (spec §52; owner
+    RULINGS 2026-10-04d (3) (a) "at the pad's level ... the pad footprint,
+    frontage and weld do not move", 2026-10-04f "it should stay with the
+    building pad"; master 2026-10-04 round 3).
+
+    A PROJECTION AFTER THE WHOLE SOLVE, on the final ``z``: every vertex of
+    a ``facstrip:<pad>:<k>`` face takes the host pad's value AT THE NEAREST
+    POINT OF ITS EDGE (interpolated along that rim edge).  A flat pad gives
+    one level; a pad with a ``#collar`` gives its RIM's level there, so the
+    stand-off between pad and strip is level across (MEASURED in the tile
+    mesh, SPJC ``building62``: the platform's level put the strip 1.63 m
+    under the collar rim it stands beside).  The strip mints no row and
+    the pad is read, never written, so no pad and no airside vertex can
+    move BY CONSTRUCTION — the in-solve forms were measured and failed
+    (spec §52 (6)).
+
+    A strip vertex a GROUNDSIDE face shares (a road or lot reaching the
+    strip) is moved too — the strip never moves to meet the road (04f) —
+    and counted in ``shared``.  A vertex an AIRSIDE-side face carries (an
+    apron the strip was trimmed against, a pad corner) is NEVER moved: the
+    strip yields there, counted in ``yielded`` (airside is king).  Returns
+    the new ``z`` and the report."""
+    faces = [f for f in planar.faces.values() if is_facade_strip_ref(f.ref)]
+    rep: dict[str, _t.Any] = {"strips": [], "vertices": 0, "no_host": 0,
+                              "shared": 0, "yielded": 0, "moved_max_m": 0.0}
+    if not faces:
+        return tuple(z), rep
+    pad_edges: dict[str, set[tuple[int, int]]] = {}
+    strip_vs: dict[int, set[int]] = {}
+    users: dict[int, int] = {}
+    airside: set[int] = set()
+    for f in planar.faces.values():
+        rings = [planar.ring_vertices(ring) for ring in (f.ring, *f.holes)]
+        vs = {v for ring in rings for v in ring}
+        if is_facade_strip_ref(f.ref):
+            strip_vs[f.id] = vs
+            continue
+        for v in vs:
+            users[v] = users.get(v, 0) + 1
+        if role_side(law, f.role) == "airside":
+            airside.update(vs)
+        if bool(getattr(law.tables.precedence.roles.get(f.role), "rigid", False)):
+            acc = pad_edges.setdefault(str(f.ref).split("#")[0], set())
+            for ring in rings:
+                acc.update((min(a, b), max(a, b))
+                           for a, b in zip(ring, tuple(ring[1:]) + tuple(ring[:1]))
+                           if a != b)
+    out = [float(v) for v in z]
+    xy = {v: planar.vertices[v].xy for v in planar.vertices}
+    for f in sorted(faces, key=lambda f: f.id):
+        host = facade_strip_host(f.ref)
+        edges = sorted(e for e in pad_edges.get(host or "", ())
+                       if e[0] < len(out) and e[1] < len(out))
+        vs = sorted(v for v in strip_vs[f.id] if v < len(out))
+        if not edges or not vs:
+            rep["no_host"] += 1
+            continue
+        A = np.array([xy[a] for a, _b in edges], dtype=float)
+        B = np.array([xy[b] for _a, b in edges], dtype=float)
+        za = np.array([out[a] for a, _b in edges])
+        zb = np.array([out[b] for _a, b in edges])
+        d = B - A
+        len2 = np.maximum((d * d).sum(axis=1), 1e-12)
+        moved, lo, hi = 0.0, math.inf, -math.inf
+        for v in vs:
+            if v in airside:
+                rep["yielded"] += 1
+                continue
+            p = np.array(xy[v], dtype=float)
+            t = np.clip(((p - A) * d).sum(axis=1) / len2, 0.0, 1.0)
+            q = A + d * t[:, None]
+            k = int(np.argmin(((q - p) ** 2).sum(axis=1)))
+            new = float(za[k] + (zb[k] - za[k]) * t[k])
+            moved = max(moved, abs(new - out[v]))
+            lo, hi = min(lo, new), max(hi, new)
+            out[v] = new
+            rep["shared"] += int(users.get(v, 0) > 0)
+        rep["strips"].append({"face": f.id, "ref": f.ref, "pad_ref": host,
+                              "level": [round(lo, 4), round(hi, 4)] if hi >= lo else None,
+                              "vertices": len(vs), "moved_max_m": round(moved, 4)})
+        rep["vertices"] += len(vs)
+        rep["moved_max_m"] = max(rep["moved_max_m"], round(moved, 4))
+    return tuple(out), rep

@@ -60,6 +60,7 @@ class Apron:
     neck_length_m: float
     arm_min_aspect: float
     arm_mouth_max_factor: float
+    arm_reread_factor: float
 
 
 @_dc.dataclass(frozen=True)

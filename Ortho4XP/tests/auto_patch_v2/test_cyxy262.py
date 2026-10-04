@@ -55,7 +55,11 @@ def test_a_corridor_cell_holding_a_startup_is_apron():
     base = _synthetic(gate=True)
     rules = load_rules()
     cl0 = classify(base, synt_law, rules)
-    corridors = [c for c in cl0.cells if c.kind == "corridor"]
+    # a corridor BY ITS MEAN WIDTH — not a §43 arm (#314 cuts the fixture's
+    # half-taxiway off its apron; a stand on that arm refuses the CUT, the
+    # twin of which is test_apron_neck's)
+    corridors = [c for c in cl0.cells if c.kind == "corridor"
+                 and not c.evidence.get("neck_cut")]
     assert corridors, "the classify fixture mints corridor cells"
     c = max(corridors, key=lambda c: Polygon(c.ring, c.holes).area)
     rp = Polygon(c.ring, c.holes).representative_point()

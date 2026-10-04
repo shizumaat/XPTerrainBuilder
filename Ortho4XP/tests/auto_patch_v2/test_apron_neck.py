@@ -205,3 +205,94 @@ def test_the_fringe_is_not_an_arm(rules):
                  unary_union([box(0, 0, 300, 300), box(300, 0, 600, 120)]),
                  box(0, 0, 900, 400)):
         assert [n.kind for n in necks_of(face, rules)] == []
+
+
+# ── #314 (owner read of app 1.0.372, CYXY ``pav5`` / shapeID 169) ─────
+# "A mouth cut across the pavement between 60.7085411, -135.0764314 and
+# 60.708562, -135.0764953; the narrow part on the taxiway side is taxiway,
+# the widening remainder is apron."  The half-taxiway is 5.5 m wide and
+# opens into a ~20 m stand bay BEFORE the pavement reaches 50 m, so at the
+# 50 m reading the path, the bay and the lobe's corner fringe are ONE
+# narrow component (mouth factor 19.2) and the arm verdict refused it.
+
+
+def _pav5(strip_w: float = 6.0, strip_l: float = 310.0, bay: bool = True):
+    """A 150 m apron, a 40 x 20 m bay on its flank, and a ``strip_w``-wide
+    path leaving along the apron's own edge line from the bay's end."""
+    parts = [box(0, 0, 150, 150), box(150, 0, 190 + strip_l, strip_w)]
+    if bay:
+        parts.append(box(150, 0, 190, 20))
+    return unary_union(parts)
+
+
+def _no_reread(rules):
+    return _dc.replace(rules, apron=_dc.replace(rules.apron,
+                                                arm_reread_factor=0.0))
+
+
+def test_a_path_that_opens_into_a_bay_is_refused_at_the_apron_width(rules):
+    """THE MECHANISM, as measured: without the own-width re-read the path
+    is proposed and refused (nothing is cut)."""
+    assert necks_of(_pav5(), _no_reread(rules)) == []
+
+
+def test_the_path_is_cut_where_it_opens(rules):
+    face = _pav5()
+    necks = necks_of(face, rules)
+    assert [n.kind for n in necks] == ["arm"]
+    n = necks[0]
+    assert n.width_m == pytest.approx(6.0, abs=1.0)
+    assert n.length_m == pytest.approx(310.0, abs=15.0)
+    assert n.mouth_factor <= rules.apron.arm_mouth_max_factor
+    # the mouth is the path's own cross-section at the bay's end (x = 190),
+    # to within the re-read's own disc (the chord of an arc of that radius)
+    (a, b), = n.mouth_lines
+    reach = rules.apron.arm_reread_factor * n.width_m
+    for x, y in (a, b):
+        assert abs(x - 190.0) <= reach and -0.5 <= y <= reach
+    pieces = split_at_necks(face, necks, rules)
+    arm = [p for p, is_neck in pieces if is_neck]
+    rest = [p for p, is_neck in pieces if not is_neck]
+    assert len(arm) == 1 and len(rest) == 1
+    assert arm[0].area == pytest.approx(310.0 * 6.0, rel=0.05)
+    assert rest[0].contains(box(155, 8, 185, 18))      # the bay stays apron
+
+
+def test_the_reread_factor_is_law(rules):
+    assert rules.apron.arm_reread_factor == 2.0
+    # ...and steers the verdict: a path is never re-read at a width that
+    # reaches `corridor.max_width_m` (it would be the first reading again)
+    huge = _dc.replace(rules, apron=_dc.replace(rules.apron,
+                                                arm_reread_factor=1e3))
+    assert necks_of(_pav5(), huge) == []
+
+
+def test_the_reread_leaves_the_earlier_twins_alone(rules):
+    """Every face the first reading already decides reads the same with
+    and without the re-read: the dumbbell, pav188, the fringe traps."""
+    off = _no_reread(rules)
+    for face in (_dumbbell(), _dumbbell(neck_l=30.0), _pav188(),
+                 _pav188(arm_w=60.0), _pav188(arm_w=45.0, arm_l=90.0),
+                 box(0, 0, 300, 300), box(0, 0, 900, 400),
+                 unary_union([box(0, 0, 300, 300), box(300, 0, 600, 120)]),
+                 unary_union([box(0, 0, 300, 300), box(300, 0, 340, 100)])):
+        assert [(n.kind, round(n.area_m2)) for n in necks_of(face, rules)] \
+            == [(n.kind, round(n.area_m2)) for n in necks_of(face, off)]
+
+
+def test_a_narrow_stretch_holding_a_startup_is_not_cut(rules):
+    """#262's rung at the cut: "a taxiway has no parking position on it".
+    CYXY pav3's 'South ramp' stand sits on a 7.4 m x 189 m arm."""
+    from shapely.geometry import Point
+    from shapely.strtree import STRtree
+
+    from auto_patch_v2.classify.roles import _neck_pieces
+    face = _pav5()
+    ident = lambda x, y: (x, y)                        # noqa: E731
+    stats: dict = {}
+    assert len(_neck_pieces(face, rules, ident, [], stats, None)) == 2
+    on_arm = STRtree([Point(350.0, 3.0)])
+    assert _neck_pieces(face, rules, ident, [], stats, on_arm) == []
+    assert stats["neck_startup_refused"] == 1
+    on_apron = STRtree([Point(75.0, 75.0)])
+    assert len(_neck_pieces(face, rules, ident, [], stats, on_apron)) == 2

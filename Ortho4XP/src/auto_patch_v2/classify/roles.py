@@ -418,7 +418,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # cells hold a startup; KCLT 1 (pav165, 3,008 m2, 'FireStation19');
         # CYXY 2 (this one and pav3's 'South ramp' stand).  A boolean rung:
         # no threshold, no literal.
-        if kind == "corridor" and not is_neck and _holds_startup(face, start_tree):
+        # #314: THE RUNG HOLDS FOR THE APRON BEYOND A §43 CUT.  The pavement
+        # left when an arm is cut out of a startup-refused cell reads `apron`
+        # by its own width, so the `corridor` test above never fires on it
+        # and the route-proximity cut below was free to re-mint it as a
+        # junction (CYXY pav5: 1,555 m2 of the 14,978 m2 remainder; pav3:
+        # the whole 5,542 m2 'South ramp').  The parent's refusal travels
+        # with the piece (`startup_refused_parent`) and stands wherever the
+        # piece still holds a stand of its own.
+        if not is_neck and _holds_startup(face, start_tree) and (
+                kind == "corridor" or neck_ev.get("startup_refused_parent")):
             apron_refused = True
             kind, axis = "apron", None
             evid = dict(evid, kind="apron", startup_refused_corridor=1.0,
@@ -445,8 +454,13 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         already_cut = bool(neck_ev.get("neck_cut")
                            or neck_ev.get("neck_new_apron"))
         if not already_cut and (kind == "apron" or apron_refused):
-            pieces = _neck_pieces(face, rules, to_ll, notes, stats)
+            pieces = _neck_pieces(face, rules, to_ll, notes, stats,
+                                  start_tree)
             if pieces:
+                if evid.get("startup_refused_corridor"):
+                    pieces = [(p, m if m.get("neck_cut") else
+                               dict(m, startup_refused_parent=1.0))
+                              for p, m in pieces]
                 queue.extend(pieces)
                 continue
         if is_neck:
@@ -683,7 +697,8 @@ def _mouth_ll(mouth, to_ll) -> str:
 
 
 def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
-                 stats: dict) -> list[tuple[Polygon, dict]]:
+                 stats: dict, start_tree: STRtree | None = None
+                 ) -> list[tuple[Polygon, dict]]:
     """§43 AN APRON ENDS AT ITS MOUTH (owner RULINGS 2026-09-14c item 2):
     ``face`` cut at the mouths of its NECKS (``classify/neck.py``), as
     ``(polygon, mark)`` pairs for the scorer's worklist — empty where the
@@ -702,6 +717,16 @@ def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
     taxiway running ALONG an apron edge does not cut" needs no rule at
     all: such pavement never narrows, so ``necks_of`` finds nothing."""
     necks = necks_of(face, rules)
+    # #262 / #314: A NARROW STRETCH THAT HOLDS A 1300 STARTUP IS NOT CUT.
+    # "A startup location is where an aircraft PARKS, and a taxiway has no
+    # parking position on it" — the same rung that refuses the corridor
+    # kind refuses the cut that would mint one.  MEASURED (CYXY pav3,
+    # 'South ramp'): the stand sits on a 7.4 m x 189 m arm of the cell.
+    held = [n for n in necks if _holds_startup(n.polygon, start_tree)]
+    if held:
+        stats["neck_startup_refused"] = \
+            stats.get("neck_startup_refused", 0) + len(held)
+        necks = [n for n in necks if n not in held]
     if not necks:
         return []
     pieces = split_at_necks(face, necks, rules)

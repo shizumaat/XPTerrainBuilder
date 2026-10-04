@@ -35,6 +35,8 @@ ENGINE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ENGINE_DIR / "src"))
 
 import O4_Airport_Elevation_Insets as INSETS  # noqa: E402
+from tests.inset_code import patch_inset_code
+from elevation_access import definitions as ea_definitions
 import O4_Elevation_Level as RINGS  # noqa: E402
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Geo_Utils as GEO  # noqa: E402
@@ -81,7 +83,7 @@ def _definition(code, native_m, **extra):
         "enabled": True,
         "resolution_m": native_m,
         "priority": 1.0,
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
     }
     definition.update(extra)
     return definition
@@ -108,8 +110,8 @@ def _install_registry(monkeypatch, *definitions):
         INSETS, "_definition_resolution_m",
         lambda definition: definition.get("resolution_m"),
     )
-    monkeypatch.setattr(
-        INSETS, "_coverage_bbox_intersects",
+    patch_inset_code(
+        monkeypatch, "_coverage_bbox_intersects",
         lambda definition, box: definition.get("covers", True),
     )
     return by_code
@@ -425,8 +427,8 @@ def test_a_cell_only_the_coarse_provider_covers_collapses(
     coarse = _definition("COARSE", 30.0)
     _install_registry(monkeypatch, fine, coarse)
     # The fine provider covers only the western half of the tile.
-    monkeypatch.setattr(
-        INSETS,
+    patch_inset_code(
+        monkeypatch,
         "_coverage_bbox_intersects",
         lambda definition, box: (
             True if definition["code"] == "COARSE"
@@ -1280,8 +1282,8 @@ def test_a_fine_wide_area_source_keeps_ring_one_beside_the_dsm(
     _install_with_opt_in(
         monkeypatch, [_definition("FINE", 1.0)], [_ring2_dsm()]
     )
-    monkeypatch.setattr(
-        INSETS,
+    patch_inset_code(
+        monkeypatch,
         "_coverage_bbox_intersects",
         lambda definition, box: (
             True if definition["code"] == "DSM"
@@ -1311,8 +1313,8 @@ def test_the_dsm_serves_ring_two_only_where_no_wide_area_source_covers(
         monkeypatch, [_definition("COARSE", 30.0)],
         [_ring2_dsm(priority=1000.0)],
     )
-    monkeypatch.setattr(
-        INSETS,
+    patch_inset_code(
+        monkeypatch,
         "_coverage_bbox_intersects",
         lambda definition, box: (
             True if definition["code"] == "DSM"
@@ -1439,7 +1441,7 @@ def _laddered(code, native_m, rungs, **extra):
         "enabled": True,
         "native_resolution_m": native_m,
         "priority": 100.0,
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "access_strategy": "tnm_cog",
         "ladder_label": ONE_METRE_LABEL,
         "discovery_url_template": "file://%s/one-metre/{west}" % code,
@@ -1483,7 +1485,7 @@ def _point_cloud_definition(code="LPCSHAPED", native_m=ONE_METRE_NATIVE_M):
         "enabled": True,
         "native_resolution_m": native_m,
         "priority": 90.0,
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "access_strategy": POINT_CLOUD_STRATEGY,
     }
 
@@ -1505,8 +1507,8 @@ def _install_laddered(monkeypatch, *definitions):
     monkeypatch.setattr(
         INSETS, "elevation_providers_dict", by_code, raising=False
     )
-    monkeypatch.setattr(
-        INSETS, "_coverage_bbox_intersects",
+    patch_inset_code(
+        monkeypatch, "_coverage_bbox_intersects",
         lambda definition, box: definition.get("covers", True),
     )
     return by_code
@@ -1590,7 +1592,7 @@ def test_a_surgical_rung_is_never_the_chosen_rung(monkeypatch, surgical):
         "code": "SURGICALRUNG",
         "enabled": True,
         "native_resolution_m": THIRD_ARC_SECOND_NATIVE_M,
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
     }
     rung_provider.update(surgical)
     _install_laddered(monkeypatch, definition, rung_provider)
@@ -1634,7 +1636,7 @@ def test_a_seamless_one_metre_service_still_serves_the_ring_class(
         "code": "ENGLANDSHAPED",
         "enabled": True,
         "native_resolution_m": ONE_METRE_NATIVE_M,
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "access_strategy": "wcs_coverage",
     }
     _install_laddered(monkeypatch, service)

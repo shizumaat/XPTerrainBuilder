@@ -37,6 +37,7 @@ for _path in (os.path.join(_ROOT, "src"), _ROOT):
         sys.path.insert(0, _path)
 
 import O4_Airport_Elevation_Insets as INSETS  # noqa: E402
+from elevation_access import warp as ea_warp
 from auto_patch import config, flat_site_mode, post_mesh, provenance  # noqa: E402
 
 R_EARTH = 6378137.0
@@ -418,7 +419,7 @@ def _install_cached_insets(monkeypatch, paths):
         INSETS, "list_cached_inset_dems",
         lambda lat, lon, provider_codes=None: list(paths))
     monkeypatch.setattr(INSETS, "insets_enabled_for_tile", lambda tile: True)
-    INSETS._inset_valid_fraction_cache.clear()
+    ea_warp._inset_valid_fraction_cache.clear()
 
 
 def test_an_all_nodata_inset_reports_no_coverage_and_falls_back(
@@ -430,7 +431,7 @@ def test_an_all_nodata_inset_reports_no_coverage_and_falls_back(
                          project="USGS 1 Meter KS_Statewide_2018_A18")
     _install_cached_insets(monkeypatch, [empty])
 
-    assert INSETS.inset_valid_fraction(empty) == 0.0
+    assert ea_warp.inset_valid_fraction(empty) == 0.0
     assert INSETS.inset_is_effectively_empty(empty) == (True, 0.0)
 
     dem = _FakeDEM(constant=300.0)
@@ -464,7 +465,7 @@ def test_a_half_valid_inset_stays_an_inset_at_half_coverage(
     half = _write_inset(tmp_path, "KTST_usgs3dep.tif", 0.5)
     _install_cached_insets(monkeypatch, [half])
 
-    assert INSETS.inset_valid_fraction(half) == pytest.approx(0.5, abs=0.02)
+    assert ea_warp.inset_valid_fraction(half) == pytest.approx(0.5, abs=0.02)
     assert INSETS.inset_is_effectively_empty(half)[0] is False
 
     dem = _FakeDEM(constant=300.0)
@@ -484,9 +485,9 @@ def test_an_inset_with_no_nodata_value_declared_is_fully_valid(tmp_path):
     dataset.GetRasterBand(1).WriteArray(np.zeros((8, 8), dtype=np.float32))
     dataset.FlushCache()
     dataset = None
-    INSETS._inset_valid_fraction_cache.clear()
+    ea_warp._inset_valid_fraction_cache.clear()
 
-    assert INSETS.inset_valid_fraction(path) == 1.0
+    assert ea_warp.inset_valid_fraction(path) == 1.0
     assert INSETS.inset_is_effectively_empty(path)[0] is False
 
 

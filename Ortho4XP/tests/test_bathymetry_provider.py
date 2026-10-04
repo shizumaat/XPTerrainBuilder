@@ -33,6 +33,11 @@ sys.path.insert(
 )
 
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import definitions as ea_definitions
+from elevation_access import registry as ea_registry
+from elevation_access.strategies import static_stac as ea_static_stac
+from elevation_access import warp as ea_warp
 import O4_Elevation_Level as ELEVATION_LEVEL
 import O4_File_Names as FNAMES
 
@@ -65,8 +70,8 @@ class _WideAreaStrategy:
 def _install_registry(monkeypatch, definitions, strategies=None):
     """Install a synthetic provider registry + strategy table on INSETS."""
     registry = {definition["code"]: definition for definition in definitions}
-    monkeypatch.setattr(
-        INSETS,
+    patch_inset_code(
+        monkeypatch,
         "ACCESS_STRATEGIES",
         dict(strategies or {"wide": _WideAreaStrategy}),
     )
@@ -83,7 +88,7 @@ def _bathymetry_definition(code="CUDEMHAWAII", access_strategy="wide"):
     return {
         "code": code,
         "access_strategy": access_strategy,
-        "role": INSETS.ROLE_BATHYMETRY,
+        "role": ea_definitions.ROLE_BATHYMETRY,
         "enabled": True,
         "priority": 100.0,
         "native_resolution_m": 3.4,
@@ -96,7 +101,7 @@ def _airport_inset_definition(code="LOCALLIDAR", access_strategy="wide"):
     return {
         "code": code,
         "access_strategy": access_strategy,
-        "role": INSETS.ROLE_AIRPORT_INSET,
+        "role": ea_definitions.ROLE_AIRPORT_INSET,
         "enabled": True,
         "priority": 50.0,
         "native_resolution_m": 1.0,
@@ -110,13 +115,13 @@ def _airport_inset_definition(code="LOCALLIDAR", access_strategy="wide"):
 def _install_canned_static_stac(monkeypatch, tmp_path, documents):
     """Point the index at tmp_path and serve canned JSON by URL."""
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
 
     def _fake_fetch_json(self, session, url):
         return documents.get(url)
 
     monkeypatch.setattr(
-        INSETS.StaticStacCatalogStrategy, "_fetch_json", _fake_fetch_json
+        ea_static_stac.StaticStacCatalogStrategy, "_fetch_json", _fake_fetch_json
     )
 
 
@@ -161,7 +166,7 @@ def test_static_stac_discovers_root_items(monkeypatch, tmp_path):
         "catalog_url": catalog_url,
         "coverage_bbox": HAWAII_COVERAGE_BBOX,
     }
-    strategy = INSETS.StaticStacCatalogStrategy()
+    strategy = ea_static_stac.StaticStacCatalogStrategy()
     # Query a box overlapping the near tile only.
     sources = strategy.discover(
         definition, (-159.55, 21.85, -159.45, 21.95)
@@ -205,7 +210,7 @@ def test_static_stac_child_catalog_still_works(monkeypatch, tmp_path):
         # the pre-filter still admits the query.
         "coverage_bbox": HAWAII_COVERAGE_BBOX,
     }
-    strategy = INSETS.StaticStacCatalogStrategy()
+    strategy = ea_static_stac.StaticStacCatalogStrategy()
     sources = strategy.discover(
         definition, (-159.55, 21.85, -159.45, 21.95)
     )
@@ -250,11 +255,11 @@ def _valid_values(path):
 @requires_gdal
 def test_value_floor_default_discards_deep_values(monkeypatch, tmp_path):
     """The terrestrial default floor (-600 m) rejects -1000 and -20000."""
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     source = str(tmp_path / "source.tif")
     _write_block_geotiff(source, -159.6, 21.8, -159.4, 22.0)
     destination = str(tmp_path / "warp_default.tif")
-    ok = INSETS.warp_vsicurl_sources_to_geotiff(
+    ok = ea_warp.warp_vsicurl_sources_to_geotiff(
         [source], (-159.6, 21.8, -159.4, 22.0), 15.0, destination
     )
     assert ok
@@ -269,11 +274,11 @@ def test_value_floor_default_discards_deep_values(monkeypatch, tmp_path):
 @requires_gdal
 def test_value_floor_bathymetry_preserves_depths(monkeypatch, tmp_path):
     """A -11100 m floor keeps -1000 while still rejecting -20000."""
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     source = str(tmp_path / "source.tif")
     _write_block_geotiff(source, -159.6, 21.8, -159.4, 22.0)
     destination = str(tmp_path / "warp_bathy.tif")
-    ok = INSETS.warp_vsicurl_sources_to_geotiff(
+    ok = ea_warp.warp_vsicurl_sources_to_geotiff(
         [source],
         (-159.6, 21.8, -159.4, 22.0),
         15.0,
@@ -319,7 +324,7 @@ def test_select_bathymetry_returns_only_bathymetry_role(monkeypatch):
     winner = INSETS.select_bathymetry_definition(22, -160)
     assert winner is not None
     assert winner["code"] == "CUDEMHAWAII"
-    assert winner["role"] == INSETS.ROLE_BATHYMETRY
+    assert winner["role"] == ea_definitions.ROLE_BATHYMETRY
 
 
 def test_select_bathymetry_none_off_coverage(monkeypatch):
@@ -339,7 +344,7 @@ def test_bathymetry_never_selected_as_airport_inset(monkeypatch):
         [_bathymetry_definition(), _airport_inset_definition()],
     )
     selected = INSETS.select_provider_definitions(
-        "auto", role=INSETS.ROLE_AIRPORT_INSET
+        "auto", role=ea_definitions.ROLE_AIRPORT_INSET
     )
     codes = [definition["code"] for definition in selected]
     assert "CUDEMHAWAII" not in codes

@@ -34,6 +34,8 @@ sys.path.insert(
 )
 
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import registry as ea_registry
 import O4_Elevation_Level as ELEVATION_LEVEL
 import O4_File_Names as FNAMES
 
@@ -96,7 +98,7 @@ def _install_registry(monkeypatch, definitions):
     finds the dictionary "empty" never repopulates it from disk.
     """
     registry = {definition["code"]: definition for definition in definitions}
-    monkeypatch.setattr(INSETS, "ACCESS_STRATEGIES", dict(_SYNTHETIC_STRATEGIES))
+    patch_inset_code(monkeypatch, "ACCESS_STRATEGIES", dict(_SYNTHETIC_STRATEGIES))
     monkeypatch.setattr(INSETS, "elevation_providers_dict", registry)
     monkeypatch.setattr(
         INSETS,

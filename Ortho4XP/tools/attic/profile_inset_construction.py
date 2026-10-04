@@ -42,6 +42,7 @@ if _SOURCE_DIRECTORY not in sys.path:
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access.strategies import degree_named_cog as ea_degree_named_cog
 
 # Raw airport boundary bounds (WEST, SOUTH, EAST, NORTH) in EPSG:4326.
 # Representative of the tile +25+051 (Qatar) inset set; all in cell N25/E051.
@@ -77,8 +78,9 @@ def _timed(phase_name, function):
 
 
 def _install_phase_timers():
-    INSETS.warp_vsicurl_sources_to_geotiff = _timed(
-        "warp_download", INSETS.warp_vsicurl_sources_to_geotiff
+    # The strategy imports the warp by name, so its own binding is timed.
+    ea_degree_named_cog.warp_vsicurl_sources_to_geotiff = _timed(
+        "warp_download", ea_degree_named_cog.warp_vsicurl_sources_to_geotiff
     )
     INSETS.openstreetmap_building_footprints = _timed(
         "osm_footprint_fetch", INSETS.openstreetmap_building_footprints
@@ -91,8 +93,8 @@ def _install_phase_timers():
     )
     # Discovery existence probe (HEAD) — memoised, so only the first per cell
     # actually hits the network.
-    INSETS.DegreeNamedCogStrategy._url_exists = _timed(
-        "discover_head", INSETS.DegreeNamedCogStrategy._url_exists
+    ea_degree_named_cog.DegreeNamedCogStrategy._url_exists = _timed(
+        "discover_head", ea_degree_named_cog.DegreeNamedCogStrategy._url_exists
     )
     # The inpaint call itself (whichever fill the module ends up using).
     if hasattr(INSETS, "gdal") and INSETS.gdal is not None:

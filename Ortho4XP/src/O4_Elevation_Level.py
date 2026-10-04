@@ -398,7 +398,7 @@ def _wide_area_candidate_definitions(lat, lon, providers_config="auto"):
     qualifies only when its access strategy class declares a truthy
     ``supports_wide_area`` attribute (the windowed readers) and its coverage
     reaches the tile: role=base definitions use the full
-    :func:`O4_Airport_Elevation_Insets.base_definition_covers_tile` test,
+    :func:`elevation_access.base_tiles.base_definition_covers_tile` test,
     all others the cheap coverage-box intersection.  Bathymetry providers
     (role=bathymetry) are excluded outright -- their tidal-datum depths are
     never terrain (spec section 2.1).
@@ -420,6 +420,9 @@ def _registry_definitions_reaching_tile(
     the providers config, bathymetry exclusion or tile coverage.
     """
     import O4_Airport_Elevation_Insets as INSETS
+    from elevation_access import base_tiles as ea_base_tiles
+    from elevation_access import definitions as ea_definitions
+    from elevation_access import registry as ea_registry
 
     if not INSETS.elevation_providers_dict:
         INSETS.initialize_elevation_providers_dict()
@@ -444,7 +447,7 @@ def _registry_definitions_reaching_tile(
             and definition["code"] not in allowed_codes
         ):
             continue
-        strategy_factory = INSETS.ACCESS_STRATEGIES.get(
+        strategy_factory = ea_registry.ACCESS_STRATEGIES.get(
             definition.get("access_strategy")
         )
         if strategy_factory is None:
@@ -460,17 +463,17 @@ def _registry_definitions_reaching_tile(
             # GeoTIFFs, often stripped -- a whole-tile overlay would read
             # thousands of them in full.
             continue
-        role = definition.get("role", INSETS.ROLE_AIRPORT_INSET)
-        if role == INSETS.ROLE_BATHYMETRY:
+        role = definition.get("role", ea_definitions.ROLE_AIRPORT_INSET)
+        if role == ea_definitions.ROLE_BATHYMETRY:
             # Bathymetry providers deliver tidal-datum seabed depth and are
             # never terrain sources (spec section 2.1); they must never feed
             # the elevation_level wide-area overlay even if a future one uses
             # a wide-area access strategy.
             continue
-        if role == INSETS.ROLE_BASE:
-            if not INSETS.base_definition_covers_tile(definition, lat, lon):
+        if role == ea_definitions.ROLE_BASE:
+            if not ea_base_tiles.base_definition_covers_tile(definition, lat, lon):
                 continue
-        elif not INSETS._coverage_bbox_intersects(
+        elif not ea_definitions._coverage_bbox_intersects(
             definition, tile_bounding_box
         ):
             continue
@@ -1752,14 +1755,14 @@ def approach_ring_cell_box(lat, lon, column, row):
 
 def _definition_covers_box(definition, box):
     """Cheap per-cell coverage test, the candidate filter's own convention."""
-    import O4_Airport_Elevation_Insets as INSETS
+    from elevation_access import definitions as ea_definitions
 
-    role = definition.get("role", INSETS.ROLE_AIRPORT_INSET)
-    if role == INSETS.ROLE_BASE:
+    role = definition.get("role", ea_definitions.ROLE_AIRPORT_INSET)
+    if role == ea_definitions.ROLE_BASE:
         # A base definition's coverage was already resolved for the whole
         # tile by the candidate filter; every cell of the tile is covered.
         return True
-    return bool(INSETS._coverage_bbox_intersects(definition, box))
+    return bool(ea_definitions._coverage_bbox_intersects(definition, box))
 
 
 def _neighbour_boundary_polygons(lat, lon, reach_m):
@@ -1775,6 +1778,7 @@ def _neighbour_boundary_polygons(lat, lon, reach_m):
     coastline spec's recorded limit, closed where the data is there).
     """
     import O4_Airport_Elevation_Insets as INSETS
+    from elevation_access import las_tiles as ea_las_tiles
     import O4_Airport_Modes as MODES
     import O4_Config_Utils as CFG
     import O4_OSM_Utils as OSM
@@ -1817,7 +1821,7 @@ def _neighbour_boundary_polygons(lat, lon, reach_m):
             unknown.append(stem)
             continue
         for airport, geometry in boundaries.items():
-            grown = INSETS._buffer_geometry_m(geometry, reach_m)
+            grown = ea_las_tiles._buffer_geometry_m(geometry, reach_m)
             if grown.is_empty or not grown.intersects(tile_square):
                 continue
             polygons["%s@%s" % (airport, stem)] = geometry
@@ -1863,6 +1867,7 @@ def resolve_approach_ring_plan(tile, dico_airports):
         return None
 
     import O4_Airport_Elevation_Insets as INSETS
+    from elevation_access import las_tiles as ea_las_tiles
     import O4_Airport_Modes as MODES
     from shapely.ops import unary_union
 
@@ -1895,7 +1900,7 @@ def resolve_approach_ring_plan(tile, dico_airports):
     regions = {}
     for index, rung in enumerate(ladder, start=1):
         grown = [
-            INSETS._buffer_geometry_m(geometry, rung.reach_m)
+            ea_las_tiles._buffer_geometry_m(geometry, rung.reach_m)
             for geometry in boundaries.values()
         ]
         regions["R%d" % index] = unary_union(grown)

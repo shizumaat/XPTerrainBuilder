@@ -1,11 +1,3 @@
-# Engine source — find it before you write it
-
-PROPOSED text for `Ortho4XP/src/CLAUDE.md` (lane `archmap`, RULINGS
-2026-10-04a (4), 04c). The master reviews and applies it; everything
-below this paragraph is the file.
-
----
-
 # Ortho4XP/src — find it before you write it
 
 The owner's priority is REUSE: small one-responsibility modules, and no
@@ -39,8 +31,7 @@ what others need and nothing else.
 
   `geom` (pure geometry), `law` (the law as data) and `model` (dataclasses)
   import nothing above them — a helper two packages need goes DOWN into
-  one of these, never sideways. `pipeline` alone orchestrates and reads
-  the environment. `../tools/ratchets.py layers` prints the import matrix
+  one of these, never sideways. `pipeline` alone orchestrates. `../tools/ratchets.py layers` prints the import matrix
   and gates it: recorded upward imports may fall, never rise.
 - A FAMILY (elevation providers, constraint builders, emit adapters, law
   tables) is a package with a base interface, a registry and one module

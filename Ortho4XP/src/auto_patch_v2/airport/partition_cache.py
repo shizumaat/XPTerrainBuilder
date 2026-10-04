@@ -114,6 +114,10 @@ _CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.contact",
     "auto_patch_v2.airport.obj8",
     "auto_patch_v2.airport.obj8_clip",
+    # the base read (``Member.base_profile``) and its composition onto the
+    # cached clusters (``PlanCluster.base_profile``) run through it — a
+    # change to the read was invisible to the cache (lane t3onelevel10)
+    "auto_patch_v2.airport.obj8_grade",
     "auto_patch_v2.airport.frame_entry",
     "auto_patch_v2.airport.skirt",
     "auto_patch_v2.airport.bulk_geos",

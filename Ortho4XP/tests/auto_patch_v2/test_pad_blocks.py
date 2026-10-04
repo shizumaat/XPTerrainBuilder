@@ -361,3 +361,99 @@ def test_a_weld_into_a_third_block_counts_but_the_seat_stays_on_the_groups_own()
     assert pbs.seat_unit((25, 26), rows, welded, counts=counts,
                          name="sheet.obj") in ("fu:0/b0", "fu:0/b1")
     assert counts["block_groups_straddle"] == 1
+
+
+# owner RULINGS 2026-10-02aj (2) "seat T3 as one level": the cut applies
+# only where the unit's composed BASE is stepped (10-01f); a flat-based
+# unit is ONE block at one datum, whatever its frontage reads
+def _two_level_site(step_m: float, verdict: str):
+    """A dumbbell unit (two 200 x 100 m halls, a 20 m neck) north of TWO
+    aprons whose ground differs by ``step_m`` (west 100, east 100 +
+    ``step_m``), a taxiway south of both and the runway beyond; the unit's
+    cluster carries the composed base ``verdict``."""
+    import dataclasses
+
+    from shapely.affinity import translate
+
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.overlay import Region
+    from test_v2frontage import _airport
+
+    class _Dem:
+        provenance = {"synthetic": "two levels"}
+
+        def z(self, x, y):
+            return 100.0 + (step_m if x > 230.0 else 0.0)
+
+        def bounds(self):
+            return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+    law = Law.for_airport("HECA")
+    P = translate(_dumbbell(), 0.0, 200.0)
+    regs = [Region("runway", "09/27", box(-800, -22.5, 800, 22.5), 3, "D", "airside", "cell"),
+            Region("primary_parallel", "A", box(-100, 60, 560, 100), 3, "C", "airside", "cell"),
+            Region("apron", "west", box(0, 100, 200, 200), None, None, "airside", "cell"),
+            Region("apron", "east", box(260, 100, 460, 200), None, None, "airside", "cell")]
+    airport = _airport(law, _Dem())
+    to_ll = airport.frame.transformers()[1]
+    ring = tuple(to_ll(x, y) for x, y in P.exterior.coords[:-1])
+    cl = types.SimpleNamespace(id="unit:1#0/0", rings=(ring,),
+                               base_profile={"verdict": verdict} if verdict else {})
+    airport = dataclasses.replace(airport, clusters=(cl,))
+    return P, regs, law, _Dem(), airport
+
+
+def test_a_flat_based_unit_on_two_apron_levels_stays_one_block():
+    from auto_patch_v2.planar.pad_blocks import plan_blocks, unit_base
+    P, regs, law, dem, airport = _two_level_site(6.0, "flat")
+    assert unit_base(P, airport) == ("flat", "unit:1#0/0")
+    plan = plan_blocks("t3", P, regs, law, dem, airport, 2.0)
+    assert plan is not None and plan.base == "flat"
+    assert len(plan.blocks) == 1 and not plan.cuts and not plan.steps
+    # no block cap was reached: the miss is the hold's residual
+    assert plan.verdict == "residual"
+    b = plan.blocks[0]
+    # ONE datum, a level between the two aprons' grounds
+    assert b.contact_min - 1e-6 <= b.datum <= b.contact_max + 1e-6
+
+
+def test_a_flat_based_unit_takes_the_level_both_aprons_can_meet():
+    """Two aprons 1 m apart, each within its reach of one level: the flat
+    unit is one block, every contact HELD at that level (no residual)."""
+    from auto_patch_v2.planar.pad_blocks import plan_blocks
+    P, regs, law, dem, airport = _two_level_site(1.0, "flat")
+    plan = plan_blocks("t3", P, regs, law, dem, airport, 2.0)
+    assert plan.verdict == "one_block" and len(plan.blocks) == 1
+    b = plan.blocks[0]
+    assert b.residual == 0 and b.held == b.n_contacts
+    assert 100.0 <= b.datum <= 101.0
+
+
+def test_a_stepped_based_unit_keeps_its_blocks_at_the_step():
+    from auto_patch_v2.planar.pad_blocks import plan_blocks
+    P, regs, law, dem, airport = _two_level_site(6.0, "stepped")
+    plan = plan_blocks("t3", P, regs, law, dem, airport, 2.0)
+    assert plan.base == "stepped" and plan.verdict == "split"
+    assert len(plan.blocks) == 2 and len(plan.cuts) == 1
+    # the cut is at the neck, between the two levels
+    assert 200.0 - 1e-6 <= plan.cuts[0].centroid.x <= 260.0 + 1e-6
+    assert abs(abs(plan.steps[0][2]) - 6.0) < 3.0
+
+
+def test_a_one_level_base_is_one_block_but_unknown_keeps_the_cut():
+    """Master decision (2): FLAT / SLOPED / FEET force one block; a unit
+    with no base read (no base plane, no covering cluster) keeps the cut —
+    unknown is not flat."""
+    import dataclasses
+
+    from auto_patch_v2.planar.pad_blocks import plan_blocks
+    for v in ("sloped", "feet"):
+        P, regs, law, dem, airport = _two_level_site(6.0, v)
+        plan = plan_blocks("t3", P, regs, law, dem, airport, 2.0)
+        assert len(plan.blocks) == 1, v
+    P, regs, law, dem, airport = _two_level_site(6.0, "")
+    plan = plan_blocks("t3", P, regs, law, dem, airport, 2.0)
+    assert plan.base == "" and len(plan.blocks) == 2
+    plan = plan_blocks("t3", P, regs, law, dem,
+                       dataclasses.replace(airport, clusters=()), 2.0)
+    assert plan.base == "" and len(plan.blocks) == 2

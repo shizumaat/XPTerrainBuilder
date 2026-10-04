@@ -80,3 +80,15 @@
   #31 unit-carried files' anchors — and the owner's sim read of HECA's
   terminals (T1/T2/T3, the T23 hangar 30.11475, 31.39793: doors and
   glass were +10.58 m) in the next app build.
+- 2026-10-02 lane t3onelevel10 (RULINGS 2026-10-02aj (2) + master
+  decisions (1)/(2), branch `claude/t3onelevel10`): (1) a composed base
+  plane is a BASE only where the unit's own part feet stand at its level
+  (`obj8_grade._grounded`, in `compose_profiles`); (2) only a FLAT /
+  SLOPED / FEET composed base forces one block (`pad_blocks.unit_base`),
+  no base read keeps the cut. Measured on replays `--from classify`
+  (HECA hecamove, KCLT/SPJC sweep1005attr): HECA T3 `building4` 5 blocks
+  -> 1 (base flat, D 100.04, 1,251/2,452 contacts residual, max 3.62 m);
+  SPJC `building5` 3 -> 1 (base stepped -> feet); KCLT == sw1017. OWED:
+  the other packs' composed verdicts (LEMD, OTHH, KASE — KASE's 10-01f
+  stepped buildings are the case (1) must keep stepped and was NOT
+  measured), and the owner's sim read of T3 and SPJC's terminal.

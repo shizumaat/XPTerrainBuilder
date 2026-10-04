@@ -531,6 +531,22 @@ def base_profile(geom: "ObjGeometry", comps: list["Component"], *,
                        floor_fraction=floor_frac)
 
 
+def _grounded(v: np.ndarray, p: BasePlane, contact_band_m: float,
+              near_m: float) -> bool:
+    """§1 (3) as amended (RULINGS 2026-10-02aj (2)): whether any of the
+    unit's ground-contact vertices ``v`` ``(n, 3)`` (x, y, z) stands AT
+    the plane's level — ``|y - p.y| <= contact_band_m`` — on or within
+    ``near_m`` of its polygon.  A plane with none is an upper storey."""
+    import shapely
+    if v.shape[0] == 0 or p.polygon is None or p.polygon.is_empty:
+        return False
+    at = v[np.abs(v[:, 1] - float(p.y)) <= float(contact_band_m)]
+    if at.shape[0] == 0:
+        return False
+    reach = p.polygon.buffer(float(near_m)) if near_m > 0.0 else p.polygon
+    return bool(np.any(shapely.contains_xy(reach, at[:, 0], at[:, 2])))
+
+
 def _roof_test(v: np.ndarray, used: np.ndarray, p: BasePlane,
                contact_band_m: float, erode_m: float, frontage_m: float,
                roof_fraction: float) -> "BasePlane | None":
@@ -794,6 +810,21 @@ def compose_profiles(parts: "_t.Sequence[tuple]",
                              min_distinct_spacing_m, pad_frontage_m,
                              roof_support_fraction) for p in moved)
                  if q is not None]
+        # A BASE PLANE STANDS ON THE GROUND (owner RULINGS 2026-10-02aj
+        # (2), "seat T3 as one level"; master decision (1) to lane
+        # ``t3onelevel10``): a composed plane is a BASE only where the
+        # unit's own GROUND-CONTACT vertices (``lower_pts`` — every part
+        # foot of the group) stand at its level, within ``contact_band_m``
+        # of its height and ``pad_frontage_m`` of its polygon.  A plane
+        # with no foot at its level is an UPPER STOREY (a ceiling, a floor
+        # slab, a roof net) whatever the roof test's hull read, and never
+        # a riser.  MEASURED at HECA T3 (cluster ``unit:43#6330``): the
+        # +0.06 m ground floor carries 5,848 feet at its level, each of
+        # the 32 planes at +3.65 .. +27.95 m carries 0 — the roof test
+        # passed them because the feet under a hall floor lie at its walls,
+        # outside the eroded polygon (``support_fraction`` 0.00).
+        moved = [q for q in moved
+                 if _grounded(pts, q, contact_band_m, pad_frontage_m)]
     moved.sort(key=lambda q: -q.area_m2)
     moved = _weld_risers(moved, pad_terrace_floor_m, pad_frontage_m)
     if not moved:

@@ -122,17 +122,53 @@ class Neck:
     #: the arm verdict's own two numbers, published for the census
     aspect: float = 0.0
     mouth_factor: float = 0.0
+    #: found by the OWN-WIDTH re-read (#314), not at ``corridor.max_width_m``
+    reread: bool = False
 
 
 def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
     """Every §43 cut of ``face``: a stretch of local width below
     ``corridor.max_width_m``, at least ``apron.neck_length_m`` long, that
     either joins two or more wide lobes of the same face (a NECK) or
-    follows a path off it (an ARM, §43 (1) AMENDED)."""
+    follows a path off it (an ARM, §43 (1) AMENDED).
+
+    THE ARM IS READ AT ITS OWN WIDTH WHERE THE APRON'S WIDTH REFUSES IT
+    (issue #314, owner read of app 1.0.372, CYXY ``pav5``, cut line
+    60.7085411,-135.0764314 -> 60.708562,-135.0764953).  ``corridor.
+    max_width_m`` says what is NARROW; it does not say where a narrow
+    path ENDS.  A 5.5 m half-taxiway that opens into a 20 m stand bay
+    before the pavement reaches 50 m is, at the 50 m reading, ONE narrow
+    component with the bay and the lobes' corner fringe hanging on it —
+    457.9 m long, 5.5 m wide, and meeting the wide reach along 106.3 m
+    (mouth factor 19.2 against ``arm_mouth_max_factor`` 2.5): proposed,
+    and refused as a flank.  So a component the verdict refuses is read
+    ONCE more, with the same erosion and the same verdict, at
+    ``apron.arm_reread_factor`` times its own mean width: the pavement
+    "under the width" is then the path alone, and its mouth is the
+    cross-section where it opens — the owner's line.  The CALLER
+    (``roles._neck_pieces``) makes a re-read cut only on taxi evidence (a
+    centreline along the arm) and never through a 1300 startup; a cut the
+    50 m reading makes is unchanged (``Neck.reread``)."""
+    w = rules.corridor.max_width_m
+    out, refused = _read(face, w, rules, None)
+    for part, width in refused:
+        own = rules.apron.arm_reread_factor * width
+        if 0.0 < own < w:
+            out.extend(_dc.replace(n, reread=True)
+                       for n in _read(face, own, rules, part)[0])
+    return out
+
+
+def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
+          ) -> tuple[list[Neck], list[tuple[Polygon, float]]]:
+    """The §43 reading of ``face`` at local width ``w``: the cuts, and the
+    components the verdict REFUSED (each with its mean width) — long
+    enough to be a cut, neither a neck nor an arm.  ``within`` confines
+    the reading to the narrow pavement of one refused component."""
     ap = rules.apron
-    w, need = rules.corridor.max_width_m, ap.neck_length_m
+    need = ap.neck_length_m
     if w <= 0.0 or need <= 0.0 or face.area <= 0.0:
-        return []
+        return [], []
     half = w / 2.0
     lobes = [b for b in polygon_parts(face.buffer(-half)) if b.area > 0.0]
     if not lobes:
@@ -142,13 +178,17 @@ def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
         # refused there by its own apron evidence (a stand, an
         # `aeroway=apron` cover, the author's name).  Reported as a
         # deliberate narrowing of "one, two or none": see the lane report.
-        return []
+        return [], []
     reach = [b.buffer(half).intersection(face) for b in lobes]
     wide = unary_union(reach)
     out: list[Neck] = []
+    refused: list[tuple[Polygon, float]] = []
     for part in polygon_parts(face.difference(wide)):
         if part.area <= rules.cells.min_area_m2:
             continue
+        if within is not None and \
+                part.intersection(within).area < 0.5 * part.area:
+            continue                   # another component's pavement
         touching = [(k, r) for k, r in enumerate(reach)
                     if part.boundary.intersection(r.boundary).length > 0.0]
         if not touching:
@@ -180,6 +220,7 @@ def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
         elif _is_arm(aspect, factor, rules):
             kind = "arm"               # §43 (1) AMENDED: it follows a path
         else:
+            refused.append((part, width))
             continue                   # a FRINGE / a lobe's own corner
         cuts: list[LineString] = []
         mids: list[tuple[tuple[float, float], tuple[float, float]]] = []
@@ -196,7 +237,7 @@ def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
         out.append(Neck(part, tuple(cuts), tuple(mids), length, width,
                         part.area, len(touching), curved, kind,
                         aspect, factor))
-    return out
+    return out, refused
 
 
 def _is_arm(aspect: float, mouth_factor: float, rules: Rules) -> bool:

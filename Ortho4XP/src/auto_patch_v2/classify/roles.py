@@ -664,6 +664,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add)
     stats["osm_ribbons"] = n_rib
     stats["osm_ribbon_m2"] = m_rib
+    # §54 (RULINGS 2026-10-04p (B) b1, #359): the lot page ends at the wall
+    # — LAST, so every road and airside cell that can stand above a wall is
+    # already in the list
+    from .wall_trim import trim_lots_at_walls
+    cells, _wt = trim_lots_at_walls(airport, cells, law, rules)
+    stats.update(_wt)
     stats["taxi_chains"] = len(ev.taxi_chains)
     stats["truck_chains"] = len(ev.truck_chains)
     stats["terminal_present"] = float(ev.terminal_present)

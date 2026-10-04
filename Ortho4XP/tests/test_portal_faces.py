@@ -243,3 +243,22 @@ class TestPortalFaceClassificationExclusion:
         assert ("PACK", _PORTAL_RESOURCE) not in result.exclusions
 
 
+
+
+def test_a_detected_face_is_a_portal_face_structure_record() -> None:
+    """The record TYPE, by name (RULINGS 2026-10-04j "coverage owed": the
+    v1 cut removed every test reference to ``PortalFaceStructure``).
+    Production builds one per bare portal face in
+    ``classify_object_terrain_features``; the bridge-shaped compatibility
+    fields take their degenerate defaults — a face has no deck."""
+    (face,) = otf._detect_portal_faces(
+        [_placement()], {_PORTAL_RESOURCE: _portal_face_geometry()})
+    assert type(face) is otf.PortalFaceStructure
+    assert face.anchor_longitude_latitude == (ANCHOR_LONGITUDE, ANCHOR_LATITUDE)
+    assert face.deck_polygon is None
+    assert face.frame_origin_longitude_latitude == (0.0, 0.0)
+    assert face.deck_top_y_m == face.face_max_y_m - face.face_min_y_m
+    assert face.face_polygon_longitude_latitude.contains(
+        face.face_polygon_longitude_latitude.centroid)
+    with pytest.raises(AttributeError):       # frozen: a record, not a bag
+        face.deck_top_y_m = 0.0

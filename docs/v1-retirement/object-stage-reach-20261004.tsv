@@ -1,0 +1,428 @@
+module	name	kind	line	lines	verdict	reach_evidence	build_executed	suite_executed	tests_name_it	tools_name_it	suite_lines_hit	reach_root
+post_mesh	_ring_area_square_metres	func	136	22	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	object_anchor_worklist_path	func	207	11	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	1	0	6	post_mesh.object_anchor_worklist_path <- auto_patch/engine_v2.py
+post_mesh	worklist_claim_assigner	func	230	101	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	56	post_mesh.worklist_claim_assigner <- auto_patch/flat_site_mode.py
+post_mesh	_mesh_is_newer_than_alt	func	333	40	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	1	0	19	post_mesh._mesh_is_newer_than_alt <- auto_patch/engine_v2.py
+post_mesh	_is_protected_scenery_root	func	375	6	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	1	0	3	post_mesh._is_protected_scenery_root <- auto_patch/engine_v2.py
+post_mesh	_resolved_path_is_inside_pack	func	383	14	UNREACHED	static: no production reference	0	1	1	0	6	
+post_mesh	_pool_world_bounds	func	399	46	UNREACHED	static: no production reference	0	1	0	1	28	
+post_mesh	_cached_partition_structures	func	459	96	UNREACHED	static: no production reference	0	1	1	0	42	
+post_mesh	pad_frame_cache_key	func	557	36	UNREACHED	static: no production reference	0	1	1	0	16	
+post_mesh	cached_pad_frame	func	595	53	UNREACHED	static: no production reference	0	1	1	0	27	
+post_mesh	pad_frames_for_airport	func	650	125	UNREACHED	static: no production reference	0	1	1	0	56	
+post_mesh	pad_frames_from_worklist	func	787	48	UNREACHED	static: no production reference	0	1	1	0	7	
+post_mesh	_merge_cluster_counts	func	837	8	UNREACHED	static: no production reference	0	1	0	0	6	
+post_mesh	_resolve_pack_geometry	func	847	132	UNREACHED	static: no production reference	0	1	1	0	51	
+post_mesh	_basin_facility_rim_sample_ring	func	981	127	UNREACHED	static: no production reference	0	1	1	0	58	
+post_mesh	_bake_basin_rim_flush_facilities	func	1110	408	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_facility_body_polygon	func	1520	32	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_bounds_overlap	func	1554	8	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_structure_plan_bounds	func	1564	58	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_structure_reaches_body	func	1624	46	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_seat_group_structures	func	1672	64	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_bake_basin_group_seat_facilities	func	1738	649	UNREACHED	static: no production reference	0	1	0	0	4	
+post_mesh	_candidate_grade_line_sets	func	2389	17	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_abutment_line_frame_points	func	2408	24	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_abutment_line_frame_samples	func	2434	19	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_abutment_grade_sample_points	func	2455	23	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	agreeing_coalition	func	2490	103	UNREACHED	static: no production reference	0	1	1	0	26	
+post_mesh	_abutment_grade_samples_on_land	func	2604	101	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_mint_seat_fallback	func	2707	23	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_mint_seat_coalition_finding	func	2732	35	UNREACHED	static: no production reference	0	0	0	0	1	
+post_mesh	_bake_bridge_abutment_seats	func	2776	693	UNREACHED	static: no production reference	0	1	0	0	3	
+post_mesh	discover_and_rebake_airport	func	3471	605	UNREACHED	static: no production reference	0	1	1	1	214	
+object_rebake	RebakeReport	class	291	23	UNREACHED	static: no production reference	0	1	1	0	12	
+object_rebake	_sha256_of_file	func	320	6	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	6	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_rebake	_tile_name_from_mesh_path	func	328	7	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	5	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_rebake	_mesh_signature	func	337	7	UNREACHED	static: no production reference	0	1	0	1	6	
+object_rebake	_provenance_path	func	346	2	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	0	0	2	object_rebake.restore_detail <- o4_engine/session.py
+object_rebake	_fresh_provenance	func	350	8	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	7	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_rebake	_normalise_provenance	func	360	36	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	23	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_rebake	_load_provenance	func	398	6	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	6	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_rebake	short_circuit_enabled	func	410	3	UNREACHED	static: no production reference	0	1	0	0	2	
+object_rebake	_stat_signature	func	415	7	UNREACHED	static: no production reference	0	1	0	0	6	
+object_rebake	_file_record	func	424	6	UNREACHED	static: no production reference	0	1	0	0	5	
+object_rebake	_file_matches	func	432	18	UNREACHED	static: no production reference	0	1	1	0	7	
+object_rebake	_fingerprint_stat	func	498	7	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	5	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_rebake	_fingerprint_entry	func	507	8	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	3	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_rebake	_recorded_hashes_by_resource	func	517	32	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	20	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_rebake	_live_file_is_engine_written	func	551	16	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	5	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_rebake	pristine_object_fingerprint_entries	func	569	59	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	33	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_rebake	_gate_digest	func	630	32	UNREACHED	static: no production reference	0	1	1	0	17	
+object_rebake	_excluded_digest	func	664	10	UNREACHED	static: no production reference	0	1	0	0	6	
+object_rebake	_run_key	func	676	18	UNREACHED	static: no production reference	0	1	1	0	5	
+object_rebake	_resource_files	func	696	25	UNREACHED	static: no production reference	0	1	0	0	10	
+object_rebake	build_run_record	func	723	112	UNREACHED	static: no production reference	0	1	1	0	50	
+object_rebake	store_run_record	func	837	30	UNREACHED	static: no production reference	0	1	1	0	11	
+object_rebake	matching_run_record	func	869	76	UNREACHED	static: no production reference	0	1	1	0	43	
+object_rebake	_run_record_contact_parts	func	947	14	UNREACHED	static: no production reference	0	1	0	0	3	
+object_rebake	run_record_foot_pad_requests	func	963	21	UNREACHED	static: no production reference	0	0	0	0	1	
+object_rebake	run_record_cluster_pad_requests	func	986	25	UNREACHED	static: no production reference	0	1	1	0	18	
+object_rebake	_rewrite_y_tokens	func	1017	80	UNREACHED	static: no production reference	0	1	0	1	40	
+object_rebake	_structure_boxes_and_deltas	func	1103	21	UNREACHED	static: no production reference	0	1	0	0	12	
+object_rebake	_horizontal_distance_to_box	func	1126	9	UNREACHED	static: no production reference	0	1	0	0	5	
+object_rebake	_positional_command_rewrite_plan	func	1137	32	UNREACHED	static: no production reference	0	1	0	0	16	
+object_rebake	_reconcile_animation_blocks	func	1175	79	UNREACHED	static: no production reference	0	1	0	0	51	
+object_rebake	apply	func	1260	483	UNREACHED	static: no production reference	0	1	1	1	282	
+object_rebake	founded_seat_datum	func	1756	54	UNREACHED	static: no production reference	0	0	0	0	1	
+object_rebake	check	func	1812	29	UNREACHED	static: no production reference	0	1	1	1	13	
+object_rebake	_read_json_dict	func	1843	9	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	0	0	5	object_rebake.restore_detail <- o4_engine/session.py
+object_rebake	_v2_record_paths	func	1854	24	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	0	0	15	object_rebake.modified_packs <- O4_Qt_GUI.py, o4_engine/session.py
+object_rebake	_v2_record_entries	func	1880	10	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	0	0	6	object_rebake.restore_detail <- o4_engine/session.py
+object_rebake	_v2_status	func	1892	23	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	0	0	13	object_rebake.modified_packs <- O4_Qt_GUI.py, o4_engine/session.py
+object_rebake	_restore_v2_writes	func	1917	33	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	0	0	15	object_rebake.restore_detail <- o4_engine/session.py
+object_rebake	restore_detail	func	1952	55	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	1	0	32	object_rebake.restore_detail <- o4_engine/session.py
+object_rebake	restore	func	2009	5	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	1	1	2	object_rebake.restore <- O4_Qt_GUI.py
+object_rebake	pack_status	func	2016	13	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	1	0	10	object_rebake.modified_packs <- O4_Qt_GUI.py, o4_engine/session.py
+object_rebake	modified_packs	func	2031	45	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	1	0	28	object_rebake.modified_packs <- O4_Qt_GUI.py, o4_engine/session.py
+object_anchor	ObjectPool	class	118	15	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	4	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	Structure	class	136	31	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	13	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	FootCluster	class	170	26	UNREACHED	static: no production reference	0	1	0	0	12	
+object_anchor	FootPadRequest	class	199	25	UNREACHED	static: no production reference	0	1	1	0	11	
+object_anchor	ClusterPadRequest	class	227	40	UNREACHED	static: no production reference	0	1	1	0	14	
+object_anchor	ClusterSeam	class	270	20	UNREACHED	static: no production reference	0	1	0	0	9	
+object_anchor	RebakeDecision	class	293	67	UNREACHED	static: no production reference	0	1	1	0	24	
+object_anchor	_PoolFrame	class	363	16	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	9	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	_placements_mean_origin	func	381	10	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	8	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	_world_point_to_pool_frame	func	393	12	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	3	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	_pool_frame_to_world_point	func	407	11	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	3	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	detect_foot_clusters	func	420	142	UNREACHED	static: no production reference	0	1	1	0	82	
+object_anchor	_plan_box_area_square_metres	func	589	9	UNREACHED	static: no production reference	0	1	0	0	3	
+object_anchor	_SupporterIndex	class	601	15	UNREACHED	static: no production reference	0	1	0	0	7	
+object_anchor	_build_supporter_index	func	618	67	UNREACHED	static: no production reference	0	1	1	0	46	
+object_anchor	_smallest_containing_supporter_index	func	687	33	UNREACHED	static: no production reference	0	1	1	0	19	
+object_anchor	ConnectorMetrics	class	723	32	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	6	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	_convex_hull_area_square_metres	func	757	38	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	27	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	resource_connector_metrics	func	797	44	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	29	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	is_connector_resource	func	843	20	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	6	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	_build_pool_frame	func	865	78	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	45	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	discover_object_pools	func	945	128	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	80	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	_edges_span_group	func	1075	39	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	20	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	partition_structures	func	1116	206	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	110	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_anchor	_PartMeasurement	class	1325	25	UNREACHED	static: no production reference	0	1	1	0	15	
+object_anchor	_SeatCluster	class	1353	17	UNREACHED	static: no production reference	0	1	0	0	14	
+object_anchor	_median	func	1372	8	UNREACHED	static: no production reference	0	1	0	1	6	
+object_anchor	_measure_structure_parts	func	1382	138	UNREACHED	static: no production reference	0	1	1	0	69	
+object_anchor	pool_frame_signature	func	1522	18	UNREACHED	static: no production reference	0	1	1	0	5	
+object_anchor	_union_plan_boxes	func	1542	11	UNREACHED	static: no production reference	0	1	0	0	7	
+object_anchor	_build_structure_clusters	func	1555	154	UNREACHED	static: no production reference	0	1	0	0	61	
+object_anchor	_max_abs_delta_metres	func	1711	30	UNREACHED	static: no production reference	0	1	0	0	11	
+object_anchor	_cluster_resource_paths	func	1743	7	UNREACHED	static: no production reference	0	1	0	0	4	
+object_anchor	_below_bake_threshold_reason	func	1752	38	UNREACHED	static: no production reference	0	1	0	0	13	
+object_anchor	_seat_clusters	func	1792	251	UNREACHED	static: no production reference	0	1	1	0	135	
+object_anchor	_contact_band_triangles_lonlat	func	2045	78	UNREACHED	static: no production reference	0	1	1	0	31	
+object_anchor	_plan_box_corners_lonlat	func	2125	22	UNREACHED	static: no production reference	0	1	0	0	15	
+object_anchor	_raise_cluster_pad_requests	func	2149	130	UNREACHED	static: no production reference	0	1	1	0	60	
+object_anchor	_raise_foot_pad_requests	func	2281	63	UNREACHED	static: no production reference	0	1	0	0	30	
+object_anchor	structure_deltas	func	2346	1240	UNREACHED	static: no production reference	0	1	1	1	634	
+object_frame	PadPart	class	62	20	COVERED	static: object_frame.rendered_base_metres <- auto_patch/flat_site.py	0	1	1	0	9	object_frame.rendered_base_metres <- auto_patch/flat_site.py
+object_frame	PadAnchor	class	85	10	UNREACHED	static: no production reference	0	1	1	0	5	
+object_frame	ObjectPadFrame	class	98	43	UNREACHED	static: no production reference	0	1	1	0	13	
+object_frame	ObjectPadFrame.parts_by_structure	method	129	12	UNREACHED	static: no production reference	0	1	1	0	5	
+object_frame	welded_part_labels	func	143	16	UNREACHED	static: no production reference	0	1	0	0	7	
+object_frame	regroup_welded_parts	func	161	15	UNREACHED	static: no production reference	0	1	1	0	5	
+object_frame	build_pad_frame	func	178	93	UNREACHED	static: no production reference	0	1	1	0	59	
+object_frame	rendered_base_metres	func	273	11	COVERED	static: object_frame.rendered_base_metres <- auto_patch/flat_site.py	0	1	1	0	4	object_frame.rendered_base_metres <- auto_patch/flat_site.py
+object_frame	_median	func	286	7	UNREACHED	static: no production reference	0	1	0	1	6	
+object_frame	pad_requests_from_frame	func	295	204	UNREACHED	static: no production reference	0	1	1	0	90	
+object_frame	ring_covers_its_own_datum	func	501	23	UNREACHED	static: no production reference	0	1	1	0	10	
+object_clusters	ClusterPart	class	52	25	UNREACHED	static: no production reference	0	1	1	0	11	
+object_clusters	ClusterPart.seat_target_metres	method	69	8	UNREACHED	static: no production reference	0	1	0	0	3	
+object_clusters	CutEdge	class	80	8	UNREACHED	static: no production reference	0	1	0	0	5	
+object_clusters	BridgeSeam	class	91	18	UNREACHED	static: no production reference	0	1	0	0	8	
+object_clusters	ClusterPartition	class	112	20	UNREACHED	static: no production reference	0	1	0	0	10	
+object_clusters	ClusterPartition.is_degenerate	method	127	5	UNREACHED	static: no production reference	0	0	0	0	1	
+object_clusters	_normalised_edges	func	134	12	UNREACHED	static: no production reference	0	1	0	0	6	
+object_clusters	_UnionFind	class	148	34	UNREACHED	static: no production reference	0	1	1	0	24	
+object_clusters	_UnionFind.__init__	method	152	4	UNREACHED	static: no production reference	0	1	1	1	4	
+object_clusters	_UnionFind.__contains__	method	157	2	UNREACHED	static: no production reference	0	0	0	0	1	
+object_clusters	_UnionFind._find	method	160	5	UNREACHED	static: no production reference	0	1	0	1	5	
+object_clusters	_UnionFind.union	method	166	5	UNREACHED	static: no production reference	0	1	1	1	5	
+object_clusters	_UnionFind.root_of	method	172	2	UNREACHED	static: no production reference	0	1	0	0	2	
+object_clusters	_UnionFind.components	method	175	7	UNREACHED	static: no production reference	0	1	1	1	5	
+object_clusters	form_clusters	func	184	142	UNREACHED	static: no production reference	0	1	1	0	86	
+object_clusters	residual_part_groups	func	328	22	UNREACHED	static: no production reference	0	1	1	0	9	
+object_footprints	_footprint_area_square_metres	func	63	11	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	8	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	_footprint_span_metres	func	76	14	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	11	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	tall_member_coverage	func	119	25	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	8	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	tallest_member_extent	func	146	9	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	5	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	has_vertical_structure_evidence	func	157	42	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	12	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	_mean_and_cv	func	263	10	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	7	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	segmented_linear_array_indices	func	275	77	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	54	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	evidence_name_vouches	func	362	23	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	11	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	_wide_path_name_vouches	func	387	17	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	7	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	_triangle_union_parts	func	406	60	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	31	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	_triangle_union_footprint	func	468	12	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	3	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	foot_pad_rings	func	482	86	UNREACHED	static: no production reference	0	1	1	0	45	
+object_footprints	foot_pad_ring	func	570	18	UNREACHED	static: no production reference	0	1	1	0	5	
+object_footprints	clip_pad_ring_against_pavement	func	590	78	UNREACHED	static: no production reference	0	1	1	0	34	
+object_footprints	draped_pavement_patches	func	670	94	UNREACHED	static: no production reference	0	1	1	0	58	
+object_footprints	is_vehicle_pavement_patch	func	766	34	UNREACHED	static: no production reference	0	1	1	0	9	
+object_footprints	abutting_contact_ratio	func	802	31	UNREACHED	static: no production reference	0	1	1	0	11	
+object_footprints	structure_ring	func	835	420	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	236	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	_metric_frame	func	1338	16	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	9	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	_polygon_components	func	1356	8	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	7	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	_split_slender_connectors	func	1366	20	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	11	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	_split_one_part	func	1388	45	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	31	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_footprints	structure_footprint_parts	func	1435	75	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	39	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	is_stock_library_resource	func	302	9	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	5	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_vprint	func	313	11	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	4	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	MouthDepthStatistics	class	685	9	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	6	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	TunnelStructure	class	697	59	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	18	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	BridgeStructure	class	759	80	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	22	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	RefusedStructure	class	842	60	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	16	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	RefusedStructure.has_measurable_deck	method	893	9	UNREACHED	static: no production reference	0	1	1	0	5	
+object_terrain_features	RefusedDeckMember	class	905	22	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	5	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	PortalFaceStructure	class	930	53	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	14	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	StructureGroundInterface	class	986	89	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	19	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	is_carved_basin_interface	func	1077	23	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	7	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	part_has_solid_thickness	func	1102	18	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	3	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	is_open_pit_interface	func	1122	35	UNREACHED	static: no production reference	0	1	1	0	7	
+object_terrain_features	BelowGradeRegion	class	1160	59	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	9	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	ClassificationResult	class	1222	49	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	20	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	ClassificationResult.terrain_material_resources	method	1252	19	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	9	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_FrameTriangle	class	1277	31	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	12	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_FrameTriangle.is_hard	method	1304	4	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	2	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_StructureFrame	class	1317	166	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	73	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_StructureFrame.__init__	method	1379	42	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	1	1	20	method-name via root-method: O4_Airport_Elevation_Insets.py, O4_Qt_GUI.py, auto_patch/driver.py
+object_terrain_features	_StructureFrame.triangles	method	1423	49	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	42	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_StructureFrame.triangle_corner_coordinates_xz	method	1473	10	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	7	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_placements_mean_origin	func	1485	10	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	8	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_composed_placement_transform	func	1497	36	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	13	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_affine_matrix_for_placement	func	1535	22	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	11	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceTriangleBasis	class	1579	8	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	0	0	6	method-name via root-method: O4_Airport_Elevation_Insets.py, O4_Qt_GUI.py, auto_patch/driver.py
+object_terrain_features	_ResourceFaceTable	class	1589	10	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	0	0	7	method-name via root-method: O4_Airport_Elevation_Insets.py, O4_Qt_GUI.py, auto_patch/driver.py
+object_terrain_features	_ResourceGeometryCache	class	1601	436	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	246	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache.__init__	method	1629	12	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	1	1	10	method-name via root-method: O4_Airport_Elevation_Insets.py, O4_Qt_GUI.py, auto_patch/driver.py
+object_terrain_features	_ResourceGeometryCache.evidence	method	1642	23	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	13	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache.basis	method	1666	27	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	21	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache.face_table	method	1694	52	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	38	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache.local_class_union	method	1747	22	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	13	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache._compute_local_class_union	method	1770	47	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	29	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache.solid_components	method	1821	32	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	18	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache.below_grade_local_union	method	1854	30	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	9	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache._compute_below_grade_local_union	method	1885	52	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	39	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache.local_xz_bounds	method	1938	19	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	14	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache.above_grade_local_union	method	1958	32	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	8	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ResourceGeometryCache._compute_above_grade_local_union	method	1991	46	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	31	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_repaired_area_polygon	func	2043	25	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	10	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_union_all_repairing	func	2070	49	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	25	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_clip_triangle_below_plane	func	2121	32	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	17	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_clip_triangle_above_plane	func	2155	31	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	17	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_class_footprints_by_resource	func	2188	59	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	33	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_build_structure_frame	func	2249	229	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	154	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_close_and_reduce_union	func	2480	24	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	11	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_union_horizontal_coordinates	func	2506	18	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	8	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_union_horizontal	func	2526	32	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	18	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_split_polygons	func	2560	17	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	12	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_dominant_height_plane	func	2579	21	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	16	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	frame_polygon_to_longitude_latitude	func	2602	28	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	1	16	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	below_grade_regions	func	2637	187	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	86	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	region_polygon_in_frame	func	2826	16	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	4	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	polygon_between_frames	func	2844	52	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	29	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_region_prematched_to_an_interface	func	2898	21	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	14	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	regions_with_lazy_above_grade_coverage	func	2921	71	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	35	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_region_ring_completed_to	func	3032	55	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	27	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_region_ramp_reach_rings	func	3089	115	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	61	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_ramp_lobes_of	func	3206	89	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	38	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	regions_with_ramp_reach_corridor	func	3297	93	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	38	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	regions_completed_to_ramp_reach	func	3392	68	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	25	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_bounds_union	func	3462	9	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	7	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_placement_frame_bounds	func	3473	31	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	18	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_bounds_overlap	func	3506	9	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	7	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_above_grade_union_in_frame	func	3517	72	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	30	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_agl_tunnel_seed_resources	func	3595	108	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	54	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_is_tunnel_signature	func	3705	36	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	11	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_solid_outline_footprint	func	3743	51	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	24	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_classify_tunnel	func	3796	99	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	67	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_DeckAxis	class	3902	17	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	11	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_DeckAxis.along_axis	method	3915	4	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	4	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_deck_axis	func	3921	60	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	40	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_deck_top_profile	func	3983	58	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	36	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_abutment_reaches_grade_per_end	func	4043	27	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	12	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_pavement_coverage_of_mid_deck	func	4072	62	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	38	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_profile_is_non_flat	func	4136	12	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	4	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_classify_contract	func	4150	39	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	15	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	contract_refusal_reason	func	4191	107	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	32	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_refused_deck_members	func	4300	38	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	20	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_widen_refusal_to_component	func	4340	22	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	10	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_classify_bridge	func	4364	383	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	204	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_lowest_underside_plane	func	4749	33	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	22	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_median_msl_on_deck	func	4784	24	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	15	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_BelowGradeHardEnclosure	class	4815	9	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	6	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_below_grade_hard_enclosure	func	4826	80	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	41	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_cluster_interface_levels	func	4908	46	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	28	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_classify_structure_ground_interface	func	4956	375	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	228	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_resources_with_triangles_near	func	5337	24	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	13	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_open_pit_components	func	5363	76	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	28	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_footprint_components	func	5441	43	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	28	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_below_grade_drivable_components	func	5486	72	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	40	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_cosmetic_bridge_components	func	5560	63	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	20	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_hard_face_components	func	5625	20	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	11	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_bridge_evidence_resources	func	5647	86	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	46	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_wall_column_count	func	5735	6	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	5	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_pavement_union_in_frame	func	5747	45	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	25	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_pool_has_classification_evidence	func	5794	38	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	25	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	_detect_portal_faces	func	5848	108	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	78	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+object_terrain_features	classify_object_terrain_features	func	5958	539	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	288	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	part_plan_extents	func	136	18	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	12	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	part_is_linear_connector	func	156	23	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	10	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	part_plan_area	func	181	15	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	9	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	part_is_chain_glue	func	198	25	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	13	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	split_oversized_components	func	225	16	UNREACHED	static: no production reference	0	1	1	0	4	
+obj8_partition	split_oversized_components_with_edges	func	243	180	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	103	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	weld_parts	func	425	76	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	39	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_point_triangle_minimum_distances	func	503	139	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	89	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_PartGeometry	class	654	195	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	107	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_PartGeometry.__init__	method	666	25	COVERED	static: app restore command (GUI / engine session), no build reaches it	0	1	1	1	20	method-name via root-method: O4_Airport_Elevation_Insets.py, O4_Qt_GUI.py, auto_patch/driver.py
+obj8_partition	_PartGeometry.vertex_tree	method	693	4	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	4	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_PartGeometry.degenerate_triangles	method	699	44	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	17	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_PartGeometry._cell_range	method	745	5	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	3	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_PartGeometry._gather	method	751	30	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	18	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_PartGeometry.points_inside_box	method	782	27	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	15	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_PartGeometry.candidate_triangles_inside_box	method	810	39	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	25	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_build_cell_index	func	851	22	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	14	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_points_inside_box	func	875	11	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	6	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_vertex_to_triangle_proof	func	888	97	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	46	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_surfaces_in_contact	func	987	37	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	21	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	_broad_phase_pairs	func	1026	48	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	34	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	contact_graph	func	1076	67	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	28	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_partition	connected_structures	func	1145	29	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	20	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+mesh_sampler	_read_mesh_cached	func	81	10	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	0	1	7	mesh_sampler.MeshElevationSampler <- auto_patch/engine_v2.py
+mesh_sampler	MeshSample	class	93	11	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	1	0	5	method-name via root-method: auto_patch/engine_v2.py
+mesh_sampler	OutsideMeshError	class	106	6	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	1	1	2	mesh_sampler.OutsideMeshError <- auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler	class	114	535	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	1	1	300	mesh_sampler.MeshElevationSampler <- auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler.__init__	method	130	41	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	1	1	32	mesh_sampler.MeshElevationSampler <- auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler._build_grid_index	method	210	72	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	0	0	48	mesh_sampler.MeshElevationSampler <- auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler._grid_entry_count	method	283	15	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	0	0	10	mesh_sampler.MeshElevationSampler <- auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler._grid_span	method	299	28	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	0	0	18	mesh_sampler.MeshElevationSampler <- auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler._candidate_indices	method	328	35	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	0	0	20	method-name via root-method: auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler._read_mesh	method	365	63	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	1	1	32	mesh_sampler.MeshElevationSampler <- auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler.sample_at	method	429	56	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	1	1	30	method-name via root-method: auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler.sample_many	method	486	64	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	1	1	38	method-name via root-method: auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler._sample_block	method	551	73	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	0	0	57	method-name via root-method: auto_patch/engine_v2.py
+mesh_sampler	MeshElevationSampler.elevation_at	method	625	6	UNREACHED	static: no production reference	0	1	1	1	2	
+mesh_sampler	MeshElevationSampler.elevation_at_or_none	method	632	8	UNREACHED	static: no production reference	0	1	1	1	7	
+mesh_sampler	MeshElevationSampler.sample_at_or_none	method	641	8	UNREACHED	static: no production reference	0	0	0	0	1	
+apt_dat_reader	Runway	class	138	49	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	22	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	Runway.declared_width_m	method	176	11	UNREACHED	static: no production reference	0	0	0	0	1	
+apt_dat_reader	Pavement	class	190	7	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	7	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	PaintedLine	class	200	18	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	8	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	PaintedLine.is_centerline_paint	method	216	2	UNREACHED	static: no production reference	0	1	1	0	2	
+apt_dat_reader	TaxiNode	class	221	14	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	7	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	TaxiEdge	class	238	18	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	7	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	Airport	class	259	29	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	17	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	Airport.reference_elev_m	method	286	2	UNREACHED	static: no production reference	0	1	1	0	2	
+apt_dat_reader	TaxiCenterline	class	291	73	UNREACHED	static: no production reference	0	1	1	0	13	
+apt_dat_reader	TaxiCenterline.chained_line	method	326	4	UNREACHED	static: no production reference	0	0	0	0	1	
+apt_dat_reader	TaxiCenterline._seg_index_at_arc	method	331	9	UNREACHED	static: no production reference	0	0	0	0	1	
+apt_dat_reader	TaxiCenterline.size_at_arc	method	341	6	UNREACHED	static: no production reference	0	0	0	0	1	
+apt_dat_reader	TaxiCenterline.size_at_point	method	348	7	UNREACHED	static: no production reference	0	0	0	0	1	
+apt_dat_reader	TaxiCenterline.dominant_size	method	356	8	UNREACHED	static: no production reference	0	0	0	0	1	
+apt_dat_reader	find_airport_apt_dat	func	369	79	UNREACHED	static: no production reference	0	1	1	1	36	
+apt_dat_reader	load_airport	func	453	217	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	145	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	find_all_airport_apt_dats	func	675	50	UNREACHED	static: no production reference	0	1	1	1	31	
+apt_dat_reader	_load_persistent_apt_index	func	761	15	UNREACHED	static: no production reference	0	1	0	0	10	
+apt_dat_reader	_save_persistent_apt_index	func	779	30	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	19	
+apt_dat_reader	_index_apt_dat	func	811	84	UNREACHED	static: no production reference	0	1	0	0	47	
+apt_dat_reader	_file_has_airport	func	897	8	UNREACHED	static: no production reference	0	1	0	0	3	
+apt_dat_reader	_file_has_airport_with_pavement	func	907	15	UNREACHED	static: no production reference	0	1	0	0	3	
+apt_dat_reader	_file_has_airport_with_taxi_routing	func	924	15	UNREACHED	static: no production reference	0	0	0	0	1	
+apt_dat_reader	_read_airport_block	func	941	26	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	1	20	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_parse_runway	func	972	63	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	38	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_parse_taxi_node	func	1037	19	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	9	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_parse_taxi_edge	func	1058	21	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	10	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_parse_truck_edge	func	1081	21	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	9	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_parse_pavement	func	1104	66	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	31	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_parse_boundary	func	1172	33	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	19	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_parse_painted_line	func	1207	59	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	37	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_interpolate_open_polyline	func	1268	57	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	49	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_split_contours	func	1327	26	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	14	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_node_xy	func	1358	4	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	2	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_node_ctrl	func	1364	15	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	8	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_sparsify_ring_points	func	1381	59	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	37	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_effective_bezier_segments	func	1442	43	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	32	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_quadratic_bezier	func	1487	13	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	9	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_cubic_bezier	func	1502	16	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	13	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_mirror	func	1520	3	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	2	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	_interpolate_contour	func	1525	111	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	52	apt_dat_reader.load_airport <- auto_patch/flat_site_mode.py
+apt_dat_reader	painted_taxi_centerlines	func	1638	92	UNREACHED	static: no production reference	0	1	1	0	26	
+apt_dat_reader	snap_parallel_service_runs	func	1741	168	UNREACHED	static: no production reference	0	0	0	0	5	
+apt_dat_reader	service_road_centerlines	func	1911	67	UNREACHED	static: no production reference	0	1	1	0	32	
+cifp_reader	CifpRunway	class	32	6	COVERED	MEASURED (OTHH tile build, step 1)	1	1	0	0	6	cifp_reader.airport_in_tile <- auto_patch/selection.py
+cifp_reader	parse_cifp_lat	func	56	10	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	9	cifp_reader.parse_cifp_file <- auto_patch/flat_site.py, auto_patch/flat_site_mode.py, auto_patch/selection.py
+cifp_reader	parse_cifp_lon	func	68	10	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	9	cifp_reader.parse_cifp_file <- auto_patch/flat_site.py, auto_patch/flat_site_mode.py, auto_patch/selection.py
+cifp_reader	parse_cifp_file	func	84	89	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	46	cifp_reader.parse_cifp_file <- auto_patch/flat_site.py, auto_patch/flat_site_mode.py, auto_patch/selection.py
+cifp_reader	xplane_root_from_cifp_path	func	188	21	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	10	cifp_reader.xplane_root_from_cifp_path <- O4_Airport_Elevation_Insets.py, auto_patch/driver.py, auto_patch/flat_site_mode.py, auto_patch/selection.py
+cifp_reader	discover_cifp_airports	func	215	16	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	10	cifp_reader.discover_cifp_airports <- auto_patch/selection.py
+cifp_reader	airport_in_tile	func	233	18	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	7	cifp_reader.airport_in_tile <- auto_patch/selection.py
+dsf_reader	is_stock_pavement_def	func	109	9	UNREACHED	static: no production reference	0	0	0	0	1	
+dsf_reader	_dsftool_path	func	120	14	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	7	dsf_reader._dsftool_path <- auto_patch/engine_v2.py
+dsf_reader	_is_pavement_def	func	136	23	UNREACHED	static: no production reference	0	1	1	0	8	
+dsf_reader	_resource_surface_attribute	func	200	39	UNREACHED	static: no production reference	0	1	0	0	25	
+dsf_reader	_classify_pavement_def	func	241	17	UNREACHED	static: no production reference	0	1	1	0	11	
+dsf_reader	_pack_root_for_dsf	func	260	8	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	4	dsf_reader._pack_root_for_dsf <- auto_patch/driver.py
+dsf_reader	_interpolate_dsf_ring	func	270	74	UNREACHED	static: no production reference	0	1	0	0	24	
+dsf_reader	dsf_content_tag	func	361	37	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	16	dsf_reader.ensure_dsf_text_path <- O4_Default_Terrain_Map.py, auto_patch/engine_v2.py
+dsf_reader	_default_pack_text_cache_path	func	400	12	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	3	dsf_reader.ensure_dsf_text_path <- O4_Default_Terrain_Map.py, auto_patch/engine_v2.py
+dsf_reader	ensure_dsf_text_path	func	414	166	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	68	dsf_reader.ensure_dsf_text_path <- O4_Default_Terrain_Map.py, auto_patch/engine_v2.py
+dsf_reader	_external_write_refused	func	582	13	COVERED	static: PENDING BUILD (post-mesh stage / engine_v2)	0	1	0	0	4	dsf_reader.ensure_dsf_text_path <- O4_Default_Terrain_Map.py, auto_patch/engine_v2.py
+dsf_reader	_load_dsf_text	func	597	32	COVERED	static: dsf_reader.read_dsf_object_placement_positions <- auto_patch/driver.py, auto_patch/flat_si	0	1	1	1	17	dsf_reader.read_dsf_object_placement_positions <- auto_patch/driver.py, auto_patch/flat_site_mode.py
+dsf_reader	_read_dsf_polys	func	631	182	UNREACHED	static: no production reference	0	1	1	0	86	
+dsf_reader	read_dsf_pavements	func	815	24	UNREACHED	static: no production reference	0	0	1	1	4	
+dsf_reader	_lin_strip_width_m	func	867	51	UNREACHED	static: no production reference	0	0	0	0	1	
+dsf_reader	_interpolate_dsf_polyline	func	920	48	UNREACHED	static: no production reference	0	0	0	0	1	
+dsf_reader	read_dsf_pavement_border_lines	func	970	102	UNREACHED	static: no production reference	0	0	0	0	4	
+dsf_reader	_building_role_for_def	func	1105	17	UNREACHED	static: no production reference	0	1	1	0	13	
+dsf_reader	_read_dsf_object_placements	func	1124	48	COVERED	static: dsf_reader.read_dsf_object_placement_positions <- auto_patch/driver.py, auto_patch/flat_si	0	1	1	0	31	dsf_reader.read_dsf_object_placement_positions <- auto_patch/driver.py, auto_patch/flat_site_mode.py
+dsf_reader	read_dsf_buildings	func	1174	58	UNREACHED	static: no production reference	0	0	0	0	4	
+dsf_reader	_load_object_geometry	func	1244	19	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	12	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+dsf_reader	airport_mod_cache_dir	func	1265	24	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	6	dsf_reader.read_dsf_object_placement_positions <- auto_patch/driver.py, auto_patch/flat_site_mode.py
+dsf_reader	remove_legacy_pack_sidecar	func	1339	19	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	5	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+dsf_reader	_object_footprint_sidecar	func	1360	103	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	33	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+dsf_reader	_object_reader_lock	func	1492	12	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	7	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+dsf_reader	_read_footprint_sidecar	func	1506	22	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	14	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+dsf_reader	_serve_object_reader	func	1530	32	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	16	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+dsf_reader	read_dsf_object_buildings	func	1564	76	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	8	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+dsf_reader	_object_buildings_sidecar	func	1642	66	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	0	0	21	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+dsf_reader	read_dsf_object_building_evidence	func	1710	27	UNREACHED	static: no production reference	0	1	1	0	6	
+dsf_reader	_compute_dsf_object_buildings	func	1739	383	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	158	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+dsf_reader	_is_pavement_object	func	2141	31	UNREACHED	static: no production reference	0	1	1	0	16	
+dsf_reader	read_dsf_object_pavements	func	2174	42	UNREACHED	static: no production reference	0	1	1	0	8	
+dsf_reader	_object_pavements_sidecar	func	2218	21	UNREACHED	static: no production reference	0	1	0	0	12	
+dsf_reader	_compute_dsf_object_pavements	func	2241	79	UNREACHED	static: no production reference	0	1	0	0	53	
+dsf_reader	tile_dsf_path	func	2322	15	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	9	dsf_reader.tile_dsf_path <- auto_patch/driver.py
+dsf_reader	find_associated_dsf	func	2339	24	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	1	12	dsf_reader.find_associated_dsf <- auto_patch/driver.py
+dsf_reader	read_dsf_object_placement_positions	func	2377	78	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	42	dsf_reader.read_dsf_object_placement_positions <- auto_patch/driver.py, auto_patch/flat_site_mode.py
+agp_reader	_scenery_pack_order	func	77	34	COVERED	static: agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py	0	1	1	0	15	agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py
+agp_reader	_parse_library_txt	func	113	40	COVERED	static: agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py	0	1	1	0	25	agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py
+agp_reader	_library_source_files	func	155	23	COVERED	static: agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py	0	1	1	0	14	agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py
+agp_reader	_vprint	func	205	9	COVERED	static: agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py	0	1	1	0	4	agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py
+agp_reader	_library_index_lock	func	216	7	COVERED	static: agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py	0	1	0	0	6	agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py
+agp_reader	_library_index_sidecar	func	225	92	COVERED	static: agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py	0	1	1	0	30	agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py
+agp_reader	_read_library_index_sidecar	func	319	25	COVERED	static: agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py	0	1	0	0	17	agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py
+agp_reader	_write_library_index_sidecar	func	346	42	COVERED	static: agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py	0	1	1	1	19	agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py
+agp_reader	get_library_index	func	390	38	COVERED	static: agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py	0	1	1	0	20	agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py
+agp_reader	resolve_library_path	func	430	9	COVERED	static: agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py	0	1	1	1	6	agp_reader.resolve_library_path <- O4_Default_Terrain_Map.py
+agp_reader	_crop_or_tile_pixels	func	442	15	UNREACHED	static: no production reference	0	1	0	0	6	
+agp_reader	parse_agp	func	459	81	UNREACHED	static: no production reference	0	1	1	0	54	
+agp_reader	_rotate_clockwise	func	546	11	UNREACHED	static: no production reference	0	1	0	0	8	
+agp_reader	agp_footprint_lonlat	func	559	24	UNREACHED	static: no production reference	0	1	1	0	15	
+agp_reader	is_agp_building_def	func	585	7	UNREACHED	static: no production reference	0	1	1	0	4	
+obj8_reader	ObjectPlacement	class	115	43	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	10	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	PositionalCommand	class	160	19	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	0	8	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	ObjectGeometry	class	181	100	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	35	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	ObjectGeometry.hard_deck_solid_triangles	method	236	12	UNREACHED	static: no production reference	0	1	1	1	6	
+obj8_reader	ObjectGeometry.has_solid_geometry	method	250	2	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	2	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	ObjectGeometry.has_mixed_draped_solid_vertices	method	254	12	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	6	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	ObjectGeometry.solid_reach_metres	method	267	14	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	8	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	load_object_file	func	283	113	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	87	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	area_weighted_centroid	func	398	35	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	24	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	horizontal_bounding_box	func	435	9	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	8	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	local_offset_to_lonlat	func	446	22	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	16	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	lonlat_to_local_offset	func	470	25	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	16	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	read_dsf_object_placements	func	497	68	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	41	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+obj8_reader	resolve_object_resource	func	567	21	COVERED	static: cold-inset path (O4_Airport_Elevation_Insets.package_object_footprints); not measurable in a lane build	0	1	1	1	13	dsf_reader.read_dsf_object_buildings <- O4_Airport_Elevation_Insets.py
+osm_aeroway	extract_taxiway_info	func	35	51	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	28	osm_aeroway.extract_taxiway_info <- O4_Vector_Map.py
+osm_aeroway	extract_building_info	func	88	164	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	97	osm_aeroway.extract_building_info <- O4_Vector_Map.py
+osm_aeroway	extract_road_info	func	262	79	COVERED	MEASURED (OTHH tile build, step 1)	1	1	1	0	44	osm_aeroway.extract_road_info <- O4_Vector_Map.py

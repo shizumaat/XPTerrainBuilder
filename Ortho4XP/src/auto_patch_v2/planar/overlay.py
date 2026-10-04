@@ -28,7 +28,7 @@ from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..classify.roles import Classification, is_osm_ribbon
+from ..classify.roles import Classification, is_late_cell
 from ..geom.containment import sets_inside_one_ring
 from ..law import Law
 from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
@@ -187,9 +187,9 @@ def build_arrangement(airport: Airport, classification: Classification,
     # pass B through the pads' own clip (below).  Inside a band the ribbon
     # CLAIMS its footprint from the zone at the face claim (a senior role):
     # the flush cut, no stand-off, no knife, no sliver of its own making.
-    ribbon_cells = tuple(c for c in classification.cells if is_osm_ribbon(c))
+    ribbon_cells = tuple(c for c in classification.cells if is_late_cell(c))
     cells, weld = weld_cells(tuple(c for c in classification.cells
-                                   if not is_osm_ribbon(c)), law) \
+                                   if not is_late_cell(c)), law) \
         if ribbon_cells else weld_cells(classification.cells, law)
     regions: list[Region] = []
     for c in cells:
@@ -431,8 +431,8 @@ def _claiming_region(poly: Polygon, regions: "list[Region]", hits,
     # ribbon, and the face's densified, snap-rounded edges overlap the raw
     # ribbon by a few m² less than the zone around it (measured HECA
     # ``small_roads:-3890#3``: 560.8 vs 568.0 of 571.9 m²)
-    rib = [(a, r) for a, r in cands if a >= 0.5 * poly.area and is_osm_ribbon(r)]
-    if rib and all(r.source == "zone" or is_osm_ribbon(r) for _a, r in cands):
+    rib = [(a, r) for a, r in cands if a >= 0.5 * poly.area and is_late_cell(r)]
+    if rib and all(r.source == "zone" or is_late_cell(r) for _a, r in cands):
         return max(rib, key=lambda t: (t[0], str(t[1].ref)))[::-1]
     top = max(a for a, _ in cands)
     tied = [(a, r) for a, r in cands if top - a <= CLAIM_TIE_M2]

@@ -43,5 +43,18 @@ def test_wholly_inside_is_kept():
 def test_mint_loop_uses_the_area_gate():
     import inspect
     src = inspect.getsource(ev._pads)
-    assert "_inside_gate(piece, gate)" in src
+    assert "_inside_gate(piece, gate, gate_near_m)" in src
     assert "gate.contains(piece.representative_point())" not in src
+
+
+def test_a_piece_just_outside_the_gate_is_admitted_within_near_m():
+    # issue #336 (RULINGS 2026-10-04e (2)): SPJC dsf:fac201 stands 0.47 m out
+    near = box(100.47, 0, 118, 176)
+    assert not ev._inside_gate(near, GATE)                 # the pre-#336 gate
+    assert ev._inside_gate(near, GATE, 1.0)
+    assert not ev._inside_gate(box(101.5, 0, 118, 176), GATE, 1.0)
+    # touching counts as just outside; a STRADDLER keeps the area rule
+    assert ev._inside_gate(box(100, 0, 160, 50), GATE, 1.0)
+    assert not ev._inside_gate(box(95, 0, 195, 50), GATE, 1.0)
+    from auto_patch_v2.classify.rules import load_rules
+    assert load_rules().buildings.pad_gate_near_m == 1.0

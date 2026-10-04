@@ -121,7 +121,7 @@ def test_long_functions_are_listed_longest_first(tmp_path):
 def _write(tmp_path, name, text):
     p = tmp_path / name
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(text, encoding="utf-8")
+    p.write_text(text, encoding="utf-8", newline="\n")
     return name
 
 
@@ -155,21 +155,22 @@ def test_regenerate_snapshots_sizes_and_refuses_only_risen_duplicates(tmp_path):
     g2 = [[("a.py", "f", 1), ("b.py", "f", 1)]]
     assert ratchets.regenerate(path, init=True, groups=g2, current={
         "tools/big.py": 1500, "tools/small.py": 10}) == []
-    assert json.load(open(path))["size"] == {"tools/big.py": 1500}
+    assert json.load(open(path, encoding="utf-8"))["size"] == {"tools/big.py": 1500}
     assert ratchets.regenerate(path, init=True, groups=g2, current={})  # exists
-    before = open(path).read()
+    before = open(path, encoding="utf-8").read()
     # a risen duplicate count refuses and writes nothing
     assert ratchets.regenerate(path, current={"tools/big.py": 1500}, groups=g2 + [
         [("c.py", "h", 1), ("d.py", "h", 1)]])
-    assert open(path).read() == before
+    assert open(path, encoding="utf-8").read() == before
     # growth and a new file past 1,000 are RECORDED (04c: a snapshot)
     assert ratchets.regenerate(path, groups=g2, current={
         "tools/big.py": 1501, "tools/new.py": 1001}) == []
-    assert json.load(open(path))["size"] == {
+    assert json.load(open(path, encoding="utf-8"))["size"] == {
         "tools/big.py": 1501, "tools/new.py": 1001}
     # shrink, delete, and a file that fell to 1,000 leaves the list
     assert ratchets.regenerate(path, groups=[], current={"tools/big.py": 900}) == []
-    doc = json.load(open(path))
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
     assert doc["size"] == {} and doc["duplicates"] == 0
 
 
@@ -177,23 +178,25 @@ def test_justify_is_an_optional_note_shown_in_the_report(tmp_path):
     path = str(tmp_path / "baseline.json")
     cur = {"tools/big.py": 1500, "tools/new.py": 900}
     assert ratchets.regenerate(path, init=True, groups=[], current=cur) == []
-    assert json.load(open(path))["justified"] == {}     # none invented
+    assert json.load(open(path, encoding="utf-8"))["justified"] == {}     # none invented
     grown = {"tools/big.py": 1600, "tools/new.py": 1100}
-    before = open(path).read()
+    before = open(path, encoding="utf-8").read()
     for reason in ("", "   ", "\n"):
         assert ratchets.justify("tools/big.py", reason, path, current=grown)
     assert ratchets.justify("tools/absent.py", "why", path, current=grown)
     assert ratchets.justify("tools/new.py", "why", path, current=cur)  # <= 1,000
-    assert open(path).read() == before
+    assert open(path, encoding="utf-8").read() == before
     assert ratchets.justify("tools/big.py", " one solver,\n one file ", path,
                             current=grown) == []
-    doc = json.load(open(path))
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
     assert doc["size"]["tools/big.py"] == 1600
     assert doc["justified"] == {"tools/big.py": "one solver, one file"}
     # regenerate keeps the note while the file is past 1,000
     assert ratchets.regenerate(path, groups=[], current={
         "tools/big.py": 1700, "tools/new.py": 800}) == []
-    doc = json.load(open(path))
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
     assert doc["size"] == {"tools/big.py": 1700}
     assert doc["justified"] == {"tools/big.py": "one solver, one file"}
     out = io.StringIO()

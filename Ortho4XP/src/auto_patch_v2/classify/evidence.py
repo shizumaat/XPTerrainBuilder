@@ -742,6 +742,8 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     out: list[tuple[str, Polygon]] = []
     dropped = 0
     minted = 0
+    # #336: a rules stub without the key keeps the pre-#336 gate
+    gate_near_m = float(getattr(rules.buildings, "pad_gate_near_m", 0.0))
     for part in sorted(parts,
                        key=lambda g: (round(g.bounds[1]), round(g.bounds[0]))):
         if not runway_union.is_empty and part.intersects(runway_union):
@@ -752,7 +754,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
             if piece.area < min_area:
                 dropped += 1
                 continue
-            if not _inside_gate(piece, gate):
+            if not _inside_gate(piece, gate, gate_near_m):
                 dropped += 1
                 continue
             out.append((ref if k == 0 else f"{ref}#{k}", piece))
@@ -790,14 +792,23 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
 PAD_GATE_MIN_FRACTION = 0.25
 
 
-def _inside_gate(piece, gate) -> bool:
+def _inside_gate(piece, gate, near_m: float = 0.0) -> bool:
     """A pad piece is admitted by the AREA it has inside ``gate``, never by
-    one representative point (#68)."""
+    one representative point (#68).
+
+    A PACK BUILDING JUST OUTSIDE THE BOUNDARY GETS A PAD (owner RULINGS
+    2026-10-04e (2), issue #336: "yes give the third cargo terminal a
+    pad"): a piece with NO area inside the gate is admitted when it stands
+    within ``near_m`` (``[buildings] pad_gate_near_m``) of it.  SPJC
+    ``dsf:fac201`` (Cargo_Terminal, 3,542 m2) stands 0.47 m beyond the
+    apt.dat boundary, facing ``building16`` across the truck court.  A
+    piece STRADDLING the gate is still judged by its area alone."""
     if gate.contains(piece):
         return True
-    if not gate.intersects(piece):
-        return False
-    return piece.intersection(gate).area >= PAD_GATE_MIN_FRACTION * piece.area
+    inside = piece.intersection(gate).area if gate.intersects(piece) else 0.0
+    if inside >= PAD_GATE_MIN_FRACTION * piece.area and inside > 0.0:
+        return True
+    return near_m > 0.0 and inside == 0.0 and piece.distance(gate) <= near_m
 
 
 #: #6 (lane ``nestedpads``): a pad standing at least this far (m2) into a

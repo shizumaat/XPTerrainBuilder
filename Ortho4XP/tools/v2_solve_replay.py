@@ -2178,6 +2178,24 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         cs, _dropped = late_constraints(cs, _fixed)
         print(f"[{icao}] LAST STAGE (§53 (9)) off {late_from}: followers {_frep}; join {_jrep}; "
               f"rows with no unknown dropped {_dropped}")
+        from auto_patch_v2.constraints.gap_follow import gap_follow_rows
+        from auto_patch_v2.model.constraints import ConstraintSet
+        _grows, _grep = gap_follow_rows(pm, law, _fixed)
+        cs = ConstraintSet.from_rows([*cs.rows(), *_grows])
+        _to_ll_g = airport.frame.transformers()[1]
+        print(f"[{icao}] LAST STAGE gap_follow (§53 (13)): {_grep['rows']} rows; "
+              f"{len(_grep['conflicts'])} vertices between two disagreeing neighbours")
+        _seen: dict = {}
+        for _c in sorted(_grep["conflicts"], key=lambda c: -c["gap_m"]):
+            _k = (_c["upper"], _c["lower"])
+            if _k in _seen:
+                _seen[_k][1] += 1
+                continue
+            _seen[_k] = [_c, 1]
+        for (_u, _l), (_c, _n) in list(_seen.items())[:40]:
+            _la, _lo = _to_ll_g(*_c["xy"])
+            print(f"    CONFLICT {_u} {_c['upper_m']:.2f} vs {_l} {_c['lower_m']:.2f} "
+                  f"(short by {_c['gap_m']:.2f} m) at {_la:.7f},{_lo:.7f}; {_n} vertices")
         _late_fixed = dict(_fixed)
         sol, rep = solve_late_stage(pm, cs, law, _fixed, Options(verbose=verbose),
                                     size_out=size, method=method)

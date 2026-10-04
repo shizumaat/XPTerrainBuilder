@@ -774,6 +774,7 @@ edge_road_run_m  = 30.0
 # mutually unsatisfiable (CYXY: 127/1432 ring chords missed by up to 0.77 m
 # under the soft solve, spec §6 deviation 8).
 hard_rulings = [
+  "gap_piece follows its standing neighbour across the stand-off",   # spec §53 (13): a Band on a piece vertex against a CONSTANT of the earlier stages (last stage only)
   "rulesets.runway.transverse_max",                      # 05o: flat laterally within the crown drop
   "rulesets.runway.vertical_curve_k_m / max_grade_change",  # 06b law 1: the vertical curve K
   "rulesets.runway.longitudinal",                        # the runway's max grade along the profile
@@ -829,7 +830,8 @@ hard_conflict_ranks = [
    "apron body chord, stationed across the face", "plane_gradient", "apron body chord, strict"],
   ["structures.building_pad pad_slope_max ceiling", "structures.building_pad platform plane",
    "structures.building_pad frontage_hold"],
-  ["road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.bore_datum_m"],
+  ["road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.bore_datum_m",
+   "gap_piece follows its standing neighbour across the stand-off"],   # §53 (13): groundside, the last stage's own
 ]
 # the price ratio between two adjacent tiers in the elastic LP's objective
 # (min SUM w_tier * s): the relaxation lands on the lowest tier a conflict

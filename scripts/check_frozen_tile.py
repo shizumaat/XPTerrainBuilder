@@ -2226,29 +2226,28 @@ def _compare(specs, projection=False, gate=False):
     """``--compare mac=A.json linux=B.json windows=C.json``.
 
     With ``projection``, the same call over the ``.xproj.json`` files and
-    the engine's ``xplat.compare_projection`` — the EXACT spread, not the
+    ``xplat_compare.compare_projection`` — the EXACT spread, not the
     AGREE/DIFFER table.
 
-    The table itself is the ENGINE's own ``pipeline/xplat.compare`` —
-    imported from ``Ortho4XP/src``, never re-spelled here (a second
-    implementation of a comparison is the census-wrapper defect,
-    CLAUDE.md).  ``xplat.py`` is standard-library only, which is what
-    lets this third-party-free driver import it at all.
+    The table itself is ``Ortho4XP/tools/xplat_compare.compare`` — the
+    comparer that reads the engine writer's dumps (``auto_patch_v2/
+    pipeline/xplat.py``), never re-spelled here (a second implementation
+    of a comparison is the census-wrapper defect, CLAUDE.md).  Both are
+    standard-library only, which is what lets this third-party-free
+    driver load them at all.
     """
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(repo_root, "Ortho4XP", "src", "auto_patch_v2",
-                        "pipeline", "xplat.py")
-    # Loaded BY FILE, not as ``auto_patch_v2.pipeline.xplat``: importing
-    # the package would drag in shapely, and this interpreter is the bare
-    # runner python3 with no third-party package at all.  ``xplat.py`` is
-    # standard-library only, which is what makes that lawful.
+    path = os.path.join(repo_root, "Ortho4XP", "tools", "xplat_compare.py")
+    # Loaded BY FILE: this interpreter is the bare runner python3 with no
+    # third-party package at all, and the comparer (like the writer whose
+    # snap rule it loads the same way) is standard-library only.
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("_o4_xplat", path)
         xplat = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(xplat)
     except Exception as error:
-        print("ERROR: cannot load the engine's xplat module from %s: %s"
+        print("ERROR: cannot load the xplat comparer from %s: %s"
               % (path, error), file=sys.stderr)
         return 1
     dumps = {}

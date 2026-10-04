@@ -653,7 +653,7 @@ def withdraw_trend_over_reach(pm: PlanarMap, law: Law, airport: Airport,
     derived reach (§36 (5); :func:`eat_reach_plan`).
 
     Called by ``pipeline/build`` after BOTH trend channels are published
-    (and by ``pipeline/why`` and ``tools/v2_solve_replay`` in the same
+    (and by ``tools/v2_why`` and ``tools/v2_solve_replay`` in the same
     position, which is how every arm solves the pipeline's own LP).  An
     airport with no EAT — five of the six frames — is returned
     unchanged."""

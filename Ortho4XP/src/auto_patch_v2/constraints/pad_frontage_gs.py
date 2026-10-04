@@ -69,7 +69,7 @@ STATS: dict[str, dict[str, int]] = {}
 HELD_PAIRS: dict[tuple[int, int, int], set[tuple[int, int]]] = {}
 
 #: THE §28 FAMILY.  Its own generator name, so ``DesignReport.families`` and
-#: ``solve/why`` name the PAD holding a lot's edge rather than the pad
+#: ``tools/v2_why_solve`` name the PAD holding a lot's edge rather than the pad
 #: generator at large, and a JUNIOR frontage's miss is a REPORTED residual
 #: (§28 (1): "the step is reported at the junior edge").
 GEN_GS = "groundside_frontage"

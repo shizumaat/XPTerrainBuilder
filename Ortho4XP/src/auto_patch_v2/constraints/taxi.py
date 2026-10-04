@@ -87,7 +87,7 @@ GEN = "taxi"
 #: ``runway_profile.GEN`` (stated here: ``runway_profile`` imports this module)
 RUNWAY_GEN = "runway_profile"
 _GRADIENT_DIRECTIONS = 16
-#: The short-pair box row's citation (module docstring); ``solve.why``
+#: The short-pair box row's citation (module docstring); ``tools/v2_why_solve``
 #: keys the ``taxi_box`` family on it.
 BOX_RULING = "short-pair box |dz| <= cL*|ds| + cT*|dt| vs the nearest stretch axis (2026-09-06s)"
 #: Per-generator statistics ``generate`` publishes as ``<name>.<stat>``:

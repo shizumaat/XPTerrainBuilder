@@ -1,10 +1,12 @@
-"""TWINS FOR THE MERGE RATCHETS (owner RULINGS 2026-10-04a (1), (3)).
+"""TWINS FOR THE MERGE RATCHETS (owner RULINGS 2026-10-04a (1), (3), as
+amended by 2026-10-04b: past 1,000 needs a recorded justification).
 
 ``tools/ratchets.py`` is the one implementation; ``tools/blast.py --audit``
 and these twins read it.  The live assertions run on the checked-out tree
 (no build, no corpus, no network); the rule itself is pinned on synthetic
 inputs so a baseline that happens to be green cannot hide a broken rule.
 """
+import io
 import json
 import os
 import sys
@@ -63,11 +65,10 @@ def test_size_rule_new_file_soft_hard_and_ratchet():
     assert refusals == []                      # a gone entry is not an error
     assert soft == [("tools/b.py", 601), ("tools/c.py", 1000)]
     refusals, _ = ratchets.check_size({"tools/c.py": 1001}, recorded)
-    assert len(refusals) == 1 and "hard limit" in refusals[0]
+    assert len(refusals) == 1 and "--justify tools/c.py" in refusals[0]
     refusals, _ = ratchets.check_size({"tools/old.py": 1201}, recorded)
-    assert len(refusals) == 1 and "never grow" in refusals[0]
-    # 13bz's 1,500 band is gone: a ratcheted file may sit past it, a new
-    # file may not sit anywhere past 1,000
+    assert len(refusals) == 1 and "recorded 1200" in refusals[0]
+    # 13bz's 1,500 band is gone: what matters is the recorded size
     assert ratchets.check_size({"tools/old.py": 1199}, recorded)[0] == []
 
 
@@ -125,6 +126,76 @@ def test_regenerate_only_ever_lowers(tmp_path):
     assert doc["size"] == {"tools/big.py": 1100} and doc["duplicates"] == 0
     assert ratchets.regenerate(path, groups=[], current={"tools/big.py": 900}) == []
     assert json.load(open(path))["size"] == {}
+
+
+def test_justify_is_the_only_way_an_entry_rises(tmp_path):
+    """04b (1): unjustified growth past 1,000 fails, justified growth
+    passes, an empty reason is refused, and --regenerate keeps the
+    justification without ever inventing one."""
+    path = str(tmp_path / "baseline.json")
+    cur = {"tools/big.py": 1500, "tools/new.py": 900}
+    assert ratchets.regenerate(path, init=True, groups=[], current=cur) == []
+    assert json.load(open(path))["justified"] == {}     # none invented
+    grown = {"tools/big.py": 1600, "tools/new.py": 1100}
+    assert len(ratchets.check_size(grown, json.load(open(path))["size"])[0]) == 2
+    before = open(path).read()
+    for reason in ("", "   ", "\n"):
+        assert ratchets.justify("tools/big.py", reason, path, current=grown)
+    assert ratchets.justify("tools/absent.py", "why", path, current=grown)
+    assert ratchets.justify("tools/new.py", "why", path, current=cur)  # <= 1,000
+    assert open(path).read() == before
+    assert ratchets.justify("tools/big.py", " one solver,\n one file ", path,
+                            current=grown) == []
+    doc = json.load(open(path))
+    assert doc["size"]["tools/big.py"] == 1600
+    assert doc["justified"] == {"tools/big.py": "one solver, one file"}
+    # big is covered now; new is still unjustified
+    refusals, _ = ratchets.check_size(grown, doc["size"])
+    assert len(refusals) == 1 and refusals[0].startswith("tools/new.py")
+    assert ratchets.justify("tools/new.py", "a law table", path, current=grown) == []
+    doc = json.load(open(path))
+    assert ratchets.check_size(grown, doc["size"])[0] == []
+    # growth beyond the JUSTIFIED size needs a fresh act
+    assert ratchets.check_size({"tools/big.py": 1601}, doc["size"])[0]
+    # regenerate lowers, keeps the reason while the file is past 1,000 and
+    # drops it with the entry
+    assert ratchets.regenerate(path, groups=[], current={
+        "tools/big.py": 1550, "tools/new.py": 800}) == []
+    doc = json.load(open(path))
+    assert doc["size"] == {"tools/big.py": 1550}
+    assert doc["justified"] == {"tools/big.py": "one solver, one file"}
+    out = io.StringIO()
+    ratchets.print_size({"tools/big.py": 1550}, doc["size"], out=out,
+                        justified=doc["justified"])
+    assert "tools/big.py (1550 lines, recorded 1550): one solver, one file" \
+        in out.getvalue()
+
+
+def test_live_justifications_are_real():
+    base = ratchets.load_baseline()
+    for rel, why in base.get("justified", {}).items():
+        assert rel in base["size"] and why.strip(), rel
+
+
+def test_near_duplicates_ignore_local_names_and_constants(tmp_path):
+    a = ("def clamp(vals, lo):\n    out = []\n    for v in vals:\n"
+         "        out.append(max(v, lo) * 2.0)\n    return sorted(out)[:10]\n")
+    b = ("class K:\n    def squash(self_, floor):\n        'doc.'\n"
+         "        res = []\n        for x in self_:\n"
+         "            res.append(max(x, floor) * 3.5)\n"
+         "        return sorted(res)[:99]\n")
+    c = a.replace("max(", "min(")            # another callee: other logic
+    files = [_write(tmp_path, "a.py", a), _write(tmp_path, "b.py", b),
+             _write(tmp_path, "c.py", c),
+             _write(tmp_path, "tiny1.py", "def f(a):\n    return a + 1\n"),
+             _write(tmp_path, "tiny2.py", "def g(b):\n    return b + 2\n")]
+    groups = ratchets.near_duplicate_groups(files, repo=str(tmp_path))
+    assert groups == [[("a.py", "clamp", 1), ("b.py", "K.squash", 2)]]
+    # the identical-body ratchet does NOT see this pair
+    assert ratchets.duplicate_groups(files, repo=str(tmp_path)) == []
+    out = io.StringIO()
+    assert ratchets.print_dupes(groups, None, out=out, near=True) == []
+    assert "NOT GATED" in out.getvalue()
 
 
 def test_blast_audit_carries_the_duplicate_section():

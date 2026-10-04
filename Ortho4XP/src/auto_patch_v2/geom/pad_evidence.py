@@ -57,6 +57,7 @@ import os as _os
 import typing as _t
 
 from shapely.geometry import MultiPoint
+from .rotated_rect import rotated_rectangle
 
 __all__ = ["MemberRow", "PadEvidence", "member_row", "resource_rows",
            "ring_area",
@@ -345,7 +346,7 @@ def pad_evidence(rows: _t.Sequence[MemberRow],
     if hull_area_m2 <= 0.0:
         return None
     try:
-        box = hull.minimum_rotated_rectangle
+        box = rotated_rectangle(hull)
         xy = list(box.exterior.coords)[:-1] if box.geom_type == "Polygon" else []
         sides = sorted(_math.dist(xy[i], xy[(i + 1) % len(xy)])
                        for i in range(len(xy))) if len(xy) >= 4 else []

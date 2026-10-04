@@ -21,6 +21,7 @@ import typing as _t
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
+from .rotated_rect import rotated_rectangle
 
 __all__ = ["cluster_outlines", "OUTLINE_SIMPLIFY_M", "airside_vertex_snap",
            "AirsideRim", "ON_BOUNDARY_EPS_M", "deck_shades",
@@ -279,7 +280,7 @@ def _rect(g) -> tuple[float, float]:
     """``(length_m, width_m)`` of ``g``'s minimum rotated rectangle, long
     side first — what a rule-9/10 refusal row carries for issue #229."""
     try:
-        box = g.minimum_rotated_rectangle
+        box = rotated_rectangle(g)
         xy = list(box.exterior.coords)[:-1] if box.geom_type == "Polygon" else []
         if len(xy) < 4:
             return 0.0, 0.0

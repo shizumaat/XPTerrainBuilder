@@ -233,6 +233,66 @@ def test_near_duplicates_ignore_local_names_and_constants(tmp_path):
     assert "NOT GATED" in out.getvalue()
 
 
+# -------------------------------------------------------------- layers
+def _v2(root, rel, text):
+    path = os.path.join(str(root), ratchets.V2_ROOT, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+
+
+def test_layer_ratchet_holds_on_this_tree():
+    """04a (3): upward imports in auto_patch_v2 may fall, never rise."""
+    base = ratchets.load_baseline()
+    viol = ratchets.layer_violations(ratchets.layer_edges())
+    assert ratchets.check_layers(viol, base["layers"]) == []
+    assert not [v for v in viol if v.startswith("UNRANKED")]
+
+
+def test_a_new_upward_import_fails_the_layer_ratchet(tmp_path):
+    _v2(tmp_path, "geom/ring.py", '"""g."""\n')
+    _v2(tmp_path, "model/frame.py", '"""m."""\nfrom ..geom import ring\n')
+    _v2(tmp_path, "solve/design.py",
+        '"""s."""\nfrom ..model.frame import x\nfrom ..geom.ring import y\n')
+    edges = ratchets.layer_edges(str(tmp_path))
+    assert ratchets.layer_matrix(edges) == {
+        ("model", "geom"): 1, ("solve", "model"): 1, ("solve", "geom"): 1}
+    assert ratchets.layer_violations(edges) == []
+    # geom reaching UP into solve, inside a function: still the dependency
+    _v2(tmp_path, "geom/ring.py",
+        '"""g."""\ndef f():\n    from ..solve import design\n')
+    viol = ratchets.layer_violations(ratchets.layer_edges(str(tmp_path)))
+    assert viol == ["geom/ring.py -> solve/design.py (lazy)"]
+    bad = ratchets.check_layers(viol, [])
+    assert bad and "geom/ring.py -> solve/design.py" in bad[0]
+    assert ratchets.check_layers(viol, viol) == []          # recorded: holds
+    assert ratchets.check_layers([], viol) == []            # fell: holds
+    assert ratchets.check_layers(viol, None) == []          # no baseline yet
+    # a package the order does not rank is a violation, not a free pass
+    _v2(tmp_path, "newpkg/a.py", '"""n."""\nfrom ..geom import ring\n')
+    viol = ratchets.layer_violations(ratchets.layer_edges(str(tmp_path)))
+    assert any(v.startswith("UNRANKED package newpkg") for v in viol)
+
+
+def test_proposed_order_minimises_upward_imports():
+    matrix = {("b", "a"): 5, ("c", "b"): 3, ("a", "c"): 1}
+    order, cost = ratchets.propose_order(matrix, prefer=("c", "b", "a"))
+    assert (order, cost) == (("a", "b", "c"), 1)
+
+
+def test_regenerate_refuses_a_risen_layer_count(tmp_path):
+    path = str(tmp_path / "baseline.json")
+    assert ratchets.regenerate(path, init=True, groups=[], current={},
+                               layers=["a/x.py -> b/y.py"]) == []
+    before = open(path, encoding="utf-8").read()
+    assert json.loads(before)["layers"] == ["a/x.py -> b/y.py"]
+    assert ratchets.regenerate(path, groups=[], current={}, layers=[
+        "a/x.py -> b/y.py", "a/z.py -> b/y.py"])
+    assert open(path, encoding="utf-8").read() == before
+    assert ratchets.regenerate(path, groups=[], current={}, layers=[]) == []
+    assert json.load(open(path, encoding="utf-8"))["layers"] == []
+
+
 def test_blast_audit_carries_the_duplicate_section():
     """`blast.py --audit` is the ruled home of the duplicate count."""
     src = open(os.path.join(TOOLS, "blast.py"), encoding="utf-8").read()

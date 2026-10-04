@@ -243,11 +243,10 @@ def test_no_v1_import_no_env_gate_no_geometry_in_model():
             not in text and "auto_patch." not in text.replace(
                 "auto_patch_v2", ""), py
         assert "os.environ" not in text and "getenv" not in text, py
-        # FILE LENGTH is not judged here: RULINGS 2026-10-04a/04b replaced
-        # 13bz's warn-1,000 / refuse-1,500 pair with ONE rule over every
-        # source tree — past 1,000 needs a recorded justification, modules
-        # past 1,000 should be rare, 600 is a reported band
-        # (``tests/test_ratchets.py``).
+        # FILE LENGTH is not judged here or anywhere (RULINGS 2026-10-04c):
+        # 1,000 lines is a guide and a warning, never a gate — split by
+        # responsibility, never to make a number.  ``tools/ratchets.py``
+        # reports it at merge.
         if py.parent.name in ("model", "law"):
             assert not re.search(r"^\s*(import|from)\s+(shapely|numpy)",
                                  text, re.M), py

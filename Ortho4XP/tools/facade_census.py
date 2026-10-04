@@ -81,6 +81,10 @@ def census(polygons: typing.Iterable[typing.Any], pack_root: str | None,
 
 
 def main(argv: list[str] | None = None) -> int:
+    # The console is UTF-8 before the parser can print (#171, #125); a
+    # library with a CLI pins in its entry.  Twin: test_console_encoding.
+    import O4_Console_Encoding
+    O4_Console_Encoding.configure_console_streams()
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("dump")
     ap.add_argument("--pack-root", default=None)

@@ -18,14 +18,14 @@ VT = "VT {x} {y} {z} 0 1 0 0 0\n"
 
 def _obj(path, pts):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", newline="\n") as fh:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("A\n800\nOBJ\n\n" + "".join(VT.format(x=x, y=y, z=z)
                                                 for x, y, z in pts))
 
 
 def _fac(path, body, version=1000):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", newline="\n") as fh:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(f"A\n{version}\nFACADE\n{body}")
     return str(path)
 
@@ -73,7 +73,7 @@ def cargo(tmp_path):
     _obj(str(veh / "t1.obj"), [(-1.3, 0, -9.8), (1.3, 4, 2.5)])
     _obj(str(veh / "t2.obj"), [(-1.3, 0, -6.0), (1.3, 4, 2.0)])
     _obj(str(veh / "Empty.obj"), [])
-    with open(veh.parent / "library.txt", "w", newline="\n") as fh:
+    with open(veh.parent / "library.txt", "w", encoding="utf-8", newline="\n") as fh:
         fh.write("A\n800\nLIBRARY\n\n"
                  "EXPORT lib/vehicles/trailer.obj veh/t1.obj\n"
                  "EXPORT lib/vehicles/trailer.obj veh/t2.obj\n"
@@ -207,7 +207,7 @@ END_POLYGON
 
 def test_read_dump_keeps_the_wall_index(tmp_path):
     p = tmp_path / "d.text"
-    p.write_text(DUMP)
+    p.write_text(DUMP, encoding="utf-8", newline="\n")
     d3, d2, d4, d5, uv = dsf.read_dump(str(p)).polygons
     assert (d3.depth, d2.depth, d4.depth, d5.depth) == (3, 2, 4, 5)
     assert [n[2] for n in d3.nodes[0]] == [4, 0, 2]
@@ -225,7 +225,7 @@ def test_read_dump_keeps_the_wall_index(tmp_path):
 
 def test_census_reads_class_area_and_reach(tmp_path, cargo, monkeypatch):
     p = tmp_path / "d.text"
-    p.write_text(DUMP)
+    p.write_text(DUMP, encoding="utf-8", newline="\n")
     polys = dsf.read_dump(str(p), lambda q: q.endswith(".fac")).polygons
     monkeypatch.setattr(facade_census.facade, "read_facade", lambda d, root, index: cargo)
     rows = facade_census.census(polys, None, None)

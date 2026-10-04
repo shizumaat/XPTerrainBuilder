@@ -17,7 +17,8 @@ groups).  Sections:
   STAND-OFF  per (piece, standing neighbour) the level difference across the
              stand-off beyond cap x distance — the stepping pairs.
   RIBBONS    per follower ribbon the worst offset to a fixed vertex within
-             6 m, base against arm, and for one that GREW what holds it: a
+             6 m over the vertices BOTH maps carry, base against arm (a new
+             vertex's offset is printed apart), and for one that GREW: a
              missed follow row, no follow row at all (no fixed ring within
              reach), or rows met (a span between two neighbours).
   GROUPS     (``--patches``) every standing ``(role, ref)`` way group of the
@@ -255,6 +256,7 @@ def read_ribbons(L: Late, top: int, refs: list[str], out=print) -> dict:
     its follow rows say."""
     import numpy as np
     from scipy.spatial import cKDTree
+    from auto_patch_v2.law.tables import role_cap
     from auto_patch_v2.model.planar import (face_vertex_set, is_osm_ribbon_ref)
     V, za = L.pa.vertices, L.za
     ids = sorted(L.fixed)
@@ -268,18 +270,25 @@ def read_ribbons(L: Late, top: int, refs: list[str], out=print) -> dict:
             rib[str(f.ref)] |= set(face_vertex_set(L.pa, f))
     tab = []
     for ref, vs in rib.items():
-        aft, bef = [], []
+        # THE SAME VERTICES in both arms: a ribbon vertex the base map
+        # lacks has no "before", and counting it made a ribbon that moved
+        # TOWARD its neighbour read as grown
+        aft, bef, new = [], [], []
         for v in vs:
             d, k = kd.query(V[v].xy, distance_upper_bound=RIBBON_NEIGHBOUR_M)
             if np.isfinite(d) and d > 0.05:
-                aft.append((abs(float(za[v]) - fz[k]), v, ids[k], float(d)))
+                rec = (abs(float(za[v]) - fz[k]), v, ids[k], float(d))
                 if tuple(V[v].xy) in bz:
+                    aft.append(rec)
                     bef.append(abs(bz[tuple(V[v].xy)] - fz[k]))
+                else:
+                    new.append(rec)
         mv = max((abs(float(za[v]) - bz[tuple(V[v].xy)]) for v in vs
                   if tuple(V[v].xy) in bz), default=0.0)
         if aft:
             tab.append({"ref": ref, "after": max(aft)[0], "at": max(aft),
                         "before": max(bef) if bef else float("nan"),
+                        "new_worst": max(new)[0] if new else 0.0,
                         "moved": mv, "vertices": vs})
     tab.sort(key=lambda t: -t["after"])
     grew = [t for t in tab if t["after"] > t["before"] + GREW_M and t["moved"] > TOL_M]
@@ -287,7 +296,7 @@ def read_ribbons(L: Late, top: int, refs: list[str], out=print) -> dict:
         f"within {RIBBON_NEIGHBOUR_M:g} m; worst offset GREW by > {GREW_M} m: {len(grew)}")
     res = {"follower_refs": len(rib), "grew": []}
     shown = grew + [t for t in tab if t["ref"] in refs and t not in grew]
-    for t in shown[:max(top, len(grew))]:
+    for t in shown:
         vs = t["vertices"]
         unknown = [v for v in vs if v not in L.fixed]
         rowed = [v for v in unknown if v in row_of]
@@ -306,11 +315,20 @@ def read_ribbons(L: Late, top: int, refs: list[str], out=print) -> dict:
         else:
             what = (f"its follow row [{r.lo:.2f}, {r.hi:.2f}] {r.source.inputs} is MET; "
                     f"the neighbour {L.names(k)} at {fz[ids.index(k)]:.2f} is not one of its rings")
+        # an offset to a vertex ``d`` metres off within the road cap is a
+        # SLOPE, not a lift: say so before anything else
+        cap_r = float(role_cap(L.law, "service_road").longitudinal)
+        grade = _off / d if d else float("inf")
+        what = (f"{100 * grade:.1f} % over {d:.2f} m "
+                + ("(WITHIN the road cap: a slope, not a lift); "
+                   if _off <= cap_r * d + TOL_M else "(OVER the road cap); ")) + what
         rec = {"ref": t["ref"], "before": round(t["before"], 2), "after": round(t["after"], 2),
+               "grade": round(grade, 4), "within_cap": _off <= cap_r * d + TOL_M,
                "moved": round(t["moved"], 2), "unknown": len(unknown), "rowed": len(rowed),
                "missed": len(missed), "what": what, "at": L.ll(v)}
         res["grew"].append(rec)
-        out(f"    {t['ref']:<22} {t['before']:.2f} -> {t['after']:.2f} m (moved {t['moved']:.2f}); "
+        out(f"    {t['ref']:<22} {t['before']:.2f} -> {t['after']:.2f} m (moved {t['moved']:.2f}; "
+            f"new vertices' worst {t['new_worst']:.2f}); "
             f"{len(vs)} vertices, {len(unknown)} unknown, {len(rowed)} with a follow row, "
             f"{len(missed)} missed; v{v} z {float(za[v]):.2f} at {L.ll(v)}: {what}")
     return res

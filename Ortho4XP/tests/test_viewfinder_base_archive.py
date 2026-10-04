@@ -51,6 +51,8 @@ import pytest
 sys.path.insert(0, "src")
 
 import O4_Airport_Elevation_Insets as INSETS
+from elevation_access import base_tiles as ea_base_tiles
+from elevation_access import registry as ea_registry
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
@@ -66,7 +68,7 @@ KGEG_ZONE = "L11"
 OCEAN_TILE = (40, -150)
 
 #: Letters de Ferranti numbers his 4-degree latitude bands with.
-ZONE_LETTERS = "".join(INSETS.DEFERRANTI_ALPHABET)
+ZONE_LETTERS = "".join(ea_base_tiles.DEFERRANTI_ALPHABET)
 #: Degrees of latitude per zone row and of longitude per zone column.
 ZONE_LATITUDE_SPAN = 4
 ZONE_LONGITUDE_SPAN = 6
@@ -100,7 +102,7 @@ def _zone_extent(code):
 
 def test_the_kgeg_zone_is_right():
     """#173's first question, answered: the mapping is NOT the defect."""
-    assert INSETS.deferranti_archive_code(*KGEG_TILE) == KGEG_ZONE
+    assert ea_base_tiles.deferranti_archive_code(*KGEG_TILE) == KGEG_ZONE
     assert _zone_extent(KGEG_ZONE) == (44, 48, -120, -114)
     south, north, west, east = _zone_extent(KGEG_ZONE)
     assert south <= KGEG_TILE[0] < north
@@ -109,7 +111,7 @@ def test_the_kgeg_zone_is_right():
 
 def test_the_kgeg_url_is_the_dem3_zone_archive(shipped_registry):
     definition = INSETS.elevation_providers_dict["VIEWFINDER3"]
-    strategy = INSETS.ACCESS_STRATEGIES["viewfinder_zip"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["viewfinder_zip"]()
     assert strategy.download_url(definition, *KGEG_TILE) == (
         "https://viewfinderpanoramas.org/dem3/%s.zip" % KGEG_ZONE)
 
@@ -119,7 +121,7 @@ def test_every_zone_contains_the_tile_it_is_named_for():
     checked = 0
     for latitude in range(-56, 60):
         for longitude in range(-180, 180):
-            code = INSETS.deferranti_archive_code(latitude, longitude)
+            code = ea_base_tiles.deferranti_archive_code(latitude, longitude)
             south, north, west, east = _zone_extent(code)
             assert south <= latitude < north, (latitude, longitude, code)
             assert west <= longitude < east, (latitude, longitude, code)
@@ -130,12 +132,12 @@ def test_every_zone_contains_the_tile_it_is_named_for():
 def test_the_zone_columns_tile_the_globe_without_a_gap():
     """Column arithmetic: 1 at 180W through 60 at 174E, no repeats."""
     columns = {
-        INSETS.deferranti_archive_code(0, longitude)[1:]
+        ea_base_tiles.deferranti_archive_code(0, longitude)[1:]
         for longitude in range(-180, 180)
     }
     assert len(columns) == 360 // ZONE_LONGITUDE_SPAN
-    assert INSETS.deferranti_archive_code(0, -180) == "A01"
-    assert INSETS.deferranti_archive_code(0, 174) == "A60"
+    assert ea_base_tiles.deferranti_archive_code(0, -180) == "A01"
+    assert ea_base_tiles.deferranti_archive_code(0, 174) == "A60"
 
 
 @pytest.mark.parametrize("latitude,longitude,code", [
@@ -147,7 +149,7 @@ def test_the_zone_columns_tile_the_globe_without_a_gap():
     (0, 0, "A31"),                # the origin cell
 ])
 def test_known_zone_codes(latitude, longitude, code):
-    assert INSETS.deferranti_archive_code(latitude, longitude) == code
+    assert ea_base_tiles.deferranti_archive_code(latitude, longitude) == code
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +254,7 @@ def _ensure(server, tmp_path, monkeypatch, tile=KGEG_TILE, cap=None):
     if cap is not None:
         monkeypatch.setattr(DEM, "HTTP_REQUEST_ATTEMPT_CAP", cap)
         monkeypatch.setattr(DEM.time, "sleep", lambda _seconds: None)
-    strategy = INSETS.ACCESS_STRATEGIES["viewfinder_zip"]()
+    strategy = ea_registry.ACCESS_STRATEGIES["viewfinder_zip"]()
     return strategy.ensure_tile(_definition(server), *tile, verbose=False)
 
 

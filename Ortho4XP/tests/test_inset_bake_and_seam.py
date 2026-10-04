@@ -26,6 +26,7 @@ import pytest
 import O4_File_Names as FNAMES
 import O4_DEM_Utils as DEM
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
 
 try:
     from osgeo import gdal, osr
@@ -310,7 +311,7 @@ def test_area_average_keeps_the_inset_extent(monkeypatch):
 def test_bake_into_a_tile_dem_is_gate_switchable(tmp_path, monkeypatch):
     """End to end through ``bake_airport_insets_into_alt_dem``."""
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     INSETS.initialize_elevation_providers_dict()
 
     base_path = str(tmp_path / "base.tif")
@@ -458,7 +459,7 @@ def test_seam_straddling_inset_makes_both_tiles_ballot_identically(
     must assemble the same merged set and return the same factor.
     """
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setenv("O4_INSET_SEAM_HARMONIZE", "1")
     INSETS.initialize_elevation_providers_dict()
 
@@ -506,7 +507,7 @@ def test_seam_straddling_inset_makes_both_tiles_ballot_identically(
 def test_non_straddling_neighbour_is_never_merged(tmp_path, monkeypatch):
     """An inset that stops short of the seam pulls in nothing."""
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setenv("O4_INSET_SEAM_HARMONIZE", "1")
     INSETS.initialize_elevation_providers_dict()
 
@@ -531,7 +532,7 @@ def test_seam_harmonization_gate_off_restores_the_per_tile_ballot(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setenv("O4_INSET_SEAM_HARMONIZE", "0")
     INSETS.initialize_elevation_providers_dict()
 
@@ -556,7 +557,7 @@ def test_seam_harmonization_is_transitive_through_straddling_insets(
     ballot: the rule is the transitive closure of the straddle relation.
     """
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setenv("O4_INSET_SEAM_HARMONIZE", "1")
     INSETS.initialize_elevation_providers_dict()
 
@@ -585,7 +586,7 @@ def test_seam_harmonization_is_transitive_through_straddling_insets(
 @requires_gdal
 def test_seam_harmonization_walks_latitude_seams_too(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setenv("O4_INSET_SEAM_HARMONIZE", "1")
     INSETS.initialize_elevation_providers_dict()
 
@@ -616,7 +617,7 @@ def test_seam_harmonization_terminates_on_a_long_chain(tmp_path, monkeypatch):
     return the SAME full ballot, and the walk must stop.
     """
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
-    monkeypatch.setattr(INSETS, "has_gdal", True)
+    patch_inset_code(monkeypatch, "has_gdal", True)
     monkeypatch.setenv("O4_INSET_SEAM_HARMONIZE", "1")
     INSETS.initialize_elevation_providers_dict()
 

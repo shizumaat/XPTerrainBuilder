@@ -26,6 +26,8 @@ sys.path.insert(
 
 import O4_File_Lock as LOCK
 import O4_Airport_Elevation_Insets as INSETS
+from tests.inset_code import patch_inset_code
+from elevation_access import registry as ea_registry
 import O4_File_Names as FNAMES
 
 
@@ -225,8 +227,8 @@ def test_ensure_base_tile_serializes_concurrent_threads(tmp_path, monkeypatch):
         "resolve_base_definition",
         lambda lat, lon, selector="auto", prefer_coarse=False: fake_definition,
     )
-    monkeypatch.setattr(
-        INSETS, "ACCESS_STRATEGIES", {"probe": _ConcurrencyProbeStrategy}
+    patch_inset_code(
+        monkeypatch, "ACCESS_STRATEGIES", {"probe": _ConcurrencyProbeStrategy}
     )
 
     lat, lon = 36, -87

@@ -966,7 +966,7 @@ def _apt_dat_arp_and_field_elevation(apt_dat_path, icao):
     writer's (``_AirportPositionAccumulator``: 1302 datum rows, else the
     first runway's midpoint, else the first helipad) -- read, never
     copied; the elevation is row 1's, in feet."""
-    import O4_Airport_Elevation_Insets as INSETS
+    from elevation_access import vertical_units as ea_vertical_units
     from O4_MSFS_XPlane_Pack import _AirportPositionAccumulator
     from auto_patch.apt_dat_reader import _read_airport_block
 
@@ -989,7 +989,7 @@ def _apt_dat_arp_and_field_elevation(apt_dat_path, icao):
         return None
     return (position[0], position[1],
             "1302 datum" if has_datum else "runway/helipad midpoint",
-            elevation_ft * INSETS.VERTICAL_UNIT_TO_M["ft"])
+            elevation_ft * ea_vertical_units.VERTICAL_UNIT_TO_M["ft"])
 
 
 def _inset_disc_median_m(inset_path, arp_lat, arp_lon, radius_m):
@@ -1756,6 +1756,10 @@ def las_seed_candidates(icaos, root, lat, lon) -> list:
     import O4_OSM_Utils as OSM                             # noqa: E402
     import O4_Vector_Map as VMAP                           # noqa: E402
     import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
+    from elevation_access import definitions as ea_definitions
+    from elevation_access import las_tiles as ea_las_tiles
+    from elevation_access import registry as ea_registry
+    from elevation_access.strategies import las_tile_index as ea_las_tile_index
 
     tile = CFG.Tile(lat, lon, "")
     try:
@@ -1785,16 +1789,16 @@ def las_seed_candidates(icaos, root, lat, lon) -> list:
                 if rung.get("access_strategy") == "las_tile_index":
                     las_definitions.setdefault(rung["code"], rung)
         for code, definition in sorted(las_definitions.items()):
-            if not INSETS._coverage_bbox_intersects(definition, box):
+            if not ea_definitions._coverage_bbox_intersects(definition, box):
                 continue
             surgical = dict(definition)
-            surgical[INSETS.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(
+            surgical[ea_las_tiles.LAS_FOOTPRINT_KEY] = INSETS._polygon_mapping(
                 polygon)
-            strategy = INSETS.ACCESS_STRATEGIES["las_tile_index"]()
+            strategy = ea_registry.ACCESS_STRATEGIES["las_tile_index"]()
             for source in strategy.discover(surgical, box) or ():
                 name = source["source_id"]
                 out.append((surgical, name, os.path.join(
-                    INSETS.las_tile_cache_directory(code), name + ".las")))
+                    ea_las_tile_index.las_tile_cache_directory(code), name + ".las")))
     return out
 
 
@@ -1806,7 +1810,7 @@ def seed_las_tiles(seed_dir, icaos, root, lat, lon, prog) -> dict:
 
     Each named tile found under ``seed_dir`` (any depth, ``<name>.las``)
     is checked by the PROVIDER'S OWN CONTRACT
-    (``INSETS.validate_las_tile``: LASF, point format 6, size, the
+    (``las_tile_index.validate_las_tile``: LASF, point format 6, size, the
     declared CRS) and copied (APFS ``clonefile``, else a byte copy); a
     tile that does not verify, and every ``.las`` in ``seed_dir`` the
     discovery does NOT name, is refused by name.  A named tile already in
@@ -1815,7 +1819,7 @@ def seed_las_tiles(seed_dir, icaos, root, lat, lon, prog) -> dict:
     ``seed_from``, ``seeded`` and every copied file's sha256."""
     import hashlib
     import shutil
-    import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
+    from elevation_access.strategies import las_tile_index as ea_las_tile_index
 
     seed_root = Path(seed_dir).resolve()
     if not seed_root.is_dir():
@@ -1836,7 +1840,7 @@ def seed_las_tiles(seed_dir, icaos, root, lat, lon, prog) -> dict:
             absent.append(name)
             continue
         try:
-            INSETS.validate_las_tile(str(source), definition)
+            ea_las_tile_index.validate_las_tile(str(source), definition)
         except Exception as exc:
             refused[name] = f"does not verify: {exc}"
             continue
@@ -1906,6 +1910,7 @@ def warm_airport_insets(icaos, root, lat, lon, prog) -> dict:
     import O4_OSM_Utils as OSM                             # noqa: E402
     import O4_Vector_Map as VMAP                           # noqa: E402
     import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
+    from elevation_access import warp as ea_warp
 
     tile = CFG.Tile(lat, lon, "")
     try:
@@ -1963,7 +1968,7 @@ def warm_airport_insets(icaos, root, lat, lon, prog) -> dict:
                                             definition["code"])
             if os.path.isfile(path):
                 summary["insets"][os.path.basename(path)] = round(
-                    INSETS.inset_valid_fraction(path), 6)
+                    ea_warp.inset_valid_fraction(path), 6)
     prog.note(f"warm-insets done: {fetch_counter[0]} fetch attempt(s), "
               f"valid fraction(s) {summary['insets'] or 'NONE CACHED'}")
     return summary

@@ -269,19 +269,10 @@ def test_no_production_module_NAMES_a_v1_module_as_a_string():
             assert name in KEEP and name in mods, name
 
 
-def test_the_v1_tree_is_still_on_disk_in_round_1():
-    """Round 1 is the SEAM cut and nothing else: the twin above must be green
-    while every DELETE module still exists.  Round 2 removes them, and this
-    check goes with them (it is the only line in this file that expects the
-    tree to be big)."""
-    mods = _modules()
-    v1_left = [m for m in mods if _is_auto_patch(m) and m not in KEEP]
-    if not v1_left:
-        return          # round 2 has landed; the closure test above is the law
-    assert len(v1_left) > 50, (
-        f"only {len(v1_left)} v1 modules remain — a partial deletion is not "
-        "a state this campaign has: round 2 removes them in one commit per "
-        "sub-package")
+# ``test_the_v1_tree_is_still_on_disk_in_round_1`` — the one check in this
+# file that expected the tree to be BIG — went with round 1's state: round 2
+# (lane ``v1cut``, 2026-10-04) deletes the DELETE modules one group per
+# commit, and the ABSENCE assertion lands with the last group.
 
 
 def test_the_census_library_imports_no_v1_module():

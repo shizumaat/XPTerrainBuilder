@@ -20,8 +20,9 @@ TO ADD A STRATEGY (a server that speaks something new)
 2. Add ``<key>`` to the import list in ``strategies/__init__.py``.  That
    line is what makes the strategy exist -- in a source run and in the
    frozen app alike.
-3. Add ``<key>`` to ``EXPECTED_KEYS`` in
-   ``tests/test_elevation_access_registry.py``.
+3. Add ``<key>`` and the class name to ``EXPECTED_STRATEGIES`` in
+   ``registry.py`` -- the pinned set the frozen engine counts itself
+   against (``--import-selfcheck``) and the twin reads.
 
 Nothing in the pipeline (``O4_Airport_Elevation_Insets``) changes: it
 looks the class up in :data:`registry.ACCESS_STRATEGIES` by the key the

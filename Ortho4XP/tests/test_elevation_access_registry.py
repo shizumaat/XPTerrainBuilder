@@ -6,7 +6,7 @@ nobody imports is a provider silently lost (the issue #344 class): the
 ``.elv`` definition still parses, the registry lookup returns ``None``,
 and the airport is cut from the base tier with one WARNING line.
 
-``EXPECTED_KEYS`` is the registry as it stood at main ``01662c75``, the
+``registry.EXPECTED_STRATEGIES`` is the registry as it stood at main ``01662c75``, the
 commit before the strategies left ``O4_Airport_Elevation_Insets.py`` for
 one module each.  Every key is a string in ``Providers/Elevation/*.elv``
 files, so none may be renamed or dropped.
@@ -26,35 +26,14 @@ PACKAGE_DIR = os.path.join(SRC, "elevation_access")
 STRATEGY_DIR = os.path.join(PACKAGE_DIR, "strategies")
 PIPELINE = os.path.join(SRC, "O4_Airport_Elevation_Insets.py")
 
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
+from elevation_access.registry import EXPECTED_STRATEGIES  # noqa: E402
+
 #: registry key -> class name, recorded at main 01662c75 BEFORE the move.
-EXPECTED_KEYS = {
-    "aoi_zip_download": "AoiZipDownloadStrategy",
-    "arcgis_export_image": "ArcgisExportImageStrategy",
-    "arcgis_feature_tiles": "ArcgisFeatureTileStrategy",
-    "arcgis_lerc_tiles": "ArcgisLercTileStrategy",
-    "authenticated_token_search": "AuthenticatedTokenSearchStrategy",
-    "coordinate_named_url_list": "CoordinateNamedUrlListStrategy",
-    "coral_atlas_library": "CoralAtlasLibraryStrategy",
-    "cwcb_lidar_api": "CwcbLidarApiStrategy",
-    "degree_named_cog": "DegreeNamedCogStrategy",
-    "direct_cog": "DirectCogStrategy",
-    "geojson_tile_index": "GeojsonTileIndexStrategy",
-    "hgt_archive_drop": "HgtArchiveDropStrategy",
-    "las_tile_index": "LasTileIndexStrategy",
-    "manual_download": "ManualDownloadStrategy",
-    "os_grid_bucket": "OsGridBucketStrategy",
-    "stac": "StacCloudOptimizedGeoTiffStrategy",
-    "static_stac": "StaticStacCatalogStrategy",
-    "tile_grid_http": "TileGridHttpStrategy",
-    "tnm_cog": "TnmCloudOptimizedGeoTiffStrategy",
-    "usgs_seamless": "UsgsSeamlessStrategy",
-    "viewfinder_zip": "ViewfinderZipStrategy",
-    "wcs": "WcsStrategy",
-    "wcs_kvp": "WcsKvpStrategy",
-    "wfs_tile_index": "WfsTileIndexStrategy",
-    "xyz_archive_drop": "XyzArchiveDropStrategy",
-    "xyz_text_tiles": "XyzTextTileStrategy",
-}
+#: The ONE pinned list lives beside the registry (production reads it in
+#: ``--import-selfcheck``); this twin pins its size and reads the rest.
+EXPECTED_KEYS = EXPECTED_STRATEGIES
 
 #: The keys whose strategy supplies whole base tiles (``ensure_tile``).
 BASE_TILE_KEYS = {"hgt_archive_drop", "manual_download", "usgs_seamless",
@@ -207,3 +186,59 @@ def test_the_package_never_imports_the_pipeline_and_strategies_stay_apart():
                     assert not module.startswith(
                         "elevation_access.strategies"), path
     assert cross == CROSS_STRATEGY_IMPORTS
+
+
+# ---------------------------------------------------------------------------
+# The binary counts its own registry (``--import-selfcheck``)
+# ---------------------------------------------------------------------------
+def test_the_pinned_set_is_the_26_recorded_at_main():
+    """The list itself lives in production code; its size and a spread of
+    its entries are pinned here so an edit to it shows up in two diffs."""
+    assert len(EXPECTED_STRATEGIES) == 26
+    assert EXPECTED_STRATEGIES["tnm_cog"] == "TnmCloudOptimizedGeoTiffStrategy"
+    assert EXPECTED_STRATEGIES["las_tile_index"] == "LasTileIndexStrategy"
+    assert EXPECTED_STRATEGIES["viewfinder_zip"] == "ViewfinderZipStrategy"
+    assert sorted(EXPECTED_STRATEGIES) == _strategy_module_names()
+
+
+def test_the_selfcheck_counts_the_registry_from_the_engine_entry():
+    """From source, through ``Ortho4XP.py`` exactly as the release
+    workflow runs the frozen binary."""
+    completed = subprocess.run(
+        [sys.executable, os.path.join(ENGINE_DIR, "Ortho4XP.py"),
+         "--import-selfcheck", "json"],
+        capture_output=True, text=True, timeout=300, cwd=ENGINE_DIR)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "elevation_access registry: ok 26 keys" in completed.stdout
+
+
+def test_the_selfcheck_fails_and_names_a_strategy_that_did_not_register(
+        monkeypatch, capsys):
+    import O4_Proj_Runtime as runtime
+    from elevation_access import registry
+
+    monkeypatch.setattr(registry, "ACCESS_STRATEGIES", {
+        key: strategy for (key, strategy) in registry.ACCESS_STRATEGIES.items()
+        if key in EXPECTED_STRATEGIES and key != "wcs_kvp"})
+    (ok, line) = registry.registry_selfcheck()
+    assert not ok
+    assert line == ("elevation_access registry: FAIL 25 of 26 keys; "
+                    "missing wcs_kvp")
+    assert runtime.import_selfcheck_main(
+        ["Ortho4XP", "--import-selfcheck", "json"]) == 1
+    assert "missing wcs_kvp" in capsys.readouterr().out
+
+
+def test_the_selfcheck_names_an_unexpected_key_and_a_wrong_class(monkeypatch):
+    from elevation_access import registry
+
+    table = {key: strategy
+             for (key, strategy) in registry.ACCESS_STRATEGIES.items()
+             if key in EXPECTED_STRATEGIES}
+    table["not_pinned"] = table["wcs"]
+    table["stac"] = table["wcs"]
+    monkeypatch.setattr(registry, "ACCESS_STRATEGIES", table)
+    (ok, line) = registry.registry_selfcheck()
+    assert not ok
+    assert "unexpected not_pinned" in line
+    assert "wrong class stac=WcsStrategy" in line

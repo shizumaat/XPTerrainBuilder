@@ -30,7 +30,6 @@ if str(SRC) not in sys.path:
 
 import O4_Vector_Map as VMAP  # noqa: E402
 import O4_Vector_Utils as VECT  # noqa: E402
-from auto_patch import layout as LAYOUT  # noqa: E402
 
 TILE_LAT, TILE_LON = 22, 113
 
@@ -40,28 +39,6 @@ class TestRoleVocabularyIsNotASecondSpelling:
     must BE ``auto_patch.layout``'s roles, or the patch and the wall law
     are talking about different shapes."""
 
-    def test_every_pavement_role_is_a_layout_role(self):
-        known = {value for name, value in vars(LAYOUT).items()
-                 if name.startswith("ROLE_") and isinstance(value, str)}
-        assert VMAP.SEAWALL_PAVEMENT_ROLES <= known
-        # R21: with the declared corridor retired, EVERY graded-coverage
-        # role is a layout role — no exemption left to carve out.
-        assert VMAP.GRADED_COVERAGE_ROLES <= known
-
-    def test_the_named_land_roles_are_admitted(self):
-        for role in (LAYOUT.ROLE_APRON, LAYOUT.ROLE_JUNCTION,
-                     LAYOUT.ROLE_GRADED_STRIP, LAYOUT.ROLE_RUNWAY,
-                     LAYOUT.ROLE_SERVICE_JUNCTION,
-                     LAYOUT.ROLE_GROUNDSIDE_PAVEMENT):
-            assert role in VMAP.GRADED_COVERAGE_ROLES
-
-    def test_the_boundary_and_the_water_spanning_ribbons_are_not(self):
-        for role in (LAYOUT.ROLE_BOUNDARY, LAYOUT.ROLE_SERVICE_ROAD,
-                     LAYOUT.ROLE_BRIDGE_CAUSEWAY,
-                     LAYOUT.ROLE_BRIDGE_TRENCH,
-                     LAYOUT.ROLE_TAXIWAY_CLEARANCE,
-                     LAYOUT.ROLE_RUNWAY_CLEARANCE, LAYOUT.ROLE_OLS_CUT):
-            assert role not in VMAP.GRADED_COVERAGE_ROLES
 
     def test_no_corridor_role_survives_the_retirement(self):
         """R21: the DECLARED CORRIDOR role retires with its cfg key —

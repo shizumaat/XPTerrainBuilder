@@ -126,16 +126,6 @@ def test_the_reader_passes_the_witnesses_through(monkeypatch, tmp_path):
     assert "maxspeed" not in tags
 
 
-def test_the_airport_road_feed_still_carries_the_layer_witness():
-    """The per-airport feed's own whitelist is a SEPARATE list whose
-    fingerprint re-cuts every sidecar when it grows (a shared-repo write,
-    scope ``osm_roadfeed``), so it was deliberately NOT widened here —
-    but ``layer``, the witness §45 (1)(d) reads, is already on it."""
-    from auto_patch import osm_load
-
-    assert "layer" in osm_load._ROAD_FEED_WAY_TAGS
-
-
 # ---------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------

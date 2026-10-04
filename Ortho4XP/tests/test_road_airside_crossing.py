@@ -29,39 +29,19 @@ Hand-computed geometry, no build, no network, no solver.
 """
 from __future__ import annotations
 
-import importlib
 import sys
 from pathlib import Path
 
-import pytest
-from shapely.geometry import LineString, Polygon
-from shapely.ops import unary_union
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 # Import ORDER matters (auto_patch/CLAUDE.md, "Import cycle").
-import auto_patch.pipeline                                    # noqa: E402,F401
 from auto_patch import config as CFG                          # noqa: E402
-from auto_patch import grade_graph as GG                      # noqa: E402
-from auto_patch import groundside as GS                       # noqa: E402
-from auto_patch import lateral_contiguity as LC               # noqa: E402
-from auto_patch.enclaves import ENCLAVE_AIRSIDE_ROLES         # noqa: E402
-from auto_patch.layout import BuiltShape                      # noqa: E402
 
 CAP = CFG.SERVICE_ROAD_MAX_GRADE
 
 AMBIENT = 100.0                 # what the road solved to on its own
-TAXI_Z = AMBIENT + 3.0          # "+3 m over ambient" (spec §2)
-TAXI_HALF_W = 11.5              # a code-C taxiway's half width
-TAXI_HALF_L = 60.0
-ROAD_HALF_W = 3.0
-ROAD_END = 60.0
-# THE CARVE'S OWN GAP: the road body stands clear of the pavement it meets
-# by more than the 2026-08-15 mouth tolerance, which is why that law does
-# not reach the owner's site — and why the frame ruling exists.
-GAP_M = 1.6
-ROAD_NEAR_Y = TAXI_HALF_W + GAP_M         # 13.1
 
 
 class _Layout:
@@ -78,276 +58,19 @@ class _Layout:
         self.source_pavement_union = source_union
 
 
-def _taxi_ring():
-    return [(-TAXI_HALF_L, -TAXI_HALF_W), (TAXI_HALF_L, -TAXI_HALF_W),
-            (TAXI_HALF_L, TAXI_HALF_W), (-TAXI_HALF_L, TAXI_HALF_W)]
-
-
-def _road_ring(y0, y1):
-    ys = [y0]
-    step = (y1 - y0) / 4.0
-    ys += [y0 + step * k for k in (1, 2, 3)]
-    ys.append(y1)
-    return ([(-ROAD_HALF_W, y) for y in ys]
-            + [(ROAD_HALF_W, y) for y in reversed(ys)])
-
-
-def _crossing_layout(with_road: bool = True, corridor: bool = False,
-                     alongside: bool = False):
-    """The spec's §2 geometry.
-
-    The taxiway is ALREADY SOLVED at ``TAXI_Z``; the road bodies stop
-    ``GAP_M`` clear of it on both sides (the settled arrangement the carve
-    leaves) and the road CENTERLINE runs straight across.  The SOURCE
-    pavement union has no such gap — that is the frame the detector reads.
-
-    ``alongside=True`` moves the road so its centerline never enters the
-    taxiway: the 25b/25h case, which must produce nothing here.
-    """
-    taxi = BuiltShape(polygon=Polygon(_taxi_ring()), role="primary_parallel")
-    taxi.node_altitudes = [TAXI_Z] * len(_taxi_ring())
-    shapes = [taxi]
-    lines = []
-    if with_road:
-        if alongside:
-            off = TAXI_HALF_W + GAP_M + ROAD_HALF_W
-            body = [(x, off - ROAD_HALF_W) for x in
-                    (-40.0, -20.0, 0.0, 20.0, 40.0)]
-            body += [(x, off + ROAD_HALF_W) for x in
-                     (40.0, 20.0, 0.0, -20.0, -40.0)]
-            road = BuiltShape(polygon=Polygon(body), role="service_road")
-            road.node_altitudes = [AMBIENT] * len(body)
-            road.lateral_cap = None
-            shapes.append(road)
-            lines = [LineString([(-40.0, off), (40.0, off)])]
-        else:
-            for (y0, y1) in ((-ROAD_END, -ROAD_NEAR_Y),
-                             (ROAD_NEAR_Y, ROAD_END)):
-                ring = _road_ring(y0, y1)
-                sh = BuiltShape(polygon=Polygon(ring), role="service_road")
-                sh.node_altitudes = [AMBIENT] * len(ring)
-                sh.lateral_cap = None
-                shapes.append(sh)
-            lines = [LineString([(0.0, -ROAD_END), (0.0, ROAD_END)])]
-    src = unary_union([s.polygon for s in shapes]
-                      + ([Polygon([(-ROAD_HALF_W, -ROAD_NEAR_Y),
-                                   (ROAD_HALF_W, -ROAD_NEAR_Y),
-                                   (ROAD_HALF_W, ROAD_NEAR_Y),
-                                   (-ROAD_HALF_W, ROAD_NEAR_Y)])]
-                         if (with_road and not alongside) else []))
-    return (_Layout(shapes, (), lines, src) if corridor
-            else _Layout(shapes, lines, (), src))
-
-
-def _contacts(layout):
-    return GS.road_airside_crossing_contacts(layout, "TEST")
-
-
-def _adopt(layout):
-    return GS.adopt_road_airside_crossing_values(layout, "TEST")
-
-
-def _road_shapes(layout):
-    return [s for s in layout.shapes if s.role == "service_road"]
-
-
-def _alt_at(layout, x, y):
-    for s in layout.shapes:
-        ring = list(s.polygon.exterior.coords)[:-1]
-        alts = list(s.node_altitudes or [])
-        if len(alts) == len(ring) + 1:
-            alts = alts[:-1]
-        for (px, py), a in zip(ring, alts):
-            if abs(px - x) < 1e-6 and abs(py - y) < 1e-6:
-                return a
-    return None
-
-
 # ══════════════════════════════════════════════════════════════════════
 # Amendment 1 §1 — THE FRAME IS THE SOURCE PAVEMENT
 # ══════════════════════════════════════════════════════════════════════
-
-class TestTheFrameIsTheSourcePavement:
-
-    def test_the_crossing_is_seen_across_the_carve_gap(self):
-        """The road body stops GAP_M clear of the taxiway — the settled
-        arrangement the carve leaves — and the crossing is STILL found,
-        because the question is asked of the SOURCE pavement."""
-        layout = _crossing_layout()
-        s = _contacts(layout)
-        assert s["crossings"] == 1, (
-            "the crossing was invisible across the carve gap — the "
-            "settled-arrangement mis-frame of attempts 1 and 2")
-        rec = layout._airside_crossings[0]
-        assert rec["length_m"] == pytest.approx(2 * TAXI_HALF_W, abs=6.0)
-
-    def test_the_footprint_reopens_only_the_carve_annulus(self):
-        """The source footprint is the settled rings reopened by the
-        carve's OWN clearance and clipped back to source pavement — it
-        may not invent airside where no source pavement is."""
-        layout = _crossing_layout()
-        foot = GS.airside_source_footprint(layout)
-        assert foot is not None
-        assert foot.covers(layout.source_pavement_union.intersection(
-            Polygon(_taxi_ring())))
-        # Nothing outside the source pavement joined it.
-        assert foot.difference(
-            layout.source_pavement_union.buffer(1e-9)).area \
-            == pytest.approx(0.0, abs=1e-6)
 
 
 # ══════════════════════════════════════════════════════════════════════
 # Amendment 1 §2 — CROSSINGS ONLY
 # ══════════════════════════════════════════════════════════════════════
 
-class TestScopeIsCrossingsOnly:
-
-    def test_a_road_ALONGSIDE_airside_is_not_a_crossing(self):
-        """"A road running ALONGSIDE airside pavement without its
-        centerline entering it stays under the existing 25b/25h law
-        untouched."  This is the clause that kills the 32.1 km
-        population attempt 2 produced."""
-        layout = _crossing_layout(alongside=True)
-        assert _contacts(layout)["crossings"] == 0
-
-    def test_a_centerline_wholly_inside_airside_is_not_a_crossing(self):
-        """That is the 25h apron-spine case; its own law owns it."""
-        layout = _crossing_layout()
-        layout._slice_service_subsegments = [
-            LineString([(-40.0, 0.0), (40.0, 0.0)])]
-        assert _contacts(layout)["crossings"] == 0
-
-    def test_a_road_that_never_meets_airside_produces_nothing(self):
-        layout = _crossing_layout()
-        layout.shapes = [s for s in layout.shapes
-                         if s.role != "primary_parallel"]
-        assert _contacts(layout)["crossings"] == 0
-
-    def test_the_register_is_the_canonical_airside_family(self):
-        """"read them from one existing register, never a hand list".  A
-        ``graded_strip`` is the road's OWN grading product at the road's
-        own level — adopting from one pins the road at exactly the value
-        the law replaces (the 2026-08-15 carrier adjudication)."""
-        assert "graded_strip" not in ENCLAVE_AIRSIDE_ROLES
-        assert "building" not in ENCLAVE_AIRSIDE_ROLES
-        assert {"apron", "junction", "primary_parallel", "stub",
-                "runway"} <= set(ENCLAVE_AIRSIDE_ROLES)
-        assert ENCLAVE_AIRSIDE_ROLES <= LC.airside_contact_roles()
-        assert "junction" not in LC.APRON_CONTACT_ROLES
-
-    def test_a_corridor_sourced_crossing_is_recognised_too(self):
-        """``centerline_specs`` has TWO free-road sources; at HECA the
-        roads arrive as corridor COURSES.  Reading only the sliced set
-        was attempt 1's measured miss."""
-        layout = _crossing_layout(corridor=True)
-        assert not layout._slice_service_subsegments
-        assert _contacts(layout)["crossings"] == 1
-
 
 # ══════════════════════════════════════════════════════════════════════
 # Amendment 1 §3 — ADOPTION, NEVER CONSTRAINT
 # ══════════════════════════════════════════════════════════════════════
-
-class TestNothingEntersTheGradeGraph:
-
-    def test_the_centerline_set_is_UNCHANGED(self):
-        """The measured cause of +124/+78 airside rows: registering the
-        stretches as centerlines changed ``ctx.centerlines``, and the one
-        solve is global.  The detector must leave that set alone."""
-        layout = _crossing_layout()
-        before = GG.centerline_specs(layout)
-        _contacts(layout)
-        after = GG.centerline_specs(layout)
-        assert [(sp[1], sp[2], sp[3][0]) for sp in before] == \
-               [(sp[1], sp[2], sp[3][0]) for sp in after]
-        assert not [sp for sp in after if sp[3][0] == "airside_conform"]
-
-    def test_no_solver_anchor_or_pin_is_published(self):
-        layout = _crossing_layout()
-        _contacts(layout)
-        for attr in ("_airside_conform_pins", "_airside_conform_subsegments",
-                     "_airside_conform_caps"):
-            assert not getattr(layout, attr, None)
-
-
-class TestTheRoadAdoptsTheAirsideValue:
-
-    def test_the_road_arrives_at_the_taxiways_value(self):
-        """The acceptance: no step across the contact."""
-        layout = _crossing_layout()
-        _contacts(layout)
-        out = _adopt(layout)
-        assert out["mouths"] == 2 and out["seeded"] >= 2
-        for y in (-ROAD_NEAR_Y, ROAD_NEAR_Y):
-            for x in (-ROAD_HALF_W, ROAD_HALF_W):
-                got = _alt_at(layout, x, y)
-                assert got == pytest.approx(TAXI_Z, abs=0.01), (
-                    f"road contact node ({x}, {y}) at {got} against a "
-                    f"taxiway at {TAXI_Z} — the owner's cliff")
-
-    def test_the_road_descends_away_at_no_more_than_its_own_cap(self):
-        layout = _crossing_layout()
-        _contacts(layout)
-        _adopt(layout)
-        for s in _road_shapes(layout):
-            ring = list(s.polygon.exterior.coords)[:-1]
-            alts = list(s.node_altitudes)
-            if len(alts) == len(ring) + 1:
-                alts = alts[:-1]
-            for ((xa, ya), za) in zip(ring, alts):
-                for ((xb, yb), zb) in zip(ring, alts):
-                    d = ((xa - xb) ** 2 + (ya - yb) ** 2) ** 0.5
-                    if d < 1e-6:
-                        continue
-                    assert abs(za - zb) <= CAP * d + 1e-6, (
-                        f"road pair {d:.1f} m apart grades "
-                        f"{abs(za - zb) / d:.4f} against a {CAP} cap")
-        # …and the far end is on its way back to ambient: the mouth is a
-        # mouth, not a lift of the whole road.
-        assert _alt_at(layout, -ROAD_HALF_W, -ROAD_END) < TAXI_Z
-
-    def test_AIRSIDE_IS_KING_the_taxiway_is_BYTE_IDENTICAL(self):
-        """The hard gate of Amendment 1 §3, at unit level: the pass may
-        not write one airside value."""
-        layout = _crossing_layout()
-        taxi = [s for s in layout.shapes if s.role == "primary_parallel"][0]
-        before = list(taxi.node_altitudes)
-        before_ring = list(taxi.polygon.exterior.coords)
-        _contacts(layout)
-        _adopt(layout)
-        assert list(taxi.node_altitudes) == before
-        assert list(taxi.polygon.exterior.coords) == before_ring
-
-    def test_a_vertex_a_NON_ROAD_shape_also_carries_is_FROZEN(self):
-        """The construction that makes the gate structural: a welded
-        vertex keeps its solved value and anchors the road, and the pass
-        never writes it."""
-        layout = _crossing_layout()
-        weld = (-ROAD_HALF_W, -ROAD_NEAR_Y)
-        pad_ring = [weld, (weld[0] - 8.0, weld[1]),
-                    (weld[0] - 8.0, weld[1] - 8.0), (weld[0], weld[1] - 8.0)]
-        pad = BuiltShape(polygon=Polygon(pad_ring), role="building")
-        pad.node_altitudes = [AMBIENT] * len(pad_ring)
-        layout.shapes.append(pad)
-        _contacts(layout)
-        out = _adopt(layout)
-        assert out["frozen"] >= 1
-        assert _alt_at(layout, *weld) == pytest.approx(AMBIENT), (
-            "a vertex a building pad also carries was written — the pass "
-            "is no longer road-family-only")
-
-    def test_the_adoption_reads_the_SETTLED_airside_surface(self):
-        """A pure lookup: move the taxiway and the road follows it — the
-        direction the law allows — and nothing moves the other way."""
-        layout = _crossing_layout()
-        taxi = [s for s in layout.shapes if s.role == "primary_parallel"][0]
-        taxi.node_altitudes = [TAXI_Z + 2.0] * len(taxi.node_altitudes)
-        _contacts(layout)
-        _adopt(layout)
-        assert _alt_at(layout, -ROAD_HALF_W, -ROAD_NEAR_Y) == \
-            pytest.approx(TAXI_Z + 2.0, abs=0.01)
-        assert all(a == pytest.approx(TAXI_Z + 2.0)
-                   for a in taxi.node_altitudes)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -359,29 +82,6 @@ class TestTheFlag:
     def test_the_flag_is_default_on(self):
         assert CFG.ROAD_AIRSIDE_CROSSING_CONFORM is True
 
-    def test_flag_off_mints_nothing_and_reproduces_the_step(self, monkeypatch):
-        monkeypatch.setenv("O4_ROAD_AIRSIDE_CROSSING_CONFORM", "0")
-        for m in ("auto_patch.config", "auto_patch.groundside"):
-            importlib.reload(sys.modules[m])
-        try:
-            import auto_patch.groundside as GS2
-            import auto_patch.lateral_contiguity as LC2
-            layout = _crossing_layout()
-            s = GS2.road_airside_crossing_contacts(layout, "TEST")
-            assert s["on"] is False and s["crossings"] == 0
-            out = GS2.adopt_road_airside_crossing_values(layout, "TEST")
-            assert out["moved"] == 0 and out["mouths"] == 0
-            assert LC2.airside_contact_roles() == LC2.APRON_CONTACT_ROLES
-            # THE STEP COMES BACK.
-            got = _alt_at(layout, -ROAD_HALF_W, -ROAD_NEAR_Y)
-            assert abs(TAXI_Z - got) > 1.0, (
-                "the flag-off arm must reproduce the owner's cliff")
-        finally:
-            monkeypatch.delenv("O4_ROAD_AIRSIDE_CROSSING_CONFORM",
-                               raising=False)
-            for m in ("auto_patch.config", "auto_patch.groundside"):
-                importlib.reload(sys.modules[m])
-
 
 # ══════════════════════════════════════════════════════════════════════
 # AMENDMENT 4 / HECA ROUND 4 §H2 — THE FREEZE IS AIRSIDE-ONLY
@@ -389,135 +89,10 @@ class TestTheFlag:
 #  promised; RULINGS 2026-08-28b item 5(b))
 # ══════════════════════════════════════════════════════════════════════
 
-def _strip_welded_layout():
-    """The item-5(b) geometry: a graded_strip SOFT RECEIVER welded to the
-    road ring beside the airside-shared face.  Under the old freeze that
-    strip-shared vertex froze at the road's own ambient value while its
-    airside-shared neighbour sat at the taxiway value — 123.11 % on the
-    ROAD'S OWN RING at service_junction -10774."""
-    layout = _crossing_layout()
-    weld = (ROAD_HALF_W, ROAD_NEAR_Y)
-    strip_ring = [weld, (weld[0] + 8.0, weld[1]),
-                  (weld[0] + 8.0, weld[1] + 8.0), (weld[0], weld[1] + 8.0)]
-    strip = BuiltShape(polygon=Polygon(strip_ring), role="graded_strip")
-    strip.node_altitudes = [AMBIENT] * len(strip_ring)
-    layout.shapes.append(strip)
-    return layout, weld
-
 
 class TestTheFreezeIsAirsideOnly:
 
     def test_the_flag_is_default_on(self):
         assert CFG.ADOPT_FREEZE_AIRSIDE_ONLY is True
 
-    def test_a_SOFT_RECEIVER_shared_vertex_is_ADOPTABLE(self):
-        """§H2.1: *"a vertex shared with a graded_strip/adjacent-ground
-        RECEIVER is ADOPTABLE — the strip is a conforming product, not
-        an authority"*.  The strip does not hold the road down."""
-        layout, weld = _strip_welded_layout()
-        _contacts(layout)
-        out = _adopt(layout)
-        assert out["freeze"]["narrowed"] is True
-        assert out["freeze"]["released"] >= 1, (
-            "the narrowing released no soft-receiver vertex — the "
-            "item-5(b) class cannot have moved")
-        assert _alt_at(layout, *weld) != pytest.approx(AMBIENT), (
-            "a strip-shared road vertex stayed frozen at its own ambient "
-            "value — that is the 123.11 % cliff on the road's own ring")
 
-    def test_the_freeze_NARROWS_airside_shared_vertices_stay_frozen(self):
-        """§H2.2's gate: the freeze narrows, it never widens.  An
-        airside-shared vertex is still frozen and the airside surface is
-        still byte-identical."""
-        layout = _crossing_layout()
-        taxi = [s for s in layout.shapes if s.role == "primary_parallel"][0]
-        # weld one road vertex straight onto the taxiway ring
-        road = _road_shapes(layout)[0]
-        ring = list(road.polygon.exterior.coords)[:-1]
-        shared = (-TAXI_HALF_L, -TAXI_HALF_W)
-        road.polygon = Polygon(ring + [shared])
-        road.node_altitudes = [AMBIENT] * (len(ring) + 1)
-        before = list(taxi.node_altitudes)
-        _contacts(layout)
-        out = _adopt(layout)
-        assert out["freeze"]["by_airside"] >= 1
-        assert list(taxi.node_altitudes) == before, (
-            "AIRSIDE IS KING — the narrowing may not move one airside "
-            "value")
-        # the ROAD's own copy of the airside-shared vertex is untouched
-        r_ring = list(road.polygon.exterior.coords)[:-1]
-        r_alts = list(road.node_altitudes)[:len(r_ring)]
-        got = [a for (p_, a) in zip(r_ring, r_alts) if p_ == shared]
-        assert got and got[0] == pytest.approx(AMBIENT), (
-            "an airside-shared road vertex was written — the freeze "
-            "widened instead of narrowing")
-
-    def test_a_NON_receiver_authority_still_freezes(self):
-        """A building pad is a VALUE AUTHORITY, not a conforming product
-        — ``layout.SOFT_RECEIVER_ROLES`` is the register that says so,
-        and it is read, never re-spelled."""
-        layout = _crossing_layout()
-        weld = (-ROAD_HALF_W, -ROAD_NEAR_Y)
-        pad_ring = [weld, (weld[0] - 8.0, weld[1]),
-                    (weld[0] - 8.0, weld[1] - 8.0), (weld[0], weld[1] - 8.0)]
-        pad = BuiltShape(polygon=Polygon(pad_ring), role="building")
-        pad.node_altitudes = [AMBIENT] * len(pad_ring)
-        layout.shapes.append(pad)
-        _contacts(layout)
-        out = _adopt(layout)
-        assert out["freeze"]["by_other_authority"] >= 1
-        assert _alt_at(layout, *weld) == pytest.approx(AMBIENT)
-
-    def test_the_receiver_register_is_the_engines_own(self):
-        """No hand list: the register is ``layout.SOFT_RECEIVER_ROLES``,
-        the same one ``to_osm``'s single-authority emit consensus uses to
-        let an AUTHORITY's value win a shared node verbatim — which is
-        why no new welding machinery is needed (§H2.1).  The ONE role
-        added to it is the groundside LOT, and the reason is the
-        pipeline's own ordering, not a preference."""
-        import inspect
-        from auto_patch.layout import SOFT_RECEIVER_ROLES
-        src = inspect.getsource(GS._road_vertex_graph)
-        assert "SOFT_RECEIVER_ROLES as _SOFT_REG" in src
-        assert "graded_strip" in SOFT_RECEIVER_ROLES
-        assert "_SOFT = frozenset(_SOFT_REG) | {_GS_PAV}" in src
-        assert "seat_groundside_on_law" in src, (
-            "the lot's receiver status is the pipeline ORDERING's own "
-            "statement — cite it or do not claim it")
-
-    def test_a_groundside_LOT_shared_vertex_is_ADOPTABLE(self):
-        """MEASURED at HECA: with the lot excluded the narrowing
-        released ZERO vertices, because every strip-shared road vertex
-        there is ALSO welded into a lot — the mechanism was inert at the
-        very site (service_junction -10774) it was written for.  The
-        pipeline calls this pass BETWEEN the service seat and the lot
-        seat precisely so the lot reads the road's adopted value."""
-        layout = _crossing_layout()
-        weld = (ROAD_HALF_W, ROAD_NEAR_Y)
-        lot_ring = [weld, (weld[0] + 8.0, weld[1]),
-                    (weld[0] + 8.0, weld[1] + 8.0), (weld[0], weld[1] + 8.0)]
-        lot = BuiltShape(polygon=Polygon(lot_ring),
-                         role="groundside_pavement")
-        lot.node_altitudes = [AMBIENT] * len(lot_ring)
-        layout.shapes.append(lot)
-        _contacts(layout)
-        out = _adopt(layout)
-        assert out["freeze"]["released"] >= 1
-        assert _alt_at(layout, *weld) != pytest.approx(AMBIENT)
-
-    def test_flag_OFF_restores_the_pre_round_freeze(self, monkeypatch):
-        monkeypatch.setenv("O4_ADOPT_FREEZE_AIRSIDE_ONLY", "0")
-        for m in ("auto_patch.config", "auto_patch.groundside"):
-            importlib.reload(sys.modules[m])
-        try:
-            import auto_patch.groundside as GS2
-            layout, weld = _strip_welded_layout()
-            GS2.road_airside_crossing_contacts(layout, "TEST")
-            out = GS2.adopt_road_airside_crossing_values(layout, "TEST")
-            assert out["freeze"]["narrowed"] is False
-            assert _alt_at(layout, *weld) == pytest.approx(AMBIENT), (
-                "flag OFF must reproduce the pre-round freeze exactly")
-        finally:
-            monkeypatch.delenv("O4_ADOPT_FREEZE_AIRSIDE_ONLY", raising=False)
-            for m in ("auto_patch.config", "auto_patch.groundside"):
-                importlib.reload(sys.modules[m])

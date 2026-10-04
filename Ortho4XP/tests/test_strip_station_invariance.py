@@ -76,12 +76,8 @@ _RAMP_RISE_PER_STATION_M = 0.36
 #: 2.6 km along and NOT on the 30 m vertex grid, so it is a genuinely new
 #: vertex strictly between two emitted ones.
 _COLLINEAR_VERTEX_AT_M = 2600.0
-#: Rotation applied to the strip ring's emitted start vertex.
-_START_ROTATION = 37
 #: How far the unrelated "far" shape sits from the airport.
 _FAR_SHAPE_OFFSET_M = 6000.0
-#: Non-vacuity floor: the perturbation must be this far from the row.
-_FAR_CHANGE_FLOOR_M = 1500.0
 _RULESET = "icao"
 
 
@@ -93,15 +89,6 @@ def cg():
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
-
-
-@pytest.fixture(scope="module")
-def strip_half_width_m():
-    from auto_patch.config import runway_code_letter, runway_code_number
-    from auto_patch.grade_law import ruleset_strip_half_width_m
-    code = runway_code_number(_RUNWAY_LENGTH_M)
-    letter = runway_code_letter(2.0 * _RUNWAY_HALF_WIDTH_M)
-    return float(ruleset_strip_half_width_m(code, letter, _RULESET))
 
 
 def _ll(x: float, y: float):
@@ -209,147 +196,14 @@ def _patch(tmp_path: Path, strip_half: float, *,
     return osm, strip_surface
 
 
-def _arc_reading(cg, osm):
-    """``(row_set, n_stations, n_ways)`` from THE reader itself — the
-    station count is only visible on ``_check_strip_arc_rate``'s own
-    return, which is why this twin calls it rather than ``run_checks``."""
-    nodes, ways = cg._parse_osm(osm)
-    cg._set_active_ruleset(_RULESET)
-    ll_to_m = cg._ll_to_m_factory(nodes, anchor=_ANCHOR)
-    rows, n_stations, n_ways = cg._check_strip_arc_rate(ways, nodes, ll_to_m)
-    row_set = {(round(r.pt_a[0], 2), round(r.pt_a[1], 2),
-                round(r.pt_b[0], 2), round(r.pt_b[1], 2),
-                round(r.grade_pct, 4), round(r.de_m, 4))
-               for r in rows}
-    assert len(row_set) == len(rows), "two rows share a site key"
-    return row_set, n_stations, n_ways
-
-
 # ══════════════════════════════════════════════════════════════════════
 # THE FIXTURE IS NOT VACUOUS
 # ══════════════════════════════════════════════════════════════════════
-
-def test_the_fixture_yields_stations_and_at_least_one_row(cg, tmp_path,
-                                                          strip_half_width_m):
-    """A station set of zero makes every invariance twin below pass for
-    free, and a row set of zero makes "the row set is unchanged" vacuous."""
-    osm, _surface = _patch(tmp_path, strip_half_width_m)
-    rows, n_stations, n_ways = _arc_reading(cg, osm)
-    assert n_stations > 0, "the reader visited no strip station"
-    assert n_ways == 1, "the band must be read as exactly one strip way"
-    assert len(rows) >= 1, (
-        "the fixture prices no strip_arc row, so 'the row set does not "
-        "change' asserts nothing")
-    # ...and the perturbations below really are FAR from the row.
-    worst = max(rows, key=lambda r: r[4])
-    assert _RUNWAY_LENGTH_M - worst[0] > _FAR_CHANGE_FLOOR_M, (
-        f"the extra runway vertex is only "
-        f"{_RUNWAY_LENGTH_M - worst[0]:.0f} m from the row — a 'far' "
-        f"change must be past the {_FAR_CHANGE_FLOOR_M:.0f} m floor")
 
 
 # ══════════════════════════════════════════════════════════════════════
 # THE STATION SET IS A FUNCTION OF THE LOCAL GEOMETRY
 # ══════════════════════════════════════════════════════════════════════
-
-def test_one_extra_runway_vertex_far_away_changes_nothing(
-        cg, tmp_path, strip_half_width_m):
-    """COUPLING 1 — the arm that BITES.  One extra vertex at the runway's
-    far end, 2.6 km from the row, not one strip coordinate touched: with
-    the margin-0 predicate restored in memory this fixture reads 257 strip
-    stations against 318 (measured 2026-10-02)."""
-    base_osm, base_surface = _patch(
-        tmp_path, strip_half_width_m, name="BASE")
-    far_osm, far_surface = _patch(
-        tmp_path, strip_half_width_m, extra_runway_vertex=True, name="FARV")
-    assert base_surface == far_surface, (
-        "the fixture perturbed the strip band itself — the twin would be "
-        "measuring a real geometry change, not a far one")
-    base = _arc_reading(cg, base_osm)
-    far = _arc_reading(cg, far_osm)
-    assert far[1] == base[1], (
-        f"the reader visited {far[1]} strip stations against {base[1]} "
-        f"after ONE extra runway vertex 2.6 km away — issue #116")
-    assert far[0] == base[0], (
-        f"the strip_arc row set changed with a far vertex: "
-        f"only-far {sorted(far[0] - base[0])}, "
-        f"only-base {sorted(base[0] - far[0])}")
-
-
-def test_one_extra_collinear_runway_vertex_far_away_changes_nothing(
-        cg, tmp_path, strip_half_width_m):
-    """COUPLING 1, AT ITS DERIVATION (#190, ruling 2026-10-02v (7)).  The
-    arm above perturbs the ring 1 mm INSIDE its own edge; this one inserts
-    a vertex EXACTLY ON the long edge 2.6 km from the row, which is what a
-    densification step or a crossing split actually emits.  Under the
-    vertex-count-weighted PCA that tilted the axis and dragged the
-    centroid toward the denser edge; under the hull rectangle the vertex
-    is invisible, so the station set is identical rather than merely
-    stable."""
-    base_osm, base_surface = _patch(
-        tmp_path, strip_half_width_m, name="BASEC")
-    ins_osm, ins_surface = _patch(
-        tmp_path, strip_half_width_m, collinear_runway_vertex=True,
-        name="COLL")
-    assert base_surface == ins_surface, (
-        "the fixture perturbed the strip band itself")
-    base = _arc_reading(cg, base_osm)
-    ins = _arc_reading(cg, ins_osm)
-    assert ins[1] == base[1], (
-        f"the reader visited {ins[1]} strip stations against {base[1]} "
-        f"after ONE collinear runway vertex "
-        f"{_RUNWAY_LENGTH_M - _COLLINEAR_VERTEX_AT_M:.0f} m from the far "
-        f"end — issue #190")
-    assert ins[0] == base[0], (
-        f"the strip_arc row set changed with a collinear runway vertex: "
-        f"only-inserted {sorted(ins[0] - base[0])}, "
-        f"only-base {sorted(base[0] - ins[0])}")
-
-
-def test_an_unrelated_shape_kilometres_away_changes_nothing(
-        cg, tmp_path, strip_half_width_m):
-    """The issue's twin spelled literally: adding a far vertex does not
-    change the strip_arc row set.
-
-    HONESTLY LABELLED: this arm is a CONTROL, not the biting one.  The
-    census projects through the SIDECAR's anchor, so a far shape on no
-    runway way cannot move the frame and this arm reads 318/318 before the
-    fix too.  It is kept because it pins that property — the mean-of-nodes
-    anchor fallback would break it — and the coupling that actually failed
-    is the runway-vertex arm above."""
-    base_osm, base_surface = _patch(
-        tmp_path, strip_half_width_m, name="BASE2")
-    far_osm, far_surface = _patch(
-        tmp_path, strip_half_width_m, far_shape=True, name="FARS")
-    assert base_surface == far_surface
-    base = _arc_reading(cg, base_osm)
-    far = _arc_reading(cg, far_osm)
-    assert (far[1], far[0]) == (base[1], base[0])
-
-
-def test_rotating_the_strip_rings_start_vertex_changes_nothing(
-        cg, tmp_path, strip_half_width_m):
-    """COUPLING 2 — START-INVARIANCE, the second arm that BITES.  The same
-    ring, the same surface, emitted from a different first vertex: with the
-    raw open-chain walk restored in memory this fixture reads 316 strip
-    stations against 318 (measured 2026-10-02)."""
-    base_osm, base_surface = _patch(
-        tmp_path, strip_half_width_m, name="BASE3")
-    rot_osm, rot_surface = _patch(
-        tmp_path, strip_half_width_m, start_rotation=_START_ROTATION,
-        name="ROT")
-    assert base_surface == rot_surface, (
-        "rotating the start vertex must not change the emitted surface")
-    base = _arc_reading(cg, base_osm)
-    rot = _arc_reading(cg, rot_osm)
-    assert rot[1] == base[1], (
-        f"the reader visited {rot[1]} strip stations against {base[1]} "
-        f"after rotating the ring's start vertex by {_START_ROTATION} — "
-        f"issue #116, the start-invariance half")
-    assert rot[0] == base[0], (
-        f"the strip_arc row set changed with the start vertex: "
-        f"only-rotated {sorted(rot[0] - base[0])}, "
-        f"only-base {sorted(base[0] - rot[0])}")
 
 
 def test_the_boundary_epsilon_is_a_named_identity_tolerance(cg):

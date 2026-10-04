@@ -161,29 +161,32 @@ FIXTURE_PATCH = ROOT / "tests" / "fixtures" / "SPJC_target.osm"
 # ══════════════════════════════════════════════════════════════════════
 
 
-def test_blast_lists_the_grade_suite_for_runway_segments(tmp_path):
+def test_blast_lists_the_suite_a_conftest_helper_reaches(tmp_path):
     """2026-08-20: a lane edited runway_segments.py and gap_fill.py, ran
     the blast-listed sweep (472 passed) and never ran this file's
     neighbours test_pavement_grade.py / test_single_graph_acceptance.py —
-    they reach those modules through ``conftest.cached_airport_layout``,
+    they reached those modules through ``conftest.cached_airport_layout``,
     not an import.  The index must record that reach, in its own group,
-    and the sweep selector must emit it."""
+    and the sweep selector must emit it.
+
+    RE-POINTED 2026-10-04 (lane ``v1cut``): those v1 files are deleted; the
+    property is held on the pairs ``blast.FIXTURE_CANARIES`` names today
+    (``O4_UI_Utils.py`` reached by ``test_data_root.py`` through
+    ``conftest.reapply_dsf_dump_cache_redirect``)."""
     blast = _load("harness_twin_blast", ROOT.parent / "tools" / "blast.py")
     shards = blast.build(str(tmp_path / "idx"))
-    for src, test in (("auto_patch/pavement/runway_segments.py",
-                       "test_pavement_grade.py"),
-                      ("auto_patch/gap_fill.py",
-                       "test_single_graph_acceptance.py")):
-        rel = blast.SRC_PREFIX + src
+    assert blast.FIXTURE_CANARIES
+    for rel, test_rel in blast.FIXTURE_CANARIES:
+        test = os.path.basename(test_rel)
         card = shards["modules"][rel]
         fx = card["tests_via_fixture"]
-        assert blast.TESTS_PREFIX + test in fx, (src, test)
-        assert "cached_airport_layout" in fx[blast.TESTS_PREFIX + test]
+        assert test_rel in fx, (rel, test)
+        assert "reapply_dsf_dump_cache_redirect" in fx[test_rel]
         assert any(l.startswith("TESTS VIA CONFTEST FIXTURE") and test in l
                    for l in blast.render(rel, shards))
         sel = blast.select_tests({rel: {"anything"}}, shards)
-        assert blast.TESTS_PREFIX + test in sel["clauses"]["fixture"]
-        assert blast.TESTS_PREFIX + test in sel["selected"]
+        assert test_rel in sel["clauses"]["fixture"]
+        assert test_rel in sel["selected"]
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -517,17 +520,6 @@ def test_a_facility_that_published_no_parts_keeps_the_flat_drop(cg,
     assert fo_empty["vertex_to_edge_step"] + fo_empty["mid_edge_step"] == []
 
 
-def test_the_emitter_publishes_the_parts_the_census_joins_on(cg):
-    """ONE population, both readers (the census-wrapper lesson): the key
-    the emitter writes is the key the census reads."""
-    import inspect
-    from auto_patch import object_terrain_assembly as assembly
-    source = inspect.getsource(assembly.build_tunnel_layout_shapes)
-    assert '"emitted_rim_parts_m"' in source
-    assert "emitted_rim_parts_m" in inspect.getsource(
-        cg._basin_facilities_declared)
-
-
 def test_a_patch_with_no_basin_reads_exactly_as_before(cg):
     """The no-op half: the fixture patch declares no basin, so the law
     keyword changes nothing about what it measures."""
@@ -535,50 +527,6 @@ def test_a_patch_with_no_basin_reads_exactly_as_before(cg):
     b = cg.run_checks(FIXTURE_PATCH, top_n=0, quiet=True,
                       basin_facilities=None)
     assert [len(x) for x in a] == [len(x) for x in b]
-
-
-def test_the_declared_plate_roles_are_the_engines_own(cg):
-    """ONE role set, both sides: the census's declared-plate roles are
-    ``config.DECLARED_TERRAIN_PLATE_ROLES`` itself (the literal in
-    ``check_grade`` is only the no-engine CLI fallback), and every role in
-    it is a role the engine EMITS."""
-    from auto_patch.config import DECLARED_TERRAIN_PLATE_ROLES
-    from auto_patch import layout
-    assert set(cg._DECLARED_PLATE_ROLES) == set(DECLARED_TERRAIN_PLATE_ROLES)
-    emitted = {v for k, v in vars(layout).items()
-               if k.startswith("ROLE_") and isinstance(v, str)}
-    assert set(DECLARED_TERRAIN_PLATE_ROLES) <= emitted, (
-        f"declared-plate role(s) "
-        f"{sorted(set(DECLARED_TERRAIN_PLATE_ROLES) - emitted)} are not "
-        f"emitted by layout.py")
-
-
-def test_the_near_miss_frontage_law_is_one_authority(cg):
-    """Cycle-5 item 6: the census family and the solve's law edges must
-    recognize ONE population.  The radius, the role set and the budget all
-    live in ``auto_patch.config``; the solver module re-exports them.  The
-    role tuple is spelled as strings there (config cannot import
-    ``layout``), so a ROLE_* rename would silently un-scope the law — this
-    is what makes that loud.  ``service_junction`` is deliberately absent:
-    R7b clause 2 (RULINGS 2026-08-15, the sink ruling) removed roads from
-    the soft-role set — a road never welds to a building."""
-    from auto_patch.config import (BUILDING_FRONTAGE_NEAR_MISS_M,
-                                   NEAR_MISS_FRONTAGE_SOFT_ROLES,
-                                   near_miss_frontage_budget, APRON_MAX_GRADE)
-    from auto_patch.layout import ROLE_APRON, ROLE_JUNCTION
-    from auto_patch.elevation_per_surface.route_profile import anchors
-    assert NEAR_MISS_FRONTAGE_SOFT_ROLES == (
-        ROLE_APRON, ROLE_JUNCTION), (
-        "the near-miss frontage role set no longer matches the ROLE_* "
-        "constants — the solve and the census now scope the law differently")
-    assert anchors.BUILDING_FRONTAGE_NEAR_MISS_M == \
-        BUILDING_FRONTAGE_NEAR_MISS_M, (
-        "the solver module carries its own near-miss radius again — that is "
-        "the two-copies defect the migration to config.py closed")
-    assert near_miss_frontage_budget(7.0) == APRON_MAX_GRADE * 7.0
-    assert "frontage_near_miss" in {k for k, _t, _b in cg.LAW_FAMILIES}, (
-        "the near-miss frontage law binds in the solve but no census family "
-        "measures it — enforcing it could only read as within_shape noise")
 
 
 def test_family_out_is_a_pure_no_op_when_absent(cg):
@@ -663,67 +611,6 @@ def test_the_law_true_run_refuses_a_patch_with_no_sidecar(cg, tmp_path):
     bare.write_text("<osm version='0.6'></osm>", encoding="utf-8", newline="")
     with pytest.raises(FileNotFoundError):
         cg.run_checks_law_true(bare)
-
-
-def test_the_side_partition_is_the_laws_own_and_reports_mixed(cg):
-    """Two different airside/groundside partitions exist in this tree and
-    they disagree.  The census uses the LAW's (``_is_groundside``); a
-    census that used ``geom_guard._AIRSIDE_ROLES`` was counting a different
-    population.  This pins the divergence so a future merge is deliberate."""
-    from auto_patch.geom_guard import _AIRSIDE_ROLES
-    guard_airside = set(_AIRSIDE_ROLES)
-    law_groundside = set(cg._GROUNDSIDE_ROLES)
-    assert guard_airside & law_groundside == {"service_junction"}, (
-        "the geom-guard and grade-law role partitions no longer disagree "
-        "exactly on service_junction — re-read both before changing "
-        "check_grade.row_side")
-
-    class _W:
-        def __init__(self, role):
-            self.tags = {"role": role}
-
-    class _Row:
-        def __init__(self, a, b):
-            self.way_a, self.way_b = _W(a), _W(b)
-    assert cg.row_side(_Row("apron", "runway")) == "airside"
-    assert cg.row_side(_Row("service_road", "groundside_pavement")) == \
-        "groundside"
-    assert cg.row_side(_Row("apron", "service_road")) == "mixed"
-
-
-def test_the_object_pad_role_is_registered_at_every_role_keyed_site(cg):
-    """THE ``object_pad`` REGISTRATION TWIN (per-cluster-object-seating
-    spec §5.4, object-reseat-threshold spec §2.3: "the role literal
-    ``object_pad`` is NEW and wire-adjacent: it must be registered in
-    ``ROLE_GRADE_LIMITS`` AND in the harness law-family machinery in the
-    same change").
-
-    The precedent this pins is the ols_cut sweep, quoted in
-    ``verification._NON_SOURCE_PAVEMENT_ROLES``: that role WAS wired into
-    ``SOFT_RECEIVER_ROLES`` / ``AEROWAY_FOR_ROLE`` / ``ROLE_GRADE_LIMITS``
-    and NOT into the source-adjacency set, and flipping its gate on fired
-    a false invariant at three airports on lawful cuts.  "Every role-keyed
-    site has to be enumerated for a new role" — so every site is asserted
-    here, from the ONE literal in the registry."""
-    from auto_patch import verification as _verification
-    from auto_patch.config import ROLE_GRADE_LIMITS
-    from auto_patch.layout import (
-        AEROWAY_FOR_ROLE, ROLE_OBJECT_PAD, SOFT_RECEIVER_ROLES)
-
-    assert ROLE_OBJECT_PAD == "object_pad"
-    assert ROLE_OBJECT_PAD in ROLE_GRADE_LIMITS
-    assert ROLE_GRADE_LIMITS[ROLE_OBJECT_PAD] is None, (
-        "a pad's outer face is a BENCH by law (relief cap over the margin "
-        "ring); a within-shape pavement cap would mint a violation "
-        "against every lawful pad")
-    assert ROLE_OBJECT_PAD in SOFT_RECEIVER_ROLES, (
-        "pavement wins absolutely (PAD LAW clause 2/3) — that IS the "
-        "soft-receiver contract")
-    assert AEROWAY_FOR_ROLE.get(ROLE_OBJECT_PAD) == "aerodrome"
-    assert ROLE_OBJECT_PAD in _verification._NON_SOURCE_PAVEMENT_ROLES, (
-        "a pad is off-source BY LAW — clause 2 differences it against the "
-        "pavement union — so check_source_adjacency must not judge it "
-        "(the ols_cut lesson, verbatim)")
 
 
 def test_the_object_pad_role_adds_no_law_family_and_mints_no_row(cg):
@@ -835,151 +722,6 @@ def test_the_law_role_is_read_through_one_accessor(cg):
 # ══════════════════════════════════════════════════════════════════════
 # §1b NO FAMILY WALK LOSES A SURFACE TO A ROLE MIGRATION
 # ══════════════════════════════════════════════════════════════════════
-# THE DEFECT (S3 dossier, RULINGS 2026-08-13b "OTHH −639 ADJUDICATED:
-# CENSUS BLINDNESS").  A law family's domain is a role set.  The corridor
-# round re-roled ~15.5 km of landside pavement perimeter out of
-# ``groundside_pavement`` and into ``service_junction`` / ``service_road``
-# — and one domain set (``grade_law._DRAINAGE_MIN_GROUNDSIDE_ROLES``,
-# feeding ``check_grade._DRAINAGE_MIN_ROLES``) named only the old role.
-# The walk stopped reading 15.5 km of surface, the count fell by 750 rows,
-# and the fall was quoted as an improvement.  Structurally silent, exactly
-# as the R19 typo was: an empty walk and a compliant walk report the same
-# zero.
-#
-# WHY A SWEEP AND NOT A LIST.  A hand-listed set of "the sets that matter"
-# is the census-wrapper defect in miniature — it covers what its author
-# remembered.  This walks EVERY module-level role set in the law and the
-# census and applies one rule that has no exceptions today:
-#
-#     a role set that admits ``groundside_pavement`` admits the whole
-#     landside PAVEMENT family it can be re-roled into — ``service_road``
-#     and ``service_junction``.
-#
-# The rule is directional on purpose.  A road-family set (``ROAD_ROLES``,
-# ``_WELD_HUB_ROLES``, ``NEAR_MISS_FRONTAGE_SOFT_ROLES``) that names the
-# service roles WITHOUT ``groundside_pavement`` is a deliberate scope, not
-# a migration casualty: nothing re-roles pavement INTO
-# ``groundside_pavement``.  Only the migration direction is asserted.
-_MIGRATION_SOURCE_ROLE = "groundside_pavement"
-_MIGRATION_TARGET_ROLES = frozenset({"service_road", "service_junction"})
-
-
-def _role_sets_of(mod) -> dict:
-    """``{name: frozenset}`` for every module-level set/frozenset/tuple of
-    strings that names at least one EMITTED role literal."""
-    import auto_patch.layout as LAY
-    emitted = {getattr(LAY, n) for n in dir(LAY) if n.startswith("ROLE_")
-               and isinstance(getattr(LAY, n), str)}
-    out = {}
-    for name in dir(mod):
-        val = getattr(mod, name, None)
-        if not isinstance(val, (set, frozenset, tuple, list)):
-            continue
-        if not val or not all(isinstance(v, str) for v in val):
-            continue
-        if not (set(val) & emitted):
-            continue
-        out[name] = frozenset(val)
-    return out
-
-
-def test_no_role_set_admits_groundside_pavement_without_the_road_family(cg):
-    """The S3 blindness class, swept.
-
-    Every law/census role set that reads landside pavement must read the
-    roles that pavement is re-roled INTO.  A new set that names
-    ``groundside_pavement`` alone fails here in the commit that adds it,
-    instead of silently halving a census three rounds later.
-    """
-    import auto_patch.grade_law as GL
-
-    offenders = []
-    for mod, label in ((GL, "grade_law"), (cg, "check_grade")):
-        for name, roles in _role_sets_of(mod).items():
-            if _MIGRATION_SOURCE_ROLE not in roles:
-                continue
-            missing = _MIGRATION_TARGET_ROLES - roles
-            if missing:
-                offenders.append(f"{label}.{name} misses {sorted(missing)}")
-    assert not offenders, (
-        "role-migration blindness: these domain sets read "
-        f"{_MIGRATION_SOURCE_ROLE!r} but not the roles it is re-roled into "
-        f"— {offenders}.  A surface that changes role must not leave a "
-        f"family's walk (RULINGS 2026-08-13b, the OTHH −639 verdict)")
-
-
-#: Role literals a census WALK may name that are not ``layout.ROLE_*``
-#: constants — each reachable on an emitted patch, each with its source.
-#: A literal that is NOT here and NOT a ROLE_* value cannot match any way,
-#: so a walk naming it reads nothing while looking like coverage.
-_READABLE_NON_ROLE_LITERALS = {
-    # ROLE_TERMINAL was renamed to ROLE_BUILDING (user 2026-06-12);
-    # ``layout`` keeps the alias on READ paths for pre-rename patches on
-    # disk, and a census reads patches from disk.
-    "terminal",
-    # Apron sub-role: aeroway=parking_position/stand/gate pavement
-    # (``pavement_classification._STAND_AEROWAY``, ``terminals.py``).
-    "stand",
-    # Hangar pad seats (``config`` s81 / ``strip_seam_law``).
-    "hangar_pad",
-}
-
-
-def _census_walk_set_names(cg) -> set:
-    """The names ``check_grade`` uses as a WALK DOMAIN — every identifier
-    on the right of a ``<way>.role in`` / ``not in`` test.  Detected from
-    the source, so a new walk cannot opt out of the sweep by not being
-    listed anywhere."""
-    src = inspect.getsource(cg)
-    pat = re.compile(
-        r"(?:\.role|law_role\([^)]*\)|effective_role\([^)]*\))\s+"
-        r"(?:not\s+)?in\s+([A-Za-z_][A-Za-z_0-9]*)")
-    return set(pat.findall(src))
-
-
-def test_every_role_a_census_WALK_names_is_a_role_the_engine_EMITS(cg):
-    """The R19 twin, generalised past the one set it was written for.
-
-    ``_DRAINAGE_MIN_ROLES`` used to read ``("apron", "stand", "groundside",
-    "parking")`` — literals this engine has never emitted, so the
-    groundside half of §B3 could not fire.  An unreachable literal in a
-    walk set LOOKS like coverage and is worth nothing; the emitted-role
-    join is the only thing that tells the two apart.
-
-    Scoped to WALK sets (``_census_walk_set_names``), which is where an
-    unreachable literal costs rows.  The law's role→rule DISPATCH sets are
-    deliberately wider: ``grade_law._ADJACENT_TAXIWAY_ROLES`` names the
-    family alias ``"taxiway"`` so a caller may ask the law about the
-    taxiway family without naming four role values, and nothing walks it.
-    """
-    import auto_patch.layout as LAY
-
-    emitted = {getattr(LAY, n) for n in dir(LAY) if n.startswith("ROLE_")
-               and isinstance(getattr(LAY, n), str)}
-    emitted |= _READABLE_NON_ROLE_LITERALS
-    # ...AND THE ROLES v2 EMITS (v2 is the only engine, RULINGS
-    # 2026-09-13au).  ``layout``'s ROLE_ constants are v1's vocabulary and
-    # do not name v2's structure roles (``wall_corridor_ramp``,
-    # ``garage_ramp``, ``door_ramp``), which the emitter writes and
-    # ``ramp_in_road`` walks.  Read from v2's own law register, so this
-    # stays the emitted-role JOIN the twin is about and never a
-    # hand-written exemption list.
-    from auto_patch_v2.law import tables as _V2T
-    emitted |= set(_V2T.governed_roles(_V2T.load_default()))
-    unreachable = {}
-    for name in sorted(_census_walk_set_names(cg)):
-        roles = getattr(cg, name, None)
-        if not isinstance(roles, (set, frozenset, tuple, list)):
-            continue
-        if not roles or not all(isinstance(r, str) for r in roles):
-            continue
-        dead = sorted(set(roles) - emitted)
-        if dead:
-            unreachable[f"check_grade.{name}"] = dead
-    assert not unreachable, (
-        f"census walks name role literals the engine never emits: "
-        f"{unreachable}.  An unreachable literal is not coverage — it is "
-        f"the fix-cycle-2 item-5 defect (verdict (d), BROKEN INSTRUMENT)")
 
 
 def test_every_retired_law_really_left_its_familys_walk(cg):
@@ -1035,47 +777,9 @@ def test_every_retired_law_really_left_its_familys_walk(cg):
                 f"that keeps firing")
 
 
-def test_the_retired_landside_roles_are_still_READ_by_the_other_families(cg):
-    """The retirement must not be allowed to re-import the blindness.
-
-    ``service_road`` / ``service_junction`` / ``groundside_pavement``
-    leave the DRAINAGE walk by law.  They must stay in every other
-    family's domain — that is the S7 half-1 restoration, and it is what
-    makes the drainage zero readable as a law and not as a symptom.
-    """
-    import auto_patch.layout as LAY
-
-    retired = set(cg.RETIRED_LAWS["drainage_minimum::groundside"]["roles"])
-    assert retired <= set(LAY.GROUNDSIDE_ROLES)
-    assert retired <= set(cg._GROUNDSIDE_ROLES), (
-        "a retired-from-drainage role fell out of the SIDE partition too")
-    assert retired <= set(cg._STRIP_PAVEMENT_ROLES), (
-        "a retired-from-drainage role fell out of the strip weld domain")
-    assert set(cg._ROAD_FAMILY_ROLES) <= retired | {"service_road",
-                                                    "service_junction"}
-
-
 # ══════════════════════════════════════════════════════════════════════
 # §2 THE SIDECAR CONTRACT
 # ══════════════════════════════════════════════════════════════════════
-
-def test_every_emitted_sidecar_key_is_classified(cg):
-    """The sidecar is the contract.  Read the keys the EMITTER writes
-    straight out of ``layout._write_axes_sidecar`` and require each to be
-    classified as law input or evidence — so a new emitted field can never
-    be silently ignored by every reader in the tree."""
-    from auto_patch.layout import PavementLayout
-    src = inspect.getsource(PavementLayout._write_axes_sidecar)
-    body = src.split("data = {", 1)[1]
-    emitted = set(re.findall(r'^\s*"([a-z_]+)":', body, re.M))
-    assert len(emitted) >= 10, (
-        f"only parsed {sorted(emitted)} out of the sidecar writer — the "
-        f"parse broke, not the contract")
-    classified = set(cg.SIDECAR_LAW_KEYS) | set(cg.SIDECAR_EVIDENCE_KEYS)
-    assert emitted <= classified, (
-        f"sidecar key(s) {sorted(emitted - classified)} are emitted but "
-        f"classified nowhere: add them to check_grade.SIDECAR_LAW_KEYS "
-        f"(if run_checks must consume them) or SIDECAR_EVIDENCE_KEYS.")
 
 
 def test_the_evidence_reader_reports_unknown_keys(cg, tmp_path):
@@ -3595,429 +3299,6 @@ class TestIntroducingWrite:
         assert WHO.introducing_write(history)[2] == "a.py:1:first"
 
 
-class TestAuthorshipProbe:
-    """The probe must RECORD without changing the value, and must put the
-    field back — an instrument that mutates its subject is not one."""
-
-    def _shape_cls(self):
-        class _Shape:
-            node_altitudes = None
-
-            def __init__(self, role="apron"):
-                self.role = role
-                self.ref = ""
-                self.polygon = None
-                self.node_altitudes = None
-        return _Shape
-
-    def test_it_records_every_write_and_returns_the_value_unchanged(self):
-        cls = self._shape_cls()
-        probe = WHO.AuthorshipProbe(cls, dem_m=1.0).install()
-        try:
-            s = cls()
-            s.node_altitudes = [5.0, 5.0, 5.0]
-            s.node_altitudes = [1.0, 5.0, 1.0]
-            assert list(s.node_altitudes) == [1.0, 5.0, 1.0]
-        finally:
-            probe.uninstall()
-        history = probe.by_shape[id(s)]
-        assert [h[0] for h in history] == [0, 2], (
-            "the probe must count DEM-matching values per write")
-
-    def test_uninstall_restores_the_field(self):
-        cls = self._shape_cls()
-        probe = WHO.AuthorshipProbe(cls, dem_m=1.0).install()
-        assert isinstance(cls.__dict__["node_altitudes"], property)
-        probe.uninstall()
-        assert not isinstance(cls.__dict__.get("node_altitudes"), property)
-
-    def test_the_role_filter_scopes_recording(self):
-        cls = self._shape_cls()
-        probe = WHO.AuthorshipProbe(cls, dem_m=1.0,
-                                    roles=["service_junction"]).install()
-        try:
-            keep, drop = cls("service_junction"), cls("apron")
-            keep.node_altitudes = [1.0]
-            drop.node_altitudes = [1.0]
-        finally:
-            probe.uninstall()
-        assert id(keep) in probe.by_shape
-        assert id(drop) not in probe.by_shape
-
-
-class TestFootprintProbe:
-    """The FOOTPRINT history — ``who_wrote.py --footprint``.
-
-    The value tracer cannot answer "which pass put pavement over this
-    spot": a point outside every shape has no vertex to trace, and the
-    absorb / merge / re-role family writes a POLYGON, never an altitude.
-    This probe is that reader, and the three things that can be wrong in
-    it are bookkeeping, not geometry: it must not mutate its subject, it
-    must report TRANSITIONS (not every write), and it must not confuse a
-    ``dataclasses.replace`` re-minting with a pass that grew a footprint.
-    """
-
-    def _shape_cls(self):
-        class _Shape:
-            def __init__(self, role="apron", polygon=None):
-                self.role = role
-                self.ref = ""
-                self.polygon = polygon
-        return _Shape
-
-    @staticmethod
-    def _sq(n):
-        from shapely.geometry import Polygon
-        return Polygon([(0, 0), (n, 0), (n, n), (0, n)])
-
-    def test_it_records_transitions_and_leaves_the_ring_unchanged(self):
-        cls = self._shape_cls()
-        probe = WHO.FootprintProbe(cls, [(5.0, 5.0)]).install()
-        try:
-            s = cls(polygon=self._sq(1))       # birth, OUT
-            s.polygon = self._sq(1)            # unchanged — NOT a transition
-            s.polygon = self._sq(10)           # grew IN
-            s.polygon = self._sq(20)           # still in — NOT a transition
-            s.polygon = self._sq(1)            # shrank OUT
-            assert s.polygon.area == 1.0, "the probe must not touch the ring"
-        finally:
-            probe.uninstall()
-        rows = probe.rows["5.0,5.0"]
-        assert [(r["event"], r["covered"]) for r in rows] == [
-            ("grew", True), ("shrank", False)], (
-            "only the writes that CHANGED coverage are rows; a birth "
-            "outside the point is not one")
-        assert rows[0]["area_m2"] == 100.0 and rows[0]["role"] == "apron"
-
-    def test_a_birth_that_already_covers_is_labelled_birth(self):
-        """``dataclasses.replace`` mints a new instance for an unchanged
-        ring all over this pipeline.  A reader that called that "grew"
-        would name the copier as the pass that put pavement there."""
-        cls = self._shape_cls()
-        probe = WHO.FootprintProbe(cls, [(5.0, 5.0)]).install()
-        try:
-            cls(polygon=self._sq(10))
-        finally:
-            probe.uninstall()
-        rows = probe.rows["5.0,5.0"]
-        assert len(rows) == 1 and rows[0]["event"] == "birth"
-        assert rows[0]["covered"] is True
-
-    def test_two_instances_keep_separate_histories(self):
-        cls = self._shape_cls()
-        probe = WHO.FootprintProbe(cls, [(5.0, 5.0)]).install()
-        try:
-            a = cls("apron", self._sq(10))              # birth IN
-            b = cls("groundside_pavement", self._sq(1))  # birth OUT
-            b.polygon = self._sq(10)                     # grew IN
-            del a
-        finally:
-            probe.uninstall()
-        rows = probe.rows["5.0,5.0"]
-        assert [r["role"] for r in rows] == [
-            "apron", "groundside_pavement"]
-        assert len({r["instance"] for r in rows}) == 2, (
-            "instances are tracked by object identity, never by a "
-            "coordinate join")
-
-    def test_uninstall_restores_the_field(self):
-        cls = self._shape_cls()
-        probe = WHO.FootprintProbe(cls, [(0.0, 0.0)]).install()
-        assert isinstance(cls.__dict__["polygon"], property)
-        probe.uninstall()
-        assert not isinstance(cls.__dict__.get("polygon"), property)
-
-    def test_it_records_on_the_REAL_unhashable_BuiltShape(self):
-        """THE REGRESSION THIS CLASS EXISTS FOR.
-
-        ``BuiltShape`` is a plain ``@dataclass``, so Python sets
-        ``__hash__ = None``.  A ``WeakKeyDictionary``-keyed probe raises
-        ``TypeError`` on every single write — inside the "instrumentation
-        never breaks a build" guard, which turns it into an instrument
-        that records NOTHING and says so nowhere (measured: a whole HECA
-        build, zero rows).  A hand-rolled hashable stand-in cannot catch
-        that, so this twin uses the engine's own class.
-        """
-        from shapely.geometry import Polygon        # noqa: PLC0415
-        BuiltShape = pytest.importorskip(
-            "auto_patch.layout", reason="engine src not importable").BuiltShape
-        assert BuiltShape.__hash__ is None, (
-            "the trap this test guards is dataclass unhashability; if "
-            "BuiltShape became hashable, re-derive the probe's keying")
-        probe = WHO.FootprintProbe(BuiltShape, [(5.0, 5.0)]).install()
-        try:
-            s = BuiltShape(polygon=self._sq(1), role="apron")
-            s.polygon = self._sq(10)
-            assert s.polygon.area == 100.0
-        finally:
-            probe.uninstall()
-        assert probe.rows["5.0,5.0"], (
-            "the probe recorded NOTHING on the class it exists to "
-            "instrument")
-        assert probe.rows["5.0,5.0"][-1]["event"] == "grew"
-        assert isinstance(Polygon, type)
-
-    def test_a_reused_object_id_is_not_joined_to_the_dead_shape(self):
-        """Ids ARE reused within one build.  A bare ``id()`` map would
-        continue a dead shape's coverage state into an unrelated new
-        one — the join error that makes an attribution wrong rather
-        than missing."""
-        cls = self._shape_cls()
-        probe = WHO.FootprintProbe(cls, [(5.0, 5.0)]).install()
-        try:
-            a = cls("apron", self._sq(10))          # birth IN
-            key = id(a)
-            probe._state[key][0] = lambda: None     # simulate a dead referent
-            b = cls("groundside_pavement", self._sq(10))
-            probe._state[key] = probe._state.pop(key)
-            # force the id collision the guard must survive
-            probe._record(b, self._sq(10))
-            del a, b
-        finally:
-            probe.uninstall()
-        rows = probe.rows["5.0,5.0"]
-        assert rows[0]["role"] == "apron"
-        assert any(r["role"] == "groundside_pavement" and r["event"] == "birth"
-                   for r in rows), (
-            "a stale id entry must yield a FRESH instance, never a "
-            "continuation of the dead shape's state")
-
-    def test_no_probe_point_records_nothing(self):
-        cls = self._shape_cls()
-        probe = WHO.FootprintProbe(cls, []).install()
-        try:
-            cls(polygon=self._sq(10))
-        finally:
-            probe.uninstall()
-        assert probe.rows == {} and probe._step == 0
-
-    def test_the_final_section_reads_the_layout_by_shape_index(self):
-        """``final`` is the emitted answer the change list has to end at,
-        and its index IS the ``shapeID`` tag ``layout.to_osm`` writes."""
-        cls = self._shape_cls()
-        probe = WHO.FootprintProbe(cls, [(5.0, 5.0)])
-        layout = types.SimpleNamespace(shapes=[cls("apron", self._sq(1)),
-                                              cls("apron", self._sq(10))])
-        hist = probe.footprint_history(layout)
-        assert hist["5.0,5.0"]["final"] == [
-            {"shapeID": 1, "role": "apron", "ref": "", "area_m2": 100.0}]
-
-
-class TestAuthorMoveDump:
-    """``--author-dump`` must carry the JOIN KEYS the aggregate cannot.
-
-    The printed displacement census keeps 40 worst rows.  The question
-    "are the vertices this pass re-authors the SAME vertices some other
-    writer seeded from the DEM" is a per-vertex join, so the dump must
-    carry the moving write's FULL site, the vertex's origin writer, and
-    its DEM-origin writer — and must never change the classification the
-    aggregate reports (one instrument, one population).
-    """
-
-    class _Shape:
-        node_altitudes = None
-
-        def __init__(self, role="apron"):
-            self.role = role
-            self.ref = ""
-            self.polygon = None
-            self.node_altitudes = None
-
-    #: the three writes' call sites, in order — the probe reads them
-    #: through ``call_site``, which filters to engine frames and so
-    #: reports "" under pytest.
-    SITES = ["seeder.py:1:the_dem_seeder",
-             "solve.py:2:the_solve",
-             "finalize.py:3:mover_writeback"]
-
-    def _run(self, dump):
-        real = WHO.call_site
-        seq = iter(self.SITES)
-        WHO.call_site = lambda *a, **k: next(seq, self.SITES[-1])
-        try:
-            probe = WHO.AuthorshipProbe(
-                self._Shape, dem_m=1.0, authors=("mover",),
-                solve_site="the_solve", dump_moves=dump).install()
-            try:
-                s = self._Shape()
-                # the DEM seeder, then the solve, then the second author
-                s.node_altitudes = [1.0, 1.0]      # seeded ON the DEM
-                s.node_altitudes = [10.0, 20.0]    # <- "the_solve" writes
-                s.node_altitudes = [10.0, 25.0]    # <- "mover" moves one
-            finally:
-                probe.uninstall()
-        finally:
-            WHO.call_site = real
-        return probe, s
-
-    def test_the_dump_records_the_moving_site_and_both_origins(self, tmp_path):
-        probe, s = self._run(True)
-        layout = types.SimpleNamespace(shapes=[s])
-        out = tmp_path / "moves.jsonl"
-        info = probe.write_move_dump(layout, out)
-        recs = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
-        moves = [r for r in recs if r["kind"] == "move"]
-        assert info["moves"] == len(moves) == 1
-        m = moves[0]
-        assert m["k"] == 1 and m["before"] == 20.0 and m["after"] == 25.0
-        assert m["class"] == "untouched", (
-            "the solve wrote it and nothing else touched it — this is the "
-            "second-author class")
-        assert m["site"] == self.SITES[2], "the FULL moving site is carried"
-        assert m["origin"] == self.SITES[0], "the vertex's origin writer"
-        assert m["dem_origin"] == self.SITES[0], (
-            "the vertex sat on the constant DEM at its first write — the "
-            "DEM-origin writer is the overlay's join key")
-        shapes = [r for r in recs if r["kind"] == "shape"]
-        assert len(shapes) == 1 and shapes[0]["shape_index"] == 0
-        assert shapes[0]["sites"] == self.SITES
-
-    def test_the_dump_does_not_change_the_aggregate(self):
-        off, _ = self._run(False)
-        on, _ = self._run(True)
-        assert off.author_report()[1] == on.author_report()[1] != {}, (
-            "the per-vertex dump is a second READER of one population, "
-            "never a second instrument")
-
-    def test_the_aggregate_reports_the_hand_computed_displacement(self):
-        """The PRINTED displacement census had no known-answer twin at
-        all — only the dump did.  Known answer for the three writes
-        above: the mover changes index 1 from 20.0 to 25.0, |d| = 5.0 m,
-        and index 0 does not move (0.0 < the 0.01 m materiality)."""
-        probe, _ = self._run(False)
-        rows, totals = probe.author_report()
-        assert rows == [{"author": "mover", "class": "untouched",
-                         "role": "apron", "n_moved": 1,
-                         "max_m": 5.0, "p50_m": 5.0}]
-        assert totals == {("mover", "untouched"):
-                          {"n_moved": 1, "max_m": 5.0}}
-
-
-class TestDemAuthorshipCensus:
-    """The IN-MEMORY half of the DEM census — ``dem_authorship``.
-
-    It had no known-answer twin: only ``introducing_write`` (the pure
-    function it calls) did, so the per-shape row assembly around it — the
-    role, the counts, the filter that drops shapes with no on-DEM vertex —
-    was untested.
-    """
-
-    class _Shape:
-        node_altitudes = None
-
-        def __init__(self, role="apron", ref=""):
-            self.role = role
-            self.ref = ref
-            self.polygon = None
-            self.node_altitudes = None
-
-    SITES = ["seed.py:1:THE_SEEDER",
-             "solve.py:2:cleaned_it",
-             "ground.py:3:THE_AUTHOR",
-             "final.py:4:carrier"]
-
-    def _probe(self):
-        real = WHO.call_site
-        seq = iter(self.SITES)
-        WHO.call_site = lambda *a, **k: next(seq, self.SITES[-1])
-        try:
-            probe = WHO.AuthorshipProbe(self._Shape, dem_m=1.0).install()
-            try:
-                on = self._Shape("service_junction", "SJ")
-                on.node_altitudes = [1.0, 9.0]     # seeded: 1 on the DEM
-                on.node_altitudes = [8.0, 9.0]     # cleaned: 0 on the DEM
-                on.node_altitudes = [1.0, 1.0]     # THE AUTHOR: 2 back on
-                on.node_altitudes = [1.0, 1.0]     # a carrier
-                off = self._Shape("apron", "AP")
-                off.node_altitudes = [7.0, 7.0]    # never on the DEM
-            finally:
-                probe.uninstall()
-        finally:
-            WHO.call_site = real
-        return probe, on, off
-
-    def test_rows_name_the_author_and_drop_shapes_with_no_on_dem_vertex(self):
-        probe, on, off = self._probe()
-        layout = types.SimpleNamespace(shapes=[on, off])
-        rows, by_author = probe.dem_authorship(layout)
-        assert len(rows) == 1, "the apron never sits on the DEM"
-        r = rows[0]
-        assert (r["shape"], r["role"], r["ref"]) == (0, "service_junction",
-                                                     "SJ")
-        assert (r["on_dem"], r["n"], r["writes"]) == (2, 2, 4)
-        assert r["introduced_by"] == self.SITES[2], (
-            "the first write after the last write with a zero count — not "
-            "the carrier that wrote the same values afterwards")
-        assert by_author == {("service_junction", self.SITES[2]): 2}
-
-    def test_the_shape_key_is_the_layout_index_the_emitted_tag_carries(self):
-        """``shape`` is the index in ``layout.shapes``, which is what
-        ``layout.to_osm`` writes as the way's ``shapeID`` — the emitted
-        join key.  A row keyed on anything else joins to nothing."""
-        probe, on, off = self._probe()
-        layout = types.SimpleNamespace(shapes=[off, on])
-        rows, _ = probe.dem_authorship(layout)
-        assert rows[0]["shape"] == 1
-
-
-class TestNodeHistory:
-    """``--at X,Y`` — the mode with no twin at all.
-
-    It is the instrument that diffs two constant-DEM worlds write by
-    write, so a compression bug there silently deletes the very step the
-    two worlds first disagree at.
-    """
-
-    class _Shape:
-        node_altitudes = None
-
-        def __init__(self, ring, role="apron", ref="R"):
-            from shapely.geometry import Polygon
-            self.role = role
-            self.ref = ref
-            self.polygon = Polygon(ring)
-            self.node_altitudes = None
-
-    def _history(self):
-        probe = WHO.AuthorshipProbe(self._Shape, dem_m=None,
-                                    at=[(10.0, 0.0)], tol=0.05).install()
-        try:
-            s = self._Shape([(0, 0), (10, 0), (10, 10)])
-            # ring = [(0,0), (10,0), (10,10), (0,0)] — the traced point is
-            # ring index 1, so the history is that index's value stream.
-            s.node_altitudes = [1.0, 2.0, 3.0, 1.0]
-            s.node_altitudes = [1.0, 2.0, 4.0, 1.0]   # index 1 UNCHANGED
-            s.node_altitudes = [1.0, 9.0, 4.0, 1.0]
-        finally:
-            probe.uninstall()
-        return probe.node_history()
-
-    def test_it_reports_only_the_changes_at_the_traced_coordinate(self):
-        hist = self._history()
-        assert list(hist) == ["10.0,0.0"]
-        changes = hist["10.0,0.0"]
-        assert [c["value"] for c in changes] == [2.0, 9.0], (
-            "the middle write left ring index 1 at 2.0 and must compress "
-            "out; only the two CHANGES are the history")
-        assert [c["step"] for c in changes] == [2, 4], (
-            "``step`` is the ordinal of EVERY assignment the probe saw, "
-            "the dataclass field's own ``= None`` included (step 1 here) "
-            "— so a gap in the printed steps is a compressed-out write OR "
-            "a None write, and the number is not an index into the values")
-        assert all(c["role"] == "apron" and c["ref"] == "R"
-                   for c in changes)
-
-    def test_a_coordinate_outside_the_tolerance_records_nothing(self):
-        probe = WHO.AuthorshipProbe(self._Shape, dem_m=None,
-                                    at=[(10.0, 1.0)], tol=0.05).install()
-        try:
-            s = self._Shape([(0, 0), (10, 0), (10, 10)])
-            s.node_altitudes = [1.0, 2.0, 3.0, 1.0]
-        finally:
-            probe.uninstall()
-        assert probe.node_history() == {"10.0,1.0": []}
-
-
 def test_who_wrote_builds_through_the_harness_entry_only():
     """It must not grow a private build: the whole point of a lane tool
     living in tools/harness is that it inherits the entry's refusals.
@@ -4035,110 +3316,23 @@ def test_who_wrote_builds_through_the_harness_entry_only():
     assert "REFUSED: who_wrote's BUILD mode is a v1 instrument" in src
     assert "v2_solve_replay.py --why-hard" in src
     assert "--emitted-patch" in src, "the engine-neutral reading mode stays"
-    assert src.index("REFUSED: who_wrote's BUILD mode") < src.index(
-        "from auto_patch.layout import BuiltShape"), (
-        "the refusal must come BEFORE the v1 import it explains")
+    # round 2 (lane v1cut, 2026-10-04): the probes and the v1 import the
+    # refusal used to precede are DELETED, not merely unreachable
+    assert "auto_patch.layout import" not in src
+    assert "class AuthorshipProbe" not in src
+    assert "class FootprintProbe" not in src
 
 
-def test_the_probe_values_survive_uninstall():
-    """The report is taken AFTER the build, and uninstall happens in the
-    build's ``finally``.  A probe that parks values in a private alias
-    reports zero findings once the field is restored — measured: an
-    authorship census that should have named 291 vertices printed 0."""
-    class _Shape:
-        node_altitudes = None
-
-        def __init__(self):
-            self.role = "apron"
-            self.ref = ""
-            self.polygon = None
-            self.node_altitudes = None
-
-    probe = WHO.AuthorshipProbe(_Shape, dem_m=1.0).install()
-    s = _Shape()
-    s.node_altitudes = [1.0, 2.0]
-    probe.uninstall()
-    assert list(s.node_altitudes) == [1.0, 2.0], (
-        "values written through the probe must survive uninstall")
-
-# §5 THE ACCEPTANCE GATE READS THE SAME LAW
-# ══════════════════════════════════════════════════════════════════════
-# ``tests/test_pavement_grade.py`` IS the acceptance gate (docs/RULINGS.md
-# "absolute-zero acceptance": app builds require zero adjudicated law
-# violations on the battery airports).  A gate that assembles its own law
-# frame is the census-wrapper defect wearing a different hat — and it had
-# already drifted exactly the same way.
-
-#: EVERY test module that counts law violations against a built patch.
-#: Each must reach the law through ``check_grade``'s single reader; a
-#: private assembler in ANY of them is the census-wrapper defect, and the
-#: guard was armed on only the first one while the second carried a live
-#: instance of it (``_law_true_rows`` hand-built the kwargs and dropped
-#: ``fan_ramp_zones_ll``, so declared fan-ramp zones were judged as
-#: violations).
-GUARDED_LAW_READERS = ("test_pavement_grade.py", "test_constant_dem_oracle.py")
-
-
-def _grade_gate_src(name: str = "test_pavement_grade.py") -> str:
-    return (Path(__file__).parent / name).read_text(encoding="utf-8")
-
-
-def _sidecar_law_kwargs() -> tuple:
-    """The law keywords ``law_context_from_sidecar`` assembles, read from
-    its source — so a NEW sidecar law key enrols in this guard the moment
-    the single reader learns it, with no second list to maintain here."""
-    src = inspect.getsource(
-        _load("harness_twin_check_grade",
-              ROOT / "tools" / "check_grade.py").law_context_from_sidecar)
-    keys = set(re.findall(r'ctx\["(\w+_ll)"\]', src))
-    assert "terrace_joints_ll" in keys and "fan_ramp_zones_ll" in keys, (
-        f"the sidecar law-keyword scrape found {sorted(keys)} — "
-        f"law_context_from_sidecar no longer assigns ctx[...] by literal, "
-        f"so this guard is reading nothing")
-    return tuple(sorted(keys))
-
-
-@pytest.mark.parametrize("module", GUARDED_LAW_READERS)
-def test_the_acceptance_gate_reads_the_one_law_frame(module):
-    """The gate hand-mirrored ``_write_axes_sidecar``'s payload out of the
-    layout — sixty lines of axes, anchor, seam pins, mesh, crown field,
-    pair caps and terrace joints.  It never passed ``ruleset``, so KCLT
-    built under FAA law was judged under ICAO.  One reader now.
-
-    ``test_constant_dem_oracle.py`` grew the SAME defect independently
-    (``_law_true_rows``, which dropped ``fan_ramp_zones_ll``), which is
-    why the guard is a list rather than one file.
-    """
-    src = _grade_gate_src(module)
-    assert "run_checks_law_true(" in src, (
-        f"{module} must take its law frame from "
-        f"check_grade.run_checks_law_true, not assemble kwargs")
-    code = _code_only(src)
-    # The historical spellings of the hand-built payload, kept so a revert
-    # to the old gate code is caught by name.
-    legacy = ("taxi_axes_exact_ll", "junction_mesh_edges_ll")
-    for key in _sidecar_law_kwargs() + legacy:
-        assert key not in code, (
-            f"{module} still assembles {key!r} itself — that is a second "
-            f"instrument describing the same population")
-
-
-def test_the_faa_fixture_is_in_the_acceptance_battery():
-    """KCLT is the campaign's FAA fixture and was absent from the default
-    battery ENTIRELY, so the FAA half of the region-ruleset split had no
-    acceptance test — the FAA-only drainage-minimum family (1,099 KCLT
-    rows in the test-phase census) could not be seen here at all."""
-    import os
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent))
-    for var in ("O4_TEST_AIRPORTS", "O4_TEST_TILE"):
-        assert not os.environ.get(var, "").strip(), (
-            f"{var} is set — the DEFAULT battery is what this twin asserts")
-    import test_pavement_grade as gate
-    assert "KCLT" in gate._GRADE_TEST_AIRPORTS, (
-        f"the FAA fixture is not in the default battery: "
-        f"{gate._GRADE_TEST_AIRPORTS}")
-    assert "HECA" in gate._GRADE_TEST_AIRPORTS
+# §5 THE ACCEPTANCE GATE READS THE SAME LAW — RETIRED WITH v1
+# ``tests/test_pavement_grade.py`` and ``tests/test_constant_dem_oracle.py``
+# WERE the acceptance battery: they built each battery airport through the v1
+# pipeline (``conftest.cached_airport_layout``) and counted law violations.
+# Both went with the v1 engine (stage B round 2, lane ``v1cut``, 2026-10-04),
+# and the guards that held them to ``check_grade``'s single law reader
+# (``GUARDED_LAW_READERS``, ``_grade_gate_src``, ``_sidecar_law_kwargs``) went
+# with them.  v2's acceptance is the harness census of a harness build
+# (``build_airport.py`` + ``census.py``), whose one-code-path property §1
+# twin-asserts.
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -5403,13 +4597,6 @@ def test_the_mesh_only_entry_has_no_refresh_mechanism_of_its_own():
 # one composition (``arm_shared_repo_protection``), and these twins pin
 # that this tool arms it rather than a private arrangement of the parts.
 
-CLASSIFY = ROOT / "tools" / "classify_report.py"
-
-
-@pytest.fixture(scope="module")
-def classify_mod():
-    return _load("harness_twin_classify", CLASSIFY)
-
 
 class _StubLayout:
     """What ``build_airport_pavement`` hands back, shadow keys only."""
@@ -5417,218 +4604,6 @@ class _StubLayout:
     pavement_score_summary = {"mode": "shadow", "shapes": 1, "agree": 1,
                               "disagree": 0, "low": 0, "reliability": {}}
     pavement_score_decisions = [{"legacy": "APRON", "winner": "APRON"}]
-
-
-def _fake_corpus(tmp_path, monkeypatch, guard_mod, classify_mod):
-    """A fake shared repo, wired into EVERY module that reads the global.
-
-    ``guard_mod.DATA_REPO`` is what a default-constructed guard defends;
-    the BUILD ENTRY's ``DATA_REPO`` is what the mod-cache overlay is seeded
-    from.  Patching one and not the other runs the test against the REAL
-    corpus (the ``guard_mod`` fixture's docstring records that happening),
-    and the build entry to patch is the instance ``classify_report``
-    ITSELF imports — this file's ``build_mod`` fixture loads a second copy
-    under another name, whose globals nothing in the tool ever reads.
-    """
-    repo = tmp_path / "repo"
-    (repo / "Airport_mod_cache" / "packA").mkdir(parents=True)
-    (repo / "Airport_mod_cache" / "packA" / "warm.cache").write_bytes(b"warm")
-    (repo / "Elevation_data").mkdir(parents=True)
-    monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
-    monkeypatch.setattr(classify_mod._harness_build_module(),
-                        "DATA_REPO", repo)
-    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
-    import O4_File_Names as FNAMES
-    monkeypatch.setattr(FNAMES, "_data_root_override", None)
-    return repo
-
-
-def _patch_engine_build(monkeypatch, fn):
-    """Replace the engine entry ``classify_report`` calls."""
-    import auto_patch.pipeline as pipeline
-    monkeypatch.setattr(pipeline, "build_airport_pavement", fn)
-
-
-def test_the_classify_entry_ARMS_the_composition_and_defines_none_of_it():
-    """SOURCE twin, §6c's own test applied to the third entry."""
-    src = CLASSIFY.read_text(encoding="utf-8")
-    assert "arm_shared_repo_protection" in src, (
-        "the classify entry must arm the harness's OWN composition — it "
-        "builds an airport, and an unguarded build wrote the corpus twice "
-        "on 2026-08-11")
-    assert "require_no_swallowed_write_block" in src, (
-        "a refusal the engine swallowed is itself the finding")
-    for definition in ("class SharedRepoWriteGuard",
-                       "def arm_shared_repo_protection",
-                       "def redirect_engine_caches",
-                       "def require_no_swallowed_write_block",
-                       "def mirror_tree_as_overlay",
-                       "def mirror_tree_as_symlinks",
-                       "os.environ[\"O4_DSF_CACHE_DIR\"]",
-                       "os.environ[\"O4_AIRPORT_MOD_CACHE_DIR\"]",
-                       "os.environ[\"O4_MASKS_DIR\"]"):
-        assert definition not in src, (
-            f"{definition} is a SECOND copy of the write law / the redirect")
-    assert "e9daef5" in src, "the guarded path must cite its ruling"
-    row = [ln for ln in INDEX.read_text(encoding="utf-8").splitlines()
-           if "tools/classify_report.py`" in ln]
-    assert row and "arm_shared_repo_protection" in row[0], (
-        "the index row must state that this tool's build path is guarded — "
-        "the next lane reaches for it from the index, and 'does it touch "
-        "the corpus' is exactly what it needs to know before running it")
-
-
-def test_the_classify_build_path_ARMS_guard_AND_redirect(
-        classify_mod, guard_mod, tmp_path, monkeypatch):
-    """BEHAVIOURAL twin: both halves are live DURING the build call.
-
-    Asserted from inside the engine entry — a redirect or a guard that is
-    only installed in the caller's imagination is exactly the class the
-    session detector kept catching.
-    """
-    import builtins
-    repo = _fake_corpus(tmp_path, monkeypatch, guard_mod, classify_mod)
-    seen = {}
-    # The suite's OWN autouse guard already replaced ``builtins.open``, so
-    # "open is patched" proves nothing here; what must be true is that THIS
-    # CALL installed another interception on top of it.
-    outer_open = builtins.open
-
-    def _fake_build(icao, xplane_root, **kw):
-        seen["icao"] = icao
-        seen["guard_live"] = builtins.open is not outer_open
-        seen["dsf"] = os.environ.get("O4_DSF_CACHE_DIR")
-        seen["mod"] = os.environ.get("O4_AIRPORT_MOD_CACHE_DIR")
-        return _StubLayout()
-
-    _patch_engine_build(monkeypatch, _fake_build)
-    # The DERIVED roots are LANE-PERSISTENT (perf P2): pin them into
-    # ``tmp_path`` so the twin stays hermetic instead of deriving into the
-    # checkout's own ``tmp/engine_caches``.
-    lane_cache = tmp_path / "lanecache"
-    monkeypatch.setenv("O4_LANE_CACHE_ROOT", str(lane_cache))
-    entry = _cache_env_entry_values()
-    try:
-        report = classify_mod.build_report("KCLT", "/X-Plane",
-                                           out_dir=tmp_path / "out")
-    finally:
-        _restore_cache_env(entry)
-
-    base = tmp_path / "out" / "classify_KCLT.engine_caches"
-    assert seen["icao"] == "KCLT"
-    assert seen["guard_live"], (
-        "the build ran OUTSIDE the write guard — the overlay alone does "
-        "not save you: writers wrote THROUGH the seeded symlinks, and the "
-        "guard is what catches whatever the seeding does not")
-    assert seen["dsf"] == str(lane_cache / "Default_DSF_cache"), (
-        "the DSFTool SUBPROCESS inherits the environment; that is the only "
-        "handle on a write no Python-level guard can see")
-    overlay = lane_cache / "Airport_mod_cache"
-    assert seen["mod"] == str(overlay)
-    assert report["write_guard_armed"] is True
-    assert report["write_guard_blocked"] == []
-    assert report["engine_cache_redirects"]["base"] == str(base)
-    assert report["summary"]["shapes"] == 1 and len(report["decisions"]) == 1
-
-    # Item 2: REAL directories, COPY-ON-WRITE files.  A symlinked
-    # DIRECTORY would send every write inside it back into the shared
-    # corpus; a symlinked FILE did exactly that until 2026-08-12, because
-    # the sidecar writers truncate the path in place.
-    assert overlay.is_dir() and not overlay.is_symlink()
-    pack = overlay / "packA"
-    assert pack.is_dir() and not pack.is_symlink()
-    entry = overlay / "packA" / "warm.cache"
-    shared = repo / "Airport_mod_cache" / "packA" / "warm.cache"
-    assert not entry.is_symlink() and entry.read_bytes() == shared.read_bytes()
-    with open(entry, "wb") as handle:
-        handle.write(b"rebuilt by the writer's own pattern")
-    assert shared.read_bytes() != b"rebuilt by the writer's own pattern"
-
-
-def test_the_classify_build_path_REFUSES_a_shared_corpus_write(
-        classify_mod, guard_mod, tmp_path, monkeypatch):
-    """A corpus write attempted DURING the build is refused at the call.
-
-    The measured writes were mod-cache sidecars and DSFTool dumps; an
-    inset is used here because it is the scope no redirect covers, so it
-    can only be the guard that stops it.
-    """
-    repo = _fake_corpus(tmp_path, monkeypatch, guard_mod, classify_mod)
-    target = repo / "Elevation_data" / "N30E031.hgt"
-
-    def _writing_build(icao, xplane_root, **kw):        # pragma: no cover
-        open(target, "w", encoding="utf-8", newline="").write("regenerated mid-build")
-        return _StubLayout()
-
-    _patch_engine_build(monkeypatch, _writing_build)
-    entry = _cache_env_entry_values()
-    try:
-        with pytest.raises(guard_mod.SharedRepoWriteBlocked) as exc:
-            classify_mod.build_report("KCLT", "/X-Plane",
-                                      out_dir=tmp_path / "out")
-    finally:
-        _restore_cache_env(entry)
-    assert "N30E031.hgt" in str(exc.value) and "dem" in str(exc.value)
-    assert "--refresh-data" in str(exc.value)
-    assert not target.exists(), "the guard must prevent, not just report"
-
-
-def test_the_classify_build_path_REFUSES_a_SWALLOWED_refusal(
-        classify_mod, guard_mod, tmp_path, monkeypatch):
-    """The engine catches the refusal and returns anyway — rc must not be 0.
-
-    ``auto_patch.elevation._load_airport_dem`` wraps production's whole DEM
-    prep in one ``except Exception``, so a blocked write becomes a WARN and
-    a silently degraded layout.  A classification report built on that
-    layout is not production's frame either.
-    """
-    repo = _fake_corpus(tmp_path, monkeypatch, guard_mod, classify_mod)
-    target = repo / "Elevation_data" / "N30E031.hgt"
-
-    def _swallowing_build(icao, xplane_root, **kw):
-        try:
-            open(target, "w", encoding="utf-8", newline="").write("regenerated mid-build")
-        except Exception:                     # the engine's own fallback
-            pass
-        return _StubLayout()
-
-    _patch_engine_build(monkeypatch, _swallowing_build)
-    entry = _cache_env_entry_values()
-    try:
-        with pytest.raises(SystemExit) as exc:
-            classify_mod.build_report("KCLT", "/X-Plane",
-                                      out_dir=tmp_path / "out")
-    finally:
-        _restore_cache_env(entry)
-    assert "N30E031.hgt" in str(exc.value)
-    assert "REFUSING" in str(exc.value)
-
-
-def test_the_classify_from_json_path_ARMS_NOTHING(
-        classify_mod, tmp_path, monkeypatch):
-    """``--from-json`` builds nothing, so it guards nothing (item 3).
-
-    It must not import the harness, must not move the cache environment,
-    and must not create the build path's artifact directory — a render is
-    a render.
-    """
-    def _boom():                                        # pragma: no cover
-        raise AssertionError("the render path armed the build machinery")
-
-    monkeypatch.setattr(classify_mod, "_harness_build_module", _boom)
-    monkeypatch.setattr(classify_mod, "ARTIFACT_DIR", tmp_path / "artifacts")
-    monkeypatch.setenv("O4_PAVEMENT_SCORE_V2", "shadow")
-    dump = tmp_path / "dump.json"
-    dump.write_text(json.dumps({"airports": [
-        {"icao": "KCLT", "summary": _StubLayout.pavement_score_summary,
-         "decisions": list(_StubLayout.pavement_score_decisions)}]}), encoding="utf-8", newline="")
-
-    entry = _cache_env_entry_values()
-    assert classify_mod.main(["--from-json", str(dump)]) == 0
-    assert _cache_env_entry_values() == entry, (
-        "the render path moved the engine cache redirect")
-    assert not (tmp_path / "artifacts").exists(), (
-        "a render leaves no build artifacts")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -7804,36 +6779,6 @@ class _PtsStepRow:
         self.vert_pt, self.proj_pt = v, p
 
 
-def test_only_the_law_defines_the_row_endpoint_accessor(cg, census_mod):
-    """ONE IMPLEMENTATION and ONE delegate, and the twin names both.
-
-    A THIRD ``def row_points`` under ``tools/`` or ``src/`` fails here
-    whatever it does, and the delegate is held to being one: it may not
-    spell a row key, so it cannot quietly grow into a second reader.
-    """
-    defs = sorted(
-        p.relative_to(ROOT).as_posix()
-        for root in (ROOT / "tools", ROOT / "src") for p in root.rglob("*.py")
-        if "venv" not in p.parts
-        and re.search(r"^\s*def row_points\(",
-                      p.read_text(encoding="utf-8", errors="replace"),
-                      re.M))
-    assert defs == ["tools/check_grade.py", "tools/harness/census.py"], (
-        f"row_points is defined in {defs} — the law owns the one "
-        f"implementation and the census keeps one delegate for "
-        f"tools/frontage_split.py; anything else is the census-wrapper "
-        f"defect (issue #191), two readers of one row shape that look "
-        f"identical until one of them misses a row key")
-    delegate = _code_only(inspect.getsource(census_mod.row_points))
-    assert ". row_points (" in delegate, (
-        "the census delegate must delegate")
-    for pair in cg.ROW_POINT_KEYS:
-        for key in pair:
-            assert not re.search(rf"\b{key}\b", delegate), (
-                f"the census delegate spells {key!r} — it is a second "
-                f"reader again")
-
-
 def test_the_law_reads_its_row_keys_from_its_own_register(cg):
     """``ROW_POINT_KEYS`` is the register of row shapes, and ``row_points``
     reads it rather than re-typing the keys — so a NEW shape is added in
@@ -8660,29 +7605,6 @@ def test_an_explicit_tag_refuses_rather_than_overwrites(
 # rather than passing in the sim.
 # ═════════════════════════════════════════════════════════════════════
 
-def test_the_declared_step_register_has_exactly_two_producers():
-    """A third producer, or a second copy of one, is the census-wrapper
-    defect in miniature."""
-    import auto_patch.layout as LY
-    src = Path(inspect.getsourcefile(LY)).read_text(encoding="utf-8")
-    i = src.index('"terrace_joints":')
-    window = src[i:i + 400]
-    assert "_terrace_joints_sidecar(self)" in window
-    assert "_basin_wall_joints_sidecar(self)" in window
-    assert src.count('"terrace_joints":') == 1, (
-        "a second producer of the register would be two populations")
-
-
-def test_the_basin_wall_joint_is_a_JOINT_not_a_role_exemption():
-    """The ruling is explicit: extend the register, NEVER a role-based
-    blanket exemption.  A wall joint is a line plus a declared step, read
-    by the register's own reader."""
-    import auto_patch.object_terrain_assembly as OTA
-    rows = OTA.basin_wall_joints_sidecar(object())
-    assert rows == [], "a layout with no basin must declare nothing"
-    src = inspect.getsource(OTA.basin_wall_joints_sidecar)
-    assert '"points"' in src and '"step_m"' in src
-
 
 def test_the_register_reader_consumes_the_basin_wall_rows(cg):
     """``_terrace_joints_to_m`` is the ONE reader; a basin wall row must
@@ -8934,20 +7856,6 @@ def test_BOTH_tile_entries_share_ONE_frame_resolver(build_mod):
 # into it, flagging two other lanes' concurrent arms CONTAMINATED.
 # ``conftest.arm_lane_local_derived_caches`` closes it AT THE ONE SITE
 # every layout build passes through.
-
-def test_every_layout_build_arms_the_derived_cache_redirect():
-    """``_build_cached`` — the single ``build_airport_pavement`` call site
-    the whole suite and every probe share — arms the redirect first."""
-    conftest = _conftest()
-    src = inspect.getsource(conftest._build_cached)
-    assert "arm_lane_local_derived_caches()" in src, (
-        "the arming left the one path every out-of-pytest probe takes — "
-        "that is exactly how the shared Airport_mod_cache got written")
-    # ...and it runs BEFORE the builder is even imported (the engine
-    # resolves its cache roots at import/call time).
-    assert (src.index("arm_lane_local_derived_caches()")
-            < src.index("from auto_patch.pipeline import")), (
-        "arming after the import/build is arming after the write")
 
 
 def test_arming_yields_to_a_fixture_or_the_harness(monkeypatch):
@@ -12410,7 +11318,6 @@ def test_the_base_raster_refresh_runs_the_full_loader(build_mod):
     assert "info_only=True" not in code
 
 
-
 # ══════════════════════════════════════════════════════════════════════
 # THE STRAY TEMPORARY (#159, RULINGS 2026-09-30bs)
 # ══════════════════════════════════════════════════════════════════════
@@ -12628,3 +11535,40 @@ def test_importing_the_guard_never_puts_the_engines_src_on_sys_path(
                           capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == "clean"
+
+
+# RETIRED with the v1 engine (stage B round 2, lane ``v1cut``, 2026-10-04) —
+# who_wrote's build-and-intercept probes (AuthorshipProbe / FootprintProbe
+# over v1 layout.BuiltShape) are deleted:
+# ``TestAuthorMoveDump.test_the_aggregate_reports_the_hand_computed_displacement``,
+# ``TestAuthorMoveDump.test_the_dump_does_not_change_the_aggregate``,
+# ``TestAuthorMoveDump.test_the_dump_records_the_moving_site_and_both_origins``,
+# ``TestAuthorshipProbe.test_it_records_every_write_and_returns_the_value_unchanged``,
+# ``TestAuthorshipProbe.test_the_role_filter_scopes_recording``,
+# ``TestAuthorshipProbe.test_uninstall_restores_the_field``,
+# ``TestDemAuthorshipCensus.test_rows_name_the_author_and_drop_shapes_with_no_on_dem_vertex``,
+# ``TestDemAuthorshipCensus.test_the_shape_key_is_the_layout_index_the_emitted_tag_carries``,
+# ``TestFootprintProbe.test_a_birth_that_already_covers_is_labelled_birth``,
+# ``TestFootprintProbe.test_a_reused_object_id_is_not_joined_to_the_dead_shape``,
+# ``TestFootprintProbe.test_it_records_transitions_and_leaves_the_ring_unchanged``,
+# ``TestFootprintProbe.test_no_probe_point_records_nothing``,
+# ``TestFootprintProbe.test_the_final_section_reads_the_layout_by_shape_index``,
+# ``TestFootprintProbe.test_two_instances_keep_separate_histories``,
+# ``TestFootprintProbe.test_uninstall_restores_the_field``,
+# ``TestNodeHistory.test_a_coordinate_outside_the_tolerance_records_nothing``,
+# ``TestNodeHistory.test_it_reports_only_the_changes_at_the_traced_coordinate``,
+# ``test_the_probe_values_survive_uninstall``.
+
+
+# RETIRED with the v1 engine (stage B round 2, lane ``v1cut``, 2026-10-04) —
+# the test drove a v1 solve hook / the v1 cached layout build:
+# ``test_every_layout_build_arms_the_derived_cache_redirect``.
+
+
+# RETIRED with the v1 engine (stage B round 2, lane ``v1cut``, 2026-10-04) —
+# the v1 acceptance battery (tests/test_pavement_grade.py,
+# tests/test_constant_dem_oracle.py) built through the v1 pipeline and went
+# with it; the one-law-frame property is structural now (census, CLI and
+# fixtures share one code path, twin-asserted in section 1):
+# ``test_the_acceptance_gate_reads_the_one_law_frame``,
+# ``test_the_faa_fixture_is_in_the_acceptance_battery``.

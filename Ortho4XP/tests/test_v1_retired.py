@@ -191,8 +191,10 @@ def _closure(seeds, mods):
 
 
 def test_the_production_closure_reaches_no_v1_module():
-    """THE LINE ITSELF.  Every DELETE module must be unreachable from every
-    production root, with the v1 tree still sitting on disk."""
+    """THE LINE ITSELF.  Nothing under ``auto_patch/`` outside the keep set
+    is reachable from any production root (round 1 held this with the v1
+    tree still on disk; since round 2 the tree is gone and
+    :func:`test_the_v1_tree_is_ABSENT` holds the other half)."""
     mods = _modules()
     reached, why = _closure(_production_roots(mods), mods)
     v1 = sorted(m for m in reached if _is_auto_patch(m) and m not in KEEP)
@@ -215,19 +217,78 @@ def test_the_keep_set_is_neither_stale_nor_vacuous():
     assert inside <= KEEP
 
 
-def test_the_v1_tree_is_still_on_disk_in_round_1():
-    """Round 1 is the SEAM cut and nothing else: the twin above must be green
-    while every DELETE module still exists.  Round 2 removes them, and this
-    check goes with them (it is the only line in this file that expects the
-    tree to be big)."""
+def _dotted_auto_patch_strings(path: Path) -> list[tuple[int, str]]:
+    """Every string CONSTANT in ``path`` that is, whole, a dotted
+    ``auto_patch.<name>`` (optionally ``:attr``) — the shape of a module
+    name handed to ``__import__`` / ``importlib`` / a registry table."""
+    import re
+    shape = re.compile(r"auto_patch(\.[A-Za-z_]\w*)+(:[A-Za-z_]\w*)?")
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:                                    # pragma: no cover
+        return []
+    return [(n.lineno, n.value) for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            and shape.fullmatch(n.value)]
+
+
+def test_no_production_module_NAMES_a_v1_module_as_a_string():
+    """THE STATIC CLOSURE'S BLIND SPOT, closed for the one shape that bit
+    (round 2, lane ``v1cut``, 2026-10-04).  ``o4_engine/parallel.py`` holds
+    ``STEP_FETCH_SUBSYSTEMS``, a table of MODULE NAMES it ``__import__``s
+    for their ``is_cached`` predicate — and one of them was
+    ``"auto_patch.osm_load"``, a DELETE module no ``import`` statement
+    reached.  Deleting it would have made that predicate unresolvable, which
+    the scheduler reads as "never cached" (rc 0, no error, every tile's
+    vector step throttled).  The predicate moved to ``build_support``; this
+    twin holds every such name inside the keep set and on disk."""
     mods = _modules()
-    v1_left = [m for m in mods if _is_auto_patch(m) and m not in KEEP]
-    if not v1_left:
-        return          # round 2 has landed; the closure test above is the law
-    assert len(v1_left) > 50, (
-        f"only {len(v1_left)} v1 modules remain — a partial deletion is not "
-        "a state this campaign has: round 2 removes them in one commit per "
-        "sub-package")
+    offenders = []
+    for m in _production_roots(mods) + sorted(KEEP):
+        for lineno, value in _dotted_auto_patch_strings(mods[m]):
+            name = value.partition(":")[0]
+            if name not in mods or name not in KEEP:
+                # ``auto_patch.driver.something`` — an attribute path — is
+                # fine when its module prefix is a keep module on disk
+                owner = _resolve(name, mods)
+                if owner in KEEP and owner != "auto_patch":
+                    continue
+                offenders.append(f"{mods[m].name}:{lineno}: {value!r}")
+    assert not offenders, (
+        "a production module names an auto_patch module that is not in the "
+        "keep set: " + "; ".join(offenders))
+    # ... and the table that bit resolves, entry by entry
+    import importlib
+    import sys
+    sys.path.insert(0, str(SRC))
+    parallel = importlib.import_module("o4_engine.parallel")
+    named = [n.partition(":")[0]
+             for names in parallel.STEP_FETCH_SUBSYSTEMS.values()
+             for n in names]
+    assert "auto_patch.build_support" in named
+    for name in named:
+        if _is_auto_patch(name):
+            assert name in KEEP and name in mods, name
+
+
+def test_the_v1_tree_is_ABSENT():
+    """THE ABSENCE ASSERTION (stage B round 2, lane ``v1cut``, 2026-10-04).
+    Round 1 held the production closure off the v1 tree while it still sat
+    on disk; round 2 deleted it.  What is on disk under ``src/auto_patch/``
+    is now the keep set, exactly: a module outside it is v1 coming back (or
+    a new module that must be DECLARED in ``KEEP``, a visible edit here),
+    and the two v1 sub-packages are gone as directories."""
+    mods = _modules()
+    on_disk = {m for m in mods if _is_auto_patch(m)}
+    assert on_disk == set(KEEP), (
+        f"on disk but not KEEP: {sorted(on_disk - KEEP)}; "
+        f"KEEP but not on disk: {sorted(KEEP - on_disk)}")
+    pkg = SRC / "auto_patch"
+    stray = sorted(p.name for p in pkg.iterdir()
+                   if p.is_dir() and p.name != "__pycache__")
+    assert stray == [], f"sub-packages under auto_patch/ again: {stray}"
+    for gone in ("pavement", "elevation_per_surface"):
+        assert not (pkg / gone).exists()
 
 
 def test_the_census_library_imports_no_v1_module():

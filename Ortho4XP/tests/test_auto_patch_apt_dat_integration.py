@@ -5,7 +5,7 @@ Standalone path-resolution tests; require no X-Plane install or
 fixture data.
 """
 from auto_patch import cifp_reader as AP
-from auto_patch.elevation import _find_cifp_path
+from auto_patch.build_support import _find_cifp_path
 
 
 # ──────────────────────────────────────────────────────────────────────

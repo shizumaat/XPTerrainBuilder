@@ -40,7 +40,8 @@ import auto_patch.build_support as build_support
 import auto_patch.provenance as provenance
 from auto_patch.driver import _auto_patch_is_current
 from auto_patch.build_support import read_patch_source
-from auto_patch.layout import PavementLayout
+from auto_patch import engine_v2
+from urllib.parse import quote as _quote
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -142,19 +143,33 @@ class FakeInstall:
     # -- patch emission ------------------------------------------------
     def emit_patch(self, path: Path, *, stamped: bool = True,
                    dsf_sources=..., dsf_tiles=...) -> Path:
-        """Write a patch exactly as a driver-driven build would."""
-        layout = PavementLayout(icao="KFAKE", anchor=(40.0, -100.0),
-                                apt_dat_path=str(self.apt_dat))
+        """Write a patch HEADER exactly as a driver-driven build stamps it.
+
+        Through ``engine_v2._stamp_header`` — the ONE writer of the header
+        this gate reads back, and the one the v2 build uses.  (It used to be
+        ``PavementLayout.to_osm``, which went with the v1 engine — stage B
+        round 2, lane ``v1cut``, 2026-10-04.)  The ``dsf_sources`` /
+        ``dsf_tiles`` overrides render the two stamps the way v1 rendered a
+        layout's ``dsf_sources_read`` / ``dsf_tiles_scanned``, which is the
+        vocabulary the gate still reads: ``"?"`` for "never recorded".
+        """
         if stamped:
-            layout.freshness = driver._freshness_stamps_now(
+            fresh = driver._freshness_stamps_now(
                 self.tile, str(self.root), "KFAKE", str(self.apt_dat),
                 str(self.cifp))
-            layout.dsf_sources_read = (
-                [str(self.dsf)] if dsf_sources is ... else dsf_sources)
-            layout.dsf_tiles_scanned = (
-                [(TILE_LAT, TILE_LON)] if dsf_tiles is ... else dsf_tiles)
-        layout.to_osm(str(path))
-        return path
+            header = engine_v2._stamp_header({
+                "apt_dat_path": str(self.apt_dat), "freshness": fresh,
+                "tile_lat": TILE_LAT, "tile_lon": TILE_LON})
+            sources = [str(self.dsf)] if dsf_sources is ... else dsf_sources
+            tiles = [(TILE_LAT, TILE_LON)] if dsf_tiles is ... else dsf_tiles
+            header["o4_dsf"] = (provenance.pack_dsf_identity_list(sources)
+                                if sources is not None else "?")
+            header["o4_dsf_tiles"] = (
+                ";".join(f"{la},{lo}" for la, lo in sorted(set(tiles)))
+                if tiles is not None else "?")
+        else:
+            header = _legacy_header(self.apt_dat)
+        return write_stamped_patch(path, header)
 
     def is_current(self, path: Path) -> bool:
         return _auto_patch_is_current(str(path), str(self.root), "KFAKE",
@@ -182,14 +197,40 @@ def patch_file(install, tmp_path):
 # ──────────────────────────────────────────────────────────────────────
 # Provenance stamp round-trip
 # ──────────────────────────────────────────────────────────────────────
+def write_stamped_patch(path, header: dict) -> Path:
+    """An EMPTY patch whose ``<osm>`` root carries ``header``.
+
+    The header is the whole subject here: ``build_support.read_patch_source``
+    reads the root element and nothing else.  Writing the element directly
+    keeps the twin on the READER and the STAMP, which is what the gate is;
+    the geometry an emitter adds underneath is not part of it.
+    """
+    path = Path(path)
+    attrs = "".join(f" {k}='{v}'" for k, v in header.items())
+    path.write_text(
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        f"<osm version='0.6' upload='false' "
+        f"generator='O4_Airport_Pavement_Builder'{attrs}>\n</osm>\n",
+        encoding="utf-8", newline="\n")
+    return path
+
+
+def _legacy_header(apt_dat) -> dict:
+    """The two LEGACY stamps only (no freshness block)."""
+    header = {}
+    if apt_dat:
+        header["o4_apt_dat"] = _quote(str(apt_dat))
+        try:
+            header["o4_apt_dat_mtime"] = f"{os.path.getmtime(apt_dat):.6f}"
+        except OSError:
+            pass
+    return header
+
+
 def _emit_legacy_patch(tmp_path: Path, apt_dat: Path | None) -> Path:
     """A patch with the two LEGACY stamps only (no freshness block)."""
-    layout = PavementLayout(
-        icao="KFAKE", anchor=(40.0, -100.0),
-        apt_dat_path=str(apt_dat) if apt_dat else None)
-    patch = tmp_path / "KFAKE_auto.patch.osm"
-    layout.to_osm(str(patch))
-    return patch
+    return write_stamped_patch(tmp_path / "KFAKE_auto.patch.osm",
+                               _legacy_header(apt_dat))
 
 
 def test_to_osm_stamps_apt_dat_provenance(tmp_path):
@@ -263,8 +304,7 @@ def test_stale_when_patch_missing_or_unstamped(install, tmp_path):
     missing = tmp_path / "nothing_auto.patch.osm"
     assert not install.is_current(missing)
     # No apt.dat stamp at all (pre-provenance patch) → rebuild.
-    plain = tmp_path / "plain_auto.patch.osm"
-    PavementLayout(icao="KFAKE", anchor=(40.0, -100.0)).to_osm(str(plain))
+    plain = write_stamped_patch(tmp_path / "plain_auto.patch.osm", {})
     assert not install.is_current(plain)
 
 
@@ -322,25 +362,11 @@ def test_dsf_never_recorded_rebuilds(install, tmp_path):
     assert not install.is_current(patch)
 
 
-def test_pipeline_records_dsf_reads_even_when_gated_off():
-    """The pipeline must record ``[]`` (looked, read nothing), not None.
-
-    ``None`` means "never recorded" and forces a rebuild forever; a build
-    with the DSF pavement reader gated off has genuinely read no DSF and
-    must still be cacheable.
-    """
-    import inspect
-
-    from auto_patch import pipeline
-
-    source = inspect.getsource(pipeline.build_airport_pavement)
-    init = source.index("layout.dsf_sources_read = []")
-    gate = source.index("if not LOAD_DSF_PAVEMENT:")
-    assert init < gate, "the empty-list init must precede the skip gate"
-    # The tile record must be built AS the sweep visits tiles, so an
-    # aborted sweep never claims a tile it did not look in (which would
-    # make the gate find an unread DSF and rebuild on every run).
-    assert "layout.dsf_tiles_scanned.append(" in source
+# ``test_pipeline_records_dsf_reads_even_when_gated_off`` RETIRED with its
+# subject (stage B round 2, lane ``v1cut``, 2026-10-04): it read the source of
+# v1's ``pipeline.build_airport_pavement`` for the ``dsf_sources_read = []``
+# init.  v2's stamp is ``engine_v2._stamp_header``, which always writes
+# ``o4_dsf`` / ``o4_dsf_tiles`` (the fixtures above emit through it).
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -832,111 +858,18 @@ def test_repeated_gate_calls_do_not_thrash(install, patch_file):
         assert install.is_current(patch_file)
 
 
-def _stray_temp_files(patch: Path) -> list[str]:
-    """Anything left next to a patch that is not a NAMED artifact of it.
-
-    ``<patch>.axes.json`` is the law-contract sidecar, not a leftover:
-    it is written on every successful emit (2026-08-05 — it used to be
-    gated on ``LOG_VERBOSITY``, which made every default-verbosity
-    census silently context-free) and ``check_grade`` / ``flex_audit``
-    read it by that exact name.  Everything else beside a patch is the
-    temp-file leak these tests exist to catch.
-    """
-    named = {patch.name, patch.name + ".axes.json"}
-    return sorted(p.name for p in patch.parent.iterdir()
-                  if p.name not in named)
-
-
-def test_atomic_write_leaves_no_temp_files(install, tmp_path):
-    patch_dir = tmp_path / "Patches"
-    patch_dir.mkdir()
-    patch = install.emit_patch(patch_dir / "KFAKE_auto.patch.osm")
-    assert patch.read_text(encoding="utf-8").rstrip().endswith("</osm>")
-    assert _stray_temp_files(patch) == []
+# THE ATOMIC-WRITE TWINS (``test_atomic_write_leaves_no_temp_files``,
+# ``test_atomic_write_keeps_the_readable_file_mode``,
+# ``test_interrupted_write_keeps_the_previous_patch``,
+# ``test_interrupted_write_when_the_body_fails``) and ``_stray_temp_files``
+# RETIRED with their subject (stage B round 2, lane ``v1cut``, 2026-10-04):
+# they drove ``PavementLayout.to_osm``'s temp-file + rename.  v2's emitter
+# writes the patch (``auto_patch_v2.emit``), with its own twins.
 
 
 @pytest.mark.skipif(sys.platform == "win32",
                     reason="Windows has no POSIX mode bits: os.chmod keeps only "
                            "the read-only flag, st_mode is 0o666 or 0o444")
-def test_atomic_write_keeps_the_readable_file_mode(install, tmp_path):
-    """The temp-file write must not silently make patches owner-only.
-
-    ``tempfile.mkstemp`` creates 0600 and ``os.replace`` carries that mode
-    to the destination — a patch dir full of 0600 files is a real change
-    from the plain write this replaced.
-    """
-    patch_dir = tmp_path / "Patches"
-    patch_dir.mkdir()
-    patch = install.emit_patch(patch_dir / "KFAKE_auto.patch.osm")
-    mode = os.stat(patch).st_mode & 0o777
-    assert mode & 0o044, f"new patch is not group/other readable: {mode:o}"
-
-    os.chmod(patch, 0o640)                     # a mode the user chose
-    install.emit_patch(patch)
-    assert os.stat(patch).st_mode & 0o777 == 0o640, "rewrite lost the mode"
-
-
-def test_interrupted_write_keeps_the_previous_patch(install, tmp_path,
-                                                    monkeypatch):
-    """A write killed mid-flight must not leave a truncated patch.
-
-    A truncated patch keeps a valid-looking header, so the freshness gate
-    would keep reusing the fragment forever and the mesher would consume
-    it.  The temp-file + rename write makes that unreachable.
-    """
-    patch_dir = tmp_path / "Patches"
-    patch_dir.mkdir()
-    patch = install.emit_patch(patch_dir / "KFAKE_auto.patch.osm")
-    good = patch.read_text(encoding="utf-8")
-
-    import auto_patch.layout as layout_module
-
-    def _boom(src, dst):
-        raise OSError("simulated crash between write and rename")
-
-    monkeypatch.setattr(layout_module.os, "replace", _boom)
-    with pytest.raises(OSError):
-        install.emit_patch(patch)
-
-    assert patch.read_text(encoding="utf-8") == good, "the previous patch must survive"
-    assert _stray_temp_files(patch) == [], \
-        "the partial temp file must be cleaned up"
-    assert install.is_current(patch)
-
-
-def test_interrupted_write_when_the_body_fails(install, tmp_path, monkeypatch):
-    """Same guarantee when the failure happens during the body write."""
-    patch_dir = tmp_path / "Patches"
-    patch_dir.mkdir()
-    patch = install.emit_patch(patch_dir / "KFAKE_auto.patch.osm")
-    good = patch.read_text(encoding="utf-8")
-
-    import auto_patch.layout as layout_module
-
-    real_fdopen = layout_module.os.fdopen
-
-    class _HalfWriter:
-        def __init__(self, handle):
-            self._file = real_fdopen(handle, "w", encoding="utf-8")
-
-        def write(self, text):
-            self._file.write(text[:len(text) // 2])
-            raise OSError("simulated disk full")
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            self._file.close()
-            return False
-
-    monkeypatch.setattr(layout_module.os, "fdopen",
-                        lambda handle, *a, **kw: _HalfWriter(handle))
-    with pytest.raises(OSError):
-        install.emit_patch(patch)
-
-    assert patch.read_text(encoding="utf-8") == good
-    assert _stray_temp_files(patch) == []
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1035,13 +968,14 @@ def test_lazy_inputs_skipped_when_patch_current(
     patch_dir = tmp_path / "Patches"
     patch_dir.mkdir()
     tile = types.SimpleNamespace(lat=40.0, lon=-100.0, dem=None)
-    layout = PavementLayout(icao="KFAK", anchor=(40.0, -100.0),
-                            apt_dat_path=str(apt))
-    layout.freshness = driver._freshness_stamps_now(
-        tile, "xp_root", "KFAK", str(apt), "dummy.dat")
-    layout.dsf_sources_read = []
-    layout.dsf_tiles_scanned = []
-    layout.to_osm(str(patch_dir / "KFAK_auto.patch.osm"))
+    header = engine_v2._stamp_header({
+        "apt_dat_path": str(apt),
+        "freshness": driver._freshness_stamps_now(
+            tile, "xp_root", "KFAK", str(apt), "dummy.dat"),
+        "tile_lat": TILE_LAT, "tile_lon": TILE_LON})
+    header["o4_dsf"] = provenance.pack_dsf_identity_list([])
+    header["o4_dsf_tiles"] = ""
+    write_stamped_patch(patch_dir / "KFAK_auto.patch.osm", header)
 
     auto_patched, providers = _drive_generate(tmp_path, monkeypatch, apt,
                                               tile=tile)
@@ -1100,9 +1034,8 @@ def test_manual_patch_still_wins_over_a_stale_auto_patch(
     patch_dir = tmp_path / "Patches"
     patch_dir.mkdir()
     (patch_dir / "KFAK.patch.osm").write_text("<osm version='0.6'></osm>\n", encoding="utf-8", newline="")
-    stale = patch_dir / "KFAK_auto.patch.osm"
-    PavementLayout(icao="KFAK", anchor=(40.0, -100.0),
-                   apt_dat_path=str(apt)).to_osm(str(stale))
+    stale = write_stamped_patch(patch_dir / "KFAK_auto.patch.osm",
+                                _legacy_header(apt))
     before = stale.read_text(encoding="utf-8")
 
     auto_patched, providers = _drive_generate(tmp_path, monkeypatch, apt)

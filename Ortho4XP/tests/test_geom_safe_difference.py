@@ -109,31 +109,3 @@ def test_safe_difference_raises_rather_than_returning_invalid(monkeypatch):
     assert "no valid result" in str(exc.value)
 
 
-def test_clip_pieces_never_writes_invalid_geometry():
-    """The consumer twin: the overlap-clip pass's own
-    ``_clip_pieces`` returns only valid polygons for the KDFW pair.
-
-    ``GeomSafeError`` is deliberately outside ``elevation._GEOM_EXC``,
-    so the pass cannot swallow an uncertifiable overlay into a silently
-    smaller layout.
-    """
-    from auto_patch import elevation as EL
-
-    assert not issubclass(GeomSafeError, EL._GEOM_EXC), \
-        "an uncertifiable overlay must fail the build, not be swallowed"
-
-    p, c = _kdfw_pair()
-    layout = _one_shape_layout(p)
-    EL._drop_overlap_against_fixed_shapes(layout, icao="TEST",
-                                          include_aprons=True)
-    for s in layout.shapes:
-        assert s.polygon is None or s.polygon.is_valid
-
-
-def _one_shape_layout(poly: Polygon):
-    """Minimal layout carrying one junction — enough for the clip pass."""
-    from auto_patch.layout import BuiltShape, PavementLayout, ROLE_JUNCTION
-
-    lay = PavementLayout(icao="TEST", anchor=(32.9, -97.0))
-    lay.shapes = [BuiltShape(polygon=poly, role=ROLE_JUNCTION, ref="")]
-    return lay

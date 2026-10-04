@@ -22,12 +22,11 @@ ruled first test airport).
 Measurement sources
 -------------------
 * Airport builds: the production per-phase store
-  ``~/.ortho4xp/auto_patch_build_times/<ICAO>.json`` written by
-  ``build_airport_pavement`` at the end of every successful full build.
-  ``--run`` performs fresh cold-equivalent builds (one fresh interpreter
-  per run, exactly like ``tools/full_airport_build.py`` /
-  ``tools/profile_airport_build.py``) and then consumes the records those
-  runs appended.  Cold-equivalent means: fresh process (no in-process
+  ``~/.ortho4xp/auto_patch_build_times/<ICAO>.json``.  v2 writes no such
+  store itself (the v1 pipeline did); ``--run`` performs fresh
+  cold-equivalent builds (one fresh interpreter per run, through
+  ``tools/harness/build_airport.py --no-ledger``), appends one record per
+  build from the v2 report's stage clocks, and consumes those records.  Cold-equivalent means: fresh process (no in-process
   memoization) with OSM/DEM downloads already cached, so no download
   time is included — run each airport once by hand first if its caches
   are cold.
@@ -390,7 +389,8 @@ def run_airport_benchmark(icao: str, repetition_count: int,
         def default_subprocess_runner(one_icao):
             completed = subprocess.run(
                 [sys.executable, os.path.abspath(__file__),
-                 "--run-one", one_icao],
+                 "--run-one", one_icao,
+                 "--airport-store", store_directory],
                 cwd=REPOSITORY_ROOT)
             if completed.returncode != 0:
                 raise RuntimeError(
@@ -414,22 +414,66 @@ def run_airport_benchmark(icao: str, repetition_count: int,
     return median_measurement(measurements)
 
 
-def run_one_airport_build(icao: str) -> None:
-    """One in-process full build (the ``--run-one`` subprocess body).
+def run_one_airport_build(icao: str,
+                          store_directory: str = None) -> None:
+    """One full v2 build (the ``--run-one`` subprocess body), recorded.
 
-    Mirrors ``tools/full_airport_build.py``: the pipeline itself records
-    the per-phase wall times into the production store on success.
+    RE-POINTED 2026-10-04 (lane ``v1cut``, stage B round 2 of the v1
+    retirement).  This used to call v1's
+    ``auto_patch.pipeline.build_airport_pavement`` in-process, and the v1
+    pipeline wrote the per-phase record into the production store itself
+    (``auto_patch.build_time_model``).  Both are gone.  v2 is built ONLY
+    through the standard harness entry (``tools/harness/build_airport.py``,
+    the same guard / data-root composition every other build runs under) with
+    ``--no-ledger`` — a timing run never goes through the run ledger — and the
+    record is written HERE, from the stage clocks v2 publishes in
+    ``<ICAO>.report.json`` (``wall_s``).  The phase labels are therefore v2's
+    stage names; a baseline recorded under v1's labels compares on the total
+    only until it is re-recorded (``--update``).
     """
-    os.environ.setdefault("O4_LOG_VERBOSITY", "1")
-    for path in (os.path.join(REPOSITORY_ROOT, "src"), REPOSITORY_ROOT,
-                 os.path.join(REPOSITORY_ROOT, "tests")):
-        if path not in sys.path:
-            sys.path.insert(0, path)
-    from conftest import xplane_root                        # type: ignore
-    from auto_patch.pipeline import build_airport_pavement  # type: ignore
+    import tempfile
+    store_directory = store_directory or DEFAULT_AIRPORT_STORE_DIRECTORY
+    harness = os.path.join(REPOSITORY_ROOT, "tools", "harness",
+                           "build_airport.py")
     started_at = time.time()
-    build_airport_pavement(icao, xplane_root(), compute_elevations=True)
-    print(f"RUN-ONE {icao} {time.time() - started_at:.1f}s")
+    with tempfile.TemporaryDirectory(prefix="o4_build_time_") as out_dir:
+        completed = subprocess.run(
+            [sys.executable, harness, icao.upper(), "--no-ledger",
+             "--no-artifact-ledger", "--tag", "timing", "--out", out_dir],
+            cwd=REPOSITORY_ROOT)
+        if completed.returncode != 0:
+            raise SystemExit(completed.returncode)
+        report_path = os.path.join(out_dir, "timing.v2",
+                                   f"{icao.upper()}.report.json")
+        with open(report_path) as report_file:
+            report = json.load(report_file)
+    finished_at = time.time()
+    record = v2_report_to_store_record(report, finished_at)
+    append_store_record(store_directory, icao.upper(), record)
+    print(f"RUN-ONE {icao} {finished_at - started_at:.1f}s "
+          f"(v2 stages {record['total_seconds']:.1f}s)")
+
+
+def v2_report_to_store_record(report: dict, finished_at: float) -> dict:
+    """A store record from a v2 ``<ICAO>.report.json``: one phase per v2
+    stage clock (``wall_s``), the total their sum."""
+    phase_seconds = {str(stage): float(seconds)
+                     for stage, seconds in (report.get("wall_s") or {}).items()
+                     if isinstance(seconds, (int, float))}
+    if not phase_seconds:
+        raise RuntimeError("the v2 report carries no wall_s stage clocks")
+    return {"finished_at": finished_at, "engine": "v2",
+            "phase_seconds": phase_seconds,
+            "total_seconds": round(sum(phase_seconds.values()), 3)}
+
+
+def append_store_record(store_directory: str, name: str,
+                        record: dict) -> None:
+    os.makedirs(store_directory, exist_ok=True)
+    records = load_store_records(store_directory, name)
+    records.append(record)
+    with open(os.path.join(store_directory, f"{name}.json"), "w") as out:
+        json.dump(records, out)
 
 
 # ---------------------------------------------------------------------------
@@ -500,7 +544,7 @@ def main(argv=None) -> int:
     arguments = parser.parse_args(argv)
 
     if arguments.run_one:
-        run_one_airport_build(arguments.run_one)
+        run_one_airport_build(arguments.run_one, arguments.airport_store)
         return 0
 
     try:

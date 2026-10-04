@@ -738,10 +738,3 @@ def test_site_class_is_a_registered_sidecar_evidence_key(tmp_path):
     assert evidence["site_class"] == record
 
 
-def test_layout_writes_site_class_into_the_axes_sidecar():
-    from auto_patch.layout import PavementLayout
-
-    layout = PavementLayout(icao="TEST", anchor=ANCHOR)
-    assert layout.site_class is None
-    layout.site_class = {"verdict": flat_site.VERDICT_FLAT_CANDIDATE}
-    assert layout.site_class["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE

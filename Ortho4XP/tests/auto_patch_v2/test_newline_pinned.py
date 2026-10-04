@@ -58,12 +58,11 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 _EMIT_PATH_EXTRA = (
     "auto_patch/engine_v2.py",
     "auto_patch/driver.py",
-    "auto_patch/layout.py",
-    "auto_patch/constant_dem.py",
-    "auto_patch/solve_capture.py",
     "auto_patch/object_rebake.py",
-    "auto_patch/object_terrain_assembly.py",
 )
+# (``layout.py``, ``constant_dem.py``, ``solve_capture.py`` and
+# ``object_terrain_assembly.py`` were listed until the v1 engine was
+# deleted — stage B round 2, lane ``v1cut``, 2026-10-04.)
 # ``src/O4_*.py`` (the tile side) is added by glob in ``_scoped_files``.
 
 # An allowlist entry is "<relpath>:<code line, stripped>" -> one-line

@@ -79,7 +79,9 @@ def test_real_config_gates_enumerated():
     assert prov["total"] > 10   # dozens of gates are declared
     # These are documented default-ON gates (the 'bundle' + 'rings' example).
     assert "O4_ONE_SOLVE_TERRAIN" in prov["on"]
-    assert "O4_GAP_FILL_INTERIOR_RINGS" in prov["on"]
+    # (was O4_GAP_FILL_INTERIOR_RINGS, a v1 gap-fill gate removed with the
+    # config split of the v1 retirement, 2026-10-04)
+    assert "O4_AIRSIDE_NO_STEP" in prov["on"]
 
 
 # ── the no-inset LOUD case ─────────────────────────────────────────────────────

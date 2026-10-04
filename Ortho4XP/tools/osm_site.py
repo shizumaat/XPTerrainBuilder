@@ -149,65 +149,22 @@ DSF_ROAD_CACHE_SUFFIX = ".cache"
 
 
 def read_dsf_road_network(path: str) -> tuple[dict, list]:
-    """The DSF vector road-network sidecar, in ``read_osm``'s own shape.
+    """THE DSF ROAD-NETWORK SIDECAR SOURCE IS RETIRED WITH v1 — REFUSES BY NAME.
 
-    ``Airport_mod_cache/<pack>/o4_dsf_road_network_<tile>.cache`` is the
-    pickle ``object_terrain_assembly._discover_sibling_road_networks``
-    writes: ``{"fingerprint": str, "result": RoadNetwork}``.  Each
-    :class:`auto_patch.dsf_road_network.RoadSegment` becomes one "way"
-    whose nodes are its shape points in order, so every selection, dump
-    and JSON path above works on it unchanged.
-
-    The record types are the ENGINE's (``auto_patch.dsf_road_network``,
-    imported so the unpickle resolves them) — this tool re-parses no DSF
-    and states no second grammar.  A node carries no ``alt_abs``: the
-    network's third column is a draping LEVEL FLAG, not an elevation
-    (module docstring, ``LEVEL_DRAPED_MAX_ABS``), so it is reported as
-    the ``level`` / ``draped`` tags it is and never as an altitude.
+    ``Airport_mod_cache/<pack>/o4_dsf_road_network_<tile>.cache`` was the
+    pickle v1's ``object_terrain_assembly._discover_sibling_road_networks``
+    wrote, and its record types lived in ``auto_patch.dsf_road_network``.
+    Both modules went with the v1 engine (stage B round 2, lane ``v1cut``,
+    2026-10-04): nothing writes the sidecar any more and a pickle cannot be
+    read without its classes — re-spelling them here would be the second
+    parser this tool was written to refuse.  The option is refused rather
+    than left inert; the OSM sources (patches, road feeds) are unchanged.
     """
-    import os
-    import pickle
-
-    sys.path.insert(0, os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-    try:
-        from auto_patch import dsf_road_network  # noqa: F401
-    except ImportError as error:                       # pragma: no cover
-        raise SystemExit(
-            f"REFUSED: cannot import auto_patch.dsf_road_network "
-            f"({error}) — the sidecar holds its record types and "
-            f"unpickling without them would be a second parser")
-    with open(path, "rb") as handle:
-        payload = pickle.load(handle)
-    network = (payload or {}).get("result") if isinstance(payload, dict) \
-        else None
-    if network is None or not hasattr(network, "segments"):
-        raise SystemExit(
-            f"REFUSED: {path} is not a DSF road-network sidecar "
-            f"(no RoadNetwork under 'result')")
-    nodes: dict = {}
-    ways: list = []
-    for index, segment in enumerate(network.segments):
-        way_id = f"seg{index}"
-        refs: list[str] = []
-        for position, point in enumerate(segment.shape_points):
-            node_id = f"{way_id}:{position}"
-            nodes[node_id] = (
-                float(point.latitude), float(point.longitude), None,
-                {"level": f"{point.level:.6f}",
-                 "draped": "yes" if point.draped else "no"})
-            refs.append(node_id)
-        draped = [point.draped for point in segment.shape_points]
-        ways.append((way_id, refs, {
-            "source": "dsf-road-network",
-            "road_subtype": str(segment.road_subtype),
-            "net_def": segment.network_definition_path,
-            "draped": ("all" if all(draped)
-                       else "none" if not any(draped) else "partial"),
-            "junctions": (f"{segment.start_junction_id}-"
-                          f"{segment.end_junction_id}"),
-        }))
-    return nodes, ways
+    raise SystemExit(
+        f"REFUSED: {path} is a DSF road-network sidecar, a v1 artefact "
+        "(auto_patch.dsf_road_network was retired with the v1 engine, "
+        "2026-10-04) — nothing writes it and it cannot be unpickled. "
+        "Read the road FEEDS (.osm / .osm.bz2) or the emitted patch instead.")
 
 
 def _feed_schema_note(path: str) -> str:

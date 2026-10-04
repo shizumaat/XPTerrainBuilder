@@ -78,10 +78,10 @@ ROLE_CANARIES = {"apron", "primary_parallel", "runway"}
 #: edge: the test never imports the file, it builds through a conftest
 #: helper.  Twinned in tests/test_harness.py and tests/test_blast_index.py.
 FIXTURE_CANARIES = (
-    (SRC_PREFIX + "auto_patch/pavement/runway_segments.py",
-     TESTS_PREFIX + "test_pavement_grade.py"),
-    (SRC_PREFIX + "auto_patch/gap_fill.py",
-     TESTS_PREFIX + "test_single_graph_acceptance.py"),
+    # re-pointed 2026-10-04 (lane v1cut): the v1 pairs (runway_segments.py /
+    # gap_fill.py through ``cached_airport_layout``) went with the v1 engine.
+    (SRC_PREFIX + "O4_UI_Utils.py",
+     TESTS_PREFIX + "test_data_root.py"),
 )
 MECHANISM = ("the wire name IS the Python class name (type(self).__name__) and "
              "field names travel as JSON keys; Swift matches string literals. "
@@ -148,13 +148,19 @@ def _str_assigns(tree):
             for t in n.targets if isinstance(t, ast.Name)}
 
 
+#: THE ROLE VOCABULARY's one spelling since the v1 retirement (stage B round
+#: 2, lane ``v1cut``, 2026-10-04): the census library's ``ROLE_*`` names, held
+#: against v2's own precedence tables by ``tests/test_law_support.py``.  It
+#: was ``auto_patch/layout.py`` aliasing ``pavement/strips.py``, both deleted.
+ROLE_VOCABULARY = "Ortho4XP/tools/harness/law_support/roles.py"
+
+
 def role_values():
-    """ROLE_* value vocabulary, resolving one hop of Name/Attribute alias."""
-    layout = ast.parse(_read(SRC_PREFIX + "auto_patch/layout.py"))
-    lit_l = _str_assigns(layout)
-    lit_s = _str_assigns(ast.parse(_read(SRC_PREFIX + "auto_patch/pavement/strips.py")))
+    """ROLE_* value vocabulary (direct string assigns, one hop of alias)."""
+    tree = ast.parse(_read(ROLE_VOCABULARY))
+    lit = _str_assigns(tree)
     vals, unresolved = set(), []
-    for node in layout.body:
+    for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue
         names = [t.id for t in node.targets
@@ -164,19 +170,17 @@ def role_values():
             continue
         if isinstance(v, ast.Constant) and isinstance(v.value, str):
             hit = v.value
-        elif isinstance(v, ast.Attribute):            # PS.ROLE_APRON
-            hit = lit_s.get(v.attr)
         elif isinstance(v, ast.Name):                 # local one-hop alias
-            hit = lit_l.get(v.id) or lit_s.get(v.id)
+            hit = lit.get(v.id)
         else:
             hit = None
         vals.add(hit) if hit else unresolved.append(names[0])
     missing = ROLE_CANARIES - vals
     if missing:
         raise SystemExit(
-            "BUILD FAILED: role vocabulary lost %s (unresolved: %s). layout.py's"
+            "BUILD FAILED: role vocabulary lost %s (unresolved: %s). %s's"
             " ROLE_* shape changed -- fix blast.py role_values()."
-            % (sorted(missing), unresolved))
+            % (sorted(missing), unresolved, ROLE_VOCABULARY))
     return vals, unresolved
 
 
@@ -580,7 +584,9 @@ def build(idx):
     cards.setdefault(SWIFT_CLIENT, {})
     roles_shard = {}
     for value, files in sorted(d["role_lits"].items()):
-        hi = sorted(f for f in files if f.startswith(SRC_PREFIX + "auto_patch/")
+        hi = sorted(f for f in files
+                    if f.startswith((SRC_PREFIX + "auto_patch/",
+                                     SRC_PREFIX + "auto_patch_v2/"))
                     or f in d["uses_ap"])
         roles_shard[value] = {"high": hi, "low": sorted(set(files) - set(hi))}
     flags_shard = {}
@@ -756,7 +762,7 @@ def render(rel, s):
     hi = sorted(k for k, v in s["roles"].items() if rel in v["high"])
     if hi:
         out.append("ROLE LITERALS HERE (%d): %s -- renaming a ROLE_* VALUE in "
-                   "auto_patch/layout.py breaks this file silently"
+                   "the role vocabulary breaks this file silently"
                    % (len(hi), ", ".join(hi)))
     f = s["flags"]
     fl = sorted(k for k, v in f.items() if rel in v["files"])
@@ -1164,14 +1170,14 @@ GT = (r"(?:from\s+(?:[.\w]*\.)?{s}\s+import"          # from [pkg.]mod import x
 #: The mutation twin's default sample: a real module with a SMALL full
 #: direct-importer sweep, so one audit costs seconds instead of the whole
 #: suite.  Override with --mutation-sample.
-MUTATION_SAMPLE = SRC_PREFIX + "auto_patch/strip_seam_law.py"
+MUTATION_SAMPLE = SRC_PREFIX + "auto_patch/flat_site.py"
 
 
 def cmd_audit(idx, mutations=0, mutation_sample=None, ceiling=CHEAP_CEILING):
     s, bad = ensure_fresh(idx, force=True), []
     print("== canaries ==")
-    for rel, floor in ((SRC_PREFIX + "auto_patch/layout.py", 120),
-                       (SRC_PREFIX + "auto_patch/pavement/strips.py", 1)):
+    for rel, floor in ((SRC_PREFIX + "auto_patch_v2/law/tables.py", 150),
+                       (SRC_PREFIX + "auto_patch_v2/model/planar.py", 1)):
         n = len(s["modules"].get(rel, {}).get("imported_by", []))
         ok = rel in s["modules"] and n >= floor
         print("  %-46s %3d importers (need >=%d)  %s"

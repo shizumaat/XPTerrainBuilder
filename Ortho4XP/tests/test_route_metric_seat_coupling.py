@@ -26,15 +26,9 @@ graph fails them.  Covers:
   * the loud empty-polytope attribution is unchanged.
 """
 import pytest
-from shapely.geometry import Polygon
 
-from auto_patch.canonical_points import CanonicalPointRegistry
 from auto_patch.config import APRON_MAX_GRADE
 
-from auto_patch.layout import BuiltShape, ROLE_APRON, ROLE_BUILDING
-from auto_patch.elevation_per_surface import building_feasibility as BF
-from auto_patch.elevation_per_surface.route_profile import anchors as AN
-from auto_patch.elevation_per_surface.route_profile import one_solve as OS
 
 # ── STAGE TAG (staged-solve S1b/S1c) ─────────────────────────────────
 # Every constraint entry reaching a projection — or the seat coupler's
@@ -43,8 +37,6 @@ from auto_patch.elevation_per_surface.route_profile import one_solve as OS
 # (a groundside surface must not price an airside seat coupling).
 # These fixtures each stand for ONE AIRSIDE pavement shape, so they
 # spell what ``solver_primitives._build_shape_constraints`` would.
-from auto_patch.solve_stage import STAGE_A as _S_A, STAGE_KEY as _S_K
-_AIRSIDE = {_S_K: _S_A}
 
 
 # RAW LAW SWEEPS ARE STANDING LAW (docs/RULINGS.md 2026-08-05,
@@ -70,10 +62,6 @@ _CHORD = APRON_MAX_GRADE * _CHORD_GAP_M
 class _FakeLayout:
     """Only what ``build_building_seats`` reads."""
 
-    def __init__(self, shapes):
-        self.shapes = shapes
-        self.canonical_points = CanonicalPointRegistry()
-        self.apt_taxi_centerlines = []
 
     def m_to_ll(self, x, y):
         """The frontage-band EVIDENCE export (anchors a9d9c88) spells every
@@ -83,83 +71,11 @@ class _FakeLayout:
         return (float(y) / 111_320.0, float(x) / 111_320.0)
 
 
-def _shape(ring, role, ref=""):
-    return BuiltShape(polygon=Polygon(ring), role=role, ref=ref)
-
-
-def _register(layout, shapes):
-    cps = layout.canonical_points
-    bucket_to_idx, idx = {}, 0
-    for s in shapes:
-        for (x, y) in list(s.polygon.exterior.coords)[:-1]:
-            k = cps.get_or_add(float(x), float(y))
-            if k not in bucket_to_idx:
-                bucket_to_idx[k] = idx
-                idx += 1
-    return bucket_to_idx
-
-
 def _idx(layout, b2i, x, y):
     return b2i[layout.canonical_points.get(float(x), float(y))]
 
 
-def _law_graph(layout, b2i, edges):
-    """One ``shape_constraints`` entry over EXPLICIT ``(xy, xy, raw budget)``
-    edges — the graph the projection would enforce, handed to the coupler."""
-    out = [(_idx(layout, b2i, *a), _idx(layout, b2i, *b), float(w))
-           for (a, b, w) in edges]
-    nodes = sorted({i for e in out for i in e[:2]})
-    return [{"nodes": nodes, "edges": out, "flat": False, **_AIRSIDE}]
-
-
-def _seats(layout, b2i, band, dem, levels, monkeypatch, law_graph=None):
-    monkeypatch.setattr(BF, "building_feasible_levels", lambda *a, **k: levels)
-    return AN.build_building_seats(layout, b2i, band, dem, [],
-                                   law_graph=law_graph,
-                                   n_nodes=(None if law_graph is None
-                                            else len(b2i)))
-
-
-def _level_of(seats, b2i, cps, shape):
-    x, y = list(shape.polygon.exterior.coords)[0]
-    return seats.get(b2i[cps.get(float(x), float(y))])
-
-
 # ── the divergence geometry: chord 17.6 m, route 0.1593 m ────────────────
-
-def _divergence_layout():
-    """Two pads 17.6 m apart ON one apron, whose LAW-GRAPH path between them
-    is the dossier's 2-hop chain through an apron node.
-
-    The chord between them is fully pavement-visible, so BOTH frames admit
-    the pair — the twin isolates the LIMIT, not the admission: chord pricing
-    says 0.176 m, the graph says 0.1593 m.
-    """
-    apron = _shape([(0.0, 0.0), (28.8, 0.0), (100.0, 0.0), (100.0, 80.0),
-                    (0.0, 80.0)], ROLE_APRON, "apron1")
-    a = _shape([(0.0, 40.0), (20.0, 40.0), (20.0, 60.0), (0.0, 60.0)],
-               ROLE_BUILDING, "building4")
-    b = _shape([(37.6, 40.0), (57.6, 40.0), (57.6, 60.0), (37.6, 60.0)],
-               ROLE_BUILDING, "building5")
-    return _FakeLayout([apron, a, b]), apron, a, b
-
-
-def _divergence_band(x, y):
-    """padA's ring reaches 100.0, padB's 101.108 (the dossier's 1.108 m
-    value gap).  Floors are far below, so the pair's own boxes never bind
-    before the coupling limit does."""
-    return (95.0, 100.0) if x < 30.0 else (95.0, 101.108)
-
-
-def _divergence_case(monkeypatch):
-    layout, apron, a, b = _divergence_layout()
-    b2i = _register(layout, [apron, a, b])
-    lg = _law_graph(layout, b2i, [((20.0, 40.0), (28.8, 0.0), _RAW_A),
-                                  ((28.8, 0.0), (37.6, 40.0), _RAW_B)])
-    seats = _seats(layout, b2i, _divergence_band, lambda x, y: 200.0,
-                   {id(a): 100.0, id(b): 101.108}, monkeypatch, law_graph=lg)
-    cps = layout.canonical_points
-    return (_level_of(seats, b2i, cps, a), _level_of(seats, b2i, cps, b))
 
 
 def test_the_geometry_is_a_real_divergence():
@@ -179,316 +95,14 @@ def test_the_geometry_is_a_real_divergence():
     assert _ROUTE > _CHORD
 
 
-def test_there_is_no_chord_frame_to_fall_back_to(monkeypatch, capsys):
-    """STANDING LAW: with NO ``O4_`` var set — what a user build does — the
-    pair is priced on the ROUTE, and the chord limit appears only as the
-    census figure the report names."""
-    lv_a, lv_b = _divergence_case(monkeypatch)
-    assert abs(lv_b - lv_a) == pytest.approx(_ROUTE, abs=1e-3)
-    assert abs(lv_b - lv_a) != pytest.approx(_CHORD, abs=1e-3)
-    assert "ROUTE METRIC" in capsys.readouterr().out
-
-
-def test_route_budget_replaces_the_chord_limit(monkeypatch, capsys):
-    """THE ROUND: the pair is priced at the budget the projection enforces
-    along the law graph (0.1593 m), not at ``APRON_MAX_GRADE·chord``."""
-    lv_a, lv_b = _divergence_case(monkeypatch)
-    assert abs(lv_b - lv_a) == pytest.approx(_ROUTE, abs=1e-3)
-    text = capsys.readouterr().out
-    assert "ROUTE METRIC" in text
-    assert "1 coupled pair(s) of 1" in text
-    assert "TIGHTENED" in text
-    assert "budget identity OK" in text
-    assert "not_visible 0" in text
-
-
-def test_the_law_graph_is_read_not_the_geometry(monkeypatch):
-    """Same geometry, different GRAPH ⇒ different limit.  A coupler that
-    priced the chord could not tell these two runs apart."""
-    layout, apron, a, b = _divergence_layout()
-    b2i = _register(layout, [apron, a, b])
-    lg = _law_graph(layout, b2i, [((20.0, 40.0), (28.8, 0.0), 0.30),
-                                  ((28.8, 0.0), (37.6, 40.0), 0.30)])
-    seats = _seats(layout, b2i, _divergence_band, lambda x, y: 200.0,
-                   {id(a): 100.0, id(b): 101.108}, monkeypatch, law_graph=lg)
-    cps = layout.canonical_points
-    lv_a = _level_of(seats, b2i, cps, a)
-    lv_b = _level_of(seats, b2i, cps, b)
-    # 0.30 + 0.30 = 0.60 of RAW law budget (the emit margin is 0 under
-    # standing raw-law sweeps) — LOOSER than the chord's 0.176.
-    assert abs(lv_b - lv_a) == pytest.approx(0.60, abs=1e-3)
-
-
 # ── §4 BUDGET IDENTITY — measured against a real projection run ──────────
-
-def test_the_coupler_budget_is_the_projections_binding_budget():
-    """Spec §4, the point of the round: the coupler's pair budget equals the
-    budget ``feasibility_project`` actually settles at, within 1 %.
-
-    Node 0 is a hard anchor; node 2 starts far above and the sweeps drive it
-    down until the 2-hop chain is satisfied.  Where it stops IS the binding
-    budget — and it is the number the coupler prices with."""
-    edges = [(0, 1, _RAW_A), (1, 2, _RAW_B)]
-    elev = [100.0, 500.0, 500.0]
-    OS.feasibility_project(elev, [{"edges": list(edges)}], {0},
-                           force_scalar=True, max_iters=20000, tol=1e-6)
-    achieved = elev[2] - elev[0]
-    budgets, diag = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False, **_AIRSIDE}],
-        [{0}, {2}], n_nodes=3)
-    assert budgets[(0, 1)] == pytest.approx(achieved, rel=0.01), (
-        "coupler and projection must price the same path in the same frame "
-        "— a larger disagreement is two instruments again, and the spec's "
-        "STOP")
-    assert diag["ident_worst"] <= 0.01
-    assert not diag["ident_over"]
-
-
-def test_the_tightening_attribution_is_reported_in_one_law_frame(monkeypatch,
-                                                                 capsys):
-    """ATTRIBUTION, not a second authority.
-
-    HISTORICALLY the enforced budget was the MARGINED one and the margin
-    was subtracted PER EDGE, so a multi-hop route lost one margin per hop
-    — the dossier's pair read 0.1593 margined (TIGHTER than the 0.176
-    chord) against a 0.1793 RAW-law route (LOOSER).  The margin is now
-    DELETED (docs/RULINGS.md 2026-08-05), so there is exactly ONE frame
-    and nothing to split: the report states that every metre of
-    tightening is the law's own route.  The line must still be there —
-    its magnitude is the evidence that the route metric, not the chord,
-    is what binds.
-
-    (No ``O4_SEAT_COUPLE_ROUTE_METRIC`` row: the SEATS lane retired that
-    gate — the route metric is the coupler's ONLY metric — so pinning it
-    here would be a silent no-op pretending to select an arm.)"""
-    _divergence_case(monkeypatch)
-    text = capsys.readouterr().out
-    assert "tightening attribution" in text
-    assert "ALL of it the RAW law route (no margin frame exists)" in text
-    # The census header names the frame it priced in, so a reader never
-    # has to guess which budgets the route walked.
-    assert "RAW law budgets)" in text
-    # With the frames coincident this case tightens nothing.
-    assert "0 TIGHTENED" in text
-
-
-def test_raw_budgets_ride_the_diagnostics_only():
-    edges = [(0, 1, 0.05), (1, 2, 0.07)]
-    budgets, diag = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False, **_AIRSIDE}],
-        [{0}, {2}], n_nodes=3)
-    assert budgets[(0, 1)] == pytest.approx(0.05 + 0.07, abs=1e-9)
-    # ONE FRAME: the reported raw budget IS the priced route budget.
-    assert diag["raw_budgets"][(0, 1)] == pytest.approx(0.12, abs=1e-9)
-
-
-def test_budget_identity_is_symmetric_on_every_pair():
-    """The in-round check the build reports: pricing a pair from either
-    endpoint must agree.  Asymmetry means a truncated or one-sided walk."""
-    edges = [(0, 1, 0.05), (1, 2, 0.07), (2, 3, 0.02), (0, 3, 0.5)]
-    budgets, diag = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1, 2, 3], "flat": False, **_AIRSIDE}],
-        [{0}, {2}, {3}], n_nodes=4)
-    assert diag["ident_worst"] == pytest.approx(0.0, abs=1e-9)
-    # min-budget path 0→2 is 0.05+0.07 (RAW law), NOT the direct-ish 0.5
-    # edge via 3.
-    assert budgets[(0, 1)] == pytest.approx(0.05 + 0.07, abs=1e-9)
-
-
-def test_tightest_budget_wins_on_duplicate_pairs():
-    """The projection's own dedup rule (``one_solve._build_adjacency``):
-    several constraints on one index pair ⇒ the binding one is the minimum."""
-    edges = [(0, 1, 0.90), (0, 1, 0.20)]
-    budgets, _diag = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1], "flat": False, **_AIRSIDE}],
-        [{0}, {1}], n_nodes=2)
-    assert budgets[(0, 1)] == pytest.approx(0.20, abs=1e-9)
-
-
-def test_interval_edges_are_not_routed_through():
-    """A one-sided slab (adjacent-ground zone / RESA cut) has no symmetric
-    route price and must never become a coupling path."""
-    edges = [(0, 1, None, 2.0), (1, 2, -3.0, None)]
-    budgets, diag = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False, **_AIRSIDE}],
-        [{0}, {2}], n_nodes=3)
-    assert budgets == {}
-    assert diag["interval_edges"] == 2
-
-
-def test_unregulated_and_out_of_range_edges_are_dropped():
-    edges = [(0, 1, None), (1, 2, -1.0), (0, 2, 0.4), (0, 9, 0.1)]
-    budgets, _d = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False, **_AIRSIDE}],
-        [{0}, {2}], n_nodes=3)
-    assert budgets[(0, 1)] == pytest.approx(0.4, abs=1e-9)
-
-
-def test_touching_pads_merge_into_one_rigid_unit():
-    """Two pads sharing a ring node act as ONE flat group in the projection;
-    their coupling budget is 0 by law, not by proximity."""
-    budgets, _d = AN._pad_route_budgets(
-        [{"edges": [(0, 5, 0.4)], "nodes": [0, 5], "flat": False, **_AIRSIDE}],
-        [{0, 1}, {1, 2}], n_nodes=8)
-    assert budgets[(0, 1)] == 0.0
 
 
 # ── admission: supersession, reachability, horizon ───────────────────────
 
-def _u_layout():
-    """The dossier's shape: a U-shaped apron with a pad on each arm.  The
-    straight chord across the U's mouth is off pavement (the visibility
-    fraction rejects the pair) while a THROUGH-SURFACE path exists — the
-    ``O4_SEAT_COUPLE_SHARED_SURFACE`` case, which route admission subsumes.
-    ``padF`` stands on its own ground: no route, no law, no coupling."""
-    apron = _shape([(0.0, 0.0), (100.0, 0.0), (100.0, 60.0), (80.0, 60.0),
-                    (80.0, 20.0), (20.0, 20.0), (20.0, 60.0), (0.0, 60.0)],
-                   ROLE_APRON, "apronU")
-    left = _shape([(0.0, 60.0), (20.0, 60.0), (20.0, 80.0), (0.0, 80.0)],
-                  ROLE_BUILDING, "padL")
-    right = _shape([(80.0, 60.0), (100.0, 60.0), (100.0, 80.0),
-                    (80.0, 80.0)], ROLE_BUILDING, "padR")
-    far = _shape([(150.0, 150.0), (170.0, 150.0), (170.0, 170.0),
-                  (150.0, 170.0)], ROLE_BUILDING, "padF")
-    return _FakeLayout([apron, left, right, far]), apron, left, right, far
 
-
-def _u_band(x, y):
-    if x < 50.0:
-        return (95.0, 100.0)
-    if x < 120.0:
-        return (95.0, 102.0)
-    return (95.0, 110.0)
-
-
-def _u_case(monkeypatch, extra_edges=()):
-    layout, apron, left, right, far = _u_layout()
-    b2i = _register(layout, [apron, left, right, far])
-    lg = _law_graph(layout, b2i,
-                    [((20.0, 60.0), (20.0, 20.0), 0.20),
-                     ((20.0, 20.0), (80.0, 20.0), 0.60),
-                     ((80.0, 20.0), (80.0, 60.0), 0.20)] + list(extra_edges))
-    levels = {id(left): 100.0, id(right): 102.0, id(far): 105.0}
-    seats = _seats(layout, b2i, _u_band, lambda x, y: 105.0, levels,
-                   monkeypatch, law_graph=lg)
-    cps = layout.canonical_points
-    return (_level_of(seats, b2i, cps, left),
-            _level_of(seats, b2i, cps, right),
-            _level_of(seats, b2i, cps, far))
-
-
-def test_route_admission_subsumes_the_shared_surface_predicate(
-        monkeypatch, capsys):
-    """The pair the visibility fraction rejected as "separated by grass" is
-    offered to the solver — with NO shared-surface gate set."""
-    lv_l, lv_r, _lv_f = _u_case(monkeypatch)
-    limit = sum((0.20, 0.60, 0.20))            # RAW law budgets
-    assert abs(lv_r - lv_l) <= limit + 1e-3
-    text = capsys.readouterr().out
-    assert "ROUTE METRIC" in text
-    assert "shared-surface adjacency admitted" not in text
-
-
-def test_the_retired_shared_surface_var_has_no_effect(monkeypatch, capsys):
-    """The predicate is GONE, not merged: setting its old env var is inert
-    (a stale script must never quietly re-arm a retired instrument)."""
-    off = _u_case(monkeypatch)
-    capsys.readouterr()
-    monkeypatch.setenv("O4_SEAT_COUPLE_SHARED_SURFACE", "1")
-    on = _u_case(monkeypatch)
-    assert off == on
-    assert "shared-surface adjacency admitted" not in capsys.readouterr().out
-
-
-def test_a_pad_off_the_law_graph_is_not_admitted(monkeypatch, capsys):
-    """Route-unreachable pads do not couple — no law binds them, and
-    coupling them was never meaningful (spec §2)."""
-    _lv_l, _lv_r, lv_f = _u_case(monkeypatch)
-    assert lv_f == pytest.approx(105.0)
-    assert "unit off the law graph 2" in capsys.readouterr().out
-
-
-def test_a_route_beyond_the_horizon_is_not_admitted(monkeypatch, capsys):
-    """Admission is the corridor dial expressed in the metric the law
-    enforces: 200 m at the apron cap = 2.0 m of route budget."""
-    horizon, dial = AN.route_coupling_horizon_m()
-    assert (horizon, dial) == (pytest.approx(2.0), pytest.approx(200.0))
-    # the U's through-route now costs 3.0 m of budget — beyond the horizon
-    layout, apron, left, right, far = _u_layout()
-    b2i = _register(layout, [apron, left, right, far])
-    lg = _law_graph(layout, b2i, [((20.0, 60.0), (80.0, 60.0), 3.0)])
-    levels = {id(left): 100.0, id(right): 102.0, id(far): 105.0}
-    seats = _seats(layout, b2i, _u_band, lambda x, y: 105.0, levels,
-                   monkeypatch, law_graph=lg)
-    cps = layout.canonical_points
-    assert _level_of(seats, b2i, cps, left) == pytest.approx(100.0)
-    assert _level_of(seats, b2i, cps, right) == pytest.approx(102.0)
-    assert "route-unreachable 1" in capsys.readouterr().out
-
-
-def test_the_coupler_says_so_when_the_solve_passes_no_law_graph(monkeypatch,
-                                                                capsys):
-    """A wiring defect is never a silent fallback to the chord."""
-    layout, apron, a, b = _divergence_layout()
-    b2i = _register(layout, [apron, a, b])
-    _seats(layout, b2i, _divergence_band, lambda x, y: 200.0,
-           {id(a): 100.0, id(b): 101.108}, monkeypatch, law_graph=None)
-    assert "passed no law graph" in capsys.readouterr().out
+# ── the loud empty polytope is unchanged ─────────────────────────────────
 
 
 # ── the loud empty polytope is unchanged ─────────────────────────────────
 
-def test_touching_pads_are_seated_as_one_unit_not_as_a_zero_budget_pair(
-        monkeypatch, capsys):
-    """MERGED RIGID UNITS (standing law).  padD and padE share two ring
-    vertices, so they are ONE unit — there is no |L_D − L_E| ≤ 0 pair for
-    the POCS to approximate and no group mean for the projection to mint.
-    Their boxes are disjoint, which is a LAW DEFECT and is named."""
-    apron = _shape([(0.0, 0.0), (100.0, 0.0), (100.0, 60.0), (40.0, 60.0),
-                    (20.0, 60.0), (0.0, 60.0)], ROLE_APRON, "apron1")
-    d = _shape([(0.0, 60.0), (20.0, 60.0), (20.0, 80.0), (0.0, 80.0)],
-               ROLE_BUILDING, "padD")
-    e = _shape([(20.0, 60.0), (40.0, 60.0), (40.0, 80.0), (20.0, 80.0)],
-               ROLE_BUILDING, "padE")
-    layout = _FakeLayout([apron, d, e])
-    b2i = _register(layout, [apron, d, e])
-    lg = _law_graph(layout, b2i, [((0.0, 0.0), (100.0, 0.0), 0.5)])
-    seats = _seats(layout, b2i,
-                   lambda x, y: (95.0, 100.0) if x < 20.0 else (104.0, 106.0),
-                   lambda x, y: 105.0 + 0.05 * y, {id(d): 100.0, id(e): 106.0},
-                   monkeypatch, law_graph=lg)
-    cps = layout.canonical_points
-    assert _level_of(seats, b2i, cps, d) == _level_of(seats, b2i, cps, e)
-    text = capsys.readouterr().out
-    assert "MERGED RIGID unit(s) covering 2 pad(s)" in text
-    assert "EMPTY member-box intersection" in text
-
-
-# ── the loud empty polytope is unchanged ─────────────────────────────────
-
-def test_empty_polytope_stays_loud_under_route_pricing(monkeypatch, capsys):
-    """RULINGS 2026-08-04 (split-level building seats): an empty coupling
-    polytope is LOUD attribution, never a silent ship.
-
-    Two pads that do NOT touch (0.5 m apart, so two separate units) bound
-    by a 0.01 m route budget, with disjoint boxes: no joint level exists."""
-    apron = _shape([(0.0, 0.0), (100.0, 0.0), (100.0, 60.0), (0.0, 60.0)],
-                   ROLE_APRON, "apron1")
-    d = _shape([(0.0, 60.0), (20.0, 60.0), (20.0, 80.0), (0.0, 80.0)],
-               ROLE_BUILDING, "padD")
-    e = _shape([(20.5, 60.0), (40.0, 60.0), (40.0, 80.0), (20.5, 80.0)],
-               ROLE_BUILDING, "padE")
-    layout = _FakeLayout([apron, d, e])
-    b2i = _register(layout, [apron, d, e])
-    lg = _law_graph(layout, b2i, [((20.0, 60.0), (20.5, 60.0), 0.02)])
-    seats = _seats(layout, b2i,
-                   lambda x, y: (95.0, 100.0) if x <= 20.0 else (104.0, 106.0),
-                   lambda x, y: 105.0 + 0.05 * y, {id(d): 100.0, id(e): 106.0},
-                   monkeypatch, law_graph=lg)
-    cps = layout.canonical_points
-    assert _level_of(seats, b2i, cps, d) == pytest.approx(100.0)
-    assert _level_of(seats, b2i, cps, e) == pytest.approx(106.0)
-    text = capsys.readouterr().out
-    assert "EMPTY POLYTOPE" in text
-    assert "padD" in text and "padE" in text
-    assert "chord_lim" in text          # the pair-by-pair split accounting

@@ -168,24 +168,9 @@ class Frame:
         return identity_key(lat, lon, self.identity_dp)
 
 
-def rotated_rectangle(poly):
-    """``poly.minimum_rotated_rectangle`` with the numeric noise silenced.
-
-    shapely 2.1's ``oriented_envelope`` (the numpy path, GEOS < 3.12)
-    divides by every hull edge's components and lets numpy emit
-    ``divide by zero`` / ``invalid value`` RuntimeWarnings on an
-    axis-aligned or zero-length edge before masking the result — the
-    rectangle it returns is correct (OTHH: every warned face read a sane
-    width, 0.4–426 m).  The app shows engine stderr, so the noise looked
-    like a defect (owner, 2026-09-04).  ONE spelling of the guard for
-    every caller; degenerate input still returns whatever shapely returns
-    (a Point / LineString), which each caller already handles.  ``model``
-    imports no geometry library (test_model): the polygon is duck-typed.
-    """
-    import warnings
-    with warnings.catch_warnings():          # numpy routes errstate here
-        warnings.simplefilter("ignore", RuntimeWarning)
-        return poly.minimum_rotated_rectangle
+# The oriented-envelope guard lives in the ``geom`` leaf (every layer may
+# read it); re-exported here for the callers that already import it.
+from ..geom.rotated_rect import rotated_rectangle  # noqa: E402,F401
 
 
 def m_per_deg_exact(lat: float) -> tuple[float, float]:

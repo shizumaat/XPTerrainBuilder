@@ -1555,7 +1555,7 @@ def _main() -> int:
         print(line)
     # issue #10: the CONTENTS-APART census — every body whose parts are a
     # §16g unit's, against the unit's datum, by the rule that seated it
-    from auto_patch_v2.airport import contents_census as CC
+    import contents_census as CC
     unit_levels = CC.census_unit_levels(
         ss, visual_m=_law.tables.emit.cockpit.visual_m, top=a.top)
     for line in CC.census_unit_levels_lines(unit_levels):

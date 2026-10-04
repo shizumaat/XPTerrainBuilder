@@ -25,11 +25,6 @@ from . import placement_carrier as _pc
 from . import bridge_family as _bf
 from . import rebake_plan as _rbp
 from .placement_carrier import is_elevated
-from .placement_cut import (_basin_floor_member, _bodies_of,
-                            _cut_parts_by_terrain, _floor_member,
-                            _geom_ground, _geom_span, _LineCutter,
-                            _part_zero, _plan_span_m, _rim_of,
-                            segment_anchor)
 
 __all__ = ["_Raw", "_raw_bodies", "_whole_body"]
 
@@ -739,3 +734,15 @@ def _plan_box_span_m(box: "tuple[float, float, float, float]") -> float:
     """The longer side of a plan box in metres."""
     ml, mo = _ar._m_per_deg(0.5 * (box[0] + box[2]))
     return max((box[2] - box[0]) * ml, (box[3] - box[1]) * mo)
+
+
+# ── the cut this module decides over (``placement_cut``) ─────────────────
+# LAST, not at the top (issue #341): ``placement_cut`` re-exports this
+# module's names from ITS tail, so each side must have defined its own
+# before it asks the other — whichever is imported first.  Every name
+# below is read inside a function body only.
+from .placement_cut import (_basin_floor_member, _bodies_of,  # noqa: E402
+                            _cut_parts_by_terrain, _floor_member,
+                            _geom_ground, _geom_span, _LineCutter,
+                            _part_zero, _plan_span_m, _rim_of,
+                            segment_anchor)

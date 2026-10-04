@@ -10,13 +10,17 @@ import pytest
 
 from auto_patch_v2.airport import dsf as _dsf
 from auto_patch_v2.airport import riders as _riders
-from auto_patch_v2.classify.explain import REKIND_MARKS
 from auto_patch_v2.classify.roles import Classification
 from auto_patch_v2.constraints import pavement_cap
 from auto_patch_v2.constraints.pad_frontage_gs import (frontage_step_max_m,
                                                        held_terrace_pairs)
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar.build import build
+
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(
+    _os.path.abspath(__file__)))), "tools"))
+from v2_explain import REKIND_MARKS  # noqa: E402
 
 from test_v2frontage import _airport, _cells  # noqa: E402  (same dir)
 from test_v2frontagestep import _StepDem  # noqa: E402  (same dir)

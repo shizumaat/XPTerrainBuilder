@@ -111,6 +111,25 @@ def test_class_table(tmp_path, cargo):
     assert f.floors[0].walls[0].name == "solid" and f.floors[0].walls[0].fits(5.0)
 
 
+def test_one_file_is_one_variant_however_its_path_is_spelled(tmp_path):
+    """CI windows-latest counted 4 variants for 3 files: the library's
+    exports and the index named the same file with different separators.
+    The same file reached by two spellings is one variant on every OS."""
+    veh = tmp_path / "lib" / "veh"
+    _obj(str(veh / "t1.obj"), [(-1.3, 0, -9.8), (1.3, 4, 2.5)])
+    _obj(str(veh / "Empty.obj"), [])
+    with open(veh.parent / "library.txt", "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("A\n800\nLIBRARY\n\n"
+                 "EXPORT lib/vehicles/trailer.obj veh/t1.obj\n"
+                 "EXPORT lib/vehicles/trailer.obj veh/Empty.obj\n")
+    # the index spells the physical path with a redundant "." segment
+    respelled = os.path.join(str(veh), ".", "Empty.obj")
+    got = facade.object_variants("lib/vehicles/trailer.obj", str(tmp_path / "nowhere"),
+                                 {"lib/vehicles/trailer.obj": respelled})
+    assert len(got) == 2
+    assert len({os.path.normcase(os.path.normpath(p)) for p in got}) == 2
+
+
 def test_attachment_reach_is_the_widest_variant(cargo):
     low = facade.floor_for(cargo, 6.0)
     assert low.name == "low" and facade.floor_for(cargo, 11.0).name == "high"

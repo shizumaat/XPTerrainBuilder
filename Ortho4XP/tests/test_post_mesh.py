@@ -437,6 +437,45 @@ def test_driver_worklist_refreshes_to_empty_but_never_creates_empty(
         assert json.load(handle)["airports"] == []
 
 
+def test_the_worklist_path_is_where_the_driver_wrote_it(
+        tmp_path, monkeypatch):
+    """``object_anchor_worklist_path`` is how ``engine_v2.
+    rebake_after_mesh`` finds the tile's patch directory (its rebake
+    plans live beside the worklist).  It must name the file the driver
+    writes — and floor a fractional or negative tile corner the way
+    ``FNAMES.patch_dir`` is keyed (RULINGS 2026-10-04j "coverage owed":
+    production-reached, and every suite that named it stubbed it)."""
+    monkeypatch.setattr(FNAMES, "Patch_dir", str(tmp_path / "Patches"))
+    tile = types.SimpleNamespace(lat=TILE_LATITUDE, lon=TILE_LONGITUDE)
+    path = post_mesh.object_anchor_worklist_path(tile)
+    patch_directory = FNAMES.patch_dir(TILE_LATITUDE, TILE_LONGITUDE)
+    assert path == os.path.join(
+        patch_directory, post_mesh.OBJECT_ANCHOR_WORKLIST_FILENAME)
+    assert not os.path.exists(path)          # pure path construction
+    driver._write_object_anchor_worklist(
+        patch_directory, TILE_LATITUDE, TILE_LONGITUDE,
+        [{"icao": "KTST"}], "/xplane")
+    with open(path, encoding="utf-8") as handle:
+        assert json.load(handle)["airports"] == [{"icao": "KTST"}]
+    inside = types.SimpleNamespace(lat=TILE_LATITUDE + 0.4,
+                                   lon=TILE_LONGITUDE + 0.9)
+    assert post_mesh.object_anchor_worklist_path(inside) == path
+
+
+@pytest.mark.parametrize("pack_root, protected", [
+    ("/XP/Custom Scenery/KCLT pack", False),
+    ("/XP/Global Scenery/Global Airports", True),
+    ("/XP/Resources/default scenery/airport scenery", True),
+    ("/XP/Custom Scenery/Resources of KCLT", False),   # a NAME, not a component
+    ("/XP/Custom Scenery/pack/../../Global Scenery/x", True),
+])
+def test_only_base_simulator_roots_are_protected(pack_root, protected):
+    """``rebake_after_mesh`` never places into the base simulator: any
+    ``Global Scenery`` / ``Resources`` path COMPONENT (amendment A15)."""
+    assert post_mesh._is_protected_scenery_root(
+        pack_root.replace("/", os.sep)) is protected
+
+
 # ── the driver's per-(airport, pack) entry builder (amendment A22) ───
 #
 # Field case LSGL 2026-07-23: the custom pack's apt.dat lost the quality

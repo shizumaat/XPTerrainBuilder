@@ -1,51 +1,55 @@
 #!/usr/bin/env python3
-"""THE MERGE RATCHETS (owner RULINGS 2026-10-04a (1), (3) as amended by
-2026-10-04b: no hard line limit; the priority is reuse).
+"""THE MERGE REPORT AND THE DUPLICATE RATCHET (owner RULINGS 2026-10-04a
+(1), (3), amended 04b and 04c: size is a guide and a warning, never a
+gate; split by responsibility, never to make a number; the priority is
+reuse).
 
-Recorded in ``tools/ratchet_baseline.json``, asserted by
-``Ortho4XP/tests/test_ratchets.py``:
+Recorded in ``tools/ratchet_baseline.json``; twin
+``Ortho4XP/tests/test_ratchets.py``.
 
-SIZE.  Scope: tracked ``.py`` / ``.swift`` under ``Ortho4XP/src``,
-``Ortho4XP/tools``, ``tools`` and ``Sources`` (lines as
-``len(text.splitlines())`` — comments and blanks included; never fold
-comments to make a number).  Modules past 1,000 lines should be rare:
-a file that PASSES 1,000, or a file already past it that GROWS beyond its
-recorded size, needs a RECORDED JUSTIFICATION — one line beside its entry
-in the baseline, written by the explicit act ``--justify`` and visible in
-the diff the master reviews.  Unjustified growth past 1,000 fails the
-twin; justified growth (recorded size covers the file) passes.  Entries
-taken at the first baseline need no justification until they grow.  A
-baseline entry whose file is gone is not an error.  601..1,000 is a
-reported soft band.  Tests are reported, never gated.
+SIZE — REPORTED, NEVER FAILS A TEST OR A MERGE (04c (1)).  Scope: tracked
+``.py`` / ``.swift`` under ``Ortho4XP/src``, ``Ortho4XP/tools``, ``tools``
+and ``Sources`` (lines as ``len(text.splitlines())``, comments and blanks
+included).  The report the master reads at merge: files past 1,000, files
+past 1,000 that GREW against the baseline snapshot (name, old -> new),
+files NEWLY past 1,000, the 601..1,000 count, and the tests summary.  A
+split is made because a file holds two responsibilities, never to reach a
+number.  ``--justify PATH "reason"`` is an OPTIONAL NOTE shown beside the
+file in the report; it is not a pass condition.
 
-DUPLICATES (ratcheted).  Top-level functions under ``Ortho4XP/src`` whose
-normalised AST (arguments + body, docstring dropped, name and decorators
-ignored) is identical in two or more FILES.  The count is the number of
-such functions and may fall, never rise.  One-statement stubs (``pass``,
-``...``, a bare ``raise``, a ``return`` of a constant or a name) are not
-counted: they are interface placeholders, not copied logic.
+LONG FUNCTIONS — reported the same way (04c (1): "the better target").
+``funcs``: every function and method (nested ones included) of
+``LONG_FUNCTION``+ lines (``def`` line to last line, decorators
+excluded) in the ``.py`` files of the size roots, longest first.
 
-NEAR-DUPLICATES (reported, NOT gated — 04b (2)).  ``dupes --near``:
+DUPLICATES — THE ONE GATE (04c (2)).  Top-level functions under
+``Ortho4XP/src`` whose normalised AST (arguments + body, docstring
+dropped, name and decorators ignored) is identical in two or more FILES.
+The count is the number of such functions and may fall, never rise.
+One-statement stubs (``pass``, ``...``, a bare ``raise``, a ``return`` of
+a constant or a name) are not counted.
+
+NEAR-DUPLICATES — reported, not gated (04b (2)).  ``dupes --near``:
 top-level functions and class methods under ``Ortho4XP/src`` whose bodies
 are identical after renaming every parameter and locally-bound name to
 its order of first appearance and replacing every constant by its type,
 in two or more files.  Functions under ``NEAR_MIN_NODES`` AST nodes are
-skipped (accessors and one-liners match by shape, not by copied logic).
-Streaming: one file parsed at a time, one 16-byte digest kept per function.
+skipped.  Streaming: one file parsed at a time, one digest per function.
 
-    tools/ratchets.py                    # both checks; exit 1 on a refusal
+    tools/ratchets.py                    # all sections; exit 1 ONLY on a
+                                         # risen duplicate count
     tools/ratchets.py size               # the size report alone
+    tools/ratchets.py funcs [--top N]    # the long functions
     tools/ratchets.py dupes [--top N]    # the identical-body groups
     tools/ratchets.py dupes --near       # the near-duplicate groups
-    tools/ratchets.py --justify PATH "reason"   # record size + reason
-    tools/ratchets.py --regenerate       # rewrite the baseline DOWNWARD
+    tools/ratchets.py --justify PATH "reason"   # an optional note
+    tools/ratchets.py --regenerate       # re-snapshot the baseline
 
-``--justify`` records the file's CURRENT size and the reason; it refuses
-an empty reason and a file at or under 1,000.  ``--regenerate`` only
-lowers: it keeps existing justifications, never invents one, and refuses
-(writing nothing) on unjustified growth or a risen duplicate count.
-``--init`` writes the first baseline and refuses when one already exists.
-``tools/blast.py --audit`` prints the duplicate section and fails on a rise.
+``--regenerate`` re-snapshots the sizes (growth included — the snapshot
+is what "grew" is measured against), keeps existing notes, and refuses
+(writing nothing) only on a risen duplicate count.  ``--init`` writes the
+first baseline and refuses when one exists.  ``tools/blast.py --audit``
+prints the duplicate section and fails on a rise.
 """
 from __future__ import annotations
 
@@ -61,11 +65,12 @@ __all__ = ["SOFT", "HARD", "SIZE_ROOTS", "DUP_ROOT", "BASELINE",
            "tracked_sources", "line_count", "sizes", "check_size",
            "duplicate_groups", "duplicate_count", "check_duplicates",
            "load_baseline", "regenerate", "justify", "near_duplicate_groups",
-           "NEAR_MIN_NODES", "main"]
+           "NEAR_MIN_NODES", "long_functions", "LONG_FUNCTION", "main"]
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE = os.path.join(REPO, "tools", "ratchet_baseline.json")
-SOFT, HARD = 600, 1000           # HARD: past it a justification is needed
+SOFT, HARD = 600, 1000           # report bands only (04c): never a gate
+LONG_FUNCTION = 200
 NEAR_MIN_NODES = 25
 SIZE_ROOTS = ("Ortho4XP/src", "Ortho4XP/tools", "tools", "Sources")
 REPORT_ROOTS = ("Ortho4XP/tests",)          # reported, not gated
@@ -97,25 +102,55 @@ def load_baseline(path=BASELINE):
 
 
 def check_size(current, recorded):
-    """``(refusals, soft)`` for ``current`` {rel: lines} against the
-    baseline's ``recorded`` {rel: lines}.  A file past 1,000 passes when
-    its recorded size covers it (first-baseline entries and justified
-    ones alike — ``--justify`` is what raises a recorded size).  Entries
-    of ``recorded`` with no file in ``current`` are ignored."""
-    refusals, soft = [], []
+    """THE SIZE REPORT — warnings only, never a refusal (04c (1)).
+    ``current`` {rel: lines} against the baseline snapshot ``recorded``:
+    ``past`` every file past 1,000, ``grew`` those above their recorded
+    size ``(rel, old, new)``, ``new`` those past 1,000 with no record
+    ``(rel, lines)``, ``soft`` the 601..1,000 band.  Entries of
+    ``recorded`` with no file in ``current`` are ignored."""
+    rep = {"past": [], "grew": [], "new": [], "soft": []}
     for rel, n in sorted(current.items()):
         cap = recorded.get(rel)
-        if n > HARD and (cap is None or n > cap):
-            refusals.append(
-                "%s: %d lines, %s — growth past %d needs a recorded "
-                "justification (RULINGS 2026-10-04b): split by "
-                "responsibility, or `tools/ratchets.py --justify %s "
-                "\"why it is one module\"`"
-                % (rel, n, "not in the baseline" if cap is None
-                   else "recorded %d" % cap, HARD, rel))
-        elif cap is None and n > SOFT:
-            soft.append((rel, n))
-    return refusals, soft
+        if n > HARD:
+            rep["past"].append((rel, n))
+            if cap is None:
+                rep["new"].append((rel, n))
+            elif n > cap:
+                rep["grew"].append((rel, cap, n))
+        elif n > SOFT:
+            rep["soft"].append((rel, n))
+    return rep
+
+
+def long_functions(files=None, repo=REPO, min_lines=LONG_FUNCTION):
+    """Functions and methods of ``min_lines``+ lines, longest first, as
+    ``(lines, rel, qualified name, lineno)``.  Streaming: one tree at a
+    time, only the long ones kept."""
+    if files is None:
+        files = tracked_sources(SIZE_ROOTS, repo, exts=(".py",))
+    out = []
+    for rel in files:
+        try:
+            with open(os.path.join(repo, rel), encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+        except (SyntaxError, UnicodeDecodeError, OSError):
+            continue
+        stack = [("", tree)]
+        while stack:
+            prefix, node = stack.pop()
+            for ch in ast.iter_child_nodes(node):
+                if isinstance(ch, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                   ast.ClassDef)):
+                    name = prefix + ch.name
+                    if not isinstance(ch, ast.ClassDef):
+                        n = ch.end_lineno - ch.lineno + 1
+                        if n >= min_lines:
+                            out.append((n, rel, name, ch.lineno))
+                    stack.append((name + ".", ch))
+                else:
+                    stack.append((prefix, ch))
+        del tree
+    return sorted(out, key=lambda x: (-x[0], x[1], x[3]))
 
 
 # ------------------------------------------------------------- duplicates
@@ -246,38 +281,66 @@ def _tree_of(rel):
                                   reverse=True) if rel.startswith(r + "/"))
 
 
-def print_size(current, recorded, out=sys.stdout, justified=None):
-    refusals, soft = check_size(current, recorded)
-    live = {r: n for r, n in current.items() if r in recorded}
+def print_size(current, recorded, out=None, justified=None):
+    """Print the size report; returns it.  Nothing here fails anything."""
+    out = out or sys.stdout
+    rep = check_size(current, recorded)
+    notes = justified or {}
     gone = sorted(set(recorded) - set(current))
-    print("== size ratchet (soft band past %d / past %d growth needs a "
-          "recorded justification) ==" % (SOFT, HARD), file=out)
+    print("== size report — a guide and a warning, never a gate (soft band "
+          "past %d, look at the architecture past %d) ==" % (SOFT, HARD),
+          file=out)
     for root in SIZE_ROOTS:
-        mine = {r: n for r, n in live.items() if _tree_of(r) == root}
         allf = [n for r, n in current.items() if _tree_of(r) == root]
-        print("  %-16s %4d files %8d lines | ratcheted %3d files %7d lines "
-              "(recorded %7d)" % (root, len(allf), sum(allf), len(mine),
-                                  sum(mine.values()),
-                                  sum(recorded[r] for r in mine)), file=out)
-    print("  ratcheted entries: %d live, %d gone (not an error); soft-limit "
-          "files (%d..%d, not in baseline): %d"
-          % (len(live), len(gone), SOFT + 1, HARD, len(soft)), file=out)
+        mine = [n for r, n in rep["past"] if _tree_of(r) == root]
+        print("  %-16s %4d files %8d lines | past %d: %3d files %7d lines"
+              % (root, len(allf), sum(allf), HARD, len(mine), sum(mine)),
+              file=out)
+    print("  past %d: %d files; %d..%d band: %d files; baseline entries "
+          "whose file is gone: %d"
+          % (HARD, len(rep["past"]), SOFT + 1, HARD, len(rep["soft"]),
+             len(gone)), file=out)
+
+    def note(rel):
+        return "  [note: %s]" % notes[rel] if rel in notes else ""
+    print("  GREW since the baseline: %d" % len(rep["grew"]), file=out)
+    for rel, old, new in rep["grew"]:
+        print("    WARN %s: %d -> %d (+%d)%s"
+              % (rel, old, new, new - old, note(rel)), file=out)
+    print("  NEWLY past %d: %d" % (HARD, len(rep["new"])), file=out)
+    for rel, n in rep["new"]:
+        print("    WARN %s: %d%s" % (rel, n, note(rel)), file=out)
+    rest = [r for r in sorted(notes) if r in current
+            and r not in {x[0] for x in rep["grew"] + rep["new"]}]
+    for rel in rest:
+        print("    note %s (%d lines): %s" % (rel, current[rel], notes[rel]),
+              file=out)
     tests = sizes(REPORT_ROOTS)
     big = [n for n in tests.values() if n > HARD]
-    print("  reported, not gated: %s %d files, %d past %d (%d lines)"
+    print("  tests (reported only): %s %d files, %d past %d (%d lines)"
           % (REPORT_ROOTS[0], len(tests), len(big), HARD, sum(big)), file=out)
-    just = {r: why for r, why in sorted((justified or {}).items())
-            if r in current}
-    print("  justified past %d: %d" % (HARD, len(just)), file=out)
-    for r, why in just.items():
-        print("    %s (%d lines, recorded %d): %s"
-              % (r, current[r], recorded.get(r, 0), why), file=out)
-    for r in refusals:
-        print("  REFUSED " + r, file=out)
-    return refusals
+    return rep
 
 
-def print_dupes(groups, recorded, top=10, out=sys.stdout, near=False):
+def print_funcs(funcs, top=10, out=None):
+    out = out or sys.stdout
+    print("== long functions — reported, never a gate (functions and "
+          "methods of %d+ lines under the size roots) ==" % LONG_FUNCTION,
+          file=out)
+    by = {}
+    for n, rel, _, _ in funcs:
+        by[_tree_of(rel)] = by.get(_tree_of(rel), 0) + 1
+    v2 = sum(1 for _, rel, _, _ in funcs
+             if rel.startswith(DUP_ROOT + "/auto_patch_v2/"))
+    print("  %d functions (%s; auto_patch_v2 %d)"
+          % (len(funcs), ", ".join("%s %d" % kv for kv in sorted(by.items())),
+             v2), file=out)
+    for n, rel, name, line in funcs[:top] if top else funcs:
+        print("  %5d  %s:%d %s" % (n, rel, line, name), file=out)
+
+
+def print_dupes(groups, recorded, top=10, out=None, near=False):
+    out = out or sys.stdout
     n = duplicate_count(groups)
     if near:
         print("== near-duplicates, REPORTED NOT GATED (functions and "
@@ -303,10 +366,11 @@ def print_dupes(groups, recorded, top=10, out=sys.stdout, near=False):
 
 
 def _write_baseline(path, size, justified, duplicates):
-    doc = {"ruling": "RULINGS 2026-10-04a, amended 2026-10-04b",
-           "note": "generated by tools/ratchets.py (--regenerate lowers; "
-                   "--justify PATH \"reason\" is the only way an entry "
-                   "rises); never edit by hand",
+    doc = {"ruling": "RULINGS 2026-10-04a, amended 04b and 04c",
+           "note": "generated by tools/ratchets.py; `size` is a snapshot "
+                   "the report measures growth against (never a gate), "
+                   "`duplicates` may fall and never rise; never edit by "
+                   "hand",
            "soft": SOFT, "hard": HARD, "duplicates": duplicates,
            "size": dict(sorted(size.items())),
            "justified": dict(sorted(justified.items()))}
@@ -316,9 +380,10 @@ def _write_baseline(path, size, justified, duplicates):
 
 
 def regenerate(path=BASELINE, init=False, current=None, groups=None):
-    """Rewrite the baseline DOWNWARD.  Returns the list of refusals; the
-    file is written only when it is empty.  Justifications of files still
-    past 1,000 are kept; none is ever invented."""
+    """Re-snapshot the baseline: every file past 1,000 at its CURRENT size
+    (growth included — size is a report, 04c), notes kept for files still
+    past 1,000, none invented.  Refuses, writing nothing, only on a risen
+    duplicate count.  Returns the list of refusals."""
     current = sizes() if current is None else current
     groups = duplicate_groups() if groups is None else groups
     past = {r: n for r, n in current.items() if n > HARD}
@@ -326,25 +391,24 @@ def regenerate(path=BASELINE, init=False, current=None, groups=None):
     if init:
         if os.path.exists(path):
             return ["%s exists — --init never overwrites a baseline" % path]
-        bad = []
     else:
         old = load_baseline(path)
-        bad = [r for r in check_size(current, old["size"])[0]]
-        bad += check_duplicates(groups, old["duplicates"])
+        bad = check_duplicates(groups, old["duplicates"])
+        if bad:
+            return bad
         kept = {r: w for r, w in old.get("justified", {}).items() if r in past}
-    if bad:
-        return bad
     _write_baseline(path, past, kept, duplicate_count(groups))
     return []
 
 
 def justify(rel, reason, path=BASELINE, current=None):
-    """THE EXPLICIT ACT (04b (1)): record ``rel``'s current size and the
-    one-line ``reason``.  Returns refusals; writes only when it is empty."""
+    """AN OPTIONAL NOTE (04c (1)): record the one-line ``reason`` beside
+    ``rel`` (and its current size); the report shows it.  Not a pass
+    condition.  Returns refusals; writes only when it is empty."""
     reason = " ".join((reason or "").split())
     if not reason:
         return ["--justify needs a reason: one line saying why %s is one "
-                "module" % rel]
+                "module (it is the note the master reads)" % rel]
     rel = os.path.relpath(os.path.abspath(rel), REPO) if os.path.isabs(rel) \
         else rel
     current = sizes() if current is None else current
@@ -352,7 +416,7 @@ def justify(rel, reason, path=BASELINE, current=None):
         return ["%s is not a tracked source file under %s"
                 % (rel, ", ".join(SIZE_ROOTS))]
     if current[rel] <= HARD:
-        return ["%s: %d lines — at or under %d needs no justification"
+        return ["%s: %d lines — at or under %d, nothing to note"
                 % (rel, current[rel], HARD)]
     old = load_baseline(path)
     size, just = dict(old["size"]), dict(old.get("justified", {}))
@@ -363,16 +427,18 @@ def justify(rel, reason, path=BASELINE, current=None):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("what", nargs="?", choices=("size", "dupes"))
+    p.add_argument("what", nargs="?", choices=("size", "funcs", "dupes"))
     p.add_argument("--top", type=int, default=10,
-                   help="dupes: groups to print (0 = all)")
+                   help="dupes / funcs: rows to print (0 = all)")
     p.add_argument("--near", action="store_true",
                    help="dupes: the near-duplicate groups (reported, not "
                         "gated)")
     p.add_argument("--justify", nargs=2, metavar=("PATH", "REASON"),
-                   help="record PATH's current size with a one-line reason")
+                   help="an optional one-line note shown beside PATH in "
+                        "the size report")
     p.add_argument("--regenerate", action="store_true",
-                   help="rewrite the baseline; refuses to raise any entry")
+                   help="re-snapshot the baseline; refuses only a risen "
+                        "duplicate count")
     p.add_argument("--init", action="store_true",
                    help="write the FIRST baseline; refuses if one exists")
     p.add_argument("--baseline", default=BASELINE)
@@ -399,11 +465,14 @@ def main(argv=None):
     base = load_baseline(a.baseline)
     bad = []
     if a.what in (None, "size"):
-        bad += print_size(sizes(), base["size"],
-                          justified=base.get("justified"))
+        print_size(sizes(), base["size"], justified=base.get("justified"))
+    if a.what in (None, "funcs"):
+        print_funcs(long_functions(), a.top)
     if a.what in (None, "dupes"):
         bad += print_dupes(duplicate_groups(), base["duplicates"], a.top)
-    print("RATCHETS " + ("PASS" if not bad else "FAIL"))
+    if a.what in (None, "dupes"):
+        print("DUPLICATE RATCHET " + ("PASS" if not bad else "FAIL")
+              + " (size and long functions are reports, never a gate)")
     return 1 if bad else 0
 
 

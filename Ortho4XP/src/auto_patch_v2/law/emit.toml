@@ -720,76 +720,13 @@ frontage_step_max_m = 2.4
 # `constraints.pad_fronting` is the one derivation site.
 pad_fronting_reach_m = 50.0
 pad_fronting_roles = ["apron"]
-# THE BANK AT THE PATCH BOUNDARY (owner RULINGS 2026-09-09e; spec §9).
-# Ortho4XP's mesh does NOT blend from the patch boundary to the DEM — it
-# drapes the raw DEM right outside the constrained ring (§8.4: a 16.8 m
-# cliff one triangle wide at HECA).  Outside every patch-boundary ring
-# the patch therefore emits a BANK FOOT ring ON THE DEM at plan distance
-# ``d = max(bank_min_width_m, |z_ring - DEM(foot)| / bank_slope)`` along
-# the outward normal; the mesh triangulates the bank between them (no
-# vertex is emitted in between).  ``bank_foot_smooth`` is the
-# second-difference weight along the foot chain that keeps the toe from
-# zigzagging (spec §9.4 deviation 1: it is applied to the plan distance,
-# the foot's z being the DEM itself).
+# THE BANK GRADE (owner RULINGS 2026-09-09e).  The patch-boundary bank
+# PASS is deleted (owner RULINGS 2026-10-04c (3); `bank_omit = true` had
+# shipped since 2026-09-13cy): the patch edge is the design ring meeting
+# the raw DEM.  These two keys outlive it — the platform collar, the foot
+# rows, the terrain edge and `[cockpit] cliff_grade` read them.
 bank_slope       = 0.33   # 1:3 — an embankment / cut slope a pilot reads as ground, not a wall
-bank_min_width_m = 5.0    # the narrowest bank: a ring level with its DEM still stands off the drape by this much
-bank_foot_smooth = 30.0   # the toe's smoothing weight, against a unit weight on the formula's own distance
-# THE LEVEL RINGS ARE DELETED (owner RULINGS 2026-09-09p (1) /
-# 2026-09-09t; spec §13).  09f-1 answered the mesh's graph-harmonic
-# squeeze by authoring the bank face with intermediate rings every
-# ``bank_ring_spacing_m``.  09t measured a level ring re-emitting the
-# FOOT's own edges wherever the bank is narrower than the level's offset
-# — duplicate constrained segments, and the +30+031 tile unbuildable —
-# and the squeeze surviving every spacing anyway.  ``bank_ring_spacing_m``
-# and ``bank_first_ring_m`` are GONE with the construction they sized:
-# the patch emits ONE foot ring per boundary and the MESH ENGINE gives the
-# annulus's free vertices an altitude linear in plan distance between the
-# two rings.
-# THE DAYLIGHT LINE (owner RULINGS 2026-09-09g; spec §11).  The fixed
-# point ``d = |z_ring - DEM(foot)| / bank_slope`` is the daylight point only
-# where the ground is smooth; where it is not it erases the very earthworks
-# the owner names.  The foot is instead the CIVIL-ENGINEERING DAYLIGHT
-# (catch) POINT: walking outward along the ring's normal in
-# ``bank_sample_m`` stations, the FIRST station where the 1:3 design slope
-# line (down for fill, up for cut, from the ring's design z) meets the DEM
-# within ``bank_daylight_tol_m``, never nearer than ``bank_min_width_m``,
-# never farther than ``bank_max_width_m`` (a ray that never daylights takes
-# the maximum and is reported by name).  Where the DEM inside the first
-# ``bank_min_width_m`` already slopes at or steeper than ``bank_slope`` in
-# the fill / cut direction the ground has its OWN bank and the foot is at
-# the minimum.  The toe smoothing (09f) is CUT wherever the raw daylight
-# distance jumps by more than ``bank_toe_break_m`` between neighbours: the
-# toe may jump where the ground does.
-# §37 (3) THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (owner RULINGS
-# 2026-09-13q KCLT item 8; Fable 2026-09-13).  Measured on the 1.0.324
-# KCLT products: the foot ring is emitted at EVERY station of the banked
-# region's boundary — 1,855 stations over 34.2 km — and 71.6 % of them
-# carry |z_ring - DEM(foot)| under 1.65 m, i.e. no earthwork at all, while
-# 451 chords run over 30 m and stand up to 5.6 m off the DEM mid-chord.
-# So a station is emitted only where the transition is LOAD-BEARING:
-# |z_ring - DEM(foot)| over ``bank_materiality_m``, which is DERIVED, not
-# typed — ``bank_min_width_m * bank_slope`` (1.65 m) is exactly the drop a
-# minimum-width bank carries, so below it the ring and the DEM meet inside
-# the narrowest bank the law knows and the mesh's own interpolation
-# carries the difference.  Each surviving RUN is emitted as its own chain
-# (padded by one station each side so the bank fades out on the ground
-# rather than ending mid-slope); inside a run no chord is longer than
-# ``bank_chord_max_m``, and a chord whose mid-point stands more than
-# ``bank_split_tol_m`` off the DEM is split further, never below
-# ``bank_min_width_m``.
-bank_chord_max_m    = 30.0
-bank_split_tol_m    = 1.0
-# THE OMIT ARM (owner request 2026-09-13): true emits NO bank_foot way at
-# all.  A measurement arm for the owner's standing question about the
-# bank_foot class (13ce / 13cm).  SHIPPED TRUE for app 1.0.330 by the
-# owner's order (RULINGS 2026-09-13cy: "turn off bank foot emission for
-# the next build so i can see output") — the owner's sim read of 1.0.330
-# is the bank's adjudication.
-bank_omit           = true
-bank_sample_m       = 2.0
-bank_daylight_tol_m = 0.3
-bank_max_width_m    = 200.0
-bank_toe_break_m    = 10.0
+bank_min_width_m = 5.0    # the narrowest bank / collar
 # THE MESH MUST HAVE VERTICES TO CARRY THE BLEND (owner RULINGS
 # 2026-09-09x).  ``O4_Mesh_Utils.bank_annulus_blend_values`` writes an
 # EXACT ruled altitude on every free vertex inside the annulus, but the

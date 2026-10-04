@@ -32,7 +32,6 @@ from ..constraints.eat import withdraw_trend_over_reach
 from ..constraints.taxi_trend import (TaxiTrendReport, taxi_trend_block,
                                       with_taxi_trend)
 from ..constraints.runway_profile import RUNWAY_FAMILY
-from ..emit.bank import BankReport, with_bank
 from ..emit.terrain_edge import with_terrain_edges
 from ..emit.graded import graded_surface
 from ..emit.osm_adapter import (PatchPaths, WeldReport, merge_sub_spacing,
@@ -1217,19 +1216,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         header.update(borrowed_apt_dat_stamp(
             airport.pack.borrowed_apt_dat_path))
         header.update(cfg.header_extra or {})
-        # THE BANK (owner RULINGS 2026-09-09e; ``emit/bank.py``, spec §9):
-        # the mesh does not blend, so the patch emits its own 1:3 bank out
-        # to the DEM outside every boundary ring.  Only the EMITTED surface
-        # carries it — the rebake plan below reads ``surf``, the pre-bank
-        # one (spec §9.2 A7).
-        brep = BankReport()
-        surf_out = with_bank(surf, pm, law, airport, brep)
         # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19.3 C12):
         # the edge segments published as open ways over the vertices they
         # already run through — the owner's KML read of where ground ends
-        surf_out = with_terrain_edges(surf_out, pm, law)
-        _say(brep.line(icao), out)
-        report["bank"] = _dc.asdict(brep)
+        surf_out = with_terrain_edges(surf, pm, law)
         # §39 (1) THE HAIRLINE LAW / THE SHORE WELD (owner RULINGS
         # 2026-09-13bk): the LAST thing done to the surface before it is
         # written, at the one site every ring passes through.  No emitted

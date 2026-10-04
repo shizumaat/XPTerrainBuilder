@@ -17,7 +17,7 @@ EQUALITY.  One value per exit, on the section at that station (the same
 join and not a tilt.
 
 The derivation lives here, in ``emit``, because the coverage is
-``emit/bank.coverage_polygon`` — ONE implementation of "the union of every
+``geom/coverage.coverage_polygon`` — ONE implementation of "the union of every
 planar face", the same polygon §37 (3)'s bank is cut against.  It is
 published as ``PlanarMap.road_coverage_join`` (vertex -> the ribbon
 altitude) by the pipeline, minted as ``Pin`` rows by
@@ -83,10 +83,10 @@ def road_coverage_joins(pm: PlanarMap, law: Law, profiles,
     ``profiles`` is ``preferred_road_z``'s own :class:`RoadProfiles` (its
     ways carry the clamp as ``z``); ``frame`` is §37 (7)'s route frame, so
     the join lands on the vertices of the LAST STATION INSIDE and on no
-    others.  ``coverage`` defaults to :func:`emit.bank.coverage_polygon`.
+    others.  ``coverage`` defaults to :func:`geom.coverage.coverage_polygon`.
     """
     from shapely.geometry import Point
-    from .bank import coverage_polygon
+    from ..geom.coverage import coverage_polygon
     rep: dict[str, _t.Any] = {"routes": 0, "exits": 0, "vertices": 0,
                               "max_step_m": 0.0}
     cov = coverage_polygon(pm) if coverage is None else coverage

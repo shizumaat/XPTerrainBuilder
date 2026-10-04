@@ -970,25 +970,6 @@ def _check_cross_refs(t: LawTables) -> None:
         if ct.default is not None:
             ks.append(float(ct.default))
     _check_design(t.emit.design, LawError, max(ks) if ks else None)
-    # §38 (3)/13an (e) THE SLIT IS NOT CLOSED BY A COINCIDENCE (owner
-    # RULINGS 2026-09-13an).  Until 13an the 2 x ``seam.half_width_m`` gap
-    # between two tile pieces was closed only because ``design.
-    # bank_min_width_m`` (5.0) happened to EQUAL ``seam.half_width_m``
-    # (5.0) — two independently typed constants — and the two collars'
-    # 1.6 mm miss was the SPLP texture tear.  ``emit/bank.py`` now unions
-    # the band into the coverage EXPLICITLY, so the closure no longer
-    # depends on this; the relation is asserted anyway, by name, so a
-    # future edit that would put the collar back in charge is refused at
-    # law load instead of being discovered in a mesh.
-    if t.emit.seam.half_width_m > 0.0 and (
-            t.emit.design.bank_min_width_m < t.emit.seam.half_width_m):
-        raise LawError(
-            f"emit.design.bank_min_width_m {t.emit.design.bank_min_width_m} < "
-            f"emit.seam.half_width_m {t.emit.seam.half_width_m}: the bank's "
-            "minimum-width collar must at least reach the tile-seam band's "
-            "half width (RULINGS 2026-09-13an; the band is unioned into the "
-            "coverage at emit/bank.py, and this keeps the two readings of "
-            "the seam from drifting apart)")
     # §44 (2) (owner RULINGS 2026-09-15f): the borrow key is a COVERAGE
     # FRACTION — 0 turns the borrow off, 1 fires it wherever a Global
     # Airports block exists; anything outside is not a coverage.

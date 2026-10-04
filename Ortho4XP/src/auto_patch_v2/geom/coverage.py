@@ -1,9 +1,10 @@
 """THE PATCH COVERAGE — one polygon, the union of every planar face.
 
-MOVED here from ``emit/bank`` (#59): ``airport/road_profile`` (the road
-clamp's band) and ``emit`` (the bank, the road join) both read it, and a
-producer may not import ``emit``.  ``geom`` is the leaf every layer may
-read, so the ONE implementation lives here; ``emit.bank`` re-exports it.
+MOVED here from the deleted ``emit/bank`` (#59; the bank pass itself went
+with owner RULINGS 2026-10-04c (3)): ``airport/road_profile`` (the road
+clamp's band) and ``emit/road_join`` both read it, and a producer may not
+import ``emit``.  ``geom`` is the leaf every layer may read, so the ONE
+implementation lives here.
 The map is read structurally (``faces`` / ``vertices`` /
 ``ring_vertices``) — ``geom`` imports nothing of v2.
 """

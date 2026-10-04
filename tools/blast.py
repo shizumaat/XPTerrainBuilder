@@ -1227,8 +1227,8 @@ def cmd_audit(idx, mutations=0, mutation_sample=None, ceiling=CHEAP_CEILING):
         bad += mutation_audit(s, mutation_sample or MUTATION_SAMPLE,
                               mutations, ceiling)
     # RULINGS 2026-10-04a (3): the duplicate ratchet lives in
-    # tools/ratchets.py (blast.py is already past 1,000 lines — 04b: no
-    # growth without a reason); the audit prints its groups, fails on a rise.
+    # tools/ratchets.py (a second responsibility, so a second module); the
+    # audit prints its groups and fails on a rise — the one gate (04c (2)).
     import ratchets
     bad += ["duplicates"] if ratchets.print_dupes(
         ratchets.duplicate_groups(),

@@ -47,6 +47,7 @@ from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of, unit_ref_o
 from ..model.platform import HELD, datum_vertices
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
+           "landing_rows", "landing_vertices",
            "TERRACE_RULING", "HOLD_RULING", "HOLD_DATUM_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
            "HOLD_RESIDUAL_RULING", "hold_sets", "hold_row",
@@ -181,12 +182,15 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
             elif o in cover:
                 # the COVERAGE EDGE (issue #223): the 1:3 bank, ONE-WAY with
                 # the PLATFORM leading — the rim follows the plate within the
-                # bank; the plate never follows the rim.  NO DEM datum: a
-                # weak ``ground_datum`` row here was near-inert at SPJC
-                # (<= 0.06 m on the spike ring, bending dominates) and broke
-                # the §20c single-solve locality twin (``test_v2qp``: the
-                # collar's bending is not affine, so the pull reached the
-                # apron through the plate — 0.95 m at its far corner)
+                # bank; the plate never follows the rim.  Its LEVEL inside a
+                # slack bank is the §23 ground datum (issue #302:
+                # ``solve/design_ground.coverage_edge_collar_vertices``) —
+                # without it HECA ``building75``'s rim was a near-null column
+                # (bending Σc² 0.0098) whose height the solve path chose.
+                # #223 had measured that datum breaking ``test_v2qp``
+                # (0.95 m through the plate): the coupling was the datum
+                # counting as a SHEET ANCHOR (the pad lost its body datum),
+                # which ``design_ground.ground_rim_vertices`` withdraws
                 n_cov += 1
                 rows.append(Diff(o, i, cap, d, src, follows=(o,)))
             elif o in terrace:
@@ -410,6 +414,66 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
             rows.append(Linear(tuple((q, -k) for q, k in terms), None, 0.0, src))
     STATS["platform_plane_rows"] = {"planes": n_planes, "flat_blocks": n_flat,
                                     "rows": len(rows)}
+    return rows
+
+
+def landing_vertices(planar: PlanarMap) -> dict[str, list[int]]:
+    """``{landing ref: its platform vertices}`` (rings and holes; the
+    collar excluded) over ``model.platform.LANDINGS`` — ONE reading, the
+    level rows and the DEM-datum withdrawal (``pads.pad_datum_withdrawn``)
+    ask it."""
+    from ..model.platform import LANDINGS
+    if not LANDINGS:
+        return {}
+    out: dict[str, set[int]] = {}
+    for f in planar.faces.values():
+        r = str(f.ref)
+        if r in LANDINGS:
+            vs = out.setdefault(r, set())
+            for ring in (f.ring, *f.holes):
+                vs.update(planar.ring_vertices(ring))
+    return {r: sorted(v) for r, v in out.items()}
+
+
+def landing_rows(planar: PlanarMap, law: Law,
+                 airport: Airport | None = None) -> list[Row]:
+    """THE RAMP LANDING IS HELD AT THE DECK'S LEVEL (owner RULINGS
+    2026-10-03e, #290): every platform vertex of a landing
+    (``planar/landing``) takes a HARD two-sided row ``z_v − z_D = y``
+    against its block's DATUM COLUMN ``D`` (``model.platform.
+    datum_vertices``) — ``y`` the deck's authored height at the landing.
+    The row reaches a groundside vertex, so it is a STAGE-2 row; D is a
+    constant there (stage 1's), which makes it one-way by construction:
+    the landing follows the block, the block and the airside never follow
+    the landing.  The ground around banks to it through the collar's own
+    1:3 rows (:func:`platform_collar_rows`, keyed on the ``#collar``
+    spelling).  A landing whose block has no datum column holds nothing
+    and is counted (``landings_no_datum``)."""
+    from ..model.platform import LANDINGS
+    STATS.pop("landing_rows", None)
+    if not LANDINGS:
+        return []
+    held = datum_vertices(planar, law)
+    rows: list[Row] = []
+    n = n_none = 0
+    for ref, vs in sorted(landing_vertices(planar).items()):
+        rec = LANDINGS[ref]
+        dv = held.get(rec["block"])
+        if dv is None:
+            n_none += 1
+            continue
+        y = float(rec["y"])
+        src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-03e the ramp "
+                     "landing held at its unit's level + the deck's y)",
+                     (f"landing:{ref}", ref, f"platform:{rec['block']}"))
+        n += 1
+        for v in vs:
+            if v == dv:
+                continue
+            rows.append(Linear(((v, 1.0), (dv, -1.0)), None, y, src))
+            rows.append(Linear(((v, -1.0), (dv, 1.0)), None, -y, src))
+    STATS["landing_rows"] = {"landings": n, "landings_no_datum": n_none,
+                             "rows": len(rows)}
     return rows
 
 

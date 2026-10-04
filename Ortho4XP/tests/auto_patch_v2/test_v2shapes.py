@@ -232,7 +232,9 @@ class _MouthPM:
     def __init__(self, east: str):
         V = _dc.make_dataclass("V", ["incident_faces"])
         E = _dc.make_dataclass("E", ["a", "b", "left_face", "right_face"])
-        F = _dc.make_dataclass("F", ["role", "ring", "holes"])
+        # ``ref``: a mouth's side reader asks whether a face is a mapped-road
+        # ribbon (``shape_mouths``, #100 round 4)
+        F = _dc.make_dataclass("F", ["role", "ring", "holes", ("ref", str, "")])
         self.faces = {10: F("apron", "r10", ()), 11: F(east, "r11", ())}
         self.edges = {0: E(1, 2, 10, None)}
         self.vertices = {0: V((10,)), 1: V((10,)), 2: V((10, 11)), 3: V((11,))}

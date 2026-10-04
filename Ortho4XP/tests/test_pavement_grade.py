@@ -47,9 +47,35 @@ def _xplane_available() -> bool:
             and (Path(root) / "Custom Data" / "CIFP").is_dir())
 
 
-pytestmark = pytest.mark.skipif(
-    not _xplane_available(),
-    reason="X-Plane install not found (set XPLANE_ROOT to override)",
+# RETIRED WITH THE V1 ENGINE (issue #303).  Every test in this module
+# builds or reads a V1 layout — ``conftest.cached_airport_layout`` ->
+# ``_build_cached`` -> ``auto_patch.pipeline.build_airport_pavement``, plus
+# ``auto_patch.verification`` / ``auto_patch.grade_graph_validate`` /
+# ``auto_patch.layout`` directly — and the v1 engine is retired (RULINGS
+# 2026-09-13au: the engine is v2 and only v2 since stage A, feecb525).
+# Stage B round 1 (c70d4ac2) cut the five seams but left the v1 tree ON
+# DISK, and round 2 — which DELETES ``src/auto_patch/`` and the 301 v1-only
+# test files this is one of (RULINGS 2026-09-13aw: "every v1-only test ...
+# the pre-existing v1 reds 13r named go with them") — has not landed.  So
+# this module kept COLLECTING and, wherever the corpus is mounted, kept
+# grading v1 geometry against the universal-zero caps v2 is being driven
+# to: the five ``test_pavement_grade[CYXY/SPLP/SPJC/KCLT/HECA]`` reds and
+# ``test_runway_longitudinal_grade[HECA]`` the 2026-08-05 banner below
+# pins, recorded again as pre-existing in RULINGS 2026-09-15c.
+#
+# They are skipped, not deleted: the deletion is round 2's own commit
+# (``blast.py`` on every file, the 104 modules and 301 test files in one
+# commit) and not a side effect of a suite-red fix.  They are NOT
+# re-pointed at v2 either: v2's acceptance census already exists as the
+# harness (``tools/harness/census.py`` / ``oracle.py`` over
+# ``check_grade.run_checks_law_true``) and the ``tests/auto_patch_v2/``
+# twins, and a second v2 instrument here is the census-wrapper defect
+# class CLAUDE.md names.
+pytestmark = pytest.mark.skip(
+    reason="v1 engine retired (RULINGS 2026-09-13au stage A / 13aw stage B; "
+           "issue #303) — this whole module grades v1 layouts; its deletion "
+           "belongs to v1retire round 2, and v2's acceptance frame is the "
+           "harness census, not this gate",
 )
 
 

@@ -66,6 +66,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # road's way leaves the patch coverage the patch takes the CORE
     # ribbon's altitude just outside — the two are one road.
     ("road_coverage_join", road_ramp.road_join_rows),
+    # OWNER RULINGS 2026-10-03c (#291): the lot at a placed wall's foot is
+    # flat to its building's pad (one-way, stage 2); the wall is the step
+    ("wall_terrace", road_ramp.wall_terrace_rows),
     ("groundside_ramp", groundside.groundside_ramps),
     ("transverse", transverse.transverse),
     # §34 (13) (3) (Fable 2026-09-15; RULINGS 2026-09-15y): the RAW PAIR
@@ -91,6 +94,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # COLLAR between a platform and its welded rim is a 1:3 bank
     ("platform_collar", platform.platform_collar_rows),
     ("platform_plane", platform.platform_plane_rows),
+    # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING held at
+    # its block's datum + the deck's y — a stage-2 row
+    ("landing_level", platform.landing_rows),
     # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): the plane is CONTACT-LED —
     # one one-way level row per welded collar contact, at the plane there
     ("platform_level", platform.platform_level_rows),

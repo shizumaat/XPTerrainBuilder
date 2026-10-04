@@ -74,7 +74,7 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import (is_value_role, role_side, strip_transverse_bound,
+from ..law.tables import (airside_stage_roles, is_value_role, role_side, strip_transverse_bound,
                           snap_margin_m, zone2_half_width_m, zone_bounds)
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
@@ -592,7 +592,13 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
             pad_pick[fid] = best[1]
     rim_of: dict[int, int] = {v: fid for fid, rim in ctx.rigid_rims.items() for v in rim}
     rows: list[Row] = []
+    # OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS: no tie row
+    # under a mapped-road ribbon — its own vertices and the strip vertices
+    # it shares; the road climbs at the road cap across the strip
+    road_cap = planar.road_cap_vertices(airside_stage_roles(law))
     for v in sorted(ctx.tie_pop):
+        if v in road_cap:
+            continue
         fid_rigid = rim_of.get(v)
         if fid_rigid is not None and pad_pick.get(fid_rigid) != v:
             continue

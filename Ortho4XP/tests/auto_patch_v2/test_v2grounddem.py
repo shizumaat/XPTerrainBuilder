@@ -26,6 +26,7 @@ import pytest
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.law.tables import zone_bounds
 from auto_patch_v2.solve import design as _design
+from auto_patch_v2.solve import design_assemble as _design_assemble
 from auto_patch_v2.solve.design import DesignReport, assemble
 from auto_patch_v2.solve.design_ground import ground_datum_vertices
 from tests.auto_patch_v2.test_crown import HALF_WIDTH, _rect, _rot  # noqa: F401
@@ -150,13 +151,25 @@ def _arm(law, dem, *, taxi: bool = False):                   # noqa: F811
 
 
 def _no_datum_arm(law, dem, **kw):                           # noqa: F811
-    """THE NO-DATUM ARM — the surface exactly as 09b (3) built it."""
-    real = _design.ground_datum_vertices
-    _design.ground_datum_vertices = lambda pm, lw: frozenset()
+    """THE NO-DATUM ARM — the surface exactly as 09b (3) built it.
+
+    The stub is installed on EVERY module that binds the name, not just
+    ``solve/design``: ``assemble`` reads it from its own globals, and
+    since issue #303 it lives in ``solve/design_assemble``.  Patching one
+    module left the other's binding real, which silently made this a
+    SECOND datum arm (the ground sat on its DEM, 0.04 m, and the
+    precondition below caught it).  A re-export keeps an import path; it
+    does not redirect a reader's global."""
+    mods = [m for m in (_design, _design_assemble)
+            if hasattr(m, "ground_datum_vertices")]
+    real = [m.ground_datum_vertices for m in mods]
+    for m in mods:
+        m.ground_datum_vertices = lambda pm, lw: frozenset()
     try:
         return _arm(law, dem, **kw)
     finally:
-        _design.ground_datum_vertices = real
+        for m, fn in zip(mods, real):
+            m.ground_datum_vertices = fn
 
 
 @pytest.fixture(scope="module")

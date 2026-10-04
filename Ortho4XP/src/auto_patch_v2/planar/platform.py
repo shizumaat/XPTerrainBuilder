@@ -331,6 +331,8 @@ def platform_split(base_regions, pad_regions, law: Law,
     in ``pad_blocks.BLOCK_PLANS``."""
     PLATFORMS.clear()
     HELD.clear()
+    from ..model.platform import LANDINGS
+    LANDINGS.clear()
     from .pad_blocks import BLOCK_PLANS, plan_blocks
     BLOCK_PLANS.clear()
     split_units: dict[str, list] = {}
@@ -502,6 +504,20 @@ def platform_split(base_regions, pad_regions, law: Law,
                          "samples_xy": None, "samples_held": None,
                          "samples_reach": None, "samples_ramp": None}
         counts["conforming_held"] = sum(1 for h in HELD.values() if h.get("conforming"))
+    # owner RULINGS 2026-10-03e (#290): the RAMP LANDINGS of a unit's
+    # viaduct — flat groundside pads with their collars, minted after every
+    # block is registered and after the ref passes above (neither renames
+    # a ``<unit>/landing<k>``)
+    from .landing import landing_regions
+    from ..law.tables import role_side as _side
+    out.extend(landing_regions(
+        out, split_units,
+        # EVERY airside region, the zones among them (a graded strip is a
+        # stage-1 face: MEASURED, HECA replay — a landing collar over one
+        # moved stage 1, taxi 294 nodes <= 0.08 m)
+        [r.polygon for r in base_regions if r.polygon is not None
+         and not r.polygon.is_empty and _side(law, r.role) == "airside"],
+        airport, law, float(grid), cap, counts))
     counts["platforms"] = sum(1 for p in PLATFORMS if not p.refused)
     counts["platforms_refused"] = sum(1 for p in PLATFORMS if p.refused)
     # THE REPORT ROW (#86 round 2): C and WHY per platform — ``cap`` where

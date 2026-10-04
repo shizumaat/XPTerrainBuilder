@@ -33,13 +33,12 @@ STANDING = """\
 - Worktree: `tools/harness/lane_worktree.sh up <lane> <base sha>`; branch `claude/<lane>`.
   `git merge main` FIRST if main has moved past the base sha.
 - `Ortho4XP/venv/bin/python tools/blast.py <file>` before editing each source
-  file. SIZE (owner 2026-10-04a/04b, `tools/ratchets.py`): no hard limit, but modules
-  past 1,000 lines should be rare — a file that passes 1,000, or one already past it
-  that grows, needs a recorded justification (`tools/ratchets.py --justify PATH "why"`,
-  in the diff the master reviews); 600 is a reported soft band. THE PRIORITY IS REUSE:
-  small one-responsibility modules, no second implementation of a thing that exists
-  (the duplicate count is ratcheted; `dupes --near` is reported). Never fold comments
-  to make a number.
+  file. SIZE (owner 2026-10-04c, `tools/ratchets.py`): 1,000 lines is a guide and a
+  warning, never a gate — the report (files past 1,000, files that grew, functions of
+  200+ lines) is read by the master at merge. Split by responsibility, never to make a
+  number. THE PRIORITY IS REUSE: small one-responsibility modules, no second
+  implementation of a thing that exists (the identical-body duplicate count IS a gate:
+  it may fall, never rise; `dupes --near` is reported).
 - ONE closing build through the harness (v2 is the only engine, RULINGS
   2026-09-13au — there is no `--engine` flag); base arms cut with
   `git archive <sha> src`, never another live checkout.

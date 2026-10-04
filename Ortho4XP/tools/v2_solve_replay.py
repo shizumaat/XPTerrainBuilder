@@ -2172,10 +2172,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             _base = pickle.load(_fh)
         from auto_patch_v2.pipeline.stage_one_map import late_rim_levels
         _free, _frep = late_followers(pm)
-        _fixed, _jrep = late_fixed(_base["pm"], _base["z"], pm, _free)
+        _ident = float(law.tables.emit.identity.min_distinct_spacing_m)
+        _fixed, _jrep = late_fixed(_base["pm"], _base["z"], pm, _free, _ident)
         _jrep["rim"] = late_rim_levels(
-            _base["pm"], _base["z"], pm, _fixed, _free,
-            float(law.tables.emit.identity.min_distinct_spacing_m) * 0.02)
+            _base["pm"], _base["z"], pm, _fixed, _free, _ident * 0.02)
         from auto_patch_v2.pipeline.stage_one_map import late_constraints
         from auto_patch_v2.law.tables import design as _design_law
         cs, _dropped = late_constraints(cs, _fixed, frozenset(

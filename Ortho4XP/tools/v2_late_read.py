@@ -74,8 +74,8 @@ class Late:
         self.cs = a["cs"]
         self.to_xy, self.to_ll = a["airport"].frame.transformers()
         self.free, self.frep = late_followers(self.pa)
-        self.fixed, self.jrep = late_fixed(self.pb, self.zb, self.pa, self.free)
         ident = float(self.law.tables.emit.identity.min_distinct_spacing_m)
+        self.fixed, self.jrep = late_fixed(self.pb, self.zb, self.pa, self.free, ident)
         self.jrep["rim"] = late_rim_levels(self.pb, self.zb, self.pa, self.fixed,
                                            self.free, ident * 0.02)
         self.rows, self.grep = gap_follow_rows(self.pa, self.law, self.fixed)
@@ -93,13 +93,8 @@ class Late:
         return sorted({_name(self.pa.faces[i]) for i in self.faces_of[v]})
 
     def follower_faces(self) -> list:
-        from auto_patch_v2.model.planar import (face_edge_ids, is_gap_ref,
-                                                is_osm_ribbon_ref)
-        gap = [f for f in self.pa.faces.values() if is_gap_ref(f.ref)]
-        ge = set().union(*[face_edge_ids(f) for f in gap]) if gap else set()
-        rib = [f for f in self.pa.faces.values()
-               if f.role == "service_road" and is_osm_ribbon_ref(f.ref)
-               and face_edge_ids(f) & ge]
+        from auto_patch_v2.model.planar import gap_follower_faces
+        gap, rib = gap_follower_faces(self.pa)
         return [*gap, *rib]
 
 
@@ -119,7 +114,7 @@ def read_join(L: Late, top: int, out=print) -> dict:
     import shapely
     from shapely.strtree import STRtree
     V = L.pa.vertices
-    foreign = sorted(j for j in V if j not in L.fixed and j not in L.free)
+    foreign = sorted(j for j in V if j not in L.fixed and j not in L.free)  # noqa: E501
     off = [abs(float(L.za[v]) - z) for v, z in L.fixed.items()]
     out(f"[{L.icao}] JOIN: followers "
         f"{ {k: v for k, v in L.frep.items() if k != 'follower_ribbon_refs'} }; {L.jrep}")

@@ -133,3 +133,33 @@ def test_a_yielding_pin_on_a_follower_is_released():
     assert dropped == {"Pin (yielding, on a follower)": 1}
     # without the register nothing is released
     assert len(list(som.late_constraints(ConstraintSet.from_rows(rows), {1: 10.0})[0].rows())) == 2
+
+
+def test_a_follower_one_emitted_point_with_a_constant_keeps_its_base_level():
+    """Spec §53 (18): the emitter merges two vertices closer than the
+    identity spacing, and the survivor may be the follower — it is then the
+    standing ring's emitted point and must not move."""
+    coords = COORDS + [(3.4, 1.0)]                 # 0.4 m from lot vertex 3
+    full = _pm(coords, FACES)
+    k = len(coords) - 1
+    base = _pm([coords[3], coords[k], coords[2]], [])
+    z = [3.0, 3.4, 2.0]
+    fixed, rep = som.late_fixed(base, z, full, {2, 7, k}, 0.5)
+    assert fixed == {3: 3.0, k: 3.4} and rep["held_at_identity"] == 1
+    # a follower further than the spacing stays an unknown (vertex 2, 1 m off)
+    assert 2 not in fixed
+    # without the spacing nothing is held
+    fixed0, rep0 = som.late_fixed(base, z, full, {2, 7, k})
+    assert fixed0 == {3: 3.0} and rep0["held_at_identity"] == 0
+
+
+def test_a_ribbon_touching_a_piece_at_one_vertex_follows():
+    """Spec §53 (18): pass C nodes a piece's corner into the ring of a
+    ribbon it only touches — that ribbon is re-shaped by the piece, so it is
+    a follower, never standing ground."""
+    #   a second ribbon whose ring carries gap vertex 2 and no gap edge
+    coords = COORDS + [(2.0, 2.0), (3.0, 2.0)]
+    faces = FACES + [("service_road", "small_roads:-8", (2, 15, 14))]
+    free, rep = som.late_followers(_pm(coords, faces))
+    assert rep["follower_ribbon_refs"] == ["small_roads:-7", "small_roads:-8"]
+    assert {14, 15} <= free

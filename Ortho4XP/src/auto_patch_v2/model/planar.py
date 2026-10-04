@@ -45,7 +45,7 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
            "is_late_ref", "GAP_PREFIX", "is_gap_ref", "face_edge_ids",
-           "face_vertex_set"]
+           "face_vertex_set", "gap_follower_faces"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
 #: (``planar/platform.py`` mints it).  ``#`` is the tree's split spelling,
@@ -835,6 +835,26 @@ GAP_PREFIX = "gap"
 def is_gap_ref(ref) -> bool:
     """A §53 gap piece."""
     return str(ref or "").split(":", 1)[0] == GAP_PREFIX
+
+
+def gap_follower_faces(pm) -> tuple[list, list]:
+    """THE LAST STAGE'S FOLLOWER FACES (spec §53 (9), (18)) — ONE derivation:
+    ``(gap pieces, follower ribbons)``.  A follower ribbon is a mapped-road
+    ribbon (:func:`is_osm_ribbon_ref`, role ``service_road``) whose ring
+    carries a VERTEX of a gap piece: a road through or along a pavement is
+    that pavement (the free-road ruling).  Contact at one vertex counts —
+    pass C nodes the piece's corner INTO the ribbon's ring, so a ribbon it
+    only touches is re-shaped by it and cannot be standing ground
+    (MEASURED at HECA: ``small_roads:-18892``, one new ring node 0.24 m off
+    its base edge)."""
+    gap = [f for f in pm.faces.values() if is_gap_ref(f.ref)]
+    gv: set[int] = set()
+    for f in gap:
+        gv |= face_vertex_set(pm, f)
+    ribbons = [f for f in pm.faces.values()
+               if f.role == "service_road" and is_osm_ribbon_ref(f.ref)
+               and not gv.isdisjoint(face_vertex_set(pm, f))] if gv else []
+    return gap, ribbons
 
 
 def is_late_ref(ref) -> bool:

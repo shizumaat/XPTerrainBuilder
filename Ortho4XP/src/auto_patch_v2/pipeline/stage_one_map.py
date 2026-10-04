@@ -37,7 +37,6 @@ import contextlib
 import dataclasses as _dc
 import typing as _t
 
-from ..model.planar import face_edge_ids as _face_edges
 from ..model.planar import face_vertex_set as _face_vertices
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
                                  Offset, Pin)
@@ -77,21 +76,15 @@ def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset()
     """THE LAST STAGE'S UNKNOWNS (spec §53 (9); owner RULINGS 2026-10-04o/q,
     master 2026-10-04: "pieces follow, never lead"): the vertices of every
     §53 GAP PIECE, and of every mapped-road RIBBON
-    (``model.planar.is_osm_ribbon_ref``) that shares a ring EDGE with a gap
-    piece — a road through or along a pavement is that pavement (the
-    free-road ruling) — LESS every vertex a face that is neither carries:
+    (``model.planar.is_osm_ribbon_ref``) whose ring carries a vertex of a gap
+    piece (``model.planar.gap_follower_faces``) — a road through or along a
+    pavement is that pavement (the free-road ruling) — LESS every vertex a face that is neither carries:
     a pad, an airside face, an apt.dat road, an existing lot keeps the level
     the earlier stages gave it, and the follower grades up to it.  A face of
     a ``soft_roles`` role (the adjacent-ground bands, which adopt their
     value) does not hold a vertex.  ``(vertices, report)``."""
-    from ..model.planar import is_gap_ref, is_osm_ribbon_ref
-    gap = [f for f in pm_full.faces.values() if is_gap_ref(f.ref)]
-    gap_edges: set = set()
-    for f in gap:
-        gap_edges |= _face_edges(f)
-    ribbons = [f for f in pm_full.faces.values()
-               if f.role == "service_road" and is_osm_ribbon_ref(f.ref)
-               and _face_edges(f) & gap_edges]
+    from ..model.planar import gap_follower_faces
+    gap, ribbons = gap_follower_faces(pm_full)
     follow = {f.id for f in gap} | {f.id for f in ribbons}
     free: set[int] = set()
     held: set[int] = set()
@@ -106,15 +99,30 @@ def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset()
     return free - held, rep
 
 
-def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int]
-               ) -> tuple[dict[int, float], dict]:
+#: metres of slack on the identity spacing: the emitter measures a pair in
+#: its own local metres, the map in the airport frame
+_IDENTITY_SLACK_M = 1e-3
+
+
+def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int],
+               identity_m: float = 0.0) -> tuple[dict[int, float], dict]:
     """THE LAST STAGE'S CONSTANTS: the base map's solved level of every
     vertex the full map carries (the CANONICAL join, by coordinate — the
     one ``StageOne.bind`` makes) that is not ``free``.  A full-map vertex
     the base map lacks and no follower owns is COUNTED (``unjoined``) and
-    left an unknown, never guessed."""
+    left an unknown, never guessed.
+
+    ONE EMITTED POINT WITH A STANDING VERTEX IS STANDING (spec §53 (18)):
+    a follower the base map carries that lies within ``identity_m`` (the
+    emitter's ``min_distinct_spacing_m``) of a constant is MERGED with it at
+    emit (``emit/osm_adapter.merge_sub_spacing``), and the survivor may be
+    the follower — its level is then the standing ring's emitted level.  It
+    keeps the base's level (``held_at_identity``).  MEASURED at HECA: lot
+    ``dsf:pol10``'s emitted ring carries ribbon ``big_roads:-1227``'s vertex
+    0.5 m from its own, which moved 0.03 m as a follower."""
     at = {tuple(v.xy): i for i, v in _items(pm_full.vertices)}
     fixed: dict[int, float] = {}
+    cand: dict[int, float] = {}
     miss = 0
     for i, v in _items(pm_base.vertices):
         j = at.get(tuple(v.xy))
@@ -122,10 +130,24 @@ def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int]
             miss += 1
         elif j not in free:
             fixed[j] = float(z_base[i])
+        else:
+            cand[j] = float(z_base[i])
+    held = 0
+    if identity_m > 0.0 and cand and fixed:
+        from scipy.spatial import cKDTree
+        fv = pm_full.vertices
+        tree = cKDTree([fv[j].xy for j in fixed])
+        near, _k = tree.query([fv[j].xy for j in cand],
+                              distance_upper_bound=identity_m + _IDENTITY_SLACK_M)
+        for (j, z), d in zip(list(cand.items()), near):
+            if d != float("inf"):
+                fixed[j] = z
+                held += 1
     n_full = len(pm_full.vertices)
     return fixed, {"base_vertices": len(pm_base.vertices), "full_vertices": n_full,
                    "base_unmapped": miss, "fixed": len(fixed),
-                   "unjoined": n_full - len(fixed) - len(free)}
+                   "held_at_identity": held,
+                   "unjoined": n_full - len(fixed) - len(free) + held}
 
 
 def late_rim_levels(pm_base, z_base, pm_full, fixed: dict[int, float],

@@ -38,8 +38,8 @@ from ..law import Law
 from ..law.tables import is_rigid_role, role_cap, snap_margin_m
 from ..model.constraints import Linear, Source
 from ..model.planar import (PlanarMap, face_edge_ids as _edges,
-                            face_vertex_set as _vertices, is_gap_ref,
-                            is_osm_ribbon_ref)
+                            face_vertex_set as _vertices, gap_follower_faces,
+                            is_gap_ref, is_osm_ribbon_ref)
 
 __all__ = ["GEN", "RULING", "gap_follow_rows", "reach_m"]
 
@@ -98,10 +98,7 @@ def gap_follow_rows(planar: PlanarMap, law: Law,
     # THE FOLLOWERS (master 2026-10-04): the pieces, and the mapped-road
     # ribbons sharing a ring edge with one — a ribbon is never lifted above
     # the fixed ground it runs beside
-    gap_edges = set().union(*[_edges(f) for f in gap])
-    ribbons = [f for f in faces.values()
-               if f.role == "service_road" and is_osm_ribbon_ref(f.ref)
-               and _edges(f) & gap_edges]
+    _gap, ribbons = gap_follower_faces(planar)
     todo = sorted({v for f in (*gap, *ribbons) for v in _vertices(planar, f)}
                   - set(fixed))
     pts = shapely.points([V[v].xy for v in todo])

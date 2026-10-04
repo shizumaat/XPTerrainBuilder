@@ -88,3 +88,46 @@ def test_the_package_imports_no_v1_module():
                 if t.startswith("auto_patch") and not t.startswith(allowed_prefixes):
                     offenders.append(f"{path.name}:{n.lineno}: {t}")
     assert not offenders, "law_support imports v1: " + "; ".join(offenders)
+
+
+def test_the_transverse_cap_rule_has_one_source_and_three_branches():
+    """``config.transverse_cap_for_longitudinal_cap`` is THE transverse
+    cap of a corridor whose longitudinal cap is ``cap_l``; the census is
+    its reader (``check_grade`` and ``law_support``'s pair law / graph).
+
+    Re-founded from the v1 twin ``test_lateral_cross_section`` (retired
+    with v1's emitter — RULINGS 2026-10-04j "coverage owed"): every
+    reader DELEGATES to the one definition, none re-types the branches,
+    and the branches answer the law's own constants."""
+    from auto_patch import config as CFG
+    import check_grade
+    from harness.law_support import grade_graph, grade_law
+
+    readers = (("check_grade", check_grade._transverse_cap_law),
+               ("grade_graph", grade_graph._transverse_cap_for_longitudinal_cap),
+               ("grade_law", grade_law.transverse_cap_for_longitudinal_cap))
+    for who, fn in readers:
+        # by ORIGIN, not identity: the suite can hold two instances of
+        # ``auto_patch.config`` (two sys.path entries reach one file)
+        assert fn is not None, f"{who} no longer delegates the cap rule"
+        assert fn.__module__.endswith("config"), who
+        assert fn.__qualname__ == "transverse_cap_for_longitudinal_cap", who
+    # the validator itself holds no second copy of the branches (the one
+    # in ``_transverse_cap_for_seg_cap`` is the import-failure fallback)
+    assert "TAXI_MAX_TRANSVERSE_NARROW" not in inspect.getsource(
+        check_grade._check_transverse_grade)
+
+    for cap_l, expect in (
+            (CFG.TAXI_MAX_GRADE_NARROW, CFG.TAXI_MAX_TRANSVERSE_NARROW),
+            (CFG.SERVICE_ROAD_MAX_GRADE, CFG.SERVICE_ROAD_MAX_TRANSVERSE),
+            (CFG.TAXI_MAX_GRADE, CFG.TAXI_MAX_GRADE),
+            (CFG.APRON_MAX_GRADE, CFG.APRON_MAX_GRADE),
+            (0.0123, 0.0123)):                 # any blended cap: isotropic
+        assert CFG.transverse_cap_for_longitudinal_cap(cap_l) == expect
+        assert check_grade._transverse_cap_for_seg_cap(cap_l) == expect
+    # the anisotropic branches are real: narrower across than along
+    assert CFG.TAXI_MAX_TRANSVERSE_NARROW < CFG.TAXI_MAX_GRADE_NARROW
+    assert CFG.SERVICE_ROAD_MAX_TRANSVERSE < CFG.SERVICE_ROAD_MAX_GRADE
+    # a float that is the narrow cap to within rounding still takes it
+    assert CFG.transverse_cap_for_longitudinal_cap(
+        CFG.TAXI_MAX_GRADE_NARROW + 1e-12) == CFG.TAXI_MAX_TRANSVERSE_NARROW

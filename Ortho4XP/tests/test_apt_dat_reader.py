@@ -568,3 +568,109 @@ class TestPaintedLines:
         assert apt.painted_lines == []
         assert APR.painted_taxi_centerlines(
             apt, lambda lon, lat: (lon, lat)) == []
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Arms the production build executes and no test did (RULINGS 2026-10-04j
+# "coverage owed"; measured on the OTHH tile build of lane ``objtests``):
+# the CUBIC bezier span (both nodes carry a handle) in the closed and the
+# open interpolators, the zero-chord guard, and the same-name duplicate
+# pavement drop in ``load_airport``.
+# ──────────────────────────────────────────────────────────────────────
+def _on_cubic(point, a, c1, c2, b, tolerance=1e-12):
+    """Is ``point`` on the cubic a,c1,c2,b (dense sampling)?"""
+    samples = APR._cubic_bezier(a, c1, c2, b, n_segments=4096)
+    return min((point[0] - x) ** 2 + (point[1] - y) ** 2
+               for x, y in samples) < tolerance
+
+
+class TestCubicSpans:
+    # A -> B with a handle on EACH node.  apt.dat rows are
+    # ``code lat lon ctrl_lat ctrl_lon``; (x, y) is (lon, lat).
+    A = ["112", "0.0000", "0.0000", "0.0004", "0.0000"]
+    B = ["112", "0.0000", "0.0010", "-0.0004", "0.0010"]
+    A_XY, A_CTRL = (0.0, 0.0), (0.0, 0.0004)
+    B_XY = (0.001, 0.0)
+    # B's stored handle is its OUTGOING one; the incoming control of the
+    # span is its mirror through B
+    B_MIRRORED = (0.001, 0.0004)
+
+    def test_a_closed_contour_samples_the_cubic(self):
+        rows = [self.A, self.B, ["113", "-0.0010", "0.0005"]]
+        ring = APR._interpolate_contour(rows, APR.DEFAULT_BEZIER_SEGMENTS)
+        start = ring.index(self.A_XY)
+        end = ring.index(self.B_XY)
+        between = ring[start + 1:end]
+        assert between, "the cubic span added no vertex"
+        for point in between:
+            assert _on_cubic(point, self.A_XY, self.A_CTRL,
+                             self.B_MIRRORED, self.B_XY)
+        # the curve bulges NORTH of the chord (both controls at +0.0004)
+        assert max(y for _x, y in between) > 0.0002
+
+    def test_an_open_polyline_samples_the_same_cubic(self):
+        line = APR._interpolate_open_polyline(
+            [self.A, ["116", "0.0000", "0.0010", "-0.0004", "0.0010"]],
+            APR.DEFAULT_BEZIER_SEGMENTS)
+        assert line[0] == self.A_XY and line[-1] == self.B_XY
+        assert len(line) > 2
+        for point in line[1:-1]:
+            assert _on_cubic(point, self.A_XY, self.A_CTRL,
+                             self.B_MIRRORED, self.B_XY)
+        closed = APR._interpolate_contour(
+            [self.A, self.B, ["113", "-0.0010", "0.0005"]],
+            APR.DEFAULT_BEZIER_SEGMENTS)
+        # ONE tessellation of one curve, whichever reader meets it
+        assert line == closed[closed.index(self.A_XY):
+                              closed.index(self.B_XY) + 1]
+
+    def test_a_corner_softening_cubic_stays_a_straight_chord(self):
+        tiny = APR.BEZIER_FLATTEN_DEV_DEG * 0.5     # well under the floor
+        a = ["112", "0.0000", "0.0000", f"{tiny:.9f}", "0.0005"]
+        # B's stored handle mirrors through B onto the chord's midpoint
+        b = ["116", "0.0000", "0.0010", f"{-tiny:.9f}", "0.0015"]
+        assert APR._interpolate_open_polyline(
+            [a, b], APR.DEFAULT_BEZIER_SEGMENTS) == [(0.0, 0.0), (0.001, 0.0)]
+        ring = APR._interpolate_contour(
+            [a, ["112"] + b[1:], ["113", "-0.0010", "0.0005"]],
+            APR.DEFAULT_BEZIER_SEGMENTS)
+        assert ring[ring.index((0.0, 0.0)) + 1] == (0.001, 0.0)
+
+    def test_a_zero_length_chord_never_divides(self):
+        point = (0.0005, 0.0005)
+        control = ((0.0006, 0.0005), (0.0005, 0.0006))
+        if APR.ADAPTIVE_BEZIER:
+            assert APR._effective_bezier_segments(point, control, point, 8) == 8
+            assert APR._effective_bezier_segments(point, control, point, 0) == 1
+        else:
+            assert APR._effective_bezier_segments(point, control, point, 8) == 8
+
+
+def _square_pavement(name, lat0, lon0, size=0.0030):
+    return (f"110 1 0.25 0.0 {name}\n"
+            f"111 {lat0:.7f} {lon0:.7f}\n"
+            f"111 {lat0:.7f} {lon0 + size:.7f}\n"
+            f"111 {lat0 + size:.7f} {lon0 + size:.7f}\n"
+            f"113 {lat0 + size:.7f} {lon0:.7f}\n")
+
+
+def test_a_pavement_drawn_twice_under_one_name_is_kept_once(tmp_path):
+    """SPJC's "Base Ramp" (owner 2026-05-04): the same region drawn twice
+    ~0.3 m apart.  Same NAME and a symmetric difference under 1 % of the
+    union is one feature; a different name, or a different place, is not."""
+    offset = 0.3 / 111320.0
+    path = tmp_path / "apt.dat"
+    path.write_text(
+        "I\n1100 Version\n\n1 100 0 0 ZDUP Duplicate Ramp Test\n"
+        + _square_pavement("Base Ramp", 10.0, 20.0)
+        + _square_pavement("Base Ramp", 10.0 + offset, 20.0 + offset)
+        + _square_pavement("Base Ramp", 10.01, 20.0)       # elsewhere
+        + _square_pavement("Other Ramp", 10.0, 20.0)       # another name
+        + "99\n", encoding="utf-8", newline="")
+    airport = APR.load_airport(str(path), "ZDUP")
+    assert [p.name for p in airport.pavements] == [
+        "Base Ramp", "Base Ramp", "Other Ramp"]
+    first, elsewhere, other = airport.pavements
+    assert first.polygon.bounds[1] == pytest.approx(10.0)   # the FIRST survives
+    assert elsewhere.polygon.bounds[1] == pytest.approx(10.01)
+    assert other.polygon.equals(first.polygon)

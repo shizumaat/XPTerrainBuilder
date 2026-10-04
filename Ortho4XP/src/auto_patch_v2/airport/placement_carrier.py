@@ -335,25 +335,19 @@ def bind_plan_overlaps(groups: _t.Sequence[_t.Sequence[int]],
     # union the GROUPS the bound bodies fall in
     gparent = list(range(len(groups)))
 
-    def gfind(a: int) -> int:
-        while gparent[a] != a:
-            gparent[a] = gparent[gparent[a]]
-            a = gparent[a]
-        return a
-
     root_group: dict[int, int] = {}
     for gi, g in enumerate(groups):
         for i in g:
             r = find_root(parent, i)
             if r in root_group:
-                ra, rb = gfind(root_group[r]), gfind(gi)
+                ra, rb = find_root(gparent, root_group[r]), find_root(gparent, gi)
                 if ra != rb:
                     gparent[ra] = rb
             else:
                 root_group[r] = gi
     out: dict[int, list[int]] = {}
     for gi, g in enumerate(groups):
-        out.setdefault(gfind(gi), []).extend(g)
+        out.setdefault(find_root(gparent, gi), []).extend(g)
     return [sorted(v) for _k, v in sorted(out.items(), key=lambda kv: min(kv[1]))]
 
 

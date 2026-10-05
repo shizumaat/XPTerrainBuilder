@@ -290,6 +290,14 @@ def test_dependency_direction():
             # layering is untouched.
             allowed = producers[pkg] | ({"pipeline"} if py.name == "__main__.py"
                                         else set())
+            # THE WORK POOL is the one thing of ``airport`` the verify stage
+            # may take (issue #412, ``verify/chord_work.py``: one pool for
+            # every stage, never a second) — ``airport/pool.py`` and nothing
+            # else of the package.
+            if pkg == "verify" and "airport" in imports:
+                assert set(re.findall(r"from \.\.airport(\.\w+)? import",
+                                      py.read_text(encoding="utf-8"))) == {".pool"}, py
+                allowed = allowed | {"airport"}
             for m in imports:
                 assert m in allowed, (py, m)
             continue

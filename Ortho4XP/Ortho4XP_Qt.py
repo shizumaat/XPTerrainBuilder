@@ -8,6 +8,20 @@ The legacy Tkinter UI and the command line remain available via Ortho4XP.py.
 import os
 import sys
 
+# FIRST, before any other work: claim the multiprocessing spawn bootstrap —
+# the same call, for the same reason, as the head of Ortho4XP.py.  On Windows
+# and Linux THIS file is the frozen engine: a spawned worker (the auto-patch
+# airport pool and its Manager, the v2 work pool of issue #362, the resource
+# tracker) is this executable re-exec'd as
+# `Ortho4XP_Qt --multiprocessing-fork …`, and PyInstaller's rthook only
+# DEFINES multiprocessing.freeze_support as the diverter.  Without this call
+# the child falls through every dispatch below and starts the Qt
+# application: one window per worker, a parent that never hears from them.
+# From source it is a no-op.  Parity twin: tests/test_frozen_spec_parity.py.
+if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
+
 # Deterministic builds, defense in depth: the pavement builder pins every
 # hash-order-sensitive iteration at the source, and the frozen executable
 # additionally starts with hash_seed=0 (bootloader OPTION in
@@ -71,6 +85,13 @@ if __name__ == "__main__" and "--proj-selfcheck" in sys.argv:
     _proj_error = O4_Proj_Runtime.preflight()
     print(_proj_error if _proj_error else "PROJ selfcheck OK")
     sys.exit(1 if _proj_error else 0)
+
+# The work pool"s self-check as a CLI (issue #362, RULINGS 2026-10-05d): the
+# frozen bundle spawns workers of ITSELF, shares memory with them and nests
+# under the airport pool — src/O4_Pool_Selfcheck.py carries the argument.
+if __name__ == "__main__" and "--pool-selfcheck" in sys.argv:
+    import O4_Pool_Selfcheck
+    sys.exit(O4_Pool_Selfcheck.main(sys.argv))
 
 # THE LERC DECODE WORKER (owner RULINGS 2026-09-12as (3) / 2026-09-13a (1)):
 # the elevation inset fetcher spawns ``sys.executable --lerc-decode IN OUT``

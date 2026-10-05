@@ -81,6 +81,13 @@ if __name__ == '__main__' and '--proj-selfcheck' in sys.argv:
     print(_proj_error if _proj_error else "PROJ selfcheck OK")
     sys.exit(1 if _proj_error else 0)
 
+# The work pool's self-check as a CLI (issue #362, RULINGS 2026-10-05d): the
+# frozen bundle spawns workers of ITSELF, shares memory with them and nests
+# under the airport pool — src/O4_Pool_Selfcheck.py carries the argument.
+if __name__ == '__main__' and '--pool-selfcheck' in sys.argv:
+    import O4_Pool_Selfcheck
+    sys.exit(O4_Pool_Selfcheck.main(sys.argv))
+
 # THE LERC DECODE WORKER (owner RULINGS 2026-09-12as (3)): the elevation
 # inset fetcher spawns this executable as `Ortho4XP --lerc-decode IN OUT`
 # to decode a LERC asset out of process (imagecodecs' LERC decoder and

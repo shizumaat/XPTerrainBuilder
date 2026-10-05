@@ -136,3 +136,32 @@ def test_the_jsonl_transport_pins_its_streams_before_it_repoints_stdout():
     assert pinned < repointed, (
         "jsonl.serve repoints sys.stdout at sys.stderr before pinning the "
         "streams")
+
+
+def test_every_entry_claims_the_spawn_bootstrap_first():
+    """Issue #362 (RULINGS 2026-10-05d): a spawned worker of a FROZEN
+    engine is the executable re-exec'd as ``<exe> --multiprocessing-fork``;
+    PyInstaller's runtime hook only DEFINES ``freeze_support`` as the
+    diverter.  ``Ortho4XP_Qt.py`` — the Windows/Linux engine — never called
+    it, so every pool worker there would have started the Qt application.
+    Both entries call it under the ``__main__`` guard ahead of every other
+    statement but the stdlib imports, and both dispatch the pool's
+    self-check."""
+    import ast as _ast
+    for name in ENTRIES:
+        tree = _entry_tree(name)
+        seen = None
+        for node in tree.body:
+            if isinstance(node, (_ast.Import, _ast.ImportFrom)) or (
+                    isinstance(node, _ast.Expr)
+                    and isinstance(node.value, _ast.Constant)):
+                continue                       # docstring, ``import os, sys``
+            seen = node
+            break
+        assert isinstance(seen, _ast.If), name
+        assert "__main__" in _ast.unparse(seen.test), name
+        assert "multiprocessing.freeze_support()" in _ast.unparse(seen), name
+        source = _source(name)
+        assert "--pool-selfcheck" in source, name
+        assert "O4_Pool_Selfcheck.main(sys.argv)" in source, name
+

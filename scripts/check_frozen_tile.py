@@ -74,7 +74,7 @@ What this does, and why every piece of it is the way it is:
 
 Usage::
 
-    check_frozen_tile.py <frozen-binary> [--pass tile|airport|both]
+    check_frozen_tile.py <frozen-binary> [--pass tile|airport|both|pool]
                          [--deadline S] [--airport-deadline S]
                          [--logs DIR] [--lat N] [--lon N] [--keep]
 """
@@ -2379,9 +2379,14 @@ def main(argv):
                         help="the frozen executable under test (omitted "
                              "only with --compare, which runs none)")
     parser.add_argument("--pass", dest="which", default="both",
-                        choices=("tile", "airport", "both",
+                        choices=("tile", "airport", "both", "pool",
                                  "lemd-elevation", "full-tile"),
                         help="which pass(es) to run (default both); "
+                             "pool makes the bundle run its own work pool "
+                             "(--pool-selfcheck: spawn, shared memory, "
+                             "nested under the airport pool, pooled == one "
+                             "core, clean teardown — issue #362; body in "
+                             "scripts/check_frozen_pool.py); "
                              "lemd-elevation is the NETWORK pass of issue "
                              "#121 (dispatch only, never a release gate)")
     parser.add_argument("--expect-refusal", dest="expect_refusal",
@@ -2491,6 +2496,15 @@ def main(argv):
     log_dir = os.path.abspath(arguments.logs)
 
     status = 0
+    if arguments.which == "pool":
+        # The pass's body lives beside this file (one responsibility per
+        # module); this tool stays the one entry a job runs.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import check_frozen_pool
+        print("== POOL (#362): the frozen bundle runs its own WORK POOL ==")
+        return check_frozen_pool.run_pool(
+            binary, repo_root, log_dir, deadline=arguments.deadline,
+            keep=arguments.keep, engine_python=arguments.engine_python)
     if arguments.which == "full-tile":
         lat = FULL_TILE_LAT if arguments.lat is None else arguments.lat
         lon = FULL_TILE_LON if arguments.lon is None else arguments.lon

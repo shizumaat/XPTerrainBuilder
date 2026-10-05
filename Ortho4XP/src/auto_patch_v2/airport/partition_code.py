@@ -197,7 +197,7 @@ def write_freeze_digest(src_root: str, out_dir: str, *,
     without the file would key the cache on its version again, silently.
 
     ``filename`` and ``digest`` make this the ONE writer of a freeze-time
-    digest file: ``auto_patch.provenance_code`` (#346) passes its own name
+    digest file: the patch gate's ``provenance_code`` (#346) passes its own name
     and its own whole-tree digest, having refused an empty one itself."""
     if digest is None:
         digest = freeze_digest(src_root)

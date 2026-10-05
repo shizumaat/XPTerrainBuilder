@@ -14,6 +14,16 @@ extension cache MISSES on a reading re-taken on new ground and the content
 digest the object-plan sidecar is held to moves.  D6 the cached reading
 asks the DEM through ``.z`` and nothing else, and ``pack_stage`` hands it
 the witness.
+
+L — A RESOURCE RESOLVED OUTSIDE THE PACK, BY CONTENT.  L1 a library
+``.obj`` a placement resolves to: one changed byte of the same size MISSES,
+an mtime-only touch HITS, a size change moves the key, a file that is gone
+moves the key — exactly the pack's own files' rule.  L2 one ``stat`` per
+resource however many placements name it, the pristine ``.anchor_bak`` is
+the file read, and a pack file is never stamped twice.
+
+B — THE BRIDGE WAYS.  B1 a bridge way that moved, appeared or stopped
+being a bridge moves the key; a way that is no bridge does not.
 """
 from __future__ import annotations
 
@@ -24,6 +34,7 @@ import ast
 import dataclasses as dc
 import importlib
 import inspect
+import os
 
 import numpy as np
 import pytest
@@ -206,3 +217,90 @@ def test_d6_the_reading_asks_the_dem_through_z_alone_and_pack_stage_hands_the_wi
     PB = importlib.import_module("auto_patch_v2.pipeline.build")
     src = inspect.getsource(PB.pack_stage)
     assert "_read_objects(\n" in src and "ground_witness(_fp, airport.dem)" in src
+
+
+# ── L: resources resolved outside the pack ──────────────────────────────
+
+def _lib(tmp: Path, text: str = "A\n800\nOBJ\n# tree\n") -> Path:
+    lib = tmp / "Library" / "trees" / "tree.obj"
+    lib.parent.mkdir(parents=True, exist_ok=True)
+    lib.write_text(text, encoding="utf-8", newline="")
+    return lib
+
+
+def _lib_key(root, dump, lib, n=1):
+    objs = [NS(path="Objects/Terminal.obj", resolved_path=str(root / "Objects" / "Terminal.obj"))]
+    objs += [NS(path="lib/trees/tree.obj", resolved_path=str(lib)) for _ in range(n)]
+    a = _airport(root, None, objs)
+    return a, PC.fingerprint(a, LAW, dump_path=dump, radius_deg=0.05)
+
+
+def test_l1_a_library_object_is_keyed_by_content(tmp_path):
+    root, dump, mod = _world(tmp_path)
+    lib = _lib(tmp_path)
+    a, fp = _lib_key(root, dump, lib)
+    path = PC.cache_path(a, mod, dump)
+    assert PC.write(path, fp, "payload") and PC.read(path, fp) == "payload"
+    st = lib.stat()
+    # an mtime-only touch (a library restored from a backup): the hash decides
+    os.utime(lib, (st.st_atime, st.st_mtime + 5.0))
+    _a, fp_t = _lib_key(root, dump, lib)
+    assert fp_t == fp and PC.read(path, fp_t) == "payload"
+    # one changed byte, the same size: it was a HIT (the key had the path alone)
+    lib.write_text("A\n800\nOBJ\n# treE\n", encoding="utf-8", newline="")
+    os.utime(lib, (st.st_atime, st.st_mtime + 9.0))
+    _a, fp_b = _lib_key(root, dump, lib)
+    assert fp_b == fp and PC.read(path, fp_b) is None
+    # a size change moves the key; so does the file going away
+    lib.write_text("A\n800\nOBJ\n# a taller tree\n", encoding="utf-8", newline="")
+    _a, fp_s = _lib_key(root, dump, lib)
+    assert fp_s != fp and PC.read(path, fp_s) is None
+    lib.unlink()
+    assert _lib_key(root, dump, lib)[1] not in (fp, fp_s)
+
+
+def test_l2_one_stat_per_resource_and_the_pristine_file_is_the_one_read(tmp_path, monkeypatch):
+    root, dump, _mod = _world(tmp_path)
+    lib = _lib(tmp_path)
+    _one, fp = _lib_key(root, dump, lib, n=1)
+    a, _fp500 = _lib_key(root, dump, lib, n=500)
+    stats: list[str] = []
+    real = os.stat
+    monkeypatch.setattr(PC.os, "stat", lambda p, *k, **kw: (stats.append(str(p)), real(p, *k, **kw))[1])
+    got = PC._outside_stamps(a, str(root))
+    assert [e[0] for e in got] == [str(lib)] and stats.count(str(lib)) == 1
+    assert not any("Terminal.obj" in e[0] for e in got)       # the walk has the pack's
+    monkeypatch.undo()
+    # the engine baked the library object: the loader reads the .anchor_bak
+    bak = Path(str(lib) + ".anchor_bak")
+    bak.write_bytes(lib.read_bytes())
+    lib.write_text("A\n800\nOBJ\n# baked, and longer\n", encoding="utf-8", newline="")
+    b = _airport(root, None, [
+        NS(path="Objects/Terminal.obj", resolved_path=str(root / "Objects" / "Terminal.obj")),
+        NS(path="lib/trees/tree.obj", resolved_path=str(bak))])
+    (live, size, _mt, read), = PC._outside_stamps(b, str(root))
+    assert (live, read, size) == (str(lib), str(bak), bak.stat().st_size)
+    assert PC.fingerprint(b, LAW, dump_path=dump, radius_deg=0.05) == fp
+
+
+# ── B: the bridge ways the deck signature reads ─────────────────────────
+
+def _way(wid, pts, **tags):
+    return NS(id=wid, points=tuple(pts), tags=dict(tags))
+
+
+def test_b1_the_bridge_ways_are_in_the_key(tmp_path):
+    root, dump, _mod = _world(tmp_path)
+
+    def key(*ways):
+        return PC.fingerprint(_airport(root, None, ways=ways), LAW, dump_path=dump,
+                              radius_deg=0.05)
+    road = _way(7, [(0.0, 0.0), (90.0, 0.0)], highway="service")
+    bridge = _way(8, [(0.0, 5.0), (60.0, 5.0)], highway="service", bridge="yes")
+    base = key(road, bridge)
+    assert key(road, bridge) == base
+    assert key(bridge) == base                                # no bridge, no reading
+    assert key(_way(7, [(0.0, 0.0), (95.0, 0.0)], highway="service"), bridge) == base
+    assert key(road) != base                                  # the bridge is gone
+    assert key(road, _way(8, [(0.0, 5.0), (61.0, 5.0)], highway="service", bridge="yes")) != base
+    assert key(_way(7, [(0.0, 0.0), (90.0, 0.0)], highway="service", bridge="yes"), bridge) != base

@@ -35,6 +35,15 @@ THE FINGERPRINT covers everything the reading is a function of:
   NAME, the writer's ``CUT_MARK`` in its head, AND no placement of this
   run resolves to it (:func:`_pack_content`) — a body the reading does
   parse stays in the key like any authored file;
+* every resource a placement resolves to OUTSIDE the pack (issue #382:
+  a library object, 8,640 stock placements at OTHH) under the SAME rule —
+  its size in the key, its mtime and content hash in the header
+  (:func:`_outside_stamps`).  They were in the key by path alone (the
+  resolved set below), so an edited library ``.obj`` was a HIT;
+* the BRIDGE WAYS of the airport's OSM (issue #382): the deck signature
+  (``deck_signature.classify``) reads which placed plates span a mapped
+  bridge, so the ways it is handed are part of the reading
+  (:func:`_bridge_digest`);
 * the LAW TABLES (``law_tables_digest``'s sha256) and the ruleset key;
 * the FRAME the geometry is placed in (its CRS and origin) — every
   coordinate in the result is in it;
@@ -103,7 +112,8 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
 CACHE_VERSION = 10  # issue #382 (lane key382): the header carries the DEM
                     # samples the reading took (``"ground"``) and the
                     # resources resolved OUTSIDE the pack join the pristine
-                    # stamps.  A v9 payload has neither, so it cannot say
+                    # stamps (and the OSM bridge ways the key).  A v9
+                    # payload has neither, so it cannot say
                     # which ground it was read on: refused, never repaired.
 # was 9:            # issue #222 (lane snap222, owner RULINGS 2026-10-02v
                     # (4)): every cached partition on disk was read through
@@ -238,6 +248,46 @@ def _pack_content(ents: _t.Sequence[tuple[str, int, float, str]],
         except OSError:
             continue
     return [e for e in ents if e[0] not in minted]
+
+
+def _outside_stamps(airport, pack_root: str) -> list[tuple[str, int, float, str]]:
+    """``(live path, size, mtime, read path)`` of every resource a
+    placement of ``airport`` resolves to OUTSIDE ``pack_root`` — the pack
+    walk's own tuple, so the key, the header and :func:`_stamps_hold`
+    treat a library file exactly as they treat a pack file.  Named by its
+    LIVE absolute path and read where the loader read it (the pristine
+    ``.anchor_bak`` where there is one).  A resolved file that is gone
+    stamps as size ``-1``.  One ``stat`` per resource, not per placement."""
+    from .pack import live_path_of
+    root = os.path.normcase(os.path.abspath(pack_root)) + os.sep
+    out: dict[str, tuple[str, int, float, str]] = {}
+    for o in getattr(airport, "dsf_objects", None) or ():
+        read = getattr(o, "resolved_path", None)
+        if not read:
+            continue
+        read = str(read)
+        live = os.path.abspath(live_path_of(read))
+        if live in out or os.path.normcase(live).startswith(root):
+            continue
+        try:
+            st = os.stat(read)
+            out[live] = (live, int(st.st_size), float(st.st_mtime), read)
+        except OSError:
+            out[live] = (live, -1, 0.0, read)
+    return sorted(out.values())
+
+
+def _bridge_digest(airport) -> str:
+    """sha256 of the bridge ways the deck signature is handed
+    (``deck_signature.bridge_lines`` of the airport's OSM ways): each
+    one's id and points, in order."""
+    h = hashlib.sha256()
+    ways = getattr(airport, "osm_ways", None) or ()
+    if ways:
+        from .deck_signature import bridge_lines
+        for wid, line in bridge_lines(ways):
+            h.update(repr((wid, tuple(line.coords))).encode()); h.update(b"\n")
+    return h.hexdigest()
 
 
 #: ``fingerprint -> pristine stamps`` of the fingerprints this process
@@ -409,7 +459,7 @@ def fingerprint(airport, law, *, dump_path: str | None,
     ents = (pristine or {}).get(pack_root) or pristine_stamps(pack_root)
     if not ents:
         return None                     # no pristine reading: no cache
-    ents = _pack_content(ents, pack_root, airport)
+    ents = _pack_content(ents, pack_root, airport) + _outside_stamps(airport, pack_root)
     for rel, size, _mt, _read in ents:
         h.update(f"{rel}:{size}".encode()); h.update(b"\n")
     from .pack import AUTHORED_BACKUP_SUFFIX
@@ -428,6 +478,7 @@ def fingerprint(airport, law, *, dump_path: str | None,
     # issue #88: the resolved-placement set (library-index resolution)
     rd = resolved_digest(airport)
     h.update(f"resolved:{rd[0]}:{rd[1]}|".encode())
+    h.update(f"bridges:{_bridge_digest(airport)}|".encode())
     fp = h.hexdigest()
     _STAMPS[fp] = list(ents)
     _RESOLVED[fp] = rd

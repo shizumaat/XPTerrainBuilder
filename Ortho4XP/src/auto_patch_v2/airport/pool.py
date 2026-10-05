@@ -62,6 +62,7 @@ from __future__ import annotations
 import concurrent.futures as _cf
 import multiprocessing as _mp
 import os
+import pickle
 import sys
 import time
 import typing as _t
@@ -415,3 +416,27 @@ def attach(spec: _t.Mapping[str, tuple]) -> dict[str, np.ndarray]:
             arrays[name] = arr
         _ATTACHED[:] = [key, blocks, arrays]
     return _ATTACHED[2]
+
+
+# ── one object every task of a map reads, shipped once ───────────────────
+
+def share_object(obj: _t.Any) -> SharedArrays:
+    """``obj`` pickled ONCE into shared memory, for a map whose every task
+    reads the same thing (a cluster's bodies, a unit's footprints): a task
+    carries the small ``.spec`` and its worker calls :func:`shared_object`.
+    Raises as :class:`SharedArrays` does — the caller then runs serial."""
+    raw = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
+    return SharedArrays({"pickle": np.frombuffer(raw, dtype=np.uint8)})
+
+
+#: the object of the ONE spec this process last read: ``[block, object]``
+_OBJECT: list = [None, None]
+
+
+def shared_object(spec: _t.Mapping[str, tuple]) -> _t.Any:
+    """The object behind a :func:`share_object` ``spec``, unpickled once
+    per process (the previous one is dropped)."""
+    block = spec["pickle"][0]
+    if _OBJECT[0] != block:
+        _OBJECT[:] = [block, pickle.loads(attach(spec)["pickle"].tobytes())]
+    return _OBJECT[1]

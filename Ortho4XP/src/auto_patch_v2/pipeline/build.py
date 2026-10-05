@@ -501,7 +501,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _pulse.tick("reading the connectors")
         _stamped = getattr(_part, "connectors", None)
         _verdicts = _cverdicts(_dc.replace(airport, partition=_dc.replace(
-            _part, connectors=None)), law)
+            _part, connectors=None)), law, pool=_wpool)
         _sub["connectors"] = time.perf_counter() - _t
         if _cached_clusters is not None and _stamped != _verdicts:
             _cached_clusters = None

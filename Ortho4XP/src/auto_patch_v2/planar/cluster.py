@@ -147,7 +147,7 @@ def _floor_split_m(law: Law) -> float:
     return float(law.tables.structures.placement.floor_split_m)
 
 
-def connector_verdicts(airport: Airport, law: Law) -> tuple:
+def connector_verdicts(airport: Airport, law: Law, pool: _t.Any = None) -> tuple:
     """unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
     CONNECTOR VERDICT for this airport's pack — every §16g (6) connector
     SOLID or CUT (``airport.footprint_connector.solid_connectors``).
@@ -156,7 +156,10 @@ def connector_verdicts(airport: Airport, law: Law) -> tuple:
     derived here on the DEM (the only ground at planar time), which is
     what a replay of a capture taken before the stamp does.  The pipeline
     stamps the SAME result on the partition, so the rebake plan carries it
-    to the object stage and the two readers cannot disagree."""
+    to the object stage and the two readers cannot disagree.
+
+    ``pool`` (the pack stage's work pool, issue #362) reads the topology's
+    contacts and sheets; the verdicts are the ones no pool gives."""
     from ..airport.footprint_connector import solid_connectors, verdicts_of
     part = getattr(airport, "partition", None)
     if part is None or not getattr(part, "units", ()):
@@ -187,7 +190,7 @@ def connector_verdicts(airport: Airport, law: Law) -> tuple:
         step_max_m=(float(law.tables.structures.building_pad.platform_collar_max_m)
                     * float(law.tables.emit.design.bank_slope)),
         sheet_chain_min_fraction=_sheet_chain_min_fraction(law),
-        counts=counts)
+        counts=counts, pool=pool)
     WHY.update({k: v for k, v in counts.items()})
     return got
 

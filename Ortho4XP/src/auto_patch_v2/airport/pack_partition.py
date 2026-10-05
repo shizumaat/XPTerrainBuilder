@@ -701,7 +701,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               scatter_members=scatter_members,
                               piece_touch_m=float(
                                   law.tables.structures.placement.footprint_touch_m),
-                              attrs=part_attrs)
+                              attrs=part_attrs, pool=pool)
     counts["scatter_parts"] = sum(1 for q in part.parts if q.scatter)
     parts_by_member = _parts_by_member(part, to_ll_batch)
     for mi, (key, path, _oid) in enumerate(member_ref):

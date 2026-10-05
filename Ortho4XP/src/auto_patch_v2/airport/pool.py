@@ -39,6 +39,10 @@ The contract a caller relies on:
 * **the heartbeat keeps ticking**: completions are recorded on
   ``model.pulse`` (``what done/n unit``); the wait wakes every
   :data:`TICK_S`.
+* **big arrays are SHARED, never pickled per task**: the parent puts them
+  in :class:`SharedArrays` (one shared-memory block each, copied once) and
+  ships its small ``spec``; a worker calls :func:`attach` and reads the same
+  pages.  The parent closes it when the map is done.
 * **every wait is bounded**: the result wait by ``stall_s``, the teardown by
   :data:`TEARDOWN_S` (then ``terminate``, then ``kill``).
 
@@ -54,10 +58,13 @@ import sys
 import time
 import typing as _t
 
+import numpy as np
+from multiprocessing import shared_memory as _shm
+
 from ..model import pulse as _pulse
 
-__all__ = ["WorkPool", "budget", "configure", "set_share", "TICK_S",
-           "TEARDOWN_S", "STALL_S"]
+__all__ = ["WorkPool", "SharedArrays", "attach", "budget", "configure",
+           "set_share", "TICK_S", "TEARDOWN_S", "STALL_S"]
 
 #: seconds between wake-ups of a result wait (the heartbeat's grain)
 TICK_S = 1.0
@@ -279,3 +286,72 @@ class WorkPool:
             return got
         return [fn(local, t) for t in _pulse.each(list(tasks), kw.get("what") or "pool",
                                                  kw.get("unit", ""))]
+
+
+# ── arrays every worker reads, shipped once ──────────────────────────────
+
+class SharedArrays:
+    """Named numpy arrays in shared memory (module doc).  ``spec`` is what
+    a task carries: ``{name: (block name, dtype, shape)}``.  Raises
+    ``OSError`` when the machine will not give the memory — the caller
+    then runs its serial code.  Use as a context manager; :meth:`close`
+    unlinks the blocks."""
+
+    def __init__(self, arrays: _t.Mapping[str, np.ndarray]) -> None:
+        self._blocks: list = []
+        self.spec: dict[str, tuple[str, str, tuple]] = {}
+        self.nbytes = 0
+        try:
+            for name, arr in arrays.items():
+                arr = np.ascontiguousarray(arr)
+                blk = _shm.SharedMemory(create=True, size=max(1, arr.nbytes))
+                self._blocks.append(blk)
+                np.ndarray(arr.shape, arr.dtype, buffer=blk.buf)[...] = arr
+                self.spec[name] = (blk.name, arr.dtype.str, tuple(arr.shape))
+                self.nbytes += arr.nbytes
+        except BaseException:
+            self.close()
+            raise
+
+    def __enter__(self) -> "SharedArrays":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def close(self) -> None:
+        blocks, self._blocks = self._blocks, []
+        for blk in blocks:
+            for step in (blk.close, blk.unlink):
+                try:
+                    step()
+                except Exception:
+                    pass
+
+
+#: the ONE spec this process is attached to: ``[key, blocks, arrays]``
+_ATTACHED: list = [None, [], {}]
+
+
+def attach(spec: _t.Mapping[str, tuple]) -> dict[str, np.ndarray]:
+    """The arrays of a :class:`SharedArrays` ``spec`` as READ-ONLY views,
+    attached once per process (the previous spec is released)."""
+    key = tuple(sorted((k, v[0]) for k, v in spec.items()))
+    if _ATTACHED[0] != key:
+        for blk in _ATTACHED[1]:
+            try:
+                blk.close()
+            except Exception:
+                pass
+        blocks, arrays = [], {}
+        for name, (block, dtype, shape) in spec.items():
+            try:
+                blk = _shm.SharedMemory(name=block, track=False)
+            except TypeError:              # an interpreter before 3.13
+                blk = _shm.SharedMemory(name=block)
+            blocks.append(blk)
+            arr = np.ndarray(tuple(shape), np.dtype(dtype), buffer=blk.buf)
+            arr.flags.writeable = False
+            arrays[name] = arr
+        _ATTACHED[:] = [key, blocks, arrays]
+    return _ATTACHED[2]

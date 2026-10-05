@@ -276,3 +276,107 @@ def test_the_placement_reading_through_a_pool_is_the_serial_reading(world):
     # no pool: the same call answers None and the reader reads here
     objs, rep, _c = _read(world, lambda cache, jobs, rl: W.placements_ahead(None, jobs, rl))
     assert T.value_of(objs) == T.value_of(want_objs) and rep == want_rep
+
+
+# ── item 4: the narrow contact pass — verdicts ahead, the loop replayed ──
+
+def _contact_world():
+    """A lattice of boxes that touch, nearly touch and overlap, in a few
+    members, so the pass skips joined pairs, flushes mid-way and doubts."""
+    rng = np.random.default_rng(362)
+    members = []
+    for mi in range(40):
+        comps = []
+        for k in range(6):
+            x, z = float(rng.integers(0, 12)) * 2.0, float(rng.integers(0, 12)) * 2.0
+            gap = float(rng.choice([0.0, 0.004, 0.03, 0.4]))
+            comps.append(_box(x + gap, z, 2.0, 2.0, 3.0 + k, y0=float(rng.integers(0, 2))))
+        members.append(comps)
+    return members
+
+
+def _narrow_inputs(tmp_path):
+    members = []
+    for mi, comps in enumerate(_contact_world()):
+        path = _write_obj(tmp_path / f"m{mi}.obj", comps)
+        cache = O.ResourceCache(THICK)
+        o = _placement(tmp_path, f"dsf:obj{mi}", f"m{mi}.obj", (0.0, 0.0))
+        members.append((o, cache.geometry(path), list(enumerate(cache.components(path)))))
+    parts = C.placed_parts(members)
+    bp = C._broad_pairs(parts, 0.01)
+    pend = [(int(a), int(b)) for a, b in bp.tolist()]
+    return parts, pend
+
+
+@pytest.mark.parametrize("budget,chunk", [(10**9, 50_000), (10**9, 200), (40, 200), (10**9, 1)])
+def test_the_replay_of_recorded_verdicts_is_the_narrow_pass(tmp_path, budget, chunk):
+    parts, pend = _narrow_inputs(tmp_path)
+    assert len(pend) > 300
+    uf0 = C._UnionFind(len(parts))
+    want, want_un = C._narrow_pass(parts, pend, 0.01, budget, chunk, uf0)
+    assert want and len(want) < len(pend)             # some touch, some are skipped
+    nrows, flags = C.narrow_outcomes(parts, pend, 0.01, budget, chunk)
+    # order-free: any blocking of the pairs records the same verdicts
+    cut = len(pend) // 3
+    a = C.narrow_outcomes(parts, pend[:cut], 0.01, budget, 7)
+    b = C.narrow_outcomes(parts, pend[cut:], 0.01, budget, 10**9)
+    assert np.array_equal(np.concatenate([a[0], b[0]]), nrows)
+    assert np.array_equal(np.concatenate([a[1], b[1]]), flags)
+    uf1 = C._UnionFind(len(parts))
+    got, got_un = C._narrow_replay(parts, pend, nrows, flags, chunk, uf1)
+    assert got == want and got_un == want_un
+    assert [uf1.find(i) for i in range(len(parts))] == [uf0.find(i) for i in range(len(parts))]
+    assert vars(uf1) == vars(uf0) or all(
+        np.array_equal(np.asarray(x), np.asarray(y))
+        for x, y in zip(vars(uf1).values(), vars(uf0).values()))
+    if budget == 40:
+        assert want_un > 0 and (flags & C.DOUBT).any()
+
+
+@pytest.mark.parametrize("n", sorted({2, N}))
+def test_the_pooled_narrow_pass_reads_the_parts_from_shared_memory(tmp_path, monkeypatch, n):
+    from auto_patch_v2.airport import pool as P
+    parts, pend = _narrow_inputs(tmp_path)
+    monkeypatch.setattr(C, "NARROW_POOL_MIN_PAIRS", 1)
+    want = C.narrow_outcomes(parts, pend, 0.01, 10**9, 500)
+    with P.WorkPool(workers=n, out=lambda s: None) as pool:
+        got = C.narrow_ahead(pool, parts, pend, 0.01, 10**9, 500)
+        assert pool.tasks_done >= 1
+    assert np.array_equal(got[0], want[0]) and np.array_equal(got[1], want[1])
+    assert C.narrow_ahead(None, parts, pend, 0.01, 10**9, 500) is None
+    # the whole partition, pooled against serial
+    def run(pool):
+        return C.partition([(o, g, c) for o, g, c in _members(tmp_path)], 0.01, 1.0,
+                           10**9, 0.5, 300, pool=pool)
+    serial = run(None)
+    with P.WorkPool(workers=n, out=lambda s: None) as pool:
+        pooled = run(pool)
+        assert pool.tasks_done >= 1
+    assert pooled.contacts == serial.contacts and pooled.abutments == serial.abutments
+    assert (pooled.pairs_tested, pooled.pairs_unproved, pooled.pools, pooled.structures) \
+        == (serial.pairs_tested, serial.pairs_unproved, serial.pools, serial.structures)
+
+
+def _members(tmp_path):
+    out = []
+    for mi in range(40):
+        path = str(tmp_path / f"m{mi}.obj")
+        cache = O.ResourceCache(THICK)
+        out.append((_placement(tmp_path, f"dsf:obj{mi}", f"m{mi}.obj", (0.0, 0.0)),
+                    cache.geometry(path), list(enumerate(cache.components(path)))))
+    return out
+
+
+def test_shared_arrays_are_read_only_views_and_are_released():
+    from auto_patch_v2.airport import pool as P
+    src = {"a": np.arange(12, dtype=np.int64).reshape(4, 3), "e": np.zeros((0, 3))}
+    with P.SharedArrays(src) as sh:
+        got = P.attach(sh.spec)
+        assert np.array_equal(got["a"], src["a"]) and got["e"].shape == (0, 3)
+        assert not got["a"].flags.writeable
+        assert P.attach(sh.spec) is got               # attached once
+        name = sh.spec["a"][0]
+    P._ATTACHED[:] = [None, [], {}]
+    from multiprocessing import shared_memory
+    with pytest.raises(FileNotFoundError):
+        shared_memory.SharedMemory(name=name)

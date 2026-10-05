@@ -48,9 +48,11 @@ import numpy as np
 
 from ..model.frame import XY
 from . import obj8 as _obj8
+from . import pool as _pool
 
 __all__ = ["PlacedPart", "Partition", "partition", "BaseIndex", "Extension",
-           "base_index", "extend", "PartAttrs", "part_attrs", "member_attrs"]
+           "base_index", "extend", "PartAttrs", "part_attrs", "member_attrs",
+           "narrow_outcomes", "narrow_ahead", "narrow_block"]
 
 
 @_dc.dataclass(frozen=True)
@@ -1025,6 +1027,195 @@ def _narrow_pass(parts: _t.Sequence[PlacedPart], pairs: _t.Sequence[tuple[int, i
     return edges, unproved
 
 
+# ── THE NARROW PASS ON A WORK POOL (issue #362) ──────────────────────────
+#
+# A pair's verdict is a function of the two parts alone: the rows its two
+# directions stack, whether any of them comes within ε (TOUCH) and whether
+# a direction went over budget (DOUBT).  Only what the pass DOES with a
+# verdict is sequential — skip a pair already joined, merge on doubt at
+# once, union a batch's touches when ``chunk_rows`` rows have been stacked.
+# So the workers read the verdict of EVERY pending pair (the serial pass
+# skips the joined ones untested: measured 28 % at OTHH, 31 % at HECA,
+# ``docs/perf/measure362-pairs.md``) and :func:`_narrow_replay` walks
+# :func:`_narrow_pass`'s own loop over the recorded verdicts — the same
+# skips, the same flush points, the same unions in the same order.
+
+TOUCH, DOUBT = 1, 2
+
+#: fewer pending pairs than this are not worth a pool
+NARROW_POOL_MIN_PAIRS = 20_000
+
+
+def narrow_outcomes(parts: _t.Sequence, pairs: _t.Sequence[tuple[int, int]],
+                    eps: float, budget: int, chunk_rows: int
+                    ) -> tuple[np.ndarray, np.ndarray]:
+    """Per pair of ``pairs``: the rows its two directions stack (what
+    :func:`_narrow_pass` adds to its batch) and its flags (:data:`TOUCH`,
+    :data:`DOUBT`).  Order-free: a row's distance does not depend on the
+    rows stacked beside it, so any blocking of ``pairs`` gives these
+    arrays.  ``parts`` needs ``pts`` / ``tris`` / ``tri_lo`` / ``tri_hi`` /
+    ``box_min`` / ``box_max`` only."""
+    e2 = eps * eps
+    nrows = np.zeros(len(pairs), dtype=np.int64)
+    flags = np.zeros(len(pairs), dtype=np.uint8)
+    buf: list[list[np.ndarray]] = [[], [], [], [], []]
+    rows = 0
+
+    def flush() -> None:
+        nonlocal rows
+        if buf[0]:
+            d = _point_tri_dist2_rows(*(np.concatenate(x) for x in buf[:4]))
+            ids = np.concatenate(buf[4])
+            flags[np.unique(ids[d <= e2])] |= TOUCH
+        for x in buf:
+            x.clear()
+        rows = 0
+
+    for k, (x, y) in enumerate(pairs):
+        pa, pb = parts[x], parts[y]
+        for src, dst in ((pa, pb), (pb, pa)):
+            r = _narrow_rows(src, dst, eps, budget)
+            if r is None:
+                continue
+            if r is True:
+                flags[k] |= DOUBT
+                continue
+            pts, ti = r
+            t = dst.tris[ti]
+            buf[0].append(pts); buf[1].append(dst.pts[t[:, 0]])
+            buf[2].append(dst.pts[t[:, 1]]); buf[3].append(dst.pts[t[:, 2]])
+            buf[4].append(np.full(pts.shape[0], k))
+            nrows[k] += pts.shape[0]
+            rows += pts.shape[0]
+        if rows >= chunk_rows:
+            flush()
+    flush()
+    return nrows, flags
+
+
+def _narrow_replay(parts: _t.Sequence[PlacedPart], pairs: _t.Sequence[tuple[int, int]],
+                   nrows: np.ndarray, flags: np.ndarray, chunk_rows: int,
+                   uf: _UnionFind) -> tuple[list[tuple[int, int]], int]:
+    """:func:`_narrow_pass` over RECORDED verdicts (:func:`narrow_outcomes`
+    of every pair): its loop line for line, with the geometry replaced by
+    the record.  Same edges in the same order, same ``unproved``, same
+    union-find."""
+    edges: list[tuple[int, int]] = []
+    unproved = 0
+    batch: list[tuple[int, int]] = []        # the batch's TOUCHING pairs, in order
+    rows = 0
+    nrows, flags = nrows.tolist(), flags.tolist()
+
+    def flush() -> None:
+        nonlocal rows
+        for a, b in batch:
+            if uf.union(a, b) or parts[a].member == parts[b].member:
+                edges.append((a, b))
+        batch.clear()
+        rows = 0
+
+    for k, (x, y) in enumerate(pairs):
+        if uf.find(x) == uf.find(y) and parts[x].member != parts[y].member:
+            continue
+        if flags[k] & TOUCH:
+            batch.append((x, y))
+        rows += nrows[k]
+        if flags[k] & DOUBT:
+            unproved += 1
+            if uf.union(x, y) or parts[x].member == parts[y].member:
+                edges.append((x, y))
+        if rows >= chunk_rows:
+            flush()
+    flush()
+    return edges, unproved
+
+
+class _PartView:
+    """The six arrays the narrow pass reads of one part."""
+
+    __slots__ = ("pts", "tris", "tri_lo", "tri_hi", "box_min", "box_max")
+
+
+class _SharedParts:
+    """``parts[pid]`` over a :class:`pool.SharedArrays` of the placed parts
+    (:func:`_share_parts`): views into the shared pages, never a copy."""
+
+    def __init__(self, arrays: _t.Mapping[str, np.ndarray]) -> None:
+        self._a = arrays
+        self._seen: dict[int, _PartView] = {}
+
+    def __getitem__(self, pid: int) -> _PartView:
+        v = self._seen.get(pid)
+        if v is None:
+            a = self._a
+            p0, p1 = a["pts_off"][pid], a["pts_off"][pid + 1]
+            t0, t1 = a["tri_off"][pid], a["tri_off"][pid + 1]
+            v = _PartView()
+            v.pts, v.tris = a["pts"][p0:p1], a["tris"][t0:t1]
+            v.tri_lo, v.tri_hi = a["tri_lo"][t0:t1], a["tri_hi"][t0:t1]
+            v.box_min, v.box_max = a["box_min"][pid], a["box_max"][pid]
+            if len(self._seen) > 4096:
+                self._seen.clear()
+            self._seen[pid] = v
+        return v
+
+
+def _share_parts(parts: _t.Sequence[PlacedPart], pairs: np.ndarray) -> dict:
+    """The arrays of the parts ``pairs`` names, stacked (a part no pair
+    names takes no room), and the pairs themselves."""
+    used = np.zeros(len(parts), dtype=bool)
+    used[pairs.reshape(-1)] = True
+    ps = [p for p, u in zip(parts, used.tolist()) if u]
+    pn = np.array([p.pts.shape[0] if u else 0 for p, u in zip(parts, used.tolist())],
+                  dtype=np.int64)
+    tn = np.array([p.tris.shape[0] if u else 0 for p, u in zip(parts, used.tolist())],
+                  dtype=np.int64)
+    cat = lambda xs, w, dt: (np.concatenate(xs) if xs
+                             else np.zeros((0, w), dtype=dt))      # noqa: E731
+    return {"pts": cat([p.pts for p in ps], 3, float),
+            "tris": cat([np.asarray(p.tris, dtype=np.int64) for p in ps], 3, np.int64),
+            "tri_lo": cat([p.tri_lo for p in ps], 3, float),
+            "tri_hi": cat([p.tri_hi for p in ps], 3, float),
+            "pts_off": np.concatenate(([0], np.cumsum(pn))),
+            "tri_off": np.concatenate(([0], np.cumsum(tn))),
+            "box_min": np.array([p.box_min for p in parts], dtype=float).reshape(-1, 3),
+            "box_max": np.array([p.box_max for p in parts], dtype=float).reshape(-1, 3),
+            "pairs": pairs}
+
+
+def narrow_block(_state, task: tuple) -> tuple[np.ndarray, np.ndarray]:
+    """THE POOLED UNIT: :func:`narrow_outcomes` of pairs ``lo:hi`` of the
+    shared pair list, read off the shared parts."""
+    spec, lo, hi, eps, budget, chunk_rows = task
+    arrays = _pool.attach(spec)
+    return narrow_outcomes(_SharedParts(arrays), arrays["pairs"][lo:hi].tolist(),
+                           eps, budget, chunk_rows)
+
+
+def narrow_ahead(pool: "_pool.WorkPool | None", parts: _t.Sequence[PlacedPart],
+                 pairs: _t.Sequence[tuple[int, int]], eps: float, budget: int,
+                 chunk_rows: int) -> tuple[np.ndarray, np.ndarray] | None:
+    """:func:`narrow_outcomes` of every pair, from ``pool`` — or ``None``
+    (no pool, too few pairs, no shared memory): the serial pass runs."""
+    n = len(pairs)
+    if pool is None or not pool.parallel or n < NARROW_POOL_MIN_PAIRS:
+        return None
+    try:
+        shared = _pool.SharedArrays(
+            _share_parts(parts, np.asarray(pairs, dtype=np.int64).reshape(-1, 2)))
+    except OSError:
+        return None
+    with shared:
+        step = max(2_000, -(-n // (pool.workers * 16)))
+        tasks = [(shared.spec, lo, min(lo + step, n), eps, budget, chunk_rows)
+                 for lo in range(0, n, step)]
+        got = pool.try_map(narrow_block, tasks,
+                           what="pack partition: narrow contacts", unit="pair blocks")
+    if got is None:
+        return None
+    return (np.concatenate([g[0] for g in got]), np.concatenate([g[1] for g in got]))
+
+
 def _abutment_pairs(parts: _t.Sequence[PlacedPart], anchor_of_member: _t.Sequence[int],
                     gap_m: float, extent_min_m: float, spacing_m: float,
                     uf: "_UnionFind") -> list[tuple[int, int]]:
@@ -1088,8 +1279,8 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
               abutment_spacing_m: float = 0.0,
               scatter_members: _t.Collection[int] = (),
               piece_touch_m: float = 0.0,
-              attrs: "_t.Sequence[_t.Sequence[PartAttrs] | None] | None" = None
-              ) -> Partition:
+              attrs: "_t.Sequence[_t.Sequence[PartAttrs] | None] | None" = None,
+              pool: "_pool.WorkPool | None" = None) -> Partition:
     """Parts, the spanning contact edges, and the pool / structure counts
     (module doc).  With ``elevated_base_m`` given (RULINGS 2026-09-09s
     (2)) an ELEVATED part's feet are dropped: only the GROUND parts carry
@@ -1118,7 +1309,13 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
     pend = [(int(a), int(b)) for a, b in bp.tolist()
             if uf.find(int(a)) != uf.find(int(b))
             or parts[int(a)].member == parts[int(b)].member]
-    found, unproved = _narrow_pass(parts, pend, eps, budget, chunk_rows, uf)
+    # ``pool`` (issue #362): every pending pair's verdict from the workers,
+    # then this pass's own loop over the record (:func:`_narrow_replay`)
+    ahead = narrow_ahead(pool, parts, pend, eps, budget, chunk_rows)
+    if ahead is not None:
+        found, unproved = _narrow_replay(parts, pend, ahead[0], ahead[1], chunk_rows, uf)
+    else:
+        found, unproved = _narrow_pass(parts, pend, eps, budget, chunk_rows, uf)
     edges.extend(found)
     # THE PIECE EDGES (§B.2 (4)): the scatter pieces' only contacts
     if len(solid) != len(parts):

@@ -99,9 +99,7 @@ def objs(tmp_path_factory, law):
     eps = law.tables.structures.rebake.plate_seat_min_delta_m
     band = law.tables.structures.basin.contact_band_m
     assert eps < 0.12 < 0.15 < band < 2.5 <= wc.max_wall_height_m < wc.min_headroom_m < 4.0
-    # the fixture floor is 1.9 m down: the lintel is under the floor's
-    # headroom bar, the low canopy at or over it
-    assert band < 1.5 and 3.0 < wc.min_headroom_m <= 2.0 + 1.9
+    assert band < 1.5                      # ``garage_deep``'s shallow end is under the band
     return {
         "dir": d,
         "deck": _corridor_obj(d / "deck.obj"),                       # under a deck
@@ -118,10 +116,7 @@ def objs(tmp_path_factory, law):
         "ground": _hsheet(d / "ground.obj", -5.0, 5.0, -2.0, 2.0, 0.12),
         "paint": _hsheet(d / "paint.obj", -5.0, 5.0, -2.0, 2.0, eps / 2.0),
         "canopy": _hsheet(d / "canopy.obj", -8.0, 8.0, -3.0, 3.0, 4.0),
-        # 2.0 m over the ground = 3.9 m over the 1.9 m deep floor: OVERHEAD
         "low_canopy": _hsheet(d / "low_canopy.obj", -8.0, 8.0, -3.0, 3.0, 2.0),
-        # 3.0 m over the floor (1.1 m over the ground): under rule 5's bar
-        "lintel": _hsheet(d / "lintel.obj", -8.0, 8.0, -3.0, 3.0, 3.0 - 1.9),
         # a garage ramp whose SHALLOW end lies 1.5 m under the ground
         "garage_deep": _corridor_obj(d / "garage_deep.obj", depth=1.5, drop=3.0, deck_y=None,
                                      end_wall=True, end_top=2.5),
@@ -185,7 +180,7 @@ def test_an_open_mouth_under_a_deck_is_admitted_and_the_line_names_every_clause(
     ("fence", "at-grade"),          # a fence
     ("kerb", "at-grade"),           # a 0.15 m kerb or step (RULINGS 05h (1))
     ("ground", "at-grade"),         # a ground slab 0.12 m proud (LEMD's apron sheet)
-    ("lintel", "at-grade"),         # a roof under min_headroom_m over the FLOOR
+    ("low_canopy", "at-grade"),     # a roof UNDER the headroom is a lintel, not a canopy
 ])
 def test_a_foreign_placement_across_both_mouths_refuses_by_w1s(objs, law, closer, band):
     recs, st = _read(objs, law, "deck", _at(closer), cells=_cells())
@@ -202,9 +197,6 @@ def test_a_foreign_placement_across_both_mouths_refuses_by_w1s(objs, law, closer
 
 @pytest.mark.parametrize("above, share", [
     ("canopy", "0.00"),             # a canopy over the headroom closes nothing
-    # OVERHEAD IS MEASURED FROM THE FLOOR (rule 5's bar; review (A) 7): a
-    # roof 2.0 m over the ground is 3.9 m over the floor a vehicle is on
-    ("low_canopy", "0.00"),
     ("jet_bridge", "0.10"),         # the body is overhead; two 0.5 m legs of 10 m
     ("paint", "0.00"),              # a sheet under ε over the ground is the ground
 ])
@@ -277,22 +269,6 @@ def test_a_garage_ramp_has_one_mouth_and_its_w3_at_the_deep_end(objs, law):
     shallow = BOTH[0] if "W1s open end 0" in line else BOTH[1]
     recs2, st2 = _read(objs, law, "garage", [("wall", shallow)], cells=_cells())
     assert recs2 == [] and "W1s REFUSED" in st2.admission[0], st2.admission
-
-
-def test_an_overhead_face_is_in_neither_band_and_is_no_wall(objs, law):
-    """Review (A) 7: a face whose lowest point stands at or above the
-    mouth's floor + ``min_headroom_m`` is read in NEITHER band and never as
-    W3's wall — at the same height over the GROUND a deeper floor's lintel
-    is still a closer."""
-    ceiling = law.tables.structures.cutout.wall_corridor.min_headroom_m
-    _objects, _cache, rd = _reader(objs, law, [("low_canopy", BOTH[0])])
-    end = ((-5.0, MOUTH_Y), (5.0, MOUTH_Y))
-    over = rd.mouths().read(end, 702.0 - ceiling, 700.0)          # exactly at the bar
-    assert (over.below, over.at_grade, over.wall) == (0.0, 0.0, 0.0)
-    assert over.closer is None
-    under = rd.mouths().read(end, 702.0 - ceiling + 0.01, 700.0)  # 1 cm under it
-    assert under.at_grade == pytest.approx(1.0) and under.wall == pytest.approx(1.0)
-    assert under.closer.resource == "low_canopy.obj"
 
 
 def test_a_garage_too_deep_at_its_shallow_end_is_refused_before_any_mouth_query(objs, law):

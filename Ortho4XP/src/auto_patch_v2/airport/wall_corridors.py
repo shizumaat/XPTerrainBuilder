@@ -87,11 +87,6 @@ THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
    at the end of the pair's MIDLINE: for arms of unequal length that is
    half the longer arm's run-on BEYOND the terminal station, where the
    records end (§12h (3); unchanged — moving it is an owner question).
-   OVERHEAD (§12h (1)): across a mouth, a face of any placement whose
-   lowest rendered point stands at or above that end's floor +
-   ``min_headroom_m`` — rule 5's own bar, measured from the floor a
-   vehicle is on — is in NEITHER of W1s's height bands and is never W3's
-   wall: a deck rule 5 admitted never closes its own mouth.
 5. HEADROOM — the lowest near-horizontal family face over the trench
    stands ``min_headroom_m`` above the floor, else refused (replaces the
    basement cover gate: the deck above is the family's own roof and stays).

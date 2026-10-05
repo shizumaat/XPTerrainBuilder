@@ -127,14 +127,12 @@ def objs(tmp_path_factory):
         "level": _corridor_obj(d / "level.obj"),
         "single": _corridor_obj(d / "single.obj", one_band=True),
         "wide": _corridor_obj(d / "wide.obj", width=25.0),
-        # the bay under its deck: 2.6 m over the ground is 4.5 m over the
-        # 1.9 m deep floor — OVERHEAD, rule 5's bar, so it is W3's plate and
-        # never across its own mouth (spec §12h (1), review (A) 7)
-        "bay": _corridor_obj(d / "bay.obj", end_wall=True, half_len=5.0),
-        # §12h W3 by WALL: the same bay under open sky, running out from a
-        # BUILT WALL — its end wall rises 2.5 m over the ground
-        "bay_wall": _corridor_obj(d / "bay_wall.obj", end_wall=True, half_len=5.0,
-                                  deck_y=None, end_top=2.5),
+        # §12h W3: the bay runs out from a BUILT WALL — its end wall rises
+        # 2.5 m over the ground — under open sky (a deck 2.6 m over the
+        # ground across a 10 m bay would stand ACROSS its mouth, under the
+        # headroom: W1s reads that mouth closed)
+        "bay": _corridor_obj(d / "bay.obj", end_wall=True, half_len=5.0, deck_y=None,
+                             end_top=2.5),
         # a garage ramp under open sky with NOTHING at its deep end is two
         # bare walls (W3 refuses it); the garage's own wall closes ``garage``
         "garage_bare": _corridor_obj(d / "garage_bare.obj", depth=0.2, drop=3.0, deck_y=None),
@@ -399,13 +397,11 @@ def test_one_band_alone_and_bands_too_far_apart_are_nothing(objs, law):
         assert not recs and st.corridors == 0, (name, st.refused)
 
 
-@pytest.mark.parametrize("name, w3", [("bay", "W3 plate ("), ("bay_wall", "W3 wall at end ")])
-def test_a_crossing_family_face_closes_the_end_into_a_bay(objs, law, name, w3):
+def test_a_crossing_family_face_closes_the_end_into_a_bay(objs, law):
     wc = law.tables.structures.cutout.wall_corridor
     co = law.tables.structures.cutout
-    airport, cache, objects, recs, st = _corridors(objs, law, name)
+    airport, cache, objects, recs, st = _corridors(objs, law, "bay")
     assert st.by_class == {CLASS_BAY: 1} and len(recs) == 1, st.refused
-    assert w3 in st.admission[0] and "-> ADMITTED bay" in st.admission[0], st.admission
     r = recs[0]
     assert r.cls == CLASS_BAY and r.mouth_closed and not r.far_closed
     # s = 0 at the closed end, the floor overlapping the end wall

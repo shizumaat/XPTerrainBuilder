@@ -193,6 +193,20 @@ def _is_environ_get(node):
             and node.args[0].value.startswith("O4_"))
 
 
+def _literal_import(node):
+    """The module a DYNAMIC import names with a string literal —
+    ``importlib.import_module("a.b")`` / ``__import__("a.b")`` — or None.
+    A test that loads its subject this way is an importer the static
+    ``import`` nodes never show (issue #377)."""
+    f = node.func
+    name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+    if name in ("import_module", "__import__") and node.args \
+            and isinstance(node.args[0], ast.Constant) \
+            and isinstance(node.args[0].value, str):
+        return node.args[0].value
+    return None
+
+
 def parse_all(roles):
     """One AST pass: import edges, symbol edges, env flags, role literals."""
     paths = scan_paths()
@@ -257,6 +271,8 @@ def parse_all(roles):
             elif isinstance(node, ast.Import):
                 for a in node.names:
                     hit(a.name, rel)
+            elif isinstance(node, ast.Call) and _literal_import(node):
+                hit(_literal_import(node), rel)      # importlib / __import__
             elif isinstance(node, ast.Call) and _is_environ_get(node):
                 flag = node.args[0].value
                 env_reads[flag].add(rel)
@@ -1162,9 +1178,61 @@ def mutation_audit(shards, sample, n, ceiling=CHEAP_CEILING):
     return bad
 
 
-GT = (r"(?:from\s+(?:[.\w]*\.)?{s}\s+import"          # from [pkg.]mod import x
-      r"|import\s+(?:[.\w]*\.)?{s}\b"                 # import [pkg.]mod
-      r"|from\s+[.\w]+\s+import\s+[^\n]*\b{s}\b)")    # from pkg import mod
+# THE RECALL GROUND TRUTH (issue #377).  It is a TEXT read, independent of
+# the AST pass it audits — and it must name the SAME module the index card
+# names.  It used to grep the bare STEM, so once a second module of one
+# stem existed (``verify/pads.py`` beside ``constraints/pads.py``,
+# ``pipeline/__main__.py`` beside ``planar/__main__.py``, ``model/
+# platform.py`` beside the stdlib's) every importer of the NAMESAKE was
+# booked as a miss of the sampled module: recall read 0.796 on an index
+# with no missing edge.  The truth is now the dotted name each import
+# statement SPELLS (a relative one resolved against its file's package),
+# compared with the sampled module's own key.
+_GT_FROM = re.compile(r"from\s+(?P<mod>[.\w]+)\s+import\s+(?P<names>[^\n]*)")
+_GT_IMPORT = re.compile(r"(?<![.\w])import\s+(?P<mods>[\w.]+(?:\s*,\s*[\w.]+)*)")
+
+
+def _spelled_modules(rel, text):
+    """Every dotted module name an import statement in ``text`` spells:
+    ``from M import a, b`` yields ``M``, ``M.a`` and ``M.b``; ``import M``
+    yields ``M``.  A relative ``M`` is resolved against ``rel``'s package
+    (src only — a tools/tests file has none and its relative import names
+    nothing indexed)."""
+    out, pkg = set(), pkg_parts(rel)
+    for m in _GT_FROM.finditer(text):
+        mod = m.group("mod")
+        level = len(mod) - len(mod.lstrip("."))
+        if level:
+            if pkg is None or level - 1 > len(pkg):
+                continue
+            tail = mod.lstrip(".")
+            mod = ".".join(pkg[:len(pkg) - (level - 1)] + ([tail] if tail else []))
+        if not mod:
+            continue
+        out.add(mod)
+        out.update(mod + "." + n for n in re.findall(r"[A-Za-z_]\w*",
+                                                     m.group("names")))
+    for m in _GT_IMPORT.finditer(text):
+        out.update(x.strip() for x in m.group("mods").split(","))
+    return out
+
+
+def _spells(key, dotted):
+    """Does the spelled name ``dotted`` name the module ``key``?  Exactly;
+    or with leading packages the key does not carry (``src.O4_X``); or as a
+    QUALIFIED tail of the key (``constraints.pads``).  A bare stem never
+    names a nested module — ``import platform`` is the stdlib's."""
+    return (dotted == key or dotted.endswith("." + key)
+            or ("." in dotted and key.endswith("." + dotted)))
+
+
+def ground_truth(rel, corpus):
+    """The files of ``corpus`` ({path: text}) whose import statements spell
+    the src module ``rel`` — the audit's truth for its ``imported_by``."""
+    key = modkey(rel)
+    return {r for r, t in corpus.items() if r != rel
+            and key.split(".")[-1] in t
+            and any(_spells(key, d) for d in _spelled_modules(r, t))}
 
 
 #: The mutation twin's default sample: a real module with a SMALL full
@@ -1197,15 +1265,14 @@ def cmd_audit(idx, mutations=0, mutation_sample=None, ceiling=CHEAP_CEILING):
               % (rel[len(SRC_PREFIX):], os.path.basename(test),
                  "OK [%s]" % ",".join(fx[test]) if ok else "FAIL"))
         bad += [] if ok else ["fixture:" + os.path.basename(test)]
-    print("== recall sample (15 src modules, AST index vs grep ground truth) ==")
+    print("== recall sample (15 src modules, AST index vs the dotted names "
+          "the import statements spell) ==")
     src = sorted(r for r in s["modules"] if r.startswith(SRC_PREFIX)
                  and r.endswith(".py") and not r.endswith("__init__.py"))
     corpus = {r: _read(r) for r in scan_paths()}
     tot_gt = tot_hit = 0
     for rel in [src[i] for i in range(0, len(src), max(1, len(src) // 15))][:15]:
-        key = modkey(rel)
-        pat = re.compile(GT.format(s=re.escape(key.split(".")[-1])))
-        truth = {r for r, t in corpus.items() if r != rel and pat.search(t)}
+        key, truth = modkey(rel), ground_truth(rel, corpus)
         got = set(s["modules"].get(rel, {}).get("imported_by", ()))
         tot_gt, tot_hit = tot_gt + len(truth), tot_hit + len(truth & got)
         r = len(truth & got) / len(truth) if truth else 1.0

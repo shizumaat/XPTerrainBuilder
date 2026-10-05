@@ -35,6 +35,15 @@ THE FINGERPRINT covers everything the reading is a function of:
   NAME, the writer's ``CUT_MARK`` in its head, AND no placement of this
   run resolves to it (:func:`_pack_content`) — a body the reading does
   parse stays in the key like any authored file;
+* every resource a placement resolves to OUTSIDE the pack (issue #382:
+  a library object, 8,640 stock placements at OTHH) under the SAME rule —
+  its size in the key, its mtime and content hash in the header
+  (:func:`_outside_stamps`).  They were in the key by path alone (the
+  resolved set below), so an edited library ``.obj`` was a HIT;
+* the BRIDGE WAYS of the airport's OSM (issue #382): the deck signature
+  (``deck_signature.classify``) reads which placed plates span a mapped
+  bridge, so the ways it is handed are part of the reading
+  (:func:`_bridge_digest`);
 * the LAW TABLES (``law_tables_digest``'s sha256) and the ruleset key;
 * the FRAME the geometry is placed in (its CRS and origin) — every
   coordinate in the result is in it;
@@ -49,6 +58,19 @@ THE FINGERPRINT covers everything the reading is a function of:
   ``.anchor_bak`` suffix stripped), so the engine's own y-bake does not
   invalidate its own cache (owner ruling 2026-08-13).  A miss on a file
   whose stored set differs is logged with both digests (:func:`peek`);
+* THE GROUND (issue #382): the reading stores what the DEM answered —
+  ``anchor_z`` on every placed object, the witness depths and the part
+  boxes built on it — and the key above names no DEM.  Which points it
+  asks is only known once the pack is parsed, so they are not in the key:
+  the reading runs on a :func:`ground_witness`, the questions and answers
+  are stored in the payload header, and :func:`read` serves the payload
+  only when THIS run's DEM gives every one of those answers again, bit
+  for bit (``dem_witness`` carries the argument and why no name for "the
+  DEM" is reused).  The companions follow by content: the extension's key
+  and the object-plan sidecar both digest the reading in hand
+  (``extension_cache.base_digest`` — every placement's ``anchor_z``, every
+  part box), so a reading re-taken on new ground is never joined to a
+  record of the old one;
 * THE CODE that produced it: the source bytes of the modules the
   reading runs through.  A derived cache keyed only on data is a
   correctness hazard in a tree that changes every commit, and this one
@@ -76,17 +98,25 @@ import pickle
 import re
 import typing as _t
 import zlib
+from . import dem_witness as _ground
 from . import partition_code as _code
 from .file_hash import sha256_file_or_none
 
 __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
            "pristine_stamps", "resolved_digest", "peek", "code_digest",
            "dump_digest", "companion", "hold_companion", "filed", "revive",
-           "put_back"]
+           "put_back", "ground_witness", "companion_note",
+           "companion_notes"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 9   # issue #222 (lane snap222, owner RULINGS 2026-10-02v
+CACHE_VERSION = 10  # issue #382 (lane key382): the header carries the DEM
+                    # samples the reading took (``"ground"``) and the
+                    # resources resolved OUTSIDE the pack join the pristine
+                    # stamps (and the OSM bridge ways the key).  A v9
+                    # payload has neither, so it cannot say
+                    # which ground it was read on: refused, never repaired.
+# was 9:            # issue #222 (lane snap222, owner RULINGS 2026-10-02v
                     # (4)): every cached partition on disk was read through
                     # a cache WITHOUT the §51 (6) input quantum, because
                     # ``pipeline/build.pack_stage`` built it without one.
@@ -221,6 +251,46 @@ def _pack_content(ents: _t.Sequence[tuple[str, int, float, str]],
     return [e for e in ents if e[0] not in minted]
 
 
+def _outside_stamps(airport, pack_root: str) -> list[tuple[str, int, float, str]]:
+    """``(live path, size, mtime, read path)`` of every resource a
+    placement of ``airport`` resolves to OUTSIDE ``pack_root`` — the pack
+    walk's own tuple, so the key, the header and :func:`_stamps_hold`
+    treat a library file exactly as they treat a pack file.  Named by its
+    LIVE absolute path and read where the loader read it (the pristine
+    ``.anchor_bak`` where there is one).  A resolved file that is gone
+    stamps as size ``-1``.  One ``stat`` per resource, not per placement."""
+    from .pack import live_path_of
+    root = os.path.normcase(os.path.abspath(pack_root)) + os.sep
+    out: dict[str, tuple[str, int, float, str]] = {}
+    for o in getattr(airport, "dsf_objects", None) or ():
+        read = getattr(o, "resolved_path", None)
+        if not read:
+            continue
+        read = str(read)
+        live = os.path.abspath(live_path_of(read))
+        if live in out or os.path.normcase(live).startswith(root):
+            continue
+        try:
+            st = os.stat(read)
+            out[live] = (live, int(st.st_size), float(st.st_mtime), read)
+        except OSError:
+            out[live] = (live, -1, 0.0, read)
+    return sorted(out.values())
+
+
+def _bridge_digest(airport) -> str:
+    """sha256 of the bridge ways the deck signature is handed
+    (``deck_signature.bridge_lines`` of the airport's OSM ways): each
+    one's id and points, in order."""
+    h = hashlib.sha256()
+    ways = getattr(airport, "osm_ways", None) or ()
+    if ways:
+        from .deck_signature import bridge_lines
+        for wid, line in bridge_lines(ways):
+            h.update(repr((wid, tuple(line.coords))).encode()); h.update(b"\n")
+    return h.hexdigest()
+
+
 #: ``fingerprint -> pristine stamps`` of the fingerprints this process
 #: took: :func:`write` stores them in the payload header and :func:`read`
 #: checks them (§12a: size in the key, mtime + content hash in the header).
@@ -252,6 +322,31 @@ def resolved_digest(airport) -> tuple[int, str]:
     for ln in pairs:
         h.update(ln.encode("utf-8", "surrogateescape")); h.update(b"\n")
     return len(pairs), h.hexdigest()
+
+
+#: ``fingerprint -> the DEM`` of the airport each fingerprint was taken for
+#: (``None`` for an airport with none), and ``fingerprint -> the ground the
+#: reading under it took``: the :func:`ground_witness` a MISS reads through,
+#: or the record a HIT was served under (issue #382).
+_DEMS: dict[str, _t.Any] = {}
+_GROUND: dict[str, _t.Any] = {}
+
+
+def ground_witness(fp: str | None, dem: _t.Any) -> _t.Any:
+    """The DEM the pack reading must be handed on a MISS: ``dem`` itself
+    when nothing will be cached (``fp`` is ``None``) or there is no DEM,
+    else a ``DemWitness`` over it whose record :func:`write` stores under
+    ``fp`` — the ground a later :func:`read` holds the payload to."""
+    if not fp or dem is None:
+        return dem
+    wit = _ground.DemWitness(dem)
+    _GROUND[fp] = wit
+    return wit
+
+
+def _ground_record(fp: str) -> _t.Any:
+    got = _GROUND.get(fp)
+    return got.record() if isinstance(got, _ground.DemWitness) else got
 
 
 #: ``(pack root, ICAO) -> fingerprint`` of the fingerprints this process
@@ -310,13 +405,35 @@ def _companion_key(fp: str, suffix: str, digest: str) -> str:
     return hashlib.sha256(f"{fp}|{suffix}|{digest}".encode()).hexdigest()
 
 
-#: ``fingerprint -> {suffix: (digest, record)}``: companions HELD until the
-#: partition under that fingerprint is written (:func:`hold_companion`).
-_HELD: dict[str, dict[str, tuple[str, _t.Any]]] = {}
+#: What the companion caches did, as log lines, until whoever holds the
+#: build's console takes them (:func:`companion_notes`) — the companions
+#: are read deep under passes that carry no console (issue #395).
+_NOTES: list[str] = []
+
+
+def companion_note(label: str, state: str, where: str) -> None:
+    """Leave ``[label] cache STATE where`` — a companion's HIT / MISS /
+    WROTE / OFF in the partition line's own style — for the build's log.
+    Log text only; nothing reads it back."""
+    _NOTES.append(f"[{label}] cache {state} {where}")
+    del _NOTES[:-32]            # a process with no console keeps the last few
+
+
+def companion_notes() -> tuple[str, ...]:
+    """The lines left since the last call, oldest first; they are TAKEN."""
+    got = tuple(_NOTES)
+    del _NOTES[:]
+    return got
+
+
+#: ``fingerprint -> {suffix: (digest, record, label)}``: companions HELD
+#: until the partition under that fingerprint is written
+#: (:func:`hold_companion`).
+_HELD: dict[str, dict[str, tuple[str, _t.Any, str]]] = {}
 
 
 def hold_companion(pack_root: str, icao: str, suffix: str, digest: str,
-                   record: _t.Any) -> bool:
+                   record: _t.Any, label: str = "") -> bool:
     """Keep ``record`` in memory as this airport's ``suffix`` companion,
     to be WRITTEN BY :func:`write` when — and only when — it writes the
     partition this process fingerprinted for the airport.
@@ -329,7 +446,7 @@ def hold_companion(pack_root: str, icao: str, suffix: str, digest: str,
     fp = _TAKEN.get((os.path.abspath(pack_root) if pack_root else "", str(icao or "")))
     if not fp:
         return False
-    _HELD.setdefault(fp, {})[suffix] = (digest, record)
+    _HELD.setdefault(fp, {})[suffix] = (digest, record, label or suffix)
     return True
 
 
@@ -365,7 +482,7 @@ def fingerprint(airport, law, *, dump_path: str | None,
     ents = (pristine or {}).get(pack_root) or pristine_stamps(pack_root)
     if not ents:
         return None                     # no pristine reading: no cache
-    ents = _pack_content(ents, pack_root, airport)
+    ents = _pack_content(ents, pack_root, airport) + _outside_stamps(airport, pack_root)
     for rel, size, _mt, _read in ents:
         h.update(f"{rel}:{size}".encode()); h.update(b"\n")
     from .pack import AUTHORED_BACKUP_SUFFIX
@@ -384,9 +501,11 @@ def fingerprint(airport, law, *, dump_path: str | None,
     # issue #88: the resolved-placement set (library-index resolution)
     rd = resolved_digest(airport)
     h.update(f"resolved:{rd[0]}:{rd[1]}|".encode())
+    h.update(f"bridges:{_bridge_digest(airport)}|".encode())
     fp = h.hexdigest()
     _STAMPS[fp] = list(ents)
     _RESOLVED[fp] = rd
+    _DEMS[fp] = getattr(airport, "dem", None)
     _TAKEN[(os.path.abspath(pack_root), str(getattr(airport, "icao", "") or ""))] = fp
     return fp
 
@@ -516,6 +635,10 @@ def read(path: str | None, fp: str | None) -> _t.Any | None:
         return None
     if fp in _STAMPS and not _stamps_hold(fp, blob.get("pristine")):
         return None
+    if fp in _DEMS:                     # a partition's own key (issue #382)
+        if not _ground.holds(_DEMS[fp], blob.get("ground")):
+            return None
+        _GROUND[fp] = blob.get("ground")
     if blob.get("result") is not None:
         _FILED[fp] = path
     return blob.get("result")
@@ -555,12 +678,14 @@ def write(path: str | None, fp: str | None, result: _t.Any) -> bool:
             fh.write(zlib.compress(
                 pickle.dumps({"fingerprint": fp, "pristine": _header(fp),
                               "resolved": _RESOLVED.get(fp),
+                              "ground": _ground_record(fp),
                               "result": result},
                              protocol=pickle.HIGHEST_PROTOCOL), _ZLIB_LEVEL))
         os.replace(tmp, path)
         _FILED[fp] = path
-        for suffix, (digest, record) in sorted(_HELD.pop(fp, {}).items()):
-            write(path + suffix, _companion_key(fp, suffix, digest), record)
+        for suffix, (digest, record, label) in sorted(_HELD.pop(fp, {}).items()):
+            if write(path + suffix, _companion_key(fp, suffix, digest), record):
+                companion_note(label, "WROTE", path + suffix)
         return True
     except Exception:
         try:

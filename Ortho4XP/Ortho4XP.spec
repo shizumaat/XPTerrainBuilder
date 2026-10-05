@@ -106,6 +106,15 @@ print(f"Partition cache code digest: "
 v2_law_datas = v2_law_datas + [
     (_partition_digest_file, os.path.join("auto_patch_v2", "airport"))]
 
+# THE PATCH FRESHNESS GATE'S CODE DIGEST (issue #346) — the same mechanism,
+# over the whole engine source: without it a frozen engine's patches key on
+# the version string alone (``_internal/auto_patch/engine_code.sha256``).
+_engine_digest_file = _runpy.run_path(
+    os.path.join("src", "auto_patch", "provenance_code.py")
+)["write_freeze_digest"]("src", os.path.join("build", "o4_engine_code"))
+print(f"Engine code digest: {open(_engine_digest_file).read().strip()}")
+v2_law_datas = v2_law_datas + [(_engine_digest_file, "auto_patch")]
+
 # highspy (the HiGHS QP behind the runway family's final projection,
 # ``auto_patch_v2/solve/project.py``, RULINGS 2026-09-09ae) is imported
 # lazily inside the solve, so the static import scan never sees it: the

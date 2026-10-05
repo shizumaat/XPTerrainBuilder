@@ -82,6 +82,40 @@ def sha(v) -> str:
                                      default=str).encode()).hexdigest()
 
 
+#: the process table per platform: one ``pid ppid resident-KiB`` line each
+_PROCESS_TABLE = {
+    "posix": ["ps", "-axo", "pid=,ppid=,rss="],
+    "nt": ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+           "Get-CimInstance Win32_Process | ForEach-Object { '{0} {1} {2}' -f "
+           "$_.ProcessId, $_.ParentProcessId, [long]($_.WorkingSetSize / 1024) }"],
+}
+
+
+def process_rows() -> list[tuple[int, int, int]]:
+    """``[(pid, ppid, resident KiB)]`` of every process on this machine —
+    ``ps`` on POSIX, CIM on Windows (which has no ``ps``; Git bash's is
+    another program) — or nothing where the table cannot be read."""
+    cmd = _PROCESS_TABLE.get(os.name)
+    if cmd is None:
+        return []
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    rows = (ln.split() for ln in out.splitlines())
+    return [(int(r[0]), int(r[1]), int(r[2])) for r in rows
+            if len(r) == 3 and all(f.isdigit() for f in r)]
+
+
+def load_average() -> list[float] | None:
+    """The system load averages, or ``None`` where the platform keeps none
+    (``os.getloadavg`` does not exist on Windows)."""
+    try:
+        return list(os.getloadavg())
+    except (AttributeError, OSError):
+        return None
+
+
 class PeakRss:
     """The peak of (this process + its descendants) resident memory while
     the block runs, sampled once a second: ``gb`` — ``{"sum", "parent",
@@ -102,17 +136,14 @@ class PeakRss:
         self._thread.join(5.0)
 
     def sample(self) -> None:
-        try:
-            rows = [ln.split() for ln in subprocess.run(
-                ["ps", "-axo", "pid=,ppid=,rss="], capture_output=True, text=True,
-                timeout=10).stdout.splitlines()]
-        except (OSError, subprocess.SubprocessError):
-            return                                   # no ps here: no reading
+        rows = process_rows()
+        if not rows:
+            return                                   # no table here: no reading
         kids: dict[int, list] = {}
         rss = {}
         for pid, ppid, kb in rows:
-            kids.setdefault(int(ppid), []).append(int(pid))
-            rss[int(pid)] = int(kb) / 1048576.0
+            kids.setdefault(ppid, []).append(pid)
+            rss[pid] = kb / 1048576.0
         me = os.getpid()
         workers = []
         stack = list(kids.get(me, ()))
@@ -170,7 +201,7 @@ def reading(airport, objects, cache, law, field=None) -> dict:
                                         "door": pr.door_stats.read_s,
                                         "sunken": pr.road_stats.read_s,
                                         "walls": wstats.read_s},
-                     "pool": PR.pool_report(cache), "loadavg": list(os.getloadavg()),
+                     "pool": PR.pool_report(cache), "loadavg": load_average(),
                      "peak_rss_gb": peak.gb}
     return rec
 

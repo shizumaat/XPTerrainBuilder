@@ -173,3 +173,24 @@ def test_t3_every_changed_input_misses(world):
     _solve(plan)
     assert len(w.calls) == 7                                     # fp2's file refused
     w.mp.setattr(PC, "_CODE_DIGEST", None)
+
+
+def test_the_topology_cache_says_miss_wrote_hit(world):
+    """issue #395: ``[topology] cache MISS|WROTE|HIT`` in the partition
+    line's own style; WROTE is left when the PARTITION is written."""
+    w = world
+    w.mp.setattr(PC, "_NOTES", [])
+    plan = _plan(str(w.root))
+    fp = w.fp()
+    kept = w.path + TC.SUFFIX
+    _solve(plan)
+    (miss,) = PC.companion_notes()
+    assert miss.startswith("[topology] cache MISS (")       # no partition yet
+    assert PC.write(w.path, fp, "the load reading")
+    assert PC.companion_notes() == (f"[topology] cache WROTE {kept}",)
+    _solve(plan)
+    assert PC.companion_notes() == (
+        f"[topology] cache HIT {kept} (1 connector candidate(s))",)
+    _solve(plan, span_m=150.0)                               # another law number
+    assert PC.companion_notes() == (f"[topology] cache MISS {kept}",)
+    assert PC.companion_notes() == ()

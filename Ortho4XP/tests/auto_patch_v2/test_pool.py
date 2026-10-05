@@ -7,6 +7,7 @@ error is the caller's error; the budget rules.
 from __future__ import annotations
 
 import os
+import sys
 import time
 
 import pytest
@@ -396,6 +397,79 @@ def test_exited_reads_the_sentinel_not_a_waitpid_someone_else_won():
         def is_alive(self):
             return self.alive
     assert P.exited(Stub(False)) and not P.exited(Stub(True), 0.01)
+
+
+class _LateStatus:
+    """A child whose sentinel has closed but whose status is not there yet
+    for the first ``late`` reads — a dying Linux process between closing
+    its files and becoming waitable."""
+
+    def __init__(self, late):
+        import multiprocessing as mp
+        self._r, w = mp.Pipe(duplex=False)
+        w.close()                                     # the sentinel: closed
+        self.sentinel, self.pid, self.late, self.reads = self._r, 999999, late, 0
+
+    def join(self, timeout=None):
+        self.reads += 1
+
+    @property
+    def exitcode(self):
+        return None if self.reads <= self.late else -9
+
+    def is_alive(self):
+        return self.exitcode is None
+
+
+def test_exited_means_reaped_not_merely_a_closed_sentinel(monkeypatch):
+    """CI's Linux red after #405: a killed worker's sentinel closed, one
+    ``join(0)`` found no status yet, the teardown returned and the caller's
+    ``is_alive()`` read True.  ``exited`` now waits the status out — and
+    stops at its bound where the status never comes."""
+    proc = _LateStatus(late=5)
+    assert P.exited(proc) and not proc.is_alive() and proc.reads == 6
+    monkeypatch.setattr(P, "REAP_S", 0.05)
+    never = _LateStatus(late=10 ** 9)
+    t0 = time.monotonic()
+    assert P.exited(never) and never.is_alive()       # gone, named by the caller
+    assert time.monotonic() - t0 < 2.0
+
+
+def _dies_with_threads(ready):
+    import threading
+    for _ in range(4):
+        threading.Thread(target=time.sleep, args=(600.0,), daemon=False).start()
+    ready.send(os.getpid())
+    time.sleep(600.0)
+
+
+def test_a_killed_child_is_not_alive_once_exited_says_so():
+    """The same, on real children with threads — and the reading the fix
+    rests on, reported per platform: how many sentinels closed BEFORE the
+    process was waitable (a warning, never a verdict)."""
+    import multiprocessing as mp
+    import warnings
+    ctx = mp.get_context("spawn")
+    procs, early = [], 0
+    for _ in range(8):
+        r, w = ctx.Pipe(duplex=False)
+        proc = ctx.Process(target=_dies_with_threads, args=(w,))
+        proc.start()
+        procs.append((proc, r))
+    for proc, r in procs:
+        assert r.poll(60) and r.recv() == proc.pid
+    for proc, _r in procs:
+        proc.kill()
+    from multiprocessing import connection as mpc
+    for proc, _r in procs:
+        assert mpc.wait([proc.sentinel], 30)
+        if hasattr(os, "waitid") and os.name == "posix":
+            early += os.waitid(os.P_PID, proc.pid,
+                               os.WEXITED | os.WNOHANG | os.WNOWAIT) is None
+        assert P.exited(proc) and not proc.is_alive() and proc.exitcode is not None
+    warnings.warn("pool reap: %d of %d killed children closed their sentinel before "
+                  "they were waitable (%s)" % (early, len(procs), sys.platform))
+    assert not {c.pid for c in mp.active_children()} & {p.pid for p, _r in procs}
 
 
 def test_the_parent_watch_is_nothing_in_a_first_process_and_a_thread_in_a_worker():

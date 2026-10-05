@@ -55,6 +55,17 @@ it is a no-op, and no worker-side engine code calls a stream method
 directly.  So nothing here needs to reach into a child's environment, and
 it does not.
 
+The other end of a child's console
+----------------------------------
+A parent that reads an engine child's console as TEXT passes
+:func:`child_console_pipe` to ``subprocess`` (the tile workers in
+``o4_engine.parallel``; the ``--lerc-decode`` child's four readers in
+``elevation_access``): ``text=True`` alone decodes with the locale, so
+the UTF-8 a worker now writes came back from a Windows parent as
+``SuÃ¡rez``, and a byte cp1252 does not define (``Á`` is C3 81) ended
+the reader thread.  ``tests/test_console_encoding.py`` holds it with a
+cp1252 default, and holds the class from the source.
+
 What this deliberately does NOT do
 ----------------------------------
 **It does not touch ``os.environ``, and in particular does not set
@@ -141,6 +152,16 @@ def _pin(stream: Any, errors: str) -> str:
             return f"errors-only ({type(exc).__name__})"
         except Exception:
             return f"refused ({type(exc).__name__})"
+
+
+def child_console_pipe() -> Dict[str, Any]:
+    """``subprocess`` keywords for a pipe to an ENGINE child read as text.
+
+    The child pinned its console to UTF-8 at its entry; this is the same
+    encoding at the parent's end of the pipe, with the read-side error
+    policy — one bad byte must not end the parent's reader.
+    """
+    return {"text": True, "encoding": CONSOLE_ENCODING, "errors": READ_ERRORS}
 
 
 def configure_console_streams(force: bool = False) -> Dict[str, Any]:

@@ -470,3 +470,28 @@ def test_the_point_triangle_rows_are_unchanged_bit_for_bit():
         want = _point_tri_dist2_rows_reference(p, a, b, c)
         assert got.dtype == want.dtype == np.float64
         assert got.tobytes() == want.tobytes(), n
+
+
+def test_the_extension_cache_says_off_miss_wrote_hit(tmp_path, monkeypatch):
+    """issue #395: the companion says what it did, in the partition line's
+    own style — log text only, taken by whoever holds the console."""
+    w = _ext_world(tmp_path, monkeypatch)
+    monkeypatch.setattr(w.PC, "_NOTES", [])
+    ext = lambda **k: w.PP.extend_partition(w.part, w.air, None, w.law,
+                                            {"plate.obj"}, **k)
+    ext(keep=True)                               # no partition cache on file
+    (off,) = w.PC.companion_notes()
+    assert off.startswith("[extension] cache OFF (")
+    path, _fp = _file_partition(w)
+    kept = path + w.PP._extcache.SUFFIX
+    ext()                                        # a non-keeping caller: MISS only
+    assert w.PC.companion_notes() == (
+        f"[extension] cache MISS {kept} (2 placement(s) coming back)",)
+    ext(keep=True)
+    assert w.PC.companion_notes() == (
+        f"[extension] cache MISS {kept} (2 placement(s) coming back)",
+        f"[extension] cache WROTE {kept}")
+    ext()
+    assert w.PC.companion_notes() == (
+        f"[extension] cache HIT {kept} (2 placement(s) coming back)",)
+    assert w.PC.companion_notes() == ()          # taken, never said twice

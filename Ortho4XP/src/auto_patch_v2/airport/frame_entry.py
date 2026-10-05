@@ -251,7 +251,15 @@ def union(parts, site: str | None = None):
             _count(site, 1)
             arr = np.empty(len(parts), dtype=object)
             arr[:] = list(parts)
-            return unary_union(shapely.buffer(arr, 1e-6).tolist())
+            # the operands here are the ones two overlays just REFUSED: GEOS
+            # buffers them and trips the floating-point ``invalid`` /
+            # ``divide`` flags doing it, which numpy would print on engine
+            # stderr as a RuntimeWarning (issue #395).  The rung is already
+            # counted and named (``rung_note``); the flags are held for this
+            # one call and the result is the same bytes.
+            with np.errstate(divide="ignore", invalid="ignore"):
+                grown = shapely.buffer(arr, 1e-6)
+            return unary_union(grown.tolist())
 
 
 #: THE OFFENDER DUMP.  When armed, writes the operand list of the FIRST

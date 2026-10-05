@@ -285,3 +285,37 @@ def test_an_authored_dem_frame_reads_the_overlay(R, tmp_path):
         dem_frame: str = "authored"
     frame = R.resolve_data_overlay(str(_overlay(tmp_path, "Elevation_data")))
     assert R.overlay_refusal(_Authored(), frame) is None
+
+
+# ---- issue #420: an overlay inside the shared repo; refuse before the arm
+sys.path.insert(0, str(ROOT / "tools" / "harness"))     # shared_repo_guard
+
+def test_an_overlay_inside_the_shared_data_repo_refuses_by_name(R, tmp_path):
+    """A directory of the shared data repo is the shared corpus under
+    another name, not a lane-local overlay (a tmp path stands in for
+    ``/Users/noah/XPTerrainBuilderData``)."""
+    repo = tmp_path / "XPTerrainBuilderData"
+    inner = _overlay(repo / "lane_inset", "OSM_data")
+    for d in (inner, repo):            # judged before what it provides
+        with pytest.raises(SystemExit) as exc:
+            R.resolve_data_overlay(str(d), data_repo=repo)
+        msg = str(exc.value)
+        assert msg.startswith("REFUSING: --data-overlay ")
+        assert f"inside the SHARED data repo {repo.resolve()}" in msg
+    # a symlink INTO the repo is judged where it lands
+    link = tmp_path / "looks_local"
+    link.symlink_to(inner, target_is_directory=True)
+    with pytest.raises(SystemExit):
+        R.resolve_data_overlay(str(link), data_repo=repo)
+    # a sibling of the repo (a name prefix, not a child) is lane-local
+    sib = _overlay(tmp_path / "XPTerrainBuilderData_lane", "OSM_data")
+    assert R.resolve_data_overlay(str(sib), data_repo=repo)["dir"] == str(sib.resolve())
+
+
+def test_the_default_shared_repo_is_the_guards(R, tmp_path, monkeypatch):
+    """No ``data_repo``: the judge is ``shared_repo_guard.DATA_REPO``."""
+    import shared_repo_guard
+    monkeypatch.setattr(shared_repo_guard, "DATA_REPO", tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        R.resolve_data_overlay(str(_overlay(tmp_path / "x", "OSM_data")))
+    assert "SHARED data repo" in str(exc.value)

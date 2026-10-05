@@ -109,7 +109,8 @@ _OVERLAY_INPUT_FIELD = {"Elevation_data": "elevation_root",
                         "OSM_data": "osm_root"}
 
 
-def resolve_data_overlay(spec: str | None = None, environ=None) -> dict | None:
+def resolve_data_overlay(spec: str | None = None, environ=None,
+                         data_repo=None) -> dict | None:
     """THE OVERLAY FRAME, or ``None`` for the shared corpus alone.
 
     ``{"dir": <abs>, "provides": {<corpus dir>: <abs>}}``: the corpus
@@ -132,6 +133,13 @@ def resolve_data_overlay(spec: str | None = None, environ=None) -> dict | None:
     either weakening the snapshot's verification or calling an
     unverified partial tree a snapshot — so the two stay two acts with
     two names, and BOTH are recorded.
+
+    AN OVERLAY INSIDE THE SHARED DATA REPO REFUSES BY NAME (issue #420):
+    it is not lane-local — it is the shared corpus (or a corner of it)
+    under another name, so the capture would record a "lane-local
+    overlay" that every lane already reads.  ``data_repo``: the shared
+    repo to judge against (default ``shared_repo_guard.DATA_REPO``, the
+    harness's own; a twin passes a tmp path).
     """
     environ = os.environ if environ is None else environ
     val = spec if spec is not None else (environ.get(DATA_OVERLAY_ENV) or None)
@@ -141,6 +149,19 @@ def resolve_data_overlay(spec: str | None = None, environ=None) -> dict | None:
     if not d.is_dir():
         raise SystemExit(f"REFUSING: {DATA_OVERLAY_FLAG} {val!r}: not a "
                          f"directory")
+    if data_repo is None:
+        _harness_dir = str(ROOT / "tools" / "harness")
+        if _harness_dir not in sys.path:
+            sys.path.insert(0, _harness_dir)
+        from shared_repo_guard import DATA_REPO as data_repo
+    repo = Path(data_repo).expanduser().resolve()
+    if d == repo or repo in d.parents:
+        raise SystemExit(
+            f"REFUSING: {DATA_OVERLAY_FLAG} {d}: lies inside the SHARED data "
+            f"repo {repo} — an overlay is LANE-LOCAL data read before the "
+            f"shared corpus, and a directory of the shared repo is the shared "
+            f"corpus under another name (owner ruling e9daef5).  Put the "
+            f"overlay in the lane's own tree or scratch dir")
     provides = {name: str(d / name) for name in OVERLAY_DIRS
                 if (d / name).is_dir()}
     if not provides:

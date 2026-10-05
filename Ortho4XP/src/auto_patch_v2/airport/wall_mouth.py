@@ -284,8 +284,9 @@ class MouthIndex:
 class MouthVerdict:
     """:func:`admit`'s answer for one candidate: the clause that refused it
     (``""`` = admitted), the COMPOSED-open ends (rule 4 ∧ W1s) the class
-    reads, the line's text from the FIELD clause on, the refusal as
-    ``stats.refused`` states it, and the numbers for a ``narrow_cut`` row."""
+    reads, the line's text from the FIELD clause on, the refusal's own
+    words (what ``stats.refused`` says after "REFUSED by <clause>") and the
+    numbers for a ``narrow_cut`` row."""
 
     refused_by: str
     open_ks: list[int]
@@ -322,9 +323,9 @@ def admit(cover: FieldCover | None, mouths: _t.Callable[[], MouthIndex],
         row["field_m"] = round(dist, 1)
         row["field"] = bool(on_field)
         if not on_field:
-            why = (f"FIELD REFUSED — nearest cover {dist:.1f} m from end {k_near} "
+            why = (f"nearest cover {dist:.1f} m from end {k_near} "
                    f"(> mouth_standoff_m {cover.standoff_m:g})")
-            return MouthVerdict(FIELD, [], why, why, None, row)
+            return MouthVerdict(FIELD, [], f"FIELD REFUSED — {why}", why, None, row)
         field_txt = f"FIELD end {k_near} {dist:.1f} m of cover"
     # THE MOUTH QUERY, once per end — BOTH ends: W3 reads the closed one too
     index = mouths()
@@ -343,15 +344,16 @@ def admit(cover: FieldCover | None, mouths: _t.Callable[[], MouthIndex],
                if ends[k].below < cover_min and ends[k].at_grade < cover_min]
     row["w1s"] = bool(open_ks)
     if not open_ks:
-        why = f"W1s REFUSED — no open mouth: {mouth_txt}"
-        return MouthVerdict(W1S, [], f"{field_txt}; {why}", why, ends, row)
+        why = f"no open mouth: {mouth_txt}"
+        return MouthVerdict(W1S, [], f"{field_txt}; W1s REFUSED — {why}", why, ends, row)
     # FIELD on the composed mouth (the FIELD-pre set is a superset)
     if cover is not None and not any(k in on_field for k in open_ks):
         k_near, dist = _nearest(cover, mids, open_ks)
         row["field"], row["field_m"] = False, round(dist, 1)
-        why = (f"FIELD REFUSED — nearest cover {dist:.1f} m from end {k_near} "
+        why = (f"nearest cover {dist:.1f} m from open end {k_near} "
                f"(> mouth_standoff_m {cover.standoff_m:g})")
-        return MouthVerdict(FIELD, [], f"MOUTH {mouth_txt}; {why}", why, ends, row)
+        return MouthVerdict(FIELD, [], f"MOUTH {mouth_txt}; FIELD REFUSED — {why}", why,
+                            ends, row)
     head = (f"{field_txt}; MOUTH {mouth_txt}; W1s open end"
             f"{'s' if len(open_ks) > 1 else ''} {', '.join(str(k) for k in open_ks)}")
     # W3: a deck over the trench (free), else an above-grade wall at an end
@@ -364,7 +366,7 @@ def admit(cover: FieldCover | None, mouths: _t.Callable[[], MouthIndex],
         w3 = (f"W3 wall at end {k} {ends[k].wall:.2f} of W, z_max "
               f"{ends[k].wall_top_m:+.2f} m over ground")
     else:
-        why = (f"W3 REFUSED — open air, no wall at either end (at-grade wall cover "
+        why = (f"open air, no wall at either end (at-grade wall cover "
                f"{ends[0].wall:.2f} / {ends[1].wall:.2f})")
-        return MouthVerdict(W3, [], f"{head}; {why}", why, ends, row)
+        return MouthVerdict(W3, [], f"{head}; W3 REFUSED — {why}", why, ends, row)
     return MouthVerdict("", open_ks, f"{head}; {w3}", "", ends, row)

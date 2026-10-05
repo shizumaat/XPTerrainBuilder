@@ -13,8 +13,13 @@ is ADMITTED iff, in the object's SEATED frame (RULINGS 2026-09-10ad):
   segment is covered under ``[cutout.wall_corridor] end_cap_cover_min`` by
   the geometry of ANY placement of the pack, in the BELOW-GRADE band (floor
   + ε .. ground − ε) and in the AT-GRADE band (ground + ε .. ground +
-  ``min_headroom_m``) alike.  A canopy overhead is open; a wall, a door, a
-  fence, a kerb or a ground slab across the mouth closes it;
+  ``min_headroom_m``) alike.  A face whose lowest rendered point stands at
+  or above the mouth's FLOOR + ``min_headroom_m`` is OVERHEAD — a vehicle
+  at the floor passes under it, rule 5's own bar — and is in NEITHER band
+  whatever its orientation: a canopy, or a deck rule 5 admitted, never
+  closes a mouth and never counts as W3's wall.  What stands at grade
+  across the mouth — a wall, a door, a fence, a kerb, a ground slab, a
+  lintel under that bar — closes it;
 * **W3** — its arms run out from a BUILT STRUCTURE: rule 5 found a deck
   plate over the trench, or an above-grade WALL (faces reaching ``[basin]
   contact_band_m`` over the ground) covers ``end_cap_cover_min`` of an end.
@@ -22,6 +27,11 @@ is ADMITTED iff, in the object's SEATED frame (RULINGS 2026-09-10ad):
 ε is ``[rebake] plate_seat_min_delta_m``, the smallest step the engine
 treats as visible; the window along the axis is ``[tunnel.object]
 end_cap_open_m``.  No value lives here.
+
+THE MOUTH SEGMENT M_k is rule 4's own ``end_line`` (``wall_family``): it
+stands at the end of the pair's MIDLINE — for arms of unequal length half
+the longer arm's run-on beyond the terminal STATION, where the records end
+(spec §12h (3)).
 
 :class:`MouthIndex` is the pack-wide reading (§12h (5)): ONE STRtree over
 every placed, non-stock object's plan extent, built on the first mouth
@@ -174,8 +184,10 @@ class MouthIndex:
 
     def _hits(self, o: _obj8.PlacedObject, window, bands: tuple) -> list[tuple]:
         """``(lo, hi, z_min, z_max, in below, in at-grade)`` on the mouth
-        segment for every triangle of ``o`` meeting the window in a band."""
-        (a, u, L), (b_lo, b_hi), (g_lo, g_hi) = bands
+        segment for every triangle of ``o`` meeting the window in a band.
+        A face whose lowest point stands at or above ``overhead`` (the
+        floor + ``min_headroom_m``) is in NEITHER band (module doc)."""
+        (a, u, L), (b_lo, b_hi), (g_lo, g_hi), overhead = bands
         cache = self.cache
         # the components' authored bounds FIRST: they are the one reading a
         # pool worker is seeded with, so a placement whose extent meets the
@@ -207,12 +219,15 @@ class MouthIndex:
             comp = comps[ci]
             base = _seat_base(o, _obj8._to_frame(o.xy, o.heading_deg, comp.cx, comp.cz),
                               self.dem_z)
-            if base + comp.max_y < min(b_lo, g_lo) or base + comp.min_y > g_hi:
+            if (base + comp.max_y < min(b_lo, g_lo) or base + comp.min_y > g_hi
+                    or base + comp.min_y >= overhead):
                 continue
             ys = base + v[comp.tris][:, :, 1]
             zmn, zmx = ys.min(axis=1), ys.max(axis=1)
-            in_b = (zmx >= b_lo) & (zmn <= b_hi) if b_hi > b_lo else np.zeros(len(zmn), bool)
-            in_g = (zmx >= g_lo) & (zmn <= g_hi)
+            under = zmn < overhead
+            in_b = ((zmx >= b_lo) & (zmn <= b_hi) & under if b_hi > b_lo
+                    else np.zeros(len(zmn), bool))
+            in_g = (zmx >= g_lo) & (zmn <= g_hi) & under
             keep = np.nonzero(in_b | in_g)[0]
             if not len(keep):
                 continue
@@ -261,7 +276,7 @@ class MouthIndex:
         u = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
         window = LineString([a, b]).buffer(self.tol, cap_style="flat")
         bands = ((a, u, L), (floor_z + self.eps, ground_z - self.eps),
-                 (ground_z + self.eps, ground_z + self.ceiling))
+                 (ground_z + self.eps, ground_z + self.ceiling), floor_z + self.ceiling)
         wall_z = ground_z + self.wall_band
         below: list[tuple[float, float]] = []
         grade: list[tuple[float, float]] = []

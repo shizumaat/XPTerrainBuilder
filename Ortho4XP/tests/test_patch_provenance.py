@@ -20,6 +20,7 @@ import subprocess
 import pytest
 
 from auto_patch import provenance as P
+from auto_patch import provenance_code
 
 
 # ── config-gate introspection ─────────────────────────────────────────────────
@@ -256,7 +257,9 @@ def test_source_label_without_sha_carries_engine_version():
     version = P.engine_version()
     assert version != "absent"
     for git in (None, {}, {"sha": None, "dirty": None}):
-        assert P.source_label(git) == "absent version=" + version
+        assert P.source_label(git) == (
+            "absent version=" + version + " code="
+            + provenance_code.code_digest())
 
 
 def test_log_line_frozen_engine_carries_version(monkeypatch):

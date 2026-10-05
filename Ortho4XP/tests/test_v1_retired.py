@@ -85,6 +85,8 @@ KEEP = frozenset({
     "auto_patch.geom_safe",
     "auto_patch.progress",
     "auto_patch.provenance",
+    # the freshness gate's CODE digest (#346) — provenance's own family
+    "auto_patch.provenance_code",
     # THE PATCH-SET SELECTOR (insets-follow-patch-set spec §A.3 / §C.3,
     # RULINGS 2026-09-18b): ``select_patch_airports`` and the boundary
     # policy are the head of every tile build (``O4_Vector_Map``,

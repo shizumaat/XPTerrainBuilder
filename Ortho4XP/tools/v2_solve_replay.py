@@ -1762,12 +1762,23 @@ def _face_vids(f) -> list[int]:
     return face_vertex_ids(f.ring, f.holes)
 
 
+def rim_diagnostic_lines(pm) -> list[str]:
+    """THE BASIN RIM DIAGNOSTICS, ON DEMAND (owner RULINGS 2026-10-04x (2),
+    issue #362): one ``RIM <basin>: <note>`` line per rim reading of each
+    basin the re-run planar build carries.  A build makes neither reading
+    (``planar/basin_rim``); ``--rim-diagnostics`` asks the planar build for
+    them and this prints what it wrote in the basins' notes."""
+    return [f"RIM {b.id}: {n}" for b in pm.basins for n in b.notes
+            if n.startswith(("rim stations", "rim vs the shells", "rim diagnostics"))]
+
+
 def replay_problem(pkl: Path, resume: str, drop: list[str],
                    design_weights: dict | None = None,
                    chord_fill: tuple[str, ...] = (),
                    placement: dict | None = None,
                    sites: list[tuple[float, float]] | None = None,
-                   pad_read_only: bool = False, shape_dump: Path | None = None) -> dict:
+                   pad_read_only: bool = False, shape_dump: Path | None = None,
+                   rim_diagnostics: bool = False) -> dict:
     """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
     the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
     it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
@@ -1789,8 +1800,8 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     # ``--pad-read`` of the arrangement — is honest only when the replay
     # re-runs that stage.  A later resume re-uses the captured map and the
     # override would be silently inert.
-    if (placement or pad_read_only) and resume not in ("classify", "planar"):
-        raise SystemExit("--placement / --pad-read at replay need --from "
+    if (placement or pad_read_only or rim_diagnostics) and resume not in ("classify", "planar"):
+        raise SystemExit("--placement / --pad-read / --rim-diagnostics at replay need --from "
                          "classify or --from planar (a later resume re-uses "
                          "the captured arrangement and cannot see the key)")
     with pkl.open("rb") as fh:
@@ -1930,7 +1941,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
     if resume in ("classify", "planar"):
         pm, _ps = build_planar(airport, cl, law, cache=_ocache, objects=_objs,
-                               object_report=_orep)
+                               object_report=_orep, rim_diagnostics=rim_diagnostics)
+        if rim_diagnostics:
+            for _ln in rim_diagnostic_lines(pm):
+                print(f"[{icao}] {_ln}")
         # §37 (11) THE SHORE DECISION (29a, issue #72): every contact's
         # verdict — the replay's read of the shore
         from auto_patch_v2.pipeline.build import shore_decision_lines
@@ -2421,6 +2435,12 @@ def main() -> int:
                          "the PAD READ (pad/airside arrangement counters, building vs "
                          "airside area, weld population, pad_cluster_mismatch, the "
                          "pad ref under each --site) and stop before the solve")
+    ap.add_argument("--rim-diagnostics", action="store_true",
+                    help="DRY: with --from classify/planar, re-run the stage WITH the "
+                         "basins' rim readings (04i rule 3 open stations; §24 (1) (a) "
+                         "rim vs the shells' at-grade geometry — notes a build no longer "
+                         "makes, RULINGS 2026-10-04x (2)), print one RIM line per "
+                         "reading and stop before the solve")
     ap.add_argument("--site", action="append", default=[], metavar="LAT,LON",
                     help="report z - DEM on the vertices within --site-radius of the point")
     ap.add_argument("--site-radius", type=float, default=12.0, metavar="M",
@@ -2564,10 +2584,11 @@ def main() -> int:
         sites = [tuple(float(x) for x in it.split(",")) for it in a.site]
         wh = (a.why_hump[0], float(a.why_hump[1]), float(a.why_hump[2])) if a.why_hump else None
         pl = dict(it.split("=", 1) for it in a.placement)
-        if a.pad_read:
+        if a.pad_read or a.rim_diagnostics:
             res = replay_problem(a.replay, a.resume, a.drop_generator, None, (),
                                  placement=pl, sites=sites, pad_read_only=True,
-                                 shape_dump=a.shape_dump)
+                                 shape_dump=a.shape_dump,
+                                 rim_diagnostics=a.rim_diagnostics)
             if a.json:
                 a.json.write_text(json.dumps(res["pad_read"], indent=1, default=str))
             return 0

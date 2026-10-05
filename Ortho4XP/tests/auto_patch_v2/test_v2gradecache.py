@@ -22,6 +22,7 @@ import pytest
 
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.law import Law
+from auto_patch_v2.planar import basin_rim as _basin_rim
 from auto_patch_v2.planar import basins as _basins
 
 from test_m4b import _box_obj                                    # noqa: E402
@@ -177,8 +178,8 @@ def test_the_rim_reading_is_the_minimum_over_the_members_not_their_union():
     ring = _sq(0.0, 0.0, 100.0)
     sides = [LineString([(0, 0), (100, 0)]), LineString([(100, 0), (100, 100)]),
              LineString([(100, 100), (0, 100)])]          # the west side is OPEN
-    per_member = _basins._rim_open(ring, [_basins._rim_index(s) for s in sides], 5.0, 0.5)
-    unioned = _basins._rim_open(ring, [_basins._rim_index(unary_union(sides))], 5.0, 0.5)
+    per_member = _basin_rim._rim_open(ring, [_basin_rim._rim_index(s) for s in sides], 5.0, 0.5)
+    unioned = _basin_rim._rim_open(ring, [_basin_rim._rim_index(unary_union(sides))], 5.0, 0.5)
     assert per_member == unioned
     open_n, n, first = per_member
     assert 0 < open_n < n and first is not None
@@ -190,15 +191,15 @@ def test_the_rim_indexes_are_built_lazily_one_member_at_a_time():
     at all once every station is closed — the 60 M-object peak."""
     from shapely.geometry import LineString
     ring = _sq(0.0, 0.0, 100.0)
-    closed = _basins._rim_index(LineString(list(ring.exterior.coords)))
+    closed = _basin_rim._rim_index(LineString(list(ring.exterior.coords)))
     built = []
 
     def trees():
         for i in range(50):
             built.append(i)
-            yield closed if i == 0 else _basins._rim_index(LineString([(1e6, 1e6), (1e6, 1e6 + 1)]))
+            yield closed if i == 0 else _basin_rim._rim_index(LineString([(1e6, 1e6), (1e6, 1e6 + 1)]))
 
-    open_n, n, _first = _basins._rim_open(ring, trees(), 5.0, 0.5)
+    open_n, n, _first = _basin_rim._rim_open(ring, trees(), 5.0, 0.5)
     assert open_n == 0 and n > 0
     assert built == [0], "the walk stopped as soon as every station was closed"
 

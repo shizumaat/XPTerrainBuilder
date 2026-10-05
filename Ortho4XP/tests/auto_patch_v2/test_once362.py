@@ -242,3 +242,33 @@ def test_a_ring_with_other_members_is_read_afresh(pit, monkeypatch):
     reads.clear()
     reads.update(held)
     assert _pr.ring_reads(airport, list(objects), cache, zlaw) is not reads
+
+
+def test_the_windowed_rim_index_answers_as_the_whole_objects_index_does():
+    """prof362 row D: ``_rim_open`` asked of an index over the parts near
+    the ring equals the same question asked of the whole object's index —
+    parts at, just inside and just beyond the reach, far parts, an empty
+    member, and a member with nothing near at all."""
+    import random
+    from shapely.geometry import LineString, MultiLineString, Polygon
+    from auto_patch_v2.planar.basins import _rim_index, _rim_open
+    rnd = random.Random(362)
+    ring = Polygon([(0, 0), (40, 0), (40, 25), (0, 25)])
+    reach, step = 2.0, 1.5
+    for trial in range(40):
+        members = []
+        for _m in range(rnd.randint(1, 4)):
+            lines = []
+            for _k in range(rnd.randint(0, 30)):
+                # hug one side at a distance drawn around the reach
+                d = rnd.choice([reach, reach - 1e-9, reach + 1e-9,
+                                rnd.uniform(0.0, 2.0 * reach), rnd.uniform(50.0, 900.0)])
+                x0 = rnd.uniform(-5.0, 40.0)
+                lines.append(LineString([(x0, -d), (x0 + rnd.uniform(0.5, 6.0), -d)]))
+            members.append(MultiLineString(lines))
+        whole = _rim_open(ring, (_rim_index(g) for g in members), step, reach)
+        near = _rim_open(ring, (_rim_index(g, ring.bounds, reach) for g in members),
+                         step, reach)
+        assert near == whole, trial
+    far = MultiLineString([LineString([(500, 500), (510, 500)])])
+    assert _rim_index(far, ring.bounds, reach) is None and _rim_index(far) is not None

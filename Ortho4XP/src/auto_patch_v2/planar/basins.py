@@ -276,7 +276,12 @@ def _rim_open(ring: Polygon, rim_trees: _t.Iterable, step: float, reach: float
     return int(open_i.size), n, (float(p0.x), float(p0.y))
 
 
-def _rim_index(geom):
+#: the slack on the rim index's window, over the reach itself: the window
+#: is an envelope test in doubles, so it is kept a whole metre generous
+_RIM_WINDOW_PAD_M = 1.0
+
+
+def _rim_index(geom, box: tuple | None = None, reach: float = 0.0):
     """One member's at-grade linework as an index over its PARTS: a point
     against a whole multi-part rim is an O(parts) GEOS distance (VHHH's
     96 rings cost 549,207 of them, 1,196 s of a 3,580 s build), and the
@@ -287,10 +292,33 @@ def _rim_index(geom):
     VHHH's 336 calls of ~370 k parts each made 120,820,793 of them — 137 s
     profiled, ~105 s shipped, to filter a list that is almost never
     filtered.  ``shapely.is_empty`` over the array is one C call and
-    yields the same parts in the same order."""
+    yields the same parts in the same order.
+
+    ``box`` (issue #362, prof362 row D) indexes ONLY THE PARTS NEAR IT —
+    for :func:`_rim_open`, whose every query is ``query_nearest(station,
+    max_distance=reach)`` and which reads only WHETHER a station was
+    answered.  PROOF that the answer is the whole object's: every station
+    lies on the ring, so inside ``box`` (the ring's bounds).  A part that
+    answers a station lies within ``reach`` of it, hence within ``reach``
+    of ``box``; a part's envelope contains the part, so that envelope
+    meets ``box`` grown by ``reach`` — and such a part is kept (the window
+    is grown by ``reach + _RIM_WINDOW_PAD_M``).  A part that is dropped is
+    therefore farther than ``reach`` from every station and could never
+    have been returned; the kept parts' distances are the same doubles.
+    So the set of answered stations is unchanged.  OTHH built 154 indexes
+    a pass over whole terminals' linework (73.7 s building, 35.8 s
+    freeing) to ask about rings a few metres across.  NOT for
+    ``rim_wall_report``, which asks for the nearest part at ANY distance."""
     if geom is None:
         return None
     parts = shapely.get_parts(geom)
+    if parts.size and box is not None:
+        b = shapely.bounds(parts)
+        m = reach + _RIM_WINDOW_PAD_M
+        # an empty part's bounds are NaN and every comparison with them is
+        # False, so this drops it as the ``is_empty`` filter below does
+        parts = parts[(b[:, 2] >= box[0] - m) & (b[:, 0] <= box[2] + m)
+                      & (b[:, 3] >= box[1] - m) & (b[:, 1] <= box[3] + m)]
     if parts.size:
         parts = parts[~shapely.is_empty(parts)]
     return STRtree(parts) if parts.size else None
@@ -573,7 +601,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         plate = uu("wits.plate", [w.plate for w in wits]).intersection(ring).area
         # ── rule 3: the rim diagnostic (reported, never a refusal) ────
         open_n, n, first = once(("rim_open", rk, mk), lambda: _rim_open(
-            ring, (rim_tree_of(o) for o in members),
+            ring, (_rim_index(grade_of(o)[0], ring.bounds, bl.footprint_close_m)
+                   for o in members),
             bl.rim_sample_step_m, bl.footprint_close_m))
         rim_note = (f"rim stations beyond {bl.footprint_close_m} m of the shells' at-grade "
                     f"geometry: {open_n} of {n} ({open_n * ring.exterior.length / n:.0f} of "

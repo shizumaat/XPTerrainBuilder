@@ -109,7 +109,8 @@ _OVERLAY_INPUT_FIELD = {"Elevation_data": "elevation_root",
                         "OSM_data": "osm_root"}
 
 
-def resolve_data_overlay(spec: str | None = None, environ=None) -> dict | None:
+def resolve_data_overlay(spec: str | None = None, environ=None,
+                         data_repo=None) -> dict | None:
     """THE OVERLAY FRAME, or ``None`` for the shared corpus alone.
 
     ``{"dir": <abs>, "provides": {<corpus dir>: <abs>}}``: the corpus
@@ -132,6 +133,13 @@ def resolve_data_overlay(spec: str | None = None, environ=None) -> dict | None:
     either weakening the snapshot's verification or calling an
     unverified partial tree a snapshot — so the two stay two acts with
     two names, and BOTH are recorded.
+
+    AN OVERLAY INSIDE THE SHARED DATA REPO REFUSES BY NAME (issue #420):
+    it is not lane-local — it is the shared corpus (or a corner of it)
+    under another name, so the capture would record a "lane-local
+    overlay" that every lane already reads.  ``data_repo``: the shared
+    repo to judge against (default ``shared_repo_guard.DATA_REPO``, the
+    harness's own; a twin passes a tmp path).
     """
     environ = os.environ if environ is None else environ
     val = spec if spec is not None else (environ.get(DATA_OVERLAY_ENV) or None)
@@ -141,6 +149,19 @@ def resolve_data_overlay(spec: str | None = None, environ=None) -> dict | None:
     if not d.is_dir():
         raise SystemExit(f"REFUSING: {DATA_OVERLAY_FLAG} {val!r}: not a "
                          f"directory")
+    if data_repo is None:
+        _harness_dir = str(ROOT / "tools" / "harness")
+        if _harness_dir not in sys.path:
+            sys.path.insert(0, _harness_dir)
+        from shared_repo_guard import DATA_REPO as data_repo
+    repo = Path(data_repo).expanduser().resolve()
+    if d == repo or repo in d.parents:
+        raise SystemExit(
+            f"REFUSING: {DATA_OVERLAY_FLAG} {d}: lies inside the SHARED data "
+            f"repo {repo} — an overlay is LANE-LOCAL data read before the "
+            f"shared corpus, and a directory of the shared repo is the shared "
+            f"corpus under another name (owner ruling e9daef5).  Put the "
+            f"overlay in the lane's own tree or scratch dir")
     provides = {name: str(d / name) for name in OVERLAY_DIRS
                 if (d / name).is_dir()}
     if not provides:
@@ -162,6 +183,19 @@ def overlay_inputs(inputs, frame: dict | None):
             for name, path in frame["provides"].items()
             if name in _OVERLAY_INPUT_FIELD}
     return _dc.replace(inputs, **over) if over else inputs
+
+
+def capture_dem_inputs():
+    """The two fields of the capture's ``inputs`` that
+    :func:`overlay_refusal` reads, WITHOUT importing the engine (the
+    capture's cache redirects must precede that import, lane ``v2padqp``):
+    :func:`capture` takes ``default_inputs()`` bare — the PRODUCTION frame
+    over the engine tree's own ``Elevation_data`` (``planar/__main__.
+    ENGINE_DIR`` is this tool's ``ROOT``).  ``main`` judges the overlay on
+    it BEFORE any arm line is printed (issue #420)."""
+    import types
+    return types.SimpleNamespace(dem_frame="production",
+                                 elevation_root=str(ROOT / "Elevation_data"))
 
 
 def overlay_refusal(inputs, frame: dict | None) -> str | None:
@@ -1264,6 +1298,32 @@ def _vkey(pm, vid: int) -> str:
     return f"{lat:.11f},{lon:.11f}"
 
 
+def drop_rows(cs, drop: list[str], check: bool = True):
+    """``cs`` without the rows ``--drop-generator`` names — a name is a
+    GENERATOR or a RULING HEAD (``design_roles.ruling_head``, the key
+    ``[design] hard_rulings`` names a law by).  ONE filter for every
+    assembly site.  ``check``: REFUSE first (``replay_arms.drop_gate``,
+    issue #420) a name that is none of this set's generators or heads, nor
+    a registered generator or pseudo-generator; ``False`` for a set
+    derived beside an already-checked one (the ribbon-free stage-1 map,
+    which can lack a ribbon generator's rows)."""
+    from auto_patch_v2.model.constraints import ConstraintSet
+    from auto_patch_v2.solve.design_roles import ruling_head
+    rows = cs.rows()
+    if check:
+        from auto_patch_v2.constraints import GENERATORS
+        _tools_dir = str(ROOT / "tools")
+        if _tools_dir not in sys.path:
+            sys.path.insert(0, _tools_dir)
+        import replay_arms as _arms
+        _arms.drop_gate(drop, {r.source.generator for r in rows}
+                        | {n for n, _g in GENERATORS},
+                        {ruling_head(r) for r in rows})
+    return ConstraintSet.from_rows([r for r in rows
+                                    if r.source.generator not in drop
+                                    and ruling_head(r) not in drop])
+
+
 def stage1_population(pkl: Path, drop: list[str], out: Path,
                       design_weights: dict | None = None,
                       from_capture: bool = False, resume: str = "constraints",
@@ -1286,7 +1346,6 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
     import gzip
 
     from auto_patch_v2.law import Law
-    from auto_patch_v2.model.constraints import ConstraintSet
     from auto_patch_v2.solve.design import assemble, stage_split
     from auto_patch_v2.solve.design_report import DesignReport
     from auto_patch_v2.solve.design_roles import (airside_stage_roles,
@@ -1334,10 +1393,7 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
         if drop:
             # a name is a GENERATOR or a RULING HEAD, as in the replay
             # prelude (issue #321: a head named here dropped NOTHING)
-            from auto_patch_v2.solve.design_roles import ruling_head
-            cs = ConstraintSet.from_rows([r for r in cs.rows()
-                                          if r.source.generator not in drop
-                                          and ruling_head(r) not in drop])
+            cs = drop_rows(cs, drop)
     drop_v, foreign = stage_split(pm, cs, law)
     rep = DesignReport()
     s_roles = airside_stage_roles(law)          # the §20b dispatch's own arm
@@ -1830,7 +1886,6 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     import numpy as np  # noqa: F401  (the prelude's imports are the replay's)
     from auto_patch_v2.airport.road_profile import preferred_road_z
     from auto_patch_v2.law import Law
-    from auto_patch_v2.model.constraints import ConstraintSet
     from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps, shape_constraints, shape_stage
     from auto_patch_v2.planar.build import build as build_planar
@@ -2112,10 +2167,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         # the key ``[design] hard_rulings`` names a law by): the frontage
         # hold's rows are minted by ``platform_collar`` beside the collar's
         # own, so the hold-OFF arm (flat-pad v2 §1 pass 1a) names its head
-        from auto_patch_v2.solve.design_roles import ruling_head
-        cs = ConstraintSet.from_rows([r for r in cs.rows()
-                                      if r.source.generator not in drop
-                                      and ruling_head(r) not in drop])
+        cs = drop_rows(cs, drop)
     # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
     # THIS prelude re-run on the classification without ribbons
     # (``pipeline/stage_one_map``); ``None`` when the map carries no ribbon
@@ -2144,11 +2196,8 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             st0 = shape_stage(_targets(_dc.replace(pm0, preferred_z=pref0)), law,
                               airport, cl0, out=lambda m: None)
             cs0, _c0, _w0 = shape_constraints(st0.pm, law, airport, st0)
-            if drop:
-                from auto_patch_v2.solve.design_roles import ruling_head
-                cs0 = ConstraintSet.from_rows([r for r in cs0.rows()
-                                               if r.source.generator not in drop
-                                               and ruling_head(r) not in drop])
+            if drop:                   # the names were checked on the full map
+                cs0 = drop_rows(cs0, drop, check=False)
             return (st0.pm, cs0, jetway_strips(st0.pm, law, airport, cs0,
                                                rider_candidates(airport, law)),
                     hold_pass(st0.pm, law))
@@ -2578,7 +2627,16 @@ def main() -> int:
     import replay_arms as _arms
     if a.capture or a.replay or a.why_from or a.reclassify or a.bank_from \
             or a.stage1_diff:
-        for _ln in _arms.arm_gate(_arms.context_of(a), _arms.given_arms(a)):
+        _arm_lines = _arms.arm_gate(_arms.context_of(a), _arms.given_arms(a))
+        if _arms.context_of(a) == "capture":
+            # issue #420: an overlay the capture cannot take REFUSES before
+            # its ``CAPTURE ARM --data-overlay`` line is printed — a refused
+            # arm is never announced as taking effect
+            _why_not = overlay_refusal(capture_dem_inputs(),
+                                       resolve_data_overlay(a.data_overlay))
+            if _why_not:
+                raise SystemExit(_why_not)
+        for _ln in _arm_lines:
             print(_ln)
     if a.workers is not None:
         print(f"REPLAY ARM [pool] --workers {a.workers}: budget {pool_budget(a.workers)}")

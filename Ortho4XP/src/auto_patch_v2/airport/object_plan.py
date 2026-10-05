@@ -12,14 +12,15 @@ module is the three things the tile build does with the pair, in
 * :func:`from_screen` — the plan for the object stage: built once, written
   beside the patch, read back on later runs, NEVER served stale;
 * :func:`unservable` — the freshness gate's question: can the plan still
-  be built?  A cold partition sends the airport back through its patch
-  build; the object stage never re-partitions.
+  be built?  A cold partition, or a sidecar the object stage refused,
+  sends the airport back through its patch build; the object stage never
+  re-partitions.
 
-The callers are the tile driver's kept modules (``auto_patch.engine_v2.
-rebake_after_mesh`` / ``build_write_verify_one_v2`` and ``auto_patch.
-driver._auto_patch_is_current``).  It lives HERE, in the v2 package, and
-not beside them: ``src/auto_patch`` is the retired engine's KEEP set and
-takes no new module (``tests/test_v1_retired.py``).  So no environment and
+The callers are the tile driver's kept modules (``engine_v2.
+rebake_after_mesh`` / ``build_write_verify_one_v2`` and the driver's
+``_auto_patch_is_current``).  It lives HERE, in the v2 package, and not
+beside them: the retired engine's tree is a KEEP set that takes no new
+module (``tests/test_v1_retired.py``).  So no environment and
 no tile-core module is read here — the caller hands in its console
 (``say(verbosity, text)``) and its mod-cache root.
 """
@@ -34,12 +35,31 @@ from ..law import Law
 from ..model.rebake import PLAN_FILENAME, RebakePlan
 from . import rebake_screen as _rs
 
-__all__ = ["SCREEN_NAME_RE", "place", "unservable", "from_screen"]
+__all__ = ["SCREEN_NAME_RE", "REFUSED_FILENAME", "place", "unservable",
+           "from_screen"]
 
 #: The sidecar's own file name in the patch directory
 #: (``rebake_screen.SCREEN_FILENAME``).  The object stage's plan-name
 #: pattern does not match it: a sidecar is a plan NOT YET BUILT, never a plan.
 SCREEN_NAME_RE = re.compile(r"^o4_v2_rebake_[A-Za-z0-9]{2,8}\.screen\.json$")
+
+
+#: ``<patch dir>/o4_v2_rebake_<ICAO>.screen.refused`` — written by
+#: :func:`from_screen` when it REFUSES a sidecar (one line: why), read by
+#: :func:`unservable`, removed by :func:`place`.  It is what makes a refusal
+#: SELF-HEALING: the object stage runs after the mesh and can only skip, so
+#: it leaves this for the NEXT tile build's freshness gate, which sends the
+#: airport back through its patch build.  Not ``*.json``: no glob reads it.
+REFUSED_FILENAME = "o4_v2_rebake_{icao}.screen.refused"
+
+
+def _refuse(patch_dir: str, icao: str, why: str) -> None:
+    try:
+        with open(os.path.join(patch_dir, REFUSED_FILENAME.format(icao=icao)),
+                  "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(why + "\n")
+    except OSError:
+        pass                # the skip was said; the next build asks again
 
 
 def place(patch_dir: str, src_plan, icao: str, src_screen=None) -> str | None:
@@ -61,8 +81,9 @@ def place(patch_dir: str, src_plan, icao: str, src_screen=None) -> str | None:
                        else (src_plan, plan_dest, screen_dest))
     shutil.copyfile(str(src), dest + ".tmp")
     os.replace(dest + ".tmp", dest)
-    if os.path.isfile(gone):
-        os.remove(gone)
+    for stale in (gone, os.path.join(patch_dir, REFUSED_FILENAME.format(icao=icao))):
+        if os.path.isfile(stale):
+            os.remove(stale)
     return dest
 
 
@@ -76,10 +97,28 @@ def unservable(patch_dir: str, icao: str) -> str | None:
     not re-partition (minutes of pack reading inside the tile's object
     step, against a DEM the post-mesh hook does not hold): the patch is
     NOT CURRENT, so its build runs again, re-reads the pack where that
-    cost is named, and writes a fresh sidecar."""
+    cost is named, and writes a fresh sidecar.
+
+    A REFUSAL IS THE SAME ANSWER, ONE BUILD LATER: a sidecar the object
+    stage refused (:data:`REFUSED_FILENAME` — stale against its patch, the
+    law or the code, or a partition that is no longer the recorded one)
+    is unservable whether or not a plan stands beside it.
+
+    IT CANNOT LOOP.  The patch build this sends the airport through ends
+    in :func:`place`, which removes the refusal and leaves EITHER a fresh
+    sidecar whose partition that same build just filed, OR (no partition
+    cache kept) a plan and no sidecar — and both answer ``None`` here."""
     screen = os.path.join(patch_dir, _rs.SCREEN_FILENAME.format(icao=icao))
-    if not os.path.isfile(screen) or os.path.isfile(
-            os.path.join(patch_dir, PLAN_FILENAME.format(icao=icao))):
+    if not os.path.isfile(screen):
+        return None
+    refused = os.path.join(patch_dir, REFUSED_FILENAME.format(icao=icao))
+    if os.path.isfile(refused):
+        try:
+            with open(refused, encoding="utf-8") as fh:
+                return "the object stage refused it: " + fh.read().strip()
+        except OSError:
+            return "the object stage refused it"
+    if os.path.isfile(os.path.join(patch_dir, PLAN_FILENAME.format(icao=icao))):
         return None
     return _rs.unservable(screen)
 
@@ -97,12 +136,15 @@ def from_screen(screen: _rs.RebakeScreen, plan_path: str, patch_dir: str, law: L
     NEVER SERVED STALE: the record is held against the patch in this
     patch dir, the law and the code on EVERY call, whether or not the plan
     is already built.  A plan standing beside its sidecar was built from
-    it (:func:`place`) and is read, not rebuilt."""
+    it (:func:`place`) and is read, not rebuilt.  EVERY refusal is left
+    for the next build's freshness gate (:data:`REFUSED_FILENAME`)."""
     icao = screen.icao
     why = _rs.stale_reason(screen, law, os.path.join(patch_dir, icao + "_auto.patch.osm"))
     if why:
+        _refuse(patch_dir, icao, why)
         say(0, f"  [v2 rebake] {icao}: placement SKIPPED — the object plan's "
-                     f"screen record is STALE ({why}); rebuild the airport's patch")
+               f"screen record is STALE ({why}); the next build of this tile "
+               "rebuilds the airport's patch")
         return None
     if os.path.isfile(plan_path):
         with open(plan_path, encoding="utf-8") as fh:
@@ -118,8 +160,10 @@ def from_screen(screen: _rs.RebakeScreen, plan_path: str, patch_dir: str, law: L
     try:
         text = _rs.build_plan(screen, law, keep_extension=keep).to_json()
     except _rs.StaleScreen as exc:
-        say(0, f"  [v2 rebake] {icao}: placement SKIPPED — the object "
-                     f"plan cannot be built ({exc}); rebuild the airport's patch")
+        _refuse(patch_dir, icao, str(exc))
+        say(0, f"  [v2 rebake] {icao}: placement SKIPPED — the object plan "
+               f"cannot be built ({exc}); the next build of this tile rebuilds "
+               "the airport's patch")
         return None
     with open(plan_path + ".tmp", "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)

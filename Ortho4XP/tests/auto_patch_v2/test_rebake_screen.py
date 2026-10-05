@@ -28,6 +28,9 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from test_auto_patch_freshness import fresh_env, install, patch_file  # noqa: E402,F401
 
 from test_tunnel_objects import corridor_map, law, objs  # noqa: E402,F401
 
@@ -251,7 +254,14 @@ def test_the_object_stage_builds_the_plan_beside_the_patch(world, law, tmp_path,
                            encoding="utf-8", newline="\n")
     assert OP.from_screen(screen, str(plan_path), str(patch_dir), law,
                           say=ui2.vprint, mod_cache_root=ROOT) is None
-    assert "STALE" in ui2.lines[-1] and "rebuild the airport's patch" in ui2.lines[-1]
+    assert "STALE" in ui2.lines[-1] and "rebuilds the airport's patch" in ui2.lines[-1]
+    # the refusal is LEFT FOR THE GATE, plan or no plan — and a new build clears it
+    refused = patch_dir / OP.REFUSED_FILENAME.format(icao="ZZZZ")
+    assert "patch body" in refused.read_text(encoding="utf-8")
+    assert "refused it: the patch body" in OP.unservable(str(patch_dir), "ZZZZ")
+    assert OP.place(str(patch_dir), None, "ZZZZ", src_screen) == placed
+    assert not refused.exists() and not plan_path.exists()
+    plan_path.write_text(inline, encoding="utf-8", newline="\n")
 
     # an INLINE plan (a build that kept no partition cache) replaces the sidecar
     src_plan = scratch / "ZZZZ.rebake.json"
@@ -277,6 +287,8 @@ def test_a_cold_partition_sends_the_patch_back_through_its_build(world, law, tmp
     assert OP.from_screen(RS.read(side), str(plan_path), str(patch_dir), law,
                           say=ui.vprint, mod_cache_root=ROOT) is None
     assert "cannot be built" in ui.lines[-1] and not plan_path.exists()
+    assert (patch_dir / OP.REFUSED_FILENAME.format(icao="ZZZZ")).is_file()
+    (patch_dir / OP.REFUSED_FILENAME.format(icao="ZZZZ")).unlink()
     # a plan ALREADY built needs no partition
     plan_path.write_text("{}", encoding="utf-8", newline="\n")
     assert OP.unservable(str(patch_dir), "ZZZZ") is None
@@ -330,3 +342,46 @@ def test_rebake_after_mesh_places_from_a_sidecar_and_skips_a_stale_one(
     counts = E.rebake_after_mesh(tile)
     assert counts["airports"] == 0 and counts["airports_skipped_stale_plan"] == 1
     assert len(placed) == 2
+
+
+def test_the_real_freshness_gate_over_the_engines_own_sidecar(
+        world, law, install, patch_file, monkeypatch):  # noqa: F811
+    """``driver._auto_patch_is_current`` — the gate itself, every other
+    input current (``test_auto_patch_freshness``'s stamped patch) — over a
+    sidecar the engine's own writers made (``partition_pack`` ->
+    ``partition_cache.write`` -> ``rebake_screen.take`` ->
+    ``object_plan.place``).  The same table ``gate_probe`` read off the
+    real NLWF tile directory (lane rebake362 round 2)."""
+    from auto_patch import driver
+    from auto_patch_v2.airport import object_plan as OP
+    said: list[str] = []
+    monkeypatch.setattr(driver, "_rebuild_reason", lambda icao, key: said.append(key))
+    patch_dir = patch_file.parent
+    src = patch_dir / "scratch.screen.json"
+    src.write_text(_take(world, law).to_json(), encoding="utf-8", newline="\n")
+    plan = patch_dir / PLAN_FILENAME.format(icao="KFAKE")
+    # sidecar + partition, plan unbuilt: CURRENT (the object stage will build it)
+    OP.place(str(patch_dir), None, "KFAKE", src)
+    assert install.is_current(patch_file) and not said
+    # the partition cache gone, plan unbuilt: NOT current — the patch build re-reads
+    cache = Path(world.cpath)
+    cache.rename(cache.with_suffix(".away"))
+    assert not install.is_current(patch_file) and said == ["o4_object_plan"]
+    # a plan ALREADY built needs no partition: current
+    plan.write_text("{}", encoding="utf-8", newline="\n")
+    assert install.is_current(patch_file)
+    # a sidecar the object stage REFUSED: not current, plan or no plan
+    refused = patch_dir / OP.REFUSED_FILENAME.format(icao="KFAKE")
+    refused.write_text("why\n", encoding="utf-8", newline="\n")
+    assert not install.is_current(patch_file)
+    # IT CANNOT LOOP: the rebuild ends in place() — a fresh sidecar over the
+    # partition that build just filed, or an inline plan and no sidecar
+    cache.with_suffix(".away").rename(cache)
+    OP.place(str(patch_dir), None, "KFAKE", src)
+    assert not refused.exists() and not plan.exists() and install.is_current(patch_file)
+    refused.write_text("why\n", encoding="utf-8", newline="\n")
+    inline = patch_dir / "scratch.rebake.json"
+    inline.write_text("{}", encoding="utf-8", newline="\n")
+    OP.place(str(patch_dir), inline, "KFAKE", None)
+    assert not refused.exists() and install.is_current(patch_file)
+    assert not (patch_dir / RS.SCREEN_FILENAME.format(icao="KFAKE")).exists()

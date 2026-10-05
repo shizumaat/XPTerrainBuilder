@@ -81,7 +81,7 @@ from .file_hash import sha256_file_or_none
 
 __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
            "pristine_stamps", "resolved_digest", "peek", "code_digest",
-           "dump_digest", "companion"]
+           "dump_digest", "companion", "hold_companion"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
@@ -277,8 +277,34 @@ def companion(pack_root: str, icao: str, suffix: str,
     path = _FILED.get(fp) if fp else None
     if not fp or not path:
         return None
-    h = hashlib.sha256(f"{fp}|{suffix}|{digest}".encode())
-    return path + suffix, h.hexdigest()
+    return path + suffix, _companion_key(fp, suffix, digest)
+
+
+def _companion_key(fp: str, suffix: str, digest: str) -> str:
+    return hashlib.sha256(f"{fp}|{suffix}|{digest}".encode()).hexdigest()
+
+
+#: ``fingerprint -> {suffix: (digest, record)}``: companions HELD until the
+#: partition under that fingerprint is written (:func:`hold_companion`).
+_HELD: dict[str, dict[str, tuple[str, _t.Any]]] = {}
+
+
+def hold_companion(pack_root: str, icao: str, suffix: str, digest: str,
+                   record: _t.Any) -> bool:
+    """Keep ``record`` in memory as this airport's ``suffix`` companion,
+    to be WRITTEN BY :func:`write` when — and only when — it writes the
+    partition this process fingerprinted for the airport.
+
+    For a companion derived BEFORE the partition is written and by a
+    caller that cannot know whether the stage may write at all (issue
+    #362: the connector topology).  A process that never writes the
+    partition cache never writes the companion.  ``False`` when no
+    fingerprint was taken for the airport (nothing is held)."""
+    fp = _TAKEN.get((os.path.abspath(pack_root) if pack_root else "", str(icao or "")))
+    if not fp:
+        return False
+    _HELD.setdefault(fp, {})[suffix] = (digest, record)
+    return True
 
 
 def fingerprint(airport, law, *, dump_path: str | None,
@@ -484,6 +510,8 @@ def write(path: str | None, fp: str | None, result: _t.Any) -> bool:
                              protocol=pickle.HIGHEST_PROTOCOL), _ZLIB_LEVEL))
         os.replace(tmp, path)
         _FILED[fp] = path
+        for suffix, (digest, record) in sorted(_HELD.pop(fp, {}).items()):
+            write(path + suffix, _companion_key(fp, suffix, digest), record)
         return True
     except Exception:
         try:

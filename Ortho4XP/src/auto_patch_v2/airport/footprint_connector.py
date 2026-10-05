@@ -656,10 +656,20 @@ def solid_connectors(plan: _t.Any, ground, *, touch_m: float, span_m: float,
     for k, p0, k0, got in _VERDICT_MEMO:
         if k == id(plan) and p0 is plan and k0 == key:
             return got
-    from .footprint_unit import plan_units_and_connectors
-    _u, conns = plan_units_and_connectors(
-        plan, touch_m, span_m, None, chain_min_height_m, 0.0,
-        sheet_chain_min_fraction)
+    # THE TOPOLOGY reads no ground: it is kept beside the partition cache
+    # (issue #362, ``topology_cache``) and only the verdict below — which
+    # reads ``ground`` — is taken on every build
+    from . import topology_cache as _topo
+    tkey = _topo.digest(plan, (touch_m, span_m, chain_min_height_m,
+                               sheet_chain_min_fraction))
+    conns = _topo.load(plan, tkey)
+    if conns is None:
+        from .footprint_unit import plan_units_and_connectors
+        _u, conns = plan_units_and_connectors(
+            plan, touch_m, span_m, None, chain_min_height_m, 0.0,
+            sheet_chain_min_fraction)
+        conns = tuple(conns)
+        _topo.hold(plan, tkey, conns)
     parts: dict[int, tuple[_t.Any, _t.Any]] = {}
     for u in plan.units:
         for m in u.members:

@@ -185,6 +185,19 @@ def overlay_inputs(inputs, frame: dict | None):
     return _dc.replace(inputs, **over) if over else inputs
 
 
+def capture_dem_inputs():
+    """The two fields of the capture's ``inputs`` that
+    :func:`overlay_refusal` reads, WITHOUT importing the engine (the
+    capture's cache redirects must precede that import, lane ``v2padqp``):
+    :func:`capture` takes ``default_inputs()`` bare — the PRODUCTION frame
+    over the engine tree's own ``Elevation_data`` (``planar/__main__.
+    ENGINE_DIR`` is this tool's ``ROOT``).  ``main`` judges the overlay on
+    it BEFORE any arm line is printed (issue #420)."""
+    import types
+    return types.SimpleNamespace(dem_frame="production",
+                                 elevation_root=str(ROOT / "Elevation_data"))
+
+
 def overlay_refusal(inputs, frame: dict | None) -> str | None:
     """Why ``frame`` CANNOT take effect on ``inputs``, or ``None``.
 
@@ -2614,7 +2627,16 @@ def main() -> int:
     import replay_arms as _arms
     if a.capture or a.replay or a.why_from or a.reclassify or a.bank_from \
             or a.stage1_diff:
-        for _ln in _arms.arm_gate(_arms.context_of(a), _arms.given_arms(a)):
+        _arm_lines = _arms.arm_gate(_arms.context_of(a), _arms.given_arms(a))
+        if _arms.context_of(a) == "capture":
+            # issue #420: an overlay the capture cannot take REFUSES before
+            # its ``CAPTURE ARM --data-overlay`` line is printed — a refused
+            # arm is never announced as taking effect
+            _why_not = overlay_refusal(capture_dem_inputs(),
+                                       resolve_data_overlay(a.data_overlay))
+            if _why_not:
+                raise SystemExit(_why_not)
+        for _ln in _arm_lines:
             print(_ln)
     if a.workers is not None:
         print(f"REPLAY ARM [pool] --workers {a.workers}: budget {pool_budget(a.workers)}")

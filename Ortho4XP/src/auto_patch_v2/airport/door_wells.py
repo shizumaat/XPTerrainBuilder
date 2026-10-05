@@ -134,6 +134,9 @@ def _sill_witnesses(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resou
     bl = law.tables.structures.basin
     dl = law.tables.structures.cutout.door
     out: list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]] = []
+    # the local footprints of a component are made once for every placement
+    # of its resource (#362); the components outlive this sweep on ``cache``
+    local_memo: dict = {}
     for o in _pulse.each(objects, "door wells: sill witnesses", "objects"):
         if o.resolved is None or _obj8.is_stock_library_resource(o.path):
             continue
@@ -169,7 +172,7 @@ def _sill_witnesses(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resou
                                bl.floor_plate_normal_y_min, mat,
                                q=cache.input_quantum_m,
                                degenerate=stats.witness_degenerate,
-                               resource=o.path)
+                               resource=o.path, memo=local_memo)
             if w is None:
                 continue
             out.append((o, w, id(comp)))
@@ -231,11 +234,12 @@ class _AtGrade:
             return max(float(pts[:, 0].max() - pts[:, 0].min()),
                        float(pts[:, 2].max() - pts[:, 2].min())) >= self.min_span
         return _obj8.at_grade_geometry(o, self.cache, self.dem_z, self.band, is_building,
-                                       within=within)[1]
+                                       within=within, linework=False)[1]
 
     def shell(self, o, within):
         return _obj8.at_grade_geometry(o, self.cache, self.dem_z, self.band,
-                                       lambda c: id(c) in self.wit, within=within)[1]
+                                       lambda c: id(c) in self.wit, within=within,
+                                       linework=False)[1]
 
     def above(self, o, within):
         return _obj8.above_grade_footprint(o, self.cache, self.dem_z, self.band, within=within)

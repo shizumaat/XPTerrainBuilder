@@ -180,7 +180,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
          exclude: _t.Collection[str] = (),
          below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = (),
          tunnel_objects: _t.Mapping[str, tuple] | None = None,
-         partition: PackPartition | None = None) -> RebakePlan:
+         partition: PackPartition | None = None,
+         keep_extension: bool = True) -> RebakePlan:
     """The units and witnesses for ``airport``'s pack (see module doc).
 
     ``objects`` are the planar pass's placed objects (read from the
@@ -206,6 +207,10 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     (``pack_partition.partition_pack``, spec §11a (3)); when it is given
     this call FILTERS it.  ``None`` re-reads the pack in the OLD order —
     the twin's control arm.
+
+    ``keep_extension`` (issue #362): the BUILD keeps the extension it
+    computed beside the partition cache (``extension_cache``); a caller
+    that must write nothing passes ``False`` and still revives a kept one.
     """
     # TUNNEL WALL OBJECTS (RULINGS 2026-09-05n-4): plate-seated, by id
     plates: dict[str, tuple] = dict(tunnel_objects or {})
@@ -220,7 +225,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         # multi-anchor placements — a planar fact — are partitioned back
         # in INCREMENTALLY here, against the existing part set only.
         part = extend_partition(partition, airport, cache, law,
-                                screen.plate_paths).filtered(screen, law)
+                                screen.plate_paths, keep=keep_extension
+                                ).filtered(screen, law)
     _to_xy, to_ll = airport.frame.transformers()
     by_id = {o.id: o for o in objs}
     counts = dict(part.counts)

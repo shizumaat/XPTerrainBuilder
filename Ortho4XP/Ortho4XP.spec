@@ -85,6 +85,27 @@ if len(v2_law_datas) < 9:
         f"found {len(v2_law_datas)} — refusing to freeze "
         f"an engine whose v2 cannot load its law.")
 
+# ---------------------------------------------------------------------------
+# THE PARTITION CACHE'S CODE DIGEST (issue #362).  A frozen engine has no
+# source files, so ``partition_cache.code_digest`` used the APP VERSION and
+# every update cold-started every user's pack partition (OTHH: ~500 s).  The
+# digest of the reading's own sources is taken HERE, from the files
+# PyInstaller is about to compile, by the engine's own function — executed
+# with ``runpy`` from its one stdlib-only file, never by importing the
+# package — and bundled beside the module that reads it
+# (``_internal/auto_patch_v2/airport/partition_code.sha256``).  A freeze that
+# cannot take it REFUSES (``write_freeze_digest`` raises): the engine would
+# silently fall back to keying on the version.
+# ---------------------------------------------------------------------------
+import runpy as _runpy
+_partition_digest_file = _runpy.run_path(
+    os.path.join("src", "auto_patch_v2", "airport", "partition_code.py")
+)["write_freeze_digest"]("src", os.path.join("build", "o4_partition_code"))
+print(f"Partition cache code digest: "
+      f"{open(_partition_digest_file).read().strip()}")
+v2_law_datas = v2_law_datas + [
+    (_partition_digest_file, os.path.join("auto_patch_v2", "airport"))]
+
 # highspy (the HiGHS QP behind the runway family's final projection,
 # ``auto_patch_v2/solve/project.py``, RULINGS 2026-09-09ae) is imported
 # lazily inside the solve, so the static import scan never sees it: the

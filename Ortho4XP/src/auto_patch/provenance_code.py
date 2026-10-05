@@ -57,6 +57,23 @@ def source_files(src_root: str) -> list[tuple[str, str]]:
     return sorted(found)
 
 
+def _partition_code() -> dict:
+    """``auto_patch_v2/airport/partition_code.py``'s namespace, which owns
+    ``digest_of`` and the ONE reader/writer of a freeze-time digest file.
+
+    By PATH when its source sits beside this tree (a checkout, and the
+    spec, which executes this file by path with nothing importable); by
+    IMPORT in a frozen engine, which has no sources — called lazily, so
+    the package is loaded by then and the import is not circular."""
+    path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "auto_patch_v2", "airport",
+        "partition_code.py")
+    if os.path.isfile(path):
+        return runpy.run_path(path)
+    from auto_patch_v2.airport import partition_code
+    return vars(partition_code)
+
+
 def freeze_digest(src_root: str) -> str | None:
     """The digest of :func:`source_files`, or ``None`` when ``src_root``
     holds no engine (no ``O4_Version.py``) or a file cannot be read."""
@@ -78,11 +95,8 @@ def write_freeze_digest(src_root: str, out_dir: str) -> str:
             f"ERROR: could not digest the engine source under {src_root!r} — "
             "refusing to freeze an engine whose patch freshness gate would "
             "key on the version string alone.")
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, DIGEST_FILENAME)
-    with open(path, "w", encoding="ascii", newline="\n") as handle:
-        handle.write(digest + "\n")
-    return path
+    return _partition_code()["write_freeze_digest"](
+        src_root, out_dir, filename=DIGEST_FILENAME, digest=digest)
 
 
 def frozen_digest(directory: str | None = None) -> str | None:
@@ -90,15 +104,8 @@ def frozen_digest(directory: str | None = None) -> str | None:
     checkout; an engine frozen by a spec that predates the file)."""
     if directory is None:
         directory = os.path.dirname(os.path.abspath(__file__))
-    try:
-        with open(os.path.join(directory, DIGEST_FILENAME), "r",
-                  encoding="ascii") as handle:
-            got = handle.read(256).strip().lower()
-    except (OSError, ValueError):
-        return None
-    if len(got) == 64 and all(c in "0123456789abcdef" for c in got):
-        return got
-    return None
+    return _partition_code()["frozen_digest"](directory,
+                                              filename=DIGEST_FILENAME)
 
 
 _CODE_DIGEST: str | None = None

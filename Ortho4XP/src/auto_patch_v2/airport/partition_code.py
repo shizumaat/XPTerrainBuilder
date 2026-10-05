@@ -187,13 +187,20 @@ def freeze_digest(src_root: str) -> str | None:
     return digest_of((name, source_path(src_root, name)) for name in CODE_MODULES)
 
 
-def write_freeze_digest(src_root: str, out_dir: str) -> str:
+def write_freeze_digest(src_root: str, out_dir: str, *,
+                        filename: str = DIGEST_FILENAME,
+                        digest: str | None = None) -> str:
     """THE FREEZE'S ACT: write :func:`freeze_digest` of ``src_root`` to
-    ``out_dir/``:data:`DIGEST_FILENAME` and return that path (the spec
-    bundles it beside this module).  RAISES ``SystemExit`` when a listed
-    module has no source — an engine frozen without the file would key the
-    cache on its version again, silently."""
-    digest = freeze_digest(src_root)
+    ``out_dir/<filename>`` (:data:`DIGEST_FILENAME` unless named) and
+    return that path (the spec bundles it beside this module).  RAISES
+    ``SystemExit`` when a listed module has no source — an engine frozen
+    without the file would key the cache on its version again, silently.
+
+    ``filename`` and ``digest`` make this the ONE writer of a freeze-time
+    digest file: ``auto_patch.provenance_code`` (#346) passes its own name
+    and its own whole-tree digest, having refused an empty one itself."""
+    if digest is None:
+        digest = freeze_digest(src_root)
     if not digest:
         raise SystemExit(
             "ERROR: could not digest the partition cache's code modules under "
@@ -201,20 +208,23 @@ def write_freeze_digest(src_root: str, out_dir: str) -> str:
             "source file) — refusing to freeze an engine whose partition "
             "cache would key on the app version.")
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, DIGEST_FILENAME)
+    path = os.path.join(out_dir, filename)
     with open(path, "w", encoding="ascii", newline="\n") as fh:
         fh.write(digest + "\n")
     return path
 
 
-def frozen_digest(directory: str | None = None) -> str | None:
-    """The digest the freeze wrote beside this module, or ``None`` when
-    the file is absent or is not one sha256 (a checkout; an engine frozen
-    by a spec that predates it) — the caller then falls back."""
+def frozen_digest(directory: str | None = None, *,
+                  filename: str = DIGEST_FILENAME) -> str | None:
+    """The digest the freeze wrote beside this module (``directory/
+    <filename>``), or ``None`` when the file is absent or is not one
+    sha256 (a checkout; an engine frozen by a spec that predates it) — the
+    caller then falls back.  The ONE reader of a freeze-time digest file,
+    as :func:`write_freeze_digest` is the one writer."""
     d = directory if directory is not None else os.path.dirname(
         os.path.abspath(__file__))
     try:
-        with open(os.path.join(d, DIGEST_FILENAME), "r", encoding="ascii") as fh:
+        with open(os.path.join(d, filename), "r", encoding="ascii") as fh:
             got = fh.read(256).strip().lower()
     except (OSError, ValueError):
         return None

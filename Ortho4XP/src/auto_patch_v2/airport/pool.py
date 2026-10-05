@@ -64,6 +64,8 @@ TICK_S = 1.0
 TEARDOWN_S = 5.0
 #: seconds without ONE completed task before a map is declared stalled
 STALL_S = 900.0
+#: ``ProcessPoolExecutor`` refuses more workers than this on Windows
+WINDOWS_MAX_WORKERS = 61
 
 _explicit: list = [None]
 _share: list = [1]
@@ -122,6 +124,8 @@ class WorkPool:
                  out: _t.Callable[[str], None] = print,
                  stall_s: float = STALL_S) -> None:
         self.workers = budget() if workers is None else max(1, int(workers))
+        if sys.platform == "win32":       # the executor's own ceiling there
+            self.workers = min(self.workers, WINDOWS_MAX_WORKERS)
         self._setup, self._args = setup, tuple(setup_args)
         self._out, self._stall = out, float(stall_s)
         self._ex: _cf.ProcessPoolExecutor | None = None

@@ -140,3 +140,34 @@ def test_the_entry_runs_the_pool_from_source_and_the_gate_passes_it(tmp_path):
                for row in record["pools"].values())
     serial = json.loads((logs / "pool-selfcheck-onecore.json").read_text())
     assert serial["digest"] == record["digest"] and serial["workers"] == 1
+
+
+WORKFLOWS = os.path.join(REPO_ROOT, ".github", "workflows")
+
+
+@pytest.mark.skipif(not os.path.isdir(WORKFLOWS),
+                    reason="engine checked out standalone — no workflows tree")
+def test_every_frozen_job_runs_the_pool_pass_and_the_probe_is_dispatch_only():
+    """The pass sits in each frozen job of the release (mac, Windows,
+    Linux, the AppImage), and the probe that proves a branch BEFORE a tag
+    freezes on all three platforms and fires on dispatch alone."""
+    with open(os.path.join(WORKFLOWS, "release.yml"), encoding="utf-8") as handle:
+        release = handle.read()
+    assert release.count("--pass pool") == 4
+    for binary in ("Ortho4XP/dist/Ortho4XP/Ortho4XP --pass pool",
+                   "Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe --pass pool",
+                   "Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt --pass pool",
+                   '"$APPRUN" --pass pool'):
+        assert binary in release, binary
+    with open(os.path.join(WORKFLOWS, "frozen-pool-probe.yml"),
+              encoding="utf-8") as handle:
+        probe = handle.read()
+    body = "\n".join(line for line in probe.splitlines()
+                     if not line.lstrip().startswith("#"))
+    assert "workflow_dispatch:" in body
+    for trigger in ("push:", "pull_request:", "schedule:"):
+        assert trigger not in body, trigger
+    for runner in ("macos-15", "windows-latest", "ubuntu-22.04"):
+        assert "runs-on: %s" % runner in body, runner
+    assert body.count("--pass pool") == 3
+    assert body.count("if: always()") == 3          # the logs upload, every arm

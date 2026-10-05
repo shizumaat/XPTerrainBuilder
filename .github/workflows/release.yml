@@ -91,6 +91,19 @@ jobs:
             --logs "$RUNNER_TEMP/frozen-tile-logs" \
             --xplat-dump "$RUNNER_TEMP/frozen-tile-logs/xplat"
 
+      # THE WORK POOL, in the bundle that ships (issue #362, owner RULINGS
+      # 2026-10-05d): the CYXY fixture above has no pack, so no pool starts
+      # there.  The bundle runs its own --pool-selfcheck twice (pooled, and
+      # pinned to one core): workers spawned from this executable, shared
+      # memory, the pack stage, pools nested under the airport pool, equal
+      # digests, and no process or shared block left after exit.  A pool
+      # that FELL BACK or ran serial fails the job.
+      - name: Frozen work pool (spawn, shared memory, nested)
+        run: |
+          python3 scripts/check_frozen_tile.py \
+            Ortho4XP/dist/Ortho4XP/Ortho4XP --pass pool \
+            --logs "$RUNNER_TEMP/frozen-tile-logs/pool"
+
       # ALWAYS, not only on failure (lane ``xplatdeterminism``):
       # the airport pass writes the engine's own per-stage
       # cross-platform digest dump (CYXY.xplat.json) beside the
@@ -337,6 +350,19 @@ jobs:
             --logs "$RUNNER_TEMP/frozen-tile-logs" \
             --xplat-dump "$RUNNER_TEMP/frozen-tile-logs/xplat"
 
+      # THE WORK POOL, in the bundle that ships (issue #362, owner RULINGS
+      # 2026-10-05d): the CYXY fixture above has no pack, so no pool starts
+      # there.  The bundle runs its own --pool-selfcheck twice (pooled, and
+      # pinned to one core): workers spawned from this executable, shared
+      # memory, the pack stage, pools nested under the airport pool, equal
+      # digests, and no process or shared block left after exit.  A pool
+      # that FELL BACK or ran serial fails the job.
+      - name: Frozen work pool (spawn, shared memory, nested)
+        run: |
+          python scripts/check_frozen_tile.py \
+            Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe --pass pool \
+            --logs "$RUNNER_TEMP/frozen-tile-logs/pool"
+
       # ALWAYS, not only on failure (lane ``xplatdeterminism``):
       # the airport pass writes the engine's own per-stage
       # cross-platform digest dump (CYXY.xplat.json) beside the
@@ -465,6 +491,19 @@ jobs:
             --logs "$RUNNER_TEMP/frozen-tile-logs" \
             --xplat-dump "$RUNNER_TEMP/frozen-tile-logs/xplat"
 
+      # THE WORK POOL, in the bundle that ships (issue #362, owner RULINGS
+      # 2026-10-05d): the CYXY fixture above has no pack, so no pool starts
+      # there.  The bundle runs its own --pool-selfcheck twice (pooled, and
+      # pinned to one core): workers spawned from this executable, shared
+      # memory, the pack stage, pools nested under the airport pool, equal
+      # digests, and no process or shared block left after exit.  A pool
+      # that FELL BACK or ran serial fails the job.
+      - name: Frozen work pool (spawn, shared memory, nested)
+        run: |
+          python scripts/check_frozen_tile.py \
+            Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt --pass pool \
+            --logs "$RUNNER_TEMP/frozen-tile-logs/pool"
+
       # ALWAYS, not only on failure (lane ``xplatdeterminism``):
       # the airport pass writes the engine's own per-stage
       # cross-platform digest dump (CYXY.xplat.json) beside the
@@ -570,6 +609,11 @@ jobs:
           bash scripts/check_frozen_tile.sh "$APPRUN" python \
             --logs "$RUNNER_TEMP/appimage-tile-logs"
           echo "AppImage tile build: OK"
+          # the work pool THROUGH the AppImage's AppRun (issue #362): a
+          # spawned worker is the mounted binary re-exec'd, not AppRun
+          python scripts/check_frozen_tile.py "$APPRUN" --pass pool \
+            --logs "$RUNNER_TEMP/appimage-tile-logs/pool"
+          echo "AppImage work pool: OK"
 
       - name: AppImage tile build logs
         if: failure()

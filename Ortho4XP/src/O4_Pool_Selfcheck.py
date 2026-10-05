@@ -69,7 +69,7 @@ def _setup(base: int) -> dict:
 
 
 def _square(state: dict, t: int) -> tuple:
-    time.sleep(0.02)                      # so one worker cannot take them all
+    time.sleep(0.1)       # one worker cannot take them all while the rest boot
     return t * t + state["base"], os.getpid()
 
 
@@ -230,6 +230,10 @@ def _core(workers: int, work: str, say=print) -> dict:
     with P.WorkPool(_setup, (7,), workers=workers, out=say) as pool:
         got = pool.map(_square, list(range(_TASKS)), {"base": 7}, what="selfcheck")
         sections["spawn"] = _sha(repr(answers("spawn", pool, got, _TASKS)).encode())
+        together = len({pid for _v, pid in got})
+        if workers > 1 and together < 2:
+            failures.append(f"spawn: {together} worker process answered all "
+                            f"{_TASKS} tasks of one pool")
         here = reading()
         got = pool.map(_worker_reading, list(range(2 * max(2, workers))), None)
         theirs = answers("worker", pool, got, _TASKS + len(got))
@@ -281,8 +285,6 @@ def _core(workers: int, work: str, say=print) -> dict:
                                             lambda s: say(f"pack: {s}"))
     if workers > 1 and (pools["pack"]["fell_back"] or not pools["pack"]["tasks"]):
         failures.append(f"pack: the pack stage did not pool ({pools['pack']})")
-    if workers > 1 and len(pids) < 2:
-        failures.append(f"spawn: {len(pids)} distinct worker process(es) answered")
     return {"digest": _sha(json.dumps(sections, sort_keys=True).encode()),
             "sections": sections, "worker": theirs[0], "here": here, "pids": sorted(pids), "blocks": blocks,
             "pools": pools, "failures": failures}

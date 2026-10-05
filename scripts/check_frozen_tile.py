@@ -2436,6 +2436,11 @@ def main(argv):
                         default=None,
                         help="the interpreter to run a SOURCE protocol "
                              "entry with; default this one")
+    parser.add_argument("--pool-workers", dest="pool_workers", type=int,
+                        default=None,
+                        help="with --pass pool: workers of the pooled arm "
+                             "(default: the bundle's own, max(2, min(4, "
+                             "cores)))")
     parser.add_argument("--keep", action="store_true",
                         help="keep the generated fixture for debugging")
     parser.add_argument("--xplat-dump", dest="xplat_dump", default=None,
@@ -2504,7 +2509,8 @@ def main(argv):
         print("== POOL (#362): the frozen bundle runs its own WORK POOL ==")
         return check_frozen_pool.run_pool(
             binary, repo_root, log_dir, deadline=arguments.deadline,
-            keep=arguments.keep, engine_python=arguments.engine_python)
+            keep=arguments.keep, engine_python=arguments.engine_python,
+            workers=arguments.pool_workers)
     if arguments.which == "full-tile":
         lat = FULL_TILE_LAT if arguments.lat is None else arguments.lat
         lon = FULL_TILE_LON if arguments.lon is None else arguments.lon

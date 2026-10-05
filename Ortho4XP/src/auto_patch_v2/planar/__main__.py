@@ -198,7 +198,9 @@ def main(argv: list[str] | None = None) -> int:
             by[w["cls"]] = by.get(w["cls"], 0) + 1
         print(f"  wall corridors (Law C): {len(wcs)} records — "
               + ", ".join(f"{k} {n}" for k, n in sorted(by.items()))
-              + f"; refused {len(rec['wall_corridor_refused'])}")
+              + f"; refused {len(rec['wall_corridor_refused'])}; "
+              + ("field read ({} cells)".format(rec["wall_corridor_stats"]["field_cells"])
+                 if rec["wall_corridor_stats"]["field_read"] else "FIELD NOT READ"))
         for w in wcs:
             print(f"  wall corridor {w['id']}: {w['cls']} ends {w['ends']} length {w['length_m']:.1f} m "
                   f"width {w['width_m']:.1f} m floor {w['floor_min_z']:.2f}..{w['floor_max_z']:.2f} "
@@ -207,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
                   f"mouth {w['mouth_ll']} far {w['far_ll']}")
         for r in rec["wall_corridor_refused"]:
             print(f"  wall corridor refused {r}")
-        # RULINGS 2026-09-10w: the three admission clauses per CANDIDATE
+        # ramps spec §12h (4): the admission clauses per CANDIDATE
         for a in rec["wall_corridor_admission"]:
             print(f"  wall corridor admission {a}")
         # RULINGS 2026-09-10ab: ONE TABLE of the two discriminators
@@ -368,8 +370,9 @@ def structure_records(airport, cl, law) -> dict:
     wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
     tstats.plates = pstats.plates
     tstats.refused.extend(pstats.refused)
+    from .structure_approach import wall_field
     walls_c, wstats = read_wall_corridors(airport, objects, cache, law, cl,
-                                          measure=True)
+                                          measure=True, field=wall_field(cl, law))
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
     from .channel_claims import crossing_claims
@@ -547,8 +550,8 @@ def structure_records(airport, cl, law) -> dict:
                             "notes": list(w.notes)} for w in walls_c],
         "pinched_ramps": list(sstats.pinched_ramps),
         "wall_corridor_refused": list(wstats.refused),
-        # RULINGS 2026-09-10z: (a) authored depth / (b'') the mouth opens
-        # onto groundside — the verdict and witness per candidate
+        # ONE LINE PER CANDIDATE (ramps spec §12h (4)): every admission
+        # clause with its witness, stopping at the first refusal
         "wall_corridor_admission": list(wstats.admission),
         # RULINGS 2026-09-10ab: the two round-4 discriminators MEASURED
         # per candidate (floor vs the mouth road's level; the floor slab)

@@ -78,10 +78,10 @@ v2_law_datas = (
     + [(f, os.path.join("auto_patch_v2", "classify"))
        for f in sorted(_glob.glob(os.path.join("src", "auto_patch_v2", "classify", "*.toml")))]
 )
-if len(v2_law_datas) < 9:
+if len(v2_law_datas) < 8:
     raise SystemExit(
-        f"ERROR: expected the eight auto_patch_v2 law tables (incl. airports.toml, "
-        f"RULINGS 2026-09-10ap) + classify/rules.toml under src/auto_patch_v2, "
+        f"ERROR: expected the seven auto_patch_v2 law tables "
+        f"+ classify/rules.toml under src/auto_patch_v2, "
         f"found {len(v2_law_datas)} — refusing to freeze "
         f"an engine whose v2 cannot load its law.")
 

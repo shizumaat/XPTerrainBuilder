@@ -81,11 +81,14 @@ STATION_TOL_M = 1.0
 
 
 def _corridor_obj(path, width=10.0, depth=1.9, top=0.5, thick=0.3, deck_y=2.6, end_wall=False,
-                  drop=0.0, half_len=DECK_HALF_LEN_M, one_band=False):
+                  drop=0.0, half_len=DECK_HALF_LEN_M, one_band=False, end_top=None):
     """Two kerb bands ``width`` apart between their inner faces, ``depth``
     under the seat, ``top`` above it, under a deck slab at ``deck_y``
-    (``None`` = open air); ``end_wall`` closes the +z end; ``drop`` makes
-    the bottom DESCEND from −depth at −z to −depth − drop at +z."""
+    (``None`` = open air); ``end_wall`` closes the +z end, rising to
+    ``end_top`` (default: the kerbs' own ``top``; ``basin.contact_band_m``
+    or more over the ground makes it the BUILT WALL of spec §12h's W3);
+    ``drop`` makes the bottom DESCEND from −depth at −z to −depth − drop
+    at +z."""
     vt: list = []
     tris: list = []
     hw = width / 2.0
@@ -93,7 +96,8 @@ def _corridor_obj(path, width=10.0, depth=1.9, top=0.5, thick=0.3, deck_y=2.6, e
     if not one_band:
         _vwall(vt, tris, hw, hw + thick, -half_len, half_len, -depth, -depth - drop, top)
     if end_wall:
-        _vwall(vt, tris, -hw, hw, half_len, half_len + thick, -depth - drop, -depth - drop, top)
+        _vwall(vt, tris, -hw, hw, half_len, half_len + thick, -depth - drop, -depth - drop,
+               top if end_top is None else end_top)
     if deck_y is not None:
         _slab(vt, tris, -hw - 2.0, hw + 2.0, -half_len + DECK_END_INSET_M,
               half_len - DECK_END_INSET_M, deck_y, deck_y + 0.3)
@@ -102,9 +106,9 @@ def _corridor_obj(path, width=10.0, depth=1.9, top=0.5, thick=0.3, deck_y=2.6, e
 
 @pytest.fixture(scope="module")
 def law():
-    # LAW C is a PER-AIRPORT AFFORDANCE (RULINGS 2026-09-10ap): these
-    # twins read OTHH's own corridors, so they run under OTHH's law —
-    # the gate itself is twinned in ``test_v2corridor.py``.
+    # LAW C is read at every airport (spec §12h; RULINGS 2026-10-05g): the
+    # identifier only resolves the ruleset.  The three general clauses are
+    # twinned in ``test_v2wallmouth.py``.
     return Law.for_airport("OTHH")
 
 
@@ -123,8 +127,17 @@ def objs(tmp_path_factory):
         "level": _corridor_obj(d / "level.obj"),
         "single": _corridor_obj(d / "single.obj", one_band=True),
         "wide": _corridor_obj(d / "wide.obj", width=25.0),
-        "bay": _corridor_obj(d / "bay.obj", end_wall=True, half_len=5.0),
-        "garage": _corridor_obj(d / "garage.obj", depth=0.2, drop=3.0, deck_y=None),
+        # §12h W3: the bay runs out from a BUILT WALL — its end wall rises
+        # 2.5 m over the ground — under open sky (a deck 2.6 m over the
+        # ground across a 10 m bay would stand ACROSS its mouth, under the
+        # headroom: W1s reads that mouth closed)
+        "bay": _corridor_obj(d / "bay.obj", end_wall=True, half_len=5.0, deck_y=None,
+                             end_top=2.5),
+        # a garage ramp under open sky with NOTHING at its deep end is two
+        # bare walls (W3 refuses it); the garage's own wall closes ``garage``
+        "garage_bare": _corridor_obj(d / "garage_bare.obj", depth=0.2, drop=3.0, deck_y=None),
+        "garage": _corridor_obj(d / "garage.obj", depth=0.2, drop=3.0, deck_y=None,
+                                end_wall=True, end_top=2.5),
         "steep": _corridor_obj(d / "steep.obj", depth=0.2, drop=25.0, deck_y=None),
         "low": _corridor_obj(d / "low.obj", deck_y=1.0),
     }
@@ -487,6 +500,11 @@ def test_a_descending_wall_bottom_is_a_garage_ramp_cut_as_authored(objs, law):
     _a, _c, _o, recs2, st2 = _corridors(objs, law, "steep")
     assert not recs2 and any("max_authored_grade" in x for x in st2.refused), st2.refused
     assert wc.max_authored_grade == role_cap(law, GARAGE_ROLE).longitudinal
+    # spec §12h (3): the SAME descent with nothing built at its deep end —
+    # no deck, no wall — is two bare walls under open sky: REFUSED by W3
+    _a, _c, _o, recs3, st3 = _corridors(objs, law, "garage_bare")
+    assert not recs3 and st3.corridors == 0
+    assert any("REFUSED by W3" in x for x in st3.refused), st3.refused
 
 
 def test_headroom_under_the_law_is_refused(objs, law):

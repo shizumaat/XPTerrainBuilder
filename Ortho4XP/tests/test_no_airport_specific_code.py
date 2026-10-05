@@ -15,11 +15,12 @@ Three readings, all static, all in milliseconds:
   * no law table (`**/law/*.toml`) carries a table or a key named for an
     airport, EXCEPT the recorded affordances in `RECORDED` below.
 
-THE RECORDED SET MAY FALL, NEVER RISE.  It holds what existed when the rule
-was written: `law/airports.toml [OTHH] kerb_wall_corridors` (RULINGS
-2026-09-10ap — after seven rounds no witness in the geometry separated
-OTHH's terminal kerb corridors from LEMD's cargo docks).  Adding a row here
-is an owner ruling, cited beside it; removing one needs none.
+THE RECORDED SET MAY FALL, NEVER RISE — AND IT IS EMPTY.  It held the one
+affordance that existed when the rule was written, `law/airports.toml
+[OTHH] kerb_wall_corridors` (RULINGS 2026-09-10ap); owner RULINGS
+2026-10-05g replaced it by a general rule every airport is read by (ramps
+spec §12h) and the table is deleted.  Adding a row here is an owner ruling,
+cited beside it.
 
 The airport codes are every ICAO the campaign has a registered frame for
 (`docs/frames.jsonl`) plus the sweep set — the airports a lane is tempted
@@ -39,11 +40,9 @@ SRC = REPO / "Ortho4XP" / "src"
 SWIFT = REPO / "Sources"
 SWEEP = {"CYXY", "SPJC", "KCLT", "KASE", "HECA", "NLWF", "OTHH", "LEMD"}
 
-# (law file relative to src, airport table, key): the affordances that
-# existed on 2026-10-05.  May fall, never rise (owner RULINGS 2026-10-05e).
-RECORDED = {
-    ("auto_patch_v2/law/airports.toml", "OTHH", "kerb_wall_corridors"),
-}
+# (law file relative to src, airport table, key): the recorded affordances.
+# May fall, never rise (owner RULINGS 2026-10-05e) — empty since 2026-10-05g.
+RECORDED: set[tuple[str, str, str]] = set()
 
 _CODE = re.compile(r"[A-Z][A-Z0-9]{3}")
 

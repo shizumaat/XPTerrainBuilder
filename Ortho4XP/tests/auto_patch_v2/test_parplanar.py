@@ -27,14 +27,15 @@ from auto_patch_v2.airport import reader_work as RW
 from auto_patch_v2.airport import wall_family as WC
 from auto_patch_v2.airport.dem_production import ProductionDem, _BakedTile
 from auto_patch_v2.airport.obj8 import ResourceCache
-from auto_patch_v2.classify.roles import Classification
+from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar import pack_reads as PR
 from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.planar.build import build as planar_build
+from auto_patch_v2.planar.structure_approach import wall_field
 
-from test_tunnel_objects import _airport, _bore, _wall_obj
+from test_tunnel_objects import _airport, _bore, _rect, _slab, _wall_obj, _write
 from test_v2wallcorridor import _cells, _corridor_obj
 
 N = max(2, min(8, os.cpu_count() or 2))
@@ -42,8 +43,26 @@ N = max(2, min(8, os.cpu_count() or 2))
 
 @pytest.fixture(scope="module")
 def law():
-    # Law C (the kerb-wall corridors) is a per-airport affordance: OTHH's
+    # Law C (the kerb-wall corridors) is read at every airport (spec §12h)
     return Law.for_airport("OTHH")
+
+
+def _field(law):
+    """THE FIELD the wall corridors are read under (spec §12h (4)): a cover
+    under every fixture corridor, as ``planar.build`` derives one from its
+    classification — handed to the pool and to the one-core read alike."""
+    return wall_field(Classification((
+        Cell(1, "apron", "apron1", _rect(-200, -200, 1500, 600), (), None, None,
+             "airside", "apron", {}),), (), {}, ()), law)
+
+
+def _closer_obj(path):
+    """A 2.5 m wall of ANOTHER resource, to stand across a corridor's mouth
+    (it reaches under no zero: it is no wall family of its own)."""
+    vt: list = []
+    tris: list = []
+    _slab(vt, tris, -5.0, 5.0, -0.2, 0.2, 0.0, 2.5)
+    return _write(path, vt, tris)
 
 
 def _cache(law):
@@ -59,11 +78,17 @@ def world(tmp_path_factory, law):
                                                          newline="")
     objs = {"dir": d, "wall": _wall_obj(d / "wall.obj", end_a=True),
             "level": _corridor_obj(d / "level.obj"),
-            "bay": _corridor_obj(d / "bay.obj", end_wall=True, half_len=5.0)}
+            "bay": _corridor_obj(d / "bay.obj", end_wall=True, half_len=5.0, deck_y=None,
+                                 end_top=2.5),
+            "closer": _closer_obj(d / "closer.obj")}
+    # the closer stands across the north mouth of the ``level`` at (900, 0):
+    # another resource, another anchor — a family's reading reads the WHOLE
+    # pack across its mouths (§12h (5)), in a worker as on one core
     airport = _airport(objs, law, [("wall", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL"),
                                    ("level", (900.0, 400.0), 0.0, None, "OBJECT"),
                                    ("level", (900.0, 0.0), 0.0, None, "OBJECT"),
-                                   ("bay", (1300.0, 0.0), 0.0, None, "OBJECT")],
+                                   ("bay", (1300.0, 0.0), 0.0, None, "OBJECT"),
+                                   ("closer", (900.0, 40.0), 0.0, None, "OBJECT")],
                        _bore(y_in=-40.0))
     objects, _rep = read_objects(airport, law, _cache(law))
     return airport, objects
@@ -87,8 +112,9 @@ def _reading(world, law, workers: int) -> dict:
     P.configure(workers)
     _fe.reset_rung_counts()
     try:
-        pr = PR.pack_reads(airport, objects, cache, law, walls=True)
-        walls, wstats = PR.wall_corridor_reads(airport, objects, cache, law)
+        field = _field(law)
+        pr = PR.pack_reads(airport, objects, cache, law, walls=True, field=field)
+        walls, wstats = PR.wall_corridor_reads(airport, objects, cache, law, field)
     finally:
         P.configure(1)
     return {"corridors": pr.corridors, "plates": pr.plates, "wells": pr.wells,
@@ -111,8 +137,16 @@ def serial(world, law):
 
 
 def test_the_synthetic_pack_exercises_the_pooled_readers(serial):
-    assert len(serial["corridors"]) == 1 and len(serial["walls"]) >= 5
+    assert len(serial["corridors"]) == 1 and len(serial["walls"]) >= 4
     assert serial["pool"] is None                 # one core: no pool, no account
+    # §12h: the FIELD was read, and the three clauses decided — the level
+    # pair under the foreign closer is a BAY (W1s composed), the other level
+    # pair two halves, the family-closed bay admitted by its built wall (W3)
+    wstats = serial["stats"][4]
+    assert wstats["field_read"] is True and wstats["field_cells"] == 1
+    assert wstats["by_class"] == {"bay": 2, "level": 2}, wstats["refused"]
+    assert sum("closer.obj@dsf:obj4" in a for a in wstats["admission"]) == 1
+    assert sum("W3 wall at end" in a for a in wstats["admission"]) == 1
 
 
 @pytest.mark.parametrize("n", sorted({2, 3, N}))
@@ -178,11 +212,11 @@ def test_a_familys_reading_is_its_own_and_the_ids_come_from_the_assembly(world, 
     assert [fk for fk, _ks in fams] == sorted(fk for fk, _ks in fams) and len(fams) == 4
     got = {}
     for fk, ks in reversed(fams):
-        rd = WC.wall_reader(airport, _cache(law), law)
+        rd = WC.wall_reader(airport, objects, _cache(law), law, field=_field(law))
         got[fk] = WC.read_family(rd, fk, [objects[k] for k in ks])
     for _st, pairs in got.values():              # no id before the assembly
         assert all(r.id in ("", "/a", "/b") for _res, _name, recs in pairs for r in recs)
-    walls, wstats = WC.assemble(placements, [got[fk] for fk, _ks in fams])
+    walls, wstats = WC.assemble(placements, [got[fk] for fk, _ks in fams], _field(law))
     assert walls == serial["walls"] and _untimed(wstats) == serial["stats"][4]
     # the two ``level`` anchors: (900, 0) sorts before (900, 400)
     by_k = {r.id.split("@")[1][0]: r for r in walls if "level.obj" in r.id}
@@ -312,15 +346,21 @@ def test_the_read_arm_hashes_the_two_arms_equal_and_a_change_differently(world, 
     for workers in (1, 2):
         P.configure(workers)
         try:
-            recs.append(arm.reading(airport, objects, _cache(law), law))
+            recs.append(arm.reading(airport, objects, _cache(law), law, _field(law)))
         finally:
             P.configure(1)
     assert recs[0]["timing"]["pool"] is None and recs[1]["timing"]["pool"]["readers"]
     assert recs[0]["all"] == recs[1]["all"]
     assert recs[0]["counts"]["corridors"] == 1 and recs[0]["counts"]["walls"] >= 3
     # the hash reads the readings: one object fewer is another record
-    less = arm.reading(airport, objects[1:], _cache(law), law)
+    less = arm.reading(airport, objects[1:], _cache(law), law, _field(law))
     assert less["all"] != recs[0]["all"] and less["tunnels"] != recs[0]["tunnels"]
+    # the wall corridors' RECORDS hash apart from their stats (the lines);
+    # without the field the records stand and the stats say FIELD was not read
+    bare = arm.reading(airport, objects, _cache(law), law)
+    assert bare["wall_records"] == recs[0]["wall_records"]
+    assert bare["wall_corridors"] != recs[0]["wall_corridors"]
+    assert recs[0]["field"] == {"read": True, "cells": 1} and bare["field"]["read"] is False
     # clocks are not identity; a set hashes the same in any order
     assert arm.sha({"b", "a"}) == arm.sha({"a", "b"})
     assert arm.sha(PR.WallCorridorStats(read_s=1.0)) == arm.sha(PR.WallCorridorStats(read_s=2.0))

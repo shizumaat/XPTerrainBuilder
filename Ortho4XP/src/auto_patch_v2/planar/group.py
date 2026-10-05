@@ -55,8 +55,7 @@ geometry.  The bodies themselves are ``airport/placement_plan._bodies_of``
 — imported, never re-implemented.
 
 **THE LONG SPAN** (§11 (4)).  A group whose plan span exceeds
-``[placement] group_span_max_m`` (per airport in ``airports.toml`` where
-needed) is the HECA railway class: where its pad turns out infeasible the
+``[placement] group_span_max_m`` is the HECA railway class: where its pad turns out infeasible the
 connecting deck is RELEASED — its own object at its own low-side foot,
 and the buildings seat on their own pads.  A SHORT infeasible group is
 never split; it is reported with its residual and the owner rules per
@@ -376,8 +375,7 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
     make over their own spacing.  Without a sampler the pre-11q
     reading stands, so every DEM-less caller is unchanged.
 
-    ``span_max_m`` is ``law.tables.group_span_max_m`` — the airport's own
-    where it states one; ``0`` disarms the long-span verdict entirely, so
+    ``span_max_m`` is ``law.tables.group_span_max_m``; ``0`` disarms the long-span verdict entirely, so
     no release is ever lawful and an infeasible group is always reported.
 
     THE MEMBERSHIP LAW, unchanged from §17/11a and stated once:

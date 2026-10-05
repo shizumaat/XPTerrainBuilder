@@ -716,8 +716,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     if ws.corridors or ws.refused:
         _say(f"[{icao}] wall corridors (09-08m/n Law C): {ws.corridors} corridors "
              f"({', '.join(f'{k} {n}' for k, n in sorted(ws.by_class.items()))}) from {ws.pairs} "
-             f"pairs of {ws.bands} bands in {ws.families} families ({ws.read_s:.2f} s)  refused "
-             f"{len(ws.refused)}", out)
+             f"pairs of {ws.bands} bands in {ws.families} families ({ws.read_s:.2f} s)  "
+             + (f"field read ({ws.field_cells} cells)" if ws.field_read else "FIELD NOT READ")
+             + f"  refused {len(ws.refused)}", out)
         for r in ws.refused[:40]:
             _say(f"    refused wall corridor {r}", out)
     if ds.wells or ds.refused or rs.roads or rs.refused:

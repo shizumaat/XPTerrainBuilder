@@ -5,8 +5,8 @@ this module reads with; split from it by responsibility, issue #362).
 A read of the wall corridors is an INTAKE (:func:`wall_families`: the
 anchor families in sorted key order, each family's members in ``objects``
 order), ONE READING PER FAMILY (:func:`read_family`, through the
-:class:`WallReader` every family shares — it reads nothing of another
-family) and an ASSEMBLY (:func:`assemble`: the readings taken in the
+:class:`WallReader` every family shares — it reads no other family's
+READING) and an ASSEMBLY (:func:`assemble`: the readings taken in the
 intake's order, where a corridor's ``@k`` and the order of every refusal
 line come from).  :func:`read_wall_corridors` is the three in one loop;
 ``airport/reader_work.py`` hands the families to work-pool workers and
@@ -37,9 +37,10 @@ from .wall_corridors import (CLASS_BAY, CLASS_GARAGE, CLASS_LEVEL, ID_PREFIX,
                              WallCorridorRecord, WallCorridorStats, _bands_of, _end_cover,
                              _floor_profile, _headroom, _slice, _trench)
 from .wall_geometry import _DENSIFY_M, _FamilyFaces, _merge_walls, _overlap_along, _seat_base
+from .wall_mouth import FieldCover, MouthIndex, WallField, admit
 
-__all__ = ["WallReader", "wall_reader", "wall_families", "read_family", "assemble",
-           "read_wall_corridors"]
+__all__ = ["WallReader", "WallField", "wall_reader", "wall_families", "read_family",
+           "assemble", "read_wall_corridors"]
 
 
 @_dc.dataclass
@@ -47,9 +48,16 @@ class WallReader:
     """What every family's reading takes besides its members: the inputs of
     ONE read of the wall corridors (:func:`wall_reader`).  ``bz_store`` is
     the per-placement / per-resource memo of ``below_zero`` — pure, so a
-    read split over several processes simply fills one each."""
+    read split over several processes simply fills one each.
+
+    ``pack`` is EVERY placed object of the pack — the mouth clauses (spec
+    §12h) read what any placement puts across a candidate's mouth — and
+    ``cover`` the field's index (``None`` = no field handed: FIELD is NOT
+    READ).  ``mouth_index`` is the pack-wide index over ``pack``, built on
+    the first mouth query of the process (:meth:`mouths`)."""
 
     airport: Airport
+    pack: _t.Sequence[_obj8.PlacedObject]
     cache: _obj8.ResourceCache
     law: Law
     measure: bool = False
@@ -60,18 +68,33 @@ class WallReader:
     #: the frame's ``to_ll`` — two pyproj transformers to build, so ONCE per
     #: reader, never per family (KASE: 2,191 families, 12 s of a 0.3 s read)
     to_ll: _t.Any = None
+    cover: FieldCover | None = None
+    mouth_index: MouthIndex | None = None
+
+    def mouths(self) -> MouthIndex:
+        """THE pack-wide mouth index — ONE per reader (per process), built
+        when the first candidate reaches a mouth query (§12h (5))."""
+        if self.mouth_index is None:
+            self.mouth_index = MouthIndex(self.pack, self.cache, self.airport.dem.z,
+                                          self.law)
+        return self.mouth_index
 
 
-def wall_reader(airport: Airport, cache: _obj8.ResourceCache, law: Law,
-                classification: _t.Any = None, measure: bool = False) -> WallReader:
+def wall_reader(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
+                cache: _obj8.ResourceCache, law: Law, classification: _t.Any = None,
+                measure: bool = False, field: WallField | None = None) -> WallReader:
+    """The reader of one read: ``objects`` the WHOLE pack's placements
+    (the mouth index's population, never one family's), ``field`` the
+    classified cover the FIELD clause reads (``None`` = not read)."""
     # RULINGS 2026-09-10ad: (b'') is DELETED (refuted in 10z/10ab); the
     # roads survive as the round-4 PROBE's reading alone (``measure``), and
     # so does the LEVEL reader for a mouth road (RULINGS 2026-09-10ab (i))
     roads = mouth_roads(airport, classification) if measure else []
-    return WallReader(airport, cache, law, measure, roads,
+    return WallReader(airport, objects, cache, law, measure, roads,
                       STRtree([r.geom for r in roads]) if roads else None,
                       _RoadLevels(airport, law) if measure else None,
-                      to_ll=airport.frame.transformers()[1])
+                      to_ll=airport.frame.transformers()[1],
+                      cover=None if field is None else FieldCover(field))
 
 
 def wall_families(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
@@ -109,10 +132,20 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                 ) -> tuple[WallCorridorStats, list[tuple[str, str, list[WallCorridorRecord]]]]:
     """ONE FAMILY's reading: its own stats (refusals and admission lines in
     the order the pairs are met) and, per pair that reached the corridor
-    rule, ``(resource, name, records)``.  It reads its members, the DEM,
-    the parsed resources and the law — NOTHING of another family: the one
-    thing the serial read carried from family to family, the ``@k`` of a
-    corridor id, is assigned by :func:`assemble`."""
+    rule, ``(resource, name, records)``.
+
+    A PURE FUNCTION of its members, THE WHOLE PACK's placements and parsed
+    geometry (the mouth clauses read what ANY placement puts across a
+    candidate's mouth — spec §12h (5)), the DEM, the law and the field —
+    and of NO OTHER FAMILY'S READING: the one thing the serial read
+    carried from family to family, the ``@k`` of a corridor id, is assigned
+    by :func:`assemble`.  So the readings are the same at any worker count
+    and in any completion order.
+
+    THE ONE ADMISSION SITE of Law C (§12h (4)): rules 1-5 and the kerb
+    test as before, then FIELD, W1s and W3 (``wall_mouth.admit``), cheapest
+    refusal first; no clause is evaluated anywhere else and no consumer
+    vetoes."""
     airport, cache, law, measure = rd.airport, rd.cache, rd.law, rd.measure
     roads, road_tree, levels, bz_store = rd.roads, rd.road_tree, rd.levels, rd.bz_store
     stats = WallCorridorStats()
@@ -177,31 +210,6 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
             name = os.path.basename(A.resource)
             la, lo_ = to_ll(*A.poly.centroid.coords[0])
             site = f"{la:.6f},{lo_:.6f}"
-            # THE AFFORDANCE GATE (RULINGS 2026-09-10ap, closing
-            # 10ac-1 as (B)): LAW C — kerb-wall corridors AND garage
-            # ramps — is an AIRPORT-LEVEL affordance a pack earns by
-            # a sim read (``law/airports.toml``, on at OTHH alone).
-            # Checked FIRST, before (a): no geometry of this pair is
-            # read where the law is off, and every candidate says so.
-            #
-            # §33 (6) A's RETIREMENT OF THIS KEY IS REFUTED (lane
-            # `v2objcut`, 2026-09-15, one dry VHHH replay).  The
-            # crested-wall signature — solids under the object's own
-            # zero WITH a crest plate ``plate_min_height_m`` above it
-            # — admits an ordinary BUILDING, because a building has a
-            # roof: at VHHH it took wall corridors 0 -> 116 (bay 28,
-            # level 88), every one of them inside ``CITY2.obj``, a
-            # city-block object off the field whose foundation walls
-            # descend 6.4-8.5 m.  No depth threshold repairs it:
-            # OTHH's own admitted bays are 1.35 m deep.  This is the
-            # 10ap finding at a THIRD airport, so the honest switch
-            # stands and §33 (6) A is an intent question for the
-            # owner, not a mechanism.
-            if not law.affordances.kerb_wall_corridors:
-                stats.admission.append(
-                    f"candidate {name} bands {A.comp}/{B.comp} at {site}: "
-                    f"law off for {law.icao or '(no airport)'}")
-                continue
             plate = unary_union([A.poly, B.poly])
             walls = read_wall_lines(plate, law)
             if isinstance(walls, str):
@@ -438,12 +446,34 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                                        f"{headroom:.2f} m REFUSED under min_headroom_m "
                                        f"{wc.min_headroom_m} ({deck_w})")
                 continue
+            # §12h — FIELD, W1s, W3: THE OPEN MOUTH, read against the whole
+            # pack and the field.  The ground at a mouth is the DEM at its
+            # segment's midpoint (the station's own where that is cold).
+            end_lines = [end_line(k) for k in (0, 1)]
+            end_grounds = []
+            for k, (p, q) in enumerate(end_lines):
+                gz = float(dem_z((p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0))
+                end_grounds.append(grounds[-k] if math.isnan(gz) else gz)
+            verdict = admit(rd.cover, rd.mouths, end_lines, mouth_ks,
+                            (floors[0], floors[-1]), end_grounds,
+                            deck_w if plate_plan is not None else None,
+                            wc.end_cap_cover_min)
+            clauses = (f"{head}: {clause_a}; (d) kerb {h_own:.2f} m; ends family "
+                       f"{covers[0]:.0%}/{covers[1]:.0%}; headroom "
+                       + ("open air" if headroom is None else f"{headroom:.2f} m ({deck_w})")
+                       + f"; {verdict.text}")
             if nc_row is not None:
-                nc_row["admitted"] = True
-            stats.admission.append(
-                f"{head}: {clause_a}; headroom "
-                + ("open air" if headroom is None else f"{headroom:.2f} m ({deck_w})")
-                + " -> ADMITTED")
+                nc_row.update(verdict.row)
+            if verdict.refused_by:
+                stats.refused.append(f"{name} at {site}: REFUSED by {verdict.refused_by} "
+                                     f"(§12h) — {verdict.refusal}")
+                stats.admission.append(clauses)
+                continue
+            # THE CLASS READS THE COMPOSED OPENNESS (§12h (1)): an end is
+            # open iff rule 4 AND W1s leave it open
+            family_closed = list(closed)
+            closed = [k not in verdict.open_ks for k in (0, 1)]
+            mouth_ends = verdict.ends
             notes_common = (
                 f"bands {A.comp} ({A.thickness_m:.2f} m, {A.length_m:.1f} m) / {B.comp} "
                 f"({B.thickness_m:.2f} m, {B.length_m:.1f} m) of {name}, inner faces {gap:.2f} m "
@@ -469,6 +499,9 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                                          f"{zmax - zmin:.2f} m but its shallow end lies "
                                          f"{shallow_depth:.2f} m under the ground (> contact_band_m "
                                          f"{bl.contact_band_m}): no mouth at grade")
+                    stats.admission.append(
+                        f"{clauses} -> REFUSED — a descending pair whose shallow end lies "
+                        f"{shallow_depth:.2f} m under the ground: no mouth at grade")
                     pairs.append((A.resource, name, []))   # its @k is spent
                     continue
                 s_a, s_b = (orig_s[0], orig_s[-1]) if deep == 0 else (orig_s[-1], orig_s[0])
@@ -489,13 +522,18 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                 s_a, s_b = (orig_s[0], orig_s[-1]) if m == 0 else (orig_s[-1], orig_s[0])
                 ax2, st2, fl2, gr2 = _slice(axis_ln, sts, floors, s_a, s_b, overlap, 0.0,
                                             ob.wall_sample_m, dem_z)
+                # a FOREIGN placement across the mouth closes an end as a
+                # family face does (owner RULINGS 2026-10-05h (2)): the bay
+                # is at the other end, and the note names the closer
+                by = (f"a family face ({covers[m]:.0%} covered)" if family_closed[m]
+                      else f"the pack across its mouth ({mouth_ends[m].text(m)})")
                 recs.append(WallCorridorRecord(
                     base_id, A.resource, objects_ids, fam_name, CLASS_BAY, tuple(ax2),
                     tuple(st2), tuple(fl2), tuple(gr2), float(st2[-1].s), width, True, False,
                     thick, 0.0, plate, _trench(ax2, st2), unary_union([plate, trench0]),
                     *anchor, headroom, max_grade, "",
-                    notes_common + (f"closed bay: end {m} closed by a family face "
-                                    f"({covers[m]:.0%} covered), a ramp beyond the open end",),
+                    notes_common + (f"closed bay: end {m} closed by {by}, a ramp beyond "
+                                    f"the open end",),
                     plate_plan=plate_plan))
             else:
                 # two capless halves meeting at the midpoint, each
@@ -515,18 +553,24 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                         notes_common + (f"level corridor open at both ends: half {tag} from the "
                                         f"midpoint, a ramp beyond its end",),
                         plate_plan=plate_plan))
+            if nc_row is not None:
+                nc_row["admitted"] = True
+            stats.admission.append(f"{clauses} -> ADMITTED {recs[0].cls if recs else 'none'}")
             pairs.append((A.resource, name, recs))
     return stats, pairs
 
 
-def assemble(placements: int, readings: _t.Iterable[tuple]
+def assemble(placements: int, readings: _t.Iterable[tuple],
+             field: WallField | None = None
              ) -> tuple[list[WallCorridorRecord], WallCorridorStats]:
     """The families' readings (:func:`read_family`), taken in sorted
     family order, as ONE reading: the counters summed, the refusal and
     admission lines concatenated, and each admitted pair given the next
     ``@k`` of its resource — in exactly the order one loop over the
-    families assigned them."""
-    stats = WallCorridorStats(placements=placements)
+    families assigned them.  ``field`` is the field the readers were
+    handed: the stats say whether FIELD was read (§12h (4))."""
+    stats = WallCorridorStats(placements=placements, field_read=field is not None,
+                              field_cells=0 if field is None else len(field.polys))
     out: list[WallCorridorRecord] = []
     k_by_res: dict[str, int] = {}
     for fam, pairs in readings:
@@ -550,11 +594,14 @@ def assemble(placements: int, readings: _t.Iterable[tuple]
 
 def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                         cache: _obj8.ResourceCache, law: Law, classification: _t.Any = None,
-                        measure: bool = False
+                        measure: bool = False, field: WallField | None = None
                         ) -> tuple[list[WallCorridorRecord], WallCorridorStats]:
     """Every wall corridor the pack's kerb-wall families state (module
-    doc); the stats name every refusal and, per CANDIDATE, each of the
-    three admission clauses with its witness (``stats.admission``).
+    doc); the stats name every refusal and, per CANDIDATE, each admission
+    clause with its witness (``stats.admission``).  ``field`` is the
+    classified cover the FIELD clause reads (spec §12h): a BUILD always
+    hands one; ``None`` (a caller with no classification) leaves FIELD NOT
+    READ, said on every line and in ``stats.field_read``.
     ``classification``, when given, adds the patch's own road ribbons to
     the mouth-road test (10w (b)); without it only the OSM ways are
     read.  ``measure`` (the ``--stage structures`` replay alone) adds the
@@ -562,10 +609,10 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
     candidate (``stats.floor_probe``) — a measurement, never a gate, and
     never a cost in a build."""
     t0 = time.perf_counter()
-    rd = wall_reader(airport, cache, law, classification, measure)
+    rd = wall_reader(airport, objects, cache, law, classification, measure, field)
     placements, fams = wall_families(objects, cache, law)
     out, stats = assemble(placements, (
         read_family(rd, fk, [objects[k] for k in ks])
-        for fk, ks in _pulse.each(fams, "wall corridors", "families")))
+        for fk, ks in _pulse.each(fams, "wall corridors", "families")), field)
     stats.read_s = time.perf_counter() - t0
     return out, stats

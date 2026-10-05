@@ -17,7 +17,7 @@ sunken roads, wall corridors) under a pinned work-pool budget, and prints
   vertices, resources) and the memo sizes;
 * the readers' own seconds, the pool's account, the load average and the
   peak resident memory of this process + its workers (sampled once a
-  second through ``ps``).
+  second through ``ps`` on POSIX, PowerShell CIM on Windows).
 
 ``--reader-cap M`` replaces ``reader_work.MAX_WORKERS`` for the arm — the
 worker-count sweep that number is set from (1 / 2 / 4 / 8 / N).

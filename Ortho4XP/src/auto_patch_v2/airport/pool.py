@@ -114,9 +114,13 @@ def budget() -> int:
     return max(1, (os.cpu_count() or 1) // _share[0])
 
 
-def _boot(setup, setup_args) -> None:
-    """Worker initializer: no pool inside a pool; build the state once."""
+def _boot(setup, setup_args, dump_dir: str = "") -> None:
+    """Worker initializer: no pool inside a pool; the build's offender dump
+    armed here as it is there (``frame_entry.set_offender_dump_dir`` — a
+    union that falls to a rung in a worker is dumped as one that falls in
+    the build's process is); build the state once."""
     _explicit[0] = 1
+    _fe.set_offender_dump_dir(dump_dir)
     _STATE[0] = setup(*setup_args) if setup is not None else None
 
 
@@ -179,7 +183,8 @@ class WorkPool:
         try:
             self._ex = _cf.ProcessPoolExecutor(
                 max_workers=self.workers, mp_context=_mp.get_context("spawn"),
-                initializer=_boot, initargs=(self._setup, self._args))
+                initializer=_boot,
+                initargs=(self._setup, self._args, _fe.offender_dump_dir()))
         except Exception as e:            # no semaphores, no fork budget, …
             self._give_up(f"could not start ({type(e).__name__}: {e})")
             return False

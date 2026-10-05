@@ -215,3 +215,18 @@ def test_a_workers_union_fallback_rungs_are_counted_here():
     finally:
         FE.reset_rung_counts()
         FE.add_rung_counts(held)
+
+
+def _dump_dir(state, t):
+    return FE.offender_dump_dir()
+
+
+def test_the_offender_dump_is_armed_in_the_workers(tmp_path):
+    held = FE.offender_dump_dir()
+    try:
+        for want in (str(tmp_path), ""):
+            FE.set_offender_dump_dir(want)
+            with P.WorkPool(workers=2, out=lambda s: None) as p:
+                assert p.try_map(_dump_dir, range(4)) == [want] * 4
+    finally:
+        FE.set_offender_dump_dir(held)

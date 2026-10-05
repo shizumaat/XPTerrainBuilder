@@ -8039,6 +8039,7 @@ def test_imagery_not_ok_RECORDS_steps_3_and_4_as_skipped_and_never_runs_them(
                                        "4 tile": imagery["note"]}
     assert sorted(result["step_seconds"]) == ["1 vector", "2 mesh"]
     assert result["imagery"] is imagery
+    assert result["patch_dir"] == _sys.modules["O4_File_Names"].patch_dir(40, -4)
     assert any("3 masks SKIPPED" in n for n in prog.notes)
     assert any("4 tile SKIPPED" in n for n in prog.notes)
     assert not any("3 masks DONE" in n or "4 tile DONE" in n
@@ -8053,6 +8054,27 @@ def test_imagery_not_ok_RECORDS_steps_3_and_4_as_skipped_and_never_runs_them(
                                        "3 masks": imagery["note"],
                                        "4 tile": imagery["note"]}
     assert result["steps_run"] == ["1 vector"]
+
+
+def test_the_closing_lines_name_what_exists_for_an_airport_and_a_tile_build(
+        build_mod, tmp_path):
+    """Issue #420: a ``--tile`` build writes no ``<tag>.osm`` into the
+    harness out dir, yet its closing line listed ``<tag>.osm(+.axes.json)``
+    and pointed the census at it.  The tile lines name the build dir and
+    the lane's ``Patches/`` path instead; the airport lines are unchanged,
+    and ``main`` prints through the one function."""
+    out = tmp_path / "harness"
+    air = build_mod.closing_lines(out, "t1", {}, tile=False)
+    assert "t1.osm(+.axes.json)" in air[0] and str(out / "t1.osm") in air[1]
+    rec = {"build_dir": str(tmp_path / "tile_t2"),
+           "patch_dir": str(tmp_path / "Patches" / "+40-010" / "+40-004")}
+    til = "\n".join(build_mod.closing_lines(out, "t2", rec, tile=True))
+    assert "t2.osm(" not in til and str(out / "t2.osm") not in til
+    assert "no t2.osm" in til and "t2.result.json" in til
+    assert rec["build_dir"] in til and rec["patch_dir"] in til
+    assert "census.py " + str(Path(rec["patch_dir"]) / "<ICAO>_auto.patch.osm") in til
+    src = inspect.getsource(build_mod.main)
+    assert "closing_lines(out_dir, tag, result, tile=bool(args.tile))" in src
 
 
 # ── --tile --texture-mode (issue #37) ────────────────────────────────

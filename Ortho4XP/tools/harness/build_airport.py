@@ -3941,6 +3941,32 @@ def build_rebake_plan(res, law, v2_dir: Path, icao: str, prog: Progress) -> dict
             "sha256": hashlib.sha256(dest.read_bytes()).hexdigest()}
 
 
+def closing_lines(out_dir: Path, tag: str, result: dict, tile: bool) -> list:
+    """The two lines a successful build closes on: what it left in
+    ``out_dir`` and the census to run next — naming only what EXISTS.
+
+    An airport build writes ``<tag>.osm`` (+ ``.axes.json``) into
+    ``out_dir``.  A ``--tile`` build writes NO ``<tag>.osm`` there (issue
+    #420): its products are the tile build dir and the lane's
+    ``Patches/<block>/<tile>/`` (``result["build_dir"]`` /
+    ``result["patch_dir"]``), where every emitted ``<ICAO>_auto.patch.osm``
+    lands."""
+    records = (f"{tag}.env.json, {tag}.frame.json, {tag}.result.json, "
+               f"{tag}.progress")
+    if not tile:
+        return [f"\n  [harness] artifacts in {out_dir}: {tag}.osm(+.axes.json), "
+                f"{records}",
+                f"  [harness] next: venv/bin/python tools/harness/census.py "
+                f"{out_dir / (tag + '.osm')}"]
+    patch_dir = result.get("patch_dir")
+    return [f"\n  [harness] artifacts in {out_dir}: {records} "
+            f"(no {tag}.osm: a tile build's patches are not written here)",
+            f"  [harness] tile build dir: {result.get('build_dir')}",
+            f"  [harness] tile patches (lane Patches/): {patch_dir}",
+            f"  [harness] next: venv/bin/python tools/harness/census.py "
+            f"{Path(patch_dir) / '<ICAO>_auto.patch.osm' if patch_dir else '<patch>'}"]
+
+
 def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
                    prog: Progress, allow_no_sidecar: bool = False,
                    write_guard=None, allow_degraded: bool = False,
@@ -4324,6 +4350,8 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
             ("4 tile", TILE.build_tile))
     timings, skipped = run_tile_steps(tile, plan, prog, skip_steps=skip_steps)
     return {"tile": [lat, lon], "build_dir": tile.build_dir,
+            # where this tile's emitted patches land (the lane's Patches/)
+            "patch_dir": FNAMES.patch_dir(lat, lon),
             "step_seconds": timings,
             # The steps that actually RAN (and completed — a failed step
             # raised inside ``run_tile_steps``), in plan order: never a
@@ -5359,11 +5387,8 @@ def main(argv=None) -> int:
         require_no_swallowed_write_block(
             guard.blocked, allow_degraded=args.allow_degraded_dem, prog=prog)
     prog.note(f"EXIT {tag} rc=0 wall={result['wall_seconds']}s")
-    print(f"\n  [harness] artifacts in {out_dir}: {tag}.osm(+.axes.json), "
-          f"{tag}.env.json, {tag}.frame.json, {tag}.result.json, "
-          f"{tag}.progress")
-    print(f"  [harness] next: venv/bin/python tools/harness/census.py "
-          f"{out_dir / (tag + '.osm')}")
+    for line in closing_lines(out_dir, tag, result, tile=bool(args.tile)):
+        print(line)
     if leak_watch is not None and leak_watch.leaks:
         rec = frame["snapshot_leaks"]
         print(f"\n  [harness] SNAPSHOT LEAK: {rec['count']} read(s) of the "

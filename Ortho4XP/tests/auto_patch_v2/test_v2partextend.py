@@ -398,3 +398,72 @@ def test_only_a_keeping_caller_writes_the_extension(tmp_path, monkeypatch):
     assert sig.default is False and sig.kind is sig.KEYWORD_ONLY
     assert "keep=keep_extension" in inspect.getsource(RP.plan)
     assert inspect.signature(RP.plan).parameters["keep_extension"].default is True
+
+
+# ── issue #362: the narrow pass's row sums as columns, BIT FOR BIT ────────
+
+def _point_tri_dist2_rows_reference(p, a, b, c):
+    """``contact._point_tri_dist2_rows`` as it stood before #362 — every
+    reduction a ``.sum(1)``.  Kept here as the twin's reference."""
+    ab, ac, ap = b - a, c - a, p - a
+    d1 = (ab * ap).sum(1); d2 = (ac * ap).sum(1)
+    bp = p - b
+    d3 = (ab * bp).sum(1); d4 = (ac * bp).sum(1)
+    cp = p - c
+    d5 = (ab * cp).sum(1); d6 = (ac * cp).sum(1)
+    vc = d1 * d4 - d3 * d2
+    vb = d5 * d2 - d1 * d6
+    va = d3 * d6 - d5 * d4
+    denom = va + vb + vc
+    with np.errstate(divide="ignore", invalid="ignore"):
+        v = np.where(denom != 0, vb / denom, 0.0)
+        w = np.where(denom != 0, vc / denom, 0.0)
+        s_ab = np.clip(np.where(d1 - d3 != 0, d1 / (d1 - d3), 0.0), 0.0, 1.0)
+        s_ac = np.clip(np.where(d2 - d6 != 0, d2 / (d2 - d6), 0.0), 0.0, 1.0)
+        den_bc = (d4 - d3) + (d5 - d6)
+        s_bc = np.clip(np.where(den_bc != 0, (d4 - d3) / den_bc, 0.0), 0.0, 1.0)
+    inside = (va >= 0) & (vb >= 0) & (vc >= 0)
+    q = a + v[:, None] * ab + w[:, None] * ac
+    q = np.where(inside[:, None], q, a + s_ab[:, None] * ab)
+    on_ac = (~inside) & (d2 >= 0) & (d6 <= 0)
+    q = np.where(on_ac[:, None], a + s_ac[:, None] * ac, q)
+    on_bc = (~inside) & ((d4 - d3) >= 0) & ((d5 - d6) >= 0) & (vc <= 0)
+    q = np.where(on_bc[:, None], b + s_bc[:, None] * (c - b), q)
+    d = ((p - q) ** 2).sum(1)
+    dv = np.minimum(np.minimum(((p - a) ** 2).sum(1), ((p - b) ** 2).sum(1)),
+                    ((p - c) ** 2).sum(1))
+    return np.minimum(d, dv)
+
+
+def test_sum3_is_numpys_row_sum_bit_for_bit():
+    rng = np.random.default_rng(3622)
+    for n in (1, 2, 7, 8, 9, 64, 1000, 50_000):
+        m = rng.normal(size=(n, 3)) * 10.0 ** rng.integers(-12, 12, size=(n, 3))
+        m[: n // 5] = -0.0                       # numpy's leading 0.0 shows here
+        m[n // 5: n // 4, 1] = 0.0
+        assert _contact._sum3(m).tobytes() == m.sum(1).tobytes(), n
+        strided = np.asfortranarray(m)           # the layout must not matter
+        assert _contact._sum3(strided).tobytes() == m.sum(1).tobytes(), n
+    odd = np.array([[np.inf, -np.inf, 1.0], [np.nan, 1.0, 2.0], [1e308, 1e308, -1e308],
+                    [1.0, 1e-17, -1.0], [-0.0, -0.0, -0.0], [0.0, -0.0, -0.0]])
+    with np.errstate(all="ignore"):
+        assert _contact._sum3(odd).tobytes() == odd.sum(1).tobytes()
+
+
+def test_the_point_triangle_rows_are_unchanged_bit_for_bit():
+    rng = np.random.default_rng(362)
+    for n in (1, 5, 300, 20_000):
+        a = rng.uniform(-500.0, 500.0, (n, 3))
+        b = a + rng.normal(scale=3.0, size=(n, 3))
+        c = a + rng.normal(scale=3.0, size=(n, 3))
+        p = a + rng.normal(scale=2.0, size=(n, 3))
+        k = max(1, n // 8)
+        c[:k] = a[:k] + 2.0 * (b[:k] - a[:k])          # collinear: zero-area
+        b[k:2 * k] = a[k:2 * k]                         # a degenerate edge
+        p[2 * k:3 * k] = a[2 * k:3 * k]                 # the point ON a vertex
+        p[3 * k:4 * k] = (a[3 * k:4 * k] + b[3 * k:4 * k] + c[3 * k:4 * k]) / 3.0
+        a[4 * k:5 * k] = b[4 * k:5 * k] = c[4 * k:5 * k]   # a point triangle
+        got = _contact._point_tri_dist2_rows(p, a, b, c)
+        want = _point_tri_dist2_rows_reference(p, a, b, c)
+        assert got.dtype == want.dtype == np.float64
+        assert got.tobytes() == want.tobytes(), n

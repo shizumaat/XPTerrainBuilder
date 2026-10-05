@@ -820,14 +820,27 @@ def _inside(pts: np.ndarray, lo: np.ndarray, hi: np.ndarray, eps: float) -> np.n
     return pts[m]
 
 
+def _sum3(m: np.ndarray) -> np.ndarray:
+    """``m.sum(1)`` of an ``(n, 3)`` float array, BIT FOR BIT, as three
+    column adds (issue #362).
+
+    numpy reduces a 3-long row as ``((0.0 + m0) + m1) + m2`` — the leading
+    ``0.0`` is its own (it is what turns a row of ``-0.0`` into ``+0.0``),
+    so it is kept here.  Reduced along axis 1 that is one short inner loop
+    per ROW; as columns it is three vector adds, and the ten sums of
+    :func:`_point_tri_dist2_rows` were 70 of the narrow pass's 256
+    profiled seconds at OTHH.  Twin: ``test_v2partextend.py``."""
+    return ((0.0 + m[:, 0]) + m[:, 1]) + m[:, 2]
+
+
 def _point_tri_dist2_rows(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Row-wise squared point-to-triangle distance for ``(n, 3)`` rows."""
     ab, ac, ap = b - a, c - a, p - a
-    d1 = (ab * ap).sum(1); d2 = (ac * ap).sum(1)
+    d1 = _sum3(ab * ap); d2 = _sum3(ac * ap)
     bp = p - b
-    d3 = (ab * bp).sum(1); d4 = (ac * bp).sum(1)
+    d3 = _sum3(ab * bp); d4 = _sum3(ac * bp)
     cp = p - c
-    d5 = (ab * cp).sum(1); d6 = (ac * cp).sum(1)
+    d5 = _sum3(ab * cp); d6 = _sum3(ac * cp)
     vc = d1 * d4 - d3 * d2
     vb = d5 * d2 - d1 * d6
     va = d3 * d6 - d5 * d4
@@ -846,9 +859,9 @@ def _point_tri_dist2_rows(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.nda
     q = np.where(on_ac[:, None], a + s_ac[:, None] * ac, q)
     on_bc = (~inside) & ((d4 - d3) >= 0) & ((d5 - d6) >= 0) & (vc <= 0)
     q = np.where(on_bc[:, None], b + s_bc[:, None] * (c - b), q)
-    d = ((p - q) ** 2).sum(1)
-    dv = np.minimum(np.minimum(((p - a) ** 2).sum(1), ((p - b) ** 2).sum(1)),
-                    ((p - c) ** 2).sum(1))
+    d = _sum3((p - q) ** 2)
+    dv = np.minimum(np.minimum(_sum3((p - a) ** 2), _sum3((p - b) ** 2)),
+                    _sum3((p - c) ** 2))
     return np.minimum(d, dv)
 
 

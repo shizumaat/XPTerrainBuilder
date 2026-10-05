@@ -176,7 +176,8 @@ def _pad_terraces() -> dict[str, frozenset]:
 
 def build(airport: Airport, classification: Classification, law: Law,
           grid_m: float | None = None, objects_out: list | None = None,
-          cache=None, objects=None, object_report=None) -> tuple[PlanarMap, BuildStats]:
+          cache=None, objects=None, object_report=None,
+          rim_diagnostics: bool = False) -> tuple[PlanarMap, BuildStats]:
     """The planar map for ``airport`` under ``law``, validated.
     ``objects_out``, when given, receives ``[objects, cache]`` — the
     placed objects read here and their parsed geometry — so the emit
@@ -186,7 +187,11 @@ def build(airport: Airport, classification: Classification, law: Law,
     at load (owner RULINGS 2026-09-11j; spec §11a (3): the pack partition
     is a load-stage input, so the objects are read before ``classify``) —
     passing them keeps "the pack is read ONCE" true now that the first
-    reader is upstream of this stage."""
+    reader is upstream of this stage.
+
+    ``rim_diagnostics`` is handed to ``build_basins`` (owner RULINGS
+    2026-10-04x (2)): the basins' rim readings are notes a BUILD does not
+    make; ``tools/v2_solve_replay.py --rim-diagnostics`` asks for them."""
     import time as _time
     t0 = _time.perf_counter()
     from ..airport import frame_entry as _fe
@@ -248,7 +253,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                   objects, cache, report=orep,
                                                   channels=channels,
                                                   claimed=frozenset(tstats.shell_claimed),
-                                                  reads=rings)
+                                                  reads=rings,
+                                                  rim_diagnostics=rim_diagnostics)
     bstats.objects = orep
     bstats.object_read_s = read_s
     # the structure reads are DONE (issue #136: the progress window's

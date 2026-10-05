@@ -321,11 +321,11 @@ def test_basin_pass_cells_records_and_refusals(basin_map, law):
     assert stats.basins.basins == 2
 
 
-def _basins_of(objs, law, placements, cells=None):
+def _basins_of(objs, law, placements, cells=None, **kw):
     airport = _airport(objs, law, placements)
     objects, rep = read_objects(airport, law)
     cl = Classification(tuple(cells if cells is not None else _cells()), (), {}, ())
-    cl3, basins, bs = build_basins(airport, cl, law, (), objects, report=rep)
+    cl3, basins, bs = build_basins(airport, cl, law, (), objects, report=rep, **kw)
     return cl, cl3, basins, bs, rep
 
 
@@ -383,8 +383,11 @@ def test_open_rim_is_noted_not_refused(objs, law):
     """04i rule 3 as a DIAGNOSTIC: three walls and a floor — the fourth
     side's ring stations have no at-grade shell within reach; the pit is
     admitted (its shell tops out at grade) and the open length is noted
-    (OTHH's owner-accepted Dewatering pits read 1–2 stations open)."""
-    cl, cl3, basins, bs, rep = _basins_of(objs, law, [("open", (0.0, 0.0), 0.0, 0.0)])
+    (OTHH's owner-accepted Dewatering pits read 1–2 stations open).  Read
+    ON DEMAND (owner RULINGS 2026-10-04x (2)): a build's notes carry no
+    rim reading (``test_rim362.py``)."""
+    cl, cl3, basins, bs, rep = _basins_of(objs, law, [("open", (0.0, 0.0), 0.0, 0.0)],
+                                          rim_diagnostics=True)
     assert rep.below_grade_objects == 1 and len(basins) == 1 and not bs.refused
     note = next(n for n in basins[0].notes if n.startswith("rim stations"))
     import re
@@ -392,7 +395,8 @@ def test_open_rim_is_noted_not_refused(objs, law):
     assert m and 0 < int(m.group(1)) < int(m.group(2)) and int(m.group(3)) >= 30
     # the closed pit reads 0 open stations
     closed = next(b for b in basins) if False else None
-    cl, cl3, basins2, bs2, rep2 = _basins_of(objs, law, [("pit", (0.0, 0.0), 0.0, 0.0)])
+    cl, cl3, basins2, bs2, rep2 = _basins_of(objs, law, [("pit", (0.0, 0.0), 0.0, 0.0)],
+                                             rim_diagnostics=True)
     note2 = next(n for n in basins2[0].notes if n.startswith("rim stations"))
     assert re.search(r": 0 of \d+", note2), note2
 

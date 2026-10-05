@@ -87,6 +87,11 @@ THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
    at the end of the pair's MIDLINE: for arms of unequal length that is
    half the longer arm's run-on BEYOND the terminal station, where the
    records end (§12h (3); unchanged — moving it is an owner question).
+   W1s's AT-GRADE band there runs from the GROUND at the mouth up to
+   ``min_headroom_m`` over it: a corridor's own deck (rule 5 measures it
+   from the FLOOR) closes its mouth only if it reaches the mouth window
+   under that ceiling — the arms run OUT beyond the deck; a pit roofed to
+   its mouth is a dock (§12h (1), (11)).
 5. HEADROOM — the lowest near-horizontal family face over the trench
    stands ``min_headroom_m`` above the floor, else refused (replaces the
    basement cover gate: the deck above is the family's own roof and stays).

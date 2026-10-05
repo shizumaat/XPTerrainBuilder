@@ -20,7 +20,7 @@ import math
 import re
 
 import pytest
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport import wall_family as WF
@@ -77,6 +77,18 @@ def _jet_bridge(path):
     return _write(path, vt, tris)
 
 
+def _decked(path, inset, depth=1.9, top=0.5, thick=0.3, deck_y=2.6):
+    """The Law C corridor (walls 40 m each way, 10 m apart) under a deck
+    2.6 m over the ground that stops ``inset`` metres INSIDE each mouth
+    (negative: it runs on beyond the mouth)."""
+    vt: list = []
+    tris: list = []
+    _vwall(vt, tris, -5.0 - thick, -5.0, -40.0, 40.0, -depth, -depth, top)
+    _vwall(vt, tris, 5.0, 5.0 + thick, -40.0, 40.0, -depth, -depth, top)
+    _slab(vt, tris, -7.0, 7.0, -40.0 + inset, 40.0 - inset, deck_y, deck_y + 0.3)
+    return _write(path, vt, tris)
+
+
 def _unequal_arms(path, depth=1.9, top=0.5, thick=0.3, short_to=20.0):
     """The Law C corridor with one arm running 40 m each way and the other
     stopping at authored z = ``short_to`` on the +z side, under a deck."""
@@ -98,6 +110,8 @@ def objs(tmp_path_factory, law):
     wc = law.tables.structures.cutout.wall_corridor
     eps = law.tables.structures.rebake.plate_seat_min_delta_m
     band = law.tables.structures.basin.contact_band_m
+    ob_open = law.tables.structures.tunnel.object.end_cap_open_m
+    assert 2.6 < wc.min_headroom_m <= 2.6 + 1.9      # the deck: under the ceiling, over rule 5's bar
     assert eps < 0.12 < 0.15 < band < 2.5 <= wc.max_wall_height_m < wc.min_headroom_m < 4.0
     assert band < 1.5                      # ``garage_deep``'s shallow end is under the band
     return {
@@ -107,6 +121,10 @@ def objs(tmp_path_factory, law):
         "garage": _corridor_obj(d / "garage.obj", depth=0.2, drop=3.0, deck_y=None,
                                 end_wall=True, end_top=2.5),
         "unequal": _unequal_arms(d / "unequal.obj"),
+        # the UNDERPASS form: the deck stops just over end_cap_open_m inside
+        # each mouth; and the DOCK form: the same deck runs on over the mouths
+        "deck_short": _decked(d / "deck_short.obj", ob_open + 0.5),
+        "deck_reach": _decked(d / "deck_reach.obj", -(ob_open + 1.0)),
         # THE CLOSERS, each another resource, each placed ON a mouth
         "slab_below": _block(d / "slab_below.obj", -5.0, 5.0, -1.0, 1.0, -1.5, -0.5),
         "wall": _block(d / "wall.obj", -5.0, 5.0, -0.2, 0.2, 0.0, 2.5),
@@ -205,6 +223,27 @@ def test_what_stands_over_or_beside_the_mouth_leaves_it_open(objs, law, above, s
     assert st.by_class == {CLASS_LEVEL: 2}, st.refused
     (line,) = st.admission
     assert line.count(f"at-grade {share}") == 2 and "W1s open ends 0, 1" in line, line
+
+
+def test_a_corridors_own_deck_closes_its_mouth_only_if_it_reaches_the_mouth_window(objs, law):
+    """Re-ruling ``docs/lawcreview-12h-reruling.md`` 1: the at-grade ceiling
+    is measured from the GROUND.  A deck 2.6 m over the ground (4.5 m over
+    the floor: rule 5 admits it) that stops ``end_cap_open_m`` short of each
+    mouth leaves them open — the underpass, arms running OUT beyond the
+    deck; the same deck reaching the mouths is a dock's cover."""
+    recs, st = _read(objs, law, "deck_short", cells=_cells())
+    assert st.by_class == {CLASS_LEVEL: 2}, st.admission
+    (line,) = st.admission
+    assert line.count("at-grade 0.00") == 2 and "W3 plate (" in line, line
+    recs, st = _read(objs, law, "deck_reach", cells=_cells())
+    assert recs == [] and st.corridors == 0
+    (line,) = st.admission
+    assert "ends family 0%/0%" in line and "headroom 4.80 m (plate comp" in line, line
+    assert "W1s REFUSED — no open mouth" in line
+    # the closer is the FAMILY'S OWN deck, named at both ends
+    assert line.count("closer deck_reach.obj@dsf:obj0 1.00 of W") == 2, line
+    assert line.count("at-grade 1.00") == 2 and line.count("below 0.00") == 2
+    assert any("REFUSED by W1s" in r and "deck_reach.obj" in r for r in st.refused)
 
 
 def test_one_mouth_closed_by_a_foreign_placement_is_a_bay_at_the_other(objs, law):
@@ -356,8 +395,9 @@ def test_the_family_gate_refuses_an_off_field_family_whole(objs, law):
     assert (fam.families, fam.bands, fam.pairs, fam.admission) == (0, 0, 0, [])
     (line,) = fam.refused
     assert line.startswith("family ") and "(1 members, deck.obj): off the field" in line
+    margin = law.tables.structures.cutout.wall_corridor.max_width_m / 2.0
     assert line.endswith(f"nearest cover {standoff + 200.0:.1f} m (> mouth_standoff_m "
-                         f"{standoff:g}); no band read"), line
+                         f"{standoff:g} + max_width_m/2 {margin:g}); no band read"), line
     # the whole read, build and measure alike: the on-field family alone is counted
     for measure in (False, True):
         recs, st = WF.read_wall_corridors(airport, objects, cache, law, measure=measure,
@@ -369,6 +409,33 @@ def test_the_family_gate_refuses_an_off_field_family_whole(objs, law):
     recs, st = WF.read_wall_corridors(airport, objects, cache, law)
     assert st.off_field_families == 0 and st.corridors == 2 and st.refused == []
     assert all("FIELD not read" in a for a in st.admission)
+
+
+def test_the_family_gate_keeps_half_a_pairs_width_of_margin(objs, law):
+    """Re-ruling 2: a mouth's MIDPOINT may stand up to half the pair's
+    width outside the hull of the members' extents, so the gate tests
+    ``mouth_standoff_m + max_width_m / 2`` on the HULL's polygon distance.
+    A family whose hull stands 155 m from the cover, with a 20 m-wide pair
+    whose mouth midpoint stands 148 m from it, is NOT gated; one more
+    metre beyond the margin IS."""
+    standoff = law.tables.structures.tunnel.mouth_standoff_m
+    margin = law.tables.structures.cutout.wall_corridor.max_width_m / 2.0
+    assert 20.0 / 2.0 <= margin and standoff + margin > 155.0 > standoff > 148.0
+    objects, _cache, rd = _reader(objs, law, cells=_cells())      # cover: x -30..30
+    (o,) = objects
+
+    def family_at(gap):
+        """One member whose plan extent starts ``gap`` metres east of the cover."""
+        return [_dc.replace(o, plan_bbox=Polygon(_rect(30.0 + gap, -40.0, 30.0 + gap + 40.0, 40.0)))]
+
+    stats = WF.WallCorridorStats()
+    assert WF._off_field(rd.cover, "f", family_at(155.0), margin, stats) is False
+    assert rd.cover.holds((30.0 + 148.0, 0.0))          # that mouth IS on the field
+    assert stats.refused == [] and stats.off_field_families == 0
+    assert WF._off_field(rd.cover, "f", family_at(standoff + margin), margin, stats) is False
+    assert WF._off_field(rd.cover, "f", family_at(standoff + margin + 1.0), margin, stats) is True
+    assert stats.off_field_families == 1
+    assert f"nearest cover {standoff + margin + 1.0:.1f} m" in stats.refused[0]
 
 
 def test_the_field_predicate_is_the_mapped_tunnel_laws_cover_test(law):

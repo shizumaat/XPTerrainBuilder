@@ -13,8 +13,15 @@ is ADMITTED iff, in the object's SEATED frame (RULINGS 2026-09-10ad):
   segment is covered under ``[cutout.wall_corridor] end_cap_cover_min`` by
   the geometry of ANY placement of the pack, in the BELOW-GRADE band (floor
   + ε .. ground − ε) and in the AT-GRADE band (ground + ε .. ground +
-  ``min_headroom_m``) alike.  A canopy overhead is open; a wall, a door, a
-  fence, a kerb or a ground slab across the mouth closes it;
+  ``min_headroom_m``) alike.  THE AT-GRADE CEILING IS MEASURED FROM THE
+  GROUND at the mouth: a wall, door, fence, kerb, ground slab OR DECK
+  standing across the mouth window under it closes the mouth — a roof under
+  ``min_headroom_m`` over the ground at the mouth is a dock's cover, not a
+  canopy; a face whose lowest rendered point stands at or above that
+  ceiling is a canopy or deck overhead and closes nothing.  A corridor's
+  OWN deck (rule 5, measured from the FLOOR) closes its mouth only if it
+  reaches the mouth window under that ceiling — the arms of a corridor run
+  OUT beyond the deck; a pit roofed to its mouth is a dock;
 * **W3** — its arms run out from a BUILT STRUCTURE: rule 5 found a deck
   plate over the trench, or an above-grade WALL (faces reaching ``[basin]
   contact_band_m`` over the ground) covers ``end_cap_cover_min`` of an end.
@@ -92,14 +99,16 @@ class FieldCover:
         cover) — the line's figure, never the verdict."""
         return self.distance_to(Point(xy))
 
-    def reaches(self, geom) -> bool:
+    def reaches(self, geom, margin_m: float = 0.0) -> bool:
         """:meth:`holds` for a REGION: some cover polygon stands within the
-        standoff of ``geom`` — so of no point of it when this is False (the
-        family gate of ``wall_family.read_family``, §12h (4) step 0)."""
+        standoff + ``margin_m`` of ``geom`` (polygon distance) — so within
+        the standoff of no point ``margin_m`` or less from it when this is
+        False (the family gate of ``wall_family.read_family``, §12h (4)
+        step 0)."""
         if self._tree is None:
             return False
         return len(self._tree.query(geom, predicate="dwithin",
-                                    distance=self.standoff_m)) > 0
+                                    distance=self.standoff_m + margin_m)) > 0
 
     def distance_to(self, geom) -> float:
         """Metres from ``geom`` to the nearest cover polygon (``inf`` with

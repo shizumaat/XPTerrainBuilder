@@ -128,26 +128,29 @@ def wall_families(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resourc
     return placements, sorted(fams.items(), key=lambda kv: kv[0])
 
 
-def _off_field(cover: FieldCover, fam_name: str,
-               members: _t.Sequence[_obj8.PlacedObject], stats: WallCorridorStats) -> bool:
+def _off_field(cover: FieldCover, fam_name: str, members: _t.Sequence[_obj8.PlacedObject],
+               margin_m: float, stats: WallCorridorStats) -> bool:
     """STEP 0, THE FAMILY FIELD GATE (spec §12h (4); HARD LAW §6 review
-    ``docs/lawcreview-12h.md`` (B)): every mouth of every pair of a family
-    lies between two of its bands, so inside the convex hull of its
-    members' plan extents; when no cover polygon stands within the standoff
-    of that hull none stands within it of any mouth, and FIELD refuses the
-    family WHOLE — one line, no band read.  Exact by construction, and a
-    function of the family's own members and the field alone."""
+    ``docs/lawcreview-12h.md`` (B) and its re-ruling): the CONVEX HULL of
+    the members' plan extents is tested once.  A mouth segment's centre is
+    the mean of two points of its bands, so inside the hull, and its
+    MIDPOINT stands at most half the pair's width from that — within
+    ``margin_m`` (``max_width_m`` / 2) of the hull; when no cover polygon
+    stands within the standoff + ``margin_m`` of the hull none stands
+    within the standoff of any mouth, and FIELD refuses the family WHOLE —
+    one line naming the distance, no band read.  Exact by construction,
+    and a function of the family's own members and the field alone."""
     boxes = [o.plan_bbox for o in members]
     if not boxes or any(b is None for b in boxes):
         return False
     hull = unary_union(boxes).convex_hull
-    if hull.is_empty or cover.reaches(hull):
+    if hull.is_empty or cover.reaches(hull, margin_m):
         return False
     stats.refused.append(
         f"family {fam_name} ({len(members)} members, "
         f"{os.path.basename(members[0].path)}): off the field — nearest cover "
-        f"{cover.distance_to(hull):.1f} m (> mouth_standoff_m {cover.standoff_m:g}); "
-        f"no band read")
+        f"{cover.distance_to(hull):.1f} m (> mouth_standoff_m {cover.standoff_m:g} + "
+        f"max_width_m/2 {margin_m:g}); no band read")
     stats.off_field_families += 1
     return True
 
@@ -184,7 +187,8 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
     dem_z = airport.dem.z
     to_ll = rd.to_ll
     fam_name = f"{fk[0]:.3f},{fk[1]:.3f},{fk[2]:.3f}"
-    if rd.cover is not None and _off_field(rd.cover, fam_name, members, stats):
+    if rd.cover is not None and _off_field(rd.cover, fam_name, members,
+                                           wc.max_width_m / 2.0, stats):
         return stats, pairs
     bands: list[WallBand] = []
     verticals: list[tuple] = []

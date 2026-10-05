@@ -970,13 +970,23 @@ objects the reader already holds. Nothing is re-derived downstream (RULINGS 2026
   * BELOW-GRADE: `floor_z(k) + ε .. ground_z(k) − ε` — the trench opening a vehicle would
     drive through;
   * AT-GRADE: `ground_z(k) + ε .. ground_z(k) + min_headroom_m` (`[cutout.wall_corridor]`,
-    3.5) — a wall, door, fence, kerb or ground slab standing across the mouth at grade. Above
-    `min_headroom_m` is a canopy or deck: it closes nothing.
+    3.5) — a wall, door, fence, kerb, ground slab OR DECK standing across the mouth window
+    under that ceiling closes it: a roof under `min_headroom_m` over the ground at the mouth
+    is a dock's cover, not a canopy. A face whose lowest rendered point stands at or above
+    `ground_z(k) + min_headroom_m` is a canopy or deck overhead: it closes nothing. A
+    corridor's own deck (rule 5, measured from the FLOOR) closes its mouth only if it reaches
+    the mouth window under that ceiling — the arms of a corridor run OUT beyond the deck
+    (05f); a pit roofed to its mouth is a dock.
   * **ε = `[rebake] plate_seat_min_delta_m` (0.05 m)**, the smallest step the engine treats
     as visible (08u (1)). No alias key: an alias is a second value that can drift, and the
-    meaning here IS that one. SENSITIVITY (measured): LEMD GAVIA 24's closer is the apron
-    slab `Cargo-LEMD63` whose top stands 0.10–0.13 m over the DEM at the mouth; ε ≤ 0.10 reads
-    it CLOSED, ε ≥ 0.15 reads that mouth open and GAVIA 24 becomes a false corridor. The
+    meaning here IS that one. MEASURED DEPENDENCE (not ε): LEMD GAVIA 0/0's closer is
+    `Cargo-LEMD63` comp 14, a 3 cm plate authored +2.26 m over its zero — rule 5's own plate
+    (headroom 3.73) — 2.15 m over the mouth's DEM ground, 3.52 m over the floor, 0.82 of W:
+    CLOSED under any at-grade ceiling above 2.15 m, OPEN under a floor-measured bar (floor +
+    3.5 misses it by 0.02 m; measured, withdrawn). OTHH `Terminal_Base_2_5` 432/433's deck is
+    2.42 m over ground (inside the band) and the mouth is open because the plate stops ≥
+    `end_cap_open_m` short of the window (0.00 of W). These two sites are separated by whether
+    the deck reaches the mouth — §12h (11). The
     scout's arm used 0.10 and an at-grade ceiling of 4.0; 0.05 / 3.5 are the law values and
     the implementing lane's `--stage structures` must reproduce the (2) table under them.
     `[emit.identity] min_distinct_spacing_m` (0.5) is NOT ε.
@@ -1058,7 +1068,7 @@ it law. The mouth witness alone would ADMIT the corridors the owner's #12 read r
 (`TerminalRoads_03_004` 11–14 at 25.2575296, 51.6120308: 0.02/0.02 both ends, walls 9.78 m),
 so W1s composes with (d), never replaces it. The 61 false corridors: LEMD 31
 `grass_FSX-LEMDgrass` buried grass-billboard lattices (W3 refuses: no deck, no wall), 1
-`Cargo-GAVIA` 0/0 bay 24 (W1s: the apron slab across its mouth), 1 `Sim-wings-SWbaume` 117
+`Cargo-GAVIA` 0/0 bay 24 (W1s: its own roof `Cargo-LEMD63` comp 14, a 3 cm plate authored +2.26 m, 2.15 m over the mouth's ground, reaches its mouth), 1 `Sim-wings-SWbaume` 117
 (W1s: the ground slab fills it); KASE 26 — one UUID-named city-block object 3.9–4.4 km from
 the field (FIELD refuses all 26; W1s ∧ W3 alone keeps 3); TFFJ 2 `industrial_1_1` 560–594 m
 off (W1s and FIELD both refuse). OTHH's 9 admitted today: `Qatar_DutyFree_003` ×3 (own
@@ -1074,8 +1084,8 @@ the arms 0.00–0.10.
 | arms of unequal length | the records end at the terminal STATION (where the shorter wall ends); rule 4's `end_line` and the mouth segment M_k stand at the MIDLINE's end, half the run-on beyond that station (unchanged: OTHH's identity bar; owner question E 1 — on the corpus one OTHH record's class depends on it). |
 | roll-up door mesh / fence / kerb / step across the mouth | a face in the AT-GRADE or BELOW band covering ≥ 0.5 of W → that end CLOSED. A 0.15 m kerb at grade crosses `ground + ε` → CLOSED (owner question (12) Q1). |
 | jet bridge across the mouth | underside above `min_headroom_m` → not in the band; its legs cover < 0.5 → OPEN. |
-| canopy / deck overhead, open at grade | OPEN at that end (the band stops at `min_headroom_m`); the deck satisfies W3. OTHH `TerminalRoads_Parking_004` 7–10, `VCN_004` 28/30 measured so (and (d)-refused anyway). |
-| ground slab object at grade across the mouth | CLOSED — the pack says ground is there. LEMD GAVIA 24 (`Cargo-LEMD63`, 0.82 of W), SWbaume 117 (`Ground-FSX-LEMD85` 1.00, both mouths). |
+| canopy / deck overhead | underside ≥ ground + min_headroom_m, or the plate stops short of the window: OPEN; a deck reaching the window under that: CLOSED (LEMD GAVIA 0/0) |
+| ground slab object at grade across the mouth | CLOSED — the pack says ground is there. LEMD SWbaume 117 (`Ground-FSX-LEMD85` 1.00, both mouths). |
 | open at both ends | `level`, two halves, as today — PROVIDED W3 (a deck over it: OTHH's underpass). Two bare walls under open sky with open ends are a ditch or a fence line → REFUSED by W3 (LEMDgrass, 31 of 31). |
 | closed at both ends (family faces) | REFUSED by rule 4 as today ("sunken yard": NLWF's 14 foundations, KASE 2,073 pairs). |
 | closed at both ends (one by a foreign placement) | REFUSED by W1s ("no open mouth"). |
@@ -1092,22 +1102,18 @@ The EXISTING clauses keep their order and their refusal texts (today's `stats.re
 are unchanged for every candidate they refuse); the three NEW clauses follow rule 5, cheapest
 refusal first:
 
-0. **THE FAMILY FIELD GATE** (review `docs/lawcreview-12h.md` (B), HARD LAW §6; exact by
-   construction): every candidate's mouth midpoint lies between its two bands, inside the
-   convex hull of the family's members' `plan_bbox`es; if the nearest cover polygon is
-   farther than `mouth_standoff_m` from that hull, every end of every pair is, and FIELD
-   refuses the family whole. At the top of `read_family`, when a field is handed
-   (`rd.cover is not None`), before any band is built: one `dwithin` query of the hull on the
-   cover's tree; not within → ONE line
-   `family {fam_name} ({n} members, {resource}): off the field — nearest cover {d:.1f} m (> mouth_standoff_m {standoff:g}); no band read`
-   in `stats.refused`, `stats.off_field_families += 1`, and the family returns (it counts in
-   none of `stats.families / bands / pairs`). No field → not applied (FIELD not read).
-   Measure mode is NOT exempt (one reading, one set of lines in build and replay). The
-   on-field clause order below is unchanged, so every on-field refusal text is as before.
-   (Lane `lawc396b` reads the HULL of the members' extents where the review's (B) wrote
-   their union: a pair whose two bands belong to two members has its mouth BETWEEN their
-   extents — inside the hull, not the union; the hull is the form the reviewer's probe
-   measured and the one that is exact. `{resource}` is the first member's.)
+0. STEP 0, the family FIELD gate: with a field handed, the CONVEX HULL of the members'
+   `plan_bbox`es (every mouth midpoint lies within `max_width_m/2` of it) is tested once — no
+   cover polygon within `mouth_standoff_m + max_width_m/2` of the hull → the family is refused
+   WHOLE by one line naming the distance, no band read, `stats.off_field_families += 1`; a
+   family on the field is read as before. Exact by construction, a function of the family's
+   members and the field alone (pooled = serial). (Review `docs/lawcreview-12h.md` (B) and
+   `docs/lawcreview-12h-reruling.md` 2, HARD LAW §6. The line, in `stats.refused`:
+   `family {fam_name} ({n} members, {resource}): off the field — nearest cover {d:.1f} m (> mouth_standoff_m {standoff:g} + max_width_m/2 {margin:g}); no band read`
+   — polygon distance to the hull, never centroids; `{resource}` is the first member's. A
+   gated family counts in none of `stats.families / bands / pairs`. No field → not applied
+   (FIELD not read). Measure mode is NOT exempt. The on-field clause order below is unchanged,
+   so every on-field refusal text is as before.)
 1. rule 1 bands, rule 2 pair, (a) authored depth, (d) kerb height, rule 3 grade / descending,
    rule 4 family end covers (`covers`, `mouth_ks`), rule 5 headroom (`plate_plan`), and for a
    DESCENDING pair the shallow-end-at-grade test (`shallow_depth ≤ contact_band_m`, existing:
@@ -1391,7 +1397,8 @@ the registered capture is the durable form of this read (bar (9) 3).
 | KASE 39.191344, −106.819583 | `b56dfde4-…-359f7b320fda_1` 3105: 19.5 × 10.3 m, 9.9 m deep, one end wholly open, the other closed by `_2` (z 2395–2405) | (d) and FIELD (3,900–4,370 m from the cover) — see the 3131 row |
 | KASE 39.189304, −106.819453 | 3131: 10.3 × 8.9 m, 3.1 m deep, bay under a 7.2 m deck | KASE 3131 and 3105's kerb reads 3.00x m at the engine's precision (the scout compared a rounded 3.0): (d) refuses them; FIELD refuses them too. Only 3161 (kerb −0.0, W1s ✓ W3 ✓) rests on FIELD alone |
 | KASE 39.190352, −106.819609 | 3161: 22.2 × 10.7 m, 7.0 m deep, bay | FIELD |
-| LEMD 40.458445, −3.577556 | `Airport_Cargo-GAVIA` 0/0 bay 24: a 1.2–1.4 m cargo kerb pit under a 3.7 m deck whose mouth the pack's apron slab `Cargo-LEMD63` paves over (0.82 of W, top +0.10–0.13 m) | W1s (ε ≤ 0.10) |
+| LEMD 40.458445, −3.577556 | `Airport_Cargo-GAVIA` 0/0 bay 24: a 1.2–1.4 m cargo kerb pit under a 3.7 m deck — `Cargo-LEMD63` comp 14, a 3 cm plate authored +2.26 m, 2.15 m over the mouth's ground, 3.52 m over the floor — that reaches its mouth window (0.82 of W) | W1s — its roof reaches the mouth under `min_headroom_m` over the ground |
+| OTHH 25.266210, 51.611335 | `Terminal_Base_2_5` 432/433 (the 08u underpass): admitted; its deck (2.42 m over ground) would close the mouth if it reached the window | the one admitted record whose W1s rests on the plate's edge |
 | LEMD 40.491095, −3.568335 | `Sim-wings-SWbaume` 135/163 (117): a 7 m pit at the T4S tower filled by the pack's ground slab `Ground-FSX-LEMD85` (1.00) | W1s |
 
 Downtown Aspen is 3.9 km from the field; the two LEMD sites are paved over by the pack itself.

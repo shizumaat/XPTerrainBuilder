@@ -11,6 +11,7 @@ import time
 
 import pytest
 
+from auto_patch_v2.airport import frame_entry as FE
 from auto_patch_v2.airport import pool as P
 
 
@@ -55,6 +56,13 @@ def _hang(state, t):
     if state is not None and state.get("pid") != state.get("parent"):
         time.sleep(60)
     return t * 2
+
+
+def _rung(state, t):
+    """A task whose union fell to a fallback rung ``t % 3`` times."""
+    for _ in range(t % 3):
+        FE._count("twin.pool", t % 2)
+    return t
 
 
 SERIAL = [10 + t * t for t in range(40)]
@@ -186,3 +194,39 @@ def test_the_pulse_is_restored():
         p.try_map(_square, range(4), what="inner", unit="tasks")
     assert pulse.current() == ("outer", 1, 2, "x")
     pulse.clear()
+
+
+def test_a_workers_union_fallback_rungs_are_counted_here():
+    """The planar report's ``union_fallback_rungs`` is a per-process count
+    (``frame_entry.rung_counts``): a union a worker took on this build's
+    behalf must read exactly as the one this process would have taken."""
+    held = FE.rung_counts()
+    try:
+        FE.reset_rung_counts()
+        [_rung(None, t) for t in range(12)]
+        want = FE.rung_counts()
+        assert want == {"twin.pool": (6, 6)}
+        for kw in ({}, {"chunk": 5}):
+            FE.reset_rung_counts()
+            FE._count("held.here", 1)
+            with P.WorkPool(workers=3, out=lambda s: None) as p:
+                assert p.try_map(_rung, range(12), **kw) == list(range(12))
+            assert FE.rung_counts() == {"held.here": (0, 1), **want}
+    finally:
+        FE.reset_rung_counts()
+        FE.add_rung_counts(held)
+
+
+def _dump_dir(state, t):
+    return FE.offender_dump_dir()
+
+
+def test_the_offender_dump_is_armed_in_the_workers(tmp_path):
+    held = FE.offender_dump_dir()
+    try:
+        for want in (str(tmp_path), ""):
+            FE.set_offender_dump_dir(want)
+            with P.WorkPool(workers=2, out=lambda s: None) as p:
+                assert p.try_map(_dump_dir, range(4)) == [want] * 4
+    finally:
+        FE.set_offender_dump_dir(held)

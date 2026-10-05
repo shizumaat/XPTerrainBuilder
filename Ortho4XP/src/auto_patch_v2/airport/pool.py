@@ -43,6 +43,11 @@ The contract a caller relies on:
   in :class:`SharedArrays` (one shared-memory block each, copied once) and
   ships its small ``spec``; a worker calls :func:`attach` and reads the same
   pages.  The parent closes it when the map is done.
+* **a count kept per process comes home**: the §51 (3) union fallback
+  rungs (``frame_entry.rung_counts``, the planar report's
+  ``union_fallback_rungs``) a worker took are returned with its answers and
+  added to this process's, so the report reads the same count wherever the
+  union ran.
 * **every wait is bounded**: the result wait by ``stall_s``, the teardown by
   :data:`TEARDOWN_S` (then ``terminate``, then ``kill``).
 * **a caller with work of its own** takes the map in two halves:
@@ -57,6 +62,7 @@ from __future__ import annotations
 import concurrent.futures as _cf
 import multiprocessing as _mp
 import os
+import pickle
 import sys
 import time
 import typing as _t
@@ -64,6 +70,7 @@ import typing as _t
 import numpy as np
 from multiprocessing import shared_memory as _shm
 
+from . import frame_entry as _fe
 from ..model import pulse as _pulse
 
 __all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "configure",
@@ -108,16 +115,22 @@ def budget() -> int:
     return max(1, (os.cpu_count() or 1) // _share[0])
 
 
-def _boot(setup, setup_args) -> None:
-    """Worker initializer: no pool inside a pool; build the state once."""
+def _boot(setup, setup_args, dump_dir: str = "") -> None:
+    """Worker initializer: no pool inside a pool; the build's offender dump
+    armed here as it is there (``frame_entry.set_offender_dump_dir`` — a
+    union that falls to a rung in a worker is dumped as one that falls in
+    the build's process is); build the state once."""
     _explicit[0] = 1
+    _fe.set_offender_dump_dir(dump_dir)
     _STATE[0] = setup(*setup_args) if setup is not None else None
 
 
 def _run(fn, chunk):
-    """One submitted unit: ``fn`` over a chunk of tasks, in order."""
+    """One submitted unit: ``fn`` over a chunk of tasks, in order — and
+    the union fallback rungs this worker took doing it (module doc)."""
     state = _STATE[0]
-    return [fn(state, t) for t in chunk]
+    _fe.reset_rung_counts()
+    return [fn(state, t) for t in chunk], _fe.rung_counts()
 
 
 class WorkPool:
@@ -171,7 +184,8 @@ class WorkPool:
         try:
             self._ex = _cf.ProcessPoolExecutor(
                 max_workers=self.workers, mp_context=_mp.get_context("spawn"),
-                initializer=_boot, initargs=(self._setup, self._args))
+                initializer=_boot,
+                initargs=(self._setup, self._args, _fe.offender_dump_dir()))
         except Exception as e:            # no semaphores, no fork budget, …
             self._give_up(f"could not start ({type(e).__name__}: {e})")
             return False
@@ -289,7 +303,8 @@ class WorkPool:
                 last = time.monotonic()
                 for f in done:
                     a, b = futs[f]
-                    out[a:b] = f.result()          # a task's own error re-raises
+                    out[a:b], rungs = f.result()   # a task's own error re-raises
+                    _fe.add_rung_counts(rungs)
                     done_n += b - a
         except _cf.BrokenExecutor as e:
             self._give_up(f"{what or 'map'}: a worker died ({e})")
@@ -401,3 +416,27 @@ def attach(spec: _t.Mapping[str, tuple]) -> dict[str, np.ndarray]:
             arrays[name] = arr
         _ATTACHED[:] = [key, blocks, arrays]
     return _ATTACHED[2]
+
+
+# ── one object every task of a map reads, shipped once ───────────────────
+
+def share_object(obj: _t.Any) -> SharedArrays:
+    """``obj`` pickled ONCE into shared memory, for a map whose every task
+    reads the same thing (a cluster's bodies, a unit's footprints): a task
+    carries the small ``.spec`` and its worker calls :func:`shared_object`.
+    Raises as :class:`SharedArrays` does — the caller then runs serial."""
+    raw = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
+    return SharedArrays({"pickle": np.frombuffer(raw, dtype=np.uint8)})
+
+
+#: the object of the ONE spec this process last read: ``[block, object]``
+_OBJECT: list = [None, None]
+
+
+def shared_object(spec: _t.Mapping[str, tuple]) -> _t.Any:
+    """The object behind a :func:`share_object` ``spec``, unpickled once
+    per process (the previous one is dropped)."""
+    block = spec["pickle"][0]
+    if _OBJECT[0] != block:
+        _OBJECT[:] = [block, pickle.loads(attach(spec)["pickle"].tobytes())]
+    return _OBJECT[1]

@@ -31,8 +31,17 @@ What a reader leaves on the build's ``ResourceCache``:
   ledgers on the build's cache in the order one core reads (the doors'
   families, then the roads'), so the stats, the memos and every later
   charge are what one core leaves;
-* the one process-wide thing: ``frame_entry``'s fallback-rung count, which
-  every task returns and the build's process charges to its own.
+* the one process-wide thing: ``frame_entry``'s fallback-rung count.  ONE
+  RULE: a rung is charged to the build's count exactly where a reading it
+  belongs to is TAKEN.  :func:`read` hands a task's rungs over in its row
+  and leaves its worker's count at zero at every exit, so the pool itself
+  brings none home; :class:`Ahead` charges a row's rungs only when its
+  reader's pooled reading is the one used — at :meth:`Ahead.collect` for
+  the walls and the tunnels, at a successful :meth:`Ahead.settle` for the
+  at-grade readers, whose entries' rungs go with the entry's first charge
+  (``grade_ledger.replay``).  A reader the build re-reads (one tripped
+  family, a refused replay) counts its own rungs there and its rows' are
+  dropped: none twice, none lost.
 
 A worker is handed the placed objects, the law, the airport WITHOUT its
 partition / groups / clusters (:class:`Stripped` — a reader that reached for
@@ -199,12 +208,14 @@ def read(state: ReadWorker, task: tuple) -> tuple:
             got = (corridors, tstats,
                    *read_plates(a, oo, cache, law, {c.resource for c in corridors}))
     except (ColdTile, StrippedField) as e:
+        _fe.reset_rung_counts()                # the build's own read will count them
         return ("serial", f"{type(e).__name__}: {e}", _ledger(cache, mark, True))
     led = _ledger(cache, mark, False)
+    rungs = _fe.rung_counts()
+    _fe.reset_rung_counts()      # handed over here (or dropped): ``pool._run`` takes none home
     if isinstance(led, str):
         return ("serial", led, None)
-    return ("ok", got, _fe.rung_counts() if led is None else led.own_rungs(_fe.rung_counts()),
-            led)
+    return ("ok", got, rungs if led is None else led.own_rungs(rungs), led)
 
 
 def _ledger(cache, mark, tripped: bool):
@@ -240,7 +251,7 @@ class Ahead:
         self._airport, self._objects, self._cache, self._law = inputs
         self._counts = counts                    # {reader: placements its intake read}
         self._t0 = time.perf_counter()
-        self._held: dict = {}                    # {at-grade reader: (reading, ledgers)}
+        self._held: dict = {}             # {at-grade reader: (reading, ledgers, rungs)}
         self._entries: tuple[dict, dict] = ({}, {})
         self.report: dict = {}
 
@@ -297,20 +308,22 @@ class Ahead:
             for kind in self._kinds:
                 if kind in tripped:
                     continue
-                for row in rows.get(kind, ()):
-                    _fe.add_rung_counts(row[2])
                 # the tasks are in sorted family order, and so are the answers
                 readings = [row[1] for row in rows.get(kind, ())]
+                rungs = [row[2] for row in rows.get(kind, ())]
+                if kind not in _AT_GRADE:           # taken here (module doc)
+                    for r in rungs:
+                        _fe.add_rung_counts(r)
                 if kind == TUNNELS:
                     out[TUNNELS] = readings[0]
                 elif kind == WALLS:
                     out[WALLS] = assemble(self._counts[WALLS], readings)
                 elif kind == ROADS:
                     self._held[ROADS] = (_sr.assemble(self._counts[ROADS], readings),
-                                         [row[3] for row in rows.get(kind, ())])
+                                         [row[3] for row in rows.get(kind, ())], rungs)
                 elif kind == DOORS:
                     self._held[DOORS] = (_dw.assemble(doors[0], readings),
-                                         [row[3] for row in rows.get(kind, ())])
+                                         [row[3] for row in rows.get(kind, ())], rungs)
                 mine.append(kind)
             self._entries = _gl.made(every)
             for kind in (WALLS, DOORS, ROADS):
@@ -341,6 +354,8 @@ class Ahead:
             self.report["readers"].remove(kind)
             self._say()
             return None
+        for r in held[2]:                           # taken here (module doc)
+            _fe.add_rung_counts(r)
         return held[0]
 
     def close(self) -> None:

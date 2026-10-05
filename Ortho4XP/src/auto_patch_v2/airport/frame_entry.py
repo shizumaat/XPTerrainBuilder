@@ -309,13 +309,18 @@ def reset_rung_counts() -> None:
 
 
 def add_rung_counts(counts: _t.Mapping[str, _t.Sequence[int]]) -> None:
-    """Charge :func:`rung_counts` read in ANOTHER process (a work-pool
-    worker's own unions, ``planar/pack_read_work``) to this one's, so the
-    report reads the sum it reads on one core."""
+    """Charge :func:`rung_counts` read in ANOTHER process to this one's, so
+    the report reads the sum it reads on one core.  ``airport/pool.py``
+    brings every worker task's rungs home with its answer (``try_map`` and
+    ``begin`` / ``collect`` alike), so a task function need not carry them;
+    one that does (``reader_work.read``, whose answer may be discarded)
+    resets its worker's count as it hands them over, so none is charged
+    twice."""
     for site, (grid, buf) in counts.items():
-        row = _RUNGS.setdefault(site, [0, 0])
-        row[0] += int(grid)
-        row[1] += int(buf)
+        if grid or buf:
+            row = _RUNGS.setdefault(site, [0, 0])
+            row[0] += int(grid)
+            row[1] += int(buf)
 
 
 def rung_note() -> str:

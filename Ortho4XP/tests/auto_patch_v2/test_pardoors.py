@@ -98,6 +98,7 @@ def _reading(world, law, workers: int, cache=None) -> dict:
     _fe.reset_rung_counts()
     try:
         pr = PR.pack_reads(airport, objects, cache, law, walls=True)
+        PR.wall_corridor_reads(airport, objects, cache, law)    # read on one core, or taken
     finally:
         P.configure(1)
     g = cache.grade
@@ -326,3 +327,72 @@ def test_a_ledger_carries_its_requests_its_entries_and_their_rungs(world, law, m
     again = _cache(law)
     GL.replay(again, leds, GL.made(leds), once=True)
     assert (again.grade.calls, again.grade.unions) == (1, 1)
+
+
+# ── ONE RULE for the fallback rungs (``reader_work`` module doc) ─────────
+
+def _count_each_family(setattr_) -> None:
+    """Every family reading of the three family readers takes one fallback
+    rung at ``twin.<reader>`` — in whichever process reads it."""
+    from auto_patch_v2.airport import wall_corridors as WC
+
+    def counted(fn, site):
+        def read_family(*a, **k):
+            _fe._count(site, 0)
+            if getattr(RW, "_twin_trip", False):         # …and THEN reaches too far
+                RW._twin_trip = False
+                raise RW.StrippedField("twin: tripped")
+            return fn(*a, **k)
+        return read_family
+    for mod, name, site in ((DW, "read_family", "twin.doors"), (SR, "read_family", "twin.roads"),
+                            (WC, "read_family", "twin.walls")):
+        setattr_(mod, name, counted(getattr(mod, name), site))
+    setattr_(RW, "read_family", WC.read_family)
+
+
+def _in_worker(state) -> None:
+    if not getattr(RW, "_twin_counted", False):
+        RW._twin_counted = True
+        _count_each_family(setattr)
+
+
+def _counting(state, task):
+    _in_worker(state)
+    return RW.read(state, task)
+
+
+def _counting_and_tripping(state, task):
+    """…and ONE family of each family reader trips AFTER it took its rung."""
+    _in_worker(state)
+    members = task[1] if task[0] == RW.ROADS else task[2] if task[0] != RW.TUNNELS else ()
+    if members and state.objects[members[0]].xy[0] > 300.0 \
+            and task[0] not in _counting_and_tripping.seen:
+        _counting_and_tripping.seen.add(task[0])
+        RW._twin_trip = True
+    return RW.read(state, task)
+
+
+_counting_and_tripping.seen = set()
+
+
+def test_no_rung_is_charged_twice_and_none_is_lost(world, law, monkeypatch, capsys):
+    """Pooled, and pooled with one family of each reader tripped (its
+    reader is re-read here), the rungs are the ones one core counts."""
+    monkeypatch.setattr(RW, "MAX_WORKERS", 1 + 1)       # one worker trips each reader once
+    _count_each_family(monkeypatch.setattr)
+    try:
+        one = _reading(world, law, 1)
+        assert one["rungs"]["twin.doors"] == (4, 0) and one["rungs"]["twin.roads"][0] >= 3
+        monkeypatch.setattr(RW, "read", _counting)
+        got = _reading(world, law, 2)
+        _same(got, one)
+        assert {"doors", "roads"} <= set(got["pool"]["readers"])
+        capsys.readouterr()
+        monkeypatch.setattr(RW, "read", _counting_and_tripping)
+        got = _reading(world, law, 2)
+        _same(got, one)
+        said = capsys.readouterr().out
+        tripped = [k for k in ("doors", "roads", "walls") if f"'{k}' is read on one core: StrippedField: twin" in said]
+        assert {"doors", "roads"} <= set(tripped) and not set(tripped) & set(got["pool"]["readers"])
+    finally:
+        _fe.reset_rung_counts()

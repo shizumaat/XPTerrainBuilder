@@ -441,8 +441,9 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
             _pulse.tick("partitioning the pack")
             _part = _partition_pack(airport, pack_objects, ocache, law, pool=_wpool)
             _sub["partition"] = time.perf_counter() - _t
-        finally:
+        except BaseException:
             _wpool.close()
+            raise
     # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
     # 2026-09-11j; spec §11 (4) "the emitted surface stays lawful").  The
     # terrain under an object's feet is GROUND, and the slope a pilot
@@ -473,51 +474,57 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         z = float(z)
         return None if z != z else z        # NaN outside the raster
 
-    _bank = float(law.tables.emit.design.bank_slope)
-    _t = time.perf_counter()
-    _pulse.tick("deriving the pack's groups")
-    _groups = _derive_groups(_part, _span_max(law), _bank,
-                             dem_at=_dem_at, bank_slope=_bank)
-    _sub["groups"] = time.perf_counter() - _t
-    # §16g / §30 (4) THE TERMINAL CLUSTERS (owner RULINGS 2026-09-13bj
-    # item 1, 13bo): the FOOTPRINT UNITS whose union passes
-    # ``[placement] cluster_pad_min_m2``, derived from the same partition
-    # so the design surface's pad and the object stage's unit are one
-    # relation.  Carried on the airport because ``constraints`` may not
-    # import ``planar``.
-    from ..planar.cluster import clusters as _derive_clusters
-    # unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
-    # CONNECTOR VERDICT, derived on the DEM and STAMPED on the partition —
-    # ``plan_clusters`` reads it here and the rebake plan carries it to the
-    # object stage.  It reads the DEM, which the partition cache does not
-    # fingerprint, so it is derived fresh on every build and a cached
-    # cluster set derived under a different verdict is re-derived.
-    from ..planar.cluster import connector_verdicts as _cverdicts
-    _t = time.perf_counter()
-    _pulse.tick("reading the connectors")
-    _stamped = getattr(_part, "connectors", None)
-    _verdicts = _cverdicts(_dc.replace(airport, partition=_dc.replace(
-        _part, connectors=None)), law)
-    _sub["connectors"] = time.perf_counter() - _t
-    if _cached_clusters is not None and _stamped != _verdicts:
-        _cached_clusters = None
-    _part = _dc.replace(_part, connectors=_verdicts)
-    _say(f"  [connectors] {len(_verdicts)} connector(s): "
-         f"{sum(1 for v in _verdicts if v.solid)} SOLID, "
-         f"{sum(1 for v in _verdicts if not v.solid)} CUT", out)
-    if _cached_clusters is not None:
-        _clusters = _cached_clusters
-    else:
+    # the pool stays open through the clusters (their profile compositions
+    # are pooled, issue #362) and never outlives a stage that raised
+    try:
+        _bank = float(law.tables.emit.design.bank_slope)
         _t = time.perf_counter()
-        _pulse.tick("deriving the terminal clusters")
-        _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
-        _sub["clusters"] = time.perf_counter() - _t
-        if write_cache and _pcache.write(_cpath, _fp,
-                         (pack_objects, pack_report, _part, _clusters,
-                          ocache.derived_state())):
-            _rd = _pcache.resolved_digest(airport)
-            _say(f"  [partition] cache WROTE {_cpath} (resolved {_rd[0]} "
-                 f"sha {_rd[1][:12]})", out)
+        _pulse.tick("deriving the pack's groups")
+        _groups = _derive_groups(_part, _span_max(law), _bank,
+                                 dem_at=_dem_at, bank_slope=_bank)
+        _sub["groups"] = time.perf_counter() - _t
+        # §16g / §30 (4) THE TERMINAL CLUSTERS (owner RULINGS 2026-09-13bj
+        # item 1, 13bo): the FOOTPRINT UNITS whose union passes
+        # ``[placement] cluster_pad_min_m2``, derived from the same partition
+        # so the design surface's pad and the object stage's unit are one
+        # relation.  Carried on the airport because ``constraints`` may not
+        # import ``planar``.
+        from ..planar.cluster import clusters as _derive_clusters
+        # unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
+        # CONNECTOR VERDICT, derived on the DEM and STAMPED on the partition —
+        # ``plan_clusters`` reads it here and the rebake plan carries it to the
+        # object stage.  It reads the DEM, which the partition cache does not
+        # fingerprint, so it is derived fresh on every build and a cached
+        # cluster set derived under a different verdict is re-derived.
+        from ..planar.cluster import connector_verdicts as _cverdicts
+        _t = time.perf_counter()
+        _pulse.tick("reading the connectors")
+        _stamped = getattr(_part, "connectors", None)
+        _verdicts = _cverdicts(_dc.replace(airport, partition=_dc.replace(
+            _part, connectors=None)), law, pool=_wpool)
+        _sub["connectors"] = time.perf_counter() - _t
+        if _cached_clusters is not None and _stamped != _verdicts:
+            _cached_clusters = None
+        _part = _dc.replace(_part, connectors=_verdicts)
+        _say(f"  [connectors] {len(_verdicts)} connector(s): "
+             f"{sum(1 for v in _verdicts if v.solid)} SOLID, "
+             f"{sum(1 for v in _verdicts if not v.solid)} CUT", out)
+        if _cached_clusters is not None:
+            _clusters = _cached_clusters
+        else:
+            _t = time.perf_counter()
+            _pulse.tick("deriving the terminal clusters")
+            _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law,
+                                         pool=_wpool)
+            _sub["clusters"] = time.perf_counter() - _t
+            if write_cache and _pcache.write(_cpath, _fp,
+                             (pack_objects, pack_report, _part, _clusters,
+                              ocache.derived_state())):
+                _rd = _pcache.resolved_digest(airport)
+                _say(f"  [partition] cache WROTE {_cpath} (resolved {_rd[0]} "
+                     f"sha {_rd[1][:12]})", out)
+    finally:
+        _wpool.close()
     airport = _dc.replace(airport, partition=_part, groups=_groups,
                           clusters=_clusters)
     # §16g (8)/(9) (owner RULINGS 2026-09-14w): the cluster count, SAID.

@@ -57,7 +57,7 @@ if os.environ.get("O4_PACK_STAGE_TREE"):      # --tree, re-read in the child
     ROOT = Path(os.environ["O4_PACK_STAGE_TREE"]).resolve()
 
 #: The per-run fields the report carries, in print order.
-WALL_KEYS = ("load", "read", "partition", "groups", "clusters", "stage")
+WALL_KEYS = ("load", "read", "partition", "groups", "connectors", "clusters", "stage")
 COUNT_KEYS = ("placements", "members", "parts", "contacts", "pairs_tested",
               "abutments", "scatter_members", "scatter_parts")
 GROUP_KEYS = ("bodies", "groups", "infeasible")
@@ -237,6 +237,7 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
         "wall": {"load": round(t_load, 2), "read": round(w.get("read", 0.0), 2),
                  "partition": round(w.get("partition", 0.0), 2),
                  "groups": round(w.get("groups", 0.0), 2),
+                 "connectors": round(w.get("connectors", 0.0), 2),
                  "clusters": round(w.get("clusters", 0.0), 2),
                  "stage": round(w["total"], 2)},
         "counts": {k: int(part.counts.get(k, 0)) for k in COUNT_KEYS},

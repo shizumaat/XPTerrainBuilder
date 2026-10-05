@@ -31,6 +31,7 @@ import typing as _t
 
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
+from .pool import share_object, shared_object
 from .placement_contact import (_polys_touch, boxes_touch,
                                 m_per_deg_exact, ring_metres)
 
@@ -219,8 +220,64 @@ class ClusterTopology:
         return multi + [[j] for j in singles]
 
 
+#: A cluster of at least this many bodies sweeps its contacts on a work
+#: pool (OTHH's 25,432-body cluster is 31 of the topology's 32 s; the
+#: other nineteen clusters together are under 1 s and stay here).
+POOL_MIN_BODIES = 4000
+
+
+def _sweep(data: tuple, touch_m: float, a0: int, a1: int) -> list[int]:
+    """THE LATITUDE SWEEP of :func:`contact_graph` for the bodies at sweep
+    positions ``a0 .. a1``: every touching pair ``(a, b > a)`` as a flat
+    ``[a, b, a, b, …]`` of POSITIONS, in sweep order.  A pure function of
+    the bodies — each ``a``'s row is its own, so any split of the range
+    concatenates to the whole sweep."""
+    hull, boxes, rings = data
+    slack = touch_m / 111_132.0
+    n = len(hull)
+    out: list[int] = []
+    for ai in range(a0, a1):
+        ha = hull[ai]
+        north = ha[2] + slack
+        for bi in range(ai + 1, n):
+            hb = hull[bi]
+            if hb[0] > north:
+                break
+            if (_pb.box_gap_m(ha, hb) <= touch_m
+                    and boxes_touch(boxes[ai], boxes[bi], ha, hb, touch_m)
+                    and _polys_touch(rings[ai], rings[bi], touch_m)):
+                out.append(ai)
+                out.append(bi)
+    return out
+
+
+def _sweep_task(_state: _t.Any, task: tuple) -> list[int]:
+    """:func:`_sweep` in a pool worker, over the shared bodies."""
+    spec, touch_m, a0, a1 = task
+    return _sweep(shared_object(spec), touch_m, a0, a1)
+
+
+def _sweep_pooled(pool: _t.Any, data: tuple, touch_m: float) -> "list[int] | None":
+    """The whole sweep from ``pool``, the runs joined in sweep order — or
+    ``None`` (a small cluster, no pool, no shared memory)."""
+    n = len(data[0])
+    if pool is None or not pool.parallel or n < POOL_MIN_BODIES:
+        return None
+    step = max(64, n // (pool.workers * 16))
+    try:
+        shared = share_object(data)
+    except OSError:
+        return None
+    with shared:
+        got = pool.try_map(_sweep_task,
+                           [(shared.spec, touch_m, a, min(a + step, n))
+                            for a in range(0, n, step)],
+                           what="connector topology: contacts", unit="runs")
+    return None if got is None else [v for run in got for v in run]
+
+
 def contact_graph(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
-                  touch_m: float) -> dict[int, list[int]]:
+                  touch_m: float, pool: _t.Any = None) -> dict[int, list[int]]:
     """THE CLUSTER'S FULL CONTACT GRAPH at ``touch_m``.
 
     :func:`placement_family._clusters` records only the edges that UNION
@@ -230,41 +287,42 @@ def contact_graph(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
     every edge, so the same latitude sweep and the same
     :func:`placement_family.boxes_touch` predicate are run again over
     THIS cluster with no union-find short-circuit.  One derivation, one
-    predicate: the partition and the topology can never disagree."""
+    predicate: the partition and the topology can never disagree.
+
+    THE PAIRS, THEN THE GRAPH (issue #362): the sweep (:func:`_sweep`)
+    yields the touching pairs in sweep order — from ``pool``'s workers for
+    a large cluster, here otherwise — and the adjacency lists are filled
+    from them in that order, so every list (and the DFS that walks them)
+    is the one no pool gives."""
     hull = {i: shims[i].box for i in cl if shims[i].box is not None}
     order = sorted(hull, key=lambda i: hull[i][0])
-    slack = touch_m / 111_132.0
     adj: dict[int, list[int]] = {i: [] for i in order}
-    boxes = {i: (list(shims[i].part_boxes) or [hull[i]]) for i in order}
     # §16g (7) (1): the SAME footprint-polygon predicate the partition
     # chains on — the topology and the partition are one relation
     ml, mo = m_per_deg_exact(hull[order[0]][0]) if order else (1.0, 1.0)
-    rings = {i: [ring_metres(r, ml, mo)
-                 for r in (getattr(shims[i], "rings", ()) or ()) if len(r) >= 3]
-             for i in order}
-    for ai, a in enumerate(order):
-        north = hull[a][2] + slack
-        ha = hull[a]
-        for b in order[ai + 1:]:
-            hb = hull[b]
-            if hb[0] > north:
-                break
-            if (_pb.box_gap_m(ha, hb) <= touch_m
-                    and boxes_touch(boxes[a], boxes[b], ha, hb, touch_m)
-                    and _polys_touch(rings[a], rings[b], touch_m)):
-                adj[a].append(b)
-                adj[b].append(a)
+    data = ([hull[i] for i in order],
+            [(list(shims[i].part_boxes) or [hull[i]]) for i in order],
+            [[ring_metres(r, ml, mo)
+              for r in (getattr(shims[i], "rings", ()) or ()) if len(r) >= 3]
+             for i in order])
+    pairs = _sweep_pooled(pool, data, touch_m)
+    if pairs is None:
+        pairs = _sweep(data, touch_m, 0, len(order))
+    for k in range(0, len(pairs), 2):
+        a, b = order[pairs[k]], order[pairs[k + 1]]
+        adj[a].append(b)
+        adj[b].append(a)
     return adj
 
 
 def cluster_topology(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
-                     touch_m: float) -> ClusterTopology:
+                     touch_m: float, pool: _t.Any = None) -> ClusterTopology:
     """:class:`ClusterTopology` for one unit cluster — the contact graph
     and ONE iterative Hopcroft-Tarjan pass over it.
 
     Iterative on purpose: a 43,334-body cluster is far past Python's
     recursion limit, and the DFS is where the whole law now lives."""
-    adj = contact_graph(cl, shims, touch_m)
+    adj = contact_graph(cl, shims, touch_m, pool)
     nodes = sorted(adj)
     disc: dict[int, int] = {}
     low: dict[int, int] = {}
@@ -453,7 +511,8 @@ def _connector_ends(i: int, uid: str, shims: _t.Sequence[_PShim],
 
 def connectors_of_cluster(cl: _t.Sequence[int], uid: str,
                           shims: _t.Sequence[_PShim], touch_m: float,
-                          span_m: float, index) -> list[PlanConnector]:
+                          span_m: float, index, pool: _t.Any = None
+                          ) -> list[PlanConnector]:
     """§16g (6) (1) for ONE unit cluster: its CONNECTORS, over ONE
     Hopcroft-Tarjan pass (:func:`cluster_topology`).
 
@@ -462,7 +521,7 @@ def connectors_of_cluster(cl: _t.Sequence[int], uid: str,
     longs = [i for i in cl if _span_m(shims[i].part_boxes) >= span_m]
     if not longs:
         return []
-    topo = cluster_topology(cl, shims, touch_m)
+    topo = cluster_topology(cl, shims, touch_m, pool)
     out = []
     for i in longs:
         got = _connector_ends(i, uid, shims, touch_m, span_m, topo, index)
@@ -637,7 +696,7 @@ def solid_connectors(plan: _t.Any, ground, *, touch_m: float, span_m: float,
                      visual_m: float, chain_min_height_m: float,
                      gap_max_m: float, step_max_m: float,
                      sheet_chain_min_fraction: float = 0.0,
-                     counts: "dict | None" = None
+                     counts: "dict | None" = None, pool: _t.Any = None
                      ) -> tuple[ConnectorVerdict, ...]:
     """unit-platform spec §2: EVERY §16g (6) connector of ``plan`` with its
     SOLID / CUT verdict — computed ONCE and stamped on the plan.
@@ -667,7 +726,7 @@ def solid_connectors(plan: _t.Any, ground, *, touch_m: float, span_m: float,
         from .footprint_unit import plan_units_and_connectors
         _u, conns = plan_units_and_connectors(
             plan, touch_m, span_m, None, chain_min_height_m, 0.0,
-            sheet_chain_min_fraction)
+            sheet_chain_min_fraction, pool=pool)
         conns = tuple(conns)
         _topo.hold(plan, tkey, conns)
     parts: dict[int, tuple[_t.Any, _t.Any]] = {}

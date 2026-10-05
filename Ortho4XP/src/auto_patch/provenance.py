@@ -460,7 +460,9 @@ def source_label(git: dict | None) -> str:
     sha, and ``sha=absent`` alone told the reader nothing about which
     engine wrote the patch; the token then carries the engine version
     (``O4_Version.version``, the same build-numbered string the patch's
-    ``o4_engine`` freshness stamp records): ``sha=absent version=1.50.1722``.
+    ``o4_engine`` freshness stamp records) and the digest of its code (the
+    ``o4_code`` stamp, #346 — two engines can share a version):
+    ``sha=absent version=1.50.1722 code=69fb50ecb76f8b9d``.
     Shared by v1's :func:`format_log_line` and v2's
     ``engine_v2.format_provenance_line``.
     """
@@ -468,7 +470,9 @@ def source_label(git: dict | None) -> str:
     sha = git.get("sha")
     if sha:
         return sha + ("*" if git.get("dirty") else "")
-    return "absent version=" + engine_version()
+    from . import provenance_code
+    return ("absent version=" + engine_version()
+            + " code=" + provenance_code.code_digest())
 
 
 def format_log_line(prov: dict) -> str:
@@ -579,7 +583,11 @@ def parse_patch_provenance(path: str) -> dict | None:
 # airport SOLVE reads that no other stamp carried (``road_grade_limit``,
 # ``lane_width``; road-clamp-scope spec census row 17).  Every "2" patch
 # rebuilds exactly once.
-FRESHNESS_SCHEMA_VERSION = "3"
+# "4" (2026-10-05, #346): ``o4_code`` joined — the digest of the engine's own
+# source (``provenance_code``).  ``o4_engine`` moves only when the engine is
+# FROZEN, so an edited checkout reused its old patches.  Every "3" patch
+# rebuilds exactly once.
+FRESHNESS_SCHEMA_VERSION = "4"
 
 # Stamp keys the gate compares one-for-one.  ``o4_dsf_tiles`` is deliberately
 # NOT here: it is an INPUT to the recomputation of ``o4_dsf`` (which 1°×1°
@@ -596,6 +604,7 @@ FRESHNESS_COMPARED_KEYS = (
     "o4_cifp",
     "o4_pack",
     "o4_engine",
+    "o4_code",
     "o4_ap_engine",
     "o4_dsf",
 )
@@ -779,6 +788,13 @@ CONFIG_DIGEST_EXCLUDED_GATES = frozenset({
     # any emitted geometry).
     "O4_AUTO_PATCH_REBUILD",
     "O4_PATCH_PROVENANCE",
+    # WHERE the masks are kept (``O4_File_Names.masks_root``), never what a
+    # patch is: the masks step runs after the patch and the airport build
+    # reads nothing under it.  The harness points it at a fresh per-run
+    # directory, so with it digested no harness tile build could ever reuse
+    # a patch (#346).  The other two root redirects stay in: the DSF and
+    # airport caches hold what the build READS.
+    "O4_MASKS_DIR",
 })
 
 

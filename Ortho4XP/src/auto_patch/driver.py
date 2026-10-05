@@ -301,6 +301,7 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
     compared against, so the two can never drift apart.
     """
     from . import provenance as _prov
+    from . import provenance_code as _prov_code
     return {
         "o4_fresh_v": _prov.FRESHNESS_SCHEMA_VERSION,
         "o4_cfg": _prov.config_digest(),
@@ -312,6 +313,9 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
             _cifp_files_for(cifp_file, xp_root, icao)),
         "o4_pack": _scenery_pack_state(apt_dat_path),
         "o4_engine": _prov.engine_version(),
+        # ... and the engine's own SOURCE (#346): the version moves only
+        # when the engine is frozen, an edited checkout keeps it.
+        "o4_code": _prov_code.code_digest(),
         # WHICH auto-patch engine wrote the patch (RULINGS 2026-09-03d).
         # v1 is retired (2026-09-13au) so this is now the constant "v2",
         # and a patch a v1 build left behind never reads as current.
@@ -363,6 +367,10 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     6. **scenery-pack enablement** — the pack that supplied the apt.dat being
        switched off (or back on) in ``scenery_packs.ini`` (``o4_pack``).
     7. **engine version** — the running ``O4_Version.version`` (``o4_engine``).
+    7b. **engine code** — one digest of the engine's source, taken from the
+       files in a checkout and written by the freeze in a frozen engine
+       (``o4_code``, ``provenance_code``; #346 — the version moves only when
+       the engine is frozen, so an edited checkout reused its old patches).
 
     FAIL-SAFE: a missing, unparseable or unrecognised stamp counts as changed.
     Every patch built before these stamps existed therefore rebuilds exactly
@@ -376,10 +384,7 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     source; omitting either leaves that input unverifiable, which (fail-safe)
     reports not-current.
 
-    Set ``O4_AUTO_PATCH_REBUILD=1`` to force rebuilds regardless (e.g. when
-    iterating on auto_patch source inside one engine version — a source edit
-    that changes no config value and no engine version does NOT invalidate an
-    existing patch on its own).
+    Set ``O4_AUTO_PATCH_REBUILD=1`` to force rebuilds regardless.
     """
     if os.environ.get("O4_AUTO_PATCH_REBUILD", "0") == "1":
         return False

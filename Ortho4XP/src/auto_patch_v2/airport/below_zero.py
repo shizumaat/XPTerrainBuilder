@@ -306,12 +306,25 @@ def _comp_plan(cache: _obj8.ResourceCache, path: str, wall_thickness_m: float,
 
 def read_wall_height(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, comp: int,
                      grid: float, wall_thickness_m: float,
-                     store: dict | None = None) -> WallHeight | None:
+                     store: dict | None = None, climb: bool = True) -> WallHeight | None:
     """The height above the object's zero of band component ``comp`` of
     placement ``o``, and of the wall connected above it (class doc).
-    ``None`` when the resource is unreadable."""
+    ``None`` when the resource is unreadable.
+
+    ``climb=False`` reads ``own_m`` ALONE — the one figure the admission's
+    kerb test (d) reads — and states it for ``step_m`` / ``connected_m``:
+    the connected climb is a plan-distance walk over every component of
+    the resource, a MEASUREMENT of the ``--stage structures`` replay that
+    a build never reads (LEMD, 236 bands of 3 cargo families: 175 s of a
+    264 s wall-corridor read, for two numbers nothing consumed)."""
     if o.resolved is None:
         return None
+    if not climb:
+        comps = cache.genuine(o.resolved)
+        if comp >= len(comps):
+            return None
+        own = float(comps[comp].max_y)
+        return WallHeight(own, own, own, f"own comp {comp} max_y {own:+.2f}")
     geoms, lo, hi = _comp_plan(cache, o.resolved, wall_thickness_m, store)
     if comp >= len(geoms):
         return None

@@ -448,6 +448,42 @@ def test_the_wall_height_above_zero_is_read_in_the_objects_own_frame(objs, law, 
     assert st3.narrow_cut[0]["wall_own_m"] == pytest.approx(8.0, abs=0.05)
 
 
+def test_a_build_reads_the_kerb_height_without_the_connected_climb(objs, law, tmp_path):
+    """(d) reads the band's OWN height alone; the wall connected above it
+    is the replay's measurement.  ``climb=False`` (a build) states the same
+    ``own_m`` for every component, and the (d) verdict and its line are
+    the same whether the climb is measured or not."""
+    from auto_patch_v2.airport.below_zero import read_wall_height
+    shed = _cargo_shed_wall(tmp_path / "shed2.obj")
+    airport = _airport(dict(objs, shed2=shed), law,
+                       [("shed2", (0.0, 0.0), 0.0, None, "OBJECT"),
+                        ("skirt", (500.0, 0.0), 0.0, None, "OBJECT")])
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    t = law.tables.structures.tunnel.object.wall_face_max_thickness_m
+    climbed = 0
+    for o in objects:
+        n = len(cache.genuine(o.resolved))
+        assert n and read_wall_height(o, cache, n, grid, t, climb=False) is None
+        for comp in range(n):
+            full = read_wall_height(o, cache, comp, grid, t)
+            bare = read_wall_height(o, cache, comp, grid, t, climb=False)
+            assert bare.own_m == full.own_m == bare.connected_m
+            climbed += full.connected_m > full.own_m
+    assert climbed, "the fixture must hold a wall that climbs past its own band"
+    for name in ("tall_wall", "bay_kerb", "deep"):
+        placements = [(name, (0.0, 0.0), 0.0, None, "OBJECT")]
+        got = []
+        for measure in (False, True):
+            ap = _airport(objs, law, placements, _kerb_roads())
+            c = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+            oo, _r = read_objects(ap, law, c)
+            recs, st = read_wall_corridors(ap, oo, c, law, measure=measure)
+            got.append(([r.id for r in recs], st.admission, st.refused))
+        assert got[0] == got[1], name
+
+
 def test_the_wall_height_separates_nothing_at_the_real_airports(objs, law):
     """RULINGS 2026-09-10ao's premise — "a kerb wall rises to its deck and
     no further; a building wall rises 6–12 m" — is FALSE at OTHH itself

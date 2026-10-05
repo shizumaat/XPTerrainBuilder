@@ -291,10 +291,12 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
             # authored frame (never the terrain).
             # ISSUE #12 [OTHH-1] (Q-12, shipped default-ON): read in
             # EVERY build now — it is the admission's (d) below.
+            # (d) reads the band's OWN height; the wall CONNECTED above it
+            # is the replay's measurement (``nc_row``), never a build's cost
             ha = read_wall_height(by_id[A.owner], cache, A.comp, grid,
-                                  ob.wall_face_max_thickness_m, store=bz_store)
+                                  ob.wall_face_max_thickness_m, store=bz_store, climb=measure)
             hb = read_wall_height(by_id[B.owner], cache, B.comp, grid,
-                                  ob.wall_face_max_thickness_m, store=bz_store)
+                                  ob.wall_face_max_thickness_m, store=bz_store, climb=measure)
             h_own = max([h.own_m for h in (ha, hb) if h is not None] or [0.0])
             h_step = max([h.step_m for h in (ha, hb) if h is not None] or [0.0])
             h_conn = max([h.connected_m for h in (ha, hb) if h is not None] or [0.0])

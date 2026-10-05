@@ -138,30 +138,36 @@ def test_the_jsonl_transport_pins_its_streams_before_it_repoints_stdout():
         "streams")
 
 
-def test_every_entry_claims_the_spawn_bootstrap_first():
+def test_every_entry_claims_the_spawn_bootstrap_before_any_dispatch():
     """Issue #362 (RULINGS 2026-10-05d): a spawned worker of a FROZEN
     engine is the executable re-exec'd as ``<exe> --multiprocessing-fork``;
     PyInstaller's runtime hook only DEFINES ``freeze_support`` as the
     diverter.  ``Ortho4XP_Qt.py`` — the Windows/Linux engine — never called
-    it, so every pool worker there would have started the Qt application.
-    Both entries call it under the ``__main__`` guard ahead of every other
-    statement but the stdlib imports, and both dispatch the pool's
-    self-check."""
+    it, so every pool worker there started the Qt application (measured:
+    every pool FELL BACK, the airport pool's Manager raised EOFError).
+
+    Both entries call it at module level under the ``__main__`` guard,
+    AFTER the console pin — the diverted child never returns from the call,
+    and a frozen worker whose streams were not pinned first printed in the
+    locale's encoding — and BEFORE every argv dispatch and the PROJ work.
+    Both dispatch the pool's self-check."""
     import ast as _ast
     for name in ENTRIES:
         tree = _entry_tree(name)
-        seen = None
-        for node in tree.body:
-            if isinstance(node, (_ast.Import, _ast.ImportFrom)) or (
-                    isinstance(node, _ast.Expr)
-                    and isinstance(node.value, _ast.Constant)):
-                continue                       # docstring, ``import os, sys``
-            seen = node
-            break
-        assert isinstance(seen, _ast.If), name
-        assert "__main__" in _ast.unparse(seen.test), name
-        assert "multiprocessing.freeze_support()" in _ast.unparse(seen), name
+        pinned = _module_level_call_line(tree, "configure_console_streams")
+        claims = [n for n in tree.body if isinstance(n, _ast.If)
+                  and "multiprocessing.freeze_support()" in _ast.unparse(n)]
+        assert len(claims) == 1, name
+        claim = claims[0]
+        assert _ast.unparse(claim.test) == "__name__ == '__main__'", name
+        assert pinned is not None and pinned < claim.lineno, name
+        # nothing that reads argv for a dispatch, exits or touches PROJ
+        # runs ahead of it
+        ahead = "\n".join(_ast.unparse(n) for n in tree.body
+                          if n.lineno < claim.lineno)
+        for word in ("sys.exit", "selfcheck", "O4_Proj_Runtime", "jsonl.serve",
+                     "lerc-decode", "PySide6"):
+            assert word not in ahead, (name, word)
         source = _source(name)
         assert "--pool-selfcheck" in source, name
         assert "O4_Pool_Selfcheck.main(sys.argv)" in source, name
-

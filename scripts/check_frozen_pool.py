@@ -40,7 +40,7 @@ import tempfile
 import time
 
 #: the five pooled sections of one core run, in the order they print
-SECTIONS = ("spawn", "arrays", "object", "dem", "pack")
+SECTIONS = ("spawn", "worker", "arrays", "object", "dem", "pack")
 #: stderr text that fails the pass wherever it appears
 POISON = ("FELL BACK", "leaked shared_memory", "Traceback (most recent call last)",
           "BrokenProcessPool", "UnicodeEncodeError")
@@ -226,7 +226,8 @@ def run_pool(binary, repo_root, log_dir, deadline=300, keep=False,
         serial, text_s, wall_s, note_s = _arm(
             binary, 1, work, log_dir, "onecore", deadline, engine_python, data_root)
         for line in text_p.splitlines():
-            if "[pool]" in line or line.startswith(("nested:", "POOL SELFCHECK", "FAILED")):
+            if "[pool]" in line or line.startswith(("nested:", "worker:",
+                                                    "POOL SELFCHECK", "FAILED")):
                 print("   | " + line)
         failures = verdict(pooled, serial, text_p + text_s, frozen=frozen)
         failures += ["%s arm: %s" % (tag, note)
@@ -240,10 +241,13 @@ def run_pool(binary, repo_root, log_dir, deadline=300, keep=False,
                 pids.update([record.get("pid")] + list(record.get("pids") or []))
                 blocks.update(record.get("blocks") or [])
         pids.discard(None)
+        # the image a worker really is (an AppImage's AppRun is a launcher)
+        image = (pooled or {}).get("executable") if frozen else binary
+        image = image or binary
         end = time.time() + LINGER_S
         while True:
             alive = sorted(p for p in pids if probe.alive(p))
-            strays = [row for row in _image_processes(binary) if row[0] not in before]
+            strays = [row for row in _image_processes(image) if row[0] not in before]
             if not (alive or strays) or time.time() > end:
                 break
             time.sleep(0.5)

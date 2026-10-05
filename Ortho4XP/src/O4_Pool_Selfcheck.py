@@ -15,6 +15,12 @@ engine's own modules and nothing else, and says what happened:
 * ``pack``    — a REAL stage: ``pack_partition.partition_pack`` over a small
   synthetic pack through ``pack_work.open_pool`` (the workers load the law
   tables and parse ``.obj`` files themselves);
+* ``worker``  — what a worker process IS: a frozen worker is diverted by
+  ``freeze_support`` before the entry file's body runs, so it has to be
+  shown — not assumed — that it can print the house characters (``Δ``,
+  ``→``: an exception, not mojibake, on a cp1252 console), that its
+  stdout carries this process's pinned text layer, and that its ``pyproj``
+  reads the PROJ data this process's does;
 * ``nested``  — the tile driver's airport pool (a spawned
   ``ProcessPoolExecutor`` with ``auto_patch.driver._init_worker`` and a
   ``Manager`` queue, as ``driver.py`` builds it) whose children each open
@@ -52,6 +58,8 @@ SIBLINGS = 2
 NESTED_S = 240.0
 LINGER_S = 15.0
 _TASKS = 48
+#: what every worker prints: characters cp1252 does not carry (#171, #125)
+CONSOLE_PROBE = "pool-selfcheck worker console: Δ ε ≥ → Suárez"
 
 
 # ── what the workers run (module level: a spawned worker imports them) ────
@@ -63,6 +71,31 @@ def _setup(base: int) -> dict:
 def _square(state: dict, t: int) -> tuple:
     time.sleep(0.02)                      # so one worker cannot take them all
     return t * t + state["base"], os.getpid()
+
+
+def reading() -> dict:
+    """What THIS process is, for the ``worker`` section: its stdout's text
+    layer, whether it can print :data:`CONSOLE_PROBE`, and the PROJ data
+    directory its ``pyproj`` reads."""
+    said = ""
+    try:
+        print(CONSOLE_PROBE, flush=True)
+    except Exception as e:
+        said = f"{type(e).__name__}: {e}"
+    try:
+        import pyproj
+        data = os.path.normcase(os.path.realpath(pyproj.datadir.get_data_dir()))
+        pyproj.Transformer.from_crs("EPSG:4326", "EPSG:32608", always_xy=True
+                                    ).transform(-135.0, 60.0)
+    except Exception as e:
+        data = f"{type(e).__name__}: {e}"
+    return {"pid": os.getpid(), "print_error": said, "proj_data": data,
+            "stdout": [getattr(sys.stdout, "encoding", None),
+                       getattr(sys.stdout, "errors", None)]}
+
+
+def _worker_reading(_state, _t) -> tuple:
+    return reading(), os.getpid()
 
 
 def _read_arrays(_state, spec) -> tuple:
@@ -163,7 +196,7 @@ def _pack(workers: int, root: str, say) -> tuple:
         report = pool.report()
     g = part.geom
     digest = _sha(pickle.dumps(
-        (repr(part.units).replace(root, "<pack>"), sorted(part.counts.items()),
+        (repr(part.units).replace(repr(root)[1:-1], "<pack>").replace(root, "<pack>"), sorted(part.counts.items()),
          part.contacts, part.abutments, sorted(part.member_object.items()),
          g.member_ref, g.anchor_of_member, sorted(g.anchor_ix.items()),
          [np.asarray(getattr(g.index, f.name)).tobytes() for f in _dc.fields(g.index)]),
@@ -197,6 +230,21 @@ def _core(workers: int, work: str, say=print) -> dict:
     with P.WorkPool(_setup, (7,), workers=workers, out=say) as pool:
         got = pool.map(_square, list(range(_TASKS)), {"base": 7}, what="selfcheck")
         sections["spawn"] = _sha(repr(answers("spawn", pool, got, _TASKS)).encode())
+        here = reading()
+        got = pool.map(_worker_reading, list(range(2 * max(2, workers))), None)
+        theirs = answers("worker", pool, got, _TASKS + len(got))
+        for r in theirs if workers > 1 else []:
+            if r["print_error"]:
+                failures.append(f"worker {r['pid']}: cannot print the house "
+                                f"characters ({r['print_error']}; stdout {r['stdout']})")
+            if r["stdout"] != here["stdout"]:
+                failures.append(f"worker {r['pid']}: its console is not pinned "
+                                f"(stdout {r['stdout']}, this process {here['stdout']})")
+            if r["proj_data"] != here["proj_data"]:
+                failures.append(f"worker {r['pid']}: pyproj reads {r['proj_data']}, "
+                                f"this process reads {here['proj_data']}")
+        say(f"worker: stdout {theirs[0]['stdout']} (here {here['stdout']}), pyproj data "
+            f"{theirs[0]['proj_data']}")
 
     rng = np.random.default_rng(362)
     arrays = {"grid": rng.random((257, 129)), "ids": np.arange(4096, dtype=np.int32)}
@@ -236,7 +284,7 @@ def _core(workers: int, work: str, say=print) -> dict:
     if workers > 1 and len(pids) < 2:
         failures.append(f"spawn: {len(pids)} distinct worker process(es) answered")
     return {"digest": _sha(json.dumps(sections, sort_keys=True).encode()),
-            "sections": sections, "pids": sorted(pids), "blocks": blocks,
+            "sections": sections, "worker": theirs[0], "here": here, "pids": sorted(pids), "blocks": blocks,
             "pools": pools, "failures": failures}
 
 
@@ -269,6 +317,9 @@ def alive(pid: int) -> bool:
     if sys.platform == "win32":
         import ctypes
         k32 = ctypes.windll.kernel32
+        k32.OpenProcess.restype = ctypes.c_void_p
+        k32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+        k32.CloseHandle.argtypes = (ctypes.c_void_p,)
         handle = k32.OpenProcess(0x00100000, False, int(pid))     # SYNCHRONIZE
         if not handle:
             return False
@@ -352,6 +403,7 @@ def run(workers: int, work: str, say=print) -> dict:
             "executable": sys.executable, "pid": os.getpid(),
             "digest": record["digest"], "sections": record["sections"],
             "pools": record["pools"], "pids": sorted(pids), "blocks": blocks,
+            "worker": record["worker"], "here": record["here"],
             "nested": [{k: r[k] for k in ("pid", "budget", "cpu", "daemon", "digest",
                                           "pids", "pools")} for r in nested],
             "orphans": orphans, "leaked_blocks": leaked,

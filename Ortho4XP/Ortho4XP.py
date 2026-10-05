@@ -2,23 +2,6 @@
 import sys
 import os
 
-# FIRST, before any other work: claim the multiprocessing spawn bootstrap.
-# A frozen child is not a re-import — it is this executable re-exec'd as
-# `Ortho4XP --multiprocessing-fork tracker_fd=.. pipe_handle=..`
-# (multiprocessing.spawn.get_command_line takes its `sys.frozen` branch), so
-# the "__mp_main__" guards below cannot see it.  PyInstaller's rthook only
-# DEFINES multiprocessing.freeze_support as the diverter; the frozen app must
-# call it, or the child falls through to the CLI dispatch at the foot of this
-# file, prints USAGE and exits 0.  Its parent then blocks in
-# BaseManager.start() reading an address off a pipe nobody will write, and
-# the auto-patch pool dies with a bare EOFError — logged as the empty
-# "parallel build unavailable (  )" before falling back to serial (2026-07-24).
-# From source this is a no-op: that path spawns `python -c spawn_main(...)`
-# and needs no diversion.
-if __name__ == '__main__':
-    import multiprocessing
-    multiprocessing.freeze_support()
-
 # Engine subprocesses are spawned WITHOUT a Popen cwd: passing one forces
 # the parent off posix_spawn onto fork+exec, and a fork in a pyproj-loaded
 # parent dies in the proj.db sqlite atfork handler (2026-07-16 crash
@@ -44,6 +27,30 @@ sys.path.append(os.path.join(Ortho4XP_dir, 'src'))
 # mojibake (#171).  Parity twin: tests/test_frozen_spec_parity.py.
 import O4_Console_Encoding
 O4_Console_Encoding.configure_console_streams()
+
+# THEN, before any dispatch: claim the multiprocessing spawn bootstrap.
+# A frozen child is not a re-import — it is this executable re-exec'd as
+# `Ortho4XP --multiprocessing-fork tracker_fd=.. pipe_handle=..`
+# (multiprocessing.spawn.get_command_line takes its `sys.frozen` branch), so
+# the "__mp_main__" guards below cannot see it.  PyInstaller's rthook only
+# DEFINES multiprocessing.freeze_support as the diverter; the frozen app must
+# call it, or the child falls through to the CLI dispatch at the foot of this
+# file, prints USAGE and exits 0.  Its parent then blocks in
+# BaseManager.start() reading an address off a pipe nobody will write, and
+# the auto-patch pool dies with a bare EOFError — logged as the empty
+# "parallel build unavailable (  )" before falling back to serial (2026-07-24).
+# From source this is a no-op: that path spawns `python -c spawn_main(...)`
+# and needs no diversion.
+#
+# It comes AFTER the console pin above and nothing else (issue #362, lane
+# `frozenpool`): the diverted child never returns from this call, so anything
+# below it does not run in a frozen pool worker.  Measured on the frozen
+# macOS engine with the call at the head of the file: a work-pool worker's
+# stdout was `utf-8/surrogateescape`, not the pinned `backslashreplace` — on
+# Windows that is the ANSI code page, where a printed `Δ` is an exception.
+if __name__ == '__main__':
+    import multiprocessing
+    multiprocessing.freeze_support()
 
 # The frozen bundle carries two independent libproj copies (pyproj's wheel and
 # GDAL's), each with its own proj.db: each must read the database it shipped

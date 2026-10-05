@@ -8,20 +8,6 @@ The legacy Tkinter UI and the command line remain available via Ortho4XP.py.
 import os
 import sys
 
-# FIRST, before any other work: claim the multiprocessing spawn bootstrap —
-# the same call, for the same reason, as the head of Ortho4XP.py.  On Windows
-# and Linux THIS file is the frozen engine: a spawned worker (the auto-patch
-# airport pool and its Manager, the v2 work pool of issue #362, the resource
-# tracker) is this executable re-exec'd as
-# `Ortho4XP_Qt --multiprocessing-fork …`, and PyInstaller's rthook only
-# DEFINES multiprocessing.freeze_support as the diverter.  Without this call
-# the child falls through every dispatch below and starts the Qt
-# application: one window per worker, a parent that never hears from them.
-# From source it is a no-op.  Parity twin: tests/test_frozen_spec_parity.py.
-if __name__ == "__main__":
-    import multiprocessing
-    multiprocessing.freeze_support()
-
 # Deterministic builds, defense in depth: the pavement builder pins every
 # hash-order-sensitive iteration at the source, and the frozen executable
 # additionally starts with hash_seed=0 (bootloader OPTION in
@@ -44,6 +30,23 @@ sys.path.append(os.path.join(Ortho4XP_dir, "src"))
 # mojibake (#171).  Parity twin: tests/test_frozen_spec_parity.py.
 import O4_Console_Encoding
 O4_Console_Encoding.configure_console_streams()
+
+# THEN, before any dispatch: claim the multiprocessing spawn bootstrap — the
+# same call, for the same reason, as in Ortho4XP.py.  On Windows and Linux
+# THIS file is the frozen engine: a spawned worker (the auto-patch airport
+# pool and its Manager, the v2 work pool of issue #362, the resource tracker)
+# is this executable re-exec'd as `Ortho4XP_Qt --multiprocessing-fork …`, and
+# PyInstaller's rthook only DEFINES multiprocessing.freeze_support as the
+# diverter.  Without this call the child falls through every dispatch below
+# and starts the Qt application: one window per worker, a parent that never
+# hears from them (measured, lane `frozenpool`: every pool FELL BACK with
+# "a worker died" and the airport pool's Manager raised EOFError).  From
+# source it is a no-op.  After the console pin and nothing else: the
+# diverted child never returns, so its streams are pinned first.  Parity
+# twin: tests/test_frozen_spec_parity.py.
+if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
 
 # The frozen bundle carries two independent libproj copies (pyproj's wheel and
 # GDAL's), each with its own proj.db: each must read the database it shipped

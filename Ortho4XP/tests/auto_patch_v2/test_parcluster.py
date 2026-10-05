@@ -261,3 +261,21 @@ def test_an_object_is_shared_once_and_replaced_by_the_next():
         for answer in (list(range(1000)), "second"):
             with P.share_object({"answer": answer}) as sh:
                 assert pool.try_map(_read_shared, [sh.spec] * 6) == [answer] * 6
+
+
+def test_an_identical_job_is_composed_once_and_answered_separately(plan, monkeypatch):
+    jobs = _jobs(plan)
+    twice = jobs + [jobs[0], jobs[2], jobs[0]]
+    want = [CP.compose_job(j) for j in twice]
+    calls = []
+    real = CP.compose_job
+    monkeypatch.setattr(CP, "compose_job", lambda j: calls.append(1) or real(j))
+    got = CP.compose_jobs(twice)
+    assert repr(got) == repr(want) and len(calls) <= len(jobs)
+    assert got[0][0] is not got[len(jobs)][0] is not got[-1][0]     # no shared record
+    # the same members with DIFFERENT feet are a different job
+    rows, lower, placed, law = next(j for j in jobs if j[1] is not None)
+    other = (rows, lower + 1.0, placed, law)
+    calls.clear()
+    CP.compose_jobs([(rows, lower, placed, law), other, (rows, lower.copy(), placed, law)])
+    assert len(calls) == 2

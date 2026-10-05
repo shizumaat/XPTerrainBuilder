@@ -23,6 +23,7 @@ the work that divides is the GROUP, never the unit:
 """
 from __future__ import annotations
 
+import copy
 import dataclasses as _dc
 import typing as _t
 
@@ -167,15 +168,45 @@ def _compose_task(_state: _t.Any, job: tuple) -> "tuple[dict, str]":
     return compose_job(job)
 
 
+def _same_job(job: tuple) -> tuple:
+    """A key two jobs share exactly when they are the SAME composition:
+    the same members' published profiles (by identity — a member's dict is
+    one object on the plan) at the same offsets and headings, the same
+    feet, the same law."""
+    rows, lower, placed, law = job
+    return (tuple((id(d), off, hdg) for d, off, hdg in rows),
+            None if lower is None else (lower.shape, lower.tobytes()),
+            placed, law)
+
+
 def compose_jobs(jobs: _t.Sequence[tuple], pool: _t.Any = None
                  ) -> "list[tuple[dict, str]]":
     """``[compose_job(j) for j in jobs]`` — computed by ``pool``'s workers
     (``airport/pool.WorkPool``) where one answers, here where none does;
-    the same function either way, the answers in JOB order."""
+    the same function either way, the answers in JOB order.
+
+    A COMPOSITION IS MADE ONCE.  Bodies of one member that carry no feet
+    of their own pose the identical job (:func:`_same_job`) — MEASURED at
+    OTHH: 31 single-body groups of ONE member in ``unit:28``, ~1 s each,
+    31.9 of the 48.9 s — so each distinct job is composed once and every
+    asker gets its OWN copy of the answer (the published record is a
+    dict; clusters never share one)."""
     jobs = list(jobs)
-    if pool is not None and len(jobs) > 1:
-        got = pool.try_map(_compose_task, jobs, weights=[_weight(j) for j in jobs],
+    first: dict[tuple, int] = {}
+    slot = [first.setdefault(_same_job(j), len(first)) for j in jobs]
+    todo = [None] * len(first)
+    for j, k in zip(jobs, slot):
+        if todo[k] is None:
+            todo[k] = j
+    got = None
+    if pool is not None and len(todo) > 1:
+        got = pool.try_map(_compose_task, todo, weights=[_weight(j) for j in todo],
                            what="terminal clusters: base profiles", unit="clusters")
-        if got is not None:
-            return got
-    return [compose_job(j) for j in jobs]
+    if got is None:
+        got = [compose_job(j) for j in todo]
+    seen: set[int] = set()
+    out = []
+    for k in slot:
+        out.append(got[k] if k not in seen else copy.deepcopy(got[k]))
+        seen.add(k)
+    return out

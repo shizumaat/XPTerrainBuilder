@@ -334,7 +334,11 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     ``wall`` the stage seconds by part (``read``, ``partition``,
     ``groups``, ``clusters``, ``total``).  ``write_cache=False`` reads a
     cached partition but never writes one (the dry ``planar --stage
-    structures`` replay, issue #75: a replay writes nothing shared)."""
+    structures`` replay, issue #75: a replay writes nothing shared).
+    ``pool`` is the stage's work pool's own account (``airport/pool.py``
+    ``WorkPool.report``: workers, parallel, fell_back, reason, wall_s,
+    tasks) — said on the ``[pool]`` line too, so a stage that ran on one
+    core cannot read as a pooled one."""
     wall: dict[str, float] = {}
     _sub: dict[str, float] = {}
     t = time.perf_counter()
@@ -379,6 +383,11 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # the write is that cache's class and not a ``--refresh-data`` act).
     # ``_derive_groups`` reads the DEM and is NEVER cached.
     from ..airport import partition_cache as _pcache
+    # THE STAGE'S WORK POOL (issue #362): opened here so its lines reach
+    # the build log through ``out`` and its account reaches the report;
+    # lazily started, so a cache HIT spawns nothing
+    from ..airport.pack_work import open_pool as _open_pool
+    _wpool = _open_pool(law, ocache, out=lambda m: _say("  " + m, out))
     _fp = _pcache.fingerprint(airport, law, dump_path=lrep.dsf_dump_path,
                               radius_deg=inputs.radius_deg,
                               pristine=getattr(inputs, "pack_pristine", None))
@@ -427,7 +436,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _sub["read"] = time.perf_counter() - _t
         _t = time.perf_counter()
         _pulse.tick("partitioning the pack")
-        _part = _partition_pack(airport, pack_objects, ocache, law)
+        _part = _partition_pack(airport, pack_objects, ocache, law, pool=_wpool)
         _sub["partition"] = time.perf_counter() - _t
     # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
     # 2026-09-11j; spec §11 (4) "the emitted surface stays lawful").  The
@@ -536,6 +545,8 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
              f"read DECK, shade {_ds['area_m2']:,.0f} m2  ("
              + ", ".join(f"{q['resource']} {q['ratio']}" for q in _ds["members"])
              + ")", out)
+    _wpool.close()
+    _say("  " + _wpool.line(), out)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
          f"members {_part.counts['members']}  parts {_part.counts['parts']}  "
@@ -549,7 +560,8 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     return {"airport": airport, "ocache": ocache, "objects": pack_objects,
             "report": pack_report, "partition": _part, "groups": _groups,
             "clusters": _clusters, "cache": _cstate,
-            "wall": {**_sub, "total": wall["partition"]}}
+            "wall": {**_sub, "total": wall["partition"]},
+            "pool": _wpool.report()}
 
 
 def build(icao: str, inputs: Inputs, out_dir: str | Path,
@@ -1403,6 +1415,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     wall["total"] = time.perf_counter() - t_build
     wall["unclocked"] = wall["total"] - _staged
     report["wall_s"] = {k: round(v, 3) for k, v in wall.items()}
+    # the work pools' own account, per stage (clocks and head counts: never
+    # in a digest — ``pipeline/xplat.py`` reads the model, not this report)
+    report["pool"] = {"pack": _ps["pool"]}
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     if _xp:
         # The dump is a READ of the stages already held — it prices no law

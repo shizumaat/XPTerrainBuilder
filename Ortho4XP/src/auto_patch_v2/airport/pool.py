@@ -129,6 +129,10 @@ class WorkPool:
         self._out, self._stall = out, float(stall_s)
         self._ex: _cf.ProcessPoolExecutor | None = None
         self._dead = False
+        #: why no pool answers (``""`` while one does): the budget, or what
+        #: made it give up — said through ``out`` AND kept for the report
+        self.reason = "" if self.workers > 1 else "budget 1"
+        self.fell_back = False
         #: seconds spent waiting on workers, and tasks answered by them
         self.wall_s = 0.0
         self.tasks_done = 0
@@ -145,6 +149,12 @@ class WorkPool:
     def __exit__(self, *exc) -> None:
         self.close()
 
+    def __del__(self) -> None:            # a stage that raised past its close
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def _start(self) -> bool:
         if self._ex is not None:
             return True
@@ -159,8 +169,27 @@ class WorkPool:
 
     def _give_up(self, why: str) -> None:
         self._dead = True
-        self._out(f"[pool] {why} — this stage continues on one core")
+        self.fell_back, self.reason = True, why
+        self._out(f"[pool] FELL BACK: {why} — this stage continues on one core")
         self.close()
+
+    def report(self) -> dict:
+        """What the pool did, for the stage's report: ``workers`` it was
+        allowed, whether it is still ``parallel``, whether it ``fell_back``
+        and the ``reason`` (also ``"budget 1"`` for a pool that was never
+        one), the seconds spent waiting on workers and the ``tasks`` THEY
+        answered.  A clock and a head count — never part of a digest."""
+        return {"workers": self.workers, "parallel": self.parallel,
+                "fell_back": self.fell_back, "reason": self.reason,
+                "wall_s": round(self.wall_s, 3), "tasks": self.tasks_done}
+
+    def line(self) -> str:
+        """:meth:`report` as one build-log line."""
+        r = self.report()
+        how = (f"FELL BACK ({r['reason']})" if r["fell_back"]
+               else "serial (budget 1)" if not r["parallel"]
+               else f"{r['tasks']} task(s) answered by workers in {r['wall_s']:.1f} s")
+        return f"[pool] workers {r['workers']}: {how}"
 
     def close(self) -> None:
         """Release the workers within :data:`TEARDOWN_S` (never an

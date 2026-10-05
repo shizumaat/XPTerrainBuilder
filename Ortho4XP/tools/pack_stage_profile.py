@@ -191,14 +191,21 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
             inputs = _dc.replace(inputs, dsf_dump_path=d)
     except Exception as exc:                       # the loader refuses loudly
         print(f"[{icao}] pack dump not refreshed: {exc}", flush=True)
-    if not cache_on:
-        inputs = _dc.replace(inputs, mod_cache_root=None)
+    # ``--cache off`` withholds the mod-cache root from the STAGE ONLY.  The
+    # LOAD keeps it: the library index lives under that root
+    # (``airport/load.py``), and a load without it reads every library
+    # placement UNRESOLVED — measured at HECA (lane ``parpack``, #362): 2,080
+    # placements counted ``unresolved`` instead of 2,057 ``stock`` + 23
+    # ``outside_pack``, 9 ``skipped`` rows and their resource readings gone,
+    # so a cache-off arm and a MISS arm of one tree printed different
+    # digests for the same pack (units, contacts, abutments were equal).
+    stage_inputs = inputs if cache_on else _dc.replace(inputs, mod_cache_root=None)
     lines: list[str] = []
     with guard:
         t = time.perf_counter()
         airport, lrep = load_with_report(icao, inputs, law)
         t_load = time.perf_counter() - t
-        ps = pack_stage(icao, airport, law, inputs, lrep, out=lines.append)
+        ps = pack_stage(icao, airport, law, stage_inputs, lrep, out=lines.append)
     report_guard_churn(guard)
     if guard.blocked:
         raise SystemExit(f"[{icao}] REFUSED: the shared repo was written: {guard.blocked}")
@@ -218,6 +225,9 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
                        if resource is not None else None),
         "cache_lines": [ln.strip() for ln in lines if "[partition] cache" in ln],
         "workers": n_workers,
+        # what the stage's pool ACTUALLY did (``WorkPool.report``) — the
+        # budget above is only what it was allowed
+        "pool": ps.get("pool"),
         "digest": stage_digest(part, ps["clusters"], ps.get("ocache")),
         "pool_lines": [ln.strip() for ln in lines if "[pool]" in ln],
     }
@@ -411,7 +421,14 @@ def main(argv: list[str] | None = None) -> int:
         for ln in rec["cache_lines"] + rec.get("pool_lines", []):
             print(f"    {ln}")
         if rec.get("digest"):
-            print(f"    workers {rec.get('workers')}  digest "
+            pl = rec.get("pool") or {}
+            used = ("no pool in this tree" if not pl else
+                    f"FELL BACK ({pl['reason']})" if pl["fell_back"] else
+                    f"{pl['workers']} worker(s) answered {pl['tasks']} task(s) "
+                    f"in {pl['wall_s']:.1f} s" if pl["tasks"] else
+                    f"NONE USED (budget {pl['workers']}"
+                    + (", cache hit" if rec["cache"] == "HIT" else "") + ")")
+            print(f"    pool: {used}  digest "
                   + "  ".join(f"{k} {v[:12]}" for k, v in rec["digest"].items()))
         if rec.get("site"):
             print("    [site] " + "  ".join(f"{k} {v}" for k, v in rec["site"].items()))

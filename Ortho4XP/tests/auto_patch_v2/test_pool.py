@@ -102,7 +102,26 @@ def test_dead_worker_falls_back_to_the_serial_answer():
         local = {"pid": os.getpid(), "parent": os.getpid()}
         assert p.map(_die, range(6), local) == [1, 2, 3, 4, 5, 6]
         assert time.monotonic() - t0 < 60
-    assert any("a worker died" in s for s in said)
+    assert any("FELL BACK" in s and "a worker died" in s for s in said)
+    r = p.report()
+    assert r["fell_back"] and not r["parallel"] and "a worker died" in r["reason"]
+    assert r["workers"] == 2 and r["tasks"] == 0
+    assert "FELL BACK" in p.line()
+
+
+def test_the_account_says_what_the_pool_did():
+    """A pool that never was one, and one that answered, cannot be confused
+    (lane ``parpack``: a serial run once printed the budget as its workers)."""
+    one = P.WorkPool(_setup, (0,), workers=1)
+    assert one.report() == {"workers": 1, "parallel": False, "fell_back": False,
+                            "reason": "budget 1", "wall_s": 0.0, "tasks": 0}
+    assert "serial" in one.line()
+    with P.WorkPool(_setup, (0,), workers=2, out=lambda s: None) as p:
+        assert p.report()["tasks"] == 0           # opened, nothing asked yet
+        p.try_map(_square, range(5))
+        r = p.report()
+    assert r["parallel"] and not r["fell_back"] and r["tasks"] == 5 and r["reason"] == ""
+    assert "5 task(s) answered by workers" in p.line()
 
 
 def test_stall_is_bounded(monkeypatch):

@@ -1295,8 +1295,12 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
                 law.tables, emit=_dc.replace(law.tables.emit,
                                              design=_dc.replace(d0, **design_weights))))
         if drop:
+            # a name is a GENERATOR or a RULING HEAD, as in the replay
+            # prelude (issue #321: a head named here dropped NOTHING)
+            from auto_patch_v2.solve.design_roles import ruling_head
             cs = ConstraintSet.from_rows([r for r in cs.rows()
-                                          if r.source.generator not in drop])
+                                          if r.source.generator not in drop
+                                          and ruling_head(r) not in drop])
     drop_v, foreign = stage_split(pm, cs, law)
     rep = DesignReport()
     s_roles = airside_stage_roles(law)          # the §20b dispatch's own arm
@@ -2525,6 +2529,18 @@ def main() -> int:
                          "matched pair (e.g. --probe-arm solver=fixed_point "
                          "--probe-arm solver=qp).  Default: the shipped law alone")
     a = ap.parse_args()
+    # THE ARM TABLE (issue #321, ``tools/replay_arms.py``): every arm flag
+    # either takes effect in this run and is NAMED, or the run REFUSES —
+    # before any pickle is read.  A flag a mode never reads was dropped in
+    # silence and the unarmed result reported under the arm's name.
+    _tools_dir = str(ROOT / "tools")
+    if _tools_dir not in sys.path:
+        sys.path.insert(0, _tools_dir)
+    import replay_arms as _arms
+    if a.capture or a.replay or a.why_from or a.reclassify or a.bank_from \
+            or a.stage1_diff:
+        for _ln in _arms.arm_gate(_arms.context_of(a), _arms.given_arms(a)):
+            print(_ln)
     if a.workers is not None:
         print(f"REPLAY ARM [pool] --workers {a.workers}: budget {pool_budget(a.workers)}")
     if os.environ.get("O4_FRAME_ENTRY_DUMP"):

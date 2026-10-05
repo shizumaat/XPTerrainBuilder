@@ -476,6 +476,24 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                                        f"{headroom:.2f} m REFUSED under min_headroom_m "
                                        f"{wc.min_headroom_m} ({deck_w})")
                 continue
+            head_txt = (f"{head}: {clause_a}; (d) kerb {h_own:.2f} m; ends family "
+                        f"{covers[0]:.0%}/{covers[1]:.0%}; headroom "
+                        + ("open air" if headroom is None
+                           else f"{headroom:.2f} m ({deck_w})"))
+            # A DESCENDING pair's shallow end must meet the ground — read on
+            # ``depths`` alone, so BEFORE any mouth query (§12h (4) step 1)
+            deep = (0 if floors[0] <= floors[-1] else 1) if descending else -1
+            shallow_depth = (depths[-1] if deep == 0 else depths[0]) if descending else 0.0
+            if descending and shallow_depth > bl.contact_band_m:
+                stats.refused.append(f"{name} at {site}: the wall bottom descends "
+                                     f"{zmax - zmin:.2f} m but its shallow end lies "
+                                     f"{shallow_depth:.2f} m under the ground (> contact_band_m "
+                                     f"{bl.contact_band_m}): no mouth at grade")
+                stats.admission.append(
+                    f"{head_txt} -> REFUSED — a descending pair whose shallow end lies "
+                    f"{shallow_depth:.2f} m under the ground: no mouth at grade")
+                pairs.append((A.resource, name, []))   # its @k is spent
+                continue
             # §12h — FIELD, W1s, W3: THE OPEN MOUTH, read against the whole
             # pack and the field.  The ground at a mouth is the DEM at its
             # segment's midpoint (the station's own where that is cold).
@@ -488,10 +506,7 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                             (floors[0], floors[-1]), end_grounds,
                             deck_w if plate_plan is not None else None,
                             wc.end_cap_cover_min)
-            clauses = (f"{head}: {clause_a}; (d) kerb {h_own:.2f} m; ends family "
-                       f"{covers[0]:.0%}/{covers[1]:.0%}; headroom "
-                       + ("open air" if headroom is None else f"{headroom:.2f} m ({deck_w})")
-                       + f"; {verdict.text}")
+            clauses = f"{head_txt}; {verdict.text}"
             if nc_row is not None:
                 nc_row.update(verdict.row)
             if verdict.refused_by:
@@ -520,20 +535,8 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
             overlap = co.floor_overlap_m
             recs: list[WallCorridorRecord] = []
             if descending:
-                # the deep end is the mouth (closed by the garage), the
-                # shallow end must meet the ground
-                deep = 0 if floors[0] <= floors[-1] else 1
-                shallow_depth = depths[-1] if deep == 0 else depths[0]
-                if shallow_depth > bl.contact_band_m:
-                    stats.refused.append(f"{name} at {site}: the wall bottom descends "
-                                         f"{zmax - zmin:.2f} m but its shallow end lies "
-                                         f"{shallow_depth:.2f} m under the ground (> contact_band_m "
-                                         f"{bl.contact_band_m}): no mouth at grade")
-                    stats.admission.append(
-                        f"{clauses} -> REFUSED — a descending pair whose shallow end lies "
-                        f"{shallow_depth:.2f} m under the ground: no mouth at grade")
-                    pairs.append((A.resource, name, []))   # its @k is spent
-                    continue
+                # the deep end is closed by the garage; the shallow end is
+                # the mouth, and it met the ground above (before ``admit``)
                 s_a, s_b = (orig_s[0], orig_s[-1]) if deep == 0 else (orig_s[-1], orig_s[0])
                 ax2, st2, fl2, gr2 = _slice(axis_ln, sts, floors, s_a, s_b, overlap, 0.0,
                                             ob.wall_sample_m, dem_z)

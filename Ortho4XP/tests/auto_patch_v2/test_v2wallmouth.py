@@ -295,6 +295,38 @@ def test_an_overhead_face_is_in_neither_band_and_is_no_wall(objs, law):
     assert under.closer.resource == "low_canopy.obj"
 
 
+def test_a_garage_too_deep_at_its_shallow_end_is_refused_before_any_mouth_query(objs, law):
+    """Review (A) 6 / (D) 3: the descending pair's shallow-end test reads
+    ``depths`` alone, so it runs AHEAD of FIELD / W1s / W3 — the refusal is
+    the old law's own text, no mouth is queried and no index is built."""
+    band = law.tables.structures.basin.contact_band_m
+    placements = [("garage_deep", (0.0, 0.0), 0.0, None, "OBJECT"),
+                  ("wall", BOTH[0], 0.0, None, "OBJECT"), ("wall", BOTH[1], 0.0, None, "OBJECT")]
+    airport = _airport(objs, law, placements)
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    field = wall_field(Classification(tuple(_cells()), (), {}, ()), law)
+    rd = WF.wall_reader(airport, objects, cache, law, measure=True, field=field)
+    _n, fams = WF.wall_families(objects, cache, law)
+    readings = [WF.read_family(rd, fk, [objects[k] for k in ks]) for fk, ks in fams]
+    recs, st = WF.assemble(_n, readings, field)
+    assert recs == [] and st.corridors == 0 and rd.mouth_index is None
+    (line,) = st.admission
+    m = re.search(r" -> REFUSED — a descending pair whose shallow end lies (\d\.\d\d) m under "
+                  r"the ground: no mouth at grade$", line)
+    assert m and band < float(m.group(1)) < 1.6, line     # 1.5 m authored, read at a station
+    assert "headroom open air ->" in line
+    assert "MOUTH" not in line and "FIELD" not in line and "W1s" not in line and "W3" not in line
+    (ref,) = st.refused
+    assert ref.endswith(f"its shallow end lies {m.group(1)} m under the ground (> "
+                        f"contact_band_m {band}): no mouth at grade") and "§12h" not in ref
+    (row,) = st.narrow_cut
+    assert row["admitted"] is False and "w1s" not in row
+    # its @k is spent: the family's reading carries the pair with no record
+    assert [(name, rs) for fam, prs in readings for _res, name, rs in prs] \
+        == [("garage_deep.obj", [])]
+
+
 # ── FIELD ────────────────────────────────────────────────────────────────
 
 def test_field_on_off_and_not_read(objs, law):

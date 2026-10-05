@@ -28,7 +28,6 @@ Hermetic: a hand-built ``RebakePlan``, no pack, no mesh, no environment.
 """
 from __future__ import annotations
 
-import dataclasses as _dc
 
 import pytest
 
@@ -195,17 +194,14 @@ def test_span_max_zero_disarms_the_exception():
     assert not g.long_span and gs.counts["released_candidates"] == 0
 
 
-def test_the_airport_may_state_its_own_span():
-    """§11 (4): per airport in ``airports.toml``; every airport the table
-    does not name takes the global law.  ONE resolution site."""
-    base = Law.for_airport("ZZZZ")
-    assert group_span_max_m(base) == pytest.approx(
-        base.tables.structures.placement.group_span_max_m)
-    own = _dc.replace(base, tables=base.tables)
-    aff = _dc.replace(own.affordances, group_span_max_m=42.0)
-    patched = _dc.replace(own, tables=_dc.replace(
-        own.tables, airports={**own.tables.airports, "ZZZZ": aff}))
-    assert group_span_max_m(patched) == pytest.approx(42.0)
+def test_the_span_is_the_pack_wide_law_at_every_airport():
+    """§11 (4) as amended by owner RULINGS 2026-10-05g (2): no airport
+    states its own span — ONE resolution site reading ``[placement]
+    group_span_max_m``, whatever the identifier."""
+    for icao in ("ZZZZ", "OTHH", "HECA"):
+        law = Law.for_airport(icao)
+        assert group_span_max_m(law) == law.tables.structures.placement.group_span_max_m
+        assert not hasattr(law, "affordances")
 
 
 # ── 5. §11 (2): the per-foot target ─────────────────────────────────────

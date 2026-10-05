@@ -965,17 +965,28 @@ objects the reader already holds. Nothing is re-derived downstream (RULINGS 2026
   `_seat_base(placement, component centroid, dem) + authored y`, as `_headroom`
   (`wall_corridors.py:475-562`) renders a plate.
 * **TWO HEIGHT BANDS** at end k, with `floor_z(k)` the seated floor at that end's station and
-  `ground_z(k)` the DEM at M_k's midpoint:
+  `ground_z(k)` the DEM at M_k's midpoint, or that end's station ground where the DEM is
+  NaN there (the station grounds are already non-NaN or the pair was refused):
   * BELOW-GRADE: `floor_z(k) + ε .. ground_z(k) − ε` — the trench opening a vehicle would
     drive through;
   * AT-GRADE: `ground_z(k) + ε .. ground_z(k) + min_headroom_m` (`[cutout.wall_corridor]`,
-    3.5) — a wall, door, fence, kerb or ground slab standing across the mouth at grade. Above
-    `min_headroom_m` is a canopy or deck: it closes nothing.
+    3.5) — a wall, door, fence, kerb, ground slab OR DECK standing across the mouth window
+    under that ceiling closes it: a roof under `min_headroom_m` over the ground at the mouth
+    is a dock's cover, not a canopy. A face whose lowest rendered point stands at or above
+    `ground_z(k) + min_headroom_m` is a canopy or deck overhead: it closes nothing. A
+    corridor's own deck (rule 5, measured from the FLOOR) closes its mouth only if it reaches
+    the mouth window under that ceiling — the arms of a corridor run OUT beyond the deck
+    (05f); a pit roofed to its mouth is a dock.
   * **ε = `[rebake] plate_seat_min_delta_m` (0.05 m)**, the smallest step the engine treats
     as visible (08u (1)). No alias key: an alias is a second value that can drift, and the
-    meaning here IS that one. SENSITIVITY (measured): LEMD GAVIA 24's closer is the apron
-    slab `Cargo-LEMD63` whose top stands 0.10–0.13 m over the DEM at the mouth; ε ≤ 0.10 reads
-    it CLOSED, ε ≥ 0.15 reads that mouth open and GAVIA 24 becomes a false corridor. The
+    meaning here IS that one. MEASURED DEPENDENCE (not ε): LEMD GAVIA 0/0's closer is
+    `Cargo-LEMD63` comp 14, a 3 cm plate authored +2.26 m over its zero — rule 5's own plate
+    (headroom 3.73) — 2.15 m over the mouth's DEM ground, 3.52 m over the floor, 0.82 of W:
+    CLOSED under any at-grade ceiling above 2.15 m, OPEN under a floor-measured bar (floor +
+    3.5 misses it by 0.02 m; measured, withdrawn). OTHH `Terminal_Base_2_5` 432/433's deck is
+    2.42 m over ground (inside the band) and the mouth is open because the plate stops ≥
+    `end_cap_open_m` short of the window (0.00 of W). These two sites are separated by whether
+    the deck reaches the mouth — §12h (11). The
     scout's arm used 0.10 and an at-grade ceiling of 4.0; 0.05 / 3.5 are the law values and
     the implementing lane's `--stage structures` must reproduce the (2) table under them.
     `[emit.identity] min_distinct_spacing_m` (0.5) is NOT ε.
@@ -994,8 +1005,10 @@ objects the reader already holds. Nothing is re-derived downstream (RULINGS 2026
   form.)
 * **FIELD — THE OPEN MOUTH STANDS ON THE FIELD.** The midpoint of an open mouth (W1s) lies
   within `[tunnel] mouth_standoff_m` (150) of the CLASSIFIED COVER — the cover half of §29
-  (1)'s mapped-tunnel test, `structure_approach.FieldRegion.on_cover` (`:487-492`,
-  `dwithin standoff_m` over the cells' polygons). The cover is the classification's cells
+  (1)'s mapped-tunnel test, the predicate of `structure_approach.FieldRegion.on_cover`
+  (`dwithin standoff_m` over the cells' polygons), carried into the `airport` layer as
+  `wall_mouth.FieldCover` — the layer order forbids `airport` importing `planar` — and held
+  equal to it by a twin. The cover is the classification's cells
   alone (`[Polygon(c.ring, c.holes) for c in classification.cells]`, the expression
   `planar/structures.py:165-166` builds — factor it into ONE helper
   `structure_approach.cover_polygons(classification)` and call it from both sites); the
@@ -1055,7 +1068,7 @@ it law. The mouth witness alone would ADMIT the corridors the owner's #12 read r
 (`TerminalRoads_03_004` 11–14 at 25.2575296, 51.6120308: 0.02/0.02 both ends, walls 9.78 m),
 so W1s composes with (d), never replaces it. The 61 false corridors: LEMD 31
 `grass_FSX-LEMDgrass` buried grass-billboard lattices (W3 refuses: no deck, no wall), 1
-`Cargo-GAVIA` 0/0 bay 24 (W1s: the apron slab across its mouth), 1 `Sim-wings-SWbaume` 117
+`Cargo-GAVIA` 0/0 bay 24 (W1s: its own roof `Cargo-LEMD63` comp 14, a 3 cm plate authored +2.26 m, 2.15 m over the mouth's ground, reaches its mouth), 1 `Sim-wings-SWbaume` 117
 (W1s: the ground slab fills it); KASE 26 — one UUID-named city-block object 3.9–4.4 km from
 the field (FIELD refuses all 26; W1s ∧ W3 alone keeps 3); TFFJ 2 `industrial_1_1` 560–594 m
 off (W1s and FIELD both refuse). OTHH's 9 admitted today: `Qatar_DutyFree_003` ×3 (own
@@ -1068,11 +1081,11 @@ the arms 0.00–0.10.
 | case | reading under R |
 | --- | --- |
 | one arm only | no pair (rule 2 unchanged): nothing. |
-| arms of unequal length | mouth at the OVERLAP window's end; the longer arm's run-on is ignored (as today). |
+| arms of unequal length | the records end at the terminal STATION (where the shorter wall ends); rule 4's `end_line` and the mouth segment M_k stand at the MIDLINE's end, half the run-on beyond that station (unchanged: OTHH's identity bar; owner question E 1 — on the corpus one OTHH record's class depends on it). |
 | roll-up door mesh / fence / kerb / step across the mouth | a face in the AT-GRADE or BELOW band covering ≥ 0.5 of W → that end CLOSED. A 0.15 m kerb at grade crosses `ground + ε` → CLOSED (owner question (12) Q1). |
 | jet bridge across the mouth | underside above `min_headroom_m` → not in the band; its legs cover < 0.5 → OPEN. |
-| canopy / deck overhead, open at grade | OPEN at that end (the band stops at `min_headroom_m`); the deck satisfies W3. OTHH `TerminalRoads_Parking_004` 7–10, `VCN_004` 28/30 measured so (and (d)-refused anyway). |
-| ground slab object at grade across the mouth | CLOSED — the pack says ground is there. LEMD GAVIA 24 (`Cargo-LEMD63`, 0.82 of W), SWbaume 117 (`Ground-FSX-LEMD85` 1.00, both mouths). |
+| canopy / deck overhead | underside ≥ ground + min_headroom_m, or the plate stops short of the window: OPEN; a deck reaching the window under that: CLOSED (LEMD GAVIA 0/0) |
+| ground slab object at grade across the mouth | CLOSED — the pack says ground is there. LEMD SWbaume 117 (`Ground-FSX-LEMD85` 1.00, both mouths). |
 | open at both ends | `level`, two halves, as today — PROVIDED W3 (a deck over it: OTHH's underpass). Two bare walls under open sky with open ends are a ditch or a fence line → REFUSED by W3 (LEMDgrass, 31 of 31). |
 | closed at both ends (family faces) | REFUSED by rule 4 as today ("sunken yard": NLWF's 14 foundations, KASE 2,073 pairs). |
 | closed at both ends (one by a foreign placement) | REFUSED by W1s ("no open mouth"). |
@@ -1081,14 +1094,30 @@ the arms 0.00–0.10.
 
 ### §12h (4) THE SINGLE ADMISSION SITE, THE ORDER OF CLAUSES, THE LINE
 
-ONE site: the pair loop of `read_family` (`wall_family.py:148-519`). The gate at `:180-204`
+ONE site: the pair loop of `read_family` (`wall_family.py`); the three clauses are
+`airport/wall_mouth.admit` (the pack-wide index `MouthIndex`, `FieldCover`, `WallField`,
+re-exported from `wall_family`), called from that loop alone. The gate at `:180-204`
 ("law off for …") is deleted; no clause is evaluated anywhere else and no consumer vetoes.
 The EXISTING clauses keep their order and their refusal texts (today's `stats.refused` lines
 are unchanged for every candidate they refuse); the three NEW clauses follow rule 5, cheapest
 refusal first:
 
+0. STEP 0, the family FIELD gate: with a field handed, the CONVEX HULL of the members'
+   `plan_bbox`es (every mouth midpoint lies within `max_width_m/2` of it) is tested once — no
+   cover polygon within `mouth_standoff_m + max_width_m/2` of the hull → the family is refused
+   WHOLE by one line naming the distance, no band read, `stats.off_field_families += 1`; a
+   family on the field is read as before. Exact by construction, a function of the family's
+   members and the field alone (pooled = serial). (Review `docs/lawcreview-12h.md` (B) and
+   `docs/lawcreview-12h-reruling.md` 2, HARD LAW §6. The line, in `stats.refused`:
+   `family {fam_name} ({n} members, {resource}): off the field — nearest cover {d:.1f} m (> mouth_standoff_m {standoff:g} + max_width_m/2 {margin:g}); no band read`
+   — polygon distance to the hull, never centroids; `{resource}` is the first member's. A
+   gated family counts in none of `stats.families / bands / pairs`. No field → not applied
+   (FIELD not read). Measure mode is NOT exempt. The on-field clause order below is unchanged,
+   so every on-field refusal text is as before.)
 1. rule 1 bands, rule 2 pair, (a) authored depth, (d) kerb height, rule 3 grade / descending,
-   rule 4 family end covers (`covers`, `mouth_ks`), rule 5 headroom (`plate_plan`) — as today.
+   rule 4 family end covers (`covers`, `mouth_ks`), rule 5 headroom (`plate_plan`), and for a
+   DESCENDING pair the shallow-end-at-grade test (`shallow_depth ≤ contact_band_m`, existing:
+   `no mouth at grade`, its `@k` spent) — as today, BEFORE any mouth query;
 2. **FIELD-pre**: for each rule-4-open end, `field.on_cover(Point(midpoint of M_k))`; none on
    the field → `REFUSED by FIELD`. One `dwithin` query per end on the cells' STRtree; the
    KASE city block (3,695 pairs, 3.9 km off) and TFFJ's two never reach a mouth query.
@@ -1099,9 +1128,12 @@ refusal first:
    `wall_cover` (the at-grade hits with `z_max ≥ ground + contact_band_m`) and the CLOSER per
    band — the placement and resource with the largest projected span, its span fraction and
    its rendered z range.
-4. **W1s**: the composed-open ends = rule-4-open ∧ below < 0.5 ∧ at-grade < 0.5 ∧ on the
-   field (FIELD on the composed mouth — the FIELD-pre set is a superset). None →
-   `REFUSED by W1s`.
+4. **W1s**: the composed-open ends = rule-4-open ∧ below < 0.5 ∧ at-grade < 0.5. None →
+   `REFUSED by W1s`. Then FIELD on the composed mouths: none of them on the field →
+   `REFUSED by FIELD` (the FIELD-pre set is a superset, so this is reached only when a
+   FIELD-pre-open end was W1s-closed). FIELD is a location clause of the candidate; it never
+   closes an end — a level pair stays level however far its second mouth stands from the
+   cover.
 5. **W3**: `plate_plan is not None` (free) else `wall_cover[k] ≥ 0.5` at some end. Neither →
    `REFUSED by W3`.
 6. The class on the composed openness ((1) last paragraph); the records as today.
@@ -1111,11 +1143,14 @@ refusal; `python -m auto_patch_v2.planar ICAO --stage structures` prints it unde
 `wall_corridor_admission`, and `v2_solve_replay --from planar` reaches it through
 `planar.build`):
 
-    candidate {name} bands {A}/{B} at {site}: (a) admitted — wall bottom authored {d:.2f} m under the object's zero; (d) kerb {h_own:.2f} m; ends family {c0:.0%}/{c1:.0%}; headroom {open air | {h:.2f} m ({plate witness})}; FIELD end {k} {dist:.1f} m of cover; MOUTH end 0 below {b0:.2f} / at-grade {a0:.2f} (closer {resource}@{placement} {frac:.2f} of W, z {zmin:.2f}..{zmax:.2f}), end 1 below {b1:.2f} / at-grade {a1:.2f} (closer …); W1s open end {k}; W3 {plate ({witness}) | wall at end {k} {frac:.2f} of W, z_max {h:+.2f} m over ground} -> ADMITTED {level | bay | garage_ramp}
+    candidate {name} bands {A}/{B} at {site}: (a) admitted — wall bottom authored {d:.2f} m under the object's zero; (d) kerb {h_own:.2f} m; ends family {c0:.0%}/{c1:.0%}; headroom {open air | {h:.2f} m ({plate witness})}; FIELD end {k} {dist:.1f} m of cover; MOUTH end 0 below {b0:.2f} / at-grade {a0:.2f} (closer {resource}@{placement} {frac:.2f} of W, z {zmin:.2f}..{zmax:.2f} — the larger of the two bands' closers, `none` when no face met the window; both bands' closers are in the `narrow_cut` row `mouth_closers`), end 1 below {b1:.2f} / at-grade {a1:.2f} (closer …); W1s open end {k}; W3 {plate ({witness}) | wall at end {k} {frac:.2f} of W, z_max {h:+.2f} m over ground} -> ADMITTED {level | bay | garage_ramp}
     candidate … ; FIELD REFUSED — nearest cover {dist:.1f} m from end {k} (> mouth_standoff_m 150)
     candidate … ; W1s REFUSED — no open mouth: end 0 below {b0:.2f} / at-grade {a0:.2f} (closer …), end 1 …
     candidate … ; W3 REFUSED — open air, no wall at either end (at-grade wall cover {w0:.2f} / {w1:.2f})
     candidate … ; FIELD not read (no cover handed) — W1s …; W3 … -> ADMITTED {class}
+    candidate … ; headroom … -> REFUSED — a descending pair whose shallow end lies {d:.2f} m under the ground: no mouth at grade
+
+(the `narrow_cut` row of such a pair is not `admitted`)
 
 Every clause names its witness and its closer, so a sim read of a wrong corridor can be
 attributed from the line alone. `stats.narrow_cut` rows gain the same numbers (`field_m`,
@@ -1137,8 +1172,10 @@ pool's `setup` args → `ReadWorker.field` → `wall_reader(a, cache, law, field
 `wall_corridor_reads(…, field=…)` for the one-core read; `wall_reader` builds
 `FieldRegion(field.polys, field.standoff_m)` once per process (an STRtree does not cross a
 pool; the polygons do). `field=None` is lawful only for a caller that has no classification
-(the synthetic twins without one, `tools/planar_read_arm.py`): FIELD is then NOT READ, every
-line says so and `stats.field_read` is False. The BUILD path always hands one; the structures
+(synthetic twins without one, `tools/planar_read_arm.py --no-field`): FIELD is then NOT READ,
+every line says so and `stats.field_read` is False; `planar_read_arm` hands the capture's own
+cover by default and hashes `wall_records` (the records alone) beside `wall_corridors`
+(records + stats). The BUILD path always hands one; the structures
 replay (`planar/__main__.py:371`) hands `cl`; a twin asserts `planar.build` reads the walls
 with `field_read is True`.
 
@@ -1154,17 +1191,16 @@ read — the walk `_headroom` (`wall_corridors.py:505-556`) already makes, over 
 of the family's members. Vertical triangles → `wall_geometry._plan_segments`; others →
 `shapely.polygons`. Nothing is cached across queries but the tree.
 
-**Cost (ESTIMATE until the lane measures; `ab-time` protocol, never a single run).** The
-scout's UNINDEXED arm read 61 OTHH candidates × 5 queries over 36,019 placements in 17 s —
-a 36k linear scan per query. Indexed: tree build ~0.05 s per process (36k boxes); a query
-µs plus the component walk over the hits (tens of placements at a terminal). Reaching the
-query at all needs (a), (d), rules 3–5 and FIELD-pre: OTHH ≤ 9 + the W1s/W3-refused few,
-LEMD 33, KASE 0, TFFJ 0, so ≤ ~90 queries on the corpus' worst airport. FIELD-pre is one
-`dwithin` on the cells' tree per end. Expected well under 0.6 s (1 % of the 60 s budget) at
-OTHH; the bar is the measured `WallCorridorStats.read_s` delta on the OTHH replay
-(`--from planar`, same capture, both arms) and the `[OTHH] wall corridors … (N s)` build line
-(`pipeline/build.py:717-720`) against the registered OTHH build, reported in the lane's
-report with the numbers, not the claim.
+**Cost (MEASURED — lane `lawc396`; HARD LAW §6 review `docs/lawcreview-12h.md` (B)).** 0.69 s
+one-core for OTHH's 9 candidates (the index built once per process); KASE 6.1 → 15.7 s before
+the gate, the gate's bar ≤ base. With the gate landed (lane `lawc396b`, one core, the
+registered captures): KASE 0.16 s, TFFJ 1.6–1.9 s (4.8 before), VHHH 18.0 s (22.9 before),
+OTHH 86.6 s (90.5–91.0 before; base 92.5), LEMD unchanged (no family off the field).
+
+**The family FIELD gate ((4) step 0) in a pool.** It is a pure function of the family's own
+members and the field, so pooled = serial holds and the intake is unchanged; a gated family
+costs one `dwithin` query and reads no band. Counter: `WallCorridorStats.off_field_families`,
+summed in `assemble`.
 
 **In a pool worker (the parallel branch).** A wall task is one FAMILY (`reader_work.py:
 11-15, 444-446`); the worker already holds EVERY placed object (`begin`, `:472-473`,
@@ -1275,7 +1311,11 @@ Synthetic-first, one airport at the close (CLAUDE.md BUILD ECONOMY):
    `--stage structures` JSON), patch BODY sha
    `88794a1d264baaa696d7248c08c0f39a3fd8aa7027f369d5f45e827d7438ae8d`, rebake plan
    `eecf0d4d6ba1…` (the full sha is on the pardoors frame row); then ONE OTHH build through
-   `tools/harness/build_airport.py OTHH` with the same body sha.
+   `tools/harness/build_airport.py OTHH` with the same body sha. With the family FIELD gate
+   ((4) step 0) the bar on the LINES is: records sha + patch body `88794a1d264b…` + rebake
+   `eecf0d4d6ba1…` + the 30 ON-FIELD refusal texts identical + the 5 family lines naming
+   distances ≥ 150 (30 of OTHH's 60 refusal texts belonged to its 5 off-field families and
+   are those 5 lines).
 2. **The other six sweep airports byte-identical** — CYXY `2a00c361ffc2`, SPJC `9d611f11e04b`,
    KCLT `795da9629004`, KASE `738c2a8ceb64`, HECA `09847984ac94`, NLWF `84be89f8b7bc` — proven
    by the MASTER's sweep at merge (never a lane's five-airport sweep); the lane proves KASE on
@@ -1284,7 +1324,9 @@ Synthetic-first, one airport at the close (CLAUDE.md BUILD ECONOMY):
 3. **Replays admitting 0**: LEMD (`frames/sheetchain/LEMD.pkl`), KASE (`conc333`), TFFJ
    (`surfacesettle2`), VHHH (`frames/lawcspec/VHHH.pkl`, (10)) — `--stage structures` on each:
    `corridors 0`, every refused candidate's line naming its clause, and the (2) table
-   reproduced from those lines under the law values (ε 0.05, ceiling 3.5): W1s / W3 / FIELD
+   reproduced from the lines for the on-field airports (LEMD); for KASE / TFFJ / VHHH the
+   family lines name the distance and the per-clause columns are the lane's recorded
+   measurement — under the law values (ε 0.05, ceiling 3.5): W1s / W3 / FIELD
    counts per airport equal to the table, or the difference named per candidate.
 4. **Build time**: `read_s` delta on the OTHH replay and the OTHH build's wall-corridor line,
    both arms, under `ab-time`; the bar is < 0.6 s added and the index built once per process.
@@ -1352,10 +1394,11 @@ the registered capture is the durable form of this read (bar (9) 3).
 
 | site | what | the one clause |
 | --- | --- | --- |
-| KASE 39.191344, −106.819583 | `b56dfde4-…-359f7b320fda_1` 3105: 19.5 × 10.3 m, 9.9 m deep, one end wholly open, the other closed by `_2` (z 2395–2405) | FIELD (3,900–4,370 m from the cover) |
-| KASE 39.189304, −106.819453 | 3131: 10.3 × 8.9 m, 3.1 m deep, bay under a 7.2 m deck | FIELD |
+| KASE 39.191344, −106.819583 | `b56dfde4-…-359f7b320fda_1` 3105: 19.5 × 10.3 m, 9.9 m deep, one end wholly open, the other closed by `_2` (z 2395–2405) | (d) and FIELD (3,900–4,370 m from the cover) — see the 3131 row |
+| KASE 39.189304, −106.819453 | 3131: 10.3 × 8.9 m, 3.1 m deep, bay under a 7.2 m deck | KASE 3131 and 3105's kerb reads 3.00x m at the engine's precision (the scout compared a rounded 3.0): (d) refuses them; FIELD refuses them too. Only 3161 (kerb −0.0, W1s ✓ W3 ✓) rests on FIELD alone |
 | KASE 39.190352, −106.819609 | 3161: 22.2 × 10.7 m, 7.0 m deep, bay | FIELD |
-| LEMD 40.458445, −3.577556 | `Airport_Cargo-GAVIA` 0/0 bay 24: a 1.2–1.4 m cargo kerb pit under a 3.7 m deck whose mouth the pack's apron slab `Cargo-LEMD63` paves over (0.82 of W, top +0.10–0.13 m) | W1s (ε ≤ 0.10) |
+| LEMD 40.458445, −3.577556 | `Airport_Cargo-GAVIA` 0/0 bay 24: a 1.2–1.4 m cargo kerb pit under a 3.7 m deck — `Cargo-LEMD63` comp 14, a 3 cm plate authored +2.26 m, 2.15 m over the mouth's ground, 3.52 m over the floor — that reaches its mouth window (0.82 of W) | W1s — its roof reaches the mouth under `min_headroom_m` over the ground |
+| OTHH 25.266210, 51.611335 | `Terminal_Base_2_5` 432/433 (the 08u underpass): admitted; its deck (2.42 m over ground) would close the mouth if it reached the window | the one admitted record whose W1s rests on the plate's edge |
 | LEMD 40.491095, −3.568335 | `Sim-wings-SWbaume` 135/163 (117): a 7 m pit at the T4S tower filled by the pack's ground slab `Ground-FSX-LEMD85` (1.00) | W1s |
 
 Downtown Aspen is 3.9 km from the field; the two LEMD sites are paved over by the pack itself.

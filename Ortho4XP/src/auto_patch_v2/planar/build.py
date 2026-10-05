@@ -40,6 +40,7 @@ from .basins import BasinStats, build_basins, read_objects
 from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
+from .structure_approach import wall_field
 from .structure_road import mouth_pair_roads
 from ..airport.tunnel_objects import TunnelObjectStats
 from ..airport.door_wells import DoorStats
@@ -212,15 +213,20 @@ def build(airport: Airport, classification: Classification, law: Law,
     # RULINGS 2026-09-13d item 5), the door wells and the sunken roads
     # (RULINGS 2026-09-08b/c).  A second pass over the same pack (the
     # ribbon-free map, #100 (c)) is handed the first's reading.
-    pr = pack_reads(airport, objects, cache, law, walls=True)
+    # THE WALL CORRIDORS' FIELD (spec §12h (4)): ONE record of this
+    # classification's cover, handed to the pool and to the one-core read
+    # alike — FIELD is always READ on the build path
+    field = wall_field(classification, law)
+    pr = pack_reads(airport, objects, cache, law, walls=True, field=field)
     corridors, tstats, plates, pstats = (pr.corridors, pr.tunnel_stats,
                                          pr.plates, pr.plate_stats)
     wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
     tstats.plates = pstats.plates
     tstats.refused.extend(pstats.refused)
-    # the wall corridors are a pack read too (#362): the reader takes a
-    # classification only for the structures replay's ``measure`` probe
-    walls_c, wstats = wall_corridor_reads(airport, objects, cache, law)
+    # the wall corridors are a pack read too (#362): of the classification
+    # they read the FIELD's cover alone (and, in the structures replay, the
+    # ``measure`` probe's ribbons)
+    walls_c, wstats = wall_corridor_reads(airport, objects, cache, law, field)
     # the basin pass's per-ring pack readings, on the same memo
     rings = ring_reads(airport, objects, cache, law)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \

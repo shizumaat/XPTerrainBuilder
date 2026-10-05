@@ -45,10 +45,10 @@ from test_tunnel_objects import _airport, _slab, _write
 
 @pytest.fixture(scope="module")
 def law():
-    """The law of an airport where LAW C IS ON (RULINGS 2026-09-10ap:
-    ``law/airports.toml`` names OTHH alone).  Every corridor twin below
-    reads the geometry, so it must run under the affordance; the gate
-    itself is twinned at the end of this file."""
+    """Law C is read at EVERY airport (spec §12h; owner RULINGS
+    2026-10-05g): the identifier only resolves the ruleset.  The general
+    rule's three clauses are twinned in ``test_v2wallmouth.py``; the
+    corridor twins below hand no classification, so FIELD is not read."""
     return Law.for_airport("OTHH")
 
 
@@ -448,6 +448,42 @@ def test_the_wall_height_above_zero_is_read_in_the_objects_own_frame(objs, law, 
     assert st3.narrow_cut[0]["wall_own_m"] == pytest.approx(8.0, abs=0.05)
 
 
+def test_a_build_reads_the_kerb_height_without_the_connected_climb(objs, law, tmp_path):
+    """(d) reads the band's OWN height alone; the wall connected above it
+    is the replay's measurement.  ``climb=False`` (a build) states the same
+    ``own_m`` for every component, and the (d) verdict and its line are
+    the same whether the climb is measured or not."""
+    from auto_patch_v2.airport.below_zero import read_wall_height
+    shed = _cargo_shed_wall(tmp_path / "shed2.obj")
+    airport = _airport(dict(objs, shed2=shed), law,
+                       [("shed2", (0.0, 0.0), 0.0, None, "OBJECT"),
+                        ("skirt", (500.0, 0.0), 0.0, None, "OBJECT")])
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    t = law.tables.structures.tunnel.object.wall_face_max_thickness_m
+    climbed = 0
+    for o in objects:
+        n = len(cache.genuine(o.resolved))
+        assert n and read_wall_height(o, cache, n, grid, t, climb=False) is None
+        for comp in range(n):
+            full = read_wall_height(o, cache, comp, grid, t)
+            bare = read_wall_height(o, cache, comp, grid, t, climb=False)
+            assert bare.own_m == full.own_m == bare.connected_m
+            climbed += full.connected_m > full.own_m
+    assert climbed, "the fixture must hold a wall that climbs past its own band"
+    for name in ("tall_wall", "bay_kerb", "deep"):
+        placements = [(name, (0.0, 0.0), 0.0, None, "OBJECT")]
+        got = []
+        for measure in (False, True):
+            ap = _airport(objs, law, placements, _kerb_roads())
+            c = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+            oo, _r = read_objects(ap, law, c)
+            recs, st = read_wall_corridors(ap, oo, c, law, measure=measure)
+            got.append(([r.id for r in recs], st.admission, st.refused))
+        assert got[0] == got[1], name
+
+
 def test_the_wall_height_separates_nothing_at_the_real_airports(objs, law):
     """RULINGS 2026-09-10ao's premise — "a kerb wall rises to its deck and
     no further; a building wall rises 6–12 m" — is FALSE at OTHH itself
@@ -466,54 +502,25 @@ def test_the_wall_height_separates_nothing_at_the_real_airports(objs, law):
     assert st.corridors == 1 and len(recs) == 2, st.refused
 
 
-# ── RULINGS 2026-09-10ap: LAW C IS A PER-AIRPORT AFFORDANCE ─────────────
+# ── RULINGS 2026-10-05g: LAW C IS UNCONDITIONAL — NO PER-AIRPORT TABLE ───
 
 
-def test_the_affordance_table_names_othh_and_nobody_else(law):
-    """``law/airports.toml`` (10ap, closing 10ac-1 as (B)): Law C — kerb-
-    wall corridors AND garage ramps — is on at OTHH, off at every other
-    airport, including one the table does not name at all and a law bound
-    to no airport."""
-    assert Law.for_airport("OTHH").affordances.kerb_wall_corridors is True
-    assert Law.for_airport("LEMD").affordances.kerb_wall_corridors is False
-    assert Law.for_airport("ZZZZ").affordances.kerb_wall_corridors is False
-    assert Law.load().affordances.kerb_wall_corridors is False
-    assert set(Law.load().tables.airports) == {"OTHH"}
-
-
-def test_a_corridor_is_admitted_with_the_key_on_and_refused_with_it_off(objs, law):
-    """THE GATE at the single admission site: the SAME fixture corridor
-    is admitted under OTHH's law and read no further under LEMD's — the
-    candidate's admission line says "law off for LEMD" and no geometry
-    clause is reached (10ap: the key is checked FIRST, before (a))."""
-    recs, st = _corridors(objs, law, "deep")
-    assert st.corridors == 1 and len(recs) == 2, st.refused
-    assert any("ADMITTED" in a for a in st.admission)
-
-    off = Law.for_airport("LEMD")
-    assert off.affordances.kerb_wall_corridors is False
-    recs_off, st_off = _corridors(objs, off, "deep")
-    assert recs_off == [] and st_off.corridors == 0
-    assert st_off.pairs == 1, "the pair is still a CANDIDATE, refused by the key"
-    assert st_off.admission and all("law off for LEMD" in a for a in st_off.admission), \
-        st_off.admission
-    assert not any("(a)" in a for a in st_off.admission), st_off.admission
-    assert st_off.refused == [], "the key is not a geometry refusal"
-
-
-def test_every_law_c_class_passes_the_one_gate(objs, law):
-    """10ap gates BOTH of Law C's classes — kerb-wall corridors AND
-    garage ramps.  There is one site: the key is checked on the PAIR,
-    before any clause and long before the level/bay/garage_ramp class is
-    decided, so no class can escape it (the ``door26`` candidate, a
-    different family from ``deep``, is refused by the same line)."""
-    recs, st = _corridors(objs, law, "door26")
-    assert st.corridors == 1 and len(recs) == 2, st.refused
-    off = Law.for_airport("LEMD")
-    recs_off, st_off = _corridors(objs, off, "door26")
-    assert recs_off == [] and st_off.corridors == 0
-    assert all("law off for LEMD" in a for a in st_off.admission), st_off.admission
-    assert st_off.by_class == {}, st_off.by_class
+def test_no_per_airport_table_remains_and_law_c_reads_the_same_everywhere(objs, law):
+    """10ap's switch (``law/airports.toml``, ``Affordances``) is DELETED:
+    the SAME fixture corridor is admitted under any identifier's law, the
+    law directory holds no airports table and ``Law`` has no affordances."""
+    from auto_patch_v2 import law as law_pkg
+    from auto_patch_v2.law import DEFAULT_LAW_DIR
+    from auto_patch_v2.law.model import TABLE_FILES
+    assert "airports.toml" not in TABLE_FILES and len(TABLE_FILES) == 7
+    assert not (DEFAULT_LAW_DIR / "airports.toml").exists()
+    assert not hasattr(law, "affordances") and not hasattr(law.tables, "airports")
+    assert not hasattr(law_pkg, "Affordances") and not hasattr(law_pkg, "NO_AFFORDANCES")
+    for icao in ("OTHH", "LEMD", "ZZZZ", ""):
+        recs, st = _corridors(objs, Law.for_airport(icao) if icao else Law.load(), "deep")
+        assert st.corridors == 1 and len(recs) == 2, (icao, st.refused)
+        assert any("ADMITTED level" in a for a in st.admission), st.admission
+        assert not any("law off" in a for a in st.admission)
 
 
 def test_the_terminals_only_clause_and_its_keys_are_deleted(law):
@@ -527,24 +534,6 @@ def test_the_terminals_only_clause_and_its_keys_are_deleted(law):
     assert not hasattr(wc, "corridor_terminal_m")
     from auto_patch_v2.airport import wall_corridor_probe
     assert not hasattr(wall_corridor_probe, "terminal_witness")
-
-
-def test_the_law_digest_changes_when_the_affordance_table_changes(tmp_path):
-    """PROVENANCE: ``law_tables_digest`` hashes every ``*.toml``, so a
-    patch built under a different affordance table carries a different
-    law sha (the harness frame, the tile [provenance] line, the ledger
-    variant key)."""
-    import shutil
-    from auto_patch_v2.law import DEFAULT_LAW_DIR, law_tables_digest
-    d = tmp_path / "law"
-    shutil.copytree(DEFAULT_LAW_DIR, d, ignore=shutil.ignore_patterns("__pycache__"))
-    before = law_tables_digest(d)
-    assert "airports.toml" in before["files"]
-    (d / "airports.toml").write_text("[LEMD]\nkerb_wall_corridors = true\n", encoding="utf-8", newline="")
-    after = law_tables_digest(d)
-    assert after["sha256"] != before["sha256"]
-    assert Law.for_airport("LEMD", law_dir=d).affordances.kerb_wall_corridors is True
-    assert Law.for_airport("OTHH", law_dir=d).affordances.kerb_wall_corridors is False
 
 
 # ── issue #12 [OTHH-1] (Q-12): THE KERB TEST (d) ─────────────────────────

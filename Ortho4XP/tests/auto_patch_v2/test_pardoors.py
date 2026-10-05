@@ -32,9 +32,11 @@ from auto_patch_v2.airport import sunken_roads as SR
 from auto_patch_v2.airport.obj8 import ResourceCache, above_grade_footprint, at_grade_geometry
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar import pack_reads as PR
+from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.planar.basins import read_objects
+from auto_patch_v2.planar.structure_approach import wall_field
 
-from test_tunnel_objects import _airport
+from test_tunnel_objects import _airport, _rect
 from test_v2doorramp import _door_obj, _road_obj, _roofed_well_obj, _wide_well_obj
 
 N = max(2, min(8, os.cpu_count() or 2))
@@ -47,6 +49,14 @@ def law():
 
 def _cache(law):
     return ResourceCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
+
+
+def _field(law):
+    """The wall corridors' FIELD (ramps spec §12h (4)), as ``planar.build``
+    derives it: a cover under the whole fixture pack."""
+    return wall_field(Classification((
+        Cell(1, "apron", "apron1", _rect(-500, -500, 2500, 2500), (), None, None,
+             "airside", "apron", {}),), (), {}, ()), law)
 
 
 @pytest.fixture(scope="module")
@@ -97,12 +107,14 @@ def _reading(world, law, workers: int, cache=None) -> dict:
     P.configure(workers)
     _fe.reset_rung_counts()
     try:
-        pr = PR.pack_reads(airport, objects, cache, law, walls=True)
-        PR.wall_corridor_reads(airport, objects, cache, law)    # read on one core, or taken
+        field = _field(law)
+        pr = PR.pack_reads(airport, objects, cache, law, walls=True, field=field)
+        # read on one core, or taken — under the field either way
+        walls, wstats = PR.wall_corridor_reads(airport, objects, cache, law, field)
     finally:
         P.configure(1)
     g = cache.grade
-    return {"wells": pr.wells, "roads": pr.roads,
+    return {"wells": pr.wells, "roads": pr.roads, "walls": [walls, _untimed(wstats)],
             "stats": [_untimed(pr.door_stats), _untimed(pr.road_stats)],
             "rungs": _fe.rung_counts(),
             "grade": (g.calls, g.unions, g.vertices, sorted(g.resources), g.over_budget),
@@ -110,7 +122,7 @@ def _reading(world, law, workers: int, cache=None) -> dict:
             "pool": PR.pool_report(cache), "cache": cache}
 
 
-KEYS = ("wells", "roads", "stats", "rungs", "grade", "memos")
+KEYS = ("wells", "roads", "walls", "stats", "rungs", "grade", "memos")
 
 
 def _same(a: dict, b: dict) -> None:
@@ -132,6 +144,7 @@ def test_the_synthetic_pack_exercises_both_readers_and_their_charges(serial):
     calls, unions, vertices, resources, _over = serial["grade"]
     assert calls > unions > 0 and vertices > 0 and len(resources) >= 4
     assert all(serial["memos"]) and serial["pool"] is None
+    assert serial["walls"][1]["field_read"] is True and serial["walls"][1]["field_cells"] == 1
 
 
 @pytest.mark.parametrize("n", sorted({2, 3, N}))
@@ -471,7 +484,7 @@ def test_the_frame_transformers_are_built_once_per_reader(world, law, monkeypatc
     tasks += [(RW.WALLS, fk, ks) for fk, ks in WF.wall_families(objects, cache, law)[1]]
     assert len(tasks) >= 12
     state = RW.setup(airport, ("as_is", airport.dem), list(objects), law, cache.thickness_m,
-                     cache.input_quantum_m, {}, "")
+                     cache.input_quantum_m, {}, "", _field(law))
     try:
         n = took(lambda: [RW.read(state, t) for t in tasks])
     finally:

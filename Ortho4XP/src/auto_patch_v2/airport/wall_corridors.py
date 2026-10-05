@@ -1,17 +1,23 @@
 """THE WALL CORRIDORS (RULINGS 2026-09-08m / 08n LAW C; spec ``docs/specs/
-auto-patch-v2/othh-terminal-ramps-spec.md`` §6, §12g; law ``structures.toml
-[cutout.wall_corridor]``, ``airports.toml``):
+auto-patch-v2/othh-terminal-ramps-spec.md`` §6, §12h; law ``structures.toml
+[cutout.wall_corridor]``):
 
-LAW C IS A PER-AIRPORT AFFORDANCE (RULINGS 2026-09-10ap, closing 10ac-1
-as (B)): both classes here — kerb-wall corridors AND garage ramps — are
-read only where ``law/airports.toml`` states ``kerb_wall_corridors =
-true`` for the airport (OTHH alone today, on the owner's sim read).
-After seven rounds no witness in the geometry or the map separated
-OTHH's terminal kerb corridors from LEMD's cargo-dock foundations
-(§12–§12f), so the key is an honest switch, not a mechanism, and it is
-checked FIRST at the single admission site (before clause (a)), one
-``stats.admission`` line per candidate.  Law A (door wells) and Law B
-(sunken roads, basins) are unconditional everywhere.
+LAW C IS UNCONDITIONAL UNDER ONE GENERAL RULE (owner RULINGS 2026-10-05e
+/ 05g / 05h; spec §12h, superseding §12g): both classes here — kerb-wall
+corridors AND garage ramps — are read at EVERY airport, and a candidate is
+ADMITTED iff, beyond rules 1-6 below, it has an OPEN MOUTH (W1s: nothing
+of ANY placement of the pack across an end, below grade or at grade up to
+the headroom), its arms run out from a BUILT STRUCTURE (W3: a deck over
+the trench, or an above-grade wall closing an end) and that open mouth
+stands ON THE FIELD (FIELD: within ``[tunnel] mouth_standoff_m`` of the
+classified cover).  The three readings are ``airport/wall_mouth.py``; the
+ONE admission site is ``wall_family.read_family``, one ``stats.admission``
+line per candidate naming every clause's witness.  (History: RULINGS
+2026-09-10ap made the law a per-airport switch because no single witness
+separated a terminal's kerb corridors from a cargo dock's foundations;
+§12h's composition does, measured on 17 captures, and the switch is
+deleted.)  Law A (door wells) and Law B (sunken roads, basins) are
+unconditional everywhere, as before.
 
 The reading itself: the pack models the terminal's road underpass,
 its loading bays and its garage entry ramps as KERB WALLS only — genuine
@@ -74,7 +80,18 @@ THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
    garage whatever crosses it.  Classes: ``level`` open both ends (TWO
    capless halves meeting at the midpoint, each climbing beyond its own
    end), ``bay`` (one closed end), ``garage_ramp`` (descending); closed at
-   both ends is refused by name (no mouth).
+   both ends is refused by name (no mouth).  §12h: the class reads the
+   COMPOSED openness — an end a FOREIGN placement closes (W1s) is closed
+   too, so a level pair with one such end is a bay at the other.
+   THE END LINE (and so the mouth segment the §12h clauses read) stands
+   at the end of the pair's MIDLINE: for arms of unequal length that is
+   half the longer arm's run-on BEYOND the terminal station, where the
+   records end (§12h (3); unchanged — moving it is an owner question).
+   W1s's AT-GRADE band there runs from the GROUND at the mouth up to
+   ``min_headroom_m`` over it: a corridor's own deck (rule 5 measures it
+   from the FLOOR) closes its mouth only if it reaches the mouth window
+   under that ceiling — the arms run OUT beyond the deck; a pit roofed to
+   its mouth is a dock (§12h (1), (11)).
 5. HEADROOM — the lowest near-horizontal family face over the trench
    stands ``min_headroom_m`` above the floor, else refused (replaces the
    basement cover gate: the deck above is the family's own roof and stays).
@@ -121,7 +138,8 @@ from . import obj8 as _obj8
 from .wall_corridor_probe import ROAD_ROLES, MouthRoad, mouth_roads
 from .wall_geometry import (WallBand, _DENSIFY_M, _seat_base, _MITRE, _MIN_SEG_M, _SHEET_BAND_M, _angle_diff, _band_polygon,
                             _densified, _plan_polys, _plan_segments_indexed,
-                            _rect_axis, _rect_sides, _straight_runs, _tri_normals_y)
+                            _rect_axis, _rect_sides, _straight_runs, _tri_normals_y,
+                            _union_length)
 from .tunnel_walls import Station, WallLines
 
 __all__ = ["WallBand", "WallCorridorRecord", "WallCorridorStats",
@@ -237,6 +255,18 @@ class WallCorridorStats:
     #: footprint's), whatever the admission then says.
     narrow_cut: list[dict] = _dc.field(default_factory=list)
     read_s: float = 0.0
+    #: spec §12h (4): whether the FIELD clause was READ — the reader was
+    #: handed the classified cover (``wall_mouth.WallField``).  False only
+    #: for a caller with no classification; every admission line then says
+    #: "FIELD not read", and a build never takes that path.
+    field_read: bool = False
+    #: the cover's polygons the FIELD clause read (0 when not read)
+    field_cells: int = 0
+    #: spec §12h (4) step 0: the anchor families the FAMILY FIELD GATE
+    #: refused whole — no member's plan extent within the standoff of the
+    #: cover, so no mouth of any pair is; one ``refused`` line each, no band
+    #: read (``families`` / ``bands`` / ``pairs`` do not count them)
+    off_field_families: int = 0
 
 
 def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
@@ -325,7 +355,11 @@ def _floor_profile(bands: _t.Sequence[WallBand], axis_ln: LineString, ss: _t.Seq
     2026-09-10u) — ``(floors, floors_y)``, gaps filled from the
     neighbours."""
     pts = np.concatenate([b.pts for b in bands])
-    s_of = np.asarray([axis_ln.project(Point(x, y)) for x, y in pts[:, :2].tolist()])
+    # ONE ``line_locate_point`` call over every sample — the very reading
+    # ``axis_ln.project(Point(x, y))`` makes one point at a time (Law C is
+    # read at every airport since §12h: KASE's 3,247 candidate pairs spent
+    # 12 s here a point at a time)
+    s_of = shapely.line_locate_point(axis_ln, shapely.points(pts[:, :2]))
     out: list[float | None] = []
     out_y: list[float | None] = []
     for s in ss:
@@ -371,19 +405,7 @@ def _end_cover(end: tuple[XY, XY], faces: list[LineString], tree: STRtree | None
             lo, hi = max(0.0, min(ts)), min(L, max(ts))
             if hi > lo:
                 ivals.append((lo, hi))
-    ivals.sort()
-    covered = 0.0
-    cur: tuple[float, float] | None = None
-    for lo, hi in ivals:
-        if cur is None or lo > cur[1]:
-            if cur is not None:
-                covered += cur[1] - cur[0]
-            cur = (lo, hi)
-        else:
-            cur = (cur[0], max(cur[1], hi))
-    if cur is not None:
-        covered += cur[1] - cur[0]
-    return covered / L
+    return _union_length(ivals) / L
 
 
 def _interp_station(sts: _t.Sequence[Station], s: float) -> Station:

@@ -97,7 +97,7 @@ from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, airside_stops,
                                   locked_road_stops, road_true_edge, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
 from ..airport.dem import dem_z_at
-from .structure_approach import (FieldRegion, apply_plates,
+from .structure_approach import (FieldRegion, apply_plates, cover_polygons,
                                  approach_ground as _approach_ground,
                                  carriageway_width_m,
                                  chains, field_region_for, mouth_reports, under_cover,
@@ -163,7 +163,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     tunnel_ways = [w for w in airport.osm_ways
                    if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
     cells = list(classification.cells)
-    polys = [Polygon(c.ring, c.holes) for c in cells]
+    polys = cover_polygons(classification)
     # A BRIDGE STATES THE CROSSING (spec §34 (5); ARMED at round 2,
     # RULINGS 2026-09-13ai): an ``aeroway`` ``bridge=yes layer >= 1`` way
     # over a road seeds a bore the OSM data never tagged — neither measured

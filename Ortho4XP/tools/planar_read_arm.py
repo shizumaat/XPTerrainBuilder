@@ -3,7 +3,7 @@
 its second use).
 
     cd Ortho4XP && venv/bin/python tools/planar_read_arm.py CAPTURE.pkl \
-        [--workers N] [--reader-cap M] [--json OUT.json]
+        [--workers N] [--reader-cap M] [--no-field] [--json OUT.json]
 
 Off a ``v2_solve_replay --capture`` pickle it reads the pack's objects as the
 replay's ``--from planar`` prelude does (one quantised ``ResourceCache``),
@@ -18,6 +18,13 @@ sunken roads, wall corridors) under a pinned work-pool budget, and prints
 * the readers' own seconds, the pool's account, the load average and the
   peak resident memory of this process + its workers (sampled once a
   second through ``ps`` on POSIX, PowerShell CIM on Windows).
+
+The wall corridors are read under THE FIELD (ramps spec §12h (4)): the
+cover of the capture's own classification, derived as ``planar/build``
+derives it and handed to the pool and the one-core read alike.
+``--no-field`` leaves FIELD not read.  ``wall_records`` is the sha of the
+corridor RECORDS alone (what a build consumes); ``wall_corridors`` hashes
+them with their stats, whose admission lines change with a clause's wording.
 
 ``--reader-cap M`` replaces ``reader_work.MAX_WORKERS`` for the arm — the
 worker-count sweep that number is set from (1 / 2 / 4 / 8 / N).
@@ -156,17 +163,19 @@ class PeakRss:
             self.sample()
 
 
-def reading(airport, objects, cache, law) -> dict:
+def reading(airport, objects, cache, law, field=None) -> dict:
     """The record of one arm (module doc) under the pool budget in force;
-    ``timing`` is the only key that is not identity."""
+    ``timing`` is the only key that is not identity.  ``field`` is the wall
+    corridors' FIELD cover (``wall_mouth.WallField``, ramps spec §12h (4));
+    ``None`` leaves FIELD not read, which the record says (``field``)."""
     from auto_patch_v2.airport import frame_entry as fe
     from auto_patch_v2.planar import pack_reads as PR
     fe.reset_rung_counts()
     t = time.perf_counter()
     with PeakRss() as peak:
-        pr = PR.pack_reads(airport, objects, cache, law, walls=True)
+        pr = PR.pack_reads(airport, objects, cache, law, walls=True, field=field)
         t_reads = time.perf_counter() - t
-        walls, wstats = PR.wall_corridor_reads(airport, objects, cache, law)
+        walls, wstats = PR.wall_corridor_reads(airport, objects, cache, law, field)
         t_all = time.perf_counter() - t
     rec = {
         "tunnels": sha([pr.corridors, pr.tunnel_stats]),
@@ -174,6 +183,10 @@ def reading(airport, objects, cache, law) -> dict:
         "door_wells": sha([pr.wells, pr.door_stats]),
         "sunken_roads": sha([pr.roads, pr.road_stats]),
         "wall_corridors": sha([walls, wstats]),
+        # the RECORDS alone: what a build consumes — the stats beside them
+        # carry the admission lines, which change when a clause is reworded
+        "wall_records": sha(walls),
+        "field": {"read": wstats.field_read, "cells": wstats.field_cells},
         "rungs": {k: list(v) for k, v in sorted(fe.rung_counts().items())},
         "grade": canon(cache.grade),
         "memos": {"grade": len(cache.grade_memo), "cover": len(cache.cover_memo),
@@ -203,6 +216,9 @@ def main() -> int:
                     help="pin the work-pool budget (1 = one core; default: every core)")
     ap.add_argument("--reader-cap", type=int, default=None, metavar="M",
                     help="replace reader_work.MAX_WORKERS for this arm (the sweep it is set from)")
+    ap.add_argument("--no-field", action="store_true",
+                    help="read the wall corridors WITHOUT the capture's classified cover "
+                         "(FIELD not read, ramps spec §12h (4)); default: the capture's own")
     ap.add_argument("--json", default=None, metavar="OUT")
     a = ap.parse_args()
     from auto_patch_v2.airport import frame_entry as fe
@@ -224,12 +240,19 @@ def main() -> int:
         reader_work.MAX_WORKERS = max(1, a.reader_cap)
     print(f"[{icao}] objects {len(objects)} read {time.perf_counter() - t:.1f} s; "
           f"work-pool budget {P.budget()} (cores {os.cpu_count()})", flush=True)
-    rec = reading(airport, objects, cache, law)
+    field = None
+    if not a.no_field and cap.get("cl") is not None:
+        from auto_patch_v2.planar.structure_approach import wall_field
+        field = wall_field(cap["cl"], law)
+    print(f"[{icao}] wall-corridor field: "
+          + ("NOT READ" if field is None else f"{len(field.polys)} cells of the capture's "
+             f"classification, standoff {field.standoff_m:g} m"), flush=True)
+    rec = reading(airport, objects, cache, law, field)
     rec["timing"]["budget"] = P.budget()
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump(rec, fh, indent=1, default=str)
-    for k in READINGS + ("all",):
+    for k in READINGS + ("wall_records", "all"):
         print(f"  {k:15s} {rec[k]}")
     g = rec["grade"]
     print(f"  rungs {rec['rungs']}  at-grade calls {g['calls']} unions {g['unions']} "

@@ -14,6 +14,13 @@ twice.  (The wall-corridor reader takes a classification ONLY for the
 ``--stage structures`` replay's ``measure`` probe; a build never passes
 one, so none is an input here.)
 
+THE WALL CORRIDORS' FIELD (spec §12h (4)) is the one thing of the
+classification they read: the cover's polygons, handed as ``field``.  The
+corridors are read ONCE per build under the cover of the classification
+handed to the FIRST ``planar.build``; the ribbon-free second pass reuses
+that reading through the memo, so ``field`` is NOT one of the inputs that
+scope it.
+
 :func:`pack_reads` is the one site: the reading is kept on the build's own
 ``ResourceCache`` (``placed``, beside the pack's object read, which is
 never pickled) and reused while EVERY input is the same object.  A
@@ -92,7 +99,7 @@ def _inputs(airport, objects, law) -> tuple:
 
 
 def _read(airport, objects, cache, law, store: dict | None = None,
-          walls: bool = False) -> PackReads:
+          walls: bool = False, field=None) -> PackReads:
     """The four readings.  With a work pool every reader is read by its
     workers (and, with ``walls``, the wall corridors — kept on ``store``
     for :func:`wall_corridor_reads`); what a pool does not answer is read
@@ -100,7 +107,7 @@ def _read(airport, objects, cache, law, store: dict | None = None,
     their at-grade read on ``cache`` (``airport/reader_work``): they are
     settled — or read — in the order one core reads them."""
     kinds = tuple(k for k in _rw.READERS if k != _rw.WALLS or (walls and store is not None))
-    ahead = _rw.begin(airport, objects, cache, law, kinds)
+    ahead = _rw.begin(airport, objects, cache, law, kinds, field=field)
     if ahead is None:
         _pulse.tick("tunnel and plate objects")
         tunnels = _tunnels(airport, objects, cache, law)
@@ -144,15 +151,16 @@ def _store(airport, objects: _t.Sequence, cache, law) -> dict:
 
 
 def pack_reads(airport, objects: _t.Sequence, cache, law, *,
-               walls: bool = False) -> PackReads:
+               walls: bool = False, field=None) -> PackReads:
     """The four classification-free readings for this build: read on the
     first call, reused while every input is the SAME object.  ``walls``
     says the caller asks :func:`wall_corridor_reads` next, so a work pool
-    reads the wall corridors beside these (``_read``)."""
+    reads the wall corridors beside these (``_read``) — under ``field``,
+    the cover their FIELD clause reads (module doc)."""
     store = _store(airport, objects, cache, law)
     if _READS not in store:
         store[_READS] = _read(airport, objects, cache, law, store,
-                              walls and _WALLS not in store)
+                              walls and _WALLS not in store, field)
     return store[_READS].handout()
 
 
@@ -164,18 +172,20 @@ def pool_report(cache) -> dict | None:
     return held[1].get(_POOL) if held else None
 
 
-def wall_corridor_reads(airport, objects: _t.Sequence, cache, law
+def wall_corridor_reads(airport, objects: _t.Sequence, cache, law, field=None
                         ) -> tuple[list, WallCorridorStats]:
     """The wall corridors for this build (``airport/wall_corridors``), read
     on the first call and reused like :func:`pack_reads`: the caller's own
     list of the frozen records and its own copy of the stats.  A reading of
     its own rather than a fifth field of :class:`PackReads`, because the
     ``--stage structures`` replay takes the four and reads the corridors
-    itself, with its ``measure`` probe."""
+    itself, with its ``measure`` probe.  ``field`` is the cover the FIELD
+    clause reads (``wall_mouth.WallField``; module doc) — the one handed to
+    :func:`pack_reads`, for the read made here on one core."""
     store = _store(airport, objects, cache, law)
     if _WALLS not in store:
         _pulse.tick("wall corridors")
-        store[_WALLS] = read_wall_corridors(airport, objects, cache, law)
+        store[_WALLS] = read_wall_corridors(airport, objects, cache, law, field=field)
     walls, stats = store[_WALLS]
     return list(walls), copy.deepcopy(stats)
 

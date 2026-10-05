@@ -126,8 +126,8 @@ named airport passes. If no witness in the geometry or the map separates two
 cases, that is a finding for the owner — never a switch. Briefs name an
 airport as the place a defect was found and as the closing test, never as
 the scope of the fix. `Ortho4XP/tests/test_no_airport_specific_code.py`
-gates it; its RECORDED set (one row: `law/airports.toml [OTHH]
-kerb_wall_corridors`, RULINGS 2026-09-10ap) may fall, never rise.
+gates it; its RECORDED set is empty since RULINGS 2026-10-05g and may never
+rise.
 
 ## Cross-language wire protocol (silent-break hazard)
 

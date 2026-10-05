@@ -10,9 +10,9 @@ edge wall objects … should be used as guides for where the author wants
 the bridge" (LEMD).  Detected by GEOMETRY, never by name, never by ICAO:
 
 * **A — crested walls** (OTHH, 14av): read by ``airport/wall_corridors.py``
-  (LAW C), on the per-airport affordance ``kerb_wall_corridors`` as
-  before.  §33 (6) A's retirement of that key is REFUTED by measurement —
-  see the section below, which is the record.
+  (LAW C) at EVERY airport under the general rule of ramps spec §12h
+  (``airport/wall_mouth.py``).  §33 (6) A's own crested-wall predicate is
+  REFUTED by measurement — see the section below, which is the record.
 * **B — shell + flush hard cover** (VHHH, EGLL): a SHELL whose largest
   horizontal plate lies ``shell_floor_min_m`` or more below its zero (the
   FLOOR) and, at the SAME PLACEMENT (a second object, position within
@@ -604,23 +604,28 @@ def _resample(pts: _t.Sequence[XY], n: int) -> list[XY]:
                                  for k in range(n))]
 
 
-# ── signature A: REFUTED, and why nothing stands here ────────────────────
+# ── signature A: REFUTED, and why nothing stands here (history) ──────────
 #
-# §33 (6) A rules that the CRESTED-WALL signature — solids descending
+# §33 (6) A ruled that the CRESTED-WALL signature — solids descending
 # below the object's own zero WITH a crest plate ``plate_min_height_m``
-# above it — should replace the per-airport affordance
-# ``kerb_wall_corridors`` ("the signature admits, not the ICAO").
-# MEASURED and REFUTED in one dry VHHH `--stage structures` replay (lane
-# `v2objcut`, 2026-09-15): the predicate admits an ordinary BUILDING,
-# because a building has a roof.  VHHH wall corridors went 0 -> 116 (bay
-# 28, level 88), every one of them inside ``CITY2.obj`` — a city-block
-# object off the field whose foundation walls descend 6.4-8.5 m under
-# their ground — and no depth threshold repairs it, since OTHH's own
-# admitted bays are 1.35 m deep.  That is RULINGS 2026-09-10ap's seven
-# rounds at a THIRD airport.  The predicate is DELETED rather than kept
-# gated (the standing law on refuted mechanisms); the affordance gate in
-# ``airport/wall_corridors.py`` stands with this refutation recorded
-# beside it, and §33 (6) A is an intent question for the owner.
+# above it — should replace Law C's then per-airport switch.  MEASURED and
+# REFUTED in one dry VHHH `--stage structures` replay (lane `v2objcut`,
+# 2026-09-15; RULINGS 15x stands): the predicate admits an ordinary
+# BUILDING, because a building has a roof.  VHHH wall corridors went
+# 0 -> 116 (bay 28, level 88), every one of them inside ``CITY2.obj`` — a
+# city-block object off the field whose foundation walls descend
+# 6.4-8.5 m under their ground — and no depth threshold repairs it, since
+# OTHH's own admitted bays are 1.35 m deep.  The predicate is DELETED
+# rather than kept gated (the standing law on refuted mechanisms).
+#
+# The switch it would have replaced is gone too (owner RULINGS 2026-10-05e
+# / 05g): Law C is read everywhere under ramps spec §12h's four-clause
+# rule — the kerb test (d), the open mouth W1s, the built structure W3 and
+# the FIELD (``airport/wall_mouth.py``).  VHHH MEASURED UNDER THAT RULE
+# (§12h (10), capture ``frames/lawcspec/VHHH.pkl``): the live population is
+# 0; with (d) neutralised the same city blocks give 181 candidates
+# (``CITY1``-``CITY4.obj``), of which (d) refuses 181 on its own and FIELD
+# refuses 181 on its own (1,316-2,042 m from the cover).  R admits nothing.
 
 # ── signature C: the thin surface bands ──────────────────────────────────
 

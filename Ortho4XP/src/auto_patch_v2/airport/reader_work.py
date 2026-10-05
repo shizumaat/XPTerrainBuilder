@@ -9,7 +9,10 @@ reader's answers are put together in the order one loop met them:
 
 * the tunnel corridors + thin plates: ONE task;
 * the wall corridors: one task per ANCHOR FAMILY (``wall_family.
-  read_family`` reads nothing of another family; the intake is built here,
+  read_family`` reads no other family's READING — it does read the whole
+  pack's placements across a candidate's mouth, spec §12h (5), which every
+  worker holds, and the field's cover, which :func:`begin` hands over; the
+  intake is built here,
   in ``objects`` order, and ``wall_family.assemble`` takes the answers
   in sorted family order, which is where the corridors' ``@k`` and the
   order of every refusal line come from);
@@ -163,6 +166,9 @@ class ReadWorker:
     objects: list
     law: _t.Any
     cache: _obj8.ResourceCache
+    #: the classified cover the wall corridors' FIELD clause reads
+    #: (``wall_mouth.WallField``; ``None`` = not read) — spec §12h (4)
+    field: _t.Any = None
     walls: _t.Any = None               # ``wall_family.WallReader``, lazily
     roads: _t.Any = None               # ``sunken_roads.RoadReader``, lazily
     doors: _t.Any = None               # ``door_wells.DoorReader``, lazily
@@ -173,12 +179,13 @@ class ReadWorker:
 
 
 def setup(airport, dem_token, objects, law, thickness_m: float, quantum_m: float,
-          derived: dict, dump_dir: str) -> ReadWorker:
+          derived: dict, dump_dir: str, field=None) -> ReadWorker:
     """The pool's per-worker setup."""
     cache = _obj8.ResourceCache(thickness_m, quantum_m)
     cache.restore_derived(derived)
     _fe.set_offender_dump_dir(dump_dir)
-    return ReadWorker(_dc.replace(airport, dem=revive(dem_token)), objects, law, cache)
+    return ReadWorker(_dc.replace(airport, dem=revive(dem_token)), objects, law, cache,
+                      field)
 
 
 def _door_family(state: ReadWorker, rows: list, members: list, shell: dict) -> tuple:
@@ -232,7 +239,9 @@ def read(state: ReadWorker, task: tuple) -> tuple:
     try:
         if task[0] == WALLS:
             if state.walls is None:
-                state.walls = wall_reader(a, cache, law)
+                # the worker's ONE reader: the whole pack (the mouth index is
+                # built from it on the first mouth query) and the field
+                state.walls = wall_reader(a, oo, cache, law, field=state.field)
             got: tuple = read_family(state.walls, task[1], [oo[k] for k in task[2]])
         elif task[0] == DOORS:
             got = _door_family(state, *task[1:])
@@ -282,8 +291,10 @@ class Ahead:
     hands over one at a time."""
 
     def __init__(self, pool: WorkPool, shared, parts: list, later: tuple, kinds: tuple,
-                 inputs: tuple, counts: dict, out: _t.Callable[[str], None]) -> None:
+                 inputs: tuple, counts: dict, out: _t.Callable[[str], None],
+                 field=None) -> None:
         self._pool, self._shared, self._parts = pool, shared, parts
+        self._field = field
         self._later, self._kinds, self._out = later, kinds, out
         self._airport, self._objects, self._cache, self._law = inputs
         self._counts = counts                    # {reader: placements its intake read}
@@ -376,7 +387,7 @@ class Ahead:
                 if kind == TUNNELS:
                     out[TUNNELS] = readings[0]
                 elif kind == WALLS:
-                    out[WALLS] = assemble(self._counts[WALLS], readings)
+                    out[WALLS] = assemble(self._counts[WALLS], readings, self._field)
                 elif kind == ROADS:
                     self._held[ROADS] = (_sr.assemble(self._counts[ROADS], readings),
                                          [row[3] for row in rows.get(kind, ())], rungs)
@@ -427,13 +438,15 @@ class Ahead:
 
 def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
           kinds: _t.Sequence[str] = READERS, *, workers: int | None = None,
-          out: _t.Callable[[str], None] = print) -> Ahead | None:
+          out: _t.Callable[[str], None] = print, field=None) -> Ahead | None:
     """Start ``kinds`` in workers and return at once; ``None`` when no pool
     will answer (a budget of 1, a pack under :data:`MIN_OBJECTS`, inputs
     that do not pickle, no shared memory) — said through ``out`` unless it
     is simply the budget or the pack's size.  The at-grade readers are
     started only on a cache whose read can be replayed
-    (``grade_ledger.replayable``)."""
+    (``grade_ledger.replayable``).  ``field`` is the wall corridors' FIELD
+    cover (``wall_mouth.WallField``, spec §12h): its polygons cross to
+    every worker beside the objects."""
     kinds = tuple(k for k in kinds if k not in _AT_GRADE or _gl.replayable(cache))
     if (budget() if workers is None else int(workers)) < 2 or len(objects) < MIN_OBJECTS:
         return None
@@ -471,7 +484,7 @@ def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
         lite = _dc.replace(airport, dem=None, **{f: Stripped(f) for f in _STRIPPED})
         shared, token = share(airport.dem)
         args = (lite, token, list(objects), law, cache.thickness_m,
-                cache.input_quantum_m, derived, _fe.offender_dump_dir())
+                cache.input_quantum_m, derived, _fe.offender_dump_dir(), field)
         pickle.dumps(args, protocol=pickle.HIGHEST_PROTOCOL)
     except Exception as e:                 # a twin's closure, no /dev/shm, …
         if shared is not None:
@@ -487,4 +500,4 @@ def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
             shared.close()
         return None
     return Ahead(pool, shared, [(tasks, pending)], later, kinds,
-                 (airport, objects, cache, law), counts, out)
+                 (airport, objects, cache, law), counts, out, field)

@@ -13,7 +13,7 @@ import math
 
 from pathlib import Path
 
-from .model import (Affordances, Cockpit, Declared, Family, FlatSite, Law,
+from .model import (Cockpit, Declared, Family, FlatSite, Law,
                     RoleCap, ZoneClass, load_tables, resolve_ruleset)
 
 __all__ = [
@@ -32,7 +32,7 @@ __all__ = [
     "taxi_half_width_m",
     "flat_site", "flat_datum_group", "flat_declared",
     "flat_source_class", "flat_relief_floor_m", "design",
-    "design_weight", "sliver_area_factor", "affordances", "group_span_max_m",
+    "design_weight", "sliver_area_factor", "group_span_max_m",
     "bend_class", "apron_roles", "PadAdmission", "pad_admission",
 ]
 
@@ -71,23 +71,12 @@ def law_tables_digest(law_dir: str | Path | None = None) -> dict:
             "sha256": h.hexdigest() if files else None}
 
 
-def affordances(law: Law) -> Affordances:
-    """THE AIRPORT'S AFFORDANCES (airports.toml; RULINGS 2026-09-10ap):
-    the per-airport opt-in laws — today Law C's kerb-wall corridors and
-    garage ramps.  Delegates to :attr:`Law.affordances`; every airport
-    the table does not name takes every key false."""
-    return law.affordances
-
-
 def group_span_max_m(law: Law) -> float:
     """THE LONG SPAN (owner RULINGS 2026-09-11i; spec §11 (4)) — ONE
-    derivation site.  ``[placement] group_span_max_m``, overridden by
-    this airport's own value in ``airports.toml`` where it states one.
-    A group longer than this is the HECA railway class: the only group
-    an infeasible pad may RELEASE.  0 disarms the exception."""
-    own = law.affordances.group_span_max_m
-    if own is not None:
-        return float(own)
+    derivation site: ``[placement] group_span_max_m``, the pack-wide
+    value at every airport (RULINGS 2026-10-05g (2)).  A group longer
+    than this is the HECA railway class: the only group an infeasible
+    pad may RELEASE.  0 disarms the exception."""
     return float(law.tables.structures.placement.group_span_max_m)
 
 

@@ -364,6 +364,24 @@ def _overlap_along(u: XY, a: WallBand, b: WallBand) -> tuple[float, float, float
     return lo, hi, hi - lo
 
 
+def _union_length(ivals: _t.Iterable[tuple[float, float]]) -> float:
+    """The length covered by the union of ``(lo, hi)`` intervals on one
+    line — the cover readings' arithmetic (rule 4's end caps; §12h's
+    mouth), summed in sorted order."""
+    covered = 0.0
+    cur: tuple[float, float] | None = None
+    for lo, hi in sorted(ivals):
+        if cur is None or lo > cur[1]:
+            if cur is not None:
+                covered += cur[1] - cur[0]
+            cur = (lo, hi)
+        else:
+            cur = (cur[0], max(cur[1], hi))
+    if cur is not None:
+        covered += cur[1] - cur[0]
+    return covered
+
+
 # ── the SEATED frame (RULINGS 2026-09-10ad) ──────────────────────────────
 
 def _seat_base(o: _obj8.PlacedObject, xy: XY, dem_z) -> float:

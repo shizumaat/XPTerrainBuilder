@@ -690,3 +690,23 @@ def test_the_road_true_edge_is_the_centreline_plus_the_roads_own_half_width():
     assert got.bounds[3] - left.bounds[3] == pytest.approx(4.0, abs=1e-6)
     assert got2.bounds[3] - whole.bounds[3] == pytest.approx(4.0, abs=1e-6)
 
+
+def test_the_floor_profile_locates_every_sample_as_the_per_point_projection_does():
+    """``_floor_profile`` reads the station of EVERY face sample in one
+    ``shapely.line_locate_point`` call (review ``docs/lawcreview-12h.md``
+    (A) 10, (D) 5): held EXACTLY equal to ``LineString.project`` one point
+    at a time — on the vertices, between them, off the line and beyond
+    both ends of a polyline with three bends."""
+    import numpy as np
+    import shapely
+
+    ln = LineString([(0.0, 0.0), (30.0, 0.0), (45.0, 20.0), (45.0, 61.5), (12.25, 80.0)])
+    pts = [tuple(c) for c in ln.coords]                                   # on the vertices
+    pts += [(7.5, 0.0), (37.5, 10.0), (45.0, 33.3), (28.625, 70.75)]      # between them
+    pts += [(11.0, 4.2), (41.0, 9.0), (52.5, 40.0), (30.0, 75.0), (44.0, 21.0)]   # off the line
+    pts += [(-12.0, 0.0), (-3.0, -7.0), (0.0, 25.0),                      # beyond the start
+            (5.0, 84.0), (-9.5, 92.25), (12.25, 120.0)]                   # beyond the end
+    at_once = shapely.line_locate_point(ln, shapely.points(np.asarray(pts))).tolist()
+    assert at_once == [ln.project(Point(p)) for p in pts]
+    assert at_once[:5] == [0.0, 30.0, 55.0, 96.5, ln.length] and min(at_once) == 0.0
+    assert max(at_once) == ln.length

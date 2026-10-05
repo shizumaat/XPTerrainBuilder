@@ -27,11 +27,14 @@ import typing as _t
 
 from . import partition_cache as _pcache
 
-__all__ = ["SUFFIX", "digest", "load", "hold"]
+__all__ = ["SUFFIX", "LABEL", "digest", "load", "hold"]
 
 #: Appended to the partition cache's own file name.  Bump the trailing
 #: number when the SHAPE of the record changes.
 SUFFIX = ".topo1"
+
+#: The cache's name on its log line.
+LABEL = "topology"
 
 
 def digest(plan: _t.Any, params: tuple) -> str:
@@ -47,15 +50,25 @@ def digest(plan: _t.Any, params: tuple) -> str:
 
 def load(plan: _t.Any, key: str) -> "tuple | None":
     """The connector candidates kept for ``plan`` under ``key``
-    (:func:`digest`), or ``None``."""
+    (:func:`digest`), or ``None``.  Leaves the ``[topology] cache
+    HIT|MISS`` line (issue #395)."""
     slot = _pcache.companion(getattr(plan, "pack_root", ""),
                              getattr(plan, "icao", ""), SUFFIX, key)
-    got = None if slot is None else _pcache.read(*slot)
-    return got if isinstance(got, tuple) else None
+    if slot is None:
+        _pcache.companion_note(LABEL, "MISS", "(no partition cache on file "
+                               "to read it beside)")
+        return None
+    got = _pcache.read(*slot)
+    got = got if isinstance(got, tuple) else None
+    _pcache.companion_note(LABEL, "MISS" if got is None else "HIT", slot[0]
+                           + ("" if got is None
+                              else f" ({len(got)} connector candidate(s))"))
+    return got
 
 
 def hold(plan: _t.Any, key: str, conns: tuple) -> None:
     """Hand ``conns`` to the partition cache, to be written IF AND WHEN
-    it writes this airport's partition (module doc)."""
+    it writes this airport's partition (module doc) — which is when the
+    ``[topology] cache WROTE`` line is left."""
     _pcache.hold_companion(getattr(plan, "pack_root", ""),
-                           getattr(plan, "icao", ""), SUFFIX, key, conns)
+                           getattr(plan, "icao", ""), SUFFIX, key, conns, LABEL)

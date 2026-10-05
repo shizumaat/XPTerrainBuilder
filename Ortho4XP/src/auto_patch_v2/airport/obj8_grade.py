@@ -642,7 +642,7 @@ def _roof_test(v: np.ndarray, used: np.ndarray, p: BasePlane,
     area = float(poly.area)
     if area <= 0.0:
         return None
-    inner = poly.buffer(-erode_m, join_style=2, mitre_limit=2.0) if erode_m > 0.0 else poly
+    inner = _eroded(poly, erode_m) if erode_m > 0.0 else poly
     if inner.is_empty:
         inner = poly
     below = v[used][v[used][:, 1] <= p.y - contact_band_m]
@@ -665,6 +665,25 @@ def _roof_test(v: np.ndarray, used: np.ndarray, p: BasePlane,
     return _dc.replace(p, polygon=left, support_fraction=frac,
                        trimmed_m2=round(area - float(left.area), 3),
                        area_m2=p.area_m2 * float(left.area) / area)
+
+
+def _eroded(poly: _t.Any, erode_m: float) -> _t.Any:
+    """``poly`` eroded by ``erode_m`` (mitred) — the roof test's interior.
+
+    A plane's polygon is a union of the object's own cells, and that union
+    can leave ZERO-SIZE HOLES in it: a three-vertex ring two of whose
+    vertices stand one float apart (measured, issue #395: 3 to 54 such
+    holes, each under 1.3e-13 m², in five planes of four terminal-interior
+    resources of one pack).  The polygon is valid and GEOS erodes it
+    correctly — finite coordinates, the same bytes — but offsetting a
+    zero-length edge trips the floating-point ``divide`` and ``invalid``
+    flags, which numpy turns into two ``RuntimeWarning`` lines on engine
+    stderr per plane.  Those two flags are held HERE, for this one call:
+    the holes cannot be dropped instead, because a slit hole erodes into a
+    real one (one of the five planes reads 17 m² more interior without them),
+    so dropping them would change the reading."""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return poly.buffer(-erode_m, join_style=2, mitre_limit=2.0)
 
 
 def _adjacent(a: BasePlane, b: BasePlane, frontage_m: float) -> bool:

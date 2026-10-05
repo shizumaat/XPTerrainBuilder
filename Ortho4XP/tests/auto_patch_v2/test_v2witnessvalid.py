@@ -31,6 +31,8 @@ import ast
 import os
 import pathlib
 
+import warnings
+
 import numpy as np
 import pytest
 import shapely
@@ -106,8 +108,17 @@ def test_t2b_the_ladder_returns_when_the_exact_overlay_refuses():
     bad = shapely.from_wkt(GEML_FREE_HOLE_WKT)        # raises under unary_union
     with pytest.raises(GEOSException):
         unary_union([bad])
-    u = fe.union([bad], "twin.ladder")
+    # issue #395: the last rung buffers a geometry two overlays refused,
+    # and says nothing on stderr doing it — same result, no RuntimeWarning
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        u = fe.union([bad], "twin.ladder")
     assert u is not None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        want = unary_union([shapely.buffer(bad, 1e-6)])
+    if fe.rung_counts()["twin.ladder"][1]:            # the buffer rung answered
+        assert u.wkb == want.wkb
     assert fe.rung_counts()["twin.ladder"][0] == 1
     assert "twin.ladder" in fe.rung_note()
     fe.reset_rung_counts()

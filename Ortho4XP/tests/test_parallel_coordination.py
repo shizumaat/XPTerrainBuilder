@@ -627,6 +627,9 @@ def _stub_predicates(monkeypatch, cached_tiles, step="vector"):
         for name in names
     }
     monkeypatch.setattr(parallel, "_PREDICATES", registry)
+    # A run's start() preloads the REAL subsystems before its first
+    # sweep (#344); under these stubs that import must not replace them.
+    monkeypatch.setattr(parallel, "preload_cache_predicates", lambda: None)
 
     class _StubTile:
         def __init__(self, lat, lon, build_dir):
@@ -713,6 +716,68 @@ def test_an_unavailable_subsystem_reads_as_not_cached(monkeypatch):
     _stub_predicates(monkeypatch, cached_tiles=[(10, 10)])
     with run._lock:
         assert run._fetch_is_cached_locked((10, 10), "vector") is True
+
+
+def test_the_preload_landing_sweeps_the_queue(monkeypatch):
+    """Issue #344, second half.  A "not cached" answered while the
+    predicates were still importing is not memoised — but nothing asked
+    again until some step finished, so a warm tile sat behind a full
+    fetch class.  The preload thread now sweeps when it lands."""
+    monkeypatch.setenv("O4_OSM_CLASS_LIMIT", "1")
+    tiles = [(10, 10), (11, 11), (12, 12)]
+    _stub_predicates(monkeypatch, cached_tiles=tiles)
+    ready = dict(parallel._PREDICATES)
+    monkeypatch.setattr(parallel, "_PREDICATES", {})
+    run = _bare_run(tiles, 3)
+    children = [_FakeChild() for _ in tiles]
+    run._children = list(children)
+    with run._lock:
+        run._dispatch_locked()
+    assert [child.step_class for child in children] == ["osm", None, None], (
+        "unanswerable predicates: one fetch token, two tiles queued")
+    monkeypatch.setattr(
+        parallel, "preload_cache_predicates",
+        lambda: parallel._PREDICATES.update(ready))
+    run._preload_predicates_then_dispatch()
+    assert [child.step_class for child in children] == [
+        "osm", "compute", "compute"], (
+        "the warm tiles must start the moment the predicates can answer")
+
+
+def test_the_first_sweep_of_a_run_reads_a_warm_tile_as_cached(
+    monkeypatch, tmp_path, stub_worker_command, collector
+):
+    """Issue #344, second half, end to end on real worker processes: three
+    warm tiles, three slots and ONE fetch token.  ``start()`` used to
+    sweep before it had even started importing the predicates, so the
+    first tile always took the token and the other two queued behind its
+    whole fetch phase.  Read from the class each vector step is admitted
+    under — never from wall time."""
+    monkeypatch.setenv("O4_OSM_CLASS_LIMIT", "1")
+    tiles = [(10, 10), (11, 11), (12, 12)]
+    _stub_predicates(monkeypatch, cached_tiles=tiles)
+    ready = dict(parallel._PREDICATES)
+    monkeypatch.setattr(parallel, "_PREDICATES", {})
+
+    def slow_preload():
+        time.sleep(0.3)     # longer than the stub workers' handshakes
+        parallel._PREDICATES.update(ready)
+
+    monkeypatch.setattr(parallel, "preload_cache_predicates", slow_preload)
+    admitted = {}
+    original = parallel.ParallelBuildRun._try_start_step_locked
+
+    def recording(self, child):
+        started = original(self, child)
+        if started and child.running_step == "vector":
+            admitted[child.tile] = child.step_class
+        return started
+
+    monkeypatch.setattr(
+        parallel.ParallelBuildRun, "_try_start_step_locked", recording)
+    result = _run_build(EngineSession(), collector, tiles, slots=3)
+    assert (result.done_count, result.error_count) == (3, 0)
+    assert admitted == {tile: "compute" for tile in tiles}, admitted
 
 
 def test_a_raising_predicate_reads_as_not_cached(monkeypatch):

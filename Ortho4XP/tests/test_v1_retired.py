@@ -85,6 +85,8 @@ KEEP = frozenset({
     "auto_patch.geom_safe",
     "auto_patch.progress",
     "auto_patch.provenance",
+    # the freshness gate's CODE digest (#346) — provenance's own family
+    "auto_patch.provenance_code",
     # THE PATCH-SET SELECTOR (insets-follow-patch-set spec §A.3 / §C.3,
     # RULINGS 2026-09-18b): ``select_patch_airports`` and the boundary
     # policy are the head of every tile build (``O4_Vector_Map``,
@@ -160,15 +162,19 @@ def _production_roots(mods: dict[str, Path]) -> list[str]:
     return roots
 
 
-def _closure(seeds, mods):
+#: The two loose entry scripts — not importable modules, and the ONLY roots
+#: the freezer follows (one per ``.spec``).
+ENTRY_SCRIPTS = ("Ortho4XP.py", "Ortho4XP_Qt.py")
+
+
+def _closure(seeds, mods, scripts=ENTRY_SCRIPTS):
     """(reached modules, {module: [importer:line, ...]}) — every module the
-    static import graph reaches from ``seeds``, transitively."""
+    static import graph reaches from ``seeds`` and the entry ``scripts``,
+    transitively."""
     seen: set[str] = set()
     why: dict[str, list[str]] = {}
     queue = list(seeds)
-    # the two loose entry scripts are not importable modules
-    scripts = [ENGINE / "Ortho4XP.py", ENGINE / "Ortho4XP_Qt.py"]
-    for s in scripts:
+    for s in (ENGINE / name for name in scripts):
         if not s.exists():                                 # pragma: no cover
             continue
         for name in _imports_of(s, s.stem):
@@ -269,6 +275,57 @@ def test_no_production_module_NAMES_a_v1_module_as_a_string():
     for name in named:
         if _is_auto_patch(name):
             assert name in KEEP and name in mods, name
+
+
+def _modules_imported_by_name(path: Path) -> list[tuple[int, str]]:
+    """Every module ``path`` imports through a string LITERAL —
+    ``__import__("x")`` / ``import_module("x")`` — which no freezer sees."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:                                    # pragma: no cover
+        return []
+    out = []
+    for n in ast.walk(tree):
+        if not (isinstance(n, ast.Call) and n.args
+                and isinstance(n.args[0], ast.Constant)
+                and isinstance(n.args[0].value, str)):
+            continue
+        callee = getattr(n.func, "attr", getattr(n.func, "id", ""))
+        if callee in ("__import__", "import_module"):
+            out.append((n.lineno, n.args[0].value))
+    return out
+
+
+def test_every_module_imported_BY_NAME_is_frozen_into_each_engine():
+    """THE FROZEN HALF of the twin above (issue #344).  A module a table or
+    a literal names for ``__import__`` is invisible to the freezer: it is in
+    a frozen engine only if an ``import`` STATEMENT reachable from that
+    engine's entry script names it too.  Source runs cannot tell — every
+    ``src`` module is on disk there — so the scheduler's "never cached"
+    (rc 0, no error) would appear in app builds only.  Held per entry,
+    because each ``.spec`` freezes one."""
+    import importlib
+    import sys
+    sys.path.insert(0, str(SRC))
+    mods = _modules()
+    parallel = importlib.import_module("o4_engine.parallel")
+    named = {n.partition(":")[0]: "o4_engine/parallel.py STEP_FETCH_SUBSYSTEMS"
+             for names in parallel.STEP_FETCH_SUBSYSTEMS.values()
+             for n in names}
+    assert len(named) >= 6, named
+    for m in _production_roots(mods) + sorted(KEEP):
+        for lineno, value in _modules_imported_by_name(mods[m]):
+            if _resolve(value, mods) == value:
+                named.setdefault(value, f"{mods[m].name}:{lineno}")
+    for script in ENTRY_SCRIPTS:
+        reached, _ = _closure([], mods, scripts=(script,))
+        assert len(reached) > 60, f"{script}: closure of {len(reached)}"
+        missing = sorted(f"{name} (named by {where})"
+                         for name, where in named.items()
+                         if name not in reached)
+        assert not missing, (
+            f"{script} freezes without modules it imports by name — add a "
+            "static import where the name is used: " + "; ".join(missing))
 
 
 def test_the_v1_tree_is_ABSENT():

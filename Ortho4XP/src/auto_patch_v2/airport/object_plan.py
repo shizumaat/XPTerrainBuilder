@@ -33,6 +33,7 @@ import typing as _t
 
 from ..law import Law
 from ..model.rebake import PLAN_FILENAME, RebakePlan
+from . import partition_cache as _pcache
 from . import rebake_screen as _rs
 
 __all__ = ["SCREEN_NAME_RE", "REFUSED_FILENAME", "place", "unservable",
@@ -169,6 +170,8 @@ def from_screen(screen: _rs.RebakeScreen, plan_path: str, patch_dir: str, law: L
         fh.write(text)
     os.replace(plan_path + ".tmp", plan_path)
     plan_ = RebakePlan.from_json(text)
+    for ln in _pcache.companion_notes():        # [extension] cache HIT|MISS|WROTE
+        say(1, "  [v2 rebake] " + ln)
     say(1, "  [v2 rebake] " + _rs.plan_line(icao, plan_, time.time() - t0)
               + f"  -> {plan_path}")
     return plan_

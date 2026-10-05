@@ -433,7 +433,29 @@ def test_config_digest_covers_every_gate_and_constant():
     assert provenance.CONFIG_DIGEST_EXCLUDED_GATES == frozenset({
         "O4_LOG_VERBOSITY", "O4_BUILD_PROGRESS", "O4_REPORT_GRADE_AUDIT",
         "O4_PARALLEL_AIRPORTS", "O4_AUTO_PATCH_REBUILD",
-        "O4_PATCH_PROVENANCE"})
+        "O4_PATCH_PROVENANCE", "O4_MASKS_DIR"})
+
+
+def test_where_the_masks_are_kept_is_not_a_build_input(install, patch_file,
+                                                       monkeypatch, tmp_path):
+    """#346: the harness points ``O4_MASKS_DIR`` at a fresh directory per
+    run, and with it digested no harness tile build could reuse a patch.
+    The exclusion is sound only while the airport build reads nothing
+    under that root — held here from the source, beside the reuse."""
+    monkeypatch.setenv("O4_MASKS_DIR", str(tmp_path / "run_one" / "Masks"))
+    assert install.is_current(patch_file)
+    monkeypatch.setenv("O4_MASKS_DIR", str(tmp_path / "run_two" / "Masks"))
+    assert install.is_current(patch_file)
+    src = Path(provenance.__file__).resolve().parents[1]
+    readers = [str(path.relative_to(src))
+               for package in ("auto_patch", "auto_patch_v2")
+               for path in sorted((src / package).rglob("*.py"))
+               if path.name != "provenance.py"
+               and ("masks_root" in path.read_text(encoding="utf-8")
+                    or "O4_MASKS_DIR" in path.read_text(encoding="utf-8"))]
+    assert not readers, (
+        "the airport build now reads the masks root, so its location is a "
+        f"build input again — take O4_MASKS_DIR out of the exclusions: {readers}")
 
 
 def test_config_digest_sees_gates_without_readable_source(monkeypatch):
@@ -812,6 +834,33 @@ def test_engine_version_change_rebuilds(install, patch_file, monkeypatch):
 
     monkeypatch.setattr(O4_Version, "version", "1.50.999", raising=False)
     assert not install.is_current(patch_file)
+
+
+def test_the_same_engine_code_reuses_the_patch(install, patch_file,
+                                               monkeypatch):
+    """#346, the steady half: the digest is taken once and is stable."""
+    from auto_patch import provenance_code
+
+    stamped = read_patch_source(str(patch_file))["freshness"]["o4_code"]
+    assert stamped == provenance_code.code_digest() != "absent"
+    monkeypatch.setattr(provenance_code, "_CODE_DIGEST", None)   # a new process
+    assert install.is_current(patch_file)
+
+
+def test_changed_engine_code_rebuilds_and_says_so(install, patch_file,
+                                                  monkeypatch):
+    """#346: the SAME version string over different engine code — an edited
+    checkout, or two freezes that did not go through ``make_engine.sh`` —
+    is a changed input, named in the one reason line."""
+    import O4_Version
+    from auto_patch import provenance_code
+
+    seen = _reason_lines(monkeypatch)
+    version = O4_Version.version
+    monkeypatch.setattr(provenance_code, "_CODE_DIGEST", "0123456789abcdef")
+    assert not install.is_current(patch_file)
+    assert O4_Version.version == version
+    assert len(seen) == 1 and "KFAKE" in seen[0] and "o4_code" in seen[0], seen
 
 
 def test_engine_version_stamped_from_o4_version(install, patch_file):

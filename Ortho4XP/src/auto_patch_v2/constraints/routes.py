@@ -97,6 +97,7 @@ and model only (M0 §1, ``test_dependency_direction``).
 from __future__ import annotations
 
 import dataclasses as _dc
+import hashlib
 import math
 import typing as _t
 
@@ -856,6 +857,39 @@ def route_neighbours(g: RouteGraph, sources: _t.Iterable[int], window_m: float,
     return out
 
 
+#: :func:`route_pairs`' tables by CONTENT (:func:`_pairs_key`), most recent
+#: last.  TWO slots: a build prices the map (pass 1), then the ribbon-free
+#: map (#100 (c)), then publishes the FIRST map's pairs at emit — one slot
+#: would have dropped exactly the table the emit asks for (#412 R5).
+_PAIRS_MEMO: dict[bytes, dict[tuple[int, int], tuple[float, float]]] = {}
+_PAIRS_SLOTS = 2
+#: reads served / priced since import — a diagnostic, published nowhere
+_PAIRS_READS = {"hit": 0, "miss": 0}
+
+
+def _pairs_key(g: RouteGraph, m: csr_matrix, wb: csr_matrix,
+               grp: _t.Sequence[_t.Sequence[int]], chunk: int) -> bytes:
+    """EVERYTHING :func:`route_pairs` computes with, digested: the two
+    weighted walk matrices Dijkstra reads, ``n`` and ``station`` (all
+    :meth:`RouteGraph.inbound` reads), the groups already cut to the
+    graph's nodes (sources and targets are derived from them alone) and
+    the chunk.  Never the planar map's identity — the build REPLACES the
+    map object between the solve and the emit (``emit.road_join.
+    with_pin_yield`` swaps two join fields the route graph never reads),
+    so an ``id`` key misses a table whose every input is unchanged."""
+    h = hashlib.blake2b(digest_size=20)
+    for mat in (m, wb):
+        for arr in (mat.indptr, mat.indices, mat.data):
+            h.update(f"{arr.dtype.str}{arr.shape};".encode())
+            h.update(np.ascontiguousarray(arr).tobytes())
+    st = np.ascontiguousarray(g.station)
+    h.update(f"{g.n};{chunk};{st.dtype.str}{st.shape};".encode())
+    h.update(st.tobytes())
+    h.update(np.fromiter((len(gr) for gr in grp), np.int64, len(grp)).tobytes())
+    h.update(np.fromiter((v for gr in grp for v in gr), np.int64).tobytes())
+    return h.digest()
+
+
 def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
                 chunk: int = 128) -> dict[tuple[int, int], tuple[float, float]]:
     """THE WITHIN-SHAPE ROUTE PRICING (RULINGS 2026-09-05ab, spec §9):
@@ -870,7 +904,10 @@ def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
     (no window: a route may be many times its chord — HECA pav101:
     3,349 m for a 1,463 m chord), chunked so the dense rows stay small;
     measured HECA 2026-09-05: 7,972 sources, 4.4 s (a per-path budget
-    walk by pointer jumping cost 24 s and was replaced)."""
+    walk by pointer jumping cost 24 s and was replaced).
+
+    THE TABLE IS MEMOISED BY CONTENT (:func:`_pairs_key`, ``_PAIRS_MEMO``)
+    and the memo's own object is returned: READ it, never write it."""
     members: dict[int, list[int]] = {}
     grp = [sorted({v for v in gr if v in g.nodes}) for gr in groups]
     for k, gr in enumerate(grp):
@@ -882,6 +919,13 @@ def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
         return out
     m = g.csr("length")
     wb = g.csr("budget")
+    key = _pairs_key(g, m, wb, grp, chunk)
+    hit = _PAIRS_MEMO.pop(key, None)
+    if hit is not None:
+        _PAIRS_MEMO[key] = hit                       # most recent last
+        _PAIRS_READS["hit"] += 1
+        return hit
+    _PAIRS_READS["miss"] += 1
     for c0 in range(0, len(srcs), chunk):
         idx = srcs[c0:c0 + chunk]
         D = dijkstra(m, directed=True, indices=idx)
@@ -896,6 +940,9 @@ def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
                 for t, dv, bv in zip(tg, d, b):
                     if np.isfinite(dv) and dv > 0.0:
                         out[(s, t)] = (float(dv), float(bv))
+    while len(_PAIRS_MEMO) >= _PAIRS_SLOTS:
+        del _PAIRS_MEMO[next(iter(_PAIRS_MEMO))]
+    _PAIRS_MEMO[key] = out
     return out
 
 

@@ -518,6 +518,13 @@ def ensure_dsf_text_path(dsf_path: str,
                      or (os.path.getmtime(text_path) < mtime)
                      or os.path.getsize(text_path) == 0)
     if needs_convert:
+        # #370: the dump is located by the DSF's CONTENT before DSFTool is
+        # asked for another — the object stage renames the pristine DSF to
+        # ``.anchor_bak``, and its dump is already here under the old name.
+        from auto_patch_v2.airport.dsf import content_keyed_dump
+        renamed = content_keyed_dump(cache_dir, dsf_path)
+        if renamed:
+            return renamed
         # A SPAWN IS A WRITE DECLARATION (#159, RULINGS 2026-09-30bs), and
         # here the honest answer is to pick a lawful destination rather
         # than refuse: this dump is DERIVED cache, identical wherever it

@@ -15,7 +15,10 @@ pooled, and pinned to one core — and holds it to:
     ``share_object``, the shared DEM) — and a real stage, the pack
     partition, through ``pack_work.open_pool``;
 (c) the nested case: two airport-pool children (``driver._init_worker``),
-    each with work pools of its own and the ``set_share`` budget;
+    each with work pools of its own (pinned to the arm's worker count: >= 2
+    real workers in every child, whatever the runner's memory), the share
+    ``set_share`` gave it (2) and the budget the pool's law derives from
+    that share — ``min(cores // share, memory bound)``, bound named;
 (d) the pooled digest equals the one-core arm's;
 (e) after the process has EXITED: no process it started is alive, no
     process of the bundle's image survives, no shared-memory block it
@@ -93,11 +96,13 @@ def _pools_ok(pools, where, failures, want=SECTIONS):
                             % (where, name))
 
 
-def verdict(pooled, serial, text="", frozen=True):
+def verdict(pooled, serial, text="", frozen=True, budget_for=None):
     """Every reason this pair of runs is not a proof; ``[]`` is a pass.
 
     ``pooled`` / ``serial`` are the two arms' ``--out`` records (``None``
-    for an arm that wrote none), ``text`` everything either arm printed.
+    for an arm that wrote none), ``text`` everything either arm printed,
+    ``budget_for`` the self-check module's own re-derivation of the pool's
+    budget law (``None``: the nested budgets are not re-derived).
     """
     failures = []
     for marker in POISON:
@@ -110,7 +115,10 @@ def verdict(pooled, serial, text="", frozen=True):
     if frozen and not pooled.get("frozen"):
         failures.append("the pooled arm did not run frozen (sys.frozen false)")
     if pooled.get("workers", 0) < 2:
-        failures.append("the pooled arm ran with %s worker(s)"
+        failures.append("the pooled arm ran with %s worker(s): nothing was "
+                        "pooled, the pass would be vacuous (the arm's workers "
+                        "are pinned — --pool-workers / the entry's default "
+                        "max(2, min(4, cores)) — never the derived budget)"
                         % pooled.get("workers"))
     _pools_ok(pooled.get("pools"), "pooled arm", failures)
     if len(pooled.get("pids") or []) < 2:
@@ -127,10 +135,16 @@ def verdict(pooled, serial, text="", frozen=True):
         if row.get("digest") != pooled.get("digest"):
             failures.append("%s: digest %s != %s" % (
                 where, row.get("digest"), pooled.get("digest")))
-        want = max(1, int(row.get("cpu") or 1) // 2)
-        if row.get("budget") != want or row.get("daemon"):
-            failures.append("%s: budget %s, want %s (set_share), daemon %s"
-                            % (where, row.get("budget"), want, row.get("daemon")))
+        if row.get("share") != 2 or row.get("daemon"):
+            failures.append("%s: share %s, want 2 (set_share did not apply), "
+                            "daemon %s" % (where, row.get("share"), row.get("daemon")))
+        elif budget_for is not None:
+            want = tuple(budget_for(row))
+            if (row.get("budget"), row.get("bound")) != want:
+                failures.append("%s: budget %s (bound %s), want %s (bound %s) for "
+                                "share 2, cores %s, %s GB"
+                                % (where, row.get("budget"), row.get("bound"),
+                                   want[0], want[1], row.get("cpu"), row.get("ram_gb")))
     kill = pooled.get("kill") or {}
     if len(kill.get("pids") or []) < 2 or len(kill.get("blocks") or []) < 2:
         failures.append("kill: the bundle did not hard-kill a pool over shared "
@@ -328,7 +342,8 @@ def run_pool(binary, repo_root, log_dir, deadline=300, keep=False,
             if "[pool]" in line or line.startswith(("nested:", "worker:", "kill:",
                                                     "POOL SELFCHECK", "FAILED")):
                 print("   | " + line)
-        failures = verdict(pooled, serial, text_p + text_s, frozen=frozen)
+        failures = verdict(pooled, serial, text_p + text_s, frozen=frozen,
+                           budget_for=probe.budget_for)
         failures += ["%s arm: %s" % (tag, note)
                      for tag, note in (("pooled", note_p), ("one-core", note_s)) if note]
         if "serial (budget 1)" not in text_s and serial:

@@ -103,7 +103,7 @@ from ..model import pulse as _pulse
 
 __all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "budget_bound",
            "physical_ram_gb", "PARENT_RESERVE_GB", "WORKER_ALLOWANCE_GB", "configure",
-           "set_share", "share_object", "shared_object", "spec_key", "detach",
+           "set_share", "share", "share_object", "shared_object", "spec_key", "detach",
            "attached", "exit_with_parent", "exited",
            "TICK_S", "TEARDOWN_S", "STALL_S"]
 
@@ -154,6 +154,12 @@ def set_share(n: int) -> None:
     """``n`` airport builds share this machine (the airport pool's worker
     count): each takes ``cores // n``."""
     _share[0] = max(1, int(n))
+
+
+def share() -> int:
+    """How many airport builds this process was told share the machine
+    (:func:`set_share`; 1 when nobody said)."""
+    return _share[0]
 
 
 class _MemoryStatusEx(ctypes.Structure):

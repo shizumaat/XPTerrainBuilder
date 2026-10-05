@@ -253,6 +253,11 @@ class WallCorridorStats:
     field_read: bool = False
     #: the cover's polygons the FIELD clause read (0 when not read)
     field_cells: int = 0
+    #: spec §12h (4) step 0: the anchor families the FAMILY FIELD GATE
+    #: refused whole — no member's plan extent within the standoff of the
+    #: cover, so no mouth of any pair is; one ``refused`` line each, no band
+    #: read (``families`` / ``bands`` / ``pairs`` do not count them)
+    off_field_families: int = 0
 
 
 def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law

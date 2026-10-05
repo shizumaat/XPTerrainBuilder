@@ -80,18 +80,28 @@ class FieldCover:
     def holds(self, xy: XY) -> bool:
         """The cover ⊕ ``mouth_standoff_m`` — the very predicate of
         ``structure_approach.FieldRegion.on_cover``."""
-        if self._tree is None:
-            return False
-        return len(self._tree.query(Point(xy), predicate="dwithin",
-                                    distance=self.standoff_m)) > 0
+        return self.reaches(Point(xy))
 
     def distance_m(self, xy: XY) -> float:
         """Metres from ``xy`` to the nearest cover polygon (``inf`` with no
         cover) — the line's figure, never the verdict."""
+        return self.distance_to(Point(xy))
+
+    def reaches(self, geom) -> bool:
+        """:meth:`holds` for a REGION: some cover polygon stands within the
+        standoff of ``geom`` — so of no point of it when this is False (the
+        family gate of ``wall_family.read_family``, §12h (4) step 0)."""
+        if self._tree is None:
+            return False
+        return len(self._tree.query(geom, predicate="dwithin",
+                                    distance=self.standoff_m)) > 0
+
+    def distance_to(self, geom) -> float:
+        """Metres from ``geom`` to the nearest cover polygon (``inf`` with
+        no cover)."""
         if self._tree is None:
             return math.inf
-        pt = Point(xy)
-        return float(self._polys[int(self._tree.nearest(pt))].distance(pt))
+        return float(self._polys[int(self._tree.nearest(geom))].distance(geom))
 
 
 @_dc.dataclass(frozen=True)

@@ -128,6 +128,30 @@ def wall_families(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resourc
     return placements, sorted(fams.items(), key=lambda kv: kv[0])
 
 
+def _off_field(cover: FieldCover, fam_name: str,
+               members: _t.Sequence[_obj8.PlacedObject], stats: WallCorridorStats) -> bool:
+    """STEP 0, THE FAMILY FIELD GATE (spec §12h (4); HARD LAW §6 review
+    ``docs/lawcreview-12h.md`` (B)): every mouth of every pair of a family
+    lies between two of its bands, so inside the convex hull of its
+    members' plan extents; when no cover polygon stands within the standoff
+    of that hull none stands within it of any mouth, and FIELD refuses the
+    family WHOLE — one line, no band read.  Exact by construction, and a
+    function of the family's own members and the field alone."""
+    boxes = [o.plan_bbox for o in members]
+    if not boxes or any(b is None for b in boxes):
+        return False
+    hull = unary_union(boxes).convex_hull
+    if hull.is_empty or cover.reaches(hull):
+        return False
+    stats.refused.append(
+        f"family {fam_name} ({len(members)} members, "
+        f"{os.path.basename(members[0].path)}): off the field — nearest cover "
+        f"{cover.distance_to(hull):.1f} m (> mouth_standoff_m {cover.standoff_m:g}); "
+        f"no band read")
+    stats.off_field_families += 1
+    return True
+
+
 def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObject]
                 ) -> tuple[WallCorridorStats, list[tuple[str, str, list[WallCorridorRecord]]]]:
     """ONE FAMILY's reading: its own stats (refusals and admission lines in
@@ -142,8 +166,10 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
     by :func:`assemble`.  So the readings are the same at any worker count
     and in any completion order.
 
-    THE ONE ADMISSION SITE of Law C (§12h (4)): rules 1-5 and the kerb
-    test as before, then FIELD, W1s and W3 (``wall_mouth.admit``), cheapest
+    THE ONE ADMISSION SITE of Law C (§12h (4)): step 0 the family FIELD
+    gate (:func:`_off_field`, when a field is handed — in a build and in
+    the ``measure`` replay alike), then rules 1-5 and the kerb test as
+    before, then FIELD, W1s and W3 (``wall_mouth.admit``), cheapest
     refusal first; no clause is evaluated anywhere else and no consumer
     vetoes."""
     airport, cache, law, measure = rd.airport, rd.cache, rd.law, rd.measure
@@ -157,6 +183,9 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
     grid = law.tables.emit.identity.min_distinct_spacing_m
     dem_z = airport.dem.z
     to_ll = rd.to_ll
+    fam_name = f"{fk[0]:.3f},{fk[1]:.3f},{fk[2]:.3f}"
+    if rd.cover is not None and _off_field(rd.cover, fam_name, members, stats):
+        return stats, pairs
     bands: list[WallBand] = []
     verticals: list[tuple] = []
     by_id = {o.id: o for o in members}
@@ -176,7 +205,6 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
     # pairs get that far — one plan segment per vertical triangle of
     # every member of every family was most of this pass's 120 s.
     ends = _FamilyFaces(verticals, cache, wc.min_wall_depth_m, measure)
-    fam_name = f"{fk[0]:.3f},{fk[1]:.3f},{fk[2]:.3f}"
     # RULE 2: the pairs
     for i in range(len(bands)):
         for j in range(i + 1, len(bands)):
@@ -579,6 +607,7 @@ def assemble(placements: int, readings: _t.Iterable[tuple],
         stats.families += fam.families
         stats.bands += fam.bands
         stats.pairs += fam.pairs
+        stats.off_field_families += fam.off_field_families
         for name in ("refused", "admission", "floor_probe", "narrow_cut"):
             getattr(stats, name).extend(getattr(fam, name))
         for resource, name, recs in pairs:

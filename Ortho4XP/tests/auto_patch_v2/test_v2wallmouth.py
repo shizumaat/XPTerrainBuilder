@@ -16,6 +16,7 @@ tables, never retyped.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 
 import pytest
 from shapely.geometry import Point
@@ -119,9 +120,18 @@ def objs(tmp_path_factory, law):
     }
 
 
-def _cells(y0=-150.0, y1=150.0):
-    return [Cell(1, "service_road", "road1", _rect(-30, y0, 30, y1), (), None, None,
+def _cells(y0=-150.0, y1=150.0, x0=-30.0, x1=30.0):
+    return [Cell(1, "service_road", "road1", _rect(x0, y0, x1, y1), (), None, None,
                  "groundside", "pavement", {})]
+
+
+def _beside(standoff):
+    """A cover BESIDE the corridor: 1 m inside the standoff of its plan
+    extent (the deck's edge at x = 7, so the family gate lets it through)
+    and beyond the standoff of both mouths' midpoints (0, ±40) — with the
+    distance from either mouth."""
+    x0 = 7.0 + standoff - 1.0
+    return _cells(-10.0, 10.0, x0, x0 + 100.0), math.hypot(x0, MOUTH_Y - 10.0)
 
 
 def _read(objs, law, corridor, closers=(), cells=None, measure=False):
@@ -263,17 +273,19 @@ def test_field_on_off_and_not_read(objs, law):
     # ON: the cover under the corridor
     _r, st = _read(objs, law, "deck", cells=_cells())
     assert st.corridors == 1 and "FIELD end 0 0.0 m of cover" in st.admission[0]
-    # OFF: the same cells moved beyond the standoff from both mouths
-    far = MOUTH_Y + standoff + 50.0
-    recs, st_off = _read(objs, law, "deck", cells=_cells(far, far + 100.0), measure=True)
-    assert recs == [] and st_off.field_read is True
+    # OFF: a cover within the standoff of the family's plan extent and
+    # beyond it from both mouths — the CANDIDATE's own FIELD clause refuses
+    cells_off, dist = _beside(standoff)
+    assert dist > standoff
+    recs, st_off = _read(objs, law, "deck", cells=cells_off, measure=True)
+    assert recs == [] and st_off.field_read is True and st_off.off_field_families == 0
     (line,) = st_off.admission
-    assert f"FIELD REFUSED — nearest cover {standoff + 50.0:.1f} m from end" in line
+    assert f"FIELD REFUSED — nearest cover {dist:.1f} m from end" in line
     assert f"(> mouth_standoff_m {standoff:g})" in line
     assert "MOUTH" not in line and "W1s" not in line        # cheapest refusal first
     assert any("REFUSED by FIELD" in r for r in st_off.refused)
     row = st_off.narrow_cut[0]
-    assert row["field"] is False and row["field_m"] == pytest.approx(standoff + 50.0)
+    assert row["field"] is False and row["field_m"] == pytest.approx(dist, abs=0.05)
     assert row["admitted"] is False and row["w1s"] is None
     # just inside the standoff: read, and on
     near = MOUTH_Y + standoff - 1.0
@@ -283,6 +295,43 @@ def test_field_on_off_and_not_read(objs, law):
     recs_n, st_n = _read(objs, law, "deck")
     assert st_n.field_read is False and st_n.field_cells == 0 and len(recs_n) == 2
     assert "FIELD not read (no cover handed)" in st_n.admission[0]
+
+
+def test_the_family_gate_refuses_an_off_field_family_whole(objs, law):
+    """§12h (4) STEP 0 (review ``docs/lawcreview-12h.md`` (B)): a family no
+    member of which stands within the standoff of the cover is refused in
+    ONE line before any band is read — in a build and in the ``measure``
+    replay alike — and never without a field."""
+    standoff = law.tables.structures.tunnel.mouth_standoff_m
+    far = (0.0, 150.0 + MOUTH_Y + standoff + 200.0)      # 200 m beyond the cover's reach
+    two = [("deck", (0.0, 0.0), 0.0, None, "OBJECT"), ("deck", far, 0.0, None, "OBJECT")]
+    airport = _airport(objs, law, two)
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    field = wall_field(Classification(tuple(_cells()), (), {}, ()), law)
+    _n, fams = WF.wall_families(objects, cache, law)
+    assert len(fams) == 2
+    # the far family ALONE: one line, nothing read, no index
+    rd = WF.wall_reader(airport, objects, cache, law, field=field)
+    (fk_far, ks_far), = [f for f in fams if objects[f[1][0]].xy == far]
+    fam, pairs = WF.read_family(rd, fk_far, [objects[k] for k in ks_far])
+    assert pairs == [] and fam.off_field_families == 1 and rd.mouth_index is None
+    assert (fam.families, fam.bands, fam.pairs, fam.admission) == (0, 0, 0, [])
+    (line,) = fam.refused
+    assert line.startswith("family ") and "(1 members, deck.obj): off the field" in line
+    assert line.endswith(f"nearest cover {standoff + 200.0:.1f} m (> mouth_standoff_m "
+                         f"{standoff:g}); no band read"), line
+    # the whole read, build and measure alike: the on-field family alone is counted
+    for measure in (False, True):
+        recs, st = WF.read_wall_corridors(airport, objects, cache, law, measure=measure,
+                                          field=field)
+        assert st.off_field_families == 1 and st.corridors == 1 and len(recs) == 2
+        assert (st.families, st.bands, st.pairs) == (1, 2, 1) and len(st.admission) == 1
+        assert st.refused == [line]
+    # NO FIELD HANDED: the gate is not applied (FIELD is not read)
+    recs, st = WF.read_wall_corridors(airport, objects, cache, law)
+    assert st.off_field_families == 0 and st.corridors == 2 and st.refused == []
+    assert all("FIELD not read" in a for a in st.admission)
 
 
 def test_the_field_predicate_is_the_mapped_tunnel_laws_cover_test(law):
@@ -354,9 +403,8 @@ def _reader(objs, law, closers=(), cells=None):
 
 def test_the_index_is_built_once_on_the_first_mouth_query_and_never_before(objs, law):
     standoff = law.tables.structures.tunnel.mouth_standoff_m
-    far = MOUTH_Y + standoff + 50.0
     # a candidate FIELD refuses never reaches a mouth query: no index at all
-    objects, cache, rd = _reader(objs, law, _at("wall"), _cells(far, far + 100.0))
+    objects, cache, rd = _reader(objs, law, _at("wall"), _beside(standoff)[0])
     _placements, fams = WF.wall_families(objects, cache, law)
     for fk, ks in fams:
         WF.read_family(rd, fk, [objects[k] for k in ks])

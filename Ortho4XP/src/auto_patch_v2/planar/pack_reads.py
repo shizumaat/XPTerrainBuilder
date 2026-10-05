@@ -42,6 +42,7 @@ import copy
 import dataclasses as _dc
 import typing as _t
 
+from ..airport import reader_work as _rw
 from ..airport.door_wells import DoorStats, read_door_wells
 from ..airport.sunken_roads import SunkenRoadStats, read_sunken_roads
 from ..airport.thin_plates import PlateStats, read_plates
@@ -49,12 +50,13 @@ from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
 from ..airport.wall_corridors import WallCorridorStats, read_wall_corridors
 from ..model import pulse as _pulse
 
-__all__ = ["PackReads", "pack_reads", "ring_reads", "wall_corridor_reads"]
+__all__ = ["PackReads", "pack_reads", "pool_report", "ring_reads",
+           "wall_corridor_reads"]
 
 #: the key on ``ResourceCache.placed``
 _KEY = "planar_pack_reads"
 #: the store's entries
-_READS, _WALLS, _RINGS = "reads", "walls", "rings"
+_READS, _WALLS, _RINGS, _POOL = "reads", "walls", "rings", "pool"
 
 
 @_dc.dataclass
@@ -88,16 +90,42 @@ def _inputs(airport, objects, law) -> tuple:
             objects, law)
 
 
-def _read(airport, objects, cache, law) -> PackReads:
-    _pulse.tick("tunnel and plate objects")
+def _read(airport, objects, cache, law, store: dict | None = None,
+          walls: bool = False) -> PackReads:
+    """The four readings.  The tunnel corridors + thin plates (and, with
+    ``walls``, the wall corridors — kept on ``store`` for
+    :func:`wall_corridor_reads`) are read by work-pool workers BESIDE this
+    process's door wells and sunken roads (``airport/reader_work``); what a
+    pool does not answer is read here, the same computation."""
+    kinds = (_rw.WALLS, _rw.TUNNELS) if walls and store is not None else (_rw.TUNNELS,)
+    ahead = _rw.begin(airport, objects, cache, law, kinds)
+    got: dict = {}
+    try:
+        if ahead is None:
+            _pulse.tick("tunnel and plate objects")
+            tunnels = _tunnels(airport, objects, cache, law)
+        wells, dstats = read_door_wells(airport, objects, cache, law)
+        roads, rstats = read_sunken_roads(airport, objects, cache, law)
+        if ahead is not None:
+            got = ahead.collect()
+    finally:
+        if ahead is not None:
+            ahead.close()
+    if ahead is not None:
+        if store is not None:
+            store[_POOL] = ahead.report
+            if _rw.WALLS in got:
+                store[_WALLS] = got[_rw.WALLS]
+        tunnels = got.get(_rw.TUNNELS) or _tunnels(airport, objects, cache, law)
+    return PackReads(*tunnels, wells, dstats, roads, rstats)
+
+
+def _tunnels(airport, objects, cache, law) -> tuple:
     corridors, tstats = read_corridors(airport, objects, cache, law)
     # an object is read ONCE, by the senior reader: the plates skip the
     # resources the corridors already admitted
-    plates, pstats = read_plates(airport, objects, cache, law,
-                                 {c.resource for c in corridors})
-    wells, dstats = read_door_wells(airport, objects, cache, law)
-    roads, rstats = read_sunken_roads(airport, objects, cache, law)
-    return PackReads(corridors, tstats, plates, pstats, wells, dstats, roads, rstats)
+    return (corridors, tstats,
+            *read_plates(airport, objects, cache, law, {c.resource for c in corridors}))
 
 
 def _store(airport, objects: _t.Sequence, cache, law) -> dict:
@@ -114,13 +142,25 @@ def _store(airport, objects: _t.Sequence, cache, law) -> dict:
     return held[1]
 
 
-def pack_reads(airport, objects: _t.Sequence, cache, law) -> PackReads:
+def pack_reads(airport, objects: _t.Sequence, cache, law, *,
+               walls: bool = False) -> PackReads:
     """The four classification-free readings for this build: read on the
-    first call, reused while every input is the SAME object."""
+    first call, reused while every input is the SAME object.  ``walls``
+    says the caller asks :func:`wall_corridor_reads` next, so a work pool
+    reads the wall corridors beside these (``_read``)."""
     store = _store(airport, objects, cache, law)
     if _READS not in store:
-        store[_READS] = _read(airport, objects, cache, law)
+        store[_READS] = _read(airport, objects, cache, law, store,
+                              walls and _WALLS not in store)
     return store[_READS].handout()
+
+
+def pool_report(cache) -> dict | None:
+    """The work pool's own account of this build's readings (``WorkPool.
+    report`` + the ``readers`` it answered), or ``None`` when they were
+    read on one core.  A clock and a head count — never part of a digest."""
+    held = cache.placed.get(_KEY)
+    return held[1].get(_POOL) if held else None
 
 
 def wall_corridor_reads(airport, objects: _t.Sequence, cache, law

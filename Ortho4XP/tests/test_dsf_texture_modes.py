@@ -129,7 +129,7 @@ def _make_tile(build_dir, texture_mode):
     tile.normal_map_strength = 1
     tile.imprint_masks_to_dds = False
     tile.ratio_water = 0.3
-    tile.ratio_bathy = 1
+    tile.ratio_bathy = 1.0          # cfg type float (O4_Cfg_Vars); an int wraps uint8 (#418)
     tile.terrain_casts_shadows = True
     tile.use_decal_on_terrain = False
     tile.overlay_lod = 40000

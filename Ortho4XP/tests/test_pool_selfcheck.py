@@ -171,3 +171,15 @@ def test_every_frozen_job_runs_the_pool_pass_and_the_probe_is_dispatch_only():
         assert "runs-on: %s" % runner in body, runner
     assert body.count("--pass pool") == 3
     assert body.count("if: always()") == 3          # the logs upload, every arm
+
+
+def test_a_windows_pool_never_asks_for_more_than_the_executor_allows(monkeypatch):
+    """``ProcessPoolExecutor`` raises above 61 workers on Windows (its
+    ``WaitForMultipleObjects`` ceiling): a 96-core machine there must get a
+    pool of 61, not a fallback.  No Windows runner has the cores to show
+    it, so the cap is read here."""
+    from auto_patch_v2.airport import pool as P
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert P.WorkPool(workers=200).workers == P.WINDOWS_MAX_WORKERS == 61
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert P.WorkPool(workers=200).workers == 200

@@ -244,7 +244,10 @@ def _core(workers: int, work: str, say=print) -> dict:
             if r["print_error"]:
                 failures.append(f"worker {r['pid']}: cannot print the house "
                                 f"characters ({r['print_error']}; stdout {r['stdout']})")
-            if r["stdout"] != here["stdout"]:
+            # a worker with NO stdout (a windowed bundle's child) prints
+            # nothing and raises nothing: only a stream that exists is held
+            # to this process's pinned text layer
+            if r["stdout"][0] and here["stdout"][0] and r["stdout"] != here["stdout"]:
                 failures.append(f"worker {r['pid']}: its console is not pinned "
                                 f"(stdout {r['stdout']}, this process {here['stdout']})")
             if r["proj_data"] != here["proj_data"]:

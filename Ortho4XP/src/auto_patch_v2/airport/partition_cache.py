@@ -14,15 +14,27 @@ answer depends on the DEM frame, and it is 15 s.
 
 THE FINGERPRINT covers everything the reading is a function of:
 
-* the DSFTool text dump the placements are read from (path, size,
-  mtime) — the same input the footprint cache keys on;
+* the DSFTool text dump the placements are read from, BY CONTENT
+  (:func:`dump_digest`, issue #362): its sha256 with the ``# file:``
+  header line left out.  The name, size and mtime it was keyed on all
+  move when the object stage sets the pristine DSF aside — the same DSF
+  is then dumped again as ``<tile>.dsf.anchor_bak.<tag>.text``, 11 bytes
+  longer for the one path in its header — so the SECOND build of every
+  airport missed (OTHH: +500 s) on an input that had not changed;
 * every ``.obj`` under the pack root at its PRISTINE state — the
   ``.anchor_bak`` original where this engine's own y-bake moved the
   authored file aside, the live file otherwise (owner ruling
   2026-08-13, "AIRPORT DERIVED CACHES KEY ON PRISTINE INPUTS": the
   bake must not invalidate its own cache, and the pristine file IS
   what the reading parsed — ``airport/pack.authored_source`` is the
-  same rule the loader reads through);
+  same rule the loader reads through).  THE ENGINE'S OWN SPLIT BODIES
+  ARE NOT PACK CONTENT (issue #362): the object stage mints
+  ``<stem>__b<k>[_<tag>].obj`` files into the pack AFTER the build that
+  wrote the cache, and the walk then found ~1,900 new files at OTHH and
+  moved the key.  A file is left out only when it carries the split
+  NAME, the writer's ``CUT_MARK`` in its head, AND no placement of this
+  run resolves to it (:func:`_pack_content`) — a body the reading does
+  parse stays in the key like any authored file;
 * the LAW TABLES (``law_tables_digest``'s sha256) and the ruleset key;
 * the FRAME the geometry is placed in (its CRS and origin) — every
   coordinate in the result is in it;
@@ -41,8 +53,12 @@ THE FINGERPRINT covers everything the reading is a function of:
   reading runs through.  A derived cache keyed only on data is a
   correctness hazard in a tree that changes every commit, and this one
   holds parsed geometry, a contact graph and a clustering that a dozen
-  files decide.  In a FROZEN engine there are no source files and the
-  engine's own version stands in — code there cannot change without it.
+  files decide.  In a FROZEN engine there are no source files: the
+  freeze writes the SAME digest of the same sources beside
+  ``partition_code`` and the engine reads it (issue #362 — the app
+  version stood in for the code, so every update cold-started every
+  user's partition).  The version is the fallback only for an engine
+  frozen without that file.
 
 THE WRITE IS NOT A ``--refresh-data`` ACT.  It is the SAME CLASS as
 ``o4_object_footprints_<tile>.cache``: a derived, self-invalidating
@@ -57,12 +73,15 @@ from __future__ import annotations
 import hashlib
 import os
 import pickle
+import re
 import typing as _t
 import zlib
+from . import partition_code as _code
 from .file_hash import sha256_file_or_none
 
 __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
-           "pristine_stamps", "resolved_digest", "peek"]
+           "pristine_stamps", "resolved_digest", "peek", "code_digest",
+           "dump_digest"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
@@ -108,65 +127,32 @@ CACHE_VERSION = 9   # issue #222 (lane snap222, owner RULINGS 2026-10-02v
 #: before this (plain pickle) still reads: the deflate is tried first.
 _ZLIB_LEVEL = 1
 
-#: The modules the cached reading runs through — their source bytes are
-#: the code half of the fingerprint.  Import paths inside the package.
-_CODE_MODULES: tuple[str, ...] = (
-    "auto_patch_v2.airport.pack_partition",
-    "auto_patch_v2.airport.contact",
-    "auto_patch_v2.airport.obj8",
-    "auto_patch_v2.airport.obj8_clip",
-    # the base read (``Member.base_profile``) and its composition onto the
-    # cached clusters (``PlanCluster.base_profile``) run through it — a
-    # change to the read was invisible to the cache (lane t3onelevel10)
-    "auto_patch_v2.airport.obj8_grade",
-    "auto_patch_v2.airport.frame_entry",
-    "auto_patch_v2.airport.skirt",
-    "auto_patch_v2.airport.bulk_geos",
-    "auto_patch_v2.airport.scatter",
-    "auto_patch_v2.airport.deck_signature",
-    "auto_patch_v2.airport.line_object",
-    "auto_patch_v2.airport.placement_boxes",
-    "auto_patch_v2.airport.placement_contact",
-    "auto_patch_v2.airport.placement_family",
-    "auto_patch_v2.airport.pack",
-    "auto_patch_v2.planar.basins",
-    "auto_patch_v2.planar.cluster",
-    # unit-platform spec §2: the cached clusters read the connector verdict
-    "auto_patch_v2.airport.footprint_connector",
-    "auto_patch_v2.airport.footprint_unit",
-    # issue #104: the seat machinery split out of ``footprint_unit``
-    "auto_patch_v2.airport.footprint_seats",
-    "auto_patch_v2.airport.sheet_chain",
-    "auto_patch_v2.model.rebake",
-)
+#: The modules the cached reading runs through (``partition_code`` owns
+#: the list and the digest; the freeze runs the same function).
+_CODE_MODULES: tuple[str, ...] = _code.CODE_MODULES
 
 _CODE_DIGEST: str | None = None
 
 
 def code_digest() -> str:
     """The source bytes of :data:`_CODE_MODULES`, hashed once per
-    process; the engine's version when the sources are unavailable (a
-    frozen build, where they cannot change without it)."""
+    process.  In a frozen build (no sources) the digest the FREEZE took
+    of those same sources (``partition_code.frozen_digest``); the
+    engine's version only when that file is missing too."""
     global _CODE_DIGEST
     if _CODE_DIGEST is not None:
         return _CODE_DIGEST
     import importlib
-    h = hashlib.sha256()
-    seen = 0
-    for name in _CODE_MODULES:
-        try:
-            mod = importlib.import_module(name)
-            src = getattr(mod, "__file__", None)
-            if not src or not os.path.isfile(src):
-                continue
-            with open(src, "rb") as fh:
-                h.update(name.encode()); h.update(b"\0")
-                h.update(fh.read()); h.update(b"\0")
-            seen += 1
-        except Exception:
-            continue
-    if seen != len(_CODE_MODULES):
-        # frozen (or a module missing): the engine version is the code
+
+    def _sources():
+        for name in _CODE_MODULES:
+            try:
+                yield name, getattr(importlib.import_module(name), "__file__", None)
+            except Exception:
+                yield name, None
+    d = _code.digest_of(_sources()) or _code.frozen_digest()
+    if d is None:
+        # frozen by a spec that wrote no digest: the engine version is the code
         h = hashlib.sha256()
         try:
             import O4_Version                      # type: ignore
@@ -174,9 +160,64 @@ def code_digest() -> str:
         except Exception:
             h.update(b"unknown-engine")
         h.update(b"|frozen|")
-        h.update(str(seen).encode())
-    _CODE_DIGEST = h.hexdigest()
+        d = h.hexdigest()
+    _CODE_DIGEST = d
     return _CODE_DIGEST
+
+
+#: DSFTool names the file it dumped in its header; nothing else in the
+#: text depends on where the DSF stood.
+_DUMP_FILE_LINE = re.compile(rb"^# file:[^\n]*\n", re.M)
+
+
+def dump_digest(dump_path: str) -> str | None:
+    """sha256 of the DSFTool text dump's CONTENT (module doc): every byte
+    but the ``# file: <path>`` header line, sought in the first 4 KiB
+    only.  ``None`` when the dump cannot be read."""
+    try:
+        with open(dump_path, "rb") as fh:
+            raw = fh.read()
+    except OSError:
+        return None
+    head = _DUMP_FILE_LINE.sub(b"", raw[:4096], count=1)
+    h = hashlib.sha256()
+    h.update(head); h.update(raw[4096:])
+    return h.hexdigest()
+
+
+#: A split body's NAME (``obj8_split.body_resource_name``): the first of
+#: the three witnesses :func:`_pack_content` asks for.
+_BODY_NAME = re.compile(r"__b\d+(?:_[0-9a-f]{8})?\.obj$", re.I)
+
+
+def _pack_content(ents: _t.Sequence[tuple[str, int, float, str]],
+                  pack_root: str, airport) -> list[tuple[str, int, float, str]]:
+    """``ents`` without the ENGINE-MINTED split bodies (module doc): a
+    file is dropped only when its name is a split body's, its head carries
+    the writer's ``CUT_MARK`` (the test ``placement_write.write_files``
+    replaces a file on) and NO placement of ``airport`` resolves to it."""
+    suspects = [e for e in ents if _BODY_NAME.search(e[0])]
+    if not suspects:
+        return list(ents)
+    from ..model.placement import CUT_MARK
+    from .pack import live_path_of
+
+    def _norm(p: str) -> str:
+        return os.path.normcase(os.path.abspath(p))
+    read = {_norm(live_path_of(str(o.resolved_path)))
+            for o in getattr(airport, "dsf_objects", None) or ()
+            if getattr(o, "resolved_path", None)}
+    minted: set[str] = set()
+    for rel, _sz, _mt, src in suspects:
+        if _norm(os.path.join(pack_root, rel)) in read:
+            continue
+        try:
+            with open(src, "r", errors="replace") as fh:
+                if CUT_MARK in fh.read(4096):
+                    minted.add(rel)
+        except OSError:
+            continue
+    return [e for e in ents if e[0] not in minted]
 
 
 #: ``fingerprint -> pristine stamps`` of the fingerprints this process
@@ -237,14 +278,14 @@ def fingerprint(airport, law, *, dump_path: str | None,
         h.update(f"law:{d.get('sha256')}|ruleset:{law.ruleset_key}|".encode())
     except Exception:
         return None
-    try:
-        st = os.stat(dump_path)
-        h.update(f"dump:{os.path.basename(dump_path)}:{st.st_size}:{st.st_mtime}|".encode())
-    except OSError:
+    dd = dump_digest(dump_path)
+    if dd is None:
         return None
+    h.update(f"dump:{dd}|".encode())
     ents = (pristine or {}).get(pack_root) or pristine_stamps(pack_root)
     if not ents:
         return None                     # no pristine reading: no cache
+    ents = _pack_content(ents, pack_root, airport)
     for rel, size, _mt, _read in ents:
         h.update(f"{rel}:{size}".encode()); h.update(b"\n")
     from .pack import AUTHORED_BACKUP_SUFFIX

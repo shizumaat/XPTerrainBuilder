@@ -277,3 +277,170 @@ def test_t88_unresolved_partition_never_served_to_a_resolved_run(world, tmp_path
     d = _airport(root, "TNCM")
     d.dsf_objects = tuple(reversed(b.dsf_objects))
     assert PC.resolved_digest(d) == rd_r
+
+
+# ── issue #362: the key is what the reading reads ───────────────────────
+# (lane perfC362) K1 a changed pack byte MISSES; K2 a changed partition-code
+# digest MISSES — from the sources in a checkout, from the freeze's file in
+# a frozen engine — and the app VERSION alone does not; K3 the freeze's
+# digest IS the checkout's; K4 the pristine DSF dumped again under its
+# ``.anchor_bak`` name HITS, one changed dump byte MISSES; K5 the engine's
+# own split bodies are not pack content, an authored file on a split name
+# and a body the reading resolves both are.
+
+from auto_patch_v2.airport import partition_code as PCODE         # noqa: E402
+
+_CUT = "A\n800\nOBJ\n# o4 split of Objects/Terminal.obj body 0\n"
+
+
+def _key(root, dump, icao="TNCM", objects=()):
+    a = _airport(root, icao)
+    a.dsf_objects = tuple(objects)
+    return a, PC.fingerprint(a, LAW, dump_path=dump, radius_deg=0.05)
+
+
+def test_k1_a_changed_pack_byte_misses(world):
+    root, dump, mod = world
+    a, fp = _key(root, dump)
+    path = PC.cache_path(a, mod, dump)
+    assert PC.write(path, fp, "payload") and PC.read(path, fp) == "payload"
+    obj = root / "Objects" / "Terminal.obj"
+    st = obj.stat()
+    obj.write_text("A\n800\nOBJ\n# terminaL\n", encoding="utf-8", newline="")
+    os.utime(obj, (st.st_atime, st.st_mtime + 5.0))
+    _a, fp2 = _key(root, dump)
+    assert PC.read(path, fp2) is None
+
+
+def test_k2_a_changed_partition_code_digest_misses(world, monkeypatch, tmp_path):
+    import auto_patch_v2.airport.contact as contact
+    root, dump, mod = world
+    monkeypatch.setattr(PC, "_CODE_DIGEST", None)
+    a, fp = _key(root, dump)
+    path = PC.cache_path(a, mod, dump)
+    assert PC.write(path, fp, "payload")
+    # (a) a checkout: one byte of one listed module's source
+    moved = tmp_path / "contact.py"
+    moved.write_bytes(Path(contact.__file__).read_bytes() + b"#\n")
+    monkeypatch.setattr(contact, "__file__", str(moved))
+    monkeypatch.setattr(PC, "_CODE_DIGEST", None)
+    _a, fp_src = _key(root, dump)
+    assert fp_src != fp and PC.read(path, fp_src) is None
+    # (b) a frozen engine: no sources, the freeze's file is the code
+    monkeypatch.setattr(PCODE, "digest_of", lambda sources: None)
+    import O4_Version
+    fps = {}
+    for digest, version in (("a" * 64, "1.0.400"), ("a" * 64, "1.0.401"),
+                            ("b" * 64, "1.0.401")):
+        monkeypatch.setattr(PCODE, "frozen_digest", lambda d=digest: d)
+        monkeypatch.setattr(O4_Version, "version", version, raising=False)
+        monkeypatch.setattr(PC, "_CODE_DIGEST", None)
+        assert PC.code_digest() == digest
+        fps[(digest[0], version)] = _key(root, dump)[1]
+    assert fps[("a", "1.0.400")] == fps[("a", "1.0.401")]     # an app update HITS
+    assert fps[("b", "1.0.401")] != fps[("a", "1.0.401")]     # changed code MISSES
+    assert PC.write(path, fps[("a", "1.0.400")], "frozen payload")
+    assert PC.read(path, fps[("a", "1.0.401")]) == "frozen payload"
+    assert PC.read(path, fps[("b", "1.0.401")]) is None
+    # (c) frozen WITHOUT the file: the version stands in, as before #362
+    monkeypatch.setattr(PCODE, "frozen_digest", lambda: None)
+    got = []
+    for version in ("1.0.400", "1.0.401"):
+        monkeypatch.setattr(O4_Version, "version", version, raising=False)
+        monkeypatch.setattr(PC, "_CODE_DIGEST", None)
+        got.append(PC.code_digest())
+    assert got[0] != got[1] and "a" * 64 not in got
+    monkeypatch.setattr(PC, "_CODE_DIGEST", None)
+
+
+def test_k3_the_freeze_digest_is_the_checkouts(tmp_path, monkeypatch):
+    import ast
+    import runpy
+    src = ROOT / "src"
+    mod_path = src / "auto_patch_v2" / "airport" / "partition_code.py"
+    # the specs run this ONE file with runpy: stdlib only, no relative import
+    tree = ast.parse(mod_path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            assert node.level == 0 and node.module in ("__future__",), node.module
+        if isinstance(node, ast.Import):
+            assert {n.name for n in node.names} <= {"hashlib", "os", "typing"}
+    ns = runpy.run_path(str(mod_path))
+    out = ns["write_freeze_digest"](str(src), str(tmp_path / "o4"))
+    assert os.path.basename(out) == PCODE.DIGEST_FILENAME
+    monkeypatch.setattr(PC, "_CODE_DIGEST", None)
+    assert PCODE.frozen_digest(str(tmp_path / "o4")) == PC.code_digest()
+    assert PCODE.frozen_digest(str(tmp_path)) is None           # a checkout
+    (tmp_path / PCODE.DIGEST_FILENAME).write_text("not a digest\n", encoding="ascii")
+    assert PCODE.frozen_digest(str(tmp_path)) is None
+    with pytest.raises(SystemExit):                # a listed module with no source
+        ns["write_freeze_digest"](str(tmp_path), str(tmp_path / "o5"))
+    # both specs take it and bundle it beside the module that reads it
+    for spec in ("Ortho4XP.spec", "Ortho4XP_Qt.spec"):
+        text = (ROOT / spec).read_text(encoding="utf-8")
+        assert '["write_freeze_digest"]("src"' in text, spec
+        assert '(_partition_digest_file, os.path.join("auto_patch_v2", "airport"))' in text, spec
+
+
+def test_k4_the_dump_is_keyed_by_content(world, tmp_path):
+    root, _dump, mod = world
+    body = "PROPERTY sim/west 51\nOBJECT_DEF Objects/HillBush.obj\nOBJECT 0 51.6 25.2 90\n"
+    head = "A\n800 written by DSFTool 2.4.0-b1\nDSF2TEXT\n\n# file: %s\n\n"
+    first = tmp_path / "+18-064.dsf.84ffe846.text"
+    first.write_text(head % "/xp/pack/+18-064.dsf" + body, encoding="utf-8", newline="")
+    a, fp = _key(root, str(first))
+    path = PC.cache_path(a, mod, str(first))
+    assert PC.write(path, fp, "payload")
+    # the object stage set the DSF aside: the SAME DSF, dumped again
+    again = tmp_path / "+18-064.dsf.anchor_bak.84ffe846.text"
+    again.write_text(head % "/xp/pack/+18-064.dsf.anchor_bak" + body,
+                     encoding="utf-8", newline="")
+    os.utime(again, (time.time() + 50.0, time.time() + 50.0))
+    b, fp2 = _key(root, str(again))
+    assert again.stat().st_size != first.stat().st_size
+    assert fp2 == fp and PC.cache_path(b, mod, str(again)) == path
+    assert PC.read(path, fp2) == "payload"
+    # one placement moved: same name, same size -> MISS
+    again.write_text(head % "/xp/pack/+18-064.dsf.anchor_bak"
+                     + body.replace("25.2", "25.3"), encoding="utf-8", newline="")
+    _c, fp3 = _key(root, str(again))
+    assert fp3 != fp and PC.read(path, fp3) is None
+    # a "# file:" line past the header is content
+    again.write_text(head % "/xp/pack/+18-064.dsf.anchor_bak" + "x" * 5000
+                     + "\n# file: a\n", encoding="utf-8", newline="")
+    k1 = PC.dump_digest(str(again))
+    again.write_text(head % "/xp/pack/+18-064.dsf.anchor_bak" + "x" * 5000
+                     + "\n# file: b\n", encoding="utf-8", newline="")
+    assert PC.dump_digest(str(again)) != k1
+
+
+def test_k5_the_engines_split_bodies_are_not_pack_content(world):
+    from types import SimpleNamespace as NS
+    root, dump, mod = world
+    placed = (NS(path="Objects/Terminal.obj",
+                 resolved_path=str(root / "Objects" / "Terminal.obj")),)
+    a, fp = _key(root, dump, objects=placed)
+    path = PC.cache_path(a, mod, dump)
+    assert PC.write(path, fp, "payload")
+    # the object stage minted two bodies after the build that wrote the cache
+    for name in ("Terminal__b0.obj", "Terminal__b1_8b16464a.obj"):
+        (root / "Objects" / name).write_text(_CUT, encoding="utf-8", newline="")
+    _a, fp2 = _key(root, dump, objects=placed)
+    assert fp2 == fp and PC.read(path, fp2) == "payload"
+    # an AUTHORED file on a split name (no cut mark) is pack content
+    (root / "Objects" / "Hangar__b2.obj").write_text(
+        "A\n800\nOBJ\n# authored\n", encoding="utf-8", newline="")
+    _a, fp3 = _key(root, dump, objects=placed)
+    assert fp3 != fp and PC.read(path, fp3) is None
+    (root / "Objects" / "Hangar__b2.obj").unlink()
+    # a body the reading RESOLVES is content: in the key, and its bytes checked
+    body = root / "Objects" / "Terminal__b0.obj"
+    reads = placed + (NS(path="Objects/Terminal__b0.obj", resolved_path=str(body)),)
+    b, fp4 = _key(root, dump, objects=reads)
+    assert fp4 != fp
+    assert PC.write(path, fp4, "payload with a body")
+    st = body.stat()
+    body.write_text(_CUT.replace("body 0", "body 9"), encoding="utf-8", newline="")
+    os.utime(body, (st.st_atime, st.st_mtime + 5.0))
+    _b, fp5 = _key(root, dump, objects=reads)
+    assert fp5 == fp4 and PC.read(path, fp5) is None

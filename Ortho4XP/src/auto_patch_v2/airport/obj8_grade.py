@@ -92,6 +92,10 @@ _MISS = object()
 #: (:func:`memo_union`, ``linework=False``)
 LATER = object()
 
+#: the last element of a ``clip_memo`` key that holds one component's
+#: at-grade POLYGONS alone (:func:`_comp_clip`)
+_POLYS = "polys"
+
 
 def planes(o: "PlacedObject", comps: list[tuple[int, "Component"]],
            dem_z: _t.Callable[[float, float], float], base: float, band: float,
@@ -129,15 +133,49 @@ def _line_union(lines: list):
     return None if lu is not None and lu.is_empty else lu
 
 
-def _lines_now(cache: "ResourceCache", memo: dict, key: tuple, pu):
+def _comp_clip(cmemo: dict, resource: str, ci: int, plane: float, clip, v: np.ndarray,
+               comp: "Component", linework: bool = True) -> tuple[object, int]:
+    """One component's clip at one plane, made once, and the vertices the
+    read is CHARGED for it (0 on a hit).
+
+    A ``both_clip`` reader that wants no linework (``linework=False``,
+    issue #362) is given ``(LATER, polygons)``: the polygons of
+    ``_clip_both`` ARE ``_clip_component``'s above-plane clip — the same
+    statements over the same triangles — so they are made without the
+    per-component linework union and kept under their own key.  A full
+    read that follows makes the linework then and is charged nothing: the
+    component was charged when its polygons were read."""
+    both = clip is both_clip
+    ck = (resource, ci, plane, both)
+    out = cmemo.get(ck, _MISS)
+    if out is not _MISS:
+        return out, 0
+    nv = int(comp.tris.shape[0]) * 3
+    pk = (resource, ci, plane, _POLYS)
+    if both and not linework:
+        pg = cmemo.get(pk, _MISS)
+        if pg is not _MISS:
+            return (LATER, pg), 0
+        pg = cmemo[pk] = _clip_component(v, comp, plane, False)
+        return (LATER, pg), nv
+    out = cmemo[ck] = clip(v, comp, plane)
+    return out, 0 if both and pk in cmemo else nv
+
+
+def _lines_now(cache: "ResourceCache", memo: dict, key: tuple, pu, g: "ObjGeometry",
+               comps: list[tuple[int, "Component"]]):
     """A ``both_clip`` entry whose linework was left :data:`LATER`,
     completed for the first reader that wants it — the same members in the
-    same order the eager union took (every component's clip is in
-    ``clip_memo``), so the linework is the one the eager read made."""
+    same order the eager union took, so the linework is the one the eager
+    read made."""
     t0 = time.perf_counter()
+    by_index = dict(comps)
     lines = []
     for ci, plane in key[1]:
-        ln = cache.clip_memo[(key[0], ci, plane, True)][0]
+        comp = by_index.get(ci)
+        if comp is None:
+            continue
+        ln = _comp_clip(cache.clip_memo, key[0], ci, plane, both_clip, g.vertices, comp)[0][0]
         if ln is not None:
             lines.append(ln)
     val = memo[key] = (_line_union(lines), pu)
@@ -164,7 +202,7 @@ def memo_union(cache: "ResourceCache", memo: dict, o: "PlacedObject", g: "ObjGeo
     if key in memo:
         val = memo[key]
         if linework and clip is both_clip and val is not None and val[0] is LATER:
-            return _lines_now(cache, memo, key, val[1])
+            return _lines_now(cache, memo, key, val[1], g, comps)
         return val
     if st.over_budget:
         return None
@@ -180,15 +218,11 @@ def memo_union(cache: "ResourceCache", memo: dict, o: "PlacedObject", g: "ObjGeo
         comp = by_index.get(ci)
         if comp is None:
             continue
-        ck = (o.resolved, ci, plane, clip is both_clip)
-        out = cmemo.get(ck, _MISS)
-        if out is _MISS:
-            nv += int(comp.tris.shape[0]) * 3
-            out = clip(g.vertices, comp, plane)
-            cmemo[ck] = out
+        out, charged = _comp_clip(cmemo, o.resolved, ci, plane, clip, g.vertices, comp, linework)
+        nv += charged
         if clip is both_clip:
             ln, pg = out
-            if ln is not None:
+            if ln is not None and ln is not LATER:
                 lines.append(ln)
             if pg is not None:
                 polys.append(pg)

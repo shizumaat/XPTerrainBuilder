@@ -212,7 +212,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # RULINGS 2026-09-13d item 5), the door wells and the sunken roads
     # (RULINGS 2026-09-08b/c).  A second pass over the same pack (the
     # ribbon-free map, #100 (c)) is handed the first's reading.
-    pr = pack_reads(airport, objects, cache, law)
+    pr = pack_reads(airport, objects, cache, law, walls=True)
     corridors, tstats, plates, pstats = (pr.corridors, pr.tunnel_stats,
                                          pr.plates, pr.plate_stats)
     wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats

@@ -93,6 +93,24 @@ def test_input_order_under_shuffled_completion():
     assert got == [(t, "s") for t in range(16)]
 
 
+def test_begin_and_collect_are_the_map_with_the_callers_work_between():
+    with P.WorkPool(_setup, (10,), workers=2, out=lambda s: None) as p:
+        pending = p.begin(_square, range(40), chunk=3, what="twin", unit="tasks")
+        mine = [t * t for t in range(5)]          # the caller's own work, beside
+        assert pending.collect() == SERIAL and pending.collect() == SERIAL
+        assert p.tasks_done == 40 and mine == [0, 1, 4, 9, 16]
+    with P.WorkPool(_setup, (10,), workers=1) as p:
+        assert p.begin(_square, range(40)) is None and p._ex is None
+
+
+def test_a_worker_that_dies_after_begin_is_none_at_collect():
+    said = []
+    with P.WorkPool(_setup_die, (os.getpid(),), workers=2, out=said.append) as p:
+        pending = p.begin(_die, range(6))
+        assert pending is None or pending.collect() is None
+        assert p.fell_back and not p.parallel and "FELL BACK" in said[0]
+
+
 def test_state_is_built_once_per_worker_and_workers_never_nest():
     with P.WorkPool(_setup, (0,), workers=2, out=lambda s: None) as p:
         got = p.try_map(_who, range(12)) + p.try_map(_who, range(12))

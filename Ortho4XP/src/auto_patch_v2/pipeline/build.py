@@ -44,6 +44,7 @@ from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from ..model import pulse as _pulse
 from ..planar.build import build as build_planar
+from ..planar.pack_reads import pool_report as _pack_read_pool
 from ..solve import DesignReport, Options, Solution, solve_design
 from .publication import face_tags, publication
 from . import xplat as _xplat
@@ -1427,7 +1428,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     report["wall_s"] = {k: round(v, 3) for k, v in wall.items()}
     # the work pools' own account, per stage (clocks and head counts: never
     # in a digest — ``pipeline/xplat.py`` reads the model, not this report)
-    report["pool"] = {"pack": _ps["pool"]}
+    report["pool"] = {"pack": _ps["pool"], "planar": _pack_read_pool(ocache)}
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     if _xp:
         # The dump is a READ of the stages already held — it prices no law

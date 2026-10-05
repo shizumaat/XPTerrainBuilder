@@ -50,6 +50,9 @@ The contract a caller relies on:
   union ran.
 * **every wait is bounded**: the result wait by ``stall_s``, the teardown by
   :data:`TEARDOWN_S` (then ``terminate``, then ``kill``).
+* **a caller with work of its own** takes the map in two halves:
+  :meth:`WorkPool.begin` submits and returns a :class:`Pending`, the caller
+  does its own part, :meth:`Pending.collect` is the same bounded wait.
 
 What crosses the pipe is the caller's to keep small: a task and its answer
 are pickled, so return the rows the consumer keeps, never placed geometry.
@@ -69,7 +72,7 @@ from multiprocessing import shared_memory as _shm
 from . import frame_entry as _fe
 from ..model import pulse as _pulse
 
-__all__ = ["WorkPool", "SharedArrays", "attach", "budget", "configure",
+__all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "configure",
            "set_share", "TICK_S", "TEARDOWN_S", "STALL_S"]
 
 #: seconds between wake-ups of a result wait (the heartbeat's grain)
@@ -244,6 +247,17 @@ class WorkPool:
         tasks = list(tasks)
         if not tasks:
             return []
+        pending = self.begin(fn, tasks, weights=weights, chunk=chunk, what=what, unit=unit)
+        return None if pending is None else pending.collect()
+
+    def begin(self, fn: _t.Callable, tasks: _t.Sequence, *,
+              weights: _t.Sequence[float] | None = None, chunk: int = 1,
+              what: str = "", unit: str = "") -> "Pending | None":
+        """:meth:`try_map` in two halves, for a caller with work of its OWN
+        to do beside the workers: the tasks are submitted here and
+        :meth:`Pending.collect` waits for them (the same bounded wait, the
+        same ``None``).  ``None`` here when no pool answers."""
+        tasks = list(tasks)
         if not self.parallel or not self._start():
             return None
         chunk = max(1, int(chunk))
@@ -252,15 +266,26 @@ class WorkPool:
         if weights is not None:
             w = [float(sum(weights[a:b])) for a, b in spans]
             order.sort(key=lambda k: (-w[k], k))
-        t0 = time.perf_counter()
-        out: list = [None] * len(tasks)
-        prev = _pulse.current()
         try:
             futs = {self._ex.submit(_run, fn, tasks[a:b]): (a, b)
                     for a, b in (spans[k] for k in order)}
+        except _cf.BrokenExecutor as e:
+            self._give_up(f"{what or 'map'}: a worker died ({e})")
+            return None
+        except BaseException:
+            self.close()                           # never leave workers behind
+            raise
+        return Pending(self, futs, len(tasks), what, unit)
+
+    def _collect(self, p: "Pending") -> list | None:
+        t0 = time.perf_counter()
+        out: list = [None] * p.n
+        prev = _pulse.current()
+        what, unit, futs = p.what, p.unit, p.futs
+        try:
             pending, done_n, last = set(futs), 0, time.monotonic()
             while pending:
-                _pulse.tick(what or "pool", done_n, len(tasks), unit)
+                _pulse.tick(what or "pool", done_n, p.n, unit)
                 done, pending = _cf.wait(pending, timeout=TICK_S,
                                          return_when=_cf.FIRST_COMPLETED)
                 if not done:
@@ -284,7 +309,7 @@ class WorkPool:
         finally:
             _pulse.tick(*prev) if prev else _pulse.clear()
             self.wall_s += time.perf_counter() - t0
-        self.tasks_done += len(tasks)
+        self.tasks_done += p.n
         return out
 
     def map(self, fn: _t.Callable, tasks: _t.Sequence, local: _t.Any, **kw) -> list:
@@ -295,6 +320,27 @@ class WorkPool:
             return got
         return [fn(local, t) for t in _pulse.each(list(tasks), kw.get("what") or "pool",
                                                  kw.get("unit", ""))]
+
+
+class Pending:
+    """Tasks a pool is working on (:meth:`WorkPool.begin`).
+    :meth:`collect` is the second half of :meth:`WorkPool.try_map`: the
+    answers in INPUT order, or ``None`` when the pool stopped answering —
+    once; a second call returns what the first did."""
+
+    def __init__(self, pool: WorkPool, futs: dict, n: int, what: str, unit: str) -> None:
+        self.pool, self.futs, self.n = pool, futs, n
+        self.what, self.unit = what, unit
+        self._got: list | None = None
+        self._done = False
+
+    def collect(self) -> list | None:
+        if not self._done:
+            try:
+                self._got = self.pool._collect(self)
+            finally:
+                self._done = True
+        return self._got
 
 
 # ── arrays every worker reads, shipped once ──────────────────────────────

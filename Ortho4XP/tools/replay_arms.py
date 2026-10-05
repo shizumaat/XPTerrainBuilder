@@ -25,8 +25,8 @@ Pure: no engine import, no file read.  Twin:
 """
 from __future__ import annotations
 
-__all__ = ["ARM_FLAGS", "CONTEXTS", "EFFECT", "arm_gate", "context_of",
-           "given_arms", "takes_effect"]
+__all__ = ["ARM_FLAGS", "CONTEXTS", "EFFECT", "PSEUDO_GENERATORS", "arm_gate",
+           "context_of", "drop_gate", "given_arms", "takes_effect"]
 
 #: every run the tool can make, in ``main()``'s own dispatch order
 #: (the first that matches wins): ``mode`` or ``mode/<--from stage>``
@@ -144,3 +144,27 @@ def arm_gate(context: str, arms: dict[str, str]) -> list[str]:
     label = _LABEL.get(context, "REPLAY")
     return [f"{label} ARM {f} {v} (takes effect at {context})"
             for f, v in arms.items()]
+
+
+#: ``--drop-generator`` names that are no row's generator: a CHANNEL EDIT
+#: the replay drops by name before the solve (the EAT's §36 (5) trend
+#: withdrawal; ``eat_anchor_rect`` is the EAT rows' own generator)
+PSEUDO_GENERATORS: tuple[str, ...] = ("eat_ramp_reach",)
+
+
+def drop_gate(drop, generators, heads) -> None:
+    """REFUSE a ``--drop-generator`` name that is no known generator, no
+    ruling head and no pseudo-generator (issue #420): such a name dropped
+    NOTHING and said nothing, so the run was reported under an arm that
+    was never applied.  ``generators`` / ``heads`` are the names the
+    caller's constraint set (and generator register) can drop by; the
+    refusal lists them.  Nothing is printed here."""
+    gens = set(generators) | set(PSEUDO_GENERATORS)
+    heads = set(heads)
+    unknown = [d for d in drop if d not in gens and d not in heads]
+    if unknown:
+        raise SystemExit(
+            f"REFUSED: --drop-generator {' '.join(unknown)} names no "
+            f"generator and no ruling head — it would drop nothing.  "
+            f"Known generators: {', '.join(sorted(gens))}.  "
+            f"Known ruling heads: {', '.join(sorted(heads)) or '-'}")

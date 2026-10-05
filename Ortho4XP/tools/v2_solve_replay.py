@@ -1264,6 +1264,32 @@ def _vkey(pm, vid: int) -> str:
     return f"{lat:.11f},{lon:.11f}"
 
 
+def drop_rows(cs, drop: list[str], check: bool = True):
+    """``cs`` without the rows ``--drop-generator`` names — a name is a
+    GENERATOR or a RULING HEAD (``design_roles.ruling_head``, the key
+    ``[design] hard_rulings`` names a law by).  ONE filter for every
+    assembly site.  ``check``: REFUSE first (``replay_arms.drop_gate``,
+    issue #420) a name that is none of this set's generators or heads, nor
+    a registered generator or pseudo-generator; ``False`` for a set
+    derived beside an already-checked one (the ribbon-free stage-1 map,
+    which can lack a ribbon generator's rows)."""
+    from auto_patch_v2.model.constraints import ConstraintSet
+    from auto_patch_v2.solve.design_roles import ruling_head
+    rows = cs.rows()
+    if check:
+        from auto_patch_v2.constraints import GENERATORS
+        _tools_dir = str(ROOT / "tools")
+        if _tools_dir not in sys.path:
+            sys.path.insert(0, _tools_dir)
+        import replay_arms as _arms
+        _arms.drop_gate(drop, {r.source.generator for r in rows}
+                        | {n for n, _g in GENERATORS},
+                        {ruling_head(r) for r in rows})
+    return ConstraintSet.from_rows([r for r in rows
+                                    if r.source.generator not in drop
+                                    and ruling_head(r) not in drop])
+
+
 def stage1_population(pkl: Path, drop: list[str], out: Path,
                       design_weights: dict | None = None,
                       from_capture: bool = False, resume: str = "constraints",
@@ -1286,7 +1312,6 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
     import gzip
 
     from auto_patch_v2.law import Law
-    from auto_patch_v2.model.constraints import ConstraintSet
     from auto_patch_v2.solve.design import assemble, stage_split
     from auto_patch_v2.solve.design_report import DesignReport
     from auto_patch_v2.solve.design_roles import (airside_stage_roles,
@@ -1334,10 +1359,7 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
         if drop:
             # a name is a GENERATOR or a RULING HEAD, as in the replay
             # prelude (issue #321: a head named here dropped NOTHING)
-            from auto_patch_v2.solve.design_roles import ruling_head
-            cs = ConstraintSet.from_rows([r for r in cs.rows()
-                                          if r.source.generator not in drop
-                                          and ruling_head(r) not in drop])
+            cs = drop_rows(cs, drop)
     drop_v, foreign = stage_split(pm, cs, law)
     rep = DesignReport()
     s_roles = airside_stage_roles(law)          # the §20b dispatch's own arm
@@ -1830,7 +1852,6 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     import numpy as np  # noqa: F401  (the prelude's imports are the replay's)
     from auto_patch_v2.airport.road_profile import preferred_road_z
     from auto_patch_v2.law import Law
-    from auto_patch_v2.model.constraints import ConstraintSet
     from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps, shape_constraints, shape_stage
     from auto_patch_v2.planar.build import build as build_planar
@@ -2112,10 +2133,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         # the key ``[design] hard_rulings`` names a law by): the frontage
         # hold's rows are minted by ``platform_collar`` beside the collar's
         # own, so the hold-OFF arm (flat-pad v2 §1 pass 1a) names its head
-        from auto_patch_v2.solve.design_roles import ruling_head
-        cs = ConstraintSet.from_rows([r for r in cs.rows()
-                                      if r.source.generator not in drop
-                                      and ruling_head(r) not in drop])
+        cs = drop_rows(cs, drop)
     # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
     # THIS prelude re-run on the classification without ribbons
     # (``pipeline/stage_one_map``); ``None`` when the map carries no ribbon
@@ -2144,11 +2162,8 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             st0 = shape_stage(_targets(_dc.replace(pm0, preferred_z=pref0)), law,
                               airport, cl0, out=lambda m: None)
             cs0, _c0, _w0 = shape_constraints(st0.pm, law, airport, st0)
-            if drop:
-                from auto_patch_v2.solve.design_roles import ruling_head
-                cs0 = ConstraintSet.from_rows([r for r in cs0.rows()
-                                               if r.source.generator not in drop
-                                               and ruling_head(r) not in drop])
+            if drop:                   # the names were checked on the full map
+                cs0 = drop_rows(cs0, drop, check=False)
             return (st0.pm, cs0, jetway_strips(st0.pm, law, airport, cs0,
                                                rider_candidates(airport, law)),
                     hold_pass(st0.pm, law))

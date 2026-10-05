@@ -50,7 +50,7 @@ from .obj8_clip import _bulk_polys, _clip_component
 
 __all__ = ["SkirtReading", "reading", "skirt_depth", "is_skirt",
            "below_zero_perimeter_fraction", "footprint", "placement_footprint",
-           "ring_relief_m", "skirted_placements"]
+           "ring_relief_m", "skirted_placements", "below_zero_reading"]
 
 
 @_dc.dataclass(frozen=True)
@@ -174,7 +174,6 @@ def reading(cache: _obj8.ResourceCache, path: str, law) -> SkirtReading:
 
 
 def _read(cache: _obj8.ResourceCache, path: str, law) -> SkirtReading:
-    sk = law.tables.structures.skirt
     geom = cache.geometry(path)
     if geom is None or geom.solid.shape[0] == 0:
         return _NO_GEOMETRY
@@ -183,6 +182,17 @@ def _read(cache: _obj8.ResourceCache, path: str, law) -> SkirtReading:
     min_y = cache.y_range(path)[0]
     if not (min_y < -1e-9):
         return _dc.replace(_NO_GEOMETRY, reason="no below-zero geometry")
+    ahead = _obj8.read_ahead(cache, "skirt", path)
+    return ahead if ahead is not None else below_zero_reading(cache, path, law)
+
+
+def below_zero_reading(cache: _obj8.ResourceCache, path: str, law) -> SkirtReading:
+    """The reading of a resource that HAS below-zero geometry — everything
+    after :func:`_read`'s O(n) pre-screen, and all of its cost (the plan
+    union).  Reads the parse and the law only, never a stored memo, so a
+    work-pool worker derives the same record (``airport/pack_work.py``)."""
+    sk = law.tables.structures.skirt
+    geom = cache.geometry(path)
     fp = footprint(cache, path)
     if fp is None:
         return _dc.replace(_NO_GEOMETRY, below_zero=True, reason="no footprint")

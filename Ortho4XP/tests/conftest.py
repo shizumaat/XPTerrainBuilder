@@ -1196,6 +1196,16 @@ def pytest_configure(config):
     Discovering the missing path at the first offending test would throw
     away everything measured before it — and under xdist, on a worker
     whose error is easy to miss."""
+    # THE v2 WORK POOL IS SERIAL IN THE SUITE (issue #362, lane ``parpack``):
+    # a build uses every core (``auto_patch_v2/airport/pool.py``); a suite
+    # under xdist must not spawn eighteen interpreters per fixture.  Pinned
+    # in THIS HOOK — never at import (``tools/harness/build_airport.py``
+    # imports this file, and a real build would then run on one core) and
+    # never sniffed by the engine (``"pytest" in sys.modules`` is true in a
+    # harness build for the same reason: measured, lane ``parpack``).  A
+    # test that wants a pool asks for one (``WorkPool(workers=N)``).
+    from auto_patch_v2.airport import pool as _v2_pool
+    _v2_pool.configure(1)
     if os.environ.get("O4_SUITE_WRITE_AUDIT", "0") != "1":
         return
     out = os.environ.get("O4_SUITE_WRITE_AUDIT_OUT", "").strip()

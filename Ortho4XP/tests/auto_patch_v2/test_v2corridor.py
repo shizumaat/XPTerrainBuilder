@@ -29,7 +29,8 @@ import dataclasses as _dc
 import math
 
 from auto_patch_v2.airport import obj8
-from auto_patch_v2.airport.wall_corridors import CLASS_LEVEL, read_wall_corridors
+from auto_patch_v2.airport.wall_corridors import CLASS_LEVEL
+from auto_patch_v2.airport.wall_family import read_wall_corridors
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.planar.wall_corridor_ramps import wall_corridor_groups

@@ -45,6 +45,7 @@ from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from ..model import pulse as _pulse
 from ..planar.build import build as build_planar
+from ..planar.pack_reads import pool_report as _pack_read_pool
 from ..solve import DesignReport, Options, Solution, solve_design
 from .publication import face_tags, publication
 from . import xplat as _xplat
@@ -365,7 +366,11 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     ``wall`` the stage seconds by part (``read``, ``partition``,
     ``groups``, ``clusters``, ``total``).  ``write_cache=False`` reads a
     cached partition but never writes one (the dry ``planar --stage
-    structures`` replay, issue #75: a replay writes nothing shared)."""
+    structures`` replay, issue #75: a replay writes nothing shared).
+    ``pool`` is the stage's work pool's own account (``airport/pool.py``
+    ``WorkPool.report``: workers, parallel, fell_back, reason, wall_s,
+    tasks) — said on the ``[pool]`` line too, so a stage that ran on one
+    core cannot read as a pooled one."""
     wall: dict[str, float] = {}
     _sub: dict[str, float] = {}
     t = time.perf_counter()
@@ -410,6 +415,11 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # the write is that cache's class and not a ``--refresh-data`` act).
     # ``_derive_groups`` reads the DEM and is NEVER cached.
     from ..airport import partition_cache as _pcache
+    # THE STAGE'S WORK POOL (issue #362): opened here so its lines reach
+    # the build log through ``out`` and its account reaches the report;
+    # lazily started, so a cache HIT spawns nothing
+    from ..airport.pack_work import open_pool as _open_pool
+    _wpool = _open_pool(law, ocache, out=lambda m: _say("  " + m, out))
     _fp = _pcache.fingerprint(airport, law, dump_path=lrep.dsf_dump_path,
                               radius_deg=inputs.radius_deg,
                               pristine=getattr(inputs, "pack_pristine", None))
@@ -423,19 +433,9 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _say(f"  [partition] cache OFF (no pack, dump or mod-cache root)", out)
     if _hit is not None:
         pack_objects, pack_report, _part, _cached_clusters, _derived = _hit
-        # THE ONE ``ResourceCache`` IS PUT BACK WHERE THE PARTITION LEFT
-        # IT (owner RULINGS 2026-09-14v item 2): a hit that skips the
-        # pack reading leaves the cache EMPTY, and classify then re-runs
-        # ``read_objects`` (its ``placed["objects"]`` memo) and re-derives
-        # every skirt reading — 68 s that simply moved stage.  The
-        # placements and the small per-resource readings are restored;
-        # the parsed geometry is not cached and is re-parsed on demand.
-        ocache.placed["objects"] = (pack_objects, pack_report)
-        _nd = ocache.restore_derived(_derived)
-        # the revived partition's members are RECIPES: bind this run's cache
-        _g = getattr(_part, "geom", None)
-        if _g is not None and hasattr(_g.members, "bind"):
-            _g.members.bind(ocache)
+        # the reading goes back on the ONE ``ResourceCache`` (RULINGS
+        # 2026-09-14v item 2 — ``partition_cache.put_back`` carries it)
+        _nd = _pcache.put_back(ocache, _hit)
         _rd = _pcache.resolved_digest(airport)
         _say(f"  [partition] cache HIT {_cpath} ({_nd} resource reading(s) "
              f"restored; resolved {_rd[0]} sha {_rd[1][:12]})", out)
@@ -452,14 +452,19 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
             _say(f"  [partition] cache MISS {_cpath} (resolved {_rd[0]} sha "
                  f"{_rd[1][:12]}){_why}", out)
         _cached_clusters = None
-        _t = time.perf_counter()
-        _pulse.tick("reading the pack's objects")
-        pack_objects, pack_report = _read_objects(airport, law, ocache)
-        _sub["read"] = time.perf_counter() - _t
-        _t = time.perf_counter()
-        _pulse.tick("partitioning the pack")
-        _part = _partition_pack(airport, pack_objects, ocache, law)
-        _sub["partition"] = time.perf_counter() - _t
+        try:                # the workers never outlive a stage that raised
+            _t = time.perf_counter()
+            _pulse.tick("reading the pack's objects")
+            pack_objects, pack_report = _read_objects(airport, law, ocache,
+                                                      pool=_wpool)
+            _sub["read"] = time.perf_counter() - _t
+            _t = time.perf_counter()
+            _pulse.tick("partitioning the pack")
+            _part = _partition_pack(airport, pack_objects, ocache, law, pool=_wpool)
+            _sub["partition"] = time.perf_counter() - _t
+        except BaseException:
+            _wpool.close()
+            raise
     # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
     # 2026-09-11j; spec §11 (4) "the emitted surface stays lawful").  The
     # terrain under an object's feet is GROUND, and the slope a pilot
@@ -490,51 +495,57 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         z = float(z)
         return None if z != z else z        # NaN outside the raster
 
-    _bank = float(law.tables.emit.design.bank_slope)
-    _t = time.perf_counter()
-    _pulse.tick("deriving the pack's groups")
-    _groups = _derive_groups(_part, _span_max(law), _bank,
-                             dem_at=_dem_at, bank_slope=_bank)
-    _sub["groups"] = time.perf_counter() - _t
-    # §16g / §30 (4) THE TERMINAL CLUSTERS (owner RULINGS 2026-09-13bj
-    # item 1, 13bo): the FOOTPRINT UNITS whose union passes
-    # ``[placement] cluster_pad_min_m2``, derived from the same partition
-    # so the design surface's pad and the object stage's unit are one
-    # relation.  Carried on the airport because ``constraints`` may not
-    # import ``planar``.
-    from ..planar.cluster import clusters as _derive_clusters
-    # unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
-    # CONNECTOR VERDICT, derived on the DEM and STAMPED on the partition —
-    # ``plan_clusters`` reads it here and the rebake plan carries it to the
-    # object stage.  It reads the DEM, which the partition cache does not
-    # fingerprint, so it is derived fresh on every build and a cached
-    # cluster set derived under a different verdict is re-derived.
-    from ..planar.cluster import connector_verdicts as _cverdicts
-    _t = time.perf_counter()
-    _pulse.tick("reading the connectors")
-    _stamped = getattr(_part, "connectors", None)
-    _verdicts = _cverdicts(_dc.replace(airport, partition=_dc.replace(
-        _part, connectors=None)), law)
-    _sub["connectors"] = time.perf_counter() - _t
-    if _cached_clusters is not None and _stamped != _verdicts:
-        _cached_clusters = None
-    _part = _dc.replace(_part, connectors=_verdicts)
-    _say(f"  [connectors] {len(_verdicts)} connector(s): "
-         f"{sum(1 for v in _verdicts if v.solid)} SOLID, "
-         f"{sum(1 for v in _verdicts if not v.solid)} CUT", out)
-    if _cached_clusters is not None:
-        _clusters = _cached_clusters
-    else:
+    # the pool stays open through the clusters (their profile compositions
+    # are pooled, issue #362) and never outlives a stage that raised
+    try:
+        _bank = float(law.tables.emit.design.bank_slope)
         _t = time.perf_counter()
-        _pulse.tick("deriving the terminal clusters")
-        _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
-        _sub["clusters"] = time.perf_counter() - _t
-        if write_cache and _pcache.write(_cpath, _fp,
-                         (pack_objects, pack_report, _part, _clusters,
-                          ocache.derived_state())):
-            _rd = _pcache.resolved_digest(airport)
-            _say(f"  [partition] cache WROTE {_cpath} (resolved {_rd[0]} "
-                 f"sha {_rd[1][:12]})", out)
+        _pulse.tick("deriving the pack's groups")
+        _groups = _derive_groups(_part, _span_max(law), _bank,
+                                 dem_at=_dem_at, bank_slope=_bank)
+        _sub["groups"] = time.perf_counter() - _t
+        # §16g / §30 (4) THE TERMINAL CLUSTERS (owner RULINGS 2026-09-13bj
+        # item 1, 13bo): the FOOTPRINT UNITS whose union passes
+        # ``[placement] cluster_pad_min_m2``, derived from the same partition
+        # so the design surface's pad and the object stage's unit are one
+        # relation.  Carried on the airport because ``constraints`` may not
+        # import ``planar``.
+        from ..planar.cluster import clusters as _derive_clusters
+        # unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
+        # CONNECTOR VERDICT, derived on the DEM and STAMPED on the partition —
+        # ``plan_clusters`` reads it here and the rebake plan carries it to the
+        # object stage.  It reads the DEM, which the partition cache does not
+        # fingerprint, so it is derived fresh on every build and a cached
+        # cluster set derived under a different verdict is re-derived.
+        from ..planar.cluster import connector_verdicts as _cverdicts
+        _t = time.perf_counter()
+        _pulse.tick("reading the connectors")
+        _stamped = getattr(_part, "connectors", None)
+        _verdicts = _cverdicts(_dc.replace(airport, partition=_dc.replace(
+            _part, connectors=None)), law, pool=_wpool)
+        _sub["connectors"] = time.perf_counter() - _t
+        if _cached_clusters is not None and _stamped != _verdicts:
+            _cached_clusters = None
+        _part = _dc.replace(_part, connectors=_verdicts)
+        _say(f"  [connectors] {len(_verdicts)} connector(s): "
+             f"{sum(1 for v in _verdicts if v.solid)} SOLID, "
+             f"{sum(1 for v in _verdicts if not v.solid)} CUT", out)
+        if _cached_clusters is not None:
+            _clusters = _cached_clusters
+        else:
+            _t = time.perf_counter()
+            _pulse.tick("deriving the terminal clusters")
+            _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law,
+                                         pool=_wpool)
+            _sub["clusters"] = time.perf_counter() - _t
+            if write_cache and _pcache.write(_cpath, _fp,
+                             (pack_objects, pack_report, _part, _clusters,
+                              ocache.derived_state())):
+                _rd = _pcache.resolved_digest(airport)
+                _say(f"  [partition] cache WROTE {_cpath} (resolved {_rd[0]} "
+                     f"sha {_rd[1][:12]})", out)
+    finally:
+        _wpool.close()
     airport = _dc.replace(airport, partition=_part, groups=_groups,
                           clusters=_clusters)
     # §16g (8)/(9) (owner RULINGS 2026-09-14w): the cluster count, SAID.
@@ -567,6 +578,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
              f"read DECK, shade {_ds['area_m2']:,.0f} m2  ("
              + ", ".join(f"{q['resource']} {q['ratio']}" for q in _ds["members"])
              + ")", out)
+    _say("  " + _wpool.line(), out)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
          f"members {_part.counts['members']}  parts {_part.counts['parts']}  "
@@ -580,7 +592,8 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     return {"airport": airport, "ocache": ocache, "objects": pack_objects,
             "report": pack_report, "partition": _part, "groups": _groups,
             "clusters": _clusters, "cache": _cstate,
-            "wall": {**_sub, "total": wall["partition"]}}
+            "wall": {**_sub, "total": wall["partition"]},
+            "pool": _wpool.report()}
 
 
 def build(icao: str, inputs: Inputs, out_dir: str | Path,
@@ -1434,6 +1447,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     wall["total"] = time.perf_counter() - t_build
     wall["unclocked"] = wall["total"] - _staged
     report["wall_s"] = {k: round(v, 3) for k, v in wall.items()}
+    # the work pools' own account, per stage (clocks and head counts: never
+    # in a digest — ``pipeline/xplat.py`` reads the model, not this report)
+    report["pool"] = {"pack": _ps["pool"], "planar": _pack_read_pool(ocache)}
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     if _xp:
         # The dump is a READ of the stages already held — it prices no law

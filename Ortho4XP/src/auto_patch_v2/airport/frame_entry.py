@@ -67,8 +67,8 @@ from shapely.errors import GEOSException
 from shapely.ops import unary_union
 
 __all__ = ["enter", "union", "transform", "quantum", "IDENTITY",
-           "rung_counts", "reset_rung_counts", "rung_note",
-           "set_offender_dump_dir"]
+           "rung_counts", "reset_rung_counts", "add_rung_counts",
+           "rung_note", "set_offender_dump_dir", "offender_dump_dir"]
 
 #: The affine of a geometry that is ALREADY in the frame — ``enter`` with
 #: this matrix is the repair alone (``obj8._transformed``'s old identity
@@ -270,6 +270,12 @@ def set_offender_dump_dir(path: str | None) -> None:
     _DUMP_DIR = str(path or "")
 
 
+def offender_dump_dir() -> str:
+    """Where the offender dump is armed (``""`` = disarmed) — what a
+    work-pool worker is armed with, so the instrument reads its unions too."""
+    return _DUMP_DIR
+
+
 def _dump(site: str | None, parts) -> None:
     import os
     name = (site or "unnamed").replace("/", "_")
@@ -300,6 +306,21 @@ def rung_counts() -> dict[str, tuple[int, int]]:
 
 def reset_rung_counts() -> None:
     _RUNGS.clear()
+
+
+def add_rung_counts(counts: _t.Mapping[str, _t.Sequence[int]]) -> None:
+    """Charge :func:`rung_counts` read in ANOTHER process to this one's, so
+    the report reads the sum it reads on one core.  ``airport/pool.py``
+    brings every worker task's rungs home with its answer (``try_map`` and
+    ``begin`` / ``collect`` alike), so a task function need not carry them;
+    one that does (``reader_work.read``, whose answer may be discarded)
+    resets its worker's count as it hands them over, so none is charged
+    twice."""
+    for site, (grid, buf) in counts.items():
+        if grid or buf:
+            row = _RUNGS.setdefault(site, [0, 0])
+            row[0] += int(grid)
+            row[1] += int(buf)
 
 
 def rung_note() -> str:

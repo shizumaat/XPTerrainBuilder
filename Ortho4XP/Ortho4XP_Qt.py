@@ -31,6 +31,23 @@ sys.path.append(os.path.join(Ortho4XP_dir, "src"))
 import O4_Console_Encoding
 O4_Console_Encoding.configure_console_streams()
 
+# THEN, before any dispatch: claim the multiprocessing spawn bootstrap — the
+# same call, for the same reason, as in Ortho4XP.py.  On Windows and Linux
+# THIS file is the frozen engine: a spawned worker (the auto-patch airport
+# pool and its Manager, the v2 work pool of issue #362, the resource tracker)
+# is this executable re-exec'd as `Ortho4XP_Qt --multiprocessing-fork …`, and
+# PyInstaller's rthook only DEFINES multiprocessing.freeze_support as the
+# diverter.  Without this call the child falls through every dispatch below
+# and starts the Qt application: one window per worker, a parent that never
+# hears from them (measured, lane `frozenpool`: every pool FELL BACK with
+# "a worker died" and the airport pool's Manager raised EOFError).  From
+# source it is a no-op.  After the console pin and nothing else: the
+# diverted child never returns, so its streams are pinned first.  Parity
+# twin: tests/test_frozen_spec_parity.py.
+if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
+
 # The frozen bundle carries two independent libproj copies (pyproj's wheel and
 # GDAL's), each with its own proj.db: each must read the database it shipped
 # with, and the user's PROJ_LIB/PROJ_DATA must not redirect either
@@ -71,6 +88,13 @@ if __name__ == "__main__" and "--proj-selfcheck" in sys.argv:
     _proj_error = O4_Proj_Runtime.preflight()
     print(_proj_error if _proj_error else "PROJ selfcheck OK")
     sys.exit(1 if _proj_error else 0)
+
+# The work pool"s self-check as a CLI (issue #362, RULINGS 2026-10-05d): the
+# frozen bundle spawns workers of ITSELF, shares memory with them and nests
+# under the airport pool — src/O4_Pool_Selfcheck.py carries the argument.
+if __name__ == "__main__" and "--pool-selfcheck" in sys.argv:
+    import O4_Pool_Selfcheck
+    sys.exit(O4_Pool_Selfcheck.main(sys.argv))
 
 # THE LERC DECODE WORKER (owner RULINGS 2026-09-12as (3) / 2026-09-13a (1)):
 # the elevation inset fetcher spawns ``sys.executable --lerc-decode IN OUT``

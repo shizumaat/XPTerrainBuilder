@@ -1940,8 +1940,11 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
     if resume in ("classify", "planar"):
+        _pt = time.perf_counter()
         pm, _ps = build_planar(airport, cl, law, cache=_ocache, objects=_objs,
                                object_report=_orep, rim_diagnostics=rim_diagnostics)
+        print(f"[{icao}] planar stage {time.perf_counter() - _pt:.1f} s "
+              f"(work-pool budget {pool_budget()})")
         if rim_diagnostics:
             for _ln in rim_diagnostic_lines(pm):
                 print(f"[{icao}] {_ln}")
@@ -2366,6 +2369,17 @@ def _design_value(v: str):
         return v.strip()
 
 
+def pool_budget(workers: int | None = None) -> int:
+    """``--workers N``: pin the work-pool budget of this replay
+    (``auto_patch_v2/airport/pool.configure``; 1 = every stage on one core)
+    and return the budget in force — the derived one when ``workers`` is
+    ``None``.  A worker count changes seconds, never a product."""
+    from auto_patch_v2.airport import pool as _pool
+    if workers is not None:
+        _pool.configure(workers)
+    return _pool.budget()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--capture", metavar="ICAO")
@@ -2435,6 +2449,10 @@ def main() -> int:
                          "the PAD READ (pad/airside arrangement counters, building vs "
                          "airside area, weld population, pad_cluster_mismatch, the "
                          "pad ref under each --site) and stop before the solve")
+    ap.add_argument("--workers", type=int, default=None, metavar="N",
+                    help="pin the work-pool budget of this replay (1 = one core; "
+                         "default: every core) — the serial / pooled arms of one "
+                         "capture; the planar stage's seconds are printed with it")
     ap.add_argument("--rim-diagnostics", action="store_true",
                     help="DRY: with --from classify/planar, re-run the stage WITH the "
                          "basins' rim readings (04i rule 3 open stations; §24 (1) (a) "
@@ -2507,6 +2525,8 @@ def main() -> int:
                          "matched pair (e.g. --probe-arm solver=fixed_point "
                          "--probe-arm solver=qp).  Default: the shipped law alone")
     a = ap.parse_args()
+    if a.workers is not None:
+        print(f"REPLAY ARM [pool] --workers {a.workers}: budget {pool_budget(a.workers)}")
     if os.environ.get("O4_FRAME_ENTRY_DUMP"):
         # §51 (5) T2's offender dump: v2 reads no environment, the ENTRY arms it
         from auto_patch_v2.airport import frame_entry as _frame_entry

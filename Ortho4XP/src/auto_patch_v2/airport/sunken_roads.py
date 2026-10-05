@@ -58,7 +58,8 @@ from . import obj8 as _obj8
 from .deck_signature import family_key
 from .tunnel_objects import _rect_axis
 
-__all__ = ["RoadStation", "SunkenRoadRecord", "SunkenRoadStats", "read_sunken_roads",
+__all__ = ["RoadStation", "SunkenRoadRecord", "SunkenRoadStats", "RoadReader",
+           "read_sunken_roads", "road_families", "road_reader", "read_family", "assemble",
            "ID_PREFIX"]
 
 ID_PREFIX = "sunken-road"
@@ -283,178 +284,246 @@ def _interp(prof, s: float, k: int) -> float:
     return float(prof[-1][k])
 
 
+@_dc.dataclass
+class RoadReader:
+    """What every family's reading takes besides its members
+    (:func:`road_reader`): the inputs of ONE read of the sunken roads, every
+    boxed placement of the pack (the cover over a plate is any object's,
+    not the family's) and ``cover`` — the above-grade footprint per
+    placement id, asked for once per read."""
+
+    airport: Airport
+    cache: _obj8.ResourceCache
+    law: Law
+    boxed: list
+    bbox_tree: _t.Any
+    #: the frame's ``to_ll`` — two pyproj transformers to build, so ONCE per
+    #: reader, never per family (KASE: 2,191 families, 12 s of a 0.3 s read)
+    to_ll: _t.Any
+    cover: dict = _dc.field(default_factory=dict)
+
+
+def road_reader(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
+                cache: _obj8.ResourceCache, law: Law) -> RoadReader:
+    boxed = [o for o in objects if o.plan_bbox is not None]
+    return RoadReader(airport, cache, law, boxed,
+                      STRtree([o.plan_bbox for o in boxed]) if boxed else None,
+                      airport.frame.transformers()[1])
+
+
+def road_families(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
+                  law: Law) -> tuple[int, list[tuple[tuple, list[int]]]]:
+    """THE INTAKE: ``(placements read, [(family key, the members' positions
+    in objects), …])``, the families in sorted key order — the order
+    :func:`assemble` takes their readings in — and each family's members in
+    the order ``objects`` has them."""
+    sr = law.tables.structures.cutout.sunken_road
+    placements = 0
+    fams: dict[tuple, list[int]] = {}
+    for k, o in enumerate(objects):
+        if o.resolved is None or _obj8.is_stock_library_resource(o.path):
+            continue
+        placements += 1
+        vmin = cache.y_range(o.resolved)[0]
+        # the pre-screen: a member with nothing min_descent_m under its own
+        # seat plane cannot carry a plate that descends that far
+        if vmin == math.inf or vmin > -sr.min_descent_m:
+            continue
+        fams.setdefault(family_key(o), []).append(k)
+    return placements, sorted(fams.items(), key=lambda kv: kv[0])
+
+
+def assemble(placements: int, readings: _t.Iterable[tuple]
+             ) -> tuple[list[SunkenRoadRecord], SunkenRoadStats]:
+    """The families' readings (:func:`read_family`), taken in sorted family
+    order, as ONE reading: the counters summed, the refusals concatenated
+    and each road given the next ``@k`` of its resource — in exactly the
+    order one loop over the families assigned them."""
+    stats = SunkenRoadStats(placements=placements)
+    out: list[SunkenRoadRecord] = []
+    k_by_res: dict[str, int] = {}
+    for fam, roads in readings:
+        stats.families += fam.families
+        stats.plates += fam.plates
+        stats.refused.extend(fam.refused)
+        for resource, name, road in roads:
+            k = k_by_res.get(resource, 0)
+            k_by_res[resource] = k + 1
+            out.append(_dc.replace(road, id=f"{ID_PREFIX}:{name}@{k}"))
+            stats.roads += 1
+    out.sort(key=lambda r: r.id)
+    return out, stats
+
+
 def read_sunken_roads(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                       cache: _obj8.ResourceCache, law: Law
                       ) -> tuple[list[SunkenRoadRecord], SunkenRoadStats]:
     """Every sunken road the pack's object families state (module doc)."""
     t0 = time.perf_counter()
+    rd = road_reader(airport, objects, cache, law)
+    placements, fams = road_families(objects, cache, law)
+    out, stats = assemble(placements, (
+        read_family(rd, [objects[k] for k in ks])
+        for _fk, ks in _pulse.each(fams, "sunken roads", "families")))
+    stats.read_s = time.perf_counter() - t0
+    return out, stats
+
+
+def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
+                ) -> tuple[SunkenRoadStats, list[tuple[str, str, SunkenRoadRecord]]]:
+    """ONE FAMILY's reading (rules 1-4): its own stats (whether it carries
+    faces, its plates, its refusals) and ``(resource, name, the road
+    without its id)`` per road, largest plate first.  It reads its members,
+    the placements whose box reaches a plate, the DEM, the parsed resources
+    and the law — NOTHING of another family: the ``@k`` of a road's id is
+    assigned by :func:`assemble`, and ``rd.cover`` only spares a second
+    asking."""
+    airport, cache, law = rd.airport, rd.cache, rd.law
+    boxed, bbox_tree, cover_cache = rd.boxed, rd.bbox_tree, rd.cover
     stats = SunkenRoadStats()
     bl = law.tables.structures.basin
     sr = law.tables.structures.cutout.sunken_road
     tn = law.tables.structures.tunnel
     ob = tn.object
     dem_z = airport.dem.z
-    to_ll = airport.frame.transformers()[1]
-    fams: dict[tuple, list[_obj8.PlacedObject]] = {}
-    boxed = [o for o in objects if o.plan_bbox is not None]
-    bbox_tree = STRtree([o.plan_bbox for o in boxed]) if boxed else None
-    cover_cache: dict[str, object] = {}
+    to_ll = rd.to_ll
     # a ROAD surface is flatter than the ramp law: faces steeper than
     # tunnel.ramp_max_grade are banks and ramps' walls, never the floor
     # (measured OTHH: the drainage bowls' 20 % banks pass the 0.7 floor gate)
     normal_min = max(bl.floor_plate_normal_y_min, 1.0 / math.sqrt(1.0 + tn.ramp_max_grade ** 2))
-    for o in objects:
-        if o.resolved is None or _obj8.is_stock_library_resource(o.path):
+    out: list[tuple[str, str, SunkenRoadRecord]] = []
+    faces: list[tuple[Polygon, float, float]] = []
+    belows = []
+    owner_of: list[_obj8.PlacedObject] = []
+    for o in members:
+        f, b = _faces_below(o, cache, dem_z, law, normal_min, sr.top_depth_m)
+        faces.extend(f)
+        belows.extend(b)
+        owner_of.extend([o] * len(f))
+    if not faces:
+        return stats, out
+    stats.families += 1
+    u = _fe.union([f for f, _z, _a in faces], "sunken_roads.faces")
+    parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon"
+             and g.area >= sr.min_plate_m2]
+    if not parts:
+        return stats, out
+    tree = STRtree([f for f, _z, _a in faces])
+    # the TFFJ abort (lane ``roadclampscope``, 2026-09-18): a
+    # non-noded intersection between a segment and its own reverse
+    # inside the exact overlay of PLACED below-ground footprints
+    region_u = _fe.union(belows, "sunken_roads.belows") if belows else None
+    if region_u is not None:
+        region_u = region_u.buffer(bl.footprint_close_m, **_MITRE).buffer(
+            -bl.footprint_close_m, **_MITRE)
+    for part in sorted(parts, key=lambda g: -g.area):
+        stats.plates += 1
+        plate = Polygon(part.exterior.coords)
+        la, lo = to_ll(*plate.centroid.coords[0])
+        site = f"{la:.6f},{lo:.6f}"
+        own = [o for o, (f, _z, _a) in zip(owner_of, faces) if f.intersects(plate)]
+        o0 = max(own, key=lambda o: sum(1 for q in own if q is o)) if own else members[0]
+        name = os.path.basename(o0.path)
+        ra = _rect_axis(plate)
+        if ra is None:
             continue
-        stats.placements += 1
-        vmin = cache.y_range(o.resolved)[0]
-        # the pre-screen: a member with nothing min_descent_m under its own
-        # seat plane cannot carry a plate that descends that far
-        if vmin == math.inf or vmin > -sr.min_descent_m:
+        length, width, a, b = ra
+        axis = LineString([a, b])
+        prof = _profile(axis, faces, tree, dem_z, sr.station_m, ob.plate_bin_m, width)
+        rows = [r for r in prof if r[1] is not None]
+        if len(rows) < 2:
+            stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 leaves fewer "
+                                 f"than two profile stations")
             continue
-        fams.setdefault(family_key(o), []).append(o)
-    out: list[SunkenRoadRecord] = []
-    k_by_res: dict[str, int] = {}
-    for fk, members in _pulse.each(sorted(fams.items(), key=lambda kv: kv[0]),
-                                   "sunken roads", "families"):
-        faces: list[tuple[Polygon, float, float]] = []
-        belows = []
-        owner_of: list[_obj8.PlacedObject] = []
-        for o in members:
-            f, b = _faces_below(o, cache, dem_z, law, normal_min, sr.top_depth_m)
-            faces.extend(f)
-            belows.extend(b)
-            owner_of.extend([o] * len(f))
-        if not faces:
+        depths = [(r[0], r[4] - r[1]) for r in rows]
+        d_first, d_last = depths[0][1], depths[-1][1]
+        deep_end = 1 if d_last >= d_first else 0
+        shallow = min(d_first, d_last)
+        deepest = max(d for _s, d in depths)
+        if deepest - shallow < sr.min_descent_m:
+            stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 is LEVEL "
+                                 f"(descent {deepest - shallow:.2f} m < min_descent_m "
+                                 f"{sr.min_descent_m}) — a basement or a pit, the basin pass's")
             continue
-        stats.families += 1
-        u = _fe.union([f for f, _z, _a in faces], "sunken_roads.faces")
-        parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon"
-                 and g.area >= sr.min_plate_m2]
-        if not parts:
+        if shallow > bl.contact_band_m:
+            stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 ({length:.0f} x "
+                                 f"{width:.0f} m) reaches no grade end: its shallow end lies "
+                                 f"{shallow:.2f} m under the ground (> contact_band_m "
+                                 f"{bl.contact_band_m}) — a basement or a pit, the basin pass's")
             continue
-        tree = STRtree([f for f, _z, _a in faces])
-        # the TFFJ abort (lane ``roadclampscope``, 2026-09-18): a
-        # non-noded intersection between a segment and its own reverse
-        # inside the exact overlay of PLACED below-ground footprints
-        region_u = _fe.union(belows, "sunken_roads.belows") if belows else None
+        # walk from the grade end down: the top, then the cut
+        ordered = rows if deep_end == 1 else list(reversed(rows))
+        dep = [r[4] - r[1] for r in ordered]
+        i_top = next((i for i, d in enumerate(dep) if d > sr.top_depth_m), None)
+        if i_top is None:
+            stats.refused.append(f"{name} at {site}: the plate never leaves the top band")
+            continue
+        s_top = ordered[i_top][0] if i_top == 0 else _cross(ordered, i_top - 1, i_top, sr.top_depth_m)
+        i_cut = next((i for i, d in enumerate(dep) if d >= sr.max_depth_m), None)
+        if i_cut is None:
+            s_cut = ordered[-1][0]
+            cut_note = f"the plate ends {dep[-1]:.2f} m under the ground (< max_depth_m {sr.max_depth_m})"
+        else:
+            s_cut = _cross(ordered, i_cut - 1, i_cut, sr.max_depth_m) if i_cut > 0 else ordered[0][0]
+            cut_note = f"cut ends where the plate reaches max_depth_m {sr.max_depth_m}"
+        if abs(s_cut - s_top) < sr.station_m:
+            stats.refused.append(f"{name} at {site}: the trench would be {abs(s_cut - s_top):.1f} m "
+                                 f"long (< station_m {sr.station_m})")
+            continue
+        # re-sample s = 0 at the cut, growing toward the top
+        sign = 1.0 if s_top > s_cut else -1.0
+        total = abs(s_top - s_cut)
+        ss = [sr.station_m * k for k in range(int(total // sr.station_m) + 1)]
+        if total - ss[-1] > 1e-6:
+            ss.append(total)
+        sts: list[RoadStation] = []
+        pts: list[XY] = []
+        for s in ss:
+            so = s_cut + sign * s
+            p = axis.interpolate(so)
+            pts.append((p.x, p.y))
+            z = _interp(rows, so, 1)
+            hl, hr = _interp(rows, so, 2), _interp(rows, so, 3)
+            if sign < 0:
+                hl, hr = hr, hl
+            sts.append(RoadStation(s, z, hl, hr, _interp(rows, so, 4)))
+        region = None
         if region_u is not None:
-            region_u = region_u.buffer(bl.footprint_close_m, **_MITRE).buffer(
-                -bl.footprint_close_m, **_MITRE)
-        for part in sorted(parts, key=lambda g: -g.area):
-            stats.plates += 1
-            plate = Polygon(part.exterior.coords)
-            la, lo = to_ll(*plate.centroid.coords[0])
-            site = f"{la:.6f},{lo:.6f}"
-            own = [o for o, (f, _z, _a) in zip(owner_of, faces) if f.intersects(plate)]
-            o0 = max(own, key=lambda o: sum(1 for q in own if q is o)) if own else members[0]
-            name = os.path.basename(o0.path)
-            ra = _rect_axis(plate)
-            if ra is None:
-                continue
-            length, width, a, b = ra
-            axis = LineString([a, b])
-            prof = _profile(axis, faces, tree, dem_z, sr.station_m, ob.plate_bin_m, width)
-            rows = [r for r in prof if r[1] is not None]
-            if len(rows) < 2:
-                stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 leaves fewer "
-                                     f"than two profile stations")
-                continue
-            depths = [(r[0], r[4] - r[1]) for r in rows]
-            d_first, d_last = depths[0][1], depths[-1][1]
-            deep_end = 1 if d_last >= d_first else 0
-            shallow = min(d_first, d_last)
-            deepest = max(d for _s, d in depths)
-            if deepest - shallow < sr.min_descent_m:
-                stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 is LEVEL "
-                                     f"(descent {deepest - shallow:.2f} m < min_descent_m "
-                                     f"{sr.min_descent_m}) — a basement or a pit, the basin pass's")
-                continue
-            if shallow > bl.contact_band_m:
-                stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 ({length:.0f} x "
-                                     f"{width:.0f} m) reaches no grade end: its shallow end lies "
-                                     f"{shallow:.2f} m under the ground (> contact_band_m "
-                                     f"{bl.contact_band_m}) — a basement or a pit, the basin pass's")
-                continue
-            # walk from the grade end down: the top, then the cut
-            ordered = rows if deep_end == 1 else list(reversed(rows))
-            dep = [r[4] - r[1] for r in ordered]
-            i_top = next((i for i, d in enumerate(dep) if d > sr.top_depth_m), None)
-            if i_top is None:
-                stats.refused.append(f"{name} at {site}: the plate never leaves the top band")
-                continue
-            s_top = ordered[i_top][0] if i_top == 0 else _cross(ordered, i_top - 1, i_top, sr.top_depth_m)
-            i_cut = next((i for i, d in enumerate(dep) if d >= sr.max_depth_m), None)
-            if i_cut is None:
-                s_cut = ordered[-1][0]
-                cut_note = f"the plate ends {dep[-1]:.2f} m under the ground (< max_depth_m {sr.max_depth_m})"
-            else:
-                s_cut = _cross(ordered, i_cut - 1, i_cut, sr.max_depth_m) if i_cut > 0 else ordered[0][0]
-                cut_note = f"cut ends where the plate reaches max_depth_m {sr.max_depth_m}"
-            if abs(s_cut - s_top) < sr.station_m:
-                stats.refused.append(f"{name} at {site}: the trench would be {abs(s_cut - s_top):.1f} m "
-                                     f"long (< station_m {sr.station_m})")
-                continue
-            # re-sample s = 0 at the cut, growing toward the top
-            sign = 1.0 if s_top > s_cut else -1.0
-            total = abs(s_top - s_cut)
-            ss = [sr.station_m * k for k in range(int(total // sr.station_m) + 1)]
-            if total - ss[-1] > 1e-6:
-                ss.append(total)
-            sts: list[RoadStation] = []
-            pts: list[XY] = []
-            for s in ss:
-                so = s_cut + sign * s
-                p = axis.interpolate(so)
-                pts.append((p.x, p.y))
-                z = _interp(rows, so, 1)
-                hl, hr = _interp(rows, so, 2), _interp(rows, so, 3)
-                if sign < 0:
-                    hl, hr = hr, hl
-                sts.append(RoadStation(s, z, hl, hr, _interp(rows, so, 4)))
-            region = None
-            if region_u is not None:
-                cands = [g for g in shapely.get_parts(region_u)
-                         if g.geom_type == "Polygon" and g.intersects(plate)]
-                region = max(cands, key=lambda g: g.area) if cands else None
-            if region is None:
-                region = plate
-            cover = 0.0
-            covering = []
-            for j in (bbox_tree.query(plate, predicate="intersects") if bbox_tree is not None else ()):
-                o = boxed[int(j)]
-                if o.id not in cover_cache:
-                    cover_cache[o.id] = _obj8.above_grade_footprint(o, cache, dem_z, bl.contact_band_m)
-                if cover_cache[o.id] is not None:
-                    covering.append(cover_cache[o.id])
-            if covering:
-                cover = _fe.union(covering, "sunken_roads.cover") \
-                    .intersection(plate).area / plate.area
-            if cover < sr.roof_min_fraction:
-                stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 ({length:.0f} x "
-                                     f"{width:.0f} m, {shallow:.2f}..{deepest:.2f} m under) is roofed "
-                                     f"over {cover:.0%} of its area (< roof_min_fraction "
-                                     f"{sr.roof_min_fraction:.0%}) — an open ramp, not a sunken road "
-                                     f"under a building (spec §3)")
-                continue
-            k = k_by_res.get(o0.path, 0)
-            k_by_res[o0.path] = k + 1
-            mean_w = 2.0 * sum((st.half_l + st.half_r) / 2.0 for st in sts) / len(sts)
-            notes = (f"plate {plate.area:.0f} m2 ({length:.0f} x {width:.0f} m) from {len(own)} face(s) "
-                     f"of {len({o.id for o in own})} placement(s); the family's cover over it {cover:.0%}",
-                     f"profile: shallow end {shallow:.2f} m under the ground (<= contact_band_m "
-                     f"{bl.contact_band_m}), deepest {deepest:.2f} m; {cut_note}",
-                     f"trench {total:.1f} m from the cut (floor {sts[0].z:.2f}, ground "
-                     f"{sts[0].ground_z:.2f}) to the top (floor {sts[-1].z:.2f}, ground "
-                     f"{sts[-1].ground_z:.2f}); mean width {mean_w:.1f} m")
-            out.append(SunkenRoadRecord(f"{ID_PREFIX}:{name}@{k}", o0.path,
-                                        tuple(sorted({o.id for o in own})), tuple(pts), tuple(sts),
-                                        float(total), float(mean_w), float(sts[0].z),
-                                        float(sts[0].ground_z), float(sts[-1].z),
-                                        float(sts[-1].ground_z), plate,
-                                        Polygon(region.exterior.coords), float(cover),
-                                        o0.xy, float(o0.anchor_z), float(o0.agl_m), notes))
-            stats.roads += 1
-    out.sort(key=lambda r: r.id)
-    stats.read_s = time.perf_counter() - t0
-    return out, stats
+            cands = [g for g in shapely.get_parts(region_u)
+                     if g.geom_type == "Polygon" and g.intersects(plate)]
+            region = max(cands, key=lambda g: g.area) if cands else None
+        if region is None:
+            region = plate
+        cover = 0.0
+        covering = []
+        for j in (bbox_tree.query(plate, predicate="intersects") if bbox_tree is not None else ()):
+            o = boxed[int(j)]
+            if o.id not in cover_cache:
+                cover_cache[o.id] = _obj8.above_grade_footprint(o, cache, dem_z, bl.contact_band_m)
+            if cover_cache[o.id] is not None:
+                covering.append(cover_cache[o.id])
+        if covering:
+            cover = _fe.union(covering, "sunken_roads.cover") \
+                .intersection(plate).area / plate.area
+        if cover < sr.roof_min_fraction:
+            stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 ({length:.0f} x "
+                                 f"{width:.0f} m, {shallow:.2f}..{deepest:.2f} m under) is roofed "
+                                 f"over {cover:.0%} of its area (< roof_min_fraction "
+                                 f"{sr.roof_min_fraction:.0%}) — an open ramp, not a sunken road "
+                                 f"under a building (spec §3)")
+            continue
+        mean_w = 2.0 * sum((st.half_l + st.half_r) / 2.0 for st in sts) / len(sts)
+        notes = (f"plate {plate.area:.0f} m2 ({length:.0f} x {width:.0f} m) from {len(own)} face(s) "
+                 f"of {len({o.id for o in own})} placement(s); the family's cover over it {cover:.0%}",
+                 f"profile: shallow end {shallow:.2f} m under the ground (<= contact_band_m "
+                 f"{bl.contact_band_m}), deepest {deepest:.2f} m; {cut_note}",
+                 f"trench {total:.1f} m from the cut (floor {sts[0].z:.2f}, ground "
+                 f"{sts[0].ground_z:.2f}) to the top (floor {sts[-1].z:.2f}, ground "
+                 f"{sts[-1].ground_z:.2f}); mean width {mean_w:.1f} m")
+        out.append((o0.path, name, SunkenRoadRecord(
+            "", o0.path, tuple(sorted({o.id for o in own})), tuple(pts), tuple(sts),
+            float(total), float(mean_w), float(sts[0].z), float(sts[0].ground_z),
+            float(sts[-1].z), float(sts[-1].ground_z), plate,
+            Polygon(region.exterior.coords), float(cover),
+            o0.xy, float(o0.anchor_z), float(o0.agl_m), notes)))
+    return stats, out

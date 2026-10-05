@@ -357,7 +357,7 @@ def structure_records(airport, cl, law) -> dict:
                                frame_entry.quantum(law))
     objects, orep = read_objects(airport, law, cache)
     from .door_ramps import door_groups, sunken_groups
-    from ..airport.wall_corridors import read_wall_corridors
+    from ..airport.wall_family import read_wall_corridors
     from .pack_reads import pack_reads
     from .wall_corridor_ramps import wall_corridor_groups
     # the four classification-free pack reads: THE ONE site

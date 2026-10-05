@@ -41,9 +41,19 @@ much — an ``errors`` policy that can never raise:
 
 Every engine child pins its OWN console: ``--engine-worker`` and
 ``--lerc-decode`` are re-execs of ``Ortho4XP.py`` / ``Ortho4XP_Qt.py``,
-whose module body calls this function, and the multiprocessing helpers
-re-import that entry as ``__mp_main__``, which runs it too.  So nothing
-here needs to reach into a child's environment, and it does not.
+whose module body calls this function.  A multiprocessing child (the
+airport pool, its Manager, a work-pool worker) reaches it by one of two
+roads: FROM SOURCE it re-imports the entry as ``__mp_main__``, which runs
+the call; FROZEN it is NOT a re-import — it is the executable re-exec'd as
+``--multiprocessing-fork …`` and diverted by ``multiprocessing.
+freeze_support()``, never to return — so the entry files make this call
+BEFORE ``freeze_support()`` and nothing else comes between (issue #362;
+``--pool-selfcheck``'s ``worker`` section reads a frozen worker's text
+layer and fails on any other).  A windowed bundle's worker has no console
+at all (``sys.stdout is None``, recorded here as ``absent``): ``print`` to
+it is a no-op, and no worker-side engine code calls a stream method
+directly.  So nothing here needs to reach into a child's environment, and
+it does not.
 
 What this deliberately does NOT do
 ----------------------------------

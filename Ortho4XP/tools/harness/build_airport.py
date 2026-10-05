@@ -3927,6 +3927,12 @@ def build_rebake_plan(res, law, v2_dir: Path, icao: str, prog: Progress) -> dict
     dest = Path(v2_dir) / f"{icao}.rebake.json"
     dest.write_text(plan.to_json(), encoding="utf-8", newline="\n")
     dt = time.time() - t0
+    # the object step's own companion-cache lines (``[extension] cache
+    # HIT|MISS|WROTE …``), drained exactly as ``object_plan`` drains them
+    # after its ``build_plan`` — TAKEN, so they are said once (issue #420)
+    from auto_patch_v2.airport.partition_cache import companion_notes  # noqa: E402
+    for ln in companion_notes():
+        prog.note("  [v2 rebake] " + ln)
     prog.note(f"  [v2] {RS.plan_line(icao, plan, dt)}  -> {dest}")
     prog.note(f"rebake plan built in {dt:.1f}s — OBJECT-STAGE work (RULINGS "
               f"2026-10-04x (1)), NOT in the patch-build clock")

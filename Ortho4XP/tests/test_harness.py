@@ -8429,10 +8429,18 @@ def test_the_rebake_plan_is_a_harness_step_outside_the_patch_build_clock(
     class _Plan:
         def to_json(self): return '{"plan":1}'
 
+    notes: list = []
+
     def build_plan(screen, law, *, patch=None, keep_extension=False):
         seen.update(screen=screen, patch=Path(patch), kept=keep_extension,
                     patch_there=Path(patch).is_file())
+        notes.append("[extension] cache MISS twin-extension")   # issue #420
         return _Plan()
+
+    def companion_notes():
+        got = tuple(notes)
+        del notes[:]
+        return got
 
     rs = types.ModuleType("auto_patch_v2.airport.rebake_screen")
     rs.read = lambda p: Path(p).read_text(encoding="utf-8")
@@ -8442,6 +8450,9 @@ def test_the_rebake_plan_is_a_harness_step_outside_the_patch_build_clock(
     monkeypatch.setitem(sys.modules, "auto_patch_v2.airport",
                         types.ModuleType("auto_patch_v2.airport"))
     monkeypatch.setitem(sys.modules, "auto_patch_v2.airport.rebake_screen", rs)
+    pc = types.ModuleType("auto_patch_v2.airport.partition_cache")
+    pc.companion_notes = companion_notes
+    monkeypatch.setitem(sys.modules, "auto_patch_v2.airport.partition_cache", pc)
 
     result, out = _run_build_patch_v2(build_mod, monkeypatch, tmp_path)
     plan = out / "twin.v2" / "CYXY.rebake.json"
@@ -8453,8 +8464,14 @@ def test_the_rebake_plan_is_a_harness_step_outside_the_patch_build_clock(
     # held against the patch the build EMITTED (before the harness renames it)
     assert seen["screen"] == "the screen" and seen["patch_there"] and seen["kept"] is True
     assert seen["patch"].name == "CYXY_auto.patch.osm"
-    notes = (out / "twin.progress").read_text(encoding="utf-8")
-    assert "NOT in the patch-build clock" in notes
+    said_plan = (out / "twin.progress").read_text(encoding="utf-8")
+    assert "NOT in the patch-build clock" in said_plan
+    # issue #420: the plan step's companion-cache notes reach the progress
+    # log (the object step prints them; the harness step must too), TAKEN
+    assert "  [v2 rebake] [extension] cache MISS twin-extension" in said_plan
+    assert said_plan.index("[extension] cache MISS") \
+        < said_plan.index("[CYXY] rebake plan stub")
+    assert companion_notes() == ()
     # the flag: no step, no plan
     (tmp_path / "skip").mkdir()
     result, out = _run_build_patch_v2(build_mod, monkeypatch, tmp_path / "skip",

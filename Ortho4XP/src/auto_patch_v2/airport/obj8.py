@@ -819,7 +819,7 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
                            else "no floor plate, ")
                         + f"top {base + comp.max_y - local:+.2f} m / floor {depth:+.2f} m "
                           f"vs the ground under it — the shell never reaches grade "
-                          f"(buried, > law.contact_band_m {law.contact_band_m}): no pit SEED"
+                          f"(buried, > contact_band_m {law.contact_band_m}): no pit SEED"
                         + (", plate offered to any region that admits it (§24 (7) (a))"
                            if bw is not None else ""))
                     if bw is not None:

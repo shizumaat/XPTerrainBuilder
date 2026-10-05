@@ -480,6 +480,12 @@ STEP_FETCH_SUBSYSTEMS = {
 }
 
 
+# How long a run's FIRST dispatch sweep waits for the predicates to be
+# importable.  The import overlaps the worker handshakes (seconds), so
+# the wait is normally zero; the bound only keeps a pathological import
+# from holding the run.
+PREDICATE_PRELOAD_WAIT_SECONDS = 5.0
+
 _PREDICATES: dict = {}
 _PREDICATES_LOCK = threading.Lock()
 
@@ -961,6 +967,16 @@ class ParallelBuildRun:
             wanted_children = min(self._slots, len(self._queue))
         if not wanted_children:
             return False
+        # Import the fetch subsystems' cache predicates off the dispatch
+        # path (see preload_cache_predicates), and BEFORE the handshakes
+        # so the two waits overlap: the first sweep below must be able to
+        # ask them (issue #344 — it used to run first, and every warm
+        # tile of the first wave took a fetch token).
+        preload = None
+        if cache_aware_admission_enabled():
+            preload = threading.Thread(
+                target=self._preload_predicates_then_dispatch, daemon=True)
+            preload.start()
         first = self._spawn_child()
         if first is None:
             return False
@@ -972,17 +988,16 @@ class ParallelBuildRun:
                 print("Fewer build workers than requested could be "
                       "started; continuing with", len(self._children))
                 break
+        if preload is not None:
+            # Bounded: a slow import delays the first sweep, never the
+            # run — past the bound tiles read as not cached (the old
+            # behaviour) and the preload's own sweep admits the rest.
+            preload.join(PREDICATE_PRELOAD_WAIT_SECONDS)
         with self._lock:
             self._dispatch_locked()
             self._warmer_running = True
         threading.Thread(target=self._osm_cache_warmer, daemon=True).start()
         threading.Thread(target=self._ticker, daemon=True).start()
-        # Import the fetch subsystems' cache predicates off the dispatch
-        # path (see preload_cache_predicates): until they land every tile
-        # reads as not cached, which is exactly the old behaviour.
-        if cache_aware_admission_enabled():
-            threading.Thread(
-                target=preload_cache_predicates, daemon=True).start()
         # Children spawned believing `slots` siblings share the machine;
         # tell them the real count right away (a two-tile run on four
         # slots must not throttle itself for two ghosts).
@@ -991,6 +1006,18 @@ class ParallelBuildRun:
         # drained the queue already; settle immediately in that case.
         self._maybe_finish()
         return True
+
+    def _preload_predicates_then_dispatch(self):
+        """Preload thread body: register the predicates, then sweep.
+
+        A "not cached" given while the predicates were unanswerable is
+        never memoised, but nothing re-asked it either until some step
+        happened to finish — so a warm tile queued behind a full fetch
+        class sat there for the length of another tile's fetch phase.
+        """
+        preload_cache_predicates()
+        with self._lock:
+            self._dispatch_locked()
 
     def enqueue(self, tiles, provider, zoomlevel, custom_build_dir,
                 step_flags, boundary_policy=None):

@@ -298,12 +298,12 @@ def _file_partition(w):
 
 def test_no_partition_cache_no_extension_cache(tmp_path, monkeypatch):
     w = _ext_world(tmp_path, monkeypatch)
-    a = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
-    b = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
+    a = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
+    b = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
     assert w.calls == [["dsf:obj1", "dsf:obj2"]] * 2 and a == b
     # fingerprinted but never read or written: still nothing to stand beside
     w.PC.fingerprint(w.air, w.law, dump_path=w.dump, radius_deg=0.05)
-    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
+    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
     assert len(w.calls) == 3
     assert not list(tmp_path.rglob("*.ext*"))
 
@@ -312,9 +312,9 @@ def test_the_extension_is_revived_and_every_changed_input_misses(tmp_path, monke
     import dataclasses as dc
     w = _ext_world(tmp_path, monkeypatch)
     path, fp = _file_partition(w)
-    first = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
+    first = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
     assert len(w.calls) == 1 and Path(path + w.PP._extcache.SUFFIX).is_file()
-    again = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
+    again = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
     assert len(w.calls) == 1                      # HIT: nothing recomputed
     assert again == first and repr(again) == repr(first)
     assert first.counts["pairs_tested"] == 12 and first.counts["plate_readded"] == 1
@@ -324,42 +324,77 @@ def test_the_extension_is_revived_and_every_changed_input_misses(tmp_path, monke
     monkeypatch.setattr(w.PC, "_FILED", {})
     fp2 = w.PC.fingerprint(w.air, w.law, dump_path=w.dump, radius_deg=0.05)
     assert fp2 == fp and w.PC.read(path, fp2) == "the load reading"
-    assert w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}) == first
+    assert w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True) == first
     assert len(w.calls) == 1
     # (1) a different PLATE SET brings different placements back
-    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj", "dsf:obj3"})
+    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj", "dsf:obj3"}, keep=True)
     assert w.calls[-1] == ["dsf:obj1", "dsf:obj2", "dsf:obj3"] and len(w.calls) == 2
-    w.PP.extend_partition(w.part, w.air, None, w.law, {"dsf:obj2"})
+    w.PP.extend_partition(w.part, w.air, None, w.law, {"dsf:obj2"}, keep=True)
     assert w.calls[-1] == ["dsf:obj2"] and len(w.calls) == 3
+    # ONE slot per airport: the other plate set OVERWROTE it, so the first
+    # set is now a MISS (recomputed, the same answer) — never a wrong HIT
+    back = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
+    assert len(w.calls) == 4 and back == first
+    assert w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True) == first
+    assert len(w.calls) == 4
     # (2) one re-added placement MOVED (the same ids and paths)
     d = list(w.part.deferred)
     d[0] = (d[0][0], type(d[0][1])(**{**vars(d[0][1]), "anchor_z": 3.6}))
     w.PP.extend_partition(dc.replace(w.part, deferred=tuple(d)), w.air, None, w.law,
-                          {"plate.obj"})
-    assert len(w.calls) == 4
+                          {"plate.obj"}, keep=True)
+    assert len(w.calls) == 5
     # (3) the LOAD READING in hand is not the one cached: one base box
     ix = w.part.geom.index
     hi = ix.box_hi.copy(); hi[1, 2] += 0.25
     moved = dc.replace(w.part, geom=dc.replace(w.part.geom, index=dc.replace(ix, box_hi=hi)))
-    w.PP.extend_partition(moved, w.air, None, w.law, {"plate.obj"})
-    assert len(w.calls) == 5
+    w.PP.extend_partition(moved, w.air, None, w.law, {"plate.obj"}, keep=True)
+    assert len(w.calls) == 6
     # (4) the PARTITION'S FINGERPRINT moved (a pack file grew): no file
     # under the new key -> no companion; filed -> its own companion, a MISS
     (w.root / "plate.obj").write_text("A\n800\nOBJ\n# v2\n", encoding="utf-8", newline="")
     fp3 = w.PC.fingerprint(w.air, w.law, dump_path=w.dump, radius_deg=0.05)
     assert fp3 != fp and w.PC.read(path, fp3) is None
-    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
-    assert len(w.calls) == 6
+    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
+    assert len(w.calls) == 7
     assert w.PC.write(path, fp3, "the load reading, re-read")
-    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
-    assert len(w.calls) == 7                      # the old companion is refused
-    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
-    assert len(w.calls) == 7                      # ... and the new one HITS
+    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
+    assert len(w.calls) == 8                      # the old companion is refused
+    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
+    assert len(w.calls) == 8                      # ... and the new one HITS
     # (5) changed partition CODE moves the fingerprint the same way
     monkeypatch.setattr(w.PC, "_CODE_DIGEST", "c" * 64)
     fp4 = w.PC.fingerprint(w.air, w.law, dump_path=w.dump, radius_deg=0.05)
     assert fp4 not in (fp, fp3)
     assert w.PC.write(path, fp4, "the load reading, new code")
-    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
-    assert len(w.calls) == 8
+    w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
+    assert len(w.calls) == 9
     monkeypatch.setattr(w.PC, "_CODE_DIGEST", None)
+
+
+def test_only_a_keeping_caller_writes_the_extension(tmp_path, monkeypatch):
+    """A replay, a tool, or a ``write_cache=False`` pack stage that HIT the
+    partition (issue #75: it writes nothing) may REVIVE an extension and
+    never writes one: only ``rebake_plan.plan`` — the build — keeps."""
+    import inspect
+    from auto_patch_v2.airport import rebake_plan as RP
+    w = _ext_world(tmp_path, monkeypatch)
+    path, fp = _file_partition(w)
+    # the dry stage's process: the partition was READ, nothing was written
+    monkeypatch.setattr(w.PC, "_TAKEN", {})
+    monkeypatch.setattr(w.PC, "_FILED", {})
+    assert w.PC.read(path, w.PC.fingerprint(w.air, w.law, dump_path=w.dump,
+                                             radius_deg=0.05)) == "the load reading"
+    before = sorted(p.name for p in Path(path).parent.iterdir())
+    a = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
+    b = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"})
+    assert len(w.calls) == 2 and a == b
+    assert sorted(p.name for p in Path(path).parent.iterdir()) == before
+    # the build keeps, and the non-keeping caller then revives it
+    c = w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}, keep=True)
+    assert len(w.calls) == 3 and Path(path + w.PP._extcache.SUFFIX).is_file()
+    assert w.PP.extend_partition(w.part, w.air, None, w.law, {"plate.obj"}) == c == a
+    assert len(w.calls) == 3
+    sig = inspect.signature(w.PP.extend_partition).parameters["keep"]
+    assert sig.default is False and sig.kind is sig.KEYWORD_ONLY
+    assert "keep=keep_extension" in inspect.getsource(RP.plan)
+    assert inspect.signature(RP.plan).parameters["keep_extension"].default is True

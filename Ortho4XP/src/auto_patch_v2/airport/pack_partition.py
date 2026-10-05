@@ -874,8 +874,14 @@ def _extension(part: PackPartition, geom: "_LoadGeom", add: _t.Sequence[tuple],
 
 def extend_partition(part: PackPartition, airport: Airport,
                      cache: _obj8.ResourceCache, law: Law,
-                     plate_paths: _t.Collection[str]) -> PackPartition:
+                     plate_paths: _t.Collection[str], *,
+                     keep: bool = False) -> PackPartition:
     """THE SECOND PHASE (owner RULINGS 2026-09-11l (1); spec §11a).
+
+    ``keep`` — may this call WRITE the extension cache?  Off by default:
+    a replay, a tool or a dry stage (a ``write_cache=False`` pack stage
+    that merely HIT) revives a kept extension but never writes one.  Only
+    the build's own ``rebake_plan.plan`` passes it.
 
     The load partition ran on the SCREENED object set, so every
     multi-anchor resource was dropped — including the tunnel-wall PLATE
@@ -903,7 +909,8 @@ def extend_partition(part: PackPartition, airport: Airport,
     ext = _extcache.load(part, add)
     if not isinstance(ext, dict) or ext.get("icao") != part.icao:
         ext = _extension(part, geom, add, airport, cache, law)
-        _extcache.store(part, add, ext)
+        if keep:
+            _extcache.store(part, add, ext)
     if not ext["new_ref"]:
         return part
     counts = dict(ext["counts"])

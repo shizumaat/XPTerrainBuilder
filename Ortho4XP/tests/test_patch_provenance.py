@@ -189,6 +189,22 @@ def test_git_provenance_absent_outside_checkout(tmp_path):
     assert got == {"sha": None, "dirty": None}
 
 
+def test_git_provenance_frozen_never_asks_git(monkeypatch):
+    """#419: a FROZEN engine inside a checkout (``Ortho4XP/dist`` is one)
+    answered that checkout's ``HEAD`` as its own sha.  Frozen, git is never
+    run — from the module directory or a cwd that IS a checkout — and the
+    sha is absent, so ``source_label`` names the engine by its code."""
+    def no_git(*args, **kwargs):
+        raise AssertionError("a frozen engine ran %r" % (args[0],))
+
+    monkeypatch.setattr(P.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(P.subprocess, "run", no_git)
+    assert P.git_provenance() == {"sha": None, "dirty": None}
+    here = os.path.dirname(os.path.abspath(__file__))
+    assert P.git_provenance(cwd=here) == {"sha": None, "dirty": None}
+    assert P.source_label(P.git_provenance()).startswith("absent version=")
+
+
 def test_git_provenance_in_checkout():
     got = P.git_provenance()  # the auto_patch source lives in a git tree
     # In this repo the tree is a checkout; sha should be a short hash string

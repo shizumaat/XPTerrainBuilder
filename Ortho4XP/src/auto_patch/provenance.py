@@ -48,6 +48,7 @@ import hashlib
 import os
 import re
 import subprocess
+import sys
 import urllib.parse
 
 from .selection import DEFAULT_MODE as _MODE_VALUED_KEYS, normalize_mode
@@ -72,7 +73,15 @@ def git_provenance(cwd: str | None = None) -> dict:
     ``None`` outside a git checkout or when git is unavailable — provenance must
     never crash a build, so every failure mode is swallowed to a graceful
     absent value.
+
+    A FROZEN engine never asks git (#419): its code is not the tree it may
+    happen to sit in (``Ortho4XP/dist`` is inside the checkout, so ``git
+    rev-parse`` from the bundle answered the CHECKOUT's ``HEAD`` as the
+    engine's sha).  It reports absent, and :func:`source_label` names it by
+    version and the freeze-time code digest (``provenance_code``).
     """
+    if getattr(sys, "frozen", False):
+        return {"sha": None, "dirty": None}
     if cwd is None:
         # The auto_patch package lives inside the source checkout; resolve git
         # relative to it, not the process cwd (a build may run from anywhere).

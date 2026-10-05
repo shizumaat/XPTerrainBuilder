@@ -126,6 +126,8 @@ import tempfile
 import typing as _t
 from bisect import bisect_left
 
+import O4_Console_Encoding as _console
+
 from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
                                KIND_AGL, KIND_MSL, KIND_ON_GROUND,
                                PROVENANCE_FILENAME, PlacementPlan)
@@ -537,7 +539,12 @@ def _run(args: list[str], *, writes: str | None = None) -> None:
     if writes is not None:
         _extwrite().declare_external_write(writes,
                                           writer=_DSFTOOL_WRITER_NAME)
-    proc = subprocess.run(args, capture_output=True, text=True)
+    # DSFTool is a native tool: its messages (echoing the paths it was
+    # given) are in the ANSI code page on Windows, UTF-8 elsewhere, and a
+    # path in any other spelling must not turn its failure into a
+    # UnicodeDecodeError (#419).
+    proc = subprocess.run(args, capture_output=True,
+                          **_console.native_tool_pipe())
     if proc.returncode != 0:
         raise RuntimeError(f"{' '.join(args[:2])} failed (rc {proc.returncode}): "
                            f"{(proc.stderr or proc.stdout).strip()[:400]}")

@@ -127,3 +127,56 @@ def test_an_effective_arm_is_named_before_the_run(tmp_path):
            "replay/constraints)" in r.stdout
     assert "REPLAY ARM --drop-generator apron" in r.stdout
     assert "REFUSED" not in r.stderr and r.returncode != 0
+
+
+# ── ISSUE #420: an unknown --drop-generator name REFUSES ─────────────
+# ``--drop-generator <unknown>`` filtered rows by a name no row carries,
+# so it dropped NOTHING and said nothing — the run was reported under an
+# arm never applied.  ``replay_arms.drop_gate`` refuses it (pure, below);
+# ``v2_solve_replay.drop_rows`` is the ONE filter every assembly site
+# calls, and it asks the gate first (the engine's row model, no corpus).
+
+def test_drop_gate_passes_a_generator_a_head_and_the_pseudo_generator():
+    A.drop_gate(["taxi_box", "rulesets.eat ceiling", "eat_ramp_reach"],
+                {"taxi_box"}, {"rulesets.eat ceiling"})
+    A.drop_gate([], set(), set())
+
+
+def test_drop_gate_refuses_an_unknown_name_listing_the_known_ones():
+    with pytest.raises(SystemExit) as exc:
+        A.drop_gate(["taxi_box", "no_such_gen"], {"taxi_box", "apron"},
+                    {"plane_gradient"})
+    msg = str(exc.value)
+    assert msg.startswith("REFUSED: --drop-generator no_such_gen ")
+    assert "taxi_box " not in msg.split("Known")[0]     # only the unknown is named
+    assert "Known generators: apron, eat_ramp_reach, taxi_box." in msg
+    assert "Known ruling heads: plane_gradient" in msg
+
+
+def test_every_drop_site_goes_through_the_one_filter():
+    src = TOOL.read_text(encoding="utf-8")
+    assert src.count("ruling_head(r) not in drop") == 1     # drop_rows alone
+    assert src.count("drop_rows(") == 4                     # def + 3 sites
+
+
+def test_drop_rows_refuses_before_filtering_and_drops_by_generator_or_head():
+    import importlib.util
+    sys.path.insert(0, str(ROOT / "src"))
+    from auto_patch_v2.model.constraints import ConstraintSet, Pin, Source
+    spec = importlib.util.spec_from_file_location("_v2_solve_replay_drop", TOOL)
+    R = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(R)
+    cs = ConstraintSet.from_rows([
+        Pin(0, 1.0, Source("taxi_box", "law_a (why)")),
+        Pin(1, 2.0, Source("apron_within_shape", "law_b")),
+        Pin(2, 3.0, Source("wall_terrace", "law_c (owner)"))])
+    kept = R.drop_rows(cs, ["taxi_box", "law_b"])
+    assert [r.v for r in kept.rows()] == [2]
+    # a REGISTERED generator with no rows in this set is known, not refused
+    assert len(R.drop_rows(cs, ["runway_profile"]).rows()) == 3
+    with pytest.raises(SystemExit) as exc:
+        R.drop_rows(cs, ["taxi_boxx"])
+    assert "REFUSED: --drop-generator taxi_boxx" in str(exc.value)
+    assert "law_a" in str(exc.value) and "wall_terrace" in str(exc.value)
+    # the ribbon-free stage-1 set is checked on the full set, not again
+    assert len(R.drop_rows(cs, ["taxi_boxx"], check=False).rows()) == 3

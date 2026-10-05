@@ -44,17 +44,17 @@ import itertools
 import math
 
 from ..model.planar import is_collar_ref
-from ..constraints.geometry import (chords_covered, face_cover, long_axis,
-                                    pair_is_transverse, station_indices)
+from ..constraints.geometry import long_axis, pair_is_transverse, station_indices
 from ..constraints.roads import (NO_FRAME, NOT_A_PAIR, one_ribbon_m,
                                  road_pair_reading)
 from ..constraints.stretches import AxisIndex, compose_pairs, nearest_line_cap
 from ..constraints.taxi import short_pairs
 from ..law.tables import role_cap, snap_margin_m
+from . import chord_work as _cw
 from .frame import Patch, Row, Shape, noise_m, row
 from .steps import joint_index
 
-__all__ = ["apron_over_preference", "within_shape", "plane_gradient", "crown_by_vertex", "taxi_box",
+__all__ = ["apron_over_preference", "within_shape", "read_chords_ahead", "plane_gradient", "crown_by_vertex", "taxi_box",
            "FAMILY_TAXI_BOX", "published_axis_index", "ring_route_m"]
 
 FAMILY_TAXI_BOX = "taxi_box"
@@ -287,23 +287,36 @@ def chords_outside_face(p: Patch, sh: Shape, min_d: float) -> set[tuple[int, int
     return out
 
 
+def _face(p: Patch, sh: Shape) -> _cw.Face:
+    """``sh``'s ring and the rings of its hole features."""
+    return sh.xy, [f.xy for f in p.features
+                   if f.feature == "gap_interior_ring" and f.host == sh.key]
+
+
 def _chords_outside_face(p: Patch, sh: Shape, min_d: float) -> set[tuple[int, int]]:
     """:func:`chords_outside_face`'s reading, unmemoised."""
-    holes = [f.xy for f in p.features if f.feature == "gap_interior_ring" and f.host == sh.key]
-    cover = face_cover(sh.xy, holes, snap_margin_m(p.law))
-    if cover is None:
-        return set()
-    n = len(sh.xy)
-    pairs: list[tuple[int, int]] = []
-    for i in range(n):
-        for j in range(i + 2, n):
-            if i == 0 and j == n - 1:
-                continue
-            (xa, ya), (xb, yb) = sh.xy[i], sh.xy[j]
-            if math.hypot(xa - xb, ya - yb) >= min_d:
-                pairs.append((i, j))
-    ok = chords_covered(cover, [(sh.xy[i], sh.xy[j]) for i, j in pairs])
-    return {pr for pr, k in zip(pairs, ok) if not k}
+    return set(_cw.chords_outside(*_face(p, sh), snap_margin_m(p.law), min_d))
+
+
+def read_chords_ahead(p: Patch, shapes: list[Shape], min_d: float, *,
+                      workers: int | None = None) -> int:
+    """Have the work pool read :func:`chords_outside_face` for ``shapes``
+    (``verify/chord_work.py``) and put the answers where that function
+    looks first.  Returns how many shapes were read ahead — 0 when no pool
+    answers, and each shape is then read at its own asking, as before."""
+    if _OUTSIDE["patch"] is not p:
+        _OUTSIDE["patch"] = p
+        _OUTSIDE["by_shape"] = {}
+    memo = _OUTSIDE["by_shape"]
+    md = round(float(min_d), 9)
+    todo = [sh for sh in shapes if (id(sh), md) not in memo]
+    got = _cw.outside_ahead([_face(p, sh) for sh in todo], snap_margin_m(p.law),
+                            min_d, workers=workers)
+    if got is None:
+        return 0
+    for sh, pairs in zip(todo, got):
+        memo[(id(sh), md)] = set(pairs)
+    return len(todo)
 
 
 def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
@@ -343,6 +356,11 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     within: list[Row] = []
     xsec: list[Row] = []
     joints = joint_index(p)      # APRON TERRACE LOCKSTEP (06n / 07g): the declared step across a joint
+    # the apron rings the loop below asks ``chords_outside_face`` of, read
+    # beside each other first (the same answers, in the memo it reads)
+    read_chords_ahead(p, [sh for sh in p.shapes if sh.role == "apron"
+                          and not is_collar_ref(sh.ref) and p.cap(sh) is not None
+                          and len(sh.ids) >= 3], min_d)
     for sh in p.shapes:
         if is_collar_ref(sh.ref):
             # unit-platform spec §1 (3) / §3 P20: a platform COLLAR is a 1:3

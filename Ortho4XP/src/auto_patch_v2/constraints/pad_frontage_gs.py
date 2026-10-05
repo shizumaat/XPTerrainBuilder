@@ -358,8 +358,11 @@ def groundside_frontage(planar: PlanarMap, law: Law
     the pads made ``dsf:pol129`` a 3.4 m excavation it can never climb out
     of at its 8 % cap.  The count of pairs held is published as
     ``groundside_frontage_level.pairs_held_as_terrace``."""
-    pads = [p for p in _pad_polys(planar, law)
-            if p[0] in pad_fronts_airside(planar, law)]
+    # ``pad_fronts_airside`` derives the WHOLE map's relation: read it ONCE,
+    # never per pad polygon (#412 R1 — HECA paid 550 whole-map derivations).
+    polys = _pad_polys(planar, law)
+    fronts = pad_fronts_airside(planar, law) if polys else set()
+    pads = [p for p in polys if p[0] in fronts]
     if not pads:
         STATS["groundside_frontage_level"] = {"pairs_held_as_terrace": 0}
         return {}

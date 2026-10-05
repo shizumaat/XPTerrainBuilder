@@ -113,27 +113,34 @@ def road_half_width_m(law: Law) -> float:
             + float(law.tables.zones.adjacent_ground.groundside_cutback_m))
 
 
-def _segments(geom) -> list[LineString]:
-    segs: list[LineString] = []
+def _segment_ends(geom) -> np.ndarray:
+    """The two ends of every segment of ``geom``'s rings (a polygon's
+    exterior, then its holes) or lines, part by part in walking order, as
+    one ``(n, 2, 2)`` float array — ONE coordinate read per ring
+    (``shapely.get_coordinates``), never one per vertex."""
+    ends: list[np.ndarray] = []
     for g in getattr(geom, "geoms", [geom]):
         if g.is_empty:
             continue
         rings = [g.exterior, *g.interiors] if g.geom_type == "Polygon" else [g]
         for ring in rings:
-            cs = list(ring.coords)
-            segs.extend(LineString([cs[i], cs[i + 1]]) for i in range(len(cs) - 1))
-    return segs
+            if ring.geom_type not in ("LinearRing", "LineString", "Point"):
+                raise NotImplementedError(
+                    f"terrain edge: no segments of a {ring.geom_type} seed part")
+            cs = shapely.get_coordinates(ring)
+            if len(cs) > 1:
+                ends.append(np.stack([cs[:-1], cs[1:]], axis=1))
+    return np.concatenate(ends) if ends else np.zeros((0, 2, 2))
 
 
 def _outward(px: np.ndarray, py: np.ndarray, seed) -> tuple[np.ndarray, np.ndarray]:
     """The unit vector from each point AWAY from the nearest point of the
     region's pavement side (zero where the point is on it)."""
-    segs = _segments(seed)
-    if not segs:
+    ab = _segment_ends(seed)
+    if not len(ab):
         return np.zeros(len(px)), np.zeros(len(px))
-    tree = STRtree(segs)
+    tree = STRtree(shapely.linestrings(ab))
     idx = np.asarray(tree.nearest(shapely.points(px, py)), dtype=int)
-    ab = np.asarray([[s.coords[0], s.coords[1]] for s in segs], dtype=float)
     a = ab[idx, 0, :]
     b = ab[idx, 1, :]
     d = b - a

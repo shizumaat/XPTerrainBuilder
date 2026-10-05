@@ -69,10 +69,10 @@ def face_cover(ring: _t.Sequence[XY], holes: _t.Sequence[_t.Sequence[XY]],
 
 
 def chords_covered(poly, segments: _t.Sequence[tuple[XY, XY]]) -> list[bool]:
-    """Which of ``segments`` (``((x0, y0), (x1, y1))`` each) ``poly``
-    covers — one vectorised GEOS predicate for the whole list; every
-    chord when ``poly`` is ``None``."""
-    if not segments:
+    """Which of ``segments`` (``((x0, y0), (x1, y1))`` each, or the same as
+    one ``(n, 2, 2)`` array) ``poly`` covers — one vectorised GEOS
+    predicate for the whole list; every chord when ``poly`` is ``None``."""
+    if len(segments) == 0:
         return []
     if poly is None:
         return [True] * len(segments)

@@ -6327,3 +6327,16 @@ constraint, and owed:
   (the #146 derivation-site gate is verified by reading
   `tests/conftest.py` and by a non-pytest subprocess probe, which is as
   far as an offline lane can take it).
+- 2026-10-04 lane rebake362 (#362, RULINGS 2026-10-04x (1)): the rebake
+  plan leaves the patch build.  PROVEN on twins and on stage replays (the
+  plan built from the screen sidecar + the filed partition is
+  byte-identical to the inline plan and to the swept `rebake.json`).  NOT
+  RUN, owed to the master: ONE TILE BUILD (OTHH +25+051 or HECA +30+031,
+  harness `--tile`, measure-only) showing the app path end to end —
+  `engine_v2.build_write_verify_one_v2` places
+  `Patches/<tile>/o4_v2_rebake_<ICAO>.screen.json` and no plan, and
+  `rebake_after_mesh` builds `o4_v2_rebake_<ICAO>.json` beside it (its
+  `[v2 rebake] <ICAO>: building the object plan …` and `rebake plan N s`
+  lines) with the sha256 the harness airport build's plan step prints.
+  The second tile build of the same airport must reuse the patch AND the
+  plan (no `building the object plan` line).

@@ -3891,9 +3891,54 @@ def v2_law_tables_digest(root) -> dict:
     return law_tables_digest(d)
 
 
+def build_rebake_plan(res, law, v2_dir: Path, icao: str, prog: Progress) -> dict | None:
+    """THE REBAKE PLAN STEP (owner RULINGS 2026-10-04x (1), issue #362) —
+    ``<tag>.v2/<ICAO>.rebake.json`` for an airport build, OUTSIDE the
+    patch-build clock.
+
+    The plan is object-stage work: the patch build writes only the screen
+    sidecar (``<ICAO>.rebake.screen.json``) and the TILE build's object
+    step builds the plan from it and the cached partition.  An airport
+    build has no object step, and every sweep compares ``rebake.json`` —
+    so the harness runs the object step's own call
+    (``auto_patch_v2.airport.rebake_screen.build_plan``, held against the
+    patch this build emitted) right after the build returns.  Its seconds
+    are printed on their own line and recorded as ``v2.rebake_plan.seconds``;
+    ``build_seconds`` (and the report's ``wall``) do not contain them.
+    ``--no-rebake-plan`` skips it (a timing run that wants the patch only).
+
+    ``None`` when the build wrote neither a sidecar nor a plan (no pack
+    objects).  A build that kept no partition cache planned INLINE; that
+    plan is reported as it stands, with the seconds the build's own clock
+    gave it."""
+    screen = getattr(res, "rebake_screen", None)
+    if screen is None:
+        inline = getattr(res, "rebake_plan", None)
+        if inline is None:
+            return None
+        return {"path": str(inline), "where": "patch build (no partition cache kept)",
+                "seconds": (getattr(res, "wall", None) or {}).get("rebake_plan")}
+    from auto_patch_v2.airport import rebake_screen as RS      # noqa: E402
+    prog.note("rebake plan step: building the object plan from the screen "
+              "sidecar and the cached partition (object-stage work)")
+    t0 = time.time()
+    plan = RS.build_plan(RS.read(screen), law, patch=res.paths.patch,
+                         keep_extension=True)
+    dest = Path(v2_dir) / f"{icao}.rebake.json"
+    dest.write_text(plan.to_json(), encoding="utf-8", newline="\n")
+    dt = time.time() - t0
+    prog.note(f"  [v2] {RS.plan_line(icao, plan, dt)}  -> {dest}")
+    prog.note(f"rebake plan built in {dt:.1f}s — OBJECT-STAGE work (RULINGS "
+              f"2026-10-04x (1)), NOT in the patch-build clock")
+    return {"path": str(dest), "where": "harness plan step (object-stage work)",
+            "seconds": round(dt, 1),
+            "sha256": hashlib.sha256(dest.read_bytes()).hexdigest()}
+
+
 def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
                    prog: Progress, allow_no_sidecar: bool = False,
-                   write_guard=None, allow_degraded: bool = False) -> dict:
+                   write_guard=None, allow_degraded: bool = False,
+                   rebake_plan: bool = True) -> dict:
     """One airport through ``auto_patch_v2.pipeline.build`` → ``<out>/<tag>.osm``
     + ``<tag>.osm.axes.json`` — the v2 twin of :func:`build_patch`, under the
     SAME arming composition, the same swallowed-refusal detectors, the same
@@ -3979,9 +4024,14 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
                 lines.append(ln)
                 v2p.line(ln)
             res = build(icao, inputs, v2_dir, Config(), law, out=_out)
-    dt = time.time() - t0
-    for ln in lines:
-        prog.note(f"  [v2] {ln}")
+        dt = time.time() - t0
+        for ln in lines:
+            prog.note(f"  [v2] {ln}")
+        # the rebake plan: object-stage work, AFTER the patch-build clock
+        # stopped and still inside the write guard (its extension cache
+        # lands beside the partition cache, in the lane-local overlay)
+        rebake = (build_rebake_plan(res, law, v2_dir, icao, prog)
+                  if rebake_plan and res.paths is not None else None)
     require_no_swallowed_write_block(guard.blocked,
                                      allow_degraded=allow_degraded, prog=prog)
     # DETECTOR 2 over v2's OWN provenance (wired 2026-09-17, lane v1retire
@@ -4063,6 +4113,7 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
         "anchor": None,
         "v2": {"dir": str(v2_dir), "report": str(v2_dir / f"{icao}.report.json"),
                "status": status, "wall_s": res.wall, "lp": res.lp_size,
+               "rebake_plan": rebake,
                "verify_by_family": verify, "verify_defects": verify_defects,
                "ruleset": law.ruleset_key,
                "tiles": sorted(f"{tl:+03d}{tn:+04d}" for (tl, tn) in (res.pieces or {}))},
@@ -4383,6 +4434,11 @@ def main(argv=None) -> int:
                     help="keep a patch whose axes sidecar failed to write; "
                          "it is measurable only in the BARE frame, which "
                          "overcounts and is never a defect count")
+    ap.add_argument("--no-rebake-plan", action="store_true",
+                    help="skip the rebake plan step of an airport build (the "
+                         "plan is object-stage work the harness builds AFTER "
+                         "the patch-build clock, into <tag>.v2/<ICAO>.rebake.json; "
+                         "RULINGS 2026-10-04x (1))")
     ap.add_argument("--no-ledger", action="store_true",
                     help="skip the run ledger (only for a run whose output "
                          "is a TIME — those must never be ledger-replayed)")
@@ -5082,7 +5138,8 @@ def main(argv=None) -> int:
             result = build_patch_v2(args.icao, root, out_dir, tag, prog,
                                     allow_no_sidecar=args.allow_no_sidecar,
                                     write_guard=guard,
-                                    allow_degraded=args.allow_degraded_dem)
+                                    allow_degraded=args.allow_degraded_dem,
+                                    rebake_plan=not args.no_rebake_plan)
         result["wall_seconds"] = round(time.time() - t0, 1)
     finally:
         # The audit runs even when the build raised: a build that died

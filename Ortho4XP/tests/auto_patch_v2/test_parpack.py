@@ -195,3 +195,20 @@ def test_part_readings_derived_ahead_equal_the_placing(world, serial):
         assert a.pts.tobytes() == b.pts.tobytes() and a.tris.tobytes() == b.tris.tobytes()
     assert any(p.line and len(p.feet) for p in got)             # the fence, with feet
     assert all(p.rings == () and len(p.feet) <= 1 for p in got if p.scatter)
+
+
+def test_the_stage_profiler_digest_reads_the_two_arms_equal(world, serial):
+    """``tools/pack_stage_profile.py --workers`` is the instrument the
+    OTHH / HECA identity is read on: its digest agrees on the two arms and
+    moves when the partition does."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import pack_stage_profile as T
+    part, cache, _done = _run(world, 2)
+    want = T.stage_digest(serial[0], (), serial[1])
+    assert T.stage_digest(part, (), cache) == want
+    assert set(want) == {"partition", "connectors", "clusters", "readings"}
+    moved = _dc.replace(part, counts={**part.counts, "parts": part.counts["parts"] + 1})
+    assert T.stage_digest(moved, (), cache)["partition"] != want["partition"]
+    ap = T.main.__code__.co_consts
+    assert "--workers" in ap

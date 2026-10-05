@@ -119,10 +119,42 @@ def site_report(clusters, lat: float, lon: float, min_m2: float = 0.0,
     return out
 
 
+def stage_digest(part, clusters, ocache=None) -> dict:
+    """THE STAGE'S PRODUCTS BY VALUE (issue #362; promoted from lane
+    ``perfC362``'s ``pack_prof.py`` on its second use, lane ``parpack``):
+    sha256 over the ``repr`` of what the partition cache stores — the
+    partition's units / skipped / counts / contacts / abutments /
+    member_object / deferred, its connectors, the clusters, and the
+    ``ResourceCache``'s stored readings.  Two arms of ONE tree (serial vs
+    pooled, ``--workers``) agree on every key or the pooled stage is not
+    the serial one.  ``pairs_*`` wall-free: nothing here is a clock."""
+    import hashlib
+
+    def sha(*pieces) -> str:
+        h = hashlib.sha256()
+        for piece in pieces:
+            h.update(repr(piece).encode())
+        return h.hexdigest()
+
+    out = {"partition": sha(part.units, part.skipped, sorted(part.counts.items()),
+                            part.contacts, part.abutments,
+                            sorted(part.member_object.items()),
+                            tuple((k, o.id) for k, o in part.deferred)),
+           "connectors": sha(getattr(part, "connectors", None)),
+           "clusters": sha(clusters)}
+    if ocache is not None:
+        d = ocache.derived_state()
+        out["readings"] = sha(sorted(d["skirt"].items()), sorted(d["range"].items()),
+                              sorted((k, v.tobytes()) for k, v in d["bounds"].items()))
+    return out
+
+
 def run_once(icao: str, cache_on: bool, out_dir: Path,
              site: tuple[float, float] | None = None,
-             pickle_out: Path | None = None) -> dict:
-    """ONE pack stage, in this process.  Returns the run record."""
+             pickle_out: Path | None = None,
+             workers: int | None = None) -> dict:
+    """ONE pack stage, in this process.  Returns the run record.
+    ``workers`` pins the stage's work pool (1 = the serial arm)."""
     for p in (ROOT / "tools", ROOT / "tools" / "harness"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
@@ -142,6 +174,15 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
     from auto_patch_v2.planar.__main__ import default_inputs
     law = Law.for_airport(icao)
     inputs = default_inputs()
+    n_workers = None
+    try:
+        from auto_patch_v2.airport import pool as _pool
+        if workers is not None:
+            _pool.configure(workers)
+        n_workers = _pool.budget()
+    except ImportError:                  # a BASE tree predating the pool
+        if workers not in (None, 1):
+            raise SystemExit("--workers needs a tree with airport/pool.py")
     try:
         from auto_patch.engine_v2 import fresh_pack_dump
         tl = resolve_tile_for(icao, ROOT)
@@ -176,6 +217,12 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
         "max_rss_gb": (round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9, 2)
                        if resource is not None else None),
         "cache_lines": [ln.strip() for ln in lines if "[partition] cache" in ln],
+        "workers": n_workers,
+        # the LARGEST worker (ru_maxrss of the children is a max, not a sum)
+        "worker_max_rss_gb": (round(resource.getrusage(
+            resource.RUSAGE_CHILDREN).ru_maxrss / 1e9, 2) if resource is not None else None),
+        "digest": stage_digest(part, ps["clusters"], ps.get("ocache")),
+        "pool_lines": [ln.strip() for ln in lines if "[pool]" in ln],
     }
     if pickle_out is not None:
         # the stage's airport (partition + clusters) in the capture's own
@@ -299,6 +346,7 @@ def summarise(runs: list[dict]) -> dict:
     same = all(r["counts"] == runs[0]["counts"] and r["groups"] == runs[0]["groups"]
                for r in runs)
     return {"median_wall": med, "runs": len(runs), "counts_agree": same,
+            "digests_agree": all(r.get("digest") == runs[0].get("digest") for r in runs),
             "max_rss_gb_max": max(r["max_rss_gb"] for r in runs)}
 
 
@@ -320,6 +368,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--read-pickle", type=Path, help="no stage: read a capture / "
                     "--pickle file's partition under THIS tree's cluster and "
                     "outline code and print the --site report")
+    ap.add_argument("--workers", type=int, help="pin the stage's work pool "
+                    "(airport/pool.py, issue #362): 1 is the SERIAL arm; default "
+                    "the build's own budget (every core)")
     ap.add_argument("--one", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     a.out_dir.mkdir(parents=True, exist_ok=True)
@@ -335,13 +386,14 @@ def main(argv: list[str] | None = None) -> int:
     if a.one:
         st = tuple(float(v) for v in a.site.split(",")) if a.site else None
         print("RECORD " + json.dumps(run_once(a.icao, a.cache == "on", a.out_dir, st,
-                                              a.pickle)), flush=True)
+                                              a.pickle, a.workers)), flush=True)
         return 0
     runs: list[dict] = []
     for k in range(a.runs):
         cmd = [sys.executable, __file__, a.icao, "--one", "--cache", a.cache,
                "--out-dir", str(a.out_dir)] + (["--site", a.site] if a.site else []) \
-            + (["--pickle", str(a.pickle.resolve())] if a.pickle and k == a.runs - 1 else [])
+            + (["--pickle", str(a.pickle.resolve())] if a.pickle and k == a.runs - 1 else []) \
+            + (["--workers", str(a.workers)] if a.workers is not None else [])
         env = dict(os.environ)
         if a.tree:
             env["O4_PACK_STAGE_TREE"] = str(a.tree.resolve())
@@ -359,14 +411,19 @@ def main(argv: list[str] | None = None) -> int:
               + f"  RSS {rec['max_rss_gb']:.2f} GB  parts {rec['counts']['parts']}  "
               f"pairs {rec['counts']['pairs_tested']}  groups {rec['groups']['groups']}",
               flush=True)
-        for ln in rec["cache_lines"]:
+        for ln in rec["cache_lines"] + rec.get("pool_lines", []):
             print(f"    {ln}")
+        if rec.get("digest"):
+            print(f"    workers {rec.get('workers')}  largest worker RSS "
+                  f"{rec.get('worker_max_rss_gb')} GB  digest "
+                  + "  ".join(f"{k} {v[:12]}" for k, v in rec["digest"].items()))
         if rec.get("site"):
             print("    [site] " + "  ".join(f"{k} {v}" for k, v in rec["site"].items()))
     s = summarise(runs)
     print(f"[{a.icao}] MEDIAN of {s['runs']}: "
           + "  ".join(f"{k} {v:.1f}" for k, v in s["median_wall"].items())
-          + f"  max RSS {s['max_rss_gb_max']:.2f} GB  counts agree {s['counts_agree']}")
+          + f"  max RSS {s['max_rss_gb_max']:.2f} GB  counts agree {s['counts_agree']}"
+          f"  digests agree {s['digests_agree']}")
     if a.json:
         a.json.write_text(json.dumps({"summary": s, "runs": runs}, indent=1))
     return 0

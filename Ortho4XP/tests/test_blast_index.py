@@ -583,3 +583,81 @@ def test_a_baseline_failure_is_discounted_from_every_mutation(monkeypatch):
                                "Ortho4XP/tests/test_0.py"}, 1, ""))
     assert blast.mutation_audit(_audit_shards(), "Ortho4XP/src/x.py", 1,
                                ceiling=-1) == []
+
+
+# ------------------------------------------------- issue #377: the audit truth
+# The audit's recall read 0.796 on an index with no missing edge: its ground
+# truth grepped the bare STEM, so every importer of a NAMESAKE module
+# (``constraints/pads.py`` for ``verify/pads.py``, ``planar/__main__.py`` for
+# ``pipeline/__main__.py``, the stdlib's ``platform``) was booked as a miss.
+def _i(text):
+    """A fixture source line: ``@`` stands for the keyword, so this file's
+    own text spells no import of the sampled modules."""
+    return text.replace("@", "imp" + "ort")
+
+
+_V = "Ortho4XP/src/auto_patch_v2/verify/pads.py"
+_C = "Ortho4XP/src/auto_patch_v2/constraints/pads.py"
+_M = "Ortho4XP/src/auto_patch_v2/model/platform.py"
+_NAMESAKE_CORPUS = {
+    _V: "", _C: "", _M: "",
+    # relative imports resolve against the importing file's own package
+    "Ortho4XP/src/auto_patch_v2/constraints/ceiling.py":
+        _i("from .pads @ CEILING_RULING\nfrom .platform @ X\n"),
+    "Ortho4XP/src/auto_patch_v2/verify/__init__.py":
+        _i("from .pads @ census\n"),
+    "Ortho4XP/src/auto_patch_v2/pipeline/build.py":
+        _i("from ..verify @ pads as _vp\nfrom ..model.platform @ HELD\n"),
+    "Ortho4XP/tests/auto_patch_v2/test_a.py":
+        _i("from auto_patch_v2.constraints @ pad_fronting, pads\n"),
+    "Ortho4XP/tests/auto_patch_v2/test_b.py":
+        _i("@ auto_patch_v2.verify.pads as VP\n"),
+    "Ortho4XP/src/O4_OSM_Extracts.py": _i("@ platform\n"),
+    "Ortho4XP/tests/test_prose.py":
+        _i("# the @ pads were the seams; from here @ nothing\n"),
+}
+
+
+def test_the_audit_truth_names_the_module_not_its_stem():
+    gt = blast.ground_truth
+    assert gt(_V, _NAMESAKE_CORPUS) == {
+        "Ortho4XP/src/auto_patch_v2/verify/__init__.py",
+        "Ortho4XP/src/auto_patch_v2/pipeline/build.py",
+        "Ortho4XP/tests/auto_patch_v2/test_b.py"}
+    assert gt(_C, _NAMESAKE_CORPUS) == {
+        "Ortho4XP/src/auto_patch_v2/constraints/ceiling.py",
+        "Ortho4XP/tests/auto_patch_v2/test_a.py"}
+    # ``import platform`` is the stdlib's; ``.platform`` inside constraints/
+    # is constraints.platform — neither imports model.platform
+    assert gt(_M, _NAMESAKE_CORPUS) == {
+        "Ortho4XP/src/auto_patch_v2/pipeline/build.py"}
+
+
+def test_a_top_level_module_is_still_found_by_its_bare_name():
+    corpus = {"Ortho4XP/src/O4_Tile_Utils.py": "",
+              "Ortho4XP/tests/test_x.py": _i("@ O4_Tile_Utils as T\n"),
+              "Ortho4XP/tests/test_y.py": _i("from src @ O4_Tile_Utils\n"),
+              "Ortho4XP/tests/test_z.py": _i("@ O4_Tile_Utils_Extra\n")}
+    assert blast.ground_truth("Ortho4XP/src/O4_Tile_Utils.py", corpus) == {
+        "Ortho4XP/tests/test_x.py", "Ortho4XP/tests/test_y.py"}
+
+
+def test_the_real_index_meets_the_truth_on_the_namesake_modules(index):
+    """The modules the 0.796 audit read LOW, on the real tree: the index
+    holds every importer the import statements spell."""
+    corpus = {r: blast._read(r) for r in blast.scan_paths()}
+    for rel in (_V, _M, "Ortho4XP/src/auto_patch_v2/pipeline/__main__.py",
+                "Ortho4XP/src/auto_patch_v2/verify/roads.py"):
+        truth = blast.ground_truth(rel, corpus)
+        got = set(index["modules"][rel].get("imported_by", ()))
+        assert truth and truth <= got, (rel, sorted(truth - got))
+
+
+def test_a_literal_dynamic_import_is_an_importer(index):
+    import ast
+    call = ast.parse('importlib.import_module("%s")'
+                     % "auto_patch_v2.pipeline.build").body[0].value
+    assert blast._literal_import(call) == "auto_patch_v2.pipeline.build"
+    assert blast._literal_import(ast.parse("import_module(name)").body[0].value) is None
+    card = index["modules"]["Ortho4XP/src/auto_patch_v2/pipeline/build.py"]
+    assert "Ortho4XP/tests/auto_patch_v2/test_v2packcache.py" in card["imported_by"]

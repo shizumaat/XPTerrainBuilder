@@ -245,3 +245,43 @@ def test_the_tool_is_in_the_index_with_the_flag():
     assert len(rows) == 1, f"{len(rows)} v2_solve_replay.py rows, expected one"
     assert "--data-overlay" in rows[0]
     assert "test_v2_solve_replay_overlay.py" in rows[0]
+
+
+# ---- lane tools321 (2026-10-05): the Elevation_data half cannot take effect
+def test_an_elevation_overlay_refuses_before_the_load(R, tmp_path):
+    """MEASURED at CYXY: an overlay providing ``Elevation_data`` died
+    mid-load in ``dem_production._check_corpus`` ("two corpora, refused") —
+    the production frame reads the core's own data root.  The tool now
+    refuses up front, by name, and says what does work."""
+    frame = R.resolve_data_overlay(str(_overlay(tmp_path, "Elevation_data")))
+    why = R.overlay_refusal(_Inputs(), frame)
+    assert why.startswith("REFUSED: --data-overlay")
+    assert "Elevation_data" in why and "e9daef5" in why
+    assert "--corpus snapshot:DIR" in why and "--witness" in why
+
+
+def test_an_osm_overlay_and_no_overlay_are_not_refused(R, tmp_path):
+    frame = R.resolve_data_overlay(str(_overlay(tmp_path, "OSM_data")))
+    assert R.overlay_refusal(_Inputs(), frame) is None
+    assert R.overlay_refusal(_Inputs(), None) is None
+
+
+def test_the_same_corpus_under_another_name_is_not_a_second_corpus(R, tmp_path):
+    shared = tmp_path / "shared" / "Elevation_data"
+    shared.mkdir(parents=True)
+    ovl = tmp_path / "ovl"
+    ovl.mkdir()
+    (ovl / "Elevation_data").symlink_to(shared, target_is_directory=True)
+    frame = R.resolve_data_overlay(str(ovl))
+    inp = _Inputs(elevation_root=str(shared))
+    assert R.overlay_refusal(inp, frame) is None
+
+
+def test_an_authored_dem_frame_reads_the_overlay(R, tmp_path):
+    """The corpus check is the PRODUCTION frame's; the authored frame reads
+    ``elevation_root`` directly."""
+    @dataclasses.dataclass(frozen=True)
+    class _Authored(_Inputs):
+        dem_frame: str = "authored"
+    frame = R.resolve_data_overlay(str(_overlay(tmp_path, "Elevation_data")))
+    assert R.overlay_refusal(_Authored(), frame) is None

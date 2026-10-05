@@ -461,6 +461,20 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
                   "changed (was", repr(stamped.get(changed)),
                   ", now", repr(live.get(changed)) + ").")
         return False
+    # ── Input 8: the object plan can still be built ───────────────────────
+    # The rebake plan is built AFTER the mesh from the partition this
+    # patch's build cached (owner RULINGS 2026-10-04x (1)).  A patch whose
+    # plan is not built yet and whose partition cache is gone — or whose
+    # sidecar the object stage REFUSED last build — goes back through its
+    # build; the object step never re-partitions.  (Asked whatever
+    # ``modify_custom_airports`` says: the gate reads no tile setting it
+    # does not stamp, #36 — a stood-down tile pays at most ONE rebuild.)
+    from auto_patch_v2.airport import object_plan as _oplan
+    cold = _oplan.unservable(os.path.dirname(auto_patch_file), icao)
+    if cold:
+        _rebuild_reason(icao, "o4_object_plan")
+        UI.vprint(2, "   Auto-patch:", icao, "rebuild —", cold)
+        return False
     return True
 
 

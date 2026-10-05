@@ -35,8 +35,6 @@ import traceback
 import typing as _t
 import urllib.parse
 
-from . import object_plan as _oplan
-
 #: THE engine name.  v1 is retired (owner RULINGS 2026-09-13au): there is
 #: no second value, no cfg key and no selector — this constant is the one
 #: spelling the freshness stamp, the provenance line and the harness frame
@@ -482,8 +480,12 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
         os.replace(str(src.sidecar), dest + ".axes.json")
         # the post-mesh re-seat plan (04f-1) beside the patch, read by
         # ``rebake_after_mesh`` at the end of build_mesh
-        rebake_plan_path = _oplan.place(
-            task, res.rebake_plan, icao, getattr(res, "rebake_screen", None))
+        rebake_plan_path = None
+        _screen = getattr(res, "rebake_screen", None)
+        if res.rebake_plan is not None or _screen is not None:
+            from auto_patch_v2.airport import object_plan as _oplan
+            rebake_plan_path = _oplan.place(os.path.dirname(dest), res.rebake_plan,
+                                            icao, _screen)
         # and the WHOLE-AIRPORT design surface beside it: §6's class rule
         # reads the emitted object pads and structure rims, and the object
         # stage runs post-mesh, long after ``res`` is gone (lane
@@ -956,6 +958,7 @@ def rebake_after_mesh(tile) -> dict:
         # A SCREEN SIDECAR IS A PLAN NOT YET BUILT (owner RULINGS 2026-10-04x
         # (1)): the worklist is every plan file and every sidecar's plan,
         # in the plan files' own order.
+        from auto_patch_v2.airport import object_plan as _oplan
         from auto_patch_v2.airport import rebake_screen as _rscreen
         found = glob.glob(os.path.join(patch_dir, "o4_v2_rebake_*.json"))
         screens = {p[:-len(".screen.json")] + ".json": p for p in found
@@ -1036,7 +1039,9 @@ def rebake_after_mesh(tile) -> dict:
                     continue
                 law = Law.for_airport(icao)
                 if screen is not None:
-                    plan_ = _oplan.from_screen(screen, plan_path, patch_dir, law, UI)
+                    plan_ = _oplan.from_screen(
+                        screen, plan_path, patch_dir, law, say=UI.vprint,
+                        mod_cache_root=FNAMES.airport_mod_cache_root())
                     if plan_ is None:
                         counts["airports_skipped_stale_plan"] = \
                             counts.get("airports_skipped_stale_plan", 0) + 1

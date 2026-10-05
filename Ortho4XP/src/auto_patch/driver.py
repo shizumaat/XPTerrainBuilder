@@ -465,7 +465,7 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     # patch's build cached (owner RULINGS 2026-10-04x (1)).  A patch whose
     # plan is not built yet and whose partition cache is gone goes back
     # through its build — the object step never re-partitions.
-    from . import object_plan as _oplan
+    from auto_patch_v2.airport import object_plan as _oplan
     cold = _oplan.unservable(os.path.dirname(auto_patch_file), icao)
     if cold:
         _rebuild_reason(icao, "o4_object_plan")

@@ -11,7 +11,7 @@ from it and the cached partition.  These twins hold:
   the record digested, each refuse BY NAME;
 * a build that kept no partition cache writes no sidecar (it plans
   inline), and a default ``plan()`` never writes the extension cache;
-* the object stage (``auto_patch/object_plan.py``) builds the plan beside the patch, reads
+* the object stage (``airport/object_plan.py``) builds the plan beside the patch, reads
   it back on the next run, and the freshness gate sends a cold partition
   back through the patch build.
 """
@@ -158,7 +158,7 @@ def test_a_partition_that_is_not_the_recorded_one_is_cold(world, law):  # noqa: 
         RS.build_plan(_dc.replace(screen, partition_digest="0" * 64), law)
     assert RS.unservable(world.patch) is not None          # not a sidecar at all
     side = world.patch.with_name("s.screen.json")
-    side.write_text(screen.to_json(), encoding="utf-8")
+    side.write_text(screen.to_json(), encoding="utf-8", newline="\n")
     assert RS.unservable(side) is None
     os.remove(world.cpath)
     assert "is gone" in RS.unservable(side)
@@ -199,6 +199,11 @@ def test_the_body_hash_is_the_harness_body_hash(world):
 
 # ── the object stage ─────────────────────────────────────────────────────
 
+#: this run's own mod-cache root in the object-stage twins: NOT where the
+#: world's partition cache stands (a carried-over patch dir)
+ROOT = "/nowhere/mod-cache"
+
+
 class _UI:
     def __init__(self):
         self.lines: list[str] = []
@@ -208,27 +213,26 @@ class _UI:
 
 
 def test_the_object_stage_builds_the_plan_beside_the_patch(world, law, tmp_path, monkeypatch):  # noqa: F811
-    from auto_patch import engine_v2 as E, object_plan as OP
+    from auto_patch import engine_v2 as E
+    from auto_patch_v2.airport import object_plan as OP
     inline = _inline(world, law).to_json()
     scratch = tmp_path / "scratch"; scratch.mkdir()
     src_screen = scratch / "ZZZZ.rebake.screen.json"
     src_screen.write_text(_take(world, law).to_json(), encoding="utf-8", newline="\n")
     patch_dir = world.patch.parent
     plan_path = patch_dir / PLAN_FILENAME.format(icao="ZZZZ")
-    plan_path.write_text("an EARLIER build's plan", encoding="utf-8")
-    task = {"auto_patch_file": str(world.patch)}
-    placed = OP.place(task, None, "ZZZZ", src_screen)
+    plan_path.write_text("an EARLIER build's plan", encoding="utf-8", newline="\n")
+    placed = OP.place(str(patch_dir), None, "ZZZZ", src_screen)
     # the sidecar is placed and the earlier build's plan is GONE
     assert Path(placed).name == RS.SCREEN_FILENAME.format(icao="ZZZZ")
     assert OP.SCREEN_NAME_RE.match(Path(placed).name)
     assert not E._PLAN_NAME_RE.match(Path(placed).name) and not plan_path.exists()
     assert OP.unservable(str(patch_dir), "ZZZZ") is None
 
-    import O4_File_Names as FNAMES
-    monkeypatch.setattr(FNAMES, "airport_mod_cache_root", lambda: str(tmp_path / "elsewhere"))
     ui = _UI()
     screen = RS.read(placed)
-    got = OP.from_screen(screen, str(plan_path), str(patch_dir), law, ui)
+    got = OP.from_screen(screen, str(plan_path), str(patch_dir), law,
+                          say=ui.vprint, mod_cache_root=ROOT)
     assert plan_path.read_bytes() == inline.encode("utf-8")
     assert got == RebakePlan.from_json(inline)
     assert any("building the object plan" in ln for ln in ui.lines)
@@ -239,24 +243,27 @@ def test_the_object_stage_builds_the_plan_beside_the_patch(world, law, tmp_path,
     # the next object step READS the plan it built
     ui2 = _UI()
     monkeypatch.setattr(RS, "build_plan", lambda *a, **k: pytest.fail("rebuilt"))
-    assert OP.from_screen(screen, str(plan_path), str(patch_dir), law, ui2) == got
+    assert OP.from_screen(screen, str(plan_path), str(patch_dir), law,
+                          say=ui2.vprint, mod_cache_root=ROOT) == got
     assert not ui2.lines
     # ...but never against another patch
     world.patch.write_text(PATCH.format(stamp="a").replace("lat='1.0'", "lat='9.0'"),
                            encoding="utf-8", newline="\n")
-    assert OP.from_screen(screen, str(plan_path), str(patch_dir), law, ui2) is None
+    assert OP.from_screen(screen, str(plan_path), str(patch_dir), law,
+                          say=ui2.vprint, mod_cache_root=ROOT) is None
     assert "STALE" in ui2.lines[-1] and "rebuild the airport's patch" in ui2.lines[-1]
 
     # an INLINE plan (a build that kept no partition cache) replaces the sidecar
     src_plan = scratch / "ZZZZ.rebake.json"
     src_plan.write_text(inline, encoding="utf-8", newline="\n")
-    assert OP.place(task, src_plan, "ZZZZ", None) == str(plan_path)
+    assert OP.place(str(patch_dir), src_plan, "ZZZZ", None) == str(plan_path)
     assert not Path(placed).exists() and plan_path.read_text(encoding="utf-8") == inline
-    assert OP.place(task, None, "ZZZZ", None) is None
+    assert OP.place(str(patch_dir), None, "ZZZZ", None) is None
 
 
 def test_a_cold_partition_sends_the_patch_back_through_its_build(world, law, tmp_path):  # noqa: F811
-    from auto_patch import engine_v2 as E, object_plan as OP
+    from auto_patch import engine_v2 as E
+    from auto_patch_v2.airport import object_plan as OP
     patch_dir = world.patch.parent
     side = patch_dir / RS.SCREEN_FILENAME.format(icao="ZZZZ")
     side.write_text(_take(world, law).to_json(), encoding="utf-8", newline="\n")
@@ -267,10 +274,11 @@ def test_a_cold_partition_sends_the_patch_back_through_its_build(world, law, tmp
     PC._FILED.clear()
     ui = _UI()
     plan_path = patch_dir / PLAN_FILENAME.format(icao="ZZZZ")
-    assert OP.from_screen(RS.read(side), str(plan_path), str(patch_dir), law, ui) is None
+    assert OP.from_screen(RS.read(side), str(plan_path), str(patch_dir), law,
+                          say=ui.vprint, mod_cache_root=ROOT) is None
     assert "cannot be built" in ui.lines[-1] and not plan_path.exists()
     # a plan ALREADY built needs no partition
-    plan_path.write_text("{}", encoding="utf-8")
+    plan_path.write_text("{}", encoding="utf-8", newline="\n")
     assert OP.unservable(str(patch_dir), "ZZZZ") is None
     # and the driver's gate asks
     from auto_patch import driver
@@ -289,7 +297,7 @@ def test_rebake_after_mesh_places_from_a_sidecar_and_skips_a_stale_one(
     patch_dir = world.patch.parent
     side = patch_dir / RS.SCREEN_FILENAME.format(icao="ZZZZ")
     side.write_text(_take(world, law).to_json(), encoding="utf-8", newline="\n")
-    mesh = tmp_path / "mesh.mes"; mesh.write_text("", encoding="utf-8")
+    mesh = tmp_path / "mesh.mes"; mesh.write_text("", encoding="utf-8", newline="\n")
     tile = _dc.make_dataclass("T", ["build_dir", "lat", "lon", "modify_custom_airports"])(
         str(tmp_path), 0, 0, True)
     monkeypatch.setattr(post_mesh, "object_anchor_worklist_path",

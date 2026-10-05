@@ -24,6 +24,10 @@ from auto_patch import provenance_code as CODE          # noqa: E402
 SPECS = ("Ortho4XP.spec", "Ortho4XP_Qt.spec")
 
 
+def _write(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8", newline="")
+
+
 def _toy_engine(root: Path) -> Path:
     """A minimal ``src``: the version file, one module, one law table and
     the real ``partition_code`` whose ``digest_of`` the digest reuses."""
@@ -31,11 +35,10 @@ def _toy_engine(root: Path) -> Path:
     airport = src / "auto_patch_v2" / "airport"
     airport.mkdir(parents=True)
     shutil.copy(SRC / "auto_patch_v2" / "airport" / "partition_code.py", airport)
-    (src / "O4_Version.py").write_text("version='1.50.1'\n", encoding="utf-8")
+    _write(src / "O4_Version.py", "version='1.50.1'\n")
     (src / "auto_patch_v2" / "law").mkdir()
-    (src / "auto_patch_v2" / "law" / "grades.toml").write_text(
-        "limit = 1.5\n", encoding="utf-8")
-    (src / "solve.py").write_text("STEP = 1\n", encoding="utf-8")
+    _write(src / "auto_patch_v2" / "law" / "grades.toml", "limit = 1.5\n")
+    _write(src / "solve.py", "STEP = 1\n")
     return src
 
 
@@ -60,19 +63,18 @@ def test_an_edit_anywhere_moves_the_digest_and_the_version_does_not(tmp_path):
     src = _toy_engine(tmp_path)
     before = CODE.freeze_digest(str(src))
     assert before == CODE.freeze_digest(str(src)), "stable across reads"
-    (src / "solve.py").write_text("STEP = 2\n", encoding="utf-8")
+    _write(src / "solve.py", "STEP = 2\n")
     edited = CODE.freeze_digest(str(src))
-    (src / "auto_patch_v2" / "law" / "grades.toml").write_text(
-        "limit = 2.0\n", encoding="utf-8")
+    _write(src / "auto_patch_v2" / "law" / "grades.toml", "limit = 2.0\n")
     law = CODE.freeze_digest(str(src))
-    (src / "new_pass.py").write_text("", encoding="utf-8")
+    _write(src / "new_pass.py", "")
     added = CODE.freeze_digest(str(src))
     assert len({before, edited, law, added}) == 4
     assert (src / "O4_Version.py").read_text(encoding="utf-8") == \
         "version='1.50.1'\n"
     # a compiled cache is not source
     (src / "__pycache__").mkdir()
-    (src / "__pycache__" / "solve.cpython-312.py").write_text("x", "utf-8")
+    _write(src / "__pycache__" / "solve.cpython-312.py", "x")
     assert CODE.freeze_digest(str(src)) == added
 
 
@@ -99,9 +101,8 @@ def test_a_frozen_engine_without_the_file_never_digests_its_bundle(
     monkeypatch.setattr(CODE, "frozen_digest", lambda directory=None: None)
     monkeypatch.setattr(CODE, "_CODE_DIGEST", None)
     assert CODE.code_digest() == "absent"
-    assert CODE.frozen_digest.__name__  # (patched; the real reader below)
     monkeypatch.undo()
-    (tmp_path / CODE.DIGEST_FILENAME).write_text("not a digest\n", "ascii")
+    _write(tmp_path / CODE.DIGEST_FILENAME, "not a digest\n")
     assert CODE.frozen_digest(str(tmp_path)) is None
     try:
         CODE.write_freeze_digest(str(tmp_path / "no_engine"), str(tmp_path))

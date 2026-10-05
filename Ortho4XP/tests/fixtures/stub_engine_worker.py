@@ -56,6 +56,10 @@ for N workers to reach them before their start marker is written, so a
 concurrency twin measures admission width and not this machine's process
 spawn stagger (see ``_await_phase_barrier``).
 
+``STUB_WORKER_CONSOLE_LINE`` is written to stderr at start as UTF-8
+bytes — a real worker's pinned console — so a test can read what the
+parent makes of it.
+
 If ``STUB_WORKER_MARK_DIR`` is set, ``start_<lat>_<lon>`` and
 ``end_<lat>_<lon>`` marker files (each containing ``time.time()``) are
 written at build start / end so a test can PROVE two tiles overlapped in
@@ -409,6 +413,12 @@ def _crashing_tile(lat, lon, step_key="vector"):
 
 
 def main():
+    console_line = os.environ.get("STUB_WORKER_CONSOLE_LINE")
+    if console_line:
+        # What a real worker's console is: UTF-8 BYTES, whatever the
+        # locale (O4_Console_Encoding pins it at the entry) — issue #125.
+        sys.stderr.buffer.write(console_line.encode("utf-8") + b"\n")
+        sys.stderr.buffer.flush()
     _emit({
         "event": "EngineHello",
         "ortho4xp_version": "stub-worker",

@@ -62,6 +62,7 @@ import time
 from collections import deque
 from typing import Optional
 
+import O4_Console_Encoding
 import O4_UI_Utils as UI
 
 from . import events as EVENTS
@@ -704,7 +705,11 @@ class _WorkerChild:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
+                # The worker's console is UTF-8 (its entry pins it); a
+                # bare ``text=True`` reads it in the LOCALE encoding —
+                # cp1252 on Windows, where ``Ángel`` (C3 81) does not
+                # decode at all and ended the stderr drain (issue #125).
+                **O4_Console_Encoding.child_console_pipe(),
                 bufsize=1,
                 env=child_environment,
                 close_fds=False,

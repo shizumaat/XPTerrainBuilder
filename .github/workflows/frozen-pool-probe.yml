@@ -1,0 +1,179 @@
+name: Frozen work pool probe (issue #362)
+
+# DISPATCH ONLY — never a release gate by itself (release.yml runs the same
+# pass in each of its frozen jobs, at tag time).  Owner RULINGS 2026-10-05d
+# (2): before `feature/parallel-v2` lands, the work pool inside one airport's
+# build (auto_patch_v2/airport/pool.py) is proven in the FROZEN engine on
+# macOS, Windows and Linux — spawn, shared memory, nested under the airport
+# pool.  The frozen CYXY fixture has no pack and never starts a pool, so this
+# freezes the checked-out ref on each platform (release.yml's freeze steps,
+# copied faithfully: same reqs-frozen filter, same spec) and runs
+#   scripts/check_frozen_tile.py <bundle> --pass pool
+# which makes the bundle run its own `--pool-selfcheck` twice (pooled, and
+# pinned to one core) and reads the teardown from outside after it exits.
+#
+# A workflow_dispatch workflow is dispatchable only once this file exists on
+# the DEFAULT branch; the run then uses the file and the tree of --ref:
+#   gh workflow run frozen-pool-probe.yml --ref claude/frozenpool
+#   gh run watch "$(gh run list --workflow frozen-pool-probe.yml -L1 --json databaseId -q '.[0].databaseId')"
+# Green on a platform ends:  POOL PASS OK: N workers spawned from <exe>, …
+on:
+  workflow_dispatch:
+    inputs:
+      workers:
+        description: "work-pool workers for the pooled arm (blank = max(2, min(4, cores)))"
+        default: ""
+      tile:
+        description: "also run the frozen tile + airport passes (true/false)"
+        default: "false"
+
+env:
+  PYTHON_VERSION: "3.13"   # matches the vendored cp313 wheels in Utils/
+
+jobs:
+  mac:
+    name: "macOS (frozen engine, Ortho4XP.spec)"
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: PROJ for GDAL's proj data lookup
+        run: brew install proj
+
+      - name: Freeze engine
+        run: PYTHON=python3 scripts/make_engine.sh
+
+      - name: Frozen work pool (spawn, shared memory, nested)
+        run: |
+          python3 scripts/check_frozen_tile.py \
+            Ortho4XP/dist/Ortho4XP/Ortho4XP --pass pool \
+            ${{ inputs.workers && format('--pool-workers {0}', inputs.workers) || '' }} \
+            --logs "$RUNNER_TEMP/frozen-pool-logs"
+
+      - name: Frozen tile build (optional)
+        if: inputs.tile == 'true'
+        run: |
+          bash scripts/check_frozen_tile.sh \
+            Ortho4XP/dist/Ortho4XP/Ortho4XP python3 \
+            --logs "$RUNNER_TEMP/frozen-pool-logs/tile"
+
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozen-pool-logs-mac
+          path: ${{ runner.temp }}/frozen-pool-logs
+          if-no-files-found: ignore
+
+  windows:
+    name: "Windows (frozen Qt app, Ortho4XP_Qt.spec)"
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install engine packages
+        working-directory: Ortho4XP
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install Utils/win/*.whl
+          sed '/^# Dev \/ test/,$d' requirements.txt | grep -v '^gdal==' \
+            | grep -v '^scikit-fmm==' > reqs-frozen.txt
+          python -m pip install -r reqs-frozen.txt pyinstaller
+
+      - name: Generate icon and version resource
+        run: |
+          python scripts/make_icon.py --out Ortho4XP/Utils/icons/generated
+          python scripts/make_version_resource.py Ortho4XP/version_info.txt
+
+      - name: Freeze Qt app
+        working-directory: Ortho4XP
+        run: python -m PyInstaller Ortho4XP_Qt.spec --noconfirm
+
+      - name: Frozen work pool (spawn, shared memory, nested)
+        run: |
+          python scripts/check_frozen_tile.py \
+            Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe --pass pool \
+            ${{ inputs.workers && format('--pool-workers {0}', inputs.workers) || '' }} \
+            --logs "$RUNNER_TEMP/frozen-pool-logs"
+
+      - name: Frozen tile build (optional)
+        if: inputs.tile == 'true'
+        run: |
+          bash scripts/check_frozen_tile.sh \
+            Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe python \
+            --logs "$RUNNER_TEMP/frozen-pool-logs/tile"
+
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozen-pool-logs-windows
+          path: ${{ runner.temp }}/frozen-pool-logs
+          if-no-files-found: ignore
+
+  linux:
+    name: "Linux (frozen Qt app, Ortho4XP_Qt.spec)"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: System libraries for Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0
+
+      - name: Install engine packages
+        working-directory: Ortho4XP
+        run: |
+          python -m pip install --upgrade pip
+          sed '/^# Dev \/ test/,$d' requirements.txt | grep -v '^gdal==' \
+            > reqs-frozen.txt
+          python -m pip install -r reqs-frozen.txt pyinstaller
+
+      - name: Generate icon
+        run: python scripts/make_icon.py --out Ortho4XP/Utils/icons/generated
+
+      - name: Freeze Qt app
+        working-directory: Ortho4XP
+        run: python -m PyInstaller Ortho4XP_Qt.spec --noconfirm
+
+      - name: Frozen work pool (spawn, shared memory, nested)
+        run: |
+          python scripts/check_frozen_tile.py \
+            Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt --pass pool \
+            ${{ inputs.workers && format('--pool-workers {0}', inputs.workers) || '' }} \
+            --logs "$RUNNER_TEMP/frozen-pool-logs"
+
+      - name: Frozen tile build (optional)
+        if: inputs.tile == 'true'
+        run: |
+          bash scripts/check_frozen_tile.sh \
+            Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt python \
+            --logs "$RUNNER_TEMP/frozen-pool-logs/tile"
+
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozen-pool-logs-linux
+          path: ${{ runner.temp }}/frozen-pool-logs
+          if-no-files-found: ignore

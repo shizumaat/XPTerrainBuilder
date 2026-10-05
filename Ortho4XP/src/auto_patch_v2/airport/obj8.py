@@ -932,10 +932,28 @@ def _plan_footprint(v: np.ndarray, comp: Component):
                          for tri in comp.tris.tolist()])
 
 
+def _below_key(v: np.ndarray, comp: Component, plane_y: float):
+    """What the component's below-plane clip depends on: with no triangle
+    STRADDLING the plane it is the union of the triangles wholly under it
+    — the same geometry at every plane that keeps the same triangles — and
+    with one it is the plane itself."""
+    n_in = (v[comp.tris][:, :, 1] <= plane_y).sum(axis=1)
+    return plane_y if ((n_in > 0) & (n_in < 3)).any() else n_in.tobytes()
+
+
+def _kept(memo: dict | None, key: tuple, make: _t.Callable[[], object]):
+    """``make()``, made once per ``key`` when the caller holds a ``memo``."""
+    if memo is None:
+        return make()
+    if key not in memo:
+        memo[key] = make()
+    return memo[key]
+
+
 def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_below: float,
              normal_y_min: float, mat: list[float], comp_index: int = -1,
              q: float = 0.0, degenerate: list[str] | None = None,
-             resource: str = "") -> FloorWitness | None:
+             resource: str = "", memo: dict | None = None) -> FloorWitness | None:
     """The component's floor witness, or ``None`` when it carries no floor
     plate under the admission plane (a skirt: walls, no floor).
 
@@ -947,7 +965,13 @@ def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_be
     ``plate`` empty -> no witness, ``outer`` empty -> ``outer=None``
     (``basin_geometry._outer`` already falls back to ``below``).  Every
     drop is appended to ``degenerate`` and named in the object report —
-    never silent."""
+    never silent.
+
+    ``memo`` (issue #362): the three LOCAL footprints depend on the
+    component and on which triangles the planes keep, never on where the
+    placement stands — a caller sweeping many placements of one resource
+    hands a dict (alive no longer than the components) and each is made
+    once; only the entry into the frame is paid per placement."""
     t = comp.tris
     p0, p1, p2 = v[t[:, 0]], v[t[:, 1]], v[t[:, 2]]
     n = np.cross(p1 - p0, p2 - p0)
@@ -959,15 +983,18 @@ def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_be
     deep = (ny >= normal_y_min) & (y_max <= plane_below)
     if not deep.any():
         return None
-    plate = _union_rings([[(float(v[i][0]), float(v[i][2])) for i in tri]
-                          for tri in t[deep].tolist()])
+    ck = id(comp)
+    plate = _kept(memo, (ck, "plate", deep.tobytes()), lambda: _union_rings(
+        [[(float(v[i][0]), float(v[i][2])) for i in tri] for tri in t[deep].tolist()]))
     if plate is None:
         return None
     plane_ground = local - base                       # authored y of the ground
-    below = _clip_component(v, comp, plane_ground, True)
+    below = _clip_component(v, comp, plane_ground, True) if memo is None else _kept(
+        memo, (ck, "below", _below_key(v, comp, plane_ground)),
+        lambda: _clip_component(v, comp, plane_ground, True))
     if below is None:
         return None
-    whole = _plan_footprint(v, comp)
+    whole = _kept(memo, (ck, "whole"), lambda: _plan_footprint(v, comp))
     below_f, plate_f, outer_f = _fe.enter([below, plate, whole], mat, q)
     if below_f is None or plate_f is None:
         if degenerate is not None:
@@ -1090,7 +1117,8 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
 
 def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
                       dem_z: _t.Callable[[float, float], float], contact_band_m: float,
-                      select: _t.Callable[[Component], bool] | None = None, within=None):
+                      select: _t.Callable[[Component], bool] | None = None, within=None,
+                      linework: bool = True):
     """THE RIM AND OWN-COVER EVIDENCE for one placement (04i rules 3 and
     4): EVERY solid component's geometry from ``contact_band_m`` under
     the local ground upward, in the frame, as ``(linework, polygons)`` —
@@ -1103,7 +1131,10 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     own shell read apart from the building it is attached to) and
     ``within`` restricts the RESULT to a frame window — both read through
     the memo of RULINGS 2026-09-13bp (i) / 2026-09-17k (a), never per
-    placement."""
+    placement.  ``linework=False`` is a reader of the POLYGONS alone
+    (issue #362: the door wells; OTHH paid ~8 minutes uniting, placing and
+    windowing linework it never read): the linework comes back ``None``
+    and none of its work is done; the polygons are the same read."""
     if o.resolved is None or is_stock_library_resource(o.path):
         return None, None
     g = cache.geometry(o.resolved)
@@ -1119,10 +1150,12 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     # ── RULINGS 2026-09-13bp (i) + 2026-09-17k (a): read ONCE per
     # (resource, planes); a window is applied to the placed result ──
     keyed = _planes(o, comps, dem_z, base, contact_band_m, False, _to_frame)
-    both = _memo_union(cache, cache.grade_memo, o, g, comps, keyed, both_clip)
+    both = _memo_union(cache, cache.grade_memo, o, g, comps, keyed, both_clip, linework)
     if both is None:
         return None, None
     lu, pu = both
+    if not linework:
+        return None, _in_window(_place(pu, mat, cache.input_quantum_m), within, True)
     # ``lu`` is LINEWORK (§51 (4) row 19: no validity to repair, and the
     # quantum is not extended to lines here) — the affine alone, spelled
     # ONCE in ``frame_entry`` rather than a second time in this module.

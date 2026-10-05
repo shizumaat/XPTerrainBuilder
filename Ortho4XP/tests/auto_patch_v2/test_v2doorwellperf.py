@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 from shapely.geometry import box
 
-from auto_patch_v2.airport import obj8
+from auto_patch_v2.airport import obj8, obj8_grade
 from auto_patch_v2.law import Law
 
 from test_m4b import _two_box_obj                                # noqa: E402
@@ -154,3 +154,65 @@ def test_a_select_still_reads_only_its_components_and_is_memoised(pair, bl):
     both = obj8.at_grade_geometry(placed[0], cache, dem.z, bl.contact_band_m)[1]
     assert both.area == pytest.approx(200.0, abs=1e-6)
     assert cache.grade.unions == 2, "a different component set is a different key"
+
+
+def test_the_polygons_only_read_is_the_full_reads_polygons_byte_for_byte(pair, bl):
+    """Issue #362: ``linework=False`` (the door wells) makes none of the
+    linework and returns the SAME polygons; a later reader that wants the
+    linework completes the memo entry and reads what the eager read made —
+    in either order of the two readers."""
+    dem = _FlatDem()
+    eager = obj8.ResourceCache(bl.min_solid_thickness_m)
+    lazy = obj8.ResourceCache(bl.min_solid_thickness_m)
+    o = _placed(pair, "o0", (0.0, 0.0), dem, bl)
+    for within in (None, _WINDOW):
+        el, ep = obj8.at_grade_geometry(o, eager, dem.z, bl.contact_band_m, within=within)
+        nl, np_ = obj8.at_grade_geometry(o, lazy, dem.z, bl.contact_band_m, within=within,
+                                         linework=False)
+        assert nl is None and np_.wkb == ep.wkb
+        # the polygons-only reader left the linework for later ...
+        assert any(v[0] is obj8_grade.LATER for v in lazy.grade_memo.values())
+        # ... and the reader that wants it gets the eager read's own
+        ll, lp = obj8.at_grade_geometry(o, lazy, dem.z, bl.contact_band_m, within=within)
+        assert ll.wkb == el.wkb and lp.wkb == ep.wkb
+        # a polygons-only reader after a full one changes nothing
+        assert obj8.at_grade_geometry(o, lazy, dem.z, bl.contact_band_m, within=within,
+                                      linework=False)[1].wkb == ep.wkb
+        assert not any(v[0] is obj8_grade.LATER for v in lazy.grade_memo.values())
+    assert lazy.grade.unions == eager.grade.unions
+    assert lazy.grade.vertices == eager.grade.vertices
+
+
+def _sunk_box():
+    """A 4 x 6 m box from y = -2 to y = +1 as one component."""
+    import numpy as np
+    v = np.array([[x, y, z] for y in (-2.0, 1.0) for x in (0.0, 4.0) for z in (0.0, 6.0)])
+    quads = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
+    tris = np.array([t for a, b, c, d in quads for t in ((a, b, c), (a, c, d))])
+    return v, obj8.Component(tris, -2.0, 1.0, 2.0, 3.0, False)
+
+
+def test_the_witness_memo_changes_no_footprint(bl):
+    """Issue #362: the sill-witness sweep hands ``_witness`` a memo of the
+    component's LOCAL footprints.  Every placement's witness is the
+    unmemoised one byte for byte — at a ground plane that cuts the walls
+    (keyed on the plane) and at one that cuts nothing (keyed on the
+    triangles kept) — and the local work is done once per key."""
+    v, comp = _sunk_box()
+    memo: dict = {}
+    for xy, heading, local in (((0.0, 0.0), 0.0, 0.0), ((50.0, 9.0), 30.0, 0.0),
+                               ((80.0, -7.0), 75.0, 0.25), ((10.0, 10.0), 0.0, 3.0),
+                               ((20.0, 10.0), 10.0, 4.0)):
+        mat = obj8.placement_affine(xy, heading)
+        args = (v, comp, 0.0, local, local - 1.0, bl.floor_plate_normal_y_min, mat)
+        plain = obj8._witness(*args, q=0.001)
+        kept = obj8._witness(*args, q=0.001, memo=memo)
+        assert plain is not None and kept is not None
+        for name in ("below", "plate", "outer"):
+            assert getattr(kept, name).wkb == getattr(plain, name).wkb, name
+        assert (kept.plate_y_min, kept.plate_y_max, kept.plate_area_m2) == \
+            (plain.plate_y_min, plain.plate_y_max, plain.plate_area_m2)
+    # one whole footprint; two plates (the lid joins the floor under the
+    # two high planes); the below clip at the two planes that cut the walls
+    # and ONE entry for the two that keep every triangle
+    assert sorted(k[1] for k in memo) == ["below"] * 3 + ["plate"] * 2 + ["whole"]

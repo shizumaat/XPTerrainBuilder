@@ -81,7 +81,7 @@ from .file_hash import sha256_file_or_none
 
 __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
            "pristine_stamps", "resolved_digest", "peek", "code_digest",
-           "dump_digest", "companion", "hold_companion"]
+           "dump_digest", "companion", "hold_companion", "filed", "revive"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
@@ -278,6 +278,31 @@ def companion(pack_root: str, icao: str, suffix: str,
     if not fp or not path:
         return None
     return path + suffix, _companion_key(fp, suffix, digest)
+
+
+def filed(pack_root: str, icao: str) -> "tuple[str, str] | None":
+    """``(cache file, fingerprint)`` of the partition this process
+    fingerprinted for the airport, when a file STANDS under it (read as a
+    HIT, or written) — the key a later process can :func:`revive` the same
+    reading by (owner RULINGS 2026-10-04x (1): the object step builds the
+    rebake plan from it).  ``None`` when this run kept no partition."""
+    fp = _TAKEN.get((os.path.abspath(pack_root) if pack_root else "", str(icao or "")))
+    path = _FILED.get(fp) if fp else None
+    return (path, fp) if fp and path else None
+
+
+def revive(path: str | None, fp: str | None, pack_root: str,
+           icao: str) -> _t.Any | None:
+    """:func:`read` for a caller that holds the KEY a build recorded
+    (:func:`filed`) and not the loaded airport it was taken from: the
+    payload under exactly ``fp``, or ``None`` — never another
+    fingerprint's.  A revived reading is this process's reading of the
+    airport from then on, so its companions (the extension cache) resolve
+    as they do in the build that wrote it."""
+    got = read(path, fp)
+    if got is not None:
+        _TAKEN[(os.path.abspath(pack_root) if pack_root else "", str(icao or ""))] = fp
+    return got
 
 
 def _companion_key(fp: str, suffix: str, digest: str) -> str:

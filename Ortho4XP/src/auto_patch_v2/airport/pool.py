@@ -20,8 +20,9 @@ The contract a caller relies on:
   the airport pool's worker initializer with the pool's own worker count,
   which already honours the airport-pool knob).  :func:`configure` pins it.
   A worker's own budget is 1: pools never nest inside this pool.
-* **serial under pytest** unless a test pins a budget — a suite must not
-  fork eighteen interpreters per fixture.
+* **the suite pins 1** (``tests/conftest.py`` calls ``configure(1)``): the
+  engine never guesses that it is under test — a library importing pytest
+  must not serialise a production build.
 * **ordered results**: :meth:`WorkPool.try_map` returns ``[fn(state, t) for
   t in tasks]`` whatever order the workers finished in.
 * **worker state once per worker**: ``setup(*setup_args)`` runs in each
@@ -89,8 +90,6 @@ def budget() -> int:
     """How many workers a pool opened in this process may run."""
     if _explicit[0] is not None:
         return _explicit[0]
-    if "pytest" in sys.modules:
-        return 1
     try:
         if _mp.current_process().daemon:
             return 1                       # a daemonic process has no children

@@ -218,9 +218,6 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
                        if resource is not None else None),
         "cache_lines": [ln.strip() for ln in lines if "[partition] cache" in ln],
         "workers": n_workers,
-        # the LARGEST worker (ru_maxrss of the children is a max, not a sum)
-        "worker_max_rss_gb": (round(resource.getrusage(
-            resource.RUSAGE_CHILDREN).ru_maxrss / 1e9, 2) if resource is not None else None),
         "digest": stage_digest(part, ps["clusters"], ps.get("ocache")),
         "pool_lines": [ln.strip() for ln in lines if "[pool]" in ln],
     }
@@ -414,8 +411,7 @@ def main(argv: list[str] | None = None) -> int:
         for ln in rec["cache_lines"] + rec.get("pool_lines", []):
             print(f"    {ln}")
         if rec.get("digest"):
-            print(f"    workers {rec.get('workers')}  largest worker RSS "
-                  f"{rec.get('worker_max_rss_gb')} GB  digest "
+            print(f"    workers {rec.get('workers')}  digest "
                   + "  ".join(f"{k} {v[:12]}" for k, v in rec["digest"].items()))
         if rec.get("site"):
             print("    [site] " + "  ".join(f"{k} {v}" for k, v in rec["site"].items()))

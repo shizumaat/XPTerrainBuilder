@@ -125,8 +125,7 @@ def test_a_tasks_own_error_is_the_callers():
 
 
 def test_budget_rules(monkeypatch):
-    assert P.budget() == 1                        # under pytest: serial
-    monkeypatch.delitem(P.sys.modules, "pytest")
+    assert P.budget() == 1                        # the suite's conftest pins 1
     monkeypatch.setattr(P.os, "cpu_count", lambda: 12)
     monkeypatch.setattr(P, "_share", [1])
     monkeypatch.setattr(P, "_explicit", [None])
@@ -138,7 +137,9 @@ def test_budget_rules(monkeypatch):
     P.configure(5)
     assert P.budget() == 5 and P.WorkPool().workers == 5
     P.configure(None)
-    assert P.budget() == 1
+    assert P.budget() == 1                        # 12 cores // 50 airports
+    P.set_share(1)
+    assert P.budget() == 12                       # pytest in sys.modules is not read
 
 
 def test_the_pulse_is_restored():

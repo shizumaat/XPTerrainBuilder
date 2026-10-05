@@ -10,15 +10,20 @@ lanes append to them on their branches); this tool is the READ surface.
 
     tools/docq.py spec  '§37'            # whole §37 incl. its (n) sub-blocks
     tools/docq.py spec  '§37 (6)'        # one sub-block
-    tools/docq.py spec  --list [--object]
+    tools/docq.py spec  --list [--object | --ramps]
     tools/docq.py spec  --object '§16e'  # object-placement-spec
+    tools/docq.py spec  --ramps '§12h'   # othh-terminal-ramps-spec (Laws A/B/C)
     tools/docq.py ruling 13am            # RULINGS 2026-09-13am (+ its bullets)
     tools/docq.py ruling 2026-09-13am 13ab 13aj
     tools/docq.py index                  # one line per tool
     tools/docq.py index seat_feet        # the FULL row(s) matching a substring
 
 Exit 1 with a named miss when nothing matches — a silent empty print is
-how a lane reads the wrong law.
+how a lane reads the wrong law.  A `spec` query with no file flag looks in
+the design spec first and then in the other spec files, and names the file
+it found the section in on stderr (lane `lawcspec`, 2026-10-05: the Law C
+sections §12–§12h live in `othh-terminal-ramps-spec.md`, and a brief that
+said `spec '§12g'` read a refusal).
 """
 from __future__ import annotations
 
@@ -30,6 +35,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SPEC_DESIGN = os.path.join(ROOT, "Ortho4XP/docs/specs/auto-patch-v2/design-surface-spec.md")
 SPEC_OBJECT = os.path.join(ROOT, "Ortho4XP/docs/specs/auto-patch-v2/object-placement-spec.md")
+SPEC_RAMPS = os.path.join(ROOT, "Ortho4XP/docs/specs/auto-patch-v2/othh-terminal-ramps-spec.md")
+#: the search order of an unflagged `spec KEY`
+SPEC_FILES = (SPEC_DESIGN, SPEC_OBJECT, SPEC_RAMPS)
 RULINGS = os.path.join(ROOT, "Ortho4XP/docs/RULINGS.md")
 INDEX = os.path.join(ROOT, "tools/INDEX.md")
 
@@ -92,6 +100,18 @@ def spec_section(path: str, key: str) -> str:
     # de-duplicate overlapping ranges (a `## §37` block already contains its `###`s)
     text = "\n\n".join(out)
     return text
+
+
+def spec_section_any(key: str, paths: tuple = SPEC_FILES) -> tuple[str, str]:
+    """``(path, text)`` of the first spec file in ``paths`` holding ``key``;
+    a miss everywhere is ONE refusal naming every file searched."""
+    for path in paths:
+        try:
+            return path, spec_section(path, key)
+        except SystemExit:
+            continue
+    raise SystemExit(f"docq: no spec heading matches {_norm(key)!r} in "
+                     f"{', '.join(os.path.basename(p) for p in paths)} (try --list)")
 
 
 # --- rulings ----------------------------------------------------------------
@@ -171,17 +191,23 @@ def main(argv=None) -> int:
             _stream.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("spec"); s.add_argument("key", nargs="?"); s.add_argument("--list", action="store_true"); s.add_argument("--object", action="store_true")
+    s = sub.add_parser("spec"); s.add_argument("key", nargs="?"); s.add_argument("--list", action="store_true")
+    s.add_argument("--object", action="store_true"); s.add_argument("--ramps", action="store_true")
     r = sub.add_parser("ruling"); r.add_argument("ids", nargs="+")
     x = sub.add_parser("index"); x.add_argument("sub", nargs="?")
     a = ap.parse_args(argv)
     if a.cmd == "spec":
-        path = SPEC_OBJECT if a.object else SPEC_DESIGN
+        path = SPEC_OBJECT if a.object else SPEC_RAMPS if a.ramps else SPEC_DESIGN
         if a.list or not a.key:
             for _l, lv, k, t in spec_headings(path):
                 print(("  " if lv == 3 else "") + k + "  " + t[:100])
             return 0
-        print(spec_section(path, a.key)); return 0
+        if a.object or a.ramps:
+            print(spec_section(path, a.key)); return 0
+        found, text = spec_section_any(a.key)
+        if found != SPEC_DESIGN:
+            print(f"[docq] {_norm(a.key)} is in {os.path.basename(found)}", file=sys.stderr)
+        print(text); return 0
     if a.cmd == "ruling":
         print(ruling_entry(a.ids)); return 0
     if a.cmd == "index":

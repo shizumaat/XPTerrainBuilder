@@ -341,7 +341,11 @@ def _floor_profile(bands: _t.Sequence[WallBand], axis_ln: LineString, ss: _t.Seq
     2026-09-10u) — ``(floors, floors_y)``, gaps filled from the
     neighbours."""
     pts = np.concatenate([b.pts for b in bands])
-    s_of = np.asarray([axis_ln.project(Point(x, y)) for x, y in pts[:, :2].tolist()])
+    # ONE ``line_locate_point`` call over every sample — the very reading
+    # ``axis_ln.project(Point(x, y))`` makes one point at a time (Law C is
+    # read at every airport since §12h: KASE's 3,247 candidate pairs spent
+    # 12 s here a point at a time)
+    s_of = shapely.line_locate_point(axis_ln, shapely.points(pts[:, :2]))
     out: list[float | None] = []
     out_y: list[float | None] = []
     for s in ss:

@@ -598,14 +598,22 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                  foot_samples_max: int = 4,
                  line_members: _t.Collection[int] = (),
                  station_span_m: float = 0.0, stations_max: int = 0,
-                 scatter_members: _t.Collection[int] = ()) -> list[PlacedPart]:
+                 scatter_members: _t.Collection[int] = (),
+                 contact_only: bool = False) -> list[PlacedPart]:
     """Every genuine component of every member as a placed part, in
     member order then component order (deterministic pids).  A member in
     ``line_members`` is a LINE OBJECT (RULINGS 2026-09-10bb): its parts
     are flagged and their feet are widened to the DRAPE STATIONS — one
     per ``station_span_m`` of the part's plan length, capped at
     ``stations_max`` — so the segment seat reads the design surface
-    along the whole fence and not at four points of a 5 km run."""
+    along the whole fence and not at four points of a 5 km run.
+
+    ``contact_only`` (issue #362) places the part for the CONTACT passes
+    alone — points, triangles, boxes, area, centroid — and leaves the
+    feet, the footprint outline and the solid height unread (no feet, no
+    ring, ``solid_h`` NaN).  :func:`extend` re-places a base member's
+    components only to test them against an added plate; the outline is a
+    shapely union per component and was most of that re-placing."""
     parts: list[PlacedPart] = []
     lines = set(line_members)
     scat = set(scatter_members)
@@ -634,6 +642,14 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                                   float(pts[:, 2].max() - pts[:, 2].min()))
                 k_max = max(foot_samples_max,
                             min(stations_max, int(math.ceil(span / station_span_m))))
+            if contact_only:
+                parts.append(PlacedPart(len(parts), mi, ci, pts, lt, float(c.min_y), total,
+                                        (cx, cy), pts.min(axis=0), pts.max(axis=0),
+                                        np.minimum(np.minimum(a, b), d),
+                                        np.maximum(np.maximum(a, b), d),
+                                        np.zeros((0, 3), dtype=float), is_line, (),
+                                        scatter=is_scat))
+                continue
             parts.append(PlacedPart(len(parts), mi, ci, pts, lt, float(c.min_y), total,
                                     (cx, cy), pts.min(axis=0), pts.max(axis=0),
                                     np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d),
@@ -1117,6 +1133,34 @@ def base_index(part: Partition) -> BaseIndex:
     return BaseIndex(lo, hi, mem, cmp_, ln, root, sc)
 
 
+def _near_base(base: BaseIndex, flo: np.ndarray, fhi: np.ndarray, eps: float) -> set[int]:
+    """The base part ids whose 3-D box comes within ``eps`` of one of the
+    new boxes ``(flo, fhi)`` on every axis; a SCATTER base part is never
+    one (§B.6 row 8).
+
+    INDEXED (issue #362).  The test itself is the one :func:`extend`
+    always made — ``base.box_lo - eps <= fhi`` and ``flo - eps <=
+    base.box_hi`` on all three axes, the same floats compared the same way
+    — but it was made against EVERY base box for each new part (OTHH:
+    27,690 x 167,677 rows, 47 s).  A plan-box tree over the base hands each
+    new part its CANDIDATES first: queried with the new box grown by
+    ``2 eps + 1 mm``, so every box the test admits is a candidate (the
+    test's reach is ``eps``; the slack is far above rounding), and the
+    exact test then decides among them.  Same set, by construction."""
+    import shapely
+    tree = shapely.STRtree(shapely.box(base.box_lo[:, 0], base.box_lo[:, 2],
+                                       base.box_hi[:, 0], base.box_hi[:, 2]))
+    pad = 2.0 * abs(eps) + 1e-3
+    qi, bi = tree.query(shapely.box(flo[:, 0] - pad, flo[:, 2] - pad,
+                                    fhi[:, 0] + pad, fhi[:, 2] + pad))
+    if bi.size == 0:
+        return set()
+    m = ((base.box_lo[bi] - eps <= fhi[qi]) & (flo[qi] - eps <= base.box_hi[bi])).all(axis=1)
+    if getattr(base, "scatter", None) is not None:
+        m &= ~base.scatter[bi]
+    return set(np.unique(bi[m]).tolist())
+
+
 @_dc.dataclass(frozen=True)
 class Extension:
     """What :func:`extend` adds: the new parts (global pids), the edges
@@ -1165,13 +1209,7 @@ def extend(base: BaseIndex, base_members: _t.Sequence[MemberGeometry],
     # ── the neighbourhood: base parts within ε of a new part's box ──────
     flo = np.array([p.box_min for p in fresh])
     fhi = np.array([p.box_max for p in fresh])
-    near: set[int] = set()
-    if n_base_parts:
-        for i in range(flo.shape[0]):
-            m = ((base.box_lo - eps <= fhi[i]) & (flo[i] - eps <= base.box_hi)).all(axis=1)
-            if getattr(base, "scatter", None) is not None:
-                m &= ~base.scatter
-            near.update(np.flatnonzero(m).tolist())
+    near = _near_base(base, flo, fhi, eps) if n_base_parts else set()
     # ── re-place just those members' geometry from the resource cache ──
     by_member: dict[int, list[int]] = {}
     for pid in sorted(near):
@@ -1180,7 +1218,18 @@ def extend(base: BaseIndex, base_members: _t.Sequence[MemberGeometry],
     nb_global: list[int] = []
     nb_member: list[int] = []
     for mi, pids in by_member.items():
-        got = {p.comp: p for p in placed_parts([base_members[mi]], foot_band_m, 1)}
+        # ONLY the components within reach, and for the contact passes
+        # alone (issue #362): a neighbour is a terminal of thousands of
+        # components of which a plate touches a handful, and re-placing
+        # the whole member with its feet and outlines — which nothing
+        # here reads (the feet are zeroed below, the rings never leave) —
+        # was the cost of the extension.  Each component is placed
+        # independently of its siblings, so these are the same parts.
+        o, geom, comps = base_members[mi]
+        want = {int(base.comp[pid]) for pid in pids}
+        got = {p.comp: p for p in placed_parts(
+            [(o, geom, [(ci, c) for ci, c in comps if ci in want])],
+            foot_band_m, 1, contact_only=True)}
         for pid in pids:
             p = got.get(int(base.comp[pid]))
             if p is None:

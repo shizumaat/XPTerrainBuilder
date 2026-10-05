@@ -81,7 +81,7 @@ from .file_hash import sha256_file_or_none
 
 __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
            "pristine_stamps", "resolved_digest", "peek", "code_digest",
-           "dump_digest"]
+           "dump_digest", "companion"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
@@ -253,6 +253,34 @@ def resolved_digest(airport) -> tuple[int, str]:
     return len(pairs), h.hexdigest()
 
 
+#: ``(pack root, ICAO) -> fingerprint`` of the fingerprints this process
+#: took, and ``fingerprint -> cache file`` of the ones it READ a payload
+#: under or WROTE one under — what :func:`companion` hangs a second file
+#: on.  A fingerprint with no file behind it has no companion.
+_TAKEN: dict[tuple[str, str], str] = {}
+_FILED: dict[str, str] = {}
+
+
+def companion(pack_root: str, icao: str, suffix: str,
+              digest: str) -> "tuple[str, str] | None":
+    """``(path, fingerprint)`` of a COMPANION cache of this airport's
+    partition (issue #362: the rebake plan's extension) — the partition's
+    own cache file with ``suffix`` appended, keyed on the partition's
+    fingerprint AND ``digest`` (what the companion reads beyond it).
+
+    ``None`` unless this process fingerprinted the airport's partition and
+    a cache file stands under that fingerprint (read as a HIT, or written)
+    — a companion is only ever kept BESIDE the reading it extends, so a
+    run that caches no partition caches no companion either.  Read and
+    written through :func:`read` / :func:`write` like the partition."""
+    fp = _TAKEN.get((os.path.abspath(pack_root) if pack_root else "", str(icao or "")))
+    path = _FILED.get(fp) if fp else None
+    if not fp or not path:
+        return None
+    h = hashlib.sha256(f"{fp}|{suffix}|{digest}".encode())
+    return path + suffix, h.hexdigest()
+
+
 def fingerprint(airport, law, *, dump_path: str | None,
                 radius_deg: float | None,
                 pristine: "dict[str, list] | None" = None) -> str | None:
@@ -307,6 +335,7 @@ def fingerprint(airport, law, *, dump_path: str | None,
     fp = h.hexdigest()
     _STAMPS[fp] = list(ents)
     _RESOLVED[fp] = rd
+    _TAKEN[(os.path.abspath(pack_root), str(getattr(airport, "icao", "") or ""))] = fp
     return fp
 
 
@@ -412,6 +441,8 @@ def read(path: str | None, fp: str | None) -> _t.Any | None:
         return None
     if fp in _STAMPS and not _stamps_hold(fp, blob.get("pristine")):
         return None
+    if blob.get("result") is not None:
+        _FILED[fp] = path
     return blob.get("result")
 
 
@@ -452,6 +483,7 @@ def write(path: str | None, fp: str | None, result: _t.Any) -> bool:
                               "result": result},
                              protocol=pickle.HIGHEST_PROTOCOL), _ZLIB_LEVEL))
         os.replace(tmp, path)
+        _FILED[fp] = path
         return True
     except Exception:
         try:

@@ -50,7 +50,7 @@ from ..model.frame import XY
 from . import obj8 as _obj8
 
 __all__ = ["PlacedPart", "Partition", "partition", "BaseIndex", "Extension",
-           "base_index", "extend"]
+           "base_index", "extend", "PartAttrs", "part_attrs", "member_attrs"]
 
 
 @_dc.dataclass(frozen=True)
@@ -599,7 +599,9 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                  line_members: _t.Collection[int] = (),
                  station_span_m: float = 0.0, stations_max: int = 0,
                  scatter_members: _t.Collection[int] = (),
-                 contact_only: bool = False) -> list[PlacedPart]:
+                 contact_only: bool = False,
+                 attrs: "_t.Sequence[_t.Sequence[PartAttrs] | None] | None" = None
+                 ) -> list[PlacedPart]:
     """Every genuine component of every member as a placed part, in
     member order then component order (deterministic pids).  A member in
     ``line_members`` is a LINE OBJECT (RULINGS 2026-09-10bb): its parts
@@ -613,18 +615,22 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
     feet, the footprint outline and the solid height unread (no feet, no
     ring, ``solid_h`` NaN).  :func:`extend` re-places a base member's
     components only to test them against an added plate; the outline is a
-    shapely union per component and was most of that re-placing."""
+    shapely union per component and was most of that re-placing.
+
+    ``attrs`` (issue #362) is :func:`member_attrs` per member, derived
+    AHEAD by a work pool (``None``, or ``None`` at a member, derives them
+    here): the feet, the outline and the solid height are a function of
+    the member's own placed components, so who derives them cannot show
+    in the parts."""
     parts: list[PlacedPart] = []
     lines = set(line_members)
     scat = set(scatter_members)
     for mi, (o, geom, comps) in enumerate(members):
         is_line = mi in lines
         is_scat = mi in scat and not is_line
-        for ci, c in comps:
-            tris = np.asarray(c.tris)
-            ids, inv = np.unique(tris.reshape(-1), return_inverse=True)
-            pts = _place(geom, o, ids)
-            lt = inv.reshape(tris.shape)
+        ahead = None if attrs is None or contact_only else attrs[mi]
+        for k, (ci, c) in enumerate(comps):
+            pts, lt = _part_frame(geom, o, c)
             a, b, d = pts[lt[:, 0]], pts[lt[:, 1]], pts[lt[:, 2]]
             areas = 0.5 * np.linalg.norm(np.cross(b - a, d - a), axis=1)
             total = float(areas.sum())
@@ -634,14 +640,6 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                 cy = float((cen[:, 2] * areas).sum() / total)
             else:
                 cx, cy = float(pts[:, 0].mean()), float(pts[:, 2].mean())
-            # §B.2 (4): a scatter piece seats by ONE foot and carries no
-            # ring (§16g reads it by its box)
-            k_max = 1 if is_scat else foot_samples_max
-            if is_line and station_span_m > 0.0 and stations_max > 0:
-                span = math.hypot(float(pts[:, 0].max() - pts[:, 0].min()),
-                                  float(pts[:, 2].max() - pts[:, 2].min()))
-                k_max = max(foot_samples_max,
-                            min(stations_max, int(math.ceil(span / station_span_m))))
             if contact_only:
                 parts.append(PlacedPart(len(parts), mi, ci, pts, lt, float(c.min_y), total,
                                         (cx, cy), pts.min(axis=0), pts.max(axis=0),
@@ -650,14 +648,63 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                                         np.zeros((0, 3), dtype=float), is_line, (),
                                         scatter=is_scat))
                 continue
+            feet, rings, solid_h = ahead[k] if ahead is not None else part_attrs(
+                pts, lt, float(c.min_y), o, is_line, is_scat, foot_band_m,
+                foot_samples_max, station_span_m, stations_max)
             parts.append(PlacedPart(len(parts), mi, ci, pts, lt, float(c.min_y), total,
                                     (cx, cy), pts.min(axis=0), pts.max(axis=0),
                                     np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d),
-                                    _feet(pts, float(c.min_y), o.anchor_z + o.agl_m,
-                                          foot_band_m, k_max), is_line,
-                                    () if is_scat else plan_hull(pts, lt),
-                                    scatter=is_scat, solid_h=solid_height(pts, tris=lt)))
+                                    feet, is_line, rings,
+                                    scatter=is_scat, solid_h=solid_h))
     return parts
+
+
+#: ``(feet, rings, solid_h)`` of one placed part — what :func:`part_attrs`
+#: derives and a work pool may derive ahead
+PartAttrs = tuple[np.ndarray, _t.Any, float]
+
+
+def _part_frame(geom: _obj8.ObjGeometry, o: _obj8.PlacedObject, c: _obj8.Component
+                ) -> tuple[np.ndarray, np.ndarray]:
+    """One component PLACED: its own vertices in the frame and its
+    triangles re-indexed into them."""
+    tris = np.asarray(c.tris)
+    ids, inv = np.unique(tris.reshape(-1), return_inverse=True)
+    return _place(geom, o, ids), inv.reshape(tris.shape)
+
+
+def part_attrs(pts: np.ndarray, lt: np.ndarray, min_y: float, o: _obj8.PlacedObject,
+               is_line: bool, is_scat: bool, foot_band_m: float,
+               foot_samples_max: int, station_span_m: float, stations_max: int
+               ) -> PartAttrs:
+    """The EXPENSIVE readings of one placed part — its ground feet, its
+    footprint outline and its solid height (:func:`placed_parts`' doc)."""
+    # §B.2 (4): a scatter piece seats by ONE foot and carries no
+    # ring (§16g reads it by its box)
+    k_max = 1 if is_scat else foot_samples_max
+    if is_line and station_span_m > 0.0 and stations_max > 0:
+        span = math.hypot(float(pts[:, 0].max() - pts[:, 0].min()),
+                          float(pts[:, 2].max() - pts[:, 2].min()))
+        k_max = max(foot_samples_max,
+                    min(stations_max, int(math.ceil(span / station_span_m))))
+    return (_feet(pts, min_y, o.anchor_z + o.agl_m, foot_band_m, k_max),
+            () if is_scat else plan_hull(pts, lt),
+            solid_height(pts, tris=lt))
+
+
+def member_attrs(member: MemberGeometry, is_line: bool, is_scat: bool,
+                 foot_band_m: float, foot_samples_max: int,
+                 station_span_m: float, stations_max: int) -> list[PartAttrs]:
+    """:func:`part_attrs` of every component of ONE member, in component
+    order — the unit of work a pool worker derives from its own parse."""
+    o, geom, comps = member
+    out = []
+    for _ci, c in comps:
+        pts, lt = _part_frame(geom, o, c)
+        out.append(part_attrs(pts, lt, float(c.min_y), o, is_line, is_scat,
+                              foot_band_m, foot_samples_max, station_span_m,
+                              stations_max))
+    return out
 
 
 def _piece_edges(parts: _t.Sequence[PlacedPart], touch_m: float) -> list[tuple[int, int]]:
@@ -1040,7 +1087,9 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
               abutment_extent_min_m: float = 0.0,
               abutment_spacing_m: float = 0.0,
               scatter_members: _t.Collection[int] = (),
-              piece_touch_m: float = 0.0) -> Partition:
+              piece_touch_m: float = 0.0,
+              attrs: "_t.Sequence[_t.Sequence[PartAttrs] | None] | None" = None
+              ) -> Partition:
     """Parts, the spanning contact edges, and the pool / structure counts
     (module doc).  With ``elevated_base_m`` given (RULINGS 2026-09-09s
     (2)) an ELEVATED part's feet are dropped: only the GROUND parts carry
@@ -1048,7 +1097,7 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
     off the plan."""
     parts = placed_parts(members, foot_band_m, foot_samples_max,
                          line_members, station_span_m, stations_max,
-                         scatter_members)
+                         scatter_members, attrs=attrs)
     uf = _UnionFind(len(parts))
     edges: list[tuple[int, int]] = []
     # §B.2 (4) (issue #29): SCATTER pieces never reach the weld, the

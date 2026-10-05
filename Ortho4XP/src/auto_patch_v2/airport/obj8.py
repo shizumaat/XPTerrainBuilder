@@ -59,6 +59,7 @@ __all__ = ["ObjGeometry", "Component", "PlacedObject", "FloorWitness", "ObjRepor
            "solid_components", "library_index_path", "read_library_index",
            "resolve_resource", "is_stock_library_resource", "placement_affine",
            "read_placed_objects", "above_grade_footprint", "at_grade_geometry", "ResourceCache",
+           "derive_base_profile", "read_ahead",
            "area_fraction_above", "GradeStats",
            "HARD", "HARD_DECK"]
 
@@ -308,6 +309,38 @@ def _to_frame(xy: XY, heading_deg: float, x: float, z: float) -> XY:
     return (xy[0] + x * c - z * s, xy[1] - (x * s + z * c))
 
 
+def read_ahead(cache, kind: str, path: str):
+    """Take the ``kind`` reading a work pool derived ahead for ``path``
+    off ``cache.pre`` (:class:`ResourceCache`), or ``None``."""
+    pre = getattr(cache, "pre", None)
+    return pre.pop((kind, path), None) if pre else None
+
+
+def derive_base_profile(g: "ObjGeometry | None", comps: list["Component"], law
+                        ) -> "BaseProfile":
+    """The base profile of one parsed resource under ``law`` — what
+    :meth:`ResourceCache.base_profile` memoises (its doc carries the
+    table of law keys).  A function of the parse and the law alone, so a
+    work-pool worker derives the same record from its own parse."""
+    st = law.tables.structures
+    bp = st.base_profile
+    if g is None:
+        return BaseProfile("feet", why="resource did not parse")
+    return _base_profile(
+        g, comps,
+        horizontal_ny=float(bp.horizontal_ny),
+        roof_support_fraction=float(bp.roof_support_fraction),
+        sloped_min_extent_m=float(bp.sloped_min_extent_m),
+        sloped_max=float(bp.sloped_max),
+        min_area_m2=float(st.building_pad.min_area_m2),
+        split_tol_m=float(st.placement.split_tol_m),
+        contact_band_m=float(st.basin.contact_band_m),
+        pad_terrace_floor_m=float(law.tables.emit.terrace.pad_terrace_floor_m),
+        pad_frontage_m=float(law.tables.emit.design.pad_frontage_m),
+        min_distinct_spacing_m=float(law.tables.emit.identity.min_distinct_spacing_m),
+        pad_slope_max=float(law.tables.emit.within_shape.pad_slope_max))
+
+
 from .obj8_clip import (_clip, _union_rings, _split_at_plane,  # noqa: E402
                         _bulk_polys, _clip_component)
 from .obj8_grade import GradeStats, above_clip, both_clip  # noqa: E402
@@ -369,6 +402,12 @@ class ResourceCache:
         #: runs FIRST, at classify time, and the planar pass reuses it —
         #: the pack is read once, not twice).
         self.placed: dict[str, object] = {}
+        #: READINGS A WORK POOL COMPUTED AHEAD (issue #362; ``airport/
+        #: pack_work.py``): ``{(kind, path): reading}``.  A memo's own
+        #: derivation site takes its answer from here INSTEAD of deriving
+        #: it — at the moment, and so in the memo order, the serial read
+        #: derives it.  Never stored, never consulted for a hit.
+        self.pre: dict[tuple[str, str], object] = {}
 
     # ── the SMALL derived readings, carried across a cached partition ──
     #    (lane ``v2cost2``, owner RULINGS 2026-09-14v).  The parsed
@@ -445,25 +484,10 @@ class ResourceCache:
         got = self.base.get(path)
         if got is not None:
             return got                                     # type: ignore[return-value]
-        g = self.geometry(path)
-        st = law.tables.structures
-        bp = st.base_profile
-        if g is None:
-            prof = BaseProfile("feet", why="resource did not parse")
-        else:
-            prof = _base_profile(
-                g, self.components(path),
-                horizontal_ny=float(bp.horizontal_ny),
-                roof_support_fraction=float(bp.roof_support_fraction),
-                sloped_min_extent_m=float(bp.sloped_min_extent_m),
-                sloped_max=float(bp.sloped_max),
-                min_area_m2=float(st.building_pad.min_area_m2),
-                split_tol_m=float(st.placement.split_tol_m),
-                contact_band_m=float(st.basin.contact_band_m),
-                pad_terrace_floor_m=float(law.tables.emit.terrace.pad_terrace_floor_m),
-                pad_frontage_m=float(law.tables.emit.design.pad_frontage_m),
-                min_distinct_spacing_m=float(law.tables.emit.identity.min_distinct_spacing_m),
-                pad_slope_max=float(law.tables.emit.within_shape.pad_slope_max))
+        prof = read_ahead(self, "base", path)
+        if prof is None:
+            g = self.geometry(path)
+            prof = derive_base_profile(g, self.components(path) if g is not None else [], law)
         self.base[path] = prof
         return prof
 

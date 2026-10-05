@@ -66,6 +66,7 @@ from . import extension_cache as _extcache
 from . import line_object as _line
 from . import obj8 as _obj8
 from . import obj8_grade as _obj8_grade
+from . import pack_work as _work
 from . import scatter as _scatter
 from . import skirt as _skirt
 from .pack import live_path_of
@@ -542,7 +543,8 @@ def _batch_to_ll(frame):
 
 def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                    cache: _obj8.ResourceCache, law: Law,
-                   screen: Screen | None = None) -> PackPartition:
+                   screen: Screen | None = None, *,
+                   pool: "_work.WorkPool | None" = None) -> PackPartition:
     """Read ``airport``'s pack into units, members, parts, feet, contacts
     and abutments (module doc).
 
@@ -552,10 +554,19 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     order (filter, then partition) and exists so the round's twin can
     measure the two against each other; nothing in the shipped pipeline
     passes one.
+
+    ``pool`` (issue #362) is the stage's work pool; with none given the
+    call opens its own for its duration.  The pool derives AHEAD what is
+    a function of one resource file — the per-resource readings and the
+    parts' feet / outlines / heights (``airport/pack_work.py``) — and the
+    member loop and the placing below take those answers where they would
+    have derived them: the partition is the serial one by construction.
     """
+    if pool is None:
+        with _work.open_pool(law, cache) as own:
+            return partition_pack(airport, objects, cache, law, screen, pool=own)
     sc = screen or Screen()
     rb = law.tables.structures.rebake
-    sk = law.tables.structures.skirt
     counts = counts_zero()
     counts["signature_decks"] = sum(1 for o in objects if o.deck_kind == "signature")
     # THE DECK FAMILIES readable at LOAD (R12-2 completeness): a
@@ -640,6 +651,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     scatter_members: set[int] = set()
     recipes: list[MemberRecipe] = []
     member_ref: list[tuple[tuple[float, float, float], str, str]] = []
+    _work.read_resources_ahead(pool, cache, (o.resolved for _key, o in keyed
+                                             if o.path not in drop_now))
     for key, o in _pulse.each(keyed, "pack partition: members", "placements"):
         if o.path in drop_now:
             continue
@@ -665,14 +678,19 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         recipes.append(MemberRecipe(mgeom[0], tuple(k for k, _c in mgeom[2])))
         member_ref.append((key, o.path, o.id))
 
+    cache.pre.clear()           # what the loop did not ask for is not kept
     # THE ANCHOR PLANE per member (owner RULINGS 2026-09-10ay; spec §17)
     anchor_ix: dict[tuple[float, float, float], int] = {}
     anchor_of_member = [anchor_ix.setdefault(key, len(anchor_ix))
                         for key, _path, _oid in member_ref]
+    _basin_band = law.tables.structures.basin.contact_band_m
+    part_attrs = _work.part_attrs_ahead(
+        pool, placed, line_members, scatter_members, _basin_band,
+        rb.foot_samples_max, rb.body_feet_span_m, rb.line_object_stations_max)
     part = _contact.partition(placed, rb.contact_epsilon_m, rb.contact_weld_m,
                               rb.contact_narrow_budget, rb.pool_overlap_m,
                               rb.contact_batch_rows,
-                              law.tables.structures.basin.contact_band_m,
+                              _basin_band,
                               rb.foot_samples_max,
                               rb.elevated_base_m,
                               line_members, rb.body_feet_span_m,
@@ -682,7 +700,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               law.tables.emit.identity.min_distinct_spacing_m,
                               scatter_members=scatter_members,
                               piece_touch_m=float(
-                                  law.tables.structures.placement.footprint_touch_m))
+                                  law.tables.structures.placement.footprint_touch_m),
+                              attrs=part_attrs)
     counts["scatter_parts"] = sum(1 for q in part.parts if q.scatter)
     parts_by_member = _parts_by_member(part, to_ll_batch)
     for mi, (key, path, _oid) in enumerate(member_ref):

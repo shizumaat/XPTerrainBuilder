@@ -164,6 +164,40 @@ def overlay_inputs(inputs, frame: dict | None):
     return _dc.replace(inputs, **over) if over else inputs
 
 
+def overlay_refusal(inputs, frame: dict | None) -> str | None:
+    """Why ``frame`` CANNOT take effect on ``inputs``, or ``None``.
+
+    MEASURED 2026-10-05 (lane ``tools321``, CYXY): an overlay providing
+    ``Elevation_data`` — the provider-inset case issue #156 was filed for —
+    died mid-load with a ``ColdDemFrame`` traceback.  The capture composes
+    its DEM in the PRODUCTION frame, through the core, and the core reads
+    ``Elevation_data`` from ITS data root; ``airport/dem_production.
+    _check_corpus`` refuses any other ``elevation_root`` as a second corpus
+    (RULINGS ``e9daef5``).  So that half of the flag has never been able to
+    run, and it now says so BEFORE the load instead of advertising a read
+    the engine will not make.  An ``OSM_data`` overlay is not checked by
+    the engine and still captures."""
+    if not frame or "Elevation_data" not in frame["provides"]:
+        return None
+    if getattr(inputs, "dem_frame", "production") != "production":
+        return None
+    ours = os.path.realpath(frame["provides"]["Elevation_data"])
+    if ours == os.path.realpath(inputs.elevation_root):
+        return None                      # the same corpus under another name
+    return (f"REFUSED: {DATA_OVERLAY_FLAG} {frame['dir']} provides "
+            f"Elevation_data, which cannot take effect: the capture composes "
+            f"its DEM in the production frame through the core, and the core "
+            f"reads Elevation_data from its own data root "
+            f"({os.path.realpath(inputs.elevation_root)}) — a second "
+            f"elevation corpus is refused there (RULINGS e9daef5, "
+            f"airport/dem_production._check_corpus).  A lane-local inset is "
+            f"witnessed with tools/fetch_airport_elevation_insets.py "
+            f"--witness ICAO --elevation-data-dir DIR and BUILT on a verified "
+            f"snapshot (tools/harness/build_airport.py --corpus snapshot:DIR); "
+            f"capturing on one needs an engine-side redirect that does not "
+            f"exist (issue #156)")
+
+
 def capture_data_overlay(cap: dict) -> dict | None:
     """The overlay frame a capture was taken on, or ``None``.  A capture
     written before issue #156 carries no key and reads as the shared
@@ -440,6 +474,9 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     # for a shared-corpus read.  Read-side only — the shared-repo write
     # guard armed by :func:`_capture_guarded` stays armed.
     _overlay = resolve_data_overlay(data_overlay)
+    _why_not = overlay_refusal(inputs, _overlay)
+    if _why_not:
+        raise SystemExit(_why_not)
     inputs = overlay_inputs(inputs, _overlay)
     print(overlay_line(icao, _overlay))
     if mod_cache_root:
@@ -2392,8 +2429,10 @@ def main() -> int:
                     help="issue #156: a LANE-LOCAL data overlay for the "
                          "capture — a data root whose "
                          f"{'/'.join(OVERLAY_DIRS)} take precedence over the "
-                         "shared corpus's (a provider inset not yet in the "
-                         "corpus); every other input stays shared.  DECLARED "
+                         "shared corpus's; every other input stays shared.  "
+                         "An Elevation_data overlay REFUSES on the production "
+                         "DEM frame (the core reads its own data root, RULINGS "
+                         "e9daef5) — only OSM_data can take effect today.  DECLARED "
                          "and RECORDED in the capture, so an overlay capture "
                          "can never be mistaken for a shared-corpus one; "
                          "authorises no write.  NOT --corpus snapshot:DIR, "

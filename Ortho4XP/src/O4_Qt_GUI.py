@@ -75,6 +75,7 @@ import O4_Imagery_Utils as IMG
 import O4_UI_Utils as UI
 import O4_Version
 import O4_Build_Info
+import O4_Engine_Stderr_Log as STDLOG
 import O4_Airport_Index as APT
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
@@ -501,114 +502,6 @@ class _StdoutTee:
             pass
 
 
-ENGINE_STDERR_LOG_MAX_BYTES = 20 * 1024 * 1024
-
-
-def engine_stderr_log_path():
-    """Where the Qt window persists engine stderr.
-
-    The mac app's twin is ``~/Library/Logs/XPTerrainBuilder/
-    engine-stderr.log`` (``OrthoEngineClient.swift``, ``EngineStderrLog``);
-    the Qt app has no platform log directory, so it uses the writable data
-    root it already owns."""
-    return FNAMES.data_path(os.path.join("logs", "engine-stderr.log"))
-
-
-class _StderrTee:
-    """Duplicates engine stderr into a persisted log file.
-
-    THE ENGINE'S STDERR, PERSISTED: a Python ``RuntimeWarning`` (shapely,
-    numpy) reached the terminal the Qt app happened to be launched from
-    and nowhere else — a warning the user saw could not be read back
-    afterwards.  Same rule as the mac app (``EngineStderrLog``): one
-    appended file, a session header, rotated at 20 MB by renaming to
-    ``engine-stderr.1.log``.
-
-    Nothing here may raise: this object IS ``sys.stderr``, so a failure
-    to log would take out the report of whatever was being logged.  A
-    file that cannot be opened simply disables persistence for the
-    session; the original stream is always written first.
-    """
-
-    def __init__(self, original, path, max_bytes=ENGINE_STDERR_LOG_MAX_BYTES):
-        self._original = original
-        self._path = path
-        self._max_bytes = max_bytes
-        self._handle = None
-        self._failed = False
-
-    def _open(self):
-        if self._handle is not None or self._failed:
-            return
-        try:
-            directory = os.path.dirname(self._path)
-            if directory:
-                os.makedirs(directory, exist_ok=True)
-            self._handle = open(self._path, "a", encoding="utf-8",
-                                errors="replace", newline="\n")
-            self._handle.write(
-                "=== engine session %s ===\n"
-                % time.strftime("%Y-%m-%dT%H:%M:%S%z")
-            )
-            self._handle.flush()
-        except Exception:
-            self._handle = None
-            self._failed = True
-
-    def _rotate(self):
-        try:
-            if self._handle.tell() <= self._max_bytes:
-                return
-        except Exception:
-            return
-        try:
-            self._handle.close()
-        except Exception:
-            pass
-        self._handle = None
-        old = os.path.splitext(self._path)[0] + ".1.log"
-        try:
-            if os.path.exists(old):
-                os.remove(old)
-            os.replace(self._path, old)
-        except Exception:
-            self._failed = True
-
-    def write(self, text):
-        try:
-            self._original.write(text)
-        except Exception:
-            pass
-        self._open()
-        if self._handle is None:
-            return
-        try:
-            self._handle.write(text)
-            self._handle.flush()
-        except Exception:
-            self._failed = True
-            self._handle = None
-            return
-        self._rotate()
-
-    def flush(self):
-        try:
-            self._original.flush()
-        except Exception:
-            pass
-        if self._handle is not None:
-            try:
-                self._handle.flush()
-            except Exception:
-                pass
-
-    def isatty(self):
-        try:
-            return self._original.isatty()
-        except Exception:
-            return False
-
-
 class TwoLineElidedLabel(QLabel):
     """Value label capped at two wrapped lines.
 
@@ -792,9 +685,11 @@ class MainWindow(QMainWindow):
         sys.stdout = _StdoutTee(sys.stdout, self._console_queue)
         # Engine stderr is persisted rather than teed to the console: the
         # console drawer is a live view, and a RuntimeWarning is worth
-        # reading back days later.  Parity with the mac app's
-        # EngineStderrLog, same 20 MB rotation rule.
-        sys.stderr = _StderrTee(sys.stderr, engine_stderr_log_path())
+        # reading back days later.  Twin of the mac app's
+        # EngineStderrLog: one file per build run, five runs kept.
+        self._stderr_log = STDLOG.EngineStderrLog(
+            sys.stderr, STDLOG.engine_stderr_log_path())
+        sys.stderr = self._stderr_log
         self._console_timer = QTimer(self)
         self._console_timer.setInterval(120)
         self._console_timer.timeout.connect(self._drain_console)
@@ -3313,6 +3208,11 @@ class MainWindow(QMainWindow):
         if not self.console.isVisible():
             self.toggle_console()
 
+        # THE RUN BOUNDARY: the build request that opens a run starts a
+        # fresh engine-stderr.log (twin: BuildModel.sendProtocolBuild).
+        info = O4_Build_Info.build_info()
+        self._stderr_log.start_run(
+            info.app, info.engine, [QTBOUND.tile_label(t) for t in todo])
         started = self._session.enqueue_build(
             todo,
             custom_build_dir=self.output_dir(),
@@ -3347,6 +3247,8 @@ class MainWindow(QMainWindow):
             self._status(
                 "The selected tiles are already building or queued.")
             return
+        self._stderr_log.note(
+            STDLOG.queued_line([QTBOUND.tile_label(t) for t in fresh]))
         accepted = self._session.enqueue_build(
             fresh,
             provider=provider,

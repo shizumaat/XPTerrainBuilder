@@ -126,6 +126,11 @@ issue per airport or per problem, with:
 5. **The log**:
    - macOS: `~/Library/Logs/XPTerrainBuilder/engine-stderr.log`
    - Windows / Linux: `<data folder>/logs/engine-stderr.log`
+   - That file holds the **latest build run only** and starts with a
+     `=== engine run … ===` line (time, app and engine version, tiles).
+     The five runs before it are beside it as `engine-stderr.1.log`
+     (most recent) … `engine-stderr.5.log` — send the one whose header
+     matches the build you are reporting.
    - and the console pane, copied (it has a copy button).
 6. For a failed build, the **exact line** the app printed, e.g.
    `*** Tile +30+031: airport HECA failed at the verify stage — …`.

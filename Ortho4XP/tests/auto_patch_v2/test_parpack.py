@@ -212,3 +212,62 @@ def test_the_stage_profiler_digest_reads_the_two_arms_equal(world, serial):
     assert T.stage_digest(moved, (), cache)["partition"] != want["partition"]
     ap = T.main.__code__.co_consts
     assert "--workers" in ap
+
+
+# ── step 3: the per-placement readings ───────────────────────────────────
+
+def _dem(x: float, y: float) -> float:
+    return 100.0 + 0.002 * x - 0.001 * y            # a gentle tilt, no NaN
+
+
+def _read(world, ahead=None):
+    bl = LAW.tables.structures.basin
+    root = world.root
+    _write_obj(root / "pit.obj", [_box(0, 0, 40, 30, 6.0, y0=-6.0)])
+    _write_obj(root / "deckflag.obj", [_box(0, 0, 30, 8, 0.6, y0=5.0)],
+               hard="ATTR_hard_deck")
+    _write_obj(root / "buried.obj", [_box(0, 0, 6, 6, 2.0, y0=-9.0)])
+    names = ["pit.obj", "basement.obj", "deckflag.obj", "buried.obj", "bushes.obj",
+             "pit.obj", "neighbour.obj", "nowhere.obj", "lib/stock/thing.obj", "pit.obj"]
+    rows = [(f"dsf:obj{k}", nm, (40.0 * k, -25.0 * k), 17.0 * k,
+             0.5 if k % 3 == 0 else None, "OBJECT_AGL" if k % 3 == 0 else "OBJECT")
+            for k, nm in enumerate(names)]
+    index = {nm: str(root / nm) for nm in names if nm != "nowhere.obj"}
+    index["lib/stock/thing.obj"] = str(root / "twice.obj")
+    cache = O.ResourceCache(THICK)
+    objs, rep = O.read_placed_objects(
+        rows, None, index, _dem, bl.admission_depth_m, bl.min_solid_thickness_m,
+        bl.contact_band_m, cache, shell_reaches_grade=bl.shell_reaches_grade,
+        floor_plate_normal_y_min=bl.floor_plate_normal_y_min,
+        rim_reaches_grade=bl.rim_reaches_grade,
+        rim_protrusion_max_fraction=bl.rim_protrusion_max_fraction,
+        authored_depth_min_m=bl.authored_depth_min_m,
+        ahead=None if ahead is None else (lambda jobs, rl: ahead(cache, jobs, rl)))
+    return objs, rep, cache
+
+
+def test_the_placement_reading_through_a_pool_is_the_serial_reading(world):
+    want_objs, want_rep, want_cache = _read(world)
+    assert want_rep.below_grade_objects >= 3 and want_rep.hard_deck_objects == 1
+    assert want_rep.unresolved == 1 and want_rep.stock_placements == 1
+    assert want_rep.buried_components >= 1 and want_rep.buried_named
+    for n in sorted({2, 3, N}):
+        asked = []
+
+        def ahead(cache, jobs, rl, _n=n):
+            asked.append(len(jobs))
+            with W.open_pool(LAW, cache, workers=_n, out=lambda s: None) as pool:
+                got = W.placements_ahead(pool, jobs, rl)
+                assert pool.tasks_done > 0
+                return got
+        objs, rep, cache = _read(world, ahead)
+        # only the placements with a component or a hard deck to read cross
+        assert asked and 0 < asked[0] < len(want_objs)
+        assert repr(objs) == repr(want_objs)
+        assert rep == want_rep
+        assert list(rep.buried_named) == list(want_rep.buried_named)
+        assert list(cache.derived_state()["range"].items()) \
+            == list(want_cache.derived_state()["range"].items())
+    # no pool: the same call answers None and the reader reads here
+    objs, rep, _c = _read(world, lambda cache, jobs, rl: W.placements_ahead(None, jobs, rl))
+    assert repr(objs) == repr(want_objs) and rep == want_rep

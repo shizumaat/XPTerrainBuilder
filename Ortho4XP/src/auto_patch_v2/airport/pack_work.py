@@ -39,7 +39,8 @@ from . import skirt as _skirt
 from .pool import WorkPool
 
 __all__ = ["PackWorker", "setup", "open_pool", "resource_reads",
-           "read_resources_ahead", "member_attrs", "part_attrs_ahead"]
+           "read_resources_ahead", "member_attrs", "part_attrs_ahead",
+           "placement_reads", "placements_ahead"]
 
 
 class PackWorker:
@@ -175,4 +176,43 @@ def part_attrs_ahead(pool: WorkPool | None,
     for mis, rows in zip(by_path.values(), got):
         for mi, row in zip(mis, rows):
             out[mi] = row
+    return out
+
+
+# ── the per-placement readings (``obj8.read_placed_objects``) ────────────
+
+def _by_resource(paths: _t.Sequence[str]) -> dict[str, list[int]]:
+    """Positions grouped by resource, first appearance first."""
+    out: dict[str, list[int]] = {}
+    for k, path in enumerate(paths):
+        out.setdefault(path, []).append(k)
+    return out
+
+
+def placement_reads(state: PackWorker, task: tuple) -> list:
+    """``obj8.read_placement`` for every placement job of ONE resource:
+    ``task = (path, read law, [job, …])`` → ``[(PlacedObject, report), …]``."""
+    path, law, jobs = task
+    cache = state.cache_for(path)
+    return [_obj8.read_placement(cache, job, law) for job in jobs]
+
+
+def placements_ahead(pool: WorkPool | None, jobs: _t.Sequence[tuple],
+                     law: "_obj8.ReadLaw") -> list | None:
+    """``[obj8.read_placement(job)]`` in job order from ``pool``, or
+    ``None`` — the ``ahead`` of ``obj8.read_placed_objects``.  The jobs
+    carry their own DEM samples; a worker reads the resource itself."""
+    if pool is None or not pool.parallel or not jobs:
+        return None
+    groups = _by_resource([job[2] for job in jobs])
+    tasks = [(path, law, [jobs[k] for k in ks]) for path, ks in groups.items()]
+    got = pool.try_map(placement_reads, tasks,
+                       weights=[len(t[2]) * _weight(t[0]) for t in tasks],
+                       what="reading the pack's objects", unit="resources")
+    if got is None:
+        return None
+    out: list = [None] * len(jobs)
+    for ks, rows in zip(groups.values(), got):
+        for k, row in zip(ks, rows):
+            out[k] = row
     return out

@@ -432,7 +432,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _cached_clusters = None
         _t = time.perf_counter()
         _pulse.tick("reading the pack's objects")
-        pack_objects, pack_report = _read_objects(airport, law, ocache)
+        pack_objects, pack_report = _read_objects(airport, law, ocache, pool=_wpool)
         _sub["read"] = time.perf_counter() - _t
         _t = time.perf_counter()
         _pulse.tick("partitioning the pack")

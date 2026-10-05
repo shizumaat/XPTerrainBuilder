@@ -49,6 +49,7 @@ from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
 from . import deck_signature, frame_entry as _fe, obj8
+from . import pack_work as _work
 from .obj8 import is_stock_library_resource, placement_affine
 
 if _t.TYPE_CHECKING:                                   # pragma: no cover
@@ -57,12 +58,15 @@ if _t.TYPE_CHECKING:                                   # pragma: no cover
 __all__ = ["read_objects", "basin_member_ids", "ramp_decks"]
 
 
-def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None
+def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
+                 *, pool: "_work.WorkPool | None" = None
                  ) -> tuple[list[obj8.PlacedObject], obj8.ObjReport]:
     """Every placed OBJ8 of the pack read once (``airport/obj8.py``),
     memoised on ``cache`` — ``planar/basins.read_objects`` is this
     function, and the classify-time basin admission below shares the
-    same reading."""
+    same reading.  ``pool`` (issue #362) may read the placements that
+    have a component or a hard deck to read (``pack_work.placements_ahead``);
+    the DEM is sampled here either way."""
     bl = law.tables.structures.basin
     cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m, _fe.quantum(law))
     hit = cache.placed.get("objects")
@@ -84,7 +88,9 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None
                                          floor_plate_normal_y_min=bl.floor_plate_normal_y_min,
                                          rim_reaches_grade=bl.rim_reaches_grade,
                                          rim_protrusion_max_fraction=bl.rim_protrusion_max_fraction,
-                                         authored_depth_min_m=bl.authored_depth_min_m)
+                                         authored_depth_min_m=bl.authored_depth_min_m,
+                                         ahead=lambda jobs, rl: _work.placements_ahead(
+                                             pool, jobs, rl))
     # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a
     # mapped bridge way are decks; ``ATTR_hard_deck`` stays primary
     objs, drep = deck_signature.classify(objs, cache, law,

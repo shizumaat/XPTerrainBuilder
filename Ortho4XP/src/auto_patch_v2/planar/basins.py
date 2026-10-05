@@ -407,7 +407,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                  cache: obj8.ResourceCache | None = None,
                  report: obj8.ObjReport | None = None,
                  channels: _t.Sequence = (),
-                 claimed: _t.AbstractSet[str] = frozenset()
+                 claimed: _t.AbstractSet[str] = frozenset(),
+                 reads: dict | None = None
                  ) -> tuple[Classification, tuple[Basin, ...], BasinStats]:
     """The classification with the basins applied (cells cut, floor and
     wall cells added, the footprints as keep-outs), the records, and the
@@ -421,7 +422,22 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     tunnel-object corridor or a door well" — so its placement is dropped
     here BEFORE the region pass reads it, with its reason.  LGAV measured
     the cost of the alternative: 60 Trench refusals, five passes each
-    refusing the same geometry against the DEM it stands 12 m under."""
+    refusing the same geometry against the DEM it stands 12 m under.
+
+    ``reads`` (issue #362; ``planar/pack_reads.ring_reads``) keeps the
+    ring's PACK READINGS across the passes of one build — the rim
+    diagnostic, the two cover fractions, the rim report and the ramp
+    decks.  Each reads the ring, its members' parsed geometry and the DEM
+    and never a cell, so it is keyed on exactly those (the ring's bytes,
+    the member placements) and a ring another pass derives differently is
+    read afresh.  The caller scopes ``reads`` to one object list, DEM, law
+    and cache; without it every reading is made here, as before."""
+    reads = {} if reads is None else reads
+
+    def once(key: tuple, read: _t.Callable[[], object]):
+        if key not in reads:
+            reads[key] = read()
+        return reads[key]
     stats = BasinStats()
     uu = _UnionClock(stats.union_s, stats.union_n)
     bl = law.tables.structures.basin
@@ -539,6 +555,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         members = [o for o in witnessed if any(_outer(w).intersects(ring) for w in o.witnesses)]
         wits = [w for o in members for w in o.witnesses if _outer(w).intersects(ring)]
         member_ids = {o.id for o in members}
+        rk, mk = ring.wkb, tuple(o.id for o in members)
         # §24 (7) (a): a sibling's buried plate inside this admitted region
         # is a floor witness OF THIS PIT — it witnesses depth, it does not
         # delimit the floor (that is the region, below)
@@ -555,31 +572,34 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             "no buried sibling plate inside the region (§24 (7) (a))"
         plate = uu("wits.plate", [w.plate for w in wits]).intersection(ring).area
         # ── rule 3: the rim diagnostic (reported, never a refusal) ────
-        open_n, n, first = _rim_open(ring, (rim_tree_of(o) for o in members),
-                                     bl.rim_sample_step_m, bl.footprint_close_m)
+        open_n, n, first = once(("rim_open", rk, mk), lambda: _rim_open(
+            ring, (rim_tree_of(o) for o in members),
+            bl.rim_sample_step_m, bl.footprint_close_m))
         rim_note = (f"rim stations beyond {bl.footprint_close_m} m of the shells' at-grade "
                     f"geometry: {open_n} of {n} ({open_n * ring.exterior.length / n:.0f} of "
                     f"{ring.exterior.length:.0f} m"
                     + (f", first at {_ll(airport, Point(first))}" if first else "") + ")")
         # ── rule 4: cover — reported; basement → the pad ──────────────
-        cov = cov_own = 0.0
-        if box_tree is not None:
+        def cover() -> float:
             covering = []
             for i in box_tree.query(ring, predicate="intersects"):
                 o = boxed[int(i)]
                 cv = cover_in(o, ring, f"{o.id}@{k}")
                 if cv is not None:
                     covering.append(cv)
-            if covering:
-                cov = uu("cover", covering).area / ring.area
+            return uu("cover", covering).area / ring.area if covering else 0.0
+
+        def own_cover() -> float | None:
+            owning = [g1 for g1 in (grade_of(o)[1] for o in members) if g1 is not None]
+            return uu("own_cover", owning).intersection(ring).area / ring.area \
+                if owning else None
+        cov = 0.0 if box_tree is None else once(("cover", rk), cover)
         # NOT windowed: the own-cover read is shared with the rim tree
         # through ``grade_of``'s LRU across rings, and a ring-shaped read
         # would forfeit that reuse.  Windowing it was measured WORSE on
         # OTHH (RULINGS 2026-09-17k MEASURED, third path).
-        owning = [g1 for g1 in (grade_of(o)[1] for o in members) if g1 is not None]
-        own = uu("own_cover", owning) if owning else None
-        if own is not None:
-            cov_own = own.intersection(ring).area / ring.area
+        own = once(("own_cover", rk, mk), own_cover)
+        cov_own = 0.0 if own is None else own
         # THE BASEMENT TEST IS A FRACTION (RULINGS 2026-09-06c (1)): own
         # cover of at least basement_cover_min = a basement; less = a pit,
         # covered or open.  The 04i erosion test ("wholly covered to
@@ -652,8 +672,9 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             # it (``basin_geometry.rim_wall_report``'s docstring carries the
             # reading).  The ring is REPORTED against the reference, never
             # snapped onto it.
-            d_before, probe = rim_wall_report(rim, (rim_tree_of(o) for o in members),
-                                              bl.rim_sample_step_m, bl.footprint_close_m)
+            d_before, probe = once(("rim_wall", rim.wkb, mk), lambda: rim_wall_report(
+                rim, (rim_tree_of(o) for o in members),
+                bl.rim_sample_step_m, bl.footprint_close_m))
             fin = sorted(d for d in d_before if d != float('inf'))
             snap_note = (
                 "rim vs the shells' at-grade geometry (§24 (1) (a), REPORTED — the snap that "
@@ -681,9 +702,12 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                    if w.comp_index >= 0 and _outer(w).intersects(ring)]
             if not idx:
                 continue
-            ramps.extend(_basin_witness.ramp_decks(o, cache, idx, floor_z, rest, bl.contact_band_m,
-                                         bl.floor_plate_normal_y_min, grid,
-                                         bl.ramp_max_grade))
+            ramps.extend(once(
+                ("ramps", o.id, tuple(idx), floor_z, rest),
+                lambda: _basin_witness.ramp_decks(o, cache, idx, floor_z, rest,
+                                                  bl.contact_band_m,
+                                                  bl.floor_plate_normal_y_min, grid,
+                                                  bl.ramp_max_grade)))
         trimmed = _floors_inside(floors, rim, standoff, grid)
         if not trimmed:
             stats.refused.append(f"{bid}: no floor plate ({plate:.0f} m2) survives the "

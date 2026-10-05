@@ -430,14 +430,18 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
             _say(f"  [partition] cache MISS {_cpath} (resolved {_rd[0]} sha "
                  f"{_rd[1][:12]}){_why}", out)
         _cached_clusters = None
-        _t = time.perf_counter()
-        _pulse.tick("reading the pack's objects")
-        pack_objects, pack_report = _read_objects(airport, law, ocache, pool=_wpool)
-        _sub["read"] = time.perf_counter() - _t
-        _t = time.perf_counter()
-        _pulse.tick("partitioning the pack")
-        _part = _partition_pack(airport, pack_objects, ocache, law, pool=_wpool)
-        _sub["partition"] = time.perf_counter() - _t
+        try:                # the workers never outlive a stage that raised
+            _t = time.perf_counter()
+            _pulse.tick("reading the pack's objects")
+            pack_objects, pack_report = _read_objects(airport, law, ocache,
+                                                      pool=_wpool)
+            _sub["read"] = time.perf_counter() - _t
+            _t = time.perf_counter()
+            _pulse.tick("partitioning the pack")
+            _part = _partition_pack(airport, pack_objects, ocache, law, pool=_wpool)
+            _sub["partition"] = time.perf_counter() - _t
+        finally:
+            _wpool.close()
     # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
     # 2026-09-11j; spec §11 (4) "the emitted surface stays lawful").  The
     # terrain under an object's feet is GROUND, and the slope a pilot
@@ -545,7 +549,6 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
              f"read DECK, shade {_ds['area_m2']:,.0f} m2  ("
              + ", ".join(f"{q['resource']} {q['ratio']}" for q in _ds["members"])
              + ")", out)
-    _wpool.close()
     _say("  " + _wpool.line(), out)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "

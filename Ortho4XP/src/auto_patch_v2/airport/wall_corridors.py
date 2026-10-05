@@ -127,7 +127,7 @@ from .wall_corridor_probe import (ROAD_ROLES, MouthRoad, _floor_road, _floor_sla
                                   _RoadLevels, mouth_roads)
 from .wall_geometry import (WallBand, _DENSIFY_M, _seat_base, _MITRE, _MIN_SEG_M, _SHEET_BAND_M, _angle_diff, _band_polygon,
                             _densified, _merge_walls, _overlap_along,
-                            _plan_polys, _plan_segments, _plan_segments_indexed,
+                            _FamilyFaces, _plan_polys, _plan_segments_indexed,
                             _rect_axis, _rect_sides, _straight_runs, _tri_normals_y)
 from .deck_signature import family_key
 from .tunnel_walls import Station, WallLines, midline, read_wall_lines, stations_along
@@ -286,6 +286,8 @@ def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
             verticals.append((ci, vert))
         if not vert.any():
             continue
+        if comp.max_y < plane_ground - bl.contact_band_m:
+            continue                    # buried: never reaches the ground
         if not vert.all():
             # a kerb may carry a CAP or a chamfer (a strip no wider across
             # than a wall's plan thickness); a component whose non-vertical
@@ -302,8 +304,6 @@ def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
                     _L, Wc = _rect_sides(rotated_rectangle(cap_u))
                     if Wc > ob.wall_face_max_thickness_m:
                         continue
-        if comp.max_y < plane_ground - bl.contact_band_m:
-            continue                    # buried: never reaches the ground
         segs = _plan_segments_indexed(v, comp.tris[vert], mat)
         tri_rows = np.nonzero(vert)[0]
         for run in _straight_runs(segs, wc.parallel_max_deg, ob.wall_face_max_thickness_m):
@@ -618,38 +618,24 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
     for fk, members in _pulse.each(sorted(fams.items(), key=lambda kv: kv[0]),
                                    "wall corridors", "families"):
         bands: list[WallBand] = []
-        faces: list[LineString] = []
-        faces_low: list[LineString] = []
+        verticals: list[tuple] = []
         by_id = {o.id: o for o in members}
         for o in members:
             bs, verts = _bands_of(o, cache, dem_z, law)
             bands.extend(bs)
             if verts:
-                g = cache.geometry(o.resolved)
-                mat = _obj8.placement_affine(o.xy, o.heading_deg)
-                comps = cache.genuine(o.resolved)
-                for ci, mask in verts:
-                    rows = comps[ci].tris[mask]
-                    faces.extend(_plan_segments(g.vertices, rows, mat))
-                    # RULINGS 2026-09-10af: the BELOW-ZERO faces alone — a
-                    # foundation skirt CLOSES its pair's ends with more of
-                    # itself (the building's other two sides are skirted
-                    # too); a corridor's trench OPENS at its mouth.  The
-                    # 08n end-cap test reads EVERY vertical face, so a wall
-                    # standing over a trench closes an end that is open
-                    # below the ground.
-                    low = (g.vertices[rows][:, :, 1].min(axis=1) <= -wc.min_wall_depth_m
-                           if measure else np.zeros(rows.shape[0], dtype=bool))
-                    if low.any():
-                        faces_low.extend(_plan_segments(g.vertices, rows[low], mat))
+                verticals.append((o, verts))
         if len(bands) < 2:
             continue
         bands = _merge_walls(bands, wc.parallel_max_deg, ob.wall_face_max_thickness_m,
                              wc.merge_gap_m)
         stats.families += 1
         stats.bands += len(bands)
-        face_tree = STRtree(faces) if faces else None
-        low_tree = STRtree(faces_low) if faces_low else None
+        # THE FAMILY'S VERTICAL FACES ARE READ WHEN A PAIR REACHES RULE 4
+        # (#362): only the end-cap test reads them, and at OTHH 14 of 69
+        # pairs get that far — one plan segment per vertical triangle of
+        # every member of every family was most of this pass's 120 s.
+        ends = _FamilyFaces(verticals, cache, wc.min_wall_depth_m, measure)
         fam_name = f"{fk[0]:.3f},{fk[1]:.3f},{fk[2]:.3f}"
         # RULE 2: the pairs
         for i in range(len(bands)):
@@ -867,9 +853,9 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                     st = sts[0] if k == 0 else sts[-1]
                     return ((p[0] + nx * st.half_l, p[1] + ny_ * st.half_l),
                             (p[0] - nx * st.half_r, p[1] - ny_ * st.half_r))
-                covers = [_end_cover(end_line(k), faces, face_tree, ob.end_cap_open_m)
+                covers = [_end_cover(end_line(k), ends.faces, ends.tree, ob.end_cap_open_m)
                           for k in (0, 1)]
-                covers_low = [_end_cover(end_line(k), faces_low, low_tree,
+                covers_low = [_end_cover(end_line(k), ends.faces_low, ends.low_tree,
                                          ob.end_cap_open_m) for k in (0, 1)] \
                     if measure else [0.0, 0.0]
                 closed = [c >= wc.end_cap_cover_min for c in covers]

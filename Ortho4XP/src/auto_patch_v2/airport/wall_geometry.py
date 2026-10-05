@@ -15,6 +15,7 @@ import numpy as np
 import shapely
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
+from shapely.strtree import STRtree
 
 import dataclasses as _dc
 
@@ -78,19 +79,87 @@ def _plan_segments(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float]
 
 def _plan_segments_indexed(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float]
                            ) -> list[tuple[LineString, int]]:
-    """:func:`_plan_segments` with each segment's triangle row."""
+    """:func:`_plan_segments` with each segment's triangle row.
+
+    The pair is chosen per triangle with the scalar ``math.dist`` (the
+    FIRST longest of 0-1, 0-2, 1-2 — a vertical quad's triangle has two
+    equal ones) and the segments are built in ONE ``shapely.linestrings``
+    call from those same doubles (#362: OTHH reads 4.5 M of them a pass)."""
     a, b, d, e, xoff, yoff = mat
     pts = v[tris][:, :, [0, 2]]
     xs = a * pts[:, :, 0] + b * pts[:, :, 1] + xoff
     ys = d * pts[:, :, 0] + e * pts[:, :, 1] + yoff
-    out = []
-    for k in range(tris.shape[0]):
-        P = [(float(xs[k, i]), float(ys[k, i])) for i in range(3)]
-        best = max(((math.dist(P[i], P[j]), i, j) for i in range(3) for j in range(i + 1, 3)),
-                   key=lambda t: t[0])
-        if best[0] >= _MIN_SEG_M:
-            out.append((LineString([P[best[1]], P[best[2]]]), k))
-    return out
+    dist = math.dist
+    ends: list[tuple[XY, XY]] = []
+    rows: list[int] = []
+    for k, (X, Y) in enumerate(zip(xs.tolist(), ys.tolist())):
+        p0, p1, p2 = (X[0], Y[0]), (X[1], Y[1]), (X[2], Y[2])
+        best, p, q = dist(p0, p1), p0, p1
+        d02 = dist(p0, p2)
+        if d02 > best:
+            best, p, q = d02, p0, p2
+        d12 = dist(p1, p2)
+        if d12 > best:
+            best, p, q = d12, p1, p2
+        if best >= _MIN_SEG_M:
+            ends.append((p, q))
+            rows.append(k)
+    if not rows:
+        return []
+    segs = shapely.linestrings(np.asarray(ends, dtype=float))
+    return list(zip(segs.tolist(), rows))
+
+
+def _chord_bearings(lines: np.ndarray) -> list[float]:
+    """``chord_bearing_mod180`` of every line, off ONE coordinate read
+    when each is a two-point segment (the scalar reading otherwise)."""
+    if lines.size == 0:
+        return []
+    if not (shapely.get_num_coordinates(lines) == 2).all():
+        return [chord_bearing_mod180(ln) for ln in lines.tolist()]
+    xy = shapely.get_coordinates(lines).reshape(-1, 4).tolist()
+    return [(math.degrees(math.atan2(x1 - x0, y1 - y0)) + 360.0) % 180.0
+            for x0, y0, x1, y1 in xy]
+
+
+class _FamilyFaces:
+    """One family's vertical faces as plan segments, with their index —
+    the end-cap test's reading (rule 4), built on FIRST use: ``faces``
+    every vertical face, ``faces_low`` the below-zero ones alone (the
+    ``measure`` probe's, RULINGS 2026-09-10af: a foundation skirt CLOSES
+    its pair's ends with more of itself, a corridor's trench OPENS at its
+    mouth, and the 08n end-cap test reads EVERY vertical face, so a wall
+    standing over a trench closes an end that is open below the ground)."""
+
+    def __init__(self, verticals: list[tuple], cache: _obj8.ResourceCache,
+                 min_depth_m: float, measure: bool) -> None:
+        self._args = (verticals, cache, min_depth_m, measure)
+        self._read: tuple | None = None
+
+    def _all(self) -> tuple:
+        if self._read is None:
+            verticals, cache, min_depth_m, measure = self._args
+            faces: list[LineString] = []
+            low_faces: list[LineString] = []
+            for o, verts in verticals:
+                g = cache.geometry(o.resolved)
+                mat = _obj8.placement_affine(o.xy, o.heading_deg)
+                comps = cache.genuine(o.resolved)
+                for ci, mask in verts:
+                    rows = comps[ci].tris[mask]
+                    faces.extend(_plan_segments(g.vertices, rows, mat))
+                    if measure:
+                        low = g.vertices[rows][:, :, 1].min(axis=1) <= -min_depth_m
+                        if low.any():
+                            low_faces.extend(_plan_segments(g.vertices, rows[low], mat))
+            self._read = (faces, STRtree(faces) if faces else None,
+                          low_faces, STRtree(low_faces) if low_faces else None)
+        return self._read
+
+    faces = property(lambda self: self._all()[0])
+    tree = property(lambda self: self._all()[1])
+    faces_low = property(lambda self: self._all()[2])
+    low_tree = property(lambda self: self._all()[3])
 
 
 def _angle_diff(a: float, b: float) -> float:
@@ -107,8 +176,9 @@ def _straight_runs(segs: list[tuple[LineString, int]], parallel_deg: float, t_ma
     kerb yields its two side walls and its end wall apart.  Each run is
     a list of indices into ``segs``."""
     clusters: list[tuple[float, list[int]]] = []
-    for k, (seg, _t) in enumerate(segs):
-        b = chord_bearing_mod180(seg)
+    lines = np.empty(len(segs), dtype=object)
+    lines[:] = [seg for seg, _t in segs]
+    for k, b in enumerate(_chord_bearings(lines)):
         for cl in clusters:
             if _angle_diff(b, cl[0]) <= parallel_deg:
                 cl[1].append(k)
@@ -116,14 +186,17 @@ def _straight_runs(segs: list[tuple[LineString, int]], parallel_deg: float, t_ma
         else:
             clusters.append((b, [k]))
     runs: list[list[int]] = []
+    # the scalar ``seg.buffer``'s own arguments, over the whole component at
+    # once (#362; ``quad_segs`` is the METHOD's default, not the ufunc's)
+    bufs = shapely.buffer(lines, t_max / 2.0, quad_segs=16, cap_style="flat",
+                          **_MITRE) if len(segs) else lines
     for _b, idx in clusters:
-        merged = _fe.union([segs[k][0].buffer(t_max / 2.0, cap_style="flat", **_MITRE)
-                            for k in idx], "wall_geometry.runs")
+        merged = _fe.union(bufs[idx].tolist(), "wall_geometry.runs")
         parts = shapely.get_parts(merged)
         # §B.3 (#28): ONE envelope query + the same GEOS predicate over the
         # candidates, instead of |idx| x |parts| scalar ``intersects``;
         # runs come out per part in part order, members in ``idx`` order
-        qi, pi = _bulk.intersecting_pairs([segs[k][0] for k in idx], parts)
+        qi, pi = _bulk.intersecting_pairs(lines[idx], parts)
         if qi.size == 0:
             continue
         cut = np.nonzero(np.diff(pi))[0] + 1

@@ -20,7 +20,7 @@ REAL order dependence beside it, and these are its twins:
 
 One derivation site: ``airport/object_cut.placement_key`` /
 ``placement_order``, taken by ``tunnel_objects.read_corridors``,
-``object_cut.read_shells`` and ``wall_corridors.read_wall_corridors``.
+``object_cut.read_shells`` and ``wall_family.read_wall_corridors``.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ import pytest
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport import object_cut as _oc
 from auto_patch_v2.airport.tunnel_objects import read_corridors
-from auto_patch_v2.airport.wall_corridors import read_wall_corridors
+from auto_patch_v2.airport.wall_family import read_wall_corridors
 from auto_patch_v2.model.airport import OsmWay
 from auto_patch_v2.planar.basins import read_objects
 

@@ -303,13 +303,13 @@ _UNION_FUNCTIONS = {
     # unions two base-plane polygons, which are PLACED pack geometry once
     # ``compose_profiles`` has run — so it takes the §51 Law B ladder.
     ("obj8_grade.py", "_weld_risers"),
-    ("door_wells.py", "read_door_wells"),
+    ("door_wells.py", "read_family"),
     ("wall_corridors.py", "_bands_of"),
     ("basins.py", "_UnionClock"),
     # the sweep the coordinator added on the TFFJ abort (2026-09-18,
     # lane ``roadclampscope``): EVERY union whose operands are PLACED
     # pack geometry, not only the five the §51 (4) census tabled.
-    ("sunken_roads.py", "read_sunken_roads"),
+    ("sunken_roads.py", "read_family"),
     ("deck_signature.py", "_spans"),
     ("deck_signature.py", "promote"),
     ("wall_geometry.py", "_straight_runs"),

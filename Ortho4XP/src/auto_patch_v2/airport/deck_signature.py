@@ -726,6 +726,10 @@ def elevated_deck(cache: _obj8.ResourceCache, path: str, law) -> PierReading:
         memo[path] = r
         return r
 
+    ahead = _obj8.read_ahead(cache, "deck", path)     # a work pool read it (#362)
+    if ahead is not None:
+        return _done(ahead)
+
     none = PierReading(0.0, 0.0, math.inf, 0.0, 0.0, False, "")
     g = cache.geometry(path)
     if g is None or g.solid.shape[0] == 0:

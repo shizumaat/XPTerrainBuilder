@@ -305,15 +305,12 @@ def revived(payload: _t.Any, law: Law) -> "tuple[_t.Any, list, _t.Any] | None":
     if not isinstance(payload, tuple) or len(payload) != 5:
         return None
     from . import frame_entry as _fe
+    from . import partition_cache as _pcache
     from .obj8 import ResourceCache
-    objects, report, part, _clusters, derived = payload
+    objects, _report, part, _clusters, _derived = payload
     cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m,
                           _fe.quantum(law))
-    cache.placed["objects"] = (objects, report)
-    cache.restore_derived(derived)
-    geom = getattr(part, "geom", None)
-    if geom is not None and hasattr(geom.members, "bind"):
-        geom.members.bind(cache)
+    _pcache.put_back(cache, payload)
     return cache, objects, part
 
 

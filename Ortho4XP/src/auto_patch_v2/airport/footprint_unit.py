@@ -562,7 +562,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                               chain_min_height_m: float = 0.0,
                               contents_min_fraction: float = 0.0,
                               sheet_chain_min_fraction: float = 0.0,
-                              cut: _t.AbstractSet[int] = frozenset()
+                              cut: _t.AbstractSet[int] = frozenset(),
+                              pool: _t.Any = None
                               ) -> "tuple[list[PlanUnit], list[PlanConnector]]":
     """§16g (1) PLAN-WIDE with §16g (6)'s CONNECTOR reading.
 
@@ -627,7 +628,11 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     as contents — it is cut out of its chain exactly as
     ``plan_clusters`` cuts it, so the rail no longer makes HECA's T2 and
     T3 one unit.  Empty = every body chains as before (a plan with no
-    stamped verdict)."""
+    stamped verdict).
+
+    ``pool`` (``airport/pool.WorkPool``, issue #362) reads the spanning
+    sheets' overlaps and a large cluster's contact sweep; units and
+    connectors are the ones no pool gives."""
     if touch_m <= 0.0 or not getattr(plan, "units", ()):
         return [], []
     bodies, _of_pid = bodies_of_plan(plan)
@@ -684,7 +689,7 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
             is_deck=lambda i: member_is_deck(
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
             is_footed=lambda i: shims[i].footed,
-            ml=_ml, mo=_mo, counts=counts, prefix="unit_")
+            ml=_ml, mo=_mo, counts=counts, prefix="unit_", pool=pool)
         if links:
             clusters = [cl for cl in merge_by_sheets(clusters, links)
                         if len(cl) >= 2]
@@ -743,7 +748,7 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
         if connector_span_m <= 0.0 or k < 0:
             continue
         conns.extend(connectors_of_cluster(cl, uid, shims, touch_m,
-                                           connector_span_m, index))
+                                           connector_span_m, index, pool))
     return out, conns
 
 

@@ -22,42 +22,131 @@ import hashlib
 import os
 import typing as _t
 
-__all__ = ["CODE_MODULES", "DIGEST_FILENAME", "digest_of", "freeze_digest",
+__all__ = ["CODE_MODULES", "ENTRY_MODULES", "PLUMBING_MODULES",
+           "DIGEST_FILENAME", "digest_of", "source_path", "freeze_digest",
            "write_freeze_digest", "frozen_digest"]
 
 #: The file the freeze writes beside this module (one line: the digest).
 DIGEST_FILENAME = "partition_code.sha256"
 
 #: The modules the cached reading runs through — their source bytes are
-#: the code half of the fingerprint.  Import paths inside the package.
+#: the code half of the fingerprint.
+#:
+#: THE WHOLE STATIC IMPORT CLOSURE of the reading's entry modules
+#: (:data:`ENTRY_MODULES`), every ``import`` in every function included,
+#: sorted (issue #362).  The list was kept by hand until then and held 22
+#: of these: ``basin_witness`` — where ``read_objects`` actually lives —
+#: was not in it, while ``planar.basins``, which only re-exports that
+#: name, was.  A stale HIT after a code change is the one failure this key
+#: must not have, and "does the reading call into this module" is not a
+#: question anyone can keep answering by eye; "does it import it" is one a
+#: twin can (``tests/auto_patch_v2/test_partition_code_closure.py`` fails
+#: on any module the closure has and this list has not, and on the
+#: reverse).  The price is named: an edit to any of these re-reads the
+#: pack once.  A package is listed as its ``__init__``.
 CODE_MODULES: tuple[str, ...] = (
-    "auto_patch_v2.airport.pack_partition",
+    "auto_patch_v2.airport.anchor_rule",
+    "auto_patch_v2.airport.apt_dat",
+    "auto_patch_v2.airport.backup_state",
+    "auto_patch_v2.airport.basin_ring",
+    "auto_patch_v2.airport.basin_witness",
+    "auto_patch_v2.airport.borrow",
+    "auto_patch_v2.airport.bridge_family",
+    "auto_patch_v2.airport.bulk_geos",
     "auto_patch_v2.airport.contact",
+    "auto_patch_v2.airport.contents",
+    "auto_patch_v2.airport.deck_signature",
+    "auto_patch_v2.airport.dsf",
+    "auto_patch_v2.airport.file_hash",
+    "auto_patch_v2.airport.footprint_carry",
+    "auto_patch_v2.airport.footprint_connector",
+    "auto_patch_v2.airport.footprint_seats",
+    "auto_patch_v2.airport.footprint_unit",
+    "auto_patch_v2.airport.frame_entry",
+    "auto_patch_v2.airport.line_object",
     "auto_patch_v2.airport.obj8",
     "auto_patch_v2.airport.obj8_clip",
-    # the base read (``Member.base_profile``) and its composition onto the
-    # cached clusters (``PlanCluster.base_profile``) run through it — a
-    # change to the read was invisible to the cache (lane t3onelevel10)
     "auto_patch_v2.airport.obj8_grade",
-    "auto_patch_v2.airport.frame_entry",
-    "auto_patch_v2.airport.skirt",
-    "auto_patch_v2.airport.bulk_geos",
-    "auto_patch_v2.airport.scatter",
-    "auto_patch_v2.airport.deck_signature",
-    "auto_patch_v2.airport.line_object",
-    "auto_patch_v2.airport.placement_boxes",
-    "auto_patch_v2.airport.placement_contact",
-    "auto_patch_v2.airport.placement_family",
+    "auto_patch_v2.airport.obj8_split",
     "auto_patch_v2.airport.pack",
-    "auto_patch_v2.planar.basins",
-    "auto_patch_v2.planar.cluster",
-    # unit-platform spec §2: the cached clusters read the connector verdict
-    "auto_patch_v2.airport.footprint_connector",
-    "auto_patch_v2.airport.footprint_unit",
-    # issue #104: the seat machinery split out of ``footprint_unit``
-    "auto_patch_v2.airport.footprint_seats",
+    "auto_patch_v2.airport.pack_partition",
+    "auto_patch_v2.airport.pad_block_seat",
+    "auto_patch_v2.airport.placement_atom",
+    "auto_patch_v2.airport.placement_body",
+    "auto_patch_v2.airport.placement_boxes",
+    "auto_patch_v2.airport.placement_carrier",
+    "auto_patch_v2.airport.placement_census",
+    "auto_patch_v2.airport.placement_cockpit",
+    "auto_patch_v2.airport.placement_contact",
+    "auto_patch_v2.airport.placement_cut",
+    "auto_patch_v2.airport.placement_deck",
+    "auto_patch_v2.airport.placement_family",
+    "auto_patch_v2.airport.placement_file",
+    "auto_patch_v2.airport.placement_geom",
+    "auto_patch_v2.airport.placement_motion",
+    "auto_patch_v2.airport.placement_orphan",
+    "auto_patch_v2.airport.placement_plan",
+    "auto_patch_v2.airport.placement_read",
+    "auto_patch_v2.airport.placement_record",
+    "auto_patch_v2.airport.placement_seams",
+    "auto_patch_v2.airport.placement_seat_tilt",
+    "auto_patch_v2.airport.placement_targets",
+    "auto_patch_v2.airport.rebake_plan",
+    "auto_patch_v2.airport.scatter",
     "auto_patch_v2.airport.sheet_chain",
+    "auto_patch_v2.airport.skirt",
+    "auto_patch_v2.geom",
+    "auto_patch_v2.geom.cluster_outline",
+    "auto_patch_v2.geom.pad_evidence",
+    "auto_patch_v2.geom.rotated_rect",
+    "auto_patch_v2.geom.triangulate",
+    "auto_patch_v2.geom.union_find",
+    "auto_patch_v2.law",
+    "auto_patch_v2.law.airports_schema",
+    "auto_patch_v2.law.base_profile_schema",
+    "auto_patch_v2.law.basin_schema",
+    "auto_patch_v2.law.cockpit_schema",
+    "auto_patch_v2.law.cutout_schema",
+    "auto_patch_v2.law.design_schema",
+    "auto_patch_v2.law.eat_schema",
+    "auto_patch_v2.law.flat_site_schema",
+    "auto_patch_v2.law.model",
+    "auto_patch_v2.law.model_types",
+    "auto_patch_v2.law.rebake_schema",
+    "auto_patch_v2.law.role_cap_schema",
+    "auto_patch_v2.law.tables",
+    "auto_patch_v2.law.terrace_schema",
+    "auto_patch_v2.law.tunnel_object_schema",
+    "auto_patch_v2.law.units",
+    "auto_patch_v2.model.airport",
+    "auto_patch_v2.model.frame",
+    "auto_patch_v2.model.placement",
+    "auto_patch_v2.model.planar",
+    "auto_patch_v2.model.pulse",
     "auto_patch_v2.model.rebake",
+    "auto_patch_v2.model.structures",
+    "auto_patch_v2.planar.cluster",
+)
+
+#: Where the cached reading is ENTERED: ``pack_partition.partition_pack``,
+#: ``basin_witness.read_objects`` (``planar.basins.read_objects`` is this
+#: same function, re-exported) and ``planar.cluster`` (``clusters``,
+#: ``connector_verdicts``).
+ENTRY_MODULES: tuple[str, ...] = (
+    "auto_patch_v2.airport.pack_partition",
+    "auto_patch_v2.airport.basin_witness",
+    "auto_patch_v2.planar.cluster",
+)
+
+#: The cache's own plumbing: in the closure (the reading's modules import
+#: it to keep and revive records) and deliberately NOT in the digest — it
+#: decides where a record is kept, never what the reading is, and a change
+#: of record SHAPE is ``partition_cache.CACHE_VERSION`` / a suffix bump.
+PLUMBING_MODULES: tuple[str, ...] = (
+    "auto_patch_v2.airport.extension_cache",
+    "auto_patch_v2.airport.partition_cache",
+    "auto_patch_v2.airport.partition_code",
+    "auto_patch_v2.airport.topology_cache",
 )
 
 
@@ -78,12 +167,18 @@ def digest_of(sources: _t.Iterable[tuple[str, "str | None"]]) -> str | None:
     return h.hexdigest()
 
 
+def source_path(src_root: str, name: str) -> str:
+    """``name``'s source under ``src_root``: ``<name>.py``, or the
+    package's ``__init__.py``."""
+    base = os.path.join(src_root, *name.split("."))
+    return os.path.join(base, "__init__.py") if os.path.isdir(base) else base + ".py"
+
+
 def freeze_digest(src_root: str) -> str | None:
     """:func:`digest_of` over :data:`CODE_MODULES` read under ``src_root``
     (the directory holding ``auto_patch_v2``) — what the freeze writes to
     :data:`DIGEST_FILENAME`.  Equal to the checkout's own digest."""
-    return digest_of((name, os.path.join(src_root, *name.split(".")) + ".py")
-                     for name in CODE_MODULES)
+    return digest_of((name, source_path(src_root, name)) for name in CODE_MODULES)
 
 
 def write_freeze_digest(src_root: str, out_dir: str) -> str:

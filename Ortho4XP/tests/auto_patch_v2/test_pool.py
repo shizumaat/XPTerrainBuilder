@@ -427,11 +427,10 @@ def test_a_normal_close_still_joins_cleanly_and_terminates_nobody(monkeypatch):
     said: list = []
     pool = P.WorkPool(_setup, (3,), workers=3, out=said.append)
     assert pool.try_map(_square, range(12)) == [3 + t * t for t in range(12)]
-    pids = pool.pids()
+    procs = list(pool._ex._processes.values())
+    assert sorted(p.pid for p in procs) == pool.pids() and len(procs) == 3
     t0 = time.monotonic()
     pool.close()
     assert time.monotonic() - t0 < P.TEARDOWN_S
     assert sent == [] and said == [] and not pool.fell_back
-    for pid in pids:
-        with pytest.raises(ProcessLookupError):
-            os.kill(pid, 0)
+    assert all(P.exited(p) for p in procs)

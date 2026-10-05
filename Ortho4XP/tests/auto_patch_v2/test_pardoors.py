@@ -334,7 +334,7 @@ def test_a_ledger_carries_its_requests_its_entries_and_their_rungs(world, law, m
 def _count_each_family(setattr_) -> None:
     """Every family reading of the three family readers takes one fallback
     rung at ``twin.<reader>`` — in whichever process reads it."""
-    from auto_patch_v2.airport import wall_corridors as WC
+    from auto_patch_v2.airport import wall_family as WC
 
     def counted(fn, site):
         def read_family(*a, **k):

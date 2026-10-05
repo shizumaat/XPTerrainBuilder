@@ -47,7 +47,8 @@ from ..airport.door_wells import DoorStats, read_door_wells
 from ..airport.sunken_roads import SunkenRoadStats, read_sunken_roads
 from ..airport.thin_plates import PlateStats, read_plates
 from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
-from ..airport.wall_corridors import WallCorridorStats, read_wall_corridors
+from ..airport.wall_corridors import WallCorridorStats
+from ..airport.wall_family import read_wall_corridors
 from ..model import pulse as _pulse
 
 __all__ = ["PackReads", "pack_reads", "pool_report", "ring_reads",

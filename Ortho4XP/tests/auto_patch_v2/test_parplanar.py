@@ -24,7 +24,7 @@ from auto_patch_v2.airport import dem_shared as DS
 from auto_patch_v2.airport import frame_entry as _fe
 from auto_patch_v2.airport import pool as P
 from auto_patch_v2.airport import reader_work as RW
-from auto_patch_v2.airport import wall_corridors as WC
+from auto_patch_v2.airport import wall_family as WC
 from auto_patch_v2.airport.dem_production import ProductionDem, _BakedTile
 from auto_patch_v2.airport.obj8 import ResourceCache
 from auto_patch_v2.classify.roles import Classification

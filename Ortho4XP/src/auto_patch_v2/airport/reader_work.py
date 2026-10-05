@@ -8,9 +8,9 @@ objects, the parsed resources and the law.  Here they are tasks, and every
 reader's answers are put together in the order one loop met them:
 
 * the tunnel corridors + thin plates: ONE task;
-* the wall corridors: one task per ANCHOR FAMILY (``wall_corridors.
+* the wall corridors: one task per ANCHOR FAMILY (``wall_family.
   read_family`` reads nothing of another family; the intake is built here,
-  in ``objects`` order, and ``wall_corridors.assemble`` takes the answers
+  in ``objects`` order, and ``wall_family.assemble`` takes the answers
   in sorted family order, which is where the corridors' ``@k`` and the
   order of every refusal line come from);
 * the sunken roads: one task per anchor family, the same way
@@ -73,7 +73,7 @@ from .dem_shared import ColdTile, revive, share
 from .pool import WorkPool, budget
 from .thin_plates import read_plates
 from .tunnel_objects import read_corridors
-from .wall_corridors import assemble, read_family, wall_families, wall_reader
+from .wall_family import assemble, read_family, wall_families, wall_reader
 
 __all__ = ["READERS", "WALLS", "TUNNELS", "DOORS", "ROADS", "MIN_OBJECTS", "MAX_WORKERS",
            "Ahead", "Stripped", "StrippedField", "ReadWorker", "setup", "read", "begin"]
@@ -150,7 +150,7 @@ class ReadWorker:
     objects: list
     law: _t.Any
     cache: _obj8.ResourceCache
-    walls: _t.Any = None               # ``wall_corridors.WallReader``, lazily
+    walls: _t.Any = None               # ``wall_family.WallReader``, lazily
     roads: _t.Any = None               # ``sunken_roads.RoadReader``, lazily
 
 

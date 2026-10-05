@@ -30,8 +30,8 @@ from shapely.ops import unary_union
 
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport.tunnel_objects import read_corridors, signature
-from auto_patch_v2.airport.wall_corridors import (CLASS_BAY, CLASS_GARAGE, CLASS_LEVEL,
-                                                  read_wall_corridors)
+from auto_patch_v2.airport.wall_corridors import CLASS_BAY, CLASS_GARAGE, CLASS_LEVEL
+from auto_patch_v2.airport.wall_family import read_wall_corridors
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate
 from auto_patch_v2.constraints.structures import structures as structure_rows

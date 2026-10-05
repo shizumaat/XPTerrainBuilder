@@ -140,6 +140,19 @@ class V2Progress:
         return False
 
 
+def v2_line_verbosity(line: str) -> int:
+    """The verbosity a v2 build-log line prints at in the TILE build's log.
+
+    0 — always — for the work pool's account (``[pool] workers …``, a
+    ``[pool] FELL BACK`` and its reason, a reader held on one core); 1 for
+    the rest.  The auto-patch log knob runs the airport builds at
+    verbosity 0, so the per-stage lines stay quiet there — but whether an
+    airport's stages ran on every core or fell back to one must be in the
+    tile's own log, as the ``[v2 rebake]`` lines are, and not only in the
+    airport's ``report.json`` (issue #395)."""
+    return 0 if line.lstrip().startswith("[pool]") else 1
+
+
 def resolved_auto_patch_engine(tile) -> str:
     """``"v2"``.  Always.
 

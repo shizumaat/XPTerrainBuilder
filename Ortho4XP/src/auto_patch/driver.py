@@ -1316,8 +1316,10 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         # v2's per-stage lines (load/planar/constraints/solve/emit/verify
         # counts and walls), printed here by the main process in task
         # order — a worker never writes the shared console.
+        # The work pool's account prints at verbosity 0 (issue #395,
+        # ``engine_v2.v2_line_verbosity``).
         for _ln in r.get("log_lines") or ():
-            UI.vprint(1, "   [v2]", _ln)
+            UI.vprint(_engine_v2.v2_line_verbosity(_ln), "   [v2]", _ln)
         auto_patched.append(icao)
         if r.get("verify_err"):
             UI.lvprint(0, "   Auto-patch: verification error for", icao,

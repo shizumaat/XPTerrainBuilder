@@ -309,3 +309,129 @@ def test_a_reused_block_name_never_serves_the_earlier_arrays(monkeypatch):
         with P.share_object("second") as o2:
             assert [v[0] for v in o2.spec.values()] == taken_o
             assert pool.try_map(_obj, [o2.spec] * 8) == ["second"] * 8
+
+
+# ── an attachment is released, never left to the collector ───────────────
+
+def _two_sets():
+    import numpy as np
+    return (P.SharedArrays({"a": np.full(64, 1.0)}), P.SharedArrays({"a": np.full(64, 2.0)}))
+
+
+def test_attach_closes_the_previous_block_before_it_opens_the_next():
+    """The previous spec's handle is CLOSED when ``attach`` returns — the
+    views are dropped first, so the close cannot raise and be swallowed."""
+    one, two = _two_sets()
+    try:
+        assert float(P.attach(one.spec)["a"][0]) == 1.0
+        held = P._ATTACHED[1][0]
+        assert float(P.attach(two.spec)["a"][0]) == 2.0
+        assert held.buf is None                       # closed, not waiting for GC
+        assert P.attached() == [two.spec["a"][0]]
+    finally:
+        one.close()
+        two.close()
+    assert P.attached() == []
+
+
+def test_the_owner_closing_releases_this_process_own_attachment():
+    """One core: the process that shares a block also reads it.  Its
+    attachment is closed by the owner's ``close`` — on Windows a block
+    lives until its LAST handle closes (the frozen one-core arm's leak)."""
+    from multiprocessing import shared_memory
+    one, two = _two_sets()
+    two.close()
+    P.attach(one.spec)
+    handle = P._ATTACHED[1][0]
+    one.close()
+    assert P.attached() == [] and handle.buf is None
+    with pytest.raises(FileNotFoundError):
+        shared_memory.SharedMemory(name=one.spec["a"][0], track=False)
+
+
+def test_a_view_a_caller_keeps_holds_its_block_by_name_until_it_is_dropped():
+    """A block cannot be closed under a live view: it is NAMED as still
+    open, never silently forgotten, and closed once the view is gone."""
+    one, two = _two_sets()
+    try:
+        view = P.attach(one.spec)["a"]
+        P.attach(two.spec)
+        assert sorted(P.attached()) == sorted([one.spec["a"][0], two.spec["a"][0]])
+        assert float(view[0]) == 1.0                  # still readable
+        del view
+        P.detach()
+        assert P.attached() == []
+    finally:
+        one.close()
+        two.close()
+
+
+# ── a worker's life is its parent's ──────────────────────────────────────
+
+def _quick():
+    pass
+
+
+def test_exited_reads_the_sentinel_not_a_waitpid_someone_else_won():
+    """The executor's thread and a teardown both join a worker; the loser
+    of the ``waitpid`` reads the worker as ALIVE.  Forced here by reaping
+    the child behind the Process object's back."""
+    import multiprocessing as mp
+    proc = mp.get_context("spawn").Process(target=_quick)
+    proc.start()
+    if hasattr(os, "waitpid") and os.name == "posix":
+        os.waitpid(proc.pid, 0)                       # somebody else reaped it
+    else:
+        proc.join()
+    assert P.exited(proc, 5.0)
+    proc._popen.returncode = 0                        # so later tests' child census is clean
+
+    class Stub:                                       # a stand-in has no sentinel
+        def __init__(self, alive):
+            self.alive, self.joins = alive, []
+
+        def join(self, timeout=None):
+            self.joins.append(timeout)
+
+        def is_alive(self):
+            return self.alive
+    assert P.exited(Stub(False)) and not P.exited(Stub(True), 0.01)
+
+
+def test_the_parent_watch_is_nothing_in_a_first_process_and_a_thread_in_a_worker():
+    import threading
+    before = {t.name for t in threading.enumerate()}
+    P.exit_with_parent()                              # pytest's worker or the session
+    import multiprocessing as mp
+    if mp.parent_process() is None:
+        assert {t.name for t in threading.enumerate()} == before
+    with P.WorkPool(workers=2, out=lambda s: None) as p:
+        assert p.try_map(_threads, range(4)) == [True] * 4
+        assert len(p.pids()) == 2
+    assert p.pids() == []
+
+
+def _threads(_state, _t):
+    import threading
+    return any(t.name == "o4-parent-watch" and t.daemon for t in threading.enumerate())
+
+
+def test_a_normal_close_still_joins_cleanly_and_terminates_nobody(monkeypatch):
+    """With the watch in every worker a close is what it was: the workers
+    exit by themselves inside the deadline, nothing is terminated, and the
+    pool never fell back."""
+    import multiprocessing.process as mpp
+    sent: list = []
+    monkeypatch.setattr(mpp.BaseProcess, "terminate", lambda self: sent.append(self.pid))
+    monkeypatch.setattr(mpp.BaseProcess, "kill", lambda self: sent.append(self.pid))
+    said: list = []
+    pool = P.WorkPool(_setup, (3,), workers=3, out=said.append)
+    assert pool.try_map(_square, range(12)) == [3 + t * t for t in range(12)]
+    pids = pool.pids()
+    t0 = time.monotonic()
+    pool.close()
+    assert time.monotonic() - t0 < P.TEARDOWN_S
+    assert sent == [] and said == [] and not pool.fell_back
+    for pid in pids:
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)

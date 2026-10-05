@@ -47,6 +47,8 @@ def _pair():
               "digest": "d1", "sections": {}, "pools": _pools(), "pid": 10,
               "pids": [11, 12, 13], "blocks": ["psm_a"], "orphans": [],
               "leaked_blocks": [],
+              "kill": {"pid": 60, "pids": [61, 62], "blocks": ["psm_k1", "psm_k2"],
+                       "orphans": [], "leaked_blocks": [], "gone_s": 0.3},
               "nested": [{"pid": 20 + k, "budget": 2, "cpu": 4, "daemon": False,
                           "digest": "d1", "pids": [30 + k, 40 + k],
                           "pools": _pools(2)} for k in range(2)]}
@@ -84,6 +86,12 @@ def _broken(edit):
      "nested child 20: the pack pool FELL BACK"),
     (lambda p, s: p["nested"][0].update(pids=[]), "fewer than two workers of its own"),
     (lambda p, s: p.update(orphans=[13]), "orphans [13]"),
+    (lambda p, s: p.pop("kill"), "did not hard-kill a pool over shared blocks"),
+    (lambda p, s: p["kill"].update(pids=[61]), "did not hard-kill a pool"),
+    (lambda p, s: p["kill"].update(orphans=[62]),
+     "after the bundle hard-killed a pool's parent: orphans [62]"),
+    (lambda p, s: p["kill"].update(leaked_blocks=["psm_k2"]),
+     "blocks still openable ['psm_k2']"),
     (lambda p, s: p.update(failures=["teardown: x"]), "pooled arm: teardown: x"),
 ])
 def test_every_refusal_names_itself(edit, said):
@@ -123,6 +131,56 @@ def test_the_probes_read_a_process_and_a_block():
     assert not SC.block_exists(block.name)
 
 
+def test_the_outside_kill_arm_names_what_outlived_the_engine():
+    good = {"pool": {"fell_back": False}, "pids": [5, 6], "blocks": ["a", "b"],
+            "manager": 4}
+    assert CP.kill_verdict(good, [], [], [], 20.0) == []
+    assert "wrote no record" in CP.kill_verdict(None, [], [], [], 20.0)[0]
+    assert "KILL ARM ORPHAN: process(es) still alive 20 s" in CP.kill_verdict(
+        good, [6], [], [], 20.0)[0]
+    assert "of the bundle's image" in CP.kill_verdict(good, [], [(9, "x")], [], 20.0)[0]
+    assert "KILL ARM LEAK" in CP.kill_verdict(good, [], [], ["b"], 20.0)[0]
+    for edit in ({"pids": [5]}, {"blocks": ["a"]}, {"manager": None},
+                 {"pool": {"fell_back": True}}):
+        assert "was not an engine over an airport child" in CP.kill_verdict(
+            dict(good, **edit), [], [], [], 20.0)[0]
+
+
+def test_a_hard_killed_parent_leaves_no_worker_and_no_block(tmp_path):
+    """THE KILL ARM, in this process: a child that owns a pool over the
+    shared DEM and a shared array is SIGKILLed mid-map while its parent
+    (here) lives on — so the resource tracker they share unlinks nothing.
+    Every worker is gone and every block unopenable inside the wait."""
+    said: list = []
+    record, failures = SC._kill_arm(2, str(tmp_path), said.append)
+    assert failures == [], failures
+    assert record["busy"] == 2 and len(record["blocks"]) == 2
+    assert record["orphans"] == [] and record["leaked_blocks"] == []
+    assert record["gone_s"] < SC.KILL_S
+    assert not any(SC.alive(pid) for pid in record["pids"])
+    assert not any(SC.block_exists(name) for name in record["blocks"])
+    assert said and said[0].startswith("kill: parent")
+
+
+def test_a_run_that_leaves_one_of_its_own_blocks_open_fails_its_teardown(tmp_path,
+                                                                         monkeypatch):
+    """The Windows one-core failure, posed on any platform: this process
+    still holding a block after its owner closed it is a refusal."""
+    from auto_patch_v2.airport import pool as P
+    SC.write_pack(str(tmp_path / "pack"))
+    monkeypatch.setattr(P, "attached", lambda: ["wnsm_5f9c13bf"])
+    got = SC._core(1, str(tmp_path), lambda _s: None)
+    assert any("still has shared block(s) open" in f and "wnsm_5f9c13bf" in f
+               for f in got["failures"]), got["failures"]
+    monkeypatch.undo()
+    assert SC._core(1, str(tmp_path), lambda _s: None)["failures"] == []
+    assert P.attached() == []
+
+
+def record_of(logs, tag):
+    return json.loads((logs / ("pool-selfcheck-%s.json" % tag)).read_text(encoding="utf-8"))
+
+
 def test_the_entry_runs_the_pool_from_source_and_the_gate_passes_it(tmp_path):
     """The whole pass on the SOURCE entry: two workers, the nested airport
     pool, the one-core arm, the outside teardown read."""
@@ -134,6 +192,13 @@ def test_the_entry_runs_the_pool_from_source_and_the_gate_passes_it(tmp_path):
         capture_output=True, text=True, timeout=600)
     assert done.returncode == 0, done.stdout + done.stderr
     assert "POOL PASS OK" in done.stdout
+    assert "after" in done.stdout and "0 alive, 0 of the image, 0 block(s) openable" \
+        in done.stdout, done.stdout
+    assert record_of(logs, "pooled")["kill"]["orphans"] == []
+    victim = record_of(logs, "victim")
+    assert victim["manager"] and victim["top"] and len(victim["blocks"]) == 2
+    for pid in [victim["pid"], victim["top"], victim["manager"], *victim["pids"]]:
+        assert not SC.alive(pid), pid
     record = json.loads((logs / "pool-selfcheck-pooled.json").read_text(encoding="utf-8"))
     assert record["ok"] and len(record["nested"]) == 2
     assert all(row["tasks"] > 0 and not row["fell_back"]

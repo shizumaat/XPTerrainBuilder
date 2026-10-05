@@ -826,10 +826,21 @@ def _init_worker(dem, progress_queue, siblings: int = 1) -> None:
     ``siblings`` is this pool's worker count: the v2 build's own work pool
     (``auto_patch_v2/airport/pool.py``, issue #362) takes ``cores //
     siblings`` so N airports in one tile do not each claim every core."""
+    _v2_pool.exit_with_parent()            # an engine that is killed takes its builds
     _set_worker_dem(dem)
     from . import progress as _progress
     _progress.set_worker_queue(progress_queue)
     _v2_pool.set_share(siblings)
+
+
+def _start_manager(ctx):
+    """The progress queue's Manager, started so that its server process
+    dies with this one (a plain ``ctx.Manager()`` server outlives a
+    hard-killed engine for ever — and keeps the resource tracker alive)."""
+    from multiprocessing.managers import SyncManager
+    mgr = SyncManager(ctx=ctx)
+    mgr.start(_v2_pool.exit_with_parent)
+    return mgr
 
 
 #: A pack whose pristine ``.obj`` bytes exceed this makes the pool release
@@ -971,9 +982,13 @@ def _teardown_pool(ex, results: list, futs: dict, pending, *,
         if pending else []
     t_end = _time.time() + deadline_s
     stragglers = []
+    # "Has it exited" is read off the SENTINEL (``pool.exited``), never off
+    # ``join`` + ``is_alive``: the executor's own thread joins the same
+    # processes after ``shutdown(wait=False)``, and whichever ``waitpid``
+    # loses reads "no such child" as STILL RUNNING — a clean 4 s run then
+    # said "did not exit within 10s" and sent SIGTERM to a reaped pid.
     for p in procs:
-        p.join(timeout=max(0.0, t_end - _time.time()))
-        if p.is_alive():
+        if not _v2_pool.exited(p, t_end - _time.time()):
             stragglers.append(p)
     for p in stragglers:
         last = done_by_pid.get(p.pid)
@@ -995,8 +1010,7 @@ def _teardown_pool(ex, results: list, futs: dict, pending, *,
         t_kill = _time.time() + POOL_SIGTERM_GRACE_SECONDS
         killed = []
         for p in stragglers:
-            p.join(timeout=max(0.0, t_kill - _time.time()))
-            if p.is_alive():
+            if not _v2_pool.exited(p, t_kill - _time.time()):
                 UI.lvprint(0, "   Auto-patch: worker pid", p.pid,
                            "ignored SIGTERM; killing it.")
                 try:
@@ -1022,8 +1036,7 @@ def _reap_or_name(killed: list, what: str) -> None:
     #140, #169).
 
     So the killed children are polled here against ONE shared deadline
-    (``is_alive`` is a non-blocking ``waitpid``, so the poll reaps as it
-    goes) and each one still alive when it expires is named.  The contract
+    (``pool.exited`` reads the sentinel and reaps what it finds gone) and each one still alive when it expires is named.  The contract
     is unchanged -- a BOUNDED return, never the unbounded
     ``shutdown(wait=True)`` -- with the reap now either confirmed or
     reported."""
@@ -1032,13 +1045,13 @@ def _reap_or_name(killed: list, what: str) -> None:
     import time as _time
     t_reap = _time.time() + POOL_REAP_SECONDS
     while True:
-        if not any(p.is_alive() for p in killed):
+        if all(_v2_pool.exited(p) for p in killed):
             return
         if _time.time() >= t_reap:
             break
         _time.sleep(POOL_REAP_POLL_SECONDS)
     for p in killed:
-        if p.is_alive():
+        if not _v2_pool.exited(p):
             UI.lvprint(0, "   Auto-patch:", what, p.pid,
                        "survived SIGKILL and was not reaped within",
                        "{:.0f}s; abandoning it.".format(POOL_REAP_SECONDS))
@@ -1153,7 +1166,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         mgr = None
         try:
             ctx = _mp.get_context("spawn")
-            mgr = ctx.Manager()
+            mgr = _start_manager(ctx)
             pq = mgr.Queue()
 
             def _drain_progress() -> None:

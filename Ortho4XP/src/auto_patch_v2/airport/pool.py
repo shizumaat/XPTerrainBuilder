@@ -56,7 +56,24 @@ The contract a caller relies on:
   added to this process's, so the report reads the same count wherever the
   union ran.
 * **every wait is bounded**: the result wait by ``stall_s``, the teardown by
-  :data:`TEARDOWN_S` (then ``terminate``, then ``kill``).
+  :data:`TEARDOWN_S` (then ``terminate``, then ``kill``).  Whether a worker
+  has exited is read off its SENTINEL (:func:`exited`), never off a
+  ``waitpid`` the executor's own thread races for.
+* **a worker never outlives its parent** (:func:`exit_with_parent`, in every
+  worker's boot): a build that is hard-killed — a cancel, an app quit, an
+  out-of-memory kill, the tile driver terminating a stuck airport — would
+  otherwise leave its workers blocked on a queue for ever, each holding its
+  parse and the shared DEM.  A dying worker also unlinks the blocks it is
+  attached to (POSIX: a block's NAME outlives every handle, and the
+  resource tracker that would unlink it is shared with — and lives as long
+  as — the engine above the killed build).
+* **an attachment is released, not left to the collector**
+  (:func:`detach`): the views are dropped first, then the handle is closed;
+  ``SharedArrays.close`` releases this process's own attachment before it
+  unlinks (on Windows a block lives until its LAST handle closes).  A block
+  is never unmapped under a view a caller still holds (numpy keeps a bare
+  pointer: the read after it is a crash, not an error) — it stays open,
+  and :func:`attached` names it.
 * **a caller with work of its own** takes the map in two halves:
   :meth:`WorkPool.begin` submits and returns a :class:`Pending`, the caller
   does its own part, :meth:`Pending.collect` is the same bounded wait.
@@ -73,10 +90,12 @@ import multiprocessing as _mp
 import os
 import pickle
 import sys
+import threading
 import time
 import typing as _t
 
 import numpy as np
+from multiprocessing import connection as _mpc
 from multiprocessing import shared_memory as _shm
 
 from . import frame_entry as _fe
@@ -84,7 +103,8 @@ from ..model import pulse as _pulse
 
 __all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "budget_bound",
            "physical_ram_gb", "PARENT_RESERVE_GB", "WORKER_ALLOWANCE_GB", "configure",
-           "set_share", "share_object", "shared_object", "spec_key",
+           "set_share", "share_object", "shared_object", "spec_key", "detach",
+           "attached", "exit_with_parent", "exited",
            "TICK_S", "TEARDOWN_S", "STALL_S"]
 
 #: seconds between wake-ups of a result wait (the heartbeat's grain)
@@ -105,6 +125,12 @@ WINDOWS_MAX_WORKERS = 61
 #: measured at OTHH, the largest airport of the battery (sweep sw1040, cold):
 #: the build's process stood at 7.5-10.8 GB resident while its pools ran
 #: (pack stage and planar readers; 5.7-6.8 GB in the reader arm alone).
+#: THE SHARED BLOCKS ARE INSIDE THIS FIGURE, not beside it: the build's
+#: process writes every page of a block it shares (``SharedArrays`` copies
+#: the array in), and pages a process has touched in a shared mapping count
+#: in its resident size — so the ~1 GB shared DEM of the reader pool was in
+#: the 5.7-6.8 GB read while that pool ran, and is counted once (a worker's
+#: resident size shows only the pages it sampled, inside its allowance).
 PARENT_RESERVE_GB = 11.0
 #: What one worker may take — measured at OTHH: the largest worker of the
 #: pack pool and of the planar readers stood at 1.25-2.0 GB resident
@@ -184,11 +210,79 @@ def budget() -> int:
     return budget_bound()[0]
 
 
+def exited(proc, timeout: float = 0.0) -> bool:
+    """Has child process ``proc`` exited (waiting up to ``timeout`` s)?
+    Read off its SENTINEL — closed by the system when the process ends,
+    whoever reaps it.  ``proc.is_alive()`` is a ``waitpid``, and a second
+    thread joining the same process (the executor's, after
+    ``shutdown(wait=False)``) can take the status first: the loser reads
+    "no such child" as STILL RUNNING, and a ``terminate`` then goes to a pid
+    that is already reaped."""
+    try:
+        gone = bool(_mpc.wait([proc.sentinel], max(0.0, timeout)))
+    except (AttributeError, OSError, ValueError):   # never started, closed, a stand-in
+        proc.join(max(0.0, timeout))
+        return not proc.is_alive()
+    if gone:
+        try:
+            proc.join(0)                   # reap it, if nobody has
+        except Exception:
+            pass
+    return gone
+
+
+def exit_with_parent() -> None:
+    """From now on THIS process dies when its parent does (module doc): a
+    daemon thread waits on the parent's sentinel and leaves through
+    ``os._exit`` — no cleanup that could block, except the unlink of the
+    blocks this process is attached to.  Nothing in the first process of a
+    tree; a normal close never sees it (the parent is alive when it joins)."""
+    parent = _mp.parent_process()
+    if parent is None:
+        return
+    threading.Thread(target=_die_with, args=(parent.sentinel,),
+                     name="o4-parent-watch", daemon=True).start()
+
+
+def _die_with(sentinel) -> None:
+    try:
+        _mpc.wait([sentinel])
+    except Exception:                      # no watch to be had: as before it
+        return
+    try:
+        _unlink_attached()
+    finally:
+        os._exit(1)
+
+
+def _unlink_attached() -> None:
+    """POSIX: unlink every block this process is attached to, and tell the
+    resource tracker so (it would unlink them again when the tree's first
+    process exits, with a warning).  One sibling wins each name; the rest
+    read ``FileNotFoundError`` and say nothing."""
+    if os.name != "posix":
+        return                             # a Windows block dies with its last handle
+    for blk in list(_ATTACHED[1]) + [held[0] for held in list(_HELD)]:
+        try:
+            blk.unlink()
+        except Exception:
+            continue
+        if getattr(blk, "_track", False):  # an interpreter before 3.13 told it
+            continue
+        try:
+            from multiprocessing import resource_tracker
+            resource_tracker.unregister(blk._name, "shared_memory")
+        except Exception:
+            pass
+
+
 def _boot(setup, setup_args, dump_dir: str = "") -> None:
-    """Worker initializer: no pool inside a pool; the build's offender dump
-    armed here as it is there (``frame_entry.set_offender_dump_dir`` — a
-    union that falls to a rung in a worker is dumped as one that falls in
-    the build's process is); build the state once."""
+    """Worker initializer: die with the parent; no pool inside a pool; the
+    build's offender dump armed here as it is there
+    (``frame_entry.set_offender_dump_dir`` — a union that falls to a rung
+    in a worker is dumped as one that falls in the build's process is);
+    build the state once."""
+    exit_with_parent()
     _explicit[0] = 1
     _fe.set_offender_dump_dir(dump_dir)
     _STATE[0] = setup(*setup_args) if setup is not None else None
@@ -290,9 +384,14 @@ class WorkPool:
                else f"{r['tasks']} task(s) answered by workers in {r['wall_s']:.1f} s")
         return f"[pool] workers {r['workers']} (bound: {r['bound']}): {how}"
 
+    def pids(self) -> list[int]:
+        """The worker processes' ids (none before the first map)."""
+        return sorted((getattr(self._ex, "_processes", None) or {}))
+
     def close(self) -> None:
         """Release the workers within :data:`TEARDOWN_S` (never an
-        unbounded join)."""
+        unbounded join).  Only a worker whose sentinel says it is still
+        running is terminated (:func:`exited`)."""
         ex, self._ex = self._ex, None
         if ex is None:
             return
@@ -306,10 +405,10 @@ class WorkPool:
             for p in procs:
                 try:
                     if step == "join":
-                        p.join(max(0.0, deadline - time.monotonic()))
-                    elif p.is_alive():
+                        exited(p, deadline - time.monotonic())
+                    elif not exited(p):
                         getattr(p, step)()
-                        p.join(1.0)
+                        exited(p, 1.0)
                 except Exception:
                     pass
 
@@ -461,6 +560,9 @@ class SharedArrays:
 
     def close(self) -> None:
         blocks, self._blocks = self._blocks, []
+        names = {blk.name for blk in blocks}
+        if names.intersection(attached()):
+            detach()                       # this process read them itself (one core)
         for blk in blocks:
             for step in (blk.close, blk.unlink):
                 try:
@@ -484,18 +586,55 @@ def spec_key(spec: _t.Mapping[str, tuple]) -> tuple:
 
 #: the ONE spec this process is attached to: ``[key, blocks, arrays]``
 _ATTACHED: list = [None, [], {}]
+#: ``[block, view]`` of an earlier spec whose view a caller still holds
+_HELD: list = []
+
+
+def _refs(pair: list) -> int:
+    """References to ``pair[1]`` as this interpreter counts them here."""
+    return sys.getrefcount(pair[1])
+
+
+#: what :func:`_refs` reads for a view nobody else holds
+_REFS_ALONE = _refs([None, object()])
+
+
+def detach() -> None:
+    """Release this process's attachment NOW (module doc): the views
+    :func:`attach` handed out are dropped, then every block is closed.  A
+    block whose view a caller still holds (a worker's state built over it)
+    is NOT closed under that view — it stays open, named by
+    :func:`attached`, and is closed by the next ``attach`` / ``detach``
+    after the caller has let go."""
+    _key, blocks, arrays = _ATTACHED
+    _ATTACHED[:] = [None, [], {}]
+    waiting, _HELD[:] = _HELD + [list(p) for p in zip(blocks, arrays.values())], []
+    arrays.clear()
+    del arrays
+    for pair in waiting:
+        if _refs(pair) > _REFS_ALONE:      # a caller's own reference
+            _HELD.append(pair)
+            continue
+        pair[1] = None
+        try:
+            pair[0].close()
+        except Exception:
+            pass
+
+
+def attached() -> list[str]:
+    """The names of the blocks this process still has open through
+    :func:`attach` — the current spec's, and any a caller's views hold."""
+    return [blk.name for blk in _ATTACHED[1]] + [pair[0].name for pair in _HELD]
 
 
 def attach(spec: _t.Mapping[str, tuple]) -> dict[str, np.ndarray]:
     """The arrays of a :class:`SharedArrays` ``spec`` as READ-ONLY views,
-    attached once per process (the previous spec is released)."""
+    attached once per process (the previous spec is released —
+    :func:`detach`)."""
     key = spec_key(spec)
     if _ATTACHED[0] != key:
-        for blk in _ATTACHED[1]:
-            try:
-                blk.close()
-            except Exception:
-                pass
+        detach()
         blocks, arrays = [], {}
         for name, (block, dtype, shape, _serial) in spec.items():
             try:

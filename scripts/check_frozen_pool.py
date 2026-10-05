@@ -19,7 +19,16 @@ pooled, and pinned to one core — and holds it to:
 (d) the pooled digest equals the one-core arm's;
 (e) after the process has EXITED: no process it started is alive, no
     process of the bundle's image survives, no shared-memory block it
-    created exists.
+    created exists;
+(f) THE PARENT HARD-KILLED MID-MAP, twice.  Inside the pooled arm the
+    bundle kills a child of its own that owns a pool over shared blocks
+    (the ``kill`` section: the tile driver terminating one airport while
+    the engine lives on).  And from here the WHOLE bundle is killed —
+    ``--pool-selfcheck --victim --chain``: an engine, its Manager, one
+    airport-pool child and that child's workers holding the shared DEM —
+    as a cancel, an app quit or an out-of-memory kill does it.  Both
+    times, within a bounded wait: every process gone, none of the bundle's
+    image left, every block unopenable by name.
 
 This file is the pass's body and its verdict (:func:`verdict` is pure, and
 is what ``Ortho4XP/tests/test_pool_selfcheck.py`` twins); the tool a job
@@ -122,6 +131,14 @@ def verdict(pooled, serial, text="", frozen=True):
         if row.get("budget") != want or row.get("daemon"):
             failures.append("%s: budget %s, want %s (set_share), daemon %s"
                             % (where, row.get("budget"), want, row.get("daemon")))
+    kill = pooled.get("kill") or {}
+    if len(kill.get("pids") or []) < 2 or len(kill.get("blocks") or []) < 2:
+        failures.append("kill: the bundle did not hard-kill a pool over shared "
+                        "blocks (%s)" % (kill or "no kill section"))
+    elif kill.get("orphans") or kill.get("leaked_blocks"):
+        failures.append("kill: after the bundle hard-killed a pool's parent: "
+                        "orphans %s, blocks still openable %s"
+                        % (kill.get("orphans"), kill.get("leaked_blocks")))
     if pooled.get("orphans") or pooled.get("leaked_blocks"):
         failures.append("the bundle's own teardown read: orphans %s, leaked "
                         "blocks %s" % (pooled.get("orphans"),
@@ -166,6 +183,21 @@ def _image_processes(binary):
     return found
 
 
+def _launch(binary, work, data_root):
+    """``(environment, cwd)`` every arm's process starts with."""
+    environment = dict(os.environ)
+    environment["ORTHO4XP_DATA_ROOT"] = data_root
+    environment["PYTHONHASHSEED"] = "0"
+    if not binary.lower().endswith(".py"):       # see check_frozen_tile._drive
+        environment["PROJ_LIB"] = os.path.join(work, "nonexistent-proj")
+        environment["PROJ_DATA"] = environment["PROJ_LIB"]
+    # a SOURCE entry finds ``./src`` from its own directory (the entry file
+    # only anchors itself for --engine-jsonl); a bundle runs anywhere
+    cwd = (os.path.dirname(os.path.abspath(binary))
+           if binary.lower().endswith(".py") else work)
+    return environment, cwd
+
+
 def _arm(binary, workers, work, log_dir, tag, deadline, engine_python, data_root):
     """Run one arm under ``deadline``.  ``(record | None, text, seconds,
     note)`` — ``note`` says how it ended when not by itself."""
@@ -177,16 +209,7 @@ def _arm(binary, workers, work, log_dir, tag, deadline, engine_python, data_root
         "--work", work, "--out", out_json]
     if workers is not None:
         argv += ["--workers", str(workers)]
-    environment = dict(os.environ)
-    environment["ORTHO4XP_DATA_ROOT"] = data_root
-    environment["PYTHONHASHSEED"] = "0"
-    if not binary.lower().endswith(".py"):       # see check_frozen_tile._drive
-        environment["PROJ_LIB"] = os.path.join(work, "nonexistent-proj")
-        environment["PROJ_DATA"] = environment["PROJ_LIB"]
-    # a SOURCE entry finds ``./src`` from its own directory (the entry file
-    # only anchors itself for --engine-jsonl); a bundle runs anywhere
-    cwd = (os.path.dirname(os.path.abspath(binary))
-           if binary.lower().endswith(".py") else work)
+    environment, cwd = _launch(binary, work, data_root)
     print("   %s arm: %s" % (tag, " ".join(argv)))
     started, note = time.time(), ""
     with open(log, "wb") as sink:
@@ -209,6 +232,82 @@ def _arm(binary, workers, work, log_dir, tag, deadline, engine_python, data_root
     return record, text, time.time() - started, note
 
 
+def kill_verdict(record, alive, strays, leaked, wait_s):
+    """Every reason the outside kill arm is not a proof (pure)."""
+    if not record:
+        return ["KILL ARM: the victim wrote no record (it crashed, hung or "
+                "does not know --victim)"]
+    failures = []
+    if (record.get("pool") or {}).get("fell_back") or len(record.get("pids") or []) < 2 \
+            or len(record.get("blocks") or []) < 2 or not record.get("manager"):
+        failures.append("KILL ARM: what was killed was not an engine over an "
+                        "airport child with a pool and shared blocks (%s)"
+                        % {k: record.get(k) for k in ("pool", "pids", "blocks", "manager")})
+    if alive:
+        failures.append("KILL ARM ORPHAN: process(es) still alive %.0f s after "
+                        "their engine was hard-killed: %s" % (wait_s, alive))
+    if strays:
+        failures.append("KILL ARM ORPHAN: process(es) of the bundle's image "
+                        "still running: %s" % strays)
+    if leaked:
+        failures.append("KILL ARM LEAK: shared-memory block(s) still openable "
+                        "by name: %s" % leaked)
+    return failures
+
+
+def _kill_arm(binary, probe, work, log_dir, deadline, engine_python, data_root,
+              before, workers):
+    """Start the bundle as ``--victim --chain``, hard-kill it mid-map and
+    read what is left.  ``(failures, the line to print)``."""
+    out_json = os.path.join(log_dir, "pool-selfcheck-victim.json")
+    log = os.path.join(log_dir, "pool-selfcheck-victim.log")
+    if os.path.exists(out_json):
+        os.remove(out_json)
+    argv = selfcheck_argv(binary, engine_python) + [
+        "--victim", "--chain", "--out", out_json, "--workers", str(workers or 3)]
+    environment, cwd = _launch(binary, work, data_root)
+    print("   kill arm: %s" % " ".join(argv))
+    record = None
+    with open(log, "wb") as sink:
+        child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink,
+                                 stderr=subprocess.STDOUT, cwd=cwd, env=environment)
+        end = time.time() + deadline
+        while not os.path.isfile(out_json) and child.poll() is None and time.time() < end:
+            time.sleep(0.1)
+        if os.path.isfile(out_json):
+            time.sleep(1.0)                    # the victim's second map is in flight
+            with open(out_json, "r", encoding="utf-8") as handle:
+                record = json.load(handle)
+        busy = [p for p in (record or {}).get("pids", []) if probe.alive(p)]
+        child.kill()                           # SIGKILL / TerminateProcess
+        child.wait(timeout=30)
+    killed = time.time()
+    record = dict(record or {}, pids=busy) if record else None
+    pids = set(busy) | {child.pid} | {(record or {}).get(k) for k in
+                                      ("pid", "top", "manager", "tracker")}
+    pids.discard(None)
+    blocks = sorted((record or {}).get("blocks") or [])
+    # the image a worker really is (an AppImage's AppRun is a launcher)
+    image = binary if binary.lower().endswith(".py") else \
+        (record or {}).get("executable") or binary
+    while True:
+        alive = sorted(p for p in pids if probe.alive(p))
+        strays = [row for row in _image_processes(image) if row[0] not in before]
+        leaked = [b for b in blocks if probe.block_exists(b)]
+        if not (alive or strays or leaked) or time.time() > killed + probe.KILL_S:
+            break
+        time.sleep(0.25)
+    waited = time.time() - killed
+    failures = kill_verdict(record, alive, strays, leaked, probe.KILL_S)
+    probe.put_down(alive + [row[0] for row in strays], leaked)
+    return failures, (
+        "   kill arm: engine pid %s hard-killed mid-map (Manager, 1 airport "
+        "child, %d worker(s), %d shared block(s)) — after %.1f s: %d alive, "
+        "%d of the image, %d block(s) openable"
+        % (child.pid, len(busy), len(blocks), waited, len(alive), len(strays),
+           len(leaked)))
+
+
 def run_pool(binary, repo_root, log_dir, deadline=300, keep=False,
              engine_python=None, workers=None):
     """THE POOL PASS (module doc).  Returns the process exit status."""
@@ -226,7 +325,7 @@ def run_pool(binary, repo_root, log_dir, deadline=300, keep=False,
         serial, text_s, wall_s, note_s = _arm(
             binary, 1, work, log_dir, "onecore", deadline, engine_python, data_root)
         for line in text_p.splitlines():
-            if "[pool]" in line or line.startswith(("nested:", "worker:",
+            if "[pool]" in line or line.startswith(("nested:", "worker:", "kill:",
                                                     "POOL SELFCHECK", "FAILED")):
                 print("   | " + line)
         failures = verdict(pooled, serial, text_p + text_s, frozen=frozen)
@@ -261,6 +360,11 @@ def run_pool(binary, repo_root, log_dir, deadline=300, keep=False,
         if leaked:
             failures.append("LEAK: shared-memory block(s) still exist after "
                             "exit: %s" % leaked)
+        # ---- (f) the whole bundle, hard-killed mid-map --------------------
+        said, kill_line = _kill_arm(binary, probe, work, log_dir, deadline,
+                                    engine_python, data_root, before, workers)
+        failures += said
+        print(kill_line)
         if pooled:
             print("   workers %s on %s core(s), python %s, %s, frozen=%s"
                   % (pooled.get("workers"), pooled.get("cpu"), pooled.get("python"),
@@ -284,7 +388,8 @@ def run_pool(binary, repo_root, log_dir, deadline=300, keep=False,
             return 1
         print("POOL PASS OK: %s workers spawned from %s, shared memory read, "
               "nested under the airport pool, pooled == one-core, clean "
-              "teardown" % (pooled.get("workers"), os.path.basename(binary)))
+              "teardown, nothing outlives a hard-killed parent"
+              % (pooled.get("workers"), os.path.basename(binary)))
         return 0
     finally:
         if keep:

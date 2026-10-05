@@ -25,8 +25,19 @@ engine's own modules and nothing else, and says what happened:
   ``ProcessPoolExecutor`` with ``auto_patch.driver._init_worker`` and a
   ``Manager`` queue, as ``driver.py`` builds it) whose children each open
   work pools of their own, with ``set_share`` applied;
-* ``teardown`` — every process this run started is gone and every
-  shared-memory block is unlinked.
+* ``kill``    — THE PARENT IS HARD-KILLED MID-MAP: a child of this run
+  (:func:`victim`) opens a pool whose workers hold the shared DEM and a
+  shared array, and is killed while they work.  Within :data:`KILL_S` every
+  worker must be gone and every block unopenable by name — while THIS
+  process lives on, so the resource tracker they all share cleans nothing
+  (the case of ``driver._teardown_pool`` terminating an airport child).
+  ``--victim --chain`` is the same victim one level down, under an airport
+  pool and its Manager, for a caller that kills the whole process from
+  outside (``scripts/check_frozen_pool.py``: an engine cancel, an app quit);
+* ``teardown`` — every process this run started is gone, every
+  shared-memory block is unlinked, and this process has none still OPEN
+  (``pool.attached``: on one core it reads its own blocks, and a Windows
+  block lives until its last handle closes).
 
 Every section is computed twice — by workers and on one core — and the two
 digests must be equal; ``--workers 1`` pins the whole run to one core, and
@@ -43,11 +54,13 @@ import json
 import multiprocessing as _mp
 import os
 import pickle
+import signal
 import sys
 import time
 from types import SimpleNamespace as _NS
 
-__all__ = ["main", "run", "alive", "block_exists", "OK_LINE", "FAILED_LINE"]
+__all__ = ["main", "run", "victim", "alive", "block_exists", "put_down",
+           "OK_LINE", "FAILED_LINE", "KILL_S"]
 
 #: the last stdout line of a run, by verdict
 OK_LINE = "POOL SELFCHECK OK"
@@ -57,6 +70,13 @@ SIBLINGS = 2
 #: seconds the nested airport pool may take, and the teardown may linger
 NESTED_S = 240.0
 LINGER_S = 15.0
+#: seconds a hard-killed parent's workers and blocks may outlive it
+KILL_S = 20.0
+#: seconds one task of the victim's map holds its worker, the victim's map
+#: lasts when nobody kills it, and its record may take to appear
+HOLD_S = 0.25
+VICTIM_S = 60.0
+VICTIM_READY_S = 120.0
 _TASKS = 48
 #: what every worker prints: characters cp1252 does not carry (#171, #125)
 CONSOLE_PROBE = "pool-selfcheck worker console: Δ ε ≥ → Suárez"
@@ -114,6 +134,24 @@ def _read_dem(_state, task) -> tuple:
     from auto_patch_v2.airport.dem_shared import revive
     token, xs, ys = task
     return _sha(revive(token).z_many(xs, ys).tobytes()), os.getpid()
+
+
+def _victim_setup(token: tuple) -> dict:
+    """A victim worker's state: the shared DEM, held for the worker's life
+    as a pack reader holds it (``reader_work.setup``)."""
+    from auto_patch_v2.airport.dem_shared import revive
+    return {"dem": revive(token)}
+
+
+def _hold(state: dict, task: tuple) -> int:
+    """One task of the map the victim is killed in: read the shared array
+    and the shared DEM, then keep the worker busy."""
+    from auto_patch_v2.airport.pool import attach
+    spec, xs, ys = task
+    float(attach(spec)["grid"][0, 0])
+    state["dem"].z_many(xs, ys)
+    time.sleep(HOLD_S)
+    return os.getpid()
 
 
 def _nested(task: tuple) -> dict:
@@ -207,14 +245,23 @@ def _pack(workers: int, root: str, say) -> tuple:
     return digest, report
 
 
+def _dem(rng) -> tuple:
+    """``(a one-tile DEM, xs, ys)``: what the ``dem`` section and the
+    victim's workers sample."""
+    from auto_patch_v2.airport.dem_production import _BakedTile
+    from auto_patch_v2.airport.dem_shared import WarmDem
+    from auto_patch_v2.model.frame import Frame
+    dem = WarmDem(Frame("ZZZZ", (60.5, -134.5), 11), "ZZZZ", {(60, -135): _BakedTile(
+        60, -135, 100.0 + 50.0 * rng.random((301, 301)), 0.0, 1.0, 0.0, 1.0)})
+    return dem, rng.uniform(-3000, 3000, 500), rng.uniform(-3000, 3000, 500)
+
+
 def _core(workers: int, work: str, say=print) -> dict:
     """Every section through pools of ``workers`` (1 = on one core).
     ``{"digest", "sections", "pids", "blocks", "pools", "failures"}``."""
     import numpy as np
     from auto_patch_v2.airport import pool as P
     from auto_patch_v2.airport import dem_shared as DS
-    from auto_patch_v2.airport.dem_production import _BakedTile
-    from auto_patch_v2.model.frame import Frame
 
     sections: dict = {}
     pids: set = set()
@@ -259,10 +306,7 @@ def _core(workers: int, work: str, say=print) -> dict:
     rng = np.random.default_rng(362)
     arrays = {"grid": rng.random((257, 129)), "ids": np.arange(4096, dtype=np.int32)}
     thing = {"rows": [(k, float(k) / 7.0, f"row{k}") for k in range(2000)], "k": (1, 2)}
-    frame = Frame("ZZZZ", (60.5, -134.5), 11)
-    dem = DS.WarmDem(frame, "ZZZZ", {(60, -135): _BakedTile(
-        60, -135, 100.0 + 50.0 * rng.random((301, 301)), 0.0, 1.0, 0.0, 1.0)})
-    xs, ys = rng.uniform(-3000, 3000, 500), rng.uniform(-3000, 3000, 500)
+    dem, xs, ys = _dem(rng)
     with P.WorkPool(workers=workers, out=say) as pool, P.SharedArrays(arrays) as sa, \
             P.share_object(thing) as so:
         shared_dem, token = DS.share(dem)
@@ -291,6 +335,11 @@ def _core(workers: int, work: str, say=print) -> dict:
                                             lambda s: say(f"pack: {s}"))
     if workers > 1 and (pools["pack"]["fell_back"] or not pools["pack"]["tasks"]):
         failures.append(f"pack: the pack stage did not pool ({pools['pack']})")
+    # on one core THIS process attached to its own blocks: every one must be
+    # closed by now (a Windows block lives until its last handle closes)
+    if P.attached():
+        failures.append(f"teardown: this process still has shared block(s) open "
+                        f"after their owner closed them: {P.attached()}")
     return {"digest": _sha(json.dumps(sections, sort_keys=True).encode()),
             "sections": sections, "worker": theirs[0], "here": here, "pids": sorted(pids), "blocks": blocks,
             "pools": pools, "failures": failures}
@@ -301,7 +350,7 @@ def _nested_arm(workers: int, work: str) -> list:
     each child running :func:`_core`.  One result per child."""
     from auto_patch import driver as _driver
     ctx = _mp.get_context("spawn")
-    mgr = ctx.Manager()
+    mgr = _driver._start_manager(ctx)
     try:
         ex = _cf.ProcessPoolExecutor(
             max_workers=SIBLINGS, mp_context=ctx, initializer=_driver._init_worker,
@@ -316,6 +365,129 @@ def _nested_arm(workers: int, work: str) -> list:
         return results
     finally:
         mgr.shutdown()
+
+
+# ── the parent, hard-killed mid-map ──────────────────────────────────────
+
+def _victim_body(workers: int, out: str, above: dict | None = None) -> None:
+    """THE PROCESS THE KILL ARM KILLS: a pool whose workers hold the shared
+    DEM (their state) and a shared array (their task).  Once every worker
+    has answered it writes ``{pid, pids, blocks, tracker, …above}`` to
+    ``out`` and maps for :data:`VICTIM_S` more — the kill lands in there.
+    Left alone it closes everything and returns."""
+    import numpy as np
+    from multiprocessing import resource_tracker as _rt
+    from auto_patch_v2.airport import pool as P
+    from auto_patch_v2.airport import dem_shared as DS
+    P.configure(None)
+    rng = np.random.default_rng(362)
+    dem, xs, ys = _dem(rng)
+    shared_dem, token = DS.share(dem)
+    with P.SharedArrays({"grid": rng.random((257, 129))}) as sa, \
+            P.WorkPool(_victim_setup, (token,), workers=workers) as pool:
+        try:
+            task = (sa.spec, xs, ys)
+            answered = pool.try_map(_hold, [task] * (4 * workers), what="victim")
+            record = {"pid": os.getpid(), "pids": pool.pids(), "executable": sys.executable,
+                      "answered": sorted(set(answered or [])), "pool": pool.report(),
+                      "blocks": [v[0] for spec in (sa.spec, shared_dem.spec)
+                                 for v in spec.values()],
+                      "tracker": getattr(_rt._resource_tracker, "_pid", None)}
+            record.update(above or {})
+            with open(out + ".part", "w", encoding="utf-8", newline="") as handle:
+                json.dump(record, handle)
+            os.replace(out + ".part", out)
+            pool.try_map(_hold, [task] * (workers * int(VICTIM_S / HOLD_S)), what="victim")
+        finally:
+            shared_dem.close()
+
+
+def victim(workers: int, out: str, chain: bool = False) -> None:
+    """:func:`_victim_body` in this process — or, with ``chain``, in the
+    one child of an airport pool built as ``driver.py`` builds it (its
+    Manager beside it), so that killing THIS process is killing an engine
+    mid-build."""
+    if not chain:
+        return _victim_body(workers, out)
+    from multiprocessing import resource_tracker as _rt
+    from auto_patch import driver as _driver
+    ctx = _mp.get_context("spawn")
+    mgr = _driver._start_manager(ctx)
+    try:
+        ex = _cf.ProcessPoolExecutor(
+            max_workers=1, mp_context=ctx, initializer=_driver._init_worker,
+            initargs=(None, mgr.Queue(), 1))
+        above = {"top": os.getpid(), "manager": mgr._process.pid,
+                 "tracker": getattr(_rt._resource_tracker, "_pid", None)}
+        fut = ex.submit(_victim_body, workers, out, above)
+        done, pending = _cf.wait([fut], timeout=VICTIM_READY_S + VICTIM_S)
+        _driver._teardown_pool(ex, [], {}, pending, deadline_s=10.0)
+    finally:
+        mgr.shutdown()
+
+
+def put_down(pids, blocks) -> None:
+    """Best effort: kill ``pids`` and unlink ``blocks`` — what a FAILED
+    kill arm found, so the check does not itself leave orphans behind."""
+    from multiprocessing import shared_memory
+    for pid in pids:
+        try:
+            os.kill(int(pid), getattr(signal, "SIGKILL", signal.SIGTERM))
+        except OSError:
+            pass
+    for name in blocks:
+        try:
+            try:
+                blk = shared_memory.SharedMemory(name=name, track=False)
+            except TypeError:              # an interpreter before 3.13
+                blk = shared_memory.SharedMemory(name=name)
+            blk.close()
+            blk.unlink()
+        except OSError:
+            pass
+
+
+def _kill_arm(workers: int, work: str, say) -> tuple:
+    """``(the section's record, its failures)``: start :func:`victim` as a
+    child of THIS process, hard-kill it mid-map, and read what is left."""
+    out = os.path.join(work, "victim.json")
+    if os.path.exists(out):
+        os.remove(out)
+    proc = _mp.get_context("spawn").Process(target=victim, args=(workers, out))
+    proc.start()
+    end = time.monotonic() + VICTIM_READY_S
+    while not os.path.exists(out) and proc.is_alive() and time.monotonic() < end:
+        time.sleep(0.1)
+    if not os.path.exists(out):
+        proc.kill()
+        proc.join(10.0)
+        return {}, ["kill: the victim wrote no record (it died or never started)"]
+    with open(out, encoding="utf-8") as handle:
+        record = json.load(handle)
+    time.sleep(4 * HOLD_S)                 # the second map is in flight
+    busy = [p for p in record["pids"] if alive(p)]
+    proc.kill()
+    proc.join(10.0)
+    t0 = time.monotonic()
+    orphans, leaked = _linger(record["pids"], record["blocks"], KILL_S)
+    record.update(busy=len(busy), orphans=orphans, leaked_blocks=leaked,
+                  gone_s=round(time.monotonic() - t0, 2))
+    failures = []
+    if record["pool"]["fell_back"] or len(busy) < 2 or len(record["blocks"]) < 2:
+        failures.append(f"kill: the victim was not a pool over shared blocks when "
+                        f"it was killed ({record['pool']}, {len(busy)} worker(s) "
+                        f"alive, {len(record['blocks'])} block(s))")
+    if orphans:
+        failures.append(f"kill: worker(s) outlived their hard-killed parent by "
+                        f"{KILL_S:.0f} s: {orphans}")
+    if leaked:
+        failures.append(f"kill: shared-memory block(s) still openable {KILL_S:.0f} s "
+                        f"after their owner was hard-killed: {leaked}")
+    put_down(orphans, leaked)
+    say(f"kill: parent {record['pid']} hard-killed mid-map with {len(busy)} worker(s) "
+        f"and {len(record['blocks'])} shared block(s): after {record['gone_s']:.1f} s "
+        f"{len(orphans)} worker(s) alive, {len(leaked)} block(s) openable")
+    return record, failures
 
 
 # ── the teardown, read from outside the pools ────────────────────────────
@@ -358,12 +530,14 @@ def block_exists(name: str) -> bool:
     return True
 
 
-def _linger(pids, blocks) -> tuple:
-    end = time.monotonic() + LINGER_S
+def _linger(pids, blocks, wait_s: float = LINGER_S) -> tuple:
+    """``(pids still alive, blocks still openable)`` once both are empty or
+    ``wait_s`` has passed."""
+    end = time.monotonic() + wait_s
     while True:
-        left = [p for p in pids if alive(p)]
-        if not left or time.monotonic() > end:
-            return left, [b for b in blocks if block_exists(b)]
+        left, there = [p for p in pids if alive(p)], [b for b in blocks if block_exists(b)]
+        if not (left or there) or time.monotonic() > end:
+            return left, there
         time.sleep(0.25)
 
 
@@ -400,6 +574,10 @@ def run(workers: int, work: str, say=print) -> dict:
                             f"daemon {r['daemon']} — set_share did not apply")
     if len(nested) != SIBLINGS and not any(f.startswith("nested:") for f in failures):
         failures.append(f"nested: {len(nested)} of {SIBLINGS} children answered")
+    killed: dict = {}
+    if workers > 1:                        # one core has no worker to orphan
+        killed, said = _kill_arm(workers, work, say)
+        failures += said
     orphans, leaked = _linger(sorted(pids), blocks)
     if orphans:
         failures.append(f"teardown: process(es) still alive: {orphans}")
@@ -414,18 +592,23 @@ def run(workers: int, work: str, say=print) -> dict:
             "worker": record["worker"], "here": record["here"],
             "nested": [{k: r[k] for k in ("pid", "budget", "cpu", "daemon", "digest",
                                           "pids", "pools")} for r in nested],
-            "orphans": orphans, "leaked_blocks": leaked,
+            "orphans": orphans, "leaked_blocks": leaked, "kill": killed,
             "wall_s": round(time.perf_counter() - t0, 3)}
 
 
 def main(argv: list[str]) -> int:
     """``--pool-selfcheck [--workers N] [--work DIR] [--out FILE]``: exit 0
     when the work pool answers in this interpreter (module doc).
-    ``--workers`` defaults to ``max(2, min(4, cores))``."""
+    ``--workers`` defaults to ``max(2, min(4, cores))``.  ``--victim
+    [--chain] --out FILE`` is :func:`victim` instead: the process a caller
+    kills."""
     def value(flag: str, default: str) -> str:
         return argv[argv.index(flag) + 1] if flag in argv else default
     import tempfile
     workers = int(value("--workers", str(max(2, min(4, os.cpu_count() or 2)))))
+    if "--victim" in argv:
+        victim(max(2, workers), value("--out", ""), chain="--chain" in argv)
+        return 0
     made = None if "--work" in argv else tempfile.mkdtemp(prefix="o4_pool_selfcheck_")
     work = value("--work", made or "")
     lines: list[str] = []

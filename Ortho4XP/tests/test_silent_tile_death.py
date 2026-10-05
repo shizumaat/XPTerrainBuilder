@@ -586,3 +586,27 @@ def test_the_reap_wait_is_bounded_and_shared(monkeypatch):
     _teardown_with(procs, monkeypatch)
     wall = time.time() - t0
     assert wall < 6 * 0.2, wall
+
+
+def _exits_at_once():
+    pass
+
+
+@pytest.mark.skipif(os.name != "posix", reason="the waitpid race is POSIX's")
+def test_a_worker_someone_else_reaped_is_not_a_straggler(monkeypatch):
+    """THE JOIN/REAP RACE (#362): after ``shutdown(wait=False)`` the
+    executor's own thread joins the workers too, and the loser of the
+    ``waitpid`` reads "no such child" as STILL RUNNING — a clean 4.4 s run
+    said "did not exit within 10s … terminating it".  Forced here: the
+    child is reaped behind its Process object, then torn down."""
+    proc = multiprocessing.get_context("spawn").Process(target=_exits_at_once)
+    proc.start()
+    os.waitpid(proc.pid, 0)                       # the executor's thread won
+    sent = []
+    monkeypatch.setattr(type(proc), "terminate", lambda self: sent.append("SIGTERM"))
+    monkeypatch.setattr(type(proc), "kill", lambda self: sent.append("SIGKILL"))
+    try:
+        said = _teardown_with([proc], monkeypatch)
+        assert said == "" and sent == [], (said, sent)
+    finally:
+        proc._popen.returncode = 0                # leave no "live" child behind

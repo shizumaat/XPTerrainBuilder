@@ -8423,7 +8423,7 @@ def test_the_rebake_plan_is_a_harness_step_outside_the_patch_build_clock(
         r = real_build(icao, inputs, out_dir, config, law, out)
         r.rebake_plan = None
         r.rebake_screen = Path(out_dir) / f"{icao}.rebake.screen.json"
-        r.rebake_screen.write_text("the screen", encoding="utf-8")
+        r.rebake_screen.write_text("the screen", encoding="utf-8", newline="\n")
         return r
 
     class _Plan:
@@ -8461,6 +8461,9 @@ def test_the_rebake_plan_is_a_harness_step_outside_the_patch_build_clock(
                                       rebake_plan=False)
     assert result["v2"]["rebake_plan"] is None
     assert not (out / "twin.v2" / "CYXY.rebake.json").exists()
+    said = (out / "twin.progress").read_text(encoding="utf-8")
+    assert "rebake plan step SKIPPED (--no-rebake-plan): NO CYXY.rebake.json " \
+           "exists for tag twin" in said
     src = inspect.getsource(build_mod.main)
     assert '"--no-rebake-plan"' in src and "rebake_plan=not args.no_rebake_plan" in src
     # a build that kept no partition cache planned INLINE: reported as it stands

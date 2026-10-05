@@ -4032,6 +4032,11 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
         # lands beside the partition cache, in the lane-local overlay)
         rebake = (build_rebake_plan(res, law, v2_dir, icao, prog)
                   if rebake_plan and res.paths is not None else None)
+        if not rebake_plan and getattr(res, "rebake_screen", None) is not None:
+            prog.note(f"rebake plan step SKIPPED (--no-rebake-plan): NO "
+                      f"{icao}.rebake.json exists for tag {tag} — only the screen "
+                      f"sidecar {res.rebake_screen}; rerun without the flag to "
+                      f"compare plans")
     require_no_swallowed_write_block(guard.blocked,
                                      allow_degraded=allow_degraded, prog=prog)
     # DETECTOR 2 over v2's OWN provenance (wired 2026-09-17, lane v1retire

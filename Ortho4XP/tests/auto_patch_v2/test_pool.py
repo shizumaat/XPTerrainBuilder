@@ -230,3 +230,44 @@ def test_the_offender_dump_is_armed_in_the_workers(tmp_path):
                 assert p.try_map(_dump_dir, range(4)) == [want] * 4
     finally:
         FE.set_offender_dump_dir(held)
+
+
+def _first(_state, spec):
+    return float(P.attach(spec)["a"][0])
+
+
+def _obj(_state, spec):
+    return P.shared_object(spec)
+
+
+def test_a_reused_block_name_never_serves_the_earlier_arrays(monkeypatch):
+    """The system may hand a later ``SharedMemory`` an earlier one's name.
+    Forced here: every block of the second set is created under the first
+    set's name, and each worker — still holding the first — must read the
+    second."""
+    import numpy as np
+    real = P._shm.SharedMemory
+    names: list = []
+
+    def reuse(*a, create=False, size=0, **kw):
+        if create and names:
+            return real(name=names.pop(0), create=True, size=size)
+        return real(*a, create=create, size=size, **kw)
+
+    with P.WorkPool(workers=2, out=lambda s: None) as pool:
+        with P.SharedArrays({"a": np.full(4, 1.0)}) as one:
+            assert pool.try_map(_first, [one.spec] * 8) == [1.0] * 8
+            taken = [v[0] for v in one.spec.values()]
+        with P.share_object("first") as o1:
+            assert pool.try_map(_obj, [o1.spec] * 8) == ["first"] * 8
+            taken_o = [v[0] for v in o1.spec.values()]
+        monkeypatch.setattr(P._shm, "SharedMemory", reuse)
+        names[:] = taken
+        with P.SharedArrays({"a": np.full(4, 2.0)}) as two:
+            assert [v[0] for v in two.spec.values()] == taken
+            assert P.spec_key(two.spec) != P.spec_key(one.spec)
+            assert pool.try_map(_first, [two.spec] * 8) == [2.0] * 8
+        names[:] = taken_o
+        with P.share_object("second") as o2:
+            assert [v[0] for v in o2.spec.values()] == taken_o
+            assert pool.try_map(_obj, [o2.spec] * 8) == ["second"] * 8

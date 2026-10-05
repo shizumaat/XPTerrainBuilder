@@ -325,6 +325,34 @@ def _no_modal_first_run_wizard(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _no_test_window_writes_the_engine_stderr_log_into_the_tree(
+        monkeypatch, tmp_path_factory):
+    """A Qt test window that starts a build does not write ``logs/`` here.
+
+    ``MainWindow`` opens a fresh ``<data root>/logs/engine-stderr.log`` at
+    every build request (``O4_Engine_Stderr_Log``, one file per run), and
+    most Qt fixtures leave the data root at the cwd — the source tree.  A
+    test that redirects the data root itself (``_data_root_override``)
+    keeps the real path; every other one gets a scratch directory, made
+    only if a window asks.  Patched through ``sys.modules`` for the same
+    reason as the wizard above.
+    """
+    log = sys.modules.get("O4_Engine_Stderr_Log")
+    if log is not None:
+        real_path = log.engine_stderr_log_path
+
+        def scratch_path():
+            if log.FNAMES._data_root_override is not None:
+                return real_path()
+            return os.path.join(
+                str(tmp_path_factory.mktemp("engine-stderr-log")),
+                "logs", "engine-stderr.log")
+
+        monkeypatch.setattr(log, "engine_stderr_log_path", scratch_path)
+    yield
+
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SRC = os.path.normpath(os.path.join(_HERE, "..", "src"))
 if _SRC not in sys.path:

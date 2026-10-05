@@ -1,18 +1,13 @@
-"""Engine stderr is persisted by the Qt app, not just printed.
+"""The Qt window persists engine stderr, one file per build run.
 
-A Python ``RuntimeWarning`` (shapely, numpy) used to reach the terminal
-the Qt app happened to be launched from and nowhere else.  The mac app
-has persisted stderr since 2026-09-09 (``OrthoEngineClient.swift``,
-``EngineStderrLog``: one appended file, session header, rotation at
-20 MB by renaming to ``.1.log``); the Qt window now writes the same file
-under its own writable data root.
-
-Unit-level: ``_StderrTee`` is driven directly, so no window and no Qt
-event loop are needed for the file rules.  One offscreen test checks the
-tee is actually installed.
+The file rules (run shift, header, size guard, never-raise) are tested
+headless in ``tests/test_engine_stderr_log.py``.  This file checks the
+window's side: the tee is installed as ``sys.stderr``, and the build
+request that opens a run is THE run boundary — a fresh
+``engine-stderr.log`` under a run header, the previous file shifted to
+``engine-stderr.1.log`` (twin: ``BuildModel.sendProtocolBuild``).
 """
 
-import io
 import json
 import os
 import sys
@@ -28,76 +23,13 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import O4_File_Names as FNAMES  # noqa: E402
+import O4_Engine_Stderr_Log as STDLOG  # noqa: E402
 import O4_Qt_GUI as GUI  # noqa: E402
 
-
-def test_the_original_stream_is_written_first(tmp_path):
-    original = io.StringIO()
-    tee = GUI._StderrTee(original, str(tmp_path / "logs" / "engine-stderr.log"))
-    tee.write("RuntimeWarning: invalid value encountered\n")
-    assert original.getvalue() == "RuntimeWarning: invalid value encountered\n"
-
-
-def test_the_line_lands_in_the_log_under_a_session_header(tmp_path):
-    path = str(tmp_path / "logs" / "engine-stderr.log")
-    tee = GUI._StderrTee(io.StringIO(), path)
-    tee.write("RuntimeWarning: invalid value encountered\n")
-    tee.flush()
-    with open(path, encoding="utf-8") as handle:
-        text = handle.read()
-    assert text.startswith("=== engine session ")
-    assert "RuntimeWarning: invalid value encountered" in text
-
-
-def test_the_log_appends_across_sessions(tmp_path):
-    path = str(tmp_path / "logs" / "engine-stderr.log")
-    GUI._StderrTee(io.StringIO(), path).write("first\n")
-    GUI._StderrTee(io.StringIO(), path).write("second\n")
-    with open(path, encoding="utf-8") as handle:
-        text = handle.read()
-    assert "first" in text and "second" in text
-    assert text.count("=== engine session ") == 2
-
-
-def test_it_rotates_at_the_cap_and_keeps_one_old_file(tmp_path):
-    path = str(tmp_path / "logs" / "engine-stderr.log")
-    tee = GUI._StderrTee(io.StringIO(), path, max_bytes=200)
-    for _ in range(20):
-        tee.write("x" * 40 + "\n")
-    old = str(tmp_path / "logs" / "engine-stderr.1.log")
-    assert os.path.exists(old), "the rotated file is the reason for the cap"
-    # The live file is recreated lazily, on the next line written.
-    tee.write("after the rotation\n")
-    assert os.path.getsize(path) <= 4000
-
-    # A SECOND rotation replaces the old file rather than piling up.
-    for _ in range(20):
-        tee.write("y" * 40 + "\n")
-    tee.write("after the second rotation\n")
-    assert sorted(os.listdir(str(tmp_path / "logs"))) == [
-        "engine-stderr.1.log", "engine-stderr.log"]
-
-
-def test_the_cap_is_the_mac_apps_cap():
-    assert GUI.ENGINE_STDERR_LOG_MAX_BYTES == 20 * 1024 * 1024
-
-
-def test_an_unwritable_log_never_raises(tmp_path):
-    """This object IS ``sys.stderr``: a logging failure must not take out
-    the report of whatever was being logged."""
-    blocked = tmp_path / "logs"
-    blocked.write_text("not a directory", encoding="utf-8", newline="")
-    original = io.StringIO()
-    tee = GUI._StderrTee(original, str(blocked / "engine-stderr.log"))
-    tee.write("still reaches the terminal\n")
-    tee.flush()
-    assert original.getvalue() == "still reaches the terminal\n"
-
-
-def test_the_path_is_under_the_data_root(tmp_path, monkeypatch):
-    monkeypatch.setattr(FNAMES, "_data_root_override", str(tmp_path))
-    assert GUI.engine_stderr_log_path() == os.path.join(
-        str(tmp_path), "logs", "engine-stderr.log")
+SETTINGS = {
+    "provider": "TEST_PROVIDER", "zoomlevel": 16,
+    "do_vector": True, "do_imagery": True, "do_overlays": True,
+}
 
 
 @pytest.fixture(scope="module")
@@ -105,7 +37,8 @@ def qapp():
     yield QApplication.instance() or QApplication([])
 
 
-def test_the_window_installs_the_tee(qapp, tmp_path, monkeypatch):
+@pytest.fixture
+def window(qapp, tmp_path, monkeypatch):
     prefs_path = str(tmp_path / "prefs.json")
     with open(prefs_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"output_dir": str(tmp_path)}, handle)
@@ -116,14 +49,55 @@ def test_the_window_installs_the_tee(qapp, tmp_path, monkeypatch):
     import O4_UI_Utils as UI
     saved_stdout, saved_stderr = sys.stdout, sys.stderr
     win = GUI.MainWindow()
+    # Read HERE: pytest's capture swaps ``sys.stderr`` back between the
+    # fixture and the test body, so the tests below write to the tee itself.
+    win.installed_stderr = sys.stderr
+    monkeypatch.setattr(win._session, "enqueue_build",
+                        lambda tiles, **kwargs: True)
     try:
-        assert isinstance(sys.stderr, GUI._StderrTee)
-        sys.stderr.write("RuntimeWarning: from the engine\n")
-        with open(str(tmp_path / "logs" / "engine-stderr.log"), encoding="utf-8") as handle:
-            assert "RuntimeWarning: from the engine" in handle.read()
+        yield win
     finally:
         win._building = False
         win.close()
         win.deleteLater()
         UI.engine_session = None
         sys.stdout, sys.stderr = saved_stdout, saved_stderr
+
+
+def _log_text(tmp_path, name="engine-stderr.log"):
+    with open(str(tmp_path / "logs" / name), encoding="utf-8",
+              newline="") as handle:
+        return handle.read()
+
+
+def test_the_window_installs_the_tee(window, tmp_path):
+    assert isinstance(window.installed_stderr, STDLOG.EngineStderrLog)
+    assert window.installed_stderr is window._stderr_log
+    window._stderr_log.write("RuntimeWarning: from the engine\n")
+    assert "RuntimeWarning: from the engine" in _log_text(tmp_path)
+
+
+def test_the_build_request_is_the_run_boundary(window, tmp_path):
+    window._stderr_log.write("idle warning before the run\n")
+    window._start_run_now([(38, -9), (25, 51)], dict(SETTINGS))
+    window._stderr_log.write("RuntimeWarning: from this run\n")
+    lines = _log_text(tmp_path).split("\n")
+    assert lines[0].startswith("=== engine run ")
+    assert " | engine %s | 2 tiles: +38-009 +25+051" % (
+        GUI.O4_Build_Info.build_info().engine) in lines[0]
+    assert " === app " in lines[0]
+    assert lines[1] == "RuntimeWarning: from this run"
+    assert "idle warning before the run" in _log_text(
+        tmp_path, "engine-stderr.1.log")
+
+
+def test_tiles_queued_into_the_run_are_a_line_not_a_new_file(
+        window, tmp_path):
+    window._start_run_now([(38, -9)], dict(SETTINGS))
+    window._queue_into_running_build_now(
+        [(39, -9)], "TEST_PROVIDER", 16, True, True, True)
+    text = _log_text(tmp_path)
+    assert text.startswith("=== engine run ")
+    assert "=== queued into this run " in text
+    assert text.rstrip("\n").endswith("=== 1 tile: +39-009")
+    assert sorted(os.listdir(str(tmp_path / "logs"))) == ["engine-stderr.log"]

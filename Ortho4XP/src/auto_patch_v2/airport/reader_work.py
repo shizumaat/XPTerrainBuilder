@@ -15,11 +15,14 @@ reader's answers are put together in the order one loop met them:
   order of every refusal line come from);
 * the sunken roads: one task per anchor family, the same way
   (``sunken_roads.road_families`` / ``read_family`` / ``assemble``);
-* the door wells: the sill-witness sweep is made by the build's OWN process
-  while the workers read the rest (it is per placement and reads the parse
-  the build already holds), then one task per anchor family — handed its
-  witness rows, and of every other family's the one thing it reads: which
-  components of its members' resources are a sill witness anywhere.
+* the door wells, in two steps.  The sill-witness SWEEP is per placement:
+  the build's own process screens the placements (it holds every extent)
+  and the screened ones go out :data:`WITS_CHUNK` to a task, first, beside
+  the tunnels.  Then one task per anchor FAMILY — handed its witness rows,
+  and of every other family's the one thing it reads: which components of
+  its members' resources are a sill witness anywhere — at the head of the
+  queue, the wall and the road families behind them (the two largest door
+  families are the longest tasks of the stage).
 
 What a reader leaves on the build's ``ResourceCache``:
 
@@ -75,7 +78,8 @@ from .thin_plates import read_plates
 from .tunnel_objects import read_corridors
 from .wall_family import assemble, read_family, wall_families, wall_reader
 
-__all__ = ["READERS", "WALLS", "TUNNELS", "DOORS", "ROADS", "MIN_OBJECTS", "MAX_WORKERS",
+__all__ = ["READERS", "WALLS", "TUNNELS", "DOORS", "ROADS", "WITS", "WITS_CHUNK",
+           "MIN_OBJECTS", "MAX_WORKERS",
            "Ahead", "Stripped", "StrippedField", "ReadWorker", "setup", "read", "begin"]
 
 #: the wall corridors: ``(records, stats)``; a task is ``(WALLS, family
@@ -92,6 +96,12 @@ DOORS = "doors"
 #: positions in objects)``
 ROADS = "roads"
 READERS = (WALLS, TUNNELS, DOORS, ROADS)
+#: the door wells' sweep: ``(DoorStats of the chunk, [(position in objects,
+#: witness, component index), …])``; a task is ``(WITS, the screened
+#: placements' positions)``
+WITS = "wits"
+#: screened placements per sweep task (OTHH: 371 screened, 0.03-0.1 s each)
+WITS_CHUNK = 8
 #: the readers of the at-grade read (module doc)
 _AT_GRADE = (DOORS, ROADS)
 
@@ -105,13 +115,15 @@ MIN_OBJECTS = 10_000
 #: The most workers the readers take, whatever the budget.  Every worker
 #: parses its own copy of the resources its tasks read (~1.0-1.5 GB each at
 #: OTHH) and makes its own copy of the at-grade entries its tasks share
-#: with another worker's, and the build's own process still makes the door
-#: wells' sweep and the intakes (~20 s at OTHH): past the workers that are
-#: done when it is, more only take memory and the machine from it.
-#: Measured at OTHH on a shared machine — all five readers' clock, then the
-#: peak resident memory of the build + its workers: 1 worker 189 s; 2
-#: 124 s / 8.7 GB; 4 65-69 s / 10.5 GB; 8 49-50 s / 14.4 GB; 12 49 s; 18
-#: 56 s / 23.2 GB.  A cost rule only — the reading is the same.
+#: with another worker's, so the work grows with the workers (user CPU 256 s
+#: on one core, 375 s on 8, 478 s on 18) while the build's own process
+#: still makes the intakes and the door screen: past 8, more take memory
+#: and the machine and give nothing back.  Measured at OTHH on a shared
+#: machine — all five readers' clock, then the peak resident memory of the
+#: build + its workers.  With the door sweep in the build's process: 1
+#: worker 189 s; 2 124 s / 8.7 GB; 4 65-69 s / 10.5 GB; 8 49-54 s /
+#: 14.4 GB; 12 49 s; 18 56 s / 23.2 GB.  With the sweep on the pool: 4
+#: 63.7 s; 8 45.1-47.9 s.  A cost rule only — the reading is the same.
 MAX_WORKERS = 8
 
 #: the airport fields no reader here opens, and that are megabytes to ship
@@ -152,6 +164,10 @@ class ReadWorker:
     cache: _obj8.ResourceCache
     walls: _t.Any = None               # ``wall_family.WallReader``, lazily
     roads: _t.Any = None               # ``sunken_roads.RoadReader``, lazily
+    #: the sweep's per-component footprints and ``{resource: {id(component):
+    #: its index}}`` — both live as long as this worker's parse
+    wit_memo: dict = _dc.field(default_factory=dict)
+    comp_index: dict = _dc.field(default_factory=dict)
 
 
 def setup(airport, dem_token, objects, law, thickness_m: float, quantum_m: float,
@@ -171,6 +187,21 @@ def _door_family(state: ReadWorker, rows: list, members: list, shell: dict) -> t
                          {id(comps(res)[ci]) for res, cis in shell.items() for ci in cis})
     fam = [(oo[k], w, id(comps(oo[k].resolved)[ci])) for k, w, ci in rows]
     return _dw.read_family(rd, fam, [oo[k] for k in members])
+
+
+def _sweep_chunk(state: ReadWorker, positions: list) -> tuple:
+    """The sill witnesses of some screened placements, each component named
+    by its index in the resource."""
+    cache, stats, rows = state.cache, _dw.DoorStats(), []
+    for k in positions:
+        o = state.objects[k]
+        index = state.comp_index.get(o.resolved)
+        if index is None:
+            index = state.comp_index[o.resolved] = {
+                id(c): i for i, c in enumerate(cache.components(o.resolved))}
+        rows += [(k, w, index[cid]) for _o, w, cid in _dw.witnesses_of(
+            o, cache, state.airport.dem.z, state.law, stats, state.wit_memo)]
+    return stats, rows
 
 
 def _road_family(state: ReadWorker, members: list) -> tuple:
@@ -203,6 +234,8 @@ def read(state: ReadWorker, task: tuple) -> tuple:
             got = _door_family(state, *task[1:])
         elif task[0] == ROADS:
             got = _road_family(state, task[1])
+        elif task[0] == WITS:
+            got = _sweep_chunk(state, task[1])
         else:
             corridors, tstats = read_corridors(a, oo, cache, law)
             got = (corridors, tstats,
@@ -244,10 +277,10 @@ class Ahead:
     read itself, and without the at-grade readers, which :meth:`settle`
     hands over one at a time."""
 
-    def __init__(self, pool: WorkPool, shared, pending, tasks: list, kinds: tuple,
+    def __init__(self, pool: WorkPool, shared, parts: list, later: tuple, kinds: tuple,
                  inputs: tuple, counts: dict, out: _t.Callable[[str], None]) -> None:
-        self._pool, self._shared, self._pending = pool, shared, pending
-        self._tasks, self._kinds, self._out = tasks, kinds, out
+        self._pool, self._shared, self._parts = pool, shared, parts
+        self._later, self._kinds, self._out = later, kinds, out
         self._airport, self._objects, self._cache, self._law = inputs
         self._counts = counts                    # {reader: placements its intake read}
         self._t0 = time.perf_counter()
@@ -256,42 +289,64 @@ class Ahead:
         self.report: dict = {}
 
     def _doors(self) -> tuple:
-        """The door wells' sweep, here, and their families to the workers:
-        ``(the sweep's stats, the families' tasks, their pending answers)``
-        — no tasks when there is no witness, no answers when no pool is
-        left to give them."""
+        """The door wells' two steps (module doc): ``(the sweep's stats, its
+        rungs, why the doors are read on one core or "")``.  The door
+        families — and the wall and road families held back for them — are
+        handed out here, whatever became of the sweep."""
         oo, cache = self._objects, self._cache
         stats = _dw.DoorStats()
-        wits = _dw.sill_witnesses(oo, cache, self._airport.dem.z, self._law, stats)
-        pos = {id(o): k for k, o in enumerate(oo)}
-        index: dict[str, dict[int, int]] = {}    # resource -> {id(component): its index}
-        shell: dict[str, set[int]] = {}
-        for o, _w, cid in wits:
-            if o.resolved not in index:
-                index[o.resolved] = {id(c): i for i, c in enumerate(cache.components(o.resolved))}
-            shell.setdefault(o.resolved, set()).add(index[o.resolved][cid])
-        tasks = [(DOORS, [(pos[id(o)], w, index[o.resolved][cid]) for o, w, cid in fam],
-                  [pos[id(m)] for m in members],
-                  {r: sorted(shell[r]) for r in sorted({m.resolved for m in members} & set(shell))})
-                 for _fk, fam, members in _dw.door_families(oo, wits)]
-        pending = self._pool.begin(read, tasks, weights=[float(len(t[1]) + len(t[2])) for t in tasks],
-                                   what="door wells: families", unit="families") if tasks else None
-        return stats, tasks, pending
+        dem_z = self._airport.dem.z
+        hot = [k for k, o in enumerate(oo) if _dw.screened(o, cache, dem_z, self._law, stats)]
+        sweep = self._pool.try_map(
+            read, [(WITS, hot[i:i + WITS_CHUNK]) for i in range(0, len(hot), WITS_CHUNK)],
+            what="door wells: sill witnesses", unit="chunks")
+        why = next((row[1] for row in sweep or () if row[0] != "ok"), "")
+        tasks: list[tuple] = []
+        rungs: list = []
+        if sweep is not None and not why:
+            wits = []
+            shell: dict[str, set[int]] = {}
+            for _ok, (part, rows), taken, _led in sweep:
+                stats.sill_witnesses += part.sill_witnesses
+                stats.basin_gate_components += part.basin_gate_components
+                stats.witness_degenerate.extend(part.witness_degenerate)
+                rungs.append(taken)
+                for k, w, ci in rows:
+                    wits.append((oo[k], w, ci))
+                    shell.setdefault(oo[k].resolved, set()).add(ci)
+            pos = {id(o): k for k, o in enumerate(oo)}
+            tasks = [(DOORS, [(pos[id(o)], w, ci) for o, w, ci in fam],
+                      [pos[id(m)] for m in members],
+                      {r: sorted(shell[r])
+                       for r in sorted({m.resolved for m in members} & set(shell))})
+                     for _fk, fam, members in _dw.door_families(oo, wits)]
+        later, weights = self._later
+        first = max(weights, default=0.0) + 1.0          # the door families: first
+        tasks = tasks + later
+        if sweep is not None and tasks:
+            self._parts.append((tasks, self._pool.begin(
+                read, tasks, what="pack readers", unit="tasks",
+                weights=[first + len(t[1]) + len(t[2]) for t in tasks[:len(tasks) - len(later)]]
+                + weights)))
+        elif sweep is None:
+            self._parts.append((tasks, None))            # no pool is left
+        return stats, rungs, why
 
     def collect(self) -> dict:
         doors = None
+        tasks: list = []
+        got: list | None = []
         try:
             if DOORS in self._kinds:
                 doors = self._doors()
-            got = self._pending.collect()
-            if got is not None and doors is not None and doors[1]:
-                more = doors[2].collect() if doors[2] is not None else None
-                got = None if more is None else got + more
+            for part, pending in self._parts:
+                more = pending.collect() if pending is not None else None
+                got = None if got is None or more is None else got + more
+                tasks += part
         finally:
             self.close()
-        tasks = self._tasks + (doors[1] if doors is not None else [])
         rows: dict[str, list] = {}
-        tripped: dict[str, str] = {}
+        tripped: dict[str, str] = {DOORS: doors[2]} if doors is not None and doors[2] else {}
         every: list = []
         for task, row in zip(tasks, got or ()):
             if row[-1] is not None:
@@ -323,7 +378,8 @@ class Ahead:
                                          [row[3] for row in rows.get(kind, ())], rungs)
                 elif kind == DOORS:
                     self._held[DOORS] = (_dw.assemble(doors[0], readings),
-                                         [row[3] for row in rows.get(kind, ())], rungs)
+                                         [row[3] for row in rows.get(kind, ())],
+                                         doors[1] + rungs)
                 mine.append(kind)
             self._entries = _gl.made(every)
             for kind in (WALLS, DOORS, ROADS):
@@ -392,9 +448,15 @@ def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
     if TUNNELS in kinds:
         tasks.append((TUNNELS,))
         weights.append(max(weights, default=0.0) + 1.0)     # one long task: first
-    # the door families are handed out later (:meth:`Ahead._doors`)
+    # the door wells are handed out by :meth:`Ahead._doors`, and with them
+    # the families held back here: only the tunnels start at once
+    later: tuple[list, list] = ([], [])
     n = min(budget() if workers is None else int(workers),
             len(tasks) + (DOORS in kinds), MAX_WORKERS)
+    if DOORS in kinds:
+        held = [k for k, t in enumerate(tasks) if t[0] != TUNNELS]
+        later = ([tasks[k] for k in held], [weights[k] for k in held])
+        tasks, weights = [t for t in tasks if t[0] == TUNNELS], None
     if n < 2:
         return None
     derived = {k: v for k, v in cache.derived_state().items() if k in ("range", "bounds")}
@@ -418,4 +480,5 @@ def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
         if shared is not None:
             shared.close()
         return None
-    return Ahead(pool, shared, pending, tasks, kinds, (airport, objects, cache, law), counts, out)
+    return Ahead(pool, shared, [(tasks, pending)], later, kinds,
+                 (airport, objects, cache, law), counts, out)

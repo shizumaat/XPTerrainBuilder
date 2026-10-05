@@ -229,6 +229,39 @@ def test_tripped_doors_are_read_here_before_the_roads_are_settled(world, law, se
     assert "'doors' is read on one core: twin: a cold tile" in capsys.readouterr().out
 
 
+def _sweep_trips(state, task):
+    """A worker whose sweep chunk samples a tile it was not handed."""
+    if task[0] == RW.WITS:
+        return ("serial", "twin: a cold tile", None)
+    return RW.read(state, task)
+
+
+def test_a_tripped_sweep_leaves_the_doors_to_one_core(world, law, serial, monkeypatch, capsys):
+    monkeypatch.setattr(RW, "read", _sweep_trips)
+    got = _reading(world, law, 2)
+    _same(got, serial)
+    assert got["pool"]["readers"] == ["roads", "tunnels", "walls"]
+    assert "'doors' is read on one core: twin: a cold tile" in capsys.readouterr().out
+
+
+def test_the_sweep_is_per_placement_and_goes_out_in_chunks(world, law, serial, monkeypatch):
+    """One screened placement per task, each read by whichever worker takes
+    it with its own footprint memo: the rows come back in ``objects`` order
+    and the reading is the one-loop one."""
+    airport, objects = world
+    stats = DW.DoorStats()
+    cache = _cache(law)
+    hot = [o for o in objects if DW.screened(o, cache, airport.dem.z, law, stats)]
+    assert len(hot) >= 4 and stats.screened == serial["stats"][0]["screened"]
+    rows = [w for o in reversed(hot)
+            for w in DW.witnesses_of(o, _cache(law), airport.dem.z, law, stats, {})]
+    assert stats.sill_witnesses == len(rows) == serial["stats"][0]["sill_witnesses"]
+    monkeypatch.setattr(RW, "WITS_CHUNK", 1)
+    got = _reading(world, law, 3)
+    _same(got, serial)
+    assert got["pool"]["tasks"] >= len(hot) + 4          # a task per screened placement
+
+
 def _roads_trip(state, task):
     if task[0] == RW.ROADS:
         return ("serial", "twin: a cold tile", None)
@@ -364,7 +397,7 @@ def _counting(state, task):
 def _counting_and_tripping(state, task):
     """…and ONE family of each family reader trips AFTER it took its rung."""
     _in_worker(state)
-    members = task[1] if task[0] == RW.ROADS else task[2] if task[0] != RW.TUNNELS else ()
+    members = task[1] if task[0] == RW.ROADS else task[2] if task[0] in (RW.DOORS, RW.WALLS) else ()
     if members and state.objects[members[0]].xy[0] > 300.0 \
             and task[0] not in _counting_and_tripping.seen:
         _counting_and_tripping.seen.add(task[0])

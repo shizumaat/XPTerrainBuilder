@@ -66,7 +66,8 @@ from . import obj8 as _obj8
 from .deck_signature import family_key
 from ..geom.vector import unit_vector
 
-__all__ = ["DoorWell", "DoorStats", "DoorReader", "read_door_wells", "sill_witnesses",
+__all__ = ["DoorWell", "DoorStats", "DoorReader", "read_door_wells", "screened",
+           "witnesses_of", "sill_witnesses",
            "door_families", "door_reader", "read_family", "assemble", "ID_PREFIX"]
 
 ID_PREFIX = "door"
@@ -127,58 +128,78 @@ class DoorStats:
     read_s: float = 0.0
 
 
-def sill_witnesses(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
-                   dem_z, law: Law, stats: DoorStats
-                   ) -> list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]]:
-    """Rule 1: ``(placement, witness, id(component))`` for the components
-    carrying a plate at the door's gate and above the basin's — one
-    placement at a time, in ``objects`` order."""
+def screened(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law,
+             stats: DoorStats) -> bool:
+    """Rule 1's SCREEN for one placement: a readable pack resource whose
+    lowest solid stands ``sill_min_depth_m`` or more under the highest
+    ground it could stand on (its anchor, its extent's corners)."""
+    if o.resolved is None or _obj8.is_stock_library_resource(o.path):
+        return False
+    stats.placements += 1
+    if cache.geometry(o.resolved) is None:
+        return False
+    vmin, _vmax, x0, x1, z0, z1 = cache.y_range(o.resolved)
+    if vmin == math.inf:
+        return False
+    corners = [_obj8._to_frame(o.xy, o.heading_deg, x, zz) for x in (x0, x1) for zz in (z0, z1)]
+    grounds = [z for z in [o.anchor_z] + [float(dem_z(cx, cy)) for cx, cy in corners]
+               if not math.isnan(z)]
+    dl = law.tables.structures.cutout.door
+    if not grounds or o.anchor_z + o.agl_m + vmin > max(grounds) - dl.sill_min_depth_m:
+        return False
+    stats.screened += 1
+    return True
+
+
+def witnesses_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law,
+                 stats: DoorStats, memo: dict
+                 ) -> list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]]:
+    """Rule 1 for one SCREENED placement: ``(placement, witness,
+    id(component))`` per component carrying a plate at the door's gate and
+    above the basin's.  ``memo``: the local footprints of a component, made
+    once for every placement of its resource (#362) — a pure memo that must
+    not outlive the components on ``cache``."""
     bl = law.tables.structures.basin
     dl = law.tables.structures.cutout.door
     out: list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]] = []
-    # the local footprints of a component are made once for every placement
-    # of its resource (#362); the components outlive this sweep on ``cache``
-    local_memo: dict = {}
+    g = cache.geometry(o.resolved)
+    base = o.anchor_z + o.agl_m
+    mat = _obj8.placement_affine(o.xy, o.heading_deg)
+    for comp in cache.genuine(o.resolved):
+        cx, cy = _obj8._to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
+        local = float(dem_z(cx, cy))
+        if math.isnan(local):
+            local = o.anchor_z
+        if bl.shell_reaches_grade and base + comp.max_y < local - bl.contact_band_m:
+            continue                                   # buried, never a well
+        plane_sill = local - base - dl.sill_min_depth_m
+        if comp.min_y > plane_sill:
+            continue
+        if comp.min_y <= local - base - bl.admission_depth_m:
+            stats.basin_gate_components += 1           # the basin pass's
+            continue
+        w = _obj8._witness(g.vertices, comp, base, local, plane_sill,
+                           bl.floor_plate_normal_y_min, mat,
+                           q=cache.input_quantum_m,
+                           degenerate=stats.witness_degenerate,
+                           resource=o.path, memo=memo)
+        if w is None:
+            continue
+        out.append((o, w, id(comp)))
+        stats.sill_witnesses += 1
+    return out
+
+
+def sill_witnesses(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
+                   dem_z, law: Law, stats: DoorStats
+                   ) -> list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]]:
+    """Rule 1 over the pack: :func:`witnesses_of` every placement that
+    passes :func:`screened`, in ``objects`` order."""
+    out: list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]] = []
+    memo: dict = {}                    # the components outlive this sweep on ``cache``
     for o in _pulse.each(objects, "door wells: sill witnesses", "objects"):
-        if o.resolved is None or _obj8.is_stock_library_resource(o.path):
-            continue
-        stats.placements += 1
-        g = cache.geometry(o.resolved)
-        if g is None:
-            continue
-        base = o.anchor_z + o.agl_m
-        vmin, _vmax, x0, x1, z0, z1 = cache.y_range(o.resolved)
-        if vmin == math.inf:
-            continue
-        corners = [_obj8._to_frame(o.xy, o.heading_deg, x, zz) for x in (x0, x1) for zz in (z0, z1)]
-        grounds = [z for z in [o.anchor_z] + [float(dem_z(cx, cy)) for cx, cy in corners]
-                   if not math.isnan(z)]
-        if not grounds or base + vmin > max(grounds) - dl.sill_min_depth_m:
-            continue
-        stats.screened += 1
-        mat = _obj8.placement_affine(o.xy, o.heading_deg)
-        for comp in cache.genuine(o.resolved):
-            cx, cy = _obj8._to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
-            local = float(dem_z(cx, cy))
-            if math.isnan(local):
-                local = o.anchor_z
-            if bl.shell_reaches_grade and base + comp.max_y < local - bl.contact_band_m:
-                continue                                   # buried, never a well
-            plane_sill = local - base - dl.sill_min_depth_m
-            if comp.min_y > plane_sill:
-                continue
-            if comp.min_y <= local - base - bl.admission_depth_m:
-                stats.basin_gate_components += 1           # the basin pass's
-                continue
-            w = _obj8._witness(g.vertices, comp, base, local, plane_sill,
-                               bl.floor_plate_normal_y_min, mat,
-                               q=cache.input_quantum_m,
-                               degenerate=stats.witness_degenerate,
-                               resource=o.path, memo=local_memo)
-            if w is None:
-                continue
-            out.append((o, w, id(comp)))
-            stats.sill_witnesses += 1
+        if screened(o, cache, dem_z, law, stats):
+            out.extend(witnesses_of(o, cache, dem_z, law, stats, memo))
     return out
 
 

@@ -53,6 +53,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.borrow",
     "auto_patch_v2.airport.bridge_family",
     "auto_patch_v2.airport.bulk_geos",
+    "auto_patch_v2.airport.cluster_profile",
     "auto_patch_v2.airport.contact",
     "auto_patch_v2.airport.contents",
     "auto_patch_v2.airport.deck_signature",

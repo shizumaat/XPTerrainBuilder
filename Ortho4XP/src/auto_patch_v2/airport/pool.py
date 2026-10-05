@@ -43,6 +43,11 @@ The contract a caller relies on:
   in :class:`SharedArrays` (one shared-memory block each, copied once) and
   ships its small ``spec``; a worker calls :func:`attach` and reads the same
   pages.  The parent closes it when the map is done.
+* **a count kept per process comes home**: the §51 (3) union fallback
+  rungs (``frame_entry.rung_counts``, the planar report's
+  ``union_fallback_rungs``) a worker took are returned with its answers and
+  added to this process's, so the report reads the same count wherever the
+  union ran.
 * **every wait is bounded**: the result wait by ``stall_s``, the teardown by
   :data:`TEARDOWN_S` (then ``terminate``, then ``kill``).
 
@@ -61,6 +66,7 @@ import typing as _t
 import numpy as np
 from multiprocessing import shared_memory as _shm
 
+from . import frame_entry as _fe
 from ..model import pulse as _pulse
 
 __all__ = ["WorkPool", "SharedArrays", "attach", "budget", "configure",
@@ -112,9 +118,11 @@ def _boot(setup, setup_args) -> None:
 
 
 def _run(fn, chunk):
-    """One submitted unit: ``fn`` over a chunk of tasks, in order."""
+    """One submitted unit: ``fn`` over a chunk of tasks, in order — and
+    the union fallback rungs this worker took doing it (module doc)."""
     state = _STATE[0]
-    return [fn(state, t) for t in chunk]
+    _fe.reset_rung_counts()
+    return [fn(state, t) for t in chunk], _fe.rung_counts()
 
 
 class WorkPool:
@@ -264,7 +272,8 @@ class WorkPool:
                 last = time.monotonic()
                 for f in done:
                     a, b = futs[f]
-                    out[a:b] = f.result()          # a task's own error re-raises
+                    out[a:b], rungs = f.result()   # a task's own error re-raises
+                    _fe.add_rung_counts(rungs)
                     done_n += b - a
         except _cf.BrokenExecutor as e:
             self._give_up(f"{what or 'map'}: a worker died ({e})")

@@ -67,7 +67,7 @@ from shapely.errors import GEOSException
 from shapely.ops import unary_union
 
 __all__ = ["enter", "union", "transform", "quantum", "IDENTITY",
-           "rung_counts", "reset_rung_counts", "rung_note",
+           "rung_counts", "reset_rung_counts", "add_rung_counts", "rung_note",
            "set_offender_dump_dir"]
 
 #: The affine of a geometry that is ALREADY in the frame — ``enter`` with
@@ -300,6 +300,17 @@ def rung_counts() -> dict[str, tuple[int, int]]:
 
 def reset_rung_counts() -> None:
     _RUNGS.clear()
+
+
+def add_rung_counts(counts: _t.Mapping[str, _t.Sequence[int]]) -> None:
+    """Add another process's :func:`rung_counts` to this one's — a work
+    pool's worker took those unions on this build's behalf
+    (``airport/pool.py``), and the report counts them wherever they ran."""
+    for site, (grid, buf) in counts.items():
+        if grid or buf:
+            row = _RUNGS.setdefault(site, [0, 0])
+            row[0] += int(grid)
+            row[1] += int(buf)
 
 
 def rung_note() -> str:

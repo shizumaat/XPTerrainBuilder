@@ -55,7 +55,8 @@ from __future__ import annotations
 import typing as _t
 
 from ..airport import frame_entry as _frame_entry
-from ..airport.placement_family import PlanCluster, ProfileLaw, plan_clusters
+from ..airport.cluster_profile import ProfileLaw
+from ..airport.placement_family import PlanCluster, plan_clusters
 from ..geom import deck_shades as _geom_deck_shades
 from ..law import Law
 from ..model.airport import Airport
@@ -197,14 +198,18 @@ def connector_verdicts(airport: Airport, law: Law) -> tuple:
 WHY: dict[str, object] = {}
 
 
-def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
+def clusters(airport: Airport, law: Law, pool: _t.Any = None
+             ) -> tuple[PlanCluster, ...]:
     """§16g (9)'s ONE POPULATION for this airport's pack, or ``()`` where
     the law is disarmed or no pack was read.
 
     Every connected footprint chain of every unit, split at a floor —
     NOT the two families §16f's gates used to leave.  The size threshold
     that used to live here is :func:`cluster_min_m2` and belongs to the
-    cluster PAD PLANE alone."""
+    cluster PAD PLANE alone.
+
+    ``pool`` is the pack stage's work pool (issue #362), handed to
+    ``plan_clusters`` — never part of the memo key or of any value."""
     eps = footprint_touch_m(law)
     split = _floor_split_m(law)
     tall = _chain_min_height_m(law)
@@ -243,7 +248,8 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
                               chain_min_height_m=tall, counts=counts,
                               sheet_chain_min_fraction=sheet, cut=cut,
                               linear=linear, outline_law=olaw,
-                              profile_law=plaw, evidence_law=elaw))
+                              profile_law=plaw, evidence_law=elaw,
+                              pool=pool))
     WHY["connectors_cut_out"] = counts.get("cluster_connectors_cut_out", 0)
     WHY["clusters"] = len(got)
     WHY["with_rings"] = sum(1 for c in got if c.rings)

@@ -49,6 +49,19 @@ THE FINGERPRINT covers everything the reading is a function of:
   ``.anchor_bak`` suffix stripped), so the engine's own y-bake does not
   invalidate its own cache (owner ruling 2026-08-13).  A miss on a file
   whose stored set differs is logged with both digests (:func:`peek`);
+* THE GROUND (issue #382): the reading stores what the DEM answered —
+  ``anchor_z`` on every placed object, the witness depths and the part
+  boxes built on it — and the key above names no DEM.  Which points it
+  asks is only known once the pack is parsed, so they are not in the key:
+  the reading runs on a :func:`ground_witness`, the questions and answers
+  are stored in the payload header, and :func:`read` serves the payload
+  only when THIS run's DEM gives every one of those answers again, bit
+  for bit (``dem_witness`` carries the argument and why no name for "the
+  DEM" is reused).  The companions follow by content: the extension's key
+  and the object-plan sidecar both digest the reading in hand
+  (``extension_cache.base_digest`` — every placement's ``anchor_z``, every
+  part box), so a reading re-taken on new ground is never joined to a
+  record of the old one;
 * THE CODE that produced it: the source bytes of the modules the
   reading runs through.  A derived cache keyed only on data is a
   correctness hazard in a tree that changes every commit, and this one
@@ -76,17 +89,23 @@ import pickle
 import re
 import typing as _t
 import zlib
+from . import dem_witness as _ground
 from . import partition_code as _code
 from .file_hash import sha256_file_or_none
 
 __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
            "pristine_stamps", "resolved_digest", "peek", "code_digest",
            "dump_digest", "companion", "hold_companion", "filed", "revive",
-           "put_back"]
+           "put_back", "ground_witness"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 9   # issue #222 (lane snap222, owner RULINGS 2026-10-02v
+CACHE_VERSION = 10  # issue #382 (lane key382): the header carries the DEM
+                    # samples the reading took (``"ground"``) and the
+                    # resources resolved OUTSIDE the pack join the pristine
+                    # stamps.  A v9 payload has neither, so it cannot say
+                    # which ground it was read on: refused, never repaired.
+# was 9:            # issue #222 (lane snap222, owner RULINGS 2026-10-02v
                     # (4)): every cached partition on disk was read through
                     # a cache WITHOUT the §51 (6) input quantum, because
                     # ``pipeline/build.pack_stage`` built it without one.
@@ -254,6 +273,31 @@ def resolved_digest(airport) -> tuple[int, str]:
     return len(pairs), h.hexdigest()
 
 
+#: ``fingerprint -> the DEM`` of the airport each fingerprint was taken for
+#: (``None`` for an airport with none), and ``fingerprint -> the ground the
+#: reading under it took``: the :func:`ground_witness` a MISS reads through,
+#: or the record a HIT was served under (issue #382).
+_DEMS: dict[str, _t.Any] = {}
+_GROUND: dict[str, _t.Any] = {}
+
+
+def ground_witness(fp: str | None, dem: _t.Any) -> _t.Any:
+    """The DEM the pack reading must be handed on a MISS: ``dem`` itself
+    when nothing will be cached (``fp`` is ``None``) or there is no DEM,
+    else a ``DemWitness`` over it whose record :func:`write` stores under
+    ``fp`` — the ground a later :func:`read` holds the payload to."""
+    if not fp or dem is None:
+        return dem
+    wit = _ground.DemWitness(dem)
+    _GROUND[fp] = wit
+    return wit
+
+
+def _ground_record(fp: str) -> _t.Any:
+    got = _GROUND.get(fp)
+    return got.record() if isinstance(got, _ground.DemWitness) else got
+
+
 #: ``(pack root, ICAO) -> fingerprint`` of the fingerprints this process
 #: took, and ``fingerprint -> cache file`` of the ones it READ a payload
 #: under or WROTE one under — what :func:`companion` hangs a second file
@@ -387,6 +431,7 @@ def fingerprint(airport, law, *, dump_path: str | None,
     fp = h.hexdigest()
     _STAMPS[fp] = list(ents)
     _RESOLVED[fp] = rd
+    _DEMS[fp] = getattr(airport, "dem", None)
     _TAKEN[(os.path.abspath(pack_root), str(getattr(airport, "icao", "") or ""))] = fp
     return fp
 
@@ -516,6 +561,10 @@ def read(path: str | None, fp: str | None) -> _t.Any | None:
         return None
     if fp in _STAMPS and not _stamps_hold(fp, blob.get("pristine")):
         return None
+    if fp in _DEMS:                     # a partition's own key (issue #382)
+        if not _ground.holds(_DEMS[fp], blob.get("ground")):
+            return None
+        _GROUND[fp] = blob.get("ground")
     if blob.get("result") is not None:
         _FILED[fp] = path
     return blob.get("result")
@@ -555,6 +604,7 @@ def write(path: str | None, fp: str | None, result: _t.Any) -> bool:
             fh.write(zlib.compress(
                 pickle.dumps({"fingerprint": fp, "pristine": _header(fp),
                               "resolved": _RESOLVED.get(fp),
+                              "ground": _ground_record(fp),
                               "result": result},
                              protocol=pickle.HIGHEST_PROTOCOL), _ZLIB_LEVEL))
         os.replace(tmp, path)

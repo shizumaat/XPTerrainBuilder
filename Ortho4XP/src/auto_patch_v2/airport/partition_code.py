@@ -145,7 +145,10 @@ ENTRY_MODULES: tuple[str, ...] = (
 #: it to keep and revive records) and deliberately NOT in the digest — it
 #: decides where a record is kept, never what the reading is, and a change
 #: of record SHAPE is ``partition_cache.CACHE_VERSION`` / a suffix bump.
+#: ``dem_witness`` (issue #382) is the same class: it passes the DEM's own
+#: answers through untouched and decides only whether a record is served.
 PLUMBING_MODULES: tuple[str, ...] = (
+    "auto_patch_v2.airport.dem_witness",
     "auto_patch_v2.airport.extension_cache",
     "auto_patch_v2.airport.partition_cache",
     "auto_patch_v2.airport.partition_code",

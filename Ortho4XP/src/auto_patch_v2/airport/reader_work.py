@@ -94,14 +94,16 @@ _AT_GRADE = (DOORS, ROADS)
 MIN_OBJECTS = 10_000
 
 #: The most workers the readers take, whatever the budget.  Every worker
-#: parses its own copy of the resources its tasks read (~1.2 GB each at
-#: OTHH), and while the door wells and the sunken roads are read by the
-#: build's own process THEY are the stage's wall: past the few workers that
-#: finish the wall families first, more only take the machine from them
-#: (measured at OTHH on a shared machine, readers' own clock: 2 workers
-#: 95.5 s, 4 workers 91.5 s, 18 workers 140.5 s — the parent's two readers
-#: 93 / 88 / 127 s of it).  A cost rule only — the reading is the same.
-MAX_WORKERS = 4
+#: parses its own copy of the resources its tasks read (~1.0-1.5 GB each at
+#: OTHH) and makes its own copy of the at-grade entries its tasks share
+#: with another worker's, and the build's own process still makes the door
+#: wells' sweep and the intakes (~20 s at OTHH): past the workers that are
+#: done when it is, more only take memory and the machine from it.
+#: Measured at OTHH on a shared machine — all five readers' clock, then the
+#: peak resident memory of the build + its workers: 1 worker 189 s; 2
+#: 124 s / 8.7 GB; 4 65-69 s / 10.5 GB; 8 49-50 s / 14.4 GB; 12 49 s; 18
+#: 56 s / 23.2 GB.  A cost rule only — the reading is the same.
+MAX_WORKERS = 8
 
 #: the airport fields no reader here opens, and that are megabytes to ship
 _STRIPPED = ("partition", "groups", "clusters")

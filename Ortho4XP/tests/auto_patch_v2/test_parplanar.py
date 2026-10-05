@@ -305,7 +305,7 @@ def _tool(name: str):
 
 
 def test_the_read_arm_hashes_the_two_arms_equal_and_a_change_differently(world, law):
-    arm, _src = _tool("planar_read_arm")
+    arm, src = _tool("planar_read_arm")
     airport, objects = world
     recs = []
     for workers in (1, 2):
@@ -323,6 +323,11 @@ def test_the_read_arm_hashes_the_two_arms_equal_and_a_change_differently(world, 
     # clocks are not identity; a set hashes the same in any order
     assert arm.sha({"b", "a"}) == arm.sha({"a", "b"})
     assert arm.sha(PR.WallCorridorStats(read_s=1.0)) == arm.sha(PR.WallCorridorStats(read_s=2.0))
+    # the peak resident memory is a reading beside the clocks, never identity
+    peak = arm.PeakRss()
+    peak.sample()
+    assert peak.gb["sum"] >= peak.gb["parent"] > 0.0 and "peak_rss_gb" in recs[0]["timing"]
+    assert '"--reader-cap"' in src and "reader_work.MAX_WORKERS = max(1, a.reader_cap)" in src
 
 
 def test_the_replay_pins_the_pool_budget():

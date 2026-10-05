@@ -3,7 +3,7 @@
 its second use).
 
     cd Ortho4XP && venv/bin/python tools/planar_read_arm.py CAPTURE.pkl \
-        [--workers N] [--json OUT.json]
+        [--workers N] [--reader-cap M] [--json OUT.json]
 
 Off a ``v2_solve_replay --capture`` pickle it reads the pack's objects as the
 replay's ``--from planar`` prelude does (one quantised ``ResourceCache``),
@@ -15,7 +15,12 @@ sunken roads, wall corridors) under a pinned work-pool budget, and prints
   and one over everything a later pass reads off the cache: the readings,
   ``frame_entry``'s fallback rungs, the at-grade stats (calls, unions,
   vertices, resources) and the memo sizes;
-* the readers' own seconds, the pool's account and the load average.
+* the readers' own seconds, the pool's account, the load average and the
+  peak resident memory of this process + its workers (sampled once a
+  second through ``ps``).
+
+``--reader-cap M`` replaces ``reader_work.MAX_WORKERS`` for the arm — the
+worker-count sweep that number is set from (1 / 2 / 4 / 8 / N).
 
 Two runs at two ``--workers`` are the serial / pooled identity arm of a
 change to the readers; it is seconds against a 9-minute replay.  NOT a
@@ -31,12 +36,14 @@ import hashlib
 import json
 import os
 import pickle
+import subprocess
 import sys
+import threading
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
-__all__ = ["canon", "sha", "reading", "main"]
+__all__ = ["canon", "sha", "reading", "PeakRss", "main"]
 
 READINGS = ("tunnels", "plates", "door_wells", "sunken_roads", "wall_corridors")
 
@@ -68,6 +75,56 @@ def sha(v) -> str:
                                      default=str).encode()).hexdigest()
 
 
+class PeakRss:
+    """The peak of (this process + its descendants) resident memory while
+    the block runs, sampled once a second: ``gb`` — ``{"sum", "parent",
+    "worker_max", "workers"}`` at the peak of the sum (a clock-like
+    reading: never identity)."""
+
+    def __init__(self, every_s: float = 1.0) -> None:
+        self.gb = {"sum": 0.0, "parent": 0.0, "worker_max": 0.0, "workers": 0}
+        self._every, self._stop = every_s, threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def __enter__(self) -> "PeakRss":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._stop.set()
+        self._thread.join(5.0)
+
+    def sample(self) -> None:
+        try:
+            rows = [ln.split() for ln in subprocess.run(
+                ["ps", "-axo", "pid=,ppid=,rss="], capture_output=True, text=True,
+                timeout=10).stdout.splitlines()]
+        except (OSError, subprocess.SubprocessError):
+            return                                   # no ps here: no reading
+        kids: dict[int, list] = {}
+        rss = {}
+        for pid, ppid, kb in rows:
+            kids.setdefault(int(ppid), []).append(int(pid))
+            rss[int(pid)] = int(kb) / 1048576.0
+        me = os.getpid()
+        workers = []
+        stack = list(kids.get(me, ()))
+        while stack:
+            pid = stack.pop()
+            stack += kids.get(pid, ())
+            if rss[pid] >= 0.05:                     # not the ps, not the tracker
+                workers.append(rss[pid])
+        total = rss.get(me, 0.0) + sum(workers)
+        if total > self.gb["sum"]:
+            self.gb = {"sum": round(total, 2), "parent": round(rss.get(me, 0.0), 2),
+                       "worker_max": round(max(workers, default=0.0), 2),
+                       "workers": len(workers)}
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._every):
+            self.sample()
+
+
 def reading(airport, objects, cache, law) -> dict:
     """The record of one arm (module doc) under the pool budget in force;
     ``timing`` is the only key that is not identity."""
@@ -75,10 +132,11 @@ def reading(airport, objects, cache, law) -> dict:
     from auto_patch_v2.planar import pack_reads as PR
     fe.reset_rung_counts()
     t = time.perf_counter()
-    pr = PR.pack_reads(airport, objects, cache, law, walls=True)
-    t_reads = time.perf_counter() - t
-    walls, wstats = PR.wall_corridor_reads(airport, objects, cache, law)
-    t_all = time.perf_counter() - t
+    with PeakRss() as peak:
+        pr = PR.pack_reads(airport, objects, cache, law, walls=True)
+        t_reads = time.perf_counter() - t
+        walls, wstats = PR.wall_corridor_reads(airport, objects, cache, law)
+        t_all = time.perf_counter() - t
     rec = {
         "tunnels": sha([pr.corridors, pr.tunnel_stats]),
         "plates": sha([pr.plates, pr.plate_stats]),
@@ -99,7 +157,8 @@ def reading(airport, objects, cache, law) -> dict:
                                         "door": pr.door_stats.read_s,
                                         "sunken": pr.road_stats.read_s,
                                         "walls": wstats.read_s},
-                     "pool": PR.pool_report(cache), "loadavg": list(os.getloadavg())}
+                     "pool": PR.pool_report(cache), "loadavg": list(os.getloadavg()),
+                     "peak_rss_gb": peak.gb}
     return rec
 
 
@@ -111,6 +170,8 @@ def main() -> int:
     ap.add_argument("capture")
     ap.add_argument("--workers", type=int, default=None, metavar="N",
                     help="pin the work-pool budget (1 = one core; default: every core)")
+    ap.add_argument("--reader-cap", type=int, default=None, metavar="M",
+                    help="replace reader_work.MAX_WORKERS for this arm (the sweep it is set from)")
     ap.add_argument("--json", default=None, metavar="OUT")
     a = ap.parse_args()
     from auto_patch_v2.airport import frame_entry as fe
@@ -127,6 +188,9 @@ def main() -> int:
     objects, _rep = read_objects(airport, law, cache)
     if a.workers is not None:
         P.configure(a.workers)
+    if a.reader_cap is not None:
+        from auto_patch_v2.airport import reader_work
+        reader_work.MAX_WORKERS = max(1, a.reader_cap)
     print(f"[{icao}] objects {len(objects)} read {time.perf_counter() - t:.1f} s; "
           f"work-pool budget {P.budget()} (cores {os.cpu_count()})", flush=True)
     rec = reading(airport, objects, cache, law)

@@ -259,3 +259,46 @@ def test_a_twin_dem_crosses_as_itself(world):
     airport, _objects = world
     shared, token = DS.share(airport.dem)
     assert shared is None and DS.revive(token) is airport.dem
+
+
+# ── the instruments (``tools/planar_read_arm.py``, ``v2_solve_replay --workers``) ──
+
+def _tool(name: str):
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[2] / "tools" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"_parplanar_{name}", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod, path.read_text(encoding="utf-8")
+
+
+def test_the_read_arm_hashes_the_two_arms_equal_and_a_change_differently(world, law):
+    arm, _src = _tool("planar_read_arm")
+    airport, objects = world
+    recs = []
+    for workers in (1, 2):
+        P.configure(workers)
+        try:
+            recs.append(arm.reading(airport, objects, _cache(law), law))
+        finally:
+            P.configure(1)
+    assert recs[0]["timing"]["pool"] is None and recs[1]["timing"]["pool"]["readers"]
+    assert recs[0]["all"] == recs[1]["all"]
+    assert recs[0]["counts"]["corridors"] == 1 and recs[0]["counts"]["walls"] >= 3
+    # the hash reads the readings: one object fewer is another record
+    less = arm.reading(airport, objects[1:], _cache(law), law)
+    assert less["all"] != recs[0]["all"] and less["tunnels"] != recs[0]["tunnels"]
+    # clocks are not identity; a set hashes the same in any order
+    assert arm.sha({"b", "a"}) == arm.sha({"a", "b"})
+    assert arm.sha(PR.WallCorridorStats(read_s=1.0)) == arm.sha(PR.WallCorridorStats(read_s=2.0))
+
+
+def test_the_replay_pins_the_pool_budget():
+    replay, src = _tool("v2_solve_replay")
+    try:
+        assert replay.pool_budget(3) == 3 and P.budget() == 3
+        assert replay.pool_budget() == 3               # a read alone pins nothing
+    finally:
+        P.configure(1)
+    assert '"--workers"' in src and "pool_budget(a.workers)" in src

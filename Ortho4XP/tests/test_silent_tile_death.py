@@ -467,7 +467,9 @@ def test_pool_teardown_with_a_wedged_worker_is_bounded_and_named(
     # 2 s join deadline + 2 s SIGTERM grace + kill joins: never the
     # unbounded ``shutdown(wait=True)`` (600 s here).
     assert wall < 15.0, wall
-    assert not any(p.is_alive() for p in procs)
+    # the facts ride in the message: which pid, what the teardown said
+    alive = [p.pid for p in procs if p.is_alive()]
+    assert not alive, (alive, round(wall, 2), lines)
     text = "\n".join(lines)
     assert "did not exit" in text, lines
     assert str(r["worker_pid"]) in text, lines

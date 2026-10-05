@@ -93,6 +93,7 @@ import sys
 import threading
 import time
 import typing as _t
+import weakref
 
 import numpy as np
 from multiprocessing import connection as _mpc
@@ -105,10 +106,19 @@ __all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "budget_bo
            "physical_ram_gb", "PARENT_RESERVE_GB", "WORKER_ALLOWANCE_GB", "configure",
            "set_share", "share", "share_object", "shared_object", "spec_key", "detach",
            "attached", "exit_with_parent", "exited",
-           "TICK_S", "TEARDOWN_S", "STALL_S"]
+           "TICK_S", "TEARDOWN_S", "STALL_S", "REAP_S"]
 
 #: seconds between wake-ups of a result wait (the heartbeat's grain)
 TICK_S = 1.0
+#: seconds :func:`exited` gives the system to make a child whose sentinel
+#: has closed waitable (the reap), the grain of that wait, and the seconds
+#: another thread gets to record a status its own ``waitpid`` took
+REAP_S = 5.0
+REAP_POLL_S = 0.002
+RECORD_S = 0.25
+#: processes whose exit status was taken behind their ``Process`` object
+_TAKEN: dict = {}
+
 #: seconds a closing pool may take before its workers are terminated
 TEARDOWN_S = 5.0
 #: seconds without ONE completed task before a map is declared stalled
@@ -223,18 +233,66 @@ def exited(proc, timeout: float = 0.0) -> bool:
     thread joining the same process (the executor's, after
     ``shutdown(wait=False)``) can take the status first: the loser reads
     "no such child" as STILL RUNNING, and a ``terminate`` then goes to a pid
-    that is already reaped."""
+    that is already reaped.
+
+    True also means REAPED where that is this process's to do
+    (:func:`_reap`): the caller's next ``proc.is_alive()`` agrees."""
     try:
         gone = bool(_mpc.wait([proc.sentinel], max(0.0, timeout)))
     except (AttributeError, OSError, ValueError):   # never started, closed, a stand-in
         proc.join(max(0.0, timeout))
         return not proc.is_alive()
     if gone:
+        _reap(proc)
+    return gone
+
+
+def _reap(proc) -> None:
+    """Collect the exit status of a child whose sentinel has closed, within
+    :data:`REAP_S`.  A POSIX sentinel is a pipe the child holds open, and a
+    dying process closes its files BEFORE it becomes waitable (Linux:
+    ``exit_files`` precedes ``exit_notify``, and a process with threads is
+    waitable only when the last of them is gone) — so one ``join(0)`` on the
+    line after the sentinel reads "still running", and so does the caller's
+    ``is_alive()``.  A closed sentinel cannot reopen: what is waited for here
+    is the kernel, never the child's consent.  A status another thread's
+    ``waitpid`` took (:func:`_status_taken`) is that thread's to record: it
+    gets :data:`RECORD_S`, once per process."""
+    if id(proc) in _TAKEN and _TAKEN[id(proc)]() is proc:
+        return
+    t_end = time.monotonic() + REAP_S
+    t_taken = None
+    while True:
         try:
             proc.join(0)                   # reap it, if nobody has
+            if proc.exitcode is not None:
+                return
         except Exception:
+            return
+        now = time.monotonic()
+        if t_taken is None and _status_taken(proc.pid):
+            t_taken = now + RECORD_S
+        if now >= (t_end if t_taken is None else min(t_end, t_taken)):
+            break
+        time.sleep(REAP_POLL_S)
+    if t_taken is not None:
+        try:
+            _TAKEN[id(proc)] = weakref.ref(proc, lambda _r, k=id(proc): _TAKEN.pop(k, None))
+        except TypeError:
             pass
-    return gone
+
+
+def _status_taken(pid) -> bool:
+    """Did somebody else's ``waitpid`` already take child ``pid``'s status
+    (POSIX: "no such child" from a wait that consumes nothing)?  ``False``
+    where that cannot be asked — the reap then simply runs to its bound."""
+    try:
+        os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except ChildProcessError:
+        return True
+    except Exception:                      # Windows, or no ``waitid`` here
+        return False
+    return False
 
 
 def exit_with_parent() -> None:

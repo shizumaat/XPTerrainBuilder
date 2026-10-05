@@ -1,6 +1,6 @@
-"""THE PACK READERS BESIDE EACH OTHER — a whole classification-free reader
-of the planar stage as ONE work-pool task (issue #362; owner RULINGS
-2026-10-04x (4)).
+"""THE PACK READERS BESIDE EACH OTHER — the classification-free readers of
+the planar stage as work-pool tasks (issue #362; owner RULINGS 2026-10-04x
+(4)).
 
 ``planar/pack_reads`` reads the pack five times, each reader a pure function
 of the airport's DEM, frame, mapped ways and DSF objects, the pack's placed
@@ -9,8 +9,13 @@ objects, the parsed resources and the law.  The readers named in
 roads: what they write on the build's ``ResourceCache`` is the parse memos
 alone (``_geom`` / ``_comps`` / ``_range`` / ``_bounds`` — pure in the file),
 and the one process-wide thing they touch is ``frame_entry``'s fallback-rung
-count.  So each runs whole in a worker while the build's own process reads
-the doors and the roads:
+count.  So they run in workers while the build's own process reads the doors
+and the roads — the tunnel corridors + thin plates as one task, the wall
+corridors as ONE TASK PER ANCHOR FAMILY (``wall_corridors.read_family``
+reads nothing of another family; the intake is built here, in ``objects``
+order, and ``wall_corridors.assemble`` takes the answers in sorted family
+order, which is where the corridors' ``@k`` and the order of every refusal
+line come from):
 
 * the worker is handed the placed objects, the law, the airport WITHOUT its
   partition / groups / clusters (:class:`Stripped` — a reader that reached
@@ -20,7 +25,7 @@ the doors and the roads:
   build's is (same thickness, same input quantum) and seeded with the
   build's own per-resource extents, so its pre-screens open no file the
   serial pre-screen does not;
-* it returns the reader's records and stats, and the fallback rungs its
+* it returns the task's records and stats, and the fallback rungs its
   unions took, which the build's process charges to its own count.
 
 Nothing here decides anything.  With no pool, a pool that dies, inputs
@@ -32,6 +37,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import pickle
+import time
 import typing as _t
 
 from . import frame_entry as _fe
@@ -40,12 +46,13 @@ from .dem_shared import ColdTile, revive, share
 from .pool import WorkPool, budget
 from .thin_plates import read_plates
 from .tunnel_objects import read_corridors
-from .wall_corridors import read_wall_corridors
+from .wall_corridors import assemble, read_family, wall_families, wall_reader
 
-__all__ = ["READERS", "WALLS", "TUNNELS", "MIN_OBJECTS", "Ahead", "Stripped", "StrippedField",
+__all__ = ["READERS", "WALLS", "TUNNELS", "MIN_OBJECTS", "MAX_WORKERS", "Ahead", "Stripped", "StrippedField",
            "ReadWorker", "setup", "read", "begin"]
 
-#: the wall corridors: ``(records, stats)``
+#: the wall corridors: ``(records, stats)``; a task is ``(WALLS, family
+#: key, the members' positions in objects)``
 WALLS = "walls"
 #: the tunnel corridors, then the thin plates that skip the resources the
 #: corridors admitted: ``(corridors, stats, plates, plate stats)``
@@ -58,6 +65,16 @@ READERS = (WALLS, TUNNELS)
 #: objects, 6.2 s on one core against 8.5 s beside workers; OTHH, 36,019,
 #: 173.5 s against 94.0 s).  A cost rule only — the reading is the same.
 MIN_OBJECTS = 10_000
+
+#: The most workers the readers take, whatever the budget.  Every worker
+#: parses its own copy of the resources its tasks read (~1.2 GB each at
+#: OTHH), and while the door wells and the sunken roads are read by the
+#: build's own process THEY are the stage's wall: past the few workers that
+#: finish the wall families first, more only take the machine from them
+#: (measured at OTHH on a shared machine, readers' own clock: 2 workers
+#: 95.5 s, 4 workers 91.5 s, 18 workers 140.5 s — the parent's two readers
+#: 93 / 88 / 127 s of it).  A cost rule only — the reading is the same.
+MAX_WORKERS = 4
 
 #: the airport fields no reader here opens, and that are megabytes to ship
 _STRIPPED = ("partition", "groups", "clusters")
@@ -95,6 +112,7 @@ class ReadWorker:
     objects: list
     law: _t.Any
     cache: _obj8.ResourceCache
+    walls: _t.Any = None               # ``wall_corridors.WallReader``, lazily
 
 
 def setup(airport, dem_token, objects, law, thickness_m: float, quantum_m: float,
@@ -106,15 +124,18 @@ def setup(airport, dem_token, objects, law, thickness_m: float, quantum_m: float
     return ReadWorker(_dc.replace(airport, dem=revive(dem_token)), objects, law, cache)
 
 
-def read(state: ReadWorker, kind: str) -> tuple:
-    """One reader, whole: ``("ok", reading, fallback rungs)``, or
-    ``("serial", why)`` when it reached for something a worker does not
-    hold (module doc) — the build's process then reads it itself."""
+def read(state: ReadWorker, task: tuple) -> tuple:
+    """One task — ``(TUNNELS,)`` or ``(WALLS, family key, member positions)``
+    — as ``("ok", reading, fallback rungs)``, or ``("serial", why)`` when it
+    reached for something a worker does not hold (module doc): the build's
+    process then makes that reader's reading itself."""
     a, oo, cache, law = state.airport, state.objects, state.cache, state.law
     _fe.reset_rung_counts()
     try:
-        if kind == WALLS:
-            got: tuple = read_wall_corridors(a, oo, cache, law)
+        if task[0] == WALLS:
+            if state.walls is None:
+                state.walls = wall_reader(a, cache, law)
+            got: tuple = read_family(state.walls, task[1], [oo[k] for k in task[2]])
         else:
             corridors, tstats = read_corridors(a, oo, cache, law)
             got = (corridors, tstats,
@@ -132,10 +153,11 @@ class Ahead:
     one) and returns ``{reader: reading}`` — WITHOUT the readers the
     build's process must read itself."""
 
-    def __init__(self, pool: WorkPool, shared, pending, kinds: tuple[str, ...],
-                 out: _t.Callable[[str], None]) -> None:
+    def __init__(self, pool: WorkPool, shared, pending, tasks: list,
+                 placements: int | None, out: _t.Callable[[str], None]) -> None:
         self._pool, self._shared, self._pending = pool, shared, pending
-        self._kinds, self._out = kinds, out
+        self._tasks, self._placements, self._out = tasks, placements, out
+        self._t0 = time.perf_counter()
         self.report: dict = {}
 
     def collect(self) -> dict:
@@ -143,13 +165,25 @@ class Ahead:
             got = self._pending.collect()
         finally:
             self.close()
-        out: dict = {}
-        for kind, row in zip(self._kinds, got or ()):
+        rows: dict[str, list] = {}
+        tripped: dict[str, str] = {}
+        for task, row in zip(self._tasks, got or ()):
             if row[0] != "ok":
-                self._out(f"[pool] pack reader '{kind}' is read on one core: {row[1]}")
+                tripped.setdefault(task[0], row[1])
                 continue
-            out[kind] = row[1]
+            rows.setdefault(task[0], []).append(row[1])
             _fe.add_rung_counts(row[2])
+        for kind, why in tripped.items():       # one tripped task: the whole reader
+            self._out(f"[pool] pack reader '{kind}' is read on one core: {why}")
+        out: dict = {}
+        if got is not None:
+            if TUNNELS in rows and TUNNELS not in tripped:
+                out[TUNNELS] = rows[TUNNELS][0]
+            if self._placements is not None and WALLS not in tripped:
+                # the tasks are in sorted family order, and so are the answers
+                walls, wstats = assemble(self._placements, rows.get(WALLS, ()))
+                wstats.read_s = time.perf_counter() - self._t0
+                out[WALLS] = (walls, wstats)
         self.report = dict(self._pool.report(), readers=sorted(out),
                            line=self._pool.line() + f" — pack readers beside the door "
                            f"wells: {', '.join(sorted(out)) or 'none'}")
@@ -171,8 +205,21 @@ def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
     that do not pickle, no shared memory) — said through ``out`` unless it
     is simply the budget or the pack's size."""
     kinds = tuple(kinds)
-    n = min(budget() if workers is None else int(workers), len(kinds))
-    if n < 2 or len(objects) < MIN_OBJECTS:
+    if (budget() if workers is None else int(workers)) < 2 or len(objects) < MIN_OBJECTS:
+        return None
+    tasks: list[tuple] = []
+    weights: list[float] = []
+    placements = None
+    if WALLS in kinds:
+        # THE INTAKE, here: ``objects`` order decides each family's members
+        placements, fams = wall_families(objects, cache, law)
+        tasks += [(WALLS, fk, ks) for fk, ks in fams]
+        weights += [float(len(ks)) for _fk, ks in fams]
+    if TUNNELS in kinds:
+        tasks.append((TUNNELS,))
+        weights.append(max(weights, default=0.0) + 1.0)     # one long task: first
+    n = min(budget() if workers is None else int(workers), len(tasks), MAX_WORKERS)
+    if n < 2:
         return None
     derived = {k: v for k, v in cache.derived_state().items() if k in ("range", "bounds")}
     shared = None
@@ -189,10 +236,10 @@ def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
             f"cross to a worker ({type(e).__name__}: {e})")
         return None
     pool = WorkPool(setup, args, workers=n, out=out)
-    pending = pool.begin(read, kinds, what="pack readers", unit="readers")
+    pending = pool.begin(read, tasks, weights=weights, what="pack readers", unit="tasks")
     if pending is None:
         pool.close()
         if shared is not None:
             shared.close()
         return None
-    return Ahead(pool, shared, pending, kinds, out)
+    return Ahead(pool, shared, pending, tasks, placements, out)

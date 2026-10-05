@@ -24,6 +24,7 @@ from auto_patch_v2.airport import dem_shared as DS
 from auto_patch_v2.airport import frame_entry as _fe
 from auto_patch_v2.airport import pool as P
 from auto_patch_v2.airport import reader_work as RW
+from auto_patch_v2.airport import wall_corridors as WC
 from auto_patch_v2.airport.dem_production import ProductionDem, _BakedTile
 from auto_patch_v2.airport.obj8 import ResourceCache
 from auto_patch_v2.classify.roles import Classification
@@ -60,6 +61,7 @@ def world(tmp_path_factory, law):
             "level": _corridor_obj(d / "level.obj"),
             "bay": _corridor_obj(d / "bay.obj", end_wall=True, half_len=5.0)}
     airport = _airport(objs, law, [("wall", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL"),
+                                   ("level", (900.0, 400.0), 0.0, None, "OBJECT"),
                                    ("level", (900.0, 0.0), 0.0, None, "OBJECT"),
                                    ("bay", (1300.0, 0.0), 0.0, None, "OBJECT")],
                        _bore(y_in=-40.0))
@@ -109,7 +111,7 @@ def serial(world, law):
 
 
 def test_the_synthetic_pack_exercises_the_pooled_readers(serial):
-    assert len(serial["corridors"]) == 1 and len(serial["walls"]) >= 3
+    assert len(serial["corridors"]) == 1 and len(serial["walls"]) >= 5
     assert serial["pool"] is None                 # one core: no pool, no account
 
 
@@ -117,9 +119,10 @@ def test_the_synthetic_pack_exercises_the_pooled_readers(serial):
 def test_pooled_readers_equal_serial(world, law, serial, n, capsys):
     got = _reading(world, law, n)
     _same(got, serial)
-    assert "[pool] workers 2: 2 task(s) answered by workers" in capsys.readouterr().out
+    assert (f"[pool] workers {min(n, 5, RW.MAX_WORKERS)}: 5 task(s) answered by workers"
+            in capsys.readouterr().out)        # four wall families + the tunnels
     assert got["pool"]["readers"] == ["tunnels", "walls"]
-    assert got["pool"]["workers"] == 2 and not got["pool"]["fell_back"]
+    assert got["pool"]["workers"] == min(n, 5, RW.MAX_WORKERS) and not got["pool"]["fell_back"]
 
 
 def test_a_small_pack_is_read_on_one_core(world, law, serial, monkeypatch):
@@ -160,6 +163,30 @@ def test_the_planar_map_is_the_serial_one(world, law):
     assert maps[0][4], "the fixture must build structures"
 
 
+# ── the order argument: a family reads nothing of another's ──────────────
+
+def test_a_familys_reading_is_its_own_and_the_ids_come_from_the_assembly(world, law, serial):
+    """``read_family`` over the families in ANY order, each with a fresh
+    reader and a fresh parse, assembled in the intake's sorted order, is the
+    one-loop reading — and the ``@k`` of a resource placed at two anchors
+    follows the sorted family order, whichever family was read first."""
+    airport, objects = world
+    placements, fams = WC.wall_families(objects, _cache(law), law)
+    assert [fk for fk, _ks in fams] == sorted(fk for fk, _ks in fams) and len(fams) == 4
+    got = {}
+    for fk, ks in reversed(fams):
+        rd = WC.wall_reader(airport, _cache(law), law)
+        got[fk] = WC.read_family(rd, fk, [objects[k] for k in ks])
+    for _st, pairs in got.values():              # no id before the assembly
+        assert all(r.id in ("", "/a", "/b") for _res, _name, recs in pairs for r in recs)
+    walls, wstats = WC.assemble(placements, [got[fk] for fk, _ks in fams])
+    assert walls == serial["walls"] and _untimed(wstats) == serial["stats"][4]
+    # the two ``level`` anchors: (900, 0) sorts before (900, 400)
+    by_k = {r.id.split("@")[1][0]: r for r in walls if "level.obj" in r.id}
+    assert by_k["0"].anchor_xy == (900.0, 0.0) and by_k["1"].anchor_xy == (900.0, 400.0)
+    assert all(r.sibling.startswith(r.id.rsplit("/", 1)[0] + "/") for r in walls if r.sibling)
+
+
 # ── what does not answer leaves the serial reading ───────────────────────
 
 def _die_setup(*_a):
@@ -174,14 +201,14 @@ def test_a_pool_that_dies_leaves_the_serial_reading(world, law, serial, monkeypa
     assert "[pool] FELL BACK" in capsys.readouterr().out
 
 
-def _walls_trip(state, kind):
-    """A worker whose wall reader reaches for a field it was not handed."""
-    if kind == RW.WALLS:
+def _walls_trip(state, task):
+    """A worker whose LAST wall family reaches for a field it was not handed."""
+    if task[0] == RW.WALLS and task[1][0] > 1000.0:
         try:
             len(state.airport.partition)
         except RW.StrippedField as e:
             return ("serial", str(e))
-    return RW.read(state, kind)
+    return RW.read(state, task)
 
 
 def test_a_reader_that_trips_is_read_here(world, law, serial, monkeypatch, capsys):
@@ -192,15 +219,15 @@ def test_a_reader_that_trips_is_read_here(world, law, serial, monkeypatch, capsy
     assert "'walls' is read on one core: airport.partition" in capsys.readouterr().out
 
 
-def _rungy(state, kind):
-    row = RW.read(state, kind)
+def _rungy(state, task):
+    row = RW.read(state, task)
     return (row[0], row[1], {"twin.site": (1, 2)})
 
 
 def test_a_workers_fallback_rungs_are_charged_here(world, law, monkeypatch):
     monkeypatch.setattr(RW, "read", _rungy)
     try:
-        assert _reading(world, law, 2)["rungs"] == {"twin.site": (2, 4)}
+        assert _reading(world, law, 2)["rungs"] == {"twin.site": (5, 10)}   # five tasks
     finally:
         _fe.reset_rung_counts()
 

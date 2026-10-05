@@ -170,6 +170,7 @@ def _pack(workers: int, root: str, say) -> tuple:
     partition of :func:`write_pack`'s pack."""
     import dataclasses as _dc
     import numpy as np
+    from auto_patch_v2.airport import frame_entry as _fe
     from auto_patch_v2.airport import obj8 as O
     from auto_patch_v2.airport import pack_partition as PP
     from auto_patch_v2.airport import pack_work as W
@@ -189,7 +190,9 @@ def _pack(workers: int, root: str, say) -> tuple:
     objs = [placed(k, *row) for k, row in enumerate(names)]
     pack = _NS(name="pack", apt_dat_path=os.path.join(root, "Earth nav data", "apt.dat"))
     air = _NS(icao="ZZZZ", frame=Frame("ZZZZ", (60.0, -135.0), 11), pack=pack)
-    cache = O.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    # the build's own cache (``pipeline/build.pack_stage``): the §51 (6) quantum
+    cache = O.ResourceCache(law.tables.structures.basin.min_solid_thickness_m,
+                            _fe.quantum(law))
     with W.open_pool(law, cache, workers=workers, out=say) as pool:
         part = PP.partition_pack(air, objs, cache, law, pool=pool)
         say(pool.line())
@@ -442,7 +445,7 @@ def main(argv: list[str]) -> int:
     for f in record["failures"]:
         print(f"FAILED {f}", flush=True)
     if "--out" in argv:
-        with open(value("--out", ""), "w", encoding="utf-8") as handle:
+        with open(value("--out", ""), "w", encoding="utf-8", newline="") as handle:
             json.dump(record, handle, indent=1, sort_keys=True)
     if record["ok"]:
         print(f"{OK_LINE}: workers {record['workers']}, {len(record['pids'])} "

@@ -134,11 +134,11 @@ def test_the_entry_runs_the_pool_from_source_and_the_gate_passes_it(tmp_path):
         capture_output=True, text=True, timeout=600)
     assert done.returncode == 0, done.stdout + done.stderr
     assert "POOL PASS OK" in done.stdout
-    record = json.loads((logs / "pool-selfcheck-pooled.json").read_text())
+    record = json.loads((logs / "pool-selfcheck-pooled.json").read_text(encoding="utf-8"))
     assert record["ok"] and len(record["nested"]) == 2
     assert all(row["tasks"] > 0 and not row["fell_back"]
                for row in record["pools"].values())
-    serial = json.loads((logs / "pool-selfcheck-onecore.json").read_text())
+    serial = json.loads((logs / "pool-selfcheck-onecore.json").read_text(encoding="utf-8"))
     assert serial["digest"] == record["digest"] and serial["workers"] == 1
 
 

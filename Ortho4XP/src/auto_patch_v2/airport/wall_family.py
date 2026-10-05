@@ -57,6 +57,9 @@ class WallReader:
     road_tree: _t.Any = None
     levels: _t.Any = None
     bz_store: dict = _dc.field(default_factory=dict)
+    #: the frame's ``to_ll`` — two pyproj transformers to build, so ONCE per
+    #: reader, never per family (KASE: 2,191 families, 12 s of a 0.3 s read)
+    to_ll: _t.Any = None
 
 
 def wall_reader(airport: Airport, cache: _obj8.ResourceCache, law: Law,
@@ -67,7 +70,8 @@ def wall_reader(airport: Airport, cache: _obj8.ResourceCache, law: Law,
     roads = mouth_roads(airport, classification) if measure else []
     return WallReader(airport, cache, law, measure, roads,
                       STRtree([r.geom for r in roads]) if roads else None,
-                      _RoadLevels(airport, law) if measure else None)
+                      _RoadLevels(airport, law) if measure else None,
+                      to_ll=airport.frame.transformers()[1])
 
 
 def wall_families(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
@@ -119,7 +123,7 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
     co = law.tables.structures.cutout
     grid = law.tables.emit.identity.min_distinct_spacing_m
     dem_z = airport.dem.z
-    to_ll = airport.frame.transformers()[1]
+    to_ll = rd.to_ll
     bands: list[WallBand] = []
     verticals: list[tuple] = []
     by_id = {o.id: o for o in members}

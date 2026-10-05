@@ -278,6 +278,9 @@ class DoorReader:
     cache: _obj8.ResourceCache
     law: Law
     grade: _AtGrade
+    #: the frame's ``to_ll`` — two pyproj transformers to build, so ONCE per
+    #: reader, never per family (KASE: 2,191 families, 12 s of a 0.3 s read)
+    to_ll: _t.Any
 
 
 def door_reader(airport: Airport, cache: _obj8.ResourceCache, law: Law,
@@ -288,7 +291,7 @@ def door_reader(airport: Airport, cache: _obj8.ResourceCache, law: Law,
     shell, not building, at all of them)."""
     return DoorReader(airport, cache, law, _AtGrade(
         cache, airport.dem.z, law.tables.structures.basin.contact_band_m, witness_ids,
-        law.tables.structures.cutout.door.sill_min_width_m))
+        law.tables.structures.cutout.door.sill_min_width_m), airport.frame.transformers()[1])
 
 
 def door_families(objects: _t.Sequence[_obj8.PlacedObject],
@@ -365,7 +368,7 @@ def read_family(rd: DoorReader, fam: _t.Sequence[tuple], members: _t.Sequence[_o
     dl = law.tables.structures.cutout.door
     grid = law.tables.emit.identity.min_distinct_spacing_m
     dem_z = airport.dem.z
-    to_ll = airport.frame.transformers()[1]
+    to_ll = rd.to_ll
     out: list[tuple[str, str, DoorWell]] = []
     tree = STRtree([o.plan_bbox for o in members]) if members else None
     # §51 (4) row 5 — the per-consumer repair is REMOVED: every

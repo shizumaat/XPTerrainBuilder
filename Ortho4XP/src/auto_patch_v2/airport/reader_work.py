@@ -164,6 +164,7 @@ class ReadWorker:
     cache: _obj8.ResourceCache
     walls: _t.Any = None               # ``wall_family.WallReader``, lazily
     roads: _t.Any = None               # ``sunken_roads.RoadReader``, lazily
+    doors: _t.Any = None               # ``door_wells.DoorReader``, lazily
     #: the sweep's per-component footprints and ``{resource: {id(component):
     #: its index}}`` — both live as long as this worker's parse
     wit_memo: dict = _dc.field(default_factory=dict)
@@ -181,12 +182,14 @@ def setup(airport, dem_token, objects, law, thickness_m: float, quantum_m: float
 
 def _door_family(state: ReadWorker, rows: list, members: list, shell: dict) -> tuple:
     """One door family in a worker: the witness components are named by
-    their index in the resource (an ``id`` does not cross a process)."""
+    their index in the resource (an ``id`` does not cross a process).  The
+    reader is the worker's ONE; only its witness set is the task's."""
     oo, comps = state.objects, state.cache.components
-    rd = _dw.door_reader(state.airport, state.cache, state.law,
-                         {id(comps(res)[ci]) for res, cis in shell.items() for ci in cis})
+    if state.doors is None:
+        state.doors = _dw.door_reader(state.airport, state.cache, state.law, set())
+    state.doors.grade.wit = {id(comps(res)[ci]) for res, cis in shell.items() for ci in cis}
     fam = [(oo[k], w, id(comps(oo[k].resolved)[ci])) for k, w, ci in rows]
-    return _dw.read_family(rd, fam, [oo[k] for k in members])
+    return _dw.read_family(state.doors, fam, [oo[k] for k in members])
 
 
 def _sweep_chunk(state: ReadWorker, positions: list) -> tuple:

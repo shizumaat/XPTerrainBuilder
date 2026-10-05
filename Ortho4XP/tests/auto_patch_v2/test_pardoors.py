@@ -429,3 +429,51 @@ def test_no_rung_is_charged_twice_and_none_is_lost(world, law, monkeypatch, caps
         assert {"doors", "roads"} <= set(tripped) and not set(tripped) & set(got["pool"]["readers"])
     finally:
         _fe.reset_rung_counts()
+
+
+# ── per-reader setup stays per reader (sweep sw1040: KASE, 2,191 families) ──
+
+def test_the_frame_transformers_are_built_once_per_reader(world, law, monkeypatch):
+    """``Frame.transformers`` builds two pyproj transformers per call: one
+    call per reader on one core, and one per reader PER WORKER whatever the
+    number of families it is handed — never one per family."""
+    from auto_patch_v2.airport import wall_family as WF
+    from auto_patch_v2.model.frame import Frame
+    airport, objects = world
+    calls = []
+    real = Frame.transformers
+
+    def counted(self):
+        calls.append(1)
+        return real(self)
+    monkeypatch.setattr(Frame, "transformers", counted)
+
+    def took(fn) -> int:
+        calls.clear()
+        fn()
+        return len(calls)
+    cache = _cache(law)
+    assert took(lambda: DW.read_door_wells(airport, objects, cache, law)) == 1
+    assert took(lambda: SR.read_sunken_roads(airport, objects, cache, law)) == 1
+    assert took(lambda: WF.read_wall_corridors(airport, objects, cache, law)) == 1
+    # one worker, every family task of the three readers
+    stats = DW.DoorStats()
+    wits = DW.sill_witnesses(objects, cache, airport.dem.z, law, stats)
+    pos = {id(o): k for k, o in enumerate(objects)}
+    index = {id(c): i for o in objects for i, c in enumerate(cache.components(o.resolved))}
+    shell: dict = {}
+    for o, _w, cid in wits:
+        shell.setdefault(o.resolved, set()).add(index[cid])
+    tasks = [(RW.DOORS, [(pos[id(o)], w, index[cid]) for o, w, cid in fam],
+              [pos[id(m)] for m in members], {r: sorted(v) for r, v in shell.items()})
+             for _fk, fam, members in DW.door_families(objects, wits)]
+    tasks += [(RW.ROADS, ks) for _fk, ks in SR.road_families(objects, cache, law)[1]]
+    tasks += [(RW.WALLS, fk, ks) for fk, ks in WF.wall_families(objects, cache, law)[1]]
+    assert len(tasks) >= 12
+    state = RW.setup(airport, ("as_is", airport.dem), list(objects), law, cache.thickness_m,
+                     cache.input_quantum_m, {}, "")
+    try:
+        n = took(lambda: [RW.read(state, t) for t in tasks])
+    finally:
+        _fe.reset_rung_counts()
+    assert n == 3, n

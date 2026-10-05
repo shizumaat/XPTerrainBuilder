@@ -297,6 +297,9 @@ class RoadReader:
     law: Law
     boxed: list
     bbox_tree: _t.Any
+    #: the frame's ``to_ll`` — two pyproj transformers to build, so ONCE per
+    #: reader, never per family (KASE: 2,191 families, 12 s of a 0.3 s read)
+    to_ll: _t.Any
     cover: dict = _dc.field(default_factory=dict)
 
 
@@ -304,7 +307,8 @@ def road_reader(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                 cache: _obj8.ResourceCache, law: Law) -> RoadReader:
     boxed = [o for o in objects if o.plan_bbox is not None]
     return RoadReader(airport, cache, law, boxed,
-                      STRtree([o.plan_bbox for o in boxed]) if boxed else None)
+                      STRtree([o.plan_bbox for o in boxed]) if boxed else None,
+                      airport.frame.transformers()[1])
 
 
 def road_families(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
@@ -382,7 +386,7 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
     tn = law.tables.structures.tunnel
     ob = tn.object
     dem_z = airport.dem.z
-    to_ll = airport.frame.transformers()[1]
+    to_ll = rd.to_ll
     # a ROAD surface is flatter than the ramp law: faces steeper than
     # tunnel.ramp_max_grade are banks and ramps' walls, never the floor
     # (measured OTHH: the drainage bowls' 20 % banks pass the 0.7 floor gate)

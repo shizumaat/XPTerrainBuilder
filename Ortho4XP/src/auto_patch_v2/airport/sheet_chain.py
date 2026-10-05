@@ -46,7 +46,7 @@ import typing as _t
 import shapely
 
 from .contents import _poly
-from .pool import share_object, shared_object
+from .pool import share_object, shared_object, spec_key
 
 __all__ = ["sheet_links", "merge_by_sheets"]
 
@@ -98,7 +98,7 @@ def _rows_task(_state: _t.Any, task: tuple) -> tuple:
     walled footprints are built once per worker from the shared bodies.
     Returns ``(how many walled footprints, [rows per sheet])``."""
     spec, ml, mo, leaves = task
-    key = spec["pickle"][0]
+    key = spec_key(spec)
     if _WALLED[0] != key:
         _WALLED[:] = [key, _walled_polys(shared_object(spec), ml, mo)]
     walled = _WALLED[1]

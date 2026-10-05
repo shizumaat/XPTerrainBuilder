@@ -60,6 +60,7 @@ are pickled, so return the rows the consumer keeps, never placed geometry.
 from __future__ import annotations
 
 import concurrent.futures as _cf
+import itertools
 import multiprocessing as _mp
 import os
 import pickle
@@ -74,7 +75,8 @@ from . import frame_entry as _fe
 from ..model import pulse as _pulse
 
 __all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "configure",
-           "set_share", "TICK_S", "TEARDOWN_S", "STALL_S"]
+           "set_share", "share_object", "shared_object", "spec_key",
+           "TICK_S", "TEARDOWN_S", "STALL_S"]
 
 #: seconds between wake-ups of a result wait (the heartbeat's grain)
 TICK_S = 1.0
@@ -353,7 +355,10 @@ class Pending:
 
 class SharedArrays:
     """Named numpy arrays in shared memory (module doc).  ``spec`` is what
-    a task carries: ``{name: (block name, dtype, shape)}``.  Raises
+    a task carries: ``{name: (block name, dtype, shape, serial)}`` —
+    ``serial`` is this process's id and a count of the sets it has shared,
+    so two sets are never the same spec even where the system hands a
+    later one an earlier one's block name (:func:`spec_key`).  Raises
     ``OSError`` when the machine will not give the memory — the caller
     then runs its serial code.  Use as a context manager; :meth:`close`
     unlinks the blocks."""
@@ -362,13 +367,14 @@ class SharedArrays:
         self._blocks: list = []
         self.spec: dict[str, tuple[str, str, tuple]] = {}
         self.nbytes = 0
+        serial = (os.getpid(), next(_SERIAL))
         try:
             for name, arr in arrays.items():
                 arr = np.ascontiguousarray(arr)
                 blk = _shm.SharedMemory(create=True, size=max(1, arr.nbytes))
                 self._blocks.append(blk)
                 np.ndarray(arr.shape, arr.dtype, buffer=blk.buf)[...] = arr
-                self.spec[name] = (blk.name, arr.dtype.str, tuple(arr.shape))
+                self.spec[name] = (blk.name, arr.dtype.str, tuple(arr.shape), serial)
                 self.nbytes += arr.nbytes
         except BaseException:
             self.close()
@@ -390,6 +396,19 @@ class SharedArrays:
                     pass
 
 
+#: counts the array sets THIS process has shared (``SharedArrays.spec``)
+_SERIAL = itertools.count(1)
+
+
+def spec_key(spec: _t.Mapping[str, tuple]) -> tuple:
+    """What makes a ``spec`` THIS set of arrays and no other: every block's
+    name AND its serial.  Anything a worker keeps per spec (the attachment
+    here, :func:`shared_object`, a caller's own derivation from it) is
+    keyed on this, never on the block name alone — a name can come round
+    again within one worker's life, a serial cannot."""
+    return tuple(sorted((k, v[0], v[3]) for k, v in spec.items()))
+
+
 #: the ONE spec this process is attached to: ``[key, blocks, arrays]``
 _ATTACHED: list = [None, [], {}]
 
@@ -397,7 +416,7 @@ _ATTACHED: list = [None, [], {}]
 def attach(spec: _t.Mapping[str, tuple]) -> dict[str, np.ndarray]:
     """The arrays of a :class:`SharedArrays` ``spec`` as READ-ONLY views,
     attached once per process (the previous spec is released)."""
-    key = tuple(sorted((k, v[0]) for k, v in spec.items()))
+    key = spec_key(spec)
     if _ATTACHED[0] != key:
         for blk in _ATTACHED[1]:
             try:
@@ -405,7 +424,7 @@ def attach(spec: _t.Mapping[str, tuple]) -> dict[str, np.ndarray]:
             except Exception:
                 pass
         blocks, arrays = [], {}
-        for name, (block, dtype, shape) in spec.items():
+        for name, (block, dtype, shape, _serial) in spec.items():
             try:
                 blk = _shm.SharedMemory(name=block, track=False)
             except TypeError:              # an interpreter before 3.13
@@ -429,14 +448,14 @@ def share_object(obj: _t.Any) -> SharedArrays:
     return SharedArrays({"pickle": np.frombuffer(raw, dtype=np.uint8)})
 
 
-#: the object of the ONE spec this process last read: ``[block, object]``
+#: the object of the ONE spec this process last read: ``[key, object]``
 _OBJECT: list = [None, None]
 
 
 def shared_object(spec: _t.Mapping[str, tuple]) -> _t.Any:
     """The object behind a :func:`share_object` ``spec``, unpickled once
     per process (the previous one is dropped)."""
-    block = spec["pickle"][0]
-    if _OBJECT[0] != block:
-        _OBJECT[:] = [block, pickle.loads(attach(spec)["pickle"].tobytes())]
+    key = spec_key(spec)
+    if _OBJECT[0] != key:
+        _OBJECT[:] = [key, pickle.loads(attach(spec)["pickle"].tobytes())]
     return _OBJECT[1]

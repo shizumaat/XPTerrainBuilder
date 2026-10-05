@@ -397,7 +397,10 @@ def test_only_a_keeping_caller_writes_the_extension(tmp_path, monkeypatch):
     sig = inspect.signature(w.PP.extend_partition).parameters["keep"]
     assert sig.default is False and sig.kind is sig.KEYWORD_ONLY
     assert "keep=keep_extension" in inspect.getsource(RP.plan)
-    assert inspect.signature(RP.plan).parameters["keep_extension"].default is True
+    # ...and ``plan()`` keeps only when told to (lane rebake362: the object
+    # step's ``rebake_screen.build_plan`` is the keeping caller; a default
+    # ``plan()`` after a ``write_cache=False`` pack stage writes nothing)
+    assert inspect.signature(RP.plan).parameters["keep_extension"].default is False
 
 
 # ── issue #362: the narrow pass's row sums as columns, BIT FOR BIT ────────

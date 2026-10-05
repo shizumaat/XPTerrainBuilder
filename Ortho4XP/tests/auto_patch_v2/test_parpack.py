@@ -208,6 +208,7 @@ def test_the_stage_profiler_digest_reads_the_two_arms_equal(world, serial):
     want = T.stage_digest(serial[0], (), serial[1])
     assert T.stage_digest(part, (), cache) == want
     assert set(want) == {"partition", "connectors", "clusters", "readings"}
+    assert "objects" in T.stage_digest(part, (), cache, [], None)
     moved = _dc.replace(part, counts={**part.counts, "parts": part.counts["parts"] + 1})
     assert T.stage_digest(moved, (), cache)["partition"] != want["partition"]
     ap = T.main.__code__.co_consts
@@ -247,7 +248,11 @@ def _read(world, ahead=None):
 
 
 def test_the_placement_reading_through_a_pool_is_the_serial_reading(world):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import pack_stage_profile as T
     want_objs, want_rep, want_cache = _read(world)
+    assert any(w.below.area > 0 for o in want_objs for w in o.witnesses)
     assert want_rep.below_grade_objects >= 3 and want_rep.hard_deck_objects == 1
     assert want_rep.unresolved == 1 and want_rep.stock_placements == 1
     assert want_rep.buried_components >= 1 and want_rep.buried_named
@@ -263,11 +268,11 @@ def test_the_placement_reading_through_a_pool_is_the_serial_reading(world):
         objs, rep, cache = _read(world, ahead)
         # only the placements with a component or a hard deck to read cross
         assert asked and 0 < asked[0] < len(want_objs)
-        assert repr(objs) == repr(want_objs)
+        assert T.value_of(objs) == T.value_of(want_objs)   # every polygon by WKB
         assert rep == want_rep
         assert list(rep.buried_named) == list(want_rep.buried_named)
         assert list(cache.derived_state()["range"].items()) \
             == list(want_cache.derived_state()["range"].items())
     # no pool: the same call answers None and the reader reads here
     objs, rep, _c = _read(world, lambda cache, jobs, rl: W.placements_ahead(None, jobs, rl))
-    assert repr(objs) == repr(want_objs) and rep == want_rep
+    assert T.value_of(objs) == T.value_of(want_objs) and rep == want_rep

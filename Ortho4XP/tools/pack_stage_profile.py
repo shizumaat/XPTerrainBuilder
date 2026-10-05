@@ -119,7 +119,25 @@ def site_report(clusters, lat: float, lon: float, min_m2: float = 0.0,
     return out
 
 
-def stage_digest(part, clusters, ocache=None) -> dict:
+def value_of(x):
+    """``x`` as a hashable VALUE: a shapely geometry by its WKB (its
+    ``repr`` is a truncated WKT), an array by its bytes, a dataclass /
+    sequence / mapping by its parts, anything else by ``repr``."""
+    if hasattr(x, "wkb") and hasattr(x, "geom_type"):
+        return ("geom", x.wkb)
+    if hasattr(x, "tobytes") and hasattr(x, "dtype"):
+        return ("array", str(x.dtype), tuple(x.shape), x.tobytes())
+    if _dc.is_dataclass(x) and not isinstance(x, type):
+        return (type(x).__name__,) + tuple(value_of(getattr(x, f.name))
+                                           for f in _dc.fields(x))
+    if isinstance(x, (list, tuple)):
+        return tuple(value_of(v) for v in x)
+    if isinstance(x, dict):
+        return tuple((repr(k), value_of(v)) for k, v in x.items())
+    return repr(x)
+
+
+def stage_digest(part, clusters, ocache=None, objects=None, report=None) -> dict:
     """THE STAGE'S PRODUCTS BY VALUE (issue #362; promoted from lane
     ``perfC362``'s ``pack_prof.py`` on its second use, lane ``parpack``):
     sha256 over the ``repr`` of what the partition cache stores — the
@@ -142,6 +160,9 @@ def stage_digest(part, clusters, ocache=None) -> dict:
                             tuple((k, o.id) for k, o in part.deferred)),
            "connectors": sha(getattr(part, "connectors", None)),
            "clusters": sha(clusters)}
+    if objects is not None:
+        # the placements' own reading (every polygon by WKB) and its report
+        out["objects"] = sha(value_of(list(objects)), value_of(report))
     if ocache is not None:
         d = ocache.derived_state()
         out["readings"] = sha(sorted(d["skirt"].items()), sorted(d["range"].items()),
@@ -228,7 +249,8 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
         # what the stage's pool ACTUALLY did (``WorkPool.report``) — the
         # budget above is only what it was allowed
         "pool": ps.get("pool"),
-        "digest": stage_digest(part, ps["clusters"], ps.get("ocache")),
+        "digest": stage_digest(part, ps["clusters"], ps.get("ocache"),
+                               ps.get("objects"), ps.get("report")),
         "pool_lines": [ln.strip() for ln in lines if "[pool]" in ln],
     }
     if pickle_out is not None:

@@ -49,7 +49,9 @@ def _pair():
               "leaked_blocks": [],
               "kill": {"pid": 60, "pids": [61, 62], "blocks": ["psm_k1", "psm_k2"],
                        "orphans": [], "leaked_blocks": [], "gone_s": 0.3},
-              "nested": [{"pid": 20 + k, "budget": 2, "cpu": 4, "daemon": False,
+              "nested": [{"pid": 20 + k, "budget": 2, "bound": "share", "share": 2,
+                          "cpu": 4, "ram_gb": 64.0, "reserve_gb": 11.0,
+                          "allowance_gb": 2.0, "daemon": False,
                           "digest": "d1", "pids": [30 + k, 40 + k],
                           "pools": _pools(2)} for k in range(2)]}
     serial = {"ok": True, "failures": [], "workers": 1, "frozen": True,
@@ -59,13 +61,45 @@ def _pair():
 
 
 def test_a_clean_pair_is_a_pass():
-    assert CP.verdict(*_pair()) == []
+    assert CP.verdict(*_pair(), budget_for=SC.budget_for) == []
+
+
+def test_the_nested_budget_is_the_pools_law_for_the_share_not_cores_over_two():
+    """Probe run 37331151289: a 4-core / 16 GB runner's airport child has
+    share 2 and budget 1, bound ``memory`` — floor((16/2 - 11) / 2) < 1.
+    That is the law, not a share that failed to arrive."""
+    from auto_patch_v2.airport import pool as P
+    small = {"share": 2, "cpu": 4, "ram_gb": 15.6, "reserve_gb": 11.0, "allowance_gb": 2.0}
+    assert SC.budget_for(small) == (1, "memory")
+    assert SC.budget_for(dict(small, ram_gb=64.0)) == (2, "share")
+    assert SC.budget_for(dict(small, ram_gb=None)) == (2, "share")
+    assert SC.budget_for(dict(small, share=1, ram_gb=128.0, cpu=18)) == (18, "cores")
+    # … and it IS the pool's own rule, on this machine, for both shares
+    held = P.share()
+    try:
+        for share in (1, 2, 3):
+            P.set_share(share)
+            P.configure(None)
+            here = {"share": P.share(), "cpu": os.cpu_count() or 1,
+                    "ram_gb": P.physical_ram_gb(), "reserve_gb": P.PARENT_RESERVE_GB,
+                    "allowance_gb": P.WORKER_ALLOWANCE_GB}
+            assert P.share() == share and SC.budget_for(here) == P.budget_bound()
+    finally:
+        P.set_share(held)
+        P.configure(1)                                # the suite's pin (conftest)
+    pooled, serial = _pair()
+    for row in pooled["nested"]:
+        row.update(ram_gb=15.6, budget=1, bound="memory")
+    assert CP.verdict(pooled, serial, budget_for=SC.budget_for) == []
+    pooled["nested"][0].update(budget=2, bound="share")
+    assert "budget 2 (bound share), want 1 (bound memory)" in " | ".join(
+        CP.verdict(pooled, serial, budget_for=SC.budget_for))
 
 
 def _broken(edit):
     pooled, serial = _pair()
     edit(pooled, serial)
-    return " | ".join(CP.verdict(pooled, serial))
+    return " | ".join(CP.verdict(pooled, serial, budget_for=SC.budget_for))
 
 
 @pytest.mark.parametrize("edit, said", [
@@ -80,7 +114,9 @@ def _broken(edit):
     (lambda p, s: s.update(digest="d2"), "EQUALITY: pooled digest d1 != one-core digest d2"),
     (lambda p, s: s.update(workers=4), "one-core arm ran with 4 workers"),
     (lambda p, s: p["nested"].pop(), "nested: 1 of 2 airport-pool children"),
-    (lambda p, s: p["nested"][0].update(budget=4), "budget 4, want 2 (set_share)"),
+    (lambda p, s: p["nested"][0].update(budget=4), "budget 4 (bound share), want 2 (bound share)"),
+    (lambda p, s: p["nested"][0].update(share=1), "share 1, want 2 (set_share did not apply)"),
+    (lambda p, s: p.update(workers=1), "nothing was pooled, the pass would be vacuous"),
     (lambda p, s: p["nested"][1].update(digest="dx"), "nested child 21: digest dx != d1"),
     (lambda p, s: p["nested"][0]["pools"]["pack"].update(fell_back=True, reason="x"),
      "nested child 20: the pack pool FELL BACK"),

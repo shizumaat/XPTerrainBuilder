@@ -24,7 +24,12 @@ engine's own modules and nothing else, and says what happened:
 * ``nested``  — the tile driver's airport pool (a spawned
   ``ProcessPoolExecutor`` with ``auto_patch.driver._init_worker`` and a
   ``Manager`` queue, as ``driver.py`` builds it) whose children each open
-  work pools of their own, with ``set_share`` applied;
+  work pools of their own — PINNED to this run's worker count, so a pool
+  inside an airport-pool child is proven whatever the machine's memory —
+  and each child's share and budget read back: the share is the airport
+  pool's size, and the budget is what ``budget_bound`` derives from it
+  (``min(cores // share, the memory bound)``: 1, bound ``memory``, on a
+  4-core / 16 GB runner — :func:`budget_for`);
 * ``kill``    — THE PARENT IS HARD-KILLED MID-MAP: a child of this run
   (:func:`victim`) opens a pool whose workers hold the shared DEM and a
   shared array, and is killed while they work.  Within :data:`KILL_S` every
@@ -59,7 +64,7 @@ import sys
 import time
 from types import SimpleNamespace as _NS
 
-__all__ = ["main", "run", "victim", "alive", "block_exists", "put_down",
+__all__ = ["main", "run", "victim", "alive", "block_exists", "put_down", "budget_for",
            "OK_LINE", "FAILED_LINE", "KILL_S"]
 
 #: the last stdout line of a run, by verdict
@@ -160,9 +165,28 @@ def _nested(task: tuple) -> dict:
     from auto_patch_v2.airport import pool as _pool
     workers, work = task
     got = _core(workers, work, say=lambda _s: None)
-    got.update(budget=_pool.budget(), cpu=os.cpu_count() or 1, pid=os.getpid(),
+    budget, bound = _pool.budget_bound()
+    got.update(budget=budget, bound=bound, share=_pool.share(), cpu=os.cpu_count() or 1,
+               ram_gb=_pool.physical_ram_gb(), reserve_gb=_pool.PARENT_RESERVE_GB,
+               allowance_gb=_pool.WORKER_ALLOWANCE_GB, pid=os.getpid(),
                daemon=bool(_mp.current_process().daemon))
     return got
+
+
+def budget_for(row: dict) -> tuple:
+    """``(workers, bound)`` the pool's law gives a process that shares the
+    machine as ``row`` says (``share``, ``cpu``, ``ram_gb``, ``reserve_gb``,
+    ``allowance_gb``) — ``pool.budget_bound``'s rule, re-derived from the
+    recorded facts so the check does not ask the function it is checking.
+    Standard library only (``scripts/check_frozen_pool.py`` calls it)."""
+    share = max(1, int(row.get("share") or 1))
+    by_cores = max(1, int(row.get("cpu") or 1) // share)
+    if row.get("ram_gb") is not None:
+        by_memory = max(1, int((row["ram_gb"] / share - row["reserve_gb"])
+                               // row["allowance_gb"]))
+        if by_memory < by_cores:
+            return by_memory, "memory"
+    return by_cores, "share" if share > 1 else "cores"
 
 
 # ── the sections ─────────────────────────────────────────────────────────
@@ -561,17 +585,23 @@ def run(workers: int, work: str, say=print) -> dict:
     for r in nested:
         pids.update([r["pid"], *r["pids"]])
         blocks += r["blocks"]
-        want = max(1, r["cpu"] // SIBLINGS)
-        say(f"nested: airport-pool child {r['pid']} budget {r['budget']} "
-            f"(cores {r['cpu']} // {SIBLINGS} siblings), {len(r['pids'])} worker(s) "
-            f"of its own, digest {r['digest'][:12]}")
+        want = budget_for(r)
+        ram = "?" if r["ram_gb"] is None else f"{r['ram_gb']:.0f}"
+        say(f"nested: airport-pool child {r['pid']} share {r['share']}, budget "
+            f"{r['budget']} (bound: {r['bound']}; cores {r['cpu']}, {ram} GB), "
+            f"{len(r['pids'])} worker(s) of its own in pools pinned to {workers}, "
+            f"digest {r['digest'][:12]}")
         failures += [f"nested {r['pid']}: {f}" for f in r["failures"]]
         if r["digest"] != record["digest"]:
             failures.append(f"nested {r['pid']}: digest {r['digest'][:12]} != "
                             f"{record['digest'][:12]}")
-        if workers > 1 and (r["budget"] != want or r["daemon"]):
-            failures.append(f"nested {r['pid']}: budget {r['budget']} (want {want}), "
+        if workers > 1 and (r["share"] != SIBLINGS or r["daemon"]):
+            failures.append(f"nested {r['pid']}: share {r['share']} (want {SIBLINGS}), "
                             f"daemon {r['daemon']} — set_share did not apply")
+        if workers > 1 and (r["budget"], r["bound"]) != want:
+            failures.append(f"nested {r['pid']}: budget {r['budget']} (bound "
+                            f"{r['bound']}), want {want[0]} (bound {want[1]}) for "
+                            f"share {r['share']}, cores {r['cpu']}, {ram} GB")
     if len(nested) != SIBLINGS and not any(f.startswith("nested:") for f in failures):
         failures.append(f"nested: {len(nested)} of {SIBLINGS} children answered")
     killed: dict = {}
@@ -590,8 +620,10 @@ def run(workers: int, work: str, say=print) -> dict:
             "digest": record["digest"], "sections": record["sections"],
             "pools": record["pools"], "pids": sorted(pids), "blocks": blocks,
             "worker": record["worker"], "here": record["here"],
-            "nested": [{k: r[k] for k in ("pid", "budget", "cpu", "daemon", "digest",
-                                          "pids", "pools")} for r in nested],
+            "nested": [{k: r[k] for k in ("pid", "budget", "bound", "share", "cpu",
+                                          "ram_gb", "reserve_gb", "allowance_gb",
+                                          "daemon", "digest", "pids", "pools")}
+                       for r in nested],
             "orphans": orphans, "leaked_blocks": leaked, "kill": killed,
             "wall_s": round(time.perf_counter() - t0, 3)}
 
@@ -605,6 +637,8 @@ def main(argv: list[str]) -> int:
     def value(flag: str, default: str) -> str:
         return argv[argv.index(flag) + 1] if flag in argv else default
     import tempfile
+    # PINNED, never the derived budget: a small machine's budget of 1 must
+    # not turn the pooled arm into a serial one (the pass fails on < 2)
     workers = int(value("--workers", str(max(2, min(4, os.cpu_count() or 2)))))
     if "--victim" in argv:
         victim(max(2, workers), value("--out", ""), chain="--chain" in argv)

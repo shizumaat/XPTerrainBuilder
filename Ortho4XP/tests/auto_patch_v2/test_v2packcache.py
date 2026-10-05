@@ -371,7 +371,7 @@ def test_k3_the_freeze_digest_is_the_checkouts(tmp_path, monkeypatch):
     monkeypatch.setattr(PC, "_CODE_DIGEST", None)
     assert PCODE.frozen_digest(str(tmp_path / "o4")) == PC.code_digest()
     assert PCODE.frozen_digest(str(tmp_path)) is None           # a checkout
-    (tmp_path / PCODE.DIGEST_FILENAME).write_text("not a digest\n", encoding="ascii")
+    (tmp_path / PCODE.DIGEST_FILENAME).write_text("not a digest\n", encoding="ascii", newline="\n")
     assert PCODE.frozen_digest(str(tmp_path)) is None
     with pytest.raises(SystemExit):                # a listed module with no source
         ns["write_freeze_digest"](str(tmp_path), str(tmp_path / "o5"))

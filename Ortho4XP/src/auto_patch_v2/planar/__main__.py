@@ -382,9 +382,12 @@ def structure_records(airport, cl, law) -> dict:
         hard_claims, frozenset(tstats.shell_claimed), synth_claims)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
                                             plates, channels)
+    # the rim diagnostics are read HERE, on demand (owner RULINGS
+    # 2026-10-04x (2)): a build's basin notes carry neither
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,
                                        channels=channels,
-                                       claimed=frozenset(tstats.shell_claimed))
+                                       claimed=frozenset(tstats.shell_claimed),
+                                       rim_diagnostics=True)
 
     def ll(p):
         la, lo = to_ll(p[0], p[1])

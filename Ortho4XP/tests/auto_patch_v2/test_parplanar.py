@@ -114,9 +114,10 @@ def test_the_synthetic_pack_exercises_the_pooled_readers(serial):
 
 
 @pytest.mark.parametrize("n", sorted({2, 3, N}))
-def test_pooled_readers_equal_serial(world, law, serial, n):
+def test_pooled_readers_equal_serial(world, law, serial, n, capsys):
     got = _reading(world, law, n)
     _same(got, serial)
+    assert "[pool] workers 2: 2 task(s) answered by workers" in capsys.readouterr().out
     assert got["pool"]["readers"] == ["tunnels", "walls"]
     assert got["pool"]["workers"] == 2 and not got["pool"]["fell_back"]
 

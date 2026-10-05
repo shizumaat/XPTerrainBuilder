@@ -127,8 +127,10 @@ def read(state: ReadWorker, kind: str) -> tuple:
 class Ahead:
     """Readers a pool is working on.  :meth:`collect` waits (bounded, as
     every pool wait is), releases the workers and the shared DEM, charges
-    the workers' fallback rungs here, and returns ``{reader: reading}`` —
-    WITHOUT the readers the build's process must read itself."""
+    the workers' fallback rungs here, says what the pool did (one
+    ``[pool]`` line, so a stage read on one core cannot pass for a pooled
+    one) and returns ``{reader: reading}`` — WITHOUT the readers the
+    build's process must read itself."""
 
     def __init__(self, pool: WorkPool, shared, pending, kinds: tuple[str, ...],
                  out: _t.Callable[[str], None]) -> None:
@@ -151,6 +153,7 @@ class Ahead:
         self.report = dict(self._pool.report(), readers=sorted(out),
                            line=self._pool.line() + f" — pack readers beside the door "
                            f"wells: {', '.join(sorted(out)) or 'none'}")
+        self._out(self.report["line"])
         return out
 
     def close(self) -> None:

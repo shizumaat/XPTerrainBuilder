@@ -637,10 +637,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
                               objects=pack_objects, object_report=pack_report)
     wall["planar"] = time.perf_counter() - t
-    # the pack readers' work pool, said like the pack stage's (never silent)
-    _planar_pool = _pack_read_pool(ocache)
-    if _planar_pool:
-        _say("  " + _planar_pool["line"], out)
     # §37 (11) (7) (issue #72): the shore the zones were cut against —
     # quay faces stand on a DECLARED shore (or a pavement edge that IS
     # the coast), natural faces slope to the water.
@@ -1425,7 +1421,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     report["wall_s"] = {k: round(v, 3) for k, v in wall.items()}
     # the work pools' own account, per stage (clocks and head counts: never
     # in a digest — ``pipeline/xplat.py`` reads the model, not this report)
-    report["pool"] = {"pack": _ps["pool"], "planar": _planar_pool}
+    report["pool"] = {"pack": _ps["pool"], "planar": _pack_read_pool(ocache)}
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     if _xp:
         # The dump is a READ of the stages already held — it prices no law

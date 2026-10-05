@@ -17,7 +17,7 @@ a later read holds only if this run's DEM answers every one of them with
 the same bits (:func:`holds`) — the §12a pattern the pack's own files
 follow (size in the key, content in the header).  That is exact where a
 name is not: the freshness gate's ``o4_dem`` stamp
-(``auto_patch.provenance.dem_fingerprint``) is built from a core tile
+(the tile driver's ``provenance.dem_fingerprint``) is built from a core tile
 object only the tile driver holds, names files by size and mtime, and is
 tile-wide — it would cold-start this airport for an inset fetched at
 another one that moved none of these samples.  The cost is one batched

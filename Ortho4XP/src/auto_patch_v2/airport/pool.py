@@ -1,0 +1,249 @@
+"""THE WORK POOL — one airport's build on every core (issue #362; owner
+RULINGS 2026-10-04x (4): "everything as parallel as possible").
+
+ONE helper for every stage that has independent work per member, per
+resource, per placement or per cluster.  A stage opens a pool, hands it
+tasks, and gets the answers back IN INPUT ORDER; whether they were computed
+here or in workers is invisible in the result.
+
+The contract a caller relies on:
+
+* **spawn**, always.  The build already runs inside the airport pool's
+  spawned child (the v1 wrapper's driver), whose workers are not daemonic,
+  so this pool nests under it; a daemonic parent cannot have children and
+  reads as a budget of 1.  The frozen engine re-enters through
+  ``freeze_support`` exactly as the airport pool does.  Task functions and
+  the setup are MODULE-LEVEL functions of statically imported modules (a
+  frozen build sees no other kind).
+* **a core budget** (:func:`budget`): ``cores // share`` where ``share`` is
+  how many airport builds run beside this one (:func:`set_share`, called by
+  the airport pool's worker initializer with the pool's own worker count,
+  which already honours the airport-pool knob).  :func:`configure` pins it.
+  A worker's own budget is 1: pools never nest inside this pool.
+* **serial under pytest** unless a test pins a budget — a suite must not
+  fork eighteen interpreters per fixture.
+* **ordered results**: :meth:`WorkPool.try_map` returns ``[fn(state, t) for
+  t in tasks]`` whatever order the workers finished in.
+* **worker state once per worker**: ``setup(*setup_args)`` runs in each
+  worker when it starts and its return value is the ``state`` every task
+  receives.  Ship law tables and paths; let a worker read what it needs
+  itself.  Never ship a parsed pack or a DEM.
+* **nothing answers → ``None``**: with a budget of 1, a pool that cannot
+  start, a worker that dies, or no completion inside ``stall_s``,
+  :meth:`WorkPool.try_map` tears the pool down on a deadline, says so, and
+  returns ``None`` — the caller runs its serial code, which is the same
+  computation.  :meth:`WorkPool.map` does that for a caller with no
+  separate serial spelling.  An exception RAISED BY A TASK is the stage's
+  own error and is re-raised here unchanged.
+* **the heartbeat keeps ticking**: completions are recorded on
+  ``model.pulse`` (``what done/n unit``); the wait wakes every
+  :data:`TICK_S`.
+* **every wait is bounded**: the result wait by ``stall_s``, the teardown by
+  :data:`TEARDOWN_S` (then ``terminate``, then ``kill``).
+
+What crosses the pipe is the caller's to keep small: a task and its answer
+are pickled, so return the rows the consumer keeps, never placed geometry.
+"""
+from __future__ import annotations
+
+import concurrent.futures as _cf
+import multiprocessing as _mp
+import os
+import sys
+import time
+import typing as _t
+
+from ..model import pulse as _pulse
+
+__all__ = ["WorkPool", "budget", "configure", "set_share", "TICK_S",
+           "TEARDOWN_S", "STALL_S"]
+
+#: seconds between wake-ups of a result wait (the heartbeat's grain)
+TICK_S = 1.0
+#: seconds a closing pool may take before its workers are terminated
+TEARDOWN_S = 5.0
+#: seconds without ONE completed task before a map is declared stalled
+STALL_S = 900.0
+
+_explicit: list = [None]
+_share: list = [1]
+#: the state ``setup`` built in THIS process when it is a pool worker
+_STATE: list = [None]
+
+
+def configure(workers: int | None) -> None:
+    """Pin the budget (``None`` returns it to the derived one).  The knob
+    for a test, a tool arm and a memory-constrained run."""
+    _explicit[0] = None if workers is None else max(1, int(workers))
+
+
+def set_share(n: int) -> None:
+    """``n`` airport builds share this machine (the airport pool's worker
+    count): each takes ``cores // n``."""
+    _share[0] = max(1, int(n))
+
+
+def budget() -> int:
+    """How many workers a pool opened in this process may run."""
+    if _explicit[0] is not None:
+        return _explicit[0]
+    if "pytest" in sys.modules:
+        return 1
+    try:
+        if _mp.current_process().daemon:
+            return 1                       # a daemonic process has no children
+    except Exception:
+        return 1
+    return max(1, (os.cpu_count() or 1) // _share[0])
+
+
+def _boot(setup, setup_args) -> None:
+    """Worker initializer: no pool inside a pool; build the state once."""
+    _explicit[0] = 1
+    _STATE[0] = setup(*setup_args) if setup is not None else None
+
+
+def _run(fn, chunk):
+    """One submitted unit: ``fn`` over a chunk of tasks, in order."""
+    state = _STATE[0]
+    return [fn(state, t) for t in chunk]
+
+
+class WorkPool:
+    """A lazily started spawn pool with a per-worker state (module doc).
+
+    ``workers`` defaults to :func:`budget`; the processes start on the
+    first :meth:`try_map` that has work, so a stage that revives its
+    product from a cache pays nothing for having opened one.  Use as a
+    context manager; :meth:`close` is bounded and idempotent."""
+
+    def __init__(self, setup: _t.Callable | None = None,
+                 setup_args: tuple = (), *, workers: int | None = None,
+                 out: _t.Callable[[str], None] = print,
+                 stall_s: float = STALL_S) -> None:
+        self.workers = budget() if workers is None else max(1, int(workers))
+        self._setup, self._args = setup, tuple(setup_args)
+        self._out, self._stall = out, float(stall_s)
+        self._ex: _cf.ProcessPoolExecutor | None = None
+        self._dead = False
+        #: seconds spent waiting on workers, and tasks answered by them
+        self.wall_s = 0.0
+        self.tasks_done = 0
+
+    # ── life cycle ───────────────────────────────────────────────────────
+    @property
+    def parallel(self) -> bool:
+        """Will the next map be answered by workers?"""
+        return self.workers > 1 and not self._dead
+
+    def __enter__(self) -> "WorkPool":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def _start(self) -> bool:
+        if self._ex is not None:
+            return True
+        try:
+            self._ex = _cf.ProcessPoolExecutor(
+                max_workers=self.workers, mp_context=_mp.get_context("spawn"),
+                initializer=_boot, initargs=(self._setup, self._args))
+        except Exception as e:            # no semaphores, no fork budget, …
+            self._give_up(f"could not start ({type(e).__name__}: {e})")
+            return False
+        return True
+
+    def _give_up(self, why: str) -> None:
+        self._dead = True
+        self._out(f"[pool] {why} — this stage continues on one core")
+        self.close()
+
+    def close(self) -> None:
+        """Release the workers within :data:`TEARDOWN_S` (never an
+        unbounded join)."""
+        ex, self._ex = self._ex, None
+        if ex is None:
+            return
+        procs = list((getattr(ex, "_processes", None) or {}).values())
+        try:
+            ex.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+        deadline = time.monotonic() + TEARDOWN_S
+        for step in ("join", "terminate", "kill"):
+            for p in procs:
+                try:
+                    if step == "join":
+                        p.join(max(0.0, deadline - time.monotonic()))
+                    elif p.is_alive():
+                        getattr(p, step)()
+                        p.join(1.0)
+                except Exception:
+                    pass
+
+    # ── the map ──────────────────────────────────────────────────────────
+    def try_map(self, fn: _t.Callable, tasks: _t.Sequence, *,
+                weights: _t.Sequence[float] | None = None, chunk: int = 1,
+                what: str = "", unit: str = "") -> list | None:
+        """``[fn(state, t) for t in tasks]`` computed by the workers, in
+        INPUT order — or ``None`` when no pool answers (module doc), and
+        the caller runs its serial code.
+
+        ``weights`` (one per task) submits the heaviest first so a long
+        task does not start last; it never changes the result order.
+        ``chunk`` groups that many consecutive tasks into one submission
+        (thousands of tiny tasks)."""
+        tasks = list(tasks)
+        if not tasks:
+            return []
+        if not self.parallel or not self._start():
+            return None
+        chunk = max(1, int(chunk))
+        spans = [(i, min(i + chunk, len(tasks))) for i in range(0, len(tasks), chunk)]
+        order = list(range(len(spans)))
+        if weights is not None:
+            w = [float(sum(weights[a:b])) for a, b in spans]
+            order.sort(key=lambda k: (-w[k], k))
+        t0 = time.perf_counter()
+        out: list = [None] * len(tasks)
+        prev = _pulse.current()
+        try:
+            futs = {self._ex.submit(_run, fn, tasks[a:b]): (a, b)
+                    for a, b in (spans[k] for k in order)}
+            pending, done_n, last = set(futs), 0, time.monotonic()
+            while pending:
+                _pulse.tick(what or "pool", done_n, len(tasks), unit)
+                done, pending = _cf.wait(pending, timeout=TICK_S,
+                                         return_when=_cf.FIRST_COMPLETED)
+                if not done:
+                    if time.monotonic() - last > self._stall:
+                        self._give_up(f"{what or 'map'}: no task finished in "
+                                      f"{self._stall:.0f} s")
+                        return None
+                    continue
+                last = time.monotonic()
+                for f in done:
+                    a, b = futs[f]
+                    out[a:b] = f.result()          # a task's own error re-raises
+                    done_n += b - a
+        except _cf.BrokenExecutor as e:
+            self._give_up(f"{what or 'map'}: a worker died ({e})")
+            return None
+        except BaseException:
+            self.close()                           # never leave workers behind
+            raise
+        finally:
+            _pulse.tick(*prev) if prev else _pulse.clear()
+            self.wall_s += time.perf_counter() - t0
+        self.tasks_done += len(tasks)
+        return out
+
+    def map(self, fn: _t.Callable, tasks: _t.Sequence, local: _t.Any, **kw) -> list:
+        """:meth:`try_map`, with the serial answer computed HERE over
+        ``local`` (this process's own state) when no pool answers."""
+        got = self.try_map(fn, tasks, **kw)
+        if got is not None:
+            return got
+        return [fn(local, t) for t in _pulse.each(list(tasks), kw.get("what") or "pool",
+                                                 kw.get("unit", ""))]

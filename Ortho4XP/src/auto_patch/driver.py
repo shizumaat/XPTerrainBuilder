@@ -19,6 +19,7 @@ from shapely import ops as shp_ops
 from shapely.errors import GEOSException, TopologicalError
 
 from . import engine_v2 as _engine_v2
+from auto_patch_v2.airport import pool as _v2_pool
 from . import selection as _SELECTION
 
 # Driver harness tuple — covers expected runtime failure modes for a
@@ -803,13 +804,18 @@ def _set_worker_dem(dem) -> None:
     _WORKER_DEM = dem
 
 
-def _init_worker(dem, progress_queue) -> None:
+def _init_worker(dem, progress_queue, siblings: int = 1) -> None:
     """ProcessPool initializer: set the shared tile DEM AND route this worker's
     per-phase build progress to the shared queue the main process drains, so the
-    Ortho4XP window keeps updating live while airports build in the background."""
+    Ortho4XP window keeps updating live while airports build in the background.
+
+    ``siblings`` is this pool's worker count: the v2 build's own work pool
+    (``auto_patch_v2/airport/pool.py``, issue #362) takes ``cores //
+    siblings`` so N airports in one tile do not each claim every core."""
     _set_worker_dem(dem)
     from . import progress as _progress
     _progress.set_worker_queue(progress_queue)
+    _v2_pool.set_share(siblings)
 
 
 #: A pack whose pristine ``.obj`` bytes exceed this makes the pool release
@@ -1166,7 +1172,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                               "(large pack or more airports than workers).")
             ex = _cf.ProcessPoolExecutor(
                 max_workers=n, mp_context=ctx,
-                initializer=_init_worker, initargs=(dem, pq), **_pool_kw)
+                initializer=_init_worker, initargs=(dem, pq, n), **_pool_kw)
             futs, pending = {}, set()
             try:
                 # THE DEAD FUTURE MUST KEEP ITS AIRPORT'S NAME (H1).  A

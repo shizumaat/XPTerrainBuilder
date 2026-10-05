@@ -139,9 +139,10 @@ def test_the_account_says_what_the_pool_did():
     """A pool that never was one, and one that answered, cannot be confused
     (lane ``parpack``: a serial run once printed the budget as its workers)."""
     one = P.WorkPool(_setup, (0,), workers=1)
-    assert one.report() == {"workers": 1, "parallel": False, "fell_back": False,
-                            "reason": "budget 1", "wall_s": 0.0, "tasks": 0}
-    assert "serial" in one.line()
+    assert one.report() == {"workers": 1, "bound": "pinned", "parallel": False,
+                            "fell_back": False, "reason": "budget 1", "wall_s": 0.0,
+                            "tasks": 0}
+    assert "serial" in one.line() and "[pool] workers 1 (bound: pinned):" in one.line()
     with P.WorkPool(_setup, (0,), workers=2, out=lambda s: None) as p:
         assert p.report()["tasks"] == 0           # opened, nothing asked yet
         p.try_map(_square, range(5))
@@ -174,9 +175,10 @@ def test_budget_rules(monkeypatch):
     monkeypatch.setattr(P.os, "cpu_count", lambda: 12)
     monkeypatch.setattr(P, "_share", [1])
     monkeypatch.setattr(P, "_explicit", [None])
-    assert P.budget() == 12
+    monkeypatch.setattr(P, "physical_ram_gb", lambda: None)   # the cores alone
+    assert P.budget() == 12 and P.budget_bound() == (12, "cores")
     P.set_share(3)
-    assert P.budget() == 4                        # three airports share it
+    assert P.budget_bound() == (4, "share")       # three airports share it
     P.set_share(50)
     assert P.budget() == 1
     P.configure(5)
@@ -185,6 +187,42 @@ def test_budget_rules(monkeypatch):
     assert P.budget() == 1                        # 12 cores // 50 airports
     P.set_share(1)
     assert P.budget() == 12                       # pytest in sys.modules is not read
+
+
+def test_the_memory_bound(monkeypatch):
+    """The workers are bounded by this build's share of the physical memory
+    less the parent's reserve, at one allowance a worker — never below 1 —
+    and the pool says which bound decided."""
+    monkeypatch.setattr(P.os, "cpu_count", lambda: 16)
+    monkeypatch.setattr(P, "_share", [1])
+    monkeypatch.setattr(P, "_explicit", [None])
+    res, per = P.PARENT_RESERVE_GB, P.WORKER_ALLOWANCE_GB
+    got = {}
+    for ram in (8, 16, 32, 64, 128):
+        monkeypatch.setattr(P, "physical_ram_gb", lambda ram=ram: float(ram))
+        got[ram] = P.budget_bound()
+        want = max(1, int((ram - res) // per))
+        assert got[ram] == ((want, "memory") if want < 16 else (16, "cores"))
+    assert got[8] == (1, "memory") and got[128] == (16, "cores")
+    assert got[8][0] <= got[16][0] <= got[32][0] <= got[64][0]
+    # a machine below the reserve runs every stage on one core, and says why
+    monkeypatch.setattr(P, "physical_ram_gb", lambda: 8.0)
+    one = P.WorkPool(_setup, (0,))
+    assert one.workers == 1 and not one.parallel and one.report()["bound"] == "memory"
+    assert "(bound: memory)" in one.line() and \
+        one.map(_square, range(4), {"base": 0, "calls": 0}) == [0, 1, 4, 9]
+    # airports that share the machine share its memory
+    monkeypatch.setattr(P, "physical_ram_gb", lambda: 64.0)
+    P.set_share(2)
+    assert P.budget_bound() == (min(8, int((32 - res) // per)), "memory"
+                                if int((32 - res) // per) < 8 else "share")
+    # a caller with fewer tasks than the budget names its own bound
+    P.set_share(1)
+    assert P.WorkPool(_setup, (0,), workers=2).bound == "tasks"
+    # the real figure is a positive number wherever it can be read
+    monkeypatch.undo()
+    ram = P.physical_ram_gb()
+    assert ram is None or ram > 0.5
 
 
 def test_the_pulse_is_restored():

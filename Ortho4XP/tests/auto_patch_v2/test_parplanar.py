@@ -121,7 +121,8 @@ def test_pooled_readers_equal_serial(world, law, serial, n, capsys):
     _same(got, serial)
     # four wall families + the tunnels + the road families (no sill witness here)
     assert got["pool"]["tasks"] >= 5
-    assert (f"[pool] workers {min(n, RW.MAX_WORKERS)}: {got['pool']['tasks']} task(s) answered "
+    assert (f"[pool] workers {min(n, RW.MAX_WORKERS)} (bound: {got['pool']['bound']}): "
+            f"{got['pool']['tasks']} task(s) answered "
             f"by workers" in capsys.readouterr().out)
     assert got["pool"]["readers"] == ["doors", "roads", "tunnels", "walls"]
     assert got["pool"]["workers"] == min(n, RW.MAX_WORKERS) and not got["pool"]["fell_back"]

@@ -73,7 +73,7 @@ from . import grade_ledger as _gl
 from . import obj8 as _obj8
 from . import sunken_roads as _sr
 from .dem_shared import ColdTile, revive, share
-from .pool import WorkPool, budget
+from .pool import WorkPool, budget, budget_bound
 from .thin_plates import read_plates
 from .tunnel_objects import read_corridors
 from .wall_family import assemble, read_family, wall_families, wall_reader
@@ -123,7 +123,8 @@ MIN_OBJECTS = 10_000
 #: build + its workers.  With the door sweep in the build's process: 1
 #: worker 189 s; 2 124 s / 8.7 GB; 4 65-69 s / 10.5 GB; 8 49-54 s /
 #: 14.4 GB; 12 49 s; 18 56 s / 23.2 GB.  With the sweep on the pool: 4
-#: 63.7 s; 8 45.1-47.9 s.  A cost rule only — the reading is the same.
+#: 63.7 s; 8 45.1-47.9 s.  A cost rule only — the reading is the same; it
+#: reads ``cap`` as the pool's deciding bound (``pool.budget_bound``).
 MAX_WORKERS = 8
 
 #: the airport fields no reader here opens, and that are megabytes to ship
@@ -454,8 +455,10 @@ def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
     # the door wells are handed out by :meth:`Ahead._doors`, and with them
     # the families held back here: only the tunnels start at once
     later: tuple[list, list] = ([], [])
-    n = min(budget() if workers is None else int(workers),
-            len(tasks) + (DOORS in kinds), MAX_WORKERS)
+    allowed, bound = budget_bound() if workers is None else (int(workers), "pinned")
+    n = min(allowed, len(tasks) + (DOORS in kinds), MAX_WORKERS)
+    if n < allowed:                    # this module's own bounds decided
+        bound = "cap" if n == MAX_WORKERS else "tasks"
     if DOORS in kinds:
         held = [k for k, t in enumerate(tasks) if t[0] != TUNNELS]
         later = ([tasks[k] for k in held], [weights[k] for k in held])
@@ -476,7 +479,7 @@ def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
         out(f"[pool] the pack readers stay on one core: their inputs do not "
             f"cross to a worker ({type(e).__name__}: {e})")
         return None
-    pool = WorkPool(setup, args, workers=n, out=out)
+    pool = WorkPool(setup, args, workers=n, out=out, bound=bound)
     pending = pool.begin(read, tasks, weights=weights, what="pack readers", unit="tasks")
     if pending is None:
         pool.close()

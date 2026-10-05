@@ -20,6 +20,13 @@ The contract a caller relies on:
   the airport pool's worker initializer with the pool's own worker count,
   which already honours the airport-pool knob).  :func:`configure` pins it.
   A worker's own budget is 1: pools never nest inside this pool.
+* **a memory budget too** (:func:`budget_bound`): every worker parses its
+  own resources, so the workers are also bounded by the machine's physical
+  memory — this build's share of it, less :data:`PARENT_RESERVE_GB`, at
+  :data:`WORKER_ALLOWANCE_GB` a worker.  Never below 1: a machine without
+  the room runs the stage on one core, the same computation.  Which bound
+  decided (``cores`` / ``share`` / ``memory`` / ``tasks`` / ``pinned``) is
+  in :meth:`WorkPool.report` and on the ``[pool]`` line.
 * **the suite pins 1** (``tests/conftest.py`` calls ``configure(1)``): the
   engine never guesses that it is under test — a library importing pytest
   must not serialise a production build.
@@ -60,6 +67,7 @@ are pickled, so return the rows the consumer keeps, never placed geometry.
 from __future__ import annotations
 
 import concurrent.futures as _cf
+import ctypes
 import itertools
 import multiprocessing as _mp
 import os
@@ -74,7 +82,8 @@ from multiprocessing import shared_memory as _shm
 from . import frame_entry as _fe
 from ..model import pulse as _pulse
 
-__all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "configure",
+__all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "budget_bound",
+           "physical_ram_gb", "PARENT_RESERVE_GB", "WORKER_ALLOWANCE_GB", "configure",
            "set_share", "share_object", "shared_object", "spec_key",
            "TICK_S", "TEARDOWN_S", "STALL_S"]
 
@@ -86,6 +95,22 @@ TEARDOWN_S = 5.0
 STALL_S = 900.0
 #: ``ProcessPoolExecutor`` refuses more workers than this on Windows
 WINDOWS_MAX_WORKERS = 61
+
+#: THE MEMORY LAW of the pool (module doc), in GiB.  Kept HERE and not in a
+#: law table: the tables are hashed into the partition cache key
+#: (``law_tables_digest``), and how many workers a machine can afford must
+#: never enter a digest.
+#:
+#: What the build's own process is left, whatever the workers take —
+#: measured at OTHH, the largest airport of the battery (sweep sw1040, cold):
+#: the build's process stood at 7.5-10.8 GB resident while its pools ran
+#: (pack stage and planar readers; 5.7-6.8 GB in the reader arm alone).
+PARENT_RESERVE_GB = 11.0
+#: What one worker may take — measured at OTHH: the largest worker of the
+#: pack pool and of the planar readers stood at 1.25-2.0 GB resident
+#: (27.6 GB summed over 20 processes in the pack pool, ~15 GB in the planar
+#: pool).
+WORKER_ALLOWANCE_GB = 2.0
 
 _explicit: list = [None]
 _share: list = [1]
@@ -105,16 +130,58 @@ def set_share(n: int) -> None:
     _share[0] = max(1, int(n))
 
 
-def budget() -> int:
-    """How many workers a pool opened in this process may run."""
+class _MemoryStatusEx(ctypes.Structure):
+    """``MEMORYSTATUSEX`` (Windows ``GlobalMemoryStatusEx``)."""
+
+    _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+
+def physical_ram_gb() -> float | None:
+    """This machine's physical memory in GiB, or ``None`` where it cannot
+    be read (the memory bound then does not apply)."""
+    try:
+        if sys.platform == "win32":
+            st = _MemoryStatusEx()
+            st.dwLength = ctypes.sizeof(st)
+            if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+                return None
+            total = int(st.ullTotalPhys)
+        else:
+            total = int(os.sysconf("SC_PHYS_PAGES")) * int(os.sysconf("SC_PAGE_SIZE"))
+    except (AttributeError, OSError, ValueError):
+        return None
+    return total / 2.0 ** 30 if total > 0 else None
+
+
+def budget_bound() -> tuple[int, str]:
+    """``(workers a pool opened in this process may run, the bound that
+    decided)`` — ``pinned`` (:func:`configure`, a worker, a daemonic
+    process), ``memory``, ``share`` (the cores, shared with the airport
+    builds beside this one) or ``cores``."""
     if _explicit[0] is not None:
-        return _explicit[0]
+        return _explicit[0], "pinned"
     try:
         if _mp.current_process().daemon:
-            return 1                       # a daemonic process has no children
+            return 1, "pinned"             # a daemonic process has no children
     except Exception:
-        return 1
-    return max(1, (os.cpu_count() or 1) // _share[0])
+        return 1, "pinned"
+    share = _share[0]
+    by_cores = max(1, (os.cpu_count() or 1) // share)
+    ram = physical_ram_gb()
+    if ram is not None:
+        by_memory = max(1, int((ram / share - PARENT_RESERVE_GB) // WORKER_ALLOWANCE_GB))
+        if by_memory < by_cores:
+            return by_memory, "memory"
+    return by_cores, "share" if share > 1 else "cores"
+
+
+def budget() -> int:
+    """How many workers a pool opened in this process may run."""
+    return budget_bound()[0]
 
 
 def _boot(setup, setup_args, dump_dir: str = "") -> None:
@@ -146,8 +213,13 @@ class WorkPool:
     def __init__(self, setup: _t.Callable | None = None,
                  setup_args: tuple = (), *, workers: int | None = None,
                  out: _t.Callable[[str], None] = print,
-                 stall_s: float = STALL_S) -> None:
-        self.workers = budget() if workers is None else max(1, int(workers))
+                 stall_s: float = STALL_S, bound: str | None = None) -> None:
+        allowed, why = budget_bound()
+        self.workers = allowed if workers is None else max(1, int(workers))
+        #: the bound that decided ``workers`` (:func:`budget_bound`'s, or
+        #: the caller's own — ``tasks`` when it asked for fewer than the
+        #: budget because it has no more work to hand out)
+        self.bound = bound or (why if workers is None or self.workers >= allowed else "tasks")
         if sys.platform == "win32":       # the executor's own ceiling there
             self.workers = min(self.workers, WINDOWS_MAX_WORKERS)
         self._setup, self._args = setup, tuple(setup_args)
@@ -201,11 +273,12 @@ class WorkPool:
 
     def report(self) -> dict:
         """What the pool did, for the stage's report: ``workers`` it was
-        allowed, whether it is still ``parallel``, whether it ``fell_back``
+        allowed and the ``bound`` that decided them, whether it is still
+        ``parallel``, whether it ``fell_back``
         and the ``reason`` (also ``"budget 1"`` for a pool that was never
         one), the seconds spent waiting on workers and the ``tasks`` THEY
         answered.  A clock and a head count — never part of a digest."""
-        return {"workers": self.workers, "parallel": self.parallel,
+        return {"workers": self.workers, "bound": self.bound, "parallel": self.parallel,
                 "fell_back": self.fell_back, "reason": self.reason,
                 "wall_s": round(self.wall_s, 3), "tasks": self.tasks_done}
 
@@ -215,7 +288,7 @@ class WorkPool:
         how = (f"FELL BACK ({r['reason']})" if r["fell_back"]
                else "serial (budget 1)" if not r["parallel"]
                else f"{r['tasks']} task(s) answered by workers in {r['wall_s']:.1f} s")
-        return f"[pool] workers {r['workers']}: {how}"
+        return f"[pool] workers {r['workers']} (bound: {r['bound']}): {how}"
 
     def close(self) -> None:
         """Release the workers within :data:`TEARDOWN_S` (never an

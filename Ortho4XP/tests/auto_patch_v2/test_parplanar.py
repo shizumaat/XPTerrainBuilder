@@ -4,8 +4,8 @@
 
 A synthetic pack — a tunnel wall object over a mapped bore, a level kerb-wall
 corridor and a closed bay — is read by ``planar/pack_reads`` on one core and
-with the wall corridors and the tunnel corridors + thin plates in work-pool
-workers BESIDE the door wells and the sunken roads.  Bar: every record, every
+with every reader in work-pool workers (the door wells and the sunken roads
+with their at-grade read: ``test_pardoors.py``).  Bar: every record, every
 stats field but the clocks, the fallback-rung count and the planar map are
 EQUAL; a pool that dies, a reader that trips and inputs that do not pickle
 all leave the serial reading.
@@ -119,10 +119,12 @@ def test_the_synthetic_pack_exercises_the_pooled_readers(serial):
 def test_pooled_readers_equal_serial(world, law, serial, n, capsys):
     got = _reading(world, law, n)
     _same(got, serial)
-    assert (f"[pool] workers {min(n, 5, RW.MAX_WORKERS)}: 5 task(s) answered by workers"
-            in capsys.readouterr().out)        # four wall families + the tunnels
-    assert got["pool"]["readers"] == ["tunnels", "walls"]
-    assert got["pool"]["workers"] == min(n, 5, RW.MAX_WORKERS) and not got["pool"]["fell_back"]
+    # four wall families + the tunnels + the road families (no sill witness here)
+    assert got["pool"]["tasks"] >= 5
+    assert (f"[pool] workers {min(n, RW.MAX_WORKERS)}: {got['pool']['tasks']} task(s) answered "
+            f"by workers" in capsys.readouterr().out)
+    assert got["pool"]["readers"] == ["doors", "roads", "tunnels", "walls"]
+    assert got["pool"]["workers"] == min(n, RW.MAX_WORKERS) and not got["pool"]["fell_back"]
 
 
 def test_a_small_pack_is_read_on_one_core(world, law, serial, monkeypatch):
@@ -207,7 +209,7 @@ def _walls_trip(state, task):
         try:
             len(state.airport.partition)
         except RW.StrippedField as e:
-            return ("serial", str(e))
+            return ("serial", str(e), None)
     return RW.read(state, task)
 
 
@@ -215,19 +217,21 @@ def test_a_reader_that_trips_is_read_here(world, law, serial, monkeypatch, capsy
     monkeypatch.setattr(RW, "read", _walls_trip)
     got = _reading(world, law, 2)
     _same(got, serial)
-    assert got["pool"]["readers"] == ["tunnels"]
+    assert got["pool"]["readers"] == ["doors", "roads", "tunnels"]
     assert "'walls' is read on one core: airport.partition" in capsys.readouterr().out
 
 
 def _rungy(state, task):
     row = RW.read(state, task)
-    return (row[0], row[1], {"twin.site": (1, 2)})
+    return (row[0], row[1], {"twin.site": (1, 2)}, row[3])
 
 
 def test_a_workers_fallback_rungs_are_charged_here(world, law, monkeypatch):
     monkeypatch.setattr(RW, "read", _rungy)
     try:
-        assert _reading(world, law, 2)["rungs"] == {"twin.site": (5, 10)}   # five tasks
+        got = _reading(world, law, 2)
+        n = got["pool"]["tasks"]
+        assert n >= 5 and got["rungs"] == {"twin.site": (n, 2 * n)}       # every task's
     finally:
         _fe.reset_rung_counts()
 

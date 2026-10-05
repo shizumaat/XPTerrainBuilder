@@ -4,34 +4,49 @@ the planar stage as work-pool tasks (issue #362; owner RULINGS 2026-10-04x
 
 ``planar/pack_reads`` reads the pack five times, each reader a pure function
 of the airport's DEM, frame, mapped ways and DSF objects, the pack's placed
-objects, the parsed resources and the law.  The readers named in
-:data:`READERS` share NO at-grade state with the door wells and the sunken
-roads: what they write on the build's ``ResourceCache`` is the parse memos
-alone (``_geom`` / ``_comps`` / ``_range`` / ``_bounds`` — pure in the file),
-and the one process-wide thing they touch is ``frame_entry``'s fallback-rung
-count.  So they run in workers while the build's own process reads the doors
-and the roads — the tunnel corridors + thin plates as one task, the wall
-corridors as ONE TASK PER ANCHOR FAMILY (``wall_corridors.read_family``
-reads nothing of another family; the intake is built here, in ``objects``
-order, and ``wall_corridors.assemble`` takes the answers in sorted family
-order, which is where the corridors' ``@k`` and the order of every refusal
-line come from):
+objects, the parsed resources and the law.  Here they are tasks, and every
+reader's answers are put together in the order one loop met them:
 
-* the worker is handed the placed objects, the law, the airport WITHOUT its
-  partition / groups / clusters (:class:`Stripped` — a reader that reached
-  for one would trip, not read ``None``) and the DEM through
-  ``dem_shared`` (the composed tiles in shared memory, never pickled);
-* it parses the resources it needs itself, into a cache built as the
-  build's is (same thickness, same input quantum) and seeded with the
-  build's own per-resource extents, so its pre-screens open no file the
-  serial pre-screen does not;
-* it returns the task's records and stats, and the fallback rungs its
-  unions took, which the build's process charges to its own count.
+* the tunnel corridors + thin plates: ONE task;
+* the wall corridors: one task per ANCHOR FAMILY (``wall_corridors.
+  read_family`` reads nothing of another family; the intake is built here,
+  in ``objects`` order, and ``wall_corridors.assemble`` takes the answers
+  in sorted family order, which is where the corridors' ``@k`` and the
+  order of every refusal line come from);
+* the sunken roads: one task per anchor family, the same way
+  (``sunken_roads.road_families`` / ``read_family`` / ``assemble``);
+* the door wells: the sill-witness sweep is made by the build's OWN process
+  while the workers read the rest (it is per placement and reads the parse
+  the build already holds), then one task per anchor family — handed its
+  witness rows, and of every other family's the one thing it reads: which
+  components of its members' resources are a sill witness anywhere.
+
+What a reader leaves on the build's ``ResourceCache``:
+
+* the wall corridors and the tunnels: the parse memos alone (``_geom`` /
+  ``_comps`` / ``_range`` / ``_bounds`` — pure in the file);
+* the door wells and the sunken roads: the AT-GRADE read — ``cache.grade``
+  and the three memos the basin pass reads after them.  Each of their tasks
+  returns its ``grade_ledger.Ledger`` and :meth:`Ahead.settle` replays the
+  ledgers on the build's cache in the order one core reads (the doors'
+  families, then the roads'), so the stats, the memos and every later
+  charge are what one core leaves;
+* the one process-wide thing: ``frame_entry``'s fallback-rung count, which
+  every task returns and the build's process charges to its own.
+
+A worker is handed the placed objects, the law, the airport WITHOUT its
+partition / groups / clusters (:class:`Stripped` — a reader that reached for
+one would trip, not read ``None``) and the DEM through ``dem_shared`` (the
+composed tiles in shared memory, never pickled); it parses the resources it
+needs itself, into a cache built as the build's is (same thickness, same
+input quantum) and seeded with the build's own per-resource extents, so its
+pre-screens open no file the serial pre-screen does not.
 
 Nothing here decides anything.  With no pool, a pool that dies, inputs
-that do not pickle or a reader that trips (:class:`ColdTile`,
-:class:`StrippedField`), :meth:`Ahead.collect` hands back nothing for that
-reader and ``pack_reads`` reads it on one core — the same computation.
+that do not pickle, a reader that trips (:class:`ColdTile`,
+:class:`StrippedField`) or an at-grade read that cannot be replayed
+(``grade_ledger.Unreplayable``), that reader is handed back unread and
+``pack_reads`` reads it on one core — the same computation.
 """
 from __future__ import annotations
 
@@ -40,16 +55,19 @@ import pickle
 import time
 import typing as _t
 
+from . import door_wells as _dw
 from . import frame_entry as _fe
+from . import grade_ledger as _gl
 from . import obj8 as _obj8
+from . import sunken_roads as _sr
 from .dem_shared import ColdTile, revive, share
 from .pool import WorkPool, budget
 from .thin_plates import read_plates
 from .tunnel_objects import read_corridors
 from .wall_corridors import assemble, read_family, wall_families, wall_reader
 
-__all__ = ["READERS", "WALLS", "TUNNELS", "MIN_OBJECTS", "MAX_WORKERS", "Ahead", "Stripped", "StrippedField",
-           "ReadWorker", "setup", "read", "begin"]
+__all__ = ["READERS", "WALLS", "TUNNELS", "DOORS", "ROADS", "MIN_OBJECTS", "MAX_WORKERS",
+           "Ahead", "Stripped", "StrippedField", "ReadWorker", "setup", "read", "begin"]
 
 #: the wall corridors: ``(records, stats)``; a task is ``(WALLS, family
 #: key, the members' positions in objects)``
@@ -57,7 +75,16 @@ WALLS = "walls"
 #: the tunnel corridors, then the thin plates that skip the resources the
 #: corridors admitted: ``(corridors, stats, plates, plate stats)``
 TUNNELS = "tunnels"
-READERS = (WALLS, TUNNELS)
+#: the door wells: ``(wells, stats)``; a task is ``(DOORS, the family's
+#: witness rows as (position in objects, witness, component index), the
+#: members' positions, {resource: the indices of its witness components})``
+DOORS = "doors"
+#: the sunken roads: ``(roads, stats)``; a task is ``(ROADS, the members'
+#: positions in objects)``
+ROADS = "roads"
+READERS = (WALLS, TUNNELS, DOORS, ROADS)
+#: the readers of the at-grade read (module doc)
+_AT_GRADE = (DOORS, ROADS)
 
 #: A pack of fewer placed objects than this is read on one core: a worker
 #: must parse its own copy of the resources, and on a small pack the readers
@@ -113,6 +140,7 @@ class ReadWorker:
     law: _t.Any
     cache: _obj8.ResourceCache
     walls: _t.Any = None               # ``wall_corridors.WallReader``, lazily
+    roads: _t.Any = None               # ``sunken_roads.RoadReader``, lazily
 
 
 def setup(airport, dem_token, objects, law, thickness_m: float, quantum_m: float,
@@ -124,71 +152,194 @@ def setup(airport, dem_token, objects, law, thickness_m: float, quantum_m: float
     return ReadWorker(_dc.replace(airport, dem=revive(dem_token)), objects, law, cache)
 
 
+def _door_family(state: ReadWorker, rows: list, members: list, shell: dict) -> tuple:
+    """One door family in a worker: the witness components are named by
+    their index in the resource (an ``id`` does not cross a process)."""
+    oo, comps = state.objects, state.cache.components
+    rd = _dw.door_reader(state.airport, state.cache, state.law,
+                         {id(comps(res)[ci]) for res, cis in shell.items() for ci in cis})
+    fam = [(oo[k], w, id(comps(oo[k].resolved)[ci])) for k, w, ci in rows]
+    return _dw.read_family(rd, fam, [oo[k] for k in members])
+
+
+def _road_family(state: ReadWorker, members: list) -> tuple:
+    """One road family in a worker.  The cover answers are kept for the
+    TASK alone: each task then asks as a read of its own would, and the
+    build's process drops the askings one read does not repeat
+    (``grade_ledger.replay(once=True)``)."""
+    if state.roads is None:
+        state.roads = _sr.road_reader(state.airport, state.objects, state.cache, state.law)
+    state.roads.cover = {}
+    return _sr.read_family(state.roads, [state.objects[k] for k in members])
+
+
 def read(state: ReadWorker, task: tuple) -> tuple:
-    """One task — ``(TUNNELS,)`` or ``(WALLS, family key, member positions)``
-    — as ``("ok", reading, fallback rungs)``, or ``("serial", why)`` when it
-    reached for something a worker does not hold (module doc): the build's
-    process then makes that reader's reading itself."""
+    """One task (the shapes are beside :data:`WALLS` … :data:`ROADS`) as
+    ``("ok", reading, fallback rungs, ledger)`` — the ledger ``None`` for a
+    reader that makes no at-grade read, and its entries' rungs NOT in the
+    rungs beside it — or ``("serial", why, ledger)`` when the task reached
+    for something a worker does not hold (module doc): the build's process
+    then makes that reader's reading itself."""
     a, oo, cache, law = state.airport, state.objects, state.cache, state.law
     _fe.reset_rung_counts()
+    mark = _gl.begin(cache) if task[0] in _AT_GRADE else None
     try:
         if task[0] == WALLS:
             if state.walls is None:
                 state.walls = wall_reader(a, cache, law)
             got: tuple = read_family(state.walls, task[1], [oo[k] for k in task[2]])
+        elif task[0] == DOORS:
+            got = _door_family(state, *task[1:])
+        elif task[0] == ROADS:
+            got = _road_family(state, task[1])
         else:
             corridors, tstats = read_corridors(a, oo, cache, law)
             got = (corridors, tstats,
                    *read_plates(a, oo, cache, law, {c.resource for c in corridors}))
     except (ColdTile, StrippedField) as e:
-        return ("serial", f"{type(e).__name__}: {e}")
-    return ("ok", got, _fe.rung_counts())
+        return ("serial", f"{type(e).__name__}: {e}", _ledger(cache, mark, True))
+    led = _ledger(cache, mark, False)
+    if isinstance(led, str):
+        return ("serial", led, None)
+    return ("ok", got, _fe.rung_counts() if led is None else led.own_rungs(_fe.rung_counts()),
+            led)
+
+
+def _ledger(cache, mark, tripped: bool):
+    """The task's ledger (``None`` without a mark); of a TRIPPED task the
+    entries alone — another task of this worker may have hit them — and
+    ``None`` when it has none to give; of a task that cannot be replayed,
+    the reason."""
+    if mark is None:
+        return None
+    try:
+        led = _gl.end(cache, mark)
+    except _gl.Unreplayable as e:
+        return None if tripped else f"Unreplayable: {e}"
+    if tripped:
+        led.touches = []
+    return led
 
 
 class Ahead:
-    """Readers a pool is working on.  :meth:`collect` waits (bounded, as
-    every pool wait is), releases the workers and the shared DEM, charges
-    the workers' fallback rungs here, says what the pool did (one
-    ``[pool]`` line, so a stage read on one core cannot pass for a pooled
-    one) and returns ``{reader: reading}`` — WITHOUT the readers the
-    build's process must read itself."""
+    """Readers a pool is working on.  :meth:`collect` makes the door wells'
+    sweep and hands their families out, waits (bounded, as every pool wait
+    is), releases the workers and the shared DEM, charges the workers'
+    fallback rungs here, says what the pool did (one ``[pool]`` line, so a
+    stage read on one core cannot pass for a pooled one) and returns
+    ``{reader: reading}`` — WITHOUT the readers the build's process must
+    read itself, and without the at-grade readers, which :meth:`settle`
+    hands over one at a time."""
 
-    def __init__(self, pool: WorkPool, shared, pending, tasks: list,
-                 placements: int | None, out: _t.Callable[[str], None]) -> None:
+    def __init__(self, pool: WorkPool, shared, pending, tasks: list, kinds: tuple,
+                 inputs: tuple, counts: dict, out: _t.Callable[[str], None]) -> None:
         self._pool, self._shared, self._pending = pool, shared, pending
-        self._tasks, self._placements, self._out = tasks, placements, out
+        self._tasks, self._kinds, self._out = tasks, kinds, out
+        self._airport, self._objects, self._cache, self._law = inputs
+        self._counts = counts                    # {reader: placements its intake read}
         self._t0 = time.perf_counter()
+        self._held: dict = {}                    # {at-grade reader: (reading, ledgers)}
+        self._entries: tuple[dict, dict] = ({}, {})
         self.report: dict = {}
 
+    def _doors(self) -> tuple:
+        """The door wells' sweep, here, and their families to the workers:
+        ``(the sweep's stats, the families' tasks, their pending answers)``
+        — no tasks when there is no witness, no answers when no pool is
+        left to give them."""
+        oo, cache = self._objects, self._cache
+        stats = _dw.DoorStats()
+        wits = _dw.sill_witnesses(oo, cache, self._airport.dem.z, self._law, stats)
+        pos = {id(o): k for k, o in enumerate(oo)}
+        index: dict[str, dict[int, int]] = {}    # resource -> {id(component): its index}
+        shell: dict[str, set[int]] = {}
+        for o, _w, cid in wits:
+            if o.resolved not in index:
+                index[o.resolved] = {id(c): i for i, c in enumerate(cache.components(o.resolved))}
+            shell.setdefault(o.resolved, set()).add(index[o.resolved][cid])
+        tasks = [(DOORS, [(pos[id(o)], w, index[o.resolved][cid]) for o, w, cid in fam],
+                  [pos[id(m)] for m in members],
+                  {r: sorted(shell[r]) for r in sorted({m.resolved for m in members} & set(shell))})
+                 for _fk, fam, members in _dw.door_families(oo, wits)]
+        pending = self._pool.begin(read, tasks, weights=[float(len(t[1]) + len(t[2])) for t in tasks],
+                                   what="door wells: families", unit="families") if tasks else None
+        return stats, tasks, pending
+
     def collect(self) -> dict:
+        doors = None
         try:
+            if DOORS in self._kinds:
+                doors = self._doors()
             got = self._pending.collect()
+            if got is not None and doors is not None and doors[1]:
+                more = doors[2].collect() if doors[2] is not None else None
+                got = None if more is None else got + more
         finally:
             self.close()
+        tasks = self._tasks + (doors[1] if doors is not None else [])
         rows: dict[str, list] = {}
         tripped: dict[str, str] = {}
-        for task, row in zip(self._tasks, got or ()):
+        every: list = []
+        for task, row in zip(tasks, got or ()):
+            if row[-1] is not None:
+                every.append(row[-1])
             if row[0] != "ok":
                 tripped.setdefault(task[0], row[1])
                 continue
-            rows.setdefault(task[0], []).append(row[1])
-            _fe.add_rung_counts(row[2])
+            rows.setdefault(task[0], []).append(row)
         for kind, why in tripped.items():       # one tripped task: the whole reader
             self._out(f"[pool] pack reader '{kind}' is read on one core: {why}")
         out: dict = {}
+        mine: list[str] = []
         if got is not None:
-            if TUNNELS in rows and TUNNELS not in tripped:
-                out[TUNNELS] = rows[TUNNELS][0]
-            if self._placements is not None and WALLS not in tripped:
+            for kind in self._kinds:
+                if kind in tripped:
+                    continue
+                for row in rows.get(kind, ()):
+                    _fe.add_rung_counts(row[2])
                 # the tasks are in sorted family order, and so are the answers
-                walls, wstats = assemble(self._placements, rows.get(WALLS, ()))
-                wstats.read_s = time.perf_counter() - self._t0
-                out[WALLS] = (walls, wstats)
-        self.report = dict(self._pool.report(), readers=sorted(out),
-                           line=self._pool.line() + f" — pack readers beside the door "
-                           f"wells: {', '.join(sorted(out)) or 'none'}")
+                readings = [row[1] for row in rows.get(kind, ())]
+                if kind == TUNNELS:
+                    out[TUNNELS] = readings[0]
+                elif kind == WALLS:
+                    out[WALLS] = assemble(self._counts[WALLS], readings)
+                elif kind == ROADS:
+                    self._held[ROADS] = (_sr.assemble(self._counts[ROADS], readings),
+                                         [row[3] for row in rows.get(kind, ())])
+                elif kind == DOORS:
+                    self._held[DOORS] = (_dw.assemble(doors[0], readings),
+                                         [row[3] for row in rows.get(kind, ())])
+                mine.append(kind)
+            self._entries = _gl.made(every)
+            for kind in (WALLS, DOORS, ROADS):
+                reading = out.get(kind) or self._held.get(kind, (None,))[0]
+                if reading is not None:
+                    reading[1].read_s = time.perf_counter() - self._t0
+        self.report = dict(self._pool.report(), readers=sorted(mine))
+        self._say()
         self._out(self.report["line"])
         return out
+
+    def _say(self) -> None:
+        self.report["line"] = (self._pool.line() + " — pack readers: "
+                               + (", ".join(self.report["readers"]) or "none"))
+
+    def settle(self, kind: str) -> tuple | None:
+        """The reading of an at-grade reader (:data:`DOORS`, :data:`ROADS`)
+        with its at-grade read replayed on the build's cache — to be asked
+        in the order one core reads them, each BEFORE the next is read or
+        settled — or ``None`` when the build's process must read it."""
+        held = self._held.pop(kind, None)
+        if held is None:
+            return None
+        try:
+            _gl.replay(self._cache, held[1], self._entries, once=kind == ROADS)
+        except _gl.Unreplayable as e:
+            self._out(f"[pool] pack reader '{kind}' is read on one core: {e}")
+            self.report["readers"].remove(kind)
+            self._say()
+            return None
+        return held[0]
 
     def close(self) -> None:
         self._pool.close()
@@ -203,22 +354,30 @@ def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
     """Start ``kinds`` in workers and return at once; ``None`` when no pool
     will answer (a budget of 1, a pack under :data:`MIN_OBJECTS`, inputs
     that do not pickle, no shared memory) — said through ``out`` unless it
-    is simply the budget or the pack's size."""
-    kinds = tuple(kinds)
+    is simply the budget or the pack's size.  The at-grade readers are
+    started only on a cache whose read can be replayed
+    (``grade_ledger.replayable``)."""
+    kinds = tuple(k for k in kinds if k not in _AT_GRADE or _gl.replayable(cache))
     if (budget() if workers is None else int(workers)) < 2 or len(objects) < MIN_OBJECTS:
         return None
     tasks: list[tuple] = []
     weights: list[float] = []
-    placements = None
+    counts: dict[str, int] = {}
     if WALLS in kinds:
         # THE INTAKE, here: ``objects`` order decides each family's members
-        placements, fams = wall_families(objects, cache, law)
+        counts[WALLS], fams = wall_families(objects, cache, law)
         tasks += [(WALLS, fk, ks) for fk, ks in fams]
+        weights += [float(len(ks)) for _fk, ks in fams]
+    if ROADS in kinds:
+        counts[ROADS], fams = _sr.road_families(objects, cache, law)
+        tasks += [(ROADS, ks) for _fk, ks in fams]
         weights += [float(len(ks)) for _fk, ks in fams]
     if TUNNELS in kinds:
         tasks.append((TUNNELS,))
         weights.append(max(weights, default=0.0) + 1.0)     # one long task: first
-    n = min(budget() if workers is None else int(workers), len(tasks), MAX_WORKERS)
+    # the door families are handed out later (:meth:`Ahead._doors`)
+    n = min(budget() if workers is None else int(workers),
+            len(tasks) + (DOORS in kinds), MAX_WORKERS)
     if n < 2:
         return None
     derived = {k: v for k, v in cache.derived_state().items() if k in ("range", "bounds")}
@@ -242,4 +401,4 @@ def begin(airport, objects: _t.Sequence, cache: _obj8.ResourceCache, law,
         if shared is not None:
             shared.close()
         return None
-    return Ahead(pool, shared, pending, tasks, placements, out)
+    return Ahead(pool, shared, pending, tasks, kinds, (airport, objects, cache, law), counts, out)

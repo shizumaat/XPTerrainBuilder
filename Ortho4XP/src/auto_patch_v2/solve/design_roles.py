@@ -7,6 +7,7 @@ importers and twins are unchanged.
 """
 from __future__ import annotations
 
+import functools as _ft
 import typing as _t
 
 from ..law import Law
@@ -182,11 +183,19 @@ def hard_rulings(law: Law) -> frozenset[str]:
     return frozenset(design_law(law).hard_rulings)
 
 
+@_ft.lru_cache(maxsize=4096)
+def _head_of(ruling: str) -> str:
+    """:func:`ruling_head` of one ruling STRING, read once: a build's rows
+    carry a few hundred distinct rulings between them and ask for the head
+    of each several times per row (a pure function of the string)."""
+    return ruling.split(" (")[0].strip()
+
+
 def ruling_head(row: Row) -> str:
     """The HEAD of a row's ruling — everything before the first
     parenthesis, the key ``[design] hard_rulings`` / ``one_way_rulings``
     name a law by."""
-    return row.source.ruling.split(" (")[0].strip()
+    return _head_of(row.source.ruling)
 
 
 def is_hard(law_heads: _t.AbstractSet[str], row: Row) -> bool:

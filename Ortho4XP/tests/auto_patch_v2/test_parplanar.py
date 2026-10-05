@@ -65,6 +65,11 @@ def _closer_obj(path):
     return _write(path, vt, tris)
 
 
+def _shift(geom, dx, dy):
+    from shapely.affinity import translate
+    return translate(geom, dx, dy)
+
+
 def _cache(law):
     return ResourceCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
 
@@ -147,6 +152,25 @@ def test_the_synthetic_pack_exercises_the_pooled_readers(serial):
     assert wstats["by_class"] == {"bay": 2, "level": 2}, wstats["refused"]
     assert sum("closer.obj@dsf:obj4" in a for a in wstats["admission"]) == 1
     assert sum("W3 wall at end" in a for a in wstats["admission"]) == 1
+
+
+def test_the_family_field_gate_reads_the_same_in_a_worker(world, law):
+    """§12h (4) step 0: a wall family OFF THE FIELD (its plan extent beyond
+    the standoff of the cover) is refused whole — one line, no band read —
+    by a worker exactly as on one core: the gate is a function of the
+    family's own members and the field."""
+    airport, objects = world
+    far = [o for o in objects if o.xy == (900.0, 400.0)]
+    assert len(far) == 1
+    moved = [_dc.replace(o, xy=(2000.0, 0.0), plan_bbox=_shift(o.plan_bbox, 1100.0, -400.0))
+             if o is far[0] else o for o in objects]
+    got = [_reading((airport, moved), law, n) for n in (1, 2)]
+    _same(got[0], got[1])
+    wstats = got[0]["stats"][4]
+    assert wstats["off_field_families"] == 1 and wstats["field_read"] is True
+    (line,) = [r for r in wstats["refused"] if r.startswith("family ")]
+    assert "(1 members, level.obj): off the field — nearest cover 493.0 m" in line, line
+    assert wstats["by_class"] == {"bay": 2}, wstats["refused"]
 
 
 @pytest.mark.parametrize("n", sorted({2, 3, N}))

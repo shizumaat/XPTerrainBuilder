@@ -92,31 +92,31 @@ def _inputs(airport, objects, law) -> tuple:
 
 def _read(airport, objects, cache, law, store: dict | None = None,
           walls: bool = False) -> PackReads:
-    """The four readings.  The tunnel corridors + thin plates (and, with
-    ``walls``, the wall corridors — kept on ``store`` for
-    :func:`wall_corridor_reads`) are read by work-pool workers BESIDE this
-    process's door wells and sunken roads (``airport/reader_work``); what a
-    pool does not answer is read here, the same computation."""
-    kinds = (_rw.WALLS, _rw.TUNNELS) if walls and store is not None else (_rw.TUNNELS,)
+    """The four readings.  With a work pool every reader is read by its
+    workers (and, with ``walls``, the wall corridors — kept on ``store``
+    for :func:`wall_corridor_reads`); what a pool does not answer is read
+    here, the same computation.  The door wells and the sunken roads leave
+    their at-grade read on ``cache`` (``airport/reader_work``): they are
+    settled — or read — in the order one core reads them."""
+    kinds = tuple(k for k in _rw.READERS if k != _rw.WALLS or (walls and store is not None))
     ahead = _rw.begin(airport, objects, cache, law, kinds)
-    got: dict = {}
-    try:
-        if ahead is None:
-            _pulse.tick("tunnel and plate objects")
-            tunnels = _tunnels(airport, objects, cache, law)
+    if ahead is None:
+        _pulse.tick("tunnel and plate objects")
+        tunnels = _tunnels(airport, objects, cache, law)
         wells, dstats = read_door_wells(airport, objects, cache, law)
         roads, rstats = read_sunken_roads(airport, objects, cache, law)
-        if ahead is not None:
-            got = ahead.collect()
+        return PackReads(*tunnels, wells, dstats, roads, rstats)
+    try:
+        got = ahead.collect()
     finally:
-        if ahead is not None:
-            ahead.close()
-    if ahead is not None:
-        if store is not None:
-            store[_POOL] = ahead.report
-            if _rw.WALLS in got:
-                store[_WALLS] = got[_rw.WALLS]
-        tunnels = got.get(_rw.TUNNELS) or _tunnels(airport, objects, cache, law)
+        ahead.close()
+    if store is not None:
+        store[_POOL] = ahead.report
+        if _rw.WALLS in got:
+            store[_WALLS] = got[_rw.WALLS]
+    tunnels = got.get(_rw.TUNNELS) or _tunnels(airport, objects, cache, law)
+    wells, dstats = ahead.settle(_rw.DOORS) or read_door_wells(airport, objects, cache, law)
+    roads, rstats = ahead.settle(_rw.ROADS) or read_sunken_roads(airport, objects, cache, law)
     return PackReads(*tunnels, wells, dstats, roads, rstats)
 
 

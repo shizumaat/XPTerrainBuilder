@@ -30,7 +30,7 @@ from .obj8_clip import _clip_both, _clip_component
 if _t.TYPE_CHECKING:  # annotations only — obj8 imports this module
     from .obj8 import Component, ObjGeometry, PlacedObject, ResourceCache
 
-__all__ = ["GradeStats", "planes", "memo_union", "both_clip", "above_clip", "LATER",
+__all__ = ["GradeStats", "planes", "memo_union", "both_clip", "above_clip", "LATER", "POLYS",
            "BasePlane", "Riser", "BaseProfile", "base_profile", "compose_profiles",
            "FLAT", "STEPPED", "SLOPED", "FEET",
            "profile_to_json", "profile_from_json"]
@@ -57,6 +57,12 @@ class GradeStats:
     vertex_budget: int = 0
     over_budget: bool = False
     resources: set = _dc.field(default_factory=set)
+
+    def asked(self, cover: bool, linework: bool, key: tuple, placement: str) -> None:
+        """One request of :func:`memo_union`, before it is answered.  The
+        build's own stats keep nothing of it; a work-pool worker's
+        (``grade_ledger.Recorder``) keep the request, so the build's
+        process can charge it as one core would (issue #362)."""
 
     def charge(self, resource: str, vertices: int, seconds: float) -> None:
         self.unions += 1
@@ -94,7 +100,7 @@ LATER = object()
 
 #: the last element of a ``clip_memo`` key that holds one component's
 #: at-grade POLYGONS alone (:func:`_comp_clip`)
-_POLYS = "polys"
+POLYS = "polys"
 
 
 def planes(o: "PlacedObject", comps: list[tuple[int, "Component"]],
@@ -151,7 +157,7 @@ def _comp_clip(cmemo: dict, resource: str, ci: int, plane: float, clip, v: np.nd
     if out is not _MISS:
         return out, 0
     nv = int(comp.tris.shape[0]) * 3
-    pk = (resource, ci, plane, _POLYS)
+    pk = (resource, ci, plane, POLYS)
     if both and not linework:
         pg = cmemo.get(pk, _MISS)
         if pg is not _MISS:
@@ -199,6 +205,7 @@ def memo_union(cache: "ResourceCache", memo: dict, o: "PlacedObject", g: "ObjGeo
     st = cache.grade
     st.calls += 1
     key = (o.resolved, keyed)
+    st.asked(memo is cache.cover_memo, bool(linework) and clip is both_clip, key, o.id)
     if key in memo:
         val = memo[key]
         if linework and clip is both_clip and val is not None and val[0] is LATER:

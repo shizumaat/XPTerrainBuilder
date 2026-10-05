@@ -82,7 +82,7 @@ from .file_hash import sha256_file_or_none
 __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
            "pristine_stamps", "resolved_digest", "peek", "code_digest",
            "dump_digest", "companion", "hold_companion", "filed", "revive",
-           "put_back"]
+           "put_back", "companion_note", "companion_notes"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
@@ -310,13 +310,35 @@ def _companion_key(fp: str, suffix: str, digest: str) -> str:
     return hashlib.sha256(f"{fp}|{suffix}|{digest}".encode()).hexdigest()
 
 
-#: ``fingerprint -> {suffix: (digest, record)}``: companions HELD until the
-#: partition under that fingerprint is written (:func:`hold_companion`).
-_HELD: dict[str, dict[str, tuple[str, _t.Any]]] = {}
+#: What the companion caches did, as log lines, until whoever holds the
+#: build's console takes them (:func:`companion_notes`) — the companions
+#: are read deep under passes that carry no console (issue #395).
+_NOTES: list[str] = []
+
+
+def companion_note(label: str, state: str, where: str) -> None:
+    """Leave ``[label] cache STATE where`` — a companion's HIT / MISS /
+    WROTE / OFF in the partition line's own style — for the build's log.
+    Log text only; nothing reads it back."""
+    _NOTES.append(f"[{label}] cache {state} {where}")
+    del _NOTES[:-32]            # a process with no console keeps the last few
+
+
+def companion_notes() -> tuple[str, ...]:
+    """The lines left since the last call, oldest first; they are TAKEN."""
+    got = tuple(_NOTES)
+    del _NOTES[:]
+    return got
+
+
+#: ``fingerprint -> {suffix: (digest, record, label)}``: companions HELD
+#: until the partition under that fingerprint is written
+#: (:func:`hold_companion`).
+_HELD: dict[str, dict[str, tuple[str, _t.Any, str]]] = {}
 
 
 def hold_companion(pack_root: str, icao: str, suffix: str, digest: str,
-                   record: _t.Any) -> bool:
+                   record: _t.Any, label: str = "") -> bool:
     """Keep ``record`` in memory as this airport's ``suffix`` companion,
     to be WRITTEN BY :func:`write` when — and only when — it writes the
     partition this process fingerprinted for the airport.
@@ -329,7 +351,7 @@ def hold_companion(pack_root: str, icao: str, suffix: str, digest: str,
     fp = _TAKEN.get((os.path.abspath(pack_root) if pack_root else "", str(icao or "")))
     if not fp:
         return False
-    _HELD.setdefault(fp, {})[suffix] = (digest, record)
+    _HELD.setdefault(fp, {})[suffix] = (digest, record, label or suffix)
     return True
 
 
@@ -559,8 +581,9 @@ def write(path: str | None, fp: str | None, result: _t.Any) -> bool:
                              protocol=pickle.HIGHEST_PROTOCOL), _ZLIB_LEVEL))
         os.replace(tmp, path)
         _FILED[fp] = path
-        for suffix, (digest, record) in sorted(_HELD.pop(fp, {}).items()):
-            write(path + suffix, _companion_key(fp, suffix, digest), record)
+        for suffix, (digest, record, label) in sorted(_HELD.pop(fp, {}).items()):
+            if write(path + suffix, _companion_key(fp, suffix, digest), record):
+                companion_note(label, "WROTE", path + suffix)
         return True
     except Exception:
         try:

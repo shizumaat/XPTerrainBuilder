@@ -29,11 +29,14 @@ import numpy as np
 
 from . import partition_cache as _pcache
 
-__all__ = ["SUFFIX", "base_digest", "added_digest", "load", "store"]
+__all__ = ["SUFFIX", "LABEL", "base_digest", "added_digest", "load", "store"]
 
 #: Appended to the partition cache's own file name.  Bump the trailing
 #: number when the SHAPE of the record changes.
 SUFFIX = ".ext1"
+
+#: The cache's name on its log line.
+LABEL = "extension"
 
 
 def _placement(o: _t.Any) -> tuple:
@@ -92,13 +95,24 @@ def _slot(part: _t.Any, add: _t.Sequence[tuple]) -> "tuple[str, str] | None":
 
 
 def load(part: _t.Any, add: _t.Sequence[tuple]) -> _t.Any | None:
-    """The record stored for extending ``part`` by ``add``, or ``None``."""
+    """The record stored for extending ``part`` by ``add``, or ``None``.
+    Leaves the ``[extension] cache HIT|MISS|OFF`` line (issue #395)."""
     slot = _slot(part, add)
-    return None if slot is None else _pcache.read(*slot)
+    if slot is None:
+        _pcache.companion_note(LABEL, "OFF", "(no partition cache on file to "
+                               "keep it beside)")
+        return None
+    got = _pcache.read(*slot)
+    _pcache.companion_note(LABEL, "MISS" if got is None else "HIT",
+                           f"{slot[0]} ({len(add)} placement(s) coming back)")
+    return got
 
 
 def store(part: _t.Any, add: _t.Sequence[tuple], record: _t.Any) -> bool:
     """Keep ``record`` for the next build; ``False`` when there is no
     partition cache to keep it beside, or the write fails."""
     slot = _slot(part, add)
-    return False if slot is None else _pcache.write(*slot, record)
+    if slot is None or not _pcache.write(*slot, record):
+        return False
+    _pcache.companion_note(LABEL, "WROTE", slot[0])
+    return True

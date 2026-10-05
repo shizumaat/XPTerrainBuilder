@@ -380,3 +380,17 @@ def test_shared_arrays_are_read_only_views_and_are_released():
     from multiprocessing import shared_memory
     with pytest.raises(FileNotFoundError):
         shared_memory.SharedMemory(name=name)
+
+
+def test_the_pack_stage_raises_no_runtime_warning(world, serial):
+    """issue #395 — THE GUARD: engine stderr carries no numpy / shapely
+    ``RuntimeWarning``, so a real error stands out.  The synthetic pack is
+    read and partitioned with ``RuntimeWarning`` promoted to an ERROR; a
+    call site that starts leaking one fails here by name."""
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        part, cache, _done = _run(world, 1)
+        for o in world.objs[:7]:
+            cache.base_profile(o.resolved, LAW)
+    assert _digest(part, cache) == _digest(*serial)

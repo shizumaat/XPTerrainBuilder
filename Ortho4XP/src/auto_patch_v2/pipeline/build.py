@@ -524,6 +524,8 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _verdicts = _cverdicts(_dc.replace(airport, partition=_dc.replace(
             _part, connectors=None)), law, pool=_wpool)
         _sub["connectors"] = time.perf_counter() - _t
+        for _ln in _pcache.companion_notes():       # [topology] cache HIT|MISS
+            _say("  " + _ln, out)
         if _cached_clusters is not None and _stamped != _verdicts:
             _cached_clusters = None
         _part = _dc.replace(_part, connectors=_verdicts)
@@ -544,6 +546,8 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
                 _rd = _pcache.resolved_digest(airport)
                 _say(f"  [partition] cache WROTE {_cpath} (resolved {_rd[0]} "
                      f"sha {_rd[1][:12]})", out)
+            for _ln in _pcache.companion_notes():   # [topology] cache WROTE
+                _say("  " + _ln, out)
     finally:
         _wpool.close()
     airport = _dc.replace(airport, partition=_part, groups=_groups,
@@ -1354,6 +1358,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                 rebake_path.write_text(rplan.to_json(),
                                        encoding="utf-8", newline="\n")
                 wall["rebake_plan"] = time.perf_counter() - t
+                from ..airport.partition_cache import companion_notes as _cnotes
+                for _ln in _cnotes():               # [extension] cache OFF
+                    _say("  " + _ln, out)
                 _say(_rscreen.plan_line(icao, rplan, wall["rebake_plan"])
                      + f"  (inline: no partition cache was kept)  -> {rebake_path}", out)
         for (tl, tn), pp in (pieces or {}).items():

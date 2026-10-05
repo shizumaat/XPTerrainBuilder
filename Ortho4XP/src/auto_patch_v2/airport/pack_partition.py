@@ -62,6 +62,7 @@ from ..model import pulse as _pulse
 from ..model.rebake import Member, Part, Unit
 from . import contact as _contact
 from . import deck_signature as _deck
+from . import extension_cache as _extcache
 from . import line_object as _line
 from . import obj8 as _obj8
 from . import obj8_grade as _obj8_grade
@@ -289,6 +290,11 @@ class MemberGeometries(_t.Sequence):
             self._cache = cache
             self._built = {}
         return self
+
+    @property
+    def recipes(self) -> tuple["MemberRecipe", ...]:
+        """The recipes themselves — what the sequence IS, with no cache."""
+        return self._recipes
 
     def __len__(self) -> int:
         return len(self._recipes)
@@ -800,30 +806,13 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
     return out
 
 
-def extend_partition(part: PackPartition, airport: Airport,
-                     cache: _obj8.ResourceCache, law: Law,
-                     plate_paths: _t.Collection[str]) -> PackPartition:
-    """THE SECOND PHASE (owner RULINGS 2026-09-11l (1); spec §11a).
-
-    The load partition ran on the SCREENED object set, so every
-    multi-anchor resource was dropped — including the tunnel-wall PLATE
-    placements, whose exemption (09s (1)) is a PLANAR product and cannot
-    be known at load.  This adds those back: their members are built by
-    the same :func:`_build_member`, their parts and feet by the same
-    ``contact.placed_parts``, and their ε-contacts and abutments are
-    sought by SPATIAL QUERY against the existing part boxes
-    (``contact.extend``) — the whole pack is never repartitioned.
-
-    Returns ``part`` unchanged when nothing is exempt, which is the usual
-    case; the caller then filters exactly as before.
-    """
-    geom: _LoadGeom | None = part.geom
-    if geom is None or not part.deferred:
-        return part
-    pp = set(plate_paths)
-    add = [(key, o) for key, o in part.deferred if o.path in pp or o.id in pp]
-    if not add:
-        return part
+def _extension(part: PackPartition, geom: "_LoadGeom", add: _t.Sequence[tuple],
+               airport: Airport, cache: _obj8.ResourceCache, law: Law) -> dict:
+    """What :func:`extend_partition` COMPUTES before it merges — the added
+    members with their plan rows, the contacts and abutments they bring,
+    and the counts and skips as the member builds left them.  Plain
+    picklable values: this is the record ``extension_cache`` keeps.  An
+    empty ``new_ref`` says nothing could be added."""
     rb = law.tables.structures.rebake
     counts = dict(part.counts)
     skipped = dict(part.skipped)
@@ -852,7 +841,8 @@ def extend_partition(part: PackPartition, airport: Airport,
         readded.add(o.path)
         skipped.pop(o.path, None)
     if not new_members:
-        return part
+        return {"icao": part.icao, "new_ref": (), "counts": counts,
+                "skipped": skipped}
     base_members = geom.members
     if isinstance(base_members, MemberGeometries):
         # a REVIVED partition carries recipes and no cache (14v)
@@ -873,15 +863,68 @@ def extend_partition(part: PackPartition, airport: Airport,
     fake = _contact.Partition(ext.parts, (), 0, 0, 0, 0, ())
     rows = _parts_by_member(fake, to_ll_batch)
     base_n = len(base_members)
+    return {"icao": part.icao, "new_ref": tuple(new_ref),
+            "members": tuple(_dc.replace(m, parts=tuple(rows.get(base_n + i, ())))
+                             for i, m in enumerate(new_member_rows)),
+            "readded": tuple(sorted(readded)), "counts": counts, "skipped": skipped,
+            "contacts": ext.contacts, "abutments": ext.abutments,
+            "structures": ext.structures, "pairs_tested": ext.pairs_tested,
+            "pairs_unproved": ext.pairs_unproved, "neighbours": ext.neighbours}
+
+
+def extend_partition(part: PackPartition, airport: Airport,
+                     cache: _obj8.ResourceCache, law: Law,
+                     plate_paths: _t.Collection[str], *,
+                     keep: bool = False) -> PackPartition:
+    """THE SECOND PHASE (owner RULINGS 2026-09-11l (1); spec §11a).
+
+    ``keep`` — may this call WRITE the extension cache?  Off by default:
+    a replay, a tool or a dry stage (a ``write_cache=False`` pack stage
+    that merely HIT) revives a kept extension but never writes one.  Only
+    the build's own ``rebake_plan.plan`` passes it.
+
+    The load partition ran on the SCREENED object set, so every
+    multi-anchor resource was dropped — including the tunnel-wall PLATE
+    placements, whose exemption (09s (1)) is a PLANAR product and cannot
+    be known at load.  This adds those back: their members are built by
+    the same :func:`_build_member`, their parts and feet by the same
+    ``contact.placed_parts``, and their ε-contacts and abutments are
+    sought by SPATIAL QUERY against the existing part boxes
+    (``contact.extend``) — the whole pack is never repartitioned.
+
+    Returns ``part`` unchanged when nothing is exempt, which is the usual
+    case; the caller then filters exactly as before.
+    """
+    geom: _LoadGeom | None = part.geom
+    if geom is None or not part.deferred:
+        return part
+    pp = set(plate_paths)
+    add = [(key, o) for key, o in part.deferred if o.path in pp or o.id in pp]
+    if not add:
+        return part
+    # THE EXTENSION IS CACHED beside the partition (issue #362,
+    # ``extension_cache``): keyed on the partition's fingerprint, this
+    # reading's own content and the placements coming back — a build whose
+    # pack and plates have not moved revives it instead of re-testing them
+    ext = _extcache.load(part, add)
+    if not isinstance(ext, dict) or ext.get("icao") != part.icao:
+        ext = _extension(part, geom, add, airport, cache, law)
+        if keep:
+            _extcache.store(part, add, ext)
+    if not ext["new_ref"]:
+        return part
+    counts = dict(ext["counts"])
+    skipped = dict(ext["skipped"])
+    new_ref = list(ext["new_ref"])
+    readded = set(ext["readded"])
     # ── merge: rebuild the units from the load reading plus the added ──
     by_key: dict[tuple[float, float, float], dict[str, Member]] = {}
     for ui, u in enumerate(part.units):
         for mi, m in enumerate(u.members):
             oid, opath = part.member_object.get((ui, mi), (m.id, m.resource))
             by_key.setdefault((u.anchor[0], u.anchor[1], u.agl_m), {})[opath] = m
-    for i, (key, opath, _oid) in enumerate(new_ref):
-        by_key.setdefault(key, {})[opath] = _dc.replace(
-            new_member_rows[i], parts=tuple(rows.get(base_n + i, ())))
+    for (key, opath, _oid), member in zip(new_ref, ext["members"]):
+        by_key.setdefault(key, {})[opath] = member
     units: list[Unit] = []
     member_object: dict[tuple[int, int], tuple[str, str]] = {}
     oid_of = {(k, p): o for k, p, o in list(geom.member_ref) + new_ref}
@@ -897,17 +940,17 @@ def extend_partition(part: PackPartition, airport: Airport,
     counts["members"] = sum(len(u.members) for u in units)
     counts["parts"] = sum(len(m.parts) for u in units for m in u.members)
     counts["multi_anchor"] = max(0, int(counts.get("multi_anchor", 0)) - len(readded))
-    contacts = tuple(sorted(set(part.contacts) | set(ext.contacts)))
-    abutments = tuple(sorted(set(part.abutments) | set(ext.abutments)))
+    contacts = tuple(sorted(set(part.contacts) | set(ext["contacts"])))
+    abutments = tuple(sorted(set(part.abutments) | set(ext["abutments"])))
     counts["contacts"] = len(contacts)
     counts["abutments"] = len(abutments)
-    counts["structures"] = ext.structures
-    counts["pairs_tested"] = int(counts.get("pairs_tested", 0)) + ext.pairs_tested
-    counts["pairs_unproved"] = int(counts.get("pairs_unproved", 0)) + ext.pairs_unproved
+    counts["structures"] = ext["structures"]
+    counts["pairs_tested"] = int(counts.get("pairs_tested", 0)) + ext["pairs_tested"]
+    counts["pairs_unproved"] = int(counts.get("pairs_unproved", 0)) + ext["pairs_unproved"]
     counts["line_objects"] = sum(1 for u in units for m in u.members
                                  if m.parts and all(p.line for p in m.parts))
     counts["plate_readded"] = len(readded)
-    counts["plate_neighbours"] = ext.neighbours
+    counts["plate_neighbours"] = ext["neighbours"]
     return _dc.replace(part, units=tuple(units), skipped=tuple(sorted(skipped.items())),
                        counts=counts, contacts=contacts, abutments=abutments,
                        member_object=member_object, deferred=(), geom=None)

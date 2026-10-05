@@ -480,7 +480,12 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
         os.replace(str(src.sidecar), dest + ".axes.json")
         # the post-mesh re-seat plan (04f-1) beside the patch, read by
         # ``rebake_after_mesh`` at the end of build_mesh
-        rebake_plan_path = _place_rebake_plan(task, res.rebake_plan, icao)
+        rebake_plan_path = None
+        _screen = getattr(res, "rebake_screen", None)
+        if res.rebake_plan is not None or _screen is not None:
+            from auto_patch_v2.airport import object_plan as _oplan
+            rebake_plan_path = _oplan.place(os.path.dirname(dest), res.rebake_plan,
+                                            icao, _screen)
         # and the WHOLE-AIRPORT design surface beside it: §6's class rule
         # reads the emitted object pads and structure rims, and the object
         # stage runs post-mesh, long after ``res`` is gone (lane
@@ -542,7 +547,9 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
 # of ``O4_Mesh_Utils.build_mesh`` / ``sort_mesh``; since v1 went (RULINGS
 # 2026-09-13au) that hook routes HERE, unconditionally.  What runs here is the PLACEMENT
 # path and nothing else: over the tile build's own ``o4_v2_rebake_<ICAO>.
-# json`` plans and a sampler of the built mesh, every object is cut,
+# json`` plans — BUILT HERE from the patch build's screen sidecar and the
+# cached partition (owner RULINGS 2026-10-04x (1), ``object_plan.from_screen``)
+# — and a sampler of the built mesh, every object is cut,
 # re-anchored and placed ON the terrain (``airport/placement_*.py``).
 # NO SEAT IS COMPUTED and no authored vertex is rewritten — v1's vertex
 # re-bake (``_decision_from_seats`` -> ``object_rebake.apply``, the
@@ -563,19 +570,6 @@ _PLAN_NAME_RE = re.compile(r"^o4_v2_rebake_(?!result_)[A-Za-z0-9]{2,8}\.json$")
 #: the owner's console stays clean when the box is unchecked while ``-v2``
 #: still records which switch stood the stage down.
 _STAND_DOWN_VERBOSITY = 2
-
-
-def _place_rebake_plan(task: dict, src_plan, icao: str) -> str | None:
-    """Copy the pipeline's plan beside the patch (``Patches/<tile>/``)."""
-    import shutil
-    if src_plan is None or not os.path.isfile(str(src_plan)):
-        return None
-    from auto_patch_v2.model.rebake import PLAN_FILENAME
-    dest = os.path.join(os.path.dirname(task["auto_patch_file"]),
-                        PLAN_FILENAME.format(icao=icao))
-    shutil.copyfile(str(src_plan), dest + ".tmp")
-    os.replace(dest + ".tmp", dest)
-    return dest
 
 
 #: ``<ICAO>.graded.json`` beside the patch — the emitted DESIGN SURFACE the
@@ -961,8 +955,16 @@ def rebake_after_mesh(tile) -> dict:
         # ``o4_v2_rebake_*.json`` also matched a tool's output beside them
         # (``tools/v2_rebake_replay.py`` writes ``o4_v2_rebake_<ICAO>.seat.
         # json``), which the loader then tried to read as a plan.
-        plans = sorted(p for p in glob.glob(os.path.join(patch_dir, "o4_v2_rebake_*.json"))
-                       if _PLAN_NAME_RE.match(os.path.basename(p)))
+        # A SCREEN SIDECAR IS A PLAN NOT YET BUILT (owner RULINGS 2026-10-04x
+        # (1)): the worklist is every plan file and every sidecar's plan,
+        # in the plan files' own order.
+        from auto_patch_v2.airport import object_plan as _oplan
+        from auto_patch_v2.airport import rebake_screen as _rscreen
+        found = glob.glob(os.path.join(patch_dir, "o4_v2_rebake_*.json"))
+        screens = {p[:-len(".screen.json")] + ".json": p for p in found
+                   if _oplan.SCREEN_NAME_RE.match(os.path.basename(p))}
+        plans = sorted({p for p in found
+                        if _PLAN_NAME_RE.match(os.path.basename(p))} | set(screens))
         if not plans:
             return counts
         mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
@@ -1011,9 +1013,14 @@ def rebake_after_mesh(tile) -> dict:
         for plan_path in plans:
             icao = "?"
             try:
-                with open(plan_path) as fh:
-                    plan_ = _rb.RebakePlan.from_json(fh.read())
-                icao = plan_.icao
+                screen = plan_ = None
+                if plan_path in screens:
+                    screen = _rscreen.read(screens[plan_path])
+                    icao = screen.icao
+                else:
+                    with open(plan_path) as fh:
+                        plan_ = _rb.RebakePlan.from_json(fh.read())
+                    icao = plan_.icao
                 # A PLAN WHOSE PATCH IS NOT IN THIS MESH IS NEVER PLACED
                 # (lane ``othhjunction``, #13/#15): the plan is the auto
                 # patch's design surface; a manual patch, the mode filter
@@ -1031,6 +1038,14 @@ def rebake_after_mesh(tile) -> dict:
                         counts.get("airports_skipped_unapplied", 0) + 1
                     continue
                 law = Law.for_airport(icao)
+                if screen is not None:
+                    plan_ = _oplan.from_screen(
+                        screen, plan_path, patch_dir, law, say=UI.vprint,
+                        mod_cache_root=FNAMES.airport_mod_cache_root())
+                    if plan_ is None:
+                        counts["airports_skipped_stale_plan"] = \
+                            counts.get("airports_skipped_stale_plan", 0) + 1
+                        continue
                 if not plan_.units:
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "
                                  f"({len(plan_.skipped)} resource(s) skipped at plan time)")

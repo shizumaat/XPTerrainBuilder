@@ -37,6 +37,7 @@ from ..emit.graded import graded_surface
 from ..emit.osm_adapter import (PatchPaths, WeldReport, merge_sub_spacing,
                                 shore_edges_of, weld_to_shore, write_patch,
                                 write_tile_pieces)
+from ..airport import rebake_screen as _rscreen
 from ..airport.rebake_plan import plan as rebake_plan
 from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
@@ -123,8 +124,12 @@ class BuildResult:
     wall: dict[str, float]
     lp_size: dict[str, int]
     report: dict[str, _t.Any]
-    #: ``<out>/<ICAO>.rebake.json`` — the post-mesh re-seat plan (04f-1)
+    #: ``<out>/<ICAO>.rebake.json`` — the post-mesh re-seat plan (04f-1),
+    #: written HERE only by a build that kept no partition cache
     rebake_plan: Path | None = None
+    #: ``<out>/<ICAO>.rebake.screen.json`` — what the object step builds
+    #: that plan from (owner RULINGS 2026-10-04x (1); ``airport/rebake_screen``)
+    rebake_screen: Path | None = None
 
 
 def _plate_seats(pm, law) -> dict[str, tuple[float, list, float]]:
@@ -267,6 +272,32 @@ def _basin_polygon(b):
         return p if p.is_valid and not p.is_empty else p.buffer(0)
     except (ValueError, TypeError):
         return None
+
+
+def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
+    """THE PLANAR AND SOLVED FACTS the rebake plan reads beyond the pack
+    partition — ``tunnel_objects`` (the plate seats) / ``exclude`` /
+    ``below_grade`` / ``deck_datum``, the keywords ``rebake_screen.take``
+    and ``rebake_plan.plan`` share.  ONE assembly: the build and any
+    instrument that replays its rebake section call this."""
+    _to_xy = airport.frame.transformers()[0]
+    # a basin family is PLATE-seated onto its floor (2026-09-06b (3)),
+    # never excluded; ``exclude`` stays for any other caller
+    excluded = set() if law.tables.structures.basin.seat == "floor_plate" \
+        else {oid for b in pm.basins for oid in b.objects}
+    # seat = "none" (RULINGS 2026-09-08b/c, spec §2 / §3): a door
+    # ramp's or a sunken road's family is NEVER re-seated by its
+    # trench — the cluster law would sink the well's neighbours into
+    # the ramp (measured OTHH: 8 Parking-Left/Right objects written)
+    excluded |= {oid for tn in pm.structures
+                 if tn.source in ("door", "sunken_road", "wall_corridor")
+                 for oid in tn.objects}
+    return {
+        "tunnel_objects": _plate_seats(pm, law),
+        "exclude": excluded,
+        "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
+        # the SOLVED surface's value at every hard deck — ``emit/rebake.py``
+        "deck_datum": lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy)}
 
 
 def _classified_land(classification):
@@ -1273,55 +1304,55 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         wall["emit"] = time.perf_counter() - t
         _say(f"[{icao}] emit {wall['emit']:.2f} s  ways {paths.ways}  nodes {paths.nodes}"
              f"  patch {paths.bytes_patch} B  sidecar {paths.bytes_sidecar} B", out)
-        # THE RE-BAKE PLAN (RULINGS 04f-1): the units and witnesses the
-        # post-mesh seat reads, from the pack as AUTHORED, with the solved
-        # surface's value at every hard deck — ``emit/rebake.py``
+        # THE RE-BAKE PLAN LEAVES THE PATCH BUILD (owner RULINGS 2026-10-04x
+        # (1), issue #362; RULINGS 04f-1 for the plan itself).  The plan is
+        # object-stage work the patch never reads, so what is written HERE
+        # is the SCREEN SIDECAR — the planar and solved facts ``plan()``
+        # needs beyond the cached partition (``airport/rebake_screen``) —
+        # and the tile build's object step builds the plan from the two.
+        # A run that kept NO partition cache has nothing to defer onto and
+        # plans inline, exactly as before.
         t = time.perf_counter()
-        _pulse.tick("the object re-bake plan")
-        rplan = None
+        _pulse.tick("the object re-bake screen")
+        rplan = rscreen = None
         if objects_out:
-            _to_xy = airport.frame.transformers()[0]
-            # a basin family is PLATE-seated onto its floor (2026-09-06b (3)),
-            # never excluded; ``exclude`` stays for any other caller
-            plates = _plate_seats(pm, law)
-            excluded = set() if law.tables.structures.basin.seat == "floor_plate" \
-                else {oid for b in pm.basins for oid in b.objects}
-            # seat = "none" (RULINGS 2026-09-08b/c, spec §2 / §3): a door
-            # ramp's or a sunken road's family is NEVER re-seated by its
-            # trench — the cluster law would sink the well's neighbours into
-            # the ramp (measured OTHH: 8 Parking-Left/Right objects written)
-            excluded |= {oid for tn in pm.structures
-                         if tn.source in ("door", "sunken_road", "wall_corridor")
-                         for oid in tn.objects}
-            rplan = rebake_plan(airport, objects_out[0], objects_out[1], law,
-                                lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy),
-                                exclude=excluded,
-                                tunnel_objects=plates,
-                                below_grade=[(_basin_polygon(b), tuple(b.objects))
-                                             for b in pm.basins],
-                                partition=airport.partition)
-            rebake_path = Path(out_dir) / f"{icao}.rebake.json"
+            _plan_args = _rebake_inputs(pm, law, surf, airport)
             Path(out_dir).mkdir(parents=True, exist_ok=True)
-            rebake_path.write_text(rplan.to_json(),
-                                   encoding="utf-8", newline="\n")
-            wall["rebake_plan"] = time.perf_counter() - t
-            rc = rplan.counts
-            _say(f"[{icao}] rebake plan {wall['rebake_plan']:.2f} s  units {rc['units']}  "
-                 f"members {rc['members']}  deck members {rc['deck_members']} "
-                 f"(signature {rc.get('signature_decks', 0)} in {rc.get('deck_families', 0)} "
-                 f"deck families)  "
-                 f"parts {rc['parts']}  contacts {rc['contacts']}  pools {rc['pools']}  "
-                 f"structures {rc['structures']}  skipped {len(rplan.skipped)} "
-                 f"(stock {rc['stock']}, multi-anchor {rc['multi_anchor']}, "
-                 f"outside pack {rc['outside_pack']}, msl {rc['msl']}, "
-                 f"terrain-adapted {rc['terrain_adapted']}, below grade {rc['below_grade']})"
-                 f"  -> {rebake_path}", out)
+            rscreen = _rscreen.take(
+                airport, objects_out[0], law,
+                patches=[paths.patch] + [pp.patch for pp in (pieces or {}).values()],
+                **_plan_args)
+            if rscreen is not None:
+                screen_path = Path(out_dir) / f"{icao}.rebake.screen.json"
+                screen_path.write_text(rscreen.to_json(), encoding="utf-8", newline="\n")
+                wall["rebake_screen"] = time.perf_counter() - t
+                _say(f"[{icao}] rebake screen {wall['rebake_screen']:.2f} s  "
+                     f"excluded {len(rscreen.excluded)}  plates {len(rscreen.plates)}  "
+                     f"below-grade regions {len(rscreen.below_grade)}  "
+                     f"deck rings {len(rscreen.deck_datum)}  — the plan is built by "
+                     f"the object step from partition {rscreen.partition_fp[:12]}"
+                     f"  -> {screen_path}", out)
+            else:
+                # no extension cache without a partition cache: nothing is kept
+                rplan = rebake_plan(airport, objects_out[0], objects_out[1], law,
+                                    partition=airport.partition,
+                                    keep_extension=False, **_plan_args)
+                rebake_path = Path(out_dir) / f"{icao}.rebake.json"
+                rebake_path.write_text(rplan.to_json(),
+                                       encoding="utf-8", newline="\n")
+                wall["rebake_plan"] = time.perf_counter() - t
+                _say(_rscreen.plan_line(icao, rplan, wall["rebake_plan"])
+                     + f"  (inline: no partition cache was kept)  -> {rebake_path}", out)
         for (tl, tn), pp in (pieces or {}).items():
             _say(f"    tile {tl:+03d}{tn:+04d}: ways {pp.ways}  nodes {pp.nodes}  "
                  f"-> {pp.patch}", out)
         report["rebake_plan"] = None if rplan is None else {
             "path": str(Path(out_dir) / f"{icao}.rebake.json"),
             "counts": dict(rplan.counts), "skipped": len(rplan.skipped)}
+        report["rebake_screen"] = None if rscreen is None else {
+            "path": str(Path(out_dir) / f"{icao}.rebake.screen.json"),
+            "partition_fp": rscreen.partition_fp,
+            "patch_bodies": list(rscreen.patch_bodies)}
         report["emit"] = {"patch": str(paths.patch), "sidecar": str(paths.sidecar),
                           "ways": paths.ways, "nodes": paths.nodes,
                           "bytes_patch": paths.bytes_patch,
@@ -1435,7 +1466,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(f"[{icao}] total {wall['total']:.2f} s  -> {out_dir}", out)
     return BuildResult(icao, pm, cs, counts, sol, paths, vrows, pieces, wall, size, report,
                        Path(out_dir) / f"{icao}.rebake.json" if report.get("rebake_plan")
-                       else None)
+                       else None,
+                       Path(out_dir) / f"{icao}.rebake.screen.json"
+                       if report.get("rebake_screen") else None)
 
 
 def shore_decision_lines(pm, airport, every: bool = False) -> list[str]:

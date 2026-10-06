@@ -20,8 +20,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 from o4_engine import events as EV                       # noqa: E402
 
 
-def test_the_protocol_version_is_1_8():
-    assert EV.PROTOCOL_VERSION == "1.8"
+def test_the_protocol_version_is_at_least_1_8():
+    """1.8 introduced this surface; later bumps are additive (1.9: #433)."""
+    assert tuple(int(p) for p in EV.PROTOCOL_VERSION.split(".")) >= (1, 8)
 
 
 def test_the_wire_name_and_field_set_are_frozen():

@@ -738,6 +738,7 @@ class _PackArt(_t.NamedTuple):
     missing: tuple        # ``pack_art.MissingDef`` rows; () = all installed
     omit: bool            # the user accepted building without them
     stale: bool           # the live DSF carries an omission that no longer holds
+    current: bool = False  # the live DSF already carries THIS omission
 
 
 def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,
@@ -781,13 +782,14 @@ def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,
         return None
     entry = _bs.dsf_entry(_bs.read_record(dsf_path), os.path.basename(dsf_path))
     recorded = isinstance(entry.get("omitted_art"), dict)
+    current = bool(recorded and missing
+                   and _pa.accepted(entry, sha256_file(pristine), missing))
     omit = False
     if missing and _pa.can_omit(missing) and policy != "leave":
-        omit = policy == "omit" or _pa.accepted(
-            entry, sha256_file(pristine), missing)
-    stale = recorded and not (omit and _pa.accepted(
-        entry, sha256_file(pristine), missing))
-    return _PackArt(pack_name, dsf_path, tuple(missing), omit, stale)
+        omit = policy == "omit" or current
+    stale = recorded and not (omit and current)
+    return _PackArt(pack_name, dsf_path, tuple(missing), omit, stale,
+                    current)
 
 
 def _announce_pack_art(art: "_PackArt", pack_root: str, lat: int, lon: int,
@@ -861,27 +863,52 @@ def omit_missing_art(pack_root: str, lat: int, lon: int) -> dict:
 
 def _art_stage(plan_, tile, *, writes: bool, place: bool) -> "_PackArt | None":
     """The missing-art step of ONE airport's pack, ahead of its object
-    stage.  Names a failing pack; when no placement write follows
-    (``place`` False) and the art decision still changes the DSF, writes
-    it here.  Returns the verdict for the placement write to carry."""
+    stage.  Returns the verdict for the placement write to carry, or
+    ``None`` when there is nothing to say or do.
+
+    When no placement write follows (``place`` False, or a read-only
+    run) the step is finished here: the art decision is written when it
+    changes the DSF, and the pack is named.  Otherwise
+    :func:`_art_after_place` finishes it with what the write did — the
+    event never claims an omission before it is on disk."""
     policy = getattr(tile, "missing_art", None) or MISSING_ART_POLICY
     art = _pack_art(plan_.pack_root, tile.lat, tile.lon, read_only=not writes,
                     policy=policy)
     if art is None or not (art.missing or art.stale):
         return None
+    if not writes:
+        if art.missing:                 # a harness / measure-only run REPORTS
+            _announce_pack_art(art, plan_.pack_root, tile.lat, tile.lon,
+                               "found")
+        return art
+    if not place:
+        _art_after_place(art, plan_, tile, written=False)
+    return art
+
+
+def _art_after_place(art: "_PackArt", plan_, tile, *, written: bool) -> None:
+    """Finish the missing-art step once the placement write is done (or
+    did not happen: ``written`` False).  A write that did not carry the
+    decision is made here alone — unless the live DSF already carries
+    exactly this omission — then the pack is named with what is on
+    disk: ``"omitted"`` | ``"failed"`` | ``"found"`` (left as it is)."""
     state, error = "found", ""
-    if writes and not place and (art.omit or art.stale):
+    if written:
+        state = "omitted" if art.omit else "found"
+    elif (art.omit and not art.current) or art.stale:
         try:
             _write_art_only(art, plan_.pack_root)
             state = "omitted" if art.omit else "found"
         except Exception as exc:
-            state, error = ("failed", str(exc)) if art.omit else ("found", "")
-    elif writes and place and art.omit:
-        state = "omitted"              # the placement write carries it
+            if art.omit:
+                state, error = "failed", str(exc)
+            import O4_UI_Utils as UI
+            UI.vprint(2, traceback.format_exc())
+    elif art.omit:
+        state = "omitted"               # already on disk, as accepted
     if art.missing:
         _announce_pack_art(art, plan_.pack_root, tile.lat, tile.lon, state,
                            error)
-    return art
 
 
 def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
@@ -1298,10 +1325,18 @@ def rebake_after_mesh(tile) -> dict:
 
                 # THE PLACEMENT PATH (11e (3); the ONLY object stage
                 # since 2026-09-12s) — no seat is computed
-                pc = _place_objects(
-                    plan_, law, _sample, tile, patch_dir, write_enabled,
-                    measure_only,
-                    omit=art.missing if art is not None and art.omit else ())
+                pc = {}
+                try:
+                    pc = _place_objects(
+                        plan_, law, _sample, tile, patch_dir, write_enabled,
+                        measure_only,
+                        omit=art.missing if art is not None and art.omit else ())
+                finally:
+                    # #433: the art decision, finished with what the
+                    # placement write did (a raise wrote nothing)
+                    if art is not None and writes:
+                        _art_after_place(art, plan_, tile, written=bool(
+                            pc.get("packs_written")))
                 counts["airports"] += 1
                 for k, v in pc.items():
                     if k in ("packs_written",):

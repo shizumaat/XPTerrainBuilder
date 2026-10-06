@@ -773,6 +773,8 @@ final class BuildModel: ObservableObject {
             readGlobalAirports(atPath: path)
         case .boundaryAirportsReady(let ready):
             boundaryAirportsReady(ready)
+        case .packMissingArt(let art):
+            packMissingArt(art)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -1298,6 +1300,38 @@ final class BuildModel: ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: - Missing art (protocol 1.9, #433)
+
+    /// The "X-Plane will not load this pack" warning to present, or nil.
+    @Published var packArtPrompt: O4PackMissingArt?
+    /// Warnings waiting behind the one on screen, in arrival order.
+    private var packArtQueue: [O4PackMissingArt] = []
+    /// Every warning already shown this session (one per pack, tile and
+    /// missing set — each airport of a pack runs the check).
+    private var packArtSeen: Set<String> = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_pack_missing_art`): a
+    /// "found" event shows the owner-fixed warning once; the completion
+    /// states are already on the console through the engine's log line.
+    private func packMissingArt(_ art: O4PackMissingArt) {
+        guard art.state == "found", !packArtSeen.contains(art.id) else { return }
+        packArtSeen.insert(art.id)
+        if packArtPrompt == nil {
+            packArtPrompt = art
+        } else {
+            packArtQueue.append(art)
+        }
+    }
+
+    /// The user's answer to the warning on screen: `omit` sends
+    /// `omit_missing_art` (only offered when the event's `canOmit`).
+    func answerPackArtPrompt(omit: Bool) {
+        if let art = packArtPrompt, omit, art.canOmit {
+            client?.omitMissingArt(packRoot: art.packRoot, lat: art.lat, lon: art.lon)
+        }
+        packArtPrompt = packArtQueue.isEmpty ? nil : packArtQueue.removeFirst()
     }
 
     // MARK: - Boundary airports (protocol 1.8)

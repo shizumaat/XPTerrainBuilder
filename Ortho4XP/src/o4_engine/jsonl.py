@@ -186,6 +186,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # AirportIndexReady — the apt.dat parse is hundreds of megabytes
         # and may not run on THIS thread either.
         "airport_index": session.airport_index,
+        # Missing art (protocol 1.9, #433): replies {"status": "started"}
+        # and completes through PackMissingArt — DSFTool may not run on
+        # THIS thread.
+        "omit_missing_art": session.omit_missing_art,
     }
 
 
@@ -418,7 +422,8 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             ortho4xp_version=_ortho4xp_version(),
             capabilities=("scan", "build", "enqueue_build", "cancel",
                           "tile_info", "config", "links", "siblings",
-                          "secrets", "tile_settings_write"))))
+                          "secrets", "tile_settings_write",
+                          "missing_art"))))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

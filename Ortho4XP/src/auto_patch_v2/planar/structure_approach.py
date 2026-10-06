@@ -36,7 +36,7 @@ _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 __all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
-           "mouths", "FieldRegion", "cover_polygons", "wall_field", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
+           "mouths", "FieldRegion", "cover_polygons", "standing_cover", "cut_gap_cells", "wall_field", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
            "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground"]
 
 #: Two OSM node coordinates closer than this (frame metres) are one node.
@@ -421,6 +421,35 @@ def cover_polygons(classification) -> list[Polygon]:
     follows the structures and may not admit, move or re-shape one."""
     return [Polygon(c.ring, c.holes) for c in classification.cells
             if not is_gap_ref(c.ref)]
+
+
+def standing_cover(classification) -> tuple[list, list, list[Polygon]]:
+    """``(standing cells, gap pieces, standing polygons)`` — A GAP PIECE
+    NEVER LEADS (spec §53 (18)): the structures are derived over the
+    STANDING cells only — a ramp's climb, a wall band's stops and a deck's
+    intervals read them, and a piece beside a tunnel would re-shape it
+    (MEASURED at HECA: 15 wall / ramp vertices the base map does not
+    carry).  The pieces are set aside and cut by the finished footprints
+    last (:func:`cut_gap_cells`).  The polygons are :func:`cover_polygons`,
+    index-aligned with the standing cells."""
+    cells = [c for c in classification.cells if not is_gap_ref(c.ref)]
+    gap = [c for c in classification.cells if is_gap_ref(c.ref)]
+    return cells, gap, cover_polygons(classification)
+
+
+def cut_gap_cells(gap_cells, knife, law: Law, cut) -> None:
+    """A gap piece STANDS OFF a structure as it stands off every standing
+    cell (spec §53 (13)): each piece goes through ``build_structures``' own
+    ``cut(cell, polygon, blade)`` with the structure footprints grown by the
+    mint's stand-off as the blade.  LAST, so every standing and structure
+    cell keeps the base map's place."""
+    if not gap_cells:
+        return
+    from ..classify.gap_mint import standoff_m
+    blade = None if knife.is_empty else knife.buffer(
+        standoff_m(law), join_style="mitre", mitre_limit=2.0)
+    for c in gap_cells:
+        cut(c, Polygon(c.ring, c.holes), blade)
 
 
 def wall_field(classification, law: Law) -> WallField:

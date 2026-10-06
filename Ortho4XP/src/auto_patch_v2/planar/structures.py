@@ -97,9 +97,9 @@ from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, airside_stops,
                                   locked_road_stops, road_true_edge, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
 from ..airport.dem import dem_z_at
-from .structure_approach import (FieldRegion, apply_plates, cover_polygons,
+from .structure_approach import (FieldRegion, apply_plates, standing_cover,
                                  approach_ground as _approach_ground,
-                                 carriageway_width_m,
+                                 carriageway_width_m, cut_gap_cells,
                                  chains, field_region_for, mouth_reports, under_cover,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
@@ -162,17 +162,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     extra_groups = list(extra_groups)
     tunnel_ways = [w for w in airport.osm_ways
                    if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
-    # A GAP PIECE NEVER LEADS (spec §53 (18)): the structures are derived
-    # over the STANDING cells only — a ramp's climb, a wall band's stops and
-    # a deck's intervals read ``cells``, and a piece beside a tunnel would
-    # re-shape it (MEASURED at HECA: 15 wall / ramp vertices the base map
-    # does not carry).  The pieces are set aside and cut by the finished
-    # footprints at the end.  ``cover_polygons`` is the same standing cover
-    # (one derivation with the kerb corridors' field), index-aligned.
-    from ..model.planar import is_gap_ref
-    gap_cells = [c for c in classification.cells if is_gap_ref(c.ref)]
-    cells = [c for c in classification.cells if not is_gap_ref(c.ref)]
-    polys = cover_polygons(classification)
+    cells, gap_cells, polys = standing_cover(classification)   # §53 (18): a gap piece never leads
     # A BRIDGE STATES THE CROSSING (spec §34 (5); ARMED at round 2,
     # RULINGS 2026-09-13ai): an ``aeroway`` ``bridge=yes layer >= 1`` way
     # over a road seeds a bore the OSM data never tagged — neither measured
@@ -955,7 +945,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     knife = unary_union(footprints)
     hull_knife = unary_union(hull_knives) if hull_knives else None
     out_cells: list[Cell] = []
-
     def _cut(c: Cell, p, blade) -> None:
         if c.role in RUNWAY_FAMILY or blade is None or not p.intersects(blade):
             out_cells.append(c)
@@ -994,15 +983,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         out_cells.append(Cell(len(out_cells), role, ref, tuple(part.exterior.coords)[:-1],
                               tuple(tuple(h.coords)[:-1] for h in part.interiors),
                               None, None, role_side(law, role), "structure", {}))
-    if gap_cells:
-        # spec §53 (13): a gap piece STANDS OFF a structure as it stands off
-        # every standing cell — the footprints grown by the stand-off.  LAST,
-        # so every standing and structure cell keeps the base map's place.
-        from ..classify.gap_mint import standoff_m
-        gap_knife = None if knife.is_empty else knife.buffer(
-            standoff_m(law), join_style="mitre", mitre_limit=2.0)
-        for c in gap_cells:
-            _cut(c, Polygon(c.ring, c.holes), gap_knife)
+    cut_gap_cells(gap_cells, knife, law, _cut)   # §53 (13), LAST: stood off the footprints
     out_cells = [_dc.replace(c, id=i) for i, c in enumerate(out_cells)]
     cl = _dc.replace(classification, cells=tuple(out_cells),
                      cut_lines=tuple(cut_lines),

@@ -774,7 +774,6 @@ edge_road_run_m  = 30.0
 # mutually unsatisfiable (CYXY: 127/1432 ring chords missed by up to 0.77 m
 # under the soft solve, spec §6 deviation 8).
 hard_rulings = [
-  "gap_piece follows its standing neighbour across the stand-off",   # spec §53 (13): a Band on a piece vertex against a CONSTANT of the earlier stages (last stage only)
   "rulesets.runway.transverse_max",                      # 05o: flat laterally within the crown drop
   "rulesets.runway.vertical_curve_k_m / max_grade_change",  # 06b law 1: the vertical curve K
   "rulesets.runway.longitudinal",                        # the runway's max grade along the profile
@@ -792,6 +791,7 @@ hard_rulings = [
   "common.roles.apron on the shared edge portion",       # the same (RULINGS 2026-09-30bj #149 disposition: the hard apron set is ring edges, frontage chords, edge portions, stationed chords and plane_gradient on apron faces; the STRICT 60 m body chords are PRICED and promoted pair by pair only where the solve misses one — `apron_promote_on_miss_rulings`)
   "apron body chord, stationed across the face",         # the same
   "tunnel.bore_datum_m",                                 # §33 (5) (Fable 2026-09-15; RULINGS 2026-09-15h): the mouth's floor is `rim - bore_datum_m` HOWEVER its station was taken.  MEASURED soft at LEMD tunnel:-15327@0 (owner 15e item 5, "doesn't seem to be providing the right depth"): the datum equality LOST 2.17 m - floor 599.25 against its own 597.08, under a rim solving 602.16 = the DEM it is pinned at - and the census named it 32 times (`tunnel_mouth_canonical`).  A weight contest is not a law
+  "gap_piece follows its standing neighbour across the stand-off",   # spec §53 (13): a Band on a piece vertex against a CONSTANT of the earlier stages (last stage only)
 ]
 # THE APRON'S PLANE ROW IS HARD ON THE APRON ONLY (flat-pad spec v2 §5, owner
 # RULINGS 2026-09-30be/30bf): ``plane_gradient`` is minted on EVERY governed

@@ -755,10 +755,6 @@ def test_the_parent_reads_a_workers_console_as_utf8(monkeypatch, capsys):
 #: ``text=True`` alone is the honest spelling — or a recorded debt.
 _LOCALE_PIPE_READERS = {
     "O4_Parallel_Utils.py": "/usr/bin/vm_stat — macOS only, ASCII",
-    "O4_MSFS_XPlane_Pack.py": "DSFTool's own messages (not an engine "
-                              "child; a strict locale decode — reported "
-                              "with #125, not fixed there)",
-    "dsf_write.py": "DSFTool again (the object stage's writer; same note)",
     "provenance.py": "git rev-parse / status — ASCII",
 }
 
@@ -794,3 +790,80 @@ def test_no_engine_module_reads_a_child_in_the_locale_encoding():
         "a child pipe read as text without encoding= (cp1252 on Windows), "
         "or a stale exemption: %s" % sorted(
             offenders ^ set(_LOCALE_PIPE_READERS)))
+
+# ──────────────────────────────────────────────────────────────────────
+# #419: DSFTool is a NATIVE child — its messages are not the engine's UTF-8
+# ──────────────────────────────────────────────────────────────────────
+#: What DSFTool echoes on a failure: the path it was given.  ``á`` is E1 in
+#: cp1252 (invalid as UTF-8); ``Á`` is C3 81 in UTF-8 (0x81 is undefined
+#: in cp1252) — each spelling raises under the other strict decode.
+DSFTOOL_PATH_LINE = "ERROR: cannot open C:\\Users\\Suárez\\Ángel\\+40-130.dsf"
+
+_STUB_DSFTOOL = (
+    "import sys; "
+    "sys.stderr.buffer.write((%r + '\\n').encode(sys.argv[1])); "
+    "sys.exit(1)" % DSFTOOL_PATH_LINE)
+
+
+def _stub_dsftool(written_in):
+    return [sys.executable, "-c", _STUB_DSFTOOL, written_in]
+
+
+@pytest.mark.parametrize("platform, ansi, expected", [
+    ("linux", "ANSI_X3.4-1968", "utf-8"),
+    ("darwin", "US-ASCII", "utf-8"),
+    ("win32", "cp1252", "cp1252"),
+])
+def test_native_tool_encoding_is_the_ansi_page_on_windows_utf8_elsewhere(
+        monkeypatch, platform, ansi, expected):
+    monkeypatch.setattr(CE.sys, "platform", platform)
+    monkeypatch.setattr(CE.locale, "getencoding", lambda: ansi, raising=False)
+    assert CE.native_tool_encoding() == expected
+    assert CE.native_tool_pipe() == {"text": True, "encoding": expected,
+                                     "errors": CE.READ_ERRORS}
+
+
+@pytest.mark.parametrize("machine", ["utf-8", "cp1252"])
+@pytest.mark.parametrize("written_in", ["utf-8", "cp1252"])
+def test_dsf_write_reports_a_dsftool_failure_whatever_its_path_encoding(
+        monkeypatch, machine, written_in):
+    """``dsf_write._run`` decoded DSFTool's stderr strictly in the locale:
+    a non-ASCII path the tool echoed in another encoding raised
+    ``UnicodeDecodeError`` in place of the tool's own failure.  The machine
+    (what :func:`native_tool_encoding` answers) and what the tool wrote
+    are crossed; the failure is always the ``RuntimeError`` carrying the
+    message, exact when the two agree."""
+    from auto_patch_v2.airport import dsf_write
+
+    monkeypatch.setattr(CE, "native_tool_encoding", lambda: machine)
+    with pytest.raises(RuntimeError) as caught:
+        dsf_write._run(_stub_dsftool(written_in))
+    message = str(caught.value)
+    assert "cannot open C:" in message and "+40-130.dsf" in message
+    if machine == written_in:
+        assert DSFTOOL_PATH_LINE in message
+
+
+@pytest.mark.parametrize("machine", ["utf-8", "cp1252"])
+@pytest.mark.parametrize("written_in", ["utf-8", "cp1252"])
+def test_msfs_pack_reports_a_dsftool_failure_whatever_its_path_encoding(
+        monkeypatch, tmp_path, machine, written_in):
+    """The same defect in ``O4_MSFS_XPlane_Pack.write_overlay_dsf``: the
+    stub stands in for the DSFTool binary (the command's first word)."""
+    import O4_MSFS_XPlane_Pack as PACK
+
+    real_run = PACK.subprocess.run
+
+    def stub_run(args, **kwargs):
+        return real_run(_stub_dsftool(written_in), **kwargs)
+
+    monkeypatch.setattr(CE, "native_tool_encoding", lambda: machine)
+    monkeypatch.setattr(PACK.subprocess, "run", stub_run)
+    placements = [PACK.PlacedObject("objects/a.obj", -121.5, 44.5, 0.0)]
+    with pytest.raises(RuntimeError) as caught:
+        PACK.write_overlay_dsf(tmp_path / "MSFS Convert - STUB", placements,
+                               [], tmp_path / "DSFTool")
+    message = str(caught.value)
+    assert "DSFTool --text2dsf failed" in message and "+40-130.dsf" in message
+    if machine == written_in:
+        assert DSFTOOL_PATH_LINE in message

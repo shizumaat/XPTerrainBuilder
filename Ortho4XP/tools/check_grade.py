@@ -1465,10 +1465,11 @@ def _ring_width_m(pts: List[Tuple[float, float]]) -> float:
         return 0.0
     try:
         from shapely.geometry import Polygon as _Poly
+        from auto_patch_v2.geom.rotated_rect import rotated_rectangle
         poly = _Poly(pts)
         if poly.area < 1e-6:
             return 0.0
-        rect = poly.minimum_rotated_rectangle
+        rect = rotated_rectangle(poly)          # the engine's ONE guard
         coords = list(rect.exterior.coords)
     except Exception:
         return 0.0

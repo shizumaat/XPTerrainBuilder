@@ -110,6 +110,10 @@ def _scenery_pack_order(xplane_root: str) -> list[str]:
     return list(reversed(ordered_high_to_low))
 
 
+#: the directives :func:`_parse_library_txt` merges into the index
+_MERGED_EXPORTS = ("EXPORT", "EXPORT_EXTEND", "EXPORT_BACKUP", "EXPORT_RATIO")
+
+
 def _parse_library_txt(lib_path: str, index: dict[str, str]) -> None:
     """Merge the ``EXPORT*`` directives of one ``library.txt`` into
     ``index`` (virtual-path → absolute physical-path).  Later calls
@@ -425,6 +429,39 @@ def get_library_index(xplane_root: str) -> dict[str, str]:
 
         _LIB_INDEX_CACHE[key] = index
         return index
+
+
+_OTHER_EXPORTS_CACHE: dict[str, frozenset[str]] = {}
+
+
+def other_export_names(xplane_root: str) -> frozenset[str]:
+    """The lower-cased names mentioned by every ``EXPORT*`` directive
+    :func:`_parse_library_txt` does NOT merge (seasonal, excluding and
+    any later variant) across the install's ``library.txt`` set.
+
+    For the missing-art check alone (RULINGS 2026-10-06c): a name here is
+    one X-Plane may still resolve, so the check never calls it missing.
+    Deliberately OVER-inclusive — every one of a directive's leading
+    arguments is kept, whatever that variant's argument order — and
+    never merged into the index, whose content decides geometry.  Parses
+    the files (no sidecar): asked only when a pack looks broken."""
+    key = os.path.abspath(xplane_root)
+    cached = _OTHER_EXPORTS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    names: set[str] = set()
+    for source in _library_source_files(xplane_root):
+        try:
+            with open(source, "r", encoding="utf-8", errors="replace") as f:
+                for raw in f:
+                    tok = raw.split()
+                    if (tok and tok[0].startswith("EXPORT")
+                            and tok[0] not in _MERGED_EXPORTS):
+                        names.update(t.lower() for t in tok[1:4])
+        except OSError:
+            continue
+    _OTHER_EXPORTS_CACHE[key] = frozenset(names)
+    return _OTHER_EXPORTS_CACHE[key]
 
 
 def resolve_library_path(virtual_path: str,

@@ -707,10 +707,190 @@ def _placement_surface(mesh_sample):
     return _surface
 
 
+# ── MISSING ART (owner RULINGS 2026-10-06c, issue #433) ──────────────────
+# X-Plane drops a WHOLE pack when its DSF declares one definition it
+# cannot find.  Before the object stage reads or rewrites a pack's DSF the
+# declared definitions are resolved (``auto_patch_v2.airport.pack_art``);
+# a pack that fails is NAMED — one log line, one ``PackMissingArt`` event —
+# and the DSF is written without the missing definitions ONLY when the
+# user accepted that: the build request's ``missing_art="omit"``, or the
+# pack's record already holding the acceptance of THIS pristine DSF and
+# THIS missing set.  Nothing is omitted silently, and a harness / lane
+# build (measure-only) only reports.
+
+#: the build request's ``missing_art`` keyword for an in-process build
+#: (``"omit"`` | ``"leave"`` | ``None`` = warn and leave the pack as it is;
+#: a worker child carries it on its tile configuration instead)
+MISSING_ART_POLICY: str | None = None
+
+
+def set_missing_art_policy(policy: str | None) -> None:
+    """The session's setter (``o4_engine.session.build``)."""
+    global MISSING_ART_POLICY
+    MISSING_ART_POLICY = policy if policy in ("omit", "leave") else None
+
+
+class _PackArt(_t.NamedTuple):
+    """One pack's missing-art verdict for one tile's DSF."""
+
+    pack_name: str
+    dsf_path: str
+    missing: tuple        # ``pack_art.MissingDef`` rows; () = all installed
+    omit: bool            # the user accepted building without them
+    stale: bool           # the live DSF carries an omission that no longer holds
+
+
+def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,
+              policy: str | None) -> "_PackArt | None":
+    """THE CHECK for one pack's tile DSF, or ``None`` when there is nothing
+    to judge (no DSF, no dump, no library index, a pack X-Plane does not
+    load or this engine does not write).  ``read_only`` never runs
+    DSFTool: the cached dump or nothing."""
+    import O4_File_Names as FNAMES
+    import O4_Scenery_Packs as _SP
+    from auto_patch_v2.airport import backup_state as _bs
+    from auto_patch_v2.airport import dsf as _dsf2
+    from auto_patch_v2.airport import obj8 as _obj8
+    from auto_patch_v2.airport import pack_art as _pa
+    from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+    from auto_patch_v2.airport.file_hash import sha256_file
+    from . import agp_reader as _agp
+    from . import dsf_reader as _DSFR
+    from .post_mesh import _is_protected_scenery_root
+
+    if (not pack_root or not os.path.isdir(pack_root)
+            or _is_protected_scenery_root(pack_root)
+            or not _SP.pack_enabled(pack_root)):
+        return None
+    dsf_path = _dsf2.dsf_path_in_pack(pack_root, lat, lon)
+    if not os.path.isfile(dsf_path):
+        return None
+    pack_name = os.path.basename(os.path.normpath(pack_root))
+    mod_root = FNAMES.airport_mod_cache_root()
+    pristine = pristine_dsf_path(dsf_path)
+    dump_path = (_dsf2.find_text_dump(mod_root, pack_name, lat, lon, pristine)
+                 if read_only else _DSFR.ensure_dsf_text_path(
+                     pristine, _dsf2.mod_cache_dir(mod_root, pack_name)))
+    if not dump_path:
+        return None
+    xroot = os.path.dirname(os.path.dirname(os.path.abspath(pack_root)))
+    index = _obj8.read_library_index(_obj8.library_index_path(mod_root, xroot))
+    missing = _pa.missing_definitions(
+        pack_root, dump_path, index, lambda: _agp.other_export_names(xroot))
+    if missing is None:
+        return None
+    entry = _bs.dsf_entry(_bs.read_record(dsf_path), os.path.basename(dsf_path))
+    recorded = isinstance(entry.get("omitted_art"), dict)
+    omit = False
+    if missing and _pa.can_omit(missing) and policy != "leave":
+        omit = policy == "omit" or _pa.accepted(
+            entry, sha256_file(pristine), missing)
+    stale = recorded and not (omit and _pa.accepted(
+        entry, sha256_file(pristine), missing))
+    return _PackArt(pack_name, dsf_path, tuple(missing), omit, stale)
+
+
+def _announce_pack_art(art: "_PackArt", pack_root: str, lat: int, lon: int,
+                       state: str, error: str = "") -> None:
+    """The one log line and the one ``PackMissingArt`` event of a pack
+    that fails the check."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import pack_art as _pa
+    UI.vprint(0, "  " + _pa.log_line(art.pack_name, art.missing)
+              + {"omitted": " — written WITHOUT them, as you accepted "
+                            "(the original DSF is kept as its backup)",
+                 "failed": f" — the DSF without them could not be written "
+                           f"({error})"}.get(state, ""))
+    UI.pack_missing_art(pack=art.pack_name, pack_root=pack_root, lat=lat,
+                        lon=lon, state=state, error=error,
+                        **_pa.summary(art.missing))
+
+
+def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
+    """Write the pack DSF with NO edit of this airport's but the art
+    decision: without ``art.missing`` when the user accepted, with
+    everything back when an earlier omission no longer holds.  Every
+    airport's recorded placement edits are re-applied (#25's composition);
+    the dump cache is refreshed as the object stage refreshes it."""
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import dsf as _dsf2
+    from auto_patch_v2.airport import dsf_write as _dw
+    from auto_patch_v2.model.placement import (BACKUP_SUFFIX, PlacementPlan,
+                                               Provenance)
+    from . import dsf_reader as _DSFR
+    plan = PlacementPlan("", art.pack_name, pack_root, art.dsf_path,
+                         art.dsf_path + BACKUP_SUFFIX,
+                         Provenance("", _engine_version(), "", {}))
+    _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
+                   allow_live_install=True, engine_version=_engine_version(),
+                   omit=art.missing if art.omit else ())
+    _DSFR.ensure_dsf_text_path(art.dsf_path, _dsf2.mod_cache_dir(
+        FNAMES.airport_mod_cache_root(), art.pack_name))
+
+
+def omit_missing_art(pack_root: str, lat: int, lon: int) -> dict:
+    """THE OFFER, ACCEPTED outside a build (the ``omit_missing_art``
+    command): re-check the pack and write its DSF without what is still
+    missing.  Returns the ``PackMissingArt`` fields, ``state`` saying what
+    happened (``"omitted"`` | ``"failed"`` | ``"none"`` — nothing missing
+    any more).  Never raises."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import pack_art as _pa
+    out = {"pack": os.path.basename(os.path.normpath(pack_root or "")),
+           "pack_root": pack_root, "lat": int(lat), "lon": int(lon),
+           "state": "none", "error": ""}
+    art = None
+    try:
+        art = _pack_art(pack_root, int(lat), int(lon), read_only=False,
+                        policy="omit")
+        if art is None or not art.missing:
+            return out
+        out.update(_pa.summary(art.missing))
+        if not art.omit:
+            raise RuntimeError("a terrain definition cannot be omitted")
+        _write_art_only(art, pack_root)
+        out["state"] = "omitted"
+    except Exception as exc:
+        out["state"], out["error"] = "failed", str(exc)
+        UI.vprint(2, traceback.format_exc())
+    if art is not None and art.missing:
+        _announce_pack_art(art, pack_root, int(lat), int(lon), out["state"],
+                           out["error"])
+    return out
+
+
+def _art_stage(plan_, tile, *, writes: bool, place: bool) -> "_PackArt | None":
+    """The missing-art step of ONE airport's pack, ahead of its object
+    stage.  Names a failing pack; when no placement write follows
+    (``place`` False) and the art decision still changes the DSF, writes
+    it here.  Returns the verdict for the placement write to carry."""
+    policy = getattr(tile, "missing_art", None) or MISSING_ART_POLICY
+    art = _pack_art(plan_.pack_root, tile.lat, tile.lon, read_only=not writes,
+                    policy=policy)
+    if art is None or not (art.missing or art.stale):
+        return None
+    state, error = "found", ""
+    if writes and not place and (art.omit or art.stale):
+        try:
+            _write_art_only(art, plan_.pack_root)
+            state = "omitted" if art.omit else "found"
+        except Exception as exc:
+            state, error = ("failed", str(exc)) if art.omit else ("found", "")
+    elif writes and place and art.omit:
+        state = "omitted"              # the placement write carries it
+    if art.missing:
+        _announce_pack_art(art, plan_.pack_root, tile.lat, tile.lon, state,
+                           error)
+    return art
+
+
 def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
-                   write_enabled: bool, measure_only: bool) -> dict:
+                   write_enabled: bool, measure_only: bool,
+                   omit: _t.Sequence = ()) -> dict:
     """One airport's placement write (RULINGS 2026-09-11e (3)).  Returns
-    the counts; raises nothing the caller does not already catch."""
+    the counts; raises nothing the caller does not already catch.
+    ``omit`` is the missing art the user accepted to build without
+    (:func:`_art_stage`); the DSF write drops it."""
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import dsf as _dsf2
@@ -863,7 +1043,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             plan, files, _DSFR._dsftool_path() or "DSFTool", patch_dir=patch_dir,
             allow_live_install=True,
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
-            engine_version=_engine_version(), law_digest=digest)
+            engine_version=_engine_version(), law_digest=digest, omit=omit)
     except BackupUnproven as exc:
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
         # touched — not the DSF, not an object, not a cut file: a pack
@@ -1059,6 +1239,11 @@ def rebake_after_mesh(tile) -> dict:
                         counts["airports_skipped_stale_plan"] = \
                             counts.get("airports_skipped_stale_plan", 0) + 1
                         continue
+                # #433: THE PACK'S MISSING ART, before its DSF is read or
+                # rewritten — and whether or not anything is placed
+                writes = bool(write_enabled and not measure_only)
+                art = _art_stage(plan_, tile, writes=writes,
+                                 place=bool(plan_.units))
                 if not plan_.units:
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "
                                  f"({len(plan_.skipped)} resource(s) skipped at plan time)")
@@ -1113,8 +1298,10 @@ def rebake_after_mesh(tile) -> dict:
 
                 # THE PLACEMENT PATH (11e (3); the ONLY object stage
                 # since 2026-09-12s) — no seat is computed
-                pc = _place_objects(plan_, law, _sample, tile, patch_dir,
-                                    write_enabled, measure_only)
+                pc = _place_objects(
+                    plan_, law, _sample, tile, patch_dir, write_enabled,
+                    measure_only,
+                    omit=art.missing if art is not None and art.omit else ())
                 counts["airports"] += 1
                 for k, v in pc.items():
                     if k in ("packs_written",):

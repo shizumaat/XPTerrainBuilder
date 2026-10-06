@@ -418,14 +418,14 @@ def test_the_driver_stamps_the_engine_into_every_task_and_freshness_block():
 def test_the_freeze_spec_bundles_the_v2_law_tables_and_modules():
     spec = (ENGINE_ROOT / "Ortho4XP.spec").read_text(encoding="utf-8")
     assert re.search(r'auto_patch_v2.*law.*\*\.toml', spec), \
-        "the eight law tables must be PyInstaller datas"
+        "the seven law tables must be PyInstaller datas"
     assert re.search(r'auto_patch_v2.*classify.*\*\.toml', spec)
     assert "collect_submodules('auto_patch_v2')" in spec
     assert "v2_law_datas" in spec and "raise SystemExit" in spec, \
         "a freeze without the tables must fail at freeze time"
     tables = sorted(p.name for p in (ENGINE_ROOT / "src/auto_patch_v2/law").glob("*.toml"))
     from auto_patch_v2.law.model import TABLE_FILES
-    assert tables == sorted(TABLE_FILES), tables      # eight since 2026-09-10ap
+    assert tables == sorted(TABLE_FILES), tables      # seven: airports.toml deleted, RULINGS 2026-10-05g
     # the count guard must cover the tables the glob actually picks up
     n = len(tables) + 1                                # + classify/rules.toml
     assert re.search(rf"len\(v2_law_datas\) < {n}\b", spec), \
@@ -484,3 +484,22 @@ def test_the_qt_app_offers_no_engine_control():
     qt = ENGINE_ROOT / "Ortho4XP_Qt.py"
     if qt.is_file():
         assert "auto_patch_engine" not in qt.read_text(errors="ignore", encoding="utf-8")
+
+
+def test_the_pool_account_reaches_the_tile_log_at_verbosity_0(monkeypatch, capsys):
+    """issue #395: under the auto-patch log knob (verbosity 0) the v2
+    per-stage lines stay quiet, but the work pool's account prints — and
+    the driver's loop asks ``v2_line_verbosity`` for every line."""
+    import inspect
+    lines = ["[ZZZZ] load 1.00 s  runways 1",
+             "  [partition] cache MISS /x/o4_v2_partition.cache",
+             "  [pool] workers 8 (bound: cores): 12 task(s) answered by workers in 0.5 s",
+             "  [pool] FELL BACK: a worker died — this stage continues on one core",
+             "[pool] pack reader 'door_wells' is read on one core: unpicklable"]
+    assert [E2.v2_line_verbosity(ln) for ln in lines] == [1, 1, 0, 0, 0]
+    monkeypatch.setattr(UI, "verbosity", 0)
+    for ln in lines:
+        UI.vprint(E2.v2_line_verbosity(ln), "   [v2]", ln)
+    said = capsys.readouterr().out.splitlines()
+    assert len(said) == 3 and all("[pool]" in s for s in said)
+    assert "v2_line_verbosity(_ln)" in inspect.getsource(DRIVER)

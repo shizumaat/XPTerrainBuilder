@@ -32,6 +32,7 @@ from .apt_dat import LonLat, _bezier, _segments_for, _sparsify, _LAT_SCALE
 import math
 
 __all__ = ["DsfPolygon", "DsfPlacement", "DsfDump", "find_text_dump",
+           "content_keyed_dump",
            "read_dump", "pol_surface", "pavement_gate", "building_role_for_def", "read_footprint_cache",
            "mod_cache_dir"]
 
@@ -110,29 +111,79 @@ def text_dump_tag(dsf_path: str) -> str:
         return hashlib.sha1(os.path.abspath(dsf_path).encode("utf-8")).hexdigest()[:8]
 
 
+def content_keyed_dump(cache_dir: str, dsf_path: str) -> str | None:
+    """THE dump of THIS DSF's bytes in ``cache_dir`` — located by the
+    content tag, whatever the DSF file is called today (#370).
+
+    ``<own basename>.<tag>.text`` first, so a lookup that already
+    succeeded answers the same path; else the same tile DSF's dump under
+    another of its names (``<tile>.dsf.<tag>.text`` for a
+    ``<tile>.dsf.anchor_bak`` and the reverse), lowest name first.  The
+    object stage RENAMES the pristine DSF to ``.anchor_bak``: same bytes,
+    same tag, and DSFTool's output differs only in its ``# file:``
+    comment — OTHH 2026-10-04 refused on a missing
+    ``+25+051.dsf.anchor_bak.4229c95f.text`` beside a good
+    ``+25+051.dsf.4229c95f.text``.  The TAG is the identity (RULINGS
+    2026-09-11m), so two different DSFs never share a dump; a dump older
+    than the DSF or of 0 bytes (#60) is refused as before.
+
+    The ONE locator: ``find_text_dump`` (the loader, the harness
+    pre-flight) and v1 ``dsf_reader.ensure_dsf_text_path`` (every
+    DSFTool run) both ask it."""
+    try:
+        dsf_mtime = os.path.getmtime(dsf_path)
+        names = os.listdir(cache_dir)
+    except OSError:
+        return None
+    base = os.path.basename(dsf_path)
+    cut = base.lower().find(".dsf")
+    stem = (base[:cut + 4] if cut >= 0 else base) + "."
+    tail = f".{text_dump_tag(dsf_path)}.text"
+    own = base + tail
+    # names are compared CASE-FOLDED: a Windows pack's ``+25+051.DSF`` and
+    # the ``.dsf`` this engine spells are one file there, and the tag —
+    # the content — is what makes a match safe on any file system
+    stem, tail = stem.lower(), tail.lower()
+    for name in [own] + sorted(n for n in names if n != own
+                               and n.lower().startswith(stem)
+                               and n.lower().endswith(tail)):
+        path = os.path.join(cache_dir, name)
+        try:
+            if (os.path.isfile(path) and os.path.getsize(path) > 0
+                    and os.path.getmtime(path) >= dsf_mtime):
+                return path
+        except OSError:
+            continue
+    return None
+
+
 def find_text_dump(mod_cache_root: str, pack_name: str, lat: int,
                    lon: int, dsf_path: str | None = None) -> str | None:
     """The cached ``<tile>.dsf[.<tag>].text`` for the pack's tile DSF.
 
-    With ``dsf_path`` the dump is chosen the way the engine's cache
-    wrote it — ``<tile>.dsf.<tag>.text`` for THIS DSF path — and a dump
-    older than the DSF is REFUSED (``None``): OTHH's pack gained its
-    tunnel objects on 2026-09-04 and the name-sorted pick served the
-    legacy ``+25+051.dsf.text`` of 07-30 over the fresh
-    ``+25+051.dsf.e9df4ffc.text`` (``'t' > 'e'``), so no v2 build saw
-    them.  Without ``dsf_path`` (a fixture) the newest dump by mtime.
+    With ``dsf_path`` the dump is the one bearing THIS DSF's content tag
+    (:func:`content_keyed_dump` — under its own name or a renamed
+    copy's, #370), and a dump older than the DSF is REFUSED (``None``):
+    OTHH's pack gained its tunnel objects on 2026-09-04 and the
+    name-sorted pick served the legacy ``+25+051.dsf.text`` of 07-30
+    over the fresh ``+25+051.dsf.e9df4ffc.text`` (``'t' > 'e'``), so no
+    v2 build saw them.  Without ``dsf_path`` (a fixture) the newest dump
+    by mtime.
 
-    The candidate set is the dumps named for THIS FILE (RULINGS
-    2026-09-11m): with ``dsf_path`` the prefix is its own basename, so a
-    dump of the WRITTEN ``<tile>.dsf`` can never be served for the
+    A dump bearing a DIFFERENT tag is never served (RULINGS 2026-09-11m):
+    the dump of the WRITTEN ``<tile>.dsf`` cannot stand in for the
     PRISTINE ``<tile>.dsf.anchor_bak`` the plan is read from, nor the
-    other way round — both start ``<tile>.dsf.`` and the freshness
-    fallback below would otherwise pick whichever was made last.  The
-    tile-wide prefix stays for the no-``dsf_path`` fixture case.
+    other way round.  The only untagged fallback is the legacy dump
+    named for THIS FILE.  The tile-wide prefix stays for the
+    no-``dsf_path`` fixture case.
     """
     d = mod_cache_dir(mod_cache_root, pack_name)
     if not os.path.isdir(d):
         return None
+    if dsf_path and os.path.isfile(dsf_path):
+        keyed = content_keyed_dump(d, dsf_path)
+        if keyed:
+            return keyed
     prefix = (os.path.basename(dsf_path) + "."
               if dsf_path else f"{lat:+03d}{lon:+04d}.dsf.")
     # a 0-byte dump is a DSFTool run that died before writing (#60) — a
@@ -148,9 +199,6 @@ def find_text_dump(mod_cache_root: str, pack_name: str, lat: int,
     if dsf_path and os.path.isfile(dsf_path):
         dsf_mtime = os.path.getmtime(dsf_path)
         base = os.path.basename(dsf_path)
-        keyed = os.path.join(d, f"{base}.{text_dump_tag(dsf_path)}.text")
-        if os.path.isfile(keyed) and os.path.getmtime(keyed) >= dsf_mtime:
-            return keyed
         # §12a (3) row 11: NEVER ``max(fresh)`` ACROSS TAGS.  That fallback
         # served ANY dump of this file name newer than the DSF's mtime —
         # and an ADOPTED DSF carries its author's (old) mtime, so the OLD

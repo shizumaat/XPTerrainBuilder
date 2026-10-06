@@ -605,3 +605,51 @@ def test_terrace_actual_step_prices_a_base_step_joint_as_declared():
         ways, nodes, ll_to_m, 0.015)
     assert bare and max(v.de_m for v in bare) >= declared - 1e-9, \
         [v.de_m for v in bare]
+
+
+# ── issue #395: the roof test's erosion on a plane with a zero-size hole ──
+
+#: A hole MEASURED in a plane's face union (pack-local metres): a triangle
+#: two of whose vertices stand one float apart — 8e-17 m², valid, and the
+#: input on which GEOS's mitred offset trips the floating-point flags.
+_ZERO_HOLE = [(15.64295228173896, -457.0704381155334),
+              (15.642952281738959, -457.0704381155334),
+              (15.577992, -457.1622)]
+
+
+def _plane_with_a_zero_size_hole():
+    from shapely.geometry import Polygon
+    poly = Polygon([(0, -470), (30, -470), (30, -440), (0, -440)], [_ZERO_HOLE])
+    assert poly.is_valid and Polygon(_ZERO_HOLE).area < 1e-12
+    return poly
+
+
+def test_the_roof_tests_erosion_is_silent_on_a_zero_size_hole():
+    """The degenerate input, no warning, the same result: ``_eroded`` is
+    GEOS's own erosion byte for byte, with nothing on stderr."""
+    import warnings
+    poly = _plane_with_a_zero_size_hole()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        got = BP._eroded(poly, 0.5)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        want = poly.buffer(-0.5, join_style=2, mitre_limit=2.0)
+    assert got.wkb == want.wkb and not got.is_empty
+    # the slit hole ERODES INTO A REAL ONE: it cannot simply be dropped
+    assert got.area < 29.0 * 29.0 - 0.5
+
+
+def test_the_roof_test_reads_a_plane_with_a_zero_size_hole_silently(tmp_path):
+    import dataclasses
+    import warnings
+    import numpy as np
+    prof = _profile(tmp_path, "flat.obj", [_slab(0.0, 0.0, 20.0, 20.0, 0.0, base=-1.0)])
+    plane = dataclasses.replace(prof.planes[0], y=0.0,
+                                polygon=_plane_with_a_zero_size_hole())
+    v = np.array([[10.0, -5.0, -455.0], [12.0, -5.0, -450.0], [14.0, 0.0, -452.0]])
+    used = np.ones(3, dtype=bool)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        got = BP._roof_test(v, used, plane, 1.0, 0.5, 3.0, 0.25)
+    assert got is not None and got.trimmed_m2 > 0.0      # a base, trimmed

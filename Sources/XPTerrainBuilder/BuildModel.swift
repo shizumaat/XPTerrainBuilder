@@ -1255,6 +1255,15 @@ final class BuildModel: ObservableObject {
             activity.reset()
             isBuilding = true
             isStopping = false
+            // THE RUN BOUNDARY: the build request that opens a run starts a
+            // fresh engine-stderr.log (twin: O4_Qt_GUI._start_run_now).
+            EngineStderrLog.shared.startRun(
+                appVersion: AppVersion.current,
+                engineVersion: protocolHello?.version ?? schema.engineVersion,
+                tiles: todo.map(\.key))
+        } else {
+            EngineStderrLog.shared.append(
+                EngineStderrLog.queuedLine(tiles: todo.map(\.key)))
         }
         clearProgressTask?.cancel()
         for coord in todo where activity.tiles[coord] == nil {

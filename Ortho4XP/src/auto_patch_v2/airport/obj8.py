@@ -59,6 +59,8 @@ __all__ = ["ObjGeometry", "Component", "PlacedObject", "FloorWitness", "ObjRepor
            "solid_components", "library_index_path", "read_library_index",
            "resolve_resource", "is_stock_library_resource", "placement_affine",
            "read_placed_objects", "above_grade_footprint", "at_grade_geometry", "ResourceCache",
+           "derive_base_profile", "read_ahead", "ReadLaw", "read_placement",
+           "placement_grounds",
            "area_fraction_above", "GradeStats",
            "HARD", "HARD_DECK"]
 
@@ -308,6 +310,38 @@ def _to_frame(xy: XY, heading_deg: float, x: float, z: float) -> XY:
     return (xy[0] + x * c - z * s, xy[1] - (x * s + z * c))
 
 
+def read_ahead(cache, kind: str, path: str):
+    """Take the ``kind`` reading a work pool derived ahead for ``path``
+    off ``cache.pre`` (:class:`ResourceCache`), or ``None``."""
+    pre = getattr(cache, "pre", None)
+    return pre.pop((kind, path), None) if pre else None
+
+
+def derive_base_profile(g: "ObjGeometry | None", comps: list["Component"], law
+                        ) -> "BaseProfile":
+    """The base profile of one parsed resource under ``law`` — what
+    :meth:`ResourceCache.base_profile` memoises (its doc carries the
+    table of law keys).  A function of the parse and the law alone, so a
+    work-pool worker derives the same record from its own parse."""
+    st = law.tables.structures
+    bp = st.base_profile
+    if g is None:
+        return BaseProfile("feet", why="resource did not parse")
+    return _base_profile(
+        g, comps,
+        horizontal_ny=float(bp.horizontal_ny),
+        roof_support_fraction=float(bp.roof_support_fraction),
+        sloped_min_extent_m=float(bp.sloped_min_extent_m),
+        sloped_max=float(bp.sloped_max),
+        min_area_m2=float(st.building_pad.min_area_m2),
+        split_tol_m=float(st.placement.split_tol_m),
+        contact_band_m=float(st.basin.contact_band_m),
+        pad_terrace_floor_m=float(law.tables.emit.terrace.pad_terrace_floor_m),
+        pad_frontage_m=float(law.tables.emit.design.pad_frontage_m),
+        min_distinct_spacing_m=float(law.tables.emit.identity.min_distinct_spacing_m),
+        pad_slope_max=float(law.tables.emit.within_shape.pad_slope_max))
+
+
 from .obj8_clip import (_clip, _union_rings, _split_at_plane,  # noqa: E402
                         _bulk_polys, _clip_component)
 from .obj8_grade import GradeStats, above_clip, both_clip  # noqa: E402
@@ -369,6 +403,12 @@ class ResourceCache:
         #: runs FIRST, at classify time, and the planar pass reuses it —
         #: the pack is read once, not twice).
         self.placed: dict[str, object] = {}
+        #: READINGS A WORK POOL COMPUTED AHEAD (issue #362; ``airport/
+        #: pack_work.py``): ``{(kind, path): reading}``.  A memo's own
+        #: derivation site takes its answer from here INSTEAD of deriving
+        #: it — at the moment, and so in the memo order, the serial read
+        #: derives it.  Never stored, never consulted for a hit.
+        self.pre: dict[tuple[str, str], object] = {}
 
     # ── the SMALL derived readings, carried across a cached partition ──
     #    (lane ``v2cost2``, owner RULINGS 2026-09-14v).  The parsed
@@ -445,25 +485,10 @@ class ResourceCache:
         got = self.base.get(path)
         if got is not None:
             return got                                     # type: ignore[return-value]
-        g = self.geometry(path)
-        st = law.tables.structures
-        bp = st.base_profile
-        if g is None:
-            prof = BaseProfile("feet", why="resource did not parse")
-        else:
-            prof = _base_profile(
-                g, self.components(path),
-                horizontal_ny=float(bp.horizontal_ny),
-                roof_support_fraction=float(bp.roof_support_fraction),
-                sloped_min_extent_m=float(bp.sloped_min_extent_m),
-                sloped_max=float(bp.sloped_max),
-                min_area_m2=float(st.building_pad.min_area_m2),
-                split_tol_m=float(st.placement.split_tol_m),
-                contact_band_m=float(st.basin.contact_band_m),
-                pad_terrace_floor_m=float(law.tables.emit.terrace.pad_terrace_floor_m),
-                pad_frontage_m=float(law.tables.emit.design.pad_frontage_m),
-                min_distinct_spacing_m=float(law.tables.emit.identity.min_distinct_spacing_m),
-                pad_slope_max=float(law.tables.emit.within_shape.pad_slope_max))
+        prof = read_ahead(self, "base", path)
+        if prof is None:
+            g = self.geometry(path)
+            prof = derive_base_profile(g, self.components(path) if g is not None else [], law)
         self.base[path] = prof
         return prof
 
@@ -671,6 +696,232 @@ class ObjReport:
     deck_records: tuple = ()
 
 
+@_dc.dataclass(frozen=True)
+class ReadLaw:
+    """The law numbers one placement's reading takes
+    (:func:`read_placed_objects`' arguments of the same names)."""
+
+    admission_depth_m: float
+    contact_band_m: float
+    shell_reaches_grade: bool
+    floor_plate_normal_y_min: float
+    rim_reaches_grade: bool
+    rim_protrusion_max_fraction: float
+    authored_depth_min_m: float
+
+
+#: One placement to read: ``(id, def path, resolved path, xy, heading, agl,
+#: kind, anchor_z, stock, grounds)`` — ``grounds`` the DEM under each
+#: genuine component's centroid, in component order, sampled by the caller
+#: (``None``: the placement failed the depth pre-screen, no component is
+#: read).  Everything a reading needs beside the resource file itself.
+PlacementJob = tuple
+
+
+def placement_grounds(cache: "ResourceCache", phys: str, xy: XY, heading: float,
+                      anchor_z: float, agl: float, admission_depth_m: float,
+                      dem_z: _t.Callable[[float, float], float]) -> tuple | None:
+    """THE DEM HALF of one placement's reading — the only part that needs
+    the terrain, so the only part that must run where the DEM is.  THE
+    PRE-SCREEN: the deepest authored vertex under the HIGHEST ground the
+    placement's extent touches — no component of a placement that fails
+    it can be below grade anywhere (``None``).  Past it, the ground under
+    every genuine component's centroid, in component order."""
+    vmin, _vmax, x0, x1, z0, z1 = cache.y_range(phys)
+    corners = [_to_frame(xy, heading, x, zz) for x in (x0, x1) for zz in (z0, z1)]
+    grounds = [anchor_z] + [float(dem_z(cx, cy)) for cx, cy in corners]
+    grounds = [z for z in grounds if not math.isnan(z)]
+    if not (vmin < math.inf and anchor_z + agl + vmin <= max(grounds) - admission_depth_m):
+        return None
+    return tuple(float(dem_z(*_to_frame(xy, heading, comp.cx, comp.cz)))
+                 for comp in cache.components(phys)
+                 if comp.max_y - comp.min_y >= cache.thickness_m)
+
+
+def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
+                   ) -> "tuple[PlacedObject, ObjReport]":
+    """ONE placement's reading and what it adds to the report — a function
+    of the resource file, the placement and the DEM samples in ``job``, so
+    a work-pool worker reads the same record from its own parse (issue
+    #362).  :func:`read_placed_objects` absorbs the report in input order."""
+    oid, dpath, phys, xy, heading, agl, kind, anchor_z, stock, samples = job
+    rep = ObjReport()
+    mat = placement_affine(xy, heading)
+    g = cache.geometry(phys)
+    below = bbox = deck = smin_z = smin_d = top = None
+    witnesses: list[FloorWitness] = []
+    buried_wits: list[FloorWitness] = []
+    deep_comps: list[int] = []
+    if g is not None and not stock:
+        base = anchor_z + agl               # the rendered y = 0 plane
+        vmin, vmax, x0, x1, z0, z1 = cache.y_range(phys)
+        corners = [_to_frame(xy, heading, x, zz) for x in (x0, x1) for zz in (z0, z1)]
+        bbox = Polygon(corners).convex_hull if vmin < math.inf else None
+        if samples is not None:
+            grounds = iter(samples)
+            deep_no_floor: tuple[float, float] | None = None
+            datum_note: tuple[float, float, float] | None = None
+            through: tuple[float, float] | None = None
+            protruding: tuple[float, float] | None = None
+            for ci, comp in enumerate(cache.components(phys)):
+                if comp.max_y - comp.min_y < cache.thickness_m:
+                    continue            # a decal never witnesses (§2.1)
+                local = float(next(grounds))
+                if math.isnan(local):
+                    local = anchor_z
+                # the component's rendered floor vs the ground under it
+                z_min = base + comp.min_y
+                depth = z_min - local
+                # THE DEPTH IS AUTHORED (RULINGS 2026-09-09ag, spec
+                # §13): a below-grade facility is a SUNKEN SOLID, so its
+                # floor stands ``law.authored_depth_min_m`` under the
+                # placement's OWN render datum as well as under the
+                # local ground.  When the datum sits UNDER the terrain,
+                # at-datum geometry reads "below grade" without ever
+                # having been sunk — a pack authored as ONE FLAT PLANE
+                # over real relief (LEMD, Aerosoft, 32 m under the
+                # terminal: a ground-floor slab authored 0.5 m under its
+                # own y = 0 reading 15 m under the local ground).  It is
+                # then not a deep part either, so nothing downstream
+                # (the basin region, the below-grade seat skip, the
+                # plate seat) sees it.  A datum ABOVE the ground never
+                # relaxes the gate — the ground still governs there (a
+                # pit dug through a rise is measured from the rise).
+                if base - z_min < law.authored_depth_min_m:
+                    if datum_note is None or local - base > datum_note[0]:
+                        datum_note = (local - base, depth, base - z_min)
+                    continue
+                if depth <= -law.admission_depth_m:   # 09w (1): a PART
+                    deep_comps.append(ci)
+                plane_below = local - base - law.admission_depth_m     # authored y
+                # THE BURIED SKIP IS A PIT-SEED TEST, NEVER A SUPPRESSION
+                # (spec §24 (7) (a), owner RULINGS 2026-09-14n item 1 /
+                # 2026-09-14p): a component whose whole shell stands under
+                # the ground cannot SEED a pit — it has no rim at grade —
+                # but its deep horizontal plate still WITNESSES DEPTH
+                # wherever it lies inside a region another placement's
+                # shell admitted.  At OTHH the 2,998 m2 floor slab of
+                # ``OTHH_Dewatering_02_LOD0_001.obj`` is exactly that: a
+                # SIBLING of the shell that founds basin:6, dropped here
+                # silently, leaving the pit witnessing 879 of 4,330 m2.
+                # So the plate is kept aside (``buried``) for the region
+                # pass to pick up, and every skipped component is NAMED
+                # with its area and depth.
+                if law.shell_reaches_grade and base + comp.max_y < local - law.contact_band_m:
+                    rep.buried_components += 1
+                    bw = _witness(g.vertices, comp, base, local, plane_below,
+                                  law.floor_plate_normal_y_min, mat, ci,
+                                  cache.input_quantum_m, rep.witness_degenerate, dpath) \
+                        if comp.min_y <= plane_below else None
+                    rep.buried_named.append(
+                        f"{os.path.basename(dpath)}#{ci}: "
+                        + (f"floor plate {bw.plate_area_m2:.0f} m2 " if bw is not None
+                           else "no floor plate, ")
+                        + f"top {base + comp.max_y - local:+.2f} m / floor {depth:+.2f} m "
+                          f"vs the ground under it — the shell never reaches grade "
+                          f"(buried, > contact_band_m {law.contact_band_m}): no pit SEED"
+                        + (", plate offered to any region that admits it (§24 (7) (a))"
+                           if bw is not None else ""))
+                    if bw is not None:
+                        buried_wits.append(bw)
+                    continue
+                if comp.min_y > plane_below:
+                    continue
+                if smin_z is None or z_min < smin_z:
+                    smin_z, smin_d = z_min, depth
+                w = _witness(g.vertices, comp, base, local, plane_below,
+                             law.floor_plate_normal_y_min, mat, ci,
+                             cache.input_quantum_m, rep.witness_degenerate, dpath)
+                if w is None:
+                    if deep_no_floor is None or depth < deep_no_floor[0]:
+                        deep_no_floor = (depth, z_min)
+                    continue
+                # THE RIM REACHES GRADE (04i; v1's pit seed): a pit's
+                # shell tops out within the ground-contact band; a
+                # shell that passes through the ground is a building
+                top_above = base + comp.max_y - local
+                if law.rim_reaches_grade and top_above > law.contact_band_m:
+                    # ...unless what stands above the band is a
+                    # PROTRUSION of the shell (2026-09-06f: LEMD85's
+                    # tower over a 27,000 m2 floor plate, 3.4 % of its
+                    # face area) — the contact ring is still the rim
+                    frac = area_fraction_above(g.vertices, comp,
+                                               local - base + law.contact_band_m)
+                    if frac > law.rim_protrusion_max_fraction:
+                        if through is None or top_above > through[0]:
+                            through = (top_above, depth)
+                        continue
+                    w = _dc.replace(w, protrusion_fraction=frac, protrusion_top_m=top_above)
+                    protruding = (frac, top_above)
+                witnesses.append(w)
+            if witnesses:
+                below = _transformed([w.below for w in witnesses])
+                rep.below_grade_objects += 1
+                if protruding is not None:
+                    n, f0, t0 = rep.rim_protrusions.get(dpath, (0, 0.0, 0.0))
+                    rep.rim_protrusions[dpath] = (n + 1, max(f0, protruding[0]),
+                                                  max(t0, protruding[1]))
+            elif through is not None:
+                n, t0, d0 = rep.through_grade.get(dpath, (0, -math.inf, math.inf))
+                rep.through_grade[dpath] = (n + 1, max(t0, through[0]), min(d0, through[1]))
+            elif datum_note is not None:
+                n, dr0, dp0, a0 = rep.datum_relief.get(
+                    dpath, (0, -math.inf, math.inf, math.inf))
+                rep.datum_relief[dpath] = (n + 1, max(dr0, datum_note[0]),
+                                           min(dp0, datum_note[1]),
+                                           min(a0, datum_note[2]))
+            elif deep_no_floor is not None:
+                n, d0, z0 = rep.no_floor.get(dpath, (0, math.inf, math.inf))
+                rep.no_floor[dpath] = (n + 1, min(d0, deep_no_floor[0]),
+                                       min(z0, deep_no_floor[1]))
+    if g is not None:
+        tris = g.hard_deck
+        if tris.shape[0]:
+            v = g.vertices
+            rings = [[(float(v[i][0]), float(v[i][2])) for i in t] for t in tris.tolist()]
+            u = _union_rings(rings)
+            if u is not None:
+                # §51 (4) row 4 — ENTRY
+                deck = _fe.enter([u], mat, cache.input_quantum_m)[0]
+                if deck is not None:
+                    top = anchor_z + agl + float(v[tris.reshape(-1), 1].max())
+                    rep.hard_deck_objects += 1
+    return (PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
+                         below, bbox, smin_z, smin_d, deck, top, tuple(witnesses),
+                         "flag" if deck is not None else "",
+                         ("ATTR_hard_deck: the primary deck signature",)
+                         if deck is not None else (), None,
+                         tuple(sorted(set(deep_comps))) if witnesses else (),
+                         tuple(buried_wits)), rep)
+
+
+def _has_hard_deck(cache: "ResourceCache", phys: str) -> bool:
+    g = cache.geometry(phys)
+    return g is not None and bool(g.hard_deck.shape[0])
+
+
+def _absorb(rep: "ObjReport", sub: "ObjReport") -> None:
+    """Add one placement's report to the pack's — the same sums, lists and
+    per-resource extremes the reading used to write in place."""
+    rep.buried_components += sub.buried_components
+    rep.below_grade_objects += sub.below_grade_objects
+    rep.hard_deck_objects += sub.hard_deck_objects
+    rep.buried_named.extend(sub.buried_named)
+    rep.witness_degenerate.extend(sub.witness_degenerate)
+    for path, (n, f, t) in sub.rim_protrusions.items():
+        n0, f0, t0 = rep.rim_protrusions.get(path, (0, 0.0, 0.0))
+        rep.rim_protrusions[path] = (n0 + n, max(f0, f), max(t0, t))
+    for path, (n, t, d) in sub.through_grade.items():
+        n0, t0, d0 = rep.through_grade.get(path, (0, -math.inf, math.inf))
+        rep.through_grade[path] = (n0 + n, max(t0, t), min(d0, d))
+    for path, (n, dr, dp, a) in sub.datum_relief.items():
+        n0, dr0, dp0, a0 = rep.datum_relief.get(path, (0, -math.inf, math.inf, math.inf))
+        rep.datum_relief[path] = (n0 + n, max(dr0, dr), min(dp0, dp), min(a0, a))
+    for path, (n, d, z) in sub.no_floor.items():
+        n0, d0, z0 = rep.no_floor.get(path, (0, math.inf, math.inf))
+        rep.no_floor[path] = (n0 + n, min(d0, d), min(z0, z))
+
+
 def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float | None, str]],
                         pack_root: str | None, index: _t.Mapping[str, str] | None,
                         dem_z: _t.Callable[[float, float], float],
@@ -678,7 +929,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         cache: ResourceCache | None = None, shell_reaches_grade: bool = True,
                         *, floor_plate_normal_y_min: float, rim_reaches_grade: bool = True,
                         rim_protrusion_max_fraction: float = 0.0,
-                        authored_depth_min_m: float = 0.0
+                        authored_depth_min_m: float = 0.0,
+                        ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -703,10 +955,19 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     clipped there, 3-D area) at most ``rim_protrusion_max_fraction`` of
     its total still witnesses, the share recorded on the witness and in
     ``rim_protrusions``.  Returns the readings and the report; an
-    unresolved placement is returned with every reading ``None``."""
+    unresolved placement is returned with every reading ``None``.
+
+    ``ahead(jobs, law)`` (issue #362) may answer the placements that have a
+    component to read or a hard deck to union from a work pool —
+    ``[read_placement(…)]`` in job order, or ``None`` — and the report is
+    absorbed in input order either way."""
     cache = cache or ResourceCache(thickness_m)
+    law = ReadLaw(admission_depth_m, contact_band_m, shell_reaches_grade,
+                  floor_plate_normal_y_min, rim_reaches_grade,
+                  rim_protrusion_max_fraction, authored_depth_min_m)
     rep = ObjReport(placements=len(placements))
-    out: list[PlacedObject] = []
+    out: list = []
+    jobs: list[tuple[int, PlacementJob]] = []
     seen: set[str] = set()
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0
@@ -733,161 +994,29 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
                                     None, None, None, None, None, None))
             continue
-        mat = placement_affine(xy, heading)
         stock = is_stock_library_resource(dpath)
         if stock:
             rep.stock_placements += 1
-        g = cache.geometry(phys)
-        below = bbox = deck = smin_z = smin_d = top = None
-        witnesses: list[FloorWitness] = []
-        buried_wits: list[FloorWitness] = []
-        deep_comps: list[int] = []
-        if g is not None and not stock:
-            base = anchor_z + agl               # the rendered y = 0 plane
-            vmin, vmax, x0, x1, z0, z1 = cache.y_range(phys)
-            corners = [_to_frame(xy, heading, x, zz) for x in (x0, x1) for zz in (z0, z1)]
-            bbox = Polygon(corners).convex_hull if vmin < math.inf else None
-            # THE PRE-SCREEN: the deepest authored vertex under the HIGHEST
-            # ground the placement's extent touches — no component of a
-            # placement that fails it can be below grade anywhere
-            grounds = [anchor_z] + [float(dem_z(cx, cy)) for cx, cy in corners]
-            grounds = [z for z in grounds if not math.isnan(z)]
-            if vmin < math.inf and base + vmin <= max(grounds) - admission_depth_m:
-                deep_no_floor: tuple[float, float] | None = None
-                datum_note: tuple[float, float, float] | None = None
-                through: tuple[float, float] | None = None
-                protruding: tuple[float, float] | None = None
-                for ci, comp in enumerate(cache.components(phys)):
-                    if comp.max_y - comp.min_y < cache.thickness_m:
-                        continue            # a decal never witnesses (§2.1)
-                    cx, cy = _to_frame(xy, heading, comp.cx, comp.cz)
-                    local = float(dem_z(cx, cy))
-                    if math.isnan(local):
-                        local = anchor_z
-                    # the component's rendered floor vs the ground under it
-                    z_min = base + comp.min_y
-                    depth = z_min - local
-                    # THE DEPTH IS AUTHORED (RULINGS 2026-09-09ag, spec
-                    # §13): a below-grade facility is a SUNKEN SOLID, so its
-                    # floor stands ``authored_depth_min_m`` under the
-                    # placement's OWN render datum as well as under the
-                    # local ground.  When the datum sits UNDER the terrain,
-                    # at-datum geometry reads "below grade" without ever
-                    # having been sunk — a pack authored as ONE FLAT PLANE
-                    # over real relief (LEMD, Aerosoft, 32 m under the
-                    # terminal: a ground-floor slab authored 0.5 m under its
-                    # own y = 0 reading 15 m under the local ground).  It is
-                    # then not a deep part either, so nothing downstream
-                    # (the basin region, the below-grade seat skip, the
-                    # plate seat) sees it.  A datum ABOVE the ground never
-                    # relaxes the gate — the ground still governs there (a
-                    # pit dug through a rise is measured from the rise).
-                    if base - z_min < authored_depth_min_m:
-                        if datum_note is None or local - base > datum_note[0]:
-                            datum_note = (local - base, depth, base - z_min)
-                        continue
-                    if depth <= -admission_depth_m:   # 09w (1): a PART
-                        deep_comps.append(ci)
-                    plane_below = local - base - admission_depth_m     # authored y
-                    # THE BURIED SKIP IS A PIT-SEED TEST, NEVER A SUPPRESSION
-                    # (spec §24 (7) (a), owner RULINGS 2026-09-14n item 1 /
-                    # 2026-09-14p): a component whose whole shell stands under
-                    # the ground cannot SEED a pit — it has no rim at grade —
-                    # but its deep horizontal plate still WITNESSES DEPTH
-                    # wherever it lies inside a region another placement's
-                    # shell admitted.  At OTHH the 2,998 m2 floor slab of
-                    # ``OTHH_Dewatering_02_LOD0_001.obj`` is exactly that: a
-                    # SIBLING of the shell that founds basin:6, dropped here
-                    # silently, leaving the pit witnessing 879 of 4,330 m2.
-                    # So the plate is kept aside (``buried``) for the region
-                    # pass to pick up, and every skipped component is NAMED
-                    # with its area and depth.
-                    if shell_reaches_grade and base + comp.max_y < local - contact_band_m:
-                        rep.buried_components += 1
-                        bw = _witness(g.vertices, comp, base, local, plane_below,
-                                      floor_plate_normal_y_min, mat, ci,
-                                      cache.input_quantum_m, rep.witness_degenerate, dpath) \
-                            if comp.min_y <= plane_below else None
-                        rep.buried_named.append(
-                            f"{os.path.basename(dpath)}#{ci}: "
-                            + (f"floor plate {bw.plate_area_m2:.0f} m2 " if bw is not None
-                               else "no floor plate, ")
-                            + f"top {base + comp.max_y - local:+.2f} m / floor {depth:+.2f} m "
-                              f"vs the ground under it — the shell never reaches grade "
-                              f"(buried, > contact_band_m {contact_band_m}): no pit SEED"
-                            + (", plate offered to any region that admits it (§24 (7) (a))"
-                               if bw is not None else ""))
-                        if bw is not None:
-                            buried_wits.append(bw)
-                        continue
-                    if comp.min_y > plane_below:
-                        continue
-                    if smin_z is None or z_min < smin_z:
-                        smin_z, smin_d = z_min, depth
-                    w = _witness(g.vertices, comp, base, local, plane_below,
-                                 floor_plate_normal_y_min, mat, ci,
-                                 cache.input_quantum_m, rep.witness_degenerate, dpath)
-                    if w is None:
-                        if deep_no_floor is None or depth < deep_no_floor[0]:
-                            deep_no_floor = (depth, z_min)
-                        continue
-                    # THE RIM REACHES GRADE (04i; v1's pit seed): a pit's
-                    # shell tops out within the ground-contact band; a
-                    # shell that passes through the ground is a building
-                    top_above = base + comp.max_y - local
-                    if rim_reaches_grade and top_above > contact_band_m:
-                        # ...unless what stands above the band is a
-                        # PROTRUSION of the shell (2026-09-06f: LEMD85's
-                        # tower over a 27,000 m2 floor plate, 3.4 % of its
-                        # face area) — the contact ring is still the rim
-                        frac = area_fraction_above(g.vertices, comp,
-                                                   local - base + contact_band_m)
-                        if frac > rim_protrusion_max_fraction:
-                            if through is None or top_above > through[0]:
-                                through = (top_above, depth)
-                            continue
-                        w = _dc.replace(w, protrusion_fraction=frac, protrusion_top_m=top_above)
-                        protruding = (frac, top_above)
-                    witnesses.append(w)
-                if witnesses:
-                    below = _transformed([w.below for w in witnesses])
-                    rep.below_grade_objects += 1
-                    if protruding is not None:
-                        n, f0, t0 = rep.rim_protrusions.get(dpath, (0, 0.0, 0.0))
-                        rep.rim_protrusions[dpath] = (n + 1, max(f0, protruding[0]),
-                                                      max(t0, protruding[1]))
-                elif through is not None:
-                    n, t0, d0 = rep.through_grade.get(dpath, (0, -math.inf, math.inf))
-                    rep.through_grade[dpath] = (n + 1, max(t0, through[0]), min(d0, through[1]))
-                elif datum_note is not None:
-                    n, dr0, dp0, a0 = rep.datum_relief.get(
-                        dpath, (0, -math.inf, math.inf, math.inf))
-                    rep.datum_relief[dpath] = (n + 1, max(dr0, datum_note[0]),
-                                               min(dp0, datum_note[1]),
-                                               min(a0, datum_note[2]))
-                elif deep_no_floor is not None:
-                    n, d0, z0 = rep.no_floor.get(dpath, (0, math.inf, math.inf))
-                    rep.no_floor[dpath] = (n + 1, min(d0, deep_no_floor[0]),
-                                           min(z0, deep_no_floor[1]))
-        if g is not None:
-            tris = g.hard_deck
-            if tris.shape[0]:
-                v = g.vertices
-                rings = [[(float(v[i][0]), float(v[i][2])) for i in t] for t in tris.tolist()]
-                u = _union_rings(rings)
-                if u is not None:
-                    # §51 (4) row 4 — ENTRY
-                    deck = _fe.enter([u], mat, cache.input_quantum_m)[0]
-                    if deck is not None:
-                        top = anchor_z + agl + float(v[tris.reshape(-1), 1].max())
-                        rep.hard_deck_objects += 1
-        out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
-                                below, bbox, smin_z, smin_d, deck, top, tuple(witnesses),
-                                "flag" if deck is not None else "",
-                                ("ATTR_hard_deck: the primary deck signature",)
-                                if deck is not None else (), None,
-                                tuple(sorted(set(deep_comps))) if witnesses else (),
-                                tuple(buried_wits)))
+        # THE DEM HALF, here (the DEM is never shipped); the reading itself
+        # is :func:`read_placement`, here or in a work pool
+        samples = None
+        if cache.geometry(phys) is not None and not stock:
+            samples = placement_grounds(cache, phys, xy, heading, anchor_z, agl,
+                                        admission_depth_m, dem_z)
+        jobs.append((len(out), (oid, dpath, phys, xy, heading, agl, kind, anchor_z,
+                                stock, samples)))
+        out.append(None)
+    # the placements with real work — a component to read or a hard deck
+    # to union — may be read AHEAD by a pool; the rest are a record each
+    heavy = [k for k, (_i, job) in enumerate(jobs)
+             if job[9] is not None or _has_hard_deck(cache, job[2])] \
+        if ahead is not None else []
+    got = ahead([jobs[k][1] for k in heavy], law) if heavy else None
+    done = dict(zip(heavy, got)) if got is not None else {}
+    for k, (i, job) in enumerate(jobs):
+        obj, sub = done[k] if k in done else read_placement(cache, job, law)
+        out[i] = obj
+        _absorb(rep, sub)
     return out, rep
 
 
@@ -932,10 +1061,28 @@ def _plan_footprint(v: np.ndarray, comp: Component):
                          for tri in comp.tris.tolist()])
 
 
+def _below_key(v: np.ndarray, comp: Component, plane_y: float):
+    """What the component's below-plane clip depends on: with no triangle
+    STRADDLING the plane it is the union of the triangles wholly under it
+    — the same geometry at every plane that keeps the same triangles — and
+    with one it is the plane itself."""
+    n_in = (v[comp.tris][:, :, 1] <= plane_y).sum(axis=1)
+    return plane_y if ((n_in > 0) & (n_in < 3)).any() else n_in.tobytes()
+
+
+def _kept(memo: dict | None, key: tuple, make: _t.Callable[[], object]):
+    """``make()``, made once per ``key`` when the caller holds a ``memo``."""
+    if memo is None:
+        return make()
+    if key not in memo:
+        memo[key] = make()
+    return memo[key]
+
+
 def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_below: float,
              normal_y_min: float, mat: list[float], comp_index: int = -1,
              q: float = 0.0, degenerate: list[str] | None = None,
-             resource: str = "") -> FloorWitness | None:
+             resource: str = "", memo: dict | None = None) -> FloorWitness | None:
     """The component's floor witness, or ``None`` when it carries no floor
     plate under the admission plane (a skirt: walls, no floor).
 
@@ -947,7 +1094,13 @@ def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_be
     ``plate`` empty -> no witness, ``outer`` empty -> ``outer=None``
     (``basin_geometry._outer`` already falls back to ``below``).  Every
     drop is appended to ``degenerate`` and named in the object report —
-    never silent."""
+    never silent.
+
+    ``memo`` (issue #362): the three LOCAL footprints depend on the
+    component and on which triangles the planes keep, never on where the
+    placement stands — a caller sweeping many placements of one resource
+    hands a dict (alive no longer than the components) and each is made
+    once; only the entry into the frame is paid per placement."""
     t = comp.tris
     p0, p1, p2 = v[t[:, 0]], v[t[:, 1]], v[t[:, 2]]
     n = np.cross(p1 - p0, p2 - p0)
@@ -959,15 +1112,18 @@ def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_be
     deep = (ny >= normal_y_min) & (y_max <= plane_below)
     if not deep.any():
         return None
-    plate = _union_rings([[(float(v[i][0]), float(v[i][2])) for i in tri]
-                          for tri in t[deep].tolist()])
+    ck = id(comp)
+    plate = _kept(memo, (ck, "plate", deep.tobytes()), lambda: _union_rings(
+        [[(float(v[i][0]), float(v[i][2])) for i in tri] for tri in t[deep].tolist()]))
     if plate is None:
         return None
     plane_ground = local - base                       # authored y of the ground
-    below = _clip_component(v, comp, plane_ground, True)
+    below = _clip_component(v, comp, plane_ground, True) if memo is None else _kept(
+        memo, (ck, "below", _below_key(v, comp, plane_ground)),
+        lambda: _clip_component(v, comp, plane_ground, True))
     if below is None:
         return None
-    whole = _plan_footprint(v, comp)
+    whole = _kept(memo, (ck, "whole"), lambda: _plan_footprint(v, comp))
     below_f, plate_f, outer_f = _fe.enter([below, plate, whole], mat, q)
     if below_f is None or plate_f is None:
         if degenerate is not None:
@@ -1090,7 +1246,8 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
 
 def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
                       dem_z: _t.Callable[[float, float], float], contact_band_m: float,
-                      select: _t.Callable[[Component], bool] | None = None, within=None):
+                      select: _t.Callable[[Component], bool] | None = None, within=None,
+                      linework: bool = True):
     """THE RIM AND OWN-COVER EVIDENCE for one placement (04i rules 3 and
     4): EVERY solid component's geometry from ``contact_band_m`` under
     the local ground upward, in the frame, as ``(linework, polygons)`` —
@@ -1103,7 +1260,10 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     own shell read apart from the building it is attached to) and
     ``within`` restricts the RESULT to a frame window — both read through
     the memo of RULINGS 2026-09-13bp (i) / 2026-09-17k (a), never per
-    placement."""
+    placement.  ``linework=False`` is a reader of the POLYGONS alone
+    (issue #362: the door wells; OTHH paid ~8 minutes uniting, placing and
+    windowing linework it never read): the linework comes back ``None``
+    and none of its work is done; the polygons are the same read."""
     if o.resolved is None or is_stock_library_resource(o.path):
         return None, None
     g = cache.geometry(o.resolved)
@@ -1119,10 +1279,12 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     # ── RULINGS 2026-09-13bp (i) + 2026-09-17k (a): read ONCE per
     # (resource, planes); a window is applied to the placed result ──
     keyed = _planes(o, comps, dem_z, base, contact_band_m, False, _to_frame)
-    both = _memo_union(cache, cache.grade_memo, o, g, comps, keyed, both_clip)
+    both = _memo_union(cache, cache.grade_memo, o, g, comps, keyed, both_clip, linework)
     if both is None:
         return None, None
     lu, pu = both
+    if not linework:
+        return None, _in_window(_place(pu, mat, cache.input_quantum_m), within, True)
     # ``lu`` is LINEWORK (§51 (4) row 19: no validity to repair, and the
     # quantum is not extended to lines here) — the affine alone, spelled
     # ONCE in ``frame_entry`` rather than a second time in this module.

@@ -715,7 +715,7 @@ line_segment_m      = 100.0        # = [rebake] body_feet_span_m (10i (2) / 10bb
 # the buildings seat, and only when the group pad turns out INFEASIBLE.
 # This is that length: a group whose plan span exceeds it is releasable, a
 # shorter one is reported with its residual and never split (the owner
-# rules per case).  Per airport in airports.toml where a pack needs it.
+# rules per case).
 # 0 disarms the long-span exception entirely.
 group_span_max_m    = 150.0        # 11i: LEMD's kerbside canopies span 30-90 m and are never releasable; HECA's railway joins two terminals hundreds of metres apart
 # THE RELIEF TARGET (owner RULINGS 2026-09-11j; spec §11a (2)).  X-Plane

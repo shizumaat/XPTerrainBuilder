@@ -331,12 +331,51 @@ class AxisIndex:
                 best = (d, ux, uy, cl, ct)
         return best
 
+    def _within(self, x: float, y: float, r: float) -> _t.Sequence[int]:
+        """Segment indices, ASCENDING, that can lie within ``r`` of
+        ``(x, y)`` — a SUPERSET of those whose :meth:`_tied` distance reads
+        ``<= r`` (#412 R2: the whole-index scan was 245 M ``hypot`` at HECA).
+
+        WHY IT IS A SUPERSET.  :meth:`_tied` measures a segment by its foot
+        ``q = a + t·u`` with ``t`` clamped to ``[0, ln]``, so ``q`` is ON the
+        segment (to rounding) and therefore inside the segment's bounding
+        box, and ``__init__`` binned the segment into EVERY cell that box
+        overlaps.  ``|p − q| <= r`` puts ``q`` in the square of half-side
+        ``r`` about ``p``, so the cell holding ``q`` — one the segment is
+        binned in — has its column in ``floor((x − r)/cell) ..
+        floor((x + r)/cell)`` and its row likewise.  The scan widens that
+        block by ONE WHOLE CELL each way: the only slack the argument needs
+        is the rounding of ``q``, ``a + ln·u`` against ``b`` and the
+        ``hypot`` (a few ulp of a coordinate, ~1e-10 m on an airport),
+        against a cell of metres.  A block that would cover the whole grid
+        returns every index — the scan it replaces."""
+        cell = self.cell
+        gx0, gx1 = int((x - r) // cell) - 1, int((x + r) // cell) + 1
+        gy0, gy1 = int((y - r) // cell) - 1, int((y + r) // cell) + 1
+        if (gx1 - gx0 + 1) * (gy1 - gy0 + 1) >= len(self.grid):
+            return range(len(self.segs))
+        ks: set[int] = set()
+        grid = self.grid
+        for gx in range(gx0, gx1 + 1):
+            for gy in range(gy0, gy1 + 1):
+                got = grid.get((gx, gy))
+                if got:
+                    ks.update(got)
+        return sorted(ks)
+
     def _tied(self, x: float, y: float, d0: float) -> list[tuple[float, float, float, float]]:
         """Every segment at the nearest distance ``d0`` (within ``tie_m``):
         the point projects onto a polyline CORNER shared by two segments,
-        or onto an intersection of two stretches — as ``(ux, uy, cl, ct)``."""
+        or onto an intersection of two stretches — as ``(ux, uy, cl, ct)``.
+
+        Only the segments :meth:`_within` ``d0 + tie_m`` are measured — a
+        segment that passes reads ``<= d0 + tie_m``, so none is missed —
+        with the SAME scalar test in ASCENDING segment index: the list is
+        element for element the whole-index scan's."""
         out = []
-        for ax, ay, ux, uy, ln, cl, ct in self.segs:
+        segs = self.segs
+        for k in self._within(x, y, d0 + self.tie_m):
+            ax, ay, ux, uy, ln, cl, ct = segs[k]
             t = max(0.0, min(ln, (x - ax) * ux + (y - ay) * uy))
             if abs(math.hypot(x - (ax + t * ux), y - (ay + t * uy)) - d0) <= self.tie_m:
                 out.append((ux, uy, cl, ct))

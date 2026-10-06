@@ -870,6 +870,8 @@ accepted OTHH set.
 
 ## §12g LAW C IS A PER-AIRPORT AFFORDANCE (RULINGS 2026-09-10ap) — lane `v2corridor` round 8, 2026-09-10
 
+**SUPERSEDED by §12h (owner RULINGS 2026-10-05g, 2026-10-05): Law C is unconditional under a four-clause general rule; the table, the key and the gate below are DELETED. Kept for its measurement.**
+
 **The ruling.** After seven rounds no witness in the geometry or the map separates OTHH's
 terminal kerb corridors from LEMD's cargo-dock foundations (§12–§12f). Law C — **kerb-wall
 corridors AND garage ramps**, the two classes of `airport/wall_corridors.py` — therefore
@@ -907,3 +909,511 @@ level 60 halves) from 69 pairs of 268 bands in 10 families, refused 26 — the p
 **byte-identical** (`e921644fe5cd5806…`, body sha `58b3045f42fe570b`), the rebake plan is
 byte-identical (`493af639e41a5f25…`), the sidecar differs only in two wall-clock fields,
 and v2-verify reads the same 4 rows with **DEFECTs 0**.
+
+## §12h LAW C IS UNCONDITIONAL UNDER A FOUR-CLAUSE GENERAL RULE — THE OPEN MOUTH (owner RULINGS 2026-10-05e/05f/05g; findings `docs/mouthwitness-lawc-findings.md`; issue #396) — Fable (lane `lawcspec`), 2026-10-05
+
+**Supersedes §12g.** The per-airport switch `law/airports.toml [OTHH] kerb_wall_corridors`,
+`Affordances.kerb_wall_corridors` and the gate at the admission site are DELETED, and the
+RECORDED set of `tests/test_no_airport_specific_code.py` falls to empty (05e: an airport is a
+test case, never the scope of a fix). Law C — kerb-wall corridors AND garage ramps, the two
+classes of `airport/wall_corridors.py` / `airport/wall_family.py` — is read at EVERY airport
+under the rule below. Law A (door wells) and Law B (sunken roads, basins) are unchanged.
+`Affordances.group_span_max_m` and its per-airport reading go with the table (05g (2)); the
+pack-wide `[placement] group_span_max_m` stays, byte-identical ((8) below).
+
+**The owner's picture (05f).** OTHH's terminal has thin walls running OUT from the building
+below grade whose two ARMS enclose an OPEN mouth — a spot that needs a ramp. A loading dock is
+a CLOSED extension: an object stands across the mouth between the arms, so no ramp is needed.
+The scout measured that picture against the whole registered corpus (16 captures, the law
+forced on everywhere, `scratchpad/mouthwitness/mw.py`): taken literally it does NOT separate
+the cases (Aerosoft's LEMD cargo docks are two open-ended foundation sheets, 39 of 43 with
+NOTHING across a mouth); what separates them is the composition below — every clause of which
+is either already law or is the owner's witness read against the whole pack. Measured: OTHH
+9 kept of 9; false corridors elsewhere 0 of 61 (LEMD 33, KASE 26, TFFJ 2); VHHH in (10).
+
+**File references.** The implementation lands AFTER `feature/parallel-v2`, whose reader is
+split into `airport/wall_family.py` (lane `pardoors` 5, `7377cc8c`). That file is on
+`claude/parfinal` (`d41e65db`, the merge-ready head) and on `claude/pardoors`; it is NOT yet on
+the `origin/feature/parallel-v2` ref itself (`1e30cbcf`, the parcluster head, predates the
+split). Every `file:line` in this section is on **`claude/parfinal d41e65db`** unless it says
+`main`; the implementing lane re-greps once on the branch it is actually handed.
+
+### §12h (1) THE RULE, AS GEOMETRY
+
+Every reading below happens in `read_family` (`wall_family.py:108-519`) on a CANDIDATE PAIR,
+in the object's SEATED frame (§12d, RULINGS 10ad: `_seat_base`, `wall_geometry.py`), from
+objects the reader already holds. Nothing is re-derived downstream (RULINGS 2026-08-30l).
+
+* **ARM** = one `WallBand` of the pair (`wall_geometry.py:41-60`): a genuine component of
+  vertical faces authored ≥ `[cutout.wall_corridor] min_wall_depth_m` (1.0) under the
+  object's zero, plan length ≥ `min_wall_length_m` (5.0). The pair's inner faces are
+  `tunnel_walls.read_wall_lines` kind `"II"`; stations by `stations_along`
+  (`wall_family.py:215-216`). Arms of unequal length: the corridor is their OVERLAP window along
+  the axis (`_overlap_along`, `:160`); the longer arm's run-on is not part of the corridor.
+* **MOUTH SEGMENT** M_k = `end_line(k)` (`wall_family.py:354-362`): the segment across the
+  trench at the last station of end k, from the left inner face to the right inner face; its
+  length W = `half_l + half_r` (6.1–19.4 m on the corpus). Its WINDOW is the flat buffer of M_k
+  by `[tunnel.object] end_cap_open_m` (2.0) — the same window rule 4's `_end_cover`
+  (`wall_corridors.py:351-386`) reads.
+* **ACROSS THE MOUTH** = ANY triangle of ANY placement of the pack — every family, the pair's
+  own included; stock-library resources excluded exactly as rule 1 excludes them
+  (`wall_family.py:98`, `obj8.is_stock_library_resource`) — whose plan (a vertical face → its
+  plan segment, `wall_geometry._plan_segments`; any other face → its plan polygon) intersects
+  the window, intersected with the window and projected onto M_k. The union of the projections
+  over W is the COVER FRACTION of that end in that band; an end is CLOSED in a band when the
+  fraction ≥ `[cutout.wall_corridor] end_cap_cover_min` (0.5). The rendered z of a triangle is
+  `_seat_base(placement, component centroid, dem) + authored y`, as `_headroom`
+  (`wall_corridors.py:475-562`) renders a plate.
+* **TWO HEIGHT BANDS** at end k, with `floor_z(k)` the seated floor at that end's station and
+  `ground_z(k)` the DEM at M_k's midpoint, or that end's station ground where the DEM is
+  NaN there (the station grounds are already non-NaN or the pair was refused):
+  * BELOW-GRADE: `floor_z(k) + ε .. ground_z(k) − ε` — the trench opening a vehicle would
+    drive through;
+  * AT-GRADE: `ground_z(k) + ε .. ground_z(k) + min_headroom_m` (`[cutout.wall_corridor]`,
+    3.5) — a wall, door, fence, kerb, ground slab OR DECK standing across the mouth window
+    under that ceiling closes it: a roof under `min_headroom_m` over the ground at the mouth
+    is a dock's cover, not a canopy. A face whose lowest rendered point stands at or above
+    `ground_z(k) + min_headroom_m` is a canopy or deck overhead: it closes nothing. A
+    corridor's own deck (rule 5, measured from the FLOOR) closes its mouth only if it reaches
+    the mouth window under that ceiling — the arms of a corridor run OUT beyond the deck
+    (05f); a pit roofed to its mouth is a dock.
+  * **ε = `[rebake] plate_seat_min_delta_m` (0.05 m)**, the smallest step the engine treats
+    as visible (08u (1)). No alias key: an alias is a second value that can drift, and the
+    meaning here IS that one. MEASURED DEPENDENCE (not ε): LEMD GAVIA 0/0's closer is
+    `Cargo-LEMD63` comp 14, a 3 cm plate authored +2.26 m over its zero — rule 5's own plate
+    (headroom 3.73) — 2.15 m over the mouth's DEM ground, 3.52 m over the floor, 0.82 of W:
+    CLOSED under any at-grade ceiling above 2.15 m, OPEN under a floor-measured bar (floor +
+    3.5 misses it by 0.02 m; measured, withdrawn). OTHH `Terminal_Base_2_5` 432/433's deck is
+    2.42 m over ground (inside the band) and the mouth is open because the plate stops ≥
+    `end_cap_open_m` short of the window (0.00 of W). These two sites are separated by whether
+    the deck reaches the mouth — §12h (11). The
+    scout's arm used 0.10 and an at-grade ceiling of 4.0; 0.05 / 3.5 are the law values and
+    the implementing lane's `--stage structures` must reproduce the (2) table under them.
+    `[emit.identity] min_distinct_spacing_m` (0.5) is NOT ε.
+* **W1s — THE OPEN MOUTH (the owner's witness).** An end is an OPEN MOUTH iff it is open
+  under rule 4 (no FAMILY face across it, as today) AND its BELOW-GRADE cover < 0.5 AND its
+  AT-GRADE cover < 0.5 over ALL placements. W1s holds iff the candidate has ≥ 1 open mouth.
+* **W3 — THE ARMS RUN OUT FROM A BUILT STRUCTURE.** Holds iff rule 5's headroom witness
+  returned a plate (`_headroom` → `plate_plan is not None`: a deck over the trench) OR some
+  end k is closed by an ABOVE-GRADE WALL: the AT-GRADE-band cover at end k, counting only
+  faces whose rendered z_max ≥ `ground_z(k) + [basin] contact_band_m` (1.0) — a face reaching
+  a full contact band over the ground is a wall, not a kerb cap — is ≥ 0.5, any placement.
+  Exact computable form: `W3 = (plate_plan is not None) or any(wall_cover[k] >= end_cap_cover_min
+  for k in (0, 1))` where `wall_cover[k]` is the projection union over the AT-GRADE-band hits
+  at end k restricted to `z_max >= ground_z(k) + contact_band_m`. (The scout's equivalent
+  "trench ⊕ end_cap_open_m meets `obj8.above_grade_footprint`" was NOT measured; it is not the
+  form.)
+* **FIELD — THE OPEN MOUTH STANDS ON THE FIELD.** The midpoint of an open mouth (W1s) lies
+  within `[tunnel] mouth_standoff_m` (150) of the CLASSIFIED COVER — the cover half of §29
+  (1)'s mapped-tunnel test, the predicate of `structure_approach.FieldRegion.on_cover`
+  (`dwithin standoff_m` over the cells' polygons), carried into the `airport` layer as
+  `wall_mouth.FieldCover` — the layer order forbids `airport` importing `planar` — and held
+  equal to it by a twin. The cover is the classification's cells
+  alone (`[Polygon(c.ring, c.holes) for c in classification.cells]`, the expression
+  `planar/structures.py:165-166` builds — factor it into ONE helper
+  `structure_approach.cover_polygons(classification)` and call it from both sites); the
+  roofed tunnel corridors' footprints §29 (1) adds are not known when the walls are read and
+  are not needed (measured: OTHH's 9 stand 0.0–9.6 m from the cells). The approach corridor
+  and the runway band of `FieldRegion.holds` are NOT part of FIELD (not measured; a kerb
+  corridor is not a portal seen on approach).
+* **R — ADMISSION.** A candidate is ADMITTED iff (a) authored depth [existing, 10u] ∧
+  (d) `h_own ≤ max_wall_height_m` [existing, 27a (3)] ∧ rule 3 [existing] ∧ rule 4 has ≥ 1
+  open end [existing] ∧ rule 5 headroom [existing] ∧ FIELD ∧ W1s ∧ W3. R only REFUSES; an
+  admitted record's every field is built by unchanged code.
+
+**Values — every one an EXISTING key (verified on `claude/parfinal`):**
+
+| value | key | where |
+| --- | --- | --- |
+| window along the axis, 2.0 m | `[tunnel.object] end_cap_open_m` | `law/structures.toml:134`; read `wall_family.py:363-366` |
+| cover fraction, 0.5 | `[cutout.wall_corridor] end_cap_cover_min` | `structures.toml:325`; `wall_family.py:368` |
+| at-grade ceiling, 3.5 m | `[cutout.wall_corridor] min_headroom_m` | `structures.toml:360`; `wall_family.py:432` |
+| ε, 0.05 m | `[rebake] plate_seat_min_delta_m` | `structures.toml:673`; `law/rebake_schema.py` |
+| field standoff, 150 m | `[tunnel] mouth_standoff_m` | `structures.toml:13`; `structure_approach.py:325` |
+| kerb bar (d), 3.0 m | `[cutout.wall_corridor] max_wall_height_m` | `structures.toml:359`; `wall_family.py:343` |
+| wall-at-end bar, 1.0 m | `[basin] contact_band_m` | `structures.toml:588`; `wall_family.py:467` |
+| horizontal / vertical face | `[tunnel.object] plate_normal_y_min` 0.7 | `structures.toml:76`; `wall_family.py:431` |
+
+No new law value. No new toml key.
+
+**The class, on the COMPOSED openness (an extension of the findings — no corpus instance
+changes).** Today `closed[k]` is rule 4's family cover alone (`wall_family.py:368, 385,
+487-517`). Under R an end is OPEN iff it is open under rule 4 AND under W1s (both bands < 0.5
+over all placements). The class reads that composed openness: two open ends → `level` (two
+halves); one → `bay` at the open end; none → REFUSED by W1s ("no open mouth"). A level pair
+whose one end a FOREIGN placement closes is a bay — a half climbing out of a closed end would
+ramp into that object. At OTHH every rule-4-open end of the 9 is W1s-open (table (2)), so the
+9 records are identical; nowhere else on the corpus does a composed-closed end survive the
+other clauses. For the DESCENDING class the mouth is the SHALLOW end alone (`:381-383`); its
+deep end is closed by the garage whatever crosses it, and W3 reads the deep end as the
+closed end (plate = the garage deck, or a wall ≥ 0.5 of W there).
+
+### §12h (2) WHAT THE CLAUSES READ ON THE CORPUS (the scout's tables, the law values' basis)
+
+Population A — today's law with the key forced on everywhere; positives = OTHH's 9, negatives =
+the 61 live candidates at LEMD / KASE / TFFJ (every other registered capture: 0 live).
+
+| clause | OTHH kept / 9 | LEMD / 33 | KASE / 26 | TFFJ / 2 | TP / FN / FP / TN |
+| --- | --- | --- | --- | --- | --- |
+| W1 (below-grade band only, the literal witness) | 9 | 32 | 23 | 2 | 9 / 0 / 57 / 4 |
+| W1s (both bands) | 9 | 31 | 5 | 0 | 9 / 0 / 36 / 25 |
+| W3 | 9 | 2 | 24 | 2 | 9 / 0 / 28 / 33 |
+| FIELD | 9 (0.0–9.6 m) | 33 (0–135.5 m) | 0 (3,900–4,370 m) | 0 (560–594 m) | 9 / 0 / 33 / 28 |
+| W1s ∧ W3 | 9 | 0 | 3 | 0 | 9 / 0 / 3 / 58 |
+| **R = (d) ∧ W1s ∧ W3 ∧ FIELD** | **9** | **0** | **0** | **0** | **9 / 0 / 0 / 61** |
+
+Population B (kerb test (d) neutralised, the 10ap framing: OTHH 44 / LEMD 76): no mouth clause
+reads 43/0 — the cargo docks are open-mouthed sheets; (d) is what reads them and 27a (3) made
+it law. The mouth witness alone would ADMIT the corridors the owner's #12 read rejected
+(`TerminalRoads_03_004` 11–14 at 25.2575296, 51.6120308: 0.02/0.02 both ends, walls 9.78 m),
+so W1s composes with (d), never replaces it. The 61 false corridors: LEMD 31
+`grass_FSX-LEMDgrass` buried grass-billboard lattices (W3 refuses: no deck, no wall), 1
+`Cargo-GAVIA` 0/0 bay 24 (W1s: its own roof `Cargo-LEMD63` comp 14, a 3 cm plate authored +2.26 m, 2.15 m over the mouth's ground, reaches its mouth), 1 `Sim-wings-SWbaume` 117
+(W1s: the ground slab fills it); KASE 26 — one UUID-named city-block object 3.9–4.4 km from
+the field (FIELD refuses all 26; W1s ∧ W3 alone keeps 3); TFFJ 2 `industrial_1_1` 560–594 m
+off (W1s and FIELD both refuse). OTHH's 9 admitted today: `Qatar_DutyFree_003` ×3 (own
+0.40–1.40 m), `Terminal_Base_2_5` 432/433 (the 08u underpass, headroom 4.31), `Terminal_Base_
+2_1` ×5 bays (own 0.59–0.63) — W1 ✓ W1s ✓ W3 ✓ FIELD ✓ at every one; void occupancy between
+the arms 0.00–0.10.
+
+### §12h (3) DEGENERATE CASES
+
+| case | reading under R |
+| --- | --- |
+| one arm only | no pair (rule 2 unchanged): nothing. |
+| arms of unequal length | the records end at the terminal STATION (where the shorter wall ends); rule 4's `end_line` and the mouth segment M_k stand at the MIDLINE's end, half the run-on beyond that station (unchanged: OTHH's identity bar; owner question E 1 — on the corpus one OTHH record's class depends on it). |
+| roll-up door mesh / fence / kerb / step across the mouth | a face in the AT-GRADE or BELOW band covering ≥ 0.5 of W → that end CLOSED. A 0.15 m kerb at grade crosses `ground + ε` → CLOSED (owner question (12) Q1). |
+| jet bridge across the mouth | underside above `min_headroom_m` → not in the band; its legs cover < 0.5 → OPEN. |
+| canopy / deck overhead | underside ≥ ground + min_headroom_m, or the plate stops short of the window: OPEN; a deck reaching the window under that: CLOSED (LEMD GAVIA 0/0) |
+| ground slab object at grade across the mouth | CLOSED — the pack says ground is there. LEMD SWbaume 117 (`Ground-FSX-LEMD85` 1.00, both mouths). |
+| open at both ends | `level`, two halves, as today — PROVIDED W3 (a deck over it: OTHH's underpass). Two bare walls under open sky with open ends are a ditch or a fence line → REFUSED by W3 (LEMDgrass, 31 of 31). |
+| closed at both ends (family faces) | REFUSED by rule 4 as today ("sunken yard": NLWF's 14 foundations, KASE 2,073 pairs). |
+| closed at both ends (one by a foreign placement) | REFUSED by W1s ("no open mouth"). |
+| garage ramp (descending) | the ONE-MOUTH form: W1s at the shallow end; W3 at the deep end (garage deck plate or wall); FIELD at the shallow end. No admitted garage ramp exists on the corpus (08u (3) stands): GEML `GEHM_01` 180/236, 35.301954, −2.943986 (shallow end 3.18 m under ground, refused as today). |
+| a candidate with no classification handed | FIELD NOT READ — see (4): the line says so, `stats.field_read` is False, and the build path can never take it. |
+
+### §12h (4) THE SINGLE ADMISSION SITE, THE ORDER OF CLAUSES, THE LINE
+
+ONE site: the pair loop of `read_family` (`wall_family.py`); the three clauses are
+`airport/wall_mouth.admit` (the pack-wide index `MouthIndex`, `FieldCover`, `WallField`,
+re-exported from `wall_family`), called from that loop alone. The gate at `:180-204`
+("law off for …") is deleted; no clause is evaluated anywhere else and no consumer vetoes.
+The EXISTING clauses keep their order and their refusal texts (today's `stats.refused` lines
+are unchanged for every candidate they refuse); the three NEW clauses follow rule 5, cheapest
+refusal first:
+
+0. STEP 0, the family FIELD gate: with a field handed, the CONVEX HULL of the members'
+   `plan_bbox`es (every mouth midpoint lies within `max_width_m/2` of it) is tested once — no
+   cover polygon within `mouth_standoff_m + max_width_m/2` of the hull → the family is refused
+   WHOLE by one line naming the distance, no band read, `stats.off_field_families += 1`; a
+   family on the field is read as before. Exact by construction, a function of the family's
+   members and the field alone (pooled = serial). (Review `docs/lawcreview-12h.md` (B) and
+   `docs/lawcreview-12h-reruling.md` 2, HARD LAW §6. The line, in `stats.refused`:
+   `family {fam_name} ({n} members, {resource}): off the field — nearest cover {d:.1f} m (> mouth_standoff_m {standoff:g} + max_width_m/2 {margin:g}); no band read`
+   — polygon distance to the hull, never centroids; `{resource}` is the first member's. A
+   gated family counts in none of `stats.families / bands / pairs`. No field → not applied
+   (FIELD not read). Measure mode is NOT exempt. The on-field clause order below is unchanged,
+   so every on-field refusal text is as before.)
+1. rule 1 bands, rule 2 pair, (a) authored depth, (d) kerb height, rule 3 grade / descending,
+   rule 4 family end covers (`covers`, `mouth_ks`), rule 5 headroom (`plate_plan`), and for a
+   DESCENDING pair the shallow-end-at-grade test (`shallow_depth ≤ contact_band_m`, existing:
+   `no mouth at grade`, its `@k` spent) — as today, BEFORE any mouth query;
+2. **FIELD-pre**: for each rule-4-open end, `field.on_cover(Point(midpoint of M_k))`; none on
+   the field → `REFUSED by FIELD`. One `dwithin` query per end on the cells' STRtree; the
+   KASE city block (3,695 pairs, 3.9 km off) and TFFJ's two never reach a mouth query.
+3. **THE MOUTH QUERY**, once per end (BOTH ends — W3's wall test reads the closed end too):
+   the pack-wide index (5) returns every component meeting the window whose seated z-range
+   meets `floor_z(k) + ε .. ground_z(k) + min_headroom_m`; its triangles are split into the
+   two bands and projected; the result per end is `below_cover`, `at_grade_cover`,
+   `wall_cover` (the at-grade hits with `z_max ≥ ground + contact_band_m`) and the CLOSER per
+   band — the placement and resource with the largest projected span, its span fraction and
+   its rendered z range.
+4. **W1s**: the composed-open ends = rule-4-open ∧ below < 0.5 ∧ at-grade < 0.5. None →
+   `REFUSED by W1s`. Then FIELD on the composed mouths: none of them on the field →
+   `REFUSED by FIELD` (the FIELD-pre set is a superset, so this is reached only when a
+   FIELD-pre-open end was W1s-closed). FIELD is a location clause of the candidate; it never
+   closes an end — a level pair stays level however far its second mouth stands from the
+   cover.
+5. **W3**: `plate_plan is not None` (free) else `wall_cover[k] ≥ 0.5` at some end. Neither →
+   `REFUSED by W3`.
+6. The class on the composed openness ((1) last paragraph); the records as today.
+
+**THE LINE** (`stats.admission`, one per candidate reaching rule 2, stopping at the first
+refusal; `python -m auto_patch_v2.planar ICAO --stage structures` prints it under
+`wall_corridor_admission`, and `v2_solve_replay --from planar` reaches it through
+`planar.build`):
+
+    candidate {name} bands {A}/{B} at {site}: (a) admitted — wall bottom authored {d:.2f} m under the object's zero; (d) kerb {h_own:.2f} m; ends family {c0:.0%}/{c1:.0%}; headroom {open air | {h:.2f} m ({plate witness})}; FIELD end {k} {dist:.1f} m of cover; MOUTH end 0 below {b0:.2f} / at-grade {a0:.2f} (closer {resource}@{placement} {frac:.2f} of W, z {zmin:.2f}..{zmax:.2f} — the larger of the two bands' closers, `none` when no face met the window; both bands' closers are in the `narrow_cut` row `mouth_closers`), end 1 below {b1:.2f} / at-grade {a1:.2f} (closer …); W1s open end {k}; W3 {plate ({witness}) | wall at end {k} {frac:.2f} of W, z_max {h:+.2f} m over ground} -> ADMITTED {level | bay | garage_ramp}
+    candidate … ; FIELD REFUSED — nearest cover {dist:.1f} m from end {k} (> mouth_standoff_m 150)
+    candidate … ; W1s REFUSED — no open mouth: end 0 below {b0:.2f} / at-grade {a0:.2f} (closer …), end 1 …
+    candidate … ; W3 REFUSED — open air, no wall at either end (at-grade wall cover {w0:.2f} / {w1:.2f})
+    candidate … ; FIELD not read (no cover handed) — W1s …; W3 … -> ADMITTED {class}
+    candidate … ; headroom … -> REFUSED — a descending pair whose shallow end lies {d:.2f} m under the ground: no mouth at grade
+
+(the `narrow_cut` row of such a pair is not `admitted`)
+
+Every clause names its witness and its closer, so a sim read of a wrong corridor can be
+attributed from the line alone. `stats.narrow_cut` rows gain the same numbers (`field_m`,
+`mouth_below`, `mouth_at_grade`, `mouth_wall`, `mouth_closers`, `w1s`, `w3`, `field`) for
+`--json`; `WallCorridorStats` gains `field_read: bool` and `field_cells: int`.
+
+**FIELD needs the classification at structure time.** `read_wall_corridors(airport, objects,
+cache, law, classification=None, measure=False)` (`wall_family.py:551`) already takes it (the
+`measure` probe's road ribbons); `planar/build.py:223` calls `wall_corridor_reads(airport,
+objects, cache, law)` WITHOUT it and `pack_reads(…, walls=True)` (`:215`) hands the pool
+nothing of it. The rule: the wall corridors are read ONCE per build under the cover of the
+classification handed to the FIRST `planar.build` (`pipeline/build.py:665`); the ribbon-free
+second pass (`:1061-1064`, #100 (c)) reuses that reading through the existing memo
+(`pack_reads._store`, `:134-146`), exactly as today. `planar/build.py` derives ONE
+`WallField(polys, standoff_m)` (a frozen two-field record in `wall_family.py`: the cells'
+polygons by `cover_polygons(classification)`, `[tunnel] mouth_standoff_m`) and hands it to
+`pack_reads(…, walls=True, field=…)` → `_read` → `reader_work.begin(…, field=…)` → the
+pool's `setup` args → `ReadWorker.field` → `wall_reader(a, cache, law, field=…)`, and to
+`wall_corridor_reads(…, field=…)` for the one-core read; `wall_reader` builds
+`FieldRegion(field.polys, field.standoff_m)` once per process (an STRtree does not cross a
+pool; the polygons do). `field=None` is lawful only for a caller that has no classification
+(synthetic twins without one, `tools/planar_read_arm.py --no-field`): FIELD is then NOT READ,
+every line says so and `stats.field_read` is False; `planar_read_arm` hands the capture's own
+cover by default and hashes `wall_records` (the records alone) beside `wall_corridors`
+(records + stats). The BUILD path always hands one; the structures
+replay (`planar/__main__.py:371`) hands `cl`; a twin asserts `planar.build` reads the walls
+with `field_read is True`.
+
+### §12h (5) THE PACK-WIDE MOUTH INDEX AND THE BUILD-TIME IMPACT (HARD LAW §6)
+
+**The index.** One STRtree over `PlacedObject.plan_bbox` (`obj8.py:599`) of every placed,
+non-stock object of the pack, built LAZILY on the first mouth query and held on the
+`WallReader` (`wall_family.py:46-62`) — one per process, never per family, like `to_ll`. A
+query returns the placements whose bbox meets the window; for each, `cache.component_bounds`
+(`obj8.py:495`) is rotated into the frame and only the components meeting the window AND the
+band in seated z (`_seat_base(o, comp centroid, dem) + min_y/max_y`) have their triangles
+read — the walk `_headroom` (`wall_corridors.py:505-556`) already makes, over the hits instead
+of the family's members. Vertical triangles → `wall_geometry._plan_segments`; others →
+`shapely.polygons`. Nothing is cached across queries but the tree.
+
+**Cost (MEASURED — lane `lawc396`; HARD LAW §6 review `docs/lawcreview-12h.md` (B)).** 0.69 s
+one-core for OTHH's 9 candidates (the index built once per process); KASE 6.1 → 15.7 s before
+the gate, the gate's bar ≤ base. With the gate landed (lane `lawc396b`, one core, the
+registered captures): KASE 0.16 s, TFFJ 1.6–1.9 s (4.8 before), VHHH 18.0 s (22.9 before),
+OTHH 86.6 s (90.5–91.0 before; base 92.5), LEMD unchanged (no family off the field).
+
+**The family FIELD gate ((4) step 0) in a pool.** It is a pure function of the family's own
+members and the field, so pooled = serial holds and the intake is unchanged; a gated family
+costs one `dwithin` query and reads no band. Counter: `WallCorridorStats.off_field_families`,
+summed in `assemble`.
+
+**In a pool worker (the parallel branch).** A wall task is one FAMILY (`reader_work.py:
+11-15, 444-446`); the worker already holds EVERY placed object (`begin`, `:472-473`,
+`list(objects)` crosses) and the parsed resources it needs (`ReadWorker.cache`), so the mouth
+index is built from what the worker has — one tree per worker, on its first mouth query, and
+NOTHING new crosses but the `WallField` (the cells' polygons: a few MB; `pickle.dumps(args)`
+at `:475` is the existing refusal if it cannot). The purity invariant of `read_family`
+CHANGES and the docstring (`:110-115`, "it reads nothing of another family") is rewritten: a
+family's reading is a pure function of (its members, THE WHOLE PACK's placements and
+geometry, the DEM, the law, the field) and of NO OTHER FAMILY'S READING — so `assemble`
+(`:522-548`) still orders it and the result is identical at any worker count and in any
+completion order. The twins `test_parplanar.py:119 test_pooled_readers_equal_serial`,
+`:171 …its_own_and_the_ids_come_from_the_assembly`, `test_pardoors.py:166 any_completion_
+order` are the bar; `tools/planar_read_arm.py:138` hashes `wall_corridor_reads` for the two
+arms (`test_parplanar.py:308`) and must hash equal serial vs pooled WITH the field handed.
+
+### §12h (6) CONSUMER CENSUS (owner RULINGS 2026-08-30l) — ruled per row BEFORE any consumer is edited; verified on `claude/parfinal d41e65db`
+
+R only REFUSES; an admitted record's fields are built by unchanged code, so every consumer
+sees the same records at OTHH and none elsewhere. Rows 1–10 are the scout's, re-verified;
+11–18 are readers the scout's census did not list.
+
+| # | consumer (parfinal) | reads | under R |
+| --- | --- | --- | --- |
+| 1 | `planar/pack_reads.py:51, 167-180 wall_corridor_reads` | the records + stats memo | gains `field`; same shape; 9 records at OTHH, 0 elsewhere |
+| 2 | `planar/build.py:215-227` → `wall_corridor_ramps.wall_corridor_groups` (`:77`) | records → `Group` | derives the `WallField`, hands it; same 9 groups |
+| 3 | `planar/structures.py:95-98, 270-271, 744, 812-814`, `structure_geometry.py:55-57, 327, 405`, `structure_deck.py:186` | groups, `plate_plan`, the law's caps | unchanged (plate_plan is read, not re-derived) |
+| 4 | `constraints/structures.py:113-115, 163, 242, 256, 277-278, 303-313` (`WALL_CORRIDOR_SOURCE/ROLES`) | emitted ramp rows | unchanged |
+| 5 | `pipeline/build.py:294` (seat exclusion), `:715-721` (report), `:798` (per-site line) | `tn.source`, `ws` | unchanged; prints `field read` |
+| 6 | `airport/rebake_plan` facility members | the kerb walls as members | unchanged |
+| 7 | `pipeline/publication.py:168 RAMP_ROLES`, `verify/structures.py:265`, `verify/keepout.py:104`, `verify/channel.py:178`, `emit/graded.py:28 FLOOR_ROLES`, `constraints/foot_rows.py:77`, `constraints/channel.py:113`, `classify/airside_edge.py:58`, `planar/object_corridor.py:97-102`, `model/structures.py:299`, `law/units.py:19`, `law/cutout_schema.py:81-155`, `law/model.py:727, 1009-1031`, `families.toml:368-446`, `precedence.toml:60-71`, `rulesets.toml:31` | role literals / the ramp law | unchanged (count effect only) |
+| 8 | `tools/check_grade.py:6710, 7496-7556 LAW_FAMILIES`, `harness/census.py`, `precedence.toml oracle_role = tunnel_ramp` | the role | unchanged |
+| 9 | `planar/__main__.py:360-374, 535-558, 630-645` (`--stage structures`, `--kml`) | `read_wall_corridors(…, cl, measure=True)`, `wall_corridor_admission` | hands `cl` → `field`; the line gains the three clauses' witnesses |
+| 10 | door wells / sunken roads / basins / tunnel objects | their own laws | untouched |
+| 11 | `airport/reader_work.py:79, 166, 175-181, 222-236, 428-490` (the pool: `wall_families` intake, `read_family` per task, `wall_reader` built in the worker) | one task per family | `begin`/`setup`/`ReadWorker` carry `field`; the index per worker (5) |
+| 12 | `airport/wall_family.py:46-74 WallReader / wall_reader`, `:522-548 assemble`, `:551-571 read_wall_corridors` | the reader's inputs | gains `field`, the lazy index; `assemble` unchanged |
+| 13 | `tools/planar_read_arm.py:48, 138, 145` | hashes the readings | serial = pooled with the field handed |
+| 14 | `airport/object_cut.py:12-13, 605-623` | docstring + the VHHH refutation note | rewritten as history ((7) and (10)) |
+| 15 | `law/model.py:44, 56, 61-64, 797-798, 1108-1109, 1143-1147`, `law/__init__.py:7-12`, `law/tables.py:16, 35, 74-91` | `Affordances`, `LawTables.airports`, `Law.affordances`, `TABLE_FILES` | deleted ((7)); `Law.for_airport` keeps `icao` for the ruleset resolution and `tables.flat_declared(law, icao)` |
+| 16 | `Ortho4XP.spec:80-86`, `Ortho4XP_Qt.spec:95-101`, `tests/test_auto_patch_engine_dispatch.py:418-434` | the law-table count | 9 → 8 datas (7 tables + `classify/rules.toml`); the twin's `n` is computed |
+| 17 | `tests/test_no_airport_specific_code.py:18-22, 42-46` | `RECORDED` | `set()` |
+| 18 | `tests/auto_patch_v2/test_v2corridor.py:46-52, 472-547`, `test_v2wallcorridor.py:108`, `test_v2canopy.py:36, 153-154, 198-208`, `test_parpack.py:33`, `test_v2packcache.py:31`, `test_once362.py`, `test_pardoors.py`, `test_parplanar.py` | the law fixtures and the affordance twins | the affordance twins deleted; the `Law.for_airport("OTHH")` fixtures stay valid (it resolves a ruleset); every synthetic corridor twin re-read under R ((9)) |
+
+Readers of `group_span_max_m` (05g (2)): `law/tables.py:82-91` (THE derivation site, kept),
+`pipeline/build.py:406, 504`, `tools/v2_solve_replay.py:425`, `tools/pack_stage_profile.py:
+304, 331`, `tools/pad_airside_arm.py:194`, `planar/group.py:26, 58-59, 130, 138, 379`
+(docstrings), `law/rebake_schema.py:103-105` (the schema of the pack-wide key and its
+comment), `structures.toml:707-720`, `tests/auto_patch_v2/test_v2canopy.py:36, 153-154,
+198-208`.
+
+### §12h (7) THE DELETION LIST (file:line on `claude/parfinal d41e65db`)
+
+| what | where | action |
+| --- | --- | --- |
+| the table | `law/airports.toml` (18 lines) | DELETE the file |
+| `TABLE_FILES` | `law/model.py:61-64` | drop `"airports.toml"` (8 → 7) and the 10ap comment |
+| `LawTables.airports` | `law/model.py:797-798` | delete the field |
+| the load | `law/model.py:1108-1109` | delete |
+| `Law.affordances` | `law/model.py:1143-1147` | delete the property |
+| `Affordances`, `NO_AFFORDANCES`, `load_airports` | `law/airports_schema.py:41-72`, docstring `:1-19` | delete; the module keeps `Resolution` / `resolve_ruleset` (`:29-35, 75-85`) and a docstring saying so |
+| re-exports | `law/model.py:44, 56`, `law/__init__.py:7-8, 12` | drop the three names |
+| `tables.affordances()` | `law/tables.py:74-79`, `__all__ :35` | delete |
+| `tables.group_span_max_m()` | `law/tables.py:82-91` | KEEP the function (one derivation site, five readers); body becomes `return float(law.tables.structures.placement.group_span_max_m)`; docstring loses "overridden by this airport's own value" |
+| `Affordances.group_span_max_m` prose | `law/rebake_schema.py:103-104`, `structures.toml:718`, `planar/group.py:58-59, 379` | delete the per-airport sentence |
+| the gate | `airport/wall_family.py:180-204` | delete; the (1) clauses take its place after rule 5 |
+| the reader's docstring | `airport/wall_corridors.py:1-14` (`§6, §12g`, `airports.toml`, "PER-AIRPORT AFFORDANCE") | rewrite to §12h |
+| the VHHH note | `airport/object_cut.py:12-13, 605-623` | rewrite as history: signature A refuted (15x stands); the affordance replaced by §12h; VHHH measured under R ((10)) |
+| RECORDED | `tests/test_no_airport_specific_code.py:42-46` (+ docstring `:18-22`) | `RECORDED = set()`; `test_the_recorded_set_is_not_stale` stays (vacuously true, and it re-arms the day a row is added) |
+| the affordance twins | `tests/auto_patch_v2/test_v2corridor.py:472-547` (`…names_othh_and_nobody_else`, `…with_the_key_on_and_refused_with_it_off`, `…every_law_c_class_passes_the_one_gate`, `…the_law_digest_changes_when_the_affordance_table_changes`) and the fixture docstring `:46-52` | delete; `…terminals_only_clause_and_its_keys_are_deleted` (`:519`) stays |
+| the span twin | `tests/auto_patch_v2/test_v2canopy.py:198-208 test_the_airport_may_state_its_own_span` | replace by one asserting `group_span_max_m(law) == law.tables.structures.placement.group_span_max_m` and that `Law` has no `affordances` |
+| the freeze guards | `Ortho4XP.spec:80-86`, `Ortho4XP_Qt.spec:95-101` | `< 9` → `< 8`; "eight … (incl. airports.toml, RULINGS 2026-09-10ap)" → "seven"; `tests/test_auto_patch_engine_dispatch.py:429` comment |
+| INDEX / docs prose naming `airports.toml` | `tools/INDEX.md`, `CLAUDE.md`, `.claude/agents/*.md` (grep) | one-line edits in the same commit |
+
+**What `Law.for_airport` keeps afterwards.** `Law.icao` (`model.py:1176`) — used by
+`resolve_ruleset` (FAA for K…/PA…-class identifiers, a rule by identifier class, not by
+airport), by `tables.flat_declared(law, icao)` (`:648`, the owner's option-(c) declaration —
+`flat_site.toml` names no airport today, the 05e twin proves it) and by report lines. NO
+per-airport TABLE remains: `LawTables` loses `airports`, the law directory has 7 files, and
+`test_no_airport_specific_code.law_affordances` finds nothing. `law_tables_digest`
+(`tables.py:55`) globs the directory, so every patch's provenance changes once — expected,
+and the byte-identity bars are on the BODY and the rebake plan, never the sidecar's digest.
+
+### §12h (8) `group_span_max_m` — THE EXACT REMOVAL THAT LEAVES THE PACK-WIDE VALUE BYTE-IDENTICAL
+
+Its per-airport reading: `Affordances.group_span_max_m: float | None = None`
+(`law/airports_schema.py:49-55`) → `tables.group_span_max_m(law)` (`law/tables.py:82-91`:
+`own = law.affordances.group_span_max_m; return own if not None else
+law.tables.structures.placement.group_span_max_m`) → `pipeline/build.py:406` imports it as
+`_span_max` and `:504` hands `_span_max(law)` to `planar/group.derive` (`:379`
+`span_max_m`). `airports.toml` names NO `group_span_max_m` for any airport (the file's one
+key is `kerb_wall_corridors`), so `own` is `None` on every build today and the function
+returns `[placement] group_span_max_m` = 150.0 (`structures.toml:720`, schema
+`rebake_schema.py:105`). The removal: delete the dataclass field with the class; reduce the
+function body to the one `return`; delete the four prose mentions ((7)). Every reader keeps
+the same call and the same value → the derived groups, the pads and the patch are
+byte-identical by construction; the proof is the OTHH replay body sha in (9) (the partition
+and the groups are captured, so a `--from planar` replay does not re-derive them — the lane
+ALSO runs `--from classify` once on the OTHH capture, which re-derives the clusters off the
+partition, and the one OTHH build, which derives everything).
+
+### §12h (9) ACCEPTANCE BARS FOR THE IMPLEMENTING LANE
+
+Synthetic-first, one airport at the close (CLAUDE.md BUILD ECONOMY):
+
+1. **The OTHH replay** (registered capture `frames/perfB362/OTHH.pkl` or the parallel branch's
+   `pardoors` frame; `frames.py list OTHH`): `--from planar --emit DIR` → 9 corridors with
+   RECORDS IDENTICAL to the base arm (ids, class, axis, stations, floors, plate_plan — diff the
+   `--stage structures` JSON), patch BODY sha
+   `88794a1d264baaa696d7248c08c0f39a3fd8aa7027f369d5f45e827d7438ae8d`, rebake plan
+   `eecf0d4d6ba1…` (the full sha is on the pardoors frame row); then ONE OTHH build through
+   `tools/harness/build_airport.py OTHH` with the same body sha. With the family FIELD gate
+   ((4) step 0) the bar on the LINES is: records sha + patch body `88794a1d264b…` + rebake
+   `eecf0d4d6ba1…` + the 30 ON-FIELD refusal texts identical + the 5 family lines naming
+   distances ≥ 150 (30 of OTHH's 60 refusal texts belonged to its 5 off-field families and
+   are those 5 lines).
+2. **The other six sweep airports byte-identical** — CYXY `2a00c361ffc2`, SPJC `9d611f11e04b`,
+   KCLT `795da9629004`, KASE `738c2a8ceb64`, HECA `09847984ac94`, NLWF `84be89f8b7bc` — proven
+   by the MASTER's sweep at merge (never a lane's five-airport sweep); the lane proves KASE on
+   its registered capture by replay (`--from planar --emit`, body sha) because KASE is the one
+   whose candidate population R touches (26 live → 0).
+3. **Replays admitting 0**: LEMD (`frames/sheetchain/LEMD.pkl`), KASE (`conc333`), TFFJ
+   (`surfacesettle2`), VHHH (`frames/lawcspec/VHHH.pkl`, (10)) — `--stage structures` on each:
+   `corridors 0`, every refused candidate's line naming its clause, and the (2) table
+   reproduced from the lines for the on-field airports (LEMD); for KASE / TFFJ / VHHH the
+   family lines name the distance and the per-clause columns are the lane's recorded
+   measurement — under the law values (ε 0.05, ceiling 3.5): W1s / W3 / FIELD
+   counts per airport equal to the table, or the difference named per candidate.
+4. **Build time**: `read_s` delta on the OTHH replay and the OTHH build's wall-corridor line,
+   both arms, under `ab-time`; the bar is < 0.6 s added and the index built once per process.
+5. **Twins, from synthetic packs** (`test_v2corridor.py`'s `_corridor_obj` family, extended
+   with a CLOSER placement of another resource and a cells list for the field): one per clause
+   — W1s open (admitted) / closed below by a foreign slab / closed at grade by a wall, a door
+   mesh, a fence, a 0.15 m kerb (each REFUSED by W1s with the closer named); W3 by plate /
+   by an above-grade wall at the closed end / neither (REFUSED by W3); FIELD on / off (cells
+   moved 200 m away → REFUSED by FIELD) / not read (no classification: the line says so,
+   `field_read` False) — and one per degenerate case of (3): canopy overhead (the mouth open;
+   the canopy is a plate, so W3 ✓ through `plate_plan`), jet bridge
+   (legs < 0.5 → open), ground slab (closed), open both ends with a deck (level, two halves),
+   open both ends under open sky (REFUSED by W3), one end closed by a foreign placement (bay
+   at the other), garage ramp (one mouth; W3 at the deep end), unequal arms (mouth at the
+   overlap). Plus: the composed class (level → bay) twin; the line-format twin (every clause
+   present, the closer's resource and placement in it); the pooled = serial twins with the
+   field handed (`test_parplanar`, `test_pardoors`, `planar_read_arm`); `test_no_airport_
+   specific_code` green with `RECORDED = set()`; the law-table count twins at 7.
+6. **The existing twins re-read under R** ((6) row 18): every synthetic corridor they admit
+   today has a deck (`deck_y=2.6`) — W3 ✓ — and open mouths with nothing else in the pack —
+   W1s ✓ — and most hand no classification → FIELD not read. A twin that admits an `open_air`
+   corridor (`test_v2corridor.py:66`, `test_v2wallcorridor.py:127-128` garage/steep with
+   `deck_y=None`) is now REFUSED by W3 unless the pack carries a wall at the closed end: those
+   twins assert the refusal by name, not a changed law.
+7. `tools/ratchets.py` passes; the report carries net lines and new public symbols
+   (`WallField`, `cover_polygons`, the `field` parameters, the stats fields).
+
+### §12h (10) VHHH — MEASURED (the condition RULINGS 2026-10-05g set before the key is deleted)
+
+**Capture.** No VHHH capture existed (every registered one was MISSING after the reboot
+of issue #37), so this lane took ONE: `tools/v2_solve_replay.py --capture VHHH` on main
+`b229ab54` from the `lawcspec` lane worktree on the shared corpus — 248 s, peak RSS **2.7 GB**
+(the 25–35 GB structures-stage warning did not recur at capture; the mouth read peaked at
+1.9 GB), 33,947 vertices / 2,118 faces, pack partition 106 s (2,998 bodies, 2,730 groups),
+`[guard] shared repo UNCHANGED`. Registered: `frames/lawcspec/VHHH.pkl`
+(`docs/frames.jsonl`, kind `capture`, base `b229ab54`, lane `lawcspec`).
+
+**Read** with the scout's instrument unchanged (`scratchpad/mouthwitness/mw.py`: the
+affordance forced ON in-process, (d) neutralised in-process so every candidate reaches rule
+4 while its own-wall height still states (d)'s verdict; `read_wall_corridors` 284 s over
+5,078 placed objects, 145 families, 1,326 bands, 224 pairs; then the FIELD read against
+the capture's classified cells). Numbers first:
+
+| population | n | (d) refuses | W1s | W3 | FIELD | R |
+| --- | --- | --- | --- | --- | --- | --- |
+| today's law, key forced on (live) | **0** | — | 0 | 0 | 0 | **0** |
+| (d) neutralised (the 10ap population) | 181 (bay 100, level 81 pairs) | **181** (own wall 16.66–153.25 m) | 180 | 175 | **0** (nearest cover 1,316–2,042 m) | **0** |
+
+Every one of the 181 is inside `CITY1.obj` 64 / `CITY2.obj` 72 / `CITY3.obj` 41 /
+`CITY4.obj` 4 — the city-block objects whose foundation walls descend 1.35–10.22 m under
+their ground, at 22.27605–22.29683, 113.93130–113.95404 (the town east of the field; the
+nearest classified cells are `building` 280 / `service_road` 82 ends, 1.3–2.0 km away).
+The other 43 of 224 pairs are refused by the existing rules (closed at both ends 31, not
+two readable bands 2, wall bottom at 894 % 1, …). The `object_cut.py:612-623` record —
+`CITY2.obj` 0 → 116 corridors with the key on, 2026-09-15, BEFORE (d) existed — is this
+class: signature A's predicate (a crest plate) admitted them; today's (d) refuses every one
+on its own, and FIELD refuses every one on its own. **R admits nothing at VHHH; two
+independent clauses each read the whole set as refused.** No finding, no special case.
+
+Lane `lawcspec`, 2026-10-05; the per-candidate JSON (`VHHH.json`, `field_vhhh*.log`) is in
+the lane's scratchpad beside the scout's; the implementing lane's `--stage structures` on
+the registered capture is the durable form of this read (bar (9) 3).
+
+### §12h (11) RESIDUE FOR THE OWNER'S SIM LOOK (nothing misclassified on the corpus; five refusals rest on ONE clause each)
+
+| site | what | the one clause |
+| --- | --- | --- |
+| KASE 39.191344, −106.819583 | `b56dfde4-…-359f7b320fda_1` 3105: 19.5 × 10.3 m, 9.9 m deep, one end wholly open, the other closed by `_2` (z 2395–2405) | (d) and FIELD (3,900–4,370 m from the cover) — see the 3131 row |
+| KASE 39.189304, −106.819453 | 3131: 10.3 × 8.9 m, 3.1 m deep, bay under a 7.2 m deck | KASE 3131 and 3105's kerb reads 3.00x m at the engine's precision (the scout compared a rounded 3.0): (d) refuses them; FIELD refuses them too. Only 3161 (kerb −0.0, W1s ✓ W3 ✓) rests on FIELD alone |
+| KASE 39.190352, −106.819609 | 3161: 22.2 × 10.7 m, 7.0 m deep, bay | FIELD |
+| LEMD 40.458445, −3.577556 | `Airport_Cargo-GAVIA` 0/0 bay 24: a 1.2–1.4 m cargo kerb pit under a 3.7 m deck — `Cargo-LEMD63` comp 14, a 3 cm plate authored +2.26 m, 2.15 m over the mouth's ground, 3.52 m over the floor — that reaches its mouth window (0.82 of W) | W1s — its roof reaches the mouth under `min_headroom_m` over the ground |
+| OTHH 25.266210, 51.611335 | `Terminal_Base_2_5` 432/433 (the 08u underpass): admitted; its deck (2.42 m over ground) would close the mouth if it reached the window | the one admitted record whose W1s rests on the plate's edge |
+| LEMD 40.491095, −3.568335 | `Sim-wings-SWbaume` 135/163 (117): a 7 m pit at the T4S tower filled by the pack's ground slab `Ground-FSX-LEMD85` (1.00) | W1s |
+
+Downtown Aspen is 3.9 km from the field; the two LEMD sites are paved over by the pack itself.
+If the owner wants pictures, these five. The next witness if R were refused — the crest test,
+the band's own top ≥ 0.2 m over the object's zero — is weaker (a 0.36 m margin against a
+presence test) and is recorded in the findings only.
+
+### §12h (12) OWNER QUESTIONS (each a yes/no with the spec author's recommendation)
+
+1. A kerb or step < 0.3 m across the mouth at grade CLOSES it (the pack says a vehicle does not
+   drive there)? — **Recommend YES** (no corpus instance either way; the rule stays one value,
+   ε; a kerb-height floor to the at-grade band would be a new value nobody has measured).
+2. A level corridor whose one end a FOREIGN placement closes builds as a BAY at the other end
+   (rather than being refused or built as two halves)? — **Recommend YES** ((1) last
+   paragraph; no corpus instance; the half that would climb into the closer is the defect
+   avoided).
+3. FIELD reads the classified cover ALONE (not §29 (1)'s approach corridor and runway band)?
+   — **Recommend YES** (the measured form; a kerb corridor is not a portal seen on approach).

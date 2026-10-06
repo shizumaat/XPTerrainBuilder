@@ -1358,6 +1358,7 @@ def _check_isolated_road_rects(patch: Patch, thr: Thresholds
     """
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
+    from auto_patch_v2.geom.rotated_rect import rotated_rectangle
     ROAD_ROLES = ("service_road", "service_junction", "junction",
                   "groundside_pavement", "apron")
     rects, family = [], []
@@ -1392,7 +1393,7 @@ def _check_isolated_road_rects(patch: Patch, thr: Thresholds
         separates §T4.2's population from a large carved road surface
         that merely happens to touch nothing."""
         try:
-            mrr = poly.minimum_rotated_rectangle
+            mrr = rotated_rectangle(poly)       # the engine's ONE guard
             xy = list(mrr.exterior.coords)[:-1]
             if len(xy) != 4:
                 return float("inf")

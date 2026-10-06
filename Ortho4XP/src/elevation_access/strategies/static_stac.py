@@ -293,6 +293,8 @@ class StaticStacCatalogStrategy:
 
         import requests
 
+        import O4_Console_Encoding
+
         if not lerc_decode_available():
             # THE 1.0.324 CONDITION, honestly named (owner RULINGS
             # 2026-09-13b).  The packaged engine of that build returned
@@ -327,7 +329,7 @@ class StaticStacCatalogStrategy:
                 completed = subprocess.run(
                     lerc_worker_argv(tiff_path, npy_path),
                     capture_output=True,
-                    text=True,
+                    **O4_Console_Encoding.child_console_pipe(),
                     timeout=600,
                 )
                 if completed.returncode != 0:

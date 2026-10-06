@@ -407,6 +407,84 @@ def test_find_text_dump_never_crosses_the_live_and_pristine_names(tmp_path):
                             dsf_path=str(dsf)) is None
 
 
+def _renamed_pack(tmp_path):
+    """A pack whose pristine DSF was dumped as ``<tile>.dsf.<tag>.text``
+    and then RENAMED to ``.anchor_bak`` by the object stage (#370)."""
+    import time
+    dsf = tmp_path / "xp" / "Custom Scenery" / "OTHH Pack" / "Earth nav data" / "+20+050" / "+25+051.dsf"
+    dsf.parent.mkdir(parents=True)
+    d = tmp_path / "mod_cache" / "OTHH Pack"
+    d.mkdir(parents=True)
+    t0 = time.time() - 3600
+    dsf.write_bytes(b"XPLNEDSF pristine")
+    os.utime(dsf, (t0, t0))
+    dump = d / f"+25+051.dsf.{S.text_dump_tag(str(dsf))}.text"
+    dump.write_text("OBJECT_DEF objects/a.obj\n", encoding="utf-8", newline="")
+    os.utime(dump, (t0 + 60, t0 + 60))
+    bak = dsf.parent / "+25+051.dsf.anchor_bak"
+    os.replace(dsf, bak)                              # a rename keeps the mtime
+    dsf.write_bytes(b"XPLNEDSF written with body placements")
+    return dsf, bak, d, dump
+
+
+def test_a_renamed_dsf_finds_the_dump_of_its_own_bytes(tmp_path):
+    """#370 (OTHH 2026-10-04): ``+25+051.dsf.anchor_bak`` has the bytes
+    ``+25+051.dsf.4229c95f.text`` was dumped from — the dump is located by
+    the content tag, not refused for the file's new name."""
+    dsf, bak, d, dump = _renamed_pack(tmp_path)
+    root = str(d.parent)
+    assert S.find_text_dump(root, "OTHH Pack", 25, 51, dsf_path=str(bak)) == str(dump)
+    # the WRITTEN live file has other bytes: that dump is never its own
+    assert S.find_text_dump(root, "OTHH Pack", 25, 51, dsf_path=str(dsf)) is None
+    # a dump under the DSF's OWN name wins, so a warm lookup never moves
+    own = d / f"+25+051.dsf.anchor_bak.{S.text_dump_tag(str(bak))}.text"
+    own.write_text("OBJECT_DEF objects/a.obj\n", encoding="utf-8", newline="")
+    assert S.find_text_dump(root, "OTHH Pack", 25, 51, dsf_path=str(bak)) == str(own)
+    # another TILE's DSF with the same bytes is not this tile's dump, a
+    # 0-byte or stale dump is still refused
+    own.unlink()
+    other = dsf.parent / "+25+052.dsf"
+    other.write_bytes(bak.read_bytes())
+    os.utime(other, (os.path.getmtime(bak),) * 2)
+    assert S.content_keyed_dump(str(d), str(other)) is None
+    dump.write_bytes(b"")
+    assert S.content_keyed_dump(str(d), str(bak)) is None
+    dump.write_text("OBJECT_DEF objects/a.obj\n", encoding="utf-8", newline="")
+    os.utime(dump, (os.path.getmtime(bak) - 60,) * 2)
+    assert S.content_keyed_dump(str(d), str(bak)) is None
+
+
+def test_a_renamed_dsf_matches_its_dump_whatever_the_case_of_the_name(tmp_path):
+    """Windows (#370): the pack ships ``+25+051.DSF`` and its dump was
+    written under that spelling, or under the ``.dsf`` this engine
+    spells — the file system calls them one file, so the locator must."""
+    dsf, bak, d, dump = _renamed_pack(tmp_path)
+    upper = d / dump.name.replace(".dsf.", ".DSF.")
+    os.replace(dump, upper)
+    assert S.content_keyed_dump(str(d), str(bak)) is not None
+    assert os.path.samefile(S.content_keyed_dump(str(d), str(bak)), upper)
+    shouting = bak.with_name("+25+051.DSF.anchor_bak")
+    os.replace(bak, shouting)
+    assert os.path.samefile(S.content_keyed_dump(str(d), str(shouting)), upper)
+    # the tag is still the identity: other bytes, same name, no dump
+    assert S.content_keyed_dump(str(d), str(dsf)) is None
+
+
+def test_the_dsftool_wrapper_adopts_the_renamed_dsfs_dump(tmp_path, monkeypatch):
+    """The v1 wrapper asks the SAME locator before it spawns DSFTool: the
+    app's driver (``fresh_pack_dump``) must not re-dump a DSF whose dump
+    is already cached under its old name."""
+    from auto_patch import dsf_reader as v1
+    dsf, bak, d, dump = _renamed_pack(tmp_path)
+    monkeypatch.setattr(v1, "_dsftool_path", lambda: "/nonexistent/DSFTool")
+    def _no_spawn(*a, **kw):
+        raise AssertionError("DSFTool must not be spawned")
+    monkeypatch.setattr(v1.subprocess, "run", _no_spawn)
+    assert v1.ensure_dsf_text_path(str(bak), str(d)) == str(dump)
+    assert v1.ensure_dsf_text_path(str(bak), str(d)) == S.find_text_dump(
+        str(d.parent), "OTHH Pack", 25, 51, dsf_path=str(bak))
+
+
 # ── §44 THE PAVEMENT BORROW (owner RULINGS 2026-09-15f) ──────────────────
 #
 # A custom pack whose apt.dat row-110 union covers less than

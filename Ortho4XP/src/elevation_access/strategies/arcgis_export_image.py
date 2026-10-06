@@ -515,12 +515,15 @@ class ArcgisExportImageStrategy:
         worker, out of process: :func:`lerc_worker_argv`)."""
         import subprocess
 
+        import O4_Console_Encoding
+
         code = definition.get("code") or "elevation provider"
         decoded = os.path.join(scratch, "decoded")
         os.makedirs(decoded, exist_ok=True)
         completed = subprocess.run(
             lerc_worker_argv(scratch, decoded),
-            capture_output=True, text=True, timeout=600)
+            capture_output=True, timeout=600,
+            **O4_Console_Encoding.child_console_pipe())
         if completed.returncode != 0:
             raise ProviderUnavailable(
                 "the LERC chunk decode failed: "

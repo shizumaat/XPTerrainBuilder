@@ -41,9 +41,30 @@ much — an ``errors`` policy that can never raise:
 
 Every engine child pins its OWN console: ``--engine-worker`` and
 ``--lerc-decode`` are re-execs of ``Ortho4XP.py`` / ``Ortho4XP_Qt.py``,
-whose module body calls this function, and the multiprocessing helpers
-re-import that entry as ``__mp_main__``, which runs it too.  So nothing
-here needs to reach into a child's environment, and it does not.
+whose module body calls this function.  A multiprocessing child (the
+airport pool, its Manager, a work-pool worker) reaches it by one of two
+roads: FROM SOURCE it re-imports the entry as ``__mp_main__``, which runs
+the call; FROZEN it is NOT a re-import — it is the executable re-exec'd as
+``--multiprocessing-fork …`` and diverted by ``multiprocessing.
+freeze_support()``, never to return — so the entry files make this call
+BEFORE ``freeze_support()`` and nothing else comes between (issue #362;
+``--pool-selfcheck``'s ``worker`` section reads a frozen worker's text
+layer and fails on any other).  A windowed bundle's worker has no console
+at all (``sys.stdout is None``, recorded here as ``absent``): ``print`` to
+it is a no-op, and no worker-side engine code calls a stream method
+directly.  So nothing here needs to reach into a child's environment, and
+it does not.
+
+The other end of a child's console
+----------------------------------
+A parent that reads an engine child's console as TEXT passes
+:func:`child_console_pipe` to ``subprocess`` (the tile workers in
+``o4_engine.parallel``; the ``--lerc-decode`` child's four readers in
+``elevation_access``): ``text=True`` alone decodes with the locale, so
+the UTF-8 a worker now writes came back from a Windows parent as
+``SuÃ¡rez``, and a byte cp1252 does not define (``Á`` is C3 81) ended
+the reader thread.  ``tests/test_console_encoding.py`` holds it with a
+cp1252 default, and holds the class from the source.
 
 What this deliberately does NOT do
 ----------------------------------
@@ -81,6 +102,7 @@ to fix a crash class.  Such a stream is recorded as skipped, with why.
 from __future__ import annotations
 
 import io
+import locale
 import sys
 from typing import Any, Dict, Optional
 
@@ -131,6 +153,47 @@ def _pin(stream: Any, errors: str) -> str:
             return f"errors-only ({type(exc).__name__})"
         except Exception:
             return f"refused ({type(exc).__name__})"
+
+
+def child_console_pipe() -> Dict[str, Any]:
+    """``subprocess`` keywords for a pipe to an ENGINE child read as text.
+
+    The child pinned its console to UTF-8 at its entry; this is the same
+    encoding at the parent's end of the pipe, with the read-side error
+    policy — one bad byte must not end the parent's reader.
+    """
+    return {"text": True, "encoding": CONSOLE_ENCODING, "errors": READ_ERRORS}
+
+
+def native_tool_encoding() -> str:
+    """The encoding a NATIVE command-line tool's output arrives in.
+
+    A C/C++ tool (DSFTool) takes ``char *argv[]`` and ``printf``s: it never
+    pins a console, so the bytes it echoes — the paths it was given among
+    them — are this machine's ANSI code page on Windows (the narrow
+    ``argv`` is converted with it; a pipe is raw bytes, the console's OEM
+    page never applies) and UTF-8 on POSIX (APFS/ext4 paths are UTF-8, and
+    the C runtime passes them through).  ``locale.getencoding()`` is the
+    ANSI page even under Python's UTF-8 mode, which is why it is asked and
+    not ``getpreferredencoding``.
+    """
+    if sys.platform != "win32":
+        return CONSOLE_ENCODING
+    getencoding = getattr(locale, "getencoding", None)      # Python >= 3.11
+    return getencoding() if getencoding else locale.getpreferredencoding(False)
+
+
+def native_tool_pipe() -> Dict[str, Any]:
+    """``subprocess`` keywords for a pipe to a NATIVE tool read as text.
+
+    The counterpart of :func:`child_console_pipe` for a child that is not
+    an engine child: :func:`native_tool_encoding`, with the read-side error
+    policy — a path the tool echoes in some other encoding becomes ``\ufffd``
+    in a message, never an exception that hides the tool's real failure.
+    ASCII output decodes identically under every choice here.
+    """
+    return {"text": True, "encoding": native_tool_encoding(),
+            "errors": READ_ERRORS}
 
 
 def configure_console_streams(force: bool = False) -> Dict[str, Any]:

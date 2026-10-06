@@ -78,12 +78,42 @@ v2_law_datas = (
     + [(f, os.path.join("auto_patch_v2", "classify"))
        for f in sorted(_glob.glob(os.path.join("src", "auto_patch_v2", "classify", "*.toml")))]
 )
-if len(v2_law_datas) < 9:
+if len(v2_law_datas) < 8:
     raise SystemExit(
-        f"ERROR: expected the eight auto_patch_v2 law tables (incl. airports.toml, "
-        f"RULINGS 2026-09-10ap) + classify/rules.toml under src/auto_patch_v2, "
+        f"ERROR: expected the seven auto_patch_v2 law tables "
+        f"+ classify/rules.toml under src/auto_patch_v2, "
         f"found {len(v2_law_datas)} — refusing to freeze "
         f"an engine whose v2 cannot load its law.")
+
+# ---------------------------------------------------------------------------
+# THE PARTITION CACHE'S CODE DIGEST (issue #362).  A frozen engine has no
+# source files, so ``partition_cache.code_digest`` used the APP VERSION and
+# every update cold-started every user's pack partition (OTHH: ~500 s).  The
+# digest of the reading's own sources is taken HERE, from the files
+# PyInstaller is about to compile, by the engine's own function — executed
+# with ``runpy`` from its one stdlib-only file, never by importing the
+# package — and bundled beside the module that reads it
+# (``_internal/auto_patch_v2/airport/partition_code.sha256``).  A freeze that
+# cannot take it REFUSES (``write_freeze_digest`` raises): the engine would
+# silently fall back to keying on the version.
+# ---------------------------------------------------------------------------
+import runpy as _runpy
+_partition_digest_file = _runpy.run_path(
+    os.path.join("src", "auto_patch_v2", "airport", "partition_code.py")
+)["write_freeze_digest"]("src", os.path.join("build", "o4_partition_code"))
+print(f"Partition cache code digest: "
+      f"{open(_partition_digest_file).read().strip()}")
+v2_law_datas = v2_law_datas + [
+    (_partition_digest_file, os.path.join("auto_patch_v2", "airport"))]
+
+# THE PATCH FRESHNESS GATE'S CODE DIGEST (issue #346) — the same mechanism,
+# over the whole engine source: without it a frozen engine's patches key on
+# the version string alone (``_internal/auto_patch/engine_code.sha256``).
+_engine_digest_file = _runpy.run_path(
+    os.path.join("src", "auto_patch", "provenance_code.py")
+)["write_freeze_digest"]("src", os.path.join("build", "o4_engine_code"))
+print(f"Engine code digest: {open(_engine_digest_file).read().strip()}")
+v2_law_datas = v2_law_datas + [(_engine_digest_file, "auto_patch")]
 
 # highspy (the HiGHS QP behind the runway family's final projection,
 # ``auto_patch_v2/solve/project.py``, RULINGS 2026-09-09ae) is imported

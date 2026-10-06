@@ -48,9 +48,11 @@ import numpy as np
 
 from ..model.frame import XY
 from . import obj8 as _obj8
+from . import pool as _pool
 
 __all__ = ["PlacedPart", "Partition", "partition", "BaseIndex", "Extension",
-           "base_index", "extend"]
+           "base_index", "extend", "PartAttrs", "part_attrs", "member_attrs",
+           "narrow_outcomes", "narrow_ahead", "narrow_block"]
 
 
 @_dc.dataclass(frozen=True)
@@ -598,25 +600,39 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                  foot_samples_max: int = 4,
                  line_members: _t.Collection[int] = (),
                  station_span_m: float = 0.0, stations_max: int = 0,
-                 scatter_members: _t.Collection[int] = ()) -> list[PlacedPart]:
+                 scatter_members: _t.Collection[int] = (),
+                 contact_only: bool = False,
+                 attrs: "_t.Sequence[_t.Sequence[PartAttrs] | None] | None" = None
+                 ) -> list[PlacedPart]:
     """Every genuine component of every member as a placed part, in
     member order then component order (deterministic pids).  A member in
     ``line_members`` is a LINE OBJECT (RULINGS 2026-09-10bb): its parts
     are flagged and their feet are widened to the DRAPE STATIONS — one
     per ``station_span_m`` of the part's plan length, capped at
     ``stations_max`` — so the segment seat reads the design surface
-    along the whole fence and not at four points of a 5 km run."""
+    along the whole fence and not at four points of a 5 km run.
+
+    ``contact_only`` (issue #362) places the part for the CONTACT passes
+    alone — points, triangles, boxes, area, centroid — and leaves the
+    feet, the footprint outline and the solid height unread (no feet, no
+    ring, ``solid_h`` NaN).  :func:`extend` re-places a base member's
+    components only to test them against an added plate; the outline is a
+    shapely union per component and was most of that re-placing.
+
+    ``attrs`` (issue #362) is :func:`member_attrs` per member, derived
+    AHEAD by a work pool (``None``, or ``None`` at a member, derives them
+    here): the feet, the outline and the solid height are a function of
+    the member's own placed components, so who derives them cannot show
+    in the parts."""
     parts: list[PlacedPart] = []
     lines = set(line_members)
     scat = set(scatter_members)
     for mi, (o, geom, comps) in enumerate(members):
         is_line = mi in lines
         is_scat = mi in scat and not is_line
-        for ci, c in comps:
-            tris = np.asarray(c.tris)
-            ids, inv = np.unique(tris.reshape(-1), return_inverse=True)
-            pts = _place(geom, o, ids)
-            lt = inv.reshape(tris.shape)
+        ahead = None if attrs is None or contact_only else attrs[mi]
+        for k, (ci, c) in enumerate(comps):
+            pts, lt = _part_frame(geom, o, c)
             a, b, d = pts[lt[:, 0]], pts[lt[:, 1]], pts[lt[:, 2]]
             areas = 0.5 * np.linalg.norm(np.cross(b - a, d - a), axis=1)
             total = float(areas.sum())
@@ -626,22 +642,71 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                 cy = float((cen[:, 2] * areas).sum() / total)
             else:
                 cx, cy = float(pts[:, 0].mean()), float(pts[:, 2].mean())
-            # §B.2 (4): a scatter piece seats by ONE foot and carries no
-            # ring (§16g reads it by its box)
-            k_max = 1 if is_scat else foot_samples_max
-            if is_line and station_span_m > 0.0 and stations_max > 0:
-                span = math.hypot(float(pts[:, 0].max() - pts[:, 0].min()),
-                                  float(pts[:, 2].max() - pts[:, 2].min()))
-                k_max = max(foot_samples_max,
-                            min(stations_max, int(math.ceil(span / station_span_m))))
+            if contact_only:
+                parts.append(PlacedPart(len(parts), mi, ci, pts, lt, float(c.min_y), total,
+                                        (cx, cy), pts.min(axis=0), pts.max(axis=0),
+                                        np.minimum(np.minimum(a, b), d),
+                                        np.maximum(np.maximum(a, b), d),
+                                        np.zeros((0, 3), dtype=float), is_line, (),
+                                        scatter=is_scat))
+                continue
+            feet, rings, solid_h = ahead[k] if ahead is not None else part_attrs(
+                pts, lt, float(c.min_y), o, is_line, is_scat, foot_band_m,
+                foot_samples_max, station_span_m, stations_max)
             parts.append(PlacedPart(len(parts), mi, ci, pts, lt, float(c.min_y), total,
                                     (cx, cy), pts.min(axis=0), pts.max(axis=0),
                                     np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d),
-                                    _feet(pts, float(c.min_y), o.anchor_z + o.agl_m,
-                                          foot_band_m, k_max), is_line,
-                                    () if is_scat else plan_hull(pts, lt),
-                                    scatter=is_scat, solid_h=solid_height(pts, tris=lt)))
+                                    feet, is_line, rings,
+                                    scatter=is_scat, solid_h=solid_h))
     return parts
+
+
+#: ``(feet, rings, solid_h)`` of one placed part — what :func:`part_attrs`
+#: derives and a work pool may derive ahead
+PartAttrs = tuple[np.ndarray, _t.Any, float]
+
+
+def _part_frame(geom: _obj8.ObjGeometry, o: _obj8.PlacedObject, c: _obj8.Component
+                ) -> tuple[np.ndarray, np.ndarray]:
+    """One component PLACED: its own vertices in the frame and its
+    triangles re-indexed into them."""
+    tris = np.asarray(c.tris)
+    ids, inv = np.unique(tris.reshape(-1), return_inverse=True)
+    return _place(geom, o, ids), inv.reshape(tris.shape)
+
+
+def part_attrs(pts: np.ndarray, lt: np.ndarray, min_y: float, o: _obj8.PlacedObject,
+               is_line: bool, is_scat: bool, foot_band_m: float,
+               foot_samples_max: int, station_span_m: float, stations_max: int
+               ) -> PartAttrs:
+    """The EXPENSIVE readings of one placed part — its ground feet, its
+    footprint outline and its solid height (:func:`placed_parts`' doc)."""
+    # §B.2 (4): a scatter piece seats by ONE foot and carries no
+    # ring (§16g reads it by its box)
+    k_max = 1 if is_scat else foot_samples_max
+    if is_line and station_span_m > 0.0 and stations_max > 0:
+        span = math.hypot(float(pts[:, 0].max() - pts[:, 0].min()),
+                          float(pts[:, 2].max() - pts[:, 2].min()))
+        k_max = max(foot_samples_max,
+                    min(stations_max, int(math.ceil(span / station_span_m))))
+    return (_feet(pts, min_y, o.anchor_z + o.agl_m, foot_band_m, k_max),
+            () if is_scat else plan_hull(pts, lt),
+            solid_height(pts, tris=lt))
+
+
+def member_attrs(member: MemberGeometry, is_line: bool, is_scat: bool,
+                 foot_band_m: float, foot_samples_max: int,
+                 station_span_m: float, stations_max: int) -> list[PartAttrs]:
+    """:func:`part_attrs` of every component of ONE member, in component
+    order — the unit of work a pool worker derives from its own parse."""
+    o, geom, comps = member
+    out = []
+    for _ci, c in comps:
+        pts, lt = _part_frame(geom, o, c)
+        out.append(part_attrs(pts, lt, float(c.min_y), o, is_line, is_scat,
+                              foot_band_m, foot_samples_max, station_span_m,
+                              stations_max))
+    return out
 
 
 def _piece_edges(parts: _t.Sequence[PlacedPart], touch_m: float) -> list[tuple[int, int]]:
@@ -804,14 +869,27 @@ def _inside(pts: np.ndarray, lo: np.ndarray, hi: np.ndarray, eps: float) -> np.n
     return pts[m]
 
 
+def _sum3(m: np.ndarray) -> np.ndarray:
+    """``m.sum(1)`` of an ``(n, 3)`` float array, BIT FOR BIT, as three
+    column adds (issue #362).
+
+    numpy reduces a 3-long row as ``((0.0 + m0) + m1) + m2`` — the leading
+    ``0.0`` is its own (it is what turns a row of ``-0.0`` into ``+0.0``),
+    so it is kept here.  Reduced along axis 1 that is one short inner loop
+    per ROW; as columns it is three vector adds, and the ten sums of
+    :func:`_point_tri_dist2_rows` were 70 of the narrow pass's 256
+    profiled seconds at OTHH.  Twin: ``test_v2partextend.py``."""
+    return ((0.0 + m[:, 0]) + m[:, 1]) + m[:, 2]
+
+
 def _point_tri_dist2_rows(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Row-wise squared point-to-triangle distance for ``(n, 3)`` rows."""
     ab, ac, ap = b - a, c - a, p - a
-    d1 = (ab * ap).sum(1); d2 = (ac * ap).sum(1)
+    d1 = _sum3(ab * ap); d2 = _sum3(ac * ap)
     bp = p - b
-    d3 = (ab * bp).sum(1); d4 = (ac * bp).sum(1)
+    d3 = _sum3(ab * bp); d4 = _sum3(ac * bp)
     cp = p - c
-    d5 = (ab * cp).sum(1); d6 = (ac * cp).sum(1)
+    d5 = _sum3(ab * cp); d6 = _sum3(ac * cp)
     vc = d1 * d4 - d3 * d2
     vb = d5 * d2 - d1 * d6
     va = d3 * d6 - d5 * d4
@@ -830,9 +908,9 @@ def _point_tri_dist2_rows(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.nda
     q = np.where(on_ac[:, None], a + s_ac[:, None] * ac, q)
     on_bc = (~inside) & ((d4 - d3) >= 0) & ((d5 - d6) >= 0) & (vc <= 0)
     q = np.where(on_bc[:, None], b + s_bc[:, None] * (c - b), q)
-    d = ((p - q) ** 2).sum(1)
-    dv = np.minimum(np.minimum(((p - a) ** 2).sum(1), ((p - b) ** 2).sum(1)),
-                    ((p - c) ** 2).sum(1))
+    d = _sum3((p - q) ** 2)
+    dv = np.minimum(np.minimum(_sum3((p - a) ** 2), _sum3((p - b) ** 2)),
+                    _sum3((p - c) ** 2))
     return np.minimum(d, dv)
 
 
@@ -949,6 +1027,195 @@ def _narrow_pass(parts: _t.Sequence[PlacedPart], pairs: _t.Sequence[tuple[int, i
     return edges, unproved
 
 
+# ── THE NARROW PASS ON A WORK POOL (issue #362) ──────────────────────────
+#
+# A pair's verdict is a function of the two parts alone: the rows its two
+# directions stack, whether any of them comes within ε (TOUCH) and whether
+# a direction went over budget (DOUBT).  Only what the pass DOES with a
+# verdict is sequential — skip a pair already joined, merge on doubt at
+# once, union a batch's touches when ``chunk_rows`` rows have been stacked.
+# So the workers read the verdict of EVERY pending pair (the serial pass
+# skips the joined ones untested: measured 28 % at OTHH, 31 % at HECA,
+# ``docs/perf/measure362-pairs.md``) and :func:`_narrow_replay` walks
+# :func:`_narrow_pass`'s own loop over the recorded verdicts — the same
+# skips, the same flush points, the same unions in the same order.
+
+TOUCH, DOUBT = 1, 2
+
+#: fewer pending pairs than this are not worth a pool
+NARROW_POOL_MIN_PAIRS = 20_000
+
+
+def narrow_outcomes(parts: _t.Sequence, pairs: _t.Sequence[tuple[int, int]],
+                    eps: float, budget: int, chunk_rows: int
+                    ) -> tuple[np.ndarray, np.ndarray]:
+    """Per pair of ``pairs``: the rows its two directions stack (what
+    :func:`_narrow_pass` adds to its batch) and its flags (:data:`TOUCH`,
+    :data:`DOUBT`).  Order-free: a row's distance does not depend on the
+    rows stacked beside it, so any blocking of ``pairs`` gives these
+    arrays.  ``parts`` needs ``pts`` / ``tris`` / ``tri_lo`` / ``tri_hi`` /
+    ``box_min`` / ``box_max`` only."""
+    e2 = eps * eps
+    nrows = np.zeros(len(pairs), dtype=np.int64)
+    flags = np.zeros(len(pairs), dtype=np.uint8)
+    buf: list[list[np.ndarray]] = [[], [], [], [], []]
+    rows = 0
+
+    def flush() -> None:
+        nonlocal rows
+        if buf[0]:
+            d = _point_tri_dist2_rows(*(np.concatenate(x) for x in buf[:4]))
+            ids = np.concatenate(buf[4])
+            flags[np.unique(ids[d <= e2])] |= TOUCH
+        for x in buf:
+            x.clear()
+        rows = 0
+
+    for k, (x, y) in enumerate(pairs):
+        pa, pb = parts[x], parts[y]
+        for src, dst in ((pa, pb), (pb, pa)):
+            r = _narrow_rows(src, dst, eps, budget)
+            if r is None:
+                continue
+            if r is True:
+                flags[k] |= DOUBT
+                continue
+            pts, ti = r
+            t = dst.tris[ti]
+            buf[0].append(pts); buf[1].append(dst.pts[t[:, 0]])
+            buf[2].append(dst.pts[t[:, 1]]); buf[3].append(dst.pts[t[:, 2]])
+            buf[4].append(np.full(pts.shape[0], k))
+            nrows[k] += pts.shape[0]
+            rows += pts.shape[0]
+        if rows >= chunk_rows:
+            flush()
+    flush()
+    return nrows, flags
+
+
+def _narrow_replay(parts: _t.Sequence[PlacedPart], pairs: _t.Sequence[tuple[int, int]],
+                   nrows: np.ndarray, flags: np.ndarray, chunk_rows: int,
+                   uf: _UnionFind) -> tuple[list[tuple[int, int]], int]:
+    """:func:`_narrow_pass` over RECORDED verdicts (:func:`narrow_outcomes`
+    of every pair): its loop line for line, with the geometry replaced by
+    the record.  Same edges in the same order, same ``unproved``, same
+    union-find."""
+    edges: list[tuple[int, int]] = []
+    unproved = 0
+    batch: list[tuple[int, int]] = []        # the batch's TOUCHING pairs, in order
+    rows = 0
+    nrows, flags = nrows.tolist(), flags.tolist()
+
+    def flush() -> None:
+        nonlocal rows
+        for a, b in batch:
+            if uf.union(a, b) or parts[a].member == parts[b].member:
+                edges.append((a, b))
+        batch.clear()
+        rows = 0
+
+    for k, (x, y) in enumerate(pairs):
+        if uf.find(x) == uf.find(y) and parts[x].member != parts[y].member:
+            continue
+        if flags[k] & TOUCH:
+            batch.append((x, y))
+        rows += nrows[k]
+        if flags[k] & DOUBT:
+            unproved += 1
+            if uf.union(x, y) or parts[x].member == parts[y].member:
+                edges.append((x, y))
+        if rows >= chunk_rows:
+            flush()
+    flush()
+    return edges, unproved
+
+
+class _PartView:
+    """The six arrays the narrow pass reads of one part."""
+
+    __slots__ = ("pts", "tris", "tri_lo", "tri_hi", "box_min", "box_max")
+
+
+class _SharedParts:
+    """``parts[pid]`` over a :class:`pool.SharedArrays` of the placed parts
+    (:func:`_share_parts`): views into the shared pages, never a copy."""
+
+    def __init__(self, arrays: _t.Mapping[str, np.ndarray]) -> None:
+        self._a = arrays
+        self._seen: dict[int, _PartView] = {}
+
+    def __getitem__(self, pid: int) -> _PartView:
+        v = self._seen.get(pid)
+        if v is None:
+            a = self._a
+            p0, p1 = a["pts_off"][pid], a["pts_off"][pid + 1]
+            t0, t1 = a["tri_off"][pid], a["tri_off"][pid + 1]
+            v = _PartView()
+            v.pts, v.tris = a["pts"][p0:p1], a["tris"][t0:t1]
+            v.tri_lo, v.tri_hi = a["tri_lo"][t0:t1], a["tri_hi"][t0:t1]
+            v.box_min, v.box_max = a["box_min"][pid], a["box_max"][pid]
+            if len(self._seen) > 4096:
+                self._seen.clear()
+            self._seen[pid] = v
+        return v
+
+
+def _share_parts(parts: _t.Sequence[PlacedPart], pairs: np.ndarray) -> dict:
+    """The arrays of the parts ``pairs`` names, stacked (a part no pair
+    names takes no room), and the pairs themselves."""
+    used = np.zeros(len(parts), dtype=bool)
+    used[pairs.reshape(-1)] = True
+    ps = [p for p, u in zip(parts, used.tolist()) if u]
+    pn = np.array([p.pts.shape[0] if u else 0 for p, u in zip(parts, used.tolist())],
+                  dtype=np.int64)
+    tn = np.array([p.tris.shape[0] if u else 0 for p, u in zip(parts, used.tolist())],
+                  dtype=np.int64)
+    cat = lambda xs, w, dt: (np.concatenate(xs) if xs
+                             else np.zeros((0, w), dtype=dt))      # noqa: E731
+    return {"pts": cat([p.pts for p in ps], 3, float),
+            "tris": cat([np.asarray(p.tris, dtype=np.int64) for p in ps], 3, np.int64),
+            "tri_lo": cat([p.tri_lo for p in ps], 3, float),
+            "tri_hi": cat([p.tri_hi for p in ps], 3, float),
+            "pts_off": np.concatenate(([0], np.cumsum(pn))),
+            "tri_off": np.concatenate(([0], np.cumsum(tn))),
+            "box_min": np.array([p.box_min for p in parts], dtype=float).reshape(-1, 3),
+            "box_max": np.array([p.box_max for p in parts], dtype=float).reshape(-1, 3),
+            "pairs": pairs}
+
+
+def narrow_block(_state, task: tuple) -> tuple[np.ndarray, np.ndarray]:
+    """THE POOLED UNIT: :func:`narrow_outcomes` of pairs ``lo:hi`` of the
+    shared pair list, read off the shared parts."""
+    spec, lo, hi, eps, budget, chunk_rows = task
+    arrays = _pool.attach(spec)
+    return narrow_outcomes(_SharedParts(arrays), arrays["pairs"][lo:hi].tolist(),
+                           eps, budget, chunk_rows)
+
+
+def narrow_ahead(pool: "_pool.WorkPool | None", parts: _t.Sequence[PlacedPart],
+                 pairs: _t.Sequence[tuple[int, int]], eps: float, budget: int,
+                 chunk_rows: int) -> tuple[np.ndarray, np.ndarray] | None:
+    """:func:`narrow_outcomes` of every pair, from ``pool`` — or ``None``
+    (no pool, too few pairs, no shared memory): the serial pass runs."""
+    n = len(pairs)
+    if pool is None or not pool.parallel or n < NARROW_POOL_MIN_PAIRS:
+        return None
+    try:
+        shared = _pool.SharedArrays(
+            _share_parts(parts, np.asarray(pairs, dtype=np.int64).reshape(-1, 2)))
+    except OSError:
+        return None
+    with shared:
+        step = max(2_000, -(-n // (pool.workers * 16)))
+        tasks = [(shared.spec, lo, min(lo + step, n), eps, budget, chunk_rows)
+                 for lo in range(0, n, step)]
+        got = pool.try_map(narrow_block, tasks,
+                           what="pack partition: narrow contacts", unit="pair blocks")
+    if got is None:
+        return None
+    return (np.concatenate([g[0] for g in got]), np.concatenate([g[1] for g in got]))
+
+
 def _abutment_pairs(parts: _t.Sequence[PlacedPart], anchor_of_member: _t.Sequence[int],
                     gap_m: float, extent_min_m: float, spacing_m: float,
                     uf: "_UnionFind") -> list[tuple[int, int]]:
@@ -1011,7 +1278,9 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
               abutment_extent_min_m: float = 0.0,
               abutment_spacing_m: float = 0.0,
               scatter_members: _t.Collection[int] = (),
-              piece_touch_m: float = 0.0) -> Partition:
+              piece_touch_m: float = 0.0,
+              attrs: "_t.Sequence[_t.Sequence[PartAttrs] | None] | None" = None,
+              pool: "_pool.WorkPool | None" = None) -> Partition:
     """Parts, the spanning contact edges, and the pool / structure counts
     (module doc).  With ``elevated_base_m`` given (RULINGS 2026-09-09s
     (2)) an ELEVATED part's feet are dropped: only the GROUND parts carry
@@ -1019,7 +1288,7 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
     off the plan."""
     parts = placed_parts(members, foot_band_m, foot_samples_max,
                          line_members, station_span_m, stations_max,
-                         scatter_members)
+                         scatter_members, attrs=attrs)
     uf = _UnionFind(len(parts))
     edges: list[tuple[int, int]] = []
     # §B.2 (4) (issue #29): SCATTER pieces never reach the weld, the
@@ -1040,7 +1309,13 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
     pend = [(int(a), int(b)) for a, b in bp.tolist()
             if uf.find(int(a)) != uf.find(int(b))
             or parts[int(a)].member == parts[int(b)].member]
-    found, unproved = _narrow_pass(parts, pend, eps, budget, chunk_rows, uf)
+    # ``pool`` (issue #362): every pending pair's verdict from the workers,
+    # then this pass's own loop over the record (:func:`_narrow_replay`)
+    ahead = narrow_ahead(pool, parts, pend, eps, budget, chunk_rows)
+    if ahead is not None:
+        found, unproved = _narrow_replay(parts, pend, ahead[0], ahead[1], chunk_rows, uf)
+    else:
+        found, unproved = _narrow_pass(parts, pend, eps, budget, chunk_rows, uf)
     edges.extend(found)
     # THE PIECE EDGES (§B.2 (4)): the scatter pieces' only contacts
     if len(solid) != len(parts):
@@ -1117,6 +1392,34 @@ def base_index(part: Partition) -> BaseIndex:
     return BaseIndex(lo, hi, mem, cmp_, ln, root, sc)
 
 
+def _near_base(base: BaseIndex, flo: np.ndarray, fhi: np.ndarray, eps: float) -> set[int]:
+    """The base part ids whose 3-D box comes within ``eps`` of one of the
+    new boxes ``(flo, fhi)`` on every axis; a SCATTER base part is never
+    one (§B.6 row 8).
+
+    INDEXED (issue #362).  The test itself is the one :func:`extend`
+    always made — ``base.box_lo - eps <= fhi`` and ``flo - eps <=
+    base.box_hi`` on all three axes, the same floats compared the same way
+    — but it was made against EVERY base box for each new part (OTHH:
+    27,690 x 167,677 rows, 47 s).  A plan-box tree over the base hands each
+    new part its CANDIDATES first: queried with the new box grown by
+    ``2 eps + 1 mm``, so every box the test admits is a candidate (the
+    test's reach is ``eps``; the slack is far above rounding), and the
+    exact test then decides among them.  Same set, by construction."""
+    import shapely
+    tree = shapely.STRtree(shapely.box(base.box_lo[:, 0], base.box_lo[:, 2],
+                                       base.box_hi[:, 0], base.box_hi[:, 2]))
+    pad = 2.0 * abs(eps) + 1e-3
+    qi, bi = tree.query(shapely.box(flo[:, 0] - pad, flo[:, 2] - pad,
+                                    fhi[:, 0] + pad, fhi[:, 2] + pad))
+    if bi.size == 0:
+        return set()
+    m = ((base.box_lo[bi] - eps <= fhi[qi]) & (flo[qi] - eps <= base.box_hi[bi])).all(axis=1)
+    if getattr(base, "scatter", None) is not None:
+        m &= ~base.scatter[bi]
+    return set(np.unique(bi[m]).tolist())
+
+
 @_dc.dataclass(frozen=True)
 class Extension:
     """What :func:`extend` adds: the new parts (global pids), the edges
@@ -1165,13 +1468,7 @@ def extend(base: BaseIndex, base_members: _t.Sequence[MemberGeometry],
     # ── the neighbourhood: base parts within ε of a new part's box ──────
     flo = np.array([p.box_min for p in fresh])
     fhi = np.array([p.box_max for p in fresh])
-    near: set[int] = set()
-    if n_base_parts:
-        for i in range(flo.shape[0]):
-            m = ((base.box_lo - eps <= fhi[i]) & (flo[i] - eps <= base.box_hi)).all(axis=1)
-            if getattr(base, "scatter", None) is not None:
-                m &= ~base.scatter
-            near.update(np.flatnonzero(m).tolist())
+    near = _near_base(base, flo, fhi, eps) if n_base_parts else set()
     # ── re-place just those members' geometry from the resource cache ──
     by_member: dict[int, list[int]] = {}
     for pid in sorted(near):
@@ -1180,7 +1477,18 @@ def extend(base: BaseIndex, base_members: _t.Sequence[MemberGeometry],
     nb_global: list[int] = []
     nb_member: list[int] = []
     for mi, pids in by_member.items():
-        got = {p.comp: p for p in placed_parts([base_members[mi]], foot_band_m, 1)}
+        # ONLY the components within reach, and for the contact passes
+        # alone (issue #362): a neighbour is a terminal of thousands of
+        # components of which a plate touches a handful, and re-placing
+        # the whole member with its feet and outlines — which nothing
+        # here reads (the feet are zeroed below, the rings never leave) —
+        # was the cost of the extension.  Each component is placed
+        # independently of its siblings, so these are the same parts.
+        o, geom, comps = base_members[mi]
+        want = {int(base.comp[pid]) for pid in pids}
+        got = {p.comp: p for p in placed_parts(
+            [(o, geom, [(ci, c) for ci, c in comps if ci in want])],
+            foot_band_m, 1, contact_only=True)}
         for pid in pids:
             p = got.get(int(base.comp[pid]))
             if p is None:

@@ -62,9 +62,11 @@ from ..model import pulse as _pulse
 from ..model.rebake import Member, Part, Unit
 from . import contact as _contact
 from . import deck_signature as _deck
+from . import extension_cache as _extcache
 from . import line_object as _line
 from . import obj8 as _obj8
 from . import obj8_grade as _obj8_grade
+from . import pack_work as _work
 from . import scatter as _scatter
 from . import skirt as _skirt
 from .pack import live_path_of
@@ -289,6 +291,11 @@ class MemberGeometries(_t.Sequence):
             self._cache = cache
             self._built = {}
         return self
+
+    @property
+    def recipes(self) -> tuple["MemberRecipe", ...]:
+        """The recipes themselves — what the sequence IS, with no cache."""
+        return self._recipes
 
     def __len__(self) -> int:
         return len(self._recipes)
@@ -536,7 +543,8 @@ def _batch_to_ll(frame):
 
 def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                    cache: _obj8.ResourceCache, law: Law,
-                   screen: Screen | None = None) -> PackPartition:
+                   screen: Screen | None = None, *,
+                   pool: "_work.WorkPool | None" = None) -> PackPartition:
     """Read ``airport``'s pack into units, members, parts, feet, contacts
     and abutments (module doc).
 
@@ -546,10 +554,19 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     order (filter, then partition) and exists so the round's twin can
     measure the two against each other; nothing in the shipped pipeline
     passes one.
+
+    ``pool`` (issue #362) is the stage's work pool; with none given the
+    call opens its own for its duration.  The pool derives AHEAD what is
+    a function of one resource file — the per-resource readings and the
+    parts' feet / outlines / heights (``airport/pack_work.py``) — and the
+    member loop and the placing below take those answers where they would
+    have derived them: the partition is the serial one by construction.
     """
+    if pool is None:
+        with _work.open_pool(law, cache) as own:
+            return partition_pack(airport, objects, cache, law, screen, pool=own)
     sc = screen or Screen()
     rb = law.tables.structures.rebake
-    sk = law.tables.structures.skirt
     counts = counts_zero()
     counts["signature_decks"] = sum(1 for o in objects if o.deck_kind == "signature")
     # THE DECK FAMILIES readable at LOAD (R12-2 completeness): a
@@ -634,6 +651,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     scatter_members: set[int] = set()
     recipes: list[MemberRecipe] = []
     member_ref: list[tuple[tuple[float, float, float], str, str]] = []
+    _work.read_resources_ahead(pool, cache, (o.resolved for _key, o in keyed
+                                             if o.path not in drop_now))
     for key, o in _pulse.each(keyed, "pack partition: members", "placements"):
         if o.path in drop_now:
             continue
@@ -659,14 +678,19 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         recipes.append(MemberRecipe(mgeom[0], tuple(k for k, _c in mgeom[2])))
         member_ref.append((key, o.path, o.id))
 
+    cache.pre.clear()           # what the loop did not ask for is not kept
     # THE ANCHOR PLANE per member (owner RULINGS 2026-09-10ay; spec §17)
     anchor_ix: dict[tuple[float, float, float], int] = {}
     anchor_of_member = [anchor_ix.setdefault(key, len(anchor_ix))
                         for key, _path, _oid in member_ref]
+    _basin_band = law.tables.structures.basin.contact_band_m
+    part_attrs = _work.part_attrs_ahead(
+        pool, placed, line_members, scatter_members, _basin_band,
+        rb.foot_samples_max, rb.body_feet_span_m, rb.line_object_stations_max)
     part = _contact.partition(placed, rb.contact_epsilon_m, rb.contact_weld_m,
                               rb.contact_narrow_budget, rb.pool_overlap_m,
                               rb.contact_batch_rows,
-                              law.tables.structures.basin.contact_band_m,
+                              _basin_band,
                               rb.foot_samples_max,
                               rb.elevated_base_m,
                               line_members, rb.body_feet_span_m,
@@ -676,7 +700,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               law.tables.emit.identity.min_distinct_spacing_m,
                               scatter_members=scatter_members,
                               piece_touch_m=float(
-                                  law.tables.structures.placement.footprint_touch_m))
+                                  law.tables.structures.placement.footprint_touch_m),
+                              attrs=part_attrs, pool=pool)
     counts["scatter_parts"] = sum(1 for q in part.parts if q.scatter)
     parts_by_member = _parts_by_member(part, to_ll_batch)
     for mi, (key, path, _oid) in enumerate(member_ref):
@@ -800,30 +825,13 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
     return out
 
 
-def extend_partition(part: PackPartition, airport: Airport,
-                     cache: _obj8.ResourceCache, law: Law,
-                     plate_paths: _t.Collection[str]) -> PackPartition:
-    """THE SECOND PHASE (owner RULINGS 2026-09-11l (1); spec §11a).
-
-    The load partition ran on the SCREENED object set, so every
-    multi-anchor resource was dropped — including the tunnel-wall PLATE
-    placements, whose exemption (09s (1)) is a PLANAR product and cannot
-    be known at load.  This adds those back: their members are built by
-    the same :func:`_build_member`, their parts and feet by the same
-    ``contact.placed_parts``, and their ε-contacts and abutments are
-    sought by SPATIAL QUERY against the existing part boxes
-    (``contact.extend``) — the whole pack is never repartitioned.
-
-    Returns ``part`` unchanged when nothing is exempt, which is the usual
-    case; the caller then filters exactly as before.
-    """
-    geom: _LoadGeom | None = part.geom
-    if geom is None or not part.deferred:
-        return part
-    pp = set(plate_paths)
-    add = [(key, o) for key, o in part.deferred if o.path in pp or o.id in pp]
-    if not add:
-        return part
+def _extension(part: PackPartition, geom: "_LoadGeom", add: _t.Sequence[tuple],
+               airport: Airport, cache: _obj8.ResourceCache, law: Law) -> dict:
+    """What :func:`extend_partition` COMPUTES before it merges — the added
+    members with their plan rows, the contacts and abutments they bring,
+    and the counts and skips as the member builds left them.  Plain
+    picklable values: this is the record ``extension_cache`` keeps.  An
+    empty ``new_ref`` says nothing could be added."""
     rb = law.tables.structures.rebake
     counts = dict(part.counts)
     skipped = dict(part.skipped)
@@ -852,7 +860,8 @@ def extend_partition(part: PackPartition, airport: Airport,
         readded.add(o.path)
         skipped.pop(o.path, None)
     if not new_members:
-        return part
+        return {"icao": part.icao, "new_ref": (), "counts": counts,
+                "skipped": skipped}
     base_members = geom.members
     if isinstance(base_members, MemberGeometries):
         # a REVIVED partition carries recipes and no cache (14v)
@@ -873,15 +882,68 @@ def extend_partition(part: PackPartition, airport: Airport,
     fake = _contact.Partition(ext.parts, (), 0, 0, 0, 0, ())
     rows = _parts_by_member(fake, to_ll_batch)
     base_n = len(base_members)
+    return {"icao": part.icao, "new_ref": tuple(new_ref),
+            "members": tuple(_dc.replace(m, parts=tuple(rows.get(base_n + i, ())))
+                             for i, m in enumerate(new_member_rows)),
+            "readded": tuple(sorted(readded)), "counts": counts, "skipped": skipped,
+            "contacts": ext.contacts, "abutments": ext.abutments,
+            "structures": ext.structures, "pairs_tested": ext.pairs_tested,
+            "pairs_unproved": ext.pairs_unproved, "neighbours": ext.neighbours}
+
+
+def extend_partition(part: PackPartition, airport: Airport,
+                     cache: _obj8.ResourceCache, law: Law,
+                     plate_paths: _t.Collection[str], *,
+                     keep: bool = False) -> PackPartition:
+    """THE SECOND PHASE (owner RULINGS 2026-09-11l (1); spec §11a).
+
+    ``keep`` — may this call WRITE the extension cache?  Off by default:
+    a replay, a tool or a dry stage (a ``write_cache=False`` pack stage
+    that merely HIT) revives a kept extension but never writes one.  Only
+    the build's own ``rebake_plan.plan`` passes it.
+
+    The load partition ran on the SCREENED object set, so every
+    multi-anchor resource was dropped — including the tunnel-wall PLATE
+    placements, whose exemption (09s (1)) is a PLANAR product and cannot
+    be known at load.  This adds those back: their members are built by
+    the same :func:`_build_member`, their parts and feet by the same
+    ``contact.placed_parts``, and their ε-contacts and abutments are
+    sought by SPATIAL QUERY against the existing part boxes
+    (``contact.extend``) — the whole pack is never repartitioned.
+
+    Returns ``part`` unchanged when nothing is exempt, which is the usual
+    case; the caller then filters exactly as before.
+    """
+    geom: _LoadGeom | None = part.geom
+    if geom is None or not part.deferred:
+        return part
+    pp = set(plate_paths)
+    add = [(key, o) for key, o in part.deferred if o.path in pp or o.id in pp]
+    if not add:
+        return part
+    # THE EXTENSION IS CACHED beside the partition (issue #362,
+    # ``extension_cache``): keyed on the partition's fingerprint, this
+    # reading's own content and the placements coming back — a build whose
+    # pack and plates have not moved revives it instead of re-testing them
+    ext = _extcache.load(part, add)
+    if not isinstance(ext, dict) or ext.get("icao") != part.icao:
+        ext = _extension(part, geom, add, airport, cache, law)
+        if keep:
+            _extcache.store(part, add, ext)
+    if not ext["new_ref"]:
+        return part
+    counts = dict(ext["counts"])
+    skipped = dict(ext["skipped"])
+    new_ref = list(ext["new_ref"])
+    readded = set(ext["readded"])
     # ── merge: rebuild the units from the load reading plus the added ──
     by_key: dict[tuple[float, float, float], dict[str, Member]] = {}
     for ui, u in enumerate(part.units):
         for mi, m in enumerate(u.members):
             oid, opath = part.member_object.get((ui, mi), (m.id, m.resource))
             by_key.setdefault((u.anchor[0], u.anchor[1], u.agl_m), {})[opath] = m
-    for i, (key, opath, _oid) in enumerate(new_ref):
-        by_key.setdefault(key, {})[opath] = _dc.replace(
-            new_member_rows[i], parts=tuple(rows.get(base_n + i, ())))
+    for (key, opath, _oid), member in zip(new_ref, ext["members"]):
+        by_key.setdefault(key, {})[opath] = member
     units: list[Unit] = []
     member_object: dict[tuple[int, int], tuple[str, str]] = {}
     oid_of = {(k, p): o for k, p, o in list(geom.member_ref) + new_ref}
@@ -897,17 +959,17 @@ def extend_partition(part: PackPartition, airport: Airport,
     counts["members"] = sum(len(u.members) for u in units)
     counts["parts"] = sum(len(m.parts) for u in units for m in u.members)
     counts["multi_anchor"] = max(0, int(counts.get("multi_anchor", 0)) - len(readded))
-    contacts = tuple(sorted(set(part.contacts) | set(ext.contacts)))
-    abutments = tuple(sorted(set(part.abutments) | set(ext.abutments)))
+    contacts = tuple(sorted(set(part.contacts) | set(ext["contacts"])))
+    abutments = tuple(sorted(set(part.abutments) | set(ext["abutments"])))
     counts["contacts"] = len(contacts)
     counts["abutments"] = len(abutments)
-    counts["structures"] = ext.structures
-    counts["pairs_tested"] = int(counts.get("pairs_tested", 0)) + ext.pairs_tested
-    counts["pairs_unproved"] = int(counts.get("pairs_unproved", 0)) + ext.pairs_unproved
+    counts["structures"] = ext["structures"]
+    counts["pairs_tested"] = int(counts.get("pairs_tested", 0)) + ext["pairs_tested"]
+    counts["pairs_unproved"] = int(counts.get("pairs_unproved", 0)) + ext["pairs_unproved"]
     counts["line_objects"] = sum(1 for u in units for m in u.members
                                  if m.parts and all(p.line for p in m.parts))
     counts["plate_readded"] = len(readded)
-    counts["plate_neighbours"] = ext.neighbours
+    counts["plate_neighbours"] = ext["neighbours"]
     return _dc.replace(part, units=tuple(units), skipped=tuple(sorted(skipped.items())),
                        counts=counts, contacts=contacts, abutments=abutments,
                        member_object=member_object, deferred=(), geom=None)

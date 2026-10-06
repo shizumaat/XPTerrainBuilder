@@ -1,11 +1,13 @@
 """THE RE-SEAT PLAN (RULINGS 2026-09-04i 04f-1; 06g): the anchor families,
 their members' welded PARTS and the pack-wide ε-CONTACT GRAPH
 (``airport/contact.py``), from the loader's AUTHORED reading of the
-objects (``airport/pack.py`` restore-before-read).  Runs at PATCH time
-inside the pipeline; the plan is the tile build's
-``o4_v2_rebake_<ICAO>.json`` sidecar, seated after the mesh by
-``emit/rebake.py`` / ``emit/clusters.py``.  Law: ``structures.toml
-[rebake]``.  No environment is read here.
+objects (``airport/pack.py`` restore-before-read).  It is OBJECT-STAGE work
+(owner RULINGS 2026-10-04x (1), issue #362): the patch build writes only
+the SCREEN SIDECAR (``airport/rebake_screen.py``) and the tile build's
+object step calls :func:`plan` from the cached partition and that
+sidecar, writing ``o4_v2_rebake_<ICAO>.json`` beside the patch.  A patch
+build that kept no partition cache still plans inline.  Law:
+``structures.toml [rebake]``.  No environment is read here.
 
 **THE READING MOVED OUT** (owner RULINGS 2026-09-11j; spec §11a (3)).
 Objects to members, parts, feet, contacts, abutments and the deck /
@@ -35,7 +37,8 @@ from .pack_partition import (PackPartition, Screen, extend_partition,
                              partition_pack)
 from ..model.frame import m_per_deg_exact
 
-__all__ = ["plan", "screen_of", "DeckDatum", "ring_ends", "end_line_stations"]
+__all__ = ["plan", "screen_of", "DeckDatum", "ring_ends", "end_line_stations",
+           "datum_rings"]
 
 #: ``deck_datum(ring_xy) -> z | None``: the SOLVED surface's value at a
 #: deck ring (``emit.rebake.deck_datum_from_surface`` bound to the emitted
@@ -118,6 +121,53 @@ def end_line_stations(ends, step_m: float) -> tuple[tuple[float, float], ...]:
 _mpd = m_per_deg_exact
 
 
+def _promoted(objects: _t.Sequence[_obj8.PlacedObject],
+              below_grade: _t.Sequence[tuple[object, _t.Collection[str]]]
+              ) -> tuple[list, set[str]]:
+    """``(objects, basin member ids)`` with the below-grade deck PROMOTION
+    applied (04k): a candidate plate of a FOREIGN family over an emitted
+    below-grade region is a deck; the regions' own members are named."""
+    basin_members: set[str] = set()
+    objs = list(objects)
+    if below_grade:
+        owners = {oid for _r, ids in below_grade for oid in ids}
+        basin_members = {o.id for o in objs if o.id in owners or o.path in owners}
+        foreign = [o for o in objs if o.id not in owners and o.path not in owners]
+        keep = {o.id for o in foreign}
+        promoted, _n = _deck.promote(foreign, [r for r, _ids in below_grade])
+        by_id = {o.id: o for o in promoted}
+        objs = [by_id.get(o.id, o) if o.id in keep else o for o in objs]
+    return objs, basin_members
+
+
+def _deck_ring_xy(o: _obj8.PlacedObject) -> list[XY]:
+    """A hard deck's ring in the frame — its largest polygon's exterior."""
+    poly = o.hard_deck
+    if poly.geom_type != "Polygon":
+        poly = max(poly.geoms, key=lambda g: g.area)
+    return [(float(x), float(y)) for x, y in poly.exterior.coords[:-1]]
+
+
+def _reads_datum(o: _obj8.PlacedObject) -> bool:
+    """Does :func:`_with_deck` ask ``deck_datum`` about ``o``?  A hard deck
+    that is not a SIGNATURE deck with its plate (R12 reads that one at its
+    abutments, after the mesh)."""
+    return (o.hard_deck is not None and o.deck_top_z is not None
+            and not (o.deck_kind == "signature" and o.deck_plate is not None))
+
+
+def datum_rings(objects: _t.Sequence[_obj8.PlacedObject],
+                below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = ()
+                ) -> list[list[XY]]:
+    """EVERY ring :func:`plan` can ask its ``deck_datum`` about, for these
+    objects and below-grade regions — the rings of every placement, seated
+    or screened out, so a caller that must answer LATER (the screen sidecar,
+    ``rebake_screen``: the solved surface is gone by the object step) reads
+    them all while the surface is in hand.  In object order."""
+    objs, _basin = _promoted(objects, below_grade)
+    return [_deck_ring_xy(o) for o in objs if _reads_datum(o)]
+
+
 def screen_of(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
               law: Law, exclude: _t.Collection[str] = (),
               below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = (),
@@ -132,16 +182,7 @@ def screen_of(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCac
     # (``planar.basins``); the ids here match either spelling
     ex = set(exclude)
     excluded = {o.id for o in objects if o.id in ex or o.path in ex}
-    basin_members: set[str] = set()
-    objs = list(objects)
-    if below_grade:
-        owners = {oid for _r, ids in below_grade for oid in ids}
-        basin_members = {o.id for o in objs if o.id in owners or o.path in owners}
-        foreign = [o for o in objs if o.id not in owners and o.path not in owners]
-        keep = {o.id for o in foreign}
-        promoted, _n = _deck.promote(foreign, [r for r, _ids in below_grade])
-        by_id = {o.id: o for o in promoted}
-        objs = [by_id.get(o.id, o) if o.id in keep else o for o in objs]
+    objs, basin_members = _promoted(objects, below_grade)
     fam_of = {o.id: _deck.family_key(o) for o in objs if o.resolved is not None}
     deck_keys = {fam_of[o.id] for o in objs
                  if o.resolved is not None and o.deck_kind in ("flag", "signature")}
@@ -180,7 +221,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
          exclude: _t.Collection[str] = (),
          below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = (),
          tunnel_objects: _t.Mapping[str, tuple] | None = None,
-         partition: PackPartition | None = None) -> RebakePlan:
+         partition: PackPartition | None = None,
+         keep_extension: bool = False) -> RebakePlan:
     """The units and witnesses for ``airport``'s pack (see module doc).
 
     ``objects`` are the planar pass's placed objects (read from the
@@ -206,6 +248,17 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     (``pack_partition.partition_pack``, spec §11a (3)); when it is given
     this call FILTERS it.  ``None`` re-reads the pack in the OLD order —
     the twin's control arm.
+
+    ``keep_extension`` (issue #362): may this call WRITE the extension it
+    computed beside the partition cache (``extension_cache``)?  OFF by
+    default — a replay, a tool or a twin revives a kept one and writes
+    nothing; the OBJECT STEP, whose work the plan is (owner RULINGS
+    2026-10-04x (1)), passes ``True`` through ``rebake_screen.build_plan``.
+
+    WITH ``partition`` GIVEN, ``airport`` is read for ``icao``, ``frame``,
+    ``pack.name`` and ``flat_site`` and nothing else — which is what lets
+    the object step call this with ``rebake_screen``'s stand-in, long after
+    the loaded ``Airport`` is gone.
     """
     # TUNNEL WALL OBJECTS (RULINGS 2026-09-05n-4): plate-seated, by id
     plates: dict[str, tuple] = dict(tunnel_objects or {})
@@ -220,7 +273,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         # multi-anchor placements — a planar fact — are partitioned back
         # in INCREMENTALLY here, against the existing part set only.
         part = extend_partition(partition, airport, cache, law,
-                                screen.plate_paths).filtered(screen, law)
+                                screen.plate_paths, keep=keep_extension
+                                ).filtered(screen, law)
     _to_xy, to_ll = airport.frame.transformers()
     by_id = {o.id: o for o in objs}
     counts = dict(part.counts)
@@ -258,13 +312,10 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
     deck_profile: tuple[tuple[float, float], ...] = ()
     deck_stations: tuple[tuple[float, float, float], ...] = ()
     if o.hard_deck is not None and o.deck_top_z is not None:
-        poly = o.hard_deck
-        if poly.geom_type != "Polygon":
-            poly = max(poly.geoms, key=lambda g: g.area)
-        ring_xy = [(float(x), float(y)) for x, y in poly.exterior.coords[:-1]]
+        ring_xy = _deck_ring_xy(o)
         deck_ring = tuple(to_ll(x, y) for x, y in ring_xy)
         deck_top_y = float(o.deck_top_z - o.anchor_z - o.agl_m)
-        if o.deck_kind == "signature" and o.deck_plate is not None:
+        if not _reads_datum(o):
             # THE ABUTMENTS (R12): the deck top lands at the ground at the
             # deck's END LINES, on land — read after the mesh by
             # ``emit/rebake.py``; the solved surface is not consulted (a

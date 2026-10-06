@@ -40,12 +40,13 @@ from .basins import BasinStats, build_basins, read_objects
 from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
+from .structure_approach import wall_field
 from .structure_road import mouth_pair_roads
 from ..airport.tunnel_objects import TunnelObjectStats
 from ..airport.door_wells import DoorStats
 from ..airport.sunken_roads import SunkenRoadStats
-from .pack_reads import pack_reads
-from ..airport.wall_corridors import WallCorridorStats, read_wall_corridors
+from .pack_reads import pack_reads, ring_reads, wall_corridor_reads
+from ..airport.wall_corridors import WallCorridorStats
 from .door_ramps import door_groups, sunken_groups
 from .wall_corridor_ramps import wall_corridor_groups
 
@@ -113,7 +114,7 @@ class BuildStats:
 
 def channels_after_basins(airport, classification, law, objects, corridors, extra,
                          plates, cache, orep, claimed_ways, shell_claimed,
-                         synth_ways=frozenset()):
+                         synth_ways=frozenset(), reads=None):
     """§45 (13) (d) AMENDED — A MEMBER OF A *BUILT* BASIN, BASINS BEFORE
     CHANNELS (owner RULINGS 2026-09-15aw).  THE ONE ORDERING SITE; the
     ``--stage structures`` replay calls this same function.
@@ -152,7 +153,7 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
     cl_s, tun0, _s0 = build_structures(airport, classification, law, objects,
                                        corridors, extra, plates, ())
     _cl_b, basins0, _b0 = build_basins(airport, cl_s, law, tun0, objects, cache,
-                                       report=orep, claimed=shell_claimed)
+                                       report=orep, claimed=shell_claimed, reads=reads)
     pit = frozenset(str(i) for b in basins0 for i in (b.member_ids or ()))
     channels, stats = identify_channels(airport, classification, law, objects,
                                         claimed_ways, pit, synth_ways)
@@ -176,7 +177,8 @@ def _pad_terraces() -> dict[str, frozenset]:
 
 def build(airport: Airport, classification: Classification, law: Law,
           grid_m: float | None = None, objects_out: list | None = None,
-          cache=None, objects=None, object_report=None) -> tuple[PlanarMap, BuildStats]:
+          cache=None, objects=None, object_report=None,
+          rim_diagnostics: bool = False) -> tuple[PlanarMap, BuildStats]:
     """The planar map for ``airport`` under ``law``, validated.
     ``objects_out``, when given, receives ``[objects, cache]`` — the
     placed objects read here and their parsed geometry — so the emit
@@ -186,7 +188,11 @@ def build(airport: Airport, classification: Classification, law: Law,
     at load (owner RULINGS 2026-09-11j; spec §11a (3): the pack partition
     is a load-stage input, so the objects are read before ``classify``) —
     passing them keeps "the pack is read ONCE" true now that the first
-    reader is upstream of this stage."""
+    reader is upstream of this stage.
+
+    ``rim_diagnostics`` is handed to ``build_basins`` (owner RULINGS
+    2026-10-04x (2)): the basins' rim readings are notes a BUILD does not
+    make; ``tools/v2_solve_replay.py --rim-diagnostics`` asks for them."""
     import time as _time
     t0 = _time.perf_counter()
     from ..airport import frame_entry as _fe
@@ -207,14 +213,22 @@ def build(airport: Airport, classification: Classification, law: Law,
     # RULINGS 2026-09-13d item 5), the door wells and the sunken roads
     # (RULINGS 2026-09-08b/c).  A second pass over the same pack (the
     # ribbon-free map, #100 (c)) is handed the first's reading.
-    pr = pack_reads(airport, objects, cache, law)
+    # THE WALL CORRIDORS' FIELD (spec §12h (4)): ONE record of this
+    # classification's cover, handed to the pool and to the one-core read
+    # alike — FIELD is always READ on the build path
+    field = wall_field(classification, law)
+    pr = pack_reads(airport, objects, cache, law, walls=True, field=field)
     corridors, tstats, plates, pstats = (pr.corridors, pr.tunnel_stats,
                                          pr.plates, pr.plate_stats)
     wells, dstats, roads, rstats = pr.wells, pr.door_stats, pr.roads, pr.road_stats
     tstats.plates = pstats.plates
     tstats.refused.extend(pstats.refused)
-    _pulse.tick("wall corridors")
-    walls_c, wstats = read_wall_corridors(airport, objects, cache, law, classification)
+    # the wall corridors are a pack read too (#362): of the classification
+    # they read the FIELD's cover alone (and, in the structures replay, the
+    # ``measure`` probe's ribbons)
+    walls_c, wstats = wall_corridor_reads(airport, objects, cache, law, field)
+    # the basin pass's per-ring pack readings, on the same memo
+    rings = ring_reads(airport, objects, cache, law)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
     # the reads are done: what follows is the channel / structure / basin
@@ -229,7 +243,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     hard_claims, synth_claims = crossing_claims(airport, law, corridors, classification)
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
-        hard_claims, frozenset(tstats.shell_claimed), synth_claims)
+        hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
@@ -244,7 +258,9 @@ def build(airport: Airport, classification: Classification, law: Law,
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,
                                                   objects, cache, report=orep,
                                                   channels=channels,
-                                                  claimed=frozenset(tstats.shell_claimed))
+                                                  claimed=frozenset(tstats.shell_claimed),
+                                                  reads=rings,
+                                                  rim_diagnostics=rim_diagnostics)
     bstats.objects = orep
     bstats.object_read_s = read_s
     # the structure reads are DONE (issue #136: the progress window's

@@ -1,29 +1,24 @@
 """THE LAW BY AIRPORT — which ruleset an identifier resolves to (owner
-2026-08-02: ``Resolution`` / ``resolve_ruleset``) and which opt-in laws
-an airport affords (``airports.toml``; RULINGS 2026-09-10ap, closing
-owner question 10ac-1 as (B)).
+2026-08-02: :class:`Resolution` / :func:`resolve_ruleset`), a rule by
+identifier CLASS, never by airport.
 
-THE AFFORDANCES.
+NO PER-AIRPORT TABLE EXISTS (owner RULINGS 2026-10-05e: an airport is a
+test case, never the scope of a fix).  The one there was — ``airports.toml``
+and its ``Affordances`` (RULINGS 2026-09-10ap: Law C's per-airport switch,
+and a per-airport ``group_span_max_m`` no airport ever stated) — is
+DELETED: Law C is read at every airport under spec §12h's general rule
+(``airport/wall_mouth.py``), and the long span is the pack-wide
+``[placement] group_span_max_m`` alone (RULINGS 2026-10-05g).
 
-A law a PACK has to EARN by the owner's sim read of that airport — not a
-mechanism, an honest switch.  Today's one key is LAW C (kerb-wall
-corridors AND garage ramps, ``airport/wall_corridors.py``): after seven
-rounds no witness in the geometry or the map separated OTHH's terminal
-kerb corridors from LEMD's cargo-dock foundations, so the law is read
-only where an airport's table turns it on.  Law A (door wells) and Law B
-(sunken roads, basins) are unconditional and take no key.
-
-Both schemas live beside ``model`` under the 1,000-line file law (the
-``flat_site_schema`` / ``cutout_schema`` precedent); ``model``
-re-exports them, so every caller's import is unchanged.
+The schema lives beside ``model`` under the 1,000-line file law (the
+``flat_site_schema`` / ``cutout_schema`` precedent); ``model`` re-exports
+it, so every caller's import is unchanged.
 """
 from __future__ import annotations
 
 import dataclasses as _dc
-import typing as _t
 
-__all__ = ["Affordances", "NO_AFFORDANCES", "Resolution", "load_airports",
-           "resolve_ruleset"]
+__all__ = ["Resolution", "resolve_ruleset"]
 
 
 @_dc.dataclass(frozen=True)
@@ -33,43 +28,6 @@ class Resolution:
     default: str
     faa_first_letters: tuple[str, ...]
     faa_two_letter_prefixes: tuple[str, ...]
-
-
-# ── zones.toml ───────────────────────────────────────────────────────────
-
-
-@_dc.dataclass(frozen=True)
-class Affordances:
-    """ONE AIRPORT'S AFFORDANCES; every key false for an airport the
-    table does not name."""
-
-    #: LAW C — kerb-wall corridors AND garage ramps (spec §6, §12g)
-    kerb_wall_corridors: bool = False
-
-    #: THE LONG SPAN, per airport (owner RULINGS 2026-09-11i; spec §11
-    #: (4)): this pack's own ``[placement] group_span_max_m``.  ``None``
-    #: — the default for every airport the table does not name and every
-    #: named airport that does not state it — takes the global law.  It
-    #: is a LENGTH, not a switch, and it is here for the same reason the
-    #: switches are: the owner rules it per pack after a read.
-    group_span_max_m: float | None = None
-
-
-#: Every airport ``airports.toml`` does not name.
-NO_AFFORDANCES = Affordances()
-
-
-def load_airports(raw: dict, err, build) -> "dict[str, Affordances]":
-    """``airports.toml`` → ICAO (upper case) → :class:`Affordances`.
-    ``err`` is the law's error type, ``build`` the model's dataclass
-    builder (so an unknown key in an airport's table fails loudly)."""
-    out: dict[str, Affordances] = {}
-    for k, v in raw.items():
-        code = str(k).strip().upper()
-        if not code or len(code) > 4 or not code.isalnum():
-            raise err(f"airports.{k!r}: not an ICAO identifier")
-        out[code] = _t.cast(Affordances, build(Affordances, v, f"airports.{code}"))
-    return out
 
 
 def resolve_ruleset(res: Resolution, icao: str | None) -> str:

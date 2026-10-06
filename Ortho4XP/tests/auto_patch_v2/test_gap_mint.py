@@ -158,3 +158,20 @@ def test_a_piece_shares_its_rim_with_a_mapped_road_ribbon():
     out, _s, _n = _mint(_airport(box(0, 50, 100, 120)), [apron, ribbon])
     assert len(out) == 2
     assert all(p.distance(Polygon(ribbon.ring)) == 0.0 for _r, _f, p, _k, _e in out)
+
+
+def test_a_gap_piece_is_never_cover_for_the_structures_or_the_wall_field():
+    """spec §53 (18): the classified cover the mapped-tunnel field and the
+    kerb corridors' field read (one derivation, handed to the pool
+    workers) is the STANDING cells — a late gap piece admits no corridor
+    and leaves the standing cells' polygons index-aligned."""
+    from auto_patch_v2.classify.roles import Classification
+    from auto_patch_v2.planar.structure_approach import cover_polygons, wall_field
+    apron, piece = box(0, 0, 50, 50), box(50, 0, 90, 50)
+    standing = (_cell(0, "apron", "pav1", apron),)
+    full = Classification(
+        standing + (_cell(1, gm.ROLE, f"{mp.GAP_PREFIX}:0", piece),), (), {}, ())
+    base = Classification(standing, (), {}, ())
+    assert [p.wkb for p in cover_polygons(full)] == [p.wkb for p in cover_polygons(base)]
+    assert ([p.wkb for p in wall_field(full, LAW).polys]
+            == [p.wkb for p in wall_field(base, LAW).polys])

@@ -22,11 +22,13 @@ from ..law.approach_corridor import ApproachCorridor, RunwayViewBand
 from ..law.tables import role_family
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
+from ..model.planar import is_gap_ref
 from ..airport.deck_signature import (DEFAULT_TUNNEL_VALUES, is_bridge_way,
                                       is_tunnel_way)
 from ..classify.roles import Cell
 from ..geom.union_find import find_root
 from ..airport.dem import dem_z_at
+from ..airport.wall_mouth import WallField
 from ..geom.vector import unit_vector
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
@@ -34,7 +36,7 @@ _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 __all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
-           "mouths", "FieldRegion", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
+           "mouths", "FieldRegion", "cover_polygons", "wall_field", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
            "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground"]
 
 #: Two OSM node coordinates closer than this (frame metres) are one node.
@@ -408,6 +410,26 @@ def runway_band_of(airport, law: Law) -> RunwayViewBand:
     return RunwayViewBand(
         _runway_axes(airport),
         float(law.tables.emit.cockpit.runway_view_half_width_m))
+
+
+def cover_polygons(classification) -> list[Polygon]:
+    """THE CLASSIFIED COVER as polygons: one per STANDING cell, ring and
+    holes — the ONE derivation the mapped-tunnel field
+    (``build_structures``' :class:`FieldRegion`) and the kerb corridors'
+    FIELD clause (:func:`wall_field`, spec §12h (1)) both read.  A late gap
+    piece (spec §53 (18), ``model.planar.is_gap_ref``) is never cover: it
+    follows the structures and may not admit, move or re-shape one."""
+    return [Polygon(c.ring, c.holes) for c in classification.cells
+            if not is_gap_ref(c.ref)]
+
+
+def wall_field(classification, law: Law) -> WallField:
+    """THE FIELD OF THE WALL CORRIDORS (spec §12h (1), (4); owner RULINGS
+    2026-10-05h (3)): the classified cover ALONE — never the approach
+    corridor or the runway band — with ``[tunnel] mouth_standoff_m``, as
+    the record a reader (and a pool worker) is handed."""
+    return WallField(tuple(cover_polygons(classification)),
+                     float(law.tables.structures.tunnel.mouth_standoff_m))
 
 
 class FieldRegion:

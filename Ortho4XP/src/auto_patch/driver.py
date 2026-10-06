@@ -19,6 +19,7 @@ from shapely import ops as shp_ops
 from shapely.errors import GEOSException, TopologicalError
 
 from . import engine_v2 as _engine_v2
+from auto_patch_v2.airport import pool as _v2_pool
 from . import selection as _SELECTION
 
 # Driver harness tuple — covers expected runtime failure modes for a
@@ -300,6 +301,7 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
     compared against, so the two can never drift apart.
     """
     from . import provenance as _prov
+    from . import provenance_code as _prov_code
     return {
         "o4_fresh_v": _prov.FRESHNESS_SCHEMA_VERSION,
         "o4_cfg": _prov.config_digest(),
@@ -311,6 +313,9 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
             _cifp_files_for(cifp_file, xp_root, icao)),
         "o4_pack": _scenery_pack_state(apt_dat_path),
         "o4_engine": _prov.engine_version(),
+        # ... and the engine's own SOURCE (#346): the version moves only
+        # when the engine is frozen, an edited checkout keeps it.
+        "o4_code": _prov_code.code_digest(),
         # WHICH auto-patch engine wrote the patch (RULINGS 2026-09-03d).
         # v1 is retired (2026-09-13au) so this is now the constant "v2",
         # and a patch a v1 build left behind never reads as current.
@@ -362,6 +367,10 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     6. **scenery-pack enablement** — the pack that supplied the apt.dat being
        switched off (or back on) in ``scenery_packs.ini`` (``o4_pack``).
     7. **engine version** — the running ``O4_Version.version`` (``o4_engine``).
+    7b. **engine code** — one digest of the engine's source, taken from the
+       files in a checkout and written by the freeze in a frozen engine
+       (``o4_code``, ``provenance_code``; #346 — the version moves only when
+       the engine is frozen, so an edited checkout reused its old patches).
 
     FAIL-SAFE: a missing, unparseable or unrecognised stamp counts as changed.
     Every patch built before these stamps existed therefore rebuilds exactly
@@ -375,10 +384,7 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     source; omitting either leaves that input unverifiable, which (fail-safe)
     reports not-current.
 
-    Set ``O4_AUTO_PATCH_REBUILD=1`` to force rebuilds regardless (e.g. when
-    iterating on auto_patch source inside one engine version — a source edit
-    that changes no config value and no engine version does NOT invalidate an
-    existing patch on its own).
+    Set ``O4_AUTO_PATCH_REBUILD=1`` to force rebuilds regardless.
     """
     if os.environ.get("O4_AUTO_PATCH_REBUILD", "0") == "1":
         return False
@@ -459,6 +465,20 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
         UI.vprint(2, "   Auto-patch:", icao, "rebuild —", changed,
                   "changed (was", repr(stamped.get(changed)),
                   ", now", repr(live.get(changed)) + ").")
+        return False
+    # ── Input 8: the object plan can still be built ───────────────────────
+    # The rebake plan is built AFTER the mesh from the partition this
+    # patch's build cached (owner RULINGS 2026-10-04x (1)).  A patch whose
+    # plan is not built yet and whose partition cache is gone — or whose
+    # sidecar the object stage REFUSED last build — goes back through its
+    # build; the object step never re-partitions.  (Asked whatever
+    # ``modify_custom_airports`` says: the gate reads no tile setting it
+    # does not stamp, #36 — a stood-down tile pays at most ONE rebuild.)
+    from auto_patch_v2.airport import object_plan as _oplan
+    cold = _oplan.unservable(os.path.dirname(auto_patch_file), icao)
+    if cold:
+        _rebuild_reason(icao, "o4_object_plan")
+        UI.vprint(2, "   Auto-patch:", icao, "rebuild —", cold)
         return False
     return True
 
@@ -803,13 +823,29 @@ def _set_worker_dem(dem) -> None:
     _WORKER_DEM = dem
 
 
-def _init_worker(dem, progress_queue) -> None:
+def _init_worker(dem, progress_queue, siblings: int = 1) -> None:
     """ProcessPool initializer: set the shared tile DEM AND route this worker's
     per-phase build progress to the shared queue the main process drains, so the
-    Ortho4XP window keeps updating live while airports build in the background."""
+    Ortho4XP window keeps updating live while airports build in the background.
+
+    ``siblings`` is this pool's worker count: the v2 build's own work pool
+    (``auto_patch_v2/airport/pool.py``, issue #362) takes ``cores //
+    siblings`` so N airports in one tile do not each claim every core."""
+    _v2_pool.exit_with_parent()            # an engine that is killed takes its builds
     _set_worker_dem(dem)
     from . import progress as _progress
     _progress.set_worker_queue(progress_queue)
+    _v2_pool.set_share(siblings)
+
+
+def _start_manager(ctx):
+    """The progress queue's Manager, started so that its server process
+    dies with this one (a plain ``ctx.Manager()`` server outlives a
+    hard-killed engine for ever — and keeps the resource tracker alive)."""
+    from multiprocessing.managers import SyncManager
+    mgr = SyncManager(ctx=ctx)
+    mgr.start(_v2_pool.exit_with_parent)
+    return mgr
 
 
 #: A pack whose pristine ``.obj`` bytes exceed this makes the pool release
@@ -951,9 +987,13 @@ def _teardown_pool(ex, results: list, futs: dict, pending, *,
         if pending else []
     t_end = _time.time() + deadline_s
     stragglers = []
+    # "Has it exited" is read off the SENTINEL (``pool.exited``), never off
+    # ``join`` + ``is_alive``: the executor's own thread joins the same
+    # processes after ``shutdown(wait=False)``, and whichever ``waitpid``
+    # loses reads "no such child" as STILL RUNNING — a clean 4 s run then
+    # said "did not exit within 10s" and sent SIGTERM to a reaped pid.
     for p in procs:
-        p.join(timeout=max(0.0, t_end - _time.time()))
-        if p.is_alive():
+        if not _v2_pool.exited(p, t_end - _time.time()):
             stragglers.append(p)
     for p in stragglers:
         last = done_by_pid.get(p.pid)
@@ -975,8 +1015,7 @@ def _teardown_pool(ex, results: list, futs: dict, pending, *,
         t_kill = _time.time() + POOL_SIGTERM_GRACE_SECONDS
         killed = []
         for p in stragglers:
-            p.join(timeout=max(0.0, t_kill - _time.time()))
-            if p.is_alive():
+            if not _v2_pool.exited(p, t_kill - _time.time()):
                 UI.lvprint(0, "   Auto-patch: worker pid", p.pid,
                            "ignored SIGTERM; killing it.")
                 try:
@@ -1002,8 +1041,7 @@ def _reap_or_name(killed: list, what: str) -> None:
     #140, #169).
 
     So the killed children are polled here against ONE shared deadline
-    (``is_alive`` is a non-blocking ``waitpid``, so the poll reaps as it
-    goes) and each one still alive when it expires is named.  The contract
+    (``pool.exited`` reads the sentinel and reaps what it finds gone) and each one still alive when it expires is named.  The contract
     is unchanged -- a BOUNDED return, never the unbounded
     ``shutdown(wait=True)`` -- with the reap now either confirmed or
     reported."""
@@ -1012,13 +1050,13 @@ def _reap_or_name(killed: list, what: str) -> None:
     import time as _time
     t_reap = _time.time() + POOL_REAP_SECONDS
     while True:
-        if not any(p.is_alive() for p in killed):
+        if all(_v2_pool.exited(p) for p in killed):
             return
         if _time.time() >= t_reap:
             break
         _time.sleep(POOL_REAP_POLL_SECONDS)
     for p in killed:
-        if p.is_alive():
+        if not _v2_pool.exited(p):
             UI.lvprint(0, "   Auto-patch:", what, p.pid,
                        "survived SIGKILL and was not reaped within",
                        "{:.0f}s; abandoning it.".format(POOL_REAP_SECONDS))
@@ -1133,7 +1171,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         mgr = None
         try:
             ctx = _mp.get_context("spawn")
-            mgr = ctx.Manager()
+            mgr = _start_manager(ctx)
             pq = mgr.Queue()
 
             def _drain_progress() -> None:
@@ -1166,7 +1204,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                               "(large pack or more airports than workers).")
             ex = _cf.ProcessPoolExecutor(
                 max_workers=n, mp_context=ctx,
-                initializer=_init_worker, initargs=(dem, pq), **_pool_kw)
+                initializer=_init_worker, initargs=(dem, pq, n), **_pool_kw)
             futs, pending = {}, set()
             try:
                 # THE DEAD FUTURE MUST KEEP ITS AIRPORT'S NAME (H1).  A
@@ -1278,8 +1316,10 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         # v2's per-stage lines (load/planar/constraints/solve/emit/verify
         # counts and walls), printed here by the main process in task
         # order — a worker never writes the shared console.
+        # The work pool's account prints at verbosity 0 (issue #395,
+        # ``engine_v2.v2_line_verbosity``).
         for _ln in r.get("log_lines") or ():
-            UI.vprint(1, "   [v2]", _ln)
+            UI.vprint(_engine_v2.v2_line_verbosity(_ln), "   [v2]", _ln)
         auto_patched.append(icao)
         if r.get("verify_err"):
             UI.lvprint(0, "   Auto-patch: verification error for", icao,

@@ -62,9 +62,27 @@ def test_object_spec_is_addressable():
     assert text.startswith("## §16f ")
 
 
+def test_ramps_spec_is_addressable_and_an_unflagged_query_finds_it():
+    """The Law A/B/C spec (`othh-terminal-ramps-spec.md`) is the third file:
+    `--ramps` reads it directly, and a query with no flag falls through the
+    design and object specs to it, naming the file on stderr (lane
+    `lawcspec`, 2026-10-05: a brief's `spec '§12g'` read a refusal)."""
+    text = docq.spec_section(docq.SPEC_RAMPS, "§12g")
+    assert text.startswith("## §12g ")
+    r = _cli("spec", "--ramps", "§12g")
+    assert r.returncode == 0 and r.stdout.startswith("## §12g ")
+    r = _cli("spec", "§12g")
+    assert r.returncode == 0 and r.stdout.startswith("## §12g ")
+    assert "othh-terminal-ramps-spec.md" in r.stderr
+    # a design-spec hit stays silent on stderr
+    r = _cli("spec", "§37 (6)")
+    assert r.returncode == 0 and r.stderr.strip() == ""
+
+
 def test_missing_spec_key_is_a_named_refusal():
     r = _cli("spec", "§999")
     assert r.returncode != 0 and "no spec heading matches" in r.stderr
+    assert "othh-terminal-ramps-spec.md" in r.stderr      # every file searched is named
     assert r.stdout.strip() == ""
 
 

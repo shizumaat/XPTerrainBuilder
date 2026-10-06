@@ -79,6 +79,8 @@ class ArcgisLercTileStrategy:
 
         import requests
 
+        import O4_Console_Encoding
+
         if not has_gdal:
             return None
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
@@ -170,7 +172,7 @@ class ArcgisLercTileStrategy:
             completed = subprocess.run(
                 lerc_worker_argv(blob_directory, decoded_directory),
                 capture_output=True,
-                text=True,
+                **O4_Console_Encoding.child_console_pipe(),
                 timeout=600,
             )
             if completed.returncode != 0:

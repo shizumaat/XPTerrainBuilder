@@ -100,8 +100,7 @@ class Placement:
     #: railway class — the only group whose connecting deck an
     #: INFEASIBLE pad may RELEASE.  A shorter infeasible group is
     #: reported with its residual and never split.  0 disarms the
-    #: exception (no group is ever releasable).  Per airport in
-    #: ``airports.toml`` (``Affordances.group_span_max_m``).
+    #: exception (no group is ever releasable).
     group_span_max_m: float = 150.0
 
     #: THE RELIEF TARGET'S REACH (owner RULINGS 2026-09-11j; spec §11a

@@ -131,11 +131,13 @@ def lerc_decode_available():
     if _LERC_CAPABILITY[0] is None:
         import subprocess
 
+        import O4_Console_Encoding
+
         try:
             completed = subprocess.run(
                 lerc_selftest_argv(),
                 capture_output=True,
-                text=True,
+                **O4_Console_Encoding.child_console_pipe(),
                 timeout=120,
             )
             _LERC_CAPABILITY[0] = completed.returncode == 0

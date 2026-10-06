@@ -116,6 +116,19 @@ What IS gated: the identical-duplicate count may fall, never rise;
 near-duplicates are reported by `tools/ratchets.py dupes --near`.
 Every lane report carries net lines added/removed and new public symbols.
 
+## No airport-specific code (owner standing 2026-10-05, RULINGS 05e)
+
+An airport is a TEST CASE. It shows a defect; the fix is a GENERAL rule that
+every airport is read by. No engine, app or law-table code may ask which
+airport it is building: no ICAO literal, no table or key named for an
+airport, no pack name, no coordinate window, no threshold tuned so that one
+named airport passes. If no witness in the geometry or the map separates two
+cases, that is a finding for the owner — never a switch. Briefs name an
+airport as the place a defect was found and as the closing test, never as
+the scope of the fix. `Ortho4XP/tests/test_no_airport_specific_code.py`
+gates it; its RECORDED set is empty since RULINGS 2026-10-05g and may never
+rise.
+
 ## Cross-language wire protocol (silent-break hazard)
 
 `Ortho4XP/src/o4_engine/events.py` class names ARE the JSONL wire names

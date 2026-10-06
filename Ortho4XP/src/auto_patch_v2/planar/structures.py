@@ -97,7 +97,7 @@ from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, airside_stops,
                                   locked_road_stops, road_true_edge, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
 from ..airport.dem import dem_z_at
-from .structure_approach import (FieldRegion, apply_plates,
+from .structure_approach import (FieldRegion, apply_plates, cover_polygons,
                                  approach_ground as _approach_ground,
                                  carriageway_width_m,
                                  chains, field_region_for, mouth_reports, under_cover,
@@ -167,11 +167,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # a deck's intervals read ``cells``, and a piece beside a tunnel would
     # re-shape it (MEASURED at HECA: 15 wall / ramp vertices the base map
     # does not carry).  The pieces are set aside and cut by the finished
-    # footprints at the end.
+    # footprints at the end.  ``cover_polygons`` is the same standing cover
+    # (one derivation with the kerb corridors' field), index-aligned.
     from ..model.planar import is_gap_ref
     gap_cells = [c for c in classification.cells if is_gap_ref(c.ref)]
     cells = [c for c in classification.cells if not is_gap_ref(c.ref)]
-    polys = [Polygon(c.ring, c.holes) for c in cells]
+    polys = cover_polygons(classification)
     # A BRIDGE STATES THE CROSSING (spec §34 (5); ARMED at round 2,
     # RULINGS 2026-09-13ai): an ``aeroway`` ``bridge=yes layer >= 1`` way
     # over a road seeds a bore the OSM data never tagged — neither measured

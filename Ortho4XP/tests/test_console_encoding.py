@@ -696,3 +696,174 @@ def test_the_jsonl_transport_pins_a_cp1252_stderr(monkeypatch):
     replies = [json.loads(line) for line in
                captured.getvalue().splitlines() if line.strip()]
     assert any(r.get("reply") == 1 and r.get("ok") for r in replies), replies
+
+
+# ──────────────────────────────────────────────────────────────────────
+# #125, the READ side: the parent of a worker child reads its console
+# ──────────────────────────────────────────────────────────────────────
+#: What a worker prints: an airport name whose UTF-8 bytes include 0x81
+#: (``Á`` is C3 81) — a byte cp1252 does not define at all.
+WORKER_CONSOLE_LINE = "   MMTG   Aeropuerto Internacional Ángel Albino Corzo"
+
+
+def test_the_parent_reads_a_workers_console_as_utf8(monkeypatch, capsys):
+    """Every pipeline print of a parallel build is written by a worker
+    child (UTF-8, pinned at its entry) and RE-PRINTED by the parent, which
+    read the pipe with ``text=True`` — the LOCALE encoding, cp1252 on
+    Windows.  ``Suárez`` came back ``SuÃ¡rez``; ``Ángel`` raised in the
+    reader thread, whose ``except`` ended it silently, and nothing drained
+    that worker's stderr again.  Windows' default is simulated where it
+    acts: a pipe opened without an encoding is cp1252."""
+    import subprocess
+    import time as _time
+
+    from o4_engine import parallel
+    from o4_engine.events import RunDone
+    from o4_engine.session import EngineSession
+
+    stub = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "fixtures", "stub_engine_worker.py")
+    monkeypatch.setattr(parallel, "tile_worker_command",
+                        lambda: [sys.executable, stub])
+    monkeypatch.setenv("STUB_WORKER_CONSOLE_LINE", WORKER_CONSOLE_LINE)
+    real_popen = subprocess.Popen
+
+    def windows_popen(*args, **kwargs):
+        if kwargs.get("text") and not kwargs.get("encoding"):
+            kwargs["encoding"] = "cp1252"       # locale.getencoding() there
+        return real_popen(*args, **kwargs)
+
+    monkeypatch.setattr(parallel.subprocess, "Popen", windows_popen)
+    done = []
+    session = EngineSession()
+    session.subscribe(
+        lambda event: done.append(event) if isinstance(event, RunDone) else None)
+    assert session.build([(10, 10), (11, 11)], "STUBPROVIDER", 16, "",
+                         do_vector=True, do_imagery=False, slots=2)
+    deadline = _time.time() + 25.0
+    while not done and _time.time() < deadline:
+        _time.sleep(0.02)
+    assert done, "RunDone never arrived"
+    _time.sleep(0.2)                            # let the drain threads print
+    printed = capsys.readouterr().out
+    assert printed.count(WORKER_CONSOLE_LINE) == 2, printed
+    assert "Ã" not in printed
+
+
+#: Text-mode child pipes that are NOT an engine child's console.  Each is
+#: a tool whose output is in the machine's own encoding, read where
+#: ``text=True`` alone is the honest spelling — or a recorded debt.
+_LOCALE_PIPE_READERS = {
+    "O4_Parallel_Utils.py": "/usr/bin/vm_stat — macOS only, ASCII",
+    "provenance.py": "git rev-parse / status — ASCII",
+}
+
+
+def test_no_engine_module_reads_a_child_in_the_locale_encoding():
+    """THE CLASS (#125): ``text=True`` / ``universal_newlines=True`` on a
+    child pipe without ``encoding=`` is the ANSI code page on Windows.
+    Every reader of an ENGINE child (the tile workers, ``--lerc-decode``)
+    takes ``O4_Console_Encoding.child_console_pipe()``; any other such
+    call in ``src`` names its encoding, or is listed above with what it
+    reads."""
+    import ast
+
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
+    offenders = set()
+    for directory, _subdirectories, names in os.walk(src):
+        for name in names:
+            if not name.endswith(".py"):
+                continue
+            with open(os.path.join(directory, name), encoding="utf-8") as handle:
+                tree = ast.parse(handle.read())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                keywords = {k.arg: k.value for k in node.keywords if k.arg}
+                text_mode = any(
+                    isinstance(keywords.get(key), ast.Constant)
+                    and keywords[key].value is True
+                    for key in ("text", "universal_newlines"))
+                if text_mode and "encoding" not in keywords:
+                    offenders.add(name)
+    assert offenders == set(_LOCALE_PIPE_READERS), (
+        "a child pipe read as text without encoding= (cp1252 on Windows), "
+        "or a stale exemption: %s" % sorted(
+            offenders ^ set(_LOCALE_PIPE_READERS)))
+
+# ──────────────────────────────────────────────────────────────────────
+# #419: DSFTool is a NATIVE child — its messages are not the engine's UTF-8
+# ──────────────────────────────────────────────────────────────────────
+#: What DSFTool echoes on a failure: the path it was given.  ``á`` is E1 in
+#: cp1252 (invalid as UTF-8); ``Á`` is C3 81 in UTF-8 (0x81 is undefined
+#: in cp1252) — each spelling raises under the other strict decode.
+DSFTOOL_PATH_LINE = "ERROR: cannot open C:\\Users\\Suárez\\Ángel\\+40-130.dsf"
+
+_STUB_DSFTOOL = (
+    "import sys; "
+    "sys.stderr.buffer.write((%r + '\\n').encode(sys.argv[1])); "
+    "sys.exit(1)" % DSFTOOL_PATH_LINE)
+
+
+def _stub_dsftool(written_in):
+    return [sys.executable, "-c", _STUB_DSFTOOL, written_in]
+
+
+@pytest.mark.parametrize("platform, ansi, expected", [
+    ("linux", "ANSI_X3.4-1968", "utf-8"),
+    ("darwin", "US-ASCII", "utf-8"),
+    ("win32", "cp1252", "cp1252"),
+])
+def test_native_tool_encoding_is_the_ansi_page_on_windows_utf8_elsewhere(
+        monkeypatch, platform, ansi, expected):
+    monkeypatch.setattr(CE.sys, "platform", platform)
+    monkeypatch.setattr(CE.locale, "getencoding", lambda: ansi, raising=False)
+    assert CE.native_tool_encoding() == expected
+    assert CE.native_tool_pipe() == {"text": True, "encoding": expected,
+                                     "errors": CE.READ_ERRORS}
+
+
+@pytest.mark.parametrize("machine", ["utf-8", "cp1252"])
+@pytest.mark.parametrize("written_in", ["utf-8", "cp1252"])
+def test_dsf_write_reports_a_dsftool_failure_whatever_its_path_encoding(
+        monkeypatch, machine, written_in):
+    """``dsf_write._run`` decoded DSFTool's stderr strictly in the locale:
+    a non-ASCII path the tool echoed in another encoding raised
+    ``UnicodeDecodeError`` in place of the tool's own failure.  The machine
+    (what :func:`native_tool_encoding` answers) and what the tool wrote
+    are crossed; the failure is always the ``RuntimeError`` carrying the
+    message, exact when the two agree."""
+    from auto_patch_v2.airport import dsf_write
+
+    monkeypatch.setattr(CE, "native_tool_encoding", lambda: machine)
+    with pytest.raises(RuntimeError) as caught:
+        dsf_write._run(_stub_dsftool(written_in))
+    message = str(caught.value)
+    assert "cannot open C:" in message and "+40-130.dsf" in message
+    if machine == written_in:
+        assert DSFTOOL_PATH_LINE in message
+
+
+@pytest.mark.parametrize("machine", ["utf-8", "cp1252"])
+@pytest.mark.parametrize("written_in", ["utf-8", "cp1252"])
+def test_msfs_pack_reports_a_dsftool_failure_whatever_its_path_encoding(
+        monkeypatch, tmp_path, machine, written_in):
+    """The same defect in ``O4_MSFS_XPlane_Pack.write_overlay_dsf``: the
+    stub stands in for the DSFTool binary (the command's first word)."""
+    import O4_MSFS_XPlane_Pack as PACK
+
+    real_run = PACK.subprocess.run
+
+    def stub_run(args, **kwargs):
+        return real_run(_stub_dsftool(written_in), **kwargs)
+
+    monkeypatch.setattr(CE, "native_tool_encoding", lambda: machine)
+    monkeypatch.setattr(PACK.subprocess, "run", stub_run)
+    placements = [PACK.PlacedObject("objects/a.obj", -121.5, 44.5, 0.0)]
+    with pytest.raises(RuntimeError) as caught:
+        PACK.write_overlay_dsf(tmp_path / "MSFS Convert - STUB", placements,
+                               [], tmp_path / "DSFTool")
+    message = str(caught.value)
+    assert "DSFTool --text2dsf failed" in message and "+40-130.dsf" in message
+    if machine == written_in:
+        assert DSFTOOL_PATH_LINE in message

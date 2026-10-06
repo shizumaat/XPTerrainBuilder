@@ -40,9 +40,8 @@ from .eat_schema import EatRecognition, EatSurface  # noqa: F401
 from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
 from .design_schema import Design, check_design as _check_design  # noqa: F401
 from .cockpit_schema import COCKPIT_CLASSES, Cockpit, check_cockpit as _check_cockpit  # noqa: E501,F401  the [cockpit] frame, 12x/12y
-# the per-airport affordances (RULINGS 2026-09-10ap) likewise
-from .airports_schema import (Affordances, NO_AFFORDANCES, Resolution,  # noqa: F401
-                              load_airports as _load_airports, resolve_ruleset)
+# the ruleset resolution by identifier class likewise
+from .airports_schema import Resolution, resolve_ruleset  # noqa: F401
 
 __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "StripLaw",
     "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw", "EatSurface", "EatRecognition",
@@ -53,15 +52,14 @@ __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "
     "FlatDetector", "FlatDatum", "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Verify",
     "NoStep", "Transect", "WithinShape", "Instrument", "Cockpit", "Terrace", "Design",
     "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence", "Family", "LawTables",
-    "Law", "Affordances", "NO_AFFORDANCES", "TABLE_FILES", "load_tables",
+    "Law", "TABLE_FILES", "load_tables",
     "COCKPIT_CLASSES"]
 
-#: The eight files a law directory must contain (owner amendment
-#: 2026-09-03; ``flat_site.toml`` per RULINGS 2026-09-05k-2,
-#: ``airports.toml`` — the per-airport affordances — per 2026-09-10ap).
+#: The seven files a law directory must contain (owner amendment
+#: 2026-09-03; ``flat_site.toml`` per RULINGS 2026-09-05k-2).  None names
+#: an airport (RULINGS 2026-10-05e; ``tests/test_no_airport_specific_code``).
 TABLE_FILES: tuple[str, ...] = ("rulesets.toml", "zones.toml", "structures.toml", "emit.toml",
-                                "precedence.toml", "families.toml", "flat_site.toml",
-                                "airports.toml")
+                                "precedence.toml", "families.toml", "flat_site.toml")
 
 
 class LawError(ValueError):
@@ -789,7 +787,7 @@ class Family:
 
 @_dc.dataclass(frozen=True)
 class LawTables:
-    """Everything the eight files hold, validated."""
+    """Everything the seven files hold, validated."""
 
     resolution: Resolution
     common: CommonLaw
@@ -800,8 +798,6 @@ class LawTables:
     precedence: Precedence
     families: _t.Mapping[str, Family]
     flat_site: FlatSite
-    #: airports.toml, keyed by upper-case ICAO (may be empty)
-    airports: _t.Mapping[str, Affordances] = _dc.field(default_factory=dict)
 
 
 # ── the loader ───────────────────────────────────────────────────────────
@@ -1091,7 +1087,7 @@ def _walk(obj: object, parts: list[str]) -> bool:
 
 
 def load_tables(law_dir: str | Path) -> LawTables:
-    """Load and validate the eight tables under ``law_dir``."""
+    """Load and validate the seven tables under ``law_dir``."""
     d = Path(law_dir)
     rs_raw = _read(d, "rulesets.toml")
     known = {"resolution", "common"}
@@ -1111,8 +1107,6 @@ def load_tables(law_dir: str | Path) -> LawTables:
                 for k, v in fam_raw.items()}
     if not families:
         raise LawError("families.toml: no families")
-    # airports.toml — the per-airport affordances (RULINGS 2026-09-10ap)
-    airports = _load_airports(_read(d, "airports.toml"), LawError, _build)
     tables = LawTables(
         resolution=resolution, common=common, rulesets=rulesets,
         zones=_build(Zones, _read(d, "zones.toml"), "zones"),
@@ -1122,8 +1116,7 @@ def load_tables(law_dir: str | Path) -> LawTables:
         precedence=_build(Precedence, _read(d, "precedence.toml"),
                           "precedence"),
         families=families,
-        flat_site=_build(FlatSite, _read(d, "flat_site.toml"), "flat_site"),
-        airports=airports)
+        flat_site=_build(FlatSite, _read(d, "flat_site.toml"), "flat_site"))
     _check_cross_refs(tables)
     return tables
 
@@ -1137,20 +1130,16 @@ class Law:
 
     tables: LawTables
     ruleset_key: str
-    #: the airport this law is bound to, upper-case ("" = none: the law
-    #: without an airport takes NO affordance — RULINGS 2026-09-10ap)
+    #: the airport this law is bound to, upper-case ("" = none) — for the
+    #: ruleset resolution (a rule by identifier CLASS), the owner's flat-
+    #: site declaration and report lines; NO law table is keyed by it
+    #: (RULINGS 2026-10-05e)
     icao: str = ""
 
     @property
     def ruleset(self) -> Ruleset:
         """The governing authority's tables."""
         return self.tables.rulesets[self.ruleset_key]
-
-    @property
-    def affordances(self) -> Affordances:
-        """The airport's opt-in laws (``airports_schema``, 2026-09-10ap);
-        an unnamed airport takes :data:`NO_AFFORDANCES`."""
-        return self.tables.airports.get(self.icao, NO_AFFORDANCES)
 
     @staticmethod
     def default_dir() -> Path:

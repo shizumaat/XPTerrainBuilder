@@ -66,7 +66,9 @@ from . import obj8 as _obj8
 from .deck_signature import family_key
 from ..geom.vector import unit_vector
 
-__all__ = ["DoorWell", "DoorStats", "read_door_wells", "ID_PREFIX"]
+__all__ = ["DoorWell", "DoorStats", "DoorReader", "read_door_wells", "screened",
+           "witnesses_of", "sill_witnesses",
+           "door_families", "door_reader", "read_family", "assemble", "ID_PREFIX"]
 
 ID_PREFIX = "door"
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
@@ -126,54 +128,78 @@ class DoorStats:
     read_s: float = 0.0
 
 
-def _sill_witnesses(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
-                    dem_z, law: Law, stats: DoorStats
-                    ) -> list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]]:
-    """Rule 1: ``(placement, witness, id(component))`` for the components
-    carrying a plate at the door's gate and above the basin's."""
+def screened(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law,
+             stats: DoorStats) -> bool:
+    """Rule 1's SCREEN for one placement: a readable pack resource whose
+    lowest solid stands ``sill_min_depth_m`` or more under the highest
+    ground it could stand on (its anchor, its extent's corners)."""
+    if o.resolved is None or _obj8.is_stock_library_resource(o.path):
+        return False
+    stats.placements += 1
+    if cache.geometry(o.resolved) is None:
+        return False
+    vmin, _vmax, x0, x1, z0, z1 = cache.y_range(o.resolved)
+    if vmin == math.inf:
+        return False
+    corners = [_obj8._to_frame(o.xy, o.heading_deg, x, zz) for x in (x0, x1) for zz in (z0, z1)]
+    grounds = [z for z in [o.anchor_z] + [float(dem_z(cx, cy)) for cx, cy in corners]
+               if not math.isnan(z)]
+    dl = law.tables.structures.cutout.door
+    if not grounds or o.anchor_z + o.agl_m + vmin > max(grounds) - dl.sill_min_depth_m:
+        return False
+    stats.screened += 1
+    return True
+
+
+def witnesses_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law,
+                 stats: DoorStats, memo: dict
+                 ) -> list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]]:
+    """Rule 1 for one SCREENED placement: ``(placement, witness,
+    id(component))`` per component carrying a plate at the door's gate and
+    above the basin's.  ``memo``: the local footprints of a component, made
+    once for every placement of its resource (#362) — a pure memo that must
+    not outlive the components on ``cache``."""
     bl = law.tables.structures.basin
     dl = law.tables.structures.cutout.door
     out: list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]] = []
+    g = cache.geometry(o.resolved)
+    base = o.anchor_z + o.agl_m
+    mat = _obj8.placement_affine(o.xy, o.heading_deg)
+    for comp in cache.genuine(o.resolved):
+        cx, cy = _obj8._to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
+        local = float(dem_z(cx, cy))
+        if math.isnan(local):
+            local = o.anchor_z
+        if bl.shell_reaches_grade and base + comp.max_y < local - bl.contact_band_m:
+            continue                                   # buried, never a well
+        plane_sill = local - base - dl.sill_min_depth_m
+        if comp.min_y > plane_sill:
+            continue
+        if comp.min_y <= local - base - bl.admission_depth_m:
+            stats.basin_gate_components += 1           # the basin pass's
+            continue
+        w = _obj8._witness(g.vertices, comp, base, local, plane_sill,
+                           bl.floor_plate_normal_y_min, mat,
+                           q=cache.input_quantum_m,
+                           degenerate=stats.witness_degenerate,
+                           resource=o.path, memo=memo)
+        if w is None:
+            continue
+        out.append((o, w, id(comp)))
+        stats.sill_witnesses += 1
+    return out
+
+
+def sill_witnesses(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
+                   dem_z, law: Law, stats: DoorStats
+                   ) -> list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]]:
+    """Rule 1 over the pack: :func:`witnesses_of` every placement that
+    passes :func:`screened`, in ``objects`` order."""
+    out: list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]] = []
+    memo: dict = {}                    # the components outlive this sweep on ``cache``
     for o in _pulse.each(objects, "door wells: sill witnesses", "objects"):
-        if o.resolved is None or _obj8.is_stock_library_resource(o.path):
-            continue
-        stats.placements += 1
-        g = cache.geometry(o.resolved)
-        if g is None:
-            continue
-        base = o.anchor_z + o.agl_m
-        vmin, _vmax, x0, x1, z0, z1 = cache.y_range(o.resolved)
-        if vmin == math.inf:
-            continue
-        corners = [_obj8._to_frame(o.xy, o.heading_deg, x, zz) for x in (x0, x1) for zz in (z0, z1)]
-        grounds = [z for z in [o.anchor_z] + [float(dem_z(cx, cy)) for cx, cy in corners]
-                   if not math.isnan(z)]
-        if not grounds or base + vmin > max(grounds) - dl.sill_min_depth_m:
-            continue
-        stats.screened += 1
-        mat = _obj8.placement_affine(o.xy, o.heading_deg)
-        for comp in cache.genuine(o.resolved):
-            cx, cy = _obj8._to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
-            local = float(dem_z(cx, cy))
-            if math.isnan(local):
-                local = o.anchor_z
-            if bl.shell_reaches_grade and base + comp.max_y < local - bl.contact_band_m:
-                continue                                   # buried, never a well
-            plane_sill = local - base - dl.sill_min_depth_m
-            if comp.min_y > plane_sill:
-                continue
-            if comp.min_y <= local - base - bl.admission_depth_m:
-                stats.basin_gate_components += 1           # the basin pass's
-                continue
-            w = _obj8._witness(g.vertices, comp, base, local, plane_sill,
-                               bl.floor_plate_normal_y_min, mat,
-                               q=cache.input_quantum_m,
-                               degenerate=stats.witness_degenerate,
-                               resource=o.path)
-            if w is None:
-                continue
-            out.append((o, w, id(comp)))
-            stats.sill_witnesses += 1
+        if screened(o, cache, dem_z, law, stats):
+            out.extend(witnesses_of(o, cache, dem_z, law, stats, memo))
     return out
 
 
@@ -231,14 +257,84 @@ class _AtGrade:
             return max(float(pts[:, 0].max() - pts[:, 0].min()),
                        float(pts[:, 2].max() - pts[:, 2].min())) >= self.min_span
         return _obj8.at_grade_geometry(o, self.cache, self.dem_z, self.band, is_building,
-                                       within=within)[1]
+                                       within=within, linework=False)[1]
 
     def shell(self, o, within):
         return _obj8.at_grade_geometry(o, self.cache, self.dem_z, self.band,
-                                       lambda c: id(c) in self.wit, within=within)[1]
+                                       lambda c: id(c) in self.wit, within=within,
+                                       linework=False)[1]
 
     def above(self, o, within):
         return _obj8.above_grade_footprint(o, self.cache, self.dem_z, self.band, within=within)
+
+
+@_dc.dataclass
+class DoorReader:
+    """What every family's reading takes besides its own witnesses and
+    members (:func:`door_reader`): the inputs of ONE read of the door wells
+    and the at-grade reader over EVERY sill witness of the read."""
+
+    airport: Airport
+    cache: _obj8.ResourceCache
+    law: Law
+    grade: _AtGrade
+    #: the frame's ``to_ll`` — two pyproj transformers to build, so ONCE per
+    #: reader, never per family (KASE: 2,191 families, 12 s of a 0.3 s read)
+    to_ll: _t.Any
+
+
+def door_reader(airport: Airport, cache: _obj8.ResourceCache, law: Law,
+                witness_ids: set[int]) -> DoorReader:
+    """``witness_ids``: ``id(component)`` of every sill witness whose
+    resource a family read through this reader places (a resource is placed
+    at several anchors, and a component that witnesses at one of them is
+    shell, not building, at all of them)."""
+    return DoorReader(airport, cache, law, _AtGrade(
+        cache, airport.dem.z, law.tables.structures.basin.contact_band_m, witness_ids,
+        law.tables.structures.cutout.door.sill_min_width_m), airport.frame.transformers()[1])
+
+
+def door_families(objects: _t.Sequence[_obj8.PlacedObject],
+                  wits: _t.Sequence[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]]
+                  ) -> list[tuple[tuple, list, list[_obj8.PlacedObject]]]:
+    """THE INTAKE: ``[(family key, its witness rows, its members), …]`` in
+    sorted key order — the order :func:`assemble` takes the readings in —
+    the rows in the order the sweep met them and the members (every
+    readable placement at the anchor) in ``objects`` order."""
+    by_fam: dict[tuple, list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]]] = {}
+    for o, w, cid in wits:
+        by_fam.setdefault(family_key(o), []).append((o, w, cid))
+    members_of: dict[tuple, list[_obj8.PlacedObject]] = {}
+    for o in objects:
+        if o.resolved is not None and not _obj8.is_stock_library_resource(o.path) \
+                and o.plan_bbox is not None:
+            k = family_key(o)
+            if k in by_fam:
+                members_of.setdefault(k, []).append(o)
+    return [(fk, fam, members_of.get(fk, []))
+            for fk, fam in sorted(by_fam.items(), key=lambda kv: kv[0])]
+
+
+def assemble(stats: DoorStats, readings: _t.Iterable[tuple]
+             ) -> tuple[list[DoorWell], DoorStats]:
+    """The families' readings (:func:`read_family`), taken in sorted family
+    order, onto the sweep's ``stats`` as ONE reading: the counters summed,
+    the refusals concatenated and each well given the next ``@k`` of its
+    resource — in exactly the order one loop over the families assigned
+    them."""
+    out: list[DoorWell] = []
+    k_by_res: dict[str, int] = {}
+    for fam, wells in readings:
+        stats.families += 1
+        stats.regions += fam.regions
+        stats.refused.extend(fam.refused)
+        for resource, name, well in wells:
+            k = k_by_res.get(resource, 0)
+            k_by_res[resource] = k + 1
+            out.append(_dc.replace(well, id=f"{ID_PREFIX}:{name}@{k}"))
+            stats.wells += 1
+    out.sort(key=lambda w: w.id)
+    return out, stats
 
 
 def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
@@ -248,198 +344,192 @@ def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     in the airport frame; the stats name every refusal."""
     t0 = time.perf_counter()
     stats = DoorStats()
+    wits = sill_witnesses(objects, cache, airport.dem.z, law, stats)
+    rd = door_reader(airport, cache, law, {cid for _o, _w, cid in wits})
+    out, stats = assemble(stats, (
+        read_family(rd, fam, members)
+        for _fk, fam, members in _pulse.each(door_families(objects, wits),
+                                             "door wells: families", "families")))
+    stats.read_s = time.perf_counter() - t0
+    return out, stats
+
+
+def read_family(rd: DoorReader, fam: _t.Sequence[tuple], members: _t.Sequence[_obj8.PlacedObject]
+                ) -> tuple[DoorStats, list[tuple[str, str, DoorWell]]]:
+    """ONE FAMILY's reading (rules 2-4): its own stats (regions, refusals)
+    and ``(resource, name, the well without its id)`` per well, largest
+    region first.  It reads its witness rows, its members, the DEM, the
+    parsed resources and the law — NOTHING of another family: the one thing
+    the serial read carried from family to family, the ``@k`` of a well's
+    id, is assigned by :func:`assemble`."""
+    airport, law, grade = rd.airport, rd.law, rd.grade
+    stats = DoorStats()
     bl = law.tables.structures.basin
     dl = law.tables.structures.cutout.door
     grid = law.tables.emit.identity.min_distinct_spacing_m
     dem_z = airport.dem.z
-    wits = _sill_witnesses(objects, cache, dem_z, law, stats)
-    if not wits:
-        stats.read_s = time.perf_counter() - t0
-        return [], stats
-    by_fam: dict[tuple, list[tuple[_obj8.PlacedObject, _obj8.FloorWitness, int]]] = {}
-    for o, w, cid in wits:
-        by_fam.setdefault(family_key(o), []).append((o, w, cid))
-    stats.families = len(by_fam)
-    members_of: dict[tuple, list[_obj8.PlacedObject]] = {}
-    for o in objects:
-        if o.resolved is not None and not _obj8.is_stock_library_resource(o.path) \
-                and o.plan_bbox is not None:
-            k = family_key(o)
-            if k in by_fam:
-                members_of.setdefault(k, []).append(o)
-    grade = _AtGrade(cache, dem_z, bl.contact_band_m, {cid for _o, _w, cid in wits},
-                     dl.sill_min_width_m)
-    to_ll = airport.frame.transformers()[1]
-    out: list[DoorWell] = []
-    k_by_res: dict[str, int] = {}
-    for fk, fam in _pulse.each(sorted(by_fam.items(), key=lambda kv: kv[0]),
-                               "door wells: families", "families"):
-        members = members_of.get(fk, [])
-        tree = STRtree([o.plan_bbox for o in members]) if members else None
-        # §51 (4) row 5 — the per-consumer repair is REMOVED: every
-        # ``FloorWitness.below`` is valid, polygonal and non-degenerate at
-        # the ONE entry site (``obj8._witness``), so what is left here is
-        # Law B's union.
-        u = _fe.union([w.below for _o, w, _c in fam], "door_wells.below")
-        if u.is_empty:
+    to_ll = rd.to_ll
+    out: list[tuple[str, str, DoorWell]] = []
+    tree = STRtree([o.plan_bbox for o in members]) if members else None
+    # §51 (4) row 5 — the per-consumer repair is REMOVED: every
+    # ``FloorWitness.below`` is valid, polygonal and non-degenerate at
+    # the ONE entry site (``obj8._witness``), so what is left here is
+    # Law B's union.
+    u = _fe.union([w.below for _o, w, _c in fam], "door_wells.below")
+    if u.is_empty:
+        return stats, out
+    u = u.buffer(bl.footprint_close_m, **_MITRE).buffer(-bl.footprint_close_m, **_MITRE)
+    parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and g.area > grid * grid]
+    stats.regions += len(parts)
+    for ring in sorted(parts, key=lambda g: -g.area):
+        region = Polygon(ring.exterior.coords)
+        mem = [(o, w) for o, w, _c in fam if w.below.intersects(region)]
+        if not mem:
             continue
-        u = u.buffer(bl.footprint_close_m, **_MITRE).buffer(-bl.footprint_close_m, **_MITRE)
-        parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and g.area > grid * grid]
-        stats.regions += len(parts)
-        for ring in sorted(parts, key=lambda g: -g.area):
-            region = Polygon(ring.exterior.coords)
-            mem = [(o, w) for o, w, _c in fam if w.below.intersects(region)]
-            if not mem:
-                continue
-            o0, w0 = min(mem, key=lambda ow: ow[0].anchor_z + ow[0].agl_m + ow[1].plate_y_min)
-            name = os.path.basename(o0.path)
-            la, lo = to_ll(*region.centroid.coords[0])
-            site = f"{la:.6f},{lo:.6f}"
-            # §51 (4) row 7 — UNION; the ``buffer(0)`` belt is REMOVED
-            # (every ``w.plate`` is valid by Law A)
-            plate = _fe.union([w.plate for _o, w in mem],
-                              "door_wells.plate").intersection(region)
-            if plate.geom_type != "Polygon":
-                plate = max((g for g in shapely.get_parts(plate) if g.geom_type == "Polygon"),
-                            key=lambda g: g.area, default=None)
-            if plate is None or plate.is_empty:
-                stats.refused.append(f"{name} at {site}: no sill plate inside the well")
-                continue
-            # the cheap gates first (OTHH's car parks: 300 post footings of
-            # 0.3 m2 per family): a plate narrower than the sill's minimum
-            # width in every direction carries no door
-            mrr = rotated_rectangle(plate)
-            if mrr.geom_type != "Polygon" or plate.area < dl.sill_min_width_m ** 2 \
-                    or max(math.dist(mrr.exterior.coords[i], mrr.exterior.coords[i + 1])
-                           for i in range(len(mrr.exterior.coords) - 1)) < dl.sill_min_width_m:
-                stats.refused.append(f"{name} at {site}: sill plate {plate.area:.1f} m2 too small "
-                                     f"for a sill of sill_min_width_m {dl.sill_min_width_m}")
-                continue
-            # rule 3: the building's and the shell's at-grade geometry over
-            # the well, from the members whose plan reaches it
-            near = region.buffer(bl.footprint_close_m)
-            reach = region.buffer(dl.max_length_m)
-            hit = [members[int(j)] for j in tree.query(near, predicate="intersects")] \
-                if tree is not None else []
-            hit_reach = [members[int(j)] for j in tree.query(reach, predicate="intersects")] \
-                if tree is not None else []
-            bld_polys = [p for p in (grade.building(o, near) for o in hit) if p is not None]
-            shell_polys = [p for p in (grade.shell(o, near) for o in hit) if p is not None]
-            above_polys = [p for p in (grade.above(o, reach) for o in hit_reach) if p is not None]
-            # placed pack geometry, so Law B applies to these too
-            bld = _fe.union(above_polys, "door_wells.above") if above_polys else None
-            cover_u = _fe.union(bld_polys + shell_polys + above_polys, "door_wells.cover") \
-                if (bld_polys or shell_polys or above_polys) else None
-            plate_cover = 0.0 if cover_u is None else cover_u.intersection(plate).area / plate.area
-            if plate_cover >= bl.basement_cover_min:
-                stats.refused.append(f"{name} at {site}: sill plate {plate.area:.1f} m2 {plate_cover:.0%} "
-                                     f"under at-grade solids (a roof, a lid; >= basement_cover_min "
-                                     f"{bl.basement_cover_min:.0%}) — a BASEMENT, not a door (spec §5)")
-                continue
-            if bld is None or bld.is_empty:
-                stats.refused.append(f"{name} at {site}: no building solids above the contact band "
-                                     f"reach the well ({region.area:.1f} m2) — a pit on its own, not a door")
-                continue
-            # THE FACE (spec §2): the well's longer rectangle side nearer the
-            # MASS of the family's above-band solids around it (the building
-            # the well is attached to; the ramp leaves away from it along
-            # the outward normal), the EXIT its opposite side, which must
-            # lie mostly outside that cover (a slot under a slab is no door).
-            # Measured OTHH: the car-park wells are closed four-walled boxes
-            # hanging from the facade lattice, the door a texture on the
-            # building-side wall — the at-grade band, the above-band cover
-            # and the shell's walls all read alike on both long sides; the
-            # building's mass is the one side-discriminating signal left
-            # (the OPEN QUESTION the lane reports: no pack geometry names the
-            # door side).
-            sides = _rect_sides(region)
-            if sides is None:
-                stats.refused.append(f"{name} at {site}: the well has no plan rectangle")
-                continue
-            above_u = _fe.union(above_polys, "door_wells.above")
-            cm = above_u.centroid
-            lens = [math.dist(a_, b_) for a_, b_ in sides]
-            frac = [LineString([a_, b_]).intersection(above_u).length / max(L_, 1e-9)
-                    for (a_, b_), L_ in zip(sides, lens)]
-            near_cm = [math.dist(((a_[0] + b_[0]) / 2.0, (a_[1] + b_[1]) / 2.0), (cm.x, cm.y))
-                       for a_, b_ in sides]
-            long_pair = sorted(range(4), key=lambda i: -lens[i])[:2]
-            i_sill = min(long_pair, key=lambda i: near_cm[i])
-            i_exit = (i_sill + 2) % 4
-            a, b = sides[i_sill]
-            if frac[i_exit] > dl.exit_max_fraction:
-                stats.refused.append(f"{name} at {site}: the side opposite the face lies under "
-                                     f"above-band solids over {frac[i_exit]:.0%} of its length (> "
-                                     f"exit_max_fraction {dl.exit_max_fraction:.0%}) — covered, not a door")
-                continue
-            sill = LineString([a, b])
-            outside = region.exterior.difference(above_u.buffer(grid))
-            face_dir = unit_vector(a, b)
-            n = (-face_dir[1], face_dir[0])
-            ex = sides[i_exit]
-            exm = ((ex[0][0] + ex[1][0]) / 2.0, (ex[0][1] + ex[1][1]) / 2.0)
-            mid0 = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
-            if (exm[0] - mid0[0]) * n[0] + (exm[1] - mid0[1]) * n[1] < 0.0:
-                n = (-n[0], -n[1])
-            pc = plate.centroid
-            t = (pc.x - mid0[0]) * face_dir[0] + (pc.y - mid0[1]) * face_dir[1]
-            mid = (mid0[0] + face_dir[0] * t, mid0[1] + face_dir[1] * t)
-            lo_f, hi_f = _extent(plate, mid, face_dir)
-            width = hi_f - lo_f
-            if width < dl.sill_min_width_m:
-                stats.refused.append(f"{name} at {site}: sill plate {width:.2f} m wide along the face "
-                                     f"(< sill_min_width_m {dl.sill_min_width_m})")
-                continue
-            if width > dl.sill_max_width_m:
-                stats.refused.append(f"{name} at {site}: sill plate {width:.2f} m wide along the face "
-                                     f"(> sill_max_width_m {dl.sill_max_width_m}: a yard or a pit, not a door)")
-                continue
-            mid = (mid[0] + face_dir[0] * (lo_f + hi_f) / 2.0, mid[1] + face_dir[1] * (lo_f + hi_f) / 2.0)
-            _lo_n, plate_out = _extent(plate, mid, n)
-            _lo_w, well_out = _extent(region, mid, n)
-            if plate_out <= 0.0:
-                stats.refused.append(f"{name} at {site}: the sill plate reaches nowhere outside the face")
-                continue
-            # a plate that DESCENDS at or under the door law's own ramp grade
-            # over its reach is a ramp of the object's own (OTHH
-            # Terminal_Parking_006: a 21 m car-park ramp loop, 5 %), never a
-            # sill; a well's steps down to its door are far steeper
-            span = max(o.anchor_z + o.agl_m + w.plate_y_max for o, w in mem) - \
-                min(o.anchor_z + o.agl_m + w.plate_y_min for o, w in mem)
-            if span > 0.0 and span / plate_out <= dl.ramp_grade:
-                stats.refused.append(f"{name} at {site}: the plate ({plate.area:.1f} m2) descends "
-                                     f"{span:.2f} m over its {plate_out:.1f} m reach ({100.0 * span / plate_out:.1f} % "
-                                     f"<= ramp_grade {100.0 * dl.ramp_grade:.0f} %) — a ramp of the "
-                                     f"object's own, not a door sill")
-                continue
-            sill_z = o0.anchor_z + o0.agl_m + w0.plate_y_min
-            ground = _median_dem(sill, dem_z, bl.rim_sample_step_m)
-            if ground is None:
-                stats.refused.append(f"{name} at {site}: no DEM along the sill")
-                continue
-            depth = ground - sill_z
-            if depth < dl.sill_min_depth_m:
-                stats.refused.append(f"{name} at {site}: sill {depth:.2f} m under the ground at the "
-                                     f"face (< sill_min_depth_m {dl.sill_min_depth_m})")
-                continue
-            k = k_by_res.get(o0.path, 0)
-            k_by_res[o0.path] = k + 1
-            notes = (f"well {region.area:.1f} m2, sill plate {plate.area:.1f} m2 at {sill_z:.2f} "
-                     f"({depth:.2f} m under the ground {ground:.2f} at the face)",
-                     f"sill {width:.2f} m wide along the face, the plate {plate_out:.2f} m out, "
-                     f"the well {well_out:.2f} m out",
-                     f"plate under at-grade solids {plate_cover:.0%} (< basement_cover_min "
-                     f"{bl.basement_cover_min:.0%}); the face side {near_cm[i_sill]:.1f} m from the "
-                     f"building mass, under above-band solids {frac[i_sill]:.0%}; the exit side "
-                     f"{near_cm[i_exit]:.1f} m / {frac[i_exit]:.0%}; boundary outside {outside.length:.1f} m; "
-                     f"{len(hit)} member(s) read at grade",
-                     f"{len(mem)} witness component(s) of {len({o.id for o, _w in mem})} placement(s)")
-            out.append(DoorWell(f"{ID_PREFIX}:{name}@{k}", o0.path,
-                                tuple(sorted({o.id for o, _w in mem})), region, plate, sill, mid, n,
-                                face_dir, float(width), float(plate_out), float(well_out),
-                                float(sill_z), float(ground), float(plate_cover),
-                                o0.xy, float(o0.anchor_z), float(o0.agl_m), notes))
-            stats.wells += 1
-    out.sort(key=lambda w: w.id)
-    stats.read_s = time.perf_counter() - t0
-    return out, stats
+        o0, w0 = min(mem, key=lambda ow: ow[0].anchor_z + ow[0].agl_m + ow[1].plate_y_min)
+        name = os.path.basename(o0.path)
+        la, lo = to_ll(*region.centroid.coords[0])
+        site = f"{la:.6f},{lo:.6f}"
+        # §51 (4) row 7 — UNION; the ``buffer(0)`` belt is REMOVED
+        # (every ``w.plate`` is valid by Law A)
+        plate = _fe.union([w.plate for _o, w in mem],
+                          "door_wells.plate").intersection(region)
+        if plate.geom_type != "Polygon":
+            plate = max((g for g in shapely.get_parts(plate) if g.geom_type == "Polygon"),
+                        key=lambda g: g.area, default=None)
+        if plate is None or plate.is_empty:
+            stats.refused.append(f"{name} at {site}: no sill plate inside the well")
+            continue
+        # the cheap gates first (OTHH's car parks: 300 post footings of
+        # 0.3 m2 per family): a plate narrower than the sill's minimum
+        # width in every direction carries no door
+        mrr = rotated_rectangle(plate)
+        if mrr.geom_type != "Polygon" or plate.area < dl.sill_min_width_m ** 2 \
+                or max(math.dist(mrr.exterior.coords[i], mrr.exterior.coords[i + 1])
+                       for i in range(len(mrr.exterior.coords) - 1)) < dl.sill_min_width_m:
+            stats.refused.append(f"{name} at {site}: sill plate {plate.area:.1f} m2 too small "
+                                 f"for a sill of sill_min_width_m {dl.sill_min_width_m}")
+            continue
+        # rule 3: the building's and the shell's at-grade geometry over
+        # the well, from the members whose plan reaches it
+        near = region.buffer(bl.footprint_close_m)
+        reach = region.buffer(dl.max_length_m)
+        hit = [members[int(j)] for j in tree.query(near, predicate="intersects")] \
+            if tree is not None else []
+        hit_reach = [members[int(j)] for j in tree.query(reach, predicate="intersects")] \
+            if tree is not None else []
+        bld_polys = [p for p in (grade.building(o, near) for o in hit) if p is not None]
+        shell_polys = [p for p in (grade.shell(o, near) for o in hit) if p is not None]
+        above_polys = [p for p in (grade.above(o, reach) for o in hit_reach) if p is not None]
+        # placed pack geometry, so Law B applies to these too
+        bld = _fe.union(above_polys, "door_wells.above") if above_polys else None
+        cover_u = _fe.union(bld_polys + shell_polys + above_polys, "door_wells.cover") \
+            if (bld_polys or shell_polys or above_polys) else None
+        plate_cover = 0.0 if cover_u is None else cover_u.intersection(plate).area / plate.area
+        if plate_cover >= bl.basement_cover_min:
+            stats.refused.append(f"{name} at {site}: sill plate {plate.area:.1f} m2 {plate_cover:.0%} "
+                                 f"under at-grade solids (a roof, a lid; >= basement_cover_min "
+                                 f"{bl.basement_cover_min:.0%}) — a BASEMENT, not a door (spec §5)")
+            continue
+        if bld is None or bld.is_empty:
+            stats.refused.append(f"{name} at {site}: no building solids above the contact band "
+                                 f"reach the well ({region.area:.1f} m2) — a pit on its own, not a door")
+            continue
+        # THE FACE (spec §2): the well's longer rectangle side nearer the
+        # MASS of the family's above-band solids around it (the building
+        # the well is attached to; the ramp leaves away from it along
+        # the outward normal), the EXIT its opposite side, which must
+        # lie mostly outside that cover (a slot under a slab is no door).
+        # Measured OTHH: the car-park wells are closed four-walled boxes
+        # hanging from the facade lattice, the door a texture on the
+        # building-side wall — the at-grade band, the above-band cover
+        # and the shell's walls all read alike on both long sides; the
+        # building's mass is the one side-discriminating signal left
+        # (the OPEN QUESTION the lane reports: no pack geometry names the
+        # door side).
+        sides = _rect_sides(region)
+        if sides is None:
+            stats.refused.append(f"{name} at {site}: the well has no plan rectangle")
+            continue
+        above_u = _fe.union(above_polys, "door_wells.above")
+        cm = above_u.centroid
+        lens = [math.dist(a_, b_) for a_, b_ in sides]
+        frac = [LineString([a_, b_]).intersection(above_u).length / max(L_, 1e-9)
+                for (a_, b_), L_ in zip(sides, lens)]
+        near_cm = [math.dist(((a_[0] + b_[0]) / 2.0, (a_[1] + b_[1]) / 2.0), (cm.x, cm.y))
+                   for a_, b_ in sides]
+        long_pair = sorted(range(4), key=lambda i: -lens[i])[:2]
+        i_sill = min(long_pair, key=lambda i: near_cm[i])
+        i_exit = (i_sill + 2) % 4
+        a, b = sides[i_sill]
+        if frac[i_exit] > dl.exit_max_fraction:
+            stats.refused.append(f"{name} at {site}: the side opposite the face lies under "
+                                 f"above-band solids over {frac[i_exit]:.0%} of its length (> "
+                                 f"exit_max_fraction {dl.exit_max_fraction:.0%}) — covered, not a door")
+            continue
+        sill = LineString([a, b])
+        outside = region.exterior.difference(above_u.buffer(grid))
+        face_dir = unit_vector(a, b)
+        n = (-face_dir[1], face_dir[0])
+        ex = sides[i_exit]
+        exm = ((ex[0][0] + ex[1][0]) / 2.0, (ex[0][1] + ex[1][1]) / 2.0)
+        mid0 = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        if (exm[0] - mid0[0]) * n[0] + (exm[1] - mid0[1]) * n[1] < 0.0:
+            n = (-n[0], -n[1])
+        pc = plate.centroid
+        t = (pc.x - mid0[0]) * face_dir[0] + (pc.y - mid0[1]) * face_dir[1]
+        mid = (mid0[0] + face_dir[0] * t, mid0[1] + face_dir[1] * t)
+        lo_f, hi_f = _extent(plate, mid, face_dir)
+        width = hi_f - lo_f
+        if width < dl.sill_min_width_m:
+            stats.refused.append(f"{name} at {site}: sill plate {width:.2f} m wide along the face "
+                                 f"(< sill_min_width_m {dl.sill_min_width_m})")
+            continue
+        if width > dl.sill_max_width_m:
+            stats.refused.append(f"{name} at {site}: sill plate {width:.2f} m wide along the face "
+                                 f"(> sill_max_width_m {dl.sill_max_width_m}: a yard or a pit, not a door)")
+            continue
+        mid = (mid[0] + face_dir[0] * (lo_f + hi_f) / 2.0, mid[1] + face_dir[1] * (lo_f + hi_f) / 2.0)
+        _lo_n, plate_out = _extent(plate, mid, n)
+        _lo_w, well_out = _extent(region, mid, n)
+        if plate_out <= 0.0:
+            stats.refused.append(f"{name} at {site}: the sill plate reaches nowhere outside the face")
+            continue
+        # a plate that DESCENDS at or under the door law's own ramp grade
+        # over its reach is a ramp of the object's own (OTHH
+        # Terminal_Parking_006: a 21 m car-park ramp loop, 5 %), never a
+        # sill; a well's steps down to its door are far steeper
+        span = max(o.anchor_z + o.agl_m + w.plate_y_max for o, w in mem) - \
+            min(o.anchor_z + o.agl_m + w.plate_y_min for o, w in mem)
+        if span > 0.0 and span / plate_out <= dl.ramp_grade:
+            stats.refused.append(f"{name} at {site}: the plate ({plate.area:.1f} m2) descends "
+                                 f"{span:.2f} m over its {plate_out:.1f} m reach ({100.0 * span / plate_out:.1f} % "
+                                 f"<= ramp_grade {100.0 * dl.ramp_grade:.0f} %) — a ramp of the "
+                                 f"object's own, not a door sill")
+            continue
+        sill_z = o0.anchor_z + o0.agl_m + w0.plate_y_min
+        ground = _median_dem(sill, dem_z, bl.rim_sample_step_m)
+        if ground is None:
+            stats.refused.append(f"{name} at {site}: no DEM along the sill")
+            continue
+        depth = ground - sill_z
+        if depth < dl.sill_min_depth_m:
+            stats.refused.append(f"{name} at {site}: sill {depth:.2f} m under the ground at the "
+                                 f"face (< sill_min_depth_m {dl.sill_min_depth_m})")
+            continue
+        notes = (f"well {region.area:.1f} m2, sill plate {plate.area:.1f} m2 at {sill_z:.2f} "
+                 f"({depth:.2f} m under the ground {ground:.2f} at the face)",
+                 f"sill {width:.2f} m wide along the face, the plate {plate_out:.2f} m out, "
+                 f"the well {well_out:.2f} m out",
+                 f"plate under at-grade solids {plate_cover:.0%} (< basement_cover_min "
+                 f"{bl.basement_cover_min:.0%}); the face side {near_cm[i_sill]:.1f} m from the "
+                 f"building mass, under above-band solids {frac[i_sill]:.0%}; the exit side "
+                 f"{near_cm[i_exit]:.1f} m / {frac[i_exit]:.0%}; boundary outside {outside.length:.1f} m; "
+                 f"{len(hit)} member(s) read at grade",
+                 f"{len(mem)} witness component(s) of {len({o.id for o, _w in mem})} placement(s)")
+        out.append((o0.path, name, DoorWell(
+            "", o0.path, tuple(sorted({o.id for o, _w in mem})), region, plate, sill, mid, n,
+            face_dir, float(width), float(plate_out), float(well_out),
+            float(sill_z), float(ground), float(plate_cover),
+            o0.xy, float(o0.anchor_z), float(o0.agl_m), notes)))
+    return stats, out

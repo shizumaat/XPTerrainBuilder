@@ -8039,6 +8039,7 @@ def test_imagery_not_ok_RECORDS_steps_3_and_4_as_skipped_and_never_runs_them(
                                        "4 tile": imagery["note"]}
     assert sorted(result["step_seconds"]) == ["1 vector", "2 mesh"]
     assert result["imagery"] is imagery
+    assert result["patch_dir"] == _sys.modules["O4_File_Names"].patch_dir(40, -4)
     assert any("3 masks SKIPPED" in n for n in prog.notes)
     assert any("4 tile SKIPPED" in n for n in prog.notes)
     assert not any("3 masks DONE" in n or "4 tile DONE" in n
@@ -8053,6 +8054,27 @@ def test_imagery_not_ok_RECORDS_steps_3_and_4_as_skipped_and_never_runs_them(
                                        "3 masks": imagery["note"],
                                        "4 tile": imagery["note"]}
     assert result["steps_run"] == ["1 vector"]
+
+
+def test_the_closing_lines_name_what_exists_for_an_airport_and_a_tile_build(
+        build_mod, tmp_path):
+    """Issue #420: a ``--tile`` build writes no ``<tag>.osm`` into the
+    harness out dir, yet its closing line listed ``<tag>.osm(+.axes.json)``
+    and pointed the census at it.  The tile lines name the build dir and
+    the lane's ``Patches/`` path instead; the airport lines are unchanged,
+    and ``main`` prints through the one function."""
+    out = tmp_path / "harness"
+    air = build_mod.closing_lines(out, "t1", {}, tile=False)
+    assert "t1.osm(+.axes.json)" in air[0] and str(out / "t1.osm") in air[1]
+    rec = {"build_dir": str(tmp_path / "tile_t2"),
+           "patch_dir": str(tmp_path / "Patches" / "+40-010" / "+40-004")}
+    til = "\n".join(build_mod.closing_lines(out, "t2", rec, tile=True))
+    assert "t2.osm(" not in til and str(out / "t2.osm") not in til
+    assert "no t2.osm" in til and "t2.result.json" in til
+    assert rec["build_dir"] in til and rec["patch_dir"] in til
+    assert "census.py " + str(Path(rec["patch_dir"]) / "<ICAO>_auto.patch.osm") in til
+    src = inspect.getsource(build_mod.main)
+    assert "closing_lines(out_dir, tag, result, tile=bool(args.tile))" in src
 
 
 # ── --tile --texture-mode (issue #37) ────────────────────────────────
@@ -8405,6 +8427,91 @@ def test_build_patch_v2_publishes_every_build_patch_key_and_records_the_engine(
     assert result["dem_inset_provenance"] == {"frame": "production"}
     assert result["v2"]["status"] == "optimal"
     assert result["v2"]["verify_by_family"] == {"strip_seam_tear": 0}
+
+
+def test_the_rebake_plan_is_a_harness_step_outside_the_patch_build_clock(
+        build_mod, monkeypatch, tmp_path):
+    """Owner RULINGS 2026-10-04x (1) (lane rebake362): the patch build
+    writes the screen sidecar and NO plan; an airport build still produces
+    ``<tag>.v2/<ICAO>.rebake.json`` — through the object step's own call,
+    held against the patch the build emitted, AFTER the build clock — and
+    ``--no-rebake-plan`` skips it."""
+    import types
+    _stub_v2_pipeline(monkeypatch)
+    real_build = sys.modules["auto_patch_v2.pipeline.build"].build
+    seen: dict = {}
+
+    def build(icao, inputs, out_dir, config=None, law=None, out=print):
+        r = real_build(icao, inputs, out_dir, config, law, out)
+        r.rebake_plan = None
+        r.rebake_screen = Path(out_dir) / f"{icao}.rebake.screen.json"
+        r.rebake_screen.write_text("the screen", encoding="utf-8", newline="\n")
+        return r
+
+    class _Plan:
+        def to_json(self): return '{"plan":1}'
+
+    notes: list = []
+
+    def build_plan(screen, law, *, patch=None, keep_extension=False):
+        seen.update(screen=screen, patch=Path(patch), kept=keep_extension,
+                    patch_there=Path(patch).is_file())
+        notes.append("[extension] cache MISS twin-extension")   # issue #420
+        return _Plan()
+
+    def companion_notes():
+        got = tuple(notes)
+        del notes[:]
+        return got
+
+    rs = types.ModuleType("auto_patch_v2.airport.rebake_screen")
+    rs.read = lambda p: Path(p).read_text(encoding="utf-8")
+    rs.build_plan = build_plan
+    rs.plan_line = lambda icao, plan, s: f"[{icao}] rebake plan stub"
+    monkeypatch.setattr(sys.modules["auto_patch_v2.pipeline.build"], "build", build)
+    monkeypatch.setitem(sys.modules, "auto_patch_v2.airport",
+                        types.ModuleType("auto_patch_v2.airport"))
+    monkeypatch.setitem(sys.modules, "auto_patch_v2.airport.rebake_screen", rs)
+    pc = types.ModuleType("auto_patch_v2.airport.partition_cache")
+    pc.companion_notes = companion_notes
+    monkeypatch.setitem(sys.modules, "auto_patch_v2.airport.partition_cache", pc)
+
+    result, out = _run_build_patch_v2(build_mod, monkeypatch, tmp_path)
+    plan = out / "twin.v2" / "CYXY.rebake.json"
+    rec = result["v2"]["rebake_plan"]
+    assert plan.read_text(encoding="utf-8") == '{"plan":1}'
+    assert rec["path"] == str(plan) and rec["seconds"] >= 0.0
+    assert rec["sha256"] == hashlib.sha256(b'{"plan":1}').hexdigest()
+    assert "object-stage" in rec["where"]
+    # held against the patch the build EMITTED (before the harness renames it)
+    assert seen["screen"] == "the screen" and seen["patch_there"] and seen["kept"] is True
+    assert seen["patch"].name == "CYXY_auto.patch.osm"
+    said_plan = (out / "twin.progress").read_text(encoding="utf-8")
+    assert "NOT in the patch-build clock" in said_plan
+    # issue #420: the plan step's companion-cache notes reach the progress
+    # log (the object step prints them; the harness step must too), TAKEN
+    assert "  [v2 rebake] [extension] cache MISS twin-extension" in said_plan
+    assert said_plan.index("[extension] cache MISS") \
+        < said_plan.index("[CYXY] rebake plan stub")
+    assert companion_notes() == ()
+    # the flag: no step, no plan
+    (tmp_path / "skip").mkdir()
+    result, out = _run_build_patch_v2(build_mod, monkeypatch, tmp_path / "skip",
+                                      rebake_plan=False)
+    assert result["v2"]["rebake_plan"] is None
+    assert not (out / "twin.v2" / "CYXY.rebake.json").exists()
+    said = (out / "twin.progress").read_text(encoding="utf-8")
+    assert "rebake plan step SKIPPED (--no-rebake-plan): NO CYXY.rebake.json " \
+           "exists for tag twin" in said
+    src = inspect.getsource(build_mod.main)
+    assert '"--no-rebake-plan"' in src and "rebake_plan=not args.no_rebake_plan" in src
+    # a build that kept no partition cache planned INLINE: reported as it stands
+    res = types.SimpleNamespace(rebake_screen=None, rebake_plan=Path("x/CYXY.rebake.json"),
+                                wall={"rebake_plan": 1.5})
+    got = build_mod.build_rebake_plan(res, None, out / "twin.v2", "CYXY", None)
+    assert got["seconds"] == 1.5 and "no partition cache" in got["where"]
+    assert build_mod.build_rebake_plan(
+        types.SimpleNamespace(), None, out / "twin.v2", "CYXY", None) is None
 
 
 def test_build_patch_v2_refuses_an_infeasible_solve_and_a_missing_sidecar(

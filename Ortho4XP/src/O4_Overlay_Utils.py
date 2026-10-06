@@ -3,6 +3,7 @@ import os
 import shutil
 import sys
 import subprocess
+import O4_Console_Encoding as CONSOLE
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
@@ -134,7 +135,7 @@ def build_overlay(lat, lon):
         if not line:
             break
         else:
-            UI.vprint(1, "     " + line.decode("utf-8")[:-1])
+            UI.vprint(1, "     " + CONSOLE.native_tool_text(line)[:-1])
     if fingers_crossed.returncode:
         UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
         return 0
@@ -235,7 +236,7 @@ def build_overlay(lat, lon):
         if not line:
             break
         else:
-            print("     " + line.decode("utf-8")[:-1])
+            print("     " + CONSOLE.native_tool_text(line)[:-1])
     dest_dir = os.path.join(
         FNAMES.Overlay_dir, "Earth nav data", FNAMES.round_latlon(lat, lon)
     )

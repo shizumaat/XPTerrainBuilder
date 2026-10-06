@@ -6,6 +6,7 @@ import subprocess
 import numpy
 import math
 from math import cos, isfinite, pi
+import O4_Console_Encoding as CONSOLE
 import O4_DEM_Utils as DEM
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
@@ -2726,7 +2727,7 @@ def _run_triangulation_process(mesh_cmd):
         if not line:
             break
         try:
-            print(line.decode("utf-8")[:-1])
+            print(CONSOLE.native_tool_text(line)[:-1])
         except Exception:
             pass
     return process
@@ -3122,7 +3123,7 @@ def triangulate(name, path_to_Ortho4XP_dir):
         if not line:
             break
         else:
-            print(line.decode("utf-8")[:-1])
+            print(CONSOLE.native_tool_text(line)[:-1])
     fingers_crossed.poll()
     if fingers_crossed.returncode:
         print("\nERROR: triangle crashed, check osm mask data.\n")

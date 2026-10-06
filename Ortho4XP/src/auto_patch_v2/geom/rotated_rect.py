@@ -1,9 +1,11 @@
 """The ONE oriented-envelope guard (owner 2026-09-04, 2026-10-04).
 
-A leaf: no v2 import and no geometry library, so ``geom``, ``model`` and
-every layer above may read it.
+A leaf: no v2 import and no geometry library (numpy only), so ``geom``,
+``model`` and every layer above may read it.
 """
 from __future__ import annotations
+
+import numpy as np
 
 __all__ = ["rotated_rectangle"]
 
@@ -22,8 +24,14 @@ def rotated_rectangle(poly):
     (a Point / LineString), which each caller already handles.  This module imports
     no geometry library (``model`` re-exports it; test_model): the polygon
     is duck-typed.
+
+    The guard is ``np.errstate`` — numpy's floating-point error state,
+    held for this one call and restored on exit, the same spelling as
+    ``airport/obj8_grade._eroded`` and ``airport/frame_entry.union``
+    (#418).  ``warnings.catch_warnings()`` was process-global filter
+    state, not thread-safe; errstate stops the warning at its source
+    (numpy's FP-flag check after the ``oriented_envelope`` ufunc) and the
+    rectangle is the same bytes.
     """
-    import warnings
-    with warnings.catch_warnings():          # numpy routes errstate here
-        warnings.simplefilter("ignore", RuntimeWarning)
+    with np.errstate(divide="ignore", invalid="ignore"):
         return poly.minimum_rotated_rectangle

@@ -279,11 +279,39 @@ def _obj(_state, spec):
     return P.shared_object(spec)
 
 
+def _under_the_names(names, taken, make):
+    """``make()`` with its blocks created under ``taken`` — the set, and
+    whether the system allowed the names.  POSIX frees a name at unlink,
+    so the re-creation always succeeds there.  Windows keeps a block (and
+    its name) alive until the LAST handle closes: while any worker still
+    holds the earlier block, creating under its name raises
+    ``FileExistsError`` — the system itself then guarantees that name
+    cannot serve a second set, which is the claim.  Which of the two
+    happens on Windows depends on whether every worker has moved on, so
+    both are lawful there; a refusal anywhere else is a failure."""
+    names[:] = taken
+    try:
+        return make(), True
+    except FileExistsError:
+        assert sys.platform == "win32", "a freed block name was refused"
+        names.clear()
+        return make(), False
+
+
+def _as_if_named(spec, taken):
+    """``spec`` with its blocks under ``taken``'s names — what the set
+    carries where the system does hand the earlier names out."""
+    return {k: (n, *v[1:]) for (k, v), n in zip(spec.items(), taken)}
+
+
 def test_a_reused_block_name_never_serves_the_earlier_arrays(monkeypatch):
     """The system may hand a later ``SharedMemory`` an earlier one's name.
     Forced here: every block of the second set is created under the first
     set's name, and each worker — still holding the first — must read the
-    second."""
+    second.  Where the system refuses the name while it is held
+    (:func:`_under_the_names`), the refusal is the proof for the name and
+    the serial is still proved: the spec the second set WOULD carry under
+    that name keys differently, and the workers read the second."""
     import numpy as np
     real = P._shm.SharedMemory
     names: list = []
@@ -301,14 +329,16 @@ def test_a_reused_block_name_never_serves_the_earlier_arrays(monkeypatch):
             assert pool.try_map(_obj, [o1.spec] * 8) == ["first"] * 8
             taken_o = [v[0] for v in o1.spec.values()]
         monkeypatch.setattr(P._shm, "SharedMemory", reuse)
-        names[:] = taken
-        with P.SharedArrays({"a": np.full(4, 2.0)}) as two:
-            assert [v[0] for v in two.spec.values()] == taken
-            assert P.spec_key(two.spec) != P.spec_key(one.spec)
+        two, reused = _under_the_names(
+            names, taken, lambda: P.SharedArrays({"a": np.full(4, 2.0)}))
+        with two:
+            assert ([v[0] for v in two.spec.values()] == taken) is reused
+            assert P.spec_key(_as_if_named(two.spec, taken)) != P.spec_key(one.spec)
             assert pool.try_map(_first, [two.spec] * 8) == [2.0] * 8
-        names[:] = taken_o
-        with P.share_object("second") as o2:
-            assert [v[0] for v in o2.spec.values()] == taken_o
+        o2, reused = _under_the_names(names, taken_o, lambda: P.share_object("second"))
+        with o2:
+            assert ([v[0] for v in o2.spec.values()] == taken_o) is reused
+            assert P.spec_key(_as_if_named(o2.spec, taken_o)) != P.spec_key(o1.spec)
             assert pool.try_map(_obj, [o2.spec] * 8) == ["second"] * 8
 
 

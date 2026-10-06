@@ -77,6 +77,15 @@ def test_a_read_only_run_reports_and_writes_nothing(stage):
     assert ev["pack"] == "Some Pack" and (ev["lat"], ev["lon"]) == (25, 51)
 
 
+def test_a_check_that_raises_never_costs_the_airport(stage, monkeypatch):
+    def boom(*a, **k):
+        raise OSError("dump unreadable")
+
+    monkeypatch.setattr(E, "_pack_art", boom)
+    assert E._art_stage(PLAN, TILE, writes=True, place=True) is None
+    assert stage["events"] == [] and stage["writes"] == []
+
+
 def test_nothing_missing_says_nothing(stage):
     stage["art"] = _art(missing=())
     assert E._art_stage(PLAN, TILE, writes=True, place=False) is None

@@ -872,8 +872,15 @@ def _art_stage(plan_, tile, *, writes: bool, place: bool) -> "_PackArt | None":
     :func:`_art_after_place` finishes it with what the write did — the
     event never claims an omission before it is on disk."""
     policy = getattr(tile, "missing_art", None) or MISSING_ART_POLICY
-    art = _pack_art(plan_.pack_root, tile.lat, tile.lon, read_only=not writes,
-                    policy=policy)
+    try:
+        art = _pack_art(getattr(plan_, "pack_root", "") or "", tile.lat,
+                        tile.lon, read_only=not writes, policy=policy)
+    except Exception as exc:
+        # the check never costs an airport its object stage
+        import O4_UI_Utils as UI
+        UI.vprint(1, f"  [pack] missing-art check skipped ({exc})")
+        UI.vprint(2, traceback.format_exc())
+        return None
     if art is None or not (art.missing or art.stale):
         return None
     if not writes:

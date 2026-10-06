@@ -137,3 +137,29 @@ N6. HECA closing build `--tag art433_HECA`, suites, ratchets, blast.py wire
     drift, frozen spec parity (pack_art is statically imported by dsf_write).
 Review before trusting: `_art_stage` state logic when a placement write
 follows and then fails; `write_pack` top-level `icao` for the icao-less plan.
+
+## Cloud lane cloudart433 (2026-10-06) — what it did
+
+Branch `claude/cloudart433` (from `claude/art433` + `origin/main`).
+- N1 DONE: `PackMissingArt` (events.py, protocol 1.9), `UI.pack_missing_art`,
+  `EngineSession.pack_missing_art`, forwarder, `omit_missing_art` command
+  (jsonl handler table + capability `missing_art`; worker thread).
+- N2 DONE: build keyword `missing_art` (session.build / enqueue_build ->
+  `engine_v2.set_missing_art_policy`; parallel run carries it per batch in
+  the child build kwargs).
+- N3 DONE: `tests/auto_patch_v2/test_pack_art.py` (check, omission, key,
+  write/restore through `write_pack(omit=)`), `tests/test_pack_missing_art.py`
+  (engine stage decision table, protocol, command, forwarder).
+- N4 CONFIRMED: harness builds set `O4_PACK_WRITES=measure_only` ->
+  `_art_stage(writes=False)` reports only.
+- N5 DONE: Qt `O4_Qt_Pack_Art.py` + `O4_Qt_GUI._on_pack_missing_art`
+  (`tests/test_qt_pack_art.py`); Swift `SceneryKit/PackMissingArt.swift`,
+  `OrthoEngineClient` decode + `omitMissingArt`, `BuildModel` queue,
+  `MapMainView` alert (`Tests/SceneryKitTests/PackMissingArtTests.swift`;
+  NOT built on Linux — the PR's macOS job builds it).
+- Master ruling (b) applied: `can_omit` false -> warning without the primary
+  button (and without the backup line, which only describes the omission).
+- Review item fixed: the stage no longer announces `omitted` before the
+  write; `_art_after_place` finishes the step with what the placement write
+  did, and a placement that wrote nothing still applies the answer alone.
+- N6 (HECA closing build, OTHH proof on the real dump) is the master's.

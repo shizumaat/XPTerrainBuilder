@@ -102,6 +102,7 @@ to fix a crash class.  Such a stream is recorded as skipped, with why.
 from __future__ import annotations
 
 import io
+import locale
 import sys
 from typing import Any, Dict, Optional
 
@@ -162,6 +163,37 @@ def child_console_pipe() -> Dict[str, Any]:
     policy — one bad byte must not end the parent's reader.
     """
     return {"text": True, "encoding": CONSOLE_ENCODING, "errors": READ_ERRORS}
+
+
+def native_tool_encoding() -> str:
+    """The encoding a NATIVE command-line tool's output arrives in.
+
+    A C/C++ tool (DSFTool) takes ``char *argv[]`` and ``printf``s: it never
+    pins a console, so the bytes it echoes — the paths it was given among
+    them — are this machine's ANSI code page on Windows (the narrow
+    ``argv`` is converted with it; a pipe is raw bytes, the console's OEM
+    page never applies) and UTF-8 on POSIX (APFS/ext4 paths are UTF-8, and
+    the C runtime passes them through).  ``locale.getencoding()`` is the
+    ANSI page even under Python's UTF-8 mode, which is why it is asked and
+    not ``getpreferredencoding``.
+    """
+    if sys.platform != "win32":
+        return CONSOLE_ENCODING
+    getencoding = getattr(locale, "getencoding", None)      # Python >= 3.11
+    return getencoding() if getencoding else locale.getpreferredencoding(False)
+
+
+def native_tool_pipe() -> Dict[str, Any]:
+    """``subprocess`` keywords for a pipe to a NATIVE tool read as text.
+
+    The counterpart of :func:`child_console_pipe` for a child that is not
+    an engine child: :func:`native_tool_encoding`, with the read-side error
+    policy — a path the tool echoes in some other encoding becomes ``\ufffd``
+    in a message, never an exception that hides the tool's real failure.
+    ASCII output decodes identically under every choice here.
+    """
+    return {"text": True, "encoding": native_tool_encoding(),
+            "errors": READ_ERRORS}
 
 
 def configure_console_streams(force: bool = False) -> Dict[str, Any]:

@@ -92,6 +92,41 @@ def test_the_freeze_writes_the_file_a_frozen_engine_reads(tmp_path,
     assert CODE.code_digest() == "ab" * 8
 
 
+def test_one_reader_and_writer_serve_both_freeze_digests(tmp_path,
+                                                          monkeypatch):
+    """#419: ``provenance_code`` carried a near-duplicate of
+    ``partition_code``'s digest-file reader and writer that differed only
+    in the file name.  It now calls that pair with ``filename=``; each
+    digest lands in, and is read from, its own file only.  In a FROZEN
+    engine there is no ``partition_code.py`` beside the tree, so the pair
+    is IMPORTED; the spec, executing by path, runs it from the source."""
+    from auto_patch_v2.airport import partition_code as PCODE
+
+    src = _toy_engine(tmp_path)
+    out = tmp_path / "out"
+    written = CODE.write_freeze_digest(str(src), str(out))
+    assert written == str(out / CODE.DIGEST_FILENAME)
+    assert not (out / PCODE.DIGEST_FILENAME).exists()
+    engine = CODE.freeze_digest(str(src))
+    assert PCODE.frozen_digest(str(out), filename=CODE.DIGEST_FILENAME) \
+        == engine
+    assert PCODE.frozen_digest(str(out)) is None        # not the cache's file
+    PCODE.write_freeze_digest(str(src), str(out), filename="x.sha256",
+                              digest="cd" * 32)
+    assert PCODE.frozen_digest(str(out), filename="x.sha256") == "cd" * 32
+
+    def no_source(*args, **kwargs):
+        raise AssertionError("frozen: there is no partition_code.py to run")
+
+    real_isfile = os.path.isfile
+    monkeypatch.setattr(
+        CODE.os.path, "isfile",
+        lambda path: False if str(path).endswith("partition_code.py")
+        else real_isfile(path))
+    monkeypatch.setattr(CODE.runpy, "run_path", no_source)
+    assert CODE.frozen_digest(str(out)) == engine
+
+
 def test_a_frozen_engine_without_the_file_never_digests_its_bundle(
         monkeypatch, tmp_path):
     """``_internal`` holds third-party ``.py`` files; walking it would be

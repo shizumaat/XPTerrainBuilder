@@ -42,6 +42,7 @@ from ..law import Law
 from ..law.tables import pavement_roles, role_side
 from ..model.airport import Airport
 from ..model.constraints import Row, Source
+from ..model.map_memo import per_map
 from ..model.planar import PlanarMap, is_collar_ref
 from .groundside import groundside_face_roles
 from .pads import (_pad_polys, _two_sided, design_law, frontage_radius_m,
@@ -60,13 +61,18 @@ __all__ = ["GEN_GS", "GS_LEVEL_RULING", "GS_LEVEL_JUNIOR_RULING",
 STATS: dict[str, dict[str, int]] = {}
 
 #: §28 (6)'s HELD PAIRS AS DATA (issue #264, CYXY 60.7137823, -135.0763504):
-#: ``(id(planar), faces, vertices) -> {(groundside face id, pad face id)}`` — every pad|face
+#: per planar map, ``{(groundside face id, pad face id)}`` — every pad|face
 #: pair :func:`groundside_frontage` DROPPED as a hillside terrace, published
 #: from the ONE derivation so the fallback cap (``constraints/pavement_cap``)
 #: reads the same population and never welds a held pair back together
-#: (``held_terrace_pairs``).  Keyed by the map's identity: a replay that
-#: drops the §28 generator re-derives it rather than reading a stale set.
-HELD_PAIRS: dict[tuple[int, int, int], set[tuple[int, int]]] = {}
+#: (``held_terrace_pairs``).  Held through ``model.map_memo.per_map``: an
+#: entry is read only by its own map (a weak reference, never a bare
+#: ``id`` a later map can reuse) and leaves with it, so the store holds no
+#: more entries than there are live maps (issue #412).  A replay that drops
+#: the §28 generator re-derives it rather than reading a stale set.
+HELD_PAIRS: dict[int, tuple[_t.Any, dict]] = {}
+#: the key of a map's held pairs in its :data:`HELD_PAIRS` memo
+_HELD = "held_pairs"
 
 #: THE §28 FAMILY.  Its own generator name, so ``DesignReport.families`` and
 #: ``tools/v2_why_solve`` name the PAD holding a lot's edge rather than the pad
@@ -412,7 +418,7 @@ def groundside_frontage(planar: PlanarMap, law: Law
             got.sort(key=lambda t: (-t[2], t[0]))
             out[gid] = got
     STATS["groundside_frontage_level"] = {"pairs_held_as_terrace": held}
-    HELD_PAIRS[_held_key(planar)] = held_pairs
+    per_map(HELD_PAIRS, planar)[_HELD] = held_pairs
     return out
 
 
@@ -431,18 +437,11 @@ def held_terrace_pairs(planar: PlanarMap, law: Law) -> set[tuple[int, int]]:
     the fallback family put the lot level at 698.4-698.7 m along the
     whole wall (its DEM, the second storey), the site vertex 695.32 ->
     698.55 m.  ONE derivation: re-run only when this map has none."""
-    got = HELD_PAIRS.get(_held_key(planar))
+    got = per_map(HELD_PAIRS, planar).get(_HELD)
     if got is None:
         groundside_frontage(planar, law)
-        got = HELD_PAIRS.get(_held_key(planar), set())
+        got = per_map(HELD_PAIRS, planar).get(_HELD, set())
     return set(got)
-
-
-def _held_key(planar: PlanarMap) -> tuple[int, int, int]:
-    """The map's identity for ``HELD_PAIRS`` — its object id with its face
-    and vertex counts, so a recycled id of a different map never reads a
-    stale set."""
-    return (id(planar), len(planar.faces), len(planar.vertices))
 
 
 def groundside_frontage_level(planar: PlanarMap, law: Law, airport: Airport

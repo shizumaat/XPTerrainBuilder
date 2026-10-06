@@ -169,3 +169,38 @@ def test_the_fallback_cap_skips_a_held_pair_and_keeps_a_graded_one(law):
     if not graded:
         pytest.skip("the fixture's lot and pad share no welded neighbour: "
                     "only the held arm is testable here")
+
+
+def test_two_maps_in_sequence_never_read_each_others_held_pairs(law):
+    """``HELD_PAIRS`` cannot alias (issue #412): it was keyed on
+    ``(id(planar), faces, vertices)`` and never cleared, so it grew by one
+    entry per map and a later map with the dead one's id and counts read
+    its set.  Now an entry is read only by its own map and leaves with it."""
+    import gc
+    import weakref
+
+    from auto_patch_v2.constraints import pad_frontage_gs as G
+    from auto_patch_v2.constraints import precedence
+
+    bound = frontage_step_max_m(law)
+    G.HELD_PAIRS.clear()
+    high, _a = _built(law, _StepDem(bound + 1.0))
+    low, _b = _built(law, _StepDem(bound - 1.0))
+    assert (len(high.faces), len(high.vertices)) == (len(low.faces), len(low.vertices))
+    assert len(held_terrace_pairs(high, law)) == 1
+    assert held_terrace_pairs(low, law) == set()       # its own, in sequence
+    assert len(held_terrace_pairs(high, law)) == 1
+    # a dead map's entry under a live map's id (the reused-id case, forced):
+    # the live map derives its own and never reads it
+    dead = weakref.ref(_built(law, _StepDem(bound + 1.0))[0])
+    precedence._CACHE.clear()                          # the view held the map
+    gc.collect()
+    assert dead() is None
+    G.HELD_PAIRS[id(low)] = (dead, {"held_pairs": {(1, 2)}})
+    assert held_terrace_pairs(low, law) == set()
+    # bounded: an entry leaves with its map
+    assert set(G.HELD_PAIRS) == {id(high), id(low)}
+    del high
+    precedence._CACHE.clear()
+    gc.collect()
+    assert set(G.HELD_PAIRS) == {id(low)}

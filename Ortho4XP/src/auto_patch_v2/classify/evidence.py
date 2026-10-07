@@ -19,7 +19,7 @@ from shapely.strtree import STRtree
 
 from ..geom import (cluster_building_evidence, cluster_outlines,
                     deck_shades, osm_building_evidence)
-from ..law.tables import pad_admission
+from ..law.tables import pad_admission, pad_outline
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
 from .rules import Rules
@@ -550,7 +550,10 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
                                    admission=pad_admission(law),
                                    osm_evidence=cluster_building_evidence(
                                        getattr(airport, "buildings", ()) or ()),
-                                   refused=_refused)
+                                   refused=_refused,
+                                   # §56 (1) rule 2b: the simplified
+                                   # building outline (#452)
+                                   outline=pad_outline(law))
     CLUSTER_PADS.update(counts)
     # the refusals, LISTED with ref + gate + measured value (and the
     # footprint's length/width, which issue #229 reads)

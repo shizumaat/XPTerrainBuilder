@@ -37,7 +37,7 @@ from shapely.strtree import STRtree
 from ..geom import (cluster_building_evidence, cluster_outlines,
                     deck_shades)
 from ..law import Law
-from ..law.tables import pad_admission, rolled_on_roles
+from ..law.tables import pad_admission, pad_outline, rolled_on_roles
 from ..model.airport import Airport
 from ..model.planar import PlanarMap, block_of, is_collar_ref, platform_ref_of, unit_ref_of
 from .pads import _pad_groups, _pad_polys
@@ -105,7 +105,7 @@ _AIRSIDE_MEMO: list[tuple[int, _t.Any, _t.Any]] = []
 
 def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
                   law_touch: float | None = None, airside=None,
-                  bridge_m: float = 0.0, admission=None
+                  bridge_m: float = 0.0, admission=None, outline=None
                   ) -> list[tuple[str, _t.Any, Polygon]]:
     """§30 (4): each CLUSTER carried on ``Airport.clusters``
     (``planar/cluster.py``, computed once at load beside the pack
@@ -140,7 +140,7 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
         return []
     touch = float(law_touch) if law_touch is not None else 0.0
     got = counts = None
-    akey = (id(airside), min_m2, float(bridge_m), admission)
+    akey = (id(airside), min_m2, float(bridge_m), admission, outline)
     for k, ap, t0, cached in _POLY_MEMO:
         if k == id(airport) and ap is airport and t0 == (touch, akey):
             got, counts = cached, {}
@@ -171,7 +171,10 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             # rules 9/10)
             admission=admission,
             osm_evidence=cluster_building_evidence(
-                getattr(airport, "buildings", ()) or ()))
+                getattr(airport, "buildings", ()) or ()),
+            # §56 (1) rule 2b: the SAME simplified outline the mint drew
+            # (``law.tables.pad_outline``)
+            outline=outline)
         _POLY_MEMO.append((id(airport), airport, (touch, akey), got))
         del _POLY_MEMO[:-2]
     if counts.get("no_rings"):
@@ -262,7 +265,7 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
         airport, min_m2, footprint_touch_m(law),
         None if bool(law.tables.structures.placement.pad_airside_clip)
         else airside_union(planar, law), _bridge_m(law),
-        pad_admission(law))
+        pad_admission(law), pad_outline(law))
     # §16g (10) (11) A PIECE THE MINT NEVER PADDED IS NOT A PAD.  The
     # mint drops every piece under ``[building_pad] min_area_m2``
     # (``classify/evidence._pads``), so a 7 m2 sliver of a cluster's
@@ -609,7 +612,7 @@ def cluster_offsets(planar: PlanarMap, law: Law, airport: Airport | None
     pairs = cluster_polys(
         airport, float(law.tables.structures.placement.cluster_pad_min_m2),
         touch, airside_union(planar, law), _bridge_m(law),
-        pad_admission(law))
+        pad_admission(law), pad_outline(law))
     if len(pairs) < 2:
         return {}
     floor_of: dict[str, float] = {}

@@ -24,6 +24,7 @@ from shapely.strtree import STRtree
 from .rotated_rect import rotated_rectangle
 
 __all__ = ["cluster_outlines", "OUTLINE_SIMPLIFY_M", "airside_vertex_snap",
+           "simplified_outline", "CLOSE_QUAD_SEGS",
            "AirsideRim", "ON_BOUNDARY_EPS_M", "deck_shades",
            "osm_building_evidence", "OSM_BUILDING_SOURCE",
            "CACHE_VOUCHED_SOURCE", "CLUSTER_EVIDENCE_SOURCES",
@@ -113,6 +114,74 @@ def _parts(g) -> list[Polygon]:
     if isinstance(g, MultiPolygon):
         return [q for q in g.geoms if isinstance(q, Polygon) and q.area > 0.0]
     return [g] if isinstance(g, Polygon) and g.area > 0.0 else []
+
+
+#: §56 (1) 1: the arc resolution of the round close (segments per quarter
+#: circle) — the probe's own; the arc vertices it adds are removed by the
+#: straightening, so it buys a true closing, never a vertex budget.
+CLOSE_QUAD_SEGS = 8
+
+
+def simplified_outline(poly, close_m: float, chord_m: float,
+                       hole_min_m2: float):
+    """§56 (1) RULE 2b, THE SIMPLIFIED BUILDING OUTLINE (owner RULINGS
+    2026-10-07a (6), 07b (4); issue #452): "just the outline of the
+    building with straight chords that include jetways and small
+    protuberances while following the general outline of the building".
+    ONE pure function on one polygon in the planar frame — no DEM, no
+    neighbour, no law read (the caller passes the law's three values) —
+    so its output is the same at any worker count.
+
+    1. CLOSE: ``buffer(+close_m).buffer(-close_m)`` with ROUND joins — a
+       true morphological closing, so it contains its input and fills
+       every re-entrant whose mouth is narrower than ``2 * close_m``; a
+       wider bay is a real concavity and stays.  Mitred joins were probed
+       and REFUTED (they drop sliver pieces off thin wings).
+    2. STRAIGHTEN: Douglas-Peucker, topology-preserving, at ``chord_m``
+       (removes the arc vertices of 1 as well as the crenelations).
+    3. FILL THE LIGHT WELLS: every hole under ``hole_min_m2`` goes; a
+       courtyard at or over it stays a hole.
+
+    Close, then straighten, then fill.  There is NO opening step: an
+    opening drops thin protuberances (a canopy, a jetway root), which the
+    owner asked for INSIDE the outline (probe arm V8, refuted).  ``0``
+    disarms each step (the measurement arm, never a shipped value)."""
+    g = poly
+    if g is None or g.is_empty:
+        return g
+    if close_m > 0.0:
+        # the input is unioned back: the arcs are inscribed polygons, so
+        # the buffered close chamfers every convex corner by the arc's
+        # sagitta (1.3 cm at 3 m) and the straightening would then keep
+        # the chamfer, not the corner — the union makes "contains its
+        # input" exact, as the closing it stands for does
+        # (and ``simplify(0)`` drops the chamfer's now-collinear vertices,
+        # so no ring STARTS on one — Douglas-Peucker always keeps a ring's
+        # first vertex, and would drop the true corner beside it)
+        g = unary_union([g, g.buffer(close_m, join_style=1,
+                                     quad_segs=CLOSE_QUAD_SEGS).buffer(
+            -close_m, join_style=1, quad_segs=CLOSE_QUAD_SEGS)]).simplify(0.0)
+        if not g.is_valid:
+            g = g.buffer(0.0)
+    if chord_m > 0.0:
+        g = g.simplify(chord_m, preserve_topology=True)
+        if not g.is_valid:
+            g = g.buffer(0.0)
+    if hole_min_m2 > 0.0:
+        kept = [Polygon(p.exterior, [h for h in p.interiors
+                                     if Polygon(h).area >= hole_min_m2])
+                for p in _parts(g)]
+        g = unary_union(kept) if kept else g
+        if not g.is_valid:
+            g = g.buffer(0.0)
+    return g
+
+
+def _outline_vertices(g) -> int:
+    """Ring vertices (exterior + holes, closing point not counted)."""
+    return sum(len(p.exterior.coords) - 1
+               + sum(len(h.coords) - 1 for h in p.interiors)
+               for p in _parts(g))
 
 
 def deck_shades(partition: _t.Any,
@@ -335,6 +404,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      admission=None,
                      osm_evidence=None,
                      refused=None,
+                     outline=None,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -416,6 +486,15 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        wholly under a shade mints nothing (``under_deck``); one the shade
        cuts is ``deck_trimmed``, and the pieces it leaves are rule 2's.
 
+    2b. THE SIMPLIFIED BUILDING OUTLINE (spec §56 (1), owner RULINGS
+       2026-10-07a (6) / 07b (4), issue #452): right after 2 and 2a, and
+       before 10, 8, 4, 3 and 6, the outline is closed (round, at
+       ``outline.close_m``), straightened (Douglas-Peucker at
+       ``outline.chord_m``) and its light wells under
+       ``outline.hole_min_m2`` filled — :func:`simplified_outline`.
+       Counted ``outline_simplified``, with the ring vertices in and out
+       (``outline_vertices_in`` / ``_out``).
+
     2a. A POST STILL CHAINS, SO THE UNIT IS ONE (issue #73, lane
        ``courtyards``).  Posts and flat lines draw no outline
        (``placement_family.draws_outline``), so a cluster whose pieces
@@ -473,7 +552,8 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
     ``plan_clusters`` keeps for a plan with no solid heights.
 
     ``touch_m <= 0`` disarms the close (rule 2); ``bridge_m <= 0``
-    disarms (2a); ``airside=None``
+    disarms (2a); ``outline=None`` (or its three values 0) disarms (2b);
+    ``airside=None``
     disarms the clip (rule 4); ``walled_only=False`` and ``min_m2=0``
     disarm (7); ``thin_m <= 0`` disarms (6); ``shades=None`` disarms (8);
     ``admission=None`` disarms (9) and (10), as does
@@ -484,6 +564,9 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
               "leaf_dropped": 0, "under_min_m2": 0, "thin_dropped": 0,
               "pads": 0, "under_deck": 0, "deck_trimmed": 0,
               "post_bridged": 0,
+              # §56 (1) rule 2b
+              "outline_simplified": 0, "outline_vertices_in": 0,
+              "outline_vertices_out": 0,
               # §16g (10) (12), issue #101: the two ported v1 gates
               "no_tall_base": 0, "no_building_evidence": 0,
               "unmeasured": 0, "osm_vouched": 0, "cache_vouched": 0}
@@ -494,6 +577,9 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         key=lambda i: (min(getattr(clusters[i], "floors", ()) or (0.0,)),
                        -float(getattr(clusters[i], "area_m2", 0.0)),
                        str(getattr(clusters[i], "id", i))))
+    oc = float(getattr(outline, "close_m", 0.0) or 0.0)
+    och = float(getattr(outline, "chord_m", 0.0) or 0.0)
+    oh = float(getattr(outline, "hole_min_m2", 0.0) or 0.0)
     out: list[tuple[str, _t.Any, Polygon]] = []
     taken: list[Polygon] = []
     for i in order:
@@ -544,6 +630,12 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
             # rule 2a: the posts that still chain close the outline
             u, nj = _bridge(u, c.bridges, to_xy, bridge_m)
             counts["post_bridged"] += nj
+        if oc > 0.0 or och > 0.0 or oh > 0.0:
+            # rule 2b: the simplified building outline (§56 (1))
+            counts["outline_vertices_in"] += _outline_vertices(u)
+            u = simplified_outline(u, oc, och, oh)
+            counts["outline_vertices_out"] += _outline_vertices(u)
+            counts["outline_simplified"] += 1
         if u.is_empty:
             counts["no_rings"] += 1
             continue

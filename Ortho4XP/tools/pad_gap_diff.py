@@ -44,7 +44,7 @@ def mint(cl, ap, law, bridge_m: float):
     """The mint's own call (``classify/evidence._pads``) at one bridge value."""
     from auto_patch_v2.classify.evidence import deck_shades
     from auto_patch_v2.geom import cluster_outlines, cluster_building_evidence
-    from auto_patch_v2.law.tables import pad_admission
+    from auto_patch_v2.law.tables import pad_admission, pad_outline
     st = law.tables.structures.placement
     to_xy = ap.frame.entry()
     airside = None  # pad_airside_clip: the outline is not pre-cut (evidence._pads)
@@ -59,7 +59,9 @@ def mint(cl, ap, law, bridge_m: float):
                             # not have (the census-wrapper defect)
                             admission=pad_admission(law),
                             osm_evidence=cluster_building_evidence(
-                                getattr(ap, "buildings", ()) or ()))
+                                getattr(ap, "buildings", ()) or ()),
+                            # §56 (1) rule 2b: the mint's simplified outline
+                            outline=pad_outline(law))
 
 
 def diff(got_a, got_b, to_ll) -> dict:

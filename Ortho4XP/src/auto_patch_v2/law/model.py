@@ -396,6 +396,14 @@ class BuildingPad:
     frontage_hold_margin_m: float
     #: flat-pad spec §2 (4) (e) / §6 Q4: a unit needing more blocks STOPS
     frontage_blocks_max: int
+    #: spec §56 (1) (owner RULINGS 2026-10-07a (6), 07b (4); #452): the
+    #: SIMPLIFIED BUILDING OUTLINE (``geom.cluster_outline`` rule 2b) — the
+    #: round morphological close radius, the Douglas-Peucker chord
+    #: tolerance and the light-well area under which a hole is filled;
+    #: 0 disarms each (the measurement arm)
+    outline_close_m: float
+    outline_chord_m: float
+    outline_hole_min_m2: float
 
 
 @_dc.dataclass(frozen=True)

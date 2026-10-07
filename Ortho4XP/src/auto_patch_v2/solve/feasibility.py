@@ -70,6 +70,7 @@ class ConflictReport:
     status: str = ""
     over_budget: bool = False
     by_head: dict = _dc.field(default_factory=dict)        # relaxed rows per head
+    worst_by_head: dict = _dc.field(default_factory=dict)  # worst relaxation (m) per head
     by_tier: dict = _dc.field(default_factory=dict)        # relaxed rows per tier
     support_by_head: dict = _dc.field(default_factory=dict)  # opposing rows per head
     conflicts: list = _dc.field(default_factory=list)      # one record per relaxed row
@@ -91,6 +92,8 @@ class ConflictReport:
         return {"rows": self.rows, "relaxed": self.relaxed,
                 "lp_wall_s": round(self.lp_wall_s, 3), "status": self.status,
                 "over_budget": self.over_budget, "by_head": dict(self.by_head),
+                "worst_by_head": {h: round(float(w), 4)
+                                  for h, w in self.worst_by_head.items()},
                 "by_tier": dict(self.by_tier),
                 "support_by_head": dict(self.support_by_head),
                 "runway_conflict": self.runway_conflict,
@@ -98,6 +101,13 @@ class ConflictReport:
                 "runway_after_m": round(self.runway_after_m, 4),
                 "runway_stop": self.runway_stop,
                 "promoted_on_miss": self.promoted_on_miss}
+
+    def by_head_line(self) -> str:
+        """The relaxed rows BY HEAD, count and worst metre (spec §55 (5))."""
+        return "; ".join(
+            f"{h}: {n} (worst {self.worst_by_head.get(h, 0.0):.2f} m)"
+            for h, n in sorted(self.by_head.items(), key=lambda kv: (-kv[1], kv[0]))) \
+            or "none relaxed"
 
     def line(self) -> str:
         return (f"hard set feasibility (§5a): {self.rows} hard rows, LP "
@@ -211,6 +221,7 @@ def check_hard_set(planar: PlanarMap, law: Law, one: list, hard_i: np.ndarray,
         terms, _hi, row = one[k]
         h = heads[i]
         rep.by_head[h] = rep.by_head.get(h, 0) + 1
+        rep.worst_by_head[h] = max(rep.worst_by_head.get(h, 0.0), float(s[i]))
         tn = names_t[int(t_row[i])]
         rep.by_tier[tn] = rep.by_tier.get(tn, 0) + 1
         against = by_comp.get(comp_of.get(i, -1), {})

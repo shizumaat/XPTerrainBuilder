@@ -26,7 +26,15 @@ WHERE TWO FIXED NEIGHBOURS DISAGREE by more than the piece can span, no
 level satisfies both: the vertex is bound BETWEEN them (the interval from
 the lower neighbour's ceiling to the upper neighbour's floor) and the pair
 is REPORTED with both levels — a conflict of the standing ground that the
-piece exposes, never one it settles by moving a neighbour."""
+piece exposes, never one it settles by moving a neighbour.
+
+THE LOT (spec §55 (3) 4; owner RULINGS 2026-10-06d).  A part of a cut piece
+whose kind is ``lot`` (``model.planar.gap_part_kind``) holds the level of
+the ROAD beside it flat across: every unknown vertex of the lot, however far
+from the road, is bound to the nearest standing road's level within the
+piece role's TRANSVERSE cap times its distance to that road — the road law's
+own lateral window — and that level is its published target
+(``report["lot_targets"]``, which the stage puts on ``preferred_z``)."""
 from __future__ import annotations
 
 import typing as _t
@@ -39,12 +47,13 @@ from ..law.tables import is_rigid_role, role_cap, snap_margin_m
 from ..model.constraints import Linear, Source
 from ..model.planar import (PlanarMap, face_edge_ids as _edges,
                             face_vertex_set as _vertices, gap_follower_faces,
-                            is_gap_ref, is_osm_ribbon_ref)
+                            gap_part_kind, is_gap_ref)
 
-__all__ = ["GEN", "RULING", "gap_follow_rows", "reach_m"]
+__all__ = ["GEN", "RULING", "LOT_RULING", "gap_follow_rows", "reach_m"]
 
 GEN = "gap_follow"
 RULING = "gap_piece follows its standing neighbour across the stand-off (owner 2026-10-04o)"
+LOT_RULING = "gap lot terrace holds the road's level across (owner 2026-10-06d)"
 #: a ring nearer than this is the piece's OWN rim (the apron it welds to)
 _OWN_RIM_M = 0.3
 
@@ -74,8 +83,17 @@ def gap_follow_rows(planar: PlanarMap, law: Law,
     reach = reach_m(law)
     V = planar.vertices
     segs, meta = [], []
+    # THE FOLLOWERS (master 2026-10-04): the pieces, and the mapped-road
+    # ribbons sharing a ring vertex with one — a ribbon is never lifted
+    # above the fixed ground it runs beside.  A ribbon beside NO piece is
+    # standing ground and binds as any ring does (spec §55 (13)).
+    _gap, ribbons = gap_follower_faces(planar)
+    follower = {f.id for f in ribbons}
+    from .roads import road_family_roles
+    road_roles = frozenset(road_family_roles(law))
+    road_i: list[int] = []
     for f in faces.values():
-        if is_gap_ref(f.ref) or (f.role == "service_road" and is_osm_ribbon_ref(f.ref)):
+        if is_gap_ref(f.ref) or f.id in follower:
             continue
         rc = role_cap(law, f.role)
         cap = min(cap_p, float(rc.longitudinal)) if rc and rc.longitudinal else cap_p
@@ -90,15 +108,13 @@ def gap_follow_rows(planar: PlanarMap, law: Law,
                 segs.append([V[p].xy, V[q].xy])
                 meta.append((f"{f.role}:{str(f.ref).split('#')[0]}",
                              float(fixed[p]), float(fixed[q]), cap, pad))
+                if f.role in road_roles:
+                    road_i.append(len(segs) - 1)
     if not segs:
         return [], rep
     lines = shapely.linestrings(segs)
     tree = STRtree(lines)
     rows: list[Linear] = []
-    # THE FOLLOWERS (master 2026-10-04): the pieces, and the mapped-road
-    # ribbons sharing a ring edge with one — a ribbon is never lifted above
-    # the fixed ground it runs beside
-    _gap, ribbons = gap_follower_faces(planar)
     todo = sorted({v for f in (*gap, *ribbons) for v in _vertices(planar, f)}
                   - set(fixed))
     pts = shapely.points([V[v].xy for v in todo])
@@ -136,4 +152,42 @@ def gap_follow_rows(planar: PlanarMap, law: Law,
         rows.append(Linear(((v, 1.0),), lo, hi, Source(GEN, RULING, (lo_n, hi_n))))
     rep["rows"] = len(rows)
     rep["vertices_in_reach"] = len(near)
-    return rows, rep
+    lot_rows, rep["lot_targets"] = _lot_rows(
+        planar, gap, fixed, lines, meta, road_i,
+        float(piece_cap.transverse) if piece_cap else 0.0)
+    rep["lot_rows"] = len(lot_rows)
+    return [*rows, *lot_rows], rep
+
+
+def _lot_rows(planar: PlanarMap, gap, fixed, lines, meta, road_i: list[int],
+              c_t: float) -> tuple[list[Linear], dict[int, float]]:
+    """THE LOT'S ROWS (module docstring): ``|z_v - L(v)| <= cT x d_R(v)`` on
+    every unknown vertex of a ``lot`` part, ``L`` the level of the nearest
+    standing road at its nearest point and ``d_R`` the distance to it.
+    ``(rows, {vertex: L})``."""
+    lots = [f for f in gap if gap_part_kind(f.ref) == "lot"]
+    if not lots or not road_i:
+        return [], {}
+    V = planar.vertices
+    todo = sorted({v for f in lots for v in _vertices(planar, f)} - set(fixed))
+    if not todo:
+        return [], {}
+    roads = lines[road_i]
+    pts = shapely.points([V[v].xy for v in todo])
+    pi, ri = STRtree(roads).query_nearest(pts, all_matches=False)
+    rows: list[Linear] = []
+    target: dict[int, float] = {}
+    for i, k in sorted(zip(pi.tolist(), ri.tolist())):
+        name, za, zb, _cap, _pad = meta[road_i[k]]
+        line = roads[k]
+        length = float(shapely.length(line))
+        t = float(shapely.line_locate_point(line, pts[i])) / length if length else 0.0
+        level = (1.0 - t) * za + t * zb
+        allow = c_t * float(shapely.distance(line, pts[i]))
+        v = todo[i]
+        if v in target:
+            continue
+        target[v] = level
+        rows.append(Linear(((v, 1.0),), level - allow, level + allow,
+                           Source(GEN, LOT_RULING, (name,))))
+    return rows, target

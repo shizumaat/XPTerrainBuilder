@@ -1877,7 +1877,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                    placement: dict | None = None,
                    sites: list[tuple[float, float]] | None = None,
                    pad_read_only: bool = False, shape_dump: Path | None = None,
-                   rim_diagnostics: bool = False) -> dict:
+                   rim_diagnostics: bool = False, late: dict | None = None) -> dict:
     """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
     the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
     it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
@@ -2037,181 +2037,211 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         cl = _classify(airport, law, _load_rules(), cache=_ocache)
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
-    if resume in ("classify", "planar"):
-        _pt = time.perf_counter()
-        pm, _ps = build_planar(airport, cl, law, cache=_ocache, objects=_objs,
-                               object_report=_orep, rim_diagnostics=rim_diagnostics)
-        print(f"[{icao}] planar stage {time.perf_counter() - _pt:.1f} s "
-              f"(work-pool budget {pool_budget()})")
-        if rim_diagnostics:
-            for _ln in rim_diagnostic_lines(pm):
-                print(f"[{icao}] {_ln}")
-        # §37 (11) THE SHORE DECISION (29a, issue #72): every contact's
-        # verdict — the replay's read of the shore
-        from auto_patch_v2.pipeline.build import shore_decision_lines
-        for _ln in shore_decision_lines(pm, airport, every=True):
-            print(f"[{icao}]{_ln}")
-        road_pref, _r, _p = preferred_road_z(airport, pm, law, inputs.road_grade_limit,
-                                             inputs.lane_width_m)
-        pm = _dc.replace(pm, preferred_z=road_pref)
-        _pr = pad_read(icao, pm, law, airport, sites or [])
-        if shape_dump is not None:
-            # THE SHAPE READ (#100 round 4): every labelled vertex's shape by
-            # canonical lat/lon, so two arms diff the 08k labelling BY IDENTITY
-            _to_ll_sd = airport.frame.transformers()[1]
-            _lab = {"%.11f,%.11f" % tuple(_to_ll_sd(*pm.vertices[v].xy)): int(l)
-                    for v, l in pm.shape_of_vertex.items()}
-            _jn = [[str(getattr(j, "kind", "")), list(getattr(j, "shapes", ()) or ())]
-                   for j in pm.shape_joints]
-            Path(shape_dump).write_text(json.dumps({"shape_of_vertex": _lab, "joints": _jn}))
-            print(f"[{icao}] shape dump -> {shape_dump}: {len(_lab)} labelled vertices, "
-                  f"{len(set(_lab.values()))} shapes, {len(_jn)} joints")
-        if pad_read_only:
-            return {"icao": icao, "airport": airport, "cl": cl, "pm": pm,
-                    "law": law, "t0": t0, "pad_read": _pr,
-                    CAPTURE_OVERLAY_KEY: _overlay}
-    from auto_patch_v2.constraints.runway_chord import with_runway_chord
+    def _rest(cl, stage_one: bool = True) -> dict:
+        """THE PRELUDE FROM THE PLANAR BUILD ON, for one classification: the
+        map, the target channels, the shape stage and the constraint set.
+        The last stage (``--late-from``) runs it on the classification with
+        the gap pieces cut (``pipeline/late_stage.run_late_stage``'s
+        ``derive``)."""
+        nonlocal pm, stage, law
+        if resume in ("classify", "planar"):
+            _pt = time.perf_counter()
+            pm, _ps = build_planar(airport, cl, law, cache=_ocache, objects=_objs,
+                                   object_report=_orep, rim_diagnostics=rim_diagnostics)
+            print(f"[{icao}] planar stage {time.perf_counter() - _pt:.1f} s "
+                  f"(work-pool budget {pool_budget()})")
+            if rim_diagnostics:
+                for _ln in rim_diagnostic_lines(pm):
+                    print(f"[{icao}] {_ln}")
+            # §37 (11) THE SHORE DECISION (29a, issue #72): every contact's
+            # verdict — the replay's read of the shore
+            from auto_patch_v2.pipeline.build import shore_decision_lines
+            for _ln in shore_decision_lines(pm, airport, every=True):
+                print(f"[{icao}]{_ln}")
+            road_pref, _r, _p = preferred_road_z(airport, pm, law, inputs.road_grade_limit,
+                                                 inputs.lane_width_m)
+            pm = _dc.replace(pm, preferred_z=road_pref)
+            _pr = pad_read(icao, pm, law, airport, sites or [])
+            if shape_dump is not None:
+                # THE SHAPE READ (#100 round 4): every labelled vertex's shape by
+                # canonical lat/lon, so two arms diff the 08k labelling BY IDENTITY
+                _to_ll_sd = airport.frame.transformers()[1]
+                _lab = {"%.11f,%.11f" % tuple(_to_ll_sd(*pm.vertices[v].xy)): int(l)
+                        for v, l in pm.shape_of_vertex.items()}
+                _jn = [[str(getattr(j, "kind", "")), list(getattr(j, "shapes", ()) or ())]
+                       for j in pm.shape_joints]
+                Path(shape_dump).write_text(json.dumps({"shape_of_vertex": _lab, "joints": _jn}))
+                print(f"[{icao}] shape dump -> {shape_dump}: {len(_lab)} labelled vertices, "
+                      f"{len(set(_lab.values()))} shapes, {len(_jn)} joints")
+            if pad_read_only:
+                return {"icao": icao, "airport": airport, "cl": cl, "pm": pm,
+                        "law": law, "t0": t0, "pad_read": _pr,
+                        CAPTURE_OVERLAY_KEY: _overlay}
+        from auto_patch_v2.constraints.runway_chord import with_runway_chord
 
-    def _targets(m):
-        """THE BUILD'S OWN TARGET CHANNELS, in ``pipeline/build.py``'s order:
-        the runway profile, then the taxi chains' trend (RULINGS 2026-09-10v),
-        then the apron bodies' 2-D trend (RULINGS 2026-09-10ar).  The replay
-        claims to reproduce the build's LP, so it must publish all three —
-        without them a replay arm silently solves a DIFFERENT problem (this
-        is how a lane read two arms of the apron trend as byte-identical).
-        A tree that predates a channel simply does not have it: the import
-        is asked for, never assumed, so an OLD capture and an OLD tree still
-        replay."""
-        m = with_runway_chord(m, law, airport, fill_roles=chord_fill)
-        # §50.4 THE ONE LOUD LINE (owner RULINGS 2026-09-18d (3)): the
-        # replay prints exactly what the build prints, from the SAME
-        # record (``pm.runway_caps``, which ``with_runway_chord`` has just
-        # derived) — so an over-grade runway is visible in a stage replay
-        # and under ``--why-hard`` without an airport build.
-        try:
-            from auto_patch_v2.constraints.runway_yield import yielded_lines
-            for _ln in yielded_lines(icao, getattr(m, "runway_caps", {}) or {},
-                                     law.ruleset.authority):
-                print(_ln)
-        except ImportError:
-            pass                       # a tree that predates §50
-        for mod, fn in (("taxi_trend", "with_taxi_trend"),
-                        ("apron_trend", "with_apron_trend"),
-                        ("eat", "withdraw_trend_over_reach")):
-            # THE EAT RAMP REACH IS A CHANNEL EDIT, NOT A ROW (spec
-            # §36 (5)): it WITHDRAWS trend targets before the solve, so
-            # ``--drop-generator`` cannot reach it the way it reaches a
-            # generator's rows.  ``eat_anchor_rect`` drops the whole law
-            # (the pins AND their reach — a reach without its pin is not
-            # a state the build can be in); ``eat_ramp_reach`` drops the
-            # withdrawal ALONE, which is the §36 (5) before-arm.
-            if mod == "eat" and ({"eat_anchor_rect", "eat_ramp_reach"} & set(drop)):
-                continue
+        def _targets(m):
+            """THE BUILD'S OWN TARGET CHANNELS, in ``pipeline/build.py``'s order:
+            the runway profile, then the taxi chains' trend (RULINGS 2026-09-10v),
+            then the apron bodies' 2-D trend (RULINGS 2026-09-10ar).  The replay
+            claims to reproduce the build's LP, so it must publish all three —
+            without them a replay arm silently solves a DIFFERENT problem (this
+            is how a lane read two arms of the apron trend as byte-identical).
+            A tree that predates a channel simply does not have it: the import
+            is asked for, never assumed, so an OLD capture and an OLD tree still
+            replay."""
+            m = with_runway_chord(m, law, airport, fill_roles=chord_fill)
+            # §50.4 THE ONE LOUD LINE (owner RULINGS 2026-09-18d (3)): the
+            # replay prints exactly what the build prints, from the SAME
+            # record (``pm.runway_caps``, which ``with_runway_chord`` has just
+            # derived) — so an over-grade runway is visible in a stage replay
+            # and under ``--why-hard`` without an airport build.
             try:
-                pub = getattr(__import__(f"auto_patch_v2.constraints.{mod}",
-                                         fromlist=[fn]), fn)
-            except (ImportError, AttributeError):
-                continue
-            m = pub(m, law, airport)
-        # §37 (6) LAST, and out of the loop because its DERIVATION is an
-        # M1 producer's (it reads the DEM along the road's own route):
-        # the ramp reads the airside's own published target at the mouth
-        # and supersedes the core's road fit for the vertices it governs.
-        try:
-            from auto_patch_v2.airport.road_ramp import with_road_ramp
-            from auto_patch_v2.classify.rules import load_rules as _lr
-        except ImportError:
-            return m
-        # issue #303: the [service] thresholds come from the CALLER
-        # (``airport`` may not read ``classify``), so the replay hands
-        # them over exactly as the build does.
-        m = with_road_ramp(m, law, airport, service=_lr().service)
-        # §37 (9) the coverage-edge join, after the frame it reads
-        try:
-            from auto_patch_v2.airport.road_profile import core_profiles
-            from auto_patch_v2.emit.road_join import with_road_coverage_join
-        except ImportError:
-            return m
-        prof, per_face = core_profiles(airport, m, law)
-        return with_road_coverage_join(m, law, prof)
+                from auto_patch_v2.constraints.runway_yield import yielded_lines
+                for _ln in yielded_lines(icao, getattr(m, "runway_caps", {}) or {},
+                                         law.ruleset.authority):
+                    print(_ln)
+            except ImportError:
+                pass                       # a tree that predates §50
+            for mod, fn in (("taxi_trend", "with_taxi_trend"),
+                            ("apron_trend", "with_apron_trend"),
+                            ("eat", "withdraw_trend_over_reach")):
+                # THE EAT RAMP REACH IS A CHANNEL EDIT, NOT A ROW (spec
+                # §36 (5)): it WITHDRAWS trend targets before the solve, so
+                # ``--drop-generator`` cannot reach it the way it reaches a
+                # generator's rows.  ``eat_anchor_rect`` drops the whole law
+                # (the pins AND their reach — a reach without its pin is not
+                # a state the build can be in); ``eat_ramp_reach`` drops the
+                # withdrawal ALONE, which is the §36 (5) before-arm.
+                if mod == "eat" and ({"eat_anchor_rect", "eat_ramp_reach"} & set(drop)):
+                    continue
+                try:
+                    pub = getattr(__import__(f"auto_patch_v2.constraints.{mod}",
+                                             fromlist=[fn]), fn)
+                except (ImportError, AttributeError):
+                    continue
+                m = pub(m, law, airport)
+            # §37 (6) LAST, and out of the loop because its DERIVATION is an
+            # M1 producer's (it reads the DEM along the road's own route):
+            # the ramp reads the airside's own published target at the mouth
+            # and supersedes the core's road fit for the vertices it governs.
+            try:
+                from auto_patch_v2.airport.road_ramp import with_road_ramp
+                from auto_patch_v2.classify.rules import load_rules as _lr
+            except ImportError:
+                return m
+            # issue #303: the [service] thresholds come from the CALLER
+            # (``airport`` may not read ``classify``), so the replay hands
+            # them over exactly as the build does.
+            m = with_road_ramp(m, law, airport, service=_lr().service)
+            # §37 (9) the coverage-edge join, after the frame it reads
+            try:
+                from auto_patch_v2.airport.road_profile import core_profiles
+                from auto_patch_v2.emit.road_join import with_road_coverage_join
+            except ImportError:
+                return m
+            prof, per_face = core_profiles(airport, m, law)
+            return with_road_coverage_join(m, law, prof)
 
-    if chord_fill:
-        print(f"[{icao}] chord-fill target arm (08g-2): roles {chord_fill} within the strip take the "
-              f"crown-plane chord target")
-    if resume == "shapes":
-        from auto_patch_v2.planar.shapes import build_shapes
-        pm, sst = build_shapes(pm, law, airport, cl)      # the shapes over the captured map
-        print(f"[{icao}] network (08p): {sst.network_faces} of {sst.faces} pavement faces "
-              f"({', '.join(f'{k} {n}' for k, n in sorted(sst.network_by_role.items()))}), "
-              f"{sst.network_vertices} vertices, {sst.connected_stations} connected stations, "
-              f"{sst.unconnected_station_edges} unconnected centreline edges; bodies {sst.body_faces} faces "
-              f"({sst.faces_unlabelled} welded whole)")
-        print(f"[{icao}] shapes rebuilt: {sst.body_faces} body faces -> {sst.components} components, {sst.bodies} bodies, "
-              f"{sst.shapes} shapes (strip welds {sst.welded_strip_pairs}, route welds {sst.welded_route_pairs}); "
-              f"joints {sst.contours} contours ({sst.contour_length_m:,.0f} m) + {sst.gap_joints} gap; {sst.wall_s:.2f} s")
-        print(f"[{icao}] by shape (id, faces, m2, vertices, roles): {sst.by_shape[:12]}")
-    network_crosscheck(pm, law, airport)
-    if resume in ("classify", "planar", "shapes"):
-        pm = _targets(pm)                                 # change 1 (build.py order)
-        stage = shape_stage(pm, law, airport, cl)
-    else:
-        stage = _dc.replace(stage, pm=_targets(stage.pm))
-    pm = stage.pm
-    if design_weights:
-        d0 = law.tables.emit.design
-        law = _dc.replace(law, tables=_dc.replace(
-            law.tables, emit=_dc.replace(law.tables.emit,
-                                         design=_dc.replace(d0, **design_weights))))
-        print(f"[{icao}] design weight ARM: {design_weights} -> {law.tables.emit.design}")
-    cs, counts, _w = shape_constraints(pm, law, airport, stage)
-    if drop:
-        # a name is a GENERATOR or a RULING HEAD (``design_roles.ruling_head``,
-        # the key ``[design] hard_rulings`` names a law by): the frontage
-        # hold's rows are minted by ``platform_collar`` beside the collar's
-        # own, so the hold-OFF arm (flat-pad v2 §1 pass 1a) names its head
-        cs = drop_rows(cs, drop)
-    # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
-    # THIS prelude re-run on the classification without ribbons
-    # (``pipeline/stage_one_map``); ``None`` when the map carries no ribbon
-    s1 = None
-    try:
-        from auto_patch_v2.pipeline.stage_one_map import stage_one_problem
-    except ImportError:                       # a tree that predates (c)
-        stage_one_problem = None
-    if stage_one_problem is not None:
-        def _ribbon_free(cl0):
-            nonlocal _ocache, _objs, _orep
-            if _ocache is None:
-                from auto_patch_v2.airport import frame_entry as _fe
-                from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
-                from auto_patch_v2.planar.basins import read_objects as _read_objects
-                _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
-                                  _fe.quantum(law))
-                _objs, _orep = _read_objects(airport, law, _ocache)
-            from auto_patch_v2.airport.riders import rider_candidates
-            from auto_patch_v2.constraints.jetway_strip import jetway_strips
-            from auto_patch_v2.constraints.no_step import hold_pass
-            pm0, _ps0 = build_planar(airport, cl0, law, cache=_ocache, objects=_objs,
-                                     object_report=_orep)
-            pref0, _r0, _p0 = preferred_road_z(airport, pm0, law, inputs.road_grade_limit,
-                                               inputs.lane_width_m)
-            st0 = shape_stage(_targets(_dc.replace(pm0, preferred_z=pref0)), law,
-                              airport, cl0, out=lambda m: None)
-            cs0, _c0, _w0 = shape_constraints(st0.pm, law, airport, st0)
-            if drop:                   # the names were checked on the full map
-                cs0 = drop_rows(cs0, drop, check=False)
-            return (st0.pm, cs0, jetway_strips(st0.pm, law, airport, cs0,
-                                               rider_candidates(airport, law)),
-                    hold_pass(st0.pm, law))
-        _t1 = time.perf_counter()
-        s1 = stage_one_problem(cl, _ribbon_free)
-        if s1 is not None:
-            s1.bind(pm)
-            print(f"[{icao}] stage 1 on the ribbon-free map (#100 (c)): {s1.report} "
-                  f"({time.perf_counter() - _t1:.0f} s)")
-    return {"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
-            "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0,
-            "stage1": s1, CAPTURE_OVERLAY_KEY: _overlay}
+        if chord_fill:
+            print(f"[{icao}] chord-fill target arm (08g-2): roles {chord_fill} within the strip take the "
+                  f"crown-plane chord target")
+        if resume == "shapes":
+            from auto_patch_v2.planar.shapes import build_shapes
+            pm, sst = build_shapes(pm, law, airport, cl)      # the shapes over the captured map
+            print(f"[{icao}] network (08p): {sst.network_faces} of {sst.faces} pavement faces "
+                  f"({', '.join(f'{k} {n}' for k, n in sorted(sst.network_by_role.items()))}), "
+                  f"{sst.network_vertices} vertices, {sst.connected_stations} connected stations, "
+                  f"{sst.unconnected_station_edges} unconnected centreline edges; bodies {sst.body_faces} faces "
+                  f"({sst.faces_unlabelled} welded whole)")
+            print(f"[{icao}] shapes rebuilt: {sst.body_faces} body faces -> {sst.components} components, {sst.bodies} bodies, "
+                  f"{sst.shapes} shapes (strip welds {sst.welded_strip_pairs}, route welds {sst.welded_route_pairs}); "
+                  f"joints {sst.contours} contours ({sst.contour_length_m:,.0f} m) + {sst.gap_joints} gap; {sst.wall_s:.2f} s")
+            print(f"[{icao}] by shape (id, faces, m2, vertices, roles): {sst.by_shape[:12]}")
+        network_crosscheck(pm, law, airport)
+        if resume in ("classify", "planar", "shapes"):
+            pm = _targets(pm)                                 # change 1 (build.py order)
+            stage = shape_stage(pm, law, airport, cl)
+        else:
+            stage = _dc.replace(stage, pm=_targets(stage.pm))
+        pm = stage.pm
+        if design_weights:
+            d0 = law.tables.emit.design
+            law = _dc.replace(law, tables=_dc.replace(
+                law.tables, emit=_dc.replace(law.tables.emit,
+                                             design=_dc.replace(d0, **design_weights))))
+            print(f"[{icao}] design weight ARM: {design_weights} -> {law.tables.emit.design}")
+        cs, counts, _w = shape_constraints(pm, law, airport, stage)
+        if drop:
+            # a name is a GENERATOR or a RULING HEAD (``design_roles.ruling_head``,
+            # the key ``[design] hard_rulings`` names a law by): the frontage
+            # hold's rows are minted by ``platform_collar`` beside the collar's
+            # own, so the hold-OFF arm (flat-pad v2 §1 pass 1a) names its head
+            cs = drop_rows(cs, drop)
+        # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
+        # THIS prelude re-run on the classification without ribbons
+        # (``pipeline/stage_one_map``); ``None`` when the map carries no ribbon
+        s1 = None
+        try:
+            from auto_patch_v2.pipeline.stage_one_map import stage_one_problem
+        except ImportError:                       # a tree that predates (c)
+            stage_one_problem = None
+        if stage_one_problem is not None and stage_one:
+            def _ribbon_free(cl0):
+                nonlocal _ocache, _objs, _orep
+                if _ocache is None:
+                    from auto_patch_v2.airport import frame_entry as _fe
+                    from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
+                    from auto_patch_v2.planar.basins import read_objects as _read_objects
+                    _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
+                                      _fe.quantum(law))
+                    _objs, _orep = _read_objects(airport, law, _ocache)
+                from auto_patch_v2.airport.riders import rider_candidates
+                from auto_patch_v2.constraints.jetway_strip import jetway_strips
+                from auto_patch_v2.constraints.no_step import hold_pass
+                pm0, _ps0 = build_planar(airport, cl0, law, cache=_ocache, objects=_objs,
+                                         object_report=_orep)
+                pref0, _r0, _p0 = preferred_road_z(airport, pm0, law, inputs.road_grade_limit,
+                                                   inputs.lane_width_m)
+                st0 = shape_stage(_targets(_dc.replace(pm0, preferred_z=pref0)), law,
+                                  airport, cl0, out=lambda m: None)
+                cs0, _c0, _w0 = shape_constraints(st0.pm, law, airport, st0)
+                if drop:                   # the names were checked on the full map
+                    cs0 = drop_rows(cs0, drop, check=False)
+                return (st0.pm, cs0, jetway_strips(st0.pm, law, airport, cs0,
+                                                   rider_candidates(airport, law)),
+                        hold_pass(st0.pm, law))
+            _t1 = time.perf_counter()
+            s1 = stage_one_problem(cl, _ribbon_free)
+            if s1 is not None:
+                s1.bind(pm)
+                print(f"[{icao}] stage 1 on the ribbon-free map (#100 (c)): {s1.report} "
+                      f"({time.perf_counter() - _t1:.0f} s)")
+        return {"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
+                "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0,
+                "stage1": s1, CAPTURE_OVERLAY_KEY: _overlay}
+
+    if late is None:
+        return _rest(cl)
+    # spec §55 (4) THE LAST STAGE — the build's own function
+    # (``pipeline/late_stage.run_late_stage``): the BASE solve (--solved-out
+    # of the same airport WITHOUT its gap pieces) is the constant, the gap
+    # pieces are cut by its levels, and only the followers are unknowns
+    if resume not in ("classify", "planar"):
+        raise SystemExit("--late-from needs --from classify or --from planar: the pieces "
+                         "are cut by the base's levels BEFORE the map is built")
+    from auto_patch_v2.pipeline.late_stage import run_late_stage
+    held: dict = {}
+
+    def _derive(cl_cut):
+        held.update(_rest(cl_cut, stage_one=False))
+        return held["pm"], held["cs"], None, None
+    pm_l, sol, lrep = run_late_stage(
+        cl, airport, law, _derive, late["base"],
+        out=lambda m: print(f"[{icao}] {m}"), **late.get("solve_kw", {}))
+    held.update(pm=pm_l, cs=lrep["cs"], cl=lrep["cl"], stage1=None,
+                stage=_dc.replace(held["stage"], pm=pm_l),
+                late={"sol": sol, "rep": lrep})
+    return held
 
 
 def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
@@ -2229,12 +2259,20 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     from auto_patch_v2.pipeline.shapes import joint_steps
     from auto_patch_v2.solve import Options
     from auto_patch_v2.solve import solve_design
+    size: dict = {}
+    _late = None
+    if late_from is not None:
+        with open(late_from, "rb") as _fh:
+            _base = pickle.load(_fh)
+        _late = {"base": {"pm": _base["pm"], "z": _base["z"]},
+                 "solve_kw": {"options": Options(verbose=verbose), "size_out": size,
+                              "method": method}}
+        del _base
     prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
-                          placement=placement, sites=sites)
+                          placement=placement, sites=sites, late=_late)
     icao, airport, pm, law, cs = (prob["icao"], prob["airport"], prob["pm"],
                                   prob["law"], prob["cs"])
     cl, stage, counts, t0 = prob["cl"], prob["stage"], prob["counts"], prob["t0"]
-    size: dict = {}
     # THE JETWAY STRIP'S REGION (jetway-strip spec §1): the build's own
     # derivation (``pipeline/build.py``), so the replay solves the problem
     # the build solves
@@ -2269,33 +2307,11 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     if prob.get("stage1") is not None:
         _kw["stage1"] = prob["stage1"]          # #100 option (c)
     if late_from is not None:
-        # spec §53 (9) THE LAST STAGE: the BASE solve (--solved-out of the
-        # same airport WITHOUT its gap pieces) is the constant; only the
-        # followers are unknowns
-        from auto_patch_v2.pipeline.stage_one_map import late_fixed, late_followers
-        from auto_patch_v2.solve.design import solve_late_stage
-        _late_fixed: dict = {}
-        with open(late_from, "rb") as _fh:
-            _base = pickle.load(_fh)
-        from auto_patch_v2.pipeline.stage_one_map import late_rim_levels
-        _free, _frep = late_followers(pm)
-        _ident = float(law.tables.emit.identity.min_distinct_spacing_m)
-        _fixed, _jrep = late_fixed(_base["pm"], _base["z"], pm, _free, _ident)
-        _jrep["rim"] = late_rim_levels(
-            _base["pm"], _base["z"], pm, _fixed, _free, _ident * 0.02)
-        from auto_patch_v2.pipeline.stage_one_map import late_constraints
-        from auto_patch_v2.law.tables import design as _design_law
-        cs, _dropped = late_constraints(cs, _fixed, frozenset(
-            getattr(_design_law(law), "yielding_pin_rulings", ()) or ()))
-        print(f"[{icao}] LAST STAGE (§53 (9)) off {late_from}: followers {_frep}; join {_jrep}; "
-              f"rows with no unknown dropped {_dropped}")
-        from auto_patch_v2.constraints.gap_follow import gap_follow_rows
-        from auto_patch_v2.model.constraints import ConstraintSet
-        _grows, _grep = gap_follow_rows(pm, law, _fixed)
-        cs = ConstraintSet.from_rows([*cs.rows(), *_grows])
+        # spec §55 (4): the last stage ran inside the prelude, through the
+        # build's own ``pipeline/late_stage.run_late_stage``
+        sol, _lrep = prob["late"]["sol"], prob["late"]["rep"]
+        rep, _late_fixed, _grep = _lrep["design"], dict(_lrep["fixed"]), _lrep["follow"]
         _to_ll_g = airport.frame.transformers()[1]
-        print(f"[{icao}] LAST STAGE gap_follow (§53 (13)): {_grep['rows']} rows; "
-              f"{len(_grep['conflicts'])} vertices between two disagreeing neighbours")
         _seen: dict = {}
         for _c in sorted(_grep["conflicts"], key=lambda c: -c["gap_m"]):
             _k = (_c["upper"], _c["lower"])
@@ -2307,16 +2323,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             _la, _lo = _to_ll_g(*_c["xy"])
             print(f"    CONFLICT {_u} {_c['upper_m']:.2f} vs {_l} {_c['lower_m']:.2f} "
                   f"(short by {_c['gap_m']:.2f} m) at {_la:.7f},{_lo:.7f}; {_n} vertices")
-        _late_fixed = dict(_fixed)
-        sol, rep = solve_late_stage(pm, cs, law, _fixed, Options(verbose=verbose),
-                                    size_out=size, method=method)
     else:
         sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
                                 method=method, strips=strips, **_kw)
-    if late_from is not None and sol.z:
-        _off = [abs(float(sol.z[v]) - z) for v, z in _late_fixed.items()]
-        print(f"[{icao}] LAST STAGE: fixed vertices off their constant by > 0.02 m: "
-              f"{sum(1 for d in _off if d > 0.02)} of {len(_off)} (worst {max(_off, default=0.0):.3f} m)")
     if late_from is None and prob.get("stage1") is not None:
         print(f"[{icao}] stage 1 map (#100 (c)): {rep.stages.get('stage1_map')}")
     wall = round(time.perf_counter() - t, 1)
@@ -2477,7 +2486,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 # solve, where they are still the arm's own.
                 pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm_w,
                              "cs": cs_w, "z": z,
-                             **({"late_fixed": dict(_late_fixed)}
+                             **({"late_fixed": dict(_late_fixed),
+                                 "late_cut": _lrep["cut"],
+                                 "late_wall_s": _lrep["wall_s"]}
                                 if late_from is not None else {}),
                              _capture_state().CAPTURE_STATE_KEY: _capture_state().collect(),
                              # #100 option (c): the map + set stage 1 SOLVED

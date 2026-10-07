@@ -43,7 +43,7 @@ from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
 
 __all__ = ["StageOne", "ribbon_free", "stage_one_problem", "remap_row",
            "gap_free", "late_followers", "late_fixed", "late_constraints",
-           "row_vertices", "late_rim_levels"]
+           "row_vertices", "late_rim_levels", "last_stage_head"]
 
 
 def ribbon_free(cl):
@@ -201,8 +201,20 @@ def row_vertices(row) -> tuple[int, ...]:
     raise TypeError(f"stage_one_map: unknown row type {type(row).__name__}")
 
 
+#: the head suffix of a ceiling row the last stage re-tiers (below)
+LAST_STAGE_SUFFIX = ", last stage"
+
+
+def last_stage_head(ruling: str) -> str:
+    """``ruling`` with its HEAD (the text before the first parenthesis)
+    suffixed :data:`LAST_STAGE_SUFFIX`, the ruling text kept."""
+    head, sep, rest = str(ruling).partition("(")
+    return f"{head.strip()}{LAST_STAGE_SUFFIX}{' ' + sep + rest if sep else ''}"
+
+
 def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
-                     yield_heads: _t.AbstractSet[str] = frozenset()
+                     yield_heads: _t.AbstractSet[str] = frozenset(),
+                     retier_heads: _t.AbstractSet[str] = frozenset()
                      ) -> tuple[ConstraintSet, dict]:
     """THE LAST STAGE'S OWN ROWS (spec §53 (10), master 2026-10-04): a row
     with NO unknown is not the last stage's.  Every row whose vertices are
@@ -210,9 +222,22 @@ def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
     the full map never moves an earlier stage's level (the reduction lets a
     pin outrank a substituted constant), and a law row between two fixed
     vertices is the earlier stage's residual, already published there, not
-    a row this stage can answer for.  ``(set, {type: dropped})``."""
+    a row this stage can answer for.  ``(set, {type: dropped})``.
+
+    A CEILING BETWEEN TWO UNKNOWNS RANKS WITH THE STAGE'S OWN ROWS (spec
+    §55 (5)): a row of a ``retier_heads`` head whose vertices are ALL
+    unknowns of this stage is re-sourced under :func:`last_stage_head`,
+    which ``[design] hard_conflict_ranks`` lists in the groundside tier —
+    so where a follow row and the cap disagree by the terrace floor the cut
+    welded, the standing neighbour is met and the cap gives."""
     kept, dropped = [], {}
+    retiered = 0
     for r in cs.rows():
+        if retier_heads and str(r.source.ruling).split("(")[0].strip() in retier_heads \
+                and not any(v in fixed for v in row_vertices(r)):
+            r = _dc.replace(r, source=_dc.replace(
+                r.source, ruling=last_stage_head(r.source.ruling)))
+            retiered += 1
         if isinstance(r, Pin) and int(r.v) not in fixed \
                 and str(r.source.ruling).split("(")[0].strip() in yield_heads:
             # A YIELDING PIN ON A FOLLOWER IS RELEASED (spec §53 (17)): a
@@ -229,6 +254,8 @@ def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
             dropped[k] = dropped.get(k, 0) + 1
         else:
             kept.append(r)
+    if retiered:
+        dropped["re-tiered (ceiling, all unknowns)"] = retiered
     return ConstraintSet.from_rows(kept), dropped
 
 

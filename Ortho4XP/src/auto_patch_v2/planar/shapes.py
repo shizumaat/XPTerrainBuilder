@@ -90,7 +90,8 @@ from ..law import Law
 from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_m
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.planar import NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint, is_osm_ribbon_ref
+from ..model.planar import (NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint, is_gap_ref,
+                            is_osm_ribbon_ref)
 from .shape_airside import (airside_face_sets, declarable_pairs, inside_apron_body,
                             separated_label_pairs, weld_airside_faces)
 from .shape_mouths import weld_same_role_mouths
@@ -204,6 +205,14 @@ def _face_polygon(pm: PlanarMap, fid: int) -> Polygon | None:
     return None if p.is_empty or p.area <= 0.0 else p
 
 
+def _bears_shape(face, roles: _t.AbstractSet[str]) -> bool:
+    """Is ``face`` shape-bearing pavement: by ROLE (``[terrace]
+    shape_roles``), or by KIND — a §53 gap piece or one of its §55 parts,
+    whatever its role (two step parts across a knife are two shapes with a
+    declared gap joint; a lot and its ramp are one)."""
+    return face.role in roles or is_gap_ref(face.ref)
+
+
 def _face_vertices(pm: PlanarMap, fid: int) -> list[int]:
     f = pm.faces[fid]
     return [v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)]
@@ -301,7 +310,7 @@ def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats, net: frozenset[i
     faces it shares vertices with, never a body across a gap."""
     tt = law.tables.emit.terrace
     roles = set(tt.shape_roles)
-    all_fids = [fid for fid, f in pm.faces.items() if f.role in roles]
+    all_fids = [fid for fid, f in pm.faces.items() if _bears_shape(f, roles)]
     stats.faces = len(all_fids)
     fids = [fid for fid in all_fids if fid not in net]           # 08p: the apron bodies only
     stats.body_faces = len(fids)
@@ -794,7 +803,7 @@ def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, ext
     edge_label: list[int] = []
     edge_ends: list[tuple[int, int]] = []
     for fid, f in pm.faces.items():
-        if f.role not in roles or fid in net:               # 08p: never between a shape and the network
+        if not _bears_shape(f, roles) or fid in net:        # 08p: never between a shape and the network
             continue
         for cyc in (f.ring, *f.holes):
             vs = pm.ring_vertices(cyc)
@@ -910,7 +919,7 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
             continue
         top = max(set(ls), key=lambda l: (ls.count(l), -l))
         of_face[fid] = top
-        if f.role in set(law.tables.emit.terrace.shape_roles):
+        if _bears_shape(f, set(law.tables.emit.terrace.shape_roles)):
             poly = _face_polygon(pm, fid)
             area[top] = area.get(top, 0.0) + (poly.area if poly is not None else 0.0)
             nfaces[top] = nfaces.get(top, 0) + 1

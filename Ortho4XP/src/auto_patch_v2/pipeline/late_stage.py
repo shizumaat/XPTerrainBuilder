@@ -26,7 +26,9 @@ from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
 from ..classify.gap_terrace import APRON, PAD, ROAD, Station, terrace_cut
+from ..constraints.ceiling import RULING as _CEILING_RULING
 from ..constraints.gap_follow import gap_follow_rows, reach_m
+from ..constraints.pavement_cap import RULING as _FALLBACK_RULING
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap, snap_margin_m
 from ..model.constraints import ConstraintSet
@@ -214,17 +216,27 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
     fixed, jrep = late_fixed(pm_base, z_base, pm, free, ident)
     jrep["rim"] = late_rim_levels(pm_base, z_base, pm, fixed, free, ident * 0.02)
-    cs, dropped = late_constraints(cs, fixed, frozenset(
-        getattr(_design_law(law), "yielding_pin_rulings", ()) or ()))
+    cs, dropped = late_constraints(
+        cs, fixed, frozenset(getattr(_design_law(law), "yielding_pin_rulings", ()) or ()),
+        retier_heads=frozenset(r.split("(")[0].strip()
+                               for r in (_CEILING_RULING, _FALLBACK_RULING)))
     out(f"LAST STAGE (§53 (9)): followers {frep}; join {jrep}; "
         f"rows with no unknown dropped {dropped}")
     grows, grep = gap_follow_rows(pm, law, fixed)
     cs = ConstraintSet.from_rows([*cs.rows(), *grows])
+    # the lot SITS at its road's level: the one published-target channel
+    lot_z = grep.get("lot_targets") or {}
+    if lot_z:
+        pm = _dc.replace(pm, preferred_z={**dict(pm.preferred_z), **lot_z})
     out(f"LAST STAGE gap_follow (§53 (13)): {grep['rows']} rows; "
-        f"{len(grep['conflicts'])} vertices between two disagreeing neighbours")
+        f"{len(grep['conflicts'])} vertices between two disagreeing neighbours; "
+        f"lot rows (§55 (3) 4) {grep.get('lot_rows', 0)}, lot_fit targets {len(lot_z)}")
     t0 = time.perf_counter()
     sol, design = solve_late_stage(pm, cs, law, fixed, options, **solve_kw)
     t_solve = time.perf_counter() - t0
+    feas = getattr(design, "hard_feasibility", None)
+    if feas is not None:
+        out(f"LAST STAGE relaxed by head (§55 (5)): {feas.by_head_line()}")
     off = [abs(float(sol.z[v]) - z) for v, z in fixed.items()] if sol.z else []
     out(f"LAST STAGE: fixed vertices off their constant by > 0.02 m: "
         f"{sum(1 for d in off if d > 0.02)} of {len(off)} (worst {max(off, default=0.0):.3f} m)")

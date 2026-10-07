@@ -86,7 +86,7 @@ def test_two_fixed_neighbours_that_disagree_bind_the_vertex_between_them():
     assert (c["upper_m"], c["lower_m"]) == (96.0, 92.0) and c["gap_m"] > 3.0
 
 
-def test_the_own_rim_and_a_follower_ribbon_bind_nothing():
+def test_the_own_rim_binds_nothing_and_a_ribbon_beside_no_piece_is_a_standing_ring():
     pm = _pm([(0.0, 0.0), (10.0, 0.0), (10.0, 40.0), (0.0, 40.0), (40.0, 0.0), (40.0, 40.0),
               (41.0, 0.0), (50.0, 0.0), (50.0, 40.0), (41.0, 40.0)],
              [("apron", "pav37", (0, 1, 2, 3)),
@@ -94,10 +94,13 @@ def test_the_own_rim_and_a_follower_ribbon_bind_nothing():
               ("service_road", "small_roads:-7", (6, 7, 8, 9))])
     fixed = {0: 92.0, 1: 92.0, 2: 92.0, 3: 92.0, 6: 96.0, 7: 96.0, 8: 96.0, 9: 96.0}
     rows, _ = gf.gap_follow_rows(pm, LAW, fixed)
-    # ...but the ribbon is no NEIGHBOUR: the piece's vertices 4, 5 (1 m from
-    # it) take no row from it, and it shares no edge with the piece, so it is
-    # no follower either
-    assert rows == []
+    # the own rim (the apron the piece welds to) binds nothing; the ribbon
+    # shares no vertex with the piece, so it is no follower — it is STANDING
+    # ground and binds the piece's vertices 4, 5 one metre from it (spec
+    # §55 (13): a ribbon beside no piece is a ring like any other)
+    assert sorted(r.terms[0][0] for r in rows) == [4, 5]
+    assert {r.source.inputs for r in rows} == {("service_road:small_roads:-7",) * 2}
+    assert rows[0].hi == pytest.approx(96.0 + role_cap(LAW, "service_road").longitudinal * 1.0)
 
 
 def test_a_follower_ribbon_takes_the_same_rows():
@@ -111,3 +114,32 @@ def test_a_follower_ribbon_takes_the_same_rows():
     cap = role_cap(LAW, "parking_lot").longitudinal
     assert sorted(r.terms[0][0] for r in rows) == [4, 7]          # the RIBBON's vertices
     assert rows[0].hi == pytest.approx(90.0 + cap * 1.45)
+
+
+def test_a_lot_vertex_holds_the_roads_level_within_the_lateral_window():
+    """Spec §55 (3) 4 (owner RULINGS 2026-10-06d): a lot vertex 60 m from the
+    road is within 0.02 x 60 = 1.2 m of the road's level there, and that
+    level is its published target; a ramp part takes no lot row."""
+    coords = [(0.0, 0.0), (10.0, 0.0), (10.0, 40.0), (0.0, 40.0),          # the road
+              (11.45, 0.0), (70.0, 0.0), (70.0, 40.0), (11.45, 40.0),     # the lot
+              (130.0, 0.0), (130.0, 40.0)]                                # the ramp beyond
+    pm = _pm(coords, [("service_road", "route3", (0, 1, 2, 3)),
+                      ("groundside_pavement", "gap:7/lot", (4, 5, 6, 7)),
+                      ("groundside_pavement", "gap:7/ramp0", (5, 8, 9, 6))])
+    fixed = {0: 96.0, 1: 96.0, 2: 100.0, 3: 100.0}
+    rows, rep = gf.gap_follow_rows(pm, LAW, fixed)
+    lot = {r.terms[0][0]: r for r in rows if r.source.ruling == gf.LOT_RULING}
+    c_t = role_cap(LAW, "groundside_pavement").transverse
+    assert sorted(lot) == [4, 5, 6, 7] and rep["lot_rows"] == 4
+    assert (lot[5].lo, lot[5].hi) == (pytest.approx(96.0 - c_t * 60.0), pytest.approx(96.0 + c_t * 60.0))
+    assert c_t * 60.0 == pytest.approx(1.2)
+    assert rep["lot_targets"] == {4: 96.0, 5: 96.0, 6: 100.0, 7: 100.0}
+    assert lot[5].source.inputs == ("service_road:route3",)
+    assert ruling_head(lot[5]) in hard_rulings(LAW)
+    # the follow rows are still there, on the two vertices within reach
+    assert sorted(r.terms[0][0] for r in rows if r.source.ruling == gf.RULING) == [4, 7]
+    # an uncut piece, a step part and a ramp take none
+    for ref in ("gap:7", "gap:7/s0", "gap:7/ramp0"):
+        pm2 = _pm(coords[:8], [("service_road", "route3", (0, 1, 2, 3)),
+                               ("groundside_pavement", ref, (4, 5, 6, 7))])
+        assert gf.gap_follow_rows(pm2, LAW, fixed)[1]["lot_rows"] == 0

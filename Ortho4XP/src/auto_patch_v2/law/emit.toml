@@ -793,6 +793,9 @@ hard_rulings = [
   "apron body chord, stationed across the face",         # the same
   "tunnel.bore_datum_m",                                 # §33 (5) (Fable 2026-09-15; RULINGS 2026-09-15h): the mouth's floor is `rim - bore_datum_m` HOWEVER its station was taken.  MEASURED soft at LEMD tunnel:-15327@0 (owner 15e item 5, "doesn't seem to be providing the right depth"): the datum equality LOST 2.17 m - floor 599.25 against its own 597.08, under a rim solving 602.16 = the DEM it is pinned at - and the census named it 32 times (`tunnel_mouth_canonical`).  A weight contest is not a law
   "gap_piece follows its standing neighbour across the stand-off",   # spec §53 (13): a Band on a piece vertex against a CONSTANT of the earlier stages (last stage only)
+  "gap lot terrace holds the road's level across",                   # spec §55 (3) 4 (owner RULINGS 2026-10-06d): a lot vertex within the road law's own lateral window of the nearest road's level (last stage only)
+  "rulesets.common.pavement_max_grade ceiling, last stage",          # spec §55 (5): the ceiling between two LAST-STAGE unknowns, re-tiered by `pipeline/stage_one_map.late_constraints` (the law is the head above; only its rank differs)
+  "rulesets.common.road_max_grade pavement fallback, last stage",    # the same
 ]
 # THE APRON'S PLANE ROW IS HARD ON THE APRON ONLY (flat-pad spec v2 §5, owner
 # RULINGS 2026-09-30be/30bf): ``plane_gradient`` is minted on EVERY governed
@@ -832,7 +835,10 @@ hard_conflict_ranks = [
   ["structures.building_pad pad_slope_max ceiling", "structures.building_pad platform plane",
    "structures.building_pad frontage_hold"],
   ["road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.bore_datum_m",
-   "gap_piece follows its standing neighbour across the stand-off"],   # §53 (13): groundside, the last stage's own
+   "gap_piece follows its standing neighbour across the stand-off",    # §53 (13): groundside, the last stage's own
+   "gap lot terrace holds the road's level across",                    # §55 (3) 4
+   "rulesets.common.pavement_max_grade ceiling, last stage",           # §55 (5): below the follow and lot rows — bounded by the terrace floor the cut welds
+   "rulesets.common.road_max_grade pavement fallback, last stage"],
 ]
 # the price ratio between two adjacent tiers in the elastic LP's objective
 # (min SUM w_tier * s): the relaxation lands on the lowest tier a conflict

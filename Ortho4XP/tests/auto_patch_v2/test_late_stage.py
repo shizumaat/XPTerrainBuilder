@@ -163,3 +163,77 @@ def test_a_ribbon_touching_a_piece_at_one_vertex_follows():
     free, rep = som.late_followers(_pm(coords, faces))
     assert rep["follower_ribbon_refs"] == ["small_roads:-7", "small_roads:-8"]
     assert {14, 15} <= free
+
+
+def test_a_ceiling_between_two_unknowns_is_re_tiered_and_one_on_a_constant_is_not():
+    """Spec §55 (5): the two pavement ceilings on rows whose vertices are ALL
+    last-stage unknowns rank with the stage's own rows; the law text stays."""
+    from auto_patch_v2.constraints.ceiling import RULING as CEIL
+    from auto_patch_v2.constraints.pavement_cap import RULING as FALLBACK
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.constraints import ConstraintSet, Diff, Source
+    from auto_patch_v2.solve.design_roles import hard_rulings, ruling_head
+    from auto_patch_v2.solve.feasibility import tier_of
+    rows = [Diff(a=7, b=8, cap=0.05, d=10.0, source=Source("pavement_ceiling", CEIL, ())),
+            Diff(a=2, b=7, cap=0.05, d=10.0, source=Source("pavement_ceiling", CEIL, ())),
+            Diff(a=7, b=8, cap=0.08, d=10.0, source=Source("pavement_road_cap", FALLBACK, ())),
+            Diff(a=7, b=8, cap=0.08, d=10.0, source=Source("roads", "other law (x)", ()))]
+    heads = frozenset(r.split("(")[0].strip() for r in (CEIL, FALLBACK))
+    cs, rep = som.late_constraints(ConstraintSet.from_rows(rows), {2: 11.0}, retier_heads=heads)
+    kept = list(cs.rows())
+    assert rep == {"re-tiered (ceiling, all unknowns)": 2}
+    got = sorted(ruling_head(r) for r in kept)
+    assert got == sorted(["other law", CEIL.split("(")[0].strip(),
+                          CEIL.split("(")[0].strip() + som.LAST_STAGE_SUFFIX,
+                          FALLBACK.split("(")[0].strip() + som.LAST_STAGE_SUFFIX])
+    law = Law.for_airport("HECA")
+    tiers, hard = tier_of(law), hard_rulings(law)
+    ground = max(tiers.values())
+    for r in (CEIL, FALLBACK):
+        new = ruling_head(types.SimpleNamespace(source=Source("g", som.last_stage_head(r), ())))
+        assert new in hard and tiers[new] == ground          # groundside, hard
+        assert tiers[r.split("(")[0].strip()] < ground       # the law's own rank stands
+        assert som.last_stage_head(r).endswith(r[r.index("("):])   # the text is kept
+
+
+def test_stations_are_standing_rings_within_reach_at_the_pieces_cap():
+    """Spec §55 (1), (13): a ring within the follow reach of the piece is a
+    station source at the PIECE's cap; a mapped-road ribbon welded to the
+    piece is a follower and is none; one beside no piece is standing."""
+    from shapely.geometry import box
+
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import role_cap
+    from auto_patch_v2.pipeline.late_stage import late_stations
+    law = Law.for_airport("HECA")
+    coords = [(0.0, 0.0), (10.0, 0.0), (10.0, 40.0), (0.0, 40.0),        # apron, 1.45 m west
+              (40.0, 0.0), (48.0, 0.0), (48.0, 40.0), (40.0, 40.0),      # ribbon welded east
+              (11.45, 41.0), (40.0, 41.0), (40.0, 47.0), (11.45, 47.0),  # ribbon 1 m north
+              (300.0, 0.0), (310.0, 0.0), (310.0, 40.0), (300.0, 40.0)]  # a pad far away
+    faces = [("apron", "pav1", (0, 1, 2, 3)),
+             ("service_road", "small_roads:-7", (4, 5, 6, 7)),
+             ("service_road", "small_roads:-9", (8, 9, 10, 11)),
+             ("building", "building1", (12, 13, 14, 15))]
+    eid, ends = {}, {}
+
+    def edge(a, b):
+        k = frozenset((a, b))
+        if k not in eid:
+            eid[k] = 1000 + len(eid)
+            ends[eid[k]] = types.SimpleNamespace(a=a, b=b)
+        return eid[k]
+    fs = {i: types.SimpleNamespace(id=i, role=role, ref=ref, holes=(),
+                                   ring=tuple(edge(r[k], r[(k + 1) % 4]) for k in range(4)))
+          for i, (role, ref, r) in enumerate(faces)}
+    pm = types.SimpleNamespace(
+        vertices={i: types.SimpleNamespace(xy=xy) for i, xy in enumerate(coords)},
+        faces=fs, edges=ends,
+        ring_vertices=lambda cyc: tuple(v for e in cyc for v in (ends[e].a, ends[e].b)))
+    z = {i: 90.0 + (i // 4) for i in range(16)}
+    (st,) = late_stations(pm, z, [box(11.45, 0.0, 40.0, 40.0)], law, "groundside_pavement")
+    rings = {s.ring for s in st}
+    assert rings == {"apron:pav1", "service_road:small_roads:-9"}
+    cap = role_cap(law, "groundside_pavement").longitudinal
+    assert {s.cap for s in st} == {cap}
+    assert {s.cls for s in st if s.ring == "apron:pav1"} == {"apron"}
+    assert {s.cls for s in st if s.ring.endswith("-9")} == {"road"}

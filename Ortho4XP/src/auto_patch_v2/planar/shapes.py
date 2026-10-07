@@ -71,8 +71,6 @@ only; the reach bands the pipeline reads beside the shapes stay there.
 """
 from __future__ import annotations
 
-from ..model.frame import rotated_rectangle
-
 import dataclasses as _dc
 import math
 import typing as _t
@@ -85,9 +83,9 @@ from shapely.ops import linemerge, unary_union
 from shapely.strtree import STRtree
 
 from ..classify.evidence import polygon_parts
-from ..classify.roles import Classification, is_runway_shoulder
+from ..classify.roles import Classification
 from ..law import Law
-from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_m
+from ..law.tables import family, is_rigid_role, snap_margin_m
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import (NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint, bears_shape,
@@ -96,6 +94,7 @@ from .shape_airside import (airside_face_sets, declarable_pairs, inside_apron_bo
                             separated_label_pairs, weld_airside_faces)
 from .shape_mouths import weld_same_role_mouths
 from .shape_parts import label_gap_parts, part_shape_of_face
+from .strip_keepout import strip_keepout
 
 __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes", "network_faces", "network_vertices", "strip_keepout",
            "straddles", "straddles_pairs", "row_vertices", "row_test_pairs",
@@ -152,47 +151,6 @@ class ShapeStats:
     gap_length_m: float = 0.0
     by_shape: list[list] = _dc.field(default_factory=list)   # [id, faces, area m2, vertices, roles]
     wall_s: float = 0.0
-
-
-def strip_keepout(classification: Classification, law: Law):
-    """The RUNWAY STRIP keep-out: every runway-family cell's long axis,
-    extended by the end-skirt corridor at both ends, buffered to the
-    zone-2 (strip) half width — a joint touching it is never declared."""
-    polys = []
-    rw_roles = set(law.tables.precedence.runway_family.members)
-    cl = law.ruleset.end_skirt.corridor_length_m
-    for c in classification.cells:
-        # §40 (4): a SHOULDER manufactures no region (the same rule the
-        # strip keep-out in ``planar/structures`` and the zone bands
-        # follow) — its host runway's keep-out already covers it
-        if c.role not in rw_roles or len(c.ring) < 3 or is_runway_shoulder(c):
-            continue
-        poly = Polygon(c.ring)
-        if poly.is_empty or poly.area <= 0.0:
-            continue
-        half = zone2_half_width_m(law, "runway", c.code_number, c.code_letter) or 0.0
-        end = (cl.value(c.code_number, c.code_letter) if cl is not None else 0.0) or 0.0
-        rect = rotated_rectangle(poly)
-        pts = list(rect.exterior.coords)[:4]
-        if len(pts) < 4:
-            polys.append(poly.buffer(half))
-            continue
-        sides = [(math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]), k)
-                 for k in range(3)] + [(math.hypot(pts[0][0] - pts[3][0], pts[0][1] - pts[3][1]), 3)]
-        _l, k = max(sides)
-        p, q = pts[k], pts[(k + 1) % 4]
-        r, s = pts[(k + 3) % 4], pts[(k + 2) % 4]
-        a = ((p[0] + r[0]) / 2.0, (p[1] + r[1]) / 2.0)
-        b = ((q[0] + s[0]) / 2.0, (q[1] + s[1]) / 2.0)
-        L = math.hypot(b[0] - a[0], b[1] - a[1])
-        if L <= 0.0:
-            polys.append(poly.buffer(half))
-            continue
-        ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
-        axis = LineString([(a[0] - ux * end, a[1] - uy * end), (b[0] + ux * end, b[1] + uy * end)])
-        width = max(half, poly.area / max(L, 1.0) / 2.0)
-        polys.append(axis.buffer(width, cap_style="flat").union(poly.buffer(half)))
-    return unary_union(polys) if polys else None
 
 
 def _face_polygon(pm: PlanarMap, fid: int) -> Polygon | None:

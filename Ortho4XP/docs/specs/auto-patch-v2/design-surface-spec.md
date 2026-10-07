@@ -11613,6 +11613,10 @@ stationed ramp is the model).  BAR: any basin ramp corridor ≥ 1 vertex per
 
 ### §34 (8) AMENDED — A CLIMB THAT CANNOT REACH AIRSIDE MOVES ITS MOUTH AWAY FROM AIRSIDE (owner RULINGS 2026-09-14u; supersedes the portal of 14p) — lane `v2othhfix`
 
+>**AMENDED by owner RULINGS 2026-10-07b (2) / 07c (1): see §47 (7) AMENDED.** For a RETAINING-WALL (Law C) corridor this section no longer
+> applies as written: the ramp stands inside its own walls, so it never reaches a road or airside
+> pavement beyond them.
+
 When `stop_and_steepen` cannot reach the ground inside `max_ramp_grade`
 before the axis enters airside pavement, the corridor's MOUTH is moved away
 from the airside edge — toward and if need be under the building — by the
@@ -11625,6 +11629,10 @@ both mouths, each mouth's move named (the /a side needs ≥ 1.7 m more run at
 10 %); the five `Terminal_Base_2_1` corridors unchanged.
 
 ### §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak; Fable 2026-09-14) — lane `v2othhfix`
+
+>**AMENDED by owner RULINGS 2026-10-07b (2) / 07c (1): see §47 (7) AMENDED.** For a RETAINING-WALL (Law C) corridor this section no longer
+> applies as written: the ramp stands inside its own walls, so it never reaches a road or airside
+> pavement beyond them.
 
 "All the ramps leading down into/under the terminal are coming out too far
 and pulling down the service road edge."  When a corridor's climb-out would
@@ -11849,6 +11857,10 @@ outright; KCLT and SPJC on this tree; the terminal BODY's own-ground delta
 (the object stage is not in a patch build).
 
 ### §34 (9) (4)–(5) THE PAINTED ROAD EDGE; FULL DEPTH AT THE BUILDING WALL (owner RULINGS 2026-09-14aq) — lane `v2othhfix`
+
+>**AMENDED by owner RULINGS 2026-10-07b (2) / 07c (1): see §47 (7) AMENDED.** For a RETAINING-WALL (Law C) corridor this section no longer
+> applies as written: the ramp stands inside its own walls, so it never reaches a road or airside
+> pavement beyond them.
 
 4. Where the pack carries a road-edge MARKING — a draped `markings` object
    (the class §42 refuses as pavement) whose line runs along the road within
@@ -16962,7 +16974,7 @@ pack-independent; every NUMBER is measured on the NEW pack (`Aeroscape OTHH Hama
    Nothing is emitted beyond the well: the outward climb and `max_length_m` retire;
    `stop_at_pavement` still governs the well itself. `Group.climb_from_s` (`door_ramps.py:
    134`) is the inversion's one derivation site.
-7. **LAW C HOLDS THE CAP.** The wall corridor's ramp from the wall's outer end to the
+7. **LAW C HOLDS THE CAP.** **AMENDED by owner RULINGS 2026-10-07b (2) / 07c (1): see §47 (7) AMENDED.** The wall corridor's ramp from the wall's outer end to the
    covering-plate edge (14be/14bm) runs at ≤ 0.10; `stop_and_steepen` past the cap is
    superseded — the ramp arrives at the plate edge at `0.10 × L` and the residual to the
    authored wall-bottom floor is at the plate edge, reported per corridor (14bm's east
@@ -16987,6 +16999,50 @@ pack-independent; every NUMBER is measured on the NEW pack (`Aeroscape OTHH Hama
    signature-B shells (a touched `+ grid` widen named); synthetic-first (`m235.py`'s
    seven-arm `_geometry_at` replay, fixtures at t = 0.25 / 0.55 / 0.75 / 1.00 / 2.00 m);
    ONE OTHH build; twins; suite; the harness census with the cockpit block.
+
+### §47 (7) AMENDED — THE RAMP RUNS THE FULL WALL LENGTH (owner RULINGS 2026-10-07b (2), 2026-10-07c (1); issues #448 #449) — cloud lane `cloudwalls`, 2026-10-07
+
+The owner: "Ramps should use full wall length, at grade at the outer extent
+of the two retaining walls, grading down toward building" (07b (2)); "Service
+bay doors, exempt cap" (07c (1)).  For a retaining-wall corridor (Law C,
+`planar/wall_corridor_ramps.full_wall_ramp`, one derivation site):
+
+1. **THE TOP IS THE WALLS' OUTER END.** The ramp tops out at the ground at
+   the last station at which BOTH walls stand.  Nothing is built beyond the
+   walls: the climb at `[cutout.wall_corridor] ramp_grade` from the plate
+   edge (retired with the key), the stop at airside pavement and the
+   steepen (`stop_and_steepen`), the pinched-ramp road witness (§34 (9)
+   (1)–(4)) and the locked-road stops retire for Law C.
+2. **FULL DEPTH TOWARD THE BUILDING.** The ramp falls to the corridor's
+   floor at the COVERING PLATE's edge (§34 (9) (5), 14be) where the walls
+   protrude from the cover; where nothing protrudes (no cover, or a cover
+   reaching the wall end) it falls over the walls' WHOLE length to the
+   corridor's start (s = 0: a bay's closed end, a level half's midpoint).
+   Its grade is what that span needs.
+3. **THE CAP.** The span's grade is held at ≤ `max_ramp_grade` (10 %, the
+   groundside ramp cap of 07b (2)); where the span needs more, the knee
+   moves back UNDER the building by the run the cap needs (§34 (8), 14u).
+   Where the walls' whole length is too short: a CLOSED corridor (a SERVICE
+   BAY) is EXEMPT (07c (1)) — the ramp runs the walls' length at the grade
+   they need, no raised floor and no step at the door (§47 (7)'s raised
+   floor and 17h Q1's step are SUPERSEDED for it); the exemption rides the
+   §34 (9) lifted-cap record (`Tunnel.pinched`, `publication.lifted_caps`)
+   so the solve and both census readers price the bay at its own grade.
+   An OPEN half that cannot fit is refused by name.
+4. **A THROUGH CORRIDOR** (two level halves) gets 1.–3. at each end.
+5. **WALLS OF UNEQUAL LENGTH — QUESTION.** The rulings are silent; the
+   corridor is the walls' overlap, so the ramp tops out at the SHORTER
+   wall's end (the longer wall's extra stands beside ground).  Flagged for
+   the owner.
+
+Sentences changed by this amendment (each carries the AMENDED marker):
+§34 (8) AMENDED, §34 (9), §34 (9) (4)–(5) (a marker after each heading:
+not applied to Law C as written); §47 (7) lead sentence ("LAW C HOLDS THE
+CAP …" — the marker).  In `othh-terminal-ramps-spec.md`: the §6 Law C
+paragraph's `ramp_grade 0.08` / "stops at the pavement edge and steepens"
+sentence and consumer rows 12, 14 and 18 (marker each).  The deviation
+from the brief ("at whatever grade that span needs") is 3.: the cap holds
+except at a service bay, read from 07b (2)'s first sentence and 07c (1).
 
 ### §47.1 CONSUMER CENSUS (owner RULINGS 2026-08-30l) — scout `wallfit`, 2026-09-17, static (seam-probe owed to the lane, (8))
 

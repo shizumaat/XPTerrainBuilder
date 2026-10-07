@@ -276,6 +276,10 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         ramp_cap = co.door.ramp_grade if tn.source == "door" else tn_law.ramp_max_grade
         if tn.source == WALL_CORRIDOR_SOURCE:
             ramp_cap = co.wall_corridor.max_ramp_grade
+            if tn.pinched:
+                # a service bay exempt from the cap (owner RULINGS
+                # 2026-10-07c (1)): priced at the grade its walls need
+                ramp_cap = max(ramp_cap, float(tn.pinched[2]))
         src_profile = None
         src_bottom = None
         if tn.source == "object":

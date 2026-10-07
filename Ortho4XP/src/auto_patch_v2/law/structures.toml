@@ -310,10 +310,10 @@ seat             = "none"           # the family is NEVER re-seated by its trenc
 # do not gate a pack-authored ramp, max_authored_grade refuses loudly above
 # it); an end is CLOSED when a family vertical face crosses it within
 # tunnel.object.end_cap_open_m (over end_cap_cover_min of the end line), else
-# a MOUTH with a synthetic ramp beyond at ramp_grade; a ramp that would enter
-# AIRSIDE pavement STOPS at the pavement edge and steepens up to
-# max_ramp_grade (airside is king); a service road across a ramp yields onto
-# it (the groundside terrace law); the headroom test replaces the basement
+# a MOUTH whose ramp RUNS THE WALLS' LENGTH (owner RULINGS 2026-10-07b (2)): at
+# grade at the walls' outer end, falling toward the building to full depth at
+# the covering plate's edge, never steeper than max_ramp_grade — nothing is
+# built beyond the walls; the headroom test replaces the basement
 # cover gate; the deck above is untouched; the rim per 09-08a; seat = "none".
 mouth_depth        = "wall_bottom"  # the floor = the walls' bottom edge per station (08m; 08n per station)
 min_wall_depth_m   = 1.0            # a band reaches this far under the local ground (OTHH: 1.35–1.89 m)
@@ -358,24 +358,9 @@ corridor_floor_slab_cover_min       = 0.5   # ...over at least this share of the
 # 5.91, Bridge_02 9.48, Bridge_06 8.10-9.48).  Records 73 -> 11.
 max_wall_height_m  = 3.0            # a band's OWN component max_y above the object's zero at most this (a kerb: OTHH 0.40–1.40 m; foundations of buildings/bridges 5.91–9.82 m)
 min_headroom_m     = 3.5            # the lowest near-horizontal face over the corridor stands this far above its floor (OTHH: 4.3–4.5 m); less is refused by name (replaces the basement cover gate for corridors)
-ramp_grade         = 0.08           # the synthetic climb beyond a mouth (the door ramp's grade, 08m): 1.89 m → 23.6 m
-max_ramp_grade     = 0.10           # ...steepened up to this where the climb stops at airside pavement (08m (a): site 1's NE ramp 18.9 m); refused loudly above; = the wall_corridor_ramp role's cap (rulesets.toml), checked at load
-# §34 (9) (4) THE ROAD EDGE IS THE PAINTED LINE (owner RULINGS 2026-09-14aq:
-# "detect the white line marking from the scenery package that marks the road
-# edge").  Where a pinched ramp (§34 (9)) meets an airside-locked service
-# road, the road edge it ends at is the pack's own road-edge MARKING — a
-# draped object in the `markings` layer group (the class §42 refuses as
-# pavement: HECA's `Airport/ground/asphalt_white.obj`) whose line runs along
-# the road within road_edge_line_reach_m of the road face's edge and within
-# road_edge_line_parallel_deg of its direction.  Without such a witness the
-# FACE edge stands, which is what OTHH does: measured 2026-09-14, the only
-# `markings` objects within 60 m of the three terminal mouths are aircraft
-# StopLine bars (1.6-3.2 m2, 32-54 m away) and the east mouth has none at
-# all, so no OTHH pinched ramp takes a painted witness.
-road_edge_line_reach_m     = 6.0
-road_edge_line_parallel_deg = 15.0
+max_ramp_grade     = 0.10           # the cap of the ramp inside its walls (owner RULINGS 2026-10-07b (2): the ramp runs the FULL WALL LENGTH, at grade at the walls' outer end, at the grade that span needs up to this; beyond it the knee moves back under the building, 14u); = the wall_corridor_ramp role's cap (rulesets.toml), checked at load.  `ramp_grade` (the 8 % climb BEYOND a mouth, 08m) and the §34 (9) (4) road_edge_line_* keys are RETIRED with that ruling: nothing is built beyond the walls
 max_authored_grade = 0.25           # a descending wall bottom steeper than this between stations is refused loudly (08n: a sanity cap, never a ramp law); = the garage_ramp role's cap, checked at load
-station_m          = 2.0            # ramp station spacing beyond the walls (the walls' own stations are tunnel.object.wall_sample_m)
+station_m          = 2.0            # ramp station spacing (the walls' own stations are tunnel.object.wall_sample_m)
 seat               = "none"         # the family is NEVER re-seated by its trench (the terminal's 399 members)
 
 # ── THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i) ─────────────

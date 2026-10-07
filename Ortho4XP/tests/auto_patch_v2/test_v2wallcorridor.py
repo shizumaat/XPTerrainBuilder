@@ -173,7 +173,7 @@ def test_law_register(law):
     assert 0.0 < wc.min_width_m < wc.max_width_m
     assert wc.min_wall_depth_m > 0.0 and wc.min_wall_length_m > 0.0 and wc.merge_gap_m >= 0.0
     assert 0.0 < wc.end_cap_cover_min <= 1.0 and wc.min_headroom_m > 0.0
-    assert 0.0 < wc.ramp_grade <= wc.max_ramp_grade < wc.max_authored_grade
+    assert 0.0 < wc.max_ramp_grade < wc.max_authored_grade
     assert wc.parallel_max_deg > 0.0 and wc.station_m > 0.0
     # the two roles: structure, groundside, aliased for the oracle
     for role, cap in ((RAMP_ROLE, wc.max_ramp_grade), (GARAGE_ROLE, wc.max_authored_grade)):
@@ -353,35 +353,31 @@ def test_two_bands_under_a_deck_are_a_level_corridor_of_two_halves(objs, law):
     assert a.axis[0] == pytest.approx(b.axis[0])
     groups = wall_corridor_groups(recs, law)
     assert len(groups) == 2 and all(g.kind == KIND and g.ramp_role == RAMP_ROLE for g in groups)
-    assert all(not g.capped and not g.mouth_strip and g.stop_side == "airside" for g in groups)
+    assert all(not g.capped and not g.mouth_strip and not g.stop_at_pavement for g in groups)
     cl = Classification(tuple(_cells()), (), {}, ())
     cl2, tunnels, sst = build_structures(airport, cl, law, objects, (), groups)
     assert not sst.refused, sst.refused
     assert sst.wall_corridors == 2 and len(tunnels) == 2
     for t in tunnels:
-        assert t.source == KIND and t.design_grade == pytest.approx(wc.ramp_grade)
-        # §34 (9) (5) as CORRECTED by owner RULINGS 2026-09-14be: the climb
-        # starts at the COVERING PLATE's edge, not at the wall end.  This
-        # fixture's deck slab spans z −30..+30 (``_corridor_obj``:
-        # ``half_len − 10``) over walls running to ±40, so each half is
-        # COVERED for 30 of its 40 m and the last 10 m of wall stands in
-        # the open — that stretch is RAMP.  The twin asserted the wall end
-        # (40) and encoded the superseded wall-end law; it now asserts the
-        # deck's own cover, which is what the physics says.
+        # THE RAMP RUNS THE WALLS' LENGTH (owner RULINGS 2026-10-07b (2)): at
+        # grade at the walls' OUTER END (s 40), falling toward the building.
+        # The deck slab covers each half for 30 of its 40 m (``_corridor_obj``:
+        # ``half_len − 10``), so the uncovered wall is 10 m and 1.9 m of
+        # depth would need 19 % over it — the knee moves back UNDER the
+        # cover by the run ``max_ramp_grade`` needs (§34 (8), 14u): 19 m.
+        assert t.source == KIND and t.design_grade == pytest.approx(wc.max_ramp_grade)
+        assert t.top_s == pytest.approx(t.wall_length_m) and t.top_pinned and not t.clipped_by
         cover_s = DECK_HALF_LEN_M - DECK_END_INSET_M
-        assert t.climb_from_s == pytest.approx(cover_s, abs=STATION_TOL_M)
-        assert t.climb_from_s < t.wall_length_m - 1e-6
-        assert t.top_pinned and not t.clipped_by
-        climb = t.top_s - t.climb_from_s
-        assert 1.9 / wc.ramp_grade <= climb <= 1.9 / wc.ramp_grade + 2.0 * wc.station_m \
-            + (t.wall_length_m - t.climb_from_s) + 1e-6
-        # the published profile: the wall bottom to the plate edge, the design
-        # line to the ground beyond (the uncovered wall stretch included)
+        assert t.climb_from_s == pytest.approx(t.wall_length_m - 1.9 / wc.max_ramp_grade, abs=0.05)
+        assert t.climb_from_s < cover_s - 1e-6
+        assert any("back UNDER the building" in n for n in t.notes), t.notes
+        # the published profile: the wall bottom to the knee, the design
+        # line to the ground at the walls' outer end — nothing beyond it
         assert profile_z(t.profile, 0.0) == pytest.approx(t.mouth_z)
         assert profile_z(t.profile, t.climb_from_s) == pytest.approx(t.mouth_z, abs=1e-6)
-        assert profile_z(t.profile, t.wall_length_m) > t.mouth_z + 1e-6
-        x, y = t.axis[-1]
-        assert profile_z(t.profile, t.top_s) == pytest.approx(airport.dem.z(x, y), abs=1e-6)
+        assert t.profile[-1][0] == pytest.approx(t.wall_length_m)
+        assert profile_z(t.profile, t.top_s) == pytest.approx(
+            airport.dem.z(*LineString(t.axis).interpolate(t.top_s).coords[0]), abs=1e-6)
     roles = {c.role for c in cl2.cells}
     assert RAMP_ROLE in roles and "retaining_wall" in roles and "tunnel_ramp" not in roles
     # seat = "none": never plate-seated
@@ -413,67 +409,38 @@ def test_a_crossing_family_face_closes_the_end_into_a_bay(objs, law):
     assert not sst.refused and len(tunnels) == 1, sst.refused
     t = tunnels[0]
     assert t.capped and not t.far_capped and t.top_pinned
-    assert t.top_s - t.climb_from_s >= 1.9 / wc.ramp_grade
+    # 07b (2): the ramp is the size of the walls.  1.9 m over ~10.5 m of
+    # wall is more than the cap carries, and the end is CLOSED: the cap
+    # holds, the floor is raised by what it leaves (§47 (7), 17h Q1)
+    assert t.top_s == pytest.approx(t.wall_length_m) and t.climb_from_s == pytest.approx(0.0)
+    assert t.design_grade == pytest.approx(wc.max_ramp_grade)
+    lift = 1.9 - wc.max_ramp_grade * t.wall_length_m
+    assert lift > 0.0
+    assert profile_z(t.profile, 0.0) == pytest.approx(t.mouth_dem_z - 1.9 + lift, abs=0.03)
+    assert profile_z(t.profile, t.top_s) == pytest.approx(t.mouth_dem_z, abs=0.03)
+    assert any("§47 (7)" in n for n in t.notes), t.notes
 
 
-def test_a_ramp_meeting_airside_pavement_stops_and_steepens(objs, law):
-    """08m (a): an apron 22 m beyond the CLIMB'S START stops that half's
-    ramp at the pavement edge and the climb steepens to ≤
-    ``max_ramp_grade``; the groundside road under the corridor is cut,
-    never a stop.
-
-    THE APRONS MOVED WITH THE PHYSICS (§34 (9) (5) as corrected by owner
-    RULINGS 2026-09-14be): the climb now starts at the COVERING PLATE's
-    edge (s 30, ``DECK_HALF_LEN_M − DECK_END_INSET_M``) instead of the
-    wall end (s 40), so an apron pinned to the old wall end tested
-    nothing — the ramp reached the ground 10 m before it.  Both
-    rectangles are restated as the same RUNS measured from the climb's
-    own start: 22 m (steepens, inside the cap) and 12 m (too short for
-    the cap — the mouth moves).  What each asserts is unchanged."""
-    wc = law.tables.structures.cutout.wall_corridor
+def test_pavement_beyond_the_walls_neither_stops_nor_shortens_the_ramp(objs, law):
+    """Owner RULINGS 2026-10-07b (2) retires 08m (a)'s stop-and-steepen
+    and §34 (9)'s pinch: the ramp stands inside its own walls, so an
+    apron beyond them — however near — changes nothing about it."""
     airport, cache, objects, recs, st = _corridors(objs, law, "level")
     groups = wall_corridor_groups(recs, law)
-    stop1 = DECK_HALF_LEN_M - DECK_END_INSET_M + 22.0        # 22 m of run
-    apron = Cell(2, "apron", "apron1", _rect(-60, stop1, 60, 200), (), None, None,
-                 "airside", "apron", {})
-    cl = Classification(tuple(_cells((apron,))), (), {}, ())
-    _cl2, tunnels, sst = build_structures(airport, cl, law, objects, (), groups)
-    assert not sst.refused, sst.refused
-    stopped = [t for t in tunnels if t.clipped_by]
-    free = [t for t in tunnels if not t.clipped_by]
-    assert len(stopped) == 1 and len(free) == 1
-    t = stopped[0]
-    assert t.clipped_by == "apron1" and t.top_pinned
-    assert wc.ramp_grade < t.design_grade <= wc.max_ramp_grade + 1e-9
-    assert t.top_s < free[0].top_s
-    x, y = t.axis[-1]
-    assert profile_z(t.profile, t.top_s) == pytest.approx(airport.dem.z(x, y), abs=1e-6)
-    # ...and a pavement too close to climb to at max_ramp_grade MOVES THE
-    # MOUTH away from airside, back under the building, by the run the cap
-    # needs (spec §34 (8) as amended, owner RULINGS 2026-09-14u): no step,
-    # the corridor still CUT with both its mouths, the airside cell unpulled
-    stop2 = DECK_HALF_LEN_M - DECK_END_INSET_M + 12.0        # 12 m: short of the cap
-    near = Cell(2, "apron", "apron2", _rect(-60, stop2, 60, 200), (), None, None,
-                "airside", "apron", {})
-    cl = Classification(tuple(_cells((near,))), (), {}, ())
-    _cl3, tunnels2, sst2 = build_structures(airport, cl, law, objects, (), groups)
-    assert not [r for r in sst2.refused if "max_ramp_grade" in r], sst2.refused
-    assert len(tunnels2) == 2, sst2.refused
-    moved = [t for t in tunnels2 if t.clipped_by == "apron2"]
-    assert len(moved) == 1
-    m = moved[0]
-    assert m.top_pinned                          # the ramp DOES reach the ground
-    assert m.design_grade <= wc.max_ramp_grade + 1e-9
-    assert m.climb_from_s < t.climb_from_s - 1e-6      # the mouth moved back
-    mx, my = m.axis[-1]
-    assert profile_z(m.profile, m.top_s) == pytest.approx(airport.dem.z(mx, my), abs=1e-6)
-    assert any("MOUTH MOVED" in n and "apron2" in n for n in m.notes), m.notes
-    # §34 (9) (3)/(4): `Tunnel.pinched` is the (road, span, grade) TRIPLE the
-    # lifted-cap publication unpacks — the §34 (9) (4) witness rides beside it,
-    # never inside it (a fourth element crashed `_lifted_records` on an OTHH
-    # build, measured 2026-09-14)
-    for t in tunnels2:
-        assert t.pinched is None or len(t.pinched) == 3, t.pinched
+    cl = Classification(tuple(_cells()), (), {}, ())
+    _cl, base, sst0 = build_structures(airport, cl, law, objects, (), groups)
+    assert not sst0.refused and len(base) == 2, sst0.refused
+    for off in (22.0, 2.0):
+        apron = Cell(2, "apron", "apron1", _rect(-60, base[0].wall_length_m + off, 60, 200),
+                     (), None, None, "airside", "apron", {})
+        cl = Classification(tuple(_cells((apron,))), (), {}, ())
+        _cl2, tunnels, sst = build_structures(airport, cl, law, objects, (), groups)
+        assert not sst.refused and len(tunnels) == 2, sst.refused
+        for t, b in zip(tunnels, base):
+            assert not t.clipped_by and t.pinched is None and t.top_pinned
+            assert (t.top_s, t.climb_from_s, t.design_grade) == pytest.approx(
+                (b.top_s, b.climb_from_s, b.design_grade))
+            assert t.profile == b.profile
 
 
 def test_a_descending_wall_bottom_is_a_garage_ramp_cut_as_authored(objs, law):
@@ -580,9 +547,12 @@ def _pad(ref, x0, x1, y0=-50.0, y1=70.0):
                 "groundside", "building", {})
 
 
-def test_a_host_pad_is_cut_by_the_ramp_beyond_the_walls(objs, law):
-    """Law C / spec §6a row 16 with the flat-pad host rule (2026-09-08n):
-    beyond the walls the ramp cuts the pads it HOSTS and only those.
+def test_a_pad_is_cut_by_the_walls_and_nothing_beyond_them(objs, law):
+    """Law C / spec §6a row 16 as amended by owner RULINGS 2026-10-07b (2):
+    the ramp runs the walls' length, so the trench cuts the pad it stands
+    in (08-26) and NOTHING beyond the walls — flat pad or pad on relief.
+
+    HISTORY (the flat-pad host rule, 2026-09-08n), still held below:
 
     The defect this pins (measured on the OTHH closing tile build): the
     knife guarded EVERY pad under the ramp, so `building5` — the flat
@@ -609,10 +579,10 @@ def test_a_host_pad_is_cut_by_the_ramp_beyond_the_walls(objs, law):
     before = Polygon(flat.ring).area
     after = sum(Polygon(c.ring).area - sum(Polygon(h).area for h in c.holes)
                 for c in kept)
-    assert after < before - 1.0, (before, after)          # the ramp took its bite
-    # the bite is the RAMP's: the pad is open beyond the wall end no more
-    on_ramp = Point(0.0, DECK_HALF_LEN_M + 5.0)          # 5 m past the wall end, on the axis
-    assert not any(Polygon(c.ring).covers(on_ramp) for c in kept)
+    assert after < before - 1.0, (before, after)          # the trench took its bite
+    # ...and only the trench: 5 m past the wall end the pad stands whole
+    on_ramp = Point(0.0, DECK_HALF_LEN_M + 5.0)
+    assert any(Polygon(c.ring).covers(on_ramp) for c in kept)
     # ...and NO pad flat may grip a wall-corridor FLOOR vertex (the OTHH row)
     pm, _stats = build(airport, cl, law)
     cs, _c, _w = generate(pm, law, airport)
@@ -622,29 +592,15 @@ def test_a_host_pad_is_cut_by_the_ramp_beyond_the_walls(objs, law):
         if f.source.generator == "pads":
             assert not (set(f.group) & floor), (f.source.inputs, set(f.group) & floor)
 
-    # ON RELIEF (1.5 m over 300 m) => NOT a host: it STOPS the ramp
-    # (tunnel.ramp_crosses_pad — the LEMD Cargo-NEWCO@5/a demotion).
-    #
-    # RE-FOUNDED with §34 (9) (5) as corrected by owner RULINGS
-    # 2026-09-14be: the climb now starts at the COVERING PLATE's edge
-    # (s 30) rather than the wall end (s 40), so the 10 m of UNCOVERED
-    # wall is ramp and the stopped climb has somewhere to go — the §34
-    # (8) moved mouth finds a lawful ramp where the wall-end law left
-    # zero run and the corridor was refused outright.  The refusal was
-    # collateral; what this block was written to test is HOST vs STOP,
-    # and that is asserted directly: the relief pad stops the ramp and
-    # is NOT bitten, where the flat pad above hosts it and is cut.
+    # ON RELIEF (1.5 m over 300 m): the same — nothing is built beyond the
+    # walls, so there is no ramp for the pad to stop (the 08m (a) stop and
+    # the LEMD Cargo-NEWCO@5/a guard were for the climb beyond the walls)
     relief = _pad("relief_pad", -150.0, 150.0)
     assert _pad_relief(airport, Polygon(relief.ring)) > band
     cl = Classification(tuple(_cells((relief,))), (), {}, ())
     cl3, tunnels3, sst3 = build_structures(airport, cl, law, objects, (), groups)
-    assert tunnels3 and all(t.clipped_by == "relief_pad" for t in tunnels3), \
-        [(t.id, t.clipped_by) for t in tunnels3]
+    assert tunnels3 and not any(t.clipped_by for t in tunnels3)
     kept3 = [c for c in cl3.cells if c.ref.startswith("relief_pad")]
-    # the TRENCH is still senior to any pad (08-26) so the walls' own
-    # footprint is taken either way; what separates a stop from a host is
-    # the RAMP BEYOND THE WALLS — at the same point the host pad lost, the
-    # relief pad stands whole
     assert any(Polygon(c.ring).covers(on_ramp) for c in kept3)
 
 

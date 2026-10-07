@@ -8,6 +8,13 @@ from pathlib import Path
 
 import pytest
 
+# tools/harness is POSIX-only and test_harness skips itself on win32 at
+# import; skip here first, so both collectors (the floor and the suite)
+# read this module the same way (#244).
+if sys.platform == "win32":                                # pragma: no cover
+    pytest.skip("tools/harness is a POSIX-only lane instrument",
+                allow_module_level=True)
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_harness import (HARNESS, _load, _pavcap_patch, _sloped_rect,  # noqa: E402,F401
                           census_mod, cg)

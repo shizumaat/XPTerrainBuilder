@@ -2505,6 +2505,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                              "hard_conflict": _hard_conflict_now(),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
+                                 # §55 (2) 5: the bounds of another group's
+                                 # ring the follow rows refused (the reader
+                                 # classes a miss there DECLARED)
+                                 "late_declared": list(_lrep["follow"].get("declared", ())),
                                  "late_wall_s": _lrep["wall_s"]}
                                 if late_from is not None else {}),
                              _capture_state().CAPTURE_STATE_KEY: _capture_state().collect(),

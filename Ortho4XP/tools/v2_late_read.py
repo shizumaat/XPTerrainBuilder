@@ -13,7 +13,12 @@ groups).  Sections:
   JOIN       followers, constants, rim nodes; every FOREIGN vertex (on a
              standing face, in neither set, on no base edge) with its faces,
              the nearest base vertex / edge and the nearest follower face.
-  FOLLOW     the follow rows the solved surface misses, by neighbour kind.
+  FOLLOW     the follow rows the solved surface misses, by neighbour kind,
+             each classed DECLARED (the stage refused that ring's bound: a
+             merged station, or the other group's ring across a knife —
+             the stage's own record, ``late_declared``) or OWN-GROUP (the
+             bar), by part / ribbon and under / over the terrace floor;
+             the lot rows the stage minted.
   STAND-OFF  per (piece, standing neighbour) the level difference across the
              stand-off beyond cap x distance — the stepping pairs.
   RIBBONS    per follower ribbon the worst offset to a fixed vertex within
@@ -82,8 +87,18 @@ class Late:
                                            self.free, ident * 0.02)
         rows, self.grep = gap_follow_rows(self.pa, self.law, self.fixed)
         from auto_patch_v2.constraints.gap_follow import RULING as _FOLLOW
+        from auto_patch_v2.constraints.gap_follow import LOT_RULING as _LOT
+        # the follow rows over EVERY ring within reach (no part narrowing):
+        # what the surface is read against.  Which of those bounds the stage
+        # refused is the stage's own record (spec §55 (2) 5), never re-derived
         self.rows = [r for r in rows if r.source.ruling == _FOLLOW]
-        self.lot_rows = [r for r in rows if r.source.ruling != _FOLLOW]
+        self.declared = (None if "late_declared" not in a else
+                         {(int(d["v"]), d["ring"]) for d in a["late_declared"]})
+        # the lot rows the STAGE minted (§55 (3) 4: road+apron parts only);
+        # an arm that predates the record is read against every lot's
+        minted = [r for r in self.cs.rows() if r.source.ruling == _LOT]
+        self.lot_rows = minted if self.declared is not None else \
+            [r for r in rows if r.source.ruling == _LOT]
         # spec §55: the cut's own report (parts, knives, the stations the
         # floors merged) travels in the arm's pickle
         self.cut = a.get("late_cut") or {}
@@ -176,9 +191,13 @@ def merged_stations(L: Late) -> list[dict]:
 
 def read_follow(L: Late, top: int = 20, out=print) -> dict:
     """The follow rows the solved surface misses, by the neighbour's kind,
-    each classed ON A MERGED STATION (named: the station's ring within the
-    follow reach + one station spacing of the vertex) or UNMERGED (a defect
-    of the cut, spec §55 (7)); then the lot rows (§55 (3) 4)."""
+    each classed (spec §55 (7), (14)): DECLARED — the stage refused the
+    bound of that ring on that vertex (a station the floors merged, or the
+    other group's ring across a knife: ``L.declared``, the stage's record)
+    — or OWN-GROUP, the bar, counted by where it stands (a part / a ribbon)
+    and against the terrace floor.  An arm with no such record
+    (``L.declared is None``) is classed by the merged stations' rings near
+    the vertex.  Then the lot rows the stage minted (§55 (3) 4)."""
     import math
     from auto_patch_v2.constraints.gap_follow import reach_m
 
@@ -186,19 +205,18 @@ def read_follow(L: Late, top: int = 20, out=print) -> dict:
         return ("pad" if n.startswith("building") else
                 "apron" if n.startswith("apron") else "other")
     near = reach_m(L.law) + float(L.law.tables.emit.chords.station_spacing_m)
+    floor = float(L.law.tables.emit.terrace.pad_terrace_floor_m)
     by_ring: dict = collections.defaultdict(list)
     for m in merged_stations(L):
         by_ring[m["ring"]].append(m)
     miss: collections.Counter = collections.Counter()
-    tot: collections.Counter = collections.Counter()
     cv = {c["v"] for c in L.grep["conflicts"]}
-    named, unmerged = [], []
+    named, own = [], []
     for r in L.rows:
         v = r.terms[0][0]
         z = float(L.za[v])
         over = max(z - r.hi, r.lo - z)
         nb = r.source.inputs[1] if z > r.hi else r.source.inputs[0]
-        tot[kind(nb)] += 1
         if over <= TOL_M:
             continue
         miss[kind(nb)] += 1
@@ -206,32 +224,48 @@ def read_follow(L: Late, top: int = 20, out=print) -> dict:
         xy = L.pa.vertices[v].xy
         st = min((m for n in set(r.source.inputs) for m in by_ring.get(n, ())),
                  key=lambda m: math.dist(m["xy"], xy), default=None)
-        rec = (over, v, nb, st)
-        (named if st is not None and math.dist(st["xy"], xy) <= near else unmerged).append(rec)
-    n = len(named) + len(unmerged)
+        if st is not None and math.dist(st["xy"], xy) > near:
+            st = None
+        if L.declared is None:
+            declared = st is not None
+        else:
+            declared = any((v, n) in L.declared for n in r.source.inputs)
+        (named if declared else own).append((over, v, nb, st))
+    where: collections.Counter = collections.Counter()
+    for over, v, _nb, _st in own:
+        on_part = any("gap:" in x for x in L.names(v))
+        where[("part" if on_part else "ribbon") + (" <= floor" if over <= floor else " > floor")] += 1
+    n = len(named) + len(own)
     out(f"[{L.icao}] FOLLOW rows {len(L.rows)}; missed by > {TOL_M} m: {n} "
-        f"{dict(miss)}; conflict vertices {len(cv)}; on a MERGED station {len(named)}, "
-        f"on an UNMERGED station {len(unmerged)} (the bar: 0)")
-    for label, recs in (("UNMERGED", unmerged), ("merged", named)):
+        f"{dict(miss)}; conflict vertices {len(cv)}; DECLARED "
+        f"{'(merged station or the other group across a knife)' if L.declared is not None else '(near a merged station)'}"
+        f" {len(named)}, OWN-GROUP {len(own)} (the bar: 0) {dict(sorted(where.items()))}"
+        f" worst {max((o[0] for o in own), default=0.0):.2f} m")
+    for label, recs in (("OWN-GROUP", own), ("declared", named)):
         for over, v, nb, st in sorted(recs, key=lambda t: -t[0])[:top]:
             faces = [x for x in L.names(v) if "gap:" in x or "small_roads" in x or "big_roads" in x]
             out(f"    {label} {over:.2f} m at v{v} {L.ll(v)} z {float(L.za[v]):.2f} vs {nb}"
                 f" on {faces[:2]}"
-                + (f"; station {st['ring']} {st['z']:.2f} of {st['piece']} group "
-                   f"{st['group']} -> {st.get('into_group')}" if label == "merged" else ""))
+                + (f"; merged station {st['ring']} {st['z']:.2f} of {st['piece']} group "
+                   f"{st['group']} -> {st.get('into_group')}" if st is not None else ""))
     lot_miss = []
     for r in L.lot_rows:
         v = r.terms[0][0]
         over = max(float(L.za[v]) - r.hi, r.lo - float(L.za[v]))
         if over > TOL_M:
             lot_miss.append((over, v, r.source.inputs[0]))
-    out(f"[{L.icao}] LOT rows {len(L.lot_rows)}; missed by > {TOL_M} m: {len(lot_miss)}"
+    lot_parts = sorted({x.split(":", 1)[1] for r in L.lot_rows for x in L.names(r.terms[0][0])
+                        if "gap:" in x and "/lot" in x})
+    out(f"[{L.icao}] LOT rows {len(L.lot_rows)} on {len(lot_parts)} parts {lot_parts[:8]}; "
+        f"missed by > {TOL_M} m: {len(lot_miss)}"
         + "".join(f"\n    {o:.2f} m at v{v} {L.ll(v)} vs {nb} on "
                   f"{[x for x in L.names(v) if 'gap:' in x][:2]}"
                   for o, v, nb in sorted(lot_miss, reverse=True)[:top]))
     return {"rows": len(L.rows), "missed": n, "by_kind": dict(miss),
-            "conflict_vertices": len(cv), "missed_merged": len(named),
-            "missed_unmerged": len(unmerged), "lot_rows": len(L.lot_rows),
+            "conflict_vertices": len(cv), "missed_declared": len(named),
+            "missed_own_group": len(own), "own_group_where": dict(where),
+            "own_group_worst_m": round(max((o[0] for o in own), default=0.0), 3),
+            "lot_rows": len(L.lot_rows), "lot_parts": lot_parts,
             "lot_missed": len(lot_miss)}
 
 
@@ -342,12 +376,24 @@ def read_standoff(L: Late, top: int, out=print) -> dict:
     for ref, m2 in area.items():
         piece_m2[ref.split("/")[0]] += m2
     big = sum(1 for (ref, _n) in over if piece_m2[ref.split("/")[0]] >= 1000.0)
+    # A MERGED-SLIVER STEP (spec §55 (14) residual 3): the neighbour's own
+    # group held only a sliver under the floors beside it; the floors merged
+    # it into this part and the terrace stands at the neighbour's foot — the
+    # cut's own merged-station record names it
+    sliver = {(m["piece"], m["ring"]): m for m in merged_stations(L)}
+    named = {k: sliver[(k[0].split("/")[0], k[1])] for k in over
+             if (k[0].split("/")[0], k[1]) in sliver}
     out(f"[{L.icao}] STAND-OFF ({stand:.2f} m, cap {100 * cap:.0f} %): stepping pairs "
-        f"{len(over)} of {len(worst)}; on pieces >= 1,000 m2: {big}")
+        f"{len(over)} of {len(worst)}; on pieces >= 1,000 m2: {big}; at a merged "
+        f"station's ring (a MERGED-SLIVER step, declared by the cut): {len(named)}")
     for (ref, nb), w in sorted(over.items(), key=lambda kv: -kv[1][0])[:top]:
+        m = named.get((ref, nb))
         out(f"    {ref} ({area[ref]:,.0f} m2) | {nb}: {w[0]:.2f} m (piece {w[3]:.2f} vs "
-            f"{w[4]:.2f}, {w[1]:.2f} m apart) at {w[2]}")
-    return {"pairs": len(worst), "stepping": len(over), "stepping_big": big}
+            f"{w[4]:.2f}, {w[1]:.2f} m apart) at {w[2]}"
+            + (f"  MERGED-SLIVER: station {m['ring']} {m['z']:.2f}, group "
+               f"{m['group']} -> {m.get('into_group')}" if m else ""))
+    return {"pairs": len(worst), "stepping": len(over), "stepping_big": big,
+            "stepping_merged_sliver": len(named)}
 
 
 def read_ribbons(L: Late, top: int, refs: list[str], out=print) -> dict:

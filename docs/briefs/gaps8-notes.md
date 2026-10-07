@@ -5,6 +5,9 @@ Lane `gaps8`, branch `feature/pavement-gaps`. Scratch `<scratch>/gaps8/`
 `arm3.txt`, `arm3.site.txt`, `census.txt`, `census.json`,
 `rows.HECA_auto.patch.json` = the ARM's rows — the two patches share a stem
 and the base dump was overwritten; BASE's rows are `<scratch>/gaps7/rows.HECA_auto.patch.json`).
+The replay frame is registered: `/Users/noah/XPTerrainBuilderData/.harness/frames/gaps8/`
+(patch body `5eff6d9f4ed1`, sidecar, `solved.pkl`, `log.txt`). CYXY harness
+build `gaps8_CYXY` body `2a00c361ffc2` = main's.
 The closing HECA build (S-G) was NOT run: the census missed its stated
 tolerance at S-E.
 

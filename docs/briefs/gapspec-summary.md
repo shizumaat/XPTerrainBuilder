@@ -61,3 +61,35 @@ NOT SETTLED HERE: the +104 road_cross_section / +32 road_coverage_join /
 −56 airside adjudicated rows are classed by S0's read, not attributed by
 this lane; the ribbon terrain-floor tiering (§53 (16)) is read at S0 with
 `--why-vertex`; §54 is heca8's number (unlanded), so this is §55.
+
+## REVISION 2026-10-06 evening — §55 (13): the pair test, probed on HECA and replaced
+
+gaps5 stopped at S2: the literal §55 (1) test gave 335 parts / 405 knives /
+889 merged stations and a knife between the owner's lot and its apron. The
+spec author probed four variants on gaps5's 10 s dry cut
+(`<scratch>/gapspec/dry_cut3.py`, `dry_groups3.py`, `dry_groups4.py`, `dry_g8.py`):
+
+| pair test | grouping | parts | knives | merged | #430 / #292 / #358 |
+|---|---|---|---|---|---|
+| literal (ring cap, no floor) | greedy z | 335 | 405 | 889 | lot / STEP / s160 |
+| piece cap, no floor | greedy z | 161 | 139 | 426 | lot / lot / lot |
+| **piece cap + floor 1.0 m (RULED)** | **greedy z** | **93** | **48** | **66** | **lot / ramp0 / lot** |
+| piece cap + floor 2.0 m | greedy z | 83 | 36 | 50 | lot / ramp0 / lot |
+| piece cap + floor 1.0 | rim runs, run order | 109 | 64 | 83 | lot / ramp0 / lot |
+| piece cap + floor 1.0 | rim runs, largest first | 110 | 73 | 85 | lot / ramp0 / lot |
+
+THE RULE NOW: `|dz| <= cap_piece * max(0, d - knives) + terrace.pad_terrace_floor_m`
+(8 %, 1.0 m — owner 30i's own floor); greedy-by-z groups; step cut first,
+lot cut inside each part; in the last stage the two pavement ceilings on
+all-unknown rows rank BELOW gap_follow / the lot row (bounded by the floor —
+not 04u's option 1). gap:7 = ONE group: lot 4,563 + 832 m², ramp 4,506 +
+750 m², no knife; the 0.11 m shortfall at the worst apron–road chord is
+welded (a ramp at 8.1 % over 88 m, the road met).
+
+Q-A yes (+ floor); Q-B no (gap:8 needs its terrace); Q-C no as asked, yes in
+effect. All six interpretations ACCEPTED; `gap_follow_rows` must take a
+non-follower ribbon as a ring; shapes admit gap parts by `is_gap_ref`; the
+BASE is re-solved at S2. OPEN (probed twice, refused): group membership
+interleaving along one ring (gap:8: 11 merged road stations, the held
+3.91 m lead persists) — a named bar, not a design. New owner Q4: the 1.0 m
+weld floor — recommend yes.

@@ -30,7 +30,8 @@ courtyard vertex (it stays airside; stage 1 owns it)."""
 from __future__ import annotations
 
 import typing as _t
-import weakref as _weakref
+
+from .map_memo import per_map
 
 __all__ = ["courtyard_faces", "courtyard_vertices"]
 
@@ -38,22 +39,13 @@ __all__ = ["courtyard_faces", "courtyard_vertices"]
 #: hole ring are the ring's own, so this only absorbs float noise
 _ON_RING_M = 0.05
 
-#: per planar map (by identity, held weakly — a frozen dataclass of dicts is
-#: not hashable): the derived sets, computed once per map
+#: per planar map (``model.map_memo.per_map``: by identity, held weakly):
+#: the derived sets, computed once per map
 _CACHE: dict[int, tuple[_t.Any, dict]] = {}
 
 
 def _cache(pm: _t.Any) -> dict:
-    got = _CACHE.get(id(pm))
-    if got is not None and got[0]() is pm:
-        return got[1]
-    try:
-        ref = _weakref.ref(pm, lambda _r, k=id(pm): _CACHE.pop(k, None))
-    except TypeError:                             # not weak-referenceable
-        return {}
-    d: dict = {}
-    _CACHE[id(pm)] = (ref, d)
-    return d
+    return per_map(_CACHE, pm)
 
 
 def courtyard_faces(pm: _t.Any, law: _t.Any) -> frozenset[int]:

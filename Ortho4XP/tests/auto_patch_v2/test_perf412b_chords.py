@@ -127,3 +127,98 @@ def test_the_verifier_reads_the_same_set_serial_and_ahead(monkeypatch):
     monkeypatch.setattr(W, "_chords_outside_face", None)       # the memo answers
     assert [W.chords_outside_face(p2, sh, MIN_D) for sh in shapes2] == want
     assert W.read_chords_ahead(p2, shapes2, MIN_D, workers=2) == 0   # nothing left
+
+
+# ── cloudpoolreport (issue #412): the verify pool reports like the others ─
+
+#: ``WorkPool.report``'s keys — the pack and planar pools' account
+_KEYS = {"workers", "bound", "parallel", "fell_back", "reason", "wall_s", "tasks"}
+
+
+def _ahead(**kw):
+    said: list[str] = []
+    told: list[dict] = []
+    got = CW.outside_ahead(_faces(), TOL, MIN_D, out=said.append,
+                           on_pool=told.append, **kw)
+    return got, said, told
+
+
+def test_a_pooled_reading_hands_its_account_and_says_its_line(monkeypatch):
+    monkeypatch.setattr(CW, "MIN_CHORDS", 0)
+    monkeypatch.setattr(CW, "CHUNK_CHORDS", 60)
+    got, said, told = _ahead(workers=2)
+    assert got is not None
+    assert len(told) == 1 and set(told[0]) == _KEYS
+    r = told[0]
+    assert r["workers"] == 2 and r["bound"] == "pinned"
+    assert r["parallel"] and not r["fell_back"] and r["reason"] == ""
+    assert r["tasks"] > 0 and r["wall_s"] >= 0.0
+    assert said == [f"[pool] workers 2 (bound: pinned): {r['tasks']} task(s) answered "
+                    f"by workers in {r['wall_s']:.1f} s — verify: apron chords"]
+
+
+def test_one_core_by_the_size_rule_or_the_budget_hands_no_account():
+    for workers in (4, 1):                      # the size rule; the budget
+        got, said, told = _ahead(workers=workers)
+        assert got is None and said == [] and told == []
+
+
+def test_a_pool_that_dies_hands_a_fell_back_account(monkeypatch):
+    monkeypatch.setattr(CW, "MIN_CHORDS", 0)
+    monkeypatch.setattr(CW, "CHUNK_CHORDS", 60)
+
+    def dies(self, fn, tasks, **kw):
+        self._give_up("twin: the workers died")
+        return None
+    monkeypatch.setattr(CW.WorkPool, "try_map", dies)
+    got, said, told = _ahead(workers=2)
+    assert got is None
+    assert len(told) == 1 and set(told[0]) == _KEYS
+    assert told[0]["fell_back"] and not told[0]["parallel"]
+    assert told[0]["reason"] == "twin: the workers died" and told[0]["tasks"] == 0
+    assert any(s.startswith("[pool] FELL BACK: twin: the workers died") for s in said)
+    assert said[-1].endswith("FELL BACK (twin: the workers died) — verify: apron chords")
+
+
+def test_rings_that_do_not_cross_hand_a_fell_back_account(monkeypatch):
+    monkeypatch.setattr(CW, "MIN_CHORDS", 0)
+    monkeypatch.setattr(CW, "CHUNK_CHORDS", 60)
+
+    def no_shm(obj):
+        raise OSError("no /dev/shm")
+    monkeypatch.setattr(CW, "share_object", no_shm)
+    got, said, told = _ahead(workers=2)
+    assert got is None
+    assert len(told) == 1 and set(told[0]) == _KEYS
+    r = told[0]
+    assert r["fell_back"] and not r["parallel"] and r["workers"] == 2 and r["tasks"] == 0
+    assert "OSError: no /dev/shm" in r["reason"]
+    assert len(said) == 1 and said[0].startswith("[pool] FELL BACK: ")
+
+
+def test_the_verifier_threads_the_log_and_the_account(monkeypatch):
+    monkeypatch.setattr(CW, "MIN_CHORDS", 0)
+    monkeypatch.setattr(CW, "CHUNK_CHORDS", 60)
+    p, shapes = _patch(monkeypatch)
+    said: list[str] = []
+    told: list[dict] = []
+    assert W.read_chords_ahead(p, shapes, MIN_D, workers=2, out=said.append,
+                               on_pool=told.append) == len(shapes)
+    assert len(said) == 1 and len(told) == 1 and told[0]["parallel"]
+
+
+def test_the_build_report_carries_the_verify_pool():
+    """``pipeline/build.py`` hands the verify stage its own log and keeps
+    the pool's account under ``report["pool"]["verify"]`` (``None`` when
+    no pool was opened).  A source pin: no twin runs the whole pipeline."""
+    import importlib
+    import inspect
+    B = importlib.import_module("auto_patch_v2.pipeline.build")
+    C = importlib.import_module("auto_patch_v2.verify.census")
+    for fn in (C.census_frame, C.census_patch):
+        assert {"say", "on_pool"} <= set(inspect.signature(fn).parameters)
+    assert {"out", "on_pool"} <= set(inspect.signature(W.within_shape).parameters)
+    src = inspect.getsource(B.build)
+    assert 'say=lambda m: _say("  " + m, out),' in src
+    assert "on_pool=_vpool.append)" in src
+    assert '"verify": _vpool[-1] if _vpool else None}' in src

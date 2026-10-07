@@ -1136,6 +1136,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                         "join": _late["join"], "dropped": _late["dropped"],
                         "follow_rows": _late["follow"].get("rows", 0),
                         "lot_rows": _late["follow"].get("lot_rows", 0),
+                        "declared_bounds": len(_late["follow"].get("declared", ())),
                         "wall_s": _late["wall_s"]}
     # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS where the solve
     # released a §37 (9) join pin — the join takes the patch's level and

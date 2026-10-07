@@ -53,6 +53,9 @@ class Terrace:
     #: differ in role (apron -> service road / lot / taxiway: where a road
     #: leaves an apron) keeps its separation.  Role-based, never DEM-based.
     one_shape_roles: tuple[str, ...]
+    #: spec §55 (3) 1: the grid a gap piece's lot / ramp fields are sampled
+    #: on (``classify/gap_terrace``) — a sampling step, read by nothing else.
+    gap_cut_sample_m: float
 
 
 def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -> None:
@@ -78,3 +81,5 @@ def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -
         raise err("emit.terrace: hole_cover_eps must be a fraction in [0, 1)")
     if tr.pad_terrace_floor_m <= 0.0:
         raise err("emit.terrace: pad_terrace_floor_m must be positive")
+    if tr.gap_cut_sample_m <= 0.0:
+        raise err("emit.terrace: gap_cut_sample_m must be positive")

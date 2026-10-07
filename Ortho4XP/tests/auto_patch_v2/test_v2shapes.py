@@ -564,7 +564,7 @@ def test_the_law_table_carries_the_shape_keys(law):
     assert tt.pad_terrace_floor_m > 0.0
     assert "apron" in tt.one_shape_roles                      # RULINGS 2026-09-30bk
     assert not {"service_road", "parking_lot", "stub"} & set(tt.one_shape_roles)
-    good = Terrace(0.5, 12.0, ("apron",), ("apron",), 8.0, 0.05, 50.0, 3.0, 0.02, 1.0, ("apron",))
+    good = Terrace(0.5, 12.0, ("apron",), ("apron",), 8.0, 0.05, 50.0, 3.0, 0.02, 1.0, ("apron",), 2.0)
     check_terrace(good, {"apron"}, LawError)
     with pytest.raises(LawError):
         check_terrace(_dc.replace(good, strip_min_width_m=-1.0), {"apron"}, LawError)

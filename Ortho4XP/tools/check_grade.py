@@ -117,7 +117,7 @@ except Exception:
     ROAD_FRONTAGE_TOL_M = 3.0
     _DRAINAGE_SPINE_MIN_FALL_M = 0.30
     _GAP_CONFORM_MARGIN_M = 10.0
-    SERVICE_ROAD_MAX_GRADE = 0.08
+    SERVICE_ROAD_MAX_GRADE = 0.10   # RULINGS 2026-10-07b (2)
     TAXI_GRADE_BY_WIDTH = True
     TAXI_GRADE_WIDTH_ROLES = frozenset({
         "primary_parallel", "secondary_parallel", "stub", "cross_connector",
@@ -7670,7 +7670,7 @@ except Exception:                                       # pragma: no cover
 
     def _is_gap_ref(_ref) -> bool:
         return False
-    PAVEMENT_ROAD_CAP = 0.08
+    PAVEMENT_ROAD_CAP = 0.10        # = road_max_grade (RULINGS 2026-10-07b (2))
     _PAVCAP_ROLES = frozenset({
         "runway", "runway_crossing", "primary_parallel", "secondary_parallel",
         "stub", "cross_connector", "junction", "apron", "building",

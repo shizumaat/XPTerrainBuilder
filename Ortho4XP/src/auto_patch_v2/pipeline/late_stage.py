@@ -187,6 +187,22 @@ def cut_classification(cl, pm_base, z_base, law: Law, rules) -> tuple[_t.Any, di
     return _dc.replace(cl, cells=tuple(cells)), rep
 
 
+def _carry_pin_yield(base_solution, pm_base, pm_full) -> list[dict]:
+    """The base solve's released join pins (``DesignReport.pin_yield``) on
+    the FULL map's vertex ids, by the canonical coordinate join."""
+    recs = list(base_solution.get("pin_yield") or ())
+    if not recs:
+        return []
+    at = {tuple(v.xy): i for i, v in pm_full.vertices.items()}
+    out = []
+    for r in recs:
+        v = pm_base.vertices.get(int(r["v"]))
+        j = at.get(tuple(v.xy)) if v is not None else None
+        if j is not None:
+            out.append({**r, "v": j})
+    return out
+
+
 def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
                    base_solution: _t.Mapping[str, _t.Any], *, rules=None,
                    options=None, out: _t.Callable[[str], None] = print,
@@ -198,6 +214,7 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     report)``; the report carries the stage's own row set (``cs``), its
     constants (``fixed``) and the solve's report (``design``)."""
     from ..law.tables import design as _design_law
+    from ..solve import feasibility as _feas
     from ..solve.design import solve_late_stage
     if rules is None:
         from ..classify.rules import load_rules
@@ -210,12 +227,13 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         f"{cut['parts']} parts, {cut['knives']} knives, {cut['stations']} stations, "
         f"{cut['merged']} stations merged by the floors")
     t0 = time.perf_counter()
-    pm, cs, _strips, _hold = derive(cl_cut)
+    pm, cs, strips, _hold = derive(cl_cut)
     t_derive = time.perf_counter() - t0
     free, frep = late_followers(pm)
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
     fixed, jrep = late_fixed(pm_base, z_base, pm, free, ident)
     jrep["rim"] = late_rim_levels(pm_base, z_base, pm, fixed, free, ident * 0.02)
+    cs_all = cs
     cs, dropped = late_constraints(
         cs, fixed, frozenset(getattr(_design_law(law), "yielding_pin_rulings", ()) or ()),
         retier_heads=frozenset(r.split("(")[0].strip()
@@ -224,6 +242,7 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         f"rows with no unknown dropped {dropped}")
     grows, grep = gap_follow_rows(pm, law, fixed)
     cs = ConstraintSet.from_rows([*cs.rows(), *grows])
+    cs_full = ConstraintSet.from_rows([*cs_all.rows(), *grows])
     # the lot SITS at its road's level: the one published-target channel
     lot_z = grep.get("lot_targets") or {}
     if lot_z:
@@ -232,7 +251,14 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         f"{len(grep['conflicts'])} vertices between two disagreeing neighbours; "
         f"lot rows (§55 (3) 4) {grep.get('lot_rows', 0)}, lot_fit targets {len(lot_z)}")
     t0 = time.perf_counter()
+    # THE BASE'S RELAXATIONS STAY PUBLISHED (§55 (4) iv): the last solve
+    # publishes its own conflict records over the registry; the earlier
+    # stages' (the caller's own solve, or the pickled base's) come first
+    base_conf = [dict(r) for r in (base_solution.get("hard_conflict")
+                                   if "hard_conflict" in base_solution
+                                   else _feas.HARD_CONFLICT)]
     sol, design = solve_late_stage(pm, cs, law, fixed, options, **solve_kw)
+    _feas.publish([*base_conf, *_feas.HARD_CONFLICT])
     t_solve = time.perf_counter() - t0
     feas = getattr(design, "hard_feasibility", None)
     if feas is not None:
@@ -241,7 +267,8 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     out(f"LAST STAGE: fixed vertices off their constant by > 0.02 m: "
         f"{sum(1 for d in off if d > 0.02)} of {len(off)} (worst {max(off, default=0.0):.3f} m)")
     report = {"cut": cut, "cl": cl_cut, "followers": frep, "join": jrep,
-              "dropped": dropped, "follow": grep, "cs": cs, "fixed": fixed,
+              "dropped": dropped, "follow": grep, "cs": cs, "cs_full": cs_full,
+              "fixed": fixed, "strips": strips, "pin_yield": _carry_pin_yield(base_solution, pm_base, pm),
               "design": design,
               "wall_s": {"cut": round(t_cut, 2), "derive": round(t_derive, 2),
                          "solve": round(t_solve, 2)}}

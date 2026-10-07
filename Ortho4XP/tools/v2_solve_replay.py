@@ -959,7 +959,7 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
 
 
 def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
-               strip_rep=None) -> dict:
+               strip_rep=None, late_cut: dict | None = None) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
@@ -993,6 +993,9 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=strip_rep)
     pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
+    if late_cut is not None:
+        from auto_patch_v2.pipeline.publication import gap_pieces
+        pub["gap_pieces"] = gap_pieces(late_cut)
     # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is
     # withdrawn under (road cap governs) — the census reads the same set
     from auto_patch_v2.law.tables import airside_stage_roles as _asr
@@ -1871,6 +1874,12 @@ def rim_diagnostic_lines(pm) -> list[str]:
             if n.startswith(("rim stations", "rim vs the shells", "rim diagnostics"))]
 
 
+def _hard_conflict_now() -> list:
+    """The solve's published relaxation records (``solve/feasibility``)."""
+    from auto_patch_v2.solve.feasibility import HARD_CONFLICT
+    return [dict(r) for r in HARD_CONFLICT]
+
+
 def replay_problem(pkl: Path, resume: str, drop: list[str],
                    design_weights: dict | None = None,
                    chord_fill: tuple[str, ...] = (),
@@ -2264,7 +2273,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     if late_from is not None:
         with open(late_from, "rb") as _fh:
             _base = pickle.load(_fh)
-        _late = {"base": {"pm": _base["pm"], "z": _base["z"]},
+        _late = {"base": {"pm": _base["pm"], "z": _base["z"],
+                          "pin_yield": _base.get("pin_yield", ()),
+                          "hard_conflict": _base.get("hard_conflict", ())},
                  "solve_kw": {"options": Options(verbose=verbose), "size_out": size,
                               "method": method}}
         del _base
@@ -2311,6 +2322,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         # build's own ``pipeline/late_stage.run_late_stage``
         sol, _lrep = prob["late"]["sol"], prob["late"]["rep"]
         rep, _late_fixed, _grep = _lrep["design"], dict(_lrep["fixed"]), _lrep["follow"]
+        # verify and the sidecar read the full map's WHOLE set (the standing
+        # rows are law inputs); ``--solved-out`` keeps the stage's own
+        _cs_late, cs = cs, _lrep["cs_full"]
         _to_ll_g = airport.frame.transformers()[1]
         _seen: dict = {}
         for _c in sorted(_grep["conflicts"], key=lambda c: -c["gap_m"]):
@@ -2343,7 +2357,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             _kw_y = {"withheld": airside_joins(pm, law), "z": sol.z or None}
         except ImportError:
             pass
-        pm = with_pin_yield(pm, rep.pin_yield,
+        pm = with_pin_yield(pm, [*(prob["late"]["rep"]["pin_yield"] if late_from is not None
+                                   else ()), *rep.pin_yield],
                             float(law.tables.emit.materiality.elevation_m),
                             **_kw_y)
         if pm.road_join_yield:
@@ -2473,7 +2488,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             # spec §53 (18): the LAST STAGE's own set (rows with no unknown
             # dropped, the follow rows added) is what a later why re-solves,
             # with the earlier stages' levels as constants (``late_fixed``)
-            cs_w = cs
+            cs_w = _cs_late
         if solved_out is not None:
             # the solved set (pm, stage, rows, z) for a later ``--why-from``
             # (the duals solve is a second full LP; kept out of the timed arm)
@@ -2486,6 +2501,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 # solve, where they are still the arm's own.
                 pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm_w,
                              "cs": cs_w, "z": z,
+                             "pin_yield": list(getattr(rep, "pin_yield", ()) or ()),
+                             "hard_conflict": _hard_conflict_now(),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
                                  "late_wall_s": _lrep["wall_s"]}
@@ -2509,7 +2526,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             np.save(z_out, z)
         if emit_dir is not None:
             result.update(emit_patch(icao, pm, law, airport, cs, sol, emit_dir,
-                                     strips=strips, strip_rep=rep.jetway_strip))
+                                     strips=strips, strip_rep=rep.jetway_strip,
+                                     late_cut=(prob["late"]["rep"]["cut"]
+                                               if late_from is not None else None)))
     if json_out is not None:
         json_out.write_text(json.dumps(result, indent=1, default=str))
     return 0

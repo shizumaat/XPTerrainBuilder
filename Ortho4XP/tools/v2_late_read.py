@@ -80,7 +80,13 @@ class Late:
         self.fixed, self.jrep = late_fixed(self.pb, self.zb, self.pa, self.free, ident)
         self.jrep["rim"] = late_rim_levels(self.pb, self.zb, self.pa, self.fixed,
                                            self.free, ident * 0.02)
-        self.rows, self.grep = gap_follow_rows(self.pa, self.law, self.fixed)
+        rows, self.grep = gap_follow_rows(self.pa, self.law, self.fixed)
+        from auto_patch_v2.constraints.gap_follow import RULING as _FOLLOW
+        self.rows = [r for r in rows if r.source.ruling == _FOLLOW]
+        self.lot_rows = [r for r in rows if r.source.ruling != _FOLLOW]
+        # spec §55: the cut's own report (parts, knives, the stations the
+        # floors merged) travels in the arm's pickle
+        self.cut = a.get("late_cut") or {}
         self.faces_of: dict[int, set] = collections.defaultdict(set)
         for f in self.pa.faces.values():
             for v in face_vertex_set(self.pa, f):
@@ -161,33 +167,111 @@ def read_join(L: Late, top: int, out=print) -> dict:
     return res
 
 
-def read_follow(L: Late, out=print) -> dict:
-    """The follow rows the solved surface misses, by the neighbour's kind."""
+def merged_stations(L: Late) -> list[dict]:
+    """The stations the cut's floors merged away (spec §55 (2) 3), each with
+    its piece: the ONLY stations a follow row may lawfully miss."""
+    return [{**m, "piece": pc["ref"]} for pc in L.cut.get("pieces", ())
+            for m in pc.get("conflicts_merged", ())]
+
+
+def read_follow(L: Late, top: int = 20, out=print) -> dict:
+    """The follow rows the solved surface misses, by the neighbour's kind,
+    each classed ON A MERGED STATION (named: the station's ring within the
+    follow reach + one station spacing of the vertex) or UNMERGED (a defect
+    of the cut, spec §55 (7)); then the lot rows (§55 (3) 4)."""
+    import math
+    from auto_patch_v2.constraints.gap_follow import reach_m
+
     def kind(n: str) -> str:
         return ("pad" if n.startswith("building") else
                 "apron" if n.startswith("apron") else "other")
+    near = reach_m(L.law) + float(L.law.tables.emit.chords.station_spacing_m)
+    by_ring: dict = collections.defaultdict(list)
+    for m in merged_stations(L):
+        by_ring[m["ring"]].append(m)
     miss: collections.Counter = collections.Counter()
     tot: collections.Counter = collections.Counter()
     cv = {c["v"] for c in L.grep["conflicts"]}
-    worst = (0.0, None, "")
+    named, unmerged = [], []
     for r in L.rows:
         v = r.terms[0][0]
         z = float(L.za[v])
         over = max(z - r.hi, r.lo - z)
         nb = r.source.inputs[1] if z > r.hi else r.source.inputs[0]
         tot[kind(nb)] += 1
-        if over > TOL_M:
-            miss[kind(nb)] += 1
-            miss["at a conflict vertex"] += int(v in cv)
-            if over > worst[0]:
-                worst = (over, v, nb)
-    n = sum(v for k, v in miss.items() if k != "at a conflict vertex")
+        if over <= TOL_M:
+            continue
+        miss[kind(nb)] += 1
+        miss["at a conflict vertex"] += int(v in cv)
+        xy = L.pa.vertices[v].xy
+        st = min((m for n in set(r.source.inputs) for m in by_ring.get(n, ())),
+                 key=lambda m: math.dist(m["xy"], xy), default=None)
+        rec = (over, v, nb, st)
+        (named if st is not None and math.dist(st["xy"], xy) <= near else unmerged).append(rec)
+    n = len(named) + len(unmerged)
     out(f"[{L.icao}] FOLLOW rows {len(L.rows)}; missed by > {TOL_M} m: {n} "
-        f"{dict(miss)}; conflict vertices {len(cv)}"
-        + (f"; worst {worst[0]:.2f} m at v{worst[1]} {L.ll(worst[1])} vs {worst[2]}"
-           if worst[1] is not None else ""))
+        f"{dict(miss)}; conflict vertices {len(cv)}; on a MERGED station {len(named)}, "
+        f"on an UNMERGED station {len(unmerged)} (the bar: 0)")
+    for label, recs in (("UNMERGED", unmerged), ("merged", named)):
+        for over, v, nb, st in sorted(recs, key=lambda t: -t[0])[:top]:
+            faces = [x for x in L.names(v) if "gap:" in x or "small_roads" in x or "big_roads" in x]
+            out(f"    {label} {over:.2f} m at v{v} {L.ll(v)} z {float(L.za[v]):.2f} vs {nb}"
+                f" on {faces[:2]}"
+                + (f"; station {st['ring']} {st['z']:.2f} of {st['piece']} group "
+                   f"{st['group']} -> {st.get('into_group')}" if label == "merged" else ""))
+    lot_miss = []
+    for r in L.lot_rows:
+        v = r.terms[0][0]
+        over = max(float(L.za[v]) - r.hi, r.lo - float(L.za[v]))
+        if over > TOL_M:
+            lot_miss.append((over, v, r.source.inputs[0]))
+    out(f"[{L.icao}] LOT rows {len(L.lot_rows)}; missed by > {TOL_M} m: {len(lot_miss)}"
+        + "".join(f"\n    {o:.2f} m at v{v} {L.ll(v)} vs {nb} on "
+                  f"{[x for x in L.names(v) if 'gap:' in x][:2]}"
+                  for o, v, nb in sorted(lot_miss, reverse=True)[:top]))
     return {"rows": len(L.rows), "missed": n, "by_kind": dict(miss),
-            "conflict_vertices": len(cv)}
+            "conflict_vertices": len(cv), "missed_merged": len(named),
+            "missed_unmerged": len(unmerged), "lot_rows": len(L.lot_rows),
+            "lot_missed": len(lot_miss)}
+
+
+def read_knives(L: Late, top: int = 20, out=print) -> dict:
+    """THE KNIVES (spec §55 (2) 4): every two parts of one piece whose rims
+    stand within the gap-joint horizon of each other without touching — the
+    declared steps — with the worst level difference rim to rim."""
+    import shapely
+    from shapely.strtree import STRtree
+    from auto_patch_v2.model.planar import face_vertex_set, is_gap_ref
+    tol = float(L.law.tables.emit.instrument.step_contact_tol_m)
+    parts: dict = collections.defaultdict(set)
+    for f in L.pa.faces.values():
+        if is_gap_ref(f.ref) and "/" in str(f.ref):
+            parts[str(f.ref).split("#")[0]] |= set(face_vertex_set(L.pa, f))
+    refs = sorted(parts)
+    V = L.pa.vertices
+    pts = {r: shapely.multipoints([V[v].xy for v in sorted(parts[r])]) for r in refs}
+    tree = STRtree([pts[r] for r in refs])
+    pairs: dict = {}
+    for i, r in enumerate(refs):
+        for k in tree.query(pts[r], predicate="dwithin", distance=tol).tolist():
+            q = refs[k]
+            if k <= i or q.split("/")[0] != r.split("/")[0] or parts[r] & parts[q]:
+                continue
+            a = sorted(parts[r])
+            b = sorted(parts[q])
+            ta = STRtree(shapely.points([V[v].xy for v in b]))
+            ia, ib = ta.query_nearest(shapely.points([V[v].xy for v in a]),
+                                      max_distance=tol)
+            best = max(((abs(float(L.za[a[x]]) - float(L.za[b[y]])), a[x])
+                        for x, y in zip(ia.tolist(), ib.tolist())), default=None)
+            if best is not None:
+                pairs[(r, q)] = best
+    out(f"[{L.icao}] KNIVES (the cut reports {L.cut.get('knives', '?')}): {len(pairs)} part "
+        f"pairs within {tol:.1f} m; worst rim-to-rim level difference "
+        f"{max((b[0] for b in pairs.values()), default=0.0):.2f} m")
+    for (r, q), (dz, v) in sorted(pairs.items(), key=lambda kv: -kv[1][0])[:top]:
+        out(f"    {r} | {q}: {dz:.2f} m at {L.ll(v)}")
+    return {"pairs": len(pairs), "worst_m": max((b[0] for b in pairs.values()), default=0.0)}
 
 
 def standoff_pairs(L: Late) -> dict:
@@ -200,8 +284,7 @@ def standoff_pairs(L: Late) -> dict:
     from shapely.strtree import STRtree
     from auto_patch_v2.classify.gap_mint import standoff_m
     from auto_patch_v2.law.tables import role_cap
-    from auto_patch_v2.model.planar import (face_edge_ids, face_vertex_set,
-                                            is_gap_ref, is_osm_ribbon_ref)
+    from auto_patch_v2.model.planar import face_edge_ids, face_vertex_set, is_gap_ref
     V, za = L.pa.vertices, L.za
     gap = [f for f in L.pa.faces.values() if is_gap_ref(f.ref)]
     if not gap:
@@ -210,8 +293,9 @@ def standoff_pairs(L: Late) -> dict:
     cap = float(role_cap(L.law, gap[0].role).longitudinal)
     step = cap * stand
     segs, segz, segref = [], [], []
+    follower = {f.id for f in L.follower_faces()}
     for f in L.pa.faces.values():
-        if is_gap_ref(f.ref) or (f.role == "service_road" and is_osm_ribbon_ref(f.ref)):
+        if is_gap_ref(f.ref) or f.id in follower:
             continue
         for e in face_edge_ids(f):
             ed = L.pa.edges[e]
@@ -254,7 +338,10 @@ def read_standoff(L: Late, top: int, out=print) -> dict:
         return {}
     worst, area, stand, cap, step = (sp[k] for k in ("worst", "area", "stand", "cap", "step"))
     over = {k: w for k, w in worst.items() if w[0] > step}
-    big = sum(1 for (ref, _n) in over if area[ref] >= 1000.0)
+    piece_m2: dict = collections.defaultdict(float)     # a part's PIECE (spec §55)
+    for ref, m2 in area.items():
+        piece_m2[ref.split("/")[0]] += m2
+    big = sum(1 for (ref, _n) in over if piece_m2[ref.split("/")[0]] >= 1000.0)
     out(f"[{L.icao}] STAND-OFF ({stand:.2f} m, cap {100 * cap:.0f} %): stepping pairs "
         f"{len(over)} of {len(worst)}; on pieces >= 1,000 m2: {big}")
     for (ref, nb), w in sorted(over.items(), key=lambda kv: -kv[1][0])[:top]:
@@ -409,8 +496,8 @@ def main(argv: list[str] | None = None) -> int:
             a.json.write_text(json.dumps(res, indent=1, default=str),
                               encoding="utf-8", newline="\n")
         return 0
-    res = {"join": read_join(L, a.top), "follow": read_follow(L),
-           "standoff": read_standoff(L, a.top),
+    res = {"join": read_join(L, a.top), "follow": read_follow(L, a.top),
+           "standoff": read_standoff(L, a.top), "knives": read_knives(L, a.top),
            "ribbons": read_ribbons(L, a.top, a.ribbon)}
     if a.patches:
         res["groups"] = read_groups(

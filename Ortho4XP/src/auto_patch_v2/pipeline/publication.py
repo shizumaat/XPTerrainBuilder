@@ -138,7 +138,7 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from ..planar.cluster import deck_shades as _deck_shades
 
-__all__ = ["publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
+__all__ = ["gap_pieces", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
 
 #: 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
@@ -782,6 +782,27 @@ def taxi_route_pairs(planar: PlanarMap, law: Law, airport: Airport,
         elif abs(pp.budget - pp.chord_bound_m) > tol:
             seen.add(key)
             out.append([ll[pp.a], ll[pp.b], round(pp.budget, 6), round(pp.dist, 4)])
+    return out
+
+
+def gap_pieces(cut: _t.Mapping[str, _t.Any]) -> list[dict[str, _t.Any]]:
+    """Sidecar ``gap_pieces`` (spec §55 (4)): one record per PART of a cut
+    gap piece — ``ref, kind, m2``, the piece's level ``groups`` and its
+    ``stations`` by class, and the stations the floors merged
+    (``conflicts_merged``) — from ``pipeline/late_stage``'s cut report.
+    Published only by a build that ran the last stage; an airport with no
+    gap piece carries no such key."""
+    out: list[dict[str, _t.Any]] = []
+    for pc in cut.get("pieces", ()):
+        for p in pc["parts"]:
+            out.append({"ref": p["ref"], "kind": p["kind"], "m2": p["m2"],
+                        "piece": pc["ref"], "groups": pc["groups"],
+                        "knives": pc["knives"], "stations": dict(pc["stations"]),
+                        "conflicts_merged": [
+                            {"ring": m["ring"], "cls": m["cls"], "z": m["z"],
+                             "xy": list(m["xy"]), "group": m["group"],
+                             "into_group": m.get("into_group")}
+                            for m in pc["conflicts_merged"]]})
     return out
 
 

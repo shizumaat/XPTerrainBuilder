@@ -237,3 +237,34 @@ def test_stations_are_standing_rings_within_reach_at_the_pieces_cap():
     assert {s.cap for s in st} == {cap}
     assert {s.cls for s in st if s.ring == "apron:pav1"} == {"apron"}
     assert {s.cls for s in st if s.ring.endswith("-9")} == {"road"}
+
+
+def test_the_build_enters_the_last_stage_once_and_only_with_a_gap_piece():
+    """Spec §55 (9) THE NO-OP IS STRUCTURAL: ``pipeline/build.build`` calls
+    ``run_late_stage`` at ONE site, under the one condition that the
+    classification carried a gap piece (``gap_free(cl)`` is not ``None``) —
+    and ``gap_free`` of a classification without one is ``None``."""
+    import ast
+    import inspect
+
+    import importlib
+    _build = importlib.import_module("auto_patch_v2.pipeline.build")
+    tree = ast.parse(inspect.getsource(_build))
+    calls, guarded = [], []
+
+    def walk(node, under):
+        for child in ast.iter_child_nodes(node):
+            u = under
+            if isinstance(child, ast.If) and "cl_gaps is not None" in ast.unparse(child.test):
+                u = True
+            if isinstance(child, ast.Call) and getattr(child.func, "id", "") == "run_late_stage":
+                calls.append(child)
+                guarded.append(u)
+            walk(child, u)
+    walk(tree, False)
+    assert len(calls) == 1 and guarded == [True]
+    src = inspect.getsource(_build.build)
+    assert "cl_gaps, _cl_base = None, gap_free(cl)" in src
+    plain = types.SimpleNamespace(cells=(
+        Cell(0, "apron", "pav1", ((0, 0), (1, 0), (1, 1)), (), None, None, "airside", "apron", {}),))
+    assert som.gap_free(plain) is None

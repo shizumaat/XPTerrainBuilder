@@ -74,6 +74,7 @@ class Late:
         self.pa, self.za, self.pb, self.zb = a["pm"], a["z"], b["pm"], b["z"]
         self.cs = a["cs"]
         self.to_xy, self.to_ll = a["airport"].frame.transformers()
+        self.dem = a["airport"].dem
         self.free, self.frep = late_followers(self.pa)
         ident = float(self.law.tables.emit.identity.min_distinct_spacing_m)
         self.fixed, self.jrep = late_fixed(self.pb, self.zb, self.pa, self.free, ident)
@@ -189,9 +190,12 @@ def read_follow(L: Late, out=print) -> dict:
             "conflict_vertices": len(cv)}
 
 
-def read_standoff(L: Late, top: int, out=print) -> dict:
+def standoff_pairs(L: Late) -> dict:
     """Per (piece, standing neighbour): the worst level difference across
-    the stand-off beyond the piece's cap over the distance."""
+    the stand-off beyond the piece's cap over the distance —
+    ``{"worst": {(piece, neighbour): (excess, d, ll, z_piece, z_neighbour)},
+    "area": {piece: m2}, "stand": m, "cap": slope, "step": m}`` (a pair
+    STEPS when its excess is over ``step``); empty with no gap piece."""
     import shapely
     from shapely.strtree import STRtree
     from auto_patch_v2.classify.gap_mint import standoff_m
@@ -201,7 +205,6 @@ def read_standoff(L: Late, top: int, out=print) -> dict:
     V, za = L.pa.vertices, L.za
     gap = [f for f in L.pa.faces.values() if is_gap_ref(f.ref)]
     if not gap:
-        out(f"[{L.icao}] STAND-OFF: no gap piece")
         return {}
     stand = standoff_m(L.law)
     cap = float(role_cap(L.law, gap[0].role).longitudinal)
@@ -240,6 +243,16 @@ def read_standoff(L: Late, top: int, out=print) -> dict:
                 key = (ref, segref[k])
                 if key not in worst or dz > worst[key][0]:
                     worst[key] = (dz, d, L.ll(v), float(za[v]), zs)
+    return {"worst": worst, "area": area, "stand": stand, "cap": cap, "step": step}
+
+
+def read_standoff(L: Late, top: int, out=print) -> dict:
+    """The stepping pairs of ``standoff_pairs``, worst first."""
+    sp = standoff_pairs(L)
+    if not sp:
+        out(f"[{L.icao}] STAND-OFF: no gap piece")
+        return {}
+    worst, area, stand, cap, step = (sp[k] for k in ("worst", "area", "stand", "cap", "step"))
     over = {k: w for k, w in worst.items() if w[0] > step}
     big = sum(1 for (ref, _n) in over if area[ref] >= 1000.0)
     out(f"[{L.icao}] STAND-OFF ({stand:.2f} m, cap {100 * cap:.0f} %): stepping pairs "
@@ -380,8 +393,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ribbon", action="append", default=[], metavar="REF")
     ap.add_argument("--top", type=int, default=20)
     ap.add_argument("--json", type=Path)
+    ap.add_argument("--site", nargs="+", action="append", default=[],
+                    metavar="NAME LAT LON [TO_LAT TO_LON]",
+                    help="read a PLACE instead of the bars (v2_late_site.py): the "
+                         "face and piece at the point, its neighbours and their "
+                         "levels, and sections on both arms against the DEM")
+    ap.add_argument("--half", type=float, default=40.0, help="section half length, m")
+    ap.add_argument("--step", type=float, default=1.0, help="section sample step, m")
     a = ap.parse_args(argv)
     L = Late(a.base, a.arm)
+    if a.site:
+        from v2_late_site import read_sites
+        res = read_sites(L, a.site, a.half, a.step)
+        if a.json:
+            a.json.write_text(json.dumps(res, indent=1, default=str),
+                              encoding="utf-8", newline="\n")
+        return 0
     res = {"join": read_join(L, a.top), "follow": read_follow(L),
            "standoff": read_standoff(L, a.top),
            "ribbons": read_ribbons(L, a.top, a.ribbon)}

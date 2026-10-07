@@ -205,12 +205,27 @@ Statements:
 
 ## 5. No-op and determinism
 
-See spec §53 (18) for the table (six airports through `build_airport.py` on
-the branch with the gap stage not enabled; HECA ARM replay at `--workers 1`
-against the default).
+NO-OP AND DETERMINISM (lane `gaps4`, tree `b4f3f99d` = the branch with main `6f06e41b` merged; `tools/harness/build_airport.py`, tags `g4b_<ICAO>`, write guard armed, nothing blocked; the gap stage is not enabled in a build):
+
+| airport | body sha | main's | |
+|---|---|---|---|
+| CYXY | `2a00c361ffc2` | `2a00c361ffc2` | equal |
+| SPJC | `9d611f11e04b` | `9d611f11e04b` | equal |
+| KCLT | `795da9629004` | `795da9629004` | equal |
+| KASE | `738c2a8ceb64` | `738c2a8ceb64` | equal |
+| NLWF | `84be89f8b7bc` | `84be89f8b7bc` | equal |
+| OTHH | `88794a1d264b` | `88794a1d264b` | equal |
+| HECA (sheet-free replay, `gaps3/BASE`) | `09847984ac94` | `09847984ac94` | equal |
+| HECA ARM replay, default pool (8 workers) | `21ac4385b6a8` | = `gaps3/ARM` (solved on `5e7e5144`) | equal |
+| HECA ARM replay, `--workers 1` | `21ac4385b6a8` | = the default | equal |
+
+(CYXY, SPJC, KCLT, KASE and NLWF were also built on the tree before main `6f06e41b` was merged, tags `g4_<ICAO>`: the same five shas.)
 
 ## 6. Found, not fixed
 
+- `tests/test_elevation_gap_census_providers.py::test_providers_mode_reads_the_engine_ladder_offline`
+  failed once in the `-n auto` suite while a KCLT build held every core and
+  passed alone (3 passed) — load-sensitive, not this branch's.
 - `tools/v2_late_read.py` has no twin of its own (its `--site` extension has
   one: `tests/test_v2_late_site.py`).
 - The census's airside adjudicated count falls by 56 in the ARM with no

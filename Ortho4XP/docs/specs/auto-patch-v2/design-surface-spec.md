@@ -18379,3 +18379,18 @@ THE OWNER SITES ON THE ARM (reader: `tools/v2_late_read.py --site`, `tools/v2_la
 
 THE HELD LEAD `gap:8 | route3` 3.91 m (30.1152588, 31.4106360) IS CONFIRMED AND IS THE PIECE SOUTH OF THE ROAD, NOT THE OWNER'S LOT: `gap:8` has no welded neighbour and `route3` runs 4–6 m under its other rim. WITNESSES (findings §4): no polygon of the pack or of OSM separates the three sites; #430 and #292 are one piece with no neck at 2, 5 or 10 m; `gap:7` is welded to `apron:pav37` over 112 m (the 04q "fringe" reading was not reproduced), so RULINGS 06a's "only fixed neighbour is a road" does not select the owner's lot as the map stands; `gap:0` satisfies every 04q clause at once and separates #358 only after a division of the piece.
 
+NO-OP AND DETERMINISM (lane `gaps4`, tree `b4f3f99d` = the branch with main `6f06e41b` merged; `tools/harness/build_airport.py`, tags `g4b_<ICAO>`, write guard armed, nothing blocked; the gap stage is not enabled in a build):
+
+| airport | body sha | main's | |
+|---|---|---|---|
+| CYXY | `2a00c361ffc2` | `2a00c361ffc2` | equal |
+| SPJC | `9d611f11e04b` | `9d611f11e04b` | equal |
+| KCLT | `795da9629004` | `795da9629004` | equal |
+| KASE | `738c2a8ceb64` | `738c2a8ceb64` | equal |
+| NLWF | `84be89f8b7bc` | `84be89f8b7bc` | equal |
+| OTHH | `88794a1d264b` | `88794a1d264b` | equal |
+| HECA (sheet-free replay, `gaps3/BASE`) | `09847984ac94` | `09847984ac94` | equal |
+| HECA ARM replay, default pool (8 workers) | `21ac4385b6a8` | = `gaps3/ARM` (solved on `5e7e5144`) | equal |
+| HECA ARM replay, `--workers 1` | `21ac4385b6a8` | = the default | equal |
+
+(CYXY, SPJC, KCLT, KASE and NLWF were also built on the tree before main `6f06e41b` was merged, tags `g4_<ICAO>`: the same five shas.)

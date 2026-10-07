@@ -1562,8 +1562,12 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
                rows_out: Optional[Path] = None,
                want_sites: bool = False,
                site_visibility_m: Optional[float] = None,
-               sites_out: Optional[Path] = None) -> dict:
+               sites_out: Optional[Path] = None,
+               want_class: bool = False) -> dict:
     """The census of ONE patch.  Returns the report dict; prints nothing.
+
+    ``want_class`` adds ``row_classes`` — every adjudicated row bucketed
+    by what its two ways are (``census_class.class_table``).
 
     ``frame`` selects the AXIS FRAME — see :func:`_axis_frame_override`.
     ``rows_out`` additionally itemises every law-true row to that path
@@ -1716,8 +1720,18 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
             "rows": [row_record(cg, key, r) for key, r in all_rows],
         }, indent=1))
 
+    row_classes = row_class_floor = None
+    if want_class:
+        cc = _harness_module("census_class",
+                             ROOT / "tools" / "harness" / "census_class.py")
+        row_class_floor = cg.late_stage_floor_m(
+            cg.law_context_from_sidecar(osm, announce=False).get("late_stage"))
+        row_classes = cc.class_table(cg, all_rows, row_class_floor)
+
     report = {
         "patch": str(osm),
+        **({"row_classes": row_classes, "row_class_floor_m": row_class_floor}
+           if want_class else {}),
         # §31 (6): the reading rule, carried in the report so a JSON
         # consumer reads the same three buckets the printed block shows.
         "cockpit": cockpit,
@@ -2539,6 +2553,14 @@ def main(argv=None) -> int:
                          "magnitude-sorted row order, so this file joins "
                          "--rows-json by position).  With several patches "
                          "the dumps are suffixed per patch")
+    ap.add_argument("--class", dest="row_class", action="store_true",
+                    help="bucket every adjudicated row by what its two ways "
+                         "are — standing, a mapped-road ribbon, a gap part "
+                         "(inside one part / across a knife / a breakline) — "
+                         "and, in the grade families, against the last "
+                         "stage's floor (the sidecar's late_stage.floor_m); "
+                         "with several patches the first is the base of the "
+                         "per-family delta (census_class.py)")
     ap.add_argument("--zone-split", action="store_true",
                     help="also bucket the WITHIN-SHAPE rows by FAN-RAMP "
                          "ZONE membership (on a declared ramp piece / "
@@ -2583,6 +2605,7 @@ def main(argv=None) -> int:
                             else float(args.site_visibility)),
         "rows_json": args.rows_json is not None,
         "sites_json": args.sites_json is not None,
+        "class": bool(args.row_class),
     }
     use_cache = not args.no_cache and cache_enabled()
     reports = []
@@ -2636,7 +2659,8 @@ def main(argv=None) -> int:
                                      band_edges=band_edges, frame=args.frame,
                                      rows_out=rows_out, want_sites=args.sites,
                                      site_visibility_m=args.site_visibility,
-                                     sites_out=sites_out)
+                                     sites_out=sites_out,
+                                     want_class=args.row_class)
             except FileNotFoundError as exc:
                 raise SystemExit(
                     f"REFUSING: {exc}\n"
@@ -2670,6 +2694,10 @@ def main(argv=None) -> int:
             print_report(rep, args.top, cg)
     if not args.quiet:
         print_compare(reports)
+    if args.row_class:
+        cc = _harness_module("census_class",
+                             ROOT / "tools" / "harness" / "census_class.py")
+        print("\n".join(cc.format_class_tables(reports)))
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps(

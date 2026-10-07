@@ -474,9 +474,13 @@ def within_shape(p: Patch, *, out: _t.Callable[[str], None] = print,
                     # instrument reading a curved ramp as a cliff.
                     d = max(d, ring_route_m(sh.xy, i, j))
                 allowance = pair_cap * d + q
-                if joints:
-                    allowance += joints.allowance(sh.xy[i], sh.xy[j])
                 if de <= allowance:
+                    continue
+                # a declared joint only WIDENS the allowance: read it for a
+                # pair already over its cap, never for every pair (a cut gap
+                # piece's shapes carry ~10 M lawful chords under 180 joints —
+                # MEASURED at HECA, 510 of verify's 528 s)
+                if joints and de <= allowance + joints.allowance(sh.xy[i], sh.xy[j]):
                     continue
                 if lift is not None and not transverse:
                     continue                           # §34 (9): LIFTED
@@ -712,7 +716,7 @@ def taxi_box(p: Patch) -> list[Row]:
             # vs 30 (this reader) on seven lawful crowned pairs.
             dz = sh.z[pos[a]] - sh.z[pos[b]]
             de = abs(dz - _offset(drops, a, b, dz))
-            if de <= bound + q + (joints.allowance(xy[a], xy[b]) if joints else 0.0):
+            if de <= bound + q or (joints and de <= bound + q + joints.allowance(xy[a], xy[b])):
                 continue
             cap = bound / d
             out.append(row(FAMILY_TAXI_BOX, (host.role, host.role), p.side(host.role), de,

@@ -6357,15 +6357,57 @@ def _joint_segment_carried(carried_flags, joint_index: int,
     return bool(flags[segment_index]) and bool(flags[segment_index + 1])
 
 
+class _JointSegments:
+    """Every declared joint's segments with their bounding boxes — the
+    CANDIDATE FILTER of :func:`_terrace_step_allowance`.  A chord can cross
+    (or touch, ``_segments_cross``'s 1e-9 envelope) only a segment whose
+    box meets its own, so the exact predicate runs on those alone.  Built
+    once per joint list: a cut gap piece (spec §55) brings ~180 joints /
+    ~3,100 segments under shapes of thousands of vertices, and the plain
+    joint x segment walk per pair did not finish (MEASURED at HECA: no
+    census output in 30 min)."""
+
+    #: metres: wider than ``_segments_cross``'s own touching envelope
+    PAD_M = 1e-6
+
+    def __init__(self, joints) -> None:
+        import numpy as np
+        seg = [(j, k, pts[k], pts[k + 1]) for j, (pts, _step) in enumerate(joints)
+               for k in range(len(pts) - 1)]
+        self.joints = joints
+        self.seg = [(j, a, b) for j, _k, a, b in seg]
+        ax = np.array([[a[0], a[1], b[0], b[1]] for _j, _k, a, b in seg],
+                      dtype=float).reshape(-1, 4)
+        self.x_lo = np.minimum(ax[:, 0], ax[:, 2]) - self.PAD_M
+        self.x_hi = np.maximum(ax[:, 0], ax[:, 2]) + self.PAD_M
+        self.y_lo = np.minimum(ax[:, 1], ax[:, 3]) - self.PAD_M
+        self.y_hi = np.maximum(ax[:, 1], ax[:, 3]) + self.PAD_M
+
+    def crossed(self, p, q) -> list:
+        """The joints the chord ``p``-``q`` crosses, ascending, each once."""
+        near = ((self.x_lo <= max(p[0], q[0])) & (self.x_hi >= min(p[0], q[0]))
+                & (self.y_lo <= max(p[1], q[1])) & (self.y_hi >= min(p[1], q[1])))
+        hit: list = []
+        for i in near.nonzero()[0].tolist():
+            j, a, b = self.seg[i]
+            if (not hit or hit[-1] != j) and _segments_cross(p, q, a, b):
+                hit.append(j)
+        return hit
+
+
+#: the one joint list a census run prices (identity-keyed, as
+#: ``auto_patch_v2.verify.steps._INDEX`` is)
+_JOINT_SEGMENTS: dict = {}
+
+
 def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
     """Σ of the declared step heights of every joint this chord crosses."""
+    cached = _JOINT_SEGMENTS.get("index")
+    if cached is None or cached.joints is not terrace_joints_m:
+        cached = _JOINT_SEGMENTS["index"] = _JointSegments(terrace_joints_m)
     total = 0.0
-    p, q = (xa, ya), (xb, yb)
-    for (pts, step) in terrace_joints_m:
-        for k in range(len(pts) - 1):
-            if _segments_cross(p, q, pts[k], pts[k + 1]):
-                total += step
-                break
+    for j in cached.crossed((xa, ya), (xb, yb)):
+        total += terrace_joints_m[j][1]
     return total
 
 
@@ -11297,6 +11339,13 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # here so "did this patch ship with vertices outside their band?" is
     # answerable from the artifacts instead of only from a pytest run.
     "band_excess",
+    # spec §55 (4) THE GAP PIECES' PARTS (owner RULINGS 2026-10-04u / 06d,
+    # ``pipeline/publication.gap_pieces``): per part of a cut gap piece its
+    # ref, kind, area, level groups, stations by class and the stations the
+    # floors merged.  EVIDENCE: the census judges the emitted parts by the
+    # ordinary families; a part-aware reader names a merged-sliver step
+    # from this record instead of re-deriving the cut.
+    "gap_pieces",
     # (``basin_facilities`` was here — an EVIDENCE key nothing read —
     # until the tunnel-trench declared-step law made it LAW INPUT; it now
     # lives in ``SIDECAR_LAW_KEYS`` above.  Its own spec is

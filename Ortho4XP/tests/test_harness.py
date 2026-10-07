@@ -11255,6 +11255,42 @@ def test_a_pair_across_a_declared_knife_is_not_a_fallback_row(cg, tmp_path):
     assert len(fo2["pavement_over_road_cap"]) == 2
 
 
+def test_the_joint_allowance_index_reads_what_the_plain_walk_reads(cg):
+    """``_terrace_step_allowance`` prices a chord against the joints through
+    a bounding-box candidate filter (``_JointSegments``).  The LAW is the
+    plain walk — every joint, every segment, ``_segments_cross`` — and the
+    filter may never change a sum: random chords over crossing, touching,
+    collinear and far joints, both ways."""
+    import random
+    rng = random.Random(55)
+
+    def plain(joints, xa, ya, xb, yb):
+        total = 0.0
+        for pts, step in joints:
+            if any(cg._segments_cross((xa, ya), (xb, yb), pts[k], pts[k + 1])
+                   for k in range(len(pts) - 1)):
+                total += step
+        return total
+
+    joints = [([(rng.uniform(0, 200), rng.uniform(0, 200)) for _ in range(rng.randint(2, 9))],
+               rng.choice([0.0, 0.25, 1.5, 7.94])) for _ in range(60)]
+    joints += [([(50.0, 0.0), (50.0, 100.0), (50.0, 200.0)], 2.0),      # axis-parallel
+               ([(0.0, 80.0), (200.0, 80.0)], 3.0)]
+    chords = [(rng.uniform(-20, 220), rng.uniform(-20, 220),
+               rng.uniform(-20, 220), rng.uniform(-20, 220)) for _ in range(1500)]
+    chords += [(50.0, 10.0, 50.0, 90.0),          # collinear with a joint
+               (40.0, 100.0, 50.0, 100.0),        # ends ON a joint vertex
+               (0.0, 80.0, 50.0, 80.0),           # along one, touching another
+               (300.0, 300.0, 310.0, 310.0)]      # nowhere near
+    got = [cg._terrace_step_allowance(joints, *c) for c in chords]
+    assert got == [plain(joints, *c) for c in chords]
+    assert sum(1 for g in got if g > 0.0) > 500 and got[-1] == 0.0
+    # another joint list is another index (identity, never a stale read)
+    other = [([(0.0, 0.0), (10.0, 10.0)], 9.0)]
+    assert cg._terrace_step_allowance(other, 0.0, 10.0, 10.0, 0.0) == 9.0
+    assert cg._terrace_step_allowance(joints, *chords[0]) == got[0]
+
+
 def test_pavement_over_road_cap_is_registered_and_reads_the_law(cg):
     from auto_patch_v2.law import tables as _T
     law = _T.load_default()

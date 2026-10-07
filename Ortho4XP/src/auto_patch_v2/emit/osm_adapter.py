@@ -192,6 +192,12 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "deck_shades",  # issue #14 (``welded-deck-spec.md`` §3, additive, informational): the welded decks the load read (``airport/deck_signature.welded_deck``), each member's pier ratio and DECK verdict, and the shade area that left every cluster outline (``planar/cluster.deck_shades``)
     "pad_refusals",  # §16g (10) (12) (issue #101; owner RULINGS 2026-10-02v (3)): one row per footprint v1's two PORTED pad-admission gates refused — its ref, the gate (`min_tall_base_fill` / `building_evidence`), the measured value, the hull area and the footprint's length/width (which issue #229 reads) — plus the per-gate counts and the fallback half's (``pipeline/publication._pad_refusals``)
     "cluster_pads",  # §30 (4) (owner RULINGS 2026-09-13bj item 1): one record per TERMINAL CLUSTER — its members, the emitted `building` faces its footprint union stands on, the ONE level the solve gave that plane, and the apron vertices the reach targeted (with how many reached it).  The object stage's §16g seats the cluster on this level (``pipeline/publication.cluster_pads``)
+    # spec §55 (4) (owner RULINGS 2026-10-04u / 06d): one record per PART of
+    # a cut gap piece — ref, kind, area, the piece's level groups, its
+    # stations by class and the stations the floors merged
+    # (``pipeline/publication.gap_pieces``).  EVIDENCE, not law input;
+    # written only by a build that ran the last stage.
+    "gap_pieces",
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

@@ -88,6 +88,25 @@ struct MapMainView: View {
             }
             .interactiveDismissDisabled()
         }
+        // A pack X-Plane will not load (protocol 1.9, #433): owner-fixed
+        // copy; the primary button only when the art can be omitted.
+        .alert(buildModel.packArtPrompt?.titleText ?? "", isPresented: Binding(
+            get: { buildModel.packArtPrompt != nil },
+            set: { _ in }
+        ), presenting: buildModel.packArtPrompt) { art in
+            if art.canOmit {
+                Button(O4PackMissingArtCopy.primaryButton) {
+                    buildModel.answerPackArtPrompt(omit: true)
+                }
+            }
+            Button(O4PackMissingArtCopy.secondaryButton, role: .cancel) {
+                buildModel.answerPackArtPrompt(omit: false)
+            }
+        } message: { art in
+            Text(art.canOmit
+                 ? art.bodyText + "\n\n" + O4PackMissingArtCopy.detail
+                 : art.bodyText)
+        }
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
             set: { if !$0 { controller.errorMessage = nil } }

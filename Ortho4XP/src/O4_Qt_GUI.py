@@ -85,6 +85,7 @@ from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
 import O4_Qt_Wizard as QTWIZ
 import O4_Qt_Boundary_Dialog as QTBOUND
+import O4_Qt_Pack_Art as QTART
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
@@ -714,7 +715,12 @@ class MainWindow(QMainWindow):
             EV.BuildDone: self._on_build_done,
             EV.RunDone: self._on_run_done,
             EV.BoundaryAirportsReady: self._on_boundary_airports_ready,
+            EV.PackMissingArt: self._on_pack_missing_art,
         }
+        # #433: the missing-art warnings already shown (one per pack, tile
+        # and missing set) and the open boxes (kept alive: non-modal).
+        self._pack_art_seen = set()
+        self._pack_art_boxes = []
         # Boundary-airport preflights in flight, by request id: each is
         # {"request_id", "tiles", "proceed", "timer"}.  A TABLE, not one
         # slot — the resume queue can have several batches waiting, and
@@ -3691,6 +3697,36 @@ class MainWindow(QMainWindow):
                 event.error,
             )
         )
+
+    def _on_pack_missing_art(self, event):
+        """#433 (owner RULINGS 2026-10-06c): a pack X-Plane will not load.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .packMissingArt``): ``state == "found"`` shows the owner-fixed
+        warning, once per pack, tile and missing set; its primary button
+        (only when ``can_omit``) sends ``omit_missing_art``.  The other
+        states are the completion of that command — the engine's own log
+        line already says what happened, so nothing more is shown.
+        """
+        if getattr(event, "state", "found") != "found":
+            return
+        key = QTART.warning_key(event)
+        if key in self._pack_art_seen:
+            return
+        self._pack_art_seen.add(key)
+        box, primary = QTART.pack_art_box(event, parent=self)
+        root, lat, lon = event.pack_root, int(event.lat), int(event.lon)
+
+        def finished(_result, box=box, primary=primary):
+            if primary is not None and box.clickedButton() is primary:
+                self._session.omit_missing_art(pack_root=root, lat=lat,
+                                               lon=lon)
+            if box in self._pack_art_boxes:
+                self._pack_art_boxes.remove(box)
+
+        box.finished.connect(finished)
+        self._pack_art_boxes.append(box)
+        box.show()
 
     def _on_build_done(self, event):
         """One tile's terminal outcome: remember it (with the tile's own

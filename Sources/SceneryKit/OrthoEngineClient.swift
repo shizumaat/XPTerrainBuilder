@@ -289,6 +289,10 @@ public enum O4Event: Sendable, Equatable {
     /// completion half of a `boundary_airports` command. Correlate on
     /// `requestID`; ignore the rest.
     case boundaryAirportsReady(O4BoundaryAirportsReady)
+    /// A scenery pack X-Plane will not load (protocol 1.9, #433): found by
+    /// the object stage, or the completion of an `omit_missing_art`
+    /// command. See `O4PackMissingArt`.
+    case packMissingArt(O4PackMissingArt)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -410,6 +414,23 @@ public enum O4Event: Sendable, Equatable {
                 // An engine that predates default_choice still preselects
                 // the owner's default (RULINGS 2026-09-18i (2)).
                 defaultChoice: object["default_choice"] as? String ?? "neighbour"))
+        // Another STRING LITERAL match (see AutoPatchFailed above): it is
+        // `class PackMissingArt` in Ortho4XP/src/o4_engine/events.py.
+        case "PackMissingArt":
+            var kinds: [String: Int] = [:]
+            for (key, value) in object["kinds"] as? [String: Any] ?? [:] {
+                if let n = (value as? NSNumber)?.intValue { kinds[key] = n }
+            }
+            return .packMissingArt(O4PackMissingArt(
+                pack: string("pack"), packRoot: string("pack_root"),
+                lat: int("lat"), lon: int("lon"), total: int("total"),
+                kinds: kinds, uses: int("uses"),
+                firstPaths: (object["first_paths"] as? [Any])?
+                    .compactMap { $0 as? String } ?? [],
+                // absent ⇒ no primary button: never offer without a yes
+                canOmit: bool("can_omit"),
+                state: object["state"] as? String ?? "found",
+                error: string("error")))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -701,6 +722,18 @@ public final class OrthoEngineClient: @unchecked Sendable {
             }
             completion(requestID)
         }
+    }
+
+    // MARK: - Missing art (protocol 1.9)
+
+    /// The user accepted "Build without the missing items" for one pack's
+    /// tile DSF (owner RULINGS 2026-10-06c, #433). The engine replies
+    /// `{"status": "started"}` at once and completes with a
+    /// `packMissingArt` event whose `state` is "omitted" / "failed" /
+    /// "none". An engine older than 1.9 replies ok=false: nothing changes.
+    public func omitMissingArt(packRoot: String, lat: Int, lon: Int) {
+        send(command: "omit_missing_art",
+             arguments: ["pack_root": packRoot, "lat": lat, "lon": lon])
     }
 
     // MARK: - Stream handling

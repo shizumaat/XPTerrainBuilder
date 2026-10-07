@@ -49,7 +49,12 @@ from typing import Optional
 # build/enqueue_build — an airport whose AIRSIDE claim crosses a 1 degree
 # tile line needs the user's answer before the build starts (owner
 # RULINGS 2026-09-18b (2), 18i; spec insets-follow-patch-set-spec.md §C).
-PROTOCOL_VERSION = "1.8"
+# 1.9 (2026-10-06, additive): PackMissingArt + the ``omit_missing_art``
+# command + the ``missing_art`` keyword on build/enqueue_build — a scenery
+# pack whose DSF declares a definition that is not installed is one
+# X-Plane will not load; the engine names it and offers a DSF without the
+# missing definitions (owner RULINGS 2026-10-06c, issue #433).
+PROTOCOL_VERSION = "1.9"
 
 
 @dataclass(frozen=True)
@@ -393,6 +398,49 @@ class BoundaryAirportsReady(EngineEvent):
     remembered: str = ""
     error: str = ""
     default_choice: str = "neighbour"
+
+
+@dataclass(frozen=True)
+class PackMissingArt(EngineEvent):
+    """A scenery pack X-Plane will NOT load: its DSF declares definitions
+    whose files are not installed (owner RULINGS 2026-10-06c, #433).
+
+    Emitted by the object stage (``auto_patch.engine_v2``) before it reads
+    or rewrites the pack's DSF, and again as the completion of an
+    ``omit_missing_art`` command (which replies ``{"status": "started"}``
+    at once and works on a worker thread).  ``state``:
+
+    * ``"found"`` — the pack is named; nothing was changed.  The front end
+      shows the owner-fixed warning and, ONLY when ``can_omit`` is true,
+      the primary button that sends ``omit_missing_art`` with ``pack_root``,
+      ``lat`` and ``lon``.  A missing TERRAIN definition is reported but
+      cannot be omitted (its patches are the mesh): no primary button.
+    * ``"omitted"`` — the DSF was written without the missing definitions
+      and without the placements, polygons and segments that use them;
+      the pristine DSF stays as ``<name>.dsf.anchor_bak``.
+    * ``"failed"`` — the write was asked for and failed; ``error`` says why.
+    * ``"none"`` — (command completion only) nothing is missing any more.
+
+    ``kinds`` is ``{"object"|"polygon"|"network"|"terrain": n}``;
+    ``total`` the missing definitions, ``uses`` the DSF rows that use
+    them, ``first_paths`` up to five of them in declaration order.
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
+    pack: str = ""
+    pack_root: str = ""
+    lat: int = 0
+    lon: int = 0
+    total: int = 0
+    kinds: dict = field(default_factory=dict)
+    uses: int = 0
+    first_paths: list = field(default_factory=list)
+    can_omit: bool = False
+    state: str = "found"
+    error: str = ""
 
 
 @dataclass(frozen=True)

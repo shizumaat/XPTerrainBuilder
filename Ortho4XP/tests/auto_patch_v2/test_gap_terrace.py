@@ -190,3 +190,17 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
         hit = [c.ref for c in cl2.cells if str(c.ref).startswith("gap:")
                and Polygon(c.ring, c.holes).contains(pt)]
         assert hit == [ref]
+
+
+def test_a_gap_part_bears_a_shape_by_kind_and_a_plain_groundside_face_does_not():
+    """Spec §55 (13): the shapes reader admits a face by role OR by
+    ``is_gap_ref`` — no standing groundside face changes."""
+    import types
+
+    from auto_patch_v2.model.planar import bears_shape
+    roles = set(LAW.tables.emit.terrace.shape_roles)
+    assert "groundside_pavement" not in roles
+    face = lambda ref, role="groundside_pavement": types.SimpleNamespace(ref=ref, role=role)
+    assert bears_shape(face("gap:7/s0"), roles) and bears_shape(face("gap:3"), roles)
+    assert not bears_shape(face("dsf:pol10"), roles)
+    assert bears_shape(face("pav37", "apron"), roles)

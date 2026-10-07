@@ -44,7 +44,7 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
-           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "gap_part_kind",
+           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "gap_part_kind", "bears_shape",
            "face_edge_ids",
            "face_vertex_set", "gap_follower_faces"]
 
@@ -836,6 +836,14 @@ GAP_PREFIX = "gap"
 def is_gap_ref(ref) -> bool:
     """A §53 gap piece."""
     return str(ref or "").split(":", 1)[0] == GAP_PREFIX
+
+
+def bears_shape(face, roles: _t.AbstractSet[str]) -> bool:
+    """Is ``face`` shape-bearing pavement (``planar/shapes``): by ROLE
+    (``[terrace] shape_roles``), or by KIND — a §53 gap piece or one of its
+    §55 parts, whatever its role (two step parts across a knife are two
+    shapes with a declared gap joint; a lot and its ramp are one)."""
+    return face.role in roles or is_gap_ref(face.ref)
 
 
 _GAP_PART_KINDS = {"s": "step", "lot": "lot", "ramp": "ramp"}

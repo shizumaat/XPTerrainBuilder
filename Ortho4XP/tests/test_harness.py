@@ -11161,13 +11161,14 @@ def _pavcap_patch(tmp_path, *, name, rings):
     mlon = 111_320.0 * math.cos(math.radians(_PVC_LAT))
     nodes, ways = [], []
     nid = -1
-    for i, (role, ring) in enumerate(rings):
+    for i, (role, ring, *ref) in enumerate(rings):
         ids = []
         for dx, dy, alt in ring:
             nodes.append((nid, _PVC_LAT + dy / mlat, _PVC_LON + dx / mlon, alt))
             ids.append(nid)
             nid -= 1
-        ways.append((nid, ids + [ids[0]], {"role": role, "shapeID": f"S{i}"}))
+        ways.append((nid, ids + [ids[0]], {"role": role, "shapeID": f"S{i}",
+                                           **({"ref": ref[0]} if ref else {})}))
         nid -= 1
     out = ["<?xml version='1.0' encoding='UTF-8'?>",
            "<osm version='0.6' generator='pavcap-twin'>"]
@@ -11234,6 +11235,24 @@ def test_welded_neighbours_of_two_pavements_are_priced_as_one_pair(cg, tmp_path)
     fo2 = _families(cg, _pavcap_patch(tmp_path, name="weldok", rings=[
         ("groundside_pavement", a), ("service_road", b2)]))
     assert fo2["pavement_over_road_cap"] == []
+
+
+def test_a_pair_across_a_declared_knife_is_not_a_fallback_row(cg, tmp_path):
+    """Spec §55 (2) 4 (Q-D): the census copy skips a welded pair of two
+    parts of one gap piece across a knife by the generator's OWN predicate
+    (``model.planar.gap_parts_across_knife``); a lot and its ramp stay
+    priced."""
+    from auto_patch_v2.model import planar as _P
+    assert cg._gap_parts_across_knife is _P.gap_parts_across_knife
+    a = [(0.0, 0.0, 20.0), (10.0, 0.0, 20.0), (10.0, 8.0, 20.0), (0.0, 8.0, 20.0)]
+    b = [(10.75, 0.0, 23.0), (20.0, 0.0, 23.0), (20.0, 8.0, 23.0), (10.75, 8.0, 23.0)]
+    role = "groundside_pavement"
+    fo = _families(cg, _pavcap_patch(tmp_path, name="knife", rings=[
+        (role, a, "gap:3/s0"), (role, b, "gap:3/s1/lot")]))
+    assert fo["pavement_over_road_cap"] == []
+    fo2 = _families(cg, _pavcap_patch(tmp_path, name="breakline", rings=[
+        (role, a, "gap:3/s0/lot"), (role, b, "gap:3/s0/ramp0")]))
+    assert len(fo2["pavement_over_road_cap"]) == 2
 
 
 def test_pavement_over_road_cap_is_registered_and_reads_the_law(cg):

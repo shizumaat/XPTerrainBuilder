@@ -7611,7 +7611,13 @@ try:                                                    # pragma: no cover
     _V2_PAVCAP_LAW = _V2_PAVCAP_T.load_default()
     PAVEMENT_ROAD_CAP = float(_V2_PAVCAP_T.pavement_fallback_cap(_V2_PAVCAP_LAW))
     _PAVCAP_ROLES = frozenset(_V2_PAVCAP_T.pavement_roles(_V2_PAVCAP_LAW))
+    # spec §55 (2) 4 (Q-D): a welded pair across a declared knife is a
+    # STEP — the ONE predicate the generator reads
+    from auto_patch_v2.model.planar import (
+        gap_parts_across_knife as _gap_parts_across_knife)
 except Exception:                                       # pragma: no cover
+    def _gap_parts_across_knife(_a, _b) -> bool:
+        return False
     PAVEMENT_ROAD_CAP = 0.08
     _PAVCAP_ROLES = frozenset({
         "runway", "runway_crossing", "primary_parallel", "secondary_parallel",
@@ -7654,6 +7660,12 @@ def _check_pavement_over_road_cap(ways, nodes, ll_to_m) -> List[Violation]:
         # RULINGS 2026-09-30l (2): a declared pad|pad terrace is a STEP;
         # the step families' ``building_to_building`` exemption carries.
         if wa is not wb and _step_exemption_for(wa, wb):
+            return
+        # spec §55 (2) 4 (Q-D, owner RULINGS 2026-10-04u): two parts of one
+        # gap piece across a declared KNIFE are a step, not a grade
+        if wa is not wb and _gap_parts_across_knife(
+                (getattr(wa, "tags", None) or {}).get("ref"),
+                (getattr(wb, "tags", None) or {}).get("ref")):
             return
         noise = max(_pair_quant_noise_m(wa), _pair_quant_noise_m(wb))
         de = abs(za - zb)

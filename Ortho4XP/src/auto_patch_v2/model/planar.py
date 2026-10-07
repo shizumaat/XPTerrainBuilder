@@ -44,7 +44,8 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
-           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "gap_part_kind", "bears_shape",
+           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "gap_part_kind", "gap_parts_across_knife",
+           "bears_shape",
            "face_edge_ids",
            "face_vertex_set", "gap_follower_faces"]
 
@@ -861,6 +862,30 @@ def gap_part_kind(ref) -> str | None:
     if len(path) < 2:
         return None
     return _GAP_PART_KINDS.get(path[-1].rstrip("0123456789"))
+
+
+def _gap_step_part(ref) -> tuple[str, str] | None:
+    """``(piece, step segment)`` of a STEP-cut part's ref (``gap:<k>/s<j>``,
+    whatever follows), else ``None``."""
+    path = str(ref or "").split("#", 1)[0].split("/")
+    if len(path) < 2 or not is_gap_ref(path[0]):
+        return None
+    seg = path[1]
+    return (path[0], seg) if seg[:1] == "s" and seg[1:].isdigit() else None
+
+
+def gap_parts_across_knife(ref_a, ref_b) -> bool:
+    """Do the two refs name parts of ONE gap piece that stand ACROSS A
+    DECLARED KNIFE (spec §55 (2) 4, the knife's fourth law; §55 (14) Q-D)?
+    Two parts of one piece in two different STEP parts (``gap:<k>/s<i>…`` and
+    ``gap:<k>/s<j>…``, i != j) — the cut puts a knife strip of ground between
+    every two of them.  A lot and its ramp (one step part, a shared
+    breakline) are NOT across a knife.  ONE predicate, two readers: the
+    pavement fallback's generator (``constraints/pavement_cap``) and its
+    census copy (``tools/check_grade``) — a pair across a knife is a STEP,
+    not a grade."""
+    a, b = _gap_step_part(ref_a), _gap_step_part(ref_b)
+    return a is not None and b is not None and a[0] == b[0] and a[1] != b[1]
 
 
 def gap_follower_faces(pm) -> tuple[list, list]:

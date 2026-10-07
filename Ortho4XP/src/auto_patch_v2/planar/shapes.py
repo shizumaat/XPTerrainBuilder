@@ -91,10 +91,11 @@ from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import (NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint, bears_shape,
-                            is_osm_ribbon_ref)
+                            is_gap_ref, is_osm_ribbon_ref, shares_gap_part)
 from .shape_airside import (airside_face_sets, declarable_pairs, inside_apron_body,
                             separated_label_pairs, weld_airside_faces)
 from .shape_mouths import weld_same_role_mouths
+from .shape_parts import label_gap_parts, part_shape_of_face
 
 __all__ = ["NO_SHAPE", "STATION_KIND", "RIDGE_KIND", "ShapeStats", "build_shapes", "network_faces", "network_vertices", "strip_keepout",
            "straddles", "straddles_pairs", "row_vertices", "row_test_pairs",
@@ -141,6 +142,7 @@ class ShapeStats:
     welded_airside_faces: int = 0   # 10-02v (2): label pairs merged because ONE APRON face carried them and NO surviving joint edge separates them (identity only: the law is per-edge)
     airside_faces_kept: int = 0     # #253: label pairs an apron face carried that a SURVIVING joint edge separates — never merged (the groundside joint stands)
     apron_contours_undeclared: int = 0  # 10-02v (2): faces whose whole label-boundary contour lies INSIDE THE APRON BODY, so no terrace is declared and no row withdrawn
+    part_contours_undeclared: int = 0   # §55 (15): gap-part faces carrying two labels (a welded rim) — one shape by kind, no contour declared, no row withdrawn
     joint_edges: int = 0            # planar edges whose endpoints carry two shapes
     joint_edges_by_roles: dict[str, int] = _dc.field(default_factory=dict)
     contours: int = 0               # declared label-boundary polylines
@@ -304,7 +306,10 @@ def _label_pavement(pm: PlanarMap, law: Law, stats: ShapeStats, net: frozenset[i
     roles = set(tt.shape_roles)
     all_fids = [fid for fid, f in pm.faces.items() if bears_shape(f, roles)]
     stats.faces = len(all_fids)
-    fids = [fid for fid in all_fids if fid not in net]           # 08p: the apron bodies only
+    # 08p: the apron bodies only; §55 (15) rule 1: a GAP PART is left out of
+    # the union — never a component with a neighbour, never eroded by the
+    # mouth (``shape_parts.label_gap_parts`` labels it, after the standing)
+    fids = [fid for fid in all_fids if fid not in net and not is_gap_ref(pm.faces[fid].ref)]
     stats.body_faces = len(fids)
     polys = {fid: p for fid in fids if (p := _face_polygon(pm, fid)) is not None}
     if not polys:
@@ -606,11 +611,14 @@ def straddles(pm: PlanarMap, ids: _t.Iterable[int]) -> bool:
     documents the rule) reads as ONE shape here — no row of it withdrawn,
     its pair cap published, no joint edge — while a pair with a groundside
     or pad side, or one touching a road, reads as two exactly as 08k
-    declared it.  The ONE label reader the joint law turns on."""
+    declared it.  A GAP PART IS ONE SHAPE BY KIND (spec §55 (15) rule A+C):
+    a pair inside one part (``model.planar.shares_gap_part``) reads as one
+    shape whatever labels its welded rim carries.  The ONE label reader the
+    joint law turns on."""
     lab = [v for v in ids if pm.shape_of_vertex.get(v, NO_SHAPE) != NO_SHAPE]
     if len({pm.shape_of_vertex[v] for v in lab}) < 2:
         return False
-    return not inside_apron_body(pm, lab)
+    return not inside_apron_body(pm, lab) and not shares_gap_part(pm, lab)
 
 
 def straddles_pairs(pm: PlanarMap, pairs: _t.Iterable[tuple[int, int]]) -> bool:
@@ -768,9 +776,12 @@ def _contour_joints(pm: PlanarMap, label: _t.Mapping[int, int], to_ll, extend_m:
         if len(labs) < 2:
             continue
         s, p, dangling = _face_contour(pm, fid, label)
-        kept = declarable_pairs(pm, p)          # 10-02v (2) / #253
+        kept = declarable_pairs(pm, p)          # 10-02v (2) / #253; §55 (15)
         if p and not kept:
-            stats.apron_contours_undeclared += 1
+            if is_gap_ref(pm.faces[fid].ref):
+                stats.part_contours_undeclared += 1
+            else:
+                stats.apron_contours_undeclared += 1
             continue
         segs.extend(s)
         pairs.extend(kept)
@@ -886,10 +897,13 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     stats = ShapeStats()
     net, N = network_faces(pm, law, stats)
     label, _bodies = _label_pavement(pm, law, stats, net, N)
+    # §55 (15) rule 2: after the standing PAVEMENT labelling and before the
+    # roads — a road reads a part's contact as it reads a body's (row 2)
+    part_label = label_gap_parts(pm, label, N)
+    ramps = _label_others(pm, law, label, N, stats)
     if not label:
         stats.wall_s = time.perf_counter() - t0
         return pm, stats
-    ramps = _label_others(pm, law, label, N, stats)
     keep = strip_keepout(classification, law) if classification is not None else None
     uf = _weld_strip(pm, label, keep, stats)
     weld_same_role_mouths(pm, law, label, N, uf, stats)   # 30bk: one apron, one shape
@@ -901,6 +915,7 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     pm = _dc.replace(pm, **sets)
     weld_airside_faces(pm, law, label, uf, stats, separated_label_pairs(pm, label))
     # the record: dense shape ids in order of first appearance by area rank
+    part_shape = part_shape_of_face(part_label, label, uf.find)   # §55 (15) rule 3: by kind
     of_face: dict[int, int] = {}
     area: dict[int, float] = {}
     nfaces: dict[int, int] = {}
@@ -909,7 +924,7 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
         ls = [label[v] for v in _face_vertices(pm, fid) if v in label]
         if not ls:
             continue
-        top = max(set(ls), key=lambda l: (ls.count(l), -l))
+        top = part_shape.get(fid, max(set(ls), key=lambda l: (ls.count(l), -l)))
         of_face[fid] = top
         if bears_shape(f, set(law.tables.emit.terrace.shape_roles)):
             poly = _face_polygon(pm, fid)
@@ -937,6 +952,8 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
         floor = law.tables.emit.materiality.step_m
         verts_of: dict[int, dict[int, list[int]]] = {}   # label -> face -> its vertices
         for fid in of_face:
+            if fid in part_shape:       # §55 (15): the standing reading never turns on a part
+                continue
             for v in _face_vertices(pm, fid):
                 if label.get(v) in orphan:
                     verts_of.setdefault(label[v], {}).setdefault(fid, []).append(v)

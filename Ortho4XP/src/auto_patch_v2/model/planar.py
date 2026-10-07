@@ -45,6 +45,7 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
            "is_late_ref", "GAP_PREFIX", "is_gap_ref", "gap_part_kind", "gap_parts_across_knife",
+           "gap_step_part", "shares_gap_part",
            "bears_shape",
            "face_edge_ids",
            "face_vertex_set", "gap_follower_faces"]
@@ -886,6 +887,41 @@ def gap_parts_across_knife(ref_a, ref_b) -> bool:
     not a grade."""
     a, b = _gap_step_part(ref_a), _gap_step_part(ref_b)
     return a is not None and b is not None and a[0] == b[0] and a[1] != b[1]
+
+
+def gap_step_part(ref) -> str | None:
+    """THE STEP PART a gap face belongs to (spec §55 (15) rule 2) — the unit
+    that is ONE SHAPE: ``gap:<k>/s<j>`` for a step-cut part and everything
+    cut from it (its lot and its ramps share breaklines: 06d's one shape),
+    ``gap:<k>`` for an uncut piece and for a lot / ramp of a piece that was
+    not step-cut; ``None`` for anything that is not a gap piece."""
+    if not is_gap_ref(ref):
+        return None
+    path = str(ref).split("#", 1)[0].split("/")
+    step = _gap_step_part(ref)
+    return path[0] if step is None else f"{step[0]}/{step[1]}"
+
+
+def shares_gap_part(pm, ids: _t.Iterable[int]) -> bool:
+    """A GAP PART IS ONE SHAPE BY KIND (spec §55 (15) rule A+C, 3): do the
+    faces incident to EVERY one of ``ids`` include a gap-part face?  A pair
+    inside one part is one shape whatever labels its rim carries (a welded
+    rim vertex keeps the standing face's label) — no contour is cut inside a
+    part and no row of it is withdrawn; two vertices across a knife share no
+    face, so they straddle and the knife is declared.  ONE predicate, two
+    readers (the #253 pattern of ``planar.shape_airside.inside_apron_body``):
+    ``planar.shapes.straddles`` and ``shape_airside.declarable_pairs``, so
+    the row withdrawal and the sidecar record can never diverge."""
+    common: set[int] | None = None
+    for v in ids:
+        vert = pm.vertices.get(v)
+        if vert is None:
+            return False
+        fs = set(vert.incident_faces)
+        common = fs if common is None else (common & fs)
+        if not common:
+            return False
+    return bool(common) and any(is_gap_ref(pm.faces[f].ref) for f in common)
 
 
 def gap_follower_faces(pm) -> tuple[list, list]:

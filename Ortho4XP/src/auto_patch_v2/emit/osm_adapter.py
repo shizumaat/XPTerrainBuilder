@@ -198,6 +198,12 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # (``pipeline/publication.gap_pieces``).  EVIDENCE, not law input;
     # written only by a build that ran the last stage.
     "gap_pieces",
+    # spec §55 (15) rule B: what the last stage USED — ``{"floor_m",
+    # "followers"}`` (``pipeline/publication.late_stage``).  LAW INPUT
+    # (``check_grade.SIDECAR_LAW_KEYS``): the census prices a pair of two
+    # last-stage unknowns at ``cap·d + floor_m``.  Written only by a build
+    # that ran the last stage.
+    "late_stage",
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

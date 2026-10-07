@@ -11154,9 +11154,10 @@ _PVC_LAT = 30.1200000
 _PVC_LON = 31.4100000
 
 
-def _pavcap_patch(tmp_path, *, name, rings):
+def _pavcap_patch(tmp_path, *, name, rings, sidecar=None):
     """``rings``: ``[(role, [(dx_m, dy_m, alt), ...]), ...]`` — closed
-    pavement rings on a local metre frame, one ``alt_abs`` per node."""
+    pavement rings on a local metre frame, one ``alt_abs`` per node.
+    ``sidecar``: further sidecar keys (a law input under test)."""
     mlat = 111_320.0
     mlon = 111_320.0 * math.cos(math.radians(_PVC_LAT))
     nodes, ways = [], []
@@ -11184,7 +11185,7 @@ def _pavcap_patch(tmp_path, *, name, rings):
     osm = tmp_path / f"{name}_auto.patch.osm"
     osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
-        "anchor": [_PVC_LAT, _PVC_LON], "ruleset": "icao"}),
+        "anchor": [_PVC_LAT, _PVC_LON], "ruleset": "icao", **(sidecar or {})}),
         encoding="utf-8", newline="")
     return osm
 

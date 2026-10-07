@@ -1133,6 +1133,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _pin_yield = [*_late["pin_yield"], *(design_rep.pin_yield or ())]
         wall["late_stage"] = time.perf_counter() - t
         _late_report = {"cut": _late["cut"], "followers": _late["followers"],
+                        "stage": _late["stage"],
                         "join": _late["join"], "dropped": _late["dropped"],
                         "follow_rows": _late["follow"].get("rows", 0),
                         "lot_rows": _late["follow"].get("lot_rows", 0),
@@ -1290,8 +1291,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # counts law-true in their families and reports under one heading
         pub["design"] = design_rep.as_dict()
         if _late_report is not None:
-            from .publication import gap_pieces
+            from .publication import gap_pieces, late_stage
             pub["gap_pieces"] = gap_pieces(_late_report["cut"])
+            pub["late_stage"] = late_stage(_late_report["stage"])
         pub["design_target"] = design_rep.targets
         js = report["joint_steps"]
         if js and js["contours"]:

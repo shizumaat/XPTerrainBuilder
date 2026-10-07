@@ -233,11 +233,15 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     fixed, jrep = late_fixed(pm_base, z_base, pm, free, ident)
     jrep["rim"] = late_rim_levels(pm_base, z_base, pm, fixed, free, ident * 0.02)
     cs_all = cs
+    # THE FLOOR, ONE NUMBER AT ONE SITE (spec §55 (5), (15) rule B): the
+    # widening reads it here and the sidecar publishes THIS value
+    # (``report["stage"]``), so the census follows the stage, never a copy
+    floor_m = float(law.tables.emit.terrace.pad_terrace_floor_m)
     cs, dropped = late_constraints(
         cs, fixed, frozenset(getattr(_design_law(law), "yielding_pin_rulings", ()) or ()),
         widen_heads=frozenset(r.split("(")[0].strip()
                               for r in (_CEILING_RULING, _FALLBACK_RULING)),
-        widen_floor_m=float(law.tables.emit.terrace.pad_terrace_floor_m))
+        widen_floor_m=floor_m)
     out(f"LAST STAGE (§53 (9)): followers {frep}; join {jrep}; "
         f"rows with no unknown dropped {dropped}")
     grows, grep = gap_follow_rows(pm, law, fixed, part_stations)
@@ -268,6 +272,8 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     out(f"LAST STAGE: fixed vertices off their constant by > 0.02 m: "
         f"{sum(1 for d in off if d > 0.02)} of {len(off)} (worst {max(off, default=0.0):.3f} m)")
     report = {"cut": cut, "cl": cl_cut, "followers": frep, "join": jrep,
+              "stage": {"floor_m": floor_m,
+                        "followers": list(frep["follower_ribbon_refs"])},
               "dropped": dropped, "follow": grep, "cs": cs, "cs_full": cs_full,
               "fixed": fixed, "strips": strips, "pin_yield": _carry_pin_yield(base_solution, pm_base, pm),
               "design": design,

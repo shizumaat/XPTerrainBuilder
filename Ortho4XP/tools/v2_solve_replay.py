@@ -959,7 +959,8 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
 
 
 def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
-               strip_rep=None, late_cut: dict | None = None) -> dict:
+               strip_rep=None, late_cut: dict | None = None,
+               late_stage: dict | None = None) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
@@ -996,6 +997,9 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     if late_cut is not None:
         from auto_patch_v2.pipeline.publication import gap_pieces
         pub["gap_pieces"] = gap_pieces(late_cut)
+    if late_stage is not None:
+        from auto_patch_v2.pipeline.publication import late_stage as _late_stage
+        pub["late_stage"] = _late_stage(late_stage)
     # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is
     # withdrawn under (road cap governs) — the census reads the same set
     from auto_patch_v2.law.tables import airside_stage_roles as _asr
@@ -2505,6 +2509,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                              "hard_conflict": _hard_conflict_now(),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
+                                 "late_stage": _lrep["stage"],
                                  # §55 (2) 5: the bounds of another group's
                                  # ring the follow rows refused (the reader
                                  # classes a miss there DECLARED)
@@ -2532,7 +2537,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             result.update(emit_patch(icao, pm, law, airport, cs, sol, emit_dir,
                                      strips=strips, strip_rep=rep.jetway_strip,
                                      late_cut=(prob["late"]["rep"]["cut"]
-                                               if late_from is not None else None)))
+                                               if late_from is not None else None),
+                                     late_stage=(prob["late"]["rep"]["stage"]
+                                                 if late_from is not None else None)))
     if json_out is not None:
         json_out.write_text(json.dumps(result, indent=1, default=str))
     return 0

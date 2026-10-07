@@ -4,6 +4,8 @@ less every vertex a leader carries; the constants are the base map's levels
 by the coordinate join; a vertex neither has is counted, never guessed."""
 from __future__ import annotations
 
+import pytest
+
 import types
 
 from auto_patch_v2.classify.roles import Cell
@@ -165,9 +167,11 @@ def test_a_ribbon_touching_a_piece_at_one_vertex_follows():
     assert {14, 15} <= free
 
 
-def test_a_ceiling_between_two_unknowns_is_re_tiered_and_one_on_a_constant_is_not():
-    """Spec §55 (5): the two pavement ceilings on rows whose vertices are ALL
-    last-stage unknowns rank with the stage's own rows; the law text stays."""
+def test_a_ceiling_between_two_unknowns_is_widened_by_the_floor_and_one_on_a_constant_is_not():
+    """Spec §55 (5), §55 (14) Q-F: the two pavement ceilings on rows whose
+    vertices are ALL last-stage unknowns carry the pair test's own
+    inequality — the slack over the chord is the floor exactly — and rank
+    with the stage's own rows; the law text stays."""
     from auto_patch_v2.constraints.ceiling import RULING as CEIL
     from auto_patch_v2.constraints.pavement_cap import RULING as FALLBACK
     from auto_patch_v2.law import Law
@@ -179,9 +183,13 @@ def test_a_ceiling_between_two_unknowns_is_re_tiered_and_one_on_a_constant_is_no
             Diff(a=7, b=8, cap=0.08, d=10.0, source=Source("pavement_road_cap", FALLBACK, ())),
             Diff(a=7, b=8, cap=0.08, d=10.0, source=Source("roads", "other law (x)", ()))]
     heads = frozenset(r.split("(")[0].strip() for r in (CEIL, FALLBACK))
-    cs, rep = som.late_constraints(ConstraintSet.from_rows(rows), {2: 11.0}, retier_heads=heads)
+    cs, rep = som.late_constraints(ConstraintSet.from_rows(rows), {2: 11.0},
+                                   widen_heads=heads, widen_floor_m=1.0)
     kept = list(cs.rows())
-    assert rep == {"re-tiered (ceiling, all unknowns)": 2}
+    assert rep == {"widened by the floor (ceiling, all unknowns)": 2}
+    wide = [r for r in kept if ruling_head(r).endswith(som.LAST_STAGE_SUFFIX)]
+    assert sorted(r.cap * r.d for r in wide) == pytest.approx([0.05 * 10.0 + 1.0, 0.08 * 10.0 + 1.0])
+    assert sorted(r.cap * r.d for r in kept if r not in wide) == pytest.approx([0.5, 0.8])
     got = sorted(ruling_head(r) for r in kept)
     assert got == sorted(["other law", CEIL.split("(")[0].strip(),
                           CEIL.split("(")[0].strip() + som.LAST_STAGE_SUFFIX,

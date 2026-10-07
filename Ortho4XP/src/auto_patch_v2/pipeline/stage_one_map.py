@@ -201,7 +201,7 @@ def row_vertices(row) -> tuple[int, ...]:
     raise TypeError(f"stage_one_map: unknown row type {type(row).__name__}")
 
 
-#: the head suffix of a ceiling row the last stage re-tiers (below)
+#: the head suffix of a ceiling row the last stage widens (below)
 LAST_STAGE_SUFFIX = ", last stage"
 
 
@@ -214,7 +214,8 @@ def last_stage_head(ruling: str) -> str:
 
 def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
                      yield_heads: _t.AbstractSet[str] = frozenset(),
-                     retier_heads: _t.AbstractSet[str] = frozenset()
+                     widen_heads: _t.AbstractSet[str] = frozenset(),
+                     widen_floor_m: float = 0.0
                      ) -> tuple[ConstraintSet, dict]:
     """THE LAST STAGE'S OWN ROWS (spec §53 (10), master 2026-10-04): a row
     with NO unknown is not the last stage's.  Every row whose vertices are
@@ -224,20 +225,27 @@ def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
     vertices is the earlier stage's residual, already published there, not
     a row this stage can answer for.  ``(set, {type: dropped})``.
 
-    A CEILING BETWEEN TWO UNKNOWNS RANKS WITH THE STAGE'S OWN ROWS (spec
-    §55 (5)): a row of a ``retier_heads`` head whose vertices are ALL
-    unknowns of this stage is re-sourced under :func:`last_stage_head`,
-    which ``[design] hard_conflict_ranks`` lists in the groundside tier —
-    so where a follow row and the cap disagree by the terrace floor the cut
-    welded, the standing neighbour is met and the cap gives."""
+    A HARD CEILING BETWEEN TWO UNKNOWNS CARRIES THE CUT'S OWN PAIR TEST
+    (spec §55 (5), §55 (14) Q-F): a ``Diff`` of a ``widen_heads`` head whose
+    vertices are ALL unknowns of this stage is widened to ``|dz| <= cap x d
+    + widen_floor_m`` (``cap + floor / d``; the floor is the law's
+    ``terrace.pad_terrace_floor_m``, the caller's) and re-sourced under
+    :func:`last_stage_head`, which ``[design] hard_conflict_ranks`` lists
+    in the groundside tier.  The stations the cut grouped are pairwise
+    consistent under exactly this inequality, so a follow row and a widened
+    cap never conflict by construction and the cap gives by the floor over
+    its chord and no more.  (A TIER alone does not bound it: a relaxed row
+    is demoted to a soft penalty — probed, 22 chords stood over the floor.)"""
     kept, dropped = [], {}
-    retiered = 0
+    widened = 0
     for r in cs.rows():
-        if retier_heads and str(r.source.ruling).split("(")[0].strip() in retier_heads \
+        if widen_heads and str(r.source.ruling).split("(")[0].strip() in widen_heads \
                 and not any(v in fixed for v in row_vertices(r)):
             r = _dc.replace(r, source=_dc.replace(
                 r.source, ruling=last_stage_head(r.source.ruling)))
-            retiered += 1
+            if isinstance(r, Diff) and r.d > 0.0 and widen_floor_m > 0.0:
+                r = _dc.replace(r, cap=r.cap + widen_floor_m / r.d)
+            widened += 1
         if isinstance(r, Pin) and int(r.v) not in fixed \
                 and str(r.source.ruling).split("(")[0].strip() in yield_heads:
             # A YIELDING PIN ON A FOLLOWER IS RELEASED (spec §53 (17)): a
@@ -254,8 +262,8 @@ def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
             dropped[k] = dropped.get(k, 0) + 1
         else:
             kept.append(r)
-    if retiered:
-        dropped["re-tiered (ceiling, all unknowns)"] = retiered
+    if widened:
+        dropped["widened by the floor (ceiling, all unknowns)"] = widened
     return ConstraintSet.from_rows(kept), dropped
 
 

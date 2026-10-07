@@ -28,7 +28,7 @@ from shapely.strtree import STRtree
 from ..classify.gap_mint import _poly
 from ..classify.gap_terrace import APRON, PAD, ROAD, Station, terrace_cut
 from ..constraints.ceiling import RULING as _CEILING_RULING
-from ..constraints.gap_follow import gap_follow_rows, reach_m
+from ..constraints.gap_follow import PartStations, gap_follow_rows, reach_m
 from ..constraints.pavement_cap import RULING as _FALLBACK_RULING
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap, snap_margin_m
@@ -128,9 +128,11 @@ def late_stations(pm_base, z_base, pieces: _t.Sequence[Polygon], law: Law,
 
 def cut_classification(cl, pm_base, z_base, law: Law, rules) -> tuple[_t.Any, dict]:
     """``cl`` with every gap piece REPLACED by its parts (cells only: the
-    mint is unchanged), and the per-piece report."""
+    mint is unchanged), and the per-piece report — ``part_stations`` the
+    cut's stations as each part reads them (``gap_follow.PartStations``)."""
     gap = [c for c in cl.cells if is_gap_ref(c.ref)]
-    rep: dict = {"pieces": [], "parts": 0, "knives": 0, "merged": 0, "stations": 0}
+    rep: dict = {"pieces": [], "parts": 0, "knives": 0, "merged": 0, "stations": 0,
+                 "part_stations": {}}
     if not gap:
         return cl, rep
     polys = [_poly(c.ring, c.holes) for c in gap]
@@ -152,7 +154,11 @@ def cut_classification(cl, pm_base, z_base, law: Law, rules) -> tuple[_t.Any, di
         for s in st:
             by_cls[s.cls] = by_cls.get(s.cls, 0) + 1
         parts = []
+        grp = {i: g for g, members in enumerate(cut.groups) for i in members}
         for p in cut.parts:
+            rep["part_stations"][f"{c.ref}{p.suffix}"] = PartStations(
+                st, frozenset(p.stations),
+                frozenset(i for i in p.stations if grp.get(i) == p.group))
             ev = {**dict(c.evidence), "area_m2": float(p.poly.area)}
             cells.append(_dc.replace(
                 c, id=nid, ref=f"{c.ref}{p.suffix}",
@@ -213,6 +219,8 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     pm_base, z_base = base_solution["pm"], base_solution["z"]
     t0 = time.perf_counter()
     cl_cut, cut = cut_classification(cl, pm_base, z_base, law, rules)
+    # the stations stay the stage's own (the cut report is a published record)
+    part_stations = cut.pop("part_stations")
     t_cut = time.perf_counter() - t0
     out(f"LAST STAGE cut (§55 (2)-(3)) {t_cut:.1f} s: {len(cut['pieces'])} pieces -> "
         f"{cut['parts']} parts, {cut['knives']} knives, {cut['stations']} stations, "
@@ -227,11 +235,12 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     cs_all = cs
     cs, dropped = late_constraints(
         cs, fixed, frozenset(getattr(_design_law(law), "yielding_pin_rulings", ()) or ()),
-        retier_heads=frozenset(r.split("(")[0].strip()
-                               for r in (_CEILING_RULING, _FALLBACK_RULING)))
+        widen_heads=frozenset(r.split("(")[0].strip()
+                              for r in (_CEILING_RULING, _FALLBACK_RULING)),
+        widen_floor_m=float(law.tables.emit.terrace.pad_terrace_floor_m))
     out(f"LAST STAGE (§53 (9)): followers {frep}; join {jrep}; "
         f"rows with no unknown dropped {dropped}")
-    grows, grep = gap_follow_rows(pm, law, fixed)
+    grows, grep = gap_follow_rows(pm, law, fixed, part_stations)
     cs = ConstraintSet.from_rows([*cs.rows(), *grows])
     cs_full = ConstraintSet.from_rows([*cs_all.rows(), *grows])
     # the lot SITS at its road's level: the one published-target channel
@@ -240,6 +249,7 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         pm = _dc.replace(pm, preferred_z={**dict(pm.preferred_z), **lot_z})
     out(f"LAST STAGE gap_follow (§53 (13)): {grep['rows']} rows; "
         f"{len(grep['conflicts'])} vertices between two disagreeing neighbours; "
+        f"{len(grep['declared'])} bounds of another group's ring declared (§55 (2) 5); "
         f"lot rows (§55 (3) 4) {grep.get('lot_rows', 0)}, lot_fit targets {len(lot_z)}")
     t0 = time.perf_counter()
     # THE BASE'S RELAXATIONS STAY PUBLISHED (§55 (4) iv): the last solve

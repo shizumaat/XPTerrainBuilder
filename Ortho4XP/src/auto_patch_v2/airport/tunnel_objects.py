@@ -19,7 +19,9 @@ plane), a CREST PLATE (near-horizontal faces at the largest-area
 ``plate_bin_m`` bin at or above the seat, ``plate_min_area_m2``,
 ``plate_min_height_m`` above the seat), NO FLOOR PLATE below the seat
 and NO ROOF along the axis, and per placement a seat
-``basin.admission_depth_m`` or more under the ground.  THE EDGE WALL
+``basin.admission_depth_m`` or more under the ground — or, seated at
+grade, a mapped BORE at an end of its walls (RULINGS 2026-10-07a: the
+seat is the author's handle; a wall with no bore stays a fence).  THE EDGE WALL
 (RULINGS 2026-09-06c (2) / 06f): a crest under ``edge_wall_max_plate_m``
 — the TOP BAND wherever it lies against the seat (LEMD's Bridge4.obj:
 y −2.88 … −0.86, wholly below its seat; the seat is the author's
@@ -633,8 +635,11 @@ def _road_through(trench: Polygon, ways) -> list[int]:
 
 
 def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airport,
-              tunnel_ways, others: _t.Sequence[Polygon], law: Law) -> Corridor | str:
-    """The placement's corridor, or the reason it has none."""
+              tunnel_ways, others: _t.Sequence[Polygon], law: Law,
+              needs_bore: str = "") -> Corridor | str:
+    """The placement's corridor, or the reason it has none.  ``needs_bore``
+    is the at-grade seat's refusal (:func:`read_corridors`): it stands
+    unless a mapped bore ends at / crosses an end of the walls."""
     ob = law.tables.structures.tunnel.object
     tn = law.tables.structures.tunnel
     grid = law.tables.emit.identity.min_distinct_spacing_m
@@ -659,9 +664,14 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
         if bores_alt[0] or bores_alt[1]:
             walls, axis, bores = alt, axis_alt, bores_alt
             notes.append("box oriented along the bore that passes through it")
+    if needs_bore and not (bores[0] or bores[1]):
+        return needs_bore
     sts = stations_along(axis, walls, ob.wall_sample_m, grid)
     if len(sts) < 2:
         return "the inner faces leave no station (the walls do not face each other)"
+    if needs_bore:
+        notes.append(f"seat {o.agl_m:+.2f} m at grade, admitted by its bore: the seat is the "
+                     f"author's handle (2026-09-06f / 2026-10-07a), the depth the bore law's")
     if bores[0] and bores[1]:
         mouth, flat, kind = 0, True, "bore"
         notes.append(f"bores at both ends ({bores[0]} / {bores[1]}): two mouths, the trench "
@@ -874,6 +884,10 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     sigs: dict[str, WallSignature | str] = {}
     counts: dict[str, int] = {}
     admitted: list[tuple[WallSignature, _obj8.PlacedObject]] = []
+    #: at-grade seats awaiting their bore, with the refusal that stands
+    #: without one — read AFTER the deep seats (their ``@k`` and their
+    #: family rule are untouched by an at-grade sibling)
+    by_bore: list[tuple[WallSignature, _obj8.PlacedObject, str]] = []
     no_bore: set[str] = set()
     #: spec §33 (1): the resources the pre-screen actually READ — every one
     #: of them is named with its verdict (the no-bore skip below never
@@ -940,11 +954,23 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         # ground — its seat stands one crest under grade, never the
         # admission depth; its discriminator is the BORE mouth inside it
         # (read in _corridor), and the re-seat puts the crest flush.
+        # A FULL WALL SEATED AT GRADE WITH A BORE AT ITS PLATE IS A TUNNEL
+        # WALL TOO (owner RULINGS 2026-10-07a (7)-(9); 06f / 08o: the seat
+        # is the author's handle, never depth evidence): the same bore
+        # discriminator admits it — cheaply here (a mapped tunnel way at
+        # its plan), exactly in _corridor (a bore END within
+        # bore_end_tolerance_m of the plate, or the bore crossing an end
+        # of the walls) — with the bore law's depth; the re-seat puts the
+        # crest at the ground.  With no bore the refusal stands.
         if not sig.edge_wall and seat > o.anchor_z - admission:
-            stats.refused.append(f"{o.id} {os.path.basename(o.path)}: seat {seat:.2f} is not "
-                                 f"{admission:.1f} m (basin.admission_depth_m) under the ground "
-                                 f"at the placement ({o.anchor_z:.2f}) — a wall at grade, not a "
-                                 f"tunnel floor")
+            why = (f"seat {seat:.2f} is not "
+                   f"{admission:.1f} m (basin.admission_depth_m) under the ground "
+                   f"at the placement ({o.anchor_z:.2f}) — a wall at grade, not a "
+                   f"tunnel floor")
+            if _bore_near(o, cache, bore_tree, ob.bore_end_tolerance_m):
+                by_bore.append((sig, o, why + " (no mapped bore ends at its walls)"))
+            else:
+                stats.refused.append(f"{o.id} {os.path.basename(o.path)}: {why}")
             continue
         admitted.append((sig, o))
     for path in no_bore - set(sigs):
@@ -973,11 +999,11 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             plates.setdefault(o.path, []).append((o.id, placed))
     out: list[Corridor] = []
     k_by_res: dict[str, int] = {}
-    for sig, o in admitted:
+    for sig, o, why in [(s, o, "") for s, o in admitted] + by_bore:
         k = k_by_res.get(o.path, 0)
         k_by_res[o.path] = k + 1
-        others = [p for oid, p in plates[o.path] if oid != o.id]
-        c = _corridor(sig, o, k, airport, tunnel_ways, others, law)
+        others = [p for oid, p in plates.get(o.path, ()) if oid != o.id]
+        c = _corridor(sig, o, k, airport, tunnel_ways, others, law, why)
         if isinstance(c, str):
             stats.refused.append(f"{o.id} {os.path.basename(o.path)}: {c}")
             continue

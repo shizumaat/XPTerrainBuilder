@@ -1,5 +1,14 @@
 # gaps3 continuation notes (lane stopped 2026-10-06 07:12 for a machine shutdown)
 
+> CLOSED BY LANE gaps4 (2026-10-06 evening). CORRECTION: the HECA ARM replay
+> DID finish — it is kept at `frames/gaps3/ARM/` (solved.pkl, patch, log).
+> Item 2 (bars), item 3 (owner sites) and item 4 (§53 (18)) are done:
+> `docs/briefs/gaps4-findings.md` and spec §53 (18). The scratch reader
+> `frames/gaps3/site_read.py` is superseded by `tools/v2_late_read.py --site`
+> (`tools/v2_late_site.py`); do not run the scratch copy. The six-airport
+> no-op was run through `tools/harness/build_airport.py`, not the per-airport
+> capture plan below.
+
 Branch `feature/pavement-gaps`, pushed. Worktree used: the existing
 `.claude/worktrees/gaps292` (the ritual `up gaps3` refused: branch already
 checked out there; `lane_worktree.sh check gaps292` was clean).

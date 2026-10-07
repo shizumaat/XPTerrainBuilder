@@ -18335,3 +18335,47 @@ OPEN, IN ORDER:
 SCRATCH SCRIPTS WORTH PROMOTING (all first-to-third use, in the lane's scratchpad, none in `tools/`): `r7_read.py` (foreign vertices; level difference across the stand-off per piece | neighbour; ribbons vs fixed neighbours; `route3` along-axis grade), `evidence.py` (missed hard heads; follow misses by neighbour kind; the forcing span; wall witness), `follow_diag.py` / `r11_read.py` (follow rows against a solved set; floors on a vertex), `ribbon_rows.py` (what pins a ribbon), `classify_ab.py` (classify control vs arm on one capture). `airside_value_delta.py --by-ref` IS promoted (main).
 
 LESSONS: (1) a `PlanarMap` face ring is a cycle of EDGE ids — read vertices through `PlanarMap.ring_vertices` / `model.planar.face_vertex_set` only (the lane's round-3 row census and round-4 follower set were wrong for it; §53 (8)'s per-pad row counts are withdrawn). (2) A PIN OUTRANKS A SUBSTITUTED CONSTANT in the reduction — a later stage must drop the rows it has no unknown in. (3) A `Band` and a one-term `Linear` are treated alike by the solve; what gives a hard row up is its TIER in the §5a LP, and the solve then reports the hard set settled — read the surface against the rows, not the report. (4) The why tool does not know late-stage constants. (5) The base must be re-solved on the tree under test: a base from an older tree is a different map. (6) Late-stage replays hide `Ortho4XP/venv` conflicts — `scripts/make_engine.sh` makes it unavailable while it runs.
+
+### §53 (18) ROUND 13 AND THE MERGE ONTO THE POOLED BUILD (lanes `gaps2`, `gaps3`, `gaps4`, 2026-10-04 … 10-06) — A RECORD. Nothing designed, nothing enabled: the last stage still runs in the replay tool only. The measurements for the 04u cut and the lot class are in `docs/briefs/gaps4-findings.md`.
+
+WHAT ROUND 13 LANDED (lane `gaps2`, on the branch):
+
+1. `--why-vertex` ON A LATE SOLVE (`7d5db770`): the `--solved-out` pickle of a `--late-from` arm carries the stage's constants (`late_fixed`) and its own rows; the why tool re-solves the LAST STAGE with them (a FIXED terminal, the `gap_follow` family). §53 (17) open item 5 is closed.
+2. `tools/v2_late_read.py` (`3ee9bafa`, `6a144d93`, `cf4527d5`): the last stage read against its base — JOIN, FOREIGN vertices, FOLLOW misses, STAND-OFF stepping pairs, RIBBON residue, standing WAY GROUPS. Promoted from the first lane's scratch readers; it derives nothing (`pipeline/stage_one_map`, `constraints/gap_follow`, `airside_value_delta.read_refs`).
+3. FOREIGN VERTICES 16 → 0. (a) THE STRUCTURE PASS READS THE STANDING CELLS ONLY (`1784757e`): a gap piece is set aside before the structures are derived and is cut by the finished footprints LAST — 15 tunnel wall / ramp vertices the base map lacks → 0. A GAP PIECE NEVER LEADS and is never cover. (b) A RIBBON TOUCHING A PIECE AT ONE VERTEX FOLLOWS (`687d875c`, `model.planar.gap_follower_faces`: ONE derivation for the stage, the follow rows and the reader) — `small_roads:-18892`'s node → 0. §53 (17) open item 2 is closed.
+4. THE 0.03 m NODE → 0 (`687d875c`): ONE EMITTED POINT WITH A STANDING VERTEX IS STANDING — a follower vertex within the identity spacing of a constant keeps its base level (`late_fixed(identity_m)`); the node was lot `dsf:pol10`'s. §53 (17) open item 3 is closed.
+5. RIBBON RESIDUE READ PER REF (`cf4527d5`): the offsets are taken over the vertices BOTH maps carry and priced against the road cap to the fixed neighbour. Of the ribbons whose worst offset grows > 0.1 m, all but one are SLOPES WITHIN THE CAP over 4.7–5.9 m to a neighbour beyond the follow reach (no follow row on the vertex: no fixed ring within 1.95 m); `small_roads:-3927` is a real residue (0.54 → 1.39 m, 67.2 % over 2.06 m beside `building133`, 30.1262730, 31.4057686). The two span cases of the held read are the 04u terrace cases. §53 (17) open item 4 is read, not fixed.
+
+THE MERGE (lane `gaps3`; `d78f4175`, `5e7e5144`; main `e649c894`, the pooled planar build): three files conflicted.
+
+| file | resolution |
+|---|---|
+| `planar/structures.py` | main's `cover_polygons` kept; the standing-cells read sits beside it in `planar/structure_approach`: `standing_cover(classification)` → (standing cells, gap pieces, polygons) and `cut_gap_cells(gap_cells, knife, law, cut)` (the stand-off cut, LAST). `cover_polygons` SKIPS a gap piece, so the pooled wall-corridor field (`wall_field`, the only classification-derived record handed to pool workers) and the mapped-tunnel field read the standing cover only. |
+| `tools/INDEX.md`, `docs/frames.jsonl` | both sides kept. |
+
+Semantic repairs: `--late-from` entered main's arm table (`tools/replay_arms.py`: a solving `--replay` only) and its twin; the gap follow head moved from FIRST to LAST in `[design] hard_rulings` (membership only — a fixture reads the first); twin `test_gap_mint.py::test_a_gap_piece_is_never_cover_for_the_structures_or_the_wall_field`. The mint (`classify`), the load reader and the last stage are serial.
+
+THE BARS RE-MEASURED ON THE MERGED TREE (lane `gaps4`; frames `gaps3/BASE` and `gaps3/ARM`, both solved on `5e7e5144`; capture `gaps3/HECA.pkl`: 43,010 vertices / 1,999 faces, 23 sheet bodies, 39 pieces / 1,001,184 m², 20 apron-touching / 831,854 m², 68 gap faces; 0.02 m):
+
+| bar | merged tree | held (round 12–13) |
+|---|---|---|
+| sheet-free replay (the base) | body sha `09847984ac94` = main's HECA: THE BRANCH WITHOUT THE SHEET IS A NO-OP AT HECA | — |
+| fixed vertices off their constant | 0 of 34,540 | 0 |
+| foreign vertices on standing faces | 0 | 0 |
+| standing way groups identical to the base | 1,152 of 1,152 | 1,152 of 1,152 |
+| follow rows missed by the solved surface | 165 of 1,583 (pad 121, apron 22, other 22); 25 conflict vertices; worst 5.23 m (`building26`, 30.1159894, 31.4079381) | 165 of 1,583 (121 / 22 / 22) |
+| stepping pairs across the stand-off | 68 of 147; 52 on pieces ≥ 1,000 m² | 68 of 147; 52 |
+| follower ribbons grown > 0.1 m | 5 of 59 | 8 of 59 (not attributed) |
+| harness census, ADJUDICATED (law-true, `icao`) | base 14,187 → arm 14,720 (+533: within_shape +441, hairline_pair +164 out of scope, road_cross_section +104, road_coverage_join +32, pavement_over_road_cap +11, terrace_actual_step +4, hard_conflict −57, airside_no_step −2; airside 12,362 → 12,306, groundside 1,821 → 2,410) | not taken |
+| arm patch | 2,274 ways / 41,974 nodes, body sha `21ac4385b6a8` | 41,974 nodes |
+
+THE OWNER SITES ON THE ARM (reader: `tools/v2_late_read.py --site`, `tools/v2_late_site.py`, promoted this round; levels inside a piece are read on the face's own triangulation of its RIM vertices — a piece carries no interior vertex):
+
+| site | base | arm |
+|---|---|---|
+| #430 lot 30.1154841, 31.4105884 | no face; DEM 102.11; `route3` beside it at 97.05–97.16 | `gap:7` 97.65; flat to 0.5 % for 28 m toward the road; 0.22 m to `route3` |
+| #292 lot 30.1159784, 31.4106264 | no face; DEM 101.86; `apron:pav37` 92.1–92.8 | `gap:7` — THE SAME PIECE AND FACE — 97.09; falls 97.83 → 93.66 over 52 m (8.2–8.7 %) to the apron |
+| #358 pavement 30.1193169, 31.4085087 | no face; DEM 96.94; ribbon `small_roads:-20210` 6.73 m above `apron:pav37` two metres from it | `gap:0` 90.24; `pav37` 89.57 → ribbon 89.67–89.92 → piece 90.07–90.79 → pad `building26` 90.79; worst difference between two faces 0.07 m |
+
+THE HELD LEAD `gap:8 | route3` 3.91 m (30.1152588, 31.4106360) IS CONFIRMED AND IS THE PIECE SOUTH OF THE ROAD, NOT THE OWNER'S LOT: `gap:8` has no welded neighbour and `route3` runs 4–6 m under its other rim. WITNESSES (findings §4): no polygon of the pack or of OSM separates the three sites; #430 and #292 are one piece with no neck at 2, 5 or 10 m; `gap:7` is welded to `apron:pav37` over 112 m (the 04q "fringe" reading was not reproduced), so RULINGS 06a's "only fixed neighbour is a road" does not select the owner's lot as the map stands; `gap:0` satisfies every 04q clause at once and separates #358 only after a division of the piece.
+

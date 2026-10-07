@@ -70,8 +70,10 @@ def late_stations(pm_base, z_base, pieces: _t.Sequence[Polygon], law: Law,
     """THE STATIONS of each piece (spec §55 (1)): the points of every
     standing ring of the base map that the piece's rim comes within the
     follow reach of, laid along the ring's edges at the chord density, each
-    with the base's level interpolated on its edge.  A mapped-road ribbon
-    welded to a piece is a follower (an unknown), never a station."""
+    with the base's level interpolated on its edge and the PIECE's cap (a
+    ring's own cap binds inside the follow reach only, through the follow
+    rows).  A mapped-road ribbon welded to a piece is a follower (an
+    unknown), never a station; a ribbon beside no piece is a standing ring."""
     from ..constraints.groundside import groundside_face_roles
     from ..constraints.roads import road_family_roles
     from ..solve.design_ground import ground_roles
@@ -96,14 +98,12 @@ def late_stations(pm_base, z_base, pieces: _t.Sequence[Polygon], law: Law,
                                   for v in (pm_base.edges[e].a, pm_base.edges[e].b)])
             if len(ptree.query(pts, predicate="dwithin", distance=_WELD_M)[0]):
                 continue
-        rc = role_cap(law, f.role)
-        cap = min(cap_p, float(rc.longitudinal)) if rc and rc.longitudinal else cap_p
         cls = _class_of(law, f.role, f.ref, own_role, roles)
         name = f"{f.role}:{str(f.ref).split('#')[0]}"
         for e in es:
             ed = pm_base.edges[e]
             segs.append([V[ed.a].xy, V[ed.b].xy])
-            meta.append((float(z_base[ed.a]), float(z_base[ed.b]), cls, cap,
+            meta.append((float(z_base[ed.a]), float(z_base[ed.b]), cls, cap_p,
                          setback if cls == PAD else 0.0, name))
     out: list[list[Station]] = [[] for _ in pieces]
     if not segs or not pieces:

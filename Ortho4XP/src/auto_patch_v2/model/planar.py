@@ -44,7 +44,8 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
-           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "face_edge_ids",
+           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "gap_part_kind",
+           "face_edge_ids",
            "face_vertex_set", "gap_follower_faces"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
@@ -835,6 +836,23 @@ GAP_PREFIX = "gap"
 def is_gap_ref(ref) -> bool:
     """A §53 gap piece."""
     return str(ref or "").split(":", 1)[0] == GAP_PREFIX
+
+
+_GAP_PART_KINDS = {"s": "step", "lot": "lot", "ramp": "ramp"}
+
+
+def gap_part_kind(ref) -> str | None:
+    """THE PART of a cut gap piece this ref names (spec §55 (2) 5, (13)):
+    ``"step"`` (``gap:<k>/s<j>``), ``"lot"`` (``…/lot``, ``…/lot<i>``),
+    ``"ramp"`` (``…/ramp<i>``), or ``None`` for an uncut piece and for
+    anything that is not a gap piece.  The LAST path segment decides — the
+    spellings compose (``gap:<k>/s<j>/lot``)."""
+    if not is_gap_ref(ref):
+        return None
+    path = str(ref).split("#", 1)[0].split("/")
+    if len(path) < 2:
+        return None
+    return _GAP_PART_KINDS.get(path[-1].rstrip("0123456789"))
 
 
 def gap_follower_faces(pm) -> tuple[list, list]:

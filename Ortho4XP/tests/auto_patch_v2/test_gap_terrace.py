@@ -3,7 +3,11 @@ RULINGS 2026-10-04u, 2026-10-06d): the step cut, the knife, the lot cut, the
 floors, and determinism — on synthetic pieces."""
 from __future__ import annotations
 
+import pathlib
+import pickle
 import random
+
+import pytest
 
 from shapely.geometry import box
 
@@ -13,6 +17,8 @@ from auto_patch_v2.law import Law
 
 LAW, RULES = Law.for_airport("HECA"), load_rules()
 CAP = 0.08
+FLOOR = float(LAW.tables.emit.terrace.pad_terrace_floor_m)
+FRAMES = pathlib.Path("/Users/noah/XPTerrainBuilderData/.harness/frames/gaps3")
 
 
 def _run(x0, x1, y, z, cls, n=9, cap=CAP, knife=0.0):
@@ -29,7 +35,7 @@ def test_two_stations_the_cap_cannot_join_cut_the_piece_in_two_with_one_knife():
     piece = box(0, 0, 60, 40)
     st = [gt.Station((27.0, -1.5), 90.0, "pad", CAP, 0.0, "building:a"),
           gt.Station((33.0, -1.5), 95.0, "lot", CAP, 0.0, "parking_lot:b")]
-    assert not gt.consistent(*st)                      # 5 m over 6 m
+    assert not gt.consistent(*st, CAP, FLOOR)          # 5 m over 6 m
     cut = gt.terrace_cut(piece, st, LAW, RULES, cap=CAP)
     assert len(cut.groups) == 2 and cut.knives == 1 and not cut.merged
     a, b = cut.parts
@@ -40,6 +46,29 @@ def test_two_stations_the_cap_cannot_join_cut_the_piece_in_two_with_one_knife():
     # half from each side of the midline x = 30
     assert abs(a.poly.area - b.poly.area) < 1.0
     assert abs((a.poly.area + b.poly.area) - (60 * 40 - a.poly.distance(b.poly) * 40)) < 1.0
+
+
+def test_two_stations_under_the_floor_weld_and_the_piece_is_not_cut():
+    # (i') 0.9 m over 6 m is 15 %: over the cap, under the terrace floor
+    piece = box(0, 0, 60, 40)
+    st = [gt.Station((27.0, -1.5), 90.0, "pad", CAP, 0.0, "building:a"),
+          gt.Station((33.0, -1.5), 90.9, "lot", CAP, 0.0, "parking_lot:b")]
+    assert gt.consistent(*st, CAP, FLOOR) and not gt.consistent(*st, CAP, 0.0)
+    cut = gt.terrace_cut(piece, st, LAW, RULES, cap=CAP)
+    assert len(cut.groups) == 1 and cut.knives == 0 and not cut.merged
+    assert [(p.suffix, p.kind) for p in cut.parts] == [("", None)]
+
+
+def test_a_ramp_short_by_less_than_the_floor_reaches_the_road_with_no_knife():
+    # (ii') the owner's pair: 7.14 m over 87.7 m needs 89 m at the cap —
+    # 0.12 m short, under the floor: ONE group, and on that line no lot
+    piece = box(0, 0, 80, 86.2)
+    st = _run(0, 80, 87.7, 99.7, "road") + _run(0, 80, 0.0, 92.56, "apron")
+    assert not gt.consistent(st[0], st[9], CAP, 0.0)
+    cut = gt.terrace_cut(piece, st, LAW, RULES, cap=CAP)
+    assert len(cut.groups) == 1 and cut.knives == 0
+    assert all(p.kind != "lot" for p in cut.parts)      # the ramp reaches the road
+    assert abs(sum(p.poly.area for p in cut.parts) - piece.area) < 1e-3
 
 
 def test_a_road_and_an_apron_at_two_levels_make_a_lot_and_a_ramp_on_one_breakline():
@@ -117,3 +146,47 @@ def test_the_cut_does_not_depend_on_the_order_of_its_stations():
         sh = list(st)
         rnd.shuffle(sh)
         assert _canon(gt.terrace_cut(piece, sh, LAW, RULES, cap=CAP)) == want
+
+
+def test_part_kind_reads_the_last_segment_of_the_ref():
+    from auto_patch_v2.model.planar import gap_part_kind, is_gap_ref
+    want = {"gap:7": None, "gap:7/lot": "lot", "gap:7/lot1": "lot",
+            "gap:7/ramp0": "ramp", "gap:0/s4": "step", "gap:0/s4/lot": "lot",
+            "gap:0/s12/ramp3": "ramp", "gap:0/s4/lot#2": "lot", "pav7/lot": None}
+    assert {r: gap_part_kind(r) for r in want} == want
+    assert all(is_gap_ref(r) for r in want if r.startswith("gap:"))
+
+
+@pytest.mark.skipif(not (FRAMES / "HECA.pkl").exists()
+                    or not (FRAMES / "BASE" / "solved.pkl").exists(),
+                    reason="frames gaps3 (capture + solved base) not mounted")
+def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
+    """(vii) THE FRAME TWIN (spec §55 (7), (13)): the rule's reading of one
+    recorded map — a change in these counts is a change in the rule."""
+    import dataclasses as dc
+
+    from auto_patch_v2.airport import frame_entry as fe
+    from auto_patch_v2.airport.obj8 import ResourceCache
+    from auto_patch_v2.classify import classify
+    from auto_patch_v2.pipeline.late_stage import cut_classification
+    from auto_patch_v2.planar.cluster import clusters
+    from shapely.geometry import Point, Polygon
+    with open(FRAMES / "HECA.pkl", "rb") as fh:
+        airport = pickle.load(fh)["airport"]
+    law = Law.for_airport(airport.icao)
+    airport = dc.replace(airport, clusters=clusters(airport, law))
+    cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m, fe.quantum(law))
+    cl = classify(airport, law, RULES, cache=cache)
+    with open(FRAMES / "BASE" / "solved.pkl", "rb") as fh:
+        base = pickle.load(fh)
+    cl2, rep = cut_classification(cl, base["pm"], base["z"], law, RULES)
+    dropped = sum(p["knife_dropped_m2"] for p in rep["pieces"])
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (93, 48, 66, 6)
+    to_xy = airport.frame.transformers()[0]
+    sites = {(30.1154841, 31.4105884): "gap:7/lot", (30.1159784, 31.4106264): "gap:7/ramp0",
+             (30.1193169, 31.4085087): "gap:0/s4/lot"}
+    for (lat, lon), ref in sites.items():
+        pt = Point(*to_xy(lon, lat))
+        hit = [c.ref for c in cl2.cells if str(c.ref).startswith("gap:")
+               and Polygon(c.ring, c.holes).contains(pt)]
+        assert hit == [ref]

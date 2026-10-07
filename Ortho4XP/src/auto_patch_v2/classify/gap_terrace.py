@@ -8,8 +8,10 @@ level the earlier stages gave it — a constant; the caller reads them
 (``pipeline/late_stage.late_stations``).  Nothing here reads a DEM, a map or
 an airport.
 
-THE STEP CUT (04u).  Two stations are CONSISTENT when the cap can join them
-over their distance (:func:`consistent`).  The stations are grouped greedily
+THE STEP CUT (04u).  Two stations are CONSISTENT when the PIECE's own cap can
+join them over their distance within the law's terrace floor
+(:func:`consistent`: ``|dz| <= cap * d + terrace.pad_terrace_floor_m`` — a
+difference the cap misses by less than the floor welds, as a pad's does).  The stations are grouped greedily
 into pairwise-consistent LEVEL GROUPS (:func:`level_groups`); every point of
 the piece belongs to the group of its nearest station (a Voronoi partition);
 a candidate under the mint's own floors is merged into its longest
@@ -53,7 +55,7 @@ class Station:
     xy: tuple[float, float]
     z: float
     cls: str                 #: road | apron | pad | lot | band | structure
-    cap: float               #: the tighter of the piece's cap and the ring's
+    cap: float               #: the PIECE's longitudinal cap (the caller's)
     knife: float = 0.0       #: the pad set-back for a pad, else 0
     ring: str = ""           #: ``role:ref`` of the ring, for the report
 
@@ -88,28 +90,30 @@ def knife_m(law: Law) -> float:
         + 0.5 * float(law.tables.emit.identity.min_distinct_spacing_m)
 
 
-def consistent(s: Station, t: Station) -> bool:
-    """Can the cap join ``s`` and ``t`` over their plan distance?"""
+def consistent(s: Station, t: Station, cap: float, floor: float) -> bool:
+    """Can the piece join ``s`` and ``t`` over their plan distance — at its
+    own ``cap``, within the terrace ``floor`` (spec §55 (1): a difference
+    the cap misses by less than the floor WELDS; only a real terrace earns
+    a knife)?"""
     d = math.dist(s.xy, t.xy)
-    return abs(s.z - t.z) <= min(s.cap, t.cap) * max(0.0, d - s.knife - t.knife)
+    return abs(s.z - t.z) <= cap * max(0.0, d - s.knife - t.knife) + floor
 
 
-def level_groups(stations: _t.Sequence[Station]) -> list[list[int]]:
+def level_groups(stations: _t.Sequence[Station], cap: float,
+                 floor: float) -> list[list[int]]:
     """THE LEVEL GROUPS, deterministic: stations in ``(z, x, y)`` order, each
-    joining the FIRST group it is consistent with every member of."""
+    joining the FIRST group it is :func:`consistent` with every member of."""
     order = sorted(range(len(stations)),
                    key=lambda i: (stations[i].z, *stations[i].xy, i))
     xy = np.array([s.xy for s in stations], dtype=float).reshape(-1, 2)
     z = np.array([s.z for s in stations], dtype=float)
-    cap = np.array([s.cap for s in stations], dtype=float)
     kn = np.array([s.knife for s in stations], dtype=float)
     groups: list[list[int]] = []
     for i in order:
         for g in groups:
             m = np.asarray(g)
             d = np.hypot(xy[m, 0] - xy[i, 0], xy[m, 1] - xy[i, 1])
-            ok = np.abs(z[m] - z[i]) <= np.minimum(cap[m], cap[i]) \
-                * np.maximum(0.0, d - kn[m] - kn[i])
+            ok = np.abs(z[m] - z[i]) <= cap * np.maximum(0.0, d - kn[m] - kn[i]) + floor
             if bool(ok.all()):
                 g.append(i)
                 break
@@ -264,8 +268,9 @@ def _lot_cut(part: Polygon, road: list[Station], apron: list[Station],
 def terrace_cut(piece: Polygon, stations: _t.Sequence[Station], law: Law,
                 rules, *, cap: float | None = None) -> TerraceCut:
     """THE CUT of one gap piece by its standing neighbours' levels.  ``cap``
-    is the piece's own longitudinal cap (default: the loosest station cap,
-    each being the tighter of the piece's and its ring's)."""
+    is the piece's own longitudinal cap (default: the stations' own, which
+    the caller fills with it); the floor is the law's
+    ``terrace.pad_terrace_floor_m``."""
     st = list(stations)
     if not st:
         return TerraceCut((Part(piece, "", None, 0, ()),), (), 0, ())
@@ -276,7 +281,7 @@ def terrace_cut(piece: Polygon, stations: _t.Sequence[Station], law: Law,
     grid = float(rules.cells.snap_grid_m)
     min_m2 = float(lw.object_pavement_min_m2)
     cap = float(cap) if cap is not None else max(s.cap for s in st)
-    groups = level_groups(st)
+    groups = level_groups(st, cap, float(tr.pad_terrace_floor_m))
     grp = np.zeros(len(st), dtype=int)
     for g, members in enumerate(groups):
         grp[members] = g

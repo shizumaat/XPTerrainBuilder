@@ -11154,20 +11154,22 @@ _PVC_LAT = 30.1200000
 _PVC_LON = 31.4100000
 
 
-def _pavcap_patch(tmp_path, *, name, rings):
+def _pavcap_patch(tmp_path, *, name, rings, sidecar=None):
     """``rings``: ``[(role, [(dx_m, dy_m, alt), ...]), ...]`` — closed
-    pavement rings on a local metre frame, one ``alt_abs`` per node."""
+    pavement rings on a local metre frame, one ``alt_abs`` per node.
+    ``sidecar``: further sidecar keys (a law input under test)."""
     mlat = 111_320.0
     mlon = 111_320.0 * math.cos(math.radians(_PVC_LAT))
     nodes, ways = [], []
     nid = -1
-    for i, (role, ring) in enumerate(rings):
+    for i, (role, ring, *ref) in enumerate(rings):
         ids = []
         for dx, dy, alt in ring:
             nodes.append((nid, _PVC_LAT + dy / mlat, _PVC_LON + dx / mlon, alt))
             ids.append(nid)
             nid -= 1
-        ways.append((nid, ids + [ids[0]], {"role": role, "shapeID": f"S{i}"}))
+        ways.append((nid, ids + [ids[0]], {"role": role, "shapeID": f"S{i}",
+                                           **({"ref": ref[0]} if ref else {})}))
         nid -= 1
     out = ["<?xml version='1.0' encoding='UTF-8'?>",
            "<osm version='0.6' generator='pavcap-twin'>"]
@@ -11183,7 +11185,7 @@ def _pavcap_patch(tmp_path, *, name, rings):
     osm = tmp_path / f"{name}_auto.patch.osm"
     osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
     Path(str(osm) + ".axes.json").write_text(json.dumps({
-        "anchor": [_PVC_LAT, _PVC_LON], "ruleset": "icao"}),
+        "anchor": [_PVC_LAT, _PVC_LON], "ruleset": "icao", **(sidecar or {})}),
         encoding="utf-8", newline="")
     return osm
 
@@ -11234,6 +11236,60 @@ def test_welded_neighbours_of_two_pavements_are_priced_as_one_pair(cg, tmp_path)
     fo2 = _families(cg, _pavcap_patch(tmp_path, name="weldok", rings=[
         ("groundside_pavement", a), ("service_road", b2)]))
     assert fo2["pavement_over_road_cap"] == []
+
+
+def test_a_pair_across_a_declared_knife_is_not_a_fallback_row(cg, tmp_path):
+    """Spec §55 (2) 4 (Q-D): the census copy skips a welded pair of two
+    parts of one gap piece across a knife by the generator's OWN predicate
+    (``model.planar.gap_parts_across_knife``); a lot and its ramp stay
+    priced."""
+    from auto_patch_v2.model import planar as _P
+    assert cg._gap_parts_across_knife is _P.gap_parts_across_knife
+    a = [(0.0, 0.0, 20.0), (10.0, 0.0, 20.0), (10.0, 8.0, 20.0), (0.0, 8.0, 20.0)]
+    b = [(10.75, 0.0, 23.0), (20.0, 0.0, 23.0), (20.0, 8.0, 23.0), (10.75, 8.0, 23.0)]
+    role = "groundside_pavement"
+    fo = _families(cg, _pavcap_patch(tmp_path, name="knife", rings=[
+        (role, a, "gap:3/s0"), (role, b, "gap:3/s1/lot")]))
+    assert fo["pavement_over_road_cap"] == []
+    fo2 = _families(cg, _pavcap_patch(tmp_path, name="breakline", rings=[
+        (role, a, "gap:3/s0/lot"), (role, b, "gap:3/s0/ramp0")]))
+    assert len(fo2["pavement_over_road_cap"]) == 2
+
+
+def test_the_joint_allowance_index_reads_what_the_plain_walk_reads(cg):
+    """``_terrace_step_allowance`` prices a chord against the joints through
+    a bounding-box candidate filter (``_JointSegments``).  The LAW is the
+    plain walk — every joint, every segment, ``_segments_cross`` — and the
+    filter may never change a sum: random chords over crossing, touching,
+    collinear and far joints, both ways."""
+    import random
+    rng = random.Random(55)
+
+    def plain(joints, xa, ya, xb, yb):
+        total = 0.0
+        for pts, step in joints:
+            if any(cg._segments_cross((xa, ya), (xb, yb), pts[k], pts[k + 1])
+                   for k in range(len(pts) - 1)):
+                total += step
+        return total
+
+    joints = [([(rng.uniform(0, 200), rng.uniform(0, 200)) for _ in range(rng.randint(2, 9))],
+               rng.choice([0.0, 0.25, 1.5, 7.94])) for _ in range(60)]
+    joints += [([(50.0, 0.0), (50.0, 100.0), (50.0, 200.0)], 2.0),      # axis-parallel
+               ([(0.0, 80.0), (200.0, 80.0)], 3.0)]
+    chords = [(rng.uniform(-20, 220), rng.uniform(-20, 220),
+               rng.uniform(-20, 220), rng.uniform(-20, 220)) for _ in range(1500)]
+    chords += [(50.0, 10.0, 50.0, 90.0),          # collinear with a joint
+               (40.0, 100.0, 50.0, 100.0),        # ends ON a joint vertex
+               (0.0, 80.0, 50.0, 80.0),           # along one, touching another
+               (300.0, 300.0, 310.0, 310.0)]      # nowhere near
+    got = [cg._terrace_step_allowance(joints, *c) for c in chords]
+    assert got == [plain(joints, *c) for c in chords]
+    assert sum(1 for g in got if g > 0.0) > 500 and got[-1] == 0.0
+    # another joint list is another index (identity, never a stale read)
+    other = [([(0.0, 0.0), (10.0, 10.0)], 9.0)]
+    assert cg._terrace_step_allowance(other, 0.0, 10.0, 10.0, 0.0) == 9.0
+    assert cg._terrace_step_allowance(joints, *chords[0]) == got[0]
 
 
 def test_pavement_over_road_cap_is_registered_and_reads_the_law(cg):

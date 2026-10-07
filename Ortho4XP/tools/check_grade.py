@@ -6357,15 +6357,57 @@ def _joint_segment_carried(carried_flags, joint_index: int,
     return bool(flags[segment_index]) and bool(flags[segment_index + 1])
 
 
+class _JointSegments:
+    """Every declared joint's segments with their bounding boxes — the
+    CANDIDATE FILTER of :func:`_terrace_step_allowance`.  A chord can cross
+    (or touch, ``_segments_cross``'s 1e-9 envelope) only a segment whose
+    box meets its own, so the exact predicate runs on those alone.  Built
+    once per joint list: a cut gap piece (spec §55) brings ~180 joints /
+    ~3,100 segments under shapes of thousands of vertices, and the plain
+    joint x segment walk per pair did not finish (MEASURED at HECA: no
+    census output in 30 min)."""
+
+    #: metres: wider than ``_segments_cross``'s own touching envelope
+    PAD_M = 1e-6
+
+    def __init__(self, joints) -> None:
+        import numpy as np
+        seg = [(j, k, pts[k], pts[k + 1]) for j, (pts, _step) in enumerate(joints)
+               for k in range(len(pts) - 1)]
+        self.joints = joints
+        self.seg = [(j, a, b) for j, _k, a, b in seg]
+        ax = np.array([[a[0], a[1], b[0], b[1]] for _j, _k, a, b in seg],
+                      dtype=float).reshape(-1, 4)
+        self.x_lo = np.minimum(ax[:, 0], ax[:, 2]) - self.PAD_M
+        self.x_hi = np.maximum(ax[:, 0], ax[:, 2]) + self.PAD_M
+        self.y_lo = np.minimum(ax[:, 1], ax[:, 3]) - self.PAD_M
+        self.y_hi = np.maximum(ax[:, 1], ax[:, 3]) + self.PAD_M
+
+    def crossed(self, p, q) -> list:
+        """The joints the chord ``p``-``q`` crosses, ascending, each once."""
+        near = ((self.x_lo <= max(p[0], q[0])) & (self.x_hi >= min(p[0], q[0]))
+                & (self.y_lo <= max(p[1], q[1])) & (self.y_hi >= min(p[1], q[1])))
+        hit: list = []
+        for i in near.nonzero()[0].tolist():
+            j, a, b = self.seg[i]
+            if (not hit or hit[-1] != j) and _segments_cross(p, q, a, b):
+                hit.append(j)
+        return hit
+
+
+#: the one joint list a census run prices (identity-keyed, as
+#: ``auto_patch_v2.verify.steps._INDEX`` is)
+_JOINT_SEGMENTS: dict = {}
+
+
 def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
     """Σ of the declared step heights of every joint this chord crosses."""
+    cached = _JOINT_SEGMENTS.get("index")
+    if cached is None or cached.joints is not terrace_joints_m:
+        cached = _JOINT_SEGMENTS["index"] = _JointSegments(terrace_joints_m)
     total = 0.0
-    p, q = (xa, ya), (xb, yb)
-    for (pts, step) in terrace_joints_m:
-        for k in range(len(pts) - 1):
-            if _segments_cross(p, q, pts[k], pts[k + 1]):
-                total += step
-                break
+    for j in cached.crossed((xa, ya), (xb, yb)):
+        total += terrace_joints_m[j][1]
     return total
 
 
@@ -7080,9 +7122,15 @@ def _check_hard_conflict(hard_conflict_ll) -> List[Violation]:
             continue
         site = rec.get("site") or (0.0, 0.0)
         against = ",".join(sorted((rec.get("against") or {}).keys()))[:80]
-        way = Way("hard_conflict", "apron",
+        # THE SIDE IS THE RECORD'S TIER (spec §55 (15)): a row the solve
+        # relaxed in the GROUNDSIDE tier sides groundside (``row_side``
+        # reads the ``role`` tag through ``effective_role``); the pad and
+        # taxi tiers stay as they were — airside
+        role = "groundside_pavement" if rec.get("tier") == "groundside" else "apron"
+        way = Way("hard_conflict", role,
                   f"hard_conflict:{rec.get('tier', '')}:{rec.get('row', '')}",
-                  "", [], [], {"against": against})
+                  "", [], [], {"against": against,
+                               **({"role": role} if role != "apron" else {})})
         v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
                       de_m=float(rec.get("s_m", 0.0) or 0.0), way_a=way, way_b=way,
                       pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=0.0, elev_b=0.0)
@@ -7611,7 +7659,17 @@ try:                                                    # pragma: no cover
     _V2_PAVCAP_LAW = _V2_PAVCAP_T.load_default()
     PAVEMENT_ROAD_CAP = float(_V2_PAVCAP_T.pavement_fallback_cap(_V2_PAVCAP_LAW))
     _PAVCAP_ROLES = frozenset(_V2_PAVCAP_T.pavement_roles(_V2_PAVCAP_LAW))
+    # spec §55 (2) 4 (Q-D): a welded pair across a declared knife is a
+    # STEP — the ONE predicate the generator reads
+    from auto_patch_v2.model.planar import (
+        gap_parts_across_knife as _gap_parts_across_knife,
+        is_gap_ref as _is_gap_ref)
 except Exception:                                       # pragma: no cover
+    def _gap_parts_across_knife(_a, _b) -> bool:
+        return False
+
+    def _is_gap_ref(_ref) -> bool:
+        return False
     PAVEMENT_ROAD_CAP = 0.08
     _PAVCAP_ROLES = frozenset({
         "runway", "runway_crossing", "primary_parallel", "secondary_parallel",
@@ -7625,7 +7683,9 @@ except Exception:                                       # pragma: no cover
 PAVCAP_WELD_M = 1.0
 
 
-def _check_pavement_over_road_cap(ways, nodes, ll_to_m) -> List[Violation]:
+def _check_pavement_over_road_cap(ways, nodes, ll_to_m,
+                                  late_unknown: Optional[set] = None,
+                                  late_floor_m: float = 0.0) -> List[Violation]:
     """RULINGS 2026-09-29ac: NO PAVEMENT OF ANY CLASS IS STEEPER THAN THE
     ROAD CAP.  Every pavement vertex pair — consecutive vertices of one
     pavement ring, and vertices of two different pavement rings within
@@ -7655,9 +7715,19 @@ def _check_pavement_over_road_cap(ways, nodes, ll_to_m) -> List[Violation]:
         # the step families' ``building_to_building`` exemption carries.
         if wa is not wb and _step_exemption_for(wa, wb):
             return
+        # spec §55 (2) 4 (Q-D, owner RULINGS 2026-10-04u): two parts of one
+        # gap piece across a declared KNIFE are a step, not a grade
+        if wa is not wb and _gap_parts_across_knife(
+                (getattr(wa, "tags", None) or {}).get("ref"),
+                (getattr(wb, "tags", None) or {}).get("ref")):
+            return
         noise = max(_pair_quant_noise_m(wa), _pair_quant_noise_m(wb))
         de = abs(za - zb)
-        if de <= cap * d + noise:
+        # spec §55 (15) rule B: two last-stage unknowns answer to the
+        # WIDENED fallback, ``cap·d + floor`` (the generator's inequality)
+        floor = late_floor_m if late_unknown and na in late_unknown \
+            and nb in late_unknown else 0.0
+        if de <= cap * d + noise + floor:
             return
         key = (min((na, za), (nb, zb)), max((na, za), (nb, zb)))
         if key in seen:
@@ -8805,6 +8875,36 @@ def _stretch_node_index(stretches_m: Optional[list]) -> Dict[str, list]:
 _SHOULDER_EDGE_TOL_M = 0.5
 
 
+def late_stage_unknown_nodes(ways: List["Way"], late_stage: Optional[dict]) -> set:
+    """THE LAST STAGE'S UNKNOWNS, read off the patch (spec §55 (15) rule B
+    2): the node ids every way carrying which is a GAP-PART way
+    (``model.planar.is_gap_ref``) or a published FOLLOWER ribbon (sidecar
+    ``late_stage.followers``), and none is anything else — the patch-level
+    mirror of ``pipeline/stage_one_map.late_followers`` less ``late_fixed``:
+    a node on any standing way is a CONSTANT of that stage (and the
+    identity merge at emit puts a follower within the identity spacing of
+    a constant ON the standing way, so it reads constant here as
+    ``held_at_identity`` reads it there).  Built once per census run; a
+    patch whose sidecar carries no ``late_stage`` (no last stage ran)
+    yields the empty set and every family reads exactly as before."""
+    if not late_stage:
+        return set()
+    followers = {str(r) for r in (late_stage.get("followers") or ())}
+    free: set = set()
+    held: set = set()
+    for w in ways:
+        ref = (getattr(w, "tags", None) or {}).get("ref", "")
+        (free if _is_gap_ref(ref) or ref in followers else held).update(w.nids)
+    return free - held
+
+
+def late_stage_floor_m(late_stage: Optional[dict]) -> float:
+    """The floor the last stage WIDENED its all-unknown ceilings by (sidecar
+    ``late_stage.floor_m``; §55 (5), (15) rule B): the stage's own number,
+    read back — never a copy of the law key.  0 without the record."""
+    return float((late_stage or {}).get("floor_m") or 0.0)
+
+
 def shoulder_nids(ways: List["Way"], nodes, ll_to_m,
                   runway_axes_ll: Optional[list]) -> set:
     """§40 (2) as amended (owner RULINGS 2026-09-13dd): the node ids of
@@ -9128,6 +9228,8 @@ def _check_within_shape(ways: List[Way],
                         shoulder_nid_set: Optional[set] = None,
                         shoulder_cap: Optional[float] = None,
                         runway_caps_by_ref: Optional[Dict[str, float]] = None,
+                        late_unknown: Optional[set] = None,
+                        late_floor_m: float = 0.0,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -9249,6 +9351,13 @@ def _check_within_shape(ways: List[Way],
             # so an old patch (or the gate off) reads exactly as before.
             allowance += _terrace_step_allowance(
                 terrace_joints_m, c.xa, c.ya, c.xb, c.yb)
+        if late_unknown and not c.transverse_road \
+                and c.nid_a in late_unknown and c.nid_b in late_unknown:
+            # THE LAST STAGE'S FLOOR (spec §55 (5), (15) rule B): a ceiling
+            # between two last-stage unknowns was WIDENED by the generator
+            # to ``cap·d + floor`` (``stage_one_map.late_constraints``) —
+            # the same inequality read back, by the stage's own number
+            allowance += late_floor_m
         if fan_ramp_zones_m:
             # FAN-RAMP LAW: a within-apron pair lying wholly inside a
             # declared zone is judged at the ZONE's cap — the identical
@@ -9336,11 +9445,22 @@ def _check_cross_shape_proximity(
     ways: List[Way],
     proximity_m: float,
     max_grade: float,
+    terrace_joints_m: Optional[list] = None,
+    basin_declared: Optional[list] = None,
+    late_unknown: Optional[set] = None,
+    late_floor_m: float = 0.0,
 ) -> List[Violation]:
     """For every pair of vertices on DIFFERENT ways within
     ``proximity_m`` of each other, verify ``|de| / dist <= grade``.
     For sub-metre distances this is essentially "shared corners
     must agree on elevation".
+
+    A pair across a DECLARED step (spec §55 (15) rule B 3) is priced on
+    the excess over ``_declared_step_allowance``, as ``mid_edge_step`` /
+    ``vertex_to_edge_step`` price it — this was the one grade family that
+    read no joint (a knife between two gap parts is the first groundside |
+    groundside pair to stand in its proximity across one).  A pair of two
+    last-stage unknowns takes the stage's floor (``late_floor_m``).
 
     When two ways reference the SAME OSM node id, the vertices are
     geometrically identical — any non-zero elevation difference is
@@ -9402,6 +9522,15 @@ def _check_cross_shape_proximity(
                             elev_a=v.elev, elev_b=u.elev))
                         continue
                     allowance = grade_cap * d + ELEV_ROUNDING_NOISE_M
+                    if de <= allowance:
+                        continue
+                    if late_unknown and v.nid in late_unknown \
+                            and u.nid in late_unknown:
+                        allowance += late_floor_m
+                    if terrace_joints_m or basin_declared:
+                        allowance += _declared_step_allowance(
+                            terrace_joints_m, basin_declared, v.x, v.y,
+                            u.x, u.y, way_v, way_u, v.elev, u.elev)
                     if de <= allowance:
                         continue
                     grade = de / d
@@ -11155,6 +11284,14 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # re-walks the emitted ring and joins these to report priced / bound /
     # unbound / broken_by_emit, which is this round's measurement.
     "xsection_spans": "xsection_spans",
+    # THE LAST STAGE's own record (spec §55 (15) rule B): ``{"floor_m",
+    # "followers"}`` — the floor it widened its all-unknown ceilings by and
+    # the follower ribbons' refs.  LAW INPUT: the census prices a pair of
+    # two last-stage unknowns at ``cap·d + floor_m`` in ``within_shape``,
+    # ``pavement_over_road_cap`` and ``cross_shape``
+    # (``late_stage_unknown_nodes``).  Absent on a build with no last
+    # stage, and the census is then exactly the old one.
+    "late_stage": "late_stage",
 }
 
 #: Sidecar keys that are EVIDENCE, not law input: they are reported by the
@@ -11285,6 +11422,13 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # here so "did this patch ship with vertices outside their band?" is
     # answerable from the artifacts instead of only from a pytest run.
     "band_excess",
+    # spec §55 (4) THE GAP PIECES' PARTS (owner RULINGS 2026-10-04u / 06d,
+    # ``pipeline/publication.gap_pieces``): per part of a cut gap piece its
+    # ref, kind, area, level groups, stations by class and the stations the
+    # floors merged.  EVIDENCE: the census judges the emitted parts by the
+    # ordinary families; a part-aware reader names a merged-sliver step
+    # from this record instead of re-deriving the cut.
+    "gap_pieces",
     # (``basin_facilities`` was here — an EVIDENCE key nothing read —
     # until the tunnel-trench declared-step law made it LAW INPUT; it now
     # lives in ``SIDECAR_LAW_KEYS`` above.  Its own spec is
@@ -11491,6 +11635,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["pad_cluster_mismatch"] = data.get("pad_cluster_mismatch") or None
     ctx["ruleset"] = data.get("ruleset") or None
     ctx["relaxed_rows"] = data.get("relaxed_rows") or None
+    ctx["late_stage"] = data.get("late_stage") or None
     ctx["yielded_rows"] = data.get("yielded_rows") or None
     ctx["apron_tier"] = data.get("apron_tier") or None
     if announce:
@@ -12605,6 +12750,7 @@ def run_checks(
     relaxed_rows: Optional[list] = None,
     apron_tier: Optional[dict] = None,
     yielded_rows: Optional[list] = None,
+    late_stage: Optional[dict] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
     ``[(latlon_points, cL, cT), …]``) supplies the within-shape grade graph's
@@ -12862,6 +13008,12 @@ def run_checks(
     # along-road rows (``within_shape``) and the across-road rows.
     _road_xsec_rows: List[Violation] = []
     _taxi_box_rows: List[Violation] = []
+    # spec §55 (15) rule B: the last stage's unknowns and its floor
+    _late_unknown = late_stage_unknown_nodes(ways, late_stage)
+    _late_floor_m = late_stage_floor_m(late_stage)
+    if _late_unknown and not quiet:
+        print(f"  last stage (§55 (15)): {len(_late_unknown)} unknown node(s), "
+              f"floor {_late_floor_m:g} m on unknown|unknown pairs")
     within = _fam("within_shape", _check_within_shape(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
         taxi_axes=taxi_axes, routes_ll=routes_ll,
@@ -12877,7 +13029,8 @@ def run_checks(
         road_frame_by_nid=road_frame_by_nid,
         shoulder_nid_set=_shoulder_nids,
         shoulder_cap=shoulder_transverse_max,
-        runway_caps_by_ref=_runway_caps_by_ref))
+        runway_caps_by_ref=_runway_caps_by_ref,
+        late_unknown=_late_unknown, late_floor_m=_late_floor_m))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into
@@ -13128,7 +13281,9 @@ def run_checks(
     # RULINGS 2026-09-29ac (#105): no pavement pair of any class steeper
     # than the road cap — the fallback every unpriced pair answers to
     pav_cap = _fam("pavement_over_road_cap",
-                   _check_pavement_over_road_cap(ways, nodes, ll_to_m))
+                   _check_pavement_over_road_cap(
+                       ways, nodes, ll_to_m, late_unknown=_late_unknown,
+                       late_floor_m=_late_floor_m))
     _pv("PAVEMENT pair steeper than the ROAD cap (owner RULINGS "
         "2026-09-29ac: the road grade cap is the fallback ceiling of every "
         "pavement class; ring edges + welded neighbours <= 1 m)",
@@ -13488,7 +13643,9 @@ def run_checks(
     within = within + sentinel
 
     cross = _fam("cross_shape", _check_cross_shape_proximity(
-        vertices, ways, proximity_m, max_grade))
+        vertices, ways, proximity_m, max_grade,
+        terrace_joints_m=terrace_joints_m, basin_declared=basin_declared,
+        late_unknown=_late_unknown, late_floor_m=_late_floor_m))
     _pv(f"CROSS-SHAPE proximity (≤ {proximity_m}m) "
         f"grade > {max_grade_pct}%",
         cross, top_n)

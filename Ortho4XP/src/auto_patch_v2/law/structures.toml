@@ -1164,6 +1164,17 @@ object_pavement_skip_tokens      = ["sign", "line", "marking", "decal", "paint",
 # 9 / 0 -> 13 / 1 (the one row a pad corner on the plane's edge).
 object_pavement_hard_planes = true
 
+# THE GAP SHEET (owner RULINGS 2026-10-04o (a); issues #292, #358).  HECA's
+# `Airport/ground/asphalt.obj` — ONE draped page, 10,437 triangles,
+# 1,645,011 m2 — was refused WHOLE because 3 triangles (458 m2) sit at
+# Y = 0.150 > `draped_y_tol_m`.  Flatness is judged PER TRIANGLE: the
+# off-plane triangles are dropped and the page is kept when their share of
+# its plan area is at most this.  A page so admitted is NEVER a pavement
+# source: it reaches the layout as GAP PIECES ONLY (its footprint minus
+# every pavement the engine already knows).  `draped_y_tol_m` is NOT
+# raised — the hard-plane reads share that key.  0 = off.
+gap_sheet_offplane_max_share = 0.01
+
 # §44 THE PAVEMENT BORROW (owner RULINGS 2026-09-15f, "Coverage < 25 %
 # (Recommended)").  A custom pack whose apt.dat row-110 union covers LESS
 # than this fraction of the Global Airports block's row-110 union, for the

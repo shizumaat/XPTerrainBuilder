@@ -18,8 +18,8 @@ import zlib
 
 from ..law import Law
 from ..law.tables import identity_dp, input_quantum_m
-from ..model.airport import (Airport, Boundary, Building, DsfObject, FacadeRead,
-                             GroundRoute, LinearFeature, OsmWay, Pavement,
+from ..model.airport import (GAP_SHEET_PREFIX, Airport, Boundary, Building,
+                             DsfObject, FacadeRead, GroundRoute, LinearFeature, OsmWay, Pavement,
                              Runway, RunwayEnd, Startup, Surface, TaxiEdge,
                              TaxiNode)
 from ..model.frame import XY, Frame
@@ -600,11 +600,19 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                            o.heading_deg)
          for o in dsf_objects if o.resolved_path],
         law, pad_union)
-    for k, body in enumerate(op_bodies):
-        dsf_pavements.append(Pavement(
-            (f"{_objpav.HARD_PLANE_PREFIX}{k}" if body.hard_plane
-             else f"dsf:objpav{k}"), normalise_surface(
-                _dsf.pavement_surface_code(body.resource)),
+    # 04o (a): a GAP SHEET's bodies never join the sources; the others keep
+    # the numbering they had (a gap body takes no ``objpav`` index)
+    gap_sheets: list[Pavement] = []
+    k = 0
+    for body in op_bodies:
+        if body.gap_only:
+            pid, into = f"{GAP_SHEET_PREFIX}{len(gap_sheets)}", gap_sheets
+        else:
+            pid = (f"{_objpav.HARD_PLANE_PREFIX}{k}" if body.hard_plane
+                   else f"dsf:objpav{k}")
+            into, k = dsf_pavements, k + 1
+        into.append(Pavement(
+            pid, normalise_surface(_dsf.pavement_surface_code(body.resource)),
             tuple((float(x), float(y)) for x, y in body.polygon.exterior.coords[:-1]),
             tuple(tuple((float(x), float(y)) for x, y in r.coords[:-1])
                   for r in body.polygon.interiors),
@@ -633,7 +641,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         icao, apt.name, frame, apt.elevation_ft * _apt.FT_TO_M,
         tuple(runways), pavements, lines, taxi_nodes, taxi_edges, routes,
         boundaries, startups, tuple(osm_ways), tuple(buildings),
-        tuple(dsf_objects), pack, dem, law.ruleset_key)
+        tuple(dsf_objects), pack, dem, law.ruleset_key,
+        gap_sheets=tuple(gap_sheets))
     return airport, rep
 
 

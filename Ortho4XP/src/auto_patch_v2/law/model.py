@@ -445,6 +445,12 @@ class LoadLaw:
     #: is a pavement too — X-Plane rolls aircraft on it (NLWF
     #: ``pavement/vele_apron.obj``, 1,499 m2, the pack's whole apron)
     object_pavement_hard_planes: bool
+    #: THE GAP SHEET (owner RULINGS 2026-10-04o (a)): a pavement page is
+    #: judged flat PER TRIANGLE; it is kept, as GAP PIECES ONLY, when the
+    #: off-plane triangles' share of its plan area is at most this
+    #: (HECA ``ground/asphalt.obj``: 458 of 1,645,011 m2 = 0.00028).
+    #: 0 = off (the whole-page refusal).
+    gap_sheet_offplane_max_share: float
     #: §44 (2) THE PAVEMENT BORROW (owner RULINGS 2026-09-15f): a custom
     #: pack whose row-110 union covers LESS than this fraction of the
     #: Global Airports block's borrows Global's pavement (and its row-130

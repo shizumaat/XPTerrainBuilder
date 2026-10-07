@@ -37,10 +37,13 @@ import contextlib
 import dataclasses as _dc
 import typing as _t
 
+from ..model.planar import face_vertex_set as _face_vertices
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
                                  Offset, Pin)
 
-__all__ = ["StageOne", "ribbon_free", "stage_one_problem", "remap_row"]
+__all__ = ["StageOne", "ribbon_free", "stage_one_problem", "remap_row",
+           "gap_free", "late_followers", "late_fixed", "late_constraints",
+           "row_vertices", "late_rim_levels", "last_stage_head"]
 
 
 def ribbon_free(cl):
@@ -51,6 +54,217 @@ def ribbon_free(cl):
     if len(cells) == len(cl.cells):
         return None
     return _dc.replace(cl, cells=cells)
+
+
+def _items(vertices):
+    """``(id, vertex)`` of a map's vertex table (a dict, or a list)."""
+    return vertices.items() if isinstance(vertices, dict) else enumerate(vertices)
+
+
+def gap_free(cl):
+    """``cl`` without its §53 gap pieces, or ``None`` when it has none —
+    THE BASE MAP of the last stage (below)."""
+    from ..model.planar import is_gap_ref
+    cells = tuple(c for c in cl.cells if not is_gap_ref(getattr(c, "ref", "")))
+    if len(cells) == len(cl.cells):
+        return None
+    return _dc.replace(cl, cells=cells)
+
+
+def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset()
+                   ) -> tuple[set[int], dict]:
+    """THE LAST STAGE'S UNKNOWNS (spec §53 (9); owner RULINGS 2026-10-04o/q,
+    master 2026-10-04: "pieces follow, never lead"): the vertices of every
+    §53 GAP PIECE, and of every mapped-road RIBBON
+    (``model.planar.is_osm_ribbon_ref``) whose ring carries a vertex of a gap
+    piece (``model.planar.gap_follower_faces``) — a road through or along a
+    pavement is that pavement (the free-road ruling) — LESS every vertex a face that is neither carries:
+    a pad, an airside face, an apt.dat road, an existing lot keeps the level
+    the earlier stages gave it, and the follower grades up to it.  A face of
+    a ``soft_roles`` role (the adjacent-ground bands, which adopt their
+    value) does not hold a vertex.  ``(vertices, report)``."""
+    from ..model.planar import gap_follower_faces
+    gap, ribbons = gap_follower_faces(pm_full)
+    follow = {f.id for f in gap} | {f.id for f in ribbons}
+    free: set[int] = set()
+    held: set[int] = set()
+    for f in pm_full.faces.values():
+        if f.id in follow:
+            free |= _face_vertices(pm_full, f)
+        elif f.role not in soft_roles:
+            held |= _face_vertices(pm_full, f)
+    rep = {"gap_faces": len(gap), "follower_ribbons": len(ribbons),
+           "follower_ribbon_refs": sorted({str(f.ref) for f in ribbons}),
+           "vertices": len(free - held), "held_on_a_leader": len(free & held)}
+    return free - held, rep
+
+
+#: metres of slack on the identity spacing: the emitter measures a pair in
+#: its own local metres, the map in the airport frame
+_IDENTITY_SLACK_M = 1e-3
+
+
+def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int],
+               identity_m: float = 0.0) -> tuple[dict[int, float], dict]:
+    """THE LAST STAGE'S CONSTANTS: the base map's solved level of every
+    vertex the full map carries (the CANONICAL join, by coordinate — the
+    one ``StageOne.bind`` makes) that is not ``free``.  A full-map vertex
+    the base map lacks and no follower owns is COUNTED (``unjoined``) and
+    left an unknown, never guessed.
+
+    ONE EMITTED POINT WITH A STANDING VERTEX IS STANDING (spec §53 (18)):
+    a follower the base map carries that lies within ``identity_m`` (the
+    emitter's ``min_distinct_spacing_m``) of a constant is MERGED with it at
+    emit (``emit/osm_adapter.merge_sub_spacing``), and the survivor may be
+    the follower — its level is then the standing ring's emitted level.  It
+    keeps the base's level (``held_at_identity``).  MEASURED at HECA: lot
+    ``dsf:pol10``'s emitted ring carries ribbon ``big_roads:-1227``'s vertex
+    0.5 m from its own, which moved 0.03 m as a follower."""
+    at = {tuple(v.xy): i for i, v in _items(pm_full.vertices)}
+    fixed: dict[int, float] = {}
+    cand: dict[int, float] = {}
+    miss = 0
+    for i, v in _items(pm_base.vertices):
+        j = at.get(tuple(v.xy))
+        if j is None:
+            miss += 1
+        elif j not in free:
+            fixed[j] = float(z_base[i])
+        else:
+            cand[j] = float(z_base[i])
+    held = 0
+    if identity_m > 0.0 and cand and fixed:
+        from scipy.spatial import cKDTree
+        fv = pm_full.vertices
+        tree = cKDTree([fv[j].xy for j in fixed])
+        near, _k = tree.query([fv[j].xy for j in cand],
+                              distance_upper_bound=identity_m + _IDENTITY_SLACK_M)
+        for (j, z), d in zip(list(cand.items()), near):
+            if d != float("inf"):
+                fixed[j] = z
+                held += 1
+    n_full = len(pm_full.vertices)
+    return fixed, {"base_vertices": len(pm_base.vertices), "full_vertices": n_full,
+                   "base_unmapped": miss, "fixed": len(fixed),
+                   "held_at_identity": held,
+                   "unjoined": n_full - len(fixed) - len(free) + held}
+
+
+def late_rim_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
+                    free: _t.AbstractSet[int], tol_m: float) -> dict:
+    """THE NEW NODE ON A STANDING EDGE STANDS ON THAT EDGE (spec §53 (11)).
+    A follower's ring nodes the rim it shares with a standing cell, so the
+    full map carries vertices the base map lacks that no follower owns.
+    Each one lying within ``tol_m`` of a BASE edge is given that edge's own
+    level at its foot — the linear interpolation of the edge's two solved
+    ends — and joins ``fixed`` (in place): the standing cell's surface is
+    the base's, with one more node on a straight edge.  A vertex on no base
+    edge is counted (``off_edge``) and stays an unknown."""
+    import shapely
+    from shapely.strtree import STRtree
+    todo = [j for j, _v in _items(pm_full.vertices) if j not in fixed and j not in free]
+    rep = {"rim_nodes": len(todo), "on_a_base_edge": 0, "off_edge": 0}
+    if not todo:
+        return rep
+    bv = pm_base.vertices
+    edges = [e for e in pm_base.edges.values()] if isinstance(pm_base.edges, dict) \
+        else list(pm_base.edges)
+    lines = shapely.linestrings([[bv[e.a].xy, bv[e.b].xy] for e in edges])
+    tree = STRtree(lines)
+    pts = shapely.points([pm_full.vertices[j].xy for j in todo])
+    near = tree.query_nearest(pts, max_distance=tol_m, all_matches=False)
+    hit = {int(i): int(k) for i, k in zip(near[0], near[1])}
+    for i, j in enumerate(todo):
+        k = hit.get(i)
+        if k is None:
+            rep["off_edge"] += 1
+            continue
+        e = edges[k]
+        length = float(shapely.length(lines[k]))
+        t = float(shapely.line_locate_point(lines[k], pts[i])) / length if length else 0.0
+        fixed[j] = (1.0 - t) * float(z_base[e.a]) + t * float(z_base[e.b])
+        rep["on_a_base_edge"] += 1
+    return rep
+
+
+def row_vertices(row) -> tuple[int, ...]:
+    """Every vertex ``row`` names (its ``follows`` leaders are not unknowns
+    of the row and are not counted)."""
+    if isinstance(row, (Pin, Band)):
+        return (int(row.v),)
+    if isinstance(row, (Diff, Offset)):
+        return (int(row.a), int(row.b))
+    if isinstance(row, Flat):
+        return tuple(int(v) for v in row.group)
+    if isinstance(row, Linear):
+        return tuple(int(v) for v, _c in row.terms)
+    raise TypeError(f"stage_one_map: unknown row type {type(row).__name__}")
+
+
+#: the head suffix of a ceiling row the last stage widens (below)
+LAST_STAGE_SUFFIX = ", last stage"
+
+
+def last_stage_head(ruling: str) -> str:
+    """``ruling`` with its HEAD (the text before the first parenthesis)
+    suffixed :data:`LAST_STAGE_SUFFIX`, the ruling text kept."""
+    head, sep, rest = str(ruling).partition("(")
+    return f"{head.strip()}{LAST_STAGE_SUFFIX}{' ' + sep + rest if sep else ''}"
+
+
+def late_constraints(cs: ConstraintSet, fixed: _t.Mapping[int, float],
+                     yield_heads: _t.AbstractSet[str] = frozenset(),
+                     widen_heads: _t.AbstractSet[str] = frozenset(),
+                     widen_floor_m: float = 0.0
+                     ) -> tuple[ConstraintSet, dict]:
+    """THE LAST STAGE'S OWN ROWS (spec §53 (10), master 2026-10-04): a row
+    with NO unknown is not the last stage's.  Every row whose vertices are
+    ALL constants of the earlier stages is dropped — so a PIN restated on
+    the full map never moves an earlier stage's level (the reduction lets a
+    pin outrank a substituted constant), and a law row between two fixed
+    vertices is the earlier stage's residual, already published there, not
+    a row this stage can answer for.  ``(set, {type: dropped})``.
+
+    A HARD CEILING BETWEEN TWO UNKNOWNS CARRIES THE CUT'S OWN PAIR TEST
+    (spec §55 (5), §55 (14) Q-F): a ``Diff`` of a ``widen_heads`` head whose
+    vertices are ALL unknowns of this stage is widened to ``|dz| <= cap x d
+    + widen_floor_m`` (``cap + floor / d``; the floor is the law's
+    ``terrace.pad_terrace_floor_m``, the caller's) and re-sourced under
+    :func:`last_stage_head`, which ``[design] hard_conflict_ranks`` lists
+    in the groundside tier.  The stations the cut grouped are pairwise
+    consistent under exactly this inequality, so a follow row and a widened
+    cap never conflict by construction and the cap gives by the floor over
+    its chord and no more.  (A TIER alone does not bound it: a relaxed row
+    is demoted to a soft penalty — probed, 22 chords stood over the floor.)"""
+    kept, dropped = [], {}
+    widened = 0
+    for r in cs.rows():
+        if widen_heads and str(r.source.ruling).split("(")[0].strip() in widen_heads \
+                and not any(v in fixed for v in row_vertices(r)):
+            r = _dc.replace(r, source=_dc.replace(
+                r.source, ruling=last_stage_head(r.source.ruling)))
+            if isinstance(r, Diff) and r.d > 0.0 and widen_floor_m > 0.0:
+                r = _dc.replace(r, cap=r.cap + widen_floor_m / r.d)
+            widened += 1
+        if isinstance(r, Pin) and int(r.v) not in fixed \
+                and str(r.source.ruling).split("(")[0].strip() in yield_heads:
+            # A YIELDING PIN ON A FOLLOWER IS RELEASED (spec §53 (17)): a
+            # follower ribbon's §37 (9) join pin is the core ribbon's level,
+            # restated on the full map; the stage has no pin-yield pass, and
+            # held hard it keeps the ribbon on its terrain against the fixed
+            # ground beside it (MEASURED: ``small_roads:-18733`` pinned at
+            # 87.51 beside an apron at 82.41)
+            dropped["Pin (yielding, on a follower)"] = \
+                dropped.get("Pin (yielding, on a follower)", 0) + 1
+            continue
+        if all(v in fixed for v in row_vertices(r)):
+            k = type(r).__name__
+            dropped[k] = dropped.get(k, 0) + 1
+        else:
+            kept.append(r)
+    if widened:
+        dropped["widened by the floor (ceiling, all unknowns)"] = widened
+    return ConstraintSet.from_rows(kept), dropped
 
 
 def remap_row(row, vmap: _t.Mapping[int, int]):
@@ -94,11 +308,6 @@ def remap_row(row, vmap: _t.Mapping[int, int]):
             return None
         return _dc.replace(row, terms=ts, follows=fo)
     raise TypeError(f"stage_one_map: unknown row type {type(row).__name__}")
-
-
-def _items(vertices):
-    """``(id, vertex)`` of a map's vertex table (a dict, or a list)."""
-    return vertices.items() if isinstance(vertices, dict) else enumerate(vertices)
 
 
 @_dc.dataclass

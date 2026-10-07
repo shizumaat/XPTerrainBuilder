@@ -23,8 +23,12 @@ __all__ = [
     "Ring", "Surface", "RunwayEnd", "Runway", "Pavement", "LinearFeature",
     "TaxiNode", "TaxiEdge", "GroundRoute", "Boundary", "Startup",
     "OsmWay", "Building", "FacadeEdge", "FacadeRead", "DemSample", "DsfObject", "SceneryPack",
-    "FlatVerdict", "Airport",
+    "FlatVerdict", "Airport", "GAP_SHEET_PREFIX",
 ]
+
+#: the id prefix of a GAP SHEET body (``Airport.gap_sheets``; owner RULINGS
+#: 2026-10-04o (a)) — ``dsf:gapsheet<k>``
+GAP_SHEET_PREFIX = "dsf:gapsheet"
 
 
 class Surface(enum.IntEnum):
@@ -367,3 +371,9 @@ class Airport:
     #: ``constraints`` may not import ``planar``, so the relation travels
     #: here.  Same ``None`` / empty rule as ``groups``.
     clusters: _t.Any = None
+    #: THE GAP SHEETS (owner RULINGS 2026-10-04o (a); issues #292, #358): the
+    #: bodies of a pack's draped pavement page admitted by the PER-TRIANGLE
+    #: flatness read (``airport/object_pavement.gap_sheet_footprint``).
+    #: NEVER a pavement source — they are not in ``pavements`` — only their
+    #: remainder after every pavement the engine already knows is ground.
+    gap_sheets: tuple[Pavement, ...] = ()

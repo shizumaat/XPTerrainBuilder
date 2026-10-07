@@ -179,3 +179,32 @@ def test_pad_pad_weld_is_a_step_not_a_grade(law):
     assert {frozenset((r.a, r.b)) for r in rows2
             if (r.a < 10) != (r.b < 10)} == {
         frozenset((1, 10)), frozenset((2, 13))}
+
+
+def test_a_pair_across_a_declared_knife_is_a_step_not_a_grade(law):
+    """Spec §55 (2) 4 (the knife's fourth law, §55 (14) Q-D): two parts of
+    ONE gap piece across a knife (0.75 m, inside the weld radius) mint no
+    fallback row between them; a lot and its ramp, two different pieces,
+    and a part beside a standing road stay priced."""
+    from auto_patch_v2.model.planar import gap_parts_across_knife as across
+    assert across("gap:3/s0", "gap:3/s1/lot") and across("gap:3/s1/ramp0#2", "gap:3/s0")
+    assert not across("gap:3/s0/lot", "gap:3/s0/ramp0")     # a breakline
+    assert not across("gap:3/lot", "gap:3/ramp0")           # no step cut
+    assert not across("gap:3/s0", "gap:4/s1")               # two pieces
+    assert not across("gap:3/s0", "small_roads:-1") and not across(None, "gap:3/s0")
+    a, xya = _rect(0, 0.0)
+    b, xyb = _rect(10, 10.75)                        # the knife
+    role = "groundside_pavement"
+
+    def cross(ref_a, ref_b, role_b=role):
+        pm = _Planar({**xya, **xyb}, [_F(1, role, ref_a, a, side="groundside"),
+                                      _F(2, role_b, ref_b, b, side="groundside")])
+        rows = pavement_cap.pavement_road_cap([], pm, law)
+        assert len([r for r in rows if (r.a < 10) == (r.b < 10)]) == 8
+        return {frozenset((r.a, r.b)) for r in rows if (r.a < 10) != (r.b < 10)}
+
+    welded = {frozenset((1, 10)), frozenset((2, 13))}
+    assert cross("gap:3/s0", "gap:3/s1/lot") == set()
+    assert cross("gap:3/s0/lot", "gap:3/s0/ramp0") == welded
+    assert cross("gap:3/s0", "gap:4/s1") == welded
+    assert cross("gap:3/s0", "small_roads:-1", "service_road") == welded

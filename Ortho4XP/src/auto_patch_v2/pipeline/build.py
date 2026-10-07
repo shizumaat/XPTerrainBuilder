@@ -667,6 +667,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _pulse.tick("classifying the airport")
     cl = classify(airport, law, load_rules(), cache=ocache)
     wall["classify"] = time.perf_counter() - t
+    # spec §55 (4), (9) THE GAP PIECES JOIN IN THE LAST STAGE: with a §53
+    # gap piece minted, every stage below runs on the classification
+    # WITHOUT the pieces (the BASE — the build an airport with no gap sheet
+    # gets, row for row) and ``pipeline/late_stage`` solves the pieces
+    # against its levels after the solve.  No piece: ``None``, and nothing
+    # of the last stage runs.
+    from .stage_one_map import gap_free
+    cl_gaps, _cl_base = None, gap_free(cl)
+    if _cl_base is not None:
+        cl_gaps, cl = cl, _cl_base
     t = time.perf_counter()
     objects_out: list = []
     pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
@@ -1066,6 +1076,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # (``pipeline/stage_one_map``); ``None`` when no ribbon was minted
     from .stage_one_map import stage_one_problem
 
+    _prefix_stage: dict = {}           # the last prefix run's shape stage
+
     def _ribbon_free(cl0):
         objs0: list = []
         pm0, _st0 = build_planar(airport, cl0, law, objects_out=objs0, cache=ocache,
@@ -1085,6 +1097,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             law, prof0, {})
         st0 = shape_stage(pm0, law, ap0, cl0, out=lambda m: None)
         cs0, _c0, _w0 = shape_constraints(st0.pm, law, ap0, st0)
+        _prefix_stage["stage"] = st0
         return (st0.pm, cs0, jetway_strips(st0.pm, law, ap0, cs0,
                                            rider_candidates(ap0, law)),
                 hold_pass(st0.pm, law))
@@ -1098,6 +1111,34 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
         hold=hold_pass(pm, law), stage1=_s1)
     wall["solve"] = time.perf_counter() - t
+    _pin_yield = list(design_rep.pin_yield or ())
+    _late_report: dict | None = None
+    if cl_gaps is not None:
+        # spec §55 (4) THE LAST STAGE: the pieces cut by the base's levels,
+        # the full map through THIS build's own prefix, the followers solved
+        # against constants.  Everything below reads the full map.
+        t = time.perf_counter()
+        _pulse.tick("the last stage: the gap pieces")
+        from .late_stage import run_late_stage
+        _base_rep = design_rep
+        pm, sol, _late = run_late_stage(
+            cl_gaps, airport, law, _ribbon_free,
+            {"pm": pm, "z": sol.z, "pin_yield": _pin_yield},
+            rules=load_rules(), options=cfg.options,
+            out=lambda m: _say(f"[{icao}] {m}", out))
+        cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
+            _prefix_stage["stage"], pm=pm)
+        strips, design_rep = _late["strips"], _late["design"]
+        design_rep.stages["base"] = dict(_base_rep.stages)
+        _pin_yield = [*_late["pin_yield"], *(design_rep.pin_yield or ())]
+        wall["late_stage"] = time.perf_counter() - t
+        _late_report = {"cut": _late["cut"], "followers": _late["followers"],
+                        "stage": _late["stage"],
+                        "join": _late["join"], "dropped": _late["dropped"],
+                        "follow_rows": _late["follow"].get("rows", 0),
+                        "lot_rows": _late["follow"].get("lot_rows", 0),
+                        "declared_bounds": len(_late["follow"].get("declared", ())),
+                        "wall_s": _late["wall_s"]}
     # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS where the solve
     # released a §37 (9) join pin — the join takes the patch's level and
     # the sidecar tells the core clamp to follow (``road_join_yield``)
@@ -1105,7 +1146,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # joinyield128: a join on AIRSIDE was never pinned — the ribbon takes
     # the airside's solved level there (``road_ramp.airside_joins``)
     from ..constraints.road_ramp import airside_joins
-    pm = with_pin_yield(pm, design_rep.pin_yield,
+    pm = with_pin_yield(pm, _pin_yield,
                         float(law.tables.emit.materiality.elevation_m),
                         withheld=airside_joins(pm, law),
                         z=sol.z or None)
@@ -1220,6 +1261,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                   "rounds": design_rep.rounds, "converged": design_rep.converged,
                   "residual": None if sol.residual is None else _dc.asdict(sol.residual)},
     }
+    if _late_report is not None:
+        report["late_stage"] = _late_report
     paths = None
     vrows = None
     pieces = None
@@ -1247,6 +1290,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # rows the surface missed (``design_target``), which the census
         # counts law-true in their families and reports under one heading
         pub["design"] = design_rep.as_dict()
+        if _late_report is not None:
+            from .publication import gap_pieces, late_stage
+            pub["gap_pieces"] = gap_pieces(_late_report["cut"])
+            pub["late_stage"] = late_stage(_late_report["stage"])
         pub["design_target"] = design_rep.targets
         js = report["joint_steps"]
         if js and js["contours"]:

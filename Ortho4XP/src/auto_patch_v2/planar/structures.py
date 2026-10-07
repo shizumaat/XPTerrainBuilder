@@ -97,9 +97,9 @@ from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, airside_stops,
                                   locked_road_stops, road_true_edge, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
 from ..airport.dem import dem_z_at
-from .structure_approach import (FieldRegion, apply_plates, cover_polygons,
+from .structure_approach import (FieldRegion, apply_plates, standing_cover,
                                  approach_ground as _approach_ground,
-                                 carriageway_width_m,
+                                 carriageway_width_m, cut_gap_cells,
                                  chains, field_region_for, mouth_reports, under_cover,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
@@ -162,8 +162,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     extra_groups = list(extra_groups)
     tunnel_ways = [w for w in airport.osm_ways
                    if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
-    cells = list(classification.cells)
-    polys = cover_polygons(classification)
+    cells, gap_cells, polys = standing_cover(classification)   # §53 (18): a gap piece never leads
     # A BRIDGE STATES THE CROSSING (spec §34 (5); ARMED at round 2,
     # RULINGS 2026-09-13ai): an ``aeroway`` ``bridge=yes layer >= 1`` way
     # over a road seeds a bore the OSM data never tagged — neither measured
@@ -946,13 +945,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     knife = unary_union(footprints)
     hull_knife = unary_union(hull_knives) if hull_knives else None
     out_cells: list[Cell] = []
-    for c, p in zip(cells, polys):
-        blade = knife
-        if c.role == "building":
-            blade = hull_knife
+    def _cut(c: Cell, p, blade) -> None:
         if c.role in RUNWAY_FAMILY or blade is None or not p.intersects(blade):
             out_cells.append(c)
-            continue
+            return
         rest = p.difference(blade)
         stats.cells_cut += 1
         for k, part in enumerate(_parts(rest)):
@@ -963,6 +959,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                   tuple(tuple(h.coords)[:-1] for h in part.interiors),
                                   c.code_number, c.code_letter, c.side, c.kind,
                                   dict(c.evidence, structure_cut=1.0)))
+
+    for c, p in zip(cells, polys):
+        _cut(c, p, hull_knife if c.role == "building" else knife)
     # §33 (6) B AMENDED (3) (c) (owner RULINGS 2026-09-15br): the surface
     # elements over an OBJECT-DECKED trench RIDE THE OBJECT — the cut lines
     # are trimmed at each such outline's rim, one derivation site
@@ -984,6 +983,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         out_cells.append(Cell(len(out_cells), role, ref, tuple(part.exterior.coords)[:-1],
                               tuple(tuple(h.coords)[:-1] for h in part.interiors),
                               None, None, role_side(law, role), "structure", {}))
+    cut_gap_cells(gap_cells, knife, law, _cut)   # §53 (13), LAST: stood off the footprints
     out_cells = [_dc.replace(c, id=i) for i, c in enumerate(out_cells)]
     cl = _dc.replace(classification, cells=tuple(out_cells),
                      cut_lines=tuple(cut_lines),

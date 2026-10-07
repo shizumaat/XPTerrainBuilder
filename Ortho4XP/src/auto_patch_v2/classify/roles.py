@@ -93,7 +93,7 @@ from ..law.tables import (is_value_role, role_side, snap_margin_m,
                           zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.planar import is_facade_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52
+from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52, §53
 from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
@@ -664,6 +664,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add)
     stats["osm_ribbons"] = n_rib
     stats["osm_ribbon_m2"] = m_rib
+    # §53 (RULINGS 2026-10-04o (a)): the gap pieces — LAST, so every
+    # pavement the engine already knows (the ribbons too) keeps its ground
+    from .gap_mint import mint_gap_pieces
+    stats.update(mint_gap_pieces(airport, cells, law, rules, add, notes))
     stats["taxi_chains"] = len(ev.taxi_chains)
     stats["truck_chains"] = len(ev.truck_chains)
     stats["terminal_present"] = float(ev.terminal_present)
@@ -698,10 +702,9 @@ def is_osm_ribbon(cell_or_region) -> bool:
 
 def is_late_cell(cell_or_region) -> bool:
     """A cell that JOINS THE FINISHED MAP (``planar/ribbons`` pass C) and is
-    absent from the stage-1 map: a mapped-road ribbon or a §52 facade cell
-    (``model.planar.is_late_ref``)."""
-    return is_osm_ribbon(cell_or_region) or \
-        is_facade_ref(getattr(cell_or_region, "ref", ""))
+    absent from the stage-1 map: a mapped-road ribbon, a §52 facade cell or
+    a §53 gap piece (``model.planar.is_late_ref``)."""
+    return is_late_ref(getattr(cell_or_region, "ref", ""))
 
 
 def _mouth_ll(mouth, to_ll) -> str:

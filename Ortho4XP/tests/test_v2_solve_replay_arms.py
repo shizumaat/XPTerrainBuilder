@@ -44,6 +44,7 @@ EXPECT = {
     "--chord-fill": REPLAY,
     "--method": REPLAY,
     "--probe-arm": {"probe-site"},
+    "--late-from": REPLAY,
 }
 
 #: every other option of the tool, DECIDED not to be an arm: a mode

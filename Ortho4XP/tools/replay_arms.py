@@ -78,6 +78,9 @@ EFFECT: dict[str, tuple[tuple[str, ...], str]] = {
                           "--replay alone"),
     "--probe-arm": (("probe-site",), "a probe arm is a [design] override of "
                                      "--probe-site's own re-solve"),
+    "--late-from": (_REPLAY, "the last stage (spec §53 (9)) is solved by "
+                             "the solving --replay alone; a --why-from on "
+                             "its --solved-out re-solves it from the pickle"),
 }
 ARM_FLAGS: tuple[str, ...] = tuple(EFFECT)
 
@@ -122,7 +125,8 @@ def given_arms(a) -> dict[str, str]:
            "--drop-generator": a.drop_generator,
            "--chord-fill": a.chord_fill,
            "--method": None if a.method == "normal" else a.method,
-           "--probe-arm": a.probe_arm}
+           "--probe-arm": a.probe_arm,
+           "--late-from": a.late_from}
     out = {}
     for flag, v in raw.items():
         if v is None or v == [] or v == "":

@@ -44,7 +44,11 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
-           "is_late_ref"]
+           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "gap_part_kind", "gap_parts_across_knife",
+           "gap_step_part", "shares_gap_part",
+           "bears_shape",
+           "face_edge_ids",
+           "face_vertex_set", "gap_follower_faces"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
 #: (``planar/platform.py`` mints it).  ``#`` is the tree's split spelling,
@@ -219,6 +223,24 @@ class Face:
     code_number: int | None = None
     code_letter: str | None = None
     side: str = "airside"
+
+
+def face_edge_ids(face) -> set[int]:
+    """THE EDGE SET OF A FACE — its outer ring's and every hole ring's edge
+    ids (a face ring is a cycle of EDGE ids, never of vertices)."""
+    out = {int(e) for e in face.ring}
+    for h in getattr(face, "holes", ()) or ():
+        out.update(int(e) for e in h)
+    return out
+
+
+def face_vertex_set(pm, face) -> set[int]:
+    """THE VERTEX SET OF A FACE read through ``PlanarMap.ring_vertices`` —
+    the only lawful reading of a ring of edge ids."""
+    out = {int(v) for v in pm.ring_vertices(face.ring)}
+    for h in getattr(face, "holes", ()) or ():
+        out.update(int(v) for v in pm.ring_vertices(h))
+    return out
 
 
 def face_vertex_ids(ring: _t.Sequence[int],
@@ -807,9 +829,125 @@ def facade_strip_host(ref) -> "str | None":
     return parts[1] if len(parts) >= 3 and parts[0] == FACADE_STRIP_PREFIX else None
 
 
+#: §53 (owner RULINGS 2026-10-04o (a)): the ref ``classify/gap_mint`` spells
+#: — ``gap:<k>``, one remainder of a pack pavement page after every pavement
+#: the engine already knows.
+GAP_PREFIX = "gap"
+
+
+def is_gap_ref(ref) -> bool:
+    """A §53 gap piece."""
+    return str(ref or "").split(":", 1)[0] == GAP_PREFIX
+
+
+def bears_shape(face, roles: _t.AbstractSet[str]) -> bool:
+    """Is ``face`` shape-bearing pavement (``planar/shapes``): by ROLE
+    (``[terrace] shape_roles``), or by KIND — a §53 gap piece or one of its
+    §55 parts, whatever its role (two step parts across a knife are two
+    shapes with a declared gap joint; a lot and its ramp are one)."""
+    return face.role in roles or is_gap_ref(face.ref)
+
+
+_GAP_PART_KINDS = {"s": "step", "lot": "lot", "ramp": "ramp"}
+
+
+def gap_part_kind(ref) -> str | None:
+    """THE PART of a cut gap piece this ref names (spec §55 (2) 5, (13)):
+    ``"step"`` (``gap:<k>/s<j>``), ``"lot"`` (``…/lot``, ``…/lot<i>``),
+    ``"ramp"`` (``…/ramp<i>``), or ``None`` for an uncut piece and for
+    anything that is not a gap piece.  The LAST path segment decides — the
+    spellings compose (``gap:<k>/s<j>/lot``)."""
+    if not is_gap_ref(ref):
+        return None
+    path = str(ref).split("#", 1)[0].split("/")
+    if len(path) < 2:
+        return None
+    return _GAP_PART_KINDS.get(path[-1].rstrip("0123456789"))
+
+
+def _gap_step_part(ref) -> tuple[str, str] | None:
+    """``(piece, step segment)`` of a STEP-cut part's ref (``gap:<k>/s<j>``,
+    whatever follows), else ``None``."""
+    path = str(ref or "").split("#", 1)[0].split("/")
+    if len(path) < 2 or not is_gap_ref(path[0]):
+        return None
+    seg = path[1]
+    return (path[0], seg) if seg[:1] == "s" and seg[1:].isdigit() else None
+
+
+def gap_parts_across_knife(ref_a, ref_b) -> bool:
+    """Do the two refs name parts of ONE gap piece that stand ACROSS A
+    DECLARED KNIFE (spec §55 (2) 4, the knife's fourth law; §55 (14) Q-D)?
+    Two parts of one piece in two different STEP parts (``gap:<k>/s<i>…`` and
+    ``gap:<k>/s<j>…``, i != j) — the cut puts a knife strip of ground between
+    every two of them.  A lot and its ramp (one step part, a shared
+    breakline) are NOT across a knife.  ONE predicate, two readers: the
+    pavement fallback's generator (``constraints/pavement_cap``) and its
+    census copy (``tools/check_grade``) — a pair across a knife is a STEP,
+    not a grade."""
+    a, b = _gap_step_part(ref_a), _gap_step_part(ref_b)
+    return a is not None and b is not None and a[0] == b[0] and a[1] != b[1]
+
+
+def gap_step_part(ref) -> str | None:
+    """THE STEP PART a gap face belongs to (spec §55 (15) rule 2) — the unit
+    that is ONE SHAPE: ``gap:<k>/s<j>`` for a step-cut part and everything
+    cut from it (its lot and its ramps share breaklines: 06d's one shape),
+    ``gap:<k>`` for an uncut piece and for a lot / ramp of a piece that was
+    not step-cut; ``None`` for anything that is not a gap piece."""
+    if not is_gap_ref(ref):
+        return None
+    path = str(ref).split("#", 1)[0].split("/")
+    step = _gap_step_part(ref)
+    return path[0] if step is None else f"{step[0]}/{step[1]}"
+
+
+def shares_gap_part(pm, ids: _t.Iterable[int]) -> bool:
+    """A GAP PART IS ONE SHAPE BY KIND (spec §55 (15) rule A+C, 3): do the
+    faces incident to EVERY one of ``ids`` include a gap-part face?  A pair
+    inside one part is one shape whatever labels its rim carries (a welded
+    rim vertex keeps the standing face's label) — no contour is cut inside a
+    part and no row of it is withdrawn; two vertices across a knife share no
+    face, so they straddle and the knife is declared.  ONE predicate, two
+    readers (the #253 pattern of ``planar.shape_airside.inside_apron_body``):
+    ``planar.shapes.straddles`` and ``shape_airside.declarable_pairs``, so
+    the row withdrawal and the sidecar record can never diverge."""
+    common: set[int] | None = None
+    for v in ids:
+        vert = pm.vertices.get(v)
+        if vert is None:
+            return False
+        fs = set(vert.incident_faces)
+        common = fs if common is None else (common & fs)
+        if not common:
+            return False
+    return bool(common) and any(is_gap_ref(pm.faces[f].ref) for f in common)
+
+
+def gap_follower_faces(pm) -> tuple[list, list]:
+    """THE LAST STAGE'S FOLLOWER FACES (spec §53 (9), (18)) — ONE derivation:
+    ``(gap pieces, follower ribbons)``.  A follower ribbon is a mapped-road
+    ribbon (:func:`is_osm_ribbon_ref`, role ``service_road``) whose ring
+    carries a VERTEX of a gap piece: a road through or along a pavement is
+    that pavement (the free-road ruling).  Contact at one vertex counts —
+    pass C nodes the piece's corner INTO the ribbon's ring, so a ribbon it
+    only touches is re-shaped by it and cannot be standing ground
+    (MEASURED at HECA: ``small_roads:-18892``, one new ring node 0.24 m off
+    its base edge)."""
+    gap = [f for f in pm.faces.values() if is_gap_ref(f.ref)]
+    gv: set[int] = set()
+    for f in gap:
+        gv |= face_vertex_set(pm, f)
+    ribbons = [f for f in pm.faces.values()
+               if f.role == "service_road" and is_osm_ribbon_ref(f.ref)
+               and not gv.isdisjoint(face_vertex_set(pm, f))] if gv else []
+    return gap, ribbons
+
+
 def is_late_ref(ref) -> bool:
     """A LATE cell's ref: a face that JOINS THE FINISHED MAP (pass C,
     ``planar/ribbons``) and is absent from the stage-1 map — the mapped-road
-    ribbons (30aa) and the §52 facade cells.  The ARRANGEMENT asks this;
-    the road laws keep asking :func:`is_osm_ribbon_ref`."""
-    return is_osm_ribbon_ref(ref) or is_facade_ref(ref)
+    ribbons (30aa), the §52 facade cells and the §53 gap pieces.  The
+    ARRANGEMENT asks this; the road laws keep asking
+    :func:`is_osm_ribbon_ref`."""
+    return is_osm_ribbon_ref(ref) or is_facade_ref(ref) or is_gap_ref(ref)

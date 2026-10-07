@@ -138,7 +138,7 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from ..planar.cluster import deck_shades as _deck_shades
 
-__all__ = ["publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
+__all__ = ["gap_pieces", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
 
 #: 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
@@ -783,6 +783,39 @@ def taxi_route_pairs(planar: PlanarMap, law: Law, airport: Airport,
             seen.add(key)
             out.append([ll[pp.a], ll[pp.b], round(pp.budget, 6), round(pp.dist, 4)])
     return out
+
+
+def gap_pieces(cut: _t.Mapping[str, _t.Any]) -> list[dict[str, _t.Any]]:
+    """Sidecar ``gap_pieces`` (spec §55 (4)): one record per PART of a cut
+    gap piece — ``ref, kind, m2``, the piece's level ``groups`` and its
+    ``stations`` by class, and the stations the floors merged
+    (``conflicts_merged``) — from ``pipeline/late_stage``'s cut report.
+    Published only by a build that ran the last stage; an airport with no
+    gap piece carries no such key."""
+    out: list[dict[str, _t.Any]] = []
+    for pc in cut.get("pieces", ()):
+        for p in pc["parts"]:
+            out.append({"ref": p["ref"], "kind": p["kind"], "m2": p["m2"],
+                        "piece": pc["ref"], "groups": pc["groups"],
+                        "knives": pc["knives"], "stations": dict(pc["stations"]),
+                        "conflicts_merged": [
+                            {"ring": m["ring"], "cls": m["cls"], "z": m["z"],
+                             "xy": list(m["xy"]), "group": m["group"],
+                             "into_group": m.get("into_group")}
+                            for m in pc["conflicts_merged"]]})
+    return out
+
+
+def late_stage(stage: _t.Mapping[str, _t.Any]) -> dict[str, _t.Any]:
+    """Sidecar ``late_stage`` (spec §55 (15) rule B 1): what the last stage
+    USED, as ``terrace_joints`` publishes the joints — ``floor_m`` (the
+    floor its all-unknown ceilings were widened by) and ``followers`` (the
+    follower ribbons' refs) — from ``pipeline/late_stage.run_late_stage``'s
+    ``report["stage"]``.  A LAW-INPUT key (``check_grade.SIDECAR_LAW_KEYS``):
+    the census prices a pair of two last-stage unknowns at ``cap·d +
+    floor_m``.  Written only by a build that ran the last stage."""
+    return {"floor_m": round(float(stage["floor_m"]), 6),
+            "followers": sorted(str(r) for r in stage["followers"])}
 
 
 def terrace_joints_ll(planar: PlanarMap, law: Law,

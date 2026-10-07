@@ -19,7 +19,7 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import airside_stage_roles, family
-from ..model.planar import NO_SHAPE, PlanarMap, is_osm_ribbon_ref
+from ..model.planar import NO_SHAPE, PlanarMap, is_osm_ribbon_ref, shares_gap_part
 
 __all__ = ["weld_airside_faces", "airside_apron_roles", "airside_face_sets",
            "inside_apron_body", "separated_label_pairs", "declarable_pairs",
@@ -159,8 +159,12 @@ def declarable_pairs(pm: PlanarMap, pairs: _t.Iterable[tuple[int, int]]
     of nothing but such pairs is not declared at all.  The SAME predicate
     :func:`planar.shapes.straddles` reads, so the sidecar record and the
     row withdrawal can never diverge — #189's class is a step with no row
-    AND no declaration."""
-    return [q for q in pairs if not inside_apron_body(pm, q)]
+    AND no declaration.  A pair INSIDE ONE GAP PART is no terrace either
+    (spec §55 (15) rule A+C: a part is one shape by kind, its knives are its
+    only joints — ``model.planar.shares_gap_part``, read by ``straddles``
+    too)."""
+    return [q for q in pairs
+            if not inside_apron_body(pm, q) and not shares_gap_part(pm, q)]
 
 
 def separated_label_pairs(pm: PlanarMap, label: dict[int, int]

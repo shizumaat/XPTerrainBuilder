@@ -20,7 +20,7 @@ pairs nobody prices, so this reads the planar map:
   one unknown) — the welded neighbours §31 (7) judges as if welded.
 
 Pavement is :func:`law.tables.pavement_roles` (the value, non-structure
-roles).  Two exclusions, each a ruling: a platform COLLAR face
+roles).  Exclusions, each a ruling: a platform COLLAR face
 (``model.planar.is_collar_ref``) is a 1:3 bank (RULINGS 2026-09-28a (1))
 — ground, not pavement — and a pair touching a collar vertex crosses that
 bank; structure ramps carry their own ruled caps and are not pavement.
@@ -28,7 +28,12 @@ A welded pair of two different BUILDING pads is a STEP, not a grade: the
 step families' ``building_to_building`` exemption (owner 2026-06-20)
 carries into this family (RULINGS 2026-09-30l (2)) — the census copy
 (``check_grade._check_pavement_over_road_cap``) skips the same pair, and
-two copies of one law agree.  Pricing it dragged the HECA cargo pads
+two copies of one law agree.  A welded pair of two parts of one gap piece
+ACROSS A DECLARED KNIFE is a STEP likewise (spec §55 (2) 4, §55 (14) Q-D;
+owner RULINGS 2026-10-04u): the knife's two rims stand 0.75 m apart, inside
+``WELD_M``, and the knife exists to carry the step the cap cannot join —
+ONE predicate, ``model.planar.gap_parts_across_knife``, read here and by
+the census copy.  Pricing the pad|pad pair dragged the HECA cargo pads
 ``building51``/``building56`` 6.4 m under the apron they front, onto the
 lower pad ``building129`` across their declared 28b terrace (issue #123).
 
@@ -53,7 +58,8 @@ import typing as _t
 from ..law import Law
 from ..law.tables import pavement_fallback_cap, pavement_roles
 from ..model.constraints import Diff, Pin, Row, Source
-from ..model.planar import PlanarMap, is_collar_ref
+from ..model.planar import (PlanarMap, gap_parts_across_knife, is_collar_ref,
+                            is_gap_ref)
 
 __all__ = ["pavement_road_cap", "GEN", "RULING", "WELD_M", "PAD_ROLE"]
 
@@ -79,6 +85,7 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     pav = set(pavement_roles(law))
     face_vs: dict[int, tuple[int, ...]] = {}
     pad_faces: set[int] = set()
+    part_ref: dict[int, str] = {}       # gap pieces and parts, by face
     road_faces: set[int] = set()
     rings: list[tuple[tuple[int, ...], bool]] = []
     collar_v: set[int] = set()
@@ -113,6 +120,8 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         face_vs[f.id] = tuple(dict.fromkeys(v for c in cyc for v in c))
         if f.role == PAD_ROLE:
             pad_faces.add(f.id)
+        if is_gap_ref(f.ref):
+            part_ref[f.id] = str(f.ref)
         if f.role in roads:
             road_faces.add(f.id)
     if not face_vs:
@@ -174,6 +183,10 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                     fb in held_faces.get(fa, ())
                     for fa in owner[a] for fb in owner[b]):
                 continue            # a §28 (6) hillside terrace pair (#264)
+            if part_ref and any(
+                    gap_parts_across_knife(part_ref.get(fa), part_ref.get(fb))
+                    for fa in owner[a] for fb in owner[b]):
+                continue            # across a declared knife: a step (§55 Q-D)
             # a welded pair whose groundside foot is a road's alone is a
             # road pair (issue #143)
             _mint(a, b, (a not in air and owner[a] <= road_faces)

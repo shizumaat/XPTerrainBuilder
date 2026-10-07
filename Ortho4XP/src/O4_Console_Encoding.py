@@ -196,6 +196,18 @@ def native_tool_pipe() -> Dict[str, Any]:
             "errors": READ_ERRORS}
 
 
+def native_tool_text(raw: bytes) -> str:
+    """Decode bytes a NATIVE tool wrote, for a reader that takes its pipe
+    as BYTES (a ``readline`` loop echoing DSFTool or Triangle4XP).
+
+    The byte-wise twin of :func:`native_tool_pipe` (issue #429):
+    :func:`native_tool_encoding` with the read-side error policy, so a path
+    the tool echoed in another encoding is ``\ufffd`` in the echo, never a
+    ``UnicodeDecodeError`` that ends the step.  ASCII decodes unchanged.
+    """
+    return raw.decode(native_tool_encoding(), READ_ERRORS)
+
+
 def configure_console_streams(force: bool = False) -> Dict[str, Any]:
     """Pin stdin/stdout/stderr to UTF-8 with an error policy that cannot raise.
 

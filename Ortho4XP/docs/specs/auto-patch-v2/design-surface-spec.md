@@ -11526,6 +11526,19 @@ stagger.  BARS: OTHH ways −10854 (40 nodes) / −10859 (29) → 8 nodes each
 (today 0.27–0.49); the ramp profile unchanged within 0.01 m at every former
 station; every `tunnel_ramp` at OTHH before → after node counts.
 
+**AMENDMENT (issue #449; cloud lane `cloudwalls`, 2026-10-07).** A kept
+cross-chord IS a break of the designed surface across the ramp's whole
+width ("only where the route bends or the profile breaks"), so EVERY edge
+of a ramp face that crosses it carries a vertex there: a surface line (a
+road or taxi centreline, `structure_service.SURFACE_LINE_KINDS`) the
+arrangement nodes lengthwise through a ramp takes a point where it crosses
+each emitted cross-chord (`structure_service.knee_nodes`, after
+`decked_exclusion`).  Without it the shared edge of the two split faces ran
+straight from mouth to top and stood up to 0.87 m over the outer edges at
+the flat → climb knee (OTHH, the corridor under the terminal).  Twin:
+`tests/auto_patch_v2/test_othhwalls.py` — level equal across the width at
+every station of a split ramp.
+
 ### §34 (8) A CLIMB STOPPED BY AIRSIDE ENDS AT THE PAVEMENT; THE REFUSAL IS THE RAMP'S, NEVER THE CORRIDOR'S (owner RULINGS 2026-09-14n item 2; Fable 2026-09-14; RULINGS 2026-09-14p) — lane `v2othhfix`
 
 When `stop_and_steepen` cannot reach the ground inside `max_ramp_grade`

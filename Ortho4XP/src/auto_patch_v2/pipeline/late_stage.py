@@ -25,6 +25,7 @@ import shapely
 from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
+from ..classify.gap_mint import _poly
 from ..classify.gap_terrace import APRON, PAD, ROAD, Station, terrace_cut
 from ..constraints.ceiling import RULING as _CEILING_RULING
 from ..constraints.gap_follow import gap_follow_rows, reach_m
@@ -43,16 +44,6 @@ __all__ = ["late_stations", "cut_classification", "run_late_stage"]
 #: (the mint is flush on a ribbon cell) — a follower, never a station
 _WELD_M = 0.3
 _RANK = {ROAD: 0, APRON: 1, PAD: 2, "lot": 3, "band": 4, "structure": 5}
-
-
-def _poly(ring, holes=()) -> Polygon | None:
-    try:
-        p = Polygon(ring, holes)
-    except (ValueError, TypeError):
-        return None
-    if not p.is_valid:
-        p = p.buffer(0.0)
-    return None if p.is_empty else p
 
 
 def _class_of(law: Law, role: str, ref, own_role: str, roles: dict) -> str:

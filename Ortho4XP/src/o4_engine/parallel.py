@@ -574,6 +574,8 @@ _FORWARDED_EVENT_TYPES = (
     # hop, or a parallel run degrades back to the silent class this event
     # exists to close (docs/POSTMORTEM-20260831.md Task C).
     "AutoPatchFailed",
+    # #433: a child's object stage names a pack X-Plane will not load.
+    "PackMissingArt",
     "Log",
 )
 
@@ -807,7 +809,7 @@ class ParallelBuildRun:
 
     def __init__(self, session, tiles, provider, zoomlevel,
                  custom_build_dir, step_flags, slots,
-                 boundary_policy=None):
+                 boundary_policy=None, missing_art=None):
         self._session = session
         self._queue = deque()
         self._total = 0
@@ -892,11 +894,12 @@ class ParallelBuildRun:
         with self._lock:
             self._admit_batch_locked(tiles, provider, zoomlevel,
                                      custom_build_dir, step_flags,
-                                     boundary_policy=boundary_policy)
+                                     boundary_policy=boundary_policy,
+                                     missing_art=missing_art)
 
     def _admit_batch_locked(self, tiles, provider, zoomlevel,
                             custom_build_dir, step_flags,
-                            boundary_policy=None):
+                            boundary_policy=None, missing_art=None):
         """Register a batch of tiles with the run (caller holds the lock).
 
         Tiles already part of the run (queued or on a child) are skipped
@@ -928,6 +931,8 @@ class ParallelBuildRun:
                 # one tile per command, so without this every sibling of
                 # the batch reads as "a tile this build is not building".
                 "boundary_batch": [[int(t[0]), int(t[1])] for t in tiles],
+                # #433: the batch's missing-art answer, per batch likewise
+                "missing_art": missing_art,
             }
             self._programs[tile] = list(program)
             self._static_windows[tile] = {
@@ -1025,7 +1030,7 @@ class ParallelBuildRun:
             self._dispatch_locked()
 
     def enqueue(self, tiles, provider, zoomlevel, custom_build_dir,
-                step_flags, boundary_policy=None):
+                step_flags, boundary_policy=None, missing_art=None):
         """Append a batch of tiles to the LIVE run.
 
         The batch keeps its own build arguments and step selection —
@@ -1042,7 +1047,7 @@ class ParallelBuildRun:
                 return 0
             admitted = self._admit_batch_locked(
                 tiles, provider, zoomlevel, custom_build_dir, step_flags,
-                boundary_policy=boundary_policy)
+                boundary_policy=boundary_policy, missing_art=missing_art)
             if not admitted:
                 return 0
             self._dispatch_locked()

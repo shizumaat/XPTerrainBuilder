@@ -35,6 +35,7 @@ from .events import (
     EngineEvent, EngineHello,
     ImageryDownloadsDone,
     Log,
+    PackMissingArt,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     StepProgress,
     TileClocks,
@@ -688,7 +689,7 @@ class EngineSession:
     def build(self, tiles, provider, zoomlevel, custom_build_dir,
               do_vector=True, do_imagery=True, do_overlays=False,
               slots=None, steps=None, boundary_policy=None,
-              boundary_batch=None):
+              boundary_batch=None, missing_art=None):
         """Build the given (lat, lon) tiles.  Returns immediately; progress
         arrives as events.  Only one run at a time.
 
@@ -701,9 +702,20 @@ class EngineSession:
         ``steps`` (additive, spec §3.8) selects exact step keys,
         overriding the three booleans — the parent orchestrator sends a
         worker child one step at a time through this parameter.
+
+        ``missing_art`` (protocol 1.9, #433): ``"omit"`` builds a pack
+        whose DSF declares art that is not installed WITHOUT it, ``"leave"``
+        leaves such a pack as it is; ``None`` (the default) names the pack
+        with a ``PackMissingArt`` event and leaves it, so the user is asked.
         """
         if self._building:
             return False
+        try:
+            from auto_patch import engine_v2 as _EV2
+
+            _EV2.set_missing_art_policy(missing_art)
+        except Exception:                                # pragma: no cover
+            pass
         # THE BOUNDARY ANSWER (spec §C.3), landed for this process before
         # any tile prelude runs.  A worker CHILD receives it in its own
         # build command (parallel.py carries it beside provider/zoomlevel),
@@ -745,7 +757,8 @@ class EngineSession:
             run = parallel.ParallelBuildRun(
                 self, list(tiles), provider, zoomlevel, custom_build_dir,
                 (do_vector, do_imagery, do_overlays),
-                slots, boundary_policy=boundary_policy)
+                slots, boundary_policy=boundary_policy,
+                missing_art=missing_art)
             # Registered BEFORE start so a cancel arriving during the
             # worker handshake window already routes to the run; start
             # runs off-thread because the handshake blocks for seconds.
@@ -786,7 +799,7 @@ class EngineSession:
 
     def enqueue_build(self, tiles, provider, zoomlevel, custom_build_dir,
                       do_vector=True, do_imagery=True, do_overlays=False,
-                      slots=None, boundary_policy=None):
+                      slots=None, boundary_policy=None, missing_art=None):
         """Build the given tiles, joining a run already in progress.
 
         The single build entry point for interactive views: with no run
@@ -806,7 +819,8 @@ class EngineSession:
                     if parallel_run.enqueue(
                             tiles, provider, zoomlevel, custom_build_dir,
                             (do_vector, do_imagery, do_overlays),
-                            boundary_policy=boundary_policy):
+                            boundary_policy=boundary_policy,
+                            missing_art=missing_art):
                         return True
                     if not (parallel_run._finished
                             or parallel_run._cancel_all):
@@ -835,7 +849,7 @@ class EngineSession:
                 tiles, provider, zoomlevel, custom_build_dir,
                 do_vector=do_vector, do_imagery=do_imagery,
                 do_overlays=do_overlays, slots=slots,
-                boundary_policy=boundary_policy)
+                boundary_policy=boundary_policy, missing_art=missing_art)
 
     def _enqueue_in_process(self, tiles, provider, zoomlevel,
                             custom_build_dir, do_vector, do_imagery,
@@ -1349,6 +1363,35 @@ class EngineSession:
         self._emit(AutoPatchFailed(
             airport=record["airport"], stage=record["stage"],
             error=record["error"], lat=tile[0], lon=tile[1]))
+
+    def pack_missing_art(self, **fields):
+        """A pack X-Plane will not load (#433): the ``PackMissingArt``
+        event (``UI.pack_missing_art`` hook).  Unknown fields are dropped
+        so an engine-side addition never breaks the emit."""
+        names = {f for f in PackMissingArt.__dataclass_fields__
+                 if f not in ("seq", "ts")}
+        self._emit(PackMissingArt(**{k: v for k, v in fields.items()
+                                     if k in names}))
+
+    def omit_missing_art(self, pack_root="", lat=0, lon=0):
+        """THE OFFER, ACCEPTED (protocol 1.9, owner RULINGS 2026-10-06c):
+        write the pack's tile DSF without the definitions that are not
+        installed.  Replies ``{"status": "started"}`` at once — DSFTool
+        runs on a worker thread, never on the transport's read loop — and
+        completes with a ``PackMissingArt`` event whose ``state`` is
+        ``"omitted"`` / ``"failed"`` / ``"none"``."""
+        root, la, lo = str(pack_root or ""), int(lat), int(lon)
+
+        def work():
+            from auto_patch import engine_v2 as _EV2
+            out = _EV2.omit_missing_art(root, la, lo)
+            if out.get("state") == "none":
+                # nothing missing any more: _EV2 announced nothing
+                self.pack_missing_art(**out)
+
+        threading.Thread(target=work, daemon=True,
+                         name="o4-omit-missing-art").start()
+        return {"status": "started"}
 
     def log_warning(self, text: str):
         """Emit a warning-level build Log line (UI.loud_warning hook)."""

@@ -212,12 +212,17 @@ def FAMILIES(law: Law) -> tuple[str, ...]:
 WALL_S: dict[str, float] = {}
 
 
-def census_patch(p: Patch) -> dict[str, list[Row]]:
+def census_patch(p: Patch, *, say: _t.Callable[[str], None] = print,
+                 on_pool: _t.Callable[[dict], None] | None = None
+                 ) -> dict[str, list[Row]]:
+    """Rows per family over ``p``.  ``say`` / ``on_pool`` are the build
+    log and the verify work pool's account (``within.within_shape``):
+    neither reaches a row."""
     import time as _time
     WALL_S.clear()
     out: dict[str, list[Row]] = {k: [] for k in FAMILIES(p.law)}
     t0 = _time.perf_counter()
-    within, xsec = within_shape(p)
+    within, xsec = within_shape(p, out=say, on_pool=on_pool)
     WALL_S["within_shape"] = _time.perf_counter() - t0
     out["within_shape"] = within
     out["road_cross_section"] = xsec
@@ -408,7 +413,9 @@ def census(surface: GradedSurface, law: Law,
 def census_frame(surface: GradedSurface, law: Law,
                  publication: _t.Mapping[str, _t.Any] | None = None,
                  law_caps: _t.Mapping[int, float] | None = None,
-                 lifted_caps: _t.Mapping[int, float] | None = None
+                 lifted_caps: _t.Mapping[int, float] | None = None, *,
+                 say: _t.Callable[[str], None] = print,
+                 on_pool: _t.Callable[[dict], None] | None = None
                  ) -> tuple[Patch, dict[str, list[Row]]]:
     """:func:`census` WITH THE FRAME IT READ (lane ``v2cost2``).
 
@@ -417,6 +424,8 @@ def census_frame(surface: GradedSurface, law: Law,
     away, and building it (plus the ``road_law_caps`` it takes) ran
     UNCLOCKED after ``wall["verify"]`` — OTHH's 105 unattributed seconds
     (RULINGS 2026-09-14q).  Same rows, same order; the caller reuses ``p``
-    for ``apron_over_preference``."""
+    for ``apron_over_preference``.  ``say`` / ``on_pool``:
+    :func:`census_patch`'s."""
     p = Patch.of(surface, law, publication, law_caps, lifted_caps)
-    return p, mark_yielded(p, mark_relaxed(p, census_patch(p)))
+    return p, mark_yielded(p, mark_relaxed(p, census_patch(p, say=say,
+                                                            on_pool=on_pool)))

@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import typing as _t
 
 from ..model.planar import is_collar_ref
 from ..constraints.geometry import long_axis, pair_is_transverse, station_indices
@@ -299,11 +300,15 @@ def _chords_outside_face(p: Patch, sh: Shape, min_d: float) -> set[tuple[int, in
 
 
 def read_chords_ahead(p: Patch, shapes: list[Shape], min_d: float, *,
-                      workers: int | None = None) -> int:
+                      workers: int | None = None,
+                      out: _t.Callable[[str], None] = print,
+                      on_pool: _t.Callable[[dict], None] | None = None) -> int:
     """Have the work pool read :func:`chords_outside_face` for ``shapes``
     (``verify/chord_work.py``) and put the answers where that function
     looks first.  Returns how many shapes were read ahead — 0 when no pool
-    answers, and each shape is then read at its own asking, as before."""
+    answers, and each shape is then read at its own asking, as before.
+    ``out`` / ``on_pool``: the build log and the pool's account
+    (``chord_work.outside_ahead``)."""
     if _OUTSIDE["patch"] is not p:
         _OUTSIDE["patch"] = p
         _OUTSIDE["by_shape"] = {}
@@ -311,7 +316,7 @@ def read_chords_ahead(p: Patch, shapes: list[Shape], min_d: float, *,
     md = round(float(min_d), 9)
     todo = [sh for sh in shapes if (id(sh), md) not in memo]
     got = _cw.outside_ahead([_face(p, sh) for sh in todo], snap_margin_m(p.law),
-                            min_d, workers=workers)
+                            min_d, workers=workers, out=out, on_pool=on_pool)
     if got is None:
         return 0
     for sh, pairs in zip(todo, got):
@@ -319,8 +324,12 @@ def read_chords_ahead(p: Patch, shapes: list[Shape], min_d: float, *,
     return len(todo)
 
 
-def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
-    """``(within_shape rows, road_cross_section rows)``."""
+def within_shape(p: Patch, *, out: _t.Callable[[str], None] = print,
+                 on_pool: _t.Callable[[dict], None] | None = None
+                 ) -> tuple[list[Row], list[Row]]:
+    """``(within_shape rows, road_cross_section rows)``.  ``out`` /
+    ``on_pool`` reach the apron chords' work pool (:func:`read_chords_ahead`)
+    and never a row."""
     law = p.law
     ws = law.tables.emit.within_shape
     min_d = law.tables.emit.identity.min_distinct_spacing_m
@@ -360,7 +369,7 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     # beside each other first (the same answers, in the memo it reads)
     read_chords_ahead(p, [sh for sh in p.shapes if sh.role == "apron"
                           and not is_collar_ref(sh.ref) and p.cap(sh) is not None
-                          and len(sh.ids) >= 3], min_d)
+                          and len(sh.ids) >= 3], min_d, out=out, on_pool=on_pool)
     for sh in p.shapes:
         if is_collar_ref(sh.ref):
             # unit-platform spec §1 (3) / §3 P20: a platform COLLAR is a 1:3

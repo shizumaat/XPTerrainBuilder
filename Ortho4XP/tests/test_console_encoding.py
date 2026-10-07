@@ -759,23 +759,111 @@ _LOCALE_PIPE_READERS = {
 }
 
 
+#: Byte-wise ``.decode(`` of a child's output with no tolerant error
+#: policy, keyed ``path-under-src:function`` — each one justified.
+_STRICT_CHILD_DECODES = {
+    "Unused/O4_Forest.py:build_forest":
+        "dead code under src/Unused — imported by nothing",
+}
+
+#: Error policies that cannot raise, and the one encoding that cannot.
+_TOLERANT_ERRORS = ("replace", "backslashreplace", "ignore", "surrogateescape")
+_TOLERANT_ENCODINGS = ("latin-1", "latin1", "iso-8859-1")
+
+#: ``subprocess`` calls whose RESULT is the child's output.
+_CHILD_OUTPUT_CALLS = ("check_output", "communicate")
+
+
+def _is_child_output(expression: ast.AST, tainted) -> bool:
+    """Does ``expression`` read a child's output — a ``.stdout``/``.stderr``
+    pipe, ``check_output``/``communicate``, or a name bound from one?"""
+    for node in ast.walk(expression):
+        if isinstance(node, ast.Attribute) and node.attr in ("stdout",
+                                                             "stderr"):
+            if not (isinstance(node.value, ast.Name)
+                    and node.value.id == "sys"):
+                return True
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in _CHILD_OUTPUT_CALLS):
+            return True
+        if isinstance(node, ast.Name) and node.id in tainted:
+            return True
+    return False
+
+
+def _is_tolerant_decode(call: ast.Call) -> bool:
+    keywords = {k.arg: k.value for k in call.keywords if k.arg}
+    encoding = call.args[0] if call.args else keywords.get("encoding")
+    errors = call.args[1] if len(call.args) > 1 else keywords.get("errors")
+    if isinstance(errors, ast.Constant) and errors.value in _TOLERANT_ERRORS:
+        return True
+    if (isinstance(errors, ast.Name) and errors.id == "READ_ERRORS") or (
+            isinstance(errors, ast.Attribute) and errors.attr == "READ_ERRORS"):
+        return True
+    return (isinstance(encoding, ast.Constant)
+            and str(encoding.value).lower() in _TOLERANT_ENCODINGS)
+
+
+def _strict_child_decodes(relative: str, tree: ast.AST):
+    """``path:function`` for each ``.decode(`` of a child's output with a
+    policy that can raise (#429).  "A child's output" is followed through
+    plain assignment and ``for`` targets within one function (or the
+    module body): ``line = p.stdout.readline()`` then ``line.decode()``."""
+    functions = [n for n in ast.walk(tree)
+                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    inside = set()
+    for function in functions:
+        inside.update(id(n) for n in ast.walk(function) if n is not function)
+    scopes = [(f.name, f) for f in functions if id(f) not in inside]
+    scopes.append(("<module>", ast.Module(
+        body=[n for n in tree.body
+              if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                    ast.ClassDef))],
+        type_ignores=[])))
+    for name, scope in scopes:
+        tainted = set()
+        for _ in range(3):              # a name bound from a tainted name
+            for node in ast.walk(scope):
+                if isinstance(node, (ast.Assign, ast.AnnAssign, ast.For)):
+                    value = node.iter if isinstance(node, ast.For) \
+                        else node.value
+                    targets = [node.target] if not isinstance(
+                        node, ast.Assign) else node.targets
+                    if value is not None and _is_child_output(value, tainted):
+                        for target in targets:
+                            tainted.update(n.id for n in ast.walk(target)
+                                           if isinstance(n, ast.Name))
+        for node in ast.walk(scope):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "decode"
+                    and _is_child_output(node.func.value, tainted)
+                    and not _is_tolerant_decode(node)):
+                yield "%s:%s" % (relative, name)
+
+
 def test_no_engine_module_reads_a_child_in_the_locale_encoding():
-    """THE CLASS (#125): ``text=True`` / ``universal_newlines=True`` on a
-    child pipe without ``encoding=`` is the ANSI code page on Windows.
+    """THE CLASS (#125, #429): ``text=True`` / ``universal_newlines=True``
+    on a child pipe without ``encoding=`` is the ANSI code page on Windows.
     Every reader of an ENGINE child (the tile workers, ``--lerc-decode``)
     takes ``O4_Console_Encoding.child_console_pipe()``; any other such
     call in ``src`` names its encoding, or is listed above with what it
-    reads."""
-    import ast
-
+    reads.  The same holds for a pipe read as BYTES: a ``.decode(`` of a
+    child's output names a policy that cannot raise
+    (``O4_Console_Encoding.native_tool_text`` for a native tool), or is
+    listed in ``_STRICT_CHILD_DECODES`` with why."""
     src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
     offenders = set()
+    strict_decodes = set()
     for directory, _subdirectories, names in os.walk(src):
         for name in names:
             if not name.endswith(".py"):
                 continue
-            with open(os.path.join(directory, name), encoding="utf-8") as handle:
+            path = os.path.join(directory, name)
+            with open(path, encoding="utf-8") as handle:
                 tree = ast.parse(handle.read())
+            relative = os.path.relpath(path, src).replace(os.sep, "/")
+            strict_decodes.update(_strict_child_decodes(relative, tree))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
@@ -790,6 +878,41 @@ def test_no_engine_module_reads_a_child_in_the_locale_encoding():
         "a child pipe read as text without encoding= (cp1252 on Windows), "
         "or a stale exemption: %s" % sorted(
             offenders ^ set(_LOCALE_PIPE_READERS)))
+    assert strict_decodes == set(_STRICT_CHILD_DECODES), (
+        "a child's output decoded byte-wise with a policy that can raise "
+        "(use O4_Console_Encoding.native_tool_text), or a stale exemption: "
+        "%s" % sorted(strict_decodes ^ set(_STRICT_CHILD_DECODES)))
+
+
+def test_the_byte_wise_guard_sees_a_strict_decode_and_passes_a_tolerant_one():
+    """The guard's own twin: the #429 spelling is caught, the fix is not,
+    and a strict decode of anything else is not its business — a DSF
+    header read beside a 7-Zip run, a base64 blob."""
+    def judge(source):
+        return sorted(_strict_child_decodes("m.py", ast.parse(source)))
+
+    popen = "    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)\n"
+    assert judge("def f(cmd):\n" + popen
+                 + "    print(p.stdout.readline().decode('utf-8'))\n"
+                 ) == ["m.py:f"]
+    assert judge("def f(cmd):\n"
+                 "    return subprocess.check_output(cmd).decode()\n"
+                 ) == ["m.py:f"]
+    assert judge(popen.strip() + "\nline = p.stdout.read().decode()\n"
+                 ) == ["m.py:<module>"]
+    assert judge("def f(cmd):\n" + popen
+                 + "    print(CONSOLE.native_tool_text(p.stdout.read()))\n"
+                 "    p.stderr.read().decode('utf-8', 'replace')\n"
+                 "    p.stderr.read().decode(errors=CE.READ_ERRORS)\n"
+                 "    p.stderr.read().decode('latin-1')\n") == []
+    assert judge("def f(cmd):\n" + popen
+                 + "    for raw in p.stdout:\n        print(raw.decode())\n"
+                 ) == ["m.py:f"]
+    assert judge("def f(cmd):\n" + popen
+                 + "    out, err = p.communicate()\n"
+                 "    return err.decode('utf-8')\n") == ["m.py:f"]
+    assert judge("def f(cmd, fh):\n" + popen
+                 + "    return fh.read(2).decode('ascii')\n") == []
 
 # ──────────────────────────────────────────────────────────────────────
 # #419: DSFTool is a NATIVE child — its messages are not the engine's UTF-8
@@ -867,3 +990,110 @@ def test_msfs_pack_reports_a_dsftool_failure_whatever_its_path_encoding(
     assert "DSFTool --text2dsf failed" in message and "+40-130.dsf" in message
     if machine == written_in:
         assert DSFTOOL_PATH_LINE in message
+
+
+# ──────────────────────────────────────────────────────────────────────
+# #429: the same native child read BYTE-WISE — ``line.decode("utf-8")``
+# ──────────────────────────────────────────────────────────────────────
+#: A stand-in for DSFTool / Triangle4XP that ECHOES the path on stdout (as
+#: a successful run does) in the encoding it is told, writes the output
+#: file a real run leaves (``argv[-1]``), and exits 0.
+_STUB_NATIVE_ECHO = (
+    "import sys; "
+    "sys.stdout.buffer.write((%r + '\\n').encode(sys.argv[1])); "
+    "sys.stdout.buffer.flush(); "
+    "out = sys.argv[-1]; "
+    "data = b'PROPERTY sim/west 113\\n' if '-dsf2text' in sys.argv "
+    "else b'XPLNEDSF'; "
+    "open(out, 'wb').write(data) if len(sys.argv) > 2 else None"
+    % DSFTOOL_PATH_LINE)
+
+
+def _echo_popen(module, written_in):
+    """``module.subprocess.Popen`` with the stub as the child: the real
+    command's first word (the tool) is replaced, its arguments kept."""
+    real_popen = module.subprocess.Popen
+
+    def stub_popen(args, **kwargs):
+        return real_popen([sys.executable, "-c", _STUB_NATIVE_ECHO,
+                           written_in] + list(args[1:]), **kwargs)
+    return stub_popen
+
+
+def _assert_echoed(printed, machine, written_in):
+    assert "+40-130.dsf" in printed
+    if machine == written_in:
+        assert DSFTOOL_PATH_LINE in printed
+
+
+def test_native_tool_text_decodes_what_the_tool_wrote_and_never_raises(
+        monkeypatch):
+    for machine in ("utf-8", "cp1252"):
+        monkeypatch.setattr(CE, "native_tool_encoding", lambda: machine)
+        for written_in in ("utf-8", "cp1252"):
+            text = CE.native_tool_text(DSFTOOL_PATH_LINE.encode(written_in))
+            _assert_echoed(text, machine, written_in)
+    assert CE.native_tool_text(b"plain ascii\n") == "plain ascii\n"
+
+
+@pytest.mark.parametrize("machine", ["utf-8", "cp1252"])
+@pytest.mark.parametrize("written_in", ["utf-8", "cp1252"])
+def test_overlay_echoes_dsftool_whatever_its_path_encoding(
+        monkeypatch, tmp_path, capsys, machine, written_in):
+    """``O4_Overlay_Utils.build_overlay`` echoed both DSFTool runs
+    (``-dsf2text``, ``-text2dsf``) through a strict ``decode("utf-8")``: a
+    path the tool wrote in the ANSI page raised ``UnicodeDecodeError`` and
+    ended Step 4.  The overlay is built and each echo is printed — exact
+    when the machine and the tool agree."""
+    import O4_File_Names as FNAMES
+    import O4_Overlay_Utils as OVL
+    import O4_UI_Utils as UI
+
+    (lat, lon) = (22, 113)
+    source = tmp_path / "overlays"
+    dsf = source / "Earth nav data" / (FNAMES.long_latlon(lat, lon) + ".dsf")
+    dsf.parent.mkdir(parents=True)
+    dsf.write_bytes(b"XPLNEDSF")
+    (tmp_path / "tmp").mkdir()
+    monkeypatch.setattr(OVL, "custom_overlay_src", str(source))
+    monkeypatch.setattr(OVL, "custom_overlay_src_alternate", "")
+    monkeypatch.setattr(FNAMES, "Tmp_dir", str(tmp_path / "tmp"))
+    monkeypatch.setattr(FNAMES, "Overlay_dir", str(tmp_path / "Overlays"))
+    monkeypatch.setattr(UI, "verbosity", 1)
+    monkeypatch.setattr(CE, "native_tool_encoding", lambda: machine)
+    monkeypatch.setattr(OVL.subprocess, "Popen", _echo_popen(OVL, written_in))
+    UI.is_working = 0
+    try:
+        OVL.build_overlay(lat, lon)
+    finally:
+        UI.is_working = 0
+    printed = capsys.readouterr().out
+    assert printed.count("+40-130.dsf") == 2, printed
+    _assert_echoed(printed, machine, written_in)
+    assert (tmp_path / "Overlays" / "Earth nav data"
+            / FNAMES.round_latlon(lat, lon)
+            / (FNAMES.short_latlon(lat, lon) + ".dsf")).exists()
+
+
+@pytest.mark.parametrize("machine", ["utf-8", "cp1252"])
+@pytest.mark.parametrize("written_in", ["utf-8", "cp1252"])
+def test_triangle_echo_survives_its_path_encoding(
+        monkeypatch, tmp_path, capsys, machine, written_in):
+    """Triangle4XP prints the ``.poly`` path it opens; both readers in
+    ``O4_Mesh_Utils`` decoded it strictly as UTF-8 — ``triangulate``
+    raised, ``_run_triangulation_process`` swallowed the line."""
+    import O4_Mesh_Utils as MESH
+    import O4_UI_Utils as UI
+
+    monkeypatch.setattr(CE, "native_tool_encoding", lambda: machine)
+    monkeypatch.setattr(MESH.subprocess, "Popen",
+                        _echo_popen(MESH, written_in))
+    monkeypatch.setattr(UI, "red_flag", 0)
+    assert MESH.triangulate(str(tmp_path / "mesh"), str(tmp_path)) == 1
+    process = MESH._run_triangulation_process(
+        ["Triangle4XP", "-pAYPQ", str(tmp_path / "run.poly")])
+    process.wait()
+    assert process.returncode == 0
+    printed = capsys.readouterr().out
+    assert printed.count("+40-130.dsf") == 2, printed
+    _assert_echoed(printed, machine, written_in)

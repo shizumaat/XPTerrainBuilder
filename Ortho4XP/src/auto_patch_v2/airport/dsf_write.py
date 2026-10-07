@@ -132,6 +132,7 @@ from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
                                KIND_AGL, KIND_MSL, KIND_ON_GROUND,
                                PROVENANCE_FILENAME, PlacementPlan)
 from . import backup_state as _bs
+from . import pack_art as _pa
 from .backup_state import BackupUnproven, State
 from .file_hash import sha256_file
 
@@ -1040,6 +1041,9 @@ class WriteResult:
     #: claims) and removed.
     composed_airports: tuple[str, ...] = ()
     orphaned_bodies: tuple[str, ...] = ()
+    #: #433: what the accepted missing-art omission removed
+    #: (``pack_art.omit_definitions``'s counts); empty when none was asked
+    omitted: _t.Mapping[str, int] = _dc.field(default_factory=dict)
 
 
 def remove_cut_files(paths: _t.Iterable[str]) -> tuple[str, ...]:
@@ -1154,7 +1158,8 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                work_dir: str | None = None,
                engine_version: str = "",
                law_digest: str = "",
-               body_files: _t.Sequence[str] = ()) -> WriteResult:
+               body_files: _t.Sequence[str] = (),
+               omit: _t.Sequence[_pa.MissingDef] = ()) -> WriteResult:
     """Apply ``plan`` to the pack's DSF (§3.3-§3.5).
 
     The pristine DSF is kept ONCE as ``<name>.dsf.anchor_bak`` and is
@@ -1164,7 +1169,16 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     into place; ``o4_placement_provenance.json`` lands beside it.
 
     ``allow_live_install`` is the lane-safety switch of §3.5: without it
-    a pack under a live X-Plane install is REFUSED."""
+    a pack under a live X-Plane install is REFUSED.
+
+    ``omit`` (owner RULINGS 2026-10-06c, #433) is the missing art the
+    USER ACCEPTED to build without: the edited text loses those
+    definitions and every row that uses one (``pack_art.omit_definitions``,
+    applied AFTER the plan's edits, whose ordinals count the pristine
+    rows), and the record gains ``omitted_art``.  The backup is the
+    pristine file as always, so a later write without ``omit`` puts them
+    back.  A plan with no ICAO is the omission alone: every recorded
+    airport's edits are re-applied and none is re-recorded."""
     dsf_path = plan.dsf_path or ""
     if not os.path.isfile(dsf_path):
         raise FileNotFoundError(f"DSF not found: {dsf_path!r}")
@@ -1245,6 +1259,9 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     composed = plan.compose(siblings)
     edited = edit_dump(text, composed,
                        engine_version or plan.provenance.engine_version)
+    omitted: dict[str, int] = {}
+    if omit:
+        edited, omitted = _pa.omit_definitions(edited, omit)
     with open(edited_text, "w", encoding="utf-8",
               errors="surrogateescape", newline="\n") as fh:
         fh.write(edited)
@@ -1279,13 +1296,14 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             if icao != plan.icao and icao not in airports and isinstance(row, dict):
                 orphaned.extend(b for b in (row.get("body_files") or [])
                                 if isinstance(b, str))
-    airports[plan.icao] = {
-        "edits": plan.edit_rows(),
-        "body_files": own_bodies,
-        "dump_sha256": dump_sha,
-        "engine_version": engine_version or plan.provenance.engine_version,
-        "time": _bs.stamp(),
-    }
+    if plan.icao:
+        airports[plan.icao] = {
+            "edits": plan.edit_rows(),
+            "body_files": own_bodies,
+            "dump_sha256": dump_sha,
+            "engine_version": engine_version or plan.provenance.engine_version,
+            "time": _bs.stamp(),
+        }
     orphaned = sorted(set(orphaned) - set(own_bodies))
     bodies = sorted({b for a in airports.values() for b in a["body_files"]})
     bak_stat = os.stat(backup)
@@ -1325,11 +1343,14 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         "adopted": adopted_rows,
         "counts": counts,
         "roundtrip": report.to_dict(),
+        # #433: the omission the user accepted, or None — never a stale one
+        "omitted_art": (_pa.record(sha256_file(backup), omit, omitted,
+                                   _bs.stamp()) if omit else None),
     }
     # the top-level keys of the LAST write stay exactly as they were
     # (tools and ``v2_rebake_replay.py disk`` read them)
     top = {
-        "icao": plan.icao,
+        "icao": plan.icao or _bs.read_record(dsf_path).get("icao") or "",
         "pack_name": plan.pack_name,
         "dsf": base,
         "backup": entry["backup"],
@@ -1359,7 +1380,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     return WriteResult(dsf_path, backup, created, edited_text, prov_path,
                        report, counts, verdict.state.value,
                        superseded, preserved, tuple(notes),
-                       tuple(sorted(sibling_rows)), removed)
+                       tuple(sorted(sibling_rows)), removed, omitted)
 
 
 def _stand_down_line(v) -> str:

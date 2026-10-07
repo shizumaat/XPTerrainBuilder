@@ -427,8 +427,8 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                patch_dir: str = "", allow_live_install: bool = False,
                work_dir: str | None = None,
                refresh_dump: _t.Callable[[str], str | None] | None = None,
-               engine_version: str = "", law_digest: str = ""
-               ) -> PlacementWriteResult:
+               engine_version: str = "", law_digest: str = "",
+               omit: _t.Sequence = ()) -> PlacementWriteResult:
     """The writes in the one lawful order (module doc, steps 0-5).
 
     §12a (3) row 5: THE DSF IS CLASSIFIED FIRST.  When its write half
@@ -446,7 +446,8 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
     dsf = _dw.write_pack(plan.pack_root, plan, tool,
                          allow_live_install=allow_live_install,
                          work_dir=work_dir, engine_version=engine_version,
-                         law_digest=law_digest, body_files=written)
+                         law_digest=law_digest, body_files=written,
+                         omit=omit)
     refreshed = None
     if refresh_dump is not None:
         # §3.6: the READ path keys its text dump on the DSF's mtime, which

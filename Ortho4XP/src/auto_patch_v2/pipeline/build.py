@@ -1223,6 +1223,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     paths = None
     vrows = None
     pieces = None
+    #: the verify work pool's account (``report["pool"]["verify"]``)
+    _vpool: list[dict] = []
     if sol.status.value in ("optimal", "feasible"):
         t = time.perf_counter()
         _pulse.tick("emitting the patch")
@@ -1405,8 +1407,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             # whose within-shape longitudinal cap is LIFTED — the same map
             # ``face_tags`` stamps on the ways for the v1 census.
             from .publication import lifted_caps as _lifted_caps
+            # the apron chords' work pool says its line through this log
+            # and hands its account to the report (``report["pool"]``)
             _vpatch, vrows = census_frame(surf, law, pub, _caps,
-                                          _lifted_caps(pm))
+                                          _lifted_caps(pm),
+                                          say=lambda m: _say("  " + m, out),
+                                          on_pool=_vpool.append)
             # RULINGS 2026-09-08t: every row is counted LAW-TRUE — there is
             # no relaxed / yielded scope any more.  A row here is a DESIGN
             # TARGET the surface missed; the census reports, never blocks.
@@ -1460,7 +1466,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     report["wall_s"] = {k: round(v, 3) for k, v in wall.items()}
     # the work pools' own account, per stage (clocks and head counts: never
     # in a digest — ``pipeline/xplat.py`` reads the model, not this report)
-    report["pool"] = {"pack": _ps["pool"], "planar": _pack_read_pool(ocache)}
+    # ``verify`` is ``None`` when the apron chords were read on one core by
+    # the budget or the size rule (a small airport), or verify did not run
+    report["pool"] = {"pack": _ps["pool"], "planar": _pack_read_pool(ocache),
+                      "verify": _vpool[-1] if _vpool else None}
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     if _xp:
         # The dump is a READ of the stages already held — it prices no law

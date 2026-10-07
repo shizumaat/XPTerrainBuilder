@@ -165,6 +165,30 @@ def auto_patch_failed(icao, stage, error):
 
 
 ################################################################################
+def pack_missing_art(**fields):
+    """A scenery pack X-Plane will NOT load: its DSF declares definitions
+    that are not installed (owner RULINGS 2026-10-06c, issue #433).
+
+    ``fields`` are the ``PackMissingArt`` event's (``pack``, ``pack_root``,
+    ``lat``, ``lon``, ``total``, ``kinds``, ``uses``, ``first_paths``,
+    ``can_omit``, ``state``, ``error``).  The engine's log line is printed
+    by the caller; this is the front-end notification.  No-op without an
+    engine session or GUI and never raises.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.pack_missing_art(**fields)
+        except Exception:
+            pass
+        return
+    if gui:
+        try:
+            gui.pack_missing_art(**fields)
+        except Exception:
+            pass
+
+
+################################################################################
 def imagery_downloads_done(lat, lon, downloaded=0, failed=0):
     """The imagery step's DOWNLOAD queue drained for this tile: only the
     local DDS conversion tail remains.

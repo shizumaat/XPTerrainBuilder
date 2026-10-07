@@ -168,11 +168,17 @@ def read(state: ChordWorker, task: tuple[int, int, int]) -> np.ndarray:
 
 def outside_ahead(faces: _t.Sequence[Face], tol_m: float, min_d: float, *,
                   workers: int | None = None,
-                  out: _t.Callable[[str], None] = print
+                  out: _t.Callable[[str], None] = print,
+                  on_pool: _t.Callable[[dict], None] | None = None
                   ) -> list[list[tuple[int, int]]] | None:
     """``[chords_outside(*face, tol_m, min_d) for face in faces]`` from the
     work pool, or ``None`` when the caller is to read them itself (module
-    doc).  ``workers`` pins the count (a twin, a tool arm)."""
+    doc).  ``workers`` pins the count (a twin, a tool arm).  ``out`` is the
+    caller's build log; ``on_pool`` is handed the pool's own account
+    (``WorkPool.report``) whenever a pool was opened — a pool that fell
+    back included — and is never called when the reading stayed on one
+    core by the budget or the size rule (a clock and a head count, for the
+    build report: never a digest)."""
     total = sum(ring_chords(len(xy)) for xy, _holes in faces)
     allowed, bound = budget_bound() if workers is None else (int(workers), "pinned")
     if allowed < 2 or total < MIN_CHORDS:
@@ -192,14 +198,20 @@ def outside_ahead(faces: _t.Sequence[Face], tol_m: float, min_d: float, *,
         shared = share_object([(tuple(xy), [tuple(h) for h in holes])
                                for xy, holes in faces])
     except Exception as e:             # no shared memory: the same reading, here
-        out(f"[pool] the apron chords stay on one core: their rings do not "
-            f"cross to a worker ({type(e).__name__}: {e})")
+        why = (f"the apron chords' rings do not cross to a worker "
+               f"({type(e).__name__}: {e})")
+        out(f"[pool] FELL BACK: {why} — verify: apron chords stay on one core")
+        if on_pool is not None:
+            on_pool(dict(WorkPool(workers=n, out=out, bound=bound).report(),
+                         parallel=False, fell_back=True, reason=why))
         return None
     with shared, WorkPool(setup, (shared.spec, tol_m, min_d), workers=n, out=out,
                           bound=bound) as pool:
         got = pool.try_map(read, tasks, weights=weights,
                            what="verify: apron chords", unit="chunks")
         out(pool.line() + " — verify: apron chords")
+        if on_pool is not None:
+            on_pool(pool.report())
     if got is None:
         return None
     merged: list[list[tuple[int, int]]] = [[] for _ in faces]

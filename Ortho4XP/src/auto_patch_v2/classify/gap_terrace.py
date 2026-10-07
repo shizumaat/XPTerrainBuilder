@@ -247,15 +247,17 @@ def _lot_cut(part: Polygon, road: list[Station], apron: list[Station],
     lots = [p for p in polygon_parts(lot_g) if not _under_floor(p, min_m2, lane)]
     if not lots:
         return [], [part], []
-    # a ramp component under the floor is the lot's (its apron stations are
-    # then conflicts the caller reports); a lot sliver is the ramp's
-    ramps, merged = [], []
-    for p in polygon_parts(ramp_g):
-        (merged if _under_floor(p, min_m2, lane) else ramps).append(p)
+    # a lot sliver is the ramp's; then a ramp component under the floor is
+    # the lot's (its apron stations are conflicts the caller reports) — it
+    # borders a standing lot, the part being connected
+    lot_ok = shapely.union_all(lots)
+    merged = [p for p in polygon_parts(shapely.set_precision(part.difference(lot_ok), grid))
+              if _under_floor(p, min_m2, lane)]
     lot_all = shapely.set_precision(shapely.union_all(lots + merged), grid)
     ramp_all = shapely.set_precision(part.difference(lot_all), grid)
-    lots = sorted(polygon_parts(lot_all), key=_key)
-    ramps = sorted((p for p in polygon_parts(ramp_all)), key=_key)
+    lots = sorted((p for p in polygon_parts(lot_all)
+                   if not _under_floor(p, min_m2, lane)), key=_key)
+    ramps = sorted(polygon_parts(ramp_all), key=_key)
     return lots, ramps, merged
 
 

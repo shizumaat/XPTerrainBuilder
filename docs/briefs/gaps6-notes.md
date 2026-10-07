@@ -129,8 +129,8 @@ unmerged: no merged station of `route3` within reach + one spacing),
 | S2 | DONE and RUN: base re-solved (`09847984ac94`); `--late-from` calls `run_late_stage` (the replay prelude's tail is `_rest(cl)`); a ribbon beside no piece is a ring (`gap_follow_rows`, `late_stations`); `late_constraints(retier_heads=)`; shapes admit gap parts by kind. Seam probe row 10: 48 gap joints = 48 knives; 132 contour joints appear (not attributed). Row 3 (`ribbon_airside_added / removed`, breakline vertex count) NOT read. |
 | S3 | BUILT and RUN, REFUTED as written (claim 4): `gap_follow._lot_rows`, `LOT_RULING` in `hard_rulings` + ranks, `lot_fit` through `preferred_z` (the assembly labels it `road_fit`; no separate label). |
 | S4 | PARTIAL: `ConflictReport.worst_by_head` + `by_head_line()` on a LAST STAGE line; `publication.gap_pieces` (sidecar key, written only by a build / replay that ran the stage); `tools/v2_late_read.py` part-aware (merged / UNMERGED naming, lot rows, knife column, pieces' area). `v2_late_site` unchanged (the ref names the part). No twin for the reader. |
-| S5 | census of `ARM1` against `BASE` started (`tools/harness/census.py`), result in `<scratch>/gaps6/census_arm1.txt` if it finished — see the report. |
-| S6 | WRITTEN, NEVER RUN IN A BUILD: `pipeline/build.py` builds the BASE on `gap_free(cl)` and calls `run_late_stage` once under `if cl_gaps is not None` (structural twin in `test_late_stage.py`); the base's pin yields and conflict records are carried; the base's jetway-strip report is NOT. |
+| S5 | NOT OBTAINED: `tools/harness/census.py BASE ARM1` ran 30 min at 100 % of one core with no output and was stopped (gaps4's census of the one-face arm finished; the cut arm has 145 shapes and 180 joints against 52 and 0 — not attributed). |
+| S6 | WRITTEN; NO-OP PROVED, the stage itself NEVER RUN IN A BUILD: `pipeline/build.py` builds the BASE on `gap_free(cl)` and calls `run_late_stage` once under `if cl_gaps is not None` (structural twin in `test_late_stage.py`); harness build `gaps6_CYXY` body `2a00c361ffc2` = main's. The base's pin yields and conflict records are carried; its jetway-strip report is NOT. |
 | S7 – S9 | NOT STARTED. No HECA build. `--workers 1` identity not run. |
 
 ## Deviations (for review)
@@ -150,3 +150,13 @@ unmerged: no merged station of `route3` within reach + one spacing),
     venv/bin/python tools/v2_late_read.py $F/BASE/solved.pkl OUT.pkl --top 60
     venv/bin/python tools/v2_solve_replay.py --replay $F/../gaps3/HECA.pkl --from classify \
         --late-from $F/BASE/solved.pkl --emit $F/ARM2 --verify --solved-out $F/ARM2/solved.pkl
+
+## Handover checks (tip of the branch)
+
+Non-Qt split 8,741 passed, 20 skipped, 1 xpassed, 1 failed (`test_planar::test_import_and_budget`:
+`planar/shapes.py` 1,008 lines — fixed by moving `bears_shape` to
+`model.planar`; the file is at 1,000, the twin's limit); Qt `-n0` 311 passed;
+the four gate files pass; `tools/ratchets.py` duplicate PASS, layers PASS
+(size WARN on files touched: `pipeline/build.py` +113, `pipeline/publication.py`
++21, `tools/v2_solve_replay.py` +247 — all three include earlier growth).
+Frames registered: `gaps6/BASE` and `gaps6/ARM1` patches (`frames.py list HECA`).

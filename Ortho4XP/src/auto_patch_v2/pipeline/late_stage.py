@@ -157,8 +157,8 @@ def cut_classification(cl, pm_base, z_base, law: Law, rules) -> tuple[_t.Any, di
         grp = {i: g for g, members in enumerate(cut.groups) for i in members}
         for p in cut.parts:
             rep["part_stations"][f"{c.ref}{p.suffix}"] = PartStations(
-                st, frozenset(p.stations),
-                frozenset(i for i in p.stations if grp.get(i) == p.group))
+                st, frozenset(i for i in p.stations if grp.get(i) == p.group),
+                bool(p.stations) and all(st[i].cls in (ROAD, APRON) for i in p.stations))
             ev = {**dict(c.evidence), "area_m2": float(p.poly.area)}
             cells.append(_dc.replace(
                 c, id=nid, ref=f"{c.ref}{p.suffix}",

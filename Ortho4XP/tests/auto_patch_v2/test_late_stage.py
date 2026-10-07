@@ -276,3 +276,47 @@ def test_the_build_enters_the_last_stage_once_and_only_with_a_gap_piece():
     plain = types.SimpleNamespace(cells=(
         Cell(0, "apron", "pav1", ((0, 0), (1, 0), (1, 1)), (), None, None, "airside", "apron", {}),))
     assert som.gap_free(plain) is None
+
+
+def test_the_cut_hands_each_part_its_own_group_and_its_lot_verdict(monkeypatch):
+    """Spec §55 (14) Q-E / Q-G: ``cut_classification`` hands ``gap_follow``
+    each part's stations — ``own`` the ones nearest the part that are in its
+    own level group (a station the floors merged in is not), ``lot_rows``
+    true only when every station nearest the part is a road's or an apron's."""
+    from shapely.geometry import box
+
+    from auto_patch_v2.classify import gap_terrace as gt
+    from auto_patch_v2.pipeline import late_stage as ls
+    st = [gt.Station((0.0, 0.0), 96.0, "road", 0.08, 0.0, "service_road:r"),
+          gt.Station((9.0, 0.0), 96.5, "apron", 0.08, 0.0, "apron:a"),
+          gt.Station((20.0, 0.0), 90.0, "pad", 0.08, 1.0, "building:b"),
+          gt.Station((5.0, 9.0), 90.2, "road", 0.08, 0.0, "service_road:r")]
+    cut = gt.TerraceCut((gt.Part(box(0, 0, 10, 10), "/s0/lot", "lot", 0, (0, 1, 3)),
+                         gt.Part(box(11, 0, 21, 10), "/s1", "step", 1, (2,))),
+                        ((0, 1), (2, 3)), 1, (), 0.0)
+    monkeypatch.setattr(ls, "late_stations", lambda *a, **k: [st])
+    monkeypatch.setattr(ls, "terrace_cut", lambda *a, **k: cut)
+    import dataclasses as dc
+
+    @dc.dataclass(frozen=True)
+    class Cell:
+        id: int
+        ref: str
+        role: str
+        ring: tuple
+        holes: tuple = ()
+        evidence: tuple = ()
+
+    @dc.dataclass(frozen=True)
+    class Cl:
+        cells: tuple
+
+    ring = ((0.0, 0.0), (21.0, 0.0), (21.0, 10.0), (0.0, 10.0))
+    from auto_patch_v2.law import Law
+    _cl, rep = ls.cut_classification(Cl((Cell(1, "gap:3", "groundside_pavement", ring),)),
+                                     None, None, Law.for_airport("HECA"), None)
+    ps = rep["part_stations"]
+    assert sorted(ps) == ["gap:3/s0/lot", "gap:3/s1"]
+    assert ps["gap:3/s0/lot"].own == {0, 1} and ps["gap:3/s0/lot"].lot_rows      # 3 merged in: not its own
+    assert ps["gap:3/s1"].own == {2} and not ps["gap:3/s1"].lot_rows             # a pad
+    assert ps["gap:3/s0/lot"].stations is st

@@ -54,7 +54,6 @@ import typing as _t
 import shapely
 from shapely.strtree import STRtree
 
-from ..classify.gap_terrace import APRON, ROAD
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap, snap_margin_m
 from ..model.constraints import Linear, Source
@@ -72,23 +71,14 @@ LOT_RULING = "gap lot terrace holds the road's level across (owner 2026-10-06d)"
 _OWN_RIM_M = 0.3
 
 
-#: the station classes a lot part may meet and still take its lot rows
-_LOT_CLASSES = frozenset({ROAD, APRON})
-
-
 class PartStations(_t.NamedTuple):
     """THE CUT'S STATIONS AS ONE PART READS THEM (``classify/gap_terrace``:
-    ``Part.stations`` and the level groups), keyed by the part's ref."""
+    ``Part.stations`` and the level groups), keyed by the part's ref — the
+    caller's (``pipeline/late_stage``), which knows the station classes."""
 
-    stations: _t.Sequence[_t.Any]   #: the PIECE's stations (``.xy .ring .cls``)
-    mine: frozenset[int]            #: indices of the stations nearest this part
-    own: frozenset[int]             #: of ``mine``, those in the part's own group
-
-    @property
-    def lot_rows(self) -> bool:
-        """Q-G: every station of the part is a road's or an apron's."""
-        return bool(self.mine) and all(
-            self.stations[i].cls in _LOT_CLASSES for i in self.mine)
+    stations: _t.Sequence[_t.Any]   #: the PIECE's stations (``.xy .ring``)
+    own: frozenset[int]             #: the stations nearest this part that are in its own group
+    lot_rows: bool                  #: Q-G: every station nearest the part is a road's or an apron's
 
 
 class _OwnRings:

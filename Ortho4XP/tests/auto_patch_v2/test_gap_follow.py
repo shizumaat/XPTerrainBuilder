@@ -162,18 +162,15 @@ def test_a_part_beside_a_knife_takes_no_bound_from_the_other_groups_ring():
     st = [_st((10.0, 0.0), 96.0, "road", "service_road:route3"),
           _st((10.0, 40.0), 96.0, "road", "service_road:route3"),
           _st((11.45, -1.45), 92.0, "lot", "parking_lot:dsf:pol10")]
-    mine = gf.PartStations(st, frozenset({0, 1}), frozenset({0, 1}))
+    mine = gf.PartStations(st, frozenset({0, 1}), False)
     rows, rep = gf.gap_follow_rows(pm, LAW, fixed, {"gap:7/s0": mine})
     r4 = next(r for r in rows if r.terms[0][0] == 4)
     cap = role_cap(LAW, "service_road").longitudinal
     assert (r4.lo, r4.hi) == (pytest.approx(96.0 - cap * 1.45), pytest.approx(96.0 + cap * 1.45))
     assert rep["conflicts"] == []
     assert [(d["v"], d["ring"], d["z"]) for d in rep["declared"]] == [(4, "parking_lot:dsf:pol10", 92.0)]
-    # the same station merged INTO the part (nearest it, another group): still not its own
-    merged = gf.PartStations(st, frozenset({0, 1, 2}), frozenset({0, 1}))
-    assert len(gf.gap_follow_rows(pm, LAW, fixed, {"gap:7/s0": merged})[1]["declared"]) == 1
     # one of its own group: bound between the two, as an uncut piece is
-    own = gf.PartStations(st, frozenset({0, 1, 2}), frozenset({0, 1, 2}))
+    own = gf.PartStations(st, frozenset({0, 1, 2}), False)
     rows3, rep3 = gf.gap_follow_rows(pm, LAW, fixed, {"gap:7/s0": own})
     assert rep3["declared"] == [] and len(rep3["conflicts"]) == 1
     # a part the cut handed no stations for, and no cut at all: unchanged
@@ -191,11 +188,9 @@ def test_a_lot_that_meets_a_pad_takes_no_lot_row():
     fixed = {0: 96.0, 1: 96.0, 2: 100.0, 3: 100.0}
     road = [_st((10.0, 0.0), 96.0, "road", "service_road:route3"),
             _st((10.0, 40.0), 100.0, "road", "service_road:route3")]
-    for extra, n in (("apron", 4), ("pad", 0), ("lot", 0), ("band", 0), ("structure", 0)):
-        st = road + [_st((70.0, 20.0), 95.0, extra, "x:y")]
-        ps = gf.PartStations(st, frozenset({0, 1, 2}), frozenset({0, 1, 2}))
-        assert ps.lot_rows is (n > 0)
+    for takes, n in ((True, 4), (False, 0)):
+        ps = gf.PartStations(road, frozenset({0, 1}), takes)
         rep = gf.gap_follow_rows(pm, LAW, fixed, {"gap:7/lot": ps})[1]
-        assert (rep["lot_rows"], len(rep["lot_targets"])) == (n, n), extra
+        assert (rep["lot_rows"], len(rep["lot_targets"])) == (n, n), takes
     # a lot part the cut handed nothing for takes none
     assert gf.gap_follow_rows(pm, LAW, fixed, {"gap:8/lot": ps})[1]["lot_rows"] == 0

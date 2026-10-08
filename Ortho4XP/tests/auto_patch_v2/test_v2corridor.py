@@ -374,7 +374,8 @@ def test_a_shared_datum_anchor_no_longer_deepens_the_corridor(objs, law):
         # (2)): the corridor's own depth, never the anchor plane's 8 m
         assert r.mouth_dem_z - r.floor_z == pytest.approx(2.6, abs=0.05)
     groups = wall_corridor_groups(recs, law)
-    assert len(groups) == 2 and all(g.max_grade == wc.max_ramp_grade for g in groups)
+    # RULINGS 2026-10-07e: the walls give the grade — no law grade rides the group
+    assert len(groups) == 2 and all(g.max_grade is None for g in groups)
 
 
 def test_an_anchor_at_grade_reads_exactly_as_the_rendered_frame_did(objs, law):

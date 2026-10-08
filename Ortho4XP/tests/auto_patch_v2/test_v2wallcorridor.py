@@ -45,9 +45,10 @@ from auto_patch_v2.model.constraints import Pin
 from auto_patch_v2.model.structures import profile_z
 from auto_patch_v2.pipeline.build import _plate_seats, plate_stations
 from auto_patch_v2.planar.basins import read_objects
+from auto_patch_v2.pipeline.publication import lifted_caps
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.structures import _pad_relief_m as _pad_relief, build_structures
-from auto_patch_v2.planar.wall_corridor_ramps import (BAY_EXEMPT, GARAGE_ROLE, KIND, RAMP_ROLE,
+from auto_patch_v2.planar.wall_corridor_ramps import (OBJECT_FRAMED, GARAGE_ROLE, KIND, RAMP_ROLE,
                                                      wall_corridor_groups)
 from auto_patch_v2.solve import Options, Status, solve_design
 
@@ -180,18 +181,20 @@ def test_law_register(law):
     assert 0.0 < wc.min_width_m < wc.max_width_m
     assert wc.min_wall_depth_m > 0.0 and wc.min_wall_length_m > 0.0 and wc.merge_gap_m >= 0.0
     assert 0.0 < wc.end_cap_cover_min <= 1.0 and wc.min_headroom_m > 0.0
-    assert 0.0 < wc.max_ramp_grade < wc.max_authored_grade
+    # RULINGS 2026-10-07e: the walls frame the ramp — no grade key
+    assert not hasattr(wc, "max_ramp_grade") and wc.max_authored_grade > 0.0
+    road = law.tables.structures.tunnel.ramp_max_grade
     assert wc.parallel_max_deg > 0.0 and wc.station_m > 0.0
     # the two roles: structure, groundside, aliased for the oracle
-    for role, cap in ((RAMP_ROLE, wc.max_ramp_grade), (GARAGE_ROLE, wc.max_authored_grade)):
+    for role, cap in ((RAMP_ROLE, road), (GARAGE_ROLE, wc.max_authored_grade)):
         spec = law.tables.precedence.roles[role]
         assert spec.side == "groundside" and spec.structure and spec.value
-        # RULINGS 2026-09-08u (2): the RAMP reads at the structure-ramp law's
-        # 10 % (its own ceiling); the authored garage ramp keeps service_road
+        # RULINGS 2026-09-08u (2), 07e: the RAMP's SEAMS read at the structure-
+        # ramp law = the road ramp law (its own grade is lifted); the authored garage ramp keeps service_road
         # (no oracle law carries 25 % — the instrument limit stands, §7b row 3)
         assert spec.oracle_role == "tunnel_ramp"
         assert spec.oracle_law == ("structure_ramp" if role == RAMP_ROLE else "service_road")
-        assert spec.oracle_cap == (wc.max_ramp_grade if role == RAMP_ROLE else None)
+        assert spec.oracle_cap == (road if role == RAMP_ROLE else None)
         assert is_structure_role(law, role) and role_side(law, role) == "groundside"
         assert role_cap(law, role).longitudinal == cap
         assert role not in law.tables.precedence.order
@@ -366,22 +369,25 @@ def test_two_bands_under_a_deck_are_a_level_corridor_of_two_halves(objs, law):
     assert not sst.refused, sst.refused
     assert sst.wall_corridors == 2 and len(tunnels) == 2
     for t in tunnels:
-        # THE RAMP RUNS THE WALLS' LENGTH (owner RULINGS 2026-10-07b (2)): at
-        # grade at the walls' OUTER END (s 40), falling toward the building.
-        # The deck slab covers each half for 30 of its 40 m (``_corridor_obj``:
-        # ``half_len − 10``), so the uncovered wall is 10 m and 1.9 m of
-        # depth would need 19 % over it — the knee moves back UNDER the
-        # cover by the run ``max_ramp_grade`` needs (§34 (8), 14u): 19 m.
-        assert t.source == KIND and t.design_grade == pytest.approx(wc.max_ramp_grade)
+        # THE WALLS FRAME THE RAMP (owner RULINGS 2026-10-07b (2), 07e): at
+        # grade at the walls' OUTER END (s 40), at the wall bottom at the
+        # half's start (s 0, the midpoint) — the WHOLE 40 m, one line, at
+        # the grade those give (1.9 / 40 = 4.75 %).  The deck slab covers
+        # each half for 30 of its 40 m (``_corridor_obj``): the cover makes
+        # NO knee (14be's plate-edge knee and the knee moved back under the
+        # building to hold a cap are superseded).
+        assert t.source == KIND and t.design_grade == pytest.approx(1.9 / t.wall_length_m, abs=0.002)
         assert t.top_s == pytest.approx(t.wall_length_m) and t.top_pinned and not t.clipped_by
-        cover_s = DECK_HALF_LEN_M - DECK_END_INSET_M
-        assert t.climb_from_s == pytest.approx(t.wall_length_m - 1.9 / wc.max_ramp_grade, abs=0.05)
-        assert t.climb_from_s < cover_s - 1e-6
-        assert any("back UNDER the building" in n for n in t.notes), t.notes
-        # the published profile: the wall bottom to the knee, the design
-        # line to the ground at the walls' outer end — nothing beyond it
+        assert t.climb_from_s == pytest.approx(0.0)
+        assert not any("UNDER the building" in n or "COVERING PLATE" in n for n in t.notes)
+        assert t.pinched == (OBJECT_FRAMED, pytest.approx(t.wall_length_m),
+                             pytest.approx(t.design_grade))
+        # the published profile: ONE line from the wall bottom at s 0 to
+        # the ground at the walls' outer end — no flat, nothing beyond it
         assert profile_z(t.profile, 0.0) == pytest.approx(t.mouth_z)
-        assert profile_z(t.profile, t.climb_from_s) == pytest.approx(t.mouth_z, abs=1e-6)
+        mid = 0.5 * t.wall_length_m
+        assert profile_z(t.profile, mid) == pytest.approx(
+            t.mouth_z + t.design_grade * mid, abs=1e-6)
         assert t.profile[-1][0] == pytest.approx(t.wall_length_m)
         assert profile_z(t.profile, t.top_s) == pytest.approx(
             airport.dem.z(*LineString(t.axis).interpolate(t.top_s).coords[0]), abs=1e-6)
@@ -415,7 +421,7 @@ def test_a_cover_reaching_the_wall_end_still_ramps_the_full_wall_length(objs, la
         assert t.wall_length_m == pytest.approx(DECK_HALF_LEN_M, abs=0.05)
         assert t.climb_from_s == pytest.approx(0.0) and t.top_s == pytest.approx(t.wall_length_m)
         assert t.design_grade == pytest.approx(1.9 / t.wall_length_m, abs=0.002)
-        assert t.design_grade < wc.max_ramp_grade and t.pinched is None
+        assert t.pinched is not None and t.pinched[0] == OBJECT_FRAMED
         assert t.profile[-1][0] == pytest.approx(t.wall_length_m)
         assert profile_z(t.profile, t.top_s) == pytest.approx(
             airport.dem.z(*LineString(t.axis).interpolate(t.top_s).coords[0]), abs=1e-6)
@@ -439,28 +445,28 @@ def test_walls_of_unequal_length_end_the_ramp_at_the_shorter_wall(objs, law):
     assert a.distance(b) == pytest.approx(2 * DECK_HALF_LEN_M - 8.0, abs=0.1)
 
 
-@pytest.mark.parametrize("rise, wall_end, covered, closed, want", [
-    # equal walls, 10 m protruding: 0.8 m at 8 % over the protruding run
-    (0.8, 40.0, 30.0, False, (30.0, 0.08, 0.0, False)),
-    # nothing protrudes: the full wall length, whatever grade (<= cap)
-    (1.9, 40.0, None, False, (0.0, 1.9 / 40.0, 0.0, False)),
-    # the span needs over the cap: the knee moves back under the building
-    (1.9, 40.0, 30.0, False, (21.0, 0.1, 9.0, False)),
-    # a service bay too short for the cap: exempt (07c (1)), no lift
-    (1.9, 10.0, None, True, (0.0, 0.19, 0.0, True)),
+@pytest.mark.parametrize("rise, wall_end", [
+    (0.8, 40.0),          # a shallow open half: 2 %
+    (1.9, 40.0),          # a through-corridor half: 4.75 %
+    (1.37, 20.3),         # an open bay: 6.7 %
+    (1.9, 10.0),          # a short bay: 19 %
+    (1.39, 6.3),          # a service bay: 22 %
+    (3.0, 4.0),           # 75 %: whatever the walls give
 ])
-def test_full_wall_ramp_plans(rise, wall_end, covered, closed, want):
+def test_full_wall_ramp_is_the_walls_depth_over_the_walls_length(rise, wall_end):
+    """RULINGS 2026-10-07e: length and depth are the framing object's and
+    the grade is what those give — open, through or bay alike; no cap, no
+    knee, no refusal for steepness."""
     from auto_patch_v2.planar.wall_corridor_ramps import full_wall_ramp
     got = full_wall_ramp(10.0, ((0.0, 10.0 - rise), (wall_end, 10.0 - rise)), 10.0 - rise,
-                         wall_end, covered, 0.10, closed)
-    assert got[0] == pytest.approx(want[0]) and got[1] == pytest.approx(want[1])
-    assert got[2] == pytest.approx(want[2]) and got[3] is want[3]
+                         wall_end)
+    assert got == pytest.approx(rise / wall_end)
 
 
-def test_an_open_half_too_short_for_the_cap_is_refused():
+def test_a_floor_over_its_own_ground_is_still_refused():
     from auto_patch_v2.planar.wall_corridor_ramps import full_wall_ramp
-    why = full_wall_ramp(10.0, ((0.0, 8.1),), 8.1, 10.0, None, 0.10, False)
-    assert isinstance(why, str) and "cannot run inside its walls" in why
+    why = full_wall_ramp(10.0, ((0.0, 10.4),), 10.4, 10.0)
+    assert isinstance(why, str) and "stands under the corridor floor" in why
 
 
 def test_one_band_alone_and_bands_too_far_apart_are_nothing(objs, law):
@@ -485,26 +491,43 @@ def test_a_crossing_family_face_closes_the_end_into_a_bay(objs, law):
     assert not sst.refused and len(tunnels) == 1, sst.refused
     t = tunnels[0]
     assert t.capped and not t.far_capped and t.top_pinned
-    # 07b (2): the ramp is the size of the walls.  1.9 m over ~10.5 m of
-    # wall is more than the cap carries, and the end is CLOSED — a SERVICE
-    # BAY, EXEMPT from the cap (owner RULINGS 2026-10-07c (1)): the ramp
-    # runs the walls' whole length at the grade they need, the floor is
-    # NOT raised and there is no step at the door
+    # 07b (2) / 07e: the ramp is the size of the walls.  1.9 m over ~10.5 m
+    # of wall is over the road law — the walls frame it, so it is built at
+    # the grade they give: the floor is NOT raised, no step at the door
+    road = law.tables.structures.tunnel.ramp_max_grade
     assert t.top_s == pytest.approx(t.wall_length_m) and t.climb_from_s == pytest.approx(0.0)
     assert t.design_grade == pytest.approx(1.9 / t.wall_length_m, abs=0.005)
-    assert t.design_grade > wc.max_ramp_grade
+    assert t.design_grade > road
     assert profile_z(t.profile, 0.0) == pytest.approx(t.mouth_dem_z - 1.9, abs=0.03)
-    assert t.pinched is not None and t.pinched[0] == BAY_EXEMPT
+    assert t.pinched is not None and t.pinched[0] == OBJECT_FRAMED
+    assert t.pinched[1] == pytest.approx(t.wall_length_m)
     assert t.pinched[2] == pytest.approx(t.design_grade)
     assert not any("§47 (7)" in n for n in t.notes), t.notes
-    assert any(BAY_EXEMPT in n for n in t.notes), t.notes
+    assert any(OBJECT_FRAMED in n for n in t.notes), t.notes
     assert profile_z(t.profile, t.top_s) == pytest.approx(t.mouth_dem_z, abs=0.03)
-    # the solver prices the bay's ramp at its own grade, not the cap
+    # the solver holds the bay's ramp on ITS OWN plane (``framed_plane``):
+    # every ramp vertex pinned on the line, no descent row at any cap
     pm, _stats = build(airport, cl, law)
     rows = structure_rows(pm, law, airport)
-    _ht = law.tables.emit.design.hard_tol_m
-    assert any(type(r).__name__ == "Diff" and r.cap > wc.max_ramp_grade - _ht / r.d + 1e-9
-               for r in rows)
+    tn = next(x for x in pm.structures if x.source == KIND)
+    ax = LineString(tn.axis)
+    pins = {r.v: r.z for r in rows if isinstance(r, Pin)}
+    n = 0
+    for f in pm.faces.values():
+        if f.role != RAMP_ROLE:
+            continue
+        vs = list(pm.ring_vertices(f.ring))
+        s_max = max(ax.project(Point(pm.vertices[v].xy)) for v in vs)
+        for v in vs:
+            sv = ax.project(Point(pm.vertices[v].xy))
+            want = tn.mouth_z + (tn.top_ground_z - tn.mouth_z) * min(1.0, sv / s_max)
+            assert pins[v] == pytest.approx(want, abs=0.02), (sv, pins[v], want)
+            n += 1
+    assert n >= 4
+    # ...and the census reads it lifted: the record reaches the publication
+    caps = lifted_caps(pm)
+    assert caps and all(g == pytest.approx(tn.design_grade) for g in caps.values())
+    assert all(pm.faces[fid].role == RAMP_ROLE for fid in caps)
 
 
 def test_pavement_beyond_the_walls_neither_stops_nor_shortens_the_ramp(objs, law):
@@ -523,7 +546,7 @@ def test_pavement_beyond_the_walls_neither_stops_nor_shortens_the_ramp(objs, law
         _cl2, tunnels, sst = build_structures(airport, cl, law, objects, (), groups)
         assert not sst.refused and len(tunnels) == 2, sst.refused
         for t, b in zip(tunnels, base):
-            assert not t.clipped_by and t.pinched is None and t.top_pinned
+            assert not t.clipped_by and t.pinched == b.pinched and t.top_pinned
             assert (t.top_s, t.climb_from_s, t.design_grade) == pytest.approx(
                 (b.top_s, b.climb_from_s, b.design_grade))
             assert t.profile == b.profile
@@ -577,13 +600,9 @@ def test_generator_rows_solve_and_emit(objs, law):
     ts = [x for x in pm.structures if x.source == KIND]
     assert len(ts) == 2, stats.structures.refused
     rows = structure_rows(pm, law, airport)
-    # spec §34 (6) as amended (RULINGS 2026-09-13ai): a ramp pair is priced
-    # ``cap - [design] hard_tol_m / d`` so the solve's own held residual
-    # lands the emitted row AT the cap, never over it
-    _ht = law.tables.emit.design.hard_tol_m
-    diffs = [r for r in rows if type(r).__name__ == "Diff"
-             and r.cap == pytest.approx(max(0.0, wc.max_ramp_grade - _ht / r.d))]
-    assert diffs
+    # RULINGS 2026-10-07e: the walls frame the ramp — every ramp vertex is
+    # pinned on its corridor's own line (``framed_plane``); no descent row
+    assert not [r for r in rows if type(r).__name__ == "Diff"]
     pins = [r for r in rows if isinstance(r, Pin)]
     assert any(abs(r.z - ts[0].mouth_z) < 1e-6 for r in pins)
     cs, _counts, _w = generate(pm, law, airport)
@@ -594,11 +613,9 @@ def test_generator_rows_solve_and_emit(objs, law):
     assert sol.status is Status.OPTIMAL, sol.message
     faces = [f for f in pm.faces.values() if f.role == RAMP_ROLE]
     assert faces
-    # each face is judged against ITS OWN corridor: §47 (7) lifts the floor
-    # of a corridor whose pinched run cannot reach the ground at the 10 %
-    # cap (the residual stands at the covering plate's edge), so the two
-    # corridors' floors are no longer the same number and a face may not be
-    # priced against the other one's mouth
+    # each face is judged against ITS OWN corridor: ONE line from the wall
+    # bottom at s 0 to the ground at the walls' outer end — no flat floor,
+    # no knee (RULINGS 2026-10-07e)
     lns = {t.id: LineString(t.axis) for t in ts}
     for f in faces:
         ids = list(pm.ring_vertices(f.ring))
@@ -606,19 +623,12 @@ def test_generator_rows_solve_and_emit(objs, law):
                    sum(pm.vertices[v].xy[1] for v in ids) / len(ids))
         t = min(ts, key=lambda x: lns[x.id].distance(c0))
         ln = lns[t.id]
+        s_max = max(ln.project(Point(pm.vertices[v].xy)) for v in ids)
+        assert s_max == pytest.approx(t.wall_length_m, abs=0.5)
         for v in ids:
-            p = Point(pm.vertices[v].xy)
-            s_ = ln.project(p)
-            # the FLAT floor runs to where the climb starts — which §34 (9)
-            # (5) moves back from the wall end to the COVERING PLATE's edge
-            # (``climb_from_s``), not to ``wall_length_m``.  The 08a floor
-            # ring stood ``floor_overlap_m`` past the inner face and its
-            # wall-end vertex was a station of its own; §47 (1) puts the
-            # ring ON the face, so that vertex is now the climb's first
-            # station and carries the climbed value.
-            if ln.distance(p) <= t.half_width_m + 1e-6 and s_ <= t.climb_from_s + 1e-6 \
-                    and s_ < ln.length - 1e-6:
-                assert sol.z[v] == pytest.approx(t.mouth_z, abs=1e-6)
+            s_ = ln.project(Point(pm.vertices[v].xy))
+            want = t.mouth_z + (t.top_ground_z - t.mouth_z) * min(1.0, s_ / s_max)
+            assert sol.z[v] == pytest.approx(want, abs=0.02), (s_, sol.z[v], want)
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     text, _ways, _nodes = render_patch(surf, law, {}, {})
     assert "v='tunnel_ramp'" in text and f"v='{RAMP_ROLE}'" in text

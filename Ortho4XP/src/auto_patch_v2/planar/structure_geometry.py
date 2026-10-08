@@ -70,7 +70,7 @@ def pad_hit(outer: Polygon, pads: list[tuple[Polygon, str]], tree: STRtree | Non
 
 __all__ = ["RampGeometry", "geometry", "normals", "snap", "snap_out",
            "rim_standoff", "rim_yield_m", "corner_distance", "beyond_strip",
-           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "covered_start", "reseat_expect",
+           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "reseat_expect",
            "anchor_cut_z", "authored_crest"]
 
 
@@ -345,35 +345,6 @@ def authored_crest(c, mouth_z: float, grade: float, s_top: float
              round(_seat.crest_over(c.anchor_dem_z, c.agl_m, c.plate_y, c.anchor_dem_z), 3)),)
 
 
-def covered_start(axis_fn, hull_s: float, plate, step: float) -> float | None:
-    """THE CORRIDOR'S COVERED START (spec §34 (9) (5) as CORRECTED by owner
-    RULINGS 2026-09-14be): the last station, walking out from the mouth,
-    at which the axis still stands under the COVERING PLATE — the
-    roof/deck component that gives the corridor its headroom
-    (``airport/wall_corridors._headroom``'s witness plate, published as
-    ``WallCorridorRecord.plate_plan``).  ``None`` when the corridor carries
-    no cover, or when the cover reaches the wall end (nothing protrudes).
-
-    14at read the BUILDING PAD instead and the owner still saw full depth
-    at the outer end of the retaining walls: the pad polygon is not the
-    building's wall face — at OTHH's east mouth it stands only 2.4 m
-    inside the wall end where the cover stands farther in still.  The
-    corridor is a trench only where it is COVERED; everything from the
-    ramp's top down to the plate edge — the protruding retaining-wall
-    bands included — is RAMP."""
-    if plate is None or getattr(plate, "is_empty", True):
-        return None
-    inside = None
-    s = 0.0
-    while s <= hull_s + 1e-9:
-        if plate.covers(Point(axis_fn(s))):
-            inside = s
-        elif inside is not None:
-            break
-        s += step
-    return None if inside is None or inside >= hull_s - 1e-6 else inside
-
-
 def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: list,
                  vxy: list[XY], dem_z: _t.Sequence[float]) -> dict[int, float]:
     """THE RAMP'S OBJECTIVE TARGET IS ITS OWN DESIGN, not the DEM: vertex
@@ -444,7 +415,7 @@ def collapse_for_ramp(axis_fn, ss: _t.Sequence[float], half: float, rim_off: flo
     def z_at(s: float) -> float:
         if not (g.climbs and s > knee + 1e-9):
             return profile_z(profile, s) if profile else mouth_z
-        return (profile[-1][1] if profile else mouth_z) + design_grade * (s - knee)
+        return (profile_z(profile, knee) if profile else mouth_z) + design_grade * (s - knee)
     zs = [z_at(s) for s in ss]
     if g.climbs and top_pinned:
         z_top = float(dem_z(*axis_fn(s_top)))

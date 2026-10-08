@@ -9,15 +9,16 @@ structure is a consumer here (spec §4).
 LAW A — the DOOR RAMP.  s = 0 stands ``cutout.floor_overlap_m`` inside
 the building face (the well floor overlaps the face, as an object
 corridor's floor overlaps its end wall); the well = the "walls" (its
-reach ⊕ the overlaps), the floor there the SILL; the climb starts at
-the well's outer edge at ``cutout.door.ramp_grade`` along the face's
-outward normal (a straight axis) and tops where it meets the ground
-within ``cutout.door.max_length_m``; the ramp is the sill's width; the
-rim ``rim_standoff`` of the well's side walls inside the well (09-08a),
-the OSM stand-off beyond it; the ramp STOPS at a pavement it would
-enter (``Group.stop_at_pavement``).  A ``door_ramp`` face, never
+reach ⊕ the overlaps).  The ramp is FRAMED BY THE WELL (owner RULINGS
+2026-10-07e): its LENGTH is the well's, its DEPTH the SILL's — at grade
+at the well's outer end, at the sill at the building face — and its
+grade is whatever those two give (:func:`door_profile`): no cap, no
+step at the face.  The ramp is the sill's width; the rim
+``rim_standoff`` of the well's side walls inside the well (09-08a), the
+OSM stand-off beyond it; the ramp STOPS at a pavement it would enter
+(``Group.stop_at_pavement``).  A ``door_ramp`` face, never
 ``tunnel_ramp`` (spec §4: a different generation and a different
-oracle law; since RULINGS 2026-09-12m the two FACE caps are both 8 %).
+oracle law).
 
 LAW B — the SUNKEN ROAD.  s = 0 at the deep-end cut (the plate at
 ``max_depth_m``), the axis the plate's own to the top, the floor the
@@ -45,6 +46,7 @@ from .basins import shell_thickness_m
 from .object_corridor import Group
 from .structure_approach import unit
 from .structure_geometry import rim_standoff
+from .wall_corridor_ramps import OBJECT_FRAMED
 
 __all__ = ["RampCorridor", "door_groups", "sunken_groups", "door_profile"]
 
@@ -132,23 +134,15 @@ def door_groups(wells: _t.Sequence, law: Law) -> list[Group]:
                          w.sill_width_m, t_side, t_side, "door",
                          w.ground_z, w.sill_z, w.region, w.plate, w.region, w.anchor_xy,
                          w.anchor_dem_z, w.agl_m, w.depth_m, notes)
-        # §47 (6) LAW A INVERTED — THE DOOR RAMP DESCENDS INSIDE ITS WALLS
-        # (owner RULINGS 2026-09-17h, Q1: "Maintain 10% cap, descend as far
-        # as that allows, stopping at the building wall").  THIS IS THE
-        # INVERSION'S ONE DERIVATION SITE: ``climb_from_s`` was ``hull_s``
-        # — the well floor stayed FLAT at the sill and the 8 % climb ran
-        # OUTSIDE the walls for up to ``max_length_m`` (25 m).  It is now
-        # ``None``: the climb starts AT the mouth (s = 0, the building
-        # face), the ramp TOP is at grade at the well's OUTER end, and
-        # ``planar/structures`` clamps the depth reached at the building
-        # wall to ``ramp_grade x well length`` (the residual to the sill is
-        # a step AT the face, reported per well).  Nothing is emitted
-        # beyond the well, so ``max_length_m`` governs nothing and is not
-        # passed.
+        # §47 (6) LAW A INVERTED — THE DOOR RAMP DESCENDS INSIDE ITS WALLS:
+        # ``climb_from_s`` is ``None`` — the climb starts AT the mouth
+        # (s = 0, the building face) and the ramp TOP is at grade at the
+        # well's OUTER end.  The grade is the WELL's (RULINGS 2026-10-07e,
+        # :func:`door_profile`, read in ``planar/structures``): no law
+        # grade is passed.  Nothing is emitted beyond the well.
         out.append(Group([], p0, (-n[0], -n[1]), w.sill_width_m, path, c, w.id, hull_s, True,
-                         True, False, half_fn, rim_fn, standoff, None, dl.ramp_grade,
-                         kind="door", max_grade=dl.ramp_grade,
-                         spacing_m=dl.station_m, stop_at_pavement=True))
+                         True, False, half_fn, rim_fn, standoff, None, 0.0,
+                         kind="door", spacing_m=dl.station_m, stop_at_pavement=True))
     return out
 
 
@@ -213,29 +207,27 @@ def sunken_groups(roads: _t.Sequence, law: Law, refused: list[str] | None = None
     return out
 
 
-def door_profile(floor_z: float, ground_z: float, well_len_m: float, cap: float
-                 ) -> tuple[float, float, float]:
-    """§47 (6) LAW A INVERTED (owner RULINGS 2026-09-17h Q1: "Maintain 10%
-    cap, descend as far as that allows, stopping at the building wall").
+def door_profile(floor_z: float, ground_z: float, well_len_m: float
+                 ) -> tuple[float, float]:
+    """§47 (6) LAW A INVERTED, FRAMED BY THE WELL (owner RULINGS
+    2026-10-07e: "Door ramps are exempt from the cap, since they only
+    exist when framed by objects ... the object defines both the length
+    and depth and therefore the necessary grade").
 
-    The ramp TOPS at the ground at the well's OUTER end and descends
-    toward the building face at ``cap``, STOPPING AT THE BUILDING WALL at
-    ``depth_at_wall = min(sill, cap x well length)``.  Returns
-    ``(mouth_z, design_grade, residual_m)`` — the floor AT the building
-    face, the grade it is reached at (never over the cap) and the step
-    ``sill − depth_at_wall`` left at the face, which is reported per well
-    and never iterated on.  Nothing is emitted beyond the well: the flat
-    sill and the 8 % outward climb of 09-08b/c retire."""
+    The ramp TOPS at the ground at the well's OUTER end and descends over
+    the well's whole length to the SILL at the building face.  Returns
+    ``(mouth_z, design_grade)`` — the floor AT the building face (the
+    sill; the ground where the sill stands over it) and the grade the
+    well's length and the sill's depth give.  No cap and no step at the
+    face (17h Q1's ``min(sill, cap x well length)`` is superseded)."""
     sill_depth = max(ground_z - floor_z, 0.0)
-    depth_at_wall = min(sill_depth, cap * max(well_len_m, 0.0))
-    return (ground_z - depth_at_wall, depth_at_wall / max(well_len_m, 1e-9),
-            sill_depth - depth_at_wall)
+    return ground_z - sill_depth, sill_depth / max(well_len_m, 1e-9)
 
 
-def door_note(resource: str, mouth_z: float, sill_z: float, top_ground: float,
-              grade: float, cap: float, well_m: float, residual_m: float) -> str:
-    """§47 (6): what an inverted door ramp reports."""
+def door_note(resource: str, mouth_z: float, top_ground: float, grade: float,
+              well_m: float) -> str:
+    """§47 (6): what a door ramp reports."""
     return (f"door ramp (§47 (6) LAW A INVERTED) of {resource}: the ramp tops at the ground "
-            f"{top_ground:.2f} at the well's OUTER end and descends {100.0 * grade:.1f} % "
-            f"(cap {100.0 * cap:.0f} %) over the well's {well_m:.2f} m to {mouth_z:.2f} AT THE "
-            f"BUILDING WALL; sill {sill_z:.2f} — residual step at the face {residual_m:.2f} m")
+            f"{top_ground:.2f} at the well's OUTER end and descends {100.0 * grade:.1f} % over "
+            f"the well's {well_m:.2f} m to the sill {mouth_z:.2f} AT THE BUILDING WALL — "
+            f"{OBJECT_FRAMED}")

@@ -718,8 +718,10 @@ TUNNEL_RAMP_MAX_GRADE = 0.100   # 0.080 -> 0.100 (owner RULINGS 2026-10-07b (2):
 # ``oracle_law``), so the census judges them at the cap v2 bound them at
 # instead of at ``service_road``'s 8 % (measured: 181 lawful OTHH
 # wall-corridor rows at 8.2 %).  THE NUMBER LIVES ONCE MORE, in
-# ``auto_patch_v2/law/structures.toml [cutout.wall_corridor]
-# max_ramp_grade``, and v2's law loader asserts the two agree at load.
+# ``auto_patch_v2/law/structures.toml [tunnel] ramp_max_grade`` (the road
+# ramp law; an object-framed ramp's OWN grade is uncapped since owner
+# RULINGS 2026-10-07e and rides ``o4_grade_law_cap_lifted``), and v2's
+# law twin asserts the two agree.
 STRUCTURE_RAMP_MAX_GRADE = 0.100
 # GROUNDSIDE (curbside / parking lot) ramp grade — OWNER CONSTANT, approved
 # 2026-08-03 on the primary-source research (docs/RULINGS.md "Owner

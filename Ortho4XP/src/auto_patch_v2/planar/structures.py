@@ -92,7 +92,7 @@ from .basins import object_decks
 from .channel_claims import add_channel_cells, channel_yields
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
-from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, BAY_EXEMPT,
+from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
                                   full_wall_ramp, road_true_edge,
                                   wall_corridor_note, wall_corridor_profile)
 from ..airport.dem import dem_z_at
@@ -115,7 +115,7 @@ from .structure_stats import StructureStats
 from .structure_underpass import (underpass_bores as _underpass_bores,
                                   approach_along, UNDERPASS_TAG, UNDERPASS_NOTE)
 from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
-                                 covered_start as _covered_start, pad_hit as _pad_hit,
+                                 pad_hit as _pad_hit,
                                  ramp_targets, reseat_expect as _reseat_expect,
                                  authored_crest as _authored_crest, ring_for, seed_wall_stations)
 
@@ -266,7 +266,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.door_ramps = sum(1 for g in extra_groups if g.kind == "door")
     stats.sunken_roads = sum(1 for g in extra_groups if g.kind == "sunken_road")
     stats.wall_corridors = sum(1 for g in extra_groups if g.kind == WALL_KIND)
-    wc_law = co.wall_corridor
 
     # what a ramp may not cross — §34 (12) (3) A CORRIDOR NEVER CUTS
     # AIRSIDE PAVEMENT (owner RULINGS 2026-09-15f item 1): the exemption
@@ -381,7 +380,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     f"overbridge embankment, not the portal's cover (§33 (3))")
                 mouth_dem = cap_z
         mouth_z = c.floor_z if c is not None else mouth_dem - tn.bore_datum_m
-        door_residual_m = 0.0          # §47 (6): the step at the building face
         # decks across the corridor.  TWO orthogonal readings at one
         # call: §34 (12) (4) decides WHETHER a deck severs (15ap, the
         # cutting witness), §33 (6) C3' its LATERAL EXTENT (the pack's
@@ -414,16 +412,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             fits = False
             deck_ivals = []
             obj_ivals = []
-            design_grade = grade_g if g.climbs else 0.0
+            design_grade = 0.0          # a climbing corridor: ``full_wall_ramp`` below
         elif c is not None and g.kind == "door":
-            # §47 (6): the ramp descends INSIDE the well to the building
-            # wall at the cap (``door_ramps.door_profile``) — always fits
+            # §47 (6): the ramp descends INSIDE the well to the sill at the
+            # building wall, at the grade the well gives (RULINGS
+            # 2026-10-07e, ``door_ramps.door_profile``) — always fits
             deck_ivals, obj_ivals, pav_ivals = [], [], []
             far_ground = dem_z_at(airport, axis_fn(g.hull_s))
             if math.isnan(far_ground):
                 far_ground = c.mouth_dem_z
-            mouth_z, design_grade, door_residual_m = _door_profile(
-                c.floor_z, far_ground, g.hull_s, grade_g)
+            mouth_z, design_grade = _door_profile(c.floor_z, far_ground, g.hull_s)
             fits = True
         elif c is not None and g.climbs:
             # THE RAMP INSIDE THE WALLS (05n-1): the climb starts AT the
@@ -481,27 +479,20 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # a door ramp (09-08b/c): the well floor stays at the sill, the
             # climb starts at the well's outer edge
             climb_from = max(climb_from, g.climb_from_s)
-        covered_from = None
-        moved_m = 0.0
+        # A RAMP THE PACK'S OWN OBJECTS FRAME (owner RULINGS 2026-10-07e)
+        # takes its length and depth from them and no grade cap: the §34
+        # (9) lifted-cap record carries it (``publication.lifted_caps``),
+        # so the solve and both census readers price it at its own grade
         pinched = None
-        # THE RAMP RUNS THE WALLS' LENGTH (owner RULINGS 2026-10-07b (2)):
-        # at grade at the walls' outer end, falling toward the building to
-        # full depth at the COVERING PLATE's edge (§34 (9) (5), 14be:
-        # ``structure_geometry.covered_start``) — ``full_wall_ramp``
         if g.kind == WALL_KIND and c is not None and g.climbs:
-            covered_from = _covered_start(axis_fn, g.hull_s,
-                                          getattr(c, "plate_plan", None), grid)
             plan = full_wall_ramp(dem_z_at(airport, axis_fn(g.hull_s)), g.profile, mouth_z,
-                                  g.hull_s, covered_from, wc_law.max_ramp_grade, g.capped)
+                                  g.hull_s)
             if isinstance(plan, str):
                 stats.refused.append(f"{tid}: {plan}")
                 continue
-            climb_from, design_grade, moved_m, exempt = plan
-            fits = True
-            if exempt:
-                # 07c (1): a service bay's ramp over the cap rides the §34
-                # (9) lifted-cap record (``publication.lifted_caps``)
-                pinched = (BAY_EXEMPT, g.hull_s - climb_from, design_grade)
+            climb_from, design_grade, fits = 0.0, plan, True
+        if c is not None and g.climbs and g.kind in (WALL_KIND, "door"):
+            pinched = (OBJECT_FRAMED, g.hull_s, design_grade)
         # a group's length law is measured from where its climb starts
         max_len_g = None if g.max_length_m is None else climb_from + g.max_length_m + spacing_g
         if g.climbs and c is not None and fits:
@@ -767,17 +758,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                              f"crest {c.plate_y:.2f}), ends {c.ends}, mouth by {c.mouth_kind}")
             elif g.kind == "door":
                 top_ground = dem_z_at(airport, axis_fn(s_top))
-                notes.append(_door_note(c.resource, mouth_z, c.floor_z, top_ground,
-                                        design_grade, grade_g, g.hull_s, door_residual_m)
+                notes.append(_door_note(c.resource, mouth_z, top_ground, design_grade, g.hull_s)
                              + (f" — STOPS at {clipped_by}" if clipped_by else ""))
             elif g.kind == WALL_KIND:
                 # LAW C (2026-09-08m/08n): the published profile includes the
                 # climb (spec §6a row 19); the site line the report quotes
                 profile_out, top_ground = wall_corridor_profile(
-                    airport, g, ss, s_top, mouth_z, design_grade, axis_fn, climb_from)
-                notes.append(wall_corridor_note(c, g, mouth_dem, s_top, climb_from, design_grade,
-                                                top_ground, moved_m, covered_from,
-                                                pinched is not None))
+                    airport, g, ss, s_top, mouth_z, design_grade, axis_fn)
+                notes.append(wall_corridor_note(c, g, mouth_dem, s_top, design_grade, top_ground))
             else:
                 notes.append(f"sunken road (2026-09-08b/c Law B) of {c.resource}: cut {mouth_z:.2f} "
                              f"= ground {mouth_dem:.2f} − {c.depth_m:.2f}, {g.hull_s:.1f} m along "

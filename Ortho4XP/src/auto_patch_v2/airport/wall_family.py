@@ -183,6 +183,8 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
     ob = law.tables.structures.tunnel.object
     bl = law.tables.structures.basin
     co = law.tables.structures.cutout
+    # the road ramp law (07d): what "a road could ramp to this floor" reads
+    ramp_cap = law.tables.structures.tunnel.ramp_max_grade
     grid = law.tables.emit.identity.min_distinct_spacing_m
     dem_z = airport.dem.z
     to_ll = rd.to_ll
@@ -461,7 +463,7 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                     "within_tol": bool(fr is not None and abs(fr.delta_m)
                                        <= wc.corridor_floor_road_tol_m),
                     "ramp_reachable": bool(fr is not None and abs(fr.delta_m)
-                                           <= wc.max_ramp_grade * max(corridor_len, 1e-9)),
+                                           <= ramp_cap * max(corridor_len, 1e-9)),
                     "slab_cover": round(slab_cover, 3),
                     "slab": bool(slab_cover >= wc.corridor_floor_slab_cover_min),
                     "slab_witness": slab_w,
@@ -552,8 +554,7 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                     *anchor, headroom, max_grade, "",
                     notes_common + (f"garage ramp (2026-09-08n): the wall bottom descends "
                                     f"{zmax - zmin:.2f} m from the grade end to the garage, cut as "
-                                    f"authored; the deep end closed by the garage",),
-                    plate_plan=plate_plan))
+                                    f"authored; the deep end closed by the garage",)))
             elif closed[0] or closed[1]:
                 m = 0 if closed[0] else 1
                 s_a, s_b = (orig_s[0], orig_s[-1]) if m == 0 else (orig_s[-1], orig_s[0])
@@ -570,8 +571,7 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                     thick, 0.0, plate, _trench(ax2, st2), unary_union([plate, trench0]),
                     *anchor, headroom, max_grade, "",
                     notes_common + (f"closed bay: end {m} closed by {by}, a ramp beyond "
-                                    f"the open end",),
-                    plate_plan=plate_plan))
+                                    f"the open end",)))
             else:
                 # two capless halves meeting at the midpoint, each
                 # climbing beyond its own end
@@ -588,8 +588,7 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                         False, False, 0.0, 0.0, plate, _trench(ax2, st2),
                         unary_union([plate, trench0]), *anchor, headroom, max_grade, other,
                         notes_common + (f"level corridor open at both ends: half {tag} from the "
-                                        f"midpoint, a ramp beyond its end",),
-                        plate_plan=plate_plan))
+                                        f"midpoint, a ramp beyond its end",)))
             if nc_row is not None:
                 nc_row["admitted"] = True
             stats.admission.append(f"{clauses} -> ADMITTED {recs[0].cls if recs else 'none'}")

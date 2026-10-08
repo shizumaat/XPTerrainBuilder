@@ -20,7 +20,7 @@ import typing as _t
 
 from ..airport import authored_seat as _seat
 
-__all__ = ["seat_records", "kept_ids"]
+__all__ = ["seat_records", "kept_ids", "seat_lines"]
 
 
 def seat_records(pm: _t.Any, law: _t.Any) -> dict[str, dict[str, _t.Any]]:
@@ -74,4 +74,28 @@ def kept_ids(records: _t.Mapping[str, _t.Mapping[str, _t.Any]]) -> set[str]:
         if r.get("seat") == _seat.SEAT_AUTHORED:
             out.add(oid)
             out.update(r.get("members") or ())
+    return out
+
+
+def seat_lines(records: _t.Iterable[_t.Mapping[str, _t.Any]], pad: str = "  ") -> list[str]:
+    """THE SEAT COLUMN (spec §18 (6), last row): one line per wall / pit
+    placement — its ``seat`` and the numbers it was decided on — for the
+    replay's ``--emit`` / ``--verify`` report and ``obj8_split_report``
+    (which reads ``RebakePlan.authored_seats``): one formatter, two
+    reports.  Empty where the map admits no below-grade object."""
+    rows = sorted(records, key=lambda r: (str(r.get("datum")), str(r.get("resource")),
+                                          str(r.get("id"))))
+    if not rows:
+        return []
+
+    def m(v: _t.Any) -> str:
+        return "    -" if v is None else f"{float(v):+5.2f}"
+    kept = sum(1 for r in rows if r.get("seat") == _seat.SEAT_AUTHORED)
+    out = [f"{pad}SEAT (spec §18): {len(rows)} wall / pit placement(s) — {kept} "
+           f"{_seat.SEAT_AUTHORED}, {len(rows) - kept} {_seat.SEAT_RESEATED}",
+           f"{pad}  {'seat':<14} {'datum':<5} {'h_cut':>6} {'h_uncut':>7} {'proud':>6}  id  resource"]
+    for r in rows:
+        out.append(f"{pad}  {str(r.get('seat')):<14} {str(r.get('datum')):<5} "
+                   f"{m(r.get('h_cut_m')):>6} {m(r.get('h_uncut_m')):>7} "
+                   f"{m(r.get('proud_m')):>6}  {r.get('id')}  {r.get('resource')}")
     return out

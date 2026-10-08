@@ -185,14 +185,6 @@ class WallCorridorRecord:
     max_authored_grade: float
     sibling: str = ""
     notes: tuple[str, ...] = ()
-    #: THE COVERING PLATE'S PLAN (spec §34 (9) (5) as corrected by owner
-    #: RULINGS 2026-09-14be): the plan union of the witness plate's own
-    #: near-horizontal faces — the roof/deck component that gives this
-    #: corridor its ``headroom_m``.  ``None`` = open air, no cover.  Its
-    #: edge along the axis is the corridor's FULL-DEPTH point; everything
-    #: from the ramp's top down to it, the protruding retaining-wall
-    #: bands included, is ramp.
-    plate_plan: Polygon | None = None
 
     @property
     def floor_z(self) -> float:
@@ -509,10 +501,9 @@ def _headroom(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCac
     RULINGS 2026-09-14be) is returned with it: the union in the airport
     frame of that component's own near-horizontal faces — UNCLIPPED by the
     trench, because the question it answers is where the cover ENDS.  The
-    covering plate is what gives the corridor its headroom, so the plate
-    whose edge is the corridor's full-depth point is this one, read here
-    once and never re-derived downstream (``planar/structure_geometry.
-    covered_start``)."""
+    covering plate is what gives the corridor its headroom.  (Since owner
+    RULINGS 2026-10-07e the ramp no longer reads its edge: the ramp's
+    length is the walls'.)"""
     lowest: float | None = None
     witness = ""
     plate_polys = None

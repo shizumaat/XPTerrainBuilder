@@ -11,13 +11,13 @@ midpoint — capless, sharing the mouth line with its sibling half); the
 edges, the rim ``rim_standoff`` of each band's measured thickness
 inside the wall (09-08a); the FLOOR is the wall bottom per station
 (``Group.profile``, pinned by the generator — level or descending, cut
-as authored); a LEVEL corridor / a BAY's ramp RUNS THE WALLS' LENGTH
-(owner RULINGS 2026-10-07b (2), :func:`full_wall_ramp`): at grade at the
-walls' outer end, falling toward the building to full depth at the
-COVERING PLATE's edge (§34 (9) (5), 14be), never steeper than
-``max_ramp_grade`` save a SERVICE BAY too short for it (07c (1): exempt) —
-nothing is built beyond the walls, so nothing stops it; a GARAGE RAMP has no climb (its own floor meets the ground at the
-open end).  Roles: ``wall_corridor_ramp`` (level / bay), ``garage_ramp``
+as authored); a LEVEL corridor / a BAY's ramp IS FRAMED BY ITS WALLS
+(owner RULINGS 2026-10-07e, :func:`full_wall_ramp`): it takes its LENGTH
+and its DEPTH from them — at grade at the walls' outer end, at the wall
+bottom at the corridor's start — and its grade is whatever those two
+give: no cap, no knee, no raised floor, no step.  Nothing is built beyond
+the walls; a GARAGE RAMP has no climb (its own floor meets the ground at
+the open end).  Roles: ``wall_corridor_ramp`` (level / bay), ``garage_ramp``
 (descending).  ``seat = "none"``: never plate-seated, the family excluded
 from the re-seat.
 """
@@ -37,7 +37,7 @@ from .structure_approach import unit
 from .structure_geometry import rim_standoff
 
 __all__ = ["wall_corridor_groups", "RAMP_ROLE", "GARAGE_ROLE", "KIND", "ROAD_ROLES",
-           "road_true_edge", "full_wall_ramp", "BAY_EXEMPT",
+           "road_true_edge", "full_wall_ramp", "OBJECT_FRAMED",
            "wall_corridor_profile", "wall_corridor_note"]
 
 #: The groundside ROAD family §34 (9) can pinch a ramp against.  A parking
@@ -48,11 +48,13 @@ _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 KIND = "wall_corridor"
 RAMP_ROLE = "wall_corridor_ramp"
-#: the ``Tunnel.pinched`` road slot of a service bay whose ramp is exempt
-#: from the cap (owner RULINGS 2026-10-07c (1)) — the §34 (9) lifted-cap
-#: record, so ``pipeline/publication.lifted_caps`` tags its faces and both
-#: census readers judge them at the designed grade
-BAY_EXEMPT = "service bay, exempt from the cap (RULINGS 2026-10-07c (1))"
+#: the ``Tunnel.pinched`` witness slot of a ramp the pack's own objects
+#: FRAME — a retaining-wall corridor (Law C) or a door well (Law A).  Its
+#: length and depth are the object's, so no grade cap applies (owner
+#: RULINGS 2026-10-07e): the §34 (9) lifted-cap record carries it, so
+#: ``pipeline/publication.lifted_caps`` tags its faces and the solve and
+#: both census readers price it at its own grade
+OBJECT_FRAMED = "framed by the pack's own objects: no grade cap (RULINGS 2026-10-07e)"
 GARAGE_ROLE = "garage_ramp"
 
 
@@ -107,8 +109,7 @@ def wall_corridor_groups(records: _t.Sequence, law: Law) -> list[Group]:
         out.append(Group([], axis[0], inward, r.width_m, path, r, r.id, L, not garage,
                          r.mouth_closed, False, half_fn, rim_fn,
                          standoff(r.mouth_thickness_m) if r.mouth_closed else None, None,
-                         0.0 if garage else wc.max_ramp_grade, kind=KIND,
-                         max_grade=wc.max_ramp_grade, spacing_m=wc.station_m, climb_from_s=L,
+                         0.0, kind=KIND, spacing_m=wc.station_m, climb_from_s=L,
                          profile=tuple(r.profile), mouth_strip=False,
                          sibling=r.sibling, ramp_role=GARAGE_ROLE if garage else RAMP_ROLE))
     return out
@@ -176,95 +177,60 @@ def _road_half_width_m(poly, cell, roads) -> float:
     return w if halved else 0.5 * w
 
 
-def full_wall_ramp(top_ground: float, profile, floor_z: float, wall_end_s: float,
-                   covered_from: float | None, cap: float, closed: bool):
-    """THE RAMP RUNS THE FULL WALL LENGTH (owner RULINGS 2026-10-07b (2):
-    "Ramps should use full wall length, at grade at the outer extent of
-    the two retaining walls, grading down toward building"; 07a (2) "they
-    should only be the size of the walls", (3) "about half as long, they
-    extend out too far").
+def full_wall_ramp(top_ground: float, profile, floor_z: float, wall_end_s: float
+                   ) -> float | str:
+    """THE RAMP IS FRAMED BY ITS WALLS (owner RULINGS 2026-10-07e: "the
+    object defines both the length and depth and therefore the necessary
+    grade"; 07b (2) "Ramps should use full wall length, at grade at the
+    outer extent of the two retaining walls, grading down toward
+    building").
 
-    The top is the ground at the walls' OUTER END (``wall_end_s`` — the
+    LENGTH = the walls': from the corridor's start (s = 0 — a bay's closed
+    end, a level half's midpoint) to their OUTER END (``wall_end_s`` — the
     last station at which BOTH walls stand, so two walls of unequal length
-    end the ramp at the SHORTER one's end).  From there it falls toward
-    the building and is at full depth where the corridor becomes COVERED
-    (``covered_from``, §34 (9) (5) / 14be; where nothing protrudes — no
-    cover, or a cover reaching the wall end — at the corridor's own start
-    s = 0, so the ramp still runs the walls' full length) at the grade that
-    span needs — but never steeper
-    than ``cap`` (``max_ramp_grade``, the 10 % of the same ruling): where
-    the uncovered span is too short the knee moves back UNDER the building
-    by the run the cap needs (§34 (8), 14u).  Where even the walls' whole
-    length is too short, a CLOSED corridor (a SERVICE BAY) is EXEMPT from
-    the cap (owner RULINGS 2026-10-07c (1), superseding §47 (7)'s raised
-    floor and 17h Q1's step): the ramp runs the walls' whole length at the
-    grade that span needs — no raised floor, no step at the door; an open
-    half is refused (its floor is a through road's).
+    end the ramp at the shorter one's end).  DEPTH = the walls': the wall
+    bottom at the corridor's start under the ground at the outer end.  The
+    grade is what those two give — ONE straight line, no cap, no knee, no
+    raised floor, no step (the 10 % cap, the knee moved back under the
+    building and the covering-plate knee of 07b (2) / 07c (1) / 14be are
+    superseded for an object-framed ramp).
 
-    ``(climb_from, grade, moved_m, exempt)`` or the refusal; ``exempt`` is
-    True where the grade stands over ``cap`` by 07c (1)."""
-    floors = [z for _s, z in profile] or [floor_z]
-    rise = top_ground - min(floors)
-    if math.isnan(rise) or rise < 0.0:
+    The grade, or the refusal."""
+    z0 = profile_z(tuple(profile), 0.0) if profile else floor_z
+    rise = top_ground - z0
+    if math.isnan(rise) or rise < 0.0 or wall_end_s <= 1e-9:
         return (f"the ground at the walls' outer end ({top_ground:.2f}) stands under the "
-                f"corridor floor ({min(floors):.2f}) — a trench standing over its own ground "
+                f"corridor floor ({z0:.2f}) — a trench standing over its own ground "
                 f"is no corridor (§34 (8))")
-    # no cover protruding (none, or it reaches the wall end): the ramp is
-    # the walls' WHOLE length — never a run beyond them (07b (2))
-    knee = 0.0 if covered_from is None else float(covered_from)
-    if rise <= cap * (wall_end_s - knee) + 1e-9:
-        run = wall_end_s - knee
-        return knee, (rise / run if run > 1e-9 else 0.0), 0.0, False
-    moved = wall_end_s - rise / cap
-    if moved >= -1e-9:
-        return max(0.0, moved), cap, knee - max(0.0, moved), False
-    if closed and wall_end_s > 1e-9:
-        return 0.0, rise / wall_end_s, knee, True
-    return (f"the walls are {wall_end_s:.1f} m long and {rise:.2f} m of rise needs "
-            f"{rise / cap:.1f} m at max_ramp_grade {100.0 * cap:.0f} % — the ramp cannot run "
-            f"inside its walls (RULINGS 2026-10-07b (2); §34 (8))")
+    return rise / wall_end_s
 
 
-def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, axis_fn,
-                          climb_from: float | None = None) -> tuple[tuple, float | None]:
-    """The profile published to the generator (spec §6a row 19): the wall
-    bottom up to the knee ``climb_from`` (the covering plate's edge, or
-    the point under the building the cap moved it to), then the design
-    line from the floor there to the ground at the walls' outer end
-    (RULINGS 2026-10-07b (2)); the wall bottom's own stations beyond the
-    knee give way to the ramp's line.  ``(profile, top ground)``."""
+def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, axis_fn
+                          ) -> tuple[tuple, float | None]:
+    """The profile published to the generator (spec §6a row 19): the
+    design line from the wall bottom at the corridor's start to the ground
+    at the walls' outer end (RULINGS 2026-10-07e); the wall bottom's own
+    stations give way to the ramp's line.  A garage ramp keeps its
+    authored profile.  ``(profile, top ground)``."""
     prof = list(g.profile)
-    knee = g.hull_s if climb_from is None else min(float(climb_from), g.hull_s)
     top_ground = None
-    if g.climbs and s_top > knee + 1e-6:
-        z_end = profile_z(tuple(prof), knee) if prof else mouth_z
+    if g.climbs and s_top > 1e-6:
+        z0 = profile_z(tuple(prof), 0.0) if prof else mouth_z
         top_ground = float(airport.dem.z(*axis_fn(s_top)))
-        prof = [p for p in prof if p[0] <= knee + 1e-6]
-        if not prof or abs(prof[-1][0] - knee) > 1e-6:
-            prof.append((float(knee), z_end))
-        for s in ss:
-            if s > knee + 1e-6:
-                prof.append((float(s), z_end + design_grade * (s - knee)))
+        prof = [(0.0, z0)] + [(float(s), z0 + design_grade * s) for s in ss if s > 1e-6]
         if not math.isnan(top_ground):
             prof[-1] = (prof[-1][0], top_ground)
     return tuple(prof), top_ground
 
 
-def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, top_ground,
-                       moved_m: float = 0.0, covered_from=None, exempt: bool = False) -> str:
+def wall_corridor_note(c, g: Group, mouth_dem, s_top, design_grade, top_ground) -> str:
     """The per-site line the report quotes."""
     tg = float("nan") if top_ground is None else top_ground
     return (f"wall corridor (2026-09-08m/n Law C, {c.cls}) of {c.resource}: floor = the wall "
             f"bottom per station {min(c.floors):.2f}..{max(c.floors):.2f} under ground "
             f"{mouth_dem:.2f} ({c.depth_m:.2f} m at most) over {g.hull_s:.1f} m, width "
             f"{c.width_m:.1f} m, ends {c.ends}"
-            + (f"; ramp {s_top - climb_from:.1f} m of the walls' {g.hull_s:.1f} m at "
+            + (f"; ramp {s_top:.1f} m = the walls' {g.hull_s:.1f} m at "
                f"{100.0 * design_grade:.2f} %: at grade ({tg:.2f}) at the walls' outer end, "
-               f"falling toward the building (RULINGS 2026-10-07b (2))"
-               + (f", over max_ramp_grade: {BAY_EXEMPT}" if exempt else "")
-               if g.climbs else "; no climb: the authored ramp meets the ground")
-            + (f"; full depth at the COVERING PLATE's edge, s {covered_from:.1f} (§34 (9) (5), "
-               f"14be)" if covered_from is not None and moved_m <= 1e-9 else "")
-            + (f"; the knee moved {moved_m:.2f} m back UNDER the building to s "
-               f"{climb_from:.1f}: the span needs more than max_ramp_grade (§34 (8), 14u)"
-               if moved_m > 1e-9 else ""))
+               f"at the wall bottom at the corridor's start — {OBJECT_FRAMED}"
+               if g.climbs else "; no climb: the authored ramp meets the ground"))

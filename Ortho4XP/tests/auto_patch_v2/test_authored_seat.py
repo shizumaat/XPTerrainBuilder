@@ -217,3 +217,31 @@ def test_a_lift_that_founds_no_pit_is_read_as_it_was(pits, law):
     (o,) = objects
     assert not o.witnesses and not o.ground_seated
     assert o.base_z == pytest.approx(o.anchor_z + 6.2)
+
+
+def test_the_seat_column_is_one_line_per_wall_and_pit():
+    """Spec §18 (6), last row: the replay's ``--emit`` / ``--verify`` report
+    and ``obj8_split_report`` print ONE formatter's table — the seat and
+    the numbers it was decided on, per placement; nothing where the map
+    admits no below-grade object."""
+    from auto_patch_v2.airport.authored_seat import SEAT_AUTHORED, SEAT_RESEATED
+    from auto_patch_v2.pipeline.authored_seats import seat_lines
+    assert seat_lines(()) == []
+    recs = [
+        {"id": "dsf:obj2", "resource": "wall_b.obj", "datum": "crest", "seat": SEAT_RESEATED,
+         "h_cut_m": 4.4, "h_uncut_m": 0.1, "proud_m": 2.0},
+        {"id": "dsf:obj1", "resource": "wall_a.obj", "datum": "crest", "seat": SEAT_AUTHORED,
+         "h_cut_m": 2.0, "h_uncut_m": 4.5, "proud_m": None},
+        {"id": "dsf:obj9", "resource": "basin:1", "datum": "rim", "seat": SEAT_AUTHORED,
+         "h_cut_m": -0.02, "agl_authored_m": 4.3, "members": ["dsf:obj9"]},
+    ]
+    out = seat_lines(recs)
+    assert len(out) == 2 + len(recs)
+    assert "3 wall / pit placement(s)" in out[0] and f"2 {SEAT_AUTHORED}" in out[0]
+    assert f"1 {SEAT_RESEATED}" in out[0] and "seat" in out[1] and "h_cut" in out[1]
+    body = out[2:]
+    # sorted by datum, resource: the walls first, each row its own placement
+    assert [ln.split()[-2] for ln in body] == ["dsf:obj1", "dsf:obj2", "dsf:obj9"]
+    assert SEAT_AUTHORED in body[0] and "+2.00" in body[0] and "+4.50" in body[0]
+    assert SEAT_RESEATED in body[1] and "+2.00" in body[1]          # the proud target
+    assert "rim" in body[2] and "-0.02" in body[2]

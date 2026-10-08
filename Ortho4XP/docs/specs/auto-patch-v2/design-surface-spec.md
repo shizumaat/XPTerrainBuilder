@@ -16979,7 +16979,7 @@ pack-independent; every NUMBER is measured on the NEW pack (`Aeroscape OTHH Hama
    materiality` per corridor (`verify/structures.py:229-277`), never the global 0.5 m.
 5. **05n-2's assertion.** `trench_outside_m` (`object_corridor.py:227-251`) drops the
    overlap term and keeps `grid·√2`.
-6. **LAW A INVERTED — THE DOOR RAMP DESCENDS INSIDE ITS WALLS.** The ramp top is at grade
+6. **LAW A INVERTED — THE DOOR RAMP DESCENDS INSIDE ITS WALLS.** **AMENDED by owner RULINGS 2026-10-07e: see §47 (7) AMENDED 2 — an object-framed ramp has no grade cap.** The ramp top is at grade
    at the well's OUTER end (`hull_s`); the floor descends toward the building face at the
    cap — `[cutout.door] ramp_grade` 0.08 → 0.10 (= `wall_corridor.max_ramp_grade`) — and
    STOPS AT THE BUILDING WALL at `depth_at_wall = min(sill, 0.10 × well length)`; the
@@ -17006,7 +17006,7 @@ pack-independent; every NUMBER is measured on the NEW pack (`Aeroscape OTHH Hama
    `--refresh-data airport_mod_cache`): the ring table per class — rim vertices outside the
    outer face 0 beyond the named (3) yields, floor vertices off the inner face 0, band = `t`
    (or `F`) within materiality; `structure_rim_gap` 0 under (4); every door well inverted
-   with its residual named; every wall corridor at ≤ 10 % with its residual named; 05n-2
+   with its residual named; every wall corridor at ≤ 10 % with its residual named (**AMENDED by owner RULINGS 2026-10-07e: see §47 (7) AMENDED 2 — an object-framed ramp has no grade cap.** — no cap and no residual is left to name); 05n-2
    0; verify defects {}; airside unchanged against the matched control (`airside_value_
    delta` 0 > 0.02 m); LEMD and VHHH dry pairs byte-identical for OSM bores and
    signature-B shells (a touched `+ grid` widen named); synthetic-first (`m235.py`'s
@@ -17026,13 +17026,13 @@ bay doors, exempt cap" (07c (1)).  For a retaining-wall corridor (Law C,
    edge (retired with the key), the stop at airside pavement and the
    steepen (`stop_and_steepen`), the pinched-ramp road witness (§34 (9)
    (1)–(4)) and the locked-road stops retire for Law C.
-2. **FULL DEPTH TOWARD THE BUILDING.** The ramp falls to the corridor's
+2. **FULL DEPTH TOWARD THE BUILDING.** **SUPERSEDED by 07e (§47 (7) AMENDED 2 (2)): the covering plate's edge makes no knee.** The ramp falls to the corridor's
    floor at the COVERING PLATE's edge (§34 (9) (5), 14be) where the walls
    protrude from the cover; where nothing protrudes (no cover, or a cover
    reaching the wall end) it falls over the walls' WHOLE length to the
    corridor's start (s = 0: a bay's closed end, a level half's midpoint).
    Its grade is what that span needs.
-3. **THE CAP.** The span's grade is held at ≤ `max_ramp_grade` (10 %, the
+3. **THE CAP.** **SUPERSEDED by 07e (§47 (7) AMENDED 2 (1)): no cap, no knee, no refusal of an open half.** The span's grade is held at ≤ `max_ramp_grade` (10 %, the
    groundside ramp cap of 07b (2)); where the span needs more, the knee
    moves back UNDER the building by the run the cap needs (§34 (8), 14u).
    Where the walls' whole length is too short: a CLOSED corridor (a SERVICE
@@ -17056,6 +17056,63 @@ paragraph's `ramp_grade 0.08` / "stops at the pavement edge and steepens"
 sentence and consumer rows 12, 14 and 18 (marker each).  The deviation
 from the brief ("at whatever grade that span needs") is 3.: the cap holds
 except at a service bay, read from 07b (2)'s first sentence and 07c (1).
+
+### §47 (7) AMENDED 2 — A RAMP FRAMED BY OBJECTS HAS NO GRADE CAP (owner RULINGS 2026-10-07e; issues #448 #449) — lane `walls4`, 2026-10-07
+
+The owner: "Door ramps are exempt from the cap, since they only exist when
+framed by objects, as at OTHH, and thus the object defines both the length
+and depth and therefore the necessary grade..."  RULED for every ramp the
+pack's own objects frame — the DOOR RAMP (Law A, §47 (6)) and the
+retaining-wall corridor ramp (Law C, §47 (7) AMENDED; service bay or not,
+closed or through):
+
+1. **LENGTH AND DEPTH ARE THE OBJECT'S; THE GRADE IS WHAT THEY GIVE.** A
+   wall corridor's ramp runs from the corridor's start (s = 0: a bay's
+   closed end, a level half's midpoint) to the walls' outer end; its depth
+   is the wall bottom at s = 0 under the ground at the outer end
+   (`planar/wall_corridor_ramps.full_wall_ramp`).  A door ramp runs the
+   well's length; its depth is the sill's (`planar/door_ramps.door_profile`).
+   ONE straight line: no grade cap, no knee moved back under the building,
+   no raised floor, no step at the door or at the building face, and no
+   refusal for steepness.  The only refusal left is a floor standing over
+   its own ground.
+2. **THE COVERING PLATE MAKES NO KNEE.** §34 (9) (5) / 14be put full depth
+   at the covering plate's edge; with (1) the length is the walls', so the
+   plate edge is not read by the ramp (`structure_geometry.covered_start`
+   and `WallCorridorRecord.plate_plan` are deleted).  Consequence, stated
+   for the owner: under a cover the floor stands above the wall bottom by
+   the ramp's rise there (OTHH `DutyFree@2`: +0.70 m at the plate edge,
+   10.5 m in).  QUESTION (yes/no): is the full framed length right where a
+   cover protrudes over part of the walls — yes is what is built; no
+   restores the plate-edge knee at whatever grade the uncovered span needs.
+3. **THE RECORD.** Every such ramp carries the §34 (9) lifted-cap record
+   (`Tunnel.pinched = (OBJECT_FRAMED, length, grade)` →
+   `publication.lifted_caps`): the census readers lift its within-shape
+   longitudinal cap, and the generator pins every ramp vertex on the ramp's
+   own plane at the vertex's own station (`constraints/structures.
+   framed_plane`) — no station ties, no descent rows, so a steep short ramp
+   reaches the ground at its top exactly.
+4. **THE LAW KEYS.** `[cutout.door] ramp_grade` and `[cutout.wall_corridor]
+   max_ramp_grade` are DELETED.  The two readers that used them as a
+   witness of "a grade a road drives" (the door sill test, `airport/
+   door_wells`; the report column `ramp_reachable`, `airport/wall_family`)
+   read the road ramp law `tunnel.ramp_max_grade` (07d).  The role rows
+   `door_ramp` / `wall_corridor_ramp` and their `oracle_cap` STAY: they
+   price what the lift does not take (the ramp's seams with its neighbours
+   — `cross_shape`, the step families — and its cross-section) and are
+   checked at load against `tunnel.ramp_max_grade`, one number.
+5. **WHAT KEEPS THE CAP (07d).** Ramps no object frames: a mapped tunnel's
+   approach (`tunnel_ramp`), an object corridor's climb beyond its walls,
+   road ramps, roads and drive aisles hold 10 %; lots 5 %.  A GARAGE RAMP
+   (Law C, descending wall bottom) is cut as authored and keeps its sanity
+   cap `max_authored_grade` — unchanged.
+
+Sentences changed by this amendment (each carries a marker): §47 (6) lead
+sentence; §47 (9) BARS ("every wall corridor at ≤ 10 % …"); §47 (7) AMENDED
+items 2 and 3 (SUPERSEDED).  In `othh-terminal-ramps-spec.md`: §2 Law A
+(`ramp_grade = 0.08` sentence), §4 consumer rows `constraints/structures.py`
+and `rulesets.toml [common.roles]`, §4a's sill-test bullet (`ramp_grade`),
+§6a rows 12 and 18, §7 **R** and §7b row 2 (`max_ramp_grade`).
 
 ### §47.1 CONSUMER CENSUS (owner RULINGS 2026-08-30l) — scout `wallfit`, 2026-09-17, static (seam-probe owed to the lane, (8))
 

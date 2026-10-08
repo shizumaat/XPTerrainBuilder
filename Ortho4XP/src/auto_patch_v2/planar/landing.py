@@ -22,6 +22,13 @@ parts of members sharing the deck's placement frame inside its model
 footprint, where that block holds parts outside it too.  A deck no block
 claims is free-standing and mints nothing.
 
+THE GATE (spec §56 (10) R-L): a landing is minted only where its level
+``y_land >= -BAND_M`` against its unit's pad — the band the law already
+defines.  A foot lower than that is a PIER FOOTING under the ground, not a
+ramp end (MEASURED: two bridge decks whose lowest authored y is -0.80 /
+-2.34 dug the ground 1.7-1.9 m under a terminal and cost 27 relaxed hard
+rows); it is counted ``landing_below_unit`` and nothing is minted.
+
 Called once, at the end of ``planar/platform.platform_split`` — after
 every block is minted and registered in ``HELD`` and after the split's
 ref passes, so neither renames a landing.  The landing ref
@@ -116,20 +123,6 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     vias = _bf.viaduct_units(prints, part, _key, counts)
     if not vias:
         return []
-    from ..model.planar import block_of, is_collar_ref, platform_ref_of
-
-    def _unit_collar(r, unit: str) -> bool:
-        """A COLLAR of the landing's own unit (a block's, or the whole
-        unit's): the bank around the terminal platform the viaduct's own
-        landing stands in — the landing is senior there, the collar keeps
-        the rest (MEASURED, HECA: the west and east landing feet stand in
-        ``building4/b4#collar``)."""
-        if not is_collar_ref(r.ref):
-            return False
-        pr = platform_ref_of(r.ref)
-        b = block_of(pr)
-        return (b[0] if b is not None else pr) == unit
-
     added: list = []
     recs: list = []
     template = {str(r.ref): r for r in out}
@@ -159,15 +152,13 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # PASS 1: every landing PLATFORM, before any collar — a landing's bank
     # may never take another landing's footprint (MEASURED, HECA replay:
     # one east landing lost whole to its neighbour's collar)
-    # the AIRSIDE and a bank's minimum width around it: a unit collar's
-    # WELDED rim (its stage-1 contacts) is never the landing's to take —
-    # MEASURED (HECA replay, matched no-landing control): cutting 8 welded
-    # ``building4/b4#collar`` vertices off moved stage 1 (taxi 294 nodes
-    # <= 0.08 m, apron 46 <= 0.10 m)
+    # the AIRSIDE and a bank's minimum width around it are never the
+    # landing's to take (a welded rim is a stage-1 contact; MEASURED, HECA
+    # replay, matched no-landing control: cutting 8 welded vertices off
+    # moved stage 1 — taxi 294 nodes <= 0.08 m, apron 46 <= 0.10 m)
     _keep = float(law.tables.emit.design.bank_min_width_m)
     air_u = unary_union(list(air_polys))
-    base_hard = unary_union([r.polygon for r in out if r.polygon is not None
-                             and not any(_unit_collar(r, q[3]) for q in recs)]
+    base_hard = unary_union([r.polygon for r in out if r.polygon is not None]
                             + [air_u.buffer(_keep) if _keep > 0.0 else air_u])
     taken = base_hard
     plats: list = []
@@ -181,6 +172,14 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
             if not ys:
                 continue
             y_land = min(ys)
+            if y_land < -BAND_M:
+                # spec §56 (10) R-L: a foot more than the band BELOW its
+                # unit's pad is a pier footing under the ground, not a ramp
+                # end — a descent is the structure pass's (§39 / §47),
+                # never a landing; nothing is minted
+                counts["landing_below_unit"] = \
+                    counts.get("landing_below_unit", 0) + 1
+                continue
             L = comp.difference(taken)
             if grid > 0.0:
                 s_ = L.simplify(0.5 * grid, preserve_topology=True)
@@ -198,26 +197,8 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     if not plats:
         counts["landings"] = 0
         return []
-    all_l = unary_union([q[2] for q in plats])
-    # the unit's own collar yields every landing's footprint
-    kept = []
-    for r in out:
-        unit_c = next((q[7] for q in plats if _unit_collar(r, q[7])), None)
-        if (unit_c is not None and r.polygon is not None
-                and r.polygon.intersects(all_l)):
-            kept.extend(_dc.replace(r, polygon=q)
-                        for q in _parts(r.polygon.difference(all_l))
-                        if q.area >= max(grid * grid, 1.0))
-            counts["landing_cut_unit_collar"] = \
-                counts.get("landing_cut_unit_collar", 0) + 1
-        else:
-            kept.append(r)
-    out[:] = kept
-    soft = unary_union([r.polygon for r in out if r.polygon is not None
-                        and any(_unit_collar(r, q[7]) for q in plats)])
-    # PASS 2: the collars, over what no platform, pad, airside or unit
-    # collar holds
-    held_c = unary_union([taken, soft])
+    # PASS 2: the collars, over what no platform, pad or airside holds
+    held_c = taken
     for ref, Ls, Lu, y_land, key, bref, voters, _unit, tmpl in plats:
         C = Lu.buffer(collar_m, join_style=2).difference(held_c)
         cparts = [q for q in _parts(C) if q.area >= max(grid * grid, 1.0)]

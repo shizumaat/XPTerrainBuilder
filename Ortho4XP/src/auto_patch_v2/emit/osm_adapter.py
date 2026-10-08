@@ -206,6 +206,11 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # last-stage unknowns at ``cap·d + floor_m``.  Written only by a build
     # that ran the last stage.
     "late_stage",
+    # spec §56 (10) R-L (#290, owner RULINGS 2026-10-03e): one record per
+    # minted ramp LANDING — ref, its unit's block, the deck, the deck's
+    # authored ``y`` there and the solved level
+    # (``pipeline/publication._landings``).  EVIDENCE, not law input.
+    "landings",
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

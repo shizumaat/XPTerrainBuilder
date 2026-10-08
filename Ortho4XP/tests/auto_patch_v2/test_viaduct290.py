@@ -221,3 +221,71 @@ def test_the_landing_cut_takes_a_lot_never_a_road_or_airside():
     assert abs(sum(r.polygon.area for r in lots) - (25 * 25 - 100)) < 1e-6
     assert [r for r in out if r.role == "service_road"][0] is road
     assert [r for r in out if r.role == "apron"][0] is apron
+
+
+# ── spec §56 (10) R-L: the landing gate ──────────────────────────────────
+
+def _regions_for_foot(monkeypatch, foot_y):
+    """``landing_regions`` on a 100 m ramp whose foot stands ``foot_y``
+    against its unit's pad, the unit a held 200 x 200 m block beside it."""
+    from shapely.geometry import box
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.platform import HELD, LANDINGS
+    from auto_patch_v2.planar import landing as LD
+    from auto_patch_v2.planar.overlay import Region
+    p = _ramp()
+    p.ys = tuple(tuple(y + foot_y for y in t) for t in p.ys)
+    deck = _member(p.key, [_part(1, 40.0004, -2.9999)], deck_kind="flag")
+    part = types.SimpleNamespace(units=[types.SimpleNamespace(members=[deck])])
+    frame = types.SimpleNamespace(
+        entry=lambda: (lambda lo, la: ((lo + 3.0) * 1e5, (la - 40.0) * 1e5)))
+    airport = types.SimpleNamespace(partition=part, frame=frame)
+    monkeypatch.setattr(LD, "_prints", lambda _part: [p])
+    monkeypatch.setattr(BF, "viaduct_units",
+                        lambda *_a, **_k: {p.key: ("u", 3, None, p)})
+    pad = Region("building", "u", box(-300, 0, -100, 200), None, None,
+                 "airside", "cell")
+    counts: dict = {}
+    HELD.clear()
+    HELD["u"] = {"unit": "u", "k": 0, "blocks": 1}
+    try:
+        got = LD.landing_regions([pad], {}, [box(-900, 0, -800, 10)], airport,
+                                 Law.load(), 0.0, 15.0, counts)
+        return got, counts, dict(LANDINGS)
+    finally:
+        HELD.clear()
+        LANDINGS.clear()
+
+
+def test_a_foot_within_the_band_of_its_units_pad_is_a_landing(monkeypatch):
+    got, counts, landings = _regions_for_foot(monkeypatch, -0.2)
+    assert counts["landings"] == 1 and "landing_below_unit" not in counts
+    assert landings["u/landing0"]["y"] == -0.2
+    assert {str(r.ref) for r in got} == {"u/landing0", "u/landing0#collar"}
+
+
+def test_a_pier_footing_below_the_band_mints_no_landing(monkeypatch):
+    """A deck whose lowest authored y stands 2 m under its unit's pad is a
+    footing in the ground: counted, nothing minted, the ground not dug."""
+    got, counts, landings = _regions_for_foot(monkeypatch, -2.0)
+    assert got == [] and landings == {}
+    assert counts["landing_below_unit"] == 1 and counts["landings"] == 0
+
+
+def test_the_sidecar_publishes_each_landing_with_its_deck_and_level(monkeypatch):
+    from auto_patch_v2.constraints import platform as CP
+    from auto_patch_v2.emit.osm_adapter import SIDECAR_KEYS
+    from auto_patch_v2.model.platform import LANDINGS
+    from auto_patch_v2.pipeline import publication as PB
+    assert "landings" in SIDECAR_KEYS
+    monkeypatch.setattr(CP, "landing_vertices", lambda _p: {"u/landing0": [0, 1, 2]})
+    LANDINGS.clear()
+    LANDINGS["u/landing0"] = {"block": "u", "y": -0.2, "deck": "d.obj",
+                              "area_m2": 12.0}
+    try:
+        got = PB._landings(None, [99.8, 99.8, 99.9])
+        assert got == [{"ref": "u/landing0", "block": "u", "deck": "d.obj",
+                        "y": -0.2, "area_m2": 12.0, "level": 99.8}]
+        assert PB._landings(None, None)[0]["level"] is None
+    finally:
+        LANDINGS.clear()

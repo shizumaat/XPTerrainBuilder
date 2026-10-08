@@ -535,6 +535,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # refused ones by reason — LAW INPUT for the census's
             # ``platform_rim_relief`` / ``platform_refused``
             "platforms": _platforms(planar, law, z),
+            "landings": _landings(planar, z),
             # issue #14 (``welded-deck-spec.md`` §3, additive): the welded
             # decks the load read, their pier ratios, and the shade area
             # that left every cluster outline.  Informational.
@@ -697,6 +698,23 @@ def _platforms(planar: PlanarMap, law: Law, z) -> list[dict[str, _t.Any]]:
     out = platform_records(planar, law, z)
     out.extend({"ref": p.ref, "refused": p.refused, "pad_m2": p.pad_m2}
                for p in PLATFORMS if p.refused)
+    return out
+
+
+def _landings(planar: PlanarMap, z) -> list[dict[str, _t.Any]]:
+    """The ``landings`` sidecar key (spec §56 (10) R-L): per minted ramp
+    landing (``model.platform.LANDINGS``) its ref, block, deck, the deck's
+    authored ``y`` at its foot and the level the solve gave its platform
+    vertices (their median; ``None`` without a surface)."""
+    from ..constraints.platform import landing_vertices
+    from ..model.platform import LANDINGS
+    vs = landing_vertices(planar)
+    out = []
+    for ref, rec in sorted(LANDINGS.items()):
+        zs = sorted(float(z[v]) for v in vs.get(ref, ())) if z is not None else []
+        out.append({"ref": ref, "block": rec["block"], "deck": rec["deck"],
+                    "y": rec["y"], "area_m2": rec.get("area_m2"),
+                    "level": round(zs[len(zs) // 2], 3) if zs else None})
     return out
 
 

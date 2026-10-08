@@ -103,7 +103,7 @@ from .structure_approach import (FieldRegion, apply_plates, standing_cover,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
 from .unframed_ramp import (MAX_OVERLAP_PASSES, overlap_run_end,
-                            unframed_top as _unframed_top)
+                            unframed_climb as _unframed_climb)
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -130,13 +130,6 @@ MAX_HOPS = 6                       #: hops an approach walk follows from a mouth
 PARALLEL_COS = math.cos(math.radians(30))   #: 31h's dual test / the kink test
 
 # ── build ────────────────────────────────────────────────────────────────
-
-def _steepened(tn, grade: float, why: str) -> str:
-    """The note of a ramp built steeper than its design grade."""
-    return (f"ramp steepened {100.0 * tn.ramp_grade:.1f} -> {100.0 * grade:.2f} % (cap "
-            f"{100.0 * tn.ramp_max_grade:.0f} %): {why} (owner RULINGS 2026-10-08c (1) / 08d (1): the cap "
-            f"gives flex only where it is needed)")
-
 
 def build_structures(airport: Airport, classification: Classification, law: Law,
                      objects: _t.Sequence = (), corridors: _t.Sequence = (),
@@ -541,25 +534,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 continue
             if c is None:
                 # NO OBJECT FRAMES IT: the design grade, steeper only where
-                # that cannot top out (owner RULINGS 2026-10-08c (1))
-                end, why = min(run_ends)
-                got, s_top, ss = _unframed_top(airport, law, axis_fn, mouth_z, climb_from,
-                                               spacing_g, within=end, max_len=max_len_g)
-                if got is None:
-                    # no grade up to the cap tops out in that run: the ramp
-                    # is read as it always was (refused, or built past it)
-                    got, s_top, ss = _unframed_top(airport, law, axis_fn, mouth_z, climb_from,
-                                                   spacing_g, max_len=max_len_g)
-                    why = f"no ground within {tn.max_ramp_length_m:.0f} m at the design grade"
-                elif got > tn.ramp_grade + 1e-9 and _unframed_top(
-                        airport, law, axis_fn, mouth_z, climb_from, spacing_g,
-                        max_len=max_len_g)[0] == got:
-                    why = f"no ground within {tn.max_ramp_length_m:.0f} m at the design grade"
-                else:
-                    why = f"{why} at {end:.0f} m"
+                # that cannot top out in its run (2026-10-08c (1) / 08d (1))
+                got, s_top, ss, steepen_note = _unframed_climb(
+                    airport, law, axis_fn, mouth_z, climb_from, spacing_g, run_ends, max_len_g)
                 design_grade = got if got is not None else design_grade
-                if got is not None and got > tn.ramp_grade + 1e-9:
-                    steepen_note = _steepened(tn, got, why)
             else:
                 s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing_g,
                                       s_min=g.hull_s, grade=grade_g, max_len=max_len_g)
@@ -657,16 +635,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if geom is None:
             continue
         if clipped_by and c is None and g.climbs:
-            # STOPPED SHORT OF ITS TOP is the other place the design grade
-            # cannot be met (2026-10-08c (1)): the least grade up to the
-            # cap that tops out BEFORE the stop builds the ramp whole
-            got, s_fit, _ss = _unframed_top(airport, law, axis_fn, mouth_z, climb_from,
-                                            spacing_g, within=s_top)
+            # STOPPED SHORT OF ITS TOP is a run end too: the least grade up
+            # to the cap that tops out BEFORE the stop builds the ramp whole
+            got, s_fit, _ss, note = _unframed_climb(
+                airport, law, axis_fn, mouth_z, climb_from, spacing_g,
+                [(s_top, f"{clipped_by} stops the ramp")], strict=True)
             ss_fit = [s for s in ss if got is not None and s <= s_fit + 1e-9]
             geom_fit = _ring(ss_fit) if len(ss_fit) >= 2 else None
             if geom_fit is not None and _pad_hit(geom_fit.outer, osm_stops, osm_tree, gap) is None:
-                steepen_note = _steepened(tn, got, f"{clipped_by} stops the ramp at {s_top:.0f} m")
-                ss, s_top, geom, design_grade = ss_fit, s_fit, geom_fit, got
+                ss, s_top, geom, design_grade, steepen_note = ss_fit, s_fit, geom_fit, got, note
                 clipped_by, top_pinned = "", True
         # §34 (7) THE STATIONS ARE THE SAMPLING, NOT THE EMITTED SHAPE
         # (owner RULINGS 2026-09-14n item 2 / 2026-09-14p): a straight

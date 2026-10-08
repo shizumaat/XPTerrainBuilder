@@ -681,7 +681,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
             f"{cid}: witnessed by a paved neck alone and with {len(decks)} crossing(s) "
             f"(< [channel] min_decks_without_depth {ch.min_decks_without_depth}) — a single "
             f"neck is a CROSSING, not a channel; with one anchor \"Cut the road down\" "
-            f"ramps the floor away at {tn.ramp_grade:.0%} for the whole axis "
+            f"ramps the floor away at {tn.ramp_max_grade:.0%} for the whole axis "
             f"({profile[0][1]:.2f}..{max(z for _s, z in profile):.2f} m over "
             f"{axis_ln.length:.0f} m). Ways {'+'.join(str(int(c.way.id)) for c in grp)} "
             f"at {ll(axis_fn(ss[0]))} -> {ll(axis_fn(ss[-1]))} (§45 (12))")

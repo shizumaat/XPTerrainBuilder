@@ -12360,12 +12360,13 @@ and ≤ `ramp_max_grade` — two decks closer than 2 × clearance / `ramp_max_gr
 58 m) keep the floor down between them. The datum source is on the record and in the
 report; a lidar refresh (`--refresh-data dem`, the owner's act) moves a site from
 (iii) to (ii) with no law change.
-**AMENDED 2026-10-08 (owner RULINGS 2026-10-08c (1)):** in (iii) the floor climbs
-off each deck's clearance datum at the ramp's DESIGN grade `[tunnel] ramp_grade`
-(0.05, 08d (1) — the lane's reading: a road under a crossing is the same ramp),
-not at the cap — read `ramp_grade` for `ramp_max_grade` in the clamp and in
-the two-decks distance above. Nothing here can fail to top out (the DEM clamps the
-climb, 17t), so nothing steepens.
+**NOT AMENDED by 2026-10-08c (1) / 08d (1) — measured, for the owner:** (iii)'s floor
+still climbs off each deck's clearance datum AT `ramp_max_grade` (10 % since 07d),
+which is the cap read as a target. Built at `[tunnel] ramp_grade` (5 %) instead,
+SPJC's channel deepens under the pavement welded to it: adjudicated airside rows
+930 (main, 8 %) / 891 (10 %) / 1,026 (5 %), worst solve-owned mover 0.90 → 1.35 m
+(builds `sw5c_SPJC` / `sw5_SPJC`, lane walls5). The channel floor's design grade
+is a number to rule, not the tunnel ramp's by default.
 
 (4) **THE DECK IS AIRSIDE.** The neck's faces keep their airside role and law — the
 taxiway surface runs across at the airside design surface; §34 (5)'s deck read is the

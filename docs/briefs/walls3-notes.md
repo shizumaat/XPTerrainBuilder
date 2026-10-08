@@ -166,3 +166,38 @@ their families), below_grade 0. Verify 367 rows, defects {}.
 LEMD read (§18 (8) step 7; replay of `sheetchain/LEMD.pkl --from planar --verify`): ONE seat record — `Bridge4.obj`
 crest, h_cut +2.02 = h_uncut +2.02, authored (cut), kept; no rim record (its pit carries no lift: plain, floor-plate
 seat as before); 0 anchor families; verify defects all zero.
+
+# Lane `walls5` — continuation (2026-10-08; same branch `claude/walls3`, PR #464)
+Scratch `<scratchpad>/walls5/` (`planar/` = `-m auto_patch_v2.planar ICAO --stage structures` of six airports on the
+final tree; `table.py` main / sww / now ramp table off those; `summ5.py` the instruments; `build_*.log`, `avd_*`,
+`census_*`). Owner RULINGS 2026-10-08c (1) and 08d (1).
+
+## The rule (spec §34 (1a))
+A ramp no object frames (a mapped bore's approach) is built at `[tunnel] ramp_grade` (0.05, new key). It steepens
+toward `ramp_max_grade` (0.10) only where 5 % cannot top out in the run it has, at the smallest grade that does. The
+run ends at the nearest of: `max_ramp_length_m`; the mapped road's end; a deck across the approach that the CAP's
+climb tops out before; the pad / pavement that stops the ramp; another structure's corridor (the longer unframed climb
+yields, build re-planned, at most 8 passes). Where even 10 % does not fit, the old outcome stands (refusal / clipped
+ramp / overlap refusal). The solve's descent rows price a mapped ramp at the grade it was built at.
+`planar/unframed_ramp.py` (`unframed_top`, `overlap_run_end`); callers in `planar/structures.py`.
+
+## Readers of the caps 07d moved — cap or target
+- `structure_approach.ramp_top` via `structures.py` (mapped bore): TARGET — fixed (`unframed_top`).
+- `structure_geometry.ramp_targets` / `constraints/structures` descent rows: follow `Tunnel.design_grade` — fixed with it.
+- `structures.py` object corridor (kind `object`: `fits`, the climb beyond the walls at the cap): cap as a fit test;
+  beyond the walls it climbs AT the cap only when the walls already ask for more than the cap — left.
+- `channel_floor` §45 (3) (iii): TARGET (the floor climbs off the deck clearance at the cap) — NOT fixed, measured:
+  at 5 % SPJC's airside adjudicated rows go 891 -> 1,026 (main 930), worst solve-owned mover 0.90 -> 1.35 m.
+- `airport/road_ramp.road_ramp_targets` §37 (6): TARGET (the road leaves its airside contact descending AT the role
+  cap, a design-target equality) — NOT fixed: 08d names tunnels; a road design grade is not ruled.
+- `classify/gap_terrace` §55 (`consistent`, `_lot_cut`): the lot / ramp split is placed where the cap can still reach
+  — a fit test that places geometry; NOT touched (§55 is before the owner).
+- `constraints/ceiling`, `pavement_cap`, role caps (`within`, Diff rows), `road_ramp.road_contact_rows`,
+  `gate_merged`, `door_wells` / `wall_family` / `sunken_roads` / `door_ramps.sunken_groups` (classification tests),
+  `law/model` load checks: cap (constraint / test).
+
+## Task 3
+`pipeline/build.py`: the whole structure report (refusals, per-tunnel lines) stood INSIDE `for _mr in ss.mouth_roads`
+since 81a61794 — printed once per mouth road and not at all with none. KCLT lost its one mouth road on this branch
+(the -6954 / -6958 swap), CYXY and KASE never printed on main either. Dedented; lines: CYXY 0 -> 2, KASE 0 -> 6,
+KCLT 0 -> 21, SPJC 64 -> 16 (it was printed six times), HECA 67 -> 19.

@@ -14,6 +14,7 @@ neither key.
 from __future__ import annotations
 
 import math
+import typing as _t
 
 import shapely
 from shapely.geometry import LineString, Point
@@ -23,7 +24,7 @@ from ..law import Law
 from ..model.airport import Airport
 from .structure_approach import ramp_top
 
-__all__ = ["unframed_top", "overlap_run_end", "MAX_OVERLAP_PASSES"]
+__all__ = ["unframed_top", "unframed_climb", "overlap_run_end", "MAX_OVERLAP_PASSES"]
 
 #: How often the build is re-planned for ramps that yield to one another.
 MAX_OVERLAP_PASSES = 8
@@ -77,6 +78,35 @@ def unframed_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from
     s_top, ss = ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing,
                          grade=grade * (1.0 + 1e-9), max_len=max_len)
     return (grade, s_top, ss) if s_top is not None else (None, None, ss)
+
+
+def unframed_climb(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: float,
+                   spacing: float, run_ends: _t.Sequence[tuple[float, str]],
+                   max_len: float | None = None, *, strict: bool = False
+                   ) -> tuple[float | None, float | None, list[float], str]:
+    """``(grade, s_top, stations, note)`` — :func:`unframed_top` within the
+    NEAREST of ``run_ends`` (``(station, what ends the run there)``).  Where
+    no grade up to the cap tops out in that run the ramp is read WITHOUT
+    it — refused, or built past it, exactly as before the cap was a
+    ceiling — unless ``strict`` (the caller keeps what it had).  ``note``
+    names why a ramp is steeper than its design grade ("" when it is not)."""
+    tn = law.tables.structures.tunnel
+    end, what = min(run_ends)
+    got, s_top, ss = unframed_top(airport, law, axis_fn, mouth_z, climb_from, spacing,
+                                  within=end, max_len=max_len)
+    free = (None, None, ss) if strict else unframed_top(
+        airport, law, axis_fn, mouth_z, climb_from, spacing, max_len=max_len)
+    if got is None:
+        got, s_top, ss = free
+        what = ""
+    if got is None or got <= tn.ramp_grade + 1e-9:
+        return got, s_top, ss, ""
+    why = (f"no ground within {tn.max_ramp_length_m:.0f} m at the design grade"
+           if not what or free[0] == got else f"{what} at {end:.0f} m")
+    return got, s_top, ss, (
+        f"ramp steepened {100.0 * tn.ramp_grade:.1f} -> {100.0 * got:.2f} % (cap "
+        f"{100.0 * tn.ramp_max_grade:.0f} %): {why} (owner RULINGS 2026-10-08c (1) / 08d (1): "
+        f"the cap gives flex only where it is needed)")
 
 
 def overlap_run_end(pair, footprints, limits, law: Law, gap: float

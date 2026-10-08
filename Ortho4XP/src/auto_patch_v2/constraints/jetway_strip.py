@@ -174,9 +174,9 @@ def rider_hosts(planar: PlanarMap, law: Law, airport: Airport | None,
             continue
         _k, fid, ref, d = best
         # THE HOST IS THE UNIT (RULINGS 2026-09-29m (b), the 29d P10 debt):
-        # a unit pad is a platform ``ref`` inside a collar ``ref#collar``
-        # (``model.planar.COLLAR_SUFFIX``) and the outline a rider stands
-        # on is the collar's — the pad it rides is its base ref.
+        # the face a rider stands on may be a bank under the pad's ref (a
+        # block's ``#strip``, a landing's ``#collar``) or a surplus piece
+        # ``ref#k`` — the pad it rides is its base ref.
         ref = pad_base_ref(ref)
         riders.append(RiderAnchor(oid, o.path, (float(o.xy[0]), float(o.xy[1])),
                                   ref, fid, round(d, 3), float(reach)))

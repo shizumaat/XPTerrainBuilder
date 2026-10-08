@@ -181,7 +181,7 @@ def platform_split(base_regions, pad_regions, law: Law,
     split_units: dict[str, list] = {}
     counts: dict[str, _t.Any] = {"platforms": 0, "platforms_refused": 0}
     bp = law.tables.structures.building_pad
-    if not bool(getattr(bp, "platform_collar", False)) or not pad_regions:
+    if not pad_regions:
         return list(pad_regions), counts
     from ..law.tables import design as design_law
     min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)

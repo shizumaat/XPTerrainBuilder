@@ -383,10 +383,11 @@ def project_facade_strips(planar: PlanarMap, law: Law,
     A PROJECTION AFTER THE WHOLE SOLVE, on the final ``z``: every vertex of
     a ``facstrip:<pad>:<k>`` face takes the host pad's value AT THE NEAREST
     POINT OF ITS EDGE (interpolated along that rim edge).  A flat pad gives
-    one level; a pad with a ``#collar`` gives its RIM's level there, so the
-    stand-off between pad and strip is level across (MEASURED in the tile
-    mesh, SPJC ``building62``: the platform's level put the strip 1.63 m
-    under the collar rim it stands beside).  The strip mints no row and
+    one level; a pad whose rim is not on one level (a released weld, a
+    bank face under its ref) gives its RIM's level there, so the stand-off
+    between pad and strip is level across (MEASURED in the tile mesh, SPJC
+    ``building62``: a level read off the pad's interior put the strip
+    1.63 m under the rim it stands beside).  The strip mints no row and
     the pad is read, never written, so no pad and no airside vertex can
     move BY CONSTRUCTION — the in-solve forms were measured and failed
     (spec §52 (6)).

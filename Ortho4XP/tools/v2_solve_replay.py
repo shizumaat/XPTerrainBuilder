@@ -319,9 +319,9 @@ def _placement_override(law, over: dict[str, object]):
     """
     import dataclasses as _d
     # ``SECTION.KEY`` names another ``structures.toml`` section (lane
-    # ``unitplatform2``: ``building_pad.platform_collar=false`` — the
-    # platform mint is read in ``planar/overlay`` too, so its matched base
-    # arm is this same one-variable replay-time arm)
+    # ``unitplatform2``: ``building_pad.frontage_hold=false`` — the block
+    # planner is read in ``planar/overlay`` too, so its matched base arm is
+    # this same one-variable replay-time arm)
     other = {k: v for k, v in over.items() if "." in k}
     over = {k: v for k, v in over.items() if "." not in k}
     for k, v in other.items():

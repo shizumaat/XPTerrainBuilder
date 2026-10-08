@@ -66,8 +66,8 @@ def courtyard_faces(pm: _t.Any, law: _t.Any) -> frozenset[int]:
             rings.append([pm.vertices[v].xy for v in pm.ring_vertices(h)])
     out: set[int] = set()
     if rings:
-        # a RIGID face is the pad itself, never its courtyard — under the
-        # unit platform (spec §1) a collar's hole IS its platform (lane
+        # a RIGID face is the pad itself, never its courtyard — a landing
+        # bank's hole IS its landing (``planar/landing``; lane
         # ``unitplatform2``; ``apron_roles`` carries ``building``)
         cand = [f for f in pm.faces.values()
                 if f.role in aprons and not is_rigid_role(law, f.role)]

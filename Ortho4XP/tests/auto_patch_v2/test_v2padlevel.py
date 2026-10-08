@@ -30,6 +30,8 @@ the plate twin below asserts the pairs it once dropped.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
+
 import math
 
 import numpy as np
@@ -504,7 +506,13 @@ def _16g_plate_only_arm(law):
                                                 airside_vertices, pad_flats,
                                                 pad_slope_ceiling)
     airport = _airport(law, _Dem())
-    pm, _st = build(airport, Classification(tuple(_mixed_rim_cells()), (), {}, ()), law)
+    # the pad's own (east) side carries a third vertex: a unit pad is ONE
+    # merged face (``planar/platform.merge_platform_faces``), and a plane
+    # needs three points of its own to be airside-led
+    cells = _mixed_rim_cells()
+    cells[2] = _dc.replace(cells[2], ring=((-60.0, 180.0), (60.0, 180.0), (60.0, 210.0),
+                                           (60.0, 240.0), (-60.0, 240.0)))
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
     air = airside_vertices(pm, law)
     rim = _verts(pm, "padA")
     own = rim - air

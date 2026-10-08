@@ -115,7 +115,7 @@ def test_the_ceiling_rows_carry_rel_zero_while_the_flat_target_carries_it(
     family) at 1.3037 m; without it, 0.
 
     THE PLATE LAW, ON THE PLATE (owner RULINGS 2026-09-29n (1), issue
-    #91): the fixture runs with ``[building_pad] platform_collar`` off, so
+    #91): the fixture runs with ``[building_pad] frontage_hold`` off, so
     the pad is the one-face plate this law is about; on a PLATFORM the
     target carries no relief at all (29d (3) supersedes it there — the
     twin below)."""

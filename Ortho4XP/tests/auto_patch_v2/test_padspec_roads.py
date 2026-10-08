@@ -16,6 +16,8 @@ from auto_patch_v2.classify.rules import load_rules
 from auto_patch_v2.law import load_default
 from auto_patch_v2.law.tables import pad_outline
 
+from test_padspec_outline import armed  # noqa: E402
+
 
 def _cell(i, role, ref, poly, side):
     return Cell(i, role, ref, tuple(poly.exterior.coords)[:-1], (), None,
@@ -35,10 +37,12 @@ def _scene(road_gap_m: float, road_w: float = 6.0):
 
 @pytest.fixture(scope="module")
 def law():
-    return load_default()
+    return armed(load_default())
 
 
 def test_law_value(law):
+    """The S1 arm ships the key at 0 (disarmed); the spec's is 10.0."""
+    assert pad_outline(load_default()).road_absorb_m == 0.0
     assert pad_outline(law).road_absorb_m == 10.0
 
 

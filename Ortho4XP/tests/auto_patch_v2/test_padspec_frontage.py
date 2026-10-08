@@ -24,9 +24,10 @@ from auto_patch_v2.geom.outline_pin import Frontage
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import pad_outline
 
+from test_padspec_outline import armed  # noqa: E402
 from test_v2padcluster import _AP, _Cl, _sq  # noqa: E402
 
-LAW = pad_outline(Law.for_airport("ZZZZ"))
+LAW = pad_outline(armed(Law.for_airport("ZZZZ")))
 
 #: a 202 x 36 m body with 34 towers (4 m wide, 2 m crenels) on BOTH long
 #: faces; the apron's rim runs along the tips of the lower ones
@@ -164,7 +165,7 @@ def test_the_mint_and_the_census_pin_against_the_same_ground():
     from auto_patch_v2.classify.evidence import _cluster_pads
     from auto_patch_v2.geom.outline_pin import minted_frontage
     from auto_patch_v2.constraints import cluster_pad as cp
-    law = Law.for_airport("ZZZZ")
+    law = armed(Law.for_airport("ZZZZ"))
     cl = _cluster()
     ap = _AP([cl])
     xy = ap.frame.entry()
@@ -198,7 +199,7 @@ def _absorb_scene(road_x1: float):
 def test_a_road_is_absorbed_off_the_frontage_and_the_weld_vertices_stand():
     from auto_patch_v2.classify import road_absorb as ra
     from auto_patch_v2.law import load_default
-    law = load_default()
+    law = armed(load_default())
     out, absorbed = ra.absorb_near_roads(_absorb_scene(55.0), law,
                                          pad_outline(law))
     assert absorbed == {"building1": ["route7"]}
@@ -215,7 +216,7 @@ def test_a_road_whose_stand_off_opens_on_the_apron_keeps_its_shape():
     airside frontage, so it is not filled and the road stays a road."""
     from auto_patch_v2.classify import road_absorb as ra
     from auto_patch_v2.law import load_default
-    law = load_default()
+    law = armed(load_default())
     cells = _absorb_scene(60.0)
     out, absorbed = ra.absorb_near_roads(cells, law, pad_outline(law))
     assert absorbed == {} and out == cells

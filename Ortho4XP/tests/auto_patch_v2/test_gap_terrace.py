@@ -190,8 +190,10 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # beside ``building3`` is pad -> §56 (11) R-W, the pinned airside
     # frontage (lane pads61): (92, 48, 63, 6) again — measured: HECA's
     # absorbed roads 20 -> 3 under the pin, that road among the kept.
+    # -> THE S1 ARM (lane pads62: the outline and absorption keys at 0 in
+    # the law table): rule 2's own (93, 48, 66, 6) again — measured.
     # The three owner sites below hold.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (92, 48, 63, 6)
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (93, 48, 66, 6)
     to_xy = airport.frame.transformers()[0]
     sites = {(30.1154841, 31.4105884): "gap:7/lot", (30.1159784, 31.4106264): "gap:7/ramp0",
              (30.1193169, 31.4085087): "gap:0/s4/lot"}

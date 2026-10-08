@@ -19197,7 +19197,7 @@ the record carries today (`ref`, `centroid_ll`, `pad_m2`, `datum`,
 
 > `Building pad {unit} at {lat:.5f}, {lon:.5f} ({area:,.0f} m²): the apron cannot be welded to it along its whole frontage within the grade caps. The pad is seated flat at {datum:.2f} m; {n_rel} of {n_contacts} frontage contacts are released, the worst by {de:.2f} m at {wlat:.5f}, {wlon:.5f}. The apron keeps its caps; the pad's rim steps there; the building is not moved.`
 
-**MASTER RULING 2026-10-08, PENDING SPEC-AUTHOR REVIEW** (lane pads58's STOP,
+**MASTER RULING 2026-10-08 — ACCEPTED by Fable `padreview` 2026-10-08 (§56 (10) R1, R2)** (lane pads58's STOP,
 `docs/briefs/pads58-notes.md`; applied by lane pads59): the copy above
 REPLACES padspec4's, which carried "…, the apron's own level there; …" and a
 "Why: {why}." sentence built from `reach_isect` / `reach_isect_empty`. The
@@ -19304,7 +19304,7 @@ shape, B = collar cells, C = blocks, D = ribbons / road cells.
 | 6 | `planar/pad_cut` `apron_cut_to_pads` :68, `airside_clip` :199, `airside_vertex_snap` :312, `plateau_cut` :481 | A vs airside; HELD | UNCHANGED (plateau outlines per platform ref = the pad face) |
 | 7 | `planar/platform.platform_split` :316, `_mint_blocks` :530, `merge_platform_faces` :651 | B, C | **EDITED** — erosion / collar / erosion refusals deleted; blocks + strips kept; merge keys on block refs only |
 | 8 | `planar/pad_blocks.plan_blocks` :543 | C, pad polygon, DEM | UNCHANGED (reads the simplified polygon; the base-class gate 10-02aj is the S2 gate) |
-| 9 | `planar/landing.py` :94-130, :226 | HELD, `#collar` for landings | UNCHANGED — the landing bank keeps `COLLAR_SUFFIX` and `platform_collar_rows` |
+| 9 | `planar/landing.py` :94-130, :226 | HELD, `#collar` for landings | UNCHANGED in machinery — the landing bank keeps `COLLAR_SUFFIX` and `platform_collar_rows`. **Its INPUT changes** (padreview §56 (10) R-L): `_key` finds a one-block unit's block by point-in-polygon over the pad region, which was the ERODED platform — a deck centred in the 15 m annulus found nothing, so main carries 0 landings at HECA (the #290 ruling's own site, silently lost). With the pad whole the landings return (HECA 5 at T3, OTHH 4) and ONE witness the law already has gates them: a landing foot `y_land < −BAND_M` is a footing or a descent, never a landing (OTHH 2 of 4 stood 1.74 / 1.89 m under their ground) |
 | 10 | `planar/pad_sliver`, `pad_terrace`, `ribbons` :50-66/:170, `ribbon_weld`, `shapes`, `weld`, `build` | rigid role / PLATFORMS | UNCHANGED in kind; `ribbons.merge_platform_faces` keys lose the collar ref (row 7) |
 | 11 | `planar/basins` :422/:791, `structures` :284/:964, `structure_approach` :100, `structure_service` :416, `wall_corridor_ramps` :131/:235 | A as role + knife | UNCHANGED — they CUT the pad after the mint; see §56 (6); `structures.build_structures`'s footprint source is READ by (2) 4 (a) |
 | 12 | `planar/cluster.py` :190; `airport/footprint_connector` :701-709 | `platform_collar_max_m × bank_slope` | **EDITED** — read `[placement] connector_step_max_m` (same value) |
@@ -19367,9 +19367,20 @@ one vertex. Nothing new enters the heightfield.
   the pad's plane. Where the two disagree the pad is the ramp's HOST and the
   ladder demotes the pad's flat at those vertices (the measured
   `Terminal_Base_2_1` case: 10 rows demoted at 1.392 m) — a warp at the
-  ramp's top, reported in `pad_flat`, never a hard conflict. Bar: at every
-  wall-corridor / door ramp whose top edge is on a pad, `|ramp top − pad
-  plane|` quoted; `hard_conflict` 0.
+  ramp's top, reported in `pad_flat`, never a hard conflict. **CORRECTED
+  (padreview, §56 (10) D1): that sentence did not hold once the collar
+  went** — a flat row `v == datum` at a ramp top is SATISFIABLE by seating
+  the whole pad at the structure, and the first OTHH closing build did
+  exactly that (`building6` datum 3.962 → 2.611, 25 wall-corridor ramp
+  tops in the flat set, `hard_conflict` 0 → 210). The rule as LANDED
+  (`596e62c2`, ACCEPTED): a vertex a STRUCTURE-role face carries
+  (`law.tables.is_structure_role`) is neither a flat vertex nor the datum
+  column of its host pad; the ramp top keeps its own hard law and the pad's
+  plane / ceiling rows at it are the priced ones (pad tier). Bar restated:
+  at every wall-corridor / door ramp whose top edge is on a pad, `|ramp
+  top − pad plane|` quoted; `hard_conflict` rows there are PAD-tier only,
+  each `s_m` ≤ the ramp's authored rise (OTHH `p59c`: 37 rows on the
+  terminal, 23 ceiling + 14 plane — lawful under this reading).
 * **The pavement-gap stage (§55)**: gap pieces are the sheet minus every
   standing cell; the standing union is the same ground (road → pad), so the
   pieces are unchanged where no road is absorbed and shrink by the absorbed road
@@ -19527,9 +19538,18 @@ its numbers are §56 (8) bars 1 and 5.
    (c) **the apron's caps stay hard**: `hard_conflict` rows by tier
    (`by_tier`) in the runway / taxi / apron tiers are count-identical to
    the 4A arm — every relaxed row is on the pad tier; (d) per pad
-   `|datum(4C) − datum(4A)| ≤ 0.05 m` (master ruling 2026-10-08, pending
-   spec-author review: padspec4's `datum == datum_median` does not hold on
-   the 4A arm — 39 of 42 HECA pads over 0.02 m, unattributed);
+   `|datum(4C) − datum(4A)| ≤ 0.05 m` (master ruling 2026-10-08:
+   padspec4's `datum == datum_median` does not hold on the 4A arm — 39 of
+   42 HECA pads over 0.02 m; the gap is PRE-EXISTING on main, §56 (10) F2).
+   **(c) and (d) RESTATED by padreview (§56 (10) R4) against the frame's
+   measured noise floor** — a NULL change on 4A code (a different interior
+   datum vertex, `<scratch>/pads59/heca_4a_dvlast`) moves 231 junction
+   vertices up to 0.57 m and ±1 conflict row in the SW taxi region: (c) the
+   runway tier count-identical; taxi and apron tiers within ±3 rows of the
+   4A arm with no NEW row over 0.2 m, every new row named with its site;
+   (d) per pad `|datum(4C) − datum(4A)| ≤ 0.15 m`, every pad over 0.05 m
+   named with its cause (the datum column's `apron_trend` / `detached`
+   row until R4's step lands; after it, `≤ 0.05 m` is the bar again);
    (e) **WARNED**: HECA ≤ 1 + (0–2 of the 3 newly held) = **≤ 3**, each
    with its copy quoted; OTHH 0; `pad_flat` residual on every pad ≤
    max(0.02, its `released_max_m`); `held_within_tol` per block ≥ 4A.
@@ -19715,3 +19735,157 @@ the §55 floor (not this section) is the knob.
   in §56 (8) is for the owner's READ, not a question: the apron's own
   tiling (≈ 10 faces) and the trenches (5) are what stands beside the one
   pad face.
+
+### §56 (10) REVIEW OF THE BUILT 4B–4E (Fable `padreview` 2026-10-08; summary `docs/briefs/padreview-summary.md`)
+
+Read on the two closing builds (`/tmp/harness/p59c_OTHH`, `p59c_HECA`,
+frames `frames/pads59/`) against main's sweep (`swg_*`), eight sidecar /
+graded reads and one pack read (`<scratch>/padreview/p1_landings.py`,
+`p2_sidecar.py`, `p2c.py`, `p3_site.py`); no replay, no build. Each
+ruling below is GENERAL (05e): the airport is where it was found.
+
+**R-L LANDINGS — they are RIGHT in kind, and one witness gates them.**
+Mechanism confirmed in `planar/landing._key` (row 9): the viaduct's block
+is found by point-in-polygon over the held region; on main a one-block
+unit's region was the eroded platform, so a deck centred in the annulus
+found no block and main's `swg_HECA` carries **0 landings** — at the
+#290 ruling's OWN site (`T23/T3_road.obj`, 2026-10-03e). The law was
+silently lost there; "0 landings" is not the baseline to protect. Read:
+HECA's five (`building3/landing0..4`, levels 101.66–101.87 on datum
+101.874, `y_land` −0.21..0) are `T3_road.obj`'s ramp feet (authored y
+−0.23..16.83: the origin IS the ramp foot, the convention the law
+assumes), seated at the unit's level and banking the lot `dsf:pol10`
+(89–96 m) up to them under 1:3 — exactly 03e's words ("graded up to the
+landing … the deck comes to T3"). OTHH's four (`building6/landing0..3`
+on datum 3.96): `landing0/1` at +0.38 / +0.30 m (tilt 0.2 / 1.0 %) are
+ramp feet; `landing2/3` at **−1.74 / −1.89 m** are the lowest authored
+y of `OTHH_Bridge_01_LOD0_002/_003` (y −0.80 / −2.34 .. 4.69 / 11.56):
+PIER FOOTINGS under the ground, not a ramp end — the landing law dug the
+ground to them and the solve carries **27 pad-tier `hard_conflict` rows,
+ten of them 9.8–10.1 m** at 25.2570, 51.6132. RULE: `landing_regions`
+mints a landing only where `y_land ≥ −BAND_M` (0.5 m — the band the law
+already defines: "the deck surface within this of its lowest y"); a
+lower foot is counted `landing_below_unit` and nothing is minted — a
+descent is the structure pass's (§39 / §47), never a landing. Expected:
+HECA 5 → 5, OTHH 4 → 2, the 27 landing rows → the two feet's own (each
+`s_m` ≤ 0.5 m). The HECA banks (+7.44 m at 30.11408, 31.39756) are the
+ruled picture and go to the owner's sim read as a CHANGE HE ASKED FOR,
+flagged, not hidden. `landing._unit_collar` (matches nothing after 4C)
+is deleted with its two call sites (refuted mechanisms are deleted).
+
+**R-J THE #112 SITE — 93.04 m is WRONG: a join merged two levels.**
+Main: `unit:43#6330/1` (`building6`, 92.03 m) and `/2` (`building7`,
+100.38 m) — two pieces of T3's OWN cluster with no bodies (`members []`),
+the walled ramp pieces of `T3_road.obj` under the viaduct, each a §20
+plate at its own ground, 8.35 m apart (that is the `gap:5/s2 |
+building6` 8.35 m residual). Lane: rule 2b's close JOINED them
+(`outline_joined_from`) into one 12,685 m² pad `building5` with
+`welded 0`, so `platform_split` never ran `plan_blocks` (no welds → not a
+unit platform) and the §20 plate seated the whole at 93.04 — a 7.3 m pit
+under the upper piece where the ground stood at 100.4. The deck itself
+is unmoved (03e seats it at the unit's level), but every foot on that pad
+(#112's "contact pairs > 0.5 m" instrument: 77 / 6.29 m on main) drops
+with it. RULE (general, S2 of §56 (3)): a pad with `outline_joined_from`
+non-empty goes through `pad_blocks.plan_blocks` (the DEM-stepped split,
+29s A2 / 10-02aj (2)) WHETHER OR NOT it is welded; the planner's base
+read decides one plane or N blocks + `#strip`; a joined pad the planner
+leaves whole is one plane as today. Acceptance on the gaps3 replay: the
+site reads two blocks within 0.5 m of main's 100.38 / 92.03 with a
+`#strip` between, `pad_m2` summed = 12,685; no other HECA / OTHH pad
+changes level by > 0.05 m (the joins of §56 (1) 9 are all re-planned;
+each one that splits is named).
+
+**R-F EIGHT BUILDING FACES AT THE OTHH SITE.** Read (`p3_site.py`, every
+face within 150 m): `building6` **194,424 m² / 210 v** and a second
+`building6` **4,060 m² / 141 v** at 25.26034, 51.61015 whose cut is the
+§20 stand-zone plateau apron (`pav4#plateau:building6` on 58 of its
+vertices — NOT a structure): the "plateau remnant" §56 (8) 1 already
+allows; six scraps `building6#1/#2/#4` (0.2–1.0 m²) and `#3/#4/#13`
+(0.6–105 m²), all at 3.96 = the pad's plane, all bordered ONLY by the
+plateau apron. RULE: after the arrangement, a same-base-ref pad piece
+that is not the largest, lies on the pad's plane and is under rule 6's
+thin-piece floor is RE-ROLED as the airside face it borders (the
+plateau is at the pad's value by 09-01g: zero geometry change, one face
+fewer each) — the §23a rim-sliver rule read at the arrangement, one
+site, `pad_sliver`. The plateau-cut part is INHERENT (the §20 stand-zone
+law) and a candidate for the later same-plane emit merge already named.
+Site after R-L + R-F: building faces 8 → **2**, faces 25 → **19**, ring
+vertices ≈ 1,133 → ≈ 1,090 (this instrument; the implementer's 1,579
+counts by another radius rule — quote both).
+
+**R4 THE DATUM COLUMN — YES: a held pad's datum column takes no
+`apron_trend` and no `detached` row.** The column is the pad's LEVEL,
+not a point on the apron's trend; with the collar gone it is a rim vertex
+and its trend target is wherever that vertex happens to stand (T3 99.97
+→ 92.90 m), which is why bar 3 (d) missed on ten pads by ≈ 0.1 m. It is
+`pad_follow`-class under 10l ("a pad following its frontage takes no
+trend row"), read for the hold: `design_assemble` 9a adds the datum
+columns of `HELD` to the `pad_follow` exclusion, and the `detached` row
+likewise. ITS OWN STEP (4F) WITH ITS OWN SWEEP (it moves main's levels
+at 10 HECA pads by ≤ 0.12 m). Bars (c)/(d) restated in §56 (8) 3.
+**FINDING F1 (airside is king), filed, not designed here:** a NULL
+change — which interior vertex is the datum column, 4A code,
+`<scratch>/pads59/heca_4a_dvlast` vs `heca_4a` — moves 231 junction
+vertices up to 0.57 m, 427 `graded_strip` and 27 `secondary_parallel`
+to +0.32 m at 30.1017–30.1066, 31.3967–31.3990 and ±1 conflict row. A
+taxi-family answer that depends on a label is a solve with a flat
+optimum in that region (airside not pinned by its own rows there);
+0.57 m is above the 0.02 m airside bar and above the 0.3 m visual bar.
+Owed to a solve lane: the rows that bind those vertices (`--why-hard`
+at the site) and whether the design's airside rows are weight-degenerate
+there.
+
+**D1–D5 THE IMPLEMENTER'S DEVIATIONS.** D1 (`596e62c2`, a structure-
+carried vertex is neither flat nor the datum column): **ACCEPTED**, §56
+(6) corrected above. D2 (a near-miss endpoint joins the hold set when its
+pad vertex is flat; +10 rows at HECA): **ACCEPTED** — a contact is a
+contact. D3 (a unit with no block plan is conforming-held): **ACCEPTED
+with R-J's amendment** — a JOINED pad is always planned. D4 (test helper
+semantics): **ACCEPTED** as reported (suites green twice). D5 (no OTHH
+replay): **ACCEPTED** — the closing build replaced it; one OTHH replay is
+now owed by R-L anyway. The 64 OTHH `hard_conflict` rows: 37 on the
+terminal (23 `pad_slope_max ceiling` + 14 plane, median `s_m` 0.61 m) are
+the ramp-top hosting class and LAWFUL (§56 (6) as corrected); the 27 on
+landings are OWED WORK and go with R-L.
+
+**R1–R3 THE MASTER'S RULINGS.** R1 (copy without `{why}`): **ACCEPTED**
+— nothing unverified is said. R2 (one-level suffix placement):
+**ACCEPTED**. R3 (landings keep their collar machinery, six readers):
+**ACCEPTED** — the landing bank is #290's 1:3 bank, not the deleted
+collar; `_unit_collar` alone goes (R-L).
+
+**F2 THE UNATTRIBUTED GAP (`datum` below `datum_median`, 35 of 39 HECA
+pads, worst 4.65 m `building85`) — PRE-EXISTING ON MAIN, NOT §56's.**
+Main's sweep carries the SAME datums at the same centroids (`building85`
+94.227 ↔ main `building88` 94.167 / `building95` 94.261; 22 of 35
+matched pads within 0.05 m): the carry fix of pads58 made the median
+VISIBLE, it did not move the datum. `datum_median` is the median of the
+contacts' `z1a` — pass 1a's levelled airside WITHOUT the hold rows on the
+ribbon-free map (`no_step.hold_interval` :569–573); the datum is the
+stage-1 solve WITH hard two-way welds. Either the apron frontage really
+stands 4.65 m below its un-held level once welded to the pad (then the
+pad's other rows drag the apron down — an airside mover the bars never
+read, since the frontage is "a pad rim"), or `z1a`'s ids are read on the
+wrong map (the ribbon-free map's registries vs the full map's — the
+11-dp identity join is the law, 14ax). Discriminating read, 20 min, no
+build: `--stage1-dump` at `building85`'s 22 contacts, compare `z1a` to
+the graded z at the SAME 11-dp lat/lon and to the DEM there; the sign is
+one way (35 of 39 low), which favours the first. Filed for a solve lane;
+NOT printed to the owner (R1 stands).
+
+**FIX LIST, in order (each its own commit; acceptance on the HECA gaps3
+replay / the OTHH closing build):**
+
+| # | what | wall | acceptance |
+|---|---|---|---|
+| 1 | R-L: `landing_regions` gate `y_land ≥ −BAND_M`, `landing_below_unit` counted; `_unit_collar` deleted; twin (a deck with a −2 m footing mints no landing; a −0.2 m foot does) | 0.5 h | OTHH replay: landings 4 → 2, landing `hard_conflict` rows 27 → ≤ 2 feet's own, max `s_m` ≤ 0.5; HECA 5 → 5, body unchanged |
+| 2 | R-F: `pad_sliver` re-roles a same-plane surplus pad piece under the rule-6 floor bordered only by airside; twin | 0.5 h | OTHH site building faces 8 → 2, faces ≤ 19, graded z byte-identical |
+| 3 | R-J: `platform_split` runs `plan_blocks` on every pad with `outline_joined_from` non-empty, welded or not; the §20 plate per block; twin (two 40 × 40 pieces 5 m apart on a 6 m DEM step → 2 blocks + strip) | 1.5 h | HECA gaps3: #112 site 100.38 / 92.03 ± 0.5 with `#strip`; every other pad ≤ 0.05 m; each split join named |
+| 4 | R4 (step 4F): datum columns of `HELD` out of `apron_trend` / `detached` (`design_assemble` 9a `pad_follow`) | 0.5 h + sweep | HECA gaps3: bar 3 (d) at 0.05 m on every pad but `building141` (named, ≤ 0.08); taxi/apron tiers within ±3 of 4A; its own sweep line |
+| 5 | re-measure before the master's sweep: `obj8_split_report --feet-in` at #96 / #111 / #112 / #10; jetway riders hosted ≥ 127 at OTHH, anchors over ground / service_road 0; `harness/census.py` on both arms; KASE / KCLT replays if captures are registered (`frames.py list`) | 1 h | the §56 (8) bars quoted site-first |
+
+**Owner question — none new.** Q5 (warn above 0.3 m) stays open with
+the YES default; HECA warns once (`building101`, 0.33 m, 3 of 16).
+**For the owner's sim read, flagged as a change he asked for:** the lot
+under `T3_road.obj`'s east landings (30.11408, 31.39756) now banks up to
+101.8 m under 03e (main had lost the landings).

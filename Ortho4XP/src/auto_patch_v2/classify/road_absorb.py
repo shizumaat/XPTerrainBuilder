@@ -60,6 +60,7 @@ ABSORB_GROWTH: dict[str, dict[str, float]] = {}
 
 KEPT_STRUCTURE = "structure_footprint"
 KEPT_PIECES = "pad_not_one_polygon"
+KEPT_CLIPPED = "over_airside_or_deck_shade"
 
 
 def structure_keep_out(airport, law: Law):
@@ -82,14 +83,15 @@ def _poly(c) -> Polygon:
 
 
 def _growth(pad: Polygon, closed: Polygon, roads, shades, airside
-            ) -> tuple[Polygon, dict[str, float]]:
+            ) -> tuple[Polygon, dict[str, float], Polygon]:
     """§56 (2) 8: ``closed`` (the re-closed pad) with what it ADDED over a
     deck shade or an airside cell clipped back, and the added area split
     into ``road / shade_clipped / airside_clipped / fill`` (they sum to
     the added area).  Only the growth is cut, never the pad it grew from.
     A scrap of closing fill the clip left DETACHED from the pad is bare
     ground again (never a second pad piece, never counted); a detached
-    ROAD is the caller's to keep (the result is then not one polygon)."""
+    ROAD is the caller's to keep (the result is then not one polygon).
+    Third: the clip itself (what was taken back)."""
     added = closed.difference(pad)
     on_shade = added.intersection(shades) if shades is not None else Polygon()
     rest = added.difference(shades) if shades is not None else added
@@ -106,19 +108,20 @@ def _growth(pad: Polygon, closed: Polygon, roads, shades, airside
     kept = out.difference(pad)
     road = kept.intersection(roads).area
     return out, {"road": road, "shade_clipped": on_shade.area,
-                 "airside_clipped": on_air.area, "fill": kept.area - road}
+                 "airside_clipped": on_air.area, "fill": kept.area - road}, clip
 
 
 def _absorb(pad: Polygon, rpolys: list, take: list[int], outline: PadOutline,
             other_pads, shades, air, air_tree
-            ) -> "tuple[Polygon | None, dict[str, float], list[int]]":
-    """``(grown pad, growth, the roads taken)`` for one pad and its
+            ) -> "tuple[Polygon | None, dict[str, float], list[int], dict[int, str]]":
+    """``(grown pad, growth, the roads taken, {road: why kept})`` for one pad and its
     candidate roads — re-closed, the neighbouring pads differenced, rule
     8's clip applied.  A road the clip leaves OFF the pad (across an apron
     tongue with no ground joining it) is dropped from the take and the
     close re-run without it; ``None`` when nothing is left to take or the
     result is still not ONE valid polygon."""
     take = list(take)
+    kept: dict[int, str] = {}
     while take:
         taken = unary_union([rpolys[k] for k in take])
         g = simplified_outline(unary_union([pad, taken]), outline.close_m,
@@ -127,21 +130,30 @@ def _absorb(pad: Polygon, rpolys: list, take: list[int], outline: PadOutline,
         if near:                     # the close never takes another pad's ground
             g = g.difference(unary_union(near))
         if g.geom_type != "Polygon" or g.is_empty or not g.is_valid:
-            return None, {}, take
+            return None, {}, [], {**kept, **dict.fromkeys(take, KEPT_PIECES)}
         hit = ([air[int(k)] for k in air_tree.query(g, predicate="intersects")]
                if air_tree is not None else [])
-        g, growth = _growth(pad, g, taken, shades, unary_union(hit) if hit else None)
+        g, growth, clip = _growth(pad, g, taken, shades,
+                                  unary_union(hit) if hit else None)
         one = g.geom_type == "Polygon" and not g.is_empty and g.is_valid
-        main = g if one else max(polygon_parts(g),
-                                 key=lambda q: q.intersection(pad).area)
-        # a road the clip took back (it lay over airside or a shade) or left
-        # across the clip from the pad is not this pad's
-        off = [k for k in take if rpolys[k].intersection(main).area
-               < ABSORB_MIN_FRACTION * rpolys[k].area]
+        slack = 1.0 - ABSORB_MIN_FRACTION
+        # a road the clip CUT (it runs over airside or under a deck's shade:
+        # folding it in would leave that stretch with no cell) …
+        off = {k: KEPT_CLIPPED for k in take
+               if rpolys[k].intersection(clip).area > slack * rpolys[k].area}
+        if not one:
+            # … or left across the clip from the pad, is not this pad's
+            main = max(polygon_parts(g), key=lambda q: q.intersection(pad).area)
+            off.update((k, KEPT_PIECES) for k in take if k not in off
+                       and rpolys[k].intersection(main).area
+                       < ABSORB_MIN_FRACTION * rpolys[k].area)
         if not off:
-            return (g, growth, take) if one else (None, {}, take)
+            if one:
+                return g, growth, take, kept
+            return None, {}, [], {**kept, **dict.fromkeys(take, KEPT_PIECES)}
+        kept.update(off)
         take = [k for k in take if k not in off]
-    return None, {}, []
+    return None, {}, [], kept
 
 
 def absorb_near_roads(cells: list, law: Law, outline: PadOutline, *,
@@ -187,15 +199,14 @@ def absorb_near_roads(cells: list, law: Law, outline: PadOutline, *,
             take.append(k)
         if not take:
             continue
-        g, growth, took = _absorb(
+        g, growth, take, kept = _absorb(
             ppolys[i], rpolys, take, outline,
             [grown.get(j, ppolys[j]) for j in pads if j != i],
             shades, air, air_tree)
-        ROADS_KEPT.extend((cells[roads[k]].ref, cells[i].ref, KEPT_PIECES)
-                          for k in take if g is None or k not in took)
+        ROADS_KEPT.extend((cells[roads[k]].ref, cells[i].ref, why)
+                          for k, why in sorted(kept.items()))
         if g is None:
             continue
-        take = took
         grown[i] = g
         gone.update(roads[k] for k in take)
         ROADS_ABSORBED[cells[i].ref] = [cells[roads[k]].ref for k in take]

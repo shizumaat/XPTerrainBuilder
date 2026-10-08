@@ -7,7 +7,8 @@ import dataclasses as dc
 import pytest
 from shapely.geometry import Polygon, box
 
-from auto_patch_v2.classify.road_absorb import (ABSORB_GROWTH, KEPT_PIECES,
+from auto_patch_v2.classify.road_absorb import (ABSORB_GROWTH, KEPT_CLIPPED,
+                                                KEPT_PIECES,
                                                 KEPT_STRUCTURE, ROADS_KEPT,
                                                 absorb_near_roads)
 from auto_patch_v2.classify.roles import Cell, _cut_back_groundside
@@ -147,6 +148,16 @@ def test_a_shade_notch_beside_an_absorbed_road_stays_a_notch(law):
     out2, _ = absorb_near_roads(cells, law, pad_outline(law))
     assert Polygon(out2[0].ring, out2[0].holes).intersection(notch).area > 45.0
     assert ABSORB_GROWTH["building1"]["shade_clipped"] == 0.0
+
+
+def test_a_road_under_a_deck_shade_is_not_folded_in(law):
+    """§56 (2) 8: a road the clip would CUT (it runs under a deck's shade)
+    stays a road — folding it in would leave the shaded stretch no cell."""
+    cells = _scene(1.1)
+    out, absorbed = absorb_near_roads(cells, law, pad_outline(law),
+                                      shades=box(20, 40.5, 30, 60))
+    assert absorbed == {} and out is cells
+    assert ROADS_KEPT == [("route7", "building1", KEPT_CLIPPED)]
 
 
 def test_a_route_beside_the_buildings_own_wall_is_absorbed(law):

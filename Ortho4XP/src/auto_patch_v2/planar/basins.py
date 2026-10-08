@@ -329,6 +329,15 @@ def _record_grade(stats: BasinStats, cache: obj8.ResourceCache, bl) -> None:
             f"cover diagnostics of the regions read after it are EMPTY")
 
 
+def _with_families(members: _t.Sequence) -> tuple[str, ...]:
+    """A pit's ``member_ids``: its witnesses, then the rest of their ANCHOR
+    FAMILIES (object-placement spec §18 (5): the placements the author
+    lifted with them at the same anchor) — the keep follows the family."""
+    ids = [o.id for o in members]
+    ids += sorted({i for o in members for i in getattr(o, "family", ())} - set(ids))
+    return tuple(ids)
+
+
 def build_basins(airport: Airport, classification: Classification, law: Law,
                  tunnels: _t.Sequence[Tunnel], objects: _t.Sequence[obj8.PlacedObject],
                  cache: obj8.ResourceCache | None = None,
@@ -785,7 +794,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                             tuple(rim.exterior.coords)[:-1], rest, smin_z, smin_z - rest,
                             cov, float(floor_area), _ll_pair(airport, ring), tuple(notes),
                             float(plate), kind, tuple(ring.exterior.coords)[:-1],
-                            tuple(o.id for o in members), float(plate_y),
+                            _with_families(members), float(plate_y),
                             str(deepest.id), inside,
                             float(seat_expect), float(deepest.agl_m),
                             tuple(tuple(f.exterior.coords)[:-1] for f in ramp_floors),

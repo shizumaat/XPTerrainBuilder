@@ -245,3 +245,65 @@ def test_the_seat_column_is_one_line_per_wall_and_pit():
     assert SEAT_AUTHORED in body[0] and "+2.00" in body[0] and "+4.50" in body[0]
     assert SEAT_RESEATED in body[1] and "+2.00" in body[1]          # the proud target
     assert "rim" in body[2] and "-0.02" in body[2]
+
+
+# ── §18 (5) / (9) (1): the lift is ONE decision per ANCHOR FAMILY ─────────
+
+def _family_map(pits, law, agl, body_xy=(0.0, 0.0), body_agl=None):
+    """The 6 m sump ``pit`` and a 3 m trench BODY around it (a skirt: four
+    walls, no floor) — two placements, one heading, the lift ``agl``."""
+    objs2 = dict(pits)
+    objs2["body"] = M4B._box_obj(pits["dir"] / "body.obj", 34.0, 24.0, 3.0, floor=False)
+    airport = M4B._airport(objs2, law, [
+        ("pit", (0.0, 0.0), 30.0, agl),
+        ("body", body_xy, 30.0, agl if body_agl is None else body_agl)])
+    out: list = []
+    pm, _stats = build(airport, Classification(tuple(M4B._cells()), (), {}, ()), law,
+                       objects_out=out)
+    return pm, {o.path.split("/")[-1]: o for o in out[0]}
+
+
+def test_the_anchor_family_key_is_the_anchor_the_heading_and_the_lift():
+    k = AS.anchor_family_key
+    assert k((10.0, 20.0), 30.0, 4.2985, 0.01) == k((10.004, 19.996), 30.0, 4.2985, 0.01)
+    assert k((10.0, 20.0), 30.0, 4.2985, 0.01) != k((10.0, 21.0), 30.0, 4.2985, 0.01)
+    assert k((10.0, 20.0), 30.0, 4.2985, 0.01) != k((10.0, 20.0), 30.5, 4.2985, 0.01)
+    assert k((10.0, 20.0), 30.0, 4.2985, 0.01) != k((10.0, 20.0), 30.0, 4.31, 0.01)
+
+
+def test_a_two_shell_pit_at_one_anchor_is_one_basin_and_the_keep_follows_the_family(pits, law):
+    """The sump is lifted by its own depth; the trench body, 3 m deep, is
+    3.3 m off that lift alone — but it stands at the SAME anchor with the
+    SAME heading and lift, so the author lifted them as one body: both
+    read ground-seated, ONE basin with both members on its plain twin's
+    region, and the kept seat takes BOTH out of every unit."""
+    pm0, o0 = _family_map(pits, law, 0.0)
+    pm1, o1 = _family_map(pits, law, 6.3)
+    (b0,), (b1,) = pm0.basins, pm1.basins
+    assert Polygon(b1.region).equals(Polygon(b0.region))
+    assert b1.floor_z == pytest.approx(b0.floor_z)
+    ids = {o1["pit.obj"].id, o1["body.obj"].id}
+    assert o1["pit.obj"].ground_seated and o1["body.obj"].ground_seated
+    assert set(o1["pit.obj"].family) == set(o1["body.obj"].family) == ids
+    assert set(b1.member_ids) == ids
+    recs = seat_records(pm1, law)
+    assert recs[b1.witness_id]["seat"] == AS.SEAT_AUTHORED
+    assert kept_ids(recs) == ids              # the shallow sibling is in no unit
+    assert not o0["pit.obj"].ground_seated and o0["pit.obj"].family == ()
+
+
+def test_the_same_two_shells_at_two_anchors_are_not_a_family(pits, law):
+    _pm, o = _family_map(pits, law, 6.3, body_xy=(1.0, 0.0))
+    assert o["pit.obj"].ground_seated and o["pit.obj"].family == ()
+    assert not o["body.obj"].ground_seated and o["body.obj"].family == ()
+    # ...nor with two lifts at one anchor
+    _pm, o = _family_map(pits, law, 6.3, body_agl=6.0)
+    assert not o["body.obj"].ground_seated and o["body.obj"].family == ()
+
+
+def test_a_family_whose_lift_is_not_its_depth_stays_lifted(pits, law):
+    """A deep member and a lift that is NOT the family's depth (twice it):
+    nobody is read ground-seated, no basin, the readings as they were."""
+    pm, o = _family_map(pits, law, 12.0)
+    assert not pm.basins
+    assert not any(x.ground_seated or x.family for x in o.values())

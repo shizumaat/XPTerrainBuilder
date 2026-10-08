@@ -35,7 +35,7 @@ import math
 import statistics
 import typing as _t
 
-__all__ = ["SEAT_AUTHORED", "SEAT_RESEATED", "lifted_by_own_depth", "crest_over",
+__all__ = ["SEAT_AUTHORED", "SEAT_RESEATED", "lifted_by_own_depth", "anchor_family_key", "crest_over",
            "crest_in_band", "rim_over", "rim_in_band", "stated_height",
            "pack_proud_height"]
 
@@ -61,6 +61,20 @@ def lifted_by_own_depth(agl_m: float, deepest_y: float, tol_m: float,
     if deepest_y >= 0.0 or -deepest_y < min_depth_m:
         return False
     return abs(agl_m + deepest_y) <= tol_m
+
+
+def anchor_family_key(xy: tuple[float, float], heading_deg: float, agl_m: float,
+                      quantum_m: float) -> tuple[int, int, float, float]:
+    """§18 (5) THE ANCHOR FAMILY (spec author's ruling, §18 (9) (1)): the
+    placements of one pack whose anchors coincide within the coordinate
+    quantum, with equal heading (0.001°) and equal ``OBJECT_AGL`` lift
+    (0.001 m), are ONE body the author lifted ONCE — the DSF's own tie,
+    never a resource name or stem.  The lift is one decision for all of
+    them (:func:`lifted_by_own_depth` on the family's deepest genuine
+    solid)."""
+    q = max(float(quantum_m), 1e-3)
+    return (round(xy[0] / q), round(xy[1] / q), round(float(heading_deg), 3),
+            round(float(agl_m), 3))
 
 
 def crest_over(terrain_z: float, agl_m: float, plate_y: float, grade_z: float) -> float:

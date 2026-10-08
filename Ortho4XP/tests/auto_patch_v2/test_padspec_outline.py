@@ -24,7 +24,20 @@ from auto_patch_v2.law.tables import PadOutline, pad_outline
 
 from test_v2padcluster import _AP, _Cl, _sq  # noqa: E402
 
-LAW = pad_outline(Law.for_airport("ZZZZ"))
+#: spec §56 (1) / (2)'s values.  The S1 arm ships the law table with the
+#: four keys at 0 (disarmed); the mechanism twins below draw with these.
+SPEC = dict(outline_close_m=3.0, outline_chord_m=1.0,
+            outline_hole_min_m2=200.0, pad_road_absorb_m=10.0)
+
+
+def armed(law):
+    """``law`` with ``[building_pad]``'s outline keys at the spec's values."""
+    st = law.tables.structures
+    return _dc.replace(law, tables=_dc.replace(law.tables, structures=_dc.replace(
+        st, building_pad=_dc.replace(st.building_pad, **SPEC))))
+
+
+LAW = pad_outline(armed(Law.for_airport("ZZZZ")))
 
 
 def _simple(g):
@@ -37,8 +50,11 @@ def _nverts(g) -> int:
                for p in _parts(g))
 
 
-def test_the_law_values_are_the_specs():
-    """§56 (1) law table: 3.0 / 1.0 / 200.0 in ``[building_pad]``."""
+def test_the_law_values_are_the_s1_arms():
+    """The S1 arm: ``[building_pad]``'s outline keys are 0 (disarmed) in
+    the table; the spec's §56 (1) values are 3.0 / 1.0 / 200.0."""
+    shipped = pad_outline(Law.for_airport("ZZZZ"))
+    assert (shipped.close_m, shipped.chord_m, shipped.hole_min_m2) == (0.0,) * 3
     assert (LAW.close_m, LAW.chord_m, LAW.hole_min_m2) == (3.0, 1.0, 200.0)
 
 
@@ -215,7 +231,7 @@ def test_the_mint_and_the_census_draw_the_same_outline():
     would be measuring the drift."""
     from auto_patch_v2.classify.evidence import _cluster_pads
     from auto_patch_v2.constraints import cluster_pad as cp
-    law = Law.for_airport("ZZZZ")
+    law = armed(Law.for_airport("ZZZZ"))
     ap = _AP([_crenellated_cluster()])
     minted = _cluster_pads(ap, law)
     assert len(minted) == 1 and _nverts(minted[0]) == 4

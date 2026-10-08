@@ -39,7 +39,8 @@ from ..geom import (cluster_building_evidence, cluster_outlines,
 from ..law import Law
 from ..law.tables import pad_admission, pad_outline, rolled_on_roles
 from ..model.airport import Airport
-from ..model.planar import PlanarMap, block_of, is_collar_ref, platform_ref_of, unit_ref_of
+from ..model.planar import (PlanarMap, block_of, is_bank_ref, pad_base_ref,
+                            platform_ref_of, unit_ref_of)
 from .pads import _pad_groups, _pad_polys
 from .precedence import view
 from ..geom.union_find import find_root
@@ -244,7 +245,7 @@ def _base_ref(ref: object) -> str:
     # flat-pad spec §3 C3/C14 (RULINGS 2026-09-30r): the flat BLOCKS of a
     # cut unit are one PAD to the cluster (the cluster stands on the unit);
     # their PLANES are split per block by ``_split_blocks``
-    return unit_ref_of(str(ref).split("#")[0])
+    return unit_ref_of(pad_base_ref(ref))
 
 
 def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
@@ -442,8 +443,8 @@ def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
     # id rides its platform's entry so the FRONTAGE it carries (the outer
     # rim is the collar's) is read for the platform's level (P4), while
     # none of its vertices joins the plate.
-    collars = [(fid, ref) for fid, ref, _g in groups if is_collar_ref(ref)]
-    groups = [g for g in groups if not is_collar_ref(g[1])]
+    collars = [(fid, ref) for fid, ref, _g in groups if is_bank_ref(ref)]
+    groups = [g for g in groups if not is_bank_ref(g[1])]
     out = _split_blocks(planar, _plane_groups(planar, law, airport, groups), groups)
     if not collars:
         return out

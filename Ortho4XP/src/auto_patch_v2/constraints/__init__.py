@@ -93,6 +93,8 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # unit-platform spec §1 (3) / §3 P3 (RULINGS 2026-09-28a (1)): the
     # COLLAR between a platform and its welded rim is a 1:3 bank
     ("platform_collar", platform.platform_collar_rows),
+    # spec §56 (3): the inter-block terrace strip's own rows (``#strip``)
+    ("block_strip", platform.block_strip_rows),
     ("platform_plane", platform.platform_plane_rows),
     # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING held at
     # its block's datum + the deck's y — a stage-2 row

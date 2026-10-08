@@ -58,7 +58,7 @@ import typing as _t
 from ..law import Law
 from ..law.tables import pavement_fallback_cap, pavement_roles
 from ..model.constraints import Diff, Pin, Row, Source
-from ..model.planar import (PlanarMap, gap_parts_across_knife, is_collar_ref,
+from ..model.planar import (PlanarMap, gap_parts_across_knife, is_bank_ref,
                             is_gap_ref)
 
 __all__ = ["pavement_road_cap", "GEN", "RULING", "WELD_M", "PAD_ROLE"]
@@ -113,7 +113,7 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         if f.role not in pav:
             continue
         cyc = [planar.ring_vertices(r) for r in (f.ring, *f.holes)]
-        if is_collar_ref(f.ref):
+        if is_bank_ref(f.ref):
             collar_v.update(v for c in cyc for v in c)
             continue
         rings.extend((c, f.role in roads) for c in cyc if len(c) >= 2)

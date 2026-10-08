@@ -42,7 +42,7 @@ from ..law.tables import design as design_law, rolled_on_roles
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet
 from ..model.jetway import JetwayStrip, RiderAnchor, StripSet
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, pad_base_ref
 from .precedence import view
 
 __all__ = ["strip_m", "strike_set", "jetway_strips", "rider_hosts"]
@@ -176,8 +176,8 @@ def rider_hosts(planar: PlanarMap, law: Law, airport: Airport | None,
         # THE HOST IS THE UNIT (RULINGS 2026-09-29m (b), the 29d P10 debt):
         # a unit pad is a platform ``ref`` inside a collar ``ref#collar``
         # (``model.planar.COLLAR_SUFFIX``) and the outline a rider stands
-        # on is the collar's — the pad it rides is ``ref.split("#")[0]``.
-        ref = str(ref).split("#")[0]
+        # on is the collar's — the pad it rides is its base ref.
+        ref = pad_base_ref(ref)
         riders.append(RiderAnchor(oid, o.path, (float(o.xy[0]), float(o.xy[1])),
                                   ref, fid, round(d, 3), float(reach)))
     return riders, face_cid
@@ -235,7 +235,7 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
         area = Polygon(pts).area
         cur = pad_ref_of.get(cid)
         if cur is None or area > cur[0]:
-            pad_ref_of[cid] = (area, str(planar.faces[fid].ref).split("#")[0],
+            pad_ref_of[cid] = (area, pad_base_ref(planar.faces[fid].ref),
                                fid)                     # the UNIT (29m (b))
         own = own_of.setdefault(cid, set())
         for rg in [ring, *vw.holes[fid]]:

@@ -34,7 +34,7 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-from ..model.planar import COLLAR_SUFFIX
+from ..model.planar import COLLAR_SUFFIX, pad_base_ref
 from ..model.platform import HELD, LANDING_SEP, LANDINGS
 
 __all__ = ["BAND_M", "landing_regions", "landing_cut"]
@@ -264,7 +264,7 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
         return base_regions
     from ..law.tables import role_side
     L = unary_union([r.polygon for r in pad_regions
-                     if str(r.ref).split("#", 1)[0] in LANDINGS
+                     if pad_base_ref(r.ref) in LANDINGS
                      and r.polygon is not None])
     if L.is_empty:
         return base_regions

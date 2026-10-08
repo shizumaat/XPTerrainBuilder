@@ -43,7 +43,8 @@ import numpy as np
 from ..law import Law
 from ..law.tables import design as design_law, role_cap, role_side
 from ..model.jetway import StripSet
-from ..model.planar import PlanarMap, facade_strip_host, is_facade_strip_ref
+from ..model.planar import (PlanarMap, facade_strip_host,
+                            is_facade_strip_ref, pad_base_ref)
 
 __all__ = ["StripReport", "project_strips", "project_facade_strips"]
 
@@ -416,7 +417,7 @@ def project_facade_strips(planar: PlanarMap, law: Law,
         if role_side(law, f.role) == "airside":
             airside.update(vs)
         if bool(getattr(law.tables.precedence.roles.get(f.role), "rigid", False)):
-            acc = pad_edges.setdefault(str(f.ref).split("#")[0], set())
+            acc = pad_edges.setdefault(pad_base_ref(f.ref), set())
             for ring in rings:
                 acc.update((min(a, b), max(a, b))
                            for a, b in zip(ring, tuple(ring[1:]) + tuple(ring[:1]))

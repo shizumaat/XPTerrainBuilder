@@ -43,7 +43,8 @@ import typing as _t
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
-from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of, unit_ref_of
+from ..model.planar import (PlanarMap, is_collar_ref, is_strip_ref,
+                            pad_base_ref, platform_ref_of, unit_ref_of)
 from ..model.platform import HELD, datum_vertices
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
@@ -51,7 +52,8 @@ __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
            "TERRACE_RULING", "HOLD_RULING", "HOLD_DATUM_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
            "HOLD_RESIDUAL_RULING", "hold_sets", "hold_row",
-           "PLANE_RULING", "GEN", "collar_faces", "platform_records"]
+           "PLANE_RULING", "GEN", "collar_faces", "platform_records",
+           "block_strip_rows"]
 
 GEN = "platform_collar"
 #: The ruling HEAD (``solve.design.ruling_head``) — named by ``[design]
@@ -89,13 +91,14 @@ _K = 3
 STATS: dict[str, dict[str, int]] = {}
 
 
-def collar_faces(planar: PlanarMap, law: Law
+def collar_faces(planar: PlanarMap, law: Law, is_bank=is_collar_ref
                  ) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
     """``(platform ref, its COLLAR face ids, its PLATFORM face ids)`` per
     platform pad whose platform is in the map — ONE derivation (the rows
     here, the census's ``platform_rim_relief``).  A district pad's erosion
     leaves several platform pieces and the collar several faces; all of
-    them carry the one ref."""
+    them carry the one ref.  ``is_bank`` picks the bank class: the collars
+    (default) or the inter-block strips (``is_strip_ref``, spec §56 (3))."""
     from .pads import rigid_roles
     rigid = set(rigid_roles(law))
     plat: dict[str, list[int]] = {}
@@ -104,9 +107,9 @@ def collar_faces(planar: PlanarMap, law: Law
         f = planar.faces[fid]
         if f.role not in rigid:
             continue
-        if is_collar_ref(f.ref):
+        if is_bank(f.ref):
             col.setdefault(platform_ref_of(f.ref), []).append(fid)
-        else:
+        elif not is_collar_ref(f.ref) and not is_strip_ref(f.ref):
             plat.setdefault(f.ref, []).append(fid)
     return [(r, tuple(cs), tuple(plat[r])) for r, cs in sorted(col.items())
             if r in plat]
@@ -115,17 +118,41 @@ def collar_faces(planar: PlanarMap, law: Law
 def platform_collar_rows(planar: PlanarMap, law: Law,
                          airport: Airport | None = None) -> list[Row]:
     """The collar bank rows (module docstring).  A generator."""
+    STATS.clear()
+    rows, st = _bank_rows(planar, law, collar_faces(planar, law))
+    if st is not None:
+        STATS["platform_collar_rows"] = st
+    return rows
+
+
+def block_strip_rows(planar: PlanarMap, law: Law,
+                     airport: Airport | None = None) -> list[Row]:
+    """Spec §56 (3): the INTER-BLOCK TERRACE STRIP's rows — the 1:3 bank
+    between two flat blocks of one cut unit (flat-pad spec §2 (5), RULINGS
+    2026-09-30r), keyed on the ``#strip`` ref.  The same derivation the
+    collar's rows take (:func:`_bank_rows`): a strip vertex on the chord it
+    shares with the next block's strip is a TERRACE row from each floor.
+    A generator; it runs after ``platform_collar_rows``."""
+    rows, st = _bank_rows(planar, law, collar_faces(planar, law, is_strip_ref))
+    if st is not None:
+        STATS["block_strip_rows"] = st
+    return rows
+
+
+def _bank_rows(planar: PlanarMap, law: Law,
+               pairs: list[tuple[str, tuple[int, ...], tuple[int, ...]]]
+               ) -> "tuple[list[Row], dict[str, int] | None]":
+    """The 1:3 bank rows of every ``(platform ref, bank faces, platform
+    faces)`` pair, and their statistics (``None`` when nothing ran)."""
     from scipy.spatial import cKDTree
 
     from .pads import airside_vertices
     from .precedence import view
-    STATS.clear()
-    pairs = collar_faces(planar, law)
     if not pairs:
-        return []
+        return [], None
     cap = float(law.tables.emit.design.bank_slope)
     if cap <= 0.0:
-        return []
+        return [], None
     vw = view(planar, law)
     air = airside_vertices(planar, law)
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
@@ -152,16 +179,17 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         island = {v for q in cfids for r in vw.holes[q] for v in r} - set(inner)
         if len(inner) < 3 or not outer:
             continue
+        bref = str(planar.faces[cfids[0]].ref)      # ``<ref>#collar`` / ``#strip``
         src = Source(GEN, COLLAR_RULING + " (unit-platform spec §1 (3); "
                      "§31 (7) the 1:3 bank; RULINGS 2026-09-28a (1))",
-                     (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
+                     (f"face:{cfids[0]}", bref, f"platform:{pref}"))
         src_rim = Source(GEN, RIM_RULING + " (unit-platform spec §1 (3); "
                          "the pad's own rim on its plate)",
-                         (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
+                         (f"face:{cfids[0]}", bref, f"platform:{pref}"))
         src_terr = Source(GEN, TERRACE_RULING + " (flat-pad spec §2 (5); RULINGS "
                           "2026-09-30r: the pad|pad terrace between two flat "
                           "blocks is a 1:3 bank)",
-                          (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
+                          (f"face:{cfids[0]}", bref, f"platform:{pref}"))
         terrace: set[int] = set()
         cover: set[int] = set()
         tree = cKDTree([xy[v] for v in inner])
@@ -238,7 +266,7 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         # where its hole stops and the pad rim runs on over uncovered ground
         # (the ``_mixed_rim_cells`` fixture, 2 of 7), and an apron | pad |
         # pad triple point (HECA building170 | building167, 2).
-        base = pref.split("#")[0]
+        base = pad_base_ref(pref)
         unit = unit_ref_of(pref)
         own_f = set(cfids) | set(pfids)
         keep: list[int] = []
@@ -248,7 +276,7 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
                 continue
             inc = [q for q in planar.vertices[o].incident_faces if q not in own_f]
             other = [q for q in inc if planar.faces[q].role == planar.faces[cfids[0]].role
-                     and planar.faces[q].ref.split("#")[0] != base]
+                     and pad_base_ref(planar.faces[q].ref) != base]
             if o in edge_v:
                 # the coverage edge: the DEM's level, the collar's SLOPE
                 # (issue #223).  The exemption above was written while the
@@ -285,13 +313,12 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         for i in inner:
             _d, j = otree.query(xy[i])
             _row(outer[int(j)], i)
-    STATS["platform_collar_rows"] = {"collars": len(pairs),
-                                     "rows_rim_airside_leads": n_air,
-                                     "rows_own_rim_follows": n_own,
-                                     "rows_block_terrace": n_terr,
-                                     "rows_island_flat": n_isl,
-                                     "rows_coverage_edge_follows": n_cov}
-    return rows
+    return rows, {"collars": len(pairs),
+                  "rows_rim_airside_leads": n_air,
+                  "rows_own_rim_follows": n_own,
+                  "rows_block_terrace": n_terr,
+                  "rows_island_flat": n_isl,
+                  "rows_coverage_edge_follows": n_cov}
 
 
 #: The ruling HEAD of the platform's PLANE rows — named by ``[design]

@@ -1012,6 +1012,12 @@ connector_span_m    = 200.0
 # unitplatform): walled bodies' worst uncovered stretch <= 4.6 m, the
 # deck-on-piers rail concrete_3 b0 / b1 59.6 / 87.9 m.  0 disarms S1.
 connector_solid_gap_m = 20.0
+# unit-platform spec §2 S4 (owner RULINGS 2026-09-28a (2)): the largest
+# end-ground step a SOLID connector joins its two units across — a taller
+# step CUTS it.  Its own key since spec §56 (3) (RULINGS 2026-10-07b (4): the
+# collar is deleted); the value is the one it always had, the former
+# `platform_collar_max_m` 15 m x `emit.design.bank_slope` 0.33.
+connector_step_max_m = 4.95
 
 # ── §16g (10) (12) THE TWO PAD-ADMISSION GATES, PORTED FROM v1 ──────────
 # (issue #101; owner RULINGS 2026-10-02v (3), verbatim: "We definitely don't

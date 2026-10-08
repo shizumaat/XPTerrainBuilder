@@ -76,7 +76,8 @@ LANDING_SEP = "/landing"
 
 def is_landing_ref(ref: object) -> bool:
     """Is this face ref a viaduct ramp LANDING (platform or collar)?"""
-    r = str(ref).split("#", 1)[0]
+    from .planar import pad_base_ref
+    r = pad_base_ref(ref)
     i = r.rfind(LANDING_SEP)
     return i > 0 and r[i + len(LANDING_SEP):].isdigit()
 

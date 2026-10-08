@@ -44,7 +44,7 @@ import itertools
 import math
 import typing as _t
 
-from ..model.planar import is_collar_ref
+from ..model.planar import is_bank_ref
 from ..constraints.geometry import long_axis, pair_is_transverse, station_indices
 from ..constraints.roads import (NO_FRAME, NOT_A_PAIR, one_ribbon_m,
                                  road_pair_reading)
@@ -368,10 +368,10 @@ def within_shape(p: Patch, *, out: _t.Callable[[str], None] = print,
     # the apron rings the loop below asks ``chords_outside_face`` of, read
     # beside each other first (the same answers, in the memo it reads)
     read_chords_ahead(p, [sh for sh in p.shapes if sh.role == "apron"
-                          and not is_collar_ref(sh.ref) and p.cap(sh) is not None
+                          and not is_bank_ref(sh.ref) and p.cap(sh) is not None
                           and len(sh.ids) >= 3], min_d, out=out, on_pool=on_pool)
     for sh in p.shapes:
-        if is_collar_ref(sh.ref):
+        if is_bank_ref(sh.ref):
             # unit-platform spec §1 (3) / §3 P20: a platform COLLAR is a 1:3
             # bank under the building, never a within-shape pad pair — its
             # reading is the census's ``platform_rim_relief``

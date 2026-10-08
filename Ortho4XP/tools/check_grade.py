@@ -7026,9 +7026,10 @@ _JETWAY_STRIP_TOL_M = 0.05
 
 
 def _is_platform_collar(w) -> bool:
-    """A platform COLLAR way (unit-platform spec §1 (3)): ref ``<pad>#collar``
-    (``auto_patch_v2.model.planar.COLLAR_SUFFIX``)."""
-    return str(getattr(w, "ref", "") or "").endswith("#collar")
+    """A pad's 1:3 BANK way: a platform COLLAR (unit-platform spec §1 (3),
+    ref ``<pad>#collar``) or an inter-block terrace STRIP (spec §56 (3),
+    ``<unit>/b<k>#strip``) — ``auto_patch_v2.model.planar.is_bank_ref``."""
+    return str(getattr(w, "ref", "") or "").endswith(("#collar", "#strip"))
 
 
 def _platform_way(ref: str, kind: str) -> "Way":

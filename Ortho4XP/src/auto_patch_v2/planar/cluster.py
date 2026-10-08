@@ -187,8 +187,7 @@ def connector_verdicts(airport: Airport, law: Law, pool: _t.Any = None) -> tuple
         visual_m=float(law.tables.emit.cockpit.visual_m),
         chain_min_height_m=_chain_min_height_m(law),
         gap_max_m=float(getattr(pl, "connector_solid_gap_m", 0.0)),
-        step_max_m=(float(law.tables.structures.building_pad.platform_collar_max_m)
-                    * float(law.tables.emit.design.bank_slope)),
+        step_max_m=float(pl.connector_step_max_m),
         sheet_chain_min_fraction=_sheet_chain_min_fraction(law),
         counts=counts, pool=pool)
     WHY.update({k: v for k, v in counts.items()})

@@ -361,6 +361,11 @@ class Placement:
     #: (no component of ``chain_min_height_m`` solid height) for it to be
     #: WALLED ALONG ITS WHOLE LENGTH.  0 disarms S1.
     connector_solid_gap_m: float = 20.0
+    #: unit-platform spec §2 S4 (owner RULINGS 2026-09-28a (2); its own key
+    #: since spec §56 (3) deleted the collar it was derived from): the
+    #: largest end-ground step a SOLID connector may join its two units
+    #: across; a taller step CUTS the connector.
+    connector_step_max_m: float = 4.95
 
     # ── §16g (10) (12) THE TWO PAD-ADMISSION GATES, PORTED FROM v1 ──
     # (issue #101; owner RULINGS 2026-10-02v (3), verbatim: "We definitely

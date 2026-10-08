@@ -80,7 +80,7 @@ from ..law.tables import (design as design_law, is_rigid_role, pavement_roles,
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.islands import courtyard_faces
-from ..model.planar import (PlanarMap, is_collar_ref, is_late_ref, is_osm_ribbon_ref,
+from ..model.planar import (PlanarMap, is_bank_ref, is_collar_ref, is_late_ref, is_osm_ribbon_ref,
                             platform_ref_of)
 from .pad_relief import pad_relief_offsets
 from .precedence import view
@@ -543,7 +543,7 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # group for the frontage it carries, never for the plate — its
     # vertices are priced by ``constraints.platform`` alone
     per_face = {q: g for q, r_, g in _pad_groups(planar, law)
-                if not is_collar_ref(r_)}
+                if not is_bank_ref(r_)}
     n_cross = 0
     # §16g (10) (11) (a) THE PAD'S PLATE IS ONE-WAY TOWARD THE PAD (owner
     # RULINGS 2026-09-15z; lane ``v2padqp`` r2).  ATTRIBUTED FIRST, at the

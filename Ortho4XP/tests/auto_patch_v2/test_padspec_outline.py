@@ -194,11 +194,18 @@ def test_the_pieces_the_close_joined_are_named():
     assert row["outline_joined_from"] == ["unit:0#0/0", "unit:0#0/1"]
     assert row["outline_simplified_from"] == 8
     assert row["outline_vertices"] == _nverts(got[0][2])
+    # §56 (1) 10: the growth is NAMED and sums to the added area
+    g = row["outline_growth_m2"]
+    assert g["join"] == 2400.0 and g["well"] == g["thin_kept"] == 0.0
+    assert g["close"] > 150.0 and abs(g["close"] + g["chord"] - 160.0) <= 0.2
     # a cluster the close leaves alone names nothing
     solo: dict = {}
     cluster_outlines([_crenellated_cluster()], xy, 0.5, outline=LAW, stats=solo)
     assert solo["unit:0#0"]["outline_joined_from"] == []
     assert solo["unit:0#0"]["outline_vertices"] == 4
+    sg = solo["unit:0#0"]["outline_growth_m2"]
+    assert sg["join"] == sg["well"] == sg["thin_kept"] == 0.0
+    assert sg["close"] + sg["chord"] > 0.0
 
 
 def test_the_mint_and_the_census_draw_the_same_outline():

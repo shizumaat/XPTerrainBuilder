@@ -101,8 +101,6 @@ def main():
     seen = {}
     real_abs = ra.absorb_near_roads
     def spy(cells, law_, outline, **kw):
-        if a.arm == "absorb_all":
-            kw["wall_extended"] = None
         seen.update(kw, cells=list(cells)); return real_abs(cells, law_, outline, **kw)
     ra.absorb_near_roads = spy
     real_ext = rw.road_extension

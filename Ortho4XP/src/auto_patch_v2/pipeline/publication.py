@@ -306,7 +306,8 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
 
     Read off the SAME derivations the rows were priced from
     (``constraints.cluster_pad``), never a second reading of the law."""
-    from ..classify.road_absorb import ROADS_ABSORBED, ROADS_KEPT
+    from ..classify.road_absorb import (ABSORB_GROWTH, ROADS_ABSORBED,
+                                        ROADS_KEPT)
     from ..constraints.cluster_pad import (DERIVED, OFFSET_SPREAD,
                                            OUTLINE_STATS, REFERENCE,
                                            TOUCHING_STEPS, YIELDED,
@@ -343,6 +344,15 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                                        for r in ROADS_ABSORBED.get(p, ())],
                     "roads_kept_near_pad": [[r, why] for r, p, why in ROADS_KEPT
                                             if p in base],
+                    "roads_absorbed_m2": round(sum(
+                        ABSORB_GROWTH[p]["road"] for p in base
+                        if p in ABSORB_GROWTH), 1),
+                    # §56 (2) 7 / 8: where the re-close's added area went
+                    "absorb_growth_m2": {
+                        k: round(sum(ABSORB_GROWTH[p][k] for p in base
+                                     if p in ABSORB_GROWTH), 1)
+                        for k in ("road", "shade_clipped", "airside_clipped",
+                                  "fill")},
                     "members": list(getattr(c, "members", ()) or ()),
                     "area_m2": round(float(getattr(c, "area_m2", 0.0)), 1),
                     "pads": pads,

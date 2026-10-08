@@ -7,9 +7,9 @@ import dataclasses as dc
 import pytest
 from shapely.geometry import Polygon, box
 
-from auto_patch_v2.classify.road_absorb import (KEPT_PIECES, KEPT_STRUCTURE,
-                                                KEPT_WALL,
-                                                ROADS_KEPT, absorb_near_roads)
+from auto_patch_v2.classify.road_absorb import (ABSORB_GROWTH, KEPT_PIECES,
+                                                KEPT_STRUCTURE, ROADS_KEPT,
+                                                absorb_near_roads)
 from auto_patch_v2.classify.roles import Cell, _cut_back_groundside
 from auto_patch_v2.classify.rules import load_rules
 from auto_patch_v2.law import load_default
@@ -85,11 +85,76 @@ def test_a_road_over_a_structure_footprint_is_kept_with_its_reason(law):
     assert ROADS_KEPT == [("route7", "building1", KEPT_STRUCTURE)]
 
 
-def test_a_wall_extended_route_is_kept(law):
+def _growth_sums(pad_before, closed_area, ref="building1"):
+    g = ABSORB_GROWTH[ref]
+    assert set(g) == {"road", "shade_clipped", "airside_clipped", "fill"}
+    assert sum(g.values()) == pytest.approx(closed_area - pad_before.area, abs=1.0)
+    return g
+
+
+def test_the_re_close_takes_no_airside(law):
+    """§56 (2) 8: a road 8 m from the pad across a 4 m apron TONGUE is
+    absorbed and the tongue stays apron — the old pad is never cut."""
+    pad = box(0, 0, 60, 40)
+    road = box(0, 44, 60, 48)                 # joined to the pad at its west end
+    link = box(0, 40, 10, 44)                 # bare ground the close fills
+    tongue = box(20, 40, 80, 44)              # apron between road and pad
+    cells = [_cell(0, "building", "building1", pad, "airside"),
+             _cell(1, "service_road", "route7", road.union(link), "groundside"),
+             _cell(2, "apron", "pav1", tongue, "airside")]
+    out, absorbed = absorb_near_roads(cells, law, pad_outline(law))
+    assert absorbed == {"building1": ["route7"]}
+    grown = Polygon(out[0].ring, out[0].holes)
+    assert grown.intersection(tongue).area == pytest.approx(0.0, abs=1e-6)
+    assert grown.covers(pad) and grown.covers(road)
+    assert out[1].ring == cells[2].ring       # the apron cell is untouched
+    g = ABSORB_GROWTH["building1"]
+    assert g["airside_clipped"] == pytest.approx(40 * 4, abs=1.0)
+    assert g["road"] == pytest.approx(road.union(link).area, abs=1.0)
+    assert g["shade_clipped"] == 0.0
+
+
+def test_a_road_the_clip_leaves_off_the_pad_is_kept_and_the_rest_absorbed(law):
+    """§56 (2) 8 + 4 (d), per road: an apron strip wholly between a road
+    and the pad leaves that road off the pad once the airside is clipped —
+    it stays a road; the road on the other face is still absorbed."""
+    cells = _scene(1.1) + [
+        _cell(3, "service_road", "route9", box(5, -8, 55, -4), "groundside"),
+        _cell(4, "apron", "pav1", box(-20, -4, 80, 0).difference(box(0, 0, 60, 40)),
+              "airside")]
+    out, absorbed = absorb_near_roads(cells, law, pad_outline(law))
+    assert absorbed == {"building1": ["route7"]}
+    assert ("route9", "building1", KEPT_PIECES) in ROADS_KEPT
+    assert [c.ref for c in out] == ["building1", "pav3", "route9", "pav1"]
+    grown = Polygon(out[0].ring, out[0].holes)
+    assert grown.intersection(box(-20, -4, 80, 0)).area == pytest.approx(0.0, abs=1e-6)
+
+
+def test_a_shade_notch_beside_an_absorbed_road_stays_a_notch(law):
+    """§56 (2) 8: the mint cut a 5 m deck-shade notch out of the pad; the
+    absorption's re-close (mouth < 6 m) may not fill it back."""
+    notch = box(27.5, 30, 32.5, 40)
+    pad = box(0, 0, 60, 40).difference(notch)
     cells = _scene(1.1)
-    out, absorbed = absorb_near_roads(cells, law, pad_outline(law),
-                                      wall_extended=box(50, 41, 55, 47))
-    assert absorbed == {} and ROADS_KEPT[0][2] == KEPT_WALL
+    cells[0] = _cell(0, "building", "building1", pad, "airside")
+    out, absorbed = absorb_near_roads(cells, law, pad_outline(law), shades=notch)
+    assert absorbed == {"building1": ["route7"]}
+    grown = Polygon(out[0].ring, out[0].holes)
+    assert grown.is_valid
+    assert grown.intersection(notch).area == pytest.approx(0.0, abs=1e-6)
+    assert ABSORB_GROWTH["building1"]["shade_clipped"] == pytest.approx(50.0, abs=1.0)
+    # without the shade the same notch fills (the closing's own behaviour)
+    out2, _ = absorb_near_roads(cells, law, pad_outline(law))
+    assert Polygon(out2[0].ring, out2[0].holes).intersection(notch).area > 45.0
+    assert ABSORB_GROWTH["building1"]["shade_clipped"] == 0.0
+
+
+def test_a_route_beside_the_buildings_own_wall_is_absorbed(law):
+    """§56 (2) 4 (b) DELETED: no wall-extension keep-out exists — the only
+    keep-out is the mapped bore."""
+    import inspect
+    assert set(inspect.signature(absorb_near_roads).parameters) == {
+        "cells", "law", "outline", "keep_out", "shades"}
 
 
 def test_zero_disarms(law):

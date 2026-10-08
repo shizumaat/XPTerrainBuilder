@@ -101,6 +101,7 @@ from .open_default import apron_evidence, open_pavement_role
 from .rules import Rules, load_rules
 from .sources import (SourceRecord, apron_union, classify_sources,
                       object_body_cuts)
+from ..geom import deck_shades
 from ..geom.parts import line_parts
 
 __all__ = ["Cell", "CutLine", "Classification", "classify", "SHOULDER_KIND",
@@ -577,7 +578,6 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         final.append([role, ref, face, letter, evid, str(evid.get("kind", ""))])
 
     # ── service roads outside pavement ─────────────────────────────
-    wall_extended = None
     corridors = []
     for c in ev.truck_chains:
         corridors.append(c.line.buffer(rules.service.road_width_m / 2,
@@ -591,8 +591,6 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         lane_m = float(rules.service.retaining_wall_reach_m)
         _rpieces = _rw.retaining_pieces(airport, road, lane_m, rules.service)
         wall_ext = _rw.road_extension(_rpieces, road, lane_m)
-        if wall_ext is not None and not wall_ext.is_empty:
-            wall_extended = wall_ext.difference(road)   # §56 (2) 4 (b)
         road = unary_union([road, wall_ext])
         stats.update({f"retaining_{k}": v for k, v in _rw.STATS.items()})
         road = road.difference(ev.pavement_union)
@@ -672,11 +670,14 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # ONE call, after both road populations exist and before the gap sheet
     # differences the standing union.  The set-back is re-applied for the
     # CHANGED pads only, so a pad that absorbed nothing cuts nothing twice
-    # (roadweld100's measured order is untouched).
+    # (roadweld100's measured order is untouched).  Rule 8: the re-close
+    # takes no airside and none of the deck shades the mint subtracted.
     from .road_absorb import absorb_near_roads, structure_keep_out
     cells, absorbed = absorb_near_roads(
         cells, law, pad_outline(law),
-        keep_out=structure_keep_out(airport, law), wall_extended=wall_extended)
+        keep_out=structure_keep_out(airport, law),
+        shades=deck_shades(getattr(airport, "partition", None),
+                           airport.frame.entry()))
     if absorbed:
         cells, stats["mixed_pad_recuts"] = _cut_back_groundside(
             cells, law, rules, only=frozenset(absorbed))

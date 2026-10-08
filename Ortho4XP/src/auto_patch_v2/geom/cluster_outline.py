@@ -185,6 +185,43 @@ def _outline_vertices(g) -> int:
                for p in _parts(g))
 
 
+def _outline_growth(piece, pid: str, was: list, frm: list[str], u_in,
+                    close_m: float) -> dict[str, float]:
+    """§56 (1) 10 THE GROWTH IS NAMED: the m² rule 2b added to the piece
+    ``pid`` over its same-id pre-2b piece, split into the five lawful
+    classes (they sum to the added area) — ``join`` (over the other
+    pre-2b pieces it absorbed), ``thin_kept`` (inside the pre-2b outline
+    ``u_in`` but in no pre-2b piece: a remainder rule 6 would have
+    dropped), ``well`` (a filled light well), ``close`` (the closing's
+    fill) and ``chord`` (the straightening's residue)."""
+    by = dict(was)
+    base = by.get(pid)
+    if base is None and frm:
+        base = max((by[q] for q in frm), key=lambda g: g.area)
+    added = piece if base is None else piece.difference(base)
+    out = dict.fromkeys(("join", "well", "close", "chord", "thin_kept"), 0.0)
+    if added.is_empty:
+        return out
+    others = [by[q] for q in frm if by[q] is not base]
+    if others:
+        ou = unary_union(others)
+        out["join"] = added.intersection(ou).area
+        added = added.difference(ou)
+    out["thin_kept"] = added.intersection(u_in).area
+    added = added.difference(u_in)
+    wells = [Polygon(h) for g in _parts(u_in) for h in g.interiors]
+    if wells and not added.is_empty:
+        wu = unary_union(wells)
+        out["well"] = added.intersection(wu).area
+        added = added.difference(wu)
+    if close_m > 0.0 and not added.is_empty:
+        fill = u_in.buffer(close_m).buffer(-close_m).difference(u_in)
+        out["close"] = added.intersection(fill).area
+        added = added.difference(fill)
+    out["chord"] = added.area
+    return {k: round(v, 1) for k, v in out.items()}
+
+
 def deck_shades(partition: _t.Any,
                 to_xy: _t.Callable[[float, float], tuple[float, float]]):
     """THE WELDED DECKS' SHADES (issue #14; ``welded-deck-spec.md`` §2 (1))
@@ -739,7 +776,9 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                     "outline_simplified_from": sum(
                         _outline_vertices(g) for g in _parts(u_in)
                         if g.intersects(piece)),
-                    "outline_joined_from": frm if frm != [pid] else []}
+                    "outline_joined_from": frm if frm != [pid] else [],
+                    "outline_growth_m2": _outline_growth(
+                        piece, pid, was, frm, u_in, oc)}
         for pid, piece in zip(ids, pieces):
             out.append((pid, c, piece))
             taken.append(piece)

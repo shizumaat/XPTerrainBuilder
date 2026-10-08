@@ -46,7 +46,8 @@ from ..geom.union_find import find_root
 from ..law.tables import footprint_touch_m
 
 __all__ = ["cluster_polys", "cluster_pad_faces",
-           "YIELDED", "TOUCHING_STEPS", "NO_OUTLINE", "pad_cluster_mismatch",
+           "YIELDED", "TOUCHING_STEPS", "NO_OUTLINE", "OUTLINE_STATS",
+           "pad_cluster_mismatch",
            "plane_groups", "cluster_offsets", "cluster_pairs"]
 
 
@@ -62,6 +63,12 @@ NO_OUTLINE: list[str] = []
 #: it ONE derivation in fact as well as in law — the same shape
 #: ``planar/cluster._MEMO`` uses for the clusters themselves.
 _POLY_MEMO: list[tuple[int, _t.Any, _t.Any, list]] = []
+
+#: §56 (1) 9: per emitted cluster piece, what rule 2b did to its outline
+#: (``geom.cluster_outlines`` ``stats``) — the last :func:`cluster_polys`
+#: reading, for the sidecar's ``cluster_pads[].outline_*`` keys.
+OUTLINE_STATS: dict[str, dict] = {}
+_OUTLINE_MEMO: dict[int, dict[str, dict]] = {}
 
 
 def airside_union(planar: PlanarMap, law: Law):
@@ -146,6 +153,7 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             got, counts = cached, {}
             break
     if got is None:
+        ostats: dict[str, dict] = {}
         # §46 (9) census row 5: the same INPUT ring population as
         # ``classify/evidence`` — the ENTRY projection, or the two reads
         # of one derivation would not agree
@@ -174,9 +182,14 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
                 getattr(airport, "buildings", ()) or ()),
             # §56 (1) rule 2b: the SAME simplified outline the mint drew
             # (``law.tables.pad_outline``)
-            outline=outline)
+            outline=outline, stats=ostats)
+        _OUTLINE_MEMO[id(got)] = ostats
         _POLY_MEMO.append((id(airport), airport, (touch, akey), got))
         del _POLY_MEMO[:-2]
+        for k in set(_OUTLINE_MEMO) - {id(m[3]) for m in _POLY_MEMO}:
+            del _OUTLINE_MEMO[k]
+    OUTLINE_STATS.clear()
+    OUTLINE_STATS.update(_OUTLINE_MEMO.get(id(got), {}))
     if counts.get("no_rings"):
         NO_OUTLINE.extend(str(c.id) for c in cl
                           if not (getattr(c, "rings", ()) or ()))

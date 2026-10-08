@@ -16,6 +16,7 @@ polygons out.  No law value is read — the caller passes the law's own.
 from __future__ import annotations
 
 import math as _math
+import collections
 import typing as _t
 
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
@@ -391,6 +392,53 @@ def _refuse(refused, counts, key: str, cluster, gate: str, value: float,
     })
 
 
+def _outline_pieces(u, shades, airside, taken, thin_m: float, counts) -> list:
+    """Rules 8, 4, 3 and 6 on ONE closed outline: the deck shades and the
+    airside leave it, the ground a lower cluster already took leaves it,
+    its thin pieces drop — the pieces left, in the ``(bounds y, bounds
+    x)`` order the ``/k`` ids are spelt in.  ``[]`` when nothing is left
+    (the reason is counted)."""
+    if shades is not None and not shades.is_empty and u.intersects(shades):
+        # rule 8: the welded deck's shade leaves the outline
+        u = u.difference(shades)
+        if not u.is_valid:
+            u = u.buffer(0.0)
+        if u.is_empty or u.area <= 0.0:
+            counts["under_deck"] += 1
+            return []
+        counts["deck_trimmed"] += 1
+    if airside is not None and not airside.is_empty and u.intersects(airside):
+        before = u.area
+        u = u.difference(airside)
+        if u.is_empty or u.area <= 0.0:
+            counts["on_airside"] += 1        # it seats on the pavement
+            return []
+        if u.area < before:
+            counts["clipped"] += 1
+        if not u.is_valid:
+            u = u.buffer(0.0)
+    hit = [g for g in taken if g.intersects(u)]
+    if hit:
+        u = u.difference(unary_union(hit))
+    pieces = _parts(u)
+    if not pieces:
+        counts["over_another"] += 1
+        return []
+    if thin_m > 0.0:
+        wide = [g for g in pieces
+                if 2.0 * g.area >= thin_m * max(g.length, 1e-9)]
+        counts["thin_dropped"] += len(pieces) - len(wide)
+        pieces = wide
+    pieces.sort(key=lambda g: (round(g.bounds[1], 3), round(g.bounds[0], 3)))
+    return pieces
+
+
+def _piece_ids(cid: str, pieces: _t.Sequence) -> list[str]:
+    """A cluster's piece ids: its own id for one piece, ``id/k`` else."""
+    return [cid if len(pieces) == 1 else f"{cid}/{k}"
+            for k in range(len(pieces))]
+
+
 def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      to_xy: _t.Callable[[float, float], tuple[float, float]],
                      touch_m: float,
@@ -405,6 +453,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      osm_evidence=None,
                      refused=None,
                      outline=None,
+                     stats: "dict[str, dict] | None" = None,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -551,6 +600,12 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
     population must never be read as a refused one, the same discipline
     ``plan_clusters`` keeps for a plan with no solid heights.
 
+    ``stats``, when a dict, takes one row per emitted piece under rule 2b
+    (§56 (1) 9) — ``outline_vertices`` (of the simplified outline it was
+    cut from, before the airside clip), ``outline_simplified_from`` (the
+    same count before 2b) and ``outline_joined_from`` (the ids the pieces
+    it covers had before 2b, when 2b JOINED or renamed them; else empty).
+
     ``touch_m <= 0`` disarms the close (rule 2); ``bridge_m <= 0``
     disarms (2a); ``outline=None`` (or its three values 0) disarms (2b);
     ``airside=None``
@@ -630,12 +685,15 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
             # rule 2a: the posts that still chain close the outline
             u, nj = _bridge(u, c.bridges, to_xy, bridge_m)
             counts["post_bridged"] += nj
+        u_in = None
         if oc > 0.0 or och > 0.0 or oh > 0.0:
             # rule 2b: the simplified building outline (§56 (1))
+            u_in = u
             counts["outline_vertices_in"] += _outline_vertices(u)
             u = simplified_outline(u, oc, och, oh)
             counts["outline_vertices_out"] += _outline_vertices(u)
             counts["outline_simplified"] += 1
+            u2b = u
         if u.is_empty:
             counts["no_rings"] += 1
             continue
@@ -656,44 +714,34 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                 # (a ``True`` from a caller's own predicate reads as OSM)
                 counts["cache_vouched" if vouch == CACHE_VOUCHED_SOURCE
                        else "osm_vouched"] += 1
-        if shades is not None and not shades.is_empty and u.intersects(shades):
-            # rule 8: the welded deck's shade leaves the outline
-            u = u.difference(shades)
-            if not u.is_valid:
-                u = u.buffer(0.0)
-            if u.is_empty or u.area <= 0.0:
-                counts["under_deck"] += 1
-                continue
-            counts["deck_trimmed"] += 1
-        if airside is not None and not airside.is_empty and u.intersects(airside):
-            before = u.area
-            u = u.difference(airside)
-            if u.is_empty or u.area <= 0.0:
-                counts["on_airside"] += 1        # it seats on the pavement
-                continue
-            if u.area < before:
-                counts["clipped"] += 1
-            if not u.is_valid:
-                u = u.buffer(0.0)
-        hit = [g for g in taken if g.intersects(u)]
-        if hit:
-            u = u.difference(unary_union(hit))
-        pieces = _parts(u)
+        pieces = _outline_pieces(u, shades, airside, taken, thin_m, counts)
         if not pieces:
-            counts["over_another"] += 1
             continue
-        if thin_m > 0.0:
-            wide = [g for g in pieces
-                    if 2.0 * g.area >= thin_m * max(g.length, 1e-9)]
-            counts["thin_dropped"] += len(pieces) - len(wide)
-            pieces = wide
-            if not pieces:
-                continue
         counts["still_in_pieces"] += len(pieces) - 1
         cid = str(getattr(c, "id", i))
-        pieces.sort(key=lambda g: (round(g.bounds[1], 3), round(g.bounds[0], 3)))
-        for k, piece in enumerate(pieces):
-            out.append((cid if len(pieces) == 1 else f"{cid}/{k}", c, piece))
+        ids = _piece_ids(cid, pieces)
+        if stats is not None and u_in is not None:
+            # §56 (1) 9: what rule 2b did to THIS cluster — the vertices of
+            # the outline each piece was cut from, BEFORE the airside clip
+            # (which adds the apron's own rim vertices), and the ids the
+            # pre-2b outline would have had under the same rules 8/4/3/6
+            before = _outline_pieces(u_in, shades, airside, taken, thin_m,
+                                     collections.Counter())
+            was = list(zip(_piece_ids(cid, before), before))
+            for pid, piece in zip(ids, pieces):
+                rp = piece.representative_point()
+                frm = [q for q, g in was
+                       if piece.contains(g.representative_point())]
+                stats[pid] = {
+                    "outline_vertices": sum(
+                        _outline_vertices(g) for g in _parts(u2b)
+                        if g.contains(rp)),
+                    "outline_simplified_from": sum(
+                        _outline_vertices(g) for g in _parts(u_in)
+                        if g.intersects(piece)),
+                    "outline_joined_from": frm if frm != [pid] else []}
+        for pid, piece in zip(ids, pieces):
+            out.append((pid, c, piece))
             taken.append(piece)
     counts["pads"] = len(out)
     return out, counts

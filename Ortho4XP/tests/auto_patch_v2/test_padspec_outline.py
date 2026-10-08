@@ -39,7 +39,7 @@ def _nverts(g) -> int:
 
 def test_the_law_values_are_the_specs():
     """§56 (1) law table: 3.0 / 1.0 / 200.0 in ``[building_pad]``."""
-    assert LAW == PadOutline(close_m=3.0, chord_m=1.0, hole_min_m2=200.0)
+    assert (LAW.close_m, LAW.chord_m, LAW.hole_min_m2) == (3.0, 1.0, 200.0)
 
 
 def test_a_crenellated_rectangle_closes_to_its_four_corners():
@@ -175,6 +175,30 @@ def test_rule_2b_simplifies_the_cluster_outline_and_counts_it():
     assert c1["outline_vertices_out"] == _nverts(got[0][2]) == 4
     assert got[0][0] == base[0][0] == "unit:0#0"
     assert got[0][2].covers(base[0][2])
+
+
+def test_the_pieces_the_close_joined_are_named():
+    """§56 (1) 9: the pad count moves, and every change is NAMED — two
+    halls of one cluster 4 m apart are two pads under rule 2 and ONE under
+    2b, which says which ids it took (``outline_joined_from``)."""
+    cl = _Cl("unit:0#0", [_sq(0.0, 0.0, 60.0, 40.0),
+                          _sq(64.0, 0.0, 124.0, 40.0)], area=4800.0)
+    xy = _AP([cl]).frame.entry()
+    base, _c = cluster_outlines([cl], xy, 0.5)
+    stats: dict = {}
+    got, c1 = cluster_outlines([cl], xy, 0.5, outline=LAW, stats=stats)
+    assert [i for i, _c, _g in base] == ["unit:0#0/0", "unit:0#0/1"]
+    assert [i for i, _c, _g in got] == ["unit:0#0"]
+    assert c1["still_in_pieces"] == 0
+    row = stats["unit:0#0"]
+    assert row["outline_joined_from"] == ["unit:0#0/0", "unit:0#0/1"]
+    assert row["outline_simplified_from"] == 8
+    assert row["outline_vertices"] == _nverts(got[0][2])
+    # a cluster the close leaves alone names nothing
+    solo: dict = {}
+    cluster_outlines([_crenellated_cluster()], xy, 0.5, outline=LAW, stats=solo)
+    assert solo["unit:0#0"]["outline_joined_from"] == []
+    assert solo["unit:0#0"]["outline_vertices"] == 4
 
 
 def test_the_mint_and_the_census_draw_the_same_outline():

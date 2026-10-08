@@ -1,0 +1,20 @@
+wall                       unit      anchor     T_today  a_new crest_y   h_cut h_uncut h_old_uncut  face / plate stations (n, mean ground, today's flush seat)
+tunnel south west 2.obj    unit:9    25.253682,51.603116   1.50  -5.50  10.00    2.04    4.50    2.00  ('tunnel_ramp', 'tunnel_ramp') | st 70 mean 3.95 -> seat -6.05 (move -2.05)
+tunnel_sw.obj              unit:21   25.255816,51.608301   1.17   0.00   5.00    2.21    5.00    2.00  ('tunnel_ramp', 'tunnel_ramp') | st 0 mean nan -> seat nan (move +nan)
+tunnel1.obj                unit:116  25.269456,51.606096   1.41  -5.00   9.55    2.00    4.55    2.55  ('tunnel_ramp', 'tunnel_ramp') | st 108 mean 3.96 -> seat -5.59 (move -2.00)
+tunnel1.obj                unit:133  25.271830,51.612645   1.40  -5.00   9.55    1.99    4.55    2.55  ('tunnel_ramp', 'tunnel_ramp') | st 108 mean 3.96 -> seat -5.59 (move -1.99)
+tunnel middle - west.obj   unit:136  25.272613,51.602119   3.96  -3.00   5.00    2.00    2.00    2.00  None | st 90 mean 3.96 -> seat -1.04 (move -2.00)
+tunnel middle - east.obj   unit:157  25.276081,51.613537   3.96  -3.00   5.00    2.00    2.00    2.00  None | st 65 mean 3.96 -> seat -1.04 (move -2.00)
+tunnel west 2.obj          unit:158  25.276138,51.591817   1.03   0.00   5.00    2.07    5.00    2.00  ('tunnel_ramp', 'tunnel_ramp') | st 0 mean nan -> seat nan (move +nan)
+tunnel west 1.obj          unit:161  25.276647,51.593229   3.96   2.50   5.00    7.50    7.50    2.00  None | st 0 mean nan -> seat nan (move +nan)
+tunnel west 3.obj          unit:169  25.279138,51.600161   3.96   1.00   5.00    6.00    6.00    2.00  ('tunnel_ramp', 'tunnel_ramp') | st 0 mean nan -> seat nan (move +nan)
+
+pit                              unit      anchor     T_today       a floor_y rim-G(cut@shell)  face
+OTHH_Dewatering_02_LOD0_002.obj  unit:6    25.252070,51.624664    3.96    0.00  -13.14  -13.14  None
+OTHH_Drainage_04_LOD0_001.obj    unit:10   25.253691,51.623003    3.96    4.30   -3.82    0.48  None
+OTHH_Drainage_06_001.obj         unit:11   25.253778,51.624745    3.96    0.00   -4.20   -4.20  None
+OTHH_Drainage_05_001.obj         unit:12   25.253884,51.622123    3.96    4.30   -3.82    0.48  None
+OTHH_Drainage_03_LOD0_001.obj    unit:196  25.291968,51.605870    3.96    4.30   -3.82    0.48  None
+OTHH_Dewatering_01_LOD0_002.obj  unit:198  25.295703,51.603560    3.96   13.50  -13.14    0.36  None
+OTHH_Drainage_01_LOD0_001.obj    unit:199  25.295772,51.604850    3.96    4.30   -3.82    0.48  None
+OTHH_Drainage_02_LOD0_001.obj    unit:200  25.296364,51.606518    3.96    4.30   -3.82    0.48  None

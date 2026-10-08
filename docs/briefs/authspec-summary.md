@@ -1,0 +1,9 @@
+# Lane `authspec` — summary (2026-10-07, design only; spec §18 of `Ortho4XP/docs/specs/auto-patch-v2/object-placement-spec.md`)
+
+- **Attribution.** The cached `.anchor_bak 4229c95f` is the author's DSF. Between the 09-11 and 09-17 pristine DSFs the ONLY material elevation change is the eight tunnel walls (+2.0 … +5.5 m, not a constant; `middle` unchanged); between 09-17 and 09-28, 88 resources were lifted `OBJECT` → `OBJECT_AGL` (+3.0/+3.5 ILS docks, +4.0 bridges over the canal, pits `Drainage_01..05` +4.2985, `Dewatering_01` +13.4978).
+- **The author's wall-top height is 2.0 m** (09-11: every crest `agl + plate_y` = +2.0 / +2.55 over flat ground; today: 7 of 9 crests land 1.99–2.21 m over the terrain the engine cuts; the two outside are the two walls we cut nothing under — #454 / #455). Today's stage re-seats the 5 admitted walls FLUSH, moving each −2.0 m — the owner's #447.
+- **The rule (§18 (3)):** the seat is kept where the datum (crest / rim) rendered at the authored seat over the engine's OWN cut lands in the lawful band (`authored_crest_max_m` 3.0, `authored_rim_tol_m` 1.0); otherwise re-seat as today (05n-4), to the author's flat-ground proud height under Q2. 05n-4 and 06f NARROWED; 08l/08o STAND; composes with `othhwalls` c1f50c88 (the cut half).
+- **Pits:** a lift within the band of the pit's own shell depth is read ground-seated → the shell is a basin like its plain twin; rim lands +0.36 / +0.48 m. Basins by resource 2 → 8.
+- **Other packs:** the sweep's rebake plans carry 0 plate members / 0 below-grade at HECA, KCLT, SPJC, KASE, CYXY, NLWF → byte-identical. LEMD to be measured.
+- **Owner questions:** Q1 accept 2.0 m (yes); Q2 re-seat to the author's proud height, not flush (yes); Q3 keep the pit seat, rim +0.4 m (yes).
+- Probes (scratch `authspec/`): `dsfobjs.py` / `wall_history.txt` (every cached dump), `dsfdiff.py` (pristine-to-pristine diff), `sample_today.py` / `probe1_today.txt` (today's surface under every anchor).

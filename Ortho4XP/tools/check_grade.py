@@ -9284,6 +9284,7 @@ def _check_within_shape(ways: List[Way],
                 for r in (w.ref or "").split("+")))
     _jsc = _junction_stretch_crossings(ways, nodes, stretches_m)
     _son = _stretch_node_index(stretches_m)
+    pad_pairs: list = []                        # §56 (11) R-C
     for c in iter_shape_grade_constraints(
             ways, nodes, ll_to_m, max_grade, seam_nids, taxi_axes, routes_ll,
             mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
@@ -9437,8 +9438,51 @@ def _check_within_shape(ways: List[Way],
             transverse_road_out.append(v)
         elif _box and taxi_box_out is not None:
             taxi_box_out.append(v)
+        elif law_role(c.way) == _PAD_VERTEX_ROLE:
+            pad_pairs.append((v, c.nid_a, c.nid_b))
         else:
             out.append(v)
+    return out + _one_row_per_pad_vertex(pad_pairs, nodes)
+
+
+#: spec §56 (11) R-C: the role whose ``within_shape`` rows are read one per
+#: VERTEX — the rigid pad, ONE level plane (11j / 09c).
+_PAD_VERTEX_ROLE = "building"
+
+
+def _one_row_per_pad_vertex(pairs: list, nodes: Dict[str, Tuple[float, float]]
+                            ) -> List[Violation]:
+    """Spec §56 (11) R-C: a pad's ``within_shape`` rows, ONE PER VERTEX.
+
+    A pad is one level plane, so a vertex standing off it (off its own
+    relief target, 11j) is over the cap against EVERY ring partner and
+    the pair reading counts it once per partner — the row count scales
+    with the ring, not with the defect (OTHH: 813 of 1,104 rows on one
+    1,111-vertex way, for six vertices).  ``pairs`` is the over-allowance
+    pairs ``(row, nid_a, nid_b)`` as the pair law priced them; per way the
+    vertex in the most pairs takes ONE row — its worst pair, placed AT the
+    vertex — and its pairs are settled, until none is left.  The pair law
+    and its allowances are untouched: a pad with no pair over has no row,
+    exactly as before."""
+    by_way: Dict[str, list] = {}
+    for item in pairs:
+        by_way.setdefault(str(item[0].way_a.wid), []).append(item)
+    out: List[Violation] = []
+    for _wid, left in sorted(by_way.items()):
+        while left:
+            worst: Dict[str, Violation] = {}
+            count: Dict[str, int] = {}
+            for v, na, nb in left:
+                for n in (na, nb):
+                    count[n] = count.get(n, 0) + 1
+                    if n not in worst or v.de_m > worst[n].de_m:
+                        worst[n] = v
+            nid = max(count, key=lambda n: (count[n], worst[n].de_m, str(n)))
+            row = dataclasses.replace(worst[nid])
+            if nodes.get(nid) is not None:
+                row.lat, row.lon = nodes[nid][0], nodes[nid][1]
+            out.append(row)
+            left = [t for t in left if nid not in (t[1], t[2])]
     return out
 
 

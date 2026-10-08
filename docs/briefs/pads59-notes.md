@@ -120,3 +120,30 @@ this PR is the master's.
   `refused_plates` now serve only a landing pair and a draped facade with the hold off.
 - The generator name `platform_collar` and the ruling heads `… platform_collar bank / rim / terrace`
   are kept (they are row identities in `emit.toml` registers and in every sidecar).
+
+## ADDENDUM — the closing builds, and the fix they forced (`596e62c2`)
+
+The first closing OTHH build (`p59_OTHH`, `b63cce36`) FAILED: `building6` (the terminal) datum **3.962 →
+2.611 m** with `datum_median` 3.962, the apron following (`pav4#plateau:building6` 2.61..3.96),
+`hard_conflict` 0 on main → **210** (pad 177 / taxi 23 / groundside 10). CAUSE, proven by intervention
+(build `p59b_OTHH`): 25 vertices of the terminal's face are tops of `wall_corridor_ramp` faces (2.57–2.61
+m, the ramps' own hard law); they are not airside, so 4C put them in the pad's FLAT set (`v == datum`,
+hard) and the solve met those rows by moving the DATUM, not by demoting them — spec §56 (6)'s "the
+ladder demotes the pad's flat at those vertices" does not hold when the row is satisfiable by seating
+the whole pad at the structure. FIX (`596e62c2`, a general rule, twinned): a vertex a STRUCTURE-role
+face carries (`law.tables.is_structure_role`) is neither a flat vertex nor the datum column of its host
+pad. After it (`p59c_OTHH`): every OTHH datum 3.962, `hard_conflict` 64, all pad tier (23 ceiling + 14
+flat on the terminal, 27 on two landings), solve-owned airside movers vs main 0 at 0.02 m. HECA is
+unchanged by the fix (body `b2b7a34ab531` before and after).
+
+Closing frames (registered, `frames/pads59/`): `p59c_OTHH.osm` body `540e0dd1670f`, 325.4 s;
+`p59c_HECA.osm` body `b2b7a34ab531`, 426.5 s; the gaps3 arm `HECA_auto.patch.osm`.
+
+OTHH site 25.259994, 51.6104872 r 150 (main → lane): faces 57 → 25, ring vertices 2,375 → 1,579, collar
+faces 12 → 0, road faces 29 → 3 (`route37` ×2, `small_roads:-8407`), building faces 6 → **8** (bar 1:
+`building6` in two faces — 182,613 m² and a 4,054 m² part — plus six surplus scraps `building6#1 / #2 /
+#3 / #4 ×2 / #13` of 0–105 m²), apron 2 → 6, trench 5 = 5.
+
+STILL OWED before a sweep: the spec author's rulings on (1) bar 3 (c)/(d) and the datum column's
+`apron_trend` row, (2) the landings that appear (HECA 5 at T3, OTHH 4 at the terminal — two of them
+at 2.07 / 2.22 m, under the 3.96 m ground), (3) the eight building faces at the OTHH site.

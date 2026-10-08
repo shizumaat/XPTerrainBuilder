@@ -187,17 +187,18 @@ def test_a_row_lands_in_exactly_one_family(cg, tmp_path):
 
 def test_the_along_road_grade_still_censuses_as_within_shape(cg, tmp_path):
     """The partition must not have eaten the LONGITUDINAL law: a road
-    running over its 8 % chord cap along its own axis is still a
+    running over its chord cap along its own axis is still a
     ``within_shape`` row."""
     p = _Patch(cg)
-    # 120 m long, 12 m of rise = 10 % ALONG the axis, laterally flat.
-    p.ring([(0.0, 0.0, 10.0), (120.0, 0.0, 22.0),
-            (120.0, 6.0, 22.0), (0.0, 6.0, 10.0)],
+    # 120 m long, two points over the road cap ALONG the axis, laterally flat.
+    top = 10.0 + (cg.SERVICE_ROAD_MAX_GRADE + 0.02) * 120.0
+    p.ring([(0.0, 0.0, 10.0), (120.0, 0.0, top),
+            (120.0, 6.0, top), (0.0, 6.0, 10.0)],
            {"role": "service_road", "shapeID": "R2"})
     osm = p.write(tmp_path / "LONG_auto.patch.osm")
     fam: dict = {}
     cg.run_checks(osm, top_n=0, quiet=True, family_out=fam)
-    assert fam["within_shape"], "the 10 % longitudinal grade vanished"
+    assert fam["within_shape"], "the over-cap longitudinal grade vanished"
     assert not fam["road_cross_section"], (
         "a laterally FLAT road minted cross-section rows")
 

@@ -42,7 +42,7 @@ from auto_patch_v2.law import tables as V2TABLES                # noqa: E402
 ROAD_CAP_FROM_LAW = float(V2TABLES.role_cap(
     V2TABLES.load_default(), "service_road").longitudinal)
 
-CAP = 0.08
+CAP = ROAD_CAP_FROM_LAW
 STATION_M = 20.0
 
 
@@ -522,7 +522,8 @@ def test_both_road_cap_readers_read_the_LAW_TABLE_and_not_the_v1_engine():
             f"{mod.__name__} still reads the v1 engine's constant")
     # and the law table is the value the CENSUS prices roads by, so the
     # knob's default cannot drift from what a defect count assumes
-    assert ROAD_CAP_FROM_LAW == CAP
+    assert ROAD_CAP_FROM_LAW == float(
+        V2TABLES.load_default().tables.common.road_max_grade)
 
 
 # ── §2-SUPPLEMENT: THE CLAMP IS SCOPED TO THE PATCH NEIGHBOURHOOD ───────

@@ -192,18 +192,19 @@ def test_law_register(law):
     assert is_structure_role(law, "door_ramp") and role_side(law, "door_ramp") == "groundside"
     cap = role_cap(law, "door_ramp")
     assert cap is not None and d.ramp_grade <= cap.longitudinal
-    # RULINGS 2026-09-12m (owner): the tunnel ramp took the ROAD cap, so the
-    # door ramp no longer stands ABOVE it — all three are the road 8 % now.
+    # RULINGS 2026-09-12m (owner): the tunnel ramp took the ROAD cap; RULINGS
+    # 2026-10-07d raised the road cap to the walled-ramp 10 %, so the door
+    # ramp no longer stands ABOVE either — it is never BELOW them.
     # What keeps door_ramp a role of its own is its generation and its oracle
     # law (structure_ramp 10 %), asserted above, not a distinct number.
     # §47 (6): the walled door ramp holds the SAME 10 % cap as a wall
     # corridor (owner RULINGS 2026-09-17h Q1), not the tunnel road cap
     assert cap.longitudinal == pytest.approx(
         law.tables.structures.cutout.wall_corridor.max_ramp_grade)
-    assert cap.longitudinal > role_cap(law, "tunnel_ramp").longitudinal
-    # §47 (6): the door ramp's cap is the WALLED-RAMP cap (10 %), above
+    assert cap.longitudinal >= role_cap(law, "tunnel_ramp").longitudinal
+    # §47 (6): the door ramp's cap is the WALLED-RAMP cap, never under
     # the road cap a flat-well outward climb was held to
-    assert cap.longitudinal > role_cap(law, "service_road").longitudinal
+    assert cap.longitudinal >= role_cap(law, "service_road").longitudinal
     assert "door_ramp" not in law.tables.precedence.order
 
 

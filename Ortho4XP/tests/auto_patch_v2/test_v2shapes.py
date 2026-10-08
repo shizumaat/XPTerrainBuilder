@@ -382,8 +382,9 @@ def test_a_road_crossing_between_two_shapes_ramps_at_its_cap_with_no_joint(law):
     assert rep.converged or rep.set_flips > 0, rep.line()
     js = joint_steps(pm, law, stage, sol.z)
     (rr,) = js["ramps"]
-    assert rr["face"] == road.id and rr["cap"] == pytest.approx(0.08)
-    assert 0.03 < rr["grade"] <= 0.08 + 1e-6 and not rr["too_short"], rr
+    cap = law.tables.common.road_max_grade
+    assert rr["face"] == road.id and rr["cap"] == pytest.approx(cap)
+    assert 0.03 < rr["grade"] <= cap + 1e-6 and not rr["too_short"], rr
     # no step anywhere on the road: a grade along its length under the cap.
     # 08t: the two ends are the fixture's own PINS (equalities the reduction
     # fixes) and the cap is a TARGET, so the edges that touch a pin carry the
@@ -393,7 +394,7 @@ def test_a_road_crossing_between_two_shapes_ramps_at_its_cap_with_no_joint(law):
     for e in pm.edges.values():
         if road.id in (e.left_face, e.right_face) and not (pinned & {e.a, e.b}):
             d = math.dist(pm.vertices[e.a].xy, pm.vertices[e.b].xy)
-            assert abs(sol.z[e.a] - sol.z[e.b]) <= 0.08 * d + 0.02, (e.a, e.b)
+            assert abs(sol.z[e.a] - sol.z[e.b]) <= cap * d + 0.02, (e.a, e.b)
     # too short: the shapes 30 m apart over 200 m of road — the road at its cap
     z = [700.0 if pm.vertices[v].xy[0] < 0.0 else 730.0 for v in range(len(pm.vertices))]
     (rr2,) = joint_steps(pm, law, stage, z)["ramps"]

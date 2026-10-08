@@ -90,7 +90,10 @@ def test_road_strip_and_lot_are_two_faces_cut_at_the_mouth(law):
     # sides and caps from the register
     assert roads[0][3].side == "groundside" and lots[0][3].side == "groundside"
     assert role_cap(law, "parking_lot").longitudinal == pytest.approx(0.05)
-    assert role_cap(law, "service_road").longitudinal == pytest.approx(0.08)
+    # RULINGS 2026-10-07d: the road takes the road cap, the lot stays under it
+    assert role_cap(law, "service_road").longitudinal == pytest.approx(
+        law.tables.common.road_max_grade)
+    assert role_cap(law, "parking_lot").longitudinal < law.tables.common.road_max_grade
     # evidence is recorded per face
     assert lots[0][3].evidence["source_class"] == "lot"
     assert roads[0][3].evidence["source_class"] == "strip"

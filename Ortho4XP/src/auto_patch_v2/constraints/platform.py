@@ -533,12 +533,19 @@ def _contact_sets(planar: PlanarMap, law: Law
     vertices every other vertex of the face but one ANOTHER pad carries
     (two pads may sit at different floors, ``step_exemption_pad_to_pad``:
     HECA ``building281`` abuts ``building68`` 16.4 m higher — an equality
-    there is a contest the plane loses; a block's own strip is its own,
+    there is a contest the plane loses — and one a STRUCTURE face carries
+    (a wall-corridor / door / tunnel ramp's top, a trench rim: the structure
+    is cut INTO its host pad and its level there is the structure's own law;
+    MEASURED on the OTHH closing build: with the 25 ramp-top vertices of
+    ``building6`` in the flat set the whole terminal settled at the ramps'
+    2.61 m, 1.35 m under its frontage, and the apron followed); a block's
+    own strip is its own,
     and a BANK face — another block's strip, a landing's collar — is no
     floor: the pad's rim under it stays on the pad's plane).
 
     A LANDING (``collar_faces``, the ``#collar`` pair): the platform's
     vertices, and the bank's outer vertices that are airside."""
+    from ..law.tables import is_structure_role
     from .pads import airside_vertices, rigid_roles
     from .precedence import view
     pairs = collar_faces(planar, law)
@@ -561,9 +568,11 @@ def _contact_sets(planar: PlanarMap, law: Law
         vs = {v for q in fids for r in [vw.rings[q], *vw.holes[q]] for v in r}
         weld = sorted(v for v in vs if v in air)
         flat = [v for v in sorted(vs - set(weld))
-                if not any(q not in own_f and planar.faces[q].role in rigid
-                           and not is_bank_ref(planar.faces[q].ref)
-                           and pad_base_ref(planar.faces[q].ref) != base
+                if not any(q not in own_f
+                           and (is_structure_role(law, planar.faces[q].role)
+                                or (planar.faces[q].role in rigid
+                                    and not is_bank_ref(planar.faces[q].ref)
+                                    and pad_base_ref(planar.faces[q].ref) != base))
                            for q in planar.vertices[v].incident_faces)]
         out.append((ref, flat, weld, fids[0], True))
     return out

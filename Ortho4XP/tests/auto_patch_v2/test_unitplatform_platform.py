@@ -264,6 +264,30 @@ def test_the_held_pad_is_flat_at_its_datum_and_leads_its_frontage(built, law):
     assert all(platform.HOLD_RULING in r.source.ruling for r in hold)
 
 
+def test_a_vertex_a_structure_carries_is_not_the_host_pads_flat_vertex(law, monkeypatch):
+    """A structure cut into its host pad (a wall-corridor / door / tunnel
+    ramp's top) keeps its own level at the vertices it shares with the pad:
+    they are neither held contacts nor flat vertices, and never the datum
+    column.  MEASURED on the OTHH closing build (lane pads59): with the 25
+    ramp-top vertices of ``building6`` in the flat set the terminal settled
+    at the ramps' 2.61 m — 1.35 m under its frontage median 3.962, the apron
+    following, hard_conflict 0 -> 210; out of it, 3.962 and 66 (pad tier).
+    The fixture stands a face in for the structure by its ROLE."""
+    cells = _cells() + [Cell(3, "parking_lot", "lotN", _rect(-60.0, 300.0, 60.0, 340.0),
+                             (), None, None, "groundside", "lot", {})]
+    airport = _airport(law, _Dem())
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    lot = _vs(pm, _faces(pm, "lotN")) & _vs(pm, _faces(pm, "padU"))
+    assert lot
+    (_r, flat0, _w), = platform.platform_contacts(pm, law)
+    assert lot <= set(flat0)                     # a lot is no structure
+    monkeypatch.setattr("auto_patch_v2.law.tables.is_structure_role",
+                        lambda _law, role: role == "parking_lot")
+    (_r, flat, weld), = platform.platform_contacts(pm, law)
+    assert not lot & set(flat) and not lot & set(weld)
+    assert set(flat) == set(flat0) - lot
+
+
 def test_the_solved_pad_is_flat_and_its_record_carries_no_collar_key(built, law):
     """On a solve: one flat plane at the datum, every weld on it, nothing
     released, nothing warned — and the record names no collar."""

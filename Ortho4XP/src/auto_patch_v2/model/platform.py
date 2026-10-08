@@ -165,26 +165,33 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
     FARTHEST from its welded rim (ties: lowest id), so no pad row reaching
     an airside vertex (a ceiling pair over a rim edge) is pulled into stage
     1 through it (measured HECA: a rim datum made two §20 pads' ceilings an
-    infeasible stage-1 set).  A pad whose every vertex is airside has no
-    datum column and is not held.  ONE derivation: the stage split
+    infeasible stage-1 set) — and never a vertex a STRUCTURE face carries (a
+    ramp's top, a trench rim: its level is the structure's own law, and a
+    datum column on it seats the whole pad at the structure).  A pad with no
+    such vertex of its own has no datum column and is not held.  ONE derivation: the stage split
     (``solve/design_roles.airside_stage_vertices``) and the hold rows read
     the same vertex."""
     if not HELD:
         return {}
     if air is None:
         air = stage_air_vertices(planar, law)
+    from ..law.tables import is_structure_role
     own: dict[str, set[int]] = {}
+    struct: set[int] = set()
     for f in planar.faces.values():
         r = str(f.ref)
         if r in HELD:
             vs = own.setdefault(r, set())
             for ring in (f.ring, *f.holes):
                 vs.update(planar.ring_vertices(ring))
+        elif is_structure_role(law, f.role):
+            for ring in (f.ring, *f.holes):
+                struct.update(planar.ring_vertices(ring))
     out: dict[str, int] = {}
     for ref in sorted(HELD):
         vs = own.get(ref, set())
         weld = vs & set(air)
-        inner = sorted(vs - weld)
+        inner = sorted(vs - weld - struct)
         if not weld or not inner:
             continue
         wx = [planar.vertices[v].xy for v in weld]

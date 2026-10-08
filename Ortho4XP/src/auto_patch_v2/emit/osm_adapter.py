@@ -183,9 +183,11 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "hard_conflict",
     # jetway-strip spec §2 (6): per strip its level, vertices, clamps
     "jetway_strips",
-    # unit-platform spec §3 P21 / §4 (5): per platform its collar width,
-    # its solved plane and the relief its welded rim carries; per refused
-    # pad the reason (census ``platform_rim_relief`` / ``platform_refused``)
+    # unit-platform spec §3 P21 / §4 (5); spec §56 (3): per unit pad / block
+    # its solved plane, datum and frontage record (``released``, ``warned``,
+    # ``warning`` — no collar key); per landing its bank; per refused pad the
+    # reason (census ``pad_frontage_infeasible`` / ``platform_rim_relief`` /
+    # ``platform_refused``)
     "platforms",
     "apron_tier",  # RULINGS 2026-09-06w: the tiered apron law priced (preferred / max / fan) — the oracle's cap for apron rows (``publication.apron_tier``)
     "pad_cluster_mismatch",  # §16g (10) (3) (owner RULINGS 2026-09-14x): the CRITICAL defect set — a pad more than half claimed by two clusters, or a cluster that is more than half of two pads.  "Pads must match building clusters ... exactly"; empty is the bar (``pipeline/publication`` off ``constraints.cluster_pad.pad_cluster_mismatch``)

@@ -545,6 +545,10 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             "verify_log_path": task["verify_log_path"],
             "object_pad_records": [], "provenance_log": line,
             "log_lines": log_lines,
+            # spec §56 (3): the fixed lines the user is WARNED with (a
+            # building pad whose frontage the apron cannot be welded to
+            # within the caps) — said by the parent, ``driver``
+            "warnings": list(res.report.get("warnings") or ()),
             "v2": {"status": status, "law_tables": digest,
                    "ruleset": law.ruleset_key, "wall": res.wall,
                    "report": os.path.join(scratch, icao + ".report.json"),

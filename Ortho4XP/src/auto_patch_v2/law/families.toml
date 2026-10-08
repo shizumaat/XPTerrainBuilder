@@ -224,7 +224,7 @@ solver    = "diagnostic"
 cockpit   = "grade"
 
 [pad_frontage_infeasible]
-measures  = "a held flat-pad block's UNHELD welded frontage contacts (a ramp between two blocks, or beyond the mint band's reach) — the residual the collar carries; one row per block (de = the worst, distance = the count)"
+measures  = "a frontage weld the elastic LP released; the pad's rim carries the step; WARNED to the user above `frontage_hold_margin_m`; one row per block (de = the worst, distance = the count, reading = warned / not_warned / unsaid)"
 parameter = "structures.building_pad.frontage_hold_margin_m"
 roles     = ["building"]
 pairs     = "within"

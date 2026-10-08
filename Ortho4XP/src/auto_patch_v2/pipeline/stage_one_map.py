@@ -353,6 +353,13 @@ class StageOne:
         finally:
             self.state = _cs.collect()   # stage 1's own mutations stay its own
             _cs.install(saved)
+            # ... but the hold's per-block REPORT (the reach interval, the
+            # datum's median — no vertex id) is the BUILD's: the sidecar's
+            # ``platforms[]`` and the frontage warning read it off the full
+            # map's registry (spec §56 (3))
+            from ..model.platform import hold_report, install_hold_report
+            install_hold_report(hold_report(
+                (self.state.get("fields") or {}).get("held") or {}))
 
     def to_full(self, vid: int) -> int | None:
         return self.vmap.get(int(vid))

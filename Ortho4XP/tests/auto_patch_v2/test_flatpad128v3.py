@@ -420,6 +420,12 @@ def test_a_conforming_pad_is_held_flat(law, built_full):
     rec = {r["ref"]: r for r in _conforming_records(pm, lw, z)}["padB"]
     assert abs(rec["datum"] - D) <= 1e-3
     assert rec["datum_median"] == HELD["padB"]["datum_chosen"]
+    # spec §56 (3): the record carries the pad's area (the warning's slot)
+    # and the warning's verdict — the faces' own area, holes out
+    from auto_patch_v2.planar.index import face_polygon
+    assert rec["pad_m2"] == round(sum(face_polygon(pm, q).area for q, f in pm.faces.items()
+                                      if f.ref == "padB"), 1) > 0.0
+    assert rec["warned"] is False and rec["warning"] is None
     assert rec["welded"] + rec["released"] == rec["held_contacts"]
     assert rec["released"] == 0 or rec["needs_split"]
     contacts = {o for o, _z in HELD["padB"].get("hold_contacts", [])}

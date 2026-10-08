@@ -1121,11 +1121,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _pulse.tick("the last stage: the gap pieces")
         from .late_stage import run_late_stage
         _base_rep = design_rep
+        # the last stage re-mints the HELD registry (its own prefix run): the
+        # base solve's hold report is carried over it (``model.platform``)
+        from ..model.platform import hold_report, install_hold_report
+        _hold_rep = hold_report()
         pm, sol, _late = run_late_stage(
             cl_gaps, airport, law, _ribbon_free,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield},
             rules=load_rules(), options=cfg.options,
             out=lambda m: _say(f"[{icao}] {m}", out))
+        install_hold_report(_hold_rep)
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
             _prefix_stage["stage"], pm=pm)
         strips, design_rep = _late["strips"], _late["design"]
@@ -1290,6 +1295,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # rows the surface missed (``design_target``), which the census
         # counts law-true in their families and reports under one heading
         pub["design"] = design_rep.as_dict()
+        # spec §56 (3) (owner 07c (6) "warn and explain"): the fixed line of
+        # every block whose released frontage weld is over the bar — the
+        # engine says each ONCE through its warning path (``auto_patch/
+        # driver``: ``UI.loud_warning``); this package prints nothing
+        from ..constraints.pad_warning import warnings_of
+        report["warnings"] = warnings_of(pub.get("platforms"))
         if _late_report is not None:
             from .publication import gap_pieces, late_stage
             pub["gap_pieces"] = gap_pieces(_late_report["cut"])

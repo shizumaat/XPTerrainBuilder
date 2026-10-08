@@ -7068,18 +7068,21 @@ def _check_platform_rim_relief(platforms_ll) -> List[Violation]:
 
 def _check_pad_frontage(platforms_ll, held: bool) -> List[Violation]:
     """THE FLAT-PAD FRONTAGE HOLD (flat-pad spec §1 (2) / §5 A1; spec-author
-    RULINGS 2026-09-30u (c)) — REPORT, one row per held BLOCK.
+    RULINGS 2026-09-30u (c); spec §56 (3)) — REPORT, one row per held BLOCK.
 
     SIDECAR-DECLARED like ``platform_rim_relief``: the build publishes per
-    held block its solved (pinned) datum and its welded contacts split into
-    the HELD ones (a stage-1 hold row) and the UNHELD ones (a ramp between
-    two blocks, or a contact the mint's band could not reach).
-    ``held=True`` is ``pad_frontage_hold``: a block one of whose HELD
-    contacts stands off the datum by more than ``frontage_hold_margin_m``
-    (``held_over_margin`` > 0), ``de`` = the worst.  ``held=False`` is
-    ``pad_frontage_infeasible``: a block with UNHELD contacts, ``de`` =
-    the worst of them — the residual the collar carries, never a silent
-    class."""
+    held block its solved datum and what the solve did with its frontage
+    welds.  ``held=True`` is ``pad_frontage_hold``: a block one of whose
+    HELD contacts stands off the datum by more than
+    ``frontage_hold_margin_m`` (``held_over_margin`` > 0), ``de`` = the
+    worst.  ``held=False`` is ``pad_frontage_infeasible`` (spec §56 (3)): a
+    block with a frontage weld the elastic LP RELEASED (``released`` > 0) —
+    the pad's rim carries the step; ``de`` = ``released_max_m``,
+    ``distance`` = the count, the site the worst released contact, and
+    ``reading`` says whether the user was WARNED (``"warned"``, over the
+    bar), not (``"not_warned"``, under it) or OVER THE BAR WITH NO LINE
+    (``"unsaid"``: the record lacks a slot of the fixed copy,
+    ``warning_unsaid`` names it) — never a silent class."""
     out: List[Violation] = []
     kind = "pad_frontage_hold" if held else "pad_frontage_infeasible"
     for rec in platforms_ll or ():
@@ -7092,17 +7095,21 @@ def _check_pad_frontage(platforms_ll, held: bool) -> List[Violation]:
             ll = rec.get("hold_worst_ll") or rec.get("centroid_ll") or (0.0, 0.0)
             n = int(rec.get("held_contacts", 0) or 0)
         else:
-            n = int(rec.get("unheld_contacts", 0) or 0)
+            n = int(rec.get("released", 0) or 0)
             if not n:
                 continue
-            de = float(rec.get("unheld_miss_max_m") or 0.0)
-            ll = rec.get("unheld_worst_ll") or rec.get("centroid_ll") or (0.0, 0.0)
+            de = float(rec.get("released_max_m") or 0.0)
+            ll = ((rec.get("released_ll") or [None])[0]
+                  or rec.get("centroid_ll") or (0.0, 0.0))
         way = _platform_way(str(rec.get("ref", "")), kind)
         dat = float(rec.get("datum", 0.0) or 0.0)
         v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=float(n),
                       de_m=de, way_a=way, way_b=way,
                       pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=dat, elev_b=dat)
         v.lat, v.lon = float(ll[0]), float(ll[1])
+        if not held:
+            v.reading = ("warned" if rec.get("warned") else
+                         "unsaid" if rec.get("warning_unsaid") else "not_warned")
         out.append(v)
     return out
 

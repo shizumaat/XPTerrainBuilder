@@ -993,6 +993,10 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     print("    " + wrep.line(icao))
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=strip_rep)
+    # spec §56 (3): the lines the build would WARN the user with
+    from auto_patch_v2.constraints.pad_warning import warnings_of
+    for _w in warnings_of(pub.get("platforms")):
+        print(f"[{icao}] WARNED: {_w}")
     pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
     if late_cut is not None:
         from auto_patch_v2.pipeline.publication import gap_pieces

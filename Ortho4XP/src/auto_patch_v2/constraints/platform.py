@@ -46,6 +46,7 @@ from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import (PlanarMap, is_collar_ref, is_strip_ref,
                             pad_base_ref, platform_ref_of, unit_ref_of)
 from ..model.platform import HELD, datum_vertices
+from .pad_warning import stamp_warning
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
            "landing_rows", "landing_vertices",
@@ -937,6 +938,8 @@ def platform_records(planar: PlanarMap, law: Law,
                                        and not um else "residual")
                 rec.update(_datum_record(planar, z, D, [v for v in hw if v in held_v],
                                          htol, h))
+                rec["pad_m2"] = _pad_m2(planar, (*cfids, *pfids))
+                stamp_warning(rec, mg)
                 rec.update({"held_contacts": int(hm.size),
                             "held_miss_max_m": round(float(hm.max()), 3) if hm.size else None,
                             "held_over_margin": int((hm > mg).sum()) if hm.size else 0,
@@ -1031,8 +1034,10 @@ def _conforming_records(planar: PlanarMap, law: Law, z) -> list[dict]:
     dvs = datum_vertices(planar, law)
     tol = float(design_law(law).hard_tol_m)
     verts: dict[str, set[int]] = {}
-    for f in planar.faces.values():
+    fids: dict[str, list[int]] = {}
+    for fid, f in planar.faces.items():
         if str(f.ref) in refs:
+            fids.setdefault(str(f.ref), []).append(fid)
             vs = verts.setdefault(str(f.ref), set())
             for ring in (f.ring, *f.holes):
                 vs.update(planar.ring_vertices(ring))
@@ -1062,8 +1067,24 @@ def _conforming_records(planar: PlanarMap, law: Law, z) -> list[dict]:
             if k in h:
                 rec[k] = h[k]
         rec.update(_datum_record(planar, z, D, held_v, tol, h))
+        rec["pad_m2"] = _pad_m2(planar, fids.get(r, ()))
+        stamp_warning(rec, float(law.tables.structures.building_pad
+                                 .frontage_hold_margin_m))
         out.append(rec)
     return out
+
+
+def _pad_m2(planar: PlanarMap, fids) -> float:
+    """The area of the faces ``fids`` (the pad as the user sees it), m² —
+    each face's ring less its holes, by the shoelace
+    (``geom.pad_evidence.ring_area`` on frame metres)."""
+    from ..geom.pad_evidence import ring_area
+
+    def _a(ring) -> float:
+        return ring_area([planar.vertices[v].xy for v in planar.ring_vertices(ring)],
+                         1.0, 1.0)
+    return round(sum(_a(planar.faces[q].ring) - sum(_a(h) for h in planar.faces[q].holes)
+                     for q in fids), 1)
 
 
 def collar_width(planar: PlanarMap, cfids, pfids) -> float:

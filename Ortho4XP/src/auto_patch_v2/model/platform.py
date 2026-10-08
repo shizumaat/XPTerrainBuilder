@@ -15,7 +15,8 @@ import typing as _t
 
 __all__ = ["Platform", "PLATFORMS", "HELD", "LANDINGS", "LANDING_SEP",
            "is_landing_ref", "PLATEAUS", "plateau_vertices",
-           "held_platform_vertices",
+           "held_platform_vertices", "HOLD_REPORT_KEYS", "hold_report",
+           "install_hold_report",
            "datum_vertex_of", "datum_vertices", "stage_air_vertices"]
 
 
@@ -59,6 +60,42 @@ PLATFORMS: list[Platform] = []
 #: ``planar/platform.platform_split``; ``[building_pad] frontage_hold``
 #: off leaves it empty.
 HELD: dict[str, dict[str, _t.Any]] = {}
+
+#: The per-block REPORT ``constraints/no_step.hold_interval`` writes into
+#: :data:`HELD` during stage 1 — scalars and lat/lon keys, no vertex id, so
+#: the record means the same on every map of one build.  Stage 1 runs on the
+#: ribbon-free map under ITS OWN registries (``pipeline/stage_one_map``) and
+#: the last stage re-mints :data:`HELD`; :func:`hold_report` /
+#: :func:`install_hold_report` carry these keys across both, so the sidecar's
+#: ``platforms[]`` (and the frontage warning, spec §56 (3)) read them.
+HOLD_REPORT_KEYS = ("reach_band", "reach_band0", "reach_width_m", "reach_gap_m",
+                    "reach_gap0_m", "reach_empty", "reach_eval", "reach_unreached",
+                    "datum_chosen", "reach_isect", "reach_isect_empty",
+                    "reach_lo_binding", "reach_hi_binding")
+
+
+def hold_report(held: "_t.Mapping[str, dict] | None" = None) -> dict[str, dict]:
+    """``{held ref: its report keys}`` (:data:`HOLD_REPORT_KEYS`) off
+    ``held`` (default: the live :data:`HELD`) — a deep copy."""
+    import copy
+    src = HELD if held is None else held
+    out = {r: {k: copy.deepcopy(h[k]) for k in HOLD_REPORT_KEYS if k in h}
+           for r, h in src.items()}
+    return {r: d for r, d in out.items() if d}
+
+
+def install_hold_report(report: "_t.Mapping[str, dict]") -> int:
+    """``report`` (:func:`hold_report`) into the live :data:`HELD`, by ref;
+    a ref the live registry does not hold is skipped.  Returns the refs
+    written."""
+    import copy
+    n = 0
+    for r, d in report.items():
+        if r in HELD:
+            HELD[r].update(copy.deepcopy(dict(d)))
+            n += 1
+    return n
+
 
 #: owner RULINGS 2026-10-03e (#290): the last arrangement's RAMP LANDINGS
 #: of a unit's viaduct — ``<unit ref>/landing<k>`` (its collar

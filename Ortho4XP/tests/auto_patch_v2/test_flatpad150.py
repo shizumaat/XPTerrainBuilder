@@ -61,18 +61,18 @@ def test_the_disc_reaches_the_pad_edge(arms):
     pm1, _pm0, plateaus = arms
     assert "padA" in plateaus, "the fixture's stand cuts a plateau"
     faces = [f for f in pm1.faces.values() if PLATEAU_MARK in str(f.ref)]
-    pad = _keys_by_ref(pm1)["padA#collar"]       # the collar fronts the apron
+    pad = _keys_by_ref(pm1)["padA"]              # the pad face fronts the apron
     ring = {pm1.vertices[v].key for f in faces for r in (f.ring, *f.holes)
             for v in pm1.ring_vertices(r)}
-    assert len(ring & pad) >= 2, "the plateau runs along the collar edge (the crossing case)"
+    assert len(ring & pad) >= 2, "the plateau runs along the pad edge (the crossing case)"
 
 
 def test_the_pad_across_the_edge_keeps_its_identity(arms):
     pm1, pm0, _p = arms
     k1, k0 = _keys_by_ref(pm1), _keys_by_ref(pm0)
-    c = "padA#collar"
+    c = "padA"
     assert k1[c] == k0[c], (
-        "the plateau cut minted/deleted a vertex on the collar it fronts: "
+        "the plateau cut minted/deleted a vertex on the pad it fronts: "
         f"+{len(k1[c] - k0[c])} -{len(k0[c] - k1[c])}")
     # every face other than the cut apron and its plateau is untouched
     for ref, ks in k0.items():

@@ -695,19 +695,7 @@ def _platforms(planar: PlanarMap, law: Law, z) -> list[dict[str, _t.Any]]:
     from ..constraints.platform import platform_records
     from ..planar.platform import PLATFORMS
     out = platform_records(planar, law, z)
-    # #86 round 2 (owner RULINGS 2026-10-02z): C is the widest width the pad
-    # CARRIES, so every record names the minted width and WHY — the solved
-    # ``collar_m`` above is read off the geometry and cannot say whether the
-    # min-area gate bounded it
-    why = {p.ref: p for p in PLATFORMS if not p.refused}
-    for rec in out:
-        p = why.get(str(rec.get("ref")))
-        if p is not None:
-            rec["collar_minted_m"] = p.collar_m
-            rec["collar_why"] = p.collar_why
-    out.extend({"ref": p.ref, "refused": p.refused, "pad_m2": p.pad_m2,
-                "platform_m2": p.platform_m2, "collar_m": p.collar_m,
-                "collar_why": p.collar_why}
+    out.extend({"ref": p.ref, "refused": p.refused, "pad_m2": p.pad_m2}
                for p in PLATFORMS if p.refused)
     return out
 

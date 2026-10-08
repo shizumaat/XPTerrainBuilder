@@ -592,8 +592,9 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # carried most of the certificate's 151 -> 1,318 infeasible rows.
     led_ruling = (FLAT_AIRSIDE_LED_RULING + ruling[len(FLAT_RULING):]
                   if ruling.startswith(FLAT_RULING) else ruling)
-    from .platform import contact_led_refs
+    from .platform import contact_led_refs, flat_held_refs
     led_refs = contact_led_refs(planar, law) if cap <= 0.0 else frozenset()
+    flat_refs = flat_held_refs(planar, law)
     for fid, ref, group, fids in plane_groups(planar, law, airport):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
         src_led = Source(GEN, led_ruling, (f"face:{fid}", ref))
@@ -602,7 +603,10 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         # ``platform plane`` rows carry no relief, RULINGS 12u) — the
         # plate over it prices no §30 (6) per-vertex relief either, or the
         # two contest the plane (measured HECA T3: 0.56 m residual)
-        platformed = any(is_collar_ref(planar.faces[q].ref) for q in fids)
+        # (spec §56 (3): a unit pad FLAT at its datum is that plane — there
+        # is no collar; a landing keeps its ``#collar``)
+        platformed = any(is_collar_ref(planar.faces[q].ref)
+                         or str(planar.faces[q].ref) in flat_refs for q in fids)
         # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): a platform's TILT is
         # FREE within the 1 % ceiling — its plane is contact-led
         # (``platform.platform_level_rows``) and held one plane by the hard

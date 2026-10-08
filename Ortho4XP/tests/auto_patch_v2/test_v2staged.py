@@ -167,12 +167,12 @@ def test_a_pad_vertex_welded_to_the_apron_is_stage_ones(law, built):
     apron.  The pad is the UNIT: every face whose ref joins on
     ``ref.split("#")[0]``.  Its welded vertices are the collar's, and
     they are stage 1's."""
-    from auto_patch_v2.model.planar import COLLAR_SUFFIX
     pm, _cs = built
     air = airside_stage_vertices(pm, law)
     unit = [f for f in pm.faces.values() if f.ref.split("#")[0] == "padA"]
-    assert {f.ref for f in unit} == {"padA", "padA" + COLLAR_SUFFIX}, (
-        sorted(f.ref for f in unit))
+    # spec §56 (3): the unit pad is ONE face — the collar is deleted, the
+    # welded rim is the pad face's own
+    assert {f.ref for f in unit} == {"padA"}, sorted(f.ref for f in unit)
     # the flat-pad hold's DATUM COLUMN (RULINGS 2026-09-30f/r) is a stage-1
     # unknown by construction and is not a weld
     from auto_patch_v2.model.platform import datum_vertices
@@ -180,11 +180,10 @@ def test_a_pad_vertex_welded_to_the_apron_is_stage_ones(law, built):
     shared = {v for f in unit for v in pm.ring_vertices(f.ring)
               if v in air and v not in dcol}
     assert shared, "the fixture's pad fronts the apron"
-    # the weld is the RIM's, i.e. the collar's; the apron owns the same
-    # vertex (one unknown), so stage 1 decides it
-    collar = next(f for f in unit if f.ref.endswith(COLLAR_SUFFIX))
+    # the weld is the pad face's own rim; the apron owns the same vertex
+    # (one unknown), so stage 1 decides it
     apron = next(f for f in pm.faces.values() if f.ref == "apronA")
-    assert shared <= set(pm.ring_vertices(collar.ring))
+    assert shared <= set(pm.ring_vertices(unit[0].ring))
     assert shared <= set(pm.ring_vertices(apron.ring))
 
 
@@ -332,12 +331,11 @@ def test_a_pad_welded_to_two_pavements_takes_the_airsides_own_drop(law):
                                                      _airport as _pad_airport,
                                                      _pad_plane, _verts)
     from auto_patch_v2.constraints import generate as _generate
-    from auto_patch_v2.model.planar import COLLAR_SUFFIX
     # the CONTACT-LED platform (29s) is this twin's subject; under the
     # flat-pad hold (RULINGS 2026-09-30f/r) the platform is flat by law
     from tests.auto_patch_v2._plate import contact_led_law
     cells, dem = _two_pavement_cells(1.8)
-    tilts, plates = {}, {}
+    tilts = {}
     for staged in (False, True):
         lw = _law_arm(contact_led_law(law), staged_solve=staged)
         ap = _pad_airport(lw, dem)
@@ -345,22 +343,11 @@ def test_a_pad_welded_to_two_pavements_takes_the_airsides_own_drop(law):
         cs, _c, _w = _generate(pm, lw, ap)
         sol, _rep = solve_design(pm, cs, lw)
         z = np.asarray(sol.z, float)
-        # RE-BASED (lane ``stagedreds``, issue #90) on the unit platform
-        # (RULINGS 2026-09-28a (1) / 2026-09-29d, merge a3f78bc2): the pad
-        # is split into its PLATFORM (``padA``, C = 5.0 m inside the rim)
-        # and its COLLAR (``padA#collar``), and the WELDED RIM — the pad's
-        # vertices the two pavements share — is the collar's outer ring.
+        # spec §56 (3): the pad is ONE face (the collar is deleted), so
+        # its plane is read on ``padA`` itself — the welded rim included.
         # The law this twin holds is the rim's: a welded pad vertex takes
-        # the airside's own value, so the pad's welded rim takes the
-        # airside's own drop.  Read on ``padA`` alone it would read the
-        # platform, whose inner ring touches no pavement (measured
-        # 2.6e-6 staged — the platform holding its plate, which is what
-        # the collar is for, not the weld).
-        tilts[staged] = _pad_plane(pm, z, "padA" + COLLAR_SUFFIX)[2]
-        plates[staged] = _pad_plane(pm, z, "padA")[2]
-    # the pad's own plate (the platform) holds its 1 % ceiling in both
-    # arms: measured 3.5e-8 single, 2.6e-6 staged
-    assert plates[False] <= 0.012 and plates[True] <= 0.012, plates
+        # the airside's own value.
+        tilts[staged] = _pad_plane(pm, z, "padA")[2]
     # the single solve: the pavements YIELD toward the pad, so the welded
     # rim is NOT the airside's own drop (measured 0.0147)
     assert tilts[False] < 0.030 - 2e-3, tilts

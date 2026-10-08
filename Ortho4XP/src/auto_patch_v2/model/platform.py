@@ -15,9 +15,9 @@ import typing as _t
 
 __all__ = ["Platform", "PLATFORMS", "HELD", "LANDINGS", "LANDING_SEP",
            "is_landing_ref", "PLATEAUS", "plateau_vertices",
-           "held_platform_vertices", "HOLD_REPORT_KEYS", "hold_report",
+           "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
-           "datum_vertex_of", "datum_vertices", "stage_air_vertices"]
+           "datum_vertices", "stage_air_vertices"]
 
 
 @_dc.dataclass(frozen=True)
@@ -25,23 +25,13 @@ class Platform:
     """One unit pad's platform verdict at the arrangement."""
 
     ref: str
-    collar_m: float
     pad_m2: float
-    platform_m2: float
     welded_samples: int
     #: the welded rim's relief at the mint (DEM, against the tilt-bounded
-    #: frontage plane) that set C; ``None`` without a DEM
+    #: frontage plane) — a report; ``None`` without a DEM
     relief_m: "float | None" = None
-    #: ``""`` when minted, else why not (``"eroded_away"``,
-    #: ``"under_min_area"``)
+    #: ``""`` when minted, else why not (``"draped_facade"``)
     refused: str = ""
-    #: WHY C is what it is (#86 round 2, owner RULINGS 2026-10-02z):
-    #: ``"cap"`` (the pad carries ``platform_collar_max_m``), ``"area"``
-    #: (an intermediate bank station — the min-area gate bounded it) or
-    #: ``"floor"`` (``emit.design.bank_min_width_m``).  Minted by
-    #: ``planar.platform._collar_for_pad``; published per platform so an
-    #: area-limited collar is READ, never inferred.
-    collar_why: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:
         return _dc.asdict(self)
@@ -141,29 +131,6 @@ def plateau_vertices(planar: _t.Any, law: _t.Any = None) -> dict[str, set[int]]:
     return out
 
 
-def held_platform_vertices(planar: _t.Any, ref: str) -> list[int]:
-    """Every vertex of the PLATFORM faces of ``ref`` (rings and holes; the
-    collar excluded) — sorted."""
-    out: set[int] = set()
-    for f in planar.faces.values():
-        if str(f.ref) != ref:
-            continue
-        for ring in (f.ring, *f.holes):
-            out.update(planar.ring_vertices(ring))
-    return sorted(out)
-
-
-def datum_vertex_of(planar: _t.Any, ref: str) -> "int | None":
-    """THE FRONTAGE DATUM COLUMN of a held block (spec §1 (2)): ONE vertex
-    of its platform — the lowest id, a deterministic choice — carries the
-    block's flat level as a stage-1 unknown; every other platform vertex is
-    held to it in stage 2.  ONE derivation: the stage split
-    (``solve/design_roles.airside_stage_vertices``) and the hold rows read
-    the same vertex."""
-    vs = held_platform_vertices(planar, ref)
-    return vs[0] if vs else None
-
-
 def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
     """Every vertex of a §20b stage-1 face (``law.tables.
     airside_stage_roles``, rings and holes; a courtyard island excluded,
@@ -185,52 +152,45 @@ def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
 
 def datum_vertices(planar: _t.Any, law: _t.Any,
                    air: "_t.AbstractSet[int] | None" = None) -> dict[str, int]:
-    """``{held ref: its datum vertex}`` over :data:`HELD` — only the blocks
-    whose COLLAR shares a vertex with a stage-1 face (a block with no
-    welded frontage has nothing to hold: it keeps the plate's own rows,
-    MEASURED on the HECA replay — ``building121`` / ``281`` / ``5`` read
-    frontage at the mint through a sliver the arrangement did not weld,
-    and a datum column with no hold row sat on one vertex's DEM)."""
+    """``{held ref: its datum vertex}`` over :data:`HELD` — THE FRONTAGE
+    DATUM COLUMN of a held pad or block (flat-pad spec §1 (2), v2 §4; spec
+    §56 (3): ONE rule for every held ref, there is no collar).  Only a pad
+    whose face shares a vertex with a stage-1 face (a block with no welded
+    frontage has nothing to hold: it keeps the plate's own rows, MEASURED
+    on the HECA replay — ``building121`` / ``281`` / ``5`` read frontage at
+    the mint through a sliver the arrangement did not weld, and a datum
+    column with no hold row sat on one vertex's DEM).
+
+    The column is one of the pad's OWN vertices, never a weld — the one
+    FARTHEST from its welded rim (ties: lowest id), so no pad row reaching
+    an airside vertex (a ceiling pair over a rim edge) is pulled into stage
+    1 through it (measured HECA: a rim datum made two §20 pads' ceilings an
+    infeasible stage-1 set).  A pad whose every vertex is airside has no
+    datum column and is not held.  ONE derivation: the stage split
+    (``solve/design_roles.airside_stage_vertices``) and the hold rows read
+    the same vertex."""
     if not HELD:
         return {}
     if air is None:
         air = stage_air_vertices(planar, law)
-    col: dict[str, set[int]] = {}
     own: dict[str, set[int]] = {}
     for f in planar.faces.values():
         r = str(f.ref)
-        if r.endswith("#collar") and r[:-len("#collar")] in HELD:
-            vs = col.setdefault(r[:-len("#collar")], set())
-            for ring in (f.ring, *f.holes):
-                vs.update(planar.ring_vertices(ring))
-        elif r in HELD and HELD[r].get("conforming"):
-            # flat-pad spec v2 §4: a §20 CONFORMING pad fronts by its own rim
+        if r in HELD:
             vs = own.setdefault(r, set())
             for ring in (f.ring, *f.holes):
                 vs.update(planar.ring_vertices(ring))
     out: dict[str, int] = {}
     for ref in sorted(HELD):
-        if HELD[ref].get("conforming"):
-            vs = own.get(ref, set())
-            if not (vs & air):
-                continue
-            # its datum column is one of its OWN vertices, never a weld —
-            # the one FARTHEST from its welded rim (ties: lowest id), so no
-            # pad row reaching an airside vertex (a 5 % ceiling pair over a
-            # rim edge) is pulled into stage 1 through it (measured HECA: a
-            # rim datum made two §20 pads' ceilings an infeasible stage-1 set)
-            inner = sorted(vs - set(air))
-            if inner:
-                wx = [planar.vertices[v].xy for v in vs & set(air)]
+        vs = own.get(ref, set())
+        weld = vs & set(air)
+        inner = sorted(vs - weld)
+        if not weld or not inner:
+            continue
+        wx = [planar.vertices[v].xy for v in weld]
 
-                def _far(v: int) -> tuple[float, int]:
-                    x, y = planar.vertices[v].xy
-                    return (-min((x - a) ** 2 + (y - b) ** 2 for a, b in wx), v)
-                out[ref] = min(inner, key=_far)
-            continue
-        if not (col.get(ref, set()) & air):
-            continue
-        v = datum_vertex_of(planar, ref)
-        if v is not None:
-            out[ref] = v
+        def _far(v: int) -> tuple[float, int]:
+            x, y = planar.vertices[v].xy
+            return (-min((x - a) ** 2 + (y - b) ** 2 for a, b in wx), v)
+        out[ref] = min(inner, key=_far)
     return out

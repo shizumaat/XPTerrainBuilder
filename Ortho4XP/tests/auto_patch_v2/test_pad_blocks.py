@@ -188,10 +188,10 @@ def test_object_stage_cuts_the_contact_graph_at_the_block_boundary():
 
 
 def test_each_block_is_its_own_platform_with_a_declared_terrace_between():
-    """§2 (5): the mint gives every block its own platform + collar refs
-    and leaves a STRIP of collar between two blocks' floors wide enough for
-    the 1:3 bank of the predicted step — never one platform vertex at two
-    floors — and registers each block as HELD."""
+    """§2 (5); spec §56 (3): the mint gives every block its own face
+    ``<unit>/b<k>`` and leaves a STRIP (``#strip``) between two blocks'
+    floors wide enough for the 1:3 bank of the predicted step — never one
+    vertex at two floors, no collar — and registers each block as HELD."""
     from auto_patch_v2.law import Law
     from auto_patch_v2.model.platform import HELD, PLATFORMS
     from auto_patch_v2.planar.pad_blocks import Block, BlockPlan
@@ -211,12 +211,16 @@ def test_each_block_is_its_own_platform_with_a_declared_terrace_between():
     reg = dataclasses.make_dataclass("R", ["ref", "polygon"])("t", P)
     PLATFORMS.clear()
     HELD.clear()
-    inner = P.buffer(-5.0, join_style=2)
-    got = _mint_blocks(reg, P, [inner], plan, law, 0.0, 10.0, 5.0, 100, None)
+    got = _mint_blocks(reg, P, plan, law, 10.0, 100, None)
     assert got is not None
     plats, cols = got
     assert {r.ref for r in plats} == {"t/b0", "t/b1"}
-    assert {r.ref for r in cols} == {"t/b0#collar", "t/b1#collar"}
+    assert {r.ref for r in cols} == {"t/b0#strip", "t/b1#strip"}
+    # nothing is eroded: the faces and the strips tile the unit exactly
+    from shapely.ops import unary_union
+    assert unary_union([r.polygon for r in plats + cols]).symmetric_difference(P).area < 1e-6
+    assert [(p.ref, p.pad_m2) for p in PLATFORMS] == [
+        ("t/b0", round(left.area, 1)), ("t/b1", round(right.area, 1))]
     assert set(HELD) == {"t/b0", "t/b1"} and HELD["t/b1"]["unit"] == "t"
     a = [r.polygon for r in plats if r.ref == "t/b0"]
     b = [r.polygon for r in plats if r.ref == "t/b1"]

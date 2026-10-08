@@ -166,8 +166,11 @@ def test_an_empty_registry_is_a_different_problem(law, live):
         "proves nothing")
     moved = {k for k in set(counts_live) | set(counts)
              if counts_live.get(k) != counts.get(k)}
-    # the families that read HELD / PLATEAUS / PLATFORMS
-    assert {"frontage_hold", "platform_plane", "platform_level"} <= moved, moved
+    # the families that read HELD / PLATEAUS / PLATFORMS (spec §56 (3): with
+    # no collar face in the map an un-held unit pad is a plain §20 plate, so
+    # ``platform_level`` — the contact-led plane of a collared platform —
+    # no longer moves with the registry)
+    assert {"frontage_hold", "platform_plane"} <= moved, moved
 
 
 # ── 2. the record closes it ──────────────────────────────────────────────

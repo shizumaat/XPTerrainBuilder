@@ -21,42 +21,29 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["COPY", "WHY_NO_LEVEL", "WHY_NO_BLEND", "ONE_LEVEL", "frontage_warning",
-           "stamp_warning", "warnings_of"]
+__all__ = ["COPY", "ONE_LEVEL", "frontage_warning", "stamp_warning", "warnings_of"]
 
-#: The line, one per warned block.
+#: The line, one per warned block (master ruling 2026-10-08, pending
+#: spec-author review: no ``Why`` sentence — the report interval it read is
+#: withdrawn by the shape stage, and nothing unverified is said to the owner).
 COPY = ("Building pad {unit} at {lat:.5f}, {lon:.5f} ({area:,.0f} m²): the apron "
         "cannot be welded to it along its whole frontage within the grade caps. "
-        "The pad is seated flat at {datum:.2f} m, the apron's own level there; "
+        "The pad is seated flat at {datum:.2f} m; "
         "{n_rel} of {n_contacts} frontage contacts are released, the worst by "
-        "{de:.2f} m at {wlat:.5f}, {wlon:.5f}. Why: {why}. The apron keeps its "
+        "{de:.2f} m at {wlat:.5f}, {wlon:.5f}{one_level}. The apron keeps its "
         "caps; the pad's rim steps there; the building is not moved.")
-#: ``{why}`` where the contacts' reach bands share no level
-#: (``reach_isect_empty``).
-WHY_NO_LEVEL = ("no single level is within the apron's reach of every frontage "
-                "contact from the fixed taxiways and runways: the lowest contact "
-                "can be reached only up to {r_hi:.2f} m and the highest only down "
-                "to {r_lo:.2f} m")
-#: ``{why}`` where they do.
-WHY_NO_BLEND = ("a common level within reach exists ({r_lo:.2f}–{r_hi:.2f} m), "
-                "but the apron around those contacts cannot blend to it under "
-                "its caps and the fixed airside")
-#: Appended to ``{why}`` for a one-block unit the record says needs a split.
+#: Appended to the release clause for a one-block unit the record says
+#: needs a split.
 ONE_LEVEL = "; the unit reads one level, so it is not split into blocks"
 
 #: The record's fields the line reads, in the copy's order.
 SLOTS = ("ref", "centroid_ll", "pad_m2", "datum", "released", "welded",
-         "released_max_m", "released_ll", "reach_isect")
+         "released_max_m", "released_ll")
 
 
 def missing_slots(rec: _t.Mapping[str, _t.Any]) -> tuple[str, ...]:
-    """The slots of the copy ``rec`` does not carry (``reach_isect`` counts
-    as carried only with BOTH its bounds)."""
-    out = [k for k in SLOTS if rec.get(k) in (None, [], ())]
-    rl = rec.get("reach_isect")
-    if rl is not None and (len(rl) != 2 or rl[0] is None or rl[1] is None):
-        out.append("reach_isect")
-    return tuple(dict.fromkeys(out))
+    """The slots of the copy ``rec`` does not carry."""
+    return tuple(k for k in SLOTS if rec.get(k) in (None, [], ()))
 
 
 def frontage_warning(rec: _t.Mapping[str, _t.Any], margin_m: float) -> str | None:
@@ -69,18 +56,15 @@ def frontage_warning(rec: _t.Mapping[str, _t.Any], margin_m: float) -> str | Non
     de = float(rec.get("released_max_m") or 0.0)
     if de <= float(margin_m) or missing_slots(rec):
         return None
-    r_lo, r_hi = (float(x) for x in rec["reach_isect"])
-    why = (WHY_NO_LEVEL if rec.get("reach_isect_empty") else WHY_NO_BLEND
-           ).format(r_lo=r_lo, r_hi=r_hi)
-    if int(rec.get("blocks") or 1) == 1 and rec.get("needs_split"):
-        why += ONE_LEVEL
+    one = (ONE_LEVEL if int(rec.get("blocks") or 1) == 1 and rec.get("needs_split")
+           else "")
     lat, lon = rec["centroid_ll"][:2]
     wlat, wlon = rec["released_ll"][0][:2]
     n_rel = int(rec["released"])
     return COPY.format(unit=rec["ref"], lat=float(lat), lon=float(lon),
                        area=float(rec["pad_m2"]), datum=float(rec["datum"]),
                        n_rel=n_rel, n_contacts=n_rel + int(rec["welded"]),
-                       de=de, wlat=float(wlat), wlon=float(wlon), why=why)
+                       de=de, wlat=float(wlat), wlon=float(wlon), one_level=one)
 
 
 def stamp_warning(rec: dict, margin_m: float) -> dict:

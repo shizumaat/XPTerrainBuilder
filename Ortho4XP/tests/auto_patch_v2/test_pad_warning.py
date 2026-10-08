@@ -27,35 +27,28 @@ def _rec(**kw):
     return rec
 
 
-def test_the_copy_where_a_common_level_exists():
+def test_the_copy_byte_for_byte():
+    # master ruling 2026-10-08 (pending spec-author review): no Why sentence
     assert frontage_warning(_rec(), MARGIN) == (
         "Building pad building7 at 30.12220, 31.40732 (12,346 m²): the apron cannot "
         "be welded to it along its whole frontage within the grade caps. The pad is "
-        "seated flat at 82.46 m, the apron's own level there; 3 of 16 frontage "
-        "contacts are released, the worst by 0.45 m at 30.12230, 31.40766. Why: a "
-        "common level within reach exists (82.10–82.90 m), but the apron around "
-        "those contacts cannot blend to it under its caps and the fixed airside. "
-        "The apron keeps its caps; the pad's rim steps there; the building is not "
-        "moved.")
+        "seated flat at 82.46 m; 3 of 16 frontage contacts are released, the worst "
+        "by 0.45 m at 30.12230, 31.40766. The apron keeps its caps; the pad's rim "
+        "steps there; the building is not moved.")
 
 
-def test_the_copy_where_no_single_level_is_in_reach():
-    text = frontage_warning(_rec(reach_isect=[83.4, 82.2], reach_isect_empty=True),
-                            MARGIN)
-    assert text == (
-        "Building pad building7 at 30.12220, 31.40732 (12,346 m²): the apron cannot "
-        "be welded to it along its whole frontage within the grade caps. The pad is "
-        "seated flat at 82.46 m, the apron's own level there; 3 of 16 frontage "
-        "contacts are released, the worst by 0.45 m at 30.12230, 31.40766. Why: no "
-        "single level is within the apron's reach of every frontage contact from "
-        "the fixed taxiways and runways: the lowest contact can be reached only up "
-        "to 82.20 m and the highest only down to 83.40 m. The apron keeps its caps; "
-        "the pad's rim steps there; the building is not moved.")
+def test_the_copy_reads_no_reach_interval():
+    # the withdrawn report interval changes nothing that is said
+    base = frontage_warning(_rec(), MARGIN)
+    for kw in ({"reach_isect": None}, {"reach_isect": [None, None]},
+               {"reach_isect": [83.4, 82.2], "reach_isect_empty": True},
+               {"datum_median": 99.0, "reach_band": [1.0, 2.0]}):
+        assert frontage_warning(_rec(**kw), MARGIN) == base
 
 
 def test_the_one_block_suffix():
     text = frontage_warning(_rec(needs_split=True), MARGIN)
-    assert ("the fixed airside; the unit reads one level, so it is not split into "
+    assert ("at 30.12230, 31.40766; the unit reads one level, so it is not split into "
             "blocks. The apron keeps its caps;") in text
     # a unit already cut into blocks is not told it reads one level
     assert "not split into blocks" not in frontage_warning(
@@ -78,10 +71,11 @@ def test_over_the_bar_is_stamped_and_listed():
 
 
 def test_a_record_lacking_a_slot_says_which_and_no_sentence():
-    rec = stamp_warning(_rec(reach_isect=[None, 82.9]), MARGIN)
+    rec = stamp_warning(_rec(pad_m2=None), MARGIN)
     assert rec["warned"] is False and rec["warning"] is None
-    assert rec["warning_unsaid"] == ["reach_isect"]
-    assert missing_slots(_rec(pad_m2=None, reach_isect=None)) == ("pad_m2", "reach_isect")
+    assert rec["warning_unsaid"] == ["pad_m2"]
+    assert missing_slots(_rec(pad_m2=None, released_ll=[])) == ("pad_m2", "released_ll")
+    assert missing_slots(_rec(reach_isect=None)) == ()
 
 
 def test_the_hold_report_is_carried_by_ref_and_only_its_keys():
@@ -114,7 +108,7 @@ def test_the_census_rows_are_the_released_blocks_each_with_warned():
             stamp_warning(_rec(ref="building8", released_max_m=0.25, released=1), MARGIN),
             stamp_warning(_rec(ref="building9", released=0, released_max_m=0.0), MARGIN),
             {"ref": "building10", "refused": "draped_facade"},
-            stamp_warning(_rec(ref="building11", reach_isect=[None, None]), MARGIN)]
+            stamp_warning(_rec(ref="building11", pad_m2=None), MARGIN)]
     rows = cg._check_pad_frontage(recs, False)
     assert [(r.way_a.ref, r.reading, r.de_m, r.distance_m) for r in rows] == [
         ("pad_frontage_infeasible:building7", "warned", 0.45, 3.0),

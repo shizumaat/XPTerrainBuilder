@@ -19195,20 +19195,26 @@ the record carries today (`ref`, `centroid_ll`, `pad_m2`, `datum`,
 `released`, `welded`, `released_max_m`, `released_ll[0]`, `reach_isect`,
 `reach_isect_empty`, `blocks`):
 
-> `Building pad {unit} at {lat:.5f}, {lon:.5f} ({area:,.0f} m²): the apron cannot be welded to it along its whole frontage within the grade caps. The pad is seated flat at {datum:.2f} m, the apron's own level there; {n_rel} of {n_contacts} frontage contacts are released, the worst by {de:.2f} m at {wlat:.5f}, {wlon:.5f}. Why: {why}. The apron keeps its caps; the pad's rim steps there; the building is not moved.`
+> `Building pad {unit} at {lat:.5f}, {lon:.5f} ({area:,.0f} m²): the apron cannot be welded to it along its whole frontage within the grade caps. The pad is seated flat at {datum:.2f} m; {n_rel} of {n_contacts} frontage contacts are released, the worst by {de:.2f} m at {wlat:.5f}, {wlon:.5f}. The apron keeps its caps; the pad's rim steps there; the building is not moved.`
 
-`{why}` is ONE of two fixed sentences, chosen by `reach_isect_empty` —
-"no single level is within the apron's reach of every frontage contact from
-the fixed taxiways and runways: the lowest contact can be reached only up to
-{r_hi:.2f} m and the highest only down to {r_lo:.2f} m" (`reach_isect_empty`),
-or "a common level within reach exists ({r_lo:.2f}–{r_hi:.2f} m), but the
-apron around those contacts cannot blend to it under its caps and the fixed
-airside" (not empty) — with "; the unit reads one level, so it is not split
-into blocks" appended when `blocks` is 1 and `needs_split` is true. The
-padspec3 sentences that named the binding anchor's kind, id and distance are
-WITHDRAWN: `reach_lo_binding` / `reach_hi_binding` are in no sidecar record
-today (they went with 02ah) and the record must not say what it cannot
-measure. Under 0.3 m nothing is said to the user: the step is in the sidecar
+**MASTER RULING 2026-10-08, PENDING SPEC-AUTHOR REVIEW** (lane pads58's STOP,
+`docs/briefs/pads58-notes.md`; applied by lane pads59): the copy above
+REPLACES padspec4's, which carried "…, the apron's own level there; …" and a
+"Why: {why}." sentence built from `reach_isect` / `reach_isect_empty`. The
+`{why}` sentences are DELETED: `reach_isect` is unbounded by construction on
+every record (the 08k shape stage withdraws the contacts' reach Bands before
+`hold_interval` intersects them — `[None, None]` on 42 of 42 HECA blocks), and
+the solved `datum` stands below `datum_median` on 35 of 39 HECA pads by an
+UNATTRIBUTED gap (worst 4.65 m), so neither the interval nor "the apron's own
+level" may be printed to the owner — nothing unverified is said. `datum_median`
+and `reach_band` are not printed beside `datum` in any line the owner reads.
+"; the unit reads one level, so it is not split into blocks" is appended to
+the release clause (before ". The apron keeps its caps") when `blocks` is 1
+and `needs_split` is true. The slots are `ref`, `centroid_ll`, `pad_m2`,
+`datum`, `released`, `welded`, `released_max_m`, `released_ll[0]`; a record
+over the bar that lacks one is not warned and names it (`warning_unsaid`).
+The padspec3 sentences that named the binding anchor are withdrawn as before.
+Under 0.3 m nothing is said to the user: the step is in the sidecar
 and the census only. Sidecar: `platforms[].hold_verdict` (today) plus NEW
 `warned: true|false` and `warning: <the text or null>`; NO `seat` key (there
 is no tilt). `report.json verify.by_family.pad_frontage_infeasible` counts
@@ -19520,8 +19526,10 @@ its numbers are §56 (8) bars 1 and 5.
    0.261, `building132` / `158` / `150` 0.043, `building186` 0.021);
    (c) **the apron's caps stay hard**: `hard_conflict` rows by tier
    (`by_tier`) in the runway / taxi / apron tiers are count-identical to
-   the 4A arm — every relaxed row is on the pad tier; (d) `datum ==
-   datum_median` within `hard_tol_m` on every pad where it holds in 4A;
+   the 4A arm — every relaxed row is on the pad tier; (d) per pad
+   `|datum(4C) − datum(4A)| ≤ 0.05 m` (master ruling 2026-10-08, pending
+   spec-author review: padspec4's `datum == datum_median` does not hold on
+   the 4A arm — 39 of 42 HECA pads over 0.02 m, unattributed);
    (e) **WARNED**: HECA ≤ 1 + (0–2 of the 3 newly held) = **≤ 3**, each
    with its copy quoted; OTHH 0; `pad_flat` residual on every pad ≤
    max(0.02, its `released_max_m`); `held_within_tol` per block ≥ 4A.

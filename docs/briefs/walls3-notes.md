@@ -157,3 +157,12 @@ object's depth at s 0 to the ground at the object's outer end. No cap, no knee, 
 `PlacedObject.family`; `Basin.member_ids` carries the families. NOT shared with `deck_signature.family_key`
 (millimetre + AGL, no heading — changing it would move the deck signature); one key function, two spellings remain.
 Replay: 13 placements ground-seated (9 before), exactly Drainage_01..05 `_000/_001` + Dewatering_01 `_000.._002`.
+
+## walls4 proof — closing build `walls4_OTHH` at 1a312767 (frames registered, lane walls4)
+rc 0; patch 460.1 s single run (swg_OTHH 429.7: partition +14.5 — one cold pack partition, the law digest moved —
+solve +6.3, verify +4.1, planar +2.9, the rest within 1 s) + plan 218.6 s (185.4); nothing else was running.
+Body `5a4b2cd3abed` = the replay's (`walls4/rep2`). Plan v13 `8e24e55b3f68`: authored_seats 15 (9 crest, 6 rim with
+their families), below_grade 0. Verify 367 rows, defects {}.
+LEMD read (§18 (8) step 7; replay of `sheetchain/LEMD.pkl --from planar --verify`): ONE seat record — `Bridge4.obj`
+crest, h_cut +2.02 = h_uncut +2.02, authored (cut), kept; no rim record (its pit carries no lift: plain, floor-plate
+seat as before); 0 anchor families; verify defects all zero.

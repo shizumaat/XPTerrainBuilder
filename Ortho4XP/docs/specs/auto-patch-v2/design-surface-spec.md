@@ -19889,3 +19889,115 @@ the YES default; HECA warns once (`building101`, 0.33 m, 3 of 16).
 **For the owner's sim read, flagged as a change he asked for:** the lot
 under `T3_road.obj`'s east landings (30.11408, 31.39756) now banks up to
 101.8 m under 03e (main had lost the landings).
+
+### §56 (11) SECOND REVIEW — AIRSIDE ATTRIBUTION BY INTERVENTION, AND THE RULINGS ON F1b / F2 / F3 / `within_shape` (Fable `padreview2` 2026-10-08; summary `docs/briefs/padreview2-summary.md`; probes `docs/briefs/padspec-scratch/padreview2/`)
+
+Read on the lane builds `p60_*` against `swg_*` and on seven INTERVENTION
+replays of the main-era captures `sweepwalls/base/{KCLT,KASE}.pkl` with ONE
+law group disarmed per arm (`arms.sh`; patches registered under lane
+`padreview2`): `F` everything (== `p60_*`, 0 movers), `O0` outline keys 0,
+`A0` `pad_road_absorb_m` 0, `OA0` both 0, `C0` `outline_chord_m` 0 only.
+Main's own replay of each capture == `swg_*` (0 movers), so the arms are
+exact against main. Frame: `airside_value_delta --tol 0.02`, solve-owned.
+
+**R-W THE FRONTAGE IS NOT SIMPLIFIED (the attribution of A).** The airside
+movers vs main are the OUTLINE's (rule 2b), and the rows they travel
+through are the pads' WELD ROWS — `platforms[].welded`, the hard two-way
+hold rows of 02ah — not the footprint area. KCLT (solve-owned movers /
+taxi-tier `hard_conflict`): main — / 19; `OA0` 1,531 / 19; `A0` 2,399 /
+59 (+ 2 runway vertices at 0.05 m); `C0` 3,015 / 56; `F` 2,643 / 57;
+KCLT welded total `O0` 1,437 → `F` 1,220 → `C0` 3,678. KASE: `OA0` 107 /
+runway 0; `F` 103 / **runway 1 at 0.03 m** (15/33's strip-edge vertex at
+39.22186, −106.86917); `C0` 129 / runway 0; `building2` welded 33 → 9
+(`F`) / 48 (`C0`) on a 72 m² footprint change (73 → 26 vertices). With
+fewer or other contacts the datum re-chooses (KASE `building2` −0.235 m,
+KCLT `building15` −0.946 m with welded 15 → 3), the apron body planes
+conform (30f), the strips and road ribbons follow (`pav118` −0.67 m 90 m
+from any pad; `small_roads:-30712` −1.69 m at its strip, 10-03b), and 38
+`pavement_max_grade ceiling` rows between road ribbons / pols and taxi
+strip zones relax to 1.67 m at four KCLT sites (35.22547, −80.93251;
+35.20423, −80.94002; 35.20903, −80.93103; 35.20740, −80.94260) — present in
+`C0`, absent in `OA0`. At KCLT the CLOSE + holes drive it, at KASE the
+CHORD: one mechanism. VERDICTS: collar deletion + 4F + F1b + F2 (`OA0`) =
+the noise-floor class (ii): far-field junction / stub / strip vertices
+≤ 0.61 / 0.34 m, no new taxi-tier row, runway 0 (the HECA null change
+reads 0.57 m in the same class); absorption = (i) and NOTHING on its own
+(with `outline_close_m` 0 it absorbs no road — an unstated coupling,
+fix 3); the outline = (i) in kind but (iii) in effect — 30f's "taxiway and
+apron caps are never exceeded" and "the runway never moves" are both
+broken, so KCLT's 19 → 57 is (iii). RULE: a rule-2 outline vertex that
+stands within the identity spacing of an AIRSIDE cell's rim is PINNED
+through rule 2b — the closing fills no re-entrant whose mouth lies on the
+frontage and the straightening drops no pinned vertex; the owner's
+straight chords are the groundside and road sides (§56 (2) 8 already says
+so). §56 (2) 1's "AIRSIDE: unchanged" is RESTATED as a row bar: per pad
+`welded` = the `OA0` arm's ± the named joins; taxi-tier `hard_conflict` =
+main's ± 3; runway movers 0. §56 (8) 2's "every taxi-family vertex moves 0
+at 0.02" is WITHDRAWN as the instrument (the floor alone is 1,531 at
+KCLT); the master reads (a) runway movers, (b) taxi-tier `hard_conflict`
+vs main, (c) movers over 0.3 m and their far-field share, (d) the
+adjudicated airside census by family under each tree's own tool (KCLT
+3,372 → 3,750: `hard_conflict` airside 23 → 159, `pad_airside_weld` 5 → 14,
+`strip_seam_tear` 0 → 2, platform families 64 → 0; CRITICAL motion 5 → 8;
+KASE 2,658 → 2,541, CRITICAL 1 = 1).
+
+**R-C `within_shape` 366 → 1,095 AT OTHH IS THE INSTRUMENT.** Reader
+`tools/check_grade._check_within_shape` → `iter_shape_grade_constraints
+(pad_relief_by_nid)`, `de = |(ea − eb) − offset|` (:9293–9295), the
+offset being the sidecar `pad_relief` target (11j). The 9.02 m rows are
+two vertices of the ONE terminal way 73 m apart whose relief targets
+differ by ≈ 9 m (six lane targets of 5.416 m at 25.25766, 51.61449; main's
+max there 0.979) while the surface is flat at the level (no node over
+4.29 m within 130 m, `alt_abs`); 813 of the 1,104 `building|building` rows
+stand on that one 1,111-vertex way — the pair count scales with the ring.
+The per-vertex reader of the same offsets, in-build `pad_flat`, reads 56
+on the lane vs 77 on main. RULE: `within_shape` pairs on a `building` way
+are read ONE PER VERTEX against the level plane; until it lands the master
+reads `pad_flat`. Owed elsewhere: which body authored the +5.4 m feet at
+the terminal rim and why the relief rows were not carried (§11a (2)).
+
+**R-L2 F1b ACCEPTED.** A landing is where a deck's surface MEETS ITS UNIT'S
+LEVEL: `y_land ∈ [−BAND_M, +BAND_M]`; below is a footing (R-L), above an
+elevated end joining another object (F1b) — neither grades the ground.
+HECA's five T3 landings stand (`p60_HECA`, −0.005..−0.234); across the
+seven captures deck members exist only at HECA (1) and OTHH (13), so
+nothing is lost elsewhere; OTHH 0 landings = main's 0. FOLLOW-UP
+`landing-foot-at-level`: `bridge_family.landing_pieces` reads the band
+from the object's LOWEST y, so a ramp that also carries a footing
+(`TerminalRoads_02/_03/_Parking`, `Bridge_06`, `Terminal_Parking_003`) is
+refused as "below" although its deck crosses the level (856 / 721 /
+1,188 m² of triangles across [−0.5, +0.5]); the band belongs about the
+unit's zero, with a rule telling a deck lip from a pier cross-section.
+
+**R-F2 F2: 4 FACES ACCEPTED, 0.08 m ACCEPTED.** The pad, the §20 plateau
+part (inherent), `building6#3` (105 m², width 3.42 m over the 2.0 m floor,
+17.3 m of run on the OPEN apron — re-roling it hands the apron pad area
+along an edge that is not the plateau's) and `#4` (102 m², over the
+floor). Reaching 2 needs an area floor and a level argument — not Beta 2.
+The six vertices over 0.02 m (worst −0.08 m) are the terminal's four
+relaxed `pad_slope_max ceiling` rows re-choosing: pad tier, under 0.3 m,
+airside 0. "Byte-identical" is withdrawn as the bar for a re-role.
+
+**R-J2 F3: LEAVE for Beta 2; R-J's "always planned" is REPLACED.**
+`building5` is T3's own unit (base `flat`, 10-02aj (2)): `plan_blocks`
+has no frontage and the base read caps it at one block, so R-J cannot
+act. The owner's instrument at #112 reads SAME / better (feet within
+0.3 m 11 → 14 of 156, buried 3 → 0, contact pairs over 0.5 m 9 → 0) because
+142 of 156 feet float on BOTH trees — the unit is one level (101.87) and
+the ground under the viaduct is 92–100; the surface inside the walled
+ramp is covered. RULE for the next round: a rule-2b JOIN of pieces whose
+§20 ground levels differ by more than `pad_slope_max` × the joined span is
+REFUSED at the derivation site (the pieces stay separate plates, as on
+main); it needs each piece's ground read at classify. Per-piece seating
+with a strip is not recommended. Owner sim-read item (not §56): T3's one
+level vs `T3_road.obj`'s authored ground.
+
+**FIX LIST (each its own commit):** 1 R-W pinned frontage (2 h; KASE
+runway 0 and `building2` welded 33 ± joins; KCLT taxi-tier 19 ± 3, welded
+1,437 ± joins; replays from `sweepwalls/base/*.pkl` against the registered
+`OA0` arms); 2 R-C one row per vertex (1 h); 3 the outline/absorb disarm
+coupling stated or decoupled (0.5 h); 4 R-J2 (next round). SUBSETS for the
+master: S1 ship `OA0`'s content now (outline and absorb keys 0 for the
+release; airside within the floor at KCLT / KASE / OTHH, HECA un-laddered);
+S2 ship all after fix 1, re-laddered; S3 hold all. Recommend S2 if fix 1
+lands today, else S1.

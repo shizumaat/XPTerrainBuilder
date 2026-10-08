@@ -1,0 +1,14 @@
+F    movers   103  by family {'apron': 45, 'taxi': 33, 'strip': 24, 'runway': 1}  worst {'apron': 0.4, 'taxi': 0.31, 'strip': 0.25, 'runway': 0.03}  within 30 m of a pad rim 22 (21 %)  >0.3 m 4 (far-field 3)  shared with F 103  clusters@50m 7
+       far-field +0.36 at 39.21794564385,-106.86426856720 ['apron']
+       far-field +0.31 at 39.21814833614,-106.86491700318 ['apron', 'junction']
+       far-field +0.31 at 39.21841398533,-106.86331322516 ['apron']
+O0   movers   107  by family {'apron': 52, 'taxi': 36, 'strip': 19}  worst {'apron': 0.34, 'taxi': 0.33, 'strip': 0.23}  within 30 m of a pad rim 36 (34 %)  >0.3 m 2 (far-field 2)  shared with F 67  clusters@50m 5
+       far-field +0.34 at 39.21841398533,-106.86331322516 ['apron']
+       far-field +0.33 at 39.21845008951,-106.86505593917 ['apron', 'junction']
+A0   movers   103  by family {'apron': 45, 'taxi': 33, 'strip': 24, 'runway': 1}  worst {'apron': 0.4, 'taxi': 0.31, 'strip': 0.25, 'runway': 0.03}  within 30 m of a pad rim 22 (21 %)  >0.3 m 4 (far-field 3)  shared with F 103  clusters@50m 7
+       far-field +0.36 at 39.21794564385,-106.86426856720 ['apron']
+       far-field +0.31 at 39.21814833614,-106.86491700318 ['apron', 'junction']
+       far-field +0.31 at 39.21841398533,-106.86331322516 ['apron']
+OA0  movers   107  by family {'apron': 52, 'taxi': 36, 'strip': 19}  worst {'apron': 0.34, 'taxi': 0.33, 'strip': 0.23}  within 30 m of a pad rim 36 (34 %)  >0.3 m 2 (far-field 2)  shared with F 67  clusters@50m 5
+       far-field +0.34 at 39.21841398533,-106.86331322516 ['apron']
+       far-field +0.33 at 39.21845008951,-106.86505593917 ['apron', 'junction']

@@ -1,0 +1,14 @@
+KASE: units 159, deck members 0, deck prints 0
+KASE classes {'foot': 0, 'below': 0, 'above': 0, 'none': 0}
+KCLT: units 60, deck members 0, deck prints 0
+KCLT classes {'foot': 0, 'below': 0, 'above': 0, 'none': 0}
+HECA: units 44, deck members 1, deck prints 1
+  unit   43 members  199  foot  y_land   -0.23  authored y   -0.23.. +16.83  pieces   13  Airport/T23/T3_road.obj
+HECA classes {'foot': 1, 'below': 0, 'above': 0, 'none': 0}
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/0ec4326d-10bf-4753-bd1b-ca41fda6bcd1/scratchpad/padreview2/decks.py", line 11, in <module>
+    with open(sys.argv[1], "rb") as fh:
+         ~~~~^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/0ec4326d-10bf-4753-bd1b-ca41fda6bcd1/scratchpad/perfB362/OTHH.pkl'
+SPJC: units 8, deck members 0, deck prints 0
+SPJC classes {'foot': 0, 'below': 0, 'above': 0, 'none': 0}

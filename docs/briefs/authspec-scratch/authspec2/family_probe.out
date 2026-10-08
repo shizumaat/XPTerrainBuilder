@@ -1,0 +1,46 @@
+read 36019 placements in 67 s; quantum 0.001; tol 1.0; admission 2.5
+FAMILY 25.2522641,51.6178130 hdg 255.008 lift +3.9980  members 21  deepest -8.722  lift-depth -4.724  FAMILY RULE: lifted
+FAMILY 25.2522641,51.6178130 hdg 255.095 lift +3.9980  members 11  deepest -9.665  lift-depth -5.667  FAMILY RULE: lifted
+FAMILY 25.2498302,51.6292859 hdg 248.278 lift +3.4980  members 8  deepest -8.928  lift-depth -5.430  FAMILY RULE: lifted
+FAMILY 25.2966921,51.5872654 hdg 68.276 lift +3.4980  members 8  deepest -8.928  lift-depth -5.430  FAMILY RULE: lifted
+FAMILY 25.3025888,51.6060588 hdg 68.287 lift +2.9990  members 7  deepest -8.928  lift-depth -5.929  FAMILY RULE: lifted
+FAMILY 25.2957027,51.6035601 hdg 201.718 lift +13.4980  members 3  deepest -13.142  lift-depth +0.355  FAMILY RULE: ground-seated
+FAMILY 25.2538839,51.6221232 hdg 194.39 lift +4.2980  members 2  deepest -3.816  lift-depth +0.483  FAMILY RULE: ground-seated
+FAMILY 25.2536908,51.6230030 hdg 194.39 lift +4.2980  members 2  deepest -3.816  lift-depth +0.483  FAMILY RULE: ground-seated
+FAMILY 25.2919680,51.6058704 hdg 248.498 lift +4.2980  members 2  deepest -3.816  lift-depth +0.483  FAMILY RULE: ground-seated
+FAMILY 25.2963636,51.6065175 hdg 158.266 lift +4.2980  members 2  deepest -3.816  lift-depth +0.483  FAMILY RULE: ground-seated
+FAMILY 25.2957718,51.6048495 hdg 158.266 lift +4.2980  members 2  deepest -3.816  lift-depth +0.483  FAMILY RULE: ground-seated
+FAMILY 25.2957027,51.6035601 hdg 201.718 lift +13.4980  members 3  deepest -13.142  lift-depth +0.355  FAMILY RULE: ground-seated
+   dsf:obj36166   OTHH_Dewatering_01_LOD0_002.obj              deepest  -13.142  lift-depth +0.355  own-rule seated  build-flag True  wit 2 buried 0
+   dsf:obj36167   OTHH_Dewatering_01_LOD0_001.obj              deepest  -12.858  lift-depth +0.640  own-rule seated  build-flag True  wit 0 buried 1
+   dsf:obj36168   OTHH_Dewatering_01_LOD0_000.obj              deepest   -0.513  lift-depth +12.984  own-rule lifted  build-flag False  wit 0 buried 0
+
+FAMILY 25.2538839,51.6221232 hdg 194.39 lift +4.2980  members 2  deepest -3.816  lift-depth +0.483  FAMILY RULE: ground-seated
+   dsf:obj36156   OTHH_Drainage_05_001.obj                     deepest   -3.816  lift-depth +0.483  own-rule seated  build-flag True  wit 1 buried 0
+   dsf:obj36157   OTHH_Drainage_05_000.obj                     deepest   -2.514  lift-depth +1.785  own-rule lifted  build-flag False  wit 0 buried 0
+
+FAMILY 25.2536908,51.6230030 hdg 194.39 lift +4.2980  members 2  deepest -3.816  lift-depth +0.483  FAMILY RULE: ground-seated
+   dsf:obj36158   OTHH_Drainage_04_LOD0_001.obj                deepest   -3.816  lift-depth +0.483  own-rule seated  build-flag True  wit 2 buried 0
+   dsf:obj36159   OTHH_Drainage_04_LOD0_000.obj                deepest   -2.768  lift-depth +1.530  own-rule lifted  build-flag False  wit 0 buried 0
+
+FAMILY 25.2919680,51.6058704 hdg 248.498 lift +4.2980  members 2  deepest -3.816  lift-depth +0.483  FAMILY RULE: ground-seated
+   dsf:obj36160   OTHH_Drainage_03_LOD0_001.obj                deepest   -3.816  lift-depth +0.483  own-rule seated  build-flag True  wit 2 buried 0
+   dsf:obj36161   OTHH_Drainage_03_LOD0_000.obj                deepest   -2.514  lift-depth +1.785  own-rule lifted  build-flag False  wit 0 buried 0
+
+FAMILY 25.2963636,51.6065175 hdg 158.266 lift +4.2980  members 2  deepest -3.816  lift-depth +0.483  FAMILY RULE: ground-seated
+   dsf:obj36162   OTHH_Drainage_02_LOD0_001.obj                deepest   -3.816  lift-depth +0.483  own-rule seated  build-flag True  wit 2 buried 0
+   dsf:obj36163   OTHH_Drainage_02_LOD0_000.obj                deepest   -2.514  lift-depth +1.785  own-rule lifted  build-flag False  wit 0 buried 0
+
+FAMILY 25.2957718,51.6048495 hdg 158.266 lift +4.2980  members 2  deepest -3.816  lift-depth +0.483  FAMILY RULE: ground-seated
+   dsf:obj36164   OTHH_Drainage_01_LOD0_001.obj                deepest   -3.816  lift-depth +0.483  own-rule seated  build-flag True  wit 3 buried 0
+   dsf:obj36165   OTHH_Drainage_01_LOD0_000.obj                deepest   -3.609  lift-depth +0.690  own-rule seated  build-flag True  wit 1 buried 0
+
+lifted families 13902 / placements 14867
+ground-seated per-placement (today): 9
+ground-seated under the FAMILY rule: 13
+NEWLY captured by the family rule (5):
+    dsf:obj36168 OTHH_Dewatering_01_LOD0_000.obj
+    dsf:obj36157 OTHH_Drainage_05_000.obj
+    dsf:obj36159 OTHH_Drainage_04_LOD0_000.obj
+    dsf:obj36161 OTHH_Drainage_03_LOD0_000.obj
+    dsf:obj36163 OTHH_Drainage_02_LOD0_000.obj

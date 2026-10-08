@@ -39,3 +39,18 @@ def test_r3_4_the_object_stage_folds_a_bank_under_its_flat_face(flat, bank):
     folded = _ar.fold_pad_ref(pads, flat)
     assert min(folded.z) == pytest.approx(100.0, abs=1e-6)
     assert _ar.pad_contains(folded, 30.00005, 31.00005)      # on the bank
+
+
+def test_r3_3_a_blocks_polygons_are_every_ring_of_the_block():
+    """R3 (3): with no unit collar the block face's ring IS the block's
+    largest published ring — ``pad_block_seat`` keeps it (it used to drop
+    the largest as "the collar's outer ring")."""
+    from auto_patch_v2.airport.pad_block_seat import _platform_polys
+    strip = ((30.0, 31.001), (30.0, 31.0011), (30.001, 31.0011), (30.001, 31.001))
+    one = _platform_polys([_ar.PadRing("u/b0", SQ, (1.0,) * 4)])
+    assert len(one[("u", 0)]) == 1 and one[("u", 0)][0].area > 1000.0
+    two = _platform_polys([_ar.PadRing("u/b0", SQ, (1.0,) * 4),
+                           _ar.PadRing("u/b0", strip, (1.0,) * 4)])
+    assert sorted(round(g.area / one[("u", 0)][0].area, 2) for g in two[("u", 0)]) == [0.1, 1.0]
+
+

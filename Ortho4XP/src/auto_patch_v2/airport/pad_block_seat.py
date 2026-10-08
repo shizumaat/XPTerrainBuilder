@@ -2,8 +2,8 @@
 2026-09-30r, Q-111b option (1); issue #111; #112 (2)(b)).
 
 A unit platform the mint CUT into flat blocks (``planar/pad_blocks`` ->
-faces ``<unit>/b<k>`` and ``<unit>/b<k>#collar``, published to the object
-stage by ``placement_read._collars_as_platform`` under the block ref) is
+faces ``<unit>/b<k>`` and ``<unit>/b<k>#strip``, published to the object
+stage by ``placement_read._banks_as_platform`` under the block ref) is
 seated block by block: each block is its OWN seated object.  Two joins make
 that so, both keyed on WHERE A PART STANDS (the part's plan centroid inside
 a block's published rings) — never on a pid the planar stage saw, because
@@ -63,9 +63,10 @@ def block_rings(pads: _t.Sequence[_ar.PadRing]
 
 
 def _platform_polys(pads: _t.Sequence[_ar.PadRing]) -> dict:
-    """``{(unit, k): [platform polygons in local metres]}`` — every block
-    ring but the COLLAR's outer ring (``placement_read._collars_as_platform``
-    publishes it under the block ref; it is the block's largest ring)."""
+    """``{(unit, k): [the block's polygons in local metres]}`` — every
+    ring published under the block ref: the block face itself (spec §56
+    (3): there is no collar, the face's ring IS the block) and the strip
+    ``placement_read._banks_as_platform`` folds under it."""
     import math
     from shapely.geometry import Polygon
     by: dict = {}
@@ -76,9 +77,6 @@ def _platform_polys(pads: _t.Sequence[_ar.PadRing]) -> dict:
         ky = 111_320.0
         kx = ky * math.cos(math.radians(rs[0][0][0]))
         polys = [Polygon([(lo * kx, la * ky) for la, lo in r]).buffer(0) for r in rs]
-        if len(polys) > 1:
-            big = max(range(len(polys)), key=lambda i: polys[i].area)
-            polys = [g for i, g in enumerate(polys) if i != big]
         out[key] = [g for g in polys if not g.is_empty]
     return out
 

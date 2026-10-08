@@ -120,3 +120,40 @@ one cold pack partition per airport. The pit intake can add a basin only where a
 its own depth; not measured on those packs. D (10 % cap) reaches all six (HECA measured: gap terraces 93 -> 84 parts).
 B / C / #450 reach any airport with a wall corridor or a mapped bore with a deck beyond its free ramp top (KCLT has
 terrain-adapted members; not measured).
+
+# Lane `walls4` — continuation (2026-10-07 night; same branch `claude/walls3`, PR #464)
+Scratch `<scratchpad>/walls4/` (`rep2/` = the final replay of `perfB362/OTHH.pkl --from planar --emit --verify
+--solved-out`; `mkpd.py` solved.pkl -> the dict `walls3/sites.py` reads + the pit table; `fam.py` the family read
+on the capture; `names.py` undefined-name scan).
+
+## Task 1 — owner RULINGS 2026-10-07e (a508c8f0)
+Every ramp the pack's own objects frame (door well; wall corridor: bay / open / through) is ONE line from the
+object's depth at s 0 to the ground at the object's outer end. No cap, no knee, no step.
+- `wall_corridor_ramps.full_wall_ramp` (depth / wall length; the only refusal is a floor over its ground),
+  `door_ramps.door_profile` (sill / well length). `Tunnel.pinched = (OBJECT_FRAMED, length, grade)` on every one.
+- `constraints/structures.framed_plane`: every ramp vertex pinned on the plane at its OWN station, ending at the
+  outermost emitted vertex. WHY: the old station clusters (1 m) tied to one level cost grade x 0.5 m at the top —
+  0.055 m at 10 %, 0.27 m on the 72 % synthetic door ramp.
+- DELETED: law `[cutout.door] ramp_grade`, `[cutout.wall_corridor] max_ramp_grade`; `BAY_EXEMPT`,
+  `structure_geometry.covered_start`, `WallCorridorRecord.plate_plan`. KEPT (they price the seams the lift does not
+  take): role rows `door_ramp` / `wall_corridor_ramp` 0.10, `oracle_cap`, v1 `STRUCTURE_RAMP_MAX_GRADE` — tied at
+  load to `tunnel.ramp_max_grade`. `[cutout.door] max_length_m` is LIVE (door_wells rule 3's reach), re-commented.
+- QUESTION for the owner (in the spec, §47 (7) AMENDED 2 (2)): the ramp runs the FULL framed length even where a
+  cover protrudes over part of the walls (the 14be plate-edge knee is gone). At OTHH that makes DutyFree@2 6.7 %
+  (cover edge at s 10.5) and both through halves 4.86 % (cover edge at s 29.0) — nothing but the bays and the doors
+  is over 10 %. The other reading (knee at the plate edge, uncapped) would give 13.9 % / 19.1 % and bring the
+  half-a / half-b mismatch back.
+- OTHH door ramps: four wells 2.1 m long under a 1.70 m sill = 82.6-82.9 %. That is what 07e's words give; worth
+  the owner's eye in the sim.
+- The walls3 `sites.py` sampler (3-nearest-vertex IDW) misreads a long quad at mid-station (it printed 3.93 on one
+  side of the through corridor): read the face VERTICES instead — all on the plane.
+
+## Task 2 — the seat column (a508c8f0)
+`pipeline/authored_seats.seat_lines`, printed by `v2_solve_replay --emit/--verify` (JSON `authored_seats`) and
+`obj8_split_report.py`.
+
+## Pits — the anchor family (1a312767; spec §18 (5), (9); owner 07f)
+`authored_seat.anchor_family_key` (quantum / heading 0.001 deg / lift 0.001 m); `obj8._family_depths` at intake;
+`PlacedObject.family`; `Basin.member_ids` carries the families. NOT shared with `deck_signature.family_key`
+(millimetre + AGL, no heading — changing it would move the deck signature); one key function, two spellings remain.
+Replay: 13 placements ground-seated (9 before), exactly Drainage_01..05 `_000/_001` + Dewatering_01 `_000.._002`.

@@ -341,3 +341,21 @@ def test_a_twenty_metre_corner_is_held_by_the_grade_law_not_the_trend(law):
     rise = float(zs.max() - zs.min())
     run = float(xs.max() - xs.min())
     assert rise / run <= 0.016, f"the built body runs at {100 * rise / run:.2f} %"
+
+
+# ── spec §56 (10) R4, step 4F: a held pad's datum column ────────────────
+
+def test_a_held_pads_datum_column_takes_no_trend_row(law, monkeypatch):
+    """The datum column of a held pad is the pad's LEVEL: where it happens
+    to stand on the apron's trend is no target (10l read for the hold).
+    The same map, with one trend vertex named a datum column, assembles
+    exactly one trend row fewer."""
+    from auto_patch_v2.model import platform as MP
+    airport, r = _airport(law, _CornerDem())
+    pm, _z, rep, _fit = _solve(law, airport, _cells(r, APRON_LEN), trend=True)
+    v = min(pm.apron_trend_z)
+    monkeypatch.setattr(MP, "datum_vertices", lambda *_a, **_k: {"u": v})
+    cs, _c, _w = generate(pm, law, airport)
+    _sol, rep_h = solve_design(pm, cs, law)
+    assert rep.apron_trend_rows == len(pm.apron_trend_z)
+    assert rep_h.apron_trend_rows == len(pm.apron_trend_z) - 1

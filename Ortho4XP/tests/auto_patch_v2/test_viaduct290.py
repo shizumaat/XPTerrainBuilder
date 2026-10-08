@@ -272,6 +272,14 @@ def test_a_pier_footing_below_the_band_mints_no_landing(monkeypatch):
     assert counts["landing_below_unit"] == 1 and counts["landings"] == 0
 
 
+def test_a_deck_that_never_comes_down_to_the_pad_mints_no_landing(monkeypatch):
+    """An elevated road end whose lowest authored y stands a storey over
+    its unit's pad is no ramp foot: the ground is not graded up to it."""
+    got, counts, landings = _regions_for_foot(monkeypatch, 10.7)
+    assert got == [] and landings == {}
+    assert counts["landing_above_unit"] == 1 and counts["landings"] == 0
+
+
 def test_the_sidecar_publishes_each_landing_with_its_deck_and_level(monkeypatch):
     from auto_patch_v2.constraints import platform as CP
     from auto_patch_v2.emit.osm_adapter import SIDECAR_KEYS

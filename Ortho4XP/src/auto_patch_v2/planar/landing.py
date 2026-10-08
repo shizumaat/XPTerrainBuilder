@@ -28,6 +28,9 @@ defines.  A foot lower than that is a PIER FOOTING under the ground, not a
 ramp end (MEASURED: two bridge decks whose lowest authored y is -0.80 /
 -2.34 dug the ground 1.7-1.9 m under a terminal and cost 27 relaxed hard
 rows); it is counted ``landing_below_unit`` and nothing is minted.
+The same band read upward (pads60, a deviation flagged for the spec
+author): a deck whose lowest surface stands more than ``BAND_M`` ABOVE the
+pad has no foot on it; counted ``landing_above_unit``, nothing minted.
 
 Called once, at the end of ``planar/platform.platform_split`` — after
 every block is minted and registered in ``HELD`` and after the split's
@@ -179,6 +182,18 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
                 # never a landing; nothing is minted
                 counts["landing_below_unit"] = \
                     counts.get("landing_below_unit", 0) + 1
+                continue
+            if y_land > BAND_M:
+                # pads60 (DEVIATION from §56 (10) R-L, for the spec author):
+                # a deck whose LOWEST surface stands more than the band
+                # ABOVE its unit's pad never comes down to it — an elevated
+                # road end that joins another object, not a ramp foot.  The
+                # ground is not graded UP a storey to it (MEASURED: a
+                # terminal road deck at y +10.75 / +10.94 m asked the
+                # ground for 14.7 m on a 3.96 m pad; the solve relaxed 30
+                # hard rows, ten of them 9-10 m).  Counted, nothing minted.
+                counts["landing_above_unit"] = \
+                    counts.get("landing_above_unit", 0) + 1
                 continue
             L = comp.difference(taken)
             if grid > 0.0:

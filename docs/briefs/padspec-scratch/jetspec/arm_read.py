@@ -21,7 +21,7 @@ for arm in ("base", "bays"):
     for b, fs in sorted(plat.items(), key=lambda kv: -len(kv[1])):
         p = dat.get(b, {}); D = p.get("datum")
         zs = [V[i][3] for f in fs for i in f["ring"]]
-        dz = [z - D for z in zs] if D is not None else []
+        dz = [z - D for z in zs] if (D is not None and zs) else [0.0]
         print(f"   {b:18s} datum {D} plateau faces {len(fs):3d} ring v {len(zs):5d} within0.02 {sum(1 for x in dz if abs(x)<=0.02):5d} within0.3 {sum(1 for x in dz if abs(x)<=0.3):5d} dz {min(dz):+.2f}/{max(dz):+.2f} sidecar area {p.get('plateau_area_m2')} src {p.get('stand_zone_source')} welded {p.get('welded')} released {p.get('released')} warned {p.get('warned')}")
     hc = ax.get("hard_conflict") or []
     print("   hard_conflict by tier:", dict(Counter(r.get("tier") for r in hc)), "over 0.2 m:", sum(1 for r in hc if (r.get("s_m") or 0) > 0.2))

@@ -49,11 +49,22 @@ pocket touching a block's stand-zone parts, gate or not)
 | airport | plateau m² base → bays (terminal) | vertices on datum | runway | solve-owned movers @0.02 | taxi-tier hard_conflict | pad-tier | WARNED |
 |---|---|---|---|---|---|---|---|
 | OTHH `building6` | 140,628 → **351,650** | 1,043 / 1,043 | 0 | **0** (row-side 1 trench vertex 0.020) | 0 = 0 | 1 → 2 | 0 = 0 |
-| HECA `building3` | (running at hand-back — `<scratch>/jetspec/arm_*_HECA`) | | | | | | |
-| KCLT `building77` | (running at hand-back) | | | | | | |
+| HECA T3 (`building4` on gaps3) | 165,020 → **249,920** | 432/661 → 462/665 (±0.98 → −1.39/+1.21 at taxiway edges) | 0 | 4,059 (>0.3 m: 19, all far-field) | 74 → 72 | 216 → 215 | 1 = 1 (building101) |
+| KCLT terminal (`building75` on sweepwalls) | 102,912 → **146,718** | 420/579 → 415/600 | 0 | 1,061 (apron 602 / 0.86 m AT the bay; >0.3 m 52, 39 far) | 19 = 19 | 28 → 31 (the bay's seat rows: J3) | 0 = 0 |
 
 OTHH owner's site r 150 m: 56 faces → 56 (building 17 → 12, plateau 1 → 6, roads 29 = 29); every face but the
 five trenches is at 3.96 in BOTH arms — at a flat airport the surface there is one plane already (Q4).
+
+## Owner 08c (4) — the seat (master's course correction, answered in §57 (3))
+HECA building101 (3 of 13 welds released, spread 0.51 m), building147 (11 of 52, 0.72 m, outline off), KASE
+building1 (3 of 6, 1.05 m): the records carry `reach_isect [None, None]` on every block (bands withdrawn by the
+08k shape stage), so the record cannot say; the LP can: with D free and every weld hard, a release is an IIS —
+the admissible set is EMPTY, one flat level does not exist. Design J3: the interval from the reach bands BEFORE
+withdrawal; D bounded to it when non-empty; the block SPLIT along its frontage into runs with non-empty
+intersection when empty (29s A2, `#strip`); warn only a single unreachable contact; no tilt. Release path
+(08c (5)/(7)): J0 collar-deletion subset (`claude/pads62-s1`) → J1 delete rule 2b / pin / absorption → J2 bay
+plateau → J3 seat → J4 closing builds. Instruments (08c (1)): runway 0, taxi-tier conflicts, CRITICAL rows,
+released welds — not movement.
 
 ## Owner questions (yes / no, recommendation)
 Q1 the bay is the plateau, not a re-roled pad — YES. Q2 taxiways crossing a bay keep their level — YES.
@@ -61,6 +72,6 @@ Q3 SPJC qualifies on gates alone — YES. Q4 what is read at OTHH: terrain or th
 J3, read HECA T3 in the sim first.
 
 ## Not settled here
-HECA / KCLT arm numbers (running); the gate rule vs the arm's "touches the stand zone" (the arm over-fills; the
+Which apron rows close the empty set at the three pads (the `--stage1-dump` read, 20 min, owed to J3); the gate rule vs the arm's "touches the stand zone" (the arm over-fills; the
 rule's exact m² per bay is in `pockets.log`); whether the plateau should also take the groundside pavement half
 of a mixed pocket (HECA 35k m²: NO by default — it is landside); the same-plane emit face merge (Q4).

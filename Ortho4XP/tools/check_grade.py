@@ -7045,11 +7045,15 @@ def _check_platform_rim_relief(platforms_ll) -> List[Violation]:
     carries against it (``platforms``: ``rim_relief_max_m``, ``worst_ll``,
     ``collar_m``, ``collar_needed_m``); this reports exactly that, so a
     platform whose relief outgrows its collar is read here and never
-    silently.  A platform with no welded rim carries 0.  A patch with no
-    key reports nothing."""
+    silently.  A record with no ``rim_relief_max_m`` is no row.  A patch
+    with no key reports nothing."""
     out: List[Violation] = []
     for rec in platforms_ll or ():
-        if not isinstance(rec, dict) or rec.get("refused"):
+        if (not isinstance(rec, dict) or rec.get("refused")
+                or rec.get("rim_relief_max_m") is None):
+            # a record with no ``rim_relief_max_m`` carries no bank against
+            # airside (spec §56 (3): a unit pad has no collar; master ruling
+            # 2026-10-08 R3 (6)) — only a landing's welded bank reads here
             continue
         ref = str(rec.get("ref", ""))
         mx = float(rec.get("rim_relief_max_m", 0.0) or 0.0)

@@ -54,3 +54,22 @@ def test_r3_3_a_blocks_polygons_are_every_ring_of_the_block():
     assert sorted(round(g.area / one[("u", 0)][0].area, 2) for g in two[("u", 0)]) == [0.1, 1.0]
 
 
+def test_r3_6_the_rim_relief_census_skips_a_record_with_no_rim_relief():
+    """R3 (6): ``platform_rim_relief`` reads a record that CARRIES a bank's
+    relief (a landing's welded bank) and skips one that does not (a unit
+    pad has no collar); the families stay registered."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import check_grade as CG
+    assert "platform_rim_relief" in dict((k, d) for k, d, _p in CG.LAW_FAMILIES)
+    assert CG.SIDECAR_LAW_KEYS["platforms"] == "platforms_ll"
+    recs = [{"ref": "u/landing0", "collar_m": 5.0, "level": 100.0,
+             "rim_relief_max_m": 1.2, "worst_ll": [60.5, -135.5], "worst_z": 101.2},
+            {"ref": "padU", "level": 100.0, "datum": 100.0, "released": 0},
+            {"ref": "fac", "refused": "draped_facade", "pad_m2": 960.0}]
+    rr = CG._check_platform_rim_relief(recs)
+    assert [r.way_a.ref for r in rr] == ["platform_rim_relief:u/landing0"]
+    assert rr[0].de_m == pytest.approx(1.2) and math.isfinite(rr[0].elev_b)
+    assert len(CG._check_platform_refused(recs)) == 1
+    for ref in ("padU#collar", "u/b0#strip"):
+        assert CG._is_platform_collar(CG.Way("x", "building", ref, "", [], [],
+                                             {"role": "building"}))

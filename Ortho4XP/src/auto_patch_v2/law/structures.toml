@@ -71,6 +71,7 @@ trench              = "inner_walls" # trench = the region between the walls' INN
 wall_face_max_thickness_m = 2.0     # a wall solid's plan thickness; thicker plan solids are decks/slabs, not walls (OTHH: 1.0-1.1 m side walls, 2.0 m box walls)
 wall_sample_m       = 2.0           # station spacing along a wall line
 mouth_end           = "bore"        # the deep end = the end whose axis continues into an OSM tunnel way (bore); else the end facing the other placement of the same family; else the closed end
+authored_crest_max_m = 3.0         # object-placement spec §18 (3) (owner RULINGS 2026-10-07b (1) / 07c (3), (4)) AUTHORED TO THE CUT: a wall object whose crest plate, rendered at its AUTHORED seat over the terrain the engine itself cuts under its anchor, stands 0 … this far over the surrounding grade keeps the author's seat (no plate entry, never re-seated) — a wall top at grade up to a parapet; outside the band it is re-seated to the pack's own MEDIAN proud height (07c (4)), flush only where the pack states none
 reseat              = true          # the re-bake seats every tunnel-object family so its plate sits at the ground (delta = ground - rendered plate); never excluded
 skirt_min_depth_m   = 3.0           # genuine solids must reach this far BELOW the seat for a wall skirt (OTHH: 10-15 m)
 plate_normal_y_min  = 0.7           # reuse of deck_plate_normal_y_min: a crest face is near-horizontal
@@ -592,6 +593,14 @@ cuts_runway_family  = false        # a region reaching the runway family is refu
 # the floor down.  Measured at LEMD's T4S pit on 1.0.315: floor_z 588.952 ==
 # solid_min_z 588.952, a clearance of exactly 0.000 m.
 floor_clearance_m   = 0.5
+# AUTHORED TO THE CUT (object-placement spec §18 (3), (5); owner RULINGS
+# 2026-10-07b (3) / 07c (3), (5)).  ONE band, two readings: a placement LIFTED
+# (OBJECT_AGL > 0) by its own shell depth within this band is read GROUND-SEATED
+# by the basin intake — the same region and floor as its plain twin — and a
+# basin witness whose rim, rendered at the AUTHORED seat over the floor the
+# basin law cuts, stands within this band of the ring's ground keeps the
+# author's seat (no floor-plate seat).
+authored_rim_tol_m  = 1.0
 # THE RIM / COVER READ'S VERTEX BUDGET (owner RULINGS 2026-09-13bp (iii)).
 # Rules 3 and 4 clip and union every member object's shell.  The clip is
 # memoised per (resource, plane) — VHHH's 5,078 custom placements over 785

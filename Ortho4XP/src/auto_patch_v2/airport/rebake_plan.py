@@ -222,7 +222,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
          below_grade: _t.Sequence[tuple[object, _t.Collection[str]]] = (),
          tunnel_objects: _t.Mapping[str, tuple] | None = None,
          partition: PackPartition | None = None,
-         keep_extension: bool = False) -> RebakePlan:
+         keep_extension: bool = False,
+         authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = ()) -> RebakePlan:
     """The units and witnesses for ``airport``'s pack (see module doc).
 
     ``objects`` are the planar pass's placed objects (read from the
@@ -242,7 +243,10 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     in frame xy, the plate's clearance above the ground they read — 0 for a
     tunnel wall, ``[basin] floor_clearance_m`` for a basin, 11t §24 (2))``: RE-SEATED so the plate sits on the ground at the
     band (RULINGS 2026-09-05n-4, ``tunnel.object.reseat``) — THAT OBJECT
-    only (RULINGS 2026-09-09s (1)).
+    only (RULINGS 2026-09-09s (1)).  ``authored_seats`` the seat records
+    of object-placement spec §18 (``pipeline/authored_seats``): PUBLISHED
+    on the plan as they are — the decision is already in ``tunnel_objects``
+    (a kept member has no entry) and ``exclude`` (it is never re-seated).
 
     ``partition`` is the LOAD-time reading of the pack
     (``pack_partition.partition_pack``, spec §11a (3)); when it is given
@@ -296,6 +300,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         counts["flat_site"] = int(flat.substitutes)
     return RebakePlan(airport.icao, airport.pack.name, part.pack_root, tuple(units),
                       part.skipped, counts, part.contacts, flat, part.abutments,
+                      authored_seats=tuple(dict(r) for r in authored_seats),
                       connectors=(None if getattr(part, "connectors", None) is None
                                   else tuple(v.to_dict() for v in part.connectors)))
 

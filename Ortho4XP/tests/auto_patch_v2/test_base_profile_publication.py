@@ -159,12 +159,13 @@ def test_the_plan_carries_the_profile_through_json():
 
 def test_the_plan_version_is_bumped_and_the_old_one_still_reads():
     """Version 11 is version 10 plus the base profile; version 12 is 11
-    plus ``Member.origin`` (§1 (3), the composed read).  An older plan — an
+    plus ``Member.origin`` (§1 (3), the composed read); version 13 is 12
+    plus ``authored_seats`` (object-placement spec §18).  An older plan — an
     owner's plan from an earlier build — must still replay, reading as the
     PRE-BASE law (§1 (3)), never raising."""
-    assert PLAN_VERSION == 12
+    assert PLAN_VERSION == 13
     d = json.loads(_plan(_member("m0", _stepped())).to_json())
-    assert d["version"] == 12
+    assert d["version"] == 13
     assert d["units"][0]["members"][0]["base_profile"]["verdict"] == "stepped"
     # the v10 plan: neither key is there
     d["version"] = 10

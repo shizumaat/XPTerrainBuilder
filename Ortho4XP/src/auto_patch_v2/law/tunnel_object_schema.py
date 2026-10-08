@@ -26,6 +26,7 @@ class TunnelObject:
     wall_sample_m: float
     mouth_end: str
     reseat: bool
+    authored_crest_max_m: float        # object-placement spec §18 (3): the band a crest at the AUTHORED seat over the engine's own cut keeps its seat in
     skirt_min_depth_m: float
     plate_normal_y_min: float
     plate_bin_m: float

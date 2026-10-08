@@ -158,6 +158,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..airport import authored_seat as _seat
 from ..airport import basin_witness as _basin_witness
 from ..airport import frame_entry as _fe
 from ..airport import obj8
@@ -562,7 +563,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         # in hand), so a datum-relief slab never founds a region, never
         # enters the below-grade seat skip and never takes a plate seat.
         # What is recorded here is the region-level reading of it.
-        datum_z = float(deepest.anchor_z) + float(deepest.agl_m)
+        datum_z = float(deepest.base_z)        # the reading's zero plane (§18 (5))
         datum_drop = rest - datum_z
         # the floor face(s): the members' floor plates ⊕ floor_overlap_m,
         # closed at footprint_close_m, on the identity grid
@@ -712,11 +713,17 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         # y (the deepest member's, relative to its rendered y = 0 plane);
         # an anchor INSIDE the floor renders on the floor after the mesh,
         # one outside on its own ground — the post-mesh seat measures it
-        plate_y = smin_z - deepest.anchor_z - deepest.agl_m
+        plate_y = smin_z - deepest.base_z
         a_pt = Point(deepest.xy)
         inside = any(f.contains(a_pt) for f in floors)
         mesh_pred = floor_z if inside else float(deepest.anchor_z)
         seat_expect = floor_z - (mesh_pred + deepest.agl_m + plate_y)
+        # AUTHORED TO THE CUT (object-placement spec §18 (3)): the rim at
+        # the AUTHORED seat over the terrain the floor row cuts under the
+        # anchor (the floor stands ``floor_clearance_m`` under the plate,
+        # §24 (2)) against the ring's ground
+        rim_cut = _seat.rim_over(mesh_pred - (bl.floor_clearance_m if inside else 0.0),
+                                 deepest.agl_m, rest)
         prot = max(wits, key=lambda w: w.protrusion_fraction)
         notes = [kind, f"{len(members)} object(s)", f"floor plate {plate:.0f} m2",
                  f"shell {shell_t:.2f} m thick: the rim IS its OUTER FACE (§47 (1); 11t §24 (1) "
@@ -759,7 +766,15 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                      + ("RAMP" if r["admitted"] else f"refused ({r['reason']})")
                      for r in ramps) or "none"),
                  f"anchor {'INSIDE' if inside else 'outside'} the floor: plate y {plate_y:+.2f}, "
-                 f"seat expect {seat_expect:+.2f} m"]
+                 f"seat expect {seat_expect:+.2f} m",
+                 f"authored seat {deepest.agl_m:+.2f} m"
+                 + (" (a lift of the shell's own depth, read ground-seated)"
+                    if deepest.ground_seated else "")
+                 + f": the rim stands {rim_cut:+.2f} m over the ring's ground on the cut floor "
+                 + ("— AUTHORED TO THE CUT, the seat is kept"
+                    if _seat.rim_in_band(rim_cut, bl.authored_rim_tol_m)
+                    else "— re-seated onto its floor plate")
+                 + f" (authored_rim_tol_m {bl.authored_rim_tol_m}, object-placement §18 (3))"]
         if ring.area < bl.min_area_m2:
             notes.append(f"under the diagnostic min_area_m2 {bl.min_area_m2:.0f} (admitted, 04i)")
             stats.small_regions.append(f"{bid} {ring.area:.0f} m2 at {site}")
@@ -777,7 +792,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                                         for x, y in tuple(f.exterior.coords)[:-1])
                                   for f in ramp_floors),
                             tuple(tuple(_lonlat(airport, q[0], q[1]) + (q[2],) for q in t)
-                                  for t in ramp_faces)))
+                                  for t in ramp_faces),
+                            rim_cut_m=float(rim_cut)))
     stats.basins = len(basins)
     _record_grade(stats, cache, bl)
     if not basins:

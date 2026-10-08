@@ -348,6 +348,9 @@ def _structures_emit_checks(c: Checks, t) -> None:
     assert ob.plate_datum == "ground" and ob.mouth_depth == "floor_slab"    # 2026-09-08l
     assert ob.ramp_end == "wall_end" and ob.trench == "inner_walls"
     assert ob.mouth_end == "bore" and ob.reseat is True
+    # object-placement spec §18 (3) (RULINGS 2026-10-07c (3)-(5)): the two
+    # AUTHORED-TO-THE-CUT bands, one site each
+    assert ob.authored_crest_max_m == 3.0 and s.basin.authored_rim_tol_m == 1.0
     assert 0.0 < ob.wall_face_max_thickness_m and 0.0 < ob.wall_sample_m
     c.eq("tunnel.object.plate_normal_y_min (= deck_plate_normal_y_min)",
          s.bridge.deck_plate_normal_y_min, ob.plate_normal_y_min)

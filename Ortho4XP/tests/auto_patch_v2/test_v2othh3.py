@@ -157,7 +157,9 @@ def test_basin_family_plans_its_floor_plate_at_the_trench_floor(objs, law):
     seat's delta is the depth (the plate lands ON the floor, datum
     ``plate``, exempt from the 1 m threshold); the plan carries the
     family (no exclusion); the offset pit's anchor lies OUTSIDE its
-    trench and its seat is ~0."""
+    trench: its rim already stands at the ring's ground with the authored
+    seat, so it is AUTHORED TO THE CUT and takes no plate seat at all
+    (object-placement spec §18 (3), RULINGS 2026-10-07c (3))."""
     airport = _basin_airport(objs, law, [("pit", (0.0, 0.0), 0.0, 0.0),
                                          ("offpit", (400.0, -300.0), 0.0, 0.0)])
     cl = Classification(tuple(_basin_cells()), (), {}, ())
@@ -179,8 +181,20 @@ def test_basin_family_plans_its_floor_plate_at_the_trench_floor(objs, law):
     # resource's — the object whose floor plate the basin cut — never
     # every member of the region (at LEMD that seated 12 terminal slabs
     # onto a floor they never had, spec §11.4/§12)
-    assert set(seats) == {b.witness_id for b in pm.basins}
-    for b in pm.basins:
+    # ... and only where the authored seat does NOT already work over the
+    # cut (§18 (3)): the inside pit's rim would render 6.5 m under grade,
+    # the outside pit's stands at it and is kept
+    from auto_patch_v2.airport.authored_seat import SEAT_AUTHORED, SEAT_RESEATED
+    from auto_patch_v2.pipeline.authored_seats import kept_ids, seat_records
+    recs = seat_records(pm, law)
+    assert recs[inside.witness_id]["seat"] == SEAT_RESEATED
+    assert recs[inside.witness_id]["h_cut_m"] == pytest.approx(
+        -(6.0 + bl.floor_clearance_m), abs=0.3)
+    assert recs[outside.witness_id]["seat"] == SEAT_AUTHORED
+    assert abs(recs[outside.witness_id]["h_cut_m"]) < bl.authored_rim_tol_m   # its own ground vs the ring's
+    assert kept_ids(recs) == {outside.witness_id}
+    assert set(seats) == {inside.witness_id}
+    for b in (inside,):
         oid = b.witness_id
         assert oid in b.member_ids
         assert seats[oid][0] == pytest.approx(b.plate_y_m)
@@ -189,7 +203,7 @@ def test_basin_family_plans_its_floor_plate_at_the_trench_floor(objs, law):
     pl = rebake_plan(airport, objects, cache, law, None, exclude=(), tunnel_objects=seats,
                      below_grade=[(Polygon(b.region), tuple(b.objects)) for b in pm.basins])
     assert pl.counts["terrain_adapted"] == 0 and pl.counts["below_grade"] == 0
-    assert pl.counts["plate_members"] == 2 and pl.counts["units"] == 2
+    assert pl.counts["plate_members"] == 1 and pl.counts["units"] == 2
     # THE SEAT IS RETIRED (owner RULINGS 2026-09-12s, spec §8): the seat
     # half of this twin — the plate delta 6.0 + floor_clearance_m and the
     # off-pit's bare clearance, read out of ``emit/rebake.seat`` over a

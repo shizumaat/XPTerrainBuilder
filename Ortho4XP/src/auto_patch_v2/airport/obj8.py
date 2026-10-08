@@ -54,6 +54,7 @@ from shapely.ops import unary_union
 
 from ..model.frame import XY
 from . import frame_entry as _fe
+from .authored_seat import lifted_by_own_depth
 
 __all__ = ["ObjGeometry", "Component", "PlacedObject", "FloorWitness", "ObjReport", "parse_obj8",
            "solid_components", "library_index_path", "read_library_index",
@@ -632,6 +633,21 @@ class PlacedObject:
     #: pit (OTHH ``Dewatering_02_LOD0_001``'s 2,998 m2 slab inside
     #: ``_002``'s basin:6).  Never part of ``below_grade``/``witnesses``.
     buried: tuple[FloorWitness, ...] = ()
+    #: AUTHORED TO THE CUT (object-placement spec §18 (5); owner RULINGS
+    #: 2026-10-07b (3)): the placement is LIFTED by its own shell depth
+    #: (``authored_seat.lifted_by_own_depth``), so the below-grade reading
+    #: above (``below_grade`` / ``witnesses`` / ``solid_min_z``) was taken
+    #: AS IF it stood on the ground — the shell its plain twin shows.
+    #: ``agl_m`` stays the AUTHORED lift; ``base_z`` is the zero plane that
+    #: reading used.
+    ground_seated: bool = False
+
+    @property
+    def base_z(self) -> float:
+        """The zero plane of the BELOW-GRADE READING: the rendered one
+        (``anchor_z + agl_m``), or the ground at the anchor for a
+        placement read ground-seated (§18 (5))."""
+        return float(self.anchor_z) + (0.0 if self.ground_seated else float(self.agl_m))
 
 
 @_dc.dataclass
@@ -708,6 +724,8 @@ class ReadLaw:
     rim_reaches_grade: bool
     rim_protrusion_max_fraction: float
     authored_depth_min_m: float
+    #: §18 (5): the band a lift is read ground-seated within (0 = never)
+    authored_rim_tol_m: float = 0.0
 
 
 #: One placement to read: ``(id, def path, resolved path, xy, heading, agl,
@@ -718,16 +736,34 @@ class ReadLaw:
 PlacementJob = tuple
 
 
+def _reads_ground_seated(cache: "ResourceCache", phys: str, agl: float, tol_m: float,
+                         admission_depth_m: float) -> bool:
+    """Object-placement spec §18 (5): is this placement LIFTED BY ITS OWN
+    SHELL DEPTH (``authored_seat.lifted_by_own_depth``)?  The depth is the
+    resource's deepest GENUINE solid (a decal under the shell is not its
+    depth); the all-vertex range screens first, so the components are
+    read only for a lifted resource deep enough to matter."""
+    if tol_m <= 0.0 or agl <= 0.0 or -cache.y_range(phys)[0] < admission_depth_m:
+        return False
+    deep = min((c.min_y for c in cache.genuine(phys)), default=math.inf)
+    return lifted_by_own_depth(agl, deep, tol_m, admission_depth_m)
+
+
 def placement_grounds(cache: "ResourceCache", phys: str, xy: XY, heading: float,
                       anchor_z: float, agl: float, admission_depth_m: float,
-                      dem_z: _t.Callable[[float, float], float]) -> tuple | None:
+                      dem_z: _t.Callable[[float, float], float],
+                      authored_rim_tol_m: float = 0.0) -> tuple | None:
     """THE DEM HALF of one placement's reading — the only part that needs
     the terrain, so the only part that must run where the DEM is.  THE
     PRE-SCREEN: the deepest authored vertex under the HIGHEST ground the
     placement's extent touches — no component of a placement that fails
     it can be below grade anywhere (``None``).  Past it, the ground under
-    every genuine component's centroid, in component order."""
+    every genuine component's centroid, in component order.  A placement
+    lifted by its own shell depth within ``authored_rim_tol_m`` is screened
+    AS IF ground-seated (object-placement spec §18 (5))."""
     vmin, _vmax, x0, x1, z0, z1 = cache.y_range(phys)
+    if _reads_ground_seated(cache, phys, agl, authored_rim_tol_m, admission_depth_m):
+        agl = 0.0
     corners = [_to_frame(xy, heading, x, zz) for x in (x0, x1) for zz in (z0, z1)]
     grounds = [anchor_z] + [float(dem_z(cx, cy)) for cx, cy in corners]
     grounds = [z for z in grounds if not math.isnan(z)]
@@ -752,9 +788,13 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
     witnesses: list[FloorWitness] = []
     buried_wits: list[FloorWitness] = []
     deep_comps: list[int] = []
+    seated = False
     if g is not None and not stock:
-        base = anchor_z + agl               # the rendered y = 0 plane
         vmin, vmax, x0, x1, z0, z1 = cache.y_range(phys)
+        # §18 (5): a shell lifted by its own depth is read ground-seated
+        seated = _reads_ground_seated(cache, phys, agl, law.authored_rim_tol_m,
+                                      law.admission_depth_m)
+        base = anchor_z + (0.0 if seated else agl)   # the y = 0 plane of the reading
         corners = [_to_frame(xy, heading, x, zz) for x in (x0, x1) for zz in (z0, z1)]
         bbox = Polygon(corners).convex_hull if vmin < math.inf else None
         if samples is not None:
@@ -892,7 +932,7 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
                          ("ATTR_hard_deck: the primary deck signature",)
                          if deck is not None else (), None,
                          tuple(sorted(set(deep_comps))) if witnesses else (),
-                         tuple(buried_wits)), rep)
+                         tuple(buried_wits), seated), rep)
 
 
 def _has_hard_deck(cache: "ResourceCache", phys: str) -> bool:
@@ -930,6 +970,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         *, floor_plate_normal_y_min: float, rim_reaches_grade: bool = True,
                         rim_protrusion_max_fraction: float = 0.0,
                         authored_depth_min_m: float = 0.0,
+                        authored_rim_tol_m: float = 0.0,
                         ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
@@ -964,7 +1005,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     cache = cache or ResourceCache(thickness_m)
     law = ReadLaw(admission_depth_m, contact_band_m, shell_reaches_grade,
                   floor_plate_normal_y_min, rim_reaches_grade,
-                  rim_protrusion_max_fraction, authored_depth_min_m)
+                  rim_protrusion_max_fraction, authored_depth_min_m, authored_rim_tol_m)
     rep = ObjReport(placements=len(placements))
     out: list = []
     jobs: list[tuple[int, PlacementJob]] = []
@@ -1002,7 +1043,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         samples = None
         if cache.geometry(phys) is not None and not stock:
             samples = placement_grounds(cache, phys, xy, heading, anchor_z, agl,
-                                        admission_depth_m, dem_z)
+                                        admission_depth_m, dem_z, authored_rim_tol_m)
         jobs.append((len(out), (oid, dpath, phys, xy, heading, agl, kind, anchor_z,
                                 stock, samples)))
         out.append(None)
@@ -1015,6 +1056,14 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     done = dict(zip(heavy, got)) if got is not None else {}
     for k, (i, job) in enumerate(jobs):
         obj, sub = done[k] if k in done else read_placement(cache, job, law)
+        if obj.ground_seated and not (obj.witnesses or obj.buried):
+            # §18 (5): a lift read ground-seated FOUNDS A PIT (a floor
+            # witness, or a buried plate a sibling's region may take) or
+            # is not read that way at all — the reading as it was
+            plain = placement_grounds(cache, job[2], job[3], job[4], job[7], job[5],
+                                      admission_depth_m, dem_z)
+            obj, sub = read_placement(cache, (*job[:9], plain),
+                                      _dc.replace(law, authored_rim_tol_m=0.0))
         out[i] = obj
         _absorb(rep, sub)
     return out, rep
@@ -1234,7 +1283,7 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
     g = cache.geometry(o.resolved)
     if g is None:
         return None
-    base = o.anchor_z + o.agl_m
+    base = o.base_z
     mat = placement_affine(o.xy, o.heading_deg)
     comps = _components_near(cache, o, within)
     # ── RULINGS 2026-09-13bp (i): read ONCE per (resource, planes) ──
@@ -1269,7 +1318,7 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     g = cache.geometry(o.resolved)
     if g is None:
         return None, None
-    base = o.anchor_z + o.agl_m
+    base = o.base_z
     mat = placement_affine(o.xy, o.heading_deg)
     comps = _components_near(cache, o, within)
     if select is not None:

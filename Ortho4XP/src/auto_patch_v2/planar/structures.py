@@ -117,7 +117,7 @@ from .structure_underpass import (underpass_bores as _underpass_bores,
 from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
                                  covered_start as _covered_start, pad_hit as _pad_hit,
                                  ramp_targets, reseat_expect as _reseat_expect,
-                                 ring_for, seed_wall_stations)
+                                 authored_crest as _authored_crest, ring_for, seed_wall_stations)
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
@@ -789,6 +789,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          capped=g.capped, far_capped=g.far_capped,
                          wall_length_m=c.length_m, mouth_kind=c.mouth_kind,
                          ground_kind=c.ground_kind, reseat_expect_m=expect,
+                         authored_crest_m=_authored_crest(c, mouth_z, design_grade, s_top)
+                         if g.kind == "object" else (),
                          trench_outside_max_m=outside,
                          footprint=tuple((float(x), float(y)) for x, y in
                                          c.footprint.exterior.coords[:-1])

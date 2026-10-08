@@ -37,6 +37,7 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..airport import authored_seat as _seat
 from ..model.frame import XY
 from ..geom.vector import unit_vector
 
@@ -69,7 +70,8 @@ def pad_hit(outer: Polygon, pads: list[tuple[Polygon, str]], tree: STRtree | Non
 
 __all__ = ["RampGeometry", "geometry", "normals", "snap", "snap_out",
            "rim_standoff", "rim_yield_m", "corner_distance", "beyond_strip",
-           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "covered_start", "reseat_expect"]
+           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "covered_start", "reseat_expect",
+           "anchor_cut_z", "authored_crest"]
 
 
 def rim_standoff(thickness_m: float, cutout) -> tuple[float, float]:
@@ -311,12 +313,36 @@ def collapse_stations(ss: _t.Sequence[float], pts: list[tuple[XY, ...]], zs: lis
 def reseat_expect(c, mouth_z: float, grade: float, s_top: float, airport: Airport
                    ) -> tuple[float, ...]:
     """The re-seat the DESIGN implies for the corridor's placement(s)
-    (05n-4): ``ground(anchor) − (floor at the anchor's station + agl +
+    (05n-4): ``ground(anchor) − (the cut terrain under the anchor + agl +
     plate)`` — the post-mesh seat measures the real one."""
-    ln = LineString(c.axis)
-    s = ln.project(Point(c.anchor_xy))
-    floor = min(mouth_z + grade * min(s, s_top), c.anchor_dem_z) if grade > 0 else mouth_z
-    return (round(c.anchor_dem_z - (floor + c.agl_m + c.plate_y), 3),)
+    return tuple(round(-h_cut, 3) for h_cut, _h in authored_crest(c, mouth_z, grade, s_top))
+
+
+def anchor_cut_z(c, mouth_z: float, grade: float, s_top: float) -> float:
+    """THE TERRAIN THE ENGINE CUTS UNDER THE CORRIDOR'S ANCHOR (object-
+    placement spec §18 (3) (a), ``ground_cut(anchor)``): the ramp's own
+    design floor at the anchor's station where the anchor stands INSIDE
+    the trench, the ground where it stands outside it (a wall object
+    whose origin lies beside its trench renders on uncut ground — OTHH's
+    two ``tunnel middle`` walls)."""
+    pt = Point(c.anchor_xy)
+    if not c.trench.covers(pt):
+        return float(c.anchor_dem_z)
+    s = LineString(c.axis).project(pt)
+    return float(min(mouth_z + grade * min(s, s_top), c.anchor_dem_z) if grade > 0
+                 else mouth_z)
+
+
+def authored_crest(c, mouth_z: float, grade: float, s_top: float
+                   ) -> tuple[tuple[float, float], ...]:
+    """Per placement of the corridor, ``(h_cut, h_uncut)``: the crest
+    plate over the surrounding grade with the AUTHORED seat, on the cut
+    terrain and on uncut ground (``airport/authored_seat.crest_over``) —
+    the witness ``pipeline/authored_seats`` holds against ``[tunnel.object]
+    authored_crest_max_m``."""
+    cut = anchor_cut_z(c, mouth_z, grade, s_top)
+    return ((round(_seat.crest_over(cut, c.agl_m, c.plate_y, c.anchor_dem_z), 3),
+             round(_seat.crest_over(c.anchor_dem_z, c.agl_m, c.plate_y, c.anchor_dem_z), 3)),)
 
 
 def covered_start(axis_fn, hull_s: float, plate, step: float) -> float | None:

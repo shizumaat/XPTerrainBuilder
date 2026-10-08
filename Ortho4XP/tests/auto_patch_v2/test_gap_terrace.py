@@ -181,7 +181,14 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
         base = pickle.load(fh)
     cl2, rep = cut_classification(cl, base["pm"], base["z"], law, RULES)
     dropped = sum(p["knife_dropped_m2"] for p in rep["pieces"])
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (93, 48, 66, 6)
+    # RE-RECORDED by lane pads56 (spec §56; the §55 RULE is unchanged, its
+    # INPUT moved — measured on this frame, one arm each): rule 2's outline
+    # (93, 48, 66, 6) -> §56 (1) rule 2b (92, 48, 63, 6): the closed
+    # outlines take ground three sheet pieces stood on and the pieces
+    # renumber (``gap:38`` gone) -> §56 (2) the near roads absorbed
+    # (91, 48, 64, 6): ``gap:0/s0/ramp2`` merges into its lot once the road
+    # beside ``building3`` is pad.  The three owner sites below hold.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (91, 48, 64, 6)
     to_xy = airport.frame.transformers()[0]
     sites = {(30.1154841, 31.4105884): "gap:7/lot", (30.1159784, 31.4106264): "gap:7/ramp0",
              (30.1193169, 31.4085087): "gap:0/s4/lot"}

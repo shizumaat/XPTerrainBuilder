@@ -737,6 +737,9 @@ class PadOutline:
     close_m: float
     chord_m: float
     hole_min_m2: float
+    #: §56 (2) 2: the near-road absorption distance (not an outline
+    #: number of rule 2b — ``geom.cluster_outlines`` never reads it)
+    road_absorb_m: float = 0.0
 
 
 def pad_outline(law: Law) -> PadOutline:
@@ -745,7 +748,8 @@ def pad_outline(law: Law) -> PadOutline:
     b = law.tables.structures.building_pad
     return PadOutline(close_m=float(b.outline_close_m),
                       chord_m=float(b.outline_chord_m),
-                      hole_min_m2=float(b.outline_hole_min_m2))
+                      hole_min_m2=float(b.outline_hole_min_m2),
+                      road_absorb_m=float(b.pad_road_absorb_m))
 
 
 def footprint_touch_m(law: Law) -> float:

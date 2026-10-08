@@ -89,7 +89,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import (is_value_role, role_side, snap_margin_m,
+from ..law.tables import (is_value_role, pad_outline, role_side, snap_margin_m,
                           zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.frame import XY
@@ -577,6 +577,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         final.append([role, ref, face, letter, evid, str(evid.get("kind", ""))])
 
     # ── service roads outside pavement ─────────────────────────────
+    wall_extended = None
     corridors = []
     for c in ev.truck_chains:
         corridors.append(c.line.buffer(rules.service.road_width_m / 2,
@@ -589,7 +590,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         from . import retaining_wall as _rw
         lane_m = float(rules.service.retaining_wall_reach_m)
         _rpieces = _rw.retaining_pieces(airport, road, lane_m, rules.service)
-        road = unary_union([road, _rw.road_extension(_rpieces, road, lane_m)])
+        wall_ext = _rw.road_extension(_rpieces, road, lane_m)
+        if wall_ext is not None and not wall_ext.is_empty:
+            wall_extended = wall_ext.difference(road)   # §56 (2) 4 (b)
+        road = unary_union([road, wall_ext])
         stats.update({f"retaining_{k}": v for k, v in _rw.STATS.items()})
         road = road.difference(ev.pavement_union)
         if not ev.pad_union.is_empty:
@@ -664,6 +668,19 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add)
     stats["osm_ribbons"] = n_rib
     stats["osm_ribbon_m2"] = m_rib
+    # §56 (2) 5 (RULINGS 2026-10-07a (6), #452): THE NEAR ROAD IS THE PAD —
+    # ONE call, after both road populations exist and before the gap sheet
+    # differences the standing union.  The set-back is re-applied for the
+    # CHANGED pads only, so a pad that absorbed nothing cuts nothing twice
+    # (roadweld100's measured order is untouched).
+    from .road_absorb import absorb_near_roads, structure_keep_out
+    cells, absorbed = absorb_near_roads(
+        cells, law, pad_outline(law),
+        keep_out=structure_keep_out(airport, law), wall_extended=wall_extended)
+    if absorbed:
+        cells, stats["mixed_pad_recuts"] = _cut_back_groundside(
+            cells, law, rules, only=frozenset(absorbed))
+    stats["roads_absorbed"] = sum(len(v) for v in absorbed.values())
     # §53 (RULINGS 2026-10-04o (a)): the gap pieces — LAST, so every
     # pavement the engine already knows (the ribbons too) keeps its ground
     from .gap_mint import mint_gap_pieces
@@ -844,7 +861,8 @@ def _road_evidence(scored, ev: Evidence, rules: Rules) -> set[int]:
 
 # ── mixed pads ───────────────────────────────────────────────────────────
 
-def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
+def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
+                         only: frozenset[str] | None = None
                          ) -> tuple[list[Cell], int]:
     """THE PAD SET-BACK (RULINGS 2026-09-01g/i, 2026-09-04u;
     ``structures.building_pad.groundside_cutback_m``): a pad welds AIRSIDE
@@ -857,7 +875,10 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
     DSF page 4.8 m below the DEM and minted 14 groundside step rows against
     its DEM-following neighbour; CYXY (04u): lot 87 welded to building9's
     pad (694.77) was pulled down with it while it spans 694.77-702.17.
-    Returns the cells and the number cut."""
+    Returns the cells and the number cut.  ``only`` (§56 (2) 6) names the
+    pad refs whose knife is drawn — the pads a road absorption CHANGED —
+    so every other pad's neighbours are left exactly as the first pass
+    cut them."""
     back = law.tables.structures.building_pad.groundside_cutback_m
     if back <= 0.0:
         return cells, 0
@@ -871,7 +892,8 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
     # a pad and the lot it is cut from
     grid = law.tables.emit.identity.min_distinct_spacing_m
     knife_m = back + snap_margin_m(law)
-    pads = [c for c in cells if c.role == "building"]
+    pads = [c for c in cells if c.role == "building"
+            and (only is None or c.ref in only)]
     if not pads:
         return cells, 0
     ground_idx = [i for i, c in enumerate(cells)

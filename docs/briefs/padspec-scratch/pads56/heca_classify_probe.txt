@@ -1,0 +1,37 @@
+[HECA] (a) cluster pads rule 2 82 -> rule 2b 74; still_in_pieces 16 -> 8; thin_dropped 45 -> 39; outline vertices 4943 -> 2921 over 90 outlines
+  lost: [('unit:43#6330/2', 1911), ('unit:43#80/3', 3058), ('unit:43#744/2', 1510), ('unit:43#784/3', 565), ('unit:43#784/4', 566), ('unit:42#307/2', 471), ('unit:42#2829/0', 1833), ('unit:42#2829/1', 10145), ('unit:43#222/0', 7176), ('unit:43#222/1', 1043)]
+  new : [('unit:42#2829', 12685), ('unit:43#222', 8426)]
+  joined_from: {'unit:43#6330/1': ['unit:43#6330/1', 'unit:43#6330/2'], 'unit:43#80/1': ['unit:43#80/1', 'unit:43#80/2'], 'unit:43#80/2': ['unit:43#80/3'], 'unit:43#744/1': ['unit:43#744/1', 'unit:43#744/2'], 'unit:43#784/0': ['unit:43#784/0', 'unit:43#784/1'], 'unit:43#784/1': ['unit:43#784/2'], 'unit:43#784/2': ['unit:43#784/3', 'unit:43#784/4'], 'unit:42#2829': ['unit:42#2829/0', 'unit:42#2829/1'], 'unit:43#222': ['unit:43#222/0', 'unit:43#222/1']}
+  multipolygons: []
+  same-id pads growing > 5 %: [('unit:43#6330/1', 19.6), ('unit:43#536', 5.5), ('unit:43#80/1', 187.4), ('unit:43#80/2', 975.5), ('unit:43#744/0', 13.8), ('unit:43#744/1', 241.0), ('unit:43#784/0', 362.7), ('unit:43#784/2', 323.5), ('unit:43#842', 10.6), ('unit:42#143', 20.3), ('unit:43#830', 5.7), ('unit:43#16', 6.3), ('unit:43#8/0', 5.4), ('unit:41#159', 8.3), ('unit:41#180', 5.9)]
+  unit:43#6330/0: {'outline_vertices': 453, 'outline_simplified_from': 906, 'outline_joined_from': []} holes 6 area 171,401
+[HECA] (b) classify x2 155 s; cells 1534 -> 1496; roads absorbed 37 into 17 pads; kept 5; recuts 20; gap pieces 375 -> 341
+  changed cells in the arm: 56 {'absorbing_pad': 17, 'recut_neighbour': 14, 'gap_piece': 25, 'OTHER': 0}; OTHER: []
+  base cells not in the arm: 94 {'absorbed_road': 37, 'pad': 17, 'gap_piece': 25, 'recut': 15}
+  pads: 205; absorbing 17; non-absorbing pads byte-identical 188 of 188
+    building3: 3 roads ['route24', 'small_roads:-18834', 'small_roads:-1149']; area 171,401 -> 173,225 (+1.1 %); vertices 1020 -> 491
+    building7: 2 roads ['small_roads:-20331', 'small_roads:-20331#1']; area 3,948 -> 4,160 (+5.4 %); vertices 100 -> 109
+    building13: 2 roads ['small_roads:-20203', 'small_roads:-18749']; area 7,256 -> 7,301 (+0.6 %); vertices 63 -> 35
+    building16: 8 roads ['dsf:objpav395', 'dsf:objpav395#1', 'small_roads:-15997', 'small_roads:-15996', 'small_roads:-5321', 'small_roads:-5321#1', 'small_roads:-3952', 'small_roads:-3952#1']; area 25,048 -> 25,453 (+1.6 %); vertices 117 -> 131
+    building35: 1 roads ['small_roads:-3884']; area 3,448 -> 3,787 (+9.8 %); vertices 4 -> 7
+    building51: 1 roads ['small_roads:-18900#3']; area 3,815 -> 3,881 (+1.7 %); vertices 19 -> 20
+    building62: 1 roads ['small_roads:-18900#2']; area 690 -> 741 (+7.4 %); vertices 14 -> 15
+    building85: 1 roads ['small_roads:-20323']; area 2,680 -> 2,734 (+2.0 %); vertices 14 -> 14
+    building94: 1 roads ['small_roads:-18655']; area 2,505 -> 2,521 (+0.6 %); vertices 4 -> 9
+    building111: 1 roads ['small_roads:-18656#8']; area 3,413 -> 3,448 (+1.0 %); vertices 4 -> 5
+    building132: 1 roads ['small_roads:-18650#1']; area 12,120 -> 12,653 (+4.4 %); vertices 32 -> 39
+    building150: 1 roads ['small_roads:-18809']; area 9,532 -> 9,598 (+0.7 %); vertices 22 -> 25
+    building162: 1 roads ['small_roads:-20500']; area 5,181 -> 5,205 (+0.5 %); vertices 4 -> 7
+    building186: 1 roads ['small_roads:-20639#1']; area 4,059 -> 4,096 (+0.9 %); vertices 16 -> 16
+    building192: 8 roads ['small_roads:-18582', 'small_roads:-18582#1', 'small_roads:-18581', 'small_roads:-18581#1', 'small_roads:-4044#1', 'small_roads:-4044#2', 'small_roads:-4041', 'small_roads:-4041#5']; area 1,930 -> 2,108 (+9.2 %); vertices 4 -> 7
+    building201: 1 roads ['small_roads:-18595#2']; area 1,308 -> 1,373 (+4.9 %); vertices 48 -> 21
+    building205: 3 roads ['small_roads:-4037', 'small_roads:-4037#1', 'small_roads:-1230']; area 527 -> 563 (+6.8 %); vertices 4 -> 5
+  kept: [('route3#2', 'building10', 'wall_extended_route'), ('route3#1', 'building16', 'wall_extended_route'), ('small_roads:-18814#2', 'building86', 'pad_not_one_polygon'), ('small_roads:-3923', 'building86', 'pad_not_one_polygon'), ('small_roads:-3923', 'building91', 'pad_not_one_polygon')]
+  wall_extended area 27,562 m2; keep_out area 11,378 m2
+    kept route3#2 (pad building10, wall_extended_route): road area 11 m2, overlap with the reason's geometry 11.1 m2 (100 %)
+    kept route3#1 (pad building16, wall_extended_route): road area 1 m2, overlap with the reason's geometry 0.5 m2 (100 %)
+    kept small_roads:-18814#2 (pad building86, pad_not_one_polygon): road area 0 m2, overlap with the reason's geometry 0.0 m2 (0 %)
+    kept small_roads:-3923 (pad building86, pad_not_one_polygon): road area 3 m2, overlap with the reason's geometry 0.0 m2 (0 %)
+    kept small_roads:-3923 (pad building91, pad_not_one_polygon): road area 3 m2, overlap with the reason's geometry 0.0 m2 (0 %)
+  site (30.1110593, 31.404281, 150.0): road cells 2 -> 2; absorbed there []; left ['route0', 'route1']
+  site pad building3: vertices 491 holes 7

@@ -404,6 +404,9 @@ class BuildingPad:
     outline_close_m: float
     outline_chord_m: float
     outline_hole_min_m2: float
+    #: spec §56 (2) 2: a groundside road cell wholly within this of a pad
+    #: outline is the pad (``classify/road_absorb``); 0 disarms
+    pad_road_absorb_m: float
 
 
 @_dc.dataclass(frozen=True)

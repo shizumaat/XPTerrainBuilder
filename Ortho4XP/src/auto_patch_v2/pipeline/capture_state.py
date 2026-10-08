@@ -65,6 +65,12 @@ registry                             written by (stage)             read by     
 ``classify.evidence.CLUSTER_PADS``   ``classify/evidence``          ``tools/v2_solve_replay``            NOT CARRIED: printed
                                                                     (``--from classify``),               by the arm that just
                                                                     ``tools/pad_airside_arm``            re-ran classify
+``classify.road_absorb.ROADS_ABSORBED``  ``classify/road_absorb``    ``pipeline/publication``             NOT CARRIED: like
+/ ``ROADS_KEPT`` (§56 (2) 7)                                         (``cluster_pads[].roads_absorbed``)  ``CLUSTER_PADS`` —
+                                                                                                        filled by classify,
+                                                                                                        so the two sidecar
+                                                                                                        keys are EMPTY on a
+                                                                                                        resume after it
 ``planar.platform.MERGE_READ``       ``planar/platform``            ``planar/overlay``                   NOT CARRIED: written
                                                                                                         and read INSIDE the
                                                                                                         planar stage

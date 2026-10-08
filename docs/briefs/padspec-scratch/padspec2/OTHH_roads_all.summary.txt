@@ -1,0 +1,2 @@
+[OTHH] pads near: ['unit:87#3', 'unit:25#4', 'unit:16#0/0', 'unit:16#0/1', 'unit:16#0/2', 'unit:16#0/3', 'unit:28#8/0', 'unit:28#8/1', 'unit:28#8/2', 'unit:28#8/3', 'unit:28#8/4', 'unit:28#8/5', 'unit:28#8/6', 'unit:28#135', 'unit:7#8', 'unit:93#1', 'unit:24#0/0', 'unit:24#0/1', 'unit:24#0/2', 'unit
+  VERDICTS {'PASSES': 389, 'SPLIT': 83, 'ABSORBED': 75}; absorbed faces 75 / verts 468 / 6199 m2

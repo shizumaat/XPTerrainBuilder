@@ -1,0 +1,2 @@
+[HECA] pads near: ['unit:43#6330/0', 'unit:43#6330/1', 'unit:43#6330/2', 'unit:43#536', 'unit:42#3425', 'unit:43#29', 'unit:43#0', 'unit:43#727', 'unit:43#815', 'unit:43#807', 'unit:43#80/0', 'unit:43#80/1', 'unit:43#80/2', 'unit:43#80/3', 'unit:43#608', 'unit:43#744/0', 'unit:43#744/1', 'unit:43#74
+  VERDICTS {'SPLIT': 37, 'PASSES': 406, 'ABSORBED': 18}; absorbed faces 18 / verts 107 / 867 m2

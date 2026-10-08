@@ -1,0 +1,331 @@
+
+== /tmp/harness/swg_NLWF.osm  z_tol=0.01 xy_tol=0.05 across_role=False
+  ways 35 (+1 feature ways)  nodes 549  flat faces 4  planar faces 7
+  adjacent pairs 334  merged 2  refused {'role': 164, 'not_planar': 66, 'runway': 95}
+  -> ways 33  nodes after merge 542  +collinear 540  (collinear only, no merge: 547)
+  by role (ways, nodes): {'apron': [2, 20], 'building': [1, 23], 'graded_strip': [11, 325], 'junction': [3, 43], 'primary_parallel': [2, 21], 'runway': [2, 186], 'service_road': [14, 206]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (2, 21, 14, 14, 0, ['primary_parallel'], 4.732380952380953)
+     (2, 20, 20, 20, 0, ['apron'], 5.03)
+
+== /tmp/harness/swg_NLWF.osm  z_tol=0.01 xy_tol=0.05 across_role=True
+  ways 35 (+1 feature ways)  nodes 549  flat faces 4  planar faces 7
+  adjacent pairs 334  merged 3  refused {'not_planar': 226, 'runway': 95}
+  -> ways 32  nodes after merge 539  +collinear 537  (collinear only, no merge: 547)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (3, 38, 35, 35, 0, ['apron', 'building'], 5.03)
+     (2, 21, 14, 14, 0, ['primary_parallel'], 4.732380952380953)
+
+== /tmp/harness/swg_NLWF.osm  z_tol=0.02 xy_tol=0.05 across_role=False
+  ways 35 (+1 feature ways)  nodes 549  flat faces 4  planar faces 10
+  adjacent pairs 334  merged 2  refused {'role': 164, 'not_planar': 66, 'runway': 95}
+  -> ways 33  nodes after merge 542  +collinear 540  (collinear only, no merge: 547)
+  by role (ways, nodes): {'apron': [2, 20], 'building': [1, 23], 'graded_strip': [11, 325], 'junction': [3, 43], 'primary_parallel': [2, 21], 'runway': [2, 186], 'service_road': [14, 206]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (2, 21, 14, 14, 0, ['primary_parallel'], 4.732380952380953)
+     (2, 20, 20, 20, 0, ['apron'], 5.03)
+
+== /tmp/harness/swg_NLWF.osm  z_tol=0.02 xy_tol=0.05 across_role=True
+  ways 35 (+1 feature ways)  nodes 549  flat faces 4  planar faces 10
+  adjacent pairs 334  merged 3  refused {'not_planar': 226, 'runway': 95}
+  -> ways 32  nodes after merge 539  +collinear 537  (collinear only, no merge: 547)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (3, 38, 35, 35, 0, ['apron', 'building'], 5.03)
+     (2, 21, 14, 14, 0, ['primary_parallel'], 4.732380952380953)
+
+== /tmp/harness/swg_KASE.osm  z_tol=0.01 xy_tol=0.05 across_role=False
+  ways 103 (+5 feature ways)  nodes 1776  flat faces 2  planar faces 12
+  adjacent pairs 1240  merged 0  refused {'not_planar': 202, 'role': 506, 'different_plane': 2, 'runway': 530}
+  -> ways 103  nodes after merge 1776  +collinear 1770  (collinear only, no merge: 1770)
+  by role (ways, nodes): {'apron': [8, 249], 'building': [4, 115], 'cross_connector': [3, 45], 'graded_strip': [24, 657], 'junction': [8, 127], 'primary_parallel': [12, 288], 'runway': [12, 723], 'service_road': [22, 139], 'stub': [8, 165], 'tunnel_ramp': [2, 32]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+
+== /tmp/harness/swg_KASE.osm  z_tol=0.01 xy_tol=0.05 across_role=True
+  ways 103 (+5 feature ways)  nodes 1776  flat faces 2  planar faces 12
+  adjacent pairs 1240  merged 1  refused {'not_planar': 700, 'different_plane': 2, 'runway': 530}
+  -> ways 102  nodes after merge 1769  +collinear 1763  (collinear only, no merge: 1770)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (2, 24, 17, 17, 0, ['apron', 'building'], 2363.140588235294)
+
+== /tmp/harness/swg_KASE.osm  z_tol=0.02 xy_tol=0.05 across_role=False
+  ways 103 (+5 feature ways)  nodes 1776  flat faces 4  planar faces 14
+  adjacent pairs 1240  merged 0  refused {'not_planar': 202, 'role': 506, 'different_plane': 2, 'runway': 530}
+  -> ways 103  nodes after merge 1776  +collinear 1767  (collinear only, no merge: 1767)
+  by role (ways, nodes): {'apron': [8, 249], 'building': [4, 115], 'cross_connector': [3, 45], 'graded_strip': [24, 657], 'junction': [8, 127], 'primary_parallel': [12, 288], 'runway': [12, 723], 'service_road': [22, 139], 'stub': [8, 165], 'tunnel_ramp': [2, 32]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+
+== /tmp/harness/swg_KASE.osm  z_tol=0.02 xy_tol=0.05 across_role=True
+  ways 103 (+5 feature ways)  nodes 1776  flat faces 4  planar faces 14
+  adjacent pairs 1240  merged 1  refused {'not_planar': 700, 'different_plane': 2, 'runway': 530}
+  -> ways 102  nodes after merge 1769  +collinear 1760  (collinear only, no merge: 1767)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (2, 24, 17, 17, 0, ['apron', 'building'], 2363.140588235294)
+
+== /tmp/harness/swg_CYXY.osm  z_tol=0.01 xy_tol=0.05 across_role=False
+  ways 337 (+14 feature ways)  nodes 4527  flat faces 14  planar faces 53
+  adjacent pairs 2797  merged 2  refused {'role': 1244, 'not_planar': 1031, 'runway': 519}
+  -> ways 335  nodes after merge 4526  +collinear 4496  (collinear only, no merge: 4497)
+  by role (ways, nodes): {'apron': [16, 473], 'building': [16, 193], 'cross_connector': [9, 238], 'graded_strip': [126, 2368], 'groundside_pavement': [27, 421], 'junction': [15, 270], 'primary_parallel': [12, 407], 'runway': [15, 962], 'runway_crossing': [8, 30], 'secondary_parallel': [2, 29], 'service_road': [81, 655], 'stub': [8, 143], 'tunnel_ramp': [2, 29]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (2, 11, 10, 9, 0, ['service_road'], 703.45)
+     (2, 8, 8, 8, 0, ['service_road'], 703.64)
+
+== /tmp/harness/swg_CYXY.osm  z_tol=0.01 xy_tol=0.05 across_role=True
+  ways 337 (+14 feature ways)  nodes 4527  flat faces 14  planar faces 53
+  adjacent pairs 2797  merged 3  refused {'not_planar': 2268, 'runway': 519}
+  -> ways 334  nodes after merge 4519  +collinear 4489  (collinear only, no merge: 4497)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (2, 25, 18, 18, 0, ['apron', 'building'], 703.18)
+     (2, 11, 10, 9, 0, ['service_road'], 703.45)
+     (2, 8, 8, 8, 0, ['service_road'], 703.64)
+
+== /tmp/harness/swg_CYXY.osm  z_tol=0.02 xy_tol=0.05 across_role=False
+  ways 337 (+14 feature ways)  nodes 4527  flat faces 17  planar faces 65
+  adjacent pairs 2797  merged 2  refused {'role': 1244, 'different_plane': 1, 'not_planar': 1030, 'runway': 519}
+  -> ways 335  nodes after merge 4526  +collinear 4477  (collinear only, no merge: 4478)
+  by role (ways, nodes): {'apron': [16, 473], 'building': [16, 193], 'cross_connector': [9, 238], 'graded_strip': [126, 2368], 'groundside_pavement': [27, 421], 'junction': [15, 270], 'primary_parallel': [12, 407], 'runway': [15, 962], 'runway_crossing': [8, 30], 'secondary_parallel': [2, 29], 'service_road': [81, 655], 'stub': [8, 143], 'tunnel_ramp': [2, 29]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (2, 11, 10, 9, 0, ['service_road'], 703.45)
+     (2, 8, 8, 8, 0, ['service_road'], 703.64)
+
+== /tmp/harness/swg_CYXY.osm  z_tol=0.02 xy_tol=0.05 across_role=True
+  ways 337 (+14 feature ways)  nodes 4527  flat faces 17  planar faces 65
+  adjacent pairs 2797  merged 4  refused {'not_planar': 2258, 'different_plane': 7, 'runway': 519}
+  -> ways 333  nodes after merge 4517  +collinear 4468  (collinear only, no merge: 4478)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (2, 25, 18, 18, 0, ['apron', 'building'], 703.18)
+     (2, 11, 10, 9, 0, ['service_road'], 703.45)
+     (2, 10, 8, 8, 0, ['graded_strip', 'service_road'], 703.3790000000001)
+     (2, 8, 8, 8, 0, ['service_road'], 703.64)
+
+== /tmp/harness/swg_SPJC.osm  z_tol=0.01 xy_tol=0.05 across_role=False
+  ways 644 (+24 feature ways)  nodes 10118  flat faces 92  planar faces 201
+  adjacent pairs 6589  merged 27  refused {'not_planar': 2586, 'role': 3514, 'different_plane': 26, 'runway': 427}
+  -> ways 617  nodes after merge 10109  +collinear 9958  (collinear only, no merge: 9969)
+  by role (ways, nodes): {'apron': [51, 1838], 'building': [73, 1947], 'cross_connector': [12, 140], 'graded_strip': [178, 4212], 'groundside_pavement': [33, 211], 'junction': [39, 988], 'primary_parallel': [32, 980], 'runway': [4, 1029], 'secondary_parallel': [2, 36], 'service_road': [189, 1013], 'stub': [18, 663], 'tunnel_ramp': [8, 90], 'tunnel_trench': [5, 67]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (3, 13, 11, 11, 0, ['service_road'], 15.04875)
+     (3, 12, 10, 10, 0, ['service_road'], 15.063999999999998)
+     (3, 9, 9, 9, 0, ['service_road'], 11.651666666666666)
+     (2, 14, 14, 13, 0, ['tunnel_trench'], 13.849999999999998)
+     (2, 11, 11, 10, 0, ['tunnel_trench'], 13.849999999999998)
+     (2, 10, 10, 10, 0, ['service_road'], 12.19)
+     (2, 10, 8, 8, 0, ['service_road'], 14.649999999999999)
+     (2, 9, 8, 8, 0, ['service_road'], 18.563333333333333)
+
+== /tmp/harness/swg_SPJC.osm  z_tol=0.01 xy_tol=0.05 across_role=True
+  ways 644 (+24 feature ways)  nodes 10118  flat faces 92  planar faces 201
+  adjacent pairs 6589  merged 29  refused {'not_planar': 6071, 'different_plane': 31, 'runway': 427}
+  -> ways 615  nodes after merge 10085  +collinear 9936  (collinear only, no merge: 9969)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (3, 13, 11, 11, 0, ['service_road'], 15.04875)
+     (3, 12, 10, 10, 0, ['service_road'], 15.063999999999998)
+     (3, 9, 9, 9, 0, ['service_road'], 11.651666666666666)
+     (2, 30, 18, 18, 0, ['apron', 'building'], 36.37)
+     (2, 28, 16, 15, 0, ['apron', 'building'], 35.3)
+     (2, 14, 14, 13, 0, ['tunnel_trench'], 13.849999999999998)
+     (2, 11, 11, 10, 0, ['tunnel_trench'], 13.849999999999998)
+     (2, 10, 10, 10, 0, ['service_road'], 12.19)
+
+== /tmp/harness/swg_SPJC.osm  z_tol=0.02 xy_tol=0.05 across_role=False
+  ways 644 (+24 feature ways)  nodes 10118  flat faces 112  planar faces 227
+  adjacent pairs 6589  merged 40  refused {'not_planar': 2569, 'different_plane': 22, 'role': 3514, 'runway': 427}
+  -> ways 604  nodes after merge 10101  +collinear 9918  (collinear only, no merge: 9937)
+  by role (ways, nodes): {'apron': [51, 1838], 'building': [73, 1947], 'cross_connector': [12, 140], 'graded_strip': [178, 4212], 'groundside_pavement': [33, 211], 'junction': [39, 988], 'primary_parallel': [32, 980], 'runway': [4, 1029], 'secondary_parallel': [2, 36], 'service_road': [189, 1013], 'stub': [18, 663], 'tunnel_ramp': [8, 90], 'tunnel_trench': [5, 67]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (3, 14, 11, 11, 0, ['service_road'], 17.47833333333333)
+     (3, 13, 12, 12, 0, ['service_road'], 26.341666666666665)
+     (3, 13, 11, 11, 0, ['service_road'], 15.04875)
+     (3, 12, 10, 10, 0, ['service_road'], 15.063999999999998)
+     (3, 11, 9, 9, 0, ['service_road'], 13.166666666666664)
+     (3, 9, 9, 9, 0, ['service_road'], 11.651666666666666)
+     (2, 14, 14, 13, 0, ['tunnel_trench'], 13.849999999999998)
+     (2, 14, 13, 13, 0, ['apron'], 19.345714285714283)
+
+== /tmp/harness/swg_SPJC.osm  z_tol=0.02 xy_tol=0.05 across_role=True
+  ways 644 (+24 feature ways)  nodes 10118  flat faces 112  planar faces 227
+  adjacent pairs 6589  merged 43  refused {'not_planar': 6054, 'different_plane': 26, 'runway': 427}
+  -> ways 601  nodes after merge 10077  +collinear 9896  (collinear only, no merge: 9937)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (3, 14, 11, 11, 0, ['service_road'], 17.47833333333333)
+     (3, 13, 12, 12, 0, ['service_road'], 26.341666666666665)
+     (3, 13, 11, 11, 0, ['service_road'], 15.04875)
+     (3, 12, 10, 10, 0, ['service_road'], 15.063999999999998)
+     (3, 11, 9, 9, 0, ['service_road'], 13.166666666666664)
+     (3, 9, 9, 9, 0, ['service_road'], 11.651666666666666)
+     (2, 30, 18, 18, 0, ['apron', 'building'], 36.37)
+     (2, 28, 16, 15, 0, ['apron', 'building'], 35.3)
+
+== /tmp/harness/swg_KCLT.osm  z_tol=0.01 xy_tol=0.05 across_role=False
+  ways 1638 (+63 feature ways)  nodes 22291  flat faces 185  planar faces 491
+  adjacent pairs 14205  merged 19  refused {'not_planar': 5163, 'role': 8059, 'different_plane': 8, 'runway': 866}
+  -> ways 1619  nodes after merge 22197  +collinear 21985  (collinear only, no merge: 22076)
+  by role (ways, nodes): {'apron': [148, 5030], 'building': [200, 3559], 'cross_connector': [59, 1472], 'graded_strip': [362, 7587], 'groundside_pavement': [52, 1381], 'junction': [46, 1165], 'primary_parallel': [44, 1652], 'runway': [8, 1615], 'secondary_parallel': [1, 9], 'service_junction': [1, 4], 'service_road': [646, 4599], 'stub': [55, 1323], 'tunnel_ramp': [16, 144]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (5, 258, 186, 170, 1, ['building'], 222.6300000000001)
+     (5, 59, 48, 48, 1, ['building'], 217.22000000000006)
+     (3, 7, 7, 7, 0, ['apron'], 212.6)
+     (2, 31, 26, 26, 0, ['building'], 218.65999999999997)
+     (2, 28, 27, 26, 0, ['building'], 222.72)
+     (2, 23, 22, 22, 0, ['building'], 214.03000000000003)
+     (2, 9, 9, 9, 0, ['service_road'], 226.1375)
+     (2, 8, 8, 8, 0, ['apron'], 214.17714285714283)
+
+== /tmp/harness/swg_KCLT.osm  z_tol=0.01 xy_tol=0.05 across_role=True
+  ways 1638 (+63 feature ways)  nodes 22291  flat faces 185  planar faces 491
+  adjacent pairs 14205  merged 30  refused {'not_planar': 13183, 'different_plane': 20, 'runway': 866}
+  -> ways 1608  nodes after merge 22179  +collinear 21965  (collinear only, no merge: 22076)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (7, 263, 181, 165, 0, ['apron', 'building'], 222.6300000000001)
+     (6, 60, 48, 48, 1, ['apron', 'building'], 217.22000000000006)
+     (3, 29, 24, 23, 0, ['apron', 'building'], 220.62)
+     (3, 7, 7, 7, 0, ['apron'], 212.6)
+     (3, 7, 6, 4, 0, ['apron', 'building'], 221.01833333333335)
+     (2, 39, 37, 37, 0, ['apron', 'building'], 222.85000000000002)
+     (2, 37, 34, 34, 0, ['apron', 'building'], 223.22999999999996)
+     (2, 31, 26, 26, 0, ['building'], 218.65999999999997)
+
+== /tmp/harness/swg_KCLT.osm  z_tol=0.02 xy_tol=0.05 across_role=False
+  ways 1638 (+63 feature ways)  nodes 22291  flat faces 202  planar faces 590
+  adjacent pairs 14205  merged 29  refused {'not_planar': 5149, 'role': 8059, 'different_plane': 11, 'runway': 866}
+  -> ways 1609  nodes after merge 22196  +collinear 21935  (collinear only, no merge: 22029)
+  by role (ways, nodes): {'apron': [148, 5030], 'building': [200, 3559], 'cross_connector': [59, 1472], 'graded_strip': [362, 7587], 'groundside_pavement': [52, 1381], 'junction': [46, 1165], 'primary_parallel': [44, 1652], 'runway': [8, 1615], 'secondary_parallel': [1, 9], 'service_junction': [1, 4], 'service_road': [646, 4599], 'stub': [55, 1323], 'tunnel_ramp': [16, 144]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (5, 258, 186, 170, 1, ['building'], 222.6300000000001)
+     (5, 59, 48, 48, 1, ['building'], 217.22000000000006)
+     (3, 20, 20, 20, 0, ['service_road'], 226.1375)
+     (3, 7, 7, 7, 0, ['apron'], 212.6)
+     (2, 31, 26, 26, 0, ['building'], 218.65999999999997)
+     (2, 28, 27, 26, 0, ['building'], 222.72)
+     (2, 23, 22, 22, 0, ['building'], 214.03000000000003)
+     (2, 10, 10, 10, 0, ['service_road'], 217.64666666666668)
+
+== /tmp/harness/swg_KCLT.osm  z_tol=0.02 xy_tol=0.05 across_role=True
+  ways 1638 (+63 feature ways)  nodes 22291  flat faces 202  planar faces 590
+  adjacent pairs 14205  merged 43  refused {'not_planar': 13141, 'different_plane': 45, 'runway': 866}
+  -> ways 1595  nodes after merge 22175  +collinear 21913  (collinear only, no merge: 22029)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (7, 263, 181, 165, 0, ['apron', 'building'], 222.6300000000001)
+     (6, 60, 48, 48, 1, ['apron', 'building'], 217.22000000000006)
+     (3, 85, 103, 98, 5, ['apron', 'building'], 221.01963855421687)
+     (3, 29, 24, 23, 0, ['apron', 'building'], 220.62)
+     (3, 20, 20, 20, 0, ['service_road'], 226.1375)
+     (3, 7, 7, 7, 0, ['apron'], 212.6)
+     (3, 7, 6, 4, 0, ['apron', 'building'], 221.01833333333335)
+     (2, 39, 37, 37, 0, ['apron', 'building'], 222.85000000000002)
+
+== /tmp/harness/swg_OTHH.osm  z_tol=0.01 xy_tol=0.05 across_role=False
+  ways 1717 (+150 feature ways)  nodes 27797  flat faces 1115  planar faces 1168
+  adjacent pairs 17855  merged 485  refused {'role': 9780, 'not_planar': 4653, 'different_plane': 84, 'runway': 1017}
+  -> ways 1233  nodes after merge 25962  +collinear 25449  (collinear only, no merge: 27239)
+  by role (ways, nodes): {'apron': [117, 3908], 'building': [227, 4054], 'cross_connector': [92, 1490], 'graded_strip': [474, 11398], 'groundside_pavement': [26, 245], 'junction': [47, 2377], 'primary_parallel': [70, 1453], 'runway': [12, 1867], 'secondary_parallel': [37, 1412], 'service_road': [522, 3269], 'stub': [23, 479], 'tunnel_ramp': [27, 311], 'tunnel_trench': [43, 473]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (49, 1139, 1140, 1118, 19, ['building'], 3.959999999999999)
+     (19, 457, 297, 292, 5, ['apron'], 3.9600000000000004)
+     (18, 373, 427, 427, 3, ['cross_connector'], 3.9600000000000004)
+     (18, 149, 151, 150, 1, ['apron'], 3.9599999999999995)
+     (18, 104, 85, 85, 1, ['service_road'], 3.96)
+     (14, 931, 1226, 1226, 11, ['junction'], 3.959887640449438)
+     (14, 203, 323, 323, 6, ['cross_connector'], 3.959999999999999)
+     (13, 87, 59, 58, 0, ['service_road'], 3.9572222222222218)
+
+== /tmp/harness/swg_OTHH.osm  z_tol=0.01 xy_tol=0.05 across_role=True
+  ways 1717 (+150 feature ways)  nodes 27797  flat faces 1115  planar faces 1168
+  adjacent pairs 17855  merged 800  refused {'not_planar': 10773, 'different_plane': 188, 'runway': 1017}
+  -> ways 917  nodes after merge 22762  +collinear 22266  (collinear only, no merge: 27239)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (507, 7552, 5557, 5418, 141, ['apron', 'building', 'cross_connector', 'graded_strip', 'junction', 'primary_parallel', 'secondary_parallel', 'service_road', 'stub', 'tunnel_ramp'], 3.959824561403509)
+     (82, 1585, 1514, 1507, 29, ['apron', 'cross_connector', 'graded_strip', 'junction', 'primary_parallel', 'secondary_parallel', 'service_road', 'stub'], 3.96)
+     (37, 435, 409, 407, 8, ['apron', 'building', 'graded_strip', 'junction', 'service_road'], 3.96)
+     (20, 105, 70, 70, 0, ['graded_strip', 'service_road'], 3.96)
+     (15, 92, 56, 55, 0, ['graded_strip', 'service_road'], 3.9572222222222218)
+     (13, 61, 40, 40, 0, ['service_road'], 3.9600000000000004)
+     (9, 83, 70, 67, 0, ['apron', 'service_road'], 3.9600000000000004)
+     (8, 24, 17, 17, 0, ['graded_strip', 'service_road'], 3.96)
+
+== /tmp/harness/swg_OTHH.osm  z_tol=0.02 xy_tol=0.05 across_role=False
+  ways 1717 (+150 feature ways)  nodes 27797  flat faces 1129  planar faces 1206
+  adjacent pairs 17855  merged 508  refused {'role': 9780, 'not_planar': 4394, 'different_plane': 230, 'runway': 1017}
+  -> ways 1210  nodes after merge 25876  +collinear 25364  (collinear only, no merge: 27226)
+  by role (ways, nodes): {'apron': [117, 3908], 'building': [227, 4054], 'cross_connector': [92, 1490], 'graded_strip': [474, 11398], 'groundside_pavement': [26, 245], 'junction': [47, 2377], 'primary_parallel': [70, 1453], 'runway': [12, 1867], 'secondary_parallel': [37, 1412], 'service_road': [522, 3269], 'stub': [23, 479], 'tunnel_ramp': [27, 311], 'tunnel_trench': [43, 473]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (49, 1139, 1140, 1118, 19, ['building'], 3.959999999999999)
+     (21, 431, 463, 463, 4, ['cross_connector'], 3.96)
+     (19, 457, 297, 292, 5, ['apron'], 3.9600000000000004)
+     (18, 149, 151, 150, 1, ['apron'], 3.9599999999999995)
+     (18, 104, 85, 85, 1, ['service_road'], 3.96)
+     (17, 295, 363, 363, 9, ['primary_parallel'], 3.9600000000000013)
+     (16, 73, 50, 49, 0, ['service_road'], 3.9600000000000004)
+     (14, 931, 1226, 1226, 11, ['junction'], 3.959887640449438)
+
+== /tmp/harness/swg_OTHH.osm  z_tol=0.02 xy_tol=0.05 across_role=True
+  ways 1717 (+150 feature ways)  nodes 27797  flat faces 1129  planar faces 1206
+  adjacent pairs 17855  merged 829  refused {'not_planar': 10239, 'different_plane': 302, 'runway': 1017}
+  -> ways 888  nodes after merge 22340  +collinear 21857  (collinear only, no merge: 27226)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (563, 8237, 5997, 5856, 158, ['apron', 'building', 'cross_connector', 'graded_strip', 'junction', 'primary_parallel', 'secondary_parallel', 'service_road', 'stub', 'tunnel_ramp'], 3.959824561403509)
+     (96, 1795, 1901, 1894, 36, ['apron', 'cross_connector', 'graded_strip', 'junction', 'primary_parallel', 'secondary_parallel', 'service_road', 'stub'], 3.96)
+     (20, 105, 70, 70, 0, ['graded_strip', 'service_road'], 3.96)
+     (16, 73, 50, 49, 0, ['service_road'], 3.9600000000000004)
+     (15, 92, 56, 55, 0, ['graded_strip', 'service_road'], 3.9572222222222218)
+     (9, 83, 70, 67, 0, ['apron', 'service_road'], 3.9600000000000004)
+     (8, 24, 17, 17, 0, ['graded_strip', 'service_road'], 3.96)
+     (7, 93, 58, 58, 0, ['apron', 'building'], 3.959999999999999)
+
+== /tmp/harness/swg_HECA.osm  z_tol=0.01 xy_tol=0.05 across_role=False
+  ways 2050 (+266 feature ways)  nodes 42917  flat faces 156  planar faces 428
+  adjacent pairs 21024  merged 15  refused {'not_planar': 7944, 'role': 11373, 'different_plane': 12, 'runway': 1642}
+  -> ways 2035  nodes after merge 42878  +collinear 41910  (collinear only, no merge: 41950)
+  by role (ways, nodes): {'apron': [285, 8912], 'building': [275, 5880], 'cross_connector': [74, 1893], 'graded_strip': [292, 9565], 'groundside_pavement': [159, 7292], 'junction': [364, 5710], 'primary_parallel': [35, 940], 'runway': [35, 2581], 'secondary_parallel': [30, 720], 'service_road': [447, 5015], 'stub': [43, 1492], 'tunnel_ramp': [11, 90]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (3, 83, 68, 66, 1, ['building'], 85.15000000000002)
+     (3, 41, 38, 35, 0, ['building'], 99.55999999999999)
+     (2, 79, 77, 76, 0, ['building'], 87.46)
+     (2, 68, 64, 59, 0, ['building'], 76.42999999999999)
+     (2, 56, 53, 47, 0, ['building'], 82.68023255813954)
+     (2, 16, 12, 12, 0, ['junction'], 100.67083333333333)
+     (2, 14, 14, 14, 0, ['service_road'], 112.2275)
+     (2, 11, 11, 11, 0, ['apron'], 74.94800000000001)
+
+== /tmp/harness/swg_HECA.osm  z_tol=0.01 xy_tol=0.05 across_role=True
+  ways 2050 (+266 feature ways)  nodes 42917  flat faces 156  planar faces 428
+  adjacent pairs 21024  merged 22  refused {'not_planar': 19299, 'different_plane': 18, 'runway': 1642}
+  -> ways 2028  nodes after merge 42872  +collinear 41904  (collinear only, no merge: 41950)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (4, 89, 62, 60, 0, ['apron', 'building'], 85.15000000000002)
+     (4, 16, 14, 14, 0, ['apron', 'junction'], 74.45333333333333)
+     (3, 41, 38, 35, 0, ['building'], 99.55999999999999)
+     (3, 15, 15, 14, 0, ['apron', 'junction'], 98.25285714285714)
+     (3, 12, 12, 12, 0, ['apron', 'junction'], 74.94800000000001)
+     (2, 79, 77, 76, 0, ['building'], 87.46)
+     (2, 68, 64, 59, 0, ['building'], 76.42999999999999)
+     (2, 56, 53, 47, 0, ['building'], 82.68023255813954)
+
+== /tmp/harness/swg_HECA.osm  z_tol=0.02 xy_tol=0.05 across_role=False
+  ways 2050 (+266 feature ways)  nodes 42917  flat faces 189  planar faces 559
+  adjacent pairs 21024  merged 28  refused {'not_planar': 7901, 'role': 11373, 'different_plane': 32, 'runway': 1642}
+  -> ways 2022  nodes after merge 42868  +collinear 41670  (collinear only, no merge: 41721)
+  by role (ways, nodes): {'apron': [285, 8912], 'building': [275, 5880], 'cross_connector': [74, 1893], 'graded_strip': [292, 9565], 'groundside_pavement': [159, 7292], 'junction': [364, 5710], 'primary_parallel': [35, 940], 'runway': [35, 2581], 'secondary_parallel': [30, 720], 'service_road': [447, 5015], 'stub': [43, 1492], 'tunnel_ramp': [11, 90]}
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (3, 83, 68, 66, 1, ['building'], 85.15000000000002)
+     (3, 41, 38, 35, 0, ['building'], 99.55999999999999)
+     (3, 16, 14, 14, 0, ['apron'], 74.45333333333333)
+     (2, 79, 77, 76, 0, ['building'], 87.46)
+     (2, 68, 64, 59, 0, ['building'], 76.42999999999999)
+     (2, 56, 53, 47, 0, ['building'], 82.68023255813954)
+     (2, 17, 17, 17, 0, ['junction'], 113.2757142857143)
+     (2, 17, 14, 12, 0, ['junction'], 101.28799999999998)
+
+== /tmp/harness/swg_HECA.osm  z_tol=0.02 xy_tol=0.05 across_role=True
+  ways 2050 (+266 feature ways)  nodes 42917  flat faces 189  planar faces 559
+  adjacent pairs 21024  merged 38  refused {'not_planar': 19229, 'different_plane': 57, 'runway': 1642}
+  -> ways 2012  nodes after merge 42857  +collinear 41659  (collinear only, no merge: 41721)
+  largest comps (faces, nodes_before, after, after+col, holes, roles, z):
+     (5, 21, 19, 19, 0, ['apron', 'junction'], 74.45333333333333)
+     (4, 89, 62, 60, 0, ['apron', 'building'], 85.15000000000002)
+     (3, 41, 38, 35, 0, ['building'], 99.55999999999999)
+     (3, 26, 22, 21, 0, ['apron', 'groundside_pavement'], 98.90555555555554)
+     (3, 15, 15, 14, 0, ['apron', 'junction'], 98.25285714285714)
+     (3, 12, 12, 12, 0, ['apron', 'junction'], 74.94800000000001)
+     (2, 79, 77, 76, 0, ['building'], 87.46)
+     (2, 68, 64, 59, 0, ['building'], 76.42999999999999)

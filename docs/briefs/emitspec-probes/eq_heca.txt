@@ -1,0 +1,2 @@
+{'label': 'site r=150.0 (32 faces)', 'ring_nodes': 1235, 'dropped': 0, 'lattice': 4857, 'triangles': 10464, 'freeA': 4735, 'freeB': 4735, 'max_dz': 0.0, 'n_over_0.01': 0, 'n_over_0.001': 0, 'stranded': 121, 'scored': 5963, 'worst_at': (30.113441, 31.4077878)}
+{'label': 'component#0 (4 faces)', 'ring_nodes': 16, 'dropped': 0, 'lattice': 7, 'triangles': 30, 'freeA': 6, 'freeB': 6, 'max_dz': 0.0, 'n_over_0.01': 0, 'n_over_0.001': 0, 'stranded': 1, 'scored': 22, 'worst_at': (30.1281675, 31.4072732)}

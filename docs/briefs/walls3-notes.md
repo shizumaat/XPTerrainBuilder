@@ -77,3 +77,46 @@ ground ~51 m out, so the bridge stands 100 m beyond the ramp; the owner's "no tu
 deck beyond its free ramp top.
 
 ## Task 3 / 5 — see the final report (replay chain, closing build, reach).
+
+## Task 3 — OTHH proof (replay of perfB362/OTHH.pkl `--from planar --emit --verify`, then the closing build)
+Closing build `walls3_OTHH` at 0d3ce4ce: rc 0, patch 778.9 s (+ rebake plan 193.2 s, object-stage work), body_sha256
+`d1cd169ed577` (= the replay's; the bar 88794a1d264b is MEANT to move), ways 1871 / nodes 27808, solve optimal, verify
+rows 369, no DEFECT family. Plan `OTHH.rebake.json` version 13, sha256 `6ca0865866af`. Frames registered (lane walls3).
+
+| wall | authored AGL | crest over ground, authored seat on the NEW surface | sw plan (before) | now |
+|---|---|---|---|---|
+| tunnel south west 2 | −5.50 | +2.05 | re-seated flush (−2.05 m) | kept, 0 moved |
+| tunnel1 (x2) | −5.00 | +2.00 / +2.00 | flush (−2.00 / −1.99) | kept, 0 moved |
+| tunnel middle - west / east | −3.00 | +2.00 / +2.00 | flush (−2.00) | kept, 0 moved |
+| tunnel_sw (#453) | 0.00 | +1.75 (design 1.58) | refused, untouched, over uncut ground | corridor cut; kept, 0 moved |
+| tunnel west 2 (#455) | 0.00 | +1.47 (design 1.59) | refused | corridor cut; kept |
+| tunnel west 3 (#454) | +1.00 | +2.47 (design 2.59) | refused | corridor cut; kept |
+| tunnel west 1 | +2.50 | +2.40 | refused | flat portal cut; kept |
+("crest over ground" = sampled terrain under the anchor + agl + crest plate − 3.962; the sampler is a 3-vertex IDW.)
+
+- #453 25.2559273, 51.6083381: `tunnel_ramp`, 3.04 m under ground; ramp 103.3 x 31.0 m (the walls' plan), 4.94 %.
+- #454 25.2792668, 51.6001421: `tunnel_ramp`, 3.46 m under ground; ramp 221.3 x 38.7 m, 2.30 %.
+- #455 25.2762962, 51.5920062: `tunnel_ramp`, 4.03 m under ground; ramp 221.3 x 41.5 m, 2.30 % (+ the flat portal of
+  `tunnel west 1`, 35.6 x 39.5 m).
+- #448: the five `Terminal_Base_2_1` bays — walls 6.3 m, ramp 6.3 m, mouth vertices 2.57–2.61 (= the wall bottom,
+  1.35–1.39 m under ground: floor NOT raised), top vertices 3.83–3.91, 21.5–22.1 % (exempt). `DutyFree@2` — walls
+  20.3 m, flat 6.6 m at 2.60 then 13.7 m at 10 %. The wall-corridor record carries the wall BOTTOM only (crest plate 0):
+  what stands above grade / how much building is below is not read by this reader.
+- #449: the shared lengthwise edge IS a `road_centerline` cut line (`route456`, 38.9 of 38.9 m inside both halves, no
+  node of its own inside the ramp). After: half a — ramp 18.9 m of 38.9 m at 10 %, knee at s 20.0 with vertices at
+  2.09 on BOTH edges and ON the centreline (ridge 0.87 m -> 0.00); half b — ramp 38.9 m at 4.86 %, no knee.
+- #451: NOT fixed at the three owner sites (Drainage_02 / 04 / 05 anchors: no graded face). Cut now: `Drainage_01`
+  (basin floor −0.35 = 4.32 m under ground) and `Dewatering_01` (−9.68); see the STOP above. Side effect to rule on:
+  `Drainage_02..05_*_001` now read below-grade (plan `below grade 4`, never re-seated) with no basin under them, while
+  their `_000` shells stay ordinary unit members. `[basin] authored_rim_tol_m = 0` switches the whole pit half off.
+- #450: the ramp climbs from −0.96 at the mouth to ground by s ~70 and ends; no graded face at the owner's
+  "no tunnel here" site (it was 260 m of trench at −1.14).
+
+## Task 5 — reach
+Sweep plans `/tmp/harness/swg_{CYXY,HECA,KASE,KCLT,NLWF,SPJC}.v2/*.rebake.json`: plate_objects 0, plate_members 0,
+below_grade 0 at all six — §18's seat decision reads nothing there. Every plan's BYTES move once (version 13,
+`authored_seats: []`), the law sha moves (two keys), and the partition code digest moves (`obj8`, `authored_seat`):
+one cold pack partition per airport. The pit intake can add a basin only where a pack lifts a shell >= 2.5 m deep by
+its own depth; not measured on those packs. D (10 % cap) reaches all six (HECA measured: gap terraces 93 -> 84 parts).
+B / C / #450 reach any airport with a wall corridor or a mapped bore with a deck beyond its free ramp top (KCLT has
+terrain-adapted members; not measured).

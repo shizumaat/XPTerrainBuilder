@@ -197,6 +197,11 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
         frozen=frozen, hosts_seen=hosts_seen)
     faces, holes_gone = dissolve_degenerate_holes(
         faces, law.tables.emit.terrace.separation_m, ident ** 2)
+    # spec §56 (10) R-F: a surplus pad scrap its own plateau surrounds is
+    # the plateau — LAST, so no merge above reads the new region and no
+    # vertex leaves the arrangement
+    from .pad_sliver import rerole_plateau_scraps
+    faces = rerole_plateau_scraps(faces, law, PAD_AIRSIDE)
     return (faces, dropped, dropped_seam, merged, absorbed, detached,
             zs_dissolved, zs_dropped, zs_area, zs_rows, holes_gone, polys)
 

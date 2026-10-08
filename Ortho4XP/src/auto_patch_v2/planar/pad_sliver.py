@@ -4,7 +4,9 @@ What ``pad_cut.plateau_cut`` does with the scraps a cut leaves: quantise a
 part to the region's own ring (:func:`_quantise_to_ring`), judge a rest
 part a SLIVER against the law's identity spacing
 (:func:`_identity_sliver_m2`, :func:`_dissolve_rest_slivers`) and hand an
-ENCLOSED rest to the plateau (:func:`_enclosed_rests_to_plateau`).
+ENCLOSED rest to the plateau (:func:`_enclosed_rests_to_plateau`); and,
+after the arrangement, what a PAD scrap the plateau surrounds becomes
+(:func:`rerole_plateau_scraps`, spec §56 (10) R-F).
 
 Split out of ``planar/pad_cut`` (issue #303: that file stood at 1,079
 lines against the ``planar`` package's 1,000-line budget,
@@ -30,7 +32,7 @@ from ..law.tables import sliver_area_factor
 __all__ = ["_SHARED_TIE_DP", "_PAD_INSIDE_SLACK", "_QUANTISE_PASSES",
            "_polys", "_flat_polys", "_quantise_to_ring", "_ring_key",
            "_identity_sliver_m2", "_dissolve_rest_slivers",
-           "_enclosed_rests_to_plateau"]
+           "_enclosed_rests_to_plateau", "rerole_plateau_scraps"]
 
 
 #: shared-boundary lengths equal to this many decimals (metres) are a TIE
@@ -376,3 +378,75 @@ def _enclosed_rests_to_plateau(rests: list, pieces: list) -> tuple[list, list, i
                 continue
         kept.append(g)
     return kept, pieces, n
+
+
+def rerole_plateau_scraps(faces: list, law, counts: "dict | None" = None
+                          ) -> list:
+    """A SURPLUS PAD PIECE ITS OWN PLATEAU SURROUNDS IS THE PLATEAU (spec
+    §56 (10) R-F; the §23a rim-sliver rule read at the arrangement).
+
+    The stand-zone plateau cut (§20) can leave scraps of a pad standing
+    between plateau pieces: faces of the pad's role under the pad's base
+    ref (``model.planar.pad_base_ref``) that are not its largest face, are
+    under the cluster outline's own thin-piece floor (rule 6: mean width
+    ``2 A / P`` under ``geom.cluster_outline.THIN_PIECE_WIDTH_M``) and
+    whose WHOLE boundary runs along airside faces that are that pad's own
+    plateau (``plateau_block_of``).  The plateau is held at the pad's
+    value (owner RULINGS 2026-09-01g), so the scrap stands on the pad's
+    plane whichever of the two it is called: it takes the region of the
+    plateau face it shares the longest run with — one building face fewer,
+    no vertex moved, no level changed.  A scrap any other face borders, or
+    whose boundary is not covered, is left as it is.
+
+    ``faces`` is the arrangement's ``(polygon, region)`` list; the result
+    is the same list with the scraps' regions replaced (counted
+    ``pad_scraps_reroled`` / ``pad_scraps_reroled_m2``)."""
+    from shapely.strtree import STRtree
+
+    from ..geom.cluster_outline import THIN_PIECE_WIDTH_M
+    from ..law.tables import role_side
+    from ..model.planar import pad_base_ref, plateau_block_of
+    rigid = {r for r, spec in law.tables.precedence.roles.items() if spec.rigid}
+    biggest: dict = {}
+    for k, (g, r) in enumerate(faces):
+        if r.role in rigid and plateau_block_of(r.ref) is None:
+            key = (r.role, pad_base_ref(r.ref))
+            if key not in biggest or g.area > faces[biggest[key]][0].area:
+                biggest[key] = k
+    cand = [k for k, (g, r) in enumerate(faces)
+            if r.role in rigid and plateau_block_of(r.ref) is None
+            and biggest.get((r.role, pad_base_ref(r.ref)), k) != k
+            and 2.0 * g.area < THIN_PIECE_WIDTH_M * g.length]
+    n, m2 = 0, 0.0
+    if cand:
+        tree = STRtree([g for g, _r in faces])
+        out = list(faces)
+        for k in cand:
+            g, r = faces[k]
+            base = pad_base_ref(r.ref)
+            best, run_best, covered, own = None, 0.0, 0.0, True
+            for j in sorted(int(q) for q in tree.query(g, predicate="intersects")):
+                if j == k:
+                    continue
+                run = float(g.boundary.intersection(faces[j][0].boundary).length)
+                if run <= 0.0:
+                    continue
+                nr = faces[j][1]
+                if (role_side(law, nr.role) != "airside"
+                        or plateau_block_of(nr.ref) != base):
+                    own = False
+                    break
+                covered += run
+                if run > run_best:
+                    best, run_best = nr, run
+            if (not own or best is None
+                    or covered < g.length * (1.0 - _PAD_INSIDE_SLACK) - 1e-6):
+                continue
+            out[k] = (g, best)
+            n += 1
+            m2 += g.area
+        faces = out
+    if counts is not None:
+        counts["pad_scraps_reroled"] = n
+        counts["pad_scraps_reroled_m2"] = round(m2, 1)
+    return faces

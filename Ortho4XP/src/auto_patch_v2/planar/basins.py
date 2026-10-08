@@ -721,9 +721,11 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         # AUTHORED TO THE CUT (object-placement spec §18 (3)): the rim at
         # the AUTHORED seat over the terrain the floor row cuts under the
         # anchor (the floor stands ``floor_clearance_m`` under the plate,
-        # §24 (2)) against the ring's ground
+        # §24 (2)) against the ring's ground.  The author STATED a seat
+        # only where he lifted the pit: a plain placement stands on the
+        # terrain by definition and seats as its law always did.
         rim_cut = _seat.rim_over(mesh_pred - (bl.floor_clearance_m if inside else 0.0),
-                                 deepest.agl_m, rest)
+                                 deepest.agl_m, rest) if deepest.ground_seated else None
         prot = max(wits, key=lambda w: w.protrusion_fraction)
         notes = [kind, f"{len(members)} object(s)", f"floor plate {plate:.0f} m2",
                  f"shell {shell_t:.2f} m thick: the rim IS its OUTER FACE (§47 (1); 11t §24 (1) "
@@ -767,14 +769,14 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                      for r in ramps) or "none"),
                  f"anchor {'INSIDE' if inside else 'outside'} the floor: plate y {plate_y:+.2f}, "
                  f"seat expect {seat_expect:+.2f} m",
-                 f"authored seat {deepest.agl_m:+.2f} m"
-                 + (" (a lift of the shell's own depth, read ground-seated)"
-                    if deepest.ground_seated else "")
-                 + f": the rim stands {rim_cut:+.2f} m over the ring's ground on the cut floor "
-                 + ("— AUTHORED TO THE CUT, the seat is kept"
-                    if _seat.rim_in_band(rim_cut, bl.authored_rim_tol_m)
-                    else "— re-seated onto its floor plate")
-                 + f" (authored_rim_tol_m {bl.authored_rim_tol_m}, object-placement §18 (3))"]
+                 *([f"authored seat {deepest.agl_m:+.2f} m, a lift of the shell's own depth read "
+                    f"ground-seated: the rim stands {rim_cut:+.2f} m over the ring's ground on "
+                    f"the cut floor "
+                    + ("— AUTHORED TO THE CUT, the seat is kept"
+                       if _seat.rim_in_band(rim_cut, bl.authored_rim_tol_m)
+                       else "— re-seated onto its floor plate")
+                    + f" (authored_rim_tol_m {bl.authored_rim_tol_m}, object-placement §18 (3))"]
+                   if rim_cut is not None else [])]
         if ring.area < bl.min_area_m2:
             notes.append(f"under the diagnostic min_area_m2 {bl.min_area_m2:.0f} (admitted, 04i)")
             stats.small_regions.append(f"{bid} {ring.area:.0f} m2 at {site}")
@@ -793,7 +795,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                                   for f in ramp_floors),
                             tuple(tuple(_lonlat(airport, q[0], q[1]) + (q[2],) for q in t)
                                   for t in ramp_faces),
-                            rim_cut_m=float(rim_cut)))
+                            rim_cut_m=None if rim_cut is None else float(rim_cut)))
     stats.basins = len(basins)
     _record_grade(stats, cache, bl)
     if not basins:

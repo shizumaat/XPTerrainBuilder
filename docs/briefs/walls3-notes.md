@@ -60,8 +60,10 @@ siblings are read ground-seated with it.
 5. The lift is measured against the deepest GENUINE solid (a decal under a shell is not its depth), and only for a
    shell at least `admission_depth_m` deep; a lift that founds no pit is read as it was. (262 placements — people 4 cm
    off the ground — passed §18 (5)'s bare test.)
-6. A plain pit whose anchor stands OUTSIDE its floor (rim at grade) is now "authored (cut)": no plate entry. Its plate
-   delta was ~0 before, so nothing visible changes; `test_v2othh3` re-stated.
+6. The pit witness is judged only where the author STATED a seat — a pit read ground-seated by its lift. A plain
+   pit (no lift) has no record and keeps the floor-plate seat exactly as before (§18 (3) (a) would also call a plain
+   pit anchored outside its floor "authored (cut)"; that would take the plate datum from 35 jetway / plain-pit units
+   whose siblings then seat by another rule). A kept pit excludes EVERY member of its basin, not the witness alone.
 7. Plan version 13 with the read window widened to five (v9 still loads — `test_welded_deck` twins it).
 8. NOT DONE: the `seat` column in `v2_solve_replay --emit/--verify` and `obj8_split_report.py` (§18 (6) last row);
    LEMD read (§18 (8) step 7).

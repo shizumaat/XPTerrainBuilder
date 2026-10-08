@@ -29,9 +29,10 @@ def seat_records(pm: _t.Any, law: _t.Any) -> dict[str, dict[str, _t.Any]]:
     datum over the grade with the authored seat on the cut terrain),
     ``h_uncut_m`` (a wall's, on uncut ground), ``proud_m`` (a re-seated
     wall's target over the grade — the pack's median stated height, 0.0 =
-    flush) and ``agl_authored_m`` (a pit's authored lift).  A structure
-    carrying no witness (a record older than §18, a twin's stand-in) has
-    no record and seats as before."""
+    flush), and for a pit ``agl_authored_m`` (its authored lift) and
+    ``members`` (its basin's placements).  A structure carrying no witness
+    (a PLAIN pit — no lift, no stated seat; a record older than §18; a
+    twin's stand-in) has no record and seats as before."""
     st = law.tables.structures
     crest_max = float(st.tunnel.object.authored_crest_max_m)
     walls: list[tuple[str, str, float, float]] = []
@@ -58,11 +59,19 @@ def seat_records(pm: _t.Any, law: _t.Any) -> dict[str, dict[str, _t.Any]]:
         kept = _seat.rim_in_band(r, rim_tol)
         out[b.witness_id] = {"id": b.witness_id, "resource": b.id, "datum": "rim",
                              "seat": _seat.SEAT_AUTHORED if kept else _seat.SEAT_RESEATED,
-                             "h_cut_m": float(r), "agl_authored_m": float(b.agl_m)}
+                             "h_cut_m": float(r), "agl_authored_m": float(b.agl_m),
+                             "members": sorted(b.member_ids)}
     return out
 
 
 def kept_ids(records: _t.Mapping[str, _t.Mapping[str, _t.Any]]) -> set[str]:
     """The placements whose authored seat is KEPT: never plate-seated,
-    never re-seated by any other rule."""
-    return {oid for oid, r in records.items() if r.get("seat") == _seat.SEAT_AUTHORED}
+    never re-seated by any other rule — a kept wall, and a kept pit with
+    every member of its basin (the placements whose floors ARE the pit:
+    one shell of two is not moved against the other)."""
+    out: set[str] = set()
+    for oid, r in records.items():
+        if r.get("seat") == _seat.SEAT_AUTHORED:
+            out.add(oid)
+            out.update(r.get("members") or ())
+    return out

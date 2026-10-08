@@ -182,15 +182,18 @@ def test_the_lifted_twin_of_a_plain_pit_is_the_same_basin_and_keeps_its_seat(pit
     assert Polygon(b1.region).equals(Polygon(b0.region))
     assert b1.floor_z == pytest.approx(b0.floor_z) and b1.plate_y_m == pytest.approx(b0.plate_y_m)
     assert b1.agl_m == pytest.approx(6.3) and b0.agl_m == 0.0
-    assert b0.rim_cut_m == pytest.approx(b0.plate_y_m - bl.floor_clearance_m, abs=0.05)
-    assert b1.rim_cut_m == pytest.approx(b0.rim_cut_m + 6.3)
-    assert abs(b1.rim_cut_m) <= bl.authored_rim_tol_m < abs(b0.rim_cut_m)
+    # the plain twin states no seat (no lift): no record, the floor-plate
+    # seat as before; the lifted one's rim reads on the cut floor
+    assert b0.rim_cut_m is None
+    assert b1.rim_cut_m == pytest.approx(b0.plate_y_m - bl.floor_clearance_m + 6.3, abs=0.05)
+    assert abs(b1.rim_cut_m) <= bl.authored_rim_tol_m
     r0, r1 = seat_records(pm0, law), seat_records(pm1, law)
-    assert r0[b0.witness_id]["seat"] == AS.SEAT_RESEATED
+    assert r0 == {}
     assert r1[b1.witness_id]["seat"] == AS.SEAT_AUTHORED
+    assert set(r1[b1.witness_id]["members"]) == set(b1.member_ids)
     assert r1[b1.witness_id]["agl_authored_m"] == pytest.approx(6.3)
     assert set(_plate_seats(pm0, law)) == {b0.witness_id} and _plate_seats(pm1, law) == {}
-    assert b1.witness_id in _rebake_inputs(pm1, law, None, airport)["exclude"]
+    assert set(b1.member_ids) <= _rebake_inputs(pm1, law, None, airport)["exclude"]
     objects, _cache = out
     (o,) = [o for o in objects if o.id == b1.witness_id]
     assert o.ground_seated and o.agl_m == pytest.approx(6.3)

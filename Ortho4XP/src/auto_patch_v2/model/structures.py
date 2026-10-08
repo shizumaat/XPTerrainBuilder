@@ -525,7 +525,8 @@ class Basin:
     #: RIM over the ring's ground with the AUTHORED seat (``agl_m``) on the
     #: terrain the floor row cuts under its anchor.  Within ``[basin]
     #: authored_rim_tol_m`` the seat is the author's and is kept
-    #: (``pipeline/authored_seats``); ``None`` on a record that predates it.
+    #: (``pipeline/authored_seats``).  ``None`` for a PLAIN pit (no lift:
+    #: the author stated no seat, the floor-plate seat governs as before).
     rim_cut_m: float | None = None
 
     def deck_z_at(self, x: float, y: float) -> float | None:

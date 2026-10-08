@@ -5675,6 +5675,31 @@ no `tunnel` tag; the DEM's 7.5 m cutting is unmodelled; the taxi surface bathtub
 1. **A RAMP IS PRICED ALONG ITS ROUTE.** `_ramp_top`'s reach and climb tests read the
    axis length walked, never the chord; the ramp ends at the first station where
    the DEM condition holds ALONG the route.
+   **(1a) THE CAP IS A CEILING, NEVER THE GRADE A RAMP IS BUILT AT — AMENDED
+   2026-10-08 (owner RULINGS 2026-10-08c (1): "it's a CAP, not a target, it should
+   only allow more flex where needed"; 2026-10-08d (1): "the target is more like 5%
+   with the higher cap only coming in to play in situations where an object dictates
+   a shorter distance requiring a steeper grade").** A ramp NO OBJECT FRAMES (a mapped
+   bore's approach) climbs at its DESIGN grade `[tunnel] ramp_grade` (0.05).
+   `ramp_max_grade` (0.10) is the grade it steepens toward ONLY where the design
+   grade cannot top out in THE RUN IT HAS, and then at the SMALLEST grade that does
+   (`min over the stations of the run of |DEM − mouth| / route length`). The run ends
+   at the nearest of, each read by the reader that already refused or cut the ramp
+   there: (a) `max_ramp_length_m` (the DEM not met); (b) the mapped road's own end
+   (the approach walk's axis); (c) a deck across the approach that the CAP's climb
+   tops out before (§34 (12) (4) / #450's `decks_over_climb`, now asked at the cap:
+   such a deck is an obstruction, not the ramp's roof); (d) the pad or pavement that
+   stops the ramp (08-07 ruling 3 / §34 (12) (3)'s stop); (e) another structure's
+   corridor (31h's overlap test) — of two unframed ramps the LONGER climb yields
+   first, to the station where it enters the other, and the build is re-planned
+   (at most 8 passes). Where even the cap does not top out in the run, the ramp is
+   read exactly as before this amendment: (a) the refusal, quoted at the cap; (d)
+   the clipped ramp; (e) the overlap refusal. The solve prices the ramp's descent
+   rows (item 3, §34 (6)) at the grade the ramp was BUILT at, not at the cap. The
+   runway-strip keep-out and a self-intersecting ring are NOT run ends (a shorter
+   ramp does not move its mouth or straighten its road). A ramp the pack's objects
+   frame (07e) reads neither key. Code: `planar/unframed_ramp` (`unframed_top`,
+   `overlap_run_end`).
 2. **THE APPROACH WALK KEEPS ITS HEADING.** After the first hop, the walk prefers the
    continuation with the smallest turn and refuses a turn over `[tunnel]
    approach_turn_max_deg` (60) unless the mapped way itself turns (a hairpin's own
@@ -12335,6 +12360,12 @@ and ≤ `ramp_max_grade` — two decks closer than 2 × clearance / `ramp_max_gr
 58 m) keep the floor down between them. The datum source is on the record and in the
 report; a lidar refresh (`--refresh-data dem`, the owner's act) moves a site from
 (iii) to (ii) with no law change.
+**AMENDED 2026-10-08 (owner RULINGS 2026-10-08c (1)):** in (iii) the floor climbs
+off each deck's clearance datum at the ramp's DESIGN grade `[tunnel] ramp_grade`
+(0.05, 08d (1) — the lane's reading: a road under a crossing is the same ramp),
+not at the cap — read `ramp_grade` for `ramp_max_grade` in the clamp and in
+the two-decks distance above. Nothing here can fail to top out (the DEM clamps the
+climb, 17t), so nothing steepens.
 
 (4) **THE DECK IS AIRSIDE.** The neck's faces keep their airside role and law — the
 taxiway surface runs across at the airside design surface; §34 (5)'s deck read is the

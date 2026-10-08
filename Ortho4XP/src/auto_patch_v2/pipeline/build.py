@@ -795,66 +795,69 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # handful (LEMD 4, KCLT 3, OTHH 0), so a rising count is visible
     for _mr in ss.mouth_roads:
         _say(f"    [{icao}]     {_mr}", out)
-        for r in ts.refused:
-            _say(f"    refused object {r}", out)
-        for r in ss.refused:
-            _say(f"    refused {r}", out)
-        if ss.mouth_only_bores:
-            _say(f"    mouth-only bores BUILT (owner 2026-09-12ab, no cover): "
-                 f"{', '.join(ss.mouth_only_bores)}", out)
-        for r in ss.plate_mouths:
-            _say(f"    {r}", out)
-        for r in ss.underpasses:
-            _say(f"    {r}", out)
-        for r in ss.decked_excluded:
-            _say(f"    {r}", out)
-        for r in ss.decked_runway_family:
-            _say(f"    {r}", out)
-        for r in ss.crest_from_approach:
-            _say(f"    {r}", out)
-        for r in ss.mouths_on_approach_named:
-            _say(f"    {r}", out)
-        for r in ss.mouths_off_field_nearest:
-            _say(f"    {r}", out)
-        for r in ss.bore_precedence:
-            _say(f"    {r}", out)
-        for tn in pm.structures:
-            if tn.source == "object":
-                # round-2 spec §3.6: the per-corridor line
-                inside = min(tn.top_s, tn.wall_length_m)
-                _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
-                     f"depth {tn.depth_m:.2f} m ramp {tn.top_s:.1f} m (inside walls {inside:.1f} m, "
-                     f"beyond {max(0.0, tn.top_s - tn.wall_length_m):.1f} m) grade "
-                     f"{100.0 * tn.design_grade:.2f} % ends mouth={tn.mouth_kind} "
-                     f"ground={tn.ground_kind} walls {tn.ends} width {tn.hull_width_m:.1f} m "
-                     f"reseat expect {', '.join(f'{d:+.2f}' for d in tn.reseat_expect_m)} "
-                     f"trench-outside {tn.trench_outside_max_m:.3f} m replaced mouths of "
-                     f"[{', '.join(str(w) for w in tn.replaced_ways)}]  decks {len(tn.decks)}  "
-                     f"{'; '.join(tn.notes)}", out)
-                continue
-            if tn.source == "wall_corridor":
-                # RULINGS 2026-09-08m/n Law C: the per-site line the report quotes
-                inside = [z for s, z in tn.profile if s <= tn.wall_length_m + 1e-6]
-                _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
-                     f"floor {min(inside) if inside else tn.mouth_z:.2f}..{max(inside) if inside else tn.mouth_z:.2f} "
-                     f"depth {tn.depth_m:.2f} m width {tn.hull_width_m:.1f} m walls "
-                     f"{tn.wall_length_m:.1f} m ramp {max(0.0, tn.top_s - tn.climb_from_s):.1f} m at "
-                     f"{100.0 * tn.design_grade:.2f} % top s {tn.top_s:.1f} ends {tn.ends} "
-                     f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
-                     f"{'; '.join(tn.notes)}", out)
-                continue
-            if tn.source in ("door", "sunken_road"):
-                # RULINGS 2026-09-08b/c: the per-site line the report quotes
-                _say(f"    {tn.id}: {'sill' if tn.source == 'door' else 'cut'} {tn.mouth_z:.2f} "
-                     f"ground {tn.mouth_dem_z:.2f} depth {tn.depth_m:.2f} m width "
-                     f"{tn.hull_width_m:.1f} m well/plate {tn.wall_length_m:.1f} m ramp "
-                     f"{max(0.0, tn.top_s - tn.climb_from_s):.1f} m at {100.0 * tn.design_grade:.2f} % "
-                     f"top s {tn.top_s:.1f} ground {tn.top_ground_z if tn.top_ground_z is not None else float('nan'):.2f} "
-                     f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
-                     f"{'; '.join(tn.notes)}", out)
-                continue
-            _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
-                 f"  half {tn.half_width_m:.1f} m  decks {len(tn.decks)}  {'; '.join(tn.notes)}", out)
+    # the structure report is printed ONCE, mouth roads or none (it stood
+    # inside the loop above since 81a61794: a field with no mouth road
+    # printed no refusal and no per-tunnel line — KCLT, sweep sww)
+    for r in ts.refused:
+        _say(f"    refused object {r}", out)
+    for r in ss.refused:
+        _say(f"    refused {r}", out)
+    if ss.mouth_only_bores:
+        _say(f"    mouth-only bores BUILT (owner 2026-09-12ab, no cover): "
+             f"{', '.join(ss.mouth_only_bores)}", out)
+    for r in ss.plate_mouths:
+        _say(f"    {r}", out)
+    for r in ss.underpasses:
+        _say(f"    {r}", out)
+    for r in ss.decked_excluded:
+        _say(f"    {r}", out)
+    for r in ss.decked_runway_family:
+        _say(f"    {r}", out)
+    for r in ss.crest_from_approach:
+        _say(f"    {r}", out)
+    for r in ss.mouths_on_approach_named:
+        _say(f"    {r}", out)
+    for r in ss.mouths_off_field_nearest:
+        _say(f"    {r}", out)
+    for r in ss.bore_precedence:
+        _say(f"    {r}", out)
+    for tn in pm.structures:
+        if tn.source == "object":
+            # round-2 spec §3.6: the per-corridor line
+            inside = min(tn.top_s, tn.wall_length_m)
+            _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
+                 f"depth {tn.depth_m:.2f} m ramp {tn.top_s:.1f} m (inside walls {inside:.1f} m, "
+                 f"beyond {max(0.0, tn.top_s - tn.wall_length_m):.1f} m) grade "
+                 f"{100.0 * tn.design_grade:.2f} % ends mouth={tn.mouth_kind} "
+                 f"ground={tn.ground_kind} walls {tn.ends} width {tn.hull_width_m:.1f} m "
+                 f"reseat expect {', '.join(f'{d:+.2f}' for d in tn.reseat_expect_m)} "
+                 f"trench-outside {tn.trench_outside_max_m:.3f} m replaced mouths of "
+                 f"[{', '.join(str(w) for w in tn.replaced_ways)}]  decks {len(tn.decks)}  "
+                 f"{'; '.join(tn.notes)}", out)
+            continue
+        if tn.source == "wall_corridor":
+            # RULINGS 2026-09-08m/n Law C: the per-site line the report quotes
+            inside = [z for s, z in tn.profile if s <= tn.wall_length_m + 1e-6]
+            _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
+                 f"floor {min(inside) if inside else tn.mouth_z:.2f}..{max(inside) if inside else tn.mouth_z:.2f} "
+                 f"depth {tn.depth_m:.2f} m width {tn.hull_width_m:.1f} m walls "
+                 f"{tn.wall_length_m:.1f} m ramp {max(0.0, tn.top_s - tn.climb_from_s):.1f} m at "
+                 f"{100.0 * tn.design_grade:.2f} % top s {tn.top_s:.1f} ends {tn.ends} "
+                 f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
+                 f"{'; '.join(tn.notes)}", out)
+            continue
+        if tn.source in ("door", "sunken_road"):
+            # RULINGS 2026-09-08b/c: the per-site line the report quotes
+            _say(f"    {tn.id}: {'sill' if tn.source == 'door' else 'cut'} {tn.mouth_z:.2f} "
+                 f"ground {tn.mouth_dem_z:.2f} depth {tn.depth_m:.2f} m width "
+                 f"{tn.hull_width_m:.1f} m well/plate {tn.wall_length_m:.1f} m ramp "
+                 f"{max(0.0, tn.top_s - tn.climb_from_s):.1f} m at {100.0 * tn.design_grade:.2f} % "
+                 f"top s {tn.top_s:.1f} ground {tn.top_ground_z if tn.top_ground_z is not None else float('nan'):.2f} "
+                 f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
+                 f"{'; '.join(tn.notes)}", out)
+            continue
+        _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
+             f"  half {tn.half_width_m:.1f} m  decks {len(tn.decks)}  {'; '.join(tn.notes)}", out)
     bs = pstats.basins
     if bs.objects is not None:
         o = bs.objects

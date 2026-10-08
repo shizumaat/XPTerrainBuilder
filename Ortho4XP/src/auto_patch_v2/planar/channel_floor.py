@@ -99,7 +99,10 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
         stats.refused.append(f"{cid}: no deck top could be sampled — the DEM answers NaN "
                              f"at every crossing, so §45 (3) (iii) has no datum")
         return None, "", "bank", ""
-    grade = tn.ramp_max_grade
+    # the floor CLIMBS at the ramp's DESIGN grade (owner RULINGS 2026-10-08c
+    # (1): ``ramp_max_grade`` is a ceiling, never the grade a floor is built
+    # at; nothing here can fail to top out — the DEM clamps the climb)
+    grade = tn.ramp_grade
     # THE DECK'S OWN STATION IS IN THE PROFILE.  Without it the datum
     # lands between two sampled stations and the floor reads the CLIMB's
     # value under the deck itself — measured on the twin: 95.30 against
@@ -141,7 +144,7 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
         prof.append((float(s), z))
     note = (f"{cid}: floor by §45 (3) (iii) \"Cut the road down\" — deck top − "
             f"bridge.clearance_m {br.clearance_m:.1f} m at {len(anchors)} crossing(s), the road's "
-            f"own law between them clamped at ramp_max_grade {grade:.0%}; "
+            f"own law between them clamped at the ramp grade {grade:.0%}; "
             f"{min(z for _s, z in prof):.2f}..{max(z for _s, z in prof):.2f} m")
     if capped:
         note += (f"; §45 (3) (iii) AMENDED (RULINGS 2026-09-17t) held "

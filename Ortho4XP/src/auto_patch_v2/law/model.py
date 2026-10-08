@@ -248,6 +248,10 @@ class Tunnel:
     #: ``avalanche_protector``, ``flooded``, ``no`` — never seeds a structure.
     admitted_values: tuple[str, ...]
     ramp_max_grade: float
+    #: THE DESIGN GRADE of a ramp no object frames (owner RULINGS
+    #: 2026-10-08c (1)): what it is BUILT at; ``ramp_max_grade`` is the
+    #: ceiling it steepens toward only where this one cannot top out.
+    ramp_grade: float
     mouth_standoff_m: float   # spec §29 (1): cover ⊕ this = where a mouth may stand
     ramp_cuts_runway_family: bool
     ramp_crosses_pad: bool
@@ -1033,6 +1037,12 @@ def _check_cross_refs(t: LawTables) -> None:
             f"structures.tunnel.ramp_max_grade {t.structures.tunnel.ramp_max_grade} "
             f"exceeds the tunnel_ramp role's longitudinal cap "
             f"{ramp_role_cap.longitudinal} (RULINGS 2026-09-12m)")
+    # RULINGS 2026-10-08c (1): the cap is a ceiling, never the grade a ramp is
+    # built at — the design grade stands at or under it
+    if not 0.0 < t.structures.tunnel.ramp_grade <= t.structures.tunnel.ramp_max_grade + 1e-12:
+        raise LawError(
+            f"structures.tunnel.ramp_grade {t.structures.tunnel.ramp_grade} is not in "
+            f"(0, ramp_max_grade {t.structures.tunnel.ramp_max_grade}] (RULINGS 2026-10-08c (1))")
     gr_cap = t.common.roles.get("garage_ramp")
     _check_cutout(t.structures.cutout, LawError,
                   None if gr_cap is None else gr_cap.longitudinal)

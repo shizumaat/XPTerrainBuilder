@@ -210,7 +210,8 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
     # the emitted row AT the cap, never over it
     _ht = law.tables.emit.design.hard_tol_m
     assert diffs and all(
-        d.cap == pytest.approx(max(0.0, tn.ramp_max_grade - _ht / d.d)) for d in diffs)
+        # 08c (1): priced at the grade the ramp was BUILT at — its design grade
+        d.cap == pytest.approx(max(0.0, tn.ramp_grade - _ht / d.d)) for d in diffs)
     assert decks and all(o.min_delta == law.tables.structures.bridge.clearance_m
                          for o in decks)
     assert mono and all(o.min_delta == 0.0 for o in mono)

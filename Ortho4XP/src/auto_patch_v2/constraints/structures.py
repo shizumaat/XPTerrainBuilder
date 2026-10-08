@@ -304,7 +304,12 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         # the descent law's cap: the tunnel's — save a ramp the pack's own
         # objects FRAME (a door well, a wall corridor: owner RULINGS
         # 2026-10-07e), priced at the grade its length and depth give
+        # — and a ramp NOTHING frames (a mapped bore's approach), priced at
+        # the grade it was BUILT at: its design grade, or the steeper one
+        # it needed (2026-10-08c (1): the cap is a ceiling, not the grade)
         ramp_cap = float(tn.pinched[2]) if tn.pinched else tn_law.ramp_max_grade
+        if not tn.pinched and tn.source == "osm" and tn.design_grade > 0.0:
+            ramp_cap = min(ramp_cap, float(tn.design_grade))
         src_profile = None
         src_bottom = None
         if tn.source == "object":

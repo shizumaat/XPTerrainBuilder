@@ -68,7 +68,8 @@ def test_a_bridge_far_beyond_the_ramps_top_holds_no_cut(pack, law):
     run = tn.bore_datum_m / tn.ramp_max_grade
     far, _st = _bore_with_bridge(pack, law, 80.0 + 4.0 * run)
     assert far.climb_from_s == 0.0 and not far.decks
-    assert far.top_s < 2.0 * run
+    # built at the DESIGN grade (2026-10-08d (1)), still short of the bridge
+    assert far.design_grade == tn.ramp_grade and far.top_s < 4.0 * run
     near, st = _bore_with_bridge(pack, law, 80.0 + 0.5 * run)
     assert st.object_decks == 1 and len(near.decks) == 1
     assert near.climb_from_s >= near.decks[0].s1

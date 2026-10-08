@@ -1,7 +1,7 @@
-# gapapron — spec §56: an apron-touching gap piece is a road by road evidence, else the apron (2026-10-08)
+# gapapron — spec §59: an apron-touching gap piece is a road by road evidence, else the apron (2026-10-08)
 
 Lane `gapapron` (Fable, design only), branch `claude/gapapron` off main `3f9a349d`.
-Deliverable: `Ortho4XP/docs/specs/auto-patch-v2/design-surface-spec.md` §56 (new;
+Deliverable: `Ortho4XP/docs/specs/auto-patch-v2/design-surface-spec.md` §59 (new;
 §55 (3) 6 and §55 (12) Q3 carry one-line supersessions). Probes in
 `docs/briefs/gapapron/` (`evidence_read.py`, `neck_read.py`, `arm_driver.py`,
 `evidence.json`); frames under
@@ -17,13 +17,13 @@ Deliverable: `Ortho4XP/docs/specs/auto-patch-v2/design-surface-spec.md` §56 (ne
   `cells.on_tol_m` (1 m), or a `service_road` / `parking_lot` face touching
   within `groundside.touch_tol_m`. Blind to a piece on two PARAMETERS
   (`ev.road_chains` is clipped to the pavement union; a piece stands 1.45 m
-  off road faces) — §56 adds `touch_tol_m=` / `touch_roles=` with today's
+  off road faces) — §59 adds `touch_tol_m=` / `touch_roles=` with today's
   defaults and calls `evidence._osm_roads` once more over the sheet union.
 * `classify/airside_edge.airside_edge_flip` (§27 12c/12f + §37 (2) 13q-7):
   ≥ 10 m lateral airside edge flips a groundside face to apron unless the
   contact is a MOUTH; a road-by-evidence face flips only at ≥ 20 % of its
   perimeter (the free-road ruling). The gap mint runs AFTER it (`roles.py`
-  :634 / :670), so no piece was ever judged — §56 adds `road_class=` and the
+  :634 / :670), so no piece was ever judged — §59 adds `road_class=` and the
   mint calls it on the apron-touching parts.
 * `classify/neck` (§43): probed as a local witness — 0 necks on 17 of 19
   pieces; the class is per piece.
@@ -63,13 +63,13 @@ hard_conflict 309 → 347 (+38, standing|standing; late stage 91 → 77 by head,
 so the base's +52); airside_no_step +9; CRITICAL motion 3 → 4: a NEW
 `mid_edge_step apron|apron` 0.616 m over 0.99 m at 30.1278259, 31.4046286 —
 `gapapron:7` (gap:30) beside `pav39`, rims within the weld spacing but not
-coincident, no follow row any more → §56 (2) 4 closes an apron part's rim
+coincident, no follow row any more → §59 (2) 4 closes an apron part's rim
 onto its apron rings at the mint. NOT the arm: transverse +521,
 pavement_over_road_cap −182, within_shape −771 move on rows the arm never
 touched (route3|route3, gap:7/ramp1) — build-vs-replay instrument; S6 reads
 replay vs replay.
 
-## Owner questions (§56 (7))
+## Owner questions (§59 (7))
 
 Q7 the pull accepted (recommend YES, runway held at 0); Q8 the §37 (2) share
 makes a road-evidenced strip along an apron APRON (recommend YES); Q9 the

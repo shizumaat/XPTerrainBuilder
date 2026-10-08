@@ -23,9 +23,10 @@ from ..law.tables import pad_admission, pad_outline
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
 from .rules import Rules
+from ..geom.outline_pin import remember_frontage
 from ..geom.parts import line_parts
 
-__all__ = ["Chain", "Evidence", "build_evidence", "polygon_from", "minted_frontage",
+__all__ = ["Chain", "Evidence", "build_evidence", "polygon_from",
            "polygon_parts", "chains_from_edges", "apron_named", "taxi_name_match"]
 
 _LETTERS = "ABCDEF"
@@ -463,30 +464,6 @@ PAD_REFUSED: dict[str, object] = {}
 
 
 
-
-
-#: §56 (11) R-W: the airside ground the LAST mint pinned its outlines
-#: against, per airport object — the census
-#: (``constraints/cluster_pad.cluster_polys``) re-draws the outline and must
-#: pin it against the SAME ground, or ``pad_cluster_mismatch`` would measure
-#: two outline readings (the census-wrapper defect).
-_FRONTAGE: list[tuple[int, _t.Any, _t.Any]] = []
-
-
-def remember_frontage(airport, airside) -> None:
-    """Record the frontage the mint drew ``airport``'s outlines with."""
-    _FRONTAGE.append((id(airport), airport, airside))
-    del _FRONTAGE[:-2]
-
-
-def minted_frontage(airport, default=None):
-    """The airside ground ``airport``'s pads were pinned against at the
-    mint; ``default`` when this process did not mint them (a replay from
-    a later stage)."""
-    for k, ap, got in reversed(_FRONTAGE):
-        if k == id(airport) and ap is airport:
-            return got
-    return default
 
 
 def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:

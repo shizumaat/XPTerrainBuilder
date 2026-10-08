@@ -20012,7 +20012,7 @@ WHOLE when any of it is within the spacing; a chord newly laid within it
 re-pins the vertices it passed over; a light well on it stays open. At the
 MINT the airside in hand is the evidence-time union (runway slabs + every
 admitted pavement page — groundside lots included, a superset); the census
-re-draws with the mint's own (`classify.evidence.minted_frontage`); the
+re-draws with the mint's own (`geom.outline_pin.minted_frontage`); the
 road absorption's re-close pins against the airside CELLS, so a road whose
 stand-off strip opens on the apron's rim is KEPT (`pad_not_one_polygon`).
 Fix 2 (`check_grade._one_row_per_pad_vertex`): the pair law and its

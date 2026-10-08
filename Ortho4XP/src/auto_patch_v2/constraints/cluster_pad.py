@@ -34,7 +34,6 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
-from ..classify.evidence import minted_frontage
 from ..geom import (cluster_building_evidence, cluster_outlines,
                     deck_shades)
 from ..law import Law
@@ -44,6 +43,7 @@ from ..model.planar import (PlanarMap, block_of, is_bank_ref, pad_base_ref,
                             platform_ref_of, unit_ref_of)
 from .pads import _pad_groups, _pad_polys
 from .precedence import view
+from ..geom.outline_pin import minted_frontage
 from ..geom.union_find import find_root
 from ..law.tables import footprint_touch_m
 
@@ -114,7 +114,7 @@ _AIRSIDE_MEMO: list[tuple[int, _t.Any, _t.Any]] = []
 
 def _frontage(planar: PlanarMap, law: Law, airport: Airport | None):
     """§56 (11) R-W: the airside ground rule 2b pinned this airport's
-    outlines against — the MINT's own (``classify.evidence``), so the
+    outlines against — the MINT's own (``geom.outline_pin``), so the
     census re-draws the same ring; where this process did not mint (a
     replay from a later stage) the design surface's reading of it."""
     got = minted_frontage(airport, _AIRSIDE_MEMO)

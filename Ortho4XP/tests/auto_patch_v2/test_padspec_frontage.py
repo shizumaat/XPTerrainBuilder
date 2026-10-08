@@ -161,7 +161,8 @@ def test_rule_2b_pins_the_frontage_and_counts_it():
 def test_the_mint_and_the_census_pin_against_the_same_ground():
     """The census re-draws the outline (``cluster_polys``); it takes the
     frontage the MINT recorded, so the two rings are one."""
-    from auto_patch_v2.classify.evidence import _cluster_pads, minted_frontage
+    from auto_patch_v2.classify.evidence import _cluster_pads
+    from auto_patch_v2.geom.outline_pin import minted_frontage
     from auto_patch_v2.constraints import cluster_pad as cp
     law = Law.for_airport("ZZZZ")
     cl = _cluster()

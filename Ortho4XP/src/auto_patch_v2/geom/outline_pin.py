@@ -27,7 +27,31 @@ from shapely.ops import unary_union
 
 from .parts import polygon_parts_with_area
 
-__all__ = ["Frontage"]
+__all__ = ["Frontage", "minted_frontage", "remember_frontage"]
+
+#: the airside ground the LAST mints pinned their outlines against, per
+#: owner object (the airport) — the census
+#: (``constraints/cluster_pad.cluster_polys``) re-draws the outline and must
+#: pin it against the SAME ground, or ``pad_cluster_mismatch`` would measure
+#: two outline readings (the census-wrapper defect).  Kept here because
+#: ``constraints`` may not import ``classify``.
+_MINTED: list[tuple[int, object, object]] = []
+
+
+def remember_frontage(owner, airside) -> None:
+    """Record the frontage the mint drew ``owner``'s outlines with."""
+    _MINTED.append((id(owner), owner, airside))
+    del _MINTED[:-2]
+
+
+def minted_frontage(owner, default=None):
+    """The airside ground ``owner``'s pads were pinned against at the
+    mint; ``default`` when this process did not mint them (a replay from
+    a later stage)."""
+    for k, o, got in reversed(_MINTED):
+        if k == id(owner) and o is owner:
+            return got
+    return default
 
 #: the straightening is re-run while a new chord enters the frontage, each
 #: round pinning the run that laid it; past this many the ring is left as

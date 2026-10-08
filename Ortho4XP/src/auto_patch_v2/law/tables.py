@@ -34,7 +34,6 @@ __all__ = [
     "flat_source_class", "flat_relief_floor_m", "design",
     "design_weight", "sliver_area_factor", "group_span_max_m",
     "bend_class", "apron_roles", "PadAdmission", "pad_admission",
-    "PadOutline", "pad_outline",
 ]
 
 #: The DEM source classes the flat-site detector knows (flat_site.toml
@@ -724,38 +723,6 @@ def pad_admission(law: Law) -> PadAdmission:
         building_evidence=bool(getattr(p, "building_evidence", False)),
         evidence_min_height_m=float(getattr(p, "evidence_min_height_m", 0.0)),
         evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)))
-
-
-@_dc.dataclass(frozen=True)
-class PadOutline:
-    """Spec §56 (1): the three ``[building_pad]`` numbers the SIMPLIFIED
-    BUILDING OUTLINE (``geom.cluster_outline`` rule 2b) is drawn with —
-    ONE reading, so the MINT (``classify/evidence._cluster_pads``) and the
-    CENSUS (``constraints/cluster_pad.cluster_polys``) cannot be drawing a
-    cluster's outline with different law."""
-
-    close_m: float
-    chord_m: float
-    hole_min_m2: float
-    #: §56 (2) 2: the near-road absorption distance (not an outline
-    #: number of rule 2b — ``geom.cluster_outlines`` never reads it)
-    road_absorb_m: float = 0.0
-    #: §56 (11) R-W: an outline within this of airside ground is PINNED
-    #: through rule 2b — the identity spacing, the least two rings can
-    #: stand apart and still be two (``emit.identity``); not a new key
-    pin_m: float = 0.0
-
-
-def pad_outline(law: Law) -> PadOutline:
-    """``structures.toml [building_pad]``'s outline law — ONE derivation
-    site."""
-    b = law.tables.structures.building_pad
-    return PadOutline(close_m=float(b.outline_close_m),
-                      chord_m=float(b.outline_chord_m),
-                      hole_min_m2=float(b.outline_hole_min_m2),
-                      road_absorb_m=float(b.pad_road_absorb_m),
-                      pin_m=float(
-                          law.tables.emit.identity.min_distinct_spacing_m))
 
 
 def footprint_touch_m(law: Law) -> float:

@@ -272,7 +272,7 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
         try:
             from auto_patch_v2.geom import (cluster_outlines,
                                              cluster_building_evidence)
-            from auto_patch_v2.law.tables import pad_admission, pad_outline
+            from auto_patch_v2.law.tables import pad_admission
             st = law.tables.structures.placement
             to_xy = ps["airport"].frame.entry()
             # §16g (10) (12), issue #101: the mint's two pad-admission
@@ -283,9 +283,7 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
                                         bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)),
                                         admission=pad_admission(law),
                                         osm_evidence=cluster_building_evidence(
-                                            getattr(ps["airport"], "buildings", ()) or ()),
-                                        # §56 (1) rule 2b: the mint's outline
-                                        outline=pad_outline(law))
+                                            getattr(ps["airport"], "buildings", ()) or ()))
             sxy = to_xy(site[1], site[0])
         except Exception as exc:                  # an older tree: clusters only
             print(f"[{icao}] pad reading skipped: {exc}", flush=True)
@@ -351,7 +349,7 @@ def read_pickle(path: Path, site: tuple[float, float]) -> dict:
         sys.path.insert(0, str(ROOT / "src"))
     from auto_patch_v2.geom import cluster_outlines, cluster_building_evidence
     from auto_patch_v2.law import Law
-    from auto_patch_v2.law.tables import pad_admission, pad_outline
+    from auto_patch_v2.law.tables import pad_admission
     from auto_patch_v2.planar.cluster import cluster_min_m2, clusters
     with open(path, "rb") as fh:
         d = pickle.load(fh)
@@ -366,8 +364,7 @@ def read_pickle(path: Path, site: tuple[float, float]) -> dict:
                                 # issue #101: the mint's gates, as above
                                 admission=pad_admission(law),
                                 osm_evidence=cluster_building_evidence(
-                                    getattr(ap, "buildings", ()) or ()),
-                                outline=pad_outline(law))
+                                    getattr(ap, "buildings", ()) or ()))
     rec = site_report(cl, site[0], site[1], mn, pads, to_xy(site[1], site[0]))
     rec["partition_counts"] = {k: int(ap.partition.counts.get(k, 0)) for k in COUNT_KEYS}
     return rec

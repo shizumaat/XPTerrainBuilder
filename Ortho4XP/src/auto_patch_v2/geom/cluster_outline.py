@@ -16,17 +16,14 @@ polygons out.  No law value is read — the caller passes the law's own.
 from __future__ import annotations
 
 import math as _math
-import collections
 import typing as _t
 
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
-from .outline_pin import Frontage
 from .rotated_rect import rotated_rectangle
 
 __all__ = ["cluster_outlines", "OUTLINE_SIMPLIFY_M", "airside_vertex_snap",
-           "simplified_outline", "CLOSE_QUAD_SEGS",
            "AirsideRim", "ON_BOUNDARY_EPS_M", "deck_shades",
            "osm_building_evidence", "OSM_BUILDING_SOURCE",
            "CACHE_VOUCHED_SOURCE", "CLUSTER_EVIDENCE_SOURCES",
@@ -116,142 +113,6 @@ def _parts(g) -> list[Polygon]:
     if isinstance(g, MultiPolygon):
         return [q for q in g.geoms if isinstance(q, Polygon) and q.area > 0.0]
     return [g] if isinstance(g, Polygon) and g.area > 0.0 else []
-
-
-#: §56 (1) 1: the arc resolution of the round close (segments per quarter
-#: circle) — the probe's own; the arc vertices it adds are removed by the
-#: straightening, so it buys a true closing, never a vertex budget.
-CLOSE_QUAD_SEGS = 8
-
-
-def simplified_outline(poly, close_m: float, chord_m: float,
-                       hole_min_m2: float, front: "Frontage | None" = None):
-    """§56 (1) RULE 2b, THE SIMPLIFIED BUILDING OUTLINE (owner RULINGS
-    2026-10-07a (6), 07b (4); issue #452): "just the outline of the
-    building with straight chords that include jetways and small
-    protuberances while following the general outline of the building".
-    ONE pure function on one polygon in the planar frame — no DEM, no
-    neighbour, no law read (the caller passes the law's three values) —
-    so its output is the same at any worker count.
-
-    1. CLOSE: ``buffer(+close_m).buffer(-close_m)`` with ROUND joins — a
-       true morphological closing, so it contains its input and fills
-       every re-entrant whose mouth is narrower than ``2 * close_m``; a
-       wider bay is a real concavity and stays.  Mitred joins were probed
-       and REFUTED (they drop sliver pieces off thin wings).
-    2. STRAIGHTEN: Douglas-Peucker, topology-preserving, at ``chord_m``
-       (removes the arc vertices of 1 as well as the crenelations).
-    3. FILL THE LIGHT WELLS: every hole under ``hole_min_m2`` goes; a
-       courtyard at or over it stays a hole.
-
-    Close, then straighten, then fill.  There is NO opening step: an
-    opening drops thin protuberances (a canopy, a jetway root), which the
-    owner asked for INSIDE the outline (probe arm V8, refuted).  ``0``
-    disarms each step (the measurement arm, never a shipped value).
-
-    ``front`` (§56 (11) R-W, THE FRONTAGE IS NOT SIMPLIFIED): the airside
-    ground beside this outline (:class:`geom.outline_pin.Frontage`).  Where
-    the outline stands on it, it stays as rule 2 drew it — no fill, no
-    dropped vertex, no new chord, no filled well; the chords are for the
-    groundside and road sides.  ``None`` simplifies the whole ring."""
-    g = poly
-    if g is None or g.is_empty:
-        return g
-    if front is not None:
-        return _simplified_off_frontage(g, close_m, chord_m, hole_min_m2, front)
-    if close_m > 0.0:
-        # the input is unioned back: the arcs are inscribed polygons, so
-        # the buffered close chamfers every convex corner by the arc's
-        # sagitta (1.3 cm at 3 m) and the straightening would then keep
-        # the chamfer, not the corner — the union makes "contains its
-        # input" exact, as the closing it stands for does
-        # (and ``simplify(0)`` drops the chamfer's now-collinear vertices,
-        # so no ring STARTS on one — Douglas-Peucker always keeps a ring's
-        # first vertex, and would drop the true corner beside it)
-        g = unary_union([g, g.buffer(close_m, join_style=1,
-                                     quad_segs=CLOSE_QUAD_SEGS).buffer(
-            -close_m, join_style=1, quad_segs=CLOSE_QUAD_SEGS)]).simplify(0.0)
-        if not g.is_valid:
-            g = g.buffer(0.0)
-    if chord_m > 0.0:
-        g = g.simplify(chord_m, preserve_topology=True)
-        if not g.is_valid:
-            g = g.buffer(0.0)
-    if hole_min_m2 > 0.0:
-        kept = [Polygon(p.exterior, [h for h in p.interiors
-                                     if Polygon(h).area >= hole_min_m2])
-                for p in _parts(g)]
-        g = unary_union(kept) if kept else g
-        if not g.is_valid:
-            g = g.buffer(0.0)
-    return g
-
-
-def _simplified_off_frontage(g, close_m: float, chord_m: float,
-                             hole_min_m2: float, front: Frontage):
-    """Rule 2b's three steps with the airside frontage PINNED (§56 (11)
-    R-W) — the same close, chord and well fill, each asked of ``front``."""
-    if close_m > 0.0:
-        g = front.straighten(front.closing(g, g.buffer(
-            close_m, join_style=1, quad_segs=CLOSE_QUAD_SEGS).buffer(
-            -close_m, join_style=1, quad_segs=CLOSE_QUAD_SEGS)), 0.0)
-        if not g.is_valid:
-            g = g.buffer(0.0)
-    if chord_m > 0.0:
-        g = front.straighten(g, chord_m)
-        if not g.is_valid:
-            g = g.buffer(0.0)
-    if hole_min_m2 > 0.0:
-        kept = [Polygon(p.exterior, front.wells(p, hole_min_m2))
-                for p in _parts(g)]
-        g = unary_union(kept) if kept else g
-        if not g.is_valid:
-            g = g.buffer(0.0)
-    return g
-
-
-def _outline_vertices(g) -> int:
-    """Ring vertices (exterior + holes, closing point not counted)."""
-    return sum(len(p.exterior.coords) - 1
-               + sum(len(h.coords) - 1 for h in p.interiors)
-               for p in _parts(g))
-
-
-def _outline_growth(piece, pid: str, was: list, frm: list[str], u_in,
-                    close_m: float) -> dict[str, float]:
-    """§56 (1) 10 THE GROWTH IS NAMED: the m² rule 2b added to the piece
-    ``pid`` over its same-id pre-2b piece, split into the five lawful
-    classes (they sum to the added area) — ``join`` (over the other
-    pre-2b pieces it absorbed), ``thin_kept`` (inside the pre-2b outline
-    ``u_in`` but in no pre-2b piece: a remainder rule 6 would have
-    dropped), ``well`` (a filled light well), ``close`` (the closing's
-    fill) and ``chord`` (the straightening's residue)."""
-    by = dict(was)
-    base = by.get(pid)
-    if base is None and frm:
-        base = max((by[q] for q in frm), key=lambda g: g.area)
-    added = piece if base is None else piece.difference(base)
-    out = dict.fromkeys(("join", "well", "close", "chord", "thin_kept"), 0.0)
-    if added.is_empty:
-        return out
-    others = [by[q] for q in frm if by[q] is not base]
-    if others:
-        ou = unary_union(others)
-        out["join"] = added.intersection(ou).area
-        added = added.difference(ou)
-    out["thin_kept"] = added.intersection(u_in).area
-    added = added.difference(u_in)
-    wells = [Polygon(h) for g in _parts(u_in) for h in g.interiors]
-    if wells and not added.is_empty:
-        wu = unary_union(wells)
-        out["well"] = added.intersection(wu).area
-        added = added.difference(wu)
-    if close_m > 0.0 and not added.is_empty:
-        fill = u_in.buffer(close_m).buffer(-close_m).difference(u_in)
-        out["close"] = added.intersection(fill).area
-        added = added.difference(fill)
-    out["chord"] = added.area
-    return {k: round(v, 1) for k, v in out.items()}
 
 
 def deck_shades(partition: _t.Any,
@@ -461,53 +322,6 @@ def _refuse(refused, counts, key: str, cluster, gate: str, value: float,
     })
 
 
-def _outline_pieces(u, shades, airside, taken, thin_m: float, counts) -> list:
-    """Rules 8, 4, 3 and 6 on ONE closed outline: the deck shades and the
-    airside leave it, the ground a lower cluster already took leaves it,
-    its thin pieces drop — the pieces left, in the ``(bounds y, bounds
-    x)`` order the ``/k`` ids are spelt in.  ``[]`` when nothing is left
-    (the reason is counted)."""
-    if shades is not None and not shades.is_empty and u.intersects(shades):
-        # rule 8: the welded deck's shade leaves the outline
-        u = u.difference(shades)
-        if not u.is_valid:
-            u = u.buffer(0.0)
-        if u.is_empty or u.area <= 0.0:
-            counts["under_deck"] += 1
-            return []
-        counts["deck_trimmed"] += 1
-    if airside is not None and not airside.is_empty and u.intersects(airside):
-        before = u.area
-        u = u.difference(airside)
-        if u.is_empty or u.area <= 0.0:
-            counts["on_airside"] += 1        # it seats on the pavement
-            return []
-        if u.area < before:
-            counts["clipped"] += 1
-        if not u.is_valid:
-            u = u.buffer(0.0)
-    hit = [g for g in taken if g.intersects(u)]
-    if hit:
-        u = u.difference(unary_union(hit))
-    pieces = _parts(u)
-    if not pieces:
-        counts["over_another"] += 1
-        return []
-    if thin_m > 0.0:
-        wide = [g for g in pieces
-                if 2.0 * g.area >= thin_m * max(g.length, 1e-9)]
-        counts["thin_dropped"] += len(pieces) - len(wide)
-        pieces = wide
-    pieces.sort(key=lambda g: (round(g.bounds[1], 3), round(g.bounds[0], 3)))
-    return pieces
-
-
-def _piece_ids(cid: str, pieces: _t.Sequence) -> list[str]:
-    """A cluster's piece ids: its own id for one piece, ``id/k`` else."""
-    return [cid if len(pieces) == 1 else f"{cid}/{k}"
-            for k in range(len(pieces))]
-
-
 def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      to_xy: _t.Callable[[float, float], tuple[float, float]],
                      touch_m: float,
@@ -521,9 +335,6 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      admission=None,
                      osm_evidence=None,
                      refused=None,
-                     outline=None,
-                     stats: "dict[str, dict] | None" = None,
-                     frontage=None,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -605,20 +416,6 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        wholly under a shade mints nothing (``under_deck``); one the shade
        cuts is ``deck_trimmed``, and the pieces it leaves are rule 2's.
 
-    2b. THE SIMPLIFIED BUILDING OUTLINE (spec §56 (1), owner RULINGS
-       2026-10-07a (6) / 07b (4), issue #452): right after 2 and 2a, and
-       before 10, 8, 4, 3 and 6, the outline is closed (round, at
-       ``outline.close_m``), straightened (Douglas-Peucker at
-       ``outline.chord_m``) and its light wells under
-       ``outline.hole_min_m2`` filled — :func:`simplified_outline`.
-       Counted ``outline_simplified``, with the ring vertices in and out
-       (``outline_vertices_in`` / ``_out``).  THE AIRSIDE FRONTAGE IS
-       PINNED through it (§56 (11) R-W): ``frontage`` is the airside
-       ground, ``outline.pin_m`` the distance — an outline standing on it
-       keeps rule 2's ring there (``outline_frontage`` clusters,
-       ``outline_fills_refused``, ``outline_vertices_pinned``).
-       ``frontage=None`` simplifies every ring whole.
-
     2a. A POST STILL CHAINS, SO THE UNIT IS ONE (issue #73, lane
        ``courtyards``).  Posts and flat lines draw no outline
        (``placement_family.draws_outline``), so a cluster whose pieces
@@ -675,15 +472,8 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
     population must never be read as a refused one, the same discipline
     ``plan_clusters`` keeps for a plan with no solid heights.
 
-    ``stats``, when a dict, takes one row per emitted piece under rule 2b
-    (§56 (1) 9) — ``outline_vertices`` (of the simplified outline it was
-    cut from, before the airside clip), ``outline_simplified_from`` (the
-    same count before 2b) and ``outline_joined_from`` (the ids the pieces
-    it covers had before 2b, when 2b JOINED or renamed them; else empty).
-
     ``touch_m <= 0`` disarms the close (rule 2); ``bridge_m <= 0``
-    disarms (2a); ``outline=None`` (or its three values 0) disarms (2b);
-    ``airside=None``
+    disarms (2a); ``airside=None``
     disarms the clip (rule 4); ``walled_only=False`` and ``min_m2=0``
     disarm (7); ``thin_m <= 0`` disarms (6); ``shades=None`` disarms (8);
     ``admission=None`` disarms (9) and (10), as does
@@ -694,12 +484,6 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
               "leaf_dropped": 0, "under_min_m2": 0, "thin_dropped": 0,
               "pads": 0, "under_deck": 0, "deck_trimmed": 0,
               "post_bridged": 0,
-              # §56 (1) rule 2b
-              "outline_simplified": 0, "outline_vertices_in": 0,
-              "outline_vertices_out": 0,
-              # §56 (11) R-W: the pinned airside frontage
-              "outline_frontage": 0, "outline_fills_refused": 0,
-              "outline_vertices_pinned": 0,
               # §16g (10) (12), issue #101: the two ported v1 gates
               "no_tall_base": 0, "no_building_evidence": 0,
               "unmeasured": 0, "osm_vouched": 0, "cache_vouched": 0}
@@ -710,10 +494,6 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         key=lambda i: (min(getattr(clusters[i], "floors", ()) or (0.0,)),
                        -float(getattr(clusters[i], "area_m2", 0.0)),
                        str(getattr(clusters[i], "id", i))))
-    oc = float(getattr(outline, "close_m", 0.0) or 0.0)
-    och = float(getattr(outline, "chord_m", 0.0) or 0.0)
-    oh = float(getattr(outline, "hole_min_m2", 0.0) or 0.0)
-    pin = float(getattr(outline, "pin_m", 0.0) or 0.0)
     out: list[tuple[str, _t.Any, Polygon]] = []
     taken: list[Polygon] = []
     for i in order:
@@ -764,20 +544,6 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
             # rule 2a: the posts that still chain close the outline
             u, nj = _bridge(u, c.bridges, to_xy, bridge_m)
             counts["post_bridged"] += nj
-        u_in = None
-        if oc > 0.0 or och > 0.0 or oh > 0.0:
-            # rule 2b: the simplified building outline (§56 (1))
-            u_in = u
-            counts["outline_vertices_in"] += _outline_vertices(u)
-            front = Frontage.near(u, frontage, pin, oc + och)
-            u = simplified_outline(u, oc, och, oh, front)
-            if front is not None:
-                counts["outline_frontage"] += 1
-                counts["outline_fills_refused"] += front.fills_refused
-                counts["outline_vertices_pinned"] += front.vertices_pinned
-            counts["outline_vertices_out"] += _outline_vertices(u)
-            counts["outline_simplified"] += 1
-            u2b = u
         if u.is_empty:
             counts["no_rings"] += 1
             continue
@@ -798,36 +564,44 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                 # (a ``True`` from a caller's own predicate reads as OSM)
                 counts["cache_vouched" if vouch == CACHE_VOUCHED_SOURCE
                        else "osm_vouched"] += 1
-        pieces = _outline_pieces(u, shades, airside, taken, thin_m, counts)
+        if shades is not None and not shades.is_empty and u.intersects(shades):
+            # rule 8: the welded deck's shade leaves the outline
+            u = u.difference(shades)
+            if not u.is_valid:
+                u = u.buffer(0.0)
+            if u.is_empty or u.area <= 0.0:
+                counts["under_deck"] += 1
+                continue
+            counts["deck_trimmed"] += 1
+        if airside is not None and not airside.is_empty and u.intersects(airside):
+            before = u.area
+            u = u.difference(airside)
+            if u.is_empty or u.area <= 0.0:
+                counts["on_airside"] += 1        # it seats on the pavement
+                continue
+            if u.area < before:
+                counts["clipped"] += 1
+            if not u.is_valid:
+                u = u.buffer(0.0)
+        hit = [g for g in taken if g.intersects(u)]
+        if hit:
+            u = u.difference(unary_union(hit))
+        pieces = _parts(u)
         if not pieces:
+            counts["over_another"] += 1
             continue
+        if thin_m > 0.0:
+            wide = [g for g in pieces
+                    if 2.0 * g.area >= thin_m * max(g.length, 1e-9)]
+            counts["thin_dropped"] += len(pieces) - len(wide)
+            pieces = wide
+            if not pieces:
+                continue
         counts["still_in_pieces"] += len(pieces) - 1
         cid = str(getattr(c, "id", i))
-        ids = _piece_ids(cid, pieces)
-        if stats is not None and u_in is not None:
-            # §56 (1) 9: what rule 2b did to THIS cluster — the vertices of
-            # the outline each piece was cut from, BEFORE the airside clip
-            # (which adds the apron's own rim vertices), and the ids the
-            # pre-2b outline would have had under the same rules 8/4/3/6
-            before = _outline_pieces(u_in, shades, airside, taken, thin_m,
-                                     collections.Counter())
-            was = list(zip(_piece_ids(cid, before), before))
-            for pid, piece in zip(ids, pieces):
-                rp = piece.representative_point()
-                frm = [q for q, g in was
-                       if piece.contains(g.representative_point())]
-                stats[pid] = {
-                    "outline_vertices": sum(
-                        _outline_vertices(g) for g in _parts(u2b)
-                        if g.contains(rp)),
-                    "outline_simplified_from": sum(
-                        _outline_vertices(g) for g in _parts(u_in)
-                        if g.intersects(piece)),
-                    "outline_joined_from": frm if frm != [pid] else [],
-                    "outline_growth_m2": _outline_growth(
-                        piece, pid, was, frm, u_in, oc)}
-        for pid, piece in zip(ids, pieces):
-            out.append((pid, c, piece))
+        pieces.sort(key=lambda g: (round(g.bounds[1], 3), round(g.bounds[0], 3)))
+        for k, piece in enumerate(pieces):
+            out.append((cid if len(pieces) == 1 else f"{cid}/{k}", c, piece))
             taken.append(piece)
     counts["pads"] = len(out)
     return out, counts

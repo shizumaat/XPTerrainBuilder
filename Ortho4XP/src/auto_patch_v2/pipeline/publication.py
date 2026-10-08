@@ -135,7 +135,7 @@ from ..law import Law
 from ..constraints.cluster_pad import pad_cluster_mismatch as _pad_cluster_mismatch
 from ..constraints.pad_relief import pad_relief_offsets
 from ..model.airport import Airport
-from ..model.planar import PlanarMap, unit_ref_of
+from ..model.planar import PlanarMap
 from ..planar.cluster import deck_shades as _deck_shades
 
 __all__ = ["gap_pieces", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
@@ -306,10 +306,7 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
 
     Read off the SAME derivations the rows were priced from
     (``constraints.cluster_pad``), never a second reading of the law."""
-    from ..classify.road_absorb import (ABSORB_GROWTH, ROADS_ABSORBED,
-                                        ROADS_KEPT)
-    from ..constraints.cluster_pad import (DERIVED, OFFSET_SPREAD,
-                                           OUTLINE_STATS, REFERENCE,
+    from ..constraints.cluster_pad import (DERIVED, OFFSET_SPREAD, REFERENCE,
                                            TOUCHING_STEPS, YIELDED,
                                            cluster_offsets, cluster_pad_faces,
                                            plane_groups)
@@ -333,26 +330,7 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
         lvl = (sorted(zs)[len(zs) // 2] if zs else None)
         c = by_id.get(cid)
         pads = sorted({planar.faces[f].ref for f in fids})
-        # §56 (2) 7: the near roads this cluster's pads took, and kept
-        base = {unit_ref_of(r) for r in pads}
         out.append({"id": cid,
-                    # §56 (1) 9 / (2) 7 (#452): the simplified outline and
-                    # what it absorbed (empty on a replay resumed after
-                    # classify — the registry is filled by that pass)
-                    **OUTLINE_STATS.get(cid, {}),
-                    "roads_absorbed": [r for p in sorted(base)
-                                       for r in ROADS_ABSORBED.get(p, ())],
-                    "roads_kept_near_pad": [[r, why] for r, p, why in ROADS_KEPT
-                                            if p in base],
-                    "roads_absorbed_m2": round(sum(
-                        ABSORB_GROWTH[p]["road"] for p in base
-                        if p in ABSORB_GROWTH), 1),
-                    # §56 (2) 7 / 8: where the re-close's added area went
-                    "absorb_growth_m2": {
-                        k: round(sum(ABSORB_GROWTH[p][k] for p in base
-                                     if p in ABSORB_GROWTH), 1)
-                        for k in ("road", "shade_clipped", "airside_clipped",
-                                  "fill")},
                     "members": list(getattr(c, "members", ()) or ()),
                     "area_m2": round(float(getattr(c, "area_m2", 0.0)), 1),
                     "pads": pads,

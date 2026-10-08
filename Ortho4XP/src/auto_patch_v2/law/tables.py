@@ -740,6 +740,10 @@ class PadOutline:
     #: §56 (2) 2: the near-road absorption distance (not an outline
     #: number of rule 2b — ``geom.cluster_outlines`` never reads it)
     road_absorb_m: float = 0.0
+    #: §56 (11) R-W: an outline within this of airside ground is PINNED
+    #: through rule 2b — the identity spacing, the least two rings can
+    #: stand apart and still be two (``emit.identity``); not a new key
+    pin_m: float = 0.0
 
 
 def pad_outline(law: Law) -> PadOutline:
@@ -749,7 +753,9 @@ def pad_outline(law: Law) -> PadOutline:
     return PadOutline(close_m=float(b.outline_close_m),
                       chord_m=float(b.outline_chord_m),
                       hole_min_m2=float(b.outline_hole_min_m2),
-                      road_absorb_m=float(b.pad_road_absorb_m))
+                      road_absorb_m=float(b.pad_road_absorb_m),
+                      pin_m=float(
+                          law.tables.emit.identity.min_distinct_spacing_m))
 
 
 def footprint_touch_m(law: Law) -> float:

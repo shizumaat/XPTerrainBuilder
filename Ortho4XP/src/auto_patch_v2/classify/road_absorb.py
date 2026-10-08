@@ -36,6 +36,7 @@ from shapely.strtree import STRtree
 
 from ..airport.deck_signature import is_tunnel_way
 from ..geom.cluster_outline import simplified_outline
+from ..geom.outline_pin import Frontage
 from ..geom.parts import nonempty_polygon_parts as polygon_parts
 from ..law import Law
 from ..law.tables import PadOutline, family
@@ -111,6 +112,17 @@ def _growth(pad: Polygon, closed: Polygon, roads, shades, airside
                  "airside_clipped": on_air.area, "fill": kept.area - road}, clip
 
 
+def _off_the_pad(g, pad: Polygon, rpolys: list, take: list[int]) -> list[int]:
+    """The roads of ``take`` that are not in the piece of ``g`` holding the
+    pad (``[]`` when ``g`` has no such piece)."""
+    parts = polygon_parts(g)
+    if len(parts) < 2:
+        return []
+    main = max(parts, key=lambda q: q.intersection(pad).area)
+    return [k for k in take if rpolys[k].intersection(main).area
+            < ABSORB_MIN_FRACTION * rpolys[k].area]
+
+
 def _absorb(pad: Polygon, rpolys: list, take: list[int], outline: PadOutline,
             other_pads, shades, air, air_tree
             ) -> "tuple[Polygon | None, dict[str, float], list[int], dict[int, str]]":
@@ -124,12 +136,29 @@ def _absorb(pad: Polygon, rpolys: list, take: list[int], outline: PadOutline,
     kept: dict[int, str] = {}
     while take:
         taken = unary_union([rpolys[k] for k in take])
-        g = simplified_outline(unary_union([pad, taken]), outline.close_m,
-                               outline.chord_m, outline.hole_min_m2)
+        both = unary_union([pad, taken])
+        # §56 (11) R-W: the airside frontage is pinned through the
+        # re-close exactly as through the mint's rule 2b
+        reach = outline.close_m + outline.chord_m
+        hit = ([air[int(k)] for k in air_tree.query(
+            both.buffer(reach + outline.pin_m), predicate="intersects")]
+            if air_tree is not None and outline.pin_m > 0.0 else [])
+        g = simplified_outline(
+            both, outline.close_m, outline.chord_m, outline.hole_min_m2,
+            Frontage.near(both, unary_union(hit), outline.pin_m, reach)
+            if hit else None)
         near = [q for q in other_pads if q.distance(g) <= 0.0]
         if near:                     # the close never takes another pad's ground
             g = g.difference(unary_union(near))
         if g.geom_type != "Polygon" or g.is_empty or not g.is_valid:
+            # a road the pinned re-close left OFF the pad (the strip
+            # between them lies on the airside frontage, R-W) is not this
+            # pad's; the rest are tried again without it
+            far = _off_the_pad(g, pad, rpolys, take)
+            if far and len(far) < len(take):
+                kept.update(dict.fromkeys(far, KEPT_PIECES))
+                take = [k for k in take if k not in far]
+                continue
             return None, {}, [], {**kept, **dict.fromkeys(take, KEPT_PIECES)}
         hit = ([air[int(k)] for k in air_tree.query(g, predicate="intersects")]
                if air_tree is not None else [])
@@ -143,10 +172,8 @@ def _absorb(pad: Polygon, rpolys: list, take: list[int], outline: PadOutline,
                if rpolys[k].intersection(clip).area > slack * rpolys[k].area}
         if not one:
             # … or left across the clip from the pad, is not this pad's
-            main = max(polygon_parts(g), key=lambda q: q.intersection(pad).area)
-            off.update((k, KEPT_PIECES) for k in take if k not in off
-                       and rpolys[k].intersection(main).area
-                       < ABSORB_MIN_FRACTION * rpolys[k].area)
+            off.update((k, KEPT_PIECES) for k in _off_the_pad(
+                g, pad, rpolys, take) if k not in off)
         if not off:
             if one:
                 return g, growth, take, kept

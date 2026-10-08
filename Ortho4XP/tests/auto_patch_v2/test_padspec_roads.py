@@ -110,7 +110,9 @@ def test_the_re_close_takes_no_airside(law):
     assert grown.covers(pad) and grown.covers(road)
     assert out[1].ring == cells[2].ring       # the apron cell is untouched
     g = ABSORB_GROWTH["building1"]
-    assert g["airside_clipped"] == pytest.approx(40 * 4, abs=1.0)
+    # §56 (11) R-W: the fill over the tongue is never made — the frontage
+    # is pinned through the re-close — so rule 8's clip has nothing to take
+    assert g["airside_clipped"] == 0.0
     assert g["road"] == pytest.approx(road.union(link).area, abs=1.0)
     assert g["shade_clipped"] == 0.0
 

@@ -22,6 +22,7 @@ import typing as _t
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
+from .outline_pin import Frontage
 from .rotated_rect import rotated_rectangle
 
 __all__ = ["cluster_outlines", "OUTLINE_SIMPLIFY_M", "airside_vertex_snap",
@@ -124,7 +125,7 @@ CLOSE_QUAD_SEGS = 8
 
 
 def simplified_outline(poly, close_m: float, chord_m: float,
-                       hole_min_m2: float):
+                       hole_min_m2: float, front: "Frontage | None" = None):
     """§56 (1) RULE 2b, THE SIMPLIFIED BUILDING OUTLINE (owner RULINGS
     2026-10-07a (6), 07b (4); issue #452): "just the outline of the
     building with straight chords that include jetways and small
@@ -146,10 +147,18 @@ def simplified_outline(poly, close_m: float, chord_m: float,
     Close, then straighten, then fill.  There is NO opening step: an
     opening drops thin protuberances (a canopy, a jetway root), which the
     owner asked for INSIDE the outline (probe arm V8, refuted).  ``0``
-    disarms each step (the measurement arm, never a shipped value)."""
+    disarms each step (the measurement arm, never a shipped value).
+
+    ``front`` (§56 (11) R-W, THE FRONTAGE IS NOT SIMPLIFIED): the airside
+    ground beside this outline (:class:`geom.outline_pin.Frontage`).  Where
+    the outline stands on it, it stays as rule 2 drew it — no fill, no
+    dropped vertex, no new chord, no filled well; the chords are for the
+    groundside and road sides.  ``None`` simplifies the whole ring."""
     g = poly
     if g is None or g.is_empty:
         return g
+    if front is not None:
+        return _simplified_off_frontage(g, close_m, chord_m, hole_min_m2, front)
     if close_m > 0.0:
         # the input is unioned back: the arcs are inscribed polygons, so
         # the buffered close chamfers every convex corner by the arc's
@@ -171,6 +180,29 @@ def simplified_outline(poly, close_m: float, chord_m: float,
     if hole_min_m2 > 0.0:
         kept = [Polygon(p.exterior, [h for h in p.interiors
                                      if Polygon(h).area >= hole_min_m2])
+                for p in _parts(g)]
+        g = unary_union(kept) if kept else g
+        if not g.is_valid:
+            g = g.buffer(0.0)
+    return g
+
+
+def _simplified_off_frontage(g, close_m: float, chord_m: float,
+                             hole_min_m2: float, front: Frontage):
+    """Rule 2b's three steps with the airside frontage PINNED (§56 (11)
+    R-W) — the same close, chord and well fill, each asked of ``front``."""
+    if close_m > 0.0:
+        g = front.straighten(front.closing(g, g.buffer(
+            close_m, join_style=1, quad_segs=CLOSE_QUAD_SEGS).buffer(
+            -close_m, join_style=1, quad_segs=CLOSE_QUAD_SEGS)), 0.0)
+        if not g.is_valid:
+            g = g.buffer(0.0)
+    if chord_m > 0.0:
+        g = front.straighten(g, chord_m)
+        if not g.is_valid:
+            g = g.buffer(0.0)
+    if hole_min_m2 > 0.0:
+        kept = [Polygon(p.exterior, front.wells(p, hole_min_m2))
                 for p in _parts(g)]
         g = unary_union(kept) if kept else g
         if not g.is_valid:
@@ -491,6 +523,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      refused=None,
                      outline=None,
                      stats: "dict[str, dict] | None" = None,
+                     frontage=None,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -579,7 +612,12 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        ``outline.chord_m``) and its light wells under
        ``outline.hole_min_m2`` filled — :func:`simplified_outline`.
        Counted ``outline_simplified``, with the ring vertices in and out
-       (``outline_vertices_in`` / ``_out``).
+       (``outline_vertices_in`` / ``_out``).  THE AIRSIDE FRONTAGE IS
+       PINNED through it (§56 (11) R-W): ``frontage`` is the airside
+       ground, ``outline.pin_m`` the distance — an outline standing on it
+       keeps rule 2's ring there (``outline_frontage`` clusters,
+       ``outline_fills_refused``, ``outline_vertices_pinned``).
+       ``frontage=None`` simplifies every ring whole.
 
     2a. A POST STILL CHAINS, SO THE UNIT IS ONE (issue #73, lane
        ``courtyards``).  Posts and flat lines draw no outline
@@ -659,6 +697,9 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
               # §56 (1) rule 2b
               "outline_simplified": 0, "outline_vertices_in": 0,
               "outline_vertices_out": 0,
+              # §56 (11) R-W: the pinned airside frontage
+              "outline_frontage": 0, "outline_fills_refused": 0,
+              "outline_vertices_pinned": 0,
               # §16g (10) (12), issue #101: the two ported v1 gates
               "no_tall_base": 0, "no_building_evidence": 0,
               "unmeasured": 0, "osm_vouched": 0, "cache_vouched": 0}
@@ -672,6 +713,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
     oc = float(getattr(outline, "close_m", 0.0) or 0.0)
     och = float(getattr(outline, "chord_m", 0.0) or 0.0)
     oh = float(getattr(outline, "hole_min_m2", 0.0) or 0.0)
+    pin = float(getattr(outline, "pin_m", 0.0) or 0.0)
     out: list[tuple[str, _t.Any, Polygon]] = []
     taken: list[Polygon] = []
     for i in order:
@@ -727,7 +769,12 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
             # rule 2b: the simplified building outline (§56 (1))
             u_in = u
             counts["outline_vertices_in"] += _outline_vertices(u)
-            u = simplified_outline(u, oc, och, oh)
+            front = Frontage.near(u, frontage, pin, oc + och)
+            u = simplified_outline(u, oc, och, oh, front)
+            if front is not None:
+                counts["outline_frontage"] += 1
+                counts["outline_fills_refused"] += front.fills_refused
+                counts["outline_vertices_pinned"] += front.vertices_pinned
             counts["outline_vertices_out"] += _outline_vertices(u)
             counts["outline_simplified"] += 1
             u2b = u

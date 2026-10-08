@@ -109,7 +109,7 @@ from .structure_service import (airside_cut_roles, deck_witness_for,
                                 osm_stops as _osm_stops,
                                 pad_relief_m as _pad_relief_m)
 from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
-                             deck_items, emit_decks,
+                             deck_items, decks_over_climb, emit_decks,
                              object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
 from .structure_underpass import (underpass_bores as _underpass_bores,
@@ -468,6 +468,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 if s_free is not None:
                     deck_ivals = [d for d in deck_ivals if d[1] <= s_free]
                     obj_ivals = [d for d in obj_ivals if d[1] <= s_free]
+        if c is None and g.climbs and (deck_ivals or obj_ivals):
+            # #450: a MAPPED bore's decks are the ones over its ramp too
+            deck_ivals, obj_ivals = decks_over_climb(
+                deck_ivals, obj_ivals, gap, lambda s0: _ramp_top(
+                    airport, law, axis_fn, mouth_z, s0, spacing_g, grade=grade_g)[0])
         climb_from = 0.0
         climb_from = max([climb_from] + [s1 + gap for _w, s0, s1, _p in deck_ivals]
                          + [s1 + gap for _d, s0, s1, _p in pav_ivals]

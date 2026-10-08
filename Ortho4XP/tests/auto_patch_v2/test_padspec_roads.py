@@ -176,6 +176,20 @@ def test_zero_disarms(law):
     assert absorb_near_roads(cells, law, off) == (cells, {})
 
 
+def test_with_the_outline_close_disarmed_no_held_off_road_is_absorbed(law):
+    """§56 (11) fix 3, the coupling STATED: the stand-off between a pad
+    and its near road is filled by the re-close at ``outline_close_m``, so
+    with that key 0 the road cannot join — ``pad_road_absorb_m`` alone
+    absorbs nothing across a stand-off.  (A cell already touching the pad
+    needs no close and still joins.)"""
+    cells = _scene(1.1)                       # the set-back's own stand-off
+    no_close = dc.replace(pad_outline(law), close_m=0.0)
+    assert absorb_near_roads(cells, law, no_close) == (cells, {})
+    assert ("route7", "building1", KEPT_PIECES) in ROADS_KEPT
+    out, absorbed = absorb_near_roads(_scene(0.0), law, no_close)
+    assert absorbed == {"building1": ["route7"]}
+
+
 def test_only_a_changed_pad_draws_the_second_knife(law):
     """§56 (2) 6: the re-applied set-back cuts beside the GROWN pad and
     leaves every other pad's neighbours as the first pass cut them."""

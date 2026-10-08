@@ -20001,3 +20001,25 @@ master: S1 ship `OA0`'s content now (outline and absorb keys 0 for the
 release; airside within the floor at KCLT / KASE / OTHH, HECA un-laddered);
 S2 ship all after fix 1, re-laddered; S3 hold all. Recommend S2 if fix 1
 lands today, else S1.
+
+**AS BUILT (implementer `pads61`, 2026-10-08; notes `docs/briefs/pads61-notes.md` —
+readings of the rules above, for the spec author's review, none a new rule).**
+Fix 1 (`geom/outline_pin.Frontage`, asked by `simplified_outline(front=)`):
+"within the identity spacing of an airside cell's rim" is read on EDGES — a
+vertex is pinned when an edge it ends comes within the spacing of airside
+GROUND (so the edges that cross the rim stand as drawn); a fill is refused
+WHOLE when any of it is within the spacing; a chord newly laid within it
+re-pins the vertices it passed over; a light well on it stays open. At the
+MINT the airside in hand is the evidence-time union (runway slabs + every
+admitted pavement page — groundside lots included, a superset); the census
+re-draws with the mint's own (`classify.evidence.minted_frontage`); the
+road absorption's re-close pins against the airside CELLS, so a road whose
+stand-off strip opens on the apron's rim is KEPT (`pad_not_one_polygon`).
+Fix 2 (`check_grade._one_row_per_pad_vertex`): the pair law and its
+allowances are untouched; per `building` way the over-allowance pairs are
+settled one VERTEX at a time (the vertex in the most pairs takes one row,
+its worst pair, placed at the vertex) — no plane is re-fitted. Fix 3 is
+STATED, not decoupled: the set-back holds every road off its pad and the
+re-close at `outline_close_m` is what fills that stand-off, so with the
+close 0 nothing held off is absorbed (law comment, `road_absorb` docstring,
+twin `test_with_the_outline_close_disarmed_no_held_off_road_is_absorbed`).

@@ -19,6 +19,13 @@ road-family role and is never a candidate.  A route the §47 wall extension
 lengthened IS absorbed (the terminal's own base walls retain it: it is the
 road next to the building).
 
+THE ABSORPTION RIDES ON THE OUTLINE'S CLOSE (§56 (11) fix 3, stated): the
+set-back holds every groundside cell off its pad, so a near road joins the
+pad only through the re-close at ``outline.close_m``.  With that key 0
+(the outline's measurement arm) the union stays in two pieces and NOTHING
+across a stand-off is absorbed, whatever ``pad_road_absorb_m`` says — one
+law group, not two independent switches.
+
 §56 (2) 8: the re-close takes NO AIRSIDE and NO DECK SHADE — what the
 closing added over an airside cell or a welded deck's shade is clipped
 back off, so the grown rim differs from the old one only over the absorbed

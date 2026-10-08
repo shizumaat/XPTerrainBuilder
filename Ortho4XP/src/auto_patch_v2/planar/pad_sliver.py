@@ -390,13 +390,17 @@ def rerole_plateau_scraps(faces: list, law, counts: "dict | None" = None
     ref (``model.planar.pad_base_ref``) that are not its largest face, are
     under the cluster outline's own thin-piece floor (rule 6: mean width
     ``2 A / P`` under ``geom.cluster_outline.THIN_PIECE_WIDTH_M``) and
-    whose WHOLE boundary runs along airside faces that are that pad's own
-    plateau (``plateau_block_of``).  The plateau is held at the pad's
-    value (owner RULINGS 2026-09-01g), so the scrap stands on the pad's
-    plane whichever of the two it is called: it takes the region of the
-    plateau face it shares the longest run with — one building face fewer,
-    no vertex moved, no level changed.  A scrap any other face borders, or
-    whose boundary is not covered, is left as it is.
+    whose WHOLE boundary runs along that pad's own plateau
+    (``plateau_block_of``) and, between the plateau's ends, along STRUCTURE
+    faces (``law.tables.is_structure_role``: MEASURED on the OTHH replay,
+    every such scrap is a triangle pinched between the plateau and a basin
+    wall's band, 0.5-2.9 m of it).  The plateau is held at the pad's value
+    (owner RULINGS 2026-09-01g) and a structure keeps its own law, so the
+    scrap stands on the pad's plane whichever of the two it is called: it
+    takes the region of the plateau face it shares the longest run with —
+    one building face fewer, no vertex moved, no level changed.  A scrap
+    any other face borders (open apron, another pad, ground), one no
+    plateau borders, or one whose boundary is not covered is left as it is.
 
     ``faces`` is the arrangement's ``(polygon, region)`` list; the result
     is the same list with the scraps' regions replaced (counted
@@ -404,7 +408,7 @@ def rerole_plateau_scraps(faces: list, law, counts: "dict | None" = None
     from shapely.strtree import STRtree
 
     from ..geom.cluster_outline import THIN_PIECE_WIDTH_M
-    from ..law.tables import role_side
+    from ..law.tables import is_structure_role, role_side
     from ..model.planar import pad_base_ref, plateau_block_of
     rigid = {r for r, spec in law.tables.precedence.roles.items() if spec.rigid}
     biggest: dict = {}
@@ -432,11 +436,13 @@ def rerole_plateau_scraps(faces: list, law, counts: "dict | None" = None
                 if run <= 0.0:
                     continue
                 nr = faces[j][1]
+                covered += run
+                if is_structure_role(law, nr.role):
+                    continue
                 if (role_side(law, nr.role) != "airside"
                         or plateau_block_of(nr.ref) != base):
                     own = False
                     break
-                covered += run
                 if run > run_best:
                     best, run_best = nr, run
             if (not own or best is None

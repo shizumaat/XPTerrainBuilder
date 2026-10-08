@@ -52,3 +52,21 @@ def test_another_pads_plateau_is_no_witness():
     faces[4] = _r("apron", "pav#plateau:other", g)
     out = rerole_plateau_scraps(faces, Law.load())
     assert out[1][1].ref == "u#1"
+
+
+def test_a_scrap_pinched_between_its_plateau_and_a_structure_becomes_the_plateau():
+    """The measured class: a triangle between the plateau and a basin
+    wall's band.  The wall keeps its own law; a scrap ONLY structures
+    border has no plateau to become."""
+    law = Law.load()
+    scrap = box(100, 10, 101, 40)
+    wall = box(99, 10, 100, 40)
+    plateau = box(100, 0, 110, 100).difference(scrap)
+    faces = [_r("building", "u", box(0, 0, 99, 100)), _r("building", "u#1", scrap),
+             _r("retaining_wall", "basin_wall:1", wall),
+             _r("apron", "pav#plateau:u", plateau)]
+    out = rerole_plateau_scraps(faces, law)
+    assert (out[1][1].role, out[1][1].ref) == ("apron", "pav#plateau:u")
+    lone = [_r("building", "u", box(0, 0, 99, 100)), _r("building", "u#1", scrap),
+            _r("retaining_wall", "basin_wall:1", box(99, 9, 102, 41).difference(scrap))]
+    assert rerole_plateau_scraps(lone, law)[1][1].ref == "u#1"

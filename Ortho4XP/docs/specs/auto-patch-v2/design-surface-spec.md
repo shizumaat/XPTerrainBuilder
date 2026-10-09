@@ -19130,3 +19130,301 @@ BUILT as (1)–(4): the gate (`dsf.pavement_verdict`), the population site (`loa
 **OWNER QUESTIONS (yes/no).** Q1 — A basin rim gets the same 1.45 m ground collar every tunnel wall has (draped pavement stops a car's width short of the pit lip, the rim never re-noded) rather than pavement welded flush to the lip at the rim's level? RECOMMENDATION: YES (one knife for every structure, the census reads main's; the pavement the pack drapes INTO the basin region is cut at the rim either way — the engine never grades a piece onto a floor). Q2 — none for R2: the rule follows 07b (1) / 07c (3) (an object authored to the cut is not re-seated by a piece the engine minted beside it).
 
 **BEFORE `claude/surf337` GOES TO THE SWEEP:** F1 + F3 at least (the three basin parts at their rims and the rebake plan = main's); F2 after Q1.
+
+## §61 THE TAXIWAY EDGE TAKES ITS CENTRELINE'S LEVEL — THE CROSS-SECTION ROW, THE VALLEY CLOSED, THE SOLVE REPRODUCIBLE (lane `flatvalley`'s finding F1, `docs/briefs/flatvalley-notes.md`; owner RULINGS 2026-09-08t (1) "no DEM enters pavement", 2026-09-10v / §8.6 "the ground enters pavement only through long-wave trends", §8.6.1's reach gate, 2026-10-08c (1) "movement within grade law is not necessarily a problem", 2026-10-09b "the runway: a shift up to 0.1 m is accepted"; "airside is king"). Fable `valleyspec` 2026-10-09, every number below probed on replays of `sweepwalls/base/KCLT.pkl` and `frames/gapapron3/HECA.pkl` under this tree (main `e2eec15c`; the arm scripts `docs/briefs/valleyspec-scratch/`). DESIGN AND RULING — nothing below is built; §56–§60 are held by unmerged branches.
+
+### §61 (0) The finding, read once
+
+The airside objective is strictly convex, but on ~1,800 of KCLT's 12,135 stage-1
+columns its curvature is eight orders under the stiff rows' — those columns carry
+BENDING ONLY (no trend, no chord, no datum, no band): a valley.  The QP exits on
+objective GAIN (`_REL_TOL` 1e-9 × F) with gradient norms 0.2–956 and stops wherever
+its path enters the valley, so a constraint the control already SATISFIES (30 Band
+ceilings 0.05 m above its own surface) moves 458 solve-owned airside vertices at
+KCLT (worst 0.73 m) and 379 at HECA (worst 0.62 m).  Runway 0 in every arm.  A
+tighter exit alone does not close it (141 movers, 7 over 0.3 m).  The flatvalley
+lane's membrane arm closes it at a one-time cost (KCLT 1,149 airside vertices,
+worst 1.62 m, adjudicated airside +19).
+
+WHO THE COLUMNS ARE (probe `freeclass.py` on the control's pass-1a QP dump, KCLT):
+1,797 free columns, of which **1,435 (80 %) are vertices of a taxi-family face
+whose own centreline chain is SHORT** — under half `runway_profile_window_m`
+(250 m) — with the foot of their perpendicular on that chain within reach (median
+35 m, p90 142 m); 191 are on an owned face but past `taxi_trend_face_reach_m`
+(250 m); 89 are on a long chain's face whose fit returned no value at their
+station; 53 are on a taxi face no chain owns; 28 share a value role (a building
+pad: free in pass 1a only because the hold rows are dropped there, held in 1b);
+1 is not taxi-family.  By role: `graded_strip+stub` 436, `cross_connector+
+graded_strip` 323, `graded_strip+primary_parallel` 317, `junction+
+primary_parallel` 72, `graded_strip+junction` 68.
+
+WHY THEY ARE UNNAMED TODAY.  §8.6.1 extends the taxi trend from the centreline to
+the whole face ONLY for a LONG chain (the measured bound: a short chain's trend
+is a line through 100 m of ground and, handed sideways, asserted a level
+cross-section over ground it never sampled — the CYXY stub fixture, junction
+0.63 m down, the parallel bent 3.78× its K).  A taxi centreline CHAIN is one
+apt.dat breakline between branches (`rod chains split at branches`), so a long
+PARALLEL taxiway is many chains under 250 m between its cross connectors — hence
+`primary_parallel` edges among the unnamed.  The centreline vertices of a short
+chain DO carry the trend row (`trend_of` fits a line from three samples); only
+the EDGE vertices of its face carry nothing.  The graded strip is not a value
+role (§8.6.1: "a non-value role … does not disqualify a vertex") and its inner
+ring IS the pavement edge, so the strip names nothing either: the strip's
+`ground_datum` row starts one ring out.  So the question "what names a taxiway
+edge" has today's answer "nothing, where the chain is short" — and the sheet's
+bending is too soft for the solver to resolve.
+
+### §61 (1) THE LAW — a taxiway's cross-section is its centreline's profile
+
+RULED (spec author; the owner's question is §61 (9) Q1):
+
+**Every vertex of a taxi-family face that is not itself a centreline vertex and
+carries no trend row takes ONE relational row to its own face's chain — the
+chain `chain_of_face` already names for that face — at the foot of its
+perpendicular: `z_v − (1−t)·z_a − t·z_b = 0`, `(a, b)` the chain segment the foot
+lies on, `t` its parameter, priced at `[design] taxi_xsec` = 1.0 (= `bend_taxi`).**
+A chain's RUNWAY-CONTACT vertex (its pin) enters the row as the runway's VALUE
+(`PlanarMap.preferred_z`, exactly what `shift_through` reads for the trend's pins),
+never as a column: the edge follows the runway, it does not pull it.  A vertex
+the face shares with another VALUE surface (a runway, an apron edge, a pad) takes
+no row — §8.6.1's exclusion stands, two authorities on one vertex is the
+`emit consensus mints violations` class.  A vertex whose foot lies past
+`taxi_trend_face_reach_m`, or whose face no chain owns (KCLT: 191 + 53 of 1,797),
+takes instead the flatvalley membrane — ONE first-difference row to each of its
+mesh neighbours at the same 1.0 (`[design] free_membrane`) — because there is no centreline to say more than "level
+with what is beside it".
+
+Why this and not the membrane: the membrane is a tie-break stated as physics
+(a soap film), not a law; it also reaches THROUGH the strip's innermost ring,
+whose `ground_datum` row is the DEM, so terrain leaks into the pavement edge at
+one remove — the lane's KCLT census read +19 adjudicated airside under it.  The
+cross-section row is the statement §8.6.1 already makes for long chains ("a
+cross-section is handed ONE value; its SHAPE stays the transverse law's, which is
+senior") carried to the faces §8.6.1 left out, with the value taken from the
+SOLVED centreline instead of from a 100 m DEM line — so 08t (1) / 10v are kept
+exactly: no DEM enters, the short chain's centreline keeps the (weak) trend it
+has today, and the edge takes the designed profile beside it.
+
+Why `taxi_xsec` = 1.0 and not `taxi_trend` = 30 (MEASURED, KCLT, §61 (2)): at
+30 the row outranks the sheet — each face is held flat across to its own chain
+even where two chains disagree at a shared boundary, `airside_no_step` rows grow
+to 2.4 m steps (+47 rows), `taxi_box` +104, and the runway follows the re-levelled
+contact zone through the shared sheet by 0.24 m on 179 vertices.  At 1.0 the row
+NAMES the level and the bending still SHAPES the sheet: runway 4 vertices / 0.06 m
+(under 09b's 0.1 m), adjudicated airside −4 (−19 with the membrane fallback), CRITICAL rows unchanged.  The valley
+needs only ~0.3 (the lane's QP-level tie test: stable from 0.3 at 1e-12); 1.0 is
+the taxi sheet's own bending price, so one number, already in the table, and no
+new scale.
+
+### §61 (2) MEASURED — control / membrane / cross-section, KCLT (one tree, one capture `sweepwalls/base/KCLT.pkl`, `--from classify`, replay arms monkeypatched in `valleyspec-scratch/nullarm.py`)
+
+The null-change read is the lane's: 30 Band ceilings 0.05 m above the arm's OWN
+pass-1a/1b surface (a satisfied constraint), movers by stage call against the
+arm itself.  "Cost" is the arm against the control (pass 1b, stage-1 vertices;
+`airside_value_delta` on the emitted patch by family).
+
+| arm | null-change movers (bar ≤ 20 @0.02 m, 0 > 0.3 m) | cost vs control: stage-1 movers > 0.02 / > 0.3 / worst | avd by family (n / worst m) | adjudicated airside (census) | families that differ | CRITICAL | stage-1 wall |
+|---|---|---|---|---|---|---|---|
+| control (`_REL_TOL` 1e-9) | **1b 615 / 31 / 0.81** (lane: 458 solve-owned, worst 0.73) | — | — | 3,355 | — | motion 5 | 13.3 + 22.7 s |
+| membrane 0.3 + 1b tie 1.0, 1e-12 (lane) | 0 | 1,149 airside, 245 > 0.3, worst 1.62 | strip 998 / taxi 73 / apron 78; runway 0 | 3,374 (+19) | `within_shape` −49, `building|building` +22 | unchanged | 13.9 + 32.1 s |
+| xsec 30 (no fallback), 1e-12 | 1a 3 / 1b 29 / 0 / 0.25 — MISS (the 321 unnamed leftovers) | 4,462 / 671 / 1.96 | runway **179 / 0.24** — FAIL; strip 3,575 / taxi 1,067 / apron 1,004 | 3,238 (−117) | `airside_no_step` +47 (steps to 2.4 m), `taxi_box` +104, `within_shape` −1,398 | unchanged | 15.2 + 40.5 s |
+| xsec 3, 1e-12 | not twinned | 2,213 / 363 / 1.59 | runway 29 / 0.11 | 3,294 (−61) | `taxi_box` +15, `airside_no_step` +5 | unchanged | — |
+| xsec 1, 1e-12 | not twinned | 1,642 / 330 / 1.49 | runway 4 / 0.06; strip 2,444 / taxi 277 / apron 173 | 3,351 (−4) | every family within ±3 except `within_shape` −441 | unchanged | 15.9 + ~35 s |
+| xsec 1 + membrane 0.3 on the leftovers, 1e-12 | 1a **0** / 1b 37 / 0 / 0.10 — MISS on count (17 near a chain, 10 no-chain, 8 strip-only: pass 1b's `no_descent` floor at 0.3) | 1,799 / 366 / 1.49 | strip 2,647 / taxi 287 / apron 179; runway 4 / 0.06 | 3,339 (−16) | within ± 4 | `groundside_cutback` visual 3 → 2 | 14.4 + 35.1 s |
+| **xsec 1 + membrane 1.0 on the leftovers, 1e-12 — RULED** | **1a 0 (worst 0.0003) / 1b 0 (worst 0.019) / whole map 0; LP demote 336 = 336 — MET** | 1,827 / 384 / 1.49 | strip 2,683 / taxi 290 / apron 178 / other 119; **runway 4 / 0.06** | **3,336 (−19)** | `taxi_box` +3, `strip_transverse` +2, `road_cross_section` +4, `airside_no_step` −2, `within_shape` −431 | `groundside_cutback` visual 3 → 2 | 17.8 + 33.1 s |
+
+So the one number is **1.0**: an unnamed pavement vertex is named at the taxi
+sheet's own bending price — through its centreline where it has one, through its
+neighbours where it has none (`[design] taxi_xsec` = `[design] free_membrane` =
+`bend_taxi` = 1.0).  The 0.3 of the lane's QP-level test is enough for pass 1a
+and NOT for pass 1b, whose larger, Band-stiffened problem exits at the linear
+solve's floor (`no_descent`, |g| 4.6) with 37 columns still 0.02–0.10 m loose.
+
+The one-time change is the SAME place under every law: the largest cluster
+(KCLT 911 vertices under the ruled arm, 839–2,991 under the others) is the
+cross-connector / strip complex at 35.22006, −80.93342 (`pav41`, +1.49 m) — a
+region today's surface leaves wherever the solver stopped; the next are
+`pav125` (35.22166, −80.95104, +0.97) and `pav2`'s junction (35.20881,
+−80.95050, +0.81).  Every mover is inside grade law by the census (08c (1)).
+
+### §61 (3) MEASURED — HECA (capture `frames/gapapron3/HECA.pkl` = main `d0b2f0f4` + the gap-piece apron rule re-derived at `--from classify`)
+
+Fresh control on this tree (`h_ctl`; the lane's null-change read of HECA's
+control stands from 9baa9e82 / `gaps3`: 379 solve-owned airside movers, 9 over
+0.3 m, worst 0.62 m; not re-twinned here — budget).  HECA names far fewer
+vertices through a chain: 1,160 cross-section rows (28 pin constants) and
+**5,369 membrane rows on 2,139 columns no chain reaches** (1,743 on taxi faces
+NO chain owns — HECA's junction pavements are large `dsf:objpav` faces with no
+apt.dat centreline over them — and 337 past reach).
+
+| | control | **ruled arm** (xsec 1 + membrane 1.0, 1e-12) |
+|---|---|---|
+| null-change movers, pass 1a | (lane) 157, worst 0.148 | **0** (worst 0.0001) |
+| null-change movers, pass 1b | (lane) 535 / 42 > 0.3 / 0.62 | **1,813 / 0 > 0.3 / worst 0.195 — and NOT the valley**: the §5a LP relaxed a DIFFERENT one of two ADJACENT `frontage_hold` rows of one building pad (30.12824–30.12901, 31.40089–31.40417; 14 relaxed in both, 1 differs) and `promote_missed` then flipped 2 `apron body chord, strict` rows beside it (812 / 810); the pad's block moves inside its interval and 1,813 vertices follow by ≤ 0.195 m.  **ATTRIBUTED by intervention** (`h_xs1g_slackF`: the twin with the arm's own §5a relaxation set FORCED, everything else as the twin): pass 1b **4 movers, 0 > 0.3, worst 0.14 m** (one apron spot, `gapapron:1` 30.10294, 31.39591), `promote` 812 = 812, whole map 4 — 1,813 → 4, so the LP's choice is the mechanism and the bar is MET once it is tie-broken (§61 (5)). |
+| cost vs control, pass 1b stage-1 movers | — | 3,739 / 367 > 0.3 / worst 0.98 (`dsf:objpav92` stub+strip 30.10106, 31.41915); junction 1,669, apron 1,633 (`gapapron:1` 0.53), strip 1,518 |
+| avd by family | — | strip 2,869 / 0.99; taxi 1,246 / 0.77; apron 848 / 0.53; other 905 / 0.23; **runway 2 / 0.06** |
+| §5a tiers (pass 1b / stage 2) | pad 17; groundside 151 / 141, pad 10, taxi 62 / 61 | pad 14; groundside 151 / 141, pad 10, taxi 62 / 61 |
+| `promote_missed` (1a / 1b) | 625 / 815 | 625 / 813 |
+| adjudicated airside (census) | 12,201 | **12,170 (−31)**; `hard_conflict` 240 → 237, `airside_no_step` −16, `strip_transverse` −12, `transverse` +7, `taxi_box` +1, `pad_frontage_hold` 1 → 0, `within_shape` −249 |
+| CRITICAL | — | `strip_seam_tear` visual 22 → 23; **`vertex_to_edge_step` motion 0 → 1**: `apron|junction` 0.52 m over 0.98 m at 30.10901, 31.40396, ways −10704 / −10670 — a vertex of the junction face standing 1 m from the apron's edge WITHOUT sharing it, so no bending row ties them; the control's junction sat near the apron by accident of the valley.  A planar topology seam the census already names (§39's class), exposed, not minted; one planar read owed (§61 (8) step 6) |
+| stage-1 wall (single runs, foreign load) | 84.7 + 83.9 s | 73.3 + 117.0 s (+22 s) |
+
+So at HECA the cross-section row closes the valley (pass 1a: 0) and the
+remaining non-reproducibility is the §5a LP's degenerate choice — which is
+therefore PART of this change (§61 (5)), not a groundside follow-up.
+
+### §61 (4) THE EXIT — RULED
+
+The QP's exit stays a TOLERANCE EXIT on objective gain (the function is convex
+and C¹; the gain reading is the floor of double precision), with `_REL_TOL`
+tightened from 1e-9 to **1e-12 as the law number** (`design_qp._REL_TOL`, a
+module constant today — it becomes `[design] qp_rel_tol` so the value is in the
+table, not the code).  Once the valley is closed the tighter exit costs KCLT
+pass 1a 158 → 214 rounds and pass 1b 177 → 358 (+15 s stage-1 wall at KCLT,
++22 s at HECA); without the row it buys nothing (the lane's arm c).
+`_ROUNDS_MAX` 400 stays a ceiling whose hit is the NAMED failure `round_cap`,
+already published by `DesignReport.qp_solves` (`note_set_exit`); "no_descent"
+(no damped step of the same subproblem decreases F) is a CONVERGED exit and is
+read as such (`rep.converged` already does).
+
+The OUTER loops: `one_way_max_rounds` (3) and `polish_rounds_max` (2) are
+measured ceilings (`emit.toml`: more rounds buy no law), and their hits are
+already NAMED — `LAG NOT SETTLED after 3 of 3 round(s): …` and `HARD SET NOT
+SETTLED …` (`design_report.lag_failure_line` / `hard_failure_line`, printed in
+the solve summary and carried in `stages["stage1"].lag_line` / `hard_line`).
+RULED: that is sufficient and correct — a capped outer loop is a diagnostic the
+build SURFACES (the line in the build log and the sidecar), never a failure
+that stops it, because the ceilings are law values whose hit is expected at
+HECA and KCLT today (KCLT stage 2: 377 of 26,255 one-way rows still move
+> 0.01 m, worst 0.173 m on a `road_ramp` row — groundside).  What is ADDED: the
+sidecar's `design` block carries, per stage call, `qp_exits` (status × count,
+`round_cap` first), `lag_settled`, `hard_settled`, so the master's sweep can
+diff them (§61 (6)).  No "non-convergence" of the AIRSIDE is to be reported as
+a defect while the hard set is settled and the valley is closed: the airside
+solve's reproducibility is then measured directly, by the stability check.
+
+### §61 (5) THE §5a LP'S DEGENERATE OPTIMUM AND `promote_missed` — RULED: A TIE-BREAK AMONG EQUAL OPTIMA, PART OF THIS CHANGE
+
+The §5a feasibility LP's optimum is DEGENERATE: the lane's `k_lpperm` (rows in
+another order) relaxes the same 336 rows but 6 differ, moving 147 groundside
+vertices ≤ 0.22 m at KCLT; and at HECA (§61 (3)) 30 added Band rows shift the
+row order enough that pass 1b relaxes a DIFFERENT one of two ADJACENT
+`frontage_hold` rows of one pad — AIRSIDE, 1,813 vertices ≤ 0.195 m.  The
+optimum's VALUE is the same in both; only which of the equally-cheap
+relaxation sets the simplex returns changes, with the row order.
+
+RULED — a tie-break AMONG THE LP's OPTIMAL SOLUTIONS, stated as law:
+**after the §5a LP, a second LP over the same rows with the cost held at its
+optimum (Σ tier-weighted slack ≤ opt + `hard_tol_m`) minimises Σ rank(row)·s,
+where rank is the row's position in CANONICAL ORDER — its vertices' 11-dp
+lat/lon keys, then its ruling head — so among equal relaxation sets the one
+earliest in canonical order is chosen, whatever order the rows were handed
+in.**  This is NOT 2026-09-07b's refuted lexicographic objective: 07b ranked
+LAW FAMILIES against each other (apron preference senior to the DEM fit) and
+changed WHAT is optimal; this changes nothing about what is relaxed or how
+much — tiers, weights and the optimum are untouched — it only makes the
+choice among already-equal answers a function of the geometry instead of
+the row order.  No airport literal, no coordinate window: the canonical key
+is the identity the whole engine already joins on.  Cost: one more LP of the
+same size (KCLT 0.4 s, HECA ~1 s); the implementer measures and, above 2 s,
+falls back to the ε-perturbation form (ε·rank(row) added to each slack's
+cost, ε below the smallest tier gap / Σ rank) which is one LP.
+
+`promote_missed` thresholds the lagged iterate at `hard_tol_m` (0.02 m); its
+2-row flip at HECA sits beside the LP's flipped pad and is its consequence
+(same site, 30.129, 31.400).  RULED: the threshold stands; the stability check
+reports the promoted set per stage call, and a flip that survives the LP
+tie-break is attributed then (`--why-hard` on the HECA replay).
+
+### §61 (6) ACCEPTANCE, THE STANDING STABILITY CHECK, THE BUILD-TIME COST
+
+The master's sweep reads, per airport (every airport's airside changes ONCE):
+
+1. RUNWAY: 09b's 0.1 m (KCLT measured 4 vertices / 0.06 m under the ruled arm;
+   HECA 2 / 0.06).  Not 0: the re-levelled contact zones reach the runway edge
+   through the shared sheet's bending at `bend_runway` 1.0; that is the one
+   sheet, not a pull.
+2. Taxi-tier `hard_conflict` within ± 3 (KCLT 51 → 51; HECA 62 / 61 → 62 / 61; census `hard_conflict` 240 → 237).
+3. Adjudicated airside (census) NOT RISING by family: KCLT 3,355 → 3,336;
+   HECA 12,201 → 12,170; every family within ± 4 at KCLT; at HECA the
+   families that rise are `transverse` +7 and `taxi_box` +1 against
+   `airside_no_step` −16 and `strip_transverse` −12 (`within_shape` falls at
+   both; `drainage_minimum` is deferred).
+4. CRITICAL rows (motion / visual) not rising — KCLT `groundside_cutback`
+   visual 3 → 2; HECA `strip_seam_tear` visual +1 and `vertex_to_edge_step`
+   motion +1 at the unshared apron|junction seam (§61 (3)), to be read on the
+   planar map before the merge (step 6).
+5. THE STABILITY BAR, standing: a null-change arm ≤ 20 movers at 0.02 m, 0 over
+   0.3 m, on the solve-owned airside.
+
+THE STANDING CHECK (tool: extend `tools/v2_solve_replay.py`, never a wrapper —
+`--probe-site` already injects a Band and `--stage1-dump` / `--stage1-diff`
+already difference two stage-1 answers; the INDEX row is amended in the same
+commit): `--null-change [N]` on a `--replay` run solves the stage twice in one
+process — the arm as given, then the same arm plus N (default 30) `Band`
+ceilings 0.05 m above the first answer's own pass-1a/1b levels on apron /
+taxi-family vertices chosen by a FIXED seed (the lane's `slack:` arm, verbatim)
+— and prints ONE line the sweep greps: `NULL-CHANGE pass1a a/b/c pass1b a/b/c
+stage2 a/b/c (movers > 0.02 / > 0.3 / worst m; bar 20 / 0; promoted n=n, lp
+relaxed n=n)`; `--json` carries it under `null_change`.  The master's sweep
+runs it on the representative airport per merged batch (one extra stage-1
+solve, ~40 s at KCLT).  Twin: `tests/auto_patch_v2/test_v2valley.py` — the §8.6
+stub fixture solved twice with and without a satisfied ceiling: movers 0.
+
+BUILD-TIME: KCLT stage 1 36 → 51 s (+15 s, single runs under foreign load);
+HECA 169 → 190 s (+22 s) against a build of 483–526 s and the 600 s bar.  The tighter exit is the cost, not the rows (1,519 rows at KCLT).
+Within the per-change tripwire (~2×); stated here for the final profiling
+round.
+
+### §61 (7) THE CONSUMER CENSUS (owner 2026-08-30l) — every reader of a stage-1 column's LEVEL, and how the row composes with it (verified on main `e2eec15c` and on `origin/claude/pads63` `ba87fb2b`)
+
+| # | reader | what it reads | ruling |
+|---|---|---|---|
+| 1 | `solve/design_assemble.assemble` (§1–9): trend rows `("taxi_trend", vid)` from `planar.taxi_trend_z` | the row set the stage solves | the cross-section row is added HERE, after the trend rows, from `planar.taxi_trend_z` ∪ the chains (`constraints/taxi_trend.taxi_chains` / `chain_of_face`): `solve` imports `law` and `model` only, so the FOOT (segment, t) is DERIVED in `constraints/taxi_trend` and published on the map as `PlanarMap.taxi_xsec` (`{v: (a, b, t)}`), the trend's own pattern; the membrane leftovers from the bending triangles the assembler already has |
+| 2 | `solve/rows._level_free_columns` → `_solve_stage(levelled_out)` / `apply_level_belt` (§23.4) | "has this column a LEVEL" (coefficients over free columns sum ≠ 0; union-find over rows) | a relational row sums to 0, so by this reading the edge is levelled THROUGH its chain's component, as bending already levels it; `stage1_unlevelled` stays 0 (KCLT 0 today); unchanged |
+| 3 | `flex.stage_one` → `hold.derive(cs1a, levels, …)` → `no_step.hold_interval` (pass-1a levels, the pair graph) | pass-1a `levels` of every airside vertex | the rows live in `assemble`, so pass 1a's answer already carries them; the interval and the fronting set are derived from a closed valley — the lane's HECA `promote_missed` flip and the interval's start-dependence go with it; no 1a → 1b tie is needed (the lane's `tie1b` was a stand-in for a law the rows now state) |
+| 4 | pass 1b (and pads63's second pass-1b after `HoldPass.rewiden`) | the same assembler with the hold Bands and the runway Bands | the row rides every pass unchanged; a hold Band (hard) on a contact outranks it; measured: no `only-A/only-B` demote or promote difference between the arm and its null twin |
+| 5 | pads63 `HoldPass.seal` → `weld_floor.seal_welds` (after pass 1b, before stage 2) | the pass-1b `levels` and `z` of WELD CONTACTS (a pad's frontage vertices) | a contact is a value-role shared vertex and takes no cross-section row; the seal overwrites its level by under `seal_max_m` WITHOUT re-solving, so its unsolved neighbours do not follow — exactly as today; the row changes nothing there (and the step the seal leaves is pads63's own §57 (3) question, not this section's) |
+| 6 | `design.solve_design` stage 2: `fixed=levels` (12,134 airside vertices substituted), `stage2_rewrite` = `road_ramp.reach_seed_rewrite` → `terrace_rewrite`, `between_levels_rewrite` (ribbons at their bordering pavement's level, 1,480 at KCLT) | the stage-1 levels as constants | they read a reproducible airside now; the groundside answer still carries the §5a LP's degeneracy (§61 (5)) |
+| 7 | `feasibility.promote_missed`, `check_hard_set` (§5a) | the lagged iterate `x` | §61 (5) |
+| 8 | `solve/pin_yield.stage1_read_pins` / `yield_pins` (#87) | stage 1's unsettled hard rows | unchanged: KCLT / HECA hard sets settle in both arms |
+| 9 | `project.project_after_solve` (runway projection §16, zone projection §32) | the runway family's columns, the zone bands | no taxi-edge column is a runway column; unchanged |
+| 10 | `constraints/eat.withdraw_trend_over_reach` | `taxi_trend_z` under an EAT ceiling | reads the trend channel only; a cross-section row on an EAT face follows the (withdrawn-trend) centreline — the EAT ceiling is a Band, hard, senior; unchanged |
+| 11 | `constraints/apron_trend`, `airport/road_ramp` | `taxi_trend_z` as "this vertex is a taxi authority" | the cross-section channel is NOT a value and must not be read as one: `taxi_xsec` is a separate map field, never merged into `taxi_trend_z` |
+| 12 | `tools/v2_solve_replay --why-vertex` (`solve/why`) | the rows binding a vertex | gains the `taxi_xsec` head so a taxi edge reads "held by its centreline (t = …)" instead of "held by bending alone" |
+| 13 | the census (`verify/within`, `taxi_box`, `airside_no_step`) | the emitted surface | reads the result; measured in §61 (2)/(3) |
+
+### §61 (8) THE PLAN — ordered, each step suite-green, synthetic-first; ONE closing build (HECA)
+
+1. **`constraints/taxi_trend.py` — the foot.** `taxi_xsec_feet(pm, law) -> dict[int, tuple[int, int, float]]`: for every taxi-family vertex not on a chain, not in `taxi_trend_z`, not sharing a value role, the `(a, b, t)` of its foot on the chain `chain_of_face` names for an incident face, within `taxi_trend_face_reach_m` (the candidate walk of `_face_extension`, factored so both use it — REUSE, `blast.py --find foot`); published by `with_taxi_trend` as `PlanarMap.taxi_xsec`; a pin endpoint recorded as `("pin", value)`.  Report keys `xsec_vertices`, `xsec_pin_const`, `xsec_far`, `xsec_no_chain`.  Twin in `test_v2taxidatum.py`: the stub fixture's side vertices get feet on their own stub, t in (0, 1); the runway-contact segment's pin reads as a constant.  ~1 h.
+2. **`law/emit.toml [design] taxi_xsec = 1.0`, `qp_rel_tol = 1e-12`** (+ `design_schema`); `solve/design_qp` reads `_REL_TOL` from the law.  ~20 min.
+3. **`solve/design_assemble.assemble`**: after the trend rows, one row per `taxi_xsec` entry at `d.taxi_xsec`, owner `("taxi_xsec", v)`; then the membrane: for every taxi-family column still carrying no level row (the `_lev` reading of `nullarm._lev_cols`, which is `_level_free_columns`' per-column half — REUSE it, do not re-spell) one first-difference row per bending neighbour at `[design] free_membrane = 1.0`, owner `("free_membrane", v)`; `rep.taxi_xsec_rows`, `rep.free_membrane_rows`.  Twin: the stub fixture solved twice with and without a satisfied ceiling, movers 0 (the §61 (6) twin).  ~1.5 h.
+4. **Replay KCLT** (`sweepwalls/base/KCLT.pkl`, `--from classify`): expect the §61 (2) last row within ± 5 % (movers 1,827 / 384 / 1.49; runway ≤ 4 / 0.06; adjudicated 3,355 → 3,336); then its null twin (`--null-change` once step 5 exists, else the `slack:` arm): ≤ 20 / 0.  ~15 min.
+5. **`tools/v2_solve_replay.py --null-change [N]`** + INDEX row + `--json` key; twin asserts the line's format and that a replay with `--null-change` on the stub fixture prints 0 / 0 / 0.  ~1.5 h.
+6. **`solve/feasibility.check_hard_set` — the tie-break LP** (§61 (5)): the second LP (or the ε form), its wall in `rep.hard_feasibility.lp_wall_s`; twin: the lane's `k_lpperm` reading — the §5a rows handed in a permuted order give the SAME demote set (`tests/auto_patch_v2/test_v2valley.py`).  Then **replay HECA** (`frames/gapapron3/HECA.pkl`): expect §61 (3) with the null twin's pass 1b at ≤ 20 / 0 and `demote` / `promote` sets equal; `hard_conflict` ± 3; and ONE planar read of the `vertex_to_edge_step` seam at 30.10901, 31.40396 (is the junction vertex meant to lie ON the apron's edge — §39's weld — or is it a real unshared boundary).  ~1.5 h + 30 min.
+7. **Sidecar**: `design.qp_exits`, `lag_settled`, `hard_settled`, `null_change` (when run).  `docs/DEFERRED_VERIFICATION.md` line for the five-airport sweep.  ~30 min.
+8. **Closing build**: `build_airport.py HECA` once; the sweep is the master's.  Report the §61 (6) five reads and the stage-1 wall.  ~15 min.
+
+Total ≈ 8 h lane wall; 3 replays + 1 build.  Not in scope: a route-level
+(whole-letter) taxi trend across chain pieces — the finding above that a long
+parallel is many short chains is REPORTED to the master as the reason the
+§8.6.1 gate excludes `primary_parallel` edges; the cross-section row makes the
+edges follow whatever profile the pieces have, and the pieces' profile is a
+separate question (`constraints/stretches` already knows the letter).
+
+### §61 (9) OWNER QUESTIONS (yes / no, answerable without code)
+
+**Q1.** Every airport's taxiway EDGES take their centreline's level (a taxiway's
+cross-section is its designed profile, flat across unless the transverse law
+says otherwise), so that two builds of one airport give one surface.  The
+reference surfaces change ONCE: KCLT 1,827 stage-1 vertices (384 over 0.3 m,
+worst 1.49 m at a cross-connector / strip complex that today sits wherever the
+solver stopped), HECA 3,739 (367 over 0.3 m, worst 0.98 m); runway within 09b's 0.1 m (KCLT 0.06 m, 4
+vertices); adjudicated airside does not rise; CRITICAL rows unchanged.
+**Accept?**  Recommendation: YES — it is the law §8.6.1 already states, read
+from the solve instead of the DEM.
+
+**Q2.** A capped outer loop (`LAG NOT SETTLED`, `HARD SET NOT SETTLED`, a QP
+`round_cap`) stays a LINE IN THE BUILD LOG AND THE SIDECAR — surfaced, diffed by
+the sweep, never a build failure — now that the airside's reproducibility is
+measured directly by the null-change check.  **Accept?**  Recommendation: YES.

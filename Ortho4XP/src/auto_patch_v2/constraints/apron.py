@@ -197,6 +197,7 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
     rows: list[Row] = []
     outside = 0
     n_pref = 0
+    n_cross = 0
     for f in vw.faces_of_role(("apron",)):
         tier = _Tier(f.id, f.ref, cap.longitudinal, pref_l)
         src_ring = Source(GEN, "common.roles.apron ring edge (2026-08-21b)",
@@ -208,6 +209,9 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
         src_long = Source(GEN, "apron body chord, stationed across the face "
                                "(2026-09-10t (2) amends 08-24)",
                           (f"face:{f.id}", f.ref))
+        src_cross = Source(GEN, "common.roles.apron ring edge (2026-08-21b; "
+                                "spec §62 (4): across the rings of one face)",
+                           (f"face:{f.id}", f.ref))
         # THE CHORDS (never the ring edges) must stay inside the face (05ae-1)
         # THE CHORDS ARE RESERVED, NOT MINTED (RULINGS 2026-09-14q): the
         # face cover below rejects most of them, and a rejected pair's
@@ -260,6 +264,26 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                         # one.  The 05ae face cover below still applies: a
                         # chord leaving the pavement is still no path.
                         chords.append(tier.reserve(a, b, d, src_long))
+        # A SHEET IS ONE BODY ACROSS ITS HOLES (spec §62 (4) R-E, issue #492;
+        # owner RULINGS 2026-10-08c (4) / 09c / 09d (1): a pad takes the level
+        # of the pavement it stands in, and the apron law holds across the
+        # whole sheet).  The loop above pairs vertices of ONE ring, so a sheet
+        # carrying its pads as holes had no within-shape row between a hole
+        # rim and the next hole rim or the outer ring: every hole ring was
+        # seated alone and two pads 6 m apart on one sheet stood 6-8 m apart
+        # in level.  The pairs of two DIFFERENT rings inside the body gate
+        # take the apron cap with its preference under the ring-edge head
+        # (hard, and on the pair graph the pads' seats are read from), and
+        # the face cover below rejects a chord through another hole.
+        cyc = [vw.rings[f.id], *vw.holes[f.id]]
+        for i, ring_a in enumerate(cyc):
+            for ring_b in cyc[i + 1:]:
+                for a in ring_a:
+                    for b in ring_b:
+                        d = vw.dist(a, b)
+                        if min_d <= d <= gate + min_d:
+                            chords.append(tier.reserve(a, b, d, src_cross))
+                            n_cross += 1
         n_pref += tier.k
         if not chords:
             continue
@@ -285,7 +309,8 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                 outside += 1
                 n_pref -= n_row - 1
     STATS["apron_within_shape"] = {"chords_outside_face": outside,
-                                   "preference_rows": n_pref}
+                                   "preference_rows": n_pref,
+                                   "cross_ring_pairs": n_cross}
     return rows
 
 

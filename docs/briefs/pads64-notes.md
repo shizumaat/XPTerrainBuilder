@@ -77,6 +77,18 @@ KASE arm `j3c` vs `b1` (`<scratch>/pads64/inst.sh`): released 6 → **0**, WARNE
 groundside 2 → 1; census (b1 under the base tree's tool, j3c under this tree's): adjudicated airside 2,594 → 2,523,
 critical_motion 1 = 1, critical_visual 44 = 44, `pad_frontage_infeasible` 1 → 0, `hard_conflict` 56 → 0, `within_shape` 2,610 → 2,598. Body 75fcd0de0f1f.
 
+* ADDED (c) (commit `20c98407`): a closing contact that is itself a FIXED point (a stage-1 pin, a runway column) cannot give —
+  such a block is not welded by the pavement (misfit recorded, the solve's release + the warning stand: the diagnostic of (4));
+  a pinned contact is never sealed. Twin `test_nearmiss148` (rim pinned 700.5 / near-miss pinned 701.5) holds as before.
+
+KCLT arm `j3d` (20c98407) vs `b1`: body d1aea0f26c24 → 49b7ac1a6e73; released 0 = 0; no misfit, nothing widened, weld_seal 0
+contacts, every pad datum within 0.001 m; runway movers 0; hard_conflict taxi 51 = 51, pad 28 = 28, groundside 288 → 287;
+CRITICAL motion 5 = 5, visual 1,997 = 1,997; adjudicated airside 3,043 → 3,088 (`within_shape` 9,971 → 10,010).
+BUT 580 solve-owned movers at 0.02 m (strip 516 / 0.90, apron 47 / 1.02 at 35.21575607491, -80.9438469184, taxi 17 / 0.51;
+over 0.3 m 88, 60 far-field). SUSPECT (to prove by one arm): the new hard Band on each datum column inside its reach
+intersection — non-binding everywhere here, but a changed row set → the unsettled solve / the feasibility LP lands on another
+optimum (the null-change class of §56 (10) F1). Arm `x_noband` KCLT owed.
+
 ## 5. Next
 
 `j3c` arms KCLT / HECA (+ late) / OTHH run from the FROZEN tree `pads63j1` detached at the arm's sha (`chain_j3.sh TAG SHA`), so this

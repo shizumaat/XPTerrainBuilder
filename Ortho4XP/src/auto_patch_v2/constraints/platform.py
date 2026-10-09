@@ -545,7 +545,7 @@ def _contact_sets(planar: PlanarMap, law: Law
 
     A LANDING (``collar_faces``, the ``#collar`` pair): the platform's
     vertices, and the bank's outer vertices that are airside."""
-    from ..law.tables import is_structure_role
+    from ..model.platform import structure_vertices
     from .pads import airside_vertices, rigid_roles
     from .precedence import view
     pairs = collar_faces(planar, law)
@@ -554,6 +554,7 @@ def _contact_sets(planar: PlanarMap, law: Law
         return []
     vw = view(planar, law)
     air = airside_vertices(planar, law)
+    struct = structure_vertices(planar, law)
     out: list[tuple[str, list[int], list[int], int, bool]] = []
     for pref, cfids, pfids in pairs:
         inner = sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]]
@@ -568,12 +569,11 @@ def _contact_sets(planar: PlanarMap, law: Law
         vs = {v for q in fids for r in [vw.rings[q], *vw.holes[q]] for v in r}
         weld = sorted(v for v in vs if v in air)
         flat = [v for v in sorted(vs - set(weld))
-                if not any(q not in own_f
-                           and (is_structure_role(law, planar.faces[q].role)
-                                or (planar.faces[q].role in rigid
-                                    and not is_bank_ref(planar.faces[q].ref)
-                                    and pad_base_ref(planar.faces[q].ref) != base))
-                           for q in planar.vertices[v].incident_faces)]
+                if v not in struct
+                and not any(q not in own_f and planar.faces[q].role in rigid
+                            and not is_bank_ref(planar.faces[q].ref)
+                            and pad_base_ref(planar.faces[q].ref) != base
+                            for q in planar.vertices[v].incident_faces)]
         out.append((ref, flat, weld, fids[0], True))
     return out
 

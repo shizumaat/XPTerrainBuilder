@@ -406,3 +406,53 @@ def test_a_coverage_edge_bank_vertex_keeps_the_bank_and_the_ground(banked, bank_
     assert rows and all(r.follows == (r.a,) for r in rows)
     assert platform.STATS["platform_collar_rows"]["rows_coverage_edge_follows"] == len(rows)
     assert cov <= coverage_edge_collar_vertices(pm) <= ground_datum_vertices(pm, bank_law)
+
+
+def test_a_walled_ramp_cut_into_a_pad_is_a_declared_step(law, monkeypatch):
+    """A PAD HOSTING A WALLED RAMP (lane pads65; owner RULINGS 2026-10-07e).
+    The ramp's vertices on the pad stand at the ramp's level; the pad's own
+    vertex beside one is the wall's top rim and stays ON THE PAD, so the
+    pad's edge between them is the WALL — a declared step.  No plate row,
+    no 1 % ceiling, no pavement fallback and no 5 % ceiling twin is stated
+    across it (until spec §56 (3) the collar face kept them out as a bank).
+    MEASURED at three OTHH ramp portals without the exemption: 31 stage-2
+    hard conflicts over 0.5-6.0 m chords and 28 rim vertices down by up to
+    1.35 m, four below the ramp top.  The fixture stands a face in for the
+    ramp by its ROLE and pins it 1.40 m under the pad."""
+    from auto_patch_v2.constraints import pads as cpads
+    from auto_patch_v2.constraints.pavement_cap import GEN as CAP_GEN
+    from auto_patch_v2.constraints.ceiling import GEN as CEIL_GEN
+    from auto_patch_v2.model.constraints import ConstraintSet, Diff, Pin, Source
+    from auto_patch_v2.model.platform import structure_vertices
+    from auto_patch_v2.solve import solve_design
+    from auto_patch_v2.solve import feasibility
+    cells = _cells() + [Cell(3, "parking_lot", "lotN", _rect(-60.0, 300.0, 60.0, 340.0),
+                             (), None, None, "groundside", "lot", {})]
+    airport = _airport(law, _Dem())
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    monkeypatch.setattr("auto_patch_v2.law.tables.is_structure_role",
+                        lambda _law, role: role == "parking_lot")
+    pad = _vs(pm, _faces(pm, "padU"))
+    ramp = structure_vertices(pm, law)
+    top = ramp & pad
+    assert top and ramp == _vs(pm, _faces(pm, "lotN"))
+    assert all(not top & set(g) for _f, _r, g in cpads._pad_groups(pm, law))
+    cs, _c, _w = generate(pm, law, airport)
+    for r in cs.rows():
+        named = ({r.a, r.b} if isinstance(r, Diff) else
+                 {v for v, _c2 in getattr(r, "terms", ())})
+        if named & top and named & (pad - top):
+            assert r.source.generator not in (cpads.GEN, CAP_GEN, CEIL_GEN), r
+    (_ref, flat, weld), = platform.platform_contacts(pm, law)
+    dv = datum_vertices(pm, law)["padU"]
+    assert dv not in top and not top & set(flat)
+    src = Source("twin", "twin ramp pin", ())
+    free = solve_design(pm, cs, law)[0].z
+    level = float(free[dv])
+    pinned = cs.merged(ConstraintSet.from_rows(
+        Pin(v, level - 1.40, src) for v in sorted(ramp)))
+    z = np.asarray(solve_design(pm, pinned, law)[0].z, float)
+    assert abs(float(z[dv]) - level) <= 0.01
+    assert max(abs(float(z[v]) - float(z[dv])) for v in flat) <= 0.01   # the rim
+    assert all(abs(float(z[dv]) - float(z[v]) - 1.40) <= 0.01 for v in top)  # the wall
+    assert not feasibility.HARD_CONFLICT

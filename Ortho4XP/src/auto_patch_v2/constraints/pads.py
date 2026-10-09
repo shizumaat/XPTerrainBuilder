@@ -192,12 +192,17 @@ def airside_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
 
 def _pad_groups(planar: PlanarMap, law: Law) -> list[tuple[int, str, list[int]]]:
     """``(face id, ref, rim vertices)`` per rigid face — ONE derivation of
-    the pad's vertex set, read by both row generators."""
+    the pad's vertex set, read by both row generators.  A vertex a
+    STRUCTURE face carries (``model.platform.structure_vertices``: a ramp's
+    top cut into the pad, a trench rim) is not a point of the pad's plane —
+    its level is the structure's, and the pad's edge to it is the wall."""
+    from ..model.platform import structure_vertices
     vw = view(planar, law)
     out: list[tuple[int, str, list[int]]] = []
+    struct = structure_vertices(planar, law)
     for f in vw.faces_of_role(rigid_roles(law)):
         group: list[int] = []
-        seen: set[int] = set()
+        seen: set[int] = set(struct)
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             for v in ring:
                 if v not in seen:

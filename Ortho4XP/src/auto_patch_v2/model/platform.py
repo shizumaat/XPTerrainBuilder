@@ -13,7 +13,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Platform", "PLATFORMS", "HELD", "LANDINGS", "LANDING_SEP",
+__all__ = ["structure_vertices", "Platform", "PLATFORMS", "HELD", "LANDINGS", "LANDING_SEP",
            "is_landing_ref", "PLATEAUS", "plateau_vertices",
            "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
@@ -151,6 +151,29 @@ def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
     return out
 
 
+def structure_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
+    """THE VERTICES A STRUCTURE FACE CARRIES (``precedence.toml structure =
+    true``: a wall-corridor / door / tunnel ramp, a trench, a retaining
+    wall) — ONE derivation.  Such a vertex stands at the structure's own
+    level: where its face is cut INTO a pad it is no point of the pad's
+    plane, and the pad's edge from it to the pad's own rim is the WALL — a
+    declared step, never a grade.  Read by the datum column
+    (:func:`datum_vertices`), the flat set (``constraints.platform``), the
+    pad's plate rows (``constraints.pads._pad_groups``) and the pavement
+    fallback (``constraints.pavement_cap``).  Until the collar was deleted
+    (spec §56 (3)) the collar face between pad and ramp kept those rows out
+    as a bank; MEASURED at the three OTHH ramp portals without it: a 1 % pad
+    ceiling and a pavement cap stated over the 0.5-1.1 m wall chord against
+    the ramp's pin, 31 hard conflicts, the wall's top rim 1.35 m down."""
+    from ..law.tables import is_structure_role
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if is_structure_role(law, f.role):
+            for ring in (f.ring, *f.holes):
+                out.update(planar.ring_vertices(ring))
+    return out
+
+
 def datum_vertices(planar: _t.Any, law: _t.Any,
                    air: "_t.AbstractSet[int] | None" = None) -> dict[str, int]:
     """``{held ref: its datum vertex}`` over :data:`HELD` — THE FRONTAGE
@@ -176,18 +199,14 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
         return {}
     if air is None:
         air = stage_air_vertices(planar, law)
-    from ..law.tables import is_structure_role
     own: dict[str, set[int]] = {}
-    struct: set[int] = set()
+    struct = structure_vertices(planar, law)
     for f in planar.faces.values():
         r = str(f.ref)
         if r in HELD:
             vs = own.setdefault(r, set())
             for ring in (f.ring, *f.holes):
                 vs.update(planar.ring_vertices(ring))
-        elif is_structure_role(law, f.role):
-            for ring in (f.ring, *f.holes):
-                struct.update(planar.ring_vertices(ring))
     out: dict[str, int] = {}
     for ref in sorted(HELD):
         vs = own.get(ref, set())

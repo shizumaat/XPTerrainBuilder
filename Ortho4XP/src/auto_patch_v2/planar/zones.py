@@ -134,6 +134,24 @@ class ZoneRegion:
     shore: ShoreVerdict | None = None
 
 
+def _unmeshable(g: Polygon, spacing_m: float) -> bool:
+    """THE ZONE-PART WIDTH FLOOR (spec §39 (2); §59 (4) row 10's GENERAL
+    CURE, review ``gapreview`` D5): a part that holds no disc of diameter
+    ``emit.identity.min_distinct_spacing_m`` anywhere cannot carry two
+    distinct vertices across it — it is a hairline of the claim's noding,
+    never ground a band grades, and its ring would node every edge it runs
+    beside (HECA: 1.31 m2, 1,689 m x 0.8 mm of a runway's own lip passed
+    the area floor and gave the runway 143 vertices).  The erosion is the
+    width test the gap mint and the hole dissolve already use
+    (``buffer(-w / 2).is_empty``); it is taken only where the mean width
+    ``2 A / P`` is already under twice the bound (``overlay.merge_slivers``'
+    own gate: the inradius is never under ``A / P``)."""
+    per = g.length
+    if spacing_m <= 0.0 or per <= 0.0 or 2.0 * g.area / per >= 2.0 * spacing_m:
+        return False
+    return g.buffer(-0.5 * spacing_m).is_empty
+
+
 def zone_regions(cells: tuple[Cell, ...], law: Law,
                  keepouts: tuple[tuple, ...] = (), dem=None, roads=(),
                  edge_report: EdgeReport | None = None,
@@ -199,6 +217,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
          if not is_gap_apron_ref(getattr(c, "ref", ""))]
         + [Polygon(k).buffer(cut, **_MITRE) for k in keepouts]) if cells else Polygon()
     lip = ag.lip_width_m
+    ident = float(law.tables.emit.identity.min_distinct_spacing_m)
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}
     for c in cells:
         # §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
@@ -278,7 +297,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             parts = shapely.get_parts(geom) if geom.geom_type != "Polygon" else [geom]
             k = 0
             for g in parts:
-                if g.geom_type != "Polygon" or g.is_empty or g.area < 1.0:
+                if g.geom_type != "Polygon" or g.is_empty or g.area < 1.0 \
+                        or _unmeshable(g, ident):
                     continue
                 mine = tuple(ln for ln in clip.lines
                              if ln.distance(g) <= snap_margin_m(law))

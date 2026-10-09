@@ -17,6 +17,7 @@ from pathlib import Path
 from ..airport import flat_site as _flat
 from ..airport.load import Inputs, load_with_report
 from ..airport.road_profile import preferred_road_z
+from ..airport.road_descent import descent_line
 from ..airport.road_ramp import with_road_ramp
 from ..emit.road_join import with_road_coverage_join
 from ..classify import classify, load_rules
@@ -1054,6 +1055,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"(§37 (9)) {ramp_rep.get('join_exits', 0)} exit(s) on "
          f"{ramp_rep.get('join_routes', 0)} route(s) -> {ramp_rep.get('join_vertices', 0)} "
          f"pinned vertices", out)
+    _say(f"[{icao}] road {descent_line(ramp_rep)}", out)
     # THE SHAPE STAGE (owner RULINGS 2026-09-08k; ``pipeline/shapes.py``):
     # the route bands, the withdraw set, the joint filter, the yield transform
     t = time.perf_counter()

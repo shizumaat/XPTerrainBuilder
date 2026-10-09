@@ -2148,7 +2148,14 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             # issue #303: the [service] thresholds come from the CALLER
             # (``airport`` may not read ``classify``), so the replay hands
             # them over exactly as the build does.
-            m = with_road_ramp(m, law, airport, service=_lr().service)
+            ramp_rep: dict = {}
+            m = with_road_ramp(m, law, airport, ramp_rep, service=_lr().service)
+            try:
+                from auto_patch_v2.airport.road_descent import descent_line
+                print(f"[{icao}] road {descent_line(ramp_rep)}; steepest "
+                      f"{ramp_rep.get('ramps_steepest')}")
+            except ImportError:
+                pass
             # §37 (9) the coverage-edge join, after the frame it reads
             try:
                 from auto_patch_v2.airport.road_profile import core_profiles

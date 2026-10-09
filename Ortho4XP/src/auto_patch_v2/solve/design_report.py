@@ -769,7 +769,9 @@ class DesignReport:
                     f"targets raised to stage 1's edge level (max "
                     f"{rs.get('max_raise_m', 0.0):.3f} m"
                     + (f", {rs['unlevelled']} on an unlevelled edge"
-                       if rs.get("unlevelled") else "") + "); ")
+                       if rs.get("unlevelled") else "")
+                    + (f", {rs['steepened']} run(s) steeper than the design grade"
+                       if rs.get("steepened") else "") + "); ")
         tr = rs.get("terrace") or {}
         if tr.get("governed"):
             out += (f"road terrace (10-03b): {tr['governed']} ribbon vertices — "
@@ -778,8 +780,11 @@ class DesignReport:
                     f"{tr.get('pad_held', 0)} held along a pad frontage, "
                     f"{tr.get('kerb', 0)} band-kerb targets added, "
                     f"{tr.get('anchored', 0)} reaching a coverage join at the cap, "
-                    f"{tr.get('bare', 0)} climbing <= cap from the last "
-                    f"bordered level (max cut {tr.get('max_cut_m', 0.0):.2f} m, "
+                    f"{tr.get('bare', 0)} leaving the last bordered level in "
+                    f"{tr.get('bare_runs', 0)} run(s) ({tr.get('bare_steepened', 0)} "
+                    f"steeper than the design grade, steepest "
+                    f"{100.0 * tr.get('max_bare_grade', 0.0):.1f} %; max cut "
+                    f"{tr.get('max_cut_m', 0.0):.2f} m, "
                     f"max link grade {tr.get('max_link_grade', 0.0):.4f}"
                     + (f", {tr['unlevelled']} unlevelled feet"
                        if tr.get("unlevelled") else "") + "); ")

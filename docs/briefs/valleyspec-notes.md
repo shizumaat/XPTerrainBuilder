@@ -49,7 +49,21 @@ ruled arm `KCLT_auto.patch.e2eec15c.osm` (the register's own rename), null twin
 
 ## 3. HECA (`gapapron3/HECA.pkl`; control + ruled arm + null twin)
 
-See §61 (3) — filled when the chain finishes (this file is pushed before it).
+Ruled arm `h_xs1g` (1,160 cross-section rows, 28 pin constants; 5,369 membrane rows on
+2,139 columns — 1,743 on taxi faces NO chain owns, HECA's big `dsf:objpav` junctions):
+
+| | control `h_ctl` | ruled arm | twin `h_xs1g_slack` | twin + the arm's §5a set FORCED `h_xs1g_slackF` |
+|---|---|---|---|---|
+| null-change 1a / 1b | (lane) 157 / 535 | — | **0 / 1,813** (0 > 0.3, worst 0.195); demote 14/14 with ONE pad `frontage_hold` row different (two adjacent rows of the pad at 30.1286, 31.4021), promote 812 / 810 | **0 / 4** (worst 0.14 at `gapapron:1` 30.10294, 31.39591); sets equal |
+| cost vs control (1b stage-1 movers) | — | 3,739 / 367 > 0.3 / 0.98 | | |
+| avd | — | strip 2,869 / taxi 1,246 / apron 848 / runway **2 / 0.06** | | |
+| adjudicated airside | 12,201 | 12,170 (−31); `hard_conflict` 240 → 237; taxi tier 62/61 = | | |
+| CRITICAL | | `strip_seam_tear` visual 22 → 23; `vertex_to_edge_step` motion 0 → 1 (apron|junction 0.52 m over 0.98 m at 30.10901, 31.40396, unshared ways −10704/−10670) | | |
+| stage-1 wall | 84.7 + 83.9 s | 73.3 + 117.0 s | | |
+
+So at HECA the valley closes (1a: 0) and the remaining pass-1b non-reproducibility is
+the §5a LP's degenerate choice among equal relaxation sets — attributed by
+intervention (1,813 → 4), AIRSIDE, hence ruled as part of the change (§61 (5)).
 
 ## 4. Deviations and what was not done
 

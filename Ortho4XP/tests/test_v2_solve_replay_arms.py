@@ -187,7 +187,7 @@ def test_drop_rows_refuses_before_filtering_and_drops_by_generator_or_head():
 def test_gap_free_and_late_from_are_two_runs():
     """``--gap-free`` solves the base a ``--late-from`` run reads (the build's
     own ``gap_free``, never a second spelling of it)."""
-    src = TOOL.read_text()
+    src = TOOL.read_text(encoding="utf-8")
     assert "from auto_patch_v2.pipeline.stage_one_map import gap_free as _gap_free" in src
     assert "not both in one run" in src
 

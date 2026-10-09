@@ -184,7 +184,10 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # RE-RECORDED (lane walls3, RULINGS 2026-10-07d): the pair test is the
     # piece's cap + the terrace floor, and the road / ramp cap rose 8 -> 10 %,
     # so fewer pairs cut — (93, 48, 66, 6) at 8 %.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (84, 34, 66, 9)
+    # RE-RECORDED (lane gapapron4, spec §59 / RULINGS 2026-10-08g): the 11
+    # apron-classed pieces of this capture are stage-1 cells and are not cut
+    # — (84, 34, 66, 9) with them in the last stage.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (69, 34, 49, 9)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)

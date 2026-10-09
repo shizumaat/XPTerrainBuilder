@@ -151,3 +151,38 @@ Body 79abb3762e38 (main sw7 75c751a9dd95). Against `sw7_HECA.osm`, each tree's o
    `xsec_vertices`, `xsec_pin_const`, `xsec_far`, `xsec_no_chain`, `chains_without`. (`taxi_trend_rows` at
    the top is still the late stage's own 0 — pre-existing, not asked.)
 6. `PlanarMap.__setstate__` records (`unpickled_defaults`) and warns the fields it filled.
+
+## Merge + sweep sw10 (head f8448189 = fixes + origin/main 11e4746e; main = road-ramp merge, rulings 09f-09h)
+Merged head: non-Qt 9,083 passed / 0 failed (1 xfailed, 1 xpassed), Qt 311, the four named suites 202, ratchets PASS.
+Main arm censused by `valley2ctl` at 11e4746e (code = f36b39c0), branch arm by this tree. Walls are single runs.
+
+| airport | body main -> sw10 | runway | movers by family (n / worst m) | taxi tier | adjudicated airside (rising families) | CRITICAL motion / visual | NULL-CHANGE (gap-free base) | rc / status / wall |
+|---|---|---|---|---|---|---|---|---|
+| CYXY | cf8e9e89ec62 -> c8933945d187 | 0 | strip 730/2.04, taxi 41/1.34, apron 56/0.36, other 16/1.34 | 0 -> 0 | **254 -> 259** (airside_no_step 12 -> 14, strip_longitudinal 2 -> 6) | 0/52 = 0/52 | **26/0/0.083 · 21/0/0.114 · 27/0/0.114 MISSED** | 0 / optimal / 26.7 s (main 23.1) |
+| SPJC | 61f66f149737 -> 3896972bf638 | 0 | strip 481/0.85, taxi 38/0.09, apron 8/0.29, other 7/0.04 | 6 -> 7 | **891 -> 901** (transverse 15 -> 18, hard_conflict 8 -> 10, pavement_over_road_cap 2 -> 4, strip_transverse 11 -> 12) | 0/507 = 0/507 (mid_edge_step 7 -> 8, vertex_to_edge_step 2 -> 3, pavement_over_road_cap 2 -> 1, within_shape 1 -> 0) | 0/0/0.016 · 7/0/0.145 · 14/0/0.145 | 0 / optimal / 81.6 s (69.8) |
+| KASE | c2200384ee0d -> be2708bae87e | 0 | strip 76/0.50, apron 13/0.15, taxi 10/0.06, other 6/0.08 | 0 -> 0 | 2,654 -> 2,646 (within_shape 2,648 -> 2,658) | 1/45 = 1/45 | 0/0/0.001 · 0/0/0.000 · 0/0/0.000 | 0 / optimal / 37.7 s (46.5) |
+| NLWF | 45ec40e74dcb -> f769493a0662 | 0 | airside 0; 4 service_road nodes <= 0.29 | 0 -> 0 | 3 -> 3 (hard_conflict 7 -> 8 groundside, within_shape 17 -> 20) | 0/23 = 0/23 | 0/0/0.000 · 0/0/0.000 · 0/0/0.000 | 0 / optimal / 7.1 s (6.2) |
+| KCLT | c558693ad8bd -> c5fdf0daa2d3 | 4 / 0.06 | strip 2,677/1.50, taxi 282/0.64, apron 179/0.90, other 118/0.25 | 51 -> 50 | 3,355 -> 3,341 (taxi_box +3, strip_transverse +2, road_cross_section +6, strip_arc +1, groundside_cutback +1) | 5/1,974 -> 5/1,973 | 0/0/0.000 · 0/0/0.020 · 0/0/0.020 | 0 / optimal / 278.8 s (371.7) |
+| HECA | 189234d8e929 -> 5fce51e016a0 | 2 / 0.06 | strip 2,866/0.99, taxi 1,234/0.77, apron 843/0.43, other 875/0.24 | 63 -> 63 | 12,205 -> 12,176 (transverse +7, taxi_box +4, road_cross_section +3, pavement_over_road_cap +2, groundside_cutback +2) | **2 -> 3** (vertex_to_edge_step, #495, ruled 09h) / 1,910 -> 1,913 (hairline_pair +2, strip_seam_tear +1) | 0/0/0.000 · 4/0/0.262 · 4/0/0.262 | 0 / optimal / 570.2 s (571.4) |
+| OTHH | 500f5dddce63 -> 21b0f9bf523a | 1 node 0.01 | 10 nodes x 0.01 m, 0 over 0.02 | 0 -> 0 | 493 -> 493 (no family differs) | 0/2,062 = 0/2,062 | see below | 0 / optimal / patch clock 537.3 s |
+
+- CYXY null-change, attributed on its capture: main's rows and exit (`taxi_xsec=0 free_membrane=0 qp_rel_tol=1e-9`)
+  33/3/1.290 · 160/2/1.022; rows without the tight exit 17/0/0.109 · 67/0/0.134; tight exit without rows
+  9/2/0.804 · 37/1/0.769; branch 26/0/0.083 · 21/0/0.114. The residual movers are APRON vertices of `pav21`
+  (60.7062, −135.0764) and `building10`/`pav17`, <= 0.11 m — not the taxi valley. FOUND, NOT FIXED.
+- HECA owner sites vs main (nodes > 0.02 m): #430 (30.1154841, 31.4105884; 40 m) 15 of 20, worst 0.23 (`gap:8/s0/lot`,
+  `route3`); #292 (30.1159784, 31.4106264) 14 of 22, 0.23 (`gap:7/lot`, `gap:7/ramp0`); #358 (30.1193169, 31.4085087)
+  34 of 34, 0.25 (`dsf:objpav68#0`, `gap:0/s4/lot`) — each a near-rigid shift with the apron it follows. All `gap:*`
+  refs: 998 of 5,503 nodes, worst 0.83 (`gap:0/s0/lot`). T3 (30.12745, 31.40505; 80 m): 104 of 178, worst 0.44
+  (`gap:0/s14`); the road-terrace witness means 72.82 -> 72.77 and 75.10 -> 75.06. The apron at 30.1047, 31.3965
+  (80 m): 3 of 92 nodes, worst 0.09 (`gapapron:1`). #495 site: junction corner 104.42 -> 104.34, its neighbour +0.12.
+- HECA `hairline_pair` +2, attributed: 5 rows only on sw10 / 3 only on main, ALL `groundside_pavement|groundside_pavement`
+  sub-0.5 m vertex pairs on late-stage gap pieces (`gap:0/s9` ways −12109/−12129 at 30.115173, 31.407974;
+  `gap:0/s14` −12181/−12236 at 30.127198, 31.405006; gone: `gap:0/s0/lot` −12195/−11974 at 30.118714, 31.406895),
+  magnitudes 0.001–0.056 m; the late stage re-cut 3 more nodes (42,591 -> 42,594). Groundside churn of the gap
+  pieces following a re-levelled apron, not an airside row. `strip_seam_tear` +1 at 30.131103, 31.398024 (2.02 m / 4.03 m).
+- OTHH: rebake plan sha256 IDENTICAL (15 authored seats; every object-framed and tunnel ramp unmoved; 0 patch nodes
+  over 0.02 m). Patch-build clock 537.3 s against the 600 s bar, of which the partition was a cache MISS 135.0 s
+  (main 6.6 s on a hit, 410.8 s total); solve 79.4 -> 81.6 s, late 75.6 -> 77.7 s. The harness wall 727.5 s also
+  carries a 189.7 s rebake-plan cache miss (object-stage work, not in the patch clock).
+- Sidecar (fix 5) verified on sw10_HECA: top block `taxi_xsec_rows` 1,160 / `free_membrane_rows` 5,369.

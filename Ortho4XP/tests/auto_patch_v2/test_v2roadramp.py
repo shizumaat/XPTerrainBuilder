@@ -164,9 +164,18 @@ def test_the_target_is_the_dem_wherever_the_dem_is_reachable(hill):
 
 
 class _Shelf(_Hill):
-    """The apron stands on a shelf 12 m over the plain, and the ground
-    falls off it at 30 % — three times the road's own cap, so no lawful
-    road follows it and the ramp is the answer."""
+    """The apron stands on FILL 12 m over the plain: the ground drops at
+    the apron's own edge (``y = -20``, the road's mouth), so the road
+    cannot leave its contact on its ground and the ramp is the answer."""
+
+    def z(self, x, y):
+        return PLATEAU_Z - 12.0 * min(1.0, max(0.0, (y + 20.0) / 2.0))
+
+
+class _LateShelf(_Hill):
+    """The same 12 m, but the ground holds the apron's level for the
+    road's first 20 m and falls at 30 % from there: the road leaves its
+    contact ON its ground."""
 
     def z(self, x, y):
         return PLATEAU_Z - 12.0 * min(1.0, max(0.0, y / 40.0))
@@ -207,6 +216,19 @@ def test_the_ramp_descends_at_its_design_grade_from_a_mouth_above_the_dem(law):
     assert rep["ramps_steepened"] == rep["ramps_at_cap"] == 0, rep
 
 
+def test_a_fall_beyond_the_first_meet_is_the_floor_s_not_a_ramp(law):
+    """§37 (6a) (iii), RULINGS 2026-10-09d (2).  The road leaves its
+    contact on level ground and the ground falls 20 m on: the contact's
+    cone met the floor at the mouth, so the fall is the FLOOR's own (the
+    core's clamp, cap-lawful) — no ramp is built and no vertex stands
+    over its floor.  The persistent cone re-emerged over the fall and
+    carried the road 240 m at 5 %."""
+    airport, r = _airport(law, _LateShelf())
+    pm, rep = _map(law, airport, _cells(r, road_len=300.0))
+    assert rep["mouths"] > 0 and rep["ramps"] == 0 and rep["on_ramp"] == 0, rep
+    assert rep["max_reach_m"] == 0.0 and rep["targets"] == rep["on_dem"] > 0, rep
+
+
 def test_a_run_that_fits_only_at_7_3_percent_is_built_at_7_3_percent(law):
     """The same shelf, the road ENDING 12 / 0.073 m from the contact: the
     design grade would leave the road's end 3.8 m in the air, so the ramp
@@ -245,7 +267,7 @@ def test_the_design_grade_at_the_cap_is_the_ramp_of_old(law):
     cap = law.tables.common.road_max_grade
     old = _dc.replace(law, tables=_dc.replace(law.tables, emit=_dc.replace(
         emit, road_contact=_dc.replace(emit.road_contact, ramp_grade=cap))))
-    airport, r = _airport(law, _Shelf())
+    airport, r = _airport(law, _LateShelf())
     pm, _rep = _map(law, airport, _cells(r))
     tg = road_ramp_targets(pm, old, airport).targets
     for v in tg:

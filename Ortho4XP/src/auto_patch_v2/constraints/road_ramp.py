@@ -351,11 +351,14 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     * a route with no levelled foot keeps its targets;
     * an ``anchors`` vertex — a §37 (9) COVERAGE-EDGE JOIN, where the core's
       levelled road takes over — is never governed, and every vertex of its
-      route reaches it inside ``clip(target, z_a - g·d, z_a + g·d)``, ``g``
-      the design grade where every bordered level of the route stands in
-      that cone, the least grade that takes them in otherwise, ``cap`` where
-      even the cap does not (the road leaves the terrace to meet the core
-      road — at its cap until RULINGS 2026-10-09c (2b);
+      route reaches it inside ``clip(target, z_a - cap·d, z_a + cap·d)`` —
+      AT THE CAP, never the design grade: the clip is two-sided, a pin's
+      FEASIBILITY envelope (a road may not stand farther from the join it
+      must reach than its cap allows), not a ramp; at the design grade it
+      cut a road climbing away from its join on lawful 6-8 % ground down
+      to 5 % (spec §37 (6a) (v), RULINGS 2026-10-09d (2); KCLT
+      ``road_cross_section`` 767 -> 800).  The join's ramp is the bare
+      exit's one-sided run above, its end level the pin.
       MEASURED HECA replay: ``small_roads:-20210`` welded to apron ``pav37``
       at 89.6 m four metres from its join pinned at 96.89 m — a 12.98 m
       hard conflict of the ramp ceiling against the pin).
@@ -369,7 +372,7 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                               "bare": 0, "unlevelled": 0, "routes": 0,
                               "max_cut_m": 0.0, "max_link_grade": 0.0,
                               "bare_steepened": 0, "max_bare_grade": 0.0,
-                              "bare_runs": 0, "max_join_grade": 0.0}
+                              "bare_runs": 0}
     bare: dict[tuple[int, bool], tuple[float, list[tuple[float, int, float]]]] = {}
     anchors = anchors or {}
     lev: dict[int, float] = {}
@@ -447,26 +450,14 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
             by_anchor.setdefault(int(r), []).append((float(s_), float(za)))
             out.pop(v, None)
     rep["anchored"] = 0
-    # the grade the road reaches each anchor at: the design grade where
-    # every BORDERED level of its route stands inside that cone, the least
-    # grade that takes them all in otherwise, the cap where even it does not
-    reach: dict[tuple[int, float, float], float] = {}
-    for r, lst in by_anchor.items():
-        held = [(float(station[v][1]), z) for v, z in lev.items()
-                if int(station[v][0]) == r and v not in anchors] if g0 < cap else []
-        for sa, za in lst:
-            reach[(r, sa, za)] = _run_grade(za, [(abs(s_ - sa), z) for s_, z in held],
-                                            g0, cap, lane)
     for v in list(out):
         r, s_ = station[v]
         for sa, za in by_anchor.get(int(r), ()):
             d = abs(float(s_) - sa)
-            g = reach[(int(r), sa, za)]
-            t = min(max(out[v], za - g * d), za + g * d)
+            t = min(max(out[v], za - cap * d), za + cap * d)
             if abs(t - out[v]) > 1e-9:
                 out[v] = t
                 rep["anchored"] += 1
-                rep["max_join_grade"] = max(rep["max_join_grade"], g)
     for v, t in out.items():
         fl = floor.get(v)
         if fl is not None and float(fl) - t > rep["max_cut_m"]:

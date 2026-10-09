@@ -47,7 +47,10 @@ def test_ample_run_is_built_at_the_design_grade():
     d = _descend(adj, {0: DROP}, floors, end_of)
     assert [r["grade"] for r in d.ramps] == [DESIGN] and d.ramps[0]["why"] == ""
     for i, x in enumerate(xs):
-        assert d.label[i] == pytest.approx(DROP - DESIGN * x)
+        if x <= DROP / DESIGN:
+            assert d.label[i] == pytest.approx(DROP - DESIGN * x)
+        else:
+            assert i not in d.label           # the ramp ended at its first meet
     # the ramp stands over the floor for drop / design, not drop / cap
     assert d.ramps[0]["length_m"] == pytest.approx(DROP / DESIGN - 10.0)
 
@@ -101,8 +104,96 @@ def test_the_design_grade_at_the_cap_is_the_envelope_of_old():
     adj, floors, _xs, end_of = _road(300.0)
     mouths = {0: DROP, 12: 4.0}
     d = _descend(adj, mouths, floors, end_of, design=CAP)
-    old, walked, _s = envelope(adj, mouths, CAP)
+    old, walked, _s = envelope(adj, mouths, CAP, floors=floors)
     assert d.label == pytest.approx(old) and d.walked == pytest.approx(walked)
+
+
+# ── RULINGS 2026-10-09d (2): FIRST MEET, PER RUN, ONLY WHERE FORCED ─────
+
+def test_a_cone_that_met_its_floor_does_not_re_emerge_over_a_later_fall():
+    """F1 (§37 (6a) (iii)).  2 m of fill at the contact, level ground for
+    200 m, then the floor falls at the cap: the ramp is the first 40 m.
+    The persistent cone stood over the fall again (at 300 m it is 13 m
+    under the contact's 5 % line... and the floor 10 m lower still)."""
+    adj, floors, xs, end_of = _road(400.0)
+    floors = {i: (0.0 if xs[i] <= 200.0 else -CAP * (xs[i] - 200.0)) for i in floors}
+    d = _descend(adj, {0: 2.0}, floors, end_of)
+    (r,) = d.ramps
+    assert r["grade"] == DESIGN and r["length_m"] == pytest.approx(30.0)
+    assert max(d.walked.values()) == pytest.approx(40.0)
+    assert all(xs[i] <= 40.0 for i in d.label)
+    # the envelope without the floors is the cone that re-emerged
+    old, _w, _s = envelope(adj, {0: 2.0}, DESIGN)
+    assert old[len(xs) - 1] > floors[len(xs) - 1] + 1.0
+
+
+def _forked():
+    """A contact (0) with a long road east (1..40, 10 m apart) and a stub
+    west (41, 42: 4 m and 8 m away) that ends 3 m down."""
+    adj, floors, xs, _e = _road(400.0)
+    for a, b in ((0, 41), (41, 42)):
+        adj.setdefault(a, []).append((b, 4.0))
+        adj.setdefault(b, []).append((a, 4.0))
+    floors.update({41: -3.0, 42: -3.0})
+    last = len(xs) - 1
+    return adj, floors, xs, (lambda v: ("r", 1) if v == last else ("s", 1) if v == 42 else None)
+
+
+def test_a_stub_end_steepens_its_own_run_only():
+    """F2 (§37 (6a) (ii)).  The stub's end, 8 m away and 5 m under the
+    contact, cannot be served by the cap: ITS run is at the cap and ends
+    in the air; the long run fits at the design grade and keeps it.  Per
+    CONTACT the whole cone went to the cap."""
+    adj, floors, xs, end_of = _forked()
+    d = _descend(adj, {0: 2.0}, floors, end_of)
+    (r,) = d.ramps
+    assert r["grade"] == DESIGN and r["steepest"] == CAP and r["fits"]
+    assert r["why"] == "the road's end at 8 m" and r["length_m"] == pytest.approx(30.0)
+    for i in range(1, 5):
+        assert d.label[i] == pytest.approx(2.0 - DESIGN * xs[i])
+    assert d.label[41] == pytest.approx(2.0 - CAP * 4.0)
+    assert d.label[42] == pytest.approx(2.0 - CAP * 8.0)
+
+
+def test_a_road_that_can_follow_its_floor_from_the_contact_has_no_ramp():
+    """RULINGS 2026-10-09d (2).  The contact stands ON the road's floor
+    and the floor falls away at 7 % — inside the cap: nothing forces the
+    road off its ground, so there is no ramp (a 5 % cone would stand on
+    2 m of fill 100 m out).  Half a metre of fill at the contact is a
+    ramp again, and it ends where it first meets the floor."""
+    adj, floors, xs, end_of = _road(400.0)
+    floors = {i: (-0.07 * xs[i] if xs[i] <= 100.0 else -7.0) for i in floors}
+    d = _descend(adj, {0: 0.0}, floors, end_of)
+    assert d.ramps == [] and d.label == {0: 0.0}
+    # ... the same hillside at 12 % (a floor the clamp would not make):
+    # the cap cannot follow it, the ramp is built — down the fall AT THE
+    # CAP (the steepest it may; 2.5 m over the floor at its foot), and at
+    # the design grade from there
+    steep = {i: (-0.12 * xs[i] if xs[i] <= 100.0 else -12.0) for i in floors}
+    d = _descend(adj, {0: 0.0}, steep, end_of)
+    (r,) = d.ramps
+    assert d.label[10] == pytest.approx(-0.5 - CAP * 90.0)
+    assert r["grade"] == DESIGN and r["length_m"] == pytest.approx(140.0)
+
+
+def test_a_ramp_never_stands_higher_over_its_floor_than_where_it_left():
+    """RULINGS 2026-10-09d (2).  Half a metre of fill at the contact; the
+    floor falls at 7 % for 100 m and is level beyond.  At 5 % the ramp
+    would open to 2.3 m of fill at the foot of the hillside; it follows
+    the fall instead (7 %, inside the cap), 0.3 m over the floor as it
+    stood at its first vertex, and comes down at 5 % on the level."""
+    adj, floors, xs, end_of = _road(400.0)
+    floors = {i: (-0.5 - 0.07 * xs[i] if xs[i] <= 100.0 else -7.5) for i in floors}
+    d = _descend(adj, {0: 0.0}, floors, end_of)
+    (r,) = d.ramps
+    assert r["grade"] == DESIGN
+    first = d.label[1] - floors[1]
+    assert first == pytest.approx(0.5 + 0.02 * 10.0)
+    for i in range(1, 11):
+        assert d.label[i] - floors[i] == pytest.approx(first)
+    assert d.label[11] == pytest.approx(d.label[10] - DESIGN * 10.0)
+    assert max(z - floors[v] for v, z in d.label.items() if v in floors) == pytest.approx(first)
+    assert r["length_m"] == pytest.approx(110.0)
 
 
 def test_the_grade_arithmetic_is_the_tunnel_ramp_s():

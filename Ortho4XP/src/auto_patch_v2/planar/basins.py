@@ -167,11 +167,13 @@ from ..law import Law
 from ..law.tables import role_side
 from ..model.airport import Airport
 from ..model.frame import XY
+from ..model.planar import is_gap_ref
 from ..model.structures import Basin, Tunnel
 from ..model import pulse as _pulse
 from . import basin_rim as _basin_rim
 from .basin_geometry import (_floors, _floors_inside, _outer, _ramp_axis, _region_floor,
                              _renode, _rim, _snap_ring, shell_thickness_m)
+from .structure_approach import cut_gap_cells
 from .structure_geometry import rim_standoff, rim_yield_m
 from ..geom.parts import polygon_parts_with_area
 
@@ -811,14 +813,16 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         return classification, (), stats
     knife = uu("knife", knives)
     out_cells: list[Cell] = []
-    for c, p in zip(cells, polys):
-        if c.role in RUNWAY_FAMILY or c.kind == "structure" or not p.intersects(knife):
+
+    def _cut(c: Cell, p: Polygon, blade) -> None:
+        if c.role in RUNWAY_FAMILY or c.kind == "structure" or blade is None \
+                or not p.intersects(blade):
             out_cells.append(c)
-            continue
+            return
         if c.role == "building" and not bl.cuts_pads:
             out_cells.append(c)
-            continue
-        rest_p = p.difference(knife)
+            return
+        rest_p = p.difference(blade)
         stats.cells_cut += 1
         for j, part in enumerate(polygon_parts_with_area(rest_p)):
             if part.area < 0.25:
@@ -828,9 +832,18 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                                   tuple(tuple(h.coords)[:-1] for h in part.interiors),
                                   c.code_number, c.code_letter, c.side, c.kind,
                                   dict(c.evidence, basin_cut=1.0)))
+
+    # a standing cell is cut FLUSH at the rim; a §53 gap piece stands off it
+    # by the mint's stand-off, as it stands off every structure footprint —
+    # ONE knife for every structure (spec §60 (9) R1b, §53 (18)): a piece
+    # never lies on a rim, so the rim is never re-noded
+    for c, p in zip(cells, polys):
+        if not is_gap_ref(c.ref):
+            _cut(c, p, knife)
     for role, ref, poly, holes in new_cells:
         out_cells.append(Cell(len(out_cells), role, ref, tuple(poly.exterior.coords)[:-1],
                               holes, None, None, role_side(law, role), "structure", {}))
+    cut_gap_cells([c for c in cells if is_gap_ref(c.ref)], knife, law, _cut)   # LAST
     out_cells = [_dc.replace(c, id=i) for i, c in enumerate(out_cells)]
     cl = _dc.replace(classification, cells=tuple(out_cells),
                      keepouts=tuple(classification.keepouts)

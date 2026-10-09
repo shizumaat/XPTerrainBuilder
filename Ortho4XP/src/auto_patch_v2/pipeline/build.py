@@ -678,6 +678,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _say(f"  [load] {lrep.object_pavements.line()}", out)
         for ln in lrep.object_pavements.resource_lines():
             _say(ln, out)
+    if lrep.dsf_gap_sheets:
+        # the ``.pol`` sheets are the LAST ``dsf_gap_sheets`` of the tuple
+        _defs = len({g.description
+                     for g in airport.gap_sheets[-lrep.dsf_gap_sheets:]})
+        _say(f"  [load] {lrep.dsf_gap_sheets} draped .pol page(s) admitted by "
+             f"SURFACE as gap sheets ({lrep.dsf_gap_sheet_m2:,.0f} m², "
+             f"{_defs} defs) — never a pavement source (§60)", out)
     _ps = pack_stage(icao, airport, law, inputs, lrep, out)
     airport, ocache = _ps["airport"], _ps["ocache"]
     pack_objects, pack_report = _ps["objects"], _ps["report"]

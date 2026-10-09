@@ -17,6 +17,13 @@ from this module: the SOLVED surface's value at a deck, which
 ``airport/rebake_plan.py`` stamps into the plan's deck members
 (``Member.deck_datum_z``) and ``pipeline/build.py`` calls.  No
 environment is read here, and nothing here writes.
+
+STANDING CELLS ONLY (spec §60 (9) R2; §53 (18) "a gap piece never leads").
+A §53 gap piece is minted beside the objects, after them: a datum read off
+the solved surface for an object never reads a vertex that only gap pieces
+own (:func:`standing_vertex_ids`).  A piece's vertex shared with a standing
+cell is that cell's and counts; the after-mesh abutment walk reads the built
+ground, pieces included.
 """
 from __future__ import annotations
 
@@ -26,16 +33,29 @@ import typing as _t
 import numpy as np
 
 from ..model.frame import XY
+from ..model.planar import is_gap_ref
 
-__all__ = ["deck_datum_from_surface"]
+__all__ = ["deck_datum_from_surface", "standing_vertex_ids"]
+
+
+def standing_vertex_ids(surface) -> frozenset[int]:
+    """The surface's vertices a datum may read (module docstring): every
+    vertex but those owned by gap pieces ALONE."""
+    late: set[int] = set()
+    standing: set[int] = set()
+    for f in surface.faces:
+        (late if is_gap_ref(f.ref) else standing).update(f.ring, *f.holes)
+    late -= standing
+    return frozenset(sv.id for sv in surface.vertices if sv.id not in late)
 
 
 def deck_datum_from_surface(surface, ring_xy: _t.Sequence[XY], to_xy,
                             buffer_m: float = 0.5) -> float | None:
     """The SOLVED surface's value at a deck: the median ``z`` of the
-    graded surface's vertices inside the deck ring (buffered by
-    ``buffer_m`` so the ring's own vertices count).  ``None`` when the
-    surface has no vertex there (the deck founds no solved value)."""
+    graded surface's STANDING vertices (:func:`standing_vertex_ids`) inside
+    the deck ring (buffered by ``buffer_m`` so the ring's own vertices
+    count).  ``None`` when the surface has no such vertex there (the deck
+    founds no solved value)."""
     from shapely import contains_xy
     from shapely.geometry import Polygon
     if surface is None or len(ring_xy) < 3 or not surface.vertices:
@@ -45,7 +65,10 @@ def deck_datum_from_surface(surface, ring_xy: _t.Sequence[XY], to_xy,
     except Exception:
         return None
     xs = []; ys = []; zs = []
+    standing = standing_vertex_ids(surface)
     for sv in surface.vertices:
+        if sv.id not in standing:
+            continue
         x, y = to_xy(sv.ll[1], sv.ll[0])
         xs.append(x); ys.append(y); zs.append(sv.z)
     mask = contains_xy(poly, np.asarray(xs), np.asarray(ys))

@@ -40,6 +40,15 @@ APRONS alone — a lot that also meets a pad, a standing lot, a band or a
 structure takes no lot row and no target (its pads stand ``cap x d + floor``
 away while the row would hold it within 2 % of the road).
 
+A PART BESIDE A BELOW-GRADE STRUCTURE FOLLOWS ITS RIM, NEVER ITS FLOOR
+(spec §60 (9) R1).  The cells BEHIND a declared step — a structure's floor
+and ramp cells and its wall void (:class:`BehindStep`, the caller's: the two
+sets live above this layer) — are never follow neighbours of a piece or a follower ribbon: the step is the
+structure's own and no neighbour inherits a level across it.  What binds is
+the structure's RIM at ground — an edge of the wall void whose other side is
+none of those cells (the foot of the wall, shared with the floor, and the
+seam between two wall parts are not rim).
+
 A PART FOLLOWS ITS OWN GROUP (§55 (2) 5, §55 (14) Q-E).  The cut hands each
 part its stations (:class:`PartStations`); a part vertex is bounded only by
 a ring at whose nearest point the nearest station OF THAT RING is one of the
@@ -61,8 +70,8 @@ from ..model.planar import (PlanarMap, face_edge_ids as _edges,
                             face_vertex_set as _vertices, gap_follower_faces,
                             gap_part_kind, is_gap_ref)
 
-__all__ = ["GEN", "RULING", "LOT_RULING", "PartStations", "gap_follow_rows",
-           "reach_m"]
+__all__ = ["GEN", "RULING", "LOT_RULING", "PartStations", "BehindStep",
+           "gap_follow_rows", "reach_m"]
 
 GEN = "gap_follow"
 RULING = "gap_piece follows its standing neighbour across the stand-off (owner 2026-10-04o)"
@@ -79,6 +88,30 @@ class PartStations(_t.NamedTuple):
     stations: _t.Sequence[_t.Any]   #: the PIECE's stations (``.xy .ring``)
     own: frozenset[int]             #: the stations nearest this part that are in its own group
     lot_rows: bool                  #: Q-G: every station nearest the part is a road's or an apron's
+
+
+class BehindStep(_t.NamedTuple):
+    """THE ROLES BEHIND A DECLARED STEP (module docstring, R1) as the caller
+    reads them from their owners — ``emit/graded.FLOOR_ROLES`` and the wall
+    void's ``planar/basins.WALL_ROLE`` (``pipeline/late_stage.BEHIND_STEP``)."""
+
+    floors: frozenset[str]   #: a structure's floor and ramp roles
+    void: str                #: the wall void's role
+
+    def edges_not_rim(self, faces) -> set[int]:
+        """The edges that are NOT a structure's rim at ground: every edge of
+        a floor / ramp cell, and every edge two cells behind the step share
+        (the wall's foot, the seam between two wall parts)."""
+        seen: set[int] = set()
+        out: set[int] = set()
+        for f in faces:
+            if f.role in self.floors:
+                out |= _edges(f)
+            elif f.role == self.void:
+                own = _edges(f)
+                out |= own & seen
+                seen |= own
+        return out
 
 
 class _OwnRings:
@@ -119,14 +152,16 @@ def reach_m(law: Law) -> float:
 
 
 def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
-                    part_stations: _t.Mapping[str, PartStations] | None = None
+                    part_stations: _t.Mapping[str, PartStations] | None = None,
+                    behind_step: BehindStep | None = None
                     ) -> tuple[list[Linear], dict]:
     """The follow rows of every gap-piece vertex that is an UNKNOWN (not in
     ``fixed``), and the report: rows, vertices bound, conflicts (each with
     both neighbours and their levels).  ``part_stations`` (the cut's, by
     part ref) narrows a part's bounds to its own group's rings and the lot
     rows to road+apron parts (module docstring); ``declared`` in the report
-    lists every bound so refused."""
+    lists every bound so refused.  ``behind_step``: the roles no follower
+    follows across (R1) — floor cells bind nothing, a wall void its rim."""
     faces = planar.faces
     gap = [f for f in faces.values() if is_gap_ref(f.ref)]
     rep: dict = {"rows": 0, "conflicts": [], "declared": []}
@@ -150,13 +185,17 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
     from .roads import road_family_roles
     road_roles = frozenset(road_family_roles(law))
     road_i: list[int] = []
+    floors = behind_step.floors if behind_step else frozenset()
+    not_rim = behind_step.edges_not_rim(faces.values()) if behind_step else set()
     for f in faces.values():
-        if is_gap_ref(f.ref) or f.id in follower:
+        if is_gap_ref(f.ref) or f.id in follower or f.role in floors:
             continue
         rc = role_cap(law, f.role)
         cap = min(cap_p, float(rc.longitudinal)) if rc and rc.longitudinal else cap_p
         pad = is_rigid_role(law, f.role)
         for e in _edges(f):
+            if e in not_rim:
+                continue
             ed = planar.edges[e]
             # a follower follows every FIXED point of a neighbouring ring:
             # an edge with one fixed end binds at that end

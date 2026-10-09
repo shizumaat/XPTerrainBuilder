@@ -1,0 +1,108 @@
+{
+ "SPJC": {
+  "icao": "SPJC",
+  "capture": "/Users/noah/XPTerrainBuilderData/.harness/frames/fac334/SPJC_r4.pkl",
+  "dump": "/Users/noah/XPTerrainBuilderData/Airport_mod_cache/SPJC Lima by Los Flipantes 3.0 Nueva Terminal XP12/-13-078.dsf.27c8cd2f.text",
+  "gate_counts": {
+   "name": 107,
+   "refused": 284
+  },
+  "surface_only_by_def": {},
+  "surface_only_total": {},
+  "sheets_today_m2": 0,
+  "refused_hard_surface": {
+   "objectfede/lines/red_grid.pol": {
+    "n": 46,
+    "surface": "asphalt",
+    "layer": "paint"
+   },
+   "lib/airport/lines/safety_area_yellow.pol": {
+    "n": 4,
+    "surface": "asphalt",
+    "layer": "paint"
+   },
+   "lib/airport/lines/safety_area_red.pol": {
+    "n": 42,
+    "surface": "asphalt",
+    "layer": "paint"
+   }
+  },
+  "mint_control": {
+   "pieces": 0,
+   "m2": 0,
+   "stats": {
+    "gap_pieces": 0,
+    "gap_piece_m2": 0.0,
+    "gap_pieces_apron": 0,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 0
+   },
+   "s": 0.0
+  },
+  "mint_arm": {
+   "pieces": 0,
+   "m2": 0,
+   "stats": {
+    "gap_pieces": 0,
+    "gap_piece_m2": 0.0,
+    "gap_pieces_apron": 0,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 0
+   },
+   "s": 0.0,
+   "dist": {},
+   "apron_touching": 0,
+   "apron_touching_m2": 0,
+   "pieces_list": []
+  },
+  "mint_notes": [],
+  "page_over_aptdat_m2": {
+   "apron": 109,
+   "service_road": 1,
+   "parking_lot": 6
+  },
+  "page_over_aptdat_examples": {
+   "apron": [
+    [
+     "dsf:pol67",
+     102
+    ],
+    [
+     "dsf:pol72",
+     7
+    ]
+   ],
+   "service_road": [
+    [
+     "dsf:pol32",
+     1
+    ]
+   ],
+   "parking_lot": [
+    [
+     "dsf:pol73",
+     6
+    ]
+   ]
+  },
+  "sites": [
+   {
+    "lat": -12.01183841,
+    "lon": -77.11642874,
+    "cells": [
+     [
+      "pav6",
+      "junction",
+      "airside",
+      15387
+     ]
+    ]
+   },
+   {
+    "lat": -12.01181129,
+    "lon": -77.11675014,
+    "cells": []
+   }
+  ]
+ }
+}

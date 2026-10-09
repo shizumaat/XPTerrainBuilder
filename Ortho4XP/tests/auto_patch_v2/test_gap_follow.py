@@ -194,3 +194,43 @@ def test_a_lot_that_meets_a_pad_takes_no_lot_row():
         assert (rep["lot_rows"], len(rep["lot_targets"])) == (n, n), takes
     # a lot part the cut handed nothing for takes none
     assert gf.gap_follow_rows(pm, LAW, fixed, {"gap:8/lot": ps})[1]["lot_rows"] == 0
+
+
+def test_a_piece_beside_a_basin_follows_the_rim_never_the_floor_or_the_wall_foot():
+    """Spec §60 (9) R1: the cells behind a declared step (the floor / ramp
+    roles and the wall void) are never follow neighbours; the wall void's rim
+    edge at ground binds.  A floor 13 m down, 1.9 m from the piece."""
+    from auto_patch_v2.emit import graded
+    from auto_patch_v2.pipeline.late_stage import BEHIND_STEP
+    from auto_patch_v2.planar import basins
+    FLOOR_ROLES = graded.FLOOR_ROLES
+    # the stage reads the two existing sets, no list of its own
+    assert BEHIND_STEP == (frozenset(FLOOR_ROLES), basins.WALL_ROLE)
+    assert basins.WALL_ROLE == graded.VOID_ROLE
+    # floor 0..3 | wall void 1,8,9,2 (two parts, split at 12,13) | piece 4..7
+    # stands 1.2 m off the rim 8-9 and 1.7 m off the foot 1-2
+    coords = [(0.0, 0.0), (10.0, 0.0), (10.0, 40.0), (0.0, 40.0),
+              (11.7, 0.0), (40.0, 0.0), (40.0, 40.0), (11.7, 40.0),
+              (10.5, 0.0), (10.5, 40.0), (10.0, 20.0), (10.5, 20.0)]
+    faces = [("tunnel_trench", "basin_floor:4", (0, 1, 10, 2, 3)),
+             ("retaining_wall", "basin_wall:4", (1, 8, 11, 10)),
+             ("retaining_wall", "basin_wall:4#1", (10, 11, 9, 2)),
+             ("groundside_pavement", "gap:1/s3", (4, 5, 6, 7))]
+    floor, ground = -9.68, 3.96
+    fixed = {0: floor, 1: floor, 2: floor, 3: floor, 10: floor,
+             8: ground, 9: ground, 11: ground}
+    rows, rep = gf.gap_follow_rows(_pm(coords, faces), LAW, fixed,
+                                   behind_step=BEHIND_STEP)
+    by = {r.terms[0][0]: r for r in rows}
+    assert sorted(by) == [4, 7] and rep["conflicts"] == []
+    cap = role_cap(LAW, "groundside_pavement").longitudinal
+    for v in (4, 7):                       # the rim's level, the rim's ring alone
+        assert by[v].lo == pytest.approx(ground - cap * 1.2)
+        assert by[v].hi == pytest.approx(ground + cap * 1.2)
+        assert set(by[v].source.inputs) == {"retaining_wall:basin_wall:4"}
+    # every floor role is behind the step: a piece beside a ramp alone takes no row
+    for role in FLOOR_ROLES:
+        pm = _pm(COORDS, [(role, "ramp:0", (0, 1, 2, 3)),
+                          ("groundside_pavement", "gap:7", (4, 5, 6, 7))])
+        assert gf.gap_follow_rows(pm, LAW, {0: -3.0, 1: -3.0, 2: 0.0, 3: 0.0},
+                                  behind_step=BEHIND_STEP)[0] == []

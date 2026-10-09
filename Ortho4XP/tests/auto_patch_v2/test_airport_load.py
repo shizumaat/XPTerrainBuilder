@@ -748,3 +748,81 @@ def test_absent_ini_leaves_every_pack_enabled(tmp_path):
     root = _two_pack_root(tmp_path)
     assert not (root / "Custom Scenery" / "scenery_packs.ini").exists()
     assert A.find_apt_dat(str(root), _BORROW_ICAO) == _apt(root, "AAA Pack")
+
+
+# ── spec §60: a ``.pol`` admitted by its own SURFACE is a GAP SHEET ──────
+# (owner RULINGS 2026-10-04e (1) met through the gap stage, 2026-10-09a)
+
+_SHEET_DEFS = ("g/concrete_a.pol", "Ground/Poly/ASPH1.pol", "z/conc_3.pol",
+               "x/hangar_a.fac")
+
+
+def _dump_poly(def_idx: int, la: float, lo: float, d: float = 0.0004) -> list[str]:
+    pts = [(lo, la), (lo + d, la), (lo + d, la + d), (lo, la + d)]
+    return ([f"BEGIN_POLYGON {def_idx} 65535 4", "BEGIN_WINDING"]
+            + [f"POLYGON_POINT {x:.9f} {y:.9f} 0 0" for x, y in pts]
+            + ["END_WINDING", "END_POLYGON"])
+
+
+def _sheet_fixture(tmp_path: Path, order: tuple[int, ...]):
+    """A pack whose DSF dump places one polygon per def index in ``order``
+    (indices into ``_SHEET_DEFS``); ``ASPH1.pol`` declares ``SURFACE
+    asphalt`` on a pavement layer — a name the name gate refuses."""
+    root = _borrow_root(tmp_path, _sq(_LA, _LO, 0.004), None)
+    pack = root / "Custom Scenery" / "AAA Pack"
+    pol = pack / "Ground" / "Poly" / "ASPH1.pol"
+    pol.parent.mkdir(parents=True, exist_ok=True)
+    pol.write_text("A\n850\nDRAPED_POLYGON\nLAYER_GROUP runways +1\n"
+                   "TEXTURE a.png\nSURFACE asphalt\n", encoding="utf-8", newline="")
+    rows = [f"POLYGON_DEF {d}" for d in _SHEET_DEFS]
+    for n, k in enumerate(order):
+        rows += _dump_poly(k, _LA + 0.0006 * n, _LO + 0.005)
+    dump = tmp_path / "t.dsf.text"
+    dump.write_text("\n".join(rows + [""]), encoding="utf-8", newline="")
+    inputs = _dcx.replace(_borrow_inputs(root), dsf_dump_path=str(dump))
+    return load_with_report(_BORROW_ICAO, inputs, _borrow_law())
+
+
+def test_surface_admitted_pol_is_a_gap_sheet_never_a_source(tmp_path):
+    """Twin (a): the material page and the ``conc`` page are sources
+    ``dsf:pol0`` / ``dsf:pol1``; the SURFACE-only page is ``dsf:gapsheet0``
+    with its def path and its file's surface, and is in no ``pavements``."""
+    ap, rep = _sheet_fixture(tmp_path, (0, 1, 2))
+    dsf = {p.id: p.description for p in ap.pavements if p.id.startswith("dsf:")}
+    assert dsf == {"dsf:pol0": "g/concrete_a.pol", "dsf:pol1": "z/conc_3.pol"}
+    assert [(g.id, g.description, g.surface) for g in ap.gap_sheets] == [
+        ("dsf:gapsheet0", "Ground/Poly/ASPH1.pol", Surface.ASPHALT)]
+    assert rep.dsf_pavements == 2 and rep.dsf_gap_sheets == 1
+    assert 1000.0 < rep.dsf_gap_sheet_m2 < 2000.0       # a 0.0004° square
+
+
+def test_a_sheet_page_takes_no_polygon_index(tmp_path):
+    """Twin (b): every ``dsf:pol<i>`` / ``dsf:fac<i>`` id is the same with
+    the SURFACE page present and absent — the sheet is consumed before
+    the index advances."""
+    def ids(ap):
+        return ([p.id for p in ap.pavements if p.id.startswith("dsf:")],
+                [b.id for b in ap.buildings if b.id.startswith("dsf:")])
+    with_sheet, _ = _sheet_fixture(tmp_path / "a", (0, 1, 3, 1, 2))
+    without, _ = _sheet_fixture(tmp_path / "b", (0, 3, 2))
+    assert ids(with_sheet) == ids(without) == (
+        ["dsf:pol0", "dsf:pol2"], ["dsf:fac1"])
+    assert [g.id for g in with_sheet.gap_sheets] == ["dsf:gapsheet0", "dsf:gapsheet1"]
+    assert without.gap_sheets == ()
+
+
+def test_object_sheets_number_before_page_sheets(tmp_path, monkeypatch):
+    """Twin (c): an OBJ8 ``gap_only`` body keeps ``dsf:gapsheet0``; the
+    ``.pol`` page numbers on from it."""
+    from shapely.geometry import box
+    from auto_patch_v2.airport import object_pavement as OP
+
+    body = OP.DrapedBody("dsf:obj0", "objects/sheet.obj", "",
+                         box(500.0, 0.0, 540.0, 40.0), gap_only=True)
+    monkeypatch.setattr(OP, "read_object_pavements",
+                        lambda *a, **k: ([body], OP.ObjectPavementReport()))
+    ap, rep = _sheet_fixture(tmp_path, (1,))
+    assert [(g.id, g.description) for g in ap.gap_sheets] == [
+        ("dsf:gapsheet0", "objects/sheet.obj"),
+        ("dsf:gapsheet1", "Ground/Poly/ASPH1.pol")]
+    assert rep.dsf_gap_sheets == 1                       # the pages only

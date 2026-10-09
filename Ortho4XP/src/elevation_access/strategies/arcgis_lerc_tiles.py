@@ -80,6 +80,7 @@ class ArcgisLercTileStrategy:
         import requests
 
         import O4_Console_Encoding
+        import O4_UI_Utils
 
         if not has_gdal:
             return None
@@ -173,6 +174,7 @@ class ArcgisLercTileStrategy:
                 lerc_worker_argv(blob_directory, decoded_directory),
                 capture_output=True,
                 **O4_Console_Encoding.child_console_pipe(),
+                **O4_UI_Utils.external_tool_keyword_arguments(),
                 timeout=600,
             )
             if completed.returncode != 0:

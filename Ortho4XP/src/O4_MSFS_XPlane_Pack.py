@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import O4_Console_Encoding
+import O4_UI_Utils
 
 # Row types whose first column marks the start of an airport block and
 # whose fifth column carries the airport identifier: land airport (1),
@@ -675,6 +676,8 @@ def write_overlay_dsf(
                     # DSFTool's messages: ANSI code page on Windows, UTF-8
                     # elsewhere, decoded so a stray byte never raises (#419).
                     **O4_Console_Encoding.native_tool_pipe(),
+                    # posix_spawn, never fork (see external_tool_keyword_arguments).
+                    **O4_UI_Utils.external_tool_keyword_arguments(),
                 )
             except OSError as error:
                 raise RuntimeError(

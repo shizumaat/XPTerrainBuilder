@@ -1422,6 +1422,7 @@ class ParallelBuildRun:
     # -- cancellation ----------------------------------------------------
     def cancel_tile(self, tile):
         emit_stopped = False
+        cancelling = None
         with self._lock:
             if tile in self._queue:
                 self._queue.remove(tile)
@@ -1445,7 +1446,13 @@ class ParallelBuildRun:
                     else:
                         child.cancelling = True
                         accepted = child.send({"cmd": "cancel"})
+                        cancelling = child
                     break
+        if cancelling is not None:
+            # Same bounded clock as cancel_all: a per-tile Stop on a
+            # child wedged in an operation that never polls its red
+            # flag must not hang the run.
+            self._arm_cancel_escalation(cancelling)
         if emit_stopped:
             self._session._emit(TileState(lat=tile[0], lon=tile[1],
                                           state="queued", label="stopped"))
@@ -1472,18 +1479,26 @@ class ParallelBuildRun:
         for tile in drained + waiting:
             self._session._emit(TileState(lat=tile[0], lon=tile[1],
                                           state="queued", label="stopped"))
-        # The cancel command only raises the child's red_flag — a step
-        # wedged in an operation that never polls it would keep `busy`
-        # true forever and the run would never finish.  Escalate per
-        # child on a bounded clock: SIGTERM (the child's transport turns
-        # it into a bounded wind-down and exit), then SIGKILL as the
-        # backstop; _on_child_exit does the accounting either way.
         for child in cancelling:
-            escalate_timer = threading.Timer(
-                CANCEL_ESCALATE_SECONDS, self._escalate_cancel, (child,))
-            escalate_timer.daemon = True
-            escalate_timer.start()
+            self._arm_cancel_escalation(child)
         self._maybe_finish()
+
+    def _arm_cancel_escalation(self, child):
+        """Put a mid-step child's cooperative cancel on a bounded clock.
+
+        The cancel command only raises the child's red_flag — a step
+        wedged in an operation that never polls it would keep `busy`
+        true forever and the run would never finish.  Escalate on a
+        bounded clock: SIGTERM (the child's transport turns it into a
+        bounded wind-down and exit), then SIGKILL as the backstop;
+        _on_child_exit does the accounting either way and reports the
+        tile stopped (the cancel was the user's).  ONE implementation for
+        cancel_tile and cancel_all.
+        """
+        escalate_timer = threading.Timer(
+            CANCEL_ESCALATE_SECONDS, self._escalate_cancel, (child,))
+        escalate_timer.daemon = True
+        escalate_timer.start()
 
     def _escalate_cancel(self, child):
         process = child.process

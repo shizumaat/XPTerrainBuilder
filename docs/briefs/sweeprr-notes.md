@@ -94,3 +94,64 @@ roadramp2 lane's `analyze.py` re-pointed at the harness patches; build logs `bui
   are node-identical to main; nothing moved.
 * Ramps (build log): 1,777 groundside-road vertices from 1,602 contacts, all 1,777 targets on the DEM,
   **0 ramps** — the followable-ground check is 0 of 0.
+
+OTHH census (each arm under its own tree, identical): rows 2,562, `road_cross_section` 3 (0.15),
+`pavement_over_road_cap` 1, CRITICAL motion 0 / visual 2,062, adjudicated airside 493.
+
+## KCLT — the three items the implementer left open (replay / patch reads only; no build)
+
+Instrument: `v2_solve_replay --replay roadramp484/KCLT.pkl --from constraints --emit --solved-out` on this
+tree (body `c558693ad8bd` = `roadramp2_KCLT`), then `--why-from … --why-at / --why-vertex` per node
+(`<scratch>/sweeprr/kclt/why_*.txt`). Patch node −N is solve vertex v(N−1).
+
+(a) THE 5 `tunnel_ramp` NODES > 0.02 m (`sw7_KCLT` -> `roadramp2_KCLT`, way ref `tunnel_ramp`):
+
+| node | lat, lon | main -> branch | way | the only binding row on it |
+|---|---|---|---|---|
+| −16259 (v16258) | 35.20105481483, −80.94033935031 | 208.14 -> 208.01 (−0.13) | −10843 | `structures FLAT group 2 tunnel_ramp laterally flat (road_cross_section 0 %)`, dual 0.00 — "no terminal reached, the objective holds it" |
+| −16252 (v16251) | 35.20105482035, −80.94041621906 | 208.14 -> 208.01 (−0.13) | −10843 | the same FLAT row (its cross-section partner is −16259), dual 0.00 — the objective holds it |
+| −16230 (v16229) | 35.20274485833, −80.94042153054 | 210.03 -> 210.01 (−0.02) | −10841 | FLAT group 2 lateral row, dual 0.00 — the objective holds it |
+| −16219 (v16218) | 35.20273583092, −80.94022935566 | 210.03 -> 210.01 (−0.02) | −10841 | FLAT group 2 lateral row (partner −16230), dual 0.00 — the objective holds it |
+| −16120 (v16119) | 35.22699148745, −80.94620242601 | 219.74 -> 219.77 (+0.03) | −10835 | `structures OFFSET >= 0.000 -> v16101` (tunnel.ramp monotone profile, spec §34 (3)), dual 0.18; chain v16119 -> v16101 -> v16100 (cap 4.82 % x 11.0 m) -> v16099 (FLAT) -> PIN v16131 `tunnel.crest = dem` (`tunnel:-11194@0`), 4 hops |
+
+So −16259 is confirmed BY JOIN as the review's node (the implementer's "NOT RE-READ"). Four of the five are
+two lateral pairs at ramp ends that NO hard row holds in level (one zero-dual lateral-flat row each): their
+level is the objective's, and it follows the welded road's new target. The fifth sits on its ramp's
+monotone-profile row. None is held by a road-ramp row; all five stay inside the tunnel-ramp law.
+
+(b) THE TWO `[KCLT] road ramps built` LINES (38 / 598 m, then 14 / 344 m) are in the REPLAY log only
+(`<scratch>/roadramp2/B/KCLT/log.txt`); the harness build log has one. Both come from ONE print,
+`tools/v2_solve_replay.py:2154` inside `replay_problem._targets`, which runs twice: (1) on the FULL map
+(the line `pipeline/build.py:1058` also prints — 38 ramps), (2) inside `_ribbon_free`
+(`v2_solve_replay.py:~2227`, `shape_stage(_targets(…pm0…))`) on the RIBBON-FREE stage-1 map of #100 (c) —
+14 ramps / 344 m, fewer because the map has no ribbon cells. The build makes the same second call at
+`pipeline/build.py:1126` (`with_road_ramp(pm0, law, ap0, {}, …)`) with a throw-away report and prints
+nothing. Not a double application: two maps, one call each.
+
+(c) ARTIFACT LEDGER. The harness's own words at the refusal (`build_KCLT.log:565`, key `8d0e1ad5865e`):
+"The run's artifacts stay on disk; rebuild at a stable tree to earn the ledger entry." So YES, an entry
+needs a rebuild — but NOT REBUILT: the PR head moved to `5b1a7ab5` (touches `road_descent.py` /
+`road_ramp.py`), so an entry earned at code tree `fd3158bac7ba` would key a superseded tree; the master's
+sweep at the merged head earns it. Nothing else depends on the entry (the body is proven twice: build =
+replay arm B = this lane's replay, `c558693ad8bd`).
+
+## The seven rows (PR #487 @ `824680bb`; head is now `5b1a7ab5`, not rebuilt)
+
+| airport | body main -> branch | ramps / length / longest / max reach | every run at cap | on followable ground | rwy/taxi/apron movers | `road_cross_section` | CRITICAL motion / visual | adjudicated airside | rc, solve |
+|---|---|---|---|---|---|---|---|---|---|
+| CYXY | `cf8e9e89ec62` unchanged | 1 / 8 m / 8 m / 14.7 m | 0 | 0 | 0 | 18 = 18 | 0 / 52 | 254 = 254 | 0, optimal |
+| SPJC | `61f66f149737` unchanged | 1 / 8 m / 8 m / 44.6 m | 1 | 0 | 0 | 52 = 52 | 0 / 507 | 891 = 891 | 0, optimal |
+| KASE | `f9b157158a39` -> `c2200384ee0d` (1 node, 0.01 m) | 1 / 6 m / 6 m / 6.4 m | 0 | 0 | 0 | 14 = 14 | 1 / 45 | 2,654 = 2,654 | 0, optimal |
+| NLWF | `45ec40e74dcb` unchanged | 1 / 23 m / 23 m / 23.2 m | 0 | 0 | 0 | 24 = 24 | 0 / 23 | 3 = 3 | 0, optimal |
+| HECA | `75c751a9dd95` -> `189234d8e929` | 38 / 593 m / 57 m / 77.5 m | 3 | 0 | 0 | 512 -> 515 | 2 = 2 / 1,912 -> 1,910 | 12,205 = 12,205 | 0, optimal |
+| OTHH | `500f5dddce63` unchanged | 0 | 0 | 0 of 0 | 0 | 3 = 3 | 0 / 2,062 | 493 = 493 | 0, optimal |
+| KCLT (roadramp2 lane's build) | `0b1566de77d5` -> `c558693ad8bd` | 38 / 598 m / 103 m / 103 m | 2 | 0 | 0 | 767 -> 765 | 5 = 5 / 1,974 | 3,355 = 3,355 | 0, optimal |
+
+FOUND, NOT FIXED: (1) HECA `gap:8/s0/lot` node at 30.11510995356, 31.41089017767 flips 104.17 -> 101.80
+(2.37 m) — review R5's lot-rim relaxation defect, present in both arms at different levels; (2) HECA
+`road_cross_section` +3, `pavement_over_road_cap` +1, `hard_conflict` +3, `transverse` +7 (all groundside;
+airside counts equal) — rows not joined (`census_rows_diff` not run); (3) the registered captures
+`conc333/NLWF_main28500ecf.pkl` and `surf337/HECA.pkl` no longer match current builds (NLWF: wrong ramps;
+HECA: 4,108 vs 3,984 targets); (4) the ramp probe and `analyze.py` are now on their 4th / 3rd lane use,
+unpromoted (no INDEX row); this lane added a scratch `nodediff.py` (canonical-join node lister by
+role / ref / radius) that `airside_value_delta` does not offer per node.

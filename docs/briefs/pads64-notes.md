@@ -128,6 +128,36 @@ one 3 % uncovered). "Bordered by the pad's own faces or its plateau" therefore r
 takes the thin ones with no change; (ii) an AREA floor for a non-thin enclosed piece (93 / 111 m²) needs a number the law does not
 have — an owner / master decision; (iii) re-roling an apron-bordered sliver to open apron drops its hold: NOT a zero level change.
 
+## 4c. Arm `j3e` (commit `27f60b89`; the final code is `b168ff48` + a test-only commit `8179f4c2`: KASE body unchanged)
+
+KASE 75fcd0de0f1f, KCLT 49b7ac1a6e73, HECA first pass e230d9ff6466 / late 065c4ad78805 — all == `j3d` (no LP-relaxed weld was
+left to seal: `weld_seal.relaxed` 0). HECA late pass WITH the hold report carried: adjudicated airside 12,022 → 12,062 (+117
+without the record: 77 rows were the welded contacts' pairs), critical_motion 3 → 2, critical_visual 1,943 → 1,945
+(hairline_pair +4, all groundside; strip_seam_tear −2).
+
+## 4d. CLOSING HARNESS BUILDS (tree `8179f4c2`, tags `p64_*`, references `sw6_*` under MAIN's tool; `<scratch>/pads64/close.sh`)
+
+| airport | body (== replay?) | build s (sw6) | released pads / welds sw6 → p64 | WARNED | taxi-tier sw6 / J1 arm / p64 | runway movers | CRITICAL motion sw6 → p64 | CRITICAL visual sw6 → p64 |
+|---|---|---|---|---|---|---|---|---|
+| KASE | 75fcd0de0f1f (== j3e) | 35.9 (35.8) | 1 / 4 → **0 / 0** | 0 | 0 / 0 / 0 | 0 | 1 = 1 | 45 → 44 |
+| KCLT | 49b7ac1a6e73 (== j3e) | 261.8 (248.2) | 0 / 0 → 0 / 0 | 0 | 51 / 51 / 51 | 0 | 5 = 5 | 1,974 → 1,997 (hairline_pair +24 = the J1 arm's 1,997: collar deletion, J3 adds 0) |
+| HECA | b59b39641f50 (build frame; replay late pass 065c4ad78805) | 517.8 (489.5) | 6 / 27 → **0 / 0** | 0 | 67 / 71 (replay frame) / 68 | 0 | 3 → 2 | 1,910 → 1,967 (hairline_pair +59, strip_seam_tear −2; vs the J1 control build: owed below) |
+| OTHH | d3389a1c5a16 (== j3d == b1) | 569.5 (435.3, single runs under load, not a timing) | 0 / 0 → 0 / 0 | 0 | 0 / 8 / 8 | 0 (0 movers at all vs sw6) | 0 = 0 | 1,846 → 1,717 |
+
+HECA per pad (p64): `building147` 39,184 m² at 30.12759888, 31.40301330 — datum 71.113, misfit 0.775, 28 contacts give (max 0.795),
+1,444 rows, runway rows met 0; sealed `building138` 1 @ 0.021, `building157` 3 @ 0.039, `building165` 3 @ 0.042, `building193` 1 @ 0.020.
+KASE `building1` 5,417 m² at 39.21979668, -106.86460425: datum 2367.947, misfit 0.543, 9 contacts (max 0.563), 167 rows, 0 runway rows.
+No pad at or over the 1.0 m floor on the four airports; no pad split.
+
+OTHH owner site (25.259994, 51.6104872, r 150): sw6 57 faces / 2,330 ring vertices / collar 12 / building 18 → p64 56 / 1,742 / 0 / 17.
+FOUND (J0 / J1's, not J3's): at OTHH the J1 arm and p64 carry hard_conflict taxi 8 / pad 23 where sw6 carries none, with ZERO
+solve-owned movers against sw6.
+
+HECA feet (`feet.sh`, `feetcmp.py`; ten sites, r 60; within 0.3 m / feet) sw6 → p64: building147@30.1279552 33/120 → 99/103;
+@30.1265141 0/38 → 30/38; building4@30.1141299 5/141 → 63/134; @30.1123068 21/108 → 48/108; @30.1110593 26/90 → 23/87;
+@30.1110619 41/107 → 36/102; building64 69/74 =; building29 44/60 → 45/60; building7 / building6 11/164 =; building4@30.1080544 204/272 =.
+Whole pad: building4 3,827/11,416 → 4,883/11,492; building147 398/957 → 887/941. The J1 control build (`p64j1_HECA`) is the bar: running.
+
 ## 5. Next
 
 `j3c` arms KCLT / HECA (+ late) / OTHH run from the FROZEN tree `pads63j1` detached at the arm's sha (`chain_j3.sh TAG SHA`), so this

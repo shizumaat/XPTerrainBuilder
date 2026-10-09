@@ -7,7 +7,7 @@ is, so its grade is a DESIGN choice: ``[tunnel] ramp_grade``.  The cap
 where the design grade cannot top out in the run it has.  The climb
 itself — where a given grade meets the DEM along the route — stays
 :func:`structure_approach.ramp_top`'s; this module only chooses the
-grade.  An object-framed ramp (a door well, a wall corridor: RULINGS
+grade, by the arithmetic every unframed ramp shares (``geom/ramp_grade``).  An object-framed ramp (a door well, a wall corridor: RULINGS
 2026-10-07e) takes its length and depth from the object and reads
 neither key.
 """
@@ -20,6 +20,7 @@ import shapely
 from shapely.geometry import LineString, Point
 
 from ..airport.dem import dem_z_at
+from ..geom.ramp_grade import GRADE_SLACK, built_grade, least_grade
 from ..law import Law
 from ..model.airport import Airport
 from .structure_approach import ramp_top
@@ -57,26 +58,27 @@ def unframed_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from
     met the ground in 600 m, is the ramp the cap is for (9.84 %)."""
     tn = law.tables.structures.tunnel
     bound = tn.max_ramp_length_m if max_len is None else max_len
-    need = None
-    s = 0.0
-    while s < bound:
-        s += spacing
-        if within is not None and s + spacing > within + 1e-9:
-            break
-        if s <= climb_from:
-            continue
-        d = dem_z_at(airport, axis_fn(s))
-        if math.isnan(d):
-            break
-        g = abs(d - mouth_z) / (s - climb_from)
-        need = g if need is None else min(need, g)
-    if need is None or need > tn.ramp_max_grade + 1e-12:
+
+    def _run() -> _t.Iterator[tuple[float, float]]:
+        s = 0.0
+        while s < bound:
+            s += spacing
+            if within is not None and s + spacing > within + 1e-9:
+                return
+            if s <= climb_from:
+                continue
+            d = dem_z_at(airport, axis_fn(s))
+            if math.isnan(d):
+                return
+            yield s - climb_from, d - mouth_z
+
+    grade = built_grade(least_grade(_run()), tn.ramp_grade, tn.ramp_max_grade)
+    if grade is None:
         return None, None, ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing,
                                     grade=tn.ramp_max_grade, max_len=max_len)[1]
-    grade = max(need, tn.ramp_grade)
     # the ulp of slack only makes the LEAST grade's own station read as met
     s_top, ss = ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing,
-                         grade=grade * (1.0 + 1e-9), max_len=max_len)
+                         grade=grade * GRADE_SLACK, max_len=max_len)
     return (grade, s_top, ss) if s_top is not None else (None, None, ss)
 
 

@@ -100,3 +100,18 @@ v40601…, pad_flat weight) and ONE `pavement_road_cap` 10 % x 1.0 m to v40607 (
 the road by the fallback cap and the road is held by its ramp ceiling; the pad's hard plane loses (81 relaxed pad-tier rows).
 Same pair of mechanisms as building164 (step 3): the road's ramp law fixes the road vertex, a two-sided hard pavement row
 (the 29ac fallback here, §37's ramp equality there) ties the pad|road pair, and the pad-side law is what the LP relaxes.
+
+## Step 5 — ARM A1: `--drop-generator pavement_road_cap` (HECA base capture, 6 min)
+
+`cmp_arm.py base armA1` + `airside_value_delta --tol 0.02`:
+* hard_conflict by tier 175 / 108 / 62 (groundside / pad / taxi) -> 143 / 20 / 59: the pad tier loses 88 of its 108 rows.
+* platform datums moved > 0.02 m: 0 of 47 (every held pad keeps its seat; building75's datum 100.859 unchanged).
+* airside value delta: runway 0; solve-owned taxi 104 nodes (worst 0.23 m), apron 18 (worst 0.04), strip 197 (0.64);
+  row-side "other" 602 nodes, worst 3.60 m at 30.11458199456,31.40540642024 (building15).
+* P classes: AIR-TOUCH 21 = 21, AIR-NEAR 7 = 7, GAP 118 -> 117, ARMED 1 -> 2, **GS-NEAR 15 -> 20 runs, 515 -> 1,555 m**
+  (building15 | objpav394 now −7.04 m over 307 m of rim; building5 | pol10 −7.33).
+READING: the 29ac fallback cap is today's de-facto SEAT of a landside-only pad — a hard two-sided 10 % weld to the nearest
+road vertex inside ~1 m; with it gone the §20 senior fit (priced) lets the pad drift metres (building15 3.6 m). So R-F
+cannot land alone: the pad|pavement pair across the stand-off must be re-stated as the SEAT relation in the same step —
+one-way, HARD, the pad following its one leader (R-C rule 1), the other faces following the pad (R-C rule 2) — and the
+fallback excludes every pad vertex. (why-hard on the arm and a why at building15 queued: `whyA1.sh`.)

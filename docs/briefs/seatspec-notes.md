@@ -183,3 +183,15 @@ not probed. The extra "between two disagreeing neighbours" (15 -> 27) are pad|lo
 each is a place where rule 2's knife belongs on the pad side.
 * KCLT arm E (31 faces with holes, 21,689 cross-ring pairs, 11,241 kept) died at the work-pool spawn (BrokenPipe in
   `multiprocessing` while arm D ran beside it) — re-run alone.
+
+## Step 10 — ARM E at KCLT (re-run alone with the spawn guard; 31 faces with holes, 21,689 pairs, 11,241 kept)
+
+`cmp_arm.py kclt armEk KCLT` + `airside_value_delta`: **AIR-TOUCH 3 / 28 m -> 0** (building75 | pav14, building84 |
+pav14#plateau, building9 | pol43#plateau); ARMED 2 = 2, T28 2 = 2, GS-NEAR 9 / 95 -> 9 / 86. Held datums moved 12 of 55 —
+`pav14`'s pads come UP to the sheet: building75 / 83 221.034 -> 222.445, building81 220.703 -> 221.751 (owner-site z−DEM
+−0.49 -> +0.44); the four small ones −0.075. hard_conflict 279 / 31 / 51 -> 289 / 28 / 49. Airside (solve-owned): **runway 0**,
+taxi 521 (worst 1.34 m at 35.21954,−80.94391), apron 1,920 (1.90 m at 35.22029,−80.94429 = the pav14 sheet), strip 640 (0.99).
+So the rule moves a sheet's pads to the sheet's one grade in whichever direction the sheet's law puts it — up at KCLT (the
+sheet near its DEM plane), down at HECA (the 1 % preference chained to the taxiway) — which is exactly Q2.
+The first two KCLT runs died in `multiprocessing` spawn: a scratch driver that calls `main()` at module level is re-imported
+by every pool worker (HECA happened not to spawn before the solve); the `if __name__ == '__main__'` guard fixed it.

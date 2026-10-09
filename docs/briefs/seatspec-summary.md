@@ -14,6 +14,7 @@ in `<scratch>/seatspec/` (`siteE.py`, `rows_on.py`, `cmp_arm.py`, `armE.py`, `ar
 | late pair (`--gap-free` base + `--late-from`) | = the build: GAP 51 / 339 m, M 255, GS-NEAR 16 / 570; 16 of 53 GAP runs stand beyond the 1.95 m follow reach |
 | A1 `--drop-generator pavement_road_cap` | pad conflicts 108 → 20 (building75's 81 gone, 0 rows on v22865); held datums 0 of 47 moved; BUT GS-NEAR 515 → 1,555 m — landside pads drift 3.6 m: the fallback cap is today's de-facto seat of a landside-only pad |
 | E `armE.py` (apron chords across the rings of one face, 5,695 rows) | **AIR-TOUCH 21 → 0, AIR-NEAR 7 → 4**; pad conflicts 108 → 88; 32 of 47 datums moved — the objpav402 pads to ONE grade (building100 101.25 → 93.79) 8.5 m under the DEM; runway 113 movers worst 0.14 m (1.7 km away, the §61 class), taxi 2,347 (0.82), apron 2,120 (2.17) |
+| E at KCLT (31 faces, 11,241 rows) | **AIR-TOUCH 3 → 0**; 12 of 55 datums moved — pav14's pads UP (building75 221.03 → 222.45); runway 0, taxi 521 (1.34), apron 1,920 (1.90) |
 | RR `--drop-generator road_ramp` (attribution only) | building164's 66 m ARMED run → 0 m; groundside conflicts 175 → 18; datums 0 moved; runway / taxi 0 |
 | D `armD.py` (follow reach = the piece's stand-off, 2.81 m) | **GAP 51 / 339 m → 17 / 156 m**; nothing standing moves; the 17 left are the cut's (Voronoi group / floor merge) |
 
@@ -32,7 +33,7 @@ in `<scratch>/seatspec/` (`siteE.py`, `rows_on.py`, `cmp_arm.py`, `armE.py`, `ar
 
 R-C one leader for a landside-only pad (the senior touching face, HARD), every other touching face follows it under §28, the §28 (6) terrace the one exception (09f). R-D the pad station is a FIXED contact of its gap part: reach = the stand-off, the cut anchored on the pad, no merge of a pad station; "terrace otherwise" = the knife inside the piece. R-E `apron_within_shape` body chords across the rings of one face (no new head / key / weight). R-B no road law fixes a road vertex inside a seated pad's frontage (ramp target / ceiling / coverage-join pin start outside it). R-F the 29ac fallback never pairs a pad vertex — landing WITH R-C rule 1 (arm A1 shows R-F alone releases landside pads).
 
-## Unproven: R-C rule 2 (§28 population widening; no knob), R-D rule 2 (the cut), R-E at KCLT / OTHH (counted, not replayed — KCLT arm re-run pending at hand-back), the 08d (2) misfit on a sheet whose relief exceeds 1.5 %.
+## Unproven: R-C rule 2 (§28 population widening; no knob), R-D rule 2 (the cut), R-E at OTHH / SPJC (counted, not replayed; HECA and KCLT replayed), the far-field airside movers of the E arms (§61's class), the 08d (2) misfit on a sheet whose relief exceeds 1.5 %.
 
 ## Owner questions (yes/no, recommendation)
 

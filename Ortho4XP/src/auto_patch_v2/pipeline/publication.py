@@ -138,7 +138,7 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from ..planar.cluster import deck_shades as _deck_shades
 
-__all__ = ["gap_pieces", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
+__all__ = ["gap_pieces", "pad_touch", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
 
 #: 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
@@ -824,6 +824,19 @@ def gap_pieces(cut: _t.Mapping[str, _t.Any] | None,
                         "airside_edge_m": round(float(ev["airside_edge_m"]), 1),
                         "road_evidence": bool(ev["road_evidence"])})
     return out
+
+
+def pad_touch(cells: _t.Iterable[_t.Any], law: Law) -> list[dict[str, _t.Any]]:
+    """Sidecar ``pad_touch`` (spec §63 (3) Rule T, owner RULINGS
+    2026-10-09j): per pad the groundside pavement cells that TOUCH it in
+    the source geometry and the ones that stand off it with their gap —
+    ``classify.pad_touch.touch_records`` over the classification's cells,
+    the ONE derivation.  EVIDENCE: ``tools/pad_edge_read.py --source``
+    classes a pad-edge run TOUCH-OFF (a defect) or GAPPED (accepted) by
+    it.  An airport with no pad beside groundside pavement carries no such
+    key."""
+    from ..classify.pad_touch import touch_records
+    return touch_records(cells, law)
 
 
 def late_stage(stage: _t.Mapping[str, _t.Any]) -> dict[str, _t.Any]:

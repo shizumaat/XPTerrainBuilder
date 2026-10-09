@@ -98,6 +98,7 @@ from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
 from .open_default import apron_evidence, open_pavement_role
+from .pad_touch import EVIDENCE_KEY, gridded, touch_distances
 from .rules import Rules, load_rules
 from .sources import (SourceRecord, apron_union, classify_sources,
                       object_body_cuts)
@@ -887,23 +888,30 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
     gpolys = [Polygon(cells[i].ring, cells[i].holes) for i in ground_idx]
     g_tree = STRtree(gpolys)
     knives: list[Polygon] = []
+    pad_polys: list[tuple[str, Polygon]] = []
     for c in pads:
         # a groundside cell within the set-back is cut back whether it
         # touches the pad or lies a sliver off it: the identity grid would
         # otherwise weld the two (CYXY lot 87 / building9, 04u)
-        # (precision model stripped again: a buffer of a gridded geometry
-        # is itself rounded to the grid — ``planar/build._snapped``)
-        poly = shapely.set_precision(
-            shapely.set_precision(Polygon(c.ring, c.holes), grid), 0.0)
-        if poly.is_empty or poly.geom_type != "Polygon":
-            poly = Polygon(c.ring, c.holes)
+        poly = gridded(Polygon(c.ring, c.holes), grid)
+        pad_polys.append((c.ref, poly))
         probe = poly.buffer(knife_m)
         near_ground = any(gpolys[int(k)].distance(poly) <= knife_m
                           for k in g_tree.query(probe, predicate="intersects"))
         if near_ground:
             knives.append(poly.buffer(knife_m, join_style="mitre", mitre_limit=2.0))
+    # THE TOUCH WITNESS (spec §63 (3) Rule T, owner RULINGS 2026-10-09j):
+    # read HERE, on the cells as drawn, before the knife can manufacture
+    # a gap — published on the cell's evidence and carried by every part
+    # the knife leaves
+    witness = touch_distances([gridded(g, grid) for g in gpolys], pad_polys, law)
+    touch = {i: w for i, w in zip(ground_idx, witness) if w}
+    if touch:
+        cells = [(_dc.replace(c, evidence=dict(c.evidence, **{EVIDENCE_KEY: touch[i]}))
+                  if i in touch else c) for i, c in enumerate(cells)]
     if not knives:
         return cells, 0
+    ground_idx = set(ground_idx)
     knife = unary_union(knives)
     out: list[Cell] = []
     n_cut = 0

@@ -89,3 +89,50 @@ def test_a_declared_structure_beside_the_pad_is_the_structures_wall() -> None:
 
 def test_the_default_structure_roles_are_the_laws_own() -> None:
     assert "tunnel_ramp" in per.structure_roles() and "apron" not in per.structure_roles()
+
+
+# ── --source: the touch witness (spec §63 (3), owner RULINGS 2026-10-09j) ──
+
+def _p_runs(lot_z: float, apron_far_z: float = 50.0) -> tuple[list, dict]:
+    g = _graded(apron_far_z, lot_z)
+    for f in g["faces"]:
+        f["side"] = "groundside" if f["role"] == "parking_lot" else "airside"
+    runs = per.read_edges(structures=frozenset({'tunnel_ramp'}), graded=g, dem=lambda la, lo: 50.0)
+    return runs, g
+
+
+def _source_cls(runs: list) -> list:
+    return [(r["source"]["cls"], r["source"]["cell"], r["source"]["gap_m"]) for r in runs if r.get("source")]
+
+
+def test_a_cell_touching_the_pad_in_the_source_and_standing_off_it_is_the_defect() -> None:
+    runs, g = _p_runs(43.0)
+    per.class_by_source(runs, g, [{"pad": "building1", "touching": ["parking_lot:lot1#1"], "gapped": []}])
+    assert _source_cls(runs) == [("TOUCH-OFF", "parking_lot:lot1", 0.0)]
+    assert any("P:TOUCH-OFF: 1 run(s)" in ln for ln in per.render_source(runs))
+
+
+def test_a_cell_drawn_with_a_gap_is_accepted_and_listed_with_its_gap() -> None:
+    runs, g = _p_runs(43.0)
+    per.class_by_source(runs, g, [{"pad": "building1", "touching": [],
+                                   "gapped": [{"cell": "parking_lot:lot1", "gap_m": 1.5}]}])
+    assert _source_cls(runs) == [("GAPPED", "parking_lot:lot1", 1.5)]
+    assert any("gap 1.50 m" in ln for ln in per.render_source(runs))
+
+
+def test_an_airside_cell_and_a_cell_with_no_record_are_never_guessed() -> None:
+    runs, g = _p_runs(50.0, apron_far_z=52.0)
+    per.class_by_source(runs, g, [])
+    assert _source_cls(runs) == [("AIRSIDE", "apron:pav1", None)]
+    runs, g = _p_runs(43.0)
+    per.class_by_source(runs, g, [])
+    assert _source_cls(runs) == [("UNWITNESSED", "parking_lot:lot1", None)]
+
+
+def test_the_witness_is_read_off_the_sidecar(tmp_path) -> None:
+    import json
+    side = tmp_path / "X.axes.json"
+    side.write_text(json.dumps({"pad_touch": [{"pad": "building1", "touching": ["parking_lot:lot1"], "gapped": []}]}))
+    assert per.source_witness(side)[0]["touching"] == ["parking_lot:lot1"]
+    (tmp_path / "Y.axes.json").write_text("{}")
+    assert per.source_witness(tmp_path / "Y.axes.json") == []

@@ -11571,6 +11571,12 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # ordinary families; a part-aware reader names a merged-sliver step
     # from this record instead of re-deriving the cut.
     "gap_pieces",
+    # spec §63 (3) Rule T (owner RULINGS 2026-10-09j, sidecar ``pad_touch``,
+    # ``pipeline/publication.pad_touch``): per pad the groundside cells
+    # that TOUCH it in the source geometry and the GAPPED ones with their
+    # gap.  EVIDENCE: ``tools/pad_edge_read.py --source`` classes by it;
+    # the census prices nothing from it.
+    "pad_touch",
     # (``basin_facilities`` was here — an EVIDENCE key nothing read —
     # until the tunnel-trench declared-step law made it LAW INPUT; it now
     # lives in ``SIDECAR_LAW_KEYS`` above.  Its own spec is

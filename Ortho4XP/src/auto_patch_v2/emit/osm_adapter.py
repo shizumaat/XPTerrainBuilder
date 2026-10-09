@@ -200,6 +200,10 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # (``pipeline/publication.gap_pieces``).  EVIDENCE, not law input;
     # written only by a build that ran the last stage.
     "gap_pieces",
+    # spec §63 (3) Rule T (owner RULINGS 2026-10-09j): per pad the
+    # groundside cells TOUCHING it in the source geometry and the GAPPED
+    # ones with their gap (``pipeline/publication.pad_touch``).  EVIDENCE
+    "pad_touch",
     # spec §55 (15) rule B: what the last stage USED — ``{"floor_m",
     # "followers"}`` (``pipeline/publication.late_stage``).  LAW INPUT
     # (``check_grade.SIDECAR_LAW_KEYS``): the census prices a pair of two

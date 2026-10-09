@@ -2,6 +2,7 @@
 BARE or PAVEMENT-ADJACENT (owner RULINGS 2026-10-09d (1)).
 
     venv/bin/python tools/pad_edge_read.py GRADED.json --capture CAP.pkl \
+        [--source SIDECAR.axes.json|CAP.pkl] \
         [--off 1.0] [--within 10] [--standoff 3] [--json OUT.json] [--top N]
 
 The ruling: a pad edge with NO pavement against it meets raw DEM with
@@ -38,8 +39,25 @@ bearings at 2 / 5 / ``--within`` metres wherever no patch cell covers the
 sample.  It PRICES NO LAW AND COUNTS NO DEFECTS — defect counts come from
 ``tools/harness/census.py`` and nowhere else.
 
+``--source`` CLASSES EVERY ``P`` RUN BY THE TOUCH WITNESS (spec §63 (3)
+Rule T, owner RULINGS 2026-10-09j: a groundside cell that TOUCHES the pad
+in the SOURCE geometry is welded to it; one drawn with a gap is free and
+the height at the pad's edge is a wall or embankment, not a defect).  The
+witness is the build's own — the sidecar key ``pad_touch`` of the patch's
+``.axes.json`` — or, given a capture pickle, ``classify`` re-run under THIS
+tree and ``classify.pad_touch.touch_records`` over its cells (for a patch
+built before the key existed).  The run's worst groundside pavement cell
+decides: ``TOUCH-OFF`` (it touches the pad in the source and stands off
+it: the defect), ``GAPPED`` (drawn with a gap, listed with the gap:
+accepted), ``AIRSIDE`` (an airside cell: §20's, not this witness's),
+``ENGINE`` (a gap / facade piece or a road ribbon — pavement the engine
+minted with its own stand-off, no source polygon to witness) and
+``UNWITNESSED`` (no record: say so, never guess).
+
 Promoted from lane pads66's scratch ``bank.py`` on its second use (lane
-pads67; RULINGS ``7e90032``).  Twin: ``tests/test_pad_edge_read.py``.
+pads67; RULINGS ``7e90032``); ``--source`` from lane chainlag's scratch
+``gapread.py`` on its second use (lane weld63).  Twin:
+``tests/test_pad_edge_read.py``.
 """
 from __future__ import annotations
 
@@ -299,6 +317,86 @@ def capture_dem(path: Path) -> Dem:
     return dem
 
 
+SOURCE_CLASSES = ("TOUCH-OFF", "GAPPED", "AIRSIDE", "ENGINE", "UNWITNESSED")
+
+
+def source_witness(path: Path) -> list[dict]:
+    """The touch witness as ``pad_touch`` records: read off a sidecar
+    (``.json``), or derived from a capture pickle by ``classify`` under
+    this tree (the ONE derivation, ``classify.pad_touch.touch_records``)."""
+    if path.suffix == ".json":
+        return list(json.loads(path.read_text()).get("pad_touch") or [])
+    here = Path(__file__).resolve().parents[1]
+    if str(here / "src") not in sys.path:
+        sys.path.insert(0, str(here / "src"))
+    with open(path, "rb") as fh:
+        rec = pickle.load(fh)
+    from auto_patch_v2.classify import classify, load_rules
+    from auto_patch_v2.classify.pad_touch import touch_records
+    from auto_patch_v2.law import Law
+    law = Law.for_airport(rec["icao"])
+    return touch_records(classify(rec["airport"], law, load_rules()).cells, law)
+
+
+def _base(name: str) -> str:
+    """``role:ref`` without a part suffix (``#k``)."""
+    return name.split("#")[0]
+
+
+def class_by_source(runs: Sequence[dict], graded: dict, witness: Sequence[dict], *,
+                    off_m: float = 1.0, standoff_m: float = 3.0) -> None:
+    """Set ``run["source"]`` on every ``P`` run: ``{"cls", "cell", "gap_m"}``
+    — the run's worst pavement cell (the one standing furthest off the rim
+    inside the stand-off) read against the witness."""
+    from auto_patch_v2.model.planar import is_late_ref, is_osm_ribbon_ref
+    side = {f"{f['role']}:{f['ref']}": f.get("side") for f in graded["faces"]}
+    touch: dict[tuple[str, str], float] = {}
+    for rec in witness:
+        pad = rec["pad"]
+        for name in rec.get("touching", ()):
+            touch[(pad, _base(name))] = 0.0
+        for g in rec.get("gapped", ()):
+            touch.setdefault((pad, _base(g["cell"])), float(g["gap_m"]))
+    for r in runs:
+        if r["cls"] != "P":
+            continue
+        cs = [c for c in r["cells"] if c["kind"] == "pavement" and c["dist_m"] <= standoff_m
+              and abs(c["off_m"] if c["touching"] else c["step_m"]) > off_m]
+        if not cs:
+            continue
+        c = max(cs, key=lambda c: abs(c["off_m"] if c["touching"] else c["step_m"]))
+        ref = c["cell"].split(":", 1)[1]
+        d = None
+        for pad in (r["pad"], r["pad"].split("/")[0]):
+            if (pad, _base(c["cell"])) in touch:
+                d = touch[(pad, _base(c["cell"]))]
+                break
+        if side.get(c["cell"]) == "airside":
+            cls = "AIRSIDE"
+        elif d is not None:
+            cls = "TOUCH-OFF" if d == 0.0 else "GAPPED"
+        elif is_late_ref(ref) or is_osm_ribbon_ref(ref):
+            cls = "ENGINE"
+        else:
+            cls = "UNWITNESSED"
+        r["source"] = {"cls": cls, "cell": c["cell"], "gap_m": d,
+                       "off_m": c["off_m"] if c["touching"] else c["step_m"]}
+
+
+def render_source(runs: Sequence[dict]) -> Iterable[str]:
+    rs = [r for r in runs if r.get("source")]
+    for cls in SOURCE_CLASSES:
+        got = [r for r in rs if r["source"]["cls"] == cls]
+        yield (f"== P:{cls}: {len(got)} run(s), {sum(r['length_m'] for r in got):.0f} m"
+               + ("  (the defect: touching in the source, off the pad)" if cls == "TOUCH-OFF" else
+                  "  (accepted, 2026-10-09j: listed only)" if cls == "GAPPED" else ""))
+        for r in sorted(got, key=lambda r: -r["length_m"]):
+            s = r["source"]
+            yield (f"   {r['pad']:26s} | {s['cell'][:40]:40s} {r['site'][0]:.11f}, {r['site'][1]:.11f}  "
+                   f"off {s['off_m']:+6.2f}  {r['length_m']:6.1f} m"
+                   + ("" if s["gap_m"] in (None, 0.0) else f"  gap {s['gap_m']:.2f} m"))
+
+
 NAMES = {"P": "PAVEMENT OFF (seat candidates)", "M": "PAVEMENT MEETS THE RIM, the height is beside it",
          "W": "STRUCTURE (the law's declared walls / ramps / trenches)", "S": "GRADED STRIP", "B": "BARE (accepted by 2026-10-09d (1))"}
 
@@ -321,6 +419,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("graded", type=Path)
     ap.add_argument("--capture", type=Path, help="a v2_solve_replay --capture pickle: the build's DEM")
+    ap.add_argument("--source", type=Path,
+                    help="the touch witness: the patch's .axes.json sidecar (key pad_touch), or a capture "
+                         "pickle to re-classify under this tree")
     ap.add_argument("--off", type=float, default=1.0)
     ap.add_argument("--within", type=float, default=10.0)
     ap.add_argument("--standoff", type=float, default=3.0)
@@ -339,6 +440,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
           f"(stand-off {a.standoff} m): {len(runs)} run(s)")
     for line in render(runs, a.top):
         print(line)
+    if a.source:
+        if not a.source.is_file():
+            print(f"REFUSED: no touch witness at {a.source}", file=sys.stderr)
+            return 2
+        class_by_source(runs, graded, source_witness(a.source), off_m=a.off, standoff_m=a.standoff)
+        for line in render_source(runs):
+            print(line)
     if a.json:
         a.json.write_text(json.dumps({"icao": graded.get("icao"), "off_m": a.off, "within_m": a.within,
                                       "standoff_m": a.standoff, "dem": bool(dem), "runs": runs}, indent=1))

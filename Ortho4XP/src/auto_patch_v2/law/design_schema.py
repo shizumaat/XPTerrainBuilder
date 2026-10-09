@@ -19,7 +19,8 @@ __all__ = ["Design", "DESIGN_TERMS", "BEND_CLASSES", "check_design"]
 #: integrated curvature, every other term metres of elevation).
 DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "bend_strip", "bend_road", "chord", "law",
-                                 "taxi_profile", "taxi_trend", "road",
+                                 "taxi_profile", "taxi_trend", "taxi_xsec",
+                                 "free_membrane", "road",
                                  "detached_mean", "body_datum", "apron_trend",
                                  "ground_datum", "set_stall_tol")
 
@@ -118,6 +119,17 @@ class Design:
     #: rather than pulled to a chain it does not belong to.  It is a REACH,
     #: not a law value: it bounds which chain may speak for a vertex.
     taxi_trend_face_reach_m: float
+    #: THE TAXIWAY EDGE TAKES ITS CENTRELINE'S LEVEL (owner RULINGS
+    #: 2026-10-09e; spec §61 (1)): every taxi-family vertex off the
+    #: centreline that carries no trend row takes ONE relational row to the
+    #: foot of its perpendicular on its own face's chain
+    #: (``PlanarMap.taxi_xsec``).  Priced at the taxi sheet's own bending
+    #: price: the row NAMES the level, the bending still SHAPES the sheet.
+    taxi_xsec: float
+    #: §61 (1) THE MEMBRANE: a taxi-family column no chain reaches and no
+    #: row levels takes one first-difference row to each bending neighbour
+    #: — "level with what is beside it", at the same price.
+    free_membrane: float
     road: float
     #: §20a THE ACTIVE SET'S STALL EXIT (lane ``v2settle`` r2, owner RULINGS
     #: 2026-09-14br).  The damped active-set iteration ends when the set
@@ -321,6 +333,12 @@ class Design:
     #: law: it decides whether the surface IS the minimum of the objective
     #: every law row is priced into, or a point 1.5 % above it.
     solver: str
+    #: §61 (4) THE QP's EXIT: the §20c iteration is converged when one
+    #: accepted step buys less than this, RELATIVE to the objective
+    #: (``solve/design_qp.solve_one_sided``).  A law number, not a module
+    #: constant: with the valley closed (``taxi_xsec``, ``free_membrane``)
+    #: the exit decides how reproducible the surface is.
+    qp_rel_tol: float
     active_set_max_rounds: int
     active_set_tol_m: float
     solver_tol: float
@@ -349,6 +367,9 @@ def check_design(d: Design, err: type[Exception],
         w = d.weight(term)
         if not (w > 0.0) or w != w or w in (float("inf"), float("-inf")):
             raise err(f"emit.design.{term} {w}: a positive, finite weight")
+    if not 0.0 < d.qp_rel_tol < 1.0:
+        raise err(f"emit.design.qp_rel_tol {d.qp_rel_tol}: a relative "
+                  f"objective gain in (0, 1) — the §20c QP's exit (§61 (4))")
     if not d.runway_profile_window_m > 0.0:
         raise err(f"emit.design.runway_profile_window_m "
                   f"{d.runway_profile_window_m}: positive metres — the "

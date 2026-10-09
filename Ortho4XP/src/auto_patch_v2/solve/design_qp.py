@@ -102,10 +102,6 @@ _LAMBDA_DOWN = 4.0
 _LAMBDA_FLOOR = 1.0e-9
 #: at most this many λ increases before the step is declared unavailable
 _BACKOFF_MAX = 12
-#: the iteration is CONVERGED when one accepted step buys less than this,
-#: relative to the objective (a convex C¹ function at its minimum buys
-#: nothing; this is the floor of double precision on that reading)
-_REL_TOL = 1.0e-9
 #: a ceiling, whose hit is a NAMED failure and never a silent stop (§20a's
 #: discipline for every loop in this solve)
 _ROUNDS_MAX = 400
@@ -131,7 +127,7 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
                     x0: np.ndarray | None,
                     U: sp.csr_matrix | None, c: np.ndarray | None,
                     *, method: str, solver_tol: float, solver_max_iter: int,
-                    low_rank: str, active_tol: float = 0.0,
+                    low_rank: str, rel_tol: float, active_tol: float = 0.0,
                     verbose: bool = False) -> QPResult:
     """Minimise ``F`` (module docstring) to its unique optimum.
 
@@ -146,6 +142,10 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
     ``x0`` is the warm start (the previous outer round's iterate, or
     ``None`` for the cold solve, which starts from the unconstrained
     least-squares point).
+
+    ``rel_tol`` is ``[design] qp_rel_tol`` (§61 (4)): the iteration is
+    CONVERGED when one accepted step buys less than it, relative to the
+    objective — a convex C¹ function at its minimum buys nothing.
     """
     t0 = time.perf_counter()
     nc = A0.shape[1]
@@ -215,7 +215,7 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
         if verbose:
             print(f"    [design/qp] round {rnd}: F {f:.10g} (-{gain:.4g}) "
                   f"λ {lam:.3g}, {nact} active")
-        if gain <= _REL_TOL * max(1.0, abs(f)):
+        if gain <= rel_tol * max(1.0, abs(f)):
             status = "optimal"
             break
     return QPResult(x=x, status=status, rounds=rnd, solves=solves,

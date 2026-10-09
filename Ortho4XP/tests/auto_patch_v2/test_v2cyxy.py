@@ -79,10 +79,21 @@ def _airport(law, dem, *, thresholds=(700.0, 700.0)):
                    (), (), (), (), (), (), pack, dem, law.ruleset_key), r
 
 
-def _solve(law, airport, cells, cuts=()):
+def _solve(law, airport, cells, cuts=(), taxi_trend=False):
     from auto_patch_v2.constraints.runway_chord import with_runway_chord
     pm, _st = build(airport, Classification(tuple(cells), tuple(cuts), {}, ()), law)
     pm = with_runway_chord(pm, law, airport)
+    if taxi_trend:
+        # THE PIPELINE'S OWN ORDER (spec §61): a map the taxi publisher
+        # never ran over has neither a trend nor a foot, so its WHOLE taxi
+        # sheet is "what no chain reaches" and takes the membrane — which
+        # is level-with-its-neighbours, a slope penalty.  MEASURED on the
+        # two-bench fixture: the 240 m taxiway climbs 2.94 m of the
+        # ground's 3.00 without the publisher under main, 2.21 m with the
+        # membrane over all of it, 3.08 m in pipeline order (10 trend rows,
+        # 10 cross-section rows, 0 membrane rows).
+        from auto_patch_v2.constraints.taxi_trend import with_taxi_trend
+        pm = with_taxi_trend(pm, law, airport)
     cs, _c, _w = generate(pm, law, airport)
     sol, rep = solve_design(pm, cs, law)
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE)
@@ -239,7 +250,7 @@ def two_benches(law):
                     (r((-160.5, 190.0)), r((-160.5, 430.0)))),
             CutLine("taxi_centerline", "stubB",
                     (r((-160.5, HALF_WIDTH)), r((-160.5, 100.0)))))
-    return (*_solve(law, airport, cells, cuts), airport, r)
+    return (*_solve(law, airport, cells, cuts, taxi_trend=True), airport, r)
 
 
 def _body_means(pm, law, z):

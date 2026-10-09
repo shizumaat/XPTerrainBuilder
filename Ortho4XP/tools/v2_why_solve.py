@@ -402,6 +402,12 @@ def _terminal_kind(prep: Prepared, v: int, blist: list[Binding]) -> tuple[str, s
             # own DEM, not by bending — the same derivation site the solve
             # mints the row from, never a second rule here.
             held = "its ground datum (the DEM under it)"
+        elif (v in getattr(prep.pm, "taxi_xsec", {})
+              and v not in prep.pm.taxi_trend_z):
+            # spec §61 (1) / (7) row 12: a taxiway edge takes its own
+            # centreline's level at the foot of its perpendicular
+            held = (f"its centreline (taxi cross-section, t = "
+                    f"{prep.pm.taxi_xsec[v][2]:.2f})")
         else:
             held = "bending alone"
         return "FREE", f"no binding row blocks it: {rel} its DEM, held by {held}"

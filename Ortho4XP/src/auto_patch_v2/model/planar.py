@@ -414,6 +414,19 @@ class PlanarMap:
     #: carries the runway's ``chord`` and the core's ``road`` profile.  A
     #: runway-contact vertex is absent (the runway owns its value).
     taxi_trend_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: THE TAXIWAY EDGE'S FOOT ON ITS OWN CENTRELINE (owner RULINGS
+    #: 2026-10-09e; spec §61 (1), ``constraints/taxi_trend.taxi_xsec_feet``):
+    #: off-centreline taxi-family vertex -> ``(a, b, t)``, the chain segment
+    #: its perpendicular's foot lies on and the parameter along it.  The
+    #: solve prices ONE relational row ``z_v = (1 - t)·z_a + t·z_b`` at
+    #: ``[design] taxi_xsec``: the edge takes its centreline's SOLVED level.
+    #: An end that is a chain's RUNWAY CONTACT is ``("pin", value)`` — the
+    #: runway's value, a constant, never a column (the edge follows the
+    #: runway, it does not pull it).  NOT a value and never merged into
+    #: ``taxi_trend_z``: nothing may read it as "a taxi authority holds this
+    #: vertex" (§61 (7) row 11).
+    taxi_xsec: _t.Mapping[int, tuple[_t.Any, _t.Any, float]] = _dc.field(
+        default_factory=dict)
     #: THE APRON BODY'S TARGET SURFACE (owner RULINGS 2026-09-10ar; spec
     #: §8.7, ``constraints/apron_trend.py``): vertex id -> the ground's 2-D
     #: LONG-WAVE TREND under it — a moving quadratic SURFACE fit of the
@@ -572,6 +585,43 @@ class PlanarMap:
     #: edge vertices are ``seam_vertices``, and ``emit/bank.py`` derives no
     #: bank inside it and unions it into the coverage before the collar.
     seam_band_rings: tuple[tuple[tuple[float, float], ...], ...] = ()
+
+    def __setstate__(self, state: dict) -> None:
+        """A map PICKLED BEFORE A FIELD EXISTED reads that field's default
+        (a registered capture or ``--solved-out`` frame outlives the tree
+        that wrote it; without this ``dataclasses.replace`` on such a map
+        dies on the first field added since).  The names are RECORDED and
+        WARNED: a default is not the stage's answer."""
+        filled = []
+        for f in _dc.fields(self):
+            if f.name in state:
+                continue
+            if f.default is not _dc.MISSING:
+                state[f.name] = f.default
+            elif f.default_factory is not _dc.MISSING:
+                state[f.name] = f.default_factory()
+            else:
+                continue
+            filled.append(f.name)
+        self.__dict__.update(state)
+        # NAMED, never silent: a frame without ``taxi_xsec`` would otherwise
+        # read as "zero cross-section rows" (:attr:`unpickled_defaults`)
+        self.__dict__["_unpickled_defaults"] = tuple(filled)
+        if filled:
+            import warnings
+            warnings.warn(
+                f"PlanarMap {state.get('icao', '?')}: pickled before "
+                f"{len(filled)} field(s) existed — read at their defaults: "
+                f"{', '.join(filled)}. A channel published at capture time "
+                f"is EMPTY here; re-derive the stage that publishes it "
+                f"(--from classify / planar) before reading it.",
+                stacklevel=2)
+
+    @property
+    def unpickled_defaults(self) -> tuple[str, ...]:
+        """The fields an older pickle did not carry and this map reads at
+        their defaults (empty for a map built by this tree)."""
+        return tuple(self.__dict__.get("_unpickled_defaults", ()))
 
     def ribbon_vertices(self) -> frozenset[int]:
         """Every vertex of a mapped-road ribbon face (:func:`is_osm_ribbon_ref`)

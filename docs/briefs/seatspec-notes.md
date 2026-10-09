@@ -79,3 +79,15 @@ building101's contacts chain through `apron_preference` (1 % SOFT, +13.7 m over 
 runs, 17 pads) are the missing rows, not wrong seats: no reach band reaches a hole ring the pair graph cannot see.
 Arm E (scratch `armE.py`, generator `apron_cross_ring`): the body-chord rows ALSO between the rings of one face (hole|hole,
 hole|outer), cover-tested like the body chords, at the apron cap with its 1 % preference.
+
+## Step 3 — class B attributed (HECA `building164` | `service_road:dsf:objpav405`): §28's priced row against a HARD road-ramp equality
+
+`--why-at` on the pad vertex v11181 (77.36): the pad is airside-led (14 hard plane rows + 14 holds; chain apron#359 ->
+`apron_within_shape` -> `apron_preference` +4.3 m over 306 m -> the reach band at 71.12). The road's nearest vertices
+v37218 (78.08) / v37221 (78.28), 16–18 m along the rim, carry: 2 `groundside_frontage` rows (§28 ARMED, priced at the
+pad's plate weight: joint 0.00 to the pad at 77.36) AND a `road_ramp` `roads.groundside_road ramp to the DEM` Linear with
+lo = hi = 81.616 (a HARD equality) plus the `ramp ceiling` Band hi 82.12, 21 `common.roles longitudinal` 10 % rows over
+206–254 m and a `pavement_road_cap` 10 % x 52 m to v37219 at 82.24. Two laws name one vertex's level — §28 says the pad's
+77.36, §37's ramp says 81.62 — and the hard one wins by 3.5 m of relaxation (the 112 violated `road_ramp` rows); the
+vertex lands at 78.08 and the rim edge between the vertices reads +2.70 / +3.33 in the edge read. Mechanism, not yet an
+intervention: arm `--drop-generator road_ramp` queued (`chain2.sh`, `armRR`).

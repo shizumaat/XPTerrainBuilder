@@ -127,3 +127,25 @@ runway pinned the pass-1b and stage-2 null-change movers vanish (164 → 0, 15 �
 the hole rings — 0.51 m at building68's rim (30.12008,31.40803; in e 0.91 at building88's). What §61 missed: the apron
 hole ring in pass 1a (holds dropped, no trend row, no cross-section) is a bending-only column; R-E ties it to the sheet
 with one-sided rows and the solve may put it anywhere inside the cap. The null-change line under R-E is that valley's.
+
+## Step 5 — arm W: R-E with `[design] apron_trend` 30 → 300 (`--design-weight`; the §8.7 rule at the law's price)
+
+| m → W | |
+|---|---|
+| sheet pads | building100 101.25 → **96.98** (e 93.79; trend 100.26), building98 → 97.66, building117 → 98.25, building101 93.39 → 96.78, building89 92.68 → 96.05 |
+| AIR-TOUCH / AIR-NEAR | 1 / 4 m, 4 / 1 m (e: 0, 4 / 46) |
+| runway | **430 movers, worst +0.56 m** (05R/23L side, 30.11914,31.38069) — over 09b's 0.1 m |
+| taxi / apron > 60 m | 6,859 (3.39 m) / 3,828 (−3.69) |
+| hard conflicts pad / taxi | 104 → **367** / 66; LP relaxed 315 → 661 |
+| NULL-CHANGE | pass1 5/1/0.348 pass2 23/0/0.041 pass3 0 stage2 0 — MISSED |
+
+READING. The trend at the law's weight lifts the sheet 3.2 m toward its band top (still 3 m short — the preference is
+on ~185 k rows), and does what `emit.toml` warned a heavy datum does: it fights the law rows airport-wide (pad conflicts
+×3.5, the runway +0.56 m). Not a minimal change and not lawful at the runway. ATTRIBUTION CONFIRMED by intervention: the
+sheet's level IS the preference-vs-trend balance; shifting the balance moves the whole airside.
+
+The membrane (§61 (1)) is ALREADY on every unlevelled column in the airside stage (`design_edge.membrane_rows`,
+`airside_stage=True`: 5,369 rows at HECA) — a hole-ring vertex gets it; so the 0.9 / 0.5 m null-change movers are not a
+missing membrane but the one-sided 1 % rows (300, on/off with the active set) moving a membrane-tied block between
+neighbouring stops. Arm N (chain 5): the cross-ring pairs hard-only — does removing R-E's 5,695 new preference rows
+narrow the sinking and the null-change?

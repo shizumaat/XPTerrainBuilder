@@ -66,7 +66,65 @@ changed: `05C/23C` +143 / -3 vertices (2,610 -> 2,750), the nearest piece
    the claim (the mint already cuts every piece out of the band envelope with
    the stand-off) and subtracted from a band only where they reach one: all
    11 -> 0 / 0 runway vertices changed.
-2. SOLVE (the 05L/23R half): to be isolated by the arms running now.
+2. SOLVE (what is left once 1 is trimmed — exactly the spec's probe number).
+   `B2` = B1 + the zone trim: runway vertex set identical to B0 (2,610, 0 / 0);
+   `airside_value_delta` runway **30 nodes, worst 0.02 m** (spec: 29 / 0.02);
+   unrounded `05L/23R` 0.0172 m at v4219 30.12519288, 31.38877602 (4 nodes
+   > 0.01, 91 > 0.005), `05C/23C` 0.0027, `05R/23L` 0.
+   * `--why-vertex 4219` on B2 (`<scratch>/gapapron3/why4219.txt`): the vertex
+     is bound by `runway_crown` (`common.runway_crown_transverse`, to v3368)
+     and by `runway_flex BAND hi=58.742052 rulesets.runway.flex_budget … beta_R
+     0.000 m, no pulling pad: held at its pass-1a value`. So NO runway row was
+     relaxed, no soft runway row gave, no vertex is shared: the runway's
+     stage-1 level IS pass 1a's level by definition (flat-pad spec v2 §1, the
+     "unpulled profile"), pass 1b bands it there — and pass 1a carries every
+     stage-1 row, the gap-apron cells' too. The cells perturb pass 1a's joint
+     least-squares solve and the band then holds the runway at the NEW value.
+   * the chain at v4219 (`near2.py`, B0 -> B2, max |dz| per face within 450 m):
+     `gapapron:0` (gap:13) 0.41 -> aprons `pav53` / `route11` 0.16 -> `pav39`
+     junction 0.11 / apron 0.09 -> apron `dsf:objpav115` (welded to the runway)
+     0.059 -> runway `05L/23R` 0.017.
+   * INTERVENTION, pieces: `B3` = B2 without gap:13 and gap:17 (9 pieces): the
+     v4219 group is gone, but `05L/23R` still moves 0.0082 m at 30.13103052,
+     31.39585741 (75 nodes > 0.005) and the instrument still reads runway
+     **20 nodes, worst 0.010 m** (one-centimetre flips, `05C/23C` among them at
+     30.0998502, 31.3975386). NO piece, removed from the class, restores 0: every
+     stage-1 apron cell moves the joint solve by millimetres everywhere.
+   * INTERVENTION, rows: `B4` = B2 + the dead lane's candidate (pass 1a solved
+     without the rows that touch a gap-apron part's own 116 vertices — 2,527 /
+     4,896 rows withheld to pass 1b): unrounded `05L/23R` 0.0081 m at
+     30.12830117, 31.39221539 (0 nodes > 0.01, 45 > 0.005); instrument runway
+     **20 nodes, worst 0.010 m**. (The prototype also drops the rows from the
+     stage-2 restatement — `other` 664 nodes worst 13.17 m — it is a probe, not
+     a candidate build.)
+
+   | arm | runway nodes > 0.01 m (`airside_value_delta`) | worst | unrounded worst (`zdiff`) | runway vertices +/- |
+   |---|---|---|---|---|
+   | B1 (11 apron cells, tree as specced) | 74 | 0.05 m | 0.0539 m (`05C/23C`) | +143 / -3 |
+   | B2 (+ zone trim) — attempt 1 | 30 | 0.02 m | 0.0172 m (`05L/23R`) | 0 / 0 |
+   | B3 (B2 less gap:13, gap:17) | 20 | 0.010 m | 0.0082 m | 0 / 0 |
+   | B4 (B2 + pass-1a row withholding) — attempt 2 | 20 | 0.010 m | 0.0081 m | 0 / 0 |
+
+   THE GENERAL RULE THAT WOULD GIVE ZERO (stated, NOT built — it is outside
+   §59's design, which names no consumer change in the solve): "a gap-apron
+   cell is a PULL, as a held pad's frontage hold is: the runway's unpulled
+   profile is solved WITHOUT the cells and pass 1b, with them, holds every
+   runway column at that value." Row withholding inside one map cannot make
+   pass 1a the cell-free problem (the standing rims carry the cells' weld
+   vertices, the shapes are merged: 0.0081 m is what is left), so the profile
+   has to come from the stage-one problem assembled on the map WITHOUT the
+   cells (`stage_one_map.stage_one_problem`'s own transform, the canonical
+   join) and be handed to pass 1b as the Bands' centre. Cost on a gap-apron
+   airport: one more stage-one assembly (66 s at HECA, measured in B1's log)
+   — the map's own pass 1a (37-52 s) can be replaced by it; a Band at beta 0
+   is two one-sided rows in the active set, not a pin, so "zero" also needs
+   the band to be exact (a `Pin`, or the 09y runway projection re-run).
+   Touches `solve/flex.stage_one`, `constraints/no_step.HoldPass`,
+   `pipeline/stage_one_map`, `pipeline/build`, `tools/v2_solve_replay`.
+
+   VERDICT (attempt cap 2 reached on the runway bar): NOTHING INSIDE §59's
+   DESIGN GIVES 0. STOP — S4 (the mint, which would ship the mover) is not
+   built. S1-S3 and the zone trim are neutral (no cell carries the ref).
 
 ### (b) the other reads (B0 vs B1)
 
@@ -88,9 +146,47 @@ changed: `05C/23C` +143 / -3 vertices (2,610 -> 2,750), the nearest piece
   1.68 m pull is).
 * structures: Tunnel 11 = 11.
 
-## Next
+## Done on the branch (all neutral: no caller, no cell with the ref)
 
-Arms `B2` (B1 + zone trim), `B4` (B2 + the dead lane's pass-1a withholding),
-`B3` (B2 without gap:13 / gap:17) are running:
-`venv/bin/python <scratch>/gapapron3/s0_driver.py base <scratch>/gapapron3/evidence.json <EXCLUDE|-> <PROTO 0|1> --replay <frames>/gapapron3/HECA.pkl --from classify --emit DIR --solved-out DIR/solved.pkl`
-then `zdiff.py B0/solved.pkl BX/solved.pkl runway`.
+* `c26baece` S1 `model/planar` `GAP_APRON_PREFIX`, `is_gap_apron_ref` + the
+  zone trim (`planar/zones`: a gap-apron cell is not in the zone claim) —
+  a DEVIATION from §59 (4) row 10, for the spec author.
+* `f1ee9fcc` S2 `roles._road_evidence(touch_tol_m=, touch_roles=)`, S3
+  `airside_edge_flip(road_class=)`; twins in `tests/auto_patch_v2/test_gap_apron.py`.
+
+## Not done
+
+S4 (the mint: evidence -> class -> spelling -> rim closure, the sheet-union
+`_osm_roads` call, `APRON_TOUCH_ROLE` deleted, the frame twin), S5
+(publication), S6 (the like-for-like pair, `v2_late_read`, the sites, the
+census), S8 (the closing build). The class table to pin at S4 is the fresh
+one above (ROAD 8, APRON 3 + 8).
+
+## Next (for the lane that resumes)
+
+1. The runway rule needs its design (above) — the spec author's.
+2. S4 as specced; note for it: the replay needs a base WITH the gap-apron
+   cells and WITHOUT the gap pieces (`stage_one_map.gap_free` after classify —
+   what `pipeline/build` does); `v2_solve_replay` has no flag for it (earlier
+   lanes replayed a sheet-free capture, which would drop the gap-apron cells
+   too). `<scratch>/gapapron3/s0_driver.py base` does it by wrapping classify.
+3. The four `hard_conflict` rows of (b) sit at the spec's sliver site: read
+   them again after the rim closure.
+
+## Frames and probes
+
+* captures: `<frames>/gapapron3/HECA.pkl`, `<frames>/gapapron3/CYXY.pkl`;
+  arms `<frames>/gapapron3/{B0,B1,B2}/` (patch + sidecar + `solved.pkl` +
+  log), registered in `docs/frames.jsonl`. `B3` / `B4` are in the scratch only.
+* probes (scratch scripts, kept for the record, no tool): `docs/briefs/gapapron3/`
+  — `s0_driver.py` (the arms), `planar_arms.py` / `region_arms.py` (the planar
+  interventions), `zdiff.py` (unrounded per-vertex delta of two `--solved-out`
+  pickles), `rw_nodes.py`, `near2.py`, `hc.py`, `evidence.json` (the fresh
+  class table), `why4219.txt`.
+
+## No-op proof for what is committed
+
+CYXY, fresh capture on `f1ee9fcc`, `--from classify --emit`: body
+`cf8e9e89ec62` = main's `sw6_CYXY`. HECA and every other airport: no cell is
+spelled `gapapron:` and no caller passes the new keywords, so the build is
+main's by construction (not re-run).

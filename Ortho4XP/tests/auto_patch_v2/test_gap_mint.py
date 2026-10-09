@@ -191,3 +191,18 @@ def test_a_gap_piece_is_never_cover_for_the_structures_or_the_wall_field():
     assert [p.wkb for p in cover_polygons(full)] == [p.wkb for p in cover_polygons(base)]
     assert ([p.wkb for p in wall_field(full, LAW).polys]
             == [p.wkb for p in wall_field(base, LAW).polys])
+
+
+def test_a_page_sheet_on_a_runway_cell_mints_nothing_and_lists_nothing():
+    """Spec §60 twin (d), the §53 (12) rule pinned for a ``.pol`` page
+    admitted by its own SURFACE: a sheet lying wholly on a standing
+    runway cell leaves no piece and no unminted remainder."""
+    runway = Cell(0, "runway", "rwy0", _ring(box(0, 0, 3000, 45)), (), None, None,
+                  role_side(LAW, "runway"), "runway", {})
+    page = Pavement("dsf:gapsheet0", None, _ring(box(100, 5, 2900, 40)), (),
+                    "Ground/Poly/ASPH1.pol")
+    airport = _airport()
+    airport.gap_sheets = (page,)
+    out, stats, notes = _mint(airport, [runway])
+    assert out == [] and notes == []
+    assert stats["gap_pieces"] == 0 and stats["gap_pieces_unminted_airside"] == 0

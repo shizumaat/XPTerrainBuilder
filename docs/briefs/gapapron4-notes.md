@@ -90,7 +90,55 @@ BBASE/solved.pkl ...`). All EXIT 0. Reads: `late_{A,B}.txt`, `site_{A,B}.txt`,
   vertex_to_edge_step 15 -> 14; terrace_actual_step 42 -> 39; transverse 928
   -> 947; taxi_box 2,437 -> 2,452; within_shape 45,652 -> 45,665.
 
-## Next
+## S7 / S8 (done)
 
-S6 runs (arm A = rule off via `<scratch>/gapapron4/arm_a.py`, arm B = tree),
-S7 suites, S8 build + identity, CYXY no-op.
+* IDENTITY: arm A's replay body `50d64a8b4fbe` = main's `sw6_HECA` build (the
+  rule off IS main); the closing build `gapapron4_HECA` body `ad4ef9685c5f`
+  = arm B's replay; `--workers 1` base replay body `9a96c73ab6fb` = `BBASE`;
+  CYXY `--from classify --emit` body `cf8e9e89ec62` = main's `sw6_CYXY`.
+* BUILD: 769.5 s against `sw6_HECA` 490.6 s — ONE run, launched as a
+  background task with other lanes' builds about; EVERY phase is ~1.5x
+  (load 6.4 -> 8.7, partition 48.4 -> 76.5, classify 24.9 -> 35.2, planar
+  34.0 -> 49.0, constraints 39.0 -> 58.5, solve 197.3 -> 328.1, late_stage
+  108.6 -> 165.7, verify 14.3 -> 21.7 s), the untouched ones too: a machine
+  reading, NOT a cost of the change. Replay stage-1 solve: B0 142.1 s,
+  BBASE 231.1 s (loaded machine), `--workers 1` 156.8 s. No timed pair was
+  run (timing gates suspended); verify DEFECT families {} = {}.
+* build vs `sw6_HECA` (`airside_value_delta`, one tree): the replay pair's
+  numbers exactly (runway 32 nodes / 0.020 m; apron 103 refs / 2,788 nodes /
+  2.47 m; cross_connector 24 / 974 / 1.38 m; junction 127 / 2,553 / 1.38 m).
+* tests at the last code change: non-Qt split 8,844 passed / 20 skipped / 1
+  xpassed (161 s); `-n0 tests/test_qt_*.py` 311 passed; four gate files 200
+  passed; `tools/ratchets.py` duplicate + layer PASS. Size report (files
+  touched): `classify/roles.py` 1,453, `pipeline/build.py` 1,614,
+  `pipeline/publication.py` 1,217, `tools/v2_solve_replay.py` 2,876 (all
+  already past 1,000; this lane +0 / +2 / +14 / +31 net).
+  `test_gap_terrace`'s frame twin re-recorded (84, 34, 66, 9) -> (69, 34,
+  49, 9): the 11 apron pieces are not cut.
+* conflict surface vs `origin/claude/pads63` (`git merge-tree`): content
+  conflicts in `design-surface-spec.md`, `docs/frames.jsonl` (union),
+  `pipeline/build.py` and `tools/v2_solve_replay.py` — the last two are
+  ADJACENCY only (pads63 inserts its §56 `warnings_of` lines directly above
+  the `gap_pieces` publication this lane rewrote: keep both).
+* frames registered (`docs/frames.jsonl`): `gapapron4/{A,BBASE,B,BUILD}`.
+
+## For the spec author
+
+1. `close_rim` is the closing, not §59 (2) 4's literal formula (ears, slits).
+2. No road evidence => apron even where §27 does not flip (ruling's words).
+3. `gap:<k>` keeps today's ordinal (holes in the numbering where a piece
+   became apron).
+4. The 4 `hard_conflict` rows at the sliver site and the +2 taxi-tier
+   relaxations are gone with the closure; the 2 contour joints stay
+   (`apron_terrace`, 0.05 m): two apron bodies (shape 14 = `gapapron:1` +
+   `pav6`; shape 25 = `dsf:objpav106#2`) bridged by one `graded_strip` face
+   and one `service_road` face — 08k's declared contour, read as lawful.
+5. The zone-claim trim (gapapron3) stays; rim-closure ground inside the
+   band envelope or a standing cell's stand-off is NOT absorbed (gap:24:
+   14 m2 of band-envelope ground stays between the part and its apron).
+
+## Found, not fixed
+
+* `v2_late_read --site` takes one site per flag (the INDEX row reads as if
+  several triples fit one flag; it refuses by name).
+* Build-time cost of the change is unmeasured (above).

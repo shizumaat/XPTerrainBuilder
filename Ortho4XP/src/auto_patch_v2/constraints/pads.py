@@ -87,7 +87,8 @@ from .precedence import view
 
 __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "frontage_near_miss", "frontage_contacts", "pad_frontage_level",
-           "pad_shared", "pad_datum_withdrawn", "pad_frontage", "FLAT_RULING",
+           "pad_shared", "pad_welded_vertices", "pad_datum_withdrawn",
+           "pad_frontage", "FLAT_RULING",
            "CEILING_RULING", "FLAT_AIRSIDE_LED_RULING",
            "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
            "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL",
@@ -405,20 +406,46 @@ def _airside_only(by_role: dict[str, tuple[set[int], set[int]]], law: Law
 
 
 def pad_shared(planar: PlanarMap, law: Law) -> dict[int, set[int]]:
-    """Pad face id -> the vertices it SHARES with the pavement it fronts
-    (identity is the weld, 09-01g).  Those vertices belong to the pavement
-    too, so under owner RULINGS 2026-09-10l the pad's own flatness target
-    never prices a pair footed on one."""
-    faces = _pavement_faces(planar, law)
+    """Pad face id -> the vertices it SHARES with the AIRSIDE pavement it
+    fronts (identity is the weld, 09-01g).  Those vertices belong to the
+    pavement too, so under owner RULINGS 2026-09-10l the pad's own
+    flatness target never prices a pair footed on one.
+
+    A vertex shared with GROUNDSIDE pavement is NOT here (spec §63 (4)
+    (ii), owner RULINGS 2026-10-09j): the pad is senior to the road or lot
+    welded to its rim, so that vertex is a PAD column — the pad's plane
+    governs it and the pavement's rows conform."""
+    from ..law.tables import role_side
+    faces = [vs for role, vs in _pavement_faces(planar, law)
+             if role_side(law, role) == "airside"]
     out: dict[int, set[int]] = {}
     for fid, _ref, group in _pad_groups(planar, law):
         pad_vs = set(group)
         sh: set[int] = set()
-        for _role, vs in faces:
+        for vs in faces:
             sh |= vs & pad_vs
         if sh:
             out[fid] = sh
     return out
+
+
+def pad_welded_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
+    """THE RIM WELD AS DATA (spec §63 (4) / (6), owner RULINGS
+    2026-10-09j): every pad vertex that is ALSO a vertex of a groundside
+    value face — the columns a road or lot welded to a pad shares with it.
+    They are the PAD's (the pad is senior), so no law of the road may
+    name their level a second time (``road_ramp.pad_weld_release``).
+    Read from the map's own incidence: identity is the weld."""
+    from ..law.tables import is_value_role, role_side
+    out: set[int] = set()
+    for _fid, _ref, group in _pad_groups(planar, law):
+        for v in group:
+            if any(role_side(law, planar.faces[q].role) == "groundside"
+                   and is_value_role(law, planar.faces[q].role)
+                   for q in planar.vertices[v].incident_faces
+                   if q in planar.faces):
+                out.add(v)
+    return frozenset(out)
 
 
 def pad_frontage(planar: PlanarMap, law: Law) -> dict[int, dict[str, list[int]]]:

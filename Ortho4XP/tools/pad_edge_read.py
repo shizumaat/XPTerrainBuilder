@@ -48,8 +48,9 @@ witness is the build's own — the sidecar key ``pad_touch`` of the patch's
 tree and ``classify.pad_touch.touch_records`` over its cells (for a patch
 built before the key existed).  The run's worst groundside pavement cell
 decides: ``TOUCH-OFF`` (it touches the pad in the source and stands off
-it: the defect), ``GAPPED`` (drawn with a gap, listed with the gap:
-accepted), ``AIRSIDE`` (an airside cell: §20's, not this witness's),
+it: the defect), ``HELD`` (it touches in the source and the build held it
+off as a §28 (6) hillside terrace, RULINGS 2026-10-09f: lawful, listed),
+``GAPPED`` (drawn with a gap, listed with the gap: accepted), ``AIRSIDE`` (an airside cell: §20's, not this witness's),
 ``ENGINE`` (a gap / facade piece or a road ribbon — pavement the engine
 minted with its own stand-off, no source polygon to witness) and
 ``UNWITNESSED`` (no record: say so, never guess).
@@ -317,7 +318,7 @@ def capture_dem(path: Path) -> Dem:
     return dem
 
 
-SOURCE_CLASSES = ("TOUCH-OFF", "GAPPED", "AIRSIDE", "ENGINE", "UNWITNESSED")
+SOURCE_CLASSES = ("TOUCH-OFF", "HELD", "GAPPED", "AIRSIDE", "ENGINE", "UNWITNESSED")
 
 
 def source_witness(path: Path) -> list[dict]:
@@ -351,10 +352,14 @@ def class_by_source(runs: Sequence[dict], graded: dict, witness: Sequence[dict],
     from auto_patch_v2.model.planar import is_late_ref, is_osm_ribbon_ref
     side = {f"{f['role']}:{f['ref']}": f.get("side") for f in graded["faces"]}
     touch: dict[tuple[str, str], float] = {}
+    held: set[tuple[str, str]] = set()
     for rec in witness:
         pad = rec["pad"]
         for name in rec.get("touching", ()):
             touch[(pad, _base(name))] = 0.0
+        for name in rec.get("held", ()):
+            touch.setdefault((pad, _base(name)), 0.0)
+            held.add((pad, _base(name)))
         for g in rec.get("gapped", ()):
             touch.setdefault((pad, _base(g["cell"])), float(g["gap_m"]))
     for r in runs:
@@ -366,13 +371,16 @@ def class_by_source(runs: Sequence[dict], graded: dict, witness: Sequence[dict],
             continue
         c = max(cs, key=lambda c: abs(c["off_m"] if c["touching"] else c["step_m"]))
         ref = c["cell"].split(":", 1)[1]
-        d = None
+        d, key = None, None
         for pad in (r["pad"], r["pad"].split("/")[0]):
             if (pad, _base(c["cell"])) in touch:
-                d = touch[(pad, _base(c["cell"]))]
+                key = (pad, _base(c["cell"]))
+                d = touch[key]
                 break
         if side.get(c["cell"]) == "airside":
             cls = "AIRSIDE"
+        elif key in held:
+            cls = "HELD"
         elif d is not None:
             cls = "TOUCH-OFF" if d == 0.0 else "GAPPED"
         elif is_late_ref(ref) or is_osm_ribbon_ref(ref):
@@ -389,7 +397,8 @@ def render_source(runs: Sequence[dict]) -> Iterable[str]:
         got = [r for r in rs if r["source"]["cls"] == cls]
         yield (f"== P:{cls}: {len(got)} run(s), {sum(r['length_m'] for r in got):.0f} m"
                + ("  (the defect: touching in the source, off the pad)" if cls == "TOUCH-OFF" else
-                  "  (accepted, 2026-10-09j: listed only)" if cls == "GAPPED" else ""))
+                  "  (accepted, 2026-10-09j: listed only)" if cls == "GAPPED" else
+                  "  (a §28 (6) hillside terrace, 2026-10-09f: lawful, listed only)" if cls == "HELD" else ""))
         for r in sorted(got, key=lambda r: -r["length_m"]):
             s = r["source"]
             yield (f"   {r['pad']:26s} | {s['cell'][:40]:40s} {r['site'][0]:.11f}, {r['site'][1]:.11f}  "

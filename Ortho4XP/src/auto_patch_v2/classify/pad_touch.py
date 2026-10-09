@@ -19,22 +19,41 @@ The only numbers are the identity grid and the frontage radius
 relation at all); no key of its own.  Published on the cell's evidence as
 ``pad_touch`` (``{pad ref: d}``) and read back by :func:`is_touching` /
 :func:`touch_records`.
+
+RULE W's PLAN (spec §63 (4)) is derived from the witness here and applied
+at the same site: a TOUCHING pair is WELDED — the cell is clipped at the
+pad's footprint and shares its rim (:func:`weld_partners` names the pads
+``planar/weld`` then welds it to) — unless it is a §28 (6) HILLSIDE
+TERRACE (owner RULINGS 2026-09-13o/13p, 2026-10-09f: "the one lawful
+exception"), which keeps the set-back knife and is named under
+``pad_held``.  :func:`dem_step_m` is that exception's quantity read where
+the knife is: the DEM under the cell's edge facing the pad minus the DEM
+under the pad's seat.  A GAPPED pair is left as drawn.
 """
 from __future__ import annotations
 
 import typing as _t
 
+import statistics
+
 import shapely
 from shapely.geometry import Polygon
+from shapely.ops import triangulate
 from shapely.strtree import STRtree
 
 from ..law import Law
 
-__all__ = ["EVIDENCE_KEY", "gridded", "is_touching", "touch_distances",
-           "touch_limit_m", "touch_records"]
+__all__ = ["EVIDENCE_KEY", "HELD_KEY", "WELD_KEY", "dem_step_m", "gridded",
+           "is_held_step", "is_touching", "part_evidence", "touch_distances",
+           "touch_limit_m", "touch_records", "weld_partners"]
 
 #: the ``Cell.evidence`` key the witness is published under
 EVIDENCE_KEY = "pad_touch"
+#: the ``Cell.evidence`` key naming the pads a touching cell is HELD off
+#: as a §28 (6) hillside terrace (the knife stands; never welded)
+HELD_KEY = "pad_held"
+#: ``Cell.evidence`` flag of a cell clipped at a pad's footprint (Rule W)
+WELD_KEY = "pad_weld"
 
 
 def touch_limit_m(law: Law) -> float:
@@ -83,25 +102,127 @@ def touch_distances(ground: _t.Sequence[Polygon],
     return out
 
 
+def _median_dem(geom, dem, step: float) -> float | None:
+    """The median DEM along a line geometry, sampled at its vertices and
+    every ``step`` metres between them; ``None`` for an empty one."""
+    if geom is None or geom.is_empty:
+        return None
+    pts = shapely.get_coordinates(shapely.segmentize(geom, step))
+    if len(pts) == 0:
+        return None
+    return statistics.median(float(dem.z(float(x), float(y))) for x, y in pts)
+
+
+def _area_dem(pad: Polygon, dem) -> float | None:
+    """The pad's AREA-WEIGHTED DEM over its own outline — the fallback
+    datum of a pad with no airside frontage (owner RULINGS 2026-09-18c
+    (1); the quantity of ``constraints.pad_frontage_gs
+    .pad_area_weighted_dem``, read off the build's DEM at the outline's
+    own corners)."""
+    num = den = 0.0
+    for tri in triangulate(pad):
+        if not pad.contains(tri.centroid):
+            continue
+        zs = [float(dem.z(float(x), float(y)))
+              for x, y in list(tri.exterior.coords)[:3]]
+        num += tri.area * (sum(zs) / 3.0)
+        den += tri.area
+    return None if den <= 0.0 else num / den
+
+
+def dem_step_m(cell: Polygon, pad: Polygon, knife: Polygon, airside,
+               dem, law: Law) -> float | None:
+    """§28 (6)'s QUANTITY FOR ONE TOUCHING PAIR, read at the knife's own
+    site (owner RULINGS 2026-09-13o/13p, 2026-09-18c (1)): the median DEM
+    along the edge the cell WOULD keep facing the pad (its boundary, cut
+    back by ``knife``, within the frontage radius of the pad) minus the
+    pad's own datum — the median DEM along its rim within the radius of
+    AIRSIDE pavement (``airside``: that pavement's union ALREADY WIDENED
+    by the radius, or ``None``), else its area-weighted DEM.  ``None`` where either side cannot be read (no DEM,
+    nothing left of the cell): a pair is welded unless it is MEASURED to
+    be a hillside.
+
+    The same quantity ``constraints.pad_frontage_gs.pair_dem_step_m``
+    reads off the planar map's vertices for the pairs that reach the
+    solve; this one exists because the decision it serves — knife or weld
+    — is taken before there is a map."""
+    if dem is None:
+        return None
+    r = float(law.tables.emit.design.pad_frontage_m)
+    near = pad.buffer(r)
+    fd = _median_dem(cell.difference(knife).boundary.intersection(near), dem, r)
+    if fd is None:
+        return None
+    pd = None
+    if airside is not None and not airside.is_empty:
+        pd = _median_dem(pad.boundary.intersection(airside), dem, r)
+    if pd is None:
+        pd = _area_dem(pad, dem)
+    return None if pd is None else fd - pd
+
+
+def is_held_step(law: Law, step: float | None) -> bool:
+    """§28 (6): a pair whose DEM step exceeds ``[design]
+    frontage_step_max_m`` is a hillside terrace."""
+    return step is not None and \
+        abs(step) > float(law.tables.emit.design.frontage_step_max_m)
+
+
+def part_evidence(parent: _t.Mapping[str, _t.Any], part: Polygon,
+                  pads: _t.Mapping[str, Polygon], law: Law
+                  ) -> dict[str, _t.Any]:
+    """The witness a PART of a cut cell carries: its parent's, restricted
+    to the pads the part itself still stands within the frontage radius
+    of (the SOURCE distance is kept — the part's own distance is the
+    engine's doing), and the held pads likewise.  A part that left every
+    pad's radius carries neither key."""
+    r = float(law.tables.emit.design.pad_frontage_m)
+    ev = {k: v for k, v in parent.items() if k not in (EVIDENCE_KEY, HELD_KEY)}
+    w = {ref: d for ref, d in (parent.get(EVIDENCE_KEY) or {}).items()
+         if ref in pads and part.distance(pads[ref]) <= r}
+    if w:
+        ev[EVIDENCE_KEY] = w
+        held = tuple(ref for ref in parent.get(HELD_KEY, ()) if ref in w)
+        if held:
+            ev[HELD_KEY] = held
+    return ev
+
+
+def weld_partners(cell: _t.Any, law: Law) -> list[str]:
+    """The pad refs ``cell`` is WELDED to (Rule W): the pads it touches
+    in the source geometry, less the ones it is held off as a terrace."""
+    ev = getattr(cell, "evidence", None) or {}
+    held = set(ev.get(HELD_KEY, ()))
+    return [ref for ref, d in (ev.get(EVIDENCE_KEY) or {}).items()
+            if is_touching(law, d) and ref not in held]
+
+
 def touch_records(cells: _t.Iterable[_t.Any], law: Law
                   ) -> list[dict[str, _t.Any]]:
     """THE WITNESS AS DATA, per pad: ``{pad, touching: [role:ref, ...],
-    gapped: [{cell, gap_m}, ...]}`` over every cell carrying the evidence —
-    what the sidecar publishes, so a pad's every groundside neighbour is
-    named with its class and a gapped one with its gap."""
+    held: [role:ref, ...], gapped: [{cell, gap_m}, ...]}`` over every cell
+    carrying the evidence — what the sidecar publishes, so a pad's every
+    groundside neighbour is named with its class and a gapped one with its
+    gap.  ``touching`` are the WELDED cells; ``held`` the cells that touch
+    in the source and are kept off the pad as a §28 (6) terrace."""
     by_pad: dict[str, dict[str, _t.Any]] = {}
     for c in cells:
         w = (getattr(c, "evidence", None) or {}).get(EVIDENCE_KEY)
         if not w:
             continue
         name = f"{c.role}:{c.ref}"
+        held = set(c.evidence.get(HELD_KEY, ()))
         for pad, d in w.items():
-            rec = by_pad.setdefault(pad, {"pad": pad, "touching": [], "gapped": []})
-            if is_touching(law, d):
+            rec = by_pad.setdefault(pad, {"pad": pad, "touching": [],
+                                          "held": [], "gapped": []})
+            if pad in held:
+                rec["held"].append(name)
+            elif is_touching(law, d):
                 rec["touching"].append(name)
             else:
                 rec["gapped"].append({"cell": name, "gap_m": float(d)})
     for rec in by_pad.values():
         rec["touching"].sort()
+        rec["held"].sort()
         rec["gapped"].sort(key=lambda g: (g["gap_m"], g["cell"]))
     return [by_pad[k] for k in sorted(by_pad)]

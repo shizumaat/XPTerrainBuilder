@@ -91,3 +91,199 @@ def test_the_sidecar_names_every_neighbour_of_a_pad_by_class(cut, law):
     assert [g["cell"].split("#")[0] for g in rec["gapped"]] == [
         "parking_lot:gap08", "parking_lot:gap2"]
     assert [g["gap_m"] for g in rec["gapped"]][1] == 2.0
+
+
+# ── Rule W (spec §63 (4)): touching welds at the rim, a hillside pair is
+#    held, a gapped cell is left as drawn ────────────────────────────────
+
+from shapely.geometry import Polygon                                  # noqa: E402
+
+from auto_patch_v2.classify.pad_touch import HELD_KEY, WELD_KEY, weld_partners  # noqa: E402
+from auto_patch_v2.classify.roles import Classification               # noqa: E402
+from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack  # noqa: E402
+from auto_patch_v2.model.frame import Frame                           # noqa: E402
+from auto_patch_v2.planar.build import build                          # noqa: E402
+
+
+class _Dem:
+    """Flat at 700 m, with the ground NORTH of the pad (y > 200, the
+    ``over`` lot's side) ``north`` metres up — the hillside of §28 (6)."""
+
+    provenance = {"synthetic": "pad_touch"}
+
+    def __init__(self, north: float = 0.0):
+        self.north = north
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0 + (self.north if y > 200.0 else 0.0)
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def _airport(law, dem):
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-800.0, -400.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
+            RunwayEnd("27", (800.0, -400.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
+    rw = Runway("09/27", 45.0, 1, ends, 3, "D")
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    return Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
+                   (), (), (), (), (), (), pack, dem, law.ruleset_key)
+
+
+def _all_cells():
+    return [Cell(9, "runway", "09/27", _rect(-800.0, -422.5, 800.0, -377.5), (),
+                 3, "D", "airside", "runway", {})] + _cells()
+
+
+def _poly(c):
+    return Polygon(c.ring, c.holes)
+
+
+def _parts(cells, ref):
+    return [c for c in cells if c.ref.split("#")[0] == ref]
+
+
+def test_a_touching_cell_is_clipped_at_the_footprint_and_named_a_weld_partner(law):
+    cells, n_knife = _cut_back_groundside(_all_cells(), law, load_rules(),
+                                          _airport(law, _Dem()))
+    pad = _poly(next(c for c in cells if c.ref == "padA"))
+    (over,) = _parts(cells, "over")
+    assert n_knife == 0 and over.evidence[WELD_KEY] == 1.0
+    assert _poly(over).distance(pad) == 0.0
+    assert _poly(over).intersection(pad).area == pytest.approx(0.0, abs=1e-9)
+    assert min(y for _x, y in over.ring) == pytest.approx(200.0)       # the rim, no stand-off
+    assert weld_partners(over, law) == ["padA"]
+    assert weld_partners(_parts(cells, "hair")[0], law) == ["padA"]
+
+
+def test_a_gapped_cell_is_left_as_drawn(law):
+    """09j: any gap and the pavement is free — no knife, no weld, no
+    partner; its ring is the source ring."""
+    src = {c.ref: c for c in _cells()}
+    cells, _n = _cut_back_groundside(_all_cells(), law, load_rules(),
+                                     _airport(law, _Dem()))
+    for ref in ("gap08", "gap2", "far"):
+        (c,) = _parts(cells, ref)
+        assert c.ring == src[ref].ring and weld_partners(c, law) == []
+        assert WELD_KEY not in c.evidence and "mixed_pad_cutback" not in c.evidence
+
+
+def test_a_touching_pair_across_a_hillside_keeps_the_knife(law):
+    """§28 (6) / RULINGS 2026-10-09f, the one exception: the ground under
+    the overlapping lot stands 4 m above the pad's — a hillside terrace.
+    It is HELD: cut back by the set-back as before, never a weld partner;
+    the 0.3 m lot on level ground beside the same pad still welds."""
+    cells, n_knife = _cut_back_groundside(_all_cells(), law, load_rules(),
+                                          _airport(law, _Dem(north=4.0)))
+    pad = _poly(next(c for c in cells if c.ref == "padA"))
+    (over,) = _parts(cells, "over")
+    back = law.tables.structures.building_pad.groundside_cutback_m
+    assert n_knife == 1 and over.evidence[HELD_KEY] == ("padA",)
+    assert over.evidence["mixed_pad_cutback"] == 1.0 and WELD_KEY not in over.evidence
+    assert _poly(over).distance(pad) >= back - 1e-6
+    assert weld_partners(over, law) == []
+    assert weld_partners(_parts(cells, "hair")[0], law) == ["padA"]
+    (rec,) = touch_records(cells, law)
+    assert [n.split("#")[0] for n in rec["held"]] == ["parking_lot:over"]
+    assert [n.split("#")[0] for n in rec["touching"]] == ["parking_lot:hair"]
+
+
+def test_without_a_dem_no_pair_is_measured_a_hillside(law):
+    """A pair is welded unless it is MEASURED to be a terrace."""
+    cells, n_knife = _cut_back_groundside(_all_cells(), law, load_rules())
+    assert n_knife == 0 and weld_partners(_parts(cells, "over")[0], law) == ["padA"]
+
+
+def _shared(pm, a_ref, b_ref):
+    def vs(ref):
+        out = set()
+        for f in pm.faces.values():
+            if f.ref.split("#")[0] == ref:
+                out |= set(pm.ring_vertices(f.ring))
+        return out
+    return vs(a_ref) & vs(b_ref)
+
+
+def test_the_planar_map_shares_the_rim_with_a_welded_cell_and_no_other(law):
+    """The pad and each welded lot share EVERY vertex of their run — one
+    chain, no sliver and no T-vertex — the overlapping lot by the clip,
+    the 0.3 m lot by ``planar/weld``'s project + insert halves with the
+    pad frozen; the gapped lots share nothing."""
+    airport = _airport(law, _Dem())
+    cells, _n = _cut_back_groundside(_all_cells(), law, load_rules(), airport)
+    pm, stats = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    assert stats.t_vertices == 0
+    over = _shared(pm, "padA", "over")
+    xs = sorted(pm.vertices[v].xy[0] for v in over)
+    assert xs[0] == pytest.approx(150.0) and xs[-1] == pytest.approx(180.0)
+    assert all(pm.vertices[v].xy[1] == pytest.approx(200.0) for v in over)
+    hair = _shared(pm, "padA", "hair")
+    ys = sorted(pm.vertices[v].xy[1] for v in hair)
+    assert ys[0] == pytest.approx(110.0) and ys[-1] == pytest.approx(150.0)
+    assert all(pm.vertices[v].xy[0] == pytest.approx(200.0) for v in hair)
+    # every pad rim vertex on a shared run is a vertex of the lot too
+    pad_vs = _shared(pm, "padA", "padA")
+    assert {v for v in pad_vs if pm.vertices[v].xy[1] == pytest.approx(200.0)
+            and 150.0 - 1e-6 <= pm.vertices[v].xy[0] <= 180.0 + 1e-6} == over
+    assert not _shared(pm, "padA", "gap08") and not _shared(pm, "padA", "gap2")
+    # the pad kept its footprint: the weld never moved the senior
+    pad_f = next(f for f in pm.faces.values() if f.ref == "padA")
+    ring = [pm.vertices[v].xy for v in pm.ring_vertices(pad_f.ring)]
+    assert Polygon(ring).area == pytest.approx(100.0 * 100.0)
+
+
+# ── a road along a pad ────────────────────────────────────────────────
+
+def _road_cells():
+    """The pad with a service road drawn ALONG its south edge (touching:
+    y 92..100 against the pad's y = 100) and running 100 m beyond it."""
+    return [Cell(9, "runway", "09/27", _rect(-800.0, -422.5, 800.0, -377.5), (),
+                 3, "D", "airside", "runway", {}),
+            Cell(0, "building", "padA", _rect(100.0, 100.0, 200.0, 200.0), (),
+                 None, None, "airside", "pad", {}),
+            Cell(1, "service_road", "roadA", _rect(0.0, 92.0, 300.0, 100.0), (),
+                 None, None, "groundside", "service_road", {})]
+
+
+def test_a_road_along_a_pad_is_level_along_it_and_inside_its_cap_beyond(law):
+    """Spec §63 (4) (ii), owner RULINGS 2026-10-09j / 09d (1), on ground
+    climbing 4 % along the road: the pad keeps its own seat (its DEM mean
+    — the road does not lead it), the road stands at the pad's level along
+    the whole shared run, and it leaves the rim at each end inside its own
+    longitudinal cap."""
+    import numpy as np
+
+    from auto_patch_v2.constraints import generate
+    from auto_patch_v2.law.tables import role_cap
+    from auto_patch_v2.solve import Status, solve_design
+
+    class _Slope(_Dem):
+        def z(self, x: float, y: float) -> float:
+            return 700.0 + 0.04 * x
+    airport = _airport(law, _Slope())
+    cells, _n = _cut_back_groundside(_road_cells(), law, load_rules(), airport)
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    cs, _c, _w = generate(pm, law, airport)
+    sol, _rep = solve_design(pm, cs, law)
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.status
+    z = np.asarray(sol.z, float)
+    rim = sorted(_shared(pm, "padA", "roadA"), key=lambda v: pm.vertices[v].xy)
+    pad = sorted(_shared(pm, "padA", "padA"))
+    dem_mean = float(np.mean([pm.vertices[v].dem_z for v in pad]))
+    assert float(np.mean(z[pad])) == pytest.approx(dem_mean, abs=0.05)     # its own seat
+    assert float(z[rim].max() - z[rim].min()) <= 0.01 * 100.0 + 1e-6       # the pad's plane
+    assert float(abs(z[rim] - dem_mean).max()) <= 0.5                      # level along the pad
+    cap = float(role_cap(law, "service_road").longitudinal)
+    road_f = next(f for f in pm.faces.values() if f.ref == "roadA")
+    ring = list(pm.ring_vertices(road_f.ring))
+    left = 0
+    for a, b in zip(ring, ring[1:] + ring[:1]):
+        if (a in rim) == (b in rim):
+            continue                                   # along the rim, or off it
+        (ax, ay), (bx, by) = pm.vertices[a].xy, pm.vertices[b].xy
+        if ay != by:
+            continue                                   # the cross-section, not the run
+        left += 1
+        assert abs(z[a] - z[b]) / abs(ax - bx) <= cap + 1e-3
+    assert left == 2                                   # one edge leaving each end of the run

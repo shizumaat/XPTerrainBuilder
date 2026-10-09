@@ -136,3 +136,9 @@ def test_the_witness_is_read_off_the_sidecar(tmp_path) -> None:
     assert per.source_witness(side)[0]["touching"] == ["parking_lot:lot1"]
     (tmp_path / "Y.axes.json").write_text("{}")
     assert per.source_witness(tmp_path / "Y.axes.json") == []
+
+
+def test_a_held_terrace_is_listed_as_held_never_as_the_defect() -> None:
+    runs, g = _p_runs(43.0)
+    per.class_by_source(runs, g, [{"pad": "building1", "touching": [], "held": ["parking_lot:lot1"], "gapped": []}])
+    assert _source_cls(runs) == [("HELD", "parking_lot:lot1", 0.0)]

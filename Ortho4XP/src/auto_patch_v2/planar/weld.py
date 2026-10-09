@@ -17,11 +17,16 @@ into the ring, so a senior vertex a hair off a junior edge (the owner's
 site) becomes a vertex of both rings and the noding that follows sees
 ONE chain.  A vertex the junior already SHARES with any other cell (a
 pad it welds to, a neighbour it is noded with) is an identity and never
-moves.  Only value-carrying, non-rigid cells of the SAME side weld: a
-pad never welds by proximity (09-01i / 04u: groundside keeps its
-set-back from every pad), and an airside cell never welds to a
-groundside one (the stand-off terraces — memory
-``groundside-terrace-law``).
+moves.  Only value-carrying, non-rigid cells of the SAME side weld, and
+an airside cell never welds to a groundside one (the stand-off terraces
+— memory ``groundside-terrace-law``).
+
+ONE MORE PARTNER CLASS (spec §63 (4) Rule W, owner RULINGS 2026-10-09j):
+a groundside cell that TOUCHES a pad in the source geometry
+(``classify.pad_touch.weld_partners`` — the witness, less the §28 (6)
+held terraces) is welded to THAT pad's rim by the same two halves with
+the pad FROZEN: the pad is never a junior, never moves, and a pad still
+never welds by mere proximity — only to the cells the witness names.
 """
 from __future__ import annotations
 
@@ -31,6 +36,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import nearest_points, unary_union
 from shapely.strtree import STRtree
 
+from ..classify.pad_touch import weld_partners
 from ..classify.roles import Cell
 from ..law import Law
 from ..law.tables import authority_rank, is_rigid_role, is_value_role
@@ -77,6 +83,12 @@ def weld_cells(cells: tuple[Cell, ...], law: Law
     others = [Polygon(c.ring, [h for h in c.holes if len(h) >= 3]).boundary
               for k, c in enumerate(cells) if k not in polys and len(c.ring) >= 3]
     other_tree = STRtree(others) if others else None
+    # Rule W: the rim of every pad, by ref — a touching cell's senior
+    pad_rim: dict[str, list] = {}
+    for c in cells:
+        if is_rigid_role(law, c.role) and len(c.ring) >= 3:
+            pad_rim.setdefault(c.ref, []).append(
+                Polygon(c.ring, [h for h in c.holes if len(h) >= 3]).boundary)
     current: dict[int, Polygon] = {}
     out = list(cells)
     for i in order:
@@ -85,6 +97,8 @@ def weld_cells(cells: tuple[Cell, ...], law: Law
                                                   predicate="intersects")]
         refs = [current[j].boundary for j in near
                 if j != i and j in current and cells[j].side == cells[i].side]
+        for ref in weld_partners(cells[i], law):
+            refs.extend(pad_rim.get(ref, ()))
         if not refs:
             current[i] = p
             continue

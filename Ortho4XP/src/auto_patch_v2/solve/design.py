@@ -571,7 +571,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         res = solve_one_sided(A0f, b0f, A1, b1, w_row, shift, x0, Ub, cb,
                               method=method, solver_tol=float(d.solver_tol),
                               solver_max_iter=int(d.solver_max_iter),
-                              low_rank=low_rank, active_tol=0.0,
+                              low_rank=low_rank,
+                              rel_tol=float(d.qp_rel_tol), active_tol=0.0,
                               verbose=opt.verbose)
         t_solver += time.perf_counter() - t1
         active_i = np.flatnonzero(A1 @ res.x - (b1 - shift) > tol)

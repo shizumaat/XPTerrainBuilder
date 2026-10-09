@@ -105,3 +105,25 @@ signature: a satisfied constraint elsewhere moves the far field), not a law chai
 KCLT (ke vs km; `trend_at.py pav14`): the pav14 sheet ROSE — face 195 (178 v, 6 holes) pad rims z−trend +0.35 → +1.76,
 face 197 (453 v, 15 holes) rims −0.13 → +0.15; building75 / 83 221.03 → 222.44 with `datum_chosen` 220.88 and band
 [220.42, 227.16] — the pads stand 1.56 m ABOVE their chosen datum, inside the band; runway 0. Why-read queued (chain 4).
+
+## Step 4 — arm P: R-E with the runway PINNED at the base's values (`pin_rw.py`: 2,610 `Pin` rows at m's solved z)
+
+| | m → e (R-E) | m → P (R-E + runway pinned) | e → P (the pin alone) |
+|---|---|---|---|
+| runway movers > 0.02 m | 115, worst 0.14 | **0** | 115 (back to m) |
+| sheet pads (datum) | b100 93.79, b98 94.43, b117 95.12 | b100 93.75, b98 94.39, b117 95.09 | ≤ 0.04 m |
+| AIR-TOUCH / AIR-NEAR | 0 / 4 / 46 m | 0 / 4 / 46 m | = |
+| taxi movers (worst) | 3,022 (0.83) | **8,137 (1.51)** | 7,826 (1.53 @30.10322,31.39454) |
+| apron > 60 m from a rim | 1,576 (−6.88) | 4,319 (−6.87) | 4,057 (+1.79 @ gapapron:1) |
+| NULL-CHANGE | pass1 13/1/0.914 pass2 164/0/0.107 pass3 13/0/0.159 stage2 15/0/0.159 MISSED | pass1 **6/1/0.510** pass2 0/0/0 pass3 0/0/0.001 stage2 0/0/0.001 MISSED | — |
+| pad / taxi hard conflicts | 68 / 64 | 129 / 64 | — |
+
+READING. (a) The sheet's level does NOT depend on the runway: pinned or free, the pads seat at 93.75–95.1 (the chain
+ends at a reach BAND — a number, not a column — so there is no law chain from the terminal sheet to 05L/23R). (b) The
+runway's 0.14 m is the §61 (0) class: one stage-1 QP, exit on objective gain; holding the runway 0.14 m differently
+re-levels 7,826 taxi vertices (worst 1.53 m) and the gapapron sheets 2 km away by 1.8 m — a path-dependent stop, not a
+coupling through rows. Pinning is the attribution, not a fix (taxi 8,137 movers, pad conflicts 68 → 129). (c) With the
+runway pinned the pass-1b and stage-2 null-change movers vanish (164 → 0, 15 → 0); what remains is pass 1a's valley on
+the hole rings — 0.51 m at building68's rim (30.12008,31.40803; in e 0.91 at building88's). What §61 missed: the apron
+hole ring in pass 1a (holds dropped, no trend row, no cross-section) is a bending-only column; R-E ties it to the sheet
+with one-sided rows and the solve may put it anywhere inside the cap. The null-change line under R-E is that valley's.

@@ -62,3 +62,20 @@ cap did not pair the lot (0.66 m) — only the road (1.0 m).
 `rows_sw8_HECA.json` (pads67's row dump) carries 93 `airside_no_step` rows on ways -10218/-10219 with grade > cap; the six the
 lane named are `apron|junction` 1.63–1.76 % vs 1.54–1.58 % over 94–135 m (over by 0.12–0.19 m) at 30.1295–30.1297,
 31.4005–31.4007. The engine's violated hard set carries 6 `no_step` rows (listed in `why/hard_all.json`).
+
+## Step 2 — class E attributed (HECA `building100` | `building101` on `apron:dsf:objpav402`)
+
+`<scratch>/seatspec/siteE.py` (every vertex within 25 m of 30.12285430598,31.41820570991 in the solved pickle) and
+`rows_on.py` (every constraint row on a vertex): v11868 (building100's contact, 101.25) and v11597 (apron only, 93.56, 6.0 m
+away) are BOTH stage-1 vertices and share NO ROW. v11868's apron rows are ring edges to v11867 (29 m) / v11869 (44 m) and
+frontage chords to v11870–11872 — every one on the SAME hole ring (building100's rim, all at 101.25). v11597's are ring
+edges to v11596 / v11598 (the sheet's own ring), a `frontage_near_miss` to building101's v12276 and the 5 % ceilings.
+`constraints/apron.apron_within_shape` enumerates pairs INSIDE one ring (`for ring in [rings, *holes]: for i, j in ring`):
+a hole rim never pairs with another hole rim or with the outer ring, so an apron SHEET with the terminal pads as holes
+has no within-shape law across it — each hole ring is seated on its own: building100's datum = its contacts' pass-1a median
+101.24 (the ring on the apron's DEM plane: `reach_band [None, None]`, 12 of 12 contacts unreached by the pair graph);
+building101's contacts chain through `apron_preference` (1 % SOFT, +13.7 m over 1.2 km) to the taxi reach band at 77.21
+(`--why-at` on v11604: 12 hops, sum dz +16.18 m). The 6–8 m steps between pads 6 m apart on one sheet (HECA 21 AIR-TOUCH
+runs, 17 pads) are the missing rows, not wrong seats: no reach band reaches a hole ring the pair graph cannot see.
+Arm E (scratch `armE.py`, generator `apron_cross_ring`): the body-chord rows ALSO between the rings of one face (hole|hole,
+hole|outer), cover-tested like the body chords, at the apron cap with its 1 % preference.

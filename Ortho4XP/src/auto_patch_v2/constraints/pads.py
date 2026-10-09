@@ -193,9 +193,10 @@ def airside_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
 def _pad_groups(planar: PlanarMap, law: Law) -> list[tuple[int, str, list[int]]]:
     """``(face id, ref, rim vertices)`` per rigid face — ONE derivation of
     the pad's vertex set, read by both row generators.  A vertex a
-    STRUCTURE face carries (``model.platform.structure_vertices``: a ramp's
-    top cut into the pad, a trench rim) is not a point of the pad's plane —
-    its level is the structure's, and the pad's edge to it is the wall."""
+    structure RAMP carries (``model.platform.structure_vertices``: a ramp's
+    top cut into the pad) is not a point of the pad's plane — its level is
+    the ramp's, and the pad's edge to it is the wall; the wall's own top rim
+    (a void face's ring) stays a point of the pad."""
     from ..model.platform import structure_vertices
     vw = view(planar, law)
     out: list[tuple[int, str, list[int]]] = []

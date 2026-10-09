@@ -286,6 +286,12 @@ def test_a_vertex_a_structure_carries_is_not_the_host_pads_flat_vertex(law, monk
     (_r, flat, weld), = platform.platform_contacts(pm, law)
     assert not lot & set(flat) and not lot & set(weld)
     assert set(flat) == set(flat0) - lot
+    # a VOID structure face (a retaining wall: its ring is the wall's top
+    # rim) carries no level of its own — its rim stays flat on the pad
+    monkeypatch.setattr("auto_patch_v2.law.tables.is_value_role",
+                        lambda _law, role: role != "parking_lot")
+    (_r, flat_v, _w), = platform.platform_contacts(pm, law)
+    assert set(flat_v) == set(flat0)
 
 
 def test_the_solved_pad_is_flat_and_its_record_carries_no_collar_key(built, law):

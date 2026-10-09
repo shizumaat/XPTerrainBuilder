@@ -152,23 +152,33 @@ def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
 
 
 def structure_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
-    """THE VERTICES A STRUCTURE FACE CARRIES (``precedence.toml structure =
-    true``: a wall-corridor / door / tunnel ramp, a trench, a retaining
-    wall) — ONE derivation.  Such a vertex stands at the structure's own
-    level: where its face is cut INTO a pad it is no point of the pad's
-    plane, and the pad's edge from it to the pad's own rim is the WALL — a
-    declared step, never a grade.  Read by the datum column
-    (:func:`datum_vertices`), the flat set (``constraints.platform``), the
-    pad's plate rows (``constraints.pads._pad_groups``) and the pavement
-    fallback (``constraints.pavement_cap``).  Until the collar was deleted
-    (spec §56 (3)) the collar face between pad and ramp kept those rows out
-    as a bank; MEASURED at the three OTHH ramp portals without it: a 1 % pad
-    ceiling and a pavement cap stated over the 0.5-1.1 m wall chord against
-    the ramp's pin, 31 hard conflicts, the wall's top rim 1.35 m down."""
-    from ..law.tables import is_structure_role
+    """THE VERTICES A VALUE-CARRYING STRUCTURE FACE CARRIES (``precedence.toml``
+    ``structure = true`` AND ``value = true``: a wall-corridor / door /
+    tunnel / garage ramp) — ONE derivation.  Such a vertex stands at the
+    ramp's own graded level: where the ramp is cut INTO a pad it is no point
+    of the pad's plane, and the pad's edge from it to the pad's own rim is
+    the WALL — a declared step, never a grade.
+
+    A VOID structure face (``value = false``: the ``retaining_wall`` whose
+    exterior ring IS the wall's top rim, a trench) carries no level of its
+    own — its rim is flush with the surface it sits in (owner RULINGS
+    2026-09-10an) — so a rim vertex on a pad STAYS a point of the pad's
+    plane, at the pad's level.  MEASURED at three OTHH ramp portals (lane
+    pads65): read by role ``structure`` alone, 28 wall-top rim vertices left
+    the flat set and fell up to 1.35 m (four under the ramp's top) while a
+    1 % pad ceiling and the pavement caps were stated over the 0.5-1.1 m
+    wall chord against the ramp's pin (31 stage-2 hard conflicts).  Until
+    spec §56 (3) the collar face between pad and ramp kept those rows out as
+    a bank.
+
+    Read by the datum column (:func:`datum_vertices`), the flat set
+    (``constraints.platform``), the pad's plate rows
+    (``constraints.pads._pad_groups``) and the pavement fallback
+    (``constraints.pavement_cap``)."""
+    from ..law.tables import is_structure_role, is_value_role
     out: set[int] = set()
     for f in planar.faces.values():
-        if is_structure_role(law, f.role):
+        if is_structure_role(law, f.role) and is_value_role(law, f.role):
             for ring in (f.ring, *f.holes):
                 out.update(planar.ring_vertices(ring))
     return out
@@ -189,9 +199,9 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
     FARTHEST from its welded rim (ties: lowest id), so no pad row reaching
     an airside vertex (a ceiling pair over a rim edge) is pulled into stage
     1 through it (measured HECA: a rim datum made two §20 pads' ceilings an
-    infeasible stage-1 set) — and never a vertex a STRUCTURE face carries (a
-    ramp's top, a trench rim: its level is the structure's own law, and a
-    datum column on it seats the whole pad at the structure).  A pad with no
+    infeasible stage-1 set) — and never a vertex a structure RAMP carries
+    (:func:`structure_vertices`: its level is the ramp's own law, and a
+    datum column on it seats the whole pad at the ramp).  A pad with no
     such vertex of its own has no datum column and is not held.  ONE derivation: the stage split
     (``solve/design_roles.airside_stage_vertices``) and the hold rows read
     the same vertex."""

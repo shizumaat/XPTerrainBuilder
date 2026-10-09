@@ -533,9 +533,10 @@ def _contact_sets(planar: PlanarMap, law: Law
     vertices every other vertex of the face but one ANOTHER pad carries
     (two pads may sit at different floors, ``step_exemption_pad_to_pad``:
     HECA ``building281`` abuts ``building68`` 16.4 m higher — an equality
-    there is a contest the plane loses — and one a STRUCTURE face carries
-    (a wall-corridor / door / tunnel ramp's top, a trench rim: the structure
-    is cut INTO its host pad and its level there is the structure's own law;
+    there is a contest the plane loses — and one a structure RAMP carries
+    (``model.platform.structure_vertices``: a wall-corridor / door / tunnel
+    ramp's top — the ramp is cut INTO its host pad and its level there is
+    the ramp's own law; a wall's top RIM stays flat on the pad;
     MEASURED on the OTHH closing build: with the 25 ramp-top vertices of
     ``building6`` in the flat set the whole terminal settled at the ramps'
     2.61 m, 1.35 m under its frontage, and the apron followed); a block's

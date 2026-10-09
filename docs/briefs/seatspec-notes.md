@@ -160,3 +160,14 @@ the next intent question: the sheet's LEVEL. Today's law lets the 1 % preference
   by its ramp law, the apron|road stand-off pair is relaxed, the step stands at the pad's rim. Three of three ARMED-but-off
   pairs are one mechanism: a road law FIXING a road vertex inside a seated pad's frontage (ramp equality / ramp ceiling
   Band at building164 and building27, the coverage-join pin at building26) against the priced frontage joint.
+
+## Step 8 — ARM RR: `--drop-generator road_ramp` (HECA base capture): building164 attributed BY INTERVENTION
+
+* building164 | objpav405: the 65.8 m ARMED run (+2.70 across 1.10 m) is GONE; two single-vertex remnants stay (1.60 at
+  1.74 m, 2.64 at 1.25 m — the road's 10 % longitudinal rows over 206–254 m and the 52 m fallback pair to 82.24 still hold
+  those two). ARMED 1 / 66 m -> 2 / 0 m; GS-NEAR 15 / 515 -> 12 / 434 m (three landside pads' roads came to them).
+* hard_conflict 175 / 108 / 62 -> **18** / 106 / 60: HECA's groundside conflicts are the road ramps' own rows.
+* held datums moved 0 of 47; airside (solve-owned) runway 0, taxi 0, apron 15 (worst 1.73 m at 30.11426101446,
+  31.39756732305 = the `building4/landing2` | pol10 corner), strip 44 (3.22 m).
+READING: with no ramp law on the road the §28 joint holds and the road meets the pad; R-B is the targeted form (the ramp
+and the coverage-join pin start OUTSIDE the frontage), not a drop — the arm is the attribution, never the fix.

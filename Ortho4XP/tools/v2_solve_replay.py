@@ -1432,7 +1432,8 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
                 row = o[1]
                 return (f"law:{row.source.generator}",
                         f"law:{row.source.generator}:{ruling_head(row)}")
-            if tag in ("bend", "taxi_trend", "chord", "road_fit",
+            if tag in ("bend", "taxi_trend", "taxi_xsec", "free_membrane",
+                       "chord", "road_fit",
                        "ground_datum") and isinstance(o[1], int):
                 return tag, f"{tag}:{_vkey(pm, o[1])}"
             return str(tag), str(tag)

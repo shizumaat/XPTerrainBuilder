@@ -71,3 +71,26 @@ Control = pristine worktree `valley2ctl` @ 3a64a153 (body 0b1566de77d5 = main's 
 | stage-1 wall (single run, two other lanes building) | 48.2 s (1a 16.6) | 52.9 s (1a 17.9) | +15 s |
 | stage-1 rounds | 305 | 444 | |
 Largest cluster 933 at 35.22006, −80.93342 (`pav41`, +1.49); then 454 at 35.22166, −80.95104 (`pav125`, +0.97).
+
+## Steps 5-7 (6ed7e45b, 75662364) + WIP after the outage
+- Step 5: `tools/v2_solve_replay.py --null-change [N]` (helper `tools/replay_null.py`, INDEX row, `--json` key
+  `null_change`, twin `tests/test_replay_null.py`). The line also says `LP SETS DIFFER a/b` when the §5a
+  relaxed sets differ by identity.
+- Step 6 code: `project._relax_lp(tie_rank=...)` + `feasibility.canonical_rank`. DEVIATION D2: the second
+  LP is held on the first one's optimal face EXACTLY, by complementary slackness against its duals (rows
+  with y < cost stay hard, rows with y > 0 become equalities), instead of a budget row
+  `Σ cost·s ≤ opt + hard_tol_m`. Reason: §5a runs in DUAL form (n equality rows, m bounded columns), where
+  this is the same model with other column bounds re-run from the first basis (KCLT 0.02 s); a budget row
+  needs the primal form (HECA 32 s measured by the dual-form lane) and compares 0.02 against an optimum
+  of ~1e7 with tier costs to 1e12. An answer costing more than the first LP's is refused and the first kept.
+- Step 7 code: `DesignReport.settle_record()` -> `qp_exits` (round_cap first), `lag_settled`, `hard_settled`
+  in `as_dict` (= the sidecar `design` block), `stages.stage1a` / `stage1` / `stage2`. Capped loops were
+  already named lines + status FEASIBLE, never a failure — nothing to change there.
+- KCLT, final config (k_null): `NULL-CHANGE pass1a 0/0/0.000 pass1b 0/0/0.019 stage2 0/0/0.019 (… promoted
+  145=145, lp relaxed 0=0)`; adjudicated airside 3,355 -> 3,335; census hard_conflict 346 -> 343 (taxi 51 -> 50);
+  the tie-break moved 0 airside nodes against the step-3 arm; avd identical to step 4.
+- HECA FINDING: a one-shot `--replay --from classify` is NOT the build at HECA (body 96f3ab15ab08 vs main's
+  75c751a9dd95): the build solves the gap-free base, then the late stage. HECA is therefore read as
+  `--gap-free` base (+ `--null-change`) and the closing build; the control patch is main's `sw7_HECA.osm`.
+- WIP committed here: `v2_why_solve` names a taxi edge "held by its centreline (t = …)" (§61 (7) row 12),
+  the stage-1 dump keys `taxi_xsec` / `free_membrane` owners, the DEFERRED_VERIFICATION line.

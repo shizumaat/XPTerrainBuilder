@@ -1,0 +1,668 @@
+{
+ "HECA": {
+  "icao": "HECA",
+  "capture": "/Users/noah/XPTerrainBuilderData/.harness/frames/gapapron3/HECA.pkl",
+  "dump": "/Users/noah/XPTerrainBuilderData/Airport_mod_cache/c_EGY - 100_airport - HECA Cairo (Tai Models)/+30+031.dsf.34c3e6dd.text",
+  "gate_counts": {
+   "surface_only": 2,
+   "name": 1
+  },
+  "surface_only_by_def": {
+   "Lib_Making/ground_polygon/Concrete/MAN/Asphalt_1_NOLINE.pol": {
+    "n": 2,
+    "m2": 63173.2068850045,
+    "clipped_n": 2,
+    "clipped_m2": 63173.20688500452,
+    "on_all_pav": 169.10214277037,
+    "on_apt_pav": 169.10214277037,
+    "on_runway": 0.0,
+    "on_taxi": 0.0,
+    "on_apron": 169.02362743413283,
+    "on_standing": 1182.2753657959279,
+    "on_pads": 16742.678873084325,
+    "on_sheets_today": 15345.52292074173,
+    "free": 45248.25264612428,
+    "surface": "asphalt",
+    "layer": "taxiways"
+   }
+  },
+  "surface_only_total": {
+   "n": 2,
+   "m2": 63173.2068850045,
+   "clipped_n": 2,
+   "clipped_m2": 63173.20688500452,
+   "on_all_pav": 169.10214277037,
+   "on_apt_pav": 169.10214277037,
+   "on_runway": 0.0,
+   "on_taxi": 0.0,
+   "on_apron": 169.02362743413283,
+   "on_standing": 1182.2753657959279,
+   "on_pads": 16742.678873084325,
+   "on_sheets_today": 15345.52292074173,
+   "free": 45248.25264612428
+  },
+  "sheets_today_m2": 1504395,
+  "refused_hard_surface": {},
+  "mint_control": {
+   "pieces": 38,
+   "m2": 1001549,
+   "stats": {
+    "gap_pieces": 38,
+    "gap_piece_m2": 1001551.3341000037,
+    "gap_pieces_apron": 19,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 75,
+    "gap_band_trim_m2": 14005.931724687287
+   },
+   "s": 0.6
+  },
+  "mint_arm": {
+   "pieces": 38,
+   "m2": 1031194,
+   "stats": {
+    "gap_pieces": 38,
+    "gap_piece_m2": 1031196.1206999993,
+    "gap_pieces_apron": 19,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 76,
+    "gap_band_trim_m2": 14005.907356687281
+   },
+   "s": 0.6,
+   "dist": {
+    "n": 38,
+    "min": 201,
+    "p25": 460,
+    "median": 975,
+    "p75": 6178,
+    "max": 729034,
+    "sum": 1031194
+   },
+   "apron_touching": 19,
+   "apron_touching_m2": 861812,
+   "pieces_list": [
+    {
+     "ref": "gap:0",
+     "role": "groundside_pavement",
+     "m2": 729034,
+     "touches_apron": true,
+     "apron_shared_m": 2242.8,
+     "perimeter_m": 84851,
+     "on_sheets_today_m2": 709277,
+     "lat": 30.1205223,
+     "lon": 31.4040221,
+     "class_est": "road by evidence",
+     "evidence": {
+      "osm_highway": true,
+      "route": false,
+      "road_face": true,
+      "share": 0.03
+     }
+    },
+    {
+     "ref": "gap:1",
+     "role": "groundside_pavement",
+     "m2": 63939,
+     "touches_apron": true,
+     "apron_shared_m": 30.5,
+     "perimeter_m": 5978,
+     "on_sheets_today_m2": 53279,
+     "lat": 30.104058,
+     "lon": 31.3899499,
+     "class_est": "road by evidence",
+     "evidence": {
+      "osm_highway": true,
+      "route": false,
+      "road_face": true,
+      "share": 0.01
+     }
+    },
+    {
+     "ref": "gap:2",
+     "role": "groundside_pavement",
+     "m2": 57249,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 3788,
+     "on_sheets_today_m2": 57203,
+     "lat": 30.1129443,
+     "lon": 31.3933414,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:3",
+     "role": "groundside_pavement",
+     "m2": 36827,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 3670,
+     "on_sheets_today_m2": 36790,
+     "lat": 30.1096684,
+     "lon": 31.3883466,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:4",
+     "role": "groundside_pavement",
+     "m2": 35497,
+     "touches_apron": true,
+     "apron_shared_m": 66.2,
+     "perimeter_m": 2950,
+     "on_sheets_today_m2": 35446,
+     "lat": 30.110817,
+     "lon": 31.3943011,
+     "class_est": "road by evidence",
+     "evidence": {
+      "osm_highway": true,
+      "route": false,
+      "road_face": true,
+      "share": 0.02
+     }
+    },
+    {
+     "ref": "gap:5",
+     "role": "groundside_pavement",
+     "m2": 29447,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 3320,
+     "on_sheets_today_m2": 29405,
+     "lat": 30.113854,
+     "lon": 31.3968832,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:6",
+     "role": "groundside_pavement",
+     "m2": 13955,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 1363,
+     "on_sheets_today_m2": 13912,
+     "lat": 30.1114967,
+     "lon": 31.3892299,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:7",
+     "role": "groundside_pavement",
+     "m2": 10653,
+     "touches_apron": true,
+     "apron_shared_m": 139.5,
+     "perimeter_m": 1318,
+     "on_sheets_today_m2": 10644,
+     "lat": 30.1158322,
+     "lon": 31.4104303,
+     "class_est": "road by evidence",
+     "evidence": {
+      "osm_highway": true,
+      "route": false,
+      "road_face": true,
+      "share": 0.11
+     }
+    },
+    {
+     "ref": "gap:8",
+     "role": "groundside_pavement",
+     "m2": 10195,
+     "touches_apron": false,
+     "apron_shared_m": 3.9,
+     "perimeter_m": 2302,
+     "on_sheets_today_m2": 10185,
+     "lat": 30.1138738,
+     "lon": 31.4088843,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:9",
+     "role": "groundside_pavement",
+     "m2": 6178,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 804,
+     "on_sheets_today_m2": 6178,
+     "lat": 30.114832,
+     "lon": 31.4077864,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:10",
+     "role": "groundside_pavement",
+     "m2": 6053,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 864,
+     "on_sheets_today_m2": 6053,
+     "lat": 30.1138835,
+     "lon": 31.407673,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:11",
+     "role": "groundside_pavement",
+     "m2": 5746,
+     "touches_apron": true,
+     "apron_shared_m": 11.9,
+     "perimeter_m": 375,
+     "on_sheets_today_m2": 5746,
+     "lat": 30.1097029,
+     "lon": 31.3926639,
+     "class_est": "road by evidence",
+     "evidence": {
+      "osm_highway": true,
+      "route": false,
+      "road_face": false,
+      "share": 0.03
+     }
+    },
+    {
+     "ref": "gap:12",
+     "role": "groundside_pavement",
+     "m2": 4121,
+     "touches_apron": true,
+     "apron_shared_m": 69.8,
+     "perimeter_m": 917,
+     "on_sheets_today_m2": 4111,
+     "lat": 30.1111473,
+     "lon": 31.3995437,
+     "class_est": "road by evidence",
+     "evidence": {
+      "osm_highway": true,
+      "route": false,
+      "road_face": true,
+      "share": 0.08
+     }
+    },
+    {
+     "ref": "gap:13",
+     "role": "groundside_pavement",
+     "m2": 3876,
+     "touches_apron": true,
+     "apron_shared_m": 819.4,
+     "perimeter_m": 1546,
+     "on_sheets_today_m2": 3838,
+     "lat": 30.1243757,
+     "lon": 31.3922547,
+     "class_est": "apron: share >= 20 %",
+     "evidence": {
+      "osm_highway": true,
+      "route": false,
+      "road_face": true,
+      "share": 0.53
+     }
+    },
+    {
+     "ref": "gap:14",
+     "role": "groundside_pavement",
+     "m2": 3870,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 920,
+     "on_sheets_today_m2": 3869,
+     "lat": 30.1144732,
+     "lon": 31.4061198,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:15",
+     "role": "groundside_pavement",
+     "m2": 3014,
+     "touches_apron": true,
+     "apron_shared_m": 245.5,
+     "perimeter_m": 690,
+     "on_sheets_today_m2": 3012,
+     "lat": 30.1039603,
+     "lon": 31.3966905,
+     "class_est": "apron: share >= 20 %",
+     "evidence": {
+      "osm_highway": true,
+      "route": false,
+      "road_face": true,
+      "share": 0.36
+     }
+    },
+    {
+     "ref": "gap:16",
+     "role": "groundside_pavement",
+     "m2": 995,
+     "touches_apron": true,
+     "apron_shared_m": 288.0,
+     "perimeter_m": 511,
+     "on_sheets_today_m2": 995,
+     "lat": 30.1038846,
+     "lon": 31.3943931,
+     "class_est": "apron: share >= 20 %",
+     "evidence": {
+      "osm_highway": false,
+      "route": false,
+      "road_face": true,
+      "share": 0.56
+     }
+    },
+    {
+     "ref": "gap:17",
+     "role": "groundside_pavement",
+     "m2": 982,
+     "touches_apron": true,
+     "apron_shared_m": 914.7,
+     "perimeter_m": 904,
+     "on_sheets_today_m2": 982,
+     "lat": 30.127022,
+     "lon": 31.3957838,
+     "class_est": "apron: share >= 20 %",
+     "evidence": {
+      "osm_highway": true,
+      "route": false,
+      "road_face": true,
+      "share": 1.01
+     }
+    },
+    {
+     "ref": "gap:18",
+     "role": "groundside_pavement",
+     "m2": 975,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 155,
+     "on_sheets_today_m2": 975,
+     "lat": 30.1118548,
+     "lon": 31.3977362,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:19",
+     "role": "groundside_pavement",
+     "m2": 771,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 154,
+     "on_sheets_today_m2": 771,
+     "lat": 30.1100077,
+     "lon": 31.3853191,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:20",
+     "role": "groundside_pavement",
+     "m2": 676,
+     "touches_apron": true,
+     "apron_shared_m": 209.6,
+     "perimeter_m": 397,
+     "on_sheets_today_m2": 676,
+     "lat": 30.1069363,
+     "lon": 31.3966968,
+     "class_est": "apron: share >= 20 %",
+     "evidence": {
+      "osm_highway": false,
+      "route": false,
+      "road_face": true,
+      "share": 0.53
+     }
+    },
+    {
+     "ref": "gap:21",
+     "role": "groundside_pavement",
+     "m2": 599,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 188,
+     "on_sheets_today_m2": 598,
+     "lat": 30.1134679,
+     "lon": 31.3979658,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:22",
+     "role": "groundside_pavement",
+     "m2": 573,
+     "touches_apron": true,
+     "apron_shared_m": 19.0,
+     "perimeter_m": 127,
+     "on_sheets_today_m2": 573,
+     "lat": 30.1273558,
+     "lon": 31.4108985,
+     "class_est": "apron: no road evidence",
+     "evidence": {
+      "osm_highway": false,
+      "route": false,
+      "road_face": false,
+      "share": 0.15
+     }
+    },
+    {
+     "ref": "gap:23",
+     "role": "groundside_pavement",
+     "m2": 563,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 238,
+     "on_sheets_today_m2": 562,
+     "lat": 30.1166843,
+     "lon": 31.3980159,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:24",
+     "role": "groundside_pavement",
+     "m2": 549,
+     "touches_apron": true,
+     "apron_shared_m": 175.0,
+     "perimeter_m": 190,
+     "on_sheets_today_m2": 549,
+     "lat": 30.108008,
+     "lon": 31.4025913,
+     "class_est": "apron: no road evidence",
+     "evidence": {
+      "osm_highway": false,
+      "route": false,
+      "road_face": false,
+      "share": 0.92
+     }
+    },
+    {
+     "ref": "gap:25",
+     "role": "groundside_pavement",
+     "m2": 523,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 170,
+     "on_sheets_today_m2": 521,
+     "lat": 30.1138386,
+     "lon": 31.3989844,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:26",
+     "role": "groundside_pavement",
+     "m2": 506,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 380,
+     "on_sheets_today_m2": 506,
+     "lat": 30.1131607,
+     "lon": 31.3923142,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:27",
+     "role": "groundside_pavement",
+     "m2": 487,
+     "touches_apron": false,
+     "apron_shared_m": 7.4,
+     "perimeter_m": 268,
+     "on_sheets_today_m2": 487,
+     "lat": 30.1153105,
+     "lon": 31.4113065,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:28",
+     "role": "groundside_pavement",
+     "m2": 460,
+     "touches_apron": true,
+     "apron_shared_m": 41.0,
+     "perimeter_m": 132,
+     "on_sheets_today_m2": 460,
+     "lat": 30.1280102,
+     "lon": 31.404204,
+     "class_est": "apron: share >= 20 %",
+     "evidence": {
+      "osm_highway": false,
+      "route": false,
+      "road_face": true,
+      "share": 0.31
+     }
+    },
+    {
+     "ref": "gap:29",
+     "role": "groundside_pavement",
+     "m2": 458,
+     "touches_apron": true,
+     "apron_shared_m": 15.7,
+     "perimeter_m": 197,
+     "on_sheets_today_m2": 457,
+     "lat": 30.1113148,
+     "lon": 31.4002402,
+     "class_est": "road by evidence",
+     "evidence": {
+      "osm_highway": true,
+      "route": false,
+      "road_face": true,
+      "share": 0.08
+     }
+    },
+    {
+     "ref": "gap:30",
+     "role": "groundside_pavement",
+     "m2": 427,
+     "touches_apron": true,
+     "apron_shared_m": 51.0,
+     "perimeter_m": 127,
+     "on_sheets_today_m2": 423,
+     "lat": 30.1275836,
+     "lon": 31.4048392,
+     "class_est": "apron: share >= 20 %",
+     "evidence": {
+      "osm_highway": false,
+      "route": false,
+      "road_face": true,
+      "share": 0.4
+     }
+    },
+    {
+     "ref": "gap:31",
+     "role": "groundside_pavement",
+     "m2": 396,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 97,
+     "on_sheets_today_m2": 396,
+     "lat": 30.1114871,
+     "lon": 31.3978463,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:32",
+     "role": "groundside_pavement",
+     "m2": 337,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 175,
+     "on_sheets_today_m2": 337,
+     "lat": 30.1123606,
+     "lon": 31.3975782,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:33",
+     "role": "groundside_pavement",
+     "m2": 321,
+     "touches_apron": true,
+     "apron_shared_m": 88.0,
+     "perimeter_m": 176,
+     "on_sheets_today_m2": 321,
+     "lat": 30.109888,
+     "lon": 31.4050887,
+     "class_est": "apron: share >= 20 %",
+     "evidence": {
+      "osm_highway": false,
+      "route": false,
+      "road_face": true,
+      "share": 0.5
+     }
+    },
+    {
+     "ref": "gap:34",
+     "role": "groundside_pavement",
+     "m2": 250,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 75,
+     "on_sheets_today_m2": 250,
+     "lat": 30.1257277,
+     "lon": 31.3958537,
+     "class_est": "road (no apron)"
+    },
+    {
+     "ref": "gap:35",
+     "role": "groundside_pavement",
+     "m2": 249,
+     "touches_apron": true,
+     "apron_shared_m": 82.5,
+     "perimeter_m": 153,
+     "on_sheets_today_m2": 249,
+     "lat": 30.1061118,
+     "lon": 31.3933151,
+     "class_est": "apron: no road evidence",
+     "evidence": {
+      "osm_highway": false,
+      "route": false,
+      "road_face": false,
+      "share": 0.54
+     }
+    },
+    {
+     "ref": "gap:36",
+     "role": "groundside_pavement",
+     "m2": 242,
+     "touches_apron": true,
+     "apron_shared_m": 107.0,
+     "perimeter_m": 160,
+     "on_sheets_today_m2": 241,
+     "lat": 30.1098131,
+     "lon": 31.4051827,
+     "class_est": "apron: share >= 20 %",
+     "evidence": {
+      "osm_highway": false,
+      "route": false,
+      "road_face": true,
+      "share": 0.67
+     }
+    },
+    {
+     "ref": "gap:37",
+     "role": "groundside_pavement",
+     "m2": 201,
+     "touches_apron": false,
+     "apron_shared_m": 0.0,
+     "perimeter_m": 67,
+     "on_sheets_today_m2": 201,
+     "lat": 30.1279051,
+     "lon": 31.4042681,
+     "class_est": "road (no apron)"
+    }
+   ]
+  },
+  "mint_notes": [
+   "gap piece gap:15: 3,014 m2; the runway / taxi band envelope took 41 m2 beside it (\u00a753 (12))",
+   "gap piece gap:16: 995 m2; the runway / taxi band envelope took 6 m2 beside it (\u00a753 (12))",
+   "gap piece gap:20: 676 m2; the runway / taxi band envelope took 9 m2 beside it (\u00a753 (12))",
+   "gap piece gap:22: 573 m2; the runway / taxi band envelope took 93 m2 beside it (\u00a753 (12))",
+   "gap piece gap:24: 549 m2; the runway / taxi band envelope took 85 m2 beside it (\u00a753 (12))",
+   "gap piece gap:33: 321 m2; the runway / taxi band envelope took 10 m2 beside it (\u00a753 (12))",
+   "gap piece gap:36: 242 m2; the runway / taxi band envelope took 1 m2 beside it (\u00a753 (12))"
+  ],
+  "page_over_aptdat_m2": {},
+  "page_over_aptdat_examples": {},
+  "sites": []
+ }
+}

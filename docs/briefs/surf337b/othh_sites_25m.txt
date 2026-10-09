@@ -1,0 +1,25 @@
+#453          25.2559273, 51.6083381: main 4 ways within 25 m (alt -1.14..3.96); branch 4; identical (nodes, alt span) 4
+#454          25.2792668, 51.6001421: main 2 ways within 25 m (alt -1.14..3.96); branch 2; identical (nodes, alt span) 2
+#455          25.2762962, 51.5920062: main 2 ways within 25 m (alt -1.14..3.96); branch 2; identical (nodes, alt span) 2
+#450 a        25.2542342, 51.6213069: main 7 ways within 25 m (alt -1.14..4.28); branch 14; identical (nodes, alt span) 7
+      NEW       gap_interior_ring:?  main None  branch (82, 3.64, 4.17, 14.56)   (nodes, alt_min, alt_max, node distance m)
+      NEW       groundside_pavement:gap:2/s0  main None  branch (240, 3.61, 4.16, 9.72)   (nodes, alt_min, alt_max, node distance m)
+      NEW       groundside_pavement:gap:2/s4  main None  branch (19, 3.96, 3.99, 4.25)   (nodes, alt_min, alt_max, node distance m)
+      NEW       groundside_pavement:gap:2/s4#1  main None  branch (36, 3.96, 3.96, 12.42)   (nodes, alt_min, alt_max, node distance m)
+      NEW       groundside_pavement:gap:2/s4#2  main None  branch (12, 3.89, 3.96, 3.83)   (nodes, alt_min, alt_max, node distance m)
+      NEW       groundside_pavement:gap:2/s8  main None  branch (5, 3.96, 3.96, 10.05)   (nodes, alt_min, alt_max, node distance m)
+      NEW       groundside_pavement:gap:2/s8#1  main None  branch (7, 3.96, 3.96, 15.26)   (nodes, alt_min, alt_max, node distance m)
+#450 b        25.253661, 51.6208155: main 0 ways within 25 m (alt -..-); branch 0; identical (nodes, alt span) 0
+#451 a        25.2536839, 51.6231506: main 3 ways within 25 m (alt -0.35..3.96); branch 4; identical (nodes, alt span) 2
+      NEW       apron:gapapron:6  main None  branch (59, 3.96, 3.96, 8.01)   (nodes, alt_min, alt_max, node distance m)
+      CHANGED   structure_rim:basin_wall:5  main (31, 3.96, 3.96, 16.79)  branch (34, 3.96, 3.96, 8.01)   (nodes, alt_min, alt_max, node distance m)
+#451 b        25.2539056, 51.6221564: main 2 ways within 25 m (alt -0.35..3.96); branch 3; identical (nodes, alt span) 2
+      NEW       gap_interior_ring:?  main None  branch (14, 3.96, 3.96, 11.16)   (nodes, alt_min, alt_max, node distance m)
+#451 c        25.2963819, 51.6065055: main 2 ways within 25 m (alt -0.35..3.96); branch 5; identical (nodes, alt span) 2
+      NEW       groundside_pavement:gap:1/s1  main None  branch (157, 3.91, 3.97, 22.32)   (nodes, alt_min, alt_max, node distance m)
+      NEW       groundside_pavement:gap:1/s4  main None  branch (36, 3.96, 3.96, 11.17)   (nodes, alt_min, alt_max, node distance m)
+      NEW       groundside_pavement:gap:1/s4#1  main None  branch (15, 3.96, 3.96, 21.62)   (nodes, alt_min, alt_max, node distance m)
+terminal      25.259994, 51.6104872: main 9 ways within 25 m (alt 3.83..4.14); branch 10; identical (nodes, alt span) 8
+      NEW       apron:gapapron:25  main None  branch (12, 3.96, 3.96, 14.54)   (nodes, alt_min, alt_max, node distance m)
+      CHANGED   apron:pav4  main (163, 3.96, 3.96, 9.73)  branch (168, 3.96, 3.96, 9.73)   (nodes, alt_min, alt_max, node distance m)
+cliff 04-Oct  25.25535, 51.62062: main 8 ways within 25 m (alt 3.96..3.96); branch 8; identical (nodes, alt span) 8

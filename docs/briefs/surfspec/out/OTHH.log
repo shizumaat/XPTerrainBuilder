@@ -1,0 +1,48 @@
+
+== OTHH /Users/noah/XPTerrainBuilderData/.harness/frames/surface337/OTHH_main900727f2.pkl  (loaded 2 s; pavements 103, gap_sheets 0, cells 775)
+  dump .pol polygons by gate: {'refused': 8446, 'surface_only': 281, 'name': 70}
+  refused though concrete: lib/airport/markings/draped_letters_white.pol                n= 547  paint layer (paint)
+  refused though concrete: lib/airport/markings/DrapedRwySigns.pol                      n= 536  paint layer (paint)
+  refused though concrete: lib/airport/markings/DrapedLocSigns.pol                      n= 473  paint layer (paint)
+  refused though asphalt: Ground/Markings/safe_area_yellow.pol                         n= 114  paint layer (paint)
+  refused though asphalt: Ground/Markings/safe_area_white.pol                          n=  65  paint layer (paint)
+  refused though asphalt: Ground/Markings/safe_area_red.pol                            n=  61  paint layer (paint)
+  refused though asphalt: lib/airport/markings/colored_area_black.pol                  n=  16  paint layer (paint)
+  refused though asphalt: Ground/Poly/Grass3.pol                                       n=   3  soft name word (shoulders)
+  def                                                             n        m2      clip   allpav   aptpav     rwy     taxi    apron     stand    pads   sheets      free  SURFACE/LAYER
+  Ground/Poly/ASPH1.pol                                          87   4443718   4380947  3363230  3362404  710839  1879197   773236   3377342  285690        0    961588  asphalt/runways
+  Ground/Poly/ASPH3.pol                                          18    627736    627736      729      563    1440       96    20018     65226  330452        0    232183  asphalt/runways
+  Ground/Poly/Stone_Tiles1.pol                                  115    148499    145574    30558    30558       0     1210    29348     31666   30886        0     87840  asphalt/runways
+  Ground/Poly/ASPH2.pol                                          22    120445    116367      248      233       0      205       61      6035    3156        0    107179  asphalt/runways
+  Ground/Poly/Stone_Tiles2.pol                                   38     18852     18431       46       46       0        0       46        70    3636        0     14768  asphalt/runways
+  Ground/Poly/ASPH1_upper.pol                                     1     16684     14600        0        0       0        0        0         0     203        0     14397  asphalt/runways
+  TOTAL                                                         281   5375934   5303656  3394812  3393806  712279  1880707   822710   3480339  654023        0   1417955
+  MINT control: 0 pieces 0 m2 (0.0 s) {'gap_pieces': 0, 'gap_piece_m2': 0.0, 'gap_pieces_apron': 0, 'gap_pieces_unminted_airside': 0, 'gap_pieces_under_floor': 0}
+  MINT arm:     122 pieces 671,706 m2 (0.4 s) {'gap_pieces': 122, 'gap_piece_m2': 671706.4162000035, 'gap_pieces_apron': 39, 'gap_pieces_unminted_airside': 0, 'gap_pieces_under_floor': 318, 'gap_band_trim_m2': 619500.0174897378}
+  arm size distribution: {'n': 122, 'min': 207, 'p25': 645, 'median': 1467, 'p75': 3592, 'max': 154272, 'sum': 671706}
+  arm apron-touching: 39 pieces 393,728 m2
+    gap:0      154,272 m2 apron_shared   867.3 m  25.2840196, 51.6000379
+    gap:1       61,983 m2 apron_shared   210.6 m  25.2768954, 51.6196887
+    gap:2       49,914 m2 apron_shared   274.6 m  25.2529791, 51.6236499
+    gap:3       46,869 m2 apron_shared    82.8 m  25.2581956, 51.6193253
+    gap:4       35,142 m2 apron_shared     0.0 m  25.2670578, 51.5905789
+    gap:5       20,455 m2 apron_shared     0.0 m  25.2590944, 51.6136104
+    gap:6       19,210 m2 apron_shared     9.7 m  25.2523083, 51.5940445
+    gap:7       12,786 m2 apron_shared   777.2 m  25.2785534, 51.6049277
+    gap:8       12,414 m2 apron_shared     0.0 m  25.2565673, 51.6098164
+    gap:9       12,229 m2 apron_shared     0.0 m  25.2776746, 51.6015413
+    gap:10      11,444 m2 apron_shared     0.0 m  25.2600761, 51.6184824
+    gap:11      11,384 m2 apron_shared    35.0 m  25.2766734, 51.6065667
+    note: gap piece gap:0: 154,272 m2; the runway / taxi band envelope took 29 m2 beside it (§53 (12))
+    note: gap piece gap:1: 61,983 m2; the runway / taxi band envelope took 4 m2 beside it (§53 (12))
+    note: gap piece gap:2: 49,914 m2; the runway / taxi band envelope took 73 m2 beside it (§53 (12))
+    note: gap piece gap:4: 35,142 m2; the runway / taxi band envelope took 2,097 m2 beside it (§53 (12))
+    note: gap piece gap:6: 19,210 m2; the runway / taxi band envelope took 18 m2 beside it (§53 (12))
+    note: gap piece gap:7: 12,786 m2; the runway / taxi band envelope took 142 m2 beside it (§53 (12))
+    note: gap piece gap:8: 12,414 m2; the runway / taxi band envelope took 155 m2 beside it (§53 (12))
+    note: gap piece gap:9: 12,229 m2; the runway / taxi band envelope took 682 m2 beside it (§53 (12))
+  #333 population — name-admitted dsf:pol cells standing ON apt.dat pavement: 11 m2 parking_lot 7, apron 3, groundside_pavement 1
+    groundside_pavement: [('dsf:pol51#28', 1)]
+    parking_lot: [('dsf:pol51#30', 3), ('dsf:pol51#70', 3), ('dsf:pol51#32', 1)]
+    apron: [('dsf:pol32', 3)]
+  site 25.25535, 51.62062: no cell

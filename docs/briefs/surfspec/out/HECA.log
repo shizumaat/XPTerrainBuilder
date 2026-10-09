@@ -1,0 +1,30 @@
+
+== HECA /Users/noah/XPTerrainBuilderData/.harness/frames/gapapron3/HECA.pkl  (loaded 1 s; pavements 600, gap_sheets 23, cells 1535)
+  dump .pol polygons by gate: {'surface_only': 2, 'name': 1}
+  def                                                             n        m2      clip   allpav   aptpav     rwy     taxi    apron     stand    pads   sheets      free  SURFACE/LAYER
+  Lib_Making/ground_polygon/Concrete/MAN/Asphalt_1_NOLINE.pol     2     63173     63173      169      169       0        0      169      1182   16743    15346     45248  asphalt/taxiways
+  TOTAL                                                           2     63173     63173      169      169       0        0      169      1182   16743    15346     45248
+  MINT control: 38 pieces 1,001,549 m2 (0.5 s) {'gap_pieces': 38, 'gap_piece_m2': 1001551.3341000037, 'gap_pieces_apron': 19, 'gap_pieces_unminted_airside': 0, 'gap_pieces_under_floor': 75, 'gap_band_trim_m2': 14005.931724687287}
+  MINT arm:     38 pieces 1,031,194 m2 (0.5 s) {'gap_pieces': 38, 'gap_piece_m2': 1031196.1206999993, 'gap_pieces_apron': 19, 'gap_pieces_unminted_airside': 0, 'gap_pieces_under_floor': 76, 'gap_band_trim_m2': 14005.907356687281}
+  arm size distribution: {'n': 38, 'min': 201, 'p25': 460, 'median': 975, 'p75': 6178, 'max': 729034, 'sum': 1031194}
+  arm apron-touching: 19 pieces 861,812 m2
+    gap:0      729,034 m2 apron_shared  2242.8 m  30.1205223, 31.4040221
+    gap:1       63,939 m2 apron_shared    30.5 m  30.104058, 31.3899499
+    gap:2       57,249 m2 apron_shared     0.0 m  30.1129443, 31.3933414
+    gap:3       36,827 m2 apron_shared     0.0 m  30.1096684, 31.3883466
+    gap:4       35,497 m2 apron_shared    66.2 m  30.110817, 31.3943011
+    gap:5       29,447 m2 apron_shared     0.0 m  30.113854, 31.3968832
+    gap:6       13,955 m2 apron_shared     0.0 m  30.1114967, 31.3892299
+    gap:7       10,653 m2 apron_shared   139.5 m  30.1158322, 31.4104303
+    gap:8       10,195 m2 apron_shared     3.9 m  30.1138738, 31.4088843
+    gap:9        6,178 m2 apron_shared     0.0 m  30.114832, 31.4077864
+    gap:10       6,053 m2 apron_shared     0.0 m  30.1138835, 31.407673
+    gap:11       5,746 m2 apron_shared    11.9 m  30.1097029, 31.3926639
+    note: gap piece gap:15: 3,014 m2; the runway / taxi band envelope took 41 m2 beside it (§53 (12))
+    note: gap piece gap:16: 995 m2; the runway / taxi band envelope took 6 m2 beside it (§53 (12))
+    note: gap piece gap:20: 676 m2; the runway / taxi band envelope took 9 m2 beside it (§53 (12))
+    note: gap piece gap:22: 573 m2; the runway / taxi band envelope took 93 m2 beside it (§53 (12))
+    note: gap piece gap:24: 549 m2; the runway / taxi band envelope took 85 m2 beside it (§53 (12))
+    note: gap piece gap:33: 321 m2; the runway / taxi band envelope took 10 m2 beside it (§53 (12))
+    note: gap piece gap:36: 242 m2; the runway / taxi band envelope took 1 m2 beside it (§53 (12))
+  #333 population — name-admitted dsf:pol cells standing ON apt.dat pavement: 0 m2 

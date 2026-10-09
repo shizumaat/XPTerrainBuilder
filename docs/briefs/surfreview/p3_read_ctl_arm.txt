@@ -1,0 +1,20 @@
+groups: control 1072  arm 1072
+identical groups 1061; differing 11
+  gap groups differing: 11; non-gap: 0
+    (('groundside_pavement', 'gap:1/s1'), 'nodes 158->158', 1, (0.01, ('25.29635536980', '51.60620810889')))
+    (('groundside_pavement', 'gap:1/s3'), 'nodes 87->87', 77, (13.48, ('25.29557895980', '51.60311996348')))
+    (('groundside_pavement', 'gap:1/s4'), 'nodes 52->52', 15, (1.82, ('25.29646821311', '51.60652586192')))
+    (('groundside_pavement', 'gap:18'), 'nodes 65->65', 1, (0.09, ('25.25311526098', '51.60295800868')))
+    (('groundside_pavement', 'gap:2/s1'), 'nodes 73->73', 10, (1.99, ('25.25396742443', '51.62559509557')))
+    (('groundside_pavement', 'gap:2/s7#1'), 'nodes 6->6', 2, (0.29, ('25.25391324805', '51.62570924133')))
+    (('groundside_pavement', 'gap:52'), 'nodes 51->51', 1, (0.01, ('25.26087837502', '51.59822747319')))
+    (('groundside_pavement', 'gap:56'), 'nodes 38->38', 1, (0.01, ('25.26668262535', '51.59550191369')))
+    (('groundside_pavement', 'gap:66'), 'nodes 44->44', 1, (0.01, ('25.28695675876', '51.58812247485')))
+    (('groundside_pavement', 'gap:78'), 'nodes 32->32', 1, (0.01, ('25.25759709167', '51.59964726143')))
+    (('groundside_pavement', 'gap:84'), 'nodes 27->27', 2, (0.01, ('25.25406754131', '51.60097268746')))
+  gap:1/s3: control ('groundside_pavement', 87, -9.52, 4.02)  arm ('groundside_pavement', 87, 3.96, 3.96)
+  gap:2/s1: control ('groundside_pavement', 73, 1.97, 3.97)  arm ('groundside_pavement', 73, 3.95, 3.97)
+  gap:1/s4: control ('groundside_pavement', 52, 2.14, 4.03)  arm ('groundside_pavement', 52, 3.96, 3.96)
+  gap:1/s1: control ('groundside_pavement', 158, 3.91, 3.97)  arm ('groundside_pavement', 158, 3.91, 3.97)
+  gap:2/s7: control ('groundside_pavement', 22, 3.96, 3.96)  arm ('groundside_pavement', 22, 3.96, 3.96)
+  gap:2/s7#1: control ('groundside_pavement', 6, 3.67, 4.02)  arm ('groundside_pavement', 6, 3.96, 3.96)

@@ -173,3 +173,15 @@ attributed further (no intervention run); HECA's plan is identical to main's.
   `gap:8/s0/lot` 2 nodes, 2.37 m at 30.11510995, 31.41089017 (101.80 →
   104.17; 42 m from #430, another part) and 0.74 m at 30.11414468,
   31.40954131 — not attributed.
+* CENSUS (closing build, this tree's tool / main's `swga_HECA`, main's tool):
+  CRITICAL motion 2 / 2; visual 1,912 / 1,910 (cliff 28 / 28, approach 25 /
+  25, runway view 8 / 8, unmeshable 1,851 / 1,849); adjudicated 14,407 /
+  14,403 (airside 12,196 / 12,195); `hard_conflict` rows 294 / 294.
+
+## Handover
+
+Full non-Qt split 9,027 passed / 20 skipped / 1 xpassed (after the last code
+change); `-n0 tests/test_qt_*.py` 311 passed; the four gate files 202 passed;
+`tools/ratchets.py` DUPLICATE PASS, LAYER PASS (size WARN, pre-existing:
+`pipeline/build.py` 1,474 → 1,621, of which this lane +7).
+Frames registered (`surf337`): OTHH and HECA captures, both build patches.

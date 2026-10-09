@@ -785,15 +785,20 @@ def taxi_route_pairs(planar: PlanarMap, law: Law, airport: Airport,
     return out
 
 
-def gap_pieces(cut: _t.Mapping[str, _t.Any]) -> list[dict[str, _t.Any]]:
+def gap_pieces(cut: _t.Mapping[str, _t.Any] | None,
+               cells: _t.Iterable = ()) -> list[dict[str, _t.Any]]:
     """Sidecar ``gap_pieces`` (spec §55 (4)): one record per PART of a cut
     gap piece — ``ref, kind, m2``, the piece's level ``groups`` and its
     ``stations`` by class, and the stations the floors merged
-    (``conflicts_merged``) — from ``pipeline/late_stage``'s cut report.
-    Published only by a build that ran the last stage; an airport with no
-    gap piece carries no such key."""
+    (``conflicts_merged``) — from ``pipeline/late_stage``'s cut report
+    (``None``: no last stage ran); and (spec §59 (4) row 17) one record per
+    piece classed APRON — ``ref`` ``gapapron:<j>``, ``kind`` ``apron``, its
+    area, the ``gap_ref`` it would have carried and the class's evidence —
+    from the classification's ``cells`` (the cut never sees it).  An airport
+    with no gap piece carries no such key."""
+    from ..model.planar import is_gap_apron_ref
     out: list[dict[str, _t.Any]] = []
-    for pc in cut.get("pieces", ()):
+    for pc in (cut or {}).get("pieces", ()):
         for p in pc["parts"]:
             out.append({"ref": p["ref"], "kind": p["kind"], "m2": p["m2"],
                         "piece": pc["ref"], "groups": pc["groups"],
@@ -803,6 +808,14 @@ def gap_pieces(cut: _t.Mapping[str, _t.Any]) -> list[dict[str, _t.Any]]:
                              "xy": list(m["xy"]), "group": m["group"],
                              "into_group": m.get("into_group")}
                             for m in pc["conflicts_merged"]]})
+    for c in cells:
+        if is_gap_apron_ref(getattr(c, "ref", "")):
+            ev = c.evidence
+            out.append({"ref": c.ref, "kind": "apron",
+                        "m2": round(float(ev["area_m2"]), 1), "gap_ref": ev["gap_ref"],
+                        "apron_shared_m": round(float(ev["apron_shared_m"]), 1),
+                        "airside_edge_m": round(float(ev["airside_edge_m"]), 1),
+                        "road_evidence": bool(ev["road_evidence"])})
     return out
 
 

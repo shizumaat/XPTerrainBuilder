@@ -19,12 +19,13 @@ nodes, and is absent from the stage-1 map, so the airside and every pad
 are the map's without the sheet by construction.
 
 THE ROLE is groundside pavement at the road grade cap (04m (3): no
-pavement steeper than the road grade).  A piece sharing at least
-``lot.airside_edge_min_m`` (§27's own length) with an APRON cell says so
-(``touches_apron``) and takes :data:`APRON_TOUCH_ROLE` — the ONE switch
-the owner's "a piece that touches an apron is apron" turns.  A piece that
-runs along a RUNWAY or TAXI face and no apron is NOT minted (master
-2026-10-04): it is listed, and stays raw."""
+pavement steeper than the road grade) — EXCEPT a piece that shares at least
+``lot.airside_edge_min_m`` (§27's own length) with an APRON cell
+(``touches_apron``) and is not a ROAD by road evidence (spec §59, owner
+RULINGS 2026-10-08c (6), 08g; ``classify/gap_apron``): it IS the apron — a
+stage-1 ``apron`` cell, ref ``gapapron:<j>``, its rim closed onto the apron
+rings it runs along.  A piece that runs along a RUNWAY or TAXI face and no
+apron is NOT minted (master 2026-10-04): it is listed, and stays raw."""
 from __future__ import annotations
 
 import shapely
@@ -35,19 +36,18 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..law.tables import snap_margin_m
 from ..model.airport import Airport
-from ..model.planar import GAP_PREFIX, is_osm_ribbon_ref
-from .evidence import polygon_parts
+from ..model.planar import GAP_APRON_PREFIX, GAP_PREFIX, is_osm_ribbon_ref
+from .evidence import Evidence, polygon_parts
+from .gap_apron import close_rim, judge
 from .rules import Rules
 
-__all__ = ["mint_gap_pieces", "standoff_m", "ROLE", "APRON_TOUCH_ROLE", "KIND"]
+__all__ = ["mint_gap_pieces", "standoff_m", "ROLE", "KIND", "APRON_KIND"]
 
 #: every gap piece (04m (3): graded at the road grade cap)
 ROLE = "groundside_pavement"
-#: THE SWITCH (spec §53 (3) R1 / R3): the role of a piece that touches an
-#: apron.  R1 (master 2026-10-04, pending owner): the same groundside role —
-#: the piece takes the apron's LEVEL at the weld, not its role.
-APRON_TOUCH_ROLE = ROLE
 KIND = "gap_piece"
+#: a piece classed APRON (spec §59): a stage-1 apron cell
+APRON_KIND = "gap_apron"
 
 
 def standoff_m(law: Law) -> float:
@@ -79,11 +79,14 @@ def _shared_m(part: Polygon, tree: STRtree, polys: list, weld_m: float) -> float
     return float(unary_union(runs).length) if runs else 0.0
 
 
-def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
-                    add, notes: list | None = None) -> dict[str, float]:
+def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
+                    rules: Rules, add, notes: list | None = None) -> dict[str, float]:
     """Mint the §53 gap pieces onto ``cells`` through ``add`` (the
-    classifier's own cell constructor); returns the counts."""
+    classifier's own cell constructor); returns the counts.  ``ev`` is the
+    classifier's evidence: the §59 class of an apron-touching piece reads its
+    routes and the mapped roads on the sheet."""
     stats = {"gap_pieces": 0, "gap_piece_m2": 0.0, "gap_pieces_apron": 0,
+             "gap_pieces_road": 0,
              "gap_pieces_unminted_airside": 0, "gap_pieces_under_floor": 0}
     sheets = [p for p in (_poly(g.outer, g.holes)
                           for g in getattr(airport, "gap_sheets", ()) or ())
@@ -138,7 +141,8 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
     # simplified at half the identity spacing BEFORE the difference, so the
     # runs it shares with a standing cell stay that cell's own boundary
     sheet = unary_union(sheets).simplify(0.5 * ident, preserve_topology=True)
-    before_bands = sheet.difference(unary_union(flush + apart))
+    standing = unary_union(flush + apart)
+    before_bands = sheet.difference(standing)
     geom = shapely.set_precision(
         before_bands.difference(band_knife) if not band_knife.is_empty
         else before_bands, grid)
@@ -148,7 +152,7 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
     parts = sorted(polygon_parts(geom),
                    key=lambda q: (-round(q.area), round(q.bounds[0], 2),
                                   round(q.bounds[1], 2)))
-    k = 0
+    kept: list[tuple[Polygon, float, bool]] = []
     for part in parts:
         if part.area < lw.object_pavement_min_m2 \
                 or part.buffer(-0.5 * lane).is_empty:
@@ -169,18 +173,53 @@ def mint_gap_pieces(airport: Airport, cells: list, law: Law, rules: Rules,
                         f"{lat:.7f}, {lon:.7f} runs {rolled_m:,.0f} m along a "
                         f"runway / taxi face and touches no apron (§53)")
                 continue
+        kept.append((part, apron_m, touches))
+    # THE CLASS (spec §59 (2)): the apron-touching pieces, judged ONCE by the
+    # standing readers; a piece that touches no apron is not judged (04m (3))
+    judged = [i for i, (_p, _m, touches) in enumerate(kept) if touches]
+    verdict = dict(zip(judged, judge(
+        [kept[i][0] for i in judged], airport, ev, cells, sheet, stand + weld_m,
+        law, rules, ROLE, KIND))) if judged else {}
+    j = 0
+    for k, (part, apron_m, touches) in enumerate(kept):
+        v = verdict.get(k)
         lost = (float(part.buffer(stand).intersection(before_bands)
                       .intersection(band_knife).area)
                 if not band_knife.is_empty else 0.0)
+        ref = f"{GAP_APRON_PREFIX}:{j}" if v is not None and v.apron \
+            else f"{GAP_PREFIX}:{k}"
         if notes is not None and lost >= 1.0:
-            notes.append(f"gap piece {GAP_PREFIX}:{k}: {part.area:,.0f} m2; the "
+            notes.append(f"gap piece {ref}: {part.area:,.0f} m2; the "
                          f"runway / taxi band envelope took {lost:,.0f} m2 beside it (§53 (12))")
-        add(APRON_TOUCH_ROLE if touches else ROLE, f"{GAP_PREFIX}:{k}", part,
-            KIND, None, None,
-            {"gap_piece": 1.0, "area_m2": float(part.area),
-             "touches_apron": float(touches), "apron_shared_m": float(apron_m)})
-        k += 1
         stats["gap_pieces"] += 1
+        if v is not None and v.apron:
+            # THE WELD IS MADE HERE (§59 (2) 4): the rim closed onto the apron
+            # rings, clear of every standing cell and every other piece
+            others = [q for i, (q, _m, _t) in enumerate(kept) if i != k]
+            part = close_rim(part, aprons, apron_tree,
+                             [standing, band_knife, *others], weld_m, grid)
+            edge_m = apron_m if v.airside_edge_m is None else v.airside_edge_m
+            add("apron", ref, part, APRON_KIND, None, None,
+                {"gap_apron": 1.0, "gap_ref": f"{GAP_PREFIX}:{k}",
+                 "area_m2": float(part.area), "apron_shared_m": float(apron_m),
+                 "airside_edge_m": float(edge_m),
+                 "road_evidence": float(v.road_evidence)})
+            if notes is not None:
+                rp = part.representative_point()
+                lat, lon = to_ll(rp.x, rp.y)
+                notes.append(
+                    f"gap piece {ref}: {part.area:,.0f} m2 at {lat:.7f}, {lon:.7f}: apron — "
+                    + (f"road evidence, {edge_m:,.0f} m of {part.length:,.0f} m "
+                       f"lateral airside edge (§37 (2))" if v.road_evidence
+                       else "no road evidence"))
+            j += 1
+            stats["gap_pieces_apron"] += 1
+        else:
+            evid = {"gap_piece": 1.0, "area_m2": float(part.area),
+                    "touches_apron": float(touches), "apron_shared_m": float(apron_m)}
+            if v is not None:
+                evid["road_evidence"] = 1.0
+                stats["gap_pieces_road"] += 1
+            add(ROLE, ref, part, KIND, None, None, evid)
         stats["gap_piece_m2"] += float(part.area)
-        stats["gap_pieces_apron"] += int(touches)
     return stats

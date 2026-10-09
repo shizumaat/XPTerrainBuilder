@@ -45,6 +45,7 @@ EXPECT = {
     "--method": REPLAY,
     "--probe-arm": {"probe-site"},
     "--late-from": REPLAY,
+    "--gap-free": {"replay/classify", "replay/planar"},
 }
 
 #: every other option of the tool, DECIDED not to be an arm: a mode
@@ -181,3 +182,27 @@ def test_drop_rows_refuses_before_filtering_and_drops_by_generator_or_head():
     assert "law_a" in str(exc.value) and "wall_terrace" in str(exc.value)
     # the ribbon-free stage-1 set is checked on the full set, not again
     assert len(R.drop_rows(cs, ["taxi_boxx"], check=False).rows()) == 3
+
+
+def test_gap_free_and_late_from_are_two_runs():
+    """``--gap-free`` solves the base a ``--late-from`` run reads (the build's
+    own ``gap_free``, never a second spelling of it)."""
+    src = TOOL.read_text(encoding="utf-8")
+    assert "from auto_patch_v2.pipeline.stage_one_map import gap_free as _gap_free" in src
+    assert "not both in one run" in src
+
+
+def test_the_base_map_keeps_a_gap_apron_cell():
+    """spec §59: a piece classed apron is a stage-1 cell — the base keeps it."""
+    import types
+    sys.path.insert(0, str(ROOT / "src"))
+    from auto_patch_v2.pipeline.stage_one_map import gap_free
+    import dataclasses as dc
+
+    @dc.dataclass(frozen=True)
+    class Cl:
+        cells: tuple
+    mk = lambda ref: types.SimpleNamespace(ref=ref)  # noqa: E731
+    cl = Cl((mk("pav1"), mk("gap:0"), mk("gapapron:0"), mk("gap:3")))
+    assert [c.ref for c in gap_free(cl).cells] == ["pav1", "gapapron:0"]
+    assert gap_free(Cl((mk("pav1"), mk("gapapron:0")))) is None

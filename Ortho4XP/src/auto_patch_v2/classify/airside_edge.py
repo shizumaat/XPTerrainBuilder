@@ -19,6 +19,7 @@ It lives apart from ``roles.py`` only because that file is at its
 from __future__ import annotations
 
 import math
+import typing as _t
 
 import numpy as _np
 from shapely.geometry import LineString, Polygon
@@ -282,7 +283,9 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
 
 
 def airside_edge_flip(final: list[list], cells, law: Law,
-                       rules: Rules, roads=()) -> tuple[int, int]:
+                       rules: Rules, roads=(),
+                       road_class: _t.AbstractSet[int] | None = None
+                       ) -> tuple[int, int]:
     """§27 AN AIRSIDE EDGE MAKES A LOT AIRSIDE (owner RULINGS 2026-09-12c:
     "shapeID 81 ... cannot be groundside because it shares a long edge
     with an apron. Something can only be groundside if it has no
@@ -318,6 +321,12 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     ``roads`` are the free-road CENTRELINES (``ev.truck_chains``' lines):
     a contact one of them enters a face through is a mouth
     (``_centreline_mouth``, issue #2 CYXY-1).
+
+    ``road_class`` (spec §59 (2) 2, owner RULINGS 2026-10-08c (6)), when
+    given, is the ROAD-BY-EVIDENCE verdict handed in: the indices of
+    ``final`` that are road-class, whatever role they were born with (a gap
+    piece is born ``groundside_pavement``; ``roles._road_evidence`` says
+    whether a road reaches it).  ``None`` reads the born role, as ever.
     """
     min_m = float(rules.lot.airside_edge_min_m)
     frac = float(rules.lot.road_airside_edge_frac)
@@ -327,7 +336,8 @@ def airside_edge_flip(final: list[list], cells, law: Law,
                       rules.service.min_run_m)
     #: a face OFFERS A MOUTH by the role it was BORN with: a road that
     #: became apron in an earlier round still meets its neighbour end-on
-    was_road = [f[0] in _ROAD_ROLES for f in final]
+    was_road = ([f[0] in _ROAD_ROLES for f in final] if road_class is None
+                else [i in road_class for i in range(len(final))])
     fixed = [(Polygon(c.ring, c.holes), False) for c in cells
              if c.role != "building" and c.side == "airside"]
     flipped = 0

@@ -1312,9 +1312,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # rows the surface missed (``design_target``), which the census
         # counts law-true in their families and reports under one heading
         pub["design"] = design_rep.as_dict()
+        from .publication import gap_pieces, late_stage
+        _gap_records = gap_pieces(_late_report and _late_report["cut"], cl.cells)
+        if _late_report is not None or _gap_records:
+            pub["gap_pieces"] = _gap_records
         if _late_report is not None:
-            from .publication import gap_pieces, late_stage
-            pub["gap_pieces"] = gap_pieces(_late_report["cut"])
             pub["late_stage"] = late_stage(_late_report["stage"])
         pub["design_target"] = design_rep.targets
         js = report["joint_steps"]

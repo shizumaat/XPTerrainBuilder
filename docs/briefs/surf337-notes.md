@@ -371,3 +371,17 @@ leaves `TerminalRoads_Parking_000` at 4.22 (main 4.61) and Emiri at 3.96
 (3.97); no F3 = main at HECA and six units off at OTHH. NOT decided here — the
 spec author's / owner's (STOP-and-report; F3 is its own commit `a9f116c3`).
 No HECA build was run on the final head (one closing build per round).
+
+### surf337b handover
+
+Full non-Qt split after the last code change 9,032 passed / 20 skipped / 1
+xpassed; `-n0 tests/test_qt_*.py` 311 passed; the four gate files 202 passed;
+`tools/ratchets.py` DUPLICATE PASS, LAYER PASS (no size warning on a file this
+lane touched; `pipeline/build.py` is the first lane's). Code: src +101 / −17
+(`gap_follow` +44 / −5, `emit/rebake` +27 / −4, `late_stage` +12 / −3,
+`planar/basins` +18 / −5), tests +122, tools +3 / −1. New public symbols:
+`gap_follow.BehindStep`, `late_stage.BEHIND_STEP`, `emit.rebake.standing_vertex_ids`;
+`gap_follow_rows(..., behind_step=None)`.
+Frames (`surf337b`): the closing build patch and the F1-only arm.
+OWED: a ruling on F3 at HECA (above) and on the 4 straddle rows at
+`basin_wall:0`; Q1 for F2.

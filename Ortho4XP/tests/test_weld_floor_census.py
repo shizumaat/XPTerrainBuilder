@@ -64,19 +64,47 @@ def test_a_pair_beyond_the_floor_stays_priced(cg, tmp_path):
     assert fo["within_shape"] and fo["pavement_over_road_cap"]
 
 
+def _face(delta_pct, *nodes):
+    return {"platforms": [{"ref": "building1", "weld_widened": {
+        "floor_m": 1.0, "delta_pct": delta_pct, "faces": ["pav7"], "contacts": [],
+        "face_nodes": [_ll(*c) for c in nodes]}}]}
+
+
 def test_a_pair_on_a_widened_face_is_priced_at_cap_plus_delta(cg):
-    """Spec §57 (3) (ii-b): ``weld_widened.{delta_pct, faces}`` — a pair whose
-    TWO nodes lie on a listed face (joined by the way's ``ref``) answers to
-    ``(cap + delta)·d``; a pair with one node off it gets nothing."""
-    class W:
-        def __init__(self, ref, nids):
-            self.ref, self.nids = ref, nids
-    plat = [{"ref": "building1", "weld_widened": {
-        "floor_m": 1.0, "delta_pct": 1.1, "faces": ["pav7"], "contacts": []}}]
+    """Spec §57 (3) (ii-b): ``weld_widened.{delta_pct, face_nodes}`` — a pair
+    whose TWO nodes are vertices of the faces the engine widened (joined by
+    identity, never by the ``faces`` refs, which name more faces than the
+    closing contacts touch) answers to ``(cap + delta)·d``; a pair with one
+    node off them gets nothing."""
+    plat = _face(1.1, (0.0, 0.0), (10.0, 0.0))["platforms"]
     nodes = {"n1": tuple(_ll(0.0, 0.0)), "n2": tuple(_ll(10.0, 0.0)), "n3": tuple(_ll(20.0, 0.0))}
-    wn = cg.weld_widened_nodes(nodes, plat, [W("pav7", ["n1", "n2"]), W("pav8", ["n2", "n3"])])
+    wn = cg.weld_widened_nodes(nodes, plat)
     assert wn and dict(wn) == {} and set(wn.faces) == {"n1", "n2"}
     assert all(abs(v - 0.011) < 1e-12 for v in wn.faces.values())
     assert abs(cg._weld_give(wn, "n1", "n2", 10.0) - 0.11) < 1e-12
     assert cg._weld_give(wn, "n2", "n3", 10.0) == 0.0
-    assert not cg.weld_widened_nodes(nodes, plat)            # no ways: no face read
+    refs_only = [{"ref": "b", "weld_widened": {"floor_m": 1.0, "delta_pct": 1.1,
+                                               "faces": ["pav7"], "contacts": []}}]
+    assert not cg.weld_widened_nodes(nodes, refs_only)       # a ref is not a face
+
+
+def test_the_no_step_pair_on_a_widened_face_is_priced_at_cap_plus_delta(cg, tmp_path):
+    """``airside_no_step`` §1.1 reads the same record as the three pavement
+    families: a published route pair spanning 2.0 m against a budget of
+    1.47 m over a 110 m ROUTE is the solve's own row when both ends stand on
+    a face widened by 0.5 pp (1.47 + 0.005·110 = 2.02, over the record's
+    ``dist_m`` — the distance the row was stated on); it stays priced with
+    one end off the face, with 0.4 pp (1.91), and with no record."""
+    ring = [("apron", [(0.0, 0.0, 100.0), (100.0, 0.0, 102.0),
+                       (100.0, 50.0, 102.0), (0.0, 50.0, 100.0)], "pav7")]
+    edge = {"airside_no_step_edges": [
+        {"a": _ll(0.0, 0.0), "b": _ll(100.0, 0.0), "budget_m": 1.47, "dist_m": 110.0}]}
+
+    def rows(name, **sidecar):
+        fo = _families(cg, _pavcap_patch(tmp_path, name=name, rings=ring,
+                                         sidecar={**edge, **sidecar}))
+        return [v for v in fo["airside_no_step"] if v.cap_pct is not None]
+    assert len(rows("bare")) == 1
+    assert rows("on", **_face(0.5, (0.0, 0.0), (100.0, 0.0), (100.0, 50.0))) == []
+    assert len(rows("one", **_face(0.5, (0.0, 0.0), (0.0, 50.0))) ) == 1
+    assert len(rows("small", **_face(0.4, (0.0, 0.0), (100.0, 0.0)))) == 1

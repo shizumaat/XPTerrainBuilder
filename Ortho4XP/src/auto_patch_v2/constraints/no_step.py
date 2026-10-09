@@ -848,6 +848,14 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         h["weld_widened"] = ({"floor_m": floor_m,
                               "delta_pct": round(100.0 * float(b["delta"]), 3),
                               "faces": list(b["faces"]),
+                              # the vertices of those faces — the set the
+                              # allowance is stated on, which the census
+                              # joins by identity (a ``ref`` names more
+                              # faces than the contacts touch)
+                              "face_nodes": sorted(
+                                  [round(float(k[0]), 11), round(float(k[1]), 11)]
+                                  for k in (planar.vertices[v].key
+                                            for v in face_widen[pref][0])),
                               "closing_contacts": len(b["closing"]),
                               "fixed_level_m": (round(float(b["fixed_level"]), 3)
                                                 if b["fixed_level"] is not None else None),

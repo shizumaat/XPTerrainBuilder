@@ -4844,7 +4844,7 @@ def _check_apron_lattice_membrane(
 
 
 def _check_published_law_edges(
-        edges_ll, feature_ways, ways, nodes, ll_to_m
+        edges_ll, feature_ways, ways, nodes, ll_to_m, weld_nodes=None
 ) -> Tuple[List[Violation], int, int]:
     """``(violations, n_checked, n_unmatched)`` for ANY sidecar-published
     law-edge list of ``{"a", "b", "budget_m"}`` records.
@@ -4853,6 +4853,12 @@ def _check_published_law_edges(
     SOLVE priced it at.  ``n_unmatched`` counts published edges an
     endpoint of which no emitted node carries — reported beside the
     count, because a dropped vertex is a lost measurement.
+
+    ``weld_nodes`` (:func:`weld_widened_nodes`): what the pavement gave to
+    weld to a misfit pad is the solve's own widening of that row
+    (``constraints/weld_floor``) — ``delta`` over the record's ``dist_m``
+    (the ROUTE distance the row was stated on) for a pair on a widened face,
+    the contact's give for a pair naming one (:func:`_weld_give`).
     """
     lattice_edges_ll, lattice_ways = edges_ll, feature_ways
     if not lattice_edges_ll:
@@ -4938,10 +4944,12 @@ def _check_published_law_edges(
         # taken at the worse-encoded endpoint.
         noise = max((_pair_quant_noise_m(w) for w in (wa, wb)
                      if w is not None), default=ELEV_ROUNDING_NOISE_M)
+        dist = math.hypot(bx - ax, by - ay)
+        budget += _weld_give(weld_nodes, pts[ka][3], pts[kb][3],
+                             float(rec.get("dist_m") or dist))
         excess = dz - budget
         if excess <= noise:
             continue
-        dist = math.hypot(bx - ax, by - ay)
         grade = (100.0 * dz / dist) if dist > 1e-9 else 0.0
         cap = (100.0 * budget / dist) if dist > 1e-9 else None
         v = Violation(
@@ -4978,7 +4986,8 @@ _NO_STEP_POLYLINE_FEATURES: Tuple[str, ...] = (
 
 
 def _check_airside_no_step(no_step_edges_ll, feature_ways, ways, nodes,
-                           ll_to_m) -> Tuple[List[Violation], int, int]:
+                           ll_to_m, weld_nodes=None
+                           ) -> Tuple[List[Violation], int, int]:
     """§1.1 — the LOCAL DIRECT-DISTANCE grade rows.
 
     ``(violations, n_checked, n_unmatched)``.  The population is EXACTLY
@@ -4987,10 +4996,12 @@ def _check_airside_no_step(no_step_edges_ll, feature_ways, ways, nodes,
     the same list — one law, one population), so this is
     :func:`_check_published_law_edges` with the no-step list.  A pair
     whose |Δz| exceeds ``cap x DIRECT distance`` is the step the ruling
-    forbids.
+    forbids — beyond what the solve itself widened the row by at a misfit
+    pad's weld (``weld_nodes``, spec §57 (3) (ii-b)).
     """
     return _check_published_law_edges(
-        no_step_edges_ll, feature_ways, ways, nodes, ll_to_m)
+        no_step_edges_ll, feature_ways, ways, nodes, ll_to_m,
+        weld_nodes=weld_nodes)
 
 
 def _no_step_polylines(ways, feature_ways, nodes, ll_to_m):
@@ -8922,25 +8933,25 @@ class _WeldNodes(dict):
         return bool(len(self) or self.faces)
 
 
-def weld_widened_nodes(nodes, platforms: Optional[list],
-                       ways: "Optional[List[Way]]" = None) -> Dict[str, float]:
+def weld_widened_nodes(nodes, platforms: Optional[list]) -> Dict[str, float]:
     """WHERE THE PAVEMENT GAVE TO WELD TO A PAD, read off the patch (owner
     RULINGS 2026-10-08c (4) / 08d (2); spec §57 (3) (ii-b)/(ii-c)), from the
     sidecar's ``platforms[].weld_widened`` — ``{"floor_m", "delta_pct",
-    "faces": [refs], "contacts": [[lat, lon, give_m], ...]}``, written by the
-    engine for a held block whose frontage no one flat level reaches by less
-    than the terrace floor (``constraints/weld_floor``).
+    "face_nodes": [[lat, lon], ...], "contacts": [[lat, lon, give_m], ...]}``,
+    written by the engine for a held block whose frontage no one flat level
+    reaches by less than the terrace floor (``constraints/weld_floor``).
 
     Two readings, each the generator's own inequality by the engine's own
-    number: a pavement pair whose TWO nodes lie on a listed face answers to
-    ``(cap + delta)·d`` (``.faces``: ``{node id: delta}``, joined by the
-    way's ``ref``; needs ``ways``); a pair NAMING a listed contact (a weld
-    the projection sealed, or one the LP relaxed) answers to ``cap·d +
-    give`` (the mapping itself, joined by the canonical 11-decimal
-    identity).  Empty without the record: every family then reads exactly as
-    before."""
+    number, both joined by the canonical 11-decimal identity: a pavement
+    pair whose TWO nodes are ``face_nodes`` — the vertices of the faces the
+    closing contacts touch, the very set the engine widens on (the record's
+    ``faces`` refs name MORE faces than that and are not read) — answers to
+    ``(cap + delta)·d`` (``.faces``: ``{node id: delta}``); a pair NAMING a
+    listed contact (a weld the projection sealed, or one the LP relaxed)
+    answers to ``cap·d + give`` (the mapping itself).  Empty without the
+    record: every family then reads exactly as before."""
     want: Dict[tuple, float] = {}
-    by_ref: Dict[str, float] = {}
+    on_face: Dict[tuple, float] = {}
     for rec in platforms or ():
         w = rec.get("weld_widened") if isinstance(rec, dict) else None
         if not w:
@@ -8952,19 +8963,19 @@ def weld_widened_nodes(nodes, platforms: Optional[list],
             want[k] = max(want.get(k, 0.0), give)
         delta = float(w.get("delta_pct") or 0.0) / 100.0
         if delta > 0.0:
-            for ref in (w.get("faces") or ()):
-                by_ref[str(ref)] = max(by_ref.get(str(ref), 0.0), delta)
+            for c in (w.get("face_nodes") or ()):
+                k = (round(float(c[0]), 11), round(float(c[1]), 11))
+                on_face[k] = max(on_face.get(k, 0.0), delta)
     out = _WeldNodes()
     out.faces = {}
-    for nid, ll in (nodes.items() if want else ()):
-        g = want.get((round(float(ll[0]), 11), round(float(ll[1]), 11)))
+    for nid, ll in (nodes.items() if want or on_face else ()):
+        k = (round(float(ll[0]), 11), round(float(ll[1]), 11))
+        g = want.get(k)
         if g:
             out[nid] = g
-    for w in (ways or ()) if by_ref else ():
-        dl = by_ref.get(str(w.ref))
+        dl = on_face.get(k)
         if dl:
-            for nid in w.nids:
-                out.faces[nid] = max(out.faces.get(nid, 0.0), dl)
+            out.faces[nid] = dl
     return out
 
 
@@ -13143,7 +13154,7 @@ def run_checks(
     _late_unknown = late_stage_unknown_nodes(ways, late_stage)
     _late_floor_m = late_stage_floor_m(late_stage)
     # RULINGS 2026-10-08d (2): the misfit pads' frontage contacts and the floor
-    _weld_nodes = weld_widened_nodes(nodes, platforms_ll, ways)
+    _weld_nodes = weld_widened_nodes(nodes, platforms_ll)
     if _weld_nodes and not quiet:
         print(f"  pad weld (08d (2)): {len(_weld_nodes)} frontage contact node(s) where the "
               f"pavement gave to weld (worst {max(_weld_nodes.values(), default=0.0):.3f} m), "
@@ -13620,7 +13631,7 @@ def run_checks(
         # precedent, same reason).
         [w for cls in _NO_STEP_POLYLINE_FEATURES
          for w in open_features.get(cls, [])],
-        ways, nodes, ll_to_m)
+        ways, nodes, ll_to_m, weld_nodes=_weld_nodes)
     no_step_rate_rows, n_ns_st, n_ns_ways = _check_airside_no_step_rate(
         ways,
         [w for cls in _NO_STEP_POLYLINE_FEATURES

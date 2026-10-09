@@ -240,6 +240,14 @@ def test_a_fixed_frontage_contact_dictates_the_level_and_the_pavement_welds_to_i
     w = rec["weld_widened"]
     assert w and w["fixed_level_m"] == 700.5 and w["faces"] == ["apronC"]
     assert 1.0 <= w["delta_pct"] <= 1.1 and w["rows"] > 0 and w["runway_rows_kept"] == 0
+    # the census joins by the vertices of the faces the closing contacts
+    # touch — the widened set itself, every one a vertex of a listed face
+    on = {(round(pm.vertices[v].key[0], 11), round(pm.vertices[v].key[1], 11))
+          for f in pm.faces.values() if f.ref == "apronC"
+          for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
+    got = {tuple(k) for k in w["face_nodes"]}
+    assert got and got <= on and {(round(pm.vertices[v].key[0], 11),
+                                   round(pm.vertices[v].key[1], 11)) for v in near} <= got
     assert abs(rec["datum"] - 700.5) <= 0.01
     assert rec["released"] == 0 and not rec["needs_split"] and not rec["warned"]
     tol = float(lw.tables.emit.design.hard_tol_m)

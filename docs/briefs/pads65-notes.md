@@ -72,3 +72,33 @@ a LEADER of the pad's level row) and one `plane_gradient`; the near-miss row is 
 KASE arm `g1` (960dd241, `sweepwalls/base/KASE.pkl --from classify`): `building1` misfit 0.543, **Δ_b 1.25 pp** on
 `pav7#plateau:building1`, 449 rows, runway rows 0, datum 2367.947 → 2367.930, released 0, WARNED 0; steepest ring edge on the
 face **2.76 %** over 14.1 m at 39.22010294331, -106.86487635609 (p64: 4.61 %), next 2.74 % / 19.0 m, 2.74 % / 13.5 m. Body 718538f4d2e2.
+
+## Replay arms at 960dd241 (T1–T4, T3) and the R2 confirm at ec5ff680
+
+* HECA `g1` / `g1L` (gaps3 capture, pre-merge of the gap-apron rule): `building147` Δ_b **0.312 pp** on `pav39` +
+  `pav39#plateau:building147`, 12,781 rows, runway rows 0, released 0, WARNED 0, sealed 7 ≤ 0.042, datum reach Bands 2,
+  taxi-tier 71 (= J1's). Bodies efcf5a9c733b / 850409e7fdc4.
+* KCLT `g1`: datum reach Bands **0**; solve-owned movers vs the J1 arm `pads64/b1` at 0.02 m: **268** (strip 241 / 0.25, apron
+  18 / 0.09, taxi 9 / 0.05) — exactly pads64's `x_noband` arm (J1 less its own one non-binding Band); was 580 / apron 1.02.
+* SPJC `g2`: -12.02473811380, -77.11902772614 at 19.09 (datum 19.089). Body 3ef3e7c7013d = the build.
+
+## Merge of main `e2eec15c` (67817d63)
+
+Conflicts as the master named: `pipeline/build.py` (the `warnings_of` lines above the `gap_pieces` publication: both kept),
+`tools/v2_solve_replay.py` (the `gap_free=` argument + the hold report carried over the late pass: both), the spec and
+`docs/frames.jsonl` (union). `test_gap_terrace` reads its own tuple from the gaps3 replay on this tree: (69, 34, 49, 9), 13 passed.
+
+## Closing builds (`p65_*`; references `sw6_*`, HECA `swga_HECA`; each census under its own tree's tool)
+
+| airport | tree | body | s | released pads / welds | WARNED | taxi-tier ref → p65 | runway movers | structure movers > 0.02 | CRITICAL motion | CRITICAL visual | adjudicated airside |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| OTHH | 3b47f9da | 96d1b4d6cfbc (= replay f2) | 475.0 | 0 / 0 | 0 | 0 → 0 (hard_conflict 0 in every tier) | 0 (solve-owned movers 0) | 1 @ 0.04 (rim on the pad's level) | 0 = 0 | 1,846 → 1,717 | 489 → 160 |
+| HECA | 67817d63 | 527f80ef55e7 | 556.1 | 6 / 27 → 0 / 0 | 0 | 63 → 64 | 0 | 0 | 2 = 2 | 1,910 → 1,959 (hairline_pair +49, airside 1,163 → 1,195) | 12,204 → 12,024 |
+| KCLT | 67817d63 | e52fc9b4c757 | 252.5 | 0 / 0 | 0 | 51 = 51 | 0 | 4 ≤ 0.06 (tunnel_ramp 3, rim 1) | 5 → 4 | 1,974 → 1,997 | 3,355 → 3,027 |
+| KASE | 3b47f9da (= p65m at 67817d63) | 718538f4d2e2 | 35.5 | 1 / 4 → 0 / 0 | 0 | 0 = 0 | 0 | 0 | 1 = 1 | 45 → 44 | 2,654 → 2,525 |
+| SPJC | 3b47f9da (= p65m at 67817d63) | 3ef3e7c7013d | 74.0 | 0 / 0 | 0 | 6 = 6 | 0 | 8 ≤ 0.05 (channel rim = junction `pav6`) | 0 = 0 | 507 → 502 | 891 → 711 |
+
+OTHH placement plan (`OTHH.rebake.json`) sha 8e24e55b3f68 = sw6's, byte-identical (authored seats, bays, ramps unchanged).
+HECA `building147` (build): datum 71.018, Δ_b 0.312 pp, 12,914 rows; from the pad WEST 1.75–1.96 % out to 106 m (p64: 8.87 %
+at 9.7 m); EAST site 30.12817180270, 31.40426373051 +0.15 at 7.7 m = 1.95 % (p64: 11.69 %), 1.81 % at 38 m, 1.82 % at 61 m.
+KASE `building1`: Δ_b 1.25 pp, steepest 2.76 % over 14.1 m (p64 4.61 %).

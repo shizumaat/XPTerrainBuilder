@@ -85,8 +85,9 @@ in level. Objective difference = a tie to solver tolerance.
   INEQUALITIES and slack: inside the lawful band the level costs only
   bending, ~1e-2 per m² and less.
 
-So F1 is not "two optima": the objective is strictly convex but its
-curvature on those columns is 8-9 orders under the stiff rows', and
+So F1 is not "two optima": the objective is strictly convex, but on those
+columns its curvature is 8-9 orders under the stiff rows', and the solve
+exits on objective gain — it stops wherever its path enters the valley.
 
 ## 5. Solver termination alone does NOT fix it (arm c)
 
@@ -98,3 +99,57 @@ it, worst 0.25 m); pass 1b needs 790 rounds for 177. Null-change
 two tight solves from two starts end 0.49 m apart (dF 4.6e-3): the
 normal-equation solve cannot resolve modes this soft. Stage 1 wall 41 ->
 78 s.
+
+## 6. HECA reproduces it (`h_ctl` / `h_slack`, capture gaps3, main 9baa9e82)
+
+30 satisfied ceilings: pass 1a 157 movers (worst 0.148 m; the
+`promote_missed` set also flips by ONE row, 575 -> 574), pass 1b **535
+movers, 42 over 0.3 m, worst 0.62 m**, whole map 909 / 86. HECA exits:
+pass 1b |grad| 46 / 95 / 956, hard set 0.10 m (NOT settled), §5a LP
+relaxes 17 pad rows in pass 1b.
+
+## 7. ARMS (KCLT; replay only, monkeypatched in `nullarm.py`; nothing landed)
+
+"Free column" = a stage-1 column no always-on LEVEL row names (no row
+whose coefficients over the free columns sum non-zero — `_level_free_columns`'
+own reading, applied per column — and no body-datum row): 1,832 of 12,135.
+
+QP level first (`tie_test.py`, pass 1a's dumped QP, two starts of one
+problem): no tie is unstable at any tolerance (1e-12: 499 columns > 0.02
+m apart); a DEM tie is stable from eps 0.03 at 1e-12; a membrane (first
+difference to mesh neighbours) from 0.3. ANY tie moves ~1,300-1,800
+columns off today's exit, worst 0.8-2.9 m, whatever its weight: a mode
+with no stiffness goes wherever the tie says. The tie is therefore not a
+tolerance detail, it is the LEVEL LAW those columns lack.
+
+| arm | null-change movers, solve-owned airside (bar <= 20 / 0 over 0.3) | cost on the control (solve-owned airside) | runway | LP taxi tier | adjudicated airside (census.py) | stage 1 wall (single runs) |
+|---|---|---|---|---|---|---|
+| control | **458, 21 over 0.3, worst 0.73** (strip 425, taxi 14, apron 19) | - | 0 | 51 | 3,355 | 13.5 + 27.4 s |
+| (c) `_REL_TOL` 1e-13 | pass 1b 141 / 7 / 0.59 — MISS | 858 stage-1 vertices, worst 0.90 | 0 | 51 | not run (verify rows +48) | 18.3 + 59.6 s |
+| (a) DEM tie 0.1 both passes, 1e-12 (attempt 1) | pass 1b 70 / 0 / 0.119 — MISS on count | 824, worst 2.20 | 0 | 51 | not run (verify +142) | 13.9 + 71.6 s |
+| (a) DEM tie 0.1 in pass 1a, pass 1b tied to PASS 1a's level at 1.0, 1e-12 (attempt 2) | **0** (whole map 16, worst 0.057: the stage-2 LP) — MET | 901, 241 over 0.3, worst 2.16 (strip 729, taxi 86, apron 86) | 0 | 51 | 3,425 (**+70** — MISS) | 14.1 + 35.4 s |
+| (a2) MEMBRANE 0.3 in pass 1a, pass 1b tied to pass 1a's level at 1.0, 1e-12 | **0** (whole map 0, worst 0.0004) — MET | 1,149, 245 over 0.3, worst 1.62 (strip 998, taxi 73, apron 78) | 0 | 51 | 3,374 (**+19**, 0.6 % — MISS by the letter; within_shape 11,700 -> 11,651) | 13.9 + 32.1 s |
+| (b) lexicographic tie-break | NOT RUN: 07b refuted an objective ORDER (apron preference over DEM fit, census 6 -> 14); and the airside non-uniqueness is not in an LP at all | | | | | |
+
+The stage-2 §5a LP IS a degenerate LP (section 2) and wants its own
+deterministic tie-break; it moves groundside only, <= 0.22 m.
+
+## 8. STOP — the question for the spec author
+
+No arm meets every bar: the two that make the surface reproducible
+(null-change movers 0) change it ONCE by up to 1.6-2.2 m on ~900-1,150
+airside vertices and raise the adjudicated airside census (+19 membrane,
++70 DEM). And WHICH tie is an intent choice, not a solver setting.
+
+Q (yes/no): shall every stage-1 column that no level term names take a
+weak MEMBRANE row to its mesh neighbours in pass 1a ("level with what is
+beside it": a taxi edge level with its centreline, a short connector a
+straight ramp between its contacts), and in pass 1b a tie to its pass-1a
+level, with the QP's exit tightened to 1e-12 — accepting a one-time
+change of the reference surfaces (KCLT: 1,149 airside vertices, worst
+1.62 m, runway 0, adjudicated airside +19)?
+Recommendation: YES to the membrane form (no DEM enters pavement, 08t (1);
+within_shape falls); NO to the DEM tie (it follows terrain at the
+cross-section scale: census +70).  Alternative the author may prefer: give
+those columns the taxi trend itself (§8.6.1's reach gate widened) — not
+measured here.

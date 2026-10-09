@@ -48,6 +48,48 @@ line is an acceptance bar: movers <= 0.1 m (count, worst unrounded, where).
 * S6 `tools/v2_solve_replay.py --gap-free` (the build's base map; arm table
   `tools/replay_arms.py`, INDEX row, twins in `test_v2_solve_replay_arms.py`).
 
+## S6 — the like-for-like pair (capture `frames/gapapron3/HECA.pkl`, this tree)
+
+Arms under `<frames>/gapapron4/`: `A` (rule OFF: `docs/briefs/gapapron4/arm_a.py`
+replaces `gap_mint.judge` so every touching piece is ROAD; base = the shared
+control `gapapron3/B0/solved.pkl`, late = `A/`), `BBASE` (`--from classify
+--gap-free --emit --verify --solved-out`), `B` (`--from classify --late-from
+BBASE/solved.pkl ...`). All EXIT 0. Reads: `late_{A,B}.txt`, `site_{A,B}.txt`,
+`avd_A_B.txt`, `census_A_B.txt`, `pieces.json` (probes in `docs/briefs/gapapron4/`).
+
+* OWNER SITES (A / B): #430 `gap:7/lot` 97.64 / 97.64; #292 `gap:7/ramp0`
+  98.46 / 98.47; #358 `gap:0/s4/lot` 90.25 / 90.25.
+* RUNWAY (bar: <= 0.1 m, RULINGS 09b): `airside_value_delta` A->B 32 nodes
+  > 0.01 m, worst 0.020 m at 30.12519288, 31.38877602; UNROUNDED (B0 vs
+  BBASE, `zdiff.py`) `05L/23R` worst 0.0172 m at v4219 30.12519288,
+  31.38877602, 5 nodes > 0.01 m, 93 > 0.005; `05C/23C` 0.0027 m; `05R/23L`
+  0. Nothing over 0.1 m. Chain (S0's interventions): gap:13 -> `pav53` /
+  `route11` -> `pav39` -> `dsf:objpav115` -> runway (the v4219 group);
+  the 0.010 m group at 30.1283, 31.3922 stays with gap:13 / gap:17 out.
+* STANDING MOVES (B0 -> BBASE, unrounded): apron 1,814 nodes > 0.01, worst
+  2.468 m `pav6` 30.1046762, 31.3964588 (100.80 -> 103.27) — the ruled 2.47;
+  taxi 2,767 nodes, worst 1.375 m `pav111` 30.1044822, 31.3958726 — the
+  ruled 1.38; nothing above either. Pads worst 0.30 m (`building142`).
+* base stage: hard_conflict 244 -> 244; taxi-tier relaxed 63 / 61 = 63 / 61
+  (S0's +2 is GONE with the rim closure); the 4 sliver-site rows on
+  `small_roads:-3929` are gone; 2 pad-tier `frontage_hold` rows moved from
+  `building91` to `building93` (same 0.078 / 0.071 m). Shapes 52 -> 53, 2
+  contour joints (`apron_terrace`, 0.051 m over 7.0 m at 30.1046581,
+  31.3957662; 0.050 m over 3.1 m at 30.1045342, 31.3966481, shapes 14 | 25).
+* late stage A -> B: pieces 38 -> 27, parts 82 -> 67, knives 33 -> 33 (worst
+  7.93 m both); movers 0 of 34,569 -> 0 of 34,737; foreign 0 -> 0; follow
+  misses 84 (DECLARED 44 + OWN-GROUP 40, worst 2.04) -> 70 (40 + 30, 2.03);
+  lot rows 195 / 9 missed -> 186 / 5; stepping pairs 82 / 66 / 18 -> 61 / 56 /
+  15; ribbons grown 9 -> 9; feasibility relaxed 67 (groundside 63, taxi 4)
+  -> 50 (groundside 50, taxi 0); follow conflicts 14 -> 9 named.
+* census A -> B: ADJUDICATED 14,389 -> 14,403 (airside 12,181 -> 12,195,
+  groundside 2,196 -> 2,199); CRITICAL motion 3 -> 2 (gone: 0.523 m over
+  0.98 m `vertex_to_edge_step apron|junction` at 30.1090081, 31.4039576; no
+  apron|apron sliver row); CRITICAL visual 1,910 -> 1,910; hard_conflict 311
+  -> 294; airside_no_step 4,021 -> 4,026; mid_edge_step 54 -> 54;
+  vertex_to_edge_step 15 -> 14; terrace_actual_step 42 -> 39; transverse 928
+  -> 947; taxi_box 2,437 -> 2,452; within_shape 45,652 -> 45,665.
+
 ## Next
 
 S6 runs (arm A = rule off via `<scratch>/gapapron4/arm_a.py`, arm B = tree),

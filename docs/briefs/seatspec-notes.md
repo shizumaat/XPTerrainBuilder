@@ -153,3 +153,10 @@ the next intent question: the sheet's LEVEL. Today's law lets the 1 % preference
   same shape as HECA building164 (the road-ramp equality) with a different hard row. R-B generalises to every road law
   that fixes a road vertex inside a seated pad's frontage: the ramp target / ceiling AND the coverage-edge join pin start
   from the first road vertex OUTSIDE the frontage.
+* KCLT `building27` | `small_roads:-7016#1` (−1.01 across 2.50 m), `--why-at` (worst vertex within 8 m = the APRON vertex
+  v15739, apron#830, 216.67 — the pad's datum 216.69 is the apron's): bound by `groundside_ramp` 5 % x 0.7 m,
+  `pavement_ceiling` 5 % and `pavement_road_cap` 10 % x 1.0 m to the road vertices v20757 / v20755 (215.73), whose level
+  is the `road_ramp` "ramp to the DEM" Band (hard). One hop, +0.94 m across 0.7 m: the road inside the frontage is held
+  by its ramp law, the apron|road stand-off pair is relaxed, the step stands at the pad's rim. Three of three ARMED-but-off
+  pairs are one mechanism: a road law FIXING a road vertex inside a seated pad's frontage (ramp equality / ramp ceiling
+  Band at building164 and building27, the coverage-join pin at building26) against the priced frontage joint.

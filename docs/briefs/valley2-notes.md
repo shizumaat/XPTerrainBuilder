@@ -186,3 +186,5 @@ Main arm censused by `valley2ctl` at 11e4746e (code = f36b39c0), branch arm by t
   (main 6.6 s on a hit, 410.8 s total); solve 79.4 -> 81.6 s, late 75.6 -> 77.7 s. The harness wall 727.5 s also
   carries a 189.7 s rebake-plan cache miss (object-stage work, not in the patch clock).
 - Sidecar (fix 5) verified on sw10_HECA: top block `taxi_xsec_rows` 1,160 / `free_membrane_rows` 5,369.
+- OTHH null-change (gap-free base, 102 gap pieces dropped): `NULL-CHANGE pass1a 0/0/0.000 pass1b 0/0/0.000
+  stage2 0/0/0.000 (promoted 0=0, lp relaxed 0=0)`; stage 1 15.8 s.

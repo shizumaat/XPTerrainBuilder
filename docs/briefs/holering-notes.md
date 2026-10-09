@@ -1,3 +1,32 @@
+# RESUME HERE (lane holering stopped by the coordinator 2026-10-09 15:48, machine shutdown; nothing red, NO engine code changed)
+
+ESTABLISHED BY INTERVENTION (pass-1a instrument, HECA, R-E tree f3596b84 + main):
+* The pass-1a instability under R-E is NOT the apron hole rings (828 rim columns: 0 movers) — it is the HELD PADS'
+  FRONTAGE DATUM COLUMNS (`model.platform.datum_vertices`, 38 single-vertex building-only columns in stage 1 by design,
+  flat-pad spec §1 (2)): in pass 1a the hold rows are stripped and 16 of them carry nothing but the hard 5 %
+  `pavement_max_grade ceiling` twins — a §61 (0) valley; building88's datum moves −0.914 m under 30 satisfied ceilings.
+  base 13/1/0.914 (= the full replay's pass 1), noRE 5/0/0.152, pinrim (datum+rim columns pinned at own values) 0/0/0.006.
+* Candidates, pass 1a: C1 `datum_weld` (datum column → membrane rows to its weld contacts at free_membrane 1.0): 0/0/0.005;
+  C2 `foreign1a` (datum column foreign in a set with no hold row naming it = pass 1a): 0/0/0.0001. C2 preferred (pass 1a
+  = unpulled airside; a pad pulls nothing by construction). NOT YET run on the full replay (killed at shutdown).
+* The runway 0.14 m (m → e) is NOT instability: e's final runway = its pass-1a runway (0.008 m; β_R 0, all 2,604 bands
+  unpulled, m likewise); pass 1a is null-stable at the runway (0.0001) in every arm. It is the difference between the
+  two trees' pass-1a OPTIMA (R-E's problem has +14,131 diffs over m, more than the 5,695 cross-ring pairs). A stability
+  fix will not move it → likely an OWNER QUESTION (accept R-E's 0.14 m at HECA over 09b's 0.1 m, or hold R-E).
+
+NEXT COMMAND (one heavy thing at a time; weld63 shares the machine):
+  cd /Users/noah/XPTerrainBuilder/.claude/worktrees/holering/Ortho4XP
+  S=<scratch>/holering  # instruments also in docs/briefs/holering-scratch/ (prelude.py p1a.py padcols.py rwjoin.py armC1.py armC2.py pairC1.sh)
+  $S/pairC1.sh c2 HECA $S/armC2.py      # gap-free base --null-change + late pair + pad_edge_read (~20 min)
+  $S/pairC1.sh kc2 KCLT $S/armC2.py     # (~10 min); then ke0 KCLT with tools/v2_solve_replay.py for the R-E-alone KCLT null-change control
+  then read c2 vs seat2's e and m (sheetlevel's read_arm.sh / seat2's read.sh + cen.py): null-change line, runway, AIR-TOUCH/NEAR,
+  datums, hard_conflict tiers, census by family + CRITICAL. Prelude pickle (711 MB, rebuild with prelude.py HECA OUT.pkl, 4 min)
+  was at $S/HECA_prob.pkl (scratch may be gone after shutdown). Captures: frames/pads67/{HECA,KCLT}.pkl (registered).
+LANDING FORM OF C2 (drafted, not written): move HOLD_RULING/HOLD_DATUM_RULING to model/platform.py (re-export from
+  constraints/platform); in solve/design_stage.stage_split a datum vertex whose column is not airside through a weld and
+  that no row with those heads names is FOREIGN (dummy DEM, rows dropped); twin in tests/auto_patch_v2/test_flatpad128v3.py
+  (split with cs keeps the datum, split with _strip(cs) drops it); spec amendment §61 (11) + a line under §62 (4) R-E.
+
 # holering notes — the apron HOLE RING in pass 1a (Fable: attribution, design, fix only if the probe holds)
 
 Lane `holering`. Worktree `.claude/worktrees/holering`, branch `claude/holering` off `origin/claude/seat2-re`

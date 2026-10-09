@@ -466,7 +466,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             lambda p: _obj8.resolve_resource(p, sel.root, index))
 
         def _named(p: str) -> bool:
-            return _dsf.building_role_for_def(p) is not None or is_pavement(p)[0]
+            return _dsf.building_role_for_def(p) is not None \
+                or is_pavement(p)[0] == _dsf.SOURCE
 
         # §52 (RULINGS 2026-10-04d (3) (c)): an OPEN-LOT facade is read by
         # what its FILE says, never by name — the only class the name gate
@@ -486,7 +487,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                     n_lot += 1
                 continue
             i += 1
-            if is_pavement(poly.def_path)[0]:
+            if is_pavement(poly.def_path)[0] == _dsf.SOURCE:
                 if own_extent is not None and not own_extent.intersects(
                         _shape_of(_ring(poly.windings[0], to_xy))):
                     n_far += 1

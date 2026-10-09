@@ -234,3 +234,28 @@ def test_a_piece_beside_a_basin_follows_the_rim_never_the_floor_or_the_wall_foot
                           ("groundside_pavement", "gap:7", (4, 5, 6, 7))])
         assert gf.gap_follow_rows(pm, LAW, {0: -3.0, 1: -3.0, 2: 0.0, 3: 0.0},
                                   behind_step=BEHIND_STEP)[0] == []
+
+
+def test_a_pad_rings_reach_covers_the_stand_off_and_a_roads_does_not():
+    """Spec §62 (3) R-D rule 1 (owner RULINGS 2026-10-09d (1) / 09f): a part
+    vertex 2.6 m off a PAD's rim — past the plain reach, inside the piece's
+    stand-off plus its noding margin — is bound to the pad's level; the same
+    vertex 2.6 m off a ROAD takes no row."""
+    from auto_patch_v2.law.tables import gap_standoff_m
+    plain, pad = gf.reach_m(LAW), gf.reach_m(LAW, pad=True)
+    ident = LAW.tables.emit.identity.min_distinct_spacing_m
+    assert pad == pytest.approx(gap_standoff_m(LAW) + snap_margin_m(LAW) + 2 * ident)
+    assert plain < 2.6 < pad
+    coords = COORDS[:4] + [(12.6, 0.0), (40.0, 0.0), (40.0, 40.0), (12.6, 40.0)]
+    fixed = {0: 90.0, 1: 90.0, 2: 90.0, 3: 90.0}
+    piece = ("groundside_pavement", "gap:0", (4, 5, 6, 7))
+    rows, rep = gf.gap_follow_rows(_pm(coords, [("building", "building5", (0, 1, 2, 3)), piece]),
+                                   LAW, fixed)
+    knife = LAW.tables.structures.building_pad.groundside_cutback_m + snap_margin_m(LAW)
+    cap = min(role_cap(LAW, "groundside_pavement").longitudinal,
+              role_cap(LAW, "building").longitudinal)
+    assert sorted(r.terms[0][0] for r in rows) == [4, 7]
+    assert rows[0].hi - 90.0 == pytest.approx(cap * (2.6 - knife))
+    rows_r, _ = gf.gap_follow_rows(_pm(coords, [("service_road", "route3", (0, 1, 2, 3)), piece]),
+                                   LAW, fixed)
+    assert rows_r == []

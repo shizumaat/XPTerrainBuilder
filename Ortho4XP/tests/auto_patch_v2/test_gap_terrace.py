@@ -187,7 +187,11 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # RE-RECORDED (lane gapapron4, spec §59 / RULINGS 2026-10-08g): the 11
     # apron-classed pieces of this capture are stage-1 cells and are not cut
     # — (84, 34, 66, 9) with them in the last stage.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (69, 34, 49, 9)
+    # RE-RECORDED (lane seat2, spec §62 (3) R-D rule 1): a PAD ring's stations
+    # are read at the pad's own reach (the piece's stand-off + its noding
+    # margin), so 7 more pad stations stand beside parts of another group —
+    # (69, 34, 49, 9) at the plain reach.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (69, 34, 56, 9)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)

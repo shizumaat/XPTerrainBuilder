@@ -86,7 +86,7 @@ def late_stations(pm_base, z_base, pieces: _t.Sequence[Polygon], law: Law,
     cap_p = float(pc.longitudinal) if pc else 0.0
     setback = float(law.tables.structures.building_pad.groundside_cutback_m) \
         + snap_margin_m(law)
-    reach = reach_m(law)
+    reach, reach_pad = reach_m(law), reach_m(law, pad=True)
     spacing = float(law.tables.emit.chords.station_spacing_m)
     V = pm_base.vertices
     ptree = STRtree(list(pieces)) if pieces else None
@@ -115,12 +115,16 @@ def late_stations(pm_base, z_base, pieces: _t.Sequence[Polygon], law: Law,
     for k, piece in enumerate(pieces):
         rim = piece.boundary
         best: dict[tuple, Station] = {}
-        for i in sorted(tree.query(rim, predicate="dwithin", distance=reach).tolist()):
+        for i in sorted(tree.query(rim, predicate="dwithin",
+                                   distance=max(reach, reach_pad)).tolist()):
             (ax, ay), (bx, by) = segs[i]
             za, zb, cls, cap, knife, name = meta[i]
+            # a PAD ring's stations are read at the pad's own reach — the
+            # piece's stand-off at that pad (spec §62 (3) R-D rule 1)
+            r_i = reach_pad if cls == PAD else reach
             length = float(shapely.length(lines[i]))
             pts = _chord_stations([(ax, ay), (bx, by)], spacing)
-            near = shapely.dwithin(shapely.points(pts), rim, reach)
+            near = shapely.dwithin(shapely.points(pts), rim, r_i)
             for (x, y), ok in zip(pts, near.tolist()):
                 if not ok:
                     continue

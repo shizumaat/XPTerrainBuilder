@@ -24,6 +24,7 @@ __all__ = [
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
     "runway_end_zone_length_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
+    "gap_standoff_m",
     "Cockpit", "cockpit", "cliff_grade", "rolled_on_roles",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "role_preferred_cap",
@@ -550,6 +551,16 @@ def snap_margin_m(law: Law) -> float:
     knife carrying the margin beside a zone cut-back without it left a
     sub-metre zone sliver whose noding minted a cross_shape pair)."""
     return law.tables.emit.identity.min_distinct_spacing_m * math.sqrt(2) / 2
+
+
+def gap_standoff_m(law: Law) -> float:
+    """THE STAND-OFF of a gap piece from a standing cell it does not weld to
+    (spec §53 (12)): the pad set-back + the snap margin + one identity cell.
+    ONE derivation, here because the mint (``classify/gap_mint``) and the
+    follow reach beside a pad (``constraints/gap_follow.reach_m``, spec §62
+    (3) rule 1) both read it and neither layer may import the other."""
+    return float(law.tables.structures.building_pad.groundside_cutback_m) \
+        + snap_margin_m(law) + float(law.tables.emit.identity.min_distinct_spacing_m)
 
 
 def materiality_m(law: Law) -> float:

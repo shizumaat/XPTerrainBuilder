@@ -59,8 +59,9 @@ def test_the_census_carries_the_classes_of_its_own_adjudicated_rows(cc, cg, cens
     its cap — the table's counts are the census's own adjudicated rows."""
     osm = _pavcap_patch(tmp_path, name="cls", sidecar={
         "late_stage": {"floor_m": 1.0, "followers": []}}, rings=[
-        (ROLE, _sloped_rect(0.20), "gap:3/s0/lot"),
-        (ROLE, _sloped_rect(0.12, x0=40.0), "dsf:pol10")])
+        # over the road cap by more than the 1.0 m floor on a 10 m chord
+        (ROLE, _sloped_rect(cg.PAVEMENT_ROAD_CAP + 0.12), "gap:3/s0/lot"),
+        (ROLE, _sloped_rect(cg.PAVEMENT_ROAD_CAP + 0.02, x0=40.0), "dsf:pol10")])
     rep = census_mod.census_one(osm, cg, want_class=True)
     table = rep["row_classes"]
     assert rep["row_class_floor_m"] == 1.0

@@ -9,7 +9,8 @@ mouth_pair_m      = 100.0   # §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-1
 wall_gap_m        = 0.6     # an OSM BORE's ramp edge -> its at-grade rim, together with wall_band_width_m (09-01c/e; superseded for OBJECT corridors by [cutout], 2026-09-06)
 crest             = "dem"   # wall crest = DEM all the way round the ramp, one corridor-top value per station (09-03b L1)
 admitted_values   = ["yes"]   # spec 26 (RULINGS 2026-09-11aq item A): the ONLY `tunnel` values that seed a bore. `building_passage` (a road under a building — LEMD's old terminal, 10 of 33 covered bores), `culvert`, `avalanche_protector`, `flooded` and `no` are NOT bores; the passage belongs to the building's pad
-ramp_max_grade    = 0.080   # descent grade of the ramp (common.roles.tunnel_ramp; RULINGS 2026-09-12m owner: the road cap, was 0.040 user 2026-05-08) — never above that role cap (checked at load)
+ramp_max_grade    = 0.100   # 0.080 -> 0.100 (owner RULINGS 2026-10-07b (2): roads and ramps up to 10 %); the CEILING of the ramp's descent grade (2026-10-08c (1): a cap, never the grade a ramp is built at — that is ramp_grade below; common.roles.tunnel_ramp; RULINGS 2026-09-12m owner: the road cap, was 0.040 user 2026-05-08) — never above that role cap (checked at load)
+ramp_grade        = 0.050   # THE DESIGN GRADE of a mapped tunnel's approach ramp (owner RULINGS 2026-10-08d (1): "the target is more like 5% with the higher cap only coming in to play in situations where an object dictates a shorter distance"; 08c (1): "it's a CAP, not a target"). A ramp NO OBJECT FRAMES is BUILT at this (planar/unframed_ramp) and steepens toward ramp_max_grade ONLY where it cannot top out in the run it has (no ground within max_ramp_length_m, the road's own end, a deck across the approach, a pad / pavement stop), then at the SMALLEST grade that fits. Never above ramp_max_grade (checked at load). An object-framed ramp (07e) reads neither
 mouth_standoff_m  = 150.0   # spec §29 (1) (owner RULINGS 2026-09-12r; Fable 12t): a MOUTH is built only where it stands ON THE FIELD — inside the classified cover grown by this. The test is the mouth point OR its ramp reach. 150 m (round 3): the MEASURED population of on-field highway mouths at LEMD ends at 146 m and the next drop is 208 m, so 150 sits in the natural gap (RULINGS 2026-09-12aa set 100 off the nearest EIGHT drops, which kept only three of the five); the rail mouths are 4,000 m out. Admission is CONJUNCTIVE - a bore is built only if it ALSO passes under a classified cell (LEMD's 4.9 km rail bores were admitted by 125–162 m of cover under one pad and built their far mouths 4.0 km west of the field)
 ramp_cuts_runway_family = false   # ramp wins over pavement but NEVER cuts the runway family (08-25)
 ramp_crosses_pad = false          # ramp walls are their own cut, never across a building pad (08-25)
@@ -22,7 +23,7 @@ default_lanes     = 2       # lanes assumed for a mapped way with neither `lanes
 ramp_width_source = ["pavement", "lanes"]   # in order: a pavement cell containing the station whose across-axis centre lies within ramp_pavement_max_offset_m of the axis and which runs ALONG the axis (contains the neighbouring stations) sets the station's edges; else the way's width / lanes
 ramp_pavement_max_offset_m = 2.0            # the axis stands this close to the pavement's across-axis centre at the station (the pack traced THIS road; a pavement the axis merely crosses or skirts is not the ramp)
 dual_carriageway_max_separation_m = 40.0   # two bores whose mouths stand closer than this with parallel approaches are ONE ramp spanning both (2026-08-31h "dual carriageways are one ramp")
-max_ramp_length_m = 600.0   # a ramp that cannot reach the DEM at ramp_max_grade within this is refused loudly (never a shallower ramp)
+max_ramp_length_m = 600.0   # a ramp that cannot reach the DEM within this — at ramp_grade, nor at any steeper grade up to ramp_max_grade (2026-10-08c (1)) — is refused loudly
 # THE APPROACH WALK KEEPS ITS HEADING (spec §34 (2); Fable 2026-09-13i,
 # RULINGS 2026-09-13i item 7a).  At a node where the mapped way it entered
 # ENDS the walk takes the continuation with the SMALLEST turn from its
@@ -71,6 +72,7 @@ trench              = "inner_walls" # trench = the region between the walls' INN
 wall_face_max_thickness_m = 2.0     # a wall solid's plan thickness; thicker plan solids are decks/slabs, not walls (OTHH: 1.0-1.1 m side walls, 2.0 m box walls)
 wall_sample_m       = 2.0           # station spacing along a wall line
 mouth_end           = "bore"        # the deep end = the end whose axis continues into an OSM tunnel way (bore); else the end facing the other placement of the same family; else the closed end
+authored_crest_max_m = 3.0         # object-placement spec §18 (3) (owner RULINGS 2026-10-07b (1) / 07c (3), (4)) AUTHORED TO THE CUT: a wall object whose crest plate, rendered at its AUTHORED seat over the terrain the engine itself cuts under its anchor, stands 0 … this far over the surrounding grade keeps the author's seat (no plate entry, never re-seated) — a wall top at grade up to a parapet; outside the band it is re-seated to the pack's own MEDIAN proud height (07c (4)), flush only where the pack states none
 reseat              = true          # the re-bake seats every tunnel-object family so its plate sits at the ground (delta = ground - rendered plate); never excluded
 skirt_min_depth_m   = 3.0           # genuine solids must reach this far BELOW the seat for a wall skirt (OTHH: 10-15 m)
 plate_normal_y_min  = 0.7           # reuse of deck_plate_normal_y_min: a crest face is near-horizontal
@@ -246,10 +248,10 @@ emit_wall_band  = false             # no wall face is emitted between floor and 
 [cutout.door]                       # RULINGS 2026-09-08b/c LAW A — THE DOOR RAMP (spec othh-terminal-ramps-spec.md §2)
 # Where a below-grade floor plate of an object REACHES ITS EXTERIOR FACE (the
 # plate boundary leaves the object's own at-grade geometry: a basement access
-# door, not a basement), cut a trench of the sill's width from the sill up to
-# grade at ramp_grade, OUTSIDE the building only, along the outward normal of
-# that face.  The well floor = the sill plate ⊕ floor_overlap_m (flat at the
-# sill); the rim per 09-08a inside the well's walls; beyond the well the OSM
+# door, not a basement), cut a trench of the sill's width from the sill at the
+# face up to grade at the well's outer end, along the outward normal of that
+# face (the well = the sill plate ⊕ floor_overlap_m); the rim per 09-08a
+# inside the well's walls; beyond the well the OSM
 # ramp law's stand-off (as an object corridor beyond its walls).  Measured
 # OTHH (scout othhterminal): six wells, sills 1.57-1.70 m under the ground,
 # 3.7-5.2 m wide, under the 2.5 m basin gate — nothing was emitted.
@@ -257,18 +259,16 @@ sill_min_depth_m = 0.5              # the door's own gate (a sill shallower than
 sill_min_width_m = 1.0              # narrower is a drain / a duct, not a door
 sill_max_width_m = 6.0              # RULINGS 2026-09-08j: WIDER is a service yard or a sunken parking pit, not a basement access door (OTHH's six wells read 3.7-5.7 m; the letter of the 08c law admitted 8-15 m parking pits at OTHH and 18-38 m service yards at LEMD) — refused loudly until the owner rules on yards
 exit_max_fraction = 0.5             # the well's rectangle side OPPOSITE the face (the ramp's exit) lies under the family's above-band solids (obj8.above_grade_footprint, basin.contact_band_m) over at most this share of its length; more is a covered slot (OTHH Terminal_Parking_006's light slots), never a door.  The FACE is the well's longer side nearer the MASS of the family's above-band solids around it (the building; the ramp leaves away from it).  OPEN (lane v2doorramp): OTHH's car-park wells are closed four-walled boxes hanging from the facade lattice, the door a texture on the building-side wall — no pack geometry names the door side; the building's mass is the last discriminating signal
-# §47 (6) LAW A INVERTED (owner RULINGS 2026-09-17h, Q1 "Maintain 10% cap,
-# descend as far as that allows, stopping at the building wall"): the ramp TOP
-# stands at grade at the well's OUTER end and the floor DESCENDS toward the
-# building face at this cap, stopping AT the building wall at
-# depth_at_wall = min(sill, ramp_grade x well length); the residual
-# sill - depth_at_wall is a step AT the building face, reported per well.
-# 0.08 -> 0.10 = cutout.wall_corridor.max_ramp_grade (one cap for both walled
-# ramps); the door_ramp role's own longitudinal cap rises with it
-# (rulesets.toml, checked at load).  `max_length_m` no longer governs anything
-# — nothing is emitted beyond the well — and is kept only for the schema.
-ramp_grade       = 0.10             # the descent INSIDE the well (§47 (6); was 0.08 for a climb beyond it): a 1.70 m sill -> 21 m (the owner's "small ramp"; the pack's own geometry implies >= 7.5 %: the nearest road 22.8 m away); <= the door_ramp role cap (rulesets.toml), checked at load.  ALSO the sill test: a plate descending at or under this over its reach is a ramp of the object's own (OTHH Terminal_Parking_006's 21 m car-park ramp loop at 5 %), never a sill — a well's steps down to its door are far steeper
-max_length_m     = 25.0             # a climb that cannot reach the ground within this is refused loudly, never a shallower ramp
+# §47 (6) LAW A INVERTED, FRAMED BY THE WELL (owner RULINGS 2026-10-07e:
+# "Door ramps are exempt from the cap, since they only exist when framed by
+# objects ... the object defines both the length and depth and therefore the
+# necessary grade"): the ramp TOP stands at grade at the well's OUTER end and
+# the floor DESCENDS over the well's whole length to the SILL at the building
+# face.  NO GRADE KEY: `ramp_grade` (the 10 % cap of 17h Q1, and the step it
+# left at the face) is DELETED.  The sill test that read `ramp_grade` (a plate
+# descending no steeper than a road drives is a ramp of the object's own —
+# OTHH Terminal_Parking_006) reads the road ramp law, tunnel.ramp_max_grade.
+max_length_m     = 25.0             # the reach around a well within which the family's members are read (airport/door_wells rule 3); it was the outward climb's length law until §47 (6) — no ramp reads it
 station_m        = 2.0              # ramp station spacing along the climb (the top station stands one station past where the climb meets the ground)
 seat             = "none"           # the door family is NEVER re-seated by its trench (spec §2: a floor_plate seat would move all 35 members of OTHH unit:22); members standing > basin.contact_band_m under the mesh are facility members (05p/05q) and keep their authored y
 
@@ -310,10 +310,11 @@ seat             = "none"           # the family is NEVER re-seated by its trenc
 # do not gate a pack-authored ramp, max_authored_grade refuses loudly above
 # it); an end is CLOSED when a family vertical face crosses it within
 # tunnel.object.end_cap_open_m (over end_cap_cover_min of the end line), else
-# a MOUTH with a synthetic ramp beyond at ramp_grade; a ramp that would enter
-# AIRSIDE pavement STOPS at the pavement edge and steepens up to
-# max_ramp_grade (airside is king); a service road across a ramp yields onto
-# it (the groundside terrace law); the headroom test replaces the basement
+# a MOUTH whose ramp RUNS THE WALLS' LENGTH (owner RULINGS 2026-10-07b (2), 07e):
+# at grade at the walls' outer end, at the wall bottom at the corridor's start,
+# at the grade those two give — NO CAP (the walls frame it; `max_ramp_grade`
+# is DELETED with 07e, `ramp_grade` and the §34 (9) (4) road_edge_line_* keys
+# with 07b (2)); nothing is built beyond the walls; the headroom test replaces the basement
 # cover gate; the deck above is untouched; the rim per 09-08a; seat = "none".
 mouth_depth        = "wall_bottom"  # the floor = the walls' bottom edge per station (08m; 08n per station)
 min_wall_depth_m   = 1.0            # a band reaches this far under the local ground (OTHH: 1.35–1.89 m)
@@ -333,7 +334,7 @@ end_cap_cover_min  = 0.5            # a family vertical face within end_cap_open
 # clamp on its centreline: a levelled road profile; the DEM where the core levels
 # nothing) minus the corridor's floor at that mouth: a road can ENTER a corridor
 # whose floor it meets within corridor_floor_road_tol_m, or reach it at
-# max_ramp_grade over the corridor's length; (ii) FLOOR SLAB — a horizontal plate
+# tunnel.ramp_max_grade over the corridor's length; (ii) FLOOR SLAB — a horizontal plate
 # of the family thinner than corridor_floor_slab_max_thickness_m lying within
 # corridor_floor_slab_tol_m of the floor between the walls over
 # corridor_floor_slab_cover_min of the length.
@@ -358,24 +359,8 @@ corridor_floor_slab_cover_min       = 0.5   # ...over at least this share of the
 # 5.91, Bridge_02 9.48, Bridge_06 8.10-9.48).  Records 73 -> 11.
 max_wall_height_m  = 3.0            # a band's OWN component max_y above the object's zero at most this (a kerb: OTHH 0.40–1.40 m; foundations of buildings/bridges 5.91–9.82 m)
 min_headroom_m     = 3.5            # the lowest near-horizontal face over the corridor stands this far above its floor (OTHH: 4.3–4.5 m); less is refused by name (replaces the basement cover gate for corridors)
-ramp_grade         = 0.08           # the synthetic climb beyond a mouth (the door ramp's grade, 08m): 1.89 m → 23.6 m
-max_ramp_grade     = 0.10           # ...steepened up to this where the climb stops at airside pavement (08m (a): site 1's NE ramp 18.9 m); refused loudly above; = the wall_corridor_ramp role's cap (rulesets.toml), checked at load
-# §34 (9) (4) THE ROAD EDGE IS THE PAINTED LINE (owner RULINGS 2026-09-14aq:
-# "detect the white line marking from the scenery package that marks the road
-# edge").  Where a pinched ramp (§34 (9)) meets an airside-locked service
-# road, the road edge it ends at is the pack's own road-edge MARKING — a
-# draped object in the `markings` layer group (the class §42 refuses as
-# pavement: HECA's `Airport/ground/asphalt_white.obj`) whose line runs along
-# the road within road_edge_line_reach_m of the road face's edge and within
-# road_edge_line_parallel_deg of its direction.  Without such a witness the
-# FACE edge stands, which is what OTHH does: measured 2026-09-14, the only
-# `markings` objects within 60 m of the three terminal mouths are aircraft
-# StopLine bars (1.6-3.2 m2, 32-54 m away) and the east mouth has none at
-# all, so no OTHH pinched ramp takes a painted witness.
-road_edge_line_reach_m     = 6.0
-road_edge_line_parallel_deg = 15.0
 max_authored_grade = 0.25           # a descending wall bottom steeper than this between stations is refused loudly (08n: a sanity cap, never a ramp law); = the garage_ramp role's cap, checked at load
-station_m          = 2.0            # ramp station spacing beyond the walls (the walls' own stations are tunnel.object.wall_sample_m)
+station_m          = 2.0            # ramp station spacing (the walls' own stations are tunnel.object.wall_sample_m)
 seat               = "none"         # the family is NEVER re-seated by its trench (the terminal's 399 members)
 
 # ── THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i) ─────────────
@@ -606,6 +591,14 @@ cuts_runway_family  = false        # a region reaching the runway family is refu
 # the floor down.  Measured at LEMD's T4S pit on 1.0.315: floor_z 588.952 ==
 # solid_min_z 588.952, a clearance of exactly 0.000 m.
 floor_clearance_m   = 0.5
+# AUTHORED TO THE CUT (object-placement spec §18 (3), (5); owner RULINGS
+# 2026-10-07b (3) / 07c (3), (5)).  ONE band, two readings: a placement LIFTED
+# (OBJECT_AGL > 0) by its own shell depth within this band is read GROUND-SEATED
+# by the basin intake — the same region and floor as its plain twin — and a
+# basin witness whose rim, rendered at the AUTHORED seat over the floor the
+# basin law cuts, stands within this band of the ring's ground keeps the
+# author's seat (no floor-plate seat).
+authored_rim_tol_m  = 1.0
 # THE RIM / COVER READ'S VERTEX BUDGET (owner RULINGS 2026-09-13bp (iii)).
 # Rules 3 and 4 clip and union every member object's shell.  The clip is
 # memoised per (resource, plane) — VHHH's 5,078 custom placements over 785

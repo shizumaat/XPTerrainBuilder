@@ -47,6 +47,7 @@ DIGEST_FILENAME = "partition_code.sha256"
 CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.anchor_rule",
     "auto_patch_v2.airport.apt_dat",
+    "auto_patch_v2.airport.authored_seat",
     "auto_patch_v2.airport.backup_state",
     "auto_patch_v2.airport.basin_ring",
     "auto_patch_v2.airport.basin_witness",

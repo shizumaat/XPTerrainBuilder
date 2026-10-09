@@ -38,6 +38,7 @@ from ..emit.osm_adapter import (PatchPaths, WeldReport, merge_sub_spacing,
                                 shore_edges_of, weld_to_shore, write_patch,
                                 write_tile_pieces)
 from ..airport import rebake_screen as _rscreen
+from . import authored_seats as _authored_seats
 from ..airport.rebake_plan import plan as rebake_plan
 from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
@@ -133,7 +134,7 @@ class BuildResult:
     rebake_screen: Path | None = None
 
 
-def _plate_seats(pm, law) -> dict[str, tuple[float, list, float]]:
+def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
     """Placement id -> ``(plate y, stations in frame xy)`` for every
     PLATE-seated structure member: a tunnel wall object (RULINGS
     2026-09-05n-4: plate height above its seat; the stations stand at the
@@ -147,7 +148,16 @@ def _plate_seats(pm, law) -> dict[str, tuple[float, list, float]]:
     rendered y = 0 plane — and points ON the trench floor face, so the
     seat's delta = floor − (mesh(anchor) + agl + plate y) lands the plate
     on the floor — and, 2026-09-09ac (2), ONLY for the basin's own
-    witness resource ``Basin.witness_id``, never for every member).  ``emit/rebake._plate_reading`` reads both alike."""
+    witness resource ``Basin.witness_id``, never for every member).  ``emit/rebake._plate_reading`` reads both alike.
+
+    AUTHORED TO THE CUT (object-placement spec §18 (3); owner RULINGS
+    2026-10-07c (3)-(5)): a member whose authored seat already works over
+    the cut (``seats``, ``authored_seats.seat_records``) is NOT entered —
+    it is never re-seated; a wall that is re-seated carries the pack's
+    median proud height as the plate's clearance over the ground its
+    stations read (0.0 = flush, 05n-4)."""
+    seats = _authored_seats.seat_records(pm, law) if seats is None else seats
+    kept = _authored_seats.kept_ids(seats)
     from shapely.geometry import LineString as _LS, Point as _Pt, Polygon as _Poly
     grid = law.tables.emit.identity.min_distinct_spacing_m
     step = law.tables.structures.bridge.abutment_sample_step_m
@@ -178,9 +188,12 @@ def _plate_seats(pm, law) -> dict[str, tuple[float, list, float]]:
                 ax = _LS(tn.axis)
                 pts = [p for p in pts if ax.project(_Pt(p)) <= tn.wall_length_m + tol]
         for oid in tn.objects:
+            if oid in kept:
+                continue
             # the seat reads the CREST (plate_y_m): an edge wall's depth
             # is the bore law's, its crest still goes flush (2026-09-06c)
-            out[oid] = (float(tn.plate_y_m or tn.depth_m), pts, 0.0)
+            out[oid] = (float(tn.plate_y_m or tn.depth_m), pts,
+                        float((seats.get(oid) or {}).get("proud_m") or 0.0))
     if law.tables.structures.basin.seat != "floor_plate":
         return out
     for b in pm.basins:
@@ -199,7 +212,7 @@ def _plate_seats(pm, law) -> dict[str, tuple[float, list, float]]:
         # "plate" members were terminal slabs the basin half claimed at
         # the T4S basin's own −7.048 / +5.206 / … plate y, standing them
         # 12–17 m off their own feet — spec §11.4).
-        if b.witness_id:
+        if b.witness_id and b.witness_id not in kept:
             # ... and the plate stands ``floor_clearance_m`` ABOVE the
             # trench floor its stations read (11t §24 (2)): the floor row
             # dropped the terrain by that much so the plate renders, and a
@@ -293,8 +306,14 @@ def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
     excluded |= {oid for tn in pm.structures
                  if tn.source in ("door", "sunken_road", "wall_corridor")
                  for oid in tn.objects}
+    # AUTHORED TO THE CUT (object-placement spec §18 (3) (b)): a wall or a
+    # pit whose authored seat already works over the cut is the author's —
+    # no plate seat and no other seat either
+    seats = _authored_seats.seat_records(pm, law)
+    excluded |= _authored_seats.kept_ids(seats)
     return {
-        "tunnel_objects": _plate_seats(pm, law),
+        "tunnel_objects": _plate_seats(pm, law, seats),
+        "authored_seats": tuple(seats[k] for k in sorted(seats)),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``
@@ -776,66 +795,69 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # handful (LEMD 4, KCLT 3, OTHH 0), so a rising count is visible
     for _mr in ss.mouth_roads:
         _say(f"    [{icao}]     {_mr}", out)
-        for r in ts.refused:
-            _say(f"    refused object {r}", out)
-        for r in ss.refused:
-            _say(f"    refused {r}", out)
-        if ss.mouth_only_bores:
-            _say(f"    mouth-only bores BUILT (owner 2026-09-12ab, no cover): "
-                 f"{', '.join(ss.mouth_only_bores)}", out)
-        for r in ss.plate_mouths:
-            _say(f"    {r}", out)
-        for r in ss.underpasses:
-            _say(f"    {r}", out)
-        for r in ss.decked_excluded:
-            _say(f"    {r}", out)
-        for r in ss.decked_runway_family:
-            _say(f"    {r}", out)
-        for r in ss.crest_from_approach:
-            _say(f"    {r}", out)
-        for r in ss.mouths_on_approach_named:
-            _say(f"    {r}", out)
-        for r in ss.mouths_off_field_nearest:
-            _say(f"    {r}", out)
-        for r in ss.bore_precedence:
-            _say(f"    {r}", out)
-        for tn in pm.structures:
-            if tn.source == "object":
-                # round-2 spec §3.6: the per-corridor line
-                inside = min(tn.top_s, tn.wall_length_m)
-                _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
-                     f"depth {tn.depth_m:.2f} m ramp {tn.top_s:.1f} m (inside walls {inside:.1f} m, "
-                     f"beyond {max(0.0, tn.top_s - tn.wall_length_m):.1f} m) grade "
-                     f"{100.0 * tn.design_grade:.2f} % ends mouth={tn.mouth_kind} "
-                     f"ground={tn.ground_kind} walls {tn.ends} width {tn.hull_width_m:.1f} m "
-                     f"reseat expect {', '.join(f'{d:+.2f}' for d in tn.reseat_expect_m)} "
-                     f"trench-outside {tn.trench_outside_max_m:.3f} m replaced mouths of "
-                     f"[{', '.join(str(w) for w in tn.replaced_ways)}]  decks {len(tn.decks)}  "
-                     f"{'; '.join(tn.notes)}", out)
-                continue
-            if tn.source == "wall_corridor":
-                # RULINGS 2026-09-08m/n Law C: the per-site line the report quotes
-                inside = [z for s, z in tn.profile if s <= tn.wall_length_m + 1e-6]
-                _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
-                     f"floor {min(inside) if inside else tn.mouth_z:.2f}..{max(inside) if inside else tn.mouth_z:.2f} "
-                     f"depth {tn.depth_m:.2f} m width {tn.hull_width_m:.1f} m walls "
-                     f"{tn.wall_length_m:.1f} m ramp {max(0.0, tn.top_s - tn.climb_from_s):.1f} m at "
-                     f"{100.0 * tn.design_grade:.2f} % top s {tn.top_s:.1f} ends {tn.ends} "
-                     f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
-                     f"{'; '.join(tn.notes)}", out)
-                continue
-            if tn.source in ("door", "sunken_road"):
-                # RULINGS 2026-09-08b/c: the per-site line the report quotes
-                _say(f"    {tn.id}: {'sill' if tn.source == 'door' else 'cut'} {tn.mouth_z:.2f} "
-                     f"ground {tn.mouth_dem_z:.2f} depth {tn.depth_m:.2f} m width "
-                     f"{tn.hull_width_m:.1f} m well/plate {tn.wall_length_m:.1f} m ramp "
-                     f"{max(0.0, tn.top_s - tn.climb_from_s):.1f} m at {100.0 * tn.design_grade:.2f} % "
-                     f"top s {tn.top_s:.1f} ground {tn.top_ground_z if tn.top_ground_z is not None else float('nan'):.2f} "
-                     f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
-                     f"{'; '.join(tn.notes)}", out)
-                continue
-            _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
-                 f"  half {tn.half_width_m:.1f} m  decks {len(tn.decks)}  {'; '.join(tn.notes)}", out)
+    # the structure report is printed ONCE, mouth roads or none (it stood
+    # inside the loop above since 81a61794: a field with no mouth road
+    # printed no refusal and no per-tunnel line — KCLT, sweep sww)
+    for r in ts.refused:
+        _say(f"    refused object {r}", out)
+    for r in ss.refused:
+        _say(f"    refused {r}", out)
+    if ss.mouth_only_bores:
+        _say(f"    mouth-only bores BUILT (owner 2026-09-12ab, no cover): "
+             f"{', '.join(ss.mouth_only_bores)}", out)
+    for r in ss.plate_mouths:
+        _say(f"    {r}", out)
+    for r in ss.underpasses:
+        _say(f"    {r}", out)
+    for r in ss.decked_excluded:
+        _say(f"    {r}", out)
+    for r in ss.decked_runway_family:
+        _say(f"    {r}", out)
+    for r in ss.crest_from_approach:
+        _say(f"    {r}", out)
+    for r in ss.mouths_on_approach_named:
+        _say(f"    {r}", out)
+    for r in ss.mouths_off_field_nearest:
+        _say(f"    {r}", out)
+    for r in ss.bore_precedence:
+        _say(f"    {r}", out)
+    for tn in pm.structures:
+        if tn.source == "object":
+            # round-2 spec §3.6: the per-corridor line
+            inside = min(tn.top_s, tn.wall_length_m)
+            _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
+                 f"depth {tn.depth_m:.2f} m ramp {tn.top_s:.1f} m (inside walls {inside:.1f} m, "
+                 f"beyond {max(0.0, tn.top_s - tn.wall_length_m):.1f} m) grade "
+                 f"{100.0 * tn.design_grade:.2f} % ends mouth={tn.mouth_kind} "
+                 f"ground={tn.ground_kind} walls {tn.ends} width {tn.hull_width_m:.1f} m "
+                 f"reseat expect {', '.join(f'{d:+.2f}' for d in tn.reseat_expect_m)} "
+                 f"trench-outside {tn.trench_outside_max_m:.3f} m replaced mouths of "
+                 f"[{', '.join(str(w) for w in tn.replaced_ways)}]  decks {len(tn.decks)}  "
+                 f"{'; '.join(tn.notes)}", out)
+            continue
+        if tn.source == "wall_corridor":
+            # RULINGS 2026-09-08m/n Law C: the per-site line the report quotes
+            inside = [z for s, z in tn.profile if s <= tn.wall_length_m + 1e-6]
+            _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
+                 f"floor {min(inside) if inside else tn.mouth_z:.2f}..{max(inside) if inside else tn.mouth_z:.2f} "
+                 f"depth {tn.depth_m:.2f} m width {tn.hull_width_m:.1f} m walls "
+                 f"{tn.wall_length_m:.1f} m ramp {max(0.0, tn.top_s - tn.climb_from_s):.1f} m at "
+                 f"{100.0 * tn.design_grade:.2f} % top s {tn.top_s:.1f} ends {tn.ends} "
+                 f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
+                 f"{'; '.join(tn.notes)}", out)
+            continue
+        if tn.source in ("door", "sunken_road"):
+            # RULINGS 2026-09-08b/c: the per-site line the report quotes
+            _say(f"    {tn.id}: {'sill' if tn.source == 'door' else 'cut'} {tn.mouth_z:.2f} "
+                 f"ground {tn.mouth_dem_z:.2f} depth {tn.depth_m:.2f} m width "
+                 f"{tn.hull_width_m:.1f} m well/plate {tn.wall_length_m:.1f} m ramp "
+                 f"{max(0.0, tn.top_s - tn.climb_from_s):.1f} m at {100.0 * tn.design_grade:.2f} % "
+                 f"top s {tn.top_s:.1f} ground {tn.top_ground_z if tn.top_ground_z is not None else float('nan'):.2f} "
+                 f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
+                 f"{'; '.join(tn.notes)}", out)
+            continue
+        _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
+             f"  half {tn.half_width_m:.1f} m  decks {len(tn.decks)}  {'; '.join(tn.notes)}", out)
     bs = pstats.basins
     if bs.objects is not None:
         o = bs.objects

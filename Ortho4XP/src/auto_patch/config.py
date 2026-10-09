@@ -682,7 +682,7 @@ REACH_NO_SERVICE_SPINES = (
 # Raising it to 8 % therefore raises service JUNCTIONS to 8 % as well; if
 # junctions are to be split from the road body that is a second owner
 # ruling and a second constant, not an implementer's call.
-SERVICE_ROAD_MAX_GRADE = 0.080
+SERVICE_ROAD_MAX_GRADE = 0.100   # 0.080 -> 0.100 (owner RULINGS 2026-10-07b (2): roads and ramps up to 10 %)
 # R5c — GRADED-ROAD CHARACTER (service-road law spec, Fable 2026-08-15;
 # owner in-sim on R5 at CYXY 60.7087015,-135.0746305).  R5's tracker
 # follows the low-passed terrain faithfully — INCLUDING its wiggles —
@@ -707,7 +707,7 @@ SERVICE_ROAD_PAVEMENT_NEAR_M = 25.0    # keep OSM roads within this of aircraft 
 RUNWAY_MAX_GRADE = 0.015        # FAA AC 150/5300-13B runway longitudinal (ARC C-E)
 RUNWAY_END_GRADE = 0.008        # EASA CS-ADR-DSN / ICAO Annex 14, first/last quarter (code 3/4)
 RUNWAY_END_FRACTION = 0.25      # extent of each runway end zone (fraction of length)
-TUNNEL_RAMP_MAX_GRADE = 0.080   # RULINGS 2026-09-12m (owner): a tunnel ramp takes the ROAD cap (= SERVICE_ROAD_MAX_GRADE, VDOT GS-9); was 0.040 (user 2026-05-08).  This constant is what the CENSUS prices tunnel_ramp at (ROLE_GRADE_LIMITS -> tools/check_grade.py) and the v2 law tables twin it (tests/auto_patch_v2/test_law_tables.py: rulesets tunnel_ramp.longitudinal / structures tunnel.ramp_max_grade) — ONE cap for verify and census
+TUNNEL_RAMP_MAX_GRADE = 0.100   # 0.080 -> 0.100 (owner RULINGS 2026-10-07b (2): roads and ramps up to 10 %); RULINGS 2026-09-12m (owner): a tunnel ramp takes the ROAD cap (= SERVICE_ROAD_MAX_GRADE, VDOT GS-9); was 0.040 (user 2026-05-08).  This constant is what the CENSUS prices tunnel_ramp at (ROLE_GRADE_LIMITS -> tools/check_grade.py) and the v2 law tables twin it (tests/auto_patch_v2/test_law_tables.py: rulesets tunnel_ramp.longitudinal / structures tunnel.ramp_max_grade) — ONE cap for verify and census
 # THE STRUCTURE RAMP LAW (owner RULINGS 2026-09-08m (a) / 08u (2)): a v2
 # structure's own access ramp — a basement door's ramp, a kerb-wall
 # corridor's climb — is a private vehicle ramp, not a portal taxi ramp
@@ -718,8 +718,10 @@ TUNNEL_RAMP_MAX_GRADE = 0.080   # RULINGS 2026-09-12m (owner): a tunnel ramp tak
 # ``oracle_law``), so the census judges them at the cap v2 bound them at
 # instead of at ``service_road``'s 8 % (measured: 181 lawful OTHH
 # wall-corridor rows at 8.2 %).  THE NUMBER LIVES ONCE MORE, in
-# ``auto_patch_v2/law/structures.toml [cutout.wall_corridor]
-# max_ramp_grade``, and v2's law loader asserts the two agree at load.
+# ``auto_patch_v2/law/structures.toml [tunnel] ramp_max_grade`` (the road
+# ramp law; an object-framed ramp's OWN grade is uncapped since owner
+# RULINGS 2026-10-07e and rides ``o4_grade_law_cap_lifted``), and v2's
+# law twin asserts the two agree.
 STRUCTURE_RAMP_MAX_GRADE = 0.100
 # GROUNDSIDE (curbside / parking lot) ramp grade — OWNER CONSTANT, approved
 # 2026-08-03 on the primary-source research (docs/RULINGS.md "Owner

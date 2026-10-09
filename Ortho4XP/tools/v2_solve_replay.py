@@ -2544,6 +2544,14 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                                if late_from is not None else None),
                                      late_stage=(prob["late"]["rep"]["stage"]
                                                  if late_from is not None else None)))
+    if emit_dir is not None or verify:
+        # object-placement spec §18 (6): the seat per wall / pit placement,
+        # as the build's rebake plan publishes it (``authored_seats``)
+        from auto_patch_v2.pipeline.authored_seats import seat_lines, seat_records
+        seats = seat_records(pm, law)
+        result["authored_seats"] = [seats[k] for k in sorted(seats)]
+        for ln in seat_lines(seats.values(), pad=f"[{icao}] "):
+            print(ln)
     if json_out is not None:
         json_out.write_text(json.dumps(result, indent=1, default=str))
     return 0

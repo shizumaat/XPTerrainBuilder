@@ -170,7 +170,7 @@ def test_taxi_apron_road_pair_populations(synthetic, law):
     rd = roads.road_within_shape(pm, law, airport)
     # the road touches the apron (1 %) and the taxiway (1.5 %): lateral
     # contiguity binds each road face at the strictest touching class
-    assert {r.cap for r in rd} <= {0.08, 0.02, 0.015}
+    assert {r.cap for r in rd} <= {law.tables.common.road_max_grade, 0.02, 0.015}
     assert roads.road_law_caps(pm, law)
     assert any(r.source.ruling.startswith("road_cross_section") for r in rd)
 

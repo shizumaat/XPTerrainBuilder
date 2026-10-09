@@ -2,8 +2,8 @@
 (``constraints/pavement_cap.py``; owner RULINGS 2026-09-29ac, issue #105).
 
 The road cap (``[common] road_max_grade``) is the HARD fallback over every
-pavement pair no row already caps at or under it: a pavement pair at 9 %
-is refused, at 7 % passes; a runway pair keeps its own 1.5 %; the
+pavement pair no row already caps at or under it: a pavement pair a point
+over it is refused, a point under it passes; a runway pair keeps its own 1.5 %; the
 platform collar (a 1:3 bank) and two pins mint nothing.
 """
 from __future__ import annotations
@@ -104,16 +104,17 @@ def test_the_fallback_is_the_road_cap(law):
         h.split(" (")[0] for h in law.tables.emit.design.hard_rulings}
 
 
-def test_a_pavement_pair_at_9_percent_is_refused_at_7_passes(law):
+def test_a_pavement_pair_over_the_cap_is_refused_under_it_passes(law):
     ids, xy = _rect(0, 0.0)
     pm = _Planar(xy, [_F(1, "groundside_pavement", "lot", ids)])
     rows = pavement_cap.pavement_road_cap([], pm, law)
     assert len(rows) == 4 and all(isinstance(r, Diff) for r in rows)
-    assert all(r.cap == pytest.approx(0.08) for r in rows)
+    cap = T.pavement_fallback_cap(law)          # the road cap (07d: 10 %)
+    assert all(r.cap == pytest.approx(cap) for r in rows)
     edge = next(r for r in rows if {r.a, r.b} == {0, 1})
     assert edge.d == pytest.approx(10.0)
-    assert not _holds(edge, {0: 0.0, 1: 0.9})       # 9 %: refused
-    assert _holds(edge, {0: 0.0, 1: 0.7})           # 7 %: passes
+    assert not _holds(edge, {0: 0.0, 1: (cap + 0.01) * edge.d})   # a point over: refused
+    assert _holds(edge, {0: 0.0, 1: (cap - 0.01) * edge.d})       # a point under: passes
 
 
 def test_a_runway_pair_keeps_its_own_lower_cap(law):

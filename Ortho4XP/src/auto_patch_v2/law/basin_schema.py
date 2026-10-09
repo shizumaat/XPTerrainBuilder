@@ -37,5 +37,6 @@ class Basin:
     rim_reaches_grade: bool            # 04i: the closed-region test
     rim_protrusion_max_fraction: float # 2026-09-06f: this share of a component's face area may stand above the band (a tower in the pit is not the rim)
     authored_depth_min_m: float        # 2026-09-09ag: the floor plate stands this far under the placement's OWN render datum too — the depth is AUTHORED (spec §13)
+    authored_rim_tol_m: float          # object-placement spec §18 (3)/(5): the lift a pit is read ground-seated within, and the rim band its authored seat is kept in
     floor_clearance_m: float           # 2026-09-11t (spec §24 (2)): the trench floor stands this far UNDER the object's floor plate, so the plate renders and the terrain never shows through
     rim_read_vertex_budget: int        # 2026-09-13bp (iii): the rim / cover clip REFUSES past this many clipped vertices and names the pack, instead of 44 silent minutes (0 = unbounded)

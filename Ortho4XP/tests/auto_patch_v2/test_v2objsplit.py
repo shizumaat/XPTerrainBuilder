@@ -870,13 +870,15 @@ def test_the_build_places_the_graded_surface_beside_the_patch(tmp_path):
 def test_pad_hit_is_one_implementation(tmp_path):
     """Lane v2planfix (b): ``planar/structures`` and
     ``planar/wall_corridor_ramps`` carried byte-equal private copies of
-    the pad probe.  One function, upstream of both."""
+    the pad probe.  One function, upstream of both (the wall-corridor
+    copy's caller ``stop_and_steepen`` retired with RULINGS 2026-10-07b (2):
+    a Law C ramp stands inside its own walls and probes no pad)."""
     from auto_patch_v2.planar import structure_geometry as G
     from auto_patch_v2.planar import structures as S
     from auto_patch_v2.planar import wall_corridor_ramps as W
 
     assert S._pad_hit is G.pad_hit
-    assert W._pad_hit is G.pad_hit
+    assert not hasattr(W, "_pad_hit")
 
     from shapely.geometry import Polygon
     from shapely.strtree import STRtree

@@ -5675,6 +5675,31 @@ no `tunnel` tag; the DEM's 7.5 m cutting is unmodelled; the taxi surface bathtub
 1. **A RAMP IS PRICED ALONG ITS ROUTE.** `_ramp_top`'s reach and climb tests read the
    axis length walked, never the chord; the ramp ends at the first station where
    the DEM condition holds ALONG the route.
+   **(1a) THE CAP IS A CEILING, NEVER THE GRADE A RAMP IS BUILT AT — AMENDED
+   2026-10-08 (owner RULINGS 2026-10-08c (1): "it's a CAP, not a target, it should
+   only allow more flex where needed"; 2026-10-08d (1): "the target is more like 5%
+   with the higher cap only coming in to play in situations where an object dictates
+   a shorter distance requiring a steeper grade").** A ramp NO OBJECT FRAMES (a mapped
+   bore's approach) climbs at its DESIGN grade `[tunnel] ramp_grade` (0.05).
+   `ramp_max_grade` (0.10) is the grade it steepens toward ONLY where the design
+   grade cannot top out in THE RUN IT HAS, and then at the SMALLEST grade that does
+   (`min over the stations of the run of |DEM − mouth| / route length`). The run ends
+   at the nearest of, each read by the reader that already refused or cut the ramp
+   there: (a) `max_ramp_length_m` (the DEM not met); (b) the mapped road's own end
+   (the approach walk's axis); (c) a deck across the approach that the CAP's climb
+   tops out before (§34 (12) (4) / #450's `decks_over_climb`, now asked at the cap:
+   such a deck is an obstruction, not the ramp's roof); (d) the pad or pavement that
+   stops the ramp (08-07 ruling 3 / §34 (12) (3)'s stop); (e) another structure's
+   corridor (31h's overlap test) — of two unframed ramps the LONGER climb yields
+   first, to the station where it enters the other, and the build is re-planned
+   (at most 8 passes). Where even the cap does not top out in the run, the ramp is
+   read exactly as before this amendment: (a) the refusal, quoted at the cap; (d)
+   the clipped ramp; (e) the overlap refusal. The solve prices the ramp's descent
+   rows (item 3, §34 (6)) at the grade the ramp was BUILT at, not at the cap. The
+   runway-strip keep-out and a self-intersecting ring are NOT run ends (a shorter
+   ramp does not move its mouth or straighten its road). A ramp the pack's objects
+   frame (07e) reads neither key. Code: `planar/unframed_ramp` (`unframed_top`,
+   `overlap_run_end`).
 2. **THE APPROACH WALK KEEPS ITS HEADING.** After the first hop, the walk prefers the
    continuation with the smallest turn and refuses a turn over `[tunnel]
    approach_turn_max_deg` (60) unless the mapped way itself turns (a hairpin's own
@@ -11526,6 +11551,19 @@ stagger.  BARS: OTHH ways −10854 (40 nodes) / −10859 (29) → 8 nodes each
 (today 0.27–0.49); the ramp profile unchanged within 0.01 m at every former
 station; every `tunnel_ramp` at OTHH before → after node counts.
 
+**AMENDMENT (issue #449; cloud lane `cloudwalls`, 2026-10-07).** A kept
+cross-chord IS a break of the designed surface across the ramp's whole
+width ("only where the route bends or the profile breaks"), so EVERY edge
+of a ramp face that crosses it carries a vertex there: a surface line (a
+road or taxi centreline, `structure_service.SURFACE_LINE_KINDS`) the
+arrangement nodes lengthwise through a ramp takes a point where it crosses
+each emitted cross-chord (`structure_service.knee_nodes`, after
+`decked_exclusion`).  Without it the shared edge of the two split faces ran
+straight from mouth to top and stood up to 0.87 m over the outer edges at
+the flat → climb knee (OTHH, the corridor under the terminal).  Twin:
+`tests/auto_patch_v2/test_othhwalls.py` — level equal across the width at
+every station of a split ramp.
+
 ### §34 (8) A CLIMB STOPPED BY AIRSIDE ENDS AT THE PAVEMENT; THE REFUSAL IS THE RAMP'S, NEVER THE CORRIDOR'S (owner RULINGS 2026-09-14n item 2; Fable 2026-09-14; RULINGS 2026-09-14p) — lane `v2othhfix`
 
 When `stop_and_steepen` cannot reach the ground inside `max_ramp_grade`
@@ -11613,6 +11651,10 @@ stationed ramp is the model).  BAR: any basin ramp corridor ≥ 1 vertex per
 
 ### §34 (8) AMENDED — A CLIMB THAT CANNOT REACH AIRSIDE MOVES ITS MOUTH AWAY FROM AIRSIDE (owner RULINGS 2026-09-14u; supersedes the portal of 14p) — lane `v2othhfix`
 
+>**AMENDED by owner RULINGS 2026-10-07b (2) / 07c (1): see §47 (7) AMENDED.** For a RETAINING-WALL (Law C) corridor this section no longer
+> applies as written: the ramp stands inside its own walls, so it never reaches a road or airside
+> pavement beyond them.
+
 When `stop_and_steepen` cannot reach the ground inside `max_ramp_grade`
 before the axis enters airside pavement, the corridor's MOUTH is moved away
 from the airside edge — toward and if need be under the building — by the
@@ -11625,6 +11667,10 @@ both mouths, each mouth's move named (the /a side needs ≥ 1.7 m more run at
 10 %); the five `Terminal_Base_2_1` corridors unchanged.
 
 ### §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak; Fable 2026-09-14) — lane `v2othhfix`
+
+>**AMENDED by owner RULINGS 2026-10-07b (2) / 07c (1): see §47 (7) AMENDED.** For a RETAINING-WALL (Law C) corridor this section no longer
+> applies as written: the ramp stands inside its own walls, so it never reaches a road or airside
+> pavement beyond them.
 
 "All the ramps leading down into/under the terminal are coming out too far
 and pulling down the service road edge."  When a corridor's climb-out would
@@ -11849,6 +11895,10 @@ outright; KCLT and SPJC on this tree; the terminal BODY's own-ground delta
 (the object stage is not in a patch build).
 
 ### §34 (9) (4)–(5) THE PAINTED ROAD EDGE; FULL DEPTH AT THE BUILDING WALL (owner RULINGS 2026-09-14aq) — lane `v2othhfix`
+
+>**AMENDED by owner RULINGS 2026-10-07b (2) / 07c (1): see §47 (7) AMENDED.** For a RETAINING-WALL (Law C) corridor this section no longer
+> applies as written: the ramp stands inside its own walls, so it never reaches a road or airside
+> pavement beyond them.
 
 4. Where the pack carries a road-edge MARKING — a draped `markings` object
    (the class §42 refuses as pavement) whose line runs along the road within
@@ -12310,6 +12360,13 @@ and ≤ `ramp_max_grade` — two decks closer than 2 × clearance / `ramp_max_gr
 58 m) keep the floor down between them. The datum source is on the record and in the
 report; a lidar refresh (`--refresh-data dem`, the owner's act) moves a site from
 (iii) to (ii) with no law change.
+**NOT AMENDED by 2026-10-08c (1) / 08d (1) — measured, for the owner:** (iii)'s floor
+still climbs off each deck's clearance datum AT `ramp_max_grade` (10 % since 07d),
+which is the cap read as a target. Built at `[tunnel] ramp_grade` (5 %) instead,
+SPJC's channel deepens under the pavement welded to it: adjudicated airside rows
+930 (main, 8 %) / 891 (10 %) / 1,026 (5 %), worst solve-owned mover 0.90 → 1.35 m
+(builds `sw5c_SPJC` / `sw5_SPJC`, lane walls5). The channel floor's design grade
+is a number to rule, not the tunnel ramp's by default.
 
 (4) **THE DECK IS AIRSIDE.** The neck's faces keep their airside role and law — the
 taxiway surface runs across at the airside design surface; §34 (5)'s deck read is the
@@ -16954,7 +17011,7 @@ pack-independent; every NUMBER is measured on the NEW pack (`Aeroscape OTHH Hama
    materiality` per corridor (`verify/structures.py:229-277`), never the global 0.5 m.
 5. **05n-2's assertion.** `trench_outside_m` (`object_corridor.py:227-251`) drops the
    overlap term and keeps `grid·√2`.
-6. **LAW A INVERTED — THE DOOR RAMP DESCENDS INSIDE ITS WALLS.** The ramp top is at grade
+6. **LAW A INVERTED — THE DOOR RAMP DESCENDS INSIDE ITS WALLS.** **AMENDED by owner RULINGS 2026-10-07e: see §47 (7) AMENDED 2 — an object-framed ramp has no grade cap.** The ramp top is at grade
    at the well's OUTER end (`hull_s`); the floor descends toward the building face at the
    cap — `[cutout.door] ramp_grade` 0.08 → 0.10 (= `wall_corridor.max_ramp_grade`) — and
    STOPS AT THE BUILDING WALL at `depth_at_wall = min(sill, 0.10 × well length)`; the
@@ -16962,7 +17019,7 @@ pack-independent; every NUMBER is measured on the NEW pack (`Aeroscape OTHH Hama
    Nothing is emitted beyond the well: the outward climb and `max_length_m` retire;
    `stop_at_pavement` still governs the well itself. `Group.climb_from_s` (`door_ramps.py:
    134`) is the inversion's one derivation site.
-7. **LAW C HOLDS THE CAP.** The wall corridor's ramp from the wall's outer end to the
+7. **LAW C HOLDS THE CAP.** **AMENDED by owner RULINGS 2026-10-07b (2) / 07c (1): see §47 (7) AMENDED.** The wall corridor's ramp from the wall's outer end to the
    covering-plate edge (14be/14bm) runs at ≤ 0.10; `stop_and_steepen` past the cap is
    superseded — the ramp arrives at the plate edge at `0.10 × L` and the residual to the
    authored wall-bottom floor is at the plate edge, reported per corridor (14bm's east
@@ -16981,12 +17038,113 @@ pack-independent; every NUMBER is measured on the NEW pack (`Aeroscape OTHH Hama
    `--refresh-data airport_mod_cache`): the ring table per class — rim vertices outside the
    outer face 0 beyond the named (3) yields, floor vertices off the inner face 0, band = `t`
    (or `F`) within materiality; `structure_rim_gap` 0 under (4); every door well inverted
-   with its residual named; every wall corridor at ≤ 10 % with its residual named; 05n-2
+   with its residual named; every wall corridor at ≤ 10 % with its residual named (**AMENDED by owner RULINGS 2026-10-07e: see §47 (7) AMENDED 2 — an object-framed ramp has no grade cap.** — no cap and no residual is left to name); 05n-2
    0; verify defects {}; airside unchanged against the matched control (`airside_value_
    delta` 0 > 0.02 m); LEMD and VHHH dry pairs byte-identical for OSM bores and
    signature-B shells (a touched `+ grid` widen named); synthetic-first (`m235.py`'s
    seven-arm `_geometry_at` replay, fixtures at t = 0.25 / 0.55 / 0.75 / 1.00 / 2.00 m);
    ONE OTHH build; twins; suite; the harness census with the cockpit block.
+
+### §47 (7) AMENDED — THE RAMP RUNS THE FULL WALL LENGTH (owner RULINGS 2026-10-07b (2), 2026-10-07c (1); issues #448 #449) — cloud lane `cloudwalls`, 2026-10-07
+
+The owner: "Ramps should use full wall length, at grade at the outer extent
+of the two retaining walls, grading down toward building" (07b (2)); "Service
+bay doors, exempt cap" (07c (1)).  For a retaining-wall corridor (Law C,
+`planar/wall_corridor_ramps.full_wall_ramp`, one derivation site):
+
+1. **THE TOP IS THE WALLS' OUTER END.** The ramp tops out at the ground at
+   the last station at which BOTH walls stand.  Nothing is built beyond the
+   walls: the climb at `[cutout.wall_corridor] ramp_grade` from the plate
+   edge (retired with the key), the stop at airside pavement and the
+   steepen (`stop_and_steepen`), the pinched-ramp road witness (§34 (9)
+   (1)–(4)) and the locked-road stops retire for Law C.
+2. **FULL DEPTH TOWARD THE BUILDING.** **SUPERSEDED by 07e (§47 (7) AMENDED 2 (2)): the covering plate's edge makes no knee.** The ramp falls to the corridor's
+   floor at the COVERING PLATE's edge (§34 (9) (5), 14be) where the walls
+   protrude from the cover; where nothing protrudes (no cover, or a cover
+   reaching the wall end) it falls over the walls' WHOLE length to the
+   corridor's start (s = 0: a bay's closed end, a level half's midpoint).
+   Its grade is what that span needs.
+3. **THE CAP.** **SUPERSEDED by 07e (§47 (7) AMENDED 2 (1)): no cap, no knee, no refusal of an open half.** The span's grade is held at ≤ `max_ramp_grade` (10 %, the
+   groundside ramp cap of 07b (2)); where the span needs more, the knee
+   moves back UNDER the building by the run the cap needs (§34 (8), 14u).
+   Where the walls' whole length is too short: a CLOSED corridor (a SERVICE
+   BAY) is EXEMPT (07c (1)) — the ramp runs the walls' length at the grade
+   they need, no raised floor and no step at the door (§47 (7)'s raised
+   floor and 17h Q1's step are SUPERSEDED for it); the exemption rides the
+   §34 (9) lifted-cap record (`Tunnel.pinched`, `publication.lifted_caps`)
+   so the solve and both census readers price the bay at its own grade.
+   An OPEN half that cannot fit is refused by name.
+4. **A THROUGH CORRIDOR** (two level halves) gets 1.–3. at each end.
+5. **WALLS OF UNEQUAL LENGTH — QUESTION.** The rulings are silent; the
+   corridor is the walls' overlap, so the ramp tops out at the SHORTER
+   wall's end (the longer wall's extra stands beside ground).  Flagged for
+   the owner.
+
+Sentences changed by this amendment (each carries the AMENDED marker):
+§34 (8) AMENDED, §34 (9), §34 (9) (4)–(5) (a marker after each heading:
+not applied to Law C as written); §47 (7) lead sentence ("LAW C HOLDS THE
+CAP …" — the marker).  In `othh-terminal-ramps-spec.md`: the §6 Law C
+paragraph's `ramp_grade 0.08` / "stops at the pavement edge and steepens"
+sentence and consumer rows 12, 14 and 18 (marker each).  The deviation
+from the brief ("at whatever grade that span needs") is 3.: the cap holds
+except at a service bay, read from 07b (2)'s first sentence and 07c (1).
+
+### §47 (7) AMENDED 2 — A RAMP FRAMED BY OBJECTS HAS NO GRADE CAP (owner RULINGS 2026-10-07e; issues #448 #449) — lane `walls4`, 2026-10-07
+
+The owner: "Door ramps are exempt from the cap, since they only exist when
+framed by objects, as at OTHH, and thus the object defines both the length
+and depth and therefore the necessary grade..."  RULED for every ramp the
+pack's own objects frame — the DOOR RAMP (Law A, §47 (6)) and the
+retaining-wall corridor ramp (Law C, §47 (7) AMENDED; service bay or not,
+closed or through):
+
+1. **LENGTH AND DEPTH ARE THE OBJECT'S; THE GRADE IS WHAT THEY GIVE.** A
+   wall corridor's ramp runs from the corridor's start (s = 0: a bay's
+   closed end, a level half's midpoint) to the walls' outer end; its depth
+   is the wall bottom at s = 0 under the ground at the outer end
+   (`planar/wall_corridor_ramps.full_wall_ramp`).  A door ramp runs the
+   well's length; its depth is the sill's (`planar/door_ramps.door_profile`).
+   ONE straight line: no grade cap, no knee moved back under the building,
+   no raised floor, no step at the door or at the building face, and no
+   refusal for steepness.  The only refusal left is a floor standing over
+   its own ground.
+2. **THE COVERING PLATE MAKES NO KNEE.** §34 (9) (5) / 14be put full depth
+   at the covering plate's edge; with (1) the length is the walls', so the
+   plate edge is not read by the ramp (`structure_geometry.covered_start`
+   and `WallCorridorRecord.plate_plan` are deleted).  Consequence, stated
+   for the owner: under a cover the floor stands above the wall bottom by
+   the ramp's rise there (OTHH `DutyFree@2`: +0.70 m at the plate edge,
+   10.5 m in).  QUESTION (yes/no): is the full framed length right where a
+   cover protrudes over part of the walls — yes is what is built; no
+   restores the plate-edge knee at whatever grade the uncovered span needs.
+3. **THE RECORD.** Every such ramp carries the §34 (9) lifted-cap record
+   (`Tunnel.pinched = (OBJECT_FRAMED, length, grade)` →
+   `publication.lifted_caps`): the census readers lift its within-shape
+   longitudinal cap, and the generator pins every ramp vertex on the ramp's
+   own plane at the vertex's own station (`constraints/structures.
+   framed_plane`) — no station ties, no descent rows, so a steep short ramp
+   reaches the ground at its top exactly.
+4. **THE LAW KEYS.** `[cutout.door] ramp_grade` and `[cutout.wall_corridor]
+   max_ramp_grade` are DELETED.  The two readers that used them as a
+   witness of "a grade a road drives" (the door sill test, `airport/
+   door_wells`; the report column `ramp_reachable`, `airport/wall_family`)
+   read the road ramp law `tunnel.ramp_max_grade` (07d).  The role rows
+   `door_ramp` / `wall_corridor_ramp` and their `oracle_cap` STAY: they
+   price what the lift does not take (the ramp's seams with its neighbours
+   — `cross_shape`, the step families — and its cross-section) and are
+   checked at load against `tunnel.ramp_max_grade`, one number.
+5. **WHAT KEEPS THE CAP (07d).** Ramps no object frames: a mapped tunnel's
+   approach (`tunnel_ramp`), an object corridor's climb beyond its walls,
+   road ramps, roads and drive aisles hold 10 %; lots 5 %.  A GARAGE RAMP
+   (Law C, descending wall bottom) is cut as authored and keeps its sanity
+   cap `max_authored_grade` — unchanged.
+
+Sentences changed by this amendment (each carries a marker): §47 (6) lead
+sentence; §47 (9) BARS ("every wall corridor at ≤ 10 % …"); §47 (7) AMENDED
+items 2 and 3 (SUPERSEDED).  In `othh-terminal-ramps-spec.md`: §2 Law A
+(`ramp_grade = 0.08` sentence), §4 consumer rows `constraints/structures.py`
+and `rulesets.toml [common.roles]`, §4a's sill-test bullet (`ramp_grade`),
+§6a rows 12 and 18, §7 **R** and §7b row 2 (`max_ramp_grade`).
 
 ### §47.1 CONSUMER CENSUS (owner RULINGS 2026-08-30l) — scout `wallfit`, 2026-09-17, static (seam-probe owed to the lane, (8))
 

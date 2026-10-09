@@ -1,0 +1,14 @@
+basin:0 pit basin_floor:0 area 4126 m2 anchor inside True
+basin:1 pit basin_floor:1 area 3548 m2 anchor inside True
+basin:2 pit basin_floor:2 area 3466 m2 anchor inside True
+basin:3 pit basin_floor:3 area 2638 m2 anchor inside True
+    SITE #451 c 25.2963819,51.6065055: INSIDE
+basin:4 covered pit basin_floor:4 area 6217 m2 anchor inside True
+basin:5 pit basin_floor:5 area 2054 m2 anchor inside True
+    SITE #451 a 25.2536839,51.6231506: INSIDE
+    SITE #451 b 25.2539056,51.6221564: 36.4 m away
+basin:6 covered pit basin_floor:6 area 4330 m2 anchor inside True
+basin:7 pit basin_floor:7 area 1435 m2 anchor inside True
+basin:8 pit basin_floor:8 area 519 m2 anchor inside True
+    SITE #451 b 25.2539056,51.6221564: INSIDE
+basin:9 pit basin_floor:9 area 158 m2 anchor inside True

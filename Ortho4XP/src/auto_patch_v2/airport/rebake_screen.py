@@ -57,7 +57,7 @@ __all__ = ["SCREEN_VERSION", "SCREEN_FILENAME", "RebakeScreen", "StaleScreen",
            "stale_reason", "unservable", "build_plan", "plan_line"]
 
 #: Bump when the SHAPE of the record changes; another version is refused.
-SCREEN_VERSION = 1
+SCREEN_VERSION = 2
 
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.screen.json`` — beside the patch and
 #: beside the plan it becomes (``model.rebake.PLAN_FILENAME``).  The object
@@ -126,6 +126,8 @@ class RebakeScreen:
     ruleset: str
     code_digest: str
     plan_version: int = PLAN_VERSION
+    #: object-placement spec §18: the seat records the plan publishes
+    authored_seats: tuple[_t.Mapping[str, _t.Any], ...] = ()
 
     def to_json(self) -> str:
         fr = self.frame
@@ -138,6 +140,7 @@ class RebakeScreen:
             "excluded": list(self.excluded),
             "plates": {k: [v[0], [list(p) for p in v[1]], *v[2:]]
                        for k, v in self.plates.items()},
+            "authored_seats": [dict(r) for r in self.authored_seats],
             "below_grade": [[w, list(ids)] for w, ids in self.below_grade],
             "deck_datum": [[[list(p) for p in ring], z]
                            for ring, z in self.deck_datum],
@@ -187,7 +190,8 @@ class RebakeScreen:
             tuple(str(x) for x in k["patch_bodies"]),
             str(k["partition_path"]), str(k["partition_fp"]),
             k.get("partition_digest"), k.get("law_sha256"), str(k["ruleset"]),
-            str(k["code_digest"]), int(k["plan_version"]))
+            str(k["code_digest"]), int(k["plan_version"]),
+            tuple(dict(r) for r in d.get("authored_seats", ())))
 
 
 def _plain(v: _t.Any) -> _t.Any:
@@ -217,7 +221,8 @@ def take(airport: _t.Any, objects: _t.Sequence, law: Law, *,
          exclude: _t.Collection[str],
          tunnel_objects: _t.Mapping[str, tuple],
          below_grade: _t.Sequence[tuple[object, _t.Collection[str]]],
-         patches: _t.Iterable[str | os.PathLike]) -> RebakeScreen | None:
+         patches: _t.Iterable[str | os.PathLike],
+         authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = ()) -> RebakeScreen | None:
     """The record of THIS patch build — its keywords are ``rebake_plan.
     plan``'s own (``pipeline.build._rebake_inputs`` assembles them) — or ``None`` when the run
     kept no partition cache (the caller then plans inline).  ``patches``
@@ -242,7 +247,7 @@ def take(airport: _t.Any, objects: _t.Sequence, law: Law, *,
                                  fv.source, fv.region),
         tuple(sorted({patch_body_sha256(p) for p in patches})),
         kept[0], kept[1], _extcache.base_digest(part), law_sha, ruleset,
-        _pcache.code_digest())
+        _pcache.code_digest(), authored_seats=tuple(dict(r) for r in authored_seats))
 
 
 def read(path: str | os.PathLike) -> RebakeScreen:
@@ -371,7 +376,8 @@ def build_plan(screen: RebakeScreen, law: Law, *,
         site, objects, cache, law, _datum, exclude=screen.excluded,
         tunnel_objects=screen.plates,
         below_grade=[(_from_wkb(w), ids) for w, ids in screen.below_grade],
-        partition=part, keep_extension=keep_extension)
+        partition=part, keep_extension=keep_extension,
+        authored_seats=screen.authored_seats)
     return _dc.replace(rplan, connectors=screen.connectors)
 
 

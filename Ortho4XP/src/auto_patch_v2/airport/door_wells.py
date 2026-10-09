@@ -366,6 +366,7 @@ def read_family(rd: DoorReader, fam: _t.Sequence[tuple], members: _t.Sequence[_o
     stats = DoorStats()
     bl = law.tables.structures.basin
     dl = law.tables.structures.cutout.door
+    road_cap = law.tables.structures.tunnel.ramp_max_grade
     grid = law.tables.emit.identity.min_distinct_spacing_m
     dem_z = airport.dem.z
     to_ll = rd.to_ll
@@ -495,16 +496,17 @@ def read_family(rd: DoorReader, fam: _t.Sequence[tuple], members: _t.Sequence[_o
         if plate_out <= 0.0:
             stats.refused.append(f"{name} at {site}: the sill plate reaches nowhere outside the face")
             continue
-        # a plate that DESCENDS at or under the door law's own ramp grade
+        # a plate that DESCENDS at or under the road ramp law (``tunnel.
+        # ramp_max_grade``, RULINGS 2026-10-07d — a grade a road drives)
         # over its reach is a ramp of the object's own (OTHH
         # Terminal_Parking_006: a 21 m car-park ramp loop, 5 %), never a
         # sill; a well's steps down to its door are far steeper
         span = max(o.anchor_z + o.agl_m + w.plate_y_max for o, w in mem) - \
             min(o.anchor_z + o.agl_m + w.plate_y_min for o, w in mem)
-        if span > 0.0 and span / plate_out <= dl.ramp_grade:
+        if span > 0.0 and span / plate_out <= road_cap:
             stats.refused.append(f"{name} at {site}: the plate ({plate.area:.1f} m2) descends "
                                  f"{span:.2f} m over its {plate_out:.1f} m reach ({100.0 * span / plate_out:.1f} % "
-                                 f"<= ramp_grade {100.0 * dl.ramp_grade:.0f} %) — a ramp of the "
+                                 f"<= ramp_max_grade {100.0 * road_cap:.0f} %) — a ramp of the "
                                  f"object's own, not a door sill")
             continue
         sill_z = o0.anchor_z + o0.agl_m + w0.plate_y_min

@@ -253,9 +253,9 @@ def _common_checks(c: Checks, t) -> None:
         law = Law(tables=t, ruleset_key="faa")
         got = T.role_cap(law, r, code_letter="C")
         c.eq(f"role_cap({r}, FAA/C).longitudinal", cap, got.longitudinal)
-    c.eq("v1 structure_ramp law == the v2 ramp ceiling (08u (2))",
+    c.eq("v1 structure_ramp law == the v2 road ramp law (08u (2); 07d/07e)",
          v1.ROLE_GRADE_LIMITS["structure_ramp"],
-         t.structures.cutout.wall_corridor.max_ramp_grade)
+         t.structures.tunnel.ramp_max_grade)
     for r in ("door_ramp", "wall_corridor_ramp"):
         c.eq(f"precedence.roles.{r}.oracle_cap", v1.STRUCTURE_RAMP_MAX_GRADE,
              t.precedence.roles[r].oracle_cap)
@@ -348,6 +348,9 @@ def _structures_emit_checks(c: Checks, t) -> None:
     assert ob.plate_datum == "ground" and ob.mouth_depth == "floor_slab"    # 2026-09-08l
     assert ob.ramp_end == "wall_end" and ob.trench == "inner_walls"
     assert ob.mouth_end == "bore" and ob.reseat is True
+    # object-placement spec §18 (3) (RULINGS 2026-10-07c (3)-(5)): the two
+    # AUTHORED-TO-THE-CUT bands, one site each
+    assert ob.authored_crest_max_m == 3.0 and s.basin.authored_rim_tol_m == 1.0
     assert 0.0 < ob.wall_face_max_thickness_m and 0.0 < ob.wall_sample_m
     c.eq("tunnel.object.plate_normal_y_min (= deck_plate_normal_y_min)",
          s.bridge.deck_plate_normal_y_min, ob.plate_normal_y_min)

@@ -1,0 +1,18 @@
+
+== SPJC /Users/noah/XPTerrainBuilderData/.harness/frames/fac334/SPJC_r4.pkl  (loaded 1 s; pavements 158, gap_sheets 0, cells 369)
+  dump .pol polygons by gate: {'name': 107, 'refused': 284}
+  refused though asphalt: objectfede/lines/red_grid.pol                                n=  46  paint layer (paint)
+  refused though asphalt: lib/airport/lines/safety_area_red.pol                        n=  42  paint layer (paint)
+  refused though asphalt: lib/airport/lines/safety_area_yellow.pol                     n=   4  paint layer (paint)
+  def                                                             n        m2      clip   allpav   aptpav     rwy     taxi    apron     stand    pads   sheets      free  SURFACE/LAYER
+  TOTAL                                                           0         0         0        0        0       0        0        0         0       0        0         0
+  MINT control: 0 pieces 0 m2 (0.0 s) {'gap_pieces': 0, 'gap_piece_m2': 0.0, 'gap_pieces_apron': 0, 'gap_pieces_unminted_airside': 0, 'gap_pieces_under_floor': 0}
+  MINT arm:     0 pieces 0 m2 (0.0 s) {'gap_pieces': 0, 'gap_piece_m2': 0.0, 'gap_pieces_apron': 0, 'gap_pieces_unminted_airside': 0, 'gap_pieces_under_floor': 0}
+  arm size distribution: {}
+  arm apron-touching: 0 pieces 0 m2
+  #333 population — name-admitted dsf:pol cells standing ON apt.dat pavement: 116 m2 apron 109, parking_lot 6, service_road 1
+    apron: [('dsf:pol67', 102), ('dsf:pol72', 7)]
+    service_road: [('dsf:pol32', 1)]
+    parking_lot: [('dsf:pol73', 6)]
+  site -12.01183841, -77.11642874: [('pav6', 'junction', 'airside', 15387)]
+  site -12.01181129, -77.11675014: no cell

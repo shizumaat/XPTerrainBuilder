@@ -153,3 +153,34 @@ within_shape falls); NO to the DEM tie (it follows terrain at the
 cross-section scale: census +70).  Alternative the author may prefer: give
 those columns the taxi trend itself (§8.6.1's reach gate widened) — not
 measured here.
+
+## 9. HECA under the membrane arm (`h_mem` / `h_mem_slack`, capture gaps3, main 9baa9e82)
+
+| | control | membrane arm |
+|---|---|---|
+| null-change movers, solve-owned airside | 379, 9 over 0.3, worst 0.62 (strip 218, taxi 161) | **0** (worst 0.0019 m in any stage call) |
+| cost on the control | - | 968, 209 over 0.3, worst 1.01 (strip 621, taxi 340, apron 7); runway 0 |
+| §5a LP tiers | pad 17 / taxi 67, 66 | identical |
+| adjudicated airside (census.py) | 12,196 | 12,168 (-28); hard_conflict 245 = 245 |
+| stage 1 wall (single runs, foreign load) | 38.9 + 75.0 s | 40.2 + 91.7 s |
+
+HECA meets every bar; KCLT misses one (adjudicated airside +19 of 3,355).
+These are on main 9baa9e82: main moved to e2eec15c (gap-piece apron
+cells, HECA +154 stage-1 unknowns) during the lane — per the master, a
+like-for-like study; any landing re-takes the HECA capture on current
+main first.
+
+## 10. Not done
+
+- Nothing landed in the engine: the arms live in
+  `docs/briefs/flatvalley-scratch/nullarm.py` (monkeypatches, copied from
+  the scratch dir for the next lane; NOT a tool, not indexed).
+- No closing build, no suites (no engine file changed).
+- The stage-2 §5a LP tie-break (groundside, <= 0.22 m) is named, not fixed.
+- `promote_missed` flips a row under a null change at HECA (575 -> 574):
+  a threshold on an unconverged iterate; gone under the arm, not
+  separately attributed.
+- The DEM-tie arm was not run at HECA; the taxi-trend-reach alternative
+  was not measured anywhere.
+- The instrument (`nullarm.py` slack arm + `cmp.py`) is on its first use;
+  promotion to `tools/` with an INDEX row is owed on its second.

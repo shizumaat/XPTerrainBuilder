@@ -28,3 +28,56 @@ columns pinned at the arm's own pass-1a values: the intervention), candidates by
 assembled pass-1a row at a vertex. A pass-1a pair is ~3 min at HECA against ~20 min for the full late pair.
 
 ## Step 0 — reproduce (pending)
+
+## Step 1 — reproduce and attribute (pass-1a pairs on `HECA_prob.pkl`, R-E tree, `--workers 6`)
+
+| arm | pass-1a NULL (movers > 0.02 / > 0.3 / worst) all | apron hole RIM (828) | PAD-ONLY levelled (38) | RUNWAY (2,604) | other |
+|---|---|---|---|---|---|
+| `base` (R-E) | **13 / 1 / 0.914** (= the full replay's pass 1: 13/1/0.914) | **0 / 0 / 0.000** | **9 / 1 / 0.914** | 0 / 0 / 0.0001 | 4 / 0 / 0.033 (`gapapron:1`) |
+| `noRE` (the 5,695 cross-ring pairs dropped post hoc) | 5 / 0 / 0.152 | 0 / 0 / 0 | 5 / 0 / 0.152 | 0 / 0 / 0.0001 | 0 |
+| `pinrim` (rim + pad-only columns pinned at their own pass-1a value) | **0 / 0 / 0.006** | 0 | 0 | 0 / 0 / 0.0 | 0 / 0 / 0.006 |
+
+WHO THE 38 PAD-ONLY COLUMNS ARE (`padcols.py`): exactly the HELD pads' FRONTAGE DATUM COLUMNS (`model.platform.
+datum_vertices`: one building-only vertex per held block, the one farthest from its weld — 39 datums, 38 of them
+columns on the stage-1 map). They are stage-1 columns BY DESIGN (`design_roles.airside_stage_vertices`, flat-pad spec
+§1 (2) / RULINGS 2026-09-30f/r / 02ag (1): "the weld's hard two-way hold ties the apron CONTACTS to it, and the column
+itself is pinned at the apron's own frontage level") — and in PASS 1a every hold row is stripped (`HoldPass.strip`), so
+the datum column carries: no bending (not on this stage's sheet; a single vertex, no triangle), no trend and no
+detached mean (both skip `datum_v` on purpose, §56 R4), no membrane (`_bend_neighbours` finds nothing), and EITHER the
+level belt (22 of them: no one-sided row at all → `apply_level_belt` gives the column its own DEM, z = DEM exactly,
+stable) OR nothing but the hard 5 % `pavement_max_grade ceiling` twins of its pad's (dropped, one-way) frontage rows —
+16 of them (building88: 2 rows to one pavement vertex 29 m away, free inside ±1.45 m; building146, 65, 68, 98, 101, 117,
+144, 153, 174, 64, …). THOSE are the valley: §61 (0)'s class — a column with bending-only curvature, here with NO
+curvature at all, inside a hard band — on a building-pad datum instead of a taxiway edge. The QP's exit lands it
+anywhere in the band: building88's datum moves −0.914 m under 30 satisfied ceilings; under R-E the path differs and
+the same column lands elsewhere (m: −0.136 at the same vertex, sheetlevel step 3).
+
+REFUTED (by the table): the apron HOLE RING. Every hole-rim vertex is stable in pass 1a under R-E (828 columns, 0
+movers at 0.02 m): the cross-ring rows + the membrane do name them. The brief's three hole-ring candidates
+(cross-ring pairs in 1a — they ARE in 1a; an interpolated sheet level across the hole; a tie-break for the
+preference rows) have no population. R-E's own rows are not the mechanism either (`noRE` keeps 5 movers on the same
+datum columns).
+
+THE RUNWAY. In pass 1a the runway is null-stable in every arm (0.0001 m). Joining each arm's pass-1a surface to the
+full replays' FINAL surfaces by vertex key (`rwjoin.py`): `base`-1a vs e-final at the runway 0 / 0 / **0.008** — e's
+runway IS its pass-1a runway (`runway_bands_unpulled` 2,604 = all; β_R 0 in m and in e alike: no pad pulls the
+runway in either tree). So the 115 nodes / 0.14 m between m and e are the difference between the two trees' PASS-1a
+OPTIMA — R-E's problem (e: 916,207 diffs, pass-1a 132,362 rows / 471,900 hard sides; m: 902,076 / 129,663 / 455,028
+— more than the 5,695 cross-ring pairs: ~2,700 further rows the new pairs induce) seats the sheet differently and the
+one-sided 1 % tier carries that 1.7 km to the junction band and on to 05L/23R. `base` vs `noRE` (the post-hoc filter
+alone) moves the pass-1a runway 28 nodes / 0.041 m. Not a stability defect: no stability fix will move it. (Checked
+on m: m's final runway also = its pass 1a — β_R 0 — the 0.117 between `noRE`-1a and m-final is `noRE` ≠ m's problem.)
+
+## Step 2 — the candidates, pass 1a (same instrument)
+
+| candidate | rows | pass-1a NULL all / rim / pad-only / runway |
+|---|---|---|
+| C1 `datum_weld`: the datum column takes one first-difference row to each of its own WELD contacts at `free_membrane` 1.0 (the §61 membrane; its block's frontage as the neighbourhood), after the belt | +186 (22 datums already belted) | **0 / 0 / 0.005**; 0; 0; 0.0001 |
+| C2 `foreign1a`: the datum column is an unknown of the airside problem ONLY while a `frontage_hold datum` Band names it — in pass 1a (holds stripped) it is FOREIGN (fixed at its dummy value, every row touching it dropped) | 39 columns out of pass 1a | **0 / 0 / 0.0001**; 0; 0; 0.0001 |
+
+Both close the valley in pass 1a. C2 is the one taken to the full replay first: it is the stated meaning of pass 1a
+(`flex.py`: "every frontage-hold row DROPPED: the runway's UNPULLED profile") carried to the column those rows exist
+for — the datum column's justification for being airside IS the hold (`airside_stage_vertices`' own comment) — and a
+pad then pulls nothing in pass 1a BY CONSTRUCTION (C1's two-way rows at 1.0 pull the welds toward their mean by
+~1/300 of the law's weight: mm, but not zero). C1 stays as the fallback. Neither touches the preference / trend balance
+(09k), the hole rings, any law weight or any law row.

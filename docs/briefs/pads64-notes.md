@@ -158,7 +158,42 @@ HECA feet (`feet.sh`, `feetcmp.py`; ten sites, r 60; within 0.3 m / feet) sw6 �
 @30.1110619 41/107 → 36/102; building64 69/74 =; building29 44/60 → 45/60; building7 / building6 11/164 =; building4@30.1080544 204/272 =.
 Whole pad: building4 3,827/11,416 → 4,883/11,492; building147 398/957 → 887/941. The J1 control build (`p64j1_HECA`) is the bar: running.
 
-## 5. Next
+## 4e. THE MATCHED PAIR AT HECA — J1 control build `p64j1_HECA` (tree `claude/pads64-j1base` 33bbf20a) vs `p64_HECA`
 
-`j3c` arms KCLT / HECA (+ late) / OTHH run from the FROZEN tree `pads63j1` detached at the arm's sha (`chain_j3.sh TAG SHA`), so this
-tree stays editable. Then: instruments per airport (`inst.sh`), the scrap rule (read `scraps.py` on `b1/OTHH`), closing builds.
+| | J1 control `p64j1` | J3 `p64` |
+|---|---|---|
+| body | c98496b72d61 | b59b39641f50 |
+| released pads / welds | 6 / 27 (147: 9 @ 0.415; 105: 10 @ 0.269; 157: 3 @ 0.039; 165: 3 @ 0.042; 138: 1 @ 0.021; 193: 1 @ 0.020) | **0 / 0** |
+| WARNED | 1 (`building147`) | 0 |
+| hard_conflict taxi / pad / groundside | 68 / 124 / 252 | 68 (new rows 0, gone 0) / 100 / 252 |
+| runway movers | — | 0 (solve-owned movers 2,843: taxi 1,216 / 0.72, apron 832 / 0.85, strip 795 / 0.80) |
+| adjudicated airside (each tree's tool) | 12,013 | 12,045 |
+| CRITICAL motion | 3 | 2 (`vertex_to_edge_step` −1) |
+| CRITICAL visual | 1,954 | **1,967 (+13)**: `hairline_pair` 1,891 → 1,906, `strip_seam_tear` 22 → 20 |
+
+THE +13 IS NAMED (`census_rows_diff.py --family hairline_pair`: EXACT 1,891, MOVED 0, GONE 0, NEW 15): all 15 are
+`hairline_pair groundside_pavement|groundside_pavement [groundside]`, |de| 0.053–0.184 m, between two late-stage gap pieces
+(30.116143, 31.406766 0.184; 30.124567, 31.394510 0.123; 30.122245, 31.398578 0.123; 30.113345, 31.396436 0.122; …) — the §55
+pieces re-cut against a base whose apron moved; 0 are airside (airside hairline 1,192 = 1,192). BAR "CRITICAL rows not rising":
+MISSED by these 13 at HECA, met at KASE (44 = 44), KCLT (1,997 = 1,997), OTHH (identical body).
+
+HECA feet, three arms (within 0.3 m / feet in r 60): identical to the J1 control at 8 of 11 rows; building147@30.1279552 108/112 →
+99/103 (4 unfitted feet in both; the foot population in the radius changed), building29 44/60 → 45/60, building64 worst −4.39 → −4.28;
+whole pad building147 806/859 → 887/941, building4 4,883/11,492 =. Not worse.
+
+## 4f. Handover
+
+Tests at the final code (`8179f4c2`; later commits are notes / frames only): full non-Qt split 8,842 passed, 19 skipped, 1 xpassed
+(`-n 8`, 259 s); `-n0 tests/test_qt_*.py` 311 passed; the four gate files 200 passed; `tools/ratchets.py` DUPLICATE PASS, LAYER PASS;
+size warnings on files this lane touched: `constraints/no_step.py` 1,128 lines (was 974: crossed 1,000 — the weld law itself is
+the new `constraints/weld_floor.py`, 204 lines; what grew in `no_step` is `HoldPass.widened` / `.seal` and the record),
+`tools/check_grade.py` 14,062, `tools/v2_solve_replay.py` 2,873, `constraints/platform.py` 1,204 (+1 here).
+Frames registered (lane `pads64`, 9 rows): the four closing builds, the J1 control build, the J1 + main base arm (4).
+NOT DONE: the scrap rule (4b: premise refuted, no code); a synthetic end-to-end twin of a misfit block through `solve_design`
+(the unit twins + `HoldPass` twins + the KASE / HECA replays stand for it); the `--stage1-dump` read (superseded by `closers_*.txt`).
+
+## 5. Next (for the master / the next lane)
+
+The sweep; J2 (the bay plateau) — after it, re-read `scraps.py` at the OTHH site: the existing scrap rule should then take the
+thin apron-bordered pieces. Arms run from the FROZEN tree `pads63j1` (`<scratch>/pads64/chain_j3.sh TAG SHA`); never replay in
+an edited tree, and every probe script needs a `__main__` guard (the pool spawns).

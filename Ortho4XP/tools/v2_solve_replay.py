@@ -960,7 +960,7 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
 
 def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                strip_rep=None, late_cut: dict | None = None,
-               late_stage: dict | None = None) -> dict:
+               late_stage: dict | None = None, cells=()) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
@@ -994,9 +994,10 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=strip_rep)
     pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
-    if late_cut is not None:
-        from auto_patch_v2.pipeline.publication import gap_pieces
-        pub["gap_pieces"] = gap_pieces(late_cut)
+    from auto_patch_v2.pipeline.publication import gap_pieces
+    _gap_records = gap_pieces(late_cut, cells)
+    if late_cut is not None or _gap_records:
+        pub["gap_pieces"] = _gap_records
     if late_stage is not None:
         from auto_patch_v2.pipeline.publication import late_stage as _late_stage
         pub["late_stage"] = _late_stage(late_stage)
@@ -1890,7 +1891,8 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                    placement: dict | None = None,
                    sites: list[tuple[float, float]] | None = None,
                    pad_read_only: bool = False, shape_dump: Path | None = None,
-                   rim_diagnostics: bool = False, late: dict | None = None) -> dict:
+                   rim_diagnostics: bool = False, late: dict | None = None,
+                   gap_free: bool = False) -> dict:
     """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
     the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
     it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
@@ -2233,6 +2235,19 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                 "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0,
                 "stage1": s1, CAPTURE_OVERLAY_KEY: _overlay}
 
+    if gap_free:
+        # THE BUILD'S OWN BASE (``pipeline/build``: ``gap_free(cl)``, spec §55
+        # (4)): the classification without its §53 gap pieces — a piece
+        # classed APRON (§59, ``gapapron:``) is a stage-1 cell and STAYS.
+        # The arm whose ``--solved-out`` a ``--late-from`` run reads.
+        if late is not None:
+            raise SystemExit("--gap-free solves the BASE a --late-from run reads: "
+                             "not both in one run")
+        from auto_patch_v2.pipeline.stage_one_map import gap_free as _gap_free
+        _n = len(cl.cells)
+        cl = _gap_free(cl) or cl
+        print(f"[{icao}] --gap-free: {_n - len(cl.cells)} gap piece(s) dropped, "
+              f"{len(cl.cells)} cells (the build's base map)")
     if late is None:
         return _rest(cl)
     # spec §55 (4) THE LAST STAGE — the build's own function
@@ -2266,7 +2281,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            site_radius_m: float = 12.0, why_hard_limit: int | None = None,
            why_hard_stage: int | None = None,
            placement: dict | None = None,
-           late_from: Path | None = None) -> int:
+           late_from: Path | None = None, gap_free: bool = False) -> int:
     import numpy as np
     from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps
@@ -2284,7 +2299,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                               "method": method}}
         del _base
     prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
-                          placement=placement, sites=sites, late=_late)
+                          placement=placement, sites=sites, late=_late,
+                          gap_free=gap_free)
     icao, airport, pm, law, cs = (prob["icao"], prob["airport"], prob["pm"],
                                   prob["law"], prob["cs"])
     cl, stage, counts, t0 = prob["cl"], prob["stage"], prob["counts"], prob["t0"]
@@ -2539,7 +2555,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                      late_cut=(prob["late"]["rep"]["cut"]
                                                if late_from is not None else None),
                                      late_stage=(prob["late"]["rep"]["stage"]
-                                                 if late_from is not None else None)))
+                                                 if late_from is not None else None),
+                                     cells=cl.cells))
     if emit_dir is not None or verify:
         # object-placement spec §18 (6): the seat per wall / pit placement,
         # as the build's rebake plan publishes it (``authored_seats``)
@@ -2673,6 +2690,12 @@ def main() -> int:
                          "SAME airport without its gap pieces (the base solve); every "
                          "vertex it carries is fixed at its level and only the gap "
                          "pieces and the ribbons along them are solved")
+    ap.add_argument("--gap-free", action="store_true",
+                    help="spec \u00a755 (4) THE BASE MAP: drop the \u00a753 gap pieces from the "
+                         "classification before the map is built, as the build does "
+                         "(pipeline/stage_one_map.gap_free; a piece classed apron, "
+                         "\u00a759, stays) \u2014 with --solved-out, the base a --late-from "
+                         "run reads.  Needs --from classify or --from planar")
     ap.add_argument("--solved-out", type=Path, metavar="PKL",
                     help="pickle the solved set for --why-from")
     ap.add_argument("--why-from", type=Path, metavar="PKL",
@@ -2844,7 +2867,7 @@ def main() -> int:
                       emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,
                       chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard,
                       why_hard_stage=a.why_hard_stage, placement=pl,
-                      late_from=a.late_from)
+                      late_from=a.late_from, gap_free=a.gap_free)
     ap.error("one of --capture / --replay")
     return 2
 

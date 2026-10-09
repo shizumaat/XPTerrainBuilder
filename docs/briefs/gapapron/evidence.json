@@ -1,0 +1,1317 @@
+[
+ {
+  "ref": "gap:0",
+  "m2": 709364,
+  "perimeter_m": 84806,
+  "apron_shared_m_mint": 2218.4,
+  "apron_contact_m": 2218.4,
+  "apron_runs": [
+   [
+    "route11",
+    1153.6
+   ],
+   [
+    "dsf:objpav68#0",
+    335.3
+   ],
+   [
+    "pav39",
+    326.6
+   ],
+   [
+    "pav53",
+    244.3
+   ],
+   [
+    "pav37",
+    89.3
+   ],
+   [
+    "pav131",
+    63.1
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [
+   [
+    -21028,
+    "service",
+    735.6,
+    561.3
+   ],
+   [
+    -4067,
+    "service",
+    734.9,
+    516.4
+   ],
+   [
+    -1147,
+    "service",
+    732.7,
+    430.1
+   ],
+   [
+    -4070,
+    "service",
+    677.3,
+    518.0
+   ],
+   [
+    -3958,
+    "service",
+    631.3,
+    510.4
+   ],
+   [
+    -4077,
+    "service",
+    535.5,
+    884.3
+   ]
+  ],
+  "osm_ways_n": 426,
+  "osm_m": 32723.5,
+  "ribbons_flush": [
+   [
+    "big_roads:-7728",
+    189.1
+   ],
+   [
+    "big_roads:-922",
+    143.5
+   ],
+   [
+    "small_roads:-18752",
+    96.9
+   ],
+   [
+    "small_roads:-3929",
+    86.6
+   ],
+   [
+    "small_roads:-18725",
+    76.9
+   ],
+   [
+    "small_roads:-1068",
+    55.6
+   ]
+  ],
+  "ribbons_flush_n": 26,
+  "ribbon_to_apron_contact_m": 0.0,
+  "road_faces_standoff": [
+   [
+    "dsf:objpav366",
+    212.6
+   ],
+   [
+    "route10",
+    144.8
+   ],
+   [
+    "route3",
+    113.7
+   ],
+   [
+    "route9",
+    28.9
+   ],
+   [
+    "dsf:objpav395",
+    10.8
+   ],
+   [
+    "dsf:objpav366",
+    3.1
+   ]
+  ],
+  "road_faces_m": 512.4,
+  "road_face_to_apron_contact_m": 0.0,
+  "pads_standoff_n": 39,
+  "pads_standoff_m": 7562.8,
+  "s27_lateral_m_as_lot": 2218.4,
+  "s27_lateral_m_as_road": 1461.0,
+  "s27_share_as_road": 0.017,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": false,
+  "road_evidence": [
+   "OSM highway",
+   "ribbon flush",
+   "road face at stand-off"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "ROAD (class i, late)",
+  "sites": [],
+  "at": "30.1204934, 31.3892118"
+ },
+ {
+  "ref": "gap:2",
+  "m2": 53392,
+  "perimeter_m": 7565,
+  "apron_shared_m_mint": 30.5,
+  "apron_contact_m": 30.5,
+  "apron_runs": [
+   [
+    "pav1",
+    23.9
+   ],
+   [
+    "dsf:objpav106#2",
+    6.7
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [
+   [
+    -4007,
+    "service",
+    846.7,
+    20.5
+   ],
+   [
+    -4010,
+    "service",
+    557.4,
+    610.8
+   ],
+   [
+    -1393,
+    "service",
+    444.2,
+    2.2
+   ],
+   [
+    -4057,
+    "service",
+    379.5,
+    675.5
+   ],
+   [
+    -18760,
+    "service",
+    321.4,
+    744.9
+   ],
+   [
+    -4009,
+    "service",
+    244.2,
+    390.3
+   ]
+  ],
+  "osm_ways_n": 33,
+  "osm_m": 3869.3,
+  "ribbons_flush": [
+   [
+    "small_roads:-1393",
+    24.6
+   ]
+  ],
+  "ribbons_flush_n": 1,
+  "ribbon_to_apron_contact_m": 0.0,
+  "road_faces_standoff": [
+   [
+    "route22",
+    1611.5
+   ],
+   [
+    "route23",
+    6.8
+   ]
+  ],
+  "road_faces_m": 1618.2,
+  "road_face_to_apron_contact_m": 0.0,
+  "pads_standoff_n": 1,
+  "pads_standoff_m": 327.3,
+  "s27_lateral_m_as_lot": 30.5,
+  "s27_lateral_m_as_road": 30.5,
+  "s27_share_as_road": 0.004,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": false,
+  "road_evidence": [
+   "OSM highway",
+   "ribbon flush",
+   "road face at stand-off"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "ROAD (class i, late)",
+  "sites": [],
+  "at": "30.1040579, 31.3898922"
+ },
+ {
+  "ref": "gap:4",
+  "m2": 35498,
+  "perimeter_m": 2950,
+  "apron_shared_m_mint": 66.2,
+  "apron_contact_m": 66.2,
+  "apron_runs": [
+   [
+    "pav1",
+    66.2
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [
+   [
+    -1148,
+    "service",
+    281.2,
+    222.8
+   ],
+   [
+    -3999,
+    "service",
+    217.1,
+    47.9
+   ],
+   [
+    -3976,
+    "service",
+    215.4,
+    80.5
+   ],
+   [
+    -3996,
+    "service",
+    147.9,
+    102.2
+   ],
+   [
+    -12792,
+    "service",
+    147.3,
+    138.8
+   ],
+   [
+    -19325,
+    "service",
+    136.5,
+    179.5
+   ]
+  ],
+  "osm_ways_n": 44,
+  "osm_m": 2983.7,
+  "ribbons_flush": [
+   [
+    "small_roads:-1148",
+    19.4
+   ],
+   [
+    "small_roads:-21055",
+    17.2
+   ],
+   [
+    "small_roads:-1534",
+    4.7
+   ]
+  ],
+  "ribbons_flush_n": 3,
+  "ribbon_to_apron_contact_m": 0.0,
+  "road_faces_standoff": [],
+  "road_faces_m": 0.0,
+  "road_face_to_apron_contact_m": null,
+  "pads_standoff_n": 1,
+  "pads_standoff_m": 261.0,
+  "s27_lateral_m_as_lot": 66.2,
+  "s27_lateral_m_as_road": 66.2,
+  "s27_share_as_road": 0.022,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": false,
+  "road_evidence": [
+   "OSM highway",
+   "ribbon flush"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "ROAD (class i, late)",
+  "sites": [],
+  "at": "30.1108169, 31.3943011"
+ },
+ {
+  "ref": "gap:7",
+  "m2": 10653,
+  "perimeter_m": 1318,
+  "apron_shared_m_mint": 139.5,
+  "apron_contact_m": 139.5,
+  "apron_runs": [
+   [
+    "pav37",
+    139.5
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [
+   [
+    -18830,
+    "service",
+    101.4,
+    19.6
+   ],
+   [
+    -20273,
+    "service",
+    79.8,
+    52.2
+   ],
+   [
+    -18829,
+    "service",
+    61.5,
+    19.5
+   ]
+  ],
+  "osm_ways_n": 3,
+  "osm_m": 242.7,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [
+   [
+    "route3",
+    398.5
+   ]
+  ],
+  "road_faces_m": 398.5,
+  "road_face_to_apron_contact_m": 0.0,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 139.5,
+  "s27_lateral_m_as_road": 0.0,
+  "s27_share_as_road": 0.0,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": false,
+  "road_evidence": [
+   "OSM highway",
+   "road face at stand-off"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "ROAD (class i, late)",
+  "sites": [],
+  "at": "30.1158321, 31.4104303"
+ },
+ {
+  "ref": "gap:11",
+  "m2": 5746,
+  "perimeter_m": 375,
+  "apron_shared_m_mint": 11.9,
+  "apron_contact_m": 11.9,
+  "apron_runs": [
+   [
+    "pav1",
+    11.9
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [
+   [
+    -18778,
+    "service",
+    227.0,
+    17.9
+   ],
+   [
+    -18779,
+    "service",
+    73.4,
+    34.8
+   ],
+   [
+    -18780,
+    "service",
+    63.8,
+    0.0
+   ],
+   [
+    -21056,
+    "service",
+    3.1,
+    72.6
+   ],
+   [
+    -21057,
+    "service",
+    0.5,
+    75.3
+   ]
+  ],
+  "osm_ways_n": 5,
+  "osm_m": 367.8,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [],
+  "road_faces_m": 0.0,
+  "road_face_to_apron_contact_m": null,
+  "pads_standoff_n": 1,
+  "pads_standoff_m": 39.8,
+  "s27_lateral_m_as_lot": 11.9,
+  "s27_lateral_m_as_road": 11.9,
+  "s27_share_as_road": 0.032,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": false,
+  "road_evidence": [
+   "OSM highway"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "ROAD (class i, late)",
+  "sites": [],
+  "at": "30.1097029, 31.3926639"
+ },
+ {
+  "ref": "gap:12",
+  "m2": 4121,
+  "perimeter_m": 917,
+  "apron_shared_m_mint": 69.8,
+  "apron_contact_m": 69.8,
+  "apron_runs": [
+   [
+    "pav1",
+    69.8
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [
+   [
+    -16008,
+    "service",
+    117.7,
+    47.1
+   ],
+   [
+    -16007,
+    "service",
+    59.4,
+    24.1
+   ],
+   [
+    -21212,
+    "service",
+    25.3,
+    26.6
+   ],
+   [
+    -21213,
+    "service",
+    20.2,
+    44.0
+   ],
+   [
+    -18863,
+    "service",
+    19.2,
+    58.7
+   ]
+  ],
+  "osm_ways_n": 5,
+  "osm_m": 241.8,
+  "ribbons_flush": [
+   [
+    "small_roads:-4005",
+    16.3
+   ]
+  ],
+  "ribbons_flush_n": 1,
+  "ribbon_to_apron_contact_m": 0.0,
+  "road_faces_standoff": [],
+  "road_faces_m": 0.0,
+  "road_face_to_apron_contact_m": null,
+  "pads_standoff_n": 1,
+  "pads_standoff_m": 403.0,
+  "s27_lateral_m_as_lot": 69.8,
+  "s27_lateral_m_as_road": 0.0,
+  "s27_share_as_road": 0.0,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": false,
+  "road_evidence": [
+   "OSM highway",
+   "ribbon flush"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "ROAD (class i, late)",
+  "sites": [],
+  "at": "30.1111473, 31.3995436"
+ },
+ {
+  "ref": "gap:13",
+  "m2": 3876,
+  "perimeter_m": 1546,
+  "apron_shared_m_mint": 819.4,
+  "apron_contact_m": 819.4,
+  "apron_runs": [
+   [
+    "route11",
+    757.3
+   ],
+   [
+    "pav53",
+    62.1
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [
+   [
+    -1527,
+    "service",
+    96.0,
+    0.0
+   ],
+   [
+    -20434,
+    "service",
+    8.9,
+    0.0
+   ],
+   [
+    -20436,
+    "service",
+    7.7,
+    0.0
+   ],
+   [
+    -3885,
+    "service",
+    6.3,
+    0.0
+   ],
+   [
+    -20430,
+    "service",
+    4.9,
+    0.0
+   ],
+   [
+    -20432,
+    "service",
+    4.6,
+    0.0
+   ]
+  ],
+  "osm_ways_n": 9,
+  "osm_m": 140.7,
+  "ribbons_flush": [
+   [
+    "small_roads:-20436",
+    13.3
+   ],
+   [
+    "small_roads:-20434",
+    8.6
+   ]
+  ],
+  "ribbons_flush_n": 2,
+  "ribbon_to_apron_contact_m": 4.3,
+  "road_faces_standoff": [
+   [
+    "pav55",
+    356.6
+   ]
+  ],
+  "road_faces_m": 356.6,
+  "road_face_to_apron_contact_m": 0.0,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 819.4,
+  "s27_lateral_m_as_road": 819.4,
+  "s27_share_as_road": 0.53,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": true,
+  "road_evidence": [
+   "OSM highway",
+   "ribbon flush",
+   "road face at stand-off"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "APRON by share (\u00a737 (2))",
+  "sites": [],
+  "at": "30.1243756, 31.3922548"
+ },
+ {
+  "ref": "gap:15",
+  "m2": 3014,
+  "perimeter_m": 690,
+  "apron_shared_m_mint": 245.5,
+  "apron_contact_m": 245.5,
+  "apron_runs": [
+   [
+    "pav6",
+    214.9
+   ],
+   [
+    "dsf:objpav414#0",
+    25.5
+   ],
+   [
+    "dsf:objpav106#2",
+    5.1
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [
+   [
+    -1392,
+    "service",
+    58.0,
+    4.5
+   ]
+  ],
+  "osm_ways_n": 1,
+  "osm_m": 58.0,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [
+   [
+    "route22",
+    252.6
+   ]
+  ],
+  "road_faces_m": 252.6,
+  "road_face_to_apron_contact_m": 0.0,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 245.5,
+  "s27_lateral_m_as_road": 245.5,
+  "s27_share_as_road": 0.356,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": true,
+  "road_evidence": [
+   "OSM highway",
+   "road face at stand-off"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "APRON by share (\u00a737 (2))",
+  "sites": [],
+  "at": "30.1039602, 31.3966904"
+ },
+ {
+  "ref": "gap:16",
+  "m2": 995,
+  "perimeter_m": 511,
+  "apron_shared_m_mint": 288.0,
+  "apron_contact_m": 288.0,
+  "apron_runs": [
+   [
+    "pav67",
+    106.3
+   ],
+   [
+    "pav5",
+    91.0
+   ],
+   [
+    "dsf:objpav417#2",
+    17.5
+   ],
+   [
+    "dsf:objpav415#2",
+    17.5
+   ],
+   [
+    "dsf:objpav415#1",
+    17.4
+   ],
+   [
+    "dsf:objpav417#1",
+    17.4
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [],
+  "osm_ways_n": 0,
+  "osm_m": 0,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [
+   [
+    "route26",
+    223.2
+   ]
+  ],
+  "road_faces_m": 223.2,
+  "road_face_to_apron_contact_m": 0.0,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 288.0,
+  "s27_lateral_m_as_road": 288.0,
+  "s27_share_as_road": 0.563,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": true,
+  "road_evidence": [
+   "road face at stand-off"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "APRON by share (\u00a737 (2))",
+  "sites": [],
+  "at": "30.1038846, 31.3943932"
+ },
+ {
+  "ref": "gap:17",
+  "m2": 982,
+  "perimeter_m": 904,
+  "apron_shared_m_mint": 914.7,
+  "apron_contact_m": 914.6,
+  "apron_runs": [
+   [
+    "route11",
+    461.2
+   ],
+   [
+    "dsf:objpav383",
+    454.1
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [
+   [
+    -20440,
+    "service",
+    4.5,
+    0.0
+   ],
+   [
+    -20442,
+    "service",
+    3.7,
+    0.0
+   ],
+   [
+    -20439,
+    "service",
+    2.3,
+    0.0
+   ],
+   [
+    -20437,
+    "service",
+    2.3,
+    0.0
+   ],
+   [
+    -20438,
+    "service",
+    2.2,
+    0.0
+   ],
+   [
+    -20441,
+    "service",
+    2.2,
+    0.0
+   ]
+  ],
+  "osm_ways_n": 6,
+  "osm_m": 17.2,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [
+   [
+    "pav55",
+    6.0
+   ]
+  ],
+  "road_faces_m": 6.0,
+  "road_face_to_apron_contact_m": 0.0,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 914.6,
+  "s27_lateral_m_as_road": 914.6,
+  "s27_share_as_road": 1.012,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": true,
+  "road_evidence": [
+   "OSM highway",
+   "road face at stand-off"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "APRON by share (\u00a737 (2))",
+  "sites": [],
+  "at": "30.1270220, 31.3957838"
+ },
+ {
+  "ref": "gap:20",
+  "m2": 676,
+  "perimeter_m": 397,
+  "apron_shared_m_mint": 209.6,
+  "apron_contact_m": 209.7,
+  "apron_runs": [
+   [
+    "pav1",
+    209.7
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [],
+  "osm_ways_n": 0,
+  "osm_m": 0,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [
+   [
+    "route24",
+    16.2
+   ]
+  ],
+  "road_faces_m": 16.2,
+  "road_face_to_apron_contact_m": 0.0,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 209.7,
+  "s27_lateral_m_as_road": 209.7,
+  "s27_share_as_road": 0.528,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": true,
+  "road_evidence": [
+   "road face at stand-off"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "APRON by share (\u00a737 (2))",
+  "sites": [],
+  "at": "30.1069363, 31.3966968"
+ },
+ {
+  "ref": "gap:22",
+  "m2": 573,
+  "perimeter_m": 127,
+  "apron_shared_m_mint": 19.0,
+  "apron_contact_m": 19.0,
+  "apron_runs": [
+   [
+    "pav132",
+    13.5
+   ],
+   [
+    "dsf:objpav443",
+    5.5
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [],
+  "osm_ways_n": 0,
+  "osm_m": 0,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [],
+  "road_faces_m": 0.0,
+  "road_face_to_apron_contact_m": null,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 19.0,
+  "s27_lateral_m_as_road": 5.5,
+  "s27_share_as_road": 0.044,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": false,
+  "road_evidence": [],
+  "road_to_apron_contact_min_m": null,
+  "class_08c": "APRON (stage 1)",
+  "class_08c_with_s37_share": "APRON (stage 1)",
+  "sites": [],
+  "at": "30.1273558, 31.4108985"
+ },
+ {
+  "ref": "gap:24",
+  "m2": 549,
+  "perimeter_m": 190,
+  "apron_shared_m_mint": 175.0,
+  "apron_contact_m": 175.0,
+  "apron_runs": [
+   [
+    "route21",
+    104.4
+   ],
+   [
+    "dsf:objpav427",
+    66.9
+   ],
+   [
+    "pav13",
+    4.7
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [],
+  "osm_ways_n": 0,
+  "osm_m": 0,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [],
+  "road_faces_m": 0.0,
+  "road_face_to_apron_contact_m": null,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 175.0,
+  "s27_lateral_m_as_road": 170.3,
+  "s27_share_as_road": 0.897,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": true,
+  "road_evidence": [],
+  "road_to_apron_contact_min_m": null,
+  "class_08c": "APRON (stage 1)",
+  "class_08c_with_s37_share": "APRON (stage 1)",
+  "sites": [],
+  "at": "30.1080080, 31.4025913"
+ },
+ {
+  "ref": "gap:28",
+  "m2": 460,
+  "perimeter_m": 132,
+  "apron_shared_m_mint": 41.0,
+  "apron_contact_m": 41.0,
+  "apron_runs": [
+   [
+    "pav39",
+    41.0
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [],
+  "osm_ways_n": 0,
+  "osm_m": 0,
+  "ribbons_flush": [
+   [
+    "small_roads:-3929",
+    5.3
+   ]
+  ],
+  "ribbons_flush_n": 1,
+  "ribbon_to_apron_contact_m": 0.0,
+  "road_faces_standoff": [],
+  "road_faces_m": 0.0,
+  "road_face_to_apron_contact_m": null,
+  "pads_standoff_n": 1,
+  "pads_standoff_m": 90.2,
+  "s27_lateral_m_as_lot": 41.0,
+  "s27_lateral_m_as_road": 0.0,
+  "s27_share_as_road": 0.0,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": false,
+  "road_evidence": [
+   "ribbon flush"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "ROAD (class i, late)",
+  "sites": [],
+  "at": "30.1280102, 31.4042040"
+ },
+ {
+  "ref": "gap:29",
+  "m2": 458,
+  "perimeter_m": 197,
+  "apron_shared_m_mint": 15.7,
+  "apron_contact_m": 15.8,
+  "apron_runs": [
+   [
+    "pav1",
+    15.8
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [
+   [
+    -18834,
+    "service",
+    41.1,
+    2.1
+   ],
+   [
+    -18835,
+    "service",
+    9.9,
+    23.7
+   ]
+  ],
+  "osm_ways_n": 2,
+  "osm_m": 51.0,
+  "ribbons_flush": [
+   [
+    "small_roads:-18835",
+    9.6
+   ],
+   [
+    "small_roads:-18834",
+    5.5
+   ]
+  ],
+  "ribbons_flush_n": 2,
+  "ribbon_to_apron_contact_m": 0.0,
+  "road_faces_standoff": [],
+  "road_faces_m": 0.0,
+  "road_face_to_apron_contact_m": null,
+  "pads_standoff_n": 1,
+  "pads_standoff_m": 86.0,
+  "s27_lateral_m_as_lot": 15.8,
+  "s27_lateral_m_as_road": 15.8,
+  "s27_share_as_road": 0.08,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": false,
+  "road_evidence": [
+   "OSM highway",
+   "ribbon flush"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "ROAD (class i, late)",
+  "sites": [],
+  "at": "30.1113148, 31.4002402"
+ },
+ {
+  "ref": "gap:30",
+  "m2": 427,
+  "perimeter_m": 127,
+  "apron_shared_m_mint": 51.0,
+  "apron_contact_m": 51.0,
+  "apron_runs": [
+   [
+    "pav39",
+    51.0
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [],
+  "osm_ways_n": 0,
+  "osm_m": 0,
+  "ribbons_flush": [
+   [
+    "small_roads:-3929",
+    68.9
+   ]
+  ],
+  "ribbons_flush_n": 1,
+  "ribbon_to_apron_contact_m": 0.0,
+  "road_faces_standoff": [],
+  "road_faces_m": 0.0,
+  "road_face_to_apron_contact_m": null,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 51.0,
+  "s27_lateral_m_as_road": 51.0,
+  "s27_share_as_road": 0.402,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": true,
+  "road_evidence": [
+   "ribbon flush"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "APRON by share (\u00a737 (2))",
+  "sites": [],
+  "at": "30.1275836, 31.4048393"
+ },
+ {
+  "ref": "gap:33",
+  "m2": 321,
+  "perimeter_m": 176,
+  "apron_shared_m_mint": 88.0,
+  "apron_contact_m": 88.0,
+  "apron_runs": [
+   [
+    "pav1",
+    81.7
+   ],
+   [
+    "dsf:objpav390",
+    6.3
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [],
+  "osm_ways_n": 0,
+  "osm_m": 0,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [
+   [
+    "route1",
+    88.7
+   ]
+  ],
+  "road_faces_m": 88.7,
+  "road_face_to_apron_contact_m": 0.0,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 88.0,
+  "s27_lateral_m_as_road": 88.0,
+  "s27_share_as_road": 0.499,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": true,
+  "road_evidence": [
+   "road face at stand-off"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "APRON by share (\u00a737 (2))",
+  "sites": [],
+  "at": "30.1098880, 31.4050887"
+ },
+ {
+  "ref": "gap:34",
+  "m2": 258,
+  "perimeter_m": 87,
+  "apron_shared_m_mint": 25.5,
+  "apron_contact_m": 25.5,
+  "apron_runs": [
+   [
+    "pav39",
+    25.5
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [],
+  "osm_ways_n": 0,
+  "osm_m": 0,
+  "ribbons_flush": [
+   [
+    "small_roads:-18850",
+    39.3
+   ]
+  ],
+  "ribbons_flush_n": 1,
+  "ribbon_to_apron_contact_m": 0.0,
+  "road_faces_standoff": [],
+  "road_faces_m": 0.0,
+  "road_face_to_apron_contact_m": null,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 25.5,
+  "s27_lateral_m_as_road": 0.0,
+  "s27_share_as_road": 0.0,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": false,
+  "road_evidence": [
+   "ribbon flush"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "ROAD (class i, late)",
+  "sites": [],
+  "at": "30.1289360, 31.4000766"
+ },
+ {
+  "ref": "gap:36",
+  "m2": 249,
+  "perimeter_m": 153,
+  "apron_shared_m_mint": 82.5,
+  "apron_contact_m": 82.5,
+  "apron_runs": [
+   [
+    "route25",
+    59.1
+   ],
+   [
+    "pav1",
+    23.4
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [],
+  "osm_ways_n": 0,
+  "osm_m": 0,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [],
+  "road_faces_m": 0.0,
+  "road_face_to_apron_contact_m": null,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 82.5,
+  "s27_lateral_m_as_road": 82.5,
+  "s27_share_as_road": 0.54,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": true,
+  "road_evidence": [],
+  "road_to_apron_contact_min_m": null,
+  "class_08c": "APRON (stage 1)",
+  "class_08c_with_s37_share": "APRON (stage 1)",
+  "sites": [],
+  "at": "30.1061092, 31.3933075"
+ },
+ {
+  "ref": "gap:37",
+  "m2": 242,
+  "perimeter_m": 160,
+  "apron_shared_m_mint": 107.0,
+  "apron_contact_m": 107.0,
+  "apron_runs": [
+   [
+    "dsf:objpav113",
+    71.6
+   ],
+   [
+    "dsf:objpav113",
+    29.6
+   ],
+   [
+    "dsf:objpav390",
+    5.8
+   ]
+  ],
+  "truck_chains": [],
+  "truck_m": 0,
+  "osm_ways": [],
+  "osm_ways_n": 0,
+  "osm_m": 0,
+  "ribbons_flush": [],
+  "ribbons_flush_n": 0,
+  "ribbon_to_apron_contact_m": null,
+  "road_faces_standoff": [
+   [
+    "route1",
+    97.1
+   ]
+  ],
+  "road_faces_m": 97.1,
+  "road_face_to_apron_contact_m": 0.0,
+  "pads_standoff_n": 0,
+  "pads_standoff_m": 0.0,
+  "s27_lateral_m_as_lot": 107.0,
+  "s27_lateral_m_as_road": 101.2,
+  "s27_share_as_road": 0.631,
+  "s27_flip_as_lot": true,
+  "s27_flip_as_road": true,
+  "road_evidence": [
+   "road face at stand-off"
+  ],
+  "road_to_apron_contact_min_m": 0.0,
+  "class_08c": "ROAD (class i, late)",
+  "class_08c_with_s37_share": "APRON by share (\u00a737 (2))",
+  "sites": [],
+  "at": "30.1098131, 31.4051827"
+ }
+]

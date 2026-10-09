@@ -1,10 +1,13 @@
 # Road band-seal scope + road↔apron edge conformance
 
 > **RECONSTRUCTED 2026-09-01 (beta hardening, H2).** This document was
-> cited by five files across `src/`, `tools/` and `tests/` but was **never
-> committed** — `git log -- docs/specs/road-band-seal-scope-spec.md` is
-> empty and there is no archived copy. The law itself is live and has
-> been shipping since 2026-08-25; only the spec was missing.
+> cited by five files across `src/`, `tools/` and `tests/` but was never
+> committed **under `Ortho4XP/docs/specs/`**. CORRECTION 2026-10-08: the
+> original (111 lines, Fable, 2026-08-25, with Amendment 1) is on main in
+> the repository-root docs tree, `../../../docs/specs/road-band-seal-scope-spec.md`
+> (`git log -- docs/specs/road-band-seal-scope-spec.md` from the repo root:
+> `b51207b2`, `2e50f0a7`, `de5bb5e2`). The law itself is live and has
+> been shipping since 2026-08-25.
 >
 > It is reconstructed **from the implementation and its twins**, not from
 > memory, and every clause below names the code or test that carries it.

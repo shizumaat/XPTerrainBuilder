@@ -30,22 +30,31 @@ def _cell(i, role, ref, b):
     return Cell(i, role, ref, _ring(b), (), None, None, role_side(LAW, role), role, {})
 
 
-def _airport(*sheets):
+def _evidence(truck=()):
+    from shapely.geometry import LineString
+    from auto_patch_v2.classify.evidence import Chain, Evidence
+    chains = [Chain(i, LineString(p), (None,) * (len(p) - 1), frozenset(), (False, False),
+                    True, (1, 1)) for i, p in enumerate(truck)]
+    return Evidence([], Polygon(), [], Polygon(), [], chains, [], Polygon(), None,
+                    False, 0, [], 0, 0)
+
+
+def _airport(*sheets, osm_ways=()):
     frame = types.SimpleNamespace(
         transformers=lambda: (None, lambda x, y: (30.0 + y * 1e-5, 31.0 + x * 1e-5)))
-    return types.SimpleNamespace(frame=frame, gap_sheets=tuple(
+    return types.SimpleNamespace(frame=frame, osm_ways=tuple(osm_ways), gap_sheets=tuple(
         Pavement(f"dsf:gapsheet{k}", None, _ring(s), (), "Airport/ground/asphalt.obj")
         for k, s in enumerate(sheets)))
 
 
-def _mint(airport, cells):
+def _mint(airport, cells, ev=None):
     cells = list(cells)
     before = copy.deepcopy(cells)
     out, notes = [], []
 
     def add(role, ref, poly, kind, cn=None, cl=None, evidence=None):
         out.append((role, ref, poly, kind, dict(evidence or {})))
-    stats = gm.mint_gap_pieces(airport, cells, LAW, RULES, add, notes)
+    stats = gm.mint_gap_pieces(airport, ev or _evidence(), cells, LAW, RULES, add, notes)
     assert cells == before                 # THE MINT ONLY APPENDS (through add)
     return out, stats, notes
 
@@ -55,7 +64,10 @@ def test_a_piece_is_the_sheet_minus_every_cell_standing_and_the_pad_setback():
     road = _cell(1, "service_road", "route3", box(0, 110, 100, 118))
     pad = _cell(2, "building", "building26", box(40, 70, 60, 90))
     out, stats, _ = _mint(_airport(box(-20, -20, 120, 140)), [apron, road, pad])
-    assert [ref for _r, ref, *_ in out] == ["gap:0"]
+    # (a road at the stand-off is road evidence; the piece wraps the apron,
+    # so §37 (2)'s share makes it the apron's — spec §59)
+    assert [ref for _r, ref, *_ in out] == ["gapapron:0"]
+    assert out[0][4]["road_evidence"] == 1.0
     piece = out[0][2]
     for c in (apron, road, pad):
         assert piece.intersection(Polygon(c.ring)).area == pytest.approx(0.0, abs=1e-6)
@@ -78,10 +90,13 @@ def test_the_apron_contact_is_the_section_27_length_and_is_published():
     apron = _cell(0, "apron", "pav1", box(0, 0, 100, 50))
     out, stats, _ = _mint(_airport(box(0, 50, 100, 90), box(300, 0, 340, 40)), [apron])
     # weld-tolerant: the 100 m shared run plus the weld spacing up each side
-    by = sorted((e["apron_shared_m"], role, e["touches_apron"]) for role, _ref, _p, _k, e in out)
-    assert by[0] == (0.0, gm.ROLE, 0.0)
-    assert 100.0 <= by[1][0] <= 103.0 and by[1][1:] == (gm.APRON_TOUCH_ROLE, 1.0)
-    assert stats["gap_pieces_apron"] == 1
+    by = sorted((e["apron_shared_m"], role, ref, e.get("touches_apron"))
+                for role, ref, _p, _k, e in out)
+    assert by[0] == (0.0, gm.ROLE, "gap:1", 0.0)
+    # ... and, no road reaching it, the touching piece IS the apron (§59)
+    assert 100.0 <= by[1][0] <= 103.0 and by[1][1:] == ("apron", "gapapron:0", None)
+    assert stats["gap_pieces_apron"] == 1 and stats["gap_pieces_road"] == 0
+    assert stats["gap_pieces"] == 2
     assert RULES.lot.airside_edge_min_m == 10.0
 
 
@@ -108,7 +123,7 @@ def test_a_piece_along_a_runway_or_taxi_face_and_no_apron_is_not_minted(monkeypa
     # ...and with an apron contact as well it IS minted
     apron = _cell(1, "apron", "pav1", box(100, 30, 160, 60))
     out, _s, _n = _mint(_airport(box(0, 30, 100, 60)), [taxi, apron])
-    assert len(out) == 1 and out[0][4]["touches_apron"] == 1.0
+    assert len(out) == 1 and out[0][0] == "apron" and out[0][4]["gap_apron"] == 1.0
 
 
 def test_a_gap_piece_is_a_late_groundside_cell_at_the_road_cap():
@@ -117,9 +132,10 @@ def test_a_gap_piece_is_a_late_groundside_cell_at_the_road_cap():
     assert is_late_cell(_cell(0, gm.ROLE, "gap:0", box(0, 0, 1, 1)))
     # R1 (master 2026-10-04): never a rolled-on role — pass C holds the
     # airside vertex set identical with and without the late cells
-    for role in (gm.ROLE, gm.APRON_TOUCH_ROLE):
-        assert role not in rolled_on_roles(LAW) and role_side(LAW, role) == "groundside"
-        assert role_cap(LAW, role).longitudinal == role_cap(LAW, "service_road").longitudinal
+    role = gm.ROLE
+    assert role not in rolled_on_roles(LAW) and role_side(LAW, role) == "groundside"
+    assert role_cap(LAW, role).longitudinal == role_cap(LAW, "service_road").longitudinal
+    assert not hasattr(gm, "APRON_TOUCH_ROLE")           # refuted (§59), deleted
 
 
 def test_the_sheet_outline_is_simplified_before_the_difference():

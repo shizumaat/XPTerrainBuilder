@@ -573,16 +573,60 @@ final class BuildModel: ObservableObject {
         client.requestAirportIndex(xplaneDir: xplane) { [weak self] reply in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.engineAnsweredAirportIndex = true
                 if reply.isReady {
+                    self.engineAnsweredAirportIndex = true
                     self.readGlobalAirports(atPath: reply.path)
                 } else if !reply.isBuilding {
-                    // "none": no X-Plane folder, or no default apt.dat.
-                    self.publishGlobalAirports([])
+                    self.handleAirportIndexNone()
                 }
                 // "building": the airportIndexReady event finishes it.
             }
         }
+    }
+
+    /// The engine replied "none" — nominally no X-Plane folder or no
+    /// default apt.dat. But a TCC/permission denial makes the engine's
+    /// folder scan come back empty too (a freshly signed build re-prompts
+    /// for volume access), so the denial arrives wearing the same reply
+    /// (observed on 1.0.253: the default-airports layer silently wiped).
+    /// A valid cache from a previous session is the witness that an
+    /// install was readable here before: keep the optimistic display and
+    /// warn, and do NOT mark the engine as authoritatively answered — the
+    /// optimistic read may still be in flight, and a later ready reply
+    /// (folder change, permission granted) still supersedes everything.
+    /// Genuine "none" (no usable cache either) clears the layer as before.
+    private func handleAirportIndexNone() {
+        guard let dataRoot = dataRootURL else {
+            engineAnsweredAirportIndex = true
+            publishGlobalAirports([])
+            return
+        }
+        // The optimistic read already published a non-empty index for
+        // this data root — its cache was valid moments ago.
+        if !globalAirports.isEmpty {
+            warnAirportIndexMasked()
+            return
+        }
+        let url = dataRoot.appendingPathComponent(GlobalAirportIndex.cacheFilename)
+        Task { [weak self] in
+            let cacheBacked = await Task.detached(priority: .utility) {
+                GlobalAirportIndex.cacheLooksValid(at: url)
+            }.value
+            guard let self else { return }
+            if cacheBacked {
+                self.warnAirportIndexMasked()
+            } else {
+                self.engineAnsweredAirportIndex = true
+                self.publishGlobalAirports([])
+            }
+        }
+    }
+
+    private func warnAirportIndexMasked() {
+        console.append(
+            "Engine: could not read the X-Plane folder for the default "
+            + "airport index (a macOS permission prompt may be pending) — "
+            + "keeping last session's airports on the map.")
     }
 
     /// Read the engine's TSV index off the main thread and publish it.

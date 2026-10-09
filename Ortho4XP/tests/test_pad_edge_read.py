@@ -107,7 +107,7 @@ def _source_cls(runs: list) -> list:
 
 def test_a_cell_touching_the_pad_in_the_source_and_standing_off_it_is_the_defect() -> None:
     runs, g = _p_runs(43.0)
-    per.class_by_source(runs, g, [{"pad": "building1", "touching": ["parking_lot:lot1#1"], "gapped": []}])
+    per.class_by_source(runs, g, [{"pad": "building1", "touching": [{"cell": "parking_lot:lot1#1"}], "gapped": []}])
     assert _source_cls(runs) == [("TOUCH-OFF", "parking_lot:lot1", 0.0)]
     assert any("P:TOUCH-OFF: 1 run(s)" in ln for ln in per.render_source(runs))
 
@@ -142,3 +142,19 @@ def test_a_held_terrace_is_listed_as_held_never_as_the_defect() -> None:
     runs, g = _p_runs(43.0)
     per.class_by_source(runs, g, [{"pad": "building1", "touching": [], "held": ["parking_lot:lot1"], "gapped": []}])
     assert _source_cls(runs) == [("HELD", "parking_lot:lot1", 0.0)]
+
+
+def test_one_ref_whose_faces_differ_is_classed_by_the_face_the_run_meets() -> None:
+    """Spec §63 (7) Rule P: the ref is welded on one face (id 7, elsewhere)
+    and a held terrace on another (id 2, the face this run meets) — the
+    run reads HELD, never the ref's other class."""
+    runs, g = _p_runs(43.0)
+    wit = [{"pad": "building1", "touching": [{"cell": "parking_lot:lot1", "faces": [7]}],
+            "held": [{"cell": "parking_lot:lot1", "faces": [2]}], "gapped": []}]
+    per.class_by_source(runs, g, wit)
+    assert _source_cls(runs) == [("HELD", "parking_lot:lot1", 0.0)]
+    assert [r["source"]["face"] for r in runs if r.get("source")] == [2]
+    runs, g = _p_runs(43.0)
+    wit[0]["touching"][0]["faces"], wit[0]["held"][0]["faces"] = [2], [7]
+    per.class_by_source(runs, g, wit)
+    assert _source_cls(runs) == [("TOUCH-OFF", "parking_lot:lot1", 0.0)]

@@ -199,12 +199,13 @@ def weld_partners(cell: _t.Any, law: Law) -> list[str]:
 
 def touch_records(cells: _t.Iterable[_t.Any], law: Law
                   ) -> list[dict[str, _t.Any]]:
-    """THE WITNESS AS DATA, per pad: ``{pad, touching: [role:ref, ...],
-    held: [role:ref, ...], gapped: [{cell, gap_m}, ...]}`` over every cell
-    carrying the evidence — what the sidecar publishes, so a pad's every
-    groundside neighbour is named with its class and a gapped one with its
-    gap.  ``touching`` are the WELDED cells; ``held`` the cells that touch
-    in the source and are kept off the pad as a §28 (6) terrace."""
+    """THE WITNESS AS DATA, per pad: ``{pad, touching: [{cell}, ...],
+    held: [{cell}, ...], gapped: [{cell, gap_m}, ...]}`` over every cell
+    carrying the evidence (``cell`` is ``role:ref``) — what the sidecar
+    publishes, so a pad's every groundside neighbour is named with its
+    class and a gapped one with its gap.  ``touching`` are the WELDED
+    cells; ``held`` the cells that touch in the source and are kept off
+    the pad as a §28 (6) terrace."""
     by_pad: dict[str, dict[str, _t.Any]] = {}
     for c in cells:
         w = (getattr(c, "evidence", None) or {}).get(EVIDENCE_KEY)
@@ -216,13 +217,13 @@ def touch_records(cells: _t.Iterable[_t.Any], law: Law
             rec = by_pad.setdefault(pad, {"pad": pad, "touching": [],
                                           "held": [], "gapped": []})
             if pad in held:
-                rec["held"].append(name)
+                rec["held"].append({"cell": name})
             elif is_touching(law, d):
-                rec["touching"].append(name)
+                rec["touching"].append({"cell": name})
             else:
                 rec["gapped"].append({"cell": name, "gap_m": float(d)})
     for rec in by_pad.values():
-        rec["touching"].sort()
-        rec["held"].sort()
+        rec["touching"].sort(key=lambda g: g["cell"])
+        rec["held"].sort(key=lambda g: g["cell"])
         rec["gapped"].sort(key=lambda g: (g["gap_m"], g["cell"]))
     return [by_pad[k] for k in sorted(by_pad)]

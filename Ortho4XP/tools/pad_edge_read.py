@@ -46,8 +46,8 @@ the height at the pad's edge is a wall or embankment, not a defect).  The
 witness is the build's own — the sidecar key ``pad_touch`` of the patch's
 ``.axes.json`` — or, given a capture pickle, ``classify`` re-run under THIS
 tree and ``classify.pad_touch.touch_records`` over its cells (for a patch
-built before the key existed).  The run's worst groundside pavement cell
-decides: ``TOUCH-OFF`` (it touches the pad in the source and stands off
+built before the key existed).  The run's worst groundside pavement FACE
+decides (by face id where the witness carries them, §63 (7)): ``TOUCH-OFF`` (it touches the pad in the source and stands off
 it: the defect), ``HELD`` (it touches in the source and the build held it
 off as a §28 (6) hillside terrace, RULINGS 2026-10-09f: lawful, listed),
 ``GAPPED`` (drawn with a gap, listed with the gap: accepted), ``AIRSIDE`` (an airside cell: §20's, not this witness's),
@@ -225,7 +225,8 @@ def read_edges(graded: dict, dem: Optional[Dem], *, off_m: float = 1.0,
                             worst = dz
                         if k in touching and di > 0.5:
                             grade = max(grade, abs(dz) / di)
-            out.append({"role": f["role"], "ref": str(f["ref"]), "kind": _kind(f["role"], structures),
+            out.append({"role": f["role"], "ref": str(f["ref"]), "face": f.get("id"),
+                        "kind": _kind(f["role"], structures),
                         "dist_m": round(d, 2), "step_m": round(step, 2), "off_m": round(worst, 2),
                         "touching": k in touching, "grade_pct": round(100 * grade, 1)})
         return out
@@ -278,7 +279,8 @@ def read_edges(graded: dict, dem: Optional[Dem], *, off_m: float = 1.0,
                 for c in fl[v]["cells"]:
                     if c["kind"] != "pad":
                         key = f'{c["role"]}:{c["ref"]}'
-                        p = pav.setdefault(key, {"cell": key, "kind": c["kind"], "dist_m": c["dist_m"],
+                        # PER FACE (spec §63 (7) Rule P): one ref's faces may differ in class
+                        p = pav.setdefault((key, c["face"]), {"cell": key, "face": c["face"], "kind": c["kind"], "dist_m": c["dist_m"],
                                                  "step_m": c["step_m"], "off_m": c["off_m"], "touching": c["touching"],
                                                  "grade_pct": c["grade_pct"]})
                         p["dist_m"] = min(p["dist_m"], c["dist_m"])
@@ -346,22 +348,26 @@ def _base(name: str) -> str:
 
 def class_by_source(runs: Sequence[dict], graded: dict, witness: Sequence[dict], *,
                     off_m: float = 1.0, standoff_m: float = 3.0) -> None:
-    """Set ``run["source"]`` on every ``P`` run: ``{"cls", "cell", "gap_m"}``
-    — the run's worst pavement cell (the one standing furthest off the rim
-    inside the stand-off) read against the witness."""
-    from auto_patch_v2.model.planar import is_late_ref, is_osm_ribbon_ref
+    """Set ``run["source"]`` on every ``P`` run: ``{"cls", "cell", "face",
+    "gap_m"}`` — the run's worst pavement cell (the FACE standing furthest
+    off the rim inside the stand-off) read against the witness: by its
+    face id where the witness names faces (spec §63 (7) Rule P — one ref
+    whose faces are part held terrace and part welded never reads as one
+    class), else by its ``role:ref``."""
+    from auto_patch_v2.model.planar import is_late_ref
     side = {f"{f['role']}:{f['ref']}": f.get("side") for f in graded["faces"]}
-    touch: dict[tuple[str, str], float] = {}
-    held: set[tuple[str, str]] = set()
+    # (pad, face id) where the witness names faces (Rule P), else (pad, role:ref)
+    touch: dict[tuple, tuple[str, Optional[float]]] = {}
     for rec in witness:
         pad = rec["pad"]
-        for name in rec.get("touching", ()):
-            touch[(pad, _base(name))] = 0.0
-        for name in rec.get("held", ()):
-            touch.setdefault((pad, _base(name)), 0.0)
-            held.add((pad, _base(name)))
-        for g in rec.get("gapped", ()):
-            touch.setdefault((pad, _base(g["cell"])), float(g["gap_m"]))
+        for kind, cls in (("touching", "TOUCH-OFF"), ("held", "HELD"), ("gapped", "GAPPED")):
+            for e in rec.get(kind, ()):
+                e = {"cell": e} if isinstance(e, str) else e
+                got = (cls, float(e["gap_m"]) if kind == "gapped" else 0.0)
+                touch.setdefault((pad, e["cell"]), got)
+                touch.setdefault((pad, _base(e["cell"])), got)
+                for fid in e.get("faces", ()):
+                    touch.setdefault((pad, int(fid)), got)
     for r in runs:
         if r["cls"] != "P":
             continue
@@ -371,23 +377,22 @@ def class_by_source(runs: Sequence[dict], graded: dict, witness: Sequence[dict],
             continue
         c = max(cs, key=lambda c: abs(c["off_m"] if c["touching"] else c["step_m"]))
         ref = c["cell"].split(":", 1)[1]
-        d, key = None, None
+        got = None
         for pad in (r["pad"], r["pad"].split("/")[0]):
-            if (pad, _base(c["cell"])) in touch:
-                key = (pad, _base(c["cell"]))
-                d = touch[key]
+            got = touch.get((pad, c.get("face"))) if c.get("face") is not None else None
+            got = got or touch.get((pad, c["cell"])) or touch.get((pad, _base(c["cell"])))
+            if got:
                 break
+        d = got[1] if got else None
         if side.get(c["cell"]) == "airside":
             cls = "AIRSIDE"
-        elif key in held:
-            cls = "HELD"
-        elif d is not None:
-            cls = "TOUCH-OFF" if d == 0.0 else "GAPPED"
-        elif is_late_ref(ref) or is_osm_ribbon_ref(ref):
+        elif got:
+            cls = got[0]
+        elif is_late_ref(ref):
             cls = "ENGINE"
         else:
             cls = "UNWITNESSED"
-        r["source"] = {"cls": cls, "cell": c["cell"], "gap_m": d,
+        r["source"] = {"cls": cls, "cell": c["cell"], "face": c.get("face"), "gap_m": d,
                        "off_m": c["off_m"] if c["touching"] else c["step_m"]}
 
 

@@ -86,8 +86,8 @@ def test_the_sidecar_names_every_neighbour_of_a_pad_by_class(cut, law):
     assert recs == touch_records(cut, law)
     (rec,) = recs
     assert rec["pad"] == "padA"
-    assert {n.split("#")[0] for n in rec["touching"]} == {"parking_lot:over",
-                                                          "parking_lot:hair"}
+    assert {e["cell"].split("#")[0] for e in rec["touching"]} == {
+        "parking_lot:over", "parking_lot:hair"}
     assert [g["cell"].split("#")[0] for g in rec["gapped"]] == [
         "parking_lot:gap08", "parking_lot:gap2"]
     assert [g["gap_m"] for g in rec["gapped"]][1] == 2.0
@@ -185,8 +185,8 @@ def test_a_touching_pair_across_a_hillside_keeps_the_knife(law):
     assert weld_partners(over, law) == []
     assert weld_partners(_parts(cells, "hair")[0], law) == ["padA"]
     (rec,) = touch_records(cells, law)
-    assert [n.split("#")[0] for n in rec["held"]] == ["parking_lot:over"]
-    assert [n.split("#")[0] for n in rec["touching"]] == ["parking_lot:hair"]
+    assert [e["cell"].split("#")[0] for e in rec["held"]] == ["parking_lot:over"]
+    assert [e["cell"].split("#")[0] for e in rec["touching"]] == ["parking_lot:hair"]
 
 
 def test_without_a_dem_no_pair_is_measured_a_hillside(law):
@@ -337,3 +337,26 @@ def test_no_ramp_row_or_join_pin_stands_on_a_vertex_shared_with_a_pad(law):
     cs2 = ConstraintSet.from_rows(road_ramp_rows(
         dc.replace(pm2, road_ramp_z={0: 700.0}), law, airport))
     assert pad_weld_release(pm2, law, cs2)[0] is cs2
+
+
+# ── Rule P (spec §63 (7)): the records carry the FACES ───────────────────
+
+def test_the_published_records_name_the_faces_within_the_pads_radius(law):
+    """Every entry of the sidecar record carries the ids of the cell's own
+    faces standing within the frontage radius of that pad — welded, held
+    and gapped alike — and a face of the same airport beyond it is in no
+    record."""
+    airport = _airport(law, _Dem(north=4.0))
+    cells, _n = _cut_back_groundside(_all_cells(), law, load_rules(), airport)
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    (rec,) = pad_touch(cells, law, pm)
+
+    def faces(ref):
+        return sorted(f.id for f in pm.faces.values() if f.ref.split("#")[0] == ref)
+    assert [(e["cell"], e["faces"]) for e in rec["held"]] == [("parking_lot:over", faces("over"))]
+    assert [(e["cell"], e["faces"]) for e in rec["touching"]] == [("parking_lot:hair", faces("hair"))]
+    assert [(e["cell"], e["faces"], e["gap_m"]) for e in rec["gapped"]] == [
+        ("parking_lot:gap08", faces("gap08"), rec["gapped"][0]["gap_m"]),
+        ("parking_lot:gap2", faces("gap2"), 2.0)]
+    named = {fid for kind in ("touching", "held", "gapped") for e in rec[kind] for fid in e["faces"]}
+    assert not named & set(faces("far")) and all(faces(r) for r in ("over", "hair", "gap08", "gap2"))

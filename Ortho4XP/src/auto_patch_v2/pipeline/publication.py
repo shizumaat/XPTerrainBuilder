@@ -826,17 +826,45 @@ def gap_pieces(cut: _t.Mapping[str, _t.Any] | None,
     return out
 
 
-def pad_touch(cells: _t.Iterable[_t.Any], law: Law) -> list[dict[str, _t.Any]]:
-    """Sidecar ``pad_touch`` (spec §63 (3) Rule T, owner RULINGS
-    2026-10-09j): per pad the groundside pavement cells that TOUCH it in
-    the source geometry and the ones that stand off it with their gap —
-    ``classify.pad_touch.touch_records`` over the classification's cells,
-    the ONE derivation.  EVIDENCE: ``tools/pad_edge_read.py --source``
-    classes a pad-edge run TOUCH-OFF (a defect) or GAPPED (accepted) by
-    it.  An airport with no pad beside groundside pavement carries no such
+def pad_touch(cells: _t.Iterable[_t.Any], law: Law,
+              planar: PlanarMap | None = None) -> list[dict[str, _t.Any]]:
+    """Sidecar ``pad_touch`` (spec §63 (3) Rule T / (7) Rule P, owner
+    RULINGS 2026-10-09j): per pad the groundside pavement cells WELDED to
+    it (``touching``), the ones that touch in the source and are HELD off
+    it as a §28 (6) terrace (``held``), and the ones drawn with a gap
+    (``gapped``, with the gap) — ``classify.pad_touch.touch_records`` over
+    the classification's cells, the ONE derivation.
+
+    PER FACE (Rule P): with the map, every entry carries ``faces`` — the
+    ids of the cell's own faces (its role and ref) standing within the
+    frontage radius of that pad — so a reader classes a pad edge by the
+    FACE it meets and one ref whose faces differ can never read as one
+    class.  EVIDENCE: ``tools/pad_edge_read.py --source`` classes a
+    pad-edge run TOUCH-OFF (a defect), HELD or GAPPED (accepted) by it.
+    An airport with no pad beside groundside pavement carries no such
     key."""
     from ..classify.pad_touch import touch_records
-    return touch_records(cells, law)
+    recs = touch_records(cells, law)
+    if planar is None or not recs:
+        return recs
+    from shapely.ops import unary_union
+    from ..constraints.pad_frontage_gs import _groundside_geoms
+    from ..constraints.pads import _pad_polys, frontage_radius_m
+    r = frontage_radius_m(law)
+    pads: dict[str, list] = {}
+    for _fid, ref, _g, poly in _pad_polys(planar, law):
+        pads.setdefault(str(ref), []).append(poly)
+    by_cell: dict[str, list] = {}
+    for fid, role, ref, _vs, poly in _groundside_geoms(planar, law):
+        by_cell.setdefault(f"{role}:{ref}", []).append((fid, poly))
+    for rec in recs:
+        pad = unary_union(pads[rec["pad"]]) if rec["pad"] in pads else None
+        for kind in ("touching", "held", "gapped"):
+            for e in rec[kind]:
+                e["faces"] = sorted(
+                    fid for fid, poly in by_cell.get(e["cell"], ())
+                    if pad is not None and poly.distance(pad) <= r)
+    return recs
 
 
 def late_stage(stage: _t.Mapping[str, _t.Any]) -> dict[str, _t.Any]:

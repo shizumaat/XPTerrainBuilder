@@ -1006,7 +1006,7 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
         from auto_patch_v2.pipeline.publication import late_stage as _late_stage
         pub["late_stage"] = _late_stage(late_stage)
     from auto_patch_v2.pipeline.publication import pad_touch as _pad_touch
-    _touch = _pad_touch(cells, law)
+    _touch = _pad_touch(cells, law, pm)
     if _touch:
         pub["pad_touch"] = _touch
     # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is

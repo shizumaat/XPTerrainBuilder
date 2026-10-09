@@ -1348,7 +1348,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             pub["gap_pieces"] = _gap_records
         if _late_report is not None:
             pub["late_stage"] = late_stage(_late_report["stage"])
-        _touch = pad_touch(cl.cells, law)
+        _touch = pad_touch(cl.cells, law, pm)
         if _touch:
             pub["pad_touch"] = _touch
         pub["design_target"] = design_rep.targets

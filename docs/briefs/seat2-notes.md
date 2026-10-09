@@ -143,3 +143,32 @@ then with class D + 101 m). The code is kept whole on `claude/seat2-rc` for the 
   57 / 39 are out-of-scope `withdrawn_law` rows churning). Located by row; the mechanism is the pads branch's stage-1
   re-solve moving the parallel taxiway a few centimetres over its cap (pads67: 306 solve-owned movers, worst 1.02 m) —
   NOT attributed by intervention here (no CYXY replay was run: the two builds answer "which rows").
+
+## Step c — R-B (STOPPED: the spec's attribution is stale on this base)
+
+Code (kept on `claude/seat2-rc`): `road_ramp.frontage_release`, LAST in `reach_seed_rewrite` (the rewrites read every
+vertex's §37 (6) row as the floor of their profiles): a §28 frontage vertex (`pad_frontage_gs.frontage_vertices`, the
+armed pairs' followers, published by the one derivation) loses its `ramp to the DEM` target, its `ramp ceiling` Band
+and its `coverage_edge join` pin; a withdrawn join is recorded in `welded_join_release`'s form (stage `2f`) so the core
+ribbon yields. The `pavement_road_cap` clause of R-B (no fallback pair with a frontage-vertex end) was NOT built: it
+would lift the 29ac cap off a road's own ring edge beside a pad.
+
+| arm (R-B alone on the base) | HECA base → c | KCLT base → kc |
+|---|---|---|
+| release fired on | 0 class movement (33 row-side nodes ≤ 0.05 m) | 170 frontage vertices: 146 targets, 143 ceilings, 4 join pins (`v20654` = `building26`'s) |
+| P:ARMED (class B) | 1 / 66 m = (`building164` \| `objpav405` +2.70 → +2.65) | 2 → 1 (`building27` gone; `building26` \| `pol50` −1.60 at one vertex stays) |
+| P:GS-NEAR | 16 / 570 = | 9 / 95 → 9 / 86 |
+| `hard_conflict` gs / pad / taxi | 233 / 101 / 64 → 220 / 105 / 64 | 279 / 31 / 51 → 259 / 32 / 44 |
+| held datums / solve-owned airside | 0 of 47 / 0 | 0 of 55 / **2 apron nodes, 0.24 m** at 35.20848542138,−80.93089931101 (the apron sliver at `building27` the road was dragging) |
+
+RE-TAKE OF THE RR ATTRIBUTION ON THIS BASE (the brief's caution was right). The spec's arm RR ran `--from constraints`,
+i.e. on the CAPTURED road profile (pads67 head, before #484). On this tree's own ramps (`--from classify`: 38 ramps at
+the 5 % design grade, first meet) the row set on `building164`'s frontage vertices (v31843 77.76, v31846 77.96; pad
+77.36) holds NO `road_ramp` row at all: 21 `longitudinal` 10 % rows over 206–254 m, the hard cross-section to each
+other, 2 §28 rows, and one 29ac fallback pair 10 % × 52.2 m to v31844 at 82.24. The 66 m "ARMED" run is the MID-SPAN of
+that 52 m ring edge: the road page has two vertices inside the pad's frontage and its next vertex, 36 m along the rim
+and outside the 3 m frontage, stands at its own ramp level 4.5 m higher — the edge read finds the road +2.65 m over the
+rim at 16 m along it. No road law fixes a frontage VERTEX here; the page has no vertex where the pad's level must be
+carried. R-B as written (a vertex relation) has no population at `building164` on this base. What would answer it is
+outside §62's text (noding the road's edge along a seated pad's frontage, or reading the frontage by EDGE): reported,
+not built.

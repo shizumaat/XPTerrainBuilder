@@ -1,0 +1,114 @@
+"""Spec §62 (5) R-B — NO ROAD LAW FIXES A ROAD VERTEX INSIDE A SEATED PAD'S
+FRONTAGE (owner RULINGS 2026-10-09d (1) / 09c (2a);
+``constraints/road_ramp.frontage_release``).
+
+The shape it stands for: a service-road page whose two frontage vertices
+stood 2.7 m over the pad they front for 66 m of rim — §28's priced joint
+against the vertex's own §37 (6) ramp target 4.3 m above the pad — and a
+§37 (9) join pin 0.8 m off a pad holding the road 1.6 m under it.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_v2frontage import _built, _cells, _verts  # noqa: E402
+
+from auto_patch_v2.constraints import road_ramp as RR  # noqa: E402
+from auto_patch_v2.constraints.pad_frontage_gs import (  # noqa: E402
+    GEN_GS, frontage_vertices, groundside_frontage_level)
+from auto_patch_v2.law import Law  # noqa: E402
+from auto_patch_v2.model.constraints import (Band, ConstraintSet,  # noqa: E402
+                                             Linear, Pin, Source)
+
+
+@pytest.fixture(scope="module")
+def law():
+    return Law.for_airport("ZZZZ")
+
+
+def _ramp(v):
+    """The three road-law rows that name one vertex's level."""
+    tag = (f"vertex:{v}", "lotA")
+    return [Linear(((v, 1.0),), 705.0, 705.0, Source(RR.GEN, RR.RULING, tag)),
+            Band(v, None, 705.5, Source(RR.GEN, RR.RULING_CEILING, tag)),
+            Pin(v, 698.0, Source(RR.GEN, RR.JOIN_RULING, tag))]
+
+
+def _on(cs, v):
+    return sorted(type(r).__name__ for r in cs.rows()
+                  if r.source.generator == RR.GEN
+                  and r.source.inputs[0] == f"vertex:{v}")
+
+
+def test_the_frontage_vertices_are_the_armed_pairs_followers(law):
+    """The relation as data: the road's own vertices within the frontage
+    radius of the pad, and none of its far edge."""
+    pm, airport = _built(law, _cells("service_road"))
+    rows = groundside_frontage_level(pm, law, airport)
+    front = frontage_vertices(pm, law)
+    assert front == {v for r in rows for v in r.follows}
+    assert front and front < _verts(pm, "lotA")
+
+
+def test_no_ramp_row_or_join_pin_stands_on_a_frontage_vertex(law):
+    """A road vertex §28 makes follow a pad keeps the §28 row and loses its
+    §37 (6) target, its hard ceiling and its §37 (9) join pin (recorded so
+    the core ribbon yields); the first road vertex OUTSIDE the frontage
+    keeps all three."""
+    pm, airport = _built(law, _cells("service_road"))
+    rows = groundside_frontage_level(pm, law, airport)
+    front = frontage_vertices(pm, law)
+    inside, outside = min(front), min(_verts(pm, "lotA") - front)
+    cs = ConstraintSet.from_rows([*rows, *_ramp(inside), *_ramp(outside)])
+    out, rep = RR.frontage_release(pm, law, cs)
+    assert (rep["targets"], rep["ceilings"]) == (1, 1)
+    assert [(r["v"], r["pinned_m"], r["stage"]) for r in rep["joins"]] == [
+        (inside, 698.0, "2f")]
+    assert _on(out, inside) == [] and _on(out, outside) == ["Band", "Linear", "Pin"]
+    assert len([r for r in out.rows() if r.source.generator == GEN_GS]) == len(rows)
+
+
+def test_the_stage_two_rewrite_carries_the_release_last(law):
+    """``reach_seed_rewrite`` withdraws the frontage's rows after its own
+    rewrites and hands the withdrawn join to the pin-yield record."""
+    pm, airport = _built(law, _cells("service_road"))
+    rows = groundside_frontage_level(pm, law, airport)
+    inside = min(frontage_vertices(pm, law))
+    cs = ConstraintSet.from_rows([*rows, *_ramp(inside)])
+    out, rep = RR.reach_seed_rewrite(pm, law, cs, {})
+    assert _on(out, inside) == [] and rep["frontage"]["targets"] == 1
+    assert [r["v"] for r in rep["welded_join"]] == [inside]
+
+
+def test_a_road_fronting_no_pad_keeps_every_row(law):
+    """Nothing is withdrawn where §28 arms nothing."""
+    pm, _airport = _built(law, [c for c in _cells("service_road") if c.ref != "padA"])
+    v = min(_verts(pm, "lotA"))
+    cs = ConstraintSet.from_rows(_ramp(v))
+    out, rep = RR.frontage_release(pm, law, cs)
+    assert out is cs and rep["frontage_vertices"] == 0
+
+
+# ── R-F, the airside-seated half ─────────────────────────────────────────
+
+def test_the_fallback_cap_never_pairs_an_airside_seated_pads_own_vertex(law):
+    """The pad fronts the apron (§20 seats it); the road a metre off its
+    north rim is §28's follower.  The 29ac fallback mints no pair between a
+    vertex only the pad carries and the road — and still caps the road's
+    own ring."""
+    from auto_patch_v2.constraints import pavement_cap
+    from auto_patch_v2.constraints.pads import pad_fronts_airside
+    pm, _airport = _built(law, _cells("service_road"))
+    pad_fids = {f.id for f in pm.faces.values() if f.ref.split("#")[0] == "padA"}
+    assert pad_fids & pad_fronts_airside(pm, law)
+    road = _verts(pm, "lotA")
+    own = {v for v in _verts(pm, "padA")
+           if set(pm.vertices[v].incident_faces) <= pad_fids}
+    assert own
+    rows = pavement_cap.pavement_road_cap([], pm, law)
+    assert [r for r in rows if r.a in road and r.b in road], "the road's ring"
+    assert not [r for r in rows if {r.a, r.b} & own and {r.a, r.b} & road]

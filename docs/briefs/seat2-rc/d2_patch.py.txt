@@ -1,0 +1,28 @@
+"""seat2 PROBE d2 (scratch edit of the frozen seat2d tree, never lands as is): spec §62 (3) R-D rule 2, the FLOOR half —
+a candidate under the mint's floors whose level group holds a PAD station is not merged AWAY: the merged polygon takes
+the PAD's group (the neighbour's stations are then the reported ones), so the part beside the pad stands at the pad's
+level and the knife is on its far side."""
+import sys
+p = sys.argv[1] + '/Ortho4XP/src/auto_patch_v2/classify/gap_terrace.py'
+s = open(p).read()
+def rep(old, new):
+    global s
+    assert s.count(old) == 1, old[:50]; s = s.replace(old, new)
+rep('''def _merge_floors(cands: list[tuple[int, Polygon]], min_m2: float, lane: float,
+                  grid: float) -> tuple[list[tuple[int, Polygon]], list[tuple[int, int, Polygon]]]:''',
+    '''def _merge_floors(cands: list[tuple[int, Polygon]], min_m2: float, lane: float,
+                  grid: float, keep: frozenset = frozenset()
+                  ) -> tuple[list[tuple[int, Polygon]], list[tuple[int, int, Polygon]]]:''')
+rep('''        if gj != g:
+            gone.append((g, gj, q))
+        cands = [c for k, c in enumerate(cands) if k not in (i, best)] + [(gj, whole)]''',
+    '''        into = g if (g in keep and gj not in keep) else gj
+        if gj != g:
+            gone.append((g, gj, q) if into == gj else (gj, g, qj))
+        cands = [c for k, c in enumerate(cands) if k not in (i, best)] + [(into, whole)]''')
+rep('''        cands, gone = _merge_floors(_voronoi_candidates(piece, pts, grp, grid),
+                                    min_m2, lane, grid)''',
+    '''        pad_g = frozenset(int(grp[i]) for i, s_ in enumerate(st) if s_.cls == PAD)
+        cands, gone = _merge_floors(_voronoi_candidates(piece, pts, grp, grid),
+                                    min_m2, lane, grid, pad_g)''')
+open(p, 'w').write(s); print('patched', p)

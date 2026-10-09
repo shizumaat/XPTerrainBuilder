@@ -1,0 +1,17 @@
+"""seat2 PROBE ARM T (scratch, never lands): the landside seat row TWO-WAY — its head taken out of the one-way register
+for the assembly only, so the row is solved with the leader's columns in the matrix (no lag).  Attribution of the
+depth-2 lag chain road -> pad -> lot; runs v2_solve_replay main() unchanged."""
+import importlib.util, sys
+from pathlib import Path
+ROOT = Path('/Users/noah/XPTerrainBuilder/.claude/worktrees/seat2run/Ortho4XP')
+sys.path.insert(0, str(ROOT / 'src')); sys.path.insert(0, str(ROOT / 'tools'))
+spec = importlib.util.spec_from_file_location('v2_solve_replay', ROOT / 'tools' / 'v2_solve_replay.py')
+rep = importlib.util.module_from_spec(spec); spec.loader.exec_module(rep)
+from auto_patch_v2.solve import design_assemble as DA
+from auto_patch_v2.constraints.pad_seat import SEAT_RULING
+_orig = DA.one_way_rulings
+DA.one_way_rulings = lambda law: frozenset(_orig(law)) - {SEAT_RULING}
+if __name__ == '__main__':
+    print('[PROBE T] seat head out of the one-way register (two-way hard row)', flush=True)
+    sys.argv = ['v2_solve_replay.py', *sys.argv[1:]]
+    sys.exit(rep.main())

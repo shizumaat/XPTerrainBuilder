@@ -61,3 +61,13 @@ building1:13 · SPJC building5:354 42:50 24:39 45:28 54:22 31:21 4:21 6:20 58:17
 16:22 29:19 11:18 7:17 18:17 12:14 24:14 31:12 6#2:12 13:4. Full lists: `<scratch>/pads67/inst_<ICAO>.txt`, `row.py`.
 
 Frames registered (`docs/frames.jsonl`): the seven `sw8_<ICAO>.osm` patches, base `4b433195`, lane pads67.
+
+## Step 3a — WIP checkpoint (resumed after an outage)
+
+* `pad_edge_read.py` pins the console (the `test_console_encoding` twins: 2 failed → pass). Qt `-n0`: 311 passed. Named tests +
+  twin + archmap: 223 passed. `tools/ratchets.py`: DUPLICATE RATCHET PASS, LAYER RATCHET PASS (size warnings are the branch's
+  own files, none touched by this lane).
+* `sw8_OTHH` finished clean: rc 0, body 2d741bc20863, guard blocked [].
+* Captures on the merged head for all seven (`<scratch>/pads67/cap/<ICAO>.pkl`), `pad_frontage_step` pairs and edge reads done.
+* Replay arms so far: CYXY and SPJC `--design-weight frontage_step_max_m=99` (every pad|groundside pair armed);
+  HECA `--drop-generator pad_slope_ceiling` (building75).

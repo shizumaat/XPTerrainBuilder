@@ -278,7 +278,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               "hard_rows": rep2.hard_rows,
                               "hard_active": rep2.hard_active,
                               "hard_max_violation_m": round(rep2.hard_max_violation_m, 6),
-                              "hard_settled": rep2.hard_settled,
+                              **rep2.settle_record(),
                               "rounds": rep2.rounds, "wall_s": round(w2, 3)}}
     if pass1a is not None:
         rep2.stages["stage1a"] = pass1a

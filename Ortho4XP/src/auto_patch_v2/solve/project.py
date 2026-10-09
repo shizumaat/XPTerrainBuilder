@@ -289,8 +289,10 @@ def _qp(A: sp.csr_matrix, rhs: np.ndarray, x0: np.ndarray, w: np.ndarray,
 
 def _relax_lp(A: sp.csr_matrix, rhs: np.ndarray, elastic: np.ndarray,
               verbose: bool = False, *, cost: np.ndarray | None = None,
-              duals: list | None = None, dual_form: bool = False
-              ) -> tuple[np.ndarray, str]:
+              duals: list | None = None, dual_form: bool = False,
+              tie_rank: "np.ndarray | _t.Callable[[], np.ndarray] | None" = None,
+              tie_tol: float = 0.0,
+              info: dict | None = None) -> tuple[np.ndarray, str]:
     """The LEAST TOTAL RELAXATION of the ``elastic`` rows' bounds that makes
     ``A x ≤ rhs`` solvable: an LP in ``(x, s)`` minimising ``Σ s`` with
     ``A x − s ≤ rhs`` and ``s ≥ 0`` on those rows only.  Returns the
@@ -315,7 +317,24 @@ def _relax_lp(A: sp.csr_matrix, rhs: np.ndarray, elastic: np.ndarray,
     thousands): measured on HECA's §5a pass-1b hard set (623,702 rows x
     19,906 columns) 9.4 s against the primal's 32.1 s, the same optimum
     (weighted relaxation 3.7736486e7 both).  ``x`` is the dual's row duals,
-    each row's relaxation ``max(0, A x − b)``; ``duals`` receives ``y``."""
+    each row's relaxation ``max(0, A x − b)``; ``duals`` receives ``y``.
+
+    ``tie_rank`` (``dual_form`` only; spec §61 (5), owner RULINGS
+    2026-10-09e) BREAKS THE TIE AMONG EQUAL OPTIMA.  The optimum's VALUE is
+    unique but the relaxation set that attains it is not — which of two
+    equally-cheap rows carries the slack followed the ROW ORDER the simplex
+    was handed.  When the first LP relaxes any row beyond ``tie_tol``, a
+    second LP over the SAME rows, held on the first one's optimal face,
+    minimises ``Σ tie_rank·s`` — so the set earliest in the caller's
+    canonical order is the one returned.  The face is stated exactly, by
+    complementary slackness against the first LP's ``y``: a row with
+    ``y < cost`` carries no slack in ANY optimum (its bound stays hard), a
+    row with ``y > 0`` is tight in every optimum (an equality).  In this
+    dual form that is the same model with other column bounds, re-run from
+    the first LP's basis.  Tiers, weights and the optimum are untouched: an
+    answer that costs more than the first LP's is REFUSED and the first
+    kept (``info["tie"]`` names which happened, ``info["tie_wall_s"]`` what
+    it cost)."""
     import highspy
     inf = highspy.kHighsInf
     m, n = A.shape
@@ -341,9 +360,16 @@ def _relax_lp(A: sp.csr_matrix, rhs: np.ndarray, elastic: np.ndarray,
             return np.zeros(m), str(h.modelStatusToString(st))
         sol = h.getSolution()
         x = np.asarray(sol.row_dual, float)[:n]
+        y = np.asarray(sol.col_value, float)[:m]
         if duals is not None:
-            duals.append(np.asarray(sol.col_value, float)[:m])
-        return np.maximum(np.asarray(A @ x).ravel() - rhs, 0.0), "optimal"
+            duals.append(y)
+        slack = np.maximum(np.asarray(A @ x).ravel() - rhs, 0.0)
+        if tie_rank is not None and bool((slack > tie_tol).any()):
+            # (a callable: the ranks are only derived when there is a choice)
+            rank = tie_rank() if callable(tie_rank) else tie_rank
+            slack = _tie_break(h, A, rhs, c_y, y, slack,
+                               np.asarray(rank, float), info)
+        return slack, "optimal"
     S = sp.csr_matrix((-np.ones(ns), (np.flatnonzero(elastic), np.arange(ns))),
                       shape=(m, ns))
     M = sp.hstack([A, S], format="csr")
@@ -368,6 +394,44 @@ def _relax_lp(A: sp.csr_matrix, rhs: np.ndarray, elastic: np.ndarray,
     out = np.zeros(m)
     out[elastic] = np.maximum(sv, 0.0)
     return out, "optimal"
+
+
+def _tie_break(h: _t.Any, A: sp.csr_matrix, rhs: np.ndarray, cost: np.ndarray,
+               y: np.ndarray, slack: np.ndarray, rank: np.ndarray,
+               info: dict | None) -> np.ndarray:
+    """:func:`_relax_lp`'s second LP (``tie_rank``; spec §61 (5)): ``h`` is
+    the solved dual-form model, ``y`` its optimum and ``slack`` the
+    relaxation it gave.  Returns the canonical relaxation, or ``slack``
+    itself when the second LP does not end optimal or would cost more."""
+    import highspy
+    t0 = time.perf_counter()
+    inf = highspy.kHighsInf
+    m, n = A.shape
+    may = y >= cost * (1.0 - 1e-9)       # may carry slack in SOME optimum
+    tight = y > 1e-9                     # tight in EVERY optimum
+    lo = np.where(tight, -inf, 0.0)
+    up = np.where(may, rank, inf)
+    h.changeColsBounds(m, np.arange(m, dtype=np.int32), lo, up)
+    h.run()
+    verdict = "kept"
+    out = slack
+    if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
+        verdict = "not optimal: " + str(h.modelStatusToString(h.getModelStatus()))
+    else:
+        x2 = np.asarray(h.getSolution().row_dual, float)[:n]
+        s2 = np.maximum(np.asarray(A @ x2).ravel() - rhs, 0.0)
+        c1, c2 = float(cost @ slack), float(cost @ s2)
+        if c2 <= c1 * (1.0 + 1e-7) + 1e-7:
+            verdict = "canonical"
+            out = s2
+        else:
+            verdict = f"refused: {c2:.9g} > the optimum {c1:.9g}"
+    if info is not None:
+        info["tie_cost_delta"] = (float(cost @ out) - float(cost @ slack))
+        info["tie"] = verdict
+        info["tie_wall_s"] = time.perf_counter() - t0
+        info["tie_rows"] = int(may.sum())
+    return out
 
 
 def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,

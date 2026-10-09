@@ -57,12 +57,10 @@ class PassTrace(contextlib.AbstractContextManager):
         def traced(planar, cs, law, got, solve1):
             out = self._orig(planar, cs, law, got, solve1)
             sol, rep, _drop, _foreign, levels, _size = out[1]
-            feas = getattr(rep, "hard_feasibility", None)
             self.passes.append({
                 "pm": planar, "z": np.asarray(sol.z, float),
                 "levelled": np.fromiter(sorted(levels), dtype=np.int64),
-                "relaxed": int(getattr(feas, "relaxed", 0) or 0),
-                "promoted": int(getattr(feas, "promoted_on_miss", 0) or 0)})
+                **lp_read(rep)})
             return out
         flex.yield_stage_one = traced
         return self
@@ -70,6 +68,19 @@ class PassTrace(contextlib.AbstractContextManager):
     def __exit__(self, *exc: _t.Any) -> None:
         from auto_patch_v2.solve import flex
         flex.yield_stage_one = self._orig
+
+
+def lp_read(rep: _t.Any) -> dict[str, _t.Any]:
+    """One stage call's DISCRETE choices off its report: the §5a LP's
+    relaxed rows — their count and their IDENTITY (law head + the row's
+    vertices by canonical key) — and the rows promoted on a miss."""
+    feas = getattr(rep, "hard_feasibility", None)
+    ids = frozenset((c.get("row"), tuple(tuple(k) for k in c.get("vertices", ())),
+                     c.get("stage"))
+                    for c in (getattr(feas, "conflicts", None) or ()))
+    return {"relaxed": int(getattr(feas, "relaxed", 0) or 0),
+            "relaxed_ids": ids,
+            "promoted": int(getattr(feas, "promoted_on_miss", 0) or 0)}
 
 
 def ceilings(pm: _t.Any, law: _t.Any, passes: _t.Sequence[dict], n: int,
@@ -110,17 +121,17 @@ def null_change(run: _t.Callable[[tuple], tuple], pm_stage1: _t.Any,
     """THE CHECK.  ``run(bands) -> (sol, rep)`` solves the arm with
     ``bands`` appended to the set STAGE 1 solves (``()`` = the arm as
     given); ``pm_stage1`` is the map that set's vertex ids are on.
-    ``first`` is ``(trace, sol)`` of a solve of the arm already made under
+    ``first`` is ``(trace, sol, rep)`` of a solve of the arm already made under
     a :class:`PassTrace` (the replay's own), else the arm is solved here.
     """
     if first is None:
         with PassTrace() as ta:
-            sol_a, _rep = run(())
+            sol_a, rep_a = run(())
     else:
-        ta, sol_a = first
+        ta, sol_a, rep_a = first
     bands = ceilings(pm_stage1, law, ta.passes, n)
     with PassTrace() as tb:
-        sol_b, _rep = run(bands)
+        sol_b, rep_b = run(bands)
     out: dict[str, _t.Any] = {"ceilings": len(bands), "margin_m": MARGIN_M,
                               "bar": [BAR_COUNT, BAR_STEP_M],
                               "first_at": (list(pm_stage1.vertices[bands[0].v].key)
@@ -131,8 +142,13 @@ def null_change(run: _t.Callable[[tuple], tuple], pm_stage1: _t.Any,
              tuple(f"pass{k + 1}" for k in range(len(ta.passes))))
     for name, pa, pb in zip(names, ta.passes, tb.passes if same else ()):
         out[name] = movers(pa["z"], pb["z"], pa["levelled"])
-    out["promoted"] = [[p["promoted"] for p in t.passes] for t in (ta, tb)]
-    out["lp_relaxed"] = [[p["relaxed"] for p in t.passes] for t in (ta, tb)]
+    # the discrete choices, per stage call: the stage-1 passes, then stage 2
+    calls = [[*t.passes, lp_read(r)] for t, r in ((ta, rep_a), (tb, rep_b))]
+    out["promoted"] = [[c["promoted"] for c in cs_] for cs_ in calls]
+    out["lp_relaxed"] = [[c["relaxed"] for c in cs_] for cs_ in calls]
+    ids_a, ids_b = (frozenset().union(*(c["relaxed_ids"] for c in cs_))
+                    for cs_ in calls)
+    out["lp_only"] = [len(ids_a - ids_b), len(ids_b - ids_a)]
     out["stage2"] = (movers(sol_a.z, sol_b.z)
                      if sol_a.z and sol_b.z and len(sol_a.z) == len(sol_b.z)
                      else None)
@@ -151,9 +167,11 @@ def null_line(res: _t.Mapping[str, _t.Any]) -> str:
              if k.startswith("pass") and k != "passes"]
     pa, pb = res["promoted"]
     la, lb = res["lp_relaxed"]
+    only = res.get("lp_only") or [0, 0]
     return ("NULL-CHANGE " + " ".join(parts) + f" stage2 {fmt(res['stage2'])}"
             f" (movers > {BAR_M} / > {BAR_STEP_M} / worst m; bar {BAR_COUNT} / 0;"
             f" promoted {sum(pa)}={sum(pb)}, lp relaxed {sum(la)}={sum(lb)})"
+            + (f"  LP SETS DIFFER {only[0]}/{only[1]}" if any(only) else "")
             + ("" if res["met"] else "  BAR MISSED"))
 
 

@@ -468,6 +468,20 @@ class DesignReport:
                 f"worst |grad| {worst_g:.4g}"
                 + (f" — {cap} HIT THE ROUND CAP" if cap else ""))
 
+    def settle_record(self) -> dict[str, _t.Any]:
+        """HOW THIS STAGE CALL's LOOPS ENDED (spec §61 (4); owner RULINGS
+        2026-10-09e Q2): ``qp_exits`` — the exact solves by status, the
+        NAMED failure ``round_cap`` first — and whether the two capped outer
+        loops settled.  A capped loop is a line in the log and these keys in
+        the sidecar, diffed by the sweep; it is never a build failure."""
+        by: dict[str, int] = {}
+        for st, *_ in self.qp_solves:
+            by[st] = by.get(st, 0) + 1
+        return {"qp_exits": dict(sorted(by.items(),
+                                        key=lambda kv: (kv[0] != "round_cap", kv[0]))),
+                "lag_settled": bool(self.one_way_settled),
+                "hard_settled": bool(self.hard_settled)}
+
     def set_exit_line(self) -> str:
         """The exits by kind, worst first — empty when every solve reached
         its fixed point."""
@@ -639,6 +653,8 @@ class DesignReport:
                 "level_belt_rows": self.level_belt_rows,
                 "set_exits": [list(e) for e in self.set_exits],
                 "qp_solves": [list(e) for e in self.qp_solves],
+                "qp_exits": self.settle_record()["qp_exits"],
+                "lag_settled": bool(self.one_way_settled),
                 "body_datum_rows": self.body_datum_rows,
                 "body_datum_bodies": self.body_datum_bodies,
                 "body_datums": self.body_datums,

@@ -128,3 +128,109 @@ def test_the_qp_exit_is_a_law_value(law):
     d = law.tables.emit.design
     assert d.qp_rel_tol == 1e-12
     assert d.taxi_xsec == d.free_membrane == d.bend_taxi == 1.0
+
+
+# ── §61 (5) THE §5a LP's TIE-BREAK AMONG EQUAL OPTIMA ────────────────────
+
+def _cycle_lp():
+    """THE DEGENERATE OPTIMUM at fixture scale: ``x0 − x1 ≤ −1`` against
+    ``x1 − x0 ≤ 0`` (and a second such pair) — one metre of relaxation is
+    owed per pair, and either row of a pair pays it at the same price."""
+    import scipy.sparse as sp
+    A = sp.csr_matrix(np.array([[1.0, -1.0, 0.0, 0.0],
+                                [-1.0, 1.0, 0.0, 0.0],
+                                [0.0, 0.0, 1.0, -1.0],
+                                [0.0, 0.0, -1.0, 1.0],
+                                [0.0, 1.0, -1.0, 0.0]]))
+    b = np.array([-1.0, 0.0, 0.0, -2.0, 5.0])
+    return A, b
+
+
+@pytest.mark.parametrize("perm", [(0, 1, 2, 3, 4), (1, 0, 3, 2, 4),
+                                  (4, 3, 2, 1, 0), (2, 4, 0, 3, 1)])
+def test_the_lp_relaxes_the_canonically_first_of_equal_rows(perm):
+    """The rows handed in ANY order relax the SAME rows — the ones earliest
+    in canonical order — at the SAME total: the optimum is untouched, only
+    the choice among equal answers is made by rank instead of row order."""
+    from auto_patch_v2.solve.project import _relax_lp
+    A, b = _cycle_lp()
+    rank = np.array([2.0, 1.0, 3.0, 4.0, 5.0])     # by identity, not position
+    p = np.asarray(perm)
+    info: dict = {}
+    s, st = _relax_lp(A[p], b[p], np.ones(5, bool), cost=np.ones(5),
+                      dual_form=True, tie_rank=rank[p], tie_tol=0.02, info=info)
+    assert st == "optimal" and info["tie"] == "canonical"
+    by_row = np.empty(5)
+    by_row[p] = s
+    assert by_row.sum() == pytest.approx(3.0)       # the optimum's value
+    # pair (0, 1): row 1 is canonically first; pair (2, 3): row 2
+    assert by_row == pytest.approx([0.0, 1.0, 2.0, 0.0, 0.0], abs=1e-7)
+    # and WITHOUT the tie-break the total is the same (nothing was bought)
+    s0, _st = _relax_lp(A[p], b[p], np.ones(5, bool), cost=np.ones(5),
+                        dual_form=True)
+    assert s0.sum() == pytest.approx(3.0)
+
+
+def test_the_tie_break_never_trades_a_dear_row_for_a_cheap_rank():
+    """Tiers and weights are untouched: a row ten times dearer is not
+    relaxed because its rank is lower."""
+    from auto_patch_v2.solve.project import _relax_lp
+    A, b = _cycle_lp()
+    cost = np.array([10.0, 1.0, 1.0, 10.0, 1.0])
+    rank = np.array([1.0, 2.0, 4.0, 3.0, 5.0])     # the dear rows rank first
+    info: dict = {}
+    s, _st = _relax_lp(A, b, np.ones(5, bool), cost=cost, dual_form=True,
+                       tie_rank=rank, tie_tol=0.02, info=info)
+    assert s == pytest.approx([0.0, 1.0, 2.0, 0.0, 0.0], abs=1e-7)
+    assert info["tie"] == "canonical"
+
+
+def test_the_canonical_rank_is_a_function_of_the_row_not_its_position(
+        stub_problem, law):
+    """``feasibility.canonical_rank``: the hard rows of the stub fixture in
+    two orders get the same rank row by row."""
+    from auto_patch_v2.solve.design_roles import ruling_head
+    from auto_patch_v2.solve.feasibility import canonical_rank
+    pm, cs = stub_problem
+    bp = assemble(pm, cs, law, DesignReport())
+    rows = np.asarray(bp.hard, dtype=np.int64)
+    assert rows.size > 50
+    heads = [ruling_head(bp.one[int(k)][2]) for k in rows]
+    r0 = canonical_rank(pm, bp.one, rows, heads)
+    p = np.random.default_rng(7).permutation(rows.size)
+    r1 = canonical_rank(pm, bp.one, rows[p], [heads[i] for i in p])
+    assert np.array_equal(r0[p], r1)
+    assert r0.min() == 1 and len(set(r0.tolist())) > 0.9 * rows.size
+
+
+# ── §61 (4) A CAPPED LOOP IS A NAMED LINE AND A SIDECAR KEY ─────────────
+
+def test_every_stage_call_publishes_how_its_loops_ended(stub_problem, law):
+    """The sidecar's ``design`` block is ``DesignReport.as_dict()``: each
+    stage call carries ``qp_exits``, ``lag_settled`` and ``hard_settled``."""
+    pm, cs = stub_problem
+    _z0, rep = _z(pm, cs, law)
+    d = rep.as_dict()
+    calls = [d] + [d["stages"][k] for k in ("stage1", "stage2")]
+    if "stage1a" in d["stages"]:
+        calls.append(d["stages"]["stage1a"])
+    for rec in calls:
+        assert {"qp_exits", "lag_settled", "hard_settled"} <= set(rec)
+        assert isinstance(rec["lag_settled"], bool)
+        assert isinstance(rec["hard_settled"], bool)
+    s1 = d["stages"]["stage1"]["qp_exits"]
+    assert s1 and set(s1) <= {"optimal", "no_descent", "round_cap"}
+    assert "round_cap" not in s1, "the stub fixture's QP converges"
+
+
+def test_a_round_cap_is_named_first_and_fails_nothing():
+    rep = DesignReport()
+    rep.note_qp("optimal", 10, 12, 1.0, 0.1, 0.01)
+    rep.note_qp("round_cap", 400, 500, 1.0, 9.0, 1.0)
+    rep.note_qp("no_descent", 3, 20, 1.0, 0.2, 0.01)
+    rep.one_way_settled = False
+    rec = rep.settle_record()
+    assert list(rec["qp_exits"]) == ["round_cap", "no_descent", "optimal"]
+    assert rec["qp_exits"] == {"round_cap": 1, "no_descent": 1, "optimal": 1}
+    assert rec["lag_settled"] is False and rec["hard_settled"] is rep.hard_settled
+    assert "HIT THE ROUND CAP" in rep.qp_line()

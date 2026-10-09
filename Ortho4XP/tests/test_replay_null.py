@@ -23,7 +23,7 @@ from tests.auto_patch_v2 import test_v2valley as V  # noqa: E402
 LINE = re.compile(
     r"^NULL-CHANGE (pass\w+ (\d+/\d+/\d+\.\d{3}|-) )+stage2 (\d+/\d+/\d+\.\d{3}|-) "
     r"\(movers > 0\.02 / > 0\.3 / worst m; bar 20 / 0; "
-    r"promoted \d+=\d+, lp relaxed \d+=\d+\)(  BAR MISSED)?$")
+    r"promoted \d+=\d+, lp relaxed \d+=\d+\)(  LP SETS DIFFER \d+/\d+)?(  BAR MISSED)?$")
 
 
 @pytest.fixture(scope="module")
@@ -47,6 +47,7 @@ def test_the_stub_fixture_moves_nothing_under_a_null_change(stub_null):
     assert res["stage2"][:2] == [0, 0]
     assert res["promoted"][0] == res["promoted"][1]
     assert res["lp_relaxed"][0] == res["lp_relaxed"][1]
+    assert res["lp_only"] == [0, 0]
     assert res["met"]
 
 
@@ -59,10 +60,10 @@ def test_the_line_is_the_one_the_sweep_greps(stub_null):
 def test_a_missed_bar_says_so():
     res = {"pass1a": [0, 0, 0.0], "pass1b": [1813, 0, 0.195], "passes": [2, 2],
            "stage2": [1900, 0, 0.2], "promoted": [[625, 813], [625, 815]],
-           "lp_relaxed": [[0, 240], [0, 240]], "met": False}
+           "lp_relaxed": [[0, 240], [0, 240]], "lp_only": [1, 1], "met": False}
     line = RN.null_line(res)
     assert LINE.match(line), line
-    assert line.endswith("BAR MISSED")
+    assert line.endswith("LP SETS DIFFER 1/1  BAR MISSED")
     assert "pass1b 1813/0/0.195" in line and "promoted 1438=1440" in line
 
 

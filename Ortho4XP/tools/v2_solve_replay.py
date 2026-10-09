@@ -2578,15 +2578,15 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         for ln in seat_lines(seats.values(), pad=f"[{icao}] "):
             print(ln)
     if null_change is not None and late_from is None:
-        result["null_change"] = _null_twin(_null, _null_in, _null_trace, sol, law, strips,
-                                           null_change, method, verbose)
+        result["null_change"] = _null_twin(_null, _null_in, _null_trace, sol, rep, law,
+                                           strips, null_change, method, verbose)
         print(f"[{icao}] {_null.null_line(result['null_change'])}")
     if json_out is not None:
         json_out.write_text(json.dumps(result, indent=1, default=str))
     return 0
 
 
-def _null_twin(_null, held: dict, trace, sol, law, strips, n: int, method: str,
+def _null_twin(_null, held: dict, trace, sol, rep, law, strips, n: int, method: str,
                verbose: bool) -> dict:
     """spec §61 (6): the replay arm's NULL TWIN — ``held``'s problem (the
     map, the set and the stage-1 problem as they stood before the arm's
@@ -2610,7 +2610,7 @@ def _null_twin(_null, held: dict, trace, sol, law, strips, n: int, method: str,
                             strips=strips, **kw)
     t = time.perf_counter()
     res = _null.null_change(run, s1.pm if s1 is not None else pm, law, n=n,
-                            first=(trace, sol))
+                            first=(trace, sol, rep))
     res["wall_s"] = round(time.perf_counter() - t, 1)
     return res
 

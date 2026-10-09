@@ -29,3 +29,28 @@ NOT clipped to the classify gate as the spec's probe number was).
 `pipeline/build.py`: one `[load]` line. Twins (a)–(c) in `test_airport_load.py`.
 NO-OP: fresh CYXY capture on this tree (14 s) → `--from classify --emit`
 body `cf8e9e89ec62` = main's `sw6_CYXY`. Suite 9019 passed.
+
+## Step 3 — mint twin (d)
+
+`test_a_page_sheet_on_a_runway_cell_mints_nothing_and_lists_nothing`.
+
+## Step 4 — ONE tool
+
+`Ortho4XP/tools/pavement_admission_report.py` ported from 2f348508 (`refused`,
+`diff`) and the spec's `admit_probe.py` promoted INTO it as the `sheets`
+subcommand (INDEX row; twin 4 tests). The probe's own copy of the branch gate
+and its control/arm mint re-run are gone: the gate is the tree's, and the
+control arm is `--strip-out` (the capture without its page sheets, replayed
+`--from classify`). Six `surface337` frame rows ported to `docs/frames.jsonl`.
+
+`sheets` on the registered captures (this tree's gate; polygons source / sheet / refused):
+
+| ICAO | capture | source / sheet / refused | hard-surface defs refused, why |
+|---|---|---|---|
+| CYXY | fresh, this tree | 44 / 0 / 20 | `lib/airport/markings/DrapedDirSigns` 20 — decorative namespace |
+| SPJC | conc333 main28500ecf | 107 / 0 / 284 | `objectfede/lines/red_grid` 46, `lib/airport/lines/safety_area_red` 42, `_yellow` 4 — decorative namespace |
+| KCLT | conc333 | 101 / 0 / 1,858 | `DrapedDirSigns` 958 (namespace), `DrapedRwySigns` 759 + `ground_marks/mark_dir_amarillo` 115 (paint layer), `safety_area_white` 21, `colored_area_green` 1, `safety_area_yellow` 1 (namespace) |
+| KASE | conc333 | 9 / 0 / 25 | none declares a hard surface |
+| NLWF | conc333 | 0 / 0 / 2 | none |
+| OTHH | surface337 main900727f2 | 70 / 281 / 8,446 | 6 sheet defs, 5,314,001 m² in the gate (712,279 on runway cells, 1,880,707 taxi, 822,710 apron); refused: markings namespaces 1,812, `Grass3` 3 (terrain word) |
+| HECA | gapapron3 | 1 / 2 / 0 | `Asphalt_1_NOLINE` 2 / 63,175 m² |

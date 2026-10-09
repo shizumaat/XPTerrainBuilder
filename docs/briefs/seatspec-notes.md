@@ -91,3 +91,12 @@ lo = hi = 81.616 (a HARD equality) plus the `ramp ceiling` Band hi 82.12, 21 `co
 77.36, §37's ramp says 81.62 — and the hard one wins by 3.5 m of relaxation (the 112 violated `road_ramp` rows); the
 vertex lands at 78.08 and the rim edge between the vertices reads +2.70 / +3.33 in the edge read. Mechanism, not yet an
 intervention: arm `--drop-generator road_ramp` queued (`chain2.sh`, `armRR`).
+
+## Step 4 — building75 by `--why-vertex 22865`: ONE hop
+
+Binding rows on v22865 (99.71): 8 `groundside_frontage_level` rows (v22865 is a §28 LEADER of the road's frontage vertices
+v40601…, pad_flat weight) and ONE `pavement_road_cap` 10 % x 1.0 m to v40607 (`service_road#1887` = `small_roads:-20325`,
+99.48) whose level is the hard `roads.groundside_road ramp ceiling` Band. Chain: 1 hop, +0.23 m. The pad rim is welded to
+the road by the fallback cap and the road is held by its ramp ceiling; the pad's hard plane loses (81 relaxed pad-tier rows).
+Same pair of mechanisms as building164 (step 3): the road's ramp law fixes the road vertex, a two-sided hard pavement row
+(the 29ac fallback here, §37's ramp equality there) ties the pad|road pair, and the pad-side law is what the LP relaxes.

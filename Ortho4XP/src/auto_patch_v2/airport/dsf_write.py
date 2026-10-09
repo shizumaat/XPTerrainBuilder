@@ -127,6 +127,7 @@ import typing as _t
 from bisect import bisect_left
 
 import O4_Console_Encoding as _console
+import O4_UI_Utils as _ui
 
 from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
                                KIND_AGL, KIND_MSL, KIND_ON_GROUND,
@@ -543,9 +544,11 @@ def _run(args: list[str], *, writes: str | None = None) -> None:
     # DSFTool is a native tool: its messages (echoing the paths it was
     # given) are in the ANSI code page on Windows, UTF-8 elsewhere, and a
     # path in any other spelling must not turn its failure into a
-    # UnicodeDecodeError (#419).
+    # UnicodeDecodeError (#419).  The launch keywords make it posix_spawn,
+    # never fork (O4_UI_Utils.external_tool_keyword_arguments).
     proc = subprocess.run(args, capture_output=True,
-                          **_console.native_tool_pipe())
+                          **_console.native_tool_pipe(),
+                          **_ui.external_tool_keyword_arguments())
     if proc.returncode != 0:
         raise RuntimeError(f"{' '.join(args[:2])} failed (rc {proc.returncode}): "
                            f"{(proc.stderr or proc.stdout).strip()[:400]}")

@@ -330,6 +330,7 @@ class StaticStacCatalogStrategy:
                     lerc_worker_argv(tiff_path, npy_path),
                     capture_output=True,
                     **O4_Console_Encoding.child_console_pipe(),
+                    **UI.external_tool_keyword_arguments(),
                     timeout=600,
                 )
                 if completed.returncode != 0:

@@ -81,6 +81,11 @@ EFFECT: dict[str, tuple[tuple[str, ...], str]] = {
     "--late-from": (_REPLAY, "the last stage (spec §53 (9)) is solved by "
                              "the solving --replay alone; a --why-from on "
                              "its --solved-out re-solves it from the pickle"),
+    "--gap-free": (("replay/classify", "replay/planar"),
+                   "the gap pieces are dropped from the classification "
+                   "BEFORE the map is built (the build's own base, "
+                   "pipeline/stage_one_map.gap_free): a later resume re-uses "
+                   "the captured map, pieces and all"),
 }
 ARM_FLAGS: tuple[str, ...] = tuple(EFFECT)
 
@@ -126,7 +131,8 @@ def given_arms(a) -> dict[str, str]:
            "--chord-fill": a.chord_fill,
            "--method": None if a.method == "normal" else a.method,
            "--probe-arm": a.probe_arm,
-           "--late-from": a.late_from}
+           "--late-from": a.late_from,
+           "--gap-free": "the base map" if a.gap_free else None}
     out = {}
     for flag, v in raw.items():
         if v is None or v == [] or v == "":

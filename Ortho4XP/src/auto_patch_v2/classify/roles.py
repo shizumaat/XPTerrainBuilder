@@ -667,7 +667,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # §53 (RULINGS 2026-10-04o (a)): the gap pieces — LAST, so every
     # pavement the engine already knows (the ribbons too) keeps its ground
     from .gap_mint import mint_gap_pieces
-    stats.update(mint_gap_pieces(airport, cells, law, rules, add, notes))
+    stats.update(mint_gap_pieces(airport, ev, cells, law, rules, add, notes))
     stats["taxi_chains"] = len(ev.taxi_chains)
     stats["truck_chains"] = len(ev.truck_chains)
     stats["terminal_present"] = float(ev.terminal_present)

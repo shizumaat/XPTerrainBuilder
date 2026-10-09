@@ -335,3 +335,39 @@ Largest APRON part: `gapapron:0` 12,758 m², 25.2787749, 51.6041032.
 NO-OP BODIES (fresh captures on this tree, `--from classify --emit`):
 CYXY `cf8e9e89ec62` = main's `swga_CYXY`; KASE (naturally sheet-free: source 9
 / sheet 0 / refused 25) `f9b157158a39` = main's `swga_KASE`.
+
+### HECA replay pair on the final head (fresh strip of `frames/surf337/HECA.pkl`; `CTLBASE` → `CTL`, `BBASE` → `B`)
+
+* OFF (`CTL`, sheets stripped) body `ad4ef9685c5f` = main's `swga_HECA`; ON (`B`)
+  body `75c751a9dd95` = the first lane's closing build `surf337_HECA` — F1, F2
+  and F3 are byte no-ops on HECA's PATCH (no below-grade structure beside a piece).
+* No new piece: 38 → 38 pieces, 81 → 81 gap / apron-part groups (the `gap:1` ↔
+  `gap:2` renumbering, D4). Owner gap sites node-identical off / on: `gap:7/lot`
+  65 nodes, `gap:7/ramp0` 48, `gap:0/s4/lot` 160 — same node sets, max |dz| 0.0.
+  Runway 3 / 3 groups identical, 0 nodes moved.
+
+### FOUND — F3's HECA bar FAILS: the plan is NOT main's under R2 (one member, 0.165 m)
+
+`plan_from_screen.py` on the `surf337_HECA` screen + arm `B`'s solved surface:
+with the reader of the tree BEFORE F3 the plan is sha-identical to main's
+`swga_HECA.v2/HECA.rebake.json` (`793b2f7479de` — the instrument is exact);
+with F3 it is `1956d7537290`, ONE member differing:
+
+`unit:43` `Airport/T23/T3_road.obj` (`dsf:obj223`, a flag deck, `elevated_deck`,
+ring 23,646 m² about 30.1123889, 31.3962650): `deck_datum_z` 98.61 → 98.445.
+
+The ring holds 791 surface vertices: 680 STANDING (662 the `building4` pad's,
+13 `dsf:pol10`, 8 road) with median 98.445, and 111 owned by gap pieces alone
+(`gap:32` 76, `gap:21` 24, `gap:2` 5, `gap:5/s4` 4, `gap:5/s0` 2; median 98.69).
+Main's 98.61 is the median of all 791 — the same dilution of a pad reading by
+piece vertices that R2 names at OTHH (`TerminalRoads_Parking_000` over
+`building9`), standing on main since the §53 pieces (HECA had 38 before §60).
+The spec's "HECA's plan is already main's" held only without R2.
+
+No general reader gives both identities: standing-only = main at OTHH and
+moves this HECA deck 0.165 m down; "a piece vertex never FOUNDS a datum but
+counts beside standing ones" = main at HECA and the bus bridges at OTHH, but
+leaves `TerminalRoads_Parking_000` at 4.22 (main 4.61) and Emiri at 3.96
+(3.97); no F3 = main at HECA and six units off at OTHH. NOT decided here — the
+spec author's / owner's (STOP-and-report; F3 is its own commit `a9f116c3`).
+No HECA build was run on the final head (one closing build per round).

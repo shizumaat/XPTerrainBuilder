@@ -131,7 +131,13 @@ def test_the_zone_ring_follows_the_pavement_not_the_terrain(taxi_map, law):  # n
     # does not.  Both arms are pinned; neither reading is hidden.
     from tests.auto_patch_v2.test_v2staged import unstaged
     from auto_patch_v2.solve import solve_design as _solve
-    assert min(z[v] - pm.vertices[v].dem_z for v in strip) < -2.0, \
+    # READING MOVED, CLAIM KEPT (spec §61, lane ``valley2``): this fixture
+    # never runs the taxi publisher, so its whole taxi sheet is "what no
+    # chain reaches" and takes §61's membrane (level with its neighbours),
+    # which carries the taxiway FLATTER across the valley: −2.88 m -> −1.14 m.
+    # Still under its own DEM — the staged sheet takes no level from the
+    # ground — which is what this arm pins.
+    assert min(z[v] - pm.vertices[v].dem_z for v in strip) < -1.0, \
         "the staged arm: the sheet keeps no level from the ground"
     z0 = np.asarray(_solve(pm, _cs, unstaged(law))[0].z, float)
     # every such vertex is FILLED clear of its DEM sample

@@ -309,6 +309,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep2.body_datum_bodies += rep1.body_datum_bodies
     rep2.body_datums = list(rep1.body_datums) + list(rep2.body_datums)
     rep2.taxi_trend_rows += rep1.taxi_trend_rows
+    rep2.taxi_xsec_rows += rep1.taxi_xsec_rows
+    rep2.free_membrane_rows += rep1.free_membrane_rows
     rep2.apron_trend_rows += rep1.apron_trend_rows
     rep2.ground_datum_rows += rep1.ground_datum_rows
     rep2.level_belt_rows += rep1.level_belt_rows

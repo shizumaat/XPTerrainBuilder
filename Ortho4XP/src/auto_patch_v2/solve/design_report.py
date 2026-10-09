@@ -258,6 +258,12 @@ class DesignReport:
     taxi_trend: dict[str, _t.Any] = _dc.field(default_factory=dict)
     #: how many vertices carry a trend target row
     taxi_trend_rows: int = 0
+    #: §61 (1) THE TAXIWAY EDGE (owner RULINGS 2026-10-09e): how many
+    #: columns take the cross-section row to their own centreline, and how
+    #: many first-difference rows the membrane wrote for the taxi-family
+    #: columns no chain reaches (``solve/design_edge``)
+    taxi_xsec_rows: int = 0
+    free_membrane_rows: int = 0
     #: THE APRON BODY'S 2-D TREND (owner RULINGS 2026-09-10ar; spec §8.7):
     #: per body carrying a 2-D trend, the built surface against its
     #: published target (RMS and max) and its mean z − DEM — filled by the
@@ -638,6 +644,8 @@ class DesignReport:
                 "body_datums": self.body_datums,
                 "taxi_trend": self.taxi_trend,
                 "taxi_trend_rows": self.taxi_trend_rows,
+                "taxi_xsec_rows": self.taxi_xsec_rows,
+                "free_membrane_rows": self.free_membrane_rows,
                 "apron_trend": self.apron_trend,
                 "apron_trend_rows": self.apron_trend_rows,
                 "bank_rows": self.bank_rows,
@@ -800,6 +808,8 @@ class DesignReport:
                 + self._body_plane_line()
                 + f", {self.taxi_trend_rows} taxi trend rows"
                 + self._taxi_trend_line()
+                + f", {self.taxi_xsec_rows} taxi edges on their centreline"
+                f" + {self.free_membrane_rows} membrane rows"
                 + f", {self.apron_trend_rows} apron trend rows"
                 + self._apron_trend_line()
                 + f", {self.bank_rows} bank rows off the "

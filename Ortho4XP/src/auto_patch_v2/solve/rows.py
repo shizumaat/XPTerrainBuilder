@@ -29,7 +29,8 @@ from ..geom.union_find import find_root
 __all__ = ["_Reduction", "_reduce", "_face_triangles", "_cotangent_laplacian",
            "_Rows", "_Side", "_law_sides", "_violation", "_zone_weights",
            "_one_matrix", "_sheet_components", "_role_bodies", "_plane_targets",
-           "_plane_rows", "_level_free_columns", "apply_level_belt"]
+           "_plane_rows", "_level_free_columns", "_level_row_columns",
+           "apply_level_belt"]
 
 
 # ── the reduction: pins fix, flats merge ────────────────────────────────
@@ -444,6 +445,32 @@ def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
     # a root's level marker must survive later unions: re-reduce
     level_roots = {find_root(parent, r) for r in has_level}
     return {c: find_root(parent, c) for c in range(red.n_cols) if find_root(parent, c) not in level_roots}
+
+
+def _level_row_columns(rows: "_Rows", body: "_Rows | None", n_cols: int,
+                       tol: float = 1e-9) -> np.ndarray:
+    """PER COLUMN: does a row that carries LEVEL touch it?  The per-column
+    half of :func:`_level_free_columns` (same reading of "level": a row's
+    coefficients over the remaining columns do not sum to zero, here
+    relative to the row's own largest; every column of a ``body`` datum row
+    is levelled), WITHOUT the union-find — so a column reached only through
+    relative rows from a levelled one reads ``False``.  That is the
+    question spec §61 asks: bending carries a level across a sheet eight
+    orders too softly to NAME it."""
+    lev = np.zeros(n_cols, dtype=bool)
+    if rows.n and rows.r:
+        R = np.asarray(rows.r, dtype=np.int64)
+        C = np.asarray(rows.c, dtype=np.int64)
+        V = np.asarray(rows.v, dtype=float)
+        ssum = np.zeros(rows.n)
+        np.add.at(ssum, R, V)
+        scale = np.zeros(rows.n)
+        np.maximum.at(scale, R, np.abs(V))
+        lev_row = np.abs(ssum) > tol * np.maximum(scale, 1e-300)
+        lev[C[lev_row[R]]] = True
+    if body is not None and body.n:
+        lev[np.asarray(body.c, dtype=np.int64)] = True
+    return lev
 
 
 def apply_level_belt(pm: PlanarMap, rows: "_Rows", body: "_Rows | None",

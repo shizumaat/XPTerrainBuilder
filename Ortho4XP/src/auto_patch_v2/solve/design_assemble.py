@@ -30,6 +30,7 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides,
                    _role_bodies, _role_bodies_faced, _Rows, _shape_bodies,
                    _sheet_components, _Side, _zone_weights,
                    apply_level_belt)
+from .design_edge import cross_section_rows, membrane_rows
 from .design_ground import ground_datum_vertices, ground_rim_vertices
 from .design_stage import _groundside_minter, _welded_faces
 from .design_roles import (bend_class, bend_roles, conforming_rulings,
@@ -270,6 +271,15 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if rows.add(((vid, 1.0),), float(target), d.taxi_trend,
                     ("taxi_trend", vid)):
             trend_v += 1
+
+    # 5c'. THE TAXIWAY EDGE TAKES ITS CENTRELINE'S LEVEL (owner RULINGS
+    #      2026-10-09e; spec §61 (1)): every off-centreline taxi-family
+    #      vertex with no trend row above takes ONE relational row to the
+    #      foot of its perpendicular on its own face's chain
+    #      (``solve/design_edge``; the membrane for what no chain reaches is
+    #      read at the END, once every row that could level a column exists).
+    xsec_cols = cross_section_rows(planar, rows, red, d.taxi_xsec)
+    rep.taxi_xsec_rows = len(xsec_cols)
 
     # 6. the runway chord (and the core's road profile) — ``preferred_z``
     #    (a runway-family vertex fits the CHORD; every other published
@@ -703,6 +713,10 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # 9c. THE LEVEL BELT (RULINGS 2026-09-13, ``v2zerocrater``; spec §23.4):
     #     a column with no LEVEL solves to the sentinel 0 — KCLT's crater.
     rep.level_belt_rows = apply_level_belt(planar, rows, body, red, one, d.detached_mean)
+    # 9d. §61 (1) THE MEMBRANE: a taxi-family column that still carries no
+    #     level row — no chain reaches it — is level with its neighbours.
+    rep.free_membrane_rows = membrane_rows(planar, law, rows, body, red,
+                                           xsec_cols, d.free_membrane)
     rep.taxi_trend_rows = trend_v
     rep.apron_trend_rows = apron_trend_v
     rep.body_datum_rows = body.n

@@ -185,3 +185,153 @@ change); `-n0 tests/test_qt_*.py` 311 passed; the four gate files 202 passed;
 `tools/ratchets.py` DUPLICATE PASS, LAYER PASS (size WARN, pre-existing:
 `pipeline/build.py` 1,474 → 1,621, of which this lane +7).
 Frames registered (`surf337`): OTHH and HECA captures, both build patches.
+
+---
+
+# surf337b — the review's fix list (spec §60 (9) F1–F4), 2026-10-09
+
+Lane `surf337b`, same branch / worktree, `claude/surfreview` merged (docs + probes).
+Scratch `<scratch>/surf337b/`. Replays off `frames/surf337/OTHH.pkl` with the
+reviewer's gap-free base `<scratch>/surfreview/base/solved.pkl`.
+
+## F1 — R1a (`9cf2cc1a`): a part follows a structure's RIM, never its floor
+
+`constraints/gap_follow`: a face whose role is a floor / ramp role binds no
+follow row; a wall void binds by its RIM edges alone — an edge no other cell
+behind the step shares (the foot, shared with the floor, and the seam between
+two wall parts are not rim). The two role sets are the existing ones
+(`emit/graded.FLOOR_ROLES`, `planar/basins.WALL_ROLE`), handed in by the stage
+as `pipeline/late_stage.BEHIND_STEP` (a `gap_follow.BehindStep`).
+
+DEVIATION (layering, non-blocking): `constraints` may not import `emit` or
+`planar` (the layer ratchet), and moving `FLOOR_ROLES` down into
+`model/structures` puts it in the partition cache's code digest (every airport
+re-reads its pack once, and the screen-sidecar probe goes stale). So the
+generator takes the sets as an argument; `tools/v2_late_read.py` passes the same
+constant. No new list.
+
+OTHH late arm `F1` (body `7fd7ebfcae39`, 6 min 39 s), control = the reviewer's
+`ctl` (= the surf337 build body):
+
+| bar | control | F1 | bar met |
+|---|---|---|---|
+| `gap:1/s3` (25.2958182, 51.6027774) | −9.52..4.02 | 3.96..3.96 | yes |
+| `gap:1/s4` (25.2964682, 51.6065259) | 2.14..4.03 | 3.96..3.96 | yes |
+| `gap:2/s1` (25.2539674, 51.6255951) | 1.97..3.97 | 3.90..3.98 | NO by ONE node: 3.90 at 25.25414793751, 51.62585320745 (0.06 m under the rim) |
+| relaxed follow rows | 7 | 0 | yes |
+| `within_shape` | 528 | 374 (= main) | yes |
+| census rows ≥ 0.5 m | 500 | 308 | yes |
+| non-gap way groups moved | — | 0 of 1,062 identical (10 gap groups differ) | yes |
+| authored seats (15) | — | identical | yes |
+
+The one node: a piece vertex ON the basin rim (the flush cut) is bound to its
+rim neighbours within `cap × d` — the row any ring gives — not pinned; the
+reviewer's arm pinned it. F2 removes the case (no piece vertex lies on a rim):
+3.95..3.97 there.
+
+## F3 — R2 (`a9f116c3`): the deck datum reads STANDING cells only
+
+`emit/rebake.deck_datum_from_surface` skips a vertex only gap pieces own
+(`standing_vertex_ids`; a vertex a piece shares with a standing cell counts).
+
+ACCEPTANCE WITHOUT A BUILD (`<scratch>/surf337b/plan_from_screen.py`): the
+surf337 build's screen sidecar, its 13 deck rings RE-READ under this tree's
+reader, through `rebake_screen.build_plan` → plan sha `8e24e55b3f68` = main's
+`sw6_OTHH.v2/OTHH.rebake.json`: `deck_end_lines` 7, the six bus-bridge decks
+`deck_ends` present / datum None, `TerminalRoads_Parking_000` 4.61,
+`Emiri_Terminal_17_03` 3.97.
+
+INSTRUMENT NOTE: the surface must be the build's IN-MEMORY one (rebuilt from a
+`--solved-out` pickle with `emit.graded.graded_surface`), not `<ICAO>.graded.json`:
+the JSON is the surface after `with_terrain_edges`, and main's OWN json reads
+Emiri 4.0 where main's build recorded 3.97 — off the json the plan differs from
+main's in that one member on any tree (the review's "Emiri 4.0" is that reading).
+
+## F2 — R1b (`cc44f2c3`, its own commit; rests on owner Q1)
+
+`planar/basins.build_basins`: a `gap:` cell goes through
+`structure_approach.cut_gap_cells` (blade = rim ⊕ the mint's stand-off), LAST;
+every standing cell is cut flush at the rim as before.
+
+OTHH `--from classify --late-from` arm `F12` (body `500f5dddce63`, 6 min 37 s):
+
+| bar | main | F1 only | F1 + F2 | bar met |
+|---|---|---|---|---|
+| rim nodes `basin_wall:0` / `:3` / `:4` | 54 / 35 / 28 | 63 / 45 / 31 | 54 / 35 / 28 | yes |
+| `terrace_actual_step` `groundside_pavement\|tunnel_trench` | 0 | 21 | 4 | NO (4) |
+| CRITICAL visual cliff | 18 | 36 | 22 | NO (those 4) |
+| rows ≥ 0.5 m | 287 | 308 | 291 | — |
+| the three basin parts | — | 3.96 / 3.90..3.98 / 3.96 | 3.96..3.96 / 3.95..3.97 / 3.96..3.96 | yes |
+| relaxed | — | 0 | 0 | yes |
+| non-gap way groups moved (vs F1) | — | — | 0 (12 gap groups differ) | yes |
+| authored seats | — | identical | identical | yes |
+
+`basin_wall:6` is back to main's 30 nodes; `basin_wall:5` keeps +3 (34 vs 31) —
+they are `gapapron:6`'s, a §59 APRON part (a standing apron cell, cut flush like
+any apron), all at the rim's 3.96.
+
+THE 4 ROWS (attributed, not fixed): all at `basin_wall:0`, 4.7 m over
+4.0–4.9 m, at 25.2539223, 51.6256993 and 25.2541457, 51.6258433 (×3). They are
+the census's STRADDLE reading (`check_grade._check_terrace_actual_step`
+reading 1: two pavement vertices on opposite sides of a declared joint line,
+both within 5 m of it and of each other): two gap KNIVES (`shapes [37, 125]`,
+declared steps 0.007 / 0.001 m) end at the collar beside this basin, and where
+the wall void is 0.7 m wide the floor's vertices (−0.74) stand within 5 m of
+the piece's (3.96) across the knife's line. The surface is right: piece 3.96,
+rim 3.96 with main's nodes, floor −0.74, the declared wall between. The
+reading has no notion of a wall between a pair; that is an instrument rule
+(a pair across a structure rim is not a terrace pair) for the spec author —
+not changed here.
+
+## F4 — closing
+
+OTHH harness build `surf337b_OTHH` (`--no-ledger`, single run, load 2.6): rc 0,
+body `500f5dddce63` = the F1+F2 replay; `OTHH.rebake.json` sha `8e24e55b3f68`
+= main's. PATCH BUILD **410.8 s** (bar 660), harness wall 414.3 s.
+
+| phase (s) | load | partition | classify | planar | constraints | solve | late_stage | emit | verify | total |
+|---|---|---|---|---|---|---|---|---|---|---|
+| main `sw6_OTHH` | 25.0 | 129.4 | 45.8 | 93.0 | 37.8 | 78.0 | — | 9.2 | 10.6 | 435.3 |
+| `surf337_OTHH` | 23.7 | 126.8 | 48.1 | 92.1 | 37.8 | 78.3 | 75.2 | 10.1 | 11.1 | 510.0 |
+| `surf337b_OTHH` | 23.7 | 6.6 | 50.8 | 107.6 | 38.6 | 79.4 | 75.6 | 10.2 | 11.1 | 410.8 |
+
+The partition cache HIT here (6.6 s; the two others re-read the pack) — net of
+partition 404.2 s vs main's 305.9 s: late stage +75.6, planar +14.6 (single
+run), classify +5.0.
+
+CENSUS (closing body) vs main by family: CRITICAL motion 0 / 0; CRITICAL visual
+2,062 / 1,846 — `hairline_pair` 2,040 / 1,828 (+212: groundside +175 of which
+`groundside_pavement|groundside_pavement` +143; `apron|apron` +11, `?|?` +8,
+`apron|groundside_pavement` +12, roads +36), `terrace_actual_step` 4 / 0,
+`ramp_in_strip` 6 / 6, `within_shape` 12 / 12; in view by: cliff 22 / 18,
+unmeshable 2,040 / 1,828, approach 0 / 0, runway 0 / 0. `within_shape` 374 / 374;
+`groundside_cutback` 26 / 25.
+
+OWNER SITES BY COORDINATE (`tools/osm_site.py`, every way within 25 m, main
+`sw6_OTHH.osm` vs the closing build; "same" = node count and altitude span):
+
+| site | main | branch |
+|---|---|---|
+| #453 25.2559273, 51.6083381 | 4 ways | the same 4, nothing new |
+| #454 25.2792668, 51.6001421 | 2 ways | the same 2, nothing new |
+| #455 25.2762962, 51.5920062 | 2 ways | the same 2, nothing new |
+| #450 25.2542342, 51.6213069 | 7 ways | the same 7 + `gap:2/s0` (240 nodes, 3.61..4.16, 9.7 m away), `gap:2/s4` (3.96..3.99, 4.3 m), `gap:2/s4#1`, `#2` (3.89..3.96, 3.8 m), `gap:2/s8`, `#1` (3.96) and their interior ring |
+| #450 25.253661, 51.6208155 | none | none |
+| #451 25.2536839, 51.6231506 | 3 ways | 2 the same; `basin_wall:5` rim 31 → 34 nodes, all 3.96; new `gapapron:6` (59 nodes, flat 3.96, 8 m) |
+| #451 25.2539056, 51.6221564 | 2 ways | the same 2 + one gap interior ring (14 nodes, 3.96, 11 m) |
+| #451 25.2963819, 51.6065055 | 2 ways | the same 2 (`basin_wall:3` rim back to main's) + `gap:1/s4` (36 nodes, flat 3.96, 11 m), `gap:1/s4#1` (3.96), `gap:1/s1` (3.91..3.97, 22 m) |
+| terminal 25.259994, 51.6104872 | 9 ways | 8 the same; `pav4` 163 → 168 nodes, flat 3.96; new `gapapron:25` (12 nodes, 3.96, 14.5 m) |
+| 04-Oct cliff 25.25535, 51.62062 | 8 ways at 3.96 | the same 8, nothing new |
+
+THE FIVE LARGEST PIECES (capture's class table; m² after the collar in the build):
+`gap:0` 155,095 m², road by evidence (touches an apron), 25.2840197, 51.6000389;
+`gap:1` 61,497 m² (61,702 before the collar), late road piece, 25.2768965, 51.6196906;
+`gap:2` 51,287 m² (51,751), road by evidence, 25.2529797, 51.6206082;
+`gap:3` 50,666 m², road by evidence, 25.2581967, 51.6193267;
+`gap:4` 35,982 m², late road piece, 25.2671451, 51.5908223.
+Largest APRON part: `gapapron:0` 12,758 m², 25.2787749, 51.6041032.
+131 pieces, 732,231 m² (732,999 before the collar).
+
+NO-OP BODIES (fresh captures on this tree, `--from classify --emit`):
+CYXY `cf8e9e89ec62` = main's `swga_CYXY`; KASE (naturally sheet-free: source 9
+/ sheet 0 / refused 25) `f9b157158a39` = main's `swga_KASE`.

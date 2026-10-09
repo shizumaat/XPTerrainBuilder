@@ -24,14 +24,14 @@ WALL_BOTTOM = "wall_bottom"
 class Door:
     """Law A — the DOOR RAMP (spec §2): where a below-grade floor plate
     reaches the object's exterior face, a trench of the sill's width from
-    the sill up to grade at ``ramp_grade``, outside the building along
-    the face's outward normal."""
+    the sill at the face up to grade at the well's outer end.  The ramp is
+    FRAMED BY THE WELL (owner RULINGS 2026-10-07e): length and depth are
+    the object's, and no grade key exists."""
 
     sill_min_depth_m: float      # the door's own gate, separate from basin.admission_depth_m
     sill_min_width_m: float      # narrower is a drain, not a door
     sill_max_width_m: float      # wider is a service yard / a parking pit, not a door (spawner 2026-09-08j; the owner's doors are 3.7-5.7 m)
     exit_max_fraction: float     # the side opposite the face may run along the building over at most this share of its length (else enclosed)
-    ramp_grade: float            # the climb beyond the well (the owner's "small ramp")
     max_length_m: float          # a climb longer than this is refused loudly
     station_m: float             # ramp station spacing (the climb's ring vertices)
     seat: str                    # "none": the door family never re-seats (spec §2)
@@ -58,9 +58,9 @@ class WallCorridor:
     """Law C — the WALL-BOTTOM FLOOR corridor (RULINGS 2026-09-08m/08n;
     spec §6): two parallel kerb-wall bands of one anchor family with no
     floor; the floor is the walls' bottom per station (level, or a
-    descending garage ramp cut as authored); an open end ramps at
-    ``ramp_grade``, steepening to ``max_ramp_grade`` where airside
-    pavement stops it."""
+    descending garage ramp cut as authored); the ramp runs the walls'
+    length at the grade their length and depth give — no cap (owner
+    RULINGS 2026-10-07b (2), 07e)."""
 
     mouth_depth: str             # "wall_bottom": the only generated datum
     min_wall_depth_m: float      # a band reaches this far under the ground
@@ -77,17 +77,8 @@ class WallCorridor:
     corridor_floor_slab_cover_min: float        # (ii): ...over this share of the corridor's length
     max_wall_height_m: float     # #12: a band whose OWN component rises past this above the zero is a building/bridge wall (foundations), not a kerb
     min_headroom_m: float        # the lowest near-horizontal face over the corridor above its floor
-    ramp_grade: float            # the synthetic climb beyond a mouth
-    max_ramp_grade: float        # ...steepened up to this at an airside stop (= the wall_corridor_ramp cap)
     max_authored_grade: float    # a descending wall bottom steeper than this is refused (= the garage_ramp cap)
-    station_m: float             # ramp station spacing beyond the walls
-    # §34 (9) (4) (owner RULINGS 2026-09-14aq): THE ROAD EDGE IS THE PAINTED
-    # LINE.  A pinched ramp ends at a `markings` draped line running along
-    # the road within `road_edge_line_reach_m` of the road face's edge and
-    # within `road_edge_line_parallel_deg` of its direction; without one the
-    # face edge stands.
-    road_edge_line_reach_m: float
-    road_edge_line_parallel_deg: float
+    station_m: float             # ramp station spacing
     seat: str                    # "none": the family never re-seats
 
 
@@ -109,23 +100,16 @@ class Cutout:
     wall_corridor: WallCorridor
 
 
-def check_cutout(co: Cutout, door_cap: float | None, err: type[Exception],
-                 wall_corridor_cap: float | None = None, garage_cap: float | None = None
-                 ) -> None:
-    """The cross-file rules of the two ramp laws: the seat law is the only
-    generated value; a door ramp's design grade never exceeds the
-    ``door_ramp`` role's own longitudinal cap (``rulesets.toml
-    [common.roles]`` — the cap both instruments price)."""
+def check_cutout(co: Cutout, err: type[Exception], garage_cap: float | None = None) -> None:
+    """The cross-file rules of the ramp laws: the seat law is the only
+    generated value; a garage ramp's sanity cap is its role's.  (A door
+    ramp and a wall-corridor ramp carry no grade law: the framing object
+    gives it — owner RULINGS 2026-10-07e.)"""
     if co.door.seat != SEAT_NONE:
         raise err(f"structures.cutout.door.seat {co.door.seat!r}: only {SEAT_NONE!r} is generated")
     if co.sunken_road.seat != SEAT_NONE:
         raise err(f"structures.cutout.sunken_road.seat {co.sunken_road.seat!r}: only "
                   f"{SEAT_NONE!r} is generated")
-    if door_cap is None:
-        raise err("rulesets.common.roles.door_ramp: the door ramp role carries no cap")
-    if co.door.ramp_grade > door_cap:
-        raise err(f"structures.cutout.door.ramp_grade {co.door.ramp_grade} exceeds the door_ramp "
-                  f"role's longitudinal cap {door_cap}")
     if co.door.sill_min_depth_m <= 0.0 or co.door.max_length_m <= 0.0 or co.door.station_m <= 0.0:
         raise err("structures.cutout.door: sill_min_depth_m / max_length_m / station_m must be > 0")
     if co.sunken_road.max_depth_m <= 0.0 or co.sunken_road.station_m <= 0.0:
@@ -136,16 +120,11 @@ def check_cutout(co: Cutout, door_cap: float | None, err: type[Exception],
     if wc.mouth_depth != WALL_BOTTOM:
         raise err(f"structures.cutout.wall_corridor.mouth_depth {wc.mouth_depth!r}: only "
                   f"{WALL_BOTTOM!r} is generated (RULINGS 2026-09-08m/08n)")
-    if wall_corridor_cap is None or garage_cap is None:
-        raise err("rulesets.common.roles: wall_corridor_ramp / garage_ramp carry no cap")
-    if wc.max_ramp_grade != wall_corridor_cap:
-        raise err(f"structures.cutout.wall_corridor.max_ramp_grade {wc.max_ramp_grade} is not the "
-                  f"wall_corridor_ramp role's longitudinal cap {wall_corridor_cap}")
+    if garage_cap is None:
+        raise err("rulesets.common.roles: garage_ramp carries no cap")
     if wc.max_authored_grade != garage_cap:
         raise err(f"structures.cutout.wall_corridor.max_authored_grade {wc.max_authored_grade} is "
                   f"not the garage_ramp role's longitudinal cap {garage_cap}")
-    if not (0.0 < wc.ramp_grade <= wc.max_ramp_grade):
-        raise err("structures.cutout.wall_corridor: 0 < ramp_grade <= max_ramp_grade")
     if not (0.0 < wc.min_width_m < wc.max_width_m) or wc.min_wall_depth_m <= 0.0 \
             or wc.min_wall_length_m <= 0.0 or wc.station_m <= 0.0 or wc.min_headroom_m <= 0.0 \
             or wc.merge_gap_m < 0.0:

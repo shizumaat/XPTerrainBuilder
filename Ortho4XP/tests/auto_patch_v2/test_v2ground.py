@@ -14,6 +14,7 @@ import pytest
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.constraints import GENERATORS, ceiling, generate
 from auto_patch_v2.law import Law
+from auto_patch_v2.law.tables import role_cap
 from auto_patch_v2.model.constraints import Diff, Linear, Source
 from auto_patch_v2.solve import solve_design
 from auto_patch_v2.solve.design import (DesignReport, assemble, is_hard,
@@ -245,7 +246,10 @@ def test_the_pavement_does_not_feel_the_ground_it_shapes(taxi_map, law):  # noqa
 def test_the_ceiling_is_a_law_value_and_a_hard_ruling(law):  # noqa: F811
     common = law.tables.common
     assert common.pavement_max_grade == pytest.approx(0.05)
-    assert common.road_max_grade == pytest.approx(0.08)
+    # the road cap is its own law value, over the pavement ceiling (07d)
+    assert common.road_max_grade > common.pavement_max_grade
+    assert common.road_max_grade == pytest.approx(
+        role_cap(law, "service_road").longitudinal)
     heads = law.tables.emit.design.hard_rulings
     assert ruling_head(Diff(0, 1, 0.05, 1.0, Source(ceiling.GEN, ceiling.RULING, ()))) \
         in heads
@@ -260,7 +264,7 @@ def test_the_ceiling_is_not_a_registered_generator_but_a_post_pass():
 
 def test_a_pavement_pair_the_sheet_would_grade_at_seven_per_cent_is_held(law):  # noqa: F811
     """A pavement over a 7 % cross slope: the ceiling twin caps every
-    local pair at 5 %, a free road at 8 %."""
+    local pair at 5 %, a free road at the road cap."""
     airport, r = _airport(law, _SlopeDem(), ())
     cells = (
         Cell(0, "runway", "09/27", _rect(r, -RUN_LEN / 2, -HALF_WIDTH, RUN_LEN / 2,
@@ -287,7 +291,7 @@ def test_a_pavement_pair_the_sheet_would_grade_at_seven_per_cent_is_held(law):  
     # every ceiling row is at one of the two law values
     for r_ in caps:
         if isinstance(r_, Diff):
-            assert round(r_.cap, 3) in (0.05, 0.08)
+            assert round(r_.cap, 3) in (0.05, round(law.tables.common.road_max_grade, 3))
 
     sol, rep = solve_design(pm, cs, law)
     z = np.asarray(sol.z, float)

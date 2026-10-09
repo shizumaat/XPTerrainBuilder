@@ -1,0 +1,256 @@
+== OTHH Doha (A +25+051.dsf.text
+  OBJECT     tunnel south west 2.obj    51.603115702 25.253681716 None
+  OBJECT     tunnel west 3.obj          51.600160697 25.279137102 None
+  OBJECT     tunnel west 2.obj          51.591816873 25.276137751 None
+  OBJECT     tunnel west 1.obj          51.593229286 25.276646544 None
+  OBJECT     tunnel_sw.obj              51.608301385 25.255816072 None
+  OBJECT     tunnel1.obj                51.612639239 25.271838045 None
+  OBJECT     tunnel1.obj                51.606101225 25.269465267 None
+== OTHH Doha (A +25+051.dsf.e9df4ffc.text
+  OBJECT     tunnel south west 2.obj    51.603115702 25.253681716 None
+  OBJECT     tunnel west 3.obj          51.600160697 25.279137102 None
+  OBJECT     tunnel west 2.obj          51.591816873 25.276137751 None
+  OBJECT     tunnel west 1.obj          51.593229286 25.276646544 None
+  OBJECT     tunnel_sw.obj              51.608301385 25.255816072 None
+  OBJECT     tunnel1.obj                51.612639239 25.271838045 None
+  OBJECT     tunnel1.obj                51.606101225 25.269465267 None
+== OTHH Doha (A +25+051.dsf.anchor_bak.84ffe846.text
+  OBJECT_AGL tunnel south west 2.obj    51.603116178 25.253681716 -8.0
+  OBJECT_AGL tunnel west 3.obj          51.600161173 25.279137579 -3.001297017
+  OBJECT_AGL tunnel west 2.obj          51.591816873 25.276137751 -3.001297017
+  OBJECT_AGL tunnel west 1.obj          51.593229286 25.276646544 -3.001297017
+  OBJECT_AGL tunnel_sw.obj              51.608301385 25.255816072 -3.001297017
+  OBJECT_AGL tunnel1.obj                51.612639239 25.271838045 -7.000259403
+  OBJECT_AGL tunnel1.obj                51.606101225 25.269465267 -7.000259403
+== OTHH Doha (A +25+051.dsf.360a23c0.text
+  OBJECT     tunnel south west 2.obj    51.603115702 25.253681716 None
+  OBJECT     tunnel west 3.obj          51.600160697 25.279137102 None
+  OBJECT     tunnel west 2.obj          51.591816873 25.276137751 None
+  OBJECT     tunnel west 1.obj          51.593229286 25.276646544 None
+  OBJECT     tunnel_sw.obj              51.608301385 25.255816072 None
+  OBJECT     tunnel1.obj                51.612639239 25.271838045 None
+  OBJECT     tunnel1.obj                51.606101225 25.269465267 None
+== OTHH Doha (A +25+051.dsf.24ace647.text
+  OBJECT     tunnel south west 2.obj    51.603115702 25.253681716 None
+  OBJECT     tunnel1.obj                51.612639239 25.271838045 None
+  OBJECT     tunnel1.obj                51.606101225 25.269465267 None
+  OBJECT     tunnel_sw__b0.obj          51.608253223 25.255963416 None
+  OBJECT     tunnel west 2__b0.obj      51.591747730 25.276318475 None
+  OBJECT     tunnel west 1__b0.obj      51.593058099 25.276580262 None
+  OBJECT     tunnel west 3__b0.obj      51.600221256 25.278982128 None
+== OTHH Doha (A +25+051.dsf.d4ab5e36.text
+  OBJECT     tunnel south west 2__b0.obj 51.602840562 25.253607805 None
+  OBJECT     tunnel_sw__b0.obj          51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0.obj            51.612886721 25.272570478 None
+  OBJECT     tunnel1__b0.obj            51.605153735 25.269743744 None
+  OBJECT     tunnel west 2__b0.obj      51.591401064 25.275758183 None
+  OBJECT     tunnel west 1__b0.obj      51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0.obj      51.601415751 25.279416533 None
+== OTHH Doha (A +25+051.dsf.a2a7845d.text
+  OBJECT     tunnel south west 2__b0.obj 51.602840562 25.253607805 None
+  OBJECT     tunnel_sw__b0.obj          51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0.obj            51.612886721 25.272570478 None
+  OBJECT     tunnel1__b0.obj            51.605290589 25.269691291 None
+  OBJECT     tunnel west 2__b0.obj      51.591401064 25.275758183 None
+  OBJECT     tunnel west 1__b0.obj      51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0.obj      51.601415751 25.279416533 None
+== OTHH Doha (A +25+051.dsf.5766fe15.text
+  OBJECT     tunnel south west 2__b0.obj 51.602840562 25.253607805 None
+  OBJECT     tunnel_sw__b0.obj          51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0.obj            51.612886721 25.272570478 None
+  OBJECT     tunnel1__b0.obj            51.606863222 25.269255932 None
+  OBJECT     tunnel west 2__b0.obj      51.591446841 25.275774872 None
+  OBJECT     tunnel west 1__b0.obj      51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0.obj      51.601415751 25.279416533 None
+== OTHH Doha (A +25+051.dsf.36e7e292.text
+  OBJECT     tunnel south west 2__b0.obj 51.602883001 25.253735599 None
+  OBJECT     tunnel_sw__b0.obj          51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0.obj            51.612886721 25.272570478 None
+  OBJECT     tunnel1__b0.obj            51.605679217 25.269718471 None
+  OBJECT     tunnel west 2__b0.obj      51.591263733 25.275705730 None
+  OBJECT     tunnel west 1__b0.obj      51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0.obj      51.599386301 25.279061761 None
+== OTHH Doha (A +25+051.dsf.55d38455.text
+  OBJECT     tunnel south west 2__b0.obj 51.602883001 25.253735599 None
+  OBJECT     tunnel_sw__b0.obj          51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0.obj            51.612886721 25.272570478 None
+  OBJECT     tunnel1__b0.obj            51.605679217 25.269718471 None
+  OBJECT     tunnel west 2__b0.obj      51.591263733 25.275705730 None
+  OBJECT     tunnel west 1__b0.obj      51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0.obj      51.599386301 25.279061761 None
+== OTHH Doha (A +25+051.dsf.42b97677.text
+  OBJECT     tunnel south west 2__b0_c45d8247.obj 51.602883001 25.253735599 None
+  OBJECT     tunnel_sw__b0_00ce18c9.obj 51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0_8b16464a.obj   51.605679217 25.269718471 None
+  OBJECT     tunnel1__b0_d0c69da2.obj   51.612744144 25.271851873 None
+  OBJECT     tunnel west 2__b0_c6b1336b.obj 51.591263733 25.275705730 None
+  OBJECT     tunnel west 1__b0_ba641a0d.obj 51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0_2cb18b07.obj 51.599386301 25.279061761 None
+== OTHH Doha (A +25+051.dsf.615610e2.text
+  OBJECT     tunnel south west 2__b0_c45d8247.obj 51.602883001 25.253735599 None
+  OBJECT     tunnel_sw__b0_00ce18c9.obj 51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0_8b16464a.obj   51.605679217 25.269718471 None
+  OBJECT     tunnel1__b0_4850a996.obj   51.612264439 25.271243420 None
+  OBJECT     tunnel west 2__b0_c6b1336b.obj 51.591263733 25.275705730 None
+  OBJECT     tunnel west 1__b0_ba641a0d.obj 51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0_2cb18b07.obj 51.599386301 25.279061761 None
+== OTHH Doha (A +25+051.dsf.4805c864.text
+  OBJECT     tunnel south west 2__b0_c45d8247.obj 51.602883001 25.253735599 None
+  OBJECT     tunnel_sw__b0_00ce18c9.obj 51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0_8b16464a.obj   51.605679217 25.269718471 None
+  OBJECT     tunnel1__b0_4850a996.obj   51.612264439 25.271243420 None
+  OBJECT     tunnel west 2__b0_c6b1336b.obj 51.591263733 25.275705730 None
+  OBJECT     tunnel west 1__b0_ba641a0d.obj 51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0_2cb18b07.obj 51.599386301 25.279061761 None
+== OTHH Doha (A +25+051.dsf.84ffe846.text
+  OBJECT_AGL tunnel south west 2.obj    51.603116178 25.253681716 -8.0
+  OBJECT_AGL tunnel west 3.obj          51.600161173 25.279137579 -3.001297017
+  OBJECT_AGL tunnel west 2.obj          51.591816873 25.276137751 -3.001297017
+  OBJECT_AGL tunnel west 1.obj          51.593229286 25.276646544 -3.001297017
+  OBJECT_AGL tunnel_sw.obj              51.608301385 25.255816072 -3.001297017
+  OBJECT_AGL tunnel1.obj                51.612639239 25.271838045 -7.000259403
+  OBJECT_AGL tunnel1.obj                51.606101225 25.269465267 -7.000259403
+== OTHH Doha (A +25+051.dsf.0c0172c1.text
+  OBJECT     tunnel south west 2__b0_c45d8247.obj 51.602883001 25.253735599 None
+  OBJECT     tunnel_sw__b0_00ce18c9.obj 51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0_8b16464a.obj   51.605679217 25.269718471 None
+  OBJECT     tunnel1__b0_4850a996.obj   51.612264439 25.271243420 None
+  OBJECT     tunnel west 2__b0_c6b1336b.obj 51.591263733 25.275705730 None
+  OBJECT     tunnel west 1__b0_ba641a0d.obj 51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0_2cb18b07.obj 51.599386301 25.279061761 None
+== OTHH Doha (A +25+051.dsf.a3d7ed96.text
+  OBJECT     tunnel south west 2__b0_c45d8247.obj 51.602883001 25.253735599 None
+  OBJECT     tunnel_sw__b0_00ce18c9.obj 51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0_8b16464a.obj   51.605679217 25.269718471 None
+  OBJECT     tunnel1__b0_4850a996.obj   51.612264439 25.271243420 None
+  OBJECT     tunnel west 2__b0_c6b1336b.obj 51.591263733 25.275705730 None
+  OBJECT     tunnel west 1__b0_ba641a0d.obj 51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0_2cb18b07.obj 51.599386301 25.279061761 None
+== OTHH Doha (A +25+051.dsf.93b37ffd.text
+  OBJECT     tunnel south west 2__b0_c45d8247.obj 51.602883001 25.253735599 None
+  OBJECT     tunnel_sw__b0_00ce18c9.obj 51.607976654 25.255674926 None
+  OBJECT     tunnel1__b0_8b16464a.obj   51.605679217 25.269718471 None
+  OBJECT     tunnel1__b0_4850a996.obj   51.612264439 25.271243420 None
+  OBJECT     tunnel west 2__b0_c6b1336b.obj 51.591263733 25.275705730 None
+  OBJECT     tunnel west 1__b0_ba641a0d.obj 51.593026150 25.276621748 None
+  OBJECT     tunnel west 3__b0_2cb18b07.obj 51.599386301 25.279061761 None
+== Aeroscape OT +25+051.dsf.7adb2cb0.text
+  OBJECT_AGL tunnel south west 2.obj    51.603116178 25.253681716 -5.500236515
+  OBJECT_AGL tunnel west 3.obj          51.600161173 25.279137579 0.999496452
+  OBJECT_AGL tunnel west 2.obj          51.591816873 25.276137751 -3.0518e-05
+  OBJECT_AGL tunnel west 1.obj          51.593229286 25.276646544 2.498786908
+  OBJECT_AGL tunnel_sw.obj              51.608301385 25.255816072 -3.0518e-05
+  OBJECT_AGL tunnel1.obj                51.612644961 25.271830415 -5.00047303
+  OBJECT_AGL tunnel1.obj                51.606093595 25.269458114 -5.00047303
+== Aeroscape OT +25+051.dsf.3781af69.text
+  OBJECT     tunnel west 3.obj          51.600160697 25.279137102 None
+  OBJECT     tunnel west 1.obj          51.593229286 25.276646544 None
+  OBJECT     tunnel south west 2__b0_70552f96.obj 51.602844854 25.253610189 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_58543ff8.obj   51.605003052 25.269800488 None
+  OBJECT     tunnel1__b0_3ec24de1.obj   51.612381743 25.271471828 None
+  OBJECT     tunnel west 2__b0_ae64679a.obj 51.591663329 25.276192111 None
+== Aeroscape OT +25+051.dsf.anchor_bak.7adb2cb0.text
+  OBJECT_AGL tunnel south west 2.obj    51.603116178 25.253681716 -5.500236515
+  OBJECT_AGL tunnel west 3.obj          51.600161173 25.279137579 0.999496452
+  OBJECT_AGL tunnel west 2.obj          51.591816873 25.276137751 -3.0518e-05
+  OBJECT_AGL tunnel west 1.obj          51.593229286 25.276646544 2.498786908
+  OBJECT_AGL tunnel_sw.obj              51.608301385 25.255816072 -3.0518e-05
+  OBJECT_AGL tunnel1.obj                51.612644961 25.271830415 -5.00047303
+  OBJECT_AGL tunnel1.obj                51.606093595 25.269458114 -5.00047303
+== Aeroscape OT +25+051.dsf.9c4d5d28.text
+  OBJECT     tunnel west 2.obj          51.591816873 25.276137751 None
+  OBJECT     tunnel south west 2__b0_ff4b7e3d.obj 51.603677424 25.254042210 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_64b78992.obj   51.606365396 25.269264515 None
+  OBJECT     tunnel1__b0_b2ff2e21.obj   51.612968738 25.272317750 None
+  OBJECT     tunnel west 1__b0_bf926edd.obj 51.593489166 25.276530194 None
+  OBJECT     tunnel west 3__b0_8998db33.obj 51.599555581 25.278740368 None
+== Aeroscape OT +25+051.dsf.4b56f473.text
+  OBJECT     tunnel west 2.obj          51.591816873 25.276137751 None
+  OBJECT     tunnel south west 2__b0_ff4b7e3d.obj 51.603677424 25.254042210 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_64b78992.obj   51.606365396 25.269264515 None
+  OBJECT     tunnel1__b0_d1f583b0.obj   51.612264916 25.271223392 None
+  OBJECT     tunnel west 1__b0_bf926edd.obj 51.593489166 25.276530194 None
+  OBJECT     tunnel west 3__b0_8998db33.obj 51.599555581 25.278740368 None
+== Aeroscape OT +25+051.dsf.79e1c5d0.text
+  OBJECT     tunnel west 2.obj          51.591816873 25.276137751 None
+  OBJECT     tunnel south west 2__b0_ff4b7e3d.obj 51.603677424 25.254042210 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_11336732.obj   51.606632906 25.269331750 None
+  OBJECT     tunnel1__b0_74d163de.obj   51.612614920 25.271968223 None
+  OBJECT     tunnel west 1__b0_bf926edd.obj 51.593489166 25.276530194 None
+  OBJECT     tunnel west 3__b0_8998db33.obj 51.599555581 25.278740368 None
+== Aeroscape OT +25+051.dsf.a1a18ea5.text
+  OBJECT     tunnel west 2.obj          51.591816873 25.276137751 None
+  OBJECT     tunnel south west 2__b0_ff4b7e3d.obj 51.603677424 25.254042210 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_ddaf78e3.obj   51.605633917 25.269724670 None
+  OBJECT     tunnel1__b0_5c3a3d6c.obj   51.612871462 25.272111276 None
+  OBJECT     tunnel west 1__b0_bf926edd.obj 51.593489166 25.276530194 None
+  OBJECT     tunnel west 3__b0_8998db33.obj 51.599555581 25.278740368 None
+== Aeroscape OT +25+051.dsf.4f0a32c6.text
+  OBJECT     tunnel west 2.obj          51.591816873 25.276137751 None
+  OBJECT     tunnel south west 2__b0_ff4b7e3d.obj 51.603677424 25.254042210 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_feb0dda6.obj   51.605860895 25.269635500 None
+  OBJECT     tunnel1__b0_52a4e96c.obj   51.612654021 25.272050717 None
+  OBJECT     tunnel west 1__b0_bf926edd.obj 51.593489166 25.276530194 None
+  OBJECT     tunnel west 3__b0_8998db33.obj 51.599555581 25.278740368 None
+== Aeroscape OT +25+051.dsf.4229c95f.text
+  OBJECT_AGL tunnel south west 2.obj    51.603116178 25.253681716 -5.500236515
+  OBJECT_AGL tunnel west 3.obj          51.600161173 25.279137579 0.999496452
+  OBJECT_AGL tunnel west 2.obj          51.591816873 25.276137751 -3.0518e-05
+  OBJECT_AGL tunnel west 1.obj          51.593229286 25.276646544 2.498786908
+  OBJECT_AGL tunnel_sw.obj              51.608301385 25.255816072 -3.0518e-05
+  OBJECT_AGL tunnel1.obj                51.612644961 25.271830415 -5.00047303
+  OBJECT_AGL tunnel1.obj                51.606096456 25.269456207 -5.00047303
+== Aeroscape OT +25+051.dsf.904b7cc3.text
+  OBJECT     tunnel west 3.obj          51.600160697 25.279137102 None
+  OBJECT     tunnel west 1.obj          51.593229286 25.276646544 None
+  OBJECT     tunnel south west 2__b0_0fe81430.obj 51.602857729 25.253655966 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_71ffd1ca.obj   51.605295834 25.269682231 None
+  OBJECT     tunnel1__b0_5aed1974.obj   51.612637331 25.272020676 None
+  OBJECT     tunnel west 2__b0_ae64679a.obj 51.591663329 25.276192111 None
+== Aeroscape OT +25+051.dsf.anchor_bak.4229c95f.text
+  OBJECT_AGL tunnel south west 2.obj    51.603116178 25.253681716 -5.500236515
+  OBJECT_AGL tunnel west 3.obj          51.600161173 25.279137579 0.999496452
+  OBJECT_AGL tunnel west 2.obj          51.591816873 25.276137751 -3.0518e-05
+  OBJECT_AGL tunnel west 1.obj          51.593229286 25.276646544 2.498786908
+  OBJECT_AGL tunnel_sw.obj              51.608301385 25.255816072 -3.0518e-05
+  OBJECT_AGL tunnel1.obj                51.612644961 25.271830415 -5.00047303
+  OBJECT_AGL tunnel1.obj                51.606096456 25.269456207 -5.00047303
+== Aeroscape OT +25+051.dsf.23d0e299.text
+  OBJECT     tunnel west 3.obj          51.600160697 25.279137102 None
+  OBJECT     tunnel west 1.obj          51.593229286 25.276646544 None
+  OBJECT     tunnel south west 2__b0_0fe81430.obj 51.602857729 25.253655966 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_71ffd1ca.obj   51.605295834 25.269682231 None
+  OBJECT     tunnel1__b0_5aed1974.obj   51.612637331 25.272020676 None
+  OBJECT     tunnel west 2__b0_ae64679a.obj 51.591663329 25.276192111 None
+== Aeroscape OT +25+051.dsf.52748ceb.text
+  OBJECT     tunnel west 3.obj          51.600160697 25.279137102 None
+  OBJECT     tunnel west 1.obj          51.593229286 25.276646544 None
+  OBJECT     tunnel south west 2__b0_0fe81430.obj 51.602857729 25.253655966 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_71ffd1ca.obj   51.605295834 25.269682231 None
+  OBJECT     tunnel1__b0_5aed1974.obj   51.612637331 25.272020676 None
+  OBJECT     tunnel west 2__b0_ae64679a.obj 51.591663329 25.276192111 None
+== Aeroscape OT +25+051.dsf.1b7cc78d.text
+  OBJECT     tunnel west 3.obj          51.600160697 25.279137102 None
+  OBJECT     tunnel west 1.obj          51.593229286 25.276646544 None
+  OBJECT     tunnel south west 2__b0_0fe81430.obj 51.602857729 25.253655966 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_71ffd1ca.obj   51.605295834 25.269682231 None
+  OBJECT     tunnel1__b0_5aed1974.obj   51.612637331 25.272020676 None
+  OBJECT     tunnel west 2__b0_ae64679a.obj 51.591663329 25.276192111 None
+== Aeroscape OT +25+051.dsf.0dd541a6.text
+  OBJECT     tunnel west 3.obj          51.600160697 25.279137102 None
+  OBJECT     tunnel west 1.obj          51.593229286 25.276646544 None
+  OBJECT     tunnel south west 2__b0_0fe81430.obj 51.602857729 25.253655966 None
+  OBJECT     tunnel_sw__b0_86203e2a.obj 51.608328088 25.255940528 None
+  OBJECT     tunnel1__b0_71ffd1ca.obj   51.605295834 25.269682231 None
+  OBJECT     tunnel1__b0_5aed1974.obj   51.612637331 25.272020676 None
+  OBJECT     tunnel west 2__b0_ae64679a.obj 51.591663329 25.276192111 None

@@ -278,6 +278,12 @@ class Tunnel:
     #: OUTSIDE the walls' inner faces (the 05n-2 assertion, expect 0).
     reseat_expect_m: tuple[float, ...] = ()
     trench_outside_max_m: float = 0.0
+    #: AUTHORED TO THE CUT (object-placement spec §18 (3)): per placement
+    #: of ``objects``, the crest plate's height over the surrounding grade
+    #: with the AUTHORED seat — ``(h_cut, h_uncut)``: on the terrain this
+    #: corridor cuts under the anchor, and on uncut ground
+    #: (``planar/structure_geometry.authored_crest``).
+    authored_crest_m: tuple[tuple[float, float], ...] = ()
     #: THE OBJECT'S FOOTPRINT (RULINGS 2026-09-08d c): the walls' plan
     #: union (their OUTER faces) as a ring in frame xy — the plate seat's
     #: stations stand outside it by the identity spacing, whichever side
@@ -515,6 +521,13 @@ class Basin:
     #: one coordinate system both sides agree on.
     ramp_rings_ll: tuple[tuple[tuple[float, float], ...], ...] = ()
     ramp_faces_ll: tuple[tuple[tuple[float, float, float], ...], ...] = ()
+    #: AUTHORED TO THE CUT (object-placement spec §18 (3)): the witness's
+    #: RIM over the ring's ground with the AUTHORED seat (``agl_m``) on the
+    #: terrain the floor row cuts under its anchor.  Within ``[basin]
+    #: authored_rim_tol_m`` the seat is the author's and is kept
+    #: (``pipeline/authored_seats``).  ``None`` for a PLAIN pit (no lift:
+    #: the author stated no seat, the floor-plate seat governs as before).
+    rim_cut_m: float | None = None
 
     def deck_z_at(self, x: float, y: float) -> float | None:
         """This basin's ramp deck elevation over ``(x, y)``, or ``None``

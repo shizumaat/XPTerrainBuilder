@@ -15,6 +15,7 @@ Law values are read from the tables inside the tests, never retyped.
 from __future__ import annotations
 
 import json
+from dataclasses import replace as _dc_replace
 import math
 
 import pytest
@@ -396,6 +397,77 @@ def test_wall_too_short_ramp_beyond_at_ramp_max_grade(objs, law):
     assert need <= t.top_s <= need + 2.0 * spacing
     # the ramp beyond the walls runs down the approach way (x = 0)
     assert all(abs(x) < 0.5 for x, y in t.axis)
+
+
+# ── RULINGS 2026-10-07a (7)-(9): a wall seated AT GRADE, by its bore ────
+
+def test_wall_at_grade_with_a_bore_at_its_plate_is_admitted(objs, law):
+    """The seat is the author's handle (06f / 08o): a full-signature wall
+    seated AT grade (AGL 0, +1) with a mapped bore ending inside its walls
+    is the bore's mouth — the bore law's depth, the ramp the full length of
+    the wall, the OSM mouth paired with it (never a second ramp)."""
+    tn = law.tables.structures.tunnel
+    dem = _PlaneDem()
+    for agl in (0.0, 1.0):
+        airport, objects, cache, cs, st = _corridors(
+            objs, law, [("wall_long", (0.0, 0.0), 180.0, agl, "OBJECT_AGL")],
+            _bore(y_in=-70.0, y_open=80.0))
+        assert st.corridors == 1, st.refused
+        assert not [r for r in st.refused if "at grade" in r], st.refused
+        c = cs[0]
+        assert c.mouth_kind == "bore" and c.bore_ways == (-101,) and c.agl_m == agl
+        assert c.depth_m == pytest.approx(tn.bore_datum_m)
+        assert c.floor_z == pytest.approx(dem.z(*c.axis[0]) - tn.bore_datum_m)
+        assert any("at grade, admitted by its bore" in n for n in c.notes)
+        cl = Classification(tuple(_cells(-200, -300, 200, 200)), (), {}, ())
+        cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
+        assert not sst.refused, sst.refused
+        t = [t for t in tunnels if t.source == "object"][0]
+        assert t.replaced_ways == (-101,)
+        assert t.top_s == pytest.approx(t.wall_length_m) and t.top_pinned
+        assert t.wall_length_m == pytest.approx(c.length_m)
+        assert t.design_grade == pytest.approx(tn.bore_datum_m / t.wall_length_m)
+
+
+def test_wall_at_grade_is_the_same_corridor_as_the_deep_seat(objs, law):
+    """The seat changes nothing but the seat: the at-grade wall's corridor
+    is the deep-seated one's, station for station."""
+    deep = _corridors(objs, law, [("wall_long", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")],
+                      _bore(y_in=-70.0, y_open=80.0))[3][0]
+    flat = _corridors(objs, law, [("wall_long", (0.0, 0.0), 180.0, 0.0, "OBJECT_AGL")],
+                      _bore(y_in=-70.0, y_open=80.0))[3][0]
+    assert flat.axis == deep.axis and flat.stations == deep.stations
+    assert flat.floor_z == deep.floor_z and flat.trench.equals(deep.trench)
+    assert flat.id == deep.id and deep.agl_m == -3.0 and flat.agl_m == 0.0
+    assert not any("at grade" in n for n in deep.notes)
+
+
+def test_wall_at_grade_with_no_bore_stays_refused(objs, law):
+    """A fence or a compound wall: at grade, no bore — refused with the
+    admission-depth reason; so is one a bore merely passes UNDER, across
+    its walls (no end within the walls, no crossing of either end)."""
+    road = (OsmWay(-202, "big_roads", ((0.0, -300.0), (0.0, 300.0)), False,
+                   {"highway": "secondary", "lanes": "2"}),)
+    beside = (OsmWay(-401, "big_roads", ((-300.0, 0.0), (300.0, 0.0)), False,
+                     {"highway": "secondary", "tunnel": "yes", "lanes": "2"}),)
+    for ways in ((), road, beside):
+        *_rest, cs, st = _corridors(
+            objs, law, [("wall_long", (0.0, 0.0), 180.0, 0.0, "OBJECT_AGL")], ways)
+        assert st.corridors == 0 and not cs
+        hit = [r for r in st.refused if "a wall at grade, not a tunnel floor" in r]
+        assert len(hit) == 1 and "basin.admission_depth_m" in hit[0], st.refused
+
+
+def test_at_grade_sibling_leaves_the_deep_placement_its_index(objs, law):
+    """The deep seats are read first: an at-grade placement of the same
+    resource never re-binds ``@0`` nor enters the family rule."""
+    ways = _bore(y_in=-70.0, y_open=80.0)
+    alone = _corridors(objs, law, [("wall_long", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")], ways)[3]
+    both = _corridors(objs, law, [("wall_long", (-900.0, 0.0), 180.0, 0.0, "OBJECT_AGL"),
+                                  ("wall_long", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")], ways)
+    assert [c.id for c in both[3]] == [c.id for c in alone] and \
+        _dc_replace(both[3][0], objects=alone[0].objects) == alone[0]
+    assert any("a wall at grade" in r for r in both[4].refused)
 
 
 # ── §4: precedence per mouth ─────────────────────────────────────────────

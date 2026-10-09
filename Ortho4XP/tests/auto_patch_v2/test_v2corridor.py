@@ -370,14 +370,12 @@ def test_a_shared_datum_anchor_no_longer_deepens_the_corridor(objs, law):
         assert r.mouth_dem_z == pytest.approx(700.0, abs=0.05)
         assert r.floor_z == pytest.approx(700.0 - 2.6, abs=0.05)
         assert r.depth_m == pytest.approx(2.6, abs=0.05)
-        # the ramp the planner will build beyond the mouth: rise / grade,
-        # plus the mouth allowance the floor overlap adds
-        rise = r.mouth_dem_z - r.floor_z
-        allow = law.tables.structures.cutout.floor_overlap_m
-        assert rise / wc.ramp_grade <= 2.6 / wc.ramp_grade + allow + 1e-6
-        assert rise / wc.ramp_grade < 60.0            # was 212 m (10ad)
+        # the rise the ramp inside the walls carries (RULINGS 2026-10-07b
+        # (2)): the corridor's own depth, never the anchor plane's 8 m
+        assert r.mouth_dem_z - r.floor_z == pytest.approx(2.6, abs=0.05)
     groups = wall_corridor_groups(recs, law)
-    assert len(groups) == 2 and all(g.max_grade == wc.ramp_grade for g in groups)
+    # RULINGS 2026-10-07e: the walls give the grade — no law grade rides the group
+    assert len(groups) == 2 and all(g.max_grade is None for g in groups)
 
 
 def test_an_anchor_at_grade_reads_exactly_as_the_rendered_frame_did(objs, law):

@@ -79,7 +79,7 @@ from ..model.airport import Airport
 from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Source
 from ..model.frame import XY
 from ..model.planar import Face, PlanarMap
-from ..model.structures import UNDERPASS_NOTE, Basin, Tunnel
+from ..model.structures import UNDERPASS_NOTE, Basin, Tunnel, profile_z
 from .precedence import view
 from .geometry import nearest_vertex_of_containing_cell
 
@@ -182,6 +182,36 @@ def ramp_groups(planar: PlanarMap, tn: Tunnel, face: Face
     return groups
 
 
+def framed_plane(planar: PlanarMap, tn: Tunnel, faces: _t.Sequence[Face]
+                 ) -> tuple[dict[int, float], float]:
+    """THE PLANE OF AN OBJECT-FRAMED RAMP (owner RULINGS 2026-10-07e):
+    ``({vertex: z}, s_max)`` over the ramp faces' ring vertices — ONE
+    straight line from the object's depth at s = 0 (the sill; the wall
+    bottom) to the ground at the outermost vertex, read at each vertex's
+    OWN station.
+
+    Not the station groups of :func:`ramp_groups`: those cluster vertices
+    within a metre and tie each cluster level, which on a ramp this steep
+    is a step (a 72 % door ramp: 0.27 m short of the ground at its top).
+    The line ends at the outermost EMITTED vertex, not at ``top_s``, so
+    the identity lattice's rounding of the top chord leaves no lip there;
+    a ramp stopped short of its top (``clipped_by``) keeps the design
+    line."""
+    axis = LineString(tn.axis)
+    s_of = {v: axis.project(Point(planar.vertices[v].xy))
+            for f in faces for v in planar.ring_vertices(f.ring)}
+    if not s_of:
+        return {}, 0.0
+    s_max = max(s_of.values())
+    z0 = profile_z(tn.profile, 0.0) if tn.profile else tn.mouth_z
+    zt = tn.top_ground_z
+    if zt is None or math.isnan(zt):
+        zt = z0 + tn.design_grade * tn.top_s
+    run = s_max if abs(s_max - tn.top_s) <= _STATION_CLUSTER_M else tn.top_s
+    run = max(run, 1e-9)
+    return {v: z0 + (zt - z0) * min(1.0, max(0.0, s / run)) for v, s in s_of.items()}, s_max
+
+
 def _dem_at(airport: Airport, x: float, y: float) -> float:
     return float(airport.dem.z(x, y))
 
@@ -226,13 +256,12 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     #: spec §34 (6) as amended: the design solve's own HELD residual, which
     #: a row targeted AT its cap emits over.
     hard_tol = float(law.tables.emit.design.hard_tol_m)
+    grid = float(law.tables.emit.identity.min_distinct_spacing_m)
     #: spec §33 (4) as amended: a deck end's equality window, and the
     #: identity step that groups the vertices standing AT that end.
     tol_m = float(law.tables.structures.placement.split_tol_m)
     grid_m = float(law.tables.emit.identity.min_distinct_spacing_m)
     pins: dict[int, Pin] = {}
-    co = law.tables.structures.cutout
-    from ..model.structures import profile_z
 
     def pin(v: int, z: float, src: Source, senior: bool = False) -> None:
         if senior or v not in pins:
@@ -272,10 +301,15 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                           inputs)
         src_wall = Source(GEN, "tunnel.crest = dem: the rim at the DEM by station "
                           "(2026-09-03b L1; 2026-09-06b no band)", inputs)
-        # the descent law's cap: a door ramp's own (09-08b/c Law A), else the tunnel's
-        ramp_cap = co.door.ramp_grade if tn.source == "door" else tn_law.ramp_max_grade
-        if tn.source == WALL_CORRIDOR_SOURCE:
-            ramp_cap = co.wall_corridor.max_ramp_grade
+        # the descent law's cap: the tunnel's — save a ramp the pack's own
+        # objects FRAME (a door well, a wall corridor: owner RULINGS
+        # 2026-10-07e), priced at the grade its length and depth give
+        # — and a ramp NOTHING frames (a mapped bore's approach), priced at
+        # the grade it was BUILT at: its design grade, or the steeper one
+        # it needed (2026-10-08c (1): the cap is a ceiling, not the grade)
+        ramp_cap = float(tn.pinched[2]) if tn.pinched else tn_law.ramp_max_grade
+        if not tn.pinched and tn.source == "osm" and tn.design_grade > 0.0:
+            ramp_cap = min(ramp_cap, float(tn.design_grade))
         src_profile = None
         src_bottom = None
         if tn.source == "object":
@@ -291,11 +325,11 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                               "the floor slab or bore_datum_m (2026-09-05n-1; 2026-09-08l)", inputs)
         elif tn.source == "door":
             # THE DOOR RAMP (RULINGS 2026-09-08b/c Law A): the well floor
-            # pinned at the SILL, the climb at cutout.door.ramp_grade, the
+            # pinned at the SILL, the ramp at the grade the well gives (07e), the
             # rim the ground by station inside the well's walls (09-08a)
             inputs = (tn.id, *(f"obj:{o}" for o in tn.objects), tn.resource)
-            src_ramp = Source(GEN, "cutout.door.ramp_grade: the door ramp's descent law "
-                              "(2026-09-08b/c Law A)", inputs)
+            src_ramp = Source(GEN, "cutout.door: the door ramp's own grade — the sill's depth "
+                              "over the well's length (2026-09-08b/c Law A; 2026-10-07e)", inputs)
             src_mouth = Source(GEN, "cutout.door: the well floor = the sill plate "
                               "(2026-09-08b/c Law A)", inputs)
             src_wall = Source(GEN, "cutout.door: the rim at the ground by station inside the "
@@ -303,13 +337,14 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         elif tn.source == WALL_CORRIDOR_SOURCE:
             # THE WALL CORRIDOR (RULINGS 2026-09-08m/08n Law C): inside the
             # walls every station is pinned at the wall BOTTOM (level, or a
-            # garage ramp cut as authored); beyond them the climb descends
-            # at cutout.wall_corridor.max_ramp_grade to the ground at the top
+            # garage ramp cut as authored, or the ramp's line at the grade
+            # the walls give — 2026-10-07e); nothing is built beyond them
             inputs = (tn.id, *(f"obj:{o}" for o in tn.objects), tn.resource)
             src_bottom = Source(GEN, "cutout.wall_corridor.mouth_depth = wall_bottom: the floor = "
                                 "the walls' bottom per station (2026-09-08m/08n Law C)", inputs)
-            src_ramp = Source(GEN, "cutout.wall_corridor.max_ramp_grade: the climb beyond the "
-                              "walls (2026-09-08m Law C)", inputs)
+            src_ramp = Source(GEN, "cutout.wall_corridor: the ramp's own grade — the wall "
+                              "bottom's depth over the walls' length (2026-09-08m Law C; "
+                              "2026-10-07e)", inputs)
             src_wall = Source(GEN, "cutout.wall_corridor: the rim at the ground by station inside "
                               "the walls (2026-09-08a; 2026-09-08m Law C)", inputs)
         elif tn.source == "sunken_road":
@@ -366,6 +401,21 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         seen: set[int] = set()
         abut: list[tuple[float, list[int]]] = []     # groups beside a deck
         datum_vs: list[int] = []
+        if tn.pinched and tn.source in ("door", WALL_CORRIDOR_SOURCE):
+            # A RAMP ITS OBJECTS FRAME (2026-10-07e) IS ONE PLANE, pinned
+            # per vertex: no station ties, no descent rows.  A door ramp's
+            # top vertex the ground shares keeps the ground's own value
+            # (as the top rule below: "its value where shared")
+            plane, s_max = framed_plane(planar, tn, [f for _s, f in pieces])
+            axis_ln = LineString(tn.axis)
+            for v, z in plane.items():
+                at_top = axis_ln.project(Point(planar.vertices[v].xy)) >= s_max - 0.5 * grid
+                if not (tn.source == "door" and at_top and shared_with_ground(v)):
+                    # the source each family's floor has always carried
+                    # (a wall corridor's wall bottom; a door's sill)
+                    src = src_bottom or (src_mouth if abs(z - tn.mouth_z) < 1e-9 else src_ramp)
+                    pin(v, z, src, senior=True)
+            pieces = []
         for k, (_s0, f) in enumerate(pieces):
             if f.id in seen:
                 continue

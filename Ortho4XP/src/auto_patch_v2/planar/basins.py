@@ -158,6 +158,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..airport import authored_seat as _seat
 from ..airport import basin_witness as _basin_witness
 from ..airport import frame_entry as _fe
 from ..airport import obj8
@@ -326,6 +327,15 @@ def _record_grade(stats: BasinStats, cache: obj8.ResourceCache, bl) -> None:
             f"{st.vertices} vertices, {st.seconds:.1f} s past "
             f"rim_read_vertex_budget = {int(bl.rim_read_vertex_budget)}; the rim and "
             f"cover diagnostics of the regions read after it are EMPTY")
+
+
+def _with_families(members: _t.Sequence) -> tuple[str, ...]:
+    """A pit's ``member_ids``: its witnesses, then the rest of their ANCHOR
+    FAMILIES (object-placement spec §18 (5): the placements the author
+    lifted with them at the same anchor) — the keep follows the family."""
+    ids = [o.id for o in members]
+    ids += sorted({i for o in members for i in getattr(o, "family", ())} - set(ids))
+    return tuple(ids)
 
 
 def build_basins(airport: Airport, classification: Classification, law: Law,
@@ -562,7 +572,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         # in hand), so a datum-relief slab never founds a region, never
         # enters the below-grade seat skip and never takes a plate seat.
         # What is recorded here is the region-level reading of it.
-        datum_z = float(deepest.anchor_z) + float(deepest.agl_m)
+        datum_z = float(deepest.base_z)        # the reading's zero plane (§18 (5))
         datum_drop = rest - datum_z
         # the floor face(s): the members' floor plates ⊕ floor_overlap_m,
         # closed at footprint_close_m, on the identity grid
@@ -712,11 +722,19 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         # y (the deepest member's, relative to its rendered y = 0 plane);
         # an anchor INSIDE the floor renders on the floor after the mesh,
         # one outside on its own ground — the post-mesh seat measures it
-        plate_y = smin_z - deepest.anchor_z - deepest.agl_m
+        plate_y = smin_z - deepest.base_z
         a_pt = Point(deepest.xy)
         inside = any(f.contains(a_pt) for f in floors)
         mesh_pred = floor_z if inside else float(deepest.anchor_z)
         seat_expect = floor_z - (mesh_pred + deepest.agl_m + plate_y)
+        # AUTHORED TO THE CUT (object-placement spec §18 (3)): the rim at
+        # the AUTHORED seat over the terrain the floor row cuts under the
+        # anchor (the floor stands ``floor_clearance_m`` under the plate,
+        # §24 (2)) against the ring's ground.  The author STATED a seat
+        # only where he lifted the pit: a plain placement stands on the
+        # terrain by definition and seats as its law always did.
+        rim_cut = _seat.rim_over(mesh_pred - (bl.floor_clearance_m if inside else 0.0),
+                                 deepest.agl_m, rest) if deepest.ground_seated else None
         prot = max(wits, key=lambda w: w.protrusion_fraction)
         notes = [kind, f"{len(members)} object(s)", f"floor plate {plate:.0f} m2",
                  f"shell {shell_t:.2f} m thick: the rim IS its OUTER FACE (§47 (1); 11t §24 (1) "
@@ -759,7 +777,15 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                      + ("RAMP" if r["admitted"] else f"refused ({r['reason']})")
                      for r in ramps) or "none"),
                  f"anchor {'INSIDE' if inside else 'outside'} the floor: plate y {plate_y:+.2f}, "
-                 f"seat expect {seat_expect:+.2f} m"]
+                 f"seat expect {seat_expect:+.2f} m",
+                 *([f"authored seat {deepest.agl_m:+.2f} m, a lift of the shell's own depth read "
+                    f"ground-seated: the rim stands {rim_cut:+.2f} m over the ring's ground on "
+                    f"the cut floor "
+                    + ("— AUTHORED TO THE CUT, the seat is kept"
+                       if _seat.rim_in_band(rim_cut, bl.authored_rim_tol_m)
+                       else "— re-seated onto its floor plate")
+                    + f" (authored_rim_tol_m {bl.authored_rim_tol_m}, object-placement §18 (3))"]
+                   if rim_cut is not None else [])]
         if ring.area < bl.min_area_m2:
             notes.append(f"under the diagnostic min_area_m2 {bl.min_area_m2:.0f} (admitted, 04i)")
             stats.small_regions.append(f"{bid} {ring.area:.0f} m2 at {site}")
@@ -768,7 +794,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                             tuple(rim.exterior.coords)[:-1], rest, smin_z, smin_z - rest,
                             cov, float(floor_area), _ll_pair(airport, ring), tuple(notes),
                             float(plate), kind, tuple(ring.exterior.coords)[:-1],
-                            tuple(o.id for o in members), float(plate_y),
+                            _with_families(members), float(plate_y),
                             str(deepest.id), inside,
                             float(seat_expect), float(deepest.agl_m),
                             tuple(tuple(f.exterior.coords)[:-1] for f in ramp_floors),
@@ -777,7 +803,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                                         for x, y in tuple(f.exterior.coords)[:-1])
                                   for f in ramp_floors),
                             tuple(tuple(_lonlat(airport, q[0], q[1]) + (q[2],) for q in t)
-                                  for t in ramp_faces)))
+                                  for t in ramp_faces),
+                            rim_cut_m=None if rim_cut is None else float(rim_cut)))
     stats.basins = len(basins)
     _record_grade(stats, cache, bl)
     if not basins:

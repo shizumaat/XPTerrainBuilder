@@ -49,6 +49,7 @@ from auto_patch_v2.pipeline.build import _plate_seats
 from auto_patch_v2.planar.basins import read_objects
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.door_ramps import door_groups, sunken_groups
+from auto_patch_v2.planar.wall_corridor_ramps import OBJECT_FRAMED
 from auto_patch_v2.planar.structure_geometry import rim_standoff
 from auto_patch_v2.planar.structures import build_structures
 from auto_patch_v2.solve import Options, Status, solve_design
@@ -187,23 +188,22 @@ def test_law_register(law):
     spec = law.tables.precedence.roles["door_ramp"]
     assert spec.side == "groundside" and spec.structure and spec.value and spec.family == "common"
     assert spec.oracle_role == "tunnel_ramp" and spec.oracle_law == "structure_ramp"
-    # RULINGS 2026-09-08u (2): the oracle prices it at the RAMP LAW's ceiling
-    assert spec.oracle_cap == law.tables.structures.cutout.wall_corridor.max_ramp_grade
+    # RULINGS 2026-10-07e (owner): "Door ramps are exempt from the cap, since
+    # they only exist when framed by objects ... the object defines both the
+    # length and depth and therefore the necessary grade."  So the door law
+    # carries NO grade key, and neither does the wall corridor's:
+    assert not hasattr(d, "ramp_grade")
+    assert not hasattr(co.wall_corridor, "max_ramp_grade")
+    # ...what the role row and the oracle cap still price is what the lift
+    # does not take — the ramp's seams with its neighbours — at the ROAD
+    # ramp law (07d), one number
+    road = law.tables.structures.tunnel.ramp_max_grade
+    assert spec.oracle_cap == road
     assert is_structure_role(law, "door_ramp") and role_side(law, "door_ramp") == "groundside"
     cap = role_cap(law, "door_ramp")
-    assert cap is not None and d.ramp_grade <= cap.longitudinal
-    # RULINGS 2026-09-12m (owner): the tunnel ramp took the ROAD cap, so the
-    # door ramp no longer stands ABOVE it — all three are the road 8 % now.
-    # What keeps door_ramp a role of its own is its generation and its oracle
-    # law (structure_ramp 10 %), asserted above, not a distinct number.
-    # §47 (6): the walled door ramp holds the SAME 10 % cap as a wall
-    # corridor (owner RULINGS 2026-09-17h Q1), not the tunnel road cap
-    assert cap.longitudinal == pytest.approx(
-        law.tables.structures.cutout.wall_corridor.max_ramp_grade)
-    assert cap.longitudinal > role_cap(law, "tunnel_ramp").longitudinal
-    # §47 (6): the door ramp's cap is the WALLED-RAMP cap (10 %), above
-    # the road cap a flat-well outward climb was held to
-    assert cap.longitudinal > role_cap(law, "service_road").longitudinal
+    assert cap is not None and cap.longitudinal == pytest.approx(road)
+    assert cap.longitudinal == role_cap(law, "tunnel_ramp").longitudinal
+    assert cap.longitudinal >= role_cap(law, "service_road").longitudinal
     assert "door_ramp" not in law.tables.precedence.order
 
 
@@ -231,23 +231,26 @@ def test_door_well_read_and_ramp_built(objs, law):
     assert not sst.refused, sst.refused
     assert sst.door_ramps == 1 and len(tunnels) == 1
     t = tunnels[0]
-    assert t.source == "door" and t.design_grade == pytest.approx(dl.ramp_grade)
+    assert t.source == "door"
     ground = airport.dem.z(*w.sill_mid)
-    # §47 (6) LAW A INVERTED (owner RULINGS 2026-09-17h Q1): the ramp TOPS
-    # at the ground at the well's OUTER end and DESCENDS inside the well
-    # at the 10 % cap, STOPPING AT THE BUILDING WALL at
-    # depth_at_wall = min(sill, cap x well length).  This well is 2.25 m
-    # long, so the cap reaches 0.225 m of the 1.70 m sill and the
-    # 1.47 m residual is a STEP at the building face — the owner's
-    # "descend as far as that allows".  Nothing is emitted beyond the
-    # well: the 8 % climb OUTSIDE the walls for up to 25 m is retired.
+    # §47 (6) LAW A INVERTED, FRAMED BY THE WELL (owner RULINGS 2026-10-07e):
+    # the ramp TOPS at the ground at the well's OUTER end and descends over
+    # the well's WHOLE length to the SILL at the building wall.  Length =
+    # the well's, depth = the sill's, the grade what those give: this well
+    # is 2.25 m long under a 1.70 m sill, so ~75 % — far over the road
+    # law, admitted, with NO step at the face and no raised floor.
     top_ground = airport.dem.z(*t.axis[-1])
-    depth_at_wall = min(1.7, dl.ramp_grade * t.wall_length_m)
-    assert t.mouth_z == pytest.approx(top_ground - depth_at_wall, abs=0.05)
-    assert t.mouth_z > ground - 1.7                      # ABOVE the sill: the residual step
+    road = law.tables.structures.tunnel.ramp_max_grade
+    assert t.mouth_z == pytest.approx(ground - 1.7, abs=0.05)        # the SILL: no step
     assert t.climb_from_s == pytest.approx(0.0)          # the climb starts AT the face
     assert t.top_s == pytest.approx(t.wall_length_m)     # ...and tops at the well's end
-    assert t.design_grade <= dl.ramp_grade + 1e-9
+    assert t.design_grade == pytest.approx((top_ground - t.mouth_z) / t.wall_length_m)
+    assert t.design_grade > road
+    # the exemption record: the solve and both census readers price the
+    # ramp at its own grade (``publication.lifted_caps``)
+    assert t.pinched == (OBJECT_FRAMED, pytest.approx(t.wall_length_m),
+                         pytest.approx(t.design_grade))
+    assert any(OBJECT_FRAMED in n for n in t.notes), t.notes
     assert any("§47 (6)" in n or "LAW A INVERTED" in n for n in t.notes), t.notes
     assert t.top_pinned and not t.clipped_by
     # the cells: door_ramp faces of the sill's width, the void with the rim
@@ -303,11 +306,13 @@ def test_door_ramp_rows_solve_and_verify(objs, law, tmp_path):
     assert len(t) == 1, stats.structures.refused
     rows = structure_rows(pm, law, airport)
     dl = law.tables.structures.cutout.door
-    diffs = [r for r in rows if type(r).__name__ == "Diff"]
-    # spec §34 (6) as amended: priced ``cap - hard_tol_m / d`` (see test_m4)
-    _ht = law.tables.emit.design.hard_tol_m
-    assert diffs and all(
-        r.cap == pytest.approx(max(0.0, dl.ramp_grade - _ht / r.d)) for r in diffs)
+    # RULINGS 2026-10-07e: an object-framed ramp is ONE PLANE — every ramp
+    # vertex pinned on the line from the sill to the ground at its own
+    # station (``framed_plane``), no descent rows and no station ties: the
+    # grade is the ramp's OWN, far over the road law
+    own = t[0].design_grade
+    assert own > law.tables.structures.tunnel.ramp_max_grade
+    assert not [r for r in rows if type(r).__name__ == "Diff"]
     pins = [r for r in rows if isinstance(r, Pin)]
     assert any(abs(r.z - t[0].mouth_z) < 1e-6 for r in pins)      # the sill
     cs, _counts, _w = generate(pm, law, airport)
@@ -315,8 +320,11 @@ def test_door_ramp_rows_solve_and_verify(objs, law, tmp_path):
     assert sol.status is Status.OPTIMAL, sol.iis[:5]
     faces = [f for f in pm.faces.values() if f.role == "door_ramp"]
     assert faces
-    # the built ramp: the sill at the mouth, never steeper than the door
-    # law between its vertices, the top at the ground
+    # the built ramp: the sill at the mouth, never steeper than its own
+    # grade (to the emitted top chord) between its vertices, the top at the ground
+    built = (airport.dem.z(*t[0].axis[-1]) - t[0].mouth_z) / max(
+        ln_s for ln_s in [max(LineString(t[0].axis).project(Point(pm.vertices[v].xy))
+                              for f in faces for v in pm.ring_vertices(f.ring))])
     ln = LineString(t[0].axis)
     for f in faces:
         ids = list(pm.ring_vertices(f.ring))
@@ -325,7 +333,7 @@ def test_door_ramp_rows_solve_and_verify(objs, law, tmp_path):
                 a, b = pm.vertices[ids[i]].xy, pm.vertices[ids[j]].xy
                 d = math.hypot(a[0] - b[0], a[1] - b[1])
                 if d > 1e-6:
-                    assert abs(sol.z[ids[i]] - sol.z[ids[j]]) <= dl.ramp_grade * d + 0.011
+                    assert abs(sol.z[ids[i]] - sol.z[ids[j]]) <= built * d + 0.011
         for v in ids:
             s_ = ln.project(Point(pm.vertices[v].xy))
             if s_ <= t[0].climb_from_s + 1e-6:
@@ -335,13 +343,19 @@ def test_door_ramp_rows_solve_and_verify(objs, law, tmp_path):
     x, y = ln.interpolate(t[0].top_s).coords[0]
     top = [sol.z[v] for f in faces for v in pm.ring_vertices(f.ring)
            if ln.project(Point(pm.vertices[v].xy)) >= t[0].top_s - 1.0]
-    # the DESIGN is the DEM exactly here (mouth_z + grade x top_s = 700.00);
-    # the SOLVE leaves 0.055 m on this 2.35 m well because §47 (6) puts the
-    # top INSIDE the well, where the rim and the ground beside it pull on
-    # the same short run — named, not iterated (materiality 0.01 m)
-    assert top and max(top) == pytest.approx(airport.dem.z(x, y), abs=0.1)
+    # the DESIGN is the DEM exactly here (mouth_z + grade x top_s = 700.00)
+    # and so is the SOLVE: the plane ends at the outermost emitted vertex,
+    # so the 0.055 m the station tie used to leave on this 2.35 m well (it
+    # would be 0.27 m at this grade) is gone
+    assert top and max(top) == pytest.approx(airport.dem.z(x, y), abs=0.01)
     assert t[0].mouth_z + t[0].design_grade * t[0].top_s == pytest.approx(
         airport.dem.z(x, y), abs=1e-6)
+    # RULINGS 2026-10-07e: the exemption record reaches the publication —
+    # both census readers price the door ramp's faces at its own grade
+    from auto_patch_v2.pipeline.publication import lifted_caps
+    caps = lifted_caps(pm)
+    assert {fid for fid in caps} == {f.id for f in faces}
+    assert all(g == pytest.approx(t[0].design_grade) for g in caps.values())
     # the oracle's tags
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     text, _ways, _nodes = render_patch(surf, law, {}, {})

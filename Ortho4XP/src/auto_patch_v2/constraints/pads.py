@@ -431,20 +431,27 @@ def pad_shared(planar: PlanarMap, law: Law) -> dict[int, set[int]]:
 
 def pad_welded_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     """THE RIM WELD AS DATA (spec §63 (4) / (6), owner RULINGS
-    2026-10-09j): every pad vertex that is ALSO a vertex of a groundside
-    value face — the columns a road or lot welded to a pad shares with it.
-    They are the PAD's (the pad is senior), so no law of the road may
-    name their level a second time (``road_ramp.pad_weld_release``).
-    Read from the map's own incidence: identity is the weld."""
+    2026-10-09j): every vertex that is BOTH a pad's and a groundside
+    value face's — the columns a road or lot welded to a pad shares with
+    it.  They are the PAD's (the pad is senior), so no law of the road
+    may name their level a second time (``road_ramp.pad_weld_release``).
+    Read from the map's own incidence alone: identity is the weld.  A map
+    with no faces (a channel-only probe) has none."""
     from ..law.tables import is_value_role, role_side
+    faces = getattr(planar, "faces", None) or {}
+    rigid = set(rigid_roles(law))
+    if not any(f.role in rigid for f in faces.values()):
+        return frozenset()
+    kind: dict[int, int] = {}
+    for fid, f in faces.items():
+        kind[fid] = (1 if f.role in rigid else
+                     2 if role_side(law, f.role) == "groundside"
+                     and is_value_role(law, f.role) else 0)
     out: set[int] = set()
-    for _fid, _ref, group in _pad_groups(planar, law):
-        for v in group:
-            if any(role_side(law, planar.faces[q].role) == "groundside"
-                   and is_value_role(law, planar.faces[q].role)
-                   for q in planar.vertices[v].incident_faces
-                   if q in planar.faces):
-                out.add(v)
+    for v, vx in planar.vertices.items():
+        got = {kind.get(q, 0) for q in vx.incident_faces}
+        if 1 in got and 2 in got:
+            out.add(v)
     return frozenset(out)
 
 

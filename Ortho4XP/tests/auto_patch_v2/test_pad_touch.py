@@ -287,3 +287,53 @@ def test_a_road_along_a_pad_is_level_along_it_and_inside_its_cap_beyond(law):
         left += 1
         assert abs(z[a] - z[b]) / abs(ax - bx) <= cap + 1e-3
     assert left == 2                                   # one edge leaving each end of the run
+
+
+# ── Rule B′ (spec §63 (6)): no road law names a level on the rim ─────────
+
+def test_no_ramp_row_or_join_pin_stands_on_a_vertex_shared_with_a_pad(law):
+    """The road's §37 (6) target and ceiling and its §37 (9) join pin are
+    withdrawn on the vertices it shares with the pad — the pad's plane
+    names that level — and every other road vertex keeps its rows
+    byte-identical: the ramp starts at the first vertex off the rim."""
+    import dataclasses as dc
+
+    from auto_patch_v2.constraints.pads import pad_welded_vertices
+    from auto_patch_v2.constraints.road_ramp import (JOIN_RULING, RULING,
+                                                     RULING_CEILING,
+                                                     pad_weld_release,
+                                                     road_join_rows,
+                                                     road_ramp_rows)
+    from auto_patch_v2.model.constraints import ConstraintSet
+    airport = _airport(law, _Dem())
+    cells, _n = _cut_back_groundside(_road_cells(), law, load_rules(), airport)
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    rim = pad_welded_vertices(pm, law)
+    road = {v for f in pm.faces.values() if f.ref == "roadA"
+            for v in pm.ring_vertices(f.ring)}
+    assert rim and rim == _shared(pm, "padA", "roadA")
+    xs = sorted(pm.vertices[v].xy[0] for v in rim)
+    assert xs[0] == pytest.approx(100.0) and xs[-1] == pytest.approx(200.0)
+    off = sorted(road - rim)
+    pm = dc.replace(pm, road_ramp_z={v: 700.0 for v in road},
+                    road_coverage_join={min(rim): 701.0, off[0]: 702.0})
+    rows = road_ramp_rows(pm, law, airport) + road_join_rows(pm, law, airport)
+    cs = ConstraintSet.from_rows(rows)
+    out, rep = pad_weld_release(pm, law, cs)
+    assert rep["rim_vertices"] == len(rim)
+    assert rep["targets"] == rep["ceilings"] == len(rim)
+    assert [j["v"] for j in rep["joins"]] == [min(rim)] and rep["joins"][0]["stage"] == "2f"
+
+    def tagged(rs, ruling):
+        return {int(r.source.inputs[0][7:]) for r in rs if r.source.ruling == ruling}
+    assert tagged(out.linears, RULING) == set(off)
+    assert tagged(out.bands, RULING_CEILING) == set(off)
+    assert tagged(out.pins, JOIN_RULING) == {off[0]}
+    keep = lambda rs: [r for r in rs if int(r.source.inputs[0][7:]) not in rim]   # noqa: E731
+    assert list(out.linears) == keep(cs.linears) and list(out.bands) == keep(cs.bands)
+    # a map with no rim weld is returned untouched
+    cells2 = [c for c in _road_cells() if c.ref != "padA"]
+    pm2, _ = build(airport, Classification(tuple(cells2), (), {}, ()), law)
+    cs2 = ConstraintSet.from_rows(road_ramp_rows(
+        dc.replace(pm2, road_ramp_z={0: 700.0}), law, airport))
+    assert pad_weld_release(pm2, law, cs2)[0] is cs2

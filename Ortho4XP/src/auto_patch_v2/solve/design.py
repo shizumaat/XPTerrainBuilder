@@ -479,6 +479,36 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         A1 = sp.csr_matrix((coo.data[keep], (coo.row[keep], coo.col[keep])),
                            shape=A1.shape)
     hard_i = np.asarray(base_p.hard, dtype=np.int64)
+    # PROBE chainlag M2 — THE LAG IN LEADER ORDER: each one-way row's DEPTH in
+    # the leader->follower graph (1 = its leaders are no one-way row's
+    # followers); a row is OFF until the round equal to its depth and reads
+    # its leaders UNDAMPED that round.  A pad-LEVEL row (``pad_level_rulings``:
+    # the pad takes the level of the contact that cannot give) is a ROOT
+    # (depth 1) and reads its leader ONCE (M1) — never the bent frontage.
+    ow_depth = np.ones(0, dtype=np.int64)
+    ow_once = np.zeros(0, dtype=bool)
+    if ow_i.size:
+        pl_heads = pad_level_rulings(law)
+        ow_once = np.array([ruling_head(one[int(k)][2]) in pl_heads for k in ow_i])
+        Fm = (abs(A1[ow_i]) > 0).astype(np.int8).tocsr()
+        Lm = (abs(A1_lead[ow_i]) > 0).astype(np.int8).tocsr()
+        Mm = (Lm @ Fm.T).tocsr()          # [i, j]: row i's leaders hold row j's followers
+        Mm.data[:] = 1
+        ow_depth = np.ones(ow_i.size, dtype=np.int64)
+        cap = int(d.one_way_max_rounds)
+        for _it in range(cap + 1):
+            prev = ow_depth
+            nxt = 1 + np.asarray(Mm.multiply(prev[None, :]).max(axis=1).todense()).ravel()
+            nxt = np.minimum(nxt, cap).astype(np.int64)
+            nxt[ow_once] = 1
+            ow_depth = nxt
+            if np.array_equal(prev, ow_depth):
+                break
+        rep.one_way_depth = {int(k): int(v) for k, v in
+                             zip(*np.unique(ow_depth, return_counts=True))}
+        if opt.verbose:
+            print(f"    [design/lag] one-way depth histogram {rep.one_way_depth}; "
+                  f"{int(ow_once.sum())} root (read once) rows")
     #: the scale each one-sided row is solved in (1 but on a hard row, below)
     sc = np.ones(len(one))
     if fixed and drop is None and hard_i.size:
@@ -682,9 +712,15 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # the landside-only pad's seat; ``sc`` is 1 on every other row)
         target = np.asarray(A1_lead @ x).ravel()[ow_i] * sc[ow_i]
         cur = shift[ow_i]
-        new_shift = target if outer == 1 else cur + theta * (target - cur)
-        dmove = (np.abs(new_shift - cur) if outer > 1
-                 else np.full(ow_i.size, math.inf))
+        # PROBE chainlag M2/M1: OFF below its depth, undamped AT its depth,
+        # damped after; a root row keeps its first reading
+        first = ow_depth == outer
+        later = ow_depth < outer
+        new_shift = np.where(first, target,
+                             np.where(later, cur + theta * (target - cur), cur))
+        new_shift[ow_once & later] = cur[ow_once & later]
+        dmove = np.where(later, np.abs(new_shift - cur), 0.0)
+        dmove[first] = math.inf
         move = float(np.max(dmove)) if dmove.size else 0.0
         shift[ow_i] = new_shift
         rep.one_way_rounds = outer

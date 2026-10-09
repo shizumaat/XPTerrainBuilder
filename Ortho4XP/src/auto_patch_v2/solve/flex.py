@@ -129,7 +129,10 @@ def stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, hold: _t.Any,
     cs1b = hold.derive(cs1a, dict(levels), runway_columns(planar, cs1a, law))
     rec = {"unknowns": rep.unknowns, "rows": rep.rows, "hard_rows": rep.hard_rows,
            "hard_max_violation_m": round(rep.hard_max_violation_m, 6),
-           **rep.settle_record(), "wall_s": round(w1a, 3),
+           "hard_settled": rep.hard_settled,
+           # §61 (4): how pass 1a's loops ended (a report read duck-typed)
+           **(rep.settle_record() if hasattr(rep, "settle_record") else {}),
+           "wall_s": round(w1a, 3),
            "pins_yielded": len(y1),
            "interval_s": round(time.perf_counter() - t1 - w1a, 3),
            # §5a (RULINGS 2026-09-30be/30bf): pass 1a's own feasibility read

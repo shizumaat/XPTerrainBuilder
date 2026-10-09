@@ -135,3 +135,21 @@ Generator: 13 faces with holes, 13,197 cross-ring pairs inside the body gate, 5,
 READING: R-E does what 08c (4) asks (every pad on one sheet seated from one reach interval; no step at any rim) and exposes
 the next intent question: the sheet's LEVEL. Today's law lets the 1 % preference trend carry it to the taxiway's level
 8.5 m under the terrain; the DEM-plane term does not hold it up. Q2 is rewritten on that.
+
+## Step 7 — the late-stage pair reproduces the build; KCLT `building26` attributed
+
+* Late pair (`--from classify --gap-free --solved-out` 156 s solve; `--late-from` cut 1.5 s: 27 pieces -> 71 parts, 37 knives,
+  2,499 stations, 40 merged by the floors; gap_follow 1,599 rows, 15 vertices between disagreeing neighbours, 56 bounds of
+  another group's ring declared, lot rows 227; relaxed: follow 19 (worst 1.61 m), last-stage ceiling 13 (2.31 m); fixed
+  vertices off their constant 0 of 34,436). Edge read = the build's table: GAP 51 / 339 m (sw8 50 / 339), GS-NEAR 16 / 570,
+  AIR-TOUCH 21 / 232, AIR-NEAR 7 / 231, ARMED 1, T28 1, M 255. Of the 53 GAP runs, the nearest part vertex stands
+  1.21 / 1.55 / 2.30 / 2.96 m off the rim (p10 / p50 / p90 / max); **16 beyond the 1.95 m follow reach** (mechanism (a)),
+  37 inside it (mechanisms (b) the Voronoi group, (c) the floor merge). Arm D (`armD.py`: reach = stand-off 1.45 + snap
+  0.5 + 2 identity cells = 2.81 m) queued on the same base (`chain4.sh`).
+* KCLT `building26` | `dsf:pol50` (−1.60 across 0.80 m), `--why-at`: pad vertex v16419 (215.97) bound by 3
+  `groundside_frontage_level` rows (the pad LEADS the road's frontage vertices v20648…), its plate, its §20 fit; chain ONE hop
+  through the §28 row to v20654 (`service_road#1349` = pol50) at 214.17, which is a **PIN**: `roads.coverage_edge join`
+  (§37 (9)). The §28 priced row (joint 0.00) loses 1.80 m to a hard pin on the road vertex inside the pad's frontage — the
+  same shape as HECA building164 (the road-ramp equality) with a different hard row. R-B generalises to every road law
+  that fixes a road vertex inside a seated pad's frontage: the ramp target / ceiling AND the coverage-edge join pin start
+  from the first road vertex OUTSIDE the frontage.

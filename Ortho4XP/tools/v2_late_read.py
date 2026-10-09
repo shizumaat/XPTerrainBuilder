@@ -85,7 +85,9 @@ class Late:
         self.fixed, self.jrep = late_fixed(self.pb, self.zb, self.pa, self.free, ident)
         self.jrep["rim"] = late_rim_levels(self.pb, self.zb, self.pa, self.fixed,
                                            self.free, ident * 0.02)
-        rows, self.grep = gap_follow_rows(self.pa, self.law, self.fixed)
+        from auto_patch_v2.pipeline.late_stage import BEHIND_STEP
+        rows, self.grep = gap_follow_rows(self.pa, self.law, self.fixed,
+                                          behind_step=BEHIND_STEP)
         from auto_patch_v2.constraints.gap_follow import RULING as _FOLLOW
         from auto_patch_v2.constraints.gap_follow import LOT_RULING as _LOT
         # the follow rows over EVERY ring within reach (no part narrowing):

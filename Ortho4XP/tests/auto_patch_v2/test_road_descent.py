@@ -147,7 +147,8 @@ def test_a_stub_end_steepens_its_own_run_only():
     adj, floors, xs, end_of = _forked()
     d = _descend(adj, {0: 2.0}, floors, end_of)
     (r,) = d.ramps
-    assert r["grade"] == DESIGN and r["steepest"] == CAP and r["fits"]
+    assert r["grade"] == DESIGN and r["steepest"] == CAP
+    assert not r["fits"]                      # the stub ends in the air
     assert r["why"] == "the road's end at 8 m" and r["length_m"] == pytest.approx(30.0)
     for i in range(1, 5):
         assert d.label[i] == pytest.approx(2.0 - DESIGN * xs[i])

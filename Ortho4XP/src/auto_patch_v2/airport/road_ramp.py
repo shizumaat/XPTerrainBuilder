@@ -72,7 +72,7 @@ from ..law.tables import (family, is_structure_role, is_value_role, role_cap,
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from ..model.frame import rotated_rectangle
-from .road_descent import descend
+from .road_descent import STAND_M, descend
 
 __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
            "road_route_frame", "reach_contacts", "merge_routes",
@@ -647,17 +647,19 @@ def _floors(pm: PlanarMap, owned: _t.Iterable[int],
 def _ramp_figures(ramps: _t.Sequence[_t.Mapping[str, _t.Any]], design: float,
                   cap: float) -> dict[str, _t.Any]:
     """The report's figures for the ramps :func:`road_descent.descend`
-    built (the keys ``road_descent.descent_line`` prints)."""
-    at_cap = [r for r in ramps if r["grade"] >= cap - 1e-9]
-    steep = [r for r in ramps if design + 1e-9 < r["grade"] < cap - 1e-9]
-    worst = sorted(steep + at_cap, key=lambda r: (-r["grade"], -r["length_m"], r["mouth"]))
+    built (the keys ``road_descent.descent_line`` prints).  A ramp is
+    classed by its STEEPEST run: one run over the design grade makes it
+    steepened, one at the cap makes it at the cap."""
+    at_cap = [r for r in ramps if r["steepest"] >= cap - 1e-9]
+    steep = [r for r in ramps if design + 1e-9 < r["steepest"] < cap - 1e-9]
+    worst = sorted(steep + at_cap, key=lambda r: (-r["steepest"], -r["length_m"], r["mouth"]))
     return {"design": design, "ramps": len(ramps),
             "ramps_at_design": len(ramps) - len(steep) - len(at_cap),
             "ramps_steepened": len(steep), "ramps_at_cap": len(at_cap),
             "ramps_over_cap": sum(1 for r in ramps if not r["fits"]),
             "ramp_total_m": round(sum(r["length_m"] for r in ramps), 1),
             "ramp_longest_m": round(max((r["length_m"] for r in ramps), default=0.0), 1),
-            "ramps_steepest": [(r["mouth"], round(r["grade"], 4), round(r["length_m"], 1),
+            "ramps_steepest": [(r["mouth"], round(r["steepest"], 4), round(r["length_m"], 1),
                                 r["why"]) for r in worst[:8]]}
 
 
@@ -803,7 +805,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                                           abs(floor - dem_route))
         if v not in joined:
             rep["no_contact"] += 1
-        if ramp > floor + 1e-9:
+        if ramp >= floor + STAND_M:
             rep["on_ramp"] += 1
             rep["max_above_dem_m"] = max(rep["max_above_dem_m"], t - dem_route)
             rep["max_reach_m"] = max(rep["max_reach_m"], reach.get(v, 0.0))

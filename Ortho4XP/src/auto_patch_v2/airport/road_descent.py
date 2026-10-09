@@ -68,8 +68,9 @@ class Descent(_t.NamedTuple):
     #: one record per ramp standing over the road's floor for a lane width
     #: or more: ``mouth``, ``grade`` (of its GENTLEST run) and ``steepest``
     #: (of its steepest), ``length_m``, ``why`` a run is steeper than the
-    #: design grade ("" when none is), ``fits`` (False where every run is
-    #: at the cap and the cap does not bring it down)
+    #: design grade ("" when none is), ``fits`` (the contact's own
+    #: ``_Run.fits``: False where ANY of its runs needs more than the cap
+    #: and so ends in the air, whatever its other runs are built at)
     ramps: list[dict[str, _t.Any]]
 
 
@@ -268,7 +269,7 @@ def descend(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
             most[m] = max(most.get(m, 0.0), grade_at[v])
     ramps = [{"mouth": m, "grade": least[m], "steepest": most[m], "length_m": length[m],
               "why": runs[m].why if most[m] > design + 1e-12 else "",
-              "fits": runs[m].fits or least[m] < cap - 1e-9}
+              "fits": runs[m].fits}
              for m in sorted(length) if length[m] >= lane]
     return Descent(lab, walked, ramps)
 

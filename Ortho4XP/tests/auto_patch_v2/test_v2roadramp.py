@@ -259,17 +259,29 @@ def test_a_run_that_needs_more_than_the_cap_is_built_at_the_cap(law):
     assert all(g <= rep["cap"] + 1e-12 for _m, g, _l, _w in rep["ramps_steepest"])
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "FINDING (lane roadramp3, for the master): on `_Shelf` the two road "
+    "vertices 20 m from the mouth are published at 710.667, 0.067 m over "
+    "this bound's 0.6 m (descend's own label there is 710.0, the cap "
+    "descent; the route lift of §37 (8) publishes 710.667).  main's ramp "
+    "on the same fixture publishes the same 12 targets, so the control "
+    "holds against main and it is this hand-written bound that does not; "
+    "the assertion is kept as written."))
 def test_the_design_grade_at_the_cap_is_the_ramp_of_old(law):
     """THE CONTROL: with the design grade set to the cap the envelope is
-    the single cap-descent it was before RULINGS 2026-10-09c (2b)."""
+    the single cap-descent it was before RULINGS 2026-10-09c (2b).  Run on
+    `_Shelf`, where a ramp IS built (on `_LateShelf` none is and the
+    bound held of nothing)."""
     import dataclasses as _dc
     emit = law.tables.emit
     cap = law.tables.common.road_max_grade
     old = _dc.replace(law, tables=_dc.replace(law.tables, emit=_dc.replace(
         emit, road_contact=_dc.replace(emit.road_contact, ramp_grade=cap))))
-    airport, r = _airport(law, _LateShelf())
+    airport, r = _airport(law, _Shelf())
     pm, _rep = _map(law, airport, _cells(r))
-    tg = road_ramp_targets(pm, old, airport).targets
+    res = road_ramp_targets(pm, old, airport)
+    tg = res.targets
+    assert res.report["ramps"] >= 1, res.report       # a ramp IS built here
     for v in tg:
         x, y = pm.vertices[v].xy
         s = max(0.0, y + 20.0)

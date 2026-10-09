@@ -7543,10 +7543,9 @@ welded by smoothness to the airside fill beside it (`graded_strip` 12.48 /
    vertex whose label stands at or under its floor (the mouths excepted);
    beyond the meet the road is on its floor, and a later fall of the floor
    is the floor's own — the clamp (13be), cap-lawful by construction — and
-   no ramp. The `_Shelf` example (`test_v2roadramp`: 12 m of fill, ground
-   falling at 30 %) is unchanged: its cone meets the floor once, at
-   12 / design; the "safety net across route changes" the lane kept the
-   persistent cone for is the floor itself beyond the meet. MEASURED on the
+   no ramp. The "safety net across route changes" the lane kept the
+   persistent cone for is the floor itself beyond the meet (what became
+   of the `_Shelf` twin is (iv)'s). MEASURED on the
    KCLT capture without a solve (`rampreview/firstmeet_probe.py`, the lane's
    `ramp_probe.py` pattern): ramps ≥ a lane width 55 → 49 — the six gone are
    two 148 / 144 m cones at 5 % that had met the floor at their own mouth

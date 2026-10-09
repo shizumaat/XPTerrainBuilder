@@ -218,8 +218,12 @@ def _ramp_cs(vs, t):
 
 def test_a_reach_seed_raises_target_and_ceiling_to_stage_1s_edge():
     law = Law.load()
-    cap = min(role_cap(law, r).longitudinal
-              for r in family(law, "road_cross_section").roles if role_cap(law, r))
+    # the ramp is BUILT at its design grade (owner RULINGS 2026-10-09c (2b)):
+    # 3.7 m over the 80 m this contact governs fits 5 %, so the cap — the
+    # grade this seed descended at until then — is not reached for
+    cap = law.tables.emit.road_contact.ramp_grade
+    assert cap < min(role_cap(law, r).longitudinal
+                     for r in family(law, "road_cross_section").roles if role_cap(law, r))
     vis = float(law.tables.emit.cockpit.visual_m)
     # TFFJ: apron edge (a=100, b=101) solved at 23.7 by stage 1; the road
     # below it on its DEM at 20.0; vertices 1 m, 10 m and 80 m of route

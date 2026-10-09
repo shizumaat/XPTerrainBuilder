@@ -328,7 +328,7 @@ def source_witness(path: Path) -> list[dict]:
     (``.json``), or derived from a capture pickle by ``classify`` under
     this tree (the ONE derivation, ``classify.pad_touch.touch_records``)."""
     if path.suffix == ".json":
-        return list(json.loads(path.read_text()).get("pad_touch") or [])
+        return list(json.loads(path.read_text(encoding="utf-8")).get("pad_touch") or [])
     here = Path(__file__).resolve().parents[1]
     if str(here / "src") not in sys.path:
         sys.path.insert(0, str(here / "src"))
@@ -445,7 +445,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not a.graded.is_file():
         print(f"REFUSED: no graded surface at {a.graded}", file=sys.stderr)
         return 2
-    graded: dict[str, Any] = json.loads(a.graded.read_text())
+    graded: dict[str, Any] = json.loads(a.graded.read_text(encoding="utf-8"))
     dem = capture_dem(a.capture) if a.capture else None
     if dem is None:
         print("NO DEM (--capture absent): only patch cells are read; a BARE edge cannot be seen")
@@ -463,7 +463,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(line)
     if a.json:
         a.json.write_text(json.dumps({"icao": graded.get("icao"), "off_m": a.off, "within_m": a.within,
-                                      "standoff_m": a.standoff, "dem": bool(dem), "runs": runs}, indent=1))
+                                      "standoff_m": a.standoff, "dem": bool(dem), "runs": runs}, indent=1),
+                          encoding="utf-8", newline="\n")
     return 0
 
 

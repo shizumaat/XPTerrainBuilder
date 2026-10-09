@@ -132,9 +132,10 @@ def test_an_airside_cell_and_a_cell_with_no_record_are_never_guessed() -> None:
 def test_the_witness_is_read_off_the_sidecar(tmp_path) -> None:
     import json
     side = tmp_path / "X.axes.json"
-    side.write_text(json.dumps({"pad_touch": [{"pad": "building1", "touching": ["parking_lot:lot1"], "gapped": []}]}))
+    side.write_text(json.dumps({"pad_touch": [{"pad": "building1", "touching": ["parking_lot:lot1"], "gapped": []}]}),
+                    encoding="utf-8", newline="\n")
     assert per.source_witness(side)[0]["touching"] == ["parking_lot:lot1"]
-    (tmp_path / "Y.axes.json").write_text("{}")
+    (tmp_path / "Y.axes.json").write_text("{}", encoding="utf-8", newline="\n")
     assert per.source_witness(tmp_path / "Y.axes.json") == []
 
 

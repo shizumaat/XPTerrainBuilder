@@ -198,9 +198,10 @@ def test_an_unreachable_near_miss_contact_is_a_reported_needs_split(law, built,
     assert min(abs(D - 700.5), abs(D - 701.5)) <= near_tol, D
     kept = rim if abs(D - 700.5) <= near_tol else near
     assert max(abs(z[v] - D) for v in kept) <= near_tol
-    # RULINGS 2026-10-08d (2): the 0.5 m misfit is under the terrace floor, but
-    # the contacts that close the set are PINNED — no pavement cap holds them
-    # off the pad, so nothing is widened and the block stays the solve's
+    # RULINGS 2026-10-08d (2) / 2026-10-09c (2a): the 0.5 m misfit is under the
+    # terrace floor, but the contacts that close the set are TWO FIXED points
+    # that DISAGREE — neither can give and neither can dictate: nothing is
+    # widened, the block stays the solve's and the warning is the owner's read
     assert rec["misfit_m"] == 0.5 and rec["weld_widened"] is None
     rel = {tuple(k) for k in rec["released_ll"]}
     lost = near if kept is rim else rim
@@ -211,3 +212,35 @@ def test_an_unreachable_near_miss_contact_is_a_reported_needs_split(law, built,
             and "building_pad" in r["row"]]
     assert not conf, conf
     assert any("frontage_hold" in r["row"] for r in HARD_CONFLICT)
+
+def test_a_fixed_frontage_contact_dictates_the_level_and_the_pavement_welds_to_it(
+        law, built, registry):
+    """Owner RULINGS 2026-10-09c (2a) (spec §57 (3) (ii-d)): the rim is PINNED
+    at 700.5 m; the near-miss frontage's apron (apronC) is held 1.0 m up at
+    its far edge 39.5 m away, so at its 1.5 % cap its contacts stop 0.4 m
+    short of the rim's level.  The fixed contact does not give — it DICTATES:
+    D = 700.5, and apronC welds to it under ONE over-cap grade on that face
+    (the least that reaches: 1.0 m over 39.5 m = 2.53 %, +1.03 pp).  Nothing
+    is released, nothing warned."""
+    from auto_patch_v2.constraints.platform import _conforming_records
+    pm, cs, _h = built
+    lw = _arm(law, staged_solve=True)
+    near = sorted(e for e, *_r in _near(pm, law))
+    pad = {v for f in pm.faces.values() if f.ref == "padB"
+           for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
+    rim = sorted(v for v in pad if any(pm.faces[q].ref in ("apronA", "apronD")
+                                       for q in pm.vertices[v].incident_faces))
+    far = sorted({v for f in pm.faces.values() if f.ref == "apronC"
+                  for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
+                 - set(near) - pad)
+    src = Source("fixture", "nearmiss148 twin anchor", ())
+    pins = [Pin(v, 700.5, src) for v in rim] + [Pin(q, 701.5, src) for q in far]
+    z, _rep = _solve(pm, ConstraintSet.from_rows([*cs.rows(), *pins]), lw)
+    rec = {r["ref"]: r for r in _conforming_records(pm, lw, z)}["padB"]
+    w = rec["weld_widened"]
+    assert w and w["fixed_level_m"] == 700.5 and w["faces"] == ["apronC"]
+    assert 1.0 <= w["delta_pct"] <= 1.1 and w["rows"] > 0 and w["runway_rows_kept"] == 0
+    assert abs(rec["datum"] - 700.5) <= 0.01
+    assert rec["released"] == 0 and not rec["needs_split"] and not rec["warned"]
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    assert max(abs(z[v] - rec["datum"]) for v in near) <= tol + 1e-6

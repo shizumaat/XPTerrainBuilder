@@ -637,47 +637,69 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         misfit, widened, d_fit = seat_misfit(lo, hi, r_lo, r_hi, floor_m, tol_h)
         widened = widened and bool(front_c)
         gives: dict[int, float] = {}
+        d_t: float | None = None
         if widened:
             # only the contacts that close the set give, each by what it is
             # short of the level (at most the misfit: under the floor)
             gives = contact_gives(d_fit, front_c, lo_c, hi_c, bands_c, tol_h)
-            if any(c in pins or c in rw_v for c in gives):
-                # a closing contact that is itself a FIXED point (a pin, a
-                # runway column) cannot give: no pavement cap holds it off
-                # the pad.  The block is left to the solve as before (its
-                # misfit recorded; the warning is the diagnostic)
-                widened, gives = False, {}
-            else:
-                # spec §57 (3) (ii-b): ONE over-cap grade on the pavement
-                # faces the closing contacts front — the least that opens
-                # the admissible set, read on the pair graph itself
-                fids = sorted({q for c in gives for q in planar.vertices[c].incident_faces
-                               if planar.faces[q].role in pav_r})
-                fv = frozenset(v for q in fids
-                               for ring in (planar.faces[q].ring, *planar.faces[q].holes)
-                               for v in planar.ring_vertices(ring))
-                got_i: dict[float, tuple] = {}
-
-                def _opens(delta: float, _fv=fv, _fc=front_c) -> bool:
-                    g2 = pair_graph(planar, cs, cols, ipr, ref=ref_z, tol=tol_h,
-                                    bump=(_fv, rw_all, delta, pav_heads))
-                    l2, h2, _lc, _hc = interval(reach_anchored(g2, anchors({}),
-                                                               transit=False), _fc)
-                    got_i[delta] = (max(l2, r_lo), min(h2, r_hi))
-                    return got_i[delta][0] <= got_i[delta][1]
-                delta = least_allowance(_opens, pavement_fallback_cap(law)) if fv else None
-                if delta is None:
-                    # no grade under the law's steepest cap opens the set:
-                    # the block is left to the solve (the warning stands)
+            # A FIXED CLOSING CONTACT DICTATES THE LEVEL (owner RULINGS
+            # 2026-10-09c (2a); spec §57 (3) (ii-d)): a stage-1 pin or a
+            # runway column cannot give — the pad takes ITS level and the
+            # other pavement welds to it under the same allowance.  Two fixed
+            # contacts that disagree are left to the solve and the warning
+            # (the owner reads it in the sim).
+            fixed = sorted(c for c in gives if c in pins or c in rw_v)
+            if fixed:
+                fz = [zof(c) for c in fixed]
+                if max(fz) - min(fz) > tol_h:
                     widened, gives = False, {}
                 else:
-                    a_lo, a_hi = got_i[delta]
-                    D = 0.5 * (a_lo + a_hi)
-                    face_widen[pref] = (fv, float(delta))
+                    d_t = sum(fz) / len(fz)
+                    fx = set(fixed)
+                    gives = {c: g for c, g in contact_gives(
+                        d_t, [c for c in front_c if c not in fx], lo_c, hi_c,
+                        bands_c, tol_h).items() if c not in pins and c not in rw_v}
+                    if not gives or max(gives.values()) >= floor_m + tol_h:
+                        # nothing can give to it, or one would give the floor
+                        widened, gives = False, {}
+        if widened:
+            # spec §57 (3) (ii-b): ONE over-cap grade on the pavement faces
+            # the closing contacts front — the least that opens the
+            # admissible set (to the fixed level, where one dictates), read
+            # on the pair graph itself
+            fids = sorted({q for c in gives for q in planar.vertices[c].incident_faces
+                           if planar.faces[q].role in pav_r})
+            fv = frozenset(v for q in fids
+                           for ring in (planar.faces[q].ring, *planar.faces[q].holes)
+                           for v in planar.ring_vertices(ring))
+            free_c = [c for c in front_c if not (c in pins or c in rw_v)] \
+                if d_t is not None else front_c
+            got_i: dict[float, tuple] = {}
+
+            def _opens(delta: float, _fv=fv, _fc=free_c, _dt=d_t) -> bool:
+                g2 = pair_graph(planar, cs, cols, ipr, ref=ref_z, tol=tol_h,
+                                bump=(_fv, rw_all, delta, pav_heads))
+                l2, h2, _lc, _hc = interval(reach_anchored(g2, anchors({}),
+                                                           transit=False), _fc)
+                a_lo, a_hi = max(l2, r_lo), min(h2, r_hi)
+                got_i[delta] = (a_lo, a_hi)
+                if _dt is not None:
+                    return a_lo - tol_h <= _dt <= a_hi + tol_h
+                return a_lo <= a_hi
+            delta = least_allowance(_opens, pavement_fallback_cap(law)) if fv else None
+            if delta is None:
+                # no grade under the law's steepest cap opens the set: the
+                # block is left to the solve (the warning stands)
+                widened, gives = False, {}
+            else:
+                a_lo, a_hi = got_i[delta]
+                D = d_t if d_t is not None else 0.5 * (a_lo + a_hi)
+                face_widen[pref] = (fv, float(delta))
         blocks[pref] = {"dv": dv, "weld": weld, "n_all": n_all, "n_ramp": n_ramp,
                         "I0": (lo, hi), "empty0": lo > hi, "med": med, "D": D,
                         "misfit": misfit, "widened": widened, "front_c": front_c,
                         "closing": dict(gives), "gives": {},
+                        "fixed_level": d_t if widened else None,
                         "delta": face_widen.get(pref, (None, None))[1],
                         "faces": (sorted({str(planar.faces[q].ref) for q in fids})
                                   if widened else []),
@@ -827,6 +849,8 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                               "delta_pct": round(100.0 * float(b["delta"]), 3),
                               "faces": list(b["faces"]),
                               "closing_contacts": len(b["closing"]),
+                              "fixed_level_m": (round(float(b["fixed_level"]), 3)
+                                                if b["fixed_level"] is not None else None),
                               "contacts": []}
                              if b["widened"] else None)
         # the binding anchors of the (final) interval

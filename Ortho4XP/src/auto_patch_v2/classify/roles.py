@@ -909,6 +909,17 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
     out: list[Cell] = []
     n_cut = 0
     touch = dict(zip(ground_idx, zip(gpolys, witness)))
+    # §63 M1: a welded cell that also bounds AIRSIDE keeps the knife's cut
+    # as an inner seam — the knifed body as before, plus the STRIP between
+    # the knife and the rim as its own part — so every node the knife
+    # minted on the shared airside edge (its crossing, the densifier's
+    # midpoints of the knifed edge) stands as it did and stage 1's vertex
+    # set is the knife's.  Measured HECA (lane weld63): clipped whole, 9
+    # apron nodes left and 132 airside nodes re-settled (≤ 0.14 m).
+    air_cells = [Polygon(c.ring, c.holes) for c in cells
+                 if c.side == "airside" and is_value_role(law, c.role)
+                 and c.role != "building"]
+    air_edge = unary_union(air_cells).boundary if air_cells else None
     for i, c in enumerate(cells):
         g, w = touch.get(i, (None, None))
         if not w:
@@ -939,15 +950,27 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
         if len(held) < len(cutters):
             ev[WELD_KEY] = 1.0
         poly = Polygon(c.ring, c.holes)
+        welded = [r for r, d in w.items() if is_touching(law, d) and r not in held]
+        if welded and air_edge is not None and poly.distance(air_edge) <= 1e-6:
+            # the body is the knife's cell and is no weld partner (the strip
+            # is), so the planar build treats it as it treated the knifed
+            # cell; its held and gapped witness stand
+            cut = unary_union([knives[r] for r in held + welded])
+            body_pads = {r: g for r, g in pads.items() if r not in welded}
+            parts = ([(p, body_pads) for p in polygon_parts(poly.difference(cut))]
+                     + [(p, pads) for p in polygon_parts(poly.intersection(cut)
+                                                         .difference(unary_union(cutters)))])
+        else:
+            parts = [(p, pads) for p in polygon_parts(poly.difference(unary_union(cutters)))]
         k = 0
-        for part in polygon_parts(poly.difference(unary_union(cutters))):
+        for part, witness_pads in parts:
             if part.area < rules.cells.min_area_m2:
                 continue
             ring = tuple(part.exterior.coords)[:-1]
             holes = tuple(tuple(h.coords)[:-1] for h in part.interiors)
             out.append(Cell(len(out), c.role, c.ref if k == 0 else f"{c.ref}#{k}",
                             ring, holes, c.code_number, c.code_letter, c.side,
-                            c.kind, part_evidence(ev, part, pads, law)))
+                            c.kind, part_evidence(ev, part, witness_pads, law)))
             k += 1
     # ids are positional
     return [_dc.replace(c, id=i) for i, c in enumerate(out)], n_cut

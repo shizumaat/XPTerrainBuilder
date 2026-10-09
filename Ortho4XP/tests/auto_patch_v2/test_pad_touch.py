@@ -360,3 +360,57 @@ def test_the_published_records_name_the_faces_within_the_pads_radius(law):
         ("parking_lot:gap2", faces("gap2"), 2.0)]
     named = {fid for kind in ("touching", "held", "gapped") for e in rec[kind] for fid in e["faces"]}
     assert not named & set(faces("far")) and all(faces(r) for r in ("over", "hair", "gap08", "gap2"))
+
+
+# ── the clip keeps the knife's apron-edge nodes (§63 M1) ──────────────
+
+def _corner_cells():
+    """An apron west of a pad and of a lot drawn on the pad's north edge
+    (touching); the three share the corner (100, 200) and the lot shares
+    the apron's east edge x = 100, y 200..300."""
+    return [Cell(9, "runway", "09/27", _rect(-800.0, -422.5, 800.0, -377.5), (),
+                 3, "D", "airside", "runway", {}),
+            Cell(1, "apron", "apronW", _rect(0.0, 100.0, 100.0, 300.0), (),
+                 None, None, "airside", "apron", {}),
+            Cell(0, "building", "padA", _rect(100.0, 100.0, 200.0, 200.0), (),
+                 None, None, "airside", "pad", {}),
+            _lot(2, "lotN", _rect(100.0, 200.0, 200.0, 300.0))]
+
+
+def _airside_xy(law, dem):
+    airport = _airport(law, dem)
+    cells, _n = _cut_back_groundside(_corner_cells(), law, load_rules(), airport)
+    pm, _s = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    out = set()
+    for f in pm.faces.values():
+        if f.role in ("apron", "runway"):
+            for ring in (f.ring, *f.holes):
+                out |= {tuple(round(c, 3) for c in pm.vertices[v].xy)
+                        for v in pm.ring_vertices(ring)}
+    return cells, out
+
+
+def test_the_clip_leaves_the_airside_vertex_set_the_knifes(law):
+    """Spec §63 M1 (lane weld63, HECA: 9 airside nodes removed, 132 airside
+    movers): the old set-back knife crossed the apron|lot edge 0.5 m + the
+    snap margin off the pad and minted a node on the APRON's edge there.
+    The weld clips at the footprint, which crosses that edge at the pad's
+    corner; it keeps the knife's crossing on the shared edge, so the
+    airside vertex set is the same welded (level ground) or held (the
+    hillside keeps the knife)."""
+    held_cells, held = _airside_xy(law, _Dem(north=4.0))
+    weld_cells, weld = _airside_xy(law, _Dem())
+    assert _parts(held_cells, "lotN")[0].evidence[HELD_KEY] == ("padA",)
+    body, strip = _parts(weld_cells, "lotN")
+    assert body.ring == _parts(held_cells, "lotN")[0].ring        # the knife's cell
+    assert weld_partners(body, law) == [] and weld_partners(strip, law) == ["padA"]
+    assert min(y for _x, y in strip.ring) == pytest.approx(200.0)  # still the rim
+    assert weld == held
+
+
+def test_a_welded_cell_off_the_airside_is_clipped_whole(law):
+    """The seam is minted only where the welded cell also bounds airside:
+    the overlapping lot of ``_cells`` (no apron beside it) is one part."""
+    cells, _n = _cut_back_groundside(_all_cells(), law, load_rules(),
+                                     _airport(law, _Dem()))
+    assert len(_parts(cells, "over")) == 1

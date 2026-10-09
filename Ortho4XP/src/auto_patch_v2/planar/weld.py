@@ -17,7 +17,13 @@ into the ring, so a senior vertex a hair off a junior edge (the owner's
 site) becomes a vertex of both rings and the noding that follows sees
 ONE chain.  A vertex the junior already SHARES with any other cell (a
 pad it welds to, a neighbour it is noded with) is an identity and never
-moves.  Only value-carrying, non-rigid cells of the SAME side weld: a
+moves — (3) THE T-WELD (#495): such a frozen vertex that lies within
+the tolerance of a senior EDGE is welded onto that edge as a T-vertex
+from the other side: the senior's edge is split and the new senior
+vertex IS the frozen one, so the two cells share it and the noding sees
+one node (never when the senior segment is already shared with a third
+placed cell, or when its foot is a senior vertex).  Only value-carrying,
+non-rigid cells of the SAME side weld: a
 pad never welds by proximity (09-01i / 04u: groundside keeps its
 set-back from every pad), and an airside cell never welds to a
 groundside one (the stand-off terraces — memory
@@ -51,6 +57,9 @@ class WeldStats:
     vertices_projected: int = 0
     vertices_inserted: int = 0
     cells_refused: int = 0     # a weld that would have collapsed the cell
+    vertices_teed: int = 0     # (3) frozen junior vertices made senior T-vertices
+    tees_refused: int = 0      # (3) a T-weld refused (shared segment, foot at a
+                               # senior vertex, or an invalid senior ring)
     passes_max: int = 0        # the most passes one cell took to converge
 
 
@@ -90,14 +99,22 @@ def weld_cells(cells: tuple[Cell, ...], law: Law
             continue
         frozen = [others[int(j)] for j in other_tree.query(
             p.buffer(tol), predicate="intersects")] if other_tree is not None else []
-        q, moved, inserted, passes = _weld_one(p, unary_union(refs), tol,
-                                               unary_union(frozen) if frozen else None)
+        frozen_u = unary_union(frozen) if frozen else None
+        q, moved, inserted, passes = _weld_one(p, unary_union(refs), tol, frozen_u)
         stats.passes_max = max(stats.passes_max, passes)
         if q is None:
             stats.cells_refused += 1
             current[i] = p
             continue
         current[i] = q
+        if frozen_u is not None:
+            seniors = [j for j in near if j != i and j in current
+                       and cells[j].side == cells[i].side]
+            for j, sq in _tee(q, frozen_u, seniors, current, tol, stats).items():
+                current[j] = sq
+                out[j] = _dc.replace(
+                    cells[j], ring=tuple(sq.exterior.coords)[:-1],
+                    holes=tuple(tuple(h.coords)[:-1] for h in sq.interiors))
         if moved or inserted:
             stats.cells_welded += 1
             stats.vertices_projected += moved
@@ -158,6 +175,69 @@ def _weld_one(poly: Polygon, ref, tol: float, frozen=None
     if q.area < 0.5 * poly.area:
         return None, 0, 0, passes
     return q, moved, max(0, inserted), passes
+
+
+def _tee(junior: Polygon, frozen, seniors, current, tol: float,
+         stats: WeldStats) -> dict[int, Polygon]:
+    """(3) THE T-WELD: every vertex of ``junior`` lying ON ``frozen`` (an
+    identity it shares with a cell that does not weld) and within ``tol``
+    of a placed senior's boundary, inserted into that senior's ring as a
+    T-vertex — the nearest senior segment split, the new vertex the
+    frozen one.  Returns ``{senior index: its new polygon}``."""
+    out: dict[int, Polygon] = {}
+    pts = [c for r in (junior.exterior, *junior.interiors) for c in list(r.coords)[:-1]]
+    for x, y in pts:
+        pt = Point(x, y)
+        if frozen.distance(pt) > 1e-9:
+            continue
+        cand = []
+        for j in seniors:
+            d = out.get(j, current[j]).boundary.distance(pt)
+            if 1e-9 < d <= tol:
+                cand.append((d, j))
+        if not cand:
+            continue
+        _d, j = min(cand)
+        sq = _split_at(out.get(j, current[j]), (float(x), float(y)),
+                       [current[k].boundary for k in seniors if k != j])
+        if sq is None:
+            stats.tees_refused += 1
+            continue
+        out[j] = sq
+        stats.vertices_teed += 1
+    return out
+
+
+def _split_at(poly: Polygon, xy: tuple[float, float], shared
+              ) -> Polygon | None:
+    """``poly`` with its segment nearest ``xy`` split at ``xy`` (``xy``
+    becomes a vertex of that ring); ``None`` when the foot of ``xy`` is a
+    vertex of the ring, when that segment lies on a ``shared`` boundary
+    (another placed cell welded to it), or when the result is invalid."""
+    pt = Point(xy)
+    rings = [list(poly.exterior.coords)[:-1]] + [list(h.coords)[:-1] for h in poly.interiors]
+    best = None
+    for ri, ring in enumerate(rings):
+        n = len(ring)
+        for k in range(n):
+            seg = LineString([ring[k], ring[(k + 1) % n]])
+            d = seg.distance(pt)
+            if best is None or d < best[0]:
+                best = (d, ri, k, seg)
+    if best is None:
+        return None
+    _d, ri, k, seg = best
+    t = seg.project(pt)
+    if t <= 1e-9 or t >= seg.length - 1e-9:
+        return None                       # the foot is a senior vertex
+    if any(b.distance(seg.interpolate(0.5, normalized=True)) <= 1e-9 for b in shared):
+        return None                       # a third cell already welded here
+    rings[ri] = rings[ri][:k + 1] + [xy] + rings[ri][k + 1:]
+    try:
+        q = Polygon(rings[0], [h for h in rings[1:] if len(h) >= 3])
+    except (ValueError, TypeError):
+        return None
+    return q if q.is_valid and not q.is_empty else None
 
 
 def _project(coords, ref, rtree, rpts, tol: float, frozen

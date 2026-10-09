@@ -56,10 +56,13 @@ def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
     who FOLLOWS in stage 2).  This is the same law at stage 1's own site, so it
     holds for every generator there is and for every road face: ``road_ramp``'s
     own ramp and ceiling rows, ``road_cross_section``, and whatever is minted
-    next.  The airside vertex solves FREE and the road conforms in stage 2."""
+    next.  The airside vertex solves FREE and the road conforms in stage 2.
+
+    AN UNHELD DATUM COLUMN IS FOREIGN (spec §61 (11), :func:`_unheld_datums`)."""
     red0 = _reduce(planar, cs, {})
     air_v = airside_stage_vertices(planar, law)
     air_cols = {int(red0.col[v]) for v in air_v if red0.col[v] >= 0}
+    air_cols -= _unheld_datums(planar, cs, law, red0)
     foreign: dict[int, float] = dict(
         _groundside_pinned(planar, cs, law, red0, air_v))
     for vid in range(len(planar.vertices)):
@@ -69,6 +72,42 @@ def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
         dz = planar.vertices[vid].dem_z
         foreign[vid] = float(dz) if dz is not None else 0.0
     return frozenset(foreign), foreign
+
+
+def _unheld_datums(planar: PlanarMap, cs: ConstraintSet, law: Law,
+                   red: _Reduction) -> set[int]:
+    """THE HELD PAD'S DATUM COLUMNS NO HOLD ROW NAMES IN ``cs`` — the columns
+    stage 1 is FOREIGN to (spec §61 (11); §62 (4)).
+
+    A held pad's frontage datum column (``model.platform.datum_vertices``)
+    is an unknown of the airside problem FOR ITS HOLD: the weld's two-way
+    rows tie the apron contacts to it (``airside_stage_vertices``' own
+    reason).  PASS 1a strips every hold row (``HoldPass.strip``: the
+    UNPULLED airside), and there the column carries no bending, trend,
+    mean or membrane of its own — at most the hard 5 % ceiling twins of its
+    pad's dropped frontage rows: a §61 (0) valley the QP's exit lands
+    anywhere inside (MEASURED, lane ``holering``: a HECA datum moved
+    0.914 m on a null change under 30 satisfied ceilings).  So a datum
+    column is airside ONLY while a row of the hold (head
+    :data:`HOLD_RULING` or :data:`HOLD_DATUM_RULING`) names it; with none
+    it is foreign — fixed at its dummy value, every row touching it
+    dropped — and a pad pulls nothing in pass 1a by construction.  A
+    column that is airside through a WELD (a stage-1 face's vertex in the
+    same rigid class) stays airside: the weld, not the hold, decides it.
+    Pass 1b and stage 1 carry the hold's rows, so the column is an unknown
+    there exactly as before."""
+    from ..model.platform import (HOLD_DATUM_RULING, HOLD_RULING,
+                                  datum_vertices, stage_air_vertices)
+    stage_v = stage_air_vertices(planar, law)
+    dvs = datum_vertices(planar, law, stage_v).values()
+    if not dvs:
+        return set()
+    heads = (HOLD_RULING, HOLD_DATUM_RULING)
+    named = ConstraintSet.from_rows(
+        r for r in cs.rows() if ruling_head(r) in heads).vertices()
+    held_cols = {int(red.col[v]) for v in named if red.col[v] >= 0}
+    weld_cols = {int(red.col[v]) for v in stage_v if red.col[v] >= 0}
+    return {int(red.col[v]) for v in dvs if red.col[v] >= 0} - held_cols - weld_cols
 
 
 def _groundside_pinned(planar: PlanarMap, cs: ConstraintSet, law: Law,

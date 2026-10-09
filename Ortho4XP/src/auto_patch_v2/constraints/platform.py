@@ -36,7 +36,7 @@ from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import (PlanarMap, is_bank_ref, is_collar_ref, is_strip_ref,
                             pad_base_ref, platform_ref_of, unit_ref_of)
-from ..model.platform import HELD, datum_vertices
+from ..model.platform import HELD, HOLD_DATUM_RULING, HOLD_RULING, datum_vertices
 from .pad_warning import stamp_warning
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
@@ -60,17 +60,9 @@ RIM_RULING = "structures.building_pad platform_collar rim"
 #: 2026-09-30r): the strip between two flat blocks of one unit, a two-sided
 #: 1:3 bank from each floor — priced at the law's weight like the collar
 TERRACE_RULING = "structures.building_pad platform_collar terrace"
-#: The head of the FRONTAGE HOLD rows (flat-pad spec §1 (2); RULINGS
-#: 2026-09-30f / 30r): a held block's welded contact at the block's datum
-HOLD_RULING = "structures.building_pad frontage_hold"
-#: The head of the block DATUM's own row (owner 2026-10-02 round 5, RULINGS
-#: 2026-10-02ah (1) restated: "the pad must be seated flat at a level the
-#: apron can meet"): a SOFT preference — in no hard register, priced at the
-#: law's weight — pulling the free datum column toward the apron's own
-#: frontage level (the contacts' pass-1a median).  The welds (contact = D),
-#: the pad's flat rows and the apron's caps are the hard set that decides D
-#: jointly; a weld is released only when no single D serves the block
-HOLD_DATUM_RULING = "structures.building_pad frontage_hold datum"
+#: :data:`HOLD_RULING` (the frontage hold rows) and :data:`HOLD_DATUM_RULING`
+#: (the block datum's own row) live in ``model/platform`` so the stage split
+#: may read them (spec §61 (11)); re-exported here, where they are minted.
 #: The head of a RESIDUAL contact's hold (flat-pad spec v2 §2 EMPTY (i)):
 #: PRICED at the law's weight — deliberately NOT in ``[design]
 #: hard_rulings``

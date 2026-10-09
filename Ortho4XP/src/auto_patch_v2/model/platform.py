@@ -17,7 +17,23 @@ __all__ = ["structure_vertices", "Platform", "PLATFORMS", "HELD", "LANDINGS", "L
            "is_landing_ref", "PLATEAUS", "plateau_vertices",
            "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
-           "datum_vertices", "stage_air_vertices"]
+           "datum_vertices", "stage_air_vertices",
+           "HOLD_RULING", "HOLD_DATUM_RULING"]
+
+#: The head of the FRONTAGE HOLD rows (flat-pad spec §1 (2); RULINGS
+#: 2026-09-30f / 30r): a held block's welded contact at the block's datum.
+#: Minted by ``constraints/platform`` (which re-exports it); here so the
+#: stage split (``solve/design_stage``, spec §61 (11)) may read it too —
+#: ``solve`` may not import ``constraints``.
+HOLD_RULING = "structures.building_pad frontage_hold"
+#: The head of the block DATUM's own row (owner 2026-10-02 round 5, RULINGS
+#: 2026-10-02ah (1) restated: "the pad must be seated flat at a level the
+#: apron can meet"): a SOFT preference — in no hard register, priced at the
+#: law's weight — pulling the free datum column toward the apron's own
+#: frontage level (the contacts' pass-1a median).  The welds (contact = D),
+#: the pad's flat rows and the apron's caps are the hard set that decides D
+#: jointly; a weld is released only when no single D serves the block
+HOLD_DATUM_RULING = "structures.building_pad frontage_hold datum"
 
 
 @_dc.dataclass(frozen=True)

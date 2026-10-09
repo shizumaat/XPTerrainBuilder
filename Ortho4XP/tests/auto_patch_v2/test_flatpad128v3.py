@@ -327,6 +327,35 @@ def test_the_fronting_set_promotes_its_caps(law, built):
     assert len(b1.hard) - len(b0.hard) >= r1.fronting_promoted
 
 
+def test_pass_1a_has_no_free_datum_column(law, built):
+    """Spec §61 (11) / §62 (4) (lane ``holering``): a held pad's frontage
+    DATUM column is an airside unknown only while a hold row names it.  In
+    pass 1a (the hold rows stripped) whatever still touches it — at most
+    its pad's ceiling twins — is no reason to solve it: the split makes it
+    FOREIGN (fixed, every row on it dropped), so no valley column is free."""
+    from auto_patch_v2.model.platform import datum_vertices
+    from auto_patch_v2.solve.design import stage_split
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    dvs = set(datum_vertices(pm, lw).values())
+    assert dvs
+    drop1a, fixed1a = stage_split(pm, _strip(cs), lw)
+    assert dvs <= set(drop1a), "pass 1a: the unheld datum column is foreign"
+    assert all(v in fixed1a for v in dvs)
+
+
+def test_a_hold_row_keeps_the_datum_column(law, built):
+    """The control: in a pass that carries the hold (pass 1b, stage 1) the
+    datum column is an unknown of the airside problem exactly as before."""
+    from auto_patch_v2.model.platform import datum_vertices
+    from auto_patch_v2.solve.design import stage_split
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    dvs = set(datum_vertices(pm, lw).values())
+    drop, _fixed = stage_split(pm, cs, lw)
+    assert dvs and not dvs & set(drop)
+
+
 # ── 5. the stand-line plateau (§3) and the §20 pad (§4) ─────────────────
 
 def _cells_full():

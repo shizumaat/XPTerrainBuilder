@@ -64,6 +64,7 @@ def test_unwelded_pavement_across_a_sliver_is_pavement_off() -> None:
     cell = p[0]["cells"][0]
     assert cell["cell"] == "parking_lot:lot1" and not cell["touching"]
     assert abs(cell["dist_m"] - 1.5) < 0.01 and abs(cell["off_m"] + 7.0) < 1e-6
+    assert abs(cell["step_m"] + 7.0) < 1e-6
 
 
 def test_welded_flat_pavement_beside_a_bank_is_mixed_not_seat() -> None:

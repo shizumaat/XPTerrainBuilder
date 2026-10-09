@@ -15,7 +15,11 @@ that surface is:
 * ``P``  PAVEMENT OFF — a pavement cell that touches the vertex, or lies
   within ``--standoff`` of it, itself stands more than ``--off`` off the rim
   inside ``--within`` (a welded cell climbing/falling away, or an unwelded
-  cell across a sliver): the seat-defect candidates.
+  cell across a sliver): the seat-defect candidates.  Per cell: ``step`` =
+  its level at its boundary point nearest the vertex, minus the rim (0 for a
+  touching cell — one vertex, one level); ``off`` = its worst level off the
+  rim inside ``--within``; ``grade`` = the steepest rise from the rim vertex
+  to a vertex of a touching cell.
 * ``M``  PAVEMENT BESIDE A BARE BANK — pavement touches or is within the
   stand-off and stays within ``--off`` of the rim; the height is ungraded
   ground beside it.
@@ -165,7 +169,8 @@ def read_edges(graded: dict, dem: Optional[Dem], *, off_m: float = 1.0,
             d = 0.0 if k in touching else polys[k].distance(pt)
             if d > within_m:
                 continue
-            worst, grade = (0.0 if k in touching else nearest_z(f, x, y) - V[v][3]), 0.0
+            step = 0.0 if k in touching else nearest_z(f, x, y) - V[v][3]
+            worst, grade = step, 0.0
             for r in _rings(f):
                 for i in r:
                     if i == v:
@@ -178,7 +183,7 @@ def read_edges(graded: dict, dem: Optional[Dem], *, off_m: float = 1.0,
                         if k in touching and di > 0.5:
                             grade = max(grade, abs(dz) / di)
             out.append({"role": f["role"], "ref": str(f["ref"]), "kind": _kind(f["role"]),
-                        "dist_m": round(d, 2), "off_m": round(worst, 2),
+                        "dist_m": round(d, 2), "step_m": round(step, 2), "off_m": round(worst, 2),
                         "touching": k in touching, "grade_pct": round(100 * grade, 1)})
         return out
 
@@ -229,11 +234,13 @@ def read_edges(graded: dict, dem: Optional[Dem], *, off_m: float = 1.0,
                     if c["kind"] != "pad":
                         key = f'{c["role"]}:{c["ref"]}'
                         p = pav.setdefault(key, {"cell": key, "kind": c["kind"], "dist_m": c["dist_m"],
-                                                 "off_m": c["off_m"], "touching": c["touching"],
+                                                 "step_m": c["step_m"], "off_m": c["off_m"], "touching": c["touching"],
                                                  "grade_pct": c["grade_pct"]})
                         p["dist_m"] = min(p["dist_m"], c["dist_m"])
                         p["touching"] = p["touching"] or c["touching"]
                         p["grade_pct"] = max(p["grade_pct"], c["grade_pct"])
+                        if abs(c["step_m"]) > abs(p["step_m"]):
+                            p["step_m"] = c["step_m"]
                         if abs(c["off_m"]) > abs(p["off_m"]):
                             p["off_m"] = c["off_m"]
             zs = [V[v][3] for v in comp]
@@ -281,7 +288,7 @@ def render(runs: Sequence[dict], top: int = 0) -> Iterable[str]:
                    f"{r['length_m']:6.1f} m  rim {r['rim_z'][0]:.2f}..{r['rim_z'][1]:.2f}")
             for c in r["cells"][:4] if cls != "B" else r["cells"][:1]:
                 yield (f"        {c['cell'][:44]:44s} {'TOUCH' if c['touching'] else 'near '} {c['dist_m']:5.2f} m  "
-                       f"off {c['off_m']:+6.2f}  grade {c['grade_pct']:5.1f} %")
+                       f"step {c['step_m']:+6.2f}  off {c['off_m']:+6.2f}  grade {c['grade_pct']:5.1f} %")
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

@@ -172,3 +172,35 @@ rim at 16 m along it. No road law fixes a frontage VERTEX here; the page has no 
 carried. R-B as written (a vertex relation) has no population at `building164` on this base. What would answer it is
 outside §62's text (noding the road's edge along a seated pad's frontage, or reading the frontage by EDGE): reported,
 not built.
+
+## Step d — R-D rule 1 (LANDED, 6b1dc8a6) and rule 2 (probed, not built)
+
+Rule 1: `gap_follow.reach_m(law, pad=True)` = `law.tables.gap_standoff_m` (the mint's own stand-off, moved down a layer
+so `classify/gap_mint` and `constraints/gap_follow` read one derivation) + the snap margin + two identity cells = 2.81 m;
+a PAD ring's follow rows and its `late_stations` are read at it, every other ring at the plain 1.95 m.
+
+| late-stage arm on the BASE gap-free solve | HECA base → d1 | KCLT |
+|---|---|---|
+| P:GAP (class D) runs / m | 51 / 339 → **17 / 156** (the spec's arm D: 17 / 156) | no gap pieces in the last stage: identical |
+| P:GS-NEAR / ARMED / AIR-TOUCH / AIR-NEAR / T28 | 16 / 570 → 15 / 564; 1 / 66 =; 21 / 232 =; 7 / 231 =; 1 = | = |
+| standing surface | 0 movers in every frame; held datums 0 of 47; fixed vertices off their constant 0 of 34,436 | = |
+| cut | 71 → 72 parts, 37 → 38 knives, 2,499 → 2,882 stations, merged 40 → 46 | — |
+| `hard_conflict` groundside | 233 → 253 (follow rows relaxed 19 → 30, worst 1.61 → 3.19 m; last-stage ceiling 13 → 19; cross-section 75 → 78): the pad\|lot disagreements the reach now sees — rule 2's sites | = |
+| census (this tree's, the pair's patch) | adjudicated airside 12,016 → 12,014; CRITICAL motion 2 = 2; CRITICAL visual 1,959 → **1,966** (`hairline_pair` 1,900 → 1,907: airside 1,196 → 1,197, groundside 572 → 578 — the new part's rims); `pavement_over_road_cap` 22 → 21; `road_cross_section` 500 → 495; `terrace_actual_step` 26 → 21 | — |
+
+Rule 2, probe `d2` (scratch edit of a frozen tree, `<scratch>/seat2/d2_patch.py`): the FLOOR half as the spec words it —
+a candidate under the mint's floors whose level group holds a pad station is not merged away, the merged polygon takes
+the pad's group. Result: IDENTICAL to d1 (72 parts, 38 knives, 46 merged, GAP 17 / 156). No small candidate of a pad's
+group is merged into another group at HECA: the "merged" stations are the nearest-part read after the cut (a pad
+station whose nearest part belongs to another group), i.e. mechanism (b), the Voronoi region — not the floors. The
+Voronoi half (the strip along a pad's rim always the pad's group) needs the pad's ring in `terrace_cut`, which reads
+stations only: design work, NOT built.
+
+## R-F, the airside-seated half alone (probe `f` / `kf`, on `claude/seat2-rc`, NOT on the lane branch)
+
+The fallback cap skipping only the own vertices of pads that front AIRSIDE (landside-only pads keep their weld), over
+the R-B code: HECA `hard_conflict` gs / pad / taxi 233 / 101 / 64 → 206 / **15** / 63, `building75`'s rim back on its
+plane (row-side worst mover 1.16 m at 30.12086521267,31.41819005825), held datums 0 of 47, solve-owned airside 0, class
+C 16 / 570 unchanged — but P:ARMED 1 / 66 → 2 / 83 (`building75` | `small_roads:-20325`: the road the weld held to the
+rim) and P:AIR-NEAR 7 / 231 → 7 / 295 (a pad standing off its apron loses the weld). KCLT (over `kc`): gs / pad
+259 / 32 → 264 / 34, classes equal, airside 0. B and E do not fall: not landed. It is the piece to re-read after R-E.

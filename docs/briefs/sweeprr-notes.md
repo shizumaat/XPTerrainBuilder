@@ -54,3 +54,43 @@ roadramp2 lane's `analyze.py` re-pointed at the harness patches; build logs `bui
   adjudicated airside 3. Movers: none.
 * INSTRUMENT NOTE: the registered capture `conc333/NLWF_main28500ecf.pkl` does NOT reproduce this build
   (probe on it: 5 ramps / 71 m); the fresh capture does (94 targets, 112 contacts, 1 ramp / 23 m).
+
+## HECA — body CHANGED `75c751a9dd95` -> `189234d8e929`; runway / taxi / apron 0 movers
+
+* `sw9_HECA`: rc 0, optimal, ledger STORED `8e01c7070064`. Rebake plan sha IDENTICAL to main's
+  (`1956d7537290`, `T3_road.obj` `deck_datum_z` 98.445 in both).
+* Ramps (build log; probe on `surf337/HECA.pkl` gives the same 1,134 contacts / 460 on-ramp vertices / 38 /
+  593 m / 57 m — the capture carries 4,108 targets against the build's 3,984, a stale-capture difference
+  that does not reach the ramp figures): **38 ramps, 593 m, longest 57 m (mouth 11888, 5 %), max reach
+  77.5 m** (main at 10 %: 25 / 201 m / 27 m / reach 858 m; `2676e011`: 44 / 753 m / reach 932 m). 34 at the
+  design grade, 1 steepened under the cap, **3 at the cap on every run** (mouths 25585, 12878, 10160 — "the
+  road's end at 6–8 m"; the cap does not bring them down), 4 with some run at the cap (adds 11883, 46 m at
+  5 % with one run at 10 % to a road's end 8 m away). Probe targets main -> now: 109 raised > 0.02 m (max
+  0.74 m, 19 > 0.3 m), 0 lowered.
+* Followable-ground check (bar 0): mouths 1,134, forced 93, ramps on followable ground **0** of 38.
+* Movers > 0.02 m vs `sw7_HECA` (canonical join, 42,591 = 42,591 nodes): row-side **0** of 28,054,
+  solve-owned (runway, taxi, apron) **0** of 17,422. By role: `service_road` 9 refs / 50 nodes, worst
+  0.56 m (`small_roads:-4036` 6/10 at 30.13926320, 31.41026154, 64.01 -> 64.57; `dsf:objpav104` 20/141
+  0.49 m; `dsf:objpav366` 10/383 0.48 m; `small_roads:-3890#1` 5/22 0.48 m); `groundside_pavement` 3 nodes
+  (`gap:8/s0/lot` 2/88: −2.37 m at 30.11510995356, 31.41089017767, 104.17 -> 101.80, and +0.06 m;
+  `gap:0/s0/lot` 1/1,945 at 0.03 m, a node shared with `small_roads:-21141`); `tunnel_ramp` 5/108 nodes at
+  +0.02 m (154.35 -> 154.37, the ring at 30.0861, 31.4065 welded to `mouth_road:-1744`).
+  The `gap:8/s0/lot` node is the SAME node the roadramp484 notes and review R5 name (a lot part whose
+  rows are infeasible against its rim relaxes at an arbitrary rim vertex): it reads 101.80 here, 104.17
+  on main `sw7`. FOUND, NOT FIXED, not this PR's mechanism (R5 follow-up).
+* OWNER GAP SITES: `gap:7/lot` (#430) 90 nodes, `gap:7/ramp0` (#292) 48, `gap:0/s4/lot` (#358) 160 —
+  **0 nodes moved** over 0.005 m. T3 LANDING: 0 of 653 nodes within 150 m of the `T3_road.obj` ring centre
+  (30.1123889, 31.3962650) moved > 0.02 m; deck datum identical.
+* Census, each arm under its own tree (main -> branch): rows 56,316 -> 56,330; `road_cross_section`
+  512 -> **515** (worst 2.76 = 2.76); `pavement_over_road_cap` 15 -> 16 (4.77); `hard_conflict` 294 -> 297
+  (airside 90 = 90); `transverse` 947 -> 954 (airside 352 = 352); `mid_edge_step` 54 -> 52; `within_shape`
+  45,675 -> 45,677 (airside 44,889 = 44,889); CRITICAL motion 2 = 2, visual 1,912 -> 1,910; adjudicated
+  airside 12,205 = 12,205; airside rows 53,387 = 53,387.
+
+## OTHH — body UNCHANGED `500f5dddce63` (= `surf337b_OTHH`)
+
+* `sw9_OTHH`: rc 0, optimal, ledger STORED `14692649a9b4`. Node-for-node identical (35,095 nodes, 0 over
+  0.0001 m) — so the object-framed ramps (#447 / #448 / #453 / #454 / #455 sites) and every tunnel ramp
+  are node-identical to main; nothing moved.
+* Ramps (build log): 1,777 groundside-road vertices from 1,602 contacts, all 1,777 targets on the DEM,
+  **0 ramps** — the followable-ground check is 0 of 0.

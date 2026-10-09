@@ -40,3 +40,47 @@ does not take.
 
 Stage-1 hard set: m 30 rows over 0.02 m (worst 0.0999, apron ring edge v11207–v11208); e 74 rows (worst 0.1345, the
 SAME ring edge) — the apron tier is less settled under R-E, same site.
+
+## Step 1 — WHY the sheet stands at 93.6–93.8 (`--why-from` on the two solved pickles; `<scratch>/sheetlevel/why/`)
+
+`--why-at` building100's contact v11868 (e: z 93.79, DEM 102.52) and `--why-vertex 11597` (the sheet 6 m off, m: 93.56
+/ e: 93.79, DEM 102.39). Both arms give the SAME chain, 11 hops, to a junction vertex 1.3 km away held by a REACH BAND
+(`no_step` "threshold values along taxi routes at the path caps", 04o): m v10665 z 77.21 (Σdz +16.34 m), e v10670 z
+75.29 (Σdz +18.50 m). By family along the chain: **`apron_preference` +13.7 / +14.0 m** (the 1 % preferred tier, soft,
+over ~1,250 m of apron body / frontage chords), `no_step_pairs` +1.6 / +4.1 (hard 1.5 %), `junction_mesh` +0.7,
+`pad_frontage_level` +0.3. The steps along the chain run at 1.19–1.34 % — ABOVE the 1 % preference and UNDER the 1.5 %
+cap — so the preference row is the binding one (dual 33) and the hard `apron_within_shape` 1.5 % row is slack (dual
+0.01–3.3) on every hop. Binding on v11597 in m: `pad_frontage_level` dual 1,797 (building101's seat holding its contacts),
+`pads` near-miss 121, `apron_preference` 33.
+
+The §8.7 trend target (`PlanarMap.apron_trend_z`, priced at `[design] apron_trend` = 30 / vertex): v11868 **100.26**,
+v11597 **100.10**, v11603 100.00, v11639 99.10 — the long-wave ground trend is ~2.2 m under the DEM there and AT the law
+band's top (building100 `reach_band` hi 100.21). Face 372 (objpav402, 613 vertices, 21 holes, 359 trend rows): z−trend
+mean on the pad rims −2.36 (m) → **−6.74** (e), on the other vertices −1.76 → −5.05, on its own junction cells −4.39 →
+−4.19; z−DEM rims −3.03 → −7.41. Stage-1 objective: `apron_trend` term 1.60 M (m) → 2.08 M (e) at weight 30 — the sheet
+pays ~53,000 → 69,000 m² of trend residual rather than ~1 % relief on the preference rows (priced at `law` 300 per pair).
+
+READING (Q1). The apron's level around the pads is a PREFERENCE outcome: the 1 % preferred tier on the body chords from
+the taxiway junction's reach band, out-pricing the §8.7 trend (30 vs 300 per row, and the chain is 1.2 km long). The LAW
+band at the rims — 1.5 % along the pair graph from the runway anchors — is building101 [86.1, 99.5], building100 [86.5,
+**100.2**], building117 [84.4, 101.1], building98 [83.1, 102.4]: the DEM / object level 101.25 / 101.74 / 103.50 is 1.0
+/ 0.7 / 1.1 m ABOVE the lawful ceiling at building100 / 117 / 98's own rims (101.25 > 100.21; 101.74 > 101.09; 103.50 >
+102.39), and ~102 is inside only at building98. A sheet at the pads' level would violate the hard 1.5 % `no_step` route
+pairs / `junction_mesh` / apron ring-edge rows along the chain to the junction band by 0.7–1.1 m — but a sheet at
+~99.5–100.2 (the trend's own value) violates nothing.
+
+## Step 2 — the −9.48 / −6.88 m apron movers (Q3; `movers.py`, `movers_hist.py` on the m → e emit join)
+
+Top 12 apron movers are ALL rim vertices shared with building99 / building98 / building108 (pad-rim distance 0.0–4.5 m):
+e.g. v11852 103.40 → 93.92 (DEM 102.82), v11860 103.47 → 94.00 (DEM 103.11), v11851 / 11850 / 11845 / 11844 / 11843 /
+11842 103.50 → 94.43 (DEM 104.6–106.6). The rows holding the OLD value: `structures.building_pad flat` (cap 0, hard) and
+`pad_slope_max ceiling` ×8–15, `frontage_level` / `frontage_hold` (the pad's own hold at its unreached DEM datum), plus the
+apron ring edge / frontage chord 1.5 % and the 5 % ceiling climbing to meet it. So the top movers are the old KINK (the
+sheet's rim pulled up to a pad seated alone at its DEM) relaxing to the sheet. BUT the sheet itself also sinks: non-pad
+apron vertices by distance to the nearest pad rim, m → e (n / movers / >0.3 m / worst): <2 m 59 / 46 / 32 / −9.08;
+2–10 m 237 / 194 / 103 / −9.08; 10–30 m 641 / 484 / 223 / −8.61; 30–60 m 694 / 350 / 113 / −7.53; **60–200 m 1,776 /
+810 / 172 / −6.88; >200 m 5,326 / 1,723 / 398 / −2.58**. Two mechanisms, same sign: (i) the high pads no longer lift the
+sheet locally (their hold rows, dual ~1,800, now follow the sheet instead of pulling it), (ii) R-E adds cross-ring body
+chords inside the 60 m gate and each carries the 1 % preference row — more preference rows, the same trend weight — so
+the 1 %-vs-trend balance tips further toward the ramp from the junction. KCLT the same read, opposite sign: pav14's pads
+UP 221.03 → 222.44 with the sheet (+1.41 at the rim, worst +1.89 at 2–10 m; >200 m 445 movers worst −1.78).

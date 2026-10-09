@@ -166,7 +166,10 @@ def test_pad_pad_weld_is_a_step_not_a_grade(law):
     within the weld radius hold the ``building_to_building`` step
     exemption — no fallback row between them (the HECA cargo pads were
     dragged 6.4 m onto the lower pad across their declared terrace).  Each
-    pad's own ring edges stay capped, and a pad|apron weld stays priced."""
+    pad's own ring edges stay capped.  A pad's own vertex against a
+    PAVEMENT vertex across the stand-off is not the fallback's either (spec
+    §62 (5) R-F: the pad|pavement pair is the seat relation, one-way — §20,
+    §28, ``constraints.pad_seat``); two pavement faces' weld stays priced."""
     a, xya = _rect(0, 0.0)
     b, xyb = _rect(10, 10.8)                         # 0.8 m gap
     pm = _Planar({**xya, **xyb}, [_F(1, "building", "building51", a),
@@ -177,7 +180,12 @@ def test_pad_pad_weld_is_a_step_not_a_grade(law):
     pm2 = _Planar({**xya, **xyb}, [_F(1, "building", "building51", a),
                                    _F(2, "apron", "pav37", b)])
     rows2 = pavement_cap.pavement_road_cap([], pm2, law)
-    assert {frozenset((r.a, r.b)) for r in rows2
+    assert not [r for r in rows2 if (r.a < 10) != (r.b < 10)]
+    assert len(rows2) == 8
+    pm3 = _Planar({**xya, **xyb}, [_F(1, "parking_lot", "pol1", a),
+                                   _F(2, "apron", "pav37", b)])
+    rows3 = pavement_cap.pavement_road_cap([], pm3, law)
+    assert {frozenset((r.a, r.b)) for r in rows3
             if (r.a < 10) != (r.b < 10)} == {
         frozenset((1, 10)), frozenset((2, 13))}
 

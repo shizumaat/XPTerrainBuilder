@@ -472,6 +472,26 @@ taxi_trend    = 30.0
 # from station 170 to 330 under one ref), so at 75 m the far edge — the
 # -1.80 / -1.93 m stations this round exists to fix — took no row at all.
 taxi_trend_face_reach_m = 250.0
+# THE TAXIWAY EDGE TAKES ITS CENTRELINE'S LEVEL (owner RULINGS 2026-10-09e;
+# spec §61).  §8.6.1 extends the trend across the face only for a LONG
+# chain, and a parallel is many short chains between its connectors, so
+# ~1,800 of KCLT's 12,135 stage-1 columns carried BENDING ONLY — a valley
+# eight orders softer than the stiff rows, where the QP's tolerance exit
+# landed them by unrelated inputs (a satisfied ceiling elsewhere moved
+# 506-615 vertices up to 0.81 m at KCLT).  Every off-centreline taxi-family
+# vertex with no trend row now takes ONE relational row to the foot of its
+# perpendicular on its own face's chain, `z_v = (1-t) z_a + t z_b` — the
+# SOLVED centreline, so no DEM enters (08t (1), 10v).  MEASURED (§61 (2)):
+# at 30 (`taxi_trend`) the row outranks the sheet and the runway follows by
+# 0.24 m; at 1.0 (= `bend_taxi`) it NAMES the level and bending still
+# SHAPES the sheet (runway 4 vertices / 0.06 m).  One number, already in
+# the table.
+taxi_xsec     = 1.0
+# §61 (1) THE MEMBRANE for what no chain reaches (foot past the reach, or a
+# taxi face no chain owns): one first-difference row to each bending
+# neighbour.  MEASURED: 0.3 closes pass 1a and leaves 37 columns loose in
+# pass 1b; 1.0 closes both.
+free_membrane = 1.0
 # THE APRON BODY'S 2-D TREND (owner RULINGS 2026-09-10ar; spec §8.7).
 # ``body_datum`` gives an apron body three AFFINE rows, so its
 # least-squares PLANE follows the ground's.  Over a body larger than the
@@ -1052,6 +1072,11 @@ one_way_tol_m      = 0.01  # the lag has settled when no leader foot moved this 
 # against a 2x bar.  `fixed_point` is kept as the DIAGNOSTIC ARM and the
 # matched pair every one of those numbers was read against.
 solver = "qp"
+# §61 (4) THE QP's EXIT (owner RULINGS 2026-10-09e): converged when one
+# accepted step buys less than this, relative to the objective.  Was the
+# module constant 1e-9; 1e-12 with the valley closed is what makes a null
+# change move nothing (KCLT pass 1a 158 -> 214 rounds, 1b 177 -> 358).
+qp_rel_tol = 1e-12
 active_set_max_rounds = 200    # iterations before the solve reports the set it stopped on (measured: CYXY and HECA settle well inside this)
 active_set_tol_m      = 0.001  # a row inside this of its bound is not counted as a set change (a tenth of the 0.01 m elevation materiality)
 solver_tol            = 1e-8   # the linear solver's relative residual tolerance per round
@@ -1064,3 +1089,12 @@ solver_max_iter       = 20000  # per-round iteration cap of the linear solver
 # ring follows its centreline through the transverse hop LAW
 # (`constraints/taxi.taxi_chain`), which is already a design target, and
 # through the centreline's own `taxi_profile` curvature.
+# WHAT WAS REFUTED, EXACTLY (noted with spec §61, owner RULINGS 2026-10-09e):
+# an EQUALITY, at the law's weight, over the ROUTE GRAPH's lateral hops —
+# ring vertex to the hop's foot, every taxi vertex, the runway contact a
+# column.  §61's `taxi_xsec` is a different measurement and is NOT covered
+# by this refutation: ONE row per off-centreline vertex that carries no
+# trend row, to the PERPENDICULAR FOOT on its own face's chain, priced at
+# 1.0 (= `bend_taxi`, so bending still shapes the sheet), the runway
+# contact a CONSTANT.  Measured there: runway 4 vertices / 0.06 m at KCLT,
+# 2 / 0.06 m at HECA; at 30 the same row DOES move the runway 0.24 m.

@@ -6340,3 +6340,19 @@ constraint, and owed:
   lines) with the sha256 the harness airport build's plan step prints.
   The second tile build of the same airport must reuse the patch AND the
   plan (no `building the object plan` line).
+- 2026-10-09 lane valley2 (spec §61, RULINGS 2026-10-09e): the taxiway edge
+  takes its centreline's level (`solve/design_edge`), `[design] qp_rel_tol`
+  1e-12 and the §5a LP's tie-break among equal optima change EVERY airport's
+  body once. PAID in the lane: KCLT by replay (the spec's ruled row
+  reproduced) and ONE HECA closing build. DEFERRED to the master's sweep:
+  the §61 (6) five reads on the other five airports (SPJC, CYXY, KASE, NLWF,
+  OTHH) — runway movers ≤ 0.1 m, taxi-tier `hard_conflict` ± 3, adjudicated
+  airside by family and CRITICAL rows not rising against each tree's own
+  census, and `tools/v2_solve_replay.py --null-change` ≤ 20 movers at 0.02 m
+  / 0 over 0.3 m on the representative airport of each merged batch; the
+  sidecar keys `design.stages.*.qp_exits` / `lag_settled` / `hard_settled`
+  diffed there. NOT PAID: a row-PERMUTED §5a LP on a real airport (the
+  lane's `k_lpperm` reading) — the order-freedom is twinned at fixture
+  scale only (`tests/auto_patch_v2/test_v2valley.py`); the build-time
+  adjudication of the tighter exit (stage 1 KCLT ~+5-15 s, HECA see the
+  lane report) at the final profiling round; no in-sim look.

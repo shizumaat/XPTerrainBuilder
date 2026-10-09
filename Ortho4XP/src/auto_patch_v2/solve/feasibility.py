@@ -49,7 +49,7 @@ from ..model.planar import PlanarMap
 from .design_report import row_metre_scale
 from .design_roles import ruling_head
 
-__all__ = ["ConflictReport", "tier_of", "check_hard_set",
+__all__ = ["ConflictReport", "tier_of", "check_hard_set", "canonical_rank",
            "HARD_CONFLICT", "publish", "publish_stages", "demote_conflicts",
            "apron_hard_rows", "source_face", "published",
            "promote_missed", "runway_after"]
@@ -87,6 +87,14 @@ class ConflictReport:
     #: RULINGS 2026-09-30bj: priced strict body chords the solve missed,
     #: promoted to hard pair by pair before the multiplier rounds
     promoted_on_miss: int = 0
+    #: §61 (5) THE TIE-BREAK among equal optima: what the second LP did
+    #: ("canonical" = its set was taken; "" = nothing was relaxed, so there
+    #: was nothing to choose) and its wall, which ``lp_wall_s`` includes
+    tie_break: str = ""
+    tie_wall_s: float = 0.0
+    #: the tie-broken answer's tier-weighted cost minus the first LP's
+    #: (zero to the LP's own precision: the optimum is untouched)
+    tie_cost_delta: float = 0.0
 
     def as_dict(self) -> dict[str, _t.Any]:
         return {"rows": self.rows, "relaxed": self.relaxed,
@@ -100,7 +108,10 @@ class ConflictReport:
                 "runway_rows": list(self.runway_rows),
                 "runway_after_m": round(self.runway_after_m, 4),
                 "runway_stop": self.runway_stop,
-                "promoted_on_miss": self.promoted_on_miss}
+                "promoted_on_miss": self.promoted_on_miss,
+                "tie_break": self.tie_break,
+                "tie_wall_s": round(self.tie_wall_s, 3),
+                "tie_cost_delta": float(f"{self.tie_cost_delta:.6g}")}
 
     def by_head_line(self) -> str:
         """The relaxed rows BY HEAD, count and worst metre (spec §55 (5))."""
@@ -111,7 +122,9 @@ class ConflictReport:
 
     def line(self) -> str:
         return (f"hard set feasibility (§5a): {self.rows} hard rows, LP "
-                f"{self.lp_wall_s:.2f} s ({self.status})"
+                f"{self.lp_wall_s:.2f} s ({self.status}"
+                + (f"; tie-break {self.tie_break}, {self.tie_wall_s:.2f} s"
+                   if self.tie_break else "") + ")"
                 + (" OVER BUDGET" if self.over_budget else "")
                 + f", {self.relaxed} relaxed"
                 + (f" {dict(sorted(self.by_tier.items()))}" if self.relaxed else "")
@@ -134,6 +147,45 @@ def _site(planar: PlanarMap, terms: _t.Sequence[tuple[int, float]]) -> list[floa
         return []
     return [round(sum(float(k[0]) for k in keys) / len(keys), 11),
             round(sum(float(k[1]) for k in keys) / len(keys), 11)]
+
+
+def canonical_rank(planar: PlanarMap, one: list, rows: np.ndarray,
+                   heads: _t.Sequence[str]) -> np.ndarray:
+    """Each of ``rows`` (indices into ``one``) -> its 1-based POSITION IN
+    CANONICAL ORDER (spec §61 (5)): by its vertices' 11-dp lat/lon keys —
+    the identity the whole engine joins on — then its ruling head, then its
+    own coefficients and bound.  A function of the row, never of where it
+    stands in ``one``: two rows that read the same share a rank."""
+    nv = len(planar.vertices)
+    keys = np.array([planar.vertices[i].key for i in range(nv)], dtype=float)
+    vr = np.full(nv + 1, nv, dtype=np.int64)     # [nv]: a vertex off the map
+    vr[np.lexsort((keys[:, 1], keys[:, 0]))] = np.arange(nv, dtype=np.int64)
+    terms = [one[int(k)][0] for k in rows]
+    lens = np.fromiter((len(t) for t in terms), dtype=np.int64, count=len(terms))
+    total = int(lens.sum())
+    v = vr[np.clip(np.fromiter((int(u) for t in terms for u, _c in t),
+                               dtype=np.int64, count=total), 0, nv)]
+    c = np.fromiter((float(w) for t in terms for _u, w in t), dtype=float,
+                    count=total)
+    at = np.concatenate(([0], np.cumsum(lens)[:-1]))
+    head_rank = {h: i for i, h in enumerate(sorted(set(heads)))}
+    cols = (np.fromiter((float(one[int(k)][1]) for k in rows), dtype=float,
+                        count=len(terms)),                 # the bound
+            np.add.reduceat(c * (v + 1), at),              # which way it reads
+            np.fromiter((head_rank[h] for h in heads), dtype=np.int64,
+                        count=len(terms)),
+            np.add.reduceat(v, at), np.maximum.reduceat(v, at),
+            np.minimum.reduceat(v, at))                    # primary: the site
+    order = np.lexsort(cols)
+    new = np.ones(order.size, dtype=bool)
+    if order.size > 1:
+        same = np.ones(order.size - 1, dtype=bool)
+        for col in cols:
+            same &= col[order[1:]] == col[order[:-1]]
+        new[1:] = ~same
+    rank = np.empty(order.size, dtype=np.int64)
+    rank[order] = np.cumsum(new)
+    return rank
 
 
 def check_hard_set(planar: PlanarMap, law: Law, one: list, hard_i: np.ndarray,
@@ -177,11 +229,19 @@ def check_hard_set(planar: PlanarMap, law: Law, one: list, hard_i: np.ndarray,
     # runway row that still carries slack over ``hard_tol_m`` is a STOP
     cost = ratio ** (n_t - 1 - t_row).astype(float)
     duals: list = []
+    tie: dict = {}
     t0 = time.perf_counter()
+    # §61 (5): among EQUAL optima the relaxation set earliest in CANONICAL
+    # order is chosen — a function of the geometry, never of the row order
     s, st = _relax_lp(Am, bm, np.ones(rows.size, bool), verbose, cost=cost,
-                      duals=duals, dual_form=True)
+                      duals=duals, dual_form=True, tie_tol=tol,
+                      tie_rank=lambda: canonical_rank(planar, one, rows, heads),
+                      info=tie)
     rep.lp_wall_s = time.perf_counter() - t0
     rep.status = st
+    rep.tie_break = str(tie.get("tie", ""))
+    rep.tie_wall_s = float(tie.get("tie_wall_s", 0.0))
+    rep.tie_cost_delta = float(tie.get("tie_cost_delta", 0.0))
     rep.over_budget = rep.lp_wall_s > float(d.hard_conflict_lp_budget_s)
     if st != "optimal":                 # named, nothing demoted
         return np.zeros(0, dtype=np.int64), rep

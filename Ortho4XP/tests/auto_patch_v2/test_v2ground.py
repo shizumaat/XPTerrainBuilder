@@ -47,6 +47,12 @@ def _taxi_solve(law, airport, cells, cut):
     cl = Classification(tuple(cells), tuple(cut), {}, ())
     pm, _st = build(airport, cl, law)
     pm = with_runway_chord(pm, law, airport)
+    # NOT IN PIPELINE ORDER, ON PURPOSE (lane ``valley2``, §61 review fix 4,
+    # MEASURED): this module's claims are about a taxi family with NO trend
+    # (09-09b, before 10v).  With the taxi publisher run first the strip
+    # test's two pinned readings both move, under MAIN's rows as much as
+    # under §61's: staged −1.54 m (bar < −2.0) and unstaged +0.01 m
+    # (bar > +0.5) — the trend, not the cross-section row.
     cs, _c, _w = generate(pm, law, airport)
     sol, rep = solve_design(pm, cs, law)
     return pm, cs, sol, rep
@@ -131,7 +137,14 @@ def test_the_zone_ring_follows_the_pavement_not_the_terrain(taxi_map, law):  # n
     # does not.  Both arms are pinned; neither reading is hidden.
     from tests.auto_patch_v2.test_v2staged import unstaged
     from auto_patch_v2.solve import solve_design as _solve
-    assert min(z[v] - pm.vertices[v].dem_z for v in strip) < -2.0, \
+    # READING MOVED, CLAIM KEPT (spec §61, lane ``valley2``): this fixture
+    # never runs the taxi publisher, so its taxi EDGES are "what no chain
+    # reaches" and take §61's membrane (level with their neighbours), which
+    # carries the taxiway FLATTER across the valley: staged −2.88 m (main)
+    # -> −1.15 m.  Still under its own DEM — the staged sheet takes no level
+    # from the ground — which is what this arm pins.  (The same map in
+    # PIPELINE ORDER reads −1.54 m with or without §61; see ``_taxi_solve``.)
+    assert min(z[v] - pm.vertices[v].dem_z for v in strip) < -1.0, \
         "the staged arm: the sheet keeps no level from the ground"
     z0 = np.asarray(_solve(pm, _cs, unstaged(law))[0].z, float)
     # every such vertex is FILLED clear of its DEM sample

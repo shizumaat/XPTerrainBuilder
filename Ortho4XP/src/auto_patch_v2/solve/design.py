@@ -278,7 +278,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               "hard_rows": rep2.hard_rows,
                               "hard_active": rep2.hard_active,
                               "hard_max_violation_m": round(rep2.hard_max_violation_m, 6),
-                              "hard_settled": rep2.hard_settled,
+                              **rep2.settle_record(),
                               "rounds": rep2.rounds, "wall_s": round(w2, 3)}}
     if pass1a is not None:
         rep2.stages["stage1a"] = pass1a
@@ -309,6 +309,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep2.body_datum_bodies += rep1.body_datum_bodies
     rep2.body_datums = list(rep1.body_datums) + list(rep2.body_datums)
     rep2.taxi_trend_rows += rep1.taxi_trend_rows
+    rep2.taxi_xsec_rows += rep1.taxi_xsec_rows
+    rep2.free_membrane_rows += rep1.free_membrane_rows
     rep2.apron_trend_rows += rep1.apron_trend_rows
     rep2.ground_datum_rows += rep1.ground_datum_rows
     rep2.level_belt_rows += rep1.level_belt_rows
@@ -571,7 +573,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         res = solve_one_sided(A0f, b0f, A1, b1, w_row, shift, x0, Ub, cb,
                               method=method, solver_tol=float(d.solver_tol),
                               solver_max_iter=int(d.solver_max_iter),
-                              low_rank=low_rank, active_tol=0.0,
+                              low_rank=low_rank,
+                              rel_tol=float(d.qp_rel_tol), active_tol=0.0,
                               verbose=opt.verbose)
         t_solver += time.perf_counter() - t1
         active_i = np.flatnonzero(A1 @ res.x - (b1 - shift) > tol)

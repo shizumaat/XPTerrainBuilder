@@ -1166,6 +1166,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _prefix_stage["stage"], pm=pm)
         strips, design_rep = _late["strips"], _late["design"]
         design_rep.stages["base"] = dict(_base_rep.stages)
+        # §61: the taxiway-edge rows live in the stage that owns their
+        # vertices (the base's stage 1); the top block is the true sum
+        design_rep.taxi_xsec_rows += _base_rep.taxi_xsec_rows
+        design_rep.free_membrane_rows += _base_rep.free_membrane_rows
         _pin_yield = [*_late["pin_yield"], *(design_rep.pin_yield or ())]
         wall["late_stage"] = time.perf_counter() - t
         _late_report = {"cut": _late["cut"], "followers": _late["followers"],
@@ -1210,7 +1214,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     if sol.z:
         from .runway_report import runway_profile_block
         design_rep.runway_profile = runway_profile_block(pm, law, airport, cs, sol.z)
-        design_rep.taxi_trend = taxi_trend_block(pm, law, sol.z)
+        # ... beside what the publisher covered (§61: the feet it named, the
+        # ones past the reach or on a face no chain owns, the chains no fit)
+        design_rep.taxi_trend = {
+            **taxi_trend_block(pm, law, sol.z),
+            **{k: tt_rep[k] for k in ("xsec_vertices", "xsec_pin_const",
+                                      "xsec_far", "xsec_no_chain",
+                                      "chains_without") if k in tt_rep}}
         design_rep.apron_trend = apron_trend_block(pm, law, sol.z)
         for r in design_rep.runway_profile["runways"]:
             _say(f"    runway {r['runway']} ({r['kind']}, window {r['window_m']:.0f} m): "

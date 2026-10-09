@@ -68,7 +68,7 @@ from ..model.planar import PlanarMap
 
 __all__ = ["TaxiTrendReport", "taxi_trend_targets", "with_taxi_trend",
            "taxi_trend_block", "taxi_chains", "chain_of_face",
-           "TAXI_CENTERLINE"]
+           "taxi_xsec_feet", "TAXI_CENTERLINE"]
 
 #: The breakline kind whose chains ARE the taxi routes (the same kind
 #: ``solve/design.py`` prices the second-difference profile along).
@@ -91,6 +91,10 @@ class TaxiTrendReport(_t.TypedDict, total=False):
     max_above_dem_m: float    # the largest target − DEM (the fill it asks)
     max_below_dem_m: float    # the largest DEM − target (the cut)
     fallback: str             # why nothing was fitted, where nothing was
+    xsec_vertices: int        # §61 feet published that carry no trend target
+    xsec_pin_const: int       # of their chain ends, runway contacts (constants)
+    xsec_far: int             # owned by a chain, foot past the face reach
+    xsec_no_chain: int        # on taxi faces no chain owns
     by_chain: list            # [{"chain", "ll", "vertices", "pins", "length_m"}]
 
 
@@ -172,6 +176,75 @@ def chain_of_face(pm: PlanarMap, law: Law,
     return {fid: i for fid, (i, _n, _l) in owner.items()}
 
 
+def _faces_of_chain(pm: PlanarMap, law: Law,
+                    chains: list[_Chain]) -> dict[int, list[int]]:
+    """chain index -> the faces it speaks for (:func:`chain_of_face`,
+    inverted)."""
+    faces_of: dict[int, list[int]] = {}
+    for fid, i in chain_of_face(pm, law, chains).items():
+        faces_of.setdefault(i, []).append(fid)
+    return faces_of
+
+
+def _face_candidates(pm: PlanarMap, law: Law, fids: _t.Iterable[int],
+                     have: _t.AbstractSet[int]) -> list[int]:
+    """THE CANDIDATE WALK both face readings share (the trend's extension,
+    §8.6.1, and the cross-section foot, §61): the vertices of ``fids``'
+    rings and holes, in ring order, that are not in ``have`` and that the
+    taxi family OWNS OUTRIGHT.
+
+    A vertex the face SHARES with another VALUE surface — a runway contact
+    (hard and flush, the runway's own value) or an apron edge (the apron
+    body's plane, at ten times the trend's weight) — is no candidate: two
+    authorities on one vertex is the `emit consensus mints violations`
+    class.  A non-value role (the graded strip, a clearance) is not an
+    authority and does not disqualify a vertex."""
+    taxi = frozenset(law.tables.precedence.taxi_family.members)
+    cand: list[int] = []
+    seen: set[int] = set()
+    for fid in fids:
+        f = pm.faces[fid]
+        vs = list(pm.ring_vertices(f.ring))
+        for h in f.holes:
+            vs += list(pm.ring_vertices(h))
+        for v in vs:
+            if v in have or v in seen:
+                continue
+            seen.add(v)
+            if any(r not in taxi and is_value_role(law, r)
+                   for r in pm.roles_at(v)):
+                continue
+            cand.append(v)
+    return cand
+
+
+def _feet(pm: PlanarMap, c: _Chain, cand: _t.Sequence[int]
+          ) -> _t.Iterator[tuple[int, int, float, float]]:
+    """``(v, j, t, d)`` per candidate: the FOOT of its perpendicular on
+    chain ``c`` — the segment ``c.vertices[j] -> [j + 1]`` nearest to it,
+    the parameter ``t`` in [0, 1] along that segment and the plan distance
+    ``d`` in metres."""
+    if not cand or len(c.vertices) < 2:
+        return
+    xy = [pm.vertices[v].xy for v in c.vertices]
+    A = np.asarray(xy[:-1], dtype=float)
+    D = np.asarray(xy[1:], dtype=float) - A
+    LL = np.einsum("ij,ij->i", D, D)
+    LL = np.where(LL > 0.0, LL, 1.0)
+    P = np.asarray([pm.vertices[v].xy for v in cand], dtype=float)
+    for lo in range(0, len(cand), 512):
+        blk = P[lo:lo + 512]
+        w = blk[:, None, :] - A[None, :, :]
+        t = np.clip(np.einsum("nsj,sj->ns", w, D) / LL[None, :], 0.0, 1.0)
+        rel = blk[:, None, :] - (A[None, :, :] + t[:, :, None] * D[None, :, :])
+        d2 = np.einsum("nsj,nsj->ns", rel, rel)
+        j = np.argmin(d2, axis=1)
+        n = np.arange(len(blk))
+        dist = np.sqrt(d2[n, j])
+        for k, v in enumerate(cand[lo:lo + 512]):
+            yield v, int(j[k]), float(t[k, j[k]]), float(dist[k])
+
+
 def _face_extension(pm: PlanarMap, law: Law, chains: list[_Chain],
                     ats: list[_t.Callable[[float], float | None]],
                     have: _t.AbstractSet[int], reach_m: float,
@@ -209,10 +282,7 @@ def _face_extension(pm: PlanarMap, law: Law, chains: list[_Chain],
 
     Returns the new targets, how many candidates were out of reach, and the
     furthest foot distance actually used."""
-    taxi = frozenset(law.tables.precedence.taxi_family.members)
-    faces_of: dict[int, list[int]] = {}
-    for fid, i in chain_of_face(pm, law, chains).items():
-        faces_of.setdefault(i, []).append(fid)
+    faces_of = _faces_of_chain(pm, law, chains)
     out: dict[int, float] = {}
     best: dict[int, float] = {}
     far = 0
@@ -220,65 +290,20 @@ def _face_extension(pm: PlanarMap, law: Law, chains: list[_Chain],
     for i, c in enumerate(chains):
         if len(c.vertices) < 2 or c.length_m < 0.5 * window_m:
             continue                     # only a LONG chain speaks across
-        own = faces_of.get(i, [])
-        cand: list[int] = []
-        seen: set[int] = set()
-        for fid in own:
-            f = pm.faces[fid]
-            vs = list(pm.ring_vertices(f.ring))
-            for h in f.holes:
-                vs += list(pm.ring_vertices(h))
-            for v in vs:
-                if v in have or v in seen:
-                    continue
-                seen.add(v)
-                roles = pm.roles_at(v)
-                # THE TAXI FAMILY MUST OWN THE VERTEX OUTRIGHT.  A vertex
-                # the face SHARES with another VALUE surface — a runway
-                # contact (hard and flush, the runway's own value) or an
-                # apron edge (the apron body's plane, at ten times this
-                # weight) — takes no trend row: two authorities on one
-                # vertex is the `emit consensus mints violations` class.
-                # A non-value role (the graded strip, a clearance) is not
-                # an authority and does not disqualify a vertex.
-                if any(r not in taxi and is_value_role(law, r) for r in roles):
-                    continue
-                cand.append(v)
-        if not cand:
-            continue
-        xy = [pm.vertices[v].xy for v in c.vertices]
-        A = np.asarray(xy[:-1], dtype=float)
-        B = np.asarray(xy[1:], dtype=float)
-        S0 = np.asarray(c.stations[:-1], dtype=float)
-        S1 = np.asarray(c.stations[1:], dtype=float)
-        D = B - A
-        LL = np.einsum("ij,ij->i", D, D)
-        LL = np.where(LL > 0.0, LL, 1.0)
-        P = np.asarray([pm.vertices[v].xy for v in cand], dtype=float)
-        for lo in range(0, len(cand), 512):
-            blk = P[lo:lo + 512]
-            w = blk[:, None, :] - A[None, :, :]
-            t = np.clip(np.einsum("nsj,sj->ns", w, D) / LL[None, :], 0.0, 1.0)
-            rel = blk[:, None, :] - (A[None, :, :] + t[:, :, None] * D[None, :, :])
-            d2 = np.einsum("nsj,nsj->ns", rel, rel)
-            j = np.argmin(d2, axis=1)
-            n = np.arange(len(blk))
-            dist = np.sqrt(d2[n, j])
-            st = S0[j] + t[n, j] * (S1[j] - S0[j])
-            for k, v in enumerate(cand[lo:lo + 512]):
-                d = float(dist[k])
-                if d > reach_m:
-                    far += 1
-                    continue
-                if v in best and best[v] <= d:
-                    continue             # a nearer chain of the same ref
-                z = ats[i](float(st[k]))
-                if z is None:
-                    far += 1
-                    continue
-                best[v] = d
-                out[v] = float(z)
-                worst = max(worst, d)
+        cand = _face_candidates(pm, law, faces_of.get(i, []), have)
+        for v, j, t, d in _feet(pm, c, cand):
+            if d > reach_m:
+                far += 1
+                continue
+            if v in best and best[v] <= d:
+                continue                 # a nearer chain of the same ref
+            z = ats[i](c.stations[j] + t * (c.stations[j + 1] - c.stations[j]))
+            if z is None:
+                far += 1
+                continue
+            best[v] = d
+            out[v] = float(z)
+            worst = max(worst, d)
     return out, far, worst
 
 
@@ -381,14 +406,87 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
     return out
 
 
+def taxi_xsec_feet(pm: PlanarMap, law: Law,
+                   report: TaxiTrendReport | None = None
+                   ) -> dict[int, tuple[_t.Any, _t.Any, float]]:
+    """THE TAXIWAY EDGE'S FOOT ON ITS OWN CENTRELINE (owner RULINGS
+    2026-10-09e; spec §61 (1)): vertex -> ``(a, b, t)``.
+
+    Every vertex of a taxi-family face that is not itself a centreline
+    vertex and that the taxi family owns outright (:func:`_face_candidates`,
+    the trend extension's own walk) takes the foot of its perpendicular on
+    the chain :func:`chain_of_face` names for a face it rings — ANY length
+    of chain, the nearest where two own faces it rings — within
+    ``[design] taxi_trend_face_reach_m``.  §8.6.1 handed a face its chain's
+    DEM trend only where the chain is long; this hands EVERY face its
+    chain's SOLVED level, so no DEM enters (08t (1), 10v) and a short
+    chain's edge is no longer named by nothing.
+
+    An end that is a RUNWAY CONTACT of any chain is published as
+    ``("pin", value)``, the value :func:`taxi_trend_targets` shifts the
+    trend through (``preferred_z``, else the DEM): a constant in the row.
+
+    A vertex that also carries a trend target is published too — the solve
+    prices the foot only where no trend row exists, read at assembly time,
+    so a trend withdrawn later (``constraints/eat``) leaves the edge on its
+    centreline rather than on nothing (§61 (7) row 10)."""
+    reach = float(law.tables.emit.design.taxi_trend_face_reach_m)
+    taxi = frozenset(law.tables.precedence.taxi_family.members)
+    chains = _chains(pm, law)
+    on_chain: set[int] = set()
+    pins: set[int] = set()
+    for c in chains:
+        on_chain.update(c.vertices)
+        pins.update(c.pins)
+    faces_of = _faces_of_chain(pm, law, chains)
+    best: dict[int, tuple[float, int, int, float]] = {}
+    for i, c in enumerate(chains):
+        cand = _face_candidates(pm, law, faces_of.get(i, []), on_chain)
+        for v, j, t, d in _feet(pm, c, cand):
+            if v not in best or d < best[v][0]:
+                best[v] = (d, i, j, t)
+    out: dict[int, tuple[_t.Any, _t.Any, float]] = {}
+    far = pin_const = 0
+    for v, (d, i, j, t) in best.items():
+        if d > reach:
+            far += 1
+            continue
+        ends: list[_t.Any] = []
+        for u in (chains[i].vertices[j], chains[i].vertices[j + 1]):
+            if u in pins:
+                z = pm.preferred_z.get(u, pm.vertices[u].dem_z)
+                if z is None:
+                    break                # a contact with no value names nothing
+                ends.append(("pin", float(z)))
+                pin_const += 1
+            else:
+                ends.append(int(u))
+        else:
+            out[v] = (ends[0], ends[1], float(t))
+    if report is not None:
+        owned = set(best)
+        unowned = [fid for fid, f in pm.faces.items() if f.role in taxi]
+        no_chain = [v for v in _face_candidates(pm, law, unowned, on_chain)
+                    if v not in owned]
+        report.update(
+            xsec_vertices=sum(1 for v in out if v not in pm.taxi_trend_z),
+            xsec_pin_const=pin_const, xsec_far=far,
+            xsec_no_chain=len(no_chain))
+    return out
+
+
 def with_taxi_trend(pm: PlanarMap, law: Law, airport: Airport,
                     report: TaxiTrendReport | None = None) -> PlanarMap:
     """``pm`` with the taxi chains' target profiles published in
-    ``taxi_trend_z`` (its own channel — see the module docstring)."""
+    ``taxi_trend_z`` (its own channel — see the module docstring) and the
+    taxiway edges' feet on their centrelines in ``taxi_xsec`` (spec §61)."""
     targets = taxi_trend_targets(pm, law, airport, report)
-    if not targets:
+    if targets:
+        pm = _dc.replace(pm, taxi_trend_z=dict(targets))
+    feet = taxi_xsec_feet(pm, law, report)
+    if not feet:
         return pm
-    return _dc.replace(pm, taxi_trend_z=dict(targets))
+    return _dc.replace(pm, taxi_xsec=feet)
 
 
 def taxi_trend_block(pm: PlanarMap, law: Law,

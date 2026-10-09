@@ -43,6 +43,7 @@ from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.constraints import apron as apron_gen, generate
 from auto_patch_v2.constraints.runway_chord import with_runway_chord
 from auto_patch_v2.constraints.taxi_trend import (taxi_trend_block,
+                                                  taxi_xsec_feet,
                                                   taxi_trend_targets,
                                                   with_taxi_trend)
 from auto_patch_v2.constraints.trend import shift_through, trend_of
@@ -311,6 +312,74 @@ def test_only_a_long_chain_speaks_across_its_own_faces(apron_and_parallel, law):
     assert stub_only - set(stub_ch), "the stub face has off-centreline vertices"
     assert not ((stub_only - set(stub_ch)) & set(tt)), \
         "a short chain's face keeps round 2's behaviour exactly"
+
+
+def test_a_short_chains_edge_has_a_foot_on_its_own_centreline(apron_and_parallel,
+                                                              law):
+    """Spec §61 (1): the stub's SIDE vertices — which §8.6.1 leaves without
+    a trend row, the test above — are named by the foot of their
+    perpendicular on the stub's OWN chain, never on the parallel it meets
+    and never as a value."""
+    pm, _z, _rep, _airport, _r = apron_and_parallel
+    _bl, stub_ch = _chain(pm, "linkW")
+    _bl, par_ch = _chain(pm, "pavT")
+    par_faces = {f.id for f in pm.faces.values() if f.ref == "pavT"}
+    side = {v for f in pm.faces.values() if f.ref == "linkW"
+            for v in pm.ring_vertices(f.ring)
+            if not (set(pm.vertices[v].incident_faces) & par_faces)
+            and v not in stub_ch and "apron" not in pm.roles_at(v)}
+    assert side, "the stub face has side vertices of its own"
+    feet = pm.taxi_xsec
+    assert side <= set(feet), "every side vertex of the stub has a foot"
+    on_chain = set(stub_ch) | set(par_ch)
+    assert not (set(feet) & on_chain), "a centreline vertex takes no foot"
+    for v in side:
+        a, b, t = feet[v]
+        assert {a, b} <= set(stub_ch), "the foot is on the stub's OWN chain"
+        assert 0.0 <= t <= 1.0
+        (ax, ay), (bx, by) = pm.vertices[a].xy, pm.vertices[b].xy
+        fx, fy = ax + t * (bx - ax), ay + t * (by - ay)
+        vx, vy = pm.vertices[v].xy
+        # perpendicular: the offset has no component along the segment
+        along = (vx - fx) * (bx - ax) + (vy - fy) * (by - ay)
+        assert abs(along) < 1e-6 or t in (0.0, 1.0)
+    assert any(0.0 < feet[v][2] < 1.0 for v in side)
+    # the channel is NOT a value: it never enters the trend's
+    assert not (set(pm.taxi_trend_z) & side)
+    # the taxi family must own the vertex outright (§8.6.1's exclusion)
+    apron_edge = {v for v in feet if "apron" in pm.roles_at(v)}
+    assert not apron_edge, "a vertex shared with the apron takes no foot"
+    rep: dict = {}
+    assert taxi_xsec_feet(pm, law, rep) == dict(feet)
+    assert rep["xsec_vertices"] == len([v for v in feet
+                                        if v not in pm.taxi_trend_z]) > 0
+    assert rep["xsec_pin_const"] == 0 and rep["xsec_far"] == 0
+
+
+def test_a_runway_contact_enters_the_foot_as_a_constant(law):
+    """§61 (1): where the foot's segment ends on the chain's RUNWAY CONTACT
+    the end is ``("pin", value)`` — the runway's value, read where the
+    trend's own ``shift_through`` reads it — so the edge follows the runway
+    and never pulls it."""
+    pm, _z, _rep, _airport = _runway_touching(law, _StepDemAt(BENCH_RISE))
+    _bl, ch = _chain(pm, "linkR")
+    rwy = set(law.tables.precedence.runway_family.members)
+    pins = {v for v in ch if any(pm.faces[f].role in rwy
+                                 for f in pm.vertices[v].incident_faces)}
+    assert pins, "the stub's chain touches the runway"
+    ends = [e for a, b, _t in pm.taxi_xsec.values() for e in (a, b)]
+    consts = [e for e in ends if isinstance(e, tuple)]
+    assert consts, "a foot on the contact segment carries the pin constant"
+    assert not (pins & {e for e in ends if isinstance(e, int)}), \
+        "a runway contact is never a column of a cross-section row"
+    for tag, value in consts:
+        assert tag == "pin"
+        assert any(abs(value - pm.preferred_z.get(p, pm.vertices[p].dem_z))
+                   < 1e-12 for p in pins)
+    # a vertex ringing the runway is the runway's: it takes no foot at all
+    assert not any(any(pm.faces[f].role in rwy
+                       for f in pm.vertices[v].incident_faces)
+                   for v in pm.taxi_xsec)
 
 
 def test_the_parallel_keeps_its_designed_shape(apron_and_parallel, law):

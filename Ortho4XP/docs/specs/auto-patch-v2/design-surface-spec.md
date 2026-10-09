@@ -7495,37 +7495,134 @@ welded by smoothness to the airside fill beside it (`graded_strip` 12.48 /
    2026-10-09 (owner RULINGS 2026-10-08c (1): "it's a CAP, not a target, it
    should only allow more flex where needed"; 2026-10-09c (2b): "groundside
    road ramps … get a 5 % DESIGN grade like mapped tunnel ramps, steepening
-   toward the 10 % cap only where the run requires").** Until this amendment
-   `grade` was the road cap itself, so raising the cap 8 → 10 % (07d)
-   steepened every ramp. Each contact's ramp is now built at the design
-   grade and steepens toward the road's longitudinal cap ONLY where the
-   design grade cannot bring the road down in THE RUN IT HAS, and then at the
-   SMALLEST grade that does — §34 (1a)'s rule, one arithmetic
-   (`geom/ramp_grade.built_grade`). The run ends at (a) THE ROAD'S OWN END —
-   the vertices at an end of its route (within one lane width of the route's
-   first or last station, §37 (10)'s END) that the road's graph does not
-   continue past: the ramp must be down on the road's floor there; (b) THE
-   NEXT CONTACT — its level is the airside's, and the ramp must have come
-   down to it there. The least grade is `max over those ends of (z_contact −
-   level at the end) / route distance to it`; an end nearer than one lane
-   width is the mouth itself and asks nothing. Where even the cap does not
-   fit, the ramp is built AT the cap and the road ends its run above the
-   level there, exactly as before this amendment. The envelope is the higher
-   of the ramps, each at its own grade. The two stage-2 ramps of the same
-   road follow the same rule with the run they have: the reach seed of
+   toward the 10 % cap only where the run requires"); REVIEWED 2026-10-09
+   (Fable, lane `rampreview`, against branch `claude/roadramp484` @
+   `2676e011`: (ii) and (iii) REPLACE the rule as the lane built it, (iv) is
+   the open intent, (v) rules the sites the lane did not touch).** Until
+   this amendment `grade` was the road cap itself, so raising the cap
+   8 → 10 % (07d) steepened every ramp.
+
+   (i) THE GRADE. A ramp is built at the design grade and steepens toward
+   the road's longitudinal cap ONLY where the design grade cannot bring the
+   road down in THE RUN IT HAS, and then at the SMALLEST grade that does —
+   §34 (1a)'s rule, one arithmetic (`geom/ramp_grade.built_grade`). Where
+   even the cap does not fit, the ramp is built AT the cap and the road ends
+   its run above the level there, exactly as before this amendment.
+
+   (ii) THE GRADE IS PER RUN, NEVER PER CONTACT (R2; REPLACES the lane's
+   `road_descent._need`, which took the max over EVERY end a contact's graph
+   reaches and so put a contact's whole cone at the cap in every direction
+   when one stub end could not be served: KCLT 14 of 55 and HECA 5 of 44
+   ramps "at the cap", each named by "the road's end at 5–9 m" while the
+   same contact's other runs fitted at 5 %, e.g. KCLT mouth 14714, 15.9 m
+   at 10 % for an end 6 m away). A RUN is one walk from the contact along
+   the road's graph to an END: (a) THE ROAD'S OWN END — the vertices at an
+   end of its route (within one lane width of the route's first or last
+   station, §37 (10)'s END) that the road's graph does not continue past:
+   the ramp must be down on the road's floor there; (b) THE NEXT CONTACT —
+   its level is the airside's, and the ramp must have come down to it there.
+   A run's least grade is `(z_contact − level at its end) / route distance
+   to it`; an end nearer than one lane width is the mouth itself and asks
+   nothing. Each run is built at its own grade: the branch to a stub the
+   cap cannot serve is at the cap (and ends in the air, as before), the
+   contact's other runs are at the design grade. The envelope over a vertex
+   is the highest ramp standing over it.
+
+   (iii) A CONTACT'S CONE ENDS WHERE IT FIRST MEETS THE ROAD'S FLOOR (R1;
+   REPLACES the persistent cone the lane kept — `max(floor, z_contact −
+   g × s)` over the WHOLE connected road graph — under which a cone that
+   had met the floor re-emerged wherever the floor later fell faster than
+   the design grade, so a road hundreds of metres from any apron was
+   re-graded by a distant contact: KCLT `max reach` 594 m). The tunnel's
+   rule (§34 (1a): the ramp ends at the first station where the DEM
+   condition holds ALONG the route): the max-label walk propagates from no
+   vertex whose label stands at or under its floor (the mouths excepted);
+   beyond the meet the road is on its floor, and a later fall of the floor
+   is the floor's own — the clamp (13be), cap-lawful by construction — and
+   no ramp. The `_Shelf` example (`test_v2roadramp`: 12 m of fill, ground
+   falling at 30 %) is unchanged: its cone meets the floor once, at
+   12 / design; the "safety net across route changes" the lane kept the
+   persistent cone for is the floor itself beyond the meet. MEASURED on the
+   KCLT capture without a solve (`rampreview/firstmeet_probe.py`, the lane's
+   `ramp_probe.py` pattern): ramps ≥ a lane width 55 → 49 — the six gone are
+   two 148 / 144 m cones at 5 % that had met the floor at their own mouth
+   and re-emerged, one 140 m, one 62 m and two 7–9 m stubs; ramp length
+   1,264 → 755 m; longest 148 → 109 m; max reach 594 → 109 m; targets
+   lowered at 15 vertices (worst 0.76 m), raised at none. 49 of the 55 stay.
+
+   (iv) THE OPEN INTENT — WHAT GROUND A RAMP MAY STAND OVER (owner question
+   Q1 of lane `rampreview`; until it is answered the engine builds reading
+   A). With (iii) a ramp is still built wherever the floor falls away from
+   the contact faster than the design grade — INCLUDING ground the road
+   could lawfully follow at its own cap (a 5–10 % hillside, the clamp
+   inactive). MEASURED (KCLT, `rampreview/ground_probe.py`): of the 49
+   first-meet ramps 40 stand over followable ground at EVERY governed
+   vertex (the floor IS the terrain there), 2 over clamped ground only, 1
+   mixed; the longest (109 m) carries 1.28 m of fill over 6 % ground, the
+   worst fill 1.98 m (mouth 9842, 34 m). Reading A of the owner's words — "a
+   road leaving the apron comes down gently (5 %)": the 5 % embankment over
+   a 7 % hillside IS what was asked for, and (i)–(iii) stand as the rule.
+   Reading B — "only where needed": a ramp is the earthwork where there is
+   no ground to follow (the apron stands on fill; the ground falls faster
+   than the cap, so the clamp cut or filled it); a road whose ground is
+   followable from its contact at ≤ its cap stays on that ground, as it did
+   on main. The spec author RECOMMENDS B (an embankment the orthophoto does
+   not show, over ground a road could sit on, reads as an earthwork to a
+   taxiing pilot; the owner's picture was of ramps off a fill). Under B the
+   rule becomes: a contact's cone governs a station only while the road
+   cannot stand on its floor there — the floor is cut or filled by the clamp
+   (13be: `|clamp − DEM| ≥ materiality` at the route station) or still
+   under the contact's own fill; the mechanism is the implementer's to
+   propose against the KCLT bar (the 40 → on their floor; the 2 + 1 stay;
+   `_Shelf` unchanged).
+
+   (v) THE STAGE-2 RAMPS AND THE SITES NOT CHANGED. The two stage-2 ramps of
+   the same road follow (i)–(iii) with the run they have (each already a
+   single run, so (ii) holds there by construction): the reach seed of
    §37 (10) / 27a (11) (`z_edge − grade × s`, the run = the vertices that
-   contact governs), the bare exit of a terraced ribbon (03b:
+   contact governs) and the bare exit of a terraced ribbon (03b:
    `clip(target, L ± grade × d)`, the run = the bare stretch beyond the last
    bordered station, its end level the road's own target there or the pin
-   of a coverage-edge join standing in it) and that ribbon's reach of a
-   coverage-edge join (03b: `clip(profile, z_join ± grade × d)`, the ends =
-   every bordered level of the route — the design grade where they all
-   stand inside the join's cone). The rows price the ramp at the grade it
+   of a coverage-edge join standing in it). THE COVERAGE-JOIN CLIP IS NOT A
+   RAMP AND STAYS AT THE CAP (R4a; REPLACES the lane's fourth site, which
+   read that ribbon's reach of a §37 (9) join — `clip(profile, z_join ±
+   g × d)`, two-sided, over EVERY vertex of the route — at the design grade
+   too): at the cap it is a pin's feasibility envelope (a road may not
+   stand farther from the join it must reach than its own cap allows); at
+   the design grade it became a grade the road is BUILT TO in both
+   directions, cutting a road that climbs away from its join on lawful
+   6–8 % ground down to 5 %. A descent cone can only RAISE a target (the
+   lane's probe: KCLT pre-solve targets rose at 212 vertices, fell at 0);
+   the only site of this change that LOWERS a road is this clip, and it is
+   where the branch's KCLT `road_cross_section` growth comes from (767 →
+   800: 35 of the 53 new rows on one page, `dsf:pol48`, whose kerb at
+   35.21455,−80.93100 came down 0.6–0.8 m while the far kerb stood;
+   `small_roads:-7031#7/#8` down 0.65 / 0.59 m the same way; NLWF's one
+   0.03 m node). The join is reached by the bare exit's one-sided run at
+   the design grade, its end level the pin. The rows price the ramp at the grade it
    was built at: they are the target itself and its ceiling `target +
    visual_m`. NOT changed, each a ceiling or a feasibility test and not a
    grade built to: the one-way contact row `z ≤ z_edge + cap × s`
-   (§37 (10) (1)), the gate span `2h / cap` (03l), the core clamp that is
-   the floor (13be), §37 (1)'s longitudinal cap.
+   (§37 (10) (1)), the gate span `2h / cap` (03l), §37 (1)'s longitudinal
+   cap. RULED (R3), the two sites of the same class the lane reported and
+   did not change: (a) the §55 pavement-gap RAMP STRIP (06d,
+   `classify/gap_terrace._lot_cut`: the strip is where `(L − A) > cap ×
+   d_apron`, i.e. width = rise / cap) is CORRECT AS IS for Beta 2 — it is
+   the cut's feasibility test (where the road's level is still reachable
+   from the apron at the piece's cap the lot can be held flat; the rest is
+   the strip) and the strip's surface is then solved by follow rows under
+   the piece's own cap, not built to a grade; cutting it at the design
+   grade would double every strip's width and re-cut the HECA pieces the
+   owner has not yet read (#430 / #292 / #358, 08c (6)). NAMED FOLLOW-UP,
+   after the owner's HECA read: the strip's cut width takes the design
+   grade where the piece's road evidence makes it a road (08c (6)) — a
+   classify-time change in `gap_terrace`, ~0.5 day, re-cuts HECA gap:7 /
+   gap:8. (b) the floor's clamp (`cap_lipschitz_profile`, 13be), built at
+   the cap wherever the terrain exceeds it, is CORRECT AS IS — the cap
+   acting as a cap: the terrain forces it, the core levels the same road at
+   the same cap outside the coverage (the §37 (9) join reads that value),
+   and a 5 % clamp inside the patch would re-grade every road the ramp
+   never governs and step at the coverage edge.
    Code: `airport/road_descent` (`descend`), `constraints/road_ramp`
    (`_run_grade`). The target is a DESIGN TARGET (§31 (3)
    class, design-target weight — not the `preferred_road_z` soft fit, which
@@ -9730,6 +9827,7 @@ a fresh KCLT BASE build (13ab's ledger `2951cfc994bd` is quoted instead, and
 its sha is stated); `constraints/eat.py` or the EAT loop (lane `v2eatramp`);
 any merge; any RULINGS entry.
 
+<!-- rampreview 2026-10-09: STALE DUPLICATE of §38–§41 (and §37 (6)–(9)) below — the canonical copy is the FIRST one above (it carries §37 (10) round 2 "AIRSIDE IS KING — ROUND 2", commit ed9af972, which this copy lacks). Amendments go to the first copy only; this copy is to be DELETED as its own docs-only follow-up. -->
 ## §38 THE TILE SEAM IS A PIN (owner 2026-07-04 / 2026-07-24 / 2026-07-26 / RULINGS 2026-09-13ah; Fable 2026-09-13) — lane `v2seampin`
 
 Owner (13ah): seam boundaries "must be kept at DEM and treated as an anchor

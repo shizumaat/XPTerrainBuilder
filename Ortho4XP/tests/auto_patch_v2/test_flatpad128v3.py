@@ -473,7 +473,7 @@ def test_a_weld_left_off_its_datum_by_the_solve_is_sealed_and_recorded(law, buil
     assert max(abs(z[c] - z[dv]) for c, dv, _p in welds) <= tol + 1e-9
     levels = {int(v): float(z[v]) for v in range(len(z))}
     c, dv, pref = welds[0]
-    levels[c] += 0.05
+    levels[c] = levels[dv] + 0.05
     got = hp.seal(levels)
     assert got["contacts"] == 1 and abs(got["max_m"] - 0.05) < 1e-9
     assert levels[c] == levels[dv]
@@ -481,7 +481,7 @@ def test_a_weld_left_off_its_datum_by_the_solve_is_sealed_and_recorded(law, buil
     assert w["sealed"] == 1 and [*pm.vertices[c].key, 0.05] in w["contacts"]
     assert hp.seal(levels)["contacts"] == 0                       # idempotent
     hp.result = _dc.replace(hp.result, never=frozenset({c}))
-    levels[c] += 0.05
+    levels[c] = levels[dv] + 0.05
     assert hp.seal(levels)["contacts"] == 0 and levels[c] != levels[dv]
 
 

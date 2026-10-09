@@ -681,9 +681,19 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                                 "caps are hard)",
                                 (pref, f"platform:{pref}"))))
         r_lo, r_hi = b["reach_isect"]
+        b["reach_cuts"] = False
         if b["widened"]:
             continue           # the pavement gives to the datum (08d (2)), not the datum to a band
-        if r_lo <= r_hi and (math.isfinite(r_lo) or math.isfinite(r_hi)):
+        # spec §57 (3) (ii-e) (seat review D4): the Band is stated ONLY where
+        # the reach intersection CUTS the pair-graph interval — then, and
+        # only then, it carries law the pair graph does not.  A Band that
+        # cuts nothing is a row with a cost and no law: MEASURED, it bound
+        # at 0 of 47 HECA datums and its one effect at KCLT was the
+        # unsettled solve's answer to a changed row set (580 solve-owned
+        # movers, apron 1.02 m, no datum moving 0.001 m)
+        lo0, hi0 = b["I0"]
+        b["reach_cuts"] = bool(r_lo <= r_hi and (r_lo > lo0 or r_hi < hi0))
+        if b["reach_cuts"] and (math.isfinite(r_lo) or math.isfinite(r_hi)):
             rows.append(Band(b["dv"], r_lo if math.isfinite(r_lo) else None,
                              r_hi if math.isfinite(r_hi) else None,
                              Source(PGEN, HOLD_RULING + " (the block datum within the "
@@ -829,6 +839,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                                            if beta.get(r, 0.0) <= 0.0))
     fref = {v: (float(z1a[v]) if v in z1a else float(pins[v]))
             for v in fronting if v in z1a or v in pins}
+    stats.update(datum_reach_bands=sum(1 for b in blocks.values() if b.get("reach_cuts")))
     stats.update(misfit_blocks=sum(1 for b in blocks.values() if b["misfit"] > tol_h),
                  widened_blocks=sum(1 for b in blocks.values() if b["widened"]),
                  widened_contacts=len(widen))

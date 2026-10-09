@@ -24,6 +24,9 @@ that surface is:
 * ``M``  PAVEMENT MEETS THE RIM — pavement touches or is within the
   stand-off and meets the rim within ``--off``; the height is beside it
   (ungraded ground, or a cell's own slope further out).
+* ``W``  STRUCTURE — a declared structure of the law (tunnel ramp, trench,
+  wall, door ramp) is against the vertex and no pavement is: the edge is the
+  structure's own wall.
 * ``S``  GRADED STRIP — only a graded strip (airside graded ground, not
   pavement) is against the vertex.
 * ``B``  BARE — nothing but ungraded ground within the stand-off.
@@ -61,7 +64,16 @@ from typing import Any, Callable, Iterable, Optional, Sequence
 #: against the pad" in the ruling's sense
 PAD_ROLE = "building"
 STRIP_ROLES = frozenset({"graded_strip"})
-STRUCTURE_ROLES = frozenset({"retaining_wall"})
+
+
+def structure_roles() -> frozenset:
+    """The law's own structure roles (``law.tables.is_structure_role`` —
+    tunnel ramps, trenches, walls, door ramps): imported, never re-spelled."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import is_structure_role
+    law = Law.for_airport("XXXX")
+    return frozenset(r for r in law.tables.precedence.roles if is_structure_role(law, r))
+
 BEARINGS = 8
 INNER_RADII = (2.0, 5.0)
 
@@ -82,19 +94,22 @@ def _pad_ref(face: dict) -> str:
     return str(face["ref"]).split("#collar")[0]
 
 
-def _kind(role: str) -> str:
+def _kind(role: str, structures: frozenset) -> str:
     if role == PAD_ROLE:
         return "pad"
     if role in STRIP_ROLES:
         return "strip"
-    if role in STRUCTURE_ROLES:
+    if role in structures:
         return "structure"
     return "pavement"
 
 
 def read_edges(graded: dict, dem: Optional[Dem], *, off_m: float = 1.0,
-               within_m: float = 10.0, standoff_m: float = 3.0) -> list[dict]:
-    """The runs of ``graded`` (a ``graded_surface/1`` dict), worst first."""
+               within_m: float = 10.0, standoff_m: float = 3.0,
+               structures: Optional[frozenset] = None) -> list[dict]:
+    """The runs of ``graded`` (a ``graded_surface/1`` dict), worst first.
+    ``structures`` = the structure roles (default: the law's own)."""
+    structures = structure_roles() if structures is None else structures
     from shapely.geometry import Point, Polygon
     from shapely.strtree import STRtree
 
@@ -191,7 +206,7 @@ def read_edges(graded: dict, dem: Optional[Dem], *, off_m: float = 1.0,
                             worst = dz
                         if k in touching and di > 0.5:
                             grade = max(grade, abs(dz) / di)
-            out.append({"role": f["role"], "ref": str(f["ref"]), "kind": _kind(f["role"]),
+            out.append({"role": f["role"], "ref": str(f["ref"]), "kind": _kind(f["role"], structures),
                         "dist_m": round(d, 2), "step_m": round(step, 2), "off_m": round(worst, 2),
                         "touching": k in touching, "grade_pct": round(100 * grade, 1)})
         return out
@@ -212,6 +227,8 @@ def read_edges(graded: dict, dem: Optional[Dem], *, off_m: float = 1.0,
                 cls = "P"
             elif pav:
                 cls = "M"
+            elif any(c["kind"] == "structure" for c in near):
+                cls = "W"
             elif any(c["kind"] == "strip" for c in near):
                 cls = "S"
             else:
@@ -283,11 +300,11 @@ def capture_dem(path: Path) -> Dem:
 
 
 NAMES = {"P": "PAVEMENT OFF (seat candidates)", "M": "PAVEMENT MEETS THE RIM, the height is beside it",
-         "S": "GRADED STRIP", "B": "BARE (accepted by 2026-10-09d (1))"}
+         "W": "STRUCTURE (the law's declared walls / ramps / trenches)", "S": "GRADED STRIP", "B": "BARE (accepted by 2026-10-09d (1))"}
 
 
 def render(runs: Sequence[dict], top: int = 0) -> Iterable[str]:
-    for cls in "PMSB":
+    for cls in "PMWSB":
         rs = [r for r in runs if r["cls"] == cls]
         yield (f"== {cls}  {NAMES[cls]}: {len(rs)} run(s), {sum(r['vertices'] for r in rs)} vertices, "
                f"{sum(r['length_m'] for r in rs):.0f} m, worst {max((r['height_m'] for r in rs), default=0):.2f} m")

@@ -37,11 +37,11 @@ def _dem_east_high(lat: float, lon: float) -> float:
 
 
 def test_flat_pad_on_flat_ground_has_no_run() -> None:
-    assert per.read_edges(_graded(50.0, 50.0), lambda la, lo: 50.0) == []
+    assert per.read_edges(structures=frozenset({'tunnel_ramp'}), graded=_graded(50.0, 50.0), dem=lambda la, lo: 50.0) == []
 
 
 def test_bare_edge_is_listed_as_bare() -> None:
-    runs = per.read_edges(_graded(50.0, 50.0), _dem_east_high)
+    runs = per.read_edges(structures=frozenset({'tunnel_ramp'}), graded=_graded(50.0, 50.0), dem=_dem_east_high)
     assert {r["cls"] for r in runs} == {"B"}
     (r,) = runs
     assert r["pad"] == "building1" and r["vertices"] == 2 and abs(r["length_m"] - 100.0) < 0.5
@@ -49,7 +49,7 @@ def test_bare_edge_is_listed_as_bare() -> None:
 
 
 def test_welded_pavement_climbing_away_is_pavement_off() -> None:
-    runs = per.read_edges(_graded(52.0, 50.0), lambda la, lo: 50.0)
+    runs = per.read_edges(structures=frozenset({'tunnel_ramp'}), graded=_graded(52.0, 50.0), dem=lambda la, lo: 50.0)
     (r,) = [r for r in runs if r["cls"] == "P"]
     cell = r["cells"][0]
     assert cell["cell"] == "apron:pav1" and cell["touching"] and abs(cell["off_m"] - 2.0) < 1e-6
@@ -58,7 +58,7 @@ def test_welded_pavement_climbing_away_is_pavement_off() -> None:
 
 
 def test_unwelded_pavement_across_a_sliver_is_pavement_off() -> None:
-    runs = per.read_edges(_graded(50.0, 43.0), lambda la, lo: 50.0)
+    runs = per.read_edges(structures=frozenset({'tunnel_ramp'}), graded=_graded(50.0, 43.0), dem=lambda la, lo: 50.0)
     p = [r for r in runs if r["cls"] == "P"]
     assert len(p) == 1 and p[0]["vertices"] == 1        # the rim vertex facing the lot
     cell = p[0]["cells"][0]
@@ -70,11 +70,22 @@ def test_unwelded_pavement_across_a_sliver_is_pavement_off() -> None:
 def test_welded_flat_pavement_beside_a_bank_is_mixed_not_seat() -> None:
     def dem(lat: float, lon: float) -> float:            # a bank north of the pad
         return 53.0 if lat > _ll(0, 101)[0] else 50.0
-    runs = per.read_edges(_graded(50.0, 50.0), dem)
+    runs = per.read_edges(structures=frozenset({'tunnel_ramp'}), graded=_graded(50.0, 50.0), dem=dem)
     assert sorted(r["cls"] for r in runs) == ["B", "M"]  # corner 3 touches the apron; corner 2 is bare
     assert not any(r["cls"] == "P" for r in runs)
 
 
 def test_without_a_dem_only_patch_cells_are_read() -> None:
-    runs = per.read_edges(_graded(52.0, 50.0), None)
+    runs = per.read_edges(structures=frozenset({'tunnel_ramp'}), graded=_graded(52.0, 50.0), dem=None)
     assert [r["cls"] for r in runs] == ["P"] and runs[0]["ground_off_m"] is None
+
+
+def test_a_declared_structure_beside_the_pad_is_the_structures_wall() -> None:
+    g = _graded(50.0, 43.0)
+    g["faces"][2]["role"] = "tunnel_ramp"                # the lot becomes a trench ramp 1.5 m off the rim
+    runs = per.read_edges(structures=frozenset({'tunnel_ramp'}), graded=g, dem=lambda la, lo: 50.0)
+    assert [r["cls"] for r in runs] == ["W"]
+
+
+def test_the_default_structure_roles_are_the_laws_own() -> None:
+    assert "tunnel_ramp" in per.structure_roles() and "apron" not in per.structure_roles()

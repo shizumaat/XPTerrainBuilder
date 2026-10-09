@@ -1,0 +1,203 @@
+{
+ "icao": "NLWF",
+ "off_m": 1.0,
+ "within_m": 10.0,
+ "standoff_m": 3.0,
+ "dem": true,
+ "runs": [
+  {
+   "cls": "B",
+   "pad": "building1",
+   "vertices": 10,
+   "length_m": 31.8,
+   "site": [
+    -14.31108821106,
+    -178.06902127089
+   ],
+   "rim_z": [
+    5.02,
+    5.03
+   ],
+   "height_m": 12.71,
+   "ground_off_m": 12.71,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-3",
+     "kind": "pavement",
+     "dist_m": 3.08,
+     "step_m": 0.03,
+     "off_m": 0.03,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:default:zone2#0",
+     "kind": "strip",
+     "dist_m": 5.9,
+     "step_m": -0.14,
+     "off_m": -0.14,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building1",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    -14.31107465519,
+    -178.06889613991
+   ],
+   "rim_z": [
+    5.02,
+    5.02
+   ],
+   "height_m": 12.69,
+   "ground_off_m": 12.69,
+   "pavement_off_m": 0.03,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-3",
+     "kind": "pavement",
+     "dist_m": 2.73,
+     "step_m": 0.03,
+     "off_m": 0.03,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building1",
+   "vertices": 3,
+   "length_m": 8.5,
+   "site": [
+    -14.31114696066,
+    -178.06886833385
+   ],
+   "rim_z": [
+    5.02,
+    5.02
+   ],
+   "height_m": 12.62,
+   "ground_off_m": 12.62,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-3",
+     "kind": "pavement",
+     "dist_m": 4.74,
+     "step_m": 0.03,
+     "off_m": 0.03,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:default:zone2#1",
+     "kind": "strip",
+     "dist_m": 5.52,
+     "step_m": -0.01,
+     "off_m": -0.22,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:objpavhp0",
+     "kind": "pavement",
+     "dist_m": 6.02,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building1",
+   "vertices": 6,
+   "length_m": 14.6,
+   "site": [
+    -14.31119667051,
+    -178.06886369992
+   ],
+   "rim_z": [
+    5.02,
+    5.02
+   ],
+   "height_m": 11.71,
+   "ground_off_m": 11.71,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:default:zone2#1",
+     "kind": "strip",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.22,
+     "touching": true,
+     "grade_pct": 2.7
+    },
+    {
+     "cell": "apron:dsf:objpavhp0",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:default:zone2#0",
+     "kind": "strip",
+     "dist_m": 1.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "S",
+   "pad": "building1",
+   "vertices": 3,
+   "length_m": 10.6,
+   "site": [
+    -14.31120118727,
+    -178.06907688594
+   ],
+   "rim_z": [
+    5.02,
+    5.02
+   ],
+   "height_m": 11.05,
+   "ground_off_m": 11.05,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:default:zone2#0",
+     "kind": "strip",
+     "dist_m": 0.95,
+     "step_m": -0.12,
+     "off_m": -0.12,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:objpavhp0",
+     "kind": "pavement",
+     "dist_m": 3.5,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  }
+ ]
+}

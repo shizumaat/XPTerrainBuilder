@@ -1,0 +1,4782 @@
+{
+ "icao": "OTHH",
+ "off_m": 1.0,
+ "within_m": 10.0,
+ "standoff_m": 3.0,
+ "dem": true,
+ "runs": [
+  {
+   "cls": "M",
+   "pad": "building4",
+   "vertices": 5,
+   "length_m": 7.8,
+   "site": [
+    25.25422063111,
+    51.62121262255
+   ],
+   "rim_z": [
+    4.05,
+    4.13
+   ],
+   "height_m": 5.27,
+   "ground_off_m": -0.17,
+   "pavement_off_m": 0.17,
+   "cells": [
+    {
+     "cell": "groundside_pavement:gap:2/s0",
+     "kind": "pavement",
+     "dist_m": 1.39,
+     "step_m": -0.17,
+     "off_m": -0.18,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:2/s4",
+     "kind": "pavement",
+     "dist_m": 3.9,
+     "step_m": -0.15,
+     "off_m": -0.17,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:2/s4#2",
+     "kind": "pavement",
+     "dist_m": 4.04,
+     "step_m": -0.17,
+     "off_m": -0.17,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 8.13,
+     "step_m": -5.27,
+     "off_m": -5.27,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building4",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.25426576653,
+    51.6212175905
+   ],
+   "rim_z": [
+    4.0,
+    4.0
+   ],
+   "height_m": 5.14,
+   "ground_off_m": -0.04,
+   "pavement_off_m": 0.01,
+   "cells": [
+    {
+     "cell": "groundside_pavement:gap:2/s4",
+     "kind": "pavement",
+     "dist_m": 1.36,
+     "step_m": -0.01,
+     "off_m": -0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:2/s0",
+     "kind": "pavement",
+     "dist_m": 5.4,
+     "step_m": -0.04,
+     "off_m": -0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 7.14,
+     "step_m": -5.14,
+     "off_m": -5.14,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building5",
+   "vertices": 2,
+   "length_m": 2.1,
+   "site": [
+    25.25437859966,
+    51.62129205051
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 5.1,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "groundside_pavement:gap:2/s4#1",
+     "kind": "pavement",
+     "dist_m": 1.33,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:2/s4",
+     "kind": "pavement",
+     "dist_m": 1.66,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:2/s8#1",
+     "kind": "pavement",
+     "dist_m": 6.96,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 8.6,
+     "step_m": -4.87,
+     "off_m": -5.1,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 2,
+   "length_m": 0.5,
+   "site": [
+    25.25953367506,
+    51.6090627299
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav4",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:61",
+     "kind": "structure",
+     "dist_m": 5.84,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 12,
+   "length_m": 29.1,
+   "site": [
+    25.26863299843,
+    51.61235873723
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav11",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:66",
+     "kind": "structure",
+     "dist_m": 3.2,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.26372220222,
+    51.61315275145
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:32",
+     "kind": "structure",
+     "dist_m": 4.24,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 8,
+   "length_m": 13.7,
+   "site": [
+    25.26366803537,
+    51.61327187544
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:32#1",
+     "kind": "structure",
+     "dist_m": 3.05,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:32",
+     "kind": "structure",
+     "dist_m": 8.13,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 16,
+   "length_m": 14.9,
+   "site": [
+    25.26437216604,
+    51.61288474159
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:45",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 9,
+   "length_m": 11.9,
+   "site": [
+    25.26430897441,
+    51.6129343754
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 3.02,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:45",
+     "kind": "structure",
+     "dist_m": 5.02,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 9,
+   "length_m": 11.3,
+   "site": [
+    25.26429543167,
+    51.61299890186
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 6.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:45",
+     "kind": "structure",
+     "dist_m": 6.51,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 11,
+   "length_m": 9.6,
+   "site": [
+    25.2650176163,
+    51.61259687416
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:46",
+     "kind": "structure",
+     "dist_m": 5.14,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 19,
+   "length_m": 24.6,
+   "site": [
+    25.26495442506,
+    51.61263658109
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:46",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 8,
+   "length_m": 10.2,
+   "site": [
+    25.26492734388,
+    51.61262665287
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:46",
+     "kind": "structure",
+     "dist_m": 4.3,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 17,
+   "length_m": 15.2,
+   "site": [
+    25.26564952482,
+    51.61232389425
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:47",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 9,
+   "length_m": 11.6,
+   "site": [
+    25.26558633366,
+    51.61236360153
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:47",
+     "kind": "structure",
+     "dist_m": 4.69,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 8,
+   "length_m": 10.4,
+   "site": [
+    25.26556827759,
+    51.61242812858
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:47",
+     "kind": "structure",
+     "dist_m": 6.51,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 13,
+   "length_m": 16.5,
+   "site": [
+    25.26801915838,
+    51.61211549274
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:67",
+     "kind": "structure",
+     "dist_m": 1.06,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 6,
+   "length_m": 6.3,
+   "site": [
+    25.26798304977,
+    51.61211549164
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:67",
+     "kind": "structure",
+     "dist_m": 4.74,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 14,
+   "length_m": 15.5,
+   "site": [
+    25.26706680077,
+    51.61182260375
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:72",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:78",
+     "kind": "structure",
+     "dist_m": 2.67,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 6,
+   "length_m": 6.2,
+   "site": [
+    25.26700360987,
+    51.61185734803
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:72",
+     "kind": "structure",
+     "dist_m": 4.46,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:78",
+     "kind": "structure",
+     "dist_m": 7.61,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 13,
+   "length_m": 14.9,
+   "site": [
+    25.26704874817,
+    51.61174814737
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:78",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:72",
+     "kind": "structure",
+     "dist_m": 3.53,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 6,
+   "length_m": 6.8,
+   "site": [
+    25.26699007076,
+    51.61178785553
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:78",
+     "kind": "structure",
+     "dist_m": 4.46,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:72",
+     "kind": "structure",
+     "dist_m": 7.42,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 5,
+   "length_m": 11.0,
+   "site": [
+    25.26789733634,
+    51.60746940998
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route58",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:43",
+     "kind": "structure",
+     "dist_m": 1.58,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route59",
+     "kind": "pavement",
+     "dist_m": 9.39,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:116",
+     "kind": "pavement",
+     "dist_m": 9.85,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 5,
+   "length_m": 10.8,
+   "site": [
+    25.26779803717,
+    51.60739495439
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:43",
+     "kind": "structure",
+     "dist_m": 3.5,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.26809139466,
+    51.60548886529
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": null,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:50",
+     "kind": "structure",
+     "dist_m": 7.55,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 3,
+   "length_m": 4.3,
+   "site": [
+    25.2680101493,
+    51.60543922957
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:50",
+     "kind": "structure",
+     "dist_m": 2.5,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 3,
+   "length_m": 4.3,
+   "site": [
+    25.26795147221,
+    51.60540944842
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:50",
+     "kind": "structure",
+     "dist_m": 7.43,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 2,
+   "length_m": 0.7,
+   "site": [
+    25.26783865929,
+    51.60738502655
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 3.88,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:43",
+     "kind": "structure",
+     "dist_m": 5.83,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route58",
+     "kind": "pavement",
+     "dist_m": 9.99,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route59",
+     "kind": "pavement",
+     "dist_m": 9.99,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 19,
+   "length_m": 16.0,
+   "site": [
+    25.26436317834,
+    51.61132120225
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:19",
+     "kind": "structure",
+     "dist_m": 4.61,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 11,
+   "length_m": 13.0,
+   "site": [
+    25.26436769061,
+    51.61138572936
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:19",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 17,
+   "length_m": 14.9,
+   "site": [
+    25.26432255391,
+    51.61143040078
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:19",
+     "kind": "structure",
+     "dist_m": 4.52,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 5,
+   "length_m": 3.3,
+   "site": [
+    25.26434512231,
+    51.61140558327
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:19",
+     "kind": "structure",
+     "dist_m": 1.5,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 6,
+   "length_m": 6.3,
+   "site": [
+    25.26632659896,
+    51.61050223979
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:65",
+     "kind": "structure",
+     "dist_m": 4.02,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 13,
+   "length_m": 15.4,
+   "site": [
+    25.26629951706,
+    51.61053202149
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:65",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.267992094,
+    51.60538959237
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 3.35,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:50",
+     "kind": "structure",
+     "dist_m": 7.76,
+     "step_m": -4.81,
+     "off_m": -4.81,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 11,
+   "length_m": 18.7,
+   "site": [
+    25.26327966984,
+    51.61745118737
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route28",
+     "kind": "pavement",
+     "dist_m": 2.5,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route29",
+     "kind": "pavement",
+     "dist_m": 2.82,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:57",
+     "kind": "structure",
+     "dist_m": 3.64,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:100",
+     "kind": "structure",
+     "dist_m": 5.59,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route27",
+     "kind": "pavement",
+     "dist_m": 8.89,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:94",
+     "kind": "structure",
+     "dist_m": 9.82,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 4,
+   "length_m": 7.0,
+   "site": [
+    25.2633428569,
+    51.61750082781
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:57",
+     "kind": "structure",
+     "dist_m": 6.02,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route29",
+     "kind": "pavement",
+     "dist_m": 6.79,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route28",
+     "kind": "pavement",
+     "dist_m": 8.23,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 13,
+   "length_m": 26.2,
+   "site": [
+    25.26224158529,
+    51.6167959243
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:63#1",
+     "kind": "structure",
+     "dist_m": 2.46,
+     "step_m": -1.65,
+     "off_m": -1.65,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:63",
+     "kind": "structure",
+     "dist_m": 3.25,
+     "step_m": -2.99,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:gapapron:24",
+     "kind": "pavement",
+     "dist_m": 4.27,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route36",
+     "kind": "pavement",
+     "dist_m": 5.11,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route37",
+     "kind": "pavement",
+     "dist_m": 6.01,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:88",
+     "kind": "structure",
+     "dist_m": 6.51,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:gapapron:28",
+     "kind": "pavement",
+     "dist_m": 8.27,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route35",
+     "kind": "pavement",
+     "dist_m": 9.69,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 3,
+   "length_m": 3.2,
+   "site": [
+    25.26219645033,
+    51.61678103061
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:gapapron:24",
+     "kind": "pavement",
+     "dist_m": 2.69,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:63",
+     "kind": "structure",
+     "dist_m": 6.8,
+     "step_m": -2.99,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:63#1",
+     "kind": "structure",
+     "dist_m": 7.82,
+     "step_m": -1.65,
+     "off_m": -1.65,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route37",
+     "kind": "pavement",
+     "dist_m": 8.07,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route36",
+     "kind": "pavement",
+     "dist_m": 9.11,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 3,
+   "length_m": 2.4,
+   "site": [
+    25.26220095823,
+    51.61688030148
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:63",
+     "kind": "structure",
+     "dist_m": 1.12,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:88",
+     "kind": "structure",
+     "dist_m": 2.49,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:63#1",
+     "kind": "structure",
+     "dist_m": 3.53,
+     "step_m": -1.65,
+     "off_m": -1.65,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:gapapron:28",
+     "kind": "pavement",
+     "dist_m": 6.51,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 3,
+   "length_m": 3.9,
+   "site": [
+    25.26337897405,
+    51.61736185038
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:57",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:100",
+     "kind": "structure",
+     "dist_m": 1.41,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:94",
+     "kind": "structure",
+     "dist_m": 6.16,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 20,
+   "length_m": 33.4,
+   "site": [
+    25.26295475759,
+    51.61631450829
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:10",
+     "kind": "structure",
+     "dist_m": 2.0,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route26",
+     "kind": "pavement",
+     "dist_m": 9.16,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route25",
+     "kind": "pavement",
+     "dist_m": 9.32,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 9,
+   "length_m": 15.5,
+   "site": [
+    25.2595517274,
+    51.60940520601
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav4",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:62",
+     "kind": "structure",
+     "dist_m": 4.12,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route47",
+     "kind": "pavement",
+     "dist_m": 4.16,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route48",
+     "kind": "pavement",
+     "dist_m": 5.4,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:90",
+     "kind": "structure",
+     "dist_m": 5.5,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route46",
+     "kind": "pavement",
+     "dist_m": 9.21,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 2,
+   "length_m": 2.0,
+   "site": [
+    25.25952464605,
+    51.6093853521
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav4",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:62",
+     "kind": "structure",
+     "dist_m": 6.96,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route48",
+     "kind": "pavement",
+     "dist_m": 7.73,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route47",
+     "kind": "pavement",
+     "dist_m": 8.54,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 12,
+   "length_m": 26.8,
+   "site": [
+    25.26040479353,
+    51.60951440919
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav4",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:23",
+     "kind": "structure",
+     "dist_m": 1.5,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-9714",
+     "kind": "pavement",
+     "dist_m": 1.8,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route52",
+     "kind": "pavement",
+     "dist_m": 5.38,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route53",
+     "kind": "pavement",
+     "dist_m": 5.65,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-9716#1",
+     "kind": "pavement",
+     "dist_m": 8.47,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route51",
+     "kind": "pavement",
+     "dist_m": 9.85,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.26045895646,
+    51.60951937316
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav4",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-9714",
+     "kind": "pavement",
+     "dist_m": 6.88,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:23",
+     "kind": "structure",
+     "dist_m": 7.99,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 9,
+   "length_m": 27.5,
+   "site": [
+    25.26307679311,
+    51.61200117945
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:17",
+     "kind": "structure",
+     "dist_m": 4.02,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 4,
+   "length_m": 7.2,
+   "site": [
+    25.2632076892,
+    51.61190687552
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": null,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:17",
+     "kind": "structure",
+     "dist_m": 6.66,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 10,
+   "length_m": 15.3,
+   "site": [
+    25.26715711158,
+    51.6088989696
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:75",
+     "kind": "structure",
+     "dist_m": 0.97,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:69",
+     "kind": "structure",
+     "dist_m": 2.22,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 6,
+   "length_m": 6.3,
+   "site": [
+    25.26716613892,
+    51.60884436861
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:75",
+     "kind": "structure",
+     "dist_m": 2.5,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:69",
+     "kind": "structure",
+     "dist_m": 7.2,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.26721127478,
+    51.60881458639
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 3.71,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:75",
+     "kind": "structure",
+     "dist_m": 7.1,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:69",
+     "kind": "structure",
+     "dist_m": 9.01,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 17,
+   "length_m": 14.2,
+   "site": [
+    25.26561344963,
+    51.61076530172
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:15#1",
+     "kind": "structure",
+     "dist_m": 3.9,
+     "step_m": -1.99,
+     "off_m": -1.99,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:15",
+     "kind": "structure",
+     "dist_m": 4.0,
+     "step_m": -1.66,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 15,
+   "length_m": 15.2,
+   "site": [
+    25.26561344898,
+    51.61080501105
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:15",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:15#1",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -1.99,
+     "off_m": -1.99,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 19,
+   "length_m": 15.4,
+   "site": [
+    25.26557282587,
+    51.61085961056
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:15#1",
+     "kind": "structure",
+     "dist_m": 3.8,
+     "step_m": -1.66,
+     "off_m": -1.99,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:15",
+     "kind": "structure",
+     "dist_m": 4.52,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 3,
+   "length_m": 2.3,
+   "site": [
+    25.2655908806,
+    51.6108347926
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:15#1",
+     "kind": "structure",
+     "dist_m": 0.79,
+     "step_m": -1.66,
+     "off_m": -1.99,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:15",
+     "kind": "structure",
+     "dist_m": 1.82,
+     "step_m": -1.66,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.2672293289,
+    51.60887415125
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 2.82,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:69",
+     "kind": "structure",
+     "dist_m": 3.53,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:75",
+     "kind": "structure",
+     "dist_m": 6.49,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 5,
+   "length_m": 4.4,
+   "site": [
+    25.26724286972,
+    51.60884933264
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 3.53,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:69",
+     "kind": "structure",
+     "dist_m": 6.32,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:75",
+     "kind": "structure",
+     "dist_m": 8.23,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 8,
+   "length_m": 8.4,
+   "site": [
+    25.26723384234,
+    51.60891386113
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:69",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:75",
+     "kind": "structure",
+     "dist_m": 3.6,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 3.9,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 2,
+   "length_m": 3.2,
+   "site": [
+    25.26717967947,
+    51.6088989697
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:69",
+     "kind": "structure",
+     "dist_m": 1.5,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:75",
+     "kind": "structure",
+     "dist_m": 1.58,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 2.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.2672157881,
+    51.60889400612
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:69",
+     "kind": "structure",
+     "dist_m": 1.26,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav26#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 3.34,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:75",
+     "kind": "structure",
+     "dist_m": 5.09,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.26128039428,
+    51.61174302462
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav4#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:48",
+     "kind": "structure",
+     "dist_m": 2.82,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav4#1#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 4.6,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:48#1",
+     "kind": "structure",
+     "dist_m": 9.99,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 3,
+   "length_m": 9.0,
+   "site": [
+    25.26136615117,
+    51.61179266193
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav4#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 3.35,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav4#1#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 3.8,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:48#1",
+     "kind": "structure",
+     "dist_m": 5.02,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route40",
+     "kind": "pavement",
+     "dist_m": 7.26,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:48",
+     "kind": "structure",
+     "dist_m": 9.55,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#11",
+   "vertices": 4,
+   "length_m": 4.7,
+   "site": [
+    25.26079295555,
+    51.61012491971
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav4",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:12",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#11",
+   "vertices": 30,
+   "length_m": 68.2,
+   "site": [
+    25.26077038637,
+    51.61022915226
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav4",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:12",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-9728#1",
+     "kind": "pavement",
+     "dist_m": 7.69,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#12",
+   "vertices": 25,
+   "length_m": 52.6,
+   "site": [
+    25.26105924329,
+    51.61103324066
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav4#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:11",
+     "kind": "structure",
+     "dist_m": 1.11,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav4",
+     "kind": "pavement",
+     "dist_m": 7.41,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-9698",
+     "kind": "pavement",
+     "dist_m": 7.65,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-9697",
+     "kind": "pavement",
+     "dist_m": 8.13,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#4",
+   "vertices": 3,
+   "length_m": 2.6,
+   "site": [
+    25.2633248111,
+    51.6173618464
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:57",
+     "kind": "structure",
+     "dist_m": 1.12,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:94",
+     "kind": "structure",
+     "dist_m": 1.12,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:100",
+     "kind": "structure",
+     "dist_m": 6.01,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#7",
+   "vertices": 3,
+   "length_m": 1.7,
+   "site": [
+    25.26218741692,
+    51.61689022759
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.8,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:63",
+     "kind": "structure",
+     "dist_m": 1.12,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:88",
+     "kind": "structure",
+     "dist_m": 1.12,
+     "step_m": -4.8,
+     "off_m": -4.8,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:63#1",
+     "kind": "structure",
+     "dist_m": 2.5,
+     "step_m": -1.65,
+     "off_m": -1.65,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:gapapron:28",
+     "kind": "pavement",
+     "dist_m": 9.11,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 7,
+   "length_m": 6.8,
+   "site": [
+    25.26313090889,
+    51.61357959498
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.77,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav11#plateau:building6",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:71",
+     "kind": "structure",
+     "dist_m": 2.12,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:68",
+     "kind": "structure",
+     "dist_m": 6.49,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 6,
+   "length_m": 6.1,
+   "site": [
+    25.26689531976,
+    51.60962367144
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.77,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:21",
+     "kind": "structure",
+     "dist_m": 4.03,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 2,
+   "length_m": 2.5,
+   "site": [
+    25.26686823787,
+    51.60967330834
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.77,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:21",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 6,
+   "length_m": 8.8,
+   "site": [
+    25.26689531916,
+    51.60969316351
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.77,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:21",
+     "kind": "structure",
+     "dist_m": 3.99,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 9,
+   "length_m": 9.1,
+   "site": [
+    25.26692240049,
+    51.60970805496
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.77,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:21",
+     "kind": "structure",
+     "dist_m": 3.35,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 15,
+   "length_m": 12.9,
+   "site": [
+    25.26686823747,
+    51.6097179818
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.77,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_trench:basin_floor:21",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#3",
+   "vertices": 4,
+   "length_m": 3.9,
+   "site": [
+    25.27161647401,
+    51.61227444806
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.77,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav15",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:30",
+     "kind": "structure",
+     "dist_m": 3.5,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route14",
+     "kind": "pavement",
+     "dist_m": 4.3,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route15",
+     "kind": "pavement",
+     "dist_m": 9.39,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#3",
+   "vertices": 8,
+   "length_m": 11.6,
+   "site": [
+    25.27169771861,
+    51.61226452283
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.77,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav15",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:30",
+     "kind": "structure",
+     "dist_m": 1.48,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route14",
+     "kind": "pavement",
+     "dist_m": 8.47,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route15",
+     "kind": "pavement",
+     "dist_m": 9.51,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6#3",
+   "vertices": 2,
+   "length_m": 0.5,
+   "site": [
+    25.27166160962,
+    51.61227941342
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 4.77,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav15",
+     "kind": "pavement",
+     "dist_m": 3.13,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_trench:basin_floor:30",
+     "kind": "structure",
+     "dist_m": 4.92,
+     "step_m": -4.77,
+     "off_m": -4.77,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route14",
+     "kind": "pavement",
+     "dist_m": 7.6,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route15",
+     "kind": "pavement",
+     "dist_m": 9.05,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#4",
+   "vertices": 3,
+   "length_m": 8.3,
+   "site": [
+    25.27242890417,
+    51.61274604868
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 3.9,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:route16",
+     "kind": "pavement",
+     "dist_m": 0.47,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:65#1",
+     "kind": "pavement",
+     "dist_m": 1.12,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.7,
+     "step_m": -3.9,
+     "off_m": -3.9,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav15",
+     "kind": "pavement",
+     "dist_m": 6.95,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route15",
+     "kind": "pavement",
+     "dist_m": 9.18,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s1",
+     "kind": "pavement",
+     "dist_m": 9.6,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 2,
+   "length_m": 1.1,
+   "site": [
+    25.27233411218,
+    51.61297438653
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 3.89,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.57,
+     "step_m": -3.89,
+     "off_m": -3.89,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:65",
+     "kind": "pavement",
+     "dist_m": 1.58,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route16",
+     "kind": "pavement",
+     "dist_m": 7.16,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s1#1",
+     "kind": "pavement",
+     "dist_m": 8.72,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.27231605819,
+    51.61296445797
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 3.86,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.51,
+     "step_m": -3.84,
+     "off_m": -3.86,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:65",
+     "kind": "pavement",
+     "dist_m": 3.53,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s1#1",
+     "kind": "pavement",
+     "dist_m": 7.63,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route16",
+     "kind": "pavement",
+     "dist_m": 8.8,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 2,
+   "length_m": 8.1,
+   "site": [
+    25.27226640965,
+    51.61293963642
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 3.86,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.37,
+     "step_m": -3.72,
+     "off_m": -3.86,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s1#1",
+     "kind": "pavement",
+     "dist_m": 1.8,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s0",
+     "kind": "pavement",
+     "dist_m": 6.01,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route16",
+     "kind": "pavement",
+     "dist_m": 8.42,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:65",
+     "kind": "pavement",
+     "dist_m": 9.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#4",
+   "vertices": 2,
+   "length_m": 7.8,
+   "site": [
+    25.27232960436,
+    51.61278575665
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 3.86,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:route15",
+     "kind": "pavement",
+     "dist_m": 1.12,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s1",
+     "kind": "pavement",
+     "dist_m": 1.8,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.92,
+     "step_m": -3.73,
+     "off_m": -3.86,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav15",
+     "kind": "pavement",
+     "dist_m": 4.9,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route16",
+     "kind": "pavement",
+     "dist_m": 8.53,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:65#1",
+     "kind": "pavement",
+     "dist_m": 9.32,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6#4",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.27238376636,
+    51.61281554225
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 3.86,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.57,
+     "step_m": -3.86,
+     "off_m": -3.86,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:65#1",
+     "kind": "pavement",
+     "dist_m": 3.04,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route16",
+     "kind": "pavement",
+     "dist_m": 6.01,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s1",
+     "kind": "pavement",
+     "dist_m": 8.31,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route15",
+     "kind": "pavement",
+     "dist_m": 9.42,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 2,
+   "length_m": 4.0,
+   "site": [
+    25.26938228769,
+    51.60606960168
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 2.63,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "groundside_pavement:gap:26/s0#1",
+     "kind": "pavement",
+     "dist_m": 1.34,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.55,
+     "step_m": -2.56,
+     "off_m": -2.63,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#1",
+   "vertices": 4,
+   "length_m": 22.8,
+   "site": [
+    25.26958088662,
+    51.60617383832
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 2.63,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:route12",
+     "kind": "pavement",
+     "dist_m": 1.12,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route13",
+     "kind": "pavement",
+     "dist_m": 1.12,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.34,
+     "step_m": -2.54,
+     "off_m": -2.63,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:26/s0",
+     "kind": "pavement",
+     "dist_m": 2.06,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:59#1",
+     "kind": "pavement",
+     "dist_m": 2.55,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav15",
+     "kind": "pavement",
+     "dist_m": 4.89,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building9",
+   "vertices": 3,
+   "length_m": 2.3,
+   "site": [
+    25.25851789902,
+    51.61646808461
+   ],
+   "rim_z": [
+    4.76,
+    4.77
+   ],
+   "height_m": 2.51,
+   "ground_off_m": -0.81,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "door_ramp:door_ramp",
+     "kind": "structure",
+     "dist_m": 1.02,
+     "step_m": -2.51,
+     "off_m": -2.51,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.2693552073,
+    51.60613909566
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 2.39,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.5,
+     "step_m": -2.39,
+     "off_m": -2.39,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:59",
+     "kind": "pavement",
+     "dist_m": 4.24,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:26/s0#1",
+     "kind": "pavement",
+     "dist_m": 9.33,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.26926493638,
+    51.60617880784
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 2.24,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "groundside_pavement:gap:59",
+     "kind": "pavement",
+     "dist_m": 1.84,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 9.05,
+     "step_m": -2.24,
+     "off_m": -2.24,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building9",
+   "vertices": 5,
+   "length_m": 4.1,
+   "site": [
+    25.25829224318,
+    51.61603129318
+   ],
+   "rim_z": [
+    4.41,
+    4.49
+   ],
+   "height_m": 2.23,
+   "ground_off_m": -0.53,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "door_ramp:door_ramp",
+     "kind": "structure",
+     "dist_m": 0.46,
+     "step_m": -2.22,
+     "off_m": -2.23,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 6,
+   "length_m": 41.4,
+   "site": [
+    25.26925590967,
+    51.60620859089
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 2.17,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "groundside_pavement:gap:59",
+     "kind": "pavement",
+     "dist_m": 1.1,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 6.69,
+     "step_m": -2.17,
+     "off_m": -2.17,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#3",
+   "vertices": 2,
+   "length_m": 8.1,
+   "site": [
+    25.27165257968,
+    51.61238365529
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 1.98,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:route15",
+     "kind": "pavement",
+     "dist_m": 1.12,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.22,
+     "step_m": -1.98,
+     "off_m": -1.98,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s0#1",
+     "kind": "pavement",
+     "dist_m": 2.23,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav15",
+     "kind": "pavement",
+     "dist_m": 6.79,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route14",
+     "kind": "pavement",
+     "dist_m": 9.15,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 4,
+   "length_m": 16.3,
+   "site": [
+    25.27154424638,
+    51.61265170276
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 1.97,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "groundside_pavement:gap:45",
+     "kind": "pavement",
+     "dist_m": 1.52,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s0",
+     "kind": "pavement",
+     "dist_m": 1.58,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.67,
+     "step_m": -1.97,
+     "off_m": -1.97,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.26611895923,
+    51.61137584514
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 1.89,
+   "ground_off_m": null,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "wall_corridor_ramp:wall_corridor_ramp",
+     "kind": "structure",
+     "dist_m": 0.65,
+     "step_m": -1.89,
+     "off_m": -1.89,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.26621374526,
+    51.61133117425
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 1.88,
+   "ground_off_m": null,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "wall_corridor_ramp:wall_corridor_ramp",
+     "kind": "structure",
+     "dist_m": 0.65,
+     "step_m": -1.88,
+     "off_m": -1.88,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6#3",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.27158036114,
+    51.61243329201
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 1.87,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.55,
+     "step_m": -1.87,
+     "off_m": -1.87,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:45",
+     "kind": "pavement",
+     "dist_m": 4.6,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route14",
+     "kind": "pavement",
+     "dist_m": 5.7,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s0#1",
+     "kind": "pavement",
+     "dist_m": 7.15,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route15",
+     "kind": "pavement",
+     "dist_m": 7.63,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building9",
+   "vertices": 4,
+   "length_m": 4.6,
+   "site": [
+    25.25747538356,
+    51.61379774082
+   ],
+   "rim_z": [
+    4.07,
+    4.09
+   ],
+   "height_m": 1.83,
+   "ground_off_m": -0.13,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "door_ramp:door_ramp",
+     "kind": "structure",
+     "dist_m": 8.49,
+     "step_m": -1.83,
+     "off_m": -1.83,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building9",
+   "vertices": 4,
+   "length_m": 4.6,
+   "site": [
+    25.25739866379,
+    51.61348504745
+   ],
+   "rim_z": [
+    4.07,
+    4.09
+   ],
+   "height_m": 1.83,
+   "ground_off_m": -0.13,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "door_ramp:door_ramp",
+     "kind": "structure",
+     "dist_m": 8.04,
+     "step_m": -1.82,
+     "off_m": -1.83,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6#3",
+   "vertices": 2,
+   "length_m": 7.6,
+   "site": [
+    25.27158487687,
+    51.61235386961
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 1.81,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:route14",
+     "kind": "pavement",
+     "dist_m": 1.1,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 1.49,
+     "step_m": -1.81,
+     "off_m": -1.81,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:45",
+     "kind": "pavement",
+     "dist_m": 2.23,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav15",
+     "kind": "pavement",
+     "dist_m": 3.35,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:route15",
+     "kind": "pavement",
+     "dist_m": 9.15,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:35/s0#1",
+     "kind": "pavement",
+     "dist_m": 9.81,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building9",
+   "vertices": 4,
+   "length_m": 4.6,
+   "site": [
+    25.25738061201,
+    51.61341059671
+   ],
+   "rim_z": [
+    3.89,
+    3.91
+   ],
+   "height_m": 1.65,
+   "ground_off_m": 0.05,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "door_ramp:door_ramp",
+     "kind": "structure",
+     "dist_m": 1.0,
+     "step_m": -1.65,
+     "off_m": -1.65,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building9",
+   "vertices": 4,
+   "length_m": 4.0,
+   "site": [
+    25.25751600008,
+    51.61395160609
+   ],
+   "rim_z": [
+    3.84,
+    3.84
+   ],
+   "height_m": 1.58,
+   "ground_off_m": 0.12,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "door_ramp:door_ramp",
+     "kind": "structure",
+     "dist_m": 4.71,
+     "step_m": -1.56,
+     "off_m": -1.58,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building9",
+   "vertices": 4,
+   "length_m": 4.6,
+   "site": [
+    25.25749343514,
+    51.61387219167
+   ],
+   "rim_z": [
+    3.84,
+    3.84
+   ],
+   "height_m": 1.58,
+   "ground_off_m": 0.12,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "door_ramp:door_ramp",
+     "kind": "structure",
+     "dist_m": 1.41,
+     "step_m": -1.58,
+     "off_m": -1.58,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building9",
+   "vertices": 4,
+   "length_m": 4.0,
+   "site": [
+    25.25736256053,
+    51.61332621934
+   ],
+   "rim_z": [
+    3.84,
+    3.84
+   ],
+   "height_m": 1.58,
+   "ground_off_m": 0.12,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "door_ramp:door_ramp",
+     "kind": "structure",
+     "dist_m": 5.0,
+     "step_m": -1.45,
+     "off_m": -1.58,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building9",
+   "vertices": 3,
+   "length_m": 1.0,
+   "site": [
+    25.25751148705,
+    51.61393671587
+   ],
+   "rim_z": [
+    3.83,
+    3.83
+   ],
+   "height_m": 1.57,
+   "ground_off_m": 0.13,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "door_ramp:door_ramp",
+     "kind": "structure",
+     "dist_m": 3.2,
+     "step_m": -1.55,
+     "off_m": -1.57,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building9",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.25751148724,
+    51.61393175253
+   ],
+   "rim_z": [
+    3.83,
+    3.83
+   ],
+   "height_m": 1.57,
+   "ground_off_m": 0.13,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "door_ramp:door_ramp",
+     "kind": "structure",
+     "dist_m": 2.82,
+     "step_m": -1.55,
+     "off_m": -1.57,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 10,
+   "length_m": 36.6,
+   "site": [
+    25.26352814772,
+    51.61213520956
+   ],
+   "rim_z": [
+    3.93,
+    3.96
+   ],
+   "height_m": 1.39,
+   "ground_off_m": null,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "wall_corridor_ramp:wall_corridor_ramp",
+     "kind": "structure",
+     "dist_m": 0.0,
+     "step_m": -1.39,
+     "off_m": -1.39,
+     "touching": true,
+     "grade_pct": 21.8
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 14,
+   "length_m": 35.8,
+   "site": [
+    25.26474231062,
+    51.61171333826
+   ],
+   "rim_z": [
+    2.57,
+    3.96
+   ],
+   "height_m": 1.39,
+   "ground_off_m": 1.39,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "wall_corridor_ramp:wall_corridor_ramp",
+     "kind": "structure",
+     "dist_m": 0.0,
+     "step_m": -1.39,
+     "off_m": -1.39,
+     "touching": true,
+     "grade_pct": 22.1
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building25",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.28315766534,
+    51.60413323267
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 1.36,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "wall_corridor_ramp:wall_corridor_ramp",
+     "kind": "structure",
+     "dist_m": 6.67,
+     "step_m": -1.36,
+     "off_m": -1.36,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:58",
+     "kind": "pavement",
+     "dist_m": 8.13,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building25",
+   "vertices": 6,
+   "length_m": 14.7,
+   "site": [
+    25.28313960949,
+    51.60407862512
+   ],
+   "rim_z": [
+    3.96,
+    3.96
+   ],
+   "height_m": 1.36,
+   "ground_off_m": 0.0,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "wall_corridor_ramp:wall_corridor_ramp",
+     "kind": "structure",
+     "dist_m": 0.69,
+     "step_m": -1.36,
+     "off_m": -1.36,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 9,
+   "length_m": 36.5,
+   "site": [
+    25.2630045677,
+    51.61231884519
+   ],
+   "rim_z": [
+    3.87,
+    3.96
+   ],
+   "height_m": 1.35,
+   "ground_off_m": null,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "wall_corridor_ramp:wall_corridor_ramp",
+     "kind": "structure",
+     "dist_m": 0.0,
+     "step_m": -1.35,
+     "off_m": -1.35,
+     "touching": true,
+     "grade_pct": 22.1
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 12,
+   "length_m": 35.8,
+   "site": [
+    25.26444439613,
+    51.61244298215
+   ],
+   "rim_z": [
+    2.61,
+    3.96
+   ],
+   "height_m": 1.35,
+   "ground_off_m": null,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "wall_corridor_ramp:wall_corridor_ramp",
+     "kind": "structure",
+     "dist_m": 0.0,
+     "step_m": -1.35,
+     "off_m": -1.35,
+     "touching": true,
+     "grade_pct": 21.5
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building6",
+   "vertices": 10,
+   "length_m": 35.1,
+   "site": [
+    25.26389373201,
+    51.61270603445
+   ],
+   "rim_z": [
+    2.61,
+    3.96
+   ],
+   "height_m": 1.35,
+   "ground_off_m": null,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "wall_corridor_ramp:wall_corridor_ramp",
+     "kind": "structure",
+     "dist_m": 0.0,
+     "step_m": -1.33,
+     "off_m": -1.35,
+     "touching": true,
+     "grade_pct": 21.5
+    }
+   ]
+  },
+  {
+   "cls": "W",
+   "pad": "building25#1",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    25.28320731213,
+    51.60404883644
+   ],
+   "rim_z": [
+    3.92,
+    3.92
+   ],
+   "height_m": 1.32,
+   "ground_off_m": 0.04,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "wall_corridor_ramp:wall_corridor_ramp",
+     "kind": "structure",
+     "dist_m": 0.78,
+     "step_m": -0.83,
+     "off_m": -1.32,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "groundside_pavement:gap:58",
+     "kind": "pavement",
+     "dist_m": 5.02,
+     "step_m": 0.03,
+     "off_m": 0.03,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,54 @@
+[
+ {
+  "k": "T28",
+  "pad": "building14",
+  "site": [
+   60.71536617725,
+   -135.07910771649
+  ],
+  "n": 8,
+  "L": 45.5,
+  "cell": "groundside_pavement:dsf:pol129",
+  "dist": 0.74,
+  "step": 3.6,
+  "off": 3.76,
+  "grade": 0.0,
+  "welded": 8,
+  "datum": 695.864,
+  "band": [
+   688.289,
+   698.965
+  ],
+  "dem_step": 4.19,
+  "rim": 695.86,
+  "ground": 4.79,
+  "tj_dist": 1000000000.0,
+  "tj": null
+ },
+ {
+  "k": "T28",
+  "pad": "building13",
+  "site": [
+   60.71454515187,
+   -135.07702838136
+  ],
+  "n": 13,
+  "L": 111.2,
+  "cell": "parking_lot:pav4",
+  "dist": 0.74,
+  "step": 4.02,
+  "off": 4.04,
+  "grade": 0.0,
+  "welded": 14,
+  "datum": 694.895,
+  "band": [
+   689.575,
+   698.072
+  ],
+  "dem_step": 4.24,
+  "rim": 694.9,
+  "ground": 2.78,
+  "tj_dist": 1000000000.0,
+  "tj": null
+ }
+]

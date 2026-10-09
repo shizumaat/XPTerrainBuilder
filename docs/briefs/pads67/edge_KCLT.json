@@ -1,0 +1,7106 @@
+{
+ "icao": "KCLT",
+ "off_m": 1.0,
+ "within_m": 10.0,
+ "standoff_m": 3.0,
+ "dem": true,
+ "runs": [
+  {
+   "cls": "B",
+   "pad": "building17",
+   "vertices": 4,
+   "length_m": 43.0,
+   "site": [
+    35.2074937709,
+    -80.92984524873
+   ],
+   "rim_z": [
+    216.32,
+    216.32
+   ],
+   "height_m": 14.72,
+   "ground_off_m": -14.72,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-27553#5",
+     "kind": "pavement",
+     "dist_m": 7.06,
+     "step_m": -12.3,
+     "off_m": -12.74,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol51",
+     "kind": "pavement",
+     "dist_m": 7.62,
+     "step_m": -12.28,
+     "off_m": -12.74,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "S",
+   "pad": "building89",
+   "vertices": 2,
+   "length_m": 1.6,
+   "site": [
+    35.22471899632,
+    -80.93257631191
+   ],
+   "rim_z": [
+    226.6,
+    226.6
+   ],
+   "height_m": 8.24,
+   "ground_off_m": -8.24,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone2#156",
+     "kind": "strip",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone1#247",
+     "kind": "strip",
+     "dist_m": 9.49,
+     "step_m": -0.06,
+     "off_m": -0.06,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "S",
+   "pad": "building17",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20780924862,
+    -80.92987262977
+   ],
+   "rim_z": [
+    216.32,
+    216.32
+   ],
+   "height_m": 7.33,
+   "ground_off_m": -7.33,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone2#133",
+     "kind": "strip",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone1#216",
+     "kind": "strip",
+     "dist_m": 4.01,
+     "step_m": -0.01,
+     "off_m": -0.01,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "cross_connector:pav165",
+     "kind": "pavement",
+     "dist_m": 6.99,
+     "step_m": -0.0,
+     "off_m": -0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building75",
+   "vertices": 3,
+   "length_m": 15.5,
+   "site": [
+    35.22054230678,
+    -80.94543927357
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 6.96,
+   "ground_off_m": -6.96,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building83",
+   "vertices": 3,
+   "length_m": 24.0,
+   "site": [
+    35.22060089341,
+    -80.94540082737
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 6.94,
+   "ground_off_m": -6.94,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "P",
+   "pad": "building57",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21433519045,
+    -80.93086505851
+   ],
+   "rim_z": [
+    217.22,
+    217.22
+   ],
+   "height_m": 6.4,
+   "ground_off_m": 5.15,
+   "pavement_off_m": 2.67,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol81",
+     "kind": "pavement",
+     "dist_m": 0.93,
+     "step_m": 2.67,
+     "off_m": 2.87,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol53",
+     "kind": "pavement",
+     "dist_m": 8.68,
+     "step_m": 6.33,
+     "off_m": 6.4,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building77",
+   "vertices": 8,
+   "length_m": 88.0,
+   "site": [
+    35.21854857171,
+    -80.92816764266
+   ],
+   "rim_z": [
+    210.69,
+    210.69
+   ],
+   "height_m": 6.2,
+   "ground_off_m": -6.2,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building92",
+   "vertices": 3,
+   "length_m": 14.5,
+   "site": [
+    35.22668939341,
+    -80.94254453069
+   ],
+   "rim_z": [
+    223.67,
+    223.67
+   ],
+   "height_m": 6.02,
+   "ground_off_m": 6.02,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav14#plateau:building92",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav14",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building58",
+   "vertices": 3,
+   "length_m": 73.3,
+   "site": [
+    35.21443415232,
+    -80.92966239231
+   ],
+   "rim_z": [
+    216.24,
+    216.24
+   ],
+   "height_m": 5.98,
+   "ground_off_m": 5.98,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol58",
+     "kind": "pavement",
+     "dist_m": 6.0,
+     "step_m": 1.05,
+     "off_m": 1.05,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building17",
+   "vertices": 2,
+   "length_m": 3.0,
+   "site": [
+    35.20784530359,
+    -80.92987811237
+   ],
+   "rim_z": [
+    216.32,
+    216.32
+   ],
+   "height_m": 5.85,
+   "ground_off_m": -5.85,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone1#216",
+     "kind": "strip",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone2#133",
+     "kind": "strip",
+     "dist_m": 0.0,
+     "step_m": -0.0,
+     "off_m": -0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "cross_connector:pav165",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building75",
+   "vertices": 16,
+   "length_m": 209.3,
+   "site": [
+    35.2220879931,
+    -80.94239112186
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 5.64,
+   "ground_off_m": -5.64,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building75",
+   "vertices": 3,
+   "length_m": 62.5,
+   "site": [
+    35.22208799341,
+    -80.9423966139
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 5.64,
+   "ground_off_m": -5.64,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building75",
+   "vertices": 23,
+   "length_m": 614.4,
+   "site": [
+    35.2221330693,
+    -80.94255038745
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 5.62,
+   "ground_off_m": -5.62,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building75",
+   "vertices": 32,
+   "length_m": 299.0,
+   "site": [
+    35.22148419866,
+    -80.94484060357
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 5.55,
+   "ground_off_m": -5.55,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "tunnel_ramp:tunnel_ramp",
+     "kind": "structure",
+     "dist_m": 7.23,
+     "step_m": -4.57,
+     "off_m": -4.57,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building75",
+   "vertices": 5,
+   "length_m": 18.7,
+   "site": [
+    35.22156526216,
+    -80.9434181698
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 5.55,
+   "ground_off_m": -5.55,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building75",
+   "vertices": 2,
+   "length_m": 0.5,
+   "site": [
+    35.22033950173,
+    -80.94540083914
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 5.48,
+   "ground_off_m": -5.48,
+   "pavement_off_m": 0.07,
+   "cells": [
+    {
+     "cell": "apron:pav14#plateau:building75",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.07,
+     "touching": true,
+     "grade_pct": 1.4
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building88",
+   "vertices": 28,
+   "length_m": 618.5,
+   "site": [
+    35.22422872529,
+    -80.94286876661
+   ],
+   "rim_z": [
+    223.21,
+    223.21
+   ],
+   "height_m": 5.28,
+   "ground_off_m": -5.28,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building75",
+   "vertices": 2,
+   "length_m": 5.0,
+   "site": [
+    35.22077215216,
+    -80.94547221505
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 5.17,
+   "ground_off_m": -5.17,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building81",
+   "vertices": 4,
+   "length_m": 45.6,
+   "site": [
+    35.22041613136,
+    -80.94592806083
+   ],
+   "rim_z": [
+    220.7,
+    220.7
+   ],
+   "height_m": 5.06,
+   "ground_off_m": -5.06,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav14#plateau:building75",
+     "kind": "pavement",
+     "dist_m": 3.34,
+     "step_m": 0.0,
+     "off_m": -0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav14",
+     "kind": "pavement",
+     "dist_m": 3.93,
+     "step_m": -0.01,
+     "off_m": -0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building10",
+   "vertices": 5,
+   "length_m": 185.5,
+   "site": [
+    35.20620148932,
+    -80.93964693712
+   ],
+   "rim_z": [
+    214.1,
+    214.1
+   ],
+   "height_m": 4.97,
+   "ground_off_m": 4.97,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol37",
+     "kind": "pavement",
+     "dist_m": 3.16,
+     "step_m": 0.0,
+     "off_m": 0.06,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol43",
+     "kind": "pavement",
+     "dist_m": 6.38,
+     "step_m": 2.9,
+     "off_m": 2.9,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building26",
+   "vertices": 5,
+   "length_m": 23.1,
+   "site": [
+    35.20885029754,
+    -80.9297900175
+   ],
+   "rim_z": [
+    215.98,
+    215.98
+   ],
+   "height_m": 4.89,
+   "ground_off_m": -4.89,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building92",
+   "vertices": 4,
+   "length_m": 54.0,
+   "site": [
+    35.22627026401,
+    -80.94251161031
+   ],
+   "rim_z": [
+    223.67,
+    223.67
+   ],
+   "height_m": 4.87,
+   "ground_off_m": 4.87,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav14",
+     "kind": "pavement",
+     "dist_m": 7.49,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building57",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21436665649,
+    -80.93033237394
+   ],
+   "rim_z": [
+    217.22,
+    217.22
+   ],
+   "height_m": 4.83,
+   "ground_off_m": 4.83,
+   "pavement_off_m": 0.13,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol59",
+     "kind": "pavement",
+     "dist_m": 1.79,
+     "step_m": 0.13,
+     "off_m": 0.17,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7457",
+     "kind": "pavement",
+     "dist_m": 3.9,
+     "step_m": 2.36,
+     "off_m": 3.01,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol53",
+     "kind": "pavement",
+     "dist_m": 9.33,
+     "step_m": 3.06,
+     "off_m": 3.09,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building75",
+   "vertices": 9,
+   "length_m": 57.4,
+   "site": [
+    35.22147957112,
+    -80.94220444369
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 4.73,
+   "ground_off_m": 4.73,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building73",
+   "vertices": 2,
+   "length_m": 16.1,
+   "site": [
+    35.21742228614,
+    -80.93065019193
+   ],
+   "rim_z": [
+    214.75,
+    214.75
+   ],
+   "height_m": 4.66,
+   "ground_off_m": 4.66,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol83",
+     "kind": "pavement",
+     "dist_m": 7.14,
+     "step_m": -0.19,
+     "off_m": -0.19,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol85",
+     "kind": "pavement",
+     "dist_m": 7.49,
+     "step_m": -0.38,
+     "off_m": -0.38,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "S",
+   "pad": "building26",
+   "vertices": 2,
+   "length_m": 16.5,
+   "site": [
+    35.20837709193,
+    -80.92981758494
+   ],
+   "rim_z": [
+    215.98,
+    215.98
+   ],
+   "height_m": 4.46,
+   "ground_off_m": -4.46,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone1#216",
+     "kind": "strip",
+     "dist_m": 0.0,
+     "step_m": -0.64,
+     "off_m": -0.69,
+     "touching": true,
+     "grade_pct": 66.2
+    },
+    {
+     "cell": "cross_connector:pav165",
+     "kind": "pavement",
+     "dist_m": 3.54,
+     "step_m": -0.57,
+     "off_m": -0.57,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone2#133",
+     "kind": "strip",
+     "dist_m": 5.99,
+     "step_m": -0.63,
+     "off_m": -0.69,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 9,
+   "length_m": 113.1,
+   "site": [
+    35.20398443157,
+    -80.94424301133
+   ],
+   "rim_z": [
+    210.8,
+    210.8
+   ],
+   "height_m": 4.36,
+   "ground_off_m": -4.36,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol95",
+     "kind": "pavement",
+     "dist_m": 4.92,
+     "step_m": -4.09,
+     "off_m": -4.09,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "parking_lot:dsf:pol96",
+     "kind": "pavement",
+     "dist_m": 6.38,
+     "step_m": -1.35,
+     "off_m": -1.35,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building81",
+   "vertices": 2,
+   "length_m": 7.0,
+   "site": [
+    35.22038007958,
+    -80.94601593304
+   ],
+   "rim_z": [
+    220.7,
+    220.7
+   ],
+   "height_m": 4.3,
+   "ground_off_m": -4.3,
+   "pavement_off_m": 0.04,
+   "cells": [
+    {
+     "cell": "apron:pav14",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.04,
+     "touching": true,
+     "grade_pct": 1.4
+    },
+    {
+     "cell": "apron:pav14#plateau:building81",
+     "kind": "pavement",
+     "dist_m": 0.5,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav14#plateau:building75",
+     "kind": "pavement",
+     "dist_m": 2.91,
+     "step_m": -0.04,
+     "off_m": -0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building59",
+   "vertices": 2,
+   "length_m": 16.5,
+   "site": [
+    35.21453763321,
+    -80.9286025019
+   ],
+   "rim_z": [
+    215.22,
+    215.22
+   ],
+   "height_m": 4.18,
+   "ground_off_m": 4.18,
+   "pavement_off_m": 0.58,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol58",
+     "kind": "pavement",
+     "dist_m": 0.9,
+     "step_m": 0.58,
+     "off_m": -0.82,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-8125",
+     "kind": "pavement",
+     "dist_m": 2.75,
+     "step_m": -0.54,
+     "off_m": -0.82,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building17",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20729552692,
+    -80.93018574024
+   ],
+   "rim_z": [
+    216.32,
+    216.32
+   ],
+   "height_m": 4.07,
+   "ground_off_m": -4.07,
+   "pavement_off_m": 3.17,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol51",
+     "kind": "pavement",
+     "dist_m": 1.0,
+     "step_m": -3.17,
+     "off_m": -3.24,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building26",
+   "vertices": 4,
+   "length_m": 78.1,
+   "site": [
+    35.20885933284,
+    -80.92992729412
+   ],
+   "rim_z": [
+    215.97,
+    215.98
+   ],
+   "height_m": 4.06,
+   "ground_off_m": -4.06,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol50",
+     "kind": "pavement",
+     "dist_m": 8.78,
+     "step_m": -1.6,
+     "off_m": -1.71,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building75",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.22026289132,
+    -80.94554912438
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 4.03,
+   "ground_off_m": -4.03,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav14#plateau:building75",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "S",
+   "pad": "building26",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20854834014,
+    -80.92976263323
+   ],
+   "rim_z": [
+    215.13,
+    215.13
+   ],
+   "height_m": 4.02,
+   "ground_off_m": -4.02,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone2#133",
+     "kind": "strip",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building90",
+   "vertices": 12,
+   "length_m": 121.7,
+   "site": [
+    35.22560790833,
+    -80.94591138392
+   ],
+   "rim_z": [
+    218.99,
+    219.03
+   ],
+   "height_m": 3.8,
+   "ground_off_m": 3.8,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "P",
+   "pad": "building58",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21435302892,
+    -80.92965142858
+   ],
+   "rim_z": [
+    216.24,
+    216.24
+   ],
+   "height_m": 3.76,
+   "ground_off_m": 3.76,
+   "pavement_off_m": 1.02,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol58",
+     "kind": "pavement",
+     "dist_m": 0.9,
+     "step_m": 1.02,
+     "off_m": 1.05,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building9",
+   "vertices": 4,
+   "length_m": 67.4,
+   "site": [
+    35.20582314945,
+    -80.94328198701
+   ],
+   "rim_z": [
+    212.59,
+    212.59
+   ],
+   "height_m": 3.73,
+   "ground_off_m": 3.73,
+   "pavement_off_m": 0.15,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol40",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.09,
+     "off_m": 0.14,
+     "touching": true,
+     "grade_pct": 1.7
+    },
+    {
+     "cell": "apron:dsf:pol40#plateau:building9",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.11,
+     "touching": true,
+     "grade_pct": 1.6
+    },
+    {
+     "cell": "apron:dsf:pol21#plateau:building9",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7100",
+     "kind": "pavement",
+     "dist_m": 1.64,
+     "step_m": 0.15,
+     "off_m": 0.19,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-11207#1",
+     "kind": "pavement",
+     "dist_m": 9.18,
+     "step_m": 0.13,
+     "off_m": 0.13,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building9",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20592229243,
+    -80.94316117902
+   ],
+   "rim_z": [
+    212.59,
+    212.59
+   ],
+   "height_m": 3.7,
+   "ground_off_m": 3.7,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol24",
+     "kind": "pavement",
+     "dist_m": 7.56,
+     "step_m": 1.18,
+     "off_m": 1.18,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building90",
+   "vertices": 6,
+   "length_m": 45.9,
+   "site": [
+    35.2255898809,
+    -80.94589490779
+   ],
+   "rim_z": [
+    218.99,
+    218.99
+   ],
+   "height_m": 3.68,
+   "ground_off_m": 3.68,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building58",
+   "vertices": 3,
+   "length_m": 9.0,
+   "site": [
+    35.21435752598,
+    -80.92959102078
+   ],
+   "rim_z": [
+    216.24,
+    216.24
+   ],
+   "height_m": 3.58,
+   "ground_off_m": 3.58,
+   "pavement_off_m": 0.99,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol58",
+     "kind": "pavement",
+     "dist_m": 0.93,
+     "step_m": 0.99,
+     "off_m": 1.05,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building10",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20655754095,
+    -80.9398720268
+   ],
+   "rim_z": [
+    214.1,
+    214.1
+   ],
+   "height_m": 3.46,
+   "ground_off_m": 3.46,
+   "pavement_off_m": 0.06,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol37",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.06,
+     "touching": true,
+     "grade_pct": 1.5
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building67",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21584004483,
+    -80.9283605437
+   ],
+   "rim_z": [
+    214.39,
+    214.39
+   ],
+   "height_m": 3.43,
+   "ground_off_m": 3.43,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building3",
+   "vertices": 9,
+   "length_m": 24.7,
+   "site": [
+    35.20138722666,
+    -80.93063185034
+   ],
+   "rim_z": [
+    204.66,
+    204.7
+   ],
+   "height_m": 3.32,
+   "ground_off_m": 3.32,
+   "pavement_off_m": 0.5,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol69",
+     "kind": "pavement",
+     "dist_m": 0.71,
+     "step_m": 0.5,
+     "off_m": 0.51,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "parking_lot:dsf:pol69#2",
+     "kind": "pavement",
+     "dist_m": 1.0,
+     "step_m": 0.46,
+     "off_m": 0.47,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building30",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2091084279,
+    -80.94068992304
+   ],
+   "rim_z": [
+    214.03,
+    214.03
+   ],
+   "height_m": 3.29,
+   "ground_off_m": 3.29,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 9.52,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building26",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20891347244,
+    -80.93030067988
+   ],
+   "rim_z": [
+    215.97,
+    215.97
+   ],
+   "height_m": 3.2,
+   "ground_off_m": -3.2,
+   "pavement_off_m": 1.6,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol50",
+     "kind": "pavement",
+     "dist_m": 0.8,
+     "step_m": -1.6,
+     "off_m": -1.88,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building34",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21023074126,
+    -80.94284237484
+   ],
+   "rim_z": [
+    214.67,
+    214.67
+   ],
+   "height_m": 3.2,
+   "ground_off_m": -3.2,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol8",
+     "kind": "pavement",
+     "dist_m": 7.42,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building34",
+   "vertices": 2,
+   "length_m": 3.5,
+   "site": [
+    35.21028031844,
+    -80.94289728351
+   ],
+   "rim_z": [
+    214.67,
+    214.67
+   ],
+   "height_m": 3.19,
+   "ground_off_m": -3.19,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol8",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building98",
+   "vertices": 9,
+   "length_m": 21.2,
+   "site": [
+    35.22912771969,
+    -80.94908592155
+   ],
+   "rim_z": [
+    230.77,
+    230.77
+   ],
+   "height_m": 3.04,
+   "ground_off_m": -3.04,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building81",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.22037557488,
+    -80.9460983121
+   ],
+   "rim_z": [
+    220.7,
+    220.7
+   ],
+   "height_m": 3.01,
+   "ground_off_m": -3.01,
+   "pavement_off_m": 0.04,
+   "cells": [
+    {
+     "cell": "apron:pav14",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.04,
+     "touching": true,
+     "grade_pct": 0.4
+    },
+    {
+     "cell": "apron:pav14#plateau:building81",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav14#plateau:building75",
+     "kind": "pavement",
+     "dist_m": 9.21,
+     "step_m": -0.04,
+     "off_m": -0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building34",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21011357357,
+    -80.94300162959
+   ],
+   "rim_z": [
+    214.67,
+    214.67
+   ],
+   "height_m": 2.95,
+   "ground_off_m": -2.95,
+   "pavement_off_m": 0.44,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 2.46,
+     "step_m": -0.44,
+     "off_m": -0.56,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol8",
+     "kind": "pavement",
+     "dist_m": 7.94,
+     "step_m": -0.28,
+     "off_m": -0.32,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building82",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.22048221591,
+    -80.92964996882
+   ],
+   "rim_z": [
+    223.23,
+    223.23
+   ],
+   "height_m": 2.94,
+   "ground_off_m": -1.63,
+   "pavement_off_m": 0.31,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7053",
+     "kind": "pavement",
+     "dist_m": 1.84,
+     "step_m": -0.09,
+     "off_m": 0.27,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol61",
+     "kind": "pavement",
+     "dist_m": 2.81,
+     "step_m": 0.31,
+     "off_m": 0.32,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol62",
+     "kind": "pavement",
+     "dist_m": 3.8,
+     "step_m": -2.85,
+     "off_m": -2.94,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7053#1",
+     "kind": "pavement",
+     "dist_m": 7.76,
+     "step_m": 0.32,
+     "off_m": 0.32,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building72",
+   "vertices": 4,
+   "length_m": 46.9,
+   "site": [
+    35.2175480484,
+    -80.92803060577
+   ],
+   "rim_z": [
+    215.0,
+    215.0
+   ],
+   "height_m": 2.87,
+   "ground_off_m": 0.57,
+   "pavement_off_m": 2.85,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol71",
+     "kind": "pavement",
+     "dist_m": 1.04,
+     "step_m": -2.85,
+     "off_m": -2.87,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building30",
+   "vertices": 4,
+   "length_m": 4.9,
+   "site": [
+    35.20950505287,
+    -80.94113466898
+   ],
+   "rim_z": [
+    214.03,
+    214.03
+   ],
+   "height_m": 2.77,
+   "ground_off_m": 2.77,
+   "pavement_off_m": 0.05,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.05,
+     "touching": true,
+     "grade_pct": 1.2
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 10,
+   "length_m": 34.9,
+   "site": [
+    35.20400691556,
+    -80.94312288198
+   ],
+   "rim_z": [
+    210.9,
+    210.9
+   ],
+   "height_m": 2.77,
+   "ground_off_m": 2.77,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-16749",
+     "kind": "pavement",
+     "dist_m": 9.53,
+     "step_m": -0.11,
+     "off_m": -0.11,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building34",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20990625079,
+    -80.94277101374
+   ],
+   "rim_z": [
+    214.67,
+    214.67
+   ],
+   "height_m": 2.73,
+   "ground_off_m": -2.73,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 3.36,
+     "step_m": -0.31,
+     "off_m": -0.31,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building46",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21166801915,
+    -80.93764745802
+   ],
+   "rim_z": [
+    218.61,
+    218.61
+   ],
+   "height_m": 2.73,
+   "ground_off_m": 2.73,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "primary_parallel:pav61",
+     "kind": "pavement",
+     "dist_m": 8.18,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building72",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21706579204,
+    -80.92783852061
+   ],
+   "rim_z": [
+    215.0,
+    215.0
+   ],
+   "height_m": 2.69,
+   "ground_off_m": -1.84,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol70",
+     "kind": "pavement",
+     "dist_m": 7.49,
+     "step_m": -2.66,
+     "off_m": -2.69,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building29",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20892815477,
+    -80.94065150347
+   ],
+   "rim_z": [
+    214.03,
+    214.03
+   ],
+   "height_m": 2.68,
+   "ground_off_m": 2.68,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 4.23,
+     "step_m": 0.0,
+     "off_m": 0.03,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol37",
+     "kind": "pavement",
+     "dist_m": 5.92,
+     "step_m": 1.9,
+     "off_m": 1.9,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building29",
+   "vertices": 4,
+   "length_m": 25.9,
+   "site": [
+    35.20949604043,
+    -80.94115114344
+   ],
+   "rim_z": [
+    214.03,
+    214.03
+   ],
+   "height_m": 2.67,
+   "ground_off_m": 2.67,
+   "pavement_off_m": 0.05,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.05,
+     "touching": true,
+     "grade_pct": 1.5
+    },
+    {
+     "cell": "service_road:dsf:pol34",
+     "kind": "pavement",
+     "dist_m": 2.69,
+     "step_m": 0.04,
+     "off_m": 0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building52",
+   "vertices": 6,
+   "length_m": 43.6,
+   "site": [
+    35.21310050203,
+    -80.93198558704
+   ],
+   "rim_z": [
+    217.67,
+    217.67
+   ],
+   "height_m": 2.67,
+   "ground_off_m": 2.67,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav24",
+     "kind": "pavement",
+     "dist_m": 5.69,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol77",
+     "kind": "pavement",
+     "dist_m": 9.52,
+     "step_m": 1.05,
+     "off_m": 1.06,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building97",
+   "vertices": 11,
+   "length_m": 29.5,
+   "site": [
+    35.22906913111,
+    -80.94860807302
+   ],
+   "rim_z": [
+    230.67,
+    230.67
+   ],
+   "height_m": 2.67,
+   "ground_off_m": -2.67,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building46",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21197450892,
+    -80.93797140533
+   ],
+   "rim_z": [
+    218.61,
+    218.61
+   ],
+   "height_m": 2.66,
+   "ground_off_m": 2.66,
+   "pavement_off_m": 0.04,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.04,
+     "touching": true,
+     "grade_pct": 1.5
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building29",
+   "vertices": 2,
+   "length_m": 13.1,
+   "site": [
+    35.20895519763,
+    -80.94068444762
+   ],
+   "rim_z": [
+    214.03,
+    214.03
+   ],
+   "height_m": 2.65,
+   "ground_off_m": 2.65,
+   "pavement_off_m": 0.03,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.03,
+     "touching": true,
+     "grade_pct": 1.4
+    },
+    {
+     "cell": "apron:dsf:pol37",
+     "kind": "pavement",
+     "dist_m": 9.86,
+     "step_m": 1.9,
+     "off_m": 1.9,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building46",
+   "vertices": 2,
+   "length_m": 0.7,
+   "site": [
+    35.21158689332,
+    -80.93760353871
+   ],
+   "rim_z": [
+    218.61,
+    218.61
+   ],
+   "height_m": 2.65,
+   "ground_off_m": 2.65,
+   "pavement_off_m": 0.01,
+   "cells": [
+    {
+     "cell": "primary_parallel:pav61",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.01,
+     "touching": true,
+     "grade_pct": 0.3
+    },
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 6.95,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building34",
+   "vertices": 3,
+   "length_m": 28.6,
+   "site": [
+    35.20982060112,
+    -80.94237565288
+   ],
+   "rim_z": [
+    214.67,
+    214.67
+   ],
+   "height_m": 2.63,
+   "ground_off_m": -2.63,
+   "pavement_off_m": 0.12,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.12,
+     "touching": true,
+     "grade_pct": 1.5
+    },
+    {
+     "cell": "apron:dsf:pol38",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.03,
+     "touching": true,
+     "grade_pct": 1.4
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building46",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21198804121,
+    -80.93810319615
+   ],
+   "rim_z": [
+    218.65,
+    218.65
+   ],
+   "height_m": 2.63,
+   "ground_off_m": 2.63,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building49/b1",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21198804121,
+    -80.93810319615
+   ],
+   "rim_z": [
+    218.65,
+    218.65
+   ],
+   "height_m": 2.63,
+   "ground_off_m": 2.63,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building46",
+   "vertices": 3,
+   "length_m": 4.3,
+   "site": [
+    35.2116229448,
+    -80.93757607696
+   ],
+   "rim_z": [
+    218.61,
+    218.61
+   ],
+   "height_m": 2.62,
+   "ground_off_m": 2.62,
+   "pavement_off_m": 0.01,
+   "cells": [
+    {
+     "cell": "primary_parallel:pav61",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.01,
+     "touching": true,
+     "grade_pct": 0.2
+    },
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 1.12,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav167#plateau:building49/b1",
+     "kind": "pavement",
+     "dist_m": 5.69,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building49/b1",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2119790076,
+    -80.93788354296
+   ],
+   "rim_z": [
+    218.65,
+    218.65
+   ],
+   "height_m": 2.62,
+   "ground_off_m": 2.62,
+   "pavement_off_m": 0.04,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.04,
+     "touching": true,
+     "grade_pct": 0.5
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building49/b1",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21199704171,
+    -80.93796041954
+   ],
+   "rim_z": [
+    218.65,
+    218.65
+   ],
+   "height_m": 2.61,
+   "ground_off_m": 2.61,
+   "pavement_off_m": 0.04,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.04,
+     "touching": true,
+     "grade_pct": 1.5
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building61",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21445700497,
+    -80.93176564177
+   ],
+   "rim_z": [
+    223.53,
+    223.53
+   ],
+   "height_m": 2.55,
+   "ground_off_m": -2.55,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol74",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 3.43,
+     "step_m": -2.27,
+     "off_m": -2.27,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7456#1",
+     "kind": "pavement",
+     "dist_m": 7.97,
+     "step_m": -2.17,
+     "off_m": -2.17,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building61",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21444348548,
+    -80.93177113616
+   ],
+   "rim_z": [
+    223.53,
+    223.53
+   ],
+   "height_m": 2.54,
+   "ground_off_m": -2.54,
+   "pavement_off_m": 2.27,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol74",
+     "kind": "pavement",
+     "dist_m": 1.58,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 2.02,
+     "step_m": -2.27,
+     "off_m": -2.27,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7456#1",
+     "kind": "pavement",
+     "dist_m": 6.48,
+     "step_m": -2.12,
+     "off_m": -2.17,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building46",
+   "vertices": 5,
+   "length_m": 63.6,
+   "site": [
+    35.21133453282,
+    -80.93779577028
+   ],
+   "rim_z": [
+    218.61,
+    218.61
+   ],
+   "height_m": 2.52,
+   "ground_off_m": 2.52,
+   "pavement_off_m": 0.49,
+   "cells": [
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone2#68",
+     "kind": "strip",
+     "dist_m": 0.0,
+     "step_m": -0.02,
+     "off_m": -0.12,
+     "touching": true,
+     "grade_pct": 3.4
+    },
+    {
+     "cell": "service_road:dsf:pol27#1",
+     "kind": "pavement",
+     "dist_m": 0.93,
+     "step_m": 0.36,
+     "off_m": 1.14,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-9569#4",
+     "kind": "pavement",
+     "dist_m": 1.0,
+     "step_m": 0.01,
+     "off_m": 0.36,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-9574#7",
+     "kind": "pavement",
+     "dist_m": 1.12,
+     "step_m": 0.48,
+     "off_m": 0.51,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol27",
+     "kind": "pavement",
+     "dist_m": 1.12,
+     "step_m": 0.02,
+     "off_m": 0.37,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol29",
+     "kind": "pavement",
+     "dist_m": 2.13,
+     "step_m": 0.8,
+     "off_m": 0.9,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone1#148",
+     "kind": "strip",
+     "dist_m": 4.23,
+     "step_m": 0.0,
+     "off_m": 0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol28",
+     "kind": "pavement",
+     "dist_m": 5.52,
+     "step_m": 0.81,
+     "off_m": 0.9,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "primary_parallel:pav61",
+     "kind": "pavement",
+     "dist_m": 7.62,
+     "step_m": 0.04,
+     "off_m": 0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 9.53,
+     "step_m": 0.08,
+     "off_m": 0.08,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-9574#3",
+     "kind": "pavement",
+     "dist_m": 9.83,
+     "step_m": 0.9,
+     "off_m": 0.9,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building67",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2156192147,
+    -80.92836609139
+   ],
+   "rim_z": [
+    214.39,
+    214.39
+   ],
+   "height_m": 2.52,
+   "ground_off_m": 2.52,
+   "pavement_off_m": 0.62,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol58",
+     "kind": "pavement",
+     "dist_m": 1.0,
+     "step_m": 0.62,
+     "off_m": 0.63,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building2",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.19977911116,
+    -80.93698476743
+   ],
+   "rim_z": [
+    216.57,
+    216.57
+   ],
+   "height_m": 2.48,
+   "ground_off_m": -2.48,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol54#plateau:building2",
+     "kind": "pavement",
+     "dist_m": 6.35,
+     "step_m": -0.26,
+     "off_m": -0.26,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building45",
+   "vertices": 3,
+   "length_m": 17.2,
+   "site": [
+    35.21161405381,
+    -80.93894891215
+   ],
+   "rim_z": [
+    218.22,
+    218.22
+   ],
+   "height_m": 2.43,
+   "ground_off_m": 2.43,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol44",
+     "kind": "pavement",
+     "dist_m": 8.37,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building76",
+   "vertices": 3,
+   "length_m": 51.5,
+   "site": [
+    35.21807577977,
+    -80.9307434044
+   ],
+   "rim_z": [
+    211.61,
+    211.62
+   ],
+   "height_m": 2.41,
+   "ground_off_m": -2.41,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol83",
+     "kind": "pavement",
+     "dist_m": 4.53,
+     "step_m": 1.19,
+     "off_m": 1.19,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-8152#1",
+     "kind": "pavement",
+     "dist_m": 4.73,
+     "step_m": 1.26,
+     "off_m": 1.26,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building9",
+   "vertices": 5,
+   "length_m": 50.5,
+   "site": [
+    35.20730137333,
+    -80.94339719408
+   ],
+   "rim_z": [
+    212.59,
+    212.59
+   ],
+   "height_m": 2.39,
+   "ground_off_m": -2.39,
+   "pavement_off_m": 0.12,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol43#plateau:building9",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": -0.01,
+     "off_m": -1.22,
+     "touching": true,
+     "grade_pct": 1.5
+    },
+    {
+     "cell": "service_road:small_roads:-7098#1",
+     "kind": "pavement",
+     "dist_m": 1.99,
+     "step_m": -0.02,
+     "off_m": -0.09,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol43",
+     "kind": "pavement",
+     "dist_m": 4.92,
+     "step_m": -0.17,
+     "off_m": -0.17,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7098#2",
+     "kind": "pavement",
+     "dist_m": 9.58,
+     "step_m": -0.12,
+     "off_m": -0.12,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building9",
+   "vertices": 2,
+   "length_m": 16.0,
+   "site": [
+    35.20731038711,
+    -80.94340268449
+   ],
+   "rim_z": [
+    212.59,
+    212.59
+   ],
+   "height_m": 2.38,
+   "ground_off_m": -2.38,
+   "pavement_off_m": 1.28,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol43#plateau:building9",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -1.28,
+     "touching": true,
+     "grade_pct": 19.7
+    },
+    {
+     "cell": "apron:pav69#plateau:building16",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav69#plateau:building9",
+     "kind": "pavement",
+     "dist_m": 0.5,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building46",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2119745416,
+    -80.93833383509
+   ],
+   "rim_z": [
+    218.61,
+    218.61
+   ],
+   "height_m": 2.35,
+   "ground_off_m": 2.35,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 8.14,
+     "step_m": 0.04,
+     "off_m": 0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building49/b1",
+   "vertices": 2,
+   "length_m": 1.5,
+   "site": [
+    35.2119745416,
+    -80.93833383509
+   ],
+   "rim_z": [
+    218.61,
+    218.62
+   ],
+   "height_m": 2.35,
+   "ground_off_m": 2.35,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 7.58,
+     "step_m": 0.04,
+     "off_m": 0.04,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7077",
+     "kind": "pavement",
+     "dist_m": 9.38,
+     "step_m": 0.07,
+     "off_m": 0.09,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building61",
+   "vertices": 2,
+   "length_m": 0.5,
+   "site": [
+    35.21442100447,
+    -80.93214456461
+   ],
+   "rim_z": [
+    223.53,
+    223.53
+   ],
+   "height_m": 2.34,
+   "ground_off_m": -2.34,
+   "pavement_off_m": 0.02,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol74",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.02,
+     "touching": true,
+     "grade_pct": 0.7
+    },
+    {
+     "cell": "service_road:small_roads:-7456#5",
+     "kind": "pavement",
+     "dist_m": 6.35,
+     "step_m": -1.85,
+     "off_m": -2.19,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 8.21,
+     "step_m": -2.14,
+     "off_m": -2.19,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building46",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21149232705,
+    -80.93843274247
+   ],
+   "rim_z": [
+    218.61,
+    218.61
+   ],
+   "height_m": 2.31,
+   "ground_off_m": 2.31,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol27",
+     "kind": "pavement",
+     "dist_m": 3.99,
+     "step_m": 0.14,
+     "off_m": 0.14,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 5.64,
+     "step_m": 0.08,
+     "off_m": 0.08,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building9",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20617925114,
+    -80.94492376174
+   ],
+   "rim_z": [
+    212.59,
+    212.59
+   ],
+   "height_m": 2.31,
+   "ground_off_m": -2.31,
+   "pavement_off_m": 0.14,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol21#plateau:building9",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.14,
+     "touching": true,
+     "grade_pct": 1.5
+    },
+    {
+     "cell": "apron:dsf:pol21",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.12,
+     "touching": true,
+     "grade_pct": 1.5
+    },
+    {
+     "cell": "parking_lot:dsf:pol21",
+     "kind": "pavement",
+     "dist_m": 8.12,
+     "step_m": -0.12,
+     "off_m": -0.14,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol40",
+     "kind": "pavement",
+     "dist_m": 9.45,
+     "step_m": -0.14,
+     "off_m": -0.14,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building10",
+   "vertices": 9,
+   "length_m": 103.0,
+   "site": [
+    35.20582752182,
+    -80.94094284362
+   ],
+   "rim_z": [
+    214.1,
+    214.1
+   ],
+   "height_m": 2.3,
+   "ground_off_m": 2.3,
+   "pavement_off_m": 0.14,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol43",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.18,
+     "off_m": 0.18,
+     "touching": true,
+     "grade_pct": 1.8
+    },
+    {
+     "cell": "service_road:small_roads:-4205#3",
+     "kind": "pavement",
+     "dist_m": 2.47,
+     "step_m": 0.09,
+     "off_m": 0.09,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7079#2",
+     "kind": "pavement",
+     "dist_m": 9.58,
+     "step_m": 0.14,
+     "off_m": 0.14,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building46",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21146979902,
+    -80.93849864132
+   ],
+   "rim_z": [
+    218.61,
+    218.61
+   ],
+   "height_m": 2.28,
+   "ground_off_m": 2.28,
+   "pavement_off_m": 0.08,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.08,
+     "touching": true,
+     "grade_pct": 3.2
+    },
+    {
+     "cell": "service_road:dsf:pol27",
+     "kind": "pavement",
+     "dist_m": 2.05,
+     "step_m": 0.08,
+     "off_m": 0.14,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building9",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20745460557,
+    -80.94344660292
+   ],
+   "rim_z": [
+    212.59,
+    212.59
+   ],
+   "height_m": 2.28,
+   "ground_off_m": -2.28,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav69#plateau:building16",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav69#plateau:building9",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol43#plateau:building9",
+     "kind": "pavement",
+     "dist_m": 0.41,
+     "step_m": -0.0,
+     "off_m": -1.28,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building9",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20635502135,
+    -80.94511593716
+   ],
+   "rim_z": [
+    212.59,
+    212.59
+   ],
+   "height_m": 2.25,
+   "ground_off_m": -2.25,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol21",
+     "kind": "pavement",
+     "dist_m": 0.7,
+     "step_m": -0.0,
+     "off_m": -0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building45",
+   "vertices": 3,
+   "length_m": 2.6,
+   "site": [
+    35.2123081276,
+    -80.93934969694
+   ],
+   "rim_z": [
+    218.22,
+    218.22
+   ],
+   "height_m": 2.24,
+   "ground_off_m": 2.24,
+   "pavement_off_m": 0.02,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.02,
+     "off_m": 0.02,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building49/b1",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2120466517,
+    -80.93835579106
+   ],
+   "rim_z": [
+    218.65,
+    218.65
+   ],
+   "height_m": 2.24,
+   "ground_off_m": 2.24,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7077",
+     "kind": "pavement",
+     "dist_m": 8.93,
+     "step_m": 0.04,
+     "off_m": 0.06,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building62",
+   "vertices": 2,
+   "length_m": 24.1,
+   "site": [
+    35.21446149045,
+    -80.93161736957
+   ],
+   "rim_z": [
+    223.28,
+    223.28
+   ],
+   "height_m": 2.19,
+   "ground_off_m": -2.19,
+   "pavement_off_m": 1.97,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 1.79,
+     "step_m": -1.97,
+     "off_m": -1.99,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7456#1",
+     "kind": "pavement",
+     "dist_m": 8.95,
+     "step_m": -1.55,
+     "off_m": -1.55,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building45",
+   "vertices": 6,
+   "length_m": 43.2,
+   "site": [
+    35.21157355309,
+    -80.93969573847
+   ],
+   "rim_z": [
+    218.22,
+    218.22
+   ],
+   "height_m": 2.17,
+   "ground_off_m": 2.17,
+   "pavement_off_m": 0.09,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol44",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": -0.17,
+     "off_m": -0.17,
+     "touching": true,
+     "grade_pct": 1.6
+    },
+    {
+     "cell": "apron:dsf:pol44#plateau:building45",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": -0.01,
+     "off_m": -0.06,
+     "touching": true,
+     "grade_pct": 1.6
+    },
+    {
+     "cell": "apron:pav167#plateau:building45",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": -0.04,
+     "off_m": -0.04,
+     "touching": true,
+     "grade_pct": 1.2
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building45",
+   "vertices": 4,
+   "length_m": 15.2,
+   "site": [
+    35.21147435203,
+    -80.93904228204
+   ],
+   "rim_z": [
+    218.22,
+    218.22
+   ],
+   "height_m": 2.16,
+   "ground_off_m": 2.16,
+   "pavement_off_m": 0.14,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol44",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.14,
+     "off_m": 0.14,
+     "touching": true,
+     "grade_pct": 1.7
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building45",
+   "vertices": 3,
+   "length_m": 12.7,
+   "site": [
+    35.21172222062,
+    -80.93900381216
+   ],
+   "rim_z": [
+    218.22,
+    218.22
+   ],
+   "height_m": 2.16,
+   "ground_off_m": 2.16,
+   "pavement_off_m": 0.1,
+   "cells": [
+    {
+     "cell": "apron:pav167#plateau:building45",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.1,
+     "touching": true,
+     "grade_pct": 1.6
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building96",
+   "vertices": 10,
+   "length_m": 25.6,
+   "site": [
+    35.22894744728,
+    -80.94828401601
+   ],
+   "rim_z": [
+    230.57,
+    230.57
+   ],
+   "height_m": 2.16,
+   "ground_off_m": -2.16,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building60",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21440749263,
+    -80.93220497418
+   ],
+   "rim_z": [
+    223.51,
+    223.51
+   ],
+   "height_m": 2.14,
+   "ground_off_m": -1.63,
+   "pavement_off_m": 0.02,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol74",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.02,
+     "touching": true,
+     "grade_pct": 0.3
+    },
+    {
+     "cell": "service_road:small_roads:-7456#5",
+     "kind": "pavement",
+     "dist_m": 9.2,
+     "step_m": -2.1,
+     "off_m": -2.14,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building45",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21196559652,
+    -80.93913557475
+   ],
+   "rim_z": [
+    218.22,
+    218.22
+   ],
+   "height_m": 2.13,
+   "ground_off_m": 2.13,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building56",
+   "vertices": 2,
+   "length_m": 25.0,
+   "site": [
+    35.21392513996,
+    -80.93129897786
+   ],
+   "rim_z": [
+    220.63,
+    220.65
+   ],
+   "height_m": 2.11,
+   "ground_off_m": -2.11,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol81",
+     "kind": "pavement",
+     "dist_m": 3.33,
+     "step_m": -1.78,
+     "off_m": -2.05,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol68",
+     "kind": "pavement",
+     "dist_m": 7.23,
+     "step_m": -1.66,
+     "off_m": -1.66,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building46",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21186190044,
+    -80.93865234836
+   ],
+   "rim_z": [
+    218.61,
+    218.61
+   ],
+   "height_m": 2.1,
+   "ground_off_m": 2.1,
+   "pavement_off_m": 0.09,
+   "cells": [
+    {
+     "cell": "apron:pav167#plateau:building45",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.09,
+     "touching": true,
+     "grade_pct": 1.1
+    },
+    {
+     "cell": "service_road:small_roads:-7077",
+     "kind": "pavement",
+     "dist_m": 7.62,
+     "step_m": 0.1,
+     "off_m": 0.11,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 9.83,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building9",
+   "vertices": 2,
+   "length_m": 49.4,
+   "site": [
+    35.20623774653,
+    -80.942776788
+   ],
+   "rim_z": [
+    212.59,
+    212.59
+   ],
+   "height_m": 2.1,
+   "ground_off_m": 2.1,
+   "pavement_off_m": 0.86,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol24",
+     "kind": "pavement",
+     "dist_m": 1.06,
+     "step_m": 0.86,
+     "off_m": 0.89,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building64",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21486222843,
+    -80.9292559154
+   ],
+   "rim_z": [
+    222.11,
+    222.11
+   ],
+   "height_m": 2.07,
+   "ground_off_m": -0.18,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav37",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol53",
+     "kind": "pavement",
+     "dist_m": 7.33,
+     "step_m": -2.07,
+     "off_m": -2.07,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building64",
+   "vertices": 2,
+   "length_m": 0.7,
+   "site": [
+    35.21483068113,
+    -80.92925592307
+   ],
+   "rim_z": [
+    222.11,
+    222.11
+   ],
+   "height_m": 2.04,
+   "ground_off_m": -0.19,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav37",
+     "kind": "pavement",
+     "dist_m": 3.03,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol53",
+     "kind": "pavement",
+     "dist_m": 3.87,
+     "step_m": -2.04,
+     "off_m": -2.04,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building72",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2173273088,
+    -80.92856335961
+   ],
+   "rim_z": [
+    215.0,
+    215.0
+   ],
+   "height_m": 2.03,
+   "ground_off_m": 0.88,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7031#3",
+     "kind": "pavement",
+     "dist_m": 4.91,
+     "step_m": 1.16,
+     "off_m": 2.03,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol53",
+     "kind": "pavement",
+     "dist_m": 5.04,
+     "step_m": 1.17,
+     "off_m": 2.03,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building72",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21731379225,
+    -80.92858532989
+   ],
+   "rim_z": [
+    215.0,
+    215.0
+   ],
+   "height_m": 2.03,
+   "ground_off_m": 0.83,
+   "pavement_off_m": 1.21,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7031#3",
+     "kind": "pavement",
+     "dist_m": 2.46,
+     "step_m": 1.2,
+     "off_m": 2.03,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol53",
+     "kind": "pavement",
+     "dist_m": 2.58,
+     "step_m": 1.21,
+     "off_m": 2.03,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building79",
+   "vertices": 4,
+   "length_m": 35.2,
+   "site": [
+    35.21922050365,
+    -80.93079806557
+   ],
+   "rim_z": [
+    223.74,
+    223.74
+   ],
+   "height_m": 2.03,
+   "ground_off_m": -2.03,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol61",
+     "kind": "pavement",
+     "dist_m": 5.69,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building17",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20725956219,
+    -80.93076779907
+   ],
+   "rim_z": [
+    216.32,
+    216.32
+   ],
+   "height_m": 1.96,
+   "ground_off_m": -0.33,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol73",
+     "kind": "pavement",
+     "dist_m": 5.58,
+     "step_m": -0.1,
+     "off_m": -0.2,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol51",
+     "kind": "pavement",
+     "dist_m": 6.5,
+     "step_m": -1.96,
+     "off_m": -1.96,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building26",
+   "vertices": 3,
+   "length_m": 8.0,
+   "site": [
+    35.2088909951,
+    -80.93066859226
+   ],
+   "rim_z": [
+    215.86,
+    215.93
+   ],
+   "height_m": 1.96,
+   "ground_off_m": -1.96,
+   "pavement_off_m": 0.24,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol50",
+     "kind": "pavement",
+     "dist_m": 1.0,
+     "step_m": -0.24,
+     "off_m": -0.78,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-27552",
+     "kind": "pavement",
+     "dist_m": 2.23,
+     "step_m": -0.18,
+     "off_m": -0.22,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-27552#1",
+     "kind": "pavement",
+     "dist_m": 4.92,
+     "step_m": -0.14,
+     "off_m": -0.18,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building67",
+   "vertices": 4,
+   "length_m": 35.9,
+   "site": [
+    35.21583546883,
+    -80.9279596566
+   ],
+   "rim_z": [
+    214.39,
+    214.39
+   ],
+   "height_m": 1.96,
+   "ground_off_m": -1.96,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol58",
+     "kind": "pavement",
+     "dist_m": 6.64,
+     "step_m": -0.17,
+     "off_m": -0.24,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-30354",
+     "kind": "pavement",
+     "dist_m": 8.05,
+     "step_m": -0.23,
+     "off_m": -0.24,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building77",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21827818159,
+    -80.92825558053
+   ],
+   "rim_z": [
+    210.69,
+    210.69
+   ],
+   "height_m": 1.94,
+   "ground_off_m": -1.94,
+   "pavement_off_m": 0.05,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-8126",
+     "kind": "pavement",
+     "dist_m": 0.57,
+     "step_m": 0.05,
+     "off_m": 0.05,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "parking_lot:dsf:pol71",
+     "kind": "pavement",
+     "dist_m": 0.96,
+     "step_m": 0.02,
+     "off_m": -0.41,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-8265",
+     "kind": "pavement",
+     "dist_m": 5.08,
+     "step_m": 0.04,
+     "off_m": 0.07,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building2",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.19986474959,
+    -80.93708358455
+   ],
+   "rim_z": [
+    216.57,
+    216.57
+   ],
+   "height_m": 1.91,
+   "ground_off_m": -1.91,
+   "pavement_off_m": 0.1,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol54#plateau:building2",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.1,
+     "touching": true,
+     "grade_pct": 1.5
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building10",
+   "vertices": 4,
+   "length_m": 11.4,
+   "site": [
+    35.20668827794,
+    -80.94042660347
+   ],
+   "rim_z": [
+    214.1,
+    214.1
+   ],
+   "height_m": 1.88,
+   "ground_off_m": 1.88,
+   "pavement_off_m": 0.13,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol37",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.01,
+     "off_m": 0.13,
+     "touching": true,
+     "grade_pct": 1.5
+    },
+    {
+     "cell": "apron:dsf:pol16",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.01,
+     "off_m": 0.12,
+     "touching": true,
+     "grade_pct": 1.5
+    },
+    {
+     "cell": "apron:dsf:pol98",
+     "kind": "pavement",
+     "dist_m": 8.25,
+     "step_m": 0.12,
+     "off_m": 0.12,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20366891926,
+    -80.94335352026
+   ],
+   "rim_z": [
+    210.8,
+    210.8
+   ],
+   "height_m": 1.88,
+   "ground_off_m": 1.88,
+   "pavement_off_m": 1.38,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol96#1",
+     "kind": "pavement",
+     "dist_m": 1.12,
+     "step_m": 1.38,
+     "off_m": 1.47,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "parking_lot:dsf:pol96",
+     "kind": "pavement",
+     "dist_m": 1.8,
+     "step_m": -0.19,
+     "off_m": -0.19,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building80",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.22031546341,
+    -80.92963353277
+   ],
+   "rim_z": [
+    223.62,
+    223.62
+   ],
+   "height_m": 1.88,
+   "ground_off_m": -1.88,
+   "pavement_off_m": 0.03,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol61",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.03,
+     "touching": true,
+     "grade_pct": 1.2
+    },
+    {
+     "cell": "service_road:small_roads:-7053#1",
+     "kind": "pavement",
+     "dist_m": 4.11,
+     "step_m": -0.09,
+     "off_m": -0.09,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7053",
+     "kind": "pavement",
+     "dist_m": 8.65,
+     "step_m": -0.4,
+     "off_m": -0.4,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building51",
+   "vertices": 5,
+   "length_m": 66.0,
+   "site": [
+    35.21288943819,
+    -80.93861377715
+   ],
+   "rim_z": [
+    218.82,
+    218.82
+   ],
+   "height_m": 1.86,
+   "ground_off_m": 1.86,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 5.26,
+     "step_m": 0.05,
+     "off_m": 0.27,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav167#plateau:building49/b0",
+     "kind": "pavement",
+     "dist_m": 6.25,
+     "step_m": 0.33,
+     "off_m": 0.36,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building53",
+   "vertices": 2,
+   "length_m": 1.5,
+   "site": [
+    35.21315898625,
+    -80.93126619618
+   ],
+   "rim_z": [
+    217.46,
+    217.46
+   ],
+   "height_m": 1.81,
+   "ground_off_m": 1.81,
+   "pavement_off_m": 0.07,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol78",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.15,
+     "off_m": 0.16,
+     "touching": true,
+     "grade_pct": 1.2
+    },
+    {
+     "cell": "apron:dsf:pol79",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.06,
+     "off_m": 0.14,
+     "touching": true,
+     "grade_pct": 1.7
+    },
+    {
+     "cell": "service_road:small_roads:-8153",
+     "kind": "pavement",
+     "dist_m": 7.62,
+     "step_m": 0.12,
+     "off_m": 0.15,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-8155#1",
+     "kind": "pavement",
+     "dist_m": 9.82,
+     "step_m": 0.16,
+     "off_m": 0.16,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building51",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21293902992,
+    -80.93881695352
+   ],
+   "rim_z": [
+    218.83,
+    218.83
+   ],
+   "height_m": 1.8,
+   "ground_off_m": 1.8,
+   "pavement_off_m": 0.07,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.07,
+     "touching": true,
+     "grade_pct": 1.4
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building56",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21387570134,
+    -80.93224901606
+   ],
+   "rim_z": [
+    220.65,
+    220.65
+   ],
+   "height_m": 1.79,
+   "ground_off_m": 0.93,
+   "pavement_off_m": 1.2,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol22",
+     "kind": "pavement",
+     "dist_m": 1.0,
+     "step_m": 1.2,
+     "off_m": 1.79,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7456#4",
+     "kind": "pavement",
+     "dist_m": 1.41,
+     "step_m": 0.29,
+     "off_m": 0.39,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7456#5",
+     "kind": "pavement",
+     "dist_m": 5.29,
+     "step_m": 1.53,
+     "off_m": 1.67,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "parking_lot:dsf:pol81",
+     "kind": "pavement",
+     "dist_m": 8.07,
+     "step_m": 0.46,
+     "off_m": 0.47,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 8.6,
+     "step_m": 0.89,
+     "off_m": 0.93,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building85",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.22512572157,
+    -80.94788861113
+   ],
+   "rim_z": [
+    222.87,
+    222.87
+   ],
+   "height_m": 1.79,
+   "ground_off_m": -1.79,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav118#plateau:building85",
+     "kind": "pavement",
+     "dist_m": 5.69,
+     "step_m": 0.46,
+     "off_m": 0.46,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building26",
+   "vertices": 18,
+   "length_m": 75.7,
+   "site": [
+    35.20887297389,
+    -80.93070703438
+   ],
+   "rim_z": [
+    215.88,
+    215.98
+   ],
+   "height_m": 1.78,
+   "ground_off_m": -1.78,
+   "pavement_off_m": 0.21,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol50",
+     "kind": "pavement",
+     "dist_m": 0.5,
+     "step_m": -0.21,
+     "off_m": 0.4,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-27552#1",
+     "kind": "pavement",
+     "dist_m": 1.7,
+     "step_m": -0.13,
+     "off_m": -0.16,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-27552",
+     "kind": "pavement",
+     "dist_m": 2.49,
+     "step_m": -0.08,
+     "off_m": -0.2,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7016#1",
+     "kind": "pavement",
+     "dist_m": 2.55,
+     "step_m": 0.27,
+     "off_m": 0.27,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav22",
+     "kind": "pavement",
+     "dist_m": 7.15,
+     "step_m": 0.69,
+     "off_m": 0.71,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building42",
+   "vertices": 7,
+   "length_m": 50.5,
+   "site": [
+    35.21086160065,
+    -80.94133222326
+   ],
+   "rim_z": [
+    216.15,
+    216.15
+   ],
+   "height_m": 1.78,
+   "ground_off_m": -1.78,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 6.5,
+     "step_m": -0.02,
+     "off_m": -0.02,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building49/b0",
+   "vertices": 3,
+   "length_m": 24.5,
+   "site": [
+    35.21291649146,
+    -80.93876204212
+   ],
+   "rim_z": [
+    218.9,
+    218.9
+   ],
+   "height_m": 1.76,
+   "ground_off_m": 1.76,
+   "pavement_off_m": 0.07,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.07,
+     "touching": true,
+     "grade_pct": 1.4
+    },
+    {
+     "cell": "apron:pav167#plateau:building49/b0",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building35",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20970779516,
+    -80.94023958245
+   ],
+   "rim_z": [
+    216.61,
+    216.61
+   ],
+   "height_m": 1.75,
+   "ground_off_m": 1.75,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol34",
+     "kind": "pavement",
+     "dist_m": 1.8,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol33",
+     "kind": "pavement",
+     "dist_m": 5.31,
+     "step_m": 0.6,
+     "off_m": 0.6,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building79",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21921147685,
+    -80.93071019804
+   ],
+   "rim_z": [
+    223.74,
+    223.74
+   ],
+   "height_m": 1.73,
+   "ground_off_m": -1.73,
+   "pavement_off_m": 0.12,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol61",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.12,
+     "touching": true,
+     "grade_pct": 1.4
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building51",
+   "vertices": 5,
+   "length_m": 66.0,
+   "site": [
+    35.21253792372,
+    -80.93876208997
+   ],
+   "rim_z": [
+    218.82,
+    218.83
+   ],
+   "height_m": 1.72,
+   "ground_off_m": 1.72,
+   "pavement_off_m": 0.11,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": -0.11,
+     "off_m": -0.11,
+     "touching": true,
+     "grade_pct": 1.9
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building52",
+   "vertices": 3,
+   "length_m": 9.0,
+   "site": [
+    35.21313197541,
+    -80.93146938528
+   ],
+   "rim_z": [
+    217.67,
+    217.67
+   ],
+   "height_m": 1.72,
+   "ground_off_m": 1.72,
+   "pavement_off_m": 0.02,
+   "cells": [
+    {
+     "cell": "apron:pav24",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol78",
+     "kind": "pavement",
+     "dist_m": 0.99,
+     "step_m": -0.06,
+     "off_m": -0.06,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building16",
+   "vertices": 4,
+   "length_m": 38.2,
+   "site": [
+    35.20742752714,
+    -80.94268334829
+   ],
+   "rim_z": [
+    213.24,
+    213.24
+   ],
+   "height_m": 1.69,
+   "ground_off_m": -1.69,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav69#plateau:building16",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol43",
+     "kind": "pavement",
+     "dist_m": 8.69,
+     "step_m": -0.61,
+     "off_m": -0.61,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-4205#1",
+     "kind": "pavement",
+     "dist_m": 8.71,
+     "step_m": -0.57,
+     "off_m": -0.57,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building72",
+   "vertices": 4,
+   "length_m": 8.0,
+   "site": [
+    35.21703885032,
+    -80.92840966453
+   ],
+   "rim_z": [
+    215.0,
+    215.0
+   ],
+   "height_m": 1.68,
+   "ground_off_m": 0.93,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol53",
+     "kind": "pavement",
+     "dist_m": 3.52,
+     "step_m": 1.66,
+     "off_m": 1.68,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building44",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21095479889,
+    -80.92883403532
+   ],
+   "rim_z": [
+    215.46,
+    215.46
+   ],
+   "height_m": 1.66,
+   "ground_off_m": -1.66,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav24",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20431790662,
+    -80.9436389987
+   ],
+   "rim_z": [
+    210.8,
+    210.8
+   ],
+   "height_m": 1.66,
+   "ground_off_m": -1.66,
+   "pavement_off_m": 0.44,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol39",
+     "kind": "pavement",
+     "dist_m": 0.85,
+     "step_m": -0.44,
+     "off_m": -0.48,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-16748#2",
+     "kind": "pavement",
+     "dist_m": 1.58,
+     "step_m": -0.3,
+     "off_m": -0.3,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-16748#1",
+     "kind": "pavement",
+     "dist_m": 4.6,
+     "step_m": -0.12,
+     "off_m": -0.42,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building39",
+   "vertices": 2,
+   "length_m": 2.5,
+   "site": [
+    35.21069023952,
+    -80.93984410438
+   ],
+   "rim_z": [
+    216.88,
+    216.88
+   ],
+   "height_m": 1.63,
+   "ground_off_m": 1.63,
+   "pavement_off_m": 0.13,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.13,
+     "touching": true,
+     "grade_pct": 1.6
+    },
+    {
+     "cell": "service_road:dsf:pol33",
+     "kind": "pavement",
+     "dist_m": 5.95,
+     "step_m": 0.49,
+     "off_m": 0.51,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building29",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20919862211,
+    -80.94159046616
+   ],
+   "rim_z": [
+    214.03,
+    214.03
+   ],
+   "height_m": 1.62,
+   "ground_off_m": -1.62,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building2",
+   "vertices": 5,
+   "length_m": 99.2,
+   "site": [
+    35.20000896345,
+    -80.9370561106
+   ],
+   "rim_z": [
+    216.57,
+    216.57
+   ],
+   "height_m": 1.61,
+   "ground_off_m": -1.61,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol54#plateau:building2",
+     "kind": "pavement",
+     "dist_m": 3.16,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol54",
+     "kind": "pavement",
+     "dist_m": 4.65,
+     "step_m": -0.96,
+     "off_m": -0.96,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building30",
+   "vertices": 2,
+   "length_m": 1.1,
+   "site": [
+    35.2090498453,
+    -80.94076680534
+   ],
+   "rim_z": [
+    214.03,
+    214.03
+   ],
+   "height_m": 1.61,
+   "ground_off_m": 1.61,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building2",
+   "vertices": 4,
+   "length_m": 7.8,
+   "site": [
+    35.20000896617,
+    -80.93708356337
+   ],
+   "rim_z": [
+    216.57,
+    216.57
+   ],
+   "height_m": 1.6,
+   "ground_off_m": -1.6,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol54#plateau:building2",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building27",
+   "vertices": 2,
+   "length_m": 0.7,
+   "site": [
+    35.20881442814,
+    -80.93098709607
+   ],
+   "rim_z": [
+    216.69,
+    216.69
+   ],
+   "height_m": 1.59,
+   "ground_off_m": -1.59,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol50",
+     "kind": "pavement",
+     "dist_m": 3.11,
+     "step_m": -0.24,
+     "off_m": -0.71,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav22",
+     "kind": "pavement",
+     "dist_m": 3.52,
+     "step_m": 0.0,
+     "off_m": -0.02,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol72",
+     "kind": "pavement",
+     "dist_m": 3.63,
+     "step_m": -0.16,
+     "off_m": -0.19,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7016#1",
+     "kind": "pavement",
+     "dist_m": 5.45,
+     "step_m": -0.48,
+     "off_m": -0.64,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building54",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21333896496,
+    -80.92938258891
+   ],
+   "rim_z": [
+    217.33,
+    217.33
+   ],
+   "height_m": 1.59,
+   "ground_off_m": -1.59,
+   "pavement_off_m": 0.21,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-9964",
+     "kind": "pavement",
+     "dist_m": 1.34,
+     "step_m": -0.14,
+     "off_m": -0.31,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol76",
+     "kind": "pavement",
+     "dist_m": 1.5,
+     "step_m": -0.21,
+     "off_m": -0.27,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building29",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20868932324,
+    -80.94104689012
+   ],
+   "rim_z": [
+    214.03,
+    214.03
+   ],
+   "height_m": 1.58,
+   "ground_off_m": -1.58,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol36",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building29",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20870734443,
+    -80.94095903011
+   ],
+   "rim_z": [
+    214.03,
+    214.03
+   ],
+   "height_m": 1.58,
+   "ground_off_m": -1.58,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol36",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 8.24,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building39",
+   "vertices": 4,
+   "length_m": 80.8,
+   "site": [
+    35.21093815624,
+    -80.94045360956
+   ],
+   "rim_z": [
+    216.88,
+    216.88
+   ],
+   "height_m": 1.57,
+   "ground_off_m": 1.57,
+   "pavement_off_m": 0.3,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": -0.3,
+     "off_m": -0.35,
+     "touching": true,
+     "grade_pct": 1.8
+    },
+    {
+     "cell": "apron:dsf:pol38",
+     "kind": "pavement",
+     "dist_m": 8.11,
+     "step_m": -0.12,
+     "off_m": -0.12,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building16",
+   "vertices": 4,
+   "length_m": 6.0,
+   "site": [
+    35.20738696686,
+    -80.94269433357
+   ],
+   "rim_z": [
+    213.24,
+    213.24
+   ],
+   "height_m": 1.56,
+   "ground_off_m": -1.56,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 3.9,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-4205#1",
+     "kind": "pavement",
+     "dist_m": 4.33,
+     "step_m": -0.57,
+     "off_m": -0.57,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol43",
+     "kind": "pavement",
+     "dist_m": 5.17,
+     "step_m": -0.58,
+     "off_m": -0.58,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building26",
+   "vertices": 3,
+   "length_m": 2.4,
+   "site": [
+    35.20882342273,
+    -80.93086079767
+   ],
+   "rim_z": [
+    215.98,
+    215.98
+   ],
+   "height_m": 1.55,
+   "ground_off_m": -1.55,
+   "pavement_off_m": 0.09,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol50",
+     "kind": "pavement",
+     "dist_m": 0.71,
+     "step_m": -0.09,
+     "off_m": 0.4,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7016#1",
+     "kind": "pavement",
+     "dist_m": 4.8,
+     "step_m": 0.12,
+     "off_m": 0.2,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-27552#1",
+     "kind": "pavement",
+     "dist_m": 6.54,
+     "step_m": -0.11,
+     "off_m": -0.12,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav22",
+     "kind": "pavement",
+     "dist_m": 9.6,
+     "step_m": 0.69,
+     "off_m": 0.69,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building31",
+   "vertices": 5,
+   "length_m": 67.1,
+   "site": [
+    35.20965384422,
+    -80.94225486008
+   ],
+   "rim_z": [
+    213.8,
+    213.8
+   ],
+   "height_m": 1.55,
+   "ground_off_m": -1.55,
+   "pavement_off_m": 0.55,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.55,
+     "off_m": 0.55,
+     "touching": true,
+     "grade_pct": 1.8
+    },
+    {
+     "cell": "apron:dsf:pol38",
+     "kind": "pavement",
+     "dist_m": 8.53,
+     "step_m": 0.85,
+     "off_m": 0.85,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building35",
+   "vertices": 2,
+   "length_m": 8.0,
+   "site": [
+    35.20992862444,
+    -80.94021210243
+   ],
+   "rim_z": [
+    216.61,
+    216.61
+   ],
+   "height_m": 1.55,
+   "ground_off_m": 1.55,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol38",
+     "kind": "pavement",
+     "dist_m": 3.95,
+     "step_m": 0.12,
+     "off_m": 0.25,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 3,
+   "length_m": 7.6,
+   "site": [
+    35.20400241625,
+    -80.94327662536
+   ],
+   "rim_z": [
+    210.8,
+    210.8
+   ],
+   "height_m": 1.54,
+   "ground_off_m": 1.54,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "P",
+   "pad": "building58",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2142041701,
+    -80.928822246
+   ],
+   "rim_z": [
+    216.24,
+    216.24
+   ],
+   "height_m": 1.52,
+   "ground_off_m": -0.56,
+   "pavement_off_m": 1.47,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol58",
+     "kind": "pavement",
+     "dist_m": 0.88,
+     "step_m": -1.47,
+     "off_m": -1.52,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building43",
+   "vertices": 4,
+   "length_m": 5.3,
+   "site": [
+    35.21115905826,
+    -80.94151340811
+   ],
+   "rim_z": [
+    216.08,
+    216.08
+   ],
+   "height_m": 1.51,
+   "ground_off_m": -1.51,
+   "pavement_off_m": 0.07,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.07,
+     "touching": true,
+     "grade_pct": 1.5
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building10",
+   "vertices": 2,
+   "length_m": 7.6,
+   "site": [
+    35.20674692504,
+    -80.94129966754
+   ],
+   "rim_z": [
+    214.1,
+    214.1
+   ],
+   "height_m": 1.5,
+   "ground_off_m": 1.5,
+   "pavement_off_m": 0.09,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol98#plateau:building10",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.09,
+     "touching": true,
+     "grade_pct": 1.7
+    },
+    {
+     "cell": "apron:dsf:pol98",
+     "kind": "pavement",
+     "dist_m": 5.3,
+     "step_m": 0.09,
+     "off_m": 0.09,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol16#plateau:building10",
+     "kind": "pavement",
+     "dist_m": 9.14,
+     "step_m": 0.01,
+     "off_m": 0.01,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building27",
+   "vertices": 4,
+   "length_m": 5.1,
+   "site": [
+    35.20878287999,
+    -80.93098161192
+   ],
+   "rim_z": [
+    216.69,
+    216.69
+   ],
+   "height_m": 1.5,
+   "ground_off_m": -1.5,
+   "pavement_off_m": 0.72,
+   "cells": [
+    {
+     "cell": "apron:pav22",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.02,
+     "touching": true,
+     "grade_pct": 1.3
+    },
+    {
+     "cell": "service_road:small_roads:-7016#1",
+     "kind": "pavement",
+     "dist_m": 1.82,
+     "step_m": -0.4,
+     "off_m": -0.64,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol50",
+     "kind": "pavement",
+     "dist_m": 2.64,
+     "step_m": -0.73,
+     "off_m": -0.76,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol72",
+     "kind": "pavement",
+     "dist_m": 7.74,
+     "step_m": -0.16,
+     "off_m": -0.16,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building54",
+   "vertices": 2,
+   "length_m": 1.0,
+   "site": [
+    35.21332998078,
+    -80.92956380897
+   ],
+   "rim_z": [
+    217.33,
+    217.33
+   ],
+   "height_m": 1.5,
+   "ground_off_m": -1.5,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol79",
+     "kind": "pavement",
+     "dist_m": 7.99,
+     "step_m": 0.0,
+     "off_m": -0.07,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building32",
+   "vertices": 10,
+   "length_m": 143.0,
+   "site": [
+    35.20950488578,
+    -80.93889975314
+   ],
+   "rim_z": [
+    218.36,
+    218.36
+   ],
+   "height_m": 1.49,
+   "ground_off_m": 1.2,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol23",
+     "kind": "pavement",
+     "dist_m": 3.36,
+     "step_m": 1.01,
+     "off_m": 1.01,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "parking_lot:dsf:pol3",
+     "kind": "pavement",
+     "dist_m": 4.73,
+     "step_m": -0.44,
+     "off_m": -0.44,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7115#5",
+     "kind": "pavement",
+     "dist_m": 5.85,
+     "step_m": 0.93,
+     "off_m": 0.93,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "parking_lot:dsf:pol97",
+     "kind": "pavement",
+     "dist_m": 6.07,
+     "step_m": 1.49,
+     "off_m": 1.49,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building56",
+   "vertices": 3,
+   "length_m": 5.6,
+   "site": [
+    35.21430832553,
+    -80.93207319828
+   ],
+   "rim_z": [
+    220.65,
+    220.69
+   ],
+   "height_m": 1.49,
+   "ground_off_m": 1.49,
+   "pavement_off_m": 0.65,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7456#1",
+     "kind": "pavement",
+     "dist_m": 0.67,
+     "step_m": 0.42,
+     "off_m": 0.46,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7456#2",
+     "kind": "pavement",
+     "dist_m": 0.93,
+     "step_m": 0.59,
+     "off_m": 0.93,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 1.12,
+     "step_m": 0.65,
+     "off_m": 0.85,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7456#5",
+     "kind": "pavement",
+     "dist_m": 5.35,
+     "step_m": 0.75,
+     "off_m": 1.15,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building16",
+   "vertices": 2,
+   "length_m": 8.5,
+   "site": [
+    35.20736893573,
+    -80.94261746028
+   ],
+   "rim_z": [
+    213.24,
+    213.24
+   ],
+   "height_m": 1.47,
+   "ground_off_m": -1.47,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-4205#1",
+     "kind": "pavement",
+     "dist_m": 8.22,
+     "step_m": -0.57,
+     "off_m": -0.57,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:dsf:pol43",
+     "kind": "pavement",
+     "dist_m": 9.15,
+     "step_m": -0.53,
+     "off_m": -0.53,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building10",
+   "vertices": 2,
+   "length_m": 7.1,
+   "site": [
+    35.20666581787,
+    -80.94153029738
+   ],
+   "rim_z": [
+    214.1,
+    214.1
+   ],
+   "height_m": 1.45,
+   "ground_off_m": 1.45,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol98",
+     "kind": "pavement",
+     "dist_m": 8.63,
+     "step_m": 0.18,
+     "off_m": 0.18,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building27",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20881444286,
+    -80.93108593671
+   ],
+   "rim_z": [
+    216.69,
+    216.69
+   ],
+   "height_m": 1.45,
+   "ground_off_m": -1.45,
+   "pavement_off_m": 0.16,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol72",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.16,
+     "touching": true,
+     "grade_pct": 1.9
+    },
+    {
+     "cell": "service_road:dsf:pol50",
+     "kind": "pavement",
+     "dist_m": 8.26,
+     "step_m": -0.21,
+     "off_m": -0.21,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building43",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21106893088,
+    -80.94163971634
+   ],
+   "rim_z": [
+    216.08,
+    216.08
+   ],
+   "height_m": 1.45,
+   "ground_off_m": -1.45,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "P",
+   "pad": "building59",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21421308109,
+    -80.92821817761
+   ],
+   "rim_z": [
+    215.22,
+    215.22
+   ],
+   "height_m": 1.45,
+   "ground_off_m": -1.4,
+   "pavement_off_m": 1.43,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7033#1",
+     "kind": "pavement",
+     "dist_m": 0.62,
+     "step_m": -1.43,
+     "off_m": -1.45,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "parking_lot:dsf:pol58",
+     "kind": "pavement",
+     "dist_m": 0.89,
+     "step_m": -1.42,
+     "off_m": -1.45,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building31",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20979804992,
+    -80.94206814677
+   ],
+   "rim_z": [
+    213.8,
+    213.8
+   ],
+   "height_m": 1.44,
+   "ground_off_m": -1.44,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol38",
+     "kind": "pavement",
+     "dist_m": 4.32,
+     "step_m": 0.92,
+     "off_m": 0.92,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol34",
+     "kind": "pavement",
+     "dist_m": 6.39,
+     "step_m": 0.0,
+     "off_m": 0.01,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building33",
+   "vertices": 2,
+   "length_m": 28.0,
+   "site": [
+    35.20958046799,
+    -80.93026757919
+   ],
+   "rim_z": [
+    217.67,
+    217.67
+   ],
+   "height_m": 1.44,
+   "ground_off_m": -1.03,
+   "pavement_off_m": 0.12,
+   "cells": [
+    {
+     "cell": "apron:pav24",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.12,
+     "touching": true,
+     "grade_pct": 1.5
+    },
+    {
+     "cell": "apron:dsf:pol13",
+     "kind": "pavement",
+     "dist_m": 3.84,
+     "step_m": -1.44,
+     "off_m": -1.44,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building65",
+   "vertices": 4,
+   "length_m": 43.4,
+   "site": [
+    35.2157319662,
+    -80.92885481632
+   ],
+   "rim_z": [
+    222.36,
+    222.36
+   ],
+   "height_m": 1.43,
+   "ground_off_m": -1.43,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav37#plateau:building68",
+     "kind": "pavement",
+     "dist_m": 8.51,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building31",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20934734319,
+    -80.94155750543
+   ],
+   "rim_z": [
+    213.85,
+    213.85
+   ],
+   "height_m": 1.4,
+   "ground_off_m": -1.4,
+   "pavement_off_m": 0.07,
+   "cells": [
+    {
+     "cell": "apron:pav69",
+     "kind": "pavement",
+     "dist_m": 1.0,
+     "step_m": 0.07,
+     "off_m": 0.07,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol34",
+     "kind": "pavement",
+     "dist_m": 1.09,
+     "step_m": 0.07,
+     "off_m": 0.07,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building55",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21315012849,
+    -80.93235899451
+   ],
+   "rim_z": [
+    222.13,
+    222.13
+   ],
+   "height_m": 1.38,
+   "ground_off_m": -1.38,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building54",
+   "vertices": 2,
+   "length_m": 2.5,
+   "site": [
+    35.21332097698,
+    -80.92962421708
+   ],
+   "rim_z": [
+    217.33,
+    217.33
+   ],
+   "height_m": 1.37,
+   "ground_off_m": -1.37,
+   "pavement_off_m": 0.07,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol79",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.07,
+     "touching": true,
+     "grade_pct": 1.5
+    },
+    {
+     "cell": "apron:dsf:pol77",
+     "kind": "pavement",
+     "dist_m": 9.6,
+     "step_m": -0.64,
+     "off_m": -0.64,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building77",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21827361965,
+    -80.92793705822
+   ],
+   "rim_z": [
+    210.69,
+    210.69
+   ],
+   "height_m": 1.37,
+   "ground_off_m": 1.37,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol71",
+     "kind": "pavement",
+     "dist_m": 7.42,
+     "step_m": 0.03,
+     "off_m": 0.13,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building42",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2111320153,
+    -80.9414749715
+   ],
+   "rim_z": [
+    216.15,
+    216.15
+   ],
+   "height_m": 1.36,
+   "ground_off_m": -1.36,
+   "pavement_off_m": 0.07,
+   "cells": [
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.07,
+     "touching": true,
+     "grade_pct": 1.5
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building56",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21401541236,
+    -80.93225997024
+   ],
+   "rim_z": [
+    220.7,
+    220.7
+   ],
+   "height_m": 1.35,
+   "ground_off_m": 1.35,
+   "pavement_off_m": 0.59,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7456#3",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.12,
+     "off_m": 0.27,
+     "touching": true,
+     "grade_pct": 8.5
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 0.96,
+     "step_m": 0.59,
+     "off_m": 0.88,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7456#5",
+     "kind": "pavement",
+     "dist_m": 3.75,
+     "step_m": 0.82,
+     "off_m": 1.05,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol22",
+     "kind": "pavement",
+     "dist_m": 6.99,
+     "step_m": 0.84,
+     "off_m": 0.88,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building27",
+   "vertices": 2,
+   "length_m": 1.0,
+   "site": [
+    35.2088189602,
+    -80.93115732064
+   ],
+   "rim_z": [
+    216.69,
+    216.69
+   ],
+   "height_m": 1.34,
+   "ground_off_m": -1.34,
+   "pavement_off_m": 0.11,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol72",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.11,
+     "touching": true,
+     "grade_pct": 1.1
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building59",
+   "vertices": 3,
+   "length_m": 69.2,
+   "site": [
+    35.21508290784,
+    -80.92834975285
+   ],
+   "rim_z": [
+    215.22,
+    215.22
+   ],
+   "height_m": 1.33,
+   "ground_off_m": -1.33,
+   "pavement_off_m": 0.94,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol58",
+     "kind": "pavement",
+     "dist_m": 0.89,
+     "step_m": -0.94,
+     "off_m": -0.96,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7030",
+     "kind": "pavement",
+     "dist_m": 9.43,
+     "step_m": 0.52,
+     "off_m": 0.52,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building56",
+   "vertices": 2,
+   "length_m": 7.5,
+   "site": [
+    35.21387109806,
+    -80.93156807254
+   ],
+   "rim_z": [
+    220.54,
+    220.62
+   ],
+   "height_m": 1.32,
+   "ground_off_m": -1.32,
+   "pavement_off_m": 0.61,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol81",
+     "kind": "pavement",
+     "dist_m": 0.99,
+     "step_m": -0.61,
+     "off_m": -0.61,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-4355#6",
+     "kind": "pavement",
+     "dist_m": 7.17,
+     "step_m": -0.94,
+     "off_m": -0.96,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol68",
+     "kind": "pavement",
+     "dist_m": 9.88,
+     "step_m": -0.85,
+     "off_m": -0.85,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building39",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21047842678,
+    -80.93991002346
+   ],
+   "rim_z": [
+    216.88,
+    216.88
+   ],
+   "height_m": 1.31,
+   "ground_off_m": 1.31,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol38",
+     "kind": "pavement",
+     "dist_m": 3.35,
+     "step_m": 0.0,
+     "off_m": 0.21,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol33",
+     "kind": "pavement",
+     "dist_m": 4.65,
+     "step_m": 0.42,
+     "off_m": 0.42,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 8.49,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building18",
+   "vertices": 3,
+   "length_m": 3.2,
+   "site": [
+    35.20854045525,
+    -80.93909755403
+   ],
+   "rim_z": [
+    217.22,
+    217.22
+   ],
+   "height_m": 1.28,
+   "ground_off_m": 1.28,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol37",
+     "kind": "pavement",
+     "dist_m": 3.15,
+     "step_m": 0.03,
+     "off_m": 0.1,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building51",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2132184942,
+    -80.93936606276
+   ],
+   "rim_z": [
+    218.82,
+    218.82
+   ],
+   "height_m": 1.28,
+   "ground_off_m": 1.28,
+   "pavement_off_m": 0.01,
+   "cells": [
+    {
+     "cell": "graded_strip:adjacent_ground:taxi:F:zone1#152",
+     "kind": "strip",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.08,
+     "touching": true,
+     "grade_pct": 1.1
+    },
+    {
+     "cell": "junction:pav167",
+     "kind": "pavement",
+     "dist_m": 1.56,
+     "step_m": -0.07,
+     "off_m": -0.08,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 1.68,
+     "step_m": -0.01,
+     "off_m": -0.01,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building75",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.22229073627,
+    -80.94136958304
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 1.28,
+   "ground_off_m": null,
+   "pavement_off_m": 1.28,
+   "cells": [
+    {
+     "cell": "apron:pav14",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 1.28,
+     "touching": true,
+     "grade_pct": 18.2
+    },
+    {
+     "cell": "apron:pav14#plateau:building84",
+     "kind": "pavement",
+     "dist_m": 4.03,
+     "step_m": 1.2,
+     "off_m": 1.28,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building84",
+   "vertices": 6,
+   "length_m": 12.1,
+   "site": [
+    35.22248001493,
+    -80.94129267621
+   ],
+   "rim_z": [
+    222.64,
+    222.64
+   ],
+   "height_m": 1.27,
+   "ground_off_m": null,
+   "pavement_off_m": 1.27,
+   "cells": [
+    {
+     "cell": "apron:pav14#plateau:building84",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": -1.27,
+     "off_m": -1.27,
+     "touching": true,
+     "grade_pct": 24.4
+    },
+    {
+     "cell": "apron:pav14",
+     "kind": "pavement",
+     "dist_m": 3.99,
+     "step_m": -0.31,
+     "off_m": -0.33,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building39",
+   "vertices": 3,
+   "length_m": 7.8,
+   "site": [
+    35.21046040057,
+    -80.939921008
+   ],
+   "rim_z": [
+    216.88,
+    216.88
+   ],
+   "height_m": 1.26,
+   "ground_off_m": 1.26,
+   "pavement_off_m": 0.21,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol38",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.21,
+     "touching": true,
+     "grade_pct": 2.8
+    },
+    {
+     "cell": "apron:pav167",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.12,
+     "touching": true,
+     "grade_pct": 1.6
+    },
+    {
+     "cell": "service_road:dsf:pol33",
+     "kind": "pavement",
+     "dist_m": 5.01,
+     "step_m": 0.42,
+     "off_m": 0.42,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building92",
+   "vertices": 2,
+   "length_m": 32.0,
+   "site": [
+    35.2257159312,
+    -80.94246222434
+   ],
+   "rim_z": [
+    223.67,
+    223.67
+   ],
+   "height_m": 1.26,
+   "ground_off_m": -1.26,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav14",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav14#plateau:building92",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building56",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21433981826,
+    -80.93168878536
+   ],
+   "rim_z": [
+    220.65,
+    220.65
+   ],
+   "height_m": 1.25,
+   "ground_off_m": -0.17,
+   "pavement_off_m": 1.0,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7456#1",
+     "kind": "pavement",
+     "dist_m": 1.81,
+     "step_m": 1.0,
+     "off_m": 1.25,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 4.04,
+     "step_m": 1.24,
+     "off_m": 1.25,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building56",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2143353123,
+    -80.93169427784
+   ],
+   "rim_z": [
+    220.65,
+    220.65
+   ],
+   "height_m": 1.25,
+   "ground_off_m": -0.17,
+   "pavement_off_m": 1.01,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7456#1",
+     "kind": "pavement",
+     "dist_m": 2.27,
+     "step_m": 1.01,
+     "off_m": 1.25,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 4.51,
+     "step_m": 1.25,
+     "off_m": 1.25,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building56",
+   "vertices": 2,
+   "length_m": 6.5,
+   "site": [
+    35.21432629957,
+    -80.93169977128
+   ],
+   "rim_z": [
+    220.65,
+    220.65
+   ],
+   "height_m": 1.25,
+   "ground_off_m": -0.18,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7456#1",
+     "kind": "pavement",
+     "dist_m": 3.22,
+     "step_m": 1.02,
+     "off_m": 1.25,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 5.48,
+     "step_m": 1.25,
+     "off_m": 1.25,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "P",
+   "pad": "building27",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20853049394,
+    -80.93093224774
+   ],
+   "rim_z": [
+    216.69,
+    216.69
+   ],
+   "height_m": 1.22,
+   "ground_off_m": -1.22,
+   "pavement_off_m": 1.01,
+   "cells": [
+    {
+     "cell": "apron:pav22",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.3,
+     "touching": true,
+     "grade_pct": 5.2
+    },
+    {
+     "cell": "service_road:small_roads:-7016#1",
+     "kind": "pavement",
+     "dist_m": 2.5,
+     "step_m": -1.01,
+     "off_m": -1.21,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol50",
+     "kind": "pavement",
+     "dist_m": 2.64,
+     "step_m": -0.91,
+     "off_m": -1.21,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building57",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21419990477,
+    -80.93032142924
+   ],
+   "rim_z": [
+    217.22,
+    217.22
+   ],
+   "height_m": 1.2,
+   "ground_off_m": 1.2,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol59",
+     "kind": "pavement",
+     "dist_m": 5.13,
+     "step_m": -0.09,
+     "off_m": -0.09,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building72",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21686306524,
+    -80.92828340022
+   ],
+   "rim_z": [
+    215.0,
+    215.0
+   ],
+   "height_m": 1.2,
+   "ground_off_m": 0.77,
+   "pavement_off_m": 0.69,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol70",
+     "kind": "pavement",
+     "dist_m": 2.55,
+     "step_m": 0.69,
+     "off_m": 1.18,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol53",
+     "kind": "pavement",
+     "dist_m": 9.12,
+     "step_m": 1.2,
+     "off_m": 1.2,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building90",
+   "vertices": 9,
+   "length_m": 55.5,
+   "site": [
+    35.22559885649,
+    -80.94468111405
+   ],
+   "rim_z": [
+    219.12,
+    219.43
+   ],
+   "height_m": 1.2,
+   "ground_off_m": -1.2,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building75",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.22225919041,
+    -80.94139155423
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 1.18,
+   "ground_off_m": null,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav14",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "apron:pav14#plateau:building84",
+     "kind": "pavement",
+     "dist_m": 7.87,
+     "step_m": 1.18,
+     "off_m": 1.18,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building52",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21279853912,
+    -80.9319142619
+   ],
+   "rim_z": [
+    217.67,
+    217.67
+   ],
+   "height_m": 1.17,
+   "ground_off_m": 1.17,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav24",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building73",
+   "vertices": 2,
+   "length_m": 16.5,
+   "site": [
+    35.21771069497,
+    -80.93049635788
+   ],
+   "rim_z": [
+    214.75,
+    214.75
+   ],
+   "height_m": 1.17,
+   "ground_off_m": -1.17,
+   "pavement_off_m": 0.55,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol83",
+     "kind": "pavement",
+     "dist_m": 0.92,
+     "step_m": -0.66,
+     "off_m": -0.68,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol85",
+     "kind": "pavement",
+     "dist_m": 0.94,
+     "step_m": -0.67,
+     "off_m": -0.68,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building57",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21407830197,
+    -80.93084314985
+   ],
+   "rim_z": [
+    217.22,
+    217.22
+   ],
+   "height_m": 1.16,
+   "ground_off_m": 1.16,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building27",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20845387816,
+    -80.93092677365
+   ],
+   "rim_z": [
+    216.69,
+    216.69
+   ],
+   "height_m": 1.15,
+   "ground_off_m": -1.15,
+   "pavement_off_m": 0.3,
+   "cells": [
+    {
+     "cell": "apron:pav22",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.3,
+     "touching": true,
+     "grade_pct": 7.0
+    },
+    {
+     "cell": "service_road:small_roads:-7016#1",
+     "kind": "pavement",
+     "dist_m": 1.41,
+     "step_m": -0.96,
+     "off_m": -0.96,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol50",
+     "kind": "pavement",
+     "dist_m": 2.12,
+     "step_m": -0.23,
+     "off_m": -0.96,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building54",
+   "vertices": 2,
+   "length_m": 2.0,
+   "site": [
+    35.21297841894,
+    -80.92934972738
+   ],
+   "rim_z": [
+    217.33,
+    217.33
+   ],
+   "height_m": 1.15,
+   "ground_off_m": -1.15,
+   "pavement_off_m": 0.13,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol76",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.13,
+     "touching": true,
+     "grade_pct": 1.6
+    },
+    {
+     "cell": "apron:pav24",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": -0.0,
+     "off_m": -0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building2",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20003596307,
+    -80.93664980545
+   ],
+   "rim_z": [
+    216.57,
+    216.57
+   ],
+   "height_m": 1.13,
+   "ground_off_m": -1.13,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol10#plateau:building2",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building56",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21432181711,
+    -80.9318700093
+   ],
+   "rim_z": [
+    220.65,
+    220.65
+   ],
+   "height_m": 1.13,
+   "ground_off_m": -0.18,
+   "pavement_off_m": 0.63,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7456#1",
+     "kind": "pavement",
+     "dist_m": 2.5,
+     "step_m": 0.63,
+     "off_m": 1.13,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 6.41,
+     "step_m": 0.85,
+     "off_m": 1.03,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building57",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21419539801,
+    -80.93032143027
+   ],
+   "rim_z": [
+    217.22,
+    217.22
+   ],
+   "height_m": 1.13,
+   "ground_off_m": 1.13,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol59",
+     "kind": "pavement",
+     "dist_m": 5.57,
+     "step_m": -0.09,
+     "off_m": -0.09,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building74",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21746721857,
+    -80.92978248846
+   ],
+   "rim_z": [
+    214.26,
+    214.26
+   ],
+   "height_m": 1.12,
+   "ground_off_m": 1.12,
+   "pavement_off_m": 0.06,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol53",
+     "kind": "pavement",
+     "dist_m": 0.97,
+     "step_m": 0.06,
+     "off_m": 0.2,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-3991#4",
+     "kind": "pavement",
+     "dist_m": 5.69,
+     "step_m": 0.08,
+     "off_m": 0.08,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "parking_lot:dsf:pol84",
+     "kind": "pavement",
+     "dist_m": 6.71,
+     "step_m": 0.08,
+     "off_m": 0.08,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building82",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.22079310787,
+    -80.92919406259
+   ],
+   "rim_z": [
+    223.23,
+    223.23
+   ],
+   "height_m": 1.12,
+   "ground_off_m": -0.81,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol62",
+     "kind": "pavement",
+     "dist_m": 7.06,
+     "step_m": -0.26,
+     "off_m": -1.12,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building62",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.21465523226,
+    -80.93128234414
+   ],
+   "rim_z": [
+    223.28,
+    223.28
+   ],
+   "height_m": 1.1,
+   "ground_off_m": -1.1,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building33",
+   "vertices": 4,
+   "length_m": 16.5,
+   "site": [
+    35.209711411,
+    -80.9319313849
+   ],
+   "rim_z": [
+    217.67,
+    217.67
+   ],
+   "height_m": 1.09,
+   "ground_off_m": 1.09,
+   "pavement_off_m": 0.16,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol72",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.15,
+     "off_m": 0.16,
+     "touching": true,
+     "grade_pct": 2.5
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building1",
+   "vertices": 6,
+   "length_m": 29.3,
+   "site": [
+    35.19961158512,
+    -80.93079696744
+   ],
+   "rim_z": [
+    209.1,
+    209.1
+   ],
+   "height_m": 1.08,
+   "ground_off_m": 1.08,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol45",
+     "kind": "pavement",
+     "dist_m": 9.27,
+     "step_m": 0.12,
+     "off_m": 0.12,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building33",
+   "vertices": 2,
+   "length_m": 12.0,
+   "site": [
+    35.20969329131,
+    -80.93128891757
+   ],
+   "rim_z": [
+    217.67,
+    217.67
+   ],
+   "height_m": 1.08,
+   "ground_off_m": 1.08,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol72",
+     "kind": "pavement",
+     "dist_m": 4.19,
+     "step_m": -0.09,
+     "off_m": -0.17,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building21",
+   "vertices": 4,
+   "length_m": 4.7,
+   "site": [
+    35.20801313789,
+    -80.95935426182
+   ],
+   "rim_z": [
+    220.74,
+    220.76
+   ],
+   "height_m": 1.06,
+   "ground_off_m": -0.2,
+   "pavement_off_m": 0.09,
+   "cells": [
+    {
+     "cell": "apron:dsf:pol26",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": -0.09,
+     "touching": true,
+     "grade_pct": 0.9
+    },
+    {
+     "cell": "apron:dsf:pol19",
+     "kind": "pavement",
+     "dist_m": 6.89,
+     "step_m": -1.06,
+     "off_m": -1.06,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building32",
+   "vertices": 2,
+   "length_m": 1.0,
+   "site": [
+    35.20958155255,
+    -80.93953672265
+   ],
+   "rim_z": [
+    218.36,
+    218.36
+   ],
+   "height_m": 1.06,
+   "ground_off_m": 1.06,
+   "pavement_off_m": 0.44,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol3",
+     "kind": "pavement",
+     "dist_m": 2.54,
+     "step_m": -0.44,
+     "off_m": -0.44,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol23",
+     "kind": "pavement",
+     "dist_m": 5.69,
+     "step_m": 0.58,
+     "off_m": 0.9,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-7115#5",
+     "kind": "pavement",
+     "dist_m": 7.35,
+     "step_m": 0.95,
+     "off_m": 0.95,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building56",
+   "vertices": 2,
+   "length_m": 1.5,
+   "site": [
+    35.21429473567,
+    -80.93158445616
+   ],
+   "rim_z": [
+    220.65,
+    220.65
+   ],
+   "height_m": 1.05,
+   "ground_off_m": -0.1,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:small_roads:-7456#1",
+     "kind": "pavement",
+     "dist_m": 7.51,
+     "step_m": 0.89,
+     "off_m": 0.89,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:dsf:pol48",
+     "kind": "pavement",
+     "dist_m": 9.65,
+     "step_m": 1.05,
+     "off_m": 1.05,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building77",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2183322199,
+    -80.92800843627
+   ],
+   "rim_z": [
+    210.69,
+    210.69
+   ],
+   "height_m": 1.05,
+   "ground_off_m": 1.05,
+   "pavement_off_m": 0.13,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol71",
+     "kind": "pavement",
+     "dist_m": 0.97,
+     "step_m": 0.13,
+     "off_m": 0.13,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "service_road:small_roads:-8126",
+     "kind": "pavement",
+     "dist_m": 6.71,
+     "step_m": 0.11,
+     "off_m": 0.11,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.2039438376,
+    -80.94347429902
+   ],
+   "rim_z": [
+    210.8,
+    210.8
+   ],
+   "height_m": 1.04,
+   "ground_off_m": -1.04,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building6",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20398439849,
+    -80.94347429624
+   ],
+   "rim_z": [
+    210.8,
+    210.8
+   ],
+   "height_m": 1.03,
+   "ground_off_m": -1.03,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "service_road:dsf:pol39",
+     "kind": "pavement",
+     "dist_m": 6.6,
+     "step_m": -0.17,
+     "off_m": -0.18,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building3",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.20128792063,
+    -80.92962708556
+   ],
+   "rim_z": [
+    204.66,
+    204.66
+   ],
+   "height_m": 1.02,
+   "ground_off_m": -1.02,
+   "pavement_off_m": 0.59,
+   "cells": [
+    {
+     "cell": "parking_lot:dsf:pol69#2",
+     "kind": "pavement",
+     "dist_m": 0.99,
+     "step_m": -0.59,
+     "off_m": -0.65,
+     "touching": false,
+     "grade_pct": 0.0
+    },
+    {
+     "cell": "parking_lot:dsf:pol57",
+     "kind": "pavement",
+     "dist_m": 6.01,
+     "step_m": -0.47,
+     "off_m": -0.47,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building75",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.22110115371,
+    -80.94577425915
+   ],
+   "rim_z": [
+    221.03,
+    221.03
+   ],
+   "height_m": 1.02,
+   "ground_off_m": 1.02,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building90",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    35.22572956186,
+    -80.94495572134
+   ],
+   "rim_z": [
+    219.22,
+    219.22
+   ],
+   "height_m": 1.01,
+   "ground_off_m": -1.01,
+   "pavement_off_m": 0.0,
+   "cells": []
+  }
+ ]
+}

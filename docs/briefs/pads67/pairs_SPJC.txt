@@ -1,0 +1,29 @@
+== SPJC  frontage_step_max_m 2.4  pad_frontage_m 3.0  pairs 26
+  facstrip:building25:5 (groundside_pavement ) <- building25     STEP    6.491 TERRACE  [rim    6.446  area    3.423]  front   3 med 32.716 | airside  10 med 26.225 | rim  24 med 26.270
+  facstrip:building25:6 (groundside_pavement ) <- building25     STEP    6.396 TERRACE  [rim    6.350  area    3.328]  front   2 med 32.621 | airside  10 med 26.225 | rim  24 med 26.270
+         dsf:pol35 (groundside_pavement ) <- building24     STEP    3.668 TERRACE  [rim    3.002  area    3.220]  front   2 med 28.296 | airside  37 med 24.628 | rim  47 med 25.294
+       dsf:pol36#1 (groundside_pavement ) <- building24     STEP    3.663 TERRACE  [rim    2.997  area    3.215]  front   2 med 28.291 | airside  37 med 24.628 | rim  47 med 25.294
+         dsf:pol36 (groundside_pavement ) <- building24     STEP    3.552 TERRACE  [rim    2.887  area    3.105]  front   2 med 28.181 | airside  37 med 24.628 | rim  47 med 25.294
+         dsf:pol37 (groundside_pavement ) <- building24     STEP    3.414 TERRACE  [rim    2.749  area    2.967]  front   2 med 28.042 | airside  37 med 24.628 | rim  47 med 25.294
+       dsf:pol37#1 (groundside_pavement ) <- building24     STEP    3.027 TERRACE  [rim    2.361  area    2.580]  front   2 med 27.655 | airside  37 med 24.628 | rim  47 med 25.294
+  facstrip:building18:3 (groundside_pavement ) <- building18     STEP    1.951 armed    [rim    0.190  area    0.196]  front   4 med 38.157 | airside   1 med 36.206 | rim  12 med 37.966
+  facstrip:building18:2 (groundside_pavement ) <- building18     STEP    1.669 armed    [rim   -0.092  area   -0.087]  front   4 med 37.874 | airside   1 med 36.206 | rim  12 med 37.966
+  facstrip:building18:1 (groundside_pavement ) <- building18     STEP    1.577 armed    [rim   -0.184  area   -0.178]  front   2 med 37.782 | airside   1 med 36.206 | rim  12 med 37.966
+         dsf:pol74 (service_road        ) <- building50     STEP    1.552 armed    [rim    1.153  area    0.916]  front   2 med 20.770 | airside   5 med 19.218 | rim  10 med 19.617
+  facstrip:building62:17 (groundside_pavement ) <- building62     STEP    1.164 armed    [rim    0.409  area    0.573]  front   3 med 17.744 | airside  15 med 16.581 | rim  31 med 17.335
+  facstrip:building62:18 (groundside_pavement ) <- building62     STEP    1.068 armed    [rim    0.313  area    0.477]  front   2 med 17.648 | airside  15 med 16.581 | rim  31 med 17.335
+  facstrip:building62:16 (groundside_pavement ) <- building62     STEP    0.903 armed    [rim    0.148  area    0.312]  front   3 med 17.483 | airside  15 med 16.581 | rim  31 med 17.335
+       dsf:pol50#8 (parking_lot         ) <- building50     STEP    0.603 armed    [rim    0.203  area   -0.034]  front   1 med 19.821 | airside   5 med 19.218 | rim  10 med 19.617
+          faclot:0 (parking_lot         ) <- building46     STEP    0.317 armed    [rim   -0.263  area   -0.086]  front   3 med 20.712 | airside   1 med 20.395 | rim   8 med 20.975
+          faclot:0 (parking_lot         ) <- building49     STEP   -0.222 armed    [rim   -0.114  area   -0.095]  front   4 med 20.792 | airside   3 med 21.014 | rim   6 med 20.906
+  small_roads:-7455 (service_road        ) <- building49     STEP   -0.219 armed    [rim   -0.112  area   -0.092]  front   1 med 20.794 | airside   3 med 21.014 | rim   6 med 20.906
+  small_roads:-7452 (service_road        ) <- building45     STEP    0.188 armed    [rim    0.184  area    0.145]  front   6 med 19.784 | airside  25 med 19.596 | rim  31 med 19.601
+  small_roads:-6248 (service_road        ) <- building19     STEP   -0.166 armed    [rim   -0.360  area    0.044]  front   1 med 29.997 | airside  10 med 30.163 | rim  12 med 30.357
+  small_roads:-10351 (service_road        ) <- building42     STEP    0.110 armed    [rim    0.058  area    0.011]  front   4 med 19.924 | airside  47 med 19.814 | rim  56 med 19.867
+  small_roads:-11046 (service_road        ) <- building33     STEP    0.064 armed    [rim    0.003  area   -0.110]  front   5 med 20.993 | airside   4 med 20.929 | rim  15 med 20.991
+  facstrip:building18:4 (groundside_pavement ) <- building18     STEP   -0.055 armed    [rim   -1.816  area   -1.811]  front   3 med 36.150 | airside   1 med 36.206 | rim  12 med 37.966
+  small_roads:-6222 (service_road        ) <- building56     STEP    0.038 armed    [rim    0.114  area    0.140]  front   4 med 17.983 | airside   1 med 17.945 | rim  17 med 17.868
+  small_roads:-1183 (service_road        ) <- building33     STEP    0.028 armed    [rim   -0.033  area   -0.146]  front   1 med 20.958 | airside   4 med 20.929 | rim  15 med 20.991
+     dsf:pol50#8#1 (parking_lot         ) <- building45     STEP   -0.016 armed    [rim   -0.020  area   -0.060]  front   1 med 19.580 | airside  25 med 19.596 | rim  31 med 19.601
+  pairs_held_as_terrace 7
+WROTE /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/0ec4326d-10bf-4753-bd1b-ca41fda6bcd1/scratchpad/pads67/pairs_SPJC.json

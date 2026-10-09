@@ -1,0 +1,2893 @@
+[
+ {
+  "k": "GS-NEAR",
+  "pad": "building12",
+  "site": [
+   30.1152497349,
+   31.40942194421
+  ],
+  "n": 8,
+  "L": 123.7,
+  "cell": "parking_lot:pav57",
+  "dist": 0.66,
+  "step": 3.29,
+  "off": 3.37,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 96.01,
+  "ground": 10.13,
+  "tj_dist": 92.5,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 2.8479,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 53.98
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building26",
+  "site": [
+   30.11584056025,
+   31.40837391737
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s4/lot",
+  "dist": 2.05,
+  "step": 2.12,
+  "off": 2.27,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 90.97,
+  "ground": 9.31,
+  "tj_dist": 39.0,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 5.8007,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 12.19
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building12",
+  "site": [
+   30.1156872589,
+   31.40982659726
+  ],
+  "n": 5,
+  "L": 72.2,
+  "cell": "service_road:route3",
+  "dist": 0.58,
+  "step": -1.88,
+  "off": -2.45,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 96.1,
+  "ground": 9.46,
+  "tj_dist": 53.9,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 2.8479,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 53.98
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building4",
+  "site": [
+   30.11065694034,
+   31.39569510197
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:4/s0",
+  "dist": 1.8,
+  "step": -1.11,
+  "off": -2.05,
+  "grade": 0.0,
+  "welded": 486,
+  "datum": 101.789,
+  "band": [
+   101.73,
+   120.409
+  ],
+  "dem_step": -6.64,
+  "rim": 101.79,
+  "ground": -8.7,
+  "tj_dist": 75.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.3923,
+   "roles": [
+    "apron",
+    "groundside_pavement",
+    "service_road"
+   ],
+   "length_m": 6.86
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building12",
+  "site": [
+   30.1151414725,
+   31.40907434748
+  ],
+  "n": 4,
+  "L": 75.4,
+  "cell": "parking_lot:pav57",
+  "dist": 0.67,
+  "step": 3.23,
+  "off": 3.24,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 96.11,
+  "ground": 8.57,
+  "tj_dist": 95.0,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.202,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 49.78
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building64",
+  "site": [
+   30.11968795275,
+   31.40848265836
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "apron:dsf:objpav399",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": 6.71,
+  "grade": 145.8,
+  "welded": 5,
+  "datum": 86.369,
+  "band": [
+   85.281,
+   91.33
+  ],
+  "dem_step": null,
+  "rim": 86.37,
+  "ground": 8.26,
+  "tj_dist": 31.6,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.01,
+   "roles": [],
+   "length_m": 193.37
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building100",
+  "site": [
+   30.12285430598,
+   31.41820570991
+  ],
+  "n": 2,
+  "L": 29.1,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -7.86,
+  "grade": 127.9,
+  "welded": 12,
+  "datum": 101.248,
+  "band": [
+   null,
+   null
+  ],
+  "dem_step": null,
+  "rim": 101.25,
+  "ground": 0.67,
+  "tj_dist": 140.2,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building101",
+  "site": [
+   30.12272349513,
+   31.41846512821
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": 7.8,
+  "grade": 92.1,
+  "welded": 14,
+  "datum": 93.394,
+  "band": [
+   85.734,
+   99.367
+  ],
+  "dem_step": null,
+  "rim": 93.39,
+  "ground": null,
+  "tj_dist": 117.5,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building104",
+  "site": [
+   30.12201089313,
+   31.41696044701
+  ],
+  "n": 3,
+  "L": 39.1,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": 6.93,
+  "grade": 91.7,
+  "welded": 35,
+  "datum": 92.421,
+  "band": [
+   89.556,
+   97.417
+  ],
+  "dem_step": null,
+  "rim": 92.42,
+  "ground": 7.51,
+  "tj_dist": 183.1,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building98",
+  "site": [
+   30.12178975721,
+   31.42040036992
+  ],
+  "n": 3,
+  "L": 1.5,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -7.37,
+  "grade": 103.6,
+  "welded": 10,
+  "datum": 103.502,
+  "band": [
+   null,
+   null
+  ],
+  "dem_step": null,
+  "rim": 103.5,
+  "ground": 0.53,
+  "tj_dist": 6.5,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building15",
+  "site": [
+   30.11706256137,
+   31.40315453647
+  ],
+  "n": 3,
+  "L": 1.4,
+  "cell": "parking_lot:dsf:objpav394",
+  "dist": 1.25,
+  "step": -2.2,
+  "off": -2.22,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 99.12,
+  "ground": -7.22,
+  "tj_dist": 104.3,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 2.7594,
+   "roles": [],
+   "length_m": 291.03
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building111",
+  "site": [
+   30.12202442229,
+   31.41704865096
+  ],
+  "n": 2,
+  "L": 2.5,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -6.93,
+  "grade": 91.7,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 99.32,
+  "ground": null,
+  "tj_dist": 175.0,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building117",
+  "site": [
+   30.12347219749,
+   31.41917598983
+  ],
+  "n": 2,
+  "L": 0.7,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -6.93,
+  "grade": 77.1,
+  "welded": 9,
+  "datum": 101.742,
+  "band": [
+   null,
+   null
+  ],
+  "dem_step": null,
+  "rim": 101.74,
+  "ground": -1.59,
+  "tj_dist": 135.8,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building108",
+  "site": [
+   30.12210098509,
+   31.42021360624
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -6.83,
+  "grade": 77.2,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 103.65,
+  "ground": 1.01,
+  "tj_dist": 45.2,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building26",
+  "site": [
+   30.1186595811,
+   31.40857610318
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s4/lot",
+  "dist": 1.55,
+  "step": 1.13,
+  "off": 1.17,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 90.97,
+  "ground": 6.76,
+  "tj_dist": 29.2,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.01,
+   "roles": [],
+   "length_m": 193.37
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.12449933917,
+   31.39513219895
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.19,
+  "step": 1.01,
+  "off": 1.06,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.28,
+  "ground": 6.65,
+  "tj_dist": 15.1,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 4.7116,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 57.12
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building111",
+  "site": [
+   30.12230407058,
+   31.41694489071
+  ],
+  "n": 5,
+  "L": 11.6,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -6.59,
+  "grade": 87.2,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 98.91,
+  "ground": null,
+  "tj_dist": 193.1,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building90",
+  "site": [
+   30.1212441285,
+   31.41668024954
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -6.46,
+  "grade": 99.3,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 100.11,
+  "ground": -0.06,
+  "tj_dist": 213.3,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building90",
+  "site": [
+   30.12128923167,
+   31.41672694646
+  ],
+  "n": 2,
+  "L": 9.7,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -6.45,
+  "grade": 159.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 100.03,
+  "ground": null,
+  "tj_dist": 207.8,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building87",
+  "site": [
+   30.12091486474,
+   31.41683070346
+  ],
+  "n": 2,
+  "L": 10.3,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -6.37,
+  "grade": 111.4,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 100.34,
+  "ground": -0.9,
+  "tj_dist": 210.2,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building69",
+  "site": [
+   30.12028332254,
+   31.40835291713
+  ],
+  "n": 2,
+  "L": 23.5,
+  "cell": "apron:dsf:objpav399",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -6.14,
+  "grade": 89.3,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 91.92,
+  "ground": -1.02,
+  "tj_dist": 89.6,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.01,
+   "roles": [],
+   "length_m": 193.37
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building12",
+  "site": [
+   30.11579097106,
+   31.40901724669
+  ],
+  "n": 7,
+  "L": 18.3,
+  "cell": "parking_lot:pav57",
+  "dist": 0.79,
+  "step": 1.34,
+  "off": 1.36,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 96.3,
+  "ground": 6.16,
+  "tj_dist": 51.3,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 2.8479,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 53.98
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building116",
+  "site": [
+   30.12288137051,
+   31.41814344923
+  ],
+  "n": 3,
+  "L": 31.2,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -6.15,
+  "grade": 246.3,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 99.43,
+  "ground": 2.53,
+  "tj_dist": 145.5,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building68",
+  "site": [
+   30.11988638877,
+   31.4079638144
+  ],
+  "n": 2,
+  "L": 26.7,
+  "cell": "apron:dsf:objpav399",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -6.08,
+  "grade": 141.0,
+  "welded": 8,
+  "datum": 92.108,
+  "band": [
+   null,
+   null
+  ],
+  "dem_step": null,
+  "rim": 92.11,
+  "ground": 0.02,
+  "tj_dist": 42.5,
+  "tj": {
+   "kind": "pad_terrace",
+   "declared_step_m": 4.7476,
+   "roles": [],
+   "length_m": 0.0
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building4",
+  "site": [
+   30.11404018504,
+   31.39909782699
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 2.96,
+  "step": -2.34,
+  "off": -2.34,
+  "grade": 0.0,
+  "welded": 486,
+  "datum": 101.789,
+  "band": [
+   101.73,
+   120.409
+  ],
+  "dem_step": -1.72,
+  "rim": 101.79,
+  "ground": -5.98,
+  "tj_dist": 49.4,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.6172,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 25.21
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building7",
+  "site": [
+   30.11270036794,
+   31.39724592634
+  ],
+  "n": 3,
+  "L": 15.0,
+  "cell": "groundside_pavement:gap:5/s2",
+  "dist": 1.36,
+  "step": -4.53,
+  "off": -4.86,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 100.39,
+  "ground": -4.96,
+  "tj_dist": 5.1,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.4536,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 16.82
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building117",
+  "site": [
+   30.12360748988,
+   31.41965334143
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "apron:dsf:objpav402",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -5.69,
+  "grade": 74.6,
+  "welded": 9,
+  "datum": 101.742,
+  "band": [
+   null,
+   null
+  ],
+  "dem_step": null,
+  "rim": 101.74,
+  "ground": -0.75,
+  "tj_dist": 123.6,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 292.73
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.1253023842,
+   31.39652259586
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.21,
+  "step": 1.36,
+  "off": 1.58,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.45,
+  "ground": 5.72,
+  "tj_dist": 84.5,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.7067,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 4.85
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building59",
+  "site": [
+   30.11940372638,
+   31.40698844163
+  ],
+  "n": 2,
+  "L": 0.5,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 2.25,
+  "step": 1.05,
+  "off": 1.59,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 85.452,
+  "band": null,
+  "dem_step": -0.01,
+  "rim": 85.64,
+  "ground": 5.67,
+  "tj_dist": 44.5,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.262,
+   "roles": [
+    "apron",
+    "building",
+    "groundside_pavement"
+   ],
+   "length_m": 8.75
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building115",
+  "site": [
+   30.12268730942,
+   31.40697264791
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.51,
+  "step": 1.15,
+  "off": 1.86,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 82.7,
+  "ground": 5.5,
+  "tj_dist": 43.9,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1953,
+   "roles": [
+    "apron",
+    "building",
+    "groundside_pavement"
+   ],
+   "length_m": 45.74
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.12490530377,
+   31.39532410019
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.27,
+  "step": 1.03,
+  "off": 1.2,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.28,
+  "ground": 5.4,
+  "tj_dist": 34.1,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 4.7116,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 57.12
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building147",
+  "site": [
+   30.1272246808,
+   31.40519260239
+  ],
+  "n": 2,
+  "L": 7.4,
+  "cell": "groundside_pavement:gap:0/s0/ramp0",
+  "dist": 1.17,
+  "step": 2.07,
+  "off": 2.29,
+  "grade": 0.0,
+  "welded": 63,
+  "datum": 71.018,
+  "band": [
+   71.805,
+   70.263
+  ],
+  "dem_step": 2.19,
+  "rim": 71.02,
+  "ground": 5.3,
+  "tj_dist": 17.9,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 1.9862,
+   "roles": [],
+   "length_m": 15.45
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.12565879307,
+   31.39718667854
+  ],
+  "n": 3,
+  "L": 39.3,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.29,
+  "step": 2.58,
+  "off": 2.63,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.15,
+  "ground": 5.26,
+  "tj_dist": 77.1,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.7067,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 4.85
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building59",
+  "site": [
+   30.11946686257,
+   31.40680684641
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.49,
+  "step": 1.32,
+  "off": 1.47,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 85.452,
+  "band": null,
+  "dem_step": -0.01,
+  "rim": 85.61,
+  "ground": 5.22,
+  "tj_dist": 60.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.262,
+   "roles": [
+    "apron",
+    "building",
+    "groundside_pavement"
+   ],
+   "length_m": 8.75
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building10",
+  "site": [
+   30.11561500817,
+   31.40767872339
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s14",
+  "dist": 1.56,
+  "step": -3.91,
+  "off": -4.07,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 103.74,
+  "ground": -5.08,
+  "tj_dist": 14.2,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.3424,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 51.44
+  }
+ },
+ {
+  "k": "AIR-NEAR",
+  "pad": "building138",
+  "site": [
+   30.12520429855,
+   31.41500962866
+  ],
+  "n": 2,
+  "L": 45.2,
+  "cell": "apron:dsf:objpav402",
+  "dist": 1.8,
+  "step": 1.51,
+  "off": 1.53,
+  "grade": 0.0,
+  "welded": 30,
+  "datum": 87.295,
+  "band": [
+   83.571,
+   89.608
+  ],
+  "dem_step": null,
+  "rim": 87.3,
+  "ground": 5.06,
+  "tj_dist": 16.7,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.8663,
+   "roles": [],
+   "length_m": 225.68
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building23",
+  "site": [
+   30.11560153144,
+   31.40896537491
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "parking_lot:pav57",
+  "dist": 0.76,
+  "step": -1.43,
+  "off": -1.68,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 98.06,
+  "ground": 4.96,
+  "tj_dist": 69.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 2.8479,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 53.98
+  }
+ },
+ {
+  "k": "AIR-NEAR",
+  "pad": "building59",
+  "site": [
+   30.12082451374,
+   31.40709729885
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "apron:pav131",
+  "dist": 1.38,
+  "step": -1.12,
+  "off": -1.12,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 85.452,
+  "band": null,
+  "dem_step": null,
+  "rim": 85.12,
+  "ground": 4.84,
+  "tj_dist": 149.7,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.262,
+   "roles": [
+    "apron",
+    "building",
+    "groundside_pavement"
+   ],
+   "length_m": 8.75
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building4/landing2",
+  "site": [
+   30.11345819129,
+   31.39782685481
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:5/s6",
+  "dist": 0.75,
+  "step": 3.8,
+  "off": 4.75,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 101.674,
+  "band": null,
+  "dem_step": -2.58,
+  "rim": 97.03,
+  "ground": 0.9,
+  "tj_dist": 9.6,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1259,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 26.82
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.1255007925,
+   31.39614898015
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.28,
+  "step": 1.15,
+  "off": 1.2,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.33,
+  "ground": 4.75,
+  "tj_dist": 72.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.7067,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 4.85
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building22",
+  "site": [
+   30.11547066775,
+   31.4075334656
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:9/s0",
+  "dist": 1.52,
+  "step": -1.25,
+  "off": -2.34,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 103.48,
+  "ground": -4.61,
+  "tj_dist": 29.6,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.3424,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 51.44
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building124",
+  "site": [
+   30.12384197009,
+   31.40686360814
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.49,
+  "step": 1.41,
+  "off": 1.58,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 80.03,
+  "ground": 4.59,
+  "tj_dist": 160.5,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0337,
+   "roles": [
+    "apron",
+    "groundside_pavement"
+   ],
+   "length_m": 24.83
+  }
+ },
+ {
+  "k": "ARMED",
+  "pad": "building164",
+  "site": [
+   30.13129787037,
+   31.41365538723
+  ],
+  "n": 3,
+  "L": 65.8,
+  "cell": "service_road:dsf:objpav405",
+  "dist": 1.1,
+  "step": 2.7,
+  "off": 3.33,
+  "grade": 0.0,
+  "welded": 6,
+  "datum": 77.36,
+  "band": [
+   74.093,
+   79.709
+  ],
+  "dem_step": 0.53,
+  "rim": 77.36,
+  "ground": 4.59,
+  "tj_dist": 662.1,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.01,
+   "roles": [],
+   "length_m": 22.3
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building5",
+  "site": [
+   30.10953722021,
+   31.38880592131
+  ],
+  "n": 2,
+  "L": 8.9,
+  "cell": "groundside_pavement:gap:3",
+  "dist": 2.27,
+  "step": -4.36,
+  "off": -4.36,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 96.448,
+  "band": null,
+  "dem_step": -3.29,
+  "rim": 96.52,
+  "ground": -3.9,
+  "tj_dist": 111.1,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0,
+   "roles": [],
+   "length_m": 3.22
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building5",
+  "site": [
+   30.10954173657,
+   31.38883704692
+  ],
+  "n": 2,
+  "L": 8.9,
+  "cell": "groundside_pavement:gap:3",
+  "dist": 2.34,
+  "step": -4.34,
+  "off": -4.34,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 96.448,
+  "band": null,
+  "dem_step": -3.29,
+  "rim": 96.4,
+  "ground": -3.92,
+  "tj_dist": 111.5,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0,
+   "roles": [],
+   "length_m": 3.22
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building5",
+  "site": [
+   30.10951013482,
+   31.38868660901
+  ],
+  "n": 2,
+  "L": 8.9,
+  "cell": "groundside_pavement:gap:3",
+  "dist": 2.2,
+  "step": -4.32,
+  "off": -4.32,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 96.448,
+  "band": null,
+  "dem_step": -3.29,
+  "rim": 96.52,
+  "ground": -3.82,
+  "tj_dist": 109.0,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0,
+   "roles": [],
+   "length_m": 3.22
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building113",
+  "site": [
+   30.12242117001,
+   31.40651608163
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.75,
+  "step": 1.28,
+  "off": 1.57,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 83.07,
+  "ground": 4.3,
+  "tj_dist": 34.7,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1953,
+   "roles": [
+    "apron",
+    "building",
+    "groundside_pavement"
+   ],
+   "length_m": 45.74
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building9",
+  "site": [
+   30.11381987068,
+   31.4079019203
+  ],
+  "n": 2,
+  "L": 0.5,
+  "cell": "groundside_pavement:gap:10/s0",
+  "dist": 1.58,
+  "step": 3.57,
+  "off": 3.57,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 99.57,
+  "ground": 4.29,
+  "tj_dist": 13.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.1986,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 29.09
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building5",
+  "site": [
+   30.10948304933,
+   31.38856729677
+  ],
+  "n": 2,
+  "L": 8.9,
+  "cell": "groundside_pavement:gap:3",
+  "dist": 2.13,
+  "step": -4.27,
+  "off": -4.27,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 96.448,
+  "band": null,
+  "dem_step": -3.29,
+  "rim": 96.52,
+  "ground": -3.74,
+  "tj_dist": 108.2,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0,
+   "roles": [],
+   "length_m": 3.22
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building5",
+  "site": [
+   30.10945596373,
+   31.38844798459
+  ],
+  "n": 2,
+  "L": 8.9,
+  "cell": "groundside_pavement:gap:3",
+  "dist": 2.06,
+  "step": -4.22,
+  "off": -4.22,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 96.448,
+  "band": null,
+  "dem_step": -3.29,
+  "rim": 96.52,
+  "ground": -3.66,
+  "tj_dist": 108.7,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0,
+   "roles": [],
+   "length_m": 3.22
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building5",
+  "site": [
+   30.10942887801,
+   31.38832867248
+  ],
+  "n": 2,
+  "L": 8.9,
+  "cell": "groundside_pavement:gap:3",
+  "dist": 2.01,
+  "step": -4.22,
+  "off": -4.22,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 96.448,
+  "band": null,
+  "dem_step": -3.29,
+  "rim": 96.52,
+  "ground": -3.59,
+  "tj_dist": 110.5,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0,
+   "roles": [],
+   "length_m": 3.22
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building5",
+  "site": [
+   30.10940179219,
+   31.38820936043
+  ],
+  "n": 2,
+  "L": 8.9,
+  "cell": "groundside_pavement:gap:3",
+  "dist": 1.97,
+  "step": -4.21,
+  "off": -4.21,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 96.448,
+  "band": null,
+  "dem_step": -3.29,
+  "rim": 96.52,
+  "ground": -3.55,
+  "tj_dist": 113.5,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0,
+   "roles": [],
+   "length_m": 3.22
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building5",
+  "site": [
+   30.10937470626,
+   31.38809004845
+  ],
+  "n": 2,
+  "L": 8.9,
+  "cell": "groundside_pavement:gap:3",
+  "dist": 1.93,
+  "step": -4.21,
+  "off": -4.21,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 96.448,
+  "band": null,
+  "dem_step": -3.29,
+  "rim": 96.52,
+  "ground": -3.51,
+  "tj_dist": 117.6,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0,
+   "roles": [],
+   "length_m": 3.22
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building5",
+  "site": [
+   30.10934762023,
+   31.38797073654
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:3",
+  "dist": 1.89,
+  "step": -4.2,
+  "off": -4.2,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 96.448,
+  "band": null,
+  "dem_step": -3.29,
+  "rim": 96.52,
+  "ground": -3.53,
+  "tj_dist": 122.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0,
+   "roles": [],
+   "length_m": 3.22
+  }
+ },
+ {
+  "k": "AIR-NEAR",
+  "pad": "building148",
+  "site": [
+   30.12783838148,
+   31.41483842975
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "apron:dsf:objpav36#1",
+  "dist": 2.55,
+  "step": 1.31,
+  "off": 1.31,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 84.497,
+  "band": null,
+  "dem_step": null,
+  "rim": 84.5,
+  "ground": 4.19,
+  "tj_dist": 264.6,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.01,
+   "roles": [],
+   "length_m": 22.3
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building120",
+  "site": [
+   30.12370210018,
+   31.40603345309
+  ],
+  "n": 2,
+  "L": 1.0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 2.67,
+  "step": 1.53,
+  "off": 1.53,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 80.41,
+  "ground": 4.17,
+  "tj_dist": 180.7,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1953,
+   "roles": [
+    "apron",
+    "building",
+    "groundside_pavement"
+   ],
+   "length_m": 45.74
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building133",
+  "site": [
+   30.12623693713,
+   31.4057686306
+  ],
+  "n": 4,
+  "L": 6.3,
+  "cell": "service_road:small_roads:-3927",
+  "dist": 1.14,
+  "step": 2.22,
+  "off": 2.23,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 75.16,
+  "ground": 4.14,
+  "tj_dist": 102.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 3.3941,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 74.13
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.12610529882,
+   31.39698943444
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.19,
+  "step": 2.61,
+  "off": 2.71,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.3,
+  "ground": 4.13,
+  "tj_dist": 41.6,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.7067,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 4.85
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building8",
+  "site": [
+   30.11271025335,
+   31.40682808022
+  ],
+  "n": 2,
+  "L": 0.7,
+  "cell": "service_road:route3",
+  "dist": 1.45,
+  "step": 3.87,
+  "off": 3.87,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 100.64,
+  "ground": 3.36,
+  "tj_dist": 45.7,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 96.26
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building15",
+  "site": [
+   30.11542540744,
+   31.40486678595
+  ],
+  "n": 4,
+  "L": 58.8,
+  "cell": "parking_lot:dsf:objpav394",
+  "dist": 1.06,
+  "step": -2.75,
+  "off": -2.76,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 99.29,
+  "ground": -3.77,
+  "tj_dist": 122.2,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 2.7594,
+   "roles": [],
+   "length_m": 291.03
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building6",
+  "site": [
+   30.11469831426,
+   31.39594857636
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:5/s0",
+  "dist": 2.06,
+  "step": -2.38,
+  "off": -3.43,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 92.03,
+  "ground": -3.68,
+  "tj_dist": 145.5,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1073,
+   "roles": [
+    "groundside_pavement",
+    "service_road"
+   ],
+   "length_m": 0.71
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building137",
+  "site": [
+   30.12545688269,
+   31.41489548181
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "apron:dsf:objpav121#0",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": 2.71,
+  "grade": 27.3,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 88.53,
+  "ground": 3.65,
+  "tj_dist": 20.8,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.8663,
+   "roles": [],
+   "length_m": 225.68
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building137",
+  "site": [
+   30.12547492496,
+   31.41481246402
+  ],
+  "n": 2,
+  "L": 22.6,
+  "cell": "apron:dsf:objpav121#0",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": 2.74,
+  "grade": 30.7,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 88.29,
+  "ground": 3.62,
+  "tj_dist": 28.9,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.8663,
+   "roles": [],
+   "length_m": 225.68
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building17",
+  "site": [
+   30.11454005415,
+   31.39325600599
+  ],
+  "n": 2,
+  "L": 48.0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.46,
+  "step": 1.76,
+  "off": 2.05,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 86.51,
+  "ground": 3.59,
+  "tj_dist": 119.0,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1073,
+   "roles": [
+    "groundside_pavement",
+    "service_road"
+   ],
+   "length_m": 0.71
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.12526611556,
+   31.39517356293
+  ],
+  "n": 2,
+  "L": 10.3,
+  "cell": "groundside_pavement:gap:0/s2/lot",
+  "dist": 1.62,
+  "step": 1.81,
+  "off": 2.28,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.26,
+  "ground": 3.42,
+  "tj_dist": 48.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 4.7116,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 57.12
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.1256721664,
+   31.39598810186
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s2/lot",
+  "dist": 2.54,
+  "step": 1.21,
+  "off": 1.21,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.28,
+  "ground": 3.42,
+  "tj_dist": 68.5,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.7067,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 4.85
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.12567667752,
+   31.39599328968
+  ],
+  "n": 4,
+  "L": 109.6,
+  "cell": "groundside_pavement:gap:0/s2/lot",
+  "dist": 1.55,
+  "step": 2.44,
+  "off": 2.47,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.28,
+  "ground": 3.41,
+  "tj_dist": 67.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.7067,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 4.85
+  }
+ },
+ {
+  "k": "AIR-NEAR",
+  "pad": "building141",
+  "site": [
+   30.12620561356,
+   31.41456341505
+  ],
+  "n": 3,
+  "L": 7.3,
+  "cell": "apron:pav132",
+  "dist": 1.44,
+  "step": -3.34,
+  "off": -3.34,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 90.55,
+  "ground": -0.56,
+  "tj_dist": 99.4,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.8663,
+   "roles": [],
+   "length_m": 225.68
+  }
+ },
+ {
+  "k": "AIR-NEAR",
+  "pad": "building141",
+  "site": [
+   30.12582222884,
+   31.41446482824
+  ],
+  "n": 4,
+  "L": 39.5,
+  "cell": "apron:pav132",
+  "dist": 2.29,
+  "step": -3.15,
+  "off": -3.33,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 90.74,
+  "ground": null,
+  "tj_dist": 75.0,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.8663,
+   "roles": [],
+   "length_m": 225.68
+  }
+ },
+ {
+  "k": "T28",
+  "pad": "building147",
+  "site": [
+   30.12787413349,
+   31.40451281934
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "service_road:small_roads:-3929",
+  "dist": 0.71,
+  "step": 1.06,
+  "off": 1.34,
+  "grade": 0.0,
+  "welded": 63,
+  "datum": 71.018,
+  "band": [
+   71.805,
+   70.263
+  ],
+  "dem_step": 3.44,
+  "rim": 71.02,
+  "ground": 3.26,
+  "tj_dist": 40.5,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.01,
+   "roles": [],
+   "length_m": 53.79
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building15",
+  "site": [
+   30.11607022546,
+   31.40263583057
+  ],
+  "n": 2,
+  "L": 48.8,
+  "cell": "parking_lot:dsf:objpav394",
+  "dist": 1.75,
+  "step": -1.09,
+  "off": -1.18,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 99.12,
+  "ground": -3.24,
+  "tj_dist": 44.4,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 2.7594,
+   "roles": [],
+   "length_m": 291.03
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building39",
+  "site": [
+   30.11739949286,
+   31.39221258321
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.87,
+  "step": -1.66,
+  "off": -2.4,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 82.81,
+  "ground": -3.18,
+  "tj_dist": 398.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1073,
+   "roles": [
+    "groundside_pavement",
+    "service_road"
+   ],
+   "length_m": 0.71
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building204",
+  "site": [
+   30.13786496893,
+   31.41005920649
+  ],
+  "n": 3,
+  "L": 14.1,
+  "cell": "apron:dsf:objpav115",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": 3.09,
+  "grade": 66.1,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 66.28,
+  "ground": 0.65,
+  "tj_dist": 1203.7,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.01,
+   "roles": [],
+   "length_m": 53.79
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building4/landing1",
+  "site": [
+   30.11316053674,
+   31.39810186589
+  ],
+  "n": 2,
+  "L": 10.5,
+  "cell": "groundside_pavement:gap:21",
+  "dist": 1.39,
+  "step": 2.15,
+  "off": 3.01,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 101.57,
+  "band": null,
+  "dem_step": -2.14,
+  "rim": 98.71,
+  "ground": 0.72,
+  "tj_dist": 31.1,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1259,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 26.82
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.12598794022,
+   31.39632011853
+  ],
+  "n": 2,
+  "L": 13.9,
+  "cell": "groundside_pavement:gap:0/s2/lot",
+  "dist": 1.25,
+  "step": 1.41,
+  "off": 1.54,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.35,
+  "ground": 2.97,
+  "tj_dist": 22.6,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.7067,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 4.85
+  }
+ },
+ {
+  "k": "AIR-NEAR",
+  "pad": "building139",
+  "site": [
+   30.12550198896,
+   31.41456341026
+  ],
+  "n": 8,
+  "L": 138.7,
+  "cell": "apron:pav132",
+  "dist": 1.1,
+  "step": -2.85,
+  "off": -2.86,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 90.42,
+  "ground": null,
+  "tj_dist": 53.1,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.8663,
+   "roles": [],
+   "length_m": 225.68
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building6",
+  "site": [
+   30.11435982544,
+   31.39449079757
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:5/s0",
+  "dist": 1.25,
+  "step": -2.39,
+  "off": -2.71,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 92.03,
+  "ground": -2.39,
+  "tj_dist": 1.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1073,
+   "roles": [
+    "groundside_pavement",
+    "service_road"
+   ],
+   "length_m": 0.71
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building8",
+  "site": [
+   30.11287259576,
+   31.40624182864
+  ],
+  "n": 2,
+  "L": 28.3,
+  "cell": "parking_lot:dsf:objpav394",
+  "dist": 1.5,
+  "step": 1.86,
+  "off": 1.86,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 100.58,
+  "ground": 2.6,
+  "tj_dist": 52.8,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 96.26
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building131",
+  "site": [
+   30.12524351048,
+   31.39480517578
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s2/lot",
+  "dist": 1.3,
+  "step": 1.82,
+  "off": 1.98,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 64.53,
+  "ground": 2.59,
+  "tj_dist": 33.8,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.334,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 97.21
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building4/landing2",
+  "site": [
+   30.11422041097,
+   31.3974895092
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:5/s0",
+  "dist": 2.12,
+  "step": -1.01,
+  "off": -1.07,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 101.674,
+  "band": null,
+  "dem_step": -2.58,
+  "rim": 95.19,
+  "ground": -2.48,
+  "tj_dist": 73.9,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 4.9494,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 38.35
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building84",
+  "site": [
+   30.12129810487,
+   31.40704538239
+  ],
+  "n": 2,
+  "L": 9.9,
+  "cell": "apron:pav131",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -2.4,
+  "grade": 47.2,
+  "welded": 34,
+  "datum": 85.588,
+  "band": [
+   79.086,
+   87.978
+  ],
+  "dem_step": null,
+  "rim": 85.59,
+  "ground": null,
+  "tj_dist": 102.3,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1953,
+   "roles": [
+    "apron",
+    "building",
+    "groundside_pavement"
+   ],
+   "length_m": 45.74
+  }
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building93",
+  "site": [
+   30.12133869645,
+   31.40700387233
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "apron:pav131",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": 2.4,
+  "grade": 47.2,
+  "welded": 5,
+  "datum": 83.18,
+  "band": [
+   82.901,
+   88.381
+  ],
+  "dem_step": null,
+  "rim": 83.19,
+  "ground": null,
+  "tj_dist": 97.0,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1953,
+   "roles": [
+    "apron",
+    "building",
+    "groundside_pavement"
+   ],
+   "length_m": 45.74
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building15",
+  "site": [
+   30.11518629469,
+   31.40402633777
+  ],
+  "n": 5,
+  "L": 15.9,
+  "cell": "parking_lot:dsf:objpav394",
+  "dist": 1.06,
+  "step": -1.64,
+  "off": -1.66,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 99.28,
+  "ground": -2.37,
+  "tj_dist": 61.8,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 2.7594,
+   "roles": [],
+   "length_m": 291.03
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building1",
+  "site": [
+   30.10107146377,
+   31.39052507156
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:1/lot",
+  "dist": 1.46,
+  "step": 1.91,
+  "off": 2.25,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 97.53,
+  "ground": 1.13,
+  "tj_dist": 640.0,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.0514,
+   "roles": [
+    "apron",
+    "graded_strip"
+   ],
+   "length_m": 7.01
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building38",
+  "site": [
+   30.11740070255,
+   31.40155653383
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.5,
+  "step": -1.8,
+  "off": -1.88,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 93.07,
+  "ground": -2.0,
+  "tj_dist": 130.6,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 2.7594,
+   "roles": [],
+   "length_m": 291.03
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building15",
+  "site": [
+   30.11466306845,
+   31.40379811517
+  ],
+  "n": 3,
+  "L": 117.0,
+  "cell": "service_road:route3",
+  "dist": 1.0,
+  "step": 1.91,
+  "off": 1.94,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 99.14,
+  "ground": -0.93,
+  "tj_dist": 0.2,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 2.7594,
+   "roles": [],
+   "length_m": 291.03
+  }
+ },
+ {
+  "k": "AIR-NEAR",
+  "pad": "building5",
+  "site": [
+   30.10911820432,
+   31.39130653162
+  ],
+  "n": 2,
+  "L": 0.7,
+  "cell": "apron:pav1",
+  "dist": 1.64,
+  "step": 1.59,
+  "off": 1.59,
+  "grade": 0.0,
+  "welded": 0,
+  "datum": 96.448,
+  "band": null,
+  "dem_step": null,
+  "rim": 96.28,
+  "ground": -1.83,
+  "tj_dist": 0.2,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 1.7192,
+   "roles": [],
+   "length_m": 272.28
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building8",
+  "site": [
+   30.11422112947,
+   31.40493433985
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "parking_lot:dsf:objpav394",
+  "dist": 1.36,
+  "step": -1.62,
+  "off": -1.65,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 100.56,
+  "ground": -1.82,
+  "tj_dist": 69.9,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 3.112,
+   "roles": [],
+   "length_m": 262.43
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building209",
+  "site": [
+   30.13998489658,
+   31.41167821201
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "service_road:dsf:objpav405",
+  "dist": 0.79,
+  "step": 1.73,
+  "off": 1.76,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 63.95,
+  "ground": 1.05,
+  "tj_dist": 1484.0,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 0.01,
+   "roles": [],
+   "length_m": 53.79
+  }
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building15",
+  "site": [
+   30.11525845044,
+   31.40388106409
+  ],
+  "n": 2,
+  "L": 3.5,
+  "cell": "parking_lot:dsf:objpav394",
+  "dist": 0.5,
+  "step": -1.63,
+  "off": -1.64,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 99.15,
+  "ground": -1.74,
+  "tj_dist": 66.2,
+  "tj": {
+   "kind": "wall_terrace",
+   "declared_step_m": 2.7594,
+   "roles": [],
+   "length_m": 291.03
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building24",
+  "site": [
+   30.11580790955,
+   31.39618184117
+  ],
+  "n": 2,
+  "L": 10.8,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.4,
+  "step": 1.63,
+  "off": 1.67,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 84.06,
+  "ground": 0.77,
+  "tj_dist": 227.3,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1073,
+   "roles": [
+    "groundside_pavement",
+    "service_road"
+   ],
+   "length_m": 0.71
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building17",
+  "site": [
+   30.11520751984,
+   31.3927733752
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.45,
+  "step": -1.43,
+  "off": -1.62,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 86.5,
+  "ground": -1.63,
+  "tj_dist": 188.1,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1073,
+   "roles": [
+    "groundside_pavement",
+    "service_road"
+   ],
+   "length_m": 0.71
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building120",
+  "site": [
+   30.123422412,
+   31.40535377959
+  ],
+  "n": 2,
+  "L": 0.5,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.41,
+  "step": -1.61,
+  "off": -1.61,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 83.53,
+  "ground": -0.54,
+  "tj_dist": 192.2,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1953,
+   "roles": [
+    "apron",
+    "building",
+    "groundside_pavement"
+   ],
+   "length_m": 45.74
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building39",
+  "site": [
+   30.11721468848,
+   31.39297009956
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 1.47,
+  "step": -1.46,
+  "off": -1.56,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 82.81,
+  "ground": 1.03,
+  "tj_dist": 345.4,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1073,
+   "roles": [
+    "groundside_pavement",
+    "service_road"
+   ],
+   "length_m": 0.71
+  }
+ },
+ {
+  "k": "GS-TOUCH",
+  "pad": "building4/landing4",
+  "site": [
+   30.1116757576,
+   31.39215157803
+  ],
+  "n": 2,
+  "L": 1.6,
+  "cell": "parking_lot:dsf:pol10",
+  "dist": 0.0,
+  "step": 1.06,
+  "off": 1.5,
+  "grade": 5.1,
+  "welded": 0,
+  "datum": 101.633,
+  "band": null,
+  "dem_step": null,
+  "rim": 94.44,
+  "ground": 0.16,
+  "tj_dist": 60.3,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 1.0053,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 3.14
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building97",
+  "site": [
+   30.1214603768,
+   31.40529168735
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:gap:0/s0/lot",
+  "dist": 2.3,
+  "step": 1.41,
+  "off": 1.43,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 85.05,
+  "ground": 0.1,
+  "tj_dist": 164.3,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 0.1953,
+   "roles": [
+    "apron",
+    "building",
+    "groundside_pavement"
+   ],
+   "length_m": 45.74
+  }
+ },
+ {
+  "k": "GAP",
+  "pad": "building120",
+  "site": [
+   30.12539344938,
+   31.40514087667
+  ],
+  "n": 2,
+  "L": 0.7,
+  "cell": "groundside_pavement:gap:0/s0/lot1",
+  "dist": 1.82,
+  "step": -1.2,
+  "off": -1.31,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 80.41,
+  "ground": -1.41,
+  "tj_dist": 159.1,
+  "tj": {
+   "kind": "apron_terrace",
+   "declared_step_m": 3.3941,
+   "roles": [
+    "groundside_pavement"
+   ],
+   "length_m": 74.13
+  }
+ }
+]

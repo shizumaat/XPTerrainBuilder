@@ -402,8 +402,11 @@ def groundside_frontage(planar: PlanarMap, law: Law,
         got: list[tuple[int, str, float, list[int], list[int]]] = []
         for pi in cand:
             pid, pref, pgroup, ppoly = pads[int(pi)]
-            if pid in seats and seats[pid].leader == gid:
-                continue              # the pad follows THIS face (its seat)
+            # PROBE chainlag p2 (Q2 option (a)): the LEADER face's frontage
+            # follows the pad too — the pad took the road's contact level
+            # first (the seat, read once); the road's frontage then welds to
+            # the pad's rim (09d (1)) and ramps away outside it
+            pass
             front = {v for v in gvs - set(pgroup) - airside
                      if ppoly.distance(Point(*xy[v])) <= r}
             if not front:

@@ -62,3 +62,21 @@ def test_a_pair_beyond_the_floor_stays_priced(cg, tmp_path):
     fo = _families(cg, _pavcap_patch(tmp_path, name="over", sidecar=_plat((0.0, 0.0), (0.0, 8.0)),
                                      rings=[(ROLE, _sloped_rect(0.25), "dsf:pol10")]))
     assert fo["within_shape"] and fo["pavement_over_road_cap"]
+
+
+def test_a_pair_on_a_widened_face_is_priced_at_cap_plus_delta(cg):
+    """Spec §57 (3) (ii-b): ``weld_widened.{delta_pct, faces}`` — a pair whose
+    TWO nodes lie on a listed face (joined by the way's ``ref``) answers to
+    ``(cap + delta)·d``; a pair with one node off it gets nothing."""
+    class W:
+        def __init__(self, ref, nids):
+            self.ref, self.nids = ref, nids
+    plat = [{"ref": "building1", "weld_widened": {
+        "floor_m": 1.0, "delta_pct": 1.1, "faces": ["pav7"], "contacts": []}}]
+    nodes = {"n1": tuple(_ll(0.0, 0.0)), "n2": tuple(_ll(10.0, 0.0)), "n3": tuple(_ll(20.0, 0.0))}
+    wn = cg.weld_widened_nodes(nodes, plat, [W("pav7", ["n1", "n2"]), W("pav8", ["n2", "n3"])])
+    assert wn and dict(wn) == {} and set(wn.faces) == {"n1", "n2"}
+    assert all(abs(v - 0.011) < 1e-12 for v in wn.faces.values())
+    assert abs(cg._weld_give(wn, "n1", "n2", 10.0) - 0.11) < 1e-12
+    assert cg._weld_give(wn, "n2", "n3", 10.0) == 0.0
+    assert not cg.weld_widened_nodes(nodes, plat)            # no ways: no face read

@@ -135,3 +135,46 @@ def test_a_weld_off_its_datum_inside_the_residual_class_is_sealed_on_it():
     assert (levels[2], levels[3], levels[4], levels[5], levels[7]) == (
         100.015, 99.5, 99.7, 100.3, 98.8)
     assert seal_welds(welds, levels, None, 0.05, 0.02, {3}) == {}       # idempotent
+
+
+def test_the_least_allowance_is_bisected_and_feasible():
+    """Spec §57 (3) (ii-b): the least over-cap grade that opens the set, by
+    bisection — the returned value is feasible and within hi / 2**steps."""
+    from auto_patch_v2.constraints.weld_floor import least_allowance
+    calls = []
+
+    def opens(d):
+        calls.append(d)
+        return d >= 0.011
+    got = least_allowance(opens, 0.08, steps=8)
+    assert opens(got) and got - 0.011 <= 0.08 / 256 and len(calls) == 10
+    assert least_allowance(lambda d: False, 0.08) is None
+
+
+def test_every_pavement_row_inside_the_fronted_faces_takes_the_one_allowance():
+    """ONE over-cap grade per block, uniform over the rows whose EVERY vertex
+    lies in the fronted faces: a Diff reads cap + delta, a point-vs-foot
+    Linear gives delta x span x coefficient, a row with a vertex outside, a
+    row of another head, a pad row and a runway row are left; idempotent."""
+    from auto_patch_v2.constraints.weld_floor import face_note, widen_face_rows
+    heads = {"A"}
+    def src(h):
+        return Source("g", h + " (note)", ())
+    xy = {1: (0.0, 0.0), 2: (10.0, 0.0), 3: (20.0, 0.0), 4: (30.0, 0.0), 9: (5.0, 0.0)}
+    rows = [Diff(1, 2, 0.015, 10.0, src("A")),            # inside: widened
+            Diff(2, 4, 0.015, 20.0, src("A")),            # 4 is outside
+            Diff(1, 3, 0.015, 20.0, src("B")),            # not a pavement head
+            Diff(1, 9, 0.015, 5.0, src("A")),             # 9 is runway
+            Linear(((2, 1.0), (1, -0.5), (3, -0.5)), None, 0.0, src("A")),   # span 0: left
+            Linear(((3, 1.0), (1, -1.0)), -0.3, 0.3, src("A"))]             # span 20 m
+    cs = ConstraintSet.from_rows(rows)
+    out, st = widen_face_rows(cs, [({1, 2, 3, 9}, 0.011)], heads, {9}, xy)
+    got = {(type(r).__name__, getattr(r, "a", None), getattr(r, "b", None)): r for r in out.rows()}
+    assert abs(got[("Diff", 1, 2)].cap - 0.026) < 1e-12
+    assert face_note in got[("Diff", 1, 2)].source.ruling
+    assert got[("Diff", 2, 4)].cap == got[("Diff", 1, 3)].cap == got[("Diff", 1, 9)].cap == 0.015
+    lin = [r for r in out.rows() if isinstance(r, Linear)]
+    wide = [r for r in lin if face_note in r.source.ruling]
+    assert len(wide) == 1 and abs(wide[0].hi - 0.52) < 1e-9 and abs(wide[0].lo + 0.52) < 1e-9
+    assert st == [{"rows": 2, "runway_rows_kept": 1}]
+    assert widen_face_rows(out, [({1, 2, 3, 9}, 0.011)], heads, {9}, xy)[0] is out

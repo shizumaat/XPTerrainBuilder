@@ -333,7 +333,8 @@ def pair_graph(planar: PlanarMap, cs: ConstraintSet,
                cols: _t.AbstractSet[int],
                heads: _t.AbstractSet[str] | None = None,
                ref: "_t.Mapping[int, float] | None" = None, tol: float = 0.0,
-               honoured: "list | None" = None) -> "RouteGraph":
+               honoured: "list | None" = None,
+               bump: "tuple | None" = None) -> "RouteGraph":
     """THE PAIR GRAPH (flat-pad spec v2 §2): one edge per ``Diff`` cap row
     of ``cs`` between two vertices of ``cols`` (stage 1's columns and its
     pins), budget ``cap · d`` — the rows themselves, so a datum inside the
@@ -354,6 +355,13 @@ def pair_graph(planar: PlanarMap, cs: ConstraintSet,
             continue
         k = (a, b) if a < b else (b, a)
         bud = float(d.cap) * float(d.d)
+        # spec §57 (3) (ii-b): ``bump = (face vertices, never, delta, heads)``
+        # — a pavement row inside a misfit block's fronted faces read at
+        # ``cap + delta`` (the same rows ``weld_floor.widen_face_rows`` widens)
+        if (bump is not None and a in bump[0] and b in bump[0]
+                and a not in bump[1] and b not in bump[1]
+                and d.source.ruling.split(" (")[0].strip() in bump[3]):
+            bud += float(bump[2]) * float(d.d)
         # THE METRIC HONOURS THE REFERENCE (RULINGS 2026-09-30bb F1): an edge
         # pass 1a already spans by more than its cap stays as pass 1a has it
         # (+ hard_tol_m) — the anchors are consistent by construction
@@ -434,6 +442,9 @@ class HoldInterval:
     welds: tuple = ()
     #: the pinned vertices (a pinned contact is never sealed: its pin leads)
     pinned: frozenset = frozenset()
+    #: block -> (the vertices of the pavement faces its closing contacts
+    #: front, the block's one over-cap grade ``delta_b``) — spec §57 (3) (ii-b)
+    face_widen: dict = _dc.field(default_factory=dict)
 
 
 def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
@@ -578,9 +589,16 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # A MISFIT UNDER THE TERRACE FLOOR IS WELDED BY THE PAVEMENT (owner
     # RULINGS 2026-10-08d (2); ``constraints/weld_floor``): the floor is the
     # law's own, the one §55's last stage widens by
-    from .weld_floor import contact_gives, seat_misfit
+    from ..law.tables import pavement_fallback_cap, pavement_roles as _pav_roles
+    from .weld_floor import contact_gives, least_allowance, pavement_heads, seat_misfit
     floor_m = float(law.tables.emit.terrace.pad_terrace_floor_m)
     widen: dict[int, float] = {}
+    face_widen: dict[str, tuple] = {}
+    rw_all = frozenset(runway_membership(planar, law, set(planar.vertices)))
+    pav_heads = pavement_heads(law)
+    pav_r = {r for r in _pav_roles(law) if not is_rigid_role(law, r)}
+    ipr = frozenset(design_law(law).interval_pair_rulings)
+    ref_z = {**{int(v): float(z) for v, z in z1a.items()}, **pins}
     blocks: dict[str, dict] = {}
     for pref, dv, weld, n_all, n_ramp in sets:
         if not weld:
@@ -630,13 +648,39 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                 # misfit recorded; the warning is the diagnostic)
                 widened, gives = False, {}
             else:
-                D = d_fit
-                for c, gv in gives.items():
-                    widen[c] = max(gv, widen.get(c, 0.0))
+                # spec §57 (3) (ii-b): ONE over-cap grade on the pavement
+                # faces the closing contacts front — the least that opens
+                # the admissible set, read on the pair graph itself
+                fids = sorted({q for c in gives for q in planar.vertices[c].incident_faces
+                               if planar.faces[q].role in pav_r})
+                fv = frozenset(v for q in fids
+                               for ring in (planar.faces[q].ring, *planar.faces[q].holes)
+                               for v in planar.ring_vertices(ring))
+                got_i: dict[float, tuple] = {}
+
+                def _opens(delta: float, _fv=fv, _fc=front_c) -> bool:
+                    g2 = pair_graph(planar, cs, cols, ipr, ref=ref_z, tol=tol_h,
+                                    bump=(_fv, rw_all, delta, pav_heads))
+                    l2, h2, _lc, _hc = interval(reach_anchored(g2, anchors({}),
+                                                               transit=False), _fc)
+                    got_i[delta] = (max(l2, r_lo), min(h2, r_hi))
+                    return got_i[delta][0] <= got_i[delta][1]
+                delta = least_allowance(_opens, pavement_fallback_cap(law)) if fv else None
+                if delta is None:
+                    # no grade under the law's steepest cap opens the set:
+                    # the block is left to the solve (the warning stands)
+                    widened, gives = False, {}
+                else:
+                    a_lo, a_hi = got_i[delta]
+                    D = 0.5 * (a_lo + a_hi)
+                    face_widen[pref] = (fv, float(delta))
         blocks[pref] = {"dv": dv, "weld": weld, "n_all": n_all, "n_ramp": n_ramp,
                         "I0": (lo, hi), "empty0": lo > hi, "med": med, "D": D,
                         "misfit": misfit, "widened": widened, "front_c": front_c,
-                        "gives": gives,
+                        "closing": dict(gives), "gives": {},
+                        "delta": face_widen.get(pref, (None, None))[1],
+                        "faces": (sorted({str(planar.faces[q].ref) for q in fids})
+                                  if widened else []),
                         "reach_isect": (r_lo, r_hi), "reach_bands_c": bands_c,
                         "unreached": sum(1 for c in weld if c not in lo_c and c not in hi_c)}
     if not blocks:
@@ -780,8 +824,10 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         h["residual"] = list(b.get("residual") or ())
         h["misfit_m"] = round(float(b["misfit"]), 3)
         h["weld_widened"] = ({"floor_m": floor_m,
-                              "contacts": [[*planar.vertices[c].key, round(gv, 4)]
-                                           for c, gv in sorted(b["gives"].items())]}
+                              "delta_pct": round(100.0 * float(b["delta"]), 3),
+                              "faces": list(b["faces"]),
+                              "closing_contacts": len(b["closing"]),
+                              "contacts": []}
                              if b["widened"] else None)
         # the binding anchors of the (final) interval
         ar = ar1 if (b["eval"] != "i" and ar1 is not None) else ar0
@@ -848,9 +894,8 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                   if o not in set(HELD[pref].get("plateau_vertices") or ())
                   and o not in set(b.get("residual") or ()))
     return HoldInterval(rows, blocks, runways, columns, stats, fronting, fref,
-                        dict(widen), floor_m,
-                        frozenset(runway_membership(planar, law, set(planar.vertices))),
-                        welds, frozenset(pins))
+                        dict(widen), floor_m, rw_all,
+                        welds, frozenset(pins), face_widen)
 
 
 @_dc.dataclass
@@ -886,27 +931,48 @@ class HoldPass:
 
     def widened(self, cs: ConstraintSet,
                 to_full: "_t.Callable[[int], int | None] | None" = None) -> ConstraintSet:
-        """``cs`` with the pavement rows naming a misfit block's closing
-        contact widened by that contact's give (``constraints/weld_floor``,
-        owner RULINGS 2026-10-08d (2)); ``to_full`` maps this pass's vertex
-        ids onto ``cs``'s map (the ribbon-free join).  Writes the row counts
-        into the blocks' records."""
+        """``cs`` with a misfit block's pavement rows stated over their cap
+        (``constraints/weld_floor``, owner RULINGS 2026-10-08d (2); spec §57
+        (3) (ii-b)/(ii-c)): every pavement-tier row inside the faces the
+        block's closing contacts front at ``cap + delta_b``
+        (``widen_face_rows``), and the rows naming a contact the LP relaxed
+        widened by what it was off (``widen_weld_rows``).  ``to_full`` maps
+        this pass's vertex ids onto ``cs``'s map (the ribbon-free join).
+        Writes the row counts into the blocks' records."""
         res = self.result
-        if res is None or not res.widen:
+        if res is None or not (res.widen or res.face_widen):
             return cs
         from ..model.platform import HELD
-        from .weld_floor import pavement_heads, widen_weld_rows
+        from .weld_floor import pavement_heads, widen_face_rows, widen_weld_rows
         m = to_full or (lambda v: v)
-        con = {j: g for c, g in res.widen.items() if (j := m(c)) is not None}
+        heads = pavement_heads(self.law)
         never = frozenset(j for v in res.never if (j := m(v)) is not None)
-        out, st = widen_weld_rows(cs, con, pavement_heads(self.law), never)
-        if to_full is None and out is not cs:
-            for pref, b in res.blocks.items():
-                w = HELD.get(pref, {}).get("weld_widened")
-                if b["widened"] and w is not None:
-                    w["rows"] = sum(st.get(c, {}).get("rows", 0) for c in b["gives"])
-                    w["runway_rows_kept"] = sum(st.get(c, {}).get("runway_rows_kept", 0)
-                                                for c in b["gives"])
+        out = cs
+        if res.face_widen:
+            pv = self.planar.vertices
+            prefs = sorted(res.face_widen)
+            xy = {j: pv[v].xy for p in prefs for v in res.face_widen[p][0]
+                  if (j := m(v)) is not None}
+            faces = [(frozenset(j for v in res.face_widen[p][0] if (j := m(v)) is not None),
+                      res.face_widen[p][1]) for p in prefs]
+            out, fst = widen_face_rows(out, faces, heads, never, xy)
+            if to_full is None and out is not cs:
+                for p, st in zip(prefs, fst):
+                    w = HELD.get(p, {}).get("weld_widened")
+                    if w is not None:
+                        w["rows"], w["runway_rows_kept"] = st["rows"], st["runway_rows_kept"]
+        if res.widen:
+            con = {j: g for c, g in res.widen.items() if (j := m(c)) is not None}
+            base = out
+            out, st = widen_weld_rows(out, con, heads, never)
+            if to_full is None and out is not base:
+                for pref, b in res.blocks.items():
+                    w = HELD.get(pref, {}).get("weld_widened")
+                    if b["widened"] and w is not None and b["gives"]:
+                        w["rows"] = int(w.get("rows", 0)) + sum(
+                            st.get(c, {}).get("rows", 0) for c in b["gives"])
+                        w["runway_rows_kept"] = int(w.get("runway_rows_kept", 0)) + sum(
+                            st.get(c, {}).get("runway_rows_kept", 0) for c in b["gives"])
         return out
 
     def rewiden(self, levels: _t.Mapping) -> int:

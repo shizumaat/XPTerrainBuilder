@@ -15,22 +15,23 @@ leaves its worst contact short by.  A misfit under the law's terrace floor
 by) is welded by the pavement: the block's datum prefers the gap's middle
 and every frontage weld stays hard.
 
-WHICH CONTACTS, BY HOW MUCH (:func:`contact_gives`).  Only the contacts that
-CLOSE the set: a frontage contact whose own interval excludes the level
-gives by exactly what it is short of it (plus the hard tolerance the
-interval is read at) — at most the misfit, so always under the floor.  A
-contact whose interval holds the level gives nothing.
-
-WHICH ROWS — the minimal statement: a row of a PAVEMENT-tier head (the
-``taxi`` and ``apron`` tiers of ``[design] hard_conflict_ranks`` — the law's
-own list of the airside caps that rank above a pad's hold and below the
-runway) that NAMES such a contact and no runway-family vertex.  Its bound
-gives by the contact's shortfall ``g``: a ``Diff`` reads ``|dz| <= cap x d +
-g`` (``cap + g / d``, §55 (5)'s own inequality), a ``Linear`` gives ``g x
-|coefficient of the contact|`` on each side.  A row that names no such
-contact is never touched (this is not a loosening of the apron or taxi
-caps), a runway row is never touched (a runway profile is not pavement
+WHERE THE GIVE IS SPENT (spec §57 (3) (ii-b), replacing the depth-1 row
+set of the first build): ONE over-cap GRADE ``delta_b`` per misfit block,
+uniform over every pavement-tier row (the ``taxi`` and ``apron`` tiers of
+``[design] hard_conflict_ranks``) whose vertices all lie in or on the
+pavement FACES the block's closing contacts front (:func:`widen_face_rows`);
+``delta_b`` is the LEAST value at which the block's admissible set, re-read
+on the pair graph with those rows at ``cap + delta_b``, is non-empty
+(:func:`least_allowance`, bisection).  MEASURED on the depth-1 build: the
+whole give landed in the first row off the pad — HECA ``building147`` 11.58 %
+over 7.8 m of 1.5 % apron — and the rest spilled into 62 new airside no-step
+rows.  A runway row is never touched (a runway profile is not pavement
 welding to a pad), and neither is a pad's own row (the weld stays hard).
+
+THE CONTACTS THAT CLOSE THE SET (:func:`contact_gives`): a frontage contact
+whose own interval excludes the level.  They name the faces; and a weld the
+feasibility LP relaxed after the solve gives per contact
+(:func:`widen_weld_rows`, below).
 
 THE WELD IS SEALED, WITHIN A BOUND (:func:`seal_welds`; spec §57 (3)
 (ii-c)).  The solve holds a hard row within its tolerance and cannot certify
@@ -67,7 +68,8 @@ from ..model.constraints import ConstraintSet, Diff, Linear
 _INF = float("inf")
 
 __all__ = ["PAVEMENT_TIERS", "pavement_heads", "widen_weld_rows", "ruling_note",
-           "seat_misfit", "contact_gives", "seal_welds", "welds_off"]
+           "seat_misfit", "contact_gives", "seal_welds", "welds_off",
+           "least_allowance", "widen_face_rows", "face_note"]
 
 #: The tiers of ``[design] hard_conflict_tiers`` whose rows are pavement
 #: caps (owner 08d (2): "pavement (airside or groundside)"; the runway tier
@@ -166,6 +168,89 @@ def welds_off(welds: _t.Iterable[tuple[int, int, str]], levels: _t.Mapping,
     return {c: abs(mv) + float(tol_m)
             for c, (_p, mv) in _weld_moves(welds, levels, skip).items()
             if max_m + 1e-9 < abs(mv) < floor_m}
+
+
+#: appended to a row widened by its block's face allowance
+face_note = " (over its cap by the one allowance of a misfit pad's fronted faces, RULINGS 2026-10-08d (2); spec §57 (3) (ii-b))"
+
+
+def least_allowance(feasible: _t.Callable[[float], bool], hi: float,
+                    steps: int = 8) -> float | None:
+    """THE LEAST OVER-CAP GRADE that makes a block's admissible set non-empty
+    (spec §57 (3) (ii-b)): bisection on ``feasible(delta)`` over ``(0, hi]``,
+    ``steps`` reads after the one at ``hi``; ``None`` when even ``hi`` does
+    not open the set.  The returned value is FEASIBLE (the upper end of the
+    last bracket), within ``hi / 2**steps`` of the least."""
+    if hi <= 0.0 or not feasible(hi):
+        return None
+    lo = 0.0
+    for _ in range(int(steps)):
+        mid = 0.5 * (lo + hi)
+        if feasible(mid):
+            hi = mid
+        else:
+            lo = mid
+    return hi
+
+
+def _span_m(terms, xy) -> tuple[float, float] | None:
+    from .ceiling import _span
+    try:
+        return _span(terms, xy)
+    except KeyError:
+        return None
+
+
+def widen_face_rows(cs: ConstraintSet,
+                    faces: _t.Iterable[tuple[_t.AbstractSet[int], float]],
+                    heads: _t.AbstractSet[str], never: _t.AbstractSet[int] = frozenset(),
+                    xy: "_t.Mapping[int, tuple[float, float]] | None" = None
+                    ) -> tuple[ConstraintSet, list[dict]]:
+    """``cs`` with every pavement-tier row (``heads``) whose EVERY vertex lies
+    in or on a misfit block's fronted faces — ``faces`` is ``(their vertices,
+    delta)`` per block — stated at ``cap + delta``: ONE over-cap grade per
+    block, uniform over the faces (spec §57 (3) (ii-b); the larger where two
+    blocks' faces hold the row).  A ``Diff`` reads ``cap + delta``; a
+    point-vs-interpolated-point ``Linear`` (``ceiling._span``) gives ``delta x
+    span x head coefficient`` on each side, any other ``Linear`` is not a
+    grade and is left.  A row naming a vertex of ``never`` (the runway
+    family) is never widened; ``(set, [{"rows", "runway_rows_kept"}] per
+    block)``.  ``cs`` itself when no row is widened; idempotent."""
+    fs = [(frozenset(int(v) for v in vs), float(d)) for vs, d in faces]
+    stats = [{"rows": 0, "runway_rows_kept": 0} for _ in fs]
+    if not any(d > 0.0 and vs for vs, d in fs):
+        return cs, stats
+    out, changed = [], False
+    for r in cs.rows():
+        vs = ((int(r.a), int(r.b)) if isinstance(r, Diff) else
+              tuple(int(v) for v, _c in r.terms) if isinstance(r, Linear) else ())
+        hit = [k for k, (f, d) in enumerate(fs) if d > 0.0 and vs and all(v in f for v in vs)]
+        if (hit and _head(r) in heads and face_note not in r.source.ruling
+                and ruling_note not in r.source.ruling):
+            if any(v in never for v in vs):
+                for k in hit:
+                    stats[k]["runway_rows_kept"] += 1
+            else:
+                delta = max(fs[k][1] for k in hit)
+                src = _dc.replace(r.source, ruling=r.source.ruling + face_note)
+                new = None
+                if isinstance(r, Diff) and r.d > 0.0:
+                    new = _dc.replace(r, cap=r.cap + delta, source=src)
+                elif isinstance(r, Linear) and xy is not None:
+                    sp = _span_m(r.terms, xy)
+                    if sp is not None:
+                        give = delta * sp[1] * abs(sp[0])
+                        new = _dc.replace(r, lo=None if r.lo is None else r.lo - give,
+                                          hi=None if r.hi is None else r.hi + give,
+                                          source=src)
+                if new is not None:
+                    r, changed = new, True
+                    for k in hit:
+                        stats[k]["rows"] += 1
+        out.append(r)
+    if not changed:
+        return cs, stats
+    return ConstraintSet.from_rows(out), stats
 
 
 def pavement_heads(law: Law) -> frozenset[str]:

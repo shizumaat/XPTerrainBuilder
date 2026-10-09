@@ -7740,7 +7740,7 @@ def _check_pavement_over_road_cap(ways, nodes, ll_to_m,
         # WIDENED fallback, ``cap·d + floor`` (the generator's inequality)
         floor = late_floor_m if late_unknown and na in late_unknown \
             and nb in late_unknown else 0.0
-        floor += _weld_give(weld_nodes, na, nb)
+        floor += _weld_give(weld_nodes, na, nb, d)
         if de <= cap * d + noise + floor:
             return
         key = (min((na, za), (nb, zb)), max((na, za), (nb, zb)))
@@ -8912,19 +8912,35 @@ def late_stage_unknown_nodes(ways: List["Way"], late_stage: Optional[dict]) -> s
     return free - held
 
 
-def weld_widened_nodes(nodes, platforms: Optional[list]) -> Dict[str, float]:
-    """THE FRONTAGE CONTACTS WHERE THE PAVEMENT GAVE TO WELD TO A PAD, read
-    off the patch (owner RULINGS 2026-10-08c (4) / 08d (2); spec §57 (3) as
-    amended): ``{node id: give}`` from the sidecar's
-    ``platforms[].weld_widened`` — ``{"floor_m", "contacts": [[lat, lon,
-    give_m], ...]}``, written by the engine for a held block whose frontage
-    no one flat level reaches by less than the terrace floor, and for a weld
-    its projection sealed (``constraints/weld_floor``).  A pavement pair
-    NAMING one of these nodes answers to ``cap·d + give`` — the generator's
-    own inequality, by the engine's own number for that contact, joined by
-    the canonical 11-decimal identity.  Empty without the record: every
-    family then reads exactly as before."""
+class _WeldNodes(dict):
+    """``{node id: give}`` (:func:`weld_widened_nodes`) carrying ``faces`` —
+    ``{node id: delta}``, the over-cap GRADE of the widened pavement face a
+    node lies on (spec §57 (3) (ii-b))."""
+    faces: Dict[str, float]
+
+    def __bool__(self) -> bool:
+        return bool(len(self) or self.faces)
+
+
+def weld_widened_nodes(nodes, platforms: Optional[list],
+                       ways: "Optional[List[Way]]" = None) -> Dict[str, float]:
+    """WHERE THE PAVEMENT GAVE TO WELD TO A PAD, read off the patch (owner
+    RULINGS 2026-10-08c (4) / 08d (2); spec §57 (3) (ii-b)/(ii-c)), from the
+    sidecar's ``platforms[].weld_widened`` — ``{"floor_m", "delta_pct",
+    "faces": [refs], "contacts": [[lat, lon, give_m], ...]}``, written by the
+    engine for a held block whose frontage no one flat level reaches by less
+    than the terrace floor (``constraints/weld_floor``).
+
+    Two readings, each the generator's own inequality by the engine's own
+    number: a pavement pair whose TWO nodes lie on a listed face answers to
+    ``(cap + delta)·d`` (``.faces``: ``{node id: delta}``, joined by the
+    way's ``ref``; needs ``ways``); a pair NAMING a listed contact (a weld
+    the projection sealed, or one the LP relaxed) answers to ``cap·d +
+    give`` (the mapping itself, joined by the canonical 11-decimal
+    identity).  Empty without the record: every family then reads exactly as
+    before."""
     want: Dict[tuple, float] = {}
+    by_ref: Dict[str, float] = {}
     for rec in platforms or ():
         w = rec.get("weld_widened") if isinstance(rec, dict) else None
         if not w:
@@ -8934,22 +8950,34 @@ def weld_widened_nodes(nodes, platforms: Optional[list]) -> Dict[str, float]:
             k = (round(float(c[0]), 11), round(float(c[1]), 11))
             give = min(float(c[2]), floor) if len(c) > 2 else floor
             want[k] = max(want.get(k, 0.0), give)
-    if not want:
-        return {}
-    out: Dict[str, float] = {}
-    for nid, ll in nodes.items():
+        delta = float(w.get("delta_pct") or 0.0) / 100.0
+        if delta > 0.0:
+            for ref in (w.get("faces") or ()):
+                by_ref[str(ref)] = max(by_ref.get(str(ref), 0.0), delta)
+    out = _WeldNodes()
+    out.faces = {}
+    for nid, ll in (nodes.items() if want else ()):
         g = want.get((round(float(ll[0]), 11), round(float(ll[1]), 11)))
         if g:
             out[nid] = g
+    for w in (ways or ()) if by_ref else ():
+        dl = by_ref.get(str(w.ref))
+        if dl:
+            for nid in w.nids:
+                out.faces[nid] = max(out.faces.get(nid, 0.0), dl)
     return out
 
 
-def _weld_give(weld_nodes: Optional[dict], na, nb) -> float:
-    """What a pair gives at a pad's frontage contact
-    (:func:`weld_widened_nodes`): the larger give of its two nodes."""
+def _weld_give(weld_nodes: Optional[dict], na, nb, d: float = 0.0) -> float:
+    """What a pair gives where the pavement welds to a misfit pad
+    (:func:`weld_widened_nodes`): the larger contact give of its two nodes,
+    plus ``delta·d`` when BOTH lie on a widened face (the smaller delta)."""
     if not weld_nodes:
         return 0.0
-    return max(weld_nodes.get(na, 0.0), weld_nodes.get(nb, 0.0))
+    faces = getattr(weld_nodes, "faces", None) or {}
+    fa, fb = faces.get(na, 0.0), faces.get(nb, 0.0)
+    return (max(weld_nodes.get(na, 0.0), weld_nodes.get(nb, 0.0))
+            + (min(fa, fb) * float(d) if fa and fb else 0.0))
 
 
 def late_stage_floor_m(late_stage: Optional[dict]) -> float:
@@ -9415,7 +9443,7 @@ def _check_within_shape(ways: List[Way],
             # the same inequality read back, by the stage's own number
             allowance += late_floor_m
         if not c.transverse_road:
-            allowance += _weld_give(weld_nodes, c.nid_a, c.nid_b)
+            allowance += _weld_give(weld_nodes, c.nid_a, c.nid_b, c.dist)
         if fan_ramp_zones_m:
             # FAN-RAMP LAW: a within-apron pair lying wholly inside a
             # declared zone is judged at the ZONE's cap — the identical
@@ -9629,7 +9657,7 @@ def _check_cross_shape_proximity(
                     if late_unknown and v.nid in late_unknown \
                             and u.nid in late_unknown:
                         allowance += late_floor_m
-                    allowance += _weld_give(weld_nodes, v.nid, u.nid)
+                    allowance += _weld_give(weld_nodes, v.nid, u.nid, d)
                     if terrace_joints_m or basin_declared:
                         allowance += _declared_step_allowance(
                             terrace_joints_m, basin_declared, v.x, v.y,
@@ -13115,11 +13143,12 @@ def run_checks(
     _late_unknown = late_stage_unknown_nodes(ways, late_stage)
     _late_floor_m = late_stage_floor_m(late_stage)
     # RULINGS 2026-10-08d (2): the misfit pads' frontage contacts and the floor
-    _weld_nodes = weld_widened_nodes(nodes, platforms_ll)
+    _weld_nodes = weld_widened_nodes(nodes, platforms_ll, ways)
     if _weld_nodes and not quiet:
         print(f"  pad weld (08d (2)): {len(_weld_nodes)} frontage contact node(s) where the "
-              f"pavement gave to weld (worst {max(_weld_nodes.values()):.3f} m), each on "
-              f"the pavement pairs naming it")
+              f"pavement gave to weld (worst {max(_weld_nodes.values(), default=0.0):.3f} m), "
+              f"each on the pavement pairs naming it; {len(_weld_nodes.faces)} node(s) on a "
+              f"widened face (worst +{100.0 * max(_weld_nodes.faces.values(), default=0.0):.2f} pp)")
     if _late_unknown and not quiet:
         print(f"  last stage (§55 (15)): {len(_late_unknown)} unknown node(s), "
               f"floor {_late_floor_m:g} m on unknown|unknown pairs")

@@ -12,17 +12,18 @@ pad-rim vertex where the surface outside the pad stands more than ``--off``
 metres off the rim within ``--within`` metres of it, and classes it by WHAT
 that surface is:
 
-* ``P``  PAVEMENT OFF — a pavement cell that touches the vertex, or lies
-  within ``--standoff`` of it, itself stands more than ``--off`` off the rim
-  inside ``--within`` (a welded cell climbing/falling away, or an unwelded
-  cell across a sliver): the seat-defect candidates.  Per cell: ``step`` =
+* ``P``  PAVEMENT OFF — the pavement does not meet the pad: a cell that
+  TOUCHES the vertex leaves the rim by more than ``--off`` inside
+  ``--within`` (welded, climbing or falling away), or a cell within
+  ``--standoff`` of it, unwelded, stands more than ``--off`` off the rim at
+  its nearest point (a step across a sliver): the seat-defect candidates.  Per cell: ``step`` =
   its level at its boundary point nearest the vertex, minus the rim (0 for a
   touching cell — one vertex, one level); ``off`` = its worst level off the
   rim inside ``--within``; ``grade`` = the steepest rise from the rim vertex
   to a vertex of a touching cell.
-* ``M``  PAVEMENT BESIDE A BARE BANK — pavement touches or is within the
-  stand-off and stays within ``--off`` of the rim; the height is ungraded
-  ground beside it.
+* ``M``  PAVEMENT MEETS THE RIM — pavement touches or is within the
+  stand-off and meets the rim within ``--off``; the height is beside it
+  (ungraded ground, or a cell's own slope further out).
 * ``S``  GRADED STRIP — only a graded strip (airside graded ground, not
   pavement) is against the vertex.
 * ``B``  BARE — nothing but ungraded ground within the stand-off.
@@ -193,7 +194,7 @@ def read_edges(graded: dict, dem: Optional[Dem], *, off_m: float = 1.0,
             cs = cells(v)
             near = [c for c in cs if c["dist_m"] <= standoff_m]
             pav = [c for c in near if c["kind"] == "pavement"]
-            pav_off = max((abs(c["off_m"]) for c in pav), default=0.0)
+            pav_off = max((abs(c["off_m"] if c["touching"] else c["step_m"]) for c in pav), default=0.0)
             far_off = max((abs(c["off_m"]) for c in cs), default=0.0)
             g = ground(v)
             dem_off = abs(g[0]) if g else 0.0
@@ -273,7 +274,7 @@ def capture_dem(path: Path) -> Dem:
     return dem
 
 
-NAMES = {"P": "PAVEMENT OFF (seat candidates)", "M": "PAVEMENT BESIDE A BARE BANK",
+NAMES = {"P": "PAVEMENT OFF (seat candidates)", "M": "PAVEMENT MEETS THE RIM, the height is beside it",
          "S": "GRADED STRIP", "B": "BARE (accepted by 2026-10-09d (1))"}
 
 

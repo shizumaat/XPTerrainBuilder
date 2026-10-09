@@ -89,6 +89,45 @@ over 0.3 m 88, 60 far-field). SUSPECT (to prove by one arm): the new hard Band o
 intersection — non-binding everywhere here, but a changed row set → the unsettled solve / the feasibility LP lands on another
 optimum (the null-change class of §56 (10) F1). Arm `x_noband` KCLT owed.
 
+OTHH base `b1` body d3389a1c5a16; arm `j3d` body d3389a1c5a16 — IDENTICAL (J3 changes nothing at the flat airport: released 0 = 0).
+
+HECA arm `j3d` (first pass e230d9ff6466, late pass `j3dL` 065c4ad78805) vs `b1` / `b1L`: released pads 6 → **0**, welds 27 → **0**,
+WARNED 1 → 0; runway movers 0; hard_conflict taxi 71 = 71 (new rows 0, gone 0), pad 128 → 112, groundside 246 = 246; welded
+1,020 → 1,047. `building147` (39,184 m², 30.12759888, 31.40301330): misfit 0.775 m, datum 70.909 → 71.113, 28 of 63 contacts give
+(max 0.795 m), 1,444 rows widened (apron frontage chord 985, no_step route pairs 164, pavement ceiling 93 + 16 Linear, apron ring
+edge 34), 0 runway rows met, 189 rows USE the widening; steepest 11.58 % vs cap 1.50 % over 7.8 m (+0.789 m), apron ring edge
+30.1281718027, 31.40426373051 → 30.12820337024, 31.40419108472. Sealed: 8 contacts on 4 blocks (138: 1 @ 0.021; 157: 3 @ 0.039;
+165: 3 @ 0.042; 193: 1 @ 0.020). `building105` (b1: 9 pad-tier hold rows RELAXED by the LP, s 0.03–0.08 m, 10 released @ 0.269,
+datum 82.509): in the arm datum 83.124, no relaxation, released 0 — nothing acted on it directly (the feasibility LP is global);
+because that is not a mechanism, the seal was GENERALISED (`27f60b89`): every weld under the floor is sealed, an LP-relaxed one
+included (counted `weld_seal.relaxed`); at the floor or over nothing moves and the warning stands.
+Solve-owned movers vs b1L at 0.02 m: 2,843 (taxi 1,216 / 0.72, apron 832 / 0.85 at building105, strip 795 / 0.80; over 0.3 m 1,079, 128 far-field).
+Census (late pass; the replay's late sidecar LOST the hold report, so the welded contacts were priced with no allowance —
+fixed in `27f60b89`, `v2_solve_replay` now carries `hold_report` over the late pass as `pipeline/build` does): adjudicated airside
+12,022 → 12,139; critical_motion 3 → 2; critical_visual 1,943 → 1,945 (hairline_pair 1,879 → 1,883 all groundside, strip_seam_tear 22 → 20);
+`pad_frontage_infeasible` 6 → 0; `within_shape` 44,647 → 44,559. To be re-read on `j3e`.
+
+KCLT ATTRIBUTION (arm `x_noband` = J3 with the datum's reach Band not stated; `csdiff.py` on the stage-1 sets): `b1` itself carries
+ONE reach Band on a datum (35.207295527, -80.93018574: [203.068, 237.673]); removing that one non-binding row moves 268
+solve-owned vertices (strip 241 / 0.25, apron 18 / 0.09, taxi 9 / 0.05), and J3's Bands on every datum move 580 (apron 1.02) with
+no datum changing by more than 0.001 m. So the KCLT motion is the unsettled solve's response to a changed hard-row set (stage 1:
+297 / 361 / 499 rounds in b1 / x_noband / j3d), not a seat. KEPT: the Band is the spec's §57 (3) (ii) and the brief's (1); reported.
+
+## 4b. THE SCRAP RULE (J1's leftover) — the brief's premise is REFUTED by the arrangement read; NO code change
+
+`scrapprobe.py` (pads63's run died rc=1 because the script had NO `__main__` guard: the work pool SPAWNS and every worker re-ran
+the probe — 5 h of recursion, then a broken pipe; guard added) on `perfB362/OTHH.pkl` at the re-role, `<scratch>/pads64/scrapprobe_OTHH.txt`,
+surplus `building6` pieces AFTER the existing rule: 28 pieces / 1,313 m² border the OPEN apron only (+ 6 apron + structure),
+1 borders the plateau only (2.1 m², 97 % covered), 2 plateau + structure (`building6#12` 93.2 m² w 3.50, one 111.2 m² w 3.24:
+enclosed but NOT thin), 3 own + structure (58–63 m², ≤ 51 % covered), 5 own (≤ 50 % covered).
+At the owner's site (25.259994, 51.6104872, r 150; `scraps.py` on `b1/OTHH`): 56 faces, 1,742 ring vertices, collar 0, building 17
+= the pad (183,354 m²) + 16 pieces: seven of 89–96 m² (the jetway-root pads, islands in the apron), 29.6, 7.5, and seven of 0.6–2.6 m².
+14 of the 16 border the OPEN APRON, not the pad's own faces and not its plateau; 2 border the plateau (`#12` not thin; the 2.1 m²
+one 3 % uncovered). "Bordered by the pad's own faces or its plateau" therefore reaches 0 pieces under the existing floor (thin
+< 2.0 m, whole boundary). What would take them: (i) J2's bay plateau makes the apron round them plateau — then the existing rule
+takes the thin ones with no change; (ii) an AREA floor for a non-thin enclosed piece (93 / 111 m²) needs a number the law does not
+have — an owner / master decision; (iii) re-roling an apron-bordered sliver to open apron drops its hold: NOT a zero level change.
+
 ## 5. Next
 
 `j3c` arms KCLT / HECA (+ late) / OTHH run from the FROZEN tree `pads63j1` detached at the arm's sha (`chain_j3.sh TAG SHA`), so this

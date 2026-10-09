@@ -1,0 +1,12 @@
+[HECA] capture state v1 installed: held 61, plateaus 2, landings 0, platforms 15, terraces 3, pad_airside 56
+[HECA] why-hump : ridge vertex v4219 at s=nan  z 58.74  chord+nan  DEM 58.83 (z-DEM -0.09); pressure solve ...
+    [design] hard set feasibility (§5a): 547040 hard rows, LP 6.08 s (optimal), 17 relaxed {'pad': 17}
+    [design] hard set feasibility (§5a): 169812 hard rows, LP 0.40 s (optimal), 231 relaxed {'groundside': 156, 'pad': 10, 'taxi': 65}
+    [design] hard set feasibility (§5a): 169857 hard rows, LP 0.44 s (optimal), 217 relaxed {'groundside': 144, 'pad': 10, 'taxi': 63}
+    pressure solve 127 s status optimal; |z_pressure - z| max 0.503 m
+    binding rows on v4219 by family (rows, sum|dual|, example):
+      runway_crown            1      388.57  runway_crown       3-term at hi (preference crown:4219); bound -0.3003 -> v3368[runway#67,runway#70], v3369[runway#67,runway#70]
+      runway_flex             1        0.00  runway_flex        BAND hi=58.74205243429594 rulesets.runway.flex_budget (flat-pad spec v2 §1 (4), RULINGS 2026-09-30as: runway 05L/23R beta_R 0.000 m, no pulling pad: held at its pass-1a value)
+    chain trace: terminal v3368[runway#67,runway#70] z 58.37 [BAND: rulesets.runway.flex_budget (flat-pad spec v2 §1 (4), RULINGS 2026-09-30as: runway 05L/23R beta_R 0.000 m, no pulling pad: held at its pass-1a value)]; 1 hops; sum dz +0.37 m
+    by family along the chain (sum dz): runway_crown +0.37
+        1. v4219[apron#79,primary_parallel#126,runway#80] z 58.74 -> v3368[runway#67,runway#70] z 58.37 dz +0.37 runway_crown Linear common.runway_crown_transverse

@@ -25,7 +25,7 @@ from shapely.ops import unary_union
 from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
 from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
-from ..model.planar import is_late_ref
+from ..model.planar import is_gap_apron_ref, is_late_ref
 from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
                     shore_declarations, shore_verdict)
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
@@ -180,10 +180,23 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # LEAVES the band it climbs from that shared kerb at the road cap
     # (29y / 29r); a 1206 route and every other groundside cell keep the
     # cut-back.
+    # §59 A GAP-APRON CELL IS NOT IN THE CLAIM (owner RULINGS 2026-10-08g:
+    # "with the runway held at zero").  ``gap_mint`` cuts every piece out of
+    # the bands' envelope with the stand-off, so the cell reaches no band and
+    # its absence changes no zone — while its PRESENCE in this union re-nodes
+    # the claim along every runway edge (measured HECA: a 1.3 m2 hairline,
+    # 1,689 m x 0.8 mm, passed the 1 m2 part floor beside 05C/23C and gave
+    # the runway 143 new vertices 1.6 km from the nearest piece).  The bands
+    # are the standing cells' by construction; a cell that does reach one is
+    # subtracted from that band alone, below.
+    gap_aprons = [Polygon(c.ring, c.holes) for c in cells
+                  if is_gap_apron_ref(getattr(c, "ref", ""))]
+    gap_apron_u = unary_union(gap_aprons) if gap_aprons else None
     everything = unary_union(
         [Polygon(c.ring, c.holes).buffer(cut, **_MITRE)
          if c.side == "groundside" and not is_late_ref(getattr(c, "ref", ""))
-         else Polygon(c.ring, c.holes) for c in cells]
+         else Polygon(c.ring, c.holes) for c in cells
+         if not is_gap_apron_ref(getattr(c, "ref", ""))]
         + [Polygon(k).buffer(cut, **_MITRE) for k in keepouts]) if cells else Polygon()
     lip = ag.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}
@@ -235,6 +248,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         z2 = outer.difference(inner).difference(claimed)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
+            if gap_apron_u is not None and geom.intersects(gap_apron_u):
+                geom = geom.difference(gap_apron_u)
             if water is not None and not geom.is_empty:
                 wet = geom.intersection(water)
                 if not wet.is_empty and wet.area > 0.0:

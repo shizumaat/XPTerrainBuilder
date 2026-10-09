@@ -45,7 +45,8 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
-           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "gap_part_kind", "gap_parts_across_knife",
+           "is_late_ref", "GAP_PREFIX", "is_gap_ref", "GAP_APRON_PREFIX",
+           "is_gap_apron_ref", "gap_part_kind", "gap_parts_across_knife",
            "gap_step_part", "shares_gap_part",
            "bears_shape",
            "face_edge_ids",
@@ -871,6 +872,19 @@ GAP_PREFIX = "gap"
 def is_gap_ref(ref) -> bool:
     """A §53 gap piece."""
     return str(ref or "").split(":", 1)[0] == GAP_PREFIX
+
+
+#: §59 (owner RULINGS 2026-10-08c (6), 08g): the ref of a gap piece the §27 /
+#: §37 (2) judgement classed APRON — ``gapapron:<j>``, a STAGE-1 ``apron``
+#: cell graded with the whole apron.  It is NOT a gap piece
+#: (:func:`is_gap_ref`), NOT late (:func:`is_late_ref`) and bears a shape by
+#: its ROLE: every reader of those three is false / unchanged on it.
+GAP_APRON_PREFIX = "gapapron"
+
+
+def is_gap_apron_ref(ref) -> bool:
+    """A §59 gap piece classed APRON (``classify/gap_mint``)."""
+    return str(ref or "").split(":", 1)[0] == GAP_APRON_PREFIX
 
 
 def bears_shape(face, roles: _t.AbstractSet[str]) -> bool:

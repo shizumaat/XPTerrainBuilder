@@ -58,6 +58,9 @@ NOT_ARMS = {
     "--why-hard-stage", "--why-relax", "--why-hump", "--bank-from",
     "--probe-site", "--probe-drop", "--stage1-dump", "--stage1-diff",
     "--movers",
+    # spec §61 (6): a READ of the --replay arm's own solve (a second solve
+    # beside it); the arm's product is unchanged, and it refuses elsewhere
+    "--null-change",
 }
 
 CELLS = [(f, c) for f in A.ARM_FLAGS for c in A.CONTEXTS]

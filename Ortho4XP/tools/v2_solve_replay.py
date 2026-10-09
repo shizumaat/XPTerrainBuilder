@@ -2281,7 +2281,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            site_radius_m: float = 12.0, why_hard_limit: int | None = None,
            why_hard_stage: int | None = None,
            placement: dict | None = None,
-           late_from: Path | None = None, gap_free: bool = False) -> int:
+           late_from: Path | None = None, gap_free: bool = False,
+           null_change: int | None = None) -> int:
     import numpy as np
     from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps
@@ -2357,6 +2358,17 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             _la, _lo = _to_ll_g(*_c["xy"])
             print(f"    CONFLICT {_u} {_c['upper_m']:.2f} vs {_l} {_c['lower_m']:.2f} "
                   f"(short by {_c['gap_m']:.2f} m) at {_la:.7f},{_lo:.7f}; {_n} vertices")
+    elif null_change is not None:
+        # spec §61 (6) THE NULL-CHANGE CHECK (``tools/replay_null.py``): the
+        # arm's own solve is traced pass by pass, and its twin — the same
+        # arm plus N satisfied ceilings — is solved at the END of this run,
+        # from a copy of the stage-1 problem taken BEFORE this solve
+        import copy
+        import replay_null as _null
+        _null_in = {"pm": pm, "cs": cs, "stage1": copy.deepcopy(prob.get("stage1"))}
+        with _null.PassTrace() as _null_trace:
+            sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
+                                    method=method, strips=strips, **_kw)
     else:
         sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
                                 method=method, strips=strips, **_kw)
@@ -2565,9 +2577,42 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         result["authored_seats"] = [seats[k] for k in sorted(seats)]
         for ln in seat_lines(seats.values(), pad=f"[{icao}] "):
             print(ln)
+    if null_change is not None and late_from is None:
+        result["null_change"] = _null_twin(_null, _null_in, _null_trace, sol, law, strips,
+                                           null_change, method, verbose)
+        print(f"[{icao}] {_null.null_line(result['null_change'])}")
     if json_out is not None:
         json_out.write_text(json.dumps(result, indent=1, default=str))
     return 0
+
+
+def _null_twin(_null, held: dict, trace, sol, law, strips, n: int, method: str,
+               verbose: bool) -> dict:
+    """spec §61 (6): the replay arm's NULL TWIN — ``held``'s problem (the
+    map, the set and the stage-1 problem as they stood before the arm's
+    solve) solved again with ``n`` satisfied ceilings on the set stage 1
+    solves, bound the way :func:`replay` binds the build's own solve."""
+    from auto_patch_v2.constraints.no_step import hold_pass
+    from auto_patch_v2.constraints.road_ramp import reach_seed_rewrite
+    from auto_patch_v2.solve import Options, solve_design
+    pm, cs, s1 = held["pm"], held["cs"], held["stage1"]
+
+    def run(bands: tuple):
+        kw: dict = {"hold": hold_pass(pm, law)}
+        cs_x = cs
+        if s1 is not None:
+            s1.cs = _null.with_bands(s1.cs, bands)
+            kw["stage1"] = s1
+        else:
+            cs_x = _null.with_bands(cs, bands)
+        kw["stage2_rewrite"] = lambda lv: reach_seed_rewrite(pm, law, cs_x, lv)
+        return solve_design(pm, cs_x, law, Options(verbose=verbose), method=method,
+                            strips=strips, **kw)
+    t = time.perf_counter()
+    res = _null.null_change(run, s1.pm if s1 is not None else pm, law, n=n,
+                            first=(trace, sol))
+    res["wall_s"] = round(time.perf_counter() - t, 1)
+    return res
 
 
 def _design_value(v: str):
@@ -2651,6 +2696,16 @@ def main() -> int:
     ap.add_argument("--design-weight", action="append", default=[], metavar="TERM=V",
                     help="MEASUREMENT ARM: override an emit.toml [design] weight for this "
                          "replay only (never a build); TERM in law/design_schema.DESIGN_TERMS")
+    ap.add_argument("--null-change", type=int, nargs="?", const=30, default=None,
+                    metavar="N",
+                    help="spec §61 (6) THE STABILITY CHECK on a --replay run: solve "
+                         "the arm, then the same arm plus N (default 30) Band "
+                         "ceilings 0.05 m ABOVE the first answer's own pass-1a/1b "
+                         "levels (apron / taxi-family vertices, fixed seed), and "
+                         "print ONE line: NULL-CHANGE pass1a a/b/c pass1b a/b/c "
+                         "stage2 a/b/c (movers > 0.02 / > 0.3 / worst m; bar 20 / 0; "
+                         "promoted n=n, lp relaxed n=n); --json carries it under "
+                         "null_change.  One extra solve; measures no law")
     ap.add_argument("--design-verbose", action="store_true",
                     help="print the design solve's objective per active-set round")
     ap.add_argument("--method", default="normal", choices=("normal", "cg", "lsqr"),
@@ -2778,6 +2833,13 @@ def main() -> int:
         # §51 (5) T2's offender dump: v2 reads no environment, the ENTRY arms it
         from auto_patch_v2.airport import frame_entry as _frame_entry
         _frame_entry.set_offender_dump_dir(os.environ["O4_FRAME_ENTRY_DUMP"])
+    if a.null_change is not None and (
+            not a.replay or a.null_change < 1 or a.late_from or a.pad_read
+            or a.rim_diagnostics or a.stage1_dump or a.stage1_diff or a.why_from
+            or a.capture or a.bank_from or a.reclassify or a.probe_site):
+        ap.error("--null-change [N >= 1] twins a full --replay PKL solve: not with "
+                 "--late-from (the last stage alone), a dry read (--pad-read, "
+                 "--rim-diagnostics, --stage1-dump) or any other mode")
     if a.stage1_diff:
         return stage1_diff(a.stage1_diff[0], a.stage1_diff[1], a.movers, a.json)
     if a.stage1_dump:
@@ -2867,7 +2929,8 @@ def main() -> int:
                       emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,
                       chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard,
                       why_hard_stage=a.why_hard_stage, placement=pl,
-                      late_from=a.late_from, gap_free=a.gap_free)
+                      late_from=a.late_from, gap_free=a.gap_free,
+                      null_change=a.null_change)
     ap.error("one of --capture / --replay")
     return 2
 

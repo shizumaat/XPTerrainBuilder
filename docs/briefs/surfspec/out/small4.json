@@ -1,0 +1,264 @@
+{
+ "CYXY": {
+  "icao": "CYXY",
+  "capture": "/Users/noah/XPTerrainBuilderData/.harness/frames/conc333/CYXY_main28500ecf.pkl",
+  "dump": "/Users/noah/XPTerrainBuilderData/Airport_mod_cache/CYXY Whitehorse/+60-136.dsf.text",
+  "gate_counts": {
+   "name": 44,
+   "refused": 20
+  },
+  "surface_only_by_def": {},
+  "surface_only_total": {},
+  "sheets_today_m2": 0,
+  "mint_control": {
+   "pieces": 0,
+   "m2": 0,
+   "stats": {
+    "gap_pieces": 0,
+    "gap_piece_m2": 0.0,
+    "gap_pieces_apron": 0,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 0
+   },
+   "s": 0.0
+  },
+  "mint_arm": {
+   "pieces": 0,
+   "m2": 0,
+   "stats": {
+    "gap_pieces": 0,
+    "gap_piece_m2": 0.0,
+    "gap_pieces_apron": 0,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 0
+   },
+   "s": 0.0,
+   "dist": {},
+   "apron_touching": 0,
+   "apron_touching_m2": 0,
+   "pieces_list": []
+  },
+  "mint_notes": [],
+  "page_over_aptdat_m2": {
+   "service_road": 528,
+   "apron": 2
+  },
+  "page_over_aptdat_examples": {
+   "service_road": [
+    [
+     "dsf:pol121",
+     528
+    ]
+   ],
+   "apron": [
+    [
+     "dsf:pol130",
+     2
+    ]
+   ]
+  },
+  "sites": []
+ },
+ "KASE": {
+  "icao": "KASE",
+  "capture": "/Users/noah/XPTerrainBuilderData/.harness/frames/conc333/KASE_main28500ecf.pkl",
+  "dump": "/Users/noah/XPTerrainBuilderData/Airport_mod_cache/c_USA - 100_airport - KASE Aspen - Airport (Aerosoft)/+39-107.dsf.82d76b06.text",
+  "gate_counts": {
+   "refused": 25,
+   "name": 9
+  },
+  "surface_only_by_def": {},
+  "surface_only_total": {},
+  "sheets_today_m2": 0,
+  "mint_control": {
+   "pieces": 0,
+   "m2": 0,
+   "stats": {
+    "gap_pieces": 0,
+    "gap_piece_m2": 0.0,
+    "gap_pieces_apron": 0,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 0
+   },
+   "s": 0.0
+  },
+  "mint_arm": {
+   "pieces": 0,
+   "m2": 0,
+   "stats": {
+    "gap_pieces": 0,
+    "gap_piece_m2": 0.0,
+    "gap_pieces_apron": 0,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 0
+   },
+   "s": 0.0,
+   "dist": {},
+   "apron_touching": 0,
+   "apron_touching_m2": 0,
+   "pieces_list": []
+  },
+  "mint_notes": [],
+  "page_over_aptdat_m2": {},
+  "page_over_aptdat_examples": {},
+  "sites": []
+ },
+ "NLWF": {
+  "icao": "NLWF",
+  "capture": "/Users/noah/XPTerrainBuilderData/.harness/frames/conc333/NLWF_main28500ecf.pkl",
+  "dump": "/Users/noah/XPTerrainBuilderData/Airport_mod_cache/NLWF-Point Vele WALLIS-ET-FUTUNA/-15-179.dsf.f938744d.text",
+  "gate_counts": {
+   "refused": 2
+  },
+  "surface_only_by_def": {},
+  "surface_only_total": {},
+  "sheets_today_m2": 0,
+  "mint_control": {
+   "pieces": 0,
+   "m2": 0,
+   "stats": {
+    "gap_pieces": 0,
+    "gap_piece_m2": 0.0,
+    "gap_pieces_apron": 0,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 0
+   },
+   "s": 0.0
+  },
+  "mint_arm": {
+   "pieces": 0,
+   "m2": 0,
+   "stats": {
+    "gap_pieces": 0,
+    "gap_piece_m2": 0.0,
+    "gap_pieces_apron": 0,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 0
+   },
+   "s": 0.0,
+   "dist": {},
+   "apron_touching": 0,
+   "apron_touching_m2": 0,
+   "pieces_list": []
+  },
+  "mint_notes": [],
+  "page_over_aptdat_m2": {},
+  "page_over_aptdat_examples": {},
+  "sites": []
+ },
+ "KCLT": {
+  "icao": "KCLT",
+  "capture": "/Users/noah/XPTerrainBuilderData/.harness/frames/conc333/KCLT_main28500ecf.pkl",
+  "dump": "/Users/noah/XPTerrainBuilderData/Airport_mod_cache/Nimbus Simulation - KCLT V1.4 - Charlotte XP12/+35-081.dsf.957a8339.text",
+  "gate_counts": {
+   "refused": 1858,
+   "name": 101
+  },
+  "surface_only_by_def": {},
+  "surface_only_total": {},
+  "sheets_today_m2": 0,
+  "mint_control": {
+   "pieces": 0,
+   "m2": 0,
+   "stats": {
+    "gap_pieces": 0,
+    "gap_piece_m2": 0.0,
+    "gap_pieces_apron": 0,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 0
+   },
+   "s": 0.0
+  },
+  "mint_arm": {
+   "pieces": 0,
+   "m2": 0,
+   "stats": {
+    "gap_pieces": 0,
+    "gap_piece_m2": 0.0,
+    "gap_pieces_apron": 0,
+    "gap_pieces_unminted_airside": 0,
+    "gap_pieces_under_floor": 0
+   },
+   "s": 0.0,
+   "dist": {},
+   "apron_touching": 0,
+   "apron_touching_m2": 0,
+   "pieces_list": []
+  },
+  "mint_notes": [],
+  "page_over_aptdat_m2": {
+   "apron": 1585,
+   "service_road": 54,
+   "parking_lot": 29
+  },
+  "page_over_aptdat_examples": {
+   "apron": [
+    [
+     "dsf:pol30",
+     1382
+    ],
+    [
+     "dsf:pol52",
+     55
+    ],
+    [
+     "dsf:pol54",
+     37
+    ],
+    [
+     "dsf:pol74",
+     33
+    ],
+    [
+     "dsf:pol44",
+     16
+    ],
+    [
+     "dsf:pol61",
+     16
+    ],
+    [
+     "dsf:pol72",
+     16
+    ],
+    [
+     "dsf:pol10",
+     13
+    ]
+   ],
+   "service_road": [
+    [
+     "dsf:pol50",
+     23
+    ],
+    [
+     "dsf:pol86",
+     9
+    ],
+    [
+     "dsf:pol42",
+     6
+    ],
+    [
+     "dsf:pol53",
+     6
+    ],
+    [
+     "dsf:pol73",
+     6
+    ],
+    [
+     "dsf:pol62",
+     4
+    ]
+   ],
+   "parking_lot": [
+    [
+     "dsf:pol31",
+     29
+    ]
+   ]
+  },
+  "sites": []
+ }
+}

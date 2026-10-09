@@ -136,6 +136,10 @@ class LoadReport:
     dsf_pavements: int = 0
     #: DSF pavement pages refused as another airport's (beyond the admission gate)
     dsf_pavements_far: int = 0
+    #: spec §60: draped ``.pol`` pages admitted by their own ``SURFACE``
+    #: as GAP SHEETS (never a pavement source) — pages and their m2
+    dsf_gap_sheets: int = 0
+    dsf_gap_sheet_m2: float = 0.0
     #: §42 (3) (RULINGS 2026-09-13cv): the pack's DRAPED OBJ8 ground
     #: polygons admitted as source polygons — bodies, m2, per resource,
     #: and every draped resource refused with its reason
@@ -445,6 +449,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             "before the build).")
     n_fac = n_obj = n_pol = n_agp = n_lot = 0
     dsf_pavements: list[Pavement] = []
+    pol_sheets: list[Pavement] = []
     # THE ADMISSION GATE (RULINGS 2026-09-06a): the tile DSF carries EVERY
     # airport's pavement pages; a page is this airport's only within
     # ``identity.dsf_pavement_admission_m`` of its own apt.dat extent.
@@ -466,7 +471,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             lambda p: _obj8.resolve_resource(p, sel.root, index))
 
         def _named(p: str) -> bool:
-            return _dsf.building_role_for_def(p) is not None or is_pavement(p)[0]
+            return _dsf.building_role_for_def(p) is not None \
+                or is_pavement(p)[0] is not None
 
         # §52 (RULINGS 2026-10-04d (3) (c)): an OPEN-LOT facade is read by
         # what its FILE says, never by name — the only class the name gate
@@ -474,6 +480,9 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         dump = _dsf.read_dump(
             dump_path, lambda p: _named(p) or _facade.is_lot_def(p, sel.root, index))
         i = -1          # the id index counts the NAME-GATED polygons, as before
+        # §60: a page admitted by its own SURFACE is a GAP SHEET.  It is
+        # consumed BEFORE the index advances, so no ``dsf:pol<i>`` /
+        # ``dsf:fac<i>`` id moves; it is numbered after the object sheets.
         for poly in dump.polygons:
             if not _named(poly.def_path):
                 ring = _ring(poly.windings[0], to_xy)
@@ -485,8 +494,20 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                         FacadeRead(poly.def_path, _facade.LOT)))
                     n_lot += 1
                 continue
+            if is_pavement(poly.def_path)[0] == _dsf.SHEET:
+                ring = _ring(poly.windings[0], to_xy)
+                if own_extent is not None and not own_extent.intersects(
+                        _shape_of(ring)):
+                    n_far += 1
+                    continue
+                pol_sheets.append(Pavement(
+                    "", normalise_surface(_dsf.pavement_surface_code(
+                        poly.def_path, is_pavement(poly.def_path)[1])),
+                    ring, tuple(_ring(h, to_xy) for h in poly.windings[1:]),
+                    poly.def_path))
+                continue
             i += 1
-            if is_pavement(poly.def_path)[0]:
+            if is_pavement(poly.def_path)[0] == _dsf.SOURCE:
                 if own_extent is not None and not own_extent.intersects(
                         _shape_of(_ring(poly.windings[0], to_xy))):
                     n_far += 1
@@ -617,6 +638,12 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             tuple(tuple((float(x), float(y)) for x, y in r.coords[:-1])
                   for r in body.polygon.interiors),
             body.resource))
+    # §60: the ``.pol`` sheets follow the object sheets, in dump order
+    for sheet in pol_sheets:
+        gap_sheets.append(_dc.replace(
+            sheet, id=f"{GAP_SHEET_PREFIX}{len(gap_sheets)}"))
+    rep.dsf_gap_sheets = len(pol_sheets)
+    rep.dsf_gap_sheet_m2 = float(sum(_sheet_area(s) for s in pol_sheets))
     pavements = pavements + tuple(dsf_pavements)
 
     # ── DEM ────────────────────────────────────────────────────────
@@ -820,6 +847,15 @@ def _int_or_none(s: str | None) -> int | None:
         return int(float(s)) if s else None
     except ValueError:
         return None
+
+
+def _sheet_area(sheet: Pavement) -> float:
+    """Net area of a sheet page (outer minus holes), m2; 0 when degenerate."""
+    if len(sheet.outer) < 3:
+        return 0.0
+    from shapely.geometry import Polygon
+    return float(Polygon(sheet.outer, [h for h in sheet.holes
+                                       if len(h) >= 3]).buffer(0).area)
 
 
 def _shape_of(ring):

@@ -28,17 +28,26 @@ from shapely.strtree import STRtree
 from ..classify.gap_mint import _poly
 from ..classify.gap_terrace import APRON, PAD, ROAD, Station, terrace_cut
 from ..constraints.ceiling import RULING as _CEILING_RULING
-from ..constraints.gap_follow import PartStations, gap_follow_rows, reach_m
+from ..constraints.gap_follow import (BehindStep, PartStations,
+                                      gap_follow_rows, reach_m)
 from ..constraints.pavement_cap import RULING as _FALLBACK_RULING
+from ..emit.graded import FLOOR_ROLES
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap, snap_margin_m
 from ..model.constraints import ConstraintSet
 from ..model.planar import face_edge_ids, is_gap_ref, is_osm_ribbon_ref
+from ..planar.basins import WALL_ROLE
 from ..planar.chords import stations as _chord_stations
 from .stage_one_map import (late_constraints, late_fixed, late_followers,
                             late_rim_levels)
 
-__all__ = ["late_stations", "cut_classification", "run_late_stage"]
+__all__ = ["late_stations", "cut_classification", "run_late_stage",
+           "BEHIND_STEP"]
+
+#: THE CELLS BEHIND A DECLARED STEP (spec §60 (9) R1) — a structure's floor
+#: and ramp roles and its wall void, read from their two owners: never a
+#: follow neighbour of a piece (``constraints/gap_follow``).
+BEHIND_STEP = BehindStep(frozenset(FLOOR_ROLES), WALL_ROLE)
 
 #: a mapped-road ribbon whose ring comes this near a piece is welded to it
 #: (the mint is flush on a ribbon cell) — a follower, never a station
@@ -244,7 +253,7 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         widen_floor_m=floor_m)
     out(f"LAST STAGE (§53 (9)): followers {frep}; join {jrep}; "
         f"rows with no unknown dropped {dropped}")
-    grows, grep = gap_follow_rows(pm, law, fixed, part_stations)
+    grows, grep = gap_follow_rows(pm, law, fixed, part_stations, BEHIND_STEP)
     cs = ConstraintSet.from_rows([*cs.rows(), *grows])
     cs_full = ConstraintSet.from_rows([*cs_all.rows(), *grows])
     # the lot SITS at its road's level: the one published-target channel

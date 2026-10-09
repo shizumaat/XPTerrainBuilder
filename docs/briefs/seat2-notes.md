@@ -204,3 +204,45 @@ plane (row-side worst mover 1.16 m at 30.12086521267,31.41819005825), held datum
 C 16 / 570 unchanged — but P:ARMED 1 / 66 → 2 / 83 (`building75` | `small_roads:-20325`: the road the weld held to the
 rim) and P:AIR-NEAR 7 / 231 → 7 / 295 (a pad standing off its apron loses the weld). KCLT (over `kc`): gs / pad
 259 / 32 → 264 / 34, classes equal, airside 0. B and E do not fall: not landed. It is the piece to re-read after R-E.
+
+## R-E — the apron sheet across its holes (scope added by the master mid-lane; STOPPED on the runway bar)
+
+`origin/main` (1e524b12: spec §61 taxiway-edge rule + LP tie-break) merged into the lane branch first (67e7f587; the
+spec keeps §61 then §62, `docs/frames.jsonl` both sides). Code on `claude/seat2-re` (f3596b84): `apron_within_shape`
+pairs the vertices of two DIFFERENT rings of one apron face inside the body gate (60 m) under the hard ring-edge head,
+through the same face cover as the body chords — arm E's generator, at its one derivation site. Pairs past the gate
+are not minted (the probe's form; the spec's "stationed beyond" clause is not built). Twins `test_apronsheet62.py`.
+
+ARM E RE-TAKEN ON THE MERGED TREE (late-stage replay pairs, `m` / `km` = merged base with R-D rule 1, `e` / `ke` = + R-E):
+
+| | HECA m → e | KCLT km → ke |
+|---|---|---|
+| P:AIR-TOUCH | 21 / 232 m → **0** | 3 / 28 m → **0** |
+| P:AIR-NEAR | 7 / 231 → 4 / 46 m | — |
+| other P classes | ARMED 1 / 66 =, GAP 17 / 156 =, GS-NEAR 15 / 564 =, T28 1 = | ARMED 2 =, GS-NEAR 9 / 86 =, T28 2 = |
+| `hard_conflict` gs / pad / taxi | 254 / 104 / 64 → 259 / **68** / 64 | 277 / 33 / 50 → 288 / 34 / 49 |
+| **runway movers > 0.02 m** | **115 nodes, worst +0.14 m** at 30.13273109259,31.39698311689 (05L/23R 170 ring nodes −0.04 … +0.14, 16 over 0.1 m; 05C/23C 4 at 0.03) | **0** |
+| taxi-family movers | 3,022, worst −0.83 m at 30.12080208159,31.41006505339, 1,921 over 0.1 m | 760, worst +1.34 m at 35.21954175188,−80.94390708647 |
+| apron movers, faces WITH holes / WITHOUT | 1,978 / **3,234** (worst without: 1.54 m; `pav132`, `objpav115`, `pav39`, `objpav99`, `pav131`) | 2,868 / **1,033** (worst without 1.89 m) |
+| apron movers by distance to a pad rim vertex (≤ 60 m / beyond) | 1,522 (worst −9.48 m, the sheet under `building100`) / 1,576 (worst −6.88 m at 30.12029238086,31.40932832694) | 2,280 (+1.89 m) / 578 (−2.06 m at 35.20471879153,−80.94000950591) |
+| held pad datums moved | 32 of 39 — every one ON the apron's level at its rim (table below) | 11 of 53 (`building75` / `83` 221.03 → 222.44, `building81` 220.70 → 221.75, the rest ≤ 0.08 m) |
+| `--null-change` (arm e) | `pass1 13/1/0.914 pass2 164/0/0.107 pass3 13/0/0.159 stage2 15/0/0.159 … BAR MISSED` (the merged base's own line: below) | not run |
+
+HECA held datums, old → new (the apron on the pad's rim in the arm): `building98` 103.50 → 94.43 (94.43), `building100`
+101.25 → 93.79 (93.79; unreached contacts 12 → 0), `building117` 101.74 → 95.12, `building68` 92.11 → 85.34,
+`building84` / `83` 85.59 → 84.05 / 84.06, `building169` 74.63 → 75.63, `building64` 86.37 → 85.51, `building174`
+74.41 → 75.20, `building93` 83.18 → 83.89, `building91` 83.11 → 83.77, `building178` 73.92 → 74.54, `building105`
+82.95 → 83.55, `building62` / `65` / `52` −0.45, `building186` +0.41, `building146` / `144` / `140` / `138` +0.32,
+`building193` +0.29, `building153` +0.24, `building101` 93.39 → 93.62, `building147` +0.20 (misfit 0.773 stays),
+`building89` +0.20, `building104` +0.19, five under 0.08 m. In every row the datum equals the apron's level on its
+rim to the centimetre: the pads FOLLOW the sheet; no pad's own level is what moved the apron.
+
+STOP (the master's bar: runway ≤ 0.1 m; "if the far-field runway movers persist with §61 in, STOP and attribute"). They
+persist: 115 nodes / 0.14 m, the spec's 113 / 0.14 m, at the same place 1.7 km from the sheet. Read so far (a READ,
+not yet an intervention): `--why-at 30.13273109259,31.39698311689` on arm e — the vertex (v3701, 05L/23R's edge) has
+ONE binding airside row, `rulesets.runway.flex_budget` "beta_R 0.000 m, no pulling pad: held at its pass-1a value". The
+runway is HELD at whatever PASS 1a gave it, so the 0.14 m is made in pass 1a (the hold-free pass), where 5.7 k new hard
+apron rows re-level the sheets, the sheets' neighbours (3,234 mover nodes on apron faces with NO holes), the taxiways
+(0.83 m) and, through them, the runway's own pass-1a level. Not a pad pulling an apron and not a row on the runway.
+The intervention that would attribute it — pass 1a's runway columns pinned at the base's pass-1a values with R-E on —
+was not run (lane out of budget): OWED.

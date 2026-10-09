@@ -1,7 +1,8 @@
 """Owner RULINGS 2026-10-08d (2): THE CENSUS LEARNS THE PAD WELD FLOOR through
-the sidecar's ``platforms[].weld_widened`` (``{"floor_m", "contacts"}``) — a
-pavement pair NAMING a misfit pad's frontage contact is priced at ``cap·d +
-floor`` (``check_grade.weld_widened_nodes``), the generator's inequality
+the sidecar's ``platforms[].weld_widened`` (``{"floor_m", "contacts": [[lat,
+lon, give]]}``) — a pavement pair NAMING a frontage contact where the
+pavement gave to weld is priced at ``cap·d + give``
+(``check_grade.weld_widened_nodes``), the generator's inequality
 (``constraints/weld_floor``); a pair naming none is priced as before."""
 from __future__ import annotations
 
@@ -21,23 +22,27 @@ def _ll(dx, dy):
             _PVC_LON + dx / (111_320.0 * math.cos(math.radians(_PVC_LAT)))]
 
 
-def _plat(*contacts, floor=1.0):
+def _plat(*contacts, floor=1.0, give=1.0):
     return {"platforms": [{"ref": "building1", "weld_widened": {
-        "floor_m": floor, "contacts": [_ll(*c) for c in contacts]}},
+        "floor_m": floor, "contacts": [[*_ll(*c), give] for c in contacts]}},
         {"ref": "building2", "weld_widened": None}]}
 
 
-def test_the_contact_nodes_are_joined_by_identity_and_the_floor_is_the_records(cg):
+def test_the_contact_nodes_are_joined_by_identity_and_the_give_is_the_contacts(cg):
     nodes = {"n1": tuple(_ll(0.0, 0.0)), "n2": tuple(_ll(10.0, 0.0))}
-    got, floor = cg.weld_widened_nodes(nodes, _plat((0.0, 0.0))["platforms"])
-    assert (got, floor) == ({"n1"}, 1.0)
-    assert cg.weld_widened_nodes(nodes, None) == (set(), 0.0)
-    assert cg.weld_widened_nodes(nodes, [{"ref": "b", "weld_widened": None}]) == (set(), 0.0)
+    assert cg.weld_widened_nodes(nodes, _plat((0.0, 0.0), give=0.4)["platforms"]) == {"n1": 0.4}
+    # never more than the record's floor; a contact with no give takes the floor
+    assert cg.weld_widened_nodes(nodes, _plat((0.0, 0.0), give=3.0)["platforms"]) == {"n1": 1.0}
+    bare = [{"ref": "b", "weld_widened": {"floor_m": 1.0, "contacts": [_ll(10.0, 0.0)]}}]
+    assert cg.weld_widened_nodes(nodes, bare) == {"n2": 1.0}
+    assert cg.weld_widened_nodes(nodes, None) == {}
+    assert cg.weld_widened_nodes(nodes, [{"ref": "b", "weld_widened": None}]) == {}
 
 
-def test_a_pair_naming_a_frontage_contact_takes_the_floor(cg, tmp_path):
+def test_a_pair_naming_a_frontage_contact_takes_its_give(cg, tmp_path):
     """12 % over 10 m: 1.2 m against ``0.10·10 + 1.0`` at the contacts; the
-    same ring with no record, or with the contacts elsewhere, stays priced."""
+    same ring with no record, with the contacts elsewhere, or with a give of
+    0.05 m (short of the 0.2 m the pair is over) stays priced."""
     ring = [(ROLE, _sloped_rect(0.12), "dsf:pol10")]
     bare = _families(cg, _pavcap_patch(tmp_path, name="bare", rings=ring))
     assert bare["within_shape"] and bare["pavement_over_road_cap"]
@@ -47,6 +52,9 @@ def test_a_pair_naming_a_frontage_contact_takes_the_floor(cg, tmp_path):
     off = _families(cg, _pavcap_patch(tmp_path, name="off", rings=ring,
                                       sidecar=_plat((500.0, 500.0))))
     assert off["within_shape"] and off["pavement_over_road_cap"]
+    small = _families(cg, _pavcap_patch(tmp_path, name="small", rings=ring,
+                                        sidecar=_plat((0.0, 0.0), (0.0, 8.0), give=0.05)))
+    assert small["within_shape"] and small["pavement_over_road_cap"]
 
 
 def test_a_pair_beyond_the_floor_stays_priced(cg, tmp_path):

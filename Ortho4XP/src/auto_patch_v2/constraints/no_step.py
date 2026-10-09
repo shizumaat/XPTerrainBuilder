@@ -421,12 +421,17 @@ class HoldInterval:
     fronting: frozenset = frozenset()
     #: pass 1a's values the promotion is tested at (``fronting_ref``)
     fronting_ref: dict = _dc.field(default_factory=dict)
-    #: the frontage contacts of the MISFIT blocks (``constraints/weld_floor``,
-    #: owner RULINGS 2026-10-08d (2)) and the floor their pavement rows give by
-    widen: frozenset = frozenset()
-    widen_floor_m: float = 0.0
-    #: the runway-family vertices (a row naming one is never widened)
+    #: the frontage contacts that CLOSE a misfit block's set and what each
+    #: is short by (``constraints/weld_floor``, owner RULINGS 2026-10-08d (2))
+    #: — the give of the pavement rows naming it
+    widen: dict = _dc.field(default_factory=dict)
+    #: the terrace floor the misfit is read against (the law's)
+    floor_m: float = 0.0
+    #: the runway-family vertices (a row naming one is never widened, a
+    #: contact that is one is never sealed)
     never: frozenset = frozenset()
+    #: every hard weld ``(contact, datum column, block)`` (``weld_floor.seal_welds``)
+    welds: tuple = ()
 
 
 def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
@@ -571,9 +576,9 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # A MISFIT UNDER THE TERRACE FLOOR IS WELDED BY THE PAVEMENT (owner
     # RULINGS 2026-10-08d (2); ``constraints/weld_floor``): the floor is the
     # law's own, the one §55's last stage widens by
-    from .weld_floor import seat_misfit
+    from .weld_floor import contact_gives, seat_misfit
     floor_m = float(law.tables.emit.terrace.pad_terrace_floor_m)
-    widen: set[int] = set()
+    widen: dict[int, float] = {}
     blocks: dict[str, dict] = {}
     for pref, dv, weld, n_all, n_ramp in sets:
         if not weld:
@@ -611,12 +616,18 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         # level that achieves it is the gap's middle.
         misfit, widened, d_fit = seat_misfit(lo, hi, r_lo, r_hi, floor_m, tol_h)
         widened = widened and bool(front_c)
+        gives: dict[int, float] = {}
         if widened:
+            # only the contacts that close the set give, each by what it is
+            # short of the level (at most the misfit: under the floor)
             D = d_fit
-            widen.update(front_c)
+            gives = contact_gives(D, front_c, lo_c, hi_c, bands_c, tol_h)
+            for c, gv in gives.items():
+                widen[c] = max(gv, widen.get(c, 0.0))
         blocks[pref] = {"dv": dv, "weld": weld, "n_all": n_all, "n_ramp": n_ramp,
                         "I0": (lo, hi), "empty0": lo > hi, "med": med, "D": D,
                         "misfit": misfit, "widened": widened, "front_c": front_c,
+                        "gives": gives,
                         "reach_isect": (r_lo, r_hi), "reach_bands_c": bands_c,
                         "unreached": sum(1 for c in weld if c not in lo_c and c not in hi_c)}
     if not blocks:
@@ -750,7 +761,8 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         h["residual"] = list(b.get("residual") or ())
         h["misfit_m"] = round(float(b["misfit"]), 3)
         h["weld_widened"] = ({"floor_m": floor_m,
-                              "contacts": [list(planar.vertices[c].key) for c in b["front_c"]]}
+                              "contacts": [[*planar.vertices[c].key, round(gv, 4)]
+                                           for c, gv in sorted(b["gives"].items())]}
                              if b["widened"] else None)
         # the binding anchors of the (final) interval
         ar = ar1 if (b["eval"] != "i" and ar1 is not None) else ar0
@@ -811,9 +823,14 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     stats.update(misfit_blocks=sum(1 for b in blocks.values() if b["misfit"] > tol_h),
                  widened_blocks=sum(1 for b in blocks.values() if b["widened"]),
                  widened_contacts=len(widen))
+    welds = tuple((int(o), int(b["dv"]), pref) for pref, b in blocks.items()
+                  for o in b["weld"]
+                  if o not in set(HELD[pref].get("plateau_vertices") or ())
+                  and o not in set(b.get("residual") or ()))
     return HoldInterval(rows, blocks, runways, columns, stats, fronting, fref,
-                        frozenset(widen), floor_m if widen else 0.0,
-                        frozenset(runway_membership(planar, law, set(planar.vertices))))
+                        dict(widen), floor_m,
+                        frozenset(runway_membership(planar, law, set(planar.vertices))),
+                        welds)
 
 
 @_dc.dataclass
@@ -849,29 +866,78 @@ class HoldPass:
 
     def widened(self, cs: ConstraintSet,
                 to_full: "_t.Callable[[int], int | None] | None" = None) -> ConstraintSet:
-        """``cs`` with the pavement rows at the misfit blocks' frontage
-        contacts widened by the floor (``constraints/weld_floor``, owner
-        RULINGS 2026-10-08d (2)); ``to_full`` maps this pass's vertex ids
-        onto ``cs``'s map (the ribbon-free join).  Writes the per-contact
-        row counts into the blocks' records."""
+        """``cs`` with the pavement rows naming a misfit block's closing
+        contact widened by that contact's give (``constraints/weld_floor``,
+        owner RULINGS 2026-10-08d (2)); ``to_full`` maps this pass's vertex
+        ids onto ``cs``'s map (the ribbon-free join).  Writes the row counts
+        into the blocks' records."""
         res = self.result
         if res is None or not res.widen:
             return cs
         from ..model.platform import HELD
         from .weld_floor import pavement_heads, widen_weld_rows
         m = to_full or (lambda v: v)
-        con = {j: c for c in res.widen if (j := m(c)) is not None}
+        con = {j: g for c, g in res.widen.items() if (j := m(c)) is not None}
         never = frozenset(j for v in res.never if (j := m(v)) is not None)
-        out, st = widen_weld_rows(cs, set(con), res.widen_floor_m,
-                                  pavement_heads(self.law), never)
+        out, st = widen_weld_rows(cs, con, pavement_heads(self.law), never)
         if to_full is None:
             for pref, b in res.blocks.items():
                 w = HELD.get(pref, {}).get("weld_widened")
                 if b["widened"] and w is not None:
-                    w["rows"] = sum(st.get(c, {}).get("rows", 0) for c in b["front_c"])
+                    w["rows"] = sum(st.get(c, {}).get("rows", 0) for c in b["gives"])
                     w["runway_rows_kept"] = sum(st.get(c, {}).get("runway_rows_kept", 0)
-                                                for c in b["front_c"])
+                                                for c in b["gives"])
         return out
+
+    def seal(self, levels: dict, z: _t.Any = None, rep: _t.Any = None) -> dict:
+        """THE WELD PROJECTION on pass 1b's answer (``weld_floor.seal_welds``):
+        every weld the feasibility LP did not relax takes its datum, in
+        ``levels`` (what stage 2 substitutes) and ``z``.  ``rep`` is the
+        pass's report (its ``hard_feasibility.conflicts`` name the relaxed
+        welds).  Each sealed contact joins its block's ``weld_widened``
+        record with its move — the pavement gave by that much there."""
+        res = self.result
+        if res is None or not res.welds:
+            return {}
+        from ..law.tables import design as design_law
+        from ..model.platform import HELD
+        from .platform import HOLD_RULING
+        from .weld_floor import seal_welds
+        hf = getattr(rep, "hard_feasibility", None)
+        relaxed_ll = {tuple(k) for r in (getattr(hf, "conflicts", None) or ())
+                      if str(r.get("ruling", "")).startswith(HOLD_RULING)
+                      for k in (r.get("vertices") or ())}
+        pv = self.planar.vertices
+        skip = set(res.never) | {c for c, _dv, _p in res.welds
+                                 if tuple(pv[c].key) in relaxed_ll}
+        try:
+            got = seal_welds(res.welds, levels, z, res.floor_m,
+                             float(design_law(self.law).hard_tol_m), skip)
+        except TypeError:               # an immutable value vector: the levels lead
+            got = seal_welds(res.welds, levels, None, res.floor_m,
+                             float(design_law(self.law).hard_tol_m), skip)
+        by: dict[str, list] = {}
+        for c, (pref, move) in sorted(got.items()):
+            by.setdefault(pref, []).append((c, abs(move)))
+        for pref, cm in by.items():
+            h = HELD.get(pref)
+            if h is None:
+                continue
+            w = h.get("weld_widened") or {"floor_m": res.floor_m, "contacts": []}
+            have = {(c[0], c[1]): c for c in w["contacts"]}
+            for c, mv in cm:
+                k = tuple(pv[c].key)
+                if k in have:
+                    have[k][2] = round(have[k][2] + mv, 4)
+                else:
+                    w["contacts"].append([*k, round(mv, 4)])
+            w["sealed"] = len(cm)
+            w["sealed_max_m"] = round(max(mv for _c, mv in cm), 4)
+            h["weld_widened"] = w
+        return {"contacts": len(got), "blocks": len(by),
+                "max_m": round(max((abs(mv) for _p, mv in got.values()), default=0.0), 4),
+                "relaxed_left": sum(1 for c, _dv, _p in res.welds
+                                    if tuple(pv[c].key) in relaxed_ll)}
 
     def apply(self, cs: ConstraintSet) -> ConstraintSet:
         """``cs`` as pass 1b states it — the hold rows re-derived (a

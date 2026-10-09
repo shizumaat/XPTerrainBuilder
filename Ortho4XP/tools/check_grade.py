@@ -7698,8 +7698,7 @@ PAVCAP_WELD_M = 1.0
 def _check_pavement_over_road_cap(ways, nodes, ll_to_m,
                                   late_unknown: Optional[set] = None,
                                   late_floor_m: float = 0.0,
-                                  weld_nodes: Optional[set] = None,
-                                  weld_floor_m: float = 0.0) -> List[Violation]:
+                                  weld_nodes: Optional[dict] = None) -> List[Violation]:
     """RULINGS 2026-09-29ac: NO PAVEMENT OF ANY CLASS IS STEEPER THAN THE
     ROAD CAP.  Every pavement vertex pair — consecutive vertices of one
     pavement ring, and vertices of two different pavement rings within
@@ -7741,7 +7740,7 @@ def _check_pavement_over_road_cap(ways, nodes, ll_to_m,
         # WIDENED fallback, ``cap·d + floor`` (the generator's inequality)
         floor = late_floor_m if late_unknown and na in late_unknown \
             and nb in late_unknown else 0.0
-        floor += _weld_floor(weld_nodes, weld_floor_m, na, nb)
+        floor += _weld_give(weld_nodes, na, nb)
         if de <= cap * d + noise + floor:
             return
         key = (min((na, za), (nb, zb)), max((na, za), (nb, zb)))
@@ -8913,36 +8912,44 @@ def late_stage_unknown_nodes(ways: List["Way"], late_stage: Optional[dict]) -> s
     return free - held
 
 
-def weld_widened_nodes(nodes, platforms: Optional[list]) -> Tuple[set, float]:
-    """THE FRONTAGE CONTACTS OF THE MISFIT PADS, read off the patch (owner
-    RULINGS 2026-10-08d (2); spec §57 (3) as amended): ``(node ids, floor)``
-    from the sidecar's ``platforms[].weld_widened`` — ``{"floor_m",
-    "contacts": [[lat, lon], ...]}``, written by the engine for a held block
-    whose frontage no one flat level reaches by less than the terrace floor
-    (``constraints/weld_floor``).  A pavement pair NAMING one of these nodes
-    answers to ``cap·d + floor`` — the generator's own inequality, by the
-    engine's own number, joined by the canonical 11-decimal identity.  The
-    empty set without the record: every family then reads exactly as
-    before."""
-    want: set = set()
-    floor = 0.0
+def weld_widened_nodes(nodes, platforms: Optional[list]) -> Dict[str, float]:
+    """THE FRONTAGE CONTACTS WHERE THE PAVEMENT GAVE TO WELD TO A PAD, read
+    off the patch (owner RULINGS 2026-10-08c (4) / 08d (2); spec §57 (3) as
+    amended): ``{node id: give}`` from the sidecar's
+    ``platforms[].weld_widened`` — ``{"floor_m", "contacts": [[lat, lon,
+    give_m], ...]}``, written by the engine for a held block whose frontage
+    no one flat level reaches by less than the terrace floor, and for a weld
+    its projection sealed (``constraints/weld_floor``).  A pavement pair
+    NAMING one of these nodes answers to ``cap·d + give`` — the generator's
+    own inequality, by the engine's own number for that contact, joined by
+    the canonical 11-decimal identity.  Empty without the record: every
+    family then reads exactly as before."""
+    want: Dict[tuple, float] = {}
     for rec in platforms or ():
         w = rec.get("weld_widened") if isinstance(rec, dict) else None
         if not w:
             continue
-        floor = max(floor, float(w.get("floor_m") or 0.0))
-        want.update((round(float(la), 11), round(float(lo), 11))
-                    for la, lo in (w.get("contacts") or ()))
+        floor = float(w.get("floor_m") or 0.0)
+        for c in (w.get("contacts") or ()):
+            k = (round(float(c[0]), 11), round(float(c[1]), 11))
+            give = min(float(c[2]), floor) if len(c) > 2 else floor
+            want[k] = max(want.get(k, 0.0), give)
     if not want:
-        return set(), 0.0
-    return ({nid for nid, ll in nodes.items()
-             if (round(float(ll[0]), 11), round(float(ll[1]), 11)) in want}, floor)
+        return {}
+    out: Dict[str, float] = {}
+    for nid, ll in nodes.items():
+        g = want.get((round(float(ll[0]), 11), round(float(ll[1]), 11)))
+        if g:
+            out[nid] = g
+    return out
 
 
-def _weld_floor(weld_nodes: Optional[set], weld_floor_m: float, na, nb) -> float:
-    """The floor a pair takes at a misfit pad's frontage contact
-    (:func:`weld_widened_nodes`): ``weld_floor_m`` when EITHER node is one."""
-    return weld_floor_m if weld_nodes and (na in weld_nodes or nb in weld_nodes) else 0.0
+def _weld_give(weld_nodes: Optional[dict], na, nb) -> float:
+    """What a pair gives at a pad's frontage contact
+    (:func:`weld_widened_nodes`): the larger give of its two nodes."""
+    if not weld_nodes:
+        return 0.0
+    return max(weld_nodes.get(na, 0.0), weld_nodes.get(nb, 0.0))
 
 
 def late_stage_floor_m(late_stage: Optional[dict]) -> float:
@@ -9277,8 +9284,7 @@ def _check_within_shape(ways: List[Way],
                         runway_caps_by_ref: Optional[Dict[str, float]] = None,
                         late_unknown: Optional[set] = None,
                         late_floor_m: float = 0.0,
-                        weld_nodes: Optional[set] = None,
-                        weld_floor_m: float = 0.0,
+                        weld_nodes: Optional[dict] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -9409,7 +9415,7 @@ def _check_within_shape(ways: List[Way],
             # the same inequality read back, by the stage's own number
             allowance += late_floor_m
         if not c.transverse_road:
-            allowance += _weld_floor(weld_nodes, weld_floor_m, c.nid_a, c.nid_b)
+            allowance += _weld_give(weld_nodes, c.nid_a, c.nid_b)
         if fan_ramp_zones_m:
             # FAN-RAMP LAW: a within-apron pair lying wholly inside a
             # declared zone is judged at the ZONE's cap — the identical
@@ -9544,8 +9550,7 @@ def _check_cross_shape_proximity(
     basin_declared: Optional[list] = None,
     late_unknown: Optional[set] = None,
     late_floor_m: float = 0.0,
-    weld_nodes: Optional[set] = None,
-    weld_floor_m: float = 0.0,
+    weld_nodes: Optional[dict] = None,
 ) -> List[Violation]:
     """For every pair of vertices on DIFFERENT ways within
     ``proximity_m`` of each other, verify ``|de| / dist <= grade``.
@@ -9624,7 +9629,7 @@ def _check_cross_shape_proximity(
                     if late_unknown and v.nid in late_unknown \
                             and u.nid in late_unknown:
                         allowance += late_floor_m
-                    allowance += _weld_floor(weld_nodes, weld_floor_m, v.nid, u.nid)
+                    allowance += _weld_give(weld_nodes, v.nid, u.nid)
                     if terrace_joints_m or basin_declared:
                         allowance += _declared_step_allowance(
                             terrace_joints_m, basin_declared, v.x, v.y,
@@ -13110,10 +13115,11 @@ def run_checks(
     _late_unknown = late_stage_unknown_nodes(ways, late_stage)
     _late_floor_m = late_stage_floor_m(late_stage)
     # RULINGS 2026-10-08d (2): the misfit pads' frontage contacts and the floor
-    _weld_nodes, _weld_floor_m = weld_widened_nodes(nodes, platforms_ll)
+    _weld_nodes = weld_widened_nodes(nodes, platforms_ll)
     if _weld_nodes and not quiet:
-        print(f"  pad weld (08d (2)): {len(_weld_nodes)} frontage contact node(s) of "
-              f"misfit pad(s), floor {_weld_floor_m:g} m on the pavement pairs naming one")
+        print(f"  pad weld (08d (2)): {len(_weld_nodes)} frontage contact node(s) where the "
+              f"pavement gave to weld (worst {max(_weld_nodes.values()):.3f} m), each on "
+              f"the pavement pairs naming it")
     if _late_unknown and not quiet:
         print(f"  last stage (§55 (15)): {len(_late_unknown)} unknown node(s), "
               f"floor {_late_floor_m:g} m on unknown|unknown pairs")
@@ -13134,7 +13140,7 @@ def run_checks(
         shoulder_cap=shoulder_transverse_max,
         runway_caps_by_ref=_runway_caps_by_ref,
         late_unknown=_late_unknown, late_floor_m=_late_floor_m,
-        weld_nodes=_weld_nodes, weld_floor_m=_weld_floor_m))
+        weld_nodes=_weld_nodes))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into
@@ -13387,8 +13393,7 @@ def run_checks(
     pav_cap = _fam("pavement_over_road_cap",
                    _check_pavement_over_road_cap(
                        ways, nodes, ll_to_m, late_unknown=_late_unknown,
-                       late_floor_m=_late_floor_m, weld_nodes=_weld_nodes,
-                       weld_floor_m=_weld_floor_m))
+                       late_floor_m=_late_floor_m, weld_nodes=_weld_nodes))
     _pv("PAVEMENT pair steeper than the ROAD cap (owner RULINGS "
         "2026-09-29ac: the road grade cap is the fallback ceiling of every "
         "pavement class; ring edges + welded neighbours <= 1 m)",
@@ -13751,7 +13756,7 @@ def run_checks(
         vertices, ways, proximity_m, max_grade,
         terrace_joints_m=terrace_joints_m, basin_declared=basin_declared,
         late_unknown=_late_unknown, late_floor_m=_late_floor_m,
-        weld_nodes=_weld_nodes, weld_floor_m=_weld_floor_m))
+        weld_nodes=_weld_nodes))
     _pv(f"CROSS-SHAPE proximity (≤ {proximity_m}m) "
         f"grade > {max_grade_pct}%",
         cross, top_n)

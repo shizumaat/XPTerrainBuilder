@@ -653,6 +653,11 @@ class RoadContact:
     pair_lateral_m: float
     #: ... over at least this much arc are ONE carriageway
     pair_overlap_m: float
+    #: THE DESIGN GRADE of the ramp a groundside road leaves its airside
+    #: contact on (§37 (6); owner RULINGS 2026-10-09c (2b)): what it is
+    #: BUILT at; the road role's longitudinal cap is the ceiling it
+    #: steepens toward only where the run cannot fit this
+    ramp_grade: float
     #: contact roles BESIDE the airside value roles (apron, pad, the taxi
     #: family, the runway family with §40's shoulder): §37 (10)'s LOT,
     #: which precedence.toml partitions groundside but which is hard
@@ -1039,6 +1044,15 @@ def _check_cross_refs(t: LawTables) -> None:
         raise LawError(
             f"structures.tunnel.ramp_grade {t.structures.tunnel.ramp_grade} is not in "
             f"(0, ramp_max_grade {t.structures.tunnel.ramp_max_grade}] (RULINGS 2026-10-08c (1))")
+    # RULINGS 2026-10-09c (2b): the same law for the groundside road's ramp —
+    # its design grade stands at or under every road role's own cap
+    road_caps = [t.common.roles[r].longitudinal
+                 for r in t.families["road_cross_section"].roles if r in t.common.roles]
+    rg = t.emit.road_contact.ramp_grade
+    if not 0.0 < rg <= min(road_caps, default=rg) + 1e-12:
+        raise LawError(
+            f"emit.road_contact.ramp_grade {rg} is not in (0, the road cap "
+            f"{min(road_caps, default=rg)}] (RULINGS 2026-10-08c (1), 2026-10-09c (2b))")
     gr_cap = t.common.roles.get("garage_ramp")
     _check_cutout(t.structures.cutout, LawError,
                   None if gr_cap is None else gr_cap.longitudinal)

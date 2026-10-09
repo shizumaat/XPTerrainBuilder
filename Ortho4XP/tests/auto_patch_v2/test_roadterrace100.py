@@ -203,3 +203,96 @@ def test_a_fence_along_a_bordered_run_is_recorded_as_the_terrace_witness(law, tm
     assert w["dem_m"]["min"] == pytest.approx(113.5, abs=0.6)
     assert w["agreement_m"]["road_minus_dem_min"] < -5.0     # the road is in the cut
     assert "road_terrace_witness" in SIDECAR_KEYS
+
+
+# ── THE BARE EXIT IS BUILT AT ITS DESIGN GRADE (RULINGS 2026-10-09c (2b)) ──
+
+DESIGN, LANE = 0.05, 7.0
+
+
+def _bare_exit(n: int, rise: float):
+    """Stations 0-2 bordered at 100, the rest bare with the road's own
+    target ``rise`` above; the profile at the design grade."""
+    st = _route(n)
+    foot, lv = _feet({0: 100.0, 1: 100.0, 2: 100.0})
+    floor = {v: 100.0 + rise for v in st}
+    return terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                           design=DESIGN, lane=LANE)
+
+
+def test_a_bare_run_with_ample_run_leaves_at_the_design_grade():
+    """400 m of bare road for a 10 m rise: 5 %, meeting its target after
+    200 m — not the cap's 100 m (the cap is a ceiling, 08c (1))."""
+    out, rep = _bare_exit(43, 10.0)
+    for v in range(3, 43):
+        assert out[v] == pytest.approx(min(110.0, 100.0 + DESIGN * (v - 2) * 10.0))
+    assert rep["bare_steepened"] == 0 and rep["max_bare_grade"] == DESIGN
+
+
+def test_a_bare_run_that_fits_only_at_7_3_percent_leaves_at_7_3_percent():
+    """100 m of bare road for a 7.3 m rise: the least grade that brings the
+    road onto its own target by the end of its run."""
+    out, rep = _bare_exit(13, 7.3)
+    for v in range(3, 13):
+        assert out[v] == pytest.approx(100.0 + 0.073 * (v - 2) * 10.0)
+    assert out[12] == pytest.approx(107.3)
+    assert rep["bare_steepened"] == 1 and rep["max_bare_grade"] == pytest.approx(0.073)
+
+
+def test_a_bare_run_that_needs_more_than_the_cap_leaves_at_the_cap():
+    """70 m for 10 m is over the cap: built at the cap, as it was."""
+    out, rep = _bare_exit(10, 10.0)
+    old, _r = terrace_profile({"foot": _feet({0: 100.0, 1: 100.0, 2: 100.0})[0], "pad": {},
+                               "station": _route(10)},
+                              _feet({0: 100.0, 1: 100.0, 2: 100.0})[1],
+                              {v: 110.0 for v in _route(10)}, CAP)
+    assert out == pytest.approx(old) and rep["max_bare_grade"] == CAP
+
+
+def test_the_bare_exit_reaches_a_coverage_join_at_the_design_grade_where_the_run_fits():
+    """Stations 0-2 bordered at 100, a coverage join pinned at 110 at
+    station 42 (400 m on): the bare exit's run ends at the pin — 10 m
+    over 400 m fits 5 % — so the road leaves the terrace at 5 % and is
+    on its own target (the 110 m ground) from there to the join."""
+    st = _route(43)
+    foot, lv = _feet({0: 100.0, 1: 100.0, 2: 100.0})
+    floor = {v: 110.0 for v in st}
+    out, rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                               {42: 110.0}, design=DESIGN, lane=LANE)
+    for v in range(3, 42):
+        assert out[v] == pytest.approx(min(110.0, 100.0 + DESIGN * (v - 2) * 10.0))
+    assert out[2] == pytest.approx(100.0)             # the bordered level stands
+
+
+def test_a_join_too_near_for_the_design_grade_is_reached_at_the_least_grade():
+    """The join 100 m from the last bordered station, 7.3 m above it."""
+    st = _route(13)
+    foot, lv = _feet({0: 100.0, 1: 100.0, 2: 100.0})
+    floor = {v: 120.0 for v in st}
+    out, _rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                                {12: 107.3}, design=DESIGN, lane=LANE)
+    for v in range(3, 12):
+        assert out[v] == pytest.approx(100.0 + 0.073 * (v - 2) * 10.0)
+    assert out[2] == pytest.approx(100.0)
+
+
+def test_the_coverage_join_clip_is_the_cap_s_envelope_never_a_design_grade_cut():
+    """F3 (spec §37 (6a) (v), RULINGS 2026-10-09d (2)).  A join pinned at
+    100 at station 0; the road bordered at 105 two hundred metres on (2.5 %
+    from the join); beyond it the road's own ground climbs at 7 % — inside
+    its cap.  The two-sided join clip is a pin's FEASIBILITY envelope at
+    the cap: it does not touch a road standing inside it.  Read at the
+    design grade it cut the road's far end from 119 to 115 m (the kerb
+    that came down at KCLT ``dsf:pol48``, ``road_cross_section`` +33)."""
+    st = _route(43)
+    foot, lv = _feet({20: 105.0, 21: 105.0, 22: 105.0})
+    floor = {v: 105.0 + 0.07 * max(0, v - 22) * 10.0 for v in st}
+    out, rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                               {0: 100.0}, design=DESIGN, lane=LANE)
+    for v in range(23, 43):
+        assert out[v] == pytest.approx(floor[v]), v
+    assert out[42] == pytest.approx(119.0) and "max_join_grade" not in rep
+    # ... and it still holds a road the cap cannot bring to its pin
+    out, _rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                                {0: 80.0}, design=DESIGN, lane=LANE)
+    assert out[1] == pytest.approx(80.0 + CAP * 10.0)

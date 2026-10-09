@@ -12,12 +12,18 @@ welded by the bending term to the airside fill beside it (``graded_strip``
 where the road meets an apron, pad or lot; that level is the airside's,
 airside is king — the road's target along ROUTE distance ``s`` is
 
-    target(s) = max(clamp(s), z_contact - road_cap * s)
+    target(s) = max(clamp(s), z_contact - grade * s)
 
-It descends at the road's own longitudinal cap until it meets the FLOOR and
-follows it from there (and climbs at the cap where the floor rises above
-the contact); between two contacts the two ramps meet at their HIGHER
-envelope; a road with NO airside contact targets the floor alone.
+It descends at its DESIGN grade (``[road_contact] ramp_grade``, 5 %) until
+it meets the FLOOR and follows it from there (where the floor stands above
+the contact the road is on its floor at once); between two contacts the two
+ramps meet at their HIGHER envelope; a road with NO airside contact targets
+the floor alone.  THE ROAD'S LONGITUDINAL CAP IS A CEILING, NEVER THE GRADE
+THE RAMP IS BUILT AT (owner RULINGS 2026-10-08c (1), 2026-10-09c (2b)): the
+ramp steepens toward it only where the design grade cannot meet the floor
+— or the next contact's level — in the run the road has, and then at the
+smallest grade that does (:mod:`road_descent`, the mapped-tunnel rule of
+§34 (1a)).
 
 THE FLOOR IS THE CORE'S CLAMP, NOT THE RAW DEM (§37 (6) amended, owner
 RULINGS 2026-09-13be): ``clamp(s)`` is ``cap_lipschitz_profile``'s
@@ -57,7 +63,6 @@ target is the HIGHER of the ramp and the ground.
 from __future__ import annotations
 
 import dataclasses as _dc
-import heapq
 import math
 import typing as _t
 
@@ -67,6 +72,7 @@ from ..law.tables import (family, is_structure_role, is_value_role, role_cap,
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from ..model.frame import rotated_rectangle
+from .road_descent import STAND_M, descend
 
 __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
            "road_route_frame", "reach_contacts", "merge_routes",
@@ -365,33 +371,17 @@ def _graph(pm: PlanarMap, nodes: _t.AbstractSet[int]
     return adj
 
 
-def _dijkstra(adj: _t.Mapping[int, list[tuple[int, float]]],
-              seeds: _t.Mapping[int, float], cap: float
-              ) -> tuple[dict[int, float], dict[int, float]]:
-    """THE HIGHER ENVELOPE OF THE MOUTHS (§37 (6)): the highest level a
-    contact can still be at after descending at ``cap`` along the road's
-    own graph — a max-label Dijkstra, exact because every hop only ever
-    LOWERS the label.  Returns the labels and the route distance walked."""
-    lab: dict[int, float] = {}
-    walked: dict[int, float] = {}
-    pq: list[tuple[float, int]] = []
-    for v, z in seeds.items():
-        if lab.get(v, -math.inf) < z:
-            lab[v] = z
-            walked[v] = 0.0
-            heapq.heappush(pq, (-z, v))
-    while pq:
-        nz, u = heapq.heappop(pq)
-        z = -nz
-        if z < lab.get(u, -math.inf) - 1e-9:
-            continue
-        for w, d in adj.get(u, ()):
-            zw = z - cap * d
-            if zw > lab.get(w, -math.inf) + 1e-9:
-                lab[w] = zw
-                walked[w] = walked.get(u, 0.0) + d
-                heapq.heappush(pq, (-zw, w))
-    return lab, walked
+def _connected(adj: _t.Mapping[int, list[tuple[int, float]]],
+               seeds: _t.Iterable[int]) -> set[int]:
+    """Every vertex the road's own graph joins to a mouth."""
+    seen = set(seeds)
+    todo = list(seen)
+    while todo:
+        for w, _d in adj.get(todo.pop(), ()):
+            if w not in seen:
+                seen.add(w)
+                todo.append(w)
+    return seen
 
 
 def _lift(ss: _t.Sequence[float], vals: _t.Sequence[float], cap: float
@@ -639,6 +629,40 @@ def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
     return out, rep
 
 
+def _floors(pm: PlanarMap, owned: _t.Iterable[int],
+            frame: _t.Mapping[int, tuple[int, float, float]],
+            ways: _t.Mapping[int, _t.Any]) -> dict[int, float]:
+    """THE RAMP'S FLOOR per governed vertex: the core's clamp at the
+    station of THE ROUTE THE FRAME NAMES (§37 (6) amended, RULINGS
+    2026-09-13be).  A vertex with no frame, no way or no DEM has none."""
+    out: dict[int, float] = {}
+    for v in owned:
+        f_ = frame.get(v)
+        w_ = ways.get(f_[0]) if f_ is not None else None
+        if w_ is not None and pm.vertices[v].dem_z is not None:
+            out[v] = float(w_.at(f_[1]))
+    return out
+
+
+def _ramp_figures(ramps: _t.Sequence[_t.Mapping[str, _t.Any]], design: float,
+                  cap: float) -> dict[str, _t.Any]:
+    """The report's figures for the ramps :func:`road_descent.descend`
+    built (the keys ``road_descent.descent_line`` prints).  A ramp is
+    classed by its STEEPEST run: one run over the design grade makes it
+    steepened, one at the cap makes it at the cap."""
+    at_cap = [r for r in ramps if r["steepest"] >= cap - 1e-9]
+    steep = [r for r in ramps if design + 1e-9 < r["steepest"] < cap - 1e-9]
+    worst = sorted(steep + at_cap, key=lambda r: (-r["steepest"], -r["length_m"], r["mouth"]))
+    return {"design": design, "ramps": len(ramps),
+            "ramps_at_design": len(ramps) - len(steep) - len(at_cap),
+            "ramps_steepened": len(steep), "ramps_at_cap": len(at_cap),
+            "ramps_over_cap": sum(1 for r in ramps if not r["fits"]),
+            "ramp_total_m": round(sum(r["length_m"] for r in ramps), 1),
+            "ramp_longest_m": round(max((r["length_m"] for r in ramps), default=0.0), 1),
+            "ramps_steepest": [(r["mouth"], round(r["steepest"], 4), round(r["length_m"], 1),
+                                r["why"]) for r in worst[:8]]}
+
+
 def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                       profiles=None) -> RampTargets:
     """§37 (6)'s target for every groundside-road vertex, AS A FUNCTION OF
@@ -651,6 +675,9 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
       of THE ROUTE THE FRAME NAMES (§37 (6) amended, RULINGS 2026-09-13be),
       never a second nearest-way answer;
     * ``envelope_r(s)`` — the mouths' descent over the road's own graph,
+      each ramp at the grade it is BUILT at (:func:`road_descent.descend`:
+      the design grade, steepened toward the cap only where the run cannot
+      fit it; RULINGS 2026-10-09c (2b)),
       LIFTED ONTO THE ROUTE as the cap-Lipschitz upper envelope of the
       stations it reached.
 
@@ -713,22 +740,44 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["reach_governed"] = len(contact)
     rep["reach_ends"] = reach_named
     adj = _graph(pm, set(owned) | set(mouths))
-    # THE HIGHER ENVELOPE OF THE MOUTHS (§37 (6)): ``g`` is the highest
-    # level any mouth can still be at after descending at the cap along
-    # the route — a max-label Dijkstra, exact because every hop only ever
-    # LOWERS the label.
-    g, reach = _dijkstra(adj, mouths, cap)
-    # ONTO THE ROUTE (§37 (8)): per route, the cap-Lipschitz UPPER envelope
-    # of the descent values at the stations that carry one — so the ramp is
-    # ONE VALUE PER STATION and not one per vertex.
     by_route: dict[int, list[tuple[float, int]]] = {}
     for v in set(owned) | set(mouths):
         f_ = frame.get(v)
         if f_ is not None:
             by_route.setdefault(f_[0], []).append((f_[1], v))
+    for items in by_route.values():
+        items.sort()
+    # THE HIGHER ENVELOPE OF THE MOUTHS (§37 (6)), EACH RAMP AT THE GRADE IT
+    # IS BUILT AT (owner RULINGS 2026-10-09c (2b), ``airport/road_descent``):
+    # the design grade, steepened toward the cap only where the run the
+    # road has cannot fit it.  ``g`` is the highest ramp standing over a
+    # vertex.
+    lane = float(prof_f.lane_width_m)
+    floor_of = _floors(pm, owned, frame, ways)
+
+    def _level(v: int) -> float | None:
+        return mouths[v] if v in mouths else floor_of.get(v)
+
+    def _route_end(v: int) -> tuple | None:
+        """(route, which end) where ``v`` stands within a lane width of its
+        route's first or last station — ``reach_contacts``' END."""
+        f_ = frame.get(v)
+        items = by_route.get(f_[0]) if f_ is not None else None
+        if not items:
+            return ("", v)
+        if f_[1] - items[0][0] <= lane:
+            return (f_[0], 0)
+        return (f_[0], 1) if items[-1][0] - f_[1] <= lane else None
+
+    design = float(rc.ramp_grade)
+    g, reach, ramps = descend(adj, mouths, _level, floor_of, design, cap, lane, _route_end)
+    rep.update(_ramp_figures(ramps, design, cap))
+    joined = _connected(adj, mouths)
+    # ONTO THE ROUTE (§37 (8)): per route, the cap-Lipschitz UPPER envelope
+    # of the descent values at the stations that carry one — so the ramp is
+    # ONE VALUE PER STATION and not one per vertex.
     env: dict[int, dict[float, float]] = {}
     for r, items in by_route.items():
-        items.sort()
         ss = [s_ for s_, _v in items]
         env[r] = _lift(ss, [g.get(v, -math.inf) for _s, v in items], cap)
     targets: dict[int, float] = {}
@@ -738,10 +787,9 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
         if f_ is None or vx.dem_z is None:
             continue
         r, st, _lat = f_
-        w_ = ways.get(r)
-        if w_ is None:
+        if v not in floor_of:
             continue
-        floor = float(w_.at(st))              # the core's clamp AT THAT STATION
+        floor = floor_of[v]                   # the core's clamp AT THAT STATION
         ramp = env.get(r, {}).get(st, -math.inf)
         t = max(floor, ramp)
         targets[v] = t
@@ -755,9 +803,9 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
             rep["max_route_off_vertex_dem_m"], abs(dem_route - float(vx.dem_z)))
         rep["max_clamp_over_dem_m"] = max(rep["max_clamp_over_dem_m"],
                                           abs(floor - dem_route))
-        if v not in g:
+        if v not in joined:
             rep["no_contact"] += 1
-        if ramp > floor + 1e-9:
+        if ramp >= floor + STAND_M:
             rep["on_ramp"] += 1
             rep["max_above_dem_m"] = max(rep["max_above_dem_m"], t - dem_route)
             rep["max_reach_m"] = max(rep["max_reach_m"], reach.get(v, 0.0))

@@ -71,3 +71,60 @@ Frames registered (`docs/frames.jsonl`): the seven `sw8_<ICAO>.osm` patches, bas
 * Captures on the merged head for all seven (`<scratch>/pads67/cap/<ICAO>.pkl`), `pad_frontage_step` pairs and edge reads done.
 * Replay arms so far: CYXY and SPJC `--design-weight frontage_step_max_m=99` (every pad|groundside pair armed);
   HECA `--drop-generator pad_slope_ceiling` (building75).
+
+## Step 3b — THE EDGE READ (`tools/pad_edge_read.py` on `sw8_<ICAO>.v2/<ICAO>.graded.json`, DEM off the merged-head captures)
+
+Flag: anything standing > 1 m off the rim within 10 m. Stand-off 3 m (= `pad_frontage_gs`'s own `pad_frontage_m`).
+Cells: runs / vertices / metres of rim / worst height. Data: `docs/briefs/pads67/edge_<ICAO>.json`, `pclass_<ICAO>.json`.
+
+| | P pavement does not meet the pad | M pavement meets the rim, height beside it | W declared structure | S strip | B BARE (accepted, 09d (1)) |
+|---|---|---|---|---|---|
+| CYXY | 2 / 21 / 157 / 4.8 | 6 / 9 / 9 / 4.0 | 0 | 3 / 6 / 14 / 2.4 | 5 / 11 / 104 / 3.7 |
+| NLWF | 0 | 2 / 7 / 15 / 12.7 | 0 | 1 / 3 / 11 / 11.1 | 2 / 13 / 40 / 12.7 |
+| KASE | 0 | 2 / 2 / 0 / 1.1 | 0 | 0 | 4 / 15 / 368 / 8.7 |
+| SPJC | 6 / 7 / 32 / 4.1 | 26 / 61 / 874 / 7.7 | 0 | 1 / 1 / 0 / 2.1 | 33 / 167 / 3,512 / 7.0 |
+| KCLT | 17 / 27 / 99 / 6.4 | 101 / 239 / 1,181 / 6.0 | 0 | 4 / 6 / 18 / 8.2 | 83 / 361 / 3,682 / 14.7 |
+| HECA | 97 / 199 / 1,441 / 10.1 | 254 / 1,217 / 9,310 / 13.9 | 0 | 1 / 1 / 0 / 1.8 | 331 / 1,965 / 17,616 / 9.8 |
+| OTHH | 0 | 49 / 276 / 560 / 5.3 | 33 / 250 / 385 / 4.8 (basin floors, tunnel ramps, wall-corridor ramps beside `building6`) | 0 | 29 / 205 / 208 / 4.8 |
+
+The P runs by what the ENGINE says of the pad|cell pair (`pclass.py`: `pad_frontage_step.py` pairs off the capture, the sidecar's
+`platforms`, `cluster_pads`, `gap_pieces`, `terrace_joints`):
+
+| class | CYXY | SPJC | KCLT | HECA | what it is |
+|---|---|---|---|---|---|
+| T28 | 2 (157 m; +4.02, +3.60) | 2 (+3.89, +3.22) | 2 (−3.17, −2.27) | 1 (+1.06) | a §28 (6) pair HELD AS A TERRACE: groundside-frontage DEM minus airside-frontage DEM > `frontage_step_max_m` 2.4 (RULINGS 13o / 13p / 18c (1)); unwelded, 0.7–2 m sliver |
+| ARMED | 0 | 0 | 2 (−1.60, −1.01) | 1 (66 m, +2.70) | a §28 pair the engine ARMS (DEM step < 2.4) that still stands > 1 m off in the patch |
+| GS-NEAR | 0 | 3 | 10 (71 m) | 16 (570 m) | groundside lot / road 0.6–2.6 m off a pad that is NOT in the §28 population — at HECA every one is a pad with NO platform record (no airside frontage), seated by its object cluster's level or its own DEM |
+| GAP | 0 | 0 | 0 | 50 (339 m, 23 pads) | a late-stage gap part ~1.5 m off the pad at another level: 30 `lot` parts, 9 `step` parts, 1 `ramp`, 10 un-cut |
+| GS-TOUCH | 0 | 0 | 0 | 1 (`building4/landing4` ⟂ `dsf:pol10`, 1.50 m at 5 %) | welded groundside cell leaving the rim |
+| AIR-NEAR | 0 | 0 | 0 | 7 (231 m) | apron 1–2.5 m off a pad with no platform record |
+| AIR-TOUCH | 0 | 1 (1.08 m, 38 %) | 3 (1.27–1.28 m, 18–24 %) | 21 (232 m; 17 pads; 6–7.9 m, 75–250 %) | the apron welded to the pad leaves it steeply |
+
+### Interventions (replays of the merged-head captures)
+
+* T28, CYXY `--design-weight frontage_step_max_m=99` (both pairs armed): the two P runs go (lots within 0.48 / 0.71 m across the
+  0.74 m sliver), pad seats unchanged (694.895 / 695.864), airside movers 0 in every frame, `hard_conflict` unchanged — and the lots
+  pay: `pav4` dug down to −3.73 m (36 of 67 vertices > 1 m), 11 ring edges over its 5 % cap (6.1 % over 43.8 m); `dsf:pol129` −3.58 m
+  (21 of 23), 10.2 %, 3 edges over 10 %.
+* T28, SPJC same arm: `building24`'s two runs go, seat unchanged (24.352), airside movers 0; `dsf:pol36` −3.87 m, 10.3 % over
+  41.6 m; `dsf:pol37` −3.62 m, 10.3 %.
+  => the airside frontage sets the seat (CYXY reach bands top out at 698.07 / 698.97 against lots at 698.9 / 699.5); the lot
+  cannot weld inside its cap; raising the pad means raising the apron it is welded to.
+* HECA `--drop-generator pad_slope_ceiling` (aimed at `building75`): NOTHING changed there (rim 99.70…100.86, 63 + 20 conflicts) —
+  the rows citing `cluster:unit:41#103` are not that generator's. Mis-aimed; `building75` is NOT attributed by intervention.
+
+### The two open items from pads63
+
+* HECA `building75`, 81 pad-tier conflicts (sw8: 61 `pad_slope_max ceiling` citing `cluster:unit:41#103` + 20 `platform plane`,
+  worst 1.47 m, stage 2). By the record: datum 100.859 (4 airside contacts on `junction:pav98`, emitted 100.86 there); six rim
+  vertices are SHARED with `service_road:small_roads:-20325` (100.57–100.81); the free rim stands at 100.56 = the cluster's level
+  100.557 (main: cluster level 100.861 over 11 rim vertices; branch: 25), and ONE vertex 30.12086521267, 31.41819005825 at 99.70
+  — every conflict over 0.5 m has it as an end, against `pavement_max_grade ceiling`, `road_max_grade pavement fallback`,
+  `road_cross_section`, `groundside_road ramp ceiling`. On main the collar stood between the flat platform and that road.
+* HECA `building147`, six `airside_no_step` rows (sw8: 6 `apron|junction` ways -10218|-10219, 1.63–1.76 % against 1.53–1.58 % over
+  94–135 m, over by 0.12–0.19 m; + the `apron|apron` rate row). The pad's reach band is INVERTED: lo 71.805 (east contact, 29 hops
+  from 05C/23C) > hi 70.263 (west contact, 5 hops from 05L/23R); misfit 0.771 < 1 m → 08d (2) widening, Δ 0.312 pp on `pav39` /
+  `pav39#plateau`, 12,914 rows. Engine and census use the same membership (ALL vertices of a row on a widened face); the six
+  pairs end on a junction vertex outside it. Over-budget ÷ Δ = 38–62 m of route. No taxi `hard_conflict` within 300 m. Reading,
+  NOT proven by intervention: the published pair budget is the unwidened route budget while the per-edge rows along the route
+  inside `pav39` were widened.

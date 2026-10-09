@@ -190,3 +190,15 @@ CYXY, fresh capture on `f1ee9fcc`, `--from classify --emit`: body
 `cf8e9e89ec62` = main's `sw6_CYXY`. HECA and every other airport: no cell is
 spelled `gapapron:` and no caller passes the new keywords, so the build is
 main's by construction (not re-run).
+
+## Handover (2026-10-08 20:30)
+
+* tests at `aa806a2e` (the last code change is `f1ee9fcc`): non-Qt split 8,814
+  passed / 20 skipped / 1 xpassed (144.8 s); `-n0 tests/test_qt_*.py` 311
+  passed; the four gate files 200 passed; `tools/ratchets.py` duplicate +
+  layer PASS (size report: `classify/roles.py` 1,444 -> 1,453, +9).
+* conflict surface with `origin/claude/pads63` (`git merge-tree`):
+  `Ortho4XP/docs/specs/auto-patch-v2/design-surface-spec.md` (content) and
+  `docs/frames.jsonl` (union); `model/planar.py` auto-merges.
+* NO draft PR was opened by the lane (the standing bars forbid it and the
+  repository is public): the master opens it.

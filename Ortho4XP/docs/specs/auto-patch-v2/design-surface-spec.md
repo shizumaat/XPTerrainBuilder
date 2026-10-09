@@ -7525,8 +7525,12 @@ welded by smoothness to the airside fill beside it (`graded_strip` 12.48 /
    to it`; an end nearer than one lane width is the mouth itself and asks
    nothing. Each run is built at its own grade: the branch to a stub the
    cap cannot serve is at the cap (and ends in the air, as before), the
-   contact's other runs are at the design grade. The envelope over a vertex
-   is the highest ramp standing over it.
+   contact's other runs are at the design grade. AS BUILT (`_run`): one
+   shortest-path tree per contact; the hops of the walk to an end that asks
+   more than the design grade are built at that end's grade INSTEAD of the
+   design grade (a steeper branch is under the contact's own design cone
+   everywhere, so a max of the two would change nothing). The envelope
+   over a vertex is the highest CONTACT's ramp standing over it.
 
    (iii) A CONTACT'S CONE ENDS WHERE IT FIRST MEETS THE ROAD'S FLOOR (R1;
    REPLACES the persistent cone the lane kept — `max(floor, z_contact −
@@ -7550,9 +7554,33 @@ welded by smoothness to the airside fill beside it (`graded_strip` 12.48 /
    1,264 → 755 m; longest 148 → 109 m; max reach 594 → 109 m; targets
    lowered at 15 vertices (worst 0.76 m), raised at none. 49 of the 55 stay.
 
-   (iv) THE OPEN INTENT — WHAT GROUND A RAMP MAY STAND OVER (owner question
-   Q1 of lane `rampreview`; until it is answered the engine builds reading
-   A). With (iii) a ramp is still built wherever the floor falls away from
+   (iv) WHAT GROUND A RAMP MAY STAND OVER — RULED B (owner RULINGS
+   2026-10-09d (2): "the road should only be graded where something would
+   cause it to violate it's grade rules"; BUILT by lane `roadramp2`,
+   `airport/road_descent`). TWO RULES, both read from the road's own floor:
+   (a) NO RAMP WHERE THE ROAD CAN LEAVE ITS CONTACT ON ITS FLOOR
+   (`_forced`): a contact's descent AT THE CAP — the steepest the road
+   lawfully may come down — ended at first meet, that stands under
+   `STAND_M` (0.02 m, the hard tolerance) over every floor it reaches,
+   builds no ramp; the road is on its floor from the mouth, as on main.
+   (b) A RAMP NEVER STANDS HIGHER OVER ITS FLOOR THAN WHERE IT LEFT
+   (`_hop`): past the contact's first hop the ramp's height over the floor
+   never grows from one vertex to the next — where the floor falls away
+   faster than the ramp's grade the ramp follows that fall (at the cap at
+   most) and resumes its own grade where the floor lets it close. (b) is
+   the lane's addition (the review did not name it): without it a contact
+   forced by 5 cm at KCLT (mouth 20948) built a 51 m ramp 1.17 m high over
+   a hillside the road could follow. MEASURED on the KCLT capture, no
+   solve: mouths 858, forced 114; ramps of a lane width or more 55 → 38,
+   1,264 → 598 m, longest 148 → 103 m, max reach 594 → 103 m; ramps whose
+   contact is not forced 0. THE `_Shelf` TWIN DID CHANGE, against (iii)'s
+   note: its road ran 20 m on the plateau before the fall, so its cone
+   met the floor at the mouth and the fall is the floor's own (the clamp,
+   at the cap) — the fixture now stands the apron on fill at its own edge,
+   and the plateau shape is `_LateShelf` (no ramp). FOUND, NOT RULED: a
+   fall steeper than the cap BEYOND the first meet is descended by the
+   clamp at the cap, not at the design grade ((v) R3 (b) keeps the clamp).
+   THE QUESTION AS THE REVIEW PUT IT, kept for the record. With (iii) a ramp is still built wherever the floor falls away from
    the contact faster than the design grade — INCLUDING ground the road
    could lawfully follow at its own cap (a 5–10 % hillside, the clamp
    inactive). MEASURED (KCLT, `rampreview/ground_probe.py`): of the 49

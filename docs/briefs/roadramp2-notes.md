@@ -73,3 +73,52 @@ THE FOLLOWABLE-GROUND CHECK: one descent per mouth at the CAP ended at first mee
 FORCED when it still stands >= 0.02 m over a road floor. Mouths 858, forced 114; ramps whose
 contact is not forced: **0** of 38. 14 ramps have a run steeper than design, 9 a run at the cap
 (stub ends 4–8 m away), 2 are at the cap on every run.
+
+## Step 3 — KCLT replay pair, closing build, suites
+
+Replay pair on the registered capture `roadramp484/KCLT.pkl` (`--from constraints --emit
+--verify --workers 3`): arm A = the main-tree replay (body `0b1566de77d5` = main `sw7_KCLT`),
+arm B = this tree @ `ca6b2e54`, body `c558693ad8bd`, solve optimal, verify DEFECT families all
+zero. `airside_value_delta --tol 0.02` + each tree's own `census.py` (`<frames>/roadramp2/
+analyze_KCLT.txt`, `avd_KCLT.txt`):
+
+| | main (A) | `2676e011` | now (B) |
+|---|---|---|---|
+| ramps >= a lane width / length / longest | 24 / 231 m / 24 m | 55 / 1,264 m / 148 m | 38 / 598 m / 103 m |
+| max reach | 540 m | 594 m | 103 m |
+| `road_cross_section` (worst) | 767 (2.23) | 800 (2.29) | **765 (2.23)** |
+| CRITICAL motion / visual | 5 / 1,974 | 5 / — | 5 / 1,974 |
+| adjudicated airside | 3,355 | — | 3,355 |
+| `pavement_over_road_cap` (worst) | 18 (4.47) | 17 (3.18) | 17 (3.18) |
+| solve-owned (runway, taxi, apron) movers > 0.02 m | — | 0 | **0** |
+| service_road refs / nodes moved, worst | — | 55 / 306, 1.04 m | 45 / 255, 0.91 m |
+| `dsf:pol48` | — | kerb down 0.6–0.8 m | 15 / 74 nodes, worst 0.08 m |
+| tunnel_ramp nodes > 0.02 m, worst | — | 7, 0.13 m | 5, 0.13 m |
+
+Row-side receivers: 68 nodes, worst 0.45 m (`adjacent_ground:taxi:F:zone2#156`, a graded strip
+welded to a moved road), buildings 52 nodes <= 0.06 m, groundside pavement 71 nodes <= 0.18 m.
+`small_roads:-7031#7/#8` no longer move; `-7031#1` moves 0.84 m (3 of 7 nodes, a 5 % ramp).
+NOT RE-READ: that the 0.13 m tunnel_ramp node is the review's −16259 (same ring count and worst
+value as the review's accepted band non-uniqueness; the node id was not re-joined here).
+
+Closing build `roadramp2_KCLT` (harness, @ `ca6b2e54`): rc 0, optimal, 370.5 s single run, body
+`c558693ad8bd` — byte-equal to replay arm B. Frame registered (`frames.py list KCLT`, lane
+roadramp2, copied to `<frames>/roadramp2/`). The ARTIFACT LEDGER REFUSED the store (key
+`8d0e1ad5865e`): I edited the spec while the build ran, so the dirty flag moved. Code tree
+unchanged; the body equals the replay's. No second build was run.
+
+Suites @ this tree: non-Qt `-n 4` 9,059 passed / 20 skipped / 1 xpassed
+(`test_v2othhdet::test_read_wall_corridors_is_input_order_free`, not this lane's); Qt `-n0`
+311 passed; console_encoding + windows_text_io + v1_retired + no_airport_specific_code 202
+passed. `tools/ratchets.py`: DUPLICATE RATCHET PASS, LAYER RATCHET PASS; size warning on a
+touched-package file: `airport/road_ramp.py` 1,434 -> 1,527 (+93, all from `2676e011`; this
+lane did not edit it). Net lines this lane (src + tests, since the merges): +330 / −106; spec
+−1,343 net (the stale copy). New public symbol: `road_descent.STAND_M`; `envelope` gained
+`floors=`; ramp records gained `steepest`; report key `max_join_grade` removed.
+
+NOT DONE: HECA / the other five airports not replayed or built (the brief's closing test is
+KCLT; the review asked for HECA after F1–F3 — the master's sweep); the F1-only figures
+(49 / 755 m) not reproduced in isolation; the lot-step follow-up R5 (`gap:8/s0/lot`) and the
+strip follow-up F5 untouched; the probe (`<frames>/roadramp2/probe.py`) is a third use of the
+`ramp_probe` pattern and is NOT promoted into `tools/` (owed: a `v2_solve_replay --ramp-probe`
+or an INDEX row).

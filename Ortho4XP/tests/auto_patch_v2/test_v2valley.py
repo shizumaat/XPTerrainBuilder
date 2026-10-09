@@ -234,3 +234,41 @@ def test_a_round_cap_is_named_first_and_fails_nothing():
     assert rec["qp_exits"] == {"round_cap": 1, "no_descent": 1, "optimal": 1}
     assert rec["lag_settled"] is False and rec["hard_settled"] is rep.hard_settled
     assert "HIT THE ROUND CAP" in rep.qp_line()
+
+
+def test_a_trendless_centreline_takes_no_membrane_row(stub_problem, law):
+    """§61 (1): the membrane's class is the OFF-centreline leftovers.  On a
+    map the taxi publisher never ran over (no trend, no foot) the whole
+    taxi sheet is unlevelled — the edges take the membrane, the centreline
+    vertices do NOT; they stay the neighbours the edges are levelled with."""
+    pm, cs = stub_problem
+    bare = dc.replace(pm, taxi_trend_z={}, taxi_xsec={})
+    bp = assemble(bare, cs, law, DesignReport(),
+                  stage_roles=None)
+    chain = {v for bl in bare.breaklines.values() if bl.kind == "taxi_centerline"
+             for v in bl.vertices(bare)}
+    owners = [o[1] for o in bp.rows.owner if o and o[0] == "free_membrane"]
+    assert owners, "the trend-less taxi edges take the membrane"
+    assert not (set(owners) & chain), "a centreline vertex owns no membrane row"
+    assert not [o for o in bp.rows.owner if o and o[0] in ("taxi_xsec", "taxi_trend")]
+
+
+def test_an_old_pickle_names_the_fields_it_lacks(stub_problem):
+    """A map pickled before ``taxi_xsec`` existed loads, reads the channel
+    EMPTY — and SAYS so, by name, so nothing reads that as "no rows"."""
+    import pickle
+    import warnings
+    pm, _cs = stub_problem
+    assert pm.taxi_xsec and pm.unpickled_defaults == ()
+    fresh = pickle.loads(pickle.dumps(pm))
+    assert fresh.unpickled_defaults == () and fresh.taxi_xsec == pm.taxi_xsec
+    state = dict(pm.__dict__)
+    state.pop("taxi_xsec")
+    old = object.__new__(type(pm))
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        old.__setstate__(state)
+    assert old.taxi_xsec == {} and old.unpickled_defaults == ("taxi_xsec",)
+    assert any("taxi_xsec" in str(w.message) for w in seen)
+    # and it survives ``dataclasses.replace`` (the frame-twin failure)
+    assert dc.replace(old, icao=old.icao).taxi_xsec == {}

@@ -33,6 +33,10 @@ from .rows import _Reduction, _Rows, _level_row_columns
 
 __all__ = ["cross_section_rows", "membrane_rows"]
 
+#: the breakline kind whose chains are the taxi centrelines (the kind
+#: ``solve/design_assemble`` prices ``taxi_profile`` along)
+TAXI_CENTERLINE = "taxi_centerline"
+
 
 def cross_section_rows(planar: PlanarMap, rows: _Rows, red: _Reduction,
                        weight: float) -> set[int]:
@@ -93,7 +97,8 @@ def membrane_rows(planar: PlanarMap, law: Law, rows: _Rows,
     (:func:`rows._level_row_columns`) and that ``named`` (the cross-section
     rows) does not hold takes one first-difference row ``z_c − z_u = 0`` to
     each bending neighbour ``u``; a pair of two such columns is written
-    once.  Returns the rows added.
+    once.  A vertex ON a taxi centreline is never in the class.  Returns
+    the rows added.
 
     WHICH COLUMNS.  In the AIRSIDE STAGE (``airside_stage``: §20b stage 1,
     whose every column is airside pavement or its strip) it is EVERY such
@@ -110,6 +115,15 @@ def membrane_rows(planar: PlanarMap, law: Law, rows: _Rows,
     lev = _level_row_columns(rows, body, red.n_cols)
     if named:
         lev[sorted(named)] = True
+    # A CENTRELINE VERTEX IS NOT IN THE CLASS (§61 (1): the membrane is for
+    # the OFF-centreline leftovers).  A chain vertex with no trend row keeps
+    # what it had — its ``taxi_profile`` curvature and the sheet — and still
+    # stands as the NEIGHBOUR an edge beside it is levelled with.
+    for bl in planar.breaklines.values():
+        if bl.kind == TAXI_CENTERLINE:
+            for v in bl.vertices(planar):
+                if red.col[v] >= 0:
+                    lev[int(red.col[v])] = True
     rep_v: dict[int, int] = {}
     free = np.zeros(red.n_cols, dtype=bool)
     for v in range(len(planar.vertices)):    # ids are dense: lowest id speaks

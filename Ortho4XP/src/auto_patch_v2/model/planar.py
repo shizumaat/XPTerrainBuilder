@@ -590,7 +590,9 @@ class PlanarMap:
         """A map PICKLED BEFORE A FIELD EXISTED reads that field's default
         (a registered capture or ``--solved-out`` frame outlives the tree
         that wrote it; without this ``dataclasses.replace`` on such a map
-        dies on the first field added since)."""
+        dies on the first field added since).  The names are RECORDED and
+        WARNED: a default is not the stage's answer."""
+        filled = []
         for f in _dc.fields(self):
             if f.name in state:
                 continue
@@ -598,7 +600,28 @@ class PlanarMap:
                 state[f.name] = f.default
             elif f.default_factory is not _dc.MISSING:
                 state[f.name] = f.default_factory()
+            else:
+                continue
+            filled.append(f.name)
         self.__dict__.update(state)
+        # NAMED, never silent: a frame without ``taxi_xsec`` would otherwise
+        # read as "zero cross-section rows" (:attr:`unpickled_defaults`)
+        self.__dict__["_unpickled_defaults"] = tuple(filled)
+        if filled:
+            import warnings
+            warnings.warn(
+                f"PlanarMap {state.get('icao', '?')}: pickled before "
+                f"{len(filled)} field(s) existed — read at their defaults: "
+                f"{', '.join(filled)}. A channel published at capture time "
+                f"is EMPTY here; re-derive the stage that publishes it "
+                f"(--from classify / planar) before reading it.",
+                stacklevel=2)
+
+    @property
+    def unpickled_defaults(self) -> tuple[str, ...]:
+        """The fields an older pickle did not carry and this map reads at
+        their defaults (empty for a map built by this tree)."""
+        return tuple(self.__dict__.get("_unpickled_defaults", ()))
 
     def ribbon_vertices(self) -> frozenset[int]:
         """Every vertex of a mapped-road ribbon face (:func:`is_osm_ribbon_ref`)

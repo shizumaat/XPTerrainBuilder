@@ -41,7 +41,7 @@ and the projection onto it is an assignment — the zone projection's own
 argument (RULINGS 2026-09-12ag).  Every weld the feasibility LP did not
 relax, off its datum by under the floor, takes the datum; the pavement gives
 by that much at the contact (08d (2)) and the contact is recorded with it.
-A relaxed weld, a runway-family contact and a contact two blocks hold are
+A relaxed weld, a runway-family or pinned contact and a contact two blocks hold are
 left as the solve gave them.
 
 The census reads the same thing back (``platforms[].weld_widened`` — the

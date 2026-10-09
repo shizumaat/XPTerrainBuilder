@@ -454,3 +454,32 @@ def test_a_conforming_pad_is_held_flat(law, built_full):
         assert max(abs(z[v] - D) for v in interior) <= tol + 1e-6
     assert off <= contacts
     assert bool(off) == bool(rec["needs_split"])
+
+def test_a_weld_left_off_its_datum_by_the_solve_is_sealed_and_recorded(law, built):
+    """Owner RULINGS 2026-10-08c (4) / 08d (2) (``constraints/weld_floor``):
+    after the solve every hard weld stands on its datum within the
+    tolerance; a contact the solve left 0.05 m off is put ON it by the weld
+    projection (``HoldPass.seal``) and recorded in its block's
+    ``weld_widened`` with the move; a runway-family contact is never moved."""
+    from auto_patch_v2.model.platform import HELD
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    hp = hold_pass(pm, lw)
+    sol, rep = solve_design(pm, cs, lw, hold=hp)
+    z = np.asarray(sol.z, float)
+    welds = hp.result.welds
+    assert welds and "weld_seal" in rep.stages["stage1a"]
+    assert max(abs(z[c] - z[dv]) for c, dv, _p in welds) <= tol + 1e-9
+    levels = {int(v): float(z[v]) for v in range(len(z))}
+    c, dv, pref = welds[0]
+    levels[c] += 0.05
+    got = hp.seal(levels)
+    assert got["contacts"] == 1 and abs(got["max_m"] - 0.05) < 1e-9
+    assert levels[c] == levels[dv]
+    w = HELD[pref]["weld_widened"]
+    assert w["sealed"] == 1 and [*pm.vertices[c].key, 0.05] in w["contacts"]
+    assert hp.seal(levels)["contacts"] == 0                       # idempotent
+    hp.result = _dc.replace(hp.result, never=frozenset({c}))
+    levels[c] += 0.05
+    assert hp.seal(levels)["contacts"] == 0 and levels[c] != levels[dv]

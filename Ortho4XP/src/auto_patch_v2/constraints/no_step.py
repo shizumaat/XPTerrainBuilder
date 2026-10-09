@@ -432,6 +432,8 @@ class HoldInterval:
     never: frozenset = frozenset()
     #: every hard weld ``(contact, datum column, block)`` (``weld_floor.seal_welds``)
     welds: tuple = ()
+    #: the pinned vertices (a pinned contact is never sealed: its pin leads)
+    pinned: frozenset = frozenset()
 
 
 def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
@@ -620,10 +622,17 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         if widened:
             # only the contacts that close the set give, each by what it is
             # short of the level (at most the misfit: under the floor)
-            D = d_fit
-            gives = contact_gives(D, front_c, lo_c, hi_c, bands_c, tol_h)
-            for c, gv in gives.items():
-                widen[c] = max(gv, widen.get(c, 0.0))
+            gives = contact_gives(d_fit, front_c, lo_c, hi_c, bands_c, tol_h)
+            if any(c in pins or c in rw_v for c in gives):
+                # a closing contact that is itself a FIXED point (a pin, a
+                # runway column) cannot give: no pavement cap holds it off
+                # the pad.  The block is left to the solve as before (its
+                # misfit recorded; the warning is the diagnostic)
+                widened, gives = False, {}
+            else:
+                D = d_fit
+                for c, gv in gives.items():
+                    widen[c] = max(gv, widen.get(c, 0.0))
         blocks[pref] = {"dv": dv, "weld": weld, "n_all": n_all, "n_ramp": n_ramp,
                         "I0": (lo, hi), "empty0": lo > hi, "med": med, "D": D,
                         "misfit": misfit, "widened": widened, "front_c": front_c,
@@ -830,7 +839,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     return HoldInterval(rows, blocks, runways, columns, stats, fronting, fref,
                         dict(widen), floor_m,
                         frozenset(runway_membership(planar, law, set(planar.vertices))),
-                        welds)
+                        welds, frozenset(pins))
 
 
 @_dc.dataclass
@@ -908,7 +917,7 @@ class HoldPass:
                       if str(r.get("ruling", "")).startswith(HOLD_RULING)
                       for k in (r.get("vertices") or ())}
         pv = self.planar.vertices
-        skip = set(res.never) | {c for c, _dv, _p in res.welds
+        skip = set(res.never) | set(res.pinned) | {c for c, _dv, _p in res.welds
                                  if tuple(pv[c].key) in relaxed_ll}
         try:
             got = seal_welds(res.welds, levels, z, res.floor_m,

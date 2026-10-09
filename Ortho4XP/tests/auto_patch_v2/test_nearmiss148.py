@@ -198,6 +198,10 @@ def test_an_unreachable_near_miss_contact_is_a_reported_needs_split(law, built,
     assert min(abs(D - 700.5), abs(D - 701.5)) <= near_tol, D
     kept = rim if abs(D - 700.5) <= near_tol else near
     assert max(abs(z[v] - D) for v in kept) <= near_tol
+    # RULINGS 2026-10-08d (2): the 0.5 m misfit is under the terrace floor, but
+    # the contacts that close the set are PINNED — no pavement cap holds them
+    # off the pad, so nothing is widened and the block stays the solve's
+    assert rec["misfit_m"] == 0.5 and rec["weld_widened"] is None
     rel = {tuple(k) for k in rec["released_ll"]}
     lost = near if kept is rim else rim
     assert {tuple(pm.vertices[q].key) for q in lost} & rel

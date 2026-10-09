@@ -7514,14 +7514,18 @@ welded by smoothness to the airside fill beside it (`graded_strip` 12.48 /
    of the ramps, each at its own grade. The two stage-2 ramps of the same
    road follow the same rule with the run they have: the reach seed of
    §37 (10) / 27a (11) (`z_edge − grade × s`, the run = the vertices that
-   contact governs) and the bare exit of a terraced ribbon (03b:
+   contact governs), the bare exit of a terraced ribbon (03b:
    `clip(target, L ± grade × d)`, the run = the bare stretch beyond the last
-   bordered station). The rows price the ramp at the grade it was built at:
-   they are the target itself and its ceiling `target + visual_m`. NOT
-   changed, each a ceiling or a feasibility test and not a grade built to:
-   the one-way contact row `z ≤ z_edge + cap × s` (§37 (10) (1)), the clip
-   toward a coverage-edge join (§37 (9)), the gate span `2h / cap` (03l),
-   the core clamp that is the floor (13be), §37 (1)'s longitudinal cap.
+   bordered station, its end level the road's own target there or the pin
+   of a coverage-edge join standing in it) and that ribbon's reach of a
+   coverage-edge join (03b: `clip(profile, z_join ± grade × d)`, the ends =
+   every bordered level of the route — the design grade where they all
+   stand inside the join's cone). The rows price the ramp at the grade it
+   was built at: they are the target itself and its ceiling `target +
+   visual_m`. NOT changed, each a ceiling or a feasibility test and not a
+   grade built to: the one-way contact row `z ≤ z_edge + cap × s`
+   (§37 (10) (1)), the gate span `2h / cap` (03l), the core clamp that is
+   the floor (13be), §37 (1)'s longitudinal cap.
    Code: `airport/road_descent` (`descend`), `constraints/road_ramp`
    (`_run_grade`). The target is a DESIGN TARGET (§31 (3)
    class, design-target weight — not the `preferred_road_z` soft fit, which
@@ -9834,14 +9838,18 @@ welded by smoothness to the airside fill beside it (`graded_strip` 12.48 /
    of the ramps, each at its own grade. The two stage-2 ramps of the same
    road follow the same rule with the run they have: the reach seed of
    §37 (10) / 27a (11) (`z_edge − grade × s`, the run = the vertices that
-   contact governs) and the bare exit of a terraced ribbon (03b:
+   contact governs), the bare exit of a terraced ribbon (03b:
    `clip(target, L ± grade × d)`, the run = the bare stretch beyond the last
-   bordered station). The rows price the ramp at the grade it was built at:
-   they are the target itself and its ceiling `target + visual_m`. NOT
-   changed, each a ceiling or a feasibility test and not a grade built to:
-   the one-way contact row `z ≤ z_edge + cap × s` (§37 (10) (1)), the clip
-   toward a coverage-edge join (§37 (9)), the gate span `2h / cap` (03l),
-   the core clamp that is the floor (13be), §37 (1)'s longitudinal cap.
+   bordered station, its end level the road's own target there or the pin
+   of a coverage-edge join standing in it) and that ribbon's reach of a
+   coverage-edge join (03b: `clip(profile, z_join ± grade × d)`, the ends =
+   every bordered level of the route — the design grade where they all
+   stand inside the join's cone). The rows price the ramp at the grade it
+   was built at: they are the target itself and its ceiling `target +
+   visual_m`. NOT changed, each a ceiling or a feasibility test and not a
+   grade built to: the one-way contact row `z ≤ z_edge + cap × s`
+   (§37 (10) (1)), the gate span `2h / cap` (03l), the core clamp that is
+   the floor (13be), §37 (1)'s longitudinal cap.
    Code: `airport/road_descent` (`descend`), `constraints/road_ramp`
    (`_run_grade`). The target is a DESIGN TARGET (§31 (3)
    class, design-target weight — not the `preferred_road_z` soft fit, which

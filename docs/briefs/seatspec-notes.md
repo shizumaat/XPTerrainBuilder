@@ -115,3 +115,23 @@ road vertex inside ~1 m; with it gone the §20 senior fit (priced) lets the pad 
 cannot land alone: the pad|pavement pair across the stand-off must be re-stated as the SEAT relation in the same step —
 one-way, HARD, the pad following its one leader (R-C rule 1), the other faces following the pad (R-C rule 2) — and the
 fallback excludes every pad vertex. (why-hard on the arm and a why at building15 queued: `whyA1.sh`.)
+
+## Step 6 — ARM E (`armE.py`: `apron_cross_ring`, body chords across the rings of one apron face; HECA, 349 s solve)
+
+Generator: 13 faces with holes, 13,197 cross-ring pairs inside the body gate, 5,695 kept by the face cover (hard apron cap +
+1 % preference each). Results (`cmp_arm.py base armE`, `airside_value_delta --tol 0.02`):
+* **AIR-TOUCH 21 / 232 m -> 0 / 0; AIR-NEAR 7 / 231 m -> 4 / 46 m**; GS-NEAR 15 = 15, ARMED 1 = 1, GAP 118 -> 116.
+* hard_conflict 175 / 108 / 62 -> 180 / 88 / 62 (pad −20: the objpav402 pads' relaxed rows).
+* held datums moved > 0.02 m: 32 of 47 — the sheet's pads come to ONE grade: building100 101.25 -> 93.79, building98 103.50
+  -> 94.43, building117 101.74 -> 95.12, building68 92.11 -> 85.35, building64 86.37 -> 85.52, building84 / 83 85.59 -> 84.06 /
+  84.08, building169 74.63 -> 75.63. Owner site z−DEM: base mean −6.02 (min −8.83 max −1.28) -> arm −8.55 (−8.74 .. −8.28):
+  the HIGH pads came DOWN to the sheet's level, the sheet did not come up — its level is the 1 % `apron_preference` trend
+  chained 1.2 km to the taxi reach band at 77.21 (the base's building101 chain), so the terminal row now stands 8.5 m under
+  the DEM in a cutting, uniformly.
+* airside value delta (solve-owned): **runway 113 nodes, worst 0.14 m at 30.13264540548,31.39706615547** (1.7 km from the
+  sheet; over 09b's accepted 0.1 m), taxi 2,347 (worst 0.82 m), apron 2,120 (worst 2.17 m at 30.12212,31.42030 = the sheet),
+  strip 1,295 (0.85). 5,695 new hard rows re-solve stage 1 whole; the far runway movers are the §61 re-levelling class
+  (the owner's open question), not a row of this arm — stated, not resolved.
+READING: R-E does what 08c (4) asks (every pad on one sheet seated from one reach interval; no step at any rim) and exposes
+the next intent question: the sheet's LEVEL. Today's law lets the 1 % preference trend carry it to the taxiway's level
+8.5 m under the terrain; the DEM-plane term does not hold it up. Q2 is rewritten on that.

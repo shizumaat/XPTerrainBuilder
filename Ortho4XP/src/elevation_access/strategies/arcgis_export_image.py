@@ -523,7 +523,8 @@ class ArcgisExportImageStrategy:
         completed = subprocess.run(
             lerc_worker_argv(scratch, decoded),
             capture_output=True, timeout=600,
-            **O4_Console_Encoding.child_console_pipe())
+            **O4_Console_Encoding.child_console_pipe(),
+            **UI.external_tool_keyword_arguments())
         if completed.returncode != 0:
             raise ProviderUnavailable(
                 "the LERC chunk decode failed: "

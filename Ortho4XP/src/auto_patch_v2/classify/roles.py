@@ -818,13 +818,20 @@ def _source_for(face: Polygon, tree: STRtree | None, ids: list[str],
     return best if best is not None and best_a >= 0.5 * face.area else None
 
 
-def _road_evidence(scored, ev: Evidence, rules: Rules) -> set[int]:
+def _road_evidence(scored, ev: Evidence, rules: Rules, *,
+                   touch_tol_m: float | None = None,
+                   touch_roles: _t.Collection[str] = ("service_road", "parking_lot")
+                   ) -> set[int]:
     """Indices of scored faces a road reaches: a road/route centreline
-    within ``on_tol_m``, or a strip/lot face touching within touch_tol."""
+    within ``on_tol_m``, or a ``touch_roles`` face touching within
+    ``touch_tol_m`` (``groundside.touch_tol_m`` unless given).  The two
+    keywords are §59 (1)'s: a gap piece stands ``gap_mint.standoff_m`` off
+    every road face, and is read against the whole road family."""
     tol = rules.cells.on_tol_m
+    touch = rules.groundside.touch_tol_m if touch_tol_m is None else float(touch_tol_m)
     roads = [c.line for c in ev.truck_chains + ev.road_chains]
     road_tree = STRtree(roads) if roads else None
-    rl = [(i, s[0]) for i, s in enumerate(scored) if s[1] in ("service_road", "parking_lot")]
+    rl = [(i, s[0]) for i, s in enumerate(scored) if s[1] in touch_roles]
     rl_tree = STRtree([p for _i, p in rl]) if rl else None
     out: set[int] = set()
     for i, s in enumerate(scored):
@@ -835,9 +842,8 @@ def _road_evidence(scored, ev: Evidence, rules: Rules) -> set[int]:
             out.add(i)
             continue
         if rl_tree is not None and any(
-                rl[int(j)][1].distance(face) <= rules.groundside.touch_tol_m
-                for j in rl_tree.query(face.buffer(rules.groundside.touch_tol_m),
-                                       predicate="intersects")):
+                rl[int(j)][1].distance(face) <= touch
+                for j in rl_tree.query(face.buffer(touch), predicate="intersects")):
             out.add(i)
     return out
 

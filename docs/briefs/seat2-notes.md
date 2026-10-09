@@ -246,3 +246,26 @@ apron rows re-level the sheets, the sheets' neighbours (3,234 mover nodes on apr
 (0.83 m) and, through them, the runway's own pass-1a level. Not a pad pulling an apron and not a row on the runway.
 The intervention that would attribute it — pass 1a's runway columns pinned at the base's pass-1a values with R-E on —
 was not run (lane out of budget): OWED.
+
+`--null-change` beside it: the merged BASE reads `pass1a 7/0/0.136 pass1b 9/0/0.148 stage2 9/0/0.148` (inside the bar
+20 / 0); arm e reads `pass1 13/1/0.914 pass2 164/0/0.107 pass3 13/0/0.159 stage2 15/0/0.159 BAR MISSED`. With R-E's
+rows in (13,197 cross-ring pairs inside the gate at HECA) a null change moves one vertex 0.91 m in stage 1 and 164
+vertices in one pass: the stage is NOT null-stable under R-E, with §61 in. The far-field movers are of that class.
+
+## Closing build — `seat2_HECA` (the lane tip: main 1e524b12 + R-D rule 1; 522 s, rc 0, write guard clean)
+
+body `079adc8521f9…`; frames registered under lane `seat2` (`frames/seat2/seat2_HECA.osm` + sidecar, `HECA.graded.json`).
+Against the merged-tree replay pair `m`: 0 value movers in every frame, the same classes — P:GAP 17 / 156 m, GS-NEAR
+15 / 564, AIR-TOUCH 21 / 232, AIR-NEAR 7 / 231, ARMED 1 / 66, T28 1 — held datums 0 of 47 moved, `hard_conflict`
+254 / 104 / 64 = . Census of the build: adjudicated airside 12,022; CRITICAL motion 3 (`strip_arc` 2,
+`vertex_to_edge_step` 1); CRITICAL visual 1,962 (`hairline_pair` 1,903, `mid_edge_step` 26, `strip_seam_tear` 22,
+`vertex_to_edge_step` 5, `adjacent_ground_step` 4, `groundside_cutback` 2); `pavement_over_road_cap` 23,
+`road_cross_section` 501. NOT attributed: the one CRITICAL-motion `vertex_to_edge_step` row — the pre-merge R-D arm
+read motion 2 = 2 against its base, so it arrives with the merge of main or with the build path, and this lane has no
+main-only census of this tree to say which.
+
+## Suites (merged tree with R-D rule 1 and R-E in the working tree)
+
+Full non-Qt `-n 6`: 9,166 passed, 19 skipped, 1 xfailed, 1 xpassed. Qt `-n0`: 311 passed. `tools/ratchets.py`:
+duplicate ratchet PASS, layer ratchet PASS. (The earlier run with R-B in the tree: 5 red, all `reach_seed_rewrite`
+twins on stub maps `frontage_release` cannot read — R-B is not on the lane branch.)

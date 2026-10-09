@@ -115,3 +115,61 @@ across the stand-off; the last stage relaxes 7 such rows (worst 8.98 m).
 Not a §60 intake defect: the gap stage (§53 (13) / §55) has never met a basin
 (HECA's sheet touches none). The rule a part beside a basin should follow
 (the rim, not the floor; or no follow across a wall) is the spec author's.
+
+### OTHH harness build `surf337_OTHH` (single run, `--no-ledger`, idle machine: load 1.3)
+
+rc 0; body `b58e5698e7c5` = the replay arm `B`. PATCH BUILD **510.1 s** (main
+`sw6_OTHH` 435.3 s; bar 660 s), harness wall 701.5 s (main 619.8 s).
+
+| phase (s) | load | partition | classify | planar | constraints | solve | late_stage | emit | verify | total |
+|---|---|---|---|---|---|---|---|---|---|---|
+| main `sw6_OTHH` | 25.0 | 129.4 | 45.8 | 93.0 | 37.8 | 78.0 | — | 9.2 | 10.6 | 435.3 |
+| `surf337_OTHH` | 23.7 | 126.8 | 48.1 | 92.1 | 37.8 | 78.3 | 75.2 | 10.1 | 11.1 | 510.0 |
+
+Late stage: 131 pieces → 147 published records (92 whole, 11 lot, 15 step,
+29 apron), 17 knives; `gap_follow` 2,186 rows, 632 lot rows, 7 relaxed
+(worst 8.98 m — the basin parts).
+
+### FOUND, NOT FIXED (2) — the rebake plan changes for six units (blocking for OTHH)
+
+`OTHH.rebake.json` vs main's: `authored_seats`, `abutments`, `connectors`,
+`contacts`, `flat`, `skipped` identical; `counts.deck_end_lines` 7 → 1 and SIX
+units differ. Four bus bridges lose their deck-END seat and take one datum:
+`OTHH_Bridge_05_LOD0_000` (unit:0, 25.248352, 51.615297) `deck_ends` → none,
+`deck_datum_z` none → 3.96; `OTHH_Bridge_04_LOD0_000` (unit:4, 25.251561,
+51.620307) → 3.885; `OTHH_Bridge_02_CLUTTER_LOD0_000` (unit:7, 25.252264,
+51.617813) → 3.96; `OTHH_Bridge_01_CLUTTER_LOD0_000` (unit:16, 25.255677,
+51.616821) → 3.63. Two datums move: `OTHH_TerminalRoads_01_000` (unit:80)
+4.61 → 4.22, `OTHH_Emiri_Terminal_01` (unit:14) 3.97 → 3.96. The deck reader
+of the object stage reads the cells under a deck; a gap piece there turns a
+free-standing deck (seated by its end lines) into a deck over pavement. NOT in
+§60 (5)'s consumer table — the claim "every downstream reader sees only more
+or larger §53 pieces" fails for the rebake plan's deck readers. Not
+attributed further (no intervention run); HECA's plan is identical to main's.
+
+## Step 6 — HECA (fresh capture, 135 s; `CTL` = stripped; pairs `--gap-free` / `--late-from`)
+
+* CONTROL = MAIN: stripped pair body `ad4ef9685c5f` = main's `swga_HECA`.
+  ARM body `75c751a9dd95` = the CLOSING BUILD `surf337_HECA` (rc 0, patch
+  build 522.9 s vs main's 524.7 s single run; late stage 114.2 s vs 117.0 s;
+  rebake plan IDENTICAL to main's).
+* LOAD: 2 pages / 63,176 m² / 1 def as `dsf:gapsheet23`, `24` after the 23
+  object bodies.
+* PIECES: 38 → 38, 78 → 78 records, 33 → 33 knives. `gap:0` 709,062 →
+  728,160 m² (+19,098); the 53,392 m² piece → 63,939 m² (+10,547) and is
+  RENUMBERED `gap:2` → `gap:1` (it overtakes the 57,249 m² piece, which becomes
+  `gap:2`) — the spec said the numbering holds; nothing reads the ordinal.
+* OWNER SITES: the three site parts are node-for-node identical in both arms
+  (0 nodes over 0.005 m): `gap:7/lot` (#430), `gap:7/ramp0` (#292),
+  `gap:0/s4/lot` (#358) — the sites read as on main (97.64 / 98.47 / 90.25).
+  `pav6` (30.1047, 31.3965) identical, 103.27 at the site.
+* AIRSIDE DOES MOVE (the spec predicted none): the page reshapes two APRON
+  parts by 3 vertices (`gapapron:1`, `gapapron:2`), so stage 1 re-solves:
+  runway 0 nodes (3 / 3 groups identical); taxi 157 nodes > 0.01 m, worst
+  0.18 m (`pav111` 30.10172644, 31.39677571, 111.80 → 111.62); apron 37
+  nodes, worst 0.06 m (`pav5` 30.10364304, 31.39442027); strips 542, worst
+  0.17 m. Base stage relaxations identical (taxi 63 / 61, pad 17 / 10).
+* LATE: `gap:0/s0/lot` (the grown part) 241 nodes > 0.005 m, worst 0.13 m;
+  `gap:8/s0/lot` 2 nodes, 2.37 m at 30.11510995, 31.41089017 (101.80 →
+  104.17; 42 m from #430, another part) and 0.74 m at 30.11414468,
+  31.40954131 — not attributed.

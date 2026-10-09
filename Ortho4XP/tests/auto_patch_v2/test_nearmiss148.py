@@ -244,3 +244,35 @@ def test_a_fixed_frontage_contact_dictates_the_level_and_the_pavement_welds_to_i
     assert rec["released"] == 0 and not rec["needs_split"] and not rec["warned"]
     tol = float(lw.tables.emit.design.hard_tol_m)
     assert max(abs(z[v] - rec["datum"]) for v in near) <= tol + 1e-6
+
+
+def test_a_plateau_vertex_inside_the_sliver_is_a_held_contact(monkeypatch):
+    """Lane pads65 (SPJC ``building5``, -12.02473811380, -77.11902772614): a
+    vertex of the block's PLATEAU that is a near-miss frontage endpoint
+    (within ``frontage_near_miss_m`` of the pad, bound to a vertex on the
+    datum) is a frontage contact — it leaves ``plateau_vertices`` (the hold
+    skips those: an apron-interior vertex is never pulled, 02ag) and is held.
+    A plateau vertex another block's contact, a far endpoint and an interior
+    plateau vertex stay as they were."""
+    import types
+    from auto_patch_v2.constraints import platform as P
+    from auto_patch_v2.model.platform import HELD
+    law = Law.for_airport("ZZZZ")
+    saved = dict(HELD)
+    HELD.clear()
+    HELD["padX"] = {"plateau_vertices": [5, 6, 7]}
+    face = types.SimpleNamespace(ref="padX", role="building", ring=(), holes=())
+    pm = types.SimpleNamespace(faces={0: face})
+    # (endpoint, nearest pad vertex, pad face, distance, cap, soft face)
+    monkeypatch.setattr("auto_patch_v2.constraints.pads.frontage_contacts",
+                        lambda _pm, _law: [(5, 2, 0, 0.98, 0.015, 9),     # in the sliver
+                                           (6, 2, 0, 9.86, 0.015, 9),     # a far endpoint
+                                           (8, 2, 0, 0.50, 0.015, 9)])    # no plateau: joins
+    try:
+        (p, dv, w, n_all, n_r), = P._with_near_miss(pm, law, [("padX", 1, [2, 3, 5, 6, 7], 2, 0)])
+        assert sorted(w) == [2, 3, 5, 6, 7, 8] and (p, dv, n_all, n_r) == ("padX", 1, 2, 0)
+        assert HELD["padX"]["plateau_vertices"] == [6, 7]
+        assert HELD["padX"]["near_miss_contacts"] == [5, 8]
+    finally:
+        HELD.clear()
+        HELD.update(saved)

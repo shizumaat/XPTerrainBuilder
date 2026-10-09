@@ -801,7 +801,18 @@ def _with_near_miss(planar: PlanarMap, law: Law,
     vertex it binds to (``j``, the nearest pad vertex) is itself ON the
     datum — a held contact or plateau vertex of the block, or any vertex of
     a held §20 conforming plate (its whole plate is the datum, §4), or a
-    FLAT vertex of a held unit pad (``flat_of``, spec §56 (3)).  A ``j``
+    FLAT vertex of a held unit pad (``flat_of``, spec §56 (3)).
+
+    A PLATEAU vertex of the block that is such an endpoint IS a frontage
+    contact, not an apron-interior vertex (lane pads65): it stands inside
+    the sliver, within ``frontage_near_miss_m`` of the pad's own rim, and
+    02ag's "never pulled" is about the plateau's interior.  It leaves the
+    block's ``plateau_vertices`` and is held like any contact.  MEASURED at
+    SPJC ``building5`` (-12.02473811380, -77.11902772614): on main that
+    vertex was the collar's outer rim — a weld; with the collar gone (spec
+    §56 (3)) it is a plateau vertex 0.98 m off the pad, the plateau read
+    took it first, the hold skipped it, and it settled 0.06 m under the
+    datum — 3 CRITICAL ``frontage_near_miss`` census rows.  A ``j``
     in a ramp is not on the datum, and ``e``
     keeps its priced near-miss row against ``z_j``.  ``e`` is then read by
     the §2 interval exactly as a welded contact (one set, one derivation):
@@ -821,7 +832,9 @@ def _with_near_miss(planar: PlanarMap, law: Law,
             if str(f.ref) in conf:
                 for ring in (f.ring, *f.holes):
                     on[str(f.ref)].update(planar.ring_vertices(ring))
-    taken: set[int] = {v for _p, _dv, w, _n, _r in sets for v in w}
+    plat_of = {pref: set(HELD[pref].get("plateau_vertices") or ()) for pref in idx}
+    taken: set[int] = {v for p_, _dv, w, _n, _r in sets for v in w
+                       if v not in plat_of[p_]}
     runway: set[int] = set()
     for f in planar.faces.values():
         if role_family(law, f.role) == "runway":
@@ -842,7 +855,12 @@ def _with_near_miss(planar: PlanarMap, law: Law,
         HELD[pref]["near_miss_contacts"] = es
         if es:
             p, dv, w, n_all, n_r = out[k]
-            out[k] = (p, dv, list(w) + es, n_all, n_r)
+            out[k] = (p, dv, list(w) + [e for e in es if e not in plat_of[pref]],
+                      n_all, n_r)
+            if plat_of[pref] & set(es):
+                # a plateau vertex inside the sliver is a contact (docstring)
+                HELD[pref]["plateau_vertices"] = [
+                    v for v in HELD[pref]["plateau_vertices"] if v not in set(es)]
     return out
 
 

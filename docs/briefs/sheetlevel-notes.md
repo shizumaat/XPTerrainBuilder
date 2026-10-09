@@ -149,3 +149,23 @@ The membrane (§61 (1)) is ALREADY on every unlevelled column in the airside sta
 missing membrane but the one-sided 1 % rows (300, on/off with the active set) moving a membrane-tied block between
 neighbouring stops. Arm N (chain 5): the cross-ring pairs hard-only — does removing R-E's 5,695 new preference rows
 narrow the sinking and the null-change?
+
+## Step 6 — arm N (cross-ring pairs hard-only) and the KCLT why; what is proven
+
+Arm N (`armN.py`: R-E's 5,695 cross-ring pairs mint the 1.5 % hard row only, no 1 % preference row on them; 11,390 in
+the late pair): IDENTICAL to e within 0.16 m on the apron, 0 of 39 datums moved, runway 105 / 0.13 vs m (e 115 / 0.14),
+null-change pass1 7/1/0.563 (building65's rim) — MISSED. REFUTED: "R-E's new preference rows sink the sheet". The
+sinking is mechanism (i) alone — the high pads stop lifting the sheet once they follow it — on the preference chain that
+was already there (185,033 rows, m 179,338).
+
+KCLT `--why-at` building75's contact v6861 (ke 222.46 / km 221.03): held in both arms by the pad's `frontage_hold datum`
+Band — "the median of its contacts' PASS-1A value" (RULINGS 2026-10-02ah (1)) — one hop, no chain. The pad's seat IS pass
+1a's rim level; under R-E pass 1a put pav14's rim 1.41 m higher (the cross-ring rows re-level the sheet around its holes
+in the pass where the holds are dropped), and the datum followed. Same mechanism as HECA (there the datum follows a
+pass-1a rim 7.5 m lower): the pad never pulls the apron; the apron's pass-1a level pulls the pad.
+
+PROVEN (by intervention): the sheet's level is the 1 %-preference-vs-trend balance (W moves it 3.2 m and breaks the
+runway; N does not move it); the runway's 0.14 m is not a law chain (P: pinned, sheet unchanged); the null-change miss
+is pass 1a's on the hole rings (P: pass 2 / stage 2 go to 0; pass 1 stays 0.5–0.9 m). UNPROVEN: a change meeting all
+four bars — none of P / W / N does; the membrane already covers these columns; a fix of the pass-1a valley is §61's
+open solver-stability question (09d (3)), not R-E's.

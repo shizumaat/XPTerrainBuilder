@@ -413,10 +413,11 @@ def _airside_only(by_role: dict[str, tuple[set[int], set[int]]], law: Law
     nothing airside does, the groundside frontage is all the pad has and
     is kept unchanged."""
     from ..law.tables import role_side
-    if any(role_side(law, r) == "airside" for r in by_role):
-        return {r: v for r, v in by_role.items()
-                if role_side(law, r) == "airside"}
-    return by_role
+    # PROBE chainlag q1 (owner RULINGS 2026-10-09j): a pad NEVER takes a
+    # groundside leader — pads are senior to roads and lots; a pad with no
+    # airside frontage keeps its own datum (§9b) and the groundside
+    # pavement touching it follows (§28)
+    return {r: v for r, v in by_role.items() if role_side(law, r) == "airside"}
 
 
 def pad_shared(planar: PlanarMap, law: Law) -> dict[int, set[int]]:

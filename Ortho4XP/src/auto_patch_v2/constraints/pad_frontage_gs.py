@@ -379,7 +379,7 @@ def groundside_frontage(planar: PlanarMap, law: Law,
     fronts = pad_fronts_airside(planar, law) if polys else set()
     from .pad_seat import seat_of_face
     seats = seat_of_face(planar, law, airport) if polys else {}
-    pads = [p for p in polys if p[0] in fronts or p[0] in seats]
+    pads = list(polys)   # PROBE chainlag q1 (09j): EVERY pad leads its groundside frontage
     if not pads:
         STATS["groundside_frontage_level"] = {"pairs_held_as_terrace": 0}
         return {}

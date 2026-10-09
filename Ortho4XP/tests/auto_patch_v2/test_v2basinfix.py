@@ -416,3 +416,38 @@ def test_a_flat_rim_reproduces_the_absolute_pin(law):
         # ... the DECLARED floor being the object's PLATE: §24 (2) puts the
         # terrain floor_clearance_m under it, and nothing else moved
         assert float(z[v]) == pytest.approx(declared - _CLEAR, abs=0.05)
+
+
+# ── a gap piece stands off a basin rim (spec §60 (9) R1b) ────────────────
+
+def test_a_gap_piece_stands_off_the_basin_rim_a_standing_cell_is_cut_flush(objs, law):
+    """ONE knife for every structure: ``build_basins`` cuts a §53 gap piece
+    through ``structure_approach.cut_gap_cells``' stood-off blade (the rim
+    grown by the mint's stand-off), a standing cell flush at the rim — so
+    no piece vertex lies on a rim and the rim is never re-noded by one."""
+    from auto_patch_v2.classify.gap_mint import standoff_m
+    from auto_patch_v2.model.planar import is_gap_ref
+    cache = _cache(law)
+    a = _airport(objs, law, "pit", _FlatDem())
+    objects, rep = read_objects(a, law, cache)
+    side = "groundside"
+    west = Cell(2, "groundside_pavement", "pav2", _rect(-80, -50, 0, 50), (), None, None,
+                side, "apron", {})
+    east = Cell(3, "groundside_pavement", "gap:0", _rect(0, -50, 80, 50), (), None, None,
+                side, "apron", {})
+    cl, basins, stats = build_basins(a, Classification((*_cells(), east, west), (), {}, ()),
+                                     law, (), objects, cache=cache, report=rep)
+    assert len(basins) == 1 and stats.cells_cut == 2
+    rim = Polygon(basins[0].wall_path)
+    by = {c.ref.split("#")[0]: Polygon(c.ring, c.holes) for c in cl.cells}
+    assert by["pav2"].distance(rim) == pytest.approx(0.0, abs=1e-9)        # flush, as ever
+    assert by["pav2"].intersection(rim).area == pytest.approx(0.0, abs=1e-6)
+    assert by["gap:0"].distance(rim) == pytest.approx(standoff_m(law), abs=1e-6)
+    # LAST: every standing and structure cell keeps the base map's place
+    refs = [c.ref for c in cl.cells]
+    assert [is_gap_ref(r) for r in refs] == [False] * (len(refs) - 1) + [True]
+    assert [c.id for c in cl.cells] == list(range(len(refs)))
+    base, _b, _s = build_basins(a, Classification((*_cells(), west), (), {}, ()),
+                                law, (), objects, cache=cache, report=rep)
+    assert [(c.id, c.ref, c.ring) for c in base.cells] == \
+        [(c.id, c.ref, c.ring) for c in cl.cells[:-1]]

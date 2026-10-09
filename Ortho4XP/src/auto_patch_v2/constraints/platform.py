@@ -1102,6 +1102,7 @@ def _datum_record(planar: PlanarMap, z, D: float, held_v, tol: float,
             "datum_in_reach_isect": (bool(rl is not None and (rl[0] is None or rl[0] - tol <= D)
                                           and (rl[1] is None or D <= rl[1] + tol))),
             "reach_bands_contacts": h.get("reach_bands_contacts"),
+            "misfit_m": h.get("misfit_m"), "weld_widened": h.get("weld_widened"),
             "datum_minus_median_m": (round(D - float(med), 3) if med is not None else None),
             "welded": len(rel) - len(out_v), "released": len(out_v),
             "released_ll": [list(planar.vertices[v].key) for _d, _z, v in

@@ -381,6 +381,8 @@ class StageOne:
         if self.hold is None or res is None:
             return cs_full
         base = self.hold.strip(cs_full) or cs_full
+        if hasattr(self.hold, "widened"):
+            base = self.hold.widened(base, self.to_full)   # 08d (2), by the join
         rows, lost = self.rows_to_full(res.rows)
         self.report["hold_rows_unmapped"] = lost
         return ConstraintSet.from_rows([*base.rows(), *rows])

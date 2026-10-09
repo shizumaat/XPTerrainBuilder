@@ -421,11 +421,18 @@ class HoldInterval:
     fronting: frozenset = frozenset()
     #: pass 1a's values the promotion is tested at (``fronting_ref``)
     fronting_ref: dict = _dc.field(default_factory=dict)
+    #: the frontage contacts of the MISFIT blocks (``constraints/weld_floor``,
+    #: owner RULINGS 2026-10-08d (2)) and the floor their pavement rows give by
+    widen: frozenset = frozenset()
+    widen_floor_m: float = 0.0
+    #: the runway-family vertices (a row naming one is never widened)
+    never: frozenset = frozenset()
 
 
 def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                   z1a: _t.Mapping[int, float],
-                  rw_cols: _t.Mapping[int, int]) -> HoldInterval | None:
+                  rw_cols: _t.Mapping[int, int],
+                  airport: Airport | None = None) -> HoldInterval | None:
     """THE FEASIBILITY INTERVAL OF EVERY HELD BLOCK AND THE RUNWAY'S FLEX
     BUDGET (flat-pad spec v2 §1 / §2, owner RULINGS 2026-09-30y (2) /
     30as) — the ONE derivation site of ``[design] runway_flex_share``.
@@ -551,8 +558,22 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     #     pass 1a).
     from .pads import airside_vertices as _air_v
     air_c = _air_v(planar, law)
-    reach_c: dict[int, tuple] = {int(bd.v): (bd.lo, bd.hi) for bd in cs.bands
-                                 if bd.source.generator == REACH_GENERATOR}
+    # THE SEAT IS READ OFF THE REACH GRAPH (owner RULINGS 2026-10-08c (4);
+    # spec §57 (3) (i)): the contacts' reach bands from their ONE derivation
+    # (``reach_band_values``), BEFORE the 08k shape stage withdraws the Band
+    # rows — the withdrawal applies to the rows, never to this read.  Without
+    # an airport (an instrument re-reading a set) the rows still in ``cs``.
+    reach_c: dict[int, tuple] = (
+        {int(v): b for v, b in reach_band_values(planar, law, airport).items()
+         if b[0] <= b[1]} if airport is not None else
+        {int(bd.v): (bd.lo, bd.hi) for bd in cs.bands
+         if bd.source.generator == REACH_GENERATOR})
+    # A MISFIT UNDER THE TERRACE FLOOR IS WELDED BY THE PAVEMENT (owner
+    # RULINGS 2026-10-08d (2); ``constraints/weld_floor``): the floor is the
+    # law's own, the one §55's last stage widens by
+    from .weld_floor import seat_misfit
+    floor_m = float(law.tables.emit.terrace.pad_terrace_floor_m)
+    widen: set[int] = set()
     blocks: dict[str, dict] = {}
     for pref, dv, weld, n_all, n_ramp in sets:
         if not weld:
@@ -584,8 +605,18 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         bands_c = {c: reach_c[c] for c in front_c if c in reach_c}
         r_lo = max((b[0] for b in bands_c.values() if b[0] is not None), default=-math.inf)
         r_hi = min((b[1] for b in bands_c.values() if b[1] is not None), default=math.inf)
+        # THE ADMISSIBLE SET of one flat level: the pair-graph interval met
+        # with the reach intersection.  Empty => the MISFIT is half the gap
+        # (the least any one level leaves its worst contact short by) and the
+        # level that achieves it is the gap's middle.
+        misfit, widened, d_fit = seat_misfit(lo, hi, r_lo, r_hi, floor_m, tol_h)
+        widened = widened and bool(front_c)
+        if widened:
+            D = d_fit
+            widen.update(front_c)
         blocks[pref] = {"dv": dv, "weld": weld, "n_all": n_all, "n_ramp": n_ramp,
                         "I0": (lo, hi), "empty0": lo > hi, "med": med, "D": D,
+                        "misfit": misfit, "widened": widened, "front_c": front_c,
                         "reach_isect": (r_lo, r_hi), "reach_bands_c": bands_c,
                         "unreached": sum(1 for c in weld if c not in lo_c and c not in hi_c)}
     if not blocks:
@@ -630,6 +661,8 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                                 "caps are hard)",
                                 (pref, f"platform:{pref}"))))
         r_lo, r_hi = b["reach_isect"]
+        if b["widened"]:
+            continue           # the pavement gives to the datum (08d (2)), not the datum to a band
         if r_lo <= r_hi and (math.isfinite(r_lo) or math.isfinite(r_hi)):
             rows.append(Band(b["dv"], r_lo if math.isfinite(r_lo) else None,
                              r_hi if math.isfinite(r_hi) else None,
@@ -715,6 +748,10 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         h["reach_bands_contacts"] = {str(c): [(_r(float(x)) if x is not None else None) for x in bb]
                                      for c, bb in list(b["reach_bands_c"].items())[:40]}
         h["residual"] = list(b.get("residual") or ())
+        h["misfit_m"] = round(float(b["misfit"]), 3)
+        h["weld_widened"] = ({"floor_m": floor_m,
+                              "contacts": [list(planar.vertices[c].key) for c in b["front_c"]]}
+                             if b["widened"] else None)
         # the binding anchors of the (final) interval
         ar = ar1 if (b["eval"] != "i" and ar1 is not None) else ar0
         for side, pick in (("lo", max), ("hi", min)):
@@ -771,7 +808,12 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                                            if beta.get(r, 0.0) <= 0.0))
     fref = {v: (float(z1a[v]) if v in z1a else float(pins[v]))
             for v in fronting if v in z1a or v in pins}
-    return HoldInterval(rows, blocks, runways, columns, stats, fronting, fref)
+    stats.update(misfit_blocks=sum(1 for b in blocks.values() if b["misfit"] > tol_h),
+                 widened_blocks=sum(1 for b in blocks.values() if b["widened"]),
+                 widened_contacts=len(widen))
+    return HoldInterval(rows, blocks, runways, columns, stats, fronting, fref,
+                        frozenset(widen), floor_m if widen else 0.0,
+                        frozenset(runway_membership(planar, law, set(planar.vertices))))
 
 
 @_dc.dataclass
@@ -785,6 +827,8 @@ class HoldPass:
     planar: PlanarMap
     law: Law
     result: HoldInterval | None = None
+    #: the airport the reach bands are derived for (``hold_interval``)
+    airport: Airport | None = None
 
     def strip(self, cs: ConstraintSet) -> ConstraintSet | None:
         from .platform import HOLD_DATUM_RULING, HOLD_RULING
@@ -797,10 +841,37 @@ class HoldPass:
 
     def derive(self, cs1a: ConstraintSet, z1a: _t.Mapping[int, float],
                rw_cols: _t.Mapping[int, int]) -> ConstraintSet | None:
-        self.result = hold_interval(self.planar, self.law, cs1a, z1a, rw_cols)
+        self.result = hold_interval(self.planar, self.law, cs1a, z1a, rw_cols,
+                                    self.airport)
         if self.result is None:
             return None
-        return ConstraintSet.from_rows([*cs1a.rows(), *self.result.rows])
+        return ConstraintSet.from_rows([*self.widened(cs1a).rows(), *self.result.rows])
+
+    def widened(self, cs: ConstraintSet,
+                to_full: "_t.Callable[[int], int | None] | None" = None) -> ConstraintSet:
+        """``cs`` with the pavement rows at the misfit blocks' frontage
+        contacts widened by the floor (``constraints/weld_floor``, owner
+        RULINGS 2026-10-08d (2)); ``to_full`` maps this pass's vertex ids
+        onto ``cs``'s map (the ribbon-free join).  Writes the per-contact
+        row counts into the blocks' records."""
+        res = self.result
+        if res is None or not res.widen:
+            return cs
+        from ..model.platform import HELD
+        from .weld_floor import pavement_heads, widen_weld_rows
+        m = to_full or (lambda v: v)
+        con = {j: c for c in res.widen if (j := m(c)) is not None}
+        never = frozenset(j for v in res.never if (j := m(v)) is not None)
+        out, st = widen_weld_rows(cs, set(con), res.widen_floor_m,
+                                  pavement_heads(self.law), never)
+        if to_full is None:
+            for pref, b in res.blocks.items():
+                w = HELD.get(pref, {}).get("weld_widened")
+                if b["widened"] and w is not None:
+                    w["rows"] = sum(st.get(c, {}).get("rows", 0) for c in b["front_c"])
+                    w["runway_rows_kept"] = sum(st.get(c, {}).get("runway_rows_kept", 0)
+                                                for c in b["front_c"])
+        return out
 
     def apply(self, cs: ConstraintSet) -> ConstraintSet:
         """``cs`` as pass 1b states it — the hold rows re-derived (a
@@ -810,7 +881,7 @@ class HoldPass:
         derived interval."""
         if self.result is None:
             return cs
-        base = self.strip(cs) or cs
+        base = self.widened(self.strip(cs) or cs)
         return ConstraintSet.from_rows([*base.rows(), *self.result.rows])
 
     def planar_of(self, planar: PlanarMap) -> PlanarMap:
@@ -846,11 +917,12 @@ class HoldPass:
         return out
 
 
-def hold_pass(planar: PlanarMap, law: Law) -> HoldPass:
+def hold_pass(planar: PlanarMap, law: Law, airport: Airport | None = None) -> HoldPass:
     """The caller's binding of the hold's two passes (``pipeline/build``,
-    ``tools/v2_solve_replay``); resets :data:`RUNWAY_FLEX`."""
+    ``tools/v2_solve_replay``); resets :data:`RUNWAY_FLEX`.  ``airport`` is
+    what the seat's reach bands are derived for (spec §57 (3))."""
     RUNWAY_FLEX[:] = []
-    return HoldPass(planar, law)
+    return HoldPass(planar, law, airport=airport)
 
 
 def reach_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

@@ -61,7 +61,8 @@ HELD: dict[str, dict[str, _t.Any]] = {}
 HOLD_REPORT_KEYS = ("reach_band", "reach_band0", "reach_width_m", "reach_gap_m",
                     "reach_gap0_m", "reach_empty", "reach_eval", "reach_unreached",
                     "datum_chosen", "reach_isect", "reach_isect_empty",
-                    "reach_lo_binding", "reach_hi_binding")
+                    "reach_lo_binding", "reach_hi_binding",
+                    "reach_bands_contacts", "misfit_m", "weld_widened")
 
 
 def hold_report(held: "_t.Mapping[str, dict] | None" = None) -> dict[str, dict]:

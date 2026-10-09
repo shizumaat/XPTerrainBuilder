@@ -2226,7 +2226,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                     cs0 = drop_rows(cs0, drop, check=False)
                 return (st0.pm, cs0, jetway_strips(st0.pm, law, airport, cs0,
                                                    rider_candidates(airport, law)),
-                        hold_pass(st0.pm, law))
+                        hold_pass(st0.pm, law, airport))
             _t1 = time.perf_counter()
             s1 = stage_one_problem(cl, _ribbon_free)
             if s1 is not None:
@@ -2320,7 +2320,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     try:
         # flat-pad spec v2 §1 / §2: the build's own hold binding
         from auto_patch_v2.constraints.no_step import hold_pass
-        _kw["hold"] = hold_pass(pm, law)
+        _kw["hold"] = hold_pass(pm, law, airport)
     except ImportError:
         pass
     if prob.get("stage1") is not None:

@@ -1100,7 +1100,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _prefix_stage["stage"] = st0
         return (st0.pm, cs0, jetway_strips(st0.pm, law, ap0, cs0,
                                            rider_candidates(ap0, law)),
-                hold_pass(st0.pm, law))
+                hold_pass(st0.pm, law, ap0))
     _s1 = stage_one_problem(cl, _ribbon_free)
     _pulse.tick("solving the surface")
     if _s1 is not None:
@@ -1109,7 +1109,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     sol, design_rep = solve_design(
         pm, cs, law, cfg.options, size_out=size, strips=strips,
         stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
-        hold=hold_pass(pm, law), stage1=_s1)
+        hold=hold_pass(pm, law, airport), stage1=_s1)
     wall["solve"] = time.perf_counter() - t
     _pin_yield = list(design_rep.pin_yield or ())
     _late_report: dict | None = None

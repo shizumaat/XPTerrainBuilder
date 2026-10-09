@@ -148,7 +148,7 @@ def stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, hold: _t.Any,
     cs1b, got, y1b = yield_stage_one(planar, cs1b, law, solve1(planar, cs1b), solve1)
     if hasattr(hold, "seal"):
         # THE WELD PROJECTION (owner RULINGS 2026-10-08c (4) / 08d (2);
-        # ``constraints/weld_floor``): a weld the law did not relax takes its
+        # ``constraints/weld_floor``): a weld off its datum under the floor takes its
         # datum before stage 2 substitutes the airside
         rec["weld_seal"] = hold.seal(got[4], got[0].z, got[1])
     return planar, cs1b, got, rec, y1 + y1b

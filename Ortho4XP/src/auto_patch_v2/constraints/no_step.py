@@ -900,11 +900,13 @@ class HoldPass:
 
     def seal(self, levels: dict, z: _t.Any = None, rep: _t.Any = None) -> dict:
         """THE WELD PROJECTION on pass 1b's answer (``weld_floor.seal_welds``):
-        every weld the feasibility LP did not relax takes its datum, in
-        ``levels`` (what stage 2 substitutes) and ``z``.  ``rep`` is the
-        pass's report (its ``hard_feasibility.conflicts`` name the relaxed
-        welds).  Each sealed contact joins its block's ``weld_widened``
-        record with its move — the pavement gave by that much there."""
+        every weld off its datum by under the floor takes the datum, in
+        ``levels`` (what stage 2 substitutes) and ``z`` — the solve's
+        residual and a weld the feasibility LP relaxed alike (``rep`` is the
+        pass's report; its ``hard_feasibility.conflicts`` name the relaxed
+        ones, counted).  Each sealed contact joins its block's
+        ``weld_widened`` record with its move — the pavement gave by that
+        much there."""
         res = self.result
         if res is None or not res.welds:
             return {}
@@ -917,8 +919,7 @@ class HoldPass:
                       if str(r.get("ruling", "")).startswith(HOLD_RULING)
                       for k in (r.get("vertices") or ())}
         pv = self.planar.vertices
-        skip = set(res.never) | set(res.pinned) | {c for c, _dv, _p in res.welds
-                                 if tuple(pv[c].key) in relaxed_ll}
+        skip = set(res.never) | set(res.pinned)
         try:
             got = seal_welds(res.welds, levels, z, res.floor_m,
                              float(design_law(self.law).hard_tol_m), skip)
@@ -945,8 +946,7 @@ class HoldPass:
             h["weld_widened"] = w
         return {"contacts": len(got), "blocks": len(by),
                 "max_m": round(max((abs(mv) for _p, mv in got.values()), default=0.0), 4),
-                "relaxed_left": sum(1 for c, _dv, _p in res.welds
-                                    if tuple(pv[c].key) in relaxed_ll)}
+                "relaxed": sum(1 for c in got if tuple(pv[c].key) in relaxed_ll)}
 
     def apply(self, cs: ConstraintSet) -> ConstraintSet:
         """``cs`` as pass 1b states it — the hold rows re-derived (a

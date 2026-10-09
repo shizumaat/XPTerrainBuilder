@@ -2,7 +2,7 @@
 frontage no one flat level reaches by LESS than the terrace floor is welded
 by the pavement — the pavement-tier rows naming a contact that closes the
 set give by what that contact is short (``constraints/weld_floor``); nothing
-else is touched; a weld the law did not relax is sealed on its datum.
+else is touched; a weld off its datum by under the floor is sealed on it.
 Hermetic."""
 from __future__ import annotations
 
@@ -114,9 +114,9 @@ def test_only_the_contacts_that_close_the_set_give_each_by_what_it_is_short():
     assert {c: round(g, 6) for c, g in gives.items()} == {1: 0.52, 2: 0.52, 4: 0.22}
 
 
-def test_a_weld_the_law_did_not_relax_is_sealed_on_its_datum():
+def test_a_weld_off_its_datum_by_under_the_floor_is_sealed_on_it():
     """Contact 1 stands 0.04 m off its datum 9 (the solve's residual), contact 2
-    within the tolerance, contact 3 is a RELAXED weld (skipped), contact 4 is 1.2 m
+    within the tolerance, contact 3 is a FIXED point (skipped), contact 4 is 1.2 m
     off (at the floor or over: not sealed), contact 5 is held by two datum columns."""
     levels = {9: 100.0, 8: 101.0, 1: 99.96, 2: 100.015, 3: 99.5, 4: 98.8, 5: 100.3}
     z = dict(levels)

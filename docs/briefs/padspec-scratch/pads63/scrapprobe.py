@@ -40,8 +40,9 @@ def probe(faces, law, counts=None):
             print(f"  {str(r.ref):18s} {g.area:8.1f} m2 w {2*g.area/g.length:5.2f} cov {100*cov/g.length:3.0f}% " + ", ".join(f"{a} {b:.1f}" for a, b in nb.most_common()))
     print("surplus pad pieces by what borders them:"); [print(f"   {n:4d}  {m2[s]:9.1f} m2  {s}") for s, n in cls.most_common()]
     raise Done
-PS.rerole_plateau_scraps = probe
-try:
-    R.replay_problem(Path(sys.argv[1]), "planar", [], None)
-except Done:
-    pass
+if __name__ == "__main__":      # pads64: REQUIRED — the work pool SPAWNS, and a spawned worker re-runs an unguarded
+    PS.rerole_plateau_scraps = probe   # script top to bottom (pads63's run recursed for 5 h and died rc=1 on a broken pipe)
+    try:
+        R.replay_problem(Path(sys.argv[1]), "planar", [], None)
+    except Done:
+        pass

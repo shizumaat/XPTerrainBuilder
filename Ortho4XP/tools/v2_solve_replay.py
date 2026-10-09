@@ -1888,6 +1888,13 @@ def _hard_conflict_now() -> list:
     return [dict(r) for r in HARD_CONFLICT]
 
 
+def _hold_report_now() -> dict:
+    """The solve's hold report (``model.platform.hold_report``): what a
+    later ``--late-from`` pass carries over its own re-minted registry."""
+    from auto_patch_v2.model.platform import hold_report
+    return hold_report()
+
+
 def replay_problem(pkl: Path, resume: str, drop: list[str],
                    design_weights: dict | None = None,
                    chord_fill: tuple[str, ...] = (),
@@ -2286,9 +2293,17 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                           "hard_conflict": _base.get("hard_conflict", ())},
                  "solve_kw": {"options": Options(verbose=verbose), "size_out": size,
                               "method": method}}
+        _base_hold = _base.get("hold_report")
         del _base
     prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
                           placement=placement, sites=sites, late=_late)
+    if late_from is not None and _base_hold:
+        # the last stage re-mints the HELD registry: the base solve's hold
+        # report is carried over it, as ``pipeline/build`` does — without it
+        # the late pass's sidecar loses ``platforms[].weld_widened`` and the
+        # census prices the welded contacts with no allowance
+        from auto_patch_v2.model.platform import install_hold_report
+        install_hold_report(_base_hold)
     icao, airport, pm, law, cs = (prob["icao"], prob["airport"], prob["pm"],
                                   prob["law"], prob["cs"])
     cl, stage, counts, t0 = prob["cl"], prob["stage"], prob["counts"], prob["t0"]
@@ -2511,6 +2526,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                              "cs": cs_w, "z": z,
                              "pin_yield": list(getattr(rep, "pin_yield", ()) or ()),
                              "hard_conflict": _hard_conflict_now(),
+                             "hold_report": _hold_report_now(),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
                                  "late_stage": _lrep["stage"],

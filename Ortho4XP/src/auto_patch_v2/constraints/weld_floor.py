@@ -34,15 +34,19 @@ welding to a pad), and neither is a pad's own row (the weld stays hard).
 
 THE WELD IS SEALED (:func:`seal_welds`).  The solve holds a hard row within
 its tolerance and cannot certify more (``[design] polish_rounds_max``: the
-residual is the solve's, not the law's), so a weld the law did not relax can
-stand a few centimetres off its datum.  A weld row governs ONE contact
-against a datum column stage 1 has solved, so its feasible set is a point
-and the projection onto it is an assignment — the zone projection's own
-argument (RULINGS 2026-09-12ag).  Every weld the feasibility LP did not
-relax, off its datum by under the floor, takes the datum; the pavement gives
-by that much at the contact (08d (2)) and the contact is recorded with it.
-A relaxed weld, a runway-family or pinned contact and a contact two blocks hold are
-left as the solve gave them.
+residual is the solve's, not the law's), so a weld can stand a few
+centimetres off its datum; and the feasibility LP is the one judge of
+whether a level serves a block — where it relaxes a weld the pair graph
+called reachable, the contact stands off by what the LP priced.  A weld row
+governs ONE contact against a datum column stage 1 has solved, so its
+feasible set is a point and the projection onto it is an assignment — the
+zone projection's own argument (RULINGS 2026-09-12ag).  Every weld off its
+datum by under the floor takes the datum; the pavement gives by that much
+at the contact (08d (2): under the floor the pavement welds, there is no
+step) and the contact is recorded with it.  At the floor or over nothing is
+moved (the owner's to rule; the warning is the diagnostic).  A
+runway-family or pinned contact and a contact two blocks hold are left as
+the solve gave them.
 
 The census reads the same thing back (``platforms[].weld_widened`` — the
 floor and each contact's coordinates and give; ``tools/check_grade.py``
@@ -119,9 +123,9 @@ def seal_welds(welds: _t.Iterable[tuple[int, int, str]], levels: dict, z: _t.Any
     column, block)`` of ``welds`` whose contact stands off its datum by more
     than ``tol_m`` and under ``floor_m`` takes the datum's level, in
     ``levels`` and in ``z``; ``{contact: (block, move)}``.  A contact of
-    ``skip`` (a relaxed weld, a runway-family vertex), one held by two
-    datum columns, or one whose column or datum stage 1 did not level is
-    left alone."""
+    ``skip`` (a runway-family vertex, a pinned one), one held by two datum
+    columns, or one whose column or datum stage 1 did not level is left
+    alone."""
     by_c: dict[int, set] = {}
     for c, dv, _p in welds:
         by_c.setdefault(int(c), set()).add(int(dv))

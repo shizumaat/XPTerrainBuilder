@@ -7,6 +7,12 @@ dry) and dump the zone parts, the runway-ring vertex keys and a digest of the ma
 ARM = letters: F (floor ON; absent = the floor disabled), T (the gap-apron
 claim trim ON; absent = every gap-apron cell put back INTO the claim).
 "FT" is the tree; "T" is the branch base; "F" is the frame twin's arm; "-" neither.
+
+THE #337 PRE-READ: ``--bodies PIECES.json`` (spec §60's
+``docs/briefs/surfspec/out/OTHH_pieces.json`` on ``origin/claude/surfspec``:
+the pieces the gap mint makes of the SURFACE-admitted sheets, lat/lon rings)
+and the arm letter B adds every piece as a stage-1 ``gapapron:<k>`` apron
+cell; with A as well, only the pieces §59 would class apron (``class_est``).
 """
 import hashlib
 import json
@@ -17,18 +23,43 @@ sys.path[:0] = ["src", ".", "tools"]
 
 
 def main() -> None:
-    pkl, out, arms = sys.argv[1], sys.argv[2], sys.argv[3:]
+    argv = sys.argv[1:]
+    bodies = []
+    if "--bodies" in argv:
+        i = argv.index("--bodies")
+        bodies = json.load(open(argv[i + 1], encoding="utf-8"))
+        del argv[i:i + 2]
+    pkl, out, arms = argv[0], argv[1], argv[2:]
+    import dataclasses as _dc
     import auto_patch_v2.classify as _cl
     import auto_patch_v2.planar.overlay as _ov
     import auto_patch_v2.planar.zones as _z
     import v2_solve_replay as _r
+    from auto_patch_v2.classify.roles import Cell
+    from auto_patch_v2.law.tables import role_side
     memo: dict = {}
+    cur = {"arm": ""}
     _orig_cl = _cl.classify
 
     def _classify(airport, law, rules=None, cache=None):
         if "cl" not in memo:
             memo["cl"] = _orig_cl(airport, law, rules, cache=cache)
-        return memo["cl"]
+            memo["airport"] = airport
+        cl = memo["cl"]
+        if "B" not in cur["arm"]:
+            return cl
+        to_xy = airport.frame.transformers()[0]
+        cells = list(cl.cells)
+        k = 0
+        for b in bodies:
+            if "A" in cur["arm"] and not str(b.get("class_est", "")).startswith("apron"):
+                continue
+            ring = tuple(to_xy(lon, lat) for lat, lon in b["ring_ll"][:-1])
+            cells.append(Cell(len(cells), "apron", f"gapapron:{k}", ring, (), None, None,
+                              role_side(law, "apron"), "gap_apron", {"gap_apron": 1.0}))
+            k += 1
+        print("BODIES added as gapapron cells:", k, flush=True)
+        return _dc.replace(cl, cells=tuple(cells))
     _cl.classify = _classify
     floor, gap_ref, zr = _z._unmeshable, _z.is_gap_apron_ref, _ov.zone_regions
     calls: list = []
@@ -40,9 +71,13 @@ def main() -> None:
     _ov.zone_regions = _zr
     res = json.load(open(out)) if Path(out).exists() else {}
     for arm in arms:
+        if arm in res:                       # an arm already read into OUT.json is reused
+            print("ARM", arm, "(reused)", flush=True)
+            continue
         _z._unmeshable = floor if "F" in arm else (lambda g, s: False)
         _z.is_gap_apron_ref = gap_ref if "T" in arm else (lambda ref: False)
         calls.clear()
+        cur["arm"] = arm
         r = _r.replay_problem(Path(pkl), "classify", [], None, (), placement={}, sites=[],
                               pad_read_only=True)
         pm = r["pm"]
@@ -54,14 +89,14 @@ def main() -> None:
             h.update(repr((f.role, f.ref, keys)).encode())
             if f.role in ("runway", "runway_crossing"):
                 rw.update(k for ring in keys for k in ring)
-        to_ll = memo["cl"] and r.get("airport") and r["airport"].frame.transformers()[1]
+        to_ll = memo["airport"].frame.transformers()[1]
         zones = []
         for z in calls[0]:
             g = z.polygon
             c = g.representative_point()
-            ll = to_ll(c.x, c.y) if to_ll else (c.x, c.y)
+            ll = to_ll(c.x, c.y)
             zones.append({"ref": z.ref, "area": g.area, "len": g.length,
-                          "thin": bool(floor(g, 0.5)), "at": [round(ll[1], 7), round(ll[0], 7)],
+                          "thin": bool(floor(g, 0.5)), "at": [round(ll[0], 7), round(ll[1], 7)],
                           "wkb": hashlib.sha1(g.normalize().wkb).hexdigest()})
         res[arm] = {"zone_calls": len(calls), "zones": zones, "runway": sorted(rw),
                     "map": h.hexdigest(), "n_vertices": len(pm.vertices), "n_faces": len(pm.faces)}

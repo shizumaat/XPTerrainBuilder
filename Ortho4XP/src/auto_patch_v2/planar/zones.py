@@ -206,7 +206,11 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # 1,689 m x 0.8 mm, passed the 1 m2 part floor beside 05C/23C and gave
     # the runway 143 new vertices 1.6 km from the nearest piece).  The bands
     # are the standing cells' by construction; a cell that does reach one is
-    # subtracted from that band alone, below.
+    # subtracted from that band alone, below.  THE PART WIDTH FLOOR
+    # (``_unmeshable``) DOES NOT REPLACE THIS TRIM: with the cells in the
+    # claim and the floor on, the hairline part is gone and the runway still
+    # takes +77 / -3 vertices — the slits come back as limbs of real parts
+    # (lane ``zonefloor``; ``test_zone_floor``'s frame twin).
     gap_aprons = [Polygon(c.ring, c.holes) for c in cells
                   if is_gap_apron_ref(getattr(c, "ref", ""))]
     gap_apron_u = unary_union(gap_aprons) if gap_aprons else None

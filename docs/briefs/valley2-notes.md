@@ -132,3 +132,22 @@ Body 79abb3762e38 (main sw7 75c751a9dd95). Against `sw7_HECA.osm`, each tree's o
   hairline_pair +2). The spec disclosed +1 / +1; hairline_pair +2 is new. THE "CRITICAL NOT RISING" BAR IS MISSED AT HECA.
 - Tests: non-Qt 9,053 passed / 1 failed -> fixed (c1450faf), the failed file + named four re-run green; Qt 311 passed.
 - ratchets PASS; `solve/project.py` 1,022 lines (crossed 1,000 with `_tie_break`), `tools/v2_solve_replay.py` 2,940.
+
+## Review fix list (D1-D3 accepted) — fbc26bd9 .. 8f0cca7f
+1. Membrane class: a vertex on a `taxi_centerline` breakline takes no membrane row. Stage-1 dump (pass 1b),
+   `("free_membrane", v)` owners with v on a chain: KCLT 50 vertices / 237 of 898 rows BEFORE -> 0 / 664 rows
+   AFTER; HECA 0 of 5,369 before and after. KCLT body CHANGES (6a709c0b1c2c -> new; 285 nodes > 0.02 m vs
+   before the fix: strip 260 / 0.34, taxi 22 / 0.61, apron 3 / 0.03; adjudicated airside 3,335 -> 3,341,
+   control 3,355). HECA base body UNCHANGED (128a402f34a7 both).
+   Null-change after: KCLT `pass1a 0/0/0.000 pass1b 0/0/0.020 stage2 0/0/0.020 (promoted 145=145, lp relaxed 343=343)`;
+   HECA base `pass1a 0/0/0.000 pass1b 4/0/0.262 stage2 4/0/0.262 (promoted 1438=1438, lp relaxed 242=242)`.
+2. Spec §61 (10) AS BUILT (D1, D2, D3); (8) step 3 reconciled to (1).
+3. emit.toml refutation note amended.
+4. `test_v2ground` in pipeline order does NOT hold its bars — staged −1.54 m (bar < −2.0), unstaged +0.01 m
+   (bar > +0.5) — and reads the same under main's rows (85 trend rows; §61 adds 5 membrane rows, moves
+   nothing): the trend, not §61. Fixture left trend-less, numbers recorded in place; staged reading
+   −2.88 (main) -> −1.15 m, bar `< -1.0`.
+5. Sidecar top block sums the base's `taxi_xsec_rows` / `free_membrane_rows`; `taxi_trend` block carries
+   `xsec_vertices`, `xsec_pin_const`, `xsec_far`, `xsec_no_chain`, `chains_without`. (`taxi_trend_rows` at
+   the top is still the late stage's own 0 — pre-existing, not asked.)
+6. `PlanarMap.__setstate__` records (`unpickled_defaults`) and warns the fields it filled.

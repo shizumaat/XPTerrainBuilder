@@ -41,6 +41,43 @@ Conflicts: `docs/frames.jsonl` (both kept), `test_gap_terrace.py` frame tuple. T
 J1 + main base tree: worktree `pads63j1`, LOCAL branch `claude/pads64-j1base` `33bbf20a` (= `0adb422b` + main; differs from
 this branch by the J3 WIP only). Not pushed; scaffolding for the base arm.
 
-## 3. Next
+## 3. J1 re-proof on main = base arm `b1` (tree `claude/pads64-j1base` 33bbf20a; `<scratch>/pads64/b1`, HECA late pass `b1L`)
 
-1. base arm `b1` (J1 + main) on the four captures; 2. `j3b` = this tree; 3. attribute the residual releases; 4. scrap rule.
+| airport | body | released pads / welds | hard_conflict taxi / pad / groundside | WARNED |
+|---|---|---|---|---|
+| KASE | 5e5209666176 | 1 / 6 (`building1` 0.652) | 0 / 56 / 2 | 1 |
+| KCLT | d1aea0f26c24 | 0 / 0 | 51 / 28 / 288 | 0 |
+| HECA (late pass) | 6fdaa01a95ba (first pass b7972faaf5fa) | 6 / 27: 147 9 @ 0.415, 105 10 @ 0.269, 157 3 @ 0.039, 165 3 @ 0.042, 138 1 @ 0.021, 193 1 @ 0.020 (= sw6 main's six pads) | 71 / 128 / 246 | 1 (147) |
+| OTHH | (running) | | | |
+
+## 4. J3 as reworked by pads64 (commit `dd240199`) — DECISIONS
+
+* KEPT from the WIP: the reach-band read before withdrawal, `seat_misfit`, the datum at the gap's middle, the hard Band on the
+  datum inside a non-empty reach intersection, `pavement_heads`, `widen_weld_rows`' row statement, the sidecar record, the census read.
+* CHANGED (a): ONLY THE CONTACTS THAT CLOSE THE SET GIVE, EACH BY WHAT IT IS SHORT (`weld_floor.contact_gives`: a contact whose
+  own pair-graph interval ∩ reach band excludes the level gives `shortfall + hard_tol_m`; ≤ the misfit, so always under the
+  floor). The WIP gave the full 1.0 m floor to every row naming any frontage contact. MEASURED at KASE `building1` (misfit 0.543):
+  WIP 13 contacts / 258 rows, steepest widened grade 7.59 % (cap 1.5 %) over 14.1 m, one chord used the whole 1.000 m;
+  reworked 9 contacts / 167 rows, steepest 4.62 % over 14.1 m at 39.22010294331, -106.86487635609, largest give used 0.572 m;
+  released 0 in both. DEVIATION from the brief's letter ("widened by floor/d"): the floor is the GATE (misfit < 1.0 m), the give
+  is the contact's own shortfall — less pavement over its cap for the same weld.
+* ADDED (b): THE WELD PROJECTION (`weld_floor.seal_welds`, `HoldPass.seal`, called in `solve/flex.stage_one` after pass 1b,
+  before stage 2 substitutes the airside). ATTRIBUTION of HECA's four small released pads (157 / 165 / 138 / 193, 0.020–0.042 m,
+  the same on main `sw6`): `relprobe.py` on the j3a solved set — NO `hard_conflict` row names them, the law is satisfiable
+  ("min total shortfall 0.0000 m — the residual is the solve's"), the hold rows stand 0.02–0.04 m over, i.e. the augmented
+  Lagrangian's unsettled residual (31 of 543,689 stage-1 hard rows over 0.02 m), which `[design] polish_rounds_max` documents as
+  not certifiable. A weld row governs one contact against a solved datum column: the projection is an assignment (the zone
+  projection's argument, 12ag). Every weld the feasibility LP did not relax, off its datum by more than `hard_tol_m` and under the
+  floor, takes the datum; a relaxed weld, a runway-family contact and a contact two blocks hold are left. Each sealed contact
+  is recorded in `platforms[].weld_widened.contacts` with its move (the pavement gave by that much there).
+* census: `check_grade.weld_widened_nodes` → `{node: give}`; a pair naming a contact takes that contact's give (never more than the record's floor).
+
+KASE arm `j3c` vs `b1` (`<scratch>/pads64/inst.sh`): released 6 → **0**, WARNED 1 → 0, runway movers 0, solve-owned movers 93
+(taxi 13 / 0.34, apron 74 / 0.50, strip 6 / 0.28; over 0.3 m: 4, 0 far-field), hard_conflict taxi 0 = 0, pad 56 → 0,
+groundside 2 → 1; census (b1 under the base tree's tool, j3c under this tree's): adjudicated airside 2,594 → 2,523,
+critical_motion 1 = 1, critical_visual 44 = 44, `pad_frontage_infeasible` 1 → 0, `hard_conflict` 56 → 0, `within_shape` 2,610 → 2,598. Body 75fcd0de0f1f.
+
+## 5. Next
+
+`j3c` arms KCLT / HECA (+ late) / OTHH run from the FROZEN tree `pads63j1` detached at the arm's sha (`chain_j3.sh TAG SHA`), so this
+tree stays editable. Then: instruments per airport (`inst.sh`), the scrap rule (read `scraps.py` on `b1/OTHH`), closing builds.

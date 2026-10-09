@@ -94,3 +94,52 @@ HECA does NOT fall below the base. Three things are in the 891 m, read off the a
 
 Arms queued: `b2` = a+b with the landing fix; `t` = the same with the seat row TWO-WAY (scratch `armT.py`: the head out
 of the one-way register at assembly, so the chain is one deep) — the intervention that attributes item 2.
+
+### Step a+b: the attribution arms (HECA late pair vs BASE; every arm: held datums 0 of 47 moved, solve-owned airside movers 0, structure frame 0)
+
+| arm | P:GS-NEAR runs / m | of which, by the arm's own seat records (m): LEADER / FOLLOWER / HELD-or-FOLLOWER | P:GAP | `hard_conflict` gs / pad / taxi | stage-2 lag (worst leader move) / hard rows over tol (worst) |
+|---|---|---|---|---|---|
+| BASE | 16 / 570 | — | 51 / 339 | 233 / 101 / 64 | 0.604 m / — |
+| `a` R-F + rule 1 | 17 / 1,722 | — | 48 / 339 | 224 / 17 / 63 | — |
+| `b` + rule 2 | 16 / 891 | 172 / 139 / 574 | 48 / 338 | 221 / 17 / 63 | 1.540 m / 411 (4.28 m, the landing seats) |
+| `b2` + landings not seated (the spec-literal form) | 19 / **963** | 246 / 139 / 570 | 49 / 339 | 209 / 15 / 63 | 1.540 m / 46 (1.65 m) |
+| `r8` = `b2` with `one_way_max_rounds` 8 (scratch law edit) | 14 / **525** | 153 / 23 / 340 | 51 / 440 | 210 / 15 / 63 | 0.594 m after 8 of 8 / 41 (0.71 m); stage 2 47.4 → 53.3 s |
+| `t` = `b2` with the seat row TWO-WAY (scratch `armT.py`) | 14 / **400** | 100 / 6 / 285 | 50 / 440 | 202 / 15 / 63 | 0.379 m / 23 (0.044 m) |
+
+* ATTRIBUTED BY INTERVENTION: the rise of class C under the spec-literal rule is the LAG. With the chain one deep (`t`)
+  the armed followers arrive (FOLLOWER 139 → 6 m) and C falls 570 → 400 m; with eight lag rounds instead of three it
+  falls to 525 m and the lag is still not settled (0.594 m after 8 of 8 — the damped fixed point does not contract on
+  this chain).
+* `t` is NOT the rule: with the leader's columns in the matrix the pad PULLS ITS LEADER — `route3` moves on 110 of 210
+  nodes, worst 1.59 m (`b2` → `t`, `airside_value_delta --by-ref`), `small_roads:-20209` 1.42 m. Q1 (the pad follows the
+  road, the road never gives) holds only one-way.
+* What stays in class C in every arm: `building12`'s CLUSTER (16 bodies, one plane, leader `route3` over 92.8 m of
+  contact) stands 2.2–3.5 m over `route3` along 100–143 m of rim — one mean-level row seats a 1 % plane on a road that
+  slopes past it; and `building15` | `objpav394` (−1.2 … −3.9 m over 340–570 m of rim), where `objpav394` is several
+  faces of one ref, one HELD as a §28 (6) terrace and others armed — the records name faces by `role:ref`, so the split
+  between "held terrace (class A, 09f)" and "armed follower still off" is not readable per run.
+* P:GAP + 101 m in `r8` and `t` is ONE new run, `building14` (0 → 100 m): the gap part beside a pad that moved.
+* KCLT (`kb`, three lag rounds): C 9 / 95 → 7 / 42 m, B 2 / 0 → 4 / 54 m, pad conflicts 31 → 28, airside 0.
+
+VERDICT (sub-steps a and b): STOPPED, not on the lane branch. The real code path does not reproduce the brief's bar at
+HECA in the spec's own form (class C 570 → 963 m; 525 m only with a solver constant changed for every airport, and
+then with class D + 101 m). The code is kept whole on `claude/seat2-rc` for the spec author.
+
+## The two items the spec left
+
+* **HECA `hard_conflict` taxi 63 → 64** (sw7 main `729e140d` vs sw8 pads branch, the two sidecars joined on
+  row + vertices): 62 rows identical; one 0.0432 m `pavement_max_grade ceiling` row re-homed 24 m (30.10873452702,
+  31.38967247811 → 30.10867810252,31.38943385557, `pav1` | pad 1323); the NEW row is ONE stage-2 `rulesets.common
+  .pavement_max_grade ceiling` twin on the gap part `gap:0/s0/ramp0` at 30.12730360576,31.4050836324, relaxed 0.568 m.
+  It is a groundside last-stage pair that ranks in the "taxi" tier because the 5 % ceiling head does (30bj (6)); no
+  taxiway row. (This lane's arms read 63.)
+* **CYXY adjudicated airside 254 → 265**: under ONE tool (this tree's census on both built patches, `/tmp/harness/
+  sw7_CYXY.osm` and `frames/pads67/sw8_CYXY.osm`) it is 245 → 265 — main's own tool counted 9 `platform_rim_relief` rows
+  the collar deletion retired. Row join (`census_rows_diff --side airside`): EXACT 1,165, GONE 59, NEW 64. The
+  adjudicated NEW rows: `within_shape primary_parallel|runway` 10 on way −10008 (six 3.4–7.2 m chords at 1.52–1.58 %
+  against 1.5 %, four 0.58–0.79 m pairs at 1.66–1.89 % at 60.7117,−135.0718), `strip_longitudinal graded_strip|stub`
+  3, `strip_arc` 2 (0.93 m at 60.701803,−135.059273), `hard_conflict` 2, `plane_gradient` 1, `within_shape` stub 4 /
+  cross_connector 1 / building|cross_connector 2; GONE: one `primary_parallel|runway`, one `cross_connector` (the other
+  57 / 39 are out-of-scope `withdrawn_law` rows churning). Located by row; the mechanism is the pads branch's stage-1
+  re-solve moving the parallel taxiway a few centimetres over its cap (pads67: 306 solve-owned movers, worst 1.02 m) —
+  NOT attributed by intervention here (no CYXY replay was run: the two builds answer "which rows").

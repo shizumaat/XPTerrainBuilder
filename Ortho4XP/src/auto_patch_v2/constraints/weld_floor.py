@@ -162,7 +162,7 @@ def widen_weld_rows(cs: ConstraintSet, gives: _t.Mapping[int, float],
     names a contact of ``gives`` — and no vertex of ``never`` (the runway
     family) — widened by that contact's give (module docstring; the larger
     give where a row names two); ``(set, {contact: {"rows",
-    "runway_rows_kept"}})``.  ``cs`` itself when there is nothing to widen."""
+    "runway_rows_kept"}})``.  ``cs`` itself when no row is widened."""
     stats: dict[int, dict] = {}
     gives = {int(c): float(g) for c, g in gives.items() if g > 0.0}
     if not gives:
@@ -172,7 +172,7 @@ def widen_weld_rows(cs: ConstraintSet, gives: _t.Mapping[int, float],
         for v in vs:
             stats.setdefault(int(v), {"rows": 0, "runway_rows_kept": 0})[key] += 1
 
-    out = []
+    out, changed = [], False
     for r in cs.rows():
         if isinstance(r, Diff):
             hit = [v for v in (int(r.a), int(r.b)) if v in gives]
@@ -184,6 +184,7 @@ def widen_weld_rows(cs: ConstraintSet, gives: _t.Mapping[int, float],
                     r = _dc.replace(r, cap=r.cap + give / r.d, source=_dc.replace(
                         r.source, ruling=r.source.ruling + ruling_note))
                     _count(hit, "rows")
+                    changed = True
         elif isinstance(r, Linear):
             hit = [(int(v), abs(float(c))) for v, c in r.terms if int(v) in gives]
             if hit and _head(r) in heads and ruling_note not in r.source.ruling:
@@ -196,7 +197,8 @@ def widen_weld_rows(cs: ConstraintSet, gives: _t.Mapping[int, float],
                         hi=None if r.hi is None else r.hi + give,
                         source=_dc.replace(r.source, ruling=r.source.ruling + ruling_note))
                     _count([v for v, _c in hit], "rows")
+                    changed = True
         out.append(r)
-    if not stats:
+    if not changed:
         return cs, stats
     return ConstraintSet.from_rows(out), stats

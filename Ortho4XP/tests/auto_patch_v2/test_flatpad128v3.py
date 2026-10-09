@@ -483,3 +483,35 @@ def test_a_weld_left_off_its_datum_by_the_solve_is_sealed_and_recorded(law, buil
     hp.result = _dc.replace(hp.result, never=frozenset({c}))
     levels[c] += 0.05
     assert hp.seal(levels)["contacts"] == 0 and levels[c] != levels[dv]
+
+
+def test_the_hold_pass_widens_only_the_pavement_rows_naming_a_closing_contact(law, built):
+    """Owner RULINGS 2026-10-08d (2) (``constraints/weld_floor``): pass 1b and
+    stage 2 state the pavement-tier rows naming a contact that closes a
+    misfit block's set widened by that contact's give — and no other row:
+    the same count of rows, every hold row and every row naming no such
+    contact byte-identical, and the block's record carries the count."""
+    from auto_patch_v2.constraints.weld_floor import pavement_heads, ruling_note
+    from auto_patch_v2.model.platform import HELD
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    hp = hold_pass(pm, lw)
+    solve_design(pm, cs, lw, hold=hp)
+    assert not hp.result.widen                      # the fixture's frontage meets
+    c, _dv, pref = hp.result.welds[0]
+    heads = pavement_heads(lw)
+    hp.result = _dc.replace(hp.result, widen={c: 0.4})
+    hp.result.blocks[pref].update(widened=True, gives={c: 0.4})
+    HELD[pref]["weld_widened"] = {"floor_m": 1.0, "contacts": [[*pm.vertices[c].key, 0.4]]}
+    out = hp.widened(cs)
+    a, b = list(cs.rows()), list(out.rows())
+    assert len(a) == len(b)
+    changed = [(x, y) for x, y in zip(a, b) if x != y]
+    assert changed and HELD[pref]["weld_widened"]["rows"] == len(changed)
+    for x, y in changed:
+        vs = ({int(x.a), int(x.b)} if hasattr(x, "a") else {int(v) for v, _k in x.terms})
+        assert c in vs and x.source.ruling.split(" (")[0].strip() in heads
+        assert y.source.ruling == x.source.ruling + ruling_note
+        if hasattr(x, "cap"):
+            assert abs(y.bound_m - (x.bound_m + 0.4)) < 1e-9
+    assert hp.widened(out) is out                   # idempotent

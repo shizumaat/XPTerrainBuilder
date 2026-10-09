@@ -889,7 +889,7 @@ class HoldPass:
         con = {j: g for c, g in res.widen.items() if (j := m(c)) is not None}
         never = frozenset(j for v in res.never if (j := m(v)) is not None)
         out, st = widen_weld_rows(cs, con, pavement_heads(self.law), never)
-        if to_full is None:
+        if to_full is None and out is not cs:
             for pref, b in res.blocks.items():
                 w = HELD.get(pref, {}).get("weld_widened")
                 if b["widened"] and w is not None:

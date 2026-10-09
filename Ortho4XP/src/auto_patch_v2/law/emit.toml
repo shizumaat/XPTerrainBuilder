@@ -1087,3 +1087,12 @@ solver_max_iter       = 20000  # per-round iteration cap of the linear solver
 # ring follows its centreline through the transverse hop LAW
 # (`constraints/taxi.taxi_chain`), which is already a design target, and
 # through the centreline's own `taxi_profile` curvature.
+# WHAT WAS REFUTED, EXACTLY (noted with spec §61, owner RULINGS 2026-10-09e):
+# an EQUALITY, at the law's weight, over the ROUTE GRAPH's lateral hops —
+# ring vertex to the hop's foot, every taxi vertex, the runway contact a
+# column.  §61's `taxi_xsec` is a different measurement and is NOT covered
+# by this refutation: ONE row per off-centreline vertex that carries no
+# trend row, to the PERPENDICULAR FOOT on its own face's chain, priced at
+# 1.0 (= `bend_taxi`, so bending still shapes the sheet), the runway
+# contact a CONSTANT.  Measured there: runway 4 vertices / 0.06 m at KCLT,
+# 2 / 0.06 m at HECA; at 30 the same row DOES move the runway 0.24 m.

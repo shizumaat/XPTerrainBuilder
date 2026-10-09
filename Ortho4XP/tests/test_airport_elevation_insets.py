@@ -1032,7 +1032,8 @@ def _sidecar_only_inset(directory, code, sidecar):
     pixel is handed to the reader directly."""
     os.makedirs(str(directory), exist_ok=True)
     inset_path = os.path.join(str(directory), f"KXXX_{code}.tif")
-    with open(os.path.splitext(inset_path)[0] + ".json", "w") as handle:
+    with open(os.path.splitext(inset_path)[0] + ".json", "w", encoding="utf-8",
+              newline="\n") as handle:
         json.dump(sidecar, handle)
     return inset_path
 

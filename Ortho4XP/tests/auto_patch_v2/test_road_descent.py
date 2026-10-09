@@ -112,3 +112,50 @@ def test_the_grade_arithmetic_is_the_tunnel_ramp_s():
     assert built_grade(0.02, DESIGN, CAP) == DESIGN
     assert built_grade(0.073, DESIGN, CAP) == 0.073
     assert built_grade(0.11, DESIGN, CAP) is None and built_grade(None, DESIGN, CAP) is None
+
+
+# ── THE REACH SEED (§37 (10) / 27a (11)) IS THE SAME RAMP, IN STAGE 2 ───
+
+def _seeded(run_m: float, drop: float):
+    """A road ``run_m`` long, its targets ``drop`` under the solved level
+    of the airside edge it ends beside: the stage-2 rewrite's targets."""
+    import types
+
+    from auto_patch_v2.constraints.road_ramp import (GEN, RULING, RULING_CEILING,
+                                                     reach_seed_rewrite)
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.constraints import Band, ConstraintSet, Linear, Source
+
+    law = Law.for_airport("ZZZZ")
+    ss = [10.0 * k for k in range(int(run_m // 10) + 1)]
+    if ss[-1] < run_m - 1e-9:
+        ss.append(run_m)
+    vs = list(range(10, 10 + len(ss)))
+    lin = tuple(Linear(((v, 1.0),), 0.0, 0.0, Source(GEN, RULING, (f"vertex:{v}", "r")))
+                for v in vs)
+    bands = tuple(Band(v, None, 0.3, Source(GEN, RULING_CEILING, (f"vertex:{v}", "r")))
+                  for v in vs)
+    pm = types.SimpleNamespace(road_reach_seed={v: (1, 2, 0.5, s) for v, s in zip(vs, ss)},
+                               road_terrace={}, road_between_levels={}, faces={}, vertices={})
+    cs, rep = reach_seed_rewrite(pm, law, ConstraintSet(linears=lin, bands=bands),
+                                 {1: drop, 2: drop})
+    got = {int(r.source.inputs[0][7:]): r.hi for r in cs.linears}
+    return [(s, got[v]) for v, s in zip(vs, ss)], rep, law
+
+
+def test_the_reach_seed_descends_at_the_design_grade():
+    prof, rep, law = _seeded(400.0, DROP)
+    g = law.tables.emit.road_contact.ramp_grade
+    assert g == DESIGN and rep["steepened"] == 0
+    for s, z in prof:
+        assert z == pytest.approx(max(0.0, DROP - g * s))
+
+
+def test_the_reach_seed_steepens_only_where_its_run_is_short():
+    prof, rep, _law = _seeded(DROP / 0.073, DROP)
+    assert rep["steepened"] == 1
+    for s, z in prof:
+        assert z == pytest.approx(max(0.0, DROP - 0.073 * s))
+    prof, rep, law = _seeded(80.0, DROP)                    # 12.5 %: the cap
+    cap = law.tables.common.road_max_grade
+    assert prof[-1][1] == pytest.approx(DROP - cap * 80.0) and rep["steepened"] == 1

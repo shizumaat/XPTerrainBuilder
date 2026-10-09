@@ -203,3 +203,47 @@ def test_a_fence_along_a_bordered_run_is_recorded_as_the_terrace_witness(law, tm
     assert w["dem_m"]["min"] == pytest.approx(113.5, abs=0.6)
     assert w["agreement_m"]["road_minus_dem_min"] < -5.0     # the road is in the cut
     assert "road_terrace_witness" in SIDECAR_KEYS
+
+
+# ── THE BARE EXIT IS BUILT AT ITS DESIGN GRADE (RULINGS 2026-10-09c (2b)) ──
+
+DESIGN, LANE = 0.05, 7.0
+
+
+def _bare_exit(n: int, rise: float):
+    """Stations 0-2 bordered at 100, the rest bare with the road's own
+    target ``rise`` above; the profile at the design grade."""
+    st = _route(n)
+    foot, lv = _feet({0: 100.0, 1: 100.0, 2: 100.0})
+    floor = {v: 100.0 + rise for v in st}
+    return terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                           design=DESIGN, lane=LANE)
+
+
+def test_a_bare_run_with_ample_run_leaves_at_the_design_grade():
+    """400 m of bare road for a 10 m rise: 5 %, meeting its target after
+    200 m — not the cap's 100 m (the cap is a ceiling, 08c (1))."""
+    out, rep = _bare_exit(43, 10.0)
+    for v in range(3, 43):
+        assert out[v] == pytest.approx(min(110.0, 100.0 + DESIGN * (v - 2) * 10.0))
+    assert rep["bare_steepened"] == 0 and rep["max_bare_grade"] == DESIGN
+
+
+def test_a_bare_run_that_fits_only_at_7_3_percent_leaves_at_7_3_percent():
+    """100 m of bare road for a 7.3 m rise: the least grade that brings the
+    road onto its own target by the end of its run."""
+    out, rep = _bare_exit(13, 7.3)
+    for v in range(3, 13):
+        assert out[v] == pytest.approx(100.0 + 0.073 * (v - 2) * 10.0)
+    assert out[12] == pytest.approx(107.3)
+    assert rep["bare_steepened"] == 1 and rep["max_bare_grade"] == pytest.approx(0.073)
+
+
+def test_a_bare_run_that_needs_more_than_the_cap_leaves_at_the_cap():
+    """70 m for 10 m is over the cap: built at the cap, as it was."""
+    out, rep = _bare_exit(10, 10.0)
+    old, _r = terrace_profile({"foot": _feet({0: 100.0, 1: 100.0, 2: 100.0})[0], "pad": {},
+                               "station": _route(10)},
+                              _feet({0: 100.0, 1: 100.0, 2: 100.0})[1],
+                              {v: 110.0 for v in _route(10)}, CAP)
+    assert out == pytest.approx(old) and rep["max_bare_grade"] == CAP

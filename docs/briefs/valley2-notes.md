@@ -94,3 +94,41 @@ Largest cluster 933 at 35.22006, −80.93342 (`pav41`, +1.49); then 454 at 35.22
   `--gap-free` base (+ `--null-change`) and the closing build; the control patch is main's `sw7_HECA.osm`.
 - WIP committed here: `v2_why_solve` names a taxi edge "held by its centreline (t = …)" (§61 (7) row 12),
   the stage-1 dump keys `taxi_xsec` / `free_membrane` owners, the DEFERRED_VERIFICATION line.
+
+## Step 6 at HECA — THE DIVERGENCE, ATTRIBUTED (f394c3ff)
+HECA is read on the build's own path: `surf337/HECA.pkl --from classify --gap-free` (the base), `--null-change`.
+| arm (one capture, base map) | NULL-CHANGE pass1a / pass1b / stage2 | rows |
+|---|---|---|
+| control, main 3a64a153 (+ the tool only) | 714/44/0.489 · 650/34/0.520 · 1128/74/0.520 (promoted 1440=1439) | — |
+| branch, membrane on TAXI-FAMILY columns (§61 (8) step 3's words) | 3/0/0.043 · **65/4/0.391 MISS** · 91/4/0.391 | 1,160 xsec + 5,279 membrane |
+| INTERVENTION: membrane on EVERY unlevelled column (the probe's `_membrane`) | 0/0/0.000 · 4/0/0.262 · 4/0/0.262 | 1,160 + 5,394 (all stages) |
+| **SHIPPED: every unlevelled column of the AIRSIDE STAGE, the taxi family's elsewhere** | **0/0/0.000 · 4/0/0.262 · 4/0/0.262 MET** (promoted 1438=1438, lp relaxed 242=242, sets equal) | 1,160 + 5,369 = the spec's §61 (3) figures exactly |
+The 4 movers are the spec's own spot (`gapapron:1`, 30.10294, 31.39591). DEVIATION D3: the spec's TEXT says
+"taxi-family column", its PROBE (and every number the owner was shown) read every unlevelled stage-1 column;
+only the probe's reading meets the ruled bar. The ~90 rows between are an apron piece no datum levels
+(`gapapron:1`). Built as the probe; the single solve and stage 2 keep the taxi-family reading so the groundside
+takes no membrane. For the spec author's review.
+- Tie-break LP: HECA pass 1b 547,172 rows, LP 6.4-7.1 s of which the tie-break 0.11-0.13 s ("canonical");
+  pad tier 17 -> 14 (the spec's 17 -> 14), taxi 63 / 61 = control's 63 / 61.
+- Cost vs control (base, stage-1 roles): 3,718 movers / 377 > 0.3 / worst 0.981 (spec 3,739 / 367 / 0.98);
+  junction 1,658, apron 1,614, strip 1,519; runway 2 / 0.053. Largest cluster 3,428 near 30.12136, 31.42359.
+- Stage records: pass 1a qp_exits {no_descent 1, optimal 2}; pass 1b {no_descent 2, optimal 1}, hard NOT
+  SETTLED (43 rows, worst 0.1007 m — the SAME 43 / 0.1007 as main); stage 2 lag NOT SETTLED (as main). No round_cap.
+- THE PLANAR READ (30.10901, 31.40396; `scratch planar_read.py` on the base maps): v18218 is a corner of
+  junction face `dsf:objpav112#2` and of strip face `adjacent_ground:taxi:E:zone1#45`; the apron face `route21`
+  runs its edge v17607-v17403 0.976 m away and does NOT share the vertex — a ~1 m sliver of graded strip
+  lies between them. A REAL unshared boundary, not a missed weld (no bending row can tie them). The junction
+  corner moved 104.421 -> 104.345 (−0.08 m); the step to the apron edge was already −0.443 m on main and is
+  −0.519 m now, which crosses the census bar. §39's sliver class: exposed, not minted.
+
+## Step 8 — the closing build `valley2_HECA` (c1450faf; registered frame valley2/valley2_HECA.osm)
+rc 0, 561.4 s (single background run; partition cache MISS 47.6 s vs 2.8; solve 209.4 -> 255.6 s; late 107.4 -> 121.0).
+Body 79abb3762e38 (main sw7 75c751a9dd95). Against `sw7_HECA.osm`, each tree's own census:
+- runway 2 / 0.06 m; strip 2,866 / 0.99; taxi 1,234 / 0.77; apron 843 / 0.43; other 875 / 0.24.
+- adjudicated airside 12,205 -> 12,176 (−29). Rising: transverse +7, taxi_box +4, road_cross_section +4,
+  pavement_over_road_cap +3, groundside_cutback +2, hard_conflict +2 (294 -> 296; taxi tier 63/61 = 63/61).
+  Falling: airside_no_step −15, strip_transverse −13, pad_frontage_hold −1, within_shape −252.
+- CRITICAL motion 2 -> 3 (`vertex_to_edge_step` +1, the site above); visual 1,912 -> 1,915 (strip_seam_tear +1,
+  hairline_pair +2). The spec disclosed +1 / +1; hairline_pair +2 is new. THE "CRITICAL NOT RISING" BAR IS MISSED AT HECA.
+- Tests: non-Qt 9,053 passed / 1 failed -> fixed (c1450faf), the failed file + named four re-run green; Qt 311 passed.
+- ratchets PASS; `solve/project.py` 1,022 lines (crossed 1,000 with `_tie_break`), `tools/v2_solve_replay.py` 2,940.

@@ -24,3 +24,26 @@ Worktree `.claude/worktrees/roadramp2`, branch `claude/roadramp2`, base `824680b
 * (e) `road_ramp.py` `on_ramp`: reads `STAND_M` (`ramp >= floor + STAND_M`, the same test
   `descend` uses for a ramp's length) instead of `1e-9`. Report-only counter (`on_ramp`,
   `on_dem`, `max_above_dem_m`, `max_reach_m`; read by `pipeline/build.py`'s log line only).
+
+## Proof
+
+* ONE KCLT replay on the registered capture `roadramp484/KCLT.pkl` (`--from constraints --emit
+  --verify --workers 3`, rc 0, solve optimal): body `c558693ad8bd`, the emitted patch
+  BYTE-IDENTICAL (`cmp`) to roadramp2's arm B and to the closing build `roadramp2_KCLT.osm`.
+  So (e) stays in the code (`STAND_M`); the `on_ramp` count itself is printed by the build's
+  log line only and was NOT re-read (no build run; it was 587 with `1e-9`).
+* The line, before (824680bb): `38 … (33 at it, 3 steepened under the cap, 2 at the cap 10 % of
+  which 2 the cap does not bring down), 598 m of ramp, longest 103 m`. Now:
+  `[KCLT] road ramps built: 38 of a lane width or more at the design grade 5.0 % (24 at it,
+  5 steepened under the cap, 9 at the cap 10 % of which 10 the cap does not bring down), 598 m
+  of ramp, longest 103 m` — 24 + 5 + 9 = 38, matching step 2's "14 have a run steeper than
+  design, 9 a run at the cap".
+* FOUND, NOT FIXED: "9 at the cap of which 10" — `ramps_over_cap` (not `fits`, per contact,
+  over EVERY ask of its walk) is no longer a subset of `ramps_at_cap` (`steepest`, over the
+  vertices that stand `STAND_M` over their floor and that this contact's ramp is the highest
+  on). One KCLT ramp has a run asking more than the cap whose capped hops are not in its
+  `steepest`. The log wording "of which" is wrong for it; which ramp was not identified.
+* Tests: three ramp twin files 46 passed, 1 xfailed (the (c) finding); full non-Qt split
+  9059 passed, 20 skipped, 1 xfailed, 1 xpassed; Qt `-n0` 311 passed; the four named suites
+  202 passed; `tools/ratchets.py` duplicate + layer PASS (size WARN `road_ramp.py`
+  1434 -> 1529, +95 against main — +6 of it this lane).

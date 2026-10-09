@@ -414,6 +414,19 @@ class PlanarMap:
     #: carries the runway's ``chord`` and the core's ``road`` profile.  A
     #: runway-contact vertex is absent (the runway owns its value).
     taxi_trend_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: THE TAXIWAY EDGE'S FOOT ON ITS OWN CENTRELINE (owner RULINGS
+    #: 2026-10-09e; spec §61 (1), ``constraints/taxi_trend.taxi_xsec_feet``):
+    #: off-centreline taxi-family vertex -> ``(a, b, t)``, the chain segment
+    #: its perpendicular's foot lies on and the parameter along it.  The
+    #: solve prices ONE relational row ``z_v = (1 - t)·z_a + t·z_b`` at
+    #: ``[design] taxi_xsec``: the edge takes its centreline's SOLVED level.
+    #: An end that is a chain's RUNWAY CONTACT is ``("pin", value)`` — the
+    #: runway's value, a constant, never a column (the edge follows the
+    #: runway, it does not pull it).  NOT a value and never merged into
+    #: ``taxi_trend_z``: nothing may read it as "a taxi authority holds this
+    #: vertex" (§61 (7) row 11).
+    taxi_xsec: _t.Mapping[int, tuple[_t.Any, _t.Any, float]] = _dc.field(
+        default_factory=dict)
     #: THE APRON BODY'S TARGET SURFACE (owner RULINGS 2026-09-10ar; spec
     #: §8.7, ``constraints/apron_trend.py``): vertex id -> the ground's 2-D
     #: LONG-WAVE TREND under it — a moving quadratic SURFACE fit of the

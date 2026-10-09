@@ -1,5 +1,34 @@
 # weld63 notes — implementing spec §63 (a cell touching a pad in the source is welded; a gapped cell is free)
 
+## RESUME HERE (lane stopped 2026-10-09 ~15:50 by the coordinator: machine shutdown)
+
+* BRANCH `claude/weld63`, all pushed. Commits: S 87370260 · T 23ad159e · W 70947240 · B′ 3aa7684b · P 44f9955b (+ notes).
+  **MERGE-READY PARTIAL = S + T (23ad159e).** W / B′ / P are on the branch with green twins, but W MISSES its acceptance
+  bars (table "W — acceptance" below): do not merge past T without the spec author's ruling on M1–M4 and D1 / D2.
+* SUITE at 44f9955b (`-n 6`, non-Qt): 9,185 passed, **1 FAILED — `tests/test_windows_text_io.py::
+  test_suite_text_io_names_encoding_and_newline`** (not yet looked at: almost certainly a `write_text()` / `read_text()` /
+  `open()` without `encoding=` that this lane added — `tests/test_pad_edge_read.py` (`side.write_text(...)`),
+  `tools/pad_edge_read.py` (`path.read_text()`), `tests/auto_patch_v2/test_pad_touch.py`). Qt suite, `test_console_encoding`,
+  `test_v1_retired` not re-run; ratchets PASS at B′ (re-run at head).
+* NOT DONE: the B′ acceptance arms (`x1` HECA / `kx1` KCLT at 44f9955b; `x1` was killed mid base solve — its dir is partial,
+  delete it), the S+T-only arm `s1` (23ad159e, S's own gate), the closing build `weld63_HECA`, frames registration, Rule L
+  (nothing to re-home, see the table), S alone was never measured on a replay.
+* NEXT COMMANDS (scratch `<scratch>/weld63/`, frozen replay tree `.claude/worktrees/weld63frz`):
+  1. fix the text-io red; `venv/bin/python -m pytest -q -n0 tests/test_windows_text_io.py`;
+  2. `rm -rf <scratch>/weld63/x1; EXTRA=--null-change CENSUS=1 <scratch>/weld63/pair.sh x1 HECA 44f9955b`, then
+     `<scratch>/weld63/acc.sh x1 HECA b0` and `venv/bin/python <scratch>/weld63/cencmp.py <scratch>/weld63/{b0,x1}/census.txt`;
+  3. `CENSUS=1 <scratch>/weld63/pair.sh kx1 KCLT 44f9955b`; `acc.sh kx1 KCLT kb0`;
+  4. `pair.sh s1 HECA 23ad159e`; `WIT=1 acc.sh s1 HECA b0`;
+  5. closing build, from `.claude/worktrees/weld63/Ortho4XP`: `venv/bin/python tools/harness/build_airport.py HECA --tag weld63_HECA`.
+* CAPTURES: `/Users/noah/XPTerrainBuilderData/.harness/frames/pads67/{HECA,KCLT,SPJC,CYXY,OTHH,KASE,NLWF}.pkl` (own captures
+  NOT taken: `--from classify` re-derives classify + planar under the arm's tree). Arm dirs `<scratch>/weld63/{b0,ph,w1}`
+  (HECA) and `{kb0,pk,kw1}` (KCLT), each with `emit/`, `edge.json`, `avd.*`, `cmp.txt`, `census.*`; witnesses
+  `<scratch>/weld63/census/<ICAO>.witness.json`.
+* RESULT SO FAR: the weld is mechanically sound (solve optimal, null-change inside bar, TOUCH-OFF HECA 565 → 68 m, KCLT
+  62 → 0 m) and, as specified, it moves airside (HECA 132 nodes ≤ 0.14 m, KCLT 15 ≤ 0.45 m; runway 0), raises pad conflicts
+  (+20 at both) and CRITICAL visual (HECA +11, KCLT +27), and `building12` sinks to 94.9 (DEM 104–106) instead of the road
+  climbing to it (Q-B).
+
 Lane `weld63` (Opus, implementation). Worktree `.claude/worktrees/weld63`, branch `claude/weld63` off
 `origin/claude/chainlag` ded211fb + `origin/main` 116152e0 (docs-only). Scratch `<scratch>/weld63/` (`.progress`).
 Master rulings carried in the brief: Q-A YES (a §28 (6) held terrace > 2.4 m keeps the knife); Q-B = 09j literal

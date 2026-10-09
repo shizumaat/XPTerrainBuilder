@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from auto_patch_v2.airport.road_descent import descend, envelope
+from auto_patch_v2.airport.road_descent import descend, descent_line, envelope
 from auto_patch_v2.geom.ramp_grade import built_grade, least_grade
 
 DESIGN, CAP, LANE = 0.05, 0.10, 7.0
@@ -251,3 +251,18 @@ def test_the_reach_seed_steepens_only_where_its_run_is_short():
     prof, rep, law = _seeded(80.0, DROP)                    # 12.5 %: the cap
     cap = law.tables.common.road_max_grade
     assert prof[-1][1] == pytest.approx(DROP - cap * 80.0) and rep["steepened"] == 1
+
+
+def test_the_log_line_states_at_cap_and_over_cap_as_two_counts():
+    """``ramps_over_cap`` (a contact with a run asking more than the cap)
+    is not a subset of ``ramps_at_cap`` (a ramp whose steepest published
+    run is at the cap): KCLT printed "9 at the cap 10 % of which 10 the
+    cap does not bring down".  The line states them as two clauses."""
+    rep = {"ramps": 38, "design": 0.05, "cap": 0.10, "ramps_at_design": 24,
+           "ramps_steepened": 5, "ramps_at_cap": 9, "ramps_over_cap": 10,
+           "ramp_total_m": 598.0, "ramp_longest_m": 103.0}
+    line = descent_line(rep)
+    assert "of which" not in line, line
+    assert "9 at the cap 10 %;" in line, line
+    assert "10 with a run the cap does not bring down)" in line, line
+    assert line.startswith("ramps built: 38 of a lane width or more"), line

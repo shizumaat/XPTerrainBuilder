@@ -276,13 +276,18 @@ def descend(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
 
 def descent_line(rep: _t.Mapping[str, _t.Any]) -> str:
     """The build log's line for the ramps (the report keys
-    ``road_ramp_targets`` publishes)."""
+    ``road_ramp_targets`` publishes).  ``ramps_at_cap`` (a ramp whose
+    STEEPEST published run is at the cap) and ``ramps_over_cap`` (a ramp
+    whose contact has a run asking MORE than the cap, ``fits`` false) are
+    two independent counts — neither is a subset of the other — so they
+    are two clauses, never "N at the cap of which M"."""
     return (f"ramps built: {rep.get('ramps', 0)} of a lane width or more at the "
             f"design grade {100.0 * (rep.get('design') or 0.0):.1f} % "
             f"({rep.get('ramps_at_design', 0)} at it, "
             f"{rep.get('ramps_steepened', 0)} steepened under the cap, "
             f"{rep.get('ramps_at_cap', 0)} at the cap "
-            f"{100.0 * (rep.get('cap') or 0.0):.0f} % of which "
-            f"{rep.get('ramps_over_cap', 0)} the cap does not bring down), "
+            f"{100.0 * (rep.get('cap') or 0.0):.0f} %; "
+            f"{rep.get('ramps_over_cap', 0)} with a run the cap does not "
+            f"bring down), "
             f"{rep.get('ramp_total_m', 0.0):.0f} m of ramp, longest "
             f"{rep.get('ramp_longest_m', 0.0):.0f} m")

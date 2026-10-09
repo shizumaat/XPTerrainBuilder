@@ -84,3 +84,24 @@ sheet locally (their hold rows, dual ~1,800, now follow the sheet instead of pul
 chords inside the 60 m gate and each carries the 1 % preference row — more preference rows, the same trend weight — so
 the 1 %-vs-trend balance tips further toward the ramp from the junction. KCLT the same read, opposite sign: pav14's pads
 UP 221.03 → 222.44 with the sheet (+1.41 at the rim, worst +1.89 at 2–10 m; >200 m 445 movers worst −1.78).
+
+## Step 3 — the null-change and the runway (Q4, first read; the pinned arm P is chain 3)
+
+`--why-at` the worst runway mover (v3701, 05L/23R, 59.85, +0.14 m m → e): held by `runway_flex` Band hi = its OWN
+pass-1a value (beta_R 0) and the strip's `zone_bands`; nothing on the final surface names the sheet — the 0.14 m is
+pass 1a's, where the runway is a free column under its chord target (300) in one QP with the sheet.
+
+The null-change record of e (`base_gf.json/null_change`): pass 1 worst **−0.914 m at building88's rim vertex
+(30.12101,31.41755)** — a pad ON objpav402; pass 2's 164 movers (worst −0.107) are objpav402's own junction cells and
+their graded strip at 30.1220–30.1225, 31.4152–31.4161 (beside building104). In the base (nm) the same vertex moves
+−0.136 in pass 1a and the worst pass-1b movers are `gapapron:1` (0.149). So R-E's instability is ON THE SHEET, not at the
+runway: in pass 1a the hold rows are dropped, a pad-rim vertex carries no value row (no trend row — `pad_follow` is
+dropped from the trend at the row site; no datum; the §61 cross-section / membrane name taxi faces only), and under R-E
+its ring is now tied into the sheet by one-sided cap rows and the 1 % preference only — a bending-only column, the §61
+valley, re-opened on the apron's hole rings. §61 (1) named the taxiway edge; it did not name the apron hole ring whose
+hold is dropped in pass 1a. The runway's 0.14 m 1.7 km away is the same QP's exit moving with that valley (the §61 (0)
+signature: a satisfied constraint elsewhere moves the far field), not a law chain — arm P tests it.
+
+KCLT (ke vs km; `trend_at.py pav14`): the pav14 sheet ROSE — face 195 (178 v, 6 holes) pad rims z−trend +0.35 → +1.76,
+face 197 (453 v, 15 holes) rims −0.13 → +0.15; building75 / 83 221.03 → 222.44 with `datum_chosen` 220.88 and band
+[220.42, 227.16] — the pads stand 1.56 m ABOVE their chosen datum, inside the band; runway 0. Why-read queued (chain 4).

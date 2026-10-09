@@ -16,3 +16,12 @@ Reads one build's `ICAO.graded.json` + the build's DEM off any capture pickle of
 DEM). Per pad-rim vertex: non-pad cells touching or within 10 m, and the uncovered DEM on 8 bearings at 2 / 5 / 10 m. Flagged when
 anything stands > 1 m off the rim. Classes: `P` pavement itself off (touching, or within the 3 m stand-off): seat candidates; `M`
 pavement at the rim's level beside a bare bank; `S` graded strip only; `B` bare. Runs = same-class chains along one pad's rim.
+
+## Step 2b — the builds (`sw8_<ICAO>`, harness through the ledger, tree `88e925bb` / `38f2ba5a` = the merge + tools only)
+
+Progress (references `sw7_*`, OTHH `surf337b_OTHH`; each census under its own tree's tool):
+* CYXY rc 0, body cf8e9e89ec62 → b20103c51fd7 (= pads66's `swq`), runway movers 0, structure 0.
+* NLWF rc 0, 45ec40e74dcb → 369eabe9dfef (= swq), 0 movers in every frame.
+* KASE rc 0, f9b157158a39 → 718538f4d2e2 (= swq), runway 0, structure 0.
+* SPJC rc 0, 61f66f149737 → 3ef3e7c7013d (= swq), runway 0, structure 8 ≤ 0.05.
+* Edge reads (`<scratch>/pads67/edge_<ICAO>.{txt,json}`): CYXY 16 runs (P 2), NLWF 5 (P 0), KASE 6 (P 0), SPJC 66 (P 6).

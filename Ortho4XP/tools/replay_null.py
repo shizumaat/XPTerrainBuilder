@@ -27,7 +27,7 @@ import typing as _t
 import numpy as np
 
 __all__ = ["BAR_COUNT", "BAR_M", "BAR_STEP_M", "PassTrace", "ceilings",
-           "movers", "null_change", "null_line", "with_bands"]
+           "movers", "null_change", "null_line", "with_bands", "worst_sites"]
 
 #: §61 (6) 5 THE STABILITY BAR: at most this many movers beyond ``BAR_M``,
 #: none beyond ``BAR_STEP_M``
@@ -115,6 +115,24 @@ def movers(za: np.ndarray, zb: np.ndarray,
             round(float(d.max()), 4)]
 
 
+def worst_sites(pm: _t.Any, za: np.ndarray, zb: np.ndarray,
+                among: np.ndarray, top: int = 12) -> list[dict]:
+    """WHERE the movers are (the ``--json`` detail an attribution reads):
+    the ``top`` largest moves beyond ``BAR_M`` — canonical key, signed move,
+    and the roles / refs of the faces at the vertex."""
+    d = np.asarray(zb, float)[among] - np.asarray(za, float)[among]
+    out = []
+    for i in np.argsort(-np.abs(d))[:top].tolist():
+        if abs(d[i]) <= BAR_M:
+            break
+        v = int(among[i])
+        faces = [pm.faces[f] for f in pm.vertices[v].incident_faces]
+        out.append({"key": list(pm.vertices[v].key), "dz_m": round(float(d[i]), 4),
+                    "roles": sorted({f.role for f in faces}),
+                    "refs": sorted({str(f.ref) for f in faces})[:4]})
+    return out
+
+
 def null_change(run: _t.Callable[[tuple], tuple], pm_stage1: _t.Any,
                 law: _t.Any, *, n: int = 30,
                 first: tuple | None = None) -> dict[str, _t.Any]:
@@ -140,8 +158,10 @@ def null_change(run: _t.Callable[[tuple], tuple], pm_stage1: _t.Any,
     out["passes"] = [len(ta.passes), len(tb.passes)]
     names = (PASS_NAMES if len(ta.passes) == 2 else
              tuple(f"pass{k + 1}" for k in range(len(ta.passes))))
+    out["worst"] = {}
     for name, pa, pb in zip(names, ta.passes, tb.passes if same else ()):
         out[name] = movers(pa["z"], pb["z"], pa["levelled"])
+        out["worst"][name] = worst_sites(pa["pm"], pa["z"], pb["z"], pa["levelled"])
     # the discrete choices, per stage call: the stage-1 passes, then stage 2
     calls = [[*t.passes, lp_read(r)] for t, r in ((ta, rep_a), (tb, rep_b))]
     out["promoted"] = [[c["promoted"] for c in cs_] for cs_ in calls]

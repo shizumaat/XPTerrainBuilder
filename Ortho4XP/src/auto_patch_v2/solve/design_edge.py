@@ -15,8 +15,9 @@ still SHAPES the sheet:
   (``PlanarMap.taxi_xsec``, derived in ``constraints/taxi_trend``: ``solve``
   imports ``law`` and ``model`` only).  The SOLVED centreline, so no DEM
   enters pavement (08t (1), 10v).  A runway contact enters as a constant.
-* :func:`membrane_rows` — for a taxi-family column still carrying no level
-  row (its foot past the reach, or its face owned by no chain), one
+* :func:`membrane_rows` — for a column still carrying no level row (a
+  taxiway edge whose foot is past the reach or whose face no chain owns; in
+  the airside stage, any pavement column no datum levels), one
   first-difference row to each bending neighbour: "level with what is
   beside it", because no centreline says more.
 """
@@ -86,12 +87,23 @@ def _bend_neighbours(rows: _Rows) -> dict[int, set[int]]:
 
 def membrane_rows(planar: PlanarMap, law: Law, rows: _Rows,
                   body: _Rows | None, red: _Reduction,
-                  named: _t.AbstractSet[int], weight: float) -> int:
-    """§61 (1) THE MEMBRANE.  Every TAXI-FAMILY column that no row levels
+                  named: _t.AbstractSet[int], weight: float,
+                  airside_stage: bool = False) -> int:
+    """§61 (1) THE MEMBRANE.  Every column that no row levels
     (:func:`rows._level_row_columns`) and that ``named`` (the cross-section
     rows) does not hold takes one first-difference row ``z_c − z_u = 0`` to
     each bending neighbour ``u``; a pair of two such columns is written
-    once.  Returns the rows added."""
+    once.  Returns the rows added.
+
+    WHICH COLUMNS.  In the AIRSIDE STAGE (``airside_stage``: §20b stage 1,
+    whose every column is airside pavement or its strip) it is EVERY such
+    column — the reading every §61 number was probed under.  MEASURED at
+    HECA (lane ``valley2``, one capture, the gap-free base, 30 satisfied
+    ceilings): read for the taxi family alone, pass 1b moved 65 vertices,
+    4 over 0.3 m, worst 0.39 m; read for every column, 4 / 0 / 0.26 — the
+    115 rows between are an apron piece no datum levels.  Anywhere else
+    (the single solve, stage 2) only a TAXI-FAMILY column takes it: the
+    groundside is not this law's."""
     if weight <= 0.0 or red.n_cols == 0:
         return 0
     taxi = frozenset(law.tables.precedence.taxi_family.members)
@@ -106,8 +118,8 @@ def membrane_rows(planar: PlanarMap, law: Law, rows: _Rows,
         if col < 0:
             continue
         rep_v.setdefault(col, v)
-        if not lev[col] and any(planar.faces[f].role in taxi
-                                for f in vx.incident_faces):
+        if not lev[col] and (airside_stage or any(
+                planar.faces[f].role in taxi for f in vx.incident_faces)):
             free[col] = True
     if not free.any():
         return 0

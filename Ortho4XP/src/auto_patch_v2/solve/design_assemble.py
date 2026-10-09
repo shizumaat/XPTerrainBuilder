@@ -713,10 +713,13 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # 9c. THE LEVEL BELT (RULINGS 2026-09-13, ``v2zerocrater``; spec §23.4):
     #     a column with no LEVEL solves to the sentinel 0 — KCLT's crater.
     rep.level_belt_rows = apply_level_belt(planar, rows, body, red, one, d.detached_mean)
-    # 9d. §61 (1) THE MEMBRANE: a taxi-family column that still carries no
-    #     level row — no chain reaches it — is level with its neighbours.
-    rep.free_membrane_rows = membrane_rows(planar, law, rows, body, red,
-                                           xsec_cols, d.free_membrane)
+    # 9d. §61 (1) THE MEMBRANE: a column that still carries no level row —
+    #     no chain reaches it, no datum names it — is level with its
+    #     neighbours (every such column of the airside stage; the taxi
+    #     family's alone elsewhere).
+    rep.free_membrane_rows = membrane_rows(
+        planar, law, rows, body, red, xsec_cols, d.free_membrane,
+        airside_stage=stage_roles is not None)
     rep.taxi_trend_rows = trend_v
     rep.apron_trend_rows = apron_trend_v
     rep.body_datum_rows = body.n

@@ -171,3 +171,15 @@ the next intent question: the sheet's LEVEL. Today's law lets the 1 % preference
   31.39756732305 = the `building4/landing2` | pol10 corner), strip 44 (3.22 m).
 READING: with no ramp law on the road the §28 joint holds and the road meets the pad; R-B is the targeted form (the ramp
 and the coverage-join pin start OUTSIDE the frontage), not a drop — the arm is the attribution, never the fix.
+
+## Step 9 — ARM D (`armD.py`: the follow reach = the piece's stand-off 1.454 + snap 0.5 + 2 identity cells = 2.807 m; late stage on the same gap-free base, 3.5 min)
+
+Cut 27 pieces -> 71 parts, 39 knives (37), 2,959 stations (2,499), 48 merged (40); gap_follow 2,033 rows (1,599), 27 vertices
+between disagreeing neighbours (15), 60 declared (56); relaxed follow 34 (worst 3.19 m; was 19 / 1.61); fixed vertices off
+their constant 0 of 34,436. `cmp_arm.py late armD`: **GAP 51 / 339 m -> 17 / 156 m**; GS-NEAR 16 / 570 -> 15 / 564; every
+other class identical; held datums 0 of 47 moved (nothing standing moves in the last stage by construction). The 17 that
+stay are the (b) Voronoi-group and (c) floor-merge mechanisms — the cut's, not the reach's — and they are design (R-D rule 2),
+not probed. The extra "between two disagreeing neighbours" (15 -> 27) are pad|lot disagreements the longer reach now SEES:
+each is a place where rule 2's knife belongs on the pad side.
+* KCLT arm E (31 faces with holes, 21,689 cross-ring pairs, 11,241 kept) died at the work-pool spawn (BrokenPipe in
+  `multiprocessing` while arm D ran beside it) — re-run alone.

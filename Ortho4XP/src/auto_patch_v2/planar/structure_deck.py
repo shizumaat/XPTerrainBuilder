@@ -41,7 +41,7 @@ from ..airport.dem import dem_z_at
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 __all__ = ["PavementDeck", "pavement_deck_intervals", "deck_intervals", "flanking_pair",
-           "object_deck_intervals", "deck_groups", "group_way", "deck_ends",
+           "object_deck_intervals", "decks_over_climb", "deck_groups", "group_way", "deck_ends",
            "deck_items", "emit_decks"]
 
 
@@ -474,6 +474,34 @@ def object_deck_intervals(axis_ln: LineString, half_outer: float,
         out.append((oid, min(s_vals), max(s_vals), dp, top))
     out.sort(key=lambda t: t[1])
     return out
+
+
+def decks_over_climb(deck_ivals: list, obj_ivals: list, gap: float,
+                     top_from: _t.Callable[[float], float | None]) -> tuple[list, list]:
+    """THE DECKS THAT STAND OVER THE RAMP — the rest are not this
+    corridor's (issue #450; the rule an object corridor's climb beyond
+    its walls already had: "a deck beyond where the ramp already meets
+    the DEM is not over the ramp").
+
+    Walking the intervals outward from the mouth: a deck is kept when it
+    STARTS at or before the station where the climb — begun past the last
+    kept deck — reaches the ground (``top_from(climb_from)``); the first
+    deck beyond that station, and every deck after it, crosses a road
+    already at grade and holds no cut.  ``top_from`` returning ``None``
+    (the ground is not reached) keeps the deck, as before.  Without this a
+    bridge 150 m out held a mapped bore's floor at the mouth depth all
+    the way to it: 260 m of trench where the road is at grade."""
+    keep_d: list = []
+    keep_o: list = []
+    climb = 0.0
+    for is_obj, iv in sorted([(False, d) for d in deck_ivals] + [(True, o) for o in obj_ivals],
+                             key=lambda t: t[1][1]):
+        s_free = top_from(climb)
+        if s_free is not None and iv[1] > s_free:
+            break
+        (keep_o if is_obj else keep_d).append(iv)
+        climb = max(climb, iv[2] + gap)
+    return keep_d, keep_o
 
 
 

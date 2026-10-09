@@ -96,14 +96,17 @@ def test_the_ramp_is_priced_along_the_route_not_the_chord(law):
     ln = LineString(path)
     axis = lambda s: (ln.interpolate(min(s, ln.length)).x,
                       ln.interpolate(min(s, ln.length)).y)
-    airport = _airport(law, dem=_Ramp(z0=700.0, slope=0.05))
+    g = law.tables.structures.tunnel.ramp_max_grade
+    # the DEM rises 3 points under the ramp cap, so the 4 m floor is NOT
+    # made up on the 100 m outward leg, whatever the cap
+    airport = _airport(law, dem=_Ramp(z0=700.0, slope=g - 0.03))
     mouth_z = 700.0 - 4.0            # the DEM at x = 0 is 700; the floor 4 m under
     s_top, _ss = _sa.ramp_top(airport, law, axis, mouth_z, 0.0, 12.0)
     assert s_top is not None
-    # the route test: |DEM(s) - mouth_z| <= grade * s.  The DEM rises 5 %
-    # in x while the ramp climbs 8 % along the route, so it catches up on
-    # the OUTWARD leg and never reaches the doubling-back part.
-    g = law.tables.structures.tunnel.ramp_max_grade
+    # the route test: |DEM(s) - mouth_z| <= grade * s.  The ramp gains 3
+    # points on the DEM along the outward leg and the whole cap on the
+    # cross leg (the DEM is level there), so it catches up before the
+    # route doubles back.
     p = axis(s_top - 12.0)
     assert abs(airport.dem.z(*p) - mouth_z) <= g * (s_top - 12.0) + 1e-9
     assert s_top <= 160.0, "the ramp must not run past its own route reading"

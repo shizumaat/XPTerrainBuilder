@@ -38,7 +38,7 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
 #: anchor plane); 9: ``Member.elevated_deck`` (11a); 10: THE WELDED DECK's
 #: ``Member.deck_shade_ring`` / ``deck_pier_ratio`` (issue #14,
 #: ``welded-deck-spec.md`` §1 (4)).
-PLAN_VERSION = 12
+PLAN_VERSION = 13
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -336,6 +336,16 @@ class RebakePlan:
     #: — they GROUP the bodies they fall in, which take the senior
     #: body's delta.  Empty in a plan written before 10ay.
     abutments: tuple[tuple[int, int], ...] = ()
+    #: AUTHORED TO THE CUT (object-placement spec §18 (3) (b); owner
+    #: RULINGS 2026-10-07c (3)-(5)): one record per tunnel wall object and
+    #: basin witness the planar map admitted — ``id``, ``resource``,
+    #: ``datum`` (``crest`` / ``rim``), ``seat`` (``authored (cut)``: the
+    #: author's seat is kept, the placement is in no unit and nothing is
+    #: written for it; ``re-seated``: plate-seated as before), ``h_cut_m``
+    #: (the datum over the grade with the authored seat on the cut) and,
+    #: for a wall, ``h_uncut_m`` / ``proud_m`` (a re-seated crest's target
+    #: over the grade).  Empty in a plan written before version 13.
+    authored_seats: tuple[_t.Mapping[str, _t.Any], ...] = ()
     #: unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
     #: CONNECTOR VERDICT, stamped at planar time on the load partition and
     #: carried here for the object stage — every §16g (6) connector as the
@@ -370,6 +380,7 @@ class RebakePlan:
             "skipped": [list(s) for s in self.skipped],
             "contacts": [[a, b] for a, b in self.contacts],
             "abutments": [[a, b] for a, b in self.abutments],
+            "authored_seats": [dict(r) for r in self.authored_seats],
             "connectors": (None if self.connectors is None
                            else [dict(c) for c in self.connectors]),
             "flat": None if self.flat is None else self.flat.to_dict(),
@@ -415,6 +426,12 @@ class RebakePlan:
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "RebakePlan":
+        # Version 13 is version 12 plus ``authored_seats`` (object-placement
+        # spec §18): a 12 plan reads with none — every admitted wall and
+        # pit plate-seated, the pre-§18 law exactly.  Purely additive — and
+        # the window is WIDENED to five for it (``PLAN_VERSION - 4``), so
+        # this bump retires nothing: a v9 plan still loads
+        # (``test_welded_deck``'s twin).  Reported, lane ``walls3``.
         # Version 12 is version 11 plus ``Member.origin`` (the placement
         # row's own ``(lat, lon)``, base-profile spec §1 (3)): an 11 plan
         # reads with ``origin`` None, and the unit composition then falls
@@ -452,7 +469,7 @@ class RebakePlan:
         # offline (``tools/v2_rebake_replay.py``).  Nothing earlier is
         # accepted: those versions changed fields the seat reads.
         if d.get("version") not in (PLAN_VERSION, PLAN_VERSION - 1, PLAN_VERSION - 2,
-                                    PLAN_VERSION - 3):
+                                    PLAN_VERSION - 3, PLAN_VERSION - 4):
             raise ValueError(f"rebake plan version {d.get('version')!r} != {PLAN_VERSION}")
         units = tuple(Unit(
             id=str(u["id"]), anchor=(float(u["anchor"][0]), float(u["anchor"][1])),
@@ -505,6 +522,7 @@ class RebakePlan:
                    counts=dict(d.get("counts", {})),
                    contacts=tuple((int(a), int(b)) for a, b in d.get("contacts", ())),
                    abutments=tuple((int(a), int(b)) for a, b in d.get("abutments", ())),
+                   authored_seats=tuple(dict(r) for r in d.get("authored_seats", ())),
                    connectors=(None if d.get("connectors") is None else
                                tuple(dict(c) for c in d["connectors"])),
                    flat=None if d.get("flat") is None else FlatDatum.from_dict(d["flat"]))

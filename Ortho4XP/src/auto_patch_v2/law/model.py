@@ -248,6 +248,10 @@ class Tunnel:
     #: ``avalanche_protector``, ``flooded``, ``no`` — never seeds a structure.
     admitted_values: tuple[str, ...]
     ramp_max_grade: float
+    #: THE DESIGN GRADE of a ramp no object frames (owner RULINGS
+    #: 2026-10-08c (1)): what it is BUILT at; ``ramp_max_grade`` is the
+    #: ceiling it steepens toward only where this one cannot top out.
+    ramp_grade: float
     mouth_standoff_m: float   # spec §29 (1): cover ⊕ this = where a mouth may stand
     ramp_cuts_runway_family: bool
     ramp_crosses_pad: bool
@@ -727,8 +731,10 @@ class RoleSpec:
     #: The cap the ORACLE prices this role's pairs at (``o4_grade_law_cap``),
     #: in place of the role's own face cap — the pair frame reads a ramp's
     #: ring diagonals, which the face's longitudinal law does not bound.
-    #: RULINGS 2026-09-08u (2): both structure ramps are read at the ramp
-    #: law's ceiling ``cutout.wall_corridor.max_ramp_grade`` 0.10.
+    #: RULINGS 2026-09-08u (2): both structure ramps are read at the road
+    #: ramp law ``tunnel.ramp_max_grade`` — the pairs the object-framed
+    #: lift (2026-10-07e) does not take: the ramp's seams with its
+    #: neighbours.
     oracle_cap: float | None = None
 
 
@@ -1007,14 +1013,16 @@ def _check_cross_refs(t: LawTables) -> None:
         if spec.oracle_cap is not None and (spec.oracle_role is None or spec.oracle_cap <= 0.0):
             raise LawError(f"precedence.roles.{r}.oracle_cap: a positive cap, "
                            "and only on an aliased role")
-    # RULINGS 2026-09-08u (2): the oracle reads BOTH structure ramps at the
-    # ramp law's ceiling — ONE number, ``cutout.wall_corridor.max_ramp_grade``
+    # RULINGS 2026-09-08u (2), 2026-10-07d/07e: an object-framed ramp's own
+    # grade is uncapped (the lift); what the oracle still prices on BOTH
+    # structure ramps — their seams — it prices at the road ramp law, ONE
+    # number, ``structures.tunnel.ramp_max_grade``
     for r in ("door_ramp", "wall_corridor_ramp"):
         spec = t.precedence.roles.get(r)
-        if spec is not None and spec.oracle_cap != t.structures.cutout.wall_corridor.max_ramp_grade:
+        if spec is not None and spec.oracle_cap != t.structures.tunnel.ramp_max_grade:
             raise LawError(f"precedence.roles.{r}.oracle_cap {spec.oracle_cap} is not "
-                           "structures.cutout.wall_corridor.max_ramp_grade "
-                           f"{t.structures.cutout.wall_corridor.max_ramp_grade} (08u (2))")
+                           "structures.tunnel.ramp_max_grade "
+                           f"{t.structures.tunnel.ramp_max_grade} (08u (2); 07d)")
     for r in t.common.roles:
         if r not in roles:
             raise LawError(f"rulesets.common.roles.{r}: not a registered role")
@@ -1029,11 +1037,14 @@ def _check_cross_refs(t: LawTables) -> None:
             f"structures.tunnel.ramp_max_grade {t.structures.tunnel.ramp_max_grade} "
             f"exceeds the tunnel_ramp role's longitudinal cap "
             f"{ramp_role_cap.longitudinal} (RULINGS 2026-09-12m)")
-    door_cap = t.common.roles.get("door_ramp")
-    wc_cap = t.common.roles.get("wall_corridor_ramp")
+    # RULINGS 2026-10-08c (1): the cap is a ceiling, never the grade a ramp is
+    # built at — the design grade stands at or under it
+    if not 0.0 < t.structures.tunnel.ramp_grade <= t.structures.tunnel.ramp_max_grade + 1e-12:
+        raise LawError(
+            f"structures.tunnel.ramp_grade {t.structures.tunnel.ramp_grade} is not in "
+            f"(0, ramp_max_grade {t.structures.tunnel.ramp_max_grade}] (RULINGS 2026-10-08c (1))")
     gr_cap = t.common.roles.get("garage_ramp")
-    _check_cutout(t.structures.cutout, None if door_cap is None else door_cap.longitudinal,
-                  LawError, None if wc_cap is None else wc_cap.longitudinal,
+    _check_cutout(t.structures.cutout, LawError,
                   None if gr_cap is None else gr_cap.longitudinal)
     for grp in (t.precedence.taxi_family.members,
                 t.precedence.runway_family.members):

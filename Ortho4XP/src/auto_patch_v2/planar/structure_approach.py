@@ -765,7 +765,8 @@ def ramp_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: fl
               spacing: float, s_min: float = 0.0, grade: float | None = None,
               max_len: float | None = None) -> tuple[float | None, list[float]]:
     """``(s_top, station s values)`` — the first station at or beyond
-    ``s_min`` where the ``ramp_max_grade`` climb from ``mouth_z``
+    ``s_min`` where the climb from ``mouth_z`` at ``grade`` (a caller's
+    own; ``ramp_max_grade`` where none is given)
     (starting at ``climb_from``) reaches the DEM ALONG THE ROUTE, plus
     one station of slack; ``None`` when the DEM is not reached within
     ``max_ramp_length_m``.

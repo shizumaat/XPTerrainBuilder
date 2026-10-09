@@ -17,15 +17,18 @@ THE FIXTURE (metres, in the sidecar anchor's own frame; every shape is a
 20 m square, so every ring edge is 20 m and every diagonal 28.284 m):
 
     A1  apron            [  0, 20]²   corner alts (0, 0, 1.2, 0)
-    G1  groundside       [ 20, 40]×[0,20]   alts (0.1, 0, 2.0, 0)
+    G1  groundside       [ 20, 40]×[0,20]   alts (0.1, 0, H, 0)
     B1  building  flat 10.0   [200,220]×[0,20]
     B2  building  flat 12.0   [220.6,240.6]×[0,20]
-    A4  apron  o4_grade_law=fan_ramp  [250,270]×[0,20]  alts (0,0,2.0,0)
+    A4  apron  o4_grade_law=fan_ramp  [250,270]×[0,20]  alts (0,0,H,0)
     A2  apron     flat  5.0   [300,320]×[0,20]
     A3  apron     flat  7.0   [320.6,340.6]×[0,20]
     A5  apron            [400,420]×[0,20]   alts (0, 0, 0.5, 0)
-    A6  apron            [450,470]×[0,20]   alts (0, 0, 2.0, 0)
-    A7  apron            [500,520]×[0,20]   alts (0, 0, 2.0, 0)
+    A6  apron            [450,470]×[0,20]   alts (0, 0, H, 0)
+    A7  apron            [500,520]×[0,20]   alts (0, 0, H, 0)
+
+    H = 24 m x the ROAD CAP read from the law (2.4 m at 10 %, RULINGS
+    2026-10-07d): 1.2 x the cap over an edge, 0.81 x over the diagonal.
 
     sidecar fan-ramp zones, both at cap 5 %:
         Z1  [398, 472]×[-2, 22]     (covers A5 and A6 whole)
@@ -51,6 +54,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 HARNESS = ROOT / "tools" / "harness"
 sys.path.insert(0, str(ROOT / "src"))
+
+from auto_patch_v2.law import tables as _V2T                    # noqa: E402
+
+#: THE ROAD CAP, read from the law (RULINGS 2026-10-07d: 10 %), and THE
+#: RAISED CORNER every "over the road cap" square of the fixtures carries:
+#: ``H`` over a 20 m edge is 1.2 x the cap (over ``cap·20 + 0.03``), and
+#: ``H − 0.1`` over the 28.284 m diagonal is 0.81 x the cap (under it) —
+#: so every count derived below holds at whatever value the law gives.
+ROAD_CAP = float(_V2T.pavement_fallback_cap(_V2T.load_default()))
+H = round(ROAD_CAP * 24.0, 2)
 
 
 def _load(name: str, path: Path):
@@ -156,19 +169,19 @@ def _build_fixture(cg, tmp_path: Path, *, root_attrs: str = "") -> Path:
     b = _PatchBuilder(cg)
     b.square(0, 0, 20, [0.0, 0.0, 1.2, 0.0],
              {"role": "apron", "shapeID": "A1"})
-    b.square(20, 0, 20, [0.1, 0.0, 2.0, 0.0],
+    b.square(20, 0, 20, [0.1, 0.0, H, 0.0],
              {"role": "groundside_pavement", "shapeID": "G1"})
     b.square_flat(200, 0, 20, 10.0, {"role": "building", "shapeID": "B1"})
     b.square_flat(220.6, 0, 20, 12.0, {"role": "building", "shapeID": "B2"})
-    b.square(250, 0, 20, [0.0, 0.0, 2.0, 0.0],
+    b.square(250, 0, 20, [0.0, 0.0, H, 0.0],
              {"role": "apron", "shapeID": "A4", "o4_grade_law": "fan_ramp"})
     b.square_flat(300, 0, 20, 5.0, {"role": "apron", "shapeID": "A2"})
     b.square_flat(320.6, 0, 20, 7.0, {"role": "apron", "shapeID": "A3"})
     b.square(400, 0, 20, [0.0, 0.0, 0.5, 0.0],
              {"role": "apron", "shapeID": "A5"})
-    b.square(450, 0, 20, [0.0, 0.0, 2.0, 0.0],
+    b.square(450, 0, 20, [0.0, 0.0, H, 0.0],
              {"role": "apron", "shapeID": "A6"})
-    b.square(500, 0, 20, [0.0, 0.0, 2.0, 0.0],
+    b.square(500, 0, 20, [0.0, 0.0, H, 0.0],
              {"role": "apron", "shapeID": "A7"})
     sidecar = {
         "anchor": list(ANCHOR),
@@ -204,23 +217,23 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
 
     WITHIN_SHAPE = 14.  Allowance is ``cap·d + 0.03``: apron at 1 % allows
     0.23 m over a 20 m edge and 0.313 m over the 28.284 m diagonal;
-    groundside pavement at the ROAD limit 8 % (owner ruling 2026-08-12,
+    groundside pavement at the ROAD limit c (owner ruling 2026-08-12,
     "GROUNDSIDE PAVEMENT GRADES AT THE ROAD LIMIT" — it carries the same
-    vehicles the service road does) allows 1.63 m / 2.293 m; a declared
+    vehicles the service road does) allows 20c + 0.03 / 28.284c + 0.03; a declared
     fan-ramp piece and a pair wholly inside a declared 5 % zone allow
     1.03 m / 1.457 m.
 
       A1 (apron, one corner at 1.2): the three pairs touching that corner
          carry |de|=1.2 > 0.23 / 0.313      -> 3
-      G1 (groundside, 0.1 / 0 / 2.0 / 0): b-c and c-d carry 2.0 > 1.63;
-         the a-c diagonal's 1.9 is now UNDER the 2.293 allowance the
+      G1 (groundside, 0.1 / 0 / H / 0): b-c and c-d carry H = 24c > 20c + 0.03;
+         the a-c diagonal's H − 0.1 is UNDER the 28.284c + 0.03 allowance the
          road limit grants, so it is lawful; a-b, a-d (0.1) and b-d
          (0) pass                                                   -> 2
-      A4 (declared ramp piece, corner 2.0, judged at the 5 % ramp cap):
-         2.0 > 1.03 twice and 2.0 > 1.457 on the diagonal          -> 3
+      A4 (declared ramp piece, corner H, judged at the 5 % ramp cap):
+         H > 1.03 twice and H > 1.457 on the diagonal              -> 3
       A5 (corner 0.5, wholly inside zone Z1 -> 5 %): 0.5 < 1.03    -> 0
-      A6 (corner 2.0, wholly inside Z1 -> 5 %): as A4              -> 3
-      A7 (corner 2.0, only its western half inside Z2, so no pair is
+      A6 (corner H, wholly inside Z1 -> 5 %): as A4                -> 3
+      A7 (corner H, only its western half inside Z2, so no pair is
          wholly covered and the strict 1 % apron cap stands)       -> 3
       A2/A3/B1/B2 lie flat                                         -> 0
 
@@ -263,7 +276,7 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
     # square carrying ONE raised corner therefore breaches at three of its
     # four stations — (a,b,c), (b,c,d) and (c,d,a); the fourth, (d,a,b),
     # is flat on both sides:
-    #    A1 (corner 1.2), A4 (2.0), A5 (0.5), A6 (2.0), A7 (2.0) -> 3 each
+    #    A1 (corner 1.2), A4 (H), A5 (0.5), A6 (H), A7 (H)       -> 3 each
     #    A2 / A3 lie flat, and G1 / B1 / B2 are not airside     -> 0
     # 5 x 3 = 15.  A5's 0.5 m corner is priced here even though the 5 %
     # zone exempts its within-shape pairs: the ZONE relaxes the GRADE cap,
@@ -272,12 +285,12 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
     assert _fam(report, "airside_no_step")["n"] == 15
     # PAVEMENT_OVER_ROAD_CAP = 10 (the universal pavement cap, owner RULINGS
     # 2026-09-29ac; census copy per RULINGS 2026-09-30l).  Allowance is the
-    # ROAD cap 8 % x d + 0.03, over CONSECUTIVE ring pairs (no diagonals)
+    # ROAD cap c x d + 0.03, over CONSECUTIVE ring pairs (no diagonals)
     # and over welded neighbours of two different pavement rings within
     # 1.0 m:
-    #    G1 / A4 / A6 / A7: the two 20 m edges into the 2.0 m corner read
-    #       10 % > 1.63 m allowance                        -> 2 each = 8
-    #    A1 (1.2 < 1.63), A5 (0.5), A2 / A3 / B1 / B2 ring edges (flat) -> 0
+    #    G1 / A4 / A6 / A7: the two 20 m edges into the H corner read
+    #       1.2c > the 20c + 0.03 allowance                -> 2 each = 8
+    #    A1 (1.2 < 20c + 0.03), A5 (0.5), A2 / A3 / B1 / B2 ring edges (flat) -> 0
     #    A2|A3 facing corners, 0.6 m apart, 2.0 m step (apron|apron,
     #       judged as if welded: 2.0 > 0.078)                   -> 2
     #    B1|B2 facing corners: the ``building_to_building`` exemption
@@ -338,10 +351,11 @@ def test_the_registered_step_exemption_is_named_and_counted(report):
 
 
 def test_the_worst_row_is_the_largest_magnitude_row(report):
-    """Largest |de| in the fixture is 2.0 m — carried by G1's two 2.0 m
-    within-shape pairs, A4/A6/A7's, and every step row."""
-    assert report["worst"][0]["magnitude_m"] == pytest.approx(2.0)
-    assert all(r["magnitude_m"] <= 2.0 + 1e-9 for r in report["worst"])
+    """Largest |de| in the fixture is ``H`` (the raised corner, 1.2 x the
+    road cap over 20 m) — carried by G1's two within-shape pairs and
+    A4/A6/A7's; the step rows carry 2.0 m."""
+    assert report["worst"][0]["magnitude_m"] == pytest.approx(max(H, 2.0))
+    assert all(r["magnitude_m"] <= max(H, 2.0) + 1e-9 for r in report["worst"])
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -990,7 +1004,7 @@ def test_the_band_error_case_still_names_the_error(report, census, capsys):
 #
 # THE ROAD FIXTURE (metres, same anchor and 20 m squares as §1):
 #
-#   R1  service_junction  [0, 20]²          corner alts (0.1, 0, 2.0, 0)
+#   R1  service_junction  [0, 20]²          corner alts (0.1, 0, H, 0)
 #   R2  service_road      [100,120]×[0,20]  flat 5.0
 #   R3  service_junction  [120.6,140.6]×[0,20]  flat 7.0
 #
@@ -1002,7 +1016,7 @@ def test_the_band_error_case_still_names_the_error(report, census, capsys):
 def road_report(cg, census, tmp_path_factory):
     tmp = tmp_path_factory.mktemp("census_twin_roads")
     b = _PatchBuilder(cg)
-    b.square(0, 0, 20, [0.1, 0.0, 2.0, 0.0],
+    b.square(0, 0, 20, [0.1, 0.0, H, 0.0],
              {"role": "service_junction", "shapeID": "R1"})
     b.square_flat(100, 0, 20, 5.0, {"role": "service_road", "shapeID": "R2"})
     b.square_flat(120.6, 0, 20, 7.0,
@@ -1014,10 +1028,10 @@ def road_report(cg, census, tmp_path_factory):
 
 def test_the_road_family_is_SEEN_by_the_within_shape_law(road_report):
     """WITHIN_SHAPE + ROAD_CROSS_SECTION = 2.  R1's longitudinal cap is
-    the service-road limit (8 %), so a 20 m edge allows 8 %·20 + 0.03 =
-    1.63 m and the 28.284 m diagonal allows 2.29 m.  Its 2.0 m corner
+    the service-road limit c, so a 20 m edge allows 20c + 0.03 and the
+    28.284 m diagonal 28.284c + 0.03.  Its ``H`` = 24c corner
     breaches both edges that touch it (b-c, c-d) and neither diagonal
-    (a-c carries 1.9 m, b-d carries 0).  R2 and R3 lie flat.
+    (a-c carries H − 0.1, b-d carries 0).  R2 and R3 lie flat.
 
     THE SPLIT (owner ruling RULINGS 2026-08-25g, "ROADS ARE LATERALLY
     FLAT"): R1's two breaching edges are perpendicular to each other, so
@@ -1196,11 +1210,11 @@ def _pavcap_rows(cg, tmp_path, build) -> list:
 
 
 def test_pavcap_a_ring_edge_over_the_road_cap_is_a_row(cg, tmp_path):
-    """2.0 m over a 20 m ring edge = 10 % > 8 % x 20 + 0.03: the two edges
+    """``H`` over a 20 m ring edge = 1.2 x the road cap, over ``cap x 20 + 0.03``: the two edges
     into the raised corner are rows; the diagonal is not a ring pair."""
     rows = _pavcap_rows(cg, tmp_path, lambda b: b.square(
-        0, 0, 20, [0.0, 0.0, 2.0, 0.0], {"role": "apron", "shapeID": "P"}))
-    assert sorted(rows) == [("P", "P", 20.0, 2.0), ("P", "P", 20.0, 2.0)]
+        0, 0, 20, [0.0, 0.0, H, 0.0], {"role": "apron", "shapeID": "P"}))
+    assert sorted(rows) == [("P", "P", 20.0, H), ("P", "P", 20.0, H)]
 
 
 def test_pavcap_a_zero_distance_pair_is_a_weld_not_a_row(cg, tmp_path):

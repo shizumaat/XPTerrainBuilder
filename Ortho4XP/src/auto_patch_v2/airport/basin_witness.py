@@ -89,6 +89,7 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
                                          rim_reaches_grade=bl.rim_reaches_grade,
                                          rim_protrusion_max_fraction=bl.rim_protrusion_max_fraction,
                                          authored_depth_min_m=bl.authored_depth_min_m,
+                                         authored_rim_tol_m=bl.authored_rim_tol_m,
                                          ahead=lambda jobs, rl: _work.placements_ahead(
                                              pool, jobs, rl))
     # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a
@@ -156,7 +157,7 @@ def ramp_decks(o: "obj8.PlacedObject", cache: "obj8.ResourceCache",
     if g is None:
         return []
     v = g.vertices
-    base = o.anchor_z + o.agl_m
+    base = o.base_z
     a, b, d, e, xoff, yoff = placement_affine(o.xy, o.heading_deg)
     comps = cache.components(o.resolved)
     faces: list[tuple] = []

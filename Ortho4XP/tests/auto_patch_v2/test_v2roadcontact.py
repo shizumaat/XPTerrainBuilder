@@ -145,7 +145,7 @@ def test_the_contact_row_is_a_one_way_ceiling_against_the_airside_columns(law):
         assert sum(c for _t, c in row.terms) == pytest.approx(0.0, abs=1e-9)
         assert row.follows == (v,)
         a, b, u, s = pm.road_contact_edge[v]
-        assert row.hi == pytest.approx(0.08 * s)
+        assert row.hi == pytest.approx(law.tables.common.road_max_grade * s)
     assert CONTACT_RULING.split("(")[0].strip() in heads
     # NOT HARD: ``solve/design`` carries ONE ``shift`` vector and the
     # augmented Lagrangian overwrites the one-way lag of a row in both

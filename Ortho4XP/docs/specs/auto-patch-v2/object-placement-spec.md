@@ -6650,3 +6650,425 @@ airside_floor` is read by `tools/obj8_split_report.py` and by
 `placement_plan.build_splits`'s caller, and `src/auto_patch/engine_v2.py`
 — another lane's file this round — does not pass it.  One line there when
 the flag flips.
+
+## §18 AUTHORED TO THE CUT — THE SEAT IS KEPT WHERE IT IS CONSISTENT OVER THE TERRAIN THE ENGINE CUTS (owner RULINGS 2026-10-07a (1), (7)–(9), 07b (1), (3); Fable 2026-10-07) — lane `authspec` (design only), after `othhwalls`
+
+**The owner's fact (07b (1)):** "OTHH object elevations were adjusted by the pack
+author to work with our mesh, so the expectation is that they all are at the
+correct elevation without any changes by XPTerrainBuilder." **The direction:** the
+engine cuts the terrain the author's elevations expect and does not move such
+objects; the witness for "authored to the cut terrain" is GENERAL (05e — no pack,
+no airport, no ICAO); the wall-top height (#447) is DERIVED, never set.
+
+### §18 (1) ATTRIBUTION — what the pack's three pristine DSFs say
+
+Three pristine (`.anchor_bak`) dumps exist in the shared mod cache: `84ffe846`
+(old pack name, 2026-09-11), `7adb2cb0` (new pack name, 2026-09-17), `4229c95f`
+(2026-09-28, today's). Diffed placement by placement (resource + 5-dp anchor;
+scratch `authspec/dsfdiff.py`):
+
+* **09-11 → 09-17:** 14,230 → 14,218 placements; 31 resources / 206 placements
+  change elevation, of which 200 are ±0.001 m noise (Safedock, Bridge_01/04/05
+  −3.5004 → −3.5012). THE ONLY MATERIAL CHANGE IS THE TUNNEL WALLS: `tunnel south
+  west 2` −8.000 → −5.500 (+2.5); `tunnel_sw` −3.001 → 0.000 (+3.0); `tunnel west 2`
+  −3.001 → 0.000 (+3.0); `tunnel west 3` −3.001 → +1.000 (+4.0); `tunnel west 1`
+  −3.001 → +2.500 (+5.5); `tunnel1` ×2 −7.000 → −5.000 (+2.0, anchors moved < 1 m);
+  `tunnel middle - east/west` −3.001 → −3.000 (0). The pits are plain `OBJECT` in both.
+* **09-17 → 09-28:** 14,218 → 36,408 placements (22,304 added: terminal furniture,
+  cars); 88 resources / 94 placements change elevation, ALL lifts of one class:
+  `OBJECT` → `OBJECT_AGL` +3.998 (Bridge_02/03/06, 33 parts), +2.999 / +3.498 (the
+  three ILS docks, 23 parts), Bridge_01 −3.50 → +0.40, Bridge_04 −3.80 → −0.65,
+  Bridge_05 −3.50 → −0.54, and THE PITS: `Drainage_01..05` `OBJECT` → `OBJECT_AGL`
+  **+4.2985** (one constant for five objects of two floor depths), `Dewatering_01`
+  → **+13.4978**; `Drainage_06` and `Dewatering_02` stay plain `OBJECT`. The walls
+  are unchanged from 09-17.
+* So the cached `.anchor_bak 4229c95f` IS the author's DSF (06b: 228 polygon defs,
+  the `Imagery/test` references the engine never minted), and the author edited in
+  two passes: the walls after the owner's 1.0.33x builds of the old pack (every one
+  of the 8 corridors cut, RULINGS 09-04d / 09-08l / 09-08o), the pits and bridges
+  after 1.0.34x–35x builds of the new pack.
+
+**The author's design height is 2.0 m, read off his own flat-ground authoring.**
+In the 09-11 DSF every wall's crest plate (`plate_y` +5.0; `tunnel1` +9.55;
+`south west 2` +10.0) stands `agl + plate_y` = **+2.0 m** over the terrain at its
+anchor (`tunnel1`: +2.55) — authored to UNCUT ground, where anchor terrain =
+surrounding ground. 09-08o read exactly this ("both crests render +2.0 m above
+ground"). The 09-17 edit raised each wall by the depth our September cut had put
+under its anchor, keeping the crest where it was over the surrounding ground.
+
+### §18 (2) MEASURED — the authored seats over the terrain the engine cuts TODAY
+
+Build `swg_OTHH` (main b6e2371f, flat-site Z0 3.962), graded surface sampled under
+each anchor (`authspec/sample_today.py`; `h_cut` = crest height over grade with
+the AUTHORED seat on today's cut; `h_uncut` = the same on uncut ground; today's
+stage = what `anchor_rule` does to it):
+
+| wall (unit) | anchor lat, lon | T today under anchor | agl | plate_y | **h_cut** | h_uncut | today's stage |
+|---|---|---|---|---|---|---|---|
+| tunnel south west 2 (unit:9) | 25.253682, 51.603116 | 1.50 (tunnel_ramp) | −5.50 | 10.00 | **2.04** | 4.50 | ADMITTED; re-seated FLUSH, moved −2.05 |
+| tunnel1 (unit:116) | 25.269456, 51.606096 | 1.41 (tunnel_ramp) | −5.00 | 9.55 | **2.00** | 4.55 | ADMITTED; flush, moved −2.00 |
+| tunnel1 (unit:133) | 25.271830, 51.612645 | 1.40 (tunnel_ramp) | −5.00 | 9.55 | **1.99** | 4.55 | ADMITTED; flush, moved −1.99 |
+| tunnel middle - west (unit:136) | 25.272613, 51.602119 | 3.96 (uncut, outside the trench) | −3.00 | 5.00 | **2.00** | 2.00 | ADMITTED; flush, moved −2.00 |
+| tunnel middle - east (unit:157) | 25.276081, 51.613537 | 3.96 (uncut) | −3.00 | 5.00 | **2.00** | 2.00 | ADMITTED; flush, moved −2.00 |
+| tunnel_sw (unit:21) — #453 | 25.255816, 51.608301 | 1.17 (the OSM ramp) | 0.00 | 5.00 | **2.21** | 5.00 | REFUSED "at grade"; untouched |
+| tunnel west 2 (unit:158) — #455 | 25.276138, 51.591817 | 1.03 (the OSM ramp) | 0.00 | 5.00 | **2.07** | 5.00 | REFUSED; untouched |
+| tunnel west 3 (unit:169) — #454 | 25.279138, 51.600161 | 3.96 (ramp top; no cut under it) | +1.00 | 5.00 | 6.00 | 6.00 | REFUSED; untouched |
+| tunnel west 1 (unit:161) | 25.276647, 51.593229 | 3.96 (no cut at all) | +2.50 | 5.00 | 7.50 | 7.50 | REFUSED; untouched |
+
+**Seven of nine crests land 1.99–2.21 m above grade with the authored seat on the
+terrain the engine cuts (spread 0.22 m); the two outside the band (west 1, west 3)
+are the two walls under which the engine cuts NOTHING today** — the owner's #454 /
+#455 sites. Under the full-length ramp the `othhwalls` lane builds (mouth 5.1 m at
+the bore end, ground at the far wall end), the anchor terrain follows from the
+model's own extents: `tunnel west 3` (223 m, origin 75 m from the +x end) → cut
+3.38 m → h 2.62 (mouth at +x) or 4.28 (−x); `tunnel west 1` (43.5 m box, origin
+mid) → 2.55 m on a ramp → h 4.95, or a flat full-depth portal → h 2.4. West 1 is
+the ONE placement whose reading depends on the corridor the sibling lane builds; it
+is measured, not assumed (§18 (8) step 1).
+
+**ANSWER TO #447 (derived):** the wall top the pack author designed is **2.0 m
+above the surrounding ground** — by his flat-ground authoring (8 of 8 at +2.0 /
++2.55 on 09-11) and by his re-authoring to our cut (7 of 9 at 1.99–2.21 today, the
+other two over terrain we have not cut). Not 1 m: the owner's memory is a metre
+short of the pack's own statement, or the model's lower metre of crest is a
+footing he reads as ground — a sim read decides (§18 (7) Q1). Today's stage puts
+every admitted crest FLUSH (05n-4), 2.0 m under the author's intent — exactly the
+owner's complaint.
+
+**The pits (#451) — CORRECTED in review (§18 (9) (2)):** the basin law cuts the
+terrain floor `[basin] floor_clearance_m` = 0.5 m UNDER the deepest floor plate
+(§24 (2), RULINGS 09-11t; `Drainage_06` basin:0 floor −0.239 = Z0 + feet_y −4.201
+− 0.5 + the rim read). The author's lifts are THAT floor's depth to the
+centimetre: `Drainage_01..05` plate −3.816 → terrain floor −4.316, lift **+4.2985
+= 4.316 − 0.017**; `Dewatering_01` plate −13.142 → floor −13.642, lift **+13.4978
+= 13.642 − 0.144**. An `OBJECT_AGL` anchor inside the pit stands ON the cut floor
+in the sim, so each lift puts the rim at **−0.02 / −0.14 m** — AT GRADE. The
+first draft's "+0.48 / +0.36 m" measured the lift against the plate and forgot
+the clearance; the closing build's rims (−0.02 / −0.14) are the author's seat
+exactly, not a defect. Today they are never read: `obj8.placement_grounds`
+(`airport/obj8.py:734`) tests `anchor_z + agl + vmin ≤ max(ground) −
+admission_depth_m` on UNCUT ground, where a lifted pit's floor stands ABOVE grade.
+
+### §18 (3) THE RULE — one witness, two datums
+
+**(a) THE WITNESS.** An admitted below-grade object (a tunnel wall corridor, §33 /
+`tunnel_objects`; a basin, §24 / `basins`) is AUTHORED TO THE CUT when its datum,
+rendered at the AUTHORED seat over the terrain the engine itself cuts for it, lands
+inside the datum's lawful band over the surrounding grade:
+
+* wall: datum = the crest plate (§16e (1)); `h_cut = ground_cut(anchor) + agl +
+  plate_y − grade(plate stations)`; band `0 ≤ h_cut ≤ [tunnel.object]
+  authored_crest_max_m` (new law value, **3.0 m**: a wall top at grade up to a
+  parapet; OTHH reads 1.58–2.59 on the full-length ramp, §18 (9)).
+* pit: datum = the rim (`plate_y ≤ 0`, §14 (2)); `r_cut = floor_cut(anchor) + agl −
+  grade(rim)` where `floor_cut` is the TERRAIN floor the basin law cuts — the
+  deepest floor plate (`[basin] floor = "deepest_solid"`) MINUS `[basin]
+  floor_clearance_m` (§24 (2): the terrain stands 0.5 m under the plate), when
+  the anchor stands inside the floor; the anchor's own ground when it does not;
+  band `|r_cut| ≤ [basin] authored_rim_tol_m` (new law value, **1.0 m**; OTHH
+  reads **−0.02 / −0.14** — the rim AT GRADE, §18 (9) (2); the +0.36 / +0.48 of
+  the first draft forgot the clearance). The pit witness exists only where the
+  author STATED a seat — a lifted pit (§18 (5)); a plain pit (no lift) has no
+  record and keeps the floor-plate seat (`[basin] seat`) as before.
+
+`ground_cut(anchor)` is the engine's OWN product — for a wall the corridor's ramp
+profile at the anchor's station (`model/structures.Tunnel.floor_z(s)`) where the
+anchor stands INSIDE the corridor's trench, the ground under the anchor where it
+stands beside it (the two `middle` walls, §18 (2)); for a pit the terrain floor
+above — never a sample of a sim mesh. `grade` is what the seat already reads: the
+plate stations outside the rim (09-08o rule (c)) for a wall, the rim ring for a pit.
+
+**(b) THE DATUM.** Authored to the cut → the seat is the author's and is KEPT: the
+member is NOT entered in `plates` (`rebake_plan.build_plan`, `airport/rebake_plan.py:263`),
+`anchor_rule.datum` reads no crest for it, the writer writes nothing for it (no
+split file, no baked offset, no DSF row), and the plan records `seat: "authored
+(cut)"` with `h_cut` / `r_cut`. NOT authored to the cut → the seat is re-derived as
+today (05n-4: the crest plate on the ground at the band; §14 (2): the rim at the
+ring), the plan records `seat: "re-seated"` with the delta — AND the datum carries
+THE PACK'S OWN MEDIAN PROUD HEIGHT (owner 07c (4), superseding this draft's
+per-wall `h_uncut`): the median over every wall of the pack that STATES a height
+(`h_cut` in band, else `h_uncut` in band — `authored_seat.stated_height` /
+`pack_proud_height`), standardised, so a re-seated wall's crest is set to
+`grade + median`; flush only when no wall of the pack states a height (05n-4 as
+the fallback). The proud height rides the plate's existing CLEARANCE
+(`Datum(plate_y − clear)`), no new datum field. A kept member is EXCLUDED from
+the rebake units outright (the existing "terrain adapted" skip) and the decision
+is recorded once, plan-level, in `RebakePlan.authored_seats` (id, resource,
+datum, seat, `h_cut_m`, `h_uncut_m`, `proud_m` / `agl_authored_m`, `members`) —
+plan `version` 13 (§18 (9), deviations 1–3, 7 ACCEPTED). A placement whose
+reading is in no band is NAMED in the report as a finding.
+
+**(c) THE CUT.** The engine cuts what the author's seat expects, by the laws that
+exist: a wall with a mapped bore at its plate is a corridor whether seated deep or
+at grade (lane `othhwalls` c1f50c88 — the depth the bore law's, the ramp the full
+wall length, 07b (2)); a lifted pit whose shell passes the pre-screen READ AS
+GROUND-SEATED is a basin candidate (§18 (5)). The cut never reads the seat for
+depth (08l / 08o stand): `plate_y` and `agl` are the author's handle.
+
+**(d) GENERAL.** No pack name, no airport, no coordinate: the witness is the
+geometry (the object's own crest / floor plate), the engine's own cut, and two law
+values that hold at every airport. A pack authored to uncut ground (OTHH's 09-11
+DSF: every `h_cut` −1.4 … −0.5, every `h_uncut` +2.0) reads NOT-authored-to-the-cut
+and is re-seated exactly as today — with the author's +2.0 m kept under Q2.
+
+### §18 (4) THE RULINGS IT TOUCHES — stands / narrowed / superseded
+
+| ruling | status | by the owner's words |
+|---|---|---|
+| 2026-09-05n-4 "the TOP of the wall objects is FLUSH with the surrounding terrain, never below ground" / `plate_datum = "ground"`, re-seat | **NARROWED** | 07b (1): "at the correct elevation without any changes by XPTerrainBuilder" — the re-seat applies only to a seat that is NOT consistent over the cut; "never below ground" stands (the band's floor is 0). The flush target becomes the author's proud height under Q2 (07a (1): "1 m above ground level, not flush"). |
+| 2026-09-06f "the seat is the author's handle, not a datum — 05n-4: the crest is set flush at grade by the re-seat" | **NARROWED** | the seat is never DEPTH evidence (stands, 08l/08o); it IS the author's statement of the datum when it reads consistent over the cut (07b (1)). |
+| 2026-09-08l / 08o depth = floor slab else 5.1 m; `plate_y` is the origin handle; stations outside the rim on ground | **STANDS** | untouched: the cut's depth and the grade the band is measured from are 08l/08o's. |
+| 2026-09-04f/04l basins by geometry; §14 (2) a floor-plate basin's zero is its rim | **STANDS, extended** | the pre-screen reads a lifted shell as ground-seated (§18 (5)); the rim rule is the pit's band. |
+| 2026-10-07a (7)–(9) at-grade walls are tunnel walls | **STANDS** | `othhwalls` is the cut half of this rule; §18 (3) (b) is the seat half — it must land ON TOP of c1f50c88 (the sibling's re-seat line "the re-seat puts the crest at the ground" is the 05n-4 default this section narrows). |
+
+### §18 (5) THE PITS (#451)
+
+`Drainage_01..05` (10 parts) and `Dewatering_01` (3 parts) are `OBJECT_AGL` lifts
+whose value equals the depth of the terrain floor the basin law cuts under the
+pit's own deepest plate (plate + `floor_clearance_m`; §18 (2)). Rule, in
+`obj8.placement_grounds` / `read_placement` (`airport/obj8.py:739`
+`_reads_ground_seated`, `PlacedObject.ground_seated` / `base_z`; `agl_m` STAYS
+the authored lift — its forty readers need it; §18 (9) deviation 4 ACCEPTED):
+
+**THE LIFT IS ONE DECISION PER ANCHOR FAMILY (STOP 1 of lane `walls3`, ruled
+§18 (9) (1)).** A pack author splits one model into several files (LOD, texture
+and shell splits — `_000`/`_001`/`_002`) and places them with ONE DSF row each at
+the SAME anchor, heading and lift; the DSF carries no other tie, and the
+engine's rebake units already read such rows as one body. An ANCHOR FAMILY is
+the set of placements whose anchors coincide within the engine's coordinate
+quantum (`frame_entry.quantum`, the same tolerance the unit grouping uses),
+whose headings are equal (0.001°) and whose `OBJECT_AGL` lifts are equal
+(0.001 m) — never a name pattern, never a resource stem. The family's depth is
+the DEEPEST GENUINE solid over its members (`cache.genuine`, thickness-gated —
+a decal under a shell is not its depth). The family is read GROUND-SEATED when
+that depth is at least `admission_depth_m` and the lift lies within
+`authored_rim_tol_m` of it (`authored_seat.lifted_by_own_depth` on the family's
+numbers); EVERY member then reads ground-seated — the pre-screen, the floor
+witnesses, the basin ring and the basin cut see the shells exactly as the plain
+twin (`Drainage_06`, `Dewatering_02`): the same region, the same floor, the same
+rim — and a shallower sibling (the pump house `Dewatering_01_000`, −0.51 m) stands
+on the ground with its family. A family whose lift is NOT its own depth (a pit on
+a podium, a vent stack, the canal bridges at +3.998 over piers 8.7–9.7 m deep,
+the ILS docks at +3.0 / +3.5 over 8.9 m) reads as today. The KEEP follows the
+family too: when the family's pit is kept (`rim_in_band`), every member at that
+anchor is excluded from the rebake units — witness or not — so one shell is
+never moved against its sibling (`kept_ids` takes the family, not the basin's
+`member_ids` alone; today `Dewatering_01_000/_001` sit in `unit:189` while `_002`
+is kept). A family that founds no pit (refused) keeps every member's reading as
+it was — a lift that founds no pit is never "ground-seated".
+
+The family rule never founds a family the per-placement rule did not already
+touch: the family's deepest solid IS one member's deepest solid, so a family
+that passes contains a member that passes alone. It only COMPLETES such
+families. Probed on the OTHH capture (`authspec2/family_probe.py`,
+`family_arm.py`, `site_check.py`): 13,902 lifted families / 14,867 placements;
+per-placement 9 read ground-seated, family rule 13 — the 4 newly captured are
+`Drainage_02..05_000` (deepest −2.51 … −2.77, each 1.53–1.79 m off the lift
+alone) and `Dewatering_01_000`; nothing else in the pack (the 21- and 11-part
+bridge families, the 8-part ILS docks, 100+ Safedock poles at +6.0 over 9.99 m
+all read lifted). The six sweep packs' pristine dumps carry 0 multi-member
+lifted families at HECA, SPJC, KASE, CYXY, NLWF, LEMD and 118 at KCLT (people at
+tables, no shell 2.5 m deep) — nothing for the rule to complete. The planar
+stage replayed with the family rule: basins 41 → 45, **basins by resource 2 → 8
+(regions 4 → 10)**, every rim −0.017 (`Drainage_01..05`) / −0.145
+(`Dewatering_01`), and the owner's three sites INSIDE basin regions — 25.2536839,
+51.6231506 in `Drainage_04`'s (2,054 m²), 25.2539056, 51.6221564 in
+`Drainage_05`'s (519 m²), 25.2963819, 51.6065055 in `Drainage_02`'s (2,638 m²).
+
+### §18 (6) CONSUMER CENSUS (RULINGS 2026-08-30l) — every reader the rule touches
+
+| reader | file:line | today | under §18 |
+|---|---|---|---|
+| wall admission | `airport/tunnel_objects.py:943` `read_corridors` | at-grade seat refused | `othhwalls` c1f50c88: admitted by its bore; UNCHANGED by §18 |
+| corridor → plates | `pipeline/build.py:173`, `pipeline/publication.py:1015` (`tn.objects` → `plates[oid] = (plate_y, stations, clearance)`) | every admitted wall enters `plates` | enters `plates` only when NOT authored to the cut; the band read happens here (the corridor's `floor_z(s)` at the anchor is in hand) |
+| rebake plan | `airport/rebake_plan.py:263` (`tunnel_objects or {}`; `reseat`) | plate-seated by id | reads the filtered `plates`; records `seat` + `h_cut` per member (plan schema `version` 12 → 13) |
+| crest datum | `airport/anchor_rule.py:547` `datum()` (`plate_y > 0 and plate_stations`) | crest → ground at stations | unchanged code: a kept member has no stations; a re-seated member's target is `ground + h_auth` (Q2) — one added field `plate_proud_m` on the Datum |
+| post-mesh seat / writer | `auto_patch/post_mesh.py`, `object_rebake.py` (split files `__b0_<hash>`, restore) | writes a split file per re-seated wall | writes nothing for a kept member; restore unchanged (pristine stays the backup, §12a) |
+| basin intake | `airport/obj8.py:734` `placement_grounds`, `:756` `read_placement` | lifted pits fail the pre-screen | shell read ground-seated when the lift is in band; `agl_authored` carried |
+| basin witnesses / ring / cut | `airport/basin_witness.py:84`, `basin_ring.py`, `planar/basins.py:715` (`plate_y`) | 2 resources | 8; the floor is the shell's; `seat = "floor_plate"` (`[basin] seat`) applies only to a re-seated pit |
+| plate datum for basins | `anchor_rule.py` (`plate_y ≤ 0` → rim, left where it is) | unchanged | unchanged |
+| placement provenance | `auto_patch/provenance.py` `FRESHNESS_KEYS`, `config_digest` | law tables in the stamp | two new keys in `structures.toml` move `law_sha256` → every patch and plan rebuild once (meant) |
+| plan key / freshness | `airport/rebake_screen.py` (`code_digest`, `law_sha256`, `partition_fp`) | — | moves once with the law; no new key |
+| `--emit` / `--verify` replay, `obj8_split_report.py` | `tools/v2_solve_replay.py`, `tools/obj8_split_report.py` | report the plates | report `seat` per wall / pit (one column) |
+
+**Packs NOT authored to our mesh:** the band read runs only on ADMITTED wall
+corridors and basins. The sweep's rebake plans today carry `plate_members` 0 and
+`below_grade` 0 at HECA, KCLT, SPJC, KASE, CYXY, NLWF (`/tmp/harness/swg_*.v2/*.rebake.json`,
+read 2026-10-07) — §18 reads nothing there and the seven-airport sweep is
+byte-identical except OTHH (meant to change: 5 walls no longer moved, 4 new
+corridors via `othhwalls`, 6 pits cut). LEMD (not in the sweep; Bridge4.obj edge
+wall, LEMD85 pit, pack v1-rebaked on disk per 09-04f) is the second test case and
+is MEASURED on its registered capture before the lane reports (§18 (8) step 4).
+
+### §18 (7) OWNER QUESTIONS (yes/no, with the recommendation)
+
+* **Q1 (#447).** The pack's own authoring puts every wall top **2.0 m** above the
+  surrounding ground (09-11: 8 of 8 at +2.0 / +2.55 over flat ground; 09-28: 7 of
+  9 at 1.99–2.21 over our cut). Accept 2.0 m as the derived height — the engine
+  leaves the author's seat and reports the height — rather than 1 m? **Recommend
+  YES.** (If you want 1 m, that is a re-seat of every wall by −1.0 m against the
+  author, and 07b (1) says the opposite.)
+* **Q2.** When a wall is NOT authored to the cut (a pack authored to uncut ground —
+  OTHH's own 09-11 DSF, any other pack), re-seat its crest to the author's flat-
+  ground proud height (`agl + plate_y` over the uncut DEM; 2.0 m for OTHH's 09-11
+  values) instead of 05n-4's flush? **Recommend YES** — "the seat is the author's
+  handle" read to its end; flush remains the fallback where the author states
+  nothing readable.
+* **Q3 (#451).** A lifted pit whose lift equals its depth within 1.0 m: cut it to
+  its shell and KEEP the author's seat (rim lands 0.36–0.48 m proud at OTHH — a
+  kerb), rather than re-seat its rim to grade exactly (moving it −0.4 m)?
+  **Recommend YES** (07b (1): no change by XPTerrainBuilder; 0.4 m is inside the
+  rim band a pilot reads as a kerb). ANSWERED 07c (5) "yes, accept
+  recommendation" — the seat is kept. CORRECTED in review (§18 (9) (2)): the
+  number in the question was wrong; with the seat kept the rim lands at GRADE
+  (−0.02 / −0.14 m), which is what the author's lift says, and nothing moves.
+
+### §18 (8) STEP PLAN (one Opus implementer; wall-clock in brackets; lands AFTER `othhwalls`)
+
+1. **Measure first [20 min].** On `othhwalls`'s branch, `v2_solve_replay --replay
+   frames/perfA362… --from planar --json`: every OTHH corridor's `floor_z` at its
+   wall's anchor station → `h_cut` for all 9 (the §18 (2) table completed; west 1
+   decided). No code.
+2. **Law + model [30 min].** `[tunnel.object] authored_crest_max_m = 3.0`,
+   `[basin] authored_rim_tol_m = 1.0` (`law/structures.toml`, twinned in
+   `test_law_tables.py`); `model/rebake.Member` gains `seat: str`, `h_cut_m`,
+   `agl_authored_m`; plan `version` 13.
+3. **The band read at the plate site [1 h].** `pipeline/publication.py:1015`:
+   `h_cut` from `tn.floor_z(s_anchor)` + authored agl + `plate_y` − mean ground at
+   the stations; in band → `plates` omits the object, member `seat = "authored
+   (cut)"`; else today's entry plus `h_uncut` for Q2's target. Twin: a wall seated
+   at +2 over the cut keeps its row; the same wall authored to uncut ground is
+   re-seated; a crest under the cut (h_cut < 0) is re-seated.
+4. **The pit intake [1 h].** `obj8.placement_grounds` / `read_placement`: the
+   in-band lift reads ground-seated; `agl_authored` carried to `basin_witness` and
+   the plan. Twin: the lifted twin of a plain pit yields the SAME basin region and
+   floor; a pit lifted 2× its depth stays refused.
+5. **The datum under Q2 [30 min, gated on the answer].** `anchor_rule.datum`:
+   `Datum(plate_y − clear − plate_proud_m, …)`.
+6. **Closing build [≈10 min warm]:** `build_airport.py OTHH`. ACCEPTANCE (RESTATED
+   from the build `walls3_OTHH`, §18 (9) (3)): `rebake.json` moves 0 of the 8 wall
+   resources (the sw plan moved 5, each −2.0 m) — MET; corridors 9 — MET; basins
+   by resource 8 (regions 10) — 4 in the build, 8 under the family rule (the
+   replay of §18 (5)); at the sites — #453 25.2559273, 51.6083381 a `tunnel_ramp`
+   the wall's plan wide and long under `tunnel_sw` (103.3 × 31.0 m, 4.94 %) — MET;
+   #454 25.2792668, 51.6001421 the same under `west 3` the full wall (221.3 × 38.7
+   m) — MET; #455 25.2762962, 51.5920062 the same under `west 2` (221.3 × 41.5 m) —
+   MET; #447 every wall crest IN THE LAW BAND `0 < h_cut ≤ 3.0` with the authored
+   seat, none flush, none moved, the pack's median stated height 2.0 m reported —
+   MET (design 1.58–2.59, sampled 1.47–2.47; the per-wall "2.0 ± 0.3" of the
+   first draft is WITHDRAWN: the crest over the full-length ramp is the engine's
+   ramp depth under the anchor, not a number the author controls); #451 the three
+   sites inside `basin_floor` regions at the plate −3.82 under the rim with the
+   rim AT GRADE (−0.02 / −0.14 m), rims never moved. Sweep: the other six airports
+   byte-identical except the plan bytes (version 13, the law sha) — one cold
+   partition each.
+7. **LEMD read [20 min, capture replay]:** `h_cut` / `r_cut` on its walls and pits;
+   anything that moves is listed in the report, not fixed.
+
+### §18 (9) REVIEW OF THE IMPLEMENTATION (lane `authspec2`, Fable 2026-10-07, on PR #464 `claude/walls3` 6f5b6866, build `walls3_OTHH` body `d1cd169ed577`, plan v13 `6ca0865866af`)
+
+Every number below was read off the pack dump `+25+051.dsf.anchor_bak.4229c95f`,
+the build's plan and log, or a replay of the registered capture
+`perfB362/OTHH.pkl` (probes in `docs/briefs/authspec-scratch/authspec2/`).
+
+**(1) STOP 1 — the pits (ruled; text in §18 (5)).** The implementer's reading
+was right and the draft's was incomplete: each `Drainage_02..05` is TWO
+placements at one anchor with one lift (the sump shell `_001`, plate −3.816, in
+band at +0.48; the trench body `_000`, deepest genuine solid −2.51 … −2.77,
+1.53–1.79 m off the lift alone); the lifted `_000` then covered the `_001`'s
+sump and the region read as a basement (04i rule 4). The lift is ONE decision per
+ANCHOR FAMILY, and the keep follows the family. YES to the implementer's
+recommendation, as general law: the tie is the DSF's own (anchor within the
+coordinate quantum, equal heading, equal lift), the depth the family's deepest
+genuine solid. The rule captures exactly the five sibling shells and nothing
+else in the pack or the six sweep packs (§18 (5) numbers); all eight pit
+resources are cut and the three owner sites of #451 lie inside basin regions.
+A wider band (the implementer's refused alternative) would have been a number
+tuned to one pack; the family rule is not a number at all.
+
+**(2) STOP 2 — the rim (ruled; text in §18 (2), (3) (a), (7) Q3).** The
+author's lift is the depth of the terrain floor the engine cuts — plate +
+`floor_clearance_m` — to 0.017 m (`Drainage_01..05`) and 0.144 m
+(`Dewatering_01`): he placed the rim AT GRADE over the September floor, and an
+`OBJECT_AGL` anchor inside the pit rides that floor in the sim. The build's rims
+(−0.02 / −0.14 m) are the author's seat; the draft's "+0.48 / +0.36" measured
+the lift against the plate and forgot the 0.5 m clearance. NOTHING MOVES: the
+kept pit cuts the floor as the basin law always has (plate − clearance), the
+rim is derived (−0.02 / −0.14), the tolerance band 1.0 m stands as a band and
+not a target. 07c (5) accepted "keep the authored seat" — that stands; the
+"about 0.4 m over grade" attached to it was this draft's arithmetic, now
+corrected, and the owner is told so (the question below). COROLLARY for every
+reader: `floor_clearance_m` is now a value the pack author has built against —
+changing it moves every authored-to-the-cut rim by the delta.
+
+**(3) THE EIGHT DEVIATIONS (PR #464, `walls3-notes.md`) — ruled.**
+
+| # | the implementer did | ruling | why |
+|---|---|---|---|
+| 1 | kept members EXCLUDED from units; one plan-level `RebakePlan.authored_seats` record, not three `Member` fields | **ACCEPT**, amended | one decision, one record, no schema change to `Member`; AMENDED by (1): the exclusion is the anchor FAMILY, not the basin's `member_ids` alone |
+| 2 | proud height rides the existing plate CLEARANCE (`Datum(plate_y − clear)`), no `plate_proud_m` | **ACCEPT** | reuse over a new field (RULINGS 2026-10-04 a/b/c) |
+| 3 | re-seat target = the pack's MEDIAN stated height, not per-wall `h_uncut` | **ACCEPT** | owner 07c (4) supersedes the draft; `h_uncut` remains the second reading that STATES a height |
+| 4 | `PlacedObject.agl_m` stays the authored lift; new `ground_seated` flag + `base_z` | **ACCEPT** | forty readers need the authored value; `agl_authored` was a name, not a rule |
+| 5 | lift measured against the deepest GENUINE solid, only for shells ≥ `admission_depth_m`, only when the reading founds a pit (262 placements — people 4 cm up — passed the bare test) | **ACCEPT**, amended | the bare test was a defect of the draft; AMENDED by (1): the depth and the gate are the FAMILY's, and a shallower sibling is read ground-seated with its family |
+| 6 | pit witness judged only for a LIFTED pit; a plain pit keeps the floor-plate seat; a kept pit excludes every basin member | **ACCEPT**, amended | a plain placement states no seat (the draft's "authored (cut)" for it would have taken the plate datum from 35 jetway / plain-pit units); AMENDED by (1): the exclusion is the family |
+| — | `h_cut` for the two `middle` walls read on the GROUND (anchor beside the trench), per the §18 (2) table not the (3) (a) formula | **ACCEPT** | the formula was under-specified; (3) (a) now says inside-the-trench → floor, beside it → ground |
+| 7 | plan `version` 13, read window widened to five (v9 loads) | **ACCEPT** | — |
+| 8 | NOT DONE: the `seat` column in `v2_solve_replay --emit/--verify` and `obj8_split_report.py`; the LEMD read (step 7) | **OWED** | steps (4) 3–4 below |
+
+**(4) THE TWO SHALLOW CRESTS (`tunnel_sw` 1.58, `west 2` 1.59 by design; 1.75 /
+1.47 sampled).** Both walls are authored at `agl` 0.000 — the author set them for
+the September OSM-ramp corridor, ~3.0 m deep under the anchor (`h_cut` 2.21 /
+2.07 on that ramp, §18 (2)); the full-length ramp of 07b (2) is ~3.4 m deep
+there, so the crest is 0.4 m lower. The shortfall is the owner's own ramp law,
+not the author's seat, and it is inside the 3.0 m band. RULING: left as
+authored — the acceptance is the band, and 07c (3) ("prefer not reseating
+objects unless necessary") decides it; re-seating a wall whose seat works to
+make it match a median is the thing 07c (3) forbids. It is an INTENT question
+only if the owner reads 07c (4) "standardize so all are 2m" as reaching kept
+walls too — asked below, recommendation NO.
+
+**(5) OWNER QUESTIONS (yes/no, with the recommendation).**
+
+* **Q4 (#451, rim).** The pit rims land AT GRADE (−0.02 / −0.14 m) with the
+  authored seat kept — the author's lift is exactly the engine's floor depth —
+  not the "+0.4 m kerb" the master's question carried (my arithmetic forgot the
+  0.5 m floor clearance). Keep the seat and accept the rim at grade?
+  **Recommend YES** (07b (1): no change by XPTerrainBuilder; the author put it
+  there).
+* **Q5 (#447, the two 1.5 m crests).** `tunnel_sw` / `tunnel west 2` stand 1.58 /
+  1.59 m proud by design (1.47–1.75 sampled) because the full-length ramp is
+  0.4 m deeper under their anchors than the ramp the author authored to. Should
+  the engine RE-SEAT these two by +0.4 m to the pack's 2.0 m median ("standardize
+  so all are 2m" read as reaching kept walls)? **Recommend NO** — 07c (3): the
+  seat works, re-seating is not necessary; a pilot reads 1.6 and 2.0 m parapets
+  alike. (If YES: a kept wall more than `[tunnel.object] standardize_tol_m` under
+  the median is re-seated to the median — one new law value, a second re-seat
+  class, and the author's seat moved at two of nine walls.)
+
+**(6) STEPS for the implementer (wall-clock in brackets; on `claude/walls3`).**
+
+1. **The family read [45 min].** `obj8`: group the lifted placements of one pack
+   into anchor families at intake (quantum / heading / lift — look first for the
+   unit grouping the rebake plan already does, `tools/blast.py --find` it, and
+   share the key); `_reads_ground_seated` answers for the family (its deepest
+   genuine solid, its gate); `kept_ids` takes the family's placements. Twin: a
+   two-shell pit (sump −3.8, body −2.5, one lift of 4.3) founds ONE basin with
+   both members and the same region as its plain twin; the same two shells at
+   two anchors do not; a 21-part family with one deep pier and a lift that is
+   not its depth stays lifted; a kept family's shallow sibling is in no unit.
+2. **Replay before the build [10 min].** `v2_solve_replay --replay
+   perfB362/OTHH.pkl --from planar`: basins by resource 8, regions 10, rims
+   −0.017 / −0.145, the three #451 sites inside `basin_floor` regions
+   (`authspec2/site_check.py` is the read), plan `below_grade` 0 for the pit
+   shells, `authored_seats` 6 rim records each carrying its family.
+3. **The owed column [20 min].** `seat` per wall / pit in `--emit` / `--verify`
+   and `obj8_split_report.py` (§18 (6) last row).
+4. **LEMD read [20 min, capture replay]:** step 7 as written.
+5. **Closing build [≈15 min]:** `build_airport.py OTHH`; acceptance as restated in
+   step 6 above; report site numbers first.
+
+NOT done by this review: no engine code was touched; the LEMD read and the
+`seat` column remain owed; the family read's effect on a pack with lifted
+multi-part families whose deepest member passes alone but whose siblings are
+NOT one body (none found in the seven cached packs) is a finding for the owner
+if one ever appears — never a switch.

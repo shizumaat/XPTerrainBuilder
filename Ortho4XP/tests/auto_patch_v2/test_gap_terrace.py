@@ -181,9 +181,14 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
         base = pickle.load(fh)
     cl2, rep = cut_classification(cl, base["pm"], base["z"], law, RULES)
     dropped = sum(p["knife_dropped_m2"] for p in rep["pieces"])
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (93, 48, 66, 6)
+    # RE-RECORDED (lane walls3, RULINGS 2026-10-07d): the pair test is the
+    # piece's cap + the terrace floor, and the road / ramp cap rose 8 -> 10 %,
+    # so fewer pairs cut — (93, 48, 66, 6) at 8 %.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (84, 34, 66, 9)
     to_xy = airport.frame.transformers()[0]
-    sites = {(30.1154841, 31.4105884): "gap:7/lot", (30.1159784, 31.4106264): "gap:7/ramp0",
+    # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
+    # reaches it and no ramp part is cut there)
+    sites = {(30.1154841, 31.4105884): "gap:7/lot", (30.1159784, 31.4106264): "gap:7/lot",
              (30.1193169, 31.4085087): "gap:0/s4/lot"}
     for (lat, lon), ref in sites.items():
         pt = Point(*to_xy(lon, lat))

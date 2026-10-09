@@ -148,7 +148,8 @@ def test_a_sidecar_is_never_served_stale(world, law, monkeypatch):  # noqa: F811
         with pytest.raises(RS.StaleScreen, match=said):
             RS.build_plan(_dc.replace(screen, **{field: value}), law)
     with pytest.raises(RS.StaleScreen, match="version"):
-        RS.RebakeScreen.from_json(screen.to_json().replace('"version":1', '"version":0'))
+        RS.RebakeScreen.from_json(screen.to_json().replace(
+            f'"version":{RS.SCREEN_VERSION}', '"version":0'))
 
 
 def test_a_partition_that_is_not_the_recorded_one_is_cold(world, law):  # noqa: F811

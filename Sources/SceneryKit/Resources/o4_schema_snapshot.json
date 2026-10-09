@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.1815",
+ "engineVersion": "1.50.1829",
  "groups": {
   "app": [
    "verbosity",
@@ -956,7 +956,7 @@
    "type": "float"
   },
   "global_road_grade_limit": {
-   "default": 0.08,
+   "default": 0.1,
    "hint": "Longitudinal grade cap, as a fraction (0.08 = 8 %), for roads INSIDE an auto-patched airport's patch area, where the airport builder grades them. Outside the patch area roads follow the terrain exactly as the base engine levels them; within about 100 m of the patch a road is eased onto the patch using a grade limit for its road class (motorway 6 % … service road 20 %) and is never moved more than about 1 m off the terrain to do it.",
    "name": "global_road_grade_limit",
    "type": "float"
@@ -1395,7 +1395,7 @@
    "type": "float"
   },
   "road_grade_limit": {
-   "default": 0.08,
+   "default": 0.1,
    "hint": "Longitudinal grade cap, as a fraction (0.08 = 8 %), for roads INSIDE an auto-patched airport's patch area, where the airport builder grades them. Outside the patch area roads follow the terrain exactly as the base engine levels them; within about 100 m of the patch a road is eased onto the patch using a grade limit for its road class (motorway 6 % … service road 20 %) and is never moved more than about 1 m off the terrain to do it.",
    "name": "road_grade_limit",
    "type": "float"

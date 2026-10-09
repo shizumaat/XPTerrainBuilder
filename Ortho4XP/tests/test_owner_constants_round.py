@@ -64,12 +64,16 @@ class TestOwnerConstants:
         assert cfg.ROLE_GRADE_LIMITS["groundside_pavement"] \
             != pytest.approx(cfg.GROUNDSIDE_MAX_GRADE)
 
-    def test_the_service_road_cap_is_the_vdot_level_terrain_standard(self):
-        # VDOT Road Design Manual App. A1, GS-9: level terrain 8 % at
-        # 10-20 mph.
+    def test_the_service_road_cap_is_the_v2_road_law(self):
+        # Was VDOT GS-9's level-terrain 8 %; owner RULINGS 2026-10-07b (2):
+        # roads and ramps grade up to 10 %.  The census constant IS the
+        # law value — read from the law, never retyped.
         from auto_patch import config as cfg
-        assert cfg.SERVICE_ROAD_MAX_GRADE == pytest.approx(0.080)
-        assert cfg.ROLE_GRADE_LIMITS["service_road"] == pytest.approx(0.080)
+        from auto_patch_v2.law import tables as T
+        law = T.load_default()
+        road = float(law.tables.common.road_max_grade)
+        assert cfg.SERVICE_ROAD_MAX_GRADE == pytest.approx(road)
+        assert cfg.ROLE_GRADE_LIMITS["service_road"] == pytest.approx(road)
 
     def test_service_junction_rides_the_service_road_constant(self):
         """The COUPLING the round flags for the owner: junctions are not a

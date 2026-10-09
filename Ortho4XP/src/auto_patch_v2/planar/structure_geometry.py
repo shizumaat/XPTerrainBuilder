@@ -37,6 +37,7 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..airport import authored_seat as _seat
 from ..model.frame import XY
 from ..geom.vector import unit_vector
 
@@ -69,7 +70,8 @@ def pad_hit(outer: Polygon, pads: list[tuple[Polygon, str]], tree: STRtree | Non
 
 __all__ = ["RampGeometry", "geometry", "normals", "snap", "snap_out",
            "rim_standoff", "rim_yield_m", "corner_distance", "beyond_strip",
-           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "covered_start", "reseat_expect"]
+           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "reseat_expect",
+           "anchor_cut_z", "authored_crest"]
 
 
 def rim_standoff(thickness_m: float, cutout) -> tuple[float, float]:
@@ -311,41 +313,36 @@ def collapse_stations(ss: _t.Sequence[float], pts: list[tuple[XY, ...]], zs: lis
 def reseat_expect(c, mouth_z: float, grade: float, s_top: float, airport: Airport
                    ) -> tuple[float, ...]:
     """The re-seat the DESIGN implies for the corridor's placement(s)
-    (05n-4): ``ground(anchor) − (floor at the anchor's station + agl +
+    (05n-4): ``ground(anchor) − (the cut terrain under the anchor + agl +
     plate)`` — the post-mesh seat measures the real one."""
-    ln = LineString(c.axis)
-    s = ln.project(Point(c.anchor_xy))
-    floor = min(mouth_z + grade * min(s, s_top), c.anchor_dem_z) if grade > 0 else mouth_z
-    return (round(c.anchor_dem_z - (floor + c.agl_m + c.plate_y), 3),)
+    return tuple(round(-h_cut, 3) for h_cut, _h in authored_crest(c, mouth_z, grade, s_top))
 
 
-def covered_start(axis_fn, hull_s: float, plate, step: float) -> float | None:
-    """THE CORRIDOR'S COVERED START (spec §34 (9) (5) as CORRECTED by owner
-    RULINGS 2026-09-14be): the last station, walking out from the mouth,
-    at which the axis still stands under the COVERING PLATE — the
-    roof/deck component that gives the corridor its headroom
-    (``airport/wall_corridors._headroom``'s witness plate, published as
-    ``WallCorridorRecord.plate_plan``).  ``None`` when the corridor carries
-    no cover, or when the cover reaches the wall end (nothing protrudes).
+def anchor_cut_z(c, mouth_z: float, grade: float, s_top: float) -> float:
+    """THE TERRAIN THE ENGINE CUTS UNDER THE CORRIDOR'S ANCHOR (object-
+    placement spec §18 (3) (a), ``ground_cut(anchor)``): the ramp's own
+    design floor at the anchor's station where the anchor stands INSIDE
+    the trench, the ground where it stands outside it (a wall object
+    whose origin lies beside its trench renders on uncut ground — OTHH's
+    two ``tunnel middle`` walls)."""
+    pt = Point(c.anchor_xy)
+    if not c.trench.covers(pt):
+        return float(c.anchor_dem_z)
+    s = LineString(c.axis).project(pt)
+    return float(min(mouth_z + grade * min(s, s_top), c.anchor_dem_z) if grade > 0
+                 else mouth_z)
 
-    14at read the BUILDING PAD instead and the owner still saw full depth
-    at the outer end of the retaining walls: the pad polygon is not the
-    building's wall face — at OTHH's east mouth it stands only 2.4 m
-    inside the wall end where the cover stands farther in still.  The
-    corridor is a trench only where it is COVERED; everything from the
-    ramp's top down to the plate edge — the protruding retaining-wall
-    bands included — is RAMP."""
-    if plate is None or getattr(plate, "is_empty", True):
-        return None
-    inside = None
-    s = 0.0
-    while s <= hull_s + 1e-9:
-        if plate.covers(Point(axis_fn(s))):
-            inside = s
-        elif inside is not None:
-            break
-        s += step
-    return None if inside is None or inside >= hull_s - 1e-6 else inside
+
+def authored_crest(c, mouth_z: float, grade: float, s_top: float
+                   ) -> tuple[tuple[float, float], ...]:
+    """Per placement of the corridor, ``(h_cut, h_uncut)``: the crest
+    plate over the surrounding grade with the AUTHORED seat, on the cut
+    terrain and on uncut ground (``airport/authored_seat.crest_over``) —
+    the witness ``pipeline/authored_seats`` holds against ``[tunnel.object]
+    authored_crest_max_m``."""
+    cut = anchor_cut_z(c, mouth_z, grade, s_top)
+    return ((round(_seat.crest_over(cut, c.agl_m, c.plate_y, c.anchor_dem_z), 3),
+             round(_seat.crest_over(c.anchor_dem_z, c.agl_m, c.plate_y, c.anchor_dem_z), 3)),)
 
 
 def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: list,
@@ -418,7 +415,7 @@ def collapse_for_ramp(axis_fn, ss: _t.Sequence[float], half: float, rim_off: flo
     def z_at(s: float) -> float:
         if not (g.climbs and s > knee + 1e-9):
             return profile_z(profile, s) if profile else mouth_z
-        return (profile[-1][1] if profile else mouth_z) + design_grade * (s - knee)
+        return (profile_z(profile, knee) if profile else mouth_z) + design_grade * (s - knee)
     zs = [z_at(s) for s in ss]
     if g.climbs and top_pinned:
         z_top = float(dem_z(*axis_fn(s_top)))

@@ -27,8 +27,10 @@ test_import_and_budget``).
 """
 from __future__ import annotations
 
+import math
 import typing as _t
 
+import shapely
 from shapely.geometry import LineString, Polygon
 
 from ..law import Law
@@ -37,7 +39,7 @@ from .structure_approach import under_cover
 
 __all__ = ["airside_cut_roles", "airside_stops", "deck_witness_for",
            "decked_exclusion", "osm_stops", "owner_kept", "pad_relief_m",
-           "parts", "SURFACE_LINE_KINDS", "terrain_tunnel_witness"]
+           "parts", "SURFACE_LINE_KINDS", "terrain_tunnel_witness", "knee_nodes"]
 
 
 def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
@@ -564,6 +566,50 @@ def deck_witness_for(airport, law: Law, under_ways):
 #: corridor (the knife's 08-07 ruling 4 exemption), so trimming its axis
 #: would state a law nothing else states.
 SURFACE_LINE_KINDS: tuple[str, ...] = ("taxi_centerline", "road_centerline")
+
+
+def knee_nodes(cut_lines, chords, grid: float) -> list:
+    """EVERY PROFILE KNEE IS A VERTEX ON EVERY EDGE THAT CROSSES IT (spec
+    §34 (7): a ramp's emitted cross-chords stand "only where the route
+    bends or the profile breaks" — so each one IS a break of the designed
+    surface across the ramp's whole width).
+
+    ``chords`` are the ramps' emitted cross-chords (left ring vertex ->
+    right ring vertex, one per kept station).  A surface line (a road or
+    taxi centreline) the arrangement nodes LENGTHWISE through a ramp
+    splits its face in two, and the shared edge carried no vertex where
+    the profile breaks: its level ran straight from one end of the ramp to
+    the other while both outer edges followed the knee (measured at OTHH's
+    corridor under the terminal, issue #449: the centre 0.87 m over the
+    edges at the flat -> climb knee).  The line now carries a point where
+    it crosses each cross-chord, so the split faces share the knee."""
+    chords = [c for c in chords if c is not None and not c.is_empty]
+    if not chords:
+        return list(cut_lines)
+    tree = shapely.STRtree(chords)
+    out: list = []
+    for cl in cut_lines:
+        if cl.kind not in SURFACE_LINE_KINDS or len(cl.points) < 2:
+            out.append(cl)
+            continue
+        ln = LineString(cl.points)
+        at = [ln.project(pt) for j in tree.query(ln, predicate="intersects")
+              for pt in shapely.get_parts(ln.intersection(chords[int(j)]))
+              if pt.geom_type == "Point"]
+        if not at:
+            out.append(cl)
+            continue
+        own = [0.0]
+        for a, b in zip(cl.points[:-1], cl.points[1:]):
+            own.append(own[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+        pts = list(zip(own, cl.points))
+        for d in sorted(at):
+            if all(abs(d - o) > grid for o, _p in pts):
+                q = ln.interpolate(d)
+                pts.append((d, (float(q.x), float(q.y))))
+        pts.sort(key=lambda t: t[0])
+        out.append(type(cl)(cl.kind, cl.ref, tuple(p for _d, p in pts), cl.code_letter))
+    return out
 
 
 def decked_exclusion(cut_lines, tunnels, footprints, cells, polys, cut_roles,

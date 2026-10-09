@@ -1361,6 +1361,10 @@ def _main() -> int:
           f"  abutments {len(abut)}\n"
           f"  surface: {len(pads)} object pads, {len(rims)} structure rims")
     print(f"  coarsening: [placement] split_tol_m {tol_m:g} m")
+    # spec §18 (6): the seat per wall / pit placement the plan publishes
+    from auto_patch_v2.pipeline.authored_seats import seat_lines
+    for ln in seat_lines(getattr(plan, "authored_seats", ())):
+        print(ln)
     rb = _law.tables.structures.rebake
     seg_m = (_law.tables.structures.placement.line_segment_m
              if a.line_segment is None else a.line_segment)

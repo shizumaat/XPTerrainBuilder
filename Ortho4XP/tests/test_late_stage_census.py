@@ -61,10 +61,11 @@ def test_a_part_chord_inside_the_floor_is_priced_by_neither_grade_family(cg, tmp
 
 
 def test_a_part_chord_beyond_the_floor_stays_priced(cg, tmp_path):
-    """20 % over 10 m: 2.0 m against 1.8 m — the floor is one floor per
-    chord, never a licence."""
+    """Two points over ``cap + floor / d`` on a 10 m chord — the floor is
+    one floor per chord, never a licence."""
+    over = cg.PAVEMENT_ROAD_CAP + STAGE["late_stage"]["floor_m"] / 10.0 + 0.02
     fo = _families(cg, _pavcap_patch(tmp_path, name="over", sidecar=STAGE,
-                                     rings=[(ROLE, _sloped_rect(0.20), "gap:3/s0/lot")]))
+                                     rings=[(ROLE, _sloped_rect(over), "gap:3/s0/lot")]))
     assert fo["within_shape"] and fo["pavement_over_road_cap"]
 
 

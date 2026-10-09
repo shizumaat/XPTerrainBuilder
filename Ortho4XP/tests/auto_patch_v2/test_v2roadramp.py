@@ -179,7 +179,7 @@ def test_the_ramp_descends_at_the_cap_from_a_mouth_above_the_dem(law):
     pm, rep = _map(law, airport, _cells(r))
     tg = road_ramp_targets(pm, law, airport).targets
     cap = rep["cap"]
-    assert cap == pytest.approx(0.08)
+    assert cap == pytest.approx(law.tables.common.road_max_grade)
     ground = PLATEAU_Z - 12.0
     reach = 12.0 / cap
     for v in tg:

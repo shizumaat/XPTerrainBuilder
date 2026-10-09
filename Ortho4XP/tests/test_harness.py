@@ -11196,19 +11196,20 @@ def _sloped_rect(grade, z0=20.0, length=10.0, width=8.0, x0=0.0):
             (x0 + length, width, z0 + grade * length), (x0, width, z0)]
 
 
-def test_a_pavement_ring_edge_at_9_percent_is_over_the_road_cap(cg, tmp_path):
-    fo = _families(cg, _pavcap_patch(tmp_path, name="lot9", rings=[
-        ("groundside_pavement", _sloped_rect(0.09))]))
+def test_a_pavement_ring_edge_one_percent_over_the_road_cap_is_over_it(cg, tmp_path):
+    g = cg.PAVEMENT_ROAD_CAP + 0.01         # the law's cap read, never retyped
+    fo = _families(cg, _pavcap_patch(tmp_path, name="lot_over", rings=[
+        ("groundside_pavement", _sloped_rect(g))]))
     rows = fo["pavement_over_road_cap"]
     assert len(rows) == 2, [(r.grade_pct, r.distance_m) for r in rows]
-    assert all(abs(r.grade_pct - 9.0) < 0.2 for r in rows)
+    assert all(abs(r.grade_pct - 100.0 * g) < 0.2 for r in rows)
     assert all(r.cap_pct == pytest.approx(100.0 * cg.PAVEMENT_ROAD_CAP)
                for r in rows)
 
 
-def test_a_pavement_ring_edge_at_7_percent_passes_the_road_cap(cg, tmp_path):
-    fo = _families(cg, _pavcap_patch(tmp_path, name="lot7", rings=[
-        ("groundside_pavement", _sloped_rect(0.07))]))
+def test_a_pavement_ring_edge_one_percent_under_the_road_cap_passes(cg, tmp_path):
+    fo = _families(cg, _pavcap_patch(tmp_path, name="lot_under", rings=[
+        ("groundside_pavement", _sloped_rect(cg.PAVEMENT_ROAD_CAP - 0.01))]))
     assert fo["pavement_over_road_cap"] == []
 
 

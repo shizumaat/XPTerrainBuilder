@@ -247,3 +247,30 @@ def test_a_bare_run_that_needs_more_than_the_cap_leaves_at_the_cap():
                               _feet({0: 100.0, 1: 100.0, 2: 100.0})[1],
                               {v: 110.0 for v in _route(10)}, CAP)
     assert out == pytest.approx(old) and rep["max_bare_grade"] == CAP
+
+
+def test_the_road_reaches_a_coverage_join_at_the_design_grade_where_the_run_fits():
+    """Stations 0-2 bordered at 100, a coverage join pinned at 110 at
+    station 42 (400 m on): the join's cone is the design grade's — 10 m
+    over 400 m fits 5 % — so the road is on its own target (the 110 m
+    ground) until 5 % from the terrace, not held to the cap's cone."""
+    st = _route(43)
+    foot, lv = _feet({0: 100.0, 1: 100.0, 2: 100.0})
+    floor = {v: 110.0 for v in st}
+    out, rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                               {42: 110.0}, design=DESIGN, lane=LANE)
+    for v in range(3, 42):
+        assert out[v] == pytest.approx(min(110.0, 100.0 + DESIGN * (v - 2) * 10.0))
+    assert out[2] == pytest.approx(100.0)             # the bordered level stands
+
+
+def test_a_join_too_near_for_the_design_grade_is_reached_at_the_least_grade():
+    """The join 100 m from the last bordered station, 7.3 m above it."""
+    st = _route(13)
+    foot, lv = _feet({0: 100.0, 1: 100.0, 2: 100.0})
+    floor = {v: 120.0 for v in st}
+    out, _rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
+                                {12: 107.3}, design=DESIGN, lane=LANE)
+    for v in range(3, 12):
+        assert out[v] == pytest.approx(100.0 + 0.073 * (v - 2) * 10.0)
+    assert out[2] == pytest.approx(100.0)

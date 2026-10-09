@@ -56,21 +56,25 @@ CONTACT_RULING = ("roads.groundside_road airside contact "
                   "(owner 2026-09-13cs item 5; spec §37 (10))")
 
 
-def _run_grade(level: float, run: _t.Sequence[tuple[float, float]],
+def _run_grade(level: float, ends: _t.Iterable[tuple[float, float]],
                design: float, cap: float, lane: float) -> float:
     """THE GRADE A STAGE-2 RAMP IS BUILT AT (owner RULINGS 2026-10-09c
-    (2b); ``geom/ramp_grade``): ``run`` is ``(distance from the level the
-    road leaves, the road's own target there)`` for every vertex of the
-    run.  The design grade, unless the road would then stand off its own
-    target at the END of its run (the vertices within a lane width of the
-    farthest) — then the smallest grade that brings it there, and the cap
-    where even the cap does not."""
-    far = max((d for d, _t_ in run), default=0.0)
-    if far < lane:
-        return design
-    need = max((least_grade([(d, t - level)]) or 0.0
-                for d, t in run if d >= max(lane, far - lane)), default=0.0)
+    (2b); ``geom/ramp_grade``): ``ends`` is ``(distance from the level the
+    road leaves, the level that stands there)`` at each END of its run.
+    The design grade, unless the road would then stand off one of them —
+    then the smallest grade that brings it to every end, and the cap where
+    even the cap does not.  An end inside one lane width asks nothing."""
+    need = max((least_grade([(d, t - level)]) or 0.0 for d, t in ends if d >= lane),
+               default=0.0)
     return built_grade(need, design, cap) or cap
+
+
+def _far_end(run: _t.Sequence[tuple[float, float]], lane: float
+             ) -> list[tuple[float, float]]:
+    """The END of a run of ``(distance, level)``: the vertices within one
+    lane width of the farthest."""
+    far = max((d for d, _l in run), default=0.0)
+    return [(d, t) for d, t in run if d >= far - lane]
 
 
 def road_ramp_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
@@ -347,8 +351,11 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     * a route with no levelled foot keeps its targets;
     * an ``anchors`` vertex — a §37 (9) COVERAGE-EDGE JOIN, where the core's
       levelled road takes over — is never governed, and every vertex of its
-      route reaches it at <= ``cap``: ``clip(target, z_a - cap·d, z_a +
-      cap·d)`` (the road leaves the terrace at its cap to meet the core road;
+      route reaches it inside ``clip(target, z_a - g·d, z_a + g·d)``, ``g``
+      the design grade where every bordered level of the route stands in
+      that cone, the least grade that takes them in otherwise, ``cap`` where
+      even the cap does not (the road leaves the terrace to meet the core
+      road — at its cap until RULINGS 2026-10-09c (2b);
       MEASURED HECA replay: ``small_roads:-20210`` welded to apron ``pav37``
       at 89.6 m four metres from its join pinned at 96.89 m — a 12.98 m
       hard conflict of the ramp ceiling against the pin).
@@ -361,8 +368,10 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     rep: dict[str, _t.Any] = {"bordered": 0, "linked": 0, "pad_held": 0,
                               "bare": 0, "unlevelled": 0, "routes": 0,
                               "max_cut_m": 0.0, "max_link_grade": 0.0,
-                              "bare_steepened": 0, "max_bare_grade": 0.0}
+                              "bare_steepened": 0, "max_bare_grade": 0.0,
+                              "bare_runs": 0, "max_join_grade": 0.0}
     bare: dict[tuple[int, bool], tuple[float, list[tuple[float, int, float]]]] = {}
+    anchors = anchors or {}
     lev: dict[int, float] = {}
     for v, (a, b, u, _ref) in foot.items():
         if a in levels and b in levels:
@@ -418,19 +427,19 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                 out[v] = z_e
                 rep["pad_held"] += 1
                 continue
-            fl = floor.get(v)
+            fl = anchors.get(v, floor.get(v))   # a join's level is its pin's
             if fl is None:
                 continue
             bare.setdefault((r, i == 0), (z_e, []))[1].append((d, v, float(fl)))
             rep["bare"] += 1
     g0 = cap if design is None else design
     for _key, (z_e, run) in sorted(bare.items()):
-        g = _run_grade(z_e, [(d, fl) for d, _v, fl in run], g0, cap, lane)
+        g = _run_grade(z_e, _far_end([(d, fl) for d, _v, fl in run], lane), g0, cap, lane)
         rep["bare_steepened"] += g > g0 + 1e-9
+        rep["bare_runs"] += 1
         rep["max_bare_grade"] = max(rep["max_bare_grade"], g)
         for d, v, fl in run:
             out[v] = min(max(fl, z_e - g * d), z_e + g * d)
-    anchors = anchors or {}
     by_anchor: dict[int, list[tuple[float, float]]] = {}
     for v, za in anchors.items():
         if v in station:
@@ -438,14 +447,26 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
             by_anchor.setdefault(int(r), []).append((float(s_), float(za)))
             out.pop(v, None)
     rep["anchored"] = 0
+    # the grade the road reaches each anchor at: the design grade where
+    # every BORDERED level of its route stands inside that cone, the least
+    # grade that takes them all in otherwise, the cap where even it does not
+    reach: dict[tuple[int, float, float], float] = {}
+    for r, lst in by_anchor.items():
+        held = [(float(station[v][1]), z) for v, z in lev.items()
+                if int(station[v][0]) == r and v not in anchors] if g0 < cap else []
+        for sa, za in lst:
+            reach[(r, sa, za)] = _run_grade(za, [(abs(s_ - sa), z) for s_, z in held],
+                                            g0, cap, lane)
     for v in list(out):
         r, s_ = station[v]
         for sa, za in by_anchor.get(int(r), ()):
             d = abs(float(s_) - sa)
-            t = min(max(out[v], za - cap * d), za + cap * d)
+            g = reach[(int(r), sa, za)]
+            t = min(max(out[v], za - g * d), za + g * d)
             if abs(t - out[v]) > 1e-9:
                 out[v] = t
                 rep["anchored"] += 1
+                rep["max_join_grade"] = max(rep["max_join_grade"], g)
     for v, t in out.items():
         fl = floor.get(v)
         if fl is not None and float(fl) - t > rep["max_cut_m"]:
@@ -686,8 +707,8 @@ def _reach_seed(planar: PlanarMap, law: Law, cs: ConstraintSet,
     for (a, b, u), run in sorted(runs.items()):
         z_e = (1.0 - u) * float(levels[a]) + u * float(levels[b])
         # a target at or above the contact asks nothing of the ramp
-        g = _run_grade(z_e, [(s, min(z_e, target[v])) for s, v in run if v in target],
-                       design, cap, lane)
+        g = _run_grade(z_e, _far_end([(s, min(z_e, target[v])) for s, v in run
+                                      if v in target], lane), design, cap, lane)
         rep["steepened"] += g > design + 1e-9
         for s, v in run:
             lift[v] = z_e - g * s

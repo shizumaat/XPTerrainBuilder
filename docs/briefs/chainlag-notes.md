@@ -25,3 +25,20 @@ SHA`). Scratch `<scratch>/chainlag/` (`.progress`).
 |---|---|---|
 | p0 | ef0cae5b | the probe tree as found (= seat2's `b2`, on the merged tree): the control |
 | p1 | (next) | M2 + M1: the one-way lag in LEADER ORDER (depth), pad-level rows read once |
+| p2 | 5a589e4e | (Q2 option a under the OLD seniority: the leader face's frontage follows the pad) — KILLED unrun: moot after 09j |
+| q1 / kq1 | cce61d26 | 09j's order in ROW form: `_airside_only` drops every groundside role (no groundside seat), `groundside_frontage` leads from EVERY pad; HECA + KCLT |
+
+## Results (all in spec §63 (9); the per-run lists are `<scratch>/chainlag/<arm>/cmp.txt`, `prow.py` output, `gap_<ICAO>.txt`)
+
+* p0: C 15 / 564 → 17 / 957 m; pad conflicts 104 → 15; airside 0; lag 845 unsettled (1.544 m); stage 2 53.4 s.
+* p1: C 18 / 766; lag 764 unsettled; `building12` | `pav57` 5.74 m / 386 m — the order is not the defect (refuted).
+* MID-LANE: owner RULINGS 2026-10-09j (main 116152e0) — pads senior to roads; touching (source geometry) welds, a gap
+  is free. The brief's Q1/Q2 are withdrawn by it.
+* gapread (knife off): HECA 15 of 18 C/B runs OVERLAP the pad (565 of 631 m); KCLT 7 of 13; SPJC 2 of 5. With the
+  knife ON the same read gives 0.64–0.70 m everywhere: the gap is `classify/roles._cut_back_groundside`'s.
+* q1: C 12 / 1,040 m, apron 7 movers 0.28 m, pads rise to their DEM datum, the roads stay (hard law vs a soft row) —
+  the row form is ruled out, the weld is the design. kq1: C 8 / 128, ARMED 4 / 54, pad 33 =, airside 0 (strip 7 at
+  0.06 m).
+* why-at on p0 at `building12` (30.11544369885,31.40991480491): v26991 binding = 3 `pads` rows only; chain 10 hops /
+  +9.45 m to a `route3` ramp-ceiling Band (groundside_frontage_level +1.46, transverse +1.75, apron_preference +4.47):
+  the road's level is the apron's through the road law, 10 m under the DEM there — Q-B's road.

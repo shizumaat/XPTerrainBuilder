@@ -29,3 +29,36 @@ building100 101.248 vs 101.242 (reach_band [None, None], 12 of 12 contacts UNREA
 (band [85.73, 99.37]), building104 92.421 vs 94.889, building98 103.502 vs 103.649 (unreached), building64 86.369 vs 88.662,
 building164 77.360 vs 78.036. `hard_conflict` pad 101 at HECA (main 27). The class-C pads (building12 / 15 / 8) have NO
 platform record; building12 is cluster `unit:43#850` (30,172 m2, 16 bodies, pad_offset_spread 2.39).
+
+## Step 1 — the base solve (HECA, pads67 capture, `--from constraints --workers 9`, 6 min) and the first whys
+
+`<scratch>/seatspec/base/` (`solved.pkl`, `emit/HECA.graded.json`, `rep.json`, `edge_base.json`). The replay's own edge read
+reproduces the build's P classes except the gap pieces (no late stage in a `--from constraints` replay: the raw pieces stand
+whole, GAP 118 runs): GS-NEAR 15 (build 16) / 515 m, AIR-TOUCH 21 = 21 (232 m), AIR-NEAR 7 = 7, ARMED 1 = 1 (building164),
+GS-TOUCH 1 = 1. Stage-2 hard set: 41 of 269,099 rows over 0.02 m, worst 0.1263 m at 30.12086521267,31.41819005825 — the
+building75 vertex — on a `pavement_road_cap` row (29ac fallback, v22865 pad rim | v40607 road, 1.04 m apart).
+
+### building75 (HECA), attributed: the generator is `pavement_road_cap`, not `pad_slope_ceiling`
+
+`--why-hard`: 809 violated hard rows (pads 425, road_ramp 112, pavement_ceiling 85, roads 77, apron 45, platform_collar 34,
+transverse 14, pavement_road_cap 8, no_step 6, taxi 3). Every pad-tier row on v22865 (14: `platform plane` and 13
+`pad_slope_max ceiling`, the other end 100.07–100.86) has v22865 at 99.70 — and the one row that HOLDS v22865 there is the
+29ac fallback cap pairing the pad rim vertex with the service-road vertex v40607 at 10 % x 1.04 m = 0.10 m. A hard two-sided
+pavement pair over a PAD vertex against the hard plane: the LP relaxes the pad tier (81 rows). pads67's `--drop-generator
+pad_slope_ceiling` could not touch it. Arm to run: `--drop-generator pavement_road_cap`.
+
+### building12 (HECA, class C), attributed by `--why-at`: the pad is seated by the SERVICE ROAD it fronts, through the same fallback cap
+
+v26980 (rim 96.11, DEM 106.33): binding rows on it are the pad's own plate (7 `pads` rows); the chain to a fixed terminal is 14
+hops / +8.46 m: pad -> `pavement_road_cap` 10 % x 1.0 m -> `service_road#1119` (route3) at 96.03 -> `road_cross_section`
+1.5 % x 58 m x 2 (+1.76) -> `road_within_shape` -> apron#189 at 92.24 -> `apron_preference` to the apron at 87.8. So the
+landside pad's level is the road's, and the road's is the apron's through the road law (§37). The lot `pav57` 0.66 m away at
++3.29 m has NO row to the pad: `pad_frontage_level` fits the pad to its SENIOR groundside frontage (road > lot in
+`precedence.toml`) and reports the lot as a junior residual; §28 mints nothing back (`pad_fronts_airside` false); the fallback
+cap did not pair the lot (0.66 m) — only the road (1.0 m).
+
+### building147 (HECA), read: the six `airside_no_step` rows are the census's, the engine holds no such row
+
+`rows_sw8_HECA.json` (pads67's row dump) carries 93 `airside_no_step` rows on ways -10218/-10219 with grade > cap; the six the
+lane named are `apron|junction` 1.63–1.76 % vs 1.54–1.58 % over 94–135 m (over by 0.12–0.19 m) at 30.1295–30.1297,
+31.4005–31.4007. The engine's violated hard set carries 6 `no_step` rows (listed in `why/hard_all.json`).

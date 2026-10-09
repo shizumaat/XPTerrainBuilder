@@ -586,6 +586,20 @@ class PlanarMap:
     #: bank inside it and unions it into the coverage before the collar.
     seam_band_rings: tuple[tuple[tuple[float, float], ...], ...] = ()
 
+    def __setstate__(self, state: dict) -> None:
+        """A map PICKLED BEFORE A FIELD EXISTED reads that field's default
+        (a registered capture or ``--solved-out`` frame outlives the tree
+        that wrote it; without this ``dataclasses.replace`` on such a map
+        dies on the first field added since)."""
+        for f in _dc.fields(self):
+            if f.name in state:
+                continue
+            if f.default is not _dc.MISSING:
+                state[f.name] = f.default
+            elif f.default_factory is not _dc.MISSING:
+                state[f.name] = f.default_factory()
+        self.__dict__.update(state)
+
     def ribbon_vertices(self) -> frozenset[int]:
         """Every vertex of a mapped-road ribbon face (:func:`is_osm_ribbon_ref`)
         — the ribbon's own and the rim / kerb vertices it shares.  The

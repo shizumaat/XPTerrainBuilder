@@ -494,13 +494,20 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         Lm = (abs(A1_lead[ow_i]) > 0).astype(np.int8).tocsr()
         Mm = (Lm @ Fm.T).tocsr()          # [i, j]: row i's leaders hold row j's followers
         Mm.data[:] = 1
+        # a 2-CYCLE between a pad-level row and a row whose follower is the
+        # pad's own leader (the leader face's frontage following the pad,
+        # Q2 option (a)) is broken at the pad-level row: it reads first,
+        # once, and never re-reads the frontage it then levels
+        mutual = Mm.multiply(Mm.T).tocsr()
+        mutual = sp.diags(ow_once.astype(np.int8)) @ mutual
+        Mm = (Mm - mutual).tocsr()
+        Mm.eliminate_zeros()
         ow_depth = np.ones(ow_i.size, dtype=np.int64)
         cap = int(d.one_way_max_rounds)
         for _it in range(cap + 1):
             prev = ow_depth
             nxt = 1 + np.asarray(Mm.multiply(prev[None, :]).max(axis=1).todense()).ravel()
             nxt = np.minimum(nxt, cap).astype(np.int64)
-            nxt[ow_once] = 1
             ow_depth = nxt
             if np.array_equal(prev, ow_depth):
                 break

@@ -114,16 +114,24 @@ def test_only_the_contacts_that_close_the_set_give_each_by_what_it_is_short():
     assert {c: round(g, 6) for c, g in gives.items()} == {1: 0.52, 2: 0.52, 4: 0.22}
 
 
-def test_a_weld_off_its_datum_by_under_the_floor_is_sealed_on_it():
-    """Contact 1 stands 0.04 m off its datum 9 (the solve's residual), contact 2
-    within the tolerance, contact 3 is a FIXED point (skipped), contact 4 is 1.2 m
-    off (at the floor or over: not sealed), contact 5 is held by two datum columns."""
-    levels = {9: 100.0, 8: 101.0, 1: 99.96, 2: 100.015, 3: 99.5, 4: 98.8, 5: 100.3}
+def test_a_weld_off_its_datum_inside_the_residual_class_is_sealed_on_it():
+    """Spec §57 (3) (ii-c): contact 1 stands 0.04 m off its datum 9 (the solve's
+    residual: sealed), contact 2 within the tolerance, contact 3 is a FIXED point
+    (skipped), contact 4 is 0.30 m off — over the seal's bound and under the
+    floor: NOT sealed, it is the pavement's to give (``welds_off``) — contact 5
+    is held by two datum columns, contact 7 is 1.2 m off (the floor or over:
+    nobody's here)."""
+    from auto_patch_v2.constraints.weld_floor import welds_off
+    levels = {9: 100.0, 8: 101.0, 1: 99.96, 2: 100.015, 3: 99.5, 4: 99.7, 5: 100.3,
+              7: 98.8}
     z = dict(levels)
     welds = [(1, 9, "b1"), (2, 9, "b1"), (3, 9, "b1"), (4, 9, "b1"), (5, 9, "b1"),
-             (5, 8, "b2"), (6, 9, "b1")]
-    got = seal_welds(welds, levels, z, floor_m=1.0, tol_m=0.02, skip={3})
+             (5, 8, "b2"), (6, 9, "b1"), (7, 9, "b1")]
+    off = welds_off(welds, levels, 0.05, 1.0, 0.02, {3})
+    assert {c: round(g, 6) for c, g in off.items()} == {4: 0.32}
+    got = seal_welds(welds, levels, z, max_m=0.05, tol_m=0.02, skip={3})
     assert {c: (p, round(m, 6)) for c, (p, m) in got.items()} == {1: ("b1", 0.04)}
     assert levels[1] == z[1] == 100.0
-    assert (levels[2], levels[3], levels[4], levels[5]) == (100.015, 99.5, 98.8, 100.3)
-    assert seal_welds(welds, levels, None, 1.0, 0.02, {3}) == {}        # idempotent
+    assert (levels[2], levels[3], levels[4], levels[5], levels[7]) == (
+        100.015, 99.5, 99.7, 100.3, 98.8)
+    assert seal_welds(welds, levels, None, 0.05, 0.02, {3}) == {}       # idempotent

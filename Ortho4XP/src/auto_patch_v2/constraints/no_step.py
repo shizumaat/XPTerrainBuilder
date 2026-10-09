@@ -909,6 +909,38 @@ class HoldPass:
                                                 for c in b["gives"])
         return out
 
+    def rewiden(self, levels: _t.Mapping) -> int:
+        """Spec §57 (3) (ii-c): the welds pass 1b left off by more than the
+        seal's bound and under the floor (``weld_floor.welds_off`` — the
+        feasibility LP relaxed them) join :attr:`HoldInterval.widen` with
+        what each is off as its give; the count.  The caller re-derives the
+        widened set and solves pass 1b ONCE more."""
+        res = self.result
+        if res is None or not res.welds:
+            return 0
+        from ..law.tables import design as design_law
+        from ..model.platform import HELD
+        from .weld_floor import welds_off
+        dl = design_law(self.law)
+        off = welds_off(res.welds, levels, float(dl.seal_max_m), res.floor_m,
+                        float(dl.hard_tol_m), set(res.never) | set(res.pinned))
+        blk = {int(c): p for c, _dv, p in res.welds}
+        for c, g in off.items():
+            res.widen[c] = max(g, res.widen.get(c, 0.0))
+            b = res.blocks.get(blk[c])
+            if b is not None:
+                b["widened"] = True
+                b.setdefault("gives", {})[c] = max(g, b.get("gives", {}).get(c, 0.0))
+                h = HELD.get(blk[c])
+                if h is not None:
+                    w = h.get("weld_widened") or {"floor_m": res.floor_m, "contacts": []}
+                    w["contacts"] = [x for x in w["contacts"]
+                                     if tuple(x[:2]) != tuple(self.planar.vertices[c].key)]
+                    w["contacts"].append([*self.planar.vertices[c].key, round(g, 4)])
+                    w["relaxed"] = int(w.get("relaxed", 0)) + 1
+                    h["weld_widened"] = w
+        return len(off)
+
     def seal(self, levels: dict, z: _t.Any = None, rep: _t.Any = None) -> dict:
         """THE WELD PROJECTION on pass 1b's answer (``weld_floor.seal_welds``):
         every weld off its datum by under the floor takes the datum, in
@@ -931,12 +963,13 @@ class HoldPass:
                       for k in (r.get("vertices") or ())}
         pv = self.planar.vertices
         skip = set(res.never) | set(res.pinned)
+        dl = design_law(self.law)
         try:
-            got = seal_welds(res.welds, levels, z, res.floor_m,
-                             float(design_law(self.law).hard_tol_m), skip)
+            got = seal_welds(res.welds, levels, z, float(dl.seal_max_m),
+                             float(dl.hard_tol_m), skip)
         except TypeError:               # an immutable value vector: the levels lead
-            got = seal_welds(res.welds, levels, None, res.floor_m,
-                             float(design_law(self.law).hard_tol_m), skip)
+            got = seal_welds(res.welds, levels, None, float(dl.seal_max_m),
+                             float(dl.hard_tol_m), skip)
         by: dict[str, list] = {}
         for c, (pref, move) in sorted(got.items()):
             by.setdefault(pref, []).append((c, abs(move)))

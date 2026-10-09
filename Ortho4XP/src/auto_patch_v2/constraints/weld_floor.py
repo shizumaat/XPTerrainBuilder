@@ -32,21 +32,24 @@ contact is never touched (this is not a loosening of the apron or taxi
 caps), a runway row is never touched (a runway profile is not pavement
 welding to a pad), and neither is a pad's own row (the weld stays hard).
 
-THE WELD IS SEALED (:func:`seal_welds`).  The solve holds a hard row within
-its tolerance and cannot certify more (``[design] polish_rounds_max``: the
-residual is the solve's, not the law's), so a weld can stand a few
-centimetres off its datum; and the feasibility LP is the one judge of
-whether a level serves a block — where it relaxes a weld the pair graph
-called reachable, the contact stands off by what the LP priced.  A weld row
+THE WELD IS SEALED, WITHIN A BOUND (:func:`seal_welds`; spec §57 (3)
+(ii-c)).  The solve holds a hard row within its tolerance and cannot certify
+more (``[design] polish_rounds_max``: the residual is the solve's, not the
+law's), so a weld can stand a few centimetres off its datum.  A weld row
 governs ONE contact against a datum column stage 1 has solved, so its
 feasible set is a point and the projection onto it is an assignment — the
 zone projection's own argument (RULINGS 2026-09-12ag).  Every weld off its
-datum by under the floor takes the datum; the pavement gives by that much
-at the contact (08d (2): under the floor the pavement welds, there is no
-step) and the contact is recorded with it.  At the floor or over nothing is
-moved (the owner's to rule; the warning is the diagnostic).  A
+datum by more than the tolerance and at most ``[design] seal_max_m`` (the
+measured residual class) takes the datum and is recorded with its move.  A
 runway-family or pinned contact and a contact two blocks hold are left as
 the solve gave them.
+
+A WELD OFF BY MORE (:func:`welds_off`) — the feasibility LP relaxed it — is
+NOT sealed: a post-solve assignment of decimetres moves the step one row
+outward into rows nothing re-checks.  It is a misfit the pair graph did not
+see: the pavement rows naming that contact give by what it is off
+(:func:`widen_weld_rows`) and pass 1b is solved ONCE more; still off, the
+solve's release and the warning stand.
 
 The census reads the same thing back (``platforms[].weld_widened`` — the
 floor and each contact's coordinates and give; ``tools/check_grade.py``
@@ -64,7 +67,7 @@ from ..model.constraints import ConstraintSet, Diff, Linear
 _INF = float("inf")
 
 __all__ = ["PAVEMENT_TIERS", "pavement_heads", "widen_weld_rows", "ruling_note",
-           "seat_misfit", "contact_gives", "seal_welds"]
+           "seat_misfit", "contact_gives", "seal_welds", "welds_off"]
 
 #: The tiers of ``[design] hard_conflict_tiers`` whose rows are pavement
 #: caps (owner 08d (2): "pavement (airside or groundside)"; the runway tier
@@ -117,15 +120,29 @@ def contact_gives(level: float, contacts: _t.Iterable[int],
 
 
 def seal_welds(welds: _t.Iterable[tuple[int, int, str]], levels: dict, z: _t.Any,
-               floor_m: float, tol_m: float, skip: _t.AbstractSet[int] = frozenset()
+               max_m: float, tol_m: float, skip: _t.AbstractSet[int] = frozenset()
                ) -> dict[int, tuple[str, float]]:
     """THE WELD PROJECTION (module docstring): every ``(contact, datum
     column, block)`` of ``welds`` whose contact stands off its datum by more
-    than ``tol_m`` and under ``floor_m`` takes the datum's level, in
-    ``levels`` and in ``z``; ``{contact: (block, move)}``.  A contact of
-    ``skip`` (a runway-family vertex, a pinned one), one held by two datum
-    columns, or one whose column or datum stage 1 did not level is left
-    alone."""
+    than ``tol_m`` and at most ``max_m`` (``[design] seal_max_m`` — the
+    solver's residual class) takes the datum's level, in ``levels`` and in
+    ``z``; ``{contact: (block, move)}``.  A contact of ``skip`` (a
+    runway-family vertex, a pinned one), one held by two datum columns, or
+    one whose column or datum stage 1 did not level is left alone — and so
+    is one off by MORE than ``max_m`` (:func:`welds_off`)."""
+    out: dict[int, tuple[str, float]] = {}
+    for c, (pref, move) in _weld_moves(welds, levels, skip).items():
+        if tol_m < abs(move) <= max_m + 1e-9:
+            levels[c] = levels[c] + move
+            if z is not None:
+                z[c] = float(levels[c])
+            out[c] = (pref, move)
+    return out
+
+
+def _weld_moves(welds, levels, skip) -> dict[int, tuple[str, float]]:
+    """``{contact: (block, datum - contact)}`` over the welds a projection
+    may read: one datum column, both levelled, not in ``skip``."""
     by_c: dict[int, set] = {}
     for c, dv, _p in welds:
         by_c.setdefault(int(c), set()).add(int(dv))
@@ -134,13 +151,21 @@ def seal_welds(welds: _t.Iterable[tuple[int, int, str]], levels: dict, z: _t.Any
         c, dv = int(c), int(dv)
         if c in skip or c in out or len(by_c[c]) != 1 or c not in levels or dv not in levels:
             continue
-        move = float(levels[dv]) - float(levels[c])
-        if tol_m < abs(move) < floor_m:
-            levels[c] = float(levels[dv])
-            if z is not None:
-                z[c] = float(levels[dv])
-            out[c] = (pref, move)
+        out[c] = (pref, float(levels[dv]) - float(levels[c]))
     return out
+
+
+def welds_off(welds: _t.Iterable[tuple[int, int, str]], levels: _t.Mapping,
+              max_m: float, floor_m: float, tol_m: float,
+              skip: _t.AbstractSet[int] = frozenset()) -> dict[int, float]:
+    """THE WELDS THE SOLVE LEFT OFF BY MORE THAN THE SEAL'S BOUND and under
+    the terrace floor — ``{contact: |off| + tol_m}``, the give of the
+    pavement rows naming it (spec §57 (3) (ii-c)): a misfit the pair-graph
+    read did not see (the feasibility LP is the finer judge).  It is never
+    sealed; the caller widens by it and re-solves pass 1b ONCE."""
+    return {c: abs(mv) + float(tol_m)
+            for c, (_p, mv) in _weld_moves(welds, levels, skip).items()
+            if max_m + 1e-9 < abs(mv) < floor_m}
 
 
 def pavement_heads(law: Law) -> frozenset[str]:

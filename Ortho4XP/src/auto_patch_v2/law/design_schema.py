@@ -293,6 +293,12 @@ class Design:
     #: first flat round is nowhere near the answer.
     polish_rounds_max: int
     hard_tol_m: float
+    #: THE WELD PROJECTION'S BOUND (spec §57 (3) (ii-c), seat review D2):
+    #: ``constraints/weld_floor.seal_welds`` assigns a frontage weld its
+    #: datum only inside the SOLVER'S RESIDUAL class — a contact the solve
+    #: left off by at most this.  Not a weld allowance: a weld off by more
+    #: is a misfit and goes back through the pavement's give.
+    seal_max_m: float
     #: THE FINAL PROJECTION (owner RULINGS 2026-09-09y): after the
     #: design solve, every non-runway vertex is fixed and the runway
     #: family's vertices are re-solved as a QP holding every
@@ -478,6 +484,9 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.polish_rounds_max {d.polish_rounds_max}: at least 1")
     if not d.hard_tol_m > 0.0:
         raise err(f"emit.design.hard_tol_m {d.hard_tol_m}: positive metres")
+    if not d.seal_max_m >= d.hard_tol_m:
+        raise err(f"emit.design.seal_max_m {d.seal_max_m}: at least hard_tol_m "
+                  f"({d.hard_tol_m}) — the seal starts where the tolerance ends")
     if not d.hard_weight > d.law:
         raise err(f"emit.design.hard_weight {d.hard_weight}: heavier than the "
                   f"law's target weight {d.law} — a constraint, not a target")

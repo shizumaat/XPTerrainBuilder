@@ -146,6 +146,15 @@ def stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, hold: _t.Any,
         planar = _dc.replace(planar, fronting_vertices=frozenset(fr),
                              fronting_ref=getattr(res, "fronting_ref", {}) or {})
     cs1b, got, y1b = yield_stage_one(planar, cs1b, law, solve1(planar, cs1b), solve1)
+    if hasattr(hold, "rewiden") and (n_re := hold.rewiden(got[4])):
+        # spec §57 (3) (ii-c): a weld the feasibility LP relaxed (off by more
+        # than the seal's bound, under the floor) is a misfit the pair graph
+        # did not see — the pavement rows naming it give by what it is off
+        # and pass 1b is solved ONCE more; still off, the warning stands
+        cs1b, got, y1c = yield_stage_one(planar, hold.widened(cs1b), law,
+                                         solve1(planar, hold.widened(cs1b)), solve1)
+        y1b = y1b + y1c
+        rec["weld_rewidened"] = n_re
     if hasattr(hold, "seal"):
         # THE WELD PROJECTION (owner RULINGS 2026-10-08c (4) / 08d (2);
         # ``constraints/weld_floor``): a weld off its datum under the floor takes its

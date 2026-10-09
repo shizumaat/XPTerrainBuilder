@@ -485,6 +485,51 @@ def test_a_weld_left_off_its_datum_by_the_solve_is_sealed_and_recorded(law, buil
     assert hp.seal(levels)["contacts"] == 0 and levels[c] != levels[dv]
 
 
+def test_a_weld_the_lp_relaxed_is_widened_and_resolved_never_sealed(law, built, monkeypatch):
+    """Spec §57 (3) (ii-c) (seat review D2): a weld pass 1b leaves 0.3 m off
+    its datum — the feasibility LP relaxed it; over ``[design] seal_max_m``,
+    under the terrace floor — is NOT assigned its datum.  It is a misfit the
+    pair graph did not see: the contact joins the block's gives with what it
+    is off, the pavement rows naming it are widened and pass 1b is solved
+    ONCE more; the weld then stands (released 0) and nothing is sealed."""
+    from auto_patch_v2.model.platform import HELD
+    from auto_patch_v2.solve import flex
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    assert float(lw.tables.emit.design.seal_max_m) == 0.05
+    hp = hold_pass(pm, lw)
+    solve_design(pm, cs, lw, hold=hp)
+    c, dv, pref = next(w for w in hp.result.welds
+                       if w[0] not in hp.result.never and w[0] not in hp.result.pinned)
+    # the unit: 0.3 m off is the pavement's to give, never the seal's
+    z = np.asarray(solve_design(pm, cs, lw, hold=hp)[0].z, float)
+    levels = {int(v): float(z[v]) for v in range(len(z))}
+    levels[c] = levels[dv] - 0.30
+    assert hp.seal(dict(levels))["contacts"] == 0
+    assert hp.rewiden(levels) == 1 and abs(hp.result.widen[c] - 0.32) < 1e-9
+    assert HELD[pref]["weld_widened"]["relaxed"] == 1
+    # the pass: stage 1 re-solves ONCE with the widened rows
+    hp2 = hold_pass(pm, lw)
+    calls = {"n": 0}
+    real = type(hp2).rewiden
+
+    def once(self, lv):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            lv = dict(lv)
+            lv[c] = lv[dv] - 0.30               # the LP's relaxation, stood in
+        return real(self, lv)
+    monkeypatch.setattr(type(hp2), "rewiden", once)
+    sol, rep = solve_design(pm, cs, lw, hold=hp2)
+    z2 = np.asarray(sol.z, float)
+    s1 = rep.stages["stage1a"]
+    assert s1["weld_rewidened"] == 1 and calls["n"] == 1
+    assert s1["weld_seal"]["contacts"] == 0                       # sealed 0
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    assert abs(z2[c] - z2[dv]) <= tol + 1e-9                      # released 0
+    assert HELD[pref]["weld_widened"]["rows"] > 0
+
+
 def test_the_hold_pass_widens_only_the_pavement_rows_naming_a_closing_contact(law, built):
     """Owner RULINGS 2026-10-08d (2) (``constraints/weld_floor``): pass 1b and
     stage 2 state the pavement-tier rows naming a contact that closes a

@@ -145,7 +145,7 @@ def hill(law):
     return airport, pm, rep, law
 
 
-# ── (1) THE RAMP DESCENDS AT THE CAP AND THEN FOLLOWS THE DEM ───────────
+# ── (1) THE RAMP DESCENDS AT ITS DESIGN GRADE AND THEN FOLLOWS THE DEM ──
 
 def test_the_target_is_the_dem_wherever_the_dem_is_reachable(hill):
     """The road's mouth is on the plateau, and the ground under the road
@@ -163,36 +163,95 @@ def test_the_target_is_the_dem_wherever_the_dem_is_reachable(hill):
         assert tg[v] == pytest.approx(dem.z(x, y), abs=0.35), (v, tg[v])
 
 
-def test_the_ramp_descends_at_the_cap_from_a_mouth_above_the_dem(law):
-    """A mouth 12 m above the ground under it (an apron on fill): the
-    target leaves the contact at the ROAD CAP and reaches the DEM after
-    ``drop / cap``, never before — the ramp, not a cliff."""
-    class _Shelf(_Hill):
-        """The apron stands on a shelf 12 m over the plain, and the ground
-        falls off it at 30 % — FOUR TIMES the road's own cap, so no lawful
-        road follows it and the ramp is the answer."""
+class _Shelf(_Hill):
+    """The apron stands on a shelf 12 m over the plain, and the ground
+    falls off it at 30 % — three times the road's own cap, so no lawful
+    road follows it and the ramp is the answer."""
 
-        def z(self, x, y):
-            return PLATEAU_Z - 12.0 * min(1.0, max(0.0, y / 40.0))
+    def z(self, x, y):
+        return PLATEAU_Z - 12.0 * min(1.0, max(0.0, y / 40.0))
 
+
+def _shelf_ramp(law, road_len: float):
     airport, r = _airport(law, _Shelf())
-    pm, rep = _map(law, airport, _cells(r))
-    tg = road_ramp_targets(pm, law, airport).targets
-    cap = rep["cap"]
+    pm, rep = _map(law, airport, _cells(r, road_len=road_len))
+    return airport, pm, rep, road_ramp_targets(pm, law, airport).targets
+
+
+def test_the_ramp_descends_at_its_design_grade_from_a_mouth_above_the_dem(law):
+    """A mouth 12 m above the ground under it (an apron on fill), 300 m of
+    road: the target leaves the contact at the DESIGN grade (owner RULINGS
+    2026-10-09c (2b): 5 %, never the cap) and reaches the DEM after
+    ``drop / design`` — the ramp, not a cliff."""
+    airport, pm, rep, tg = _shelf_ramp(law, 300.0)
+    cap, design = rep["cap"], rep["design"]
     assert cap == pytest.approx(law.tables.common.road_max_grade)
+    assert design == law.tables.emit.road_contact.ramp_grade == 0.05 < cap
     ground = PLATEAU_Z - 12.0
-    reach = 12.0 / cap
+    on_ramp = 0
     for v in tg:
         x, y = pm.vertices[v].xy
         s = max(0.0, y + 20.0)                       # route distance ~ y
-        envelope = max(ground, PLATEAU_Z - cap * s)
         # THE HIGHER ENVELOPE: the ramp where the ground is under it, the
         # ground where the ground is above it (§37 (6)'s ``max``)
-        assert tg[v] <= max(envelope, airport.dem.z(x, y)) + 0.6, (v, s, tg[v])
-        assert tg[v] >= airport.dem.z(x, y) - 0.35, (v, tg[v])
-        if s > reach + 20.0:
+        assert tg[v] == pytest.approx(max(PLATEAU_Z - design * s, airport.dem.z(x, y)),
+                                      abs=0.6), (v, s, tg[v])
+        if 60.0 < s < 12.0 / design - 20.0:
+            on_ramp += 1
+            assert tg[v] == pytest.approx(PLATEAU_Z - design * s, abs=1e-6), (v, s)
+            assert tg[v] > PLATEAU_Z - cap * s + 1.0     # NOT the cap's descent
+        if s > 12.0 / design + 20.0:
             assert tg[v] == pytest.approx(ground, abs=0.1), (v, s, tg[v])
-    assert rep["on_ramp"] > 0 and rep["max_above_dem_m"] > 1.0, rep
+    assert on_ramp and rep["on_ramp"] > 0 and rep["max_above_dem_m"] > 1.0, rep
+    assert rep["ramps"] == rep["ramps_at_design"] > 0, rep
+    assert rep["ramps_steepened"] == rep["ramps_at_cap"] == 0, rep
+
+
+def test_a_run_that_fits_only_at_7_3_percent_is_built_at_7_3_percent(law):
+    """The same shelf, the road ENDING 12 / 0.073 m from the contact: the
+    design grade would leave the road's end 3.8 m in the air, so the ramp
+    takes the LEAST grade that brings it down at its end — 7.3 %, neither
+    the 5 % design nor the 10 % cap."""
+    run = 12.0 / 0.073
+    airport, pm, rep, tg = _shelf_ramp(law, run)
+    assert rep["ramps"] == rep["ramps_steepened"] > 0 and rep["ramps_at_cap"] == 0, rep
+    for _m, grade, _len, why in rep["ramps_steepest"]:
+        assert grade == pytest.approx(0.073, abs=5e-4) and "the road's end" in why
+    ground = PLATEAU_Z - 12.0
+    for v in tg:
+        s = max(0.0, pm.vertices[v].xy[1] + 20.0)
+        if s > 60.0:
+            assert tg[v] == pytest.approx(PLATEAU_Z - 0.073 * s, abs=0.05), (v, s, tg[v])
+        if s > run - 1.0:
+            assert tg[v] == pytest.approx(ground, abs=0.05)      # down at its end
+
+
+def test_a_run_that_needs_more_than_the_cap_is_built_at_the_cap(law):
+    """100 m of road for the 12 m: the kerb contacts need more than the
+    cap, so their ramps are built AT the cap and the road ends above its
+    ground — what it did when the cap was the grade.  (The exact figures
+    are ``test_road_descent``'s, on a graph with one contact.)"""
+    airport, pm, rep, tg = _shelf_ramp(law, 100.0)
+    assert rep["ramps_at_cap"] == rep["ramps_over_cap"] >= 2, rep
+    assert rep["ramps_at_design"] == 0, rep
+    assert all(g <= rep["cap"] + 1e-12 for _m, g, _l, _w in rep["ramps_steepest"])
+
+
+def test_the_design_grade_at_the_cap_is_the_ramp_of_old(law):
+    """THE CONTROL: with the design grade set to the cap the envelope is
+    the single cap-descent it was before RULINGS 2026-10-09c (2b)."""
+    import dataclasses as _dc
+    emit = law.tables.emit
+    cap = law.tables.common.road_max_grade
+    old = _dc.replace(law, tables=_dc.replace(law.tables, emit=_dc.replace(
+        emit, road_contact=_dc.replace(emit.road_contact, ramp_grade=cap))))
+    airport, r = _airport(law, _Shelf())
+    pm, _rep = _map(law, airport, _cells(r))
+    tg = road_ramp_targets(pm, old, airport).targets
+    for v in tg:
+        x, y = pm.vertices[v].xy
+        s = max(0.0, y + 20.0)
+        assert tg[v] <= max(PLATEAU_Z - 12.0, PLATEAU_Z - cap * s, airport.dem.z(x, y)) + 0.6
 
 
 # ── (2) THE DEM IS READ ALONG THE ROUTE, NEVER UNDER THE KERB ───────────

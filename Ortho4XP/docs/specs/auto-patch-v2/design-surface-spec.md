@@ -7486,11 +7486,44 @@ welded by smoothness to the airside fill beside it (`graded_strip` 12.48 /
 6. **THE ROAD'S PROFILE IS DERIVED ALONG ITS ROUTE.** From each AIRSIDE
    CONTACT of a groundside road (the mouth where it meets an apron, pad or
    lot; that level is the airside's — airside is king), the road target along
-   route distance s is `max(DEM(s), z_contact − road_cap × s)`: it descends at
-   the road cap until it meets the DEM and follows the DEM from there (and
-   climbs at the cap where the DEM rises above the contact); between two
-   contacts the two ramps meet at their higher envelope; a road with no
-   airside contact targets the DEM. The target is a DESIGN TARGET (§31 (3)
+   route distance s is `max(DEM(s), z_contact − grade × s)`: it descends at
+   its DESIGN grade `[road_contact] ramp_grade` (0.05) until it meets the DEM
+   and follows the DEM from there (where the DEM stands above the contact the
+   road is on it at once); between two contacts the two ramps meet at their
+   higher envelope; a road with no airside contact targets the DEM.
+   **(6a) THE CAP IS A CEILING, NEVER THE GRADE THE RAMP IS BUILT AT — AMENDED
+   2026-10-09 (owner RULINGS 2026-10-08c (1): "it's a CAP, not a target, it
+   should only allow more flex where needed"; 2026-10-09c (2b): "groundside
+   road ramps … get a 5 % DESIGN grade like mapped tunnel ramps, steepening
+   toward the 10 % cap only where the run requires").** Until this amendment
+   `grade` was the road cap itself, so raising the cap 8 → 10 % (07d)
+   steepened every ramp. Each contact's ramp is now built at the design
+   grade and steepens toward the road's longitudinal cap ONLY where the
+   design grade cannot bring the road down in THE RUN IT HAS, and then at the
+   SMALLEST grade that does — §34 (1a)'s rule, one arithmetic
+   (`geom/ramp_grade.built_grade`). The run ends at (a) THE ROAD'S OWN END —
+   the vertices at an end of its route (within one lane width of the route's
+   first or last station, §37 (10)'s END) that the road's graph does not
+   continue past: the ramp must be down on the road's floor there; (b) THE
+   NEXT CONTACT — its level is the airside's, and the ramp must have come
+   down to it there. The least grade is `max over those ends of (z_contact −
+   level at the end) / route distance to it`; an end nearer than one lane
+   width is the mouth itself and asks nothing. Where even the cap does not
+   fit, the ramp is built AT the cap and the road ends its run above the
+   level there, exactly as before this amendment. The envelope is the higher
+   of the ramps, each at its own grade. The two stage-2 ramps of the same
+   road follow the same rule with the run they have: the reach seed of
+   §37 (10) / 27a (11) (`z_edge − grade × s`, the run = the vertices that
+   contact governs) and the bare exit of a terraced ribbon (03b:
+   `clip(target, L ± grade × d)`, the run = the bare stretch beyond the last
+   bordered station). The rows price the ramp at the grade it was built at:
+   they are the target itself and its ceiling `target + visual_m`. NOT
+   changed, each a ceiling or a feasibility test and not a grade built to:
+   the one-way contact row `z ≤ z_edge + cap × s` (§37 (10) (1)), the clip
+   toward a coverage-edge join (§37 (9)), the gate span `2h / cap` (03l),
+   the core clamp that is the floor (13be), §37 (1)'s longitudinal cap.
+   Code: `airport/road_descent` (`descend`), `constraints/road_ramp`
+   (`_run_grade`). The target is a DESIGN TARGET (§31 (3)
    class, design-target weight — not the `preferred_road_z` soft fit, which
    this supersedes for groundside roads) with a HARD ceiling
    `z ≤ target + visual_m`, so smoothness can never lift the road back onto
@@ -8144,10 +8177,10 @@ the mesh shows the patch (214.24) over the core (203.48) and the DEM
 2.36 m drop over 7.9 m.
 
 - **§37 (6) amended — THE FLOOR IS THE CLAMP.** The ramp target is
-  `max(clamp(s), z_contact − cap × s)` along the route, `clamp(s)` the
+  `max(clamp(s), z_contact − grade × s)` along the route, `clamp(s)` the
   in-process `cap_lipschitz_profile` value (`preferred_road_z`'s own
-  profile): the road descends at the cap to the core's answer and follows
-  it. Where the DEM is within the cap the two coincide; where it is not,
+  profile): the road descends at its design grade (§37 (6a), 2026-10-09;
+  the cap until then) to the core's answer and follows it. Where the DEM is within the cap the two coincide; where it is not,
   the road takes the lift/cut the core would have given it.
 9. **THE COVERAGE-EDGE JOIN.** A road-family face whose way leaves the
    coverage takes, at its last station inside, the core ribbon's altitude
@@ -9773,11 +9806,44 @@ welded by smoothness to the airside fill beside it (`graded_strip` 12.48 /
 6. **THE ROAD'S PROFILE IS DERIVED ALONG ITS ROUTE.** From each AIRSIDE
    CONTACT of a groundside road (the mouth where it meets an apron, pad or
    lot; that level is the airside's — airside is king), the road target along
-   route distance s is `max(DEM(s), z_contact − road_cap × s)`: it descends at
-   the road cap until it meets the DEM and follows the DEM from there (and
-   climbs at the cap where the DEM rises above the contact); between two
-   contacts the two ramps meet at their higher envelope; a road with no
-   airside contact targets the DEM. The target is a DESIGN TARGET (§31 (3)
+   route distance s is `max(DEM(s), z_contact − grade × s)`: it descends at
+   its DESIGN grade `[road_contact] ramp_grade` (0.05) until it meets the DEM
+   and follows the DEM from there (where the DEM stands above the contact the
+   road is on it at once); between two contacts the two ramps meet at their
+   higher envelope; a road with no airside contact targets the DEM.
+   **(6a) THE CAP IS A CEILING, NEVER THE GRADE THE RAMP IS BUILT AT — AMENDED
+   2026-10-09 (owner RULINGS 2026-10-08c (1): "it's a CAP, not a target, it
+   should only allow more flex where needed"; 2026-10-09c (2b): "groundside
+   road ramps … get a 5 % DESIGN grade like mapped tunnel ramps, steepening
+   toward the 10 % cap only where the run requires").** Until this amendment
+   `grade` was the road cap itself, so raising the cap 8 → 10 % (07d)
+   steepened every ramp. Each contact's ramp is now built at the design
+   grade and steepens toward the road's longitudinal cap ONLY where the
+   design grade cannot bring the road down in THE RUN IT HAS, and then at the
+   SMALLEST grade that does — §34 (1a)'s rule, one arithmetic
+   (`geom/ramp_grade.built_grade`). The run ends at (a) THE ROAD'S OWN END —
+   the vertices at an end of its route (within one lane width of the route's
+   first or last station, §37 (10)'s END) that the road's graph does not
+   continue past: the ramp must be down on the road's floor there; (b) THE
+   NEXT CONTACT — its level is the airside's, and the ramp must have come
+   down to it there. The least grade is `max over those ends of (z_contact −
+   level at the end) / route distance to it`; an end nearer than one lane
+   width is the mouth itself and asks nothing. Where even the cap does not
+   fit, the ramp is built AT the cap and the road ends its run above the
+   level there, exactly as before this amendment. The envelope is the higher
+   of the ramps, each at its own grade. The two stage-2 ramps of the same
+   road follow the same rule with the run they have: the reach seed of
+   §37 (10) / 27a (11) (`z_edge − grade × s`, the run = the vertices that
+   contact governs) and the bare exit of a terraced ribbon (03b:
+   `clip(target, L ± grade × d)`, the run = the bare stretch beyond the last
+   bordered station). The rows price the ramp at the grade it was built at:
+   they are the target itself and its ceiling `target + visual_m`. NOT
+   changed, each a ceiling or a feasibility test and not a grade built to:
+   the one-way contact row `z ≤ z_edge + cap × s` (§37 (10) (1)), the clip
+   toward a coverage-edge join (§37 (9)), the gate span `2h / cap` (03l),
+   the core clamp that is the floor (13be), §37 (1)'s longitudinal cap.
+   Code: `airport/road_descent` (`descend`), `constraints/road_ramp`
+   (`_run_grade`). The target is a DESIGN TARGET (§31 (3)
    class, design-target weight — not the `preferred_road_z` soft fit, which
    this supersedes for groundside roads) with a HARD ceiling
    `z ≤ target + visual_m`, so smoothness can never lift the road back onto
@@ -10431,10 +10497,10 @@ the mesh shows the patch (214.24) over the core (203.48) and the DEM
 2.36 m drop over 7.9 m.
 
 - **§37 (6) amended — THE FLOOR IS THE CLAMP.** The ramp target is
-  `max(clamp(s), z_contact − cap × s)` along the route, `clamp(s)` the
+  `max(clamp(s), z_contact − grade × s)` along the route, `clamp(s)` the
   in-process `cap_lipschitz_profile` value (`preferred_road_z`'s own
-  profile): the road descends at the cap to the core's answer and follows
-  it. Where the DEM is within the cap the two coincide; where it is not,
+  profile): the road descends at its design grade (§37 (6a), 2026-10-09;
+  the cap until then) to the core's answer and follows it. Where the DEM is within the cap the two coincide; where it is not,
   the road takes the lift/cut the core would have given it.
 9. **THE COVERAGE-EDGE JOIN.** A road-family face whose way leaves the
    coverage takes, at its last station inside, the core ribbon's altitude

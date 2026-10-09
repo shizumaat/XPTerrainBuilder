@@ -36,6 +36,16 @@ ONE predicate, ``model.planar.gap_parts_across_knife``, read here and by
 the census copy.  Pricing the pad|pad pair dragged the HECA cargo pads
 ``building51``/``building56`` 6.4 m under the apron they front, onto the
 lower pad ``building129`` across their declared 28b terrace (issue #123).
+A welded pair with a PAD'S OWN vertex (one no pavement face shares) at
+either end is not this family's at all (spec §62 (5) R-F, owner RULINGS
+2026-10-09d (1) / 08c (4)): the pad|pavement pair across the stand-off is the
+SEAT relation — §20's level fit, §28's frontage, ``constraints.pad_seat`` for
+a landside-only pad — stated ONE-WAY.  The two-sided weld at 10 % over 1 m
+held a pad rim vertex on a road its ramp law fixes and the LP relaxed the
+pad's hard plane instead (81 pad-tier rows on one pad at the airport that
+showed it); it was also the de-facto seat of every landside-only pad, which
+is why R-F lands with the seat's own hard row.  A vertex a pad SHARES with
+pavement is the pavement's (09-01g) and keeps its pairs.
 
 A pair ALREADY capped at or under the fallback by a hard ``Diff`` over the
 same two vertices (the ceiling's twins, the road cross-section, …) mints
@@ -183,8 +193,12 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                 continue            # same single face: its ring pairs above
             if not (owner[a] - owner[b] or owner[b] - owner[a]):
                 continue
-            if owner[a] <= pad_faces and owner[b] <= pad_faces:
-                continue            # pad|pad: a step (30l (2)), not a grade
+            if owner[a] <= pad_faces or owner[b] <= pad_faces:
+                # pad|pad: a step (30l (2)), not a grade.  A PAD'S OWN
+                # vertex against a pavement vertex across the stand-off is
+                # the SEAT relation's pair (spec §62 (5) R-F): one-way, §20
+                # / §28 / the landside seat — never a two-sided hard weld
+                continue
             if held_faces and any(
                     fb in held_faces.get(fa, ())
                     for fa in owner[a] for fb in owner[b]):

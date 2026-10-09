@@ -29,7 +29,7 @@ __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "road_contact_rows", "reach_seed_rewrite", "BANK_RULING",
            "between_levels_rewrite", "airside_joins", "welded_join_release",
            "terrace_rewrite", "terrace_profile", "wall_terrace_rows",
-           "wall_release",
+           "wall_release", "frontage_release",
            "WALL_LOT_RULING"]
 
 GEN = "road_ramp"
@@ -319,7 +319,59 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     cs, rep["wall_release"] = wall_release(planar, law, cs)
     cs, rep["between_levels"] = between_levels_rewrite(planar, law, cs, levels)
     cs, rep["welded_join"] = welded_join_release(planar, law, cs, levels)
+    # LAST: the rewrites above carry every vertex's §37 (6) row as the
+    # floor of their profiles, so the frontage's rows leave after them
+    cs, rep["frontage"] = frontage_release(planar, law, cs)
+    rep["welded_join"] = [*rep["welded_join"], *rep["frontage"].pop("joins")]
     return cs, rep
+
+
+def frontage_release(planar: PlanarMap, law: Law, cs: ConstraintSet
+                     ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
+    """SPEC §62 (5) R-B (owner RULINGS 2026-10-09d (1) / 09c (2a)): NO ROAD
+    LAW FIXES A ROAD VERTEX INSIDE A SEATED PAD'S FRONTAGE.  A §28 frontage
+    vertex (``pad_frontage_gs.frontage_vertices`` — the relation as data,
+    armed pairs only) carries the pad's edge level by §28's own row; its
+    §37 (6) design target and hard ceiling and its §37 (9) coverage-edge
+    join pin name that level a second time and are withdrawn: the pad
+    frontage is a BORDERED LEVEL of the road, the ramp starts from it and
+    the first vertex outside the frontage keeps every road row it has.
+
+    A withdrawn join is recorded in :func:`welded_join_release`'s form
+    (``stage`` ``"2f"``), so the core ribbon yields to the level the patch
+    carries there (``emit/road_join.with_pin_yield``) exactly as to a join
+    welded to airside.
+
+    WHAT IT ANSWERS (measured where it was found): a service-road page's two
+    frontage vertices stood 2.7 m over the pad they front for 66 m of rim —
+    §28's priced joint against the vertex's own ramp target 4.3 m above the
+    pad — and a join pin 0.8 m off a pad held the road 1.6 m under it."""
+    from .pad_frontage_gs import frontage_vertices
+    front = frontage_vertices(planar, law)
+    rep: dict[str, _t.Any] = {"frontage_vertices": len(front), "targets": 0,
+                              "ceilings": 0, "joins": []}
+    if not front:
+        return cs, rep
+
+    def _at(r: Row, ruling: str) -> bool:
+        if r.source.generator != GEN or r.source.ruling != ruling:
+            return False
+        tag = r.source.inputs[0] if r.source.inputs else ""
+        return tag.startswith("vertex:") and int(tag[7:]) in front
+    linears = [r for r in cs.linears if not _at(r, RULING)]
+    bands = [r for r in cs.bands if not _at(r, RULING_CEILING)]
+    pins = [p for p in cs.pins if not (_at(p, JOIN_RULING) and p.v in front)]
+    rep["targets"] = len(cs.linears) - len(linears)
+    rep["ceilings"] = len(cs.bands) - len(bands)
+    rep["joins"] = [
+        {"v": int(p.v), "xy": tuple(float(c) for c in planar.vertices[p.v].xy),
+         "pinned_m": round(float(p.z), 4), "z_m": round(float(p.z), 4),
+         "excess_m": 0.0, "stage": "2f"}
+        for p in cs.pins if _at(p, JOIN_RULING) and p.v in front]
+    if not (rep["targets"] or rep["ceilings"] or rep["joins"]):
+        return cs, rep
+    return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands),
+                       pins=tuple(pins)), rep
 
 
 def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],

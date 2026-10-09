@@ -163,8 +163,9 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     from .platform import COLLAR_RULING as _COLLAR
     from .platform import PLANE_RULING as _PLANE
     from .platform import RIM_RULING as _RIM
-    _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J, _GS_LVL, _GS_LVL_J, _COLLAR, _PLANE,
-             _RIM}
+    from .pad_seat import SEAT_RULING as _PAD_SEAT    # spec §62 (2): the same
+    _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J, _PAD_SEAT, _GS_LVL, _GS_LVL_J,
+             _COLLAR, _PLANE, _RIM}
     # issue #143 (``roads.road_pair_side``): A ROAD ROW'S TWIN IS A ROAD
     # ROW.  A road pair welded to airside is minted ONE-WAY on its
     # groundside foot so §20b stage 1 refuses it; its twin, minted two-way,

@@ -477,6 +477,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         A1 = sp.csr_matrix((coo.data[keep], (coo.row[keep], coo.col[keep])),
                            shape=A1.shape)
     hard_i = np.asarray(base_p.hard, dtype=np.int64)
+    #: the scale each one-sided row is solved in (1 but on a hard row, below)
+    sc = np.ones(len(one))
     if fixed and drop is None and hard_i.size:
         # §20b STAGE 2's HARD SET (the census table): an AIRSIDE hard row
         # now carries no column — stage 1 enforced it and read it there, in
@@ -500,7 +502,6 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # left at ρ = 3e6; spec §6 deviation 9).
     if hard_i.size:
         rowsum = np.asarray(abs(A1).sum(axis=1)).ravel()
-        sc = np.ones(A1.shape[0])
         good = rowsum[hard_i] > 0.0
         sc[hard_i[good]] = 2.0 / rowsum[hard_i[good]]
         # THE READING IS THE ROW'S OWN METRES (lane ``surfacesettle``,
@@ -673,7 +674,10 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     theta = float(d.one_way_relax)
     dmove = np.zeros(0)
     for outer in range(1, (int(d.one_way_max_rounds) if ow_i.size else 0) + 1):
-        target = np.asarray(A1_lead @ x).ravel()[ow_i]
+        # a row both HARD and one-way is solved in the hard rows' metre
+        # scale (``sc``), so its lagged leader term is too (spec §62 (2):
+        # the landside-only pad's seat; ``sc`` is 1 on every other row)
+        target = np.asarray(A1_lead @ x).ravel()[ow_i] * sc[ow_i]
         cur = shift[ow_i]
         new_shift = target if outer == 1 else cur + theta * (target - cur)
         dmove = (np.abs(new_shift - cur) if outer > 1
@@ -708,7 +712,14 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # BEST iterate is returned, and the cap's hit is a NAMED failure.
     # ``law/emit.toml`` [design] carries the measurements.
     if hard_i.size:
-        Ah, bh = A1[hard_i], b1[hard_i]
+        # THE LAG AND THE MULTIPLIER SHARE ``shift`` AND ADD (spec §62 (2)):
+        # a hard row that is also ONE-WAY keeps its frozen leader term under
+        # the multiplier — ``lag`` is zero on every hard row that is not
+        # one-way, so the arithmetic there is unchanged to the bit.  Until
+        # the landside-only pad's seat no head stood in both registers and
+        # ``shift[hard_i] = mu / rho`` overwrote nothing.
+        lag = shift[hard_i].copy()
+        Ah, bh = A1[hard_i], b1[hard_i] - lag
         mu = np.zeros(hard_i.size)
         tol_h = float(d.hard_tol_m)
         worst = float(np.max(np.maximum(Ah @ x - bh, 0.0)))
@@ -718,7 +729,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 break
             rep.hard_rounds = pr
             mu = np.maximum(0.0, mu + rho * (Ah @ x - bh))
-            shift[hard_i] = mu / rho
+            shift[hard_i] = lag + mu / rho
             x = _inner(x)
             worst = float(np.max(np.maximum(Ah @ x - bh, 0.0)))
             if worst < best_worst:

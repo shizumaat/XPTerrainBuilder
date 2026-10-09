@@ -53,7 +53,7 @@ __all__ = ["GEN_GS", "GS_LEVEL_RULING", "GS_LEVEL_JUNIOR_RULING",
            "STATS", "frontage_step_max_m", "pair_dem_step_m",
            "pad_airside_frontage", "pad_area_weighted_dem",
            "groundside_frontage", "groundside_frontage_level",
-           "HELD_PAIRS", "held_terrace_pairs"]
+           "HELD_PAIRS", "held_terrace_pairs", "frontage_vertices"]
 
 #: THE GENERATOR'S OWN STATISTICS, published beside its row count by
 #: ``constraints.build`` as ``groundside_frontage_level.<key>`` — the
@@ -73,6 +73,9 @@ STATS: dict[str, dict[str, int]] = {}
 HELD_PAIRS: dict[int, tuple[_t.Any, dict]] = {}
 #: the key of a map's held pairs in its :data:`HELD_PAIRS` memo
 _HELD = "held_pairs"
+#: the key of a map's §28 FRONTAGE VERTICES in the same memo — every
+#: groundside vertex an armed pair makes follow a pad (:func:`frontage_vertices`)
+_FRONT = "frontage_vertices"
 
 #: THE §28 FAMILY.  Its own generator name, so ``DesignReport.families`` and
 #: ``tools/v2_why_solve`` name the PAD holding a lot's edge rather than the pad
@@ -272,8 +275,9 @@ def pair_dem_step_m(planar: PlanarMap, law: Law, front: _t.Iterable[int],
 
     FALLBACK (owner 2026-09-18c (1)): a pad whose airside frontage
     carries no DEM sample takes :func:`pad_area_weighted_dem` over its
-    own outline instead.  A pad with no airside frontage at all never
-    reaches here — §28 (2) drops it from the relation."""
+    own outline instead — and so does a LANDSIDE-ONLY pad (no airside
+    frontage at all), which is in the relation since spec §62 (2) rule 2:
+    its followers' terrace test (§62 (2) rule 3, 09f) reads this fallback."""
     fd = _median_dem(planar, front)
     if fd is None:
         return None
@@ -328,7 +332,8 @@ def _airside_pavement_vertices(planar: PlanarMap, law: Law) -> set[int]:
             for cyc in [vw.rings[f.id], *vw.holes[f.id]] for v in cyc}
 
 
-def groundside_frontage(planar: PlanarMap, law: Law
+def groundside_frontage(planar: PlanarMap, law: Law,
+                        airport: Airport | None = None
                         ) -> dict[int, list[tuple[int, str, float, list[int], list[int]]]]:
     """THE §28 RELATION AS DATA — groundside face id -> ``[(pad face id, pad
     ref, contact length in metres, the face's OWN frontage vertices, the
@@ -344,12 +349,16 @@ def groundside_frontage(planar: PlanarMap, law: Law
     endpoints on the frontage — §28 (1)'s "largest shared edge", which is
     what decides SENIORITY where a face fronts two pads.
 
-    A PAD THAT FRONTS NOTHING AIRSIDE IS NOT A LEADER HERE (§28 (2)).
-    Its own level comes from the groundside face under 10l — that pad
-    FOLLOWS the face — so a row the other way would state the same pair
-    twice, in opposite directions, and the one-way lag would chase itself.
-    ``pads.pad_fronts_airside`` is the single test, read from §20's own
-    output so the two directions cannot disagree.
+    THE LEADERS ARE THE PADS WITH A SEAT (spec §62 (2) rule 2, owner
+    RULINGS 2026-10-09d (1) / 09f): a pad that fronts airside
+    (``pads.pad_fronts_airside``, §20's own output) and a LANDSIDE-ONLY
+    pad seated on its one leader face (``pad_seat.landside_seats``).  THE
+    LEADER FACE IS NOT A FOLLOWER OF ITS OWN PAD: that pair is stated once,
+    the pad following the face, and a row the other way would state it
+    twice in opposite directions and the one-way lag would chase itself —
+    §28 (2)'s worry, answered by exclusion.  Every OTHER groundside face
+    touching a seated pad follows it.  A pad with no seat (it fronts
+    nothing: its DEM datum, 09p (3)) leads nothing.
 
     A groundside face fronting no such pad is absent here and keeps every
     level it has today.
@@ -368,7 +377,9 @@ def groundside_frontage(planar: PlanarMap, law: Law
     # never per pad polygon (#412 R1 — HECA paid 550 whole-map derivations).
     polys = _pad_polys(planar, law)
     fronts = pad_fronts_airside(planar, law) if polys else set()
-    pads = [p for p in polys if p[0] in fronts]
+    from .pad_seat import seat_of_face
+    seats = seat_of_face(planar, law, airport) if polys else {}
+    pads = [p for p in polys if p[0] in fronts or p[0] in seats]
     if not pads:
         STATS["groundside_frontage_level"] = {"pairs_held_as_terrace": 0}
         return {}
@@ -391,6 +402,8 @@ def groundside_frontage(planar: PlanarMap, law: Law
         got: list[tuple[int, str, float, list[int], list[int]]] = []
         for pi in cand:
             pid, pref, pgroup, ppoly = pads[int(pi)]
+            if pid in seats and seats[pid].leader == gid:
+                continue              # the pad follows THIS face (its seat)
             front = {v for v in gvs - set(pgroup) - airside
                      if ppoly.distance(Point(*xy[v])) <= r}
             if not front:
@@ -418,11 +431,31 @@ def groundside_frontage(planar: PlanarMap, law: Law
             got.sort(key=lambda t: (-t[2], t[0]))
             out[gid] = got
     STATS["groundside_frontage_level"] = {"pairs_held_as_terrace": held}
-    per_map(HELD_PAIRS, planar)[_HELD] = held_pairs
+    memo = per_map(HELD_PAIRS, planar)
+    memo[_HELD] = held_pairs
+    memo[_FRONT] = frozenset(v for got in out.values()
+                             for _p, _r, _L, front, _g in got for v in front)
     return out
 
 
-def held_terrace_pairs(planar: PlanarMap, law: Law) -> set[tuple[int, int]]:
+def frontage_vertices(planar: PlanarMap, law: Law,
+                      airport: Airport | None = None) -> frozenset[int]:
+    """THE §28 FRONTAGE VERTICES — every groundside vertex an ARMED pair
+    makes follow a seated pad's edge level (a held terrace pair has none).
+    The relation as data for the family that must not name such a vertex's
+    level a second time (spec §62 (5) R-B, ``road_ramp.frontage_release``).
+    ONE derivation, :func:`groundside_frontage`: re-run only when this map
+    has none."""
+    got = per_map(HELD_PAIRS, planar).get(_FRONT)
+    if got is None:
+        groundside_frontage(planar, law, airport)
+        got = per_map(HELD_PAIRS, planar).get(_FRONT, frozenset())
+    return got
+
+
+def held_terrace_pairs(planar: PlanarMap, law: Law,
+                       airport: Airport | None = None
+                       ) -> set[tuple[int, int]]:
     """THE §28 (6) HILLSIDE TERRACE PAIRS — ``{(groundside face id, pad
     face id)}`` the relation DROPPED because the pair's DEM step exceeds
     ``frontage_step_max_m`` (owner RULINGS 2026-09-13o/13p: "those two
@@ -439,7 +472,7 @@ def held_terrace_pairs(planar: PlanarMap, law: Law) -> set[tuple[int, int]]:
     698.55 m.  ONE derivation: re-run only when this map has none."""
     got = per_map(HELD_PAIRS, planar).get(_HELD)
     if got is None:
-        groundside_frontage(planar, law)
+        groundside_frontage(planar, law, airport)
         got = per_map(HELD_PAIRS, planar).get(_HELD, set())
     return set(got)
 
@@ -476,7 +509,7 @@ def groundside_frontage_level(planar: PlanarMap, law: Law, airport: Airport
     the law's own weight, so where the face cannot hold both it holds the
     SENIOR and the junior row's residual IS the reported junior-edge step
     (the ``groundside_frontage`` family's line in ``DesignReport``)."""
-    rel = groundside_frontage(planar, law)
+    rel = groundside_frontage(planar, law, airport)
     if not rel:
         return []
     xy = {v: vx.xy for v, vx in planar.vertices.items()}

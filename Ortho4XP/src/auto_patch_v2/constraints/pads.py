@@ -268,10 +268,19 @@ def _pavement_geoms(planar: PlanarMap, law: Law
     """``(role, vertices, plan polygon)`` per PAVEMENT face — the same
     face set as :func:`_pavement_faces`, carrying the outline the
     PROXIMITY read measures against (owner RULINGS 2026-09-10ax (1))."""
+    return [g[:3] for g in _pavement_geom_faces(planar, law)]
+
+
+def _pavement_geom_faces(planar: PlanarMap, law: Law
+                         ) -> list[tuple[str, set[int], Polygon, int]]:
+    """:func:`_pavement_geoms` with each entry's FACE ID — the one
+    derivation of "a pavement face a pad can front", for the reader that
+    must name WHICH face (``constraints.pad_seat``: a seat has one leader
+    face, spec §62 (2))."""
     vw = view(planar, law)
     rigid = set(rigid_roles(law))
     court = courtyard_faces(planar, law)
-    out: list[tuple[str, set[int], Polygon]] = []
+    out: list[tuple[str, set[int], Polygon, int]] = []
     for f in vw.faces_of_role(tuple(r for r in pavement_roles(law) if r not in rigid)):
         # a pad never fronts its courtyard — nor a MAPPED-ROAD RIBBON (#100
         # round 8, option (c): the ribbon contributes its own stage-2 rows
@@ -292,7 +301,7 @@ def _pavement_geoms(planar: PlanarMap, law: Law
             poly = poly.buffer(0.0)
             if poly.is_empty or not isinstance(poly, Polygon):
                 continue
-        out.append((f.role, vs, poly))
+        out.append((f.role, vs, poly, f.id))
     return out
 
 
@@ -877,13 +886,21 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
     from .cluster_pad import plane_groups
     from ..model.platform import datum_vertices
     held = datum_vertices(planar, law)
+    # spec §62 (2) R-C: a LANDSIDE-ONLY pad has ONE leader — a face, the
+    # senior touching it — and its level row is its SEAT (hard); the
+    # junior rows are not minted (a second leader is a second seat)
+    from .pad_seat import SEAT_RULING, landside_seats
+    seats = landside_seats(planar, law, airport)
     for fid, ref, group, fids in plane_groups(planar, law, airport):
         if held and platform_ref_of(str(ref)) in held:
             # flat-pad spec §3 C6 (RULINGS 2026-09-30f/r): a HELD block's
             # level IS its frontage hold (``platform.frontage_hold_rows``)
             continue
         by_role: dict[str, list[tuple[int, list[tuple[int, float]]]]] = {}
-        for q in fids:
+        seat = seats.get(fid)
+        if seat is not None:
+            by_role[seat.role] = [(c, list(lw)) for c, lw in seat.pairs]
+        for q in (() if seat is not None else fids):
             for role, pairs in (lead.get(q) or {}).items():
                 by_role.setdefault(role, []).extend(pairs)
         if not by_role:
@@ -903,11 +920,13 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
             for _c, lw in pairs:
                 for j, wj in lw:
                     terms[j] = terms.get(j, 0.0) - wj / len(pairs)
+            head = (SEAT_RULING if seat is not None
+                    else LEVEL_RULING if role == top else LEVEL_JUNIOR_RULING)
             src = Source(GEN_LEVEL,
-                         (LEVEL_RULING if role == top else LEVEL_JUNIOR_RULING)
-                         + f" ({role}; owner 2026-09-10l 10k-1 = A; "
+                         head + f" ({role}; owner 2026-09-10l 10k-1 = A; "
                          "10y the plane's level from its frontage)",
-                         (f"face:{fid}", ref, f"pavement:{role}"))
+                         (f"face:{fid}", ref, f"pavement:{role}")
+                         + (() if seat is None else (f"leader:{seat.leader}",)))
             # THE ROW IS ONE-WAY IN CONSTRUCTION (owner RULINGS
             # 2026-09-10ax (1), answering 10at): the followers are the
             # PAD'S OWN PLANE — its non-shared vertices.  A vertex the pad

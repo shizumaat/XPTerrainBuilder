@@ -512,7 +512,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # its solved plane and the rim relief the collar carries; the
             # refused ones by reason — LAW INPUT for the census's
             # ``platform_rim_relief`` / ``platform_refused``
-            "platforms": _platforms(planar, law, z),
+            "platforms": _platforms(planar, law, z, airport),
             "landings": _landings(planar, z),
             # issue #14 (``welded-deck-spec.md`` §3, additive): the welded
             # decks the load read, their pier ratios, and the shade area
@@ -667,13 +667,18 @@ def _hard_conflict() -> list[dict[str, _t.Any]]:
     return [dict(r) for r in HARD_CONFLICT]
 
 
-def _platforms(planar: PlanarMap, law: Law, z) -> list[dict[str, _t.Any]]:
+def _platforms(planar: PlanarMap, law: Law, z, airport=None
+               ) -> list[dict[str, _t.Any]]:
     """The ``platforms`` sidecar key: the minted platforms' solved records
-    (``constraints.platform.platform_records``) plus every REFUSED one the
-    arrangement named (``planar.platform.PLATFORMS``)."""
+    (``constraints.platform.platform_records``), every REFUSED one the
+    arrangement named (``planar.platform.PLATFORMS``), and the seat of
+    every landside-only pad (spec §62 (2) rule 4,
+    ``constraints.pad_seat.seat_records``)."""
+    from ..constraints.pad_seat import seat_records
     from ..constraints.platform import platform_records
     from ..planar.platform import PLATFORMS
     out = platform_records(planar, law, z)
+    out.extend(seat_records(planar, law, airport, z))
     out.extend({"ref": p.ref, "refused": p.refused, "pad_m2": p.pad_m2}
                for p in PLATFORMS if p.refused)
     return out

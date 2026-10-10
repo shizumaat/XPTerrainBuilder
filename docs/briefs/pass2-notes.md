@@ -195,8 +195,10 @@ are bending). `(AᵀA + eps I) x = Aᵀ b` is the minimiser of `‖A x − b‖�
 z = 0 with stiffness 1.1e-4. The QP accepts a step on the TRUE objective, so it stops where the biased step no longer
 descends: the gradient it stops at is the spring's own, `2 · eps · ‖z‖` = 2 × 1.14e-4 × 220 m × √12,231 columns = **5.55**
 — the `|g|` 5.5 every pass-1b QP exits with (§61 (2)'s "linear solve's floor, |g| 4.6" is the same number). A weak
-(1.0-priced, relational) block costs less to move than the spring pays, so it lands by the path. The pull scales with
-the airport's ELEVATION: OTHH (4 m) reads 0/0/0.000 in every pass and every arm, KCLT (220 m) and HECA (60–140 m) do not.
+(1.0-priced, relational) block costs less to move than the spring pays, so it lands by the path. The pull is
+`eps · z`: proportional to the airport's ELEVATION and to the stiffest column. Consistent with it (not a proof): OTHH (4 m)
+reads 0/0/0.000 in every pass and every arm, KCLT (220 m) and HECA (60–140 m) do not; KASE (2,380 m) read 0/0/0.001 on
+valley2's sweep, so the map must also HAVE weak blocks for the spring to show.
 
 | arm (KCLT pass-1b pair, this tree) | final QP objective (arm) | \|g\| at exit | pass 1a | pass 1b |
 |---|---|---|---|---|

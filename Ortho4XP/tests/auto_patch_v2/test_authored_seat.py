@@ -307,3 +307,54 @@ def test_a_family_whose_lift_is_not_its_depth_stays_lifted(pits, law):
     pm, o = _family_map(pits, law, 12.0)
     assert not pm.basins
     assert not any(x.ground_seated or x.family for x in o.values())
+
+
+# ── §18 (3) (b) ON THE DSF: a kept seat keeps its ROW ───────────────────
+
+def _row(path, kind="OBJECT_AGL", elevation=0.0, lat=25.0, lon=51.0):
+    return types.SimpleNamespace(def_path=path, lat=lat, lon=lon, heading_deg=0.0,
+                                 kind=kind, elevation=elevation)
+
+
+def _rows_of(seats):
+    """``placement_write.dump_rows`` over a seven-row dump: a kept wall
+    (row 0), a kept pit and its anchor-family member (1, 2), a RE-SEATED
+    wall (3), one resource at two anchors — both kept walls (4, 5) — and a
+    row no record names (6)."""
+    from auto_patch_v2.airport import placement_write as PW
+    dump = types.SimpleNamespace(placements=[
+        _row("objects/wall.obj", elevation=-5.5),
+        _row("objects/pit_a.obj", elevation=4.3), _row("objects/pit_b.obj", elevation=4.3),
+        _row("objects/low.obj", elevation=1.0),
+        _row("objects/twin.obj", elevation=-5.0, lat=25.001),
+        _row("objects/twin.obj", elevation=-5.0, lat=25.002),
+        _row("objects/free.obj", elevation=2.0)])
+    plan = types.SimpleNamespace(units=(), contacts=(), flat=None, authored_seats=seats)
+    ss = types.SimpleNamespace(unit_seats=())
+    conv, msl, riders, counts = PW.dump_rows(dump, plan, ss, (), lambda la, lo: 10.0, "",
+                                             tol_m=0.02)
+    return {c.index for c in conv}, {m.index for m in msl}, riders, counts
+
+
+def test_a_kept_seat_keeps_its_dsf_row():
+    """The author's elevation column IS his seat (RULINGS 2026-10-07b (1)):
+    a row whose placement is ``authored (cut)`` — the record's id AND its
+    ``members`` — is neither converted to on-ground nor seated by §16g (5).
+    Measured at the airport that showed it: five pits sunk 4.31 m and one
+    13.64 m under their rims, a wall 7.63 m over grade for an authored
+    2.13, because every ``OBJECT_AGL`` row converted."""
+    seats = [{"id": "dsf:obj0", "seat": AS.SEAT_AUTHORED, "datum": "crest"},
+             {"id": "dsf:obj1", "seat": AS.SEAT_AUTHORED, "datum": "rim",
+              "members": ["dsf:obj1", "dsf:obj2"]},
+             {"id": "dsf:obj3", "seat": AS.SEAT_RESEATED, "datum": "crest"},
+             {"id": "dsf:obj4", "seat": AS.SEAT_AUTHORED, "datum": "crest"},
+             {"id": "dsf:obj5", "seat": AS.SEAT_AUTHORED, "datum": "crest"}]
+    assert AS.kept_rows(seats) == {0, 1, 2, 4, 5}
+    assert AS.kept_rows([{"id": "unit:3", "seat": AS.SEAT_AUTHORED}]) == frozenset()
+    conv, msl, riders, counts = _rows_of(seats)
+    assert not (conv | msl) & {0, 1, 2, 4, 5}
+    assert {3, 6} <= conv | msl and not riders
+    assert counts["authored_rows_kept"] == 5
+    # THE CONTROL: with no record every one of those rows is touched
+    conv0, msl0, _r, counts0 = _rows_of(())
+    assert conv0 | msl0 == set(range(7)) and counts0["authored_rows_kept"] == 0

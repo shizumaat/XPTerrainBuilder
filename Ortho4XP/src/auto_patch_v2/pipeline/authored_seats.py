@@ -66,17 +66,9 @@ def seat_records(pm: _t.Any, law: _t.Any) -> dict[str, dict[str, _t.Any]]:
 
 def kept_ids(records: _t.Mapping[str, _t.Mapping[str, _t.Any]]) -> set[str]:
     """The placements whose authored seat is KEPT: never plate-seated,
-    never re-seated by any other rule — a kept wall, and a kept pit with
-    every member of its basin AND of their anchor families (``Basin.
-    member_ids`` carries both: the placements whose floors ARE the pit and
-    the ones the author lifted with them at the same anchor — one shell of
-    two is not moved against the other)."""
-    out: set[str] = set()
-    for oid, r in records.items():
-        if r.get("seat") == _seat.SEAT_AUTHORED:
-            out.add(oid)
-            out.update(r.get("members") or ())
-    return out
+    never re-seated by any other rule (``airport/authored_seat.kept_ids``
+    over the records — the one reading the DSF writer shares)."""
+    return _seat.kept_ids(records.values())
 
 
 def seat_lines(records: _t.Iterable[_t.Mapping[str, _t.Any]], pad: str = "  ") -> list[str]:

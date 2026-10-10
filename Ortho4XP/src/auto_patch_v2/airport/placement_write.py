@@ -56,6 +56,7 @@ import typing as _t
 
 from ..model.placement import (CUT_MARK, PLAN_FILENAME, PlacementPlan,
                                Provenance)
+from . import authored_seat as _seat
 from . import backup_state as _bs
 from . import dsf_write as _dw
 from . import footprint_unit as _fu
@@ -175,43 +176,11 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           deck_edge_m=deck_edge_m, deck_under_m=deck_under_m,
                           seat_tilt_max_deg=seat_tilt_max_deg)
     splits, kept = _pp.to_placement_records(ss)
-    conversions, _kept_conv = _dw.conversions_for_dump(dump, pack_root)
-    split_idx = frozenset(s.placement.index for s in splits)
-    conversions = tuple(c for c in conversions if c.index not in split_idx)
-    # §16g (5) PER-PLACEMENT ELEVATION (owner RULINGS 2026-09-13bw; the
-    # owner's own 2026-09-11a/b words).  A MULTI-ANCHOR resource — one
-    # file at N anchors needing N seats — is dropped from the plan, keeps
-    # its authored row and renders wherever the terrain went; KCLT's
-    # passengers and seats are 205 of them.  It is seated HERE, on the
-    # row, because this is the one place the DUMP and the plan are seen
-    # together.
-    _flat = getattr(rebake_plan, "flat", None)
-    _msl_counts: dict[str, int] = {}
-    msl = _fu.msl_seats_for_dump(dump, rebake_plan, ss.unit_seats, surface,
-                                 pack_root, split_idx,
-                                 tol_m=hard_tol_m,
-                                 authored_ground=(None if _flat is None
-                                                  else _flat.z0_m),
-                                 counts=_msl_counts)
-    # a row seated by §16g (5) is NOT also converted to on-ground: the
-    # whole point is that it keeps an elevation column
-    _conv0 = conversions
-    _mi = frozenset(m.index for m in msl)
-    conversions = tuple(c for c in conversions if c.index not in _mi)
-    riders, msl, conversions = seat_riders(
-        dump, jetway_strips, pads, surface, split_idx, msl, _conv0,
-        conversions, tol_m=hard_tol_m,
-        authored_ground=(None if _flat is None else _flat.z0_m),
-        gate_m=jetway_strip_m)
-    from . import riders as _riders
-    counts_extra = {"msl_seats": len(msl)}
-    counts_extra.update(_msl_counts)
-    counts_extra.update(_riders.rider_census(riders))
-    counts_extra.update(_fu.multi_anchor_census(dump, rebake_plan, msl,
-                                                split_idx, ss.unit_seats))
+    conversions, msl, riders, counts_extra = dump_rows(
+        dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,
+        pads=pads, jetway_strips=jetway_strips, gate_m=jetway_strip_m)
     files = tuple(f for s in ss.splits for f in s.files)
     counts = dict(ss.counts)
-    counts["conversions"] = len(conversions)
     counts.update(counts_extra)
     plan = PlacementPlan(
         icao=icao, pack_name=pack_name, pack_root=pack_root, dsf_path=dsf_path,
@@ -221,6 +190,58 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         riders=tuple(riders),
         jetway_strips=tuple(dict(j) for j in (jetway_strips or ())))
     return plan, files, ss
+
+
+def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence,
+              surface: _t.Callable, pack_root: str, *, tol_m: float,
+              pads: _t.Sequence = (), jetway_strips: _t.Sequence = (),
+              gate_m: float | None = None) -> tuple[tuple, tuple, tuple, dict]:
+    """THE ROW HALF of the plan — ``(conversions, msl seats, riders,
+    counts)``: what becomes of every DSF row the SPLIT did not replace.
+    ONE implementation, two callers (:func:`build_plan` and
+    ``tools/obj8_split_report.py``).
+
+    A row is SETTLED, and none of the three below touches it, when its
+    placement is split (its rows are replaced outright — ``dsf_write.
+    edit_dump`` refuses the overlap) or when its AUTHORED SEAT IS KEPT
+    (spec §18 (3) (b); owner RULINGS 2026-10-07b (1): "the expectation is
+    that they all are at the correct elevation without any changes") —
+    that row's elevation column IS the author's seat and stays as written.
+
+    * every other ``OBJECT_MSL`` / ``OBJECT_AGL`` row converts to
+      on-ground (``dsf_write.conversions_for_dump``);
+    * §16g (5) PER-PLACEMENT ELEVATION (owner RULINGS 2026-09-13bw): a
+      MULTI-ANCHOR resource — one file at N anchors needing N seats — is
+      dropped from the plan and seated HERE, on the row, the one place the
+      dump and the plan are seen together; a row so seated keeps an
+      elevation column and is not also converted;
+    * the riders (:func:`seat_riders`)."""
+    conversions, _kept = _dw.conversions_for_dump(dump, pack_root)
+    kept_idx = _seat.kept_rows(getattr(rebake_plan, "authored_seats", ()) or ())
+    settled = frozenset(s.placement.index for s in splits) | kept_idx
+    authored_rows = sum(1 for c in conversions if c.index in kept_idx)
+    conversions = tuple(c for c in conversions if c.index not in settled)
+    flat = getattr(rebake_plan, "flat", None)
+    ground = None if flat is None else flat.z0_m
+    msl_counts: dict[str, int] = {}
+    msl = _fu.msl_seats_for_dump(dump, rebake_plan, ss.unit_seats, surface,
+                                 pack_root, settled, tol_m=tol_m,
+                                 authored_ground=ground, counts=msl_counts)
+    conv0 = conversions
+    seated = frozenset(m.index for m in msl)
+    conversions = tuple(c for c in conversions if c.index not in seated)
+    riders, msl, conversions = seat_riders(
+        dump, jetway_strips, pads, surface, settled, msl, conv0, conversions,
+        tol_m=tol_m, authored_ground=ground, gate_m=gate_m)
+    from . import riders as _riders
+    counts: dict[str, int] = {"conversions": len(conversions),
+                              "authored_rows_kept": authored_rows,
+                              "msl_seats": len(msl)}
+    counts.update(msl_counts)
+    counts.update(_riders.rider_census(riders))
+    counts.update(_fu.multi_anchor_census(dump, rebake_plan, msl, settled,
+                                          ss.unit_seats))
+    return conversions, msl, tuple(riders), counts
 
 
 def seat_riders(dump: _t.Any, jetway_strips: _t.Sequence, pads: _t.Sequence,

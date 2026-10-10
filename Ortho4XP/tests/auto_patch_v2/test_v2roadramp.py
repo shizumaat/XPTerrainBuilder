@@ -260,13 +260,19 @@ def test_a_run_that_needs_more_than_the_cap_is_built_at_the_cap(law):
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "FINDING (lane roadramp3, for the master): on `_Shelf` the two road "
-    "vertices 20 m from the mouth are published at 710.667, 0.067 m over "
-    "this bound's 0.6 m (descend's own label there is 710.0, the cap "
-    "descent; the route lift of §37 (8) publishes 710.667).  main's ramp "
-    "on the same fixture publishes the same 12 targets, so the control "
-    "holds against main and it is this hand-written bound that does not; "
-    "the assertion is kept as written."))
+    "FINDING (lane roadramp3; ATTRIBUTED lane cloudtidy, a DEFECT, left "
+    "for the master): the two road vertices 20 m from the mouth publish "
+    "710.667 where descend's label is 710.0.  The §37 (8) lift `_lift` "
+    "measures the cap along the ROUTE FRAME's stations, and the route here "
+    "is the first road face's own axis (`road_profile.face_axis`), whose "
+    "chords sit at (k + 0.5) L / n — it stops L / 2n short of each face "
+    "end (20 m face, n = 3: axis -16.67 .. -3.33).  The mouth (y = -20) "
+    "and the vertices at y = 0 clamp to stations 0 and 13.33, so the lift "
+    "allows cap x 13.33 = 1.333 m of drop over 20 m of road: an effective "
+    "cap of 6.67 % on that face.  Intervention: `_lift` replaced by the "
+    "identity -> 710.0 and every target inside this bound.  main's ramp "
+    "of old publishes the same (pre-existing); the assertion is the law's "
+    "(the cap over the road's true run) and is kept as written."))
 def test_the_design_grade_at_the_cap_is_the_ramp_of_old(law):
     """THE CONTROL: with the design grade set to the cap the envelope is
     the single cap-descent it was before RULINGS 2026-10-09c (2b).  Run on

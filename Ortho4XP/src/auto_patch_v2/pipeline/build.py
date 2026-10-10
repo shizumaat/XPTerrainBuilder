@@ -339,6 +339,20 @@ def _classified_land(classification):
     return None if land.is_empty else land
 
 
+#: the taxi-family row counters (§8.6 trend, §61 cross-section and
+#: membrane): their rows live in the stage that owns their vertices — the
+#: base's stage 1 — so behind a last stage (§55 (4)) the sidecar's top
+#: block is the sum over stages, never the last stage's own 0
+_BASE_STAGE_ROWS = ("taxi_trend_rows", "taxi_xsec_rows", "free_membrane_rows")
+
+
+def _fold_base_rows(rep, base) -> None:
+    """Add the base solve's :data:`_BASE_STAGE_ROWS` into the last
+    stage's report ``rep`` (in place)."""
+    for k in _BASE_STAGE_ROWS:
+        setattr(rep, k, getattr(rep, k) + getattr(base, k))
+
+
 def _say(msg: str, out: _t.Callable[[str], None]) -> None:
     out(msg)
 
@@ -1166,10 +1180,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _prefix_stage["stage"], pm=pm)
         strips, design_rep = _late["strips"], _late["design"]
         design_rep.stages["base"] = dict(_base_rep.stages)
-        # §61: the taxiway-edge rows live in the stage that owns their
-        # vertices (the base's stage 1); the top block is the true sum
-        design_rep.taxi_xsec_rows += _base_rep.taxi_xsec_rows
-        design_rep.free_membrane_rows += _base_rep.free_membrane_rows
+        _fold_base_rows(design_rep, _base_rep)
         _pin_yield = [*_late["pin_yield"], *(design_rep.pin_yield or ())]
         wall["late_stage"] = time.perf_counter() - t
         _late_report = {"cut": _late["cut"], "followers": _late["followers"],

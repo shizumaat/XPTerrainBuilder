@@ -32,3 +32,41 @@ Scratch: `/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/0ec4326d-10bf-475
   the body's zero" / "low-side foot, terrain spread 5.37 m" (lane kclt546's case).
 * What holds building88 at 223.21: --why-at pending (replay `base/` done, why running); the §16g (2) rule
   explains the OBJECT side (one zero per unit = the pad most contacts stand on = building88).
+
+## Step 1 (cont.) — WHAT HOLDS building88 AT 223.21 (`--why-from base/KCLT.solved.pkl --why-at 35.2242287,-80.9428688`)
+v17133 z 223.21, DEM 218.05 (+5.16): binding rows = its own `pads` flat rows only (cap 0 x 119.6 m -> v17122);
+"chain trace: no terminal reached — THE OBJECTIVE holds it". I.e. no hard row: building88 is a face of the
+TERMINAL's §30 (4) plane group (`constraints/cluster_pad.plane_groups`: "the faces of ONE TERMINAL CLUSTER are ONE
+entry", cluster = `airport.placement_family.plan_clusters` of the pack partition = anchor family unit:31), priced as
+ONE plane with building75 / 84 / 92, whose level fit is their airside frontage (pav14 plateau 222.44–223.67); a
+fronting group carries no §9b DEM datum (`pads.pad_datum_withdrawn`), so building88's own ground (218.0–219.3) never
+enters. building90 (--why-at 35.2256079,-80.9459114): v17199 z 218.99, DEM 222.06 at that rim vertex, "FREE, above
+its DEM, held by bending alone" = its own §9b DEM datum (its rim DEM 218.07–222.06, mean ~219).
+
+## Step 2 — THE WITNESS POPULATION (p6 / p8 / p8b / p10; seven airports)
+* W1 "one anchor family + equal authored base": TRUE of EVERY big pack: KCLT unit:3 (8 `Charlotte_Airport_00N_ALB`
+  files, one anchor, 239 walled bodies at y 0.00, 66 pads over 22.5 m of relief), HECA unit:41 (72 pads, 45 m),
+  OTHH unit:80 (25 pads). FALSE POSITIVE as a level witness — the engine's standing law (§16c/§16g) re-cuts such
+  families per body on relief and the owner accepted it (HECA, 10c).
+* W2/W3 "one family at the modal base, chained in plan at gap <= D, pads fronting no airside and with no fixed level":
+  KCLT fires at D = 10 m on exactly {building86, building88, building90} (spread 5.10 m, DEM relief 4.07, hull 4.9 ha,
+  0 held pads in the chain) and on nothing else over 0.5 m at KCLT except hangar rows already within 0.8–0.9 m
+  (unit:3 b36/37/40, b78/80) and the FuelFarm tanks (unit:58, 6 pads within 0.33 m). HECA: unit:41 fires on 10–20
+  chains per D with spreads 0.7–7.4 m over relief 1–8 m (rows of small landside buildings on Cairo's slopes) —
+  the owner has NOT asked for those to be one level; a plan-distance witness over-fires at HECA. OTHH: flat site,
+  every group within 0.6 m (inert). SPJC / KASE / CYXY / NLWF: none.
+* W4 THE ENGINE'S OWN WITNESS — the §16g FOOTPRINT UNIT (placement plan `unit_of`, `ground_off` per body):
+  KCLT 41 units with >= 2 bodies; 14 with a body > 0.5 m off its own ground, ONE > 2 m: `fu:31:2809@cluster_pad`
+  (14 bodies, 10 over 2 m, worst 5.13 m, zero = building88 at 223.21) = THE GARAGE GROUP. HECA 129 / 21 (> 2 m:
+  the T3 district fu:40:120 216 bodies worst 10.5 incl. viaduct landings; fu:42:1233 27 bodies 4.53; fu:42:944@ground
+  24 bodies 4.04 ...), OTHH 42 / 18 (viaducts, pits), KASE 22 / 17 (two-body @ground pairs on the mountainside,
+  3–11 m), SPJC 1 / 0.
+  So the DESIGN surface and the OBJECT stage already disagree about the group: the object stage seats all 14
+  bodies of fu:31:2809 at ONE zero (building88's 223.21, §16g (2)), the design surface gives them three pads at
+  223.21 / 218.99 / 218.11 and raw DEM between. The object unit chains building88's deck to building90 / 86 (plan
+  touch 0.5 m through the connecting bodies); the design cluster (`plan_clusters` of the pack partition) chains
+  building88 to the TERMINAL instead. Two derivations of "the group" (the census-wrapper defect in geometry).
+* Base edge read of the group (p11): building88 rim z-DEM +3.89..+5.22 (28/28 over 1 m); building90 -3.07..+1.12
+  (17/52); building86 -0.28..+0.35; the ground BETWEEN the three (hull minus pads, 2.42 ha) DEM 218.03 / 218.23 /
+  219.22 — flat, at the garages' own ground. Base floats in the window (seat_feet_census --graded, 112 measured
+  bodies): 23 over 0.5 m, 3 over 1 m, 1 over 3 m, worst 5.07 m (`paredes_12 b1` at 35.224214,-80.943764).

@@ -1,0 +1,5 @@
+[HECA] pads near: ['unit:43#6330/0']; road faces near: 2; D=10.0
+  service_road   route1                 area      196 verts   11 within-10m  0.00 touches False -> PASSES
+  service_road   route1                 area      292 verts    8 within-10m  0.00 touches False -> PASSES
+  VERDICTS {'PASSES': 2}; absorbed faces 0 / verts 0 / 0 m2
+  pad unit:43#6330/0: verts 472 -> 464 with roads absorbed; area 172247 -> 173270; pieces 1

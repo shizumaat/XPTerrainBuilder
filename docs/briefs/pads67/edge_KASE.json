@@ -1,0 +1,157 @@
+{
+ "icao": "KASE",
+ "off_m": 1.0,
+ "within_m": 10.0,
+ "standoff_m": 3.0,
+ "dem": true,
+ "runs": [
+  {
+   "cls": "B",
+   "pad": "building2",
+   "vertices": 11,
+   "length_m": 366.4,
+   "site": [
+    39.22063895758,
+    -106.87031886452
+   ],
+   "rim_z": [
+    2363.14,
+    2363.14
+   ],
+   "height_m": 8.68,
+   "ground_off_m": 8.68,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "B",
+   "pad": "building1",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    39.21908956504,
+    -106.86380530291
+   ],
+   "rim_z": [
+    2367.93,
+    2367.93
+   ],
+   "height_m": 1.18,
+   "ground_off_m": 1.18,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav7#plateau:building1",
+     "kind": "pavement",
+     "dist_m": 6.12,
+     "step_m": 0.02,
+     "off_m": 0.02,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building1",
+   "vertices": 2,
+   "length_m": 1.6,
+   "site": [
+    39.22009843789,
+    -106.86483003722
+   ],
+   "rim_z": [
+    2367.93,
+    2367.93
+   ],
+   "height_m": 1.15,
+   "ground_off_m": -1.15,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav7#plateau:building1",
+     "kind": "pavement",
+     "dist_m": 3.63,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": false,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "M",
+   "pad": "building1",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    39.2190760571,
+    -106.86387478165
+   ],
+   "rim_z": [
+    2367.93,
+    2367.93
+   ],
+   "height_m": 1.13,
+   "ground_off_m": 1.13,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav7#plateau:building1",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  },
+  {
+   "cls": "B",
+   "pad": "building1",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    39.21939582183,
+    -106.86390949665
+   ],
+   "rim_z": [
+    2367.93,
+    2367.93
+   ],
+   "height_m": 1.08,
+   "ground_off_m": 1.08,
+   "pavement_off_m": 0.0,
+   "cells": []
+  },
+  {
+   "cls": "M",
+   "pad": "building1",
+   "vertices": 1,
+   "length_m": 0,
+   "site": [
+    39.22010294331,
+    -106.86487635609
+   ],
+   "rim_z": [
+    2367.93,
+    2367.93
+   ],
+   "height_m": 1.05,
+   "ground_off_m": -1.05,
+   "pavement_off_m": 0.0,
+   "cells": [
+    {
+     "cell": "apron:pav7#plateau:building1",
+     "kind": "pavement",
+     "dist_m": 0.0,
+     "step_m": 0.0,
+     "off_m": 0.0,
+     "touching": true,
+     "grade_pct": 0.0
+    }
+   ]
+  }
+ ]
+}

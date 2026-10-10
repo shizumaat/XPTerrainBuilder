@@ -43,7 +43,8 @@ import numpy as np
 from ..law import Law
 from ..law.tables import design as design_law, role_cap, role_side
 from ..model.jetway import StripSet
-from ..model.planar import PlanarMap, facade_strip_host, is_facade_strip_ref
+from ..model.planar import (PlanarMap, facade_strip_host,
+                            is_facade_strip_ref, pad_base_ref)
 
 __all__ = ["StripReport", "project_strips", "project_facade_strips"]
 
@@ -382,10 +383,11 @@ def project_facade_strips(planar: PlanarMap, law: Law,
     A PROJECTION AFTER THE WHOLE SOLVE, on the final ``z``: every vertex of
     a ``facstrip:<pad>:<k>`` face takes the host pad's value AT THE NEAREST
     POINT OF ITS EDGE (interpolated along that rim edge).  A flat pad gives
-    one level; a pad with a ``#collar`` gives its RIM's level there, so the
-    stand-off between pad and strip is level across (MEASURED in the tile
-    mesh, SPJC ``building62``: the platform's level put the strip 1.63 m
-    under the collar rim it stands beside).  The strip mints no row and
+    one level; a pad whose rim is not on one level (a released weld, a
+    bank face under its ref) gives its RIM's level there, so the stand-off
+    between pad and strip is level across (MEASURED in the tile mesh, SPJC
+    ``building62``: a level read off the pad's interior put the strip
+    1.63 m under the rim it stands beside).  The strip mints no row and
     the pad is read, never written, so no pad and no airside vertex can
     move BY CONSTRUCTION — the in-solve forms were measured and failed
     (spec §52 (6)).
@@ -416,7 +418,7 @@ def project_facade_strips(planar: PlanarMap, law: Law,
         if role_side(law, f.role) == "airside":
             airside.update(vs)
         if bool(getattr(law.tables.precedence.roles.get(f.role), "rigid", False)):
-            acc = pad_edges.setdefault(str(f.ref).split("#")[0], set())
+            acc = pad_edges.setdefault(pad_base_ref(f.ref), set())
             for ring in rings:
                 acc.update((min(a, b), max(a, b))
                            for a, b in zip(ring, tuple(ring[1:]) + tuple(ring[:1]))

@@ -1,0 +1,7 @@
+== CYXY  frontage_step_max_m 2.4  pad_frontage_m 3.0  pairs 4
+              pav4 (parking_lot         ) <- building13     STEP    4.238 TERRACE  [rim    1.806  area    2.307]  front  18 med 698.358 | airside  14 med 694.120 | rim  31 med 696.552
+        dsf:pol129 (groundside_pavement ) <- building14     STEP    4.189 TERRACE  [rim    2.642  area    2.282]  front   8 med 699.533 | airside   8 med 695.343 | rim  18 med 696.891
+             pav29 (service_road        ) <- building1      STEP   -0.018 armed    [rim    0.027  area    0.018]  front   1 med 705.083 | airside   5 med 705.101 | rim  18 med 705.056
+           pav29#2 (service_road        ) <- building1      STEP    0.017 armed    [rim    0.062  area    0.053]  front   4 med 705.118 | airside   5 med 705.101 | rim  18 med 705.056
+  pairs_held_as_terrace 2
+WROTE /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/0ec4326d-10bf-4753-bd1b-ca41fda6bcd1/scratchpad/pads67/pairs_CYXY.json

@@ -115,7 +115,7 @@ def test_the_ceiling_rows_carry_rel_zero_while_the_flat_target_carries_it(
     family) at 1.3037 m; without it, 0.
 
     THE PLATE LAW, ON THE PLATE (owner RULINGS 2026-09-29n (1), issue
-    #91): the fixture runs with ``[building_pad] platform_collar`` off, so
+    #91): the fixture runs with ``[building_pad] frontage_hold`` off, so
     the pad is the one-face plate this law is about; on a PLATFORM the
     target carries no relief at all (29d (3) supersedes it there — the
     twin below)."""
@@ -142,14 +142,19 @@ def test_the_ceiling_rows_carry_rel_zero_while_the_flat_target_carries_it(
 
 def test_on_a_platform_neither_the_ceiling_nor_the_flat_target_carries_relief(
         law, monkeypatch):
-    """The PLATFORM case (owner RULINGS 2026-09-29n (1); 29d (3), b1665267):
-    a platform is ONE plane — its hard ``platform plane`` rows carry no
-    relief, so neither does the plate over it (measured HECA T3: the two
+    """The HELD UNIT PAD case (owner RULINGS 2026-09-29n (1); 29d (3),
+    b1665267; spec §56 (3): the pad face itself, no collar): a unit pad
+    flat at its datum is ONE plane — its hard ``platform plane`` rows carry
+    no relief, so neither does the plate over it (measured HECA T3: the two
     contested the plane, 0.56 m residual).  The same authored body that
-    puts 2.20 m on the plate's target above puts 0 on a platform's."""
-    from auto_patch_v2.model.planar import COLLAR_SUFFIX
+    puts 2.20 m on the plate's target above puts 0 on a held unit pad's."""
+    from auto_patch_v2.constraints.platform import flat_held_refs
+    from auto_patch_v2.model.planar import is_bank_ref
     pm, airport = _pm(law, _cells())
-    assert {f.ref for f in pm.faces.values()} >= {"padA", "padA" + COLLAR_SUFFIX}
+    assert flat_held_refs(pm, law) == frozenset()       # this law holds nothing
+    monkeypatch.setattr("auto_patch_v2.constraints.platform.flat_held_refs",
+                        lambda _p, _l: frozenset({"padA"}))
+    assert not [f.ref for f in pm.faces.values() if is_bank_ref(f.ref)]
     vs = _pad_vertices(pm)
     assert len(vs) >= 4
     off = {v: (-2.20 if i % 2 else 0.0) for i, v in enumerate(vs)}
@@ -159,12 +164,8 @@ def test_on_a_platform_neither_the_ceiling_nor_the_flat_target_carries_relief(
     flat = pad_flats(pm, law, airport)
     assert ceil
     assert {round(float(r.rel), 9) for r in ceil} == {0.0}
-    # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): a WELDED platform's cap-0
-    # target is released (its plane is contact-led) — the plate over it
-    # prices no pair at all, so certainly no relief
-    plat_vs = set(vs)
-    assert not [r for r in flat if {r.a, r.b} <= plat_vs]
-    assert {round(float(r.rel), 9) for r in flat} <= {0.0}
+    # the cap-0 plate over a held unit pad carries no relief either
+    assert flat and {round(float(r.rel), 9) for r in flat} == {0.0}
 
 
 def test_the_ceilings_ruling_head_still_names_the_hard_register(law):

@@ -1,40 +1,31 @@
-"""THE PLATFORM COLLAR — a §31 (7) bank from the welded rim to the platform
-(unit-platform spec §1 (3), §3 P3; owner RULINGS 2026-09-28a (1); issues
-#66 / #4 / #10).
+"""THE UNIT PAD'S ROWS — the flat held plane, the frontage hold, and the
+1:3 BANKS inside a footprint (flat-pad spec §1-§4; spec §56 (3); owner
+RULINGS 2026-09-30f/r, 2026-10-02ah, 2026-10-07c (6); issue #452).
 
-A platform pad is two faces (``planar/platform.py``): the PLATFORM, which
-the pad's plate prices (one plane, 1 %, levelled by its frontage fit —
-``constraints.pads``), and the COLLAR (``<ref>#collar``), the annulus
-between the pad rim and the platform.  This is the ONLY new row family:
-every OUTER collar vertex (the pad rim, welded to the apron or not) takes
-one ``Diff`` at ``emit.design.bank_slope`` (the 1:3 bank — a slope, never
-a cliff) against each of its ``_K`` nearest PLATFORM vertices, and every
-platform vertex against its nearest outer one, so the ground under the
-building falls from the rim to the platform at most 1:3 in every
-direction the triangulation can join them.
+A unit pad is ONE face (``planar/platform.py``).  HELD, it is FLAT at its
+datum column (``model.platform.datum_vertices``): every OWN vertex equal to
+the datum, hard (:func:`platform_plane_rows`), and every WELDED contact —
+a vertex of the pad's face an airside face also carries — held to it
+(:func:`frontage_hold_rows`, ``no_step.hold_interval``), so stage 1 solves
+the airside WITH the flat frontage and the apron comes to the pad.  There
+is NO COLLAR (spec §56 (3)): the relief a collar was minted to carry is
+taken out of the rim by the hold, and a weld the elastic LP releases is a
+step at the pad's rim, read after the solve (:func:`platform_records`)
+and warned (``pad_warning``).
 
-ONE-WAY, THE RIM LEADS (spec §1 (3); head in ``[design] one_way_rulings``):
-where the outer vertex is AIRSIDE (a vertex of a runway / taxi / apron
-face — ``pads.airside_vertices``) the platform vertex FOLLOWS — airside is
-king and the collar never pulls it (its value is stage 1's anyway, §20b).
-
-THE TOE IS PLACED BY THE SOLVE (owner RULINGS 2026-10-02v (5), issue #86).
-The collar is minted at the CAP width (``planar.platform``), so the bank
-always has the law's widest run to fall over, and NO row fixes the toe:
-where the outer vertex is the pad's OWN rim (groundside, or bare ground)
-the row is the 1:3 bank, BOTH SIGNS, ONE-WAY with the PLATFORM LEADING —
-the same ``Diff(o, i, bank, d, follows=(o,))`` the coverage edge takes
-since issue #223.  Within that bank the rim follows the ground objective,
-so a flat site reads exactly as the cap-0 equality read before (the rim
-sits on the platform because the ground does) while a site with relief
-lets the solve put the toe where the relief allows, in ONE pass.  It is
-still priced at the plate's own weight (``pad_flat_rulings``).
-
-Priced as the groundside terrace law prices a bank (``groundside_ramp_max``
-'s pattern): a one-sided design penalty at the law's weight, never a hard
-row.  A collar carrying more relief than C x ``bank_slope`` shows as that
-miss in its family's residual and as a ``cliff`` in the census, never as
-an infeasible hard set."""
+TWO BANKS REMAIN, both one derivation (:func:`_bank_rows`): the STRIP
+between two flat blocks of one cut unit (``<unit>/b<k>#strip``,
+:func:`block_strip_rows` — the declared pad|pad terrace) and the bank
+around a viaduct ramp LANDING (``<unit>/landing<k>#collar``,
+:func:`platform_collar_rows`, #290).  Every OUTER bank vertex takes one
+``Diff`` at ``emit.design.bank_slope`` (the 1:3 bank — a slope, never a
+cliff) against each of its ``_K`` nearest flat vertices, and every flat
+vertex against its nearest outer one.  ONE-WAY where the outer vertex is
+AIRSIDE (the flat vertex follows — airside is king); on the bank's OWN rim
+the row is the 1:3 bank, both signs, one-way with the FLAT side leading
+(RULINGS 2026-10-02v (5)), so the solve places the toe.  Priced as the
+groundside terrace law prices a bank: a one-sided design penalty at the
+law's weight, never a hard row."""
 from __future__ import annotations
 
 import math
@@ -43,15 +34,18 @@ import typing as _t
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
-from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of, unit_ref_of
-from ..model.platform import HELD, datum_vertices
+from ..model.planar import (PlanarMap, is_bank_ref, is_collar_ref, is_strip_ref,
+                            pad_base_ref, platform_ref_of, unit_ref_of)
+from ..model.platform import HELD, HOLD_DATUM_RULING, HOLD_RULING, datum_vertices
+from .pad_warning import stamp_warning
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
            "landing_rows", "landing_vertices",
            "TERRACE_RULING", "HOLD_RULING", "HOLD_DATUM_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
            "HOLD_RESIDUAL_RULING", "hold_sets", "hold_row",
-           "PLANE_RULING", "GEN", "collar_faces", "platform_records"]
+           "PLANE_RULING", "GEN", "collar_faces", "platform_records",
+           "block_strip_rows", "unit_pad_faces", "flat_held_refs"]
 
 GEN = "platform_collar"
 #: The ruling HEAD (``solve.design.ruling_head``) — named by ``[design]
@@ -66,17 +60,9 @@ RIM_RULING = "structures.building_pad platform_collar rim"
 #: 2026-09-30r): the strip between two flat blocks of one unit, a two-sided
 #: 1:3 bank from each floor — priced at the law's weight like the collar
 TERRACE_RULING = "structures.building_pad platform_collar terrace"
-#: The head of the FRONTAGE HOLD rows (flat-pad spec §1 (2); RULINGS
-#: 2026-09-30f / 30r): a held block's welded contact at the block's datum
-HOLD_RULING = "structures.building_pad frontage_hold"
-#: The head of the block DATUM's own row (owner 2026-10-02 round 5, RULINGS
-#: 2026-10-02ah (1) restated: "the pad must be seated flat at a level the
-#: apron can meet"): a SOFT preference — in no hard register, priced at the
-#: law's weight — pulling the free datum column toward the apron's own
-#: frontage level (the contacts' pass-1a median).  The welds (contact = D),
-#: the pad's flat rows and the apron's caps are the hard set that decides D
-#: jointly; a weld is released only when no single D serves the block
-HOLD_DATUM_RULING = "structures.building_pad frontage_hold datum"
+#: :data:`HOLD_RULING` (the frontage hold rows) and :data:`HOLD_DATUM_RULING`
+#: (the block datum's own row) live in ``model/platform`` so the stage split
+#: may read them (spec §61 (11)); re-exported here, where they are minted.
 #: The head of a RESIDUAL contact's hold (flat-pad spec v2 §2 EMPTY (i)):
 #: PRICED at the law's weight — deliberately NOT in ``[design]
 #: hard_rulings``
@@ -89,13 +75,14 @@ _K = 3
 STATS: dict[str, dict[str, int]] = {}
 
 
-def collar_faces(planar: PlanarMap, law: Law
+def collar_faces(planar: PlanarMap, law: Law, is_bank=is_collar_ref
                  ) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
     """``(platform ref, its COLLAR face ids, its PLATFORM face ids)`` per
     platform pad whose platform is in the map — ONE derivation (the rows
     here, the census's ``platform_rim_relief``).  A district pad's erosion
     leaves several platform pieces and the collar several faces; all of
-    them carry the one ref."""
+    them carry the one ref.  ``is_bank`` picks the bank class: the collars
+    (default) or the inter-block strips (``is_strip_ref``, spec §56 (3))."""
     from .pads import rigid_roles
     rigid = set(rigid_roles(law))
     plat: dict[str, list[int]] = {}
@@ -104,28 +91,77 @@ def collar_faces(planar: PlanarMap, law: Law
         f = planar.faces[fid]
         if f.role not in rigid:
             continue
-        if is_collar_ref(f.ref):
+        if is_bank(f.ref):
             col.setdefault(platform_ref_of(f.ref), []).append(fid)
-        else:
+        elif not is_collar_ref(f.ref) and not is_strip_ref(f.ref):
             plat.setdefault(f.ref, []).append(fid)
     return [(r, tuple(cs), tuple(plat[r])) for r, cs in sorted(col.items())
             if r in plat]
 
 
+def unit_pad_faces(planar: PlanarMap, law: Law) -> list[tuple[str, tuple[int, ...]]]:
+    """``(ref, its face ids)`` per PLANNED unit pad or block in the map —
+    every ``model.platform.HELD`` ref that is not a §20 conforming pad
+    (spec §56 (3): the pad face itself, there is no collar).  ONE
+    derivation: the contacts, the flat rows and the records read it."""
+    from .pads import rigid_roles
+    rigid = set(rigid_roles(law))
+    units = {r for r, h in HELD.items() if not h.get("conforming")}
+    by: dict[str, list[int]] = {}
+    if units:
+        for fid in sorted(planar.faces):
+            f = planar.faces[fid]
+            if f.role in rigid and str(f.ref) in units:
+                by.setdefault(str(f.ref), []).append(fid)
+    return [(r, tuple(fs)) for r, fs in sorted(by.items())]
+
+
+def flat_held_refs(planar: PlanarMap, law: Law) -> frozenset[str]:
+    """The unit pads / blocks that are FLAT AT A DATUM (a planned unit with
+    a datum column) — the plate over one prices no §30 (6) per-vertex
+    relief (``pads._pad_rows``: the hard flat rows carry none, RULINGS 12u)."""
+    held = datum_vertices(planar, law)
+    return frozenset(r for r, _f in unit_pad_faces(planar, law) if r in held)
+
+
 def platform_collar_rows(planar: PlanarMap, law: Law,
                          airport: Airport | None = None) -> list[Row]:
     """The collar bank rows (module docstring).  A generator."""
+    STATS.clear()
+    rows, st = _bank_rows(planar, law, collar_faces(planar, law))
+    if st is not None:
+        STATS["platform_collar_rows"] = st
+    return rows
+
+
+def block_strip_rows(planar: PlanarMap, law: Law,
+                     airport: Airport | None = None) -> list[Row]:
+    """Spec §56 (3): the INTER-BLOCK TERRACE STRIP's rows — the 1:3 bank
+    between two flat blocks of one cut unit (flat-pad spec §2 (5), RULINGS
+    2026-09-30r), keyed on the ``#strip`` ref.  The same derivation the
+    collar's rows take (:func:`_bank_rows`): a strip vertex on the chord it
+    shares with the next block's strip is a TERRACE row from each floor.
+    A generator; it runs after ``platform_collar_rows``."""
+    rows, st = _bank_rows(planar, law, collar_faces(planar, law, is_strip_ref))
+    if st is not None:
+        STATS["block_strip_rows"] = st
+    return rows
+
+
+def _bank_rows(planar: PlanarMap, law: Law,
+               pairs: list[tuple[str, tuple[int, ...], tuple[int, ...]]]
+               ) -> "tuple[list[Row], dict[str, int] | None]":
+    """The 1:3 bank rows of every ``(platform ref, bank faces, platform
+    faces)`` pair, and their statistics (``None`` when nothing ran)."""
     from scipy.spatial import cKDTree
 
     from .pads import airside_vertices
     from .precedence import view
-    STATS.clear()
-    pairs = collar_faces(planar, law)
     if not pairs:
-        return []
+        return [], None
     cap = float(law.tables.emit.design.bank_slope)
     if cap <= 0.0:
-        return []
+        return [], None
     vw = view(planar, law)
     air = airside_vertices(planar, law)
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
@@ -152,16 +188,17 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         island = {v for q in cfids for r in vw.holes[q] for v in r} - set(inner)
         if len(inner) < 3 or not outer:
             continue
+        bref = str(planar.faces[cfids[0]].ref)      # ``<ref>#collar`` / ``#strip``
         src = Source(GEN, COLLAR_RULING + " (unit-platform spec §1 (3); "
                      "§31 (7) the 1:3 bank; RULINGS 2026-09-28a (1))",
-                     (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
+                     (f"face:{cfids[0]}", bref, f"platform:{pref}"))
         src_rim = Source(GEN, RIM_RULING + " (unit-platform spec §1 (3); "
                          "the pad's own rim on its plate)",
-                         (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
+                         (f"face:{cfids[0]}", bref, f"platform:{pref}"))
         src_terr = Source(GEN, TERRACE_RULING + " (flat-pad spec §2 (5); RULINGS "
                           "2026-09-30r: the pad|pad terrace between two flat "
                           "blocks is a 1:3 bank)",
-                          (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
+                          (f"face:{cfids[0]}", bref, f"platform:{pref}"))
         terrace: set[int] = set()
         cover: set[int] = set()
         tree = cKDTree([xy[v] for v in inner])
@@ -238,7 +275,7 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         # where its hole stops and the pad rim runs on over uncovered ground
         # (the ``_mixed_rim_cells`` fixture, 2 of 7), and an apron | pad |
         # pad triple point (HECA building170 | building167, 2).
-        base = pref.split("#")[0]
+        base = pad_base_ref(pref)
         unit = unit_ref_of(pref)
         own_f = set(cfids) | set(pfids)
         keep: list[int] = []
@@ -248,7 +285,7 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
                 continue
             inc = [q for q in planar.vertices[o].incident_faces if q not in own_f]
             other = [q for q in inc if planar.faces[q].role == planar.faces[cfids[0]].role
-                     and planar.faces[q].ref.split("#")[0] != base]
+                     and pad_base_ref(planar.faces[q].ref) != base]
             if o in edge_v:
                 # the coverage edge: the DEM's level, the collar's SLOPE
                 # (issue #223).  The exemption above was written while the
@@ -285,13 +322,12 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         for i in inner:
             _d, j = otree.query(xy[i])
             _row(outer[int(j)], i)
-    STATS["platform_collar_rows"] = {"collars": len(pairs),
-                                     "rows_rim_airside_leads": n_air,
-                                     "rows_own_rim_follows": n_own,
-                                     "rows_block_terrace": n_terr,
-                                     "rows_island_flat": n_isl,
-                                     "rows_coverage_edge_follows": n_cov}
-    return rows
+    return rows, {"collars": len(pairs),
+                  "rows_rim_airside_leads": n_air,
+                  "rows_own_rim_follows": n_own,
+                  "rows_block_terrace": n_terr,
+                  "rows_island_flat": n_isl,
+                  "rows_coverage_edge_follows": n_cov}
 
 
 #: The ruling HEAD of the platform's PLANE rows — named by ``[design]
@@ -345,31 +381,32 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
     row); a platform shares no vertex with anything but its own collar, so
     what it transmits here is the collar's own least-squares fit — the
     level the spec asks for."""
-    from .precedence import view
-    pairs = collar_faces(planar, law)
+    contacts = _contact_sets(planar, law)
     # (E) SPEC-AUTHOR RULINGS 2026-09-29s: a refused plate that fronts
     # airside is one contact-led plane too, over its OWN vertices
     plates = refused_plates(planar, law)
-    if not pairs and not plates:
+    if not contacts and not plates:
         return []
-    vw = view(planar, law)
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     rows: list[Row] = []
     n_planes = 0
-    sets = [(pref, sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]]
-                           for v in r}), f"face:{pfids[0]}")
-            for pref, _cfids, pfids in pairs]
-    sets += [(ref, own, f"plate:{ref}") for ref, own, _w in plates]
+    sets = [(pref, vs, f"face:{fid}", unit) for pref, vs, _w, fid, unit in contacts]
+    sets += [(ref, own, f"plate:{ref}", False) for ref, own, _w in plates]
     from .pads import FLAT_RULING
     n_flat = 0
     held = datum_vertices(planar, law)
-    for pref, vs, tag in sets:
-        if len(vs) < 4:
+    for pref, vs, tag, unit in sets:
+        if unit and pref not in held:
+            # a planned unit with no datum column (no welded frontage in
+            # the map) keeps the §20 plate's own rows
+            continue
+        if not unit and len(vs) < 4:
             continue
         if pref in held and not tag.startswith("plate:"):
             # flat-pad spec §1 (1) (RULINGS 2026-09-30f/r): a HELD block is
-            # FLAT at its datum — every platform vertex equal to the datum
-            # column (``model.platform.datum_vertex_of``), hard
+            # FLAT at its datum — every OWN vertex of its face equal to the
+            # datum column (``model.platform.datum_vertices``), hard; its
+            # welded contacts take the hold row instead
             dv = held[pref]
             src = Source(GEN, PLANE_RULING + " (flat-pad spec §1 (1); RULINGS "
                          "2026-09-30f/r a held block is flat at its datum)",
@@ -477,34 +514,75 @@ def landing_rows(planar: PlanarMap, law: Law,
     return rows
 
 
-def platform_contacts(planar: PlanarMap, law: Law
-                      ) -> list[tuple[str, list[int], list[int]]]:
-    """``(platform ref, its PLATFORM vertices, its WELDED contacts)`` per
-    minted platform — the welded contact being an OUTER collar vertex that
-    is airside (``pads.airside_vertices``), exactly the leaders
-    :func:`platform_collar_rows` keeps.  ONE derivation: the level rows
-    here and the sidecar's ``platform_rim_relief`` read the same set."""
-    from .pads import airside_vertices
+def _contact_sets(planar: PlanarMap, law: Law
+                  ) -> list[tuple[str, list[int], list[int], int, bool]]:
+    """``(ref, its FLAT vertices, its WELDED contacts, a face id, is it a
+    unit pad)`` — the body of :func:`platform_contacts`.
+
+    A UNIT PAD or block (:func:`unit_pad_faces`; spec §56 (3)): the
+    contacts are the vertices of its own face an airside face also carries
+    (``pads.airside_vertices`` — 09-01g, one vertex, one value), the flat
+    vertices every other vertex of the face but one ANOTHER pad carries
+    (two pads may sit at different floors, ``step_exemption_pad_to_pad``:
+    HECA ``building281`` abuts ``building68`` 16.4 m higher — an equality
+    there is a contest the plane loses — and one a structure RAMP carries
+    (``model.platform.structure_vertices``: a wall-corridor / door / tunnel
+    ramp's top — the ramp is cut INTO its host pad and its level there is
+    the ramp's own law; a wall's top RIM stays flat on the pad;
+    MEASURED on the OTHH closing build: with the 25 ramp-top vertices of
+    ``building6`` in the flat set the whole terminal settled at the ramps'
+    2.61 m, 1.35 m under its frontage, and the apron followed); a block's
+    own strip is its own,
+    and a BANK face — another block's strip, a landing's collar — is no
+    floor: the pad's rim under it stays on the pad's plane).
+
+    A LANDING (``collar_faces``, the ``#collar`` pair): the platform's
+    vertices, and the bank's outer vertices that are airside."""
+    from ..model.platform import structure_vertices
+    from .pads import airside_vertices, rigid_roles
     from .precedence import view
     pairs = collar_faces(planar, law)
-    if not pairs:
+    units = unit_pad_faces(planar, law)
+    if not pairs and not units:
         return []
     vw = view(planar, law)
     air = airside_vertices(planar, law)
-    out = []
+    struct = structure_vertices(planar, law)
+    out: list[tuple[str, list[int], list[int], int, bool]] = []
     for pref, cfids, pfids in pairs:
         inner = sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]]
                         for v in r})
         cvs = {v for q in cfids for r in [vw.rings[q], *vw.holes[q]] for v in r}
         weld = sorted(v for v in cvs - set(inner) if v in air)
-        out.append((pref, inner, weld))
+        out.append((pref, inner, weld, pfids[0], False))
+    rigid = set(rigid_roles(law))
+    for ref, fids in units:
+        own_f = set(fids)
+        base = pad_base_ref(ref)
+        vs = {v for q in fids for r in [vw.rings[q], *vw.holes[q]] for v in r}
+        weld = sorted(v for v in vs if v in air)
+        flat = [v for v in sorted(vs - set(weld))
+                if v not in struct
+                and not any(q not in own_f and planar.faces[q].role in rigid
+                            and not is_bank_ref(planar.faces[q].ref)
+                            and pad_base_ref(planar.faces[q].ref) != base
+                            for q in planar.vertices[v].incident_faces)]
+        out.append((ref, flat, weld, fids[0], True))
     return out
+
+
+def platform_contacts(planar: PlanarMap, law: Law
+                      ) -> list[tuple[str, list[int], list[int]]]:
+    """``(ref, its FLAT vertices, its WELDED contacts)`` per unit pad,
+    block and landing (:func:`_contact_sets`).  ONE derivation: the plane
+    rows, the hold sets and the sidecar's records read the same set."""
+    return [(r, vs, w) for r, vs, w, _f, _u in _contact_sets(planar, law)]
 
 
 def refused_plates(planar: PlanarMap, law: Law
                    ) -> list[tuple[str, list[int], list[int]]]:
     """(E) SPEC-AUTHOR RULINGS 2026-09-29s: a REFUSED platform
-    (``planar/platform.PLATFORMS``, ``under_min_area`` / ``eroded_away``)
+    (``planar/platform.PLATFORMS``: a draped facade's footprint)
     that fronts airside is a plain welded plate and takes the SAME
     contact-led fit.  ``(ref, its OWN plate vertices, its WELDED
     contacts)``: the contacts are the plate's airside rim vertices (the 23a
@@ -670,7 +748,9 @@ def hold_sets(planar: PlanarMap, law: Law
             weld = sorted(rim.get(r, ()))
             if weld:
                 out.append((r, held[r], weld, len(weld), 0))
+    flat_of: dict[str, set[int]] = {}
     for pref, _vs, weld in platform_contacts(planar, law):
+        weld = [o for o in weld if o != held.get(pref)]
         if pref not in held or not weld:
             continue
         h = HELD[pref]
@@ -688,12 +768,14 @@ def hold_sets(planar: PlanarMap, law: Law
         extra = sorted(v for v in plat.get(pref, ()) if v not in own and v not in foreign)
         if extra:
             h["plateau_vertices"] = extra
+        flat_of[pref] = set(_vs)
         out.append((pref, held[pref], hold + extra, n_all, len(ramp)))
-    return _with_near_miss(planar, law, out)
+    return _with_near_miss(planar, law, out, flat_of)
 
 
 def _with_near_miss(planar: PlanarMap, law: Law,
-                    sets: list[tuple[str, int, list[int], int, int]]
+                    sets: list[tuple[str, int, list[int], int, int]],
+                    flat_of: "dict[str, set[int]] | None" = None
                     ) -> list[tuple[str, int, list[int], int, int]]:
     """THE NEAR-MISS FRONTAGE OF A HELD BLOCK JOINS ITS HOLD SET (#148,
     RULINGS 2026-09-30bd residual; 30bb F4 deleted ``pad_frontage_level``
@@ -710,8 +792,20 @@ def _with_near_miss(planar: PlanarMap, law: Law,
     A near-miss soft endpoint ``e`` joins the block's hold set when the pad
     vertex it binds to (``j``, the nearest pad vertex) is itself ON the
     datum — a held contact or plateau vertex of the block, or any vertex of
-    a held §20 conforming plate (its whole plate is the datum, §4).  A ``j``
-    on a graded collar rim or in a ramp is not on the datum, and ``e``
+    a held §20 conforming plate (its whole plate is the datum, §4), or a
+    FLAT vertex of a held unit pad (``flat_of``, spec §56 (3)).
+
+    A PLATEAU vertex of the block that is such an endpoint IS a frontage
+    contact, not an apron-interior vertex (lane pads65): it stands inside
+    the sliver, within ``frontage_near_miss_m`` of the pad's own rim, and
+    02ag's "never pulled" is about the plateau's interior.  It leaves the
+    block's ``plateau_vertices`` and is held like any contact.  MEASURED at
+    SPJC ``building5`` (-12.02473811380, -77.11902772614): on main that
+    vertex was the collar's outer rim — a weld; with the collar gone (spec
+    §56 (3)) it is a plateau vertex 0.98 m off the pad, the plateau read
+    took it first, the hold skipped it, and it settled 0.06 m under the
+    datum — 3 CRITICAL ``frontage_near_miss`` census rows.  A ``j``
+    in a ramp is not on the datum, and ``e``
     keeps its priced near-miss row against ``z_j``.  ``e`` is then read by
     the §2 interval exactly as a welded contact (one set, one derivation):
     a near-miss contact the datum cannot reach makes the block RESIDUAL
@@ -722,14 +816,17 @@ def _with_near_miss(planar: PlanarMap, law: Law,
     from ..law.tables import role_family
     from .pads import frontage_contacts
     idx = {pref: k for k, (pref, *_r) in enumerate(sets)}
-    on: dict[str, set[int]] = {pref: set(w) for pref, _dv, w, _n, _r in sets}
+    on: dict[str, set[int]] = {pref: set(w) | {dv} | set((flat_of or {}).get(pref, ()))
+                               for pref, dv, w, _n, _r in sets}
     conf = {pref for pref in idx if HELD[pref].get("conforming")}
     if conf:
         for f in planar.faces.values():
             if str(f.ref) in conf:
                 for ring in (f.ring, *f.holes):
                     on[str(f.ref)].update(planar.ring_vertices(ring))
-    taken: set[int] = {v for _p, _dv, w, _n, _r in sets for v in w}
+    plat_of = {pref: set(HELD[pref].get("plateau_vertices") or ()) for pref in idx}
+    taken: set[int] = {v for p_, _dv, w, _n, _r in sets for v in w
+                       if v not in plat_of[p_]}
     runway: set[int] = set()
     for f in planar.faces.values():
         if role_family(law, f.role) == "runway":
@@ -750,7 +847,12 @@ def _with_near_miss(planar: PlanarMap, law: Law,
         HELD[pref]["near_miss_contacts"] = es
         if es:
             p, dv, w, n_all, n_r = out[k]
-            out[k] = (p, dv, list(w) + es, n_all, n_r)
+            out[k] = (p, dv, list(w) + [e for e in es if e not in plat_of[pref]],
+                      n_all, n_r)
+            if plat_of[pref] & set(es):
+                # a plateau vertex inside the sliver is a contact (docstring)
+                HELD[pref]["plateau_vertices"] = [
+                    v for v in HELD[pref]["plateau_vertices"] if v not in set(es)]
     return out
 
 
@@ -814,45 +916,37 @@ def frontage_hold_rows(planar: PlanarMap, law: Law,
 
 def platform_records(planar: PlanarMap, law: Law,
                      z: "_t.Sequence[float] | None") -> list[dict]:
-    """The sidecar's ``platforms`` key (unit-platform spec §3 P21, §4 (5)):
-    per MINTED platform its ref, collar width C, the SOLVED plane (level at
-    the platform's centroid, gradient, tilt, residual — the plane every
-    piece lies on) and THE RELIEF THE COLLAR CARRIES — every welded
-    (airside) outer collar vertex against that plane: p50, max, where, and
-    the collar width the §31 (7) bank would need (``max / bank_slope``,
-    clamped to ``bank_min_width_m``; over ``platform_collar_max_m`` the
-    spec would refuse the platform).  Read off the solved surface; the
-    census's ``platform_rim_relief`` prices exactly this.  ``[]`` without
-    a platform or a surface."""
+    """The sidecar's ``platforms`` key: per UNIT PAD or block
+    (:func:`unit_pad_faces`) its ref, the SOLVED plane over its flat
+    vertices (level at their centroid, gradient, tilt, residual), its datum
+    and how its welded frontage stands against it — held, RELEASED
+    (:func:`_datum_record`), warned (``pad_warning``, spec §56 (3)) — and
+    its plateau; then the landings (:func:`_landing_records`) and the §20
+    conforming pads.  Read off the solved surface.  ``[]`` without a
+    surface."""
     import numpy as np
 
-    from .pads import airside_vertices
-    from .precedence import view
-    pairs = collar_faces(planar, law)
     if z is None:
         return []
     conf = _conforming_records(planar, law, z)
-    if not pairs:
-        return conf
-    vw = view(planar, law)
-    air = airside_vertices(planar, law)
-    bs = float(law.tables.emit.design.bank_slope)
-    cmin = float(law.tables.emit.design.bank_min_width_m)
-    cmax = float(law.tables.structures.building_pad.platform_collar_max_m)
-    out: list[dict] = []
-    for pref, cfids, pfids in pairs:
-        inner = sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]] for v in r})
-        cvs = {v for q in cfids for r in [vw.rings[q], *vw.holes[q]] for v in r}
-        if len(inner) < 3:
+    out: list[dict] = _landing_records(planar, law, z)
+    dvs = datum_vertices(planar, law)
+    for pref, inner, weld, _fid, unit in _contact_sets(planar, law):
+        if not unit:
             continue
+        if len(inner) < 3:
+            # a pad whose rim is nearly all weld: the plane over its whole face
+            inner = sorted({*inner, *weld})
+            if len(inner) < 3:
+                continue
+        fids = [q for q, f in planar.faces.items() if str(f.ref) == pref]
         X = np.array([planar.vertices[v].xy for v in inner], dtype=float)
         Z = np.array([float(z[v]) for v in inner])
         c0 = X.mean(axis=0)
         A = np.c_[X - c0, np.ones(len(X))]
         co, *_ = np.linalg.lstsq(A, Z, rcond=None)
         res = np.abs(A @ co - Z)
-        weld = sorted(v for v in cvs - set(inner) if v in air)
-        rec: dict = {"ref": pref, "collar_m": collar_width(planar, cfids, pfids),
+        rec: dict = {"ref": pref,
                      "level": round(float(co[2]), 3),
                      "grad": [round(float(co[0]), 6), round(float(co[1]), 6)],
                      "tilt_pct": round(100.0 * math.hypot(co[0], co[1]), 3),
@@ -862,9 +956,9 @@ def platform_records(planar: PlanarMap, law: Law,
         if pref in HELD:
             # flat-pad spec §1 / §2 (RULINGS 2026-09-30f/r): the block, its
             # unit, the solved datum and how far its welded frontage stands
-            # off it (the hold's miss, carried by the collar)
+            # off it (the hold's miss, a step at the pad's rim)
             h = HELD[pref]
-            dv = datum_vertices(planar, law).get(pref)
+            dv = dvs.get(pref)
             rec.update({"unit": h["unit"], "block": h["k"], "blocks": h["blocks"],
                         "block_verdict": h["verdict"],
                         "datum_pred": (None if h["datum_pred"] is None
@@ -910,6 +1004,8 @@ def platform_records(planar: PlanarMap, law: Law,
                                        and not um else "residual")
                 rec.update(_datum_record(planar, z, D, [v for v in hw if v in held_v],
                                          htol, h))
+                rec["pad_m2"] = _pad_m2(planar, fids)
+                stamp_warning(rec, mg)
                 rec.update({"held_contacts": int(hm.size),
                             "held_miss_max_m": round(float(hm.max()), 3) if hm.size else None,
                             "held_over_margin": int((hm > mg).sum()) if hm.size else 0,
@@ -946,19 +1042,54 @@ def platform_records(planar: PlanarMap, law: Law,
                           "datum_chosen", "reach_lo_binding", "reach_hi_binding"):
                     if k in h:
                         rec[k] = h[k]
+        out.append(rec)
+    return out + conf
+
+
+def _landing_records(planar: PlanarMap, law: Law, z) -> list[dict]:
+    """The record of every viaduct ramp LANDING (``collar_faces``, the
+    ``#collar`` pair, #290): its ref, the bank's width as built, the solved
+    plane of its platform and — where a bank vertex is welded to airside —
+    the relief the bank carries there."""
+    import numpy as np
+
+    from .pads import airside_vertices
+    from .precedence import view
+    pairs = collar_faces(planar, law)
+    if not pairs:
+        return []
+    vw = view(planar, law)
+    air = airside_vertices(planar, law)
+    out: list[dict] = []
+    for pref, cfids, pfids in pairs:
+        inner = sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]] for v in r})
+        cvs = {v for q in cfids for r in [vw.rings[q], *vw.holes[q]] for v in r}
+        if len(inner) < 3:
+            continue
+        X = np.array([planar.vertices[v].xy for v in inner], dtype=float)
+        Z = np.array([float(z[v]) for v in inner])
+        c0 = X.mean(axis=0)
+        A = np.c_[X - c0, np.ones(len(X))]
+        co, *_ = np.linalg.lstsq(A, Z, rcond=None)
+        res = np.abs(A @ co - Z)
+        weld = sorted(v for v in cvs - set(inner) if v in air)
+        rec: dict = {"ref": pref, "collar_m": collar_width(planar, cfids, pfids),
+                     "level": round(float(co[2]), 3),
+                     "grad": [round(float(co[0]), 6), round(float(co[1]), 6)],
+                     "tilt_pct": round(100.0 * math.hypot(co[0], co[1]), 3),
+                     "plane_residual_max_m": round(float(res.max()), 3),
+                     "platform_vertices": len(inner), "welded": len(weld),
+                     "centroid_ll": _ll_of(planar, inner, c0)}
         if weld:
             W = np.array([planar.vertices[v].xy for v in weld], dtype=float)
             rel = np.array([float(z[v]) for v in weld]) - (np.c_[W - c0, np.ones(len(W))] @ co)
             k = int(np.argmax(np.abs(rel)))
-            mx = float(abs(rel[k]))
             rec.update({"rim_relief_p50_m": round(float(np.median(np.abs(rel))), 3),
-                        "rim_relief_max_m": round(mx, 3),
+                        "rim_relief_max_m": round(float(abs(rel[k])), 3),
                         "worst_ll": list(planar.vertices[weld[k]].key),
-                        "worst_z": round(float(z[weld[k]]), 3),
-                        "collar_needed_m": round(max(cmin, mx / bs), 2),
-                        "over_collar_max": bool(mx / bs > cmax)})
+                        "worst_z": round(float(z[weld[k]]), 3)})
         out.append(rec)
-    return out + conf
+    return out
 
 
 def _datum_record(planar: PlanarMap, z, D: float, held_v, tol: float,
@@ -982,6 +1113,7 @@ def _datum_record(planar: PlanarMap, z, D: float, held_v, tol: float,
             "datum_in_reach_isect": (bool(rl is not None and (rl[0] is None or rl[0] - tol <= D)
                                           and (rl[1] is None or D <= rl[1] + tol))),
             "reach_bands_contacts": h.get("reach_bands_contacts"),
+            "misfit_m": h.get("misfit_m"), "weld_widened": h.get("weld_widened"),
             "datum_minus_median_m": (round(D - float(med), 3) if med is not None else None),
             "welded": len(rel) - len(out_v), "released": len(out_v),
             "released_ll": [list(planar.vertices[v].key) for _d, _z, v in
@@ -1004,8 +1136,10 @@ def _conforming_records(planar: PlanarMap, law: Law, z) -> list[dict]:
     dvs = datum_vertices(planar, law)
     tol = float(design_law(law).hard_tol_m)
     verts: dict[str, set[int]] = {}
-    for f in planar.faces.values():
+    fids: dict[str, list[int]] = {}
+    for fid, f in planar.faces.items():
         if str(f.ref) in refs:
+            fids.setdefault(str(f.ref), []).append(fid)
             vs = verts.setdefault(str(f.ref), set())
             for ring in (f.ring, *f.holes):
                 vs.update(planar.ring_vertices(ring))
@@ -1035,8 +1169,24 @@ def _conforming_records(planar: PlanarMap, law: Law, z) -> list[dict]:
             if k in h:
                 rec[k] = h[k]
         rec.update(_datum_record(planar, z, D, held_v, tol, h))
+        rec["pad_m2"] = _pad_m2(planar, fids.get(r, ()))
+        stamp_warning(rec, float(law.tables.structures.building_pad
+                                 .frontage_hold_margin_m))
         out.append(rec)
     return out
+
+
+def _pad_m2(planar: PlanarMap, fids) -> float:
+    """The area of the faces ``fids`` (the pad as the user sees it), m² —
+    each face's ring less its holes, by the shoelace
+    (``geom.pad_evidence.ring_area`` on frame metres)."""
+    from ..geom.pad_evidence import ring_area
+
+    def _a(ring) -> float:
+        return ring_area([planar.vertices[v].xy for v in planar.ring_vertices(ring)],
+                         1.0, 1.0)
+    return round(sum(_a(planar.faces[q].ring) - sum(_a(h) for h in planar.faces[q].holes)
+                     for q in fids), 1)
 
 
 def collar_width(planar: PlanarMap, cfids, pfids) -> float:

@@ -234,12 +234,13 @@ def test_an_open_page_welded_to_the_runway_is_apron(law):
                        for c in cells)
 
 
-# ── 4. a lot beside a pad keeps the set-back and its own level ───────────
+# ── 4. a lot drawn against a pad is welded to its rim (RULINGS 2026-10-09j) ──
 
 def _lot_pad_airport():
     """The landside island (groundside) with a building whose ROTATED
-    outline shares the island's north edge — a pad touching groundside
-    only, on no lattice line (the CYXY building9 / lot 87 class)."""
+    outline stands a corner on the island's north edge — a pad touching
+    groundside only, at one point on no lattice line (the CYXY building9
+    / lot 87 class)."""
     a = _synthetic(gate=True, island=True)         # island: 800..900 x 300..400
     ang = math.radians(20.0)
     c, s = math.cos(ang), math.sin(ang)
@@ -250,20 +251,22 @@ def _lot_pad_airport():
     return _dc.replace(a, buildings=a.buildings + (b,))
 
 
-def test_lot_beside_a_pad_keeps_the_setback_and_its_own_level(law):
+def test_lot_drawn_against_a_pad_is_welded_to_its_rim(law):
+    """Owner RULINGS 2026-10-09j, spec §63 (4) Rule W (before it 04u's
+    set-back notched this lot 0.954 m back from the pad): the pad's
+    corner stands on the island's edge in the source, so the two are
+    welded there — one shared vertex on no lattice line, no T-vertex —
+    and the pad still takes no level from the lot."""
     a = _lot_pad_airport()
     cl = classify(a, law)
-    back = law.tables.structures.building_pad.groundside_cutback_m
     pad = [c for c in cl.cells if c.role == "building"
            and Polygon(c.ring).distance(Polygon([(830.0, 400.0)] * 3).buffer(1.0)) < 1.0]
     assert pad, "the shed became a pad"
     lots = [c for c in cl.cells if c.ref == "island"]
     assert lots and all(c.side == "groundside" for c in lots)
-    assert all(c.evidence.get("mixed_pad_cutback") == 1.0 for c in lots)
-    # the cells: cut back by at least the set-back
-    d = min(Polygon(l.ring, l.holes).distance(Polygon(pad[0].ring)) for l in lots)
-    assert d >= back - 1e-6
-    # the planar map: no shared vertex after the identity snap
+    assert cl.stats["mixed_pad_cutbacks"] == 0 and cl.stats["pad_rim_welds"] == len(lots)
+    assert all(c.evidence["pad_touch"] == {pad[0].ref: 0.0} for c in lots)
+    # the planar map: the rim is shared after the identity snap
     pm, stats = planar_build(a, cl, law)
     assert stats.t_vertices == 0
     pf = next(f for f in pm.faces.values() if f.role == "building"
@@ -271,15 +274,13 @@ def test_lot_beside_a_pad_keeps_the_setback_and_its_own_level(law):
     lf = [f for f in pm.faces.values() if f.ref == "island"]
     pv = set(pm.ring_vertices(pf.ring))
     lv = {v for f in lf for v in pm.ring_vertices(f.ring)}
-    assert not (pv & lv)
-    assert min(_face_poly(pm, f).distance(_face_poly(pm, pf)) for f in lf) >= back - 1e-6
-    # its own level: the pad's flat group holds no lot vertex, and no
-    # frontage row binds the lot to the pad (frontage is apron / junction)
-    # the pad's flatness rows (09-09c: ``Diff`` pairs, not a merged ``Flat``)
-    # hold no lot vertex
-    for row in pads.pad_flats(pm, law, a):
-        if f"face:{pf.id}" in row.source.inputs:
-            assert not ({row.a, row.b} & lv)
+    assert len(pv & lv) == 1
+    assert all(not _face_poly(pm, f).intersection(_face_poly(pm, pf)).area > 1e-6
+               for f in lf)
+    # the pad is senior: it fronts nothing (no level from the lot) and
+    # the shared vertices are its own columns
+    assert pf.id not in pads.pad_frontage(pm, law)
+    assert pf.id not in pads.pad_shared(pm, law)
     for row in pads.frontage_near_miss(pm, law, a):
         assert f"pad:{pf.id}" not in row.source.inputs or \
             not ({row.a, row.b} & lv)

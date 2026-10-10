@@ -319,9 +319,9 @@ def _placement_override(law, over: dict[str, object]):
     """
     import dataclasses as _d
     # ``SECTION.KEY`` names another ``structures.toml`` section (lane
-    # ``unitplatform2``: ``building_pad.platform_collar=false`` — the
-    # platform mint is read in ``planar/overlay`` too, so its matched base
-    # arm is this same one-variable replay-time arm)
+    # ``unitplatform2``: ``building_pad.frontage_hold=false`` — the block
+    # planner is read in ``planar/overlay`` too, so its matched base arm is
+    # this same one-variable replay-time arm)
     other = {k: v for k, v in over.items() if "." in k}
     over = {k: v for k, v in over.items() if "." not in k}
     for k, v in other.items():
@@ -993,6 +993,10 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     print("    " + wrep.line(icao))
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=strip_rep)
+    # spec §56 (3): the lines the build would WARN the user with
+    from auto_patch_v2.constraints.pad_warning import warnings_of
+    for _w in warnings_of(pub.get("platforms")):
+        print(f"[{icao}] WARNED: {_w}")
     pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
     from auto_patch_v2.pipeline.publication import gap_pieces
     _gap_records = gap_pieces(late_cut, cells)
@@ -1001,6 +1005,10 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     if late_stage is not None:
         from auto_patch_v2.pipeline.publication import late_stage as _late_stage
         pub["late_stage"] = _late_stage(late_stage)
+    from auto_patch_v2.pipeline.publication import pad_touch as _pad_touch
+    _touch = _pad_touch(cells, law, pm)
+    if _touch:
+        pub["pad_touch"] = _touch
     # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is
     # withdrawn under (road cap governs) — the census reads the same set
     from auto_patch_v2.law.tables import airside_stage_roles as _asr
@@ -1886,6 +1894,13 @@ def _hard_conflict_now() -> list:
     return [dict(r) for r in HARD_CONFLICT]
 
 
+def _hold_report_now() -> dict:
+    """The solve's hold report (``model.platform.hold_report``): what a
+    later ``--late-from`` pass carries over its own re-minted registry."""
+    from auto_patch_v2.model.platform import hold_report
+    return hold_report()
+
+
 def replay_problem(pkl: Path, resume: str, drop: list[str],
                    design_weights: dict | None = None,
                    chord_fill: tuple[str, ...] = (),
@@ -2232,7 +2247,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                     cs0 = drop_rows(cs0, drop, check=False)
                 return (st0.pm, cs0, jetway_strips(st0.pm, law, airport, cs0,
                                                    rider_candidates(airport, law)),
-                        hold_pass(st0.pm, law))
+                        hold_pass(st0.pm, law, airport))
             _t1 = time.perf_counter()
             s1 = stage_one_problem(cl, _ribbon_free)
             if s1 is not None:
@@ -2306,10 +2321,18 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                           "hard_conflict": _base.get("hard_conflict", ())},
                  "solve_kw": {"options": Options(verbose=verbose), "size_out": size,
                               "method": method}}
+        _base_hold = _base.get("hold_report")
         del _base
     prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
                           placement=placement, sites=sites, late=_late,
                           gap_free=gap_free)
+    if late_from is not None and _base_hold:
+        # the last stage re-mints the HELD registry: the base solve's hold
+        # report is carried over it, as ``pipeline/build`` does — without it
+        # the late pass's sidecar loses ``platforms[].weld_widened`` and the
+        # census prices the welded contacts with no allowance
+        from auto_patch_v2.model.platform import install_hold_report
+        install_hold_report(_base_hold)
     icao, airport, pm, law, cs = (prob["icao"], prob["airport"], prob["pm"],
                                   prob["law"], prob["cs"])
     cl, stage, counts, t0 = prob["cl"], prob["stage"], prob["counts"], prob["t0"]
@@ -2341,7 +2364,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     try:
         # flat-pad spec v2 §1 / §2: the build's own hold binding
         from auto_patch_v2.constraints.no_step import hold_pass
-        _kw["hold"] = hold_pass(pm, law)
+        _kw["hold"] = hold_pass(pm, law, airport)
     except ImportError:
         pass
     if prob.get("stage1") is not None:
@@ -2543,6 +2566,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                              "cs": cs_w, "z": z,
                              "pin_yield": list(getattr(rep, "pin_yield", ()) or ()),
                              "hard_conflict": _hard_conflict_now(),
+                             "hold_report": _hold_report_now(),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
                                  "late_stage": _lrep["stage"],

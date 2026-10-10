@@ -4844,7 +4844,7 @@ def _check_apron_lattice_membrane(
 
 
 def _check_published_law_edges(
-        edges_ll, feature_ways, ways, nodes, ll_to_m
+        edges_ll, feature_ways, ways, nodes, ll_to_m, weld_nodes=None
 ) -> Tuple[List[Violation], int, int]:
     """``(violations, n_checked, n_unmatched)`` for ANY sidecar-published
     law-edge list of ``{"a", "b", "budget_m"}`` records.
@@ -4853,6 +4853,12 @@ def _check_published_law_edges(
     SOLVE priced it at.  ``n_unmatched`` counts published edges an
     endpoint of which no emitted node carries — reported beside the
     count, because a dropped vertex is a lost measurement.
+
+    ``weld_nodes`` (:func:`weld_widened_nodes`): what the pavement gave to
+    weld to a misfit pad is the solve's own widening of that row
+    (``constraints/weld_floor``) — ``delta`` over the record's ``dist_m``
+    (the ROUTE distance the row was stated on) for a pair on a widened face,
+    the contact's give for a pair naming one (:func:`_weld_give`).
     """
     lattice_edges_ll, lattice_ways = edges_ll, feature_ways
     if not lattice_edges_ll:
@@ -4938,10 +4944,12 @@ def _check_published_law_edges(
         # taken at the worse-encoded endpoint.
         noise = max((_pair_quant_noise_m(w) for w in (wa, wb)
                      if w is not None), default=ELEV_ROUNDING_NOISE_M)
+        dist = math.hypot(bx - ax, by - ay)
+        budget += _weld_give(weld_nodes, pts[ka][3], pts[kb][3],
+                             float(rec.get("dist_m") or dist))
         excess = dz - budget
         if excess <= noise:
             continue
-        dist = math.hypot(bx - ax, by - ay)
         grade = (100.0 * dz / dist) if dist > 1e-9 else 0.0
         cap = (100.0 * budget / dist) if dist > 1e-9 else None
         v = Violation(
@@ -4978,7 +4986,8 @@ _NO_STEP_POLYLINE_FEATURES: Tuple[str, ...] = (
 
 
 def _check_airside_no_step(no_step_edges_ll, feature_ways, ways, nodes,
-                           ll_to_m) -> Tuple[List[Violation], int, int]:
+                           ll_to_m, weld_nodes=None
+                           ) -> Tuple[List[Violation], int, int]:
     """§1.1 — the LOCAL DIRECT-DISTANCE grade rows.
 
     ``(violations, n_checked, n_unmatched)``.  The population is EXACTLY
@@ -4987,10 +4996,12 @@ def _check_airside_no_step(no_step_edges_ll, feature_ways, ways, nodes,
     the same list — one law, one population), so this is
     :func:`_check_published_law_edges` with the no-step list.  A pair
     whose |Δz| exceeds ``cap x DIRECT distance`` is the step the ruling
-    forbids.
+    forbids — beyond what the solve itself widened the row by at a misfit
+    pad's weld (``weld_nodes``, spec §57 (3) (ii-b)).
     """
     return _check_published_law_edges(
-        no_step_edges_ll, feature_ways, ways, nodes, ll_to_m)
+        no_step_edges_ll, feature_ways, ways, nodes, ll_to_m,
+        weld_nodes=weld_nodes)
 
 
 def _no_step_polylines(ways, feature_ways, nodes, ll_to_m):
@@ -7026,9 +7037,10 @@ _JETWAY_STRIP_TOL_M = 0.05
 
 
 def _is_platform_collar(w) -> bool:
-    """A platform COLLAR way (unit-platform spec §1 (3)): ref ``<pad>#collar``
-    (``auto_patch_v2.model.planar.COLLAR_SUFFIX``)."""
-    return str(getattr(w, "ref", "") or "").endswith("#collar")
+    """A pad's 1:3 BANK way: a platform COLLAR (unit-platform spec §1 (3),
+    ref ``<pad>#collar``) or an inter-block terrace STRIP (spec §56 (3),
+    ``<unit>/b<k>#strip``) — ``auto_patch_v2.model.planar.is_bank_ref``."""
+    return str(getattr(w, "ref", "") or "").endswith(("#collar", "#strip"))
 
 
 def _platform_way(ref: str, kind: str) -> "Way":
@@ -7044,11 +7056,15 @@ def _check_platform_rim_relief(platforms_ll) -> List[Violation]:
     carries against it (``platforms``: ``rim_relief_max_m``, ``worst_ll``,
     ``collar_m``, ``collar_needed_m``); this reports exactly that, so a
     platform whose relief outgrows its collar is read here and never
-    silently.  A platform with no welded rim carries 0.  A patch with no
-    key reports nothing."""
+    silently.  A record with no ``rim_relief_max_m`` is no row.  A patch
+    with no key reports nothing."""
     out: List[Violation] = []
     for rec in platforms_ll or ():
-        if not isinstance(rec, dict) or rec.get("refused"):
+        if (not isinstance(rec, dict) or rec.get("refused")
+                or rec.get("rim_relief_max_m") is None):
+            # a record with no ``rim_relief_max_m`` carries no bank against
+            # airside (spec §56 (3): a unit pad has no collar; master ruling
+            # 2026-10-08 R3 (6)) — only a landing's welded bank reads here
             continue
         ref = str(rec.get("ref", ""))
         mx = float(rec.get("rim_relief_max_m", 0.0) or 0.0)
@@ -7067,18 +7083,21 @@ def _check_platform_rim_relief(platforms_ll) -> List[Violation]:
 
 def _check_pad_frontage(platforms_ll, held: bool) -> List[Violation]:
     """THE FLAT-PAD FRONTAGE HOLD (flat-pad spec §1 (2) / §5 A1; spec-author
-    RULINGS 2026-09-30u (c)) — REPORT, one row per held BLOCK.
+    RULINGS 2026-09-30u (c); spec §56 (3)) — REPORT, one row per held BLOCK.
 
     SIDECAR-DECLARED like ``platform_rim_relief``: the build publishes per
-    held block its solved (pinned) datum and its welded contacts split into
-    the HELD ones (a stage-1 hold row) and the UNHELD ones (a ramp between
-    two blocks, or a contact the mint's band could not reach).
-    ``held=True`` is ``pad_frontage_hold``: a block one of whose HELD
-    contacts stands off the datum by more than ``frontage_hold_margin_m``
-    (``held_over_margin`` > 0), ``de`` = the worst.  ``held=False`` is
-    ``pad_frontage_infeasible``: a block with UNHELD contacts, ``de`` =
-    the worst of them — the residual the collar carries, never a silent
-    class."""
+    held block its solved datum and what the solve did with its frontage
+    welds.  ``held=True`` is ``pad_frontage_hold``: a block one of whose
+    HELD contacts stands off the datum by more than
+    ``frontage_hold_margin_m`` (``held_over_margin`` > 0), ``de`` = the
+    worst.  ``held=False`` is ``pad_frontage_infeasible`` (spec §56 (3)): a
+    block with a frontage weld the elastic LP RELEASED (``released`` > 0) —
+    the pad's rim carries the step; ``de`` = ``released_max_m``,
+    ``distance`` = the count, the site the worst released contact, and
+    ``reading`` says whether the user was WARNED (``"warned"``, over the
+    bar), not (``"not_warned"``, under it) or OVER THE BAR WITH NO LINE
+    (``"unsaid"``: the record lacks a slot of the fixed copy,
+    ``warning_unsaid`` names it) — never a silent class."""
     out: List[Violation] = []
     kind = "pad_frontage_hold" if held else "pad_frontage_infeasible"
     for rec in platforms_ll or ():
@@ -7091,17 +7110,21 @@ def _check_pad_frontage(platforms_ll, held: bool) -> List[Violation]:
             ll = rec.get("hold_worst_ll") or rec.get("centroid_ll") or (0.0, 0.0)
             n = int(rec.get("held_contacts", 0) or 0)
         else:
-            n = int(rec.get("unheld_contacts", 0) or 0)
+            n = int(rec.get("released", 0) or 0)
             if not n:
                 continue
-            de = float(rec.get("unheld_miss_max_m") or 0.0)
-            ll = rec.get("unheld_worst_ll") or rec.get("centroid_ll") or (0.0, 0.0)
+            de = float(rec.get("released_max_m") or 0.0)
+            ll = ((rec.get("released_ll") or [None])[0]
+                  or rec.get("centroid_ll") or (0.0, 0.0))
         way = _platform_way(str(rec.get("ref", "")), kind)
         dat = float(rec.get("datum", 0.0) or 0.0)
         v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=float(n),
                       de_m=de, way_a=way, way_b=way,
                       pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=dat, elev_b=dat)
         v.lat, v.lon = float(ll[0]), float(ll[1])
+        if not held:
+            v.reading = ("warned" if rec.get("warned") else
+                         "unsaid" if rec.get("warning_unsaid") else "not_warned")
         out.append(v)
     return out
 
@@ -7685,7 +7708,8 @@ PAVCAP_WELD_M = 1.0
 
 def _check_pavement_over_road_cap(ways, nodes, ll_to_m,
                                   late_unknown: Optional[set] = None,
-                                  late_floor_m: float = 0.0) -> List[Violation]:
+                                  late_floor_m: float = 0.0,
+                                  weld_nodes: Optional[dict] = None) -> List[Violation]:
     """RULINGS 2026-09-29ac: NO PAVEMENT OF ANY CLASS IS STEEPER THAN THE
     ROAD CAP.  Every pavement vertex pair — consecutive vertices of one
     pavement ring, and vertices of two different pavement rings within
@@ -7727,6 +7751,7 @@ def _check_pavement_over_road_cap(ways, nodes, ll_to_m,
         # WIDENED fallback, ``cap·d + floor`` (the generator's inequality)
         floor = late_floor_m if late_unknown and na in late_unknown \
             and nb in late_unknown else 0.0
+        floor += _weld_give(weld_nodes, na, nb, d)
         if de <= cap * d + noise + floor:
             return
         key = (min((na, za), (nb, zb)), max((na, za), (nb, zb)))
@@ -8898,6 +8923,74 @@ def late_stage_unknown_nodes(ways: List["Way"], late_stage: Optional[dict]) -> s
     return free - held
 
 
+class _WeldNodes(dict):
+    """``{node id: give}`` (:func:`weld_widened_nodes`) carrying ``faces`` —
+    ``{node id: delta}``, the over-cap GRADE of the widened pavement face a
+    node lies on (spec §57 (3) (ii-b))."""
+    faces: Dict[str, float]
+
+    def __bool__(self) -> bool:
+        return bool(len(self) or self.faces)
+
+
+def weld_widened_nodes(nodes, platforms: Optional[list]) -> Dict[str, float]:
+    """WHERE THE PAVEMENT GAVE TO WELD TO A PAD, read off the patch (owner
+    RULINGS 2026-10-08c (4) / 08d (2); spec §57 (3) (ii-b)/(ii-c)), from the
+    sidecar's ``platforms[].weld_widened`` — ``{"floor_m", "delta_pct",
+    "face_nodes": [[lat, lon], ...], "contacts": [[lat, lon, give_m], ...]}``,
+    written by the engine for a held block whose frontage no one flat level
+    reaches by less than the terrace floor (``constraints/weld_floor``).
+
+    Two readings, each the generator's own inequality by the engine's own
+    number, both joined by the canonical 11-decimal identity: a pavement
+    pair whose TWO nodes are ``face_nodes`` — the vertices of the faces the
+    closing contacts touch, the very set the engine widens on (the record's
+    ``faces`` refs name MORE faces than that and are not read) — answers to
+    ``(cap + delta)·d`` (``.faces``: ``{node id: delta}``); a pair NAMING a
+    listed contact (a weld the projection sealed, or one the LP relaxed)
+    answers to ``cap·d + give`` (the mapping itself).  Empty without the
+    record: every family then reads exactly as before."""
+    want: Dict[tuple, float] = {}
+    on_face: Dict[tuple, float] = {}
+    for rec in platforms or ():
+        w = rec.get("weld_widened") if isinstance(rec, dict) else None
+        if not w:
+            continue
+        floor = float(w.get("floor_m") or 0.0)
+        for c in (w.get("contacts") or ()):
+            k = (round(float(c[0]), 11), round(float(c[1]), 11))
+            give = min(float(c[2]), floor) if len(c) > 2 else floor
+            want[k] = max(want.get(k, 0.0), give)
+        delta = float(w.get("delta_pct") or 0.0) / 100.0
+        if delta > 0.0:
+            for c in (w.get("face_nodes") or ()):
+                k = (round(float(c[0]), 11), round(float(c[1]), 11))
+                on_face[k] = max(on_face.get(k, 0.0), delta)
+    out = _WeldNodes()
+    out.faces = {}
+    for nid, ll in (nodes.items() if want or on_face else ()):
+        k = (round(float(ll[0]), 11), round(float(ll[1]), 11))
+        g = want.get(k)
+        if g:
+            out[nid] = g
+        dl = on_face.get(k)
+        if dl:
+            out.faces[nid] = dl
+    return out
+
+
+def _weld_give(weld_nodes: Optional[dict], na, nb, d: float = 0.0) -> float:
+    """What a pair gives where the pavement welds to a misfit pad
+    (:func:`weld_widened_nodes`): the larger contact give of its two nodes,
+    plus ``delta·d`` when BOTH lie on a widened face (the smaller delta)."""
+    if not weld_nodes:
+        return 0.0
+    faces = getattr(weld_nodes, "faces", None) or {}
+    fa, fb = faces.get(na, 0.0), faces.get(nb, 0.0)
+    return (max(weld_nodes.get(na, 0.0), weld_nodes.get(nb, 0.0))
+            + (min(fa, fb) * float(d) if fa and fb else 0.0))
+
+
 def late_stage_floor_m(late_stage: Optional[dict]) -> float:
     """The floor the last stage WIDENED its all-unknown ceilings by (sidecar
     ``late_stage.floor_m``; §55 (5), (15) rule B): the stage's own number,
@@ -9230,6 +9323,7 @@ def _check_within_shape(ways: List[Way],
                         runway_caps_by_ref: Optional[Dict[str, float]] = None,
                         late_unknown: Optional[set] = None,
                         late_floor_m: float = 0.0,
+                        weld_nodes: Optional[dict] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -9272,6 +9366,7 @@ def _check_within_shape(ways: List[Way],
                 for r in (w.ref or "").split("+")))
     _jsc = _junction_stretch_crossings(ways, nodes, stretches_m)
     _son = _stretch_node_index(stretches_m)
+    pad_pairs: list = []                        # §56 (11) R-C
     for c in iter_shape_grade_constraints(
             ways, nodes, ll_to_m, max_grade, seam_nids, taxi_axes, routes_ll,
             mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
@@ -9358,6 +9453,8 @@ def _check_within_shape(ways: List[Way],
             # to ``cap·d + floor`` (``stage_one_map.late_constraints``) —
             # the same inequality read back, by the stage's own number
             allowance += late_floor_m
+        if not c.transverse_road:
+            allowance += _weld_give(weld_nodes, c.nid_a, c.nid_b, c.dist)
         if fan_ramp_zones_m:
             # FAN-RAMP LAW: a within-apron pair lying wholly inside a
             # declared zone is judged at the ZONE's cap — the identical
@@ -9425,8 +9522,51 @@ def _check_within_shape(ways: List[Way],
             transverse_road_out.append(v)
         elif _box and taxi_box_out is not None:
             taxi_box_out.append(v)
+        elif law_role(c.way) == _PAD_VERTEX_ROLE:
+            pad_pairs.append((v, c.nid_a, c.nid_b))
         else:
             out.append(v)
+    return out + _one_row_per_pad_vertex(pad_pairs, nodes)
+
+
+#: spec §56 (11) R-C: the role whose ``within_shape`` rows are read one per
+#: VERTEX — the rigid pad, ONE level plane (11j / 09c).
+_PAD_VERTEX_ROLE = "building"
+
+
+def _one_row_per_pad_vertex(pairs: list, nodes: Dict[str, Tuple[float, float]]
+                            ) -> List[Violation]:
+    """Spec §56 (11) R-C: a pad's ``within_shape`` rows, ONE PER VERTEX.
+
+    A pad is one level plane, so a vertex standing off it (off its own
+    relief target, 11j) is over the cap against EVERY ring partner and
+    the pair reading counts it once per partner — the row count scales
+    with the ring, not with the defect (OTHH: 813 of 1,104 rows on one
+    1,111-vertex way, for six vertices).  ``pairs`` is the over-allowance
+    pairs ``(row, nid_a, nid_b)`` as the pair law priced them; per way the
+    vertex in the most pairs takes ONE row — its worst pair, placed AT the
+    vertex — and its pairs are settled, until none is left.  The pair law
+    and its allowances are untouched: a pad with no pair over has no row,
+    exactly as before."""
+    by_way: Dict[str, list] = {}
+    for item in pairs:
+        by_way.setdefault(str(item[0].way_a.wid), []).append(item)
+    out: List[Violation] = []
+    for _wid, left in sorted(by_way.items()):
+        while left:
+            worst: Dict[str, Violation] = {}
+            count: Dict[str, int] = {}
+            for v, na, nb in left:
+                for n in (na, nb):
+                    count[n] = count.get(n, 0) + 1
+                    if n not in worst or v.de_m > worst[n].de_m:
+                        worst[n] = v
+            nid = max(count, key=lambda n: (count[n], worst[n].de_m, str(n)))
+            row = dataclasses.replace(worst[nid])
+            if nodes.get(nid) is not None:
+                row.lat, row.lon = nodes[nid][0], nodes[nid][1]
+            out.append(row)
+            left = [t for t in left if nid not in (t[1], t[2])]
     return out
 
 
@@ -9449,6 +9589,7 @@ def _check_cross_shape_proximity(
     basin_declared: Optional[list] = None,
     late_unknown: Optional[set] = None,
     late_floor_m: float = 0.0,
+    weld_nodes: Optional[dict] = None,
 ) -> List[Violation]:
     """For every pair of vertices on DIFFERENT ways within
     ``proximity_m`` of each other, verify ``|de| / dist <= grade``.
@@ -9527,6 +9668,7 @@ def _check_cross_shape_proximity(
                     if late_unknown and v.nid in late_unknown \
                             and u.nid in late_unknown:
                         allowance += late_floor_m
+                    allowance += _weld_give(weld_nodes, v.nid, u.nid, d)
                     if terrace_joints_m or basin_declared:
                         allowance += _declared_step_allowance(
                             terrace_joints_m, basin_declared, v.x, v.y,
@@ -11429,6 +11571,12 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # ordinary families; a part-aware reader names a merged-sliver step
     # from this record instead of re-deriving the cut.
     "gap_pieces",
+    # spec §63 (3) Rule T (owner RULINGS 2026-10-09j, sidecar ``pad_touch``,
+    # ``pipeline/publication.pad_touch``): per pad the groundside cells
+    # that TOUCH it in the source geometry and the GAPPED ones with their
+    # gap.  EVIDENCE: ``tools/pad_edge_read.py --source`` classes by it;
+    # the census prices nothing from it.
+    "pad_touch",
     # (``basin_facilities`` was here — an EVIDENCE key nothing read —
     # until the tunnel-trench declared-step law made it LAW INPUT; it now
     # lives in ``SIDECAR_LAW_KEYS`` above.  Its own spec is
@@ -13011,6 +13159,13 @@ def run_checks(
     # spec §55 (15) rule B: the last stage's unknowns and its floor
     _late_unknown = late_stage_unknown_nodes(ways, late_stage)
     _late_floor_m = late_stage_floor_m(late_stage)
+    # RULINGS 2026-10-08d (2): the misfit pads' frontage contacts and the floor
+    _weld_nodes = weld_widened_nodes(nodes, platforms_ll)
+    if _weld_nodes and not quiet:
+        print(f"  pad weld (08d (2)): {len(_weld_nodes)} frontage contact node(s) where the "
+              f"pavement gave to weld (worst {max(_weld_nodes.values(), default=0.0):.3f} m), "
+              f"each on the pavement pairs naming it; {len(_weld_nodes.faces)} node(s) on a "
+              f"widened face (worst +{100.0 * max(_weld_nodes.faces.values(), default=0.0):.2f} pp)")
     if _late_unknown and not quiet:
         print(f"  last stage (§55 (15)): {len(_late_unknown)} unknown node(s), "
               f"floor {_late_floor_m:g} m on unknown|unknown pairs")
@@ -13030,7 +13185,8 @@ def run_checks(
         shoulder_nid_set=_shoulder_nids,
         shoulder_cap=shoulder_transverse_max,
         runway_caps_by_ref=_runway_caps_by_ref,
-        late_unknown=_late_unknown, late_floor_m=_late_floor_m))
+        late_unknown=_late_unknown, late_floor_m=_late_floor_m,
+        weld_nodes=_weld_nodes))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into
@@ -13283,7 +13439,7 @@ def run_checks(
     pav_cap = _fam("pavement_over_road_cap",
                    _check_pavement_over_road_cap(
                        ways, nodes, ll_to_m, late_unknown=_late_unknown,
-                       late_floor_m=_late_floor_m))
+                       late_floor_m=_late_floor_m, weld_nodes=_weld_nodes))
     _pv("PAVEMENT pair steeper than the ROAD cap (owner RULINGS "
         "2026-09-29ac: the road grade cap is the fallback ceiling of every "
         "pavement class; ring edges + welded neighbours <= 1 m)",
@@ -13481,7 +13637,7 @@ def run_checks(
         # precedent, same reason).
         [w for cls in _NO_STEP_POLYLINE_FEATURES
          for w in open_features.get(cls, [])],
-        ways, nodes, ll_to_m)
+        ways, nodes, ll_to_m, weld_nodes=_weld_nodes)
     no_step_rate_rows, n_ns_st, n_ns_ways = _check_airside_no_step_rate(
         ways,
         [w for cls in _NO_STEP_POLYLINE_FEATURES
@@ -13645,7 +13801,8 @@ def run_checks(
     cross = _fam("cross_shape", _check_cross_shape_proximity(
         vertices, ways, proximity_m, max_grade,
         terrace_joints_m=terrace_joints_m, basin_declared=basin_declared,
-        late_unknown=_late_unknown, late_floor_m=_late_floor_m))
+        late_unknown=_late_unknown, late_floor_m=_late_floor_m,
+        weld_nodes=_weld_nodes))
     _pv(f"CROSS-SHAPE proximity (≤ {proximity_m}m) "
         f"grade > {max_grade_pct}%",
         cross, top_n)

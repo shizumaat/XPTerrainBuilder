@@ -1,0 +1,67 @@
+--- /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/0ec4326d-10bf-4753-bd1b-ca41fda6bcd1/scratchpad/pads61/evidence.py.pre_f0	2026-10-08 05:30:49
++++ src/auto_patch_v2/classify/evidence.py	2026-10-08 05:36:37
+@@ -591,10 +591,31 @@
+     CLUSTER_PADS["deck_shade_m2"] = round(shades.area, 1) if shades is not None else 0.0
+     CLUSTER_PADS["area_m2"] = round(sum(g.area for _i, _c, g in got), 1)
+     return [g for _i, _c, g in got]
++
++
+ 
+ 
++_PF0_MEMO: dict = {}
+ 
+ 
++def _PF0(airport, law, q) -> bool:
++    if id(airport) not in _PF0_MEMO:
++        st = law.tables.structures.placement
++        to_xy = airport.frame.entry()
++        got, _c = cluster_outlines(
++            airport.clusters, to_xy, float(st.footprint_touch_m),
++            walled_only=True, min_m2=float(st.cluster_pad_min_m2),
++            shades=deck_shades(getattr(airport, "partition", None), to_xy),
++            bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)),
++            admission=pad_admission(law),
++            osm_evidence=cluster_building_evidence(
++                getattr(airport, "buildings", ()) or ()))
++        _PF0_MEMO.clear()
++        _PF0_MEMO[id(airport)] = unary_union(
++            [Polygon(g.exterior) for _i, _c2, g in got])
++    return _PF0_MEMO[id(airport)].covers(q)
++
++
+ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
+           pavement_union, runway_union, law=None, cache=None
+           ) -> tuple[list[tuple[str, Polygon]], int, list[str]]:
+@@ -736,6 +757,8 @@
+                 if host:
+                     k = max(host, key=lambda i: parts[i].area)
+                     merged = parts[k].union(q)
++                    # ARM PF0 (pads61 attribution, NOT LANDED): only a
++                    # remnant the RULE-2 outline already touched joins
+                     if merged.geom_type == "Polygon":
+                         parts[k] = merged
+                         continue
+@@ -745,9 +768,23 @@
+             parts.extend(polygon_parts(fb))
+     # #6: NEVER ONE SHAPE INSIDE ANOTHER, cluster or fallback alike, read on
+     # the shells the arrangement's sliver weld will close (lane nestedpads)
++    _pre = list(parts)
+     parts = _absorb_enclosed(
+         parts, float(law.tables.emit.identity.weld_spacing_m)
+         if law is not None else 0.0)
++    # ARM PF1 (pads61 attribution, NOT LANDED): a fallback remnant the
++    # RULE-2 outline did not touch is not merged by the enclosure rule
++    for q0 in _pre[len(cluster_pads):]:
++        if any(q0.equals(g) for g in parts) or _PF0(airport, law, q0):
++            continue
++        rp = q0.representative_point()
++        for k, g in enumerate(parts):
++            if g.covers(rp):
++                rest = polygon_parts(g.difference(q0.buffer(0.02)))
++                parts[k:k + 1] = rest + [q0]
++                print(f"[PF1] un-merged a {q0.area:.0f} m2 fallback remnant "
++                      f"from a {g.area:.0f} m2 pad", flush=True)
++                break
+     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
+     # RULINGS 2026-09-14ax: THE PAD CLIP IS THE ARRANGEMENT'S, NOT THIS
+     # SITE'S.  Round 1 clipped every pad here by ``runway_union |

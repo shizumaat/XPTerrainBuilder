@@ -183,9 +183,11 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "hard_conflict",
     # jetway-strip spec §2 (6): per strip its level, vertices, clamps
     "jetway_strips",
-    # unit-platform spec §3 P21 / §4 (5): per platform its collar width,
-    # its solved plane and the relief its welded rim carries; per refused
-    # pad the reason (census ``platform_rim_relief`` / ``platform_refused``)
+    # unit-platform spec §3 P21 / §4 (5); spec §56 (3): per unit pad / block
+    # its solved plane, datum and frontage record (``released``, ``warned``,
+    # ``warning`` — no collar key); per landing its bank; per refused pad the
+    # reason (census ``pad_frontage_infeasible`` / ``platform_rim_relief`` /
+    # ``platform_refused``)
     "platforms",
     "apron_tier",  # RULINGS 2026-09-06w: the tiered apron law priced (preferred / max / fan) — the oracle's cap for apron rows (``publication.apron_tier``)
     "pad_cluster_mismatch",  # §16g (10) (3) (owner RULINGS 2026-09-14x): the CRITICAL defect set — a pad more than half claimed by two clusters, or a cluster that is more than half of two pads.  "Pads must match building clusters ... exactly"; empty is the bar (``pipeline/publication`` off ``constraints.cluster_pad.pad_cluster_mismatch``)
@@ -198,12 +200,21 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # (``pipeline/publication.gap_pieces``).  EVIDENCE, not law input;
     # written only by a build that ran the last stage.
     "gap_pieces",
+    # spec §63 (3) Rule T (owner RULINGS 2026-10-09j): per pad the
+    # groundside cells TOUCHING it in the source geometry and the GAPPED
+    # ones with their gap (``pipeline/publication.pad_touch``).  EVIDENCE
+    "pad_touch",
     # spec §55 (15) rule B: what the last stage USED — ``{"floor_m",
     # "followers"}`` (``pipeline/publication.late_stage``).  LAW INPUT
     # (``check_grade.SIDECAR_LAW_KEYS``): the census prices a pair of two
     # last-stage unknowns at ``cap·d + floor_m``.  Written only by a build
     # that ran the last stage.
     "late_stage",
+    # spec §56 (10) R-L (#290, owner RULINGS 2026-10-03e): one record per
+    # minted ramp LANDING — ref, its unit's block, the deck, the deck's
+    # authored ``y`` there and the solved level
+    # (``pipeline/publication._landings``).  EVIDENCE, not law input.
+    "landings",
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

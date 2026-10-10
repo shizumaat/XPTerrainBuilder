@@ -43,7 +43,7 @@ from ..law.tables import pavement_roles, role_side
 from ..model.airport import Airport
 from ..model.constraints import Row, Source
 from ..model.map_memo import per_map
-from ..model.planar import PlanarMap, is_collar_ref
+from ..model.planar import PlanarMap, is_bank_ref, pad_base_ref
 from .groundside import groundside_face_roles
 from .pads import (_pad_polys, _two_sided, design_law, frontage_radius_m,
                    pad_frontage, pad_fronts_airside, rigid_roles)
@@ -176,15 +176,15 @@ def _unit_outline(planar: PlanarMap, pad_poly: Polygon,
     for v in rim:
         for q in planar.vertices[v].incident_faces:
             f = planar.faces.get(q)
-            if f is not None and is_collar_ref(f.ref):
-                bases.add(str(f.ref).split("#")[0])
+            if f is not None and is_bank_ref(f.ref):
+                bases.add(pad_base_ref(f.ref))
     if len(bases) != 1:
         return pad_poly, rim
     base = next(iter(bases))
     from shapely.ops import unary_union
     polys, vs = [], set(rim)
     for f in planar.faces.values():
-        if str(f.ref).split("#")[0] != base:
+        if pad_base_ref(f.ref) != base:
             continue
         ring = planar.ring_vertices(f.ring)
         holes = [planar.ring_vertices(h) for h in (f.holes or ())]
@@ -354,6 +354,14 @@ def groundside_frontage(planar: PlanarMap, law: Law
     A groundside face fronting no such pad is absent here and keeps every
     level it has today.
 
+    A FACE WELDED TO THE PAD'S RIM IS NOT A FRONTAGE EITHER (spec §63 (4)
+    (iii), owner RULINGS 2026-10-09j): a cell that touches a pad in the
+    source geometry shares the rim's vertices (``classify/pad_touch``,
+    ``planar/weld``), which are the pad's own columns — the relation is
+    stated by identity and no row is minted for the pair.  What remains
+    here is the face standing OFF an airside-fronting pad inside the
+    radius.
+
     A HILLSIDE TERRACE IS NOT A FRONTAGE (§28 (6), owner RULINGS
     2026-09-13o/13p, the quantity re-based on the pad's AIRSIDE FRONTAGE
     by 2026-09-18c (1)).  A pair whose :func:`pair_dem_step_m` exceeds
@@ -391,6 +399,12 @@ def groundside_frontage(planar: PlanarMap, law: Law
         got: list[tuple[int, str, float, list[int], list[int]]] = []
         for pi in cand:
             pid, pref, pgroup, ppoly = pads[int(pi)]
+            if gvs & set(pgroup):
+                # WELDED AT THE RIM (spec §63 (4) (iii), owner RULINGS
+                # 2026-10-09j): a face that shares the pad's rim already
+                # stands at the pad's level there — a shared column needs
+                # no row, and the face grades away under its own cap
+                continue
             front = {v for v in gvs - set(pgroup) - airside
                      if ppoly.distance(Point(*xy[v])) <= r}
             if not front:

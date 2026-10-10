@@ -1,0 +1,35 @@
+[OTHH] (a) cluster pads rule 2 56 -> rule 2b 52; still_in_pieces 17 -> 12; thin_dropped 255 -> 274; outline vertices 6133 -> 2424 over 66 outlines
+  lost: [('unit:16#0/3', 53), ('unit:24#0/3', 170), ('unit:84#3/2', 67), ('unit:84#3/3', 92), ('unit:84#3/4', 194)]
+  new : [('unit:35#67', 1944)]
+  joined_from: {'unit:16#0/2': ['unit:16#0/2', 'unit:16#0/3'], 'unit:24#0/0': ['unit:24#0/0', 'unit:24#0/1', 'unit:24#0/3'], 'unit:84#3/0': ['unit:84#3/0', 'unit:84#3/1', 'unit:84#3/2', 'unit:84#3/3'], 'unit:84#3/1': ['unit:84#3/4']}
+  multipolygons: []
+  same-id pads growing > 5 %: [('unit:25#4', 10.3), ('unit:16#0/0', 5.5), ('unit:16#0/1', 9.8), ('unit:16#0/2', 6.8), ('unit:28#8/1', 11.5), ('unit:28#8/2', 5.2), ('unit:28#8/3', 11.7), ('unit:24#0/0', 9.7), ('unit:75#0', 8.2), ('unit:84#3/1', 189.8), ('unit:3#20', 8.1), ('unit:21#1', 23.7), ('unit:3#17', 5.3)]
+  unit:28#8/0: {'outline_vertices': 552, 'outline_simplified_from': 1315, 'outline_joined_from': []} holes 4 area 477,247
+[OTHH] (b) classify x2 311 s; cells 764 -> 739; roads absorbed 26 into 7 pads; kept 14; recuts 36; gap pieces 266 -> 249
+  changed cells in the arm: 44 {'absorbing_pad': 7, 'recut_neighbour': 33, 'gap_piece': 4, 'OTHER': 0}; OTHER: []
+  base cells not in the arm: 69 {'absorbed_road': 26, 'pad': 7, 'gap_piece': 3, 'recut': 33}
+  pads: 34; absorbing 7; non-absorbing pads byte-identical 27 of 27
+    building6: 15 roads ['route22', 'route25', 'route26', 'route27', 'route31', 'route32', 'route33', 'route41', 'small_roads:-9728', 'small_roads:-9728#1', 'small_roads:-9716', 'small_roads:-9714', 'small_roads:-9698', 'small_roads:-9697', 'small_roads:-3368']; area 477,247 -> 480,507 (+0.7 %); vertices 954 -> 643
+    building14: 2 roads ['small_roads:-3387', 'small_roads:-3387#1']; area 8,713 -> 8,946 (+2.7 %); vertices 4 -> 14
+    building15: 3 roads ['small_roads:-8085', 'small_roads:-8084', 'small_roads:-2407']; area 62,987 -> 63,195 (+0.3 %); vertices 23 -> 41
+    building17: 1 roads ['small_roads:-8037']; area 11,997 -> 12,295 (+2.5 %); vertices 24 -> 30
+    building20: 1 roads ['small_roads:-2558#1']; area 3,535 -> 3,614 (+2.2 %); vertices 14 -> 19
+    building25: 1 roads ['small_roads:-7945#1']; area 3,564 -> 3,628 (+1.8 %); vertices 21 -> 23
+    building33: 3 roads ['small_roads:-7916', 'small_roads:-7915#1', 'small_roads:-7914']; area 129,974 -> 130,020 (+0.0 %); vertices 10 -> 23
+  kept: [('route19', 'building6', 'wall_extended_route'), ('route28', 'building6', 'wall_extended_route'), ('route29', 'building6', 'wall_extended_route'), ('route30', 'building6', 'wall_extended_route'), ('route36', 'building6', 'wall_extended_route'), ('route38', 'building6', 'wall_extended_route'), ('route39', 'building6', 'wall_extended_route'), ('route40', 'building6', 'wall_extended_route'), ('route42', 'building6', 'wall_extended_route'), ('route43', 'building6', 'wall_extended_route'), ('route44', 'building6', 'wall_extended_route'), ('route45', 'building6', 'wall_extended_route'), ('route48', 'building6', 'wall_extended_route'), ('route52', 'building6', 'wall_extended_route')]
+  wall_extended area 18,089 m2; keep_out area 46,475 m2
+    kept route19 (pad building6, wall_extended_route): road area 246 m2, overlap with the reason's geometry 26.5 m2 (11 %)
+    kept route28 (pad building6, wall_extended_route): road area 65 m2, overlap with the reason's geometry 33.1 m2 (51 %)
+    kept route29 (pad building6, wall_extended_route): road area 185 m2, overlap with the reason's geometry 38.3 m2 (21 %)
+    kept route30 (pad building6, wall_extended_route): road area 99 m2, overlap with the reason's geometry 15.4 m2 (16 %)
+    kept route36 (pad building6, wall_extended_route): road area 341 m2, overlap with the reason's geometry 77.8 m2 (23 %)
+    kept route38 (pad building6, wall_extended_route): road area 289 m2, overlap with the reason's geometry 21.4 m2 (7 %)
+    kept route39 (pad building6, wall_extended_route): road area 112 m2, overlap with the reason's geometry 3.5 m2 (3 %)
+    kept route40 (pad building6, wall_extended_route): road area 39 m2, overlap with the reason's geometry 0.0 m2 (0 %)
+    kept route42 (pad building6, wall_extended_route): road area 145 m2, overlap with the reason's geometry 0.8 m2 (1 %)
+    kept route43 (pad building6, wall_extended_route): road area 265 m2, overlap with the reason's geometry 6.0 m2 (2 %)
+    kept route44 (pad building6, wall_extended_route): road area 329 m2, overlap with the reason's geometry 14.3 m2 (4 %)
+    kept route45 (pad building6, wall_extended_route): road area 319 m2, overlap with the reason's geometry 21.7 m2 (7 %)
+    kept route48 (pad building6, wall_extended_route): road area 133 m2, overlap with the reason's geometry 31.1 m2 (23 %)
+    kept route52 (pad building6, wall_extended_route): road area 132 m2, overlap with the reason's geometry 10.9 m2 (8 %)
+  site (25.259994, 51.6104872, 150.0): road cells 17 -> 10; absorbed there ['route41', 'small_roads:-9697', 'small_roads:-9698', 'small_roads:-9714', 'small_roads:-9716', 'small_roads:-9728', 'small_roads:-9728#1']; left ['route36', 'route37', 'route38', 'route39', 'route40', 'route42', 'route43', 'route44', 'route45', 'small_roads:-8407']

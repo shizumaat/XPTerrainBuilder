@@ -53,6 +53,17 @@ quoting one number would be the two-instruments trap (memory
                 2026-10-04, issue #353 — a pad-only mover that v1's
                 frame read as solve-owned reads as row-side only here).
 
+  STRUCTURE     (its own line, beside the two above; lane pads65) every
+                node of a STRUCTURE: a way whose role the law marks
+                ``structure = true`` (``law.tables.is_structure_role`` —
+                the ramps, the trenches, a retaining wall) and every
+                ``o4_feature = structure_rim`` breakline (a wall's or a
+                basin's TOP RIM, keyed by the kind its ``ref`` names:
+                ``structure_rim:tunnel_wall``, ``structure_rim:basin_wall``).
+                A rim breakline carries NO role, so neither frame above
+                reads it: 28 wall-top vertices fell up to 1.35 m at three
+                OTHH ramp portals and the solve-owned frame read 0 movers.
+
 THE ROAD-WELD SPLIT.  Each moved solve-owned node is additionally
 classified by whether any way claiming it is in the ROAD FAMILY: a shared
 (welded) vertex is the channel a groundside pull travels down, and a moved
@@ -172,7 +183,44 @@ def read_patch(path):
     return {k: (frozenset(rs), alt.get(k)) for k, rs in roles.items()}
 
 
+#: the role-less breakline class that carries a structure's top rim
+STRUCTURE_RIM_FEATURE = "structure_rim"
+
+
+def read_structure(path):
+    """``{key: (kinds, alt_or_None)}`` — THE STRUCTURE FRAME's nodes: every
+    node of a way whose role is a structure role of the law, and every node
+    of a ``structure_rim`` breakline (kind ``structure_rim:<ref head>``).
+    The role set is IMPORTED (``law.tables.is_structure_role``), the
+    breaklines come from the harness reader's own ``feature_out``."""
+    cg = _check_grade()
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import is_structure_role
+    law = Law.for_airport("XXXX")
+    struct = {r for r in law.tables.precedence.roles if is_structure_role(law, r)}
+    feats: dict = {}
+    nodes, ways = cg._parse_osm(Path(path), feats)
+    kinds: dict = {}
+    alt: dict = {}
+    tagged = [(w.role, w) for w in ways if w.role in struct]
+    tagged += [(f"{STRUCTURE_RIM_FEATURE}:{str(w.ref).split(':')[0]}", w)
+               for w in feats.get(STRUCTURE_RIM_FEATURE, ())]
+    for kind, w in tagged:
+        for nid, e in zip(w.nids, w.elevs):
+            ll = nodes.get(nid)
+            if ll is None:
+                continue
+            key = (f"{ll[0]:.11f}", f"{ll[1]:.11f}")
+            kinds.setdefault(key, set()).add(kind)
+            if e is not None:
+                v = round(float(e), 6)
+                alt[key] = v if key not in alt else max(alt[key], v)
+    return {k: (frozenset(ks), alt.get(k)) for k, ks in kinds.items()}
+
+
 def _frame_members(patch, frame, gs, solve_air):
+    if frame == "structure":
+        return set(patch)
     if frame == "row-side":
         return {k for k, (rs, _a) in patch.items() if not (rs <= gs)}
     return {k for k, (rs, _a) in patch.items() if rs & solve_air}
@@ -203,7 +251,12 @@ def compare(a_path, b_path, tol_m: float = DEFAULT_TOL_M) -> dict:
     plateau = plateau_nodes(a_path) | plateau_nodes(b_path)
     out = {"a": str(a_path), "b": str(b_path), "tol_m": float(tol_m),
            "frames": {}}
-    for frame in ("row-side", "solve-owned"):
+    PA, PB = A, B
+    for frame in ("row-side", "solve-owned", "structure"):
+        if frame == "structure":
+            A, B = read_structure(a_path), read_structure(b_path)
+        else:
+            A, B = PA, PB
         sa = _frame_members(A, frame, gs, solve_air)
         sb = _frame_members(B, frame, gs, solve_air)
         both = sa & sb
@@ -222,7 +275,9 @@ def compare(a_path, b_path, tol_m: float = DEFAULT_TOL_M) -> dict:
         moved.sort(key=lambda r: -r["dz_m"])
         by_fam: dict = {}
         for r in moved:
-            r["family"] = family_of(r["roles"], fams)
+            # the structure frame's family is the structure KIND itself
+            r["family"] = ("+".join(r["roles"]) if frame == "structure"
+                           else family_of(r["roles"], fams))
             f = by_fam.setdefault(r["family"], {"n": 0, "worst_dz_m": 0.0,
                                                 "worst": None})
             f["n"] += 1
@@ -330,10 +385,13 @@ def _print(res, top: int) -> None:
     print(f"  materiality {res['tol_m']} m; canonical 11-decimal lat/lon "
           f"join (never proximity)")
     for frame, f in res["frames"].items():
-        label = ("row-side (census row_side partition; soft-receiver "
-                 "terrain roles included)" if frame == "row-side"
-                 else "solve-owned airside pavement (v2 §20b stage 1: "
-                      "law.tables.airside_stage_roles)")
+        label = {"row-side": "row-side (census row_side partition; "
+                             "soft-receiver terrain roles included)",
+                 "structure": "structures (law structure roles + the "
+                              "structure_rim breaklines: rims, walls, "
+                              "ramps, trenches, basins)"}.get(
+            frame, "solve-owned airside pavement (v2 §20b stage 1: "
+                   "law.tables.airside_stage_roles)")
         print(f"\n  FRAME {frame} — {label}")
         print(f"    nodes: A={f['n_a']} B={f['n_b']} in BOTH={f['n_both']}"
               f"   A-only={f['a_only']} B-only={f['b_only']}"
@@ -345,10 +403,12 @@ def _print(res, top: int) -> None:
               f"family, {f['no_road_contact']} with no road contact "
               f"(soft-receiver adoption)")
         fam = f.get("families") or {}
-        print("    by family (flat-pad spec §4: runway bar 0): " + ", ".join(
+        print(("    by structure kind: " if frame == "structure" else
+               "    by family (flat-pad spec §4: runway bar 0): ") + ", ".join(
             f"{k} {fam[k]['n']} (worst {fam[k]['worst_dz_m']:.3f} m @"
             f"{fam[k]['worst'][0]},{fam[k]['worst'][1]})"
-            for k in ("runway", "strip", "taxi", "apron", "other") if k in fam))
+            for k in (("runway", "strip", "taxi", "apron", "other")
+                      if frame != "structure" else sorted(fam)) if k in fam))
         if f["n_no_value"]:
             print(f"    nodes with NO emitted altitude on one side: "
                   f"{f['n_no_value']} (reported, never counted as 0.0)")

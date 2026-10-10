@@ -41,6 +41,7 @@ from .structures import Basin, Channel, Tunnel
 __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
            "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "BLOCK_SEP",
+           "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
@@ -78,10 +79,42 @@ def plateau_block_of(ref: object) -> "str | None":
     return r[i + len(PLATEAU_MARK):] if i >= 0 else None
 
 
+#: spec §56 (3) (owner RULINGS 2026-10-07b (4)): the ref suffix of the
+#: INTER-BLOCK TERRACE STRIP of a unit cut into flat blocks — the 1:3 bank
+#: between two blocks' floors, INSIDE the footprint (``planar/platform.
+#: _mint_blocks``; ``<unit>/b<k>#strip``).  It is not a collar: it carries
+#: its own rows (``constraints/platform.block_strip_rows``).
+STRIP_SUFFIX = "#strip"
+
+
+def is_strip_ref(ref: object) -> bool:
+    """Is this face ref an inter-block terrace STRIP (spec §56 (3))?"""
+    return str(ref).endswith(STRIP_SUFFIX)
+
+
+def is_bank_ref(ref: object) -> bool:
+    """Is this face a 1:3 BANK of a pad — a collar or an inter-block strip?
+    The readers that skip one (over every cap by law) skip the other."""
+    return is_collar_ref(ref) or is_strip_ref(ref)
+
+
 def platform_ref_of(ref: object) -> str:
-    """The PLATFORM face's ref of a collar ref (the ref itself otherwise)."""
+    """The PLATFORM face's ref of a collar or strip ref (the ref itself
+    otherwise)."""
     r = str(ref)
-    return r[:-len(COLLAR_SUFFIX)] if r.endswith(COLLAR_SUFFIX) else r
+    for suf in (COLLAR_SUFFIX, STRIP_SUFFIX):
+        if r.endswith(suf):
+            return r[:-len(suf)]
+    return r
+
+
+def pad_base_ref(ref: object) -> str:
+    """THE PAD IS ITS BASE REF: everything before the tree's split
+    spelling ``#`` — a surplus piece ``building38#1``, a collar, a strip
+    all read as the pad they were cut from.  NOT :func:`platform_ref_of`
+    (which keeps a surplus piece's ``#k``); the grammar's one site for the
+    join every pad reader used to spell ``ref.split("#")[0]``."""
+    return str(ref).split("#", 1)[0]
 
 
 #: flat-pad spec §2 as ruled 2026-09-30r (Q-111b option (1)): a unit

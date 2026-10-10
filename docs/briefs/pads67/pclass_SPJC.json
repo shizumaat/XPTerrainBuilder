@@ -1,0 +1,146 @@
+[
+ {
+  "k": "T28",
+  "pad": "building24",
+  "site": [
+   -12.023829563,
+   -77.10702051901
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:dsf:pol36#1",
+  "dist": 1.78,
+  "step": 3.89,
+  "off": 3.98,
+  "grade": 0.0,
+  "welded": 39,
+  "datum": 24.352,
+  "band": [
+   17.398,
+   29.049
+  ],
+  "dem_step": 3.66,
+  "rim": 24.35,
+  "ground": 4.06,
+  "tj_dist": 1000000000.0,
+  "tj": null
+ },
+ {
+  "k": "T28",
+  "pad": "building24",
+  "site": [
+   -12.02170524775,
+   -77.10814552416
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "groundside_pavement:dsf:pol37#1",
+  "dist": 1.6,
+  "step": 3.22,
+  "off": 3.3,
+  "grade": 0.0,
+  "welded": 39,
+  "datum": 24.352,
+  "band": [
+   17.398,
+   29.049
+  ],
+  "dem_step": 3.03,
+  "rim": 24.35,
+  "ground": 3.4,
+  "tj_dist": 1000000000.0,
+  "tj": null
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building52",
+  "site": [
+   -12.01274239189,
+   -77.11289790208
+  ],
+  "n": 2,
+  "L": 32.0,
+  "cell": "groundside_pavement:facstrip:building53:10",
+  "dist": 1.79,
+  "step": -2.25,
+  "off": -2.25,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 22.44,
+  "ground": -1.86,
+  "tj_dist": 1000000000.0,
+  "tj": null
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building28",
+  "site": [
+   -12.0196261139,
+   -77.10861850519
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "parking_lot:dsf:pol68",
+  "dist": 1.63,
+  "step": 1.66,
+  "off": 1.66,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 22.97,
+  "ground": 1.84,
+  "tj_dist": 1000000000.0,
+  "tj": null
+ },
+ {
+  "k": "GS-NEAR",
+  "pad": "building46",
+  "site": [
+   -12.01484864666,
+   -77.11161686035
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "service_road:dsf:pol74",
+  "dist": 2.62,
+  "step": 1.29,
+  "off": 1.29,
+  "grade": 0.0,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 20.19,
+  "ground": 1.28,
+  "tj_dist": 1000000000.0,
+  "tj": null
+ },
+ {
+  "k": "AIR-TOUCH",
+  "pad": "building11",
+  "site": [
+   -12.02998110328,
+   -77.10661168615
+  ],
+  "n": 1,
+  "L": 0,
+  "cell": "apron:pav40",
+  "dist": 0.0,
+  "step": 0.0,
+  "off": -1.08,
+  "grade": 38.2,
+  "welded": null,
+  "datum": null,
+  "band": null,
+  "dem_step": null,
+  "rim": 30.5,
+  "ground": 0.29,
+  "tj_dist": 1000000000.0,
+  "tj": null
+ }
+]

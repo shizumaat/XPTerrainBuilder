@@ -198,6 +198,11 @@ def test_an_unreachable_near_miss_contact_is_a_reported_needs_split(law, built,
     assert min(abs(D - 700.5), abs(D - 701.5)) <= near_tol, D
     kept = rim if abs(D - 700.5) <= near_tol else near
     assert max(abs(z[v] - D) for v in kept) <= near_tol
+    # RULINGS 2026-10-08d (2) / 2026-10-09c (2a): the 0.5 m misfit is under the
+    # terrace floor, but the contacts that close the set are TWO FIXED points
+    # that DISAGREE — neither can give and neither can dictate: nothing is
+    # widened, the block stays the solve's and the warning is the owner's read
+    assert rec["misfit_m"] == 0.5 and rec["weld_widened"] is None
     rel = {tuple(k) for k in rec["released_ll"]}
     lost = near if kept is rim else rim
     assert {tuple(pm.vertices[q].key) for q in lost} & rel
@@ -207,3 +212,75 @@ def test_an_unreachable_near_miss_contact_is_a_reported_needs_split(law, built,
             and "building_pad" in r["row"]]
     assert not conf, conf
     assert any("frontage_hold" in r["row"] for r in HARD_CONFLICT)
+
+def test_a_fixed_frontage_contact_dictates_the_level_and_the_pavement_welds_to_it(
+        law, built, registry):
+    """Owner RULINGS 2026-10-09c (2a) (spec §57 (3) (ii-d)): the rim is PINNED
+    at 700.5 m; the near-miss frontage's apron (apronC) is held 1.0 m up at
+    its far edge 39.5 m away, so at its 1.5 % cap its contacts stop 0.4 m
+    short of the rim's level.  The fixed contact does not give — it DICTATES:
+    D = 700.5, and apronC welds to it under ONE over-cap grade on that face
+    (the least that reaches: 1.0 m over 39.5 m = 2.53 %, +1.03 pp).  Nothing
+    is released, nothing warned."""
+    from auto_patch_v2.constraints.platform import _conforming_records
+    pm, cs, _h = built
+    lw = _arm(law, staged_solve=True)
+    near = sorted(e for e, *_r in _near(pm, law))
+    pad = {v for f in pm.faces.values() if f.ref == "padB"
+           for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
+    rim = sorted(v for v in pad if any(pm.faces[q].ref in ("apronA", "apronD")
+                                       for q in pm.vertices[v].incident_faces))
+    far = sorted({v for f in pm.faces.values() if f.ref == "apronC"
+                  for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
+                 - set(near) - pad)
+    src = Source("fixture", "nearmiss148 twin anchor", ())
+    pins = [Pin(v, 700.5, src) for v in rim] + [Pin(q, 701.5, src) for q in far]
+    z, _rep = _solve(pm, ConstraintSet.from_rows([*cs.rows(), *pins]), lw)
+    rec = {r["ref"]: r for r in _conforming_records(pm, lw, z)}["padB"]
+    w = rec["weld_widened"]
+    assert w and w["fixed_level_m"] == 700.5 and w["faces"] == ["apronC"]
+    assert 1.0 <= w["delta_pct"] <= 1.1 and w["rows"] > 0 and w["runway_rows_kept"] == 0
+    # the census joins by the vertices of the faces the closing contacts
+    # touch — the widened set itself, every one a vertex of a listed face
+    on = {(round(pm.vertices[v].key[0], 11), round(pm.vertices[v].key[1], 11))
+          for f in pm.faces.values() if f.ref == "apronC"
+          for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
+    got = {tuple(k) for k in w["face_nodes"]}
+    assert got and got <= on and {(round(pm.vertices[v].key[0], 11),
+                                   round(pm.vertices[v].key[1], 11)) for v in near} <= got
+    assert abs(rec["datum"] - 700.5) <= 0.01
+    assert rec["released"] == 0 and not rec["needs_split"] and not rec["warned"]
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    assert max(abs(z[v] - rec["datum"]) for v in near) <= tol + 1e-6
+
+
+def test_a_plateau_vertex_inside_the_sliver_is_a_held_contact(monkeypatch):
+    """Lane pads65 (SPJC ``building5``, -12.02473811380, -77.11902772614): a
+    vertex of the block's PLATEAU that is a near-miss frontage endpoint
+    (within ``frontage_near_miss_m`` of the pad, bound to a vertex on the
+    datum) is a frontage contact — it leaves ``plateau_vertices`` (the hold
+    skips those: an apron-interior vertex is never pulled, 02ag) and is held.
+    A plateau vertex another block's contact, a far endpoint and an interior
+    plateau vertex stay as they were."""
+    import types
+    from auto_patch_v2.constraints import platform as P
+    from auto_patch_v2.model.platform import HELD
+    law = Law.for_airport("ZZZZ")
+    saved = dict(HELD)
+    HELD.clear()
+    HELD["padX"] = {"plateau_vertices": [5, 6, 7]}
+    face = types.SimpleNamespace(ref="padX", role="building", ring=(), holes=())
+    pm = types.SimpleNamespace(faces={0: face})
+    # (endpoint, nearest pad vertex, pad face, distance, cap, soft face)
+    monkeypatch.setattr("auto_patch_v2.constraints.pads.frontage_contacts",
+                        lambda _pm, _law: [(5, 2, 0, 0.98, 0.015, 9),     # in the sliver
+                                           (6, 2, 0, 9.86, 0.015, 9),     # a far endpoint
+                                           (8, 2, 0, 0.50, 0.015, 9)])    # no plateau: joins
+    try:
+        (p, dv, w, n_all, n_r), = P._with_near_miss(pm, law, [("padX", 1, [2, 3, 5, 6, 7], 2, 0)])
+        assert sorted(w) == [2, 3, 5, 6, 7, 8] and (p, dv, n_all, n_r) == ("padX", 1, 2, 0)
+        assert HELD["padX"]["plateau_vertices"] == [6, 7]
+        assert HELD["padX"]["near_miss_contacts"] == [5, 8]
+    finally:
+        HELD.clear()
+        HELD.update(saved)

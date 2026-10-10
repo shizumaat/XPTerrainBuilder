@@ -1320,6 +1320,11 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         # ``engine_v2.v2_line_verbosity``).
         for _ln in r.get("log_lines") or ():
             UI.vprint(_engine_v2.v2_line_verbosity(_ln), "   [v2]", _ln)
+        # spec §56 (3) (owner RULINGS 2026-10-07c (6) "warn and explain"):
+        # one warning-level line per building pad the apron could not be
+        # welded to within the grade caps — the app renders it
+        for _w in r.get("warnings") or ():
+            UI.loud_warning("   Auto-patch: " + icao + ": " + _w)
         auto_patched.append(icao)
         if r.get("verify_err"):
             UI.lvprint(0, "   Auto-patch: verification error for", icao,

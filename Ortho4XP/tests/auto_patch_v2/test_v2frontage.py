@@ -297,3 +297,36 @@ def test_a_groundside_face_fronting_no_pad_mints_nothing(law):
     pm, airport = _built(law, cells)
     assert groundside_frontage(pm, law) == {}
     assert groundside_frontage_level(pm, law, airport) == []
+
+
+# ── spec §63 (5) Rule S: a pad's seat never comes from groundside ────────
+
+def _landside_cells():
+    """A pad with NO airside frontage, a service road 1 m south of it and
+    a parking lot 1 m north — HECA ``building12`` between ``route3`` and
+    ``parking_lot:pav57`` in miniature."""
+    return [Cell(0, "runway", "09/27",
+                 _rect(-RUN_LEN / 2, -HALF_W, RUN_LEN / 2, HALF_W),
+                 (), 3, "D", "airside", "runway", {}),
+            Cell(1, "building", "padL", _rect(-40.0, 300.0, 40.0, 340.0), (),
+                 None, None, "airside", "pad", {}),
+            Cell(2, "service_road", "roadL", _rect(-120.0, 291.0, 120.0, 299.0),
+                 (), None, None, "groundside", "service_road", {}),
+            Cell(3, "parking_lot", "lotL", _rect(-40.0, 341.0, 40.0, 400.0), (),
+                 None, None, "groundside", "parking_lot", {})]
+
+
+def test_a_pad_between_a_road_and_a_lot_keeps_its_datum_and_takes_no_level_row(law):
+    """Owner RULINGS 2026-10-09j: pads are SENIOR to roads and lots.  A pad
+    with no airside frontage fronts NOTHING (it is never seated from the
+    groundside pavement beside it), mints no ``pad_level`` row, and its
+    vertices stay in the §9b DEM datum."""
+    from auto_patch_v2.constraints.pads import (pad_datum_withdrawn,
+                                                pad_frontage,
+                                                pad_frontage_level,
+                                                pad_fronts_airside)
+    pm, airport = _built(law, _landside_cells())
+    assert pad_frontage(pm, law) == {}
+    assert pad_fronts_airside(pm, law) == set()
+    assert pad_frontage_level(pm, law, airport) == []
+    assert not (_verts(pm, "padL") & pad_datum_withdrawn(pm, law))

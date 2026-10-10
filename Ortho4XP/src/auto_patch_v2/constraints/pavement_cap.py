@@ -58,7 +58,7 @@ import typing as _t
 from ..law import Law
 from ..law.tables import pavement_fallback_cap, pavement_roles
 from ..model.constraints import Diff, Pin, Row, Source
-from ..model.planar import (PlanarMap, gap_parts_across_knife, is_collar_ref,
+from ..model.planar import (PlanarMap, gap_parts_across_knife, is_bank_ref,
                             is_gap_ref)
 
 __all__ = ["pavement_road_cap", "GEN", "RULING", "WELD_M", "PAD_ROLE"]
@@ -89,6 +89,8 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     road_faces: set[int] = set()
     rings: list[tuple[tuple[int, ...], bool]] = []
     collar_v: set[int] = set()
+    from ..model.platform import structure_vertices
+    struct = structure_vertices(planar, law)
     # issue #143 (``roads.road_pair_side``): a pair this fallback reads off
     # a ROAD's ring is a road row — one-way on the groundside foot of a
     # pair welded to airside
@@ -113,13 +115,17 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         if f.role not in pav:
             continue
         cyc = [planar.ring_vertices(r) for r in (f.ring, *f.holes)]
-        if is_collar_ref(f.ref):
+        if is_bank_ref(f.ref):
             collar_v.update(v for c in cyc for v in c)
             continue
         rings.extend((c, f.role in roads) for c in cyc if len(c) >= 2)
         face_vs[f.id] = tuple(dict.fromkeys(v for c in cyc for v in c))
         if f.role == PAD_ROLE:
             pad_faces.add(f.id)
+            # a pad vertex a STRUCTURE face carries (a ramp cut into the
+            # pad): the pair from it crosses the WALL, a declared step as
+            # the collar's bank was (``model.platform.structure_vertices``)
+            collar_v.update(v for c in cyc for v in c if v in struct)
         if is_gap_ref(f.ref):
             part_ref[f.id] = str(f.ref)
         if f.role in roads:

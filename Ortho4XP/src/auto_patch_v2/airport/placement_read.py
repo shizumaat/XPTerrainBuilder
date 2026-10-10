@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import typing as _t
 
-from ..model.planar import is_collar_ref, platform_ref_of
+from ..model.planar import is_bank_ref, platform_ref_of
 from ..model.rebake import RebakePlan
 from . import anchor_rule as _ar
 
@@ -97,8 +97,8 @@ def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]
                                    if i in by_id))
                  for f in d["faces"]
                  if f["role"] == PAD_FACE_ROLE and len(f["ring"]) >= 3
-                 and not is_collar_ref(f["ref"]))
-    pads = pads + _collars_as_platform(d, by_id, z_id, pads)
+                 and not is_bank_ref(f["ref"]))
+    pads = pads + _banks_as_platform(d, by_id, z_id, pads)
     rims = tuple(_ar.RimRing(b["ref"],
                              tuple(by_id[i] for i in b["vertices"] if i in by_id),
                              tuple(float(z_id[i]) for i in b["vertices"]
@@ -108,18 +108,17 @@ def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]
     return pads, rims
 
 
-def _collars_as_platform(d, by_id, z_id, pads) -> tuple[_ar.PadRing, ...]:
-    """unit-platform spec §3 P15 — THE ONE SITE the object stage learns of
-    the platform.  A platform pad is two kinds of face: the PLATFORM
-    pieces (the pad's ref, on the one plane) and the COLLAR
-    (``<ref>#collar``, the bank from the welded rim).  The collar is
-    published here UNDER THE PLATFORM'S REF with its OUTER ring — so
-    containment (``pad_contains`` / ``pad_majority``) reads the whole unit
-    footprint — and with the PLATFORM PLANE's heights along that ring, never
-    the rim's own (which are the apron's): every min / median a caller
-    takes of the folded ref is the platform's (17u fix (A)/(C)), so the
-    unit is seated on the platform and a wall on the collar with it
-    (spec §1 (5))."""
+def _banks_as_platform(d, by_id, z_id, pads) -> tuple[_ar.PadRing, ...]:
+    """THE ONE SITE the object stage learns of a BANK inside a footprint
+    (unit-platform spec §3 P15; spec §56 (3)).  A unit pad is ONE face on
+    its plane and is published as it is; two banks remain — the STRIP
+    between two blocks of a cut unit (``<unit>/b<k>#strip``) and a ramp
+    landing's bank (``<unit>/landing<k>#collar``).  Each is published here
+    UNDER ITS FLAT FACE'S REF with its OUTER ring — so containment
+    (``pad_contains`` / ``pad_majority``) reads the whole footprint — and
+    with that face's PLANE heights along the ring, never the bank's own:
+    every min / median a caller takes of the folded ref is the plane's
+    (17u fix (A)/(C)), so a body over the bank is seated with its unit."""
     import numpy as np
 
     from .placement_contact import m_per_deg_exact
@@ -128,7 +127,7 @@ def _collars_as_platform(d, by_id, z_id, pads) -> tuple[_ar.PadRing, ...]:
     for p in pads:
         plat.setdefault(p.ref, []).append(p)
     for f in d["faces"]:
-        if f["role"] != PAD_FACE_ROLE or not is_collar_ref(f["ref"]):
+        if f["role"] != PAD_FACE_ROLE or not is_bank_ref(f["ref"]):
             continue
         ref = platform_ref_of(f["ref"])
         ring = tuple(by_id[i] for i in f["ring"] if i in by_id)

@@ -138,7 +138,7 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from ..planar.cluster import deck_shades as _deck_shades
 
-__all__ = ["gap_pieces", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
+__all__ = ["gap_pieces", "pad_touch", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
 
 #: 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
@@ -329,10 +329,11 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
         zs = ([float(z[v]) for v in vs if v < len(z)] if z is not None else [])
         lvl = (sorted(zs)[len(zs) // 2] if zs else None)
         c = by_id.get(cid)
+        pads = sorted({planar.faces[f].ref for f in fids})
         out.append({"id": cid,
                     "members": list(getattr(c, "members", ()) or ()),
                     "area_m2": round(float(getattr(c, "area_m2", 0.0)), 1),
-                    "pads": sorted({planar.faces[f].ref for f in fids}),
+                    "pads": pads,
                     "level": (None if lvl is None else round(lvl, 3)),
                     "rim_vertices": len(vs),
                     # §30 (4) (5) (owner RULINGS 2026-09-13ch): the member
@@ -512,6 +513,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # refused ones by reason — LAW INPUT for the census's
             # ``platform_rim_relief`` / ``platform_refused``
             "platforms": _platforms(planar, law, z),
+            "landings": _landings(planar, z),
             # issue #14 (``welded-deck-spec.md`` §3, additive): the welded
             # decks the load read, their pier ratios, and the shade area
             # that left every cluster outline.  Informational.
@@ -672,20 +674,25 @@ def _platforms(planar: PlanarMap, law: Law, z) -> list[dict[str, _t.Any]]:
     from ..constraints.platform import platform_records
     from ..planar.platform import PLATFORMS
     out = platform_records(planar, law, z)
-    # #86 round 2 (owner RULINGS 2026-10-02z): C is the widest width the pad
-    # CARRIES, so every record names the minted width and WHY — the solved
-    # ``collar_m`` above is read off the geometry and cannot say whether the
-    # min-area gate bounded it
-    why = {p.ref: p for p in PLATFORMS if not p.refused}
-    for rec in out:
-        p = why.get(str(rec.get("ref")))
-        if p is not None:
-            rec["collar_minted_m"] = p.collar_m
-            rec["collar_why"] = p.collar_why
-    out.extend({"ref": p.ref, "refused": p.refused, "pad_m2": p.pad_m2,
-                "platform_m2": p.platform_m2, "collar_m": p.collar_m,
-                "collar_why": p.collar_why}
+    out.extend({"ref": p.ref, "refused": p.refused, "pad_m2": p.pad_m2}
                for p in PLATFORMS if p.refused)
+    return out
+
+
+def _landings(planar: PlanarMap, z) -> list[dict[str, _t.Any]]:
+    """The ``landings`` sidecar key (spec §56 (10) R-L): per minted ramp
+    landing (``model.platform.LANDINGS``) its ref, block, deck, the deck's
+    authored ``y`` at its foot and the level the solve gave its platform
+    vertices (their median; ``None`` without a surface)."""
+    from ..constraints.platform import landing_vertices
+    from ..model.platform import LANDINGS
+    vs = landing_vertices(planar)
+    out = []
+    for ref, rec in sorted(LANDINGS.items()):
+        zs = sorted(float(z[v]) for v in vs.get(ref, ())) if z is not None else []
+        out.append({"ref": ref, "block": rec["block"], "deck": rec["deck"],
+                    "y": rec["y"], "area_m2": rec.get("area_m2"),
+                    "level": round(zs[len(zs) // 2], 3) if zs else None})
     return out
 
 
@@ -817,6 +824,47 @@ def gap_pieces(cut: _t.Mapping[str, _t.Any] | None,
                         "airside_edge_m": round(float(ev["airside_edge_m"]), 1),
                         "road_evidence": bool(ev["road_evidence"])})
     return out
+
+
+def pad_touch(cells: _t.Iterable[_t.Any], law: Law,
+              planar: PlanarMap | None = None) -> list[dict[str, _t.Any]]:
+    """Sidecar ``pad_touch`` (spec §63 (3) Rule T / (7) Rule P, owner
+    RULINGS 2026-10-09j): per pad the groundside pavement cells WELDED to
+    it (``touching``), the ones that touch in the source and are HELD off
+    it as a §28 (6) terrace (``held``), and the ones drawn with a gap
+    (``gapped``, with the gap) — ``classify.pad_touch.touch_records`` over
+    the classification's cells, the ONE derivation.
+
+    PER FACE (Rule P): with the map, every entry carries ``faces`` — the
+    ids of the cell's own faces (its role and ref) standing within the
+    frontage radius of that pad — so a reader classes a pad edge by the
+    FACE it meets and one ref whose faces differ can never read as one
+    class.  EVIDENCE: ``tools/pad_edge_read.py --source`` classes a
+    pad-edge run TOUCH-OFF (a defect), HELD or GAPPED (accepted) by it.
+    An airport with no pad beside groundside pavement carries no such
+    key."""
+    from ..classify.pad_touch import touch_records
+    recs = touch_records(cells, law)
+    if planar is None or not recs:
+        return recs
+    from shapely.ops import unary_union
+    from ..constraints.pad_frontage_gs import _groundside_geoms
+    from ..constraints.pads import _pad_polys, frontage_radius_m
+    r = frontage_radius_m(law)
+    pads: dict[str, list] = {}
+    for _fid, ref, _g, poly in _pad_polys(planar, law):
+        pads.setdefault(str(ref), []).append(poly)
+    by_cell: dict[str, list] = {}
+    for fid, role, ref, _vs, poly in _groundside_geoms(planar, law):
+        by_cell.setdefault(f"{role}:{ref}", []).append((fid, poly))
+    for rec in recs:
+        pad = unary_union(pads[rec["pad"]]) if rec["pad"] in pads else None
+        for kind in ("touching", "held", "gapped"):
+            for e in rec[kind]:
+                e["faces"] = sorted(
+                    fid for fid, poly in by_cell.get(e["cell"], ())
+                    if pad is not None and poly.distance(pad) <= r)
+    return recs
 
 
 def late_stage(stage: _t.Mapping[str, _t.Any]) -> dict[str, _t.Any]:

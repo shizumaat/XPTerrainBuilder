@@ -17415,6 +17415,1445 @@ RESIDUALS FOR THE OWNER'S SIM READ, after A–C (what remains; coordinates; what
 
 NEW OWNER QUESTIONS: none. Rule A+C is the spec author's (06d: a lot and its ramp are one shape; 04u: the knife is the step; 08k's mouth is a rule for standing pavement whose terraces the map must find, and a part's terraces are the cut's — a neck inside one level group has no terrace by the pair test that made the group). Q4 now also decides B through the one published number. Q1–Q6 stand as asked.
 
+## §56 THE SIMPLIFIED BUILDING OUTLINE — ONE POLYGON PER UNIT, STRAIGHT CHORDS, WELDED TO THE APRON; THE NEAR ROAD IS THE PAD; THE COLLAR IS DELETED AND THE PAD IS STILL SEATED (owner RULINGS 2026-10-07a (6), 2026-10-07b (4), 2026-10-07c (6); issue #452; Fable `padspec` 2026-10-07, REVISED by Fable `padspec2` 2026-10-07 after the implementer's report on PR #461; REVISED AGAIN by Fable `padspec3` 2026-10-07 after the implementer's STOPs on PR #463 — this time probed on the REAL classify, `docs/briefs/padspec-scratch/padspec3/classify_probe3.py`, summary `docs/briefs/padspec3-summary.md`; REVISED by Fable `padspec4` 2026-10-08 after the implementer's STOP 3 on the same PR — the seat ladder is WITHDRAWN, the seat is the landed 02ah solve and the warning reads the post-solve record, summary `docs/briefs/padspec4-summary.md`). Steps 1, 3 and 4A are BUILT (PR #463, draft); 4B–4E and 7 are design, step 4 split into landable sub-steps (§56 (8)). Review: `docs/briefs/padspec-review.md`; revision summaries `docs/briefs/padspec2-summary.md`, `docs/briefs/padspec3-summary.md`. §54 stays reserved (heca8); this is the next number.
+
+Owner (07a (6)): "we don't need shapes for all these little crenelations, just a
+simple outline of the building including and small protuberances and shapes like
+jetways in the footprint. Service roads right next to the building don't need
+their own shape because they have to be graded like the pad anyway, so I expect
+just a simplified building outline welded to the surrounding apron." (07b (4)):
+"We probably don't even need the collar … straight chords that include jetways
+and small protuberances while following the general outline of the building."
+(07c (6), ADOPTING this section with a constraint): "courtyards: yes, jetways:
+yes. With collar gone, pads still have to be seated so aprons can weld to them
+along their frontage without violating grade caps. If you find a case that
+can't be solved, warn and explain."
+
+**The picture in one paragraph.** A building unit's pad is ONE polygon: the
+union of its walled bodies' part rings (today's rule 2), CLOSED so that every
+re-entrant narrower than `outline_close_m` fills, its chords STRAIGHTENED so no
+vertex stands within `outline_chord_m` of the chord between its neighbours, its
+light wells under `outline_hole_min_m2` filled. It is welded to the airside
+exactly as today (the arrangement's clip + snap). A groundside road face that
+lies wholly within `pad_road_absorb_m` of the outline is not a road: it is pad.
+The pad is one plane with its WHOLE rim on the plane — the §20 pad CYXY builds —
+SEATED at the level the apron can reach along its frontage within the caps:
+the flat datum of 30f's hard hold where one exists, a plane tilted within the
+pad's own 1 % where no flat level exists, split per rigid block where the base
+steps (29s A2); there is no collar. A frontage no seat can reach within the
+caps is a RESIDUAL the pad carries at its rim, reported, and WARNED to the user
+in fixed words. The object stage seats the unit on that plane, read off the one
+pad face. The jetways are in the footprint by HOSTING, not by geometry: a
+jetway is a rider with no geometry, its root stands on apron that is welded to
+the pad at the pad's value, and it rides the pad as today.
+
+### §56 (1) THE OUTLINE — a general geometric rule, one derivation site (BUILT, PR #461)
+**SUPERSEDED IN SCOPE by §57 (owner RULINGS 2026-10-08a (1) / 08b, Fable `jetspec` 2026-10-08): the simplification applies only to a terminal that carries jetways and is delivered as the bay PLATEAU; rule 2b, the near-road absorption and the R-W pin are to be DELETED (§57 (4)).**
+
+
+The site is `geom.cluster_outline.cluster_outlines`, rule **2b** run right
+after rule 2 (the touch close) and rule 2a (post bridges) and BEFORE rule 10
+(OSM evidence, asked on the closed outline), rule 8 (deck shades), rule 4 / the
+arrangement's airside clip, rule 3 (`taken`) and rule 6 (thin pieces). The
+caller (`classify/evidence._cluster_pads`) passes the three law values through
+`law.tables.pad_outline(law) -> PadOutline` (ONE read site, beside
+`pad_admission`); `geom` reads no law. ONE pure function,
+`geom.cluster_outline.simplified_outline(poly, close_m, chord_m, hole_min_m2)`,
+so the road absorption of (2) re-uses it. The census (`constraints/cluster_pad.
+cluster_polys`) and the two mirror tools (`pack_stage_profile`, `pad_gap_diff`)
+pass the same `outline=`; without it `pad_cluster_mismatch` would measure the
+gap between two outline readings (the census-wrapper defect).
+
+1. **CLOSE (fill the crenelations).** `u = u ∪ u.buffer(+C, round).buffer(−C,
+   round)`, then `simplify(0)`, with `C = [building_pad] outline_close_m = 3.0`.
+   A morphological closing contains its input and fills every re-entrant whose
+   mouth is narrower than `2C = 6 m`: a door recess, a column line, a service
+   bay between two canopy posts. A bay wider than 6 m (a loading dock between
+   two wings, the gap between two piers) is a real concavity and STAYS. **Round
+   joins, not mitred**: the mitred form was probed and REFUTED — it drops sliver
+   pieces off thin wings (OTHH `unit:28#8/0` came out in 3 pieces of 476,966 /
+   168 / 148 m² at C = 5, mitred) where the round form keeps one piece. **The
+   union of the input and the `simplify(0)`** (implementer deviation 1,
+   ACCEPTED by padspec2): the arcs are inscribed polygons, so the buffered
+   close chamfers every convex corner by the arc's sagitta (1.3 cm at 3 m) and
+   Douglas–Peucker, which always keeps a ring's first vertex, dropped the true
+   corner beside a ring that started on a chamfer (a 40 × 40 m pad came out at
+   1,597.9 m²). The union makes "contains its input" exact; `simplify(0)` drops
+   the chamfer's now-collinear vertices. It is the closing the rule states,
+   not a new rule.
+2. **STRAIGHTEN (the chords).** Douglas–Peucker, topology-preserving, at
+   `[building_pad] outline_chord_m = 1.0`: a vertex within 1 m of the chord
+   between its surviving neighbours is dropped. Why 1 m and not the identity
+   spacing: 0.5 m (`emit.identity.min_distinct_spacing_m`) is what the mesh can
+   already not carry, so a tolerance under it changes nothing; 2 m halves the
+   count once more (OTHH 600 → 378) but starts to cut true corners (+1,000 m²
+   removed from the footprint at OTHH, +1,100 at HECA) — a wing's corner is not
+   a crenelation. 1 m keeps the footprint within 300 m² of today's at every
+   airport probed.
+3. **FILL THE LIGHT WELLS.** An interior ring whose area is under
+   `[building_pad] outline_hole_min_m2 = 200.0` is removed. A courtyard at or
+   over 200 m² (≈ 14 × 14 m, ground a pilot or a camera can see into) is KEPT
+   as a hole and stays a courtyard for `model/islands.courtyard_faces` (owner
+   07c (6): "courtyards: yes"). Probed: OTHH 34 → 4 holes, HECA 7 → 7, KCLT
+   36 → 7.
+4. **ORDER AND PROTUBERANCES.** Close, then straighten, then fill — closing
+   first so the straightening sees the filled notch as one chord. There is NO
+   opening step: an opening (erode-then-dilate) drops thin protuberances — a
+   canopy, a covered walkway — and the owner asked for those INSIDE the
+   outline. (Probed as arm V8 and REFUTED: it cut OTHH's unit into 8 pieces,
+   7,878 and 6,655 m² of them real building.) **Two properties of the closing
+   the implementer measured and the spec now states** (deviations 2 and 3,
+   ACCEPTED): (a) a bay of mouth `w < 2C` fills to its whole depth but keeps a
+   dimple at the mouth `C − √(C² − (w/2)²)` deep (1.34 m for w = 5; 3.3 of
+   100 m² of a 5 × 20 m bay), which the 1 m straightening removes only for
+   `w < 4.47 m`; (b) every concave corner takes the closing's 3 m fillet,
+   straightened to one or two chords (the inner corners of a kept courtyard,
+   the root of a 7 m bay). Both are the closing, not defects; the probe's
+   "added" area already counts them; bar 7 is worded to them.
+5. **THE JETWAYS ARE IN THE FOOTPRINT BY HOSTING, NOT BY GEOMETRY** (padspec2
+   RULING on the implementer's step-2 STOP; replaces the first draft's
+   `PlanCluster.rider_rings`). The ring source the first draft named does not
+   exist and is not minted: a rider is by definition a placement the plan
+   holds NO GEOMETRY for (`airport/riders`, jetway-strip spec §1 (1)); a
+   footprint exists only for an `.agp` (`riders.agp_footprint_xy`); an OBJ8
+   rider carries a plan BOX, which rule 1 refuses as a footprint (13ci); and
+   a rider's host is decided only AFTER the planar stage against the minted
+   pad (`constraints/jetway_strip.rider_hosts`) — a host rule at cluster time
+   would be circular with the outline it extends. MEASURED on the three
+   registered captures (`docs/briefs/padspec-scratch/padspec2/rider_probe.py`,
+   `anchor_role_probe.py`; §56 (7) (2)): every jetway placement at HECA (51,
+   `.agp` and OBJ8) and KCLT (67 OBJ8) and 68 of OTHH's 127 stand with their
+   anchor ON APRON, and 4 m out from the building face 95 of 127 at OTHH, 51
+   of 51 at HECA, 67 of 67 at KCLT are over apron (8 m out: 124 / 51 / 67).
+   The anchors sit 0.08–3.25 m outside the rule-2 outline (OTHH: 94 of 131
+   within 2 m, 28 inside) and the close of (1) moves **0** of them across the
+   outline at any airport. The rest at OTHH stand on un-minted ground between
+   the pad and the apron (45 anchors; the 0.6 m stand-off and the slivers the
+   near-road absorption of (2) turns into pad) or over a tunnel trench the
+   structure pass cuts back after the mint (22 of the 4 m-out points, §56 (6)).
+   So the jetway's ROOT is already the pad's: the apron under it is welded to
+   the pad at the pad's value (contact = value, 09-01g), and the jetway rides
+   the pad through `rider_hosts` within `rider_reach_max_m` 12 m (OTHH 127 of
+   127 hosted today, HECA 51, KCLT 67). **No new machinery**: `PlanCluster`
+   gains no field, `plan_clusters` is untouched, census row 33 reads
+   UNCHANGED, and the `.agp` footprint rule (a) of 2026-09-28 stays the
+   object stage's. What the outline must NOT swallow for a jetway: the apron
+   under its bridge (airside is king, 14ah — the HECA `.agp` footprints are
+   100 m² each, 87 m² of it over apron) and the trench under it. Bar (§56
+   (8) 1): after (1)–(3) at the OTHH site, jetway anchors over `ground` or a
+   `service_road` face = 0, and every jetway rider hosted (count ≥ today's).
+6. **MINIMUM CHORD AND THE QUANTUM.** No separate minimum: after (2) the outline
+   is snapped to `emit.identity.input_quantum_m` as every entering ring is
+   (§46 (4)), and the arrangement merges vertices under the identity spacing.
+   Two consecutive outline vertices nearer than `min_distinct_spacing_m` after
+   straightening are therefore impossible by the DP tolerance (1.0 > 0.5).
+7. **DETERMINISM.** Every step is one GEOS operation on one polygon in the
+   planar frame; no DEM, no neighbour, no worker reads it. Pieces keep today's
+   `(bounds y, bounds x)` sort and `/k` ids. The twin runs the function at
+   `--workers 1` and `18` on the OTHH capture and asserts the same WKB.
+8. **WHAT IS NOT SIMPLIFIED.** The FALLBACK half of `_pads` (OSM / footprint-
+   cache outlines no cluster covers) is already an authored outline with
+   straight chords and is untouched; a §20 pad under `cluster_pad_min_m2` is
+   minted from the same `cluster_outlines` call and IS simplified (one rule
+   for every cluster pad, 05e). Rules 3–10 (over_another, airside, leaves,
+   thin, shades, admission) run unchanged on the simplified polygon.
+9. **THE PAD COUNT MOVES, AND HOW** (padspec2, measured on the three captures
+   with the landed rule — the implementer had no corpus). The close JOINS
+   pieces of one cluster that stood under 6 m apart (`still_in_pieces` HECA
+   16 → 8, OTHH 17 → 12, KCLT 12 → 9: HECA `unit:42#2829/0+/1` → `unit:42#2829`
+   12,685 m², `unit:43#222/0+/1` → `unit:43#222`), and rule 6 drops the slivers
+   whose crenelations were all they had (OTHH `unit:16#0/3` 53 m², `unit:84#3/2–4`
+   67–194 m²); a few pieces newly pass rule 6 once straightened (OTHH
+   `unit:35#67` 1,944 m²; KCLT `unit:3#752/#286/#264` 884–947 m²). Pads:
+   **HECA 82 → 74, OTHH 56 → 52, KCLT 38 → 38**; no pad becomes a
+   MultiPolygon. The bar is therefore not "count unchanged" but "every
+   change named": `cluster_pads` publishes `outline_joined_from` (the `/k`
+   ids a piece absorbed) and the implementer quotes joined / dropped / new
+   per airport.
+10. **THE GROWTH IS NAMED, NOT CAPPED** (padspec3, replacing the first
+   draft's "a pad whose area grows > 5 % = STOP", which fired on 13 OTHH
+   and 15 HECA pads of the landed rule 2b and on five small HECA pads of
+   the absorption — every one of them lawful). A same-id pad's growth
+   under rule 2b is, BY CONSTRUCTION, the sum of four named things and
+   nothing else: (i) a JOIN (`outline_joined_from` names the `/k` pieces),
+   (ii) a FILLED LIGHT WELL (rule 3: the area of the input's interior
+   rings under 200 m²), (iii) the CLOSING FILL (rule 1: `u.buffer(+C).
+   buffer(−C) − u`), (iv) the CHORD RESIDUE (rule 2: what a 1 m
+   Douglas–Peucker adds outside the closing — bounded by `outline_chord_m`
+   × the ring length, ≈ 0.2 m averaged over the ring). MEASURED on the
+   real `cluster_outlines` (`padspec3/classify_probe3.py` (a), OTHH, every
+   same-id pad over +0.5 %): `unit:21#1` +23.7 % = 932 m² = 649 well / 189
+   close / 94 chord; `unit:25#4` +10.3 % = 425 = 301 / 88 / 36; `unit:24#0/0`
+   +9.7 % = 3,501 = 415 / 1,855 / 1,230 (a join of `/1` and `/3`, 525 m²
+   over the joined pieces); `unit:28#8/1` +11.5 % = **18 m²** (9 / 9) and
+   `unit:28#8/3` +11.7 % = 16 m² — a percentage of a 150 m² sliver;
+   `unit:84#3/1` +189.8 % = 193 m², all of it the joined `/4`; the owner's
+   `unit:28#8/0` +1.0 % = 4,987 = 2,871 well / 673 close / 1,443 chord.
+   HECA, the same four (46 pads over +0.5 %): the five largest are JOINS
+   or RENUMBERED pieces of one cluster (`unit:43#80/2` +975 % = 3,098 m²,
+   3,043 of it the former `/3` it now is; `unit:43#784/0` +363 % = `/1`
+   joined; `/784/2` +324 %, `/744/1` +241 %, `/6330/1` +20 % likewise —
+   `outline_joined_from` names each), then `unit:43#744/0` +13.8 % = 2,204
+   = 1,348 well / 138 close / 717 chord, `unit:43#16` +6.3 % = 1,508 = 1,002
+   / 45 / 461, `unit:43#8/0` +5.4 % = 1,148 = 1,002 / 23 / 124, T3's
+   `unit:43#6330/0` +1.2 % = 2,240 = 429 / 700 / 1,111. Over ANOTHER
+   cluster's rule-2 outline: **0 m²** at every OTHH pad and ≤ 2.9 m² at
+   every HECA pad that is not a named join (the only "other" overlaps are
+   the joins and renumberings of the same cluster); airside cannot be taken here at all — rule 4 and the
+   arrangement's `airside_clip` run after rule 2b. A FIFTH class the probe
+   found at KCLT and the spec names: (v) a THIN REMAINDER rule 6 would have
+   dropped, kept because rule 2b closes the outline BEFORE rule 6 runs and
+   the close joined it to the body — `unit:3#514` +85 % = 187 m² with the
+   ring LONGER (191 → 331 m, 14 → 18 vertices: not a chord residue, which
+   only shortens), `unit:30#0` 344 of 352 m² likewise; OTHH `thin_dropped`
+   255 → 274 is the same order effect seen from the other side. It is the
+   owner's "small protuberances … in the footprint" and lawful; the sidecar
+   names it as `thin_kept` = the added area inside the pre-rule-6 outline
+   `u_in` that `cluster_outlines` already holds for `outline_simplified_
+   from`. The STOP is therefore: growth that is NOT one of (i)–(v) — a pad
+   whose added area over another UNIT's outline or over an airside cell is
+   > 0 after the arrangement, or a chord residue over `outline_chord_m` ×
+   the input ring length. `cluster_pads[]` publishes `outline_growth_m2 =
+   {join, well, close, chord, thin_kept}` from the same differences the
+   probe takes (`growth_split` in `classify_probe3.py`, plus `u_in`), so the
+   bar is read from the sidecar, never re-derived.
+
+**Law table** (`structures.toml [building_pad]`, beside `platform_collar_max_m`
+which (3) deletes): `outline_close_m = 3.0`, `outline_chord_m = 1.0`,
+`outline_hole_min_m2 = 200.0`; `0` disarms each (the measurement arm, never a
+shipped value). Schema fields in `law/model.BuildingPad`; the read in
+`law/tables.pad_outline`.
+
+### §56 (2) WELDED TO THE APRON; THE NEAR ROAD IS THE PAD (REVISED: the site and the order)
+**SUPERSEDED IN SCOPE by §57 (owner RULINGS 2026-10-08a (1) / 08b, Fable `jetspec` 2026-10-08): the simplification applies only to a terminal that carries jetways and is delivered as the bay PLATEAU; rule 2b, the near-road absorption and the R-W pin are to be DELETED (§57 (4)).**
+
+
+1. **AIRSIDE: unchanged.** The arrangement's `apron_cut_to_pads` + `airside_clip`
+   + `airside_vertex_snap` (`pad_airside_snap_max_m` 5) weld the outline to the
+   apron / taxiway / runway faces exactly as today — contact = value (09-01g),
+   the apron's own rim vertices become the pad's. The simplified outline has
+   FEWER crossings of the apron edge, so fewer T-vertices are inserted into the
+   apron rim: `pad_airside_renode` is the instrument and stays at 0 by
+   construction (a pad vertex snapped onto an existing apron vertex is not a
+   re-noding).
+2. **THE NEAR ROAD IS ABSORBED.** A groundside road CELL — any cell whose role
+   is in `road_family_roles(law)` (`service_road`, `service_junction`; the
+   1206 `route*` corridor faces, the `small_roads:*` ribbons and a pavement-
+   sourced road cell alike — by ROLE, never by the ref's spelling) EVERY point
+   of which lies within `[building_pad] pad_road_absorb_m = 10.0` of a unit
+   outline (≥ 98 % of its area inside the outline's 10 m round buffer — the
+   2 % is the kerb noise of the cut) is NOT a road: its polygon is unioned into
+   that pad cell and the pad is re-closed and re-straightened with the same
+   `simplified_outline`. 10 m is a lane, a kerb and a footway: a road that
+   close is the building's own apron (the free-road ruling of 2026-07-27,
+   "roads inside or edge-sharing an apron ARE the apron", read for the pad).
+   THE NUMBERS, RESTATED ON THE REAL CLASSIFY (padspec3; the first draft's
+   "26 of 29 at the site / 75 / 18 / 24" counted EMITTED faces against the
+   union of cluster-unit outlines and is withdrawn — the ruled site is the
+   classify CELLS, per pad, over every `building` cell, fallback pads
+   included; `padspec3/classify_probe3.py` (b) on `perfA362/OTHH.pkl`,
+   `gaps3/HECA.pkl`, `conc333/KCLT_main28500ecf.pkl`). With 4 (b) deleted
+   (below): OTHH **40 road cells into 7 pads**, the owner's `building6`
+   taking 29 (15 `route*` + 14 absorbed from the former 4 (b) list — see 4),
+   the site's road cells **17 → 2** (`route37`, `small_roads:-8407`: 681 m²,
+   13 vertices, both PASSING roads under 3); HECA and KCLT per §56 (7) (5).
+   These are the acceptance numbers; the test column of §56 (8) quotes them.
+3. **A ROAD THAT PASSES BY keeps its shape and its law.** A cell partly beyond
+   10 m (OTHH `route42`: 61–71 % within) is a road: it is minted whole, welds
+   to the pad where it shares an edge and takes the pad's edge level there
+   (§28 (1), unchanged), and ramps away under §37 (6) at the groundside
+   longitudinal cap, now 10 % (07b (2), 07d). It is NOT cut at the 10 m band —
+   a cut there would mint a stub road of one lane's length and a joint for
+   nothing.
+4. **NEVER ABSORBED — and what is NOT a reason** (padspec3 RULING on the
+   implementer's STOP 1 (b)). (a) A road cell that intersects a mapped BORE
+   the structure pass will admit — the OSM tunnel ways `deck_signature.
+   is_tunnel_way` admits, buffered by the default carriageway half width
+   plus the rim (`road_absorb.structure_keep_out`, the landed reading;
+   OTHH / HECA / KCLT 0 roads kept for it). This is the ONLY keep-out and
+   it is complete, because an OSM bore is the one structure whose ramp
+   STOPS at a pad instead of cutting it (`ramp_crosses_pad` /
+   `structure_geometry.pad_hit`; its mouth against a pad is a refusal —
+   OTHH `tunnel:-1355@1`). Every PACK-derived structure — a wall corridor
+   (Law C), a door ramp, a sunken road, an object corridor — is cut from
+   the pad with its walls' hull (`planar/structures` `hull_knives`: "the
+   walls cut EVERYTHING but the runway family — the pad too, 08-26"), a
+   door ramp's host pad is excluded from its stops, and under 07b (2) a
+   wall-corridor ramp stands INSIDE its own walls (`full_wall_ramp`, PR
+   #460: `hit = None` for a Law C ramp) — so whether the ground under it
+   was road or pad changes nothing the structure pass reads. MEASURED
+   (§56 (7) (5)): the structure faces of the emitted surface are IDENTICAL
+   in count and area between the base and the steps-1+3 replay, airport-
+   wide (tunnel_ramp 9 / 24,292 m², wall_corridor_ramp 14 / 2,630, door_ramp
+   4 / 21, tunnel_trench 43 / 9,814) and at the site (5 trench faces, 171
+   m²); the absorb-all replay's numbers are the bar.
+   (b) **DELETED.** The first draft kept "a `route` piece the §47
+   retaining-wall extension lengthened" because "a wall retains a ROAD and
+   the corridor ramp is sized off that road". Probed on the real classify
+   at the owner's site: the 14 `route*` cells it kept at `building6`
+   (`route19, 28, 29, 30, 36, 38, 39, 40, 42, 43, 44, 45, 48, 52`; 39–341 m²
+   each, 0.0–77.8 m² of each inside the extension, 0–51 %) are extended by
+   the TERMINAL'S OWN BASE — `OTHH_Terminal_Base_10_4.obj` (10.8 m tall),
+   `_Base_8` (20.3 m), `_Base_2_1` (5.7 m), 1–9 m from the road: the §47
+   wall-class classifier (thin, tall, long) reads the building's base walls
+   as retaining pieces and runs the road up to the building's face. That IS
+   the owner's case ("service roads right next to the building … have to be
+   graded like the pad anyway"): the extension strip is the pad's frontage
+   ground, not a corridor. And 07b (2) has since moved the corridor ramp
+   OFF the road: it is sized by the walls (`full_wall_ramp`: top at the
+   walls' outer end, knee at the covering plate's edge), never by a road
+   cell. The alternative "absorb the part outside the extension, keep the
+   strip" would mint 14 stub road cells of 0–78 m² (median ≈ 15 m²) — the
+   joint-for-nothing rule 3 already refuses. So a wall-extended route is
+   absorbed like any other near road; `KEPT_WALL` and the `wall_extended`
+   argument are deleted from `road_absorb` (refuted mechanisms are
+   deleted); `roles.classify` keeps `wall_extended` for nothing and drops
+   the local. FINDING for the §47 owner, not this section's: the wall-class
+   classifier admits a building's own base walls as retaining walls at
+   OTHH (3 resources, 14 routes); harmless here once the route is pad.
+   (c) any cell of a `tunnel_ramp` / `door_ramp` / `wall_corridor_ramp` /
+   `garage_ramp` role — not a road-family role, never a candidate by
+   construction (the landed code reads `road_cross_section.roles`).
+   (d) `pad_not_one_polygon` (landed `KEPT_PIECES`): the union with the
+   roads, re-closed and with the neighbouring pads differenced, is not ONE
+   valid polygon — HECA `small_roads:-18814#2`, `-3923` at `building86` /
+   `building91` (0–3 m² slivers between two pads). Kept, counted, lawful.
+   Each refusal is counted (`roads_kept_near_pad` with the reason); a
+   STOP only if an (a) refusal stands at the owner's site after the build.
+5. **THE SITE — ONE, AT THE END OF THE CLASSIFY PASS** (padspec2 RULING on the
+   implementer's step-3 STOP; replaces the first draft's "from `ribbon_mint`
+   before the cutback", which was FALSE to the measured order). The measured
+   order in `classify/roles.classify` is: the 1206 corridor faces `route*`
+   are minted at `:604`, cut by `ev.pad_union` BEFORE the pads are added
+   (`:641`); `_cut_back_groundside` runs at `:657`; the §52 facade cells; then
+   `mint_osm_ribbons` (`:664`) takes the pad set-back itself; then the §53
+   gap pieces LAST. Lane roadweld100 measured at HECA that a ribbon minted
+   before the set-back armed the pad's knife and changed the cells pass's A
+   nodes, so the ribbons stay after the set-back — that order is NOT
+   reversed. No single site before the cutback sees both road populations,
+   and two absorption sites would be the census-wrapper defect in a new
+   coat. So the absorption is ONE function called ONCE, after `mint_osm_ribbons`
+   and BEFORE `mint_gap_pieces` (so the gap sheet differences the final
+   standing union, §55 unchanged): `classify/evidence.absorb_near_roads(cells,
+   law, outline: PadOutline) -> (cells, absorbed: dict[pad ref, list[road
+   ref]])`, beside `_absorb_enclosed` (the existing "a remnant enclosed by a
+   pad is the pad" pattern, extended, never forked). It reads the cells list
+   only. Per pad cell: the candidate road cells by the 98 % test against the
+   pad's 10 m round buffer, minus (4); union; `simplified_outline` with the
+   same three law values; the road cells removed; the pad cell's polygon
+   replaced. The ribbons' `occupied` union and the gap pieces are unchanged
+   by construction where nothing is absorbed.
+6. **THE SET-BACK AND THE ABSORBED FACE.** An absorbed face is pad: the 0.6 m
+   set-back (`groundside_cutback_m`, 01i) does not apply to it, and the
+   stand-off band the cutback had already opened between the old rim and the
+   road (0.6 m + the snap margin ≈ 1.1 m, a re-entrant with a mouth far under
+   6 m) is FILLED by the re-close — no sliver, no joint. The set-back DOES
+   apply between the grown pad and whatever groundside cell now stands
+   beside it (a lot, a passing road): `_cut_back_groundside` is re-applied
+   for the CHANGED pads only (its knife on the grown outline, the cells it
+   touches), so a pad that absorbed nothing cuts nothing twice and the A
+   nodes of the cells pass are identical there by construction (the HECA bar
+   in (8): every pad with `roads_absorbed` empty — 74 of 74 at T3's end of the
+   airport, 18 absorptions elsewhere — has identical cells). The set-back for a
+   road that passes by is NOT changed by this section (the owner's words were
+   about airside welding and absorbed roads); reported as a candidate for the
+   next round if the sim read shows a kerb cliff.
+7. **Sidecar**: `cluster_pads[].roads_absorbed` (the road refs, in mint
+   order), `roads_kept_near_pad` (ref, reason), `roads_absorbed_m2`, and
+   `absorb_growth_m2 = {road, shade_clipped, airside_clipped, fill}` (the
+   four differences of rule 8) — `pipeline/publication`, allow-listed in
+   `emit/osm_adapter` (census rows 28–29).
+8. **THE RE-CLOSE TAKES NO AIRSIDE AND NO DECK SHADE** (padspec3 RULING on
+   the implementer's DOUBT 4, measured). The absorption's `simplified_
+   outline` runs on the FINAL pad cell — after rule 8 (deck shades) and
+   the fallback merge — and a closing fills every re-entrant under 6 m
+   whatever made it. MEASURED at OTHH (`classify_probe3.py` (b), the added
+   area of each absorbing pad split by what it lies on): `building6` +7,153
+   m² = 3,845 absorbed road / **159 deck shade** / **516 airside cell** /
+   0 other pad / 2,633 the stand-off band and the notches between roads;
+   `building14` +233 = 93 / 0 / **136** / 0 / 4; `building17` +297 = 126 /
+   0 / **168** / 0 / 4; `building20` +90 = 12 / 0 / 77 / 0 / 1; `building15`
+   +208 = 3 / 0 / 163 / 0 / 42. So the re-close DOES re-fill a shade notch
+   (159 m² of the deck's shade at the terminal) and DOES bridge over apron
+   between a road and the building (516 m²) — and the arrangement would
+   then CUT THE APRON BACK to it (`apron_cut_to_pads`, 09-23a: "apron
+   does not extend under building pads", a rule written for a FOOTPRINT,
+   not for a closing's fill). Neither is the owner's picture. RULE (as
+   LANDED, `099b7ad6`; padspec4 ACCEPTS the implementer's deviation 1 — the
+   literal `g − airside` was wrong: the pad cell at classify lawfully
+   overlaps the apron cells the arrangement later cuts to it, 09-23a, so
+   the clip is of the GROWTH only): after the re-close, `g = closed −
+   ((closed − pad) ∩ (shades ∪ airside))` where `shades` is the SAME
+   `deck_shades(partition)` the mint subtracted under rule 8 (passed in by
+   the caller, one reading) and `airside` is the union of every cell in
+   the list whose `side` is airside (the roles exist at this site — the
+   14ax argument for clipping at the arrangement, which was about EVIDENCE
+   time, does not apply). Then, PER ROAD (padspec4 ACCEPTS deviation 5 —
+   the one-polygon test is per road, so the others are still absorbed): a
+   road whose union with the clipped pad is not ONE polygon stays a road
+   (`pad_not_one_polygon`, rule 4 (d)); a road the clip would CUT (part of
+   it over airside or under a shade) stays a road
+   (`over_airside_or_deck_shade`); a scrap of closing fill the clip
+   detaches is ground again. The grown pad's rim may therefore differ from
+   the old rim only over the absorbed roads and the bare ground between
+   them; a pad's airside frontage is byte-identical before and after the
+   absorption (bar: `airside_clipped` is reported, and the arrangement's
+   `apron_area_cut_m2` at the site is ≤ the base's). Twin: a road 8 m from
+   a pad across a 4 m apron tongue is absorbed and the tongue stays apron;
+   a 5 m shade notch beside an absorbed road stays a notch.
+   **WHAT THE CLIP COSTS, MEASURED AND ACCEPTED** (padspec4 RULING on the
+   implementer's STOPs 1 and 2, `docs/briefs/pads57-notes.md`): the
+   padspec3 bars "611 ± 5 % cell vertices", "40 into 7 at OTHH" and "site
+   ring vertices ≤ 1,400" were all measured on the absorb-all arm WITHOUT
+   this clip and are WITHDRAWN. With the clip OTHH `building6` reads 954 →
+   **1,111** cell vertices (131 of them on the airside cells' own rim, holes
+   3 → 7 — the shade notches and apron tongues the clip keeps open), HECA
+   `building3` 1,020 → **1,096**; OTHH absorbs **34 roads into 4 pads** (the
+   six at `building14` / `15` / `17` / `20` whose only join to their pad lies
+   over the apron — 136 / 163 / 168 / 77 m² of airside in the table above —
+   stay roads, `pad_not_one_polygon`), HECA **36 into 17**. RULED: keep the
+   clip, restate the bars (§56 (8) 1 and the step-3 row). The 131 rim
+   vertices are the APRON's own ring, which the pad SHARES at the weld —
+   they exist on `pav4` whether or not the pad lists them, and
+   re-straightening the frontage would cut the apron back to the chord
+   (09-23a) and move airside vertices, which bar 2 forbids (airside is
+   king; the owner's "welded to the surrounding apron" is the apron's edge
+   as it is). The owner's "straight chords" are delivered on the
+   building's GROUNDSIDE and road sides, where the outline is the pad's own.
+   A road whose join is over apron is not "right next to the building" in
+   the owner's sense (apron stands between), so it stays a road — accepted,
+   not a knob.
+
+### §56 (3) THE COLLAR IS DELETED — AND THE PAD IS STILL SEATED (owner 07c (6))
+
+**Evidence (the collar).** Sidecar `platforms` of the sweep builds (`/tmp/harness/
+swg_*.osm.axes.json`, main `798702f2` era): every live collar reads
+`rim_relief_max_m` 0.000–0.002 m at OTHH (10 of 10) and KCLT (8 of 10;
+`building49/b0,b1` 0.228 / 0.482 on their GROUNDSIDE rim), HECA 0.000–0.043 on
+6 of 7 and 0.415 m on `building147` (`hold_verdict residual`) — minted 5–15 m
+wide (`collar_why` cap / area / floor; `collar_needed_m` 5.0 = the floor
+everywhere). The relief it was built to carry (unit-platform §0: ≤ 5 m) was
+taken out of the rim by 30f's hard hold; the collar is a 15 m bank for ≤ 0.5 m.
+At the OTHH site it mints eleven 1–96 m² slivers. It is DELETED, not gated
+(BUILD ECONOMY: refuted mechanisms are deleted; the owner has now read it).
+With it goes the REFUSAL BY EROSION: 21 pads in the sweep are refused today
+because no collar down to the 5 m floor leaves a platform (`under_min_area` /
+`eroded_away`: HECA 5, KCLT 11, OTHH 2, SPJC 2, KASE 1 — 5,009–12,318 m² each)
+and take the contact-led refused-plate path (29s (E)); after this section they
+are ordinary held pads with a datum and an interval, like CYXY's nine. The 6
+SPJC `draped_facade` refusals are a different reason and stay.
+
+**What the seat IS — RE-WRITTEN by Fable `padspec4` 2026-10-08 after the
+implementer's STOP 3 (`docs/briefs/pads57-notes.md`): the S1–S4 ladder of
+padspec2/3 was written against a `hold_interval` that no longer exists.**
+Read off the code on main (`constraints/no_step.py:534-612`, owner RULINGS
+2026-10-02ag (1) / 02ah (1)): the block's datum is a FREE COLUMN of the stage-1
+solve with ONE soft zero-width Band at the median of its frontage contacts'
+pass-1a value; EVERY frontage weld is a HARD two-way row (`hold_row`,
+`HOLD_RULING`); `residual` is always empty, `held` always true; step (ii), the
+runway budget and the pre-solve released set are GONE; the pair-graph interval
+is a REPORT (`reach_band`, `reach_isect`). A weld is released ONLY by the
+solver's elastic LP (`solve/feasibility.py`: every hard row elastic, priced by
+tier **runway > taxi caps > apron cap > pad hold / plateau**, so a conflict
+lands on the LOWEST tier it contains — the pad's hold, never an apron cap),
+and the release is READ AFTER the solve in `constraints/platform._datum_record`
+(`welded`, `released`, `released_ll`, `released_max_m`, `released_spread_m`,
+`reach_isect`, `reach_isect_empty`, `reach_bands_contacts`, `needs_split`).
+
+RULING (padspec4). **That solve IS the seat the owner asked for, and the
+elastic release IS the "cannot be solved" verdict.** 07c (6) asks for two
+things — a pad seated so the apron welds to it along its frontage without
+violating grade caps, and a warning where that cannot be done — and the
+landed 02ah solve delivers the first by construction: the datum is chosen
+jointly with the apron under the apron's own hard caps and anchors; where no
+single level serves every contact, the tier order guarantees the row that
+gives is the PAD's hold at that contact (the apron's caps stay hard), and the
+record names the contact, its miss and the reach bands that excluded it. NO
+NEW SEAT MACHINERY for Beta 2:
+
+| rung of the old ladder | what stands | why |
+|---|---|---|
+| S1 FLAT | the free datum + hard welds (landed, 02ah) | it is the seat; `datum == datum_median` on every pad is 02ah's own acceptance |
+| S2 SPLIT | `pad_blocks.plan_blocks` (landed; a STEPPED / no-base unit only, 10-02aj (2)) | unchanged |
+| S3 TILT | **NOT BUILT** — a named follow-up, `tilted-pad-seat`, with the evidence below | the three ways to fit it each re-open a ruling: (a) decide from the report interval before the solve (reverses 02ah "report only"); (b) two free gradient columns per block, bounded at `pad_slope_max`, priced so the least tilt wins (new non-vertex columns in the stage-1 solve); (c) re-solve released blocks tilted (a second pass, forbidden by flat-pad v2 "no third pass"). If the follow-up is ever opened, **(b)** is the design — it is the only one that keeps the datum a solve column and the release a solve output — and the trigger is the acceptance miss named in §56 (8) 3 |
+| S4 RESIDUAL | what the elastic LP already does, with no collar to hide it: the released contact is a PAD-FACE rim vertex after 4C, its weld row and the pad's plane row at it are the demoted (priced) rows, the pad face carries a warp of `released_max_m` at that vertex, reported by `pad_flat` / `within_shape` and the `pad_frontage_infeasible` family, WARNED above the bar | no new row, no new weight: the LP demotes only the relaxed rows (feasibility.py "THE RELAXED ROWS — and only they") |
+
+**Evidence that the collar's removal changes no seat number in kind** (one
+probe, `docs/briefs/padspec-scratch/padspec4/platforms_probe.py`, on the
+implementer's HECA step-4A replay sidecar `<scratch>/pads57/heca_4a/` and the
+newest sweep sidecars `/tmp/harness/sw1045_{HECA,OTHH,KCLT,KASE}.osm.axes.json`):
+
+| pad (collar) | verdict | released / welded | `released_max_m` | `rim_relief_max_m` |
+|---|---|---|---|---|
+| HECA `building147` (14.7 m, floor) sw1045 | residual | 9 / 54 | 0.415 | **0.415** |
+| HECA `building141` (14.6 m, floor) 4A replay | held | 5 / 34 | 0.261 | **0.261** |
+| HECA `building132` / `158` / `150` (9.6–14.8 m) 4A replay | held | 2–3 / 4–35 | 0.042–0.043 | **0.042–0.043** |
+| HECA `building165` / `157` (9.5 / 10.7 m) sw1045 | held | 3 / 4–16 | 0.043 / 0.039 | **0.043 / 0.039** |
+| HECA `building101` (conforming, NO collar) 4A replay | residual | 3 / 13 | **0.328** | — |
+| HECA `building105` (conforming) sw1045 | residual | 10 / 14 | 0.269 | — |
+| HECA `building186` / `138` / `193` (conforming) | residual | 1 / 29–31 | 0.021–0.022 | — |
+| KASE `building1` (conforming) sw1045 | residual | 3 / 10 | **0.629** | — |
+| KCLT `building49/b0`, `/b1` (2.3 m) | held | 0 / 13–15 | 0 | 0.228 / 0.482 (GROUNDSIDE rim, the §28 / §37 terrace case; no weld released) |
+| every other live collar, HECA / OTHH / KCLT / KASE | held | 0 | 0 | 0.000–0.002 |
+
+Two readings. (i) At EVERY collared pad with a released weld,
+`rim_relief_max_m == released_max_m` to the millimetre: the collar's bank
+carries exactly the release the solve already made and nothing else — the
+release is decided by the apron rows against the hard weld (the bank rows
+only matter once a weld is released), so deleting the bank does not change
+WHICH welds release or by how much; it moves the step from the collar's
+inner ring to the pad's rim. (ii) The conforming pads (no collar today) ARE
+the post-4C case already running: `building101` 0.328 m would warn under the
+0.3 m bar, `building105` 0.269 / `building141` 0.261 are held under it,
+`building186` / `138` / `193` are 2 cm. The 0.415 → 0.328 difference between
+the sweep and the replay is the frame (sw1045's rule-2 outline vs the gaps3
+capture's rule-2b outline), not the collar.
+
+**THE WARNING (owner: "warn and explain" — never silent, never a hidden bank).**
+Built from the POST-SOLVE record only, in `constraints/platform` where
+`_datum_record` is read (one site; the conforming and the block branches both
+call it): a block with `released > 0` and `released_max_m > [building_pad]
+frontage_hold_margin_m` (0.3 m, the §17 body float bar — owner Q5) is WARNED
+through the existing warning path (`UI.loud_warning` →
+`o4_engine/session.log_warning` → `Log(level="warning")`, already on the wire
+and rendered by the app: no new event class, Swift untouched, census row 38
+holds). FIXED COPY, one line per block, slots only — every slot is a field
+the record carries today (`ref`, `centroid_ll`, `pad_m2`, `datum`,
+`released`, `welded`, `released_max_m`, `released_ll[0]`, `reach_isect`,
+`reach_isect_empty`, `blocks`):
+
+> `Building pad {unit} at {lat:.5f}, {lon:.5f} ({area:,.0f} m²): the apron cannot be welded to it along its whole frontage within the grade caps. The pad is seated flat at {datum:.2f} m; {n_rel} of {n_contacts} frontage contacts are released, the worst by {de:.2f} m at {wlat:.5f}, {wlon:.5f}. The apron keeps its caps; the pad's rim steps there; the building is not moved.`
+
+**MASTER RULING 2026-10-08 — ACCEPTED by Fable `padreview` 2026-10-08 (§56 (10) R1, R2)** (lane pads58's STOP,
+`docs/briefs/pads58-notes.md`; applied by lane pads59): the copy above
+REPLACES padspec4's, which carried "…, the apron's own level there; …" and a
+"Why: {why}." sentence built from `reach_isect` / `reach_isect_empty`. The
+`{why}` sentences are DELETED: `reach_isect` is unbounded by construction on
+every record (the 08k shape stage withdraws the contacts' reach Bands before
+`hold_interval` intersects them — `[None, None]` on 42 of 42 HECA blocks), and
+the solved `datum` stands below `datum_median` on 35 of 39 HECA pads by an
+UNATTRIBUTED gap (worst 4.65 m), so neither the interval nor "the apron's own
+level" may be printed to the owner — nothing unverified is said. `datum_median`
+and `reach_band` are not printed beside `datum` in any line the owner reads.
+"; the unit reads one level, so it is not split into blocks" is appended to
+the release clause (before ". The apron keeps its caps") when `blocks` is 1
+and `needs_split` is true. The slots are `ref`, `centroid_ll`, `pad_m2`,
+`datum`, `released`, `welded`, `released_max_m`, `released_ll[0]`; a record
+over the bar that lacks one is not warned and names it (`warning_unsaid`).
+The padspec3 sentences that named the binding anchor are withdrawn as before.
+Under 0.3 m nothing is said to the user: the step is in the sidecar
+and the census only. Sidecar: `platforms[].hold_verdict` (today) plus NEW
+`warned: true|false` and `warning: <the text or null>`; NO `seat` key (there
+is no tilt). `report.json verify.by_family.pad_frontage_infeasible` counts
+the rows. Census family: `pad_frontage_infeasible` (registered in
+`LAW_FAMILIES`, `families.toml:226`), its `measures` text re-worded to "a
+frontage weld the elastic LP released; the pad's rim carries the step;
+WARNED to the user above `frontage_hold_margin_m`", its `parameter`
+unchanged; `platform_rim_relief` and `platform_refused` stay registered and
+read 0 after 4C. Twins: a synthetic block record with `released_max_m`
+0.45 produces the text above with its two `{why}` variants and the one-block
+suffix; 0.25 produces `warned: false` and no log line; the text is
+byte-asserted (the owner reads it).
+
+**Expected WARNED pads per sweep airport** (threshold 0.3 m, from the table):
+HECA 0–1 (`building147` on the rule-2 frame / `building101` on the rule-2b
+frame — one of them, the frame decides), KASE 1 (`building1`, 0.629), KCLT 0,
+OTHH 0, SPJC 0, CYXY 0, NLWF 0; plus 0–2 among the 21 pads newly held when
+the erosion refusal goes (HECA `building96` / `100` / `162` on the gaps3
+frame; `91` / `104` / `138` / `169` on sw1045's). The implementer quotes the
+count and the copy per airport.
+
+**What replaces each thing the collar did** (unchanged from the first draft
+except the residual row):
+
+| what the collar did | replaced by |
+|---|---|
+| let the rim stay airside-welded while the interior is one plane (unit-platform §1 (3)) | the hard hold (flat-pad v2 §2/§5, landed): the apron comes TO the pad's datum, so rim = plane. The pad is `pads.pad_flats` + `pad_slope_ceiling` over its own rim, contacts included (§20 C1/C2), the follower set of `pad_frontage_level` = the pad face's vertices |
+| carry the RELEASED weld of a block the elastic LP could not seat at one level (HECA `building147` 0.415 m = its `rim_relief_max_m` to the mm) | nothing new: the released contact is a pad-face rim vertex, its demoted rows leave the step at the rim (padspec4 table above), reported as `pad_frontage_infeasible` with `released_max_m` / `released_ll`, and WARNED above 0.3 m |
+| frontage lead 30f (`frontage_hold_rows`, `platform_contacts`) | unchanged; `platform_contacts` reads the pad face's welded contacts (today the collar's OUTER rim — the same vertices); the hold row carries the plane |
+| object seating: `placement_read._collars_as_platform` ("the one site the object stage learns of the platform": the collar's outer ring at platform-plane heights) | DELETED; `pads_rims_from_graded` publishes the pad face's own ring at its own (plane) heights — the pre-collar path, one face per ref (17u fix (A)/(C) fold stays) |
+| `pad_block_seat` seats a unit on "the block collar's outer ring" | on the block face's ring (`<unit>/b<k>`), which IS that ring without the collar |
+| door / jetway contact: a rider's host is the face under it | unchanged (the face under it is the pad or the apron / strip) |
+| `platform_rim_relief` / `platform_refused` families | registered, read 0; `platforms[]` keeps `held`, `residual`, `held_within_tol`, `reach_band`, `blocks` and the `_datum_record` keys, gains `warned`, `warning` (no `seat`), and drops `collar_m` / `collar_minted_m` / `collar_needed_m` / `collar_why` / `inner_ring` / `rim_relief_*` / `over_collar_max` |
+| refusal by erosion (`under_min_area`, `eroded_away`) | DELETED with the erosion; the 21 pads are held pads |
+| inter-block terrace strip (`_mint_blocks`, half-width `bank_min_width_m`) | KEPT — it is 30f's split joint inside the footprint, not a collar. ITS REF (padspec3, the implementer's first question): today the strip is the only thing left in a block's "collar" once the erosion goes (`_mint_blocks`: `col = Q − keep` = the strip half; `inner` = the pad polygon itself), spelt `<unit>/b<k>#collar`. It becomes `<unit>/b<k>#strip` — `model/planar.STRIP_SUFFIX`, `is_strip_ref`, `platform_ref_of` strips it too — and its rows are the TERRACE branch of today's `platform_collar_rows` (`src_terr`, 30r: the pad\|pad terrace between two flat blocks is a 1:3 bank), split out as `block_strip_rows` keyed on the strip ref; the collar's own bank / rim / island branches go with the collar. Every reader that SKIPS a collar face (verify `within.py` :371, `pavement_cap` :77/:116/:154, `ceiling` :163, `check_grade._is_platform_collar`) skips a strip the same way — a 1:3 bank is over every cap — through `is_strip_ref`, and the object stage folds it under its block ref exactly as `_collars_as_platform` folded the collar (the strip is inside the footprint). The strip is a face class the §55 census already counts under `platform` rows; no new family |
+| landing bank (#290, `planar/landing.py`, `<unit>/landing<k>#collar`, `platform_collar_rows` keyed on the `#collar` spelling) | KEPT with its rows: `platform_collar_rows` is retained for landings ONLY (rename `landing_bank_rows` at the implementer's option, in the same commit as its callers); `COLLAR_SUFFIX` survives for the landing ref |
+| `[building_pad] platform_collar`, `platform_collar_max_m` | DELETED from the law table and schema; `planar/cluster.py:190` and `footprint_connector.py:701-709` read `platform_collar_max_m × bank_slope` as the SOLID-connector step bound (unit-platform §2 S4, 5 m): that number becomes its own key `[placement] connector_step_max_m = 4.95` (15 m × 0.33 as the code computed it — padspec4 ACCEPTS the implementer's deviation 2: "no change of value" wins over the rounded 5.0) with the S4 comment, one derivation |
+
+`planar/platform.platform_split` becomes the BLOCK PLANNER only: it still
+calls `pad_blocks.plan_blocks` and `_mint_blocks` (blocks + strips), registers
+`HELD` / `PLATFORMS` / `BLOCK_PLANS` and runs `landing_cut`; the erosion, the
+`#collar` region, `_collar_for_pad`, `collar_width_m`, `_eroded`, the
+`under_min_area` / `eroded_away` refusal path and `merge_platform_faces`'s
+collar keys go.
+
+### §56 (4) OBJECTS — what the simpler outline means for seating
+
+1. The unit's seat plane is the pad's plane, read off ONE face per ref
+   (`pads_rims_from_graded`); `footprint_unit.plan_unit_datums`,
+   `placement_family.pad_plurality` / `cluster_plane`, `anchor_rule.fold_pad_ref`
+   / `pad_contains` read the simplified ring. Containment grows by the filled
+   notches (+0.4–1.2 % of area): a body whose foot stood in a crenelation and
+   was "outside the pad" (today seated on the ground beside it) is now INSIDE
+   and seats on the plane — the owner's intent ("small protuberances … in the
+   footprint"). The implementer quotes the count of feet that change host per
+   airport (`obj8_split_report --feet-in`). A tilted seat (S3) is read as the
+   §20 plate's tilt is today (`seat_tilt_max_deg`).
+2. **Nothing floats or sinks that does not today**: the plane is the same plane
+   (same contacts, same hold); bodies formerly over the collar annulus were
+   seated on the plane with a "held up by the family" residual ≤ the collar's
+   relief (unit-platform §1 (5)) — that relief is 0.00–0.48 m on every live
+   collar, so the change at their feet is ≤ 0.48 m and in the direction of the
+   ground. Bar: feet within 0.3 m ≥ the base count at every owner site (§56 (8)).
+3. **Split roofs / decks (#112)** and **interiors (#10, §48)** read the plan and
+   the unit, not the pad ring; the §16 split verdicts are unchanged in kind
+   (one plane per unit as before the collar). `rebake_plan` / `rebake_screen`
+   carry no collar field (`capture_state.py:59`: BLOCK_PLANS not carried either)
+   — unchanged.
+4. **Riders / jetways**: hosted on the face under them (`rider_hosts`); the
+   root over the apron is on the apron welded at the pad's value, the bridge
+   on the apron / strip as today. The host join `ref.split("#")[0]` at
+   `jetway_strip.py:177-180` becomes `platform_ref_of` (row 19).
+
+### §56 (5) THE CONSUMER CENSUS (owner 2026-08-30l) — ruled BEFORE any consumer is edited
+
+Verified by grep (scout, 2026-10-07; `file:line` in the scout's report in the
+lane summary); rows 3, 4, 13, 19, 23, 33 revised by padspec2. A = outline
+shape, B = collar cells, C = blocks, D = ribbons / road cells.
+
+| # | consumer | reads | ruling |
+|---|---|---|---|
+| 1 | `geom/cluster_outline.cluster_outlines` :325 | A | **EDITED (landed)** — rule 2b, `simplified_outline`; NO rider rings |
+| 2 | `classify/evidence._cluster_pads` :468, `_pads` :565 | A | **EDITED (landed)** — passes `pad_outline(law)`; `absorb_near_roads` beside `_absorb_enclosed` (step 3) |
+| 3 | `classify/ribbon_mint` :172-177 | A ring as "occupied", D | UNCHANGED — the ribbons are minted as today; the absorption runs after them |
+| 4 | `classify/roles.py` :604 routes, :641 mint, :657 cutback, :664 ribbons, §53 gap pieces; `facade_mint` :136/:180; `airside_edge` :332 | A ring / role, order | **EDITED at one call** — `absorb_near_roads` + the changed-pad re-cutback between `mint_osm_ribbons` and `mint_gap_pieces`; nothing else moves |
+| 5 | `planar/overlay.build_arrangement` :230-267 | order A→B→C | **EDITED** — `platform_split` is the block planner; no collar region enters the arrangement |
+| 6 | `planar/pad_cut` `apron_cut_to_pads` :68, `airside_clip` :199, `airside_vertex_snap` :312, `plateau_cut` :481 | A vs airside; HELD | UNCHANGED (plateau outlines per platform ref = the pad face) |
+| 7 | `planar/platform.platform_split` :316, `_mint_blocks` :530, `merge_platform_faces` :651 | B, C | **EDITED** — erosion / collar / erosion refusals deleted; blocks + strips kept; merge keys on block refs only |
+| 8 | `planar/pad_blocks.plan_blocks` :543 | C, pad polygon, DEM | UNCHANGED (reads the simplified polygon; the base-class gate 10-02aj is the S2 gate) |
+| 9 | `planar/landing.py` :94-130, :226 | HELD, `#collar` for landings | UNCHANGED in machinery — the landing bank keeps `COLLAR_SUFFIX` and `platform_collar_rows`. **Its INPUT changes** (padreview §56 (10) R-L): `_key` finds a one-block unit's block by point-in-polygon over the pad region, which was the ERODED platform — a deck centred in the 15 m annulus found nothing, so main carries 0 landings at HECA (the #290 ruling's own site, silently lost). With the pad whole the landings return (HECA 5 at T3, OTHH 4) and ONE witness the law already has gates them: a landing foot `y_land < −BAND_M` is a footing or a descent, never a landing (OTHH 2 of 4 stood 1.74 / 1.89 m under their ground) |
+| 10 | `planar/pad_sliver`, `pad_terrace`, `ribbons` :50-66/:170, `ribbon_weld`, `shapes`, `weld`, `build` | rigid role / PLATFORMS | UNCHANGED in kind; `ribbons.merge_platform_faces` keys lose the collar ref (row 7) |
+| 11 | `planar/basins` :422/:791, `structures` :284/:964, `structure_approach` :100, `structure_service` :416, `wall_corridor_ramps` :131/:235 | A as role + knife | UNCHANGED — they CUT the pad after the mint; see §56 (6); `structures.build_structures`'s footprint source is READ by (2) 4 (a) |
+| 12 | `planar/cluster.py` :190; `airport/footprint_connector` :701-709 | `platform_collar_max_m × bank_slope` | **EDITED** — read `[placement] connector_step_max_m` (same value) |
+| 13 | `constraints/platform.py` :99-112 pairing, :157-164 rows, :241-266, :422-460 landings, :507-521 refused, :630-750 hold, :757 `hold_row`, :996-1014 record | B, C | **EDITED** — collar pairing / rows / refused deleted; hold sets and records read the pad face; `hold_row` carries the plane (S3); the plane rows priced at released contacts (S4); records gain `warned` / `warning` / `seat`; landing rows kept |
+| 14 | `constraints/pads.py` :546 plate excludes collar, :605 `platformed`, :871 held, :970-980 frontage reads outer rim | A, B | **EDITED** — the plate is the pad face's rim (contacts included, §20 C1); `platformed` and the collar branch deleted |
+| 15 | `constraints/cluster_pad.py` :153/:183/:324/:429-465 | A, B, C | **EDITED** — a cluster's pad set = {pad face, its blocks}; mismatch over that union |
+| 16 | `constraints/pad_frontage_gs.py` :167-187, :297, :324, :369 | B outer rim, D | **EDITED** — `_unit_outline` = the pad face; a lot fronts the pad's rim (§28 unchanged in law) |
+| 17 | `constraints/pavement_cap.py` :77, :116-117, :154 | B | **EDITED** — the collar exemption goes; pad vertices are `PAD_ROLE` as before the collar |
+| 18 | `constraints/ceiling.py` :163-165 | COLLAR / PLANE / RIM heads | **EDITED** — the collar head leaves the skip set (the landing head stays) |
+| 19 | `constraints/jetway_strip.py` :142-146, :177-180, :238, :305-316 | A, B host join | **EDITED at one line** — the host join is `platform_ref_of` (no `#collar` split); NO cluster-time host rule |
+| 20 | `constraints/no_step.py` :429-790, `hold_interval` | HELD / plateau; the interval | **EDITED** — S3: the tilted plane LP after (ii) finds the interval empty; the datum Pin becomes datum + gradient columns; residual re-pricing unchanged |
+| 21 | `constraints/pad_fronting`, `pad_relief` :87, `taxi` :105/:157, `junction_mesh` :250, `apron` :175/:378, `gap_follow`, `routes` :232, `structures` :826, `foot_rows` :403, `roads` :61 | `_pad_polys` / role | UNCHANGED |
+| 22 | `solve/design_ground.coverage_edge_collar_vertices` :110-157 | B | **DELETED** (early-returns with no collar today; dead with it) |
+| 23 | `solve/project_strip.py` :385, :419; `solve/design.solve_design` | A, B; the datum Pin | **EDITED** — "a pad with a collar gives its RIM's level" branch goes; `_pad_plane` is the pad plane; the warning is emitted where `hold_interval`'s verdicts are published (one site, the stage-1 record) |
+| 24 | `model/platform.datum_vertices` :150-175 | `#collar` literal | **EDITED** — the datum vertex is on the pad face (landing refs keep their spelling) |
+| 25 | `model/islands.courtyard_faces` :58-73 | rigid face with holes | **EDITED** — the "a collar's hole IS its platform" special case goes; a pad hole ≥ 200 m² is a courtyard again |
+| 26 | `model/planar.py` :58 `COLLAR_SUFFIX`, :61 `is_collar_ref`, :80 `platform_ref_of` | ref grammar | UNCHANGED (landings) — and the ~15 hand-spelt `split("#")[0]` joins (scout rows S) are replaced by `platform_ref_of` / `unit_ref_of` in the same commit (reuse ruling) |
+| 27 | `verify/within.py` :371-378, `verify/pads.py` :137, `verify/jetway.py` | skip collar shapes | **EDITED** — the skips go; `pad_flat` / `within_shape` read the pad face; a released contact's warp is `pad_flat`'s residual, never skipped |
+| 28 | `pipeline/publication.py` :308-313 `cluster_pads`, :669-688 `platforms`, :99-118, :279-295, :914-988 | sidecar | **EDITED** — `platforms[]` loses the collar keys, gains `warned` / `warning` / `seat`; `cluster_pads` gains `outline_vertices`, `outline_simplified_from`, `outline_joined_from`, `roads_absorbed`, `roads_kept_near_pad` |
+| 29 | `emit/osm_adapter.py` :177-194 | sidecar allow-list | **EDITED** — the new keys |
+| 30 | `airport/placement_read.py` :53, :99-100, :111-146 | B | **EDITED** — `_collars_as_platform` deleted; the pad face ring published under its ref |
+| 31 | `airport/pad_block_seat.py` :50-277 | C | **EDITED** — block ring = the block face's ring |
+| 32 | `airport/anchor_rule`, `placement_family` :793-823, `footprint_unit` :82-911, `footprint_seats`, `placement_body`, `placement_plan`, `placement_file`, `riders` :279-345, `road_ramp` :1209 | PadRing | UNCHANGED (read the published ring) |
+| 33 | `airport/riders.rider_candidates` :173; `placement_family.plan_clusters`, `PlanCluster` | riders | UNCHANGED — no `rider_rings` (§56 (1) 5) |
+| 34 | `tools/check_grade.py` `_is_platform_collar` :7028 (used :2491, :6857, :7749), `_check_platform_rim_relief` :7038, `_check_pad_frontage` :7068, `_check_platform_refused` :7142 | B; the families | **EDITED** — the three collar exemptions go (no collar way exists); the families stay in `LAW_FAMILIES`; `pad_frontage_infeasible` rows carry `warned` |
+| 35 | `tools/harness/census.py`, `test_harness.py`, `families.toml` :208-210, :226-233, :254-256 | families | **EDITED** — parameter / measures text names `outline_close_m` and the warning bar |
+| 36 | `planar/overlay.absorb_enclosed_pavement` (§41), `planar/pad_sliver` plateau scraps | pad holes / plateau | UNCHANGED (a filled light well is pad; a kept courtyard is as today) |
+| 37 | §55 gap stage (`pipeline/late_stage`, `gap_sheets`, `classify/gap_mint`) | standing cells incl. pads and absorbed roads | UNCHANGED — the gap pieces are minted AFTER the absorption and difference the same standing union (pad ∪ roads → pad); HECA `gap_pieces` 93 expected unchanged at T3 (0 roads absorbed there), fewer by the absorbed road elsewhere (18 absorptions airport-wide) |
+| 38 | Swift `SceneryKit` | JSONL event names | UNTOUCHED — the warning is a `Log(level="warning")` already on the wire |
+| 39 | `o4_engine/session.log_warning`, `UI.loud_warning` | the warning path | UNCHANGED — the one emit site; the engine calls it once per warned block |
+
+A reader of the pad ring, the collar ref or `platform_collar_max_m` not in
+this table is a STOP: add the row, rule it, then edit.
+
+### §56 (6) EMITTABILITY, AND THE THINGS UNDER THE BUILDING
+
+The pad is one polygon with ≥ 0 holes at one plane (tilted ≤ 1 % at most): one
+z per (x, y), its boundary a weld (airside) or a one-triangle step / ramp
+(groundside, §28 / §37), exactly a §20 pad; a released contact is a warp of
+one vertex. Nothing new enters the heightfield.
+
+* **Tunnels, basins, wall corridors under the building** (OTHH has all three at
+  this unit: 5 `tunnel_trench` faces within 150 m) are cut from whatever stands
+  there AFTER the pad is minted (`planar/structures`, `basins`,
+  `wall_corridor_ramps` read the pad as role + knife, census row 11). The
+  closing swallows trench area the structure cut takes back: probed **47 m² at
+  C = 3** (161 m² at C = 5 — one reason for 3); 22 of the 127 OTHH jetway
+  anchors stand 4 m from the face over such a trench. Bar: the trench / basin /
+  corridor face set at the site identical in count and area ±1 % to the base.
+  MEASURED (padspec3, `padspec3/struct_faces.py` on the sweep base
+  `sw1041_OTHH_cold` and the implementer's steps-1+3 replay `pads56/othh_s3`):
+  airport-wide tunnel_ramp 9 faces / 24,292 m², wall_corridor_ramp 14 /
+  2,630, door_ramp 4 / 21, tunnel_trench 43 / 9,814 — IDENTICAL in both;
+  the site's 5 trench faces 171 m² identical; the ramp faces border the same
+  families (3 wall-corridor ramps on a pad, 1 tunnel ramp on a road) in both.
+  The absorb-all replay (§56 (7) (5)) is read the same way. What a road
+  absorbed under a PACK structure changes is only the face the ramp's TOP
+  edge is shared with: a `service_road` that graded freely to the ramp top
+  (DEM at the walls' outer end, `full_wall_ramp`) becomes a pad vertex on
+  the pad's plane. Where the two disagree the pad is the ramp's HOST and the
+  ladder demotes the pad's flat at those vertices (the measured
+  `Terminal_Base_2_1` case: 10 rows demoted at 1.392 m) — a warp at the
+  ramp's top, reported in `pad_flat`, never a hard conflict. **CORRECTED
+  (padreview, §56 (10) D1): that sentence did not hold once the collar
+  went** — a flat row `v == datum` at a ramp top is SATISFIABLE by seating
+  the whole pad at the structure, and the first OTHH closing build did
+  exactly that (`building6` datum 3.962 → 2.611, 25 wall-corridor ramp
+  tops in the flat set, `hard_conflict` 0 → 210). The rule as LANDED
+  (`596e62c2`, ACCEPTED): a vertex a STRUCTURE-role face carries
+  (`law.tables.is_structure_role`) is neither a flat vertex nor the datum
+  column of its host pad; the ramp top keeps its own hard law and the pad's
+  plane / ceiling rows at it are the priced ones (pad tier). Bar restated:
+  at every wall-corridor / door ramp whose top edge is on a pad, `|ramp
+  top − pad plane|` quoted; `hard_conflict` rows there are PAD-tier only,
+  each `s_m` ≤ the ramp's authored rise (OTHH `p59c`: 37 rows on the
+  terminal, 23 ceiling + 14 plane — lawful under this reading).
+* **The pavement-gap stage (§55)**: gap pieces are the sheet minus every
+  standing cell; the standing union is the same ground (road → pad), so the
+  pieces are unchanged where no road is absorbed and shrink by the absorbed road
+  where one is. The lot cut (06d) reads lots, not pads. HECA (the §55 airport)
+  absorbs 0 roads at T3 and 18 elsewhere.
+* **Courtyards kept** (≥ 200 m²) are `islands` courtyards: graded by the
+  courtyard rule as today; filled ones are pad.
+
+### §56 (7) THE PROBE RECORD — pure geometry and the emitted surface, on the registered captures
+
+(1) **Outline** (`docs/briefs/padspec-scratch/outline_probe.py`, `road_probe.py`;
+`<scratch>/padspec/*.json`): per unit at the owner's sites, today's closed
+outline (rule 2) → `simplified_outline(3.0, 1.0, 200)`; "added" = outside the
+true footprint union, censused on the EMITTED graded faces by role (apron
+inside the added area is re-clipped by the arrangement and costs nothing):
+
+| airport / unit (site) | vertices | holes | area m² | added m² (on: apron / other building faces / road / trench) | removed m² |
+|---|---|---|---|---|---|
+| OTHH `unit:28#8/0` (25.259994, 51.6104872) | **1,717 → 650** (−62 %) | 34 → 4 | 472,471 → 477,286 | +5,557 (1,818 / 939 / 486 / 47) | 11,647 (base 11,534: today's deck / over-another trim) |
+| HECA `unit:43#6330/0` (T3, 30.1110593, 31.404281) | **1,476 → 472** (−68 %) | 7 → 7 | 169,383 → 172,247 | +2,148 (795 / 246 / 0 / 0; 62 groundside pavement) | 23,875 (base 24,601) |
+| KCLT `unit:31#0/0` (35.2196, −80.9435) | **990 → 305** (−69 %) | 36 → 7 | 115,538 → 120,334 | +5,079 (2,345 / 1,605 / 0 / 0) | 27,586 (base 27,421) |
+| airport-wide, every cluster pad | OTHH 5,168 → 1,695 (56 pads); HECA 4,852 → 2,393 (82); KCLT 2,481 → 1,106 (38) | OTHH 87 → 19; HECA 49 → 16; KCLT 53 → 13 | +1.2 % / +1.9 % / +2.2 % | — | within +0.3 % of base |
+
+Variants (≤ 10, all three airports): DP alone at 1 m 1,717 → 776 / 1,476 → 460
+/ 990 → 520; DP 2 m 600 / 355 / 451 (corners cut, refuted); close 5 m round
+600 / 447 / 290 (+2,378 apron, **161 m² trench**, 852 road at OTHH); close 8 m
+mitred 417 (16,882 m² second piece: a wing severed — refuted); close+open
+(V8) 423 but 8 pieces — refuted; convex hull 19 vertices but **+1,167,519 m²**
+(the whole apron and two taxiways) — refuted. Worst case airport-wide at the
+chosen rule: OTHH `unit:24#0/0` +2,120 m² (a hangar row whose bays fill),
+HECA `building4`-class pads +≈ 900 m² of groundside pavement. With the LANDED
+rule (`padspec2/padcount_probe.py`): pads HECA 82 → 74, OTHH 56 → 52, KCLT 38
+→ 38, every change named in (1) 9; `outline_vertices_in → out` HECA 4,943 →
+2,921 over 90 outlines, OTHH 6,133 → 2,424 over 66, KCLT 3,106 → 1,464 over 33.
+
+(2) **Jetway riders** (`padspec2/rider_probe.py`, `anchor_role_probe.py`;
+`<scratch>/padspec2/{OTHH,HECA,KCLT}_riders.json`): rider candidates OTHH
+35,321 (389 `.agp`, 8,640 lib, 26,292 skipped), HECA 3,007 (237 / 2,057 / 713),
+KCLT 11,314 (all skipped). Jetway-named placements: OTHH 193 (139 riders, 54
+bodies in clusters), HECA 56 (48 `.agp` + 7 OBJ8 riders, 1 body), KCLT 67
+(riders). Jetway riders near a unit: OTHH 127 (anchor 0.08–3.25 m outside the
+rule-2 outline: 94 within 2 m, 28 inside; moved inside by the close: **0**),
+HECA 51 (34 within 2 m, 17 at 2–6 m; moved: **0**; the `.agp` footprint 100 m²,
+87 m² of it outside the outline), KCLT 67 (moved: **0**). Emitted role under the
+anchor: OTHH apron 68 / ground 45 / collar 8 / building 3 / trench 2 / road 1;
+HECA apron 50 / collar 1; KCLT apron 67. Four metres out from the face: OTHH
+apron 95 / trench 22 / ground 10; HECA apron 51; KCLT apron 67. Eight metres:
+apron 124 / 51 / 67. Hosted today: 127 / 51 / 67 (every one).
+
+(3) **Roads** (`road_probe.py` at D = 10 m, `<scratch>/padspec2/*_roads*.log`):
+OTHH site 26 of 29 (20 `route*` + 6 `small_roads:*`; 170 vertices, 2,436 m²;
+`route42` ×2 SPLIT, `small_roads:-8407` PASSES; the pad 650 → 617 vertices
+after absorption); OTHH airport-wide 75 ABSORBED / 83 SPLIT / 389 PASSES
+(468 vertices, 6,199 m²; largest `route20` 412 m²); HECA 18 / 37 / 406 (107
+vertices, 867 m²; T3 0 of 2); KCLT 24 / 27 / 598 (122 vertices, 410 m²).
+
+(4) **The seat** (`padspec2/seat_probe.py` on `swg_*.graded.json` + the
+`platforms` sidecar; the sufficiency reading of (3)): held pads probed HECA 32
+(28 flat within 0.02, 1 seated only by tilt, 3 residual), KCLT 44 (40 / 0 / 4 —
+the 4 are an instrument over-read: the probe's contacts are every rim vertex an
+airside face shares, which includes ramp / plateau / taxi-held vertices the hold
+set excludes; the sidecar's `held_miss_max_m` is 0 for them), OTHH 14 (14 / 0 /
+0), SPJC 16 (15 / 0 / 1, same over-read), KASE 1, CYXY 9, NLWF 1 (all flat).
+Where the probe and the sidecar agree (HECA `building147` 0.416 vs 0.415,
+`building105` 0.271 vs 0.269) the tilted seat halves the miss (0.191 at 0.24 %;
+0.165 at 0.55 %) and does not clear it at `hard_tol_m`.
+
+Expected at the OTHH site after (1)–(3), FIRST DRAFT: ≈ 12 faces / ≈ 1,100
+vertices — WITHDRAWN by padspec3 (it undercounted the apron's pieces and the
+trench faces). MEASURED on the absorb-all replay (`padspec3/othh_all_replay`,
+`--from classify --emit --verify`, collars still minted — step 4C deletes
+them): the site reads **31 faces / 1,879 ring vertices** = building 6 faces /
+577 (the platform pieces and the rim slivers `platform_split` mints today:
+one face after 4C), apron **10 / 520** (`pav4`, `pav4#plateau:building6#1` —
+the stand-zone plateau cut; base 2 / 457), collar **4 / 489** (→ 0 / 0 after
+4C), `pav32` 1 / 95, tunnel_trench 5 / 83 (identical to base), junction 1 /
+82, service_road **3 / 24** (`route37` in two pieces, `small_roads:-8407`),
+parking_lot 1 / 9. So after 4C: **27 faces / 1,390 vertices**, and with the
+pad one face ≈ 22 / ≈ 1,390 — the honest bar is in §56 (8) 1. The solve is
+unchanged in kind: 28 of 59,573 hard rows over 0.02 m, worst 0.0653 m, the
+SAME pre-existing `pad_slope_max` rows at 25.2542, 51.6205 the steps-1+3
+replay and the base carry (not this section's); verify 422 rows (`pad_flat`
+31, `within_shape` 177, `groundside_cutback` 27), the runway defect families
+ALL ZERO; structure faces identical to the base airport-wide and at the site
+(§56 (6)); `pad_cluster_mismatch` 0.
+
+(5) **THE REAL CLASSIFY** (padspec3, `docs/briefs/padspec-scratch/padspec3/
+classify_probe3.py` — the implementer's `pads56/classify_probe.py` extended,
+run on the landed `roles.classify` of PR #463 with ONE monkeypatch per arm;
+captures `perfA362/cap/OTHH.pkl`, `gaps3/HECA.pkl`, `conc333/KCLT_
+main28500ecf.pkl`; logs `<scratch>/padspec3/*.log`; arms `today` = PR #463,
+`absorb_all` = 4 (b) deleted, `nosimp` = rule 2b and the absorption off):
+
+| | OTHH | HECA | KCLT |
+|---|---|---|---|
+| cluster pads rule 2 → 2b; vertices | 56 → 52; 6,133 → 2,424 (66) | 82 → 74; 4,943 → 2,921 (90) | 38 → 38; 3,106 → 1,464 (33) |
+| owner-site unit `outline_vertices` (rule 2b ring) | `unit:28#8/0` **552** (from 1,315) | `unit:43#6330/0` **453** (906) | `unit:31#0/0` **314** (997) |
+| the site pad CELL at classify, before → after absorption | `building6` 954 → **611** (absorb_all; 643 with 4 (b)) | `building3` 1,020 → **491** | `unit:31#0/0` 277 (absorbs nothing) |
+| roads absorbed (absorb_all) | **40 into 7 pads** (26 into 7 with 4 (b)) | **39 into 18** (37 into 17) | **58 into 25** (same; no wall-extended route) |
+| kept, by reason | 0 | 3 `pad_not_one_polygon` (0–3 m² slivers at `building86` / `91`) | 8 `pad_not_one_polygon` + 1 `structure_footprint` (`small_roads:-11132#1` at `building77`, an OSM bore) |
+| owner-site road CELLS before → after | **17 → 2** (`route37`, `small_roads:-8407`; 681 m², 13 vertices) | 2 → 2 (`route0`, `route1` pass by T3) | 0 → 0 |
+| the site pad's added area = road / shade / airside / other pad / fill | 7,153 = 3,845 / **159** / **516** / 0 / 2,633 | 1,982 = 69 / **999** / **691** / 0 / 223 | — |
+| airside taken by the re-close elsewhere (largest) | `building17` 168, `building15` 163, `building14` 136 | `building132` 20, `building85` 18 | `building2` 162, `building95` 138, `building9` 45 |
+| non-absorbing pads byte-identical | 27 of 27 | 188 of 188 | — (the implementer's proof holds: the function returns the cell object) |
+| gap pieces at classify (absorb off → on) | 266 → 249 | 375 → 341 | 491 (= ) |
+| classify wall | 142 s | 53 s | 30 s |
+
+The `shade` and `airside` columns are what §56 (2) 8 clips; with the clip the
+site pads' added area is the road and the fill alone. The wall-extended
+routes at OTHH (`today` kept 14, all at `building6`; their "retaining pieces"
+`OTHH_Terminal_Base_10_4 / _8 / _2_1.obj`) are in `absorb_all`'s 29 roads
+of `building6`. The absorb-all REPLAY (`replay_absorb_all.py --replay
+perfA362/cap/OTHH.pkl --from classify --emit --verify`) is recorded in the
+same log directory and read by `struct_faces.py` / `pads56/site_faces.py`;
+its numbers are §56 (8) bars 1 and 5.
+
+### §56 (8) ACCEPTANCE, BUILD TIME, PLAN (REVISED)
+
+**Bars for the implementer (ONE closing OTHH build; HECA and KCLT by replay):**
+
+1. **Site** (RE-DERIVED by padspec3 on the absorb-all replay, §56 (7);
+   RESTATED by padspec4 from the CLIPPED code, `pads57-notes.md`):
+   within 150 m of 25.259994, 51.6104872: collar faces **0**, road faces
+   **≤ 3** (`route37` and `small_roads:-8407`, the two passing roads — a
+   third face only if a structure or plateau cut splits one), building
+   faces ≤ 2 (one pad, plus at most its plateau remnant), total faces
+   **≤ 27**, ring vertices **≤ 1,900** (the un-clipped replay read 31 /
+   1,879 less the 4 collar faces / 489 vertices = 1,390; the clip returns
+   ≈ 500 — the 131 apron-rim vertices the pad now shares, the re-opened
+   shade notches and tongues — so the honest bar is 1,390 + 500); the
+   remaining faces are classed in §56 (8) "THE OWNER'S SITE AFTER 4C"
+   below; `building6`'s rule-2b outline `outline_vertices` **552 ± 5 %**
+   and the pad CELL after the absorption **1,111 ± 5 %** (sidecar
+   `cluster_pads[].outline_vertices`; padspec3's 611 was the un-clipped
+   arm), holes **7**, 1 piece; apron area
+   cut at the site ≤ the base's (`apron_cut_top` `pav4` 1,145 m² in the
+   replay vs 1,151 in the steps-1+3 arm); `absorb_growth_m2.airside_clipped`
+   reported; jetway anchors over `ground` / `service_road` **0**, jetway
+   riders hosted ≥ 127.
+2. **Airside is king**: every taxi- / runway-family vertex moves 0 at 0.02 vs
+   `sw1041` (`airside_value_delta --tol 0.02`); apron vertices NOT on a pad rim
+   move 0; apron vertices ON a pad rim are quoted (count, worst) — the weld's
+   own lawful motion; `pad_airside_renode` 0; `pad_airside_weld` 0;
+   `pad_cluster_mismatch` 0.
+3. **Seated** (RE-WRITTEN by padspec4 for the no-tilt design; the proof is
+   the HECA replay `--replay gaps3/HECA.pkl --from planar --emit --verify`
+   of the 4C arm AGAINST the 4A arm, `<scratch>/pads57/heca_4a/`, same
+   frame, same code but the deletion): (a) **the released set is the
+   same**: every pad with `released > 0` in the 4A arm has `released > 0`
+   in the 4C arm and vice versa, except the 3 erosion-refused pads
+   (`building96` / `100` / `162`), which are quoted with their verdicts;
+   (b) **no release grows**: per pad `|released_max_m(4C) −
+   released_max_m(4A)| ≤ 0.05 m` (`building101` 0.328, `building141`
+   0.261, `building132` / `158` / `150` 0.043, `building186` 0.021);
+   (c) **the apron's caps stay hard**: `hard_conflict` rows by tier
+   (`by_tier`) in the runway / taxi / apron tiers are count-identical to
+   the 4A arm — every relaxed row is on the pad tier; (d) per pad
+   `|datum(4C) − datum(4A)| ≤ 0.05 m` (master ruling 2026-10-08:
+   padspec4's `datum == datum_median` does not hold on the 4A arm — 39 of
+   42 HECA pads over 0.02 m; the gap is PRE-EXISTING on main, §56 (10) F2).
+   **(c) and (d) RESTATED by padreview (§56 (10) R4) against the frame's
+   measured noise floor** — a NULL change on 4A code (a different interior
+   datum vertex, `<scratch>/pads59/heca_4a_dvlast`) moves 231 junction
+   vertices up to 0.57 m and ±1 conflict row in the SW taxi region: (c) the
+   runway tier count-identical; taxi and apron tiers within ±3 rows of the
+   4A arm with no NEW row over 0.2 m, every new row named with its site;
+   (d) per pad `|datum(4C) − datum(4A)| ≤ 0.15 m`, every pad over 0.05 m
+   named with its cause (the datum column's `apron_trend` / `detached`
+   row until R4's step lands; after it, `≤ 0.05 m` is the bar again);
+   (e) **WARNED**: HECA ≤ 1 + (0–2 of the 3 newly held) = **≤ 3**, each
+   with its copy quoted; OTHH 0; `pad_flat` residual on every pad ≤
+   max(0.02, its `released_max_m`); `held_within_tol` per block ≥ 4A.
+   **A MISS on (a) or (b)** — a pad released in 4C that was welded in 4A,
+   or any release growing by more than 0.05 m — is a STOP that sends the
+   tilt back to the spec author as follow-up `tilted-pad-seat`, design
+   (b) of §56 (3): the collar WAS carrying misfit the record did not show,
+   and a tilt is the only seat left that keeps the datum a solve column.
+4. **Feet**: `obj8_split_report --feet-in` within 0.3 m ≥ base at HECA T3 / T2 /
+   SPJC b5 sites (flat-pad v2 A5 numbers) and at OTHH `building6`; feet that
+   changed host counted.
+5. **Under the building**: trench / basin / corridor faces at the site and
+   airport-wide count- and area-identical ±1 % (the replay reads tunnel_ramp
+   9 / 24,292 m², wall_corridor_ramp 14 / 2,630, door_ramp 4 / 21,
+   tunnel_trench 43 / 9,814, site trench 5 / 171 — identical to the base);
+   at every wall-corridor / door ramp whose top edge is on a pad, `|ramp top
+   − pad plane|` quoted, `hard_conflict` 0; HECA `gap_pieces` **91** on the
+   `gaps3` frame (the twin as re-recorded; §56 (8) below names each); cells-
+   pass A nodes identical at every HECA pad with `roads_absorbed` empty
+   (replay `--from classify --emit` against the base arm; 188 of 188 pads
+   byte-identical at classify).
+6. **Census**: adjudicated per airport ≤ base + the named rows; CRITICAL
+   motion / visual not worse; `platform_rim_relief` / `platform_refused` 0;
+   `pad_frontage_infeasible` rows = the S4 blocks, each with `warned`;
+   `hairline` rows at the site 0; pads per airport = base − joined − dropped +
+   new, each named (§56 (1) 9).
+7. **Twins** (step 1's eleven are landed): a crenellated rectangle (30 notches
+   2 × 4 m) → 4 vertices and equals the body; a 7 m bay stays; a 5 m bay fills
+   ≥ 95 % with the remainder inside the mouth dimple `C − √(C² − (w/2)²)`
+   (1.34 m) and a 4 m bay fills exactly; a 150 m² well fills, a 250 m²
+   courtyard stays; a crescent's area within +2 % (hull refuted); round-vs-
+   mitred piece count; worker-count WKB identity; the mint and the census give
+   WKB-identical outlines. NEW: a road cell 8 m from a pad is absorbed and the
+   0.6 m stand-off between them fills, 12 m is not; a road cell over a
+   structure footprint is kept with its reason; a pad that absorbs nothing has
+   byte-identical cells after the pass; the warning twins of §56 (3) (a
+   record with `released_max_m` 0.45 gives the fixed text in both `{why}`
+   variants and with the one-block suffix, byte-asserted; 0.25 gives
+   `warned: false` and no log line); `test_no_airport_specific_code` green;
+   `test_harness` green with the two families reading 0; suite twice.
+
+**Bars for the master's sweep** (every airport with unit pads changes body:
+KCLT 64 platforms → 0 collars, HECA 47, SPJC 32, CYXY 9, KASE 3, NLWF 1):
+collar faces 0 everywhere; pad count per airport = base − joined − dropped +
+new ± absorbed roads (quoted); airside bar 2 on all seven; adjudicated ≤ base
++ named; CRITICAL not worse; WARNED pads per airport quoted with their copy;
+feet ≥ base at every owner site in `docs/BETA2-BLOCKERS.md` rows #96 / #111 /
+#112 / #10; build wall not slower than `sw1041` (tripwire, not a gate).
+
+**Build time, where it is saved.** Pad rim vertices fall ≈ 50–60 % (OTHH 6,133
+→ 2,424 over the 66 simplified outlines, HECA 4,943 → 2,921, KCLT 3,106 →
+1,464); the collar's inner rings (≈ the pad count again, +≈ 2 k at HECA per
+unit-platform §1 (4)) and 2,589 OTHH collar vertices go; `pads._pairs` prices
+fewer pairs; `within_shape` / `pad_flat` / `pavement_cap` rows fall with them.
+Added: one union + one close per absorbed road (≤ 75 per airport), one
+string format per released block (padspec4: no LP, no tilt): nothing.
+Expect the planar stage (arrangement noding, weld) and the constraints stage
+to fall by 5–10 % on hub airports, nothing on an airport with no unit pad.
+Statement for the brief: ≤ 0 s added; measured once in the closing build's
+phase ledger, never a per-change timing.
+
+**Step plan (synthetic-first, separately testable; wall-clock) — REVISED by
+padspec3: step 4 SPLIT into sub-steps that each leave the suite green and the
+replay readable, step 5 moved AHEAD of the deletion.** The implementer
+refused an atomic 58-file change (~35 source + 23 test files), rightly. The
+order below is a dependency order: each row lands on its own, its test
+column passes before the next starts, and nothing in a later row is needed
+for an earlier row to be correct.
+
+| step | what | size | test |
+|---|---|---|---|
+| 1 | `simplified_outline` + rule 2b + law keys + twins — **LANDED (PR #461 → #463)**, corpus proof quoted; owed from padspec3: `outline_growth_m2` (rule 10) | 0.5 h | replay OTHH `--from classify`: `cluster_pads[].outline_vertices` **552** at `unit:28#8/0` (the rule-2b ring; the first draft's 650 was a probe that simplified AFTER rules 8 / 3 and is withdrawn), HECA `unit:43#6330/0` **453**; pads 56 → 52 / 82 → 74 / 38 → 38 with every change named; `outline_growth_m2` sums to the added area per pad |
+| 2 | ~~rider rings~~ — DELETED (§56 (1) 5) | 0 | — |
+| 3 | `absorb_near_roads` — **LANDED (PR #463)**; owed from padspec3: 4 (b) and `KEPT_WALL` deleted, rule 8's clip (`shades`, `airside`), the `absorb_growth_m2` / `roads_absorbed_m2` keys, twins (a road across an apron tongue; a shade notch beside a road) | 1 h | replay OTHH `--from classify --emit` (bars RESTATED by padspec4 from the clipped code — MET, `pads57-notes.md`): 34 absorbed into 4 pads (6 kept `pad_not_one_polygon` at `building14` / `15` / `17` / `20`), site road cells 17 → 2, `building6` 1,111 ± 5 % vertices / 7 holes, `airside_clipped` 0 at the site, apron area cut at the site ≤ base; HECA 36 into 17, `building3` 1,096; A nodes identical at every pad absorbing nothing |
+| 4A | **LANDED (`3e66b53c`)** — REF HYGIENE, no geometry change: `connector_step_max_m` (row 12, 4.95); the pad-family hand-spelt `split("#")[0]` joins go through `pad_base_ref` (padspec4 ACCEPTS deviation 3: `platform_ref_of` differs on a surplus piece such as `building38#1`, and `cluster_pad._base_ref` documents the split spelling as the intended join; the structure / channel / gap / facade joins stay as they are — rows 19, 26 read `pad_base_ref` for the pad family); the strip ref `#strip` + `block_strip_rows` split out of `platform_collar_rows` (§56 (3) table), `landing_bank_rows` named; readers that skip `is_collar_ref` also skip `is_strip_ref` | 1.5 h | replay OTHH + HECA `--from planar --emit`: graded z byte-identical to the step-3 arm (refs differ only by the `#strip` spelling); suite green |
+| 4B | THE WARNING ONLY (padspec4: no seat machinery — §56 (3)): in `constraints/platform` at the one site that reads `_datum_record` (both branches), `warned` / `warning` from `released` / `released_max_m` vs `frontage_hold_margin_m`, the fixed copy with its two `{why}` sentences and the one-block suffix, `session.log_warning` on the wire, `families.toml` `pad_frontage_infeasible` text, `check_grade` rows = pads with `released > 0` each carrying `warned`; twins — with the collars STILL MINTED (the record is the same before and after 4C; z byte-identical) | 1 h | replay HECA `gaps3` `--from constraints --verify` vs the 4A arm: graded z byte-identical; WARNED = `building101` (0.328) only, its line quoted; `pad_frontage_infeasible` rows 6 (`101`, `141`, `132`, `158`, `150`, `186`) each with `warned`; KASE replay (if a capture is registered, `frames.py list KASE`) `building1` warned at 0.629; OTHH 0 rows |
+| 4C | THE DELETION CORE — the eight readers that BREAK with no collar face, in one commit: `planar/platform` (erosion, `_collar_for_pad`, the `#collar` region, the `under_min_area` / `eroded_away` refusals; `_mint_blocks` keeps the strip), `planar/overlay` (row 5), `constraints/platform` (`platform_contacts` reads the pad face's own airside rim — the conforming branch of `hold_sets` :656 already does exactly this; `collar_faces` pairing and the refused path go; records gain nothing new here), `constraints/pads` (:546 plate, :605 `platformed`, :970 frontage rim), `airport/placement_read` (`_collars_as_platform` deleted; the pad face's ring published under its ref), `airport/pad_block_seat` (block ring = the block face's ring), `model/platform.datum_vertices` (the datum vertex on the pad face), `model/platform.Platform` fields + `Platform` sidecar keys (`collar_m` … `inner_ring`, `rim_relief_*`, `over_collar_max` dropped); `_mint_blocks` flips `#collar` → `#strip` here (padspec4 ACCEPTS deviation 4: in 4A the annulus share and the strip half were one region, so the split waited for the erosion to go) | 3 h | replay OTHH + HECA `gaps3` `--from planar --emit --verify`: collar faces 0; bars 2, 3 (a)–(e) against the 4A arm, 5; the newly-held pads (HECA 3 on the frame, 21 across the sweep) listed with their verdicts and `released_max_m`; feet bar 4 at the HECA / OTHH sites (`--placement`); the site faces classed as in "THE OWNER'S SITE AFTER 4C" below |
+| 4D | DEAD-CODE REMOVAL, byte-identical: the readers that only SKIP or special-case a collar that no longer exists — `verify/within` :371, `verify/pads` :137, `verify/jetway`, `ceiling` :163, `pavement_cap` :77/:116/:154, `cluster_pad` :153…, `pad_frontage_gs` :167-187, `islands.courtyard_faces` :58-73, `design_ground.coverage_edge_collar_vertices`, `project_strip` :385/:419, `jetway_strip` :142-146/:305-316, `check_grade._is_platform_collar` + the three exemptions, `families.toml` text; `platform_collar_max_m` / `platform_collar` out of the law table and schema; `test_unitplatform_*` rewritten to the pad face | 2 h | replay OTHH + HECA `--from planar --emit`: body sha identical to 4C's; `test_harness` green with `platform_rim_relief` / `platform_refused` reading 0; the schema snapshot regenerated |
+| 4E | = old step 6: sidecar keys (rows 28–29: `warned` / `warning` land in 4B, `outline_growth_m2` / `absorb_growth_m2` are landed — what is left is the allow-list in `emit/osm_adapter` and the schema snapshot for the dropped collar keys), object readers (rows 30–31 beyond 4C's minimum) | 0.5 h | replay `--placement` OTHH / HECA: bar 4 |
+| 7 | closing OTHH build via `build_airport.py` (≈ 30 min), census, `airside_value_delta`, `obj8_split_report`; register frames; report | 1 h | bars 1–6 quoted site-first |
+
+≈ 12–13 h wall. Attempt cap 2 per bar; materiality 0.01 m; STOP and report on:
+any taxi / runway mover, a unit pad in > 1 piece after (1), a pad whose
+`outline_growth_m2` / `absorb_growth_m2` does not sum to its added area or
+whose growth over another unit or an airside cell is > 0 after the
+arrangement (rule 10; rule 8 of (2)), a road kept by (4) (a) at the owner's
+site, a WARNED pad whose record lacks a slot of the fixed copy, a miss on
+bar 3 (a) or (b) (the tilt trigger — report, do not build a tilt), a reader
+not in (5). The ">5 %" STOP is withdrawn.
+
+**THE OWNER'S SITE AFTER 4C — what the owner will see at 25.259994,
+51.6104872, honestly** (padspec4; the un-clipped replay's 31 faces / 1,879
+vertices of §56 (7) (4), corrected for the clip). The owner asked for ONE
+simple outline welded to the apron. Within 150 m of the site that is what
+the BUILDING delivers — one pad face — but the ground around it is tiled by
+things this section does not own. Each remaining face class, and whether a
+further rule could merge it:
+
+| face class at the site | after 4C | inherent or mergeable | why |
+|---|---|---|---|
+| building (the pad) | **1** face (6 today: the platform pieces + `platform_split`'s rim slivers go with the collar), ≈ 1,111 ring vertices incl. 131 shared with the apron rim | — | the owner's outline |
+| collar | **0** (4 today, 489 vertices) | — | deleted |
+| apron `pav4` + `pav4#plateau:building6#1` | **≈ 10** faces / ≈ 520 vertices (base 2 / 457) | PARTLY mergeable — a §20 stand-zone plateau cut and the pieces the trench / structure cuts leave; the plateau cut is the §20 stand-zone law, not this section; the trench-cut pieces are inherent while the trenches exist | the apron's OWN tiling: one apron polygon cut by the stand-zone plateau, by the 5 tunnel trenches and by `pav32`; a face-merge of same-plane apron pieces across a cut is a possible emit rule (not here) |
+| tunnel_trench | **5** faces / 83 vertices (identical to base) | INHERENT | the §39 trenches under / beside the terminal; they are the owner's tunnels |
+| `pav32`, junction, parking_lot | 1 / 1 / 1 | INHERENT | neighbouring pavement with its own role and law |
+| service_road | **≤ 3** (`route37` ×2, `small_roads:-8407`) | INHERENT under (2) 4 — passing roads | they pass by; absorbing a passing road was never the owner's words |
+| total | **≈ 22 faces / ≈ 1,900 ring vertices** (31 / 1,879 un-clipped today) | | the pad is one face; everything else is the apron's own tiling and the things under the building |
+
+Candidate for a LATER round, for the owner (not a question here): "same-
+plane apron pieces separated only by a plateau or trench cut merge in the
+emit" — it would take the apron's ≈ 10 to ≈ 3 at this site; it is an emit
+rule with its own consumer census (every reader of face identity), so it is
+not folded into §56.
+
+**What lands together (padspec3 recommendation, replacing padspec2's).**
+Steps 1 and 3 may MERGE as code once their owed items land (PR #463 → a
+non-draft): their geometry is lawful on its own and the collars they re-mint
+on the new outline are deleted by 4C — no sim read on them. 4A and 4B may
+each merge alone (4A is byte-identical in z; 4B is byte-identical in z too
+under padspec4 — a record and a log line, with its HECA replay proof). 4C + 4D + 4E land as
+ONE merged batch, one sweep, ONE owner sim read: 4C is the body-sha change
+on every airport with a unit pad, 4D is its clean-up, 4E its sidecar. Order
+matters once: 4B BEFORE 4C, so no build ever ships the residual as a silent
+warp (07c (6)).
+
+**§55 (the gap stage) under this section.** The HECA frame twin
+(`test_gap_terrace.py`, `gaps3`) read 93 parts on rule 2; the implementer
+re-recorded 92 under rule 2b and 91 with the absorption. RULED ACCEPTED,
+each named (padspec3, the classify gap cells of the rule-2 arm against the
+rule-2b arm and the absorption arm on `gaps3/HECA.pkl`, `<scratch>/padspec3/
+heca_rule2.log`, `gapdiff_*.log`): (i) 93 → 92 — at classify the gap cells
+go 39 → 38: three sheet pieces lose the ground the closed outlines took
+(`gap:25` 523 → 463 m², 54.5 m² of it now T3's `building3`; `gap:0` loses
+42.7 / 57.5 / 20.0 m² to `building16` / `116` / `38`) and ONE piece is no
+longer minted — `gap:38`, 201 m², a 26.6 × 8.2 m strip that stood 1.45 m
+from `building147`'s rule-2 outline; the closed outline (39,168 → 39,877 m²)
+now TOUCHES it, and stood off the pad (`gap_mint.standoff_m`) the strip no
+longer holds the one-lane disc §53 (13) requires, so it is bare ground
+again, terraced by the §28 ground rule exactly as before §55. Lawful by
+§55's own floor; nothing is minted over it. (ii) 92 → 91 — `gap:0/s0/ramp2`
+merges into its lot once a neighbouring ribbon is pad (padspec4 ACCEPTS
+deviation 6: with the clip T3's `building3` absorbs ONE road, 47 m² + 261 m²
+fill, not three, and the merged piece's neighbour is NOT `route24` — the
+implementer names the absorbing pad and road ref in the lane summary; the
+late cells 375 → 341 at classify are the re-cut neighbours and the absorbed
+ribbons, every one on an absorbing pad — `gapdiff_absorb.log`). No guard: the §55 rule is unchanged, its INPUT moved,
+and the three owner sites of that twin still hit their refs. The one thing
+to WATCH, not gate: a gap strip dropped by the stand-off beside a closed
+outline is ground with no cell — if a sim read finds a kerb cliff there,
+the §55 floor (not this section) is the knob.
+
+### §56 (9) OWNER QUESTIONS (yes / no, answerable without code; defaults apply until answered)
+
+* **Q1 Courtyards** — ANSWERED 07c (6): YES, ≥ 200 m² stays ground.
+* **Q2 Jetways** — ANSWERED 07c (6): YES; delivered by hosting (§56 (1) 5), no
+  new geometry.
+* **Q3 The residual** — SUPERSEDED by 07c (6)'s constraint: the seat is the
+  landed 02ah solve and the released weld is warned (§56 (3), padspec4).
+* **Q4 The tilted seat (S3)** — **MOOT for Beta 2** (padspec4): the tilt is
+  NOT built; it is the named follow-up `tilted-pad-seat`, opened only by a
+  miss on §56 (8) 3 (a)/(b). If it is ever opened the question returns as:
+  "may a one-level pad seat on a plane tilted up to its existing 1 %
+  (`pad_slope_max`) before its frontage is called unsolvable?" with the
+  same recommendation (YES; HECA `building147` 0.42 → ≈ 0.19 m in the
+  sufficiency probe). The owner's cost of NOT building it now: HECA warns
+  on one pad (`building147` at 0.415 on the sweep frame or `building101`
+  at 0.328 on the capture) and KASE on `building1` (0.629) instead of 0 /
+  0 — one or two honest warnings per build at the two hilly airports.
+* **No new question from padspec3.** The deletion of (2) 4 (b), the re-close
+  clip, the growth classes, the strip ref and the step split are all within
+  07a (6) / 07c (6) as ruled. ONE FINDING for the §47 owner (not a question
+  here): the wall-class classifier admits a terminal's own base walls as
+  retaining pieces (OTHH `Terminal_Base_10_4 / _8 / _2_1`, 14 routes) —
+  harmless under this section once the route is pad.
+* **Q5 The warning bar.** A residual is said to the user when the worst step
+  exceeds 0.3 m (`frontage_hold_margin_m`, the §17 body float bar); below it
+  the sidecar and the census carry it. Recommend **YES** (a 2 cm step at
+  `building138` / `193` is not a case; the owner reads steps at the float
+  bar). NO = every released block warns, HECA 6 lines per build.
+* **No new question from padspec4.** The no-tilt seat is 02ah as landed
+  (owner ruled); the warning is 07c (6) as ruled; the clip, the restated
+  bars and the six deviations are within 07a (6) / 07c (6). The site table
+  in §56 (8) is for the owner's READ, not a question: the apron's own
+  tiling (≈ 10 faces) and the trenches (5) are what stands beside the one
+  pad face.
+
+### §56 (10) REVIEW OF THE BUILT 4B–4E (Fable `padreview` 2026-10-08; summary `docs/briefs/padreview-summary.md`)
+
+Read on the two closing builds (`/tmp/harness/p59c_OTHH`, `p59c_HECA`,
+frames `frames/pads59/`) against main's sweep (`swg_*`), eight sidecar /
+graded reads and one pack read (`<scratch>/padreview/p1_landings.py`,
+`p2_sidecar.py`, `p2c.py`, `p3_site.py`); no replay, no build. Each
+ruling below is GENERAL (05e): the airport is where it was found.
+
+**R-L LANDINGS — they are RIGHT in kind, and one witness gates them.**
+Mechanism confirmed in `planar/landing._key` (row 9): the viaduct's block
+is found by point-in-polygon over the held region; on main a one-block
+unit's region was the eroded platform, so a deck centred in the annulus
+found no block and main's `swg_HECA` carries **0 landings** — at the
+#290 ruling's OWN site (`T23/T3_road.obj`, 2026-10-03e). The law was
+silently lost there; "0 landings" is not the baseline to protect. Read:
+HECA's five (`building3/landing0..4`, levels 101.66–101.87 on datum
+101.874, `y_land` −0.21..0) are `T3_road.obj`'s ramp feet (authored y
+−0.23..16.83: the origin IS the ramp foot, the convention the law
+assumes), seated at the unit's level and banking the lot `dsf:pol10`
+(89–96 m) up to them under 1:3 — exactly 03e's words ("graded up to the
+landing … the deck comes to T3"). OTHH's four (`building6/landing0..3`
+on datum 3.96): `landing0/1` at +0.38 / +0.30 m (tilt 0.2 / 1.0 %) are
+ramp feet; `landing2/3` at **−1.74 / −1.89 m** are the lowest authored
+y of `OTHH_Bridge_01_LOD0_002/_003` (y −0.80 / −2.34 .. 4.69 / 11.56):
+PIER FOOTINGS under the ground, not a ramp end — the landing law dug the
+ground to them and the solve carries **27 pad-tier `hard_conflict` rows,
+ten of them 9.8–10.1 m** at 25.2570, 51.6132. RULE: `landing_regions`
+mints a landing only where `y_land ≥ −BAND_M` (0.5 m — the band the law
+already defines: "the deck surface within this of its lowest y"); a
+lower foot is counted `landing_below_unit` and nothing is minted — a
+descent is the structure pass's (§39 / §47), never a landing. Expected:
+HECA 5 → 5, OTHH 4 → 2, the 27 landing rows → the two feet's own (each
+`s_m` ≤ 0.5 m). The HECA banks (+7.44 m at 30.11408, 31.39756) are the
+ruled picture and go to the owner's sim read as a CHANGE HE ASKED FOR,
+flagged, not hidden. `landing._unit_collar` (matches nothing after 4C)
+is deleted with its two call sites (refuted mechanisms are deleted).
+
+**R-J THE #112 SITE — 93.04 m is WRONG: a join merged two levels.**
+Main: `unit:43#6330/1` (`building6`, 92.03 m) and `/2` (`building7`,
+100.38 m) — two pieces of T3's OWN cluster with no bodies (`members []`),
+the walled ramp pieces of `T3_road.obj` under the viaduct, each a §20
+plate at its own ground, 8.35 m apart (that is the `gap:5/s2 |
+building6` 8.35 m residual). Lane: rule 2b's close JOINED them
+(`outline_joined_from`) into one 12,685 m² pad `building5` with
+`welded 0`, so `platform_split` never ran `plan_blocks` (no welds → not a
+unit platform) and the §20 plate seated the whole at 93.04 — a 7.3 m pit
+under the upper piece where the ground stood at 100.4. The deck itself
+is unmoved (03e seats it at the unit's level), but every foot on that pad
+(#112's "contact pairs > 0.5 m" instrument: 77 / 6.29 m on main) drops
+with it. RULE (general, S2 of §56 (3)): a pad with `outline_joined_from`
+non-empty goes through `pad_blocks.plan_blocks` (the DEM-stepped split,
+29s A2 / 10-02aj (2)) WHETHER OR NOT it is welded; the planner's base
+read decides one plane or N blocks + `#strip`; a joined pad the planner
+leaves whole is one plane as today. Acceptance on the gaps3 replay: the
+site reads two blocks within 0.5 m of main's 100.38 / 92.03 with a
+`#strip` between, `pad_m2` summed = 12,685; no other HECA / OTHH pad
+changes level by > 0.05 m (the joins of §56 (1) 9 are all re-planned;
+each one that splits is named).
+
+**R-F EIGHT BUILDING FACES AT THE OTHH SITE.** Read (`p3_site.py`, every
+face within 150 m): `building6` **194,424 m² / 210 v** and a second
+`building6` **4,060 m² / 141 v** at 25.26034, 51.61015 whose cut is the
+§20 stand-zone plateau apron (`pav4#plateau:building6` on 58 of its
+vertices — NOT a structure): the "plateau remnant" §56 (8) 1 already
+allows; six scraps `building6#1/#2/#4` (0.2–1.0 m²) and `#3/#4/#13`
+(0.6–105 m²), all at 3.96 = the pad's plane, all bordered ONLY by the
+plateau apron. RULE: after the arrangement, a same-base-ref pad piece
+that is not the largest, lies on the pad's plane and is under rule 6's
+thin-piece floor is RE-ROLED as the airside face it borders (the
+plateau is at the pad's value by 09-01g: zero geometry change, one face
+fewer each) — the §23a rim-sliver rule read at the arrangement, one
+site, `pad_sliver`. The plateau-cut part is INHERENT (the §20 stand-zone
+law) and a candidate for the later same-plane emit merge already named.
+Site after R-L + R-F: building faces 8 → **2**, faces 25 → **19**, ring
+vertices ≈ 1,133 → ≈ 1,090 (this instrument; the implementer's 1,579
+counts by another radius rule — quote both).
+
+**R4 THE DATUM COLUMN — YES: a held pad's datum column takes no
+`apron_trend` and no `detached` row.** The column is the pad's LEVEL,
+not a point on the apron's trend; with the collar gone it is a rim vertex
+and its trend target is wherever that vertex happens to stand (T3 99.97
+→ 92.90 m), which is why bar 3 (d) missed on ten pads by ≈ 0.1 m. It is
+`pad_follow`-class under 10l ("a pad following its frontage takes no
+trend row"), read for the hold: `design_assemble` 9a adds the datum
+columns of `HELD` to the `pad_follow` exclusion, and the `detached` row
+likewise. ITS OWN STEP (4F) WITH ITS OWN SWEEP (it moves main's levels
+at 10 HECA pads by ≤ 0.12 m). Bars (c)/(d) restated in §56 (8) 3.
+**FINDING F1 (airside is king), filed, not designed here:** a NULL
+change — which interior vertex is the datum column, 4A code,
+`<scratch>/pads59/heca_4a_dvlast` vs `heca_4a` — moves 231 junction
+vertices up to 0.57 m, 427 `graded_strip` and 27 `secondary_parallel`
+to +0.32 m at 30.1017–30.1066, 31.3967–31.3990 and ±1 conflict row. A
+taxi-family answer that depends on a label is a solve with a flat
+optimum in that region (airside not pinned by its own rows there);
+0.57 m is above the 0.02 m airside bar and above the 0.3 m visual bar.
+Owed to a solve lane: the rows that bind those vertices (`--why-hard`
+at the site) and whether the design's airside rows are weight-degenerate
+there.
+
+**D1–D5 THE IMPLEMENTER'S DEVIATIONS.** D1 (`596e62c2`, a structure-
+carried vertex is neither flat nor the datum column): **ACCEPTED**, §56
+(6) corrected above. D2 (a near-miss endpoint joins the hold set when its
+pad vertex is flat; +10 rows at HECA): **ACCEPTED** — a contact is a
+contact. D3 (a unit with no block plan is conforming-held): **ACCEPTED
+with R-J's amendment** — a JOINED pad is always planned. D4 (test helper
+semantics): **ACCEPTED** as reported (suites green twice). D5 (no OTHH
+replay): **ACCEPTED** — the closing build replaced it; one OTHH replay is
+now owed by R-L anyway. The 64 OTHH `hard_conflict` rows: 37 on the
+terminal (23 `pad_slope_max ceiling` + 14 plane, median `s_m` 0.61 m) are
+the ramp-top hosting class and LAWFUL (§56 (6) as corrected); the 27 on
+landings are OWED WORK and go with R-L.
+
+**R1–R3 THE MASTER'S RULINGS.** R1 (copy without `{why}`): **ACCEPTED**
+— nothing unverified is said. R2 (one-level suffix placement):
+**ACCEPTED**. R3 (landings keep their collar machinery, six readers):
+**ACCEPTED** — the landing bank is #290's 1:3 bank, not the deleted
+collar; `_unit_collar` alone goes (R-L).
+
+**F2 THE UNATTRIBUTED GAP (`datum` below `datum_median`, 35 of 39 HECA
+pads, worst 4.65 m `building85`) — PRE-EXISTING ON MAIN, NOT §56's.**
+Main's sweep carries the SAME datums at the same centroids (`building85`
+94.227 ↔ main `building88` 94.167 / `building95` 94.261; 22 of 35
+matched pads within 0.05 m): the carry fix of pads58 made the median
+VISIBLE, it did not move the datum. `datum_median` is the median of the
+contacts' `z1a` — pass 1a's levelled airside WITHOUT the hold rows on the
+ribbon-free map (`no_step.hold_interval` :569–573); the datum is the
+stage-1 solve WITH hard two-way welds. Either the apron frontage really
+stands 4.65 m below its un-held level once welded to the pad (then the
+pad's other rows drag the apron down — an airside mover the bars never
+read, since the frontage is "a pad rim"), or `z1a`'s ids are read on the
+wrong map (the ribbon-free map's registries vs the full map's — the
+11-dp identity join is the law, 14ax). Discriminating read, 20 min, no
+build: `--stage1-dump` at `building85`'s 22 contacts, compare `z1a` to
+the graded z at the SAME 11-dp lat/lon and to the DEM there; the sign is
+one way (35 of 39 low), which favours the first. Filed for a solve lane;
+NOT printed to the owner (R1 stands).
+
+**FIX LIST, in order (each its own commit; acceptance on the HECA gaps3
+replay / the OTHH closing build):**
+
+| # | what | wall | acceptance |
+|---|---|---|---|
+| 1 | R-L: `landing_regions` gate `y_land ≥ −BAND_M`, `landing_below_unit` counted; `_unit_collar` deleted; twin (a deck with a −2 m footing mints no landing; a −0.2 m foot does) | 0.5 h | OTHH replay: landings 4 → 2, landing `hard_conflict` rows 27 → ≤ 2 feet's own, max `s_m` ≤ 0.5; HECA 5 → 5, body unchanged |
+| 2 | R-F: `pad_sliver` re-roles a same-plane surplus pad piece under the rule-6 floor bordered only by airside; twin | 0.5 h | OTHH site building faces 8 → 2, faces ≤ 19, graded z byte-identical |
+| 3 | R-J: `platform_split` runs `plan_blocks` on every pad with `outline_joined_from` non-empty, welded or not; the §20 plate per block; twin (two 40 × 40 pieces 5 m apart on a 6 m DEM step → 2 blocks + strip) | 1.5 h | HECA gaps3: #112 site 100.38 / 92.03 ± 0.5 with `#strip`; every other pad ≤ 0.05 m; each split join named |
+| 4 | R4 (step 4F): datum columns of `HELD` out of `apron_trend` / `detached` (`design_assemble` 9a `pad_follow`) | 0.5 h + sweep | HECA gaps3: bar 3 (d) at 0.05 m on every pad but `building141` (named, ≤ 0.08); taxi/apron tiers within ±3 of 4A; its own sweep line |
+| 5 | re-measure before the master's sweep: `obj8_split_report --feet-in` at #96 / #111 / #112 / #10; jetway riders hosted ≥ 127 at OTHH, anchors over ground / service_road 0; `harness/census.py` on both arms; KASE / KCLT replays if captures are registered (`frames.py list`) | 1 h | the §56 (8) bars quoted site-first |
+
+**Owner question — none new.** Q5 (warn above 0.3 m) stays open with
+the YES default; HECA warns once (`building101`, 0.33 m, 3 of 16).
+**For the owner's sim read, flagged as a change he asked for:** the lot
+under `T3_road.obj`'s east landings (30.11408, 31.39756) now banks up to
+101.8 m under 03e (main had lost the landings).
+
+### §56 (11) SECOND REVIEW — AIRSIDE ATTRIBUTION BY INTERVENTION, AND THE RULINGS ON F1b / F2 / F3 / `within_shape` (Fable `padreview2` 2026-10-08; summary `docs/briefs/padreview2-summary.md`; probes `docs/briefs/padspec-scratch/padreview2/`)
+**SUPERSEDED IN SCOPE by §57 (owner RULINGS 2026-10-08a (1) / 08b, Fable `jetspec` 2026-10-08): the simplification applies only to a terminal that carries jetways and is delivered as the bay PLATEAU; rule 2b, the near-road absorption and the R-W pin are to be DELETED (§57 (4)).**
+
+
+Read on the lane builds `p60_*` against `swg_*` and on seven INTERVENTION
+replays of the main-era captures `sweepwalls/base/{KCLT,KASE}.pkl` with ONE
+law group disarmed per arm (`arms.sh`; patches registered under lane
+`padreview2`): `F` everything (== `p60_*`, 0 movers), `O0` outline keys 0,
+`A0` `pad_road_absorb_m` 0, `OA0` both 0, `C0` `outline_chord_m` 0 only.
+Main's own replay of each capture == `swg_*` (0 movers), so the arms are
+exact against main. Frame: `airside_value_delta --tol 0.02`, solve-owned.
+
+**R-W THE FRONTAGE IS NOT SIMPLIFIED (the attribution of A).** The airside
+movers vs main are the OUTLINE's (rule 2b), and the rows they travel
+through are the pads' WELD ROWS — `platforms[].welded`, the hard two-way
+hold rows of 02ah — not the footprint area. KCLT (solve-owned movers /
+taxi-tier `hard_conflict`): main — / 19; `OA0` 1,531 / 19; `A0` 2,399 /
+59 (+ 2 runway vertices at 0.05 m); `C0` 3,015 / 56; `F` 2,643 / 57;
+KCLT welded total `O0` 1,437 → `F` 1,220 → `C0` 3,678. KASE: `OA0` 107 /
+runway 0; `F` 103 / **runway 1 at 0.03 m** (15/33's strip-edge vertex at
+39.22186, −106.86917); `C0` 129 / runway 0; `building2` welded 33 → 9
+(`F`) / 48 (`C0`) on a 72 m² footprint change (73 → 26 vertices). With
+fewer or other contacts the datum re-chooses (KASE `building2` −0.235 m,
+KCLT `building15` −0.946 m with welded 15 → 3), the apron body planes
+conform (30f), the strips and road ribbons follow (`pav118` −0.67 m 90 m
+from any pad; `small_roads:-30712` −1.69 m at its strip, 10-03b), and 38
+`pavement_max_grade ceiling` rows between road ribbons / pols and taxi
+strip zones relax to 1.67 m at four KCLT sites (35.22547, −80.93251;
+35.20423, −80.94002; 35.20903, −80.93103; 35.20740, −80.94260) — present in
+`C0`, absent in `OA0`. At KCLT the CLOSE + holes drive it, at KASE the
+CHORD: one mechanism. VERDICTS: collar deletion + 4F + F1b + F2 (`OA0`) =
+the noise-floor class (ii): far-field junction / stub / strip vertices
+≤ 0.61 / 0.34 m, no new taxi-tier row, runway 0 (the HECA null change
+reads 0.57 m in the same class); absorption = (i) and NOTHING on its own
+(with `outline_close_m` 0 it absorbs no road — an unstated coupling,
+fix 3); the outline = (i) in kind but (iii) in effect — 30f's "taxiway and
+apron caps are never exceeded" and "the runway never moves" are both
+broken, so KCLT's 19 → 57 is (iii). RULE: a rule-2 outline vertex that
+stands within the identity spacing of an AIRSIDE cell's rim is PINNED
+through rule 2b — the closing fills no re-entrant whose mouth lies on the
+frontage and the straightening drops no pinned vertex; the owner's
+straight chords are the groundside and road sides (§56 (2) 8 already says
+so). §56 (2) 1's "AIRSIDE: unchanged" is RESTATED as a row bar: per pad
+`welded` = the `OA0` arm's ± the named joins; taxi-tier `hard_conflict` =
+main's ± 3; runway movers 0. §56 (8) 2's "every taxi-family vertex moves 0
+at 0.02" is WITHDRAWN as the instrument (the floor alone is 1,531 at
+KCLT); the master reads (a) runway movers, (b) taxi-tier `hard_conflict`
+vs main, (c) movers over 0.3 m and their far-field share, (d) the
+adjudicated airside census by family under each tree's own tool (KCLT
+3,372 → 3,750: `hard_conflict` airside 23 → 159, `pad_airside_weld` 5 → 14,
+`strip_seam_tear` 0 → 2, platform families 64 → 0; CRITICAL motion 5 → 8;
+KASE 2,658 → 2,541, CRITICAL 1 = 1).
+
+**R-C `within_shape` 366 → 1,095 AT OTHH IS THE INSTRUMENT.** Reader
+`tools/check_grade._check_within_shape` → `iter_shape_grade_constraints
+(pad_relief_by_nid)`, `de = |(ea − eb) − offset|` (:9293–9295), the
+offset being the sidecar `pad_relief` target (11j). The 9.02 m rows are
+two vertices of the ONE terminal way 73 m apart whose relief targets
+differ by ≈ 9 m (six lane targets of 5.416 m at 25.25766, 51.61449; main's
+max there 0.979) while the surface is flat at the level (no node over
+4.29 m within 130 m, `alt_abs`); 813 of the 1,104 `building|building` rows
+stand on that one 1,111-vertex way — the pair count scales with the ring.
+The per-vertex reader of the same offsets, in-build `pad_flat`, reads 56
+on the lane vs 77 on main. RULE: `within_shape` pairs on a `building` way
+are read ONE PER VERTEX against the level plane; until it lands the master
+reads `pad_flat`. Owed elsewhere: which body authored the +5.4 m feet at
+the terminal rim and why the relief rows were not carried (§11a (2)).
+
+**R-L2 F1b ACCEPTED.** A landing is where a deck's surface MEETS ITS UNIT'S
+LEVEL: `y_land ∈ [−BAND_M, +BAND_M]`; below is a footing (R-L), above an
+elevated end joining another object (F1b) — neither grades the ground.
+HECA's five T3 landings stand (`p60_HECA`, −0.005..−0.234); across the
+seven captures deck members exist only at HECA (1) and OTHH (13), so
+nothing is lost elsewhere; OTHH 0 landings = main's 0. FOLLOW-UP
+`landing-foot-at-level`: `bridge_family.landing_pieces` reads the band
+from the object's LOWEST y, so a ramp that also carries a footing
+(`TerminalRoads_02/_03/_Parking`, `Bridge_06`, `Terminal_Parking_003`) is
+refused as "below" although its deck crosses the level (856 / 721 /
+1,188 m² of triangles across [−0.5, +0.5]); the band belongs about the
+unit's zero, with a rule telling a deck lip from a pier cross-section.
+
+**R-F2 F2: 4 FACES ACCEPTED, 0.08 m ACCEPTED.** The pad, the §20 plateau
+part (inherent), `building6#3` (105 m², width 3.42 m over the 2.0 m floor,
+17.3 m of run on the OPEN apron — re-roling it hands the apron pad area
+along an edge that is not the plateau's) and `#4` (102 m², over the
+floor). Reaching 2 needs an area floor and a level argument — not Beta 2.
+The six vertices over 0.02 m (worst −0.08 m) are the terminal's four
+relaxed `pad_slope_max ceiling` rows re-choosing: pad tier, under 0.3 m,
+airside 0. "Byte-identical" is withdrawn as the bar for a re-role.
+
+**R-J2 F3: LEAVE for Beta 2; R-J's "always planned" is REPLACED.**
+`building5` is T3's own unit (base `flat`, 10-02aj (2)): `plan_blocks`
+has no frontage and the base read caps it at one block, so R-J cannot
+act. The owner's instrument at #112 reads SAME / better (feet within
+0.3 m 11 → 14 of 156, buried 3 → 0, contact pairs over 0.5 m 9 → 0) because
+142 of 156 feet float on BOTH trees — the unit is one level (101.87) and
+the ground under the viaduct is 92–100; the surface inside the walled
+ramp is covered. RULE for the next round: a rule-2b JOIN of pieces whose
+§20 ground levels differ by more than `pad_slope_max` × the joined span is
+REFUSED at the derivation site (the pieces stay separate plates, as on
+main); it needs each piece's ground read at classify. Per-piece seating
+with a strip is not recommended. Owner sim-read item (not §56): T3's one
+level vs `T3_road.obj`'s authored ground.
+
+**FIX LIST (each its own commit):** 1 R-W pinned frontage (2 h; KASE
+runway 0 and `building2` welded 33 ± joins; KCLT taxi-tier 19 ± 3, welded
+1,437 ± joins; replays from `sweepwalls/base/*.pkl` against the registered
+`OA0` arms); 2 R-C one row per vertex (1 h); 3 the outline/absorb disarm
+coupling stated or decoupled (0.5 h); 4 R-J2 (next round). SUBSETS for the
+master: S1 ship `OA0`'s content now (outline and absorb keys 0 for the
+release; airside within the floor at KCLT / KASE / OTHH, HECA un-laddered);
+S2 ship all after fix 1, re-laddered; S3 hold all. Recommend S2 if fix 1
+lands today, else S1.
+
+**AS BUILT (implementer `pads61`, 2026-10-08; notes `docs/briefs/pads61-notes.md` —
+readings of the rules above, for the spec author's review, none a new rule).**
+Fix 1 (`geom/outline_pin.Frontage`, asked by `simplified_outline(front=)`):
+"within the identity spacing of an airside cell's rim" is read on EDGES — a
+vertex is pinned when an edge it ends comes within the spacing of airside
+GROUND (so the edges that cross the rim stand as drawn); a fill is refused
+WHOLE when any of it is within the spacing; a chord newly laid within it
+re-pins the vertices it passed over; a light well on it stays open. At the
+MINT the airside in hand is the evidence-time union (runway slabs + every
+admitted pavement page — groundside lots included, a superset); the census
+re-draws with the mint's own (`geom.outline_pin.minted_frontage`); the
+road absorption's re-close pins against the airside CELLS, so a road whose
+stand-off strip opens on the apron's rim is KEPT (`pad_not_one_polygon`).
+Fix 2 (`check_grade._one_row_per_pad_vertex`): the pair law and its
+allowances are untouched; per `building` way the over-allowance pairs are
+settled one VERTEX at a time (the vertex in the most pairs takes one row,
+its worst pair, placed at the vertex) — no plane is re-fitted. Fix 3 is
+STATED, not decoupled: the set-back holds every road off its pad and the
+re-close at `outline_close_m` is what fills that stand-off, so with the
+close 0 nothing held off is absorbed (law comment, `road_absorb` docstring,
+twin `test_with_the_outline_close_disarmed_no_held_off_road_is_absorbed`).
+
+## §57 THE JETWAY-TERMINAL PAD — THE BAYS ARE THE PLATEAU (owner RULINGS 2026-10-08a, 2026-10-08b; issue #452; Fable `jetspec` 2026-10-08, DESIGN ONLY, summary `docs/briefs/jetspec-summary.md`, probes `docs/briefs/padspec-scratch/jetspec/`). SUPERSEDES §56 (1) rule 2b, §56 (2) the near-road absorption and §56 (11) R-W in SCOPE (08a (1): only a terminal that carries jetways is simplified; every other building keeps its outline); §56 (3)–(6), (10) R-L/R-F/R-C/4F stand.
+
+Owner (08a): "only needs to be applied to terminal building with jetway extensions … Rather than an E shaped pad, a rectangle would perfectly trace the 3 flat sides and cut across the open ends with a single straight line." (08b): "whole piers as well, the pad should be flat and the apron welds to it so it should be no problem for aircraft".
+
+**The picture in one paragraph.** The engine already has the thing the owner describes, under another name: the STAND-ZONE PLATEAU of flat-pad spec v2 §3 (`planar/pad_cut.plateau_cut`, landed) — apron pieces cut out of the apron fronting a held block, role `apron`, ref `<apron>#plateau:<block>`, every vertex HARD at the block's datum (`constraints/platform.hold_sets`), taxi- and runway-carried vertices excluded (`foreign`). Today it reaches 40 m out from the jetway edges and 30 m round each stand (OTHH `building6` 204,620 m², 998 of 998 vertices on the datum; HECA T3 `building3` 164,064 m²; KCLT `building77` 116,582 m²). This section extends its REGION, for a terminal that carries jetways, to the WHOLE BAY: every concavity of the building's outline whose open end is cut by one straight chord of the outline's convex hull and which holds an aircraft gate. The pad face keeps its true footprint and its pinned frontage (§56 (11) R-W stays for this one class — the weld rows do not move, so airside does not move: padreview2's attribution); the bay is flat at the pad's level; the two are ONE plane, so the crenellated rim the owner sees today becomes invisible (coplanar). Nothing is re-roled: the apron under the aircraft stays apron, its stands, lead-in centrelines, markings and taxi-lane rows stay where they are; the taxiways that cross a bay keep their own law and the plateau meets them within the apron cap — that is where 08b's "no problem for aircraft" is honoured by construction. No new seat, no new row family, no new face class, no new sidecar family: a region rule at one site, one law key, one witness.
+
+### §57 (1) THE WITNESS — "a terminal with jetways", name-free (05e)
+
+MEASURED (`jetspec/jet_probe.py`, `gate_probe.py` on the registered captures `perfB362/OTHH`, `gaps3/HECA`, `sweepwalls/base/{KCLT,SPJC,KASE,CYXY}`, `conc333/NLWF`; logs `<scratch>/jetspec/*.probe.log`, `gates.log`):
+
+* **Riders do not witness a jetway.** A rider's plan half-extent (`riders.obj_half_extent_m`) does not separate a jetway from anything else: OTTH's `Jetway_Type4/5` read 9.5–9.7 m (under the 12 m cap) while `marshaller.agp` and every `.agp` read AT the cap; KCLT's jetways read 3–11.5 m and 45 `tug_white.obj` read ≥ 12; SPJC's terminal `unit:5#0` hosts 105 riders (carts, marshallers) and the pack has NO jetway object at all. A rider-count witness qualifies hangars (KCLT `unit:3#87`, 18 tugs) and refuses SPJC's terminal. Names are forbidden (18t (2)) and would still miss SPJC. REFUTED.
+* **The apt.dat GATE is the witness.** A 1300 startup of kind `gate` is the pack author's own word that an aircraft docks at the building there; the engine already reads it (`stand_zone_startup_kinds`, flat-pad v2 §3 (b)). Per unit, gates within `stand_zone_startup_reach_m` (60 m) of the rule-2 outline: OTHH `unit:28#8/0` **74** (and its six 100 m² jetway-root pieces 2–5 each), `unit:16#0/2` 3, `unit:20#6` 4, `unit:80#0` 3 — every OTHH startup is authored `gate` (345 of 345), so the count alone is not the gate there; HECA T3 `unit:43#6330/0` **42**, every other HECA unit 0 (T2 `unit:42#46`: 0 gates, 3 tie-downs, 0 riders — T2 does NOT qualify and stays as it is); KCLT `unit:31#0/0` **54**, `/2` 32, `/1` 22, `unit:30#0` 11, every hangar 0; SPJC `unit:1#0` **62** (the real terminal, jetways un-modelled), `unit:5#0` 11; KASE 0 (12 tie-downs, 12 misc: no jetways); CYXY, NLWF: no unit.
+* **THE RULE needs no terminal threshold** because it is read per BAY, not per building: a bay is a hull pocket of the unit's outline (filled holes; `hull − outline`, one polygon per concavity) that HOLDS a gate — a `gate` startup inside the pocket or within `stand_zone_radius_m` of it. A hangar's recess holds no gate; a landside forecourt holds no gate (OTHH's 177,470 m² forecourt pocket between the wings: 0 gates, 1,253 riders — stays; HECA T3's 49,639 m² landside pocket: 0 gates — stays); a jetway root notch holds one. The unit need carry no rider: SPJC's `unit:1#0` qualifies on its 62 gates (two bays, 120,430 m²) — RIGHT in kind (the real terminal has jetways the pack did not place) and reported to the owner as such. A pocket of under `stand_zone_radius_m²` (900 m²) is already inside today's 40 m rider strip / 30 m stand disc and changes nothing.
+
+### §57 (2) THE SHAPE — probed on the four terminals (`jetspec/pocket_census.py`, `<scratch>/jetspec/pockets.log`; "what it is" from the lane builds' `*.graded.json`)
+
+| unit (site) | outline m² / rule-2 v | hull v / +m² | candidate chosen: BAYS (gate pockets) | what the bays hold on the graded surface | the pockets that STAY |
+|---|---|---|---|---|---|
+| OTHH `unit:28#8/0` (25.259994, 51.6104872) | 472,471 / 1,717 | 19 / **+1,178,420** | 5 bays, **963,621 m²**: 357k (mouth 1,060 m, 28 gates), 349k (1,000 m, 28), 135k (931 m, 23), 61k (710 m, 3), 61k (699 m, 3 — the owner's site pocket) | apron 513,281; **cross_connector 213,744; junction 104,050; secondary_parallel 5,031; graded_strip 4,765** (taxi/runway family — excluded by construction); service_road 14,049; tunnel_ramp 5,533; parking_lot 2,578; groundside pavement 1,357; trench 289; 83 stands, 4.4 km of taxi centreline | the 177k landside forecourt (0 gates), 10 light wells, 7.7k / 7.6k / 4.3k road pockets (0 gates) |
+| HECA T3 `unit:43#6330/0` (30.1110593, 31.404281) | 169,383 / 1,476 | 17 / +399,418 | 5 bays, **316,745 m²**: 114k (534 m, 13 gates), 96k (320 m, 10), 80k (523 m, 5), 25.5k (401 m, 5), 0.6k | apron **219,244**; groundside_pavement 34,930 (the landside half of the 80k pocket — not apron, untouched); junction 24,988; secondary_parallel 4,712; graded_strip 1,036; 34 stands, 620 m centreline | 49.6k landside (0 gates, 25k groundside pavement), 17.6k (0 gates) |
+| KCLT `unit:31#0/0` (35.2196, −80.9435) | 115,538 / 990 | 22 / +160,614 | 5 bays, **149,171 m²** (50k / 44k / 28k / 15k / 13k; 13 / 11 / 6 / 1 / 6 gates) | apron 109,300; junction 15,677; building 11,826 (another piece of the same cluster); 36 stands, 313 m centreline | 11 light wells / notches (0 gates) |
+| KCLT `/2`, `/1`, `unit:30#0` | 14.9k / 12.6k / 7.2k | | 3 / 1 / 1 bays, 37k / 42k / 12.6k m² | apron 36.5k / 35.9k / 11.4k; junction 0 / 6.0k / 0.2k | |
+| SPJC `unit:1#0` | 136,137 / 433 | 15 / +248,371 | 2 bays, 120,430 m² (15 / 18 gates) | apron 104,871; junction 14,679; primary_parallel 738 | the 75.7k landside pocket (0 gates, 135 riders) |
+
+Variants probed and REFUTED on these outlines: (a) the convex HULL (OTHH +1.18 M m² incl. the forecourt and two taxiways; HECA +399k incl. 67.6k groundside pavement); (b) "pockets with riders" (riders are not a witness: SPJC's forecourt pocket holds 135 riders); (c) a closing at W = 30 / 60 m (OTHH +44k / +78k, HECA +35k / +74k: fills notches, never a bay — a bay's mouth is 250–1,060 m); (d) "pockets whose mouth faces airside" (within 2 % of (gate pockets) at HECA / KCLT, but qualifies OTHH's 7.7k road pocket at 100 % apron and is read off emitted roles the mint does not have). CHOSEN: **the gate pocket**, a hull chord across each open end — exactly the owner's E → rectangle where the E's valleys hold gates, and an E that keeps its landside valley.
+
+**What is inside a bay that is NOT apron keeps its law, by construction.** `plateau_cut` cuts `role == "apron"` regions only. A taxiway / junction / cross-connector / strip inside a bay is airside-king law (30f: "taxiway and apron caps are never exceeded"); the plateau's outer line follows the apron's edge against it, and the plateau rim vertices such a face carries are `foreign` (`hold_sets`), i.e. the taxiway's. A service road inside a bay (OTHH 14k m², HECA 400 m²) is the apron's road under the free-road ruling (2026-07-27) and JOINS the plateau: `plateau_cut` cuts road-family cells (`road_family_roles(law)`) inside a bay the same way — role kept, ref `<road>#plateau:<block>`, vertices in the hold set (this is the ONLY part of §56 (2)'s "the near road is the pad" that survives, confined to the bays of a jetway terminal, delivered by the hold rows instead of a re-role). Groundside pavement / lots inside a bay (HECA 35k m²) are untouched: they are the landside half of a pocket whose other half is apron. Trenches, tunnel ramps, wall corridors under or in a bay: the structure pass cuts them out of whatever stands there AFTER the plateau (§56 (6), census row 11) — unchanged. Stands and lead-in centrelines: `taxi_centerlines` prices `|dz| ≤ cap·d` per centreline edge — on a flat plateau dz = 0, every row met; the reach band composed along centrelines crosses a flat region at zero budget (reach follows centrelines; measured today: 0 centreline vertices strictly inside a pad face at OTHH / HECA / KCLT, `bl_check.py`, and 998 of 998 OTHH plateau vertices on the datum). Markings / `dsf:pol` draped pavements: role readers, untouched (flat-pad v2 P14). Jetway strips: already DISARMED on a held block (v2 §3 P12) — nothing to delete here. Landings, the §55 gap stage, the object stage (feet, `pad_block_seat`): read the pad face and the standing cells, which do not change.
+
+**The law.** `[design] bay_startup_kinds = ["gate"]` (NOT `stand_zone_startup_kinds`, which holds `tie_down` too: a tie-down in a hangar's recess is a remote stand, not a gate — KCLT `unit:3#215`, 8 tie-downs, 1,952 m² recess, must not fill) and `bay_pocket_min_m2 = 900.0` (= `stand_zone_radius_m²`; a smaller pocket is inside the strip already). `plateau_cut` region (c), beside (a) riders and (b) stands: for held block `b`, every polygon of `hull(fill(outline[b])) − fill(outline[b])` of area ≥ `bay_pocket_min_m2` that contains, or stands within `stand_zone_radius_m` of, a startup of a `bay_startup_kinds` kind. A bay is NOT clipped to the 90 m held span (`_held_span`): the span exists so that two blocks' plateaus never touch across a ramp between them; a bay is one block's by construction (its mouth is that block's hull chord). It IS clipped as (a)/(b) are: to the apron (and, new, road-family) regions the block's outline touches, closed by half the stand radius, holes filled, snapped to the apron's own ring coordinates within the identity spacing (`_stand_zone`, unchanged). `stand_zone_source` gains the token `bays`. Determinism: the hull and the pockets are GEOS on one polygon; the gate test is point-in-polygon; worker-count independent like the rest of `plateau_cut`. Twins: an E-shaped outline with a gate in each valley → two bays, the plateau's outer edge is the hull chord; the same E with a gate in one valley → one bay; a T with a gate on the stem's two sides and none in the crossbar's landside → the landside stays; a 400 m² notch with a gate → no bay (inside the strip); a junction face crossing a bay → the plateau stops at its edge and the junction's vertices are `foreign`; a service road inside a bay → `#plateau:` piece, its vertices in the hold set.
+
+### §57 (3) THE SEAT — NO STEP BETWEEN A PAD AND ITS PAVEMENT (owner RULINGS 2026-10-08c (4), superseding 07c (6)'s warned step as an outcome)
+
+Owner: "the pad should be seated at the elevation that allows all touching pavement to be graded within its grade caps. If the solve can't reach the pad, the pad moves, but we should be determining that from the initial reach graph anyway."
+
+**What exists (read on `constraints/no_step.py:534-612`, 02ah).** The block's datum `D` is a FREE column of the stage-1 solve; every frontage weld is a HARD two-way row (`hold_row`); ONE soft zero-width Band pulls `D` to the median of the contacts' pass-1a value; the reach bands (`reach_c`, `REACH_GENERATOR`) are read for the REPORT only and are WITHDRAWN by the 08k shape stage before `hold_interval` intersects them — every record in every build carries `reach_isect [None, None]`, `reach_isect_empty False`, `reach_bands_contacts None` (verified on `p60_HECA`, `p61OA0_HECA`, `p60_KASE`, the jetspec arms). A weld is released only by the elastic LP (`solve/feasibility.py`, tiers runway > taxi > apron > pad > groundside): the relaxation lands on the pad's hold.
+
+**The three pads, probed on the real records.** HECA `building101` (`p60_HECA`: 3,763 m², 13 welds, 3 released, `released_max_m` 0.328, `released_spread_m` 0.509, `datum` 82.464 vs `datum_median` 84.217, `needs_split` true, WARNED); HECA `building147` (`p61OA0_HECA`, outline off: 39,184 m², 52 welds, 11 released at two sites 30.1291, 31.4009 and 30.1282, 31.4042, max 0.470, spread 0.722, datum 70.988 vs median 70.437); KASE `building1` (`p60_KASE`: 5,827 m², 6 welds, 3 released, max 0.608, spread 1.049, datum 2367.99 vs median 2368.565). VERDICT: **the per-contact admissible set is EMPTY at all three — one flat level does not exist — and it is the LP that proves it, not the record.** With `D` free and every weld hard, the elastic LP's optimum has ZERO pad-tier slack whenever a `D` exists that every weld and every apron cap / pin / other hold admits together; a released weld is therefore an IIS containing that weld, i.e. no flat level serves the whole contact set under the hard rows the apron carries (the released contacts' own spread — 0.51 / 0.72 / 1.05 m across the frontage — is the width no one level covers). It is NOT a badly chosen `D`: the datum sits where the LP's tiered price put it (below the median at 101 / above at 147 — the median is not the answer either). What the RECORD cannot say is WHICH apron rows close the set (the bands are withdrawn): the `--stage1-dump` read of §56 (10) F2 (20 min, not run here) names them; it is owed to J3 below, not to this verdict.
+
+**The design (J3) AS BUILT (PR #480, `claude/pads63` @ `de63f227`, lane pads64) and RULED by the spec author (Fable `seatreview` 2026-10-08, `docs/briefs/seatreview-summary.md`; the earlier text of this paragraph is superseded — its (ii) Band and (iii) split were not built, see REPLACED / NOT BUILT below).** Measured on the four closing builds `p64_{HECA,KASE,KCLT,OTHH}` against the J1 control `p64j1_HECA` and the J1 + main arms: released frontage welds 0 / 0 at every pad (HECA 6 pads / 27 welds → 0, KASE 1 / 4 → 0), `pad_frontage_infeasible` 0, WARNED 0, runway movers 0, taxi-tier `hard_conflict` = the J1 arm's at every airport (68 / 0 / 51 / 8), no pad at or over the floor, no split. The owner's rulings honoured by it: 08c (4) no step at any pad; 08d (2) under 1.0 m the pavement welds.
+
+* **(i) THE READ — ACCEPTED.** `hold_interval` reads every frontage contact's reach band from `reach_band_values` BEFORE the 08k withdrawal (`reach_isect`, `reach_bands_contacts` are real on every record now) and meets it with the pair-graph interval `reach_band0`: the ADMISSIBLE SET of one flat level. The pair-graph interval is the one that binds at every pad measured (`building147` `[71.802, 70.252]`, gap 1.549 m; KASE `building1` `[2368.823, 2367.738]`, gap 1.085 m); the reach intersection is 15–45 m wide at every HECA pad (`building147` `[53.72, 82.965]`) and 0 of 47 HECA datums stand within 0.05 m of one of its bounds.
+* **(ii) THE MISFIT AND WHAT GIVES — ACCEPTED (deviation D1 approved):** an empty admissible set is a MISFIT of half the gap (`weld_floor.seat_misfit`); under the terrace floor (`[terrace] pad_terrace_floor_m` 1.0 m, 08d (2)'s own number, no new key) the datum takes the gap's middle (`building147` 71.027 chosen / 71.113 solved; KASE 2368.28 / 2367.947), EVERY weld stays a hard two-way row, and ONLY the contacts whose own interval excludes that level give, each by ITS OWN SHORTFALL + `hard_tol_m` (`contact_gives`: ≤ the misfit, so always under the floor) — never the floor itself on every row (the WIP's `floor/d` reading of 08d (2): KASE 258 rows / 7.59 % against 167 / 4.62 % for the same weld). THIS IS THE GENERAL STATEMENT OF 08d (2): the floor is the GATE ("a step < 1 m"), the give is what the weld needs and no more (08c (1): "a CAP, not a target … only allow more flex where needed"). At or over the floor nothing is decided (`misfit_m` recorded, the 07c (6) warning stands): the owner's to rule (J3 (iii)'s split is NOT built and is withdrawn from this section until a pad at the floor exists — none on the seven sweep airports).
+* **(ii-b) WHERE THE GIVE IS SPENT — REPLACED.** As built, the give widens every pavement-tier row (`[design] hard_conflict_ranks` taxi + apron heads; never a runway row, never a pad row) that NAMES a closing contact, `cap + g/d` (depth 1). Measured, that puts the WHOLE give into the first row off the pad: at `building147`'s east site the graded profile reads contact 71.11 → 72.01 at 7.8 m (**11.58 %** on a 1.5 % apron) → 72.21 at 25.7 m → 72.64 at 54.5 → 72.90 at 71.6 m (≈ 1.5 % thereafter: the apron beyond the first row stands AT its reach lower bound 72.005, held there by its own un-widened chain to the 05C/23C anchor); at the west site 71.11 → 70.13 at 16.5 m (5.9 %) → 69.59 at 51 m; and the remainder spills into rows the widening does not name: **62 new `airside_no_step apron|junction` census rows at 1.54–2.98 % over 51–144 m** at the west frontage (J1 control 2), `airside_no_step` 3,999 → 4,069, adjudicated airside 12,013 → 12,045 at HECA. 11.58 % is therefore the consequence of the depth-1 row set, NOT of 08d (2): the least over-cap grade that welds the same contact spreads its give along the chain that binds it. RULE REPLACING depth 1: ONE allowance Δ_b per misfit block, a uniform over-cap GRADE on every pavement-tier row of the pavement FACES the block's closing contacts front (the touching faces: ring edges, frontage chords, no_step route pairs and ceilings whose two vertices lie in or on such a face; the same heads as now; runway rows and pad rows never), Δ_b = the least value at which the admissible set re-read on `reach_anchored` with those caps at `cap + Δ_b` becomes non-empty (bisection to 0.01 pp, ≤ 8 reach reads × 0.7 s, misfit blocks only). Expected from the records: east face ≥ 71.6 m at cap → Δ ≤ 1.1 pp, steepest ≤ **2.6 %** (built 11.58 %); west face ≥ 246 m → ≤ **1.8 %**; KASE `building1` chord class 43.7 m → ≤ **2.8 %** (built 4.62 %). Record: `platforms[].weld_widened = {floor_m, delta_pct, faces: [refs], contacts: [[lat, lon, give]]}`; `check_grade.weld_widened_nodes` prices any pair whose two nodes lie on a listed face at `(cap + Δ_b)·d` and a pair naming a sealed contact at `cap·d + give` as now. Bars: released 0 and WARNED 0 as built; steepest widened grade ≤ 3 % at `building147` and `building1`; `airside_no_step` rows within 200 m of `building147`'s west contact ≤ the J1 control's + 3; adjudicated airside ≤ the J1 control's; runway 0; taxi-tier ± 3.
+* **(ii-c) THE WELD PROJECTION (`weld_floor.seal_welds`, `HoldPass.seal`, after pass 1b; deviation D2) — ACCEPTED WITH A BOUND.** A weld the solve leaves off its datum by more than `hard_tol_m` is ASSIGNED the datum before stage 2 substitutes the airside (HECA: 8 contacts on 4 pads, 0.020–0.042 m — the augmented Lagrangian's unsettled residual, `polish_rounds_max`'s documented class; the J1 control censuses the same contacts as `pad_frontage_infeasible` 0.020–0.042 m, p64 censuses 0 rows within 3 m of any of the eight; the four J1 `pad_frontage_infeasible` rows there are GONE, no row of any family is NEW at them). The assignment is lawful for THAT class because a weld row's feasible set against a solved datum is a point (the 12ag zone-projection argument) and the move is within 2 × `hard_tol_m` — the rows the contact sits in (the apron caps beside it, the no_step route pairs) are moved by at most that, and the census prices a pair naming the contact at `cap·d + move`. BOUND ADDED: the seal is limited to the residual class, `|move| ≤ seal_max_m` = 0.05 m (= the observed 0.042 m, 2.5 × `hard_tol_m`; a law key under `[design]`, documented as the solver's residual, not a weld allowance). A weld off by MORE than that and under the floor — the branch generalised in `27f60b89` to a weld the feasibility LP RELAXED (`weld_seal.relaxed`, 0 on every arm and build measured) — is NOT sealed: it is a misfit the pair-graph read did not see (the LP is the finer judge), and it goes back through (ii-b) with the LP's relaxation as the contact's give and ONE pass-1b re-solve; still off after that, the warning stands. Reason: a post-solve assignment of 0.3–0.9 m moves a step one row outward into rows nothing re-checks and the census's own allowance then hides it (`single-pass-principle`, `emit-consensus-mints-violations`) — the sealed class must be one the solve has already settled to within noise.
+* **(ii-d) A FIXED CLOSING CONTACT (pin, runway column; deviation D3) — REPLACED.** As built, a closing contact that is a stage-1 pin or a runway column stands the whole block's widening down (no give at any contact; the LP releases welds; the warning). Fired 0 times on the four airports (twin `test_nearmiss148` only). The released weld it leaves IS the step 08c (4) forbids. RULE: a fixed contact does not give — it DICTATES the level: D = the fixed contact's value (several fixed contacts agreeing within `hard_tol_m`: their value), and the other closing contacts give their shortfall from THAT D under (ii-b); two fixed contacts disagreeing by under the floor is the ONE case left to the solve and the warning (an owner question, §57 (7) Q5). A fixed contact is never sealed (as built).
+* **(ii-e) THE DATUM'S REACH BAND (the earlier (ii); deviation D4) — REPLACED: the Band row is NOT stated; the read stays.** As built, a hard `Band(D, reach_isect)` is added per block with a finite non-empty intersection. It binds nowhere measured (0 of 47 HECA datums at a bound; KCLT no datum moved > 0.001 m) and its only measured effect is the row-set perturbation of the unsettled solve: KCLT 580 solve-owned movers at 0.02 m, apron worst **1.02 m at 35.21575607, −80.94384692**, from Bands that constrain nothing (the lane's `x_noband` arm: removing even the ONE non-binding Band the J1 arm carries moves 268 vertices). The reach intersection is already inside the admissible set (i) meets, and a misfit against it is (ii)'s; a Band that cuts nothing is a row with a cost and no law. RULE: state the Band only when the reach intersection CUTS the pair-graph interval (`r_lo > lo` or `r_hi < hi`): then and only then it carries law the pair graph does not. (Expected: no Band on any of the seven sweep airports; KCLT's movers vs the J1 arm return to the J1 arm's own null-change class.)
+* **(iv) TILT not built (as before); (v) the bay plateau is part of the block (unchanged; J2 is the next lane).**
+
+**WHAT THE MASTER TELLS THE OWNER about KCLT's 1.02 m (finding F1 of §56 (10), now measured four times this week — a null row-set change moves HECA junctions 0.57 m, KCLT apron 1.02 m, and at HECA under this PR TEN pads of one cluster (`building84/91/105/52/62/64/65/83/93` around 30.120, 31.407) rose a coherent 0.60 m with no row naming them and no datum at a bound):** the stage-1 optimum is not unique — parts of the apron lie in a flat valley of the objective, and ANY change to the row set, binding or not, lands them elsewhere within grade law. The movement is lawful (runway 0, taxi-tier equal, CRITICAL rows not rising at KCLT) and is nobody's mechanism; but it means the sim at such a stand does not read the same from one build to the next, and a sweep's "movers" instrument cannot separate a mechanism from solver drift. RECOMMENDATION (the spec author's, with the evidence above): F1 gets its own lane BEFORE Beta 2's sim reads become acceptance — deliverable: the flat direction named on the KCLT capture (an arm adding a weak tie of every free airside column to its pass-1a / DEM-side level, weight ≪ the smoothing's, and the null-change movers measured before / after: bar ≤ 20 at 0.02 m, 0 over 0.3 m), one day, no owner decision needed for the attribution; the tie's weight is the master's brief.
+
+**THE HECA CRITICAL-visual +13 (15 new groundside `hairline_pair` rows 0.053–0.184 m between late-stage gap pieces, worst 30.116143, 31.406766):** NOT this PR's mechanism. The 15 rows stand 56–886 m from the nearest pad and 760–1,850 m from any widened or sealed contact; four are 56–122 m from `building4` (T3, datum 101.787 → 101.788) and the cluster at 30.116, 31.407 is 350–430 m from the ten-pad group that rose 0.60 m (F1 above). They are the §55 pieces re-cut against a base apron the re-solve moved: lawful, groundside, under 0.2 m, all inside the class the gap-apron rule (08c (6)) re-cuts; the bar "CRITICAL rows not rising" is missed at HECA by F1 noise and the master records it as such, with the coordinates.
+
+* **§57 (7) Q5 (new, from (ii-d)):** when a pad's frontage contact is a FIXED point (a runway-strip vertex or a seam pin) the pad takes that point's level and its other pavement welds to it under 08d (2) — recommend **YES**; two fixed contacts under 1.0 m apart: warn and the owner's sim read (0 cases on the seven airports today) — recommend **YES**.
+
+**What the plateau does on sloping ground today (p60 builds, graded z of `#plateau:` ring vertices vs the datum)** — the plateau's OWN vertices hold, the vertices a taxi / runway face carries are that face's (`foreign` in `hold_sets`), so the bay meets each taxiway at the taxiway's level over its edge row: OTHH `building6` 1,223 / 1,223 on 3.962; HECA T3 `building3` 340 of 576 within 0.02 m, 403 within 0.3, extremes −0.96 / +0.98; KCLT `building77` 220 / 404, ±0.8. Under 08c (4) the taxiway-edge warp is lawful (the taxiway is king and the apron cap binds the edge row), and it is the plateau's seat that must be reachable — J3 (i)–(iii) reads the bay's taxiway-edge vertices as contacts of the block like any other, so a bay whose taxiways stand at levels no one datum reaches splits the block.
+
+### §57 (4) WHAT SURVIVES FROM PR #463, WHAT IS WITHDRAWN (08a (1))
+
+| PR #463 piece | ruling | why |
+|---|---|---|
+| step 1 rule 2b `simplified_outline` (close / chord / wells), law keys `outline_*`, `outline_growth_m2`, `outline_joined_from` | **DELETED** (code, keys, twins; sidecar keys go) | 08a (1): every other building keeps its outline; on a jetway terminal the airside face is PINNED (R-W) and the bay plateau makes the rim coplanar, so the straightening would act on the groundside / road sides only — not the owner's ask, and padreview2 measured its cost (KCLT taxi-tier 19 → 54–57, KASE runway 0.03 m, HECA welded 1,023 → 922). pads62's S1 arm (keys 0) is the measurement of exactly this configuration |
+| step 3 `absorb_near_roads` (`classify/road_absorb.py`), `pad_road_absorb_m`, `roads_absorbed*`, `absorb_growth_m2` | **DELETED** | the road next to a jetway terminal is covered where it is airside (the bay plateau holds it, §57 (2)); elsewhere 08a (1) keeps the building's outline; the absorption's one measured effect is the KCLT taxi-tier package (pads61 miss 2) |
+| fix 1 R-W `geom/outline_pin.Frontage` + `remember_frontage` | **DELETED with rule 2b** (nothing left to pin) | |
+| fix 2 R-C `check_grade._one_row_per_pad_vertex` | KEPT | an instrument correction, independent |
+| fix 3 (the close / absorb coupling stated) | goes with the two | |
+| 4A ref hygiene (`#strip`, `pad_base_ref`, `connector_step_max_m`) | KEPT | |
+| 4B the frontage warning (`constraints/pad_warning`) | KEPT | 07c (6) |
+| 4C / 4D / 4E collar deletion, erosion refusals gone, sidecar keys | KEPT | 07b (4) "collar … go" |
+| 4F datum column off `apron_trend` / `detached` | KEPT | §56 (10) R4 |
+| R-L / F1b landing band (`landing_below_unit` / `_above_unit`) | KEPT | §56 (11) R-L2 |
+| R-F plateau scrap re-role (`pad_sliver.rerole_plateau_scraps`) | KEPT | §56 (11) R-F2 |
+| the gaps3 frame twin (92 / 48 / 63 / 6 under the pin) | re-recorded at rule-2 values (93 parts, §56 (8) "§55 under this section") | |
+
+After the deletions the pad population is main's (HECA 82 / OTHH 56 / KCLT 38 rule-2 pads; the joins of §56 (1) 9 and the #112 join R-J2 do not arise). `§56 (1)` (2) (11) are marked SUPERSEDED in place by a one-line note pointing here; §56 (8)'s site bars for the outline are withdrawn with it.
+
+### §57 (5) ACCEPTANCE AND THE REPLAY RECORD (arms `jetspec/replay_bays.py`: `plateau_cut._stand_zone` with the gate pockets joined, `--from planar --emit --verify --workers 6`, base = the same tree unpatched, frames to be registered under lane `jetspec`)
+
+The instruments are padreview2's, never 0.02 m mover counts: (a) runway movers vs base **0**; (b) taxi-tier `hard_conflict` = base's ± 3, no new row over 0.2 m; (c) movers > 0.3 m with their far-field share, each bay-edge mover named; (d) adjudicated airside census by family under one tool; (e) per block: `plateau_area_m2`, `plateau_vertices`, ring vertices within 0.02 / 0.3 m of the datum (the §57 (3) table re-read), `stand_zone_source` carries `bays`; (f) stands inside the bays (apt.dat gates) on the plateau: terrain at the stand = datum ± 0.02; (g) `pad_airside_renode` 0 outside `plateau_rings`; (h) feet within 0.3 m ≥ base at the §56 (8) 4 sites (`obj8_split_report --feet-in`); (i) structure faces identical ±1 % (§56 (6)).
+
+REPLAY RECORD (the arm is an UPPER BOUND of the rule: it joins every hull pocket that touches a block's stand-zone parts, gate or not, for every held block — 56 pockets at OTHH; the gate rule takes fewer). **OTHH** (`perfB362/OTHH.pkl`, main-era classify cells = the J1 configuration): `building6` plateau 140,628 → **351,650 m²**, ring vertices 754 → 1,043, **1,043 of 1,043 on 3.962**; every other block's plateau within +3.4k m²; runway movers 0; solve-owned airside movers **0** at 0.02 m; row-side 1 (a trench vertex, 0.020 m); `hard_conflict` pad-tier 1 → 2 (`pad_slope_max ceiling`, the pre-existing site), taxi 0 = 0; WARNED 0 = 0; plateau rings A-only 161 / B-only 91 (the re-cut bay rims, P19's expected class). The bays are not the whole 963k m²: a bay crossed by a cross-connector taxiway is cut at the taxiway, and the part beyond it touches no outline and is dropped (`_stand_zone`'s own rule) — lawful, the taxiway is king. THE OWNER'S SITE (25.259994, 51.6104872, r 150 m): base 56 faces / 1,162 ring vertices (building 17, service_road 29, apron 1 + plateau 1, trench 5, junction 1, strip 1, lot 1) → bays 56 / 1,123 (building 12, plateau 6, roads 29); EVERY face at the site except the five trenches stands at 3.96 in BOTH arms (buildings 3.66–3.98 at the trench edges, the strip 3.66–4.01). So at a flat airport the surface at the site is ONE plane already; what changes is the face tiling, not a level. **HECA** (`gaps3/HECA.pkl`; T3 is `building4` on this frame): plateau 165,020 → **249,920 m²**, ring vertices on the datum 432 / 661 → 462 / 665 (within 0.3: 494 → 507), extremes −0.93 / +0.98 → −1.39 / +1.21 (the taxiway-edge rows), datum 101.787 → 101.864; runway **0**; solve-owned movers 4,059 (strip 846 / 0.76 m, taxi 1,676 / 0.52, apron 1,537 / 0.24), over 0.3 m **19, all far-field** (> 500 m from T3, 30.1010, 31.4206 and 30.1052, 31.3929 — the HECA null-change class of §56 (10) F1); taxi-tier `hard_conflict` 74 → **72**, pad 216 → 215, groundside 197 → 196; WARNED 1 = 1 (`building101`, the §57 (3) case). **KCLT** (`sweepwalls/base/KCLT.pkl`; the terminal is `building75`): plateau 102,912 → **146,718 m²**, on the datum 420 / 579 → 415 / 600, datum 221.034 → 220.992; runway **0**; solve-owned movers 1,061 (apron 602 / **0.86 m AT THE BAY** 35.2221, −80.9421 — the bay apron coming to the datum, 13 vertices over 0.3 m within 300 m of the terminal; strip 391 / 0.55 far-field; taxi 68 / 0.29); taxi-tier **19 = 19**, pad 28 → **31** (+3 pad-tier rows: a bay row the LP relaxed — the 08c (4) case J3 designs out), groundside 327 → 334; WARNED 0 = 0. Reading under 08c (1): the bay movement is within grade law (no new taxi-tier row, runway 0) and is the ruled picture; the three pad-tier rows are the seat's, not the shape's.
+
+### §57 (6) EMITTABILITY, BUILD TIME, MIGRATION
+
+Emittable: the plateau is a planar polygon at one z, the rule flat-pad v2 §3 already ships; more apron faces at one level, fewer transition triangles; identity spacing by construction (snapped to the apron's rings); worker-count independent (GEOS on one polygon per block; the gate test is a point-in-polygon). Build time: one convex hull and one difference per held block that carries a gate (≤ 10 per airport), ≤ 0.1 s; the arrangement nodes the same apron rings; ≤ 0 s. Statement: no timing run; the closing build's phase ledger is the record.
+
+| step | what | wall | test |
+|---|---|---|---|
+| J0 | **LAND FIRST (08c (5)/(7)): the collar-deletion subset** = PR #463 with the outline / absorption keys at 0 (branch `claude/pads62-s1`, measured by lane pads62: airside safe, HECA object feet over 3 m 2,543 → 930) | the master's merge | its own sweep |
+| J1 | DELETE rule 2b, the R-W pin, the absorption and their keys / sidecar keys / twins (§57 (4)) — the dead branches of J0's keys-0 configuration; re-record the gaps3 frame twin (93 parts); `test_no_airport_specific_code` green; suite green | 2 h | HECA gaps3 + KCLT replays `--from classify --emit`: body == J0's (bit-identical: the keys were 0); taxi-tier = main's ± 3, runway 0 |
+| J2 | THE BAY PLATEAU: `[design] bay_startup_kinds`, `bay_pocket_min_m2`; `plateau_cut` region (c) — gate pockets, un-spanned; road-family cells inside a bay cut like apron; `stand_zone_source` `bays`; the six twins of §57 (2) | 2 h | the three replays `--from planar --emit --verify` against J1's frame, the jetspec arms as the upper bound: OTHH `building6` plateau ≥ 351k m², 100 % on 3.962, movers 0; HECA T3 ≥ 250k m², taxi-tier ± 3, runway 0; KCLT ≥ 147k m², taxi-tier 19 ± 3, runway 0; stands on the plateau at the datum ± 0.02 |
+| J3 | THE SEAT FROM THE REACH GRAPH (§57 (3) (i)–(iii)): `hold_interval` reads the bands before withdrawal; `D` bounded to a non-empty `reach_isect`; `plan_blocks`' frontage-interval split; the one-contact warning only; twins (a synthetic frontage whose two halves' bands do not meet → 2 blocks + `#strip`, 0 released; one that meets → 1 block, `D` inside the interval; a single unreachable contact → warned) | 4 h | HECA gaps3 replay: released welds **0** (building101 → 2 blocks), `pad_frontage_infeasible` 0, WARNED 0; KASE replay (`sweepwalls/base/KASE.pkl`): `building1` → 2 blocks, released 0; `p61OA0`-frame `building147` → 2–3 blocks; taxi-tier ± 3, runway 0 on all three; the §57 (5) instruments |
+| J4 | closing OTHH build (≈ 6 min) and HECA build (≈ 8 min, the sloping terminal), census, `airside_value_delta` vs `swg_*`, feet at the §56 (8) 4 sites; register frames; report site-first | 1 h | runway 0; taxi-tier = main's ± 3; released welds 0; CRITICAL census rows ≤ main's, each change named; the owner's sites: one flat plane from the terminal wall across the bay to the taxiway's edge |
+
+ORDER (08c (5)/(7)): J0 → J1 → J2 → J3 → J4; J0 and J1 may each merge alone (J1 is J0 with the dead code gone); J2 and J3 are each one body-sha change with its own sweep and may merge separately (J2 first: it is the owner's ask; J3 fixes a defect main carries today), ONE owner sim read after J4 at the OTHH site and HECA T3. INSTRUMENTS (08c (1)): runway movers 0; grade-law conflicts (taxi-tier `hard_conflict`, CRITICAL census rows); released welds; never movement as such.
+
+### §57 (7) OWNER QUESTIONS (yes / no, with the recommendation; defaults apply until answered)
+
+* **Q1 The bay is the PLATEAU, not a re-roled pad.** The flat bay is delivered by the apron pieces held at the pad's level (what the engine already does 40 m out), not by growing the `building` polygon over the apron: the aircraft's apron, stands, lead-in lines and markings keep their law and their role, and the mesh is one plane either way. Recommend **YES**. NO = re-role the bay apron to `building` (every airside reader of those cells changes meaning; the 23a cut, the taxi-lane rows and the stand-zone law would have to be re-derived for a `building` face).
+* **Q2 Taxiways that cross a bay keep their own level.** At OTHH the two big bays hold 214k m² of cross-connector and 104k m² of junction taxiway; at HECA T3 25k m² of junction and 1k m² of runway strip. These stay airside-king law and the flat bay meets them at their edge (flat at OTHH, a ≤ ±1 m warp over the edge row at HECA as today). Recommend **YES**. NO = the taxiway inside a bay takes the pad's level (breaks 30f's "taxiway caps never exceeded" and moves taxi-family vertices — padreview2's class (iii)).
+* **Q4 What is the "shape" the owner sees at OTHH?** At the OTHH site every face but the trenches stands at 3.96 m in main's frame too; a level cannot be what reads as "far too complex" there. If it is the FACE TILING (the 29 route corridor faces and 17 pad pieces seen in the app's patch preview or as mesh seams through the orthophoto), the answer is a same-plane FACE MERGE at emit (adjacent faces at one plane with no law between them emitted as one way) — an emit rule with its own consumer census (§56 (8) already names it as a candidate), not a pad rule. Asked as: "do you read the sim's terrain, or the app's preview of the cells?" — recommendation: build J2 + J3 and read the sim at HECA T3 (where a level exists) before an emit merge is designed.
+* **Q3 SPJC's terminal qualifies on its gates alone** (62 apt.dat gates, no jetway object in the pack). Recommend **YES** (the real terminal has jetways; the pattern is the building's and the stands'). NO = require a rider at the gate as well (HECA T3 42 / 51, KCLT 54 / 65 still qualify; SPJC does not).
 ## §59 AN APRON-TOUCHING GAP PIECE IS A ROAD BY ROAD EVIDENCE, ELSE IT IS THE APRON (owner RULINGS 2026-10-08c (6), refusing §55's Beta-2 default; 2026-10-04q; the free-road ruling 2026-07-27; §27 / 2026-09-12c, 12f; §37 (2) / 2026-09-13q item 7; "airside is king"; Fable `gapapron` 2026-10-08, every claim probed on `frames/gaps3/HECA.pkl` under main `3f9a349d`). BUILT — lanes `gapapron` → `gapapron4`, branch `claude/gapapron` `edb9483a`, PR #485; owner RULINGS 2026-10-08g (Q7–Q9 yes) and 2026-10-09b (the runway: a shift up to 0.1 m is accepted, the exact-hold second assembly is NOT built). REVIEWED IN PLACE by Fable `gapreview` 2026-10-08 (`docs/briefs/gapreview-summary.md`): the lane's five deviations are ruled where they stand, marked **AS BUILT (D1–D5)** — D1 the rim closure REPLACES (2) 4's formula, D2 "no road evidence ⇒ apron" is the rule, D3 the `gap:<k>` numbering keeps today's ordinals, D4 the keep-out, D5 the zone-claim trim replaces (4) row 10; the text below them is kept as the design record. Supersedes §55 (3) 6's "second arm" and §55 (12) Q3; `gap_mint.APRON_TOUCH_ROLE` is REFUTED and deleted.
 
 ### §59 (0) The ruling, read once
@@ -18006,3 +19445,210 @@ measured directly by the null-change check.  **Accept?**  Recommendation: YES.
 **THE EXIT (§61 (4)) as built:** `_ROUNDS_MAX` stays 400 (the probe ran 4,000); no `round_cap` at KCLT or HECA. HECA pass 1b exits `no_descent` and its hard set is NOT SETTLED on main and on the branch alike (43 rows, worst 0.1007 m) — named, never a failure.
 
 **THE HECA BUILD IS NOT A ONE-SHOT REPLAY.** `--replay --from classify` alone solves the gap pieces in the main map (body 96f3ab15ab08, not main's); the build solves the gap-free base and then the late stage. §61's HECA reads are therefore `--gap-free` base replays (+ `--null-change`) and the build.
+
+### §61 (11) A HELD PAD'S FRONTAGE DATUM COLUMN IS FOREIGN IN PASS 1a (lane `holering`, attribution by intervention on the HECA pass-1a instrument, `docs/briefs/holering-notes.md`; landed by cloud lane `cloudholering`)
+
+*The valley.* §61 (0)'s class — a stage-1 column inside a hard band with nothing that prices where in it it lands — has a second population besides the taxiway edge: the HELD PADS' FRONTAGE DATUM COLUMNS (`model.platform.datum_vertices`, one single-vertex building-only column per held block, airside BY DESIGN for its hold, flat-pad spec §1 (2)). PASS 1a strips every hold row (`HoldPass.strip`), and there the column carries no bending, trend, mean or membrane — at HECA 22 of 38 sat on the level belt (stable), 16 carried nothing but the hard 5 % `pavement_max_grade ceiling` twins of their pad's dropped frontage rows, and one of them (building88's) moved 0.914 m on a null change under 30 satisfied ceilings. The apron hole rings were NOT the mechanism (828 rim columns, 0 movers).
+
+*The rule.* A datum column is an unknown of the airside problem ONLY while a row of the hold (head `structures.building_pad frontage_hold` or `… frontage_hold datum`) names it. In a set with no such row — pass 1a — it is FOREIGN: fixed at its dummy value, every row touching it dropped (`solve/design_stage.stage_split`, `_unheld_datums`; the heads move to `model/platform` so `solve` may read them). A column airside through a weld (a stage-1 face's vertex in its rigid class) stays airside. Pass 1b and stage 1 carry the hold's rows: the column is an unknown there exactly as before. Pass 1a is then the UNPULLED airside by construction — a pad pulls nothing there. Probe `docs/briefs/holering-scratch/armC2.py`: pass-1a null-change 13 / 1 / 0.914 → 0 / 0 / 0.0001 at HECA. Alternative C1 (`datum_weld`, the column takes membrane rows to its own weld contacts: 0 / 0 / 0.005) is NOT built. The interval's pair graph (`no_step.hold_interval`) no longer sees pairs through an unheld datum column (it is not a pass-1a column); the full replay is the master's read. Twins: `test_flatpad128v3.py::test_pass_1a_has_no_free_datum_column`, `::test_a_hold_row_keeps_the_datum_column`.
+
+## §62 THE PAD SEAT WHERE PAVEMENT TOUCHES IT — THE LANDSIDE-ONLY PAD, THE GAP PART BESIDE A PAD, THE APRON SHEET WITH PAD HOLES, AND THE FALLBACK CAP OVER A PAD VERTEX (owner RULINGS 2026-10-09d (1) "no skirt: pavement touching a pad welds and grades inside its own cap, else the SEAT is wrong", 2026-10-08c (4) "no step between pad and pavement; the seat from the reach graph", 2026-10-08d (2) "a misfit under 1 m is welded by the pavement", 2026-10-09c (2a) "a pad takes a fixed contact's level", 2026-10-09f "the §28 (6) split-level terrace STANDS — the one lawful exception"; spec §28, §55, §56 (3), §57 (3); issue #492; Fable `seatspec` 2026-10-09, every number below probed on replays of the registered pads67 captures `frames/pads67/{HECA,KCLT}.pkl` (merged head `4b433195` = PR #480 + main `729e140d`; this tree = that + main `f314564d`), notes `docs/briefs/seatspec-notes.md`, probes `<scratch>/seatspec/` (`siteE.py`, `rows_on.py`, `armE.py`), summary `docs/briefs/seatspec-summary.md`). DESIGN ONLY — nothing below is built. §61 is held by `claude/valleyspec`, §56–§60 by the other unmerged branches; this section takes the next free number.
+
+**(0) WHAT THIS SECTION IS.** pads67's edge read (`tools/pad_edge_read.py`, RULINGS 2026-10-09d (1)) classed every steep pad edge of the seven sw8 builds. Class A (the §28 (6) split-level terrace) is RULED (09f) and not redesigned here; (6) says how the rules below compose with it. The remaining pavement-adjacent classes are each ATTRIBUTED BY INTERVENTION or by the row set of the solved surface, and each gets ONE general rule — no airport, pack, ref or coordinate enters any rule (RULINGS 2026-10-05e); HECA and KCLT are where the defects were found and where the closing test runs.
+
+| class (pads67 name) | HECA | KCLT | SPJC | CYXY | mechanism (attributed below) | rule |
+|---|---|---|---|---|---|---|
+| C — landside-only pad (GS-NEAR) | 16 runs / 570 m | 10 / 71 m | 3 | 0 | the pad follows its SENIOR groundside frontage only (road > lot); the junior lot is a reported residual and §28 mints nothing back (`pad_fronts_airside` false) — (2) | R-C |
+| D — gap part beside a pad (GAP) | 50 / 339 m on 23 pads | 0 | 0 | 0 | the part's follow reach (1.95 m) is shorter than the piece's stand-off at the pad (up to 3 m), the Voronoi cut hands the pad-side region to another level group, and 6 pad stations are merged away by the mint floors — (3) | R-D |
+| E — pads on one apron sheet 6–8 m apart (AIR-TOUCH / AIR-NEAR, #492) | 21 / 232 m on 17 pads + 7 / 231 m | 3 (1.3 m) | 1 (1.1 m) | 0 | `apron_within_shape` prices pairs INSIDE one ring only; a sheet carrying the pads as HOLES has no within-shape row between its rings, so every hole ring is seated on its own DEM plane / trend — (4) | R-E |
+| B — armed §28 pair still > 1 m off (ARMED) | 1 (`building164`, +2.70 m) | 2 (`building26` −1.60, `building27` −1.01) | 0 | 0 | (5) | R-B |
+| bent pad (`building75`, 81 pad-tier conflicts) | 1 | — | — | — | the 29ac FALLBACK CAP pairs a pad rim vertex with a road vertex 1.04 m away (10 % x 1.04 m = 0.10 m) against the hard plane: the LP relaxes the pad tier — (5) | R-F |
+| M — pavement meets the rim, the height is beside it | 254 / 9,310 m | 101 / 1,181 m | 26 | 6 | (7): 229 of 254 runs LAWFUL (the meeting pavement leaves the rim inside its cap; the bare ground beside is 09d (1)'s accepted bank); 25 runs / 627 m are the meeting APRON over its 1.5 % cap at the rim — the E population seen from the next hole | none new; E covers the 25 |
+
+**(1) THE CONSUMER CENSUS (owner RULINGS 2026-08-30l), ruled before any rule.** Every pass that reads a pad SEAT (a held datum, a §20 frontage fit, a cluster plane), a PLATFORM RECORD, or a gap part's PAD STATION. `[shared N]` is `tools/blast.py`'s count.
+
+| # | consumer | reads | R-C | R-D | R-E | R-B / R-F |
+|---|---|---|---|---|---|---|
+| S1 | `constraints/pads._fronting` / `pad_fronts_airside` / `pad_frontage_leaders` / `pad_frontage_level` (§20, 10l) | what a pad fronts; a landside-only pad's level fit | EDITED: the landside-only pad fits to its ONE leader (the senior touching face, (2) rule 1); the junior rows are deleted | unaffected | unaffected | unaffected |
+| S2 | `constraints/pad_frontage_gs.groundside_frontage` / `groundside_frontage_level` / `held_terrace_pairs` (§28) | pads that front airside; held pairs | EDITED: the population becomes every pad with a SEAT (airside-fronting OR landside-only with a leader); the leader face itself is excluded from the followers of its pad (one direction, no lag cycle) | unaffected | unaffected | the held pairs are read by R-F's skip |
+| S3 | `constraints/pavement_cap.pavement_road_cap` (29ac fallback) | every pavement pair no row above prices; skips `held_terrace_pairs` | reads the new population through S2 (no second derivation) | unaffected | unaffected | EDITED (R-F): a pair with a PAD vertex is not the fallback's — a pad|pavement pair is §20/§28's relation, one-way |
+| S4 | `constraints/ceiling.pavement_ceiling` | twins the one-way level heads two-way at 5 % | the new heads join the skip set exactly as §28 (3) F7 did | unaffected | unaffected | unaffected |
+| S5 | `constraints/platform.hold_sets` / `frontage_hold_rows` / `platform_plane_rows` / `platform_records`; `no_step.hold_interval`; `weld_floor` | the held datum, its welds, the 08d (2) widening | unaffected (a landside-only pad is never HELD: `platform_split` minds airside frontage) | unaffected | EDITED IN EFFECT ONLY: with R-E's rows on the pair graph, a hole ring's contacts are reached (`reach_unreached` 12 -> 0 at building100) and the datums of the pads on one sheet are met by the one interval; no code change | unaffected |
+| S6 | `constraints/apron.apron_within_shape` | ring edges / spine chords / body chords PER RING | unaffected | unaffected | EDITED (R-E): the body-chord enumeration also pairs vertices of DIFFERENT rings of one face, cover-tested as today | unaffected |
+| S7 | `constraints/no_step.no_step_pairs` / `reach_bands` / `reach_band_values` | route pairs, the reach graph | unaffected | unaffected | unaffected in code; the pair graph gains R-E's rows (`pair_graph` reads `interval_pair_rulings`, the apron ring-edge head is already in it) | unaffected |
+| S8 | `constraints/cluster_pad.plane_groups` / `cluster_offsets` / `pads._pad_rows` | the cluster plane, the 1 % ceiling | unaffected: the plate and ceiling are the same; only the LEVEL row changes | unaffected | unaffected | unaffected |
+| S9 | `constraints/pad_fronting.pad_fronting_level` (§20 facing across bare ground) | the faced apron | unaffected (airside only) | unaffected | unaffected | unaffected |
+| S10 | `solve/design` one-way lag, `design_roles` stage split, `design_assemble` (`datum_vertices`), `design_ground` §9b | followers, datum columns, DEM datum | the landside-only pad's own vertices leave the §9b per-body mean exactly as a fronting pad's do today (`pad_datum_withdrawn` already reads `_fronting`) | unaffected | unaffected | unaffected |
+| S11 | `pipeline/late_stage.late_stations` / `cut_classification` / `run_late_stage`; `classify/gap_terrace.consistent` / `level_groups` / `terrace_cut`; `constraints/gap_follow.gap_follow_rows` / `reach_m` | the PAD stations (class `pad`, knife), the follow reach, the floors | unaffected | EDITED (R-D): the reach covers the stand-off; the pad station is a FIXED CONTACT of its part (3) | unaffected | unaffected |
+| S12 | `classify/gap_mint` (the stand-off), `planar/gap_apron` | the piece's set-back from a pad | unaffected | unaffected (the stand-off is kept; the reach grows to it) | unaffected | unaffected |
+| S13 | `pipeline/publication` (`platforms`, `cluster_pads`, `gap_pieces`, `late_stage`), `pad_warning`, `emit/osm_adapter` | the records | a landside-only pad gets a `seat` record (2) rule 4 | the part record carries `pad_welds` (3) rule 4 | unaffected | unaffected |
+| S14 | `tools/check_grade.py` (`platforms`, `weld_widened_nodes`, `late_stage_floor_m`), `tools/harness/census.py`, `verify/census.py` | the sidecar keys | reads the new key; no family changes | reads `pad_welds`; no family changes | unaffected | unaffected |
+| S15 | `planar/platform.platform_split`, `pad_blocks`, `pad_cut`, `landing`; `airport/{frame_entry,partition_cache,topology_cache}` (HELD in the cache) | the mint | unaffected | unaffected | unaffected | unaffected |
+| S16 | `constraints/jetway_strip`, `structures`, `roads`, `foot_rows`, `structures.rim_level` | HELD / frontage_contacts / rigid roles | unaffected | unaffected | unaffected | unaffected |
+| S17 | Swift `SceneryKit` | JSONL event names | untouched | untouched | untouched | untouched |
+
+**(2) R-C — THE LANDSIDE-ONLY PAD SEATS FROM THE PAVEMENT TOUCHING IT (09f: "a pad with no airside frontage seats from the pavement touching it").**
+
+*What seats it today, attributed (`--why-at 30.11524973490,31.40942194421`, HECA `building12`, cluster `unit:43#850`, 30,172 m², no platform record).* Rim v26980 at 96.11 (DEM 106.33): the binding rows are the pad's own plate (7 `pads` rows, cap 0 over 48.9 m); the chain to a fixed terminal runs 14 hops / +8.46 m: pad → `pavement_road_cap` 10 % × 1.0 m → `service_road#1119` (route3, 96.03) → `road_cross_section` 1.5 % × 58 m twice (+1.76) → `road_within_shape` → apron#189 (92.24) → `apron_preference` → apron 87.8. So the landside pad's level IS the service road's, and the road's is the apron's through the road law (§37). The lot `pav57`, 0.66 m off the same rim at +3.29 m (123.7 m of rim, 8 vertices), has NO row to the pad: `pad_frontage_level` fits the pad to its SENIOR groundside frontage (`precedence.toml`: road > lot) at `pad_flat` weight and the lot's row at `law` weight — the pad follows the road and the 3.3 m miss against the lot is the `pad_level` family's reported junior residual; §28 mints nothing back toward the lot (`pad_fronts_airside` is false: "a pad that fronts nothing airside is not a leader here"); the fallback cap did not pair the lot (0.66 m) — only the road (1.0 m). Same shape at every GS-NEAR run read: `building15` | `objpav394` (−2.75 m across 1.06 m) with `route3` +1.91 on its other side; `building8` | `route3` +3.87 across 1.45 m; KCLT `building57` | `pol81` +2.67 / `building72` | `pol71` −2.85 with `pol53` +1.21.
+
+*The rule.* A pad that fronts NO airside pavement (`pad_fronts_airside` false) and fronts at least one groundside face (§20's own relation, `_fronting`, groundside roles kept where nothing airside fronts) is a SEATED pad:
+
+1. **ONE leader.** Its level is fitted (the existing `pad_frontage_level` row, one-way, the pad following) to ONE touching face — the SENIOR by `precedence.toml` (service_road / service_junction > groundside_pavement > parking_lot), ties broken by the longest contact (§28 (1)'s "largest shared edge"). A road is senior because it is the face whose level is FIXED by another law (its own airside contact, §37; a road ramp, 09c (2b)) — the 09c (2a) principle one step out: the pad takes the level of the contact that cannot give. The junior `pad_level` rows of today (law weight, reported residual) are DELETED: a second leader is a second seat.
+2. **Every other touching groundside face follows the pad** exactly as §28 (1) makes a lot follow an airside-fronting pad: `groundside_frontage_level`'s population widens from "pads that front airside" to "pads with a seat" (airside-fronting, or landside-only with a leader), the leader face EXCLUDED from its own pad's followers — so the pair road|pad is stated once (pad follows road) and the pair lot|pad once (lot follows pad); no row is stated twice in opposite directions and the one-way lag cannot chase itself (the worry §28 (2) recorded is answered by exclusion, not by abstention). The lot then welds at the rim and grades away under ITS OWN cap (5 %): a 3.3 m misfit is 66 m of lot at 5 %, which is 09d (1)'s "graded within its respective cap".
+3. **The §28 (6) exception composes unchanged (09f).** `pair_dem_step_m` already falls back, for a pad with no airside frontage, to the pad's area-weighted DEM (18c (1)); a follower whose DEM step against that exceeds `frontage_step_max_m` (2.4 m) is held as a terrace and keeps its own level with a declared step — the one lawful exception. Everything under 2.4 m welds. 08d (2) is not needed here (a groundside face has no fixed far end to make a misfit: it grades away).
+4. **Published.** `platforms[]` gains a record for every seated landside-only pad: `{"ref", "seat": "landside", "leader": "role:ref", "leader_contact_m", "followers": [...], "held_pairs": [...]}` — read by `pad_warning` and the census (S13/S14), so a pad with no leader (fronts nothing: DEM datum, 09p (3)) is never silent.
+5. **A landside-only pad touching NO groundside pavement** keeps its DEM datum (09p (3)) and 09d (1)'s bare edge — no rule.
+
+*Probe.* The one-leader fit already exists (rule 1 is today's senior row; rule 2 is the §28 population). The arm that isolates the mechanism is run on the base solve as `--drop-generator pavement_road_cap` (removes the 10 % × 1.0 m weld that today seats `building12` and `building75`, so what remains is the §20 senior fit alone) — numbers in (5). The §28-population widening (rule 2) has no replay knob and is NOT probed by intervention: it is listed UNPROVEN in (9) with the §28 precedent (LEMD `building4` → `pav124` +3.03 → +0.16 m by exactly this row class) as the only evidence.
+
+**(3) R-D — A GAP PART WELDS TO THE PAD WHEREVER THE PAD'S LEVEL IS REACHABLE INSIDE THE PART'S CAP (09f: "a gap part welds to a pad wherever the pad's level is reachable inside the part's cap").**
+
+*What stands there today, read off the sw8 records (`gap_pieces[].stations / conflicts_merged`, pads67 `pclass_HECA`).* The 50 GAP runs (339 m, 23 pads) are 30 `lot` parts, 9 `step` parts, 1 `ramp`, 10 un-cut pieces. Three mechanisms, each visible in the record:
+
+* (a) **The follow reach is shorter than the stand-off.** `gap_follow.reach_m` = `groundside_cutback_m` 0.6 + snap 0.5 + 2 × identity 0.427 = 1.95 m, measured from the pad's RING; `classify/gap_mint` stands a piece off a pad by the same 1.1 m plus the mesh's own noding, and the edge read finds the nearest part vertex 1.9–3.0 m off the rim (gap:3 beside `building5`: 1.89–2.34 m, −4.2 to −4.4 m, nine runs; `building4` | gap:0/s0/lot 2.96 m). A vertex past 1.95 m has NO follow row to the pad and follows its other stations (gap:3: 45 `lot` stations, 0 pad).
+* (b) **The Voronoi cut gives the pad-side region to another group.** `terrace_cut` groups stations into pairwise-consistent level groups (`|dz| ≤ cap·d + 1 m`) and assigns every point of the piece to its NEAREST station's group; where a lot/road station lies nearer than the pad station, the pad-side part is the lot's group, the pad station's bound is `declared` (refused as "another group's ring") and the step lands at the PAD, not at the knife (gap:5/s2 beside `building7`: 1.36 m off, −4.53 m, 3 groups / 10 knives; gap:0/s14 | `building10` −3.91; gap:10/s0 | `building9` +3.57).
+* (c) **The mint floors merge the pad station away** (`conflicts_merged` naming the pad: 6 runs — `building6` | gap:5/s0 −2.39 twice, …): a candidate part under the floor is merged into its longest neighbour and the pad's level is dropped from the cut.
+
+*The rule.* A pad's rim beside a gap part is a FIXED CONTACT of that part (08c (4) / 09d (1) read for the last stage; 09c (2a): the pad's level is a constant of the earlier stages and cannot give):
+
+1. **The reach covers the stand-off.** The follow reach of a PAD ring is the piece's own stand-off at that pad (`gap_mint`'s set-back + the mesh's noding margin) — one derivation, read by `late_stations` and `gap_follow_rows` from `gap_mint`, never a second constant; a part vertex at the stand-off is bound to the pad's level within `cap · (d − knife)` as today, which at the stand-off is one identity cell of grade.
+2. **The pad station is a fixed contact of its part, never a candidate for merging.** `terrace_cut`: a `pad` station is placed in a level group only with stations that can reach ITS level (`consistent` with the pad as the anchor); a part containing a pad station in another group is cut at the knife ON THE PAD-SIDE of the nearest non-pad station, so the region along the pad's rim always belongs to the pad's group; the floors never merge a pad station (the merge is for lot/road/apron candidates). Where no other station of the piece can reach the pad's level inside `cap · d + 1 m` (08d (2)'s floor), the part beside the pad is ITS OWN part at the pad's level (a terrace of the piece, §55 (2)), with the knife between it and the rest — the "terraces only otherwise", and under 09f the declared step stands at the knife, never at the building.
+3. **A lot part beside a pad takes the pad's level flat across** where the road's and the pad's levels agree within the lot's transverse cap × distance (§55 (3) 4's lot rule with the pad as a second anchor); where they disagree the lot is cut (rule 2).
+4. **Published**: `gap_pieces[].pad_welds: [{"pad", "stations", "welded", "declared", "knife_m"}]` per part (S13), the count of pad-side knives beside each pad in `platforms[]` / the landside `seat` record.
+
+*Probe.* Baseline: the late-stage pair (`--from classify --gap-free --solved-out` then `--late-from`) on the pads67 HECA capture; arm: the same with rule 1 (reach = stand-off) as a scratch override of `gap_follow.reach_m` — numbers in (5). Rule 2 (the cut) has no knob and is UNPROVEN by intervention; (9).
+
+**(4) R-E — AN APRON SHEET IS ONE BODY ACROSS ITS HOLES (#492; 08c (4): "the pad should be seated at the elevation that allows all touching pavement to be graded within its grade caps").**
+
+*Attributed (HECA `apron:dsf:objpav402`, 344-vertex ring with 21 holes — the pads of 17 units — `siteE.py` / `rows_on.py` on the base solve).* v11868 (building100's contact, 101.25) and v11597 (apron only, 93.56, 6.0 m away) are both stage-1 vertices and share NO ROW. v11868's apron rows: ring edges to v11867 (29 m) and v11869 (44 m), frontage chords to v11870–11872 — all on the SAME hole ring (building100's rim, every vertex 101.25). v11597's: ring edges to v11596 / v11598 (the sheet's own ring), a `frontage_near_miss` to building101's v12276 at 5.0 m, the 5 % ceilings. `apron_within_shape` enumerates pairs inside one ring (`for ring in [rings, *holes]: for i < j in ring`): a hole rim never pairs with another hole rim or with the outer ring, so a sheet with the pads as holes has no within-shape law across it. Each hole ring is then seated alone: building100's datum = its contacts' pass-1a median 101.24 with the ring on the apron's DEM plane (`reach_band [None, None]`, 12 of 12 contacts UNREACHED by the pair graph); building101's contacts chain through `apron_preference` (1 % SOFT) +13.7 m over 1.2 km to the taxi reach band at 77.21 (`--why-at` v11604: 12 hops, Σdz +16.18 m); building104 94.9 → 92.4, building98 103.6, building117 101.7, building64 86.4 (datum vs `datum_chosen`). The 6–8 m steps between pads 6 m apart (21 AIR-TOUCH runs on 17 pads, 75–250 %) are MISSING ROWS, not wrong seats: no reach band reaches a hole ring the pair graph cannot see, so 08c (4)'s "seat from the reach graph" had nothing to read. The population: HECA 13 apron faces with holes (46 holes; objpav402 21, objpav399 4), KCLT 31 (109; `pav14` and its plateaus 15 + 15 + 11 + 6), OTHH 22 (53; pav11 10, pav32 9, pav4 8), SPJC 5 (11), CYXY 4 (6), KASE 1, NLWF 0 — the M-class "apron over its cap at the rim" runs (HECA 22 / 615 m, KCLT 17 / 493 m, worst KCLT `building27` | `pav22` 7.0 %) are the same population seen from the next ring.
+
+*The rule.* `apron_within_shape`'s body-chord enumeration also pairs vertices of DIFFERENT rings of one face — hole|hole and hole|outer — exactly as body chords: inside the body gate one row at the apron cap with its 1 % preference, beyond it stationed across the face (10t (2)), every chord cover-tested against the face polygon (05ae) so a chord through another hole mints nothing. No new head, no new law key, no new weight: the rows carry the existing `common.roles.apron ring edge` / body-chord heads, so the hard register, `interval_pair_rulings` (the pair graph the seat is read from), the ceiling twin and the census families all read them unchanged. Consequences by construction: (i) two hole rings 6 m apart differ by ≤ 1.5 % × 6 m; (ii) each hole ring's contacts are ON the pair graph through the sheet, so every pad on one sheet is seated by the one reach interval (`hold_interval`), and a misfit under 1 m welds by 08d (2); (iii) where the sheet's relief exceeds what 1.5 % spans (objpav402: DEM 93–104 over ~300 m ≈ 3.5 %), the sheet grades at its cap and the pads sit on it — the DEM is not law on pavement (§8.6, 09-08t (1)); the ground beside the sheet's outer ring meets it as a bank (09d (1)).
+
+*Probe.* `armE.py` = this generator appended to `GENERATORS` (scratch), replayed on the base capture; numbers in (5).
+
+*Under R-E, pass 1a's instability is a held pad's datum column, not the hole ring* (lane `holering`): with R-E the `--null-change` pass 1 read 13 / 1 / 0.914 at HECA; every apron hole-rim column was stable (828, 0 movers) and the movers were the held pads' frontage datum columns, which pass 1a leaves in a §61 (0) valley. Closed by §61 (11) (the column is foreign in a set with no hold row). R-E's own 0.14 m runway shift at HECA is NOT that instability — the two trees' pass-1a optima differ (e's final runway = its pass-1a runway, 0.008 m) — and is an owner question, not touched here.
+
+**(5) R-B / R-F — A PAD VERTEX IS NEVER A FALLBACK-CAP PAIR'S (29ac); the armed-but-off pairs.**
+
+*`building75` (HECA), attributed by the solved row set.* The stage-2 hard set's worst row (0.1263 m) is `pavement_road_cap` 29ac between v22865 (pad rim, 99.70, DEM 102.33) and v40607 (`small_roads:-20325`, 99.48, 1.04 m away): 10 % × 1.04 m = 0.10 m. Every pad-tier row on v22865 (the hard `platform plane`, 13 `pad_slope_max ceiling` pairs to 100.07–100.86) is violated — the one row HOLDING it at 99.70 is the fallback cap, a hard two-sided pavement pair over a PAD vertex, and the LP relaxes the pad tier (81 rows) rather than the road's cap. The 8 violated `pavement_road_cap` rows of the surface are all pad|road or pad|lot pairs across the stand-off (v28284–28286 `building59` | `groundside_pavement`, 0.04–0.11 m; v10052 | `service_road` 0.22 m; and three `service_road`|`apron+service_road` pairs at 30.1217,31.4205 — 0.45–1.99 m, the E sheet's road). pads67's `--drop-generator pad_slope_ceiling` could not touch it: the ceiling is the victim.
+
+*The rule R-F.* The 29ac fallback cap prices PAVEMENT pairs; a pair with a rigid-role (pad) vertex is excluded at its one derivation site (`pavement_road_cap`), exactly as it already excludes the §28 (6) held pairs (#264): a pad|pavement pair is §20's / §28's relation — one-way, the pavement following the pad (or the pad its one leader) — and never a two-sided hard weld at the pavement's cap. (The #264 precedent is the same defect: the fallback welded `pav4` to `building9` at 8 % over 1.0 m across a held pair.)
+
+*R-B (`building164` | `dsf:objpav405` +2.70 across 1.10 m; KCLT `building26` | `pol50` −1.60 across 0.80 m, `building27` | `-7016#1` −1.01 across 2.50 m).* These are §28 ARMED pairs (DEM step < 2.4 m) whose follower still stands off: the groundside face's frontage vertex is bound to the pad by the §28 row (one-way, pad_flat weight for the senior, law weight for a junior) — and at `building164` the pad is a HELD block (datum 77.36, band [74.09, 79.71], `datum_chosen` 78.04) whose datum the stage-1 solve placed 0.68 m under the apron's own level; the road meets it from +2.70. Attribution: probe (5) table — the why on each and the `--drop-generator pavement_road_cap` arm.
+
+*KCLT `building26` | `dsf:pol50` (−1.60 m across 0.80 m), `--why-at` on the KCLT base solve: the pad vertex v16419 (215.97) leads the road's frontage vertices through 3 `groundside_frontage_level` rows; the chain is ONE hop to v20654 (`pol50`) at 214.17, a hard PIN — `roads.coverage_edge join` (§37 (9)). The §28 row (priced) loses 1.80 m to the pin. HECA `building164` is the same shape with the `road_ramp` DEM-target equality (lo = hi = 81.62) and ramp-ceiling Band on v37218 / v37221 (78.08 / 78.28; 2 `groundside_frontage` rows, 21 longitudinal 10 % rows, a 52 m fallback pair to 82.24): the road is held up by its own hard law and the frontage joint is what gives.*
+
+*The rule R-B.* A road (or lot) vertex that is a §28 FRONTAGE vertex of a seated pad — within `[design] pad_frontage_m` of the pad's polygon, the §28 relation's own population — carries the pad's level (the §28 row) and NO road law that FIXES its level: no `road_ramp` "ramp to the DEM" / "ramp ceiling" row and no `coverage_edge join` pin (both move to the first road vertex outside the frontage): the pad frontage is a BORDERED LEVEL of the road (10-03b's road terrace already holds "21 along a pad frontage" at HECA), the road's ramp starts from it at the design grade (§37 (6a), 09c (2b)) and ends at first meet with ground the road can follow. Two laws never name one vertex's level; the one that does is the pad's (airside is king through the pad, 09c (2a) one step out). The same for a `pavement_road_cap` fallback pair whose one end is a frontage vertex (R-F covers the pad end; this covers the road end: the pair is the §28 weld's, not the fallback's).
+
+**(5a) THE PROBE TABLE.** Every arm is a replay of `frames/pads67/HECA.pkl` (`--from constraints --workers 9`, ~6 min; the late-stage pair `--from classify --gap-free` + `--late-from`), read with `tools/pad_edge_read.py` against the capture, `docs/briefs/pads67/pclass.py`'s classes (`<scratch>/seatspec/cmp_arm.py`), the sidecar's `platforms[]` / `hard_conflict`, and `tools/airside_value_delta.py --tol 0.02` (runway bar 0; taxi / strip / apron counts with worst). The BASE replay reproduces the sw8 build's classes (AIR-TOUCH 21 = 21, AIR-NEAR 7 = 7, ARMED 1 = 1, GS-TOUCH 1 = 1, GS-NEAR 15 vs 16; the gap pieces stand uncut in a base replay, GAP 118 runs).
+
+| arm | what | P classes (runs / m) base → arm | pad seats moved | `hard_conflict` gs / pad / taxi | airside movers (solve-owned; runway / taxi / apron / strip, worst) | reading |
+|---|---|---|---|---|---|---|
+| A1 `--drop-generator pavement_road_cap` (R-F alone) | the 29ac fallback removed everywhere | AIR-TOUCH 21 → 21, AIR-NEAR 7 → 7, ARMED 1 → 2, GAP 118 → 117, **GS-NEAR 15 / 515 m → 20 / 1,555 m** (building15 \| objpav394 −7.04 over 307 m, building5 \| pol10 −7.33) | held datums 0 of 47 (building75 100.859 =); landside pads DRIFT: row-side "other" 602 nodes, worst 3.60 m at 30.11458199456,31.40540642024 (building15) | 175 / 108 / 62 → 143 / **20** / 59 | 0 / 104 (0.23 m) / 18 (0.04) / 197 (0.64) | R-F removes the pad-tier conflicts (building75's 81 among the 88) but the fallback is today's de-facto SEAT of a landside-only pad: R-F lands only WITH R-C rule 1 (the one leader, HARD) in the same step |
+| E `armE.py` (R-E) | body chords across the rings of one apron face: 13 faces, 13,197 pairs in the gate, 5,695 kept by the cover | **AIR-TOUCH 21 / 232 m → 0 / 0; AIR-NEAR 7 / 231 m → 4 / 46 m**; GS-NEAR 15 = 15; ARMED 1 = 1; GAP 118 → 116 | held datums 32 of 47 moved: the sheet's pads to ONE grade (building100 101.25 → 93.79, building98 103.50 → 94.43, building117 101.74 → 95.12, building68 92.11 → 85.35); owner site z−DEM −6.02 → −8.55 (the high pads came DOWN to the sheet) | 175 / 108 / 62 → 180 / 88 / 62 | **runway 113 (0.14 m, 1.7 km from the sheet — over 09b's 0.1 m; the §61 re-levelling class, open)** / taxi 2,347 (0.82) / apron 2,120 (2.17, the sheet) / strip 1,295 (0.85) | the rule seats every pad on the sheet from one interval and removes every rim step; the sheet's LEVEL is then the 1 % preference trend to the taxiway, 8.5 m under the DEM — Q2 |
+| E at KCLT (`armE.py` on `frames/pads67/KCLT.pkl`: 31 faces with holes, 21,689 pairs, 11,241 kept) | the same generator, the second airport | **AIR-TOUCH 3 / 28 m → 0** (building75 \| pav14, building84 \| pav14#plateau, building9 \| pol43#plateau); ARMED 2 = 2; T28 2 = 2; GS-NEAR 9 / 95 → 9 / 86 | held datums 12 of 55 moved: pav14's pads UP to the sheet (building75 / 83 221.03 → 222.45, building81 220.70 → 221.75; owner-site z−DEM −0.49 → +0.44) | 279 / 31 / 51 → 289 / 28 / 49 | **runway 0** / taxi 521 (1.34) / apron 1,920 (1.90, the sheet) / strip 640 (0.99) | the direction the pads move is the sheet's own law's: up at KCLT, down at HECA — Q2 |
+| RR `--drop-generator road_ramp` (R-B attribution only) | every §37 ramp row removed | **building164's 65.8 m ARMED run → 0 m** (two single-vertex remnants 1.6 / 2.6 m held by the road's 206–254 m longitudinal rows and a 52 m fallback pair); ARMED 1 / 66 → 2 / 0 m; GS-NEAR 15 / 515 → 12 / 434 m; AIR-TOUCH 21 = 21 | held datums 0 of 47 | 175 / 108 / 62 → **18** / 106 / 60 (HECA's groundside conflicts are the ramps' own rows) | 0 / 0 / 15 (1.73 m, `building4/landing2` \| pol10) / 44 (3.22) | the road meets the pad once no ramp law fixes the road vertex inside the frontage: R-B's targeted form (the ramp / join pin start outside the frontage) is the rule, the drop is the attribution |
+| L0 late-stage pair (`--from classify --gap-free --solved-out` 156 s; `--late-from`: 27 pieces → 71 parts, 37 knives, 2,499 stations, 40 merged by the floors; follow 1,599 rows) | the R-D baseline = the sw8 build's table | GAP **51 / 339 m** (sw8 50 / 339), GS-NEAR 16 / 570, AIR-TOUCH 21 / 232, AIR-NEAR 7 / 231, ARMED 1, T28 1; of the 53 GAP runs the nearest part vertex stands 1.21 / 1.55 / 2.30 / 2.96 m off the rim (p10 / p50 / p90 / max), **16 beyond the 1.95 m follow reach** | — | — | fixed vertices off their constant 0 of 34,436 | the replay IS the build here |
+| D `armD.py` (R-D rule 1: reach = the piece's stand-off 1.454 + snap 0.5 + 2 identity cells = 2.81 m) | same base, the late stage re-run | **GAP 51 / 339 m → 17 / 156 m**; GS-NEAR 16 / 570 → 15 / 564; every other class identical | held datums 0 of 47 | follow rows 1,599 → 2,033; disagreeing-neighbour vertices 15 → 27 (pad\|lot disagreements the reach now sees: rule 2's knife sites); declared 56 → 60; relaxed follow 19 (1.61 m) → 34 (3.19 m) | 0 standing movers (by construction) | rule 1 alone removes two thirds of the class; the 17 left are the cut's (rule 2, design) |
+
+**(6) HOW THE RULES COMPOSE WITH CLASS A (09f: the §28 (6) split-level terrace STANDS).** The terrace test is ONE predicate, `pad_frontage_gs.pair_dem_step_m` against `frontage_step_max_m` 2.4 m, read at the one derivation site (`groundside_frontage`), and every rule above reads its verdict rather than restating it: R-C's followers (rule 2) are §28's population, so a landside-only pad's lot more than 2.4 m off the pad's area-weighted DEM (18c (1)'s fallback) is HELD as a terrace with a declared step and keeps its level; R-D's "terraces only otherwise" is the knife INSIDE the piece (§55 (2)), never a step at the building, and a gap part is not a §28 face (it has no DEM step test: the pad's level is a constant and the part's cap decides); R-E is airside and never meets §28 (6); R-B / R-F only remove rows and change no verdict (a held pair is already skipped by the fallback, #264). The threshold is unchanged. The OPEN sim read (09f: SPJC `building24` | `pol35/36/37`) stays open and is not touched by anything here.
+
+**(7) THE M CLASS, SAMPLED (HECA 254 runs / 9,310 m; KCLT 101 / 1,181 m; `edge_<ICAO>.json`, the meeting pavement cell's own grade against its role's cap).** A run is M when pavement MEETS the rim (within the 1 m flag) and the bare ground beside the rim stands > 1 m off (HECA median 3.57 m, max 13.9; KCLT 1.75 / 6.0). By the meeting pavement's role: HECA apron 80 runs / 2,050 m, `groundside_pavement` 134 / 5,731 m, parking_lot 30 / 1,093 m, service_road 7 / 284 m; KCLT apron 69 / 774 m, service_road 17 / 206 m, parking_lot 11 / 194 m. Leaving the rim OVER its own cap: HECA apron 22 runs / 615 m (2.1–2.8 %, every one on `objpav402` / `pav132` / `objpav8` — the E sheets seen from the next ring), parking_lot 2 / 12 m (5.1–5.3 % vs 5 %, `building4/landing2` and `landing4` | `pol10`, the GS-TOUCH run), service_road 1 / 0 m (10.1 %); KCLT apron 17 / 493 m (1.8–7.0 %; `building27` | `pav22` 7.0 %, `building46` | `pav167` 3.2 %, `building39` | `pol38` 2.8 %). VERDICT: 229 of 254 HECA runs (84 of 101 KCLT) are LAWFUL GRADE — the pavement welds and leaves inside its cap and the bare side is 09d (1)'s accepted bank; the 25 / 17 over-cap runs are the E population (R-E) plus the 3 lot/road rows already in the census's own families (`pavement_over_road_cap`, `groundside_cutback`). No new class, no new rule.
+
+**(8) IMPLEMENTATION — green sub-steps, each its own commit, each closed by replay + edge read, the airport ONCE at the end.**
+
+| step | change | where (one derivation site) | twin | probe gate (replay on `frames/pads67/HECA.pkl`) | wall |
+|---|---|---|---|---|---|
+| 1 R-F | the fallback cap skips a pair with a rigid-role vertex | `constraints/pavement_cap.pavement_road_cap` (beside the `held_terrace_pairs` skip) | `tests/auto_patch_v2/test_pavement_cap*.py`: a pad|road pair within the radius mints no fallback row; the held-pair twin unchanged | building75 pad-tier conflicts 81 → 0, rim one plane; `pavement_road_cap` violated rows 8 → ≤ 3 (the E road); runway / taxi-tier movers 0 / ≤ 3 | 2 h |
+| 2 R-E | `apron_within_shape` body chords across the rings of one face | `constraints/apron.apron_within_shape` (the enumeration; the cover test as is) | `test_apron*`: a sheet with two holes 6 m apart mints a hard ring-edge-head row between the hole rims and none across a third hole | AIR-TOUCH 21 → 0, AIR-NEAR 7 → ≤ 2; `reach_unreached` 12 → 0 at the sheet's pads; `hard_conflict` pad ≤ main's 27; runway 0; taxi ± 3 | 4 h |
+| 3 R-B | no `road_ramp` DEM-target / ceiling row on a §28 frontage vertex | `constraints/road_ramp` (reads `pad_frontage_gs.groundside_frontage`'s frontage vertices — the relation as data, no second derivation) | `test_road_ramp*` / `test_v2frontage`: a road vertex inside `pad_frontage_m` of an armed pad carries the §28 row and no ramp row | ARMED 1 → 0 at HECA (building164 +2.70 → ≤ 0.3), KCLT 2 → 0; road ramps elsewhere byte-identical (count 38 / 593 m at HECA, #484) | 3 h |
+| 4 R-C | one leader for a landside-only pad; §28's population = pads with a seat, the leader excluded; the `seat` record | `constraints/pads.pad_frontage_level` (junior rows deleted for a landside-only pad), `pad_frontage_gs.groundside_frontage` (population), `pipeline/publication` (`platforms[]` seat record), `pad_warning` | `test_v2frontage` / `test_v2padlevel`: a landside pad between a road and a lot follows the road and the lot's frontage follows the pad; a lot > 2.4 m off is held | GS-NEAR 16 → ≤ 3 at HECA (570 → ≤ 60 m), KCLT 10 → ≤ 3; lots over cap: 0 new rows in `pavement_over_road_cap`; pad seats moved: only landside-only pads, each by its leader's level; airside movers 0 | 6 h |
+| 5 R-D | the pad station a fixed contact: reach = stand-off, the cut anchored on the pad, no merge of a pad station, `pad_welds` record | `constraints/gap_follow.reach_m` (reads `gap_mint`'s stand-off), `classify/gap_terrace.level_groups` / `terrace_cut`, `pipeline/late_stage.cut_classification`, `publication` | `test_gap_follow` / `test_gap_terrace`: a part beside a pad with a reachable lot station welds; with an unreachable one it is cut at the knife on the pad side | GAP 50 → ≤ 10 (339 → ≤ 60 m) at HECA on the late-stage pair; `conflicts_merged` naming a pad 6 → 0; fixed vertices off their constant 0 | 8 h |
+| 6 | closing build: HECA ONCE through `build_airport.py` (the owner's #492 site), structure frame vs sw8_HECA; the master runs the seven-airport sweep | — | — | bars: runway movers 0, taxi-tier ± 3, `hard_conflict` taxi ≤ 63 / pad ≤ 27, CRITICAL by family ≤ sw8, lots / roads over cap ≤ sw8 | 15 min + census |
+
+Order: 1, 2, 3 are independent and each small; 4 after 1 (the fallback weld is what seats the landside pad today — step 4's measure is only readable without it); 5 last (the late stage reads the base). Every step's edge read is `tools/pad_edge_read.py` on the replay emit against the pads67 capture; the P-class counter is `docs/briefs/pads67/pclass.py` pointed at the emit (promote it into `pad_edge_read.py --classes` with its twin in step 1 — the second use is this spec).
+
+**(9) WHAT STAYS UNPROVEN (listed, never ratified).** (i) R-C rule 2 — the §28 population widening to landside-only pads — has no replay knob; the only evidence is §28's own LEMD measurement (`building4` → `pav124` +3.03 → +0.16 m) on the airside-fronting population, and the base-solve read that the lot's step is a junior residual (its row exists at law weight and loses to the senior's). (ii) R-D rule 2 (the cut anchored on the pad station, no merging of a pad station) — the late-stage pair is probed only for rule 1 (reach = stand-off), see (5); the cut change is design. (iii) R-E beyond HECA and KCLT (both replayed, (5a)): OTHH's `pav11` / `pav32` / `pav4` (53 holes) and SPJC's `pav40` / `pav35` are counted, not replayed — the master's sweep is the test; and the far-field airside movers of both E arms (HECA runway 113 nodes ≤ 0.14 m, taxi 2,347 ≤ 0.82 m; KCLT taxi 521 ≤ 1.34 m) are the whole-stage re-solve's, not attributed to a row — §61's open question. (iv) The 08d (2) widening on a sheet whose relief exceeds 1.5 % (objpav402: the pads at one level ≥ 1 m apart after R-E would be a misfit ≥ 1 m — "what happens at 1.0 m or more is the design's to propose" and is NOT proposed here: R-E makes the sheet grade at its cap and the pads follow; whether any pad on objpav402 is then more than 1 m from its own contacts is read off the arm's `misfit_m` and reported in (5)).
+
+**(10) OWNER QUESTIONS (yes/no, with the recommendation; asked only where intent is open).**
+
+Q1 — R-C rule 1 seniority: a landside-only pad touching a ROAD and a LOT at different levels follows the ROAD (the face whose level another law fixes) and the lot grades to the pad under its cap. YES recommended (09c (2a)'s principle; HECA `building12`: the lot digs 3.3 m over 66 m at 5 %). The alternative — the LONGEST contact leads — would seat `building12` on `pav57` (123.7 m of rim) and make the road climb 3.3 m at 10 % over 33 m toward the apron it must reach: a road ramp where there was none (08c (1): the cap is not a target).
+
+Q2 — THE SHEET'S LEVEL under R-E (measured: arm E puts HECA's objpav402 — and its 17 terminal pads — uniformly 8.5 m UNDER the DEM at 30.12285430598,31.41820570991, because the sheet's level is the 1 % `apron_preference` trend chained 1.2 km to the taxi reach band at 77.21 and nothing holds it up; the terrain there is 102–104). Should an apron sheet seat on its OWN DEM plane wherever the reach band from its taxi contact allows it (the band at the sheet's contact admits anything within 1.5 % × the route, here up to +18 m), the 1 % preference running from that plane rather than from the taxiway — so the terminal row sits at grade in the terrain (~102) with the apron descending at ≤ 1.5 % to the taxiway? YES recommended (§8.6.1's reach gate: the band is the law, the preference is a target inside it; 08c (1): the cap is not a target; a terminal 8.5 m in a cutting is the #492 visual). NO keeps arm E as measured (the pads at ~94, a cutting the ground banks into). Either way R-E's rows are the same; only the preference's anchor changes (one derivation: `solve/design_ground` §9b's apron DEM plane).
+
+Q3 — R-D "terraces only otherwise": where no station of the piece can reach the pad's level inside the part's cap + 1 m, the part beside the pad becomes its own part AT the pad's level with the knife on the far side (a terrace inside the piece, §55 (2)), never a step at the building. YES recommended (09d (1) + 09f: the only lawful step at a building is the §28 (6) split-level terrace, which a gap part is not).
+
+## §63 A PAD IS SENIOR TO THE GROUNDSIDE PAVEMENT TOUCHING IT — THE TOUCH WITNESS ON THE SOURCE GEOMETRY, THE TOUCHING PAVEMENT WELDED AT THE RIM, THE GAPPED PAVEMENT FREE (owner RULINGS 2026-10-09j "apron, taxiway and pads all take precedence over roads … if the pavement overlaps or has no gap the road must stay welded to the pad; if there's any gap the road can climb or descend and leave a steep wall or embankment", 2026-10-09d (1), 2026-10-08c (4), 2026-10-09f, 2026-09-01g/i + 2026-09-04u (the pad set-back), 2026-09-29ac (the fallback cap), the free-road ruling 2026-07-27, 2026-10-09d (2); spec §20, §28, §62 (2) R-C / (5) R-B, R-F; Fable `chainlag` 2026-10-09, every number probed on replays of the registered pads67 captures `frames/pads67/{HECA,KCLT}.pkl` and reads of `frames/pads67/SPJC.pkl` — notes `docs/briefs/chainlag-notes.md`, probe tree `claude/chainlag-probe` (never merges), summary `docs/briefs/chainlag-summary.md`). DESIGN ONLY — nothing below is built. SUPERSEDES §62 (2) R-C in full (the landside-only pad never takes a groundside leader: 09j (1) withdraws the master's Q1), §62 (10) Q1, and §62 (5) R-B's "frontage vertex" population (reduced to the shared vertex, (6)); §62 R-D, R-E, R-F stand.
+
+**(0) WHAT THIS SECTION IS, AND WHAT WAS MEASURED BEFORE THE RULING.** §62 R-C (a landside-only pad follows its senior touching pavement, a road before a lot; the lot follows the pad) was built by lane `seat2` (`claude/seat2-rc` b8abe847, `docs/briefs/seat2-notes.md`) and STOPPED: R-F clears the pad-tier conflicts (HECA 101 → 17) but class C (a landside pad standing > 1 m off the pavement beside it) rose 16 runs / 570 m → 17 / 1,722 m (rule 1), 19 / 963 (rule 2), 14 / 525 with eight lag rounds (the lag still unsettled, 0.594 m) and 14 / 400 only with a TWO-WAY seat that moved the leader road `route3` on 110 of 210 nodes up to 1.59 m. This lane's attribution of the chain, on the merged tree (main 1e524b12 + R-D rule 1; base = seat2's `m` / `km` pairs, `Ortho4XP/src` byte-identical to this tree), BEFORE 09j: arm `p0` (the seat2-rc code as found on the merged tree) reproduces C 15 / 564 → 17 / 957 m and the stage-2 lag `845 of 18,771 one-way rows still move, worst 1.544 m`; arm `p1` (the lag solved in LEADER ORDER — each one-way row OFF until the round equal to its depth in the leader→follower graph, undamped at that round, the pad-level rows read once; `claude/chainlag-probe` 4a7732c8) gives C 18 / 766 m with 764 rows still unsettled and `building12` | `pav57` opening to 5.74 m over 386 m — the ORDER was not the defect. The order mechanism is REFUTED for this chain and not proposed. Then the owner ruled 09j and the chain itself is gone: a pad leads, it never follows a road, so there is no road → pad → lot and nothing two deep. What this section designs is 09j on the engine's own geometry — and the finding that decides it is (2): THE GAP THE ENGINE READS IS ITS OWN.
+
+**(1) THE CONSUMER CENSUS (owner RULINGS 2026-08-30l), ruled before any rule.** Every pass that reads a pad's rim vertices, a groundside cell's polygon beside a pad, or the pad|groundside relation. `[shared N]` is `tools/blast.py`'s count.
+
+| # | consumer | reads today | under this section |
+|---|---|---|---|
+| C1 | `classify/roles._cut_back_groundside` (RULINGS 09-01g/i, 04u; `structures.building_pad.groundside_cutback_m` 0.6 + snap 0.354 = the 0.954 m knife) | EVERY groundside cell is cut back from every pad it touches, so no pad and groundside cell share a vertex | THE ONE SITE of the touch witness (3) and of the weld (4): a TOUCHING cell is not cut back, it is welded; a GAPPED cell is left as drawn; only a §28 (6) HELD pair keeps the knife |
+| C2 | `planar/weld.weld_cells` [shared 1] (the sliver weld: project + insert, seniors frozen; "a pad never welds by proximity") | pads are every OTHER cell's boundary, never a weld partner | the weld of (4) runs HERE with the pad as the frozen senior and the touching cell the junior: its rim vertices projected onto the pad's rim, the pad's rim vertices inserted into its ring — the existing two halves, one more partner class; every ring consumer already reads weld-inserted vertices (C9–C13), which is why the weld and not a new row shape |
+| C3 | `constraints/pads._fronting` / `_airside_only` / `pad_frontage_level` (§20, 10l) | a pad with NO airside frontage fits its level to its senior GROUNDSIDE frontage (road > lot), junior rows at law weight | DELETED for groundside: `_airside_only` drops every groundside role (probe `q1`'s edit); a pad fronts AIRSIDE or fronts nothing and keeps its §9b datum (09p (3), 06g / 09b (5)) |
+| C4 | `constraints/pad_seat.py` (§62 R-C, on `claude/seat2-rc` only) | the landside seat, the hard∩one-way solver change in `solve/design` | REFUTED by 09j (1): not landed, deleted with the branch; the `design.py` hard∩one-way arithmetic is harmless and unneeded |
+| C5 | `constraints/pad_frontage_gs.groundside_frontage` / `groundside_frontage_level` / `held_terrace_pairs` (§28) | every groundside face within `pad_frontage_m` (3 m) of an airside-fronting pad follows it one-way; a pair with DEM step > 2.4 m is HELD | the population is the HELD TERRACES ONLY plus the GAPPED-but-within-3 m faces of an airside-fronting pad as today (unchanged airside law); a TOUCHING face needs no row — it shares the rim (4); a LANDSIDE pad leads through the weld, never through a row |
+| C6 | `constraints/pavement_cap.pavement_road_cap` (29ac) | the fallback cap over welded neighbours ≤ 1 m; R-F skips a pad vertex | R-F stands; a cell welded at the rim has the shared vertex as a PAD column and its own ring edge from it is priced by its own cap (09d (1) "graded within its respective cap") |
+| C7 | `constraints/platform.hold_sets` / `frontage_hold_rows` / `landing_rows`; `model.platform.datum_vertices` | a held block's contacts = its shared rim vertices (airside today) | a welded groundside vertex on a held block or a LANDING is a contact and takes the datum / the deck level — 09j (3) read for the lot (HECA `building4/landing4` \| `pol10`: 283 m² of overlap, the GS-TOUCH run, lawful) |
+| C8 | `constraints/cluster_pad.plane_groups` / `pads._pad_rows` / `pad_slope_max ceiling` / `platform plane` | the pad plane HARD at the pad tier over the pad's own vertices | the shared vertices are the pad's (09j (1): the pad is senior; for AIRSIDE 09-01g keeps them the apron's) — the plane rows govern them, the pavement's rows conform; `hard_conflict_ranks` already ranks the pad tier above the groundside tier |
+| C9 | `solve/design_ground` §9b, `pads.pad_shared` / `pad_datum_withdrawn` | a fronting pad's own vertices carry no DEM datum; its contacts stay in the PAVEMENT body's mean | a landside pad's vertices — shared ones included — carry its own §9b mean (it fronts nothing airside); an airside-fronting pad unchanged |
+| C10 | `constraints/road_ramp` (`reach_seed_rewrite`, ramp targets, ramp ceiling Bands, `coverage_edge join` pins), `road_terrace` 10-03b ("21 held along a pad frontage") | a road vertex carries its ramp law wherever it stands | R-B REDUCED (6): no ramp target / ceiling / join pin on a vertex SHARED with a pad; the ramp starts at the first road vertex off the rim (09d (2): a ramp only where the grade law would break) |
+| C11 | `planar/zones` (the zone band cut back from groundside by C1's construction), `classify/gap_mint` / `facade_mint` knives (the stand-off of a GAP piece from a pad) | read the cells after C1 | unchanged: a gap / facade piece is the engine's own and keeps its stand-off (§62 R-D); a zone band beside a welded lot reads the lot's cell as today |
+| C12 | `planar/pad_cut` / `pad_terrace` / `pad_sliver`, `airport/{partition_cache,topology_cache}` (HELD) | the airside weld of a pad | unchanged; the cache key gains the witness (the cut-back set changes) |
+| C13 | `emit/osm_adapter`, `verify/census` + `tools/check_grade.py` families (`groundside_cutback`, `terrace_actual_step`, `hairline_pair`, `pavement_over_road_cap`), `tools/harness/census.py`, `tools/pad_edge_read.py` | the cut-back as a family; the P classes by stand-off | a welded pair mints no `groundside_cutback` / hairline row (shared nodes); the edge read's class C / B split into TOUCH-OFF (a defect: a touching cell off the pad) and GAPPED (accepted, 09j (2)) by the published witness (7) |
+| C14 | `pipeline/publication` (`platforms[]`, `cluster_pads`), `pad_warning` | the records by `role:ref` | records per FACE (7); the witness per cell |
+| C15 | Swift `SceneryKit` | JSONL event names | untouched |
+
+**(2) THE FINDING: THE GAP THE ENGINE READS IS ITS OWN (the witness, measured on the RAW geometry).** `<scratch>/chainlag/gapread.py` loads the capture, runs `classify` with C1's knife disabled (`roles._cut_back_groundside` → identity) so the cells are the source polygons as loaded (apt.dat row 110, DSF `.pol` pages, the OSM road ribbons), and measures each groundside P run's pavement cell against the pad's emitted rim (the pad is never cut back: its rim IS the footprint on the identity grid). With the knife ON the same read gives 0.64–0.70 m at every HECA run — the knife's 0.954 m less the snap — and `pav57` differs from its raw apt.dat polygon by 7,241 m²; with the knife OFF:
+
+| airport (base arm) | class C + B runs read | OVERLAP / touch (d = 0) | gap ≤ identity cell 0.5 m | gap ≤ 1 m | gap ≤ 3 m | gap > 3 m |
+|---|---|---|---|---|---|---|
+| HECA (`m`) | 18 / 631 m | **15 / 565 m** (`building12` \| `pav57` 5,927 m² of overlap, `building15` \| `objpav394` 516 m², `building8` \| `objpav394` 208 m², `building12` / `building15` \| `route3` 1.4 / 0.2 m², `building23` \| `pav57` 374 m², `building4/landing4` \| `pol10` 284 m², `building209` \| `objpav405` 7 m²) | 0 | 1 / 0 m (`building147` \| `small_roads:-3929` 0.76 m) | 2 / 66 m (**`building164` \| `objpav405` 1.23 m** — §62's R-B case; `building8` \| `route3` 1.56 m) | 0 |
+| KCLT (`km`) | 13 / 86 m | **7 / 62 m** (`building72` \| `pol71` 236 m², `building58` \| `pol58` 1,509 m², `building26` \| `pol50` 207 m², `building6` \| `pol96` 412 m², `building57` \| `pol81` 31 m², `building56` \| `pol22` 6 m²) | 1 (`building17` \| `pol51` 0.14 m) | 1 (`building27` \| `-7016#1` 0.72 m) | 3 / 24 m (`building62` / `building61` \| `pol48` 1.88 / 1.80 m, `building72` \| `pol53` 2.58 m) | 1 (`building59` \| `-7033#1` 18.6 m) |
+| SPJC (sw8) | 5 / 32 m | 2 (**`building24` \| `pol36` / `pol37` 488 / 586 m²** — 09f's OPEN sim read) | 0 | 0 | 3 / 32 m (`building52` \| `facstrip:building53` 1.66 m, `building28` \| `pol68` 1.05, `building46` \| `pol74` 2.70) | 0 |
+
+READING. Twenty-four of the thirty-six class C / B runs (627 of 749 m) are pavement that OVERLAPS the pad in the source; every one of them is a "gap" only because C1 cut it back — the defect the owner read at `building12` is a road and a lot drawn over the building, held off it by the engine and then seated apart. Under 09j (2) they are TOUCHING and weld; the twelve gapped runs (`building164`'s 66 m, KCLT's `pol48`, SPJC's three) are FREE — a wall or bank at the pad's edge, accepted, no rule. The witness needs no tolerance beyond the identity grid: a raw gap under `emit.identity.min_distinct_spacing_m` (0.5 m; one case, KCLT `building17` \| `pol51` 0.14 m) cannot stand as a gap in the planar map (04u: a 0.6 m pre-snap gap noded to ONE vertex) and reads as touching; above it the gap is the data's and stands.
+
+**(3) RULE T — THE TOUCH WITNESS, ONE SITE.** In `classify/roles._cut_back_groundside`, BEFORE the knife, each groundside pavement cell (value-carrying, non-rigid, side groundside — C1's own population) is read against every pad polygon it is within `pad_frontage_m` of: `d = cell.distance(pad)` on the identity-snapped raw rings. `d ≤ min_distinct_spacing_m` ⇒ TOUCHING (overlap, a shared boundary, or a gap the grid cannot hold); else GAPPED with `d` recorded. Published on the cell's evidence (`pad_touch: {pad ref: d}`) and through the sidecar (`platforms[]` / `cluster_pads[]`: `touching: [role:ref#face]`, `gapped: [{face, gap_m}]`) so the census and the edge read class by it (C13) and a pad touching nothing is never silent. No new law key: the knife's own table (`groundside_cutback_m`) and the identity grid are the only numbers.
+
+**(4) RULE W — A TOUCHING CELL IS WELDED AT THE PAD'S RIM; THE PAD IS SENIOR; A GAPPED CELL IS FREE.** (i) A touching cell is NOT cut back. Its overlap with the pad is clipped away (the pad's footprint is the pad's: §20's cut as for airside), and the cell is welded to the rim by C2's own two halves with the pad FROZEN: the cell's ring vertices within the grid of the rim move onto it, the rim's vertices along the shared run are inserted into the cell's ring — so the pad and the cell share every vertex of the run (one chain, no sliver, no T-vertex), exactly as an apron and a pad share theirs today. (ii) The shared vertices are PAD columns: the pad's plane (hard, ≤ 1 %, flat target) governs them; the cell's rows (cross-section, longitudinal cap, ramp targets, the 29ac fallback on its OWN ring edges) read them as the levels they are and the cell grades away under its own cap — 09d (1) by construction; a road running along a flat pad is level along the contact and climbs only where it is free (09j's `building12` \| `route3` answer: the road's 3.4 m climb along 98 m of contact becomes 0 along the pad and a ramp at ≤ 10 % beyond the rim), and the LP's tier ladder already ranks the pad above the groundside road where the two cannot both hold (`hard_conflict_ranks`; an infeasible pair is a named conflict, never a silent relaxation of the pad). (iii) No §20 or §28 ROW is minted for a touching pair: a shared column needs none, and the one-way lag has nothing to carry (the chain road → pad → lot of §62 is gone; `p1`'s leader-order lag is not needed and not proposed). (iv) A GAPPED cell is left as drawn — no knife (the knife existed to make the terrace the mesh drapes; a real gap is already one), no row, no weld: the height difference at the pad's edge is 09j (2)'s wall or embankment. (v) THE §28 (6) EXCEPTION STANDS (09f): a touching pair whose DEM step exceeds `frontage_step_max_m` (2.4 m, `pair_dem_step_m` at its one site) is HELD — cut back by today's knife, its own level, the declared step — and §28's row population is these held pairs and the gapped-within-3 m faces of AIRSIDE-fronting pads (today's relation, unchanged airside); a touching pair under 2.4 m welds whether or not the pad fronts airside. SPJC `building24` \| `pol36/37` overlaps 488 / 586 m² and is held at 3.0–3.7 m: the open sim read (09f) decides whether (v) is right there; nothing here touches it — Q-A in (10).
+
+**(5) RULE S — THE PAD'S SEAT NEVER COMES FROM GROUNDSIDE PAVEMENT.** `pads._airside_only` drops every groundside role (probe `q1`'s one-line edit); a pad fronts airside (§20, the apron / taxiway / strip edge it is welded to or stands within `pad_frontage_m` of) or fronts nothing and keeps its §9b per-body DEM datum with its objects' feet (06g / 09b (5), 09p (3)) — the level a landside pad has had since 10l withdrew the groundside pull for airside-fronting pads, now for every pad. The junior `pad_level` rows, `pad_seat.py`, the seat record and §62 (2) R-C are deleted. Consequence at HECA, read on arm `q1` (the seat withdrawn, every pad leading its groundside frontage by §28 ROWS — the row form, because the weld has no replay knob yet): `building12`'s cluster rises to 103.86 (its DEM datum; DEM 104–106) while `route3` beside it stays at 95–99 — the road is held by its own hard law (its airside contact at the apron, 92; its ramp rows) and a soft §28 row cannot lift it: C 15 / 564 → 12 / 1,040 m, apron movers 7 (0.28 m at 30.11130592085,31.39226060454), the lag `650 of 19,023 rows unsettled`. That is the measurement that rules the ROW out and the WELD in: only a shared column makes the road's rows conform (ii). What the weld then does at `building12` is Q-B: `route3` lies 10 m under the terrain because its level chains 14 hops to the apron (§62 (2)); welded to the pad it climbs ~8 m along the 98 m of contact and descends to the apron at ≤ 10 % beyond — the road out of its cutting, which is 09j read literally.
+
+**(6) RULE B′ — R-B REDUCED TO THE SHARED VERTEX; THE NO-VERTEX ROAD PAGE DISSOLVES.** §62 (5) R-B named a "§28 frontage vertex" (within 3 m across bare ground) and lane seat2 found its HECA case, `building164` \| `objpav405` (+2.70 m over 66 m), has no road vertex where the pad's level must be carried (a 52 m ring edge, the run at mid-span) and asked noding vs an edge read. Under (2) that pair is a 1.23 m GAP in the source: FREE, no row, no noding, the +2.70 m is 09j (2)'s wall — the question dissolves. For a TOUCHING road the weld's insert half (C2) IS the noding: the pad's rim vertices along the shared run become road vertices, so the road page always has a vertex wherever the pad's level must be carried, and every consumer of a road ring already reads weld-inserted vertices (C9–C13) — the edge-read alternative (a weighted follower pair on a road edge) would be a new row shape for `frontage_vertices`, the ceiling twin and the census to learn, and is not proposed. What stays of R-B: no `road_ramp` DEM target / ramp ceiling Band / `coverage_edge join` pin on a vertex shared with a pad (the pad's plane names its level; the ramp starts at the first road vertex off the rim at the design grade, §37 (6a) / 09c (2b)); KCLT `building26` \| `pol50` (207 m² of overlap, −1.60 m: the §28 row lost to a hard join pin on the road's frontage vertex, §62 (5)) is this case's population, `building164` is not.
+
+**(7) RULE P — RECORDS PER FACE (seat2's `building15` \| `objpav394`).** The §28 relation and the witness are keyed by FACE / CELL id at their derivation; the published records carry `role:ref#face` beside the name (`held_pairs`, `touching`, `gapped`, `followers`) and `tools/pad_edge_read.py` classes each run by the face it meets, so one `.pol` ref whose faces are part held terrace (class A, lawful) and part welded can never read as one class. No second derivation: the edge read reads the sidecar's face ids.
+
+**(8) RULE L — A PAD WHOSE LEVEL ANOTHER HARD LAW FIXES (the viaduct landings, the general witness).** seat2 skipped landings by the `LANDINGS` registry. The general predicate is the hard register itself: a plane group any of whose vertices carries a hard LEVEL row of another law — a landing's deck row (`platform.landing_rows`, 10-03e), a held platform's datum (`datum_vertices`), a runway-strip or seam pin (09c (2a)) — has its level and takes no datum and no seat; `pad_has_fixed_level(planar, law, airport)` reads `hard_rulings` ∩ the pad's columns, never a registry name. Under this section the predicate's only remaining use is §9b (which pads carry a DEM datum) and (4) (ii): a lot welded to a landing follows the deck level through the shared vertex, as `building4/landing4` \| `pol10` does today without a row.
+
+**(9) THE PROBE TABLE.** Late-stage replay pairs on `frames/pads67/HECA.pkl` (spec §62 (5a)'s form), base = seat2's `m`; classes by pads67's counter; `airside_value_delta --tol 0.02`; the lag and stage-2 wall from the pair's own log.
+
+| arm | tree | what | P:GS-NEAR / ARMED / GAP (runs / m) base → arm | `hard_conflict` gs / pad / taxi | airside movers (runway / apron / taxi) | stage-2 lag | stage-2 wall | reading |
+|---|---|---|---|---|---|---|---|---|
+| `p0` | `claude/chainlag-probe` ef0cae5b (seat2-rc's R-F + R-C + solver change on the merged tree) | the control: §62 R-C as found | 15 / 564 → **17 / 957**; 1 / 66 → 2 / 83; 17 / 156 → 18 / 156 | 254 / 104 / 64 → 230 / **15** / 63 | 0 / 0 / 0 (strip 1 at 0.020) | 845 of 18,771 unsettled, worst 1.544 m | 53.4 s (base 41.5) | reproduces seat2's `b2` (19 / 963 on the pre-merge tree) |
+| `p1` | 4a7732c8 = p0 + the lag in leader order (depth; pad-level rows read once) | the ORDER mechanism, option (a) in-loop | 15 / 564 → 18 / 766; 2 / 83; 18 / 156 | 222 / 15 / 63 | 0 / 0 / 0 | 764 unsettled | 48.6 s | the chain's order is not the defect: `building12` \| `pav57` 5.74 m over 386 m. REFUTED for this chain, not proposed |
+| `q1` | cce61d26 = p1 + Rule S (no groundside seat) + every pad leads its touching frontage by §28 ROWS | 09j's order in ROW form (the weld has no knob) | 15 / 564 → **12 / 1,040**; 2 / 83; 17 / 156 → 17 / 47 | 227 / 15 / 63 | 0 / **7 (0.28 m)** / 0 | 650 unsettled | 54.1 s | the pad rises to its DEM datum (`building12` 96.2 → 103.9), the road does not follow a soft row: the row form is ruled out, the WELD (4) is the design |
+| `q1` at KCLT (`kq1`, base `km`) | cce61d26 | the second airport | GS-NEAR 9 / 86 → 8 / 128; ARMED 2 / 0 → 4 / 54; T28 2 = | 277 / 33 / 50 → 268 / 33 / 50 | 0 / 0 / 0 (strip 7 at 0.06 m; structure frame 1 at 0.03) | 651 of 24,376 unsettled | 29.6 s (base 24.4) | the same shape: `building73` rises 6.94 m to its datum, `pol85` stays (−7.04 m); held datums 0 of 55 moved |
+| gap read | `gapread.py` on `m` / `km` / sw8 SPJC | the witness (2) | HECA 15 of 18 runs TOUCH; KCLT 7 of 13; SPJC 2 of 5 | — | — | — | classify 20–40 s | the engine's knife is the "gap" at 627 of 749 m |
+
+**(10) OWNER QUESTIONS (yes/no, with the recommendation; asked only where intent is open).**
+
+Q-A — THE §28 (6) TERRACE AS THE ONE EXCEPTION TO THE WELD. A groundside cell that TOUCHES a pad in the source but whose DEM step against it exceeds 2.4 m (09f: SPJC `building24` \| `pol36/37`, 488 / 586 m² of overlap, held at 3.0–3.7 m; KCLT / CYXY's pairs) stays HELD with its declared step — cut back and not welded — i.e. 09f is the exception to 09j (2)'s "no gap ⇒ welded". YES recommended (09f names it "the one lawful exception"; welding was probed there and dug the lot 3.6–3.9 m at 6–10 %). NO welds every touching cell and re-opens 09f.
+
+Q-B — THE ROAD CLIMBS TO THE LANDSIDE PAD'S DATUM. A pad with no airside frontage keeps its DEM datum (Rule S); a road welded to it climbs to that level along the contact and ramps to its airside contact beyond: HECA `building12` \| `route3` — the cluster at ~104 (DEM 104–106), `route3` today at 95–99 because its level chains to the apron at 92, so the road rises ~8 m along 98 m of contact and descends at ≤ 10 % over ≥ 120 m to the apron. YES recommended (09j (1) read literally; the alternative is today's road 10 m under the terrain beside a building seated 8 m above it). NO means the owner wants a different seat for a pad that fronts only groundside — a design question, not asked here.
+
+**(11) IMPLEMENTATION — green sub-steps, each its own commit, each closed by replay + edge read, the airport ONCE at the end. Step 1 is the only one a replay can gate today; step 3 needs its own capture (the planar map changes).**
+
+| step | change | where (one derivation site) | twin | gate | wall |
+|---|---|---|---|---|---|
+| 1 Rule S | `_airside_only` drops groundside roles; junior `pad_level` rows gone; `pad_seat.py` / the seat record / `test_padseat62` NOT landed (seat2-rc stays unmerged) | `constraints/pads` | `test_v2frontage`: a pad between a road and a lot with no airside frontage carries its DEM datum and no level row | replay = `q1` minus the §28 widening: pad conflicts ≤ 15, airside 0 (the 7 apron movers of `q1` attributed first: `--why-at 30.11130592085,31.39226060454`) | 2 h |
+| 2 Rule T | the witness before the knife; the evidence and sidecar keys; the edge read's TOUCH-OFF / GAPPED classes (promote `gapread.py`'s read into `pad_edge_read.py --source`) | `classify/roles._cut_back_groundside`, `pipeline/publication`, `tools/pad_edge_read.py` | a cell overlapping a pad reads touching; one 0.3 m off reads touching; one 0.8 m off reads gapped at 0.8 | HECA 15 / KCLT 7 / SPJC 2 touching as (2); no surface change | 3 h |
+| 3 Rule W | touching cells clipped and welded at the rim with the pad frozen; the knife kept for held pairs; shared vertices pad columns (`pad_shared` for groundside); §28's population = held + gapped-airside | `classify/roles._cut_back_groundside` (the clip), `planar/weld.weld_cells` (the partner class), `constraints/pads.pad_shared`, `pad_frontage_gs.groundside_frontage` | a lot overlapping a pad shares every rim vertex of the run; a road along a flat pad is level along it and ≤ 10 % beyond; a held pair is cut back as before | new capture on the step-3 tree; HECA C + B: TOUCH-OFF 0 runs, GAPPED = (2)'s 3 / 66 m; `groundside_cutback` rows fall by the welded runs; pad conflicts ≤ 15; airside 0; `route3` along `building12` level within 1 % (Q-B) | 8 h |
+| 4 Rule B′ | no ramp target / ceiling / join pin on a shared vertex; `frontage_release` from seat2-rc re-homed to `pad_shared` | `constraints/road_ramp` | KCLT `building26` \| `pol50`: the join pin moves off the shared vertex; ramps elsewhere byte-identical | ARMED KCLT 2 → 0; HECA `building164` reads GAPPED | 3 h |
+| 5 Rules P, L | face ids in the records; `pad_has_fixed_level` replaces the `LANDINGS` test in §9b | `publication`, `model/platform` | a `.pol` with one held and one welded face classes per face | — | 2 h |
+| 6 | closing build: HECA ONCE (`build_airport.py`), the master's seven-airport sweep | — | — | runway 0, apron 0, pad conflicts ≤ 15, CRITICAL by family ≤ seat2_HECA, lots / roads over cap ≤ seat2_HECA | 15 min + census |
+
+**(12) WHAT STAYS UNPROVEN (listed, never ratified).** (i) Rule W itself — the weld has no replay knob (the planar map is captured); `q1` proves only that the ROW form fails and the clip + weld is the next arm. (ii) Q-B's road: the ramp length and whether `route3`'s descent meets the apron inside the LP's feasible set (a hard pad plane against a hard road cross-section and the airside contact) — read on the step-3 capture; an infeasible pair there is the owner's next question, not a relaxation. (iii) The hard-tier order pad > groundside road under a shared column at every airport — the sweep. (iv) The 7 apron movers of `q1` (0.28 m): not attributed (the lane's budget); step 1's gate. (v) SPJC / CYXY / OTHH / KASE / NLWF touch censuses beyond the three read. (vi) `p1`'s leader-order lag as a general improvement of the unsettled stage-2 lag (845 → 764 rows at HECA) — measured once, not a lever here, not proposed.

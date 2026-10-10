@@ -91,3 +91,14 @@ def test_the_datum_bound_is_the_intersection_of_the_contacts_reach_bands(law, bu
     assert HELD[ref]["reach_isect_empty"]
     assert not [r for r in _datum_rows(hp2) if r.v == dv and "reach" in r.source.inputs]
     assert math.isfinite(HELD[ref]["reach_isect"][0]) or HELD[ref]["reach_isect"][0] is not None
+    # spec §57 (3) (ii-e): a reach intersection that CUTS NOTHING of the
+    # pair-graph interval states no Band (a row with a cost and no law —
+    # measured at KCLT: 580 solve-owned movers from Bands binding nowhere);
+    # the read stays in the record
+    assert hp.result.stats["datum_reach_bands"] == 1
+    wide = [Band(c, -1.0e4, 1.0e4, src) for c in contacts]
+    hp3 = hold_pass(pm, lw)
+    solve_design(pm, ConstraintSet.from_rows([*cs.rows(), *wide]), lw, hold=hp3)
+    assert not [r for r in _datum_rows(hp3) if r.v == dv and "reach" in r.source.inputs]
+    assert hp3.result.stats["datum_reach_bands"] == 0
+    assert HELD[ref]["reach_isect"] == [-1.0e4, 1.0e4]

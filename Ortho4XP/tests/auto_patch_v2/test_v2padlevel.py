@@ -30,6 +30,8 @@ the plate twin below asserts the pairs it once dropped.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
+
 import math
 
 import numpy as np
@@ -205,53 +207,27 @@ def test_the_pad_is_one_plate_every_rim_pair_priced_contacts_included(law):
     (``pad_flat`` rows 5 -> 38); the plate is also what makes the level
     rows a PLANE fit instead of a per-vertex pull, so the contacts must be
     in it."""
-    # RE-READ AT THE PLATFORM/COLLAR LOCUS (RULINGS 2026-09-29m (a),
-    # issue #91): the unit pad is a PLATFORM (``padA``) inside a COLLAR
-    # (``padA#collar``).  The plate — every pair priced, one plane — is the
-    # platform's ring; the welded CONTACTS are the collar's rim, carried to
-    # the platform by the collar's bank rows (``constraints.platform``).
-    # Both halves are asserted, on the unit.
-    from auto_patch_v2.constraints.platform import (COLLAR_RULING,
-                                                    platform_collar_rows)
-    from auto_patch_v2.model.planar import COLLAR_SUFFIX
+    # spec §56 (3): the unit pad is ONE face (no collar), so the plate is
+    # read where 09c put it — on the pad's own rim, the welded contacts
+    # included.  The hard 1 % CEILING prices every pair two-sided; the
+    # cap-0 target prices the same rim, airside-led where one end is the
+    # apron's (§16g (10) (11) (a)).
+    from auto_patch_v2.constraints.pads import pad_slope_ceiling
+    from auto_patch_v2.model.planar import is_bank_ref
     airport = _airport(law, _Dem())
     pm, _st = build(airport, Classification(tuple(_fronting_cells()), (), {}, ()), law)
-    unit = [f for f in pm.faces.values() if f.ref.split("#")[0] == "padA"]
-    plats = [f for f in unit if f.ref == "padA"]
-    collars = [f for f in unit if f.ref == "padA" + COLLAR_SUFFIX]
-    assert plats and collars, sorted(f.ref for f in unit)
-    sh = pad_shared(pm, law)
-    shared = set().union(*(sh.get(f.id, set()) for f in unit))
-    assert shared
-    # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): on a contact-led platform
-    # the cap-0 target is RELEASED and the plate that prices every pair is
-    # the hard 1 % CEILING (same pairs, ``pads._pad_rows``); the level is
-    # the per-contact rows (asserted at (3))
-    from auto_patch_v2.constraints.pads import pad_slope_ceiling
-    assert not [r for r in pad_flats(pm, law, airport)
-                if any(f"face:{pf.id}" in r.source.inputs for pf in plats)]
-    flats = pad_slope_ceiling(pm, law, airport)
-    # (1) the plate: every pair of the platform's rim, one row each
-    for pf in plats:
-        rim = _verts(pm, "padA") if len(plats) == 1 else set(pm.ring_vertices(pf.ring))
-        mine = [r for r in flats if f"face:{pf.id}" in r.source.inputs]
-        assert len(mine) == len(rim) * (len(rim) - 1) // 2
-        assert {v for r in mine for v in (r.a, r.b)} == rim
-    # (2) the contacts: all of them the collar's rim, none in the plate,
-    # every one tied to the platform by a collar bank row
-    crim = set().union(*(set(pm.ring_vertices(f.ring)) for f in collars))
-    assert shared <= crim
-    assert not ({v for r in flats for v in (r.a, r.b)} & shared)
-    bank = [r for r in platform_collar_rows(pm, law, airport)
-            if r.source.ruling.startswith(COLLAR_RULING)]
-    plat_vs = set().union(*(set(pm.ring_vertices(f.ring)) for f in plats))
-    assert shared <= {r.a for r in bank}, sorted(shared - {r.a for r in bank})
-    assert all(r.b in plat_vs for r in bank if r.a in shared)
-    # (3) 29s (A): every contact leads one level row against the plane there
-    from auto_patch_v2.constraints.platform import platform_level_rows
-    led = {v for r in platform_level_rows(pm, law, airport)
-           for v, _c in r.terms if v in shared}
-    assert shared <= led, sorted(shared - led)
+    pf, = [f for f in pm.faces.values() if f.ref == "padA"]
+    assert not [f.ref for f in pm.faces.values() if is_bank_ref(f.ref)]
+    shared = pad_shared(pm, law).get(pf.id, set())
+    rim = _verts(pm, "padA")
+    assert shared and shared <= rim
+    ceil = [r for r in pad_slope_ceiling(pm, law, airport)
+            if f"face:{pf.id}" in r.source.inputs]
+    assert len(ceil) == len(rim) * (len(rim) - 1) // 2
+    assert {v for r in ceil for v in (r.a, r.b)} == rim
+    flats = [r for r in pad_flats(pm, law, airport)
+             if f"face:{pf.id}" in r.source.inputs]
+    assert shared <= {v for r in flats for v in (r.a, r.b)}
 
 
 def test_every_pad_vertex_lies_on_the_pads_single_plane(law):
@@ -491,18 +467,13 @@ def test_beyond_one_percent_the_pad_follows_the_senior_pavement(law):
     reported residual of the ``pad_level`` family."""
     cells, dem = _two_pavement_cells(1.8)
     pm, z, rep, _cs = _solve(law, cells, dem)
-    # RE-READ AT THE PLATFORM/COLLAR LOCUS (RULINGS 2026-09-29m (a); the
-    # same re-base as ``test_v2staged``, #90): the WELDED rim is the
-    # collar's outer ring, the plate the platform's
-    from auto_patch_v2.model.planar import COLLAR_SUFFIX
-    lo, hi, tilt = _pad_plane(pm, z, "padA" + COLLAR_SUFFIX)
+    # spec §56 (3): the pad is one face, its welded rim its own
+    lo, hi, tilt = _pad_plane(pm, z, "padA")
     # issue #67 (§20b (1b), airside is king): the pad's 1 % ceiling is a
     # CONFORMING hard law — stage 1 never assembles it, so the two fixed
     # pavements keep their own 3 % and the pad's welded rim IS that drop
     # (the single solve, where they yield, holds 1 %: ``test_v2staged``)
     assert abs(tilt - 0.030) <= 2e-3, tilt
-    # ... and the platform holds its own plate (measured 2.6e-6)
-    assert _pad_plane(pm, z)[2] <= 0.012
     unit = _unit_verts(pm, "padA")
     taxi = sorted(_verts(pm, "taxiN") - unit)
     apron = sorted(_verts(pm, "apronA") - unit)
@@ -535,7 +506,13 @@ def _16g_plate_only_arm(law):
                                                 airside_vertices, pad_flats,
                                                 pad_slope_ceiling)
     airport = _airport(law, _Dem())
-    pm, _st = build(airport, Classification(tuple(_mixed_rim_cells()), (), {}, ()), law)
+    # the pad's own (east) side carries a third vertex: a unit pad is ONE
+    # merged face (``planar/platform.merge_platform_faces``), and a plane
+    # needs three points of its own to be airside-led
+    cells = _mixed_rim_cells()
+    cells[2] = _dc.replace(cells[2], ring=((-60.0, 180.0), (60.0, 180.0), (60.0, 210.0),
+                                           (60.0, 240.0), (-60.0, 240.0)))
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
     air = airside_vertices(pm, law)
     rim = _verts(pm, "padA")
     own = rim - air
@@ -566,120 +543,66 @@ def _16g_plate_only_arm(law):
 
 def test_16g_10_11_a_the_plate_is_one_way_toward_the_pad_at_an_airside_pair(law):
     """§16g (10) (11) (a) (owner RULINGS 2026-09-15z): THE PAD'S PLATE
-    NEVER MOVES THE AIRSIDE, the law unchanged at a moved locus (RULINGS
-    2026-09-29o / 29m (a)).  PLATE-ONLY arm (``platform_collar`` off,
-    :func:`_16g_plate_only_arm`): a pair with ONE airside end is ``flat
-    airside-led``, the pad follows.  UNIT arm: the platform holds NO
-    airside vertex (its plate rows two-sided, cap 0, none airside-led),
-    and every contact-to-platform coupling row is one-way (the airside
-    contact LEADS, the platform vertex FOLLOWS) under
-    ``structures.building_pad platform_collar bank``."""
+    NEVER MOVES THE AIRSIDE (:func:`_16g_plate_only_arm`): a pair with ONE
+    airside end is ``flat airside-led``, the pad follows.  (The UNIT arm
+    this twin also carried — a platform inside a collar, its contacts led
+    through the bank — went with the collar, spec §56 (3); a held unit
+    pad's contacts are twinned below.)"""
     from tests.auto_patch_v2._plate import plate_law
-    from auto_patch_v2.constraints.pads import airside_vertices, pad_flats
-    from auto_patch_v2.constraints.platform import (COLLAR_RULING,
-                                                    platform_collar_rows)
-    from auto_patch_v2.model.planar import COLLAR_SUFFIX
     _16g_plate_only_arm(plate_law(law))
-    # ── the UNIT arm ──
+
+
+def _held(cells):
+    """The fixture built under the DEFAULT law (the flat-pad hold armed):
+    ``(pm, law, airport, {held ref: its hold contacts})``."""
+    from auto_patch_v2.constraints.platform import hold_sets
+    law = Law.for_airport("ZZZZ")
     airport = _airport(law, _Dem())
-    pm, _st = build(airport, Classification(tuple(_mixed_rim_cells()), (), {}, ()), law)
-    air = airside_vertices(pm, law)
-    plats = [f for f in pm.faces.values() if f.ref == "padA"]
-    collars = [f for f in pm.faces.values() if f.ref == "padA" + COLLAR_SUFFIX]
-    assert len(plats) == 1 and collars
-    plat = _verts(pm, "padA")
-    contacts = _unit_verts(pm, "padA") & air
-    assert contacts                                  # the unit is welded
-    # (i) the platform holds no airside vertex: its plate is two-sided
-    assert not (plat & air)
-    # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): the platform's cap-0
-    # zero-tilt target is RELEASED (its plane is contact-led); the plate is
-    # its hard 1 % ceiling, two-sided, over the same pairs, none airside-led
-    assert not [r for r in pad_flats(pm, law, airport)
-                if f"face:{plats[0].id}" in r.source.inputs]
-    from auto_patch_v2.constraints.pads import pad_slope_ceiling
-    flats = [r for r in pad_slope_ceiling(pm, law, airport)
-             if f"face:{plats[0].id}" in r.source.inputs]
-    assert flats and all(r.follows is None for r in flats)
-    assert not any(r.source.ruling.startswith("structures.building_pad flat "
-                                              "airside-led") for r in flats)
-    assert {r.cap for r in flats} == {
-        float(law.tables.emit.within_shape.pad_slope_max)}
-    # ... and the contact-led level rows: every one led by an airside
-    # contact, the platform following
-    from auto_patch_v2.constraints.platform import platform_level_rows
-    lv = platform_level_rows(pm, law, airport)
-    assert lv
-    for r in lv:
-        feet = {v for v, _c in r.terms}
-        assert len(feet & contacts) == 1 and set(r.follows) <= plat
-    # (ii) every contact -> platform coupling row is airside-led (measured
-    # 2026-09-29: 17 bank rows over 5 of the 7 contacts; after #95, 21 rows,
-    # 3 per contact, over all 7 — ``test_every_welded_contact_has_a_bank_row``)
-    coupling = [r for r in platform_collar_rows(pm, law, airport)
-                if ({r.a, r.b} & contacts) and ({r.a, r.b} & plat)]
-    assert coupling
-    for r in coupling:
-        assert r.source.ruling.startswith(COLLAR_RULING)
-        lead, fol = (r.a, r.b) if r.a in contacts else (r.b, r.a)
-        assert lead in air and fol in plat and fol not in air
-        assert r.follows == (fol,)
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    return pm, law, airport, {r: set(w) for r, _dv, w, _n, _k in hold_sets(pm, law)}
 
 
-def test_every_welded_contact_has_a_bank_row(law):
-    """Issue #95 (unit-platform spec §1 (3); RULINGS 2026-09-29m (a) / 29o):
-    EVERY welded contact of a unit — an airside vertex on the collar's
-    outer rim — is tied to the platform by a one-way ``platform_collar
-    bank`` row, the contact leading.  The two the generator dropped sat on
-    the COVERAGE EDGE: the apron's corners (x = 20) where its hole stops
-    and the pad rim runs on over uncovered ground; the coverage-edge
-    exemption (a DEM-governed vertex) never covers an airside one."""
+def test_every_welded_contact_is_held(law):
+    """Issue #95 at the locus spec §56 (3) leaves it: EVERY welded contact
+    of a unit pad — an airside vertex of the pad's own face — is in its
+    hold set and takes the hard hold row to the datum column.  The two a
+    generator once dropped sat on the COVERAGE EDGE: the apron's corners
+    (x = 20) where its hole stops and the pad rim runs on over uncovered
+    ground; no exemption covers an airside vertex."""
     from auto_patch_v2.constraints.pads import airside_vertices
-    from auto_patch_v2.constraints.platform import (COLLAR_RULING,
-                                                    platform_collar_rows)
-    airport = _airport(law, _Dem())
-    pm, _st = build(airport, Classification(tuple(_mixed_rim_cells()), (), {}, ()), law)
-    air = airside_vertices(pm, law)
-    plat = _verts(pm, "padA")
-    contacts = _unit_verts(pm, "padA") & air
+    from auto_patch_v2.constraints.platform import HOLD_RULING, frontage_hold_rows
+    pm, hlaw, airport, held = _held(_mixed_rim_cells())
+    contacts = _verts(pm, "padA") & airside_vertices(pm, hlaw)
     assert len(contacts) == 7, sorted(contacts)
-    bank = [r for r in platform_collar_rows(pm, law, airport)
-            if r.source.ruling.startswith(COLLAR_RULING)]
-    led = {r.a for r in bank}
-    missing = sorted((v, pm.vertices[v].xy) for v in contacts - led)
-    assert not missing, missing
-    # the coverage-edge corners are among them, and led one-way
+    assert held["padA"] == contacts
     corners = {v for v in contacts if abs(pm.vertices[v].xy[0] - 20.0) < 1e-6}
     assert len(corners) == 2, sorted(pm.vertices[v].xy for v in contacts)
-    for r in bank:
-        if r.a in corners:
-            assert r.b in plat and r.follows == (r.b,)
+    rows = frontage_hold_rows(pm, hlaw, airport)
+    assert all(HOLD_RULING in r.source.ruling for r in rows)
+    assert contacts <= {v for r in rows for v, _c in r.terms}
 
 
-def test_a_welded_contact_shared_with_another_pad_still_has_a_bank_row(law):
+def test_a_welded_contact_shared_with_another_pad_is_still_held(law):
     """Issue #95, the second exemption: a contact at an apron | pad | pad
     TRIPLE POINT (HECA ``building170`` | ``building167`` against ``pav131``,
-    2 contacts) is still airside, still stage 1's, still one-way led; the
-    other-pad exemption (two floors, a cap-0 contest) covers only the pad's
-    OWN rim.  ``padB`` north-east of ``padA`` meets it and the apron's
+    2 contacts) is still airside, still stage 1's, still held; the
+    other-pad exemption (two floors) covers only the pad's OWN flat
+    vertices.  ``padB`` north-east of ``padA`` meets it and the apron's
     corner at (20, 240)."""
     from auto_patch_v2.constraints.pads import airside_vertices
-    from auto_patch_v2.constraints.platform import (COLLAR_RULING,
-                                                    platform_collar_rows)
+    from auto_patch_v2.constraints.platform import platform_contacts
     cells = [*_mixed_rim_cells(),
              Cell(3, "building", "padB", _rect(20.0, 240.0, 60.0, 260.0), (),
                   None, None, "airside", "pad", {})]
-    airport = _airport(law, _Dem())
-    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
-    air = airside_vertices(pm, law)
-    contacts = _unit_verts(pm, "padA") & air
-    triple = [v for v in contacts
+    pm, hlaw, _airport_, held = _held(cells)
+    contacts = _verts(pm, "padA") & airside_vertices(pm, hlaw)
+    triple = {v for v in contacts
               if any(pm.faces[q].ref.split("#")[0] == "padB"
-                     for q in pm.vertices[v].incident_faces)]
+                     for q in pm.vertices[v].incident_faces)}
     assert triple, sorted(pm.vertices[v].xy for v in contacts)
-    bank = [r for r in platform_collar_rows(pm, law, airport)
-            if r.source.ruling.startswith(COLLAR_RULING)
-            and r.source.inputs[1] == "padA#collar"]
-    led = {r.a for r in bank}
-    missing = sorted((v, pm.vertices[v].xy) for v in contacts - led)
-    assert not missing, missing
+    assert triple <= held["padA"]
+    # a NON-airside vertex the two pads share is neither's flat vertex
+    flat = {r: set(vs) for r, vs, _w in platform_contacts(pm, hlaw)}["padA"]
+    both = {v for v in _verts(pm, "padA") - contacts
+            if any(pm.faces[q].ref == "padB" for q in pm.vertices[v].incident_faces)}
+    assert both and not both & flat

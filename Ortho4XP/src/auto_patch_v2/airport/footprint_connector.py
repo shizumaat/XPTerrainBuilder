@@ -706,7 +706,7 @@ def solid_connectors(plan: _t.Any, ground, *, touch_m: float, span_m: float,
     ``span_m`` AND an end-ground step of ``visual_m`` — read here on
     ``ground`` (the DEM at planar time).  Then S1 walled along its whole
     length (no plate-only run over ``gap_max_m``), S3 not a deck, S4 the
-    step within ``step_max_m`` (``platform_collar_max_m x bank_slope``).
+    step within ``step_max_m`` (``[placement] connector_step_max_m``).
     ``()`` where the law is disarmed or the plan carries no unit."""
     if touch_m <= 0.0 or span_m <= 0.0 or not getattr(plan, "units", ()):
         return ()

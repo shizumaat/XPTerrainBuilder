@@ -1145,7 +1145,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _prefix_stage["stage"] = st0
         return (st0.pm, cs0, jetway_strips(st0.pm, law, ap0, cs0,
                                            rider_candidates(ap0, law)),
-                hold_pass(st0.pm, law))
+                hold_pass(st0.pm, law, ap0))
     _s1 = stage_one_problem(cl, _ribbon_free)
     _pulse.tick("solving the surface")
     if _s1 is not None:
@@ -1154,7 +1154,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     sol, design_rep = solve_design(
         pm, cs, law, cfg.options, size_out=size, strips=strips,
         stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
-        hold=hold_pass(pm, law), stage1=_s1)
+        hold=hold_pass(pm, law, airport), stage1=_s1)
     wall["solve"] = time.perf_counter() - t
     _pin_yield = list(design_rep.pin_yield or ())
     _late_report: dict | None = None
@@ -1166,11 +1166,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _pulse.tick("the last stage: the gap pieces")
         from .late_stage import run_late_stage
         _base_rep = design_rep
+        # the last stage re-mints the HELD registry (its own prefix run): the
+        # base solve's hold report is carried over it (``model.platform``)
+        from ..model.platform import hold_report, install_hold_report
+        _hold_rep = hold_report()
         pm, sol, _late = run_late_stage(
             cl_gaps, airport, law, _ribbon_free,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield},
             rules=load_rules(), options=cfg.options,
             out=lambda m: _say(f"[{icao}] {m}", out))
+        install_hold_report(_hold_rep)
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
             _prefix_stage["stage"], pm=pm)
         strips, design_rep = _late["strips"], _late["design"]
@@ -1342,12 +1347,21 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # rows the surface missed (``design_target``), which the census
         # counts law-true in their families and reports under one heading
         pub["design"] = design_rep.as_dict()
-        from .publication import gap_pieces, late_stage
+        # spec §56 (3) (owner 07c (6) "warn and explain"): the fixed line of
+        # every block whose released frontage weld is over the bar — the
+        # engine says each ONCE through its warning path (``auto_patch/
+        # driver``: ``UI.loud_warning``); this package prints nothing
+        from ..constraints.pad_warning import warnings_of
+        report["warnings"] = warnings_of(pub.get("platforms"))
+        from .publication import gap_pieces, late_stage, pad_touch
         _gap_records = gap_pieces(_late_report and _late_report["cut"], cl.cells)
         if _late_report is not None or _gap_records:
             pub["gap_pieces"] = _gap_records
         if _late_report is not None:
             pub["late_stage"] = late_stage(_late_report["stage"])
+        _touch = pad_touch(cl.cells, law, pm)
+        if _touch:
+            pub["pad_touch"] = _touch
         pub["design_target"] = design_rep.targets
         js = report["joint_steps"]
         if js and js["contours"]:

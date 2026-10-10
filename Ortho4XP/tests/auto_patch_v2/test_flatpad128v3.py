@@ -327,6 +327,35 @@ def test_the_fronting_set_promotes_its_caps(law, built):
     assert len(b1.hard) - len(b0.hard) >= r1.fronting_promoted
 
 
+def test_pass_1a_has_no_free_datum_column(law, built):
+    """Spec §61 (11) / §62 (4) (lane ``holering``): a held pad's frontage
+    DATUM column is an airside unknown only while a hold row names it.  In
+    pass 1a (the hold rows stripped) whatever still touches it — at most
+    its pad's ceiling twins — is no reason to solve it: the split makes it
+    FOREIGN (fixed, every row on it dropped), so no valley column is free."""
+    from auto_patch_v2.model.platform import datum_vertices
+    from auto_patch_v2.solve.design import stage_split
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    dvs = set(datum_vertices(pm, lw).values())
+    assert dvs
+    drop1a, fixed1a = stage_split(pm, _strip(cs), lw)
+    assert dvs <= set(drop1a), "pass 1a: the unheld datum column is foreign"
+    assert all(v in fixed1a for v in dvs)
+
+
+def test_a_hold_row_keeps_the_datum_column(law, built):
+    """The control: in a pass that carries the hold (pass 1b, stage 1) the
+    datum column is an unknown of the airside problem exactly as before."""
+    from auto_patch_v2.model.platform import datum_vertices
+    from auto_patch_v2.solve.design import stage_split
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    dvs = set(datum_vertices(pm, lw).values())
+    drop, _fixed = stage_split(pm, cs, lw)
+    assert dvs and not dvs & set(drop)
+
+
 # ── 5. the stand-line plateau (§3) and the §20 pad (§4) ─────────────────
 
 def _cells_full():
@@ -420,6 +449,12 @@ def test_a_conforming_pad_is_held_flat(law, built_full):
     rec = {r["ref"]: r for r in _conforming_records(pm, lw, z)}["padB"]
     assert abs(rec["datum"] - D) <= 1e-3
     assert rec["datum_median"] == HELD["padB"]["datum_chosen"]
+    # spec §56 (3): the record carries the pad's area (the warning's slot)
+    # and the warning's verdict — the faces' own area, holes out
+    from auto_patch_v2.planar.index import face_polygon
+    assert rec["pad_m2"] == round(sum(face_polygon(pm, q).area for q, f in pm.faces.items()
+                                      if f.ref == "padB"), 1) > 0.0
+    assert rec["warned"] is False and rec["warning"] is None
     assert rec["welded"] + rec["released"] == rec["held_contacts"]
     assert rec["released"] == 0 or rec["needs_split"]
     contacts = {o for o, _z in HELD["padB"].get("hold_contacts", [])}
@@ -448,3 +483,109 @@ def test_a_conforming_pad_is_held_flat(law, built_full):
         assert max(abs(z[v] - D) for v in interior) <= tol + 1e-6
     assert off <= contacts
     assert bool(off) == bool(rec["needs_split"])
+
+def test_a_weld_left_off_its_datum_by_the_solve_is_sealed_and_recorded(law, built):
+    """Owner RULINGS 2026-10-08c (4) / 08d (2) (``constraints/weld_floor``):
+    after the solve every hard weld stands on its datum within the
+    tolerance; a contact the solve left 0.05 m off is put ON it by the weld
+    projection (``HoldPass.seal``) and recorded in its block's
+    ``weld_widened`` with the move; a runway-family contact is never moved."""
+    from auto_patch_v2.model.platform import HELD
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    hp = hold_pass(pm, lw)
+    sol, rep = solve_design(pm, cs, lw, hold=hp)
+    z = np.asarray(sol.z, float)
+    welds = hp.result.welds
+    assert welds and "weld_seal" in rep.stages["stage1a"]
+    assert max(abs(z[c] - z[dv]) for c, dv, _p in welds) <= tol + 1e-9
+    levels = {int(v): float(z[v]) for v in range(len(z))}
+    c, dv, pref = welds[0]
+    levels[c] = levels[dv] + 0.05
+    got = hp.seal(levels)
+    assert got["contacts"] == 1 and abs(got["max_m"] - 0.05) < 1e-9
+    assert levels[c] == levels[dv]
+    w = HELD[pref]["weld_widened"]
+    assert w["sealed"] == 1 and [*pm.vertices[c].key, 0.05] in w["contacts"]
+    assert hp.seal(levels)["contacts"] == 0                       # idempotent
+    hp.result = _dc.replace(hp.result, never=frozenset({c}))
+    levels[c] = levels[dv] + 0.05
+    assert hp.seal(levels)["contacts"] == 0 and levels[c] != levels[dv]
+
+
+def test_a_weld_the_lp_relaxed_is_widened_and_resolved_never_sealed(law, built, monkeypatch):
+    """Spec §57 (3) (ii-c) (seat review D2): a weld pass 1b leaves 0.3 m off
+    its datum — the feasibility LP relaxed it; over ``[design] seal_max_m``,
+    under the terrace floor — is NOT assigned its datum.  It is a misfit the
+    pair graph did not see: the contact joins the block's gives with what it
+    is off, the pavement rows naming it are widened and pass 1b is solved
+    ONCE more; the weld then stands (released 0) and nothing is sealed."""
+    from auto_patch_v2.model.platform import HELD
+    from auto_patch_v2.solve import flex
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    assert float(lw.tables.emit.design.seal_max_m) == 0.05
+    hp = hold_pass(pm, lw)
+    solve_design(pm, cs, lw, hold=hp)
+    c, dv, pref = next(w for w in hp.result.welds
+                       if w[0] not in hp.result.never and w[0] not in hp.result.pinned)
+    # the unit: 0.3 m off is the pavement's to give, never the seal's
+    z = np.asarray(solve_design(pm, cs, lw, hold=hp)[0].z, float)
+    levels = {int(v): float(z[v]) for v in range(len(z))}
+    levels[c] = levels[dv] - 0.30
+    assert hp.seal(dict(levels))["contacts"] == 0
+    assert hp.rewiden(levels) == 1 and abs(hp.result.widen[c] - 0.32) < 1e-9
+    assert HELD[pref]["weld_widened"]["relaxed"] == 1
+    # the pass: stage 1 re-solves ONCE with the widened rows
+    hp2 = hold_pass(pm, lw)
+    calls = {"n": 0}
+    real = type(hp2).rewiden
+
+    def once(self, lv):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            lv = dict(lv)
+            lv[c] = lv[dv] - 0.30               # the LP's relaxation, stood in
+        return real(self, lv)
+    monkeypatch.setattr(type(hp2), "rewiden", once)
+    sol, rep = solve_design(pm, cs, lw, hold=hp2)
+    z2 = np.asarray(sol.z, float)
+    s1 = rep.stages["stage1a"]
+    assert s1["weld_rewidened"] == 1 and calls["n"] == 1
+    assert s1["weld_seal"]["contacts"] == 0                       # sealed 0
+    tol = float(lw.tables.emit.design.hard_tol_m)
+    assert abs(z2[c] - z2[dv]) <= tol + 1e-9                      # released 0
+    assert HELD[pref]["weld_widened"]["rows"] > 0
+
+
+def test_the_hold_pass_widens_only_the_pavement_rows_naming_a_closing_contact(law, built):
+    """Owner RULINGS 2026-10-08d (2) (``constraints/weld_floor``): pass 1b and
+    stage 2 state the pavement-tier rows naming a contact that closes a
+    misfit block's set widened by that contact's give — and no other row:
+    the same count of rows, every hold row and every row naming no such
+    contact byte-identical, and the block's record carries the count."""
+    from auto_patch_v2.constraints.weld_floor import pavement_heads, ruling_note
+    from auto_patch_v2.model.platform import HELD
+    pm, cs = built
+    lw = _arm(law, staged_solve=True)
+    hp = hold_pass(pm, lw)
+    solve_design(pm, cs, lw, hold=hp)
+    assert not hp.result.widen                      # the fixture's frontage meets
+    c, _dv, pref = hp.result.welds[0]
+    heads = pavement_heads(lw)
+    hp.result = _dc.replace(hp.result, widen={c: 0.4})
+    hp.result.blocks[pref].update(widened=True, gives={c: 0.4})
+    HELD[pref]["weld_widened"] = {"floor_m": 1.0, "contacts": [[*pm.vertices[c].key, 0.4]]}
+    out = hp.widened(cs)
+    a, b = list(cs.rows()), list(out.rows())
+    assert len(a) == len(b)
+    changed = [(x, y) for x, y in zip(a, b) if x != y]
+    assert changed and HELD[pref]["weld_widened"]["rows"] == len(changed)
+    for x, y in changed:
+        vs = ({int(x.a), int(x.b)} if hasattr(x, "a") else {int(v) for v, _k in x.terms})
+        assert c in vs and x.source.ruling.split(" (")[0].strip() in heads
+        assert y.source.ruling == x.source.ruling + ruling_note
+        if hasattr(x, "cap"):
+            assert abs(y.bound_m - (x.bound_m + 0.4)) < 1e-9
+    assert hp.widened(out) is out                   # idempotent

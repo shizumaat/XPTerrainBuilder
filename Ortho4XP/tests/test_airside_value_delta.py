@@ -315,3 +315,59 @@ def test_by_ref_is_in_the_index_row():
     idx = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     row = next(ln for ln in idx.splitlines() if "tools/airside_value_delta.py" in ln)
     assert "--by-ref" in row
+
+
+# ── THE STRUCTURE FRAME (lane pads65) ────────────────────────────────
+def _rim_patch(path: Path, rim_z: float, ramp_z: float) -> Path:
+    """An apron, a ``tunnel_ramp`` face and a role-less ``structure_rim``
+    breakline (``ref`` ``tunnel_wall:3``) — the emitter's own dialect."""
+    def nd(i, la, lo, z):
+        return (f"<node id='{i}' lat='{la:.11f}' lon='{lo:.11f}'>"
+                f"<tag k='alt_abs' v='{z}'/></node>")
+    nodes = [nd(-1, 1.0, 1.0, 10.0), nd(-2, 1.0, 1.001, 10.0), nd(-3, 1.001, 1.0, 10.0),
+             nd(-4, 2.0, 2.0, ramp_z), nd(-5, 2.0, 2.001, ramp_z), nd(-6, 2.001, 2.0, ramp_z),
+             nd(-7, 3.0, 3.0, rim_z), nd(-8, 3.0, 3.001, rim_z), nd(-9, 3.001, 3.0, 3.96)]
+    def way(i, refs, tags):
+        return (f"<way id='{i}'>" + "".join(f"<nd ref='{r}'/>" for r in refs)
+                + "".join(f"<tag k='{k}' v='{v}'/>" for k, v in tags) + "</way>")
+    ways = [way(-20, [-1, -2, -3, -1], [("role", "apron")]),
+            way(-21, [-4, -5, -6, -4], [("role", "tunnel_ramp")]),
+            way(-22, [-7, -8, -9], [("o4_feature", "structure_rim"),
+                                    ("ref", "tunnel_wall:3")])]
+    path.write_text("<?xml version='1.0'?><osm version='0.6'>" + "".join(nodes)
+                    + "".join(ways) + "</osm>", encoding="utf-8", newline="")
+    return path
+
+
+def test_a_fallen_wall_rim_is_a_STRUCTURE_mover_the_solve_owned_frame_cannot_see(tmp_path):
+    """MEASURED at OTHH (lane pads65): 28 ``structure_rim`` vertices of three
+    ramp portals fell up to 1.31 m and the solve-owned frame read 0 movers —
+    a rim breakline carries no role.  The structure frame reads the rim by
+    its kind and a structure role's own face beside it."""
+    a = _rim_patch(tmp_path / "a.osm", 3.96, 2.60)
+    b = _rim_patch(tmp_path / "b.osm", 2.61, 2.60)
+    res = avd.compare(a, b, 0.02)
+    assert res["frames"]["solve-owned"]["n_moved"] == 0
+    st = res["frames"]["structure"]
+    assert st["n_both"] == 6 and st["n_moved"] == 2
+    assert set(st["families"]) == {"structure_rim:tunnel_wall"}
+    assert st["worst_dz_m"] == pytest.approx(1.35)
+    b2 = _rim_patch(tmp_path / "b2.osm", 3.96, 2.50)          # the ramp moves
+    st2 = avd.compare(a, b2, 0.02)["frames"]["structure"]
+    assert set(st2["families"]) == {"tunnel_ramp"} and st2["n_moved"] == 3
+
+
+def test_the_structure_roles_are_the_laws(tmp_path):
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import is_structure_role
+    law = Law.for_airport("XXXX")
+    assert is_structure_role(law, "tunnel_ramp") and not is_structure_role(law, "apron")
+    got = avd.read_structure(_rim_patch(tmp_path / "a.osm", 3.96, 2.60))
+    assert {k for ks, _z in got.values() for k in ks} == {
+        "tunnel_ramp", "structure_rim:tunnel_wall"}
+
+
+def test_the_structure_frame_is_in_the_index_row():
+    idx = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
+    row = next(ln for ln in idx.splitlines() if "tools/airside_value_delta.py" in ln)
+    assert "STRUCTURE frame" in row

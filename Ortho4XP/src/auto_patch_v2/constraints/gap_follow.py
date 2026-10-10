@@ -64,7 +64,8 @@ import shapely
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import is_rigid_role, role_cap, snap_margin_m
+from ..law.tables import (gap_standoff_m, is_rigid_role, role_cap,
+                          snap_margin_m)
 from ..model.constraints import Linear, Source
 from ..model.planar import (PlanarMap, face_edge_ids as _edges,
                             face_vertex_set as _vertices, gap_follower_faces,
@@ -143,10 +144,22 @@ def _part_of_vertex(planar: PlanarMap, gap) -> dict[int, str]:
     return out
 
 
-def reach_m(law: Law) -> float:
+def reach_m(law: Law, pad: bool = False) -> float:
     """The stand-off (``classify/gap_mint``: pad set-back + snap margin + one
-    identity cell) plus one more identity cell for the snap."""
+    identity cell) plus one more identity cell for the snap.
+
+    ``pad`` — THE REACH OF A PAD RING COVERS THE PIECE'S STAND-OFF AT THAT
+    PAD (spec §62 (3) R-D rule 1; owner RULINGS 2026-10-09d (1) / 09f "a gap
+    part welds to a pad wherever the pad's level is reachable inside the
+    part's cap"): the stand-off itself (``law.tables.gap_standoff_m``, the
+    mint's own value) plus the noding margin the mesh adds to it — the snap
+    margin and two identity cells.  A pad's rim is a FIXED CONTACT of the
+    part beside it, and the edge read found the nearest part vertex up to
+    3 m off the rim, past the plain reach: with no follow row it followed
+    its other stations and stood metres off the pad."""
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
+    if pad:
+        return gap_standoff_m(law) + snap_margin_m(law) + 2.0 * ident
     return float(law.tables.structures.building_pad.groundside_cutback_m) \
         + snap_margin_m(law) + 2.0 * ident
 
@@ -173,7 +186,7 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
     cap_p = float(piece_cap.longitudinal) if piece_cap else 0.0
     knife = float(law.tables.structures.building_pad.groundside_cutback_m) \
         + snap_margin_m(law)
-    reach = reach_m(law)
+    reach, reach_pad = reach_m(law), reach_m(law, pad=True)
     V = planar.vertices
     segs, meta = [], []
     # THE FOLLOWERS (master 2026-10-04): the pieces, and the mapped-road
@@ -215,10 +228,13 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
     todo = sorted({v for f in (*gap, *ribbons) for v in _vertices(planar, f)}
                   - set(fixed))
     pts = shapely.points([V[v].xy for v in todo])
-    hit = tree.query(pts, predicate="dwithin", distance=reach)
+    hit = tree.query(pts, predicate="dwithin", distance=max(reach, reach_pad))
     near: dict[int, list[int]] = {}
     for i, k in zip(hit[0], hit[1]):
-        near.setdefault(int(i), []).append(int(k))
+        # each ring at its own reach: a pad's covers the stand-off (R-D)
+        if meta[int(k)][4] or reach >= reach_pad or float(
+                shapely.distance(lines[int(k)], pts[int(i)])) <= reach:
+            near.setdefault(int(i), []).append(int(k))
     for i, ks in sorted(near.items()):
         v = todo[i]
         best: dict[str, tuple] = {}

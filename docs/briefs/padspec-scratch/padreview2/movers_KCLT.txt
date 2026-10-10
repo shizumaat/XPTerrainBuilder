@@ -1,0 +1,25 @@
+F    movers  2643  by family {'strip': 650, 'apron': 1466, 'taxi': 527}  worst {'strip': 0.98, 'apron': 0.92, 'taxi': 0.67}  within 30 m of a pad rim 1030 (39 %)  >0.3 m 226 (far-field 162)  shared with F 2643  clusters@50m 68
+       far-field +0.98 at 35.22819481898,-80.95006357794 ['cross_connector', 'graded_strip']
+       far-field +0.97 at 35.22771259233,-80.95052493536 ['cross_connector', 'graded_strip']
+       far-field +0.85 at 35.22819030723,-80.95055240615 ['cross_connector', 'graded_strip']
+       far-field +0.77 at 35.22720783271,-80.94732286519 ['apron']
+O0   movers  1531  by family {'taxi': 261, 'strip': 460, 'apron': 810}  worst {'taxi': 0.61, 'strip': 0.58, 'apron': 0.23}  within 30 m of a pad rim 626 (41 %)  >0.3 m 16 (far-field 16)  shared with F 1186  clusters@50m 69
+       far-field +0.61 at 35.20516908445,-80.93584186139 ['junction', 'stub']
+       far-field +0.58 at 35.21445768177,-80.93742740619 ['graded_strip', 'primary_parallel']
+       far-field +0.55 at 35.22275908909,-80.93707472722 ['cross_connector', 'graded_strip']
+       far-field +0.50 at 35.22304752279,-80.93709116109 ['cross_connector', 'graded_strip']
+A0   movers  2399  by family {'strip': 560, 'apron': 1398, 'taxi': 439, 'runway': 2}  worst {'strip': 0.96, 'apron': 0.87, 'taxi': 0.67, 'runway': 0.05}  within 30 m of a pad rim 899 (37 %)  >0.3 m 220 (far-field 155)  shared with F 2175  clusters@50m 67
+       far-field +0.96 at 35.22771259233,-80.95052493536 ['cross_connector', 'graded_strip']
+       far-field +0.89 at 35.22819481898,-80.95006357794 ['cross_connector', 'graded_strip']
+       far-field +0.83 at 35.21039253825,-80.93695024746 ['graded_strip', 'primary_parallel']
+       far-field +0.77 at 35.22720783271,-80.94732286519 ['apron']
+OA0  movers  1531  by family {'taxi': 261, 'strip': 460, 'apron': 810}  worst {'taxi': 0.61, 'strip': 0.58, 'apron': 0.23}  within 30 m of a pad rim 626 (41 %)  >0.3 m 16 (far-field 16)  shared with F 1186  clusters@50m 69
+       far-field +0.61 at 35.20516908445,-80.93584186139 ['junction', 'stub']
+       far-field +0.58 at 35.21445768177,-80.93742740619 ['graded_strip', 'primary_parallel']
+       far-field +0.55 at 35.22275908909,-80.93707472722 ['cross_connector', 'graded_strip']
+       far-field +0.50 at 35.22304752279,-80.93709116109 ['cross_connector', 'graded_strip']
+4F   movers   456  by family {'strip': 394, 'taxi': 14, 'apron': 48}  worst {'strip': 0.58, 'taxi': 0.55, 'apron': 0.29}  within 30 m of a pad rim 48 (11 %)  >0.3 m 19 (far-field 19)  shared with F 338  clusters@50m 66
+       far-field +0.58 at 35.23079503116,-80.95575397222 ['cross_connector', 'graded_strip']
+       far-field +0.56 at 35.23081759397,-80.95520471113 ['cross_connector', 'graded_strip']
+       far-field +0.55 at 35.21056828920,-80.93682392224 ['primary_parallel']
+       far-field +0.51 at 35.21082968352,-80.93684584812 ['primary_parallel']

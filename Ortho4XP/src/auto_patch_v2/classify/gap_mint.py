@@ -34,7 +34,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import snap_margin_m
+from ..law.tables import gap_standoff_m, snap_margin_m
 from ..model.airport import Airport
 from ..model.planar import GAP_APRON_PREFIX, GAP_PREFIX, is_osm_ribbon_ref
 from .evidence import Evidence, polygon_parts
@@ -53,9 +53,9 @@ APRON_KIND = "gap_apron"
 def standoff_m(law: Law) -> float:
     """THE STAND-OFF of a gap piece from a standing cell it does not weld to
     (spec §53 (12)): the pad set-back + the snap margin + one identity cell
-    — the §52 facade strip's own (``facade_mint``'s ``strip_knives``)."""
-    return float(law.tables.structures.building_pad.groundside_cutback_m) \
-        + snap_margin_m(law) + float(law.tables.emit.identity.min_distinct_spacing_m)
+    — the §52 facade strip's own (``facade_mint``'s ``strip_knives``).  The
+    value is ``law.tables.gap_standoff_m`` (the follow reach reads it too)."""
+    return gap_standoff_m(law)
 
 
 def _poly(ring, holes=()):

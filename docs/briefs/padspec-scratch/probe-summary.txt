@@ -1,0 +1,74 @@
+  VERDICTS {'PASSES': 2}; absorbed faces 0 / verts 0 / 0 m2
+  pad unit:43#6330/0: verts 472 -> 464 with roads absorbed; area 172247 -> 173270; pieces 1
+== V0_today: ALL pads 56: verts 5168 -> 5168, area 1003237 m2 (+1357 / -30475 vs raw), holes 87, pieces 56
+   unit:28#8/0    verts  1717 ->  1717  area  483377 ->  472471  +   628/-11534  holes 34->34  pieces 1 [472471]  added_on {'building': 556, 'tunnel_ramp': 27, 'apron': 13, 'tunnel_trench': 2}
+== V1_dp1: ALL pads 56: verts 5168 -> 2091, area 1003677 m2 (+2389 / -31064 vs raw), holes 87, pieces 56
+   unit:28#8/0    verts  1717 ->   776  area  483377 ->  472516  +   996/-11856  holes 34->34  pieces 1 [472516]  added_on {'building': 685, 'apron': 160, 'tunnel_ramp': 26, 'tunnel_trench': 4}
+== V2_dp2: ALL pads 56: verts 5168 -> 1629, area 1004083 m2 (+4417 / -32685 vs raw), holes 87, pieces 56
+   unit:28#8/0    verts  1717 ->   600  area  483377 ->  472400  +  1537/-12514  holes 34->34  pieces 1 [472400]  added_on {'building': 700, 'apron': 265, 'tunnel_ramp': 26, 'tunnel_trench': 4, 'service_road': 2}
+== V3_c3_dp1: ALL pads 56: verts 5168 -> 1736, area 1008026 m2 (+6649 / -30977 vs raw), holes 56, pieces 62
+   unit:28#8/0    verts  1717 ->   703  area  483377 ->  472924  +  1347/-11800  holes 34->31  pieces 2 [472902, 22]  added_on {'building': 706, 'apron': 386, 'tunnel_ramp': 29, 'tunnel_trench': 4}
+== V4_c5_dp1: ALL pads 56: verts 5168 -> 1476, area 1014808 m2 (+12530 / -30073 vs raw), holes 18, pieces 77
+   unit:28#8/0    verts  1717 ->   485  area  483377 ->  477281  +  5432/-11527  holes 34->3  pieces 3 [476966, 168, 148]  added_on {'apron': 2037, 'building': 749, 'service_road': 641, 'tunnel_trench': 158, 'tunnel_ramp': 29}
+== V5_c5_dp1_h200: ALL pads 56: verts 5168 -> 1464, area 1015169 m2 (+12888 / -30070 vs raw), holes 15, pieces 77
+   unit:28#8/0    verts  1717 ->   485  area  483377 ->  477281  +  5432/-11527  holes 34->3  pieces 3 [476966, 168, 148]  added_on {'apron': 2037, 'building': 749, 'service_road': 641, 'tunnel_trench': 158, 'tunnel_ramp': 29}
+== V6_c8_dp1_h200: ALL pads 56: verts 5168 -> 1301, area 1024078 m2 (+20222 / -28497 vs raw), holes 11, pieces 84
+   unit:28#8/0    verts  1717 ->   417  area  483377 ->  479849  +  7363/-10891  holes 34->2  pieces 4 [462450, 16882, 261, 256]  added_on {'apron': 2753, 'service_road': 1190, 'building': 772, 'tunnel_trench': 159, 'tunnel_ramp': 30}
+== V7_c5_dp2_h200: ALL pads 56: verts 5168 -> 1151, area 1015238 m2 (+14387 / -31497 vs raw), holes 15, pieces 77
+   unit:28#8/0    verts  1717 ->   378  area  483377 ->  477428  +  5888/-11836  holes 34->3  pieces 3 [477142, 155, 131]  added_on {'apron': 2099, 'building': 763, 'service_road': 639, 'tunnel_trench': 157, 'tunnel_ramp': 29}
+== V8_c5_o2_dp1: ALL pads 56: verts 5168 -> 1185, area 1011190 m2 (+12247 / -33411 vs raw), holes 6, pieces 78
+   unit:28#8/0    verts  1717 ->   423  area  483377 ->  475437  +  5363/-13303  holes 34->2  pieces 8 [460083, 7878, 6655, 193, 185, 168]  added_on {'apron': 2019, 'building': 723, 'service_road': 641, 'tunnel_trench': 158, 'tunnel_ramp': 29}
+== V9_hull: ALL pads 56: verts 5168 -> 516, area 2347871 m2 (+1324760 / -9236 vs raw), holes 0, pieces 56
+   unit:28#8/0    verts  1717 ->    19  area  483377 -> 1650891  +1167519/-    5  holes 34->0  pieces 1 [1650891]  added_on {'apron': 519446, 'cross_connector': 213744, 'junction': 104050, 'building': 34885, 'service_road': 23141, 'tunnel_ramp': 5889, 'secondary_parallel': 5031, 'graded_strip': 4764, 'parking_lot': 2578, 'groundside_pavement': 1357, 'tunnel_trench': 332, 'door_ramp': 21}
+== V10_rc5_dp1_h200: ALL pads 56: verts 5168 -> 1624, area 1019831 m2 (+17802 / -30319 vs raw), holes 17, pieces 56
+   unit:28#8/0    verts  1717 ->   600  area  483377 ->  479882  +  7809/-11304  holes 34->3  pieces 1 [479882]  added_on {'apron': 2378, 'building': 984, 'service_road': 852, 'tunnel_trench': 161, 'tunnel_ramp': 40}
+== V11_rc3_dp1_h200: ALL pads 56: verts 5168 -> 1695, area 1015362 m2 (+13685 / -30670 vs raw), holes 19, pieces 56
+   unit:28#8/0    verts  1717 ->   650  area  483377 ->  477286  +  5557/-11647  holes 34->4  pieces 1 [477286]  added_on {'apron': 1818, 'building': 939, 'service_road': 486, 'tunnel_trench': 47, 'tunnel_ramp': 38}
+== V0_today: ALL pads 82: verts 4852 -> 4852, area 739827 m2 (+497 / -39663 vs raw), holes 49, pieces 82
+   unit:43#6330/0 verts  1476 ->  1476  area  193974 ->  169383  +    10/-24601  holes 7->7  pieces 1 [169383]  added_on {'building': 8}
+== V1_dp1: ALL pads 82: verts 4852 -> 2520, area 739767 m2 (+1807 / -41038 vs raw), holes 49, pieces 82
+   unit:43#6330/0 verts  1476 ->   460  area  193974 ->  169662  +   430/-24743  holes 7->7  pieces 1 [169662]  added_on {'apron': 141, 'building': 125}
+== V2_dp2: ALL pads 82: verts 4852 -> 2061, area 740411 m2 (+4208 / -42788 vs raw), holes 49, pieces 82
+   unit:43#6330/0 verts  1476 ->   355  area  193974 ->  169770  +   693/-24897  holes 7->7  pieces 1 [169770]  added_on {'apron': 221, 'building': 132, 'groundside_pavement': 1}
+== V3_c3_dp1: ALL pads 82: verts 4852 -> 2106, area 746184 m2 (+7480 / -40288 vs raw), holes 40, pieces 83
+   unit:43#6330/0 verts  1476 ->   414  area  193974 ->  170847  +   858/-23985  holes 7->7  pieces 1 [170847]  added_on {'apron': 188, 'building': 141, 'groundside_pavement': 65}
+== V4_c5_dp1: ALL pads 82: verts 4852 -> 1899, area 753791 m2 (+13531 / -38732 vs raw), holes 22, pieces 83
+   unit:43#6330/0 verts  1476 ->   348  area  193974 ->  174269  +  2677/-22381  holes 7->6  pieces 1 [174269]  added_on {'groundside_pavement': 859, 'apron': 436, 'building': 157}
+== V5_c5_dp1_h200: ALL pads 82: verts 4852 -> 1885, area 754484 m2 (+14210 / -38720 vs raw), holes 18, pieces 83
+   unit:43#6330/0 verts  1476 ->   345  area  193974 ->  174439  +  2846/-22381  holes 7->5  pieces 1 [174439]  added_on {'groundside_pavement': 859, 'apron': 436, 'building': 160}
+== V6_c8_dp1_h200: ALL pads 82: verts 4852 -> 1685, area 765491 m2 (+23302 / -36806 vs raw), holes 8, pieces 85
+   unit:43#6330/0 verts  1476 ->   288  area  193974 ->  177758  +  4226/-20441  holes 7->4  pieces 1 [177758]  added_on {'groundside_pavement': 1194, 'apron': 1184, 'building': 192}
+== V7_c5_dp2_h200: ALL pads 82: verts 4852 -> 1624, area 754366 m2 (+15862 / -40488 vs raw), holes 18, pieces 83
+   unit:43#6330/0 verts  1476 ->   283  area  193974 ->  174358  +  3073/-22689  holes 7->5  pieces 1 [174358]  added_on {'groundside_pavement': 859, 'apron': 492, 'building': 167}
+== V8_c5_o2_dp1: ALL pads 82: verts 4852 -> 1593, area 750727 m2 (+13472 / -41746 vs raw), holes 4, pieces 93
+   unit:43#6330/0 verts  1476 ->   234  area  193974 ->  172105  +  2400/-24269  holes 7->2  pieces 4 [170278, 1383, 347, 96]  added_on {'groundside_pavement': 859, 'apron': 370, 'building': 63}
+== V9_hull: ALL pads 82: verts 4852 -> 757, area 1450908 m2 (+695927 / -24013 vs raw), holes 0, pieces 82
+   unit:43#6330/0 verts  1476 ->    17  area  193974 ->  568801  +384377/- 9550  holes 7->0  pieces 1 [568801]  added_on {'apron': 223091, 'groundside_pavement': 67600, 'junction': 24988, 'secondary_parallel': 4712, 'graded_strip': 1036, 'tunnel_ramp': 788, 'building': 780, 'parking_lot': 715, 'cross_connector': 479, 'service_road': 454}
+== V10_rc5_dp1_h200: ALL pads 82: verts 4852 -> 2288, area 762036 m2 (+21705 / -38668 vs raw), holes 16, pieces 82
+   unit:43#6330/0 verts  1476 ->   447  area  193974 ->  176387  +  4521/-22107  holes 7->7  pieces 1 [176387]  added_on {'apron': 1380, 'groundside_pavement': 985, 'building': 304}
+== V11_rc3_dp1_h200: ALL pads 82: verts 4852 -> 2393, area 753599 m2 (+14887 / -40281 vs raw), holes 16, pieces 82
+   unit:43#6330/0 verts  1476 ->   472  area  193974 ->  172247  +  2148/-23875  holes 7->7  pieces 1 [172247]  added_on {'apron': 795, 'building': 246, 'groundside_pavement': 62}
+== V0_today: ALL pads 38: verts 2481 -> 2481, area 331714 m2 (+263 / -31249 vs raw), holes 53, pieces 38
+   unit:31#0/0    verts   990 ->   990  area  142842 ->  115538  +   117/-27421  holes 36->36  pieces 1 [115538]  added_on {'building': 112, 'apron': 3}
+== V1_dp1: ALL pads 38: verts 2481 -> 1385, area 331517 m2 (+796 / -31978 vs raw), holes 53, pieces 38
+   unit:31#0/0    verts   990 ->   520  area  142842 ->  115573  +   343/-27612  holes 36->36  pieces 1 [115573]  added_on {'building': 190, 'apron': 120}
+== V2_dp2: ALL pads 38: verts 2481 -> 1154, area 331096 m2 (+1514 / -33118 vs raw), holes 53, pieces 38
+   unit:31#0/0    verts   990 ->   451  area  142842 ->  115392  +   535/-27984  holes 36->36  pieces 1 [115392]  added_on {'apron': 234, 'building': 226}
+== V3_c3_dp1: ALL pads 38: verts 2481 -> 1034, area 335323 m2 (+4561 / -31941 vs raw), holes 25, pieces 39
+   unit:31#0/0    verts   990 ->   312  area  142842 ->  118198  +  2905/-27549  holes 36->16  pieces 2 [118197, 1]  added_on {'building': 1075, 'apron': 945, 'door_ramp': 1}
+== V4_c5_dp1: ALL pads 38: verts 2481 -> 893, area 339983 m2 (+9261 / -31981 vs raw), holes 14, pieces 43
+   unit:31#0/0    verts   990 ->   240  area  142842 ->  120711  +  5509/-27640  holes 36->10  pieces 5 [120693, 12, 5, 1, 0]  added_on {'building': 2515, 'apron': 1952}
+== V5_c5_dp1_h200: ALL pads 38: verts 2481 -> 878, area 340597 m2 (+9876 / -31981 vs raw), holes 10, pieces 43
+   unit:31#0/0    verts   990 ->   225  area  142842 ->  121325  +  6124/-27640  holes 36->6  pieces 5 [121307, 12, 5, 1, 0]  added_on {'building': 2792, 'apron': 2289}
+== V6_c8_dp1_h200: ALL pads 38: verts 2481 -> 755, area 348728 m2 (+18122 / -32097 vs raw), holes 7, pieces 39
+   unit:31#0/0    verts   990 ->   151  area  142842 ->  126964  + 11705/-27583  holes 36->2  pieces 1 [126964]  added_on {'building': 4414, 'apron': 4015, 'door_ramp': 1}
+== V7_c5_dp2_h200: ALL pads 38: verts 2481 -> 738, area 340356 m2 (+10373 / -32723 vs raw), holes 10, pieces 43
+   unit:31#0/0    verts   990 ->   197  area  142842 ->  121475  +  6338/-27704  holes 36->6  pieces 5 [121457, 12, 5, 1, 0]  added_on {'building': 2797, 'apron': 2455}
+== V8_c5_o2_dp1: ALL pads 38: verts 2481 -> 672, area 337769 m2 (+9296 / -34229 vs raw), holes 2, pieces 55
+   unit:31#0/0    verts   990 ->   151  area  142842 ->  120869  +  6038/-28010  holes 36->2  pieces 5 [67992, 52261, 363, 216, 38]  added_on {'building': 2772, 'apron': 2235}
+== V9_hull: ALL pads 38: verts 2481 -> 397, area 640385 m2 (+308794 / -31108 vs raw), holes 0, pieces 38
+   unit:31#0/0    verts   990 ->    22  area  142842 ->  276152  +160707/-27397  holes 36->0  pieces 1 [276152]  added_on {'apron': 114035, 'junction': 15677, 'building': 14625, 'tunnel_ramp': 65, 'service_road': 20, 'door_ramp': 6}
+== V10_rc5_dp1_h200: ALL pads 38: verts 2481 -> 1052, area 343485 m2 (+12861 / -32078 vs raw), holes 11, pieces 38
+   unit:31#0/0    verts   990 ->   290  area  142842 ->  122708  +  7405/-27539  holes 36->8  pieces 1 [122708]  added_on {'building': 3048, 'apron': 2983, 'door_ramp': 1}
+== V11_rc3_dp1_h200: ALL pads 38: verts 2481 -> 1106, area 339176 m2 (+8499 / -32017 vs raw), holes 13, pieces 38
+   unit:31#0/0    verts   990 ->   305  area  142842 ->  120334  +  5079/-27586  holes 36->7  pieces 1 [120334]  added_on {'apron': 2345, 'building': 1605, 'door_ramp': 1}

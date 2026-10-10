@@ -13,8 +13,10 @@ The fix is at the single derivation site of "which vertex is ground"
 (``solve/design_ground.ground_datum_vertices``): a collar's own coverage-edge
 vertex takes the weak §23 DEM datum, so it EQUALS the natural ground where
 its bank is slack and is cut to the law line where the bank binds.  The
-fixture is ``test_unitplatform_platform``'s pad (ground falling 4 % across
-x, the pad's north rim on the coverage edge) on a DEM that also FALLS
+fixture is ``test_unitplatform_platform``'s BANK pair (spec §56 (3): a unit
+pad has no collar; a ramp landing keeps its ``#collar`` bank — master ruling
+2026-10-08 R3 (2)) on ground falling 4 % across x, the bank's north rim on
+the coverage edge, on a DEM that also FALLS
 ``RIM_FALL_M`` over the pad's last ``RIM_FALL_RUN_M`` toward that rim — the
 HECA shape, a rim standing above a road's lower ground — so a rim the bank
 leaves slack has a level the plate's stencil cannot reproduce.
@@ -35,7 +37,8 @@ from auto_patch_v2.solve.design_ground import (coverage_edge_collar_vertices,
 from auto_patch_v2.classify.roles import Classification
 from auto_patch_v2.planar.build import build
 
-from test_unitplatform_platform import _coverage_collar_vertices, _cells, law  # noqa: F401
+from test_unitplatform_platform import (LANDING, _bank_cells,  # noqa: F401
+                                        _coverage_collar_vertices, bank_law, law)
 from test_v2frontage import _airport
 
 #: the fixture DEM's fall toward the pad's coverage-edge rim (y = 300)
@@ -55,9 +58,9 @@ class _Dem:
 
 
 @pytest.fixture(scope="module")
-def built(law):
-    airport = _airport(law, _Dem())
-    pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
+def built(bank_law):
+    airport = _airport(bank_law, _Dem())
+    pm, _st = build(airport, Classification(tuple(_bank_cells(15.0)), (), {}, ()), bank_law)
     return pm, airport
 
 
@@ -68,9 +71,9 @@ def _arm(law, **over):
 
 
 @pytest.fixture(scope="module")
-def problem(built, law):
+def problem(built, bank_law):
     pm, airport = built
-    cs, _c, _w = generate(pm, law, airport)
+    cs, _c, _w = generate(pm, bank_law, airport)
     return pm, cs
 
 
@@ -82,44 +85,44 @@ def _far_vertex(pm, cov):
     return max(rw, key=lambda v: float(np.hypot(*(np.asarray(pm.vertices[v].xy) - c))))
 
 
-def test_the_coverage_edge_collar_vertex_is_ground(built, law):
+def test_the_coverage_edge_collar_vertex_is_ground(built, bank_law):
     """The population is #223's (the collar's own vertices on an edge with
     no face beyond), and every one of them carries the ground datum."""
     pm, _a = built
-    cov = _coverage_collar_vertices(pm, "padU")
+    cov = _coverage_collar_vertices(pm, LANDING)
     assert cov
-    got = ground_datum_vertices(pm, law)
+    got = ground_datum_vertices(pm, bank_law)
     assert cov <= got
     assert cov <= coverage_edge_collar_vertices(pm)
 
 
-def test_the_rim_level_is_path_independent(problem, law):
+def test_the_rim_level_is_path_independent(problem, bank_law):
     """A slack-bank rim has a level of its own: the same problem solved
     under a 3-round and a 12-round lag, and again under a far perturbation
     (a 0.30 m ceiling on the runway vertex farthest from the collar), puts
     every coverage-edge collar vertex at the same height."""
     pm, cs = problem
-    cov = sorted(_coverage_collar_vertices(pm, "padU"))
-    z3 = np.asarray(solve_design(pm, cs, _arm(law, one_way_max_rounds=3))[0].z, float)
-    z12 = np.asarray(solve_design(pm, cs, _arm(law, one_way_max_rounds=12))[0].z, float)
+    cov = sorted(_coverage_collar_vertices(pm, LANDING))
+    z3 = np.asarray(solve_design(pm, cs, _arm(bank_law, one_way_max_rounds=3))[0].z, float)
+    z12 = np.asarray(solve_design(pm, cs, _arm(bank_law, one_way_max_rounds=12))[0].z, float)
     far = _far_vertex(pm, cov)
     src = Source("collarlag302", "far perturbation twin", ())
     cs2 = _dc.replace(cs, bands=tuple(cs.bands) + (Band(far, None, float(z3[far]) - 0.30, src),))
-    zp = np.asarray(solve_design(pm, cs2, _arm(law, one_way_max_rounds=3))[0].z, float)
+    zp = np.asarray(solve_design(pm, cs2, _arm(bank_law, one_way_max_rounds=3))[0].z, float)
     assert float(np.max(np.abs(z3[cov] - z12[cov]))) <= 0.01
     assert float(np.max(np.abs(z3[cov] - zp[cov]))) <= 0.01
 
 
-def test_a_slack_rim_rests_on_the_ground(problem, law):
+def test_a_slack_rim_rests_on_the_ground(problem, bank_law):
     """Where the 1:3 bank from the platform does not bind, the rim EQUALS
     the natural ground (the datum is the only term with a level) — never a
     level the bending stencil extrapolated off the plate."""
     pm, cs = problem
     from auto_patch_v2.constraints import platform
-    cov = _coverage_collar_vertices(pm, "padU")
-    z = np.asarray(solve_design(pm, cs, law)[0].z, float)
-    bs = float(law.tables.emit.design.bank_slope)
-    rows = [r for r in platform.platform_collar_rows(pm, law) if r.a in cov]
+    cov = _coverage_collar_vertices(pm, LANDING)
+    z = np.asarray(solve_design(pm, cs, bank_law)[0].z, float)
+    bs = float(bank_law.tables.emit.design.bank_slope)
+    rows = [r for r in platform.platform_collar_rows(pm, bank_law) if r.a in cov]
     slack = [v for v in cov
              if all(abs(pm.vertices[v].dem_z - z[r.b]) < bs * r.d - 0.05
                     for r in rows if r.a == v)]
@@ -128,7 +131,7 @@ def test_a_slack_rim_rests_on_the_ground(problem, law):
         assert abs(z[v] - pm.vertices[v].dem_z) <= 0.10, (v, z[v], pm.vertices[v].dem_z)
 
 
-def test_the_datum_never_moves_the_rim_off_its_ground(problem, law, monkeypatch):
+def test_the_datum_never_moves_the_rim_off_its_ground(problem, bank_law, monkeypatch):
     """The before-arm, printed: with the collar's coverage edge out of the
     ground set the rim keeps only its bank and its stencil.  On THIS fixture
     the stencil is well conditioned (bending Σc² ~1 on the rim column), so
@@ -137,12 +140,12 @@ def test_the_datum_never_moves_the_rim_off_its_ground(problem, law, monkeypatch)
     the replay, see the module docstring); it pins only that the datum
     brings the rim no FARTHER from its ground."""
     pm, cs = problem
-    cov = sorted(_coverage_collar_vertices(pm, "padU"))
-    z_fix = np.asarray(solve_design(pm, cs, law)[0].z, float)
+    cov = sorted(_coverage_collar_vertices(pm, LANDING))
+    z_fix = np.asarray(solve_design(pm, cs, bank_law)[0].z, float)
     monkeypatch.setattr(design_ground, "coverage_edge_collar_vertices",
                         lambda planar: set())
-    assert not set(cov) & ground_datum_vertices(pm, law)
-    z_off = np.asarray(solve_design(pm, cs, law)[0].z, float)
+    assert not set(cov) & ground_datum_vertices(pm, bank_law)
+    z_off = np.asarray(solve_design(pm, cs, bank_law)[0].z, float)
     dem = np.array([pm.vertices[v].dem_z for v in cov])
     off = float(np.max(np.abs(z_off[cov] - dem)))
     on = float(np.max(np.abs(z_fix[cov] - dem)))

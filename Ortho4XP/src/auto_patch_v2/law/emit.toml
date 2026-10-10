@@ -996,6 +996,7 @@ zone_projection = true
 # ADJUDICATED -3.8 %, LEMD +1.9 %); ``false`` is the single solve.
 staged_solve    = true
 hard_tol_m      = 0.02    # a hard row is HELD at this residual: under the census's own per-node rounding envelope (instrument.rounding_noise_m 0.03), so a held row can mint no defect row.  The multiplier rounds stop here
+seal_max_m      = 0.05    # THE WELD PROJECTION'S BOUND (spec §57 (3) (ii-c); seat review D2): the post-solve assignment of a frontage weld to its datum is limited to the SOLVER'S RESIDUAL class — MEASURED 8 HECA contacts on 4 pads at 0.020-0.042 m (2.5 x hard_tol_m).  Documented as the solver's residual, NOT a weld allowance: a weld off by more and under the terrace floor is a misfit the pair graph did not see and goes back through the pavement's give with ONE pass-1b re-solve; still off, the warning stands
 # THE ADJACENT GROUND FOLLOWS THE PAVEMENT AND NEVER PULLS IT (09-09b
 # (2)/(3)): a row whose ruling head is listed here is priced ONE-WAY — the
 # row's `follows` vertex (the GROUND) keeps its column, and the pavement

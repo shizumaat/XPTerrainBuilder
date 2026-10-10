@@ -6356,3 +6356,15 @@ constraint, and owed:
   scale only (`tests/auto_patch_v2/test_v2valley.py`); the build-time
   adjudication of the tighter exit (stage 1 KCLT ~+5-15 s, HECA see the
   lane report) at the final profiling round; no in-sim look.
+
+- **2026-10-09 lane `pass2` (`claude/pass2`, `solve/linear._linear_solve`: the
+  normal solve's floor centred on the warm start).** PAID: the twin
+  (`tests/auto_patch_v2/test_v2linear.py`), the full non-Qt and Qt suites, and
+  TWO replay pairs with `--null-change` on `frames/pads67/{HECA,KCLT}.pkl`
+  (HECA 0/0 · 5/0/0.059 · 5/0/0.176 · 6/0/0.176, KCLT 0/0/0.000 every pass),
+  each against reverify's `c2` arm (surface movers, harness census). DEFERRED
+  to the master's sweep: no airport BUILD (the brief forbade one); the other
+  five airports (every body changes — the solve reaches its optimum where it
+  stopped short of it; SPJC, CYXY, KASE, NLWF, OTHH not replayed); the
+  `round_cap` exits of the warm-up QP (KCLT stage 1 and stage 2) read in the
+  sidecar; build walls beyond two single replay runs; no in-sim look.

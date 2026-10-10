@@ -1,0 +1,32 @@
+[OTHH] pads near: ['unit:28#8/0']; road faces near: 29; D=10.0
+  service_road   route42                area      367 verts    8 within-10m  0.71 touches True -> SPLIT
+  service_road   route42                area      255 verts    9 within-10m  0.61 touches True -> SPLIT
+  service_road   route41                area      212 verts   15 within-10m  1.00 touches True -> ABSORBED
+  service_road   route41                area      146 verts    8 within-10m  1.00 touches True -> ABSORBED
+  service_road   route43                area       32 verts    6 within-10m  1.00 touches True -> ABSORBED
+  service_road   route44                area      203 verts    6 within-10m  1.00 touches True -> ABSORBED
+  service_road   route44                area       94 verts    6 within-10m  1.00 touches True -> ABSORBED
+  service_road   route45                area       28 verts    6 within-10m  1.00 touches True -> ABSORBED
+  service_road   route46                area       83 verts    5 within-10m  1.00 touches True -> ABSORBED
+  service_road   route46                area       47 verts    5 within-10m  1.00 touches True -> ABSORBED
+  service_road   route47                area       29 verts    6 within-10m  1.00 touches True -> ABSORBED
+  service_road   route48                area       42 verts   10 within-10m  1.00 touches True -> ABSORBED
+  service_road   route49                area       21 verts    4 within-10m  1.00 touches True -> ABSORBED
+  service_road   route49                area       33 verts    4 within-10m  1.00 touches True -> ABSORBED
+  service_road   route50                area       32 verts    8 within-10m  1.00 touches True -> ABSORBED
+  service_road   route51                area      147 verts    7 within-10m  1.00 touches True -> ABSORBED
+  service_road   route52                area       26 verts    6 within-10m  1.00 touches True -> ABSORBED
+  service_road   route53                area      263 verts    8 within-10m  1.00 touches True -> ABSORBED
+  service_road   route54                area      249 verts    7 within-10m  1.00 touches True -> ABSORBED
+  service_road   route54                area       94 verts    7 within-10m  1.00 touches True -> ABSORBED
+  service_road   route55                area      274 verts    7 within-10m  1.00 touches True -> ABSORBED
+  service_road   route55                area       71 verts    6 within-10m  1.00 touches True -> ABSORBED
+  service_road   small_roads:-8407      area       63 verts    5 within-10m  0.00 touches False -> PASSES
+  service_road   small_roads:-9728#1    area      141 verts    7 within-10m  1.00 touches True -> ABSORBED
+  service_road   small_roads:-9714      area       81 verts    8 within-10m  1.00 touches True -> ABSORBED
+  service_road   small_roads:-9728      area        2 verts    5 within-10m  1.00 touches True -> ABSORBED
+  service_road   small_roads:-9698      area       12 verts    4 within-10m  1.00 touches False -> ABSORBED
+  service_road   small_roads:-9716#1    area       23 verts    4 within-10m  1.00 touches True -> ABSORBED
+  service_road   small_roads:-9697      area       52 verts    5 within-10m  1.00 touches False -> ABSORBED
+  VERDICTS {'SPLIT': 2, 'ABSORBED': 26, 'PASSES': 1}; absorbed faces 26 / verts 170 / 2436 m2
+  pad unit:28#8/0: verts 650 -> 617 with roads absorbed; area 477286 -> 481433; pieces 1

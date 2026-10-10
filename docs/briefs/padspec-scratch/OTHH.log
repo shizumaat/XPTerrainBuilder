@@ -1,0 +1,77 @@
+[OTHH] capture loaded 2 s; clusters 24521
+[OTHH] cluster_outlines: {'clusters': 24521, 'no_rings': 0, 'over_another': 2, 'still_in_pieces': 17, 'on_airside': 0, 'clipped': 0, 'leaf_dropped': 23030, 'under_min_m2': 1420, 'thin_dropped': 255, 'pads': 56, 'under_deck': 0, 'deck_trimmed': 5, 'post_bridged': 60, 'no_tall_base': 5, 'no_building_evidence': 16, 'unmeasured': 0, 'osm_vouched': 0, 'cache_vouched': 0}
+[OTHH] graded faces 1717
+
+[OTHH] EMITTED within 150 m of 25.259994,51.6104872: 57 faces / 2375 ring vertices
+    building:building6#collar                faces   12  verts   844
+    building:building6                       faces    1  verts   552
+    apron                                    faces    2  verts   457
+    service_road                             faces   29  verts   192
+    secondary_parallel                       faces    1  verts    95
+    tunnel_trench                            faces    5  verts    83
+    junction                                 faces    1  verts    82
+    building:building6#blk                   faces    5  verts    61
+    parking_lot                              faces    1  verts     9
+
+[OTHH] cluster pads within 150 m: [('unit:28#8/0', 472471)]
+
+== V0_today: ALL pads 56: verts 5168 -> 5168, area 1003237 m2 (+1357 / -30475 vs raw), holes 87, pieces 56
+   unit:28#8/0    verts  1717 ->  1717  area  483377 ->  472471  +   628/-11534  holes 34->34  pieces 1 [472471]  added_on {'building': 556, 'tunnel_ramp': 27, 'apron': 13, 'tunnel_trench': 2}
+   worst added: [('unit:28#8/0', 628, {'building': 556, 'tunnel_ramp': 27, 'apron': 13, 'tunnel_trench': 2}), ('unit:68#0', 315, {'building': 315}), ('unit:84#3/0', 143, {'building': 134})]
+   worst removed: [('unit:28#8/0', 11534), ('unit:24#0/0', 6527), ('unit:7#8', 1899)]
+
+== V1_dp1: ALL pads 56: verts 5168 -> 2091, area 1003677 m2 (+2389 / -31064 vs raw), holes 87, pieces 56
+   unit:28#8/0    verts  1717 ->   776  area  483377 ->  472516  +   996/-11856  holes 34->34  pieces 1 [472516]  added_on {'building': 685, 'apron': 160, 'tunnel_ramp': 26, 'tunnel_trench': 4}
+   worst added: [('unit:28#8/0', 996, {'building': 685, 'apron': 160, 'tunnel_ramp': 26, 'tunnel_trench': 4}), ('unit:68#0', 315, None), ('unit:84#3/0', 265, None)]
+   worst removed: [('unit:28#8/0', 11856), ('unit:24#0/0', 6430), ('unit:7#8', 1882)]
+
+== V2_dp2: ALL pads 56: verts 5168 -> 1629, area 1004083 m2 (+4417 / -32685 vs raw), holes 87, pieces 56
+   unit:28#8/0    verts  1717 ->   600  area  483377 ->  472400  +  1537/-12514  holes 34->34  pieces 1 [472400]  added_on {'building': 700, 'apron': 265, 'tunnel_ramp': 26, 'tunnel_trench': 4, 'service_road': 2}
+   worst added: [('unit:28#8/0', 1537, {'building': 700, 'apron': 265, 'tunnel_ramp': 26, 'tunnel_trench': 4, 'service_road': 2}), ('unit:84#3/0', 381, None), ('unit:68#0', 315, None)]
+   worst removed: [('unit:28#8/0', 12514), ('unit:24#0/0', 6579), ('unit:16#0/2', 1961)]
+
+== V3_c3_dp1: ALL pads 56: verts 5168 -> 1736, area 1008026 m2 (+6649 / -30977 vs raw), holes 56, pieces 62
+   unit:28#8/0    verts  1717 ->   703  area  483377 ->  472924  +  1347/-11800  holes 34->31  pieces 2 [472902, 22]  added_on {'building': 706, 'apron': 386, 'tunnel_ramp': 29, 'tunnel_trench': 4}
+   worst added: [('unit:24#0/0', 2120, None), ('unit:28#8/0', 1347, {'building': 706, 'apron': 386, 'tunnel_ramp': 29, 'tunnel_trench': 4}), ('unit:21#1', 521, None)]
+   worst removed: [('unit:28#8/0', 11800), ('unit:24#0/0', 6448), ('unit:16#0/2', 1920)]
+
+== V4_c5_dp1: ALL pads 56: verts 5168 -> 1476, area 1014808 m2 (+12530 / -30073 vs raw), holes 18, pieces 77
+   unit:28#8/0    verts  1717 ->   485  area  483377 ->  477281  +  5432/-11527  holes 34->3  pieces 3 [476966, 168, 148]  added_on {'apron': 2037, 'building': 749, 'service_road': 641, 'tunnel_trench': 158, 'tunnel_ramp': 29}
+   worst added: [('unit:28#8/0', 5432, {'apron': 2037, 'building': 749, 'service_road': 641, 'tunnel_trench': 158, 'tunnel_ramp': 29}), ('unit:24#0/0', 2747, None), ('unit:16#0/2', 1028, None)]
+   worst removed: [('unit:28#8/0', 11527), ('unit:24#0/0', 6467), ('unit:16#0/2', 1828)]
+
+== V5_c5_dp1_h200: ALL pads 56: verts 5168 -> 1464, area 1015169 m2 (+12888 / -30070 vs raw), holes 15, pieces 77
+   unit:28#8/0    verts  1717 ->   485  area  483377 ->  477281  +  5432/-11527  holes 34->3  pieces 3 [476966, 168, 148]  added_on {'apron': 2037, 'building': 749, 'service_road': 641, 'tunnel_trench': 158, 'tunnel_ramp': 29}
+   worst added: [('unit:28#8/0', 5432, {'apron': 2037, 'building': 749, 'service_road': 641, 'tunnel_trench': 158, 'tunnel_ramp': 29}), ('unit:24#0/0', 2747, None), ('unit:16#0/2', 1028, None)]
+   worst removed: [('unit:28#8/0', 11527), ('unit:24#0/0', 6467), ('unit:16#0/2', 1828)]
+
+== V6_c8_dp1_h200: ALL pads 56: verts 5168 -> 1301, area 1024078 m2 (+20222 / -28497 vs raw), holes 11, pieces 84
+   unit:28#8/0    verts  1717 ->   417  area  483377 ->  479849  +  7363/-10891  holes 34->2  pieces 4 [462450, 16882, 261, 256]  added_on {'apron': 2753, 'service_road': 1190, 'building': 772, 'tunnel_trench': 159, 'tunnel_ramp': 30}
+   worst added: [('unit:28#8/0', 7363, {'apron': 2753, 'service_road': 1190, 'building': 772, 'tunnel_trench': 159, 'tunnel_ramp': 30}), ('unit:24#0/0', 3048, None), ('unit:7#8', 2330, None)]
+   worst removed: [('unit:28#8/0', 10891), ('unit:24#0/0', 6412), ('unit:16#0/2', 1927)]
+
+== V7_c5_dp2_h200: ALL pads 56: verts 5168 -> 1151, area 1015238 m2 (+14387 / -31497 vs raw), holes 15, pieces 77
+   unit:28#8/0    verts  1717 ->   378  area  483377 ->  477428  +  5888/-11836  holes 34->3  pieces 3 [477142, 155, 131]  added_on {'apron': 2099, 'building': 763, 'service_road': 639, 'tunnel_trench': 157, 'tunnel_ramp': 29}
+   worst added: [('unit:28#8/0', 5888, {'apron': 2099, 'building': 763, 'service_road': 639, 'tunnel_trench': 157, 'tunnel_ramp': 29}), ('unit:24#0/0', 2783, None), ('unit:21#1', 1088, None)]
+   worst removed: [('unit:28#8/0', 11836), ('unit:24#0/0', 6685), ('unit:16#0/2', 1895)]
+
+== V8_c5_o2_dp1: ALL pads 56: verts 5168 -> 1185, area 1011190 m2 (+12247 / -33411 vs raw), holes 6, pieces 78
+   unit:28#8/0    verts  1717 ->   423  area  483377 ->  475437  +  5363/-13303  holes 34->2  pieces 8 [460083, 7878, 6655, 193, 185, 168]  added_on {'apron': 2019, 'building': 723, 'service_road': 641, 'tunnel_trench': 158, 'tunnel_ramp': 29}
+   worst added: [('unit:28#8/0', 5363, {'apron': 2019, 'building': 723, 'service_road': 641, 'tunnel_trench': 158, 'tunnel_ramp': 29}), ('unit:24#0/0', 2745, None), ('unit:16#0/2', 1047, None)]
+   worst removed: [('unit:28#8/0', 13303), ('unit:24#0/0', 6613), ('unit:16#0/2', 1823)]
+
+== V9_hull: ALL pads 56: verts 5168 -> 516, area 2347871 m2 (+1324760 / -9236 vs raw), holes 0, pieces 56
+   unit:28#8/0    verts  1717 ->    19  area  483377 -> 1650891  +1167519/-    5  holes 34->0  pieces 1 [1650891]  added_on {'apron': 519446, 'cross_connector': 213744, 'junction': 104050, 'building': 34885, 'service_road': 23141, 'tunnel_ramp': 5889, 'secondary_parallel': 5031, 'graded_strip': 4764, 'parking_lot': 2578, 'groundside_pavement': 1357, 'tunnel_trench': 332, 'door_ramp': 21}
+   worst added: [('unit:28#8/0', 1167519, {'apron': 519446, 'cross_connector': 213744, 'junction': 104050, 'building': 34885, 'service_road': 23141, 'tunnel_ramp': 5889, 'secondary_parallel': 5031, 'graded_strip': 4764, 'parking_lot': 2578, 'groundside_pavement': 1357, 'tunnel_trench': 332, 'door_ramp': 21}), ('unit:24#0/0', 51868, None), ('unit:57#0', 39066, None)]
+   worst removed: [('unit:16#0/2', 1707), ('unit:93#3', 1339), ('unit:93#0', 1147)]
+
+== V10_rc5_dp1_h200: ALL pads 56: verts 5168 -> 1624, area 1019831 m2 (+17802 / -30319 vs raw), holes 17, pieces 56
+   unit:28#8/0    verts  1717 ->   600  area  483377 ->  479882  +  7809/-11304  holes 34->3  pieces 1 [479882]  added_on {'apron': 2378, 'building': 984, 'service_road': 852, 'tunnel_trench': 161, 'tunnel_ramp': 40}
+   worst added: [('unit:28#8/0', 7809, {'apron': 2378, 'building': 984, 'service_road': 852, 'tunnel_trench': 161, 'tunnel_ramp': 40}), ('unit:24#0/0', 3079, None), ('unit:16#0/2', 1512, None)]
+   worst removed: [('unit:28#8/0', 11304), ('unit:24#0/0', 6425), ('unit:16#0/2', 1790)]
+
+== V11_rc3_dp1_h200: ALL pads 56: verts 5168 -> 1695, area 1015362 m2 (+13685 / -30670 vs raw), holes 19, pieces 56
+   unit:28#8/0    verts  1717 ->   650  area  483377 ->  477286  +  5557/-11647  holes 34->4  pieces 1 [477286]  added_on {'apron': 1818, 'building': 939, 'service_road': 486, 'tunnel_trench': 47, 'tunnel_ramp': 38}
+   worst added: [('unit:28#8/0', 5557, {'apron': 1818, 'building': 939, 'service_road': 486, 'tunnel_trench': 47, 'tunnel_ramp': 38}), ('unit:24#0/0', 2591, None), ('unit:21#1', 994, None)]
+   worst removed: [('unit:28#8/0', 11647), ('unit:24#0/0', 6413), ('unit:16#0/2', 1795)]
+wrote /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/0ec4326d-10bf-4753-bd1b-ca41fda6bcd1/scratchpad/padspec/OTHH_probe.json

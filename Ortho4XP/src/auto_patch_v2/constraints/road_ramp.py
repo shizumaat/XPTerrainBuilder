@@ -29,7 +29,7 @@ __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "road_contact_rows", "reach_seed_rewrite", "BANK_RULING",
            "between_levels_rewrite", "airside_joins", "welded_join_release",
            "terrace_rewrite", "terrace_profile", "wall_terrace_rows",
-           "wall_release",
+           "wall_release", "pad_weld_release",
            "WALL_LOT_RULING"]
 
 GEN = "road_ramp"
@@ -319,7 +319,53 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     cs, rep["wall_release"] = wall_release(planar, law, cs)
     cs, rep["between_levels"] = between_levels_rewrite(planar, law, cs, levels)
     cs, rep["welded_join"] = welded_join_release(planar, law, cs, levels)
+    # LAST: the rewrites above carry every vertex's §37 (6) row as the
+    # floor of their profiles, so the rim's rows leave after them
+    cs, rep["pad_weld"] = pad_weld_release(planar, law, cs)
+    rep["welded_join"] = [*rep["welded_join"], *rep["pad_weld"].pop("joins")]
     return cs, rep
+
+
+def pad_weld_release(planar: PlanarMap, law: Law, cs: ConstraintSet
+                     ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
+    """SPEC §63 (6) RULE B′ (owner RULINGS 2026-10-09j, 2026-10-09d (2)):
+    NO ROAD LAW NAMES THE LEVEL OF A VERTEX THE ROAD SHARES WITH A PAD.
+    A road welded to a pad's rim (``pads.pad_welded_vertices``) stands at
+    the pad's level there — the pad's plane names it — so that vertex's
+    §37 (6) design target and hard ceiling and its §37 (9) coverage-edge
+    join pin are withdrawn: the ramp starts at the first road vertex OFF
+    the rim, which keeps every road row it has.
+
+    A withdrawn join is recorded in :func:`welded_join_release`'s form
+    (``stage`` ``"2f"``), so the core ribbon yields to the level the patch
+    carries there (``emit/road_join.with_pin_yield``) exactly as to a join
+    welded to airside."""
+    from .pads import pad_welded_vertices
+    rim = pad_welded_vertices(planar, law)
+    rep: dict[str, _t.Any] = {"rim_vertices": len(rim), "targets": 0,
+                              "ceilings": 0, "joins": []}
+    if not rim:
+        return cs, rep
+
+    def _at(r: Row, ruling: str) -> bool:
+        if r.source.generator != GEN or r.source.ruling != ruling:
+            return False
+        tag = r.source.inputs[0] if r.source.inputs else ""
+        return tag.startswith("vertex:") and int(tag[7:]) in rim
+    linears = [r for r in cs.linears if not _at(r, RULING)]
+    bands = [r for r in cs.bands if not _at(r, RULING_CEILING)]
+    out_pins = [p for p in cs.pins if _at(p, JOIN_RULING) and p.v in rim]
+    rep["targets"] = len(cs.linears) - len(linears)
+    rep["ceilings"] = len(cs.bands) - len(bands)
+    rep["joins"] = [
+        {"v": int(p.v), "xy": tuple(float(c) for c in planar.vertices[p.v].xy),
+         "pinned_m": round(float(p.z), 4), "z_m": round(float(p.z), 4),
+         "excess_m": 0.0, "stage": "2f"} for p in out_pins]
+    if not (rep["targets"] or rep["ceilings"] or out_pins):
+        return cs, rep
+    gone = {id(p) for p in out_pins}
+    return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands),
+                       pins=tuple(p for p in cs.pins if id(p) not in gone)), rep
 
 
 def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],

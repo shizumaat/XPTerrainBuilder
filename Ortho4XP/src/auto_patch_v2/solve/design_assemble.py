@@ -559,9 +559,19 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #    all and only its contact rows — one-sided — would.  Each such group
     #    that no pin fixes takes the same soft datum on its own DEM mean, so
     #    a pad with no frontage row sits on its ground instead of floating.
+    #    A HELD PAD'S DATUM COLUMN IS ITS LEVEL, NOT A POINT ON THE GROUND
+    #    OR ON THE APRON'S TREND (spec §56 (10) R4, step 4F; 10l read for
+    #    the hold: "a pad following its frontage takes no trend row").  The
+    #    column is one of the pad's rim vertices, so a DEM or trend target
+    #    there is wherever that vertex happens to stand (MEASURED, HECA: a
+    #    column that moved along the rim moved its trend target 99.97 ->
+    #    92.90 m and ten pads' datums ~0.1 m); the hold rows give the level.
+    from ..model.platform import datum_vertices as _datum_vertices
+    datum_v = set(_datum_vertices(planar, law).values())
+    datum_cols = {int(red.col[v]) for v in datum_v if red.col[v] >= 0}
     for f_ in cs.flats:
         col = int(red.col[f_.group[0]])
-        if col < 0:
+        if col < 0 or col in datum_cols:
             continue
         vs_f = [v for v in f_.group if planar.vertices[v].dem_z is not None]
         if not vs_f:
@@ -571,6 +581,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep.detached = len(by_comp)
     for c, vs in by_comp.items():
         for vid, target in _plane_targets(planar, vs):
+            if vid in datum_v:
+                continue
             rows.add(((vid, 1.0),), target, d.detached_mean, ("detached", c))
 
     # 9a.  THE APRON BODY'S TARGET SURFACE (owner RULINGS 2026-09-10ar; spec
@@ -589,7 +601,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     as it takes no datum row (10l) — the register is known here, so
     #     the drop happens here.
     for vid, target in planar.apron_trend_z.items():
-        if vid in rwy_v or vid in pad_follow:
+        if vid in rwy_v or vid in pad_follow or vid in datum_v:
             continue
         if rows.add(((vid, 1.0),), float(target), d.apron_trend,
                     ("apron_trend", vid)):

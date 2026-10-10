@@ -385,14 +385,10 @@ class BuildingPad:
     step_exemption_pad_to_pad: bool
     frontage_near_miss_m: float
     frontage_soft_roles: tuple[str, ...]
-    #: unit-platform spec §1 (2) / §2 S4 (owner RULINGS 2026-09-28a): the
-    #: widest collar a platform may take (a 1:3 bank, ``emit.design.
-    #: bank_slope``); ``platform_collar_max_m * bank_slope`` is also the
-    #: largest end-ground step a SOLID connector may join across
+    #: THE LANDING BANK'S WIDTH (owner RULINGS 2026-10-03e, #290): the 1:3
+    #: bank around a viaduct ramp landing (``planar/landing``).  The unit
+    #: platform's collar it was first written for is deleted (spec §56 (3))
     platform_collar_max_m: float
-    #: unit-platform spec §1: mint the platform + collar (``planar/
-    #: platform.py``); false keeps today's welded plate
-    platform_collar: bool
     #: flat-pad spec §1 / §6 Q5 (owner RULINGS 2026-09-30f): the platform's
     #: welded frontage is HELD at its block datum in stage 1 (false = 29s)
     frontage_hold: bool

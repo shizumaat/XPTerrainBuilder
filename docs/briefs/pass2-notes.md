@@ -216,3 +216,24 @@ SOLVER defect, on main too (main's KCLT reads 0/0/0.020 because its weak blocks 
 them; `no_descent ×3`, the same exit). R-E's cross-ring pairs are not the mechanism at A — they changed the path. The
 row remedies are not needed for it: the membrane-class probe closes KCLT to 1 mover by out-pricing the spring, as §61
 did, and leaves the spring in place. Landing: the centred floor (no law row, no weight, no new solve).
+
+## Step 5 — the fix on the real path (commit 5aa6e5764: `solve/linear._linear_solve`, twin `tests/auto_patch_v2/test_v2linear.py`)
+
+The normal solve is for the INCREMENT from its warm start (`x0 + (AᵀA + eps I)⁻¹ Aᵀ(b − A x0)`, residual on A itself; a cold
+start is solved as before and refined once). Same factorisation, same back-solve count in the QP; no law row, no weight.
+Twin: a 120-column chain at the membrane's price between two hard anchors at 200 m — the old solve leaves its middle
+> 5 cm low (asserted, once), the new one returns an optimum handed back as the warm start unchanged (1e-9), in the three
+low-rank modes; 6 of the 7 tests FAIL on the old `linear.py`.
+
+KCLT, full replay pair on this tree (`<scratch>/pass2/kf`, `frames/pads67/KCLT.pkl`, gap-free base + late pair):
+`NULL-CHANGE pass1a 0/0/0.000 pass1b 0/0/0.000 stage2 0/0/0.000 (promoted 161=161, lp relaxed 370=370)` — MET
+(c2: 0/0/0.004 · 47/0/0.185 · 90/0/0.185; m: 10/0/0.040 · 18/4/0.538).
+
+FINAL SURFACE vs `kc2` (`tools/airside_value_delta.py --tol 0.02`, 16,679 row-side nodes, same node set): **1,234 moved**,
+worst 0.56 m — strip 1,174 (worst 0.07 m), taxi 47 (worst 0.56 m at 35.20516908, −80.93584186, junction|stub
+`pav61`|`pav62`; 0.32 m twice at 35.2273, −80.9526 `pav11`|`pav125`), apron 13 (worst 0.44 m at 35.20812142,
+−80.95781677 `dsf:pol14`); runway 0; structures 0 of 363. Over 0.1 m: 6 vertices. THAT IS MORE THAN THE NULL-CHANGE NOISE
+(c2's twin: 90 movers ≤ 0.185): the old surface was not at its optimum — the strip sat 2–7 cm toward sea level and the
+six weak vertices were wherever the path left them (they are c2's and e0's own null-change movers). The brief's condition
+("without moving the final surface by more than the null-change noise itself") is therefore NOT met by count or by worst
+value; the change is on the branch for the master's decision, not asked to merge as a no-op.

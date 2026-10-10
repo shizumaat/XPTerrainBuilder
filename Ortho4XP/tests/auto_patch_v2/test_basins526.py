@@ -153,6 +153,43 @@ def test_a_bowl_whose_banks_cannot_hold_the_band_keeps_the_outward_yield(objs, l
     assert Polygon(b.ring).distance(region.exterior) <= co.ring_floor_m
 
 
+# ── B1 (#526): membership by FEET ─────────────────────────────────────────
+
+def _l_ring():
+    # an L: the unit square minus its top-right quarter, in (lat, lon)
+    return ((0.0, 0.0), (0.0, 1.0), (0.5, 1.0), (0.5, 0.5), (1.0, 0.5), (1.0, 0.0))
+
+
+def test_a_concave_shell_is_read_by_its_feet_not_its_centroid():
+    ring = _ar.RimRing("basin_wall:0", _l_ring())
+    # the L's plan centroid (0.4167, 0.4167)... is inside; take a thinner L
+    thin = ((0.0, 0.0), (0.0, 1.0), (0.2, 1.0), (0.2, 0.2), (1.0, 0.2), (1.0, 0.0))
+    ring = _ar.RimRing("basin_wall:0", thin)
+    lat = lon = 0.3                                 # outside the thin L
+    assert _ar.rim_of([ring], lat, lon) is None
+    feet = ((0.1, 0.5, -2.0), (0.1, 0.9, -2.0), (0.5, 0.1, -2.0), (0.9, 0.1, -2.0))
+    assert _ar.ring_of_part([ring], lat, lon, feet) is ring
+    # a footless component is read by its centroid
+    assert _ar.ring_of_part([ring], lat, lon, ()) is None
+    assert _ar.ring_of_part([ring], 0.1, 0.5, ()) is ring
+
+
+def test_a_body_whose_feet_mostly_stand_outside_is_not_a_member():
+    ring = _ar.RimRing("basin_wall:0", _l_ring())
+    inside = (0.25, 0.25)
+    feet = ((0.25, 0.25, 0.0), (2.0, 2.0, 0.0), (3.0, 3.0, 0.0))
+    assert _ar.ring_of_part([ring], *inside, feet) is None
+    feet = ((0.25, 0.25, 0.0), (0.3, 0.3, 0.0), (3.0, 3.0, 0.0))
+    assert _ar.ring_of_part([ring], 5.0, 5.0, feet) is ring
+
+
+def test_the_plurality_ring_takes_a_component_split_over_two():
+    r0 = _ar.RimRing("basin_wall:0", ((0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (1.0, 0.0)))
+    r1 = _ar.RimRing("basin_wall:1", ((2.0, 0.0), (2.0, 1.0), (3.0, 1.0), (3.0, 0.0)))
+    feet = ((0.5, 0.5, 0.0), (0.4, 0.4, 0.0), (2.5, 0.5, 0.0), (9.0, 9.0, 0.0))
+    assert _ar.ring_of_part([r0, r1], 9.0, 9.0, feet) is r0
+
+
 # ── B2 (#527): the rim anchor stands clear of the band ────────────────────
 
 def _square_deg(lat0=25.25, lon0=51.62, side=0.001):

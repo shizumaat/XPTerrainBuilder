@@ -1747,6 +1747,63 @@ is now per UNIT in two passes) and `airport/obj8_split.py`.
   over 3 runs per arm (fewer bodies survive to be anchored and cut). No budget
   impact.
 
+### §14 (2) AMENDED — MEMBERSHIP BY FEET; THE RIM ANCHOR STANDS CLEAR OF THE BAND (owner RULINGS 2026-10-10h (1); issues #526, #527; Fable, lane `basins526`, 2026-10-10)
+
+Two defects of §14 (2) read at OTHH's south-end pits (`docs/briefs/othh513-notes.md`
+finding B; both standing since the rim anchor exists, not regressions).
+
+**(a) THE RING A COMPONENT STANDS IN IS READ WHERE IT STANDS — ITS FEET.** §14 (2)
+asked whether a body's lowest component stands inside an emitted basin ring by that
+component's PLAN CENTROID. A concave shell's centroid leaves its own ring: the
+283 × 179 m L-shaped trench shell (`Drainage_06_000` comp 1, 4,858 m², base y −2.51,
+all four feet inside `basin_wall:0`) had its centroid 19 m outside the L, read
+`skirted`, and the generic rule seated it at its low-side foot on the trench floor —
+rim 2.68 m under grade. RULED: a component with feet belongs to the ring MORE THAN HALF
+of its feet stand inside, the plurality ring among those; a component with no feet is
+read by its centroid as before. Not "any foot" (a thing standing beside a pit with one
+foot over the ring edge is not the pit) and not footprint containment (the ring is the
+shell's own outer face snapped to the lattice, so the footprint straddles it by
+construction). ONE implementation, `anchor_rule.ring_of_part`, at the three sites that
+asked the question separately (`placement_body._raw_bodies`, `_whole_body` through
+`placement_cut._rim_of`, and `_basin_rim_anchor`). The `base_y < 0` guard of §14 (2)
+(LEMD's `Terminal4sBlue-LEMD35`) is untouched.
+
+*The "4 → 3 bodies" of the othh513 intervention is NOT the rule's doing.* On ONE tree
+and ONE frame (main f5f11c81f, the othh513 plan + graded) `Drainage_06_001` forms 3
+bodies — b0 = comps [0, 1, 4] on `basin_wall:0`, b1 = [2] and b2 = [3] on
+`basin_wall:7` — with and without the feet rule; the 4th body (comp 4 alone on
+`basin_wall:9`) exists only in the as-built 1.0.385 plan written by engine tree
+616e5d58a. The othh513 lane read its "before" off that DSF and its "after" off the lane
+tree (memory: cross-tree comparisons are not evidence). Comp 4 (the walled sump, 393 m²,
+base y −4.20) binding into b0 is the §16c (7) cluster / §14 (3) plan-overlap bind of
+main today; both rims are at the one flat-site grade, so the merge costs nothing here
+and is reported, not ruled.
+
+**(b) THE RIM ANCHOR STANDS ONE WRITER TOLERANCE OUTSIDE THE RING.** The basin anchor
+was a rim-ring vertex itself. The DSF writer requantises every coordinate to its 16-bit
+pools (`airport/dsf_write`: up to ~0.05 m on a 0.03125° pool), and a row that lands
+INSIDE the ring sits on the mesh wall band — 4.7 / 13.6 m of fall in 0.7 m. Measured on
+the owner's mesh: plan 3.960 → written row 3.733 / 3.810 (`Drainage_06_001` b1/b2,
+`Dewatering_02` b0). RULED: the anchor is the nearest rim vertex pushed
+`model.placement.TOL_DEG` (the writer's own pinned round-trip tolerance, ~4 quanta,
+~0.2 m) along the ring's outward bisector at that vertex, outward = away from the pit —
+the surrounding grade under every reading of where the band lies (§47 (3) as amended:
+for a bank-sided pit the band is now INSIDE the outline, for a walled shell between the
+faces; in both the ground outside the rim ring is grade). ONE site,
+`anchor_rule.rim_anchor_point`, for §14 (2)'s vertex and §14a (1)'s arc point
+(`basin_ring.arc_anchor`). The authored offset carries the object's geometry back to
+where it was authored; only the row's terrain sample moves. The quantum is defined in
+the model layer so the anchor law reads the writer's number without importing the
+writer.
+
+**MEASURED (partial plan of the two pit units, `tools/obj8_split_report.py
+--units-with`, othh513 frame):** `Drainage_06_000` b0 `skirted` z −0.74 y0 −2.51 →
+`basin` on `basin_wall:0@1052` z 3.96 y0 0 (rim at grade); every basin anchor moved
+off its vertex by ≤ 2.2e-6° and still reads 3.96; body counts unchanged (2 / 3 / 3 / 11
+→ 2 / 3 / 1 / 1 — the last two by §14a (2) AMENDED below, not by this rule). KCLT and
+HECA (the two tunnel-rim airports of the sweep; no basins anywhere but OTHH): 573 and
+3,039 bodies, 0 changed. Twins: `tests/auto_patch_v2/test_basins526.py` (B1, B2).
+
 ## §15 Stands-over is the carrier; binding re-cuts; duplicate rows (RULINGS 2026-09-11ae)
 
 1. **THE CARRIER IS WHAT THE BODY STANDS OVER.** For an elevated body (§13) or a
@@ -2437,6 +2494,33 @@ from the one `census_v14` call).
   implemented (the deviation above). The three ring nodes with no wall cannot
   be closed by any placement law — there is no object there to place.
   Suite 1,102 passed / 1 skipped (main 1,097 / 1; five new twins).
+
+### §14a (2) AMENDED — A BODY STANDS IN THE PIT ONLY ON ITS FEET; THE PIT'S CONTENTS RIDE THE PIT (owner RULINGS 2026-10-10h (1); issue #528; Fable, lane `basins526`, 2026-10-10)
+
+OTHH's `Dewatering_02` carries twelve 8–12 cm fittings authored 3.2–5.0 m ABOVE the
+rim, each its own welded component with no ground contact (feet 0, area 0 m²), inside
+`basin_wall:6`. §14a (2) read each as "a member inside the ring" (every vertex interior,
+base y +3.18 > −tol) and made it a FLOOR body — which "takes NO carrier: its anchor is
+§16 (3)'s ground under its own footprint" — the pit floor at −9.68, 13.64 m under
+where the author put them. Two rules, one existing mechanism extended:
+
+1. **A body STANDS in the pit only on its FEET.** §14a (2)'s floor-member test is asked
+   only of a group with ground feet; a FOOTLESS group inside the ring has nothing to
+   stand on and takes the carried path of §14 (1) / §16a (1) like any footless body:
+   its carrier is the footed body of its unit it rests on — the pit's own shell.
+2. **A piece carried by a BASIN body keeps that carrier.** issue #10's contents seat
+   (`footprint_carry.contents_seat`) then rerouted the piece to its UNIT's datum,
+   because the shell's zero (the rim, §14 (2)) stood "13.64 m off" the unit's
+   median-ground datum — the pit floor under the shell's own contacts. That offset is
+   the basin law working, the same reading §16a (2) already exempts the basin from as a
+   carrier (`placement_carrier._ok`): a BASIN carrier is kept whatever its zero, the
+   exemption the deck rider already has (#290), counted `contents_seat_kept_basin_rider`.
+
+MEASURED (partial plan, othh513 frame): the 12 fittings 12 bodies `plate_only` /
+`other` "footless_own_ground" at z −9.68 → 2 bodies carried by the shell at z 3.96,
+y0 0, authored offset kept (rendered where authored, +3.18 over the rim);
+`basin_floor_members` 12 → 0, `footless_own_ground` 12 → 0. LEMD13's class (a FOOTED
+slab standing in the pit) is unchanged by (1). Twin: `test_basins526.py` (B3).
 
 ## §16c THE CONNECTED COMPONENT IS THE ATOM (Fable, 2026-09-12; RULINGS 2026-09-12b/12d)
 

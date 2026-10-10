@@ -868,10 +868,10 @@ def _basin_floor_member(cutter: "_LineCutter", parts: _t.Sequence[Part],
     return _br.member_kind(frac, base_y, tol_m) == _br.FLOOR
 
 
-def _rim_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
-            base_y: float) -> bool:
+def _rim_of(rims: _t.Sequence[_ar.RimRing], lowest: Part, base_y: float) -> bool:
     """A BASIN body: its lowest component stands BELOW the authored zero
-    and inside an emitted basin-wall ring.
+    and inside an emitted basin-wall ring (``anchor_rule.ring_of_part``:
+    by its feet, else its centroid — issue #526).
 
     Containment alone is not the test and must not be — a terminal whose
     ground floor happens to sit over a cut pit would be read as the pit
@@ -881,7 +881,7 @@ def _rim_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
     to that depth, so the two readings agree by construction."""
     if base_y >= 0.0:
         return False
-    return any(len(r.ring) >= 3 and _ar._inside(r.ring, lat, lon) for r in rims)
+    return _ar.ring_of_part(rims, lowest.lat, lowest.lon, lowest.feet) is not None
 
 
 # ── the bodies of one placement (``placement_body``) ─────────────────────

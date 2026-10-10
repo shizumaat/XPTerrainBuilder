@@ -345,12 +345,17 @@ def test_covered_pit_is_admitted(objs, law):
 
 def test_basement_is_the_pad_not_a_pit(objs, law):
     """04i rule 4: a floor wholly under the SAME object's own solid above
-    the ground is a basement — refused, naming the building pad."""
+    the ground is a basement — refused; the building pad stands.  Since
+    §47 (8) (issue #551, lane wells551) a building TALLER than its
+    basement is deep is refused one rule earlier, at the read, as a thing
+    standing on the ground (`ObjReport.standing`); rule 4's own-cover
+    test remains the second line for an object shorter than it is deep."""
     cells = _cells() + [Cell(4, "building", "padBasement", _rect(-30, -20, 30, 20), (),
                              None, None, "airside", "pad", {})]
     cl, cl3, basins, bs, rep = _basins_of(objs, law, [("basement", (0.0, 0.0), 0.0, 0.0)], cells)
-    assert rep.below_grade_objects == 1 and not basins
-    assert len(bs.refused) == 1 and "BASEMENT" in bs.refused[0] and "padBasement" in bs.refused[0]
+    assert rep.below_grade_objects == 0 and not basins
+    assert list(rep.standing) == ["objects/basement.obj"]
+    assert len(bs.refused) == 1 and "standing on the ground" in bs.refused[0]
     assert cl3.cells == cl.cells
 
 

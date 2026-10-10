@@ -541,6 +541,19 @@ ramp_max_grade = 0.15
 # structures pass's stationed ramp being the model; the same 2 m the
 # corridor machinery uses ([cutout].station_m).
 ramp_station_m = 2.0
+# A THING STANDING ON THE GROUND IS NOT A PIT (issue #551; design spec §47 (8);
+# lane wells551, 2026-10-10).  Rule 1 reads per COMPONENT: a deep floor plate
+# under a shell that tops out in the contact band.  OTHH's jetways carry a
+# 4.3 m service room under the rotunda (floor, stairs, machinery) whose
+# ceiling IS the apron — a shell that tops out at grade — while the rotunda
+# and tunnel standing on it are other components 9.0 m tall; rule 1 cut 35
+# pits.  The read now asks the WHOLE OBJECT: a placement whose solid top
+# stands higher above the ground than its deepest floor plate lies below it
+# is standing on the ground, and its below-grade geometry is a foundation,
+# a footing or a basement — every witness of the placement is refused and
+# named (`ObjReport.standing`).  No law number: height against depth.
+# Measured at OTHH: the ten pits 0.01-0.41 (Drainage 0.06 m over 3.8-4.2 m,
+# Dewatering 5.35 over 13.14), the 35 jetway wells 2.09-2.17 (9.0 over 4.3).
 rim_reaches_grade   = true         # THE RIM TEST (04i; v1's pit seed PIT_SEED_MAX_ABOVE_GRADE_Y_M = the ground band): a floor witness's shell TOPS OUT within contact_band_m of the local ground — a shell passing through the ground is a BUILDING standing on the pack's flat plane over real relief (LEMD cargo terminal: slab 5.8 m under the local ground, walls 15 m above it), REFUSED by resource with its height; the ring-station openness (stations farther than footprint_close_m from the members' at-grade geometry) is REPORTED per basin, never a refusal (OTHH's owner-accepted Dewatering pits read 1–2 of 46 stations open where a buried culvert leaves the shell)
 # THE RIM IS THE SHELL'S GROUND-CONTACT RING (RULINGS 2026-09-06f (970)): solids
 # of the SAME component standing above the contact band are cover or

@@ -707,6 +707,14 @@ class ObjReport:
     #: path -> (placements, deepest datum drop, deepest depth read,
     #: shallowest AUTHORED depth under the placement's own datum).
     datum_relief: dict[str, tuple[int, float, float, float]] = _dc.field(default_factory=dict)
+    #: A THING STANDING ON THE GROUND (issue #551; design spec §47 (8)): path
+    #: -> (placements, top above the ground, deepest plate below it).  An
+    #: object whose solid top stands HIGHER above the ground than its
+    #: deepest floor plate lies below it is standing on the ground — its
+    #: below-grade geometry is a foundation, a footing or a basement room
+    #: under it, never an open pit.  OTHH's jetways: 9.0 m of rotunda and
+    #: tunnel over a 4.3 m service room, read as 35 pits.
+    standing: dict[str, tuple[int, float, float]] = _dc.field(default_factory=dict)
     #: The deck signature (04k; ``deck_signature.classify``): anchor
     #: families read, families whose plate spans a bridge way (decks),
     #: families with a plate and no spanning evidence (candidates), and
@@ -937,6 +945,28 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
                     w = _dc.replace(w, protrusion_fraction=frac, protrusion_top_m=top_above)
                     protruding = (frac, top_above)
                 witnesses.append(w)
+            # THE OBJECT STANDS ON THE GROUND (issue #551; spec §47 (8)):
+            # read over the WHOLE object, not one component.  A pit's
+            # shell tops out at grade (rule 1 above, per component); the
+            # jetway's basement room does too — its ceiling is the apron —
+            # while the rotunda and tunnel that stand on it rise 9 m,
+            # twice the room's depth.  A witness whose object stands
+            # higher above the ground than its deepest plate lies below
+            # it witnesses a FOUNDATION: every witness of the placement
+            # is refused, named with both numbers.  No new law number —
+            # the comparison is depth against height (measured at OTHH:
+            # the ten pits 0.01-0.41, the 35 jetway wells 2.09-2.17).
+            standing = False
+            if witnesses:
+                obj_top = max((c.max_y for c in cache.components(phys)
+                               if c.max_y - c.min_y >= cache.thickness_m), default=0.0)
+                top_above_obj = base + obj_top - anchor_z
+                if top_above_obj > -smin_d:
+                    n, t0, d0 = rep.standing.get(dpath, (0, -math.inf, math.inf))
+                    rep.standing[dpath] = (n + 1, max(t0, top_above_obj), min(d0, smin_d))
+                    witnesses = []
+                    smin_z = smin_d = None
+                    standing = True
             if witnesses:
                 below = _transformed([w.below for w in witnesses])
                 rep.below_grade_objects += 1
@@ -944,6 +974,8 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
                     n, f0, t0 = rep.rim_protrusions.get(dpath, (0, 0.0, 0.0))
                     rep.rim_protrusions[dpath] = (n + 1, max(f0, protruding[0]),
                                                   max(t0, protruding[1]))
+            elif standing:
+                pass                    # named once, in ``rep.standing``
             elif through is not None:
                 n, t0, d0 = rep.through_grade.get(dpath, (0, -math.inf, math.inf))
                 rep.through_grade[dpath] = (n + 1, max(t0, through[0]), min(d0, through[1]))
@@ -1003,6 +1035,9 @@ def _absorb(rep: "ObjReport", sub: "ObjReport") -> None:
     for path, (n, d, z) in sub.no_floor.items():
         n0, d0, z0 = rep.no_floor.get(path, (0, math.inf, math.inf))
         rep.no_floor[path] = (n0 + n, min(d0, d), min(z0, z))
+    for path, (n, t, d) in sub.standing.items():
+        n0, t0, d0 = rep.standing.get(path, (0, -math.inf, math.inf))
+        rep.standing[path] = (n0 + n, max(t0, t), min(d0, d))
 
 
 def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float | None, str]],

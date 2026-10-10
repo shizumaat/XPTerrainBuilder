@@ -16107,6 +16107,59 @@ base max +1.4–1.7 m, amended +3.3 m because the band now covers the channel's 
 Twin: `tests/auto_patch_v2/test_basins526.py` (a bank-sided bowl with an outlet: rim on the
 outline, floor `F` inside, no slot; a 1.6 m well keeps the yield, named DEGENERATE).
 
+### §47 (8) — A THING STANDING ON THE GROUND IS NOT A PIT (owner OTHH read of 1.0.387, issue #551; Fable, lane `wells551`, 2026-10-10)
+
+Owner: "there's some incorrect tunnel shapes at OTHH. No tunnel/basin at these locations:
+25.2631354, 51.6134952; 25.263167, 51.6135647; 25.2637538, 51.6131875; 25.2630678,
+51.6118374. There's more all at the jetways, what evidence is causing them to be created?"
+
+**THE EVIDENCE.** Every `Jetway/OTHH_Jetway_Type4…Type10.obj` carries, under its rotunda, a
+SERVICE ROOM modelled in full: a floor plate at authored y −4.27…−4.31 (20–39 m² of
+horizontal faces at depth, 0.26–0.48 of the object's 41–76 m² footprint), a staircase
+descending to it (components 0.15 m apart from y +1.0 to −4.3), equipment and ducts — some
+1,300 welded components per object, the room's ceiling AT the apron (y ≈ 0). The DSF row is a
+plain `OBJECT` on the ground. Rule 1 of the basin admission (`airport/obj8._read_placement`,
+04i) reads per COMPONENT: a solid thicker than `min_solid_thickness_m` whose floor stands
+`admission_depth_m` 2.5 under the local ground and `authored_depth_min_m` 2.5 under its own
+datum, whose plate has |n_y| ≥ 0.7, and whose shell tops out within `contact_band_m` of the
+ground (`rim_reaches_grade`; `through_grade` refuses a component rising more than the band
+over more than 5 % of its face area). The room passes every test exactly as a pit does — its
+ceiling is at grade — and the rotunda standing on it, 9.0 m tall, is OTHER components the
+per-component read never sees. 35 of OTHH's 45 basins were these rooms (`basin_floor:68`,
+`:71`, `:32`, `:17` at the owner's four points), each cut 4.8 m deep to the room floor + 0.5 m.
+
+**THE TWO POPULATIONS (probe `<scratch>/wells551/pop_table.txt`; `lid_probe.py`, `comp_probe.py`):**
+
+| population | row | deepest plate (y) | object's solid top (y) | top / depth | cover by the pack above the band | what stands above the plate |
+|---|---|---|---|---|---|---|
+| Drainage 01–05 (basins 1, 2, 3, 5, 8) | `OBJECT_AGL` +4.30 (authored to the cut, §18, kept) | −3.82 | +0.06 | 0.01 | 0.00 | open air; a sump box with a grating at grade inside the open bowl |
+| Drainage 06 (basins 0, 7, the walled sump 9) | `OBJECT` | −4.20 | +0.06 | 0.01 | 0.00 | open air |
+| Dewatering 01 / 02 (basins 4, 6) | `OBJECT_AGL` +13.50 / `OBJECT` | −13.14 | +5.35 (the pump house, beside the bowl) | 0.41 | 0.02 | open air over the bowl |
+| Jetway Type4–8, 10 (35 basins) | `OBJECT` | −4.27…−4.31 | +9.01 / +9.34 (rotunda, tunnel) | 2.09–2.17 | 0.26–1.00 (own 0–89 %) | the rotunda and its floor: the room is closed, a basement |
+
+Candidates measured: (a) OPEN TOP by the object's own lid — REFUTED as a separator: the
+Drainage sumps carry a grating at +0.06 over 100 % of their plate (they are real pits the
+author lifted); (b) the AUTHOR'S LIFT — REFUTED alone: Drainage 06 and Dewatering 02 are
+plain rows and real pits (#514); (c) cover by the pack above the band (`covered_fraction`,
+today diagnostic at `max_covered_fraction` 0.5) separates 34 of 35 (one Type8 well at 0.26);
+(d) **DEPTH AGAINST HEIGHT separates all: pits 0.01–0.41, wells 2.09–2.17 — a gap of ×5 with
+no number in it but 1.** RULED (spec author): a pit is deeper than it is tall. A placement
+whose solid top stands higher above the ground than its deepest floor plate lies below it is
+STANDING ON THE GROUND; its below-grade geometry is its foundation, footing or basement, and
+every witness of the placement is refused — named in `ObjReport.standing` with both numbers
+and printed with the basin refusals ("a thing standing on the ground … never an open pit").
+The witness is read per OBJECT: a pit under ANOTHER object's canopy stays a pit (its own top
+is its rim; the canopy is 04i's cover, reported), and a building WELDED to its pit's rim is
+already rule 1's `through_grade`. It fires at the read (rule 1), so the classify-time
+membership (`basin_member_ids`, 10ax (2)) and the re-seat plan's below-grade skip read the
+same answer: a standing object is not a basin member, its room is skipped as below-grade
+geometry, and it seats on its ground-contact feet like any building. The 04i rule-4 BASEMENT
+test (own cover ≥ 0.9) remains the second line, for an object shorter than its basement is
+deep.
+
+**MEASURED** — see §47 (8) MEASURED below (filled by the lane from the OTHH replay and the
+closing build `wells551_OTHH`).
+
 ## §48 THE INTERIOR OBJECT CLASS — AN INTERIOR IS NEVER READ AND NEVER LOADED; IT RIDES ITS CLUSTER (owner RULINGS 2026-09-17n; Fable 2026-09-17; scout `interiors`, RULINGS 17o) — lane `v2interiors`, after `v2doorwellperf`
 
 Owner: "We should be able to gain efficiency by identifying object interiors, as we should never

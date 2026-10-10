@@ -14,3 +14,39 @@ Lane branch `claude/basins526`, base main `f5f11c81f`. Reference: `/tmp/harness/
   (3 bodies in the PARTIAL plan; the as-built 1.0.385 plan has a 4th, b3 basin:9 — the full-plan
   base is being read to settle whether the partial plan or the tree differs);
   `Dewatering_02_LOD0_002` b1..b10 `plate_only` / `footless_own_ground` at z −9.68.
+
+## Step 1 — attribution and probes (othh513 frame `/tmp/harness/othh513_OTHH.v2`, main f5f11c81f)
+
+* The `4 -> 3 bodies` of othh513's B1 intervention is a CROSS-TREE read: on one tree and
+  one frame `Drainage_06_001` forms 3 bodies (b0 = comps [0,1,4] basin:0; b1 = [2], b2 = [3]
+  basin:7) on main's code AND with the feet rule, full plan and partial plan alike; the 4th
+  body (comp 4 alone on basin:9) exists only in the as-built 1.0.385 plan (engine 616e5d58a),
+  and the same as-built plan + graded read through this tree gives 3. Not the rule's doing.
+* B1 probe (`<scratch>/b1_probe.py`): `Drainage_06_000` comp 1 (4,858 m², base y −2.51):
+  centroid in NO ring, all 4 feet in `basin_wall:0`; comp 3: centroid and feet basin:7.
+  `Drainage_06_001` comps 0,1 basin:0; 2,3 basin:7; 4 basin:9 (feet and centroid agree).
+  `Dewatering_02_LOD0_002` comps 52–61: base y +3.18, area 0, FEET 0, centroid inside basin:6.
+* B3 mechanism: the 12 fittings are §14a (2) FLOOR MEMBERS (`basin_floor_members` 12 →
+  `basin_floor_own_ground` 12): a floor member "takes no carrier" and seats on its own
+  ground = the pit floor −9.68. With the feet guard the carrier search names the shell
+  (basin b0) but issue #10's `contents_seat` reroutes to the unit datum (median ground under
+  the shell's contacts = the floor, "carrier stands +13.64 m off its datum") — the basin
+  exemption of §16a (2) (`_ok`) was missing there.
+* G probe (`<scratch>/g_probe.py`, Basin records: `wall_path` = rim, `ring` = floor,
+  `region` = the object's outline): on main every no-face pit's rim stands +0.72…0.85 m
+  (median; max 1.1–1.4) OUTSIDE the outline, the floor ring ON it (0.00–0.20 m in): a slot
+  0.65–0.76 m wide (slot m² / perimeter). OTHH has 45 basins: 8 drainage/dewatering pits,
+  1 walled sump (basin:9, shell 0.78), 30 jetway rotunda wells (22–84 m² rims, shell 0.00)
+  and 6 more. No other sweep airport has a basin (sw11_* / sw12_HECA: 0).
+* First G arm (band inside for every no-face shell): the 8 pits' rims land on the outline
+  (median +0.01…0.10, ±0.3 lattice snap), slot 0.01–0.12 m; but 20 jetway wells went
+  BAND-IN with 0–3 m² floors of 32 m² plates (a well ~1.5 m wide cannot hold two bands) →
+  the DEGENERATE RULE as a law key `[basin] bank_band_plate_min = 0.5` (the floor inside
+  must keep that share of the witnessed plate; else the outward yield). A mean-bank-width
+  witness was tried and refuted: the Dewatering bowls' shallow banks read as PLATE
+  (|n_y| ≥ 0.7), so basin:6 measured 0.66 m of "bank" and fell back wrongly.
+* B2: the quantum constants `TOL_DEG` / `POOL_QUANTA` move to `model/placement` (the writer
+  `dsf_write` imports them back by name); `anchor_rule.rim_anchor_point` pushes the nearest
+  rim vertex TOL_DEG along the outward bisector (one site; `basin_ring.arc_anchor` reads it).
+* Other airports (base = `git archive f5f11c81f`, arm = this tree, full `obj8_split_report
+  --json`): KCLT 573 bodies, HECA 3,039 bodies — 0 changed (class, anchor, components).

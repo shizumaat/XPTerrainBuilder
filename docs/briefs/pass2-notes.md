@@ -285,3 +285,43 @@ CENSUS under the fix (harness census, all three patches censused on this tree), 
 HECA's CRITICAL motion falls back to 3: the `vertex_to_edge_step` apron|junction row at 30.10900813, 31.40395756 (0.5225 m
 in c2 — #495's site, the row 09h accepted at 0.519 m) is not a row under the fix. The terrace row of C-2 stands.
 Rising under the fix: HECA `taxi_box` +2, pad-tier `hard_conflict` +3; KCLT `taxi_box` +3, `strip_longitudinal` +1.
+
+HECA, WHO MOVES in pass 2 (`rows1b.py` on the 164 movers): 152 of 164 columns carry no level row — `bend` 752,
+`free_membrane` 430, `taxi_xsec` 37 rows (3 body-mean datums); every hard one-sided row on them is slack but 36
+`short-pair box` rows; **rows of R-E (`spec §62 (4)`) on a mover vertex: 0**. The worst (v13311, 30.12206504,
+31.41551287, `dsf:objpav402` | `dsf:objpav99` junction): six bending rows and one `taxi_xsec` row. So A's answer to "is
+it R-E's cross-ring pairs reaching junction cells that carry no level row": no R-E row reaches them; they are the §61
+membrane / cross-section class (relational rows at 1.0, no level of their own in ANY pass), stable in pass 1a and
+loose in pass 1b because of the spring; R-E changed the path, not the rows on these cells.
+
+## Suites (code changed: `solve/linear.py` +49 −17, `tests/auto_patch_v2/test_v2linear.py` +97)
+
+Non-Qt split as CI (`-n 9`): **9,181 passed**, 19 skipped, 1 xfailed, 1 xpassed, 0 failed (208 s). Qt `-n0`: 311 passed.
+`test_console_encoding` + `test_windows_text_io` + `test_v1_retired` + `test_no_airport_specific_code`: 204 passed.
+`tools/ratchets.py`: DUPLICATE RATCHET PASS, LAYER RATCHET PASS; no size warning names `linear.py`. New public
+symbols: none (`_normal_back` is private). Frames registered: `frames/pass2/{HECA,KCLT}_auto.patch.osm`.
+Instruments: `docs/briefs/pass2-scratch/` (`p1b.py` the stage-1 null pair with `--iv` / `--hook`, `rows1b.py`,
+`hook_*.py` the arms, `hybrid.py` + `cdiff.py` + `worst.py` the census reads; `cdiff.py` is a one-off — the tree's
+`tools/census_rows_diff.py` is the standing row join).
+
+## Found, not fixed
+
+1. `wall_terrace` DECLARED step (`pipeline/publication.wall_terrace_joints`): `min(height, emitted)` with `emitted` read
+   on the wall's `upper` / `lower` lot pairing only (HECA joint 74: 1 pair, 2 lots → 1.357 m in c2) while the census
+   prices every pavement pair across the 292 m outline (3.62 m at 30.12155524, 31.41995156). m masked it (emitted 6.34
+   > height). Not attributed by intervention on the planar map.
+2. The step across that wall is 0.5 m over the wall's own height under R-E (3.62 vs 3.102 m): nothing bounds it
+   (`wall_release` withdraws the pair rows between the two sides) — the question in the report.
+3. `building99` (way −10442, 30.12201985, 31.41904101), a pad on the `objpav402` sheet with no hold record: 102.9 → 94.9 /
+   93.8 under R-E, 1.05 m of relief over 21 m inside one pad (`within_shape` building|building 4.99 %). m: flat to 0.06.
+4. `pad_frontage_infeasible` 0 → 4 under R-E: four held blocks with a weld the §5a LP released (≤ 0.105 m); stands
+   under the fix.
+5. `platforms[building100].tilt_pct` reads 59.7 (m) / 93.4 (c2, f) — a held pad's record; not looked at.
+6. KCLT: the warm-up QP of pass 1b ends `round_cap` (400) in c2 and under the fix; stage 2's warm-up QP ends
+   `round_cap` under the fix (c2: `no_descent`). Named, not failures (§61 Q2); the later QPs end `optimal`.
+7. HECA pass 1a: one `promote_missed` row differs between the arm and its twin (632 / 633) with the surface equal to
+   0.013 m — §61 (5)'s threshold flip, inside the bar.
+8. The Tikhonov floor's SIZE (`1e-12 · max diag`, 1.1e-4 at KCLT) is unchanged: it now damps the step only. The
+   `cg` / `lsqr` methods never had it.
+9. The job queue's lock is not FIFO: `B_main_pads67` ran for ~1 min beside the KCLT prelude (two heavy things at once,
+   19:09–19:10).

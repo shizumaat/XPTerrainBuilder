@@ -167,9 +167,10 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                                f"2026-09-27a (3))")
         cover = on_field.cover_run_m(ln) if on_field is not None else 0.0
         width = max(carriageway_width_m(w.tags or {}, law) for w in bore.ways)
+        pads = None
         if cover >= tn.terrain_cover_min_m:
-            cover = _cover_at_grade(on_field, pack_bldg, ln, width, cover,
-                                    tn.terrain_cover_min_m)
+            cover, pads = _cover_at_grade(on_field, pack_bldg, ln, width, cover,
+                                          tn.terrain_cover_min_m)
             if cover >= tn.terrain_cover_min_m:
                 return True, f"under the classified cover for {cover:.1f} m"
         lay = _layer_of_bore(bore)
@@ -178,7 +179,7 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
         crossed = _crossings(ln, grade, grade_tree, bore, tn.terrain_crossing_min_m)
         if crossed:
             return True, ("under " + ", ".join(crossed[:3]) + " at grade")
-        rise = _rise_m(airport, ln)
+        rise = _rise_m(airport, ln, pads)
         if rise is not None and rise >= tn.terrain_rise_m:
             return True, f"the ground over it stands {rise:+.2f} m above its mouth chord"
         if fence is not None and _osm_tunnel(bore, tn.admitted_values) \
@@ -210,7 +211,7 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
 
 
 def _cover_at_grade(on_field, pack_bldg, line, width_m: float, cover_m: float,
-                    cover_min_m: float) -> float:
+                    cover_min_m: float) -> tuple:
     """§34 (12) (5) (c)'s COVER, READ AT GRADE (owner RULINGS 2026-10-10i
     (1): "an elevated pack part with clear space beneath is not cover";
     issue #548): the metres of ``line`` under the classified cover that
@@ -229,17 +230,23 @@ def _cover_at_grade(on_field, pack_bldg, line, width_m: float, cover_m: float,
     lower roadway under the departures deck — and a ramp 5.1 m deep was
     cut beside the pack's own up-ramp to that deck.
 
+    Returns ``(cover at grade, the discounted pads' union or None)``.  THE
+    DEM UNDER THOSE PADS IS DISCOUNTED WITH THEM (``_rise_m``'s ``skip``):
+    it is the building's own site as the lidar filtered it under a roof,
+    and the same bore read "+0.82 m above its mouth chord" there.
+
     ``on_field.pad_cover`` are the pad cells among the region's polygons
     (``field_region_for``); a region that carries none, or a pack that
     reports no passage, leaves ``cover_m`` as it was."""
     pads = getattr(on_field, "pad_cover", None) or ()
     if not pads or pack_bldg.passage(line, width_m, cover_min_m) is None:
-        return cover_m
+        return cover_m, None
     from shapely.ops import unary_union
     over = [p for p in pads if p.intersects(line)]
     if not over:
-        return cover_m
-    return float(on_field.cover_run_m(line.difference(unary_union(over))))
+        return cover_m, None
+    under = unary_union(over)
+    return float(on_field.cover_run_m(line.difference(under))), under
 
 
 class _PackBuildings:
@@ -457,7 +464,7 @@ def _crossings(ln, grade, tree, bore, min_inside_m):
     return sorted(set(out))
 
 
-def _rise_m(airport, ln):
+def _rise_m(airport, ln, skip=None):
     """How far the DEM anywhere OVER the bore stands above THE LINE BETWEEN
     ITS TWO MOUTH GROUNDS — the bore's form of §34 (12) (4) (ii).
 
@@ -468,7 +475,9 @@ def _rise_m(airport, ln):
     bore falling 1.0 m or more along a plane passed ``terrain_rise_m``
     0.5 with nothing over it.  The chord between the mouth grounds is the
     ground a trench would follow; only ground standing ABOVE that chord
-    is ground the bore passes under."""
+    is ground the bore passes under.  A station inside ``skip`` (the pads
+    :func:`_cover_at_grade` discounted, issue #548) is not ground over the
+    bore and is not read; the chord is still the two mouths'."""
     dem = getattr(airport, "dem", None)
     if dem is None or ln.length <= 0.0:
         return None
@@ -480,7 +489,10 @@ def _rise_m(airport, ln):
         if z != z:                                     # NaN: no witness
             return None
         zs.append(z)
-    return max(z - (zs[0] + (zs[-1] - zs[0]) * i / n) for i, z in enumerate(zs))
+    if skip is None:
+        return max(z - (zs[0] + (zs[-1] - zs[0]) * i / n) for i, z in enumerate(zs))
+    return max((z - (zs[0] + (zs[-1] - zs[0]) * i / n) for i, z in enumerate(zs)
+                if not skip.covers(ln.interpolate(ln.length * i / n))), default=0.0)
 
 
 def pad_relief_m(airport: Airport, poly: Polygon) -> float:

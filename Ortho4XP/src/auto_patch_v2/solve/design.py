@@ -536,6 +536,13 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     fr_i = np.asarray(base_p.foot_row_i, dtype=np.int64)
     if fr_i.size:
         w_row[fr_i] = float(d.pad_flat)
+    # A PREFERENCE UNDER A YIELDED CAP (owner RULINGS 2026-10-10j, spec
+    # §50.8): the flat tier of an apron that yielded with its runway is
+    # priced UNDER the taxi caps' ``law`` — it still prefers flat (09k) and
+    # no longer outranks a taxiway's cap.  Empty wherever no runway yielded.
+    yp_i = np.asarray(base_p.yielded_pref_i, dtype=np.int64)
+    if yp_i.size:
+        w_row[yp_i] = float(d.yielded_preference)
     w_row[hard_i] = rho
     sw = np.sqrt(w_row)
     #: ``μ/ρ`` per one-sided row — zero everywhere but the hard rows, where it

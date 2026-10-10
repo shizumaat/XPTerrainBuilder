@@ -16,7 +16,6 @@ from shapely.strtree import STRtree
 
 from ..constraints.contiguity import _cross_section
 from ..constraints.geometry import long_axis
-from ..constraints.precedence import taxi_cap_for
 from ..constraints.roads import road_family_roles
 from .frame import Patch, Row, row
 
@@ -41,13 +40,13 @@ def lateral_contiguity(p: Patch) -> list[Row]:
         if poly.is_empty or poly.geom_type != "Polygon":
             continue
         polys.append(poly)
-        # the LAW cap of a class is its role cap (never the way tag)
-        from ..law.tables import role_cap
-        rc = role_cap(law, sh.role, sh.code_number, sh.code_letter)
-        # 30ah (1): a tied taxi class reads its yielded cap, as the
-        # generator's ``vw.caps`` does (``precedence.taxi_cap_for``)
-        caps.append(taxi_cap_for(rc.longitudinal, p.taxi_yield(sh))
-                    if rc is not None else cap)
+        # the LAW cap of a class is its role cap (never the way tag) as
+        # the generator's ``vw.caps`` reads it: a §50-yielded RUNWAY at its
+        # effective cap, a taxi face (30ah (1)) or an apron (2026-10-10j)
+        # tied to it at its yielded cap — ``Patch.cap``, the one reader.
+        # (The runway read its TABLE cap here until 10j: KASE's road
+        # stations beside the yielded runway were 4 rows of 0.005.)
+        caps.append(cap)
         roles.append(sh.role)
         shapes.append(sh)
     if not polys:

@@ -313,7 +313,11 @@ def yielded_lines(icao: str, caps: _t.Mapping[str, RunwayCap],
 
 @_dc.dataclass(frozen=True)
 class TaxiYield:
-    """One TAXI-FAMILY face's yielded longitudinal cap (30ah (1)).
+    """One TIED face's yielded longitudinal cap — a TAXI-FAMILY face
+    (30ah (1)) or an APRON face (owner RULINGS 2026-10-10j, issue #523:
+    "apron may follow runway when runway exceeds cap"; the record and its
+    published name are the taxi family's, kept because the sidecar key
+    and the way tag are the wire).
 
     ``cap`` is what the face is priced at —
     ``taxi_cap_for(table, min(runway cap, pavement fallback))`` — and
@@ -353,6 +357,16 @@ def derive_taxi(pm: PlanarMap, law: Law, airport: Airport | None,
     tied yielded runways: the steepest.  A face whose table cap already
     meets the yield gets no record (nothing moved).
 
+    AN APRON TIED TO THE RUNWAY YIELDS WITH IT (owner RULINGS 2026-10-10j,
+    spec §50.8): an APRON face takes ``max(apron cap, that runway's
+    effective cap)`` by the same reader, HERE and nowhere else.  TIED, for
+    an apron, is the taxi family's witness — a station of its own in a
+    component the runway touches — or CONTACT with what already yielded:
+    a ring vertex it shares with a tied taxi-family face (the runway's
+    taxi family FRONTS it) or with a face of the yielded runway itself
+    (:func:`_tied_aprons`).  A pad's plateau and an apron no yielded
+    runway's family reaches keep the table cap.
+
     Empty — and NOTHING is built — when no runway yielded, so an airport
     with no yielded runway is untouched byte for byte."""
     yielded = {r: rc for r, rc in caps.items() if rc.yielded}
@@ -362,7 +376,7 @@ def derive_taxi(pm: PlanarMap, law: Law, airport: Airport | None,
     from scipy.sparse import csr_matrix
     from scipy.sparse.csgraph import connected_components
     from .routes import CENTRELINE, CROSSING, RIDGE_KIND, routes
-    from .stretches import stretches
+    from .stretches import APRON_ROLE, stretches
 
     g = routes(pm, law, airport)
     keep = (g.kind == CENTRELINE) | (g.kind == CROSSING)
@@ -386,8 +400,18 @@ def derive_taxi(pm: PlanarMap, law: Law, airport: Airport | None,
     st = stretches(pm, law)
     station = g.station
     out: dict[int, TaxiYield] = {}
+    aprons: dict[int, list[tuple[float, str]]] = {}   # apron face -> its station ties
+
+    def record(fid: int, table: float, ties: _t.Iterable[tuple[float, str]]) -> None:
+        # the steepest tied yielded runway; on a tie the first ref
+        best = min(ties, key=lambda t: (-t[0], t[1]), default=None)
+        got = None if best is None else taxi_cap_for(table, best[0])
+        if got is not None and got > table:
+            out[fid] = TaxiYield(fid, best[1], got, table, best[0])
+
     for fid, f in pm.faces.items():
-        if role_family(law, f.role) != "taxi":
+        apron = f.role == APRON_ROLE
+        if not apron and role_family(law, f.role) != "taxi":
             continue
         rc = role_cap(law, f.role, f.code_number, f.code_letter)
         if rc is None:
@@ -396,15 +420,45 @@ def derive_taxi(pm: PlanarMap, law: Law, airport: Airport | None,
                if v < len(station) and station[v]}
         for sid in st.face_stretches.get(fid, ()):
             own.update(st.items[sid].vertices)
-        best: tuple[float, str] | None = None
-        for c in comps(own):
-            for cap, ref in touch.get(c, ()):
-                if best is None or cap > best[0] or (cap == best[0] and ref < best[1]):
-                    best = (cap, ref)
-        if best is None:
+        ties = [t for c in comps(own) for t in touch.get(c, ())]
+        if apron:
+            aprons[fid] = ties            # contact is read once the family is known
+        else:
+            record(fid, rc.longitudinal, ties)
+    for fid, ties in _tied_aprons(pm, law, yielded, ceiling, aprons, out).items():
+        record(fid, role_cap(law, APRON_ROLE).longitudinal, ties)
+    return out
+
+
+def _tied_aprons(pm: PlanarMap, law: Law, yielded: _t.Mapping[str, RunwayCap],
+                 ceiling: float, aprons: _t.Mapping[int, list[tuple[float, str]]],
+                 taxi: _t.Mapping[int, TaxiYield]
+                 ) -> dict[int, list[tuple[float, str]]]:
+    """Apron face -> every ``(runway cap, ref)`` it is TIED to (owner
+    RULINGS 2026-10-10j): its own station ties (``aprons``, the taxi
+    family's witness) and its CONTACTS — a ring vertex shared with a taxi
+    face that yielded (``taxi``) or with a face of a yielded runway.  The
+    contact is one hop, never apron to apron: an apron behind another is
+    tied by its own stations or not at all."""
+    at: dict[int, list[tuple[float, str]]] = {}      # vertex -> what yielded there
+    for fid, f in pm.faces.items():
+        if fid in taxi:
+            ties = [(taxi[fid].runway_cap, taxi[fid].ref)]
+        elif role_family(law, f.role) == "runway":
+            ties = [(min(float(yielded[r].cap), ceiling), r)
+                    for r in f.ref.split("+") if r in yielded]
+        else:
             continue
-        got = taxi_cap_for(rc.longitudinal, best[0])
-        if got <= rc.longitudinal:
-            continue
-        out[fid] = TaxiYield(fid, best[1], got, rc.longitudinal, best[0])
+        for cyc in (f.ring, *f.holes):
+            for v in pm.ring_vertices(cyc):
+                at.setdefault(v, []).extend(ties)
+    out: dict[int, list[tuple[float, str]]] = {}
+    for fid, ties in aprons.items():
+        f = pm.faces[fid]
+        got = list(ties)
+        for cyc in (f.ring, *f.holes):
+            for v in pm.ring_vertices(cyc):
+                got.extend(at.get(v, ()))
+        if got:
+            out[fid] = got
     return out

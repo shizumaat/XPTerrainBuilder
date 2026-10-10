@@ -65,7 +65,11 @@ def taxi_cap_for(table_cap: float, yielded: float | None) -> float:
     generators (``face_cap``, ``stretches``), v2 verify (``verify/
     frame.Patch.cap``) and the census (``check_grade``) all price through
     THIS function (``tests/test_harness.py`` twins it): two copies of the
-    law is the 30l (1) defect."""
+    law is the 30l (1) defect.
+
+    AN APRON TIED TO THE YIELDED RUNWAY reads the same record through the
+    same function (owner RULINGS 2026-10-10j, spec §50.8) — ``table_cap``
+    is then the apron's 1.5 %."""
     return table_cap if yielded is None else max(table_cap, float(yielded))
 
 
@@ -86,10 +90,11 @@ def face_cap(law: Law, face: Face, pm: PlanarMap | None = None
         got = cap_of(pm, law, face.ref, face.code_number, face.code_letter)
         if got is not None:
             lon = got
-    elif pm is not None and role_family(law, face.role) == "taxi":
-        # 30ah (1): a taxi face tied to a yielded runway (the published
-        # per-face record) — absent everywhere else, so every other map
-        # reads the table exactly as before
+    elif pm is not None:
+        # 30ah (1) / 2026-10-10j: a taxi or APRON face tied to a yielded
+        # runway (the published per-face record; only those two classes
+        # carry one) — absent everywhere else, so every other map reads
+        # the table exactly as before
         rec = (getattr(pm, "taxi_caps", None) or {}).get(face.id)
         if rec is not None:
             lon = taxi_cap_for(lon, rec.cap)

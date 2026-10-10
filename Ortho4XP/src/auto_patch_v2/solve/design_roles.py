@@ -20,7 +20,7 @@ from ..law.tables import (airside_stage_roles as _airside_stage_roles,
                           role_side, zone_class)
 from ..model.constraints import Row
 
-__all__ = ['airside_stage_roles', 'conforming_rulings', 'groundside_pin_rulings', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
+__all__ = ['airside_stage_roles', 'conforming_rulings', 'groundside_pin_rulings', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'yielded_preference_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
 
 def bend_roles(law: Law) -> tuple[str, ...]:
     """The roles whose faces form the SHEETS the bending term shapes: every
@@ -155,6 +155,13 @@ def foot_row_rulings(law: Law) -> frozenset[str]:
     missed).  A register of its own, kept apart from ``pad_flat_rulings``
     so the report counts foot rows and pad planes separately."""
     return frozenset(design_law(law).foot_row_rulings)
+
+
+def yielded_preference_rulings(law: Law) -> frozenset[str]:
+    """The ruling HEADS priced at ``[design] yielded_preference`` — the
+    flat preference of an apron that yielded with its runway (owner
+    RULINGS 2026-10-10j): under ``law``, so it never outranks a taxi cap."""
+    return frozenset(design_law(law).yielded_preference_rulings)
 
 
 def pad_flat_rulings(law: Law) -> frozenset[str]:

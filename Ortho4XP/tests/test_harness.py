@@ -11327,8 +11327,12 @@ def test_taxi_yield_census_and_generator_share_one_reader(cg, monkeypatch):
     from auto_patch_v2.law.tables import role_cap
 
     # every engine reader holds THE function, not a copy of the rule
-    for mod in (_RY, _ST, _VF, _VC):
+    for mod in (_RY, _ST, _VF):
         assert mod.taxi_cap_for is _P.taxi_cap_for, mod.__name__
+    # lateral contiguity holds no reader of its own: it prices each class at
+    # ``Patch.cap`` (the frame's), so a yielded runway, taxi face or apron
+    # (RULINGS 2026-10-10j) reads there exactly as in the generator
+    assert not hasattr(_VC, "taxi_cap_for")
     # the census reads the tag the publication stamps, and the key is known
     assert cg.TAXI_YIELD_CAP_TAG == _PUB.TAXI_YIELD_CAP_TAG
     assert "taxi_yield_caps" in _OA.SIDECAR_KEYS
@@ -11358,6 +11362,12 @@ def test_taxi_yield_census_and_generator_share_one_reader(cg, monkeypatch):
     lon, tr = _P.face_cap(law, face, pm)
     assert lon == 0.0202 and calls == [(0.015, 0.0202)]
     assert tr == role_cap(law, "primary_parallel", None, "D").transverse
+    # 2026-10-10j: an APRON tied to the yielded runway, through the same reader
+    apron = types.SimpleNamespace(id=9, role="apron", ref="pav1",
+                                  code_number=None, code_letter=None)
+    pm.taxi_caps[9] = types.SimpleNamespace(cap=0.0202)
+    calls.clear()
+    assert _P.face_cap(law, apron, pm)[0] == 0.0202 and calls == [(0.015, 0.0202)]
 
 
 # ---------------------------------------------------------------------------

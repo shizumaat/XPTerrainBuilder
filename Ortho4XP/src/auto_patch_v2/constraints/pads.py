@@ -473,10 +473,11 @@ def rim_strip_ties(planar: PlanarMap, law: Law) -> dict[int, tuple[int, float]]:
     law with the rim (``road_ramp.pad_weld_release``); the road's cap rows
     run from the knife line outward.
 
-    A STRIP, read on the map alone: a groundside value face that shares a
-    vertex with a pad and stands wholly within the knife (+ the identity
-    grid) of that pad.  A vertex airside pavement owns is never tied
-    (airside is king), nor one another pad owns."""
+    THE KNIFE LINE, read on the map alone (a face carries no evidence, and
+    a strip part may run on past the pad's end): every vertex of a
+    groundside value face sharing a pad's rim that stands off the rim and
+    within the knife (+ the identity grid) of that pad.  A vertex airside
+    pavement owns is never tied (airside is king), nor one a pad owns."""
     from ..law.tables import is_value_role, role_side, snap_margin_m
     faces = getattr(planar, "faces", None) or {}
     groups = _pad_groups(planar, law) if faces else []
@@ -502,18 +503,19 @@ def rim_strip_ties(planar: PlanarMap, law: Law) -> dict[int, tuple[int, float]]:
             continue
         ring = [int(v) for v in vw.rings.get(fid, ())]
         rim = [v for v in ring if v in pad_of]
-        refs = {pad_of[v] for v in rim}
-        if len(refs) != 1 or len(rim) == len(ring):
+        if not rim or len(rim) == len(ring):
             continue
-        parts = polys.get(next(iter(refs)))
+        # a pad is often several faces (a cluster's pieces, a platform and
+        # its collar): the strip is read against every one it touches
+        parts = [p for ref in sorted({pad_of[v] for v in rim})
+                 for p in polys.get(ref, ())]
         if not parts:
             continue
-        off = [v for v in ring if v not in pad_of]
-        if any(min(p.distance(Point(vw.xy[v])) for p in parts) > reach for v in off):
-            continue                           # not a strip: it has a body
-        for v in off:
-            if v in air:
+        for v in ring:
+            if v in pad_of or v in air:
                 continue
+            if min(p.distance(Point(vw.xy[v])) for p in parts) > reach:
+                continue                       # beyond the knife line: the road's own
             r = min(rim, key=lambda q: (math.dist(vw.xy[q], vw.xy[v]), q))
             d = math.dist(vw.xy[r], vw.xy[v])
             if d > 0.0 and (v not in out or d < out[v][1]):

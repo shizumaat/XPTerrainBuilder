@@ -87,3 +87,19 @@ def test_every_low_rank_mode_is_the_same_algebra(mode):
                           np.concatenate([b, c]), rcond=None)[0]
     assert np.max(np.abs(_solve(A, b, None, U, c, mode) - ref)) < 1e-3
     assert np.max(np.abs(_solve(A, b, ref, U, c, mode) - ref)) < 1e-9
+
+
+def test_a_null_space_column_keeps_its_warm_start():
+    """A column NO row prices has no minimiser of its own: the normal solve
+    returns it where the warm start put it (its step is zero — the floor
+    damps the increment), and at 0 on a cold start; the priced columns
+    beside it still land on their optimum either way."""
+    A, b, ref = _chain()
+    A1 = sp.hstack([A, sp.csr_matrix((A.shape[0], 1))], format="csr")
+    x0 = np.concatenate([ref + 0.05, [187.25]])
+    warm = _solve(A1, b, x0)
+    assert abs(warm[-1] - 187.25) < 1e-9
+    assert np.max(np.abs(warm[:-1] - ref)) < 1e-4
+    cold = _solve(A1, b, None)
+    assert abs(cold[-1]) < 1e-9
+    assert np.max(np.abs(cold[:-1] - ref)) < 1e-4

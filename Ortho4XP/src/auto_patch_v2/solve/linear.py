@@ -89,6 +89,10 @@ def _linear_solve(A: sp.csr_matrix, b: np.ndarray, x0: np.ndarray | None,
     each is dense in the normal equations, so it is applied as a LOW-RANK
     correction by ``low_rank`` (:data:`LOW_RANK_MODES`) instead of being
     factorised.  Every mode is the SAME algebra and returns the same ``x``.
+
+    The ``normal`` result DEPENDS ON ``x0``: it is an increment from the
+    warm start, so a column no row prices (the null space) is returned at
+    its ``x0`` value (0 on a cold start) — never pulled to zero.
     """
     k = 0 if U is None else int(U.shape[0])
     if k and low_rank == "dense":

@@ -237,3 +237,27 @@ worst 0.56 m — strip 1,174 (worst 0.07 m), taxi 47 (worst 0.56 m at 35.2051690
 six weak vertices were wherever the path left them (they are c2's and e0's own null-change movers). The brief's condition
 ("without moving the final surface by more than the null-change noise itself") is therefore NOT met by count or by worst
 value; the change is on the branch for the master's decision, not asked to merge as a no-op.
+
+HECA, full replay pair on this tree (`<scratch>/pass2/f`, `frames/pads67/HECA.pkl`):
+`NULL-CHANGE pass1 0/0/0.013 pass2 5/0/0.059 pass3 5/0/0.176 stage2 6/0/0.176 (promoted 2389=2390, lp relaxed 318=318)` —
+**MET** (c2: 0/0/0.000 · 164/0/0.107 · 13/0/0.154 · 16/0/0.154 MISSED). The residual: four vertices of `gapapron:1` at
+30.10297, 31.39594 (−0.059 / +0.176; the same four every earlier read names) and one junction vertex of `dsf:objpav72`
+at 30.11881281, 31.42168687 (−0.05 / −0.06); one `promote_missed` row differs in pass 1a (632 / 633), as in c2. Every
+stage-1 and stage-2 QP exits `optimal` (c2 stage 1: `no_descent 2, optimal 1`). `HARD SET NOT SETTLED` 74 rows, worst
+0.1345 m — unchanged, the same row.
+
+FINAL SURFACE vs c2, every emitted vertex (`graded.json` joined by key; airside frames by `airside_value_delta`):
+
+| | vertices | moved > 0.02 / > 0.1 / > 0.3 / worst | runway | strip / taxi / apron (row-side, n / worst) | groundside-only |
+|---|---|---|---|---|---|
+| HECA `f` vs `c2` | 42,439 (same set) | **1,085 / 13 / 0 / 0.12 m** | 0 of 2,581 (worst 0.01) | 849 / 0.12; 175 / 0.11; 35 / 0.07 | 10 / worst 0.11 |
+| KCLT `kf` vs `kc2` | 22,219 (same set) | **1,265 / 6 / 4 / 0.56 m** | 0 of 1,615 (0.00) | 1,174 / 0.07; 47 / 0.56; 13 / 0.44 | 9 / worst 0.04 |
+
+c2's own null-change noise for scale: HECA 164 movers ≤ 0.107 (pass 2), 16 ≤ 0.154 (stage 2); KCLT 47 / 90 ≤ 0.185. At
+HECA the one-time move is inside the noise's SIZE (worst 0.12) and over its COUNT; at KCLT it is over both (four
+vertices 0.32–0.56 m, all c2 / e0 null-change movers themselves).
+
+WALL (single runs, weldverify on the machine): KCLT solve 116.8 → 114.9 s (stage 1 60.1 → 60.7, stage 2 53.3 → 50.6);
+HECA solve 355.7 → 357.5 s (stage 1 298.3 → 291.4). No measurable cost: the increment solve is one back-solve, as before.
+QP exits: KCLT stage 2's first (warm-up) QP now ends `round_cap` at 400 rounds (c2: `no_descent`), the five after it
+`optimal`; stage 1's warm-up `round_cap` as in c2. HECA: no `round_cap`.

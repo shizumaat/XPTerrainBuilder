@@ -37,7 +37,7 @@ import typing as _t
 
 __all__ = ["SEAT_AUTHORED", "SEAT_RESEATED", "lifted_by_own_depth", "anchor_family_key", "crest_over",
            "crest_in_band", "rim_over", "rim_in_band", "stated_height",
-           "pack_proud_height"]
+           "pack_proud_height", "kept_ids", "kept_rows"]
 
 #: The two values a seat record carries (the plan's ``seat`` column).
 SEAT_AUTHORED = "authored (cut)"
@@ -121,3 +121,31 @@ def pack_proud_height(stated: _t.Iterable[float | None]) -> float | None:
     ``None`` (flush, 05n-4) when no wall of the pack states a height."""
     hs = [float(h) for h in stated if h is not None]
     return float(statistics.median(hs)) if hs else None
+
+
+def kept_ids(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> set[str]:
+    """The placements whose authored seat is KEPT: a kept wall, and a kept
+    pit with every member of its basin AND of their anchor families (the
+    record's ``members``: the placements whose floors ARE the pit and the
+    ones the author lifted with them at the same anchor — one shell of two
+    is not moved against the other)."""
+    out: set[str] = set()
+    for r in records:
+        if r.get("seat") == SEAT_AUTHORED:
+            out.add(str(r.get("id")))
+            out.update(str(m) for m in r.get("members") or ())
+    return out
+
+
+def kept_rows(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> frozenset[int]:
+    """§18 (3) (b) ON THE DSF: the pristine dump's ROW of every kept
+    placement (``dsf:obj<i>`` is row ``i``, the id ``airport/load`` mints).
+    The author's elevation column IS his seat, so the writer leaves these
+    rows exactly as authored — no on-ground conversion, no per-placement
+    elevation, no rider seat (``placement_write.build_plan``).  An id that
+    names no dump row keeps none."""
+    out = set()
+    for oid in kept_ids(records):
+        if oid.startswith("dsf:obj") and oid[7:].isdigit():
+            out.add(int(oid[7:]))
+    return frozenset(out)

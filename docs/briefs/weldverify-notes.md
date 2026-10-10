@@ -7,11 +7,21 @@ bases `b0` / `kb0` and weld63's `w1` / `kw1` symlinked — controls shared, not 
 
 ## RESUME HERE
 
-* HEAD 75cdfb3e (pushed). Arms done in `<scratch>/weldverify/`: `v1` / `kv1` (b57214e3 = PR #504 + main), `x1` / `kx1`
-  (44f9955b, W + B′ + P before the cloud commits), `s1` (23ad159e). RUNNING: `chain2.sh` = `v2` / `kv2` at 63341a37
-  (the strip-claim fix), `--null-change`, census. THEN: `acc.sh v2 HECA b0`, `acc.sh kv2 KCLT kb0`, `cen2.py`, the sites,
-  SPJC / CYXY / OTHH single replays (bases at ded211fb not yet taken), the closing build `weldverify_HECA`, suites, ratchets.
-* Second frozen tree `.claude/worktrees/weldverifyfrz` (44f9955b) for read drivers; `weld63frz` runs the chain.
+* HEAD 1e6ab88d (pushed) = PR #504 + main + (a) 63341a37 the rim strip out of the zone claim, (b) 75cdfb3e LP twins for
+  10a (2), (c) 1e6ab88d a groundside cap half a tier above its tier's rows. Non-Qt suite at 1e6ab88d: 9,199 passed,
+  19 skipped, 1 xfailed, 1 xpassed (`<scratch>/weldverify/suite.txt`).
+* Arms in `<scratch>/weldverify/`: `v1` / `kv1` (b57214e3), `x1` / `kx1` (44f9955b), `s1` (23ad159e), `v2` / `kv2`
+  (63341a37). RUNNING: `chain3.sh` = `v3` / `kv3` at 1e6ab88d; then `chain4.sh` = bases `sb0` / `cb0` / `ob0` (SPJC, CYXY,
+  OTHH at ded211fb). THEN: arms `sv` / `cv` / `ov` at the final head, the sites, the closing build `weldverify_HECA`,
+  Qt suite + the four named tests, ratchets.
+* `v2` (strip fix alone) at HECA: airside nodes 0 removed / 2 added (both at the `objpav366` apron contact 30.11721, 31.38160);
+  movers runway 0, strip 4, taxi 10, apron 39, worst 0.05 m, all 53 within 200 m of that one site; structure 0;
+  `--null-change` 5/0/0.249, 8/0/0.137, 8/0/0.137 (inside bar); conflicts 349 / 19 / 2; adjudicated airside 12,022 → 11,867.
+* `s1` (S + T): airside nodes 0 / 0, movers 0, conflicts 254 / 104 / 64 unchanged, TOUCH-OFF 15 / 565 → 13 / 597.
+  `kx1` = `kw1` on every line (B′ moves nothing measurable at KCLT either: TOUCH-OFF 1 / 0, 267 / 53 / 48).
+* FOUND on `v1`, fixed 1e6ab88d, `v3` measures it: cloud (2) put a lot's / road's own grade cap in the groundside tier at
+  the SAME price as the road's ramp ceiling and cross-section it had been senior to → `dsf:objpav405` at 30.1390670,
+  31.4100643 (no pad near) went 5.90 m over 55.8 m (`pavement_over_road_cap` HECA 23 → 48 rows, KCLT 16 → 38).
 
 ## Step 1 — `v1` (HECA) / `kv1` (KCLT) at b57214e3, before any fix here
 

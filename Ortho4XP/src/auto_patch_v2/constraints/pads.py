@@ -87,7 +87,7 @@ from .precedence import view
 
 __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "frontage_near_miss", "frontage_contacts", "pad_frontage_level",
-           "pad_shared", "pad_welded_vertices", "pad_datum_withdrawn",
+           "pad_shared", "pad_welded_vertices", "rim_strip_ties", "pad_datum_withdrawn",
            "pad_frontage", "FLAT_RULING",
            "CEILING_RULING", "FLAT_AIRSIDE_LED_RULING",
            "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
@@ -452,7 +452,73 @@ def pad_welded_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
         got = {kind.get(q, 0) for q in vx.incident_faces}
         if 1 in got and 2 in got:
             out.add(v)
-    return frozenset(out)
+    # the rim STRIP is part of the weld: its knife-line vertices too
+    return frozenset(out | set(rim_strip_ties(planar, law)))
+
+
+def rim_strip_ties(planar: PlanarMap, law: Law) -> dict[int, tuple[int, float]]:
+    """THE RIM STRIP IS PART OF THE WELD (spec §63 (4) / M1; owner RULINGS
+    2026-10-09j "welded to the pad", 2026-10-08c (4) / 09d (1) "no step"):
+    knife-line vertex -> ``(its nearest rim vertex, their distance)``.
+
+    A welded cell that also bounds airside keeps the set-back knife's cut
+    as a seam (``classify/roles._cut_back_groundside``): the knifed body,
+    and a strip one knife wide between it and the pad's rim.  The strip has
+    no rim -> knife-line ring edge but its two ends, so no cap crosses it,
+    and its outer vertices carried the road's own ramp law: measured (lane
+    weldverify, HECA ``building12`` | ``route3``) the road stood 0.3-0.78 m
+    above the rim inside 0.95 m.  A step.  So a strip's outer vertices are
+    PAD columns in effect: tied to the rim under the pad's own tilt
+    ceiling (:func:`pad_slope_ceiling`) and released from the road's ramp
+    law with the rim (``road_ramp.pad_weld_release``); the road's cap rows
+    run from the knife line outward.
+
+    A STRIP, read on the map alone: a groundside value face that shares a
+    vertex with a pad and stands wholly within the knife (+ the identity
+    grid) of that pad.  A vertex airside pavement owns is never tied
+    (airside is king), nor one another pad owns."""
+    from ..law.tables import is_value_role, role_side, snap_margin_m
+    faces = getattr(planar, "faces", None) or {}
+    groups = _pad_groups(planar, law) if faces else []
+    if not groups:
+        return {}
+    pad_of: dict[int, str] = {}
+    for _fid, ref, group in groups:
+        for v in group:
+            pad_of.setdefault(int(v), str(ref))
+    polys: dict[str, list[Polygon]] = {}
+    for _fid, ref, _g, poly in _pad_polys(planar, law):
+        polys.setdefault(str(ref), []).append(poly)
+    reach = (float(law.tables.structures.building_pad.groundside_cutback_m)
+             + snap_margin_m(law)
+             + float(law.tables.emit.identity.min_distinct_spacing_m))
+    air = airside_vertices(planar, law)
+    vw = view(planar, law)
+    out: dict[int, tuple[int, float]] = {}
+    for fid, f in faces.items():
+        if (is_rigid_role(law, f.role) or not is_value_role(law, f.role)
+                or role_side(law, f.role) != "groundside"
+                or is_late_ref(f.ref) or is_osm_ribbon_ref(f.ref)):
+            continue
+        ring = [int(v) for v in vw.rings.get(fid, ())]
+        rim = [v for v in ring if v in pad_of]
+        refs = {pad_of[v] for v in rim}
+        if len(refs) != 1 or len(rim) == len(ring):
+            continue
+        parts = polys.get(next(iter(refs)))
+        if not parts:
+            continue
+        off = [v for v in ring if v not in pad_of]
+        if any(min(p.distance(Point(vw.xy[v])) for p in parts) > reach for v in off):
+            continue                           # not a strip: it has a body
+        for v in off:
+            if v in air:
+                continue
+            r = min(rim, key=lambda q: (math.dist(vw.xy[q], vw.xy[v]), q))
+            d = math.dist(vw.xy[r], vw.xy[v])
+            if d > 0.0 and (v not in out or d < out[v][1]):
+                out[v] = (r, d)
+    return out
 
 
 def pad_frontage(planar: PlanarMap, law: Law) -> dict[int, dict[str, list[int]]]:
@@ -971,8 +1037,12 @@ def pad_slope_ceiling(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     IT CARRIES NO AUTHORED RELIEF (owner RULINGS 2026-09-12u, spec §30
     (1)): ``rel = 0`` on every row — see :func:`_pad_rows`."""
     cap = float(law.tables.emit.within_shape.pad_slope_max)
-    return _pad_rows(planar, law, cap, CEILING_RULING + " (owner 2026-09-09c; "
-                     "no authored relief 2026-09-12u)", airport, relief=False)
+    ruling = CEILING_RULING + " (owner 2026-09-09c; no authored relief 2026-09-12u)"
+    rows = _pad_rows(planar, law, cap, ruling, airport, relief=False)
+    # spec §63: the rim strip lies in the pad's plane (:func:`rim_strip_ties`)
+    rows.extend(Diff(v, r, cap, d, Source(GEN, ruling, (f"vertex:{v}", "rim_strip")))
+                for v, (r, d) in sorted(rim_strip_ties(planar, law).items()))
+    return rows
 
 
 def frontage_contacts(planar: PlanarMap, law: Law

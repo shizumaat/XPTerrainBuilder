@@ -452,3 +452,68 @@ def test_a_rim_strip_that_reaches_a_band_is_cut_out_of_that_band(law):
     got = zone_regions((runway, strip), law)
     assert got and all(z.polygon.intersection(Polygon(ring)).area < 1e-6 for z in got)
     assert any(z.polygon.distance(Polygon(ring)) < 1e-6 for z in got)
+
+
+# ── the rim strip is part of the weld: no step inside it (§63, 09j, 08c (4)) ──
+
+def test_the_rim_strips_outer_vertices_stand_at_the_pads_level(law):
+    """HECA ``building12`` | ``route3`` (lane weldverify): the knifed body's
+    edge stood 0.3-0.78 m above the rim across the 0.95 m strip — a step
+    (09j "welded to the pad"; 08c (4) / 09d (1) "no step").  The strip is
+    part of the weld.  On the corner fixture with a ROAD on the pad's north
+    edge: each knife-line vertex is tied to its rim vertex under the pad's
+    own hard tilt ceiling, the road's ramp target, ceiling and join pin on
+    it are withdrawn with the rim's (B′), an airside vertex is never tied,
+    the airside vertex set is still the knife's, and the solve stands the
+    knife line at the pad's level with nothing relaxed."""
+    import dataclasses as dc
+
+    import numpy as np
+
+    from auto_patch_v2.constraints import generate, pads
+    from auto_patch_v2.constraints.road_ramp import (JOIN_RULING, RULING, RULING_CEILING,
+                                                     pad_weld_release, road_join_rows,
+                                                     road_ramp_rows)
+    from auto_patch_v2.model.constraints import ConstraintSet, Diff
+    from auto_patch_v2.solve import Status, solve_design
+    airport = _airport(law, _Dem())
+    src = [c if c.ref != "lotN" else Cell(2, "service_road", "roadN", c.ring, (), None,
+                                          None, "groundside", "service_road", {})
+           for c in _corner_cells()]
+    cells, _n = _cut_back_groundside(src, law, load_rules(), airport)
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    assert len(_parts(cells, "roadN")) == 2               # the body and its strip
+    pad = _shared(pm, "padA", "padA")
+    ties = pads.rim_strip_ties(pm, law)
+    assert ties and all(r in pad and v not in pad for v, (r, _d) in ties.items())
+    air = {v for f in pm.faces.values() if f.role in ("apron", "runway")
+           for v in pm.ring_vertices(f.ring)}
+    assert not air & set(ties)                            # airside is king
+    assert set(ties) <= pads.pad_welded_vertices(pm, law)
+    # the tie is the pad's own hard tilt ceiling over the strip
+    cap = float(law.tables.emit.within_shape.pad_slope_max)
+    tied = {(r.a, r.b): r for r in pads.pad_slope_ceiling(pm, law, airport)
+            if isinstance(r, Diff) and r.source.inputs[-1] == "rim_strip"}
+    assert set(tied) == {(v, r) for v, (r, _d) in ties.items()}
+    assert all(r.cap == cap and r.source.ruling.startswith(pads.CEILING_RULING)
+               for r in tied.values())
+    # B′ covers the knife line: no ramp target, ceiling or join pin on it
+    v0 = min(ties)
+    pm2 = dc.replace(pm, road_ramp_z={v: 701.0 for v in ties},
+                     road_coverage_join={v0: 701.0})
+    cs = ConstraintSet.from_rows(road_ramp_rows(pm2, law, airport)
+                                 + road_join_rows(pm2, law, airport))
+    out, rep = pad_weld_release(pm2, law, cs)
+    assert rep["targets"] == rep["ceilings"] == len(ties) and len(rep["joins"]) == 1
+    assert not [r for r in (*out.linears, *out.bands, *out.pins)
+                if r.source.ruling in (RULING, RULING_CEILING, JOIN_RULING)]
+    # the solve: the knife line at the pad's level, nothing relaxed
+    cs, _c, _w = generate(pm, law, airport)
+    sol, srep = solve_design(pm, cs, law)
+    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.status
+    z = np.asarray(sol.z, float)
+    assert max(abs(z[v] - z[r]) for v, (r, _d) in ties.items()) <= 0.05
+    assert srep.hard_feasibility is None or not srep.hard_feasibility.relaxed
+    _h, held = _airside_xy(law, _Dem(north=4.0))
+    _w2, weld = _airside_xy(law, _Dem())
+    assert weld == held                                   # the knife's node set

@@ -95,3 +95,52 @@ def test_an_airside_ceiling_keeps_its_taxi_rank(law):
     got = F.row_tiers(pl, law, one, np.arange(len(rows)), heads)
     gs = list(T.design(law).hard_conflict_tiers).index("groundside")
     assert list(got) == [taxi, taxi, gs, gs, F.tier_of(law)[PLANE]]
+
+
+# ── owner RULINGS 2026-10-10a (2): a landside pad MOVES; a pad airside holds
+#    stays and the ROAD welded to it takes the grade required ─────────────
+
+XSEC = "road_cross_section"
+RAMP = "roads.groundside_road ramp ceiling"
+
+# v0 the pad's rim, welded to the road; v1 the pad's other rim vertex (its
+# airside frontage when an apron holds it); v2 the road's interior;
+# v3 the road's contact with the apron, fixed at 0 m
+ROAD_ROLES = {0: ("building", "service_road"), 1: ("building",),
+              2: ("service_road",), 3: ("service_road", "apron")}
+
+
+def _welded_road(held_at: float | None):
+    rows = [(PLANE, {0: 1.0, 1: -1.0}, 0.0), (PLANE, {0: -1.0, 1: 1.0}, 0.0),
+            (FALLBACK, {0: 1.0, 2: -1.0}, 0.5), (FALLBACK, {2: 1.0, 0: -1.0}, 0.5),
+            (XSEC, {0: 1.0, 2: -1.0}, 0.5), (XSEC, {2: 1.0, 0: -1.0}, 0.5),
+            (RAMP, {2: 1.0, 3: -1.0}, 0.5), (RAMP, {3: 1.0, 2: -1.0}, 0.5),
+            (APRON, {3: 1.0}, 0.0), (APRON, {3: -1.0}, 0.0)]           # v3 = 0
+    if held_at is not None:                                           # v1 = held_at
+        rows += [(APRON, {1: 1.0}, held_at), (APRON, {1: -1.0}, -held_at)]
+    return rows
+
+
+def test_a_landside_pad_moves_and_nothing_is_relaxed(law):
+    """10a (2) (a): the pad touches no airside — nothing holds it, so the
+    hard set is feasible with the pad wherever the road welded to it grades
+    inside its caps (within 1 m of the road's fixed contact here)."""
+    roles = dict(ROAD_ROLES)
+    one, A, b, pl = _problem(_welded_road(None), roles)
+    demote, rep = F.check_hard_set(pl, law, one, np.arange(len(one)), A, b, stage="1")
+    assert rep.status == "optimal" and rep.relaxed == 0 and not len(demote)
+
+
+def test_a_pad_airside_holds_stays_and_the_road_takes_the_grade(law):
+    """10a (2) (b): the pad's other rim vertex is an apron's at 5 m; the
+    road welded to it meets its fixed contact 5 m below over rows that
+    allow 1 m.  The relaxed rows are the ROAD's own grade rows — the
+    cross-section, the ramp ceiling, the fallback cap — in the groundside
+    tier; the pad's plane and the apron hold."""
+    roles = dict(ROAD_ROLES); roles[1] = ("building", "apron")
+    one, A, b, pl = _problem(_welded_road(5.0), roles)
+    _demote, rep = F.check_hard_set(pl, law, one, np.arange(len(one)), A, b, stage="1")
+    assert rep.status == "optimal" and rep.relaxed >= 1
+    assert set(rep.by_head) <= {XSEC, RAMP, FALLBACK}, rep.by_head
+    assert rep.by_tier == {"groundside": rep.relaxed}
+    assert sum(c["s_m"] for c in rep.conflicts) == pytest.approx(4.0, abs=1e-6)

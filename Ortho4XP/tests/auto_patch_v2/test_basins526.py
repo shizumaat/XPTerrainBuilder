@@ -153,3 +153,39 @@ def test_a_bowl_whose_banks_cannot_hold_the_band_keeps_the_outward_yield(objs, l
     assert Polygon(b.ring).distance(region.exterior) <= co.ring_floor_m
 
 
+# ── B2 (#527): the rim anchor stands clear of the band ────────────────────
+
+def _square_deg(lat0=25.25, lon0=51.62, side=0.001):
+    return ((lat0, lon0), (lat0, lon0 + side), (lat0 + side, lon0 + side), (lat0 + side, lon0))
+
+
+def test_the_rim_anchor_stands_a_writer_tolerance_outside_the_ring():
+    ring = _square_deg()
+    ml, mo = _ar._m_per_deg(ring[0][0])
+    for i in range(len(ring)):
+        la, lo = _ar.rim_anchor_point(ring, i)
+        assert not _ar._inside(ring, la, lo)
+        v = ring[i]
+        d = math.hypot((la - v[0]) * ml, (lo - v[1]) * mo)
+        assert d == pytest.approx(TOL_DEG * max(ml, mo), rel=1e-4)
+        # and still clear after a full quantum of requantisation drift
+        # in the worst direction (toward the ring) on each axis
+        q = TOL_DEG / 4.0
+        for dlat in (-q, q):
+            for dlon in (-q, q):
+                assert not _ar._inside(ring, la + dlat, lo + dlon)
+
+
+def test_the_basin_anchor_is_the_nearest_vertex_pushed_outward():
+    ring = _square_deg()
+    rim = _ar.RimRing("basin_wall:0", ring)
+    lat0, lon0 = ring[0]
+    geom = _ar.BodyGeometry(((lat0 + 0.0004, lon0 + 0.0004, -3.0,
+                              ((lat0 + 0.0004, lon0 + 0.0004, -3.0),)),),
+                            lat0 + 0.0001, lon0 + 0.0001)
+    a = _ar._basin_rim_anchor(geom, lambda la, lo: 3.96, [rim])
+    assert a is not None and a.body_class == _ar.BASIN
+    assert not _ar._inside(ring, a.lat, a.lon)
+    assert a.lat < lat0 and a.lon < lon0           # outward from vertex 0
+
+

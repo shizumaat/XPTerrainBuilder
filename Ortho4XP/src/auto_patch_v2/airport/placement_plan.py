@@ -82,10 +82,11 @@ from .placement_read import (PAD_FACE_ROLE, RIM_BREAKLINE_KIND,  # noqa: F401
                              DECK_REF_PREFIX, decks_from_graded,
                              decks_from_graded_doc,
                              pads_rims_from_graded,
-                             pads_rims_from_graded_doc, read_plan)
+                             pads_rims_from_graded_doc, plan_units_with,
+                             read_plan)
 from . import placement_deck as _deck                            # §49
 
-__all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "build_splits", "coarsen",
+__all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "plan_units_with", "build_splits", "coarsen",
            "is_elevated",
            "authored_offset", "pads_rims_from_graded", "pads_rims_from_graded_doc",
            "decks_from_graded", "decks_from_graded_doc"]

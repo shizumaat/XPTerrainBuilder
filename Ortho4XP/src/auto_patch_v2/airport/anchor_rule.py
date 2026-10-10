@@ -61,8 +61,10 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+from ..model.placement import TOL_DEG as _TOL_DEG
+
 __all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
-           "anchor_for", "datum_of", "keep_off_row", "rim_of",
+           "anchor_for", "datum_of", "keep_off_row", "rim_of", "ring_of_part", "rim_anchor_point",
            "pad_majority", "fold_pad_ref", "pad_contains",
            "BUILDING", "SKIRTED", "BASIN", "LINE_SEGMENT", "DECK", "PLATE_ONLY", "OTHER"]
 
@@ -470,6 +472,45 @@ def rim_of(rims: _t.Sequence[RimRing], lat: float, lon: float) -> RimRing | None
         if len(r.ring) >= 3 and _inside(r.ring, lat, lon):
             return r
     return None
+
+
+def ring_of_part(rims: _t.Sequence[RimRing], lat: float, lon: float,
+                 feet: _t.Sequence[tuple[float, float, float]] = ()) -> RimRing | None:
+    """§14 (2) AMENDED (issue #526; spec §14 (2) (a)): THE RING A COMPONENT
+    STANDS IN — by its plan centroid, else by its FEET.
+
+    The centroid was the only witness, and a CONCAVE shell's centroid
+    leaves its own ring: the 283 x 179 m L-shaped trench shell at the
+    owner's OTHH site had its centroid 19 m outside ``basin_wall:0`` with
+    all four feet inside it, read ``skirted`` and was seated on the
+    trench floor 2.68 m under grade.  A component whose centroid stands
+    in NO ring is therefore read where it stands — the ring more than
+    half of ALL its feet stand inside (the plurality ring among them).
+
+    THE ORDER IS MEASURED, NOT A PREFERENCE: feet-first was tried and
+    REFUTED on the closing build (lane basins526).  With §47 (3) amended
+    the rim ring hugs the object's outline, and a sump whose plate
+    reaches that outline has its feet ON the ring — ray casting reads
+    half of them outside — so four basin bodies of one drain fell to
+    ``plate_only`` on the trench floor while their centroids stood
+    squarely inside their rings.  The centroid is exact for every convex
+    shell; the feet decide only where it says nothing.  ONE
+    implementation for the class (``placement_body``), the floor-member
+    read and the rim anchor (``_basin_rim_anchor``)."""
+    r = rim_of(rims, lat, lon)
+    if r is not None or not feet:
+        return r
+    hits: dict[str, list] = {}
+    n_in = 0
+    for f in feet:
+        q = rim_of(rims, f[0], f[1])
+        if q is None:
+            continue
+        n_in += 1
+        hits.setdefault(q.ref, [q, 0])[1] += 1
+    if 2 * n_in <= len(feet):
+        return None
+    return max(hits.values(), key=lambda t: t[1])[0]
 
 
 # ── §16e: THE DATUM (owner RULINGS 2026-09-13k; Fable 2026-09-13n) ───────
@@ -993,7 +1034,7 @@ def _basin_rim_anchor(geom: BodyGeometry, surface: Surface,
     ``None`` when the body stands inside no emitted ring — nothing to
     anchor to, and the generic rule then reads as before."""
     lowest = min(geom.parts, key=lambda q: q[2])
-    ring = rim_of(rims, lowest[0], lowest[1])
+    ring = ring_of_part(rims, lowest[0], lowest[1], lowest[3])
     if ring is None:
         return None
     # §6 reads the rim vertex "nearest the ORIGINAL anchor" — the
@@ -1005,12 +1046,58 @@ def _basin_rim_anchor(geom: BodyGeometry, surface: Surface,
     # zeros 0.49 m apart.  One row, one rim vertex, one zero.
     clat, clon = geom.origin_lat, geom.origin_lon
     ml, mo = _m_per_deg(clat)
-    la, lo = min(ring.ring,
-                 key=lambda v: (round(((v[0] - clat) * ml) ** 2
-                                      + ((v[1] - clon) * mo) ** 2, 6), v[0], v[1]))
+    i = min(range(len(ring.ring)),
+            key=lambda j: (round(((ring.ring[j][0] - clat) * ml) ** 2
+                                 + ((ring.ring[j][1] - clon) * mo) ** 2, 6),
+                           ring.ring[j][0], ring.ring[j][1]))
+    la, lo = rim_anchor_point(ring.ring, i)
     return Anchor(BASIN, la, lo, 0.0,
                   f"basin rim ({ring.ref}): the object's zero is the rim",
                   surface(la, lo))
+
+
+def rim_anchor_point(ring: _t.Sequence[tuple[float, float]], i: int,
+                     standoff_deg: float = _TOL_DEG) -> tuple[float, float]:
+    """ISSUE #527 (spec §14 (2) (b)): THE RIM ANCHOR STANDS CLEAR OF THE
+    WALL BAND.  The anchor was ring vertex ``i`` itself; the DSF writer
+    requantises every coordinate to its 16-bit pools (up to ~0.05 m),
+    and a row that lands INSIDE the ring sits on the mesh wall band —
+    4.7 / 13.6 m of fall in 0.7 m — so two of OTHH's pit bodies read
+    3.73 / 3.81 where the plan said 3.96.  The point returned is the
+    vertex pushed ``standoff_deg`` (the writer's own round-trip
+    tolerance ``model.placement.TOL_DEG``, ~4 quanta, ~0.2 m) along the
+    ring's OUTWARD bisector at that vertex — outward is away from the
+    pit: the surrounding grade, under every §47 (3) reading of where the
+    band lies.  The ONE site for every basin anchor (§14 (2)'s vertex
+    and §14a (1)'s arc point).  A degenerate vertex (no distinct
+    neighbours) is returned as it is."""
+    n = len(ring)
+    v = ring[i]
+    if n < 3:
+        return v
+    ml, mo = _m_per_deg(v[0])
+    a, b = ring[(i - 1) % n], ring[(i + 1) % n]
+    # unit vectors (metres) to the two neighbours; their mean points INTO
+    # the polygon at a convex vertex and out of it at a reflex one
+    def _unit(q):
+        dx, dy = (q[0] - v[0]) * ml, (q[1] - v[1]) * mo
+        d = math.hypot(dx, dy)
+        return (dx / d, dy / d) if d > 1e-9 else None
+    ua, ub = _unit(a), _unit(b)
+    if ua is None or ub is None:
+        return v
+    bx, by = ua[0] + ub[0], ua[1] + ub[1]
+    if math.hypot(bx, by) < 1e-9:              # collinear: the edge normal
+        bx, by = -ua[1], ua[0]
+    d = math.hypot(bx, by)
+    bx, by = bx / d, by / d
+    # stand off by the tolerance IN EACH AXIS: the longer of the two
+    # axis distances the writer may move the row, as a metre length
+    step = standoff_deg * max(ml, mo)
+    cand = (v[0] + bx * step / ml, v[1] + by * step / mo)
+    if _inside(ring, cand[0], cand[1]):
+        cand = (v[0] - bx * step / ml, v[1] - by * step / mo)
+    return cand
 
 
 def _median(xs: _t.Sequence[float]) -> float:

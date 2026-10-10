@@ -130,8 +130,8 @@ import O4_Console_Encoding as _console
 import O4_UI_Utils as _ui
 
 from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
-                               KIND_AGL, KIND_MSL, KIND_ON_GROUND,
-                               PROVENANCE_FILENAME, PlacementPlan)
+                               KIND_AGL, KIND_MSL, KIND_ON_GROUND, POOL_QUANTA,
+                               PROVENANCE_FILENAME, TOL_DEG, PlacementPlan)
 from . import backup_state as _bs
 from . import pack_art as _pa
 from .backup_state import BackupUnproven, State
@@ -176,13 +176,11 @@ PLACEMENT_KINDS = (KIND_ON_GROUND, KIND_MSL, KIND_AGL)
 #: drift, which is one 16-bit quantum of the widest pool seen).  They are
 #: FLOORS: :func:`pool_tolerances` widens the position and heading ones to
 #: the resolution of the DSF's OWN pools (#60).
-TOL_DEG = 2.0e-6
+#: ``TOL_DEG`` and ``POOL_QUANTA`` are defined in ``model/placement`` (the
+#: coordinate quantum a placement law must stand clear of, issue #527)
+#: and read here by their writer's name.
 TOL_HEADING_DEG = 0.011
 TOL_ELEV_M = 0.0625
-
-#: A pool plane stores ``offset + span * q / 65535`` for a 16-bit ``q``, so
-#: one quantum is ``span / POOL_QUANTA``.
-POOL_QUANTA = 65535.0
 #: Quanta of drift a round trip is allowed per coordinate — the pinned
 #: ``TOL_DEG``'s own derivation (2e-6 ~ 4 x 0.03125 / 65535).  MEASURED
 #: (#60 sweep, 2026-09-27): 2 quanta of position on 0.125 deg pools

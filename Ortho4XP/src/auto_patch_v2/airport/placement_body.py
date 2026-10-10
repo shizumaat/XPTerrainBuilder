@@ -175,11 +175,18 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
         # class, the anchor and every cut below take the generic rule,
         # and its bind key holds it out of the pit's group.
         lowest0 = min(parts, key=lambda p: p.base_y)
-        ring0 = _ar.rim_of(rims, lowest0.lat, lowest0.lon)
+        ring0 = _ar.ring_of_part(rims, lowest0.lat, lowest0.lon, lowest0.feet)
         is_basin = ring0 is not None and lowest0.base_y < 0.0
         rim0 = ring0 if is_basin else None
         arcs: tuple = ()
+        # §14a (2) AMENDED (issue #528): a body STANDS in the pit only on
+        # its FEET.  A footless group inside the ring (OTHH's 8-12 cm
+        # fittings authored 3.2-5.0 m over the rim) has nothing to stand
+        # on: it is CARRIED by the footed body of its unit it rides —
+        # the shell, at the rim's zero and the authored offset (§14 (1),
+        # §16a (1)) — never sent to the pit floor as its "own ground".
         if (ring0 is not None and _br.is_basin_ring(ring0.ref) and ring0.z
+                and any(p.feet for p in parts)
                 and _basin_floor_member(cutter, parts, ring0, split_tol_m)):
             counts["basin_floor_members"] = \
                 counts.get("basin_floor_members", 0) + 1
@@ -509,7 +516,7 @@ def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
     lowest = min(parts, key=lambda p: p.base_y)
     cls = _ar.classify_body(
         skirted=m.skirted,
-        basin_member=_rim_of(rims, lowest.lat, lowest.lon, lowest.base_y),
+        basin_member=_rim_of(rims, lowest, lowest.base_y),
         line=all(p.line for p in parts),
         deck=m.deck_kind in ("flag", "signature"),
         plate=m.plate_y is not None,

@@ -15932,6 +15932,128 @@ RULINGS 17m (the thin-shell wall reader, the end-band exclusion, the unpublished
 yield keys) are owed to the OTHH read.
 
 
+### §47 (3) AMENDED — THE BAND UNDER THE BANKS: A SHELL WITH NO WALL FACE KEEPS ITS RIM ON THE OBJECT'S OUTLINE (owner RULINGS 2026-10-10h (2); issue #514; Fable, lane `basins526`, 2026-10-10)
+
+Owner (OTHH read of 1.0.385, #514): "some the basin seems a bit too big and the object is
+fully inside and below with a visible gap"; asked whether, for a pit whose object has sloped
+banks and no wall face, the wall band may be taken INSIDE the object's outline so the ground
+meets the object's top edge with no slot: "yes adjust the basin to close the gap."
+
+**What (3) did.** Every OTHH drainage / dewatering pit reads `shell 0.00 m thick` (its floor
+plate reaches its at-grade outline somewhere: sloped banks shallower than 45° read as PLATE,
+and an inlet channel runs to the edge at depth), so (3) kept the FLOOR ring on the outline
+and yielded the RIM outward by `F − 0 = 0.707 m`. In plan the cut was the object's outline
++ 0.71 m on every side, and that 0.71 m was the mesh wall band falling from grade to the
+floor: a slot 0.65–0.76 m wide (slot m² / perimeter, measured below) and 4.3 / 13.6 m deep
+all round the object — the owner's gap. The rule was right for a WALL (the owner: "the
+ramp must follow the interior of the shell exactly"); a bank has no interior face to follow.
+
+**RULED (owner 10h (2)), as implemented at the ONE derivation site (`planar/basins.py`):**
+where the measured shell thickness is under `[basin] min_solid_thickness_m` (0.3 m — a wall
+thinner than the thinnest solid the reader admits is no wall face), the RIM is the object's
+outline itself (snapped to the identity lattice, ±0.35 m) and the band `max(t, F)` is taken
+INSIDE it, under the banks: the floor ring is the outline set in by `F`. The floor LEVEL
+rule (deepest plate − `floor_clearance_m`) is unchanged. A real wall (`t ≥ 0.3`: OTHH's
+0.78 m sump, the 0.25 m Dewatering shells read 0.50 by the station reader) keeps (1)–(3)
+as written: rim on the outer face, yield outward where `t < F`.
+
+**THE DEGENERATE RULE (`[basin] bank_band_plate_min` = 0.5).** The band goes inside only
+while the floor inside still keeps that share of the witnessed floor plate; a well narrower
+than two bands keeps the outward yield, named `DEGENERATE` in `rim_yields`. Measured: with
+the band inside unconditionally, 20 of OTHH's 30 jetway rotunda wells (22–84 m² rims)
+kept 0–3 m² of 20–32 m² plates — a mesh that is all wall band. The eight pits keep 92–100 %.
+A mean-bank-width witness ((region − plate) / perimeter ≥ F) was tried and REFUTED: the
+Dewatering bowls' shallow banks read as plate, so basin:6 measured 0.66 m of "bank" and fell
+back wrongly.
+
+**CONSUMER CENSUS (CLAUDE.md "consumer census before cross-cutting geometry law"), static,
+one table — the rings keep their refs and roles; only the two ring geometries move, so
+every reader is read for an assumption about WHERE the rim stands relative to the object:**
+
+| reader | reads | effect of the band moving inside |
+|---|---|---|
+| `planar/basins` (the derivation) | `ring` (outline), `rim`, `floors` | the site of the change; `inside = any(f.contains(anchor))` now reads the inset floor — every §18 authored seat unchanged (15 of 15, below) |
+| `constraints/structures.basins` (M4b floor row) | floor-ring vertices against their NEAREST rim vertex, `−body_depth` | relative row, ring-agnostic; nearest rim vertex now 0.7 m away instead of 0.7 m + outline width — unchanged in kind |
+| `constraints/foot_rows` (`BASIN_WALL_REF`) | feet inside a basin rim take no foot row | the rim now hugs the outline: a foot in the former slot zone (outside the outline) is no longer inside the ring — correct, it stands on grade |
+| `pipeline/late_stage` / `classify/gap_mint` (RULINGS 09e (2)) | the gap sheet stops `standoff_m` short of the `WALL_ROLE` face | the stand-off is from the rim ring; the ring is now on the outline, so the sheet stops 0.7 m from the object instead of 1.4 m |
+| `airport/anchor_rule` / `basin_ring` (§14 (2), §14a) | `structure_rim` ring vertices as anchors; interior excluded from the search | the anchor vertex is now ON the outline; §14 (2) (b) stands it `TOL_DEG` outside — grade either way |
+| `airport/placement_body` (§14a (2) floor member, `FLOOR_MARGIN_M`) | vertices decisively inside the ring | the ring is tighter by 0.7 m; the 1 m margin still reads the pit's own wall as RING (LEMD measured insensitive 1–5 m) |
+| `pipeline/authored_seats` (§18) | `Basin.rim_cut_m` (anchor inside the floor → mesh = floor) | 15 authored seats identical before / after (replay) |
+| `verify/structures.structure_rim_gap`, `verify/frame`, `verify/keepout`, `verify/strips` | rim-to-floor identity spacing; `structure_rim` as a closed feature | the band is still `max(t, F)` — the same spacing; no reader asks which side of the outline the band lies |
+| `verify/census` straddle across a rim | a row straddling the rim ring | reads refs, not the outline; rows across the band now straddle the object's outline instead of a line 0.7 m out |
+| `emit/osm_adapter` (`structure_rim` feature) | the rim ring as a breakline | geometry only |
+
+**EMITTABILITY.** The floor ring survives as a valid ring inside the rim for every shell the
+degenerate rule admits (the 8 pits + 1 well at OTHH); the band is no wider than before, so
+no new ring pair falls under the lattice floor. Where the object's lowest surface at the
+outline is DEEP (a vertical single-sided lip, or the inlet channel's plate running out at
+the edge) the mesh wall band now stands over that geometry for the band's width — the
+bank probe below counts it: a 0.3 m dirt fillet at the foot of a 2 m vertical lip, or the
+last 0.7 m of a channel mouth that was already under uncut ground in the base. Reported for
+the sim read, not ruled here.
+
+**MEASURED (lane `basins526`; `v2_solve_replay --from planar --emit --json` of the
+registered `pads67/OTHH.pkl` capture, main f5f11c81f against this branch; probe
+`<scratch>/basins526/g_probe.py` on the published basin records: rim = `wall_path`,
+floor = `ring`, outline = `region`; "rim vs outline" is the signed distance of each rim
+vertex to the outline, + outside; "slot" = (rim − outline) area / outline length):**
+
+| basin | object | shell | main: rim vs outline med / max out / max in (m) | main: slot width (m) | main: floor m² | AMENDED: rim med / max out / max in | slot | floor m² | floor inside outline (m) | arm |
+|---|---|---|---|---|---|---|---|---|---|---|
+| basin:0 | Drainage_06_000.obj | 0.00 | 0.73 / 1.22 / -0.47 | 0.72 | 3824 | 0.10 / 0.28 / 0.24 | 0.12 | 3274 | 0.77 | walled |
+| basin:1 | Drainage_03_LOD0_000.ob | 0.00 | 0.79 / 1.19 / -0.45 | 0.65 | 3309 | 0.01 / 0.25 / 0.26 | 0.07 | 2997 | 0.79 | walled |
+| basin:2 | Drainage_01_LOD0_000.ob | 0.00 | 0.73 / 1.37 / -0.46 | 0.66 | 3288 | 0.07 / 0.31 / 0.25 | 0.05 | 3043 | 0.84 | walled |
+| basin:3 | Drainage_02_LOD0_000.ob | 0.00 | 0.85 / 1.29 / -0.45 | 0.76 | 2522 | -0.02 / 0.26 / 0.30 | 0.02 | 2250 | 0.90 | walled |
+| basin:4 | Dewatering_01_LOD0_002. | 0.00 | 0.82 / 1.10 / -0.50 | 0.74 | 6028 | 0.06 / 0.22 / 0.30 | 0.06 | 5734 | 0.74 | walled |
+| basin:5 | Drainage_04_LOD0_000.ob | 0.00 | 0.74 / 1.32 / -0.45 | 0.69 | 1951 | 0.05 / 0.26 / 0.22 | 0.05 | 1776 | 0.79 | walled |
+| basin:6 | Dewatering_02_LOD0_002. | 0.00 | 0.83 / 1.02 / -0.42 | 0.75 | 4145 | 0.04 / 0.23 / 0.29 | 0.04 | 3824 | 0.79 | walled |
+| basin:7 | Drainage_06_000.obj | 0.00 | 0.72 / 1.17 / -0.49 | 0.71 | 1357 | 0.01 / 0.27 / 0.27 | 0.03 | 1234 | 0.78 | walled |
+| basin:8 | Drainage_05_000.obj | 0.00 | 0.73 / 1.13 / -0.44 | 0.67 | 467 | 0.02 / 0.24 / 0.25 | 0.01 | 400 | 1.07 | walled |
+| basin:9 | Drainage_06_001.obj | 0.78 | 0.17 / 0.24 / 0.03 | 0.05 | 108 | 0.17 / 0.24 / 0.03 | 0.05 | 108 | 0.89 | walled |
+| basin:10 | Jetway_Type4.obj | 0.00 | 0.75 / 1.20 / -0.41 | 0.73 | 61 | 0.75 / 1.20 / -0.41 | 0.73 | 61 | 0.02 | walled |
+| basin:11 | Jetway_Type5.obj | 0.00 | 0.74 / 1.08 / -0.46 | 0.75 | 76 | 0.74 / 1.08 / -0.46 | 0.75 | 76 | 0.08 | walled |
+| basin:15 | Jetway_Type5.obj | 0.00 | 0.75 / 1.06 / -0.44 | 0.74 | 10 | 0.75 / 1.06 / -0.44 | 0.74 | 10 | 0.00 | walled |
+| basin:21 | Jetway_Type6.obj | 0.00 | 0.71 / 1.28 / -0.40 | 0.75 | 5 | 0.71 / 1.28 / -0.40 | 0.75 | 5 | 0.25 | walled |
+
+The 34 remaining shells (29 jetway wells, basins 10–100, and the walled sump basin:9) are
+byte-identical to main. The 15 §18 authored seats are identical (`authored (cut)` lines of
+both replays diff clean). Patch: 2,061 ways / 33,959 nodes against main's 2,054 / 34,241.
+
+**Bank probe (`<scratch>/basins526/bank_probe.py`: the object's lowest surface along 24
+transects across each rim, placed from its own DSF row, against the mesh the rings imply —
+grade at / outside the rim ring, linear band to the floor ring, the floor inside; stations
+every 0.1 m from 1 m outside to 2 m inside the outline; "ground over the object" = mesh above
+the object's surface by more than 0.3 m):**
+
+```
+=== base
+basin:0   OTHH_Drainage_06_000.obj       seat   3.96 grade  3.96 floor  -0.24 | ground over the object > 0.3 m: 0 of 401 stations on 0 of 24 transects [] max +0.00 | object over the ground max -4.20 at s 0.2
+basin:2   OTHH_Drainage_01_LOD0_001.obj  seat   4.44 grade  3.96 floor   0.15 | ground over the object > 0.3 m: 9 of 81 stations on 5 of 24 transects [0, 9, 10, 20, 23] max +1.43 | object over the ground max -0.48 at s 1.4
+basin:3   OTHH_Drainage_02_LOD0_001.obj  seat   4.44 grade  3.96 floor   0.15 | ground over the object > 0.3 m: 21 of 120 stations on 4 of 24 transects [0, 11, 12, 13] max +1.74 | object over the ground max -2.13 at s 0.5
+basin:4   OTHH_Dewatering_01_LOD0_002.obj seat   4.32 grade  3.96 floor  -9.18 | ground over the object > 0.3 m: 0 of 220 stations on 0 of 24 transects [] max +0.00 | object over the ground max -13.56 at s 0.4
+basin:6   OTHH_Dewatering_02_LOD0_002.obj seat   3.96 grade  3.96 floor  -9.18 | ground over the object > 0.3 m: 1 of 449 stations on 1 of 24 transects [0] max +3.16 | object over the ground max -13.20 at s 0.4
+basin:7   OTHH_Drainage_06_000.obj       seat   3.96 grade  3.96 floor  -0.24 | ground over the object > 0.3 m: 1 of 333 stations on 1 of 24 transects [19] max +0.32 | object over the ground max -4.20 at s 0.5
+basin:8   OTHH_Drainage_05_001.obj       seat   4.44 grade  3.96 floor   0.15 | ground over the object > 0.3 m: 19 of 140 stations on 7 of 24 transects [17, 18, 19, 20, 21, 22, 23] max +1.67 | object over the ground max -0.48 at s 0.7
+=== arm
+basin:0   OTHH_Drainage_06_000.obj       seat   3.96 grade  3.96 floor  -0.24 | ground over the object > 0.3 m: 0 of 401 stations on 0 of 24 transects [] max +0.00 | object over the ground max -4.20 at s 1.2
+basin:2   OTHH_Drainage_01_LOD0_001.obj  seat   4.44 grade  3.96 floor   0.15 | ground over the object > 0.3 m: 45 of 81 stations on 5 of 24 transects [0, 9, 10, 20, 23] max +3.31 | object over the ground max -0.48 at s 1.3
+basin:3   OTHH_Drainage_02_LOD0_001.obj  seat   4.44 grade  3.96 floor   0.15 | ground over the object > 0.3 m: 57 of 120 stations on 6 of 24 transects [0, 11, 12, 13, 22, 23] max +3.33 | object over the ground max -0.66 at s 0.1
+basin:4   OTHH_Dewatering_01_LOD0_002.obj seat   4.32 grade  3.96 floor  -9.18 | ground over the object > 0.3 m: 25 of 220 stations on 8 of 24 transects [0, 3, 4, 5, 12, 21, 22, 23] max +6.94 | object over the ground max -13.56 at s 1.3
+basin:6   OTHH_Dewatering_02_LOD0_002.obj seat   3.96 grade  3.96 floor  -9.18 | ground over the object > 0.3 m: 61 of 449 stations on 18 of 24 transects [0, 1, 2, 3, 5, 7, 8, 9, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22] max +11.31 | object over the ground max -13.20 at s 1.1
+basin:7   OTHH_Drainage_06_000.obj       seat   3.96 grade  3.96 floor  -0.24 | ground over the object > 0.3 m: 5 of 333 stations on 2 of 24 transects [12, 19] max +2.65 | object over the ground max -4.20 at s 1.2
+basin:8   OTHH_Drainage_05_001.obj       seat   4.44 grade  3.96 floor   0.15 | ground over the object > 0.3 m: 80 of 140 stations on 7 of 24 transects [17, 18, 19, 20, 21, 22, 23] max +3.33 | object over the ground max -0.48 at s 1.4
+```
+
+Read: the Drainage 06 trench (basin:0) has NO station with ground over the object in either
+arm (its banks are banks); the Dewatering bowls (basin:4 / :6) have a 2 m vertical lip at
+the top of their banks — the band inside puts a ≤ 0.3 m dirt fillet at the lip's foot on
+18 of 24 transects (max +11.3 m at the one station where the plate itself meets the
+outline); the Drainage 01/02/05 pits' burials sit on the SAME transects in both arms (the
+inlet channel whose plate runs to the outline under uncut ground: 5–7 of 24 transects,
+base max +1.4–1.7 m, amended +3.3 m because the band now covers the channel's last 0.7 m).
+Twin: `tests/auto_patch_v2/test_basins526.py` (a bank-sided bowl with an outlet: rim on the
+outline, floor `F` inside, no slot; a 1.6 m well keeps the yield, named DEGENERATE).
+
 ## §48 THE INTERIOR OBJECT CLASS — AN INTERIOR IS NEVER READ AND NEVER LOADED; IT RIDES ITS CLUSTER (owner RULINGS 2026-09-17n; Fable 2026-09-17; scout `interiors`, RULINGS 17o) — lane `v2interiors`, after `v2doorwellperf`
 
 Owner: "We should be able to gain efficiency by identifying object interiors, as we should never

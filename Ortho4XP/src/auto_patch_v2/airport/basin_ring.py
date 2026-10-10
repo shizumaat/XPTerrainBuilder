@@ -554,6 +554,11 @@ def arc_anchor(k: int, arcs: _t.Sequence[Arc], whole, rim: "RimRing",
                           f"basin rim ({rim.ref}): interior, the object's "
                           f"zero is the rim", whole.surface_z)
     a = arcs[k]
-    return _ar.Anchor(_ar.BASIN, a.lat, a.lon, 0.0,
+    # issue #527: the arc's rim point stands clear of the wall band like
+    # §14 (2)'s vertex — ONE site, ``anchor_rule.rim_anchor_point``
+    i = next((j for j, v in enumerate(rim.ring)
+              if v[0] == a.lat and v[1] == a.lon), None)
+    la, lo = (a.lat, a.lon) if i is None else _ar.rim_anchor_point(rim.ring, i)
+    return _ar.Anchor(_ar.BASIN, la, lo, 0.0,
                       f"basin rim {a.reason} ({rim.ref}): the wall follows "
-                      f"the apron", surface(a.lat, a.lon))
+                      f"the apron", surface(la, lo))

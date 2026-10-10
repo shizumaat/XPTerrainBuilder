@@ -1574,8 +1574,12 @@ def test_a_basin_resource_is_one_file_anchored_on_its_rim(tmp_path):
     b = pit.bodies[0]
     assert b.body_class == AR.BASIN
     assert "basin rim (basin_wall:0@853)" in b.anchor.reason
-    # the anchor stands ON the ring, never inside the trench
-    assert (b.anchor.lat, b.anchor.lon) in ring
+    # the anchor stands AT the ring, never inside the trench — one writer
+    # tolerance OUTSIDE its nearest vertex (issue #527, spec §14 (2) (b)),
+    # so the DSF requantisation cannot put the row on the wall band
+    from auto_patch_v2.model.placement import TOL_DEG
+    assert not AR._inside(ring, b.anchor.lat, b.anchor.lon)
+    assert min(abs(b.anchor.lat - v[0]) + abs(b.anchor.lon - v[1]) for v in ring) <= 2 * TOL_DEG
     assert not AR._inside(inner, b.anchor.lat, b.anchor.lon)
     # THE BAR: the object's zero IS the rim, so a parapet authored +2.99
     # renders 2.99 m above the apron

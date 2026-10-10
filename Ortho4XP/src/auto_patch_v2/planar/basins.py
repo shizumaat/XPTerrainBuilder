@@ -217,6 +217,9 @@ class BasinStats:
     #: §47 (3): every shell whose RIM YIELDED outward because its wall is
     #: thinner than ``cutout.ring_floor_m``, named with its metres.
     rim_yields: list[str] = _dc.field(default_factory=list)
+    #: §47 (3) AMENDED (RULINGS 2026-10-10h (2)): every shell with NO wall
+    #: face whose band was taken INSIDE its outline, under its banks.
+    bank_bands: list[str] = _dc.field(default_factory=list)
     #: EVERY SKIPPED BURIED COMPONENT NAMED (spec §24 (7) (a)): the
     #: object reader's own lines, carried here because the basin report
     #: is where a missing floor plate is looked for.
@@ -596,12 +599,48 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         shell_t = shell_thickness_m(ring, plates_u, grid,
                                     law.tables.structures.tunnel.object.wall_face_max_thickness_m)
         inset, standoff = rim_standoff(shell_t, co)
-        yield_m = rim_yield_m(shell_t, co)
-        rim = _rim(ring if yield_m <= 1e-9 else ring.buffer(yield_m, **_MITRE), 0.0, grid)
-        if yield_m > 1e-9:
+        # §47 (3) AMENDED (owner RULINGS 2026-10-10h (2)): a shell with NO
+        # vertical wall face at its rim — sloped banks, measured thinner
+        # than the thinnest solid the reader admits — keeps its rim ON the
+        # object's outline and takes the wall band INSIDE it, under the
+        # banks, so the ground meets the object's top edge with no slot.
+        # Only a shell too narrow to hold a floor ring inside its outline
+        # falls back to the outward yield (the degenerate rule, named).
+        # THE DEGENERATE RULE (``bank_band_plate_min``): the band goes
+        # inside only while the floor inside still keeps that share of
+        # the witnessed plate — a well narrower than two bands (OTHH's
+        # jetway rotunda wells: 1 m² of a 32 m² plate left) keeps the
+        # outward yield, since a band inside would leave a mesh that is
+        # all wall.
+        no_face = shell_t < bl.min_solid_thickness_m
+        yields = ([0.0, rim_yield_m(shell_t, co)] if no_face
+                  else [rim_yield_m(shell_t, co)])
+        rim = trimmed = None
+        plate_kept = 0.0
+        for yield_m in yields:
+            rim = _rim(ring if yield_m <= 1e-9 else ring.buffer(yield_m, **_MITRE), 0.0, grid)
+            if rim is None:
+                continue
+            trimmed = _floors_inside(floors, rim, standoff, grid)
+            plate_kept = (uu("plate_kept", trimmed).intersection(plates_u).area / plate
+                          if trimmed and plate > 0.0 else 0.0)
+            if trimmed and (yield_m > 1e-9 or plate_kept >= bl.bank_band_plate_min):
+                break
+        band_inside = no_face and yield_m <= 1e-9
+        if band_inside:
+            stats.bank_bands.append(f"{bid}: no wall face (shell {shell_t:.2f} m < "
+                                    f"min_solid_thickness_m {bl.min_solid_thickness_m}) — the "
+                                    f"rim is the outline and the {standoff:.3f} m band is "
+                                    f"taken inside it, under the banks ({plate_kept:.0%} of "
+                                    f"the plate kept; §47 (3) amended)")
+        elif yield_m > 1e-9:
             stats.rim_yields.append(f"{bid}: shell {shell_t:.2f} m thick is under the lattice floor "
                                f"{co.ring_floor_m:.4f} m — rim_yield {yield_m:.3f} m outward "
-                               f"(§47 (3); the floor stays on the inner face)")
+                               f"(§47 (3); the floor stays on the inner face"
+                               + (f"; DEGENERATE: no wall face, but no floor survives the "
+                                  f"band inside the outline — {plate_kept:.0%} of the "
+                                  f"plate kept, under bank_band_plate_min "
+                                  f"{bl.bank_band_plate_min:.0%}" if no_face else "") + ")")
         if rim is None:
             stats.refused.append(f"{bid}: the rim (shell {shell_t:.2f} m thick, rim_yield "
                                  f"{yield_m:.3f}) does not survive the identity grid "
@@ -627,7 +666,6 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                                                   bl.contact_band_m,
                                                   bl.floor_plate_normal_y_min, grid,
                                                   bl.ramp_max_grade)))
-        trimmed = _floors_inside(floors, rim, standoff, grid)
         if not trimmed:
             stats.refused.append(f"{bid}: no floor plate ({plate:.0f} m2) survives the "
                                  f"stand-off {standoff:.2f} m inside the rim (shell "
@@ -744,6 +782,9 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                  + (f", rim_yield {yield_m:.3f} m OUTWARD (§47 (3): the shell is thinner than the "
                     f"lattice floor {co.ring_floor_m:.4f} m, so the floor stays on the inner face "
                     f"and the rim yields)" if yield_m > 1e-9 else "")
+                 + (f", NO WALL FACE: the rim stays on the outline and the band is taken "
+                    f"INSIDE it under the banks — no slot (§47 (3) amended, RULINGS "
+                    f"2026-10-10h (2))" if band_inside else "")
                  + f", band {standoff:.2f} m taken out of the floor ({floor_trim_m2:.0f} m2 "
                  f"trimmed, §47 (1))",
                  f"covered {cov:.0%} (own {cov_own:.0%}; diagnostic max {bl.max_covered_fraction:.0%})",

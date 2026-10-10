@@ -151,7 +151,8 @@ class Patch:
                   if isinstance(r, dict) and r.get("shape") is not None
                   and r.get("cap") is not None}
             object.__setattr__(self, "_taxi_yield_by_shape", by)
-        if not by or role_family(self.law, sh.role) != "taxi":
+        if not by or (role_family(self.law, sh.role) != "taxi"
+                      and sh.role != "apron"):       # 2026-10-10j: a tied apron
             return None
         return by.get(sh.key)
 

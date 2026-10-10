@@ -22,7 +22,8 @@ DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "taxi_profile", "taxi_trend", "taxi_xsec",
                                  "free_membrane", "road",
                                  "detached_mean", "body_datum", "apron_trend",
-                                 "ground_datum", "set_stall_tol")
+                                 "ground_datum", "yielded_preference",
+                                 "set_stall_tol")
 
 #: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
 #: vertex touched by two of them is priced under: a vertex of a runway face
@@ -186,6 +187,13 @@ class Design:
     foot_row_rulings: tuple[str, ...]
     pad_flat: float
     pad_flat_rulings: tuple[str, ...]
+    #: A PREFERENCE UNDER A YIELDED CAP (owner RULINGS 2026-10-10j, spec
+    #: §50.8): the ruling HEADS priced at ``yielded_preference`` instead
+    #: of ``law`` — the flat tier of an apron that yielded with its
+    #: runway.  Strictly BELOW ``law``: the taxi caps are priced at
+    #: ``law``, and the flat preference may not outrank them.
+    yielded_preference: float
+    yielded_preference_rulings: tuple[str, ...]
     #: THE PAD TAKES THE PAVEMENT'S EDGE LEVEL (owner RULINGS 2026-09-10l,
     #: 10k-1 = (A)): the ruling HEADS of a pad's frontage LEVEL rows.  A
     #: vertex such a row GOVERNS (its ``follows``) is a pad following the
@@ -405,6 +413,10 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.ground_datum {d.ground_datum}: strictly below "
                   f"the law's weight {d.law} — the ground FOLLOWS its law and "
                   "is cut or filled where a row binds (RULINGS 2026-09-10av)")
+    if not d.yielded_preference < d.law:
+        raise err(f"emit.design.yielded_preference {d.yielded_preference}: "
+                  f"strictly below the law's weight {d.law} — a flat preference "
+                  "never outranks a taxiway's cap (RULINGS 2026-10-10j)")
     if not d.pad_flat_rulings:
         raise err("emit.design.pad_flat_rulings: at least one ruling "
                   "(RULINGS 2026-09-09c: the pad's flatness is a target)")

@@ -16631,6 +16631,77 @@ keys, so `emit.toml` + `design_schema.py` land together.
 * Code 1/2 = 2 % — **CONFIRMED 18f (1)**, reversal of 2026-07-08 / 2026-09-04y acknowledged;
   new CYXY control owed (orchestrator).
 
+### 50.8 AN APRON TIED TO THE YIELDED RUNWAY YIELDS WITH IT (owner RULINGS 2026-10-10j, issue #523; lane `apron523` — a LANE amendment ordered by the master's brief, owed the spec author's review)
+
+Owner, verbatim: "Apron may follow runway when runway exceeds cap." 10j: where a runway's cap has
+yielded to its thresholds, an apron TIED to that runway takes the runway's built grade as its cap,
+as the taxi family does under 30ah (one derivation site); 09k stands beside it — the apron still
+PREFERS flat and uses the wider cap only where the airside solve requires it, and the flat
+preference must not outrank a taxiway's cap.
+
+MEASURED (lane `kase523`, then `apron523` on the same capture): KASE 15/33 is built at 2.023 %
+(§50), its taxi family yields with it (30ah), the 1.5 km apron beside it was held to 1.5 %
+preferring 1 %; the sheet and the runway drift ~7 m apart over 1.4 km and the connector at
+39.2183645, −106.8653281 stood at 4.93 % against a 2.50 % box cap. Raising the cap ALONE moves it
+to 4.26 %: the 1 % preference was priced at `[design] law` (300), the price of a priced taxi cap,
+and a sheet carries thousands of preference rows against a connector's few.
+
+(1) **THE CAP, AT THE ONE SITE.** `constraints/runway_yield.derive_taxi` records an APRON face
+beside the taxi faces, in the same `PlanarMap.taxi_caps` (record `TaxiYield`, sidecar
+`taxi_yield_caps`, way tag `o4_grade_law_cap_taxi_yield` — the wire names are the taxi family's
+and are kept): `cap = taxi_cap_for(apron table cap, min(runway's effective cap, 29ac fallback))`.
+
+(2) **TIED, for an apron,** is (a) the taxi family's own witness — a station of the apron's on a
+route-network component the yielded runway's ridge touches — or (b) CONTACT with what already
+yielded: a ring vertex shared with a tied taxi-family face (the runway's taxi family FRONTS it) or
+with a face of the yielded runway itself. One hop, never apron to apron. A pad's plateau face and
+an apron no yielded runway's family reaches keep the table cap. Several yielded runways: the
+steepest (30ah's rule).
+
+(3) **THE PREFERENCE STAYS 1 % AND IS PRICED UNDER THE TAXI CAPS.** The tied face's preference
+row keeps its bound and cites its own head, `common.roles.apron preferred tier under a yielded
+cap`, which `solve/design` prices at `[design] yielded_preference` (0.03 — 10⁴ under `law`, the
+spacing 30bf gives a yielding row) through the register `yielded_preference_rulings` — the
+`pad_flat_rulings` shape. Schema: strictly below `law`. CONSEQUENCE, stated for the author: on a
+tied apron the preference also sits under `apron_trend` (30), so the tied apron follows its
+ground's long-wave trend inside the wider cap; 09k's order (flat over the trend) holds on every
+apron that did not yield. No single weight is above the trend and below the taxi caps at KASE
+(30 → the owner pair at 2.10 %, over its 2.02 % yielded cap).
+
+(4) **CONSUMER CENSUS (30l)** — every reader of the apron cap:
+
+| reader | reads | ruling |
+|---|---|---|
+| `constraints/apron.apron_within_shape` (ring edges, frontage / body / cross-ring chords) | `vw.caps[face]` | YIELDS — hard at the face's cap; preference = the yielded head |
+| `constraints/apron.apron_edge_portions` (04t-2) | the cap of the apron the PAIR runs along (`_portion_caps`: the apron holding both vertices, else the strictest at either) | YIELDS per pair; a run along an apron at the table cap is unchanged |
+| `precedence.face_cap` → `View.caps` → `no_step._airside_vertices`, `routes` face caps (centreline budgets), `taxi.triangle_planes` (`plane_gradient`), `contiguity.station_caps` | the record, through `taxi_cap_for` | YIELDS, no edit of theirs |
+| `routes` LATERAL HOP of an apron vertex (`common.roles.apron lateral hop, chain`) | the role's TRANSVERSE cap | DOES NOT YIELD (the yield is a longitudinal law, as for the taxi family) — see (6) |
+| `pads.frontage_contacts` / `frontage_near_miss`, `verify/frontage`, `planar/pad_blocks`, `solve/project_strip` | `role_cap(law, "apron")` | DO NOT YIELD — the pad's own law (a pad is not tied to a runway) |
+| `publication.apron_tier`, `verify/within.apron_over_preference`, the census figure of the same name | the table tiers | unchanged — a REPORT of rows over 1 %, never a violation |
+| v2 verify `Patch.cap` (`within_shape`, `plane_gradient`, `lateral_contiguity`) | sidecar `taxi_yield_caps` | YIELDS (`Patch.taxi_yield` admits an apron shape) |
+| the census (`check_grade._taxi_yield_pair_cap`) | the way tag | YIELDS with no edit: a body pair on a tagged way; a pad-endpoint pair keeps its stricter law |
+
+FOUND IN THE CENSUS AND FIXED: `verify/contiguity` priced a RUNWAY class at its table cap (it read
+`taxi_cap_for(role cap, taxi yield)`, `None` for a runway) while the generator's `station_caps`
+reads the yielded `vw.caps` — KASE's 4 standing `lateral_contiguity` rows of 0.005. It now reads
+`Patch.cap`, the frame's one accessor.
+
+(5) **INERT WHERE NOTHING YIELDED.** `derive_taxi` returns `{}` before building anything, no row
+cites the yielded head, `Base.yielded_pref_i` is empty: an airport with no yielded runway is byte
+for byte the airport it was (CYXY and SPJC replayed; of the seven only KASE has a yielded runway).
+
+(6) **OPEN, for the author.** An apron vertex's lateral hop keeps the apron's 1.5 % transverse
+cap. Where a centreline enters a tied apron ACROSS the runway's axis its hops run ALONG the axis
+and still hold the apron near that mouth (a synthetic field: stubs 3.2 % with the apron at 1.7 %;
+KASE: 7 v2 `transverse apron|apron` rows, 0 census rows). Whether an apron's cap is one number in
+every direction once it yields is not ruled.
+
+(7) **TWINS** `tests/auto_patch_v2/test_apronyield523.py`: the tied apron's cap is the runway's
+and its rows are hard there with the 1 % preference under the yielded head; the connectors of the
+see-saw field sit inside their cap with the apron tied and far over it without; an apron on the
+network of a runway that did not yield, beside one that did, mints the rows it always did; a field
+with no yielded runway mints no yielded row and prices none.
+
 ## §51 PACK GEOMETRY IS VALID WHERE IT ENTERS THE FRAME; A UNION OF PACK GEOMETRY NEVER ABORTS A TILE (RULINGS 2026-09-18d (2) GEML; Fable 2026-09-18; founded on lane `gemltopology` and the TNCM capture of lane `packreadprofile`) — lane `v2witnessvalid`
 
 **(1) THE DEFECT, TWICE IN ONE DAY, FOURTH TIME IN THE CAMPAIGN** (OTHH `_union_rings`,

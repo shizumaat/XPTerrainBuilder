@@ -599,6 +599,30 @@ foot_row_rulings = [
   "structures.placement foot_row",                       # 09-11q: the body's foot on bare ground, level = the least-squares fit to the DEM
 ]
 pad_flat = 3000.0
+# A PREFERENCE UNDER A YIELDED CAP (owner RULINGS 2026-10-10j, spec §50.8,
+# issue #523: "apron may follow runway when runway exceeds cap … the flat
+# preference must not outrank a taxiway's cap").  An apron tied to a runway
+# whose cap yielded to its thresholds (§50) is hard at the runway's built
+# grade and STILL PREFERS 1 % (09k) — but that preference row is priced
+# HERE instead of at ``law``, because the taxi caps between the runway and
+# the apron are priced at ``law`` and a sheet carries thousands of
+# preference rows against a connector's few: a quadratic price ranks by
+# weight x count, so "below" has to be far below.  10^4 under ``law`` — the
+# spacing 30bf gives a yielding row under the rows it yields to.
+# MEASURED, connector grade against its yielded cap: the KASE capture
+# (owner pair, 29.4 m, cap 2.02 %) at ``law`` 4.26 %, 30 -> 2.10 %, 10 ->
+# 1.93 %, 3 / 1 / 0.3 / 0.03 -> 1.33-1.35 %; the twin's field
+# (``test_apronyield523``, cap 2.52 %) 300 -> 4.4 %, 30 -> 3.6 %, 3 ->
+# 3.0 %, 0.3 -> 2.6 %, 0.03 -> 0.8 / 1.4 %.  CONSEQUENCE, stated: on a tied
+# apron the preference also sits under ``apron_trend`` (30), so such an
+# apron follows its ground's long-wave trend inside the wider cap — 09k's
+# order (flat over the trend) holds on every apron that did not yield.
+# The register names the heads; an airport with no yielded runway mints
+# no such row.
+yielded_preference = 0.03
+yielded_preference_rulings = [
+  "common.roles.apron preferred tier under a yielded cap",   # constraints/apron.YIELDED_PREFERENCE_RULING
+]
 # §30 (4)'s CLUSTER APRON REACH / COLLAR (13cc, 14bf, 14bk) and its law keys
 # (`cluster_reach_rulings`, `cluster_apron_reach_m`, the collar ceiling head)
 # are DELETED — jetway-strip spec §6 Q3; the JETWAY STRIP projection below

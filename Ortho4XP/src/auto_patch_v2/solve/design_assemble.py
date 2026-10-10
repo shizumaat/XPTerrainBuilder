@@ -36,7 +36,8 @@ from .design_stage import _groundside_minter, _welded_faces
 from .design_roles import (bend_class, bend_roles, conforming_rulings,
                            datum_roles, foot_row_rulings, hard_rulings,
                            is_hard, one_way_rulings, pad_flat_rulings,
-                           pad_level_rulings, pavement_roles, ruling_head)
+                           pad_level_rulings, pavement_roles, ruling_head,
+                           yielded_preference_rulings)
 
 __all__ = ["Base", "assemble"]
 
@@ -90,6 +91,10 @@ class Base:
     #: ``one`` indices of the FOOT ROWS (``[design] foot_row_rulings``,
     #: 11ab): priced at ``pad_flat``, the pad law's own target
     foot_row_i: list[int] = _dc.field(default_factory=list)
+    #: ``one`` indices of a PREFERENCE UNDER A YIELDED CAP (``[design]
+    #: yielded_preference_rulings``, owner RULINGS 2026-10-10j): priced at
+    #: ``yielded_preference``, under the taxi caps' ``law``
+    yielded_pref_i: list[int] = _dc.field(default_factory=list)
 
 
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
@@ -352,6 +357,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     hard: list[int] = []
     pad_flat_i: list[int] = []
     foot_i: list[int] = []   # the FOOT ROWS at ``pad_flat`` (11ab)
+    yp_heads = yielded_preference_rulings(law)
+    yp_i: list[int] = []     # a preference under a yielded cap (10j)
     one_way: dict[int, tuple[int, ...]] = {}
     #: the vertices a LAW EQUALITY GOVERNS (owner RULINGS 2026-09-10ba): a
     #: basin floor is no longer PINNED — it is tied to its rim by a relative
@@ -456,7 +463,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 one_way[len(one)] = cols
         head = ruling_head(row)
         (pad_flat_i if head in pf_heads
-         else foot_i if head in fr_heads else []).append(len(one))
+         else foot_i if head in fr_heads
+         else yp_i if head in yp_heads else []).append(len(one))
         # A PAD THAT FRONTS PAVEMENT HAS NO DEM DATUM OF ITS OWN (owner
         # RULINGS 2026-09-10l): every vertex a LEVEL row governs — the whole
         # pad plane (10y), not just the feet the row mentions — follows the
@@ -738,4 +746,5 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep.body_datum_bodies = len(meta)
     rep.foot_rows = len(foot_i)
     return Base(rows, red, one, eqs, n, hard, pad_flat_i, one_way,
-                chord_v, road_v, body, meta, foot_row_i=foot_i)
+                chord_v, road_v, body, meta, foot_row_i=foot_i,
+                yielded_pref_i=yp_i)

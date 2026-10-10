@@ -104,8 +104,10 @@ def test_tied_taxi_faces_take_the_runway_cap_and_the_untied_do_not(yielded, law)
     for f in _faces(pm, "stubX"):
         assert f.id not in pm.taxi_caps
         assert face_cap(law, f, pm)[0] == 0.015
-    # only the taxi family yields
-    assert all(pm.faces[fid].role in TAXI for fid in pm.taxi_caps)
+    # only the taxi family yields — and the apron it fronts (owner RULINGS
+    # 2026-10-10j; ``test_apronyield523``)
+    assert all(pm.faces[fid].role in (*TAXI, "apron") for fid in pm.taxi_caps)
+    assert any(f.id in pm.taxi_caps for f in _faces(pm, "apron1"))
 
 
 def test_the_stretches_carry_the_yield_through_the_one_reader(yielded, law):

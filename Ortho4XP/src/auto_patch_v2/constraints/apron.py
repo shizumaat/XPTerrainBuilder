@@ -58,6 +58,17 @@ preference: per face the rows over 1 % and the max grade (the sidecar's
 ``apron_over_preference``, ``why``).  The 5 % back-edge class between
 adjacent pads (08-24, 06w (3)) is NOT modelled yet — owed.
 
+AN APRON TIED TO A YIELDED RUNWAY (owner RULINGS 2026-10-10j, spec §50.8,
+issue #523): the HARD tier of such a face is the cap ``runway_yield.
+derive_taxi`` published for it (``vw.caps``, through ``precedence.
+face_cap`` — never a second derivation), and its preference row keeps the
+1 % bound but cites :data:`YIELDED_PREFERENCE_RULING`, the head
+``solve/design`` prices at ``[design] yielded_preference`` instead of
+``law``: the apron still prefers flat (09k) and the preference no longer
+outranks a taxiway's cap.  The 04t-2 edge portions read the cap of the
+apron each pair runs along (:func:`_portion_caps`).  A map with no
+yielded runway mints exactly the rows it always did.
+
 Lattice / membrane (``emit.chords.apron_interior_spacing_m``): the M1 map
 has no interior vertices (M0 open question 3); the membrane family is
 therefore vacuous on v2's own publication — recorded in the M2 report,
@@ -77,7 +88,7 @@ from .precedence import View, view
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
            "face_width", "STATS", "PREFERENCE_GROUP", "PREFERENCE_RULING",
-           "tiered_rows"]
+           "YIELDED_PREFERENCE_RULING", "tiered_rows"]
 
 #: The preference rows' escalation-group prefix (``Weights.preference``
 #: key; ``solve/assemble.preference_weight``): ``apron:<face>:<k>``.
@@ -86,6 +97,11 @@ PREFERENCE_GROUP = "apron"
 #: tier (``solve.relax.stated_role`` reads the ``common.roles.apron``
 #: prefix; the row is never admitted to the relaxation — it is soft).
 PREFERENCE_RULING = "common.roles.apron preferred tier (2026-09-06w)"
+#: The same tier on a pair whose apron YIELDED with its runway (owner
+#: RULINGS 2026-10-10j): a head of its own, so the solve can price it
+#: under the taxi caps (``[design] yielded_preference_rulings``).
+YIELDED_PREFERENCE_RULING = ("common.roles.apron preferred tier under a "
+                             "yielded cap (2026-09-06w / 2026-10-10j)")
 
 #: The last run's generator statistics by generator function name
 #: (``generate`` publishes them as ``<generator>.<stat>``):
@@ -105,16 +121,28 @@ class _Tier:
     own group ``apron:<face>:<k>``."""
 
     def __init__(self, fid: int, ref: str, hard: float | None, preferred: float | None,
-                 generator: str = GEN) -> None:
+                 generator: str = GEN, ruling: str = PREFERENCE_RULING) -> None:
         self.fid, self.hard, self.preferred = fid, hard, preferred
         self.k = 0
         self.generator = generator
+        self.ruling = ruling        # the preference row's citation
 
     def rows(self, a: int, b: int, d: float, src: Source) -> tuple[Row, ...]:
         """The hard row (none when ``hard`` is ``None``: the face's own cap
         already holds it, an edge portion of a taxi face) and the
         preference row on the same pair, citing the hard row's inputs."""
         return self.mint(self.reserve(a, b, d, src))
+
+    def rows_at(self, a: int, b: int, d: float, src: Source,
+                hard: float | None, ruling: str) -> tuple[Row, ...]:
+        """:meth:`rows` for ONE pair under another hard cap and preference
+        citation — the group index stays this face's own sequence."""
+        keep = self.hard, self.ruling
+        self.hard, self.ruling = hard, ruling
+        try:
+            return self.rows(a, b, d, src) if self.n_rows else ()
+        finally:
+            self.hard, self.ruling = keep
 
     #: how many rows one pair mints — the hard row and / or the preference
     #: row, so a caller that DEFERS the minting can still count them
@@ -147,7 +175,7 @@ class _Tier:
         if self.preferred is not None:
             g = f"{PREFERENCE_GROUP}:{self.fid}:{k}"
             out.append(Diff(a, b, self.preferred, d,
-                            Source(self.generator, PREFERENCE_RULING, src.inputs),
+                            Source(self.generator, self.ruling, src.inputs),
                             soft=g, ceiling=None))
         return tuple(out)
 
@@ -199,7 +227,13 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
     n_pref = 0
     n_cross = 0
     for f in vw.faces_of_role(("apron",)):
-        tier = _Tier(f.id, f.ref, cap.longitudinal, pref_l)
+        # 2026-10-10j: a face tied to a yielded runway is hard at ITS cap
+        # and its preference is the yielded head; every other face reads
+        # the table, as before
+        own = vw.caps[f.id][0] if vw.caps[f.id] is not None else cap.longitudinal
+        tier = (_Tier(f.id, f.ref, own, pref_l, ruling=YIELDED_PREFERENCE_RULING)
+                if own > cap.longitudinal
+                else _Tier(f.id, f.ref, cap.longitudinal, pref_l))
         src_ring = Source(GEN, "common.roles.apron ring edge (2026-08-21b)",
                           (f"face:{f.id}", f.ref))
         src_spine = Source(GEN, "common.roles.apron frontage chord (2026-08-21c)",
@@ -398,6 +432,7 @@ def apron_edge_portions(planar: PlanarMap, law: Law, airport: Airport
         for h in vw.holes[f.id]:
             apron_v.update(h)
     apron_fv = frozenset(apron_v)
+    yielded = _portion_caps(vw, cap.longitudinal)
     rows: list[Row] = []
     for fid, f in planar.faces.items():
         if f.role == "apron" or vw.caps[fid] is None or is_rigid_role(law, f.role):
@@ -429,6 +464,42 @@ def apron_edge_portions(planar: PlanarMap, law: Law, airport: Airport
                 for j in range(i + 1, len(run)):
                     a, b = run[i], run[j]
                     d = vw.dist(a, b)
-                    if d >= min_d:
+                    if d < min_d:
+                        continue
+                    along = yielded(a, b) if yielded is not None else None
+                    if along is None:
                         rows.extend(tier.rows(a, b, d, src))
+                        continue
+                    # 2026-10-10j: the pair runs along an apron that
+                    # YIELDED — hard at that apron's cap (where the face
+                    # is looser still), its preference the yielded head
+                    rows.extend(tier.rows_at(
+                        a, b, d, src, along if face_cap > along else None,
+                        YIELDED_PREFERENCE_RULING))
     return rows
+
+
+def _portion_caps(vw: View, table: float):
+    """``(a, b) -> the YIELDED cap of the apron the pair runs along``, or
+    ``None`` for a pair along an apron at the table cap (owner RULINGS
+    2026-10-10j) — and ``None`` instead of a function where no apron of
+    the map yielded, so such a map takes the old path untouched.
+
+    The apron a pair runs along is the one holding BOTH vertices; where
+    several do, or none does (a run turning from one apron onto the
+    next), the strictest of the aprons at either vertex — never a cap
+    looser than an apron the pair touches."""
+    caps = {f.id: vw.caps[f.id][0] for f in vw.faces_of_role(("apron",))
+            if vw.caps[f.id] is not None}
+    if not any(c > table for c in caps.values()):
+        return None
+
+    def at(v: int) -> set[int]:
+        return {q for q in vw.vertex_faces.get(v, ()) if q in caps}
+
+    def along(a: int, b: int) -> float | None:
+        fa, fb = at(a), at(b)
+        got = min((caps[q] for q in (fa & fb) or (fa | fb)), default=table)
+        return got if got > table else None
+
+    return along

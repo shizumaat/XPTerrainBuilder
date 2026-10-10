@@ -480,35 +480,44 @@ def rim_strip_ties(planar: PlanarMap, law: Law) -> dict[int, tuple[int, float]]:
     pavement owns is never tied (airside is king), nor one a pad owns."""
     from ..law.tables import is_value_role, role_side, snap_margin_m
     faces = getattr(planar, "faces", None) or {}
-    groups = _pad_groups(planar, law) if faces else []
-    if not groups:
+    rigid = [fid for fid, f in faces.items() if is_rigid_role(law, f.role)]
+    if not rigid:
         return {}
-    pad_of: dict[int, str] = {}
-    for _fid, ref, group in groups:
-        for v in group:
-            pad_of.setdefault(int(v), str(ref))
-    polys: dict[str, list[Polygon]] = {}
-    for _fid, ref, _g, poly in _pad_polys(planar, law):
-        polys.setdefault(str(ref), []).append(poly)
     reach = (float(law.tables.structures.building_pad.groundside_cutback_m)
              + snap_margin_m(law)
              + float(law.tables.emit.identity.min_distinct_spacing_m))
     air = airside_vertices(planar, law)
     vw = view(planar, law)
+    # EVERY face of a rigid role is the pad here (a cluster's pieces, a
+    # platform, its collar and bank): the rim is whatever the strip shares
+    # with one, and the nearest rim vertex is the one a metre away
+    pad_of: dict[int, set[int]] = {}
+    polys: dict[int, Polygon] = {}
+    def _all(fid: int) -> list[int]:           # the outer ring AND the holes
+        return [int(v) for r_ in (vw.rings.get(fid, ()), *vw.holes.get(fid, ()))
+                for v in r_]
+    for fid in rigid:
+        ring = [int(v) for v in vw.rings.get(fid, ())]
+        for v in _all(fid):
+            pad_of.setdefault(v, set()).add(fid)
+        if len(ring) >= 3:
+            poly = Polygon([vw.xy[v] for v in ring])
+            polys[fid] = poly if poly.is_valid else poly.buffer(0.0)
     out: dict[int, tuple[int, float]] = {}
     for fid, f in faces.items():
         if (is_rigid_role(law, f.role) or not is_value_role(law, f.role)
                 or role_side(law, f.role) != "groundside"
                 or is_late_ref(f.ref) or is_osm_ribbon_ref(f.ref)):
             continue
-        ring = [int(v) for v in vw.rings.get(fid, ())]
+        # a strip that runs round a pad piece carries that rim as a HOLE
+        ring = _all(fid)
         rim = [v for v in ring if v in pad_of]
         if not rim or len(rim) == len(ring):
             continue
         # a pad is often several faces (a cluster's pieces, a platform and
         # its collar): the strip is read against every one it touches
-        parts = [p for ref in sorted({pad_of[v] for v in rim})
-                 for p in polys.get(ref, ())]
+        parts = [polys[q] for q in sorted({q for v in rim for q in pad_of[v]})
+                 if q in polys and not polys[q].is_empty]
         if not parts:
             continue
         for v in ring:

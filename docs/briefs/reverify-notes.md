@@ -110,3 +110,21 @@ arms are valid bases for this tree (the merge of main adds no geometry).
   `frontage_near_miss` 10 → 8, `adjacent_ground_step` 17 → 16, `strip_transverse` 18 → 17; `hard_conflict` airside
   83 = 83. Runway families: `strip_longitudinal` 10 = 10 (worst 1.02 → 1.08), `strip_arc` 11 → 12 (worst 1.0 =),
   crown / step / skirt 0.
+
+HECA addendum — the new CRITICAL motion row: `dsf:objpav402` (95.38 → 95.17) against `dsf:objpav1` (98.50–98.60 →
+98.69–98.79) across `service_road small_roads:-18656` at 30.12155524, 31.41995156: an apron|apron step that was 3.1–3.2 m
+in m and is 3.5–3.6 m under R-E (the sheet sinks 0.21, the neighbour rises 0.19); it crosses into `terrace_actual_step`
+"cliff". An existing step grown, not a new one.
+
+## Step 3 — SPJC (`sm` = m tree 67e7f587, `sc2` = this tree; pairs with `--null-change`, 18:22–18:27)
+
+| SPJC | m | c2 (R-E + C2) |
+|---|---|---|
+| `--null-change` pass1a / pass1b / stage2 | 10/0/0.114, 6/0/0.096, 9/0/0.096 MET | **3/0/0.035, 6/0/0.073, 9/0/0.073 MET** |
+| P:AIR-TOUCH / AIR-NEAR | 1 / 0 m; 0 | **0; 0** |
+| held datums (24; 21 on 6 shared sheets) | — | 4 moved: `pav35` building4 36.37 → 35.94, building6 35.30 → 35.77; `pav40` building13 29.38 → 29.51; building8 32.85 → 32.87; the other 17 on shared sheets unmoved; 0 off their rim |
+| runway vs m | — | **0 movers, worst 0.000** (1,029 vertices) |
+| `hard_conflict` gs / pad / taxi | 3 / 1 / 7 | 1 / 1 / 7 |
+| movers vs m: taxi / apron ≤ 60 m / apron > 60 m / pad | — | 60 (worst −0.07) / 244 (−1.43 at −12.03021614, −77.10670351) / 70 (+0.21) / 11 (+0.16) |
+| adjudicated airside | 714 | 723 (`pad_airside_weld` 4 → 5, `within_shape` 2,243 → 2,245) |
+| CRITICAL motion / visual | 0 / 502 | 0 / 502 |

@@ -12,3 +12,12 @@ thing at a time (weldverify shares the machine). No airport build.
   pass]) twice — the arm, then the arm + the 30 §61 (6) ceilings — with interventions on the second run.
 * First observation off reverify's own JSON (`c2/base_gf.json`): HECA `promoted` per pass [632, 879, 878] vs
   [633, 879, 878] — pass 1a's surface is identical (worst 0.0001 m) but one more row is promoted on a miss in the twin.
+
+## Step 1 — B, is KCLT's `pav101` instability on main? (NO)
+
+`tools/v2_solve_replay.py --replay frames/pads67/KCLT.pkl --from classify --gap-free --null-change` on a worktree of
+`origin/main` 6dfb97854 (`.claude/worktrees/pass2main`, `<scratch>/pass2/B_main_pads67.log`):
+`NULL-CHANGE pass1a 0/0/0.000 pass1b 0/0/0.020 stage2 0/0/0.020 (promoted 145=145, lp relaxed 331=331)` — MET.
+Same capture as reverify's `km0` (m tree 67e7f587: 10/0/0.040, 18/4/0.538). So it is NOT the capture and NOT on main:
+it is in the 44 src commits between main and the m tree (the pads57–pads67 collar-deletion / weld-floor stack + R-D
+rule 1). The valley2 capture on main is run as the second control (below).

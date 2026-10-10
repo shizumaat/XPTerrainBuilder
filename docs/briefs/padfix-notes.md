@@ -6,7 +6,9 @@ copies in `docs/briefs/padfix-scratch/`). Captures: the registered `frames/pads6
 
 ## RESUME HERE
 
-See the last section of this file for what is done and what is running.
+Code head 9cb3819d1 (ONE code change: `solve/feasibility.row_tiers`, item 3). Items 1, 2, 4, 5, 6 attributed; item 3
+fixed; item 7 not implemented (the read below refutes half (i)'s premise; half (ii) not started). Closing section at
+the end of the file: suites, replay pairs, the `sw12_HECA` row. Only HECA's body changes.
 
 ## Item 1 — KCLT, 11 structure-frame nodes 1.41–1.43 m at 35.22182657, −80.94183645: ATTRIBUTED, NOT FIXED (a question)
 
@@ -239,3 +241,81 @@ takes it: the class is 16 pads at HECA and 19 at KCLT, 0.41–1.63 m of relief, 
 class read by the census; the pad's own `pad_slope_max ceiling` rows already exist over those apron vertices but are
 stage-2 rows over constants (their violations are the pad-tier `hard_conflict` rows: HECA 20 `pad_slope_max ceiling`
 after item 3's fix, KCLT 15).
+
+## Closing — suites, replay pairs, the one rebuilt airport
+
+SUITES at 9cb3819d1: non-Qt split 9,220 passed / 19 skipped / 1 xfailed / 1 xpassed, 0 failed (142.9 s); Qt 311
+passed; the four named files 204 passed; `tools/ratchets.py` DUPLICATE RATCHET PASS, LAYER RATCHET PASS (no size
+WARN line names `solve/feasibility.py`; the WARN lines are the parents').
+
+REPLAY PAIRS, fix tree against the control tree `padfixctl` at c1a26f166 (`rep.sh`: `frames/pads67/<ICAO>.pkl
+--from classify [--gap-free] --workers 9 --emit`; the emitted patch hashed):
+
+| airport | control → fix | what moved |
+|---|---|---|
+| HECA (`h0` → `h1`) | patches differ | 2 `building36` nodes −0.27 / −0.25 m, 6 `service_road` nodes ≤ 0.28 m; solve-owned 0; runway 0; structure 0; §5a stage 2 pad 32 → 28; held 37 → 38 |
+| KCLT (`k0` → `k2`) | e622670f7b40 = e622670f7b40, **byte-identical** | nothing (§5a 309 = 309: gs 276, pad 33) |
+| NLWF / CYXY / KASE / SPJC (`s0_*` → `s1_*`) | 4dde63cc7243 / 74bea73af5f1 / e07070eabaa6 / e05b2a22d77d, each **byte-identical** | nothing |
+| OTHH (`o0` → `o1`) | see the last line of this file | the §5a LP relaxes 0 rows at OTHH in every solve (`lp relaxed 0=0`), and `row_tiers` is read by that LP only |
+
+REBUILT: HECA only — `tools/harness/build_airport.py HECA --tag sw12_HECA` on this tree, rc 0, status optimal,
+668.5 s (a single correctness run beside nothing else; not a timing), body `9a8766eac4a3` (sw11 `645b3b7f49f3`, main
+sw10 `5fce51e016a0`). Frame registered (`frames/padfix/sw12_HECA.osm`).
+
+`sw12_HECA` against `sw11_HECA` (`airside_value_delta`, 27,973 = 27,973 nodes, none added or removed): row-side 2
+movers (the pad's corner, 0.27 m), `service_road` 6 nodes ≤ 0.28 m; solve-owned 0 of 17,430; structure 0 of 245.
+Census rows sw11 → sw12: `pad_frontage_infeasible` 5 → 4 (the 0.281 m row at 30.11721238, 31.38159758 gone),
+`hard_conflict` airside 33 → 29, pad tier 32 → 28, hold verdicts held 37 → 38 / residual 2 → 1; and — the cost, all
+at the one road beside `building36` — `mid_edge_step` groundside 55 → 60 and `vertex_to_edge_step` 16 → 17 (five
+0.51–0.63 m rows and one 0.58 m row over 0.47–0.61 m at 30.11672..30.11679, 31.38151..31.38163): the pad's corner no
+longer rises 0.27 m to meet the road, so the road's step off the knife line runs on to the corner. CRITICAL visual
+2,032 → **2,038** (+6, these rows); CRITICAL motion 3 = 3. `road_cross_section` 555 → 567 is REPORT rows (the LP's
+relaxed set, groundside 359 → 360), no node moved with them.
+
+The per-airport row, sw10 (main) → sw12 (`<scratch>/padfix/m/HECA_row.txt`, the same reader as padsweep's table):
+
+```
+=== HECA: body 5fce51e016a0 -> 9a8766eac4a3; status optimal; patch wall 569.2 -> 668.5 s; rebake plan sha 1956d7537290 -> 75018e8013b8
+  MOVERS row-side: 10445 > 0.02 m, worst 9.48; A-only 375 B-only 294; {'other': (2306, 9.48), 'apron': (2236, 5.19), 'taxi': (2339, 1.16), 'strip': (3453, 0.73), 'runway': (111, 0.13)}
+  MOVERS solve-owned: 5893 > 0.02 m, worst 2.19; A-only 0 B-only 8; {'apron': (2136, 2.19), 'taxi': (2339, 1.16), 'strip': (1307, 0.59), 'runway': (111, 0.13)}
+  MOVERS structure: 0 > 0.02 m, worst 0.0; A-only 0 B-only 0; {}
+  RUNWAY nodes moved > 0.02 m: 111, worst 0.13 @ 30.13223500946, 31.39747096527
+    runway way 05C/23C: 1154 joined, worst |dz| 0.03 m, worst shape 0.038 pp / 30 m, sites > 0.1 pp: 0 []
+    runway way 05L/23R: 686 joined, worst |dz| 0.13 m, worst shape 0.24 pp / 30 m, sites > 0.1 pp: 10 [(0.24, '30.12694322, 31.39039445'), (0.159, '30.13852330, 31.40588179'), (0.151, '30.13935325, 31.40651482')]
+  PAD EDGES (runs / m) base -> arm: AIRSIDE 31/556 -> 3/46; BARE 297/14831 -> 326/17058; ENGINE 41/331 -> 22/302; GAPPED 2/66 -> 5/86; HELD 4/165 -> 1/2; TOUCH-OFF 13/446 -> 3/49; cls:M 243/7872 -> 258/10569; cls:S 1/0 -> 1/0
+  PLATFORMS 42 -> 47; hold verdicts {'held': 32, None: 8, 'residual': 2} -> {None: 8, 'held': 38, 'residual': 1}; datums moved > 0.02 m: 26
+    held pads 38: datum off its held contact > 0.02 m: 3 [('building165', 0.105), ('building157', 0.075), ('building169', 0.059)]; tilted (tilt_pct > 0.05): base 3 -> arm [('building100', 93.4), ('building169', 0.08), ('building5', 0.212), ('building59', 0.319), ('building101', 0.513), ('building178', 0.603), ('building93', 0.06)]
+  HARD_CONFLICT by tier: {'groundside': 209, 'pad': 24, 'taxi': 63} -> {'groundside': 360, 'pad': 28, 'taxi': 1}
+  CENSUS law-true total 56069 -> 56282; ADJUDICATED airside-for-acceptance 12176 -> 11929; by side airside 12167 -> 11920, groundside 2234 -> 2692, mixed 9 -> 9
+    rising airside as in sw11 (adjacent_ground_step +3, airside_no_step +26, pad_airside_weld +2, pavement_over_road_cap mixed +2, strip_seam_tear +14, taxi_box +1, transverse +22) but pad_frontage_infeasible 0 -> 4 (sw11: 5); hard_conflict air 87 -> 29 (sw11: 33)
+    mid_edge_step air/mixed/gs 6/0/46 -> 0/0/60 (sw11: 0/0/55); vertex_to_edge_step 2/0/13 -> 1/0/17 (sw11: 1/0/16); road_cross_section gs 518 -> 567 (sw11: 555)
+  CRITICAL_MOTION: 3 -> 3; CRITICAL_VISUAL: 1913 -> 2038; without hairline_pair 60 -> 94; hairline_pair 1853 -> 1944 (+91)
+  QP exits arm: every solve optimal (15)
+```
+
+NOT RE-RUN on this head: `--null-change` (the fix touches only the §5a LP's row ranks; HECA's line on the merged
+head stands in padsweep-notes §5); KCLT / OTHH / SPJC / CYXY / KASE / NLWF builds (bodies unchanged: replay patches
+byte-identical, or — OTHH — see the last line).
+
+## Found, not fixed
+
+1. KCLT `door:paredes_11_charlotte.obj@0` (35.22182657, −80.94183645): the cliff at the top of the door ramp — the
+   framed plane's last pinned station 220.93 against the apron's top vertex 222.36, 1 m apart; the well 2.3 m deep
+   (item 1: a question, both answers measured or described).
+2. The framed plane of a door well is derived against the DEM (`top_ground_z`) while its top vertices carry the
+   apron's solved value: on main the apron stood 0.55 m under the plane's design top at that well.
+3. `airside_value_delta`'s structure frame counts a `structure_rim` vertex the pavement shares as a structure node:
+   it reads an apron mover as a structure mover (KCLT 11; SPJC 19 in pads65's notes).
+4. HECA `building36`: 15 + 6 CRITICAL visual step rows on the road between the pad's rim and apron `dsf:objpav114`'s
+   edge 3–4 m away (0.5–0.8 m apart in level) — 10a (2) (b) as the census reads it; no family exempts it.
+5. `model.platform.datum_vertices` takes a GROUNDSIDE weld as a held pad's datum column when the pad has no vertex of
+   its own off the airside (HECA `building36`: 10 airside + 5 groundside welds). With item 3's fix the column holds
+   (63.267, tilt 0.002); the docstring's "never a weld" is no longer true of it.
+6. The landside pads: 48 of HECA's 154 and 8 of KCLT's 23 landside pads WITH vertices of their own have relief
+   (to 3.13 m, 1.32 %) — item 7's question.
+7. The 16 / 19 pads on an apron sheet with no vertex of their own (HECA / KCLT) are not one level (item 7 (ii), not
+   started); KCLT's `pad_airside_weld` +2 is that class.
+8. KCLT junction way −10177 at 35.2240, −80.9376 sinks 0.30–0.47 m under R-E against a runway-side edge that does not
+   move: `transverse` 6 rows to 0.70 m / 25 m, 2 `taxi_box` rows (item 6; pass2's found-not-fixed).
+9. HECA 4.69 m `mid_edge_step` at 30.11594978, 31.40754772: a declared gap terrace's wall reported under the step
+   family along the stretch with no joint point (item 4).

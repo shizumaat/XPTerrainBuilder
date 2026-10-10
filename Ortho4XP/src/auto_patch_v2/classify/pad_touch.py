@@ -43,7 +43,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 
-__all__ = ["EVIDENCE_KEY", "HELD_KEY", "WELD_KEY", "dem_step_m", "gridded",
+__all__ = ["EVIDENCE_KEY", "HELD_KEY", "WELD_KEY", "STRIP_KEY", "is_rim_strip", "dem_step_m", "gridded",
            "is_held_step", "is_touching", "part_evidence", "touch_distances",
            "touch_limit_m", "touch_records", "weld_partners"]
 
@@ -54,6 +54,12 @@ EVIDENCE_KEY = "pad_touch"
 HELD_KEY = "pad_held"
 #: ``Cell.evidence`` flag of a cell clipped at a pad's footprint (Rule W)
 WELD_KEY = "pad_weld"
+#: evidence key of the STRIP between the set-back knife and the rim that a
+#: welded cell bounding airside is cut into (``roles._cut_back_groundside``,
+#: §63 M1).  The strip stands where the knife's stand-off stood: readers of
+#: the standing cells that claim ground by the cell SET (the zone claim)
+#: read the body alone, as they read the knifed cell
+STRIP_KEY = "pad_rim_strip"
 
 
 def touch_limit_m(law: Law) -> float:
@@ -186,6 +192,11 @@ def part_evidence(parent: _t.Mapping[str, _t.Any], part: Polygon,
         if held:
             ev[HELD_KEY] = held
     return ev
+
+
+def is_rim_strip(cell: _t.Any) -> bool:
+    """``cell`` is the rim STRIP of a welded cell (:data:`STRIP_KEY`)."""
+    return bool((getattr(cell, "evidence", None) or {}).get(STRIP_KEY))
 
 
 def weld_partners(cell: _t.Any, law: Law) -> list[str]:

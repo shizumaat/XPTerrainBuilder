@@ -98,7 +98,7 @@ from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
 from .open_default import apron_evidence, open_pavement_role
-from .pad_touch import (EVIDENCE_KEY, HELD_KEY, WELD_KEY, dem_step_m, gridded,
+from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m, gridded,
                         is_held_step, is_touching, part_evidence,
                         touch_distances)
 from .rules import Rules, load_rules
@@ -957,20 +957,23 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
             # cell; its held and gapped witness stand
             cut = unary_union([knives[r] for r in held + welded])
             body_pads = {r: g for r, g in pads.items() if r not in welded}
-            parts = ([(p, body_pads) for p in polygon_parts(poly.difference(cut))]
-                     + [(p, pads) for p in polygon_parts(poly.intersection(cut)
-                                                         .difference(unary_union(cutters)))])
+            strip_ev = dict(ev, **{STRIP_KEY: 1.0})
+            parts = ([(p, body_pads, ev) for p in polygon_parts(poly.difference(cut))]
+                     + [(p, pads, strip_ev)
+                        for p in polygon_parts(poly.intersection(cut)
+                                               .difference(unary_union(cutters)))])
         else:
-            parts = [(p, pads) for p in polygon_parts(poly.difference(unary_union(cutters)))]
+            parts = [(p, pads, ev)
+                     for p in polygon_parts(poly.difference(unary_union(cutters)))]
         k = 0
-        for part, witness_pads in parts:
+        for part, witness_pads, part_ev in parts:
             if part.area < rules.cells.min_area_m2:
                 continue
             ring = tuple(part.exterior.coords)[:-1]
             holes = tuple(tuple(h.coords)[:-1] for h in part.interiors)
             out.append(Cell(len(out), c.role, c.ref if k == 0 else f"{c.ref}#{k}",
                             ring, holes, c.code_number, c.code_letter, c.side,
-                            c.kind, part_evidence(ev, part, witness_pads, law)))
+                            c.kind, part_evidence(part_ev, part, witness_pads, law)))
             k += 1
     # ids are positional
     return [_dc.replace(c, id=i) for i, c in enumerate(out)], n_cut

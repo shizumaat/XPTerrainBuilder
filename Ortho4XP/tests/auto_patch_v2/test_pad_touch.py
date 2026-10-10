@@ -414,3 +414,41 @@ def test_a_welded_cell_off_the_airside_is_clipped_whole(law):
     cells, _n = _cut_back_groundside(_all_cells(), law, load_rules(),
                                      _airport(law, _Dem()))
     assert len(_parts(cells, "over")) == 1
+
+
+# ── the rim strip is not in the zone claim (§63 M1, lane weldverify) ──
+
+def _zones(cells, law):
+    from auto_patch_v2.planar.zones import zone_regions
+    return [(z.ref, z.polygon.wkb_hex) for z in zone_regions(tuple(cells), law)]
+
+
+def test_the_rim_strip_is_marked_and_leaves_every_zone_band_as_the_knife_had_it(law):
+    """HECA (lane weldverify): 27 rim strips added to the zone claim's union
+    re-noded it 1.6 km away — a 1.31 m2 hairline band (1,689 m x 0.8 mm)
+    beside a runway, 163 new runway vertices.  The strip stands in the
+    knife's own stand-off, which the knifed body's buffer already claims:
+    the bands are byte-identical with and without it."""
+    from auto_patch_v2.classify.pad_touch import STRIP_KEY, is_rim_strip
+    cells, _n = _cut_back_groundside(_corner_cells(), law, load_rules(),
+                                     _airport(law, _Dem()))
+    body, strip = _parts(cells, "lotN")
+    assert is_rim_strip(strip) and strip.evidence[STRIP_KEY] and not is_rim_strip(body)
+    bands = _zones(cells, law)
+    assert bands                                          # the runway HAS bands
+    assert _zones([c for c in cells if c is not strip], law) == bands
+
+
+def test_a_rim_strip_that_reaches_a_band_is_cut_out_of_that_band(law):
+    """Planarity where the body's buffer does not cover the strip: a band
+    that reaches the strip yields its ground to it."""
+    from auto_patch_v2.classify.pad_touch import STRIP_KEY
+    from auto_patch_v2.planar.zones import zone_regions
+    runway = Cell(9, "runway", "09/27", _rect(-800.0, -422.5, 800.0, -377.5), (),
+                  3, "D", "airside", "runway", {})
+    ring = _rect(-50.0, -377.0, 50.0, -376.0)             # inside the runway's lip
+    strip = Cell(1, "parking_lot", "lotS#1", ring, (), None, None, "groundside",
+                 "parking_lot", {STRIP_KEY: 1.0})
+    got = zone_regions((runway, strip), law)
+    assert got and all(z.polygon.intersection(Polygon(ring)).area < 1e-6 for z in got)
+    assert any(z.polygon.distance(Polygon(ring)) < 1e-6 for z in got)

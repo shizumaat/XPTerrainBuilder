@@ -54,7 +54,7 @@ def read_cifp_runways(path: str) -> dict[str, CifpRunway]:
     coordinate is skipped (the end then has no pin — never an invented
     one, plan §2)."""
     out: dict[str, CifpRunway] = {}
-    with open(path, "r", errors="replace") as fh:
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for raw in fh:
             line = raw.strip()
             if not line.startswith("RWY:"):

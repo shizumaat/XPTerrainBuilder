@@ -12,6 +12,7 @@ import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
+import O4_Text_Files as TEXT
 import O4_Geo_Utils as GEO
 import O4_Proj_Runtime as PROJRT
 import O4_Vector_Utils as VECT
@@ -40,7 +41,8 @@ else:
 community_server = False
 if os.path.exists(FNAMES.resource_path("community_server.txt")):
     try:
-        with open(FNAMES.resource_path("community_server.txt"), "r") as f:
+        with TEXT.open_supplied(
+                FNAMES.resource_path("community_server.txt")) as f:
             lines = f.readlines()
         for line in lines:
             line = line.strip()

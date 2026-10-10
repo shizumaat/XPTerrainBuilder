@@ -225,7 +225,7 @@ def _resource_surface_attribute(def_path: str,
                 physical = None
         if physical is not None and os.path.isfile(physical):
             try:
-                with open(physical, "r", errors="ignore") as handle:
+                with open(physical, "r", encoding="utf-8", errors="ignore") as handle:
                     for line in handle:
                         tokens = line.split()
                         if tokens and tokens[0].upper() == "SURFACE" \
@@ -898,7 +898,7 @@ def _lin_strip_width_m(def_path: str,
             scale_s = None
             s_low = s_high = None
             try:
-                with open(physical, "r", errors="ignore") as handle:
+                with open(physical, "r", encoding="utf-8", errors="ignore") as handle:
                     for line in handle:
                         tokens = line.split()
                         if not tokens:

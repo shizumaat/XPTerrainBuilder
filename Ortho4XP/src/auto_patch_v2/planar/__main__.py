@@ -36,7 +36,7 @@ def _cfg_value(key: str) -> str:
     cfg = ENGINE_DIR / "Ortho4XP.cfg"
     if not cfg.is_file():
         return ""
-    for line in cfg.read_text(errors="replace").splitlines():
+    for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
         if line.startswith(key + "="):
             return line.split("=", 1)[1].strip()
     return ""

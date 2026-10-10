@@ -1651,7 +1651,7 @@ if __name__ == "__main__":
     print("Mask size : ", mask_im.size, "pixels.")
     buffer = ""
     try:
-        f = open(name + ".ext", "r")
+        f = open(name + ".ext", "r", encoding="utf-8", errors="replace")
         for line in f.readlines():
             if ("#" not in line) or query:
                 continue
@@ -1674,7 +1674,7 @@ if __name__ == "__main__":
         + str(ymax)
         + "\n"
     )
-    f = open(name + ".ext", "w", newline="\n")
+    f = open(name + ".ext", "w", encoding="utf-8", newline="\n")
     f.write(buffer)
     f.close()
     if buffer_width:

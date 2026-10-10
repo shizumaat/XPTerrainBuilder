@@ -1199,7 +1199,7 @@ def _reconcile_animation_blocks(
     blocks: list[dict] = []
     current_block: dict | None = None
     animation_depth = 0
-    with open(backup_path, errors="replace") as handle:
+    with open(backup_path, encoding="utf-8", errors="replace") as handle:
         for line_index, line in enumerate(handle):
             tokens = line.split()
             if not tokens:

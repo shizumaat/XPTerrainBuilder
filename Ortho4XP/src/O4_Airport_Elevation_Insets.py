@@ -169,6 +169,7 @@ from elevation_access.warp import inset_valid_fraction
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
+import O4_Text_Files as TEXT
 import O4_File_Lock as O4_File_Lock
 import O4_Geo_Utils as GEO
 import O4_DEM_Utils as DEM
@@ -436,6 +437,62 @@ def _parse_resolution_ladder(value, provider_code="?"):
     return rungs
 
 
+#: ``.elv`` files are UTF-8; a byte-order mark an editor added is dropped.
+ELV_ENCODING = TEXT.SHIPPED_ENCODING
+
+
+def provider_registry_selfcheck(providers_directory=None):
+    """Does every ``.elv`` file in the directory become a provider?
+
+    ``(ok, line)`` for ``--import-selfcheck`` (issue #510): the binary
+    parses its OWN bundled directory and fails when a file is missing from
+    the registry (unreadable, undecodable, no ``access_strategy``), when a
+    ``provider:`` ladder rung names a provider that is not there, or when
+    a parsed value is not the file's UTF-8 text (a read in another
+    encoding).  The registry in force is left as it was found.
+    """
+    global elevation_providers_dict
+    name = "elevation provider registry"
+    directory = providers_directory or elevation_providers_directory()
+    if not os.path.isdir(directory):
+        return (False, "%s: FAIL no directory %s" % (name, directory))
+    in_force = elevation_providers_dict
+    try:
+        parsed = initialize_elevation_providers_dict(directory)
+    finally:
+        elevation_providers_dict = in_force
+    files = sorted(file_name[:-4] for file_name in os.listdir(directory)
+                   if file_name.endswith(".elv")
+                   and not file_name.startswith("."))
+    absent = [code for code in files if code not in parsed]
+    dangling = sorted(set(
+        "%s>%s" % (code, rung["provider"])
+        for (code, definition) in parsed.items()
+        for rung in definition.get("resolution_ladder_rungs", ())
+        if rung.get("provider") and rung["provider"] not in parsed))
+    garbled = []
+    for code in sorted(parsed):
+        try:
+            with open(os.path.join(directory, code + ".elv"), "rb") as handle:
+                text = handle.read().decode(ELV_ENCODING)
+        except (OSError, UnicodeDecodeError):
+            garbled.append(code)
+            continue
+        if any(isinstance(value, str) and not value.isascii()
+               and value not in text for value in parsed[code].values()):
+            garbled.append(code)
+    if files and not (absent or dangling or garbled):
+        return (True, "%s: ok %d providers" % (name, len(parsed)))
+    parts = ["%d of %d files" % (len(files) - len(absent), len(files))]
+    if absent:
+        parts.append("not parsed " + ",".join(absent))
+    if dangling:
+        parts.append("ladder rung names no provider " + ",".join(dangling))
+    if garbled:
+        parts.append("not read as UTF-8 " + ",".join(garbled))
+    return (False, "%s: FAIL %s" % (name, "; ".join(parts)))
+
+
 def initialize_elevation_providers_dict(providers_directory=None):
     """Parse every ``Providers/Elevation/<CODE>.elv`` file.
 
@@ -457,17 +514,25 @@ def initialize_elevation_providers_dict(providers_directory=None):
     for file_name in sorted(os.listdir(directory)):
         if "." not in file_name or file_name.split(".")[-1] != "elv":
             continue
+        if file_name.startswith("."):       # a swap file, a resource fork
+            continue
         provider_code = file_name.split(".")[0]
         definition = {"code": provider_code}
         try:
-            with open(os.path.join(directory, file_name), "r") as handle:
+            # ``.elv`` files are UTF-8 (issue #510).  Unnamed, the read
+            # used the machine's ANSI code page on Windows: cp1252 turned
+            # every attribution dash into mojibake, and a double-byte page
+            # (cp932/936/949/950) could not decode nine shipped files at
+            # all -- each then "skipped" here and silently left the ladder.
+            with open(os.path.join(directory, file_name), "r",
+                      encoding=ELV_ENCODING) as handle:
                 lines = handle.readlines()
-        except Exception:
+        except Exception as error:
             UI.vprint(
                 0,
                 "   WARNING: could not read elevation provider file",
                 file_name,
-                "- skipping it.",
+                "(%s) - skipping it." % type(error).__name__,
             )
             continue
         for line in lines:

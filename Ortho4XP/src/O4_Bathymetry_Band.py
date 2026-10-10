@@ -465,7 +465,9 @@ def _vrt_source_paths(vrt_path: str) -> Optional[set]:
     otherwise (the overhang cells of a neighbour tile's directory).
     """
     try:
-        with open(vrt_path, "r") as vrt_file:
+        # GDAL writes a VRT, and the paths in it, as UTF-8 (issue #539).
+        with open(vrt_path, "r", encoding="utf-8",
+                  errors="surrogateescape") as vrt_file:
             text = vrt_file.read()
     except OSError:
         return None

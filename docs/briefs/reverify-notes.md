@@ -78,3 +78,35 @@ C2 does not change the runway number: e → c2 0 movers on 2,581 runway vertices
   30.13251013076, 31.39736195092 60.47 → 60.59; 30.13229810529, 31.39707659232 60.51 → 60.63;
   30.12941096667, 31.39369915363 59.01 → 59.13; 30.13230718766, 31.39756435498 60.92 → 61.04 (+0.12 each);
   30.13258230904, 31.39745534081 60.46 → 60.57 (+0.11).
+
+## Step 1 — KCLT (`kc2` = this tree; `ke0` = this tree with C2 stubbed off = R-E alone; `km0` = m tree null-change)
+
+BASE CHECK: seat2's `ke` (f3596b84) vs this tree's `ke0` — 0 movers > 0.02 m in every family, 0 datums: seat2's m / e
+arms are valid bases for this tree (the merge of main adds no geometry).
+
+| KCLT | m (`km`, null-change `km0` on 67e7f587) | e (`ke0`, R-E alone) | c2 (`kc2`) |
+|---|---|---|---|
+| `--null-change` pass1a / pass1b / stage2 | 10/0/0.040, **18/4/0.538**, 18/4/0.538 MISSED | 17/0/0.143, 24/0/0.121, 41/0/0.121 MISSED | **0/0/0.004**, **47/0/0.185**, **90/0/0.185 MISSED** |
+| P:AIR-TOUCH / AIR-NEAR | 3 / 28 m; 0 | 0; 0 | **0; 0** |
+| held datums (53) vs apron on the rim | — | 0 off | 0 off; 13 moved vs m (building75 / 83 221.03 → 222.44, building81 220.70 → 221.75, ten others ≤ 0.08 m) |
+| runway movers vs m | — | 0 (worst −0.02) | **0 (worst −0.020; 30 m 0.065 pp; no kink)** |
+| `hard_conflict` gs / pad / taxi | 277 / 33 / 50 | 288 / 34 / 49 | 288 / 34 / 49 |
+| movers vs m: taxi / apron ≤ 60 m / apron > 60 m / pad | — | ≈ c2 | 808 (worst +1.34) / 2,286 (+1.89) / 578 (−2.06) / 296 (+1.41) |
+| apron non-pad by distance to a rim (n: movers / > 0.3 / worst) | — | ≈ c2 | < 2 m 70: 38 / 20 / +1.41; 2–10 375: 188 / 49 / +1.89; 10–30 915: 426 / 77 / +1.40; 30–60 947: 477 / 215 / +1.36; 60–200 1,246: 480 / 186 / −2.06; > 200 747: 445 / 190 / −1.78 |
+| adjudicated airside | 2,971 | 3,069 | 3,067 |
+| CRITICAL motion / visual | 4 / 1,996 | 4 / 1,996 | 4 / 1,996 |
+
+* e0 → c2 (what C2 changes in the final surface): runway 0, pads 0, datums 0; taxi 39 (worst +0.18 at 35.20907717,
+  −80.95015120), apron 9 (worst +0.30 at 35.20812142, −80.95781677), other 46. Those sites are the two arms' own pass-1b
+  null-change movers (kc2: junction `pav2` cells at 35.2087, −80.9500 −0.18, apron `dsf:pol19` 35.20825, −80.95925 −0.185;
+  ke0: `dsf:pol14` 35.20812, −80.95782 +0.121, `dsf:pol19` −0.113, `pav61`): the e0 ↔ c2 difference is pass 1b's
+  path dependence, not a C2 effect on a pad.
+* C2 closes pass 1a at KCLT too (17 → 0). Pass 1b is unstable in ALL THREE trees — m itself misses the bar at KCLT
+  (4 vertices +0.538 m on apron `pav101` at 35.21590029, −80.94392379), so the pass-1b miss is not R-E's and not C2's;
+  under R-E + C2 its count is the highest (47 / stage 2 90) and its worst the lowest but one (0.185; none over 0.3).
+* Census m → c2 by family (verify code is identical in the three trees — `git diff 67e7f587 HEAD -- src` touches only
+  constraints/apron, platform, design_stage, road_descent, build): airside rising `within_shape` 9,413 → 9,600,
+  `transverse` 4 → 8, `strip_arc` 11 → 12; falling `drainage_minimum` 1,929 → 1,849, `airside_no_step` 479 → 475,
+  `frontage_near_miss` 10 → 8, `adjacent_ground_step` 17 → 16, `strip_transverse` 18 → 17; `hard_conflict` airside
+  83 = 83. Runway families: `strip_longitudinal` 10 = 10 (worst 1.02 → 1.08), `strip_arc` 11 → 12 (worst 1.0 =),
+  crown / step / skirt 0.

@@ -7,22 +7,44 @@ bases `b0` / `kb0` and weld63's `w1` / `kw1` symlinked — controls shared, not 
 
 ## RESUME HERE
 
-* HEAD 1e6ab88d (pushed) = PR #504 + main + (a) 63341a37 the rim strip out of the zone claim, (b) 75cdfb3e LP twins for
-  10a (2), (c) 1e6ab88d a groundside cap half a tier above its tier's rows. Non-Qt suite at 1e6ab88d: 9,199 passed,
-  19 skipped, 1 xfailed, 1 xpassed (`<scratch>/weldverify/suite.txt`).
-* Arms in `<scratch>/weldverify/`: `v1` / `kv1` (b57214e3), `x1` / `kx1` (44f9955b), `s1` (23ad159e), `v2` / `kv2`
-  (63341a37). RUNNING: `chain3.sh` = `v3` / `kv3` at 1e6ab88d; then `chain4.sh` = bases `sb0` / `cb0` / `ob0` (SPJC, CYXY,
-  OTHH at ded211fb). THEN: arms `sv` / `cv` / `ov` at the final head, the sites, the closing build `weldverify_HECA`,
-  Qt suite + the four named tests, ratchets.
-* `v2` (strip fix alone) at HECA: airside nodes 0 removed / 2 added (both at the `objpav366` apron contact 30.11721, 31.38160);
-  movers runway 0, strip 4, taxi 10, apron 39, worst 0.05 m, all 53 within 200 m of that one site; structure 0;
-  `--null-change` 5/0/0.249, 8/0/0.137, 8/0/0.137 (inside bar); conflicts 349 / 19 / 2; adjudicated airside 12,022 → 11,867.
-* `s1` (S + T): airside nodes 0 / 0, movers 0, conflicts 254 / 104 / 64 unchanged, TOUCH-OFF 15 / 565 → 13 / 597.
-  `kx1` = `kw1` on every line (B′ moves nothing measurable at KCLT either: TOUCH-OFF 1 / 0, 267 / 53 / 48).
-* FOUND on `v1`, fixed 1e6ab88d, `v3` measures it: cloud (2) put a lot's / road's own grade cap in the groundside tier at
-  the SAME price as the road's ramp ceiling and cross-section it had been senior to → `dsf:objpav405` at 30.1390670,
-  31.4100643 (no pad near) went 5.90 m over 55.8 m (`pavement_over_road_cap` HECA 23 → 48 rows, KCLT 16 → 38).
+* HEAD 1e6ab88d + notes (pushed). Suites at 1e6ab88d: non-Qt 9,199 passed / 19 skipped / 1 xfailed / 1 xpassed; Qt 311 passed;
+  the four named files 204 passed; ratchets PASS (size WARN `classify/roles.py` 1,444 → 1,504, this branch's whole diff).
+* Arms done: `v3` / `kv3` (final head), `sv` / `cv` (SPJC / CYXY vs `sb0` / `cb0`). RUNNING: `ov` (OTHH vs `ob0`).
+  THEN: `acc.sh ov OTHH ob0`, the OTHH structure read, the closing build `weldverify_HECA` + `frames.py register`.
+* OPEN, NOT FIXED (a design question, see "THE STRIP'S LIP"): cloud (3)'s strip concentrates a pad|road misfit into 0.95 m.
 
+## FINAL — head 1e6ab88d (`v3` HECA vs `b0`, `kv3` KCLT vs `kb0`; base ded211fb; each tree's own census)
+
+| read | HECA base → W (`w1`) → head | KCLT base → W (`kw1`) → head | bar | verdict |
+|---|---|---|---|---|
+| TOUCH-OFF runs / m | 15 / 565 → 8 / 68 → **3 / 49** | 8 / 62 → 1 / 0 → **1 / 0** | toward 0 | MET (HECA's 49 m is `building15` \| `objpav394`: 3 + 7 shared rim vertices at the pad's 97.7, the lot falling at 4.3–4.9 % inside its 5 % cap — welded, read as off by the 10 m window) |
+| GAPPED (listed) | 2 / 66 → 5 / 86 → 5 / 86 | 3 / 24 → 4 / 24 → 4 / 24 | — | `building164` \| `objpav405` +2.70 over 65.8 m, gap 1.31 m, unchanged |
+| ENGINE | 18 / 156 → 22 / 302 → 23 / 302 | 2 / 0 → 0 → 1 / 16 | — | `building131` \| `gap:0/s2/lot` 110 m as W |
+| airside nodes removed / added | 9 / 2 → **0 / 2** | 6 / 3 → **2 / 2** | 0 / 0 | NEAR: HECA's 2 are both at the `objpav366` apron contact 30.11721, 31.38160 |
+| airside movers > 0.02 m runway / strip / taxi / apron, worst | 0 / 14 / 20 / 98, 0.14 → **0 / 4 / 10 / 39, 0.05** | 0 / 4 / 5 / 6, 0.45 → **0 / 4 / 5 / 31, 0.45** | runway 0, others ~0 | runway MET; HECA all 53 within 200 m of `objpav366`; KCLT 26 ≤ 0.04 at one welded road (35.2094, −80.9415), 8 ≤ 0.05 at 35.2070, −80.9321, and 5 isolated apron nodes 0.25–0.45 (35.21569, −80.94399; 35.20810, −80.95938; 35.20849, −80.93090) that moved the same under W's one-pad probe |
+| structure frame | 0 of 245 | 0 of 363 | 0 | MET |
+| `hard_conflict` gs / pad / taxi | 254 / 104 / 64 → 266 / 124 / 70 → **340 / 19 / 2** | 277 / 33 / 50 → 267 / 53 / 48 → **370 / 33 / 0** | pad ≤ base; taxi ± 3 | pad MET; taxi is the RECLASSIFICATION (below) |
+| `--null-change` | 9/0/0.119, 8/0/0.091, 8/0/0.091 → 5/0/0.249, 8/0/0.137, 8/0/0.137 | — → 5/0/0.139, 0, 0 | ≤ 20 / 0 | MET |
+| pad datums moved > 0.02 m | 9 of 120 | 5 of 83 | airside-seated 0 | MISSED, attributed: `building75` 100.69 → 100.85, `building59` 85.47 → 85.76, `building36` 63.31 → 63.54, `building96` 63.60 → 63.40 are pads whose PLANE was relaxed in the base (`building75` alone 84 of the 104 pad rows: rim 99.75–100.85) and holds now (rim 100.85 flat) — the published level is the plane's, the lot yields |
+| CRITICAL motion / visual | 3 / 1,962 → 3 / 1,973 → 3 / **1,992** | 0 / 1,996 → 0 / **2,038** | not rising | MISSED by `hairline_pair` alone (+30 / +43 unmeshable pairs: the 0.95 m strips' own thin faces); every other family equal to base |
+| adjudicated airside | 12,022 → 12,043 → 11,861 | 2,971 → 2,985 → 2,915 | — | `hard_conflict` airside 168 → 21 / 83 → 33 carries it |
+| `road_cross_section` | 501 → 617 → 586 | 769 → 898 → 870 | — | groundside REPORT rows on welded roads; not attributed row by row |
+| `pavement_over_road_cap` | 23 → 22 → 24 | 16 → 19 → 20 | — | (48 / 38 at b57214e3 before the cap-seniority fix) |
+
+Other airports at the head: SPJC (`sv` vs `sb0`) runway 0, nodes 5 / 7, movers strip 8 / taxi 8 / apron 15 ≤ 0.08 m, structure 0 of 377,
+conflicts 3 / 1 / 7 → 9 / 1 / 0, TOUCH-OFF 2 / 0 → 0, HELD 2. CYXY (`cv` vs `cb0`) runway 0, nodes 3 / 0, movers strip 4 / apron 21
+≤ 0.12 m (60.70495, −135.06923), structure 0 of 94, conflicts 4 = 4, TOUCH-OFF 2 / 157 → HELD 2 / 157 (13o's terraces).
+
+### THE STRIP'S LIP (found, attributed, NOT fixed — a design question on cloud commit (3))
+
+`<scratch>/weldverify/lip.py`: a welded cell's vertices within 1.2 m of the rim against the nearest rim vertex. W whole-clip
+(`w1`): 2 vertices > 0.3 m in 21 pairs. Head (`v3`): 14 in 31 pairs — `building12` \| `route3` 11 of 15 knife-line vertices
+0.3–0.78 m above the rim (95.6 vs 94.6–94.9) across the 0.95 m strip; `building36` \| `objpav366` 0.58; `building59` \|
+`objpav7` 0.52. KCLT `kv3`: `building56` \| `pol48` / `pol22` 0.70 / 0.65, `building46` \| `pol28` 0.55 (`kw1` 0.47 / — / 0.30).
+Mechanism: the BODY is the knifed cell and no weld partner, so its knife-line vertices keep the road's own law (ramp target,
+ceiling, join pin — B′ releases only vertices SHARED with a pad), and the strip between has no rim → knife-line ring edge
+except at its two ends, so no cap row crosses it (`pavement_cap` R-F skips a pad vertex). Under 1 m everywhere read, so
+08d (2)'s class, and the edge read (threshold 1 m) does not see it.
 ## Step 1 — `v1` (HECA) / `kv1` (KCLT) at b57214e3, before any fix here
 
 | read | HECA `b0` → `w1` (weld63) → `v1` | KCLT `kb0` → `kw1` → `kv1` |

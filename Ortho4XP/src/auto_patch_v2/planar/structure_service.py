@@ -166,8 +166,12 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                                f"(§34 (12) (5) (a) extended, owner RULINGS "
                                f"2026-09-27a (3))")
         cover = on_field.cover_run_m(ln) if on_field is not None else 0.0
+        width = max(carriageway_width_m(w.tags or {}, law) for w in bore.ways)
         if cover >= tn.terrain_cover_min_m:
-            return True, f"under the classified cover for {cover:.1f} m"
+            cover = _cover_at_grade(on_field, pack_bldg, ln, width, cover,
+                                    tn.terrain_cover_min_m)
+            if cover >= tn.terrain_cover_min_m:
+                return True, f"under the classified cover for {cover:.1f} m"
         lay = _layer_of_bore(bore)
         if lay is not None and lay <= tn.terrain_layer_max:
             return True, f"the bore carries layer {lay}"
@@ -179,7 +183,6 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
             return True, f"the ground over it stands {rise:+.2f} m above its mouth chord"
         if fence is not None and _osm_tunnel(bore, tn.admitted_values) \
                 and fence.covers(ln):
-            width = max(carriageway_width_m(w.tags or {}, law) for w in bore.ways)
             over = pack_bldg.passage(ln, width, tn.terrain_cover_min_m)
             if over is not None:
                 res, uid, base = over
@@ -204,6 +207,39 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                        f"elevated roads carry it (§34 (12) (5) (c))")
 
     return witness
+
+
+def _cover_at_grade(on_field, pack_bldg, line, width_m: float, cover_m: float,
+                    cover_min_m: float) -> float:
+    """§34 (12) (5) (c)'s COVER, READ AT GRADE (owner RULINGS 2026-10-10i
+    (1): "an elevated pack part with clear space beneath is not cover";
+    issue #548): the metres of ``line`` under the classified cover that
+    count as something AT GRADE over the bore.
+
+    A building PAD is the footprint of a pack building, and the pack is
+    the witness of what that building is over the road.  Where the pack
+    itself says the bore's carriageway runs under an ELEVATED part with no
+    part at grade over its line (:meth:`_PackBuildings.passage` — 10i
+    (1)'s own reading), the pads' share of the cover is that part's
+    footprint and not ground over the bore: only the cover OUTSIDE the
+    pads (pavement, a roofed corridor) is counted.  MEASURED at KCLT's
+    -27411 + -32111 (313 m, ``service tunnel=yes``, no layer): 273.0 m
+    "under the classified cover", every metre of it pad ``building75``;
+    the pack has a 6.0 m road deck over it and nothing at grade — the
+    lower roadway under the departures deck — and a ramp 5.1 m deep was
+    cut beside the pack's own up-ramp to that deck.
+
+    ``on_field.pad_cover`` are the pad cells among the region's polygons
+    (``field_region_for``); a region that carries none, or a pack that
+    reports no passage, leaves ``cover_m`` as it was."""
+    pads = getattr(on_field, "pad_cover", None) or ()
+    if not pads or pack_bldg.passage(line, width_m, cover_min_m) is None:
+        return cover_m
+    from shapely.ops import unary_union
+    over = [p for p in pads if p.intersects(line)]
+    if not over:
+        return cover_m
+    return float(on_field.cover_run_m(line.difference(unary_union(over))))
 
 
 class _PackBuildings:

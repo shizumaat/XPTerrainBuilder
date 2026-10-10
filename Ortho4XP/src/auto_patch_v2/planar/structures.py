@@ -204,7 +204,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # one derivation the harness's cockpit block reads through the same
     # classes.
     on_field = field_region_for(airport, law, polys + [c.footprint for c in corridors],
-                                corridors)  # 27a (3): never a pack building
+                                corridors,  # 27a (3): never a pack building
+                                [p for p, c in zip(polys, cells) if c.role == "building"])
     stats.approach_corridors = len(on_field.corridor or ())
     stats.runway_bands = len(on_field.band or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)

@@ -74,3 +74,44 @@ site A 35.2224352,-80.9472186 = 221.75 m; site B 35.2203395,-80.9466805 = 221.75
   (`placement_orphan`), i.e. it would be re-seated; keeping only the well's frame on the
   authored row needs a body class "kept at the authored row's seat" in the plan and the
   writer (object-placement spec §18 territory).
+
+## Finding 3 (#548) — "tunnel ramp" at 35.2214617,-80.9460653 and the "tiny arm": ATTRIBUTED
+
+- Patch (`tunnel522_KCLT.osm`): way `-10904` role `tunnel_ramp` (18 nodes, 216.46 -> 220.84 m,
+  about 7 m wide, 120 m long) inside `structure_rim` `tunnel_wall` way `-11717`
+  (220.82..225.51). Owner's mesh at the site 217.80 m; the pad beside it 222.44 m: a
+  trench up to 5.1 m deep.
+- Structure record (dry `--stage structures`): `tunnel:-32111+-27411@0`, source `osm`,
+  mouth 35.2212937,-80.9458207, mouth DEM 221.60, mouth_z 216.50, 5 % for 120 m along the
+  approach road `-27509` (`highway=service lanes=2`). The other mouth `@1` is refused
+  ("the mouth stands against building pad building75").
+- Bore: OSM ways `-27411` (293 m straight, `highway=service tunnel=yes`, no layer) +
+  `-32111`, 312.9 m, running east under the terminal. ADMISSION WITNESS (scratch
+  `bore_witness.py` around `structure_service.terrain_tunnel_witness`): §34 (12) (5) (c)
+  "under the classified cover for 273.0 m". Neither end is inside a pack building. The
+  cover is pad `building75` — the terminal's own footprint. The engine's own 10i (1)
+  reading, asked of this bore, ALREADY answers "an elevated pack part
+  (`Terminals/paredes_8_charlotte.obj`, base 3.03 m) stands over the carriageway and no
+  pack part at grade covers its line" — it is never asked, because the cover witness runs
+  first.
+- The pack (authored files, read-only): over the bore `Terminals/techos_1_charlotte.obj`
+  component 8 (360 x 133 m, y -0.10 .. 6.07) is a road deck 6.02 m over the terminal's
+  zero (mesh under it 222.44 = the pad): the lower roadway runs AT GRADE under the
+  departures deck. The same component is the up-ramp: its surface stands +1.77 m at the
+  owner's site, +4.99 m at the "arm" point and +6.02 m at the bore's mouth. It rises above
+  grade all the way; nothing in the pack is below grade here.
+- WHY THE ENGINE CUT DOWN: a mapped `tunnel=yes` bore "under cover", where the cover is the
+  pad of the elevated deck itself.
+- THE "TINY ARM" 35.2215158,-80.9458896: not a structure. It is an arm of pad
+  `building75` (way `-11019`, 222.44 m): within 40 m of the point the pad is a strip of
+  mean width 1.15 m (109 m2 along ~95 m) — the outline of the ramp's at-grade edge, held at
+  the pad level. The ramp object over it is elevated, so only its ground-contact edge
+  founds a pad. It does not go with the bore fix (it is the pad outline's thin-piece
+  question).
+- FIX (branch): `structure_service._cover_at_grade` — where the pack reports the passage
+  (10i (1)'s own `_PackBuildings.passage`), the PADS' share of a bore's cover is that
+  part's footprint, not ground over the bore; only cover outside the pads counts. Pavement
+  or a roofed corridor over the same bore still admits it; a pad with no passage, or with
+  an at-grade part over the line, is cover as before. Twins in
+  `tests/auto_patch_v2/test_tunnelwitness2.py` (3 new, 15 pass). A READING of owner RULINGS
+  2026-10-10i (1) — needs ratification.

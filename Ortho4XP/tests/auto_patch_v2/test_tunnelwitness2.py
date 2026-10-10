@@ -280,3 +280,45 @@ def test_a_pack_part_AT_GRADE_over_the_line_is_cover_and_d_stands(law):
     beside = _part(0.0, 6.0, _ll_ring(310, -99.5, 325, -90))
     _cl, _t, st = _spjc(law, partition=_link(beside))
     assert st.tunnels == 0 and len(_refusals(st)) == 1
+
+
+# ── #548: a pad under an elevated pack part is not cover at grade ────────
+
+def _pad(x0, y0, x1, y1, ref="building75"):
+    return Cell(3, "building", ref, _rect(x0, y0, x1, y1), (), None, None,
+                "groundside", "building", {})
+
+
+def test_a_PAD_under_an_ELEVATED_pack_part_is_that_parts_footprint_not_cover(law):
+    """Issue #548 (KCLT -27411 + -32111: 273.0 m "under the classified
+    cover", every metre of it the terminal's own pad, a 6 m road deck over
+    it and nothing at grade).  Owner RULINGS 2026-10-10i (1): an elevated
+    pack part with clear space beneath is not cover — so neither is the
+    pad cell that is its footprint."""
+    _cl, tunnels, st = _spjc(law, partition=_link(), extra_cells=(_pad(305, -112, 330, -88),))
+    assert st.tunnels == 0 and not tunnels
+    named = _refusals(st)
+    assert len(named) == 1, st.mouths_off_field_nearest
+    assert "-5724 PASSES UNDER AN ELEVATED PACK PART AT GRADE" in named[0]
+    assert "cover 0.0 m" in named[0]
+
+
+def test_a_PAD_with_no_pack_passage_or_an_AT_GRADE_part_over_the_line_is_cover(law):
+    """The bound: a pad is discounted ONLY where the pack reports the
+    passage.  A pad over a bore with no pack part over it, and a pad whose
+    building stands AT GRADE over the line, cover it exactly as before."""
+    pad = _pad(305, -112, 330, -88)
+    _cl, _t, st = _spjc(law, extra_cells=(pad,))
+    assert not _refusals(st), st.mouths_off_field_nearest
+    over = _part(0.0, 6.0, _ll_ring(310, -110, 325, -90))
+    _cl, _t, st = _spjc(law, partition=_link(over), extra_cells=(pad,))
+    assert not _refusals(st), st.mouths_off_field_nearest
+
+
+def test_PAVEMENT_beside_the_pad_still_covers_the_bore(law):
+    """Only the pads' share is the elevated part's footprint: a taxiway or
+    an apron over the same bore is ground at grade and admits it."""
+    apron = Cell(2, "apron", "pav50", _rect(326, -110, 333, -90), (), None, None,
+                 "airside", "apron", {})
+    _cl, _t, st = _spjc(law, partition=_link(), extra_cells=(_pad(305, -112, 326, -88), apron))
+    assert not _refusals(st), st.mouths_off_field_nearest

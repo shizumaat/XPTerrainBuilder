@@ -990,6 +990,39 @@ def _msl_census(a, plan, ss, sampler) -> None:
         for d, s in over[:15]:
             print(f"    {d:+7.2f} m  {s.resource.split('/')[-1][:46]:46s} "
                   f"{s.lat:.7f},{s.lon:.7f}  why={s.why}")
+    for line in authored_rows_lines(dump, plan, ss, sampler):
+        print(line)
+
+
+def authored_rows_lines(dump, plan, ss, sampler, pack_root: str = "") -> list[str]:
+    """§18 (3) (b) ON THE DSF: the rows an AUTHORED-TO-THE-CUT seat keeps,
+    read off the SAME ``placement_write.dump_rows`` call the writer makes —
+    one line per kept row with the elevation column it keeps, and what the
+    writer would do to it (nothing).  Module-level so the twin reads the
+    lines the report prints."""
+    from auto_patch_v2.airport import authored_seat as _as
+    from auto_patch_v2.airport import placement_write as PW
+    from auto_patch_v2.law import Law as _L2
+    splits, _kept = PP.to_placement_records(ss)
+    conv, msl, riders, counts = PW.dump_rows(
+        dump, plan, ss, splits, sampler, pack_root,
+        tol_m=float(_L2.load().tables.emit.design.hard_tol_m))
+    kept = sorted(_as.kept_rows(getattr(plan, "authored_seats", ()) or ()))
+    touched = ({c.index: "CONVERTED to on-ground" for c in conv}
+               | {m.index: f"SEATED at OBJECT_MSL {m.elevation:+.3f}" for m in msl}
+               | {r.index: "seated as a RIDER" for r in riders})
+    out = [f"\nAUTHORED ROWS (spec §18 (3) (b)): {len(kept)} row(s) keep the author's "
+           f"seat ({counts.get('authored_rows_kept', 0)} carry an elevation column); "
+           f"{counts.get('conversions', 0)} other row(s) convert to on-ground"]
+    for i in kept:
+        if not 0 <= i < len(dump.placements):
+            out.append(f"  row {i}: NOT IN THE DUMP")
+            continue
+        p = dump.placements[i]
+        elev = "" if p.elevation is None else f" {p.elevation:+.3f}"
+        out.append(f"  row {i}: {p.kind}{elev}  {p.def_path}  -> "
+                   f"{touched.get(i, 'kept as authored')}")
+    return out
 
 
 def print_footless(c: _t.Mapping[str, _t.Any]) -> None:
@@ -1048,49 +1081,26 @@ def _write_pack(a, plan, ss, sampler) -> None:
     dump = _dsf.read_dump(dump_text)
     splits, kept = PP.to_placement_records(ss)
     from auto_patch_v2.model.placement import PlacementPlan, Provenance
-    conversions, _k = _dw.conversions_for_dump(dump, root)
-    split_idx = frozenset(s.placement.index for s in splits)
-    conversions = tuple(c for c in conversions if c.index not in split_idx)
-    # §16g (5) (owner RULINGS 2026-09-13cb): the placements seated by
-    # their DSF ROW, from the SAME call ``placement_write.build_plan``
-    # makes — this tool builds its own ``PlacementPlan`` and without it
-    # the write half would silently drop every one of them (measured:
-    # "0 rows still carry an elevation" on a run that owed 4,846).
-    from auto_patch_v2.airport import footprint_unit as _fu
+    # THE ROW HALF — conversions, §16g (5) rows, riders, and the rows an
+    # AUTHORED-TO-THE-CUT seat keeps (§18) — through the SAME
+    # ``placement_write.dump_rows`` the engine's ``build_plan`` calls: this
+    # tool once carried its own copy and silently dropped the §16g (5)
+    # rows ("0 rows still carry an elevation" on a run that owed 4,846),
+    # then the riders (issue #31, lane ridercensus).
     from auto_patch_v2.law import Law as _L2
-    _flat = getattr(plan, "flat", None)
-    _msl_counts: dict = {}
-    msl = _fu.msl_seats_for_dump(
-        dump, plan, ss.unit_seats, sampler, root, split_idx,
-        tol_m=float(_L2.load().tables.emit.design.hard_tol_m),
-        authored_ground=(None if _flat is None else _flat.z0_m),
-        counts=_msl_counts)
-    _conv0 = conversions
-    _mi = frozenset(m.index for m in msl)
-    conversions = tuple(c for c in conversions if c.index not in _mi)
-    # issue #31: THE RIDERS, through the SAME ``placement_write.seat_riders``
-    # the engine's ``build_plan`` calls — this path carried none, so a
-    # pack copy written here left every rider's §16g (5) row in place and
-    # no rider record in the plan (lane ridercensus)
-    from auto_patch_v2.airport import riders as _RD
     _law2 = _L2.load()
     with open(a.graded, encoding="utf-8") as _fh:
         _gd = json.loads(_fh.read())
     from auto_patch_v2.airport.placement_read import pads_rims_from_graded_doc
     _pads, _ = pads_rims_from_graded_doc(_gd)
     _strips = tuple((_gd.get("provenance") or {}).get("jetway_strips") or ())
-    riders, msl, conversions = PW.seat_riders(
-        dump, _strips, _pads, sampler, split_idx, msl, _conv0, conversions,
-        tol_m=float(_law2.tables.emit.design.hard_tol_m),
-        authored_ground=(None if _flat is None else _flat.z0_m),
+    conversions, msl, riders, _rows = PW.dump_rows(
+        dump, plan, ss, splits, sampler, root,
+        tol_m=float(_law2.tables.emit.design.hard_tol_m), pads=_pads,
+        jetway_strips=_strips,
         gate_m=float(_law2.tables.emit.design.jetway_strip_m))
     counts = dict(ss.counts)
-    counts["conversions"] = len(conversions)
-    counts["msl_seats"] = len(msl)
-    counts.update(_RD.rider_census(riders))
-    counts.update(_msl_counts)
-    counts.update(_fu.multi_anchor_census(dump, plan, msl, split_idx,
-                                          ss.unit_seats))
+    counts.update(_rows)
     pl = PlacementPlan(icao=plan.icao, pack_name=os.path.basename(root),
                        pack_root=root, dsf_path=dsf_path,
                        dsf_backup_path=dsf_path + ".anchor_bak",

@@ -36,6 +36,7 @@ __all__ = [
     "KIND_ON_GROUND", "KIND_MSL", "KIND_AGL", "CONVERTIBLE_KINDS",
     "BODY_CLASSES", "Provenance", "Conversion", "Anchor", "PlacementRef",
     "Body", "Split", "Kept", "PlacementPlan", "MslSeat", "Rider",
+    "POOL_QUANTA", "TOL_DEG",
 ]
 
 #: 1: the first plan (11b — conversions, splits, kept).
@@ -582,3 +583,15 @@ class PlacementPlan:
     @classmethod
     def from_json(cls, text: str) -> "PlacementPlan":
         return cls.from_dict(json.loads(text))
+
+
+#: THE DSF COORDINATE QUANTUM (``airport/dsf_write``'s own measurement,
+#: KMCI 2026-09-11): a pool plane stores ``offset + span * q / 65535``
+#: for a 16-bit ``q``, so a written coordinate drifts up to ``span /
+#: POOL_QUANTA`` from the plan's (4.77e-07 deg on a 0.03125 deg pool,
+#: ~0.05 m).  ``TOL_DEG`` is the writer's pinned round-trip tolerance,
+#: ~4 quanta of that pool.  Defined HERE so a law that must stand clear
+#: of the requantisation (the basin rim anchor, issue #527) reads the
+#: writer's own number without importing the writer.
+POOL_QUANTA = 65535.0
+TOL_DEG = 2.0e-6

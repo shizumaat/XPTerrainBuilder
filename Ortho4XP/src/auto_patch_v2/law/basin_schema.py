@@ -39,4 +39,5 @@ class Basin:
     authored_depth_min_m: float        # 2026-09-09ag: the floor plate stands this far under the placement's OWN render datum too — the depth is AUTHORED (spec §13)
     authored_rim_tol_m: float          # object-placement spec §18 (3)/(5): the lift a pit is read ground-seated within, and the rim band its authored seat is kept in
     floor_clearance_m: float           # 2026-09-11t (spec §24 (2)): the trench floor stands this far UNDER the object's floor plate, so the plate renders and the terrain never shows through
+    bank_band_plate_min: float         # 2026-10-10h (2) (spec §47 (3) amended): a shell with no wall face takes the band INSIDE its outline only while the floor inside keeps this share of the witnessed plate; less (a well narrower than two bands) keeps the outward yield
     rim_read_vertex_budget: int        # 2026-09-13bp (iii): the rim / cover clip REFUSES past this many clipped vertices and names the pack, instead of 44 silent minutes (0 = unbounded)

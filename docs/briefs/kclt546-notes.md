@@ -121,3 +121,20 @@ site A 35.2224352,-80.9472186 = 221.75 m; site B 35.2203395,-80.9466805 = 221.75
   bound: three bores (-20899, -19181, -3949) report a pack passage too
   (`Airport/T23/concrete_2.obj`, base 2.63 m) and are real tunnels admitted by
   `layer -1` — a passage rule must stay under the layer witness.
+
+## Replay pair (finding 1 fix only) — `frames/pads67/KCLT.pkl --from planar`, base = main 66bc72f92 (worktree `kclt546base`), fix = this branch
+
+- `pad_scraps_reroled` 36 / 203.4 m2, `pad_scraps_merged` 33 (3 keep a face: not enclosed
+  by ONE plateau face). Nested apron ways: same-ref 34 -> 1, all classes 49 -> 16 (the 13
+  "plateau in a building way" + 1 "plain in a building way" are the pre-existing other
+  class: apron pieces standing in holes of a PAD, sw10 already had 12).
+- Owner site 35.2202043,-80.946664: 3 ways at 0.00 / 0.00 / 2.00 m -> no way within 15 m.
+- `airside_value_delta` base -> fix: 109 row-side vertices REMOVED (all plateau-ring
+  vertices), 0 added. Movers > 0.01 m: 60, worst 0.03 m — RUNWAY 0; taxi family 28 (worst
+  0.03 m at 35.22115978578,-80.94870148143; three at 0.03, the rest <= 0.02); apron 23
+  (worst 0.02 m); strip 7 (0.01 m). Structure frame: 299 nodes both arms, 0 moved, 0
+  added / removed.
+- Other airports, dry planar read of the registered captures (`--from planar --pad-read`):
+  HECA re-roled 3 / merged 3 (0.4 m2); OTHH re-roled 7 / merged 3; SPJC re-roled 1 /
+  merged 0; KASE, CYXY, NLWF 0 / 0. So the bodies of KCLT, HECA and OTHH change; SPJC,
+  KASE, CYXY, NLWF do not. No object plan changes (no object-stage code touched).

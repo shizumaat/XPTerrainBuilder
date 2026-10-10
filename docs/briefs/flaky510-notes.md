@@ -55,3 +55,54 @@ the fixture's restore disabled the pair fails (1 failed, 3 passed).
   no_airport_specific_code): 204 passed
 - full non-Qt split: 9226 passed, 19 skipped, 1 xfailed, 1 xpassed
 - `tools/ratchets.py`: exit 0
+
+# Addendum — is it a Windows defect of the app? (owner: Beta 2 blocker)
+
+## The CI failure is test-only
+
+Reproduced on macOS with one worker (sequence above); the registry on the
+failing worker was a scratch directory's, written by another test. Nothing
+Windows-specific is in that path except where the scheduler cut the file.
+
+## The frozen app's registry path
+
+- Lazy, never at import: every reader runs `if not elevation_providers_dict:
+  initialize_elevation_providers_dict()`.
+- Directory: `FNAMES.Provider_dir = resource_path("Providers")`; frozen, that
+  is `sys._MEIPASS/Ortho4XP_Data/Providers` — absolute, no cwd, no glob, no
+  case folding; `sorted(os.listdir())`. Both specs bundle `./Providers`.
+- A spawned pool worker re-imports the module with an empty registry and
+  parses the same absolute directory on first use. Reads only; no shared
+  state, so no race and no partial registry from spawn.
+
+## A real defect found on the way (fixed)
+
+The parser opened each `.elv` with the machine's default text encoding and
+"skipped" a file it could not read. 19 shipped files carry UTF-8 non-ASCII
+(7 of them in `attribution=` values). Measured by decoding the shipped files:
+
+| ANSI code page | files that do not decode (provider dropped) |
+|---|---|
+| cp1252 | 0 (attributions garbled: the dash reads as three characters) |
+| cp1250/1253/1254/1255/1257/1258/874 | 1 (TAIWAN20M) |
+| cp932/936/949/950 | 9: AKHAINES AKHOMER CORALATLAS CWCB1M CWCB7V2LAS PITKIN1M PORTUGALTIDAL TAIWAN20M WADNR |
+
+`USGS3DEP.elv` itself is ASCII and always parsed; what left the ladder on a
+double-byte Windows were rungs it names (PITKIN1M) and ladder members.
+Fix: the read names `ELV_ENCODING = "utf-8-sig"`.
+
+## Release checks
+
+None of PROJ / LERC / `--import-selfcheck` / `--pool-selfcheck` / tile smoke
+read the provider files' count, and the runners are cp1252, where nothing is
+dropped. `--import-selfcheck` (already run on all three frozen legs) now
+prints a third line from `provider_registry_selfcheck()`: every `.elv` in
+the bundle is in the registry, every `provider:` rung resolves, every
+non-ASCII value is the file's UTF-8 text. No workflow edit needed.
+
+Twin: `tests/test_provider_registry_selfcheck.py` (10 tests; 8 fail with the
+`encoding=` removed).
+
+Not done: the imagery provider reader (`O4_Imagery_Utils`) has the same
+unnamed-encoding read; one shipped file (`Providers/Albania/AL.lay`) is
+non-ASCII. `Providers/Sweden/.SE.lay.swp` is a stray editor swap file.

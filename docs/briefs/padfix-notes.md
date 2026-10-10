@@ -200,3 +200,42 @@ first.
 | `pad_airside_renode` +6 (7 new / 1 gone, magnitude 0) | the collar deletion (sidecar key: main 47, `pads67/sw8` 53, pass2 53, merged 53) | REPORT rows (where the pad cut re-noded an airside ring); lawful |
 | `pad_airside_weld` +2 (0.64 m over 92 m at 35.21610606, −80.92907988; 0.16; 0.14) | the common ancestor (weldverify's base `kb0` 7 = `kv6` 7 = merged 7; main 5) — neither parent | DEFECT of item 7 (ii)'s class: a pad with no vertex of its own on an apron sheet is not one level |
 | `strip_arc` +1 (0.39 m over 40 m at 35.22118171, −80.93695414) | R-E (reverify m → c2: 11 → 12; weldverify 11 = 11): one graded-strip vertex 224.65 → 224.71 against 225.10 unmoved | lawful movement, a row at its threshold (CRITICAL `strip_arc` 4 = 4) |
+
+## Item 7 — the all-welded pad: NOT IMPLEMENTED; half (i)'s premise is refuted by the population, half (ii) not started
+
+READ (`padrelief.py` on the sw11 graded surfaces + sidecars: every pad by base ref, its vertices classed OWN / welded
+to AIRSIDE pavement / welded to GROUNDSIDE pavement only; relief = max − min over its ring):
+
+| class (pads / with relief > 0.05 m) | HECA | KCLT |
+|---|---|---|
+| every vertex welded, all to airside pavement (`building99`'s class) | 17 / **16** (to 1.42 m `building150`; `building99` 1.05) | 20 / **19** (to 1.63 m `building68`) |
+| every vertex welded, groundside only (`building12`'s class) | 3 / 2 (`building12` 1.17 m over 175 m = 0.67 %; `building23` 0.09) | 2 / 1 (`building59` 0.57 m over 108 m = 0.53 %) |
+| every vertex welded, both sides | 1 / 1 (`building36` 0.28 — item 3; 0.01 after the fix) | 0 |
+| OWN vertices + an airside frontage (the held pads) | 37 / 10 (the held ones ≤ 0.55 m: relaxed planes) | 53 / 4 |
+| **OWN vertices, landside (no airside vertex)** | **154 / 48** (`building120` 3.13 m over 237 m = 1.32 %, 57 of 57 vertices its own; `building86` 1.27 m, 40 of 40 own; `building5` 1.01; `building44` 0.83; `building59` 0.75) | **23 / 8** (`building26` 0.55, `building56` 0.49, `building90` 0.45 with 52 of 52 own) |
+| landings | 6 / 6 | — |
+
+HALF (i) — STOPPED AT THE READ. The brief's class for `building12` ("no own vertex → no datum column → nothing holds
+it flat; the same class as `building99`") does not survive the table: a landside pad is not one level today WHETHER OR
+NOT it has vertices of its own — 48 of HECA's 154 landside pads with own vertices have relief (the worst, all 57
+vertices its own, 3.13 m), 8 of KCLT's 23. `pad36.py` on `building12`: its rows are `structures.building_pad flat`
+(cap 0, the PRICED zero-tilt target of `pad_flat_rulings`) and the hard `pad_slope_max ceiling` (1 %), exactly a
+landside pad's with own vertices; it is not in `HELD` (a hold is an airside frontage's), and its 0.67 % is inside the
+1 % ceiling. So the rule as briefed ("a pad whose every vertex is welded takes a datum column") would level 2 of
+HECA's 50 tilted landside pads and 1 of KCLT's 9 and leave the other 48 / 8 tilted by the same mechanism: not a
+general rule, and not the cause. The general statement would be "every pad without an airside hold is ONE hard level
+(the 1 % `pad_slope_max` allowance no longer applies to it)" — a change of `emit.toml [within_shape] pad_slope_max`'s
+meaning for ~200 pads per large airport, groundside only (no airside vertex can move: they are all stage-2 columns).
+QUESTION (yes / no): "Is a landside pad one hard level, the lots and roads welded to it taking the grade (10a (2)),
+instead of a plane that may tilt up to 1 %?" RECOMMENDATION: yes for a pad with a building on it (09-09c "a building
+pad is ONE PLANE"; the 1 % was the allowance for the frontage fit, and 10a (2) now says which side yields) — as its
+own change and sweep, with the landings excluded (their relief is the viaduct's).
+
+HALF (ii) — NOT STARTED (budget: it needs stage-1 follower rows, two replay pairs each at HECA and KCLT, and
+`--null-change`; padsweep's arm stands as the only measurement: 16 pads take a rim datum, `building99` 1.05 → 0.02 m,
+2,879 solve-owned airside vertices moved up to 1.72 m, stage-1 LP relaxing 2 pad rows). Facts gathered for whoever
+takes it: the class is 16 pads at HECA and 19 at KCLT, 0.41–1.63 m of relief, tilts 0.84–1.74 % over the pad's extent
+(up to 4.99 % across `building99`'s short side); KCLT's two new `pad_airside_weld` rows (item 6) and HECA's are this
+class read by the census; the pad's own `pad_slope_max ceiling` rows already exist over those apron vertices but are
+stage-2 rows over constants (their violations are the pad-tier `hard_conflict` rows: HECA 20 `pad_slope_max ceiling`
+after item 3's fix, KCLT 15).

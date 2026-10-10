@@ -1353,12 +1353,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # driver``: ``UI.loud_warning``); this package prints nothing
         from ..constraints.pad_warning import warnings_of
         report["warnings"] = warnings_of(pub.get("platforms"))
-        from .publication import gap_pieces, late_stage
+        from .publication import gap_pieces, late_stage, pad_touch
         _gap_records = gap_pieces(_late_report and _late_report["cut"], cl.cells)
         if _late_report is not None or _gap_records:
             pub["gap_pieces"] = _gap_records
         if _late_report is not None:
             pub["late_stage"] = late_stage(_late_report["stage"])
+        _touch = pad_touch(cl.cells, law, pm)
+        if _touch:
+            pub["pad_touch"] = _touch
         pub["design_target"] = design_rep.targets
         js = report["joint_steps"]
         if js and js["contours"]:

@@ -49,7 +49,9 @@ from ..model.planar import PlanarMap
 from .design_report import row_metre_scale
 from .design_roles import ruling_head
 
-__all__ = ["ConflictReport", "tier_of", "check_hard_set", "canonical_rank",
+__all__ = ["ConflictReport", "tier_of", "row_tiers", "cap_seniority",
+           "SIDE_RANKED_HEADS",
+           "check_hard_set", "canonical_rank",
            "HARD_CONFLICT", "publish", "publish_stages", "demote_conflicts",
            "apron_hard_rows", "source_face", "published",
            "promote_missed", "runway_after"]
@@ -140,6 +142,80 @@ def tier_of(law: Law) -> dict[str, int]:
     return {h: t for t, heads in enumerate(d.hard_conflict_ranks) for h in heads}
 
 
+#: THE PAVEMENT CEILINGS RANK BY THE SIDE THEY STAND ON (spec §63; owner
+#: RULINGS 2026-10-09j (1): "apron, taxiway, and pads all take precedence
+#: over roads"; 09d (1): pavement touching a pad grades inside its OWN cap).
+#: ``[design] hard_conflict_ranks`` lists these heads in the TAXI tier (30bj
+#: (6)) — their rank on AIRSIDE pavement.  A row of one of them standing on
+#: a GROUNDSIDE vertex (a lot's or a road's own ceiling) ranks in the
+#: groundside tier, below a pad's plane: measured HECA ``building59`` (lane
+#: weld63, M2), a lot welded to the pad's rim relaxed the PAD's plane
+#: (``pad_slope_max ceiling`` 3 -> 20 relaxed rows) instead of its own cap.
+SIDE_RANKED_HEADS = ("rulesets.common.pavement_max_grade ceiling",
+                     "rulesets.common.road_max_grade pavement fallback")
+#: the tier of ``[design] hard_conflict_tiers`` a groundside row of a
+#: :data:`SIDE_RANKED_HEADS` head takes
+GROUNDSIDE_TIER = "groundside"
+
+
+def row_tiers(planar: PlanarMap, law: Law, one: list, rows: np.ndarray,
+              heads: _t.Sequence[str]) -> np.ndarray:
+    """THE RANK OF EACH HARD ROW — the ONE derivation site (§5a): its head's
+    tier in ``[design] hard_conflict_ranks`` (a head the ranks do not know,
+    promoted by a register they do not list, ranks with the pads — the last
+    tier), except that a :data:`SIDE_RANKED_HEADS` row with a vertex no
+    AIRSIDE pavement touches (``role_side`` airside: runway, taxi, apron,
+    pad) ranks in :data:`GROUNDSIDE_TIER`.  A row over airside vertices
+    only keeps its head's rank."""
+    from ..law.tables import pavement_roles, role_side
+    d = design_law(law)
+    tiers = tier_of(law)
+    n_t = len(d.hard_conflict_tiers)
+    gs = list(d.hard_conflict_tiers).index(GROUNDSIDE_TIER)
+    air = frozenset(r for r in pavement_roles(law) if role_side(law, r) == "airside")
+    side_ranked = frozenset(SIDE_RANKED_HEADS)
+    on_air: dict[int, bool] = {}
+
+    def _airside(v: int) -> bool:
+        got = on_air.get(v)
+        if got is None:
+            got = on_air[v] = (v in planar.vertices
+                               and any(r in air for r in planar.roles_at(v)))
+        return got
+    out = np.empty(len(heads), dtype=np.int64)
+    for i, h in enumerate(heads):
+        t = tiers.get(h, n_t - 1)
+        if h in side_ranked and t < gs and not all(
+                _airside(int(v)) for v, _c in one[int(rows[i])][0]):
+            t = gs
+        out[i] = t
+    return out
+
+
+def cap_seniority(law: Law, heads: _t.Sequence[str], tiers: np.ndarray
+                  ) -> np.ndarray:
+    """THE PRICE EXPONENT EACH ROW ADDS TO ITS TIER'S (0 or one HALF tier).
+    A :data:`SIDE_RANKED_HEADS` row that :func:`row_tiers` ranked in
+    :data:`GROUNDSIDE_TIER` is a lot's or a road's own GRADE CAP.  It left
+    the taxi tier so that it never outranks a pad (09j (1)); it did not
+    thereby become the equal of the rows it has always been senior to — the
+    road's ramp ceiling, its cross-section, the gap rows (``[design]
+    hard_conflict_ranks``: the taxi tier above the groundside tier).
+    Priced equal, the LP split a ramp's misfit between the two and let the
+    ROAD exceed its cap with no pad near it (measured HECA, lane
+    weldverify, ``dsf:objpav405`` at 30.1390670, 31.4100643: ramp ceiling
+    5.63 m relaxed -> 4.62 m with the cap relaxed 2.28 m; census
+    ``pavement_over_road_cap`` standing rows 4 -> 19, worst 5.90 m over
+    55.8 m).  Half a tier (``sqrt(hard_conflict_tier_ratio)``) keeps it
+    under every pad row and over its own tier's rows, with no tier added
+    to the ladder (the LP's cost range is the ladder's length)."""
+    d = design_law(law)
+    gs = list(d.hard_conflict_tiers).index(GROUNDSIDE_TIER)
+    side_ranked = frozenset(SIDE_RANKED_HEADS)
+    return np.array([0.5 if (h in side_ranked and int(t) == gs) else 0.0
+                     for h, t in zip(heads, tiers)], dtype=float)
+
+
 def _site(planar: PlanarMap, terms: _t.Sequence[tuple[int, float]]) -> list[float]:
     keys = [planar.vertices[int(v)].key for v, _c in terms
             if int(v) in planar.vertices]
@@ -217,17 +293,15 @@ def check_hard_set(planar: PlanarMap, law: Law, one: list, hard_i: np.ndarray,
                      dtype=float, count=rows.size)
     Am = (sp.diags(sc) @ Ah).tocsr()
     bm = sc * np.asarray(b, float)[rows]
-    tiers = tier_of(law)
     n_t = len(d.hard_conflict_tiers)
     heads = [ruling_head(one[int(k)][2]) for k in rows]
-    # an unranked head cannot reach here (the schema refuses it); a row
-    # promoted by a register the ranks do not know ranks with the pads
-    t_row = np.array([tiers.get(h, n_t - 1) for h in heads], dtype=np.int64)
+    t_row = row_tiers(planar, law, one, rows, heads)
     ratio = float(d.hard_conflict_tier_ratio)
     # EVERY hard row elastic (§5a (a)), priced by its tier: the runway's
     # relaxation costs ``ratio`` times the taxi's, and so on down — a
     # runway row that still carries slack over ``hard_tol_m`` is a STOP
-    cost = ratio ** (n_t - 1 - t_row).astype(float)
+    cost = ratio ** ((n_t - 1 - t_row).astype(float)
+                     + cap_seniority(law, heads, t_row))
     duals: list = []
     tie: dict = {}
     t0 = time.perf_counter()

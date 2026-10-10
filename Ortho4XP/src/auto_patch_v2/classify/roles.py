@@ -98,6 +98,9 @@ from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
 from .open_default import apron_evidence, open_pavement_role
+from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m, gridded,
+                        is_held_step, is_touching, part_evidence,
+                        touch_distances)
 from .rules import Rules, load_rules
 from .sources import (SourceRecord, apron_union, classify_sources,
                       object_body_cuts)
@@ -653,8 +656,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # beside a pad armed that pad's knife, whose mitred corner then cut two
     # EXISTING groundside cells (pav57, dsf:objpav405) — a ribbon changing
     # the cells pass A nodes.  The ribbon takes the same set-back itself.
-    cells, n_cut = _cut_back_groundside(cells, law, rules)
+    cells, n_cut = _cut_back_groundside(cells, law, rules, airport)
     stats["mixed_pad_cutbacks"] = n_cut
+    stats["pad_rim_welds"] = sum(1 for c in cells if c.evidence.get(WELD_KEY))
     # §52 (RULINGS 2026-10-04d (3)): the facade strips and lots — after §27
     # (never airside) and the set-back, BEFORE the ribbons (a mapped road
     # inside a facade lot is the lot)
@@ -850,20 +854,29 @@ def _road_evidence(scored, ev: Evidence, rules: Rules, *,
 
 # ── mixed pads ───────────────────────────────────────────────────────────
 
-def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
+def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
+                         airport: Airport | None = None
                          ) -> tuple[list[Cell], int]:
-    """THE PAD SET-BACK (RULINGS 2026-09-01g/i, 2026-09-04u;
-    ``structures.building_pad.groundside_cutback_m``): a pad welds AIRSIDE
-    only — its one flat value is its airside contact (03h) — and
-    groundside pavement is CUT BACK from EVERY pad it touches, airside-
-    touching or not, so the two never share a vertex: the groundside lot
-    keeps its own law and follows the DEM, and the terrace in the
-    stand-off is the lawful boundary (memory ``groundside-terrace-law``).
-    Measured SPJC (M3b): a terminal pad at 24.55 m dragged a groundside
-    DSF page 4.8 m below the DEM and minted 14 groundside step rows against
-    its DEM-following neighbour; CYXY (04u): lot 87 welded to building9's
-    pad (694.77) was pulled down with it while it spans 694.77-702.17.
-    Returns the cells and the number cut."""
+    """THE PAD'S GROUNDSIDE EDGE (owner RULINGS 2026-10-09j, spec §63;
+    before it the pad set-back of 2026-09-01g/i and 2026-09-04u).  Each
+    groundside pavement cell is read against every pad beside it AS DRAWN
+    (``classify/pad_touch``, Rule T) and the pair is one of three things:
+
+    * TOUCHING (an overlap, a shared boundary, a gap the identity grid
+      cannot hold) — WELDED (Rule W): the cell is clipped at the pad's
+      footprint, so the two share the rim and every vertex of it is the
+      pad's.  The pad is senior; the road or lot comes to it.
+    * TOUCHING ACROSS A HILLSIDE (§28 (6), RULINGS 2026-09-13o/13p,
+      2026-10-09f — ``pad_touch.dem_step_m`` over ``[design]
+      frontage_step_max_m``) — HELD: the set-back knife
+      (``structures.building_pad.groundside_cutback_m`` + the snap margin)
+      stands, the two never share a vertex and the step in the stand-off
+      is the declared terrace.  CYXY (04u): lot 87 welded to building9's
+      pad (694.77) was pulled down with it while it spans 694.77-702.17.
+    * GAPPED — left as drawn: no knife, no weld.  The height at the pad's
+      edge is 09j's wall or embankment.
+
+    Returns the cells and the number the KNIFE cut (the held terraces)."""
     back = law.tables.structures.building_pad.groundside_cutback_m
     if back <= 0.0:
         return cells, 0
@@ -872,58 +885,96 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules
     # set-back (``tables.snap_margin_m``), so a lot vertex the snap moves
     # still sits ``back`` off the pad and no hot pixel can capture it
     # (measured CYXY building9 / lot pav4: a 0.6 m pre-snap gap noded to
-    # ONE vertex); the zone bands cut back from groundside by the same
-    # construction (``planar/zones.py``), so no zone sliver opens between
-    # a pad and the lot it is cut from
+    # ONE vertex)
     grid = law.tables.emit.identity.min_distinct_spacing_m
     knife_m = back + snap_margin_m(law)
-    pads = [c for c in cells if c.role == "building"]
-    if not pads:
-        return cells, 0
+    pads = {c.ref: gridded(Polygon(c.ring, c.holes), grid)
+            for c in cells if c.role == "building"}
     ground_idx = [i for i, c in enumerate(cells)
                   if c.side == "groundside" and is_value_role(law, c.role)]
-    if not ground_idx:
+    if not pads or not ground_idx:
         return cells, 0
-    gpolys = [Polygon(cells[i].ring, cells[i].holes) for i in ground_idx]
-    g_tree = STRtree(gpolys)
-    knives: list[Polygon] = []
-    for c in pads:
-        # a groundside cell within the set-back is cut back whether it
-        # touches the pad or lies a sliver off it: the identity grid would
-        # otherwise weld the two (CYXY lot 87 / building9, 04u)
-        # (precision model stripped again: a buffer of a gridded geometry
-        # is itself rounded to the grid — ``planar/build._snapped``)
-        poly = shapely.set_precision(
-            shapely.set_precision(Polygon(c.ring, c.holes), grid), 0.0)
-        if poly.is_empty or poly.geom_type != "Polygon":
-            poly = Polygon(c.ring, c.holes)
-        probe = poly.buffer(knife_m)
-        near_ground = any(gpolys[int(k)].distance(poly) <= knife_m
-                          for k in g_tree.query(probe, predicate="intersects"))
-        if near_ground:
-            knives.append(poly.buffer(knife_m, join_style="mitre", mitre_limit=2.0))
-    if not knives:
+    gpolys = [gridded(Polygon(cells[i].ring, cells[i].holes), grid)
+              for i in ground_idx]
+    witness = touch_distances(gpolys, list(pads.items()), law)
+    if not any(witness):
         return cells, 0
-    knife = unary_union(knives)
+    dem = getattr(airport, "dem", None)
+    air = [Polygon(c.ring, c.holes) for c in cells
+           if c.side == "airside" and is_value_role(law, c.role)
+           and c.role != "building"] if dem is not None else []
+    airside = unary_union(air).buffer(
+        float(law.tables.emit.design.pad_frontage_m)) if air else None
+    knives: dict[str, Polygon] = {}
     out: list[Cell] = []
     n_cut = 0
+    touch = dict(zip(ground_idx, zip(gpolys, witness)))
+    # §63 M1: a welded cell that also bounds AIRSIDE keeps the knife's cut
+    # as an inner seam — the knifed body as before, plus the STRIP between
+    # the knife and the rim as its own part — so every node the knife
+    # minted on the shared airside edge (its crossing, the densifier's
+    # midpoints of the knifed edge) stands as it did and stage 1's vertex
+    # set is the knife's.  Measured HECA (lane weld63): clipped whole, 9
+    # apron nodes left and 132 airside nodes re-settled (≤ 0.14 m).
+    air_cells = [Polygon(c.ring, c.holes) for c in cells
+                 if c.side == "airside" and is_value_role(law, c.role)
+                 and c.role != "building"]
+    air_edge = unary_union(air_cells).boundary if air_cells else None
     for i, c in enumerate(cells):
-        if i not in ground_idx:
+        g, w = touch.get(i, (None, None))
+        if not w:
             out.append(c)
             continue
+        held, cutters = [], []
+        for ref, d in w.items():
+            if not is_touching(law, d):
+                continue                       # GAPPED: as drawn
+            if ref not in knives:
+                knives[ref] = pads[ref].buffer(knife_m, join_style="mitre",
+                                               mitre_limit=2.0)
+            if is_held_step(law, dem_step_m(g, pads[ref], knives[ref],
+                                            airside, dem, law)):
+                held.append(ref)
+                cutters.append(knives[ref])    # HELD: the terrace's knife
+            else:
+                cutters.append(pads[ref])      # WELDED: clipped at the rim
+        ev = dict(c.evidence, **{EVIDENCE_KEY: w})
+        if held:
+            ev[HELD_KEY] = tuple(sorted(held))
+        if not cutters:
+            out.append(_dc.replace(c, evidence=ev))
+            continue
+        n_cut += bool(held)
+        if held:
+            ev["mixed_pad_cutback"] = 1.0
+        if len(held) < len(cutters):
+            ev[WELD_KEY] = 1.0
         poly = Polygon(c.ring, c.holes)
-        if not poly.intersects(knife):
-            out.append(c)
-            continue
-        n_cut += 1
-        for k, part in enumerate(polygon_parts(poly.difference(knife))):
+        welded = [r for r, d in w.items() if is_touching(law, d) and r not in held]
+        if welded and air_edge is not None and poly.distance(air_edge) <= 1e-6:
+            # the body is the knife's cell and is no weld partner (the strip
+            # is), so the planar build treats it as it treated the knifed
+            # cell; its held and gapped witness stand
+            cut = unary_union([knives[r] for r in held + welded])
+            body_pads = {r: g for r, g in pads.items() if r not in welded}
+            strip_ev = dict(ev, **{STRIP_KEY: 1.0})
+            parts = ([(p, body_pads, ev) for p in polygon_parts(poly.difference(cut))]
+                     + [(p, pads, strip_ev)
+                        for p in polygon_parts(poly.intersection(cut)
+                                               .difference(unary_union(cutters)))])
+        else:
+            parts = [(p, pads, ev)
+                     for p in polygon_parts(poly.difference(unary_union(cutters)))]
+        k = 0
+        for part, witness_pads, part_ev in parts:
             if part.area < rules.cells.min_area_m2:
                 continue
             ring = tuple(part.exterior.coords)[:-1]
             holes = tuple(tuple(h.coords)[:-1] for h in part.interiors)
             out.append(Cell(len(out), c.role, c.ref if k == 0 else f"{c.ref}#{k}",
                             ring, holes, c.code_number, c.code_letter, c.side,
-                            c.kind, dict(c.evidence, mixed_pad_cutback=1.0)))
+                            c.kind, part_evidence(part_ev, part, witness_pads, law)))
+            k += 1
     # ids are positional
     return [_dc.replace(c, id=i) for i, c in enumerate(out)], n_cut
 

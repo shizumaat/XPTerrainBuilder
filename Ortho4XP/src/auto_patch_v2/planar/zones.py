@@ -22,6 +22,7 @@ import shapely
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
+from ..classify.pad_touch import is_rim_strip
 from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
 from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
@@ -134,6 +135,13 @@ class ZoneRegion:
     shore: ShoreVerdict | None = None
 
 
+def _unclaimed(cell: Cell) -> bool:
+    """A cell the zone CLAIM does not read (§59 the gap apron, §63 the rim
+    strip): it stands outside every band by construction, and a band it
+    does reach yields its ground to it alone."""
+    return is_gap_apron_ref(getattr(cell, "ref", "")) or is_rim_strip(cell)
+
+
 def zone_regions(cells: tuple[Cell, ...], law: Law,
                  keepouts: tuple[tuple, ...] = (), dem=None, roads=(),
                  edge_report: EdgeReport | None = None,
@@ -189,14 +197,20 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # the runway 143 new vertices 1.6 km from the nearest piece).  The bands
     # are the standing cells' by construction; a cell that does reach one is
     # subtracted from that band alone, below.
-    gap_aprons = [Polygon(c.ring, c.holes) for c in cells
-                  if is_gap_apron_ref(getattr(c, "ref", ""))]
+    # SPEC §63 (M1): A RIM STRIP IS NOT IN THE CLAIM EITHER, for the same
+    # measured reason.  The strip is the knife's own stand-off beside a pad,
+    # which the knifed BODY's buffer and the pad already claim; one more
+    # polygon in this union re-noded it (HECA, lane weldverify: a 1.31 m2
+    # hairline, 1,689 m x 0.8 mm, beside 05C/23C again — 163 new runway
+    # vertices, 11 runway nodes moved up to 0.07 m, from 27 strips at pads).
+    # With the strips out the claim is the knifed cells', as it was.
+    gap_aprons = [Polygon(c.ring, c.holes) for c in cells if _unclaimed(c)]
     gap_apron_u = unary_union(gap_aprons) if gap_aprons else None
     everything = unary_union(
         [Polygon(c.ring, c.holes).buffer(cut, **_MITRE)
          if c.side == "groundside" and not is_late_ref(getattr(c, "ref", ""))
          else Polygon(c.ring, c.holes) for c in cells
-         if not is_gap_apron_ref(getattr(c, "ref", ""))]
+         if not _unclaimed(c)]
         + [Polygon(k).buffer(cut, **_MITRE) for k in keepouts]) if cells else Polygon()
     lip = ag.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}

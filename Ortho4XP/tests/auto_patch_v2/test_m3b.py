@@ -87,27 +87,31 @@ def synthetic(law):
     return airport, pm, stats, cl
 
 
-def test_mixed_pad_cuts_the_groundside_lot_back(synthetic, law):
+def test_mixed_pad_welds_the_groundside_lot_at_its_rim(synthetic, law):
+    """Owner RULINGS 2026-10-09j (spec §63 (4) Rule W; before it the
+    09-01g/i set-back cut this lot 0.954 m back): the lot is drawn against
+    the mixed pad with no gap, so it is WELDED to it — it keeps its
+    outline, the knife cuts nothing, and the two faces share the rim."""
     airport, pm, stats, cl = synthetic
-    assert cl.stats["mixed_pad_cutbacks"] == 1
-    back = law.tables.structures.building_pad.groundside_cutback_m
+    assert cl.stats["mixed_pad_cutbacks"] == 0
     lot = next(c for c in cl.cells if c.role == "groundside_pavement")
-    # the lot is notched back from the mixed pad by the cut-back (its
-    # corners outside the pad's span keep y = 290); the welded pad and the
-    # near-miss pad (airside only) cut nothing
     from shapely.geometry import Polygon
     lot_poly = Polygon(lot.ring, lot.holes)
     mixed_c = next(c for c in cl.cells if c.ref == "pad_mixed")
-    # the knife carries the identity grid's half-diagonal on top of the
-    # set-back (04u: the set-back holds AFTER the snap; every pad cuts)
-    grid = law.tables.emit.identity.min_distinct_spacing_m
-    assert lot_poly.distance(Polygon(mixed_c.ring)) == \
-        pytest.approx(back + grid * 0.5 ** 0.5, abs=1e-6)
+    assert lot.evidence["pad_touch"] == {"pad_mixed": 0.0}
+    assert lot_poly.distance(Polygon(mixed_c.ring)) == pytest.approx(0.0, abs=1e-9)
     assert min(y for _x, y in lot.ring) == pytest.approx(290.0, abs=1e-6)
     assert sum(1 for c in cl.cells if c.role == "groundside_pavement") == 1
     mixed = next(f for f in pm.faces.values() if f.ref == "pad_mixed")
     lot_f = next(f for f in pm.faces.values() if f.role == "groundside_pavement")
-    assert not set(pm.ring_vertices(mixed.ring)) & set(pm.ring_vertices(lot_f.ring))
+    shared = set(pm.ring_vertices(mixed.ring)) & set(pm.ring_vertices(lot_f.ring))
+    # the whole 60 m run y = 290, x 80..140: both corners and every vertex between
+    xs = sorted(pm.vertices[v].xy[0] for v in shared)
+    assert len(shared) >= 2 and xs[0] == pytest.approx(80.0) and xs[-1] == pytest.approx(140.0)
+    assert all(pm.vertices[v].xy[1] == pytest.approx(290.0) for v in shared)
+    on_run = {v for v in pm.ring_vertices(mixed.ring)
+              if pm.vertices[v].xy[1] == pytest.approx(290.0)}
+    assert on_run == shared                         # no T-vertex: one chain
 
 
 def test_near_miss_frontage_rows_bind_the_offset_pad_only(synthetic, law):

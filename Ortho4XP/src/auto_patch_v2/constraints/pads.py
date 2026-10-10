@@ -87,7 +87,8 @@ from .precedence import view
 
 __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "frontage_near_miss", "frontage_contacts", "pad_frontage_level",
-           "pad_shared", "pad_datum_withdrawn", "pad_frontage", "FLAT_RULING",
+           "pad_shared", "pad_welded_vertices", "rim_strip_ties", "pad_datum_withdrawn",
+           "pad_frontage", "FLAT_RULING",
            "CEILING_RULING", "FLAT_AIRSIDE_LED_RULING",
            "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
            "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL",
@@ -323,20 +324,15 @@ def _fronting(planar: PlanarMap, law: Law
     A pad fronting neither way is absent here and keeps its DEM datum
     (09p (3)), exactly as ruled.
 
-    A GROUNDSIDE FACE IS A FRONTAGE ONLY WHERE NOTHING AIRSIDE IS (owner
-    RULINGS 2026-09-12r, spec §28 (2): "the apron frontage (§20's senior)
-    still sets it; a groundside neighbour never pulls a pad — airside is
-    king").  Until §28 a car park or a service road entered here as a
-    JUNIOR frontage and PULLED the pad: measured on the twin fixture, a
-    lot standing 3 m above its pad moved the pad 0.032 m through exactly
-    these two rows.  §28 states the same relation the other way — the
-    face follows the pad (:mod:`constraints.pad_frontage_gs`) — so where
-    a pad has ANY airside frontage the groundside roles are dropped here
-    and the pull is gone.  Where it has NONE they are KEPT: that pad's
-    only frontage is its groundside neighbour, 10l's "the pad takes the
-    pavement's edge level" is all the level it has, and §28 in turn mints
-    no row back against it, so the pair is stated ONCE and in one
-    direction, never as a circular lag."""
+    A GROUNDSIDE FACE IS NEVER A FRONTAGE (owner RULINGS 2026-09-12r,
+    spec §28 (2) "a groundside neighbour never pulls a pad — airside is
+    king"; 2026-10-09j, spec §63 (5) Rule S: pads are senior to roads and
+    lots).  Until §28 a car park or a service road entered here as a
+    JUNIOR frontage and PULLED the pad; §28 dropped it wherever something
+    airside fronted the pad too, and §63 drops it everywhere: a pad with
+    no airside frontage is absent here and keeps its DEM datum, and the
+    pavement touching it follows (:mod:`constraints.pad_frontage_gs`,
+    the rim weld)."""
     from ..law.tables import role_side
     geoms = _pavement_geoms(planar, law)
     r = frontage_radius_m(law)
@@ -390,8 +386,7 @@ def pad_fronts_airside(planar: PlanarMap, law: Law) -> set[int]:
     test, read from :func:`_fronting`'s own output so the two directions
     of the relation cannot disagree.  A pad NOT here either fronts nothing
     (its DEM datum, 09p (3)) or fronts only a groundside face, in which
-    case IT follows the face under 10l and ``constraints.pad_frontage_gs``
-    mints nothing back against it."""
+    case it ALSO keeps its DEM datum (spec §63 (5) Rule S, 09j)."""
     from ..law.tables import role_side
     return {fid for fid, by_role in _fronting(planar, law).items()
             if any(role_side(law, r) == "airside" for r in by_role)}
@@ -399,31 +394,141 @@ def pad_fronts_airside(planar: PlanarMap, law: Law) -> set[int]:
 
 def _airside_only(by_role: dict[str, tuple[set[int], set[int]]], law: Law
                   ) -> dict[str, tuple[set[int], set[int]]]:
-    """§28 (2): drop the GROUNDSIDE roles from a pad's frontage wherever
-    something AIRSIDE fronts it too (see :func:`_fronting`).  Where
-    nothing airside does, the groundside frontage is all the pad has and
-    is kept unchanged."""
+    """A PAD'S SEAT NEVER COMES FROM GROUNDSIDE PAVEMENT (spec §63 (5)
+    Rule S; owner RULINGS 2026-10-09j "apron, taxiway and pads all take
+    precedence over roads"): the GROUNDSIDE roles are dropped from every
+    pad's frontage.  A pad fronts AIRSIDE (§20) or fronts nothing and
+    keeps its §9b DEM datum (09p (3)); the road or lot touching it comes
+    to IT, never the pad to the road."""
     from ..law.tables import role_side
-    if any(role_side(law, r) == "airside" for r in by_role):
-        return {r: v for r, v in by_role.items()
-                if role_side(law, r) == "airside"}
-    return by_role
+    return {r: v for r, v in by_role.items()
+            if role_side(law, r) == "airside"}
 
 
 def pad_shared(planar: PlanarMap, law: Law) -> dict[int, set[int]]:
-    """Pad face id -> the vertices it SHARES with the pavement it fronts
-    (identity is the weld, 09-01g).  Those vertices belong to the pavement
-    too, so under owner RULINGS 2026-09-10l the pad's own flatness target
-    never prices a pair footed on one."""
-    faces = _pavement_faces(planar, law)
+    """Pad face id -> the vertices it SHARES with the AIRSIDE pavement it
+    fronts (identity is the weld, 09-01g).  Those vertices belong to the
+    pavement too, so under owner RULINGS 2026-09-10l the pad's own
+    flatness target never prices a pair footed on one.
+
+    A vertex shared with GROUNDSIDE pavement is NOT here (spec §63 (4)
+    (ii), owner RULINGS 2026-10-09j): the pad is senior to the road or lot
+    welded to its rim, so that vertex is a PAD column — the pad's plane
+    governs it and the pavement's rows conform."""
+    from ..law.tables import role_side
+    faces = [vs for role, vs in _pavement_faces(planar, law)
+             if role_side(law, role) == "airside"]
     out: dict[int, set[int]] = {}
     for fid, _ref, group in _pad_groups(planar, law):
         pad_vs = set(group)
         sh: set[int] = set()
-        for _role, vs in faces:
+        for vs in faces:
             sh |= vs & pad_vs
         if sh:
             out[fid] = sh
+    return out
+
+
+def pad_welded_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
+    """THE RIM WELD AS DATA (spec §63 (4) / (6), owner RULINGS
+    2026-10-09j): every vertex that is BOTH a pad's and a groundside
+    value face's — the columns a road or lot welded to a pad shares with
+    it.  They are the PAD's (the pad is senior), so no law of the road
+    may name their level a second time (``road_ramp.pad_weld_release``).
+    Read from the map's own incidence alone: identity is the weld.  A map
+    with no faces (a channel-only probe) has none."""
+    from ..law.tables import is_value_role, role_side
+    faces = getattr(planar, "faces", None) or {}
+    rigid = set(rigid_roles(law))
+    if not any(f.role in rigid for f in faces.values()):
+        return frozenset()
+    kind: dict[int, int] = {}
+    for fid, f in faces.items():
+        kind[fid] = (1 if f.role in rigid else
+                     2 if role_side(law, f.role) == "groundside"
+                     and is_value_role(law, f.role) else 0)
+    out: set[int] = set()
+    for v, vx in planar.vertices.items():
+        got = {kind.get(q, 0) for q in vx.incident_faces}
+        if 1 in got and 2 in got:
+            out.add(v)
+    # the rim STRIP is part of the weld: its knife-line vertices too
+    return frozenset(out | set(rim_strip_ties(planar, law)))
+
+
+def rim_strip_ties(planar: PlanarMap, law: Law) -> dict[int, tuple[int, float]]:
+    """THE RIM STRIP IS PART OF THE WELD (spec §63 (4) / M1; owner RULINGS
+    2026-10-09j "welded to the pad", 2026-10-08c (4) / 09d (1) "no step"):
+    knife-line vertex -> ``(its nearest rim vertex, their distance)``.
+
+    A welded cell that also bounds airside keeps the set-back knife's cut
+    as a seam (``classify/roles._cut_back_groundside``): the knifed body,
+    and a strip one knife wide between it and the pad's rim.  The strip has
+    no rim -> knife-line ring edge but its two ends, so no cap crosses it,
+    and its outer vertices carried the road's own ramp law: measured (lane
+    weldverify, HECA ``building12`` | ``route3``) the road stood 0.3-0.78 m
+    above the rim inside 0.95 m.  A step.  So a strip's outer vertices are
+    PAD columns in effect: tied to the rim under the pad's own tilt
+    ceiling (:func:`pad_slope_ceiling`) and released from the road's ramp
+    law with the rim (``road_ramp.pad_weld_release``); the road's cap rows
+    run from the knife line outward.
+
+    THE KNIFE LINE, read on the map alone (a face carries no evidence, and
+    a strip part may run on past the pad's end): every vertex of a
+    groundside value face sharing a pad's rim that stands off the rim and
+    within the knife (+ the identity grid) of that pad.  A vertex airside
+    pavement owns is never tied (airside is king), nor one a pad owns."""
+    from ..law.tables import is_value_role, role_side, snap_margin_m
+    faces = getattr(planar, "faces", None) or {}
+    rigid = [fid for fid, f in faces.items() if is_rigid_role(law, f.role)]
+    if not rigid:
+        return {}
+    reach = (float(law.tables.structures.building_pad.groundside_cutback_m)
+             + snap_margin_m(law)
+             + float(law.tables.emit.identity.min_distinct_spacing_m))
+    air = airside_vertices(planar, law)
+    vw = view(planar, law)
+    # EVERY face of a rigid role is the pad here (a cluster's pieces, a
+    # platform, its collar and bank): the rim is whatever the strip shares
+    # with one, and the nearest rim vertex is the one a metre away
+    pad_of: dict[int, set[int]] = {}
+    polys: dict[int, Polygon] = {}
+    def _all(fid: int) -> list[int]:           # the outer ring AND the holes
+        return [int(v) for r_ in (vw.rings.get(fid, ()), *vw.holes.get(fid, ()))
+                for v in r_]
+    for fid in rigid:
+        ring = [int(v) for v in vw.rings.get(fid, ())]
+        for v in _all(fid):
+            pad_of.setdefault(v, set()).add(fid)
+        if len(ring) >= 3:
+            poly = Polygon([vw.xy[v] for v in ring])
+            polys[fid] = poly if poly.is_valid else poly.buffer(0.0)
+    out: dict[int, tuple[int, float]] = {}
+    for fid, f in faces.items():
+        if (is_rigid_role(law, f.role) or not is_value_role(law, f.role)
+                or role_side(law, f.role) != "groundside"
+                or is_late_ref(f.ref) or is_osm_ribbon_ref(f.ref)):
+            continue
+        # a strip that runs round a pad piece carries that rim as a HOLE
+        ring = _all(fid)
+        rim = [v for v in ring if v in pad_of]
+        if not rim or len(rim) == len(ring):
+            continue
+        # a pad is often several faces (a cluster's pieces, a platform and
+        # its collar): the strip is read against every one it touches
+        parts = [polys[q] for q in sorted({q for v in rim for q in pad_of[v]})
+                 if q in polys and not polys[q].is_empty]
+        if not parts:
+            continue
+        for v in ring:
+            if v in pad_of or v in air:
+                continue
+            if min(p.distance(Point(vw.xy[v])) for p in parts) > reach:
+                continue                       # beyond the knife line: the road's own
+            r = min(rim, key=lambda q: (math.dist(vw.xy[q], vw.xy[v]), q))
+            d = math.dist(vw.xy[r], vw.xy[v])
+            if d > 0.0 and (v not in out or d < out[v][1]):
+                out[v] = (r, d)
     return out
 
 
@@ -943,8 +1048,12 @@ def pad_slope_ceiling(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     IT CARRIES NO AUTHORED RELIEF (owner RULINGS 2026-09-12u, spec §30
     (1)): ``rel = 0`` on every row — see :func:`_pad_rows`."""
     cap = float(law.tables.emit.within_shape.pad_slope_max)
-    return _pad_rows(planar, law, cap, CEILING_RULING + " (owner 2026-09-09c; "
-                     "no authored relief 2026-09-12u)", airport, relief=False)
+    ruling = CEILING_RULING + " (owner 2026-09-09c; no authored relief 2026-09-12u)"
+    rows = _pad_rows(planar, law, cap, ruling, airport, relief=False)
+    # spec §63: the rim strip lies in the pad's plane (:func:`rim_strip_ties`)
+    rows.extend(Diff(v, r, cap, d, Source(GEN, ruling, (f"vertex:{v}", "rim_strip")))
+                for v, (r, d) in sorted(rim_strip_ties(planar, law).items()))
+    return rows
 
 
 def frontage_contacts(planar: PlanarMap, law: Law

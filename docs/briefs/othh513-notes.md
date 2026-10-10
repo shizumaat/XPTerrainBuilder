@@ -196,3 +196,19 @@ numbers in sw6, sw10 and sw11 — it is the §47 design, and the fix of
 finding A does not change it: with the author's rows back the rims stand
 at grade INSIDE a cut 0.71 m wider than the object. INTENT QUESTION for the
 owner (see the report).
+
+## Closing
+
+- Closing build `othh513_OTHH` (harness, `/tmp/harness/othh513_OTHH.*`,
+  frame registered): rc 0, patch clock 636.5 s (bar 660; background run
+  beside the owner's app), body **eb7565539e36** == sw11 (the fix does not
+  touch the patch), rebake plan sha 8e24e55b3f68 == sw11 (15 authored
+  seats, object-framed ramps, wall rims, tunnel ramps unmoved).
+- The airport harness build has no DSF write half; the fix is read by the
+  offline row report above (22 rows kept as authored) and by the twin
+  `tests/auto_patch_v2/test_authored_seat.py::test_a_kept_seat_keeps_its_dsf_row`.
+  The first tile build of the next app rewrites the pack DSF from the
+  pristine `.anchor_bak` and restores the 22 rows.
+- Suites: `tests/auto_patch_v2` + `test_no_airport_specific_code.py` +
+  `test_harness.py` green; `tools/ratchets.py` duplicate + layer ratchets
+  PASS, no size warning on a touched file.

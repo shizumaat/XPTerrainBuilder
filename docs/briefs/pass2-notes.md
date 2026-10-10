@@ -185,3 +185,34 @@ it. NOT the round cap, NOT the backoff ladder, NOT the pass-1a derivation, NOT a
 What the refinement costs the SURFACE (KCLT pass 1b, refined arm vs unrefined arm): 688 stage-1 vertices over 0.02 m,
 6 over 0.1 m, 4 over 0.3 m, worst 0.558 m (the unrefined answer was that far from its own optimum there; the null twin
 noise was 47 ≤ 0.185). HECA and the row probes: step 4.
+
+## Step 4 — the floor is the Tikhonov term of the normal solve: a spring to SEA LEVEL (attributed, by intervention)
+
+`solve/linear._linear_solve` (method `normal`) adds `eps · I` to AᵀA "to keep the factorisation non-singular", with
+`eps = 1e-12 · max diag(AᵀA)`. MEASURED on KCLT's stage-1 problem: max diag = 1.14e8 (hard rows at 3e5 stacked on one
+column), so **eps = 1.14e-4 on every column** — against column diagonals down to 0.017 (an apron vertex whose only rows
+are bending). `(AᵀA + eps I) x = Aᵀ b` is the minimiser of `‖A x − b‖² + eps ‖x‖²`: every column is pulled toward
+z = 0 with stiffness 1.1e-4. The QP accepts a step on the TRUE objective, so it stops where the biased step no longer
+descends: the gradient it stops at is the spring's own, `2 · eps · ‖z‖` = 2 × 1.14e-4 × 220 m × √12,231 columns = **5.55**
+— the `|g|` 5.5 every pass-1b QP exits with (§61 (2)'s "linear solve's floor, |g| 4.6" is the same number). A weak
+(1.0-priced, relational) block costs less to move than the spring pays, so it lands by the path. The pull scales with
+the airport's ELEVATION: OTHH (4 m) reads 0/0/0.000 in every pass and every arm, KCLT (220 m) and HECA (60–140 m) do not.
+
+| arm (KCLT pass-1b pair, this tree) | final QP objective (arm) | \|g\| at exit | pass 1a | pass 1b |
+|---|---|---|---|---|
+| base (eps 1e-12 · max) | 299,859.89 | 5.5 | 0/0/0.004 | 47/0/0.185 |
+| **eps 1e-18 · max, nothing else** (`K_eps18`) | **299,836.93** (23 lower: the base never reached its optimum) | 4e-4 – 1e-3 | 0/0/0.0003 | **0/0/0.0000** |
+| 2 refinement steps against A (`K_ref2`) | 299,836.92 | 7e-6 – 1e-4 | 0/0/0.016 | 0/0/0.0007 |
+| 1 refinement step (`K_ref1`) | 299,836.93 | 6e-4 | 0/0/0.0004 | 0/0/0.004 |
+| **the floor CENTRED ON THE WARM START** — the solve is for the increment, `x = x0 + (AᵀA + eps I)⁻¹ Aᵀ(b − A x0)`; same factorisation, ONE back-solve as today (`K_centre`) | 299,836.93 | 1e-5 – 5e-3 | 0/0/0.0002 | **0/0/0.0000** |
+| the membrane-class probe (§61 (10) D3 off: a centreline vertex with no level row takes the membrane; `K_d3off`) | 299,886.19 (the rows cost 26) | 5.5 (the spring stands) | 0/0/0.0003 | 1/0/0.091 |
+
+HECA (`A_ref2`, 2 refinement steps; stage-1 pair): pass 1 0/0/0.004, **pass 2 164/0/0.107 → 5/0/0.053**, pass 3
+1/0/0.061 (replay 13/0/0.154); every QP `optimal` (base: `no_descent` 2). Stage-1 wall 288 → 333 s with two extra
+back-solves per solve; the centred form has none.
+
+So: A (HECA pass 2) and B (KCLT pass 1b, `pav101` on the m tree and the `pav2` / `pol19` cells on this one) are one
+SOLVER defect, on main too (main's KCLT reads 0/0/0.020 because its weak blocks happen to sit where the spring leaves
+them; `no_descent ×3`, the same exit). R-E's cross-ring pairs are not the mechanism at A — they changed the path. The
+row remedies are not needed for it: the membrane-class probe closes KCLT to 1 mover by out-pricing the spring, as §61
+did, and leaves the spring in place. Landing: the centred floor (no law row, no weight, no new solve).

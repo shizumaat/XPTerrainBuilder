@@ -165,8 +165,18 @@ def row_tiers(planar: PlanarMap, law: Law, one: list, rows: np.ndarray,
     promoted by a register they do not list, ranks with the pads — the last
     tier), except that a :data:`SIDE_RANKED_HEADS` row with a vertex no
     AIRSIDE pavement touches (``role_side`` airside: runway, taxi, apron,
-    pad) ranks in :data:`GROUNDSIDE_TIER`.  A row over airside vertices
-    only keeps its head's rank."""
+    pad) ranks in :data:`GROUNDSIDE_TIER` — and so does a two-vertex row
+    ACROSS A GROUNDSIDE FACE WELDED AT BOTH ENDS: both vertices are touched
+    by airside pavement (a pad's rim at one end, an apron's edge at the
+    other), yet the only faces they share are groundside pavement, so the
+    row is that road's or lot's own grade cap between two welds (owner
+    RULINGS 2026-10-10a (2) (b): the pad keeps its seat, the ROAD takes the
+    grade).  MEASURED at HECA ``building36`` (30.11685, 31.38175, lane
+    padfix): a road welded to the pad's corner and to an apron 4.7 m on,
+    0.49 m apart in level — read by its vertices alone the road's ceiling
+    kept the taxi rank and the LP relaxed the PAD's two hold rows (0.245 /
+    0.250 m) instead.  A row over airside vertices that share an airside
+    face keeps its head's rank."""
     from ..law.tables import pavement_roles, role_side
     d = design_law(law)
     tiers = tier_of(law)
@@ -182,12 +192,25 @@ def row_tiers(planar: PlanarMap, law: Law, one: list, rows: np.ndarray,
             got = on_air[v] = (v in planar.vertices
                                and any(r in air for r in planar.roles_at(v)))
         return got
+    pav = frozenset(pavement_roles(law))
+
+    def _across_groundside(terms: _t.Sequence[tuple[int, float]]) -> bool:
+        """The two vertices share pavement faces, none of them airside."""
+        if len(terms) != 2:
+            return False
+        a, b = (planar.vertices[int(v)] for v, _c in terms)
+        roles = [planar.faces[f].role
+                 for f in set(a.incident_faces) & set(b.incident_faces)]
+        shared = [r for r in roles if r in pav]
+        return bool(shared) and not any(r in air for r in shared)
     out = np.empty(len(heads), dtype=np.int64)
     for i, h in enumerate(heads):
         t = tiers.get(h, n_t - 1)
-        if h in side_ranked and t < gs and not all(
-                _airside(int(v)) for v, _c in one[int(rows[i])][0]):
-            t = gs
+        if h in side_ranked and t < gs:
+            terms = one[int(rows[i])][0]
+            if (not all(_airside(int(v)) for v, _c in terms)
+                    or _across_groundside(terms)):
+                t = gs
         out[i] = t
     return out
 

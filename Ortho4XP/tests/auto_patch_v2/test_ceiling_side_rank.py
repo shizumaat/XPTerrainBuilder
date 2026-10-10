@@ -42,12 +42,18 @@ class _Row:
         self.source = Source("test", f"{head} (twin)", ())
 
 
-def _planar(roles: dict[int, tuple[str, ...]]):
-    vs = {i: types.SimpleNamespace(key=(30.0 + i * 1e-4, 31.0)) for i in roles}
-    return types.SimpleNamespace(vertices=vs, roles_at=lambda v: roles[v])
+def _planar(roles: dict[int, tuple[str, ...]], faces=()):
+    """``faces``: ``(role, vertex ids)`` per face — the faces two vertices
+    SHARE; without them a vertex lists no face (the roles alone are read)."""
+    fs = {k: types.SimpleNamespace(role=r) for k, (r, _vs) in enumerate(faces)}
+    vs = {i: types.SimpleNamespace(
+        key=(30.0 + i * 1e-4, 31.0),
+        incident_faces=tuple(k for k, (_r, on) in enumerate(faces) if i in on))
+        for i in roles}
+    return types.SimpleNamespace(vertices=vs, faces=fs, roles_at=lambda v: roles[v])
 
 
-def _problem(rows, roles):
+def _problem(rows, roles, faces=()):
     one, data, ii, jj, b = [], [], [], [], []
     for k, (head, terms, rhs) in enumerate(rows):
         one.append((tuple(terms.items()), rhs, _Row(head)))
@@ -55,7 +61,7 @@ def _problem(rows, roles):
             ii.append(k); jj.append(c); data.append(w)
         b.append(rhs)
     A = sp.csr_matrix((data, (ii, jj)), shape=(len(rows), len(roles)))
-    return one, A, np.asarray(b, float), _planar(roles)
+    return one, A, np.asarray(b, float), _planar(roles, faces)
 
 
 # v0 the pad's rim, welded to the lot; v1 the pad's apron frontage;
@@ -163,3 +169,45 @@ def test_a_roads_own_cap_stays_senior_to_its_ramp_ceiling(law):
     heads = [h for h, _t, _r in rows]
     tiers = F.row_tiers(pl, law, one, np.arange(len(rows)), heads)
     assert list(F.cap_seniority(law, heads, tiers)) == [0.0, 0.0, 0.5, 0.0]
+
+
+# ── a road welded at BOTH ends (lane padfix; HECA ``building36``): its own
+#    ceiling between a pad's corner and an apron's edge is the ROAD's ──────
+
+# v0 the pad's corner, welded to the road; v1 the pad's apron frontage;
+# v2 the road's contact with another apron, 0.5 m higher than the pad
+WELD_ROLES = {0: ("building", "service_road"), 1: ("building", "apron"),
+              2: ("apron", "service_road")}
+WELD_FACES = (("building", (0, 1)), ("service_road", (0, 2)),
+              ("apron", (1,)), ("apron", (2,)))
+
+
+def test_a_ceiling_across_a_road_welded_at_both_ends_ranks_groundside(law):
+    """Both vertices are touched by airside pavement (pad, apron), and the
+    only face they share is the road: the row is the road's cap.  The pad's
+    own rim edge, which the road also lines, keeps the taxi rank."""
+    taxi = F.tier_of(law)[CEIL]
+    gs = list(T.design(law).hard_conflict_tiers).index("groundside")
+    faces = (*WELD_FACES, ("service_road", (0, 1)))     # the road lines the rim 0-1 too
+    rows = [(CEIL, {0: 1.0, 2: -1.0}, 0.2), (FALLBACK, {2: 1.0, 0: -1.0}, 0.2),
+            (CEIL, {0: 1.0, 1: -1.0}, 0.2)]
+    one, _A, _b, pl = _problem(rows, WELD_ROLES, faces)
+    got = F.row_tiers(pl, law, one, np.arange(len(rows)), [h for h, _t, _r in rows])
+    assert list(got) == [gs, gs, taxi]
+
+
+def test_the_pad_holds_and_the_road_between_two_welds_takes_the_grade(law):
+    """10a (2) (b): the pad is held flat at 5.0 by its apron frontage, the
+    road's other end by an apron at 5.5, and the road's ceiling allows
+    0.2 m between them.  The ROAD's ceiling relaxes (0.3 m, groundside);
+    the pad's plane does not."""
+    rows = [(APRON, {1: 1.0}, 5.0), (APRON, {1: -1.0}, -5.0),        # v1 = 5.0
+            (APRON, {2: 1.0}, 5.5), (APRON, {2: -1.0}, -5.5),        # v2 = 5.5
+            (PLANE, {0: 1.0, 1: -1.0}, 0.0), (PLANE, {0: -1.0, 1: 1.0}, 0.0),
+            (CEIL, {0: 1.0, 2: -1.0}, 0.2), (CEIL, {2: 1.0, 0: -1.0}, 0.2)]
+    one, A, b, pl = _problem(rows, WELD_ROLES, WELD_FACES)
+    demote, rep = F.check_hard_set(pl, law, one, np.arange(len(one)), A, b, stage="2")
+    assert rep.status == "optimal" and rep.by_head == {CEIL: 1}, rep.by_head
+    assert rep.by_tier == {"groundside": 1}
+    assert rep.conflicts[0]["s_m"] == pytest.approx(0.3, abs=1e-6)
+    assert not {4, 5} & {int(k) for k in demote}

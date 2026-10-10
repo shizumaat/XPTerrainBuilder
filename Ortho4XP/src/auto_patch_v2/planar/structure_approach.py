@@ -313,7 +313,7 @@ def under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
 
 
 def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
-                     corridors: _t.Sequence = (), pads: _t.Sequence = ()) -> "FieldRegion":
+                     corridors: _t.Sequence = ()) -> "FieldRegion":
     """THE REGION A MOUTH MAY STAND IN, assembled in ONE place: the
     classified cover (with the roofed corridors' footprints, which the
     caller passes in ``polys``) ⊕ ``[tunnel] mouth_standoff_m``, union
@@ -330,7 +330,6 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
                          airport)
     region.corridor_prints = [c.footprint for c in corridors]
     region.corridor_objects = {i for c in corridors for i in c.objects}
-    region.pad_cover = list(pads)   # #548: the pad cells among ``polys``
     return region
 
 

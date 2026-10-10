@@ -108,10 +108,16 @@ site A 35.2224352,-80.9472186 = 221.75 m; site B 35.2203395,-80.9466805 = 221.75
   the pad level. The ramp object over it is elevated, so only its ground-contact edge
   founds a pad. It does not go with the bore fix (it is the pad outline's thin-piece
   question).
-- FIX (branch): `structure_service._cover_at_grade` — where the pack reports the passage
-  (10i (1)'s own `_PackBuildings.passage`), the PADS' share of a bore's cover is that
-  part's footprint, not ground over the bore; only cover outside the pads counts. Pavement
-  or a roofed corridor over the same bore still admits it; a pad with no passage, or with
-  an at-grade part over the line, is cover as before. Twins in
-  `tests/auto_patch_v2/test_tunnelwitness2.py` (3 new, 15 pass). A READING of owner RULINGS
-  2026-10-10i (1) — needs ratification.
+- TWO FIX ITERATIONS, BOTH MISSED, CODE REMOVED (attempt cap 2):
+  (1) where the pack reports the passage (10i (1)'s own `_PackBuildings.passage`), the
+  PADS' share of the bore's cover is not counted: cover 273.0 -> under 1.0 m, and the bore
+  is then admitted by the NEXT witness, "the ground over it stands +0.82 m above its mouth
+  chord" (law 0.5). (2) the DEM under those pads discounted too: "+0.55 m above its mouth
+  chord" on the ~40 m of line outside the pads — still admitted, by 0.05 m. Verdicts at
+  KCLT / HECA / SPJC / KASE / CYXY / NLWF on that code: 0 bores changed (OTHH not finished).
+  So no rule that only re-reads the cover or the rise refuses this bore; what refuses it is
+  the pack's passage reading OUTRANKING the cover and rise witnesses — a question of
+  precedence between the pack and the DEM, the owner's (below). HECA witness for the
+  bound: three bores (-20899, -19181, -3949) report a pack passage too
+  (`Airport/T23/concrete_2.obj`, base 2.63 m) and are real tunnels admitted by
+  `layer -1` — a passage rule must stay under the layer witness.

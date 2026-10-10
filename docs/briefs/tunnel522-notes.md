@@ -33,3 +33,22 @@ apt.dat (Aerosoft pack and Global Airports) carries no threshold elevation: row 
 elevation 7835 ft only; row 100 end 33 displaced 314 m.
 
 ## Part 3 — DROPPED by the master (RULINGS 2026-10-10j; lane apron523 owns it).
+
+## Results (2026-10-10)
+
+Bore verdicts, dry planar replay of the registered captures, main -> lane (built/weighed):
+NLWF 0/0 -> 0/0; CYXY 1/1 -> 1/1; KASE 3/3 (base only, no bore reaches (d)); SPJC 7/7 -> 7/7
+(-5724 built by (d)); KCLT 9/17 -> 8/17 (only -11194 changed); HECA 10/10 -> 10/10;
+OTHH 9/10 -> 9/10. No verdict or reason changed on any bore but KCLT -11194.
+
+Closing build `tunnel522_KCLT` (ed436dec): rc 0, 306.9 s, body f1b26887fcc3 (main
+f64f845341cd), shapes 1731 -> 1727. At both owner sites the tunnel_ramp + tunnel_wall ways
+are gone and no emitted way stands within 45 m (the mesh's own ground). 64 structure nodes
+removed, all within 150 m of the bore; 0 other structure nodes moved.
+`airside_value_delta` vs sw11_KCLT: 9 movers > 0.01 m, 4 > 0.02 m, worst 0.05 m, all
+780 .. 2470 m from the bore (the 0.04 .. 0.05 m four at 35.2244 .. 35.2248, -80.9364);
+12 runway-ring vertices A-only / 2 B-only. NOT 0; not attributed.
+Frame registered: `frames/tunnel522/tunnel522_KCLT.osm`.
+
+Suites: non-Qt 9226 passed / 19 skipped / 1 xfailed / 1 xpassed; Qt 311 passed; the four
+named files 204 passed; ratchets PASS (duplicates, layers).

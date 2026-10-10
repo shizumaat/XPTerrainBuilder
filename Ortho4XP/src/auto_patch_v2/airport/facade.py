@@ -233,7 +233,7 @@ def _library_exports(lib_txt: str) -> dict[str, tuple[str, ...]]:
     root = os.path.dirname(lib_txt)
     acc: dict[str, list[str]] = {}
     try:
-        with open(lib_txt, "r", errors="replace") as fh:
+        with open(lib_txt, "r", encoding="utf-8", errors="replace") as fh:
             for raw in fh:
                 t = raw.split()
                 if len(t) < 3 or not t[0].startswith("EXPORT"):
@@ -321,7 +321,7 @@ def parse_facade(path: str, index: _t.Mapping[str, str] | None = None
                  ) -> FacadeDef:
     """Parse one ``.fac``; ``index`` (the library index, read-only)
     resolves the ``OBJ`` table's virtual paths for the reach."""
-    with open(path, "r", errors="replace") as fh:
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
         lines = fh.read().splitlines()
     try:
         version = int(lines[1].split()[0])

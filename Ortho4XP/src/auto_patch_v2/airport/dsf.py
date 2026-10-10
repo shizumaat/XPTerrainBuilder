@@ -229,7 +229,7 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
     windings: list[list[list[str]]] = []
     winding: list[list[str]] | None = None
     accept = accept_polygon or (lambda p: p.lower().endswith((".fac", ".pol")))
-    with open(path, "r", errors="replace") as fh:
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for raw in fh:
             if not raw or raw[0] in "#\n":
                 continue
@@ -423,7 +423,7 @@ def pol_declaration(physical_path: str | None) -> PolDeclaration:
     surface: str | None = None
     layer: str | None = None
     try:
-        with open(physical_path, "r", errors="ignore") as fh:
+        with open(physical_path, "r", encoding="utf-8", errors="ignore") as fh:
             for line in fh:
                 toks = line.split()
                 if len(toks) < 2:

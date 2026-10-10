@@ -483,6 +483,24 @@ def _ui_verbosity_is_not_a_shared_mutable(request):
               f"_ui_verbosity_is_not_a_shared_mutable")
 
 
+@pytest.fixture(autouse=True)
+def _elevation_provider_registry_is_not_a_shared_mutable():
+    """The elevation provider registry is a MODULE GLOBAL (issue #510).
+
+    A twin that parses a scratch ``.elv`` directory rebinds it to its own
+    fakes, and every later lazy reader ON THE SAME XDIST WORKER trusts the
+    non-empty dict: ``test_elevation_gap_census_providers`` read
+    ``KeyError: 'USGS3DEP'`` on Windows whenever ``--dist loadgroup`` cut
+    ``test_arcgis_export_image.py`` so that its scratch parse was the last
+    registry write its worker saw.  Restored per test, like the verbosity
+    global above; see ``tests/provider_registry_isolation.py``.
+    """
+    from tests import provider_registry_isolation as isolation
+    saved = isolation.snapshot()
+    yield
+    isolation.restore(saved)
+
+
 #: THE SUPERUSER DEFEATS ``chmod`` (issue #76).  Several twins pose
 #: "this path cannot be read / cannot be written" with ``chmod 0o000`` or
 #: ``0o555`` and then assert the stand-down, refusal or IGNORED note the

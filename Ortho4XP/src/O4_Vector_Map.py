@@ -3429,7 +3429,7 @@ def _read_obj8_anchor(objfile_name, alt_lookup):
     """
     pfile_name = os.path.basename(objfile_name)
     try:
-        with open(objfile_name, "r") as pfile:
+        with open(objfile_name, "r", encoding="utf-8") as pfile:
             firstline = pfile.readline()
     except UnicodeDecodeError:
         UI.vprint(
@@ -4334,7 +4334,9 @@ def keep_obj8(
     index = 0
     latscale = GEO.m_to_lat
     lonscale = latscale / cos(lat_anchor * pi / 180)
-    f = open(objfile_name, "r")
+    # Only the numeric VT / IDX lines are read: a comment in another
+    # encoding must not end the tile build (issue #539).
+    f = open(objfile_name, "r", encoding="utf-8", errors="replace")
     for line in f.readlines():
         if line[0:2] == "VT":
             (xo, yo, zo) = [float(s) for s in line.split()[1:4]]

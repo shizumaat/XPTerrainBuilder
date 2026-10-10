@@ -531,9 +531,9 @@ def _y_only(live: str, backup: str) -> bool:
     first token, the same token count, and differs only in tokens that
     parse as floats."""
     try:
-        with open(live, "r", errors="replace") as fh:
+        with open(live, "r", encoding="utf-8", errors="replace") as fh:
             a = fh.read().splitlines()
-        with open(backup, "r", errors="replace") as fh:
+        with open(backup, "r", encoding="utf-8", errors="replace") as fh:
             b = fh.read().splitlines()
     except OSError:
         return False

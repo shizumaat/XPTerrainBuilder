@@ -14466,6 +14466,59 @@ witness comes from the OSM feeds already cached (the airports layer
 carries `building=*`; the small-roads layer the `amenity=parking`
 polygons — say if it does not).
 
+## §34 (12) (5) (d) NARROWED — A TAGGED BORE UNDER AN ELEVATED PACK PART ALONE IS THE ROAD'S PASSAGE, NOT A TUNNEL (owner RULINGS 2026-10-10i (1), issue #522; narrows 2026-09-27a (4)) — lane `tunnel522`
+
+(d) — "an OSM `tunnel` bore inside the airport boundary is a terrain
+tunnel on its own" (27a (4)) — no longer stands alone.  A bore that
+reaches (d) has, by construction, failed every witness of (c): under
+`terrain_cover_min_m` of classified cover, no `layer` at or under
+`terrain_layer_max`, no road or railway at grade across its interior,
+under `terrain_rise_m` of ground over its mouth chord.  Such a bore is
+NOT built when an ELEVATED pack building part stands over its
+carriageway with clear space beneath and no pack part at grade covers
+its line:
+
+* the CARRIAGEWAY is the bore's line widened to the road's own width
+  (`carriageway_width_m`: the way's `width`, else `lanes` x
+  `lane_width_m`) — a mapped centreline is drawn beside the pack's
+  geometry as often as under it;
+* a part is ELEVATED when its lowest authored `y` stands above
+  `[rebake] elevated_base_m` (§13 (1)'s number — a roof, a link, a
+  deck welded to nothing below it): it leaves clear space beneath and
+  is not cover;
+* a part AT GRADE (at or under that number) whose footprint holds
+  `terrain_cover_min_m` of the bore's line IS cover and (d) stands;
+* the parts are (a)'s own population (`_PackBuildings`: solid parts
+  standing `[placement] chain_min_height_m` over their zero; never a
+  deck member, a line, a scatter or a pack tunnel object) — one index,
+  no second reading of the pack.
+
+No new law key.  ONE derivation site, unchanged: the verdict is still
+`terrain_tunnel_witness`'s, read once in `mouths()` (census rows B1 / B3
+/ B7 above; every other consumer reads the mouth list and is
+unaffected — a refused bore yields no mouths, cells, records or rows).
+
+MEASURED (dry planar replays of the registered captures, 2026-10-10).
+KCLT -11194 (9.9 m `highway=service tunnel=yes`, 35.2270116,
+-80.9460012; DEM 224.46 -> 223.95 m along it): cover 0.0 m, no
+crossing, rise +0.00 m, no layer, inside the fence — and four parts of
+the terminal link over its 7 m carriageway at 3.12 .. 3.67 m (two roof
+sheets of 147 / 149 m2 exactly the bore's length, drawn 0.4 .. 0.6 m
+off the mapped line), nothing at grade: REFUSED.  SPJC -5724 (35.2 m
+`secondary`): the same four readings, and NO pack part within 60 m:
+BUILT, as 27a (4) ruled.  These two are the only bores (d) admits at
+NLWF, CYXY, KASE, SPJC, KCLT, HECA and OTHH; every other bore's verdict
+and reason are unchanged.
+
+**THE LITERAL READING OF 10i (1) IS NOT WHAT IS BUILT, AND IS THE
+OWNER'S TO RULE.**  The ruling's sentence — "no cover at grade and no
+rise of the ground over its mouth chord is NOT built" — refuses SPJC
+-5724 as well: its cover, crossing, rise and layer readings are
+identical to KCLT -11194's (0.0 m / none / +0.00 m / none).  The
+ruling's own acceptance keeps -5724, so the witness that separates the
+two is the one the ruling names as "not cover": the elevated pack part.
+It is read here as the positive reason for the refusal.
+
 ## §34 (12) (4) AMENDED (2) — WITNESS (i) READS THE CORRIDOR, NOT THE SPAN (owner RULINGS 2026-09-16f: shapes 981 and 988 span real cuts; conditional on (5)) — lane `v2vmmcbore`
 
 The owner checked the two decks §34 (12) (4) dropped (shape 981 =

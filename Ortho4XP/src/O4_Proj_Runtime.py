@@ -266,7 +266,10 @@ def import_selfcheck_main(argv: list[str]) -> int:
     2026-09-10).  One line per module on stdout, then one line for the
     elevation access registry (:func:`elevation_access.registry.
     registry_selfcheck`): the number of registered strategy keys, and a
-    failure naming the missing and the unexpected ones."""
+    failure naming the missing and the unexpected ones; then one line for
+    the bundled provider files (:func:`O4_Airport_Elevation_Insets.
+    provider_registry_selfcheck`) and one for the bundled imagery
+    definitions (:func:`O4_Imagery_Selfcheck.imagery_registry_selfcheck`)."""
     import importlib
 
     names = [name.strip() for name in
@@ -295,6 +298,37 @@ def import_selfcheck_main(argv: list[str]) -> int:
         (registry_ok, line) = (False, "elevation_access registry: %s: %s"
                                % (type(error).__name__, error))
     if not registry_ok:
+        failed += 1
+    try:
+        print(line.rstrip())
+    except Exception:
+        pass
+    # The provider FILES are data beside the binary, read lazily on first
+    # use: a file the bundle lacks or cannot decode is no error anywhere,
+    # only a provider gone from the ladder (#510).
+    try:
+        from O4_Airport_Elevation_Insets import provider_registry_selfcheck
+
+        (providers_ok, line) = provider_registry_selfcheck()
+    except Exception as error:
+        (providers_ok, line) = (False, "elevation provider registry: %s: %s"
+                                % (type(error).__name__, error))
+    if not providers_ok:
+        failed += 1
+    try:
+        print(line.rstrip())
+    except Exception:
+        pass
+    # The imagery definitions (.lay / .comb / extents / filters) are the
+    # same kind of data, parsed at start-up (#539).
+    try:
+        from O4_Imagery_Selfcheck import imagery_registry_selfcheck
+
+        (imagery_ok, line) = imagery_registry_selfcheck()
+    except Exception as error:
+        (imagery_ok, line) = (False, "imagery provider registry: %s: %s"
+                              % (type(error).__name__, error))
+    if not imagery_ok:
         failed += 1
     try:
         print(line.rstrip())

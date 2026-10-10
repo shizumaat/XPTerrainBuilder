@@ -35,7 +35,7 @@ from shapely.geometry import LineString, Polygon
 
 from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_side
-from .structure_approach import under_cover
+from .structure_approach import carriageway_width_m, under_cover
 
 __all__ = ["airside_cut_roles", "airside_stops", "deck_witness_for",
            "decked_exclusion", "osm_stops", "owner_kept", "pad_relief_m",
@@ -70,7 +70,11 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     is OSM's statement that it runs below what it crosses.
     (d) An OSM ``tunnel`` bore lying INSIDE THE AIRPORT BOUNDARY is a
     terrain tunnel on its own (owner RULINGS 2026-09-27a (4), issue #5:
-    SPJC's -5724 builds its two mouths).
+    SPJC's -5724 builds its two mouths) — UNLESS the only thing over it
+    is an ELEVATED pack part with clear space beneath (owner RULINGS
+    2026-10-10i (1), issue #522): the tag is then the road's passage
+    under that part, at grade, and nothing is cut
+    (:meth:`_PackBuildings.passage`).
 
     THE LAST TWO ARE §34 (12) (4)'S OWN WITNESSES, in the form a BORE
     takes them: (4) (i) reads a tag, (4) (ii) reads the DEM against the
@@ -175,6 +179,21 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
             return True, f"the ground over it stands {rise:+.2f} m above its mouth chord"
         if fence is not None and _osm_tunnel(bore, tn.admitted_values) \
                 and fence.covers(ln):
+            width = max(carriageway_width_m(w.tags or {}, law) for w in bore.ways)
+            over = pack_bldg.passage(ln, width, tn.terrain_cover_min_m)
+            if over is not None:
+                res, uid, base = over
+                return False, (f"bore {ids} PASSES UNDER AN ELEVATED PACK PART AT "
+                               f"GRADE ({ln.length:.0f} m; cover {cover:.1f} m, no "
+                               f"road or railway across it, ground "
+                               f"{'unreadable' if rise is None else f'{rise:+.2f} m'} "
+                               f"over its mouth chord, layer "
+                               f"{'none' if lay is None else lay}) — {res} ({uid}) "
+                               f"stands over its carriageway with {base:.1f} m of "
+                               f"clear space beneath and no pack part at grade: the "
+                               f"tag is the road's passage under it, not a terrain "
+                               f"tunnel (§34 (12) (5) (d) narrowed, owner RULINGS "
+                               f"2026-10-10i (1))")
             return True, ("an OSM tunnel inside the airport boundary "
                           "(§34 (12) (5) (d), owner RULINGS 2026-09-27a (4))")
         return False, (f"bore {ids} PASSES UNDER NOTHING AT GRADE "
@@ -233,6 +252,9 @@ class _PackBuildings:
         if part is None or not getattr(part, "units", ()):
             return
         thr = float(law.tables.structures.placement.chain_min_height_m)
+        #: §13 (1)'s own number for an ELEVATED part (``[rebake]
+        #: elevated_base_m``): what :meth:`passage` calls clear space
+        self._elevated = float(law.tables.structures.rebake.elevated_base_m)
         skip = set(corridor_objects)
         boxes = []
         for u in part.units:
@@ -256,7 +278,8 @@ class _PackBuildings:
                         la = [c[0] for c in r]
                         lo = [c[1] for c in r]
                         boxes.append(box(min(la), min(lo), max(la), max(lo)))
-                        self._items.append((r, m.resource, u.id, top))
+                        self._items.append((r, m.resource, u.id, top,
+                                            float(q.base_y)))
         if not boxes:
             return
         self._tree = STRtree(boxes)
@@ -276,17 +299,57 @@ class _PackBuildings:
         lat, lon = self._to_ll(*xy)
         best = None
         for j in self._tree.query(Point(lat, lon)):
-            r, res, uid, top = self._items[int(j)]
+            r, res, uid, top, _base = self._items[int(j)]
             if best is not None and top <= best[2]:
                 continue
-            try:
-                poly = Polygon([self._to_xy(lo, la) for la, lo in r])
-            except (ValueError, TypeError):
-                continue
-            if not poly.is_valid:
-                poly = poly.buffer(0)
-            if poly.contains(pt):
+            poly = self._footprint(r)
+            if poly is not None and poly.contains(pt):
                 best = (res, uid, top)
+        return best
+
+    def _footprint(self, ring):
+        """One indexed ring as a valid frame polygon, or ``None``."""
+        from shapely.geometry import Polygon
+        try:
+            poly = Polygon([self._to_xy(lo, la) for la, lo in ring])
+        except (ValueError, TypeError):
+            return None
+        return poly if poly.is_valid else poly.buffer(0)
+
+    def passage(self, line, width_m: float, cover_min_m: float):
+        """§34 (12) (5) (d) NARROWED (owner RULINGS 2026-10-10i (1), issue
+        #522): ``(resource, unit id, base)`` of the lowest ELEVATED pack
+        building part standing over the bore's CARRIAGEWAY — ``line``
+        widened to the road's own ``width_m`` — when NO part at grade
+        covers the bore's line for ``cover_min_m``; else ``None``.
+
+        An elevated part (its lowest authored ``y`` above ``[rebake]
+        elevated_base_m``) with nothing under it leaves clear space
+        beneath: it is not cover, and the road it spans runs at grade.
+        MEASURED at KCLT's -11194 (a 9.9 m ``service`` bore, DEM falling
+        224.46 -> 223.95 m along it): two roof sheets and a wall of the
+        terminal link at 3.1 .. 3.7 m over the carriageway, drawn 0.1 ..
+        0.6 m off the mapped line, nothing at grade — and two ramps with
+        a trench 9.47 m deep were built there.  SPJC's -5724 has no pack
+        part within 60 m and stays (d)'s.  A part AT GRADE over the line
+        is cover, and (d) stands (the building a bore ENDS in is (a)'s)."""
+        from shapely.geometry import box
+        if self._tree is None:
+            return None
+        corridor = line.buffer(width_m / 2.0, cap_style="flat")
+        ll = [self._to_ll(x, y) for x, y in corridor.exterior.coords]
+        la, lo = [c[0] for c in ll], [c[1] for c in ll]
+        best = None
+        for j in self._tree.query(box(min(la), min(lo), max(la), max(lo))):
+            r, res, uid, _top, base = self._items[int(j)]
+            poly = self._footprint(r)
+            if poly is None or not poly.intersects(corridor):
+                continue
+            if base <= self._elevated:
+                if line.intersection(poly).length >= cover_min_m:
+                    return None                   # a pack part at grade: cover
+            elif best is None or base < best[2]:
+                best = (res, uid, base)
         return best
 
 

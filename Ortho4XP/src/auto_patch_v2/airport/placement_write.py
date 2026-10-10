@@ -311,7 +311,7 @@ def write_files(pack_root: str, files: _t.Sequence, *,
         rel = f.resource.replace("\\", "/")
         path = os.path.join(pack_root, *rel.split("/"))
         if os.path.isfile(path):
-            with open(path, "r", errors="replace") as fh:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
                 head = fh.read(4096)
             if CUT_MARK not in head:
                 raise ValueError(

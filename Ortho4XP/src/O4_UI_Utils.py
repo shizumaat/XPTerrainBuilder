@@ -216,7 +216,8 @@ def vprint(min_verbosity, *args):
 ################################################################################
 def logprint(*args):
     try:
-        f = open(FNAMES.data_path("Ortho4XP.log"), "a", newline="\n")
+        f = open(FNAMES.data_path("Ortho4XP.log"), "a", encoding="utf-8",
+                 errors="backslashreplace", newline="\n")
         f.write(
             time.strftime("%c")
             + " | "

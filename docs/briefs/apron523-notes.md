@@ -122,3 +122,13 @@ Centreline shape: base had a KINK there — built grade 2.092 % over 30 m (cap 2
 between adjacent 30 m windows at 405 m from the 15 end (the two "runway rows in a law conflict").
 The arm removes it: max 2.027 %, largest change between adjacent 30 m windows 0.106 pp (at the 33
 end), a wedge of −0.02 … −0.17 … −0.02 m over 200 m (0.1 pp). Thresholds unmoved (0.00 / −0.002 m).
+
+## Closing build
+
+`apron523_KASE` (harness, rc 0, 34.7 s, not timed): body 9aceb887dd67, v2 verify 2074, == the
+replay of the capture (1817 nodes, 0 movers); frame registered. Census: adjudicated airside
+1259 (sw11_KASE 2518). Owner A 2370.75 -> 2372.34; B (39.2185627, −106.8658607, the runway-role
+lobe) 2372.61 -> 2372.61 (DEM 2371.77): the dip between them 1.86 m -> 0.27 m.
+
+Suites on 8a35ab705: non-Qt 9229 passed / 19 skipped / 1 xfailed / 1 xpassed; Qt 311 passed;
+the four named files 204 passed; `tools/ratchets.py` duplicate + layer PASS.

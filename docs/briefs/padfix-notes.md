@@ -319,3 +319,5 @@ byte-identical, or — OTHH — see the last line).
    move: `transverse` 6 rows to 0.70 m / 25 m, 2 `taxi_box` rows (item 6; pass2's found-not-fixed).
 9. HECA 4.69 m `mid_edge_step` at 30.11594978, 31.40754772: a declared gap terrace's wall reported under the step
    family along the stretch with no joint point (item 4).
+
+OTHH replay pair (`o0` control → `o1` fix): 8bfbeeeb5e8b = 8bfbeeeb5e8b, **byte-identical** — nothing moved; the structure frame at OTHH is the merged head's (item 2).
